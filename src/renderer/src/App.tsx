@@ -1799,6 +1799,7 @@ function findTriggerIndex(current: string) {
 // 排除 desktop 已有独立 UI 入口的：/new（New Session 按钮）、/model（模型选择器）、
 // /resume（历史会话抽屉）、/fork（不太需要），/name 可在历史会话列表操作。
 const BUILTIN_COMMANDS: PiCommand[] = [
+	{ name: "name", description: "设置当前会话名称", source: "builtin" },
 	{ name: "session", description: "显示会话文件、ID、消息数、token 和费用", source: "builtin" },
 	{ name: "tree", description: "会话树导航，跳转到任意节点", source: "builtin" },
 	{ name: "clone", description: "复制当前分支到新会话", source: "builtin" },
