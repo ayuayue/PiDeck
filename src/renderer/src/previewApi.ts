@@ -44,6 +44,7 @@ export function createPreviewApi(): PiDesktopApi {
     },
     sessions: {
       list: async () => sessions,
+      rename: async () => undefined,
     },
     git: {
       branches: async () => ({ current: "main", branches: ["main", "dev"] }),

@@ -7,6 +7,7 @@ export const ipcChannels = {
   filesOpen: "files:open",
   filesShowInFolder: "files:show-in-folder",
   sessionsList: "sessions:list",
+  sessionsRename: "sessions:rename",
   settingsGet: "settings:get",
   settingsUpdate: "settings:update",
   settingsApplyWindow: "settings:apply-window",

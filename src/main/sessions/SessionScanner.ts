@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { readFileSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SessionSummary } from "../../shared/types";
 
@@ -16,6 +16,16 @@ export class SessionScanner {
       .filter(summary => !projectPath || this.isSameProject(summary, projectPath))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 80);
+  }
+
+  /**
+   * 重命名会话：在 JSONL 文件头部插入一条 sessionName 元数据。
+   * pi 读取时会取第一个遇到的 sessionName 字段，所以插在最前面即可覆盖旧名。
+   */
+  async rename(filePath: string, newName: string): Promise<void> {
+    const raw = await readFile(filePath, "utf8");
+    const meta = JSON.stringify({ sessionName: newName, ts: Date.now() });
+    await writeFile(filePath, `${meta}\n${raw}`, "utf8");
   }
 
   private async collectJsonl(dir: string): Promise<string[]> {

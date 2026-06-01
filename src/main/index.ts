@@ -144,6 +144,12 @@ function registerIpc() {
 			return sessionScanner.list(project?.path);
 		},
 	);
+	ipcMain.handle(
+		ipcChannels.sessionsRename,
+		async (_event, filePath: string, newName: string) => {
+			await sessionScanner.rename(filePath, newName);
+		},
+	);
 
 	ipcMain.handle(ipcChannels.gitBranches, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);

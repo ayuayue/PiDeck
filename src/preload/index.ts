@@ -16,6 +16,7 @@ const api = {
   },
   sessions: {
     list: (projectId?: string) => ipcRenderer.invoke(ipcChannels.sessionsList, projectId) as Promise<SessionSummary[]>,
+    rename: (filePath: string, newName: string) => ipcRenderer.invoke(ipcChannels.sessionsRename, filePath, newName) as Promise<void>,
   },
   git: {
     branches: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitBranches, projectId) as Promise<GitBranchInfo>,

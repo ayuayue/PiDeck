@@ -951,6 +951,10 @@ export function App() {
 								session.name || "历史会话",
 							)
 						}
+						onRenameSession={async (filePath, newName) => {
+							await api.sessions.rename(filePath, newName);
+							await refreshSessions();
+						}}
 					/>
 				</aside>
 			)}
@@ -1637,6 +1641,7 @@ function DrawerContent(props: {
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onRefreshSessions: () => void;
 	onOpenSession: (session: SessionSummary) => void;
+	onRenameSession: (filePath: string, newName: string) => void;
 }) {
 	const title = props.panel === "files" ? "文件" : "历史会话";
 	return (
@@ -1658,6 +1663,7 @@ function DrawerContent(props: {
 					sessions={props.sessions}
 					onRefresh={props.onRefreshSessions}
 					onOpen={props.onOpenSession}
+					onRename={props.onRenameSession}
 				/>
 			)}
 		</>
@@ -1745,7 +1751,26 @@ function SessionsPanel(props: {
 	sessions: SessionSummary[];
 	onRefresh: () => void;
 	onOpen: (session: SessionSummary) => void;
+	onRename: (filePath: string, newName: string) => void;
 }) {
+	const [renamingPath, setRenamingPath] = useState<string | null>(null);
+	const [editValue, setEditValue] = useState("");
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	function startRename(session: SessionSummary) {
+		setRenamingPath(session.filePath);
+		setEditValue(session.name || "");
+		requestAnimationFrame(() => inputRef.current?.focus());
+	}
+
+	function confirmRename() {
+		if (renamingPath && editValue.trim()) {
+			props.onRename(renamingPath, editValue.trim());
+		}
+		setRenamingPath(null);
+		setEditValue("");
+	}
+
 	return (
 		<div className="sessions-panel">
 			<div className="panel-action-row">
@@ -1753,19 +1778,43 @@ function SessionsPanel(props: {
 				<button onClick={props.onRefresh}>刷新</button>
 			</div>
 			{props.sessions.map((session) => (
-				<button
+				<div
 					key={session.filePath}
 					className="session-card"
-					onClick={() => props.onOpen(session)}
-					title={session.filePath}
+					onContextMenu={(e) => {
+						e.preventDefault();
+						startRename(session);
+					}}
 				>
-					<strong>{session.name || "Untitled"}</strong>
-					<small>
-						{new Date(session.updatedAt).toLocaleString()} ·{" "}
-						{session.messageCount} messages
-					</small>
-					<p>{session.preview}</p>
-				</button>
+					{renamingPath === session.filePath ? (
+						<div className="session-rename-row">
+							<input
+								ref={inputRef}
+								value={editValue}
+								onChange={(e) => setEditValue(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") confirmRename();
+									if (e.key === "Escape") { setRenamingPath(null); setEditValue(""); }
+								}}
+								onBlur={confirmRename}
+								autoFocus
+							/>
+						</div>
+					) : (
+						<button
+							className="session-card-inner"
+							onClick={() => props.onOpen(session)}
+							title={`${session.filePath} — 右键重命名`}
+						>
+							<strong>{session.name || "Untitled"}</strong>
+							<small>
+								{new Date(session.updatedAt).toLocaleString()} ·{" "}
+								{session.messageCount} messages
+							</small>
+							<p>{session.preview}</p>
+						</button>
+					)}
+				</div>
 			))}
 		</div>
 	);
@@ -1799,7 +1848,6 @@ function findTriggerIndex(current: string) {
 // 排除 desktop 已有独立 UI 入口的：/new（New Session 按钮）、/model（模型选择器）、
 // /resume（历史会话抽屉）、/fork（不太需要），/name 可在历史会话列表操作。
 const BUILTIN_COMMANDS: PiCommand[] = [
-	{ name: "name", description: "设置当前会话名称", source: "builtin" },
 	{ name: "session", description: "显示会话文件、ID、消息数、token 和费用", source: "builtin" },
 	{ name: "tree", description: "会话树导航，跳转到任意节点", source: "builtin" },
 	{ name: "clone", description: "复制当前分支到新会话", source: "builtin" },

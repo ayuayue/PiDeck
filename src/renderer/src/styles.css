@@ -1432,14 +1432,24 @@ body.is-composer-resizing .composer-resize-handle::after {
 	text-align: left;
 	border: 1px solid #e3e6eb;
 	border-radius: 12px;
-	padding: 12px;
 	margin-bottom: 10px;
 	background: #fff;
 	color: #2b3038;
+	overflow: hidden;
 }
 .session-card:hover {
 	border-color: #14b814;
 	background: #f7fff6;
+}
+.session-card-inner {
+	display: block;
+	width: 100%;
+	text-align: left;
+	border: 0;
+	background: transparent;
+	padding: 12px;
+	color: #2b3038;
+	cursor: pointer;
 }
 .session-card strong {
 	display: block;
@@ -1461,6 +1471,20 @@ body.is-composer-resizing .composer-resize-handle::after {
 	-webkit-line-clamp: 3;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
+}
+.session-rename-row {
+	padding: 8px 10px;
+}
+.session-rename-row input {
+	width: 100%;
+	height: 32px;
+	border: 2px solid #22c55e;
+	border-radius: 8px;
+	padding: 0 10px;
+	font-size: 14px;
+	outline: none;
+	background: #f0fdf4;
+}
 }
 
 .modal-backdrop {
