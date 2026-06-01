@@ -1795,6 +1795,27 @@ function findTriggerIndex(current: string) {
 	return Math.max(lastSlash, lastAt);
 }
 
+// pi 内置斜杠命令，get_commands 只返回扩展注册的命令，这些需要手动补充
+const BUILTIN_COMMANDS: PiCommand[] = [
+	{ name: "new", description: "开始一个新会话", source: "builtin" },
+	{ name: "name", description: "设置当前会话名称", source: "builtin" },
+	{ name: "resume", description: "选择并恢复历史会话", source: "builtin" },
+	{ name: "session", description: "显示会话文件、ID、消息数、token 和费用", source: "builtin" },
+	{ name: "tree", description: "会话树导航，跳转到任意节点", source: "builtin" },
+	{ name: "fork", description: "从历史消息分叉出新会话", source: "builtin" },
+	{ name: "clone", description: "复制当前分支到新会话", source: "builtin" },
+	{ name: "compact", description: "压缩上下文，可选自定义提示词", source: "builtin" },
+	{ name: "copy", description: "复制最后一条回复到剪贴板", source: "builtin" },
+	{ name: "export", description: "导出会话为 HTML 文件", source: "builtin" },
+	{ name: "share", description: "上传为 GitHub Gist 私密链接", source: "builtin" },
+	{ name: "model", description: "切换模型", source: "builtin" },
+	{ name: "settings", description: "打开 pi 设置", source: "builtin" },
+	{ name: "reload", description: "重载扩展、技能和配置", source: "builtin" },
+	{ name: "hotkeys", description: "显示所有快捷键", source: "builtin" },
+	{ name: "login", description: "管理 OAuth 或 API key 认证", source: "builtin" },
+	{ name: "logout", description: "退出登录", source: "builtin" },
+];
+
 function PromptSuggestions(props: {
 	prompt: string;
 	commands: PiCommand[];
@@ -1802,12 +1823,19 @@ function PromptSuggestions(props: {
 	onClose: () => void;
 	onPick: (value: string) => void;
 }) {
+	// 合并内置命令和 pi 返回的扩展命令，去重（扩展命令优先）
+	const allCommands = useMemo(() => {
+		const names = new Set(props.commands.map((c) => c.name));
+		const extras = BUILTIN_COMMANDS.filter((c) => !names.has(c.name));
+		return [...props.commands, ...extras];
+	}, [props.commands]);
+
 	const tail = props.prompt.split(/\s/).at(-1) ?? "";
 	if (tail.startsWith("/")) {
 		const keyword = tail.slice(1).toLowerCase();
-		const commands = props.commands
+		const commands = allCommands
 			.filter((command) => command.name.toLowerCase().includes(keyword))
-			.slice(0, 8);
+			.slice(0, 10);
 		if (commands.length === 0) return null;
 		return (
 			<div className="suggestions">
