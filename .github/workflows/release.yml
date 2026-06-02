@@ -10,8 +10,45 @@ permissions:
   contents: write
 
 jobs:
+  extract-changelog:
+    name: Extract changelog
+    runs-on: ubuntu-latest
+    outputs:
+      release_body: ${{ steps.changelog.outputs.body }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          # 从 tag 名提取版本号（去掉 v 前缀）
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog for v${VERSION}..."
+          
+          # 提取该版本的 changelog 内容（从版本标题到下一个版本标题之间）
+          # 先尝试英文 CHANGELOG，失败则用中文
+          BODY=$(awk -v ver="v${VERSION}" '/^## v[0-9]/{if(found) exit; if($2==ver) found=1; next} found{print}' CHANGELOG.md)
+          if [ -z "$BODY" ]; then
+            BODY=$(awk -v ver="v${VERSION}" '/^## v[0-9]/{if(found) exit; if($2==ver) found=1; next} found{print}' CHANGELOG.zh-CN.md)
+          fi
+          
+          if [ -z "$BODY" ]; then
+            BODY="Release v${VERSION}"
+          fi
+          
+          # 使用 EOF 标记输出多行内容
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "--- Changelog preview ---"
+          echo "$BODY"
+          echo "------------------------"
+
   build-release:
     name: Build ${{ matrix.platform }} packages
+    needs: extract-changelog
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +89,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ needs.extract-changelog.outputs.release_body }}
           files: |
             release/*.exe
             release/*.msi
