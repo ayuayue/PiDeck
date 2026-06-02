@@ -6,6 +6,7 @@ import type {
 	AvailableModel,
 	ChatMessage,
 	CreateAgentInput,
+	ImageContent,
 	Project,
 	SendPromptInput,
 } from "../../shared/types";
@@ -125,7 +126,9 @@ export class AgentManager {
 	async sendPrompt(input: SendPromptInput) {
 		const runtime = this.requireRuntime(input.agentId);
 		const trimmed = input.message.trim();
-		if (!trimmed) return;
+		const hasImages = input.images && input.images.length > 0;
+		// 允许只有图片没有文字的情况发送
+		if (!trimmed && !hasImages) return;
 
 		// 解析 !/!! 前缀：与 pi 终端行为一致
 		// !command  → 执行命令并将输出发送给 LLM（excludeFromContext: false）
@@ -143,18 +146,38 @@ export class AgentManager {
 			}
 		}
 
-		this.addMessage(input.agentId, "user", trimmed);
+		// 保存用户消息（包含图片）
+		this.addMessage(input.agentId, "user", trimmed || "[图片]", undefined, input.images);
 		runtime.tab.status = "running";
 		this.emitState();
 
 		// streamingBehavior 只在 agent 忙碌时需要；UI 可以显式传 steer/followUp 以复用 pi 队列语义。
-		await runtime.process.client.request({
-			type: "prompt",
-			message: trimmed,
-			...(input.streamingBehavior
-				? { streamingBehavior: input.streamingBehavior }
-				: {}),
-		});
+		// images 用于传递粘贴/拖拽的图片，pi 会将 base64 图片直接传给支持视觉的模型。
+		try {
+			const response = await runtime.process.client.request({
+				type: "prompt",
+				message: trimmed || "Describe this image.",
+				...(hasImages ? { images: input.images } : {}),
+				...(input.streamingBehavior
+					? { streamingBehavior: input.streamingBehavior }
+					: {}),
+			});
+			if (!response.success) {
+				// pi RPC 会把不支持图片、忙碌队列参数缺失等前置错误作为 success:false 返回；
+				// 必须显式显示出来，否则 UI 会停在“已发送但无响应”的状态。
+				runtime.tab.status = "idle";
+				this.addMessage(input.agentId, "error", response.error ?? "图片消息发送失败");
+				this.emitState();
+			}
+		} catch (error) {
+			runtime.tab.status = "idle";
+			this.addMessage(
+				input.agentId,
+				"error",
+				`图片消息发送失败：${error instanceof Error ? error.message : String(error)}`,
+			);
+			this.emitState();
+		}
 	}
 
 	/**
@@ -491,6 +514,7 @@ export class AgentManager {
 		role: ChatMessage["role"],
 		text: string,
 		meta?: Record<string, unknown>,
+		images?: ImageContent[],
 	) {
 		const list = this.messages.get(agentId) ?? [];
 		list.push({
@@ -500,6 +524,7 @@ export class AgentManager {
 			text,
 			timestamp: Date.now(),
 			meta,
+			...(images && images.length > 0 ? { images } : {}),
 		});
 		this.messages.set(agentId, list);
 		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
@@ -513,16 +538,19 @@ export class AgentManager {
 			.flatMap<ChatMessage>((message, index) => {
 				if (!message || typeof message !== "object") return [];
 				const typed = message as any;
-				if (typed.role === "user")
+				if (typed.role === "user") {
+					const images = this.extractImages(typed.content);
 					return [
 						{
 							id: `${agentId}-history-${index}`,
 							agentId,
 							role: "user" as const,
-							text: this.extractText(typed.content),
+							text: this.extractText(typed.content) || (images.length > 0 ? "[图片]" : ""),
 							timestamp: typed.timestamp ?? Date.now(),
+							...(images.length > 0 ? { images } : {}),
 						},
 					];
+				}
 				if (typed.role === "assistant")
 					return [
 						{
@@ -591,8 +619,8 @@ export class AgentManager {
 					if (typeof item === "string") return item;
 					if (item && typeof item === "object") {
 						const typed = item as any;
-						// 跳过 thinking 类型的内容，只提取实际文本回复
-						if (typed.type === "thinking") return "";
+						// 跳过 thinking 和 image 类型的内容，只提取实际文本回复
+						if (typed.type === "thinking" || typed.type === "image") return "";
 						return String(typed.text ?? "");
 					}
 					return "";
@@ -600,6 +628,24 @@ export class AgentManager {
 				.filter(Boolean)
 				.join("\n");
 		return "";
+	}
+
+	/** 从 pi 历史消息 content 中恢复图片附件，用于历史会话重新打开后的图片展示。 */
+	private extractImages(content: unknown): ImageContent[] {
+		if (!Array.isArray(content)) return [];
+		return content.flatMap<ImageContent>((item) => {
+			if (!item || typeof item !== "object") return [];
+			const typed = item as any;
+			if (typed.type !== "image") return [];
+			const data = typeof typed.data === "string" ? typed.data : "";
+			const mimeType =
+				typeof typed.mimeType === "string"
+					? typed.mimeType
+					: typeof typed.mime_type === "string"
+						? typed.mime_type
+						: "image/png";
+			return data ? [{ type: "image", data, mimeType }] : [];
+		});
 	}
 
 	private requireRuntime(agentId: string) {

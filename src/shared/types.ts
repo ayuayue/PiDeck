@@ -28,6 +28,7 @@ export type ChatMessage = {
   text: string;
   timestamp: number;
   meta?: Record<string, unknown>;
+  images?: ImageContent[];  // 用户消息中附加的图片
 };
 
 export type FileTreeNode = {
@@ -120,8 +121,16 @@ export type CreateAgentInput = {
   sessionPath?: string;
 };
 
+/** 图片内容格式，与 pi RPC 的 ImageContent 一致 */
+export type ImageContent = {
+  type: "image";
+  data: string;      // base64 编码的图片数据
+  mimeType: string;   // 如 "image/png", "image/jpeg", "image/gif", "image/webp"
+};
+
 export type SendPromptInput = {
   agentId: string;
   message: string;
+  images?: ImageContent[];  // 可选的图片列表
   streamingBehavior?: "steer" | "followUp";
 };

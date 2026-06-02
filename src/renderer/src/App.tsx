@@ -31,6 +31,7 @@ import type {
 	ChatMessage,
 	FileTreeNode,
 	GitBranchInfo,
+	ImageContent,
 	PiCommand,
 	PiInstallStatus,
 	Project,
@@ -68,6 +69,8 @@ export function App() {
 	const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [prompt, setPrompt] = useState("");
+	const [attachedImages, setAttachedImages] = useState<ImageContent[]>([]);
+	const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
 	const [_logs, setLogs] = useState<string[]>([]); // 写入式调试日志，仅用于 onLog/onError 捕获
 	const [search, setSearch] = useState("");
 	const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -438,10 +441,121 @@ export function App() {
 	}
 
 	async function sendPrompt() {
-		if (!activeAgentId || !prompt.trim()) return;
+		if (!activeAgentId || (!prompt.trim() && attachedImages.length === 0)) return;
 		const message = prompt;
+		const images = attachedImages.length > 0 ? attachedImages : undefined;
 		setPrompt("");
-		await api.agents.prompt({ agentId: activeAgentId, message });
+		setAttachedImages([]);
+		await api.agents.prompt({ agentId: activeAgentId, message, images });
+	}
+
+	/**
+	 * 处理图片文件，转为 pi RPC 可识别的 ImageContent。
+	 * 大图会压缩到最长边 2000px，避免 base64 过大导致 RPC 传输和模型上下文成本上升。
+	 */
+	async function processImageFile(file: File): Promise<ImageContent | null> {
+		const maxSize = 10 * 1024 * 1024; // 原始文件 10MB 限制，避免误粘超大图片卡住渲染进程
+		if (file.size > maxSize) {
+			setToast("图片过大，最大支持 10MB");
+			setTimeout(() => setToast(null), 3000);
+			return null;
+		}
+
+		const validTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+		if (!validTypes.includes(file.type)) {
+			setToast("不支持的图片格式，请使用 PNG/JPEG/GIF/WebP");
+			setTimeout(() => setToast(null), 3000);
+			return null;
+		}
+
+		// GIF 可能是动图，canvas 压缩会丢失动画；保留原始数据。
+		if (file.type === "image/gif") return fileToImageContent(file);
+		return resizeImageFile(file, 2000, 0.86).catch(() => fileToImageContent(file));
+	}
+
+	function fileToImageContent(file: File): Promise<ImageContent> {
+		return new Promise((resolve) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(dataUrlToImageContent(String(reader.result), file.type));
+			reader.readAsDataURL(file);
+		});
+	}
+
+	function dataUrlToImageContent(dataUrl: string, fallbackMimeType: string): ImageContent {
+		const [meta, data = ""] = dataUrl.split(",");
+		const mimeType = meta.match(/^data:(.*?);base64$/)?.[1] || fallbackMimeType;
+		return { type: "image", data, mimeType };
+	}
+
+	function resizeImageFile(file: File, maxEdge: number, quality: number): Promise<ImageContent> {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(reader.error);
+			reader.onload = () => {
+				const image = new Image();
+				image.onerror = reject;
+				image.onload = () => {
+					const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+					const width = Math.max(1, Math.round(image.width * scale));
+					const height = Math.max(1, Math.round(image.height * scale));
+					const canvas = document.createElement("canvas");
+					canvas.width = width;
+					canvas.height = height;
+					canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
+					// JPEG 更省 token/传输体积；透明 PNG/WebP 保持 PNG，避免截图透明区域变黑。
+					const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+					resolve(dataUrlToImageContent(canvas.toDataURL(outputType, quality), outputType));
+				};
+				image.src = String(reader.result);
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+
+	/** 处理粘贴事件：从剪贴板提取图片 */
+	async function handlePaste(event: React.ClipboardEvent) {
+		const items = Array.from(event.clipboardData.items);
+		for (const item of items) {
+			if (item.type.startsWith("image/")) {
+				event.preventDefault();
+				const file = item.getAsFile();
+				if (file) {
+					const image = await processImageFile(file);
+					if (image) {
+						setAttachedImages((prev) => [...prev, image]);
+					}
+				}
+				return;
+			}
+		}
+	}
+
+	/** 处理拖拽事件：支持拖入图片 */
+	async function handleDrop(event: React.DragEvent) {
+		event.preventDefault();
+		const files = Array.from(event.dataTransfer.files);
+		for (const file of files) {
+			if (file.type.startsWith("image/")) {
+				const image = await processImageFile(file);
+				if (image) {
+					setAttachedImages((prev) => [...prev, image]);
+				}
+			}
+		}
+	}
+
+	function handleDragOver(event: React.DragEvent) {
+		event.preventDefault();
+	}
+
+	/** 移除已附加的图片 */
+	function removeImage(index: number) {
+		setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+	}
+
+	/** 清空所有附加图片 */
+	function clearImages() {
+		setAttachedImages([]);
 	}
 
 	async function updateSettings(patch: Partial<AppSettings>) {
@@ -835,7 +949,11 @@ export function App() {
 								item.kind === "tool-group" ? (
 									<ToolGroup key={item.id} group={item} />
 								) : (
-									<ChatBubble key={item.message.id} message={item.message} />
+									<ChatBubble
+										key={item.message.id}
+										message={item.message}
+										onPreviewImage={setPreviewImage}
+									/>
 								),
 							)}
 							{isAwaitingAssistant && <ThinkingBubble />}
@@ -884,6 +1002,9 @@ export function App() {
 									setSuggestionsOpen(true);
 								}}
 								onKeyDown={handleComposerKeyDown}
+								onPaste={handlePaste}
+								onDrop={handleDrop}
+								onDragOver={handleDragOver}
 								placeholder={
 									prompt.startsWith("!!")
 										? "!!命令 — 直接执行，不写入上下文"
@@ -926,6 +1047,33 @@ export function App() {
 									}}
 								/>
 							)}
+							{/* 图片预览区域：显示已附加的图片，支持单个或批量移除 */}
+							{attachedImages.length > 0 && (
+								<div className="image-preview-area">
+									{attachedImages.map((img, index) => (
+										<div key={index} className="image-preview-item">
+											<img
+												src={`data:${img.mimeType};base64,${img.data}`}
+												alt={`图片 ${index + 1}`}
+											/>
+											<button
+												className="image-remove-btn"
+												onClick={() => removeImage(index)}
+												title="移除图片"
+											>
+												×
+											</button>
+										</div>
+									))}
+									<button
+										className="image-clear-btn"
+										onClick={clearImages}
+										title="清空所有图片"
+									>
+										清空
+									</button>
+								</div>
+							)}
 							<div className="composer-footer">
 								<span>
 									{drawer
@@ -938,7 +1086,7 @@ export function App() {
 									</button>
 								)}
 								<button
-									disabled={!activeAgentId || !prompt.trim()}
+									disabled={!activeAgentId || (!prompt.trim() && attachedImages.length === 0)}
 									onClick={sendPrompt}
 								>
 									发送
@@ -1063,6 +1211,12 @@ export function App() {
 					onCheckUpdate={() => api.app.openExternal(appInfo.releasesUrl)}
 					onClose={() => setSettingsOpen(false)}
 					onChange={updateSettings}
+				/>
+			)}
+			{previewImage && (
+				<ImagePreviewModal
+					image={previewImage}
+					onClose={() => setPreviewImage(null)}
 				/>
 			)}
 			<ConfigModal
@@ -1550,6 +1704,21 @@ function ToolSummary(props: { message: ChatMessage }) {
 	);
 }
 
+function ImagePreviewModal(props: { image: ImageContent; onClose: () => void }) {
+	return (
+		<div className="image-preview-modal" onClick={props.onClose}>
+			<button className="image-preview-close" onClick={props.onClose}>
+				×
+			</button>
+			<img
+				src={`data:${props.image.mimeType};base64,${props.image.data}`}
+				alt="图片预览"
+				onClick={(event) => event.stopPropagation()}
+			/>
+		</div>
+	);
+}
+
 // ANSI 转义码正则：匹配 \x1b[...m 等终端颜色/样式序列
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
@@ -1558,7 +1727,10 @@ function stripAnsi(text: string): string {
 	return text.replace(ANSI_RE, "");
 }
 
-function ChatBubble(props: { message: ChatMessage }) {
+function ChatBubble(props: {
+	message: ChatMessage;
+	onPreviewImage: (image: ImageContent) => void;
+}) {
 	const { message } = props;
 	const [expanded, setExpanded] = useState(false);
 	const isUser = message.role === "user";
@@ -1585,6 +1757,20 @@ function ChatBubble(props: { message: ChatMessage }) {
 					<time>{formatTime(message.timestamp)}</time>
 				</div>
 				<div className="msg-bubble markdown-body">
+					{/* 显示消息中附加的图片 */}
+					{message.images && message.images.length > 0 && (
+						<div className="message-images">
+							{message.images.map((img, index) => (
+								<img
+									key={index}
+									src={`data:${img.mimeType};base64,${img.data}`}
+									alt={`图片 ${index + 1}`}
+									className="message-image"
+									onClick={() => props.onPreviewImage(img)}
+								/>
+							))}
+						</div>
+					)}
 					<ReactMarkdown
 						remarkPlugins={[remarkGfm]}
 						components={{ pre: CodeBlock, a: MarkdownLink }}
