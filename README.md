@@ -1,156 +1,120 @@
 # pi-desktop
 
-[中文文档](README.zh-CN.md)
+[中文文档](README.zh-CN.md) · [LinuxDO 友链](https://linux.do)
 
-[linuxdo友链](https://linux.do)
-
-A desktop workbench for running and managing multiple [pi](https://pi.dev) coding-agent sessions across project folders.
-
-`pi-desktop` is not a fork of pi and does not reimplement the agent. It is a lightweight Electron shell that orchestrates multiple `pi --mode rpc` processes and provides a desktop UI for projects, sessions, files, history, model state, and conversation navigation.
+**A desktop workbench for managing multiple [pi](https://pi.dev) coding-agent sessions across project folders.**
 
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
+![Version](https://img.shields.io/badge/version-0.3.0-green)
 
-## Release Notes
+`pi-desktop` is **not** a fork of pi. It is a lightweight Electron shell that orchestrates multiple `pi --mode rpc` processes, providing a native desktop UI for projects, sessions, conversations, configuration, and tool orchestration — all powered by pi's native agent capabilities.
 
-See [CHANGELOG.md](CHANGELOG.md) for English release notes, or [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) for Chinese release notes.
+---
 
-## Features
+## Key Features
 
-- **Multi-project workspace**
-  - Add and switch between local project folders.
-  - Keep multiple pi agents open at the same time.
-  - Remember the active agent per project.
+| Feature | Description |
+|---|---|
+| **Multi-Project Workspace** | Add, search, and switch between local project folders. Run multiple pi agents simultaneously with per-project isolation. |
+| **Configuration Management** | Visual editors for pi's `models.json`, `auth.json`, and `settings.json` — manage providers, API keys, and model settings without touching JSON files manually. |
+| **Slash Commands & `!` Shell** | Built-in slash command suggestions (`/reload`, `/compact`, `/session`, …) and `!command` / `!!command` for inline shell execution directly in the chat composer. |
+| **Session Management** | Create new sessions, restore historical ones, rename sessions inline, export to HTML, and close agents — all from the sidebar or context menu. |
+| **Git Integration** | Real-time branch display with local + remote branch selector, branch count badge, and switching support. |
+| **Tool Call Visualization** | Grouped tool-call cards with summary and expandable details, clear status indicators for running/completed/failed calls. |
+| **Context-Aware Input** | `@` file suggestions from project tree, `!` shell execution, `/` slash commands — all from a single composer. |
+| **System Tray** | Close to tray by default, tray context menu, double-click to restore. |
 
-- **Multi-agent session management**
-  - Start a new agent for a project.
-  - Restore historical pi sessions.
-  - View previous conversation messages after restoring a session.
-  - Close running agents from the sidebar.
-
-- **pi RPC integration**
-  - Runs pi in RPC mode via `pi --mode rpc`.
-  - Uses pi itself for agent loop, tools, sessions, model selection, context, compaction, and provider auth.
-  - Supports slash commands through the pi RPC prompt path.
-
-- **Conversation UI**
-  - Markdown rendering with GFM support.
-  - Streaming assistant text display.
-  - Per-message timestamp.
-  - Copy individual messages.
-  - Expand tool-call details.
-  - Floating conversation outline for quickly jumping between key messages.
-
-- **Files and history**
-  - File drawer with collapsible directories.
-  - `@` file suggestions from project files.
-  - Right-click file actions:
-    - Add file reference to prompt.
-    - Open with system default app.
-    - Reveal in file manager.
-  - Historical session drawer.
-  - Export opened sessions to HTML through pi RPC.
-
-- **Model and context status**
-  - Current model display.
-  - Thinking level display.
-  - Context usage display.
-  - Cache usage display.
-  - Cycle model.
-  - Switch model from available pi models.
-  - Cycle thinking level.
-
-- **Git awareness**
-  - Show current Git branch when the project is a Git repository.
-  - Switch between local branches.
-
-- **Desktop-focused UX**
-  - WeChat-like three-pane layout.
-  - Resizable project/session list and side drawers.
-  - Configurable send shortcut.
-  - Browser preview fallback for UI development without Electron preload.
+---
 
 ## Screenshots
 
-### Workspace Overview
+### Workspace & Conversation
 
 ![Workspace overview](docs/images/overview.png)
 
-### Session History Drawer
+Markdown rendering with streaming text, tool-call details, model/thinking/context/cache status bar, git branch selector, and action controls (New Session · Stop · Reload · Restart).
 
-![Session history drawer](docs/images/history.png)
+### Configuration Management
 
-### File Drawer and Context Menu
+![Configuration management](docs/images/config.png)
 
-![File drawer and context menu](docs/images/files.png)
+Visual editors for Models (provider cards + model grid), Auth (API key management), Settings (type-aware key-value), and raw JSON source file editing — with save-and-reload to hot-apply changes to running agents.
 
-### Conversation, Tool Details, and Runtime Status
+### Slash Commands & Session History
 
-![Conversation and runtime status](docs/images/conversation.png)
+![Slash commands and session history](docs/images/slash-commands.png)
+
+Built-in slash command suggestions panel with descriptions, alongside the session history drawer for browsing and restoring past conversations.
+
+### File Tree & Session Actions
+
+![File tree and session actions](docs/images/files.png)
+
+Project file tree with Git status indicators, `@` file reference suggestions in the composer, and session context menu (Open · Export HTML · Close Agent).
+
+---
 
 ## Architecture
 
 ```txt
 pi-desktop
-├─ Electron main process
-│  ├─ manages project records
-│  ├─ spawns pi --mode rpc processes
-│  ├─ bridges file/session/git operations
-│  └─ exposes safe IPC APIs
+├─ Electron Main Process
+│  ├─ Project record management
+│  ├─ Spawns pi --mode rpc processes
+│  ├─ Bridges file / session / git operations
+│  └─ Exposes safe IPC APIs
 │
-├─ Electron preload
-│  └─ exposes window.piDesktop to the renderer
+├─ Electron Preload
+│  └─ Exposes window.piDesktop to renderer
 │
-├─ React renderer
-│  ├─ project and agent list
-│  ├─ chat timeline
-│  ├─ file/history drawers
-│  ├─ model/context status
-│  └─ settings UI
+├─ React Renderer
+│  ├─ Project & agent list
+│  ├─ Chat timeline with streaming
+│  ├─ File / history drawers
+│  ├─ Configuration modal (Models / Auth / Settings / Source)
+│  ├─ Model & context status bar
+│  └─ Settings UI
 │
-└─ pi runtime
-   ├─ one pi RPC process per opened agent
-   ├─ project cwd isolation
-   └─ native pi sessions/tools/models/context
+└─ Pi Runtime
+   ├─ One pi RPC process per agent tab
+   ├─ Per-project cwd isolation
+   └─ Native pi sessions / tools / models / context
 ```
 
-A key design rule is:
+Core design principle: **one agent tab = one pi RPC process**, keeping sessions isolated and letting pi own its native behavior.
 
-```txt
-One Agent Tab = One pi RPC Process
-```
-
-This keeps sessions isolated, makes crashes local to one agent, and lets pi keep ownership of its native behavior.
+---
 
 ## Requirements
 
-- Node.js 20+ recommended.
-- npm.
-- A working `pi` command in your system `PATH`.
-- pi authentication configured separately, for example through `pi` / `/login` or API keys.
+- Node.js 20+
+- npm
+- `pi` command available in system `PATH`
+- pi authentication configured (via `pi` / `/login` or API keys)
 
-Check pi is available:
+Verify pi is available:
 
 ```bash
 pi --version
 pi --mode rpc
 ```
 
+---
+
 ## Download
 
-Prebuilt packages are published from tagged releases:
+Prebuilt packages for **Windows**, **macOS**, and **Linux** are published from tagged releases:
 
-```txt
-https://github.com/ayuayue/pi-desktop/releases
-```
+👉 **[GitHub Releases](https://github.com/ayuayue/pi-desktop/releases)**
 
-Available release assets are built by GitHub Actions for Windows, macOS, and Linux.
+> pi-desktop requires the `pi` CLI to be installed separately and available in your system `PATH`.
 
-> Note: pi-desktop requires the `pi` command to be installed separately and available in your system `PATH`.
+---
 
-## Getting Started from Source
+## Quick Start (from Source)
 
 ```bash
 git clone https://github.com/ayuayue/pi-desktop.git
@@ -160,168 +124,66 @@ npm run make-icon
 npm run dev
 ```
 
-The app expects `pi` to be available in `PATH` because it starts agents using:
-
-```bash
-pi --mode rpc
-```
+---
 
 ## Development
 
-### Start dev mode
+| Command | Description |
+|---|---|
+| `npm run dev` | Start dev mode |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm run build` | Build renderer + main bundles |
+| `npm run dist` | Package for current platform |
+| `npm run dist:win` | Package for Windows (NSIS + portable + zip) |
+| `npm run dist:mac` | Package for macOS (DMG + zip) |
+| `npm run dist:linux` | Package for Linux (AppImage + deb + tar.gz) |
+| `npm run make-icon` | Generate icon assets to `build/icon.svg` |
 
-```bash
-npm run dev
-```
+### Browser Preview Mode
 
-### Type-check
+Open `http://localhost:5173/` directly in a browser for layout and responsive checks. The renderer falls back to mock data when `window.piDesktop` is unavailable — useful for CSS/UI work without Electron. Real IPC features (agents, sessions, file ops) require the Electron app.
 
-```bash
-npm run typecheck
-```
-
-### Build renderer/main bundles
-
-```bash
-npm run build
-```
-
-### Package locally
-
-```bash
-npm run dist
-```
-
-Platform-specific package commands:
-
-```bash
-npm run dist:win
-npm run dist:mac
-npm run dist:linux
-```
-
-### Generate icon asset
-
-```bash
-npm run make-icon
-```
-
-This writes:
-
-```txt
-build/icon.svg
-```
-
-## Browser Preview Mode
-
-You can open the Vite renderer URL directly in a browser for layout checks:
-
-```txt
-http://localhost:5173/
-```
-
-When opened outside Electron, `window.piDesktop` is not available. The renderer falls back to a mock preview API so the UI does not crash.
-
-Browser preview is useful for:
-
-- layout checks
-- responsive design checks
-- chat rendering checks
-- markdown rendering checks
-
-Browser preview does **not** validate real Electron IPC behavior such as:
-
-- starting pi agents
-- reading local sessions
-- opening files
-- exporting HTML
-
-Use the Electron app for those flows.
+---
 
 ## Project Structure
 
 ```txt
 src/
 ├─ main/
-│  ├─ fs/                 # file tree service
-│  ├─ git/                # git branch service
-│  ├─ pi/                 # pi process and RPC manager
-│  ├─ projects/           # project persistence
-│  ├─ sessions/           # pi session scanning
-│  ├─ settings/           # app settings persistence
+│  ├─ fs/                 # File tree service
+│  ├─ git/                # Git branch service
+│  ├─ pi/                 # Pi process & RPC manager
+│  ├─ projects/           # Project persistence
+│  ├─ sessions/           # Pi session scanning
+│  ├─ settings/           # App settings persistence
 │  └─ index.ts            # Electron main entry
 │
 ├─ preload/
-│  └─ index.ts            # safe IPC bridge
+│  └─ index.ts            # Safe IPC bridge
 │
 ├─ renderer/
 │  └─ src/
-│     ├─ App.tsx          # main UI
-│     ├─ previewApi.ts    # browser preview fallback
-│     ├─ styles.css       # app styling
+│     ├─ App.tsx          # Main UI
+│     ├─ previewApi.ts    # Browser preview fallback
+│     ├─ styles.css       # App styling
 │     └─ main.tsx         # React entry
 │
 └─ shared/
-   ├─ ipc.ts              # channel names
-   └─ types.ts            # shared DTOs
+   ├─ ipc.ts              # IPC channel names
+   └─ types.ts            # Shared DTOs
 ```
 
-## Important Implementation Notes
+---
 
-### Session ownership
+## Release Notes
 
-`pi-desktop` reads pi session files for listing and summaries, but it does not directly mutate pi session JSONL files. Restoring and exporting sessions is done through pi RPC.
+See [CHANGELOG.md](CHANGELOG.md) (English) or [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md) (Chinese) for detailed version history.
 
-### Process isolation
-
-Each opened agent owns a separate `pi --mode rpc` child process. This provides clean cwd isolation and avoids shared runtime state between agents.
-
-### File operations
-
-File operations use Electron `shell` APIs where possible:
-
-- `shell.openPath`
-- `shell.showItemInFolder`
-
-This keeps behavior cross-platform and delegates file opening to the operating system.
-
-### Model and thinking controls
-
-The model and thinking controls call pi RPC commands:
-
-- `get_state`
-- `get_session_stats`
-- `get_available_models`
-- `set_model`
-- `cycle_model`
-- `set_thinking_level`
-- `cycle_thinking_level`
-
-## Current Limitations
-
-- Packaging is not configured yet. The current repository builds Electron/Vite output but does not produce installers.
-- The icon is currently generated as SVG only. Windows/macOS release packaging will need `.ico` / `.icns` generation.
-- Browser preview mode uses mock data and does not test Electron IPC.
-- File context menu is implemented in the renderer. More native menu behavior can be added later.
-- Session parsing is best-effort and designed to tolerate pi session format evolution.
-
-## Roadmap
-
-- Add installer packaging with `electron-builder` or Forge.
-- Add CI for type-check and build.
-- Add screenshots and demo GIFs.
-- Add native app icons for Windows/macOS/Linux.
-- Add model search and provider grouping.
-- Add richer tool-call rendering.
-- Add file multi-select and attachment tray.
-- Add session export open/reveal actions.
-- Add automated Electron UI tests.
+---
 
 ## Security
 
-This app starts local `pi` processes and exposes file operations through Electron IPC. Only run the app from trusted source code.
-
-It does not send telemetry or upload files by itself. Any model/provider network behavior is handled by pi and your configured providers.
+This app starts local `pi` processes and exposes limited file operations through Electron IPC. Only run from trusted source code. The app sends no telemetry and uploads no files — all model/provider network behavior is handled by pi and your configured providers.
 
 ## License
 
