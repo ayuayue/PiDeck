@@ -81,7 +81,13 @@ export function App() {
 	>({});
 	/** RPC 日志，用于调试 */
 	const [rpcLogs, setRpcLogs] = useState<
-		Array<{ id: string; agentId: string; direction: string; summary: string; time: number }>
+		Array<{
+			id: string;
+			agentId: string;
+			direction: string;
+			summary: string;
+			time: number;
+		}>
 	>([]);
 	const [_logs, setLogs] = useState<string[]>([]); // 写入式调试日志，仅用于 onLog/onError 捕获
 	const [search, setSearch] = useState("");
@@ -104,7 +110,7 @@ export function App() {
 	const [_debugOpen, _setDebugOpen] = useState(false);
 	/** RPC 日志弹窗目标 agent */
 	const [rpcLogAgentId, setRpcLogAgentId] = useState<string | null>(null);
-	
+
 	const [settings, setSettings] = useState<AppSettings>({
 		useNativeTitleBar: true,
 		showNativeMenu: false,
@@ -151,7 +157,9 @@ export function App() {
 			activeMessages.at(-1)?.role !== "assistant",
 	);
 	/** 当前活跃 agent 的实时思考文本 */
-	const activeThinking = activeAgentId ? (streamingThinking[activeAgentId] ?? "") : "";
+	const activeThinking = activeAgentId
+		? (streamingThinking[activeAgentId] ?? "")
+		: "";
 	const outlineItems = useMemo(
 		() => buildOutline(activeMessages),
 		[activeMessages],
@@ -997,70 +1005,70 @@ export function App() {
 						className={`chat-header-actions${activeAgent?.status === "starting" ? " loading" : ""}`}
 					>
 						<>
-								<div className="header-action-group branch-group">
-									<BranchSelector gitInfo={gitInfo} onSwitch={switchBranch} />
-								</div>
-								<div className="header-action-group session-group">
-									<button
-										className="primary-action"
-										disabled={!activeProjectId}
-										onClick={() => createAgent()}
-										title="Start a new pi session"
-									>
-										New Session
-									</button>
-									<button
-										disabled={
-											!activeAgentId || activeAgent?.status !== "running"
-										}
-										onClick={() => abortAgent()}
-									>
-										Stop
-									</button>
-									<button
-										disabled={!activeAgentId}
-										onClick={() =>
-											activeAgentId && api.agents.reload(activeAgentId)
-										}
-									>
-										Reload
-									</button>
-									<button
-										disabled={!activeAgentId || activeAgent?.status === "starting"}
-										title="重启 Agent 进程，重新加载配置文件（provider、API key 等）"
-										onClick={async () => {
-											if (!activeAgentId) return;
-											const tab = await api.agents.restart(activeAgentId);
-											setActiveAgentId(tab.id);
-											void refreshRuntimeState(tab.id);
-										}}
-									>
-										Restart
-									</button>
-								</div>
-								<div className="header-action-group panel-group">
-									<button
-										className={drawer === "files" ? "active" : ""}
-										onClick={() => {
-											setDrawerCollapsed(false);
-											openDrawer("files");
-										}}
-									>
-										Files
-									</button>
-									<button
-										className={drawer === "sessions" ? "active" : ""}
-										onClick={() => {
-											setDrawerCollapsed(false);
-											openDrawer("sessions");
-										}}
-									>
-										History
-									</button>
-								</div>
-							</>
-						</div>
-					</header>
+							<div className="header-action-group branch-group">
+								<BranchSelector gitInfo={gitInfo} onSwitch={switchBranch} />
+							</div>
+							<div className="header-action-group session-group">
+								<button
+									className="primary-action"
+									disabled={!activeProjectId}
+									onClick={() => createAgent()}
+									title="Start a new pi session"
+								>
+									New Session
+								</button>
+								<button
+									disabled={!activeAgentId || activeAgent?.status !== "running"}
+									onClick={() => abortAgent()}
+								>
+									Stop
+								</button>
+								<button
+									disabled={!activeAgentId}
+									onClick={() =>
+										activeAgentId && api.agents.reload(activeAgentId)
+									}
+								>
+									Reload
+								</button>
+								<button
+									disabled={
+										!activeAgentId || activeAgent?.status === "starting"
+									}
+									title="重启 Agent 进程，重新加载配置文件（provider、API key 等）"
+									onClick={async () => {
+										if (!activeAgentId) return;
+										const tab = await api.agents.restart(activeAgentId);
+										setActiveAgentId(tab.id);
+										void refreshRuntimeState(tab.id);
+									}}
+								>
+									Restart
+								</button>
+							</div>
+							<div className="header-action-group panel-group">
+								<button
+									className={drawer === "files" ? "active" : ""}
+									onClick={() => {
+										setDrawerCollapsed(false);
+										openDrawer("files");
+									}}
+								>
+									Files
+								</button>
+								<button
+									className={drawer === "sessions" ? "active" : ""}
+									onClick={() => {
+										setDrawerCollapsed(false);
+										openDrawer("sessions");
+									}}
+								>
+									History
+								</button>
+							</div>
+						</>
+					</div>
+				</header>
 
 				<section className="message-timeline" ref={timelineRef}>
 					{activeAgent?.status === "starting" && (
@@ -1117,140 +1125,140 @@ export function App() {
 				</section>
 
 				<footer className="composer">
-						<div className="composer-box" style={{ height: composerHeight }}>
+					<div className="composer-box" style={{ height: composerHeight }}>
+						<div
+							className="composer-resize-handle"
+							title="拖动调整输入框高度"
+							onPointerDown={startComposerResize}
+						/>
+						<ComposerToolbar
+							state={activeRuntimeState}
+							compacting={compacting}
+							onCycleModel={cycleModel}
+							onPickModel={openModelPicker}
+							onCycleThinking={cycleThinking}
+							onCompact={compactAgent}
+						/>
+						<textarea
+							value={prompt}
+							className={
+								prompt.startsWith("!!")
+									? "bang-bang"
+									: prompt.startsWith("!")
+										? "bang"
+										: ""
+							}
+							onFocus={() => setSuggestionsOpen(true)}
+							onChange={(event) => {
+								setPrompt(event.target.value);
+								setSuggestionsOpen(true);
+							}}
+							onKeyDown={handleComposerKeyDown}
+							onPaste={handlePaste}
+							onDrop={handleDrop}
+							onDragOver={handleDragOver}
+							placeholder={
+								prompt.startsWith("!!")
+									? "!!命令 — 直接执行，不写入上下文"
+									: prompt.startsWith("!")
+										? "!命令 — 直接执行 shell 命令"
+										: settings.sendShortcut === "enter-send"
+											? "输入消息，Enter 发送。/ 命令，@ 文件，! shell"
+											: "输入消息，按设置的快捷键发送。/ 命令，@ 文件，! shell"
+							}
+						/>
+						{(prompt.startsWith("!") || prompt.startsWith("/")) && (
 							<div
-								className="composer-resize-handle"
-								title="拖动调整输入框高度"
-								onPointerDown={startComposerResize}
-							/>
-							<ComposerToolbar
-								state={activeRuntimeState}
-								compacting={compacting}
-								onCycleModel={cycleModel}
-								onPickModel={openModelPicker}
-								onCycleThinking={cycleThinking}
-								onCompact={compactAgent}
-							/>
-							<textarea
-								value={prompt}
-								className={
+								className={`composer-mode-hint ${
 									prompt.startsWith("!!")
-										? "bang-bang"
+										? "mode-bang-bang"
 										: prompt.startsWith("!")
-											? "bang"
-											: ""
-								}
-								onFocus={() => setSuggestionsOpen(true)}
-								onChange={(event) => {
-									setPrompt(event.target.value);
-									setSuggestionsOpen(true);
+											? "mode-bang"
+											: "mode-slash"
+								}`}
+							>
+								{prompt.startsWith("!!")
+									? "静默执行"
+									: prompt.startsWith("!")
+										? ">_ 执行命令"
+										: "斜杠命令"}
+							</div>
+						)}
+						{suggestionsOpen && (
+							<PromptSuggestions
+								prompt={prompt}
+								commands={commands}
+								files={flatFiles}
+								onClose={() => {
+									setPrompt((current) => clearSuggestionTrigger(current));
+									setSuggestionsOpen(false);
 								}}
-								onKeyDown={handleComposerKeyDown}
-								onPaste={handlePaste}
-								onDrop={handleDrop}
-								onDragOver={handleDragOver}
-								placeholder={
-									prompt.startsWith("!!")
-										? "!!命令 — 直接执行，不写入上下文"
-										: prompt.startsWith("!")
-											? "!命令 — 直接执行 shell 命令"
-											: settings.sendShortcut === "enter-send"
-												? "输入消息，Enter 发送。/ 命令，@ 文件，! shell"
-												: "输入消息，按设置的快捷键发送。/ 命令，@ 文件，! shell"
-								}
+								onPick={(value) => {
+									setPrompt((current) => applySuggestion(current, value));
+									setSuggestionsOpen(false);
+								}}
 							/>
-							{(prompt.startsWith("!") || prompt.startsWith("/")) && (
-								<div
-									className={`composer-mode-hint ${
-										prompt.startsWith("!!")
-											? "mode-bang-bang"
-											: prompt.startsWith("!")
-												? "mode-bang"
-												: "mode-slash"
-									}`}
-								>
-									{prompt.startsWith("!!")
-										? "静默执行"
-										: prompt.startsWith("!")
-											? ">_ 执行命令"
-											: "斜杠命令"}
-								</div>
-							)}
-							{suggestionsOpen && (
-								<PromptSuggestions
-									prompt={prompt}
-									commands={commands}
-									files={flatFiles}
-									onClose={() => {
-										setPrompt((current) => clearSuggestionTrigger(current));
-										setSuggestionsOpen(false);
-									}}
-									onPick={(value) => {
-										setPrompt((current) => applySuggestion(current, value));
-										setSuggestionsOpen(false);
-									}}
-								/>
-							)}
-							{/* 图片预览区域：显示已附加的图片，支持单个或批量移除 */}
-							{attachedImages.length > 0 && (
-								<div className="image-preview-area">
-									{attachedImages.map((img, index) => (
-										<div key={index} className="image-preview-item">
-											<img
-												src={`data:${img.mimeType};base64,${img.data}`}
-												alt={`图片 ${index + 1}`}
-											/>
-											<button
-												className="image-remove-btn"
-												onClick={() => removeImage(index)}
-												title="移除图片"
-											>
-												×
-											</button>
-										</div>
-									))}
-									<button
-										className="image-clear-btn"
-										onClick={clearImages}
-										title="清空所有图片"
-									>
-										清空
-									</button>
-								</div>
-							)}
-							<div className="composer-footer">
-								<span>
-									{drawer
-										? "右侧面板可查看文件或恢复历史会话"
-										: (activeAgent?.sessionPath ?? "")}
-								</span>
-								{activeAgent?.status === "running" && (
-									<button className="stop-send" onClick={() => abortAgent()}>
-										停止
-									</button>
-								)}
+						)}
+						{/* 图片预览区域：显示已附加的图片，支持单个或批量移除 */}
+						{attachedImages.length > 0 && (
+							<div className="image-preview-area">
+								{attachedImages.map((img, index) => (
+									<div key={index} className="image-preview-item">
+										<img
+											src={`data:${img.mimeType};base64,${img.data}`}
+											alt={`图片 ${index + 1}`}
+										/>
+										<button
+											className="image-remove-btn"
+											onClick={() => removeImage(index)}
+											title="移除图片"
+										>
+											×
+										</button>
+									</div>
+								))}
 								<button
-									disabled={
-										!activeAgentId ||
-										(!prompt.trim() && attachedImages.length === 0)
-									}
-									className={
-										isAgentBusy && (prompt.trim() || attachedImages.length > 0)
-											? "queue-send"
-											: ""
-									}
-									onClick={sendPrompt}
+									className="image-clear-btn"
+									onClick={clearImages}
+									title="清空所有图片"
 								>
-									{isAgentBusy && (prompt.trim() || attachedImages.length > 0)
-										? "排队发送"
-										: pendingPrompts.length > 0
-											? `发送 (${pendingPrompts.length} 排队中)`
-											: "发送"}
+									清空
 								</button>
 							</div>
+						)}
+						<div className="composer-footer">
+							<span>
+								{drawer
+									? "右侧面板可查看文件或恢复历史会话"
+									: (activeAgent?.sessionPath ?? "")}
+							</span>
+							{activeAgent?.status === "running" && (
+								<button className="stop-send" onClick={() => abortAgent()}>
+									停止
+								</button>
+							)}
+							<button
+								disabled={
+									!activeAgentId ||
+									(!prompt.trim() && attachedImages.length === 0)
+								}
+								className={
+									isAgentBusy && (prompt.trim() || attachedImages.length > 0)
+										? "queue-send"
+										: ""
+								}
+								onClick={sendPrompt}
+							>
+								{isAgentBusy && (prompt.trim() || attachedImages.length > 0)
+									? "排队发送"
+									: pendingPrompts.length > 0
+										? `发送 (${pendingPrompts.length} 排队中)`
+										: "发送"}
+							</button>
 						</div>
-			</footer>
-		</main>
+					</div>
+				</footer>
+			</main>
 
 			{drawer && !drawerCollapsed && (
 				<div
@@ -1388,11 +1396,8 @@ export function App() {
 			<ConfigModal
 				open={configOpen}
 				onClose={() => setConfigOpen(false)}
-				onSaved={async () => {
-					// 保存后自动 reload 当前活跃 agent
-					if (activeAgentId) {
-						await api.agents.reload(activeAgentId);
-					}
+				onSaved={() => {
+					// 配置保存后不再自动 reload，用户可通过 Restart 按钮手动重载
 				}}
 			/>
 		</div>
@@ -1794,17 +1799,16 @@ function groupToolMessages(messages: ChatMessage[]): RenderMessage[] {
 	return result;
 }
 
-function ThinkingBubble(props: {
-	thinking?: string;
-	showThinking?: boolean;
-}) {
-	const hasThinking = props.showThinking && props.thinking && props.thinking.length > 0;
+function ThinkingBubble(props: { thinking?: string; showThinking?: boolean }) {
+	const hasThinking =
+		props.showThinking && props.thinking && props.thinking.length > 0;
 	const [expanded, setExpanded] = useState(false);
 	const previewLen = 200;
 	const needsTruncate = (props.thinking?.length ?? 0) > previewLen;
-	const displayText = expanded || !needsTruncate
-		? (props.thinking ?? "")
-		: (props.thinking ?? "").slice(0, previewLen) + "…";
+	const displayText =
+		expanded || !needsTruncate
+			? (props.thinking ?? "")
+			: (props.thinking ?? "").slice(0, previewLen) + "…";
 
 	return (
 		<article className="chat-message assistant thinking-message">
@@ -1820,9 +1824,7 @@ function ThinkingBubble(props: {
 							<Brain size={14} />
 							<span>思考过程</span>
 						</div>
-						<div className="thinking-content">
-							{displayText}
-						</div>
+						<div className="thinking-content">{displayText}</div>
 						{needsTruncate && (
 							<button
 								className="thinking-toggle"
@@ -1978,13 +1980,19 @@ function ChatBubble(props: {
 	const isUser = message.role === "user";
 	const isTool = message.role === "tool";
 	const isAssistant = message.role === "assistant";
-	const hasThinking = isAssistant && props.showThinking && message.thinking && message.thinking.length > 0;
+	const hasThinking =
+		isAssistant &&
+		props.showThinking &&
+		message.thinking &&
+		message.thinking.length > 0;
 	const [thinkingExpanded, setThinkingExpanded] = useState(false);
 	const thinkingPreviewLen = 200;
-	const thinkingNeedsTruncate = (message.thinking?.length ?? 0) > thinkingPreviewLen;
-	const thinkingDisplayText = thinkingExpanded || !thinkingNeedsTruncate
-		? (message.thinking ?? "")
-		: (message.thinking ?? "").slice(0, thinkingPreviewLen) + "…";
+	const thinkingNeedsTruncate =
+		(message.thinking?.length ?? 0) > thinkingPreviewLen;
+	const thinkingDisplayText =
+		thinkingExpanded || !thinkingNeedsTruncate
+			? (message.thinking ?? "")
+			: (message.thinking ?? "").slice(0, thinkingPreviewLen) + "…";
 	const label = message.role === "assistant" ? "pi" : message.role;
 	const detailText =
 		typeof message.meta?.detailText === "string"
@@ -2019,9 +2027,7 @@ function ChatBubble(props: {
 								<em>{thinkingExpanded ? "收起" : "展开"}</em>
 							</div>
 							{thinkingExpanded && (
-								<div className="thinking-content">
-									{thinkingDisplayText}
-								</div>
+								<div className="thinking-content">{thinkingDisplayText}</div>
 							)}
 						</div>
 					)}
@@ -2141,7 +2147,14 @@ function summarizeMessage(text: string) {
 }
 
 function RpcLogModal(props: {
-	logs: Array<{ id: string; agentId: string; direction: string; summary: string; time: number; data?: unknown }>;
+	logs: Array<{
+		id: string;
+		agentId: string;
+		direction: string;
+		summary: string;
+		time: number;
+		data?: unknown;
+	}>;
 	onClose: () => void;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
@@ -2167,7 +2180,9 @@ function RpcLogModal(props: {
 						<div key={log.id} className="rpc-log-entry-wrap">
 							<div
 								className={`rpc-log-entry ${log.direction === "send" ? "log-send" : "log-recv"}`}
-								onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
+								onClick={() =>
+									setExpandedId(expandedId === log.id ? null : log.id)
+								}
 							>
 								<time>
 									{new Date(log.time).toLocaleTimeString(undefined, {
@@ -2189,7 +2204,9 @@ function RpcLogModal(props: {
 						</div>
 					))}
 					{visibleLogs.length === 0 && (
-						<div className="rpc-log-empty">暂无日志，发送消息后会记录 RPC 通信</div>
+						<div className="rpc-log-empty">
+							暂无日志，发送消息后会记录 RPC 通信
+						</div>
 					)}
 				</div>
 			</div>
