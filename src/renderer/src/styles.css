@@ -1173,6 +1173,13 @@ body.is-composer-resizing {
 	max-width: 100%;
 	margin: 10px 0 0;
 }
+
+/* ResponseBubble 内各区块之间保持间距 */
+.chat-message .msg-content > .tool-group + .msg-bubble,
+.chat-message .msg-content > .thinking-block + .tool-group,
+.chat-message .msg-content > .thinking-block + .msg-bubble {
+	margin-top: 14px;
+}
 .tool-group-header {
 	width: 100%;
 	display: flex;

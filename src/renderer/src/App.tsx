@@ -1085,12 +1085,13 @@ export function App() {
 					)}
 					{activeAgent && (
 						<div className="message-list">
-							{isAwaitingAssistant && !renderedMessages.some((m) => m.kind === "response-group") && (
-								<ThinkingBubble
-									thinking={activeThinking}
-									showThinking={settings.showThinking}
-								/>
-							)}
+							{isAwaitingAssistant &&
+								!renderedMessages.some((m) => m.kind === "response-group") && (
+									<ThinkingBubble
+										thinking={activeThinking}
+										showThinking={settings.showThinking}
+									/>
+								)}
 							{renderedMessages.map((item) =>
 								item.kind === "tool-group" ? (
 									<ToolGroup key={item.id} group={item} />
@@ -1107,7 +1108,7 @@ export function App() {
 										key={item.message.id}
 										message={item.message}
 										onPreviewImage={setPreviewImage}
-											showThinking={settings.showThinking}
+										showThinking={settings.showThinking}
 									/>
 								),
 							)}
