@@ -2483,13 +2483,26 @@ function FilesPanel(props: {
 					{props.modifiedFiles.map((file) => {
 						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
 						const isRunning = file.status === "running";
+						// 构造最小的 FileTreeNode 以复用右键菜单
+						const fakeNode: FileTreeNode = {
+							name: fileName,
+							path: file.path,
+							relativePath: file.path,
+							type: "file",
+						};
 						return (
 							<div
 								key={file.path}
 								className={`modified-file-row${isRunning ? " running" : ""}`}
 								title={file.path}
+								onContextMenu={(e) => {
+									e.preventDefault();
+									props.onFileContextMenu(fakeNode, e.clientX, e.clientY);
+								}}
 							>
-								<span className={`modified-file-icon${isRunning ? "" : " done"}`}>
+								<span
+									className={`modified-file-icon${isRunning ? "" : " done"}`}
+								>
 									{isRunning ? "◌" : "✓"}
 								</span>
 								<span className="modified-file-name">{fileName}</span>
