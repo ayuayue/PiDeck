@@ -2289,17 +2289,21 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 .config-provider-card {
-	border: 1px solid #e5e9f0;
-	border-radius: 12px;
+	border: 1px solid #e2e7ee;
+	border-radius: 14px;
+	background: #fff;
 	overflow: hidden;
 	transition:
 		border-color 0.15s,
-		box-shadow 0.15s;
+		box-shadow 0.15s,
+		background 0.15s;
 }
 
 .config-provider-card.expanded {
-	border-color: #14a514;
-	box-shadow: 0 0 0 2px rgba(20, 165, 20, 0.08);
+	/* 展开态使用轻量绿色强调，避免强描边抢走弹窗主体层级；允许自定义下拉菜单溢出显示。 */
+	border-color: #9bddab;
+	box-shadow: 0 8px 24px rgba(31, 35, 41, 0.06);
+	overflow: visible;
 }
 
 .config-provider-header {
@@ -2361,13 +2365,18 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .config-provider-body {
 	border-top: 1px solid #edf0f2;
-	background: #fafbfc;
+	background: linear-gradient(180deg, #fbfcfd 0%, #f7f9fb 100%);
 }
 
 .config-provider-form {
-	padding: 16px;
+	/* Models 与 Auth 共用该表单区域，统一为内嵌面板以保持配置页视觉一致。 */
+	margin: 14px 16px;
+	padding: 14px;
 	display: grid;
 	gap: 10px;
+	border: 1px solid #edf1f5;
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.78);
 }
 
 .config-form-row {
@@ -2385,22 +2394,111 @@ body.is-composer-resizing .composer-resize-handle::after {
 	padding-right: 4px;
 }
 
+.config-form-row input:not([type]),
 .config-form-row input[type="text"],
 .config-form-row input[type="number"],
-.config-form-row input[type="password"] {
+.config-form-row input[type="password"],
+.config-form-row select {
+	min-width: 0;
 	height: 36px;
-	border: 1px solid #d7dce4;
-	border-radius: 8px;
+	border: 1px solid #dbe2ea;
+	border-radius: 9px;
 	padding: 0 12px;
 	font-size: 13px;
 	background: #fff;
 	color: #2b3038;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s,
+		background 0.15s;
 }
 
-.config-form-row input:focus {
+.config-form-row select {
+	/* 下拉框用于 API 类型这种枚举型业务字段，避免用户不知道可填值。 */
+	appearance: none;
+	padding-right: 34px;
+	background-image:
+		linear-gradient(45deg, transparent 50%, #8a94a3 50%),
+		linear-gradient(135deg, #8a94a3 50%, transparent 50%);
+	background-position:
+		calc(100% - 18px) 15px,
+		calc(100% - 13px) 15px;
+	background-size:
+		5px 5px,
+		5px 5px;
+	background-repeat: no-repeat;
+}
+
+.config-form-row input:focus,
+.config-form-row select:focus {
 	outline: none;
 	border-color: #14a514;
+	background-color: #fff;
 	box-shadow: 0 0 0 2px rgba(20, 165, 20, 0.1);
+}
+
+.config-combobox {
+	position: relative;
+	min-width: 0;
+}
+
+.config-combobox input {
+	width: 100%;
+	padding-right: 38px;
+}
+
+.config-combobox-toggle {
+	position: absolute;
+	top: 1px;
+	right: 1px;
+	width: 34px;
+	height: 34px;
+	border: 0;
+	border-left: 1px solid #edf1f5;
+	border-radius: 0 8px 8px 0;
+	background: transparent;
+	color: #8a94a3;
+	display: grid;
+	place-items: center;
+}
+
+.config-combobox-toggle:hover {
+	background: #f5f8fb;
+	color: #2f3a46;
+}
+
+.config-combobox-menu {
+	/* 自绘菜单跟随输入框定位，避免 Electron 原生 datalist 在滚动容器中错位或只露出部分选项。 */
+	position: absolute;
+	z-index: 30;
+	top: calc(100% + 4px);
+	left: 0;
+	right: 0;
+	max-height: 220px;
+	overflow-y: auto;
+	padding: 5px;
+	border: 1px solid #dfe6ee;
+	border-radius: 10px;
+	background: #fff;
+	box-shadow: 0 12px 32px rgba(31, 35, 41, 0.14);
+}
+
+.config-combobox-menu button {
+	width: 100%;
+	min-height: 30px;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: #2b3038;
+	padding: 6px 9px;
+	text-align: left;
+	font-size: 12.5px;
+}
+
+.config-combobox-menu button:hover,
+.config-combobox-menu button.active {
+	background: #f0fdf4;
+	color: #16a34a;
 }
 
 /* SecretInput 在 form-row 内占满右侧列 */
@@ -2416,13 +2514,18 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .config-secret-input input {
 	flex: 1;
+	min-width: 0;
 	height: 36px;
-	border: 1px solid #d7dce4;
-	border-radius: 8px;
+	border: 1px solid #dbe2ea;
+	border-radius: 9px;
 	padding: 0 12px;
 	font-size: 13px;
 	background: #fff;
 	font-family: "JetBrains Mono", "Fira Code", monospace;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s,
+		background 0.15s;
 }
 
 .config-secret-input input:focus {
@@ -2434,9 +2537,10 @@ body.is-composer-resizing .composer-resize-handle::after {
 .config-eye-btn {
 	width: 36px;
 	height: 36px;
-	border: 1px solid #d7dce4;
-	border-radius: 8px;
+	border: 1px solid #dbe2ea;
+	border-radius: 9px;
 	background: #fff;
+	color: #64748b;
 	cursor: pointer;
 	font-size: 15px;
 	display: grid;
@@ -2445,15 +2549,16 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 .config-eye-btn:hover {
-	background: #f3f6fa;
-	border-color: #c5cbd3;
+	background: #f5f8fb;
+	border-color: #c9d3df;
+	color: #2f3a46;
 }
 
 .config-copy-btn {
 	height: 36px;
 	padding: 0 10px;
-	border: 1px solid #d7dce4;
-	border-radius: 8px;
+	border: 1px solid #dbe2ea;
+	border-radius: 9px;
 	background: #fff;
 	color: #5d6673;
 	font-size: 12px;
@@ -2463,8 +2568,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 .config-copy-btn:hover {
-	background: #f3f6fa;
-	border-color: #c5cbd3;
+	background: #f5f8fb;
+	border-color: #c9d3df;
 }
 
 .config-copy-btn.copied {
@@ -2474,63 +2579,83 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 .config-models-section {
-	padding: 0 16px 16px;
+	/* 模型列表是展开区的第二个业务分组，独立成面板以避免裸表格观感。 */
+	margin: 0 16px 16px;
+	padding: 14px;
+	border: 1px solid #edf1f5;
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.72);
 }
 
 .config-models-header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 10px;
+	margin: 0 0 12px;
 	font-size: 13px;
-	font-weight: 500;
-	color: #5d6673;
+	font-weight: 600;
+	color: #4b5563;
 }
 
 .config-models-grid-header {
 	display: grid;
-	grid-template-columns: 1fr 100px 90px 90px 50px 36px;
+	/* 模型 id/name 容易很长，使用 minmax 防止输入框撑破 modal。 */
+	grid-template-columns: minmax(140px, 1.35fr) minmax(110px, 0.9fr) 90px 90px 48px 32px;
 	gap: 8px;
 	align-items: center;
-	padding: 6px 10px;
-	font-size: 11px;
-	color: #7d8794;
-	font-weight: 500;
+	padding: 0 10px 6px;
+	font-size: 10.5px;
+	color: #8a94a3;
+	font-weight: 650;
 	text-transform: uppercase;
-	letter-spacing: 0.03em;
+	letter-spacing: 0.04em;
 }
 
 .config-models-grid-row {
 	display: grid;
-	grid-template-columns: 1fr 100px 90px 90px 50px 36px;
+	grid-template-columns: minmax(140px, 1.35fr) minmax(110px, 0.9fr) 90px 90px 48px 32px;
 	gap: 8px;
 	align-items: center;
 	padding: 8px 10px;
-	border: 1px solid #edf0f2;
-	border-radius: 8px;
-	margin-bottom: 6px;
-	background: #fff;
-	transition: border-color 0.15s;
+	border: 1px solid #e8edf3;
+	border-radius: 10px;
+	margin-bottom: 7px;
+	background: rgba(255, 255, 255, 0.92);
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s,
+		background 0.15s;
 }
 
 .config-models-grid-row:hover {
-	border-color: #d7dce4;
+	border-color: #d8e1ea;
+	background: #fff;
+	box-shadow: 0 4px 12px rgba(31, 35, 41, 0.04);
 }
 
+.config-models-grid-row input:not([type]),
 .config-models-grid-row input[type="text"],
 .config-models-grid-row input[type="number"] {
+	min-width: 0;
 	height: 30px;
-	border: 1px solid #e5e9f0;
-	border-radius: 6px;
+	border: 1px solid #e1e7ef;
+	border-radius: 7px;
 	padding: 0 8px;
 	font-size: 12px;
-	background: #fff;
+	background: #fbfcfd;
+	color: #26313d;
 	width: 100%;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s,
+		background 0.15s;
 }
 
 .config-models-grid-row input:focus {
 	outline: none;
 	border-color: #14a514;
+	background: #fff;
+	box-shadow: 0 0 0 2px rgba(20, 165, 20, 0.08);
 }
 
 .config-checkbox-cell {
@@ -2551,17 +2676,20 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 .config-auth-card {
-	border: 1px solid #e5e9f0;
-	border-radius: 12px;
+	border: 1px solid #e2e7ee;
+	border-radius: 14px;
+	background: #fff;
 	overflow: hidden;
 	transition:
 		border-color 0.15s,
-		box-shadow 0.15s;
+		box-shadow 0.15s,
+		background 0.15s;
 }
 
 .config-auth-card.editing {
-	border-color: #14a514;
-	box-shadow: 0 0 0 2px rgba(20, 165, 20, 0.08);
+	/* 与 Models provider 展开态保持一致，Auth 不再像裸表单直接贴在列表中。 */
+	border-color: #9bddab;
+	box-shadow: 0 8px 24px rgba(31, 35, 41, 0.06);
 }
 
 .config-auth-card-header {
@@ -2585,6 +2713,10 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .config-auth-key-preview {
 	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-size: 12px;
 	color: #7d8794;
 	font-family: "JetBrains Mono", "Fira Code", monospace;

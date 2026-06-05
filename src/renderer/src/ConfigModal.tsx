@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, Eye, EyeOff, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import {
+	Check,
+	Eye,
+	EyeOff,
+	Trash2,
+	ChevronDown,
+	ChevronRight,
+} from "lucide-react";
 import type { PiDesktopApi } from "../../preload";
 
 type ConfigTab = "models" | "auth" | "settings" | "raw";
@@ -33,6 +40,15 @@ type SettingsFile = Record<string, unknown>;
 
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi })
 	.piDesktop;
+
+// pi provider 的 api 字段是字符串配置；这里提供常见值辅助选择，同时保留未知值以兼容用户自定义或未来新增类型。
+const PROVIDER_API_OPTIONS = [
+	"openai-completions",
+	"openai-chat-completions",
+	"openai-responses",
+	"anthropic",
+	"google-generative-ai",
+];
 
 /** 配置管理弹窗：支持 models/auth/settings 三个 tab 的可视化编辑和源文件编辑 */
 export function ConfigModal(props: {
@@ -428,7 +444,13 @@ function CopyButton(props: { text: string }) {
 			onClick={handleCopy}
 			title="复制"
 		>
-			{copied ? <><Check size={14} /> 已复制</> : "复制"}
+			{copied ? (
+				<>
+					<Check size={14} /> 已复制
+				</>
+			) : (
+				"复制"
+			)}
 		</button>
 	);
 }
@@ -461,6 +483,63 @@ function SecretInput(props: {
 }
 
 // ── Models Tab ──────────────────────────────────────────
+
+/** API 类型输入：自定义 combobox，避免原生 datalist 在 Electron 滚动容器中出现弹层错位或选项显示不完整。 */
+function ApiTypeInput(props: {
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	const [open, setOpen] = useState(false);
+
+	return (
+		<div
+			className="config-combobox"
+			onBlur={() => {
+				// 等待 option 的 mouseDown 先写入值，再关闭下拉，避免点击被 blur 截断。
+				window.setTimeout(() => setOpen(false), 80);
+			}}
+		>
+			<input
+				value={props.value}
+				onFocus={() => setOpen(true)}
+				onChange={(e) => {
+					props.onChange(e.target.value);
+					setOpen(true);
+				}}
+				placeholder="选择或输入 API 类型"
+			/>
+			<button
+				type="button"
+				className="config-combobox-toggle"
+				onMouseDown={(e) => {
+					e.preventDefault();
+					setOpen((current) => !current);
+				}}
+				title="展开 API 类型选项"
+			>
+				<ChevronDown size={14} />
+			</button>
+			{open && (
+				<div className="config-combobox-menu">
+					{PROVIDER_API_OPTIONS.map((option) => (
+						<button
+							key={option}
+							type="button"
+							className={option === props.value ? "active" : ""}
+							onMouseDown={(e) => {
+								e.preventDefault();
+								props.onChange(option);
+								setOpen(false);
+							}}
+						>
+							{option}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
 
 function ModelsTab(props: {
 	data: ModelsFile;
@@ -564,9 +643,15 @@ function ModelsTab(props: {
 											props.onDeleteProvider(name);
 										}}
 										title="删除 provider"
-									><Trash2 size={14} /></button>
+									>
+										<Trash2 size={14} />
+									</button>
 									<span className="config-chevron">
-										{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+										{isExpanded ? (
+											<ChevronDown size={14} />
+										) : (
+											<ChevronRight size={14} />
+										)}
 									</span>
 								</div>
 							</div>
@@ -590,12 +675,11 @@ function ModelsTab(props: {
 										</div>
 										<div className="config-form-row">
 											<label>API 类型</label>
-											<input
+											<ApiTypeInput
 												value={provider.api ?? ""}
-												onChange={(e) =>
-													props.onChangeProvider(name, "api", e.target.value)
+												onChange={(value) =>
+													props.onChangeProvider(name, "api", value)
 												}
-												placeholder="openai-completions"
 											/>
 										</div>
 										<div className="config-form-row">
@@ -809,9 +893,15 @@ function AuthTab(props: {
 											props.onDeleteAuth(name);
 										}}
 										title="删除"
-									><Trash2 size={14} /></button>
+									>
+										<Trash2 size={14} />
+									</button>
 									<span className="config-chevron">
-										{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+										{isExpanded ? (
+											<ChevronDown size={14} />
+										) : (
+											<ChevronRight size={14} />
+										)}
 									</span>
 								</div>
 							</div>
