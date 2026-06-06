@@ -4,6 +4,19 @@
 
 这里记录 pi-desktop 各版本的重要变化。
 
+## v0.4.6 - 2026-06-07
+
+### 新增
+- Provider 模型发现：可直接从已配置的供应商接口拉取可用模型列表。
+- Provider 连接测试：启动 agent 前可用最小请求验证 Base URL、API Key、模型 ID、自定义 headers、延迟和 token 用量。
+- Provider 管理增强：Models 页支持重命名 provider，并可视化配置请求 headers / User-Agent。
+- `/codex` 输入框命令：可在当前项目目录调用本机 Codex CLI，并将清洗后的结果展示到聊天时间线。
+
+### 优化
+- 斜线命令和文件建议支持键盘选择，并置顶 `/codex` 等常用命令。
+- 增加 OpenAI Codex Responses 兼容处理，包括为会校验客户端 headers 的 provider 模拟 SDK User-Agent。
+- 同步更新配置预览 mock 和 IPC 契约，覆盖 provider 测试与 Codex 执行流程。
+
 ## v0.4.5 - 2026-06-05
 
 ### 新增

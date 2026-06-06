@@ -104,6 +104,7 @@ export function App() {
 	const [_logs, setLogs] = useState<string[]>([]); // 写入式调试日志，仅用于 onLog/onError 捕获
 	const [search, setSearch] = useState("");
 	const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
 	const [fileMenu, setFileMenu] = useState<{
 		x: number;
 		y: number;
@@ -172,6 +173,16 @@ export function App() {
 	const activeThinking = activeAgentId
 		? (streamingThinking[activeAgentId] ?? "")
 		: "";
+	const composerMode =
+		prompt.startsWith("!!") ? "silent-shell" : prompt.startsWith("!") ? "shell" : null;
+	const composerStatusText =
+		composerMode === "silent-shell"
+			? "静默命令：直接执行，不写入上下文"
+			: composerMode === "shell"
+				? "Shell 命令：直接执行当前输入"
+				: drawer
+					? "右侧面板可查看文件或恢复历史会话"
+					: (activeAgent?.sessionPath ?? "");
 	/** 当前会话中 agent 修改过的文件（从 tool 消息 meta 中提取） */
 	const modifiedFiles = useMemo(() => {
 		const seen = new Set<string>();
@@ -206,6 +217,10 @@ export function App() {
 		[activeMessages],
 	);
 	const flatFiles = useMemo(() => flattenFiles(files), [files]);
+	const suggestionItems = useMemo(
+		() => buildSuggestionItems(prompt, commands, flatFiles),
+		[prompt, commands, flatFiles],
+	);
 	const visibleAgents = useMemo(
 		() =>
 			agents.filter((agent) =>
@@ -326,6 +341,10 @@ export function App() {
 				.catch(() => setCommands([]));
 		else setCommands([]);
 	}, [activeAgentId]);
+
+	useEffect(() => {
+		setSelectedSuggestionIndex(0);
+	}, [suggestionItems.length]);
 
 	useEffect(() => {
 		const timeline = timelineRef.current;
@@ -546,6 +565,39 @@ export function App() {
 	function handleComposerKeyDown(
 		event: React.KeyboardEvent<HTMLTextAreaElement>,
 	) {
+		if (suggestionsOpen && suggestionItems.length > 0) {
+			if (event.key === "ArrowDown") {
+				event.preventDefault();
+				setSelectedSuggestionIndex((index) =>
+					Math.min(index + 1, suggestionItems.length - 1),
+				);
+				return;
+			}
+			if (event.key === "ArrowUp") {
+				event.preventDefault();
+				setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
+				return;
+			}
+			if (event.key === "Enter") {
+				event.preventDefault();
+				const selected =
+					suggestionItems[
+						Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
+					];
+				if (selected) {
+					setPrompt((current) => applySuggestion(current, selected.value));
+					setSuggestionsOpen(false);
+				}
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setPrompt((current) => clearSuggestionTrigger(current));
+				setSuggestionsOpen(false);
+				return;
+			}
+		}
+
 		if (event.key === "Escape") {
 			setPrompt((current) => clearSuggestionTrigger(current));
 			setSuggestionsOpen(false);
@@ -626,10 +678,104 @@ export function App() {
 			return;
 		const message = prompt;
 		const images = attachedImages.length > 0 ? attachedImages : undefined;
+		// 发送前先保留快照，再立即清空 composer；这样普通发送、排队发送和 /codex
+		// 都能给用户明确反馈，同时失败时不会影响已捕获的待发送内容。
 		setPrompt("");
 		setAttachedImages([]);
+		setSuggestionsOpen(false);
 
-		// Agent 忙碌时，消息加入本地排队，等 agent 空闲后自动发送
+		// /codex 命令：直接调用 Codex CLI，不走 pi
+		if (message.trim().startsWith("/codex")) {
+			const codexPrompt = message.replace(/^\/codex\s*/, "").trim();
+			if (!codexPrompt) {
+				setToast("用法：/codex <问题>");
+				setTimeout(() => setToast(null), 3000);
+				return;
+			}
+			const cwd = activeAgent?.cwd ?? "";
+			// Codex 通过 --cd 获取工作目录，prompt 里只给简洁指令
+			const contextPrompt = [
+				"请简洁回答，不要输出工具调用过程。",
+				"",
+				codexPrompt,
+			].join("\n");
+
+			// 插入用户消息
+			const userMsg: ChatMessage = {
+				id: crypto.randomUUID(),
+				agentId: activeAgentId,
+				role: "user",
+				text: message,
+				timestamp: Date.now(),
+			};
+			setMessagesByAgent((prev) => ({
+				...prev,
+				[activeAgentId]: [...(prev[activeAgentId] ?? []), userMsg],
+			}));
+
+			// 插入加载中占位
+			const loadingId = crypto.randomUUID();
+			const loadingMsg: ChatMessage = {
+				id: loadingId,
+				agentId: activeAgentId,
+				role: "assistant",
+				text: "🤖 Codex 思考中…",
+				timestamp: Date.now(),
+				meta: { source: "codex", loading: true },
+			};
+			setMessagesByAgent((prev) => ({
+				...prev,
+				[activeAgentId]: [
+					...(prev[activeAgentId] ?? []),
+					loadingMsg,
+				],
+			}));
+
+			try {
+				const result = await api.agents.codexExec(cwd, contextPrompt);
+				const responseText = result.error
+					? `❌ Codex 错误：${result.error}`
+					: result.text || "(Codex 无输出)";
+
+				// 替换加载占位为实际结果
+				setMessagesByAgent((prev) => {
+					const msgs = [...(prev[activeAgentId] ?? [])];
+					const idx = msgs.findIndex((m) => m.id === loadingId);
+					if (idx >= 0) {
+						msgs[idx] = {
+							id: loadingId,
+							agentId: activeAgentId,
+							role: "assistant",
+							text: responseText,
+							timestamp: Date.now(),
+							meta: { source: "codex" },
+						};
+					}
+					return { ...prev, [activeAgentId]: msgs };
+				});
+			} catch (e) {
+				const errText = `❌ Codex 调用失败：${e instanceof Error ? e.message : String(e)}`;
+				setMessagesByAgent((prev) => {
+					const msgs = [...(prev[activeAgentId] ?? [])];
+					const idx = msgs.findIndex((m) => m.id === loadingId);
+					if (idx >= 0) {
+						msgs[idx] = {
+							id: loadingId,
+							agentId: activeAgentId,
+							role: "assistant",
+							text: errText,
+							timestamp: Date.now(),
+							meta: { source: "codex" },
+						};
+					}
+					return { ...prev, [activeAgentId]: msgs };
+				});
+			}
+			return;
+		}
+
+		// Agent 忙碌时，消息加入本地排队，等 agent 空闲后自动发送。
+		// 输入框已在上方清空，避免用户误以为消息还未被接收。
 		if (isAgentBusy) {
 			const pending: PendingPrompt = {
 				id: crypto.randomUUID(),
@@ -639,6 +785,10 @@ export function App() {
 				enqueuedAt: Date.now(),
 			};
 			setPendingPrompts((prev) => [...prev, pending]);
+			if (message) {
+				setMessageHistory((current) => [message.trim(), ...current]);
+				historyIndexRef.current = -1;
+			}
 			return;
 		}
 
@@ -1248,7 +1398,16 @@ export function App() {
 				</section>
 
 				<footer className="composer">
-					<div className="composer-box" style={{ height: composerHeight }}>
+					<div
+						className={`composer-box ${
+							prompt.startsWith("!!")
+								? "shell-silent-mode"
+								: prompt.startsWith("!")
+									? "shell-mode"
+									: ""
+						}`}
+						style={{ height: composerHeight }}
+					>
 						<div
 							className="composer-resize-handle"
 							title="拖动调整输入框高度"
@@ -1291,35 +1450,29 @@ export function App() {
 											: "输入消息，按设置的快捷键发送。/ 命令，@ 文件，! shell"
 							}
 						/>
-						{(prompt.startsWith("!") || prompt.startsWith("/")) && (
-							<div
-								className={`composer-mode-hint ${
-									prompt.startsWith("!!")
-										? "mode-bang-bang"
-										: prompt.startsWith("!")
-											? "mode-bang"
-											: "mode-slash"
-								}`}
-							>
-								{prompt.startsWith("!!")
-									? "静默执行"
-									: prompt.startsWith("!")
-										? ">_ 执行命令"
-										: "斜杠命令"}
-							</div>
-						)}
 						{suggestionsOpen && (
 							<PromptSuggestions
 								prompt={prompt}
-								commands={commands}
-								files={flatFiles}
+								items={suggestionItems}
+								selectedIndex={selectedSuggestionIndex}
+								onSelectedIndexChange={setSelectedSuggestionIndex}
 								onClose={() => {
 									setPrompt((current) => clearSuggestionTrigger(current));
 									setSuggestionsOpen(false);
+									requestAnimationFrame(() => {
+										document
+											.querySelector<HTMLTextAreaElement>(".composer-box textarea")
+											?.focus();
+									});
 								}}
 								onPick={(value) => {
 									setPrompt((current) => applySuggestion(current, value));
 									setSuggestionsOpen(false);
+									requestAnimationFrame(() => {
+										document
+											.querySelector<HTMLTextAreaElement>(".composer-box textarea")
+											?.focus();
+									});
 								}}
 							/>
 						)}
@@ -1354,10 +1507,8 @@ export function App() {
 							</div>
 						)}
 						<div className="composer-footer">
-							<span>
-								{drawer
-									? "右侧面板可查看文件或恢复历史会话"
-									: (activeAgent?.sessionPath ?? "")}
+							<span className={composerMode ? "composer-mode-status" : ""}>
+								{composerStatusText}
 							</span>
 							{activeAgent?.status === "running" && (
 								<button className="stop-send" onClick={() => abortAgent()}>
@@ -2686,9 +2837,84 @@ function findTriggerIndex(current: string) {
 	return Math.max(lastSlash, lastAt);
 }
 
+type SuggestionItem = {
+	key: string;
+	label: string;
+	description: string;
+	value: string;
+};
+
+function buildSuggestionItems(
+	prompt: string,
+	commands: PiCommand[],
+	files: FileTreeNode[],
+): SuggestionItem[] {
+	const allCommands = mergeCommands(commands);
+	const tail = prompt.split(/\s/).at(-1) ?? "";
+	if (tail.startsWith("/")) {
+		const keyword = tail.slice(1).toLowerCase();
+		return allCommands
+			.map((command, index) => ({ command, index }))
+			.filter(({ command }) => command.name.toLowerCase().includes(keyword))
+			.sort((a, b) => {
+				const aPinned = PINNED_COMMAND_NAMES.has(a.command.name);
+				const bPinned = PINNED_COMMAND_NAMES.has(b.command.name);
+				if (aPinned !== bPinned) return aPinned ? -1 : 1;
+				return a.index - b.index;
+			})
+			.map(({ command }) => ({
+				key: command.name,
+				label: `/${command.name}`,
+				description: command.description ?? "",
+				value: `/${command.name}`,
+			}));
+	}
+	if (tail.startsWith("@")) {
+		const keyword = tail.slice(1).toLowerCase();
+		return files
+			.map((file) => ({
+				file,
+				score:
+					fuzzyScore(file.relativePath, keyword) +
+					fuzzyScore(file.name, keyword) * 2,
+			}))
+			.filter((item) => item.score > 0 || !keyword)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 8)
+			.map((item) => ({
+				key: item.file.path,
+				label: `@${item.file.name}`,
+				description: item.file.relativePath,
+				value: `@${item.file.relativePath}`,
+			}));
+	}
+	return [];
+}
+
+function mergeCommands(commands: PiCommand[]) {
+	const visibleCommands = commands.filter(isVisibleDesktopCommand);
+	const names = new Set(visibleCommands.map((command) => command.name));
+	const extras = BUILTIN_COMMANDS.filter(
+		(command) => !names.has(command.name) && isVisibleDesktopCommand(command),
+	);
+	return [...visibleCommands, ...extras];
+}
+
+const PINNED_COMMAND_NAMES = new Set(["codex"]);
+const HIDDEN_DESKTOP_COMMAND_NAMES = new Set([
+	"new",
+	"model",
+	"resume",
+	"fork",
+	"name",
+]);
+
+function isVisibleDesktopCommand(command: PiCommand) {
+	return !HIDDEN_DESKTOP_COMMAND_NAMES.has(command.name.toLowerCase());
+}
+
 // pi 内置斜杠命令，get_commands 只返回扩展注册的命令，这些需要手动补充
-// 排除 desktop 已有独立 UI 入口的：/new（New Session 按钮）、/model（模型选择器）、
-// /resume（历史会话抽屉）、/fork（不太需要），/name 可在历史会话列表操作。
+// desktop 已有独立 UI 入口或在 desktop 中不适合执行的命令由 HIDDEN_DESKTOP_COMMAND_NAMES 统一过滤。
 const BUILTIN_COMMANDS: PiCommand[] = [
 	{
 		name: "session",
@@ -2722,78 +2948,64 @@ const BUILTIN_COMMANDS: PiCommand[] = [
 		source: "builtin",
 	},
 	{ name: "logout", description: "退出登录", source: "builtin" },
+	{
+		name: "codex",
+		description: "通过 Codex CLI 问答，例：/codex 这段代码有什么问题",
+		source: "builtin",
+	},
 ];
 
 function PromptSuggestions(props: {
 	prompt: string;
-	commands: PiCommand[];
-	files: FileTreeNode[];
+	items: SuggestionItem[];
+	selectedIndex: number;
+	onSelectedIndexChange: (index: number) => void;
 	onClose: () => void;
 	onPick: (value: string) => void;
 }) {
-	// 合并内置命令和 pi 返回的扩展命令，去重（扩展命令优先）
-	const allCommands = useMemo(() => {
-		const names = new Set(props.commands.map((c) => c.name));
-		const extras = BUILTIN_COMMANDS.filter((c) => !names.has(c.name));
-		return [...props.commands, ...extras];
-	}, [props.commands]);
-
+	const listRef = useRef<HTMLDivElement>(null);
 	const tail = props.prompt.split(/\s/).at(-1) ?? "";
-	if (tail.startsWith("/")) {
-		const keyword = tail.slice(1).toLowerCase();
-		const commands = allCommands
-			.filter((command) => command.name.toLowerCase().includes(keyword))
-			.slice(0, 10);
-		if (commands.length === 0) return null;
-		return (
-			<div className="suggestions">
-				<button className="suggestion-close" onClick={props.onClose}>
-					关闭
+
+	// 滚动到选中项
+	useEffect(() => {
+		const list = listRef.current;
+		if (!list) return;
+		const item = list.children[props.selectedIndex] as HTMLElement;
+		if (item) {
+			item.scrollIntoView({ block: "nearest" });
+		}
+	}, [props.selectedIndex]);
+
+	if (props.items.length === 0) return null;
+
+	return (
+		<div className="command-palette">
+			<div className="command-palette-header">
+				<span>{tail.startsWith("/") ? "命令" : "文件"}</span>
+				<button className="command-palette-close" onClick={props.onClose}>
+					×
 				</button>
-				{commands.map((command) => (
+			</div>
+			<div className="command-palette-list" ref={listRef}>
+				{props.items.map((item, index) => (
 					<button
-						key={command.name}
-						onClick={() => props.onPick(`/${command.name}`)}
+						key={item.key}
+						className={`command-palette-item${index === props.selectedIndex ? " selected" : ""}`}
+						onMouseEnter={() => props.onSelectedIndexChange(index)}
+						onClick={() => props.onPick(item.value)}
 					>
-						<strong>/{command.name}</strong>
-						<span>{command.description}</span>
+						<span className="command-palette-label">{item.label}</span>
+						<span className="command-palette-desc">{item.description}</span>
 					</button>
 				))}
 			</div>
-		);
-	}
-	if (tail.startsWith("@")) {
-		const keyword = tail.slice(1).toLowerCase();
-		const files = props.files
-			.map((file) => ({
-				file,
-				score:
-					fuzzyScore(file.relativePath, keyword) +
-					fuzzyScore(file.name, keyword) * 2,
-			}))
-			.filter((item) => item.score > 0 || !keyword)
-			.sort((a, b) => b.score - a.score)
-			.slice(0, 8)
-			.map((item) => item.file);
-		if (files.length === 0) return null;
-		return (
-			<div className="suggestions">
-				<button className="suggestion-close" onClick={props.onClose}>
-					关闭
-				</button>
-				{files.map((file) => (
-					<button
-						key={file.path}
-						onClick={() => props.onPick(`@${file.relativePath}`)}
-					>
-						<strong>@{file.name}</strong>
-						<span>{file.relativePath}</span>
-					</button>
-				))}
+			<div className="command-palette-footer">
+				<span>↑↓ 选择</span>
+				<span>Enter 确认</span>
+				<span>Esc 关闭</span>
 			</div>
-		);
-	}
-	return null;
+		</div>
+	);
 }
 
 function FileContextMenu(props: {
@@ -2875,10 +3087,9 @@ function SettingsModal(props: {
 	onChange: (patch: Partial<AppSettings>) => void;
 }) {
 	return (
-		<div className="modal-backdrop" onClick={props.onClose}>
+		<div className="modal-backdrop">
 			<div
 				className="settings-modal"
-				onClick={(event) => event.stopPropagation()}
 			>
 				<div className="modal-header">
 					<strong>设置</strong>

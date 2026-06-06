@@ -174,6 +174,22 @@ export function createPreviewApi(): PiDesktopApi {
 					files: { "models.json": {}, "auth.json": {}, "settings.json": {} },
 				}),
 			import: async () => ({ valid: true }),
+			fetchModels: async () => ({
+				success: true,
+				models: [
+					{ id: "gpt-4o", name: "GPT-4o" },
+					{ id: "gpt-4o-mini", name: "GPT-4o Mini" },
+				],
+			}),
+			testProvider: async () => ({
+				success: true,
+				model: "gpt-4o-mini",
+				snippet: "Hello! How can I help you today?",
+				tokens: { input: 8, output: 7 },
+				latencyMs: 320,
+				requestUrl: "https://api.openai.com/v1/chat/completions",
+				requestBody: '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hi"}],"max_tokens":10}',
+			}),
 		},
 		agents: {
 			list: async () => agents,
@@ -247,6 +263,9 @@ export function createPreviewApi(): PiDesktopApi {
 			onThinking: noop,
 			onRpcLog: noop,
 			onRuntimeState: noop,
+			codexExec: async () => ({
+				text: "Codex mock response",
+			}),
 		},
 	};
 }

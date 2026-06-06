@@ -4,6 +4,19 @@
 
 All notable changes to pi-desktop are documented here.
 
+## v0.4.6 - 2026-06-07
+
+### Added
+- Provider model discovery: fetch available models directly from configured provider endpoints.
+- Provider connection test: send a minimal request to verify Base URL, API key, model ID, custom headers, latency, and token usage before starting an agent.
+- Provider management improvements: rename providers in the Models tab and configure request headers/User-Agent visually.
+- `/codex` composer command: call the local Codex CLI from the active project and display cleaned responses in the chat timeline.
+
+### Improved
+- Slash command and file suggestions now support keyboard selection and pin frequently used commands such as `/codex`.
+- Added OpenAI Codex Responses compatibility handling, including SDK-like User-Agent fallback for providers that validate client headers.
+- Updated config preview mocks and IPC contracts for the new provider testing and Codex execution flows.
+
 ## v0.4.5 - 2026-06-05
 
 ### Added

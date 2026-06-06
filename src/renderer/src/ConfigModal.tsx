@@ -41,13 +41,55 @@ type SettingsFile = Record<string, unknown>;
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi })
 	.piDesktop;
 
+const DEFAULT_PROVIDER_HEADERS = { "User-Agent": "pi-coding-agent" };
+const USER_AGENT_OPTIONS = [
+	{ value: "pi-coding-agent", label: "pi-coding-agent" },
+	{ value: "Mozilla/5.0", label: "Mozilla/5.0" },
+	{ value: "OpenAI/JS 6.26.0", label: "OpenAI/JS 6.26.0" },
+	{ value: "", label: "不发送" },
+];
+const CUSTOM_USER_AGENT_VALUE = "__custom__";
+
+function getProviderHeaders(value: unknown): Record<string, string> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const entries = Object.entries(value).filter(
+		([key, headerValue]) =>
+			key.trim().length > 0 && typeof headerValue === "string",
+	);
+	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function getHeaderValue(headers: unknown, targetKey: string) {
+	const normalized = getProviderHeaders(headers);
+	if (!normalized) return "";
+	const entry = Object.entries(normalized).find(
+		([key]) => key.toLowerCase() === targetKey.toLowerCase(),
+	);
+	return entry?.[1] ?? "";
+}
+
+function setHeaderValue(
+	headers: unknown,
+	targetKey: string,
+	value: string,
+): Record<string, string> | undefined {
+	const normalized = { ...(getProviderHeaders(headers) ?? {}) };
+	for (const key of Object.keys(normalized)) {
+		if (key.toLowerCase() === targetKey.toLowerCase()) delete normalized[key];
+	}
+	if (value.trim()) normalized[targetKey] = value.trim();
+	return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 // pi provider 的 api 字段是字符串配置；这里提供常见值辅助选择，同时保留未知值以兼容用户自定义或未来新增类型。
 const PROVIDER_API_OPTIONS = [
 	"openai-completions",
 	"openai-chat-completions",
 	"openai-responses",
-	"anthropic",
+	"openai-codex-responses",
+	"anthropic-messages",
 	"google-generative-ai",
+	"mistral-conversations",
 ];
 
 /** 配置管理弹窗：支持 models/auth/settings 三个 tab 的可视化编辑和源文件编辑 */
@@ -76,9 +118,33 @@ export function ConfigModal(props: {
 	// 新增 provider
 	const [addingProvider, setAddingProvider] = useState(false);
 	const [newProviderName, setNewProviderName] = useState("");
+	// 重命名 provider
+	const [renamingProvider, setRenamingProvider] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState("");
 	// 新增 auth
 	const [addingAuth, setAddingAuth] = useState(false);
 	const [newAuthName, setNewAuthName] = useState("");
+	// 远程拉取模型列表
+	const [fetchingProvider, setFetchingProvider] = useState<string | null>(null);
+	const [fetchedModels, setFetchedModels] = useState<
+		Record<string, Array<{ id: string; name?: string }>>
+	>({});
+	// 快速测试连接
+	const [testingProvider, setTestingProvider] = useState<string | null>(null);
+	const [testResult, setTestResult] = useState<{
+		providerName: string;
+		success: boolean;
+		model?: string;
+		snippet?: string;
+		tokens?: { input?: number; output?: number };
+		latencyMs?: number;
+		error?: string;
+		requestUrl?: string;
+		requestBody?: string;
+	} | null>(null);
+	const [testModelIdByProvider, setTestModelIdByProvider] = useState<
+		Record<string, string>
+	>({});
 
 	const loadConfig = useCallback(
 		async (target: ConfigTab) => {
@@ -163,7 +229,10 @@ export function ConfigModal(props: {
 			...modelsData,
 			providers: {
 				...modelsData.providers,
-				[newProviderName.trim()]: { models: [] },
+				[newProviderName.trim()]: {
+					headers: DEFAULT_PROVIDER_HEADERS,
+					models: [],
+				},
 			},
 		};
 		setModelsData(updated);
@@ -172,11 +241,109 @@ export function ConfigModal(props: {
 		setNewProviderName("");
 	};
 
+	// 重命名 provider：保留所有配置和模型，仅修改 key 名称
+	const handleStartRename = (name: string) => {
+		setRenamingProvider(name);
+		setRenameValue(name);
+	};
+
+	const handleConfirmRename = (oldName: string) => {
+		const newName = renameValue.trim();
+		if (!newName || newName === oldName || modelsData.providers[newName]) {
+			// 名称未变、为空或已存在则不操作
+			setRenamingProvider(null);
+			setRenameValue("");
+			return;
+		}
+		const providers = { ...modelsData.providers };
+		providers[newName] = providers[oldName];
+		delete providers[oldName];
+		setModelsData({ ...modelsData, providers });
+		if (expandedProvider === oldName) setExpandedProvider(newName);
+		setRenamingProvider(null);
+		setRenameValue("");
+	};
+
+	const handleCancelRename = () => {
+		setRenamingProvider(null);
+		setRenameValue("");
+	};
+
 	const handleDeleteProvider = (name: string) => {
 		const providers = { ...modelsData.providers };
 		delete providers[name];
 		setModelsData({ ...modelsData, providers });
 		if (expandedProvider === name) setExpandedProvider(null);
+	};
+
+	// 从 provider 的 baseUrl + apiKey 拉取可用模型列表
+	const handleFetchModels = async (providerName: string) => {
+		const provider = modelsData.providers[providerName];
+		if (!provider?.baseUrl || !provider?.apiKey) {
+			setError("请先填写 Base URL 和 API Key");
+			return;
+		}
+		setFetchingProvider(providerName);
+		setError(null);
+		try {
+			const result = await api.config.fetchModels(
+				provider.baseUrl,
+				provider.apiKey,
+				provider.api as string | undefined,
+			);
+			if (result.success && result.models) {
+				setFetchedModels((prev) => ({
+					...prev,
+					[providerName]: result.models!,
+				}));
+				showToast(`已获取 ${result.models.length} 个模型`);
+			} else {
+				setError(result.error ?? "获取模型列表失败");
+			}
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setFetchingProvider(null);
+		}
+	};
+
+	// 快速测试 provider 连接
+	const handleTestProvider = async (providerName: string) => {
+		const provider = modelsData.providers[providerName];
+		if (!provider?.baseUrl || !provider?.apiKey) {
+			setError("请先填写 Base URL 和 API Key");
+			return;
+		}
+		// 确定测试用的模型：优先用户指定的 testModelId，否则取第一个模型 id
+		const modelId =
+			(testModelIdByProvider[providerName] ?? "").trim() ||
+			provider.models[0]?.id ||
+			"";
+		if (!modelId) {
+			setError("请至少添加一个模型，或在测试模型框中手动输入模型 ID");
+			return;
+		}
+		setTestingProvider(providerName);
+		setTestResult(null);
+		setError(null);
+		try {
+			const result = await api.config.testProvider(
+				provider.baseUrl,
+				provider.apiKey,
+				modelId,
+				provider.api as string | undefined,
+				getProviderHeaders(provider.headers),
+			);
+			setTestResult({ providerName, ...result });
+		} catch (e) {
+			setTestResult({
+				providerName,
+				success: false,
+				error: e instanceof Error ? e.message : String(e),
+			});
+		} finally {
+			setTestingProvider(null);
+		}
 	};
 
 	const handleAddModel = (providerName: string) => {
@@ -345,8 +512,8 @@ export function ConfigModal(props: {
 	if (!open) return null;
 
 	return (
-		<div className="modal-backdrop" onClick={onClose}>
-			<div className="config-modal" onClick={(e) => e.stopPropagation()}>
+		<div className="modal-backdrop">
+			<div className="config-modal">
 				<div className="modal-header">
 					<strong>配置管理</strong>
 					<div className="modal-header-actions">
@@ -397,6 +564,13 @@ export function ConfigModal(props: {
 							expandedProvider={expandedProvider}
 							addingProvider={addingProvider}
 							newProviderName={newProviderName}
+							renamingProvider={renamingProvider}
+							renameValue={renameValue}
+							fetchingProvider={fetchingProvider}
+							fetchedModels={fetchedModels}
+							testingProvider={testingProvider}
+							testResult={testResult}
+							testModelIdByProvider={testModelIdByProvider}
 							saving={saving}
 							onToggleProvider={(name) =>
 								setExpandedProvider(expandedProvider === name ? null : name)
@@ -408,10 +582,23 @@ export function ConfigModal(props: {
 							onCancelAddProvider={() => setAddingProvider(false)}
 							onChangeNewProviderName={setNewProviderName}
 							onConfirmAddProvider={handleAddProvider}
+							onStartRename={handleStartRename}
+							onChangeRenameValue={setRenameValue}
+							onConfirmRename={handleConfirmRename}
+							onCancelRename={handleCancelRename}
 							onDeleteProvider={handleDeleteProvider}
 							onAddModel={handleAddModel}
 							onUpdateModel={handleUpdateModel}
 							onDeleteModel={handleDeleteModel}
+							onFetchModels={handleFetchModels}
+							onTestProvider={handleTestProvider}
+							onChangeTestModelId={(providerName, modelId) =>
+								setTestModelIdByProvider((current) => ({
+									...current,
+									[providerName]: modelId,
+								}))
+							}
+							onClearTestResult={() => setTestResult(null)}
 							onSave={handleSaveModels}
 							onChangeProvider={(name, field, value) => {
 								const provider = modelsData.providers[name];
@@ -599,12 +786,33 @@ function ModelsTab(props: {
 	expandedProvider: string | null;
 	addingProvider: boolean;
 	newProviderName: string;
+	renamingProvider: string | null;
+	renameValue: string;
+	fetchingProvider: string | null;
+	fetchedModels: Record<string, Array<{ id: string; name?: string }>>;
+	testingProvider: string | null;
+	testResult: {
+		providerName: string;
+		success: boolean;
+		model?: string;
+		snippet?: string;
+		tokens?: { input?: number; output?: number };
+		latencyMs?: number;
+		error?: string;
+		requestUrl?: string;
+		requestBody?: string;
+	} | null;
+	testModelIdByProvider: Record<string, string>;
 	saving: boolean;
 	onToggleProvider: (name: string) => void;
 	onStartAddProvider: () => void;
 	onCancelAddProvider: () => void;
 	onChangeNewProviderName: (name: string) => void;
 	onConfirmAddProvider: () => void;
+	onStartRename: (name: string) => void;
+	onChangeRenameValue: (name: string) => void;
+	onConfirmRename: (oldName: string) => void;
+	onCancelRename: () => void;
 	onDeleteProvider: (name: string) => void;
 	onAddModel: (providerName: string) => void;
 	onUpdateModel: (
@@ -614,11 +822,18 @@ function ModelsTab(props: {
 		value: unknown,
 	) => void;
 	onDeleteModel: (providerName: string, index: number) => void;
+	onFetchModels: (providerName: string) => void;
+	onTestProvider: (providerName: string) => void;
+	onChangeTestModelId: (providerName: string, modelId: string) => void;
+	onClearTestResult: () => void;
 	onSave: () => void;
 	onChangeProvider: (name: string, field: string, value: unknown) => void;
 }) {
 	const { data, expandedProvider, saving } = props;
 	const providerNames = Object.keys(data.providers);
+	// 当前正在下拉选模型的 provider（null = 手动输入模式）
+	const [addingModelDropdown, setAddingModelDropdown] = useState<string | null>(null);
+	const [addingModelId, setAddingModelId] = useState("");
 
 	return (
 		<div className="config-model-tab">
@@ -668,6 +883,12 @@ function ModelsTab(props: {
 				{providerNames.map((name) => {
 					const provider = data.providers[name];
 					const isExpanded = expandedProvider === name;
+					const userAgentValue = getHeaderValue(provider.headers, "User-Agent");
+					const userAgentSelectValue = USER_AGENT_OPTIONS.some(
+						(option) => option.value === userAgentValue,
+					)
+						? userAgentValue
+						: CUSTOM_USER_AGENT_VALUE;
 					return (
 						<div
 							key={name}
@@ -675,10 +896,28 @@ function ModelsTab(props: {
 						>
 							<div
 								className="config-provider-header"
-								onClick={() => props.onToggleProvider(name)}
+								onClick={() => {
+									// 重命名模式下点击不折叠展开
+									if (props.renamingProvider === name) return;
+									props.onToggleProvider(name);
+								}}
 							>
 								<div className="config-provider-info">
-									<span className="config-provider-name">{name}</span>
+									{props.renamingProvider === name ? (
+										<input
+											className="config-rename-input"
+											value={props.renameValue}
+											onChange={(e) => props.onChangeRenameValue(e.target.value)}
+											onKeyDown={(e) => {
+												if (e.key === "Enter") props.onConfirmRename(name);
+												if (e.key === "Escape") props.onCancelRename();
+											}}
+											onClick={(e) => e.stopPropagation()}
+											autoFocus
+										/>
+									) : (
+										<span className="config-provider-name">{name}</span>
+									)}
 									<span className="config-provider-badge">
 										{provider.models.length} 模型
 									</span>
@@ -689,6 +928,41 @@ function ModelsTab(props: {
 									)}
 								</div>
 								<div className="config-provider-actions">
+									{props.renamingProvider === name ? (
+										<>
+											<button
+												className="config-icon-btn"
+												onClick={(e) => {
+													e.stopPropagation();
+													props.onConfirmRename(name);
+												}}
+												title="确认重命名"
+											>
+												<Check size={14} />
+											</button>
+											<button
+												className="config-icon-btn"
+												onClick={(e) => {
+													e.stopPropagation();
+													props.onCancelRename();
+												}}
+												title="取消重命名"
+											>
+												×
+											</button>
+										</>
+									) : (
+										<button
+											className="config-icon-btn"
+											onClick={(e) => {
+												e.stopPropagation();
+												props.onStartRename(name);
+											}}
+											title="重命名 provider"
+										>
+											✎
+										</button>
+									)}
 									<button
 										className="config-icon-btn danger"
 										onClick={(e) => {
@@ -745,6 +1019,192 @@ function ModelsTab(props: {
 											/>
 										</div>
 										<div className="config-form-row">
+											<label>User-Agent</label>
+											<div className="config-header-field">
+												<select
+													value={userAgentSelectValue}
+													onChange={(e) => {
+														if (e.target.value === CUSTOM_USER_AGENT_VALUE) return;
+														props.onChangeProvider(
+															name,
+															"headers",
+															setHeaderValue(
+																provider.headers,
+																"User-Agent",
+																e.target.value,
+															),
+														);
+													}}
+												>
+													{USER_AGENT_OPTIONS.map((option) => (
+														<option
+															key={option.value || "none"}
+															value={option.value}
+														>
+															{option.label}
+														</option>
+													))}
+													<option value={CUSTOM_USER_AGENT_VALUE}>
+														自定义
+													</option>
+												</select>
+												<input
+													value={userAgentValue}
+													onChange={(e) =>
+														props.onChangeProvider(
+															name,
+															"headers",
+															setHeaderValue(
+																provider.headers,
+																"User-Agent",
+																e.target.value,
+															),
+														)
+													}
+													placeholder="pi-coding-agent"
+												/>
+												<span>写入 models.json 的 headers 字段</span>
+											</div>
+										</div>
+										<div className="config-form-row">
+											<label></label>
+											<button
+												className="config-btn blue"
+												onClick={() => props.onFetchModels(name)}
+												disabled={props.fetchingProvider === name}
+											>
+												{props.fetchingProvider === name
+													? "获取中…"
+													: "获取模型列表"}
+											</button>
+										</div>
+
+										{/* 快速测试连接 */}
+										<div className="config-form-row">
+											<label>测试模型</label>
+											<div style={{ display: "flex", gap: 8, alignItems: "center", flex: 1 }}>
+												<input
+													value={props.testModelIdByProvider[name] ?? ""}
+													onChange={(e) =>
+														props.onChangeTestModelId(name, e.target.value)
+													}
+													placeholder={
+														provider.models[0]?.id ?? "输入模型 ID 进行测试"
+													}
+													style={{ flex: 1 }}
+												/>
+												<button
+													className="config-btn primary"
+													onClick={() => props.onTestProvider(name)}
+													disabled={props.testingProvider === name}
+												>
+													{props.testingProvider === name
+														? "测试中…"
+														: "测试连接"}
+												</button>
+											</div>
+										</div>
+
+										{/* 测试结果 */}
+										{props.testResult &&
+											props.testResult.providerName === name && (
+												<div
+													className={`config-test-result ${props.testResult.success ? "success" : "fail"}`}
+												>
+													<div className="config-test-result-header">
+														<span>
+															{props.testResult.success
+																? "✅ 连接正常"
+																: "❌ 连接失败"}
+														</span>
+														<button
+															className="config-icon-btn"
+															onClick={props.onClearTestResult}
+															title="清除结果"
+														>
+															×
+														</button>
+													</div>
+													{props.testResult.success ? (
+														<div className="config-test-result-body">
+															<div className="config-test-result-row">
+																<span>模型</span>
+																<strong>{props.testResult.model}</strong>
+															</div>
+															<div className="config-test-result-row">
+																<span>响应</span>
+																<span>{props.testResult.snippet}</span>
+															</div>
+															{props.testResult.requestUrl && (
+																<div className="config-test-result-row">
+																	<span>请求</span>
+																	<code className="config-test-request-url">
+																		POST{" "}
+																		{props.testResult.requestUrl}
+																	</code>
+																</div>
+															)}
+															{props.testResult.tokens &&
+																(props.testResult.tokens.input != null ||
+																	props.testResult.tokens.output != null) && (
+																<div className="config-test-result-row">
+																	<span>Token</span>
+																	<span>
+																		输入 {props.testResult.tokens.input ?? "-"}
+																		，输出{" "}
+																		{props.testResult.tokens.output ?? "-"}
+																	</span>
+																</div>
+															)}
+															{props.testResult.latencyMs != null && (
+																<div className="config-test-result-row">
+																	<span>延迟</span>
+																	<span>
+																		{props.testResult.latencyMs < 1000
+																			? `${props.testResult.latencyMs} ms`
+																			: `${(props.testResult.latencyMs / 1000).toFixed(1)} s`}
+																	</span>
+																</div>
+															)}
+														</div>
+													) : (
+														<div className="config-test-result-body">
+															{props.testResult.latencyMs != null && (
+																<div className="config-test-result-row">
+																	<span>耗时</span>
+																	<span>
+																		{props.testResult.latencyMs < 1000
+																			? `${props.testResult.latencyMs} ms`
+																			: `${(props.testResult.latencyMs / 1000).toFixed(1)} s`}
+																	</span>
+																</div>
+															)}
+															{props.testResult.requestUrl && (
+																<div className="config-test-result-row">
+																	<span>请求</span>
+																	<code className="config-test-request-url">
+																		POST{" "}
+																		{props.testResult.requestUrl}
+																	</code>
+																</div>
+															)}
+															{props.testResult.requestBody && (
+																<div className="config-test-result-row">
+																	<span>Body</span>
+																	<code className="config-test-request-body">
+																		{props.testResult.requestBody}
+																	</code>
+																</div>
+															)}
+															<div className="config-test-result-error">
+																{props.testResult.error}
+															</div>
+														</div>
+													)}
+												</div>
+											)}
+
+										<div className="config-form-row">
 											<label>兼容性</label>
 											<div className="config-compat-group">
 												<label className="config-checkbox-label">
@@ -778,13 +1238,91 @@ function ModelsTab(props: {
 									<div className="config-models-section">
 										<div className="config-models-header">
 											<span>模型列表</span>
-											<button
-												className="config-btn small"
-												onClick={() => props.onAddModel(name)}
-											>
-												+ 模型
-											</button>
+											<div style={{ display: "flex", gap: 6 }}>
+												{props.fetchedModels[name] &&
+												props.fetchedModels[name].length > 0 &&
+												addingModelDropdown !== name && (
+													<button
+														className="config-btn small"
+														onClick={() => {
+															setAddingModelDropdown(name);
+															setAddingModelId("");
+														}}
+													>
+														+ 从列表选择
+													</button>
+												)}
+												<button
+													className="config-btn small"
+													onClick={() => {
+														setAddingModelDropdown(null);
+														props.onAddModel(name);
+													}}
+												>
+													+ 手动添加
+												</button>
+											</div>
 										</div>
+
+										{/* 下拉选择模型 */}
+										{addingModelDropdown === name &&
+											props.fetchedModels[name] && (
+												<div className="config-model-dropdown-row">
+													<select
+														value={addingModelId}
+														onChange={(e) =>
+															setAddingModelId(e.target.value)
+														}
+													>
+														<option value="">
+															-- 选择模型 --
+														</option>
+														{props.fetchedModels[name].map((m) => (
+															<option key={m.id} value={m.id}>
+																{m.name ?? m.id}
+															</option>
+														))}
+													</select>
+													<button
+														className="config-btn primary small"
+														onClick={() => {
+															if (!addingModelId.trim()) return;
+															const selected = props.fetchedModels[
+																name
+															].find((m) => m.id === addingModelId);
+															const provider =
+																data.providers[name];
+															if (!provider) return;
+															const newModel: ModelItem = {
+																id: addingModelId,
+																name: selected?.name ?? addingModelId,
+															};
+															props.onChangeProvider(
+																name,
+																"models",
+																[
+																	...provider.models,
+																	newModel,
+																],
+															);
+															setAddingModelDropdown(null);
+															setAddingModelId("");
+														}}
+														disabled={!addingModelId.trim()}
+													>
+														添加
+													</button>
+													<button
+														className="config-btn small"
+														onClick={() => {
+															setAddingModelDropdown(null);
+															setAddingModelId("");
+														}}
+													>
+														取消
+													</button>
+												</div>
+											)}
 										<div className="config-models-grid-header">
 											<span>ID</span>
 											<span>名称</span>

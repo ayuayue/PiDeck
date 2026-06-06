@@ -8,7 +8,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.4.0-green)
+![Version](https://img.shields.io/badge/version-0.4.6-green)
 
 `pi-desktop` **不是** pi 的分支。它是一个轻量 Electron 外壳，通过启动多个 `pi --mode rpc` 进程，将项目管理、会话管理、对话界面、配置管理和工具编排整合到一个原生桌面应用中——所有 Agent 能力由 pi 原生提供。
 
@@ -19,8 +19,8 @@
 | 功能 | 说明 |
 |---|---|
 | **多项目工作区** | 添加、搜索和切换本地项目目录，同时运行多个 pi Agent，项目间完全隔离。 |
-| **配置管理** | 可视化编辑器管理 pi 的 `models.json`、`auth.json`、`settings.json`——无需手动编辑 JSON 文件即可管理 Provider、API Key 和模型配置。 |
-| **斜线命令 & `!` Shell** | 内置斜线命令建议（`/reload`、`/compact`、`/session` 等），支持 `!command` / `!!command` 在聊天输入框直接执行 Shell 命令。 |
+| **配置管理** | 可视化编辑器管理 pi 的 `models.json`、`auth.json`、`settings.json`，支持 Provider 重命名、模型拉取、连接测试和请求头/User-Agent 配置。 |
+| **斜线命令 & `!` Shell** | 内置斜线命令建议（`/compact`、`/session`、`/codex` 等），支持 `!command` / `!!command` 执行 Shell，也可用 `/codex` 调用本机 Codex CLI。 |
 | **会话管理** | 新建会话、恢复历史会话、内联重命名、导出 HTML、关闭 Agent——通过侧边栏或右键菜单即可完成。 |
 | **Git 集成** | 实时显示当前分支，支持本地 + 远程分支选择器、分支数量徽章和分支切换。 |
 | **工具调用可视化** | 工具调用聚合卡片，摘要 + 可展开详情，运行中/完成/失败状态清晰标识。 |
@@ -41,7 +41,7 @@ Markdown 渲染 + 流式输出、工具调用详情、模型/思考等级/上下
 
 ![配置管理](docs/images/config.png)
 
-可视化编辑器：Models（Provider 卡片 + 模型网格）、Auth（API Key 管理）、Settings（类型感知的键值编辑器）、源文件（原始 JSON 编辑）——保存后自动重载，热生效到运行中的 Agent。
+可视化编辑器：Models（Provider 卡片 + 模型网格 + 连接测试）、Auth（API Key 管理）、Settings（类型感知的键值编辑器）、源文件（原始 JSON 编辑）——保存后可按需重启 Agent 生效。
 
 ### 斜线命令与会话历史
 

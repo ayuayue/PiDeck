@@ -56,6 +56,13 @@ export type ConfigValidationResult = {
 	error?: string;
 };
 
+type TestRequest = {
+	url: string;
+	headers: Record<string, string>;
+	body?: string;
+	method?: "GET" | "POST";
+};
+
 /**
  * 管理 pi 全局配置文件（~/.pi/agent/ 下的 models.json、auth.json、settings.json）。
  * 按照 pi 实际文件格式解析：models.json 是嵌套 providers 结构，auth.json 是对象映射。
@@ -177,6 +184,517 @@ export class ConfigManager {
 		const json =
 			typeof content === "string" ? content : JSON.stringify(content, null, 2);
 		await writeFile(filePath, json, "utf8");
+	}
+
+	// ── 远程拉取模型列表 ─────────────────────────────────
+
+	/**
+	 * 向 OpenAI 兼容的 /models 端点拉取可用模型列表。
+	 * 使用 Authorization: Bearer <apiKey> 认证。
+	 * 返回 { id, name? } 数组，或失败时返回 error。
+	 */
+	async fetchProviderModels(
+		baseUrl: string,
+		apiKey: string,
+		apiType?: string,
+	): Promise<{ success: boolean; models?: Array<{ id: string; name?: string }>; error?: string }> {
+		const request = this.buildModelsRequest(baseUrl, apiKey, apiType);
+		try {
+			const controller = new AbortController();
+			// 10 秒超时，避免网络不通时长时间卡住
+			const timeout = setTimeout(() => controller.abort(), 10_000);
+
+			const res = await fetch(request.url, {
+				method: request.method ?? "GET",
+				headers: request.headers,
+				signal: controller.signal,
+			});
+			clearTimeout(timeout);
+
+			if (!res.ok) {
+				return {
+					success: false,
+					error: `HTTP ${res.status}: ${res.statusText}`,
+				};
+			}
+
+			const body = (await res.json()) as Record<string, unknown>;
+			const models = this.parseModelsResponse(body, apiType);
+
+			if (models.length === 0) {
+				return {
+					success: false,
+					error: "接口返回了空的模型列表",
+				};
+			}
+
+			return { success: true, models };
+		} catch (e) {
+			const msg =
+				e instanceof Error
+					? e.name === "AbortError"
+						? "请求超时，请检查网络或 baseUrl"
+						: e.message
+					: String(e);
+			return { success: false, error: this.redactSecret(msg, apiKey) };
+		}
+	}
+
+	// ── 快速测试连接 ─────────────────────────────────────
+
+	/**
+	 * 向 provider 发送一条最小聊天请求验证 baseUrl、apiKey 和模型是否正常。
+	 * 返回测试结果，包含模型名、响应摘要、token 用量和延迟。
+	 */
+	/**
+	 * 根据 API 类型构造测试请求的 URL、headers 和 body。
+	 * 支持的 api 类型：openai-completions, openai-chat-completions, openai-responses, anthropic, google-generative-ai
+	 * 未识别类型默认按 openai-chat-completions 处理。
+	 */
+	private buildModelsRequest(
+		baseUrl: string,
+		apiKey: string,
+		apiType?: string,
+	): TestRequest {
+		const u = baseUrl.replace(/\/+$/, "");
+		const api = this.normalizeApiType(apiType);
+
+		if (api === "google-generative-ai") {
+			return {
+				url: `${u}/models?key=${encodeURIComponent(apiKey)}`,
+				headers: { "Content-Type": "application/json" },
+			};
+		}
+
+		if (api === "anthropic-messages") {
+			return {
+				url: `${u}/models`,
+				headers: {
+					"x-api-key": apiKey,
+					"anthropic-version": "2023-06-01",
+					"Content-Type": "application/json",
+				},
+			};
+		}
+
+		return {
+			url: `${u}/models`,
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				"Content-Type": "application/json",
+			},
+		};
+	}
+
+	private parseModelsResponse(
+		body: Record<string, unknown>,
+		apiType?: string,
+	): Array<{ id: string; name?: string }> {
+		const api = this.normalizeApiType(apiType);
+		const rawData = Array.isArray(body.data) ? body.data : Array.isArray(body)
+			? body
+			: body.models && Array.isArray(body.models)
+				? body.models
+				: [];
+
+		return (rawData as Array<Record<string, unknown>>)
+			.map((model) => {
+				const rawId =
+					typeof model.id === "string"
+						? model.id
+						: typeof model.name === "string"
+							? model.name
+							: "";
+				const id =
+					api === "google-generative-ai"
+						? rawId.replace(/^models\//, "")
+						: rawId;
+				const name =
+					typeof model.displayName === "string"
+						? model.displayName
+						: typeof model.name === "string"
+							? model.name.replace(/^models\//, "")
+							: id;
+				return { id, name };
+			})
+			.filter((model) => model.id.length > 0);
+	}
+
+	private buildTestRequest(
+		baseUrl: string,
+		apiKey: string,
+		modelId: string,
+		apiType: string,
+		requestHeaders?: Record<string, string>,
+	): { url: string; headers: Record<string, string>; body: string } {
+		const u = baseUrl.replace(/\/+$/, "");
+		const api = this.normalizeApiType(apiType);
+		const extraHeaders = this.normalizeRequestHeaders(requestHeaders);
+
+		switch (api) {
+			case "openai-completions":
+				return {
+					url: `${u}/completions`,
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						...extraHeaders,
+					},
+					body: JSON.stringify({
+						model: modelId,
+						prompt: "Hi",
+						max_tokens: 10,
+					}),
+				};
+
+			case "openai-responses":
+			case "openai-codex-responses":
+				return {
+					url: `${u}/responses`,
+					headers: this.withOpenAiSdkUserAgent({
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						...extraHeaders,
+					}),
+					body: JSON.stringify({
+						model: modelId,
+						input: "Use the list_files tool if tool calling is available.",
+						max_output_tokens: 10,
+						tools: [
+							{
+								type: "function",
+								name: "list_files",
+								description: "List files to verify tool calling compatibility.",
+								parameters: {
+									type: "object",
+									properties: {},
+									additionalProperties: false,
+								},
+							},
+						],
+					}),
+				};
+
+			case "anthropic-messages":
+				return {
+					url: `${u}/messages`,
+					headers: {
+						"x-api-key": apiKey,
+						"anthropic-version": "2023-06-01",
+						"Content-Type": "application/json",
+						...extraHeaders,
+					},
+					body: JSON.stringify({
+						model: modelId,
+						messages: [{ role: "user", content: "Hi" }],
+						max_tokens: 10,
+					}),
+				};
+
+			case "google-generative-ai":
+				// Gemini 的 API key 作为查询参数
+				return {
+					url: `${u}/${this.googleModelPath(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+					headers: {
+						"Content-Type": "application/json",
+						...extraHeaders,
+					},
+					body: JSON.stringify({
+						contents: [
+							{
+								role: "user",
+								parts: [{ text: "Hi" }],
+							},
+						],
+						generationConfig: { maxOutputTokens: 10 },
+					}),
+				};
+
+			case "mistral-conversations":
+				return {
+					url: `${u}/conversations`,
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						...extraHeaders,
+					},
+					body: JSON.stringify({
+						model: modelId,
+						inputs: "Hi",
+						store: false,
+					}),
+				};
+
+			default:
+				// openai-chat-completions 及任何未知类型
+				return {
+					url: `${u}/chat/completions`,
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						...extraHeaders,
+					},
+					body: JSON.stringify({
+						model: modelId,
+						messages: [{ role: "user", content: "Hi" }],
+						max_tokens: 10,
+					}),
+				};
+		}
+	}
+
+	private normalizeApiType(apiType?: string) {
+		switch (apiType) {
+			case "anthropic":
+			case "anthropic-messages":
+				return "anthropic-messages";
+			case "openai-codex-responses":
+				return "openai-codex-responses";
+			case "openai-completions":
+			case "openai-responses":
+			case "google-generative-ai":
+			case "mistral-conversations":
+			case "openai-chat-completions":
+				return apiType;
+			default:
+				return "openai-chat-completions";
+		}
+	}
+
+	private googleModelPath(modelId: string) {
+		return modelId.startsWith("models/") ? modelId : `models/${modelId}`;
+	}
+
+	private normalizeRequestHeaders(headers?: Record<string, string>) {
+		if (!headers) return {};
+		return Object.fromEntries(
+			Object.entries(headers).filter(
+				([key, value]) =>
+					key.trim().length > 0 && typeof value === "string",
+			),
+		);
+	}
+
+	private withOpenAiSdkUserAgent(headers: Record<string, string>) {
+		const hasUserAgent = Object.keys(headers).some(
+			(key) => key.toLowerCase() === "user-agent",
+		);
+		// pi 的 openai-responses provider 走 OpenAI JS SDK。部分代理会按 SDK
+		// 默认 User-Agent 拦截请求，所以配置检测需要模拟该默认值，避免“检测通过、会话 403”。
+		return hasUserAgent ? headers : { ...headers, "User-Agent": "OpenAI/JS 6.26.0" };
+	}
+
+	private redactSecret(value: string, apiKey: string) {
+		if (!apiKey) return value;
+		return value.split(apiKey).join("***");
+	}
+
+	/**
+	 * 根据 API 类型从响应中提取模型名、文本片段和 token 用量。
+	 */
+	private parseTestResponse(
+		body: Record<string, unknown>,
+		modelId: string,
+		apiType: string,
+	): { model: string; snippet: string; tokens?: { input?: number; output?: number } } {
+		const api = this.normalizeApiType(apiType);
+		switch (api) {
+			case "openai-completions": {
+				const choices = body.choices as Array<Record<string, unknown>> | undefined;
+				const text = (choices?.[0]?.text as string) ?? "(空响应)";
+				const usage = body.usage as Record<string, unknown> | undefined;
+				return {
+					model: (body.model as string) ?? modelId,
+					snippet: text,
+					tokens: {
+						input: usage?.prompt_tokens as number | undefined,
+						output: usage?.completion_tokens as number | undefined,
+					},
+				};
+			}
+
+			case "openai-responses":
+			case "openai-codex-responses": {
+				const output = body.output as Array<Record<string, unknown>> | undefined;
+				const content = output?.[0]?.content as Array<Record<string, unknown>> | undefined;
+				const functionCall = output?.find(
+					(item) => item.type === "function_call",
+				);
+				const text =
+					(content?.[0]?.text as string | undefined) ??
+					(functionCall
+						? `工具调用兼容：${String(functionCall.name ?? "function_call")}`
+						: "(空响应)");
+				const usage = body.usage as Record<string, unknown> | undefined;
+				return {
+					model: (body.model as string) ?? modelId,
+					snippet: text,
+					tokens: {
+						input: usage?.input_tokens as number | undefined,
+						output: usage?.output_tokens as number | undefined,
+					},
+				};
+			}
+
+			case "anthropic-messages": {
+				const content = body.content as Array<Record<string, unknown>> | undefined;
+				const text = (content?.[0]?.text as string) ?? "(空响应)";
+				const usage = body.usage as Record<string, unknown> | undefined;
+				return {
+					model: (body.model as string) ?? modelId,
+					snippet: text,
+					tokens: {
+						input: usage?.input_tokens as number | undefined,
+						output: usage?.output_tokens as number | undefined,
+					},
+				};
+			}
+
+			case "google-generative-ai": {
+				const candidates = body.candidates as Array<Record<string, unknown>> | undefined;
+				const parts = candidates?.[0]?.content as Record<string, unknown> | undefined;
+				const text = (parts?.parts as Array<Record<string, unknown>>)?.[0]?.text as string ?? "(空响应)";
+				const usage = body.usageMetadata as Record<string, unknown> | undefined;
+				return {
+					model: (body.modelVersion as string) ?? modelId,
+					snippet: text,
+					tokens: {
+						input: usage?.promptTokenCount as number | undefined,
+						output: usage?.candidatesTokenCount as number | undefined,
+					},
+				};
+			}
+
+			case "mistral-conversations": {
+				const outputs = body.outputs as Array<Record<string, unknown>> | undefined;
+				const firstOutput = outputs?.[0];
+				const content = firstOutput?.content;
+				const text = Array.isArray(content)
+					? content
+						.map((item) =>
+							item && typeof item === "object"
+								? String((item as Record<string, unknown>).text ?? "")
+								: String(item ?? ""),
+						)
+						.filter(Boolean)
+						.join(" ")
+					: typeof content === "string"
+						? content
+						: (body.response as string | undefined) ?? "(空响应)";
+				const usage = body.usage as Record<string, unknown> | undefined;
+				return {
+					model: (body.model as string) ?? modelId,
+					snippet: text,
+					tokens: {
+						input: usage?.prompt_tokens as number | undefined,
+						output: usage?.completion_tokens as number | undefined,
+					},
+				};
+			}
+
+			default:
+				// openai-chat-completions
+			{
+				const choices = body.choices as Array<Record<string, unknown>> | undefined;
+				const message = choices?.[0]?.message as Record<string, unknown> | undefined;
+				const text = (message?.content as string) ?? "(空响应)";
+				const usage = body.usage as Record<string, unknown> | undefined;
+				return {
+					model: (body.model as string) ?? modelId,
+					snippet: text,
+					tokens: {
+						input: usage?.prompt_tokens as number | undefined,
+						output: usage?.completion_tokens as number | undefined,
+					},
+				};
+			}
+		}
+	}
+
+	async testProviderConnection(
+		baseUrl: string,
+		apiKey: string,
+		modelId: string,
+		apiType?: string,
+		requestHeaders?: Record<string, string>,
+	): Promise<{
+		success: boolean;
+		model?: string;
+		snippet?: string;
+		tokens?: { input?: number; output?: number };
+		latencyMs?: number;
+		error?: string;
+		requestUrl?: string;
+		requestBody?: string;
+	}> {
+		const startedAt = Date.now();
+		const api = apiType ?? "openai-chat-completions";
+		const { url: requestUrl, headers, body: requestBody } =
+			this.buildTestRequest(baseUrl, apiKey, modelId, api, requestHeaders);
+		const safeRequestUrl = this.redactSecret(requestUrl, apiKey);
+		const safeRequestBody = this.redactSecret(requestBody, apiKey);
+
+		try {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 15_000);
+
+			const res = await fetch(requestUrl, {
+				method: "POST",
+				headers,
+				body: requestBody,
+				signal: controller.signal,
+			});
+			clearTimeout(timeout);
+
+			const latencyMs = Date.now() - startedAt;
+
+			if (!res.ok) {
+				let detail = `${res.status} ${res.statusText}`;
+				try {
+					const errBody = (await res.json()) as Record<string, unknown>;
+					const errMsg =
+						(errBody.error as Record<string, unknown>)?.message ??
+						errBody.message ??
+						"";
+					if (errMsg) detail += ` — ${String(errMsg)}`;
+				} catch {
+					/* 忽略解析错误 */
+				}
+				return {
+					success: false,
+					error: this.redactSecret(detail, apiKey),
+					latencyMs,
+					requestUrl: safeRequestUrl,
+					requestBody: safeRequestBody,
+				};
+			}
+
+			const body = (await res.json()) as Record<string, unknown>;
+			const parsed = this.parseTestResponse(body, modelId, api);
+
+			return {
+				success: true,
+				...parsed,
+				latencyMs,
+				requestUrl: safeRequestUrl,
+				requestBody: safeRequestBody,
+			};
+		} catch (e) {
+			const latencyMs = Date.now() - startedAt;
+			const msg =
+				e instanceof Error
+					? e.name === "AbortError"
+					? "请求超时（15 秒），请检查网络或 baseUrl"
+					: e.message
+					: String(e);
+			return {
+				success: false,
+				error: this.redactSecret(msg, apiKey),
+				latencyMs,
+				requestUrl: safeRequestUrl,
+				requestBody: safeRequestBody,
+			};
+		}
 	}
 
 	// ── 导出 / 导入 ───────────────────────────────────────

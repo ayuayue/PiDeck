@@ -48,10 +48,16 @@ export const ipcChannels = {
 	configSaveRaw: "config:save-raw",
 	configExport: "config:export",
 	configImport: "config:import",
+	/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表 */
+	configFetchModels: "config:fetch-models",
+	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
+	configTestProvider: "config:test-provider",
 
 	/** 切换开发者控制台 */
 	appToggleDevTools: "app:toggle-devtools",
 
 	/** RPC 日志，用于调试 */
 	agentsRpcLog: "agents:rpc-log",
+	/** /codex 命令：直接调用 Codex CLI */
+	agentsCodexExec: "agents:codex-exec",
 } as const;

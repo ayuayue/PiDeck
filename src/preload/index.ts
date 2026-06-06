@@ -130,6 +130,37 @@ const api = {
 				ipcChannels.configImport,
 				packageJson,
 			) as Promise<{ valid: boolean; error?: string }>,
+		/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表 */
+		fetchModels: (baseUrl: string, apiKey: string, apiType?: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.configFetchModels,
+				{ baseUrl, apiKey, apiType },
+			) as Promise<{
+				success: boolean;
+				models?: Array<{ id: string; name?: string }>;
+				error?: string;
+			}>,
+		/** 快速测试 provider 连接：发送一条最小请求验证配置是否正常 */
+		testProvider: (
+			baseUrl: string,
+			apiKey: string,
+			modelId: string,
+			apiType?: string,
+			headers?: Record<string, string>,
+		) =>
+			ipcRenderer.invoke(
+				ipcChannels.configTestProvider,
+				{ baseUrl, apiKey, modelId, apiType, headers },
+			) as Promise<{
+				success: boolean;
+				model?: string;
+				snippet?: string;
+				tokens?: { input?: number; output?: number };
+				latencyMs?: number;
+				error?: string;
+				requestUrl?: string;
+				requestBody?: string;
+			}>,
 	},
 	agents: {
 		list: () =>
@@ -211,6 +242,12 @@ const api = {
 				state: AgentRuntimeState;
 			}) => void,
 		) => subscribe(ipcChannels.agentsRuntimeState, callback),
+		/** /codex 命令：直接调用 Codex CLI */
+		codexExec: (cwd: string, prompt: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.agentsCodexExec,
+				{ cwd, prompt },
+			) as Promise<{ text: string; error?: string }>,
 	},
 };
 
