@@ -81,10 +81,10 @@ function setHeaderValue(
 	return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
-// pi provider 的 api 字段是字符串配置；这里提供常见值辅助选择，同时保留未知值以兼容用户自定义或未来新增类型。
+// pi provider 的 api 字段必须使用官方 registry 名称；openai-completions 实际对应 Chat Completions。
+// 不再把历史别名 openai-chat-completions 作为预设暴露，避免测试通过但 pi 会话启动失败。
 const PROVIDER_API_OPTIONS = [
 	"openai-completions",
-	"openai-chat-completions",
 	"openai-responses",
 	"openai-codex-responses",
 	"anthropic-messages",

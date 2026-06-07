@@ -12,6 +12,7 @@
 - Provider 管理增强：Models 页支持重命名 provider，并可视化配置请求 headers / User-Agent。
 
 ### 优化
+- API 类型兼容：移除非 pi 官方的 `openai-chat-completions` 预设，将历史别名迁移为 `openai-completions`，并让 provider 测试与 pi 官方 Chat Completions 名称保持一致。
 - 斜线命令和文件建议支持键盘选择，输入框操作更顺滑。
 - 增加 OpenAI Responses 兼容处理，包括为会校验客户端 headers 的 provider 模拟 SDK User-Agent。
 - 同步更新配置预览 mock 和 IPC 契约，覆盖 provider 模型拉取与测试流程。

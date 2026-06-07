@@ -12,6 +12,7 @@ All notable changes to pi-desktop are documented here.
 - Provider management improvements: rename providers in the Models tab and configure request headers/User-Agent visually.
 
 ### Improved
+- API type compatibility: removed the non-pi `openai-chat-completions` preset, migrate the legacy alias to `openai-completions`, and align provider tests with pi's official Chat Completions provider name.
 - Slash command and file suggestions now support keyboard selection for a smoother composer workflow.
 - Added OpenAI Responses compatibility handling, including SDK-like User-Agent fallback for providers that validate client headers.
 - Updated config preview mocks and IPC contracts for the new provider model fetch and testing flows.

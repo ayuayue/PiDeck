@@ -93,7 +93,8 @@ export class ConfigManager {
 	async saveModelsConfig(data: PiModelsFile): Promise<ConfigValidationResult> {
 		const validation = this.validateModels(data);
 		if (!validation.valid) return validation;
-		await this.writeJsonFile("models.json", data);
+		// 保存前统一迁移历史别名，确保写入 models.json 的 api 名称能被 pi 官方 registry 识别。
+		await this.writeJsonFile("models.json", this.normalizeModelsForPi(data));
 		return { valid: true };
 	}
 
@@ -248,8 +249,8 @@ export class ConfigManager {
 	 */
 	/**
 	 * 根据 API 类型构造测试请求的 URL、headers 和 body。
-	 * 支持的 api 类型：openai-completions, openai-chat-completions, openai-responses, anthropic, google-generative-ai
-	 * 未识别类型默认按 openai-chat-completions 处理。
+	 * 支持的 api 类型：openai-completions, openai-responses, anthropic-messages, google-generative-ai。
+	 * 历史别名 openai-chat-completions 会归一为 pi 官方的 openai-completions。
 	 */
 	private buildModelsRequest(
 		baseUrl: string,
@@ -332,21 +333,6 @@ export class ConfigManager {
 		const extraHeaders = this.normalizeRequestHeaders(requestHeaders);
 
 		switch (api) {
-			case "openai-completions":
-				return {
-					url: `${u}/completions`,
-					headers: {
-						Authorization: `Bearer ${apiKey}`,
-						"Content-Type": "application/json",
-						...extraHeaders,
-					},
-					body: JSON.stringify({
-						model: modelId,
-						prompt: "Hi",
-						max_tokens: 10,
-					}),
-				};
-
 			case "openai-responses":
 			case "openai-codex-responses":
 				return {
@@ -426,7 +412,7 @@ export class ConfigManager {
 				};
 
 			default:
-				// openai-chat-completions 及任何未知类型
+				// openai-completions 是 pi 官方名称，对应 OpenAI Chat Completions 接口。
 				return {
 					url: `${u}/chat/completions`,
 					headers: {
@@ -443,6 +429,27 @@ export class ConfigManager {
 		}
 	}
 
+	private normalizeModelsForPi(data: PiModelsFile): PiModelsFile {
+		return {
+			...data,
+			providers: Object.fromEntries(
+				Object.entries(data.providers).map(([name, provider]) => [
+					name,
+					{
+						...provider,
+						api: this.normalizeApiType(provider.api),
+						models: provider.models.map((model) => ({
+							...model,
+							api: typeof model.api === "string"
+								? this.normalizeApiType(model.api)
+								: model.api,
+						})),
+					},
+				]),
+			),
+		};
+	}
+
 	private normalizeApiType(apiType?: string) {
 		switch (apiType) {
 			case "anthropic":
@@ -450,14 +457,16 @@ export class ConfigManager {
 				return "anthropic-messages";
 			case "openai-codex-responses":
 				return "openai-codex-responses";
+			case "openai-chat-completions":
+				// 兼容早期 pi-desktop 暴露过的别名；pi 官方 registry 名称是 openai-completions。
+				return "openai-completions";
 			case "openai-completions":
 			case "openai-responses":
 			case "google-generative-ai":
 			case "mistral-conversations":
-			case "openai-chat-completions":
 				return apiType;
 			default:
-				return "openai-chat-completions";
+				return "openai-completions";
 		}
 	}
 
@@ -628,7 +637,7 @@ export class ConfigManager {
 		requestBody?: string;
 	}> {
 		const startedAt = Date.now();
-		const api = apiType ?? "openai-chat-completions";
+		const api = this.normalizeApiType(apiType);
 		const { url: requestUrl, headers, body: requestBody } =
 			this.buildTestRequest(baseUrl, apiKey, modelId, api, requestHeaders);
 		const safeRequestUrl = this.redactSecret(requestUrl, apiKey);
