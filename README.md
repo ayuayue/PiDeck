@@ -22,7 +22,6 @@
 - 🧪 Provider 连接测试：在启动 agent 前验证 Base URL、API Key、模型 ID、headers 和响应延迟
 - 📥 模型列表拉取：从供应商接口直接获取可用模型，减少手动录入
 - 🏷️ Provider 重命名与 User-Agent 配置：Models 页可视化管理 provider 名称和请求头
-- 🤖 `/codex` 命令：在当前项目目录调用本机 Codex CLI，并将结果写入聊天时间线
 - ⌨️ 建议面板优化：斜线命令和文件建议支持键盘选择，常用命令置顶
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
@@ -35,7 +34,7 @@
 |---|---|
 | **多项目工作区** | 添加、搜索和切换本地项目目录，同时运行多个 pi Agent，项目间完全隔离。 |
 | **配置管理** | 可视化编辑器管理 pi 的 `models.json`、`auth.json`、`settings.json`，支持 Provider 重命名、模型拉取、连接测试和请求头/User-Agent 配置。 |
-| **斜线命令 & `!` Shell** | 内置斜线命令建议（`/compact`、`/session`、`/codex` 等），支持 `!command` / `!!command` 执行 Shell，也可用 `/codex` 调用本机 Codex CLI。 |
+| **斜线命令 & `!` Shell** | 内置斜线命令建议（`/compact`、`/session` 等），支持 `!command` / `!!command` 在聊天输入框直接执行 Shell 命令。 |
 | **会话管理** | 新建会话、恢复历史会话、内联重命名、导出 HTML、关闭 Agent——通过侧边栏或右键菜单即可完成。 |
 | **Git 集成** | 实时显示当前分支，支持本地 + 远程分支选择器、分支数量徽章和分支切换。 |
 | **工具调用可视化** | 工具调用聚合卡片，摘要 + 可展开详情，运行中/完成/失败状态清晰标识。 |

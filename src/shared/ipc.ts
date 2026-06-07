@@ -58,6 +58,4 @@ export const ipcChannels = {
 
 	/** RPC 日志，用于调试 */
 	agentsRpcLog: "agents:rpc-log",
-	/** /codex 命令：直接调用 Codex CLI */
-	agentsCodexExec: "agents:codex-exec",
 } as const;

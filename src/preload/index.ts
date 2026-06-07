@@ -242,12 +242,6 @@ const api = {
 				state: AgentRuntimeState;
 			}) => void,
 		) => subscribe(ipcChannels.agentsRuntimeState, callback),
-		/** /codex 命令：直接调用 Codex CLI */
-		codexExec: (cwd: string, prompt: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.agentsCodexExec,
-				{ cwd, prompt },
-			) as Promise<{ text: string; error?: string }>,
 	},
 };
 

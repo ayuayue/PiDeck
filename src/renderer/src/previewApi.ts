@@ -263,9 +263,6 @@ export function createPreviewApi(): PiDesktopApi {
 			onThinking: noop,
 			onRpcLog: noop,
 			onRuntimeState: noop,
-			codexExec: async () => ({
-				text: "Codex mock response",
-			}),
 		},
 	};
 }

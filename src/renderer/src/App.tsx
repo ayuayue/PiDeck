@@ -678,101 +678,11 @@ export function App() {
 			return;
 		const message = prompt;
 		const images = attachedImages.length > 0 ? attachedImages : undefined;
-		// 发送前先保留快照，再立即清空 composer；这样普通发送、排队发送和 /codex
+		// 发送前先保留快照，再立即清空 composer；这样普通发送和排队发送
 		// 都能给用户明确反馈，同时失败时不会影响已捕获的待发送内容。
 		setPrompt("");
 		setAttachedImages([]);
 		setSuggestionsOpen(false);
-
-		// /codex 命令：直接调用 Codex CLI，不走 pi
-		if (message.trim().startsWith("/codex")) {
-			const codexPrompt = message.replace(/^\/codex\s*/, "").trim();
-			if (!codexPrompt) {
-				setToast("用法：/codex <问题>");
-				setTimeout(() => setToast(null), 3000);
-				return;
-			}
-			const cwd = activeAgent?.cwd ?? "";
-			// Codex 通过 --cd 获取工作目录，prompt 里只给简洁指令
-			const contextPrompt = [
-				"请简洁回答，不要输出工具调用过程。",
-				"",
-				codexPrompt,
-			].join("\n");
-
-			// 插入用户消息
-			const userMsg: ChatMessage = {
-				id: crypto.randomUUID(),
-				agentId: activeAgentId,
-				role: "user",
-				text: message,
-				timestamp: Date.now(),
-			};
-			setMessagesByAgent((prev) => ({
-				...prev,
-				[activeAgentId]: [...(prev[activeAgentId] ?? []), userMsg],
-			}));
-
-			// 插入加载中占位
-			const loadingId = crypto.randomUUID();
-			const loadingMsg: ChatMessage = {
-				id: loadingId,
-				agentId: activeAgentId,
-				role: "assistant",
-				text: "🤖 Codex 思考中…",
-				timestamp: Date.now(),
-				meta: { source: "codex", loading: true },
-			};
-			setMessagesByAgent((prev) => ({
-				...prev,
-				[activeAgentId]: [
-					...(prev[activeAgentId] ?? []),
-					loadingMsg,
-				],
-			}));
-
-			try {
-				const result = await api.agents.codexExec(cwd, contextPrompt);
-				const responseText = result.error
-					? `❌ Codex 错误：${result.error}`
-					: result.text || "(Codex 无输出)";
-
-				// 替换加载占位为实际结果
-				setMessagesByAgent((prev) => {
-					const msgs = [...(prev[activeAgentId] ?? [])];
-					const idx = msgs.findIndex((m) => m.id === loadingId);
-					if (idx >= 0) {
-						msgs[idx] = {
-							id: loadingId,
-							agentId: activeAgentId,
-							role: "assistant",
-							text: responseText,
-							timestamp: Date.now(),
-							meta: { source: "codex" },
-						};
-					}
-					return { ...prev, [activeAgentId]: msgs };
-				});
-			} catch (e) {
-				const errText = `❌ Codex 调用失败：${e instanceof Error ? e.message : String(e)}`;
-				setMessagesByAgent((prev) => {
-					const msgs = [...(prev[activeAgentId] ?? [])];
-					const idx = msgs.findIndex((m) => m.id === loadingId);
-					if (idx >= 0) {
-						msgs[idx] = {
-							id: loadingId,
-							agentId: activeAgentId,
-							role: "assistant",
-							text: errText,
-							timestamp: Date.now(),
-							meta: { source: "codex" },
-						};
-					}
-					return { ...prev, [activeAgentId]: msgs };
-				});
-			}
-			return;
-		}
 
 		// Agent 忙碌时，消息加入本地排队，等 agent 空闲后自动发送。
 		// 输入框已在上方清空，避免用户误以为消息还未被接收。
@@ -2900,7 +2810,7 @@ function mergeCommands(commands: PiCommand[]) {
 	return [...visibleCommands, ...extras];
 }
 
-const PINNED_COMMAND_NAMES = new Set(["codex"]);
+const PINNED_COMMAND_NAMES = new Set<string>();
 const HIDDEN_DESKTOP_COMMAND_NAMES = new Set([
 	"new",
 	"model",
@@ -2948,11 +2858,6 @@ const BUILTIN_COMMANDS: PiCommand[] = [
 		source: "builtin",
 	},
 	{ name: "logout", description: "退出登录", source: "builtin" },
-	{
-		name: "codex",
-		description: "通过 Codex CLI 问答，例：/codex 这段代码有什么问题",
-		source: "builtin",
-	},
 ];
 
 function PromptSuggestions(props: {
