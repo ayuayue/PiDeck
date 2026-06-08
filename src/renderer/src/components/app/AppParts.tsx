@@ -652,15 +652,23 @@ function ToolSummary(props: { message: ChatMessage }) {
 			: JSON.stringify(props.message.meta ?? {}, null, 2);
 	return (
 		<div className={`tool-summary ${status}`}>
-			<div>
+			<div className="tool-summary-main">
 				<strong>{toolName}</strong>
 				<small>
 					{statusLabel} · {formatTime(props.message.timestamp)}
 				</small>
 			</div>
-			<button onClick={() => setExpanded((value) => !value)}>
-				{expanded ? "收起" : "详情"}
-			</button>
+			<div className="tool-summary-actions">
+				<button onClick={() => setExpanded((value) => !value)}>
+					{expanded ? "收起" : "详情"}
+				</button>
+				<button
+					onClick={() => navigator.clipboard.writeText(detailText)}
+					title="复制完整工具调用详情"
+				>
+					复制
+				</button>
+			</div>
 			{expanded && <pre className="tool-detail">{detailText}</pre>}
 		</div>
 	);
@@ -671,6 +679,7 @@ export function AgentRun(props: {
 	onPreviewImage: (image: ImageContent) => void;
 	showThinking?: boolean;
 	onOpenExternal: (url: string) => void;
+	onResendUserMessage?: (message: ChatMessage) => void;
 }) {
 	return (
 		<article className="agent-run" data-message-id={props.run.id}>
@@ -690,6 +699,7 @@ export function AgentRun(props: {
 								message={item.message}
 								onPreviewImage={props.onPreviewImage}
 								onOpenExternal={props.onOpenExternal}
+								onResendUserMessage={props.onResendUserMessage}
 								showThinking={props.showThinking}
 								compact
 							/>
@@ -732,6 +742,7 @@ export function ChatBubble(props: {
 	onPreviewImage: (image: ImageContent) => void;
 	showThinking?: boolean;
 	onOpenExternal: (url: string) => void;
+	onResendUserMessage?: (message: ChatMessage) => void;
 	compact?: boolean;
 }) {
 	const { message } = props;
@@ -846,23 +857,31 @@ export function ChatBubble(props: {
 						</button>
 					)}
 					{isUser && (
-						<button
-							onClick={() => {
-								const text = message.text;
-								// 通过 InputEvent 设置输入框内容，复用 composer 现有的编辑流程
-								document
-									.querySelector<HTMLTextAreaElement>(".composer-box textarea")
-									?.focus();
-								// 触发自定义事件让 App 层处理编辑
-								window.dispatchEvent(
-									new CustomEvent("user-message-edit", {
-										detail: { text },
-									}),
-								);
-							}}
-						>
-							编辑
-						</button>
+						<>
+							<button
+								onClick={() => props.onResendUserMessage?.(message)}
+								title="用同一条用户消息再次发送给 AI"
+							>
+								重新发送
+							</button>
+							<button
+								onClick={() => {
+									const text = message.text;
+									// 编辑只把原消息放回输入框，不自动发送，方便用户二次加工。
+									document
+										.querySelector<HTMLTextAreaElement>(".composer-box textarea")
+										?.focus();
+									// 触发自定义事件让 App 层处理编辑
+									window.dispatchEvent(
+										new CustomEvent("user-message-edit", {
+											detail: { text },
+										}),
+									);
+								}}
+							>
+								编辑
+							</button>
+						</>
 					)}
 				</div>
 			</div>

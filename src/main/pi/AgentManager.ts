@@ -25,6 +25,8 @@ export class AgentManager {
 	private readonly activeAssistantMessageIds = new Map<string, string>();
 	/** pi 的 toolCallId 贯穿 start/update/end，用它把同一次工具调用合并成一条 UI 记录。 */
 	private readonly toolMessageIds = new Map<string, Map<string, string>>();
+	/** 每个 agent 只保留一条自动重试状态消息，避免短暂 5xx/网络错误把会话刷屏。 */
+	private readonly retryStatusMessageIds = new Map<string, string>();
 
 	constructor(
 		private readonly getProject: (id: string) => Project | undefined,
@@ -572,6 +574,24 @@ export class AgentManager {
 			this.upsertAssistantMessage(agentId, typed.message);
 		}
 
+		if (typed.type === "auto_retry_start") {
+			this.upsertRetryStatusMessage(agentId, typed, "running");
+			if (runtime) {
+				// pi 在等待指数退避期间可能短暂结束一轮 agent run；桌面端保持 running，
+				// 让用户明确知道当前不是最终失败，而是在等待下一次自动重试。
+				runtime.tab.status = "running";
+				this.emitState();
+			}
+		}
+
+		if (typed.type === "auto_retry_end") {
+			this.upsertRetryStatusMessage(
+				agentId,
+				typed,
+				typed.success ? "success" : "error",
+			);
+		}
+
 		if (typed.type === "agent_end") {
 			// 即使 runtime 已被清理（如用户快速切换/停止 agent），仍需向会话写入错误提示，
 			// 否则用户会看到发送后完全空白、没有任何反馈。
@@ -611,13 +631,28 @@ export class AgentManager {
 				(typeof contentError?.message === "string"
 					? contentError.message
 					: undefined);
-			if (errorMsg) {
-				this.addMessage(agentId, "error", String(errorMsg));
+			if (typed.willRetry === true) {
+				// agent_end.willRetry 表示 pi 已判定本次错误会进入自动重试；
+				// 此时不写入最终错误，避免用户误以为会话已经失败。
+				if (errorMsg && !this.retryStatusMessageIds.has(agentId)) {
+					this.upsertRetryStatusMessage(
+						agentId,
+						{
+							attempt: 0,
+							maxAttempts: 0,
+							delayMs: 0,
+							errorMessage: String(errorMsg),
+						},
+						"running",
+					);
+				}
+			} else if (errorMsg) {
+				this.addDetailedErrorMessage(agentId, String(errorMsg));
 			} else if (
 				typed.stopReason === "error" ||
 				errorMessages.length > 0
 			) {
-				this.addMessage(agentId, "error", "Agent 返回未知错误，请重试");
+				this.addDetailedErrorMessage(agentId, "Agent 返回未知错误，请重试");
 			}
 			if (runtime) this.emitState();
 			// 同步刷新 runtimeState，将 isStreaming 重置为 false；
@@ -886,10 +921,67 @@ export class AgentManager {
 		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
 	}
 
+	private addDetailedErrorMessage(agentId: string, errorMessage: string) {
+		const retryMessageId = this.retryStatusMessageIds.get(agentId);
+		const retryMessage = retryMessageId
+			? this.messages.get(agentId)?.find((message) => message.id === retryMessageId)
+			: undefined;
+		const attempt = Number(retryMessage?.meta?.attempt ?? 0);
+		const maxAttempts = Number(retryMessage?.meta?.maxAttempts ?? 0);
+		const retryLine = maxAttempts > 0 ? `\n\n已自动重试：${attempt}/${maxAttempts} 次` : "";
+		// 最终失败时把重试次数和原始错误放在同一条错误消息里，便于用户复制给模型/服务商排查。
+		this.addMessage(agentId, "error", `请求失败。${retryLine}\n\n原因：${errorMessage}`);
+	}
+
+	private upsertRetryStatusMessage(
+		agentId: string,
+		event: Record<string, any>,
+		status: "running" | "success" | "error",
+	) {
+		const list = this.messages.get(agentId) ?? [];
+		let messageId = this.retryStatusMessageIds.get(agentId);
+		let message = messageId ? list.find((item) => item.id === messageId) : undefined;
+		if (!message) {
+			messageId = randomUUID();
+			message = {
+				id: messageId,
+				agentId,
+				role: "system",
+				text: "",
+				timestamp: Date.now(),
+			};
+			list.push(message);
+			this.retryStatusMessageIds.set(agentId, messageId);
+		}
+
+		const attempt = Number(event.attempt ?? message.meta?.attempt ?? 0);
+		const maxAttempts = Number(event.maxAttempts ?? message.meta?.maxAttempts ?? 0);
+		const delayMs = Number(event.delayMs ?? 0);
+		const reason = String(
+			event.errorMessage ?? event.finalError ?? message.meta?.errorMessage ?? "未知错误",
+		);
+		const delayText = delayMs > 0 ? `，${Math.ceil(delayMs / 1000)} 秒后重试` : "";
+		const countText = maxAttempts > 0 ? `${attempt}/${maxAttempts}` : String(attempt || 1);
+
+		if (status === "running") {
+			message.text = `正在自动重试 ${countText}${delayText}\n原因：${reason}`;
+		} else if (status === "success") {
+			message.text = `自动重试成功，共重试 ${attempt} 次`;
+		} else {
+			message.text = `自动重试失败，已重试 ${countText} 次\n原因：${reason}`;
+		}
+		message.timestamp = Date.now();
+		message.meta = { status, attempt, maxAttempts, delayMs, errorMessage: reason };
+
+		this.messages.set(agentId, list);
+		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
+	}
+
 	private convertAgentMessages(
 		agentId: string,
 		rawMessages: unknown[],
 	): ChatMessage[] {
+		const historicalToolCalls = this.collectHistoricalToolCalls(rawMessages);
 		return rawMessages
 			.flatMap<ChatMessage>((message, index) => {
 				if (!message || typeof message !== "object") return [];
@@ -922,19 +1014,64 @@ export class AgentManager {
 						},
 					];
 				}
-				if (typed.role === "toolResult")
+				if (typed.role === "toolResult") {
+					const toolCallId = String(typed.toolCallId ?? `history-tool-${index}`);
+					const historicalCall = historicalToolCalls.get(toolCallId);
+					const toolName = String(typed.toolName ?? historicalCall?.name ?? "tool");
+					const isError = Boolean(typed.isError);
+					const result = {
+						content: typed.content,
+						details: typed.details,
+					};
+					const detailText = this.formatToolDetail(
+						toolName,
+						historicalCall?.args,
+						result,
+						isError,
+					);
 					return [
 						{
 							id: `${agentId}-history-${index}`,
 							agentId,
 							role: "tool" as const,
-							text: `${typed.toolName ?? "tool"} result`,
+							text: `${isError ? "✗" : "✓"} ${toolName}`,
 							timestamp: typed.timestamp ?? Date.now(),
+							meta: {
+								status: isError ? "error" : "done",
+								toolName,
+								toolCallId,
+								args: historicalCall?.args,
+								result,
+								isError,
+								detailText,
+							},
 						},
 					];
+				}
 				return [];
 			})
 			.filter((message: ChatMessage) => message.text.trim());
+	}
+
+	private collectHistoricalToolCalls(rawMessages: unknown[]) {
+		const calls = new Map<string, { name: string; args: unknown }>();
+		for (const message of rawMessages) {
+			if (!message || typeof message !== "object") continue;
+			const typed = message as any;
+			if (typed.role !== "assistant" || !Array.isArray(typed.content)) continue;
+			for (const block of typed.content) {
+				if (!block || typeof block !== "object") continue;
+				const toolCall = block as any;
+				if (toolCall.type !== "toolCall" || !toolCall.id) continue;
+				// pi 的历史文件把工具参数保存在 assistant.content 的 toolCall 块中，
+				// toolResult 只带结果；恢复历史详情时必须先建立 toolCallId → 参数映射。
+				calls.set(String(toolCall.id), {
+					name: String(toolCall.name ?? "tool"),
+					args: toolCall.arguments,
+				});
+			}
+		}
+		return calls;
 	}
 
 	private formatToolDetail(
@@ -943,6 +1080,7 @@ export class AgentManager {
 		result: unknown,
 		isError: boolean,
 	) {
+		const details = this.extractToolDetails(result);
 		const sections = [
 			`工具：${toolName ?? "tool"}`,
 			`状态：${isError ? "失败" : "完成"}`,
@@ -950,9 +1088,16 @@ export class AgentManager {
 			result
 				? `结果：\n${this.extractToolResultText(result) || this.safeJson(result)}`
 				: "",
+			details ? `详情：\n${this.safeJson(details)}` : "",
 		].filter(Boolean);
 		return sections.join("\n\n");
 	}
+
+	private extractToolDetails(result: unknown) {
+		if (!result || typeof result !== "object") return undefined;
+		return (result as any).details;
+	}
+
 
 	private extractToolResultText(result: unknown) {
 		if (!result || typeof result !== "object") return "";

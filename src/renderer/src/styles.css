@@ -1660,7 +1660,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	border-color: #ffc6c6;
 	background: #fff7f7;
 }
-.tool-summary div {
+.tool-summary-main {
 	min-width: 0;
 	display: grid;
 	gap: 3px;
@@ -1676,11 +1676,20 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	color: #8a94a3;
 	font-size: 12px;
 }
+.tool-summary-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	justify-content: flex-end;
+}
 .tool-summary button {
 	border: 0;
 	background: transparent;
 	color: #1677ff;
 	padding: 0;
+}
+.tool-summary button:hover {
+	color: #14a514;
 }
 .tool-summary .tool-detail {
 	grid-column: 1 / -1;

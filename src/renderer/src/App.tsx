@@ -1009,31 +1009,44 @@ export function App() {
 		setPrompt("");
 		setAttachedImages([]);
 		setSuggestionsOpen(false);
+		await submitPromptSnapshot(activeAgentId, message, images);
+	}
 
+	async function submitPromptSnapshot(
+		agentId: string,
+		message: string,
+		images?: ImageContent[],
+	) {
 		// Agent 忙碌时，消息加入本地排队，等 agent 空闲后自动发送。
-		// 输入框已在上方清空，避免用户误以为消息还未被接收。
+		// 这里接收快照参数，让 composer 发送和历史消息“重新发送”共享同一条路径。
 		if (isAgentBusy) {
 			const pending: PendingPrompt = {
 				id: crypto.randomUUID(),
-				agentId: activeAgentId,
+				agentId,
 				message,
 				images,
 				enqueuedAt: Date.now(),
 			};
 			setPendingPrompts((prev) => [...prev, pending]);
-			if (message) {
-				setMessageHistory((current) => [message.trim(), ...current]);
-				historyIndexRef.current = -1;
-			}
+			recordMessageHistory(message);
 			return;
 		}
 
-		await api.agents.prompt({ agentId: activeAgentId, message, images });
-		// 发送成功后记录到历史，供上下键切换复用
-		if (message) {
+		await api.agents.prompt({ agentId, message, images });
+		recordMessageHistory(message);
+	}
+
+	function recordMessageHistory(message: string) {
+		if (message.trim()) {
 			setMessageHistory((current) => [message.trim(), ...current]);
 			historyIndexRef.current = -1;
 		}
+	}
+
+	function resendUserMessage(message: ChatMessage) {
+		if (!activeAgentId || message.agentId !== activeAgentId) return;
+		// “重新发送”按原消息快照再次提交，不修改输入框，图片也复用原始 base64 内容。
+		void submitPromptSnapshot(activeAgentId, message.text, message.images);
 	}
 
 	/**
@@ -1685,6 +1698,7 @@ export function App() {
 										run={item}
 										onPreviewImage={setPreviewImage}
 										onOpenExternal={(url) => api.app.openExternal(url)}
+										onResendUserMessage={resendUserMessage}
 										showThinking={settings.showThinking}
 									/>
 								) : item.kind === "tool-group" ? (
@@ -1695,6 +1709,7 @@ export function App() {
 										message={item.message}
 										onPreviewImage={setPreviewImage}
 										onOpenExternal={(url) => api.app.openExternal(url)}
+										onResendUserMessage={resendUserMessage}
 										showThinking={settings.showThinking}
 									/>
 								),
