@@ -18,6 +18,7 @@ export const ipcChannels = {
 	gitCheckout: "git:checkout",
 	piCheck: "pi:check",
 	appInfo: "app:info",
+	appCheckUpdate: "app:check-update",
 	appOpenExternal: "app:open-external",
 	agentsList: "agents:list",
 	agentsCreate: "agents:create",

@@ -15,6 +15,8 @@ import iconPath from "../../build/icon.png?asset";
 import { ipcChannels } from "../shared/ipc";
 import type {
 	AppSettings,
+	AppUpdateAsset,
+	AppUpdateInfo,
 	CreateAgentInput,
 	SendPromptInput,
 } from "../shared/types";
@@ -45,6 +47,126 @@ let piLocator: PiLocator;
 let agentManager: AgentManager;
 let configManager: ConfigManager;
 let terminalManager: TerminalSessionManager;
+
+const RELEASES_URL = "https://github.com/ayuayue/pi-desktop/releases";
+const LATEST_RELEASE_API =
+	"https://api.github.com/repos/ayuayue/pi-desktop/releases/latest";
+
+type GitHubReleaseAsset = {
+	name: string;
+	browser_download_url: string;
+	size: number;
+};
+
+type GitHubRelease = {
+	tag_name?: string;
+	name?: string;
+	body?: string;
+	html_url?: string;
+	published_at?: string;
+	assets?: GitHubReleaseAsset[];
+};
+
+function normalizeVersion(version: string) {
+	return version.trim().replace(/^v/i, "");
+}
+
+function compareVersions(left: string, right: string) {
+	const leftParts = normalizeVersion(left)
+		.split(/[.-]/)
+		.map((part) => Number(part) || 0);
+	const rightParts = normalizeVersion(right)
+		.split(/[.-]/)
+		.map((part) => Number(part) || 0);
+	const length = Math.max(leftParts.length, rightParts.length);
+	for (let index = 0; index < length; index += 1) {
+		const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+		if (diff !== 0) return diff;
+	}
+	return 0;
+}
+
+function selectRecommendedAsset(assets: AppUpdateAsset[]) {
+	const platform = process.platform;
+	const arch = process.arch;
+	// 第一版只负责把用户带到最合适的下载项；不同安装形态仍由用户决定如何安装，避免误覆盖便携版/包管理器安装。
+	const candidates = assets.map((asset) => ({
+		...asset,
+		lowerName: asset.name.toLowerCase(),
+	}));
+	const archKeywords =
+		arch === "arm64" ? ["arm64", "aarch64"] : ["x64", "amd64", "x86_64"];
+	const matchesArch = (name: string) =>
+		archKeywords.some((keyword) => name.includes(keyword));
+	if (platform === "win32") {
+		return (
+			candidates.find(
+				(asset) => asset.lowerName.endsWith(".exe") && matchesArch(asset.lowerName),
+			) ??
+			candidates.find((asset) => asset.lowerName.endsWith(".exe")) ??
+			candidates.find(
+				(asset) => asset.lowerName.endsWith(".zip") && matchesArch(asset.lowerName),
+			)
+		);
+	}
+	if (platform === "darwin") {
+		return (
+			candidates.find(
+				(asset) => asset.lowerName.endsWith(".dmg") && matchesArch(asset.lowerName),
+			) ??
+			candidates.find((asset) => asset.lowerName.endsWith(".dmg")) ??
+			candidates.find(
+				(asset) => asset.lowerName.endsWith(".zip") && matchesArch(asset.lowerName),
+			)
+		);
+	}
+	if (platform === "linux") {
+		return (
+			candidates.find(
+				(asset) => asset.lowerName.includes("appimage") && matchesArch(asset.lowerName),
+			) ??
+			candidates.find(
+				(asset) => asset.lowerName.endsWith(".deb") && matchesArch(asset.lowerName),
+			) ??
+			candidates.find(
+				(asset) => asset.lowerName.endsWith(".tar.gz") && matchesArch(asset.lowerName),
+			) ??
+			candidates.find((asset) => asset.lowerName.includes("appimage"))
+		);
+	}
+	return candidates[0];
+}
+
+async function checkForAppUpdate(): Promise<AppUpdateInfo> {
+	const currentVersion = app.getVersion();
+	const response = await fetch(LATEST_RELEASE_API, {
+		headers: {
+			Accept: "application/vnd.github+json",
+			"User-Agent": `pi-desktop/${currentVersion}`,
+		},
+	});
+	if (!response.ok) {
+		throw new Error(`GitHub Release 检查失败：HTTP ${response.status}`);
+	}
+	const release = (await response.json()) as GitHubRelease;
+	const latestVersion = normalizeVersion(release.tag_name || currentVersion);
+	const assets = (release.assets ?? []).map((asset) => ({
+		name: asset.name,
+		url: asset.browser_download_url,
+		size: asset.size,
+	}));
+	return {
+		currentVersion,
+		latestVersion,
+		hasUpdate: compareVersions(latestVersion, currentVersion) > 0,
+		releaseName: release.name || `v${latestVersion}`,
+		releaseNotes: release.body || "",
+		releaseUrl: release.html_url || RELEASES_URL,
+		publishedAt: release.published_at,
+		assets,
+		recommendedAsset: selectRecommendedAsset(assets),
+	};
+}
 
 function setupTray() {
 	// iconPath 由 electron-vite 的 ?asset 后缀自动解析，打包后也能正确定位
@@ -204,8 +326,9 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.piCheck, () => piLocator.check());
 	ipcMain.handle(ipcChannels.appInfo, () => ({
 		version: app.getVersion(),
-		releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
+		releasesUrl: RELEASES_URL,
 	}));
+	ipcMain.handle(ipcChannels.appCheckUpdate, () => checkForAppUpdate());
 	ipcMain.handle(ipcChannels.appOpenExternal, async (_event, url: string) => {
 		// 外部链接统一经主进程打开，避免 renderer 直接依赖 shell 权限，也便于后续做白名单校验。
 		await shell.openExternal(url);

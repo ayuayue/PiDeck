@@ -16,10 +16,12 @@ import {
 	Brain,
 	Network,
 	Pencil,
+	Pin,
 	RefreshCw,
 	Settings2,
 	UploadCloud,
 	Wrench,
+	X,
 } from "lucide-react";
 import type {
 	AgentRuntimeState,
@@ -41,6 +43,13 @@ import type {
 } from "../../../../shared/types";
 
 export type DrawerPanel = "files" | "sessions";
+
+export type SessionModifiedFile = {
+	path: string;
+	toolName: string;
+	status: string;
+	changedLines?: number;
+};
 
 export function EnvironmentDialog(props: {
 	status: PiInstallStatus | null;
@@ -1213,6 +1222,8 @@ export function ConversationOutline(props: {
 }
 
 const OUTLINE_TOP_STORAGE_KEY = "pi-desktop:outline-top";
+const CHANGED_LINES_ESTIMATE_HINT =
+	"行数为估算：edit 按 oldText/newText 中较大的行数统计，多个 edit 会累加；write/create 按写入内容行数统计。它不是基于 git diff 的精确修改行数，末尾换行或多次编辑可能让数字偏大。";
 
 function getInitialOutlineTop() {
 	if (typeof window === "undefined") return 180;
@@ -1231,9 +1242,12 @@ export function DrawerContent(props: {
 	project?: Project;
 	files: FileTreeNode[];
 	sessions: SessionSummary[];
-	modifiedFiles: { path: string; toolName: string; status: string }[];
+	modifiedFiles: SessionModifiedFile[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
+	pinned: boolean;
+	onTogglePin: () => void;
+	onCollapse: () => void;
 	onClose: () => void;
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onRefreshSessions: () => void;
@@ -1250,7 +1264,32 @@ export function DrawerContent(props: {
 		<>
 			<div className="drawer-header">
 				<strong>{title}</strong>
-				<button onClick={props.onClose}>×</button>
+				<div className="drawer-header-actions">
+					<button
+						className={props.pinned ? "active" : ""}
+						title={props.pinned ? "取消固定抽屉" : "固定当前 Agent 的抽屉"}
+						aria-label={props.pinned ? "取消固定抽屉" : "固定抽屉"}
+						onClick={props.onTogglePin}
+					>
+						<Pin size={15} />
+					</button>
+					<button
+						disabled={props.pinned}
+						title={props.pinned ? "已固定，取消固定后可折叠" : "折叠面板"}
+						aria-label="折叠面板"
+						onClick={props.onCollapse}
+					>
+						<ChevronRight size={16} />
+					</button>
+					<button
+						disabled={props.pinned}
+						title={props.pinned ? "已固定，取消固定后可关闭" : "关闭面板"}
+						aria-label="关闭面板"
+						onClick={props.onClose}
+					>
+						<X size={16} />
+					</button>
+				</div>
 			</div>
 			{props.panel === "files" && (
 				<FilesPanel
@@ -1276,7 +1315,7 @@ export function DrawerContent(props: {
 function FilesPanel(props: {
 	files: FileTreeNode[];
 	/** 当前会话中 agent 修改过的文件 */
-	modifiedFiles: { path: string; toolName: string; status: string }[];
+	modifiedFiles: SessionModifiedFile[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
@@ -1289,7 +1328,7 @@ function FilesPanel(props: {
 					{props.modifiedFiles.map((file) => {
 						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
 						const isRunning = file.status === "running";
-						// 构造最小的 FileTreeNode 以复用右键菜单
+						// 构造最小的 FileTreeNode 以复用右键菜单，保持修改清单和文件树相同的打开/定位入口。
 						const fakeNode: FileTreeNode = {
 							name: fileName,
 							path: file.path,
@@ -1312,6 +1351,9 @@ function FilesPanel(props: {
 									{isRunning ? "◌" : "✓"}
 								</span>
 								<span className="modified-file-name">{fileName}</span>
+								{Boolean(file.changedLines) && (
+									<span className="modified-file-lines">{file.changedLines} 行</span>
+								)}
 								<span className="modified-file-tool">{file.toolName}</span>
 							</div>
 						);
@@ -1328,6 +1370,52 @@ function FilesPanel(props: {
 				/>
 			))}
 		</div>
+	);
+}
+
+export function SessionFileSummary(props: { files: SessionModifiedFile[] }) {
+	const [expanded, setExpanded] = useState(false);
+	const totalLines = props.files.reduce(
+		(total, file) => total + (file.changedLines ?? 0),
+		0,
+	);
+	const visibleFiles = expanded ? props.files : props.files.slice(0, 3);
+	const hiddenCount = Math.max(0, props.files.length - visibleFiles.length);
+	return (
+		<section className="session-file-summary tool-group" aria-label="本次会话修改文件摘要">
+			<button
+				className="session-file-summary-head tool-group-header"
+				type="button"
+				onClick={() => setExpanded((current) => !current)}
+			>
+				<span className="tool-status-dot" />
+				<span className="tool-group-title">本次会话修改</span>
+				<strong title={CHANGED_LINES_ESTIMATE_HINT}>
+					{props.files.length} 个文件
+					{totalLines > 0 ? ` · 约 ${totalLines} 行` : ""}
+				</strong>
+				{props.files.length > 3 && <em>{expanded ? "收起" : `展开 ${hiddenCount} 个`}</em>}
+			</button>
+			<p className="session-file-summary-hint" title={CHANGED_LINES_ESTIMATE_HINT}>
+				行数为工具输入估算，并非精确 diff；末尾换行或多次编辑可能偏大。
+			</p>
+			<div className="session-file-summary-list">
+				{visibleFiles.map((file) => {
+					const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
+					return (
+						<div key={file.path} className="session-file-summary-row" title={file.path}>
+							<span className="session-file-summary-name">{fileName}</span>
+							<span
+								className="session-file-summary-lines"
+								title={CHANGED_LINES_ESTIMATE_HINT}
+							>
+								{file.changedLines ? `约 ${file.changedLines} 行` : "已修改"}
+							</span>
+						</div>
+					);
+				})}
+			</div>
+		</section>
 	);
 }
 

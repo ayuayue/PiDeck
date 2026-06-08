@@ -135,6 +135,9 @@ export function ModelsTab(props: {
 	const modelIdInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 	const getModelInputKey = (providerName: string, index: number) =>
 		`${providerName}\u0000${index}`;
+	const getCompat = (providerName: string) =>
+		(data.providers[providerName].compat as Record<string, unknown> | undefined) ??
+		{};
 
 	useLayoutEffect(() => {
 		if (!pendingModelFocusKey) return;
@@ -524,9 +527,9 @@ export function ModelsTab(props: {
 												<label className="config-checkbox-label">
 													<input
 														type="checkbox"
-														checked={(provider.compat as Record<string, unknown>)?.supportsDeveloperRole !== false}
+														checked={getCompat(name).supportsDeveloperRole === true}
 														onChange={(e) => {
-															const compat = { ...((provider.compat as Record<string, unknown>) ?? {}) } as Record<string, unknown>;
+															const compat = { ...getCompat(name) };
 															compat.supportsDeveloperRole = e.target.checked;
 															props.onChangeProvider(name, "compat", compat);
 														}}
@@ -536,9 +539,9 @@ export function ModelsTab(props: {
 												<label className="config-checkbox-label">
 													<input
 														type="checkbox"
-														checked={(provider.compat as Record<string, unknown>)?.supportsReasoningEffort !== false}
+														checked={getCompat(name).supportsReasoningEffort === true}
 														onChange={(e) => {
-															const compat = { ...((provider.compat as Record<string, unknown>) ?? {}) } as Record<string, unknown>;
+															const compat = { ...getCompat(name) };
 															compat.supportsReasoningEffort = e.target.checked;
 															props.onChangeProvider(name, "compat", compat);
 														}}

@@ -56,6 +56,7 @@ export class AgentManager {
 			(response.data as { messages?: unknown[] } | undefined)?.messages ?? [],
 		);
 		this.messages.set(agentId, messages);
+		this.refreshAutoTitle(agentId);
 		this.emit(ipcChannels.agentsMessage, { agentId, messages });
 		return messages;
 	}
@@ -126,6 +127,7 @@ export class AgentManager {
 			cwd: project.path,
 			title: input.title || `${project.name} agent`,
 			status: "starting",
+			sessionPath: input.sessionPath,
 			createdAt: Date.now(),
 		};
 
@@ -918,7 +920,45 @@ export class AgentManager {
 			...(images && images.length > 0 ? { images } : {}),
 		});
 		this.messages.set(agentId, list);
+		if (role === "user" || role === "assistant") this.refreshAutoTitle(agentId);
 		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
+	}
+
+	private refreshAutoTitle(agentId: string) {
+		const runtime = this.agents.get(agentId);
+		if (!runtime) return false;
+		const project = this.getProject(runtime.tab.projectId);
+		if (!project) return false;
+		if (!this.isDefaultAgentTitle(runtime.tab.title, project)) return false;
+		const nextTitle = this.inferTitleFromMessages(this.messages.get(agentId) ?? []);
+		if (!nextTitle || nextTitle === runtime.tab.title) return false;
+		// Agent 列表标题应和历史会话列表的“摘要名”一致；
+		// 只覆盖默认标题，避免打开/重命名过的历史会话名称被第一条消息反向改掉。
+		runtime.tab.title = nextTitle;
+		this.emitState();
+		return true;
+	}
+
+	private isDefaultAgentTitle(title: string, project: Project) {
+		return (
+			title === `${project.name} agent` ||
+			title === `${project.name} 历史会话` ||
+			title === "历史会话"
+		);
+	}
+
+	private inferTitleFromMessages(messages: ChatMessage[]) {
+		const firstUserText = messages.find((message) => message.role === "user")?.text;
+		const firstAssistantText = messages.find(
+			(message) => message.role === "assistant",
+		)?.text;
+		return this.cleanTitle(firstUserText) || this.cleanTitle(firstAssistantText);
+	}
+
+	private cleanTitle(value?: string) {
+		const text = value?.replace(/\s+/g, " ").trim();
+		if (!text || /^untitled$/i.test(text)) return undefined;
+		return text.length > 32 ? `${text.slice(0, 32)}…` : text;
 	}
 
 	private addDetailedErrorMessage(agentId: string, errorMessage: string) {

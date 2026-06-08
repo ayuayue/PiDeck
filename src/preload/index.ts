@@ -5,6 +5,7 @@ import type {
 	AgentTab,
 	AppInfo,
 	AppSettings,
+	AppUpdateInfo,
 	AvailableModel,
 	ChatMessage,
 	CodexImportReport,
@@ -88,6 +89,8 @@ const api = {
 	},
 	app: {
 		info: () => ipcRenderer.invoke(ipcChannels.appInfo) as Promise<AppInfo>,
+		checkUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<AppUpdateInfo>,
 		openExternal: (url: string) =>
 			ipcRenderer.invoke(ipcChannels.appOpenExternal, url) as Promise<void>,
 		toggleDevTools: () =>

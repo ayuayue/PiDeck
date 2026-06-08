@@ -14,6 +14,9 @@ import {
 	Info,
 	Search,
 	Play,
+	Plus,
+	Trash2,
+	X,
 } from "lucide-react";
 import { createPreviewApi } from "./previewApi";
 import { ConfigModal } from "./ConfigModal";
@@ -41,6 +44,7 @@ import {
 	RpcLogModal,
 	SessionHistoryModal,
 	SessionStatus,
+	SessionFileSummary,
 	SettingsModal,
 	ThinkingBubble,
 	ToolGroup,
@@ -53,12 +57,14 @@ import {
 	groupToolMessages,
 	matches,
 	type DrawerPanel,
+	type SessionModifiedFile,
 } from "./components/app/AppParts";
 import type {
 	AgentRuntimeState,
 	AgentTab,
 	AppInfo,
 	AppSettings,
+	AppUpdateInfo,
 	AvailableModel,
 	ChatMessage,
 	CodexImportReport,
@@ -79,9 +85,57 @@ const COMPOSER_MIN_HEIGHT = 132;
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const COMPOSER_MIN_TIMELINE_HEIGHT = 160;
 
+function countContentLines(value: unknown) {
+	if (typeof value !== "string") return 0;
+	if (!value) return 0;
+	return value.split(/\r\n|\r|\n/).length;
+}
+
+function getToolChangedLineCount(toolName: string, args: any) {
+	// 会话结束摘要只能使用 renderer 已收到的工具参数，不能重新 diff 工作区；
+	// 这里按编辑/写入工具的输入估算“本次触达行数”，避免把用户在会话外的改动也计入。
+	if (/edit/i.test(toolName)) {
+		const edits = Array.isArray(args?.edits) ? args.edits : undefined;
+		if (edits) {
+			return edits.reduce((total: number, edit: any) => {
+				const oldLines = countContentLines(edit?.oldText);
+				const newLines = countContentLines(edit?.newText);
+				return total + Math.max(oldLines, newLines);
+			}, 0);
+		}
+		return Math.max(
+			countContentLines(args?.oldText),
+			countContentLines(args?.newText),
+		);
+	}
+	if (/write|create/i.test(toolName)) {
+		return countContentLines(args?.content ?? args?.text ?? args?.data);
+	}
+	return 0;
+}
+
+function displayProjectDirectoryName(project: Project) {
+	const normalizedPath = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
+	return normalizedPath.split("/").pop() || project.name || project.path;
+}
+
+function isReplacementForPendingAgent(agent: AgentTab, pending: AgentTab) {
+	if (!pending.id.startsWith("pending-")) return false;
+	if (agent.projectId !== pending.projectId || agent.cwd !== pending.cwd)
+		return false;
+	if (pending.sessionPath && agent.sessionPath === pending.sessionPath)
+		return true;
+	return agent.title === pending.title && agent.createdAt >= pending.createdAt - 1000;
+}
+
+function isPendingAgentId(agentId?: string) {
+	return Boolean(agentId?.startsWith("pending-"));
+}
+
 export function App() {
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [agents, setAgents] = useState<AgentTab[]>([]);
+	const [pendingAgents, setPendingAgents] = useState<AgentTab[]>([]);
 	const [activeProjectId, setActiveProjectId] = useState<string>();
 	const [activeAgentId, setActiveAgentId] = useState<string>();
 	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
@@ -124,6 +178,10 @@ export function App() {
 	/** 每个 agent 最后一次会话的总时长（ms），仅在会话结束后更新 */
 	const [sessionDurationByAgent, setSessionDurationByAgent] = useState<
 		Record<string, number>
+	>({});
+	/** 会话结束后固化的文件修改摘要；新一轮运行时继续展示上一轮结果，避免完成信息被隐藏。 */
+	const [sessionFileSummaryByAgent, setSessionFileSummaryByAgent] = useState<
+		Record<string, SessionModifiedFile[]>
 	>({});
 	/** RPC 日志，用于调试 */
 	const [rpcLogs, setRpcLogs] = useState<
@@ -172,6 +230,9 @@ export function App() {
 	const [sessionsProjectId, setSessionsProjectId] = useState<string>();
 	const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+	const [updateError, setUpdateError] = useState<string | null>(null);
+	const [updateChecking, setUpdateChecking] = useState(false);
 	const [configOpen, setConfigOpen] = useState(false);
 	const [_debugOpen, _setDebugOpen] = useState(false);
 	/** RPC 日志弹窗目标 agent */
@@ -220,6 +281,9 @@ export function App() {
 	>({});
 	const [listCollapsed, setListCollapsed] = useState(false);
 	const [drawerCollapsed, setDrawerCollapsed] = useState(false);
+	const [drawerPinnedByAgent, setDrawerPinnedByAgent] = useState<
+		Record<string, DrawerPanel>
+	>({});
 	const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 	const chatPaneRef = useRef<HTMLElement | null>(null);
 	const chatHeaderRef = useRef<HTMLElement | null>(null);
@@ -227,6 +291,7 @@ export function App() {
 	const timelineRef = useRef<HTMLElement | null>(null);
 	const composerBoxRef = useRef<HTMLDivElement | null>(null);
 	const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const pendingAgentsRef = useRef<AgentTab[]>([]);
 
 	const activeProject = projects.find(
 		(project) => project.id === activeProjectId,
@@ -234,11 +299,28 @@ export function App() {
 	const sessionsProject = projects.find(
 		(project) => project.id === sessionsProjectId,
 	);
-	const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+	const displayAgents = useMemo(() => {
+		const realIds = new Set(agents.map((agent) => agent.id));
+		return [
+			...agents,
+			...pendingAgents.filter(
+				(agent) =>
+					!realIds.has(agent.id) &&
+					!agents.some((realAgent) =>
+						isReplacementForPendingAgent(realAgent, agent),
+					),
+			),
+		];
+	}, [agents, pendingAgents]);
+	const activeAgent = displayAgents.find((agent) => agent.id === activeAgentId);
 	// 终端展开状态按 agent 隔离，避免切换项目/agent 时把别人的终端 UI 一并带过去。
 	const terminalOpen = activeAgentId
 		? Boolean(terminalOpenByAgent[activeAgentId])
 		: false;
+	const drawerPinnedPanel = activeAgentId
+		? drawerPinnedByAgent[activeAgentId]
+		: undefined;
+	const drawerPinned = Boolean(drawerPinnedPanel);
 	const activeMessages = activeAgentId
 		? (messagesByAgent[activeAgentId] ?? [])
 		: [];
@@ -274,10 +356,16 @@ export function App() {
 					: drawer === "sessions"
 						? `右侧面板正在显示 ${sessionsProject?.name ?? "项目"} 的历史会话`
 					: (activeAgent?.sessionPath ?? "");
+
+	useEffect(() => {
+		if (!drawerPinnedPanel) return;
+		if (drawer !== drawerPinnedPanel) setDrawer(drawerPinnedPanel);
+		if (drawerCollapsed) setDrawerCollapsed(false);
+	}, [drawer, drawerCollapsed, drawerPinnedPanel]);
+
 	/** 当前会话中 agent 修改过的文件（从 tool 消息 meta 中提取） */
 	const modifiedFiles = useMemo(() => {
-		const seen = new Set<string>();
-		const result: { path: string; toolName: string; status: string }[] = [];
+		const byPath = new Map<string, SessionModifiedFile>();
 		for (const msg of activeMessages) {
 			if (msg.role !== "tool") continue;
 			const toolName: string | undefined = msg.meta?.toolName as
@@ -285,7 +373,7 @@ export function App() {
 				| undefined;
 			const args: any = msg.meta?.args;
 			const status: string = String(msg.meta?.status ?? "done");
-			// 只收集文件写入/编辑类的工具调用
+			// 只收集文件写入/编辑类的工具调用，作为右侧 Files 与会话结束摘要的统一数据源。
 			if (!toolName || !/write|edit|create/i.test(toolName)) continue;
 			const filePath =
 				typeof args?.filePath === "string"
@@ -297,12 +385,22 @@ export function App() {
 							: typeof args?.fileName === "string"
 								? args.fileName
 								: undefined;
-			if (!filePath || seen.has(filePath)) continue;
-			seen.add(filePath);
-			result.push({ path: filePath, toolName, status });
+			if (!filePath) continue;
+			const previous = byPath.get(filePath);
+			byPath.set(filePath, {
+				path: filePath,
+				toolName: previous?.toolName ?? toolName,
+				status: status === "running" ? "running" : (previous?.status ?? status),
+				changedLines:
+					(previous?.changedLines ?? 0) + getToolChangedLineCount(toolName, args),
+			});
 		}
-		return result;
+		return Array.from(byPath.values());
 	}, [activeMessages]);
+	const finalizedModifiedFiles = activeAgentId
+		? (sessionFileSummaryByAgent[activeAgentId] ?? [])
+		: [];
+	const shouldShowSessionFileSummary = finalizedModifiedFiles.length > 0;
 	const outlineItems = useMemo(
 		() => buildOutline(activeMessages),
 		[activeMessages],
@@ -314,10 +412,10 @@ export function App() {
 	);
 	const visibleAgents = useMemo(
 		() =>
-			agents.filter((agent) =>
+			displayAgents.filter((agent) =>
 				matches(agent.title + agent.cwd + (agent.sessionId ?? ""), search),
 			),
-		[agents, search],
+		[displayAgents, search],
 	);
 	const filteredAgents = visibleAgents;
 	const filteredProjects = useMemo(
@@ -348,12 +446,32 @@ export function App() {
 			if (!activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
 		});
 		const offState = api.agents.onState((nextAgents) => {
-			setAgents(nextAgents);
-			setActiveAgentId((current) =>
-				current && nextAgents.some((agent) => agent.id === current)
-					? current
-					: undefined,
+			const previousPendingAgents = pendingAgentsRef.current;
+			const remainingPendingAgents = previousPendingAgents.filter(
+				(pending) =>
+					!nextAgents.some((agent) =>
+						isReplacementForPendingAgent(agent, pending),
+					),
 			);
+			if (remainingPendingAgents.length !== previousPendingAgents.length) {
+				pendingAgentsRef.current = remainingPendingAgents;
+				setPendingAgents(remainingPendingAgents);
+			}
+			setAgents(nextAgents);
+			setActiveAgentId((current) => {
+				if (!current) return undefined;
+				if (nextAgents.some((agent) => agent.id === current)) return current;
+				const pendingAgent = previousPendingAgents.find(
+					(agent) => agent.id === current,
+				);
+				const replacement = pendingAgent
+					? nextAgents.find((agent) =>
+							isReplacementForPendingAgent(agent, pendingAgent),
+						)
+					: undefined;
+				if (replacement) return replacement.id;
+				return pendingAgent ? current : undefined;
+			});
 			const activeIds = new Set(nextAgents.map((agent) => agent.id));
 			setTerminalOpenByAgent((current) =>
 				Object.fromEntries(
@@ -361,6 +479,11 @@ export function App() {
 				),
 			);
 			setTerminalHeightByAgent((current) =>
+				Object.fromEntries(
+					Object.entries(current).filter(([agentId]) => activeIds.has(agentId)),
+				),
+			);
+			setDrawerPinnedByAgent((current) =>
 				Object.fromEntries(
 					Object.entries(current).filter(([agentId]) => activeIds.has(agentId)),
 				),
@@ -425,7 +548,17 @@ export function App() {
 	}, []);
 
 	useEffect(() => {
-		if (activeAgentId) void refreshRuntimeState(activeAgentId);
+		const timer = window.setInterval(
+			() => void checkAppUpdate("auto"),
+			1000 * 60 * 60 * 6,
+		);
+		window.setTimeout(() => void checkAppUpdate("auto"), 5000);
+		return () => window.clearInterval(timer);
+	}, []);
+
+	useEffect(() => {
+		if (activeAgentId && !isPendingAgentId(activeAgentId))
+			void refreshRuntimeState(activeAgentId);
 	}, [activeAgentId]);
 
 	function getComposerMaxHeight() {
@@ -543,7 +676,7 @@ export function App() {
 	}, [activeProjectId, activeAgentId]);
 
 	useEffect(() => {
-		if (activeAgentId)
+		if (activeAgentId && !isPendingAgentId(activeAgentId))
 			void api.agents
 				.commands(activeAgentId)
 				.then(setCommands)
@@ -566,7 +699,7 @@ export function App() {
 
 	// 追踪 agent 会话开始/结束时间，计算会话时长
 	useEffect(() => {
-		for (const agent of agents) {
+		for (const agent of displayAgents) {
 			if (agent.id !== activeAgentId) continue;
 			if (agent.status === "running") {
 				sessionStartByAgentRef.current[agent.id] = Date.now();
@@ -578,9 +711,17 @@ export function App() {
 						[agent.id]: Date.now() - start,
 					}));
 				}
+				if (modifiedFiles.length > 0) {
+					// 会话结束时才固化摘要：运行中的临时工具状态不打扰聊天流，
+					// 同时新一轮 prompt 开始后仍保留上一轮完成结果。
+					setSessionFileSummaryByAgent((current) => ({
+						...current,
+						[agent.id]: modifiedFiles,
+					}));
+				}
 			}
 		}
-	}, [agents, activeAgentId]);
+	}, [displayAgents, activeAgentId, modifiedFiles]);
 
 	// 监听用户发送消息的编辑事件，将消息填入输入框
 	useEffect(() => {
@@ -607,15 +748,24 @@ export function App() {
 			setGitInfo({ current: null, branches: [] });
 			return;
 		}
-		const rememberedAgent = activeAgentByProject[activeProjectId];
-		const fallbackAgent = agents.find(
-			(agent) => agent.projectId === activeProjectId,
-		)?.id;
-		setActiveAgentId(
-			rememberedAgent && agents.some((agent) => agent.id === rememberedAgent)
-				? rememberedAgent
-				: fallbackAgent,
-		);
+		const currentAgentBelongsToProject =
+			activeAgentId &&
+			displayAgents.some(
+				(agent) =>
+					agent.id === activeAgentId && agent.projectId === activeProjectId,
+			);
+		if (!currentAgentBelongsToProject) {
+			const rememberedAgent = activeAgentByProject[activeProjectId];
+			const fallbackAgent = displayAgents.find(
+				(agent) => agent.projectId === activeProjectId,
+			)?.id;
+			setActiveAgentId(
+				rememberedAgent &&
+					displayAgents.some((agent) => agent.id === rememberedAgent)
+					? rememberedAgent
+					: fallbackAgent,
+			);
+		}
 
 		setExpandedDirs(new Set());
 		void api.files
@@ -626,7 +776,7 @@ export function App() {
 			.branches(activeProjectId)
 			.then(setGitInfo)
 			.catch(() => setGitInfo({ current: null, branches: [] }));
-	}, [activeProjectId, agents.length]);
+	}, [activeProjectId, displayAgents.length]);
 
 	async function checkPiInstall(source: "startup" | "manual" = "manual") {
 		setSettingsOpen(false);
@@ -648,6 +798,29 @@ export function App() {
 		}
 	}
 
+	async function checkAppUpdate(source: "auto" | "manual" = "manual") {
+		if (updateChecking) return;
+		setUpdateChecking(true);
+		try {
+			const next = await api.app.checkUpdate();
+			if (next.hasUpdate) {
+				setUpdateInfo(next);
+			} else if (source === "manual") {
+				setSettingsNotice(`当前已是最新版本 v${next.currentVersion}。`);
+				setToast("当前已是最新版本");
+			}
+		} catch (error) {
+			if (source === "manual") {
+				const message = error instanceof Error ? error.message : String(error);
+				setSettingsNotice(`检查更新失败：${message}`);
+				setUpdateError(message);
+				setToast("检查更新失败");
+			}
+		} finally {
+			setUpdateChecking(false);
+		}
+	}
+
 	async function refreshProjects() {
 		const next = await api.projects.list();
 		setProjects(next);
@@ -659,18 +832,24 @@ export function App() {
 		setSessions(next);
 	}
 
+	async function refreshSessionHistory(projectId = sessionsProjectId) {
+		if (!projectId) return;
+		setSessionHistoryLoading(true);
+		try {
+			// 项目历史弹框内的刷新需要显式进入 loading 状态；否则刷新很快完成时用户会误以为按钮没有响应。
+			await refreshSessions(projectId);
+		} finally {
+			setSessionHistoryLoading(false);
+		}
+	}
+
 	async function openProjectSessions(project: Project) {
 		setProjectMenu(null);
 		setActiveProjectId(project.id);
 		setSessionsProjectId(project.id);
 		setSessions([]);
 		setDrawer((current) => (current === "sessions" ? null : current));
-		setSessionHistoryLoading(true);
-		try {
-			await refreshSessions(project.id);
-		} finally {
-			setSessionHistoryLoading(false);
-		}
+		await refreshSessionHistory(project.id);
 	}
 
 	async function openHistorySession(session: SessionSummary) {
@@ -784,8 +963,10 @@ export function App() {
 		title?: string,
 	) {
 		if (!projectId) return;
+		const project = projects.find((item) => item.id === projectId);
+		if (!project) return;
 		const existing = sessionPath
-			? agents.find((agent) => agent.sessionPath === sessionPath)
+			? displayAgents.find((agent) => agent.sessionPath === sessionPath)
 			: undefined;
 		if (existing) {
 			setActiveProjectId(existing.projectId);
@@ -793,27 +974,65 @@ export function App() {
 			setDrawer(null);
 			return;
 		}
+		const previousAgentId = activeAgentId;
+		const pendingTab: AgentTab = {
+			id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+			projectId,
+			cwd: project.path,
+			title: title || `${project.name} agent`,
+			status: "starting",
+			sessionPath,
+			createdAt: Date.now(),
+		};
+		pendingAgentsRef.current = [...pendingAgentsRef.current, pendingTab];
+		setPendingAgents(pendingAgentsRef.current);
 		setActiveProjectId(projectId);
+		setActiveAgentId(pendingTab.id);
+		setActiveAgentByProject((current) => ({
+			...current,
+			[projectId]: pendingTab.id,
+		}));
 		// 立即关闭抽屉，避免等待 agent 加载期间列表仍然显示
 		setDrawer(null);
 		try {
 			const tab = await api.agents.create({ projectId, sessionPath, title });
+			pendingAgentsRef.current = pendingAgentsRef.current.filter(
+				(agent) => agent.id !== pendingTab.id,
+			);
+			setPendingAgents(pendingAgentsRef.current);
 			setActiveAgentId(tab.id);
+			setActiveAgentByProject((current) => ({
+				...current,
+				[projectId]: tab.id,
+			}));
 			void refreshRuntimeState(tab.id);
 		} catch (e) {
-			// 创建失败时由 main process 上报错误，前端仅静默处理
+			pendingAgentsRef.current = pendingAgentsRef.current.filter(
+				(agent) => agent.id !== pendingTab.id,
+			);
+			setPendingAgents(pendingAgentsRef.current);
+			setActiveAgentId((current) =>
+				current === pendingTab.id ? previousAgentId : current,
+			);
+			setActiveAgentByProject((current) => {
+				const next = { ...current };
+				if (previousAgentId) next[projectId] = previousAgentId;
+				else delete next[projectId];
+				return next;
+			});
+			// 创建失败时由 main process 上报错误，前端仅回退乐观占位，避免停留在不存在的 agent。
 		}
 	}
 
 	async function refreshRuntimeState(agentId = activeAgentId) {
-		if (!agentId) return;
+		if (!agentId || isPendingAgentId(agentId)) return;
 		const state = await api.agents.runtimeState(agentId).catch(() => undefined);
 		if (state)
 			setRuntimeStateByAgent((current) => ({ ...current, [agentId]: state }));
 	}
 
 	async function cycleModel() {
-		if (!activeAgentId) return;
+		if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
 		const state = await api.agents.cycleModel(activeAgentId);
 		setRuntimeStateByAgent((current) => ({
 			...current,
@@ -822,14 +1041,14 @@ export function App() {
 	}
 
 	async function openModelPicker() {
-		if (!activeAgentId) return;
+		if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
 		const models = await api.agents.availableModels(activeAgentId);
 		setAvailableModels(models);
 		setModelPickerOpen(true);
 	}
 
 	async function selectModel(model: AvailableModel) {
-		if (!activeAgentId) return;
+		if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
 		const state = await api.agents.setModel(
 			activeAgentId,
 			model.provider,
@@ -843,7 +1062,7 @@ export function App() {
 	}
 
 	async function cycleThinking() {
-		if (!activeAgentId) return;
+		if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
 		const state = await api.agents.cycleThinking(activeAgentId);
 		setRuntimeStateByAgent((current) => ({
 			...current,
@@ -852,7 +1071,7 @@ export function App() {
 	}
 
 	async function compactAgent() {
-		if (!activeAgentId) return;
+		if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
 		setCompacting(true);
 		try {
 			const state = await api.agents.compact(activeAgentId);
@@ -866,11 +1085,12 @@ export function App() {
 	}
 
 	async function closeAgent(agentId: string) {
+		if (isPendingAgentId(agentId)) return;
 		await api.agents.stop(agentId);
 	}
 
 	async function abortAgent(agentId = activeAgentId) {
-		if (!agentId) return;
+		if (!agentId || isPendingAgentId(agentId)) return;
 		// 用户主动停止时清空排队消息，避免 agent 空闲后自动发送已取消的内容
 		clearPendingPrompts();
 		await api.agents.abort(agentId);
@@ -878,6 +1098,7 @@ export function App() {
 	}
 
 	async function exportAgentHtml(agentId: string) {
+		if (isPendingAgentId(agentId)) return;
 		const result = await api.agents.exportHtml(agentId);
 		setToast(`已导出：${result.path}`);
 		setTimeout(() => setToast(null), 3500);
@@ -989,6 +1210,7 @@ export function App() {
 	}
 
 	/** 判断 agent 是否处于忙碌状态（正在处理消息或流式输出中） */
+	const isAgentStarting = activeAgent?.status === "starting";
 	const isAgentBusy = Boolean(
 		activeAgent &&
 			(activeAgent.status === "running" || activeRuntimeState?.isStreaming),
@@ -996,13 +1218,23 @@ export function App() {
 
 	// Agent 从忙碌变为空闲时，自动发送排队中的消息（只发当前 agent 的）
 	useEffect(() => {
-		if (!isAgentBusy && pendingPrompts.length > 0 && activeAgentId) {
+		if (
+			!isAgentStarting &&
+			!isAgentBusy &&
+			pendingPrompts.length > 0 &&
+			activeAgentId &&
+			!isPendingAgentId(activeAgentId)
+		) {
 			void flushPendingQueue();
 		}
-	}, [isAgentBusy, pendingPrompts.length, activeAgentId]);
+	}, [isAgentStarting, isAgentBusy, pendingPrompts.length, activeAgentId]);
 
 	async function sendPrompt() {
-		if (!activeAgentId || (!prompt.trim() && attachedImages.length === 0))
+		if (
+			isAgentStarting ||
+			!activeAgentId ||
+			(!prompt.trim() && attachedImages.length === 0)
+		)
 			return;
 		const message = prompt;
 		const images = attachedImages.length > 0 ? attachedImages : undefined;
@@ -1289,11 +1521,35 @@ export function App() {
 	}
 
 	function openDrawer(panel: DrawerPanel) {
+		if (drawerPinned && panel !== drawerPinnedPanel) return;
 		if (panel === "sessions" && activeProjectId) {
 			setSessionsProjectId(activeProjectId);
 			void refreshSessions(activeProjectId);
 		}
-		setDrawer((current) => (current === panel ? null : panel));
+		setDrawer((current) => {
+			if (current === panel) return drawerPinned ? current : null;
+			return panel;
+		});
+	}
+
+	function closeDrawer() {
+		if (drawerPinned) return;
+		setDrawer(null);
+	}
+
+	function collapseDrawer() {
+		if (drawerPinned) return;
+		setDrawerCollapsed(true);
+	}
+
+	function toggleDrawerPinned() {
+		if (!activeAgentId || !drawer) return;
+		setDrawerPinnedByAgent((current) => {
+			const next = { ...current };
+			if (next[activeAgentId]) delete next[activeAgentId];
+			else next[activeAgentId] = drawer;
+			return next;
+		});
 	}
 
 	function toggleDirectory(path: string) {
@@ -1321,8 +1577,12 @@ export function App() {
 					setListCollapsed(next <= 170);
 					setListWidth(next);
 				} else {
-					const next = Math.min(560, Math.max(180, startDrawerWidth - delta));
-					setDrawerCollapsed(next <= 190);
+					const minDrawerWidth = drawerPinned ? 220 : 180;
+					const next = Math.min(
+						560,
+						Math.max(minDrawerWidth, startDrawerWidth - delta),
+					);
+					setDrawerCollapsed(!drawerPinned && next <= 190);
 					setDrawerWidth(next);
 				}
 			});
@@ -1342,7 +1602,7 @@ export function App() {
 
 	function startComposerResize(event: PointerEvent) {
 		const startY = event.clientY;
-		const startHeight = composerHeight;
+		const startHeight = resolvedComposerHeight;
 		let frame = 0;
 
 		function onMove(moveEvent: globalThis.PointerEvent) {
@@ -1350,11 +1610,14 @@ export function App() {
 			frame = requestAnimationFrame(() => {
 				const maxHeight = getComposerMaxHeight();
 				// 拖动的是输入区顶部边线，鼠标向上意味着输入区变高；限制最大高度避免挤压会话阅读区域。
+				// 实际高度由手动高度和自动内容高度共同决定；拖到最大后自动高度也会变大，
+				// 因此手动缩小时必须同步覆盖 autoHeight，否则 Math.max 会继续把输入框顶在最大高度。
 				const next = Math.min(
 					maxHeight,
 					Math.max(COMPOSER_MIN_HEIGHT, startHeight + startY - moveEvent.clientY),
 				);
 				setComposerHeight(next);
+				setComposerAutoHeight(next);
 			});
 		}
 
@@ -1434,12 +1697,13 @@ export function App() {
 						/>
 					</div>
 					<button className="round-add" onClick={addProject}>
-						＋
+						<Plus size={18} />
 					</button>
 				</div>
 
 				<div className="conversation-list">
 					{filteredProjects.map((project) => {
+						const projectDirectoryName = displayProjectDirectoryName(project);
 						const projectAgents = filteredAgents.filter(
 							(agent) => agent.projectId === project.id,
 						);
@@ -1473,8 +1737,9 @@ export function App() {
 										setActiveProjectId(project.id);
 										setActiveAgentId(
 											activeAgentByProject[project.id] ??
-												agents.find((agent) => agent.projectId === project.id)
-													?.id,
+												displayAgents.find(
+													(agent) => agent.projectId === project.id,
+												)?.id,
 										);
 									}}
 								>
@@ -1484,13 +1749,11 @@ export function App() {
 									>
 										<Play size={12} />
 									</span>
-									<ProjectAvatar name={project.name} />
+									<ProjectAvatar name={projectDirectoryName} />
 									<div className="conversation-body">
 										<div className="conversation-title">
-											<strong>{project.name}</strong>
-											<span>项目</span>
+											<strong title={project.path}>{projectDirectoryName}</strong>
 										</div>
-										<p>{displayPath(project.path)}</p>
 									</div>
 									<span className="project-row-actions">
 										<span
@@ -1511,7 +1774,7 @@ export function App() {
 											<Info size={14} />
 										</span>
 										<span
-											className="conversation-close"
+											className="project-action project-delete"
 											title="删除目录记录"
 											onClick={async (event) => {
 												event.stopPropagation();
@@ -1520,7 +1783,7 @@ export function App() {
 												updateAfterProjectRemoved(project.id, next);
 											}}
 										>
-											×
+											<Trash2 size={14} />
 										</span>
 									</span>
 								</button>
@@ -1550,13 +1813,7 @@ export function App() {
 											<div className="conversation-body">
 												<div className="conversation-title">
 													<strong>{agent.title}</strong>
-													<span className={agent.status}>{agent.status}</span>
 												</div>
-												<p>
-													{agent.sessionId
-														? `session ${agent.sessionId}`
-														: displayPath(agent.cwd)}
-												</p>
 											</div>
 											<span
 												className="conversation-close"
@@ -1565,7 +1822,7 @@ export function App() {
 													void closeAgent(agent.id);
 												}}
 											>
-												×
+												<X size={13} />
 											</span>
 										</button>
 									))}
@@ -1618,7 +1875,7 @@ export function App() {
 							<div className="header-action-group session-group">
 								<button
 									className="primary-action"
-									disabled={!activeProjectId}
+									disabled={!activeProjectId || isAgentStarting}
 									onClick={() => createAgent()}
 									title="Start a new pi session"
 								>
@@ -1655,6 +1912,7 @@ export function App() {
 							<div className="header-action-group panel-group">
 								<button
 									className={drawer === "files" ? "active" : ""}
+									disabled={isAgentStarting}
 									onClick={() => {
 										setDrawerCollapsed(false);
 										openDrawer("files");
@@ -1664,7 +1922,7 @@ export function App() {
 								</button>
 								<button
 									className={terminalOpen ? "active" : ""}
-									disabled={!activeAgentId}
+									disabled={!activeAgentId || isAgentStarting}
 									onClick={() => {
 										if (!activeAgentId) return;
 										setTerminalOpenForAgent(activeAgentId, !terminalOpen);
@@ -1729,6 +1987,9 @@ export function App() {
 									onCancel={() => cancelPendingPrompt(prompt.id)}
 								/>
 							))}
+							{shouldShowSessionFileSummary && (
+								<SessionFileSummary files={finalizedModifiedFiles} />
+							)}
 						</div>
 					)}
 					{outlineItems.length > 1 && (
@@ -1778,7 +2039,7 @@ export function App() {
 						<ComposerToolbar
 							state={activeRuntimeState}
 							compacting={compacting}
-							disabled={isAgentBusy}
+							disabled={isAgentBusy || isAgentStarting}
 							onCycleModel={cycleModel}
 							onPickModel={openModelPicker}
 							onCycleThinking={cycleThinking}
@@ -1804,8 +2065,11 @@ export function App() {
 							onPaste={handlePaste}
 							onDrop={handleDrop}
 							onDragOver={handleDragOver}
+							disabled={isAgentStarting}
 							placeholder={
-								prompt.startsWith("!!")
+								isAgentStarting
+									? "Agent 正在启动…"
+									: prompt.startsWith("!!")
 									? "!!命令 — 直接执行，不写入上下文"
 									: prompt.startsWith("!")
 										? "!命令 — 直接执行 shell 命令"
@@ -1814,7 +2078,7 @@ export function App() {
 											: "输入消息，按设置的快捷键发送。/ 命令，@ 文件，! shell"
 							}
 						/>
-						{suggestionsOpen && (
+						{suggestionsOpen && !isAgentStarting && (
 							<PromptSuggestions
 								prompt={prompt}
 								items={suggestionItems}
@@ -1881,6 +2145,7 @@ export function App() {
 							)}
 							<button
 								disabled={
+									isAgentStarting ||
 									!activeAgentId ||
 									(!prompt.trim() && attachedImages.length === 0)
 								}
@@ -1910,13 +2175,6 @@ export function App() {
 			)}
 			{drawer && !drawerCollapsed && (
 				<aside className="detail-drawer">
-					<button
-						className="collapse-button drawer-collapse"
-						title="折叠面板"
-						onClick={() => setDrawerCollapsed(true)}
-					>
-						<ChevronRight size={16} />
-					</button>
 					<DrawerContent
 						panel={drawer}
 						project={drawer === "sessions" ? sessionsProject : undefined}
@@ -1925,7 +2183,10 @@ export function App() {
 						modifiedFiles={modifiedFiles}
 						expandedDirs={expandedDirs}
 						onToggleDirectory={toggleDirectory}
-						onClose={() => setDrawer(null)}
+						pinned={drawerPinned}
+						onTogglePin={toggleDrawerPinned}
+						onCollapse={collapseDrawer}
+						onClose={closeDrawer}
 						onFileContextMenu={(node, x, y) => setFileMenu({ node, x, y })}
 						onRefreshSessions={() =>
 							refreshSessions(sessionsProjectId ?? activeProjectId)
@@ -1950,7 +2211,7 @@ export function App() {
 					title="展开右侧面板"
 					onClick={() => setDrawerCollapsed(false)}
 				>
-					{drawer === "files" ? "文件" : "历史"}
+					<ChevronLeft size={16} />
 				</button>
 			)}
 			{fileMenu && (
@@ -2052,7 +2313,7 @@ export function App() {
 					appInfo={appInfo}
 					onCheckPi={() => checkPiInstall("manual")}
 					onTestPiProxy={() => testPiProxy()}
-					onCheckUpdate={() => api.app.openExternal(appInfo.releasesUrl)}
+					onCheckUpdate={() => checkAppUpdate("manual")}
 					onToggleDevTools={async () => {
 						const opened = await api.app.toggleDevTools();
 						setSettingsNotice(
@@ -2061,6 +2322,27 @@ export function App() {
 					}}
 					onClose={() => setSettingsOpen(false)}
 					onChange={updateSettings}
+				/>
+			)}
+			{updateInfo && (
+				<UpdateModal
+					info={updateInfo}
+					checking={updateChecking}
+					onClose={() => setUpdateInfo(null)}
+					onOpenRelease={() => api.app.openExternal(updateInfo.releaseUrl)}
+					onDownload={() =>
+						api.app.openExternal(
+							updateInfo.recommendedAsset?.url ?? updateInfo.releaseUrl,
+						)
+					}
+				/>
+			)}
+			{updateError && (
+				<UpdateErrorModal
+					message={updateError}
+					releasesUrl={appInfo.releasesUrl}
+					onClose={() => setUpdateError(null)}
+					onOpenRelease={() => api.app.openExternal(appInfo.releasesUrl)}
 				/>
 			)}
 			{previewImage && (
@@ -2096,7 +2378,7 @@ export function App() {
 						setSessionsProjectId(undefined);
 						setSessions([]);
 					}}
-					onRefresh={() => refreshSessions(sessionsProject.id)}
+					onRefresh={() => refreshSessionHistory(sessionsProject.id)}
 					onOpen={openHistorySession}
 					onRename={renameHistorySession}
 				/>
@@ -2108,6 +2390,81 @@ export function App() {
 					// 配置保存后不再自动 reload，用户可通过 Restart 按钮手动重载
 				}}
 			/>
+		</div>
+	);
+}
+
+function UpdateModal(props: {
+	info: AppUpdateInfo;
+	checking: boolean;
+	onClose: () => void;
+	onDownload: () => void;
+	onOpenRelease: () => void;
+}) {
+	return (
+		<div className="modal-backdrop update-backdrop">
+			<section className="update-modal">
+				<div className="modal-header">
+					<strong>发现新版本 v{props.info.latestVersion}</strong>
+					<button onClick={props.onClose}>×</button>
+				</div>
+				<div className="update-body">
+					<p className="update-version-line">
+						当前版本 v{props.info.currentVersion}，最新版本 v
+						{props.info.latestVersion}
+					</p>
+					{props.info.recommendedAsset && (
+						<p className="update-asset-line">
+							推荐下载：{props.info.recommendedAsset.name}
+						</p>
+					)}
+					<div className="update-notes">
+						{props.info.releaseNotes.trim() || "该版本没有填写发布日志。"}
+					</div>
+				</div>
+				<div className="update-actions">
+					<button onClick={props.onOpenRelease}>打开 Release</button>
+					<button className="primary" disabled={props.checking} onClick={props.onDownload}>
+						用浏览器下载
+					</button>
+				</div>
+			</section>
+		</div>
+	);
+}
+
+function UpdateErrorModal(props: {
+	message: string;
+	releasesUrl: string;
+	onClose: () => void;
+	onOpenRelease: () => void;
+}) {
+	return (
+		<div className="modal-backdrop update-backdrop">
+			<section className="update-modal update-error-modal">
+				<div className="modal-header">
+					<strong>检查更新失败</strong>
+					<button onClick={props.onClose}>×</button>
+				</div>
+				<div className="update-body">
+					<p className="update-version-line">
+						无法连接 GitHub Release。国内网络环境下 GitHub 可能不可达，
+						你可以稍后重试，或在设置的“代理设置”里配置桌面端代理后再次检查。
+					</p>
+					<div className="update-error-detail">错误信息：{props.message}</div>
+					<p className="update-asset-line">
+						也可以直接在浏览器打开 Release 页面手动查看和下载：
+						<br />
+						<span>{props.releasesUrl}</span>
+					</p>
+				</div>
+				<div className="update-actions">
+					<button onClick={props.onClose}>关闭</button>
+					<button className="primary" onClick={props.onOpenRelease}>
+						打开 Release 页面
+					</button>
+				</div>
+			</section>
 		</div>
 	);
 }

@@ -20,6 +20,8 @@
 
 ### v0.4.10 Updates
 - 🗂️ Project history quick action: each project row now includes a dedicated history button for opening historical sessions directly.
+- 🧾 Session file-change summary: completed agent runs now show modified file names and changed line counts at the end of the chat timeline.
+- 🔔 In-app update check: pi-desktop periodically checks GitHub Releases and shows release notes plus browser download links when a newer version is available.
 - 🖥️ Terminal stability fixes: terminal visibility no longer leaks across agents/projects, and duplicate tabs are no longer auto-created during initialization.
 - 🍎 macOS icon fix: release builds now ship a real `.icns` app icon for better Dock rendering.
 - ✍️ Composer and model-default improvements: the window no longer shrinks into a broken layout range, and newly added models now start with better default context/token/reasoning values.
@@ -40,7 +42,9 @@
 | **Session Management** | Create new sessions, open project history modals, restore historical ones, rename sessions, export to HTML, and close agents — all from the project history button, sidebar, or context menu. |
 | **Git Integration** | Real-time branch display with local + remote branch selector, branch count badge, and switching support. |
 | **Tool Call Visualization** | Grouped tool-call cards with summary and expandable details, clear status indicators for running/completed/failed calls. |
+| **Session File Summary** | Completed agent runs show a compact list of modified file names and changed line counts; more than three files can be expanded. |
 | **Context-Aware Input** | `@` file suggestions from project tree, `!` shell execution, `/` slash commands — all from a single composer. |
+| **Update Prompt** | Periodically checks GitHub Releases and shows release notes plus recommended download links opened in the system browser. |
 | **System Tray** | Close to tray by default, tray context menu, double-click to restore. |
 
 ---
@@ -51,7 +55,7 @@
 
 ![Workspace overview](docs/images/overview.png)
 
-Markdown rendering with streaming text, tool-call details, model/thinking/context/cache status bar, git branch selector, and action controls (New Session · Stop · Restart · Files · History · Terminal).
+Markdown rendering with streaming text, tool-call details, session file-change summary, model/thinking/context/cache status bar, git branch selector, and action controls (New Session · Stop · Restart · Files · History · Terminal).
 
 ### Configuration Management
 
@@ -69,7 +73,7 @@ Built-in slash command suggestions panel with descriptions, alongside the sessio
 
 ![File tree and session actions](docs/images/files.png)
 
-Project file tree with Git status indicators, `@` file reference suggestions in the composer, and session context menu (Open · Export HTML · Close Agent).
+Project file tree with Git status indicators, `@` file reference suggestions in the composer, current-session modified file list in the Files panel, and session context menu (Open · Export HTML · Close Agent).
 
 ---
 
@@ -82,6 +86,7 @@ pi-desktop
 │  ├─ Spawns pi --mode rpc processes
 │  ├─ Manages agent-scoped local pty terminals
 │  ├─ Bridges file / session / git operations
+│  ├─ Checks GitHub Releases for updates
 │  └─ Exposes safe IPC APIs
 │
 ├─ Electron Preload
@@ -94,6 +99,7 @@ pi-desktop
 │  ├─ Configuration modal (Models / Auth / Settings / Source)
 │  ├─ Agent-scoped Terminal Dock
 │  ├─ Model & context status bar
+│  ├─ Session file-change summary and update prompt modal
 │  └─ Settings UI (Basic / Proxy / Developer tabs)
 │
 └─ Pi Runtime

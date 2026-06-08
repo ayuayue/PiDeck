@@ -193,6 +193,24 @@ export type AppInfo = {
 	releasesUrl: string;
 };
 
+export type AppUpdateAsset = {
+	name: string;
+	url: string;
+	size: number;
+};
+
+export type AppUpdateInfo = {
+	currentVersion: string;
+	latestVersion: string;
+	hasUpdate: boolean;
+	releaseName: string;
+	releaseNotes: string;
+	releaseUrl: string;
+	publishedAt?: string;
+	assets: AppUpdateAsset[];
+	recommendedAsset?: AppUpdateAsset;
+};
+
 export type PiRuntimeEvent = {
 	agentId: string;
 	event: unknown;
