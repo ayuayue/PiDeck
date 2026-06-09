@@ -9,6 +9,12 @@ type PiProxySettings = Pick<
   "piProxyEnabled" | "piProxyUrl" | "piProxyBypass"
 >;
 
+export type PiCommandInvocation = {
+  command: string;
+  args: string[];
+  shell: boolean;
+};
+
 /** Resolves the pi CLI across packaged Electron environments where shell PATH is often incomplete. */
 export class PiLocator {
   resolveCommand() {
@@ -51,6 +57,22 @@ export class PiLocator {
     return this.applyPiProxyEnv(env, settings);
   }
 
+  createInvocation(command: string, args: string[]): PiCommandInvocation {
+    if (process.platform !== "win32") return { command, args, shell: false };
+
+    // Windows npm 全局命令通常是 .cmd shim；直接 spawn/execFile + shell:true 时，
+    // 含空格的 shim 路径会被 cmd 按空格拆分。显式通过 cmd.exe /c 执行，并只对命令行
+    // 片段做最小必要 quoting，可同时覆盖环境检测和长期运行的 RPC agent 启动。
+    const commandLine = [command, ...args]
+      .map((part) => this.quoteCmdArgument(part))
+      .join(" ");
+    return {
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", commandLine],
+      shell: false,
+    };
+  }
+
   private applyPiProxyEnv(
     env: NodeJS.ProcessEnv,
     settings?: PiProxySettings,
@@ -79,8 +101,8 @@ export class PiLocator {
 
     return new Promise(resolve => {
       // --version is a lightweight health check: it verifies both executable discovery and Node shim startup.
-      // Windows 的 .cmd shim 需要 shell 才能可靠执行；否则 execFile 可能误报不可用，但 spawn(shell:true) 实际能打开 agent。
-      execFile(command, ["--version"], { env: this.createProcessEnv(), shell: process.platform === "win32", windowsHide: true, timeout: 8_000 }, (error, stdout, stderr) => {
+      const invocation = this.createInvocation(command, ["--version"]);
+      execFile(invocation.command, invocation.args, { env: this.createProcessEnv(), shell: invocation.shell, windowsHide: true, timeout: 8_000 }, (error, stdout, stderr) => {
         if (error) {
           resolve({ installed: false, command, searchedDirs, error: stderr.trim() || error.message });
           return;
@@ -89,6 +111,11 @@ export class PiLocator {
         resolve({ installed: true, command, searchedDirs, version: stdout.trim() });
       });
     });
+  }
+
+  private quoteCmdArgument(value: string) {
+    if (!/[\s&()\[\]{}^=;!'+,`~|<>]/.test(value)) return value;
+    return `"${value.replace(/"/g, '\\"')}"`;
   }
 
   private getCandidates() {

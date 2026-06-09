@@ -26,13 +26,15 @@ export class PiProcess extends EventEmitter {
     const args = ["--mode", "rpc", ...(sessionPath ? ["--session", sessionPath] : [])];
     const locator = new PiLocator();
     const command = locator.resolveCommand();
+    const invocation = locator.createInvocation(command, args);
 
     // 每个 agent 绑定独立 cwd，确保 pi 自己发现项目级 AGENTS.md、settings 和 session 分组。
     // 打包后的 Electron 不一定继承用户终端 PATH；这里补齐跨平台 Node 工具链常见 bin 目录，尽量让已安装 pi 的用户开箱即用。
-    this.proc = spawn(command, args, {
+    // Windows 下通过 PiLocator.createInvocation 显式包裹含空格的 npm shim 路径，避免 cmd 拆分路径导致 agent 启动失败。
+    this.proc = spawn(invocation.command, invocation.args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      shell: process.platform === "win32",
+      shell: invocation.shell,
       env: locator.createProcessEnv(this.settings),
     });
 
