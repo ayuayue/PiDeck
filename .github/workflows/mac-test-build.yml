@@ -1,6 +1,9 @@
 name: Mac Test Build
 
 on:
+  push:
+    branches:
+      - fix/mac-composer-terminal-input
   workflow_dispatch:
 
 permissions:
