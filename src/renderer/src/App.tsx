@@ -27,6 +27,12 @@ import { ConfigModal } from "./ConfigModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { getComposerEnterIntent } from "./composerBehavior";
 import {
+	pruneTerminalDockState,
+	setTerminalDockCollapsed,
+	setTerminalDockOpen,
+	type TerminalDockStateByAgent,
+} from "./terminalDockState";
+import {
 	AgentAvatar,
 	AgentRun,
 	AgentContextMenu,
@@ -312,9 +318,8 @@ export function App() {
 	const [composerAutoHeight, setComposerAutoHeight] = useState(
 		COMPOSER_MIN_HEIGHT,
 	);
-	const [terminalOpenByAgent, setTerminalOpenByAgent] = useState<
-		Record<string, boolean>
-	>({});
+	const [terminalDockStateByAgent, setTerminalDockStateByAgent] =
+		useState<TerminalDockStateByAgent>({});
 	const [terminalHeightByAgent, setTerminalHeightByAgent] = useState<
 		Record<string, number>
 	>({});
@@ -395,10 +400,12 @@ export function App() {
 			};
 		});
 	}
-	// 终端展开状态按 agent 隔离，避免切换项目/agent 时把别人的终端 UI 一并带过去。
-	const terminalOpen = activeAgentId
-		? Boolean(terminalOpenByAgent[activeAgentId])
-		: false;
+	const terminalDockState = activeAgentId
+		? terminalDockStateByAgent[activeAgentId]
+		: undefined;
+	// 终端打开/折叠状态按 agent 隔离，避免切换项目/agent 后丢失当前终端 UI 状态。
+	const terminalOpen = Boolean(terminalDockState?.open);
+	const terminalCollapsed = Boolean(terminalDockState?.collapsed);
 	const drawerPinnedPanel = activeAgentId
 		? drawerPinnedByAgent[activeAgentId]
 		: undefined;
@@ -566,10 +573,8 @@ export function App() {
 				...nextAgents.map((agent) => agent.id),
 				...remainingPendingAgents.map((agent) => agent.id),
 			]);
-			setTerminalOpenByAgent((current) =>
-				Object.fromEntries(
-					Object.entries(current).filter(([agentId]) => activeIds.has(agentId)),
-				),
+			setTerminalDockStateByAgent((current) =>
+				pruneTerminalDockState(current, activeIds),
 			);
 			setTerminalHeightByAgent((current) =>
 				Object.fromEntries(
@@ -659,6 +664,13 @@ export function App() {
 		if (activeAgentId && !isPendingAgentId(activeAgentId))
 			void refreshRuntimeState(activeAgentId);
 	}, [activeAgentId]);
+
+	useEffect(() => {
+		const activeIds = new Set(displayAgents.map((agent) => agent.id));
+		setTerminalDockStateByAgent((current) =>
+			pruneTerminalDockState(current, activeIds),
+		);
+	}, [displayAgents]);
 
 	function getComposerMaxHeight() {
 		const chatPane = chatPaneRef.current;
@@ -1449,10 +1461,15 @@ export function App() {
 	}
 
 	function setTerminalOpenForAgent(agentId: string, open: boolean) {
-		setTerminalOpenByAgent((current) => ({
-			...current,
-			[agentId]: open,
-		}));
+		setTerminalDockStateByAgent((current) =>
+			setTerminalDockOpen(current, agentId, open),
+		);
+	}
+
+	function setTerminalCollapsedForAgent(agentId: string, collapsed: boolean) {
+		setTerminalDockStateByAgent((current) =>
+			setTerminalDockCollapsed(current, agentId, collapsed),
+		);
 	}
 
 	function handleComposerKeyDown(
@@ -2340,8 +2357,12 @@ export function App() {
 				{terminalOpen && activeAgentId && (
 					<TerminalDock
 						agentId={activeAgentId}
+						collapsed={terminalCollapsed}
 						height={terminalHeightByAgent[activeAgentId] ?? 220}
 						terminal={api.terminal}
+						onCollapsedChange={(collapsed) =>
+							setTerminalCollapsedForAgent(activeAgentId, collapsed)
+						}
 						onHeightChange={(height) =>
 							setTerminalHeightByAgent((current) => ({
 								...current,

@@ -69,8 +69,10 @@ function stripReplayBuffer(tab: TerminalTab): TerminalTab {
 
 export function TerminalDock(props: {
 	agentId: string;
+	collapsed: boolean;
 	height: number;
 	terminal: PiDesktopApi["terminal"];
+	onCollapsedChange: (collapsed: boolean) => void;
 	onHeightChange: (height: number) => void;
 	onClose: () => void;
 }) {
@@ -80,7 +82,6 @@ export function TerminalDock(props: {
 	const activeTabIdRef = useRef("");
 	const buffersRef = useRef<Record<string, string>>({});
 	const copyNoticeTimerRef = useRef<number | null>(null);
-	const [collapsed, setCollapsed] = useState(false);
 	const [tabs, setTabs] = useState<TerminalTab[]>([]);
 	const [activeTabId, setActiveTabId] = useState("");
 	const [themeId, setThemeId] = useState<TerminalThemeId>("pi-soft");
@@ -89,6 +90,7 @@ export function TerminalDock(props: {
 	const [loading, setLoading] = useState(false);
 	const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 	const theme = TERMINAL_THEMES[themeId];
+	const { collapsed } = props;
 
 	useEffect(() => {
 		activeTabIdRef.current = activeTab?.id ?? "";
@@ -230,7 +232,7 @@ export function TerminalDock(props: {
 		const next = await props.terminal.create(props.agentId);
 		setTabs((current) => [...current, stripReplayBuffer(next)]);
 		setActiveTabId(next.id);
-		setCollapsed(false);
+		props.onCollapsedChange(false);
 	}
 
 	async function closeTab(tab: TerminalTab) {
@@ -323,7 +325,7 @@ export function TerminalDock(props: {
 								className="terminal-tab-label"
 								onClick={() => {
 									setActiveTabId(tab.id);
-									setCollapsed(false);
+									props.onCollapsedChange(false);
 									focusTerminalSoon();
 								}}
 								title={tab.cwd}
@@ -370,7 +372,7 @@ export function TerminalDock(props: {
 					<button
 						className="terminal-icon-btn"
 						onClick={() => {
-							setCollapsed((value) => !value);
+							props.onCollapsedChange(!collapsed);
 							focusTerminalSoon();
 						}}
 						title={collapsed ? "展开终端" : "收起终端"}
