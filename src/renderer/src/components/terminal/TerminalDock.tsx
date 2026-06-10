@@ -275,6 +275,10 @@ export function TerminalDock(props: {
 		xtermRef.current?.focus();
 	}
 
+	function focusTerminalSoon() {
+		window.requestAnimationFrame(() => xtermRef.current?.focus());
+	}
+
 	function startResize(event: PointerEvent<HTMLDivElement>) {
 		event.preventDefault();
 		const startY = event.clientY;
@@ -320,6 +324,7 @@ export function TerminalDock(props: {
 								onClick={() => {
 									setActiveTabId(tab.id);
 									setCollapsed(false);
+									focusTerminalSoon();
 								}}
 								title={tab.cwd}
 							>
@@ -364,7 +369,10 @@ export function TerminalDock(props: {
 					</select>
 					<button
 						className="terminal-icon-btn"
-						onClick={() => setCollapsed((value) => !value)}
+						onClick={() => {
+							setCollapsed((value) => !value);
+							focusTerminalSoon();
+						}}
 						title={collapsed ? "展开终端" : "收起终端"}
 					>
 						{collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -382,6 +390,7 @@ export function TerminalDock(props: {
 			{!collapsed && (
 				<div
 					className="terminal-pane-shell"
+					onPointerDownCapture={focusTerminalSoon}
 					onContextMenu={(event) => void copySelectionOnContextMenu(event)}
 				>
 					{loading && <div className="terminal-placeholder">正在启动终端…</div>}

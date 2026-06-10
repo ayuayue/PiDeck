@@ -25,6 +25,7 @@ import {
 import { createPreviewApi } from "./previewApi";
 import { ConfigModal } from "./ConfigModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
+import { getComposerEnterIntent } from "./composerBehavior";
 import {
 	AgentAvatar,
 	AgentRun,
@@ -1529,24 +1530,11 @@ export function App() {
 			}
 			return;
 		}
-		if (event.key !== "Enter") return;
-
-		const shouldSend =
-			settings.sendShortcut === "enter-send"
-				? !event.ctrlKey && !event.metaKey && !event.shiftKey
-				: settings.sendShortcut === "ctrl-enter-send"
-					? event.ctrlKey || event.metaKey
-					: event.shiftKey;
-
-		const shouldInsertNewline =
-			settings.sendShortcut === "enter-send"
-				? event.ctrlKey || event.metaKey || event.shiftKey
-				: !shouldSend;
-
-		if (shouldSend) {
+		const enterIntent = getComposerEnterIntent(event, settings.sendShortcut);
+		if (enterIntent === "send") {
 			event.preventDefault();
 			void sendPrompt();
-		} else if (shouldInsertNewline) {
+		} else if (enterIntent === "newline") {
 			// 让 textarea 自己处理换行，保持输入体验接近普通聊天软件。
 			return;
 		}
@@ -1554,6 +1542,7 @@ export function App() {
 
 	/** 判断 agent 是否处于忙碌状态（正在处理消息或流式输出中） */
 	const isAgentStarting = activeAgent?.status === "starting";
+	const composerDisabled = !activeAgent || isAgentStarting;
 	const isAgentBusy = Boolean(
 		activeAgent &&
 			(activeAgent.status === "running" || activeRuntimeState?.isStreaming),
@@ -2071,12 +2060,7 @@ export function App() {
 											});
 										}
 										setActiveProjectId(project.id);
-										setActiveAgentId(
-											activeAgentByProject[project.id] ??
-												displayAgents.find(
-													(agent) => agent.projectId === project.id,
-												)?.id,
-										);
+										setActiveAgentId(undefined);
 									}}
 								>
 									<span
@@ -2369,6 +2353,35 @@ export function App() {
 				)}
 
 				<footer ref={composerRef} className="composer">
+					{/* 图片预览作为输入框上方的附件栏，避免占用 textarea 的可输入区域。 */}
+					{attachedImages.length > 0 && (
+						<div className="image-preview-area">
+							{attachedImages.map((img, index) => (
+								<div key={index} className="image-preview-item">
+									<img
+										src={`data:${img.mimeType};base64,${img.data}`}
+										alt={`图片 ${index + 1}`}
+										onClick={() => setPreviewImage(img)}
+										style={{ cursor: "pointer" }}
+									/>
+									<button
+										className="image-remove-btn"
+										onClick={() => removeImage(index)}
+										title="移除图片"
+									>
+										<X size={12} strokeWidth={2.4} />
+									</button>
+								</div>
+							))}
+							<button
+								className="image-clear-btn"
+								onClick={clearImages}
+								title="清空所有图片"
+							>
+								清空
+							</button>
+						</div>
+					)}
 					<div
 						ref={composerBoxRef}
 						className={`composer-box ${
@@ -2388,7 +2401,7 @@ export function App() {
 						<ComposerToolbar
 							state={activeRuntimeState}
 							compacting={compacting}
-							disabled={isAgentBusy || isAgentStarting}
+							disabled={isAgentBusy || composerDisabled}
 							onCycleModel={cycleModel}
 							onPickModel={openModelPicker}
 							onPickThinking={() => setThinkingPickerOpen(true)}
@@ -2414,10 +2427,12 @@ export function App() {
 							onPaste={handlePaste}
 							onDrop={handleDrop}
 							onDragOver={handleDragOver}
-							disabled={isAgentStarting}
+							disabled={composerDisabled}
 							placeholder={
 								isAgentStarting
 									? "Agent 正在启动…"
+									: !activeAgent
+										? "请选择一个 Agent 后输入消息"
 									: prompt.startsWith("!!")
 									? "!!命令 — 直接执行，不写入上下文"
 									: prompt.startsWith("!")
@@ -2427,7 +2442,7 @@ export function App() {
 											: "输入消息，按设置的快捷键发送。/ 命令，@ 文件，! shell"
 							}
 						/>
-						{suggestionsOpen && !isAgentStarting && (
+						{suggestionsOpen && !composerDisabled && (
 							<PromptSuggestions
 								prompt={prompt}
 								items={suggestionItems}
@@ -2452,36 +2467,6 @@ export function App() {
 									});
 								}}
 							/>
-						)}
-						{/* 图片预览区域：显示已附加的图片，支持单个或批量移除 */}
-						{attachedImages.length > 0 && (
-							<div className="image-preview-area">
-								{attachedImages.map((img, index) => (
-									<div key={index} className="image-preview-item">
-										<img
-											src={`data:${img.mimeType};base64,${img.data}`}
-											alt={`图片 ${index + 1}`}
-										
-											onClick={() => setPreviewImage(img)}
-											style={{ cursor: "pointer" }}
-										/>
-										<button
-											className="image-remove-btn"
-											onClick={() => removeImage(index)}
-											title="移除图片"
-										>
-											×
-										</button>
-									</div>
-								))}
-								<button
-									className="image-clear-btn"
-									onClick={clearImages}
-									title="清空所有图片"
-								>
-									清空
-								</button>
-							</div>
 						)}
 						<div className="composer-footer">
 							<span className={composerMode ? "composer-mode-status" : ""}>

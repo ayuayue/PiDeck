@@ -785,8 +785,12 @@ export function ImagePreviewModal(props: {
 }) {
 	return (
 		<div className="image-preview-modal" onClick={props.onClose}>
-			<button className="image-preview-close" onClick={props.onClose}>
-				×
+			<button
+				className="image-preview-close"
+				onClick={props.onClose}
+				aria-label="关闭图片预览"
+			>
+				<X size={20} strokeWidth={2.4} />
 			</button>
 			<img
 				src={`data:${props.image.mimeType};base64,${props.image.data}`}

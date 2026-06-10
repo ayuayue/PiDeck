@@ -1937,17 +1937,22 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	border-top: 1px solid #dfe3e8;
 	padding: 12px 26px;
 	min-width: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
 }
 .composer-box {
 	position: relative;
 	min-height: 132px;
 	max-height: 42vh;
+	min-width: 0;
 	display: grid;
-	grid-template-rows: 30px auto minmax(64px, 1fr) 34px;
+	grid-template-rows: 30px minmax(64px, 1fr) 34px;
 	border: 1px solid #dde2e8;
 	background: #fff;
 	border-radius: 10px;
-	overflow: visible;
+	overflow: hidden;
 	transition:
 		border-color 0.14s ease,
 		background 0.14s ease,
@@ -2033,7 +2038,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	word-break: break-word;
-	grid-row: 3;
+	grid-row: 2;
 }
 .composer-box:focus-within {
 	border-color: #14b814;
@@ -2080,13 +2085,17 @@ body.is-composer-resizing .composer-resize-handle::after {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
+	gap: 10px;
 	padding: 0 8px 8px 14px;
 	color: #8a9099;
 	font-size: 12px;
-	grid-row: 4;
+	grid-row: 3;
+	min-width: 0;
 }
 .composer-footer span {
-	max-width: 70%;
+	flex: 1 1 auto;
+	min-width: 0;
+	max-width: none;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -2097,8 +2106,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 	gap: 7px;
 	margin-left: 8px;
 	font-weight: 600;
-	max-width: min(72%, 560px);
-	overflow: visible;
+	max-width: none;
+	overflow: hidden;
 }
 .composer-footer .composer-mode-status::before {
 	content: "";
@@ -2124,6 +2133,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	position: relative;
 	display: inline-flex;
 	align-items: stretch;
+	flex: 0 0 auto;
 	gap: 2px;
 }
 .composer-footer .send-button-group > button:first-child {
@@ -4646,12 +4656,15 @@ body.is-composer-resizing .composer-resize-handle::after {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
-	padding: 8px 12px;
-	border-top: 1px solid #e8eaed;
-	background: #f8f9fa;
-	max-height: 120px;
+	min-width: 0;
+	min-height: 0;
+	padding: 8px 10px;
+	border: 1px solid #dfe4ea;
+	border-radius: 10px;
+	background: #f6f8fa;
+	max-height: 96px;
 	overflow-y: auto;
-	grid-row: 2;
+	overflow-x: hidden;
 }
 
 .image-preview-item {
@@ -4679,14 +4692,15 @@ body.is-composer-resizing .composer-resize-handle::after {
 	background: rgba(0, 0, 0, 0.6);
 	color: #fff;
 	border: none;
-	font-size: 14px;
-	line-height: 1;
+	padding: 0;
 	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+	display: grid;
+	place-items: center;
 	opacity: 0;
 	transition: opacity 0.15s;
+}
+.image-remove-btn svg {
+	display: block;
 }
 
 .image-preview-item:hover .image-remove-btn {
@@ -4762,9 +4776,14 @@ body.is-composer-resizing .composer-resize-handle::after {
 	border: 1px solid rgba(255, 255, 255, 0.3);
 	background: rgba(255, 255, 255, 0.12);
 	color: #fff;
-	font-size: 24px;
-	line-height: 1;
+	padding: 0;
 	cursor: pointer;
+	display: grid;
+	place-items: center;
+	backdrop-filter: blur(8px);
+}
+.image-preview-close svg {
+	display: block;
 }
 
 .image-preview-close:hover {

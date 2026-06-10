@@ -21,7 +21,7 @@ export type AgentTab = {
 	createdAt: number;
 };
 
-export type TerminalShell = "pwsh" | "powershell" | "cmd" | "sh";
+export type TerminalShell = "pwsh" | "powershell" | "cmd" | "zsh" | "bash" | "fish" | "sh";
 
 export type TerminalTab = {
 	id: string;

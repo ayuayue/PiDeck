@@ -11,6 +11,69 @@ type TerminalRuntime = {
 
 type Emit = (channel: string, payload: unknown) => void;
 const MAX_TERMINAL_REPLAY_BUFFER = 200_000;
+type TerminalShellCandidate = {
+	shell: TerminalShell;
+	command: string;
+	args: string[];
+};
+
+export function getTerminalShellCandidates(
+	platform: NodeJS.Platform,
+	env: NodeJS.ProcessEnv,
+): TerminalShellCandidate[] {
+	if (platform === "win32") {
+		return [
+			{ shell: "pwsh", command: "pwsh.exe", args: [] },
+			{ shell: "powershell", command: "powershell.exe", args: [] },
+			{ shell: "cmd", command: "cmd.exe", args: [] },
+		];
+	}
+
+	if (platform === "darwin") {
+		const userShell = normalizePosixShell(env.SHELL);
+		const candidates: TerminalShellCandidate[] = [];
+		if (userShell) candidates.push(userShell);
+		// macOS GUI 应用拿到的进程环境通常不是用户登录 shell 环境；
+		// 用登录 shell 启动可以让 zsh/bash 初始化 TTY 与用户 PATH，行为更接近 Terminal.app。
+		candidates.push(
+			{ shell: "zsh", command: "/bin/zsh", args: ["-l"] },
+			{ shell: "bash", command: "/bin/bash", args: ["-l"] },
+			{ shell: "sh", command: "/bin/sh", args: [] },
+		);
+		return dedupeShellCandidates(candidates);
+	}
+
+	const userShell = normalizePosixShell(env.SHELL);
+	const candidates: TerminalShellCandidate[] = [];
+	if (userShell) candidates.push(userShell);
+	candidates.push(
+		{ shell: "bash", command: "bash", args: [] },
+		{ shell: "sh", command: "sh", args: [] },
+	);
+	return dedupeShellCandidates(candidates);
+}
+
+function normalizePosixShell(
+	shellPath: string | undefined,
+): TerminalShellCandidate | null {
+	if (!shellPath) return null;
+	const name = shellPath.split(/[\\/]/).pop();
+	if (name === "zsh") return { shell: "zsh", command: shellPath, args: ["-l"] };
+	if (name === "bash") return { shell: "bash", command: shellPath, args: ["-l"] };
+	if (name === "fish") return { shell: "fish", command: shellPath, args: ["-l"] };
+	if (name === "sh") return { shell: "sh", command: shellPath, args: [] };
+	return { shell: "sh", command: shellPath, args: [] };
+}
+
+function dedupeShellCandidates(candidates: TerminalShellCandidate[]) {
+	const seen = new Set<string>();
+	return candidates.filter((candidate) => {
+		const key = `${candidate.command}\0${candidate.args.join("\0")}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
 
 export class TerminalSessionManager {
 	private readonly runtimes = new Map<string, Map<string, TerminalRuntime>>();
@@ -147,7 +210,7 @@ export class TerminalSessionManager {
 		let lastError: unknown;
 		for (const candidate of candidates) {
 			try {
-				const terminal = pty.spawn(candidate.command, [], {
+				const terminal = pty.spawn(candidate.command, candidate.args, {
 					name: "xterm-256color",
 					cols: 80,
 					rows: 24,
@@ -164,24 +227,16 @@ export class TerminalSessionManager {
 			: new Error("No supported shell found");
 	}
 
-	private shellCandidates(): Array<{ shell: TerminalShell; command: string }> {
-		if (process.platform === "win32") {
-			return [
-				{ shell: "pwsh", command: "pwsh.exe" },
-				{ shell: "powershell", command: "powershell.exe" },
-				{ shell: "cmd", command: "cmd.exe" },
-			];
-		}
-		return [
-			{ shell: "sh", command: process.env.SHELL || "sh" },
-			{ shell: "sh", command: "bash" },
-			{ shell: "sh", command: "sh" },
-		];
+	private shellCandidates(): TerminalShellCandidate[] {
+		return getTerminalShellCandidates(process.platform, process.env);
 	}
 
 	private displayShell(shell: TerminalShell) {
 		if (shell === "pwsh" || shell === "powershell") return "PowerShell";
 		if (shell === "cmd") return "cmd";
+		if (shell === "zsh") return "zsh";
+		if (shell === "bash") return "bash";
+		if (shell === "fish") return "fish";
 		return "shell";
 	}
 }

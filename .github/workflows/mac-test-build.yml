@@ -1,0 +1,42 @@
+name: Mac Test Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos-arm64:
+    name: Build macOS arm64 test artifact
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate app icon
+        run: npm run make-icon
+
+      - name: Build macOS arm64 package
+        run: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never
+
+      - name: Upload macOS test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-desktop-macos-arm64-test
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
