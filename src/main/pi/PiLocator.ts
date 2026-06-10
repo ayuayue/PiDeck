@@ -60,14 +60,25 @@ export class PiLocator {
   createInvocation(command: string, args: string[]): PiCommandInvocation {
     if (process.platform !== "win32") return { command, args, shell: false };
 
-    // Windows npm 全局命令通常是 .cmd shim；直接 spawn/execFile + shell:true 时，
-    // 含空格的 shim 路径会被 cmd 按空格拆分。显式通过 cmd.exe /c 执行，并只对命令行
-    // 片段做最小必要 quoting，可同时覆盖环境检测和长期运行的 RPC agent 启动。
-    const commandLine = [command, ...args]
+    if (command.toLowerCase().endsWith(".ps1")) {
+      // mise / PowerShell 环境常暴露 pi.ps1 而不是 npm 的 pi.cmd；.ps1 不能交给 cmd 执行，
+      // 必须通过 PowerShell 的 -File 入口启动，否则用户名或安装目录含空格时会被误判为找不到命令。
+      return {
+        command: "powershell.exe",
+        args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", command, ...args],
+        shell: false,
+      };
+    }
+
+    // Windows npm 全局命令通常是 .cmd shim；当命令路径本身需要引号时，cmd /s /c
+    // 需要额外一层外引号才能正确解析用户名含空格的路径；不需要引号的路径不能套外层引号，
+    // 否则 cmd 会把 `C:\...\pi.cmd --version` 整段当作命令名。
+    const innerCommand = [command, ...args]
       .map((part) => this.quoteCmdArgument(part))
       .join(" ");
+    const commandLine = this.needsCmdQuote(command) ? `"${innerCommand}"` : innerCommand;
     return {
-      command: "cmd.exe",
+      command: process.env.ComSpec || "cmd.exe",
       args: ["/d", "/s", "/c", commandLine],
       shell: false,
     };
@@ -114,12 +125,16 @@ export class PiLocator {
   }
 
   private quoteCmdArgument(value: string) {
-    if (!/[\s&()\[\]{}^=;!'+,`~|<>]/.test(value)) return value;
-    return `"${value.replace(/"/g, '\\"')}"`;
+    if (!this.needsCmdQuote(value)) return value;
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  private needsCmdQuote(value: string) {
+    return /[\s&()\[\]{}^=;!'+,`~|<>]/.test(value);
   }
 
   private getCandidates() {
-    const names = process.platform === "win32" ? ["pi.cmd", "pi.exe", "pi"] : ["pi"];
+    const names = process.platform === "win32" ? ["pi.cmd", "pi.ps1", "pi.exe", "pi"] : ["pi"];
     return this.getSearchDirs().flatMap(dir => names.map(name => join(dir, name)));
   }
 

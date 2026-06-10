@@ -196,6 +196,16 @@ export type AppInfo = {
 	releasesUrl: string;
 };
 
+export type FeedbackEnvironment = {
+	appVersion: string;
+	platform: NodeJS.Platform;
+	arch: string;
+	electronVersion: string;
+	chromeVersion: string;
+	nodeVersion: string;
+	pi: PiInstallStatus;
+};
+
 export type AppUpdateAsset = {
 	name: string;
 	url: string;

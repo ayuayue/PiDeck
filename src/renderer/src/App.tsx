@@ -77,6 +77,7 @@ import type {
 	AppSettings,
 	AppUpdateInfo,
 	AvailableModel,
+	FeedbackEnvironment,
 	ChatMessage,
 	CodexImportReport,
 	CodexSessionSummary,
@@ -281,6 +282,7 @@ export function App() {
 	const [updateError, setUpdateError] = useState<string | null>(null);
 	const [updateChecking, setUpdateChecking] = useState(false);
 	const [configOpen, setConfigOpen] = useState(false);
+	const [feedbackOpen, setFeedbackOpen] = useState(false);
 	const [_debugOpen, _setDebugOpen] = useState(false);
 	/** RPC 日志弹窗目标 agent */
 	const [rpcLogAgentId, setRpcLogAgentId] = useState<string | null>(null);
@@ -1978,6 +1980,13 @@ export function App() {
 					</div>
 					<div className="toolbar-actions">
 						<button
+							className="icon-button feedback-icon"
+							title="问题反馈"
+							onClick={() => setFeedbackOpen(true)}
+						>
+							<Info size={17} />
+						</button>
+						<button
 							className="icon-button config-icon"
 							title="配置管理"
 							onClick={() => setConfigOpen(true)}
@@ -2731,6 +2740,16 @@ export function App() {
 					onChange={updateSettings}
 				/>
 			)}
+			{feedbackOpen && (
+				<FeedbackModal
+					project={activeProject}
+					appInfo={appInfo}
+					onClose={() => setFeedbackOpen(false)}
+					onCopy={() => showToast("反馈内容已复制")}
+					onOpenExternal={(url) => api.app.openExternal(url)}
+					loadEnvironment={api.app.feedbackEnvironment}
+				/>
+			)}
 			{updateInfo && (
 				<UpdateModal
 					info={updateInfo}
@@ -2802,6 +2821,147 @@ export function App() {
 			/>
 		</div>
 	);
+}
+
+function FeedbackModal({
+	project,
+	appInfo,
+	onClose,
+	onCopy,
+	onOpenExternal,
+	loadEnvironment,
+}: {
+	project?: Project;
+	appInfo: AppInfo;
+	onClose: () => void;
+	onCopy: () => void;
+	onOpenExternal: (url: string) => Promise<void>;
+	loadEnvironment: () => Promise<FeedbackEnvironment>;
+}) {
+	const [description, setDescription] = useState("");
+	const [steps, setSteps] = useState("");
+	const [environment, setEnvironment] = useState<FeedbackEnvironment | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState("");
+
+	useEffect(() => {
+		let cancelled = false;
+		loadEnvironment()
+			.then((next) => {
+				if (!cancelled) setEnvironment(next);
+			})
+			.catch((reason) => {
+				if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [loadEnvironment]);
+
+	const report = buildFeedbackReport({
+		description,
+		steps,
+		project,
+		environment,
+		fallbackVersion: appInfo.version,
+		environmentError: error,
+	});
+	const issueUrl = `https://github.com/ayuayue/pi-desktop/issues/new?title=${encodeURIComponent("问题反馈：")}&body=${encodeURIComponent(report)}`;
+	const authorUrl = "https://github.com/ayuayue";
+
+	async function copyReport() {
+		await navigator.clipboard.writeText(report);
+		onCopy();
+	}
+
+	return (
+		<div className="modal-backdrop feedback-backdrop" onClick={onClose}>
+			<section className="feedback-modal" onClick={(event) => event.stopPropagation()}>
+				<div className="modal-header feedback-header">
+					<div>
+						<strong>问题反馈</strong>
+						<small>
+							填写问题后，可复制内容或打开 GitHub Issue；也可发送邮件到{" "}
+							<strong className="feedback-email">chat@caoayu.eu.org</strong>
+						</small>
+					</div>
+					<button className="modal-close-btn" onClick={onClose}>×</button>
+				</div>
+				<div className="feedback-body">
+					<label>
+						<span>遇到的问题</span>
+						<textarea
+							value={description}
+							onChange={(event) => setDescription(event.target.value)}
+							placeholder="例如：点击检测环境后提示未检测到 pi，但命令行里 pi --version 正常。"
+						/>
+					</label>
+					<label>
+						<span>复现步骤</span>
+						<textarea
+							value={steps}
+							onChange={(event) => setSteps(event.target.value)}
+							placeholder="1. 打开应用\n2. 点击配置管理左侧的问题反馈\n3. ..."
+						/>
+					</label>
+					<div className="feedback-report-block">
+						<div>
+							<strong>将附带的环境信息</strong>
+							<span>{loading ? "正在读取环境信息…" : "已生成，可在复制后自行删改。"}</span>
+						</div>
+						<pre>{report}</pre>
+					</div>
+				</div>
+				<div className="feedback-actions">
+					<button onClick={() => onOpenExternal(authorUrl)}>作者 GitHub</button>
+					<button onClick={copyReport}>复制反馈内容</button>
+					<button className="primary" onClick={() => onOpenExternal(issueUrl)}>
+						打开 GitHub Issue
+					</button>
+				</div>
+			</section>
+		</div>
+	);
+}
+
+function buildFeedbackReport(input: {
+	description: string;
+	steps: string;
+	project?: Project;
+	environment: FeedbackEnvironment | null;
+	fallbackVersion: string;
+	environmentError: string;
+}) {
+	const pi = input.environment?.pi;
+	const projectPath = input.project?.path ? maskHomePath(input.project.path) : "未选择项目";
+	// 反馈报告刻意只展示脱敏路径和运行时版本，避免把用户 home 目录、API key 或会话内容默认发出去。
+	return [
+		"## 问题描述",
+		input.description.trim() || "（请描述你遇到的问题）",
+		"",
+		"## 复现步骤",
+		input.steps.trim() || "（请写出尽量稳定的复现步骤）",
+		"",
+		"## 环境信息",
+		`- pi-desktop: ${input.environment?.appVersion ?? input.fallbackVersion}`,
+		`- 系统: ${input.environment ? `${input.environment.platform} ${input.environment.arch}` : "读取失败"}`,
+		`- Electron: ${input.environment?.electronVersion ?? "-"}`,
+		`- Chrome: ${input.environment?.chromeVersion ?? "-"}`,
+		`- Node: ${input.environment?.nodeVersion ?? "-"}`,
+		`- 当前项目: ${projectPath}`,
+		`- pi 检测: ${pi ? (pi.installed ? "已检测到" : "未检测到") : "读取失败"}`,
+		`- pi 命令: ${pi?.command ? maskHomePath(pi.command) : "-"}`,
+		`- pi 版本: ${pi?.version || "-"}`,
+		...(pi?.error ? [`- pi 错误: ${pi.error}`] : []),
+		...(input.environmentError ? [`- 环境读取错误: ${input.environmentError}`] : []),
+	].join("\n");
+}
+
+function maskHomePath(value: string) {
+	return value.replace(/([A-Z]:\\Users\\)[^\\/]+/gi, "$1<user>").replace(/(\/Users\/)[^/]+/g, "$1<user>");
 }
 
 function UpdateModal(props: {

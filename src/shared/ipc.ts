@@ -23,6 +23,7 @@ export const ipcChannels = {
 	piCheck: "pi:check",
 	appInfo: "app:info",
 	appCheckUpdate: "app:check-update",
+	appFeedbackEnvironment: "app:feedback-environment",
 	appOpenExternal: "app:open-external",
 	agentsList: "agents:list",
 	agentsCreate: "agents:create",

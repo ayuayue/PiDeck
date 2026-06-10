@@ -346,6 +346,19 @@ function registerIpc() {
 		releasesUrl: RELEASES_URL,
 	}));
 	ipcMain.handle(ipcChannels.appCheckUpdate, () => checkForAppUpdate());
+	ipcMain.handle(ipcChannels.appFeedbackEnvironment, async () => {
+		// 反馈报告只包含诊断必需的运行时版本与 pi 检测结果，不读取配置密钥或会话内容。
+		const pi = await piLocator.check();
+		return {
+			appVersion: app.getVersion(),
+			platform: process.platform,
+			arch: process.arch,
+			electronVersion: process.versions.electron ?? "",
+			chromeVersion: process.versions.chrome ?? "",
+			nodeVersion: process.versions.node,
+			pi,
+		};
+	});
 	ipcMain.handle(ipcChannels.appOpenExternal, async (_event, url: string) => {
 		// 外部链接统一经主进程打开，避免 renderer 直接依赖 shell 权限，也便于后续做白名单校验。
 		await shell.openExternal(url);

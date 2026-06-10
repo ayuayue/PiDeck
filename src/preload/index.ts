@@ -6,6 +6,7 @@ import type {
 	AppInfo,
 	AppSettings,
 	AppUpdateInfo,
+	FeedbackEnvironment,
 	AvailableModel,
 	ChatMessage,
 	CodexImportReport,
@@ -112,6 +113,10 @@ const api = {
 		info: () => ipcRenderer.invoke(ipcChannels.appInfo) as Promise<AppInfo>,
 		checkUpdate: () =>
 			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<AppUpdateInfo>,
+		feedbackEnvironment: () =>
+			ipcRenderer.invoke(
+				ipcChannels.appFeedbackEnvironment,
+			) as Promise<FeedbackEnvironment>,
 		openExternal: (url: string) =>
 			ipcRenderer.invoke(ipcChannels.appOpenExternal, url) as Promise<void>,
 		toggleDevTools: () =>

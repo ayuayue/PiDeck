@@ -219,6 +219,11 @@ button:disabled {
 	background: rgba(20, 165, 20, 0.08);
 	color: #14a514;
 }
+
+.toolbar-actions .feedback-icon:hover {
+	background: rgba(59, 130, 246, 0.1);
+	color: #2563eb;
+}
 .app-badge {
 	display: flex;
 	align-items: center;
@@ -2744,6 +2749,118 @@ body.is-composer-resizing .composer-resize-handle::after {
 	position: fixed;
 	inset: 0;
 	z-index: 45;
+}
+.feedback-modal {
+	width: min(780px, calc(100vw - 48px));
+	max-height: min(820px, calc(100vh - 48px));
+	display: flex;
+	flex-direction: column;
+	border-radius: 16px;
+	background: #fff;
+	box-shadow: 0 24px 80px rgba(31, 35, 41, 0.22);
+	overflow: hidden;
+}
+.feedback-header small {
+	display: block;
+	margin-top: 3px;
+	color: #8a94a3;
+	font-size: 12px;
+	font-weight: 400;
+}
+.feedback-email {
+	color: #111827;
+	font-weight: 800;
+}
+.feedback-body {
+	display: grid;
+	gap: 14px;
+	min-height: 0;
+	padding: 18px;
+	overflow: auto;
+}
+.feedback-body label {
+	display: grid;
+	gap: 7px;
+	color: #354052;
+	font-size: 13px;
+	font-weight: 600;
+}
+.feedback-body textarea {
+	min-height: 94px;
+	resize: vertical;
+	border: 1px solid #d9e0ea;
+	border-radius: 10px;
+	background: #fbfcfe;
+	color: #202631;
+	padding: 10px 12px;
+	line-height: 1.55;
+	outline: none;
+}
+.feedback-body textarea:focus {
+	border-color: #93c5fd;
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.feedback-report-block {
+	display: grid;
+	gap: 10px;
+	border: 1px solid #e1e7ef;
+	border-radius: 12px;
+	background: #f8fafc;
+	padding: 12px;
+}
+.feedback-report-block > div {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	color: #334155;
+	font-size: 13px;
+}
+.feedback-report-block span {
+	color: #7b8794;
+	font-size: 12px;
+	font-weight: 400;
+}
+.feedback-report-block pre {
+	max-height: 230px;
+	margin: 0;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	border-radius: 10px;
+	background: #111827;
+	color: #d9f99d;
+	padding: 12px;
+	font-family: "Cascadia Code", Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.55;
+}
+.feedback-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	padding: 14px 18px 18px;
+	border-top: 1px solid #edf1f6;
+	background: #fbfcfe;
+}
+.feedback-actions button {
+	height: 34px;
+	border: 1px solid #d7dce4;
+	border-radius: 9px;
+	background: #fff;
+	color: #344054;
+	padding: 0 14px;
+}
+.feedback-actions button:hover {
+	background: #f3f6fa;
+}
+.feedback-actions button.primary {
+	border-color: #14a514;
+	background: #14a514;
+	color: #fff;
+}
+.feedback-actions button.primary:hover {
+	background: #129212;
 }
 .context-menu {
 	position: fixed;
