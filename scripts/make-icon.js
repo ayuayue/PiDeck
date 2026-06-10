@@ -9,6 +9,7 @@ const svg = fs.readFileSync(path.join(__dirname, '..', 'build', 'icon.svg'), 'ut
 
 const out = path.join(__dirname, '..', 'build');
 const iconsDir = path.join(out, 'icons');
+const iconContentRatio = 0.875;
 const pngSizes = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
 const icnsSources = [
   [16, 'icp4'],
@@ -25,8 +26,30 @@ const icnsSources = [
 ];
 
 async function renderPng(size, target) {
-  await sharp(Buffer.from(svg))
-    .resize(size, size)
+  let innerSize = Math.max(1, Math.round(size * iconContentRatio));
+  if (innerSize > 1) innerSize -= innerSize % 2;
+  const icon = await sharp(Buffer.from(svg))
+    .resize(innerSize, innerSize)
+    .png()
+    .toBuffer();
+
+  // Dock/Finder 会优先使用 icns 内的小尺寸图；如果小尺寸直接铺满画布，
+  // 视觉上会比系统应用图标大一圈。所有平台图标都统一保留 6.25% 留白。
+  await sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([
+      {
+        input: icon,
+        left: Math.floor((size - innerSize) / 2),
+        top: Math.floor((size - innerSize) / 2),
+      },
+    ])
     .png()
     .toFile(target);
 }
