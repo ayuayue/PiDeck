@@ -2421,17 +2421,18 @@ export function App() {
 							)}
 						</div>
 					)}
-					{outlineItems.length > 1 && (
-						<ConversationOutline
-							items={outlineItems}
-							onJump={(id) =>
-								document
-									.querySelector(`[data-message-id="${CSS.escape(id)}"]`)
-									?.scrollIntoView({ behavior: "smooth", block: "start" })
-							}
-						/>
-					)}
 				</section>
+
+				{outlineItems.length > 1 && (
+					<ConversationOutline
+						items={outlineItems}
+						onJump={(id) =>
+							document
+								.querySelector(`[data-message-id="${CSS.escape(id)}"]`)
+								?.scrollIntoView({ behavior: "smooth", block: "start" })
+						}
+					/>
+				)}
 
 				{terminalOpen && activeAgentId && (
 					<TerminalDock

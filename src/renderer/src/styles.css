@@ -846,6 +846,7 @@ body.is-terminal-resizing {
 }
 
 .chat-pane {
+	position: relative;
 	display: grid;
 	grid-template-rows: 78px minmax(0, 1fr) auto auto;
 	min-width: 0;
@@ -3233,7 +3234,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	animation: picker-check-in 0.16s ease-out;
 }
 .outline-hover {
-	position: fixed;
+	position: absolute;
 	right: 18px;
 	z-index: 8;
 }
