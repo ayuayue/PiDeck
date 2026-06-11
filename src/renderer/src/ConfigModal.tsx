@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { Component, useState, useEffect, useCallback, type ReactNode } from "react";
 import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
 import { ModelsTab } from "./config/ModelsTab";
@@ -90,12 +90,70 @@ function ConfigDiagnosticCard(props: {
 	);
 }
 
-/** 配置管理弹窗：支持 models/auth/settings 三个 tab 的可视化编辑和源文件编辑 */
-export function ConfigModal(props: {
+type ConfigModalProps = {
 	open: boolean;
 	onClose: () => void;
 	onSaved: () => void;
-}) {
+};
+
+class ConfigModalErrorBoundary extends Component<
+	{ open: boolean; onClose: () => void; children: ReactNode },
+	{ error: Error | null }
+> {
+	override state = { error: null as Error | null };
+
+	static getDerivedStateFromError(error: Error) {
+		return { error };
+	}
+
+	override componentDidUpdate(prevProps: { open: boolean }) {
+		if (prevProps.open !== this.props.open && this.state.error) {
+			this.setState({ error: null });
+		}
+	}
+
+	override render() {
+		if (!this.state.error) return this.props.children;
+		if (!this.props.open) return null;
+		return (
+			<div className="modal-backdrop">
+				<div className="config-modal">
+					<div className="modal-header">
+						<strong>配置管理加载失败</strong>
+						<button className="modal-close-btn" onClick={this.props.onClose}>×</button>
+					</div>
+					<div className="config-content">
+						<div className="config-diagnostic-card">
+							<div>
+								<strong>配置管理渲染异常</strong>
+								<span>{this.state.error.message}</span>
+								<small>
+									这通常是某个配置字段结构超出了当前可视化表单的兼容范围。配置文件不会被修改，建议先查看{" "}
+									<a href="https://pi.dev/docs/latest/models" target="_blank" rel="noreferrer">pi models 文档</a>
+									{" / "}
+									<a href="https://pi.dev/docs/latest/settings" target="_blank" rel="noreferrer">settings 文档</a>
+									，并把控制台错误和配置片段反馈给我们。
+								</small>
+							</div>
+							<pre>{this.state.error.stack ?? this.state.error.message}</pre>
+						</div>
+					</div>
+				</div>
+			</div>
+		);
+	}
+}
+
+/** 配置管理弹窗：支持 models/auth/settings 三个 tab 的可视化编辑和源文件编辑 */
+export function ConfigModal(props: ConfigModalProps) {
+	return (
+		<ConfigModalErrorBoundary open={props.open} onClose={props.onClose}>
+			<ConfigModalContent {...props} />
+		</ConfigModalErrorBoundary>
+	);
+}
+
+function ConfigModalContent(props: ConfigModalProps) {
 	const { open, onClose, onSaved } = props;
 	const [section, setSection] = useState<"config" | "skills">("config");
 	const [tab, setTab] = useState<ConfigTab>("models");
