@@ -5,6 +5,7 @@ import { ModelsTab } from "./config/ModelsTab";
 import { RawTab } from "./config/RawTab";
 import { SettingsTab } from "./config/SettingsTab";
 import { SkillsTab } from "./config/SkillsTab";
+import { ExtensionsTab } from "./config/ExtensionsTab";
 import type {
 	AuthFile,
 	ConfigTab,
@@ -12,7 +13,7 @@ import type {
 	ModelsFile,
 	SettingsFile,
 } from "./config/configTypes";
-import type { ConfigFileDiagnostic, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
+import type { ConfigFileDiagnostic, PiExtensionListResult, PiExtensionSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
 import { getProviderHeaders } from "./config/providerHeaders";
 
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi })
@@ -155,7 +156,7 @@ export function ConfigModal(props: ConfigModalProps) {
 
 function ConfigModalContent(props: ConfigModalProps) {
 	const { open, onClose, onSaved } = props;
-	const [section, setSection] = useState<"config" | "skills">("config");
+	const [section, setSection] = useState<"config" | "skills" | "extensions">("config");
 	const [tab, setTab] = useState<ConfigTab>("models");
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
@@ -171,11 +172,17 @@ function ConfigModalContent(props: ConfigModalProps) {
 		locations: [],
 		skills: [],
 	});
+	const [extensionsData, setExtensionsData] = useState<PiExtensionListResult>({
+		extensions: [],
+		raw: "",
+	});
 	const [creatingSkill, setCreatingSkill] = useState(false);
+	const [uninstallingExtensionSource, setUninstallingExtensionSource] = useState<string | null>(null);
 	const [newSkillName, setNewSkillName] = useState("");
 	const [newSkillDescription, setNewSkillDescription] = useState("");
 	const [newSkillLocationId, setNewSkillLocationId] = useState<PiSkillLocation["id"]>("pi-global");
 	const [deleteSkillConfirm, setDeleteSkillConfirm] = useState<PiSkillSummary | null>(null);
+	const [uninstallExtensionConfirm, setUninstallExtensionConfirm] = useState<PiExtensionSummary | null>(null);
 	const [rawContent, setRawContent] = useState("");
 	const [rawFileName, setRawFileName] = useState("models.json");
 
@@ -268,6 +275,10 @@ function ConfigModalContent(props: ConfigModalProps) {
 		if (!open) return;
 		if (section === "skills") {
 			void refreshSkills();
+			return;
+		}
+		if (section === "extensions") {
+			void refreshExtensions();
 			return;
 		}
 		void loadConfig(tab);
@@ -618,6 +629,36 @@ function ConfigModalContent(props: ConfigModalProps) {
 		}
 	};
 
+	const refreshExtensions = async () => {
+		setLoading(true);
+		setError(null);
+		try {
+			const res = await api.extensions.list();
+			setExtensionsData(res);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const confirmUninstallExtension = async () => {
+		if (!uninstallExtensionConfirm) return;
+		const target = uninstallExtensionConfirm;
+		setUninstallExtensionConfirm(null);
+		setUninstallingExtensionSource(target.source);
+		setError(null);
+		try {
+			await api.extensions.uninstall(target.source, target.scope);
+			await refreshExtensions();
+			showToast("扩展已卸载，重启 agent 后生效");
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setUninstallingExtensionSource(null);
+		}
+	};
+
 	const handleImport = async () => {
 		const input = document.createElement("input");
 		input.type = "file";
@@ -670,6 +711,12 @@ function ConfigModalContent(props: ConfigModalProps) {
 						onClick={() => setSection("config")}
 					>
 						配置管理
+					</button>
+					<button
+						className={section === "extensions" ? "active" : ""}
+						onClick={() => setSection("extensions")}
+					>
+						扩展
 					</button>
 					<button
 						className={section === "skills" ? "active" : ""}
@@ -827,6 +874,16 @@ function ConfigModalContent(props: ConfigModalProps) {
 						/>
 					)}
 
+					{section === "extensions" && !loading && (
+						<ExtensionsTab
+							data={extensionsData}
+							loading={loading}
+							uninstallingSource={uninstallingExtensionSource}
+							onRefresh={refreshExtensions}
+							onUninstall={setUninstallExtensionConfirm}
+						/>
+					)}
+
 					{section === "config" && !loading && tab === "raw" && (
 						<RawTab
 							fileName={rawFileName}
@@ -852,6 +909,22 @@ function ConfigModalContent(props: ConfigModalProps) {
 								<button className="danger" onClick={() => void confirmDeleteSkill()}>
 									确认删除
 								</button>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{uninstallExtensionConfirm && (
+					<div className="session-delete-confirm-backdrop" onClick={() => setUninstallExtensionConfirm(null)}>
+						<div className="session-delete-confirm skill-delete-confirm" onClick={(event) => event.stopPropagation()}>
+							<strong>卸载扩展</strong>
+							<p>
+								确认卸载「{uninstallExtensionConfirm.source}」吗？这会执行 pi remove 并从 pi 配置中移除该扩展。
+							</p>
+							{uninstallExtensionConfirm.path && <small>{uninstallExtensionConfirm.path}</small>}
+							<div className="session-delete-confirm-actions">
+								<button onClick={() => setUninstallExtensionConfirm(null)}>取消</button>
+								<button className="danger" onClick={confirmUninstallExtension}>卸载</button>
 							</div>
 						</div>
 					</div>

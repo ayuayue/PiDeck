@@ -236,6 +236,18 @@ export type CreatePiSkillInput = {
 	locationId: PiSkillLocation["id"];
 };
 
+export type PiExtensionSummary = {
+	id: string;
+	source: string;
+	path?: string;
+	scope: "user" | "project" | "unknown";
+};
+
+export type PiExtensionListResult = {
+	extensions: PiExtensionSummary[];
+	raw: string;
+};
+
 export type PiProxyTestResult = {
 	success: boolean;
 	url: string;

@@ -19,6 +19,7 @@ import type {
 	PiInstallStatus,
 	PiProxyTestResult,
 	ConfigFileDiagnostic,
+	PiExtensionListResult,
 	PiSkillListResult,
 	PiSkillSummary,
 	CreatePiSkillInput,
@@ -147,6 +148,12 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.skillsDelete, path) as Promise<void>,
 		openFolder: (path?: string) =>
 			ipcRenderer.invoke(ipcChannels.skillsOpenFolder, path) as Promise<void>,
+	},
+	extensions: {
+		list: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsList) as Promise<PiExtensionListResult>,
+		uninstall: (source: string, scope?: "user" | "project" | "unknown") =>
+			ipcRenderer.invoke(ipcChannels.extensionsUninstall, source, scope) as Promise<void>,
 	},
 	settings: {
 		get: () =>

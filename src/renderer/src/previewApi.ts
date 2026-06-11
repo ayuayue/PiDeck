@@ -253,6 +253,20 @@ export function createPreviewApi(): PiDesktopApi {
 			delete: async () => undefined,
 			openFolder: async () => undefined,
 		},
+		extensions: {
+			list: async () => ({
+				extensions: [
+					{
+						id: "user:npm:preview-extension",
+						source: "npm:preview-extension",
+						path: "C:/Users/preview/.pi/agent/npm/node_modules/preview-extension",
+						scope: "user" as const,
+					},
+				],
+				raw: "User packages:\n  npm:preview-extension\n    C:/Users/preview/.pi/agent/npm/node_modules/preview-extension\n",
+			}),
+			uninstall: async () => undefined,
+		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({
 				useNativeTitleBar: true,

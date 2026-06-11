@@ -36,6 +36,7 @@ import { ConfigManager } from "./config/ConfigManager";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { SkillManager } from "./skills/SkillManager";
+import { ExtensionManager } from "./extensions/ExtensionManager";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -51,6 +52,7 @@ let piLocator: PiLocator;
 let agentManager: AgentManager;
 let configManager: ConfigManager;
 let skillManager: SkillManager;
+let extensionManager: ExtensionManager;
 let terminalManager: TerminalSessionManager;
 
 const RELEASES_URL = "https://github.com/ayuayue/pi-desktop/releases";
@@ -425,6 +427,10 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.skillsOpenFolder, (_event, path?: string) =>
 		skillManager.openFolder(path),
 	);
+	ipcMain.handle(ipcChannels.extensionsList, () => extensionManager.list());
+	ipcMain.handle(ipcChannels.extensionsUninstall, (_event, source: string, scope?: "user" | "project" | "unknown") =>
+		extensionManager.uninstall(source, scope),
+	);
 
 	ipcMain.handle(ipcChannels.agentsList, () => agentManager.list());
 	ipcMain.handle(ipcChannels.agentsCreate, (_event, input: CreateAgentInput) =>
@@ -638,6 +644,7 @@ app.whenReady().then(async () => {
 	piLocator = new PiLocator();
 	configManager = new ConfigManager();
 	skillManager = new SkillManager();
+	extensionManager = new ExtensionManager(piLocator, () => settingsStore.get());
 	agentManager = new AgentManager(
 		(id) => projectStore.get(id),
 		() => mainWindow,

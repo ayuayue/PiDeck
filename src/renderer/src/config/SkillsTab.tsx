@@ -61,11 +61,20 @@ export function SkillsTab(props: {
 					</label>
 					<label>
 						<span>位置</span>
-						<div className="skill-location-picker">
+						<div
+							className="skill-location-picker"
+							onBlur={() => {
+								// 先让菜单项的 mouseDown 完成选中，再关闭弹层；否则点击选项时可能只触发焦点切换，表现为不回填。
+								window.setTimeout(() => setLocationPickerOpen(false), 80);
+							}}
+						>
 							<button
 								type="button"
 								className={locationPickerOpen ? "open" : ""}
-								onClick={() => setLocationPickerOpen((open) => !open)}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									setLocationPickerOpen((open) => !open);
+								}}
 							>
 								<span>{selectedLocation?.label ?? "选择目录"}</span>
 								<b>⌄</b>
@@ -77,7 +86,8 @@ export function SkillsTab(props: {
 											key={location.id}
 											type="button"
 											className={location.id === props.newLocationId ? "active" : ""}
-											onClick={() => {
+											onMouseDown={(event) => {
+												event.preventDefault();
 												// 自定义下拉只改变保存位置，不立即创建，避免用户误触后写入文件。
 												props.onChangeNewLocation(location.id);
 												setLocationPickerOpen(false);
