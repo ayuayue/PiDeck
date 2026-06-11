@@ -11,6 +11,32 @@ import {
 
 type FetchedModel = { id: string; name?: string };
 
+const KNOWN_PROVIDER_FIELDS = new Set([
+	"baseUrl",
+	"api",
+	"apiKey",
+	"headers",
+	"authHeader",
+	"models",
+	"modelOverrides",
+	"compat",
+	"oauth",
+]);
+const KNOWN_MODEL_FIELDS = new Set([
+	"id",
+	"name",
+	"api",
+	"baseUrl",
+	"reasoning",
+	"thinkingLevelMap",
+	"input",
+	"cost",
+	"contextWindow",
+	"maxTokens",
+	"headers",
+	"compat",
+]);
+
 function FetchedModelCombobox(props: {
 	models: FetchedModel[];
 	value: string;
@@ -201,6 +227,12 @@ export function ModelsTab(props: {
 					const provider = data.providers[name];
 					const isExpanded = expandedProvider === name;
 					const userAgentValue = getHeaderValue(provider.headers, "User-Agent");
+					const providerAdvancedFields = Object.keys(provider).filter(
+						(key) => !KNOWN_PROVIDER_FIELDS.has(key),
+					);
+					const providerComplexFields = ["headers", "authHeader", "compat", "modelOverrides", "oauth"].filter(
+						(key) => provider[key] !== undefined,
+					);
 					const userAgentSelectValue = USER_AGENT_OPTIONS.some(
 						(option) => option.value === userAgentValue,
 					)
@@ -375,6 +407,16 @@ export function ModelsTab(props: {
 												<span>留空时不写入 headers，使用 pi / SDK 运行时默认值</span>
 											</div>
 										</div>
+										{(providerComplexFields.length > 0 || providerAdvancedFields.length > 0) && (
+											<div className="config-advanced-preserved">
+												<strong>高级字段已保留</strong>
+												<span>
+													{[...providerComplexFields, ...providerAdvancedFields].join(", ")}
+													{" "}不会被可视化表单丢弃；复杂结构请在“源文件”中编辑，并参考 pi 官方 models/custom provider 文档。
+												</span>
+											</div>
+										)}
+
 										<div className="config-form-row">
 											<label></label>
 											<button
@@ -639,7 +681,14 @@ export function ModelsTab(props: {
 											<span>推理</span>
 											<span></span>
 										</div>
-										{provider.models.map((m, i) => (
+										{provider.models.map((m, i) => {
+											const modelAdvancedFields = Object.keys(m).filter(
+												(key) => !KNOWN_MODEL_FIELDS.has(key),
+											);
+											const modelComplexFields = ["api", "baseUrl", "thinkingLevelMap", "input", "cost", "headers", "compat"].filter(
+												(key) => m[key] !== undefined,
+											);
+											return (
 											<div
 												// 模型 ID 是可编辑字段，不能作为 key；否则每次输入都会重建行并导致输入框失焦。
 												key={`${name}-${i}`}
@@ -716,8 +765,14 @@ export function ModelsTab(props: {
 												>
 													<Trash2 size={14} />
 												</button>
+												{(modelComplexFields.length > 0 || modelAdvancedFields.length > 0) && (
+													<div className="config-model-advanced-note">
+														高级字段已保留：{[...modelComplexFields, ...modelAdvancedFields].join(", ")}
+													</div>
+												)}
 											</div>
-										))}
+											);
+										})}
 										{provider.models.length === 0 && (
 											<div className="config-empty-sm">
 												暂无模型，点击「+ 模型」添加

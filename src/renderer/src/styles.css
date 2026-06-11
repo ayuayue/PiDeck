@@ -4290,6 +4290,70 @@ body.is-composer-resizing .composer-resize-handle::after {
 	background: rgba(255, 255, 255, 0.78);
 }
 
+.config-advanced-preserved {
+	display: grid;
+	gap: 4px;
+	margin: 4px 0 10px;
+	padding: 10px 12px;
+	border: 1px solid #dbeafe;
+	border-radius: 10px;
+	background: #eff6ff;
+	color: #1d4ed8;
+}
+.config-advanced-preserved strong {
+	font-size: 12px;
+}
+.config-advanced-preserved span {
+	font-size: 12px;
+	line-height: 1.5;
+}
+.config-model-advanced-note {
+	grid-column: 1 / -1;
+	margin-top: -4px;
+	padding: 6px 8px;
+	border-radius: 8px;
+	background: #f1f5f9;
+	color: #64748b;
+	font-size: 11px;
+	line-height: 1.45;
+}
+.config-diagnostic-card {
+	display: grid;
+	gap: 10px;
+	margin-bottom: 14px;
+	padding: 14px;
+	border: 1px solid #fecaca;
+	border-radius: 12px;
+	background: #fff7f7;
+	color: #991b1b;
+}
+.config-diagnostic-card > div:first-child {
+	display: grid;
+	gap: 4px;
+}
+.config-diagnostic-card strong {
+	font-size: 14px;
+}
+.config-diagnostic-card span,
+.config-diagnostic-card small {
+	line-height: 1.5;
+}
+.config-diagnostic-card pre {
+	margin: 0;
+	padding: 10px 12px;
+	border: 1px solid #fecaca;
+	border-radius: 8px;
+	background: #fff;
+	color: #7f1d1d;
+	overflow: auto;
+	font-family: "Cascadia Code", Consolas, monospace;
+	font-size: 12px;
+}
+.config-diagnostic-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
 .config-form-row {
 	display: grid;
 	grid-template-columns: 90px 1fr;

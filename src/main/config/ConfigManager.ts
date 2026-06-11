@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { net } from "electron";
+import type { ConfigFileDiagnostic, ConfigFileReadResult } from "../../shared/types";
 
 /** pi 全局配置目录：~/.pi/agent/ */
 const PI_AGENT_DIR = join(homedir(), ".pi", "agent");
@@ -82,15 +83,15 @@ export class ConfigManager {
 
 	// ── 读取 ──────────────────────────────────────────────
 
-	async getModelsConfig(): Promise<{ raw: string; parsed: PiModelsFile }> {
+	async getModelsConfig(): Promise<ConfigFileReadResult<PiModelsFile>> {
 		return this.readJsonFile<PiModelsFile>("models.json", { providers: {} });
 	}
 
-	async getAuthConfig(): Promise<{ raw: string; parsed: PiAuthFile }> {
+	async getAuthConfig(): Promise<ConfigFileReadResult<PiAuthFile>> {
 		return this.readJsonFile<PiAuthFile>("auth.json", {});
 	}
 
-	async getSettingsConfig(): Promise<{ raw: string; parsed: PiSettings }> {
+	async getSettingsConfig(): Promise<ConfigFileReadResult<PiSettings>> {
 		return this.readJsonFile<PiSettings>("settings.json", {});
 	}
 
@@ -171,15 +172,64 @@ export class ConfigManager {
 	private async readJsonFile<T>(
 		fileName: string,
 		fallback: T,
-	): Promise<{ raw: string; parsed: T }> {
+	): Promise<ConfigFileReadResult<T>> {
 		const filePath = join(this.configDir, fileName);
 		try {
 			const raw = await readFile(filePath, "utf8");
-			const parsed = JSON.parse(raw) as T;
-			return { raw, parsed };
+			try {
+				const parsed = JSON.parse(raw) as T;
+				return { raw, parsed };
+			} catch (error) {
+				// 配置 JSON 写错时，配置弹窗仍要能打开 Raw 页让用户修复；同时返回精确诊断用于 UI 提示。
+				return {
+					raw,
+					parsed: fallback,
+					diagnostic: this.createJsonDiagnostic(fileName, raw, error),
+				};
+			}
 		} catch {
 			return { raw: JSON.stringify(fallback, null, 2), parsed: fallback };
 		}
+	}
+
+	private createJsonDiagnostic(
+		fileName: string,
+		raw: string,
+		error: unknown,
+	): ConfigFileDiagnostic {
+		const message = error instanceof Error ? error.message : String(error);
+		const positionMatch = message.match(/position\s+(\d+)/i);
+		const position = positionMatch ? Number(positionMatch[1]) : undefined;
+		let line: number | undefined;
+		let column: number | undefined;
+		let snippet: string | undefined;
+		if (Number.isFinite(position)) {
+			const before = raw.slice(0, position);
+			const lines = before.split(/\r?\n/);
+			line = lines.length;
+			column = lines[lines.length - 1].length + 1;
+			const rawLines = raw.split(/\r?\n/);
+			const start = Math.max(0, line - 2);
+			const end = Math.min(rawLines.length, line + 1);
+			snippet = rawLines
+				.slice(start, end)
+				.map((text, index) => `${start + index + 1}: ${text}`)
+				.join("\n");
+		}
+		return {
+			fileName,
+			message,
+			line,
+			column,
+			snippet,
+			docsUrl: this.docsUrlForFile(fileName),
+		};
+	}
+
+	private docsUrlForFile(fileName: string) {
+		if (fileName === "models.json") return "https://pi.dev/docs/latest/models";
+		if (fileName === "settings.json") return "https://pi.dev/docs/latest/settings";
+		return "https://pi.dev/docs/latest/providers";
 	}
 
 	private async writeJsonFile(

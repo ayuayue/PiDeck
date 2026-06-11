@@ -18,6 +18,7 @@ import type {
 	PiCommand,
 	PiInstallStatus,
 	PiProxyTestResult,
+	ConfigFileDiagnostic,
 	PiSkillListResult,
 	PiSkillSummary,
 	CreatePiSkillInput,
@@ -167,16 +168,19 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.configGetModels) as Promise<{
 				raw: string;
 				parsed: { providers: Record<string, unknown> };
+				diagnostic?: ConfigFileDiagnostic;
 			}>,
 		getAuth: () =>
 			ipcRenderer.invoke(ipcChannels.configGetAuth) as Promise<{
 				raw: string;
 				parsed: Record<string, unknown>;
+				diagnostic?: ConfigFileDiagnostic;
 			}>,
 		getSettings: () =>
 			ipcRenderer.invoke(ipcChannels.configGetSettings) as Promise<{
 				raw: string;
 				parsed: Record<string, unknown>;
+				diagnostic?: ConfigFileDiagnostic;
 			}>,
 		saveModels: (data: unknown) =>
 			ipcRenderer.invoke(ipcChannels.configSaveModels, data) as Promise<{

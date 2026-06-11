@@ -189,6 +189,21 @@ export type PiInstallStatus = {
 	error?: string;
 };
 
+export type ConfigFileDiagnostic = {
+	fileName: string;
+	message: string;
+	line?: number;
+	column?: number;
+	snippet?: string;
+	docsUrl: string;
+};
+
+export type ConfigFileReadResult<T> = {
+	raw: string;
+	parsed: T;
+	diagnostic?: ConfigFileDiagnostic;
+};
+
 export type PiSkillLocation = {
 	id: "pi-global" | "agents-global";
 	label: string;

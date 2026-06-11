@@ -12,7 +12,7 @@ import type {
 	ModelsFile,
 	SettingsFile,
 } from "./config/configTypes";
-import type { PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
+import type { ConfigFileDiagnostic, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
 import { getProviderHeaders } from "./config/providerHeaders";
 
 const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi })
@@ -58,6 +58,34 @@ function normalizeModelsFile(value: unknown): ModelsFile {
 	return { providers };
 }
 
+function ConfigDiagnosticCard(props: {
+	diagnostic: ConfigFileDiagnostic;
+	onOpenDocs: () => void;
+	onOpenRaw: () => void;
+}) {
+	const { diagnostic } = props;
+	return (
+		<div className="config-diagnostic-card">
+			<div>
+				<strong>{diagnostic.fileName} 加载失败</strong>
+				<span>
+					{diagnostic.line && diagnostic.column
+						? `第 ${diagnostic.line} 行，第 ${diagnostic.column} 列：${diagnostic.message}`
+						: diagnostic.message}
+				</span>
+				<small>
+					已保留源文件内容，可切到“源文件”修复。复杂 provider/model 字段（如 compat、headers、thinkingLevelMap、modelOverrides）建议参考 pi 官方配置文档。
+				</small>
+			</div>
+			{diagnostic.snippet && <pre>{diagnostic.snippet}</pre>}
+			<div className="config-diagnostic-actions">
+				<button className="config-btn primary" onClick={props.onOpenRaw}>打开源文件</button>
+				<button className="config-btn" onClick={props.onOpenDocs}>查看官方文档</button>
+			</div>
+		</div>
+	);
+}
+
 /** 配置管理弹窗：支持 models/auth/settings 三个 tab 的可视化编辑和源文件编辑 */
 export function ConfigModal(props: {
 	open: boolean;
@@ -70,6 +98,7 @@ export function ConfigModal(props: {
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [configDiagnostic, setConfigDiagnostic] = useState<ConfigFileDiagnostic | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
 
 	// 各 tab 的数据
@@ -126,22 +155,26 @@ export function ConfigModal(props: {
 		async (target: ConfigTab) => {
 			setLoading(true);
 			setError(null);
+			setConfigDiagnostic(null);
 			try {
 				if (target === "models") {
 					const res = await api.config.getModels();
 					setModelsData(normalizeModelsFile(res.parsed));
 					setRawContent(res.raw);
 					setRawFileName("models.json");
+					setConfigDiagnostic(res.diagnostic ?? null);
 				} else if (target === "auth") {
 					const res = await api.config.getAuth();
 					setAuthData(res.parsed as AuthFile);
 					setRawContent(res.raw);
 					setRawFileName("auth.json");
+					setConfigDiagnostic(res.diagnostic ?? null);
 				} else if (target === "settings") {
 					const res = await api.config.getSettings();
 					setSettingsData(res.parsed as SettingsFile);
 					setRawContent(res.raw);
 					setRawFileName("settings.json");
+					setConfigDiagnostic(res.diagnostic ?? null);
 				} else if (target === "raw") {
 					// 源文件 tab 复用当前 tab 对应的文件
 					const fileName =
@@ -158,6 +191,7 @@ export function ConfigModal(props: {
 								? await api.config.getAuth()
 								: await api.config.getSettings();
 					setRawContent(res.raw);
+					setConfigDiagnostic(res.diagnostic ?? null);
 				}
 			} catch (e) {
 				setError(e instanceof Error ? e.message : String(e));
@@ -615,6 +649,13 @@ export function ConfigModal(props: {
 				<div className="config-content">
 					{loading && <div className="config-loading">加载中…</div>}
 					{error && <div className="config-error">{error}</div>}
+					{section === "config" && configDiagnostic && (
+						<ConfigDiagnosticCard
+							diagnostic={configDiagnostic}
+							onOpenDocs={() => api.app.openExternal(configDiagnostic.docsUrl)}
+							onOpenRaw={() => setTab("raw")}
+						/>
+					)}
 
 					{section === "config" && !loading && tab === "models" && (
 						<ModelsTab
