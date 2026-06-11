@@ -26,6 +26,38 @@ const DEFAULT_MODEL_CONFIG: Pick<
 	reasoning: true,
 };
 
+/**
+ * 配置页必须能打开用户手写/旧版本生成的非标准 models.json。
+ * pi 自身对配置较宽松，但 UI 会访问 provider.models.length / map；这里先把缺失或异常字段归一化，
+ * 避免单个 provider 配置错误导致整个 renderer 白屏。
+ */
+function normalizeModelsFile(value: unknown): ModelsFile {
+	const rawProviders =
+		value && typeof value === "object" && !Array.isArray(value)
+			? (value as { providers?: unknown }).providers
+			: undefined;
+	const providers: ModelsFile["providers"] = {};
+	if (!rawProviders || typeof rawProviders !== "object" || Array.isArray(rawProviders)) {
+		return { providers };
+	}
+	for (const [name, rawProvider] of Object.entries(rawProviders)) {
+		const provider =
+			rawProvider && typeof rawProvider === "object" && !Array.isArray(rawProvider)
+				? (rawProvider as Record<string, unknown>)
+				: {};
+		const rawModels = provider.models;
+		providers[name] = {
+			...provider,
+			models: Array.isArray(rawModels)
+				? rawModels.filter((model): model is ModelItem =>
+						Boolean(model) && typeof model === "object" && !Array.isArray(model),
+					)
+				: [],
+		};
+	}
+	return { providers };
+}
+
 /** 配置管理弹窗：支持 models/auth/settings 三个 tab 的可视化编辑和源文件编辑 */
 export function ConfigModal(props: {
 	open: boolean;
@@ -97,7 +129,7 @@ export function ConfigModal(props: {
 			try {
 				if (target === "models") {
 					const res = await api.config.getModels();
-					setModelsData(res.parsed as ModelsFile);
+					setModelsData(normalizeModelsFile(res.parsed));
 					setRawContent(res.raw);
 					setRawFileName("models.json");
 				} else if (target === "auth") {
