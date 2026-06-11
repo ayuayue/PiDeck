@@ -74,7 +74,11 @@ function ConfigDiagnosticCard(props: {
 						: diagnostic.message}
 				</span>
 				<small>
-					已保留源文件内容，可切到“源文件”修复。复杂 provider/model 字段（如 compat、headers、thinkingLevelMap、modelOverrides）建议参考 pi 官方配置文档。
+					已保留源文件内容，可切到“源文件”修复。复杂 provider/model 字段（如 compat、headers、thinkingLevelMap、modelOverrides）建议参考{" "}
+					<a href={diagnostic.docsUrl} target="_blank" rel="noreferrer">
+						pi 官方配置文档
+					</a>
+					。
 				</small>
 			</div>
 			{diagnostic.snippet && <pre>{diagnostic.snippet}</pre>}

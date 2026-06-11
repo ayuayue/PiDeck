@@ -4307,6 +4307,18 @@ body.is-composer-resizing .composer-resize-handle::after {
 	font-size: 12px;
 	line-height: 1.5;
 }
+.config-advanced-preserved a,
+.config-model-advanced-note a,
+.config-diagnostic-card a {
+	color: #1677ff;
+	text-decoration: none;
+	font-weight: 600;
+}
+.config-advanced-preserved a:hover,
+.config-model-advanced-note a:hover,
+.config-diagnostic-card a:hover {
+	text-decoration: underline;
+}
 .config-model-advanced-note {
 	grid-column: 1 / -1;
 	margin-top: -4px;

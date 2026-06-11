@@ -412,7 +412,15 @@ export function ModelsTab(props: {
 												<strong>高级字段已保留</strong>
 												<span>
 													{[...providerComplexFields, ...providerAdvancedFields].join(", ")}
-													{" "}不会被可视化表单丢弃；复杂结构请在“源文件”中编辑，并参考 pi 官方 models/custom provider 文档。
+													{" "}不会被可视化表单丢弃；复杂结构请在“源文件”中编辑，并参考{" "}
+													<a href="https://pi.dev/docs/latest/models" target="_blank" rel="noreferrer">
+														pi models 文档
+													</a>
+													{" / "}
+													<a href="https://pi.dev/docs/latest/custom-provider" target="_blank" rel="noreferrer">
+														custom provider 文档
+													</a>
+													。
 												</span>
 											</div>
 										)}
@@ -767,7 +775,10 @@ export function ModelsTab(props: {
 												</button>
 												{(modelComplexFields.length > 0 || modelAdvancedFields.length > 0) && (
 													<div className="config-model-advanced-note">
-														高级字段已保留：{[...modelComplexFields, ...modelAdvancedFields].join(", ")}
+														高级字段已保留：{[...modelComplexFields, ...modelAdvancedFields].join(", ")}。
+														<a href="https://pi.dev/docs/latest/models" target="_blank" rel="noreferrer">
+															查看 models 文档
+														</a>
 													</div>
 												)}
 											</div>
