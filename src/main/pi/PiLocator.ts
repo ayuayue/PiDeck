@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { delimiter, extname, join } from "node:path";
+import { delimiter, dirname, extname, join } from "node:path";
 import { app } from "electron";
 import type { AppSettings, PiInstallStatus } from "../../shared/types";
 
@@ -13,6 +13,7 @@ export type PiCommandInvocation = {
   command: string;
   args: string[];
   shell: boolean;
+  pathPrefix?: string;
   /**
    * Windows 下通过 cmd.exe /c 启动 .cmd shim 时，命令行里已经手动完成引号包装。
    * 必须禁止 Node 再次转义参数，否则路径中含空格会被 cmd 误解析为不存在的路径。
@@ -64,17 +65,22 @@ export class PiLocator {
     return [...new Set(dirs.filter(Boolean))];
   }
 
-  createProcessEnv(settings?: PiProxySettings) {
+  createProcessEnv(settings?: PiProxySettings, pathPrefix?: string) {
+    const searchDirs = pathPrefix
+      ? [pathPrefix, ...this.getSearchDirs().filter(dir => dir !== pathPrefix)]
+      : this.getSearchDirs();
     const env = {
       ...process.env,
-      PATH: this.getSearchDirs().join(delimiter),
+      PATH: searchDirs.join(delimiter),
     };
 
     return this.applyPiProxyEnv(env, settings);
   }
 
   createInvocation(command: string, args: string[]): PiCommandInvocation {
-    if (process.platform !== "win32") return { command, args, shell: false };
+    if (process.platform !== "win32") {
+      return { command, args, shell: false, pathPrefix: this.getCommandBinDir(command) };
+    }
 
     // Windows 仅支持 .cmd/.exe/裸命令，不再走 PowerShell .ps1。
     // npm/yarn/pnpm 生成的 pi.ps1 与 pi.cmd 指向同一个包入口，但 PowerShell 的执行策略、编码和引号规则更复杂；
@@ -90,6 +96,7 @@ export class PiLocator {
       command: process.env.ComSpec || "cmd.exe",
       args: ["/d", "/s", "/c", commandLine],
       shell: false,
+      pathPrefix: this.getCommandBinDir(command),
       // 关键：cmd /c 的最后一个参数是完整命令行，里面的引号由 quoteCmdArgument/control 逻辑维护。
       // 若让 Node 再转义一次，`D:\\foo bar\\pi.cmd` 会变成 cmd 无法识别的路径。
       windowsVerbatimArguments: true,
@@ -209,7 +216,7 @@ export class PiLocator {
     return new Promise(resolve => {
       const invocation = this.createInvocation(command, ["--version"]);
       execFile(invocation.command, invocation.args, {
-        env: this.createProcessEnv(),
+        env: this.createProcessEnv(undefined, invocation.pathPrefix),
         shell: invocation.shell,
         windowsHide: true,
         timeout: 8_000,
@@ -270,6 +277,16 @@ export class PiLocator {
 
   private needsCmdQuote(value: string) {
     return /[\s&()\[\]{}^=;!'+,`~|<>]/.test(value);
+  }
+
+  private getCommandBinDir(command: string) {
+    if (!/[\\/]/.test(command) || !existsSync(command)) return undefined;
+    const binDir = dirname(command);
+    // npm/nvm/asdf/mise shims resolve Node through env/PATH. Prepending the shim's own
+    // bin directory keeps that lookup on the Node version that installed pi, instead
+    // of a different Node inherited from Finder/Explorer/Electron.
+    const nodeName = process.platform === "win32" ? "node.exe" : "node";
+    return existsSync(join(binDir, nodeName)) ? binDir : undefined;
   }
 
   private getCandidates() {

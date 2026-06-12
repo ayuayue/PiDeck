@@ -36,7 +36,7 @@ export class PiProcess extends EventEmitter {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       shell: invocation.shell,
-      env: locator.createProcessEnv(this.settings),
+      env: locator.createProcessEnv(this.settings, invocation.pathPrefix),
       windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     });
 

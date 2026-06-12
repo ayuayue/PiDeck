@@ -39,7 +39,7 @@ export class ExtensionManager {
 				invocation.args,
 				{
 					env: {
-						...this.locator.createProcessEnv(this.getSettings()),
+						...this.locator.createProcessEnv(this.getSettings(), invocation.pathPrefix),
 						PI_OFFLINE: "1",
 					},
 					shell: invocation.shell,
