@@ -2474,7 +2474,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	width: 42px;
 	height: 5px;
 	border-radius: 999px;
-	background: #cfd6df;
+	background: var(--color-border-strong);
 	opacity: 0.75;
 	transform: translateX(-50%);
 	transition:
@@ -2483,12 +2483,12 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 }
 .composer-resize-handle:hover::before,
 body.is-composer-resizing .composer-resize-handle::before {
-	background: #9fb4d8;
-	box-shadow: 0 0 0 2px rgba(159, 180, 216, 0.15);
+	background: color-mix(in srgb, var(--color-accent) 28%, var(--color-border-strong));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 .composer-resize-handle:hover::after,
 body.is-composer-resizing .composer-resize-handle::after {
-	background: #7f96bd;
+	background: color-mix(in srgb, var(--color-accent) 42%, var(--color-border-strong));
 	opacity: 1;
 }
 .composer textarea {
@@ -2518,45 +2518,45 @@ body.is-composer-resizing .composer-resize-handle::after {
 	border-color: var(--color-accent);
 	box-shadow:
 		var(--shadow-composer),
-		0 0 0 3px rgba(35, 134, 54, 0.14);
+		var(--focus-ring);
 }
 .composer-box.shell-mode {
-	border-color: #f0c46f;
-	background: linear-gradient(180deg, #fffdf8 0%, #fff 45%);
-	box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.08);
+	border-color: color-mix(in srgb, var(--color-warning) 34%, var(--color-border-subtle));
+	background: color-mix(in srgb, var(--color-warning) 8%, var(--color-bg-panel));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 9%, transparent);
 }
 .composer-box.shell-silent-mode {
-	border-color: #e69a9a;
-	background: linear-gradient(180deg, #fffafa 0%, #fff 45%);
-	box-shadow: 0 0 0 3px rgba(190, 24, 24, 0.07);
+	border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-border-subtle));
+	background: color-mix(in srgb, var(--color-danger) 7%, var(--color-bg-panel));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
 .composer-box.shell-mode:focus-within {
-	border-color: #d97706;
-	box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.13);
+	border-color: var(--color-warning);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 16%, transparent);
 }
 .composer-box.shell-silent-mode:focus-within {
-	border-color: #dc2626;
-	box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+	border-color: var(--color-danger);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
 }
 .composer-box.shell-mode::before,
 .composer-box.shell-silent-mode::before {
 	opacity: 1;
 }
 .composer-box.shell-mode::before {
-	background: #d97706;
+	background: var(--color-warning);
 }
 .composer-box.shell-silent-mode::before {
-	background: #dc2626;
+	background: var(--color-danger);
 }
 .composer-box.shell-mode textarea,
 .composer-box.shell-silent-mode textarea {
 	padding-left: 18px;
 }
 .composer-box.shell-mode .composer-footer {
-	color: #a16207;
+	color: var(--color-warning);
 }
 .composer-box.shell-silent-mode .composer-footer {
-	color: #b91c1c;
+	color: var(--color-danger);
 }
 .composer-footer {
 	display: flex;
@@ -2564,7 +2564,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	align-items: center;
 	gap: 10px;
 	padding: 0 8px 8px 14px;
-	color: #8a9099;
+	color: var(--color-text-tertiary);
 	font-size: var(--font-size-caption);
 	grid-row: 3;
 	min-width: 0;
@@ -2597,14 +2597,14 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .composer-footer button {
 	border: 0;
-	background: #95d991;
-	color: #fff;
+	background: color-mix(in srgb, var(--color-accent) 58%, var(--color-bg-panel));
+	color: var(--color-text-inverse);
 	border-radius: var(--radius-lg);
 	padding: 7px 20px;
 	min-width: 72px;
 }
 .composer-footer button:not(:disabled) {
-	background: #14b814;
+	background: var(--color-accent);
 }
 .send-button-group {
 	position: relative;
@@ -2614,8 +2614,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 	gap: 2px;
 }
 .composer-footer .send-button-group > button:first-child {
-	border-top-right-radius: 6px;
-	border-bottom-right-radius: 6px;
+	border-top-right-radius: var(--radius-md);
+	border-bottom-right-radius: var(--radius-md);
 }
 .send-behavior-menu-wrap {
 	position: relative;
@@ -2625,8 +2625,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 	min-width: 30px;
 	width: 30px;
 	padding: 0;
-	border-top-left-radius: 6px;
-	border-bottom-left-radius: 6px;
+	border-top-left-radius: var(--radius-md);
+	border-bottom-left-radius: var(--radius-md);
 	display: grid;
 	place-items: center;
 }
@@ -2673,10 +2673,10 @@ body.is-composer-resizing .composer-resize-handle::after {
 .composer-footer .stop-send {
 	margin-left: auto;
 	margin-right: 8px;
-	background: #ef6461;
+	background: var(--color-danger);
 }
 .composer-footer .stop-send:not(:disabled) {
-	background: #ef6461;
+	background: var(--color-danger);
 }
 /* ---- 命令面板弹框 ---- */
 .command-palette {
@@ -3967,7 +3967,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .composer-toolbar button.compacting {
 	color: var(--color-warning);
-	background: #fef3c7;
+	background: color-mix(in srgb, var(--color-warning) 16%, var(--color-bg-panel));
 	cursor: wait;
 }
 .composer-toolbar button:disabled.compacting {
@@ -3976,10 +3976,10 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 /* ---- 输入框命令模式指示 ---- */
 .composer-box textarea.bang {
-	caret-color: #b45309;
+	caret-color: var(--color-warning);
 }
 .composer-box textarea.bang-bang {
-	caret-color: #b91c1c;
+	caret-color: var(--color-danger);
 }
 /* 模型/思考选择器复用斜线命令面板的视觉语言，但通过轻遮罩承载按钮触发的弹层。 */
 .picker-backdrop {
