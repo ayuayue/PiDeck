@@ -124,20 +124,20 @@ class ConfigModalErrorBoundary extends Component<
 			<div className="modal-backdrop">
 				<div className="config-modal">
 					<div className="modal-header">
-						<strong>配置管理加载失败</strong>
+						<strong>{t("config.loadFailed")}</strong>
 						<button className="modal-close-btn" onClick={this.props.onClose}>×</button>
 					</div>
 					<div className="config-content">
 						<div className="config-diagnostic-card">
 							<div>
-								<strong>配置管理渲染异常</strong>
+								<strong>{t("config.renderCrashed")}</strong>
 								<span>{this.state.error.message}</span>
 								<small>
-									这通常是某个配置字段结构超出了当前可视化表单的兼容范围。配置文件不会被修改，建议先查看{" "}
-									<a href="https://pi.dev/docs/latest/models" target="_blank" rel="noreferrer">pi models 文档</a>
+									{t("config.renderCrashedHelpPrefix")}
+									<a href="https://pi.dev/docs/latest/models" target="_blank" rel="noreferrer">{t("config.docsModels")}</a>
 									{" / "}
-									<a href="https://pi.dev/docs/latest/settings" target="_blank" rel="noreferrer">settings 文档</a>
-									，并把控制台错误和配置片段反馈给我们。
+									<a href="https://pi.dev/docs/latest/settings" target="_blank" rel="noreferrer">{t("config.docsSettings")}</a>
+									{t("config.renderCrashedHelpSuffix")}
 								</small>
 							</div>
 							<pre>{this.state.error.stack ?? this.state.error.message}</pre>
@@ -301,11 +301,11 @@ function ConfigModalContent(props: ConfigModalProps) {
 		try {
 			const result = await saveFn();
 			if (!result.valid) {
-				setError(result.error ?? "保存失败");
+				setError(result.error ?? t("config.saveFailed"));
 				return;
 			}
 			onSaved();
-			showToast("配置已保存");
+			showToast(t("config.saved"));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -371,7 +371,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 	const handleFetchModels = async (providerName: string) => {
 		const provider = modelsData.providers[providerName];
 		if (!provider?.baseUrl || !provider?.apiKey) {
-			setError("请先填写 Base URL 和 API Key");
+			setError(t("config.missingBaseUrlApiKey"));
 			return;
 		}
 		setFetchingProvider(providerName);
@@ -387,9 +387,9 @@ function ConfigModalContent(props: ConfigModalProps) {
 					...prev,
 					[providerName]: result.models!,
 				}));
-				showToast(`已获取 ${result.models.length} 个模型`);
+				showToast(t("config.fetchedModels", { count: result.models.length }));
 			} else {
-				setError(result.error ?? "获取模型列表失败");
+				setError(result.error ?? t("config.fetchModelsFailed"));
 			}
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
@@ -402,7 +402,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 	const handleTestProvider = async (providerName: string) => {
 		const provider = modelsData.providers[providerName];
 		if (!provider?.baseUrl || !provider?.apiKey) {
-			setError("请先填写 Base URL 和 API Key");
+			setError(t("config.missingBaseUrlApiKey"));
 			return;
 		}
 		// 确定测试用的模型：优先用户指定的 testModelId，否则取第一个模型 id
@@ -411,7 +411,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 			provider.models[0]?.id ||
 			"";
 		if (!modelId) {
-			setError("请至少添加一个模型，或在测试模型框中手动输入模型 ID");
+			setError(t("config.missingTestModel"));
 			return;
 		}
 		setTestingProvider(providerName);
@@ -573,7 +573,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 			a.download = `pi-desktop-config-${new Date().toISOString().slice(0, 10)}.json`;
 			a.click();
 			URL.revokeObjectURL(url);
-			showToast("配置已导出");
+			showToast(t("config.exported"));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		}
@@ -600,7 +600,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 			setNewSkillName("");
 			setNewSkillDescription("");
 			await refreshSkills();
-			showToast("Skill 已创建，重启 agent 后生效");
+			showToast(t("config.skillCreatedToast"));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -613,7 +613,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 		try {
 			await api.skills.toggle(path, enabled);
 			await refreshSkills();
-			showToast(enabled ? "Skill 已启用，重启 agent 后生效" : "Skill 已禁用，重启 agent 后生效");
+			showToast(enabled ? t("config.skillEnabledToast") : t("config.skillDisabledToast"));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		}
@@ -627,7 +627,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 		try {
 			await api.skills.delete(target.path);
 			await refreshSkills();
-			showToast("Skill 已删除，重启 agent 后生效");
+			showToast(t("config.skillDeletedToast"));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		}
@@ -655,7 +655,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 		try {
 			await api.extensions.uninstall(target.source, target.scope);
 			await refreshExtensions();
-			showToast("扩展已卸载，重启 agent 后生效");
+			showToast(t("config.extensionUninstalledToast"));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -674,12 +674,12 @@ function ConfigModalContent(props: ConfigModalProps) {
 				const text = await file.text();
 				const result = await api.config.import(text);
 				if (!result.valid) {
-					setError(result.error ?? "导入失败");
+					setError(result.error ?? t("config.importFailed"));
 					return;
 				}
 				onSaved();
 				await loadConfig(tab);
-				showToast("配置已导入");
+				showToast(t("config.imported"));
 			} catch (e) {
 				setError(e instanceof Error ? e.message : String(e));
 			}

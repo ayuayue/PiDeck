@@ -1,9 +1,13 @@
-export const USER_AGENT_OPTIONS = [
-	{ value: "", label: "不写入（使用运行时默认）" },
-	{ value: "OpenAI/JS 6.26.0", label: "OpenAI/JS 6.26.0" },
-	{ value: "Mozilla/5.0", label: "Mozilla/5.0" },
-	{ value: "pi-coding-agent", label: "pi-coding-agent" },
-];
+import { t } from "../i18n";
+
+export function getUserAgentOptions() {
+	return [
+		{ value: "", label: t("config.userAgentRuntimeDefault") },
+		{ value: "OpenAI/JS 6.26.0", label: "OpenAI/JS 6.26.0" },
+		{ value: "Mozilla/5.0", label: "Mozilla/5.0" },
+		{ value: "pi-coding-agent", label: "pi-coding-agent" },
+	];
+}
 export const CUSTOM_USER_AGENT_VALUE = "__custom__";
 
 export function getProviderHeaders(value: unknown): Record<string, string> | undefined {

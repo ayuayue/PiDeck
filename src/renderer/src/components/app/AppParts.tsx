@@ -25,7 +25,7 @@ import {
 	Wrench,
 	X,
 } from "lucide-react";
-import { t } from "../../i18n";
+import { t, type TranslationKey } from "../../i18n";
 import type {
 	AgentRuntimeState,
 	AgentTab,
@@ -242,7 +242,7 @@ export function SessionStatus(props: {
 			</span>
 			<span>{t("app.think")}: {props.state.thinkingLevel ?? "-"}</span>
 			{props.duration != null && (
-				<span title="本次会话耗时">⏱ {formatDuration(props.duration)}</span>
+				<span title={t("app.sessionDuration")}>⏱ {formatDuration(props.duration)}</span>
 			)}
 			{props.state.contextPercent != null && (
 				<span>
@@ -291,7 +291,9 @@ export function ComposerToolbar(props: {
 						props.compacting ||
 						!!props.state?.isStreaming
 					}
-					title={`上下文: ${ctxPercent.toFixed(1)}% - 点击压缩上下文释放空间`}
+					title={t("app.contextCompactTitle", {
+						percent: ctxPercent.toFixed(1),
+					})}
 					onClick={props.onCompact}
 				>
 					{props.state?.isCompacting || props.compacting
@@ -336,7 +338,7 @@ export function ModelPicker(props: {
 				onClick={(event) => event.stopPropagation()}
 			>
 				<div className="picker-palette-header">
-					<span>选择模型</span>
+					<span>{t("app.modelPickerTitle")}</span>
 					<button className="picker-palette-close" onClick={props.onClose}>×</button>
 				</div>
 				<div className="picker-palette-search">
@@ -344,7 +346,7 @@ export function ModelPicker(props: {
 						autoFocus
 						value={modelPickerSearch}
 						onChange={(event) => setModelPickerSearch(event.target.value)}
-						placeholder="搜索模型、Provider 或 ID"
+						placeholder={t("app.modelPickerSearch")}
 					/>
 				</div>
 				<div className="picker-palette-list">
@@ -367,7 +369,7 @@ export function ModelPicker(props: {
 							);
 						})
 					) : (
-						<div className="picker-palette-empty">没有匹配的模型</div>
+						<div className="picker-palette-empty">{t("app.modelPickerEmpty")}</div>
 					)}
 				</div>
 			</div>
@@ -376,15 +378,15 @@ export function ModelPicker(props: {
 }
 
 const THINKING_LEVELS = [
-	{ value: "off", label: "Off", description: "关闭模型思考,优先速度和成本" },
+	{ value: "off", label: "Off", descriptionKey: "thinking.level.off" },
 	// minimal 是 pi/Codex reasoning 的最轻量档位,放在 Off 与 Low 之间便于按强度递增选择。
-	{ value: "minimal", label: "Minimal", description: "最少量思考,适合简单问答和轻量修改" },
-	{ value: "low", label: "Low", description: "更快响应,适合日常小改动" },
-	{ value: "medium", label: "Medium", description: "平衡速度和推理深度" },
-	{ value: "high", label: "High", description: "更深推理,适合复杂任务" },
+	{ value: "minimal", label: "Minimal", descriptionKey: "thinking.level.minimal" },
+	{ value: "low", label: "Low", descriptionKey: "thinking.level.low" },
+	{ value: "medium", label: "Medium", descriptionKey: "thinking.level.medium" },
+	{ value: "high", label: "High", descriptionKey: "thinking.level.high" },
 	// xhigh 只在部分模型上可用;选择后以前端收到的 runtime state 为准,必要时提示用户已被回退。
-	{ value: "xhigh", label: "XHigh", description: "最高推理档,需当前模型支持" },
-];
+	{ value: "xhigh", label: "XHigh", descriptionKey: "thinking.level.xhigh" },
+] satisfies Array<{ value: string; label: string; descriptionKey: TranslationKey }>;
 
 export function ThinkingPicker(props: {
 	current?: string;
@@ -398,7 +400,7 @@ export function ThinkingPicker(props: {
 				onClick={(event) => event.stopPropagation()}
 			>
 				<div className="picker-palette-header">
-					<span>选择思考级别</span>
+					<span>{t("app.thinkingPickerTitle")}</span>
 					<button className="picker-palette-close" onClick={props.onClose}>×</button>
 				</div>
 				<div className="picker-palette-list">
@@ -411,7 +413,7 @@ export function ThinkingPicker(props: {
 								onClick={() => props.onPick(level.value)}
 							>
 								<span className="picker-palette-label">{level.label}</span>
-								<span className="picker-palette-desc">{level.description}</span>
+								<span className="picker-palette-desc">{t(level.descriptionKey)}</span>
 								{selected && <span className="picker-palette-check">✓</span>}
 							</button>
 						);
@@ -461,7 +463,10 @@ export function BranchSelector(props: {
 				className="branch-trigger"
 				disabled={Boolean(props.switchingBranch)}
 				onClick={() => setOpen((v) => !v)}
-				title={`当前分支: ${current},共 ${branches.length} 个分支`}
+				title={t("app.branchCurrent", {
+					branch: current,
+					count: branches.length,
+				})}
 			>
 				<span className="branch-icon">
 					<GitBranch size={14} />
@@ -477,7 +482,7 @@ export function BranchSelector(props: {
 			{open && (
 				<div className="branch-dropdown">
 					{branches.length <= 1 && (
-						<div className="branch-empty-hint">仅此一个分支</div>
+						<div className="branch-empty-hint">{t("app.branchOnlyOne")}</div>
 					)}
 					{branches.map((branch) => {
 						const switching = props.switchingBranch === branch;
@@ -499,7 +504,7 @@ export function BranchSelector(props: {
 								)}
 							</span>
 							<span className="branch-item-label" title={branch}>
-								{switching ? "切换中..." : branch}
+								{switching ? t("app.branchSwitching") : branch}
 							</span>
 						</button>
 					);
@@ -527,7 +532,7 @@ export function LogoMark() {
 
 export function ProjectAvatar(props: { name: string }) {
 	return (
-		<div className="conversation-avatar project-avatar" title={`${props.name} 项目目录`}>
+		<div className="conversation-avatar project-avatar" title={t("app.projectAvatarTitle", { name: props.name })}>
 			<Folder size={16} strokeWidth={1.8} />
 		</div>
 	);
@@ -593,8 +598,8 @@ export function EmptyState(props: { hasProject: boolean; onCreate: () => void })
 			<h2>{t("app.startAgent")}</h2>
 			<p>
 				{props.hasProject
-					? "创建 agent 后即可开始对话。"
-					: "先从左侧添加项目目录。"}
+					? t("app.emptyHasProject")
+					: t("app.emptyNoProject")}
 			</p>
 			{props.hasProject && (
 				<button onClick={props.onCreate}>{t("app.createAgent")}</button>
@@ -699,13 +704,13 @@ export function ThinkingBubble(props: { thinking?: string; showThinking?: boolea
 			<div className="msg-content">
 				<div className="msg-name">
 					<span>pi</span>
-					<time>{hasThinking ? "思考中" : "正在响应"}</time>
+					<time>{hasThinking ? t("thinking.streaming") : t("thinking.responding")}</time>
 				</div>
 				{hasThinking && (
 					<div className="thinking-block streaming">
 						<div className="thinking-header">
 							<Brain size={14} />
-							<span>思考过程</span>
+							<span>{t("thinking.title")}</span>
 						</div>
 						<div className="thinking-content">{displayText}</div>
 						{needsTruncate && (
@@ -713,7 +718,7 @@ export function ThinkingBubble(props: { thinking?: string; showThinking?: boolea
 								className="thinking-toggle"
 								onClick={() => setExpanded((v) => !v)}
 							>
-								{expanded ? "收起" : "展开全部"}
+								{expanded ? t("common.collapse") : t("thinking.expandAll")}
 							</button>
 						)}
 					</div>
@@ -887,13 +892,13 @@ export function ImagePreviewModal(props: {
 			<button
 				className="image-preview-close"
 				onClick={props.onClose}
-				aria-label="关闭图片预览"
+				aria-label={t("app.imagePreviewClose")}
 			>
 				<X size={20} strokeWidth={2.4} />
 			</button>
 			<img
 				src={`data:${props.image.mimeType};base64,${props.image.data}`}
-				alt="图片预览"
+				alt={t("app.imagePreviewAlt")}
 				onClick={(event) => event.stopPropagation()}
 			/>
 		</div>
@@ -939,9 +944,9 @@ export function ChatBubble(props: {
 		message.role === "user" ? message.meta?.streamingBehavior : undefined;
 	const deliveryLabel =
 		deliveryBehavior === "steer"
-			? "下次调用前"
+			? t("app.messageDeliverySteer")
 			: deliveryBehavior === "followUp"
-				? "结束后排队"
+				? t("app.messageDeliveryFollowUp")
 				: null;
 	const detailText =
 		typeof message.meta?.detailText === "string"
@@ -961,7 +966,7 @@ export function ChatBubble(props: {
 				.join(" ")}
 		>
 			<div className="msg-avatar">
-				{isUser ? "我" : label.slice(0, 1).toUpperCase()}
+				{isUser ? t("app.userAvatar") : label.slice(0, 1).toUpperCase()}
 			</div>
 			<div className="msg-content">
 				<div className="msg-name">
@@ -972,8 +977,8 @@ export function ChatBubble(props: {
 								className={`message-delivery-badge ${deliveryBehavior === "followUp" ? "follow-up" : "steer"}`}
 								title={
 									deliveryBehavior === "followUp"
-										? "followUp:等待 agent 停止后发送"
-										: "steer:当前工具调用后、下一次 LLM 调用前生效"
+										? t("app.messageDeliveryFollowUpTitle")
+										: t("app.messageDeliverySteerTitle")
 								}
 							>
 								{deliveryLabel}
@@ -1006,7 +1011,7 @@ export function ChatBubble(props: {
 								<img
 									key={index}
 									src={`data:${img.mimeType};base64,${img.data}`}
-									alt={`图片 ${index + 1}`}
+									alt={t("app.imageAlt", { index: index + 1 })}
 									className="message-image"
 									onClick={() => props.onPreviewImage(img)}
 								/>
@@ -1053,9 +1058,9 @@ export function ChatBubble(props: {
 						<>
 							<button
 								onClick={() => props.onResendUserMessage?.(message)}
-								title="用同一条用户消息再次发送给 AI"
+								title={t("app.resendTitle")}
 							>
-								重新发送
+								{t("app.resend")}
 							</button>
 							<button
 								onClick={() => {
@@ -1072,7 +1077,7 @@ export function ChatBubble(props: {
 									);
 								}}
 							>
-								编辑
+								{t("common.edit")}
 							</button>
 						</>
 					)}
@@ -1409,9 +1414,6 @@ export function ConversationOutline(props: {
 }
 
 const OUTLINE_TOP_STORAGE_KEY = "pi-desktop:outline-top";
-const CHANGED_LINES_ESTIMATE_HINT =
-	"行数为估算:edit 按 oldText/newText 中较大的行数统计,多个 edit 会累加;write/create 按写入内容行数统计。它不是基于 git diff 的精确修改行数,末尾换行或多次编辑可能让数字偏大。";
-
 function getInitialOutlineTop() {
 	if (typeof window === "undefined") return 180;
 	const saved = Number(localStorage.getItem(OUTLINE_TOP_STORAGE_KEY));
@@ -2056,7 +2058,7 @@ export function buildSuggestionItems(
 function mergeCommands(commands: PiCommand[]) {
 	const visibleCommands = commands.filter(isVisibleDesktopCommand);
 	const names = new Set(visibleCommands.map((command) => command.name));
-	const extras = BUILTIN_COMMANDS.filter(
+	const extras = getBuiltinCommands().filter(
 		(command) => !names.has(command.name) && isVisibleDesktopCommand(command),
 	);
 	return [...visibleCommands, ...extras];
@@ -2097,40 +2099,42 @@ function isVisibleDesktopCommand(command: PiCommand) {
 
 // pi 内置斜杠命令,get_commands 只返回扩展注册的命令,这些需要手动补充
 // desktop 已有独立 UI 入口或在 desktop 中不适合执行的命令由 HIDDEN_DESKTOP_COMMAND_NAMES 统一过滤。
-const BUILTIN_COMMANDS: PiCommand[] = [
+function getBuiltinCommands(): PiCommand[] {
+	return [
 	{
 		name: "session",
-		description: "显示会话文件、ID、消息数、token 和费用",
+		description: t("prompt.command.session.description"),
 		source: "builtin",
 	},
 	{
 		name: "tree",
-		description: "会话树导航,跳转到任意节点",
+		description: t("prompt.command.tree.description"),
 		source: "builtin",
 	},
-	{ name: "clone", description: "复制当前分支到新会话", source: "builtin" },
+	{ name: "clone", description: t("prompt.command.clone.description"), source: "builtin" },
 	{
 		name: "compact",
-		description: "压缩上下文,可选自定义提示词",
+		description: t("prompt.command.compact.description"),
 		source: "builtin",
 	},
-	{ name: "copy", description: "复制最后一条回复到剪贴板", source: "builtin" },
-	{ name: "export", description: "导出会话为 HTML 文件", source: "builtin" },
+	{ name: "copy", description: t("prompt.command.copy.description"), source: "builtin" },
+	{ name: "export", description: t("prompt.command.export.description"), source: "builtin" },
 	{
 		name: "share",
-		description: "上传为 GitHub Gist 私密链接",
+		description: t("prompt.command.share.description"),
 		source: "builtin",
 	},
-	{ name: "settings", description: "打开 pi 设置", source: "builtin" },
-	{ name: "reload", description: "重载扩展、技能和配置", source: "builtin" },
-	{ name: "hotkeys", description: "显示所有快捷键", source: "builtin" },
+	{ name: "settings", description: t("prompt.command.settings.description"), source: "builtin" },
+	{ name: "reload", description: t("prompt.command.reload.description"), source: "builtin" },
+	{ name: "hotkeys", description: t("prompt.command.hotkeys.description"), source: "builtin" },
 	{
 		name: "login",
-		description: "管理 OAuth 或 API key 认证",
+		description: t("prompt.command.login.description"),
 		source: "builtin",
 	},
-	{ name: "logout", description: "退出登录", source: "builtin" },
-];
+	{ name: "logout", description: t("prompt.command.logout.description"), source: "builtin" },
+	];
+}
 
 export function PromptSuggestions(props: {
 	prompt: string;

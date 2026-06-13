@@ -5,7 +5,7 @@ import type { ModelItem, ModelsFile } from "./configTypes";
 import { ApiTypeInput, ConfigSelect, SecretInput } from "./ConfigShared";
 import {
 	CUSTOM_USER_AGENT_VALUE,
-	USER_AGENT_OPTIONS,
+	getUserAgentOptions,
 	getHeaderValue,
 	setHeaderValue,
 } from "./providerHeaders";
@@ -236,7 +236,8 @@ export function ModelsTab(props: {
 					const providerComplexFields = ["headers", "authHeader", "compat", "modelOverrides", "oauth"].filter(
 						(key) => provider[key] !== undefined,
 					);
-					const userAgentSelectValue = USER_AGENT_OPTIONS.some(
+					const userAgentOptions = getUserAgentOptions();
+					const userAgentSelectValue = userAgentOptions.some(
 						(option) => option.value === userAgentValue,
 					)
 						? userAgentValue
@@ -378,7 +379,7 @@ export function ModelsTab(props: {
 												<ConfigSelect
 													value={userAgentSelectValue}
 													options={[
-														...USER_AGENT_OPTIONS,
+														...userAgentOptions,
 														{ value: CUSTOM_USER_AGENT_VALUE, label: t("config.custom") },
 													]}
 													onChange={(value) => {

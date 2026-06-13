@@ -501,13 +501,15 @@ export function App() {
       : null;
   const composerStatusText =
     composerMode === "silent-shell"
-      ? "静默命令：直接执行，不写入上下文"
+      ? t("app.composerSilentStatus")
       : composerMode === "shell"
-        ? "Shell 命令：直接执行当前输入"
+        ? t("app.composerShellStatus")
         : drawer === "files"
-          ? "右侧面板可查看文件"
+          ? t("app.composerFilesStatus")
           : drawer === "sessions"
-            ? `右侧面板正在显示 ${sessionsProject?.name ?? "项目"} 的历史会话`
+            ? t("app.composerSessionStatus", {
+                name: sessionsProject?.name ?? t("common.project"),
+              })
             : (activeAgent?.sessionPath ?? "");
 
   useEffect(() => {
@@ -711,7 +713,7 @@ export function App() {
       ]),
     );
     const offSettings = api.settings.onApplyWindow(() =>
-      setSettingsNotice("标题栏样式需要重启应用后生效。"),
+      setSettingsNotice(t("settings.restartNotice")),
     );
     // 监听后端主动推送的 runtimeState 更新（如 agent_end 时重置 isStreaming），
     // 确保前端 isAgentBusy 判断基于最新状态，排队 flush 能正常触发。
@@ -1126,10 +1128,16 @@ export function App() {
         const saved = await api.settings.update({ piEnvironmentChecked: true });
         setSettings(saved);
         setSettingsNotice(
-          `pi 检测通过：${next.command ?? next.version ?? "pi"}`,
+          t("app.piCheckPassed", {
+            value: next.command ?? next.version ?? "pi",
+          }),
         );
       } else {
-        setSettingsNotice(`pi 检测失败：${next.error ?? "未检测到 pi CLI"}`);
+        setSettingsNotice(
+          t("app.piCheckFailed", {
+            error: next.error ?? t("settings.piMissing"),
+          }),
+        );
       }
     } finally {
       setPiChecking(false);
@@ -1158,7 +1166,9 @@ export function App() {
         setCustomPiPath(updated.customPiPath ?? result.command ?? path);
         setPiStatus(result);
         setSettingsNotice(
-          `pi 路径已保存：${result.command ?? updated.customPiPath}`,
+          t("app.piPathSaved", {
+            path: result.command ?? updated.customPiPath ?? path,
+          }),
         );
         if (options.closeDialogOnSuccess) {
           // 启动检测弹窗场景下保持原有成功后自动关闭体验；设置页内校验不关闭设置窗口。
@@ -1166,7 +1176,9 @@ export function App() {
         }
       } else {
         setSettingsNotice(
-          `pi 路径校验失败：${result.error ?? "无法执行该路径"}`,
+          t("app.piPathValidateFailed", {
+            error: result.error ?? t("environment.unableToRun"),
+          }),
         );
       }
     } finally {
@@ -1179,7 +1191,7 @@ export function App() {
     setSettings(updated);
     setCustomPiPath("");
     setCustomPathResult(null);
-    setSettingsNotice("已清除自定义 pi 路径，将恢复自动检测。");
+    setSettingsNotice(t("app.piPathCleared"));
     const status = await api.pi.check();
     setPiStatus(status);
   }
@@ -1197,15 +1209,17 @@ export function App() {
       if (next.hasUpdate) {
         setUpdateInfo(next);
       } else if (source === "manual") {
-        setSettingsNotice(`当前已是最新版本 v${next.currentVersion}。`);
-        showToast("当前已是最新版本");
+        setSettingsNotice(
+          t("app.latestVersionNotice", { version: next.currentVersion }),
+        );
+        showToast(t("app.latestVersion"));
       }
     } catch (error) {
       if (source === "manual") {
         const message = error instanceof Error ? error.message : String(error);
-        setSettingsNotice(`检查更新失败：${message}`);
+        setSettingsNotice(t("app.updateFailedNotice", { error: message }));
         setUpdateError(message);
-        showToast("检查更新失败");
+        showToast(t("app.updateFailed"));
       }
     } finally {
       setUpdateChecking(false);
@@ -1252,7 +1266,7 @@ export function App() {
     if (!projectId) return;
     const next = await api.files.list(projectId);
     setFiles(next);
-    showToast("文件列表已刷新", 1800);
+    showToast(t("app.filesRefreshed"), 1800);
   }
 
   async function refreshSessionHistory(projectId = sessionsProjectId) {
@@ -1280,7 +1294,7 @@ export function App() {
     if (!projectId) return;
     setSessionsProjectId(undefined);
     setSessions([]);
-    await createAgent(projectId, session.filePath, session.name || "历史会话");
+    await createAgent(projectId, session.filePath, session.name || t("common.untitled"));
   }
 
   async function renameHistorySession(filePath: string, newName: string) {
@@ -1296,10 +1310,10 @@ export function App() {
     if (!projectId) return;
     const result = await api.sessions.copy(projectId, filePath);
     if (result.cancelled) {
-      showToast("复制会话已取消");
+      showToast(t("app.sessionCopyCancelled"));
       return;
     }
-    showToast("已通过 pi RPC 复制会话");
+    showToast(t("app.sessionCopied"));
     await refreshSessions(projectId);
     await refreshProjectSessions(projectId);
   }
@@ -1308,12 +1322,12 @@ export function App() {
     const projectId = sessionsProjectId ?? activeProjectId;
     if (!projectId) return;
     const result = await api.sessions.exportHtml(projectId, session.filePath);
-    showToast(`已导出：${result.path}`, 3500);
+    showToast(t("app.exportedPath", { path: result.path }), 3500);
   }
 
   async function deleteHistorySession(session: SessionSummary) {
     await api.sessions.delete(session.filePath);
-    showToast("已删除会话", 2200);
+    showToast(t("app.sessionDeleted"), 2200);
     const projectId = sessionsProjectId ?? activeProjectId;
     await refreshSessions(projectId);
     if (projectId) await refreshProjectSessions(projectId);
@@ -1324,10 +1338,10 @@ export function App() {
     try {
       const result = await api.agents.cloneSession(agentId);
       if (result?.cancelled) {
-        showToast("复制会话已取消");
+        showToast(t("app.sessionCopyCancelled"));
         return;
       }
-      showToast("已通过 pi RPC 复制当前会话");
+      showToast(t("app.currentSessionCopied"));
       await refreshRuntimeState(agentId);
       await refreshSessions(activeProjectId);
       if (activeProjectId) await refreshProjectSessions(activeProjectId);
@@ -1348,14 +1362,14 @@ export function App() {
     setSessionMenu(null);
     setAgentRenameTarget(null);
     setSessionRenameTarget({ projectId, session });
-    setAgentRenameValue(session.name || "Untitled");
+    setAgentRenameValue(session.name || t("common.untitled"));
   }
 
   async function submitAgentRename() {
     if (!agentRenameTarget) return;
     const name = agentRenameValue.replace(/\s+/g, " ").trim();
     if (!name) {
-      showToast("会话名称不能为空", 2200);
+      showToast(t("app.sessionNameRequired"), 2200);
       return;
     }
     setAgentRenaming(true);
@@ -1367,12 +1381,14 @@ export function App() {
       setAgentRenameTarget(null);
       setSessionRenameTarget(null);
       setAgentRenameValue("");
-      showToast("已重命名会话", 2200);
+      showToast(t("app.sessionRenamed"), 2200);
       await refreshProjectSessions(tab.projectId);
       if (sessionsProjectId === tab.projectId) await refreshSessions(tab.projectId);
     } catch (error) {
       showToast(
-        `重命名失败：${error instanceof Error ? error.message : String(error)}`,
+        t("app.sessionRenameFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
         4000,
       );
     } finally {
@@ -1384,7 +1400,7 @@ export function App() {
     if (!sessionRenameTarget) return;
     const name = agentRenameValue.replace(/\s+/g, " ").trim();
     if (!name) {
-      showToast("会话名称不能为空", 2200);
+      showToast(t("app.sessionNameRequired"), 2200);
       return;
     }
     setAgentRenaming(true);
@@ -1396,10 +1412,12 @@ export function App() {
       }
       setSessionRenameTarget(null);
       setAgentRenameValue("");
-      showToast("已重命名会话", 2200);
+      showToast(t("app.sessionRenamed"), 2200);
     } catch (error) {
       showToast(
-        `重命名失败：${error instanceof Error ? error.message : String(error)}`,
+        t("app.sessionRenameFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
         4000,
       );
     } finally {
@@ -1409,7 +1427,7 @@ export function App() {
 
   async function openSidebarSession(projectId: string, session: SessionSummary) {
     setSessionMenu(null);
-    return createAgent(projectId, session.filePath, session.name || "历史会话");
+    return createAgent(projectId, session.filePath, session.name || t("common.untitled"));
   }
 
   async function copySidebarSession(projectId: string, session: SessionSummary) {
@@ -1426,7 +1444,7 @@ export function App() {
     setSessionActionLoading("export");
     try {
       const result = await api.sessions.exportHtml(projectId, session.filePath);
-      showToast(`已导出：${result.path}`, 3500);
+      showToast(t("app.exportedPath", { path: result.path }), 3500);
     } finally {
       setSessionActionLoading(null);
       setSessionMenu(null);
@@ -1455,10 +1473,12 @@ export function App() {
       // 默认不自动勾选任何会话，避免用户未确认时批量覆盖已导入历史。
       setCodexImportSelected([]);
     } catch (error) {
-      setToast(
-        `扫描 Codex 会话失败：${error instanceof Error ? error.message : String(error)}`,
+      showToast(
+        t("codex.scanFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        4000,
       );
-      setTimeout(() => setToast(null), 4000);
     } finally {
       setCodexImportLoading(false);
     }
@@ -1495,15 +1515,19 @@ export function App() {
       await refreshProjectSessions(codexImportProject.id);
       if (sessionsProjectId === codexImportProject.id)
         await refreshSessions(codexImportProject.id);
-      setToast(
-        `Codex 会话导入完成：${report.imported} 成功，${report.failed} 失败`,
+      showToast(
+        t("codex.importDone", {
+          imported: report.imported,
+          failed: report.failed,
+        }),
       );
-      setTimeout(() => setToast(null), 3500);
     } catch (error) {
-      setToast(
-        `导入 Codex 会话失败：${error instanceof Error ? error.message : String(error)}`,
+      showToast(
+        t("codex.importFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        4000,
       );
-      setTimeout(() => setToast(null), 4000);
     } finally {
       setCodexImportRunning(false);
     }
@@ -1550,7 +1574,9 @@ export function App() {
     } catch (error) {
       setProjects(previousProjects);
       showToast(
-        `项目排序保存失败：${error instanceof Error ? error.message : String(error)}`,
+        t("app.projectSortFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
         4000,
       );
     }
@@ -1791,11 +1817,18 @@ export function App() {
       setThinkingPickerOpen(false);
       // pi runtime 会按模型能力 clamp thinking level；对比实际状态，避免用户误以为已运行在不支持的档位。
       if (state.thinkingLevel && state.thinkingLevel !== level) {
-        showToast(`当前模型不支持 ${level}，已回退为 ${state.thinkingLevel}`);
+        showToast(
+          t("app.thinkingUnsupported", {
+            level,
+            fallback: state.thinkingLevel,
+          }),
+        );
       }
     } catch (error) {
       showToast(
-        `切换思考级别失败：${error instanceof Error ? error.message : String(error)}`,
+        t("app.thinkingSwitchFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
   }
@@ -1830,8 +1863,7 @@ export function App() {
     setAgentActionLoading("export");
     try {
       const result = await api.agents.exportHtml(agentId);
-      setToast(`已导出：${result.path}`);
-      setTimeout(() => setToast(null), 3500);
+      showToast(t("app.exportedPath", { path: result.path }), 3500);
     } finally {
       setAgentActionLoading(null);
       setAgentMenu(null);
@@ -1973,15 +2005,13 @@ export function App() {
   async function processImageFile(file: File): Promise<ImageContent | null> {
     const maxSize = 10 * 1024 * 1024; // 原始文件 10MB 限制，避免误粘超大图片卡住渲染进程
     if (file.size > maxSize) {
-      setToast("图片过大，最大支持 10MB");
-      setTimeout(() => setToast(null), 3000);
+      showToast(t("app.imageTooLarge"), 3000);
       return null;
     }
 
     const validTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
     if (!validTypes.includes(file.type)) {
-      setToast("不支持的图片格式，请使用 PNG/JPEG/GIF/WebP");
-      setTimeout(() => setToast(null), 3000);
+      showToast(t("app.imageUnsupported"), 3000);
       return null;
     }
 
@@ -2100,29 +2130,29 @@ export function App() {
       "webServiceHost" in patch ||
       "webServicePort" in patch;
     if (changesWebService) {
-      setWebServiceChanging(true);
+    setWebServiceChanging(true);
       setSettingsNotice(
         patch.webServiceEnabled === false
-          ? "正在停止 Web 服务..."
-          : "正在应用 Web 服务设置...",
+          ? t("app.webStopping")
+          : t("app.webApplying"),
       );
     }
     try {
       const next = await api.settings.update(patch);
       setSettings(next);
-      let notice = "设置已保存。";
+      let notice = t("app.settingsSaved");
       if (
         "piProxyEnabled" in patch ||
         "piProxyUrl" in patch ||
         "piProxyBypass" in patch
       ) {
         notice = next.piProxyEnabled
-          ? "pi agent 代理设置已保存；新建或重启 agent 后生效。"
-          : "pi agent 代理已关闭。";
+          ? t("app.shellProxySaved")
+          : t("app.shellProxyDisabled");
         setPiProxyNoticeTone("info");
         setPiProxyNotice(
           next.piProxyEnabled
-            ? "代理设置已保存；新建或重启 agent 后生效。"
+            ? t("app.shellProxySaved")
             : "",
         );
       }
@@ -2132,11 +2162,11 @@ export function App() {
         "desktopProxyBypass" in patch
       ) {
         notice = next.desktopProxyEnabled
-          ? "桌面端代理设置已保存；模型拉取和模型测试会使用该代理。"
-          : "桌面端代理已关闭。";
+          ? t("app.webProxySaved")
+          : t("app.webProxyDisabled");
       }
       if ("sendShortcut" in patch) {
-        notice = "发送快捷键设置已保存。";
+        notice = t("app.sendShortcutSaved");
       }
       if (
         "webServiceEnabled" in patch ||
@@ -2144,11 +2174,11 @@ export function App() {
         "webServicePort" in patch
       ) {
         notice = next.webServiceEnabled
-          ? `Web 服务已启动：http://本机局域网 IP:${next.webServicePort}`
-          : "Web 服务已停止。";
+          ? t("app.webServiceStarted", { port: next.webServicePort })
+          : t("app.webServiceStopped");
       }
       if ("useNativeTitleBar" in patch) {
-        notice = "标题栏样式已保存，重启应用后生效。";
+        notice = t("app.titleBarSaved");
       }
       setSettingsNotice(notice);
     } catch (error) {
@@ -2162,19 +2192,26 @@ export function App() {
   async function testPiProxy() {
     setPiProxyChecking(true);
     setPiProxyNoticeTone("info");
-    setPiProxyNotice("正在检测 pi agent 代理...");
+    setPiProxyNotice(t("app.proxyChecking"));
     try {
       const result = await api.settings.testPiProxy();
       setPiProxyNoticeTone(result.success ? "success" : "error");
       setPiProxyNotice(
         result.success
-          ? `${result.message ?? "代理可用"}，耗时 ${result.elapsedMs}ms。`
-          : `代理检测失败：${result.error ?? "未知错误"}`,
+          ? t("app.proxyAvailable", {
+              message: result.message ?? t("app.proxyDefaultOk"),
+              elapsed: result.elapsedMs,
+            })
+          : t("app.proxyCheckFailed", {
+              error: result.error ?? t("app.proxyUnknownError"),
+            }),
       );
     } catch (error) {
       setPiProxyNoticeTone("error");
       setPiProxyNotice(
-        `代理检测失败：${error instanceof Error ? error.message : String(error)}`,
+        t("app.proxyCheckFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       );
     } finally {
       setPiProxyChecking(false);
@@ -2189,7 +2226,9 @@ export function App() {
       setGitInfo(next);
     } catch (error) {
       showToast(
-        `切换分支失败：${error instanceof Error ? error.message : String(error)}`,
+        t("app.branchSwitchFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       );
       // 失败后主动刷新一次，覆盖 git 拒绝切换或外部同时切换导致的 UI 状态偏差。
       const refreshed = await api.git
@@ -2347,7 +2386,7 @@ export function App() {
         </div>
         <button
           className="collapse-button list-collapse"
-          title={listCollapsed ? "展开列表" : "折叠列表"}
+          title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
           onClick={() => {
             if (listCollapsed) setListWidth(DEFAULT_LIST_WIDTH);
             setListCollapsed((value) => !value);
@@ -2474,7 +2513,7 @@ export function App() {
                 >
                   <span
                     className={`project-fold${isCollapsed ? " folded" : ""}${hasProjectChildren ? " has-agents" : ""}`}
-                    title={isCollapsed ? "展开" : "折叠"}
+                    title={isCollapsed ? t("app.projectExpand") : t("app.projectCollapse")}
                   >
                     <Play size={12} />
                   </span>
@@ -2487,7 +2526,7 @@ export function App() {
                     </div>
                     {projectIsChat && (
                       <p className="chat-project-guide">
-                        内置对话区，不需要选择项目目录
+                        {t("app.projectChatGuide")}
                       </p>
                     )}
                   </div>
@@ -2496,8 +2535,8 @@ export function App() {
                       className="project-info"
                       title={
                         projectIsChat
-                          ? "Chat 是固定置顶的内置对话区；会话写入应用用户目录，不需要先添加项目。"
-                          : "项目下方默认展示运行中的 Agent 和最近历史会话；右键项目可导入 Codex 会话或删除目录记录。"
+                          ? t("app.projectChatInfo")
+                          : t("app.projectInfo")
                       }
                       onClick={(event) => event.stopPropagation()}
                     >
@@ -2506,7 +2545,7 @@ export function App() {
                     {!projectIsChat && (
                       <span
                         className="project-action project-delete"
-                        title="删除目录记录"
+                        title={t("app.projectRemoveTitle")}
                         onClick={async (event) => {
                           event.stopPropagation();
                           const next = await api.projects.remove(project.id);
@@ -2570,7 +2609,7 @@ export function App() {
                     }}
                   >
                     <span className="agent-more-branch" />
-                    <span>更多 {agentDisplay.hiddenCount} 个 Agent</span>
+                    <span>{t("app.moreAgents", { count: agentDisplay.hiddenCount })}</span>
                   </button>
                 )}
                 {!isCollapsed && displayedProjectSessions.length > 0 && (
@@ -2598,7 +2637,7 @@ export function App() {
                         <span className="session-node-marker" aria-hidden="true" />
                         <div className="conversation-body">
                           <div className="conversation-title">
-                            <strong>{session.name || "Untitled"}</strong>
+                            <strong>{session.name || t("common.untitled")}</strong>
                           </div>
                         </div>
                         <span
@@ -2610,7 +2649,7 @@ export function App() {
                   </div>
                 )}
                 {!isCollapsed && projectSessionsLoading && (
-                  <div className="project-session-loading">正在加载历史会话…</div>
+                  <div className="project-session-loading">{t("app.projectSessionsLoading")}</div>
                 )}
                 {!isCollapsed && hiddenSessionCount > 0 && (
                   <button
@@ -2625,7 +2664,7 @@ export function App() {
                     }}
                   >
                     <span className="agent-more-branch" />
-                    <span>查看更多 {hiddenSessionCount} 个历史会话</span>
+                    <span>{t("app.projectShowMoreSessions", { count: hiddenSessionCount })}</span>
                   </button>
                 )}
               </div>
@@ -2731,7 +2770,7 @@ export function App() {
                       activeAgent?.status === "starting" ||
                       !!loadingAction
                     }
-                    title="重启 Agent 进程，重新加载配置文件（provider、API key 等）"
+                    title={t("app.restartTitle")}
                     onClick={async () => {
                       if (!activeAgentId) return;
                       setLoadingAction("restart");
@@ -2770,7 +2809,7 @@ export function App() {
                         if (!activeAgentId) return;
                         setTerminalOpenForAgent(activeAgentId, !terminalOpen);
                       }}
-                      title="显示或隐藏当前 Agent 的终端"
+                      title={t("app.openTerminalTitle")}
                     >
                       {t("app.terminal")}
                     </button>
@@ -2785,7 +2824,7 @@ export function App() {
           {activeAgent?.status === "starting" && (
             <div className="history-loading">
               <div className="loader" />
-              <span>正在启动 Agent…</span>
+              <span>{t("app.agentStarting")}</span>
             </div>
           )}
           {!activeAgent && (
@@ -2875,14 +2914,14 @@ export function App() {
                 <div key={index} className="image-preview-item">
                   <img
                     src={`data:${img.mimeType};base64,${img.data}`}
-                    alt={`图片 ${index + 1}`}
+                    alt={t("app.imageAlt", { index: index + 1 })}
                     onClick={() => setPreviewImage(img)}
                     style={{ cursor: "pointer" }}
                   />
                   <button
                     className="image-remove-btn"
                     onClick={() => removeImage(index)}
-                    title="移除图片"
+                    title={t("app.imageRemove")}
                   >
                     <X size={12} strokeWidth={2.4} />
                   </button>
@@ -2891,9 +2930,9 @@ export function App() {
               <button
                 className="image-clear-btn"
                 onClick={clearImages}
-                title="清空所有图片"
+                title={t("app.clearImagesTitle")}
               >
-                清空
+                {t("app.clearImages")}
               </button>
             </div>
           )}
@@ -2910,7 +2949,7 @@ export function App() {
           >
             <div
               className="composer-resize-handle"
-              title="拖动调整输入框高度"
+              title={t("app.resizeComposer")}
               onPointerDown={startComposerResize}
             />
             <ComposerToolbar
@@ -2945,16 +2984,16 @@ export function App() {
               disabled={composerDisabled}
               placeholder={
                 isAgentStarting
-                  ? "Agent 正在启动…"
+                  ? t("app.agentStartingPlaceholder")
                   : !activeAgent
-                    ? "请选择一个 Agent 后输入消息"
+                    ? t("app.composerNoAgentPlaceholder")
                     : prompt.startsWith("!!")
-                      ? "!!命令 — 直接执行，不写入上下文"
+                      ? t("app.composerSilentPlaceholder")
                       : prompt.startsWith("!")
-                        ? "!命令 — 直接执行 shell 命令"
+                        ? t("app.composerShellPlaceholder")
                         : settings.sendShortcut === "enter-send"
-                          ? "输入消息，Enter 发送。/ 命令，@ 文件，! shell"
-                          : "输入消息，按设置的快捷键发送。/ 命令，@ 文件，! shell"
+                          ? t("app.composerEnterPlaceholder")
+                          : t("app.composerShortcutPlaceholder")
               }
             />
             {suggestionsOpen && !composerDisabled && (
@@ -2993,7 +3032,7 @@ export function App() {
               </span>
               {activeAgent?.status === "running" && (
                 <button className="stop-send" onClick={() => abortAgent()}>
-                  停止
+                  {t("app.stop")}
                 </button>
               )}
               <div className="send-button-group">
@@ -3011,15 +3050,15 @@ export function App() {
                   onClick={sendPrompt}
                 >
                   {isAgentBusy && (prompt.trim() || attachedImages.length > 0)
-                    ? "加入指令"
-                    : "发送"}
+                    ? t("app.composerAttach")
+                    : t("app.send")}
                 </button>
                 {isAgentBusy &&
                   (prompt.trim() || attachedImages.length > 0) && (
                     <div className="send-behavior-menu-wrap">
                       <button
                         className="send-behavior-toggle"
-                        title="选择运行中发送方式"
+                        title={t("app.sendBehaviorTitle")}
                         onClick={() => setSendBehaviorMenuOpen((open) => !open)}
                       >
                         <ChevronDown size={14} />
@@ -3027,12 +3066,12 @@ export function App() {
                       {sendBehaviorMenuOpen && (
                         <div className="send-behavior-menu">
                           <button onClick={sendPrompt}>
-                            <strong>加入当前回合</strong>
-                            <span>steer · 下一次 LLM 调用前生效</span>
+                            <strong>{t("app.sendSteerTitle")}</strong>
+                            <span>{t("app.sendSteerDesc")}</span>
                           </button>
                           <button onClick={sendPromptAsFollowUp}>
-                            <strong>排队到下一轮</strong>
-                            <span>followUp · agent 停止后发送</span>
+                            <strong>{t("app.sendFollowUpTitle")}</strong>
+                            <span>{t("app.sendFollowUpDesc")}</span>
                           </button>
                         </div>
                       )}
@@ -3073,7 +3112,7 @@ export function App() {
               createAgent(
                 sessionsProjectId ?? activeProjectId,
                 session.filePath,
-                session.name || "历史会话",
+                session.name || t("common.untitled"),
               )
             }
             onRenameSession={async (filePath, newName) => {
@@ -3094,7 +3133,7 @@ export function App() {
       {drawer && drawerCollapsed && (
         <button
           className="drawer-restore"
-          title="展开右侧面板"
+          title={t("drawer.expandPanel")}
           onClick={() => setDrawerCollapsed(false)}
         >
           <ChevronLeft size={16} />
@@ -3213,7 +3252,7 @@ export function App() {
             }}
           >
             <div className="rename-dialog-header">
-              <strong>重命名会话</strong>
+              <strong>{t("app.renameSessionTitle")}</strong>
               <button
                 type="button"
                 disabled={agentRenaming}
@@ -3229,7 +3268,7 @@ export function App() {
               autoFocus
               value={agentRenameValue}
               onChange={(event) => setAgentRenameValue(event.target.value)}
-              placeholder="输入新的会话名称"
+              placeholder={t("app.renameSessionPlaceholder")}
               disabled={agentRenaming}
             />
             <div className="rename-dialog-actions">
@@ -3332,7 +3371,7 @@ export function App() {
           onToggleDevTools={async () => {
             const opened = await api.app.toggleDevTools();
             setSettingsNotice(
-              opened ? "开发者控制台已打开。" : "开发者控制台已关闭。",
+              opened ? t("app.devToolsOpened") : t("app.devToolsClosed"),
             );
           }}
           onOpenWebService={(port) =>
@@ -3350,7 +3389,7 @@ export function App() {
           project={activeProject}
           appInfo={appInfo}
           onClose={() => setFeedbackOpen(false)}
-          onCopy={() => showToast("反馈内容已复制")}
+          onCopy={() => showToast(t("app.feedbackCopied"))}
           onOpenExternal={(url) => api.app.openExternal(url)}
           loadEnvironment={api.app.feedbackEnvironment}
         />

@@ -1,5 +1,6 @@
 import type { PiDesktopApi } from "../../preload";
 import type { AgentTab, ChatMessage, SendPromptInput } from "../../shared/types";
+import { t } from "./i18n";
 import { createPreviewApi } from "./previewApi";
 
 type WebState = {
@@ -23,7 +24,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		...init,
 	});
 	const data = await response.json().catch(() => ({
-		error: `服务返回了非 JSON 响应：${response.status} ${response.statusText}`,
+		error: t("errors.nonJsonResponse", {
+			status: response.status,
+			statusText: response.statusText,
+		}),
 	}));
 	if (!response.ok || data?.ok === false) {
 		throw new Error(data?.error ?? response.statusText);
