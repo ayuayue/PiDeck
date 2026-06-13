@@ -68,6 +68,9 @@
 	--color-brand-green: #0f766e;
 	--color-brand-blue: #2563eb;
 	--color-brand-amber: #b45309;
+	--color-logo-green: #14b814;
+	--color-logo-green-mid: #12a812;
+	--color-logo-green-deep: #0b8f0b;
 	--color-danger: #b42318;
 	--color-danger-soft: #fdecea;
 	--color-warning: #b7791f;
@@ -114,6 +117,17 @@
 		var(--color-brand-green) 0%,
 		color-mix(in srgb, var(--color-brand-blue) 48%, transparent) 52%,
 		transparent 100%
+	);
+	--logo-boot-gradient: linear-gradient(
+		145deg,
+		var(--color-logo-green),
+		var(--color-logo-green-deep)
+	);
+	--logo-mark-gradient: linear-gradient(
+		145deg,
+		var(--color-logo-green) 0%,
+		var(--color-logo-green-mid) 60%,
+		var(--color-logo-green-deep) 100%
 	);
 	font-family: var(--font-family-base);
 	background: var(--color-bg-app);
@@ -204,15 +218,14 @@ select:focus-visible {
 	display: grid;
 	place-items: center;
 	border-radius: var(--radius-lg);
-	/* 品牌主色统一为更鲜明的 #14b814，深色端保留层次，避免启动页 logo 变成单一色块。 */
-	background: linear-gradient(145deg, #14b814, #0b8f0b);
-	color: #fff;
+	background: var(--logo-boot-gradient);
+	color: var(--color-text-inverse);
 	font-size: 36px;
 	font-weight: 900;
-	box-shadow: 0 12px 28px rgba(20, 184, 20, 0.2);
+	box-shadow: 0 12px 28px color-mix(in srgb, var(--color-logo-green) 20%, transparent);
 }
 .boot-screen span {
-	color: #7d8794;
+	color: var(--color-text-tertiary);
 }
 
 .environment-backdrop {
@@ -742,14 +755,13 @@ select:focus-visible {
 	border-radius: var(--radius-lg);
 	display: grid;
 	place-items: center;
-	/* 与应用图标保持一致：以 #14b814 作为品牌绿，深色端只用于保证桌面小尺寸下的可读性。 */
-	background: linear-gradient(145deg, #14b814 0%, #12a812 60%, #0b8f0b 100%);
-	color: #fff;
+	background: var(--logo-mark-gradient);
+	color: var(--color-text-inverse);
 	font-size: var(--font-size-heading);
 	font-weight: 900;
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.22),
-		0 8px 18px rgba(20, 184, 20, 0.18);
+		inset 0 1px 0 color-mix(in srgb, var(--color-text-inverse) 22%, transparent),
+		0 8px 18px color-mix(in srgb, var(--color-logo-green) 18%, transparent);
 	overflow: hidden;
 }
 .logo-mark::before {
@@ -759,7 +771,7 @@ select:focus-visible {
 	width: 8px;
 	height: 8px;
 	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.18);
+	background: color-mix(in srgb, var(--color-text-inverse) 18%, transparent);
 }
 .logo-mark span {
 	position: relative;
