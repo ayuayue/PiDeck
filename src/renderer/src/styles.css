@@ -5129,7 +5129,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	outline: none;
 	border-color: var(--color-accent);
 	background-color: var(--color-bg-panel);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 .config-header-field {
@@ -5182,7 +5182,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 .config-select-trigger:hover,
 .config-select-trigger:focus {
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 .config-select-trigger span {
@@ -5277,7 +5277,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 .config-secret-input input:focus {
 	outline: none;
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 .config-eye-btn {
@@ -5406,7 +5406,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	outline: none;
 	border-color: var(--color-accent);
 	background: var(--color-bg-panel);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 .config-checkbox-cell {
@@ -5439,7 +5439,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .config-auth-card.editing {
 	/* 与 Models provider 展开态保持一致，Auth 不再像裸表单直接贴在列表中。 */
-	border-color: rgba(35, 134, 54, 0.32);
+	border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border-subtle));
 	box-shadow: var(--shadow-border);
 }
 
@@ -5514,7 +5514,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 .config-settings-input:focus {
 	outline: none;
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 .config-checkbox-label {
@@ -5556,7 +5556,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 .config-rename-input:focus {
 	outline: none;
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 /* 模型下拉选择行 */
@@ -5566,7 +5566,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	gap: 8px;
 	padding: 10px 12px;
 	background: var(--color-bg-active);
-	border: 1px solid rgba(35, 134, 54, 0.24);
+	border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
 	border-radius: var(--radius-lg);
 	margin-bottom: 10px;
 }
@@ -5596,7 +5596,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	outline: none;
 	border-color: var(--color-accent);
 	background-color: var(--color-bg-panel);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 
 .config-model-combobox-menu button {
@@ -5628,12 +5628,12 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 .config-test-result.success {
-	border-color: rgba(35, 134, 54, 0.24);
+	border-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
 	background: var(--color-accent-soft);
 }
 
 .config-test-result.fail {
-	border-color: rgba(180, 35, 24, 0.24);
+	border-color: color-mix(in srgb, var(--color-danger) 24%, var(--color-border-subtle));
 	background: var(--color-danger-soft);
 }
 
@@ -5648,12 +5648,12 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .config-test-result.success .config-test-result-header {
 	color: var(--color-accent);
-	border-bottom: 1px solid rgba(35, 134, 54, 0.24);
+	border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
 }
 
 .config-test-result.fail .config-test-result-header {
 	color: var(--color-danger);
-	border-bottom: 1px solid rgba(180, 35, 24, 0.24);
+	border-bottom: 1px solid color-mix(in srgb, var(--color-danger) 24%, var(--color-border-subtle));
 }
 
 .config-test-result-body {
