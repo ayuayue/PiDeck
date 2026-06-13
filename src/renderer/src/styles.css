@@ -3146,7 +3146,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .rename-dialog input:focus {
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 3px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 .rename-dialog-actions {
 	display: flex;
@@ -3859,9 +3859,9 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .settings-tabs button.active {
 	background: var(--color-bg-panel);
-	border-color: rgba(35, 134, 54, 0.2);
+	border-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
 	color: var(--color-text-primary);
-	box-shadow: 0 8px 22px rgba(20, 24, 31, 0.06);
+	box-shadow: 0 8px 22px color-mix(in srgb, var(--color-text-primary) 6%, transparent);
 }
 .settings-tabs button span:last-child {
 	min-width: 0;
@@ -3943,7 +3943,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .session-status .model-chip {
 	color: var(--color-info);
-	background: #eff6ff;
+	background: color-mix(in srgb, var(--color-info) 10%, var(--color-bg-panel));
 	font-weight: 500;
 }
 .composer-toolbar {
@@ -4275,7 +4275,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .web-endpoint-metric.editable:focus-within {
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.14);
+	box-shadow: var(--focus-ring);
 }
 .web-endpoint-summary {
 	display: grid;
@@ -4296,7 +4296,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .web-endpoint-summary > span.online {
 	background: var(--color-accent);
-	box-shadow: 0 0 0 4px rgba(35, 134, 54, 0.14);
+	box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 .web-endpoint-summary strong {
 	display: block;
