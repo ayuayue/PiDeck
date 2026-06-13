@@ -1202,14 +1202,17 @@ export function RpcLogModal(props: {
 			<div className="rpc-log-modal" onClick={(e) => e.stopPropagation()}>
 				<div className="modal-header rpc-log-header">
 					<strong>
-						RPC 日志 · {visibleLogs.length}/{props.logs.length} 条
+						{t("rpc.title", {
+							visible: visibleLogs.length,
+							total: props.logs.length,
+						})}
 					</strong>
 					<div className="modal-header-actions rpc-log-header-actions">
 						<button className="config-btn primary" onClick={() => copyLogs(props.logs)}>
-							复制全部
+							{t("common.copyAll")}
 						</button>
 						<button className="config-btn blue" onClick={() => copyLogs(visibleLogs)}>
-							复制可见
+							{t("common.copyVisible")}
 						</button>
 						<button className="modal-close-btn" onClick={props.onClose}>×</button>
 					</div>
@@ -1220,25 +1223,25 @@ export function RpcLogModal(props: {
 							className={directionFilter === "all" ? "active" : ""}
 							onClick={() => setDirectionFilter("all")}
 						>
-							全部
+							{t("rpc.filterAll")}
 						</button>
 						<button
 							className={directionFilter === "send" ? "active" : ""}
 							onClick={() => setDirectionFilter("send")}
 						>
-							发送 →
+							{t("rpc.filterSend")}
 						</button>
 						<button
 							className={directionFilter === "recv" ? "active" : ""}
 							onClick={() => setDirectionFilter("recv")}
 						>
-							接收 ←
+							{t("rpc.filterReceive")}
 						</button>
 					</div>
 					<input
 						value={keyword}
 						onChange={(event) => setKeyword(event.target.value)}
-						placeholder="搜索 summary / JSON,例如 502、terminated、auto_retry"
+						placeholder={t("rpc.searchPlaceholder")}
 					/>
 				</div>
 				<div className="rpc-log-list" ref={panelRef}>
@@ -1265,10 +1268,10 @@ export function RpcLogModal(props: {
 									<span className="log-summary">{log.summary}</span>
 									<div className="rpc-log-entry-actions" onClick={(event) => event.stopPropagation()}>
 										<button onClick={() => navigator.clipboard.writeText(formatRpcLogForCopy(log))}>
-											复制
+											{t("common.copy")}
 										</button>
 										<button onClick={() => navigator.clipboard.writeText(jsonText)}>
-											复制 JSON
+											{t("rpc.copyJson")}
 										</button>
 									</div>
 								</div>
@@ -1280,7 +1283,7 @@ export function RpcLogModal(props: {
 					})}
 					{visibleLogs.length === 0 && (
 						<div className="rpc-log-empty">
-							暂无匹配日志,发送消息后会记录 RPC 通信
+							{t("rpc.empty")}
 						</div>
 					)}
 				</div>
@@ -1361,7 +1364,7 @@ export function ConversationOutline(props: {
 		>
 			<button
 				className="outline-trigger"
-				title={`会话定位 · ${props.items.length} 条`}
+				title={t("outline.trigger", { count: props.items.length })}
 				onPointerDown={startDrag}
 			>
 				☰
@@ -1370,12 +1373,12 @@ export function ConversationOutline(props: {
 				<div className="outline-title">
 					<span
 						className="outline-drag-handle"
-						title="拖动调整位置"
+						title={t("outline.drag")}
 						onPointerDown={startDrag}
 					>
 						⋮⋮
 					</span>
-					<span>会话定位</span>
+					<span>{t("outline.title")}</span>
 					<span className="outline-count">{props.items.length}</span>
 				</div>
 				<div className="outline-list">
@@ -1384,7 +1387,7 @@ export function ConversationOutline(props: {
 							className="outline-expand"
 							onClick={() => setExpanded(true)}
 						>
-							显示全部 {props.items.length} 条
+							{t("outline.showAll", { count: props.items.length })}
 						</button>
 					)}
 					{visibleItems.map((item) => (
@@ -1444,10 +1447,10 @@ export function DrawerContent(props: {
 }) {
 	const title =
 		props.panel === "files"
-			? "文件"
+			? t("drawer.files")
 			: props.project
-				? `${props.project.name} · 历史会话`
-				: "历史会话";
+				? t("drawer.projectSessions", { name: props.project.name })
+				: t("drawer.historyTitle");
 	return (
 		<>
 			<div className="drawer-header">
@@ -1455,24 +1458,24 @@ export function DrawerContent(props: {
 				<div className="drawer-header-actions">
 					<button
 						className={props.pinned ? "active" : ""}
-						title={props.pinned ? "取消固定抽屉" : "固定当前 Agent 的抽屉"}
-						aria-label={props.pinned ? "取消固定抽屉" : "固定抽屉"}
+						title={props.pinned ? t("drawer.unpin") : t("drawer.pin")}
+						aria-label={props.pinned ? t("drawer.unpin") : t("drawer.pin")}
 						onClick={props.onTogglePin}
 					>
 						<Pin size={15} />
 					</button>
 					<button
 						disabled={props.pinned}
-						title={props.pinned ? "已固定,取消固定后可折叠" : "折叠面板"}
-						aria-label="折叠面板"
+						title={props.pinned ? t("drawer.pinnedCannotCollapse") : t("drawer.collapsePanel")}
+						aria-label={t("drawer.collapsePanel")}
 						onClick={props.onCollapse}
 					>
 						<ChevronRight size={16} />
 					</button>
 					<button
 						disabled={props.pinned}
-						title={props.pinned ? "已固定,取消固定后可关闭" : "关闭面板"}
-						aria-label="关闭面板"
+						title={props.pinned ? t("drawer.pinnedCannotClose") : t("drawer.closePanel")}
+						aria-label={t("drawer.closePanel")}
 						onClick={props.onClose}
 					>
 						<X size={16} />
@@ -1516,12 +1519,12 @@ function FilesPanel(props: {
 	return (
 		<div className="files-panel">
 			<div className="panel-action-row">
-				<span>{props.files.length} items</span>
-				<button onClick={props.onRefreshFiles}>刷新</button>
+				<span>{t("drawer.fileItems", { count: props.files.length })}</span>
+				<button onClick={props.onRefreshFiles}>{t("common.refresh")}</button>
 			</div>
 			{props.modifiedFiles.length > 0 && (
 				<div className="modified-files-section">
-					<div className="modified-files-header">本次会话修改</div>
+					<div className="modified-files-header">{t("drawer.modifiedThisSession")}</div>
 					{props.modifiedFiles.map((file) => {
 						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
 						const isRunning = file.status === "running";
@@ -1549,7 +1552,11 @@ function FilesPanel(props: {
 								</span>
 								<span className="modified-file-name">{fileName}</span>
 								{Boolean(file.changedLines) && (
-									<span className="modified-file-lines">{file.changedLines} 行</span>
+									<span className="modified-file-lines">
+										{t("drawer.changedLines", {
+											count: file.changedLines ?? 0,
+										})}
+									</span>
 								)}
 								<span className="modified-file-tool">{file.toolName}</span>
 							</div>
@@ -1579,11 +1586,14 @@ export function SessionFileSummary(props: { files: SessionModifiedFile[] }) {
 	const visibleFiles = expanded ? props.files : props.files.slice(0, 4);
 	const hiddenCount = Math.max(0, props.files.length - visibleFiles.length);
 	return (
-		<section className="session-file-summary-list-card" aria-label="本轮回答修改文件列表">
+		<section className="session-file-summary-list-card" aria-label={t("drawer.modifiedFilesAria")}>
 			<div className="session-file-summary-title">
-				<span>修改文件</span>
-				<small title={CHANGED_LINES_ESTIMATE_HINT}>
-					{props.files.length} 个{totalLines > 0 ? ` · 约 ${totalLines} 行` : ""}
+				<span>{t("drawer.modifiedFiles")}</span>
+				<small title={t("drawer.changedLinesEstimate")}>
+					{props.files.length} {t("app.files")}
+					{totalLines > 0
+						? ` · ${t("drawer.changedLinesShort", { count: totalLines })}`
+						: ""}
 				</small>
 			</div>
 			<ul className="session-file-summary-list">
@@ -1594,9 +1604,11 @@ export function SessionFileSummary(props: { files: SessionModifiedFile[] }) {
 							<span className="session-file-summary-name">{fileName}</span>
 							<span
 								className="session-file-summary-lines"
-								title={CHANGED_LINES_ESTIMATE_HINT}
+								title={t("drawer.changedLinesEstimate")}
 							>
-								{file.changedLines ? `~${file.changedLines} 行` : "已修改"}
+								{file.changedLines
+									? `~${t("drawer.changedLines", { count: file.changedLines })}`
+									: t("drawer.changed")}
 							</span>
 						</li>
 					);
@@ -1608,7 +1620,7 @@ export function SessionFileSummary(props: { files: SessionModifiedFile[] }) {
 					type="button"
 					onClick={() => setExpanded((current) => !current)}
 				>
-					{expanded ? "收起" : `还有 ${hiddenCount} 个`}
+					{expanded ? t("common.collapse") : t("drawer.moreFiles", { count: hiddenCount })}
 				</button>
 			)}
 		</section>
@@ -1721,10 +1733,10 @@ function SessionsPanel(props: {
 			filePath: session.filePath,
 			text:
 				actionType === "copy"
-					? "正在复制..."
+					? t("drawer.sessionActionCopying")
 					: actionType === "export"
-						? "正在导出..."
-						: "正在删除...",
+						? t("drawer.sessionActionExporting")
+						: t("drawer.sessionActionDeleting"),
 		});
 		try {
 			await action();
@@ -1733,7 +1745,7 @@ function SessionsPanel(props: {
 		} catch (error) {
 			setSessionActionNotice({
 				filePath: session.filePath,
-				text: error instanceof Error ? error.message : "操作失败",
+				text: error instanceof Error ? error.message : t("drawer.sessionActionFailed"),
 			});
 			window.setTimeout(() => setSessionActionNotice(null), 2400);
 		} finally {
@@ -1744,15 +1756,13 @@ function SessionsPanel(props: {
 	return (
 		<div className="sessions-panel">
 			<div className="panel-action-row">
-				<span>{props.sessions.length} sessions</span>
-				<button onClick={props.onRefresh}>刷新</button>
+				<span>{t("drawer.sessionCount", { count: props.sessions.length })}</span>
+				<button onClick={props.onRefresh}>{t("common.refresh")}</button>
 			</div>
 			{props.sessions.length === 0 && (
 				<div className="sessions-empty">
-					<strong>暂无历史会话</strong>
-					<span>
-						点击项目右侧历史按钮或右键项目打开历史会话;新会话完成后会出现在这里。
-					</span>
+					<strong>{t("drawer.sessionEmptyTitle")}</strong>
+					<span>{t("drawer.sessionEmptyDesc")}</span>
 				</div>
 			)}
 			{props.sessions.map((session) => (
@@ -1775,14 +1785,14 @@ function SessionsPanel(props: {
 								}}
 								autoFocus
 							/>
-							<button onClick={confirmRename}>保存</button>
+							<button onClick={confirmRename}>{t("common.save")}</button>
 							<button
 								onClick={() => {
 									setRenamingPath(null);
 									setEditValue("");
 								}}
 							>
-								取消
+								{t("common.cancel")}
 							</button>
 						</div>
 					) : (
@@ -1793,24 +1803,26 @@ function SessionsPanel(props: {
 								title={session.filePath}
 							>
 								<div className="session-card-title">
-									<strong>{session.name || "Untitled"}</strong>
+									<strong>{session.name || t("common.untitled")}</strong>
 									<small>
 										{new Date(session.updatedAt).toLocaleString()} ·{" "}
-										{session.messageCount} messages
+										{t("drawer.sessionMessages", {
+											count: session.messageCount,
+										})}
 									</small>
 								</div>
 							</button>
 							<div className="session-card-actions">
 								<button
 									className="session-rename-button"
-									title="复制会话"
+									title={t("menu.copySession")}
 									disabled={Boolean(sessionActionLoading)}
 									onClick={() =>
 										void runSessionAction(
 											session,
 											"copy",
 											() => props.onCopy(session),
-											"已复制",
+											t("drawer.sessionCopied"),
 										)
 									}
 								>
@@ -1819,20 +1831,20 @@ function SessionsPanel(props: {
 									<span>
 										{sessionActionLoading?.filePath === session.filePath &&
 										sessionActionLoading.action === "copy"
-											? "复制中"
-											: "复制"}
+											? t("menu.copying")
+											: t("common.copy")}
 									</span>
 								</button>
 								<button
 									className="session-rename-button"
-									title="导出 HTML"
+									title={t("menu.exportHtml")}
 									disabled={Boolean(sessionActionLoading)}
 									onClick={() =>
 										void runSessionAction(
 											session,
 											"export",
 											() => props.onExport(session),
-											"已导出",
+											t("drawer.sessionExported"),
 										)
 									}
 								>
@@ -1841,20 +1853,20 @@ function SessionsPanel(props: {
 									<span>
 										{sessionActionLoading?.filePath === session.filePath &&
 										sessionActionLoading.action === "export"
-											? "导出中"
-											: "导出"}
+											? t("menu.exporting")
+											: t("common.export")}
 									</span>
 								</button>
 								<button
 									className="session-rename-button"
-									title="重命名会话"
+									title={t("common.rename")}
 									onClick={() => startRename(session)}
 								>
-									<span>重命名</span>
+									<span>{t("common.rename")}</span>
 								</button>
 								<button
 									className="session-rename-button danger"
-									title="删除会话"
+									title={t("common.delete")}
 									disabled={Boolean(sessionActionLoading)}
 									onClick={() => setDeleteConfirmSession(session)}
 								>
@@ -1863,8 +1875,8 @@ function SessionsPanel(props: {
 									<span>
 										{sessionActionLoading?.filePath === session.filePath &&
 										sessionActionLoading.action === "delete"
-											? "删除中"
-											: "删除"}
+											? t("drawer.sessionActionDeleting")
+											: t("common.delete")}
 									</span>
 								</button>
 							</div>
@@ -1881,12 +1893,14 @@ function SessionsPanel(props: {
 						className="session-delete-confirm"
 						onClick={(event) => event.stopPropagation()}
 					>
-						<strong>删除会话?</strong>
+						<strong>{t("drawer.sessionDeleteTitle")}</strong>
 						<p>
-							确认删除「{deleteConfirmSession.name || "Untitled"}」吗?此操作会删除本地会话文件。
+							{t("drawer.sessionDeleteBody", {
+								name: deleteConfirmSession.name || t("common.untitled"),
+							})}
 						</p>
 						<div className="session-delete-confirm-actions">
-							<button onClick={() => setDeleteConfirmSession(null)}>取消</button>
+							<button onClick={() => setDeleteConfirmSession(null)}>{t("common.cancel")}</button>
 							<button
 								className="danger"
 								onClick={() => {
@@ -1896,11 +1910,11 @@ function SessionsPanel(props: {
 										target,
 										"delete",
 										() => props.onDelete(target),
-										"已删除",
+										t("drawer.sessionDeleted"),
 									);
 								}}
 							>
-								删除
+								{t("common.delete")}
 							</button>
 						</div>
 					</section>
@@ -1930,7 +1944,7 @@ export function SessionHistoryModal(props: {
 			>
 				<div className="command-palette-header session-history-header">
 					<div>
-						<strong>历史会话</strong>
+						<strong>{t("drawer.historyTitle")}</strong>
 						<span>{props.project.name}</span>
 					</div>
 					<button className="command-palette-close" onClick={props.onClose}>×</button>
@@ -1942,7 +1956,7 @@ export function SessionHistoryModal(props: {
 					{props.loading ? (
 						<div className="session-history-loading">
 							<div className="loader" />
-							<span>正在读取该目录的历史会话...</span>
+							<span>{t("drawer.historyLoading")}</span>
 						</div>
 					) : (
 						<SessionsPanel
@@ -2144,7 +2158,7 @@ export function PromptSuggestions(props: {
 	return (
 		<div className="command-palette">
 			<div className="command-palette-header">
-				<span>{tail.startsWith("/") ? "命令" : "文件"}</span>
+				<span>{tail.startsWith("/") ? t("prompt.commands") : t("prompt.files")}</span>
 				<button className="command-palette-close" onClick={props.onClose}>
 					×
 				</button>
@@ -2163,9 +2177,9 @@ export function PromptSuggestions(props: {
 				))}
 			</div>
 			<div className="command-palette-footer">
-				<span>↑↓ 选择</span>
-				<span>Enter 确认</span>
-				<span>Esc 关闭</span>
+				<span>{t("prompt.selectHint")}</span>
+				<span>{t("prompt.confirmHint")}</span>
+				<span>{t("prompt.closeHint")}</span>
 			</div>
 		</div>
 	);
@@ -2187,12 +2201,12 @@ export function FileContextMenu(props: {
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button disabled={!isFile} onClick={props.onAttach}>
-					加入对话引用
+					{t("menu.attachFile")}
 				</button>
 				<button disabled={!isFile} onClick={props.onOpen}>
-					默认方式打开
+					{t("menu.defaultOpen")}
 				</button>
-				<button onClick={props.onReveal}>在文件夹中显示</button>
+				<button onClick={props.onReveal}>{t("menu.revealFile")}</button>
 			</div>
 		</div>
 	);
@@ -2215,9 +2229,9 @@ export function ProjectContextMenu(props: {
 				{!isChatProject && (
 					<>
 						<button onClick={props.onImportCodexSessions}>
-							导入 Codex 会话
+							{t("menu.importCodex")}
 						</button>
-						<button onClick={props.onRemoveProject}>删除目录记录</button>
+						<button onClick={props.onRemoveProject}>{t("menu.removeProject")}</button>
 					</>
 				)}
 			</div>
@@ -2243,18 +2257,18 @@ export function AgentContextMenu(props: {
 				style={{ left: props.menu.x, top: props.menu.y }}
 				onClick={(event) => event.stopPropagation()}
 			>
-				<button disabled={Boolean(props.actionLoading)} onClick={props.onActivate}>打开会话</button>
-				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>重命名</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onActivate}>{t("menu.openSession")}</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onCopySession}>
 					{props.actionLoading === "copy" && <span className="mini-loader" />}
-					{props.actionLoading === "copy" ? "复制中..." : "复制会话"}
+					{props.actionLoading === "copy" ? t("menu.copying") : t("menu.copySession")}
 				</button>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onExport}>
 					{props.actionLoading === "export" && <span className="mini-loader" />}
-					{props.actionLoading === "export" ? "导出中..." : "导出 HTML"}
+					{props.actionLoading === "export" ? t("menu.exporting") : t("menu.exportHtml")}
 				</button>
-				<button disabled={Boolean(props.actionLoading)} onClick={props.onShowLogs}>RPC 日志</button>
-				<button onClick={props.onCloseAgent}>关闭 Agent</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onShowLogs}>{t("menu.rpcLogs")}</button>
+				<button onClick={props.onCloseAgent}>{t("menu.closeAgent")}</button>
 			</div>
 		</div>
 	);
@@ -2277,17 +2291,17 @@ export function SessionContextMenu(props: {
 				style={{ left: props.menu.x, top: props.menu.y }}
 				onClick={(event) => event.stopPropagation()}
 			>
-				<button disabled={Boolean(props.actionLoading)} onClick={props.onActivate}>打开会话</button>
-				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>重命名</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onActivate}>{t("menu.openSession")}</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onCopySession}>
 					{props.actionLoading === "copy" && <span className="mini-loader" />}
-					{props.actionLoading === "copy" ? "复制中..." : "复制会话"}
+					{props.actionLoading === "copy" ? t("menu.copying") : t("menu.copySession")}
 				</button>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onExport}>
 					{props.actionLoading === "export" && <span className="mini-loader" />}
-					{props.actionLoading === "export" ? "导出中..." : "导出 HTML"}
+					{props.actionLoading === "export" ? t("menu.exporting") : t("menu.exportHtml")}
 				</button>
-				<button disabled={Boolean(props.actionLoading)} onClick={props.onShowLogs}>RPC 日志</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onShowLogs}>{t("menu.rpcLogs")}</button>
 			</div>
 		</div>
 	);
@@ -2389,7 +2403,7 @@ export function SettingsModal(props: {
 					<button onClick={props.onClose}>×</button>
 				</div>
 				<div className="settings-layout">
-					<nav className="settings-tabs" aria-label="设置分类">
+					<nav className="settings-tabs" aria-label={t("settings.title")}>
 						{tabs.map((tab) => (
 							<button
 								key={tab.id}
@@ -2452,45 +2466,45 @@ export function SettingsModal(props: {
 										</select>
 									</div>
 									<SettingSwitch
-										title="使用原生标题栏"
+										title={t("settings.nativeTitleBar")}
 										checked={props.settings.useNativeTitleBar}
 										onChange={(checked) =>
 											props.onChange({ useNativeTitleBar: checked })
 										}
 									/>
 									<SettingSwitch
-										title="显示原生菜单"
+										title={t("settings.nativeMenu")}
 										checked={props.settings.showNativeMenu}
 										onChange={(checked) =>
 											props.onChange({ showNativeMenu: checked })
 										}
 									/>
 								</SettingsSection>
-								<SettingsSection title="会话">
+								<SettingsSection title={t("settings.notificationSection")}>
 									<SettingSwitch
-										title="关闭窗口时隐藏到系统托盘"
+										title={t("settings.closeToTray")}
 										checked={props.settings.closeToTray}
 										onChange={(checked) =>
 											props.onChange({ closeToTray: checked })
 										}
 									/>
 									<SettingSwitch
-										title="会话结束时发送系统通知"
+										title={t("settings.enableNotifications")}
 										checked={props.settings.enableNotifications}
 										onChange={(checked) =>
 											props.onChange({ enableNotifications: checked })
 										}
 									/>
 									<SettingSwitch
-										title="显示思考过程"
-										description={'开启后可看到模型推理过程，帮助理解 agent 为什么"卡住"'}
+										title={t("settings.showThinking")}
+										description={t("settings.showThinkingDesc")}
 										checked={props.settings.showThinking}
 										onChange={(checked) =>
 											props.onChange({ showThinking: checked })
 										}
 									/>
 									<div className="setting-field">
-										<span>发送快捷键</span>
+										<span>{t("settings.inputShortcut")}</span>
 										<select
 											value={props.settings.sendShortcut}
 											onChange={(event) =>
@@ -2501,21 +2515,21 @@ export function SettingsModal(props: {
 											}
 										>
 											<option value="enter-send">
-												Enter 发送,Ctrl/Shift+Enter 换行
+												{t("settings.sendShortcut.enter")}
 											</option>
 											<option value="ctrl-enter-send">
-												Ctrl/⌘ + Enter 发送,Enter 换行
+												{t("settings.sendShortcut.ctrl")}
 											</option>
 											<option value="shift-enter-send">
-												Shift + Enter 发送,Enter 换行
+												{t("settings.sendShortcut.shift")}
 											</option>
 										</select>
 									</div>
 								</SettingsSection>
-								<SettingsSection title="隐私">
+								<SettingsSection title={t("settings.privacy")}>
 									<SettingSwitch
-										title="匿名使用统计"
-										description="帮助了解版本分布、平台兼容性和活跃安装数量。不会收集项目路径、代码、消息内容或文件名。"
+										title={t("settings.telemetry")}
+										description={t("settings.telemetryDesc")}
 										checked={props.settings.telemetryEnabled}
 										onChange={(checked) =>
 											props.onChange({ telemetryEnabled: checked })
@@ -2527,12 +2541,12 @@ export function SettingsModal(props: {
 						{activeTab === "proxy" && (
 							<>
 								<SettingsSection
-									title="pi agent 代理"
-									description="只注入给新启动的 pi agent 子进程"
+									title={t("settings.piProxy")}
+									description={t("settings.piProxyDesc")}
 								>
 									<SettingSwitch
-										title="启用 pi agent 代理"
-										description="设置变更后,新建或重启 agent 才会生效"
+										title={t("settings.enablePiProxy")}
+										description={t("settings.settingTakesEffectAfterRestart")}
 										checked={props.settings.piProxyEnabled}
 										onChange={(checked) =>
 											props.onChange({ piProxyEnabled: checked })
@@ -2541,7 +2555,7 @@ export function SettingsModal(props: {
 									{props.settings.piProxyEnabled && (
 										<div className="setting-proxy-panel">
 											<div className="setting-field">
-												<span>代理地址</span>
+												<span>{t("settings.proxyUrl")}</span>
 												<input
 													type="text"
 													value={props.settings.piProxyUrl}
@@ -2552,7 +2566,7 @@ export function SettingsModal(props: {
 												/>
 											</div>
 											<div className="setting-field">
-												<span>绕过代理</span>
+												<span>{t("settings.proxyBypass")}</span>
 												<input
 													type="text"
 													value={props.settings.piProxyBypass}
@@ -2562,14 +2576,14 @@ export function SettingsModal(props: {
 													}
 												/>
 												<small className="setting-hint">
-													对应 NO_PROXY,多个条目用英文逗号分隔
+													{t("settings.noProxyHint")}
 												</small>
 											</div>
 											<div className="setting-row">
 												<div>
-													<strong>代理检测</strong>
+													<strong>{t("settings.proxyTest")}</strong>
 													<small>
-														检测代理是否能连通 OpenAI API,不校验 API Key
+														{t("settings.proxyNoApiKey")}
 													</small>
 													{props.piProxyNotice && (
 														<small
@@ -2583,19 +2597,19 @@ export function SettingsModal(props: {
 													onClick={props.onTestPiProxy}
 													disabled={props.piProxyChecking}
 												>
-													{props.piProxyChecking ? "检测中..." : "检测代理"}
+													{props.piProxyChecking ? t("settings.testingProxy") : t("settings.testProxy")}
 												</button>
 											</div>
 										</div>
 									)}
 								</SettingsSection>
 								<SettingsSection
-									title="桌面端代理"
-									description="用于模型拉取、模型测试等桌面自身请求"
+									title={t("settings.desktopProxy")}
+									description={t("settings.desktopProxyDesc")}
 								>
 									<SettingSwitch
-										title="启用桌面端网络代理"
-										description="不影响已启动的 pi agent"
+										title={t("settings.enableDesktopProxy")}
+										description={t("settings.desktopProxyDesc")}
 										checked={props.settings.desktopProxyEnabled}
 										onChange={(checked) =>
 											props.onChange({ desktopProxyEnabled: checked })
@@ -2604,7 +2618,7 @@ export function SettingsModal(props: {
 									{props.settings.desktopProxyEnabled && (
 										<div className="setting-proxy-panel">
 											<div className="setting-field">
-												<span>代理地址</span>
+												<span>{t("settings.proxyUrl")}</span>
 												<input
 													type="text"
 													value={props.settings.desktopProxyUrl}
@@ -2617,7 +2631,7 @@ export function SettingsModal(props: {
 												/>
 											</div>
 											<div className="setting-field">
-												<span>绕过代理</span>
+												<span>{t("settings.proxyBypass")}</span>
 												<input
 													type="text"
 													value={props.settings.desktopProxyBypass}
@@ -2629,7 +2643,7 @@ export function SettingsModal(props: {
 													}
 												/>
 												<small className="setting-hint">
-													用于 Electron 网络栈,多个条目可用逗号或分号分隔
+													{t("settings.electronProxyHint")}
 												</small>
 											</div>
 										</div>
@@ -2639,12 +2653,16 @@ export function SettingsModal(props: {
 						)}
 						{activeTab === "web" && (
 							<SettingsSection
-								title="局域网 Web 服务"
-								description="开启后会在本机启动 HTTP 服务，局域网内其他设备可通过你的电脑 IP 和端口访问"
+								title={t("settings.webLocalService")}
+								description={t("settings.webLocalServiceDesc")}
 							>
 								<SettingSwitch
-									title="启用 Web 服务"
-									description={props.webServiceChanging ? "服务状态切换中..." : "关闭此开关会立即停止服务"}
+									title={t("settings.enableWebService")}
+									description={
+										props.webServiceChanging
+											? t("settings.webOpening")
+											: t("settings.webOffDesc")
+									}
 									checked={props.settings.webServiceEnabled}
 									disabled={props.webServiceChanging}
 									onChange={(checked) =>
@@ -2683,14 +2701,14 @@ export function SettingsModal(props: {
 											<strong>
 												http://127.0.0.1:{webPortDraft || props.settings.webServicePort}
 											</strong>
-											<small>本机预览地址；局域网访问请替换为本机 IP</small>
+											<small>{t("settings.localWebHint")}</small>
 										</div>
 										<button
 											type="button"
 											disabled={!props.settings.webServiceEnabled}
 											onClick={() => props.onOpenWebService(webPortDraft || String(props.settings.webServicePort))}
 										>
-											打开
+											{t("common.open")}
 										</button>
 									</div>
 								</div>
@@ -2698,31 +2716,39 @@ export function SettingsModal(props: {
 						)}
 						{activeTab === "dev" && (
 							<>
-								<SettingsSection title="环境">
+								<SettingsSection title={t("settings.environment")}>
 									<div className="setting-row">
 										<div>
-											<strong>pi 环境</strong>
+											<strong>{t("settings.piEnvironment")}</strong>
 											<small>
 												{props.piStatus
 													? props.piStatus.installed
-														? `已找到 ${props.piStatus.version ?? "pi"}`
-														: "未检测到 pi CLI"
-													: "检查 pi CLI 是否可用"}
+														? t("settings.foundPi", {
+																version: props.piStatus.version ?? "pi",
+															})
+														: t("settings.piMissing")
+													: t("settings.piCliAvailable")}
 											</small>
-											{piPath && <small className="setting-path">当前路径：{piPath}</small>}
+											{piPath && (
+												<small className="setting-path">
+													{t("settings.currentPath", { path: piPath })}
+												</small>
+											)}
 											{props.piStatus && !props.piStatus.installed && props.piStatus.error && (
 												<small className="setting-status error setting-error-detail">
-													检测失败：{props.piStatus.error}
+													{t("settings.detectFailed", {
+														error: props.piStatus.error,
+													})}
 												</small>
 											)}
 										</div>
 										<button onClick={props.onCheckPi} disabled={props.piChecking}>
-											{props.piChecking ? "检测中..." : "检测环境"}
+											{props.piChecking ? t("settings.detecting") : t("settings.detectEnvironment")}
 										</button>
 									</div>
 									<div className="setting-pi-path-panel">
 										<div className="setting-field">
-											<span>自定义 pi 路径</span>
+											<span>{t("settings.customPiPath")}</span>
 											<input
 												type="text"
 												value={props.customPiPath}
@@ -2731,7 +2757,7 @@ export function SettingsModal(props: {
 												disabled={props.customPathValidating}
 											/>
 											<small className="setting-hint">
-												支持带引号、双反斜杠和无扩展名路径；保存前会自动归一化并校验。
+												{t("settings.customPiPathHint")}
 											</small>
 										</div>
 										<div className="setting-pi-path-actions">
@@ -2739,45 +2765,56 @@ export function SettingsModal(props: {
 												onClick={props.onValidateCustomPath}
 												disabled={!props.customPiPath.trim() || props.customPathValidating}
 											>
-												{props.customPathValidating ? "校验中..." : "校验并使用"}
+												{props.customPathValidating
+													? t("settings.validating")
+													: t("settings.validatePiPath")}
 											</button>
 											<button
 												onClick={props.onClearCustomPath}
 												disabled={!props.settings.customPiPath || props.customPathValidating}
 											>
-												清除自定义路径
+												{t("settings.clearCustomPiPath")}
 											</button>
 										</div>
 										{props.customPathResult && (
 											<small className={`setting-status ${props.customPathResult.installed ? "success" : "error"}`}>
 												{props.customPathResult.installed
-													? `校验通过：${props.customPathResult.command ?? props.customPathResult.version ?? "pi"}`
-													: `校验失败：${props.customPathResult.error ?? "无法执行该路径"}`}
+													? t("settings.validatePassed", {
+															value:
+																props.customPathResult.command ??
+																props.customPathResult.version ??
+																"pi",
+														})
+													: t("settings.validateFailed", {
+															error:
+																props.customPathResult.error ??
+																t("environment.unableToRun"),
+														})}
 											</small>
 										)}
 									</div>
 									<div className="setting-row">
 										<div>
-											<strong>当前版本</strong>
+											<strong>{t("settings.currentVersion")}</strong>
 											<small>v{props.appInfo.version}</small>
 										</div>
-										<button onClick={props.onCheckUpdate}>检测更新</button>
+										<button onClick={props.onCheckUpdate}>{t("settings.checkUpdate")}</button>
 									</div>
 								</SettingsSection>
-								<SettingsSection title="调试">
+								<SettingsSection title={t("settings.debug")}>
 									<div className="setting-row">
 										<div>
-											<strong>开发者控制台</strong>
-											<small>打开 DevTools 查看控制台日志,排查问题</small>
+											<strong>{t("settings.devTools")}</strong>
+											<small>{t("settings.devToolsDesc")}</small>
 										</div>
 										<button onClick={props.onToggleDevTools}>
-											打开/关闭
+											{t("settings.toggle")}
 										</button>
 									</div>
 								</SettingsSection>
 							</>
 						)}
-						<p>{props.notice || "标题栏设置保存后需要重启应用生效。"}</p>
+						<p>{props.notice || t("settings.restartNotice")}</p>
 					</div>
 				</div>
 			</div>
@@ -2807,24 +2844,24 @@ export function CodexImportModal(props: {
 			<section className="codex-import-modal">
 				<div className="modal-header">
 					<div>
-						<strong>导入 Codex 会话</strong>
+						<strong>{t("codex.title")}</strong>
 						<small>{props.project.name}</small>
 					</div>
 					<button onClick={props.onClose}>×</button>
 				</div>
 				<div className="codex-import-toolbar">
 					<div>
-						<strong>{props.sessions.length} 个可导入会话</strong>
+						<strong>{t("codex.importCount", { count: props.sessions.length })}</strong>
 						<span>{displayPath(props.project.path)}</span>
 					</div>
 					<div className="codex-import-actions">
 						<button onClick={props.onRefresh} disabled={props.loading || props.importing}>
 							<RefreshCw size={14} />
-							刷新
+							{t("common.refresh")}
 						</button>
 						<button onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
 							<Check size={14} />
-							{allSelected ? "取消全选" : "全选"}
+							{allSelected ? t("codex.selectNone") : t("common.selectAll")}
 						</button>
 						<button
 							className="primary-action"
@@ -2832,7 +2869,11 @@ export function CodexImportModal(props: {
 							disabled={props.importing || props.selectedPaths.length === 0}
 						>
 							<UploadCloud size={14} />
-							{props.importing ? "导入中..." : `导入 ${props.selectedPaths.length}`}
+							{props.importing
+								? t("codex.importing")
+								: t("codex.importSelected", {
+										count: props.selectedPaths.length,
+									})}
 						</button>
 					</div>
 				</div>
@@ -2840,12 +2881,12 @@ export function CodexImportModal(props: {
 					{props.loading ? (
 						<div className="history-loading">
 							<div className="loader" />
-							<span>正在扫描当前项目的 Codex 会话...</span>
+							<span>{t("codex.scanning")}</span>
 						</div>
 					) : props.sessions.length === 0 ? (
 						<div className="codex-import-empty">
-							<strong>没有找到当前项目的 Codex 会话</strong>
-							<span>只会扫描 `~/.codex/sessions` 中 cwd 与当前项目一致的会话。</span>
+							<strong>{t("codex.emptyTitle")}</strong>
+							<span>{t("codex.emptyDesc")}</span>
 						</div>
 					) : (
 						<div className="codex-session-list">
@@ -2866,7 +2907,9 @@ export function CodexImportModal(props: {
 										<p>{session.preview}</p>
 										<small>
 											{new Date(session.updatedAt).toLocaleString()} ·{" "}
-											{session.messageCount} messages ·{" "}
+											{t("drawer.sessionMessages", {
+												count: session.messageCount,
+											})} ·{" "}
 											{formatBytes(session.sourceSize)}
 										</small>
 									</div>
@@ -2878,7 +2921,10 @@ export function CodexImportModal(props: {
 				{props.report && (
 					<div className="codex-import-report">
 						<strong>
-							导入完成:{props.report.imported} 成功,{props.report.failed} 失败
+							{t("codex.importDone", {
+								imported: props.report.imported,
+								failed: props.report.failed,
+							})}
 						</strong>
 						<div>
 							{props.report.results.map((result) => (
@@ -2899,9 +2945,9 @@ export function CodexImportModal(props: {
 }
 
 function formatCodexStatus(status: CodexSessionSummary["status"]) {
-	if (status === "current") return "已是最新";
-	if (status === "outdated") return "可覆盖更新";
-	return "未导入";
+	if (status === "current") return t("codex.status.current");
+	if (status === "outdated") return t("codex.status.outdated");
+	return t("codex.status.new");
 }
 
 function formatBytes(value: number) {
