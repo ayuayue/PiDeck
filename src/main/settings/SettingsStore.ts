@@ -7,6 +7,8 @@ const defaultSettings: AppSettings = {
   useNativeTitleBar: true,
   showNativeMenu: false,
   sendShortcut: "enter-send",
+  theme: "system",
+  language: "system",
   piEnvironmentChecked: false,
   closeToTray: true,
   enableNotifications: true,

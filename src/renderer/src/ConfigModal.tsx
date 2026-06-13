@@ -6,6 +6,7 @@ import { RawTab } from "./config/RawTab";
 import { SettingsTab } from "./config/SettingsTab";
 import { SkillsTab } from "./config/SkillsTab";
 import { ExtensionsTab } from "./config/ExtensionsTab";
+import { t } from "./i18n";
 import type {
 	AuthFile,
 	ConfigTab,
@@ -683,13 +684,20 @@ function ConfigModalContent(props: ConfigModalProps) {
 		input.click();
 	};
 
+	const configNavItems: Array<{ id: ConfigTab; label: string }> = [
+		{ id: "models", label: t("config.nav.models") },
+		{ id: "auth", label: t("config.nav.auth") },
+		{ id: "settings", label: t("config.nav.settings") },
+		{ id: "raw", label: t("config.nav.raw") },
+	];
+
 	if (!open) return null;
 
 	return (
 		<div className="modal-backdrop">
 			<div className="config-modal">
 				<div className="modal-header">
-					<strong>Pi 管理</strong>
+					<strong>{t("config.title")}</strong>
 					<div className="modal-header-actions">
 						{section === "config" && (
 							<>
@@ -705,57 +713,44 @@ function ConfigModalContent(props: ConfigModalProps) {
 					</div>
 				</div>
 
-				<div className="config-primary-tabs">
-					<button
-						className={section === "config" ? "active" : ""}
-						onClick={() => setSection("config")}
-					>
-						配置管理
-					</button>
-					<button
-						className={section === "extensions" ? "active" : ""}
-						onClick={() => setSection("extensions")}
-					>
-						扩展
-					</button>
-					<button
-						className={section === "skills" ? "active" : ""}
-						onClick={() => setSection("skills")}
-					>
-						Skills
-					</button>
-				</div>
+				<div className="config-layout">
+					<aside className="config-sidebar" aria-label={t("config.title")}>
+						<div className="config-sidebar-group">
+							<span>{t("config.nav.config")}</span>
+							{configNavItems.map((item) => (
+								<button
+									key={item.id}
+									className={
+										section === "config" && tab === item.id ? "active" : ""
+									}
+									onClick={() => {
+										setSection("config");
+										setTab(item.id);
+									}}
+								>
+									{item.label}
+								</button>
+							))}
+						</div>
+						<div className="config-sidebar-group">
+							<span>Agent</span>
+							<button
+								className={section === "extensions" ? "active" : ""}
+								onClick={() => setSection("extensions")}
+							>
+								{t("config.nav.extensions")}
+							</button>
+							<button
+								className={section === "skills" ? "active" : ""}
+								onClick={() => setSection("skills")}
+							>
+								{t("config.nav.skills")}
+							</button>
+						</div>
+					</aside>
 
-				{section === "config" && (
-					<div className="config-tabs">
-					<button
-						className={tab === "models" ? "active" : ""}
-						onClick={() => setTab("models")}
-					>
-						Models
-					</button>
-					<button
-						className={tab === "auth" ? "active" : ""}
-						onClick={() => setTab("auth")}
-					>
-						Auth
-					</button>
-					<button
-						className={tab === "settings" ? "active" : ""}
-						onClick={() => setTab("settings")}
-					>
-						Setting
-					</button>
-					<button
-						className={tab === "raw" ? "active" : ""}
-						onClick={() => setTab("raw")}
-					>
-						源文件
-					</button>
-					</div>
-				)}
-
-				<div className="config-content">
+					<main className="config-main">
+						<div className="config-content">
 					{loading && <div className="config-loading">加载中…</div>}
 					{error && <div className="config-error">{error}</div>}
 					{section === "config" && configDiagnostic && (
@@ -894,6 +889,8 @@ function ConfigModalContent(props: ConfigModalProps) {
 							onSave={handleSaveRaw}
 						/>
 					)}
+						</div>
+					</main>
 				</div>
 
 				{deleteSkillConfirm && (

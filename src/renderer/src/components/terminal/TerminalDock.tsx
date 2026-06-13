@@ -11,6 +11,7 @@ import "@xterm/xterm/css/xterm.css";
 import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { TerminalTab } from "../../../../shared/types";
+import { t } from "../../i18n";
 
 const TERMINAL_THEMES = {
 	"pi-soft": {
@@ -331,7 +332,7 @@ export function TerminalDock(props: {
 								title={tab.cwd}
 							>
 								{tab.title}
-								{tab.exited ? " · exited" : ""}
+								{tab.exited ? ` · ${t("terminal.exited")}` : ""}
 							</button>
 							<button
 								className="terminal-tab-close"
@@ -339,7 +340,7 @@ export function TerminalDock(props: {
 									event.stopPropagation();
 									void closeTab(tab);
 								}}
-								title="关闭当前终端"
+								title={t("terminal.closeCurrent")}
 							>
 								<X size={12} />
 							</button>
@@ -348,7 +349,7 @@ export function TerminalDock(props: {
 					<button
 						className="terminal-icon-btn"
 						onClick={() => void addTab()}
-						title="新建终端"
+						title={t("terminal.new")}
 						disabled={loading}
 					>
 						<Plus size={14} />
@@ -361,7 +362,7 @@ export function TerminalDock(props: {
 						onChange={(event) =>
 							setThemeId(event.target.value as TerminalThemeId)
 						}
-						title="切换终端主题"
+						title={t("terminal.theme")}
 					>
 						{Object.entries(TERMINAL_THEMES).map(([id, item]) => (
 							<option key={id} value={id}>
@@ -375,14 +376,14 @@ export function TerminalDock(props: {
 							props.onCollapsedChange(!collapsed);
 							focusTerminalSoon();
 						}}
-						title={collapsed ? "展开终端" : "收起终端"}
+						title={collapsed ? t("terminal.expand") : t("terminal.collapse")}
 					>
 						{collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
 					</button>
 					<button
 						className="terminal-icon-btn"
 						onClick={() => setConfirmCloseAllOpen(true)}
-						title="关闭全部终端"
+						title={t("terminal.closeAll")}
 						disabled={tabs.length === 0}
 					>
 						<X size={14} />
@@ -395,25 +396,25 @@ export function TerminalDock(props: {
 					onPointerDownCapture={focusTerminalSoon}
 					onContextMenu={(event) => void copySelectionOnContextMenu(event)}
 				>
-					{loading && <div className="terminal-placeholder">正在启动终端…</div>}
+					{loading && <div className="terminal-placeholder">{t("terminal.starting")}</div>}
 					<div ref={containerRef} className="terminal-xterm" />
-					{copyNotice && <div className="terminal-copy-notice">已复制</div>}
+					{copyNotice && <div className="terminal-copy-notice">{t("terminal.copied")}</div>}
 				</div>
 			)}
 			{confirmCloseAllOpen && (
 				<div className="terminal-confirm-backdrop">
 					<div className="terminal-confirm">
-						<strong>关闭全部终端？</strong>
-						<p>正在运行的命令会被终止，此操作不能撤销。</p>
+						<strong>{t("terminal.closeAllConfirm")}</strong>
+						<p>{t("terminal.closeAllDescription")}</p>
 						<div className="terminal-confirm-actions">
 							<button onClick={() => setConfirmCloseAllOpen(false)}>
-								取消
+								{t("common.cancel")}
 							</button>
 							<button
 								className="danger"
 								onClick={() => void closeAllTabs()}
 							>
-								关闭全部
+								{t("terminal.closeAll")}
 							</button>
 						</div>
 					</div>

@@ -25,6 +25,7 @@ import {
 	Wrench,
 	X,
 } from "lucide-react";
+import { t } from "../../i18n";
 import type {
 	AgentRuntimeState,
 	AgentTab,
@@ -228,7 +229,7 @@ export function SessionStatus(props: {
 			<span className="model-chip">
 				{props.state.provider ? `${props.state.provider}/` : ""}{props.state.modelName ?? props.state.modelId ?? "model"}
 			</span>
-			<span>think: {props.state.thinkingLevel ?? "-"}</span>
+			<span>{t("app.think")}: {props.state.thinkingLevel ?? "-"}</span>
 			{props.duration != null && (
 				<span title="本次会话耗时">⏱ {formatDuration(props.duration)}</span>
 			)}
@@ -261,13 +262,13 @@ export function ComposerToolbar(props: {
 	return (
 		<div className="composer-toolbar">
 			<button onClick={props.onPickModel} disabled={props.disabled}>
-				Model: {props.state?.provider ? `${props.state.provider}/` : ""}{props.state?.modelName ?? "-"}
+				{t("app.model")}: {props.state?.provider ? `${props.state.provider}/` : ""}{props.state?.modelName ?? "-"}
 			</button>
 			<button onClick={props.onCycleModel} disabled={props.disabled}>
-				Cycle Model
+				{t("app.cycleModel")}
 			</button>
 			<button onClick={props.onPickThinking} disabled={props.disabled}>
-				Think: {props.state?.thinkingLevel ?? "-"}
+				{t("app.think")}: {props.state?.thinkingLevel ?? "-"}
 			</button>
 			{showCompact && (
 				<button
@@ -283,8 +284,8 @@ export function ComposerToolbar(props: {
 					onClick={props.onCompact}
 				>
 					{props.state?.isCompacting || props.compacting
-						? "压缩中..."
-						: `Compact ${ctxPercent.toFixed(0)}%`}
+						? t("app.compacting")
+						: `${t("app.compact")} ${ctxPercent.toFixed(0)}%`}
 				</button>
 			)}
 		</div>
@@ -578,14 +579,14 @@ export function EmptyState(props: { hasProject: boolean; onCreate: () => void })
 					<path fill="#fff" d="M517.36 400H634.72V634.72H517.36Z" />
 				</svg>
 			</div>
-			<h2>开始一个 pi agent</h2>
+			<h2>{t("app.startAgent")}</h2>
 			<p>
 				{props.hasProject
 					? "创建 agent 后即可开始对话。"
 					: "先从左侧添加项目目录。"}
 			</p>
 			{props.hasProject && (
-				<button onClick={props.onCreate}>Create Agent</button>
+				<button onClick={props.onCreate}>{t("app.createAgent")}</button>
 			)}
 		</div>
 	);
@@ -745,13 +746,14 @@ export function ToolGroup(props: { group: ToolGroupItem }) {
 			>
 				<span className="tool-status-dot" />
 				<span className="tool-group-title">
-					{running ? "工具调用中" : failed ? "工具调用有错误" : "工具调用完成"}
+					{running ? t("tool.running") : failed ? t("tool.error") : t("tool.done")}
 				</span>
 				<strong>
-					{props.group.messages.length} 个工具
-					{errorCount > 0 ? ` · ${errorCount} 个失败` : ""}
+					{props.group.messages.length}
+					{t("tool.countSuffix")}
+					{errorCount > 0 ? ` · ${errorCount}${t("tool.failedSuffix")}` : ""}
 				</strong>
-				<em>{expanded ? "收起" : "详情"}</em>
+				<em>{expanded ? t("common.collapse") : t("common.details")}</em>
 			</button>
 			{expanded ? (
 				<div className="tool-group-list">
@@ -788,7 +790,11 @@ function ToolSummary(props: { message: ChatMessage }) {
 	const status = String(props.message.meta?.status ?? "done");
 	const toolName = String(props.message.meta?.toolName ?? props.message.text);
 	const statusLabel =
-		status === "running" ? "运行中" : status === "error" ? "失败" : "完成";
+		status === "running"
+			? t("tool.statusRunning")
+			: status === "error"
+				? t("tool.statusError")
+				: t("tool.statusDone");
 	const detailText =
 		typeof props.message.meta?.detailText === "string"
 			? props.message.meta.detailText
@@ -803,13 +809,13 @@ function ToolSummary(props: { message: ChatMessage }) {
 			</div>
 			<div className="tool-summary-actions">
 				<button onClick={() => setExpanded((value) => !value)}>
-					{expanded ? "收起" : "详情"}
+					{expanded ? t("common.collapse") : t("common.details")}
 				</button>
 				<button
 					onClick={() => navigator.clipboard.writeText(detailText)}
-					title="复制完整工具调用详情"
+					title={t("tool.copyDetail")}
 				>
-					复制
+					{t("common.copy")}
 				</button>
 			</div>
 			{expanded && <pre className="tool-detail">{detailText}</pre>}
@@ -974,8 +980,8 @@ export function ChatBubble(props: {
 								onClick={() => setThinkingExpanded((v) => !v)}
 							>
 								<Brain size={14} />
-								<span>思考过程</span>
-								<em>{thinkingExpanded ? "收起" : "展开"}</em>
+								<span>{t("thinking.title")}</span>
+								<em>{thinkingExpanded ? t("common.collapse") : t("common.expand")}</em>
 							</div>
 							{thinkingExpanded && (
 								<div className="thinking-content">{thinkingDisplayText}</div>
@@ -1025,11 +1031,11 @@ export function ChatBubble(props: {
 							)
 						}
 					>
-						复制
+						{t("common.copy")}
 					</button>
 					{isTool && (
 						<button onClick={() => setExpanded((value) => !value)}>
-							{expanded ? "收起详情" : "查看详情"}
+							{expanded ? t("common.collapse") : t("common.details")}
 						</button>
 					)}
 					{isUser && (
@@ -1073,7 +1079,7 @@ function CodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 				className="code-copy"
 				onClick={() => navigator.clipboard.writeText(text)}
 			>
-				复制代码
+				{t("code.copy")}
 			</button>
 			<pre {...props}>{props.children}</pre>
 		</div>
@@ -2243,6 +2249,39 @@ export function AgentContextMenu(props: {
 	);
 }
 
+export function SessionContextMenu(props: {
+	menu: { x: number; y: number; session: SessionSummary };
+	actionLoading?: "copy" | "export" | null;
+	onClose: () => void;
+	onActivate: () => void;
+	onRename: () => void;
+	onExport: () => void;
+	onCopySession: () => void;
+	onShowLogs: () => void;
+}) {
+	return (
+		<div className="context-backdrop" onClick={props.onClose}>
+			<div
+				className="context-menu"
+				style={{ left: props.menu.x, top: props.menu.y }}
+				onClick={(event) => event.stopPropagation()}
+			>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onActivate}>打开会话</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>重命名</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onCopySession}>
+					{props.actionLoading === "copy" && <span className="mini-loader" />}
+					{props.actionLoading === "copy" ? "复制中..." : "复制会话"}
+				</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onExport}>
+					{props.actionLoading === "export" && <span className="mini-loader" />}
+					{props.actionLoading === "export" ? "导出中..." : "导出 HTML"}
+				</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onShowLogs}>RPC 日志</button>
+			</div>
+		</div>
+	);
+}
+
 function fuzzyScore(value: string, keyword: string) {
 	if (!keyword) return 1;
 	const text = value.toLowerCase();
@@ -2305,26 +2344,26 @@ export function SettingsModal(props: {
 	}> = [
 		{
 			id: "base",
-			label: "基础设置",
-			description: "界面、输入和会话行为",
+			label: t("settings.tabs.base"),
+			description: t("settings.tabs.baseDesc"),
 			icon: <Settings2 size={16} />,
 		},
 		{
 			id: "proxy",
-			label: "代理设置",
-			description: "agent 与桌面端网络",
+			label: t("settings.tabs.proxy"),
+			description: t("settings.tabs.proxyDesc"),
 			icon: <Network size={16} />,
 		},
 		{
 			id: "web",
-			label: "Web 服务",
-			description: "局域网访问入口",
+			label: t("settings.tabs.web"),
+			description: t("settings.tabs.webDesc"),
 			icon: <Globe2 size={16} />,
 		},
 		{
 			id: "dev",
-			label: "开发设置",
-			description: "环境、版本和调试",
+			label: t("settings.tabs.dev"),
+			description: t("settings.tabs.devDesc"),
 			icon: <Wrench size={16} />,
 		},
 	];
@@ -2335,7 +2374,7 @@ export function SettingsModal(props: {
 				className="settings-modal"
 			>
 				<div className="modal-header">
-					<strong>设置</strong>
+					<strong>{t("settings.title")}</strong>
 					<button onClick={props.onClose}>×</button>
 				</div>
 				<div className="settings-layout">
@@ -2357,7 +2396,47 @@ export function SettingsModal(props: {
 					<div className="settings-panel">
 						{activeTab === "base" && (
 							<>
-								<SettingsSection title="界面">
+								<SettingsSection title={t("settings.interface")}>
+									<div className="setting-field">
+										<span>{t("settings.theme")}</span>
+										<select
+											value={props.settings.theme}
+											onChange={(event) =>
+												props.onChange({
+													theme: event.target
+														.value as AppSettings["theme"],
+												})
+											}
+										>
+											<option value="system">
+												{t("settings.themeSystem")}
+											</option>
+											<option value="light">{t("settings.themeLight")}</option>
+											<option value="dark">{t("settings.themeDark")}</option>
+										</select>
+									</div>
+									<div className="setting-field">
+										<span>{t("settings.language")}</span>
+										<select
+											value={props.settings.language}
+											onChange={(event) =>
+												props.onChange({
+													language: event.target
+														.value as AppSettings["language"],
+												})
+											}
+										>
+											<option value="system">
+												{t("settings.languageSystem")}
+											</option>
+											<option value="zh-CN">
+												{t("settings.languageZh")}
+											</option>
+											<option value="en-US">
+												{t("settings.languageEn")}
+											</option>
+										</select>
+									</div>
 									<SettingSwitch
 										title="使用原生标题栏"
 										checked={props.settings.useNativeTitleBar}

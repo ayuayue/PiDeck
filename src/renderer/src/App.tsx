@@ -27,6 +27,7 @@ import { ConfigModal } from "./ConfigModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { getComposerEnterIntent } from "./composerBehavior";
 import { getVisibleAgentsForProject } from "./agentListDisplay";
+import { resolveLocale, setI18nLocale, t } from "./i18n";
 import {
   pruneTerminalDockState,
   setTerminalDockCollapsed,
@@ -52,6 +53,7 @@ import {
   ProjectContextMenu,
   PromptSuggestions,
   RpcLogModal,
+  SessionContextMenu,
   SessionHistoryModal,
   SessionStatus,
   SessionFileSummary,
@@ -154,19 +156,6 @@ function isReplacementForPendingAgent(agent: AgentTab, pending: AgentTab) {
 
 function isPendingAgentId(agentId?: string) {
   return Boolean(agentId?.startsWith("pending-"));
-}
-
-function formatSidebarSessionTime(updatedAt: number) {
-  const date = new Date(updatedAt);
-  const now = new Date();
-  const sameYear = date.getFullYear() === now.getFullYear();
-  return date.toLocaleString(undefined, {
-    month: "2-digit",
-    day: "2-digit",
-    ...(sameYear ? {} : { year: "numeric" }),
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function migrateAgentRecord<T>(
@@ -289,12 +278,25 @@ export function App() {
     y: number;
     agent: AgentTab;
   } | null>(null);
+  const [sessionMenu, setSessionMenu] = useState<{
+    x: number;
+    y: number;
+    projectId: string;
+    session: SessionSummary;
+  } | null>(null);
   const [agentActionLoading, setAgentActionLoading] = useState<
+    "copy" | "export" | null
+  >(null);
+  const [sessionActionLoading, setSessionActionLoading] = useState<
     "copy" | "export" | null
   >(null);
   const [agentRenameTarget, setAgentRenameTarget] = useState<AgentTab | null>(
     null,
   );
+  const [sessionRenameTarget, setSessionRenameTarget] = useState<{
+    projectId: string;
+    session: SessionSummary;
+  } | null>(null);
   const [agentRenameValue, setAgentRenameValue] = useState("");
   const [agentRenaming, setAgentRenaming] = useState(false);
   const [projectMenu, setProjectMenu] = useState<{
@@ -332,6 +334,8 @@ export function App() {
     useNativeTitleBar: true,
     showNativeMenu: false,
     sendShortcut: "enter-send",
+    theme: "system",
+    language: "system",
     piEnvironmentChecked: false,
     closeToTray: true,
     enableNotifications: true,
@@ -362,6 +366,8 @@ export function App() {
     releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
   });
   const [piChecking, setPiChecking] = useState(false);
+  const resolvedLocale = resolveLocale(settings.language);
+  setI18nLocale(resolvedLocale);
   // 手动输入 pi 路径相关状态
   const [customPiPath, setCustomPiPath] = useState("");
   const [customPathValidating, setCustomPathValidating] = useState(false);
@@ -509,6 +515,27 @@ export function App() {
     if (drawer !== drawerPinnedPanel) setDrawer(drawerPinnedPanel);
     if (drawerCollapsed) setDrawerCollapsed(false);
   }, [drawer, drawerCollapsed, drawerPinnedPanel]);
+
+  useEffect(() => {
+    document.documentElement.lang = resolvedLocale;
+  }, [resolvedLocale]);
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const resolvedTheme =
+        settings.theme === "system"
+          ? media?.matches
+            ? "dark"
+            : "light"
+          : settings.theme;
+      document.documentElement.dataset.theme = resolvedTheme;
+    };
+    applyTheme();
+    if (settings.theme !== "system" || !media) return;
+    media.addEventListener?.("change", applyTheme);
+    return () => media.removeEventListener?.("change", applyTheme);
+  }, [settings.theme]);
 
   /** 当前会话中 agent 修改过的文件（从 tool 消息 meta 中提取） */
   const modifiedFiles = useMemo(() => {
@@ -1313,7 +1340,15 @@ export function App() {
   function openAgentRename(agent: AgentTab) {
     setAgentMenu(null);
     setAgentRenameTarget(agent);
+    setSessionRenameTarget(null);
     setAgentRenameValue(agent.title);
+  }
+
+  function openSessionRename(projectId: string, session: SessionSummary) {
+    setSessionMenu(null);
+    setAgentRenameTarget(null);
+    setSessionRenameTarget({ projectId, session });
+    setAgentRenameValue(session.name || "Untitled");
   }
 
   async function submitAgentRename() {
@@ -1330,6 +1365,7 @@ export function App() {
         current.map((agent) => (agent.id === tab.id ? tab : agent)),
       );
       setAgentRenameTarget(null);
+      setSessionRenameTarget(null);
       setAgentRenameValue("");
       showToast("已重命名会话", 2200);
       await refreshProjectSessions(tab.projectId);
@@ -1341,6 +1377,59 @@ export function App() {
       );
     } finally {
       setAgentRenaming(false);
+    }
+  }
+
+  async function submitSessionRename() {
+    if (!sessionRenameTarget) return;
+    const name = agentRenameValue.replace(/\s+/g, " ").trim();
+    if (!name) {
+      showToast("会话名称不能为空", 2200);
+      return;
+    }
+    setAgentRenaming(true);
+    try {
+      await api.sessions.rename(sessionRenameTarget.session.filePath, name);
+      await refreshProjectSessions(sessionRenameTarget.projectId);
+      if (sessionsProjectId === sessionRenameTarget.projectId) {
+        await refreshSessions(sessionRenameTarget.projectId);
+      }
+      setSessionRenameTarget(null);
+      setAgentRenameValue("");
+      showToast("已重命名会话", 2200);
+    } catch (error) {
+      showToast(
+        `重命名失败：${error instanceof Error ? error.message : String(error)}`,
+        4000,
+      );
+    } finally {
+      setAgentRenaming(false);
+    }
+  }
+
+  async function openSidebarSession(projectId: string, session: SessionSummary) {
+    setSessionMenu(null);
+    return createAgent(projectId, session.filePath, session.name || "历史会话");
+  }
+
+  async function copySidebarSession(projectId: string, session: SessionSummary) {
+    setSessionActionLoading("copy");
+    try {
+      await copySession(session.filePath, projectId);
+    } finally {
+      setSessionActionLoading(null);
+      setSessionMenu(null);
+    }
+  }
+
+  async function exportSidebarSession(projectId: string, session: SessionSummary) {
+    setSessionActionLoading("export");
+    try {
+      const result = await api.sessions.exportHtml(projectId, session.filePath);
+      showToast(`已导出：${result.path}`, 3500);
+    } finally {
+      setSessionActionLoading(null);
+      setSessionMenu(null);
     }
   }
 
@@ -1555,7 +1644,7 @@ export function App() {
     projectId = activeProjectId,
     sessionPath?: string,
     title?: string,
-  ) {
+  ): Promise<AgentTab | undefined> {
     if (!projectId) return;
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
@@ -1568,7 +1657,7 @@ export function App() {
       setActiveProjectId(existing.projectId);
       setActiveAgentId(existing.id);
       setDrawer(null);
-      return;
+      return existing;
     }
     const previousAgentId = activeAgentId;
     const pendingTab: AgentTab = {
@@ -1623,6 +1712,7 @@ export function App() {
       });
       void refreshProjectSessions(projectId).catch(() => undefined);
       void refreshRuntimeState(tab.id);
+      return tab;
     } catch (e) {
       pendingAgentsRef.current = pendingAgentsRef.current.filter(
         (agent) => agent.id !== pendingTab.id,
@@ -1639,6 +1729,7 @@ export function App() {
         return next;
       });
       // 创建失败时由 main process 上报错误，前端仅回退乐观占位，避免停留在不存在的 agent。
+      return undefined;
     }
   }
 
@@ -2277,7 +2368,7 @@ export function App() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="搜索"
+              placeholder={t("app.search")}
             />
           </div>
           <button className="round-add" onClick={addProject}>
@@ -2287,8 +2378,10 @@ export function App() {
 
         <div className="conversation-list">
           {filteredProjects.map((project) => {
-            const projectDirectoryName = displayProjectDirectoryName(project);
             const projectIsChat = isChatProject(project);
+            const projectDirectoryName = projectIsChat
+              ? t("app.chatProject")
+              : displayProjectDirectoryName(project);
             const canDragProject = canReorderProjects && !projectIsChat;
             const projectAgents = filteredAgents.filter(
               (agent) => agent.projectId === project.id,
@@ -2482,38 +2575,36 @@ export function App() {
                 )}
                 {!isCollapsed && displayedProjectSessions.length > 0 && (
                   <div className="project-session-list">
-                    <div className="project-session-heading">
-                      <span>历史会话</span>
-                      <em>{visibleProjectSessions.length}</em>
-                    </div>
                     {displayedProjectSessions.map((session) => (
                       <button
                         key={session.filePath}
                         className={
                           activeAgent?.sessionPath === session.filePath
-                            ? "conversation session-row active"
-                            : "conversation session-row"
+                            ? "conversation agent-row session-row active"
+                            : "conversation agent-row session-row"
                         }
                         title={session.filePath}
-                        onClick={() =>
-                          createAgent(
-                            project.id,
-                            session.filePath,
-                            session.name || "历史会话",
-                          )
-                        }
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setSessionMenu({
+                            x: event.clientX,
+                            y: event.clientY,
+                            projectId: project.id,
+                            session,
+                          });
+                        }}
+                        onClick={() => void openSidebarSession(project.id, session)}
                       >
                         <span className="session-node-marker" aria-hidden="true" />
                         <div className="conversation-body">
                           <div className="conversation-title">
                             <strong>{session.name || "Untitled"}</strong>
-                            <span>
-                              {formatSidebarSessionTime(session.updatedAt)} ·{" "}
-                              {session.messageCount} messages
-                            </span>
                           </div>
-                          <p>{session.preview}</p>
                         </div>
+                        <span
+                          className="conversation-close-placeholder"
+                          aria-hidden="true"
+                        />
                       </button>
                     ))}
                   </div>
@@ -2579,18 +2670,22 @@ export function App() {
             <strong
               title={activeAgent?.title ?? activeProject?.name ?? "pi desktop"}
             >
-              {activeAgent?.title ?? activeProject?.name ?? "pi desktop"}
+              {activeAgent?.title ??
+                (isChatProject(activeProject)
+                  ? t("app.chatProject")
+                  : activeProject?.name) ??
+                "pi desktop"}
             </strong>
             <span
               title={
                 activeAgent
                   ? `${activeAgent.status} · ${activeProject?.path ?? activeAgent.cwd}`
-                  : "选择项目并创建 Agent"
+                  : t("app.selectProject")
               }
             >
               {activeAgent
                 ? `${activeAgent.status} · ${displayPath(activeProject?.path ?? activeAgent.cwd)}`
-                : "选择项目并创建 Agent"}
+                : t("app.selectProject")}
             </span>
             <SessionStatus
               state={activeRuntimeState}
@@ -2619,9 +2714,9 @@ export function App() {
                   className="primary-action"
                   disabled={!activeProjectId || isAgentStarting}
                   onClick={() => createAgent()}
-                  title="Start a new pi session"
+                  title={t("app.newSession")}
                 >
-                  New Session
+                  {t("app.newSession")}
                 </button>
                 <button
                   disabled={!activeAgentId || activeAgent?.status !== "running"}
@@ -2649,7 +2744,9 @@ export function App() {
                       }
                     }}
                   >
-                    {loadingAction === "restart" ? "Restarting…" : "Restart"}
+                    {loadingAction === "restart"
+                      ? t("app.restarting")
+                      : t("app.restart")}
                   </button>
                 )}
               </div>
@@ -2664,7 +2761,7 @@ export function App() {
                         openDrawer("files");
                       }}
                     >
-                      Files
+                      {t("app.files")}
                     </button>
                     <button
                       className={terminalOpen ? "active" : ""}
@@ -2675,7 +2772,7 @@ export function App() {
                       }}
                       title="显示或隐藏当前 Agent 的终端"
                     >
-                      Terminal
+                      {t("app.terminal")}
                     </button>
                   </>
                 )}
@@ -3067,11 +3164,43 @@ export function App() {
           }}
         />
       )}
-      {agentRenameTarget && (
+      {sessionMenu && (
+        <SessionContextMenu
+          menu={sessionMenu}
+          actionLoading={sessionActionLoading}
+          onClose={() => {
+            if (!sessionActionLoading) setSessionMenu(null);
+          }}
+          onActivate={() => {
+            void openSidebarSession(sessionMenu.projectId, sessionMenu.session);
+          }}
+          onRename={() =>
+            openSessionRename(sessionMenu.projectId, sessionMenu.session)
+          }
+          onExport={() => {
+            void exportSidebarSession(sessionMenu.projectId, sessionMenu.session);
+          }}
+          onCopySession={() => {
+            void copySidebarSession(sessionMenu.projectId, sessionMenu.session);
+          }}
+          onShowLogs={() => {
+            void openSidebarSession(
+              sessionMenu.projectId,
+              sessionMenu.session,
+            ).then((tab) => {
+              if (tab) setRpcLogAgentId(tab.id);
+            });
+          }}
+        />
+      )}
+      {(agentRenameTarget || sessionRenameTarget) && (
         <div
           className="modal-backdrop rename-dialog-backdrop"
           onClick={() => {
-            if (!agentRenaming) setAgentRenameTarget(null);
+            if (!agentRenaming) {
+              setAgentRenameTarget(null);
+              setSessionRenameTarget(null);
+            }
           }}
         >
           <form
@@ -3079,7 +3208,8 @@ export function App() {
             onClick={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              void submitAgentRename();
+              if (agentRenameTarget) void submitAgentRename();
+              else void submitSessionRename();
             }}
           >
             <div className="rename-dialog-header">
@@ -3087,7 +3217,10 @@ export function App() {
               <button
                 type="button"
                 disabled={agentRenaming}
-                onClick={() => setAgentRenameTarget(null)}
+                onClick={() => {
+                  setAgentRenameTarget(null);
+                  setSessionRenameTarget(null);
+                }}
               >
                 <X size={15} />
               </button>
@@ -3103,7 +3236,10 @@ export function App() {
               <button
                 type="button"
                 disabled={agentRenaming}
-                onClick={() => setAgentRenameTarget(null)}
+                onClick={() => {
+                  setAgentRenameTarget(null);
+                  setSessionRenameTarget(null);
+                }}
               >
                 取消
               </button>
