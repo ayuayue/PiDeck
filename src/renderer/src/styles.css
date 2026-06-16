@@ -5924,6 +5924,24 @@ body.is-composer-resizing .composer-resize-handle::after {
 	color: var(--color-danger);
 }
 
+/* 批量选择 checkbox */
+.config-batch-checkbox {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-right: 4px;
+	flex-shrink: 0;
+}
+.config-batch-checkbox input {
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
+	accent-color: var(--color-accent);
+	margin: 0;
+}
+
 .config-btn.danger:hover:not(:disabled) {
 	background: var(--color-danger-soft);
 }

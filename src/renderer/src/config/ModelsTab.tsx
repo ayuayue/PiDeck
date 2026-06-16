@@ -139,6 +139,7 @@ export function ModelsTab(props: {
 	onCancelRename: () => void;
 	onDeleteProvider: (name: string) => void;
 	onDuplicateProvider: (name: string) => void;
+	onDeleteProviders: (names: string[]) => void;
 	onAddModel: (providerName: string) => void;
 	onUpdateModel: (
 		providerName: string,
@@ -161,6 +162,8 @@ export function ModelsTab(props: {
 	const [addingModelId, setAddingModelId] = useState("");
 	const [pendingModelFocusKey, setPendingModelFocusKey] = useState<string | null>(null);
 	const [showGuide, setShowGuide] = useState(false);
+	const [batchMode, setBatchMode] = useState(false);
+	const [selectedProviders, setSelectedProviders] = useState(new Set());
 	const modelIdInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 	const getModelInputKey = (providerName: string, index: number) =>
 		`${providerName}\u0000${index}`;
@@ -330,7 +333,24 @@ export function ModelsTab(props: {
 									props.onToggleProvider(name);
 								}}
 							>
-								<div className="config-provider-info">
+								{batchMode && (
+								<label className="config-batch-checkbox">
+									<input
+										type="checkbox"
+										checked={selectedProviders.has(name)}
+										onChange={(e) => {
+											e.stopPropagation();
+											setSelectedProviders(prev => {
+												const next = new Set(prev);
+												if (next.has(name)) next.delete(name);
+												else next.add(name);
+												return next;
+											});
+										}}
+									/>
+								</label>
+							)}
+							<div className="config-provider-info">
 									{props.renamingProvider === name ? (
 										<input
 											className="config-rename-input"

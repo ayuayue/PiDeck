@@ -600,6 +600,36 @@ function ConfigModalContent(props: ConfigModalProps) {
 		setExpandedAuth(newName);
 	};
 
+	const handleDeleteProviders = (names: string[]) => {
+		setDeleteConfirm({
+			type: "batch",
+			title: t("common.deleteConfirm"),
+			message: t("common.deleteBatchConfirm", { count: names.length }),
+			onConfirm: () => {
+				const providers = { ...modelsData.providers };
+				for (const name of names) delete providers[name];
+				setModelsData({ ...modelsData, providers });
+				if (names.includes(expandedProvider ?? "")) setExpandedProvider(null);
+				setDeleteConfirm(null);
+			},
+		});
+	};
+
+	const handleDeleteAuths = (providers: string[]) => {
+		setDeleteConfirm({
+			type: "batch",
+			title: t("common.deleteConfirm"),
+			message: t("common.deleteBatchConfirm", { count: providers.length }),
+			onConfirm: () => {
+				const updated = { ...authData };
+				for (const provider of providers) delete updated[provider];
+				setAuthData(updated);
+				if (providers.includes(expandedAuth ?? "")) setExpandedAuth(null);
+				setDeleteConfirm(null);
+			},
+		});
+	};
+
 	const handleSaveAuth = async () => {
 		await saveAndReload(() => api.config.saveAuth(authData));
 		await loadConfig("auth");
@@ -875,6 +905,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 							onCancelRename={handleCancelRename}
 							onDeleteProvider={handleDeleteProvider}
 							onDuplicateProvider={handleDuplicateProvider}
+						onDeleteProviders={handleDeleteProviders}
 							onAddModel={handleAddModel}
 							onUpdateModel={handleUpdateModel}
 							onDeleteModel={handleDeleteModel}
@@ -920,6 +951,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 							onChangeNewAuthName={setNewAuthName}
 							onConfirmAddAuth={handleAddAuth}
 							onDuplicateAuth={handleDuplicateAuth}
+						onDeleteAuths={handleDeleteAuths}
 						onDeleteAuth={handleDeleteAuth}
 							onUpdate={handleUpdateAuth}
 							onSave={handleSaveAuth}

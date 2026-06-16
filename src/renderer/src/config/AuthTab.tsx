@@ -50,6 +50,7 @@ export function AuthTab(props: {
 	onConfirmAddAuth: () => void;
 	onDuplicateAuth: (provider: string) => void;
 	onDeleteAuth: (provider: string) => void;
+	onDeleteAuths: (providers: string[]) => void;
 	onUpdate: (provider: string, field: string, value: string) => void;
 	onSave: () => void;
 }) {
@@ -59,6 +60,8 @@ export function AuthTab(props: {
 	const [selectedProvider, setSelectedProvider] = useState("");
 	const [customProviderName, setCustomProviderName] = useState("");
 	const [showGuide, setShowGuide] = useState(false);
+	const [batchMode, setBatchMode] = useState(false);
+	const [selectedAuths, setSelectedAuths] = useState(new Set());
 
 	// 从预设列表获取供应商信息
 	const presetProvider = selectedProvider ? PRESET_PROVIDERS.find(p => p.value === selectedProvider) : undefined;
