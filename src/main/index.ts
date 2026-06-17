@@ -626,6 +626,16 @@ function registerIpc() {
 		},
 	);
 
+	// 获取工作区中被 Git 跟踪的变更文件列表（对比 HEAD），返回到前端用于右侧文件面板。
+	ipcMain.handle(
+		ipcChannels.gitChangedFiles,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getChangedFiles(project.path);
+		},
+	);
+
 	ipcMain.handle(ipcChannels.piCheck, () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();

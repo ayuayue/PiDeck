@@ -233,6 +233,8 @@ export type AppSettings = {
 	rpcTimeout: number;
 	/** 外部链接打开方式：external 使用系统默认浏览器，internal 使用应用内独立窗口 */
 	linkOpenMode: LinkOpenMode;
+	/** 编辑器最大文件大小（MB），超过此大小的文件不加载编辑器。默认 5MB。 */
+	maxEditorFileSizeMB: number;
 };
 
 export type PiInstallStatus = {

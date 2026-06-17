@@ -141,6 +141,7 @@ let previewSettings: AppSettings = {
 	webServicePort: 8765,
 	rpcTimeout: 600_000,
 	linkOpenMode: "external",
+	maxEditorFileSizeMB: 5,
 };
 
 export function createPreviewApi(): PiDesktopApi {
@@ -213,6 +214,7 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			// 预览环境无真实 Git，返回空原始内容，差异左侧显示为空。
 			originalContent: async () => "",
+			changedFiles: async () => [],
 		},
 		pi: {
 			check: async () => ({

@@ -1041,6 +1041,40 @@ export class AgentManager {
 		const existing = list.find((message) => message.id === messageId);
 		const isError = status === "error" || event.isError === true;
 		const args = event.args ?? existing?.meta?.args;
+
+		// 工具首次开始执行（status === "running"）且 args 携带文件路径时，
+		// 读取文件原始内容以供差异编辑器使用。读取失败（文件不存在等）静默跳过。
+		// 后续 done/error 状态复用已有的 originalContent，避免重复读取。
+		let originalContent: string | undefined = existing?.meta?.originalContent as
+			| string
+			| undefined;
+		if (
+			status === "running" &&
+			!originalContent &&
+			typeof args === "object" &&
+			args !== null
+		) {
+			const filePath =
+				typeof (args as any).filePath === "string"
+					? (args as any).filePath
+					: typeof (args as any).path === "string"
+						? (args as any).path
+						: undefined;
+			if (filePath) {
+				readFile(filePath, "utf8")
+					.then((content) => {
+						originalContent = content;
+						existing?.meta && (existing.meta.originalContent = content);
+						this.emit(ipcChannels.agentsMessage, {
+							agentId,
+							messages: this.messages.get(agentId) ?? [],
+						});
+					})
+					.catch(() => {
+						// 文件不存在或被删除，跳过
+					});
+			}
+		}
 		const result =
 			event.result ??
 			event.partialResult ??
@@ -1063,6 +1097,7 @@ export class AgentManager {
 			result,
 			isError,
 			detailText,
+			originalContent,
 		};
 
 		if (existing) {

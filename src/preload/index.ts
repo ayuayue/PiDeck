@@ -139,6 +139,12 @@ const api = {
 				ipcChannels.gitOriginalContent,
 				filePath,
 			) as Promise<string>,
+		// 获取工作区中对比 HEAD 有变更的文件列表
+		changedFiles: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitChangedFiles,
+				projectId,
+			) as Promise<{ path: string; status: string }[]>,
 	},
 	pi: {
 		check: () =>

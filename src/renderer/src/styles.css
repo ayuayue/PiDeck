@@ -6722,9 +6722,9 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 /* API 类型下拉菜单 —— 宽菜单带描述 */
 .config-api-type-menu {
-	width: 600px;
+	width: 1200px;
 	max-width: calc(100vw - 40px);
-	max-height: 280px;
+	max-height: 320px;
 }
 .config-api-type-menu button {
 	min-height: auto;
@@ -8409,6 +8409,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	justify-content: space-between;
 	height: 48px;
 	padding: 0 var(--space-4);
+	padding-left: var(--space-6);
 	border-bottom: 1px solid var(--color-border-subtle);
 	background: var(--color-bg-muted);
 	flex-shrink: 0;
@@ -8422,6 +8423,21 @@ body.is-composer-resizing .composer-resize-handle::after {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-4);
+}
+
+.file-diff-hint {
+	font-weight: 400;
+	font-size: var(--font-size-control);
+	color: var(--color-text-tertiary);
+	animation: file-diff-hint-fade 3s ease-in-out forwards;
+}
+
+@keyframes file-diff-hint-fade {
+	0%, 70% { opacity: 1; }
+	100% { opacity: 0; }
 }
 
 .file-diff-header-actions {

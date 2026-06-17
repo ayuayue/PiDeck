@@ -61,6 +61,8 @@ export type SessionModifiedFile = {
 	toolName: string;
 	status: string;
 	changedLines?: number;
+	/** 工具执行前的文件原始内容，用于历史会话恢复时展示差异对比。 */
+	originalContent?: string;
 };
 
 export function EnvironmentDialog(props: {
@@ -2121,7 +2123,8 @@ export function DrawerContent(props: {
 	project?: Project;
 	files: FileTreeNode[];
 	sessions: SessionSummary[];
-	modifiedFiles: SessionModifiedFile[];
+	/** Git 工作区中对比 HEAD 有变更的文件列表 */
+	gitChangedFiles: { path: string; status: string }[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
 	pinned: boolean;
@@ -2180,7 +2183,12 @@ export function DrawerContent(props: {
 			{props.panel === "files" && (
 				<FilesPanel
 					files={props.files}
-					modifiedFiles={props.modifiedFiles}
+					// 将 Git 变更文件列表转换为 SessionModifiedFile 格式传入 FilesPanel 展示
+					modifiedFiles={props.gitChangedFiles.map((f) => ({
+						path: f.path,
+						toolName: "git",
+						status: "done",
+					}))}
 					expandedDirs={props.expandedDirs}
 					onToggleDirectory={props.onToggleDirectory}
 					onFileContextMenu={props.onFileContextMenu}
@@ -2238,7 +2246,7 @@ function FilesPanel(props: {
 			</div>
 			{props.modifiedFiles.length > 0 && (
 				<div className="modified-files-section">
-					<div className="modified-files-header">{t("drawer.modifiedThisSession")}</div>
+					<div className="modified-files-header">{t("drawer.gitChangedFiles")}</div>
 					{visibleModifiedFiles.map((file) => {
 						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
 						const isRunning = file.status === "running";
@@ -2263,10 +2271,17 @@ function FilesPanel(props: {
 								<span
 									className={`modified-file-icon${isRunning ? "" : " done"}`}
 								>
-									{isRunning ? "◌" : "✓"}
+									{file.toolName === "git"
+										? gitStatusIcon(file.status)
+										: isRunning
+											? "◌"
+											: "✓"}
 								</span>
 								<span className="modified-file-name">{fileName}</span>
-								{Boolean(file.changedLines) && (
+								{file.toolName === "git" && file.status !== "deleted" && (
+									<span className="modified-file-lines">{file.status === "added" ? "新" : "改"}</span>
+								)}
+								{file.toolName !== "git" && Boolean(file.changedLines) && (
 									<span className="modified-file-lines">
 										{t("drawer.changedLines", {
 											count: file.changedLines ?? 0,
@@ -2440,6 +2455,19 @@ function fileIcon(name: string) {
 	if (/\.(md|mdx)$/.test(name)) return "M";
 	if (/\.(json|yaml|yml)$/.test(name)) return "{}";
 	return "·";
+}
+
+function gitStatusIcon(status: string): string {
+	switch (status) {
+		case "added":
+			return "+";
+		case "deleted":
+			return "×";
+		case "renamed":
+			return "→";
+		default:
+			return "~";
+	}
 }
 
 function SessionsPanel(props: {
@@ -3317,6 +3345,17 @@ export function SettingsModal(props: {
 												linkOpenMode: value as AppSettings["linkOpenMode"],
 											})
 										}
+									/>
+									<TextField
+										className="setting-field"
+										label={t("settings.maxEditorFileSize")}
+										description={t("settings.maxEditorFileSizeDesc")}
+										type="number"
+										value={String(props.settings.maxEditorFileSizeMB)}
+										onChange={(value) => {
+											const mb = Math.max(1, parseInt(value) || 5);
+											props.onChange({ maxEditorFileSizeMB: mb });
+										}}
 									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.privacy")}>

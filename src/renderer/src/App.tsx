@@ -113,7 +113,7 @@ const isLanWeb =
   !window.piDesktop && window.location.protocol.startsWith("http");
 const api =
   window.piDesktop ?? (isLanWeb ? createBrowserApi() : createPreviewApi());
-// 输入框默认高度增加，提供更好的输入体验，适合多行输入和代码片段
+// 输入框默认高度增加,提供更好的输入体验,适合多行输入和代码片段
 const COMPOSER_MIN_HEIGHT = 260;
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const COMPOSER_MIN_TIMELINE_HEIGHT = 160;
@@ -126,8 +126,8 @@ function countContentLines(value: unknown) {
 }
 
 function getToolChangedLineCount(toolName: string, args: any) {
-  // 会话结束摘要只能使用 renderer 已收到的工具参数，不能重新 diff 工作区；
-  // 这里按编辑/写入工具的输入估算“本次触达行数”，避免把用户在会话外的改动也计入。
+  // 会话结束摘要只能使用 renderer 已收到的工具参数,不能重新 diff 工作区;
+  // 这里按编辑/写入工具的输入估算"本次触达行数",避免把用户在会话外的改动也计入。
   if (/edit/i.test(toolName)) {
     const edits = Array.isArray(args?.edits) ? args.edits : undefined;
     if (edits) {
@@ -164,12 +164,12 @@ function isAbsoluteFilePath(path: string) {
 
 function resolveFileLinkPath(path: string, basePath?: string) {
   if (!path || isAbsoluteFilePath(path) || !basePath) return path;
-  // 浏览器端不引入 Node path；按项目根路径分隔符拼接，满足点击 AI 输出的项目相对路径。
+  // 浏览器端不引入 Node path;按项目根路径分隔符拼接,满足点击 AI 输出的项目相对路径。
   const separator = basePath.includes("\\") ? "\\" : "/";
   return `${basePath.replace(/[\\/]+$/, "")}${separator}${path.replace(/^[\\/]+/, "")}`;
 }
 
-// 会话文件路径可能来自扫描器或 Agent 状态回写，比较时统一分隔符和大小写，避免重复恢复同一历史会话。
+// 会话文件路径可能来自扫描器或 Agent 状态回写,比较时统一分隔符和大小写,避免重复恢复同一历史会话。
 function normalizeSessionPathForCompare(sessionPath?: string) {
   return sessionPath?.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
@@ -225,8 +225,8 @@ export function App() {
     new Set(),
   );
   /**
-   * “更多 Agent”只是左侧目录树的展示状态：不停止、不隐藏后端 agent，
-   * 也不跨项目互相影响，避免项目多开时列表默认过长。
+   * "更多 Agent"只是左侧目录树的展示状态:不停止、不隐藏后端 agent,
+   * 也不跨项目互相影响,避免项目多开时列表默认过长。
    */
   const [expandedAgentProjects, setExpandedAgentProjects] = useState<
     Set<string>
@@ -238,6 +238,10 @@ export function App() {
     Record<string, ChatMessage[]>
   >({});
   const [files, setFiles] = useState<FileTreeNode[]>([]);
+  /** Git 工作区中对比 HEAD 有变更的文件列表（用于右侧面板展示）。 */
+  const [gitChangedFiles, setGitChangedFiles] = useState<
+    { path: string; status: string }[]
+  >([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsByProject, setSessionsByProject] = useState<
     Record<string, SessionSummary[]>
@@ -264,37 +268,37 @@ export function App() {
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
   );
-  /** 当前进行的操作类型，用于按钮 loading 状态 */
+  /** 当前进行的操作类型,用于按钮 loading 状态 */
   const [loadingAction, setLoadingAction] = useState<null | "restart">(null);
   const [attachedImagesByAgent, setAttachedImagesByAgent] = useState<
     Record<string, ImageContent[]>
   >({});
   const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
-  /** 当前 agent 流式思考的实时文本，agent_end 时清空 */
+  /** 当前 agent 流式思考的实时文本,agent_end 时清空 */
   const [streamingThinking, setStreamingThinking] = useState<
     Record<string, string>
   >({});
-  /** 每个 agent 最后一次会话的开始时间（status 变为 running 时记录），用 ref 避免 effect 闭包陈旧 */
+  /** 每个 agent 最后一次会话的开始时间(status 变为 running 时记录),用 ref 避免 effect 闭包陈旧 */
   const sessionStartByAgentRef = useRef<Record<string, number>>({});
-  /** 每个 agent 最后一次会话的总时长（ms），仅在会话结束后更新 */
+  /** 每个 agent 最后一次会话的总时长(ms),仅在会话结束后更新 */
   const [sessionDurationByAgent, setSessionDurationByAgent] = useState<
     Record<string, number>
   >({});
-  /** 会话结束后固化的文件修改摘要；新一轮运行时继续展示上一轮结果，避免完成信息被隐藏。 */
+  /** 会话结束后固化的文件修改摘要;新一轮运行时继续展示上一轮结果,避免完成信息被隐藏。 */
   const [sessionFileSummaryByAgent, setSessionFileSummaryByAgent] = useState<
     Record<string, SessionModifiedFile[]>
   >({});
-  /** 每轮回答完成后固化的文件修改摘要，key 为 assistant message id，便于卡片贴在对应回答后。 */
+  /** 每轮回答完成后固化的文件修改摘要,key 为 assistant message id,便于卡片贴在对应回答后。 */
   const [turnFileSummaryByMessage, setTurnFileSummaryByMessage] = useState<
     Record<string, SessionModifiedFile[]>
   >({});
-  // 记录每轮回答开始前已有的修改文件累计状态，用增量差异避免聊天卡片重复展示历史会话文件。
+  // 记录每轮回答开始前已有的修改文件累计状态,用增量差异避免聊天卡片重复展示历史会话文件。
   const turnFileBaselineByAgentRef = useRef<
     Record<string, Map<string, SessionModifiedFile>>
   >({});
   const finalizedTurnByAgentRef = useRef<Record<string, string | null>>({});
   const agentStatusByAgentRef = useRef<Record<string, AgentTab["status"]>>({});
-  /** RPC 日志，用于调试 */
+  /** RPC 日志,用于调试 */
   const [rpcLogs, setRpcLogs] = useState<
     Array<{
       id: string;
@@ -305,7 +309,7 @@ export function App() {
       time: number;
     }>
   >([]);
-  const [_logs, setLogs] = useState<string[]>([]); // 写入式调试日志，仅用于 onLog/onError 捕获
+  const [_logs, setLogs] = useState<string[]>([]); // 写入式调试日志,仅用于 onLog/onError 捕获
   const [search, setSearch] = useState("");
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
@@ -347,6 +351,7 @@ export function App() {
   } | null>(null);
   const [diffViewFile, setDiffViewFile] = useState<string | null>(null);
   const [diffViewMode, setDiffViewMode] = useState<"view" | "diff">("view");
+  const [diffViewOriginalContent, setDiffViewOriginalContent] = useState<string>("");
   const [codexImportProject, setCodexImportProject] = useState<Project | null>(
     null,
   );
@@ -419,6 +424,7 @@ export function App() {
     webServicePort: 8765,
     rpcTimeout: 600_000,
     linkOpenMode: "external",
+    maxEditorFileSizeMB: 5,
   });
   const [settingsNotice, setSettingsNotice] = useState("");
   const [piProxyNotice, setPiProxyNotice] = useState("");
@@ -533,7 +539,7 @@ export function App() {
   const terminalDockState = activeAgentId
     ? terminalDockStateByAgent[activeAgentId]
     : undefined;
-  // 终端打开/折叠状态按 agent 隔离，避免切换项目/agent 后丢失当前终端 UI 状态。
+  // 终端打开/折叠状态按 agent 隔离,避免切换项目/agent 后丢失当前终端 UI 状态。
   const terminalOpen = Boolean(terminalDockState?.open);
   const terminalCollapsed = Boolean(terminalDockState?.collapsed);
   const drawerPinnedPanel = activeAgentId
@@ -547,8 +553,8 @@ export function App() {
     ? runtimeStateByAgent[activeAgentId]
     : undefined;
 
-  // 消息分页：超过 100 条消息时启用，大幅减少输入卡顿
-  // 首屏 100 条，每次加载 100 条，一页一页懒加载
+  // 消息分页:超过 100 条消息时启用,大幅减少输入卡顿
+  // 首屏 100 条,每次加载 100 条,一页一页懒加载
   const {
     visibleMessages: paginatedMessages,
     hasMore: hasMoreMessages,
@@ -623,8 +629,8 @@ export function App() {
     return () => media.removeEventListener?.("change", applyTheme);
   }, [settings.theme]);
 
-  /** 当前会话中 agent 修改过的文件（从 tool 消息 meta 中提取） */
-  // 优化：只在消息数量变化时才重新计算，减少不必要的遍历
+  /** 当前会话中 agent 修改过的文件(从 tool 消息 meta 中提取) */
+  // 优化:只在消息数量变化时才重新计算,减少不必要的遍历
   const modifiedFiles = useMemo(() => {
     const byPath = new Map<string, SessionModifiedFile>();
     for (const msg of activeMessages) {
@@ -648,8 +654,10 @@ export function App() {
                 : undefined;
       if (!filePath) continue;
       const previous = byPath.get(filePath);
-      // 同一路径再次被修改时移动到 Map 末尾，右侧修改清单才能按“最新修改”展示。
+      // 同一路径再次被修改时移动到 Map 末尾，右侧修改清单才能按"最新修改"展示。
       if (previous) byPath.delete(filePath);
+      // 从消息 meta 中提取工具执行前的文件原始内容，用于差异编辑器的对比基准。
+      const originalContent = msg.meta?.originalContent as string | undefined;
       byPath.set(filePath, {
         path: filePath,
         toolName,
@@ -657,18 +665,20 @@ export function App() {
         changedLines:
           (previous?.changedLines ?? 0) +
           getToolChangedLineCount(toolName, args),
+        // 同一路径多次修改时保留首次记录的 originalContent，历史会话恢复时优先使用
+        originalContent: previous?.originalContent ?? originalContent ?? "",
       });
     }
     return Array.from(byPath.values());
   }, [activeMessages.length, activeAgentId]);
-  // 优化：轮廓项计算仅在消息数量变化时触发，减少不必要的重计算
+  // 优化:轮廓项计算仅在消息数量变化时触发,减少不必要的重计算
   const outlineItems = useMemo(
     () => buildOutline(activeMessages),
     [activeMessages.length, activeAgentId],
   );
   const flatFiles = useMemo(() => flattenFiles(files), [files]);
-  // 优化：建议项计算仅在必要时触发，避免每次输入都重计算导致卡顿
-  // 只有当建议框打开时才计算，关闭时返回空数组
+  // 优化:建议项计算仅在必要时触发,避免每次输入都重计算导致卡顿
+  // 只有当建议框打开时才计算,关闭时返回空数组
   const suggestionItems = useMemo(
     () =>
       suggestionsOpen ? buildSuggestionItems(prompt, commands, flatFiles) : [],
@@ -723,7 +733,7 @@ export function App() {
       setSettings(next);
       setCustomPiPath(next.customPiPath ?? "");
       if (!next.piEnvironmentChecked) {
-        // 首次检测延后一帧启动，先让主界面完成绘制，避免 packaged app 打开时出现几秒白屏。
+        // 首次检测延后一帧启动,先让主界面完成绘制,避免 packaged app 打开时出现几秒白屏。
         window.setTimeout(() => void checkPiInstall("startup"), 300);
       }
     });
@@ -804,11 +814,11 @@ export function App() {
         migrateAgentRecord(current, pendingReplacementById, draftIds),
       );
     });
-    // 优化：历史会话加载时消息更新频繁，只在消息真正变化时更新 state，避免不必要的重渲染导致输入卡顿
+    // 优化:历史会话加载时消息更新频繁,只在消息真正变化时更新 state,避免不必要的重渲染导致输入卡顿
     const offMessages = api.agents.onMessages((payload) =>
       setMessagesByAgent((current) => {
         const prevMessages = current[payload.agentId];
-        // 消息数量相同且引用相同时跳过更新，减少输入框重渲染
+        // 消息数量相同且引用相同时跳过更新,减少输入框重渲染
         if (
           prevMessages?.length === payload.messages.length &&
           prevMessages === payload.messages
@@ -823,7 +833,7 @@ export function App() {
     );
     const offLog = api.agents.onLog((payload) =>
       setLogs((current) => {
-        // 优化：只在超过200条时才slice，减少不必要的数组操作
+        // 优化:只在超过200条时才slice,减少不必要的数组操作
         const newLog = `[${payload.agentId.slice(0, 8)}] ${payload.text}`;
         if (current.length < 200) {
           return [...current, newLog];
@@ -834,26 +844,26 @@ export function App() {
     const offSettings = api.settings.onApplyWindow(() =>
       setSettingsNotice(t("settings.restartNotice")),
     );
-    // 监听后端主动推送的 runtimeState 更新（如 agent_end 时重置 isStreaming），
-    // 确保前端 isAgentBusy 判断基于最新状态，排队 flush 能正常触发。
+    // 监听后端主动推送的 runtimeState 更新(如 agent_end 时重置 isStreaming),
+    // 确保前端 isAgentBusy 判断基于最新状态,排队 flush 能正常触发。
     const offRuntimeState = api.agents.onRuntimeState((payload) =>
       setRuntimeStateByAgent((current) => ({
         ...current,
         [payload.agentId]: payload.state,
       })),
     );
-    // 监听流式思考内容更新，用于在 agent 响应前展示推理过程
+    // 监听流式思考内容更新,用于在 agent 响应前展示推理过程
     const offThinking = api.agents.onThinking((payload: ThinkingUpdate) =>
       setStreamingThinking((current) => ({
         ...current,
         [payload.agentId]: payload.thinking,
       })),
     );
-    // 监听 RPC 日志，保留最近 2000 条用于调试；message_update 高频事件很多，
-    // 200 条很容易在一次长响应中被刷掉，但仍设置上限避免 renderer 内存无限增长。
+    // 监听 RPC 日志,保留最近 2000 条用于调试;message_update 高频事件很多,
+    // 200 条很容易在一次长响应中被刷掉,但仍设置上限避免 renderer 内存无限增长。
     const offRpcLog = api.agents.onRpcLog((payload) =>
       setRpcLogs((current) => {
-        // 优化：避免频繁创建新数组，只在超过上限时才slice
+        // 优化:避免频繁创建新数组,只在超过上限时才slice
         const newLog = {
           id: crypto.randomUUID(),
           agentId: payload.agentId,
@@ -904,7 +914,7 @@ export function App() {
         ),
       ),
     );
-    // 启动时只加载 chat 项目的会话，其他项目延迟到展开时加载
+    // 启动时只加载 chat 项目的会话,其他项目延迟到展开时加载
     for (const project of projects) {
       if (project.kind === "chat") {
         void refreshProjectSessions(project.id).catch(() => undefined);
@@ -955,8 +965,8 @@ export function App() {
       0,
       composer.offsetHeight - box.offsetHeight,
     );
-    // 输入框最大高度取决于聊天区域还剩多少可用空间，而不是固定视口比例；
-    // 否则窗口变窄后软换行变多，最小窗口下会比内容需要的高度更早触顶。
+    // 输入框最大高度取决于聊天区域还剩多少可用空间,而不是固定视口比例;
+    // 否则窗口变窄后软换行变多,最小窗口下会比内容需要的高度更早触顶。
     return Math.max(
       180,
       chatPane.clientHeight -
@@ -991,8 +1001,8 @@ export function App() {
     const textarea = composerTextareaRef.current;
     if (!box || !textarea) return;
 
-    // 宽度变化会改变软换行位置，textarea 的 scrollHeight 才是当前内容真实需要的高度。
-    // 这里减去 chrome 高度（顶部留白/工具条/底部状态条），把问题修在布局源头而不是靠用户手动拖。
+    // 宽度变化会改变软换行位置,textarea 的 scrollHeight 才是当前内容真实需要的高度。
+    // 这里减去 chrome 高度(顶部留白/工具条/底部状态条),把问题修在布局源头而不是靠用户手动拖。
     const chromeHeight = box.offsetHeight - textarea.clientHeight;
     const nextHeight = clampComposerHeight(
       textarea.scrollHeight + chromeHeight,
@@ -1091,13 +1101,13 @@ export function App() {
   useEffect(() => {
     const timeline = timelineRef.current;
     if (!timeline || !autoScroll) return;
-    // 历史会话加载后默认跳到最新消息，符合聊天软件的阅读习惯，避免用户手动滚动到底部。
+    // 历史会话加载后默认跳到最新消息,符合聊天软件的阅读习惯,避免用户手动滚动到底部。
     requestAnimationFrame(() => {
       timeline.scrollTop = timeline.scrollHeight;
     });
   }, [activeAgentId, activeMessages.length, autoScroll]);
 
-  // 监听用户滚动，判断是否需要显示"移动到最新"按钮
+  // 监听用户滚动,判断是否需要显示"移动到最新"按钮
   useEffect(() => {
     const timeline = timelineRef.current;
     if (!timeline) return;
@@ -1122,7 +1132,7 @@ export function App() {
     return () => timeline.removeEventListener("scroll", handleScroll);
   }, [activeAgentId]);
 
-  // 追踪 agent 会话开始/结束时间，计算会话时长
+  // 追踪 agent 会话开始/结束时间,计算会话时长
   useEffect(() => {
     for (const agent of displayAgents) {
       if (agent.id !== activeAgentId) continue;
@@ -1130,8 +1140,8 @@ export function App() {
       if (agent.status === "running") {
         if (previousStatus !== "running") {
           sessionStartByAgentRef.current[agent.id] = Date.now();
-          // Files 面板展示会话总览；聊天流只展示本轮回答新增触达的文件。
-          // 基线记录累计行数而不是仅记录路径：同一个文件在后续回答再次被编辑时也要显示。
+          // Files 面板展示会话总览;聊天流只展示本轮回答新增触达的文件。
+          // 基线记录累计行数而不是仅记录路径:同一个文件在后续回答再次被编辑时也要显示。
           turnFileBaselineByAgentRef.current[agent.id] = new Map(
             modifiedFiles.map((file) => [file.path, file]),
           );
@@ -1146,7 +1156,7 @@ export function App() {
           }));
         }
         if (modifiedFiles.length > 0) {
-          // 会话级摘要仍保留给右侧 Files 面板作为总览，但不再渲染到聊天底部。
+          // 会话级摘要仍保留给右侧 Files 面板作为总览,但不再渲染到聊天底部。
           setSessionFileSummaryByAgent((current) => ({
             ...current,
             [agent.id]: modifiedFiles,
@@ -1188,7 +1198,7 @@ export function App() {
     }
   }, [displayAgents, activeAgentId, modifiedFiles, messagesByAgent]);
 
-  // 监听用户发送消息的编辑事件，将消息填入输入框
+  // 监听用户发送消息的编辑事件,将消息填入输入框
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ text: string }>).detail;
@@ -1214,7 +1224,7 @@ export function App() {
       return;
     }
 
-    // 切换项目时，如果该项目未加载过会话，则加载
+    // 切换项目时,如果该项目未加载过会话,则加载
     const activeProject = projects.find((p) => p.id === activeProjectId);
     const hasLoadedSessions = sessionsByProject[activeProjectId]?.length > 0;
     const isLoadingNow = sessionLoadingByProject[activeProjectId];
@@ -1258,17 +1268,24 @@ export function App() {
     let stopped = false;
     const refreshGitInfo = async () => {
       try {
+        // 轮询分支信息
         const next = await api.git.branches(activeProjectId);
         if (stopped) return;
-        // 分支可能在外部终端/IDE 中切换，轮询只在状态真的变化时更新，避免不必要重渲染。
+        // 分支可能在外部终端/IDE 中切换,轮询只在状态真的变化时更新,避免不必要重渲染。
         setGitInfo((current) =>
           current.current === next.current &&
           current.branches.join("\n") === next.branches.join("\n")
             ? current
             : next,
         );
+        // 同时刷新 Git 工作区变更文件列表（对比 HEAD）
+        const changed = await api.git.changedFiles(activeProjectId);
+        if (!stopped) setGitChangedFiles(changed);
       } catch {
-        if (!stopped) setGitInfo({ current: null, branches: [] });
+        if (!stopped) {
+          setGitInfo({ current: null, branches: [] });
+          setGitChangedFiles([]);
+        }
       }
     };
     const timer = window.setInterval(refreshGitInfo, 4000);
@@ -1286,7 +1303,7 @@ export function App() {
       const next = await api.pi.check();
       setPiStatus(next);
       if (next.installed && source === "startup") {
-        // 首次启动检测通过后落盘，后续启动不再阻塞/打扰；用户仍可在设置里手动重新检测。
+        // 首次启动检测通过后落盘,后续启动不再阻塞/打扰;用户仍可在设置里手动重新检测。
         const saved = await api.settings.update({ piEnvironmentChecked: true });
         setSettings(saved);
         window.setTimeout(() => setEnvironmentDialog(false), 3000);
@@ -1326,7 +1343,7 @@ export function App() {
 
   /**
    * 校验用户手动输入的 pi 路径。
-   * 主进程执行 command --version 验证后，通过则自动保存到 settings.customPiPath，
+   * 主进程执行 command --version 验证后,通过则自动保存到 settings.customPiPath,
    * 之后新建/重启 agent 时 PiProcess 会优先使用自定义路径。
    */
   async function validateCustomPiPath(
@@ -1340,7 +1357,7 @@ export function App() {
       const result = await api.pi.checkCustom(path);
       setCustomPathResult(result);
       if (result.installed) {
-        // 主进程会保存 PiLocator 归一化后的路径；这里重新读取，确保 UI 展示的是实际使用路径。
+        // 主进程会保存 PiLocator 归一化后的路径;这里重新读取,确保 UI 展示的是实际使用路径。
         const updated = await api.settings.get();
         setSettings(updated);
         setCustomPiPath(updated.customPiPath ?? result.command ?? path);
@@ -1351,7 +1368,7 @@ export function App() {
           }),
         );
         if (options.closeDialogOnSuccess) {
-          // 启动检测弹窗场景下保持原有成功后自动关闭体验；设置页内校验不关闭设置窗口。
+          // 启动检测弹窗场景下保持原有成功后自动关闭体验;设置页内校验不关闭设置窗口。
           window.setTimeout(() => setEnvironmentDialog(false), 3000);
         }
       } else {
@@ -1389,7 +1406,7 @@ export function App() {
       if (next.hasUpdate) {
         setUpdateInfo(next);
       } else if (source === "manual") {
-        // 手动检查且无更新时，显示模态框提示
+        // 手动检查且无更新时,显示模态框提示
         setUpToDateVersion(next.currentVersion);
         setSettingsNotice(
           t("app.latestVersionNotice", { version: next.currentVersion }),
@@ -1450,8 +1467,19 @@ export function App() {
     showToast(t("app.filesRefreshed"), 1800);
   }
 
+  async function refreshGitChangedFiles(projectId = activeProjectId) {
+    if (!projectId) return;
+    try {
+      const next = await api.git.changedFiles(projectId);
+      setGitChangedFiles(next);
+    } catch {
+      // 非 Git 项目或 git 未安装，静默置空
+      setGitChangedFiles([]);
+    }
+  }
+
   function openFilePath(path: string) {
-    // 绝对路径直接打开；相对路径按当前 agent cwd / 项目目录解析后交给系统默认应用。
+    // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析后交给系统默认应用。
     const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
     void api.files.open(resolvedPath).catch((error) => {
       showToast(t("app.openFileFailed", {
@@ -1468,13 +1496,16 @@ export function App() {
   function diffFilePath(path: string) {
     setDiffViewMode("diff");
     setDiffViewFile(path);
+    // 从当前 modifiedFiles 中查找是否有缓存的原始内容，传递给差异编辑器作为对比基准。
+    const modified = modifiedFiles.find((f) => f.path === path);
+    setDiffViewOriginalContent(modified?.originalContent ?? "");
   }
 
   async function refreshSessionHistory(projectId = sessionsProjectId) {
     if (!projectId) return;
     setSessionHistoryLoading(true);
     try {
-      // 项目历史弹框内的刷新需要显式进入 loading 状态；否则刷新很快完成时用户会误以为按钮没有响应。
+      // 项目历史弹框内的刷新需要显式进入 loading 状态;否则刷新很快完成时用户会误以为按钮没有响应。
       await refreshSessions(projectId);
     } finally {
       setSessionHistoryLoading(false);
@@ -1689,7 +1720,7 @@ export function App() {
     try {
       const next = await api.codexSessions.scan(project.id);
       setCodexImportSessions(next);
-      // 默认不自动勾选任何会话，避免用户未确认时批量覆盖已导入历史。
+      // 默认不自动勾选任何会话,避免用户未确认时批量覆盖已导入历史。
       setCodexImportSelected([]);
     } catch (error) {
       showToast(
@@ -2005,7 +2036,7 @@ export function App() {
       ...current,
       [projectId]: pendingTab.id,
     }));
-    // 立即关闭抽屉，避免等待 agent 加载期间列表仍然显示
+    // 立即关闭抽屉,避免等待 agent 加载期间列表仍然显示
     setDrawer(null);
     try {
       const tab = await api.agents.create({ projectId, sessionPath, title });
@@ -2056,7 +2087,7 @@ export function App() {
         else delete next[projectId];
         return next;
       });
-      // 创建失败时由 main process 上报错误，前端仅回退乐观占位，避免停留在不存在的 agent。
+      // 创建失败时由 main process 上报错误,前端仅回退乐观占位,避免停留在不存在的 agent。
       return undefined;
     }
   }
@@ -2110,14 +2141,14 @@ export function App() {
   async function selectThinking(level: string) {
     if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
     try {
-      // 使用 setThinking 明确落到用户选择的档位，避免 cycle 模式需要反复点击才能到目标级别。
+      // 使用 setThinking 明确落到用户选择的档位,避免 cycle 模式需要反复点击才能到目标级别。
       const state = await api.agents.setThinking(activeAgentId, level);
       setRuntimeStateByAgent((current) => ({
         ...current,
         [activeAgentId]: state,
       }));
       setThinkingPickerOpen(false);
-      // pi runtime 会按模型能力 clamp thinking level；对比实际状态，避免用户误以为已运行在不支持的档位。
+      // pi runtime 会按模型能力 clamp thinking level;对比实际状态,避免用户误以为已运行在不支持的档位。
       if (state.thinkingLevel && state.thinkingLevel !== level) {
         showToast(
           t("app.thinkingUnsupported", {
@@ -2220,7 +2251,7 @@ export function App() {
       }
     }
 
-    // 历史命令导航：只在光标位于第一行时生效
+    // 历史命令导航:只在光标位于第一行时生效
     const textarea = event.currentTarget;
     const cursorPos = textarea.selectionStart;
     const textBeforeCursor = textarea.value.substring(0, cursorPos);
@@ -2270,7 +2301,7 @@ export function App() {
     if (event.key === "Escape") {
       setPrompt((current) => clearSuggestionTrigger(current));
       setSuggestionsOpen(false);
-      // 如果正在历史导航，ESC 退出并恢复原始输入
+      // 如果正在历史导航,ESC 退出并恢复原始输入
       if (historyNavigating) {
         setPrompt(savedPrompt);
         setHistoryIndex(-1);
@@ -2283,12 +2314,12 @@ export function App() {
       event.preventDefault();
       void sendPrompt();
     } else if (enterIntent === "newline") {
-      // 让 textarea 自己处理换行，保持输入体验接近普通聊天软件。
+      // 让 textarea 自己处理换行,保持输入体验接近普通聊天软件。
       return;
     }
   }
 
-  /** 判断 agent 是否处于忙碌状态（正在处理消息或流式输出中） */
+  /** 判断 agent 是否处于忙碌状态(正在处理消息或流式输出中) */
   const isAgentStarting = activeAgent?.status === "starting";
   const composerDisabled = !activeAgent || isAgentStarting;
   const isAgentBusy = Boolean(
@@ -2306,7 +2337,7 @@ export function App() {
     const message = prompt;
     const images = attachedImages.length > 0 ? attachedImages : undefined;
 
-    // 保存到历史记录（只保存非空的文本命令）
+    // 保存到历史记录(只保存非空的文本命令)
     if (message.trim() && !message.startsWith("!")) {
       setCommandHistory((prev) => {
         // 避免重复保存相同的命令
@@ -2322,7 +2353,7 @@ export function App() {
     setHistoryNavigating(false);
     setSavedPrompt("");
 
-    // 发送前先保留快照，再立即清空 composer；运行中发送会走官方 steer 队列，
+    // 发送前先保留快照,再立即清空 composer;运行中发送会走官方 steer 队列,
     // 由 pi runtime 保证在当前工具调用结束后、下一次 LLM 调用前注入。
     setPrompt("");
     setAttachedImages([]);
@@ -2353,8 +2384,8 @@ export function App() {
     images?: ImageContent[],
     streamingBehavior?: "steer" | "followUp",
   ) {
-    // 这里接收快照参数，让 composer 发送和历史消息“重新发送”共享同一条路径。
-    // Agent 忙碌时显式使用官方 streamingBehavior=steer：消息会进入 pi 的运行中队列，
+    // 这里接收快照参数,让 composer 发送和历史消息"重新发送"共享同一条路径。
+    // Agent 忙碌时显式使用官方 streamingBehavior=steer:消息会进入 pi 的运行中队列,
     // 而不是留在 desktop 本地等整个 agent idle 后再发送。
     const behavior = streamingBehavior ?? (isAgentBusy ? "steer" : undefined);
     await api.agents.prompt({
@@ -2367,16 +2398,16 @@ export function App() {
 
   function resendUserMessage(message: ChatMessage) {
     if (!activeAgentId || message.agentId !== activeAgentId) return;
-    // “重新发送”按原消息快照再次提交，不修改输入框，图片也复用原始 base64 内容。
+    // "重新发送"按原消息快照再次提交,不修改输入框,图片也复用原始 base64 内容。
     void submitPromptSnapshot(activeAgentId, message.text, message.images);
   }
 
   /**
-   * 处理图片文件，转为 pi RPC 可识别的 ImageContent。
-   * 大图会压缩到最长边 2000px，避免 base64 过大导致 RPC 传输和模型上下文成本上升。
+   * 处理图片文件,转为 pi RPC 可识别的 ImageContent。
+   * 大图会压缩到最长边 2000px,避免 base64 过大导致 RPC 传输和模型上下文成本上升。
    */
   async function processImageFile(file: File): Promise<ImageContent | null> {
-    const maxSize = 10 * 1024 * 1024; // 原始文件 10MB 限制，避免误粘超大图片卡住渲染进程
+    const maxSize = 10 * 1024 * 1024; // 原始文件 10MB 限制,避免误粘超大图片卡住渲染进程
     if (file.size > maxSize) {
       showToast(t("app.imageTooLarge"), 3000);
       return null;
@@ -2388,7 +2419,7 @@ export function App() {
       return null;
     }
 
-    // GIF 可能是动图，canvas 压缩会丢失动画；保留原始数据。
+    // GIF 可能是动图,canvas 压缩会丢失动画;保留原始数据。
     if (file.type === "image/gif") return fileToImageContent(file);
     return resizeImageFile(file, 2000, 0.86).catch(() =>
       fileToImageContent(file),
@@ -2435,7 +2466,7 @@ export function App() {
           canvas.width = width;
           canvas.height = height;
           canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
-          // JPEG 更省 token/传输体积；透明 PNG/WebP 保持 PNG，避免截图透明区域变黑。
+          // JPEG 更省 token/传输体积;透明 PNG/WebP 保持 PNG,避免截图透明区域变黑。
           const outputType =
             file.type === "image/png" ? "image/png" : "image/jpeg";
           resolve(
@@ -2451,7 +2482,7 @@ export function App() {
     });
   }
 
-  /** 处理粘贴事件：从剪贴板提取图片 */
+  /** 处理粘贴事件:从剪贴板提取图片 */
   async function handlePaste(event: React.ClipboardEvent) {
     const items = Array.from(event.clipboardData.items);
     for (const item of items) {
@@ -2469,7 +2500,7 @@ export function App() {
     }
   }
 
-  /** 处理拖拽事件：支持拖入图片 */
+  /** 处理拖拽事件:支持拖入图片 */
   async function handleDrop(event: React.DragEvent) {
     event.preventDefault();
     const files = Array.from(event.dataTransfer.files);
@@ -2599,7 +2630,7 @@ export function App() {
           error: error instanceof Error ? error.message : String(error),
         }),
       );
-      // 失败后主动刷新一次，覆盖 git 拒绝切换或外部同时切换导致的 UI 状态偏差。
+      // 失败后主动刷新一次,覆盖 git 拒绝切换或外部同时切换导致的 UI 状态偏差。
       const refreshed = await api.git
         .branches(activeProjectId)
         .catch(() => ({ current: null, branches: [] }));
@@ -2660,7 +2691,7 @@ export function App() {
   }
 
   function toggleDirectory(path: string) {
-    // 文件树默认折叠，只有用户显式展开目录才显示子项，避免大仓库一打开就产生视觉噪音。
+    // 文件树默认折叠,只有用户显式展开目录才显示子项,避免大仓库一打开就产生视觉噪音。
     setExpandedDirs((current) => {
       const next = new Set(current);
       if (next.has(path)) next.delete(path);
@@ -2718,9 +2749,9 @@ export function App() {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const maxHeight = getComposerMaxHeight();
-        // 拖动的是输入区顶部边线，鼠标向上意味着输入区变高；限制最大高度避免挤压会话阅读区域。
-        // 实际高度由手动高度和自动内容高度共同决定；拖到最大后自动高度也会变大，
-        // 因此手动缩小时必须同步覆盖 autoHeight，否则 Math.max 会继续把输入框顶在最大高度。
+        // 拖动的是输入区顶部边线,鼠标向上意味着输入区变高;限制最大高度避免挤压会话阅读区域。
+        // 实际高度由手动高度和自动内容高度共同决定;拖到最大后自动高度也会变大,
+        // 因此手动缩小时必须同步覆盖 autoHeight,否则 Math.max 会继续把输入框顶在最大高度。
         const next = Math.min(
           maxHeight,
           Math.max(
@@ -2749,7 +2780,7 @@ export function App() {
     const nextCollapsed = !listCollapsed;
     if (!nextCollapsed) setListWidth(DEFAULT_LIST_WIDTH);
     if (nextCollapsed) {
-      // 点击折叠后鼠标和焦点仍在侧栏内；先释放焦点并抑制 hover，避免刚折叠就被 CSS 展开。
+      // 点击折叠后鼠标和焦点仍在侧栏内;先释放焦点并抑制 hover,避免刚折叠就被 CSS 展开。
       (document.activeElement as HTMLElement | null)?.blur();
     }
     setListHoverRevealSuppressed(nextCollapsed);
@@ -2888,7 +2919,7 @@ export function App() {
             );
             const projectSessions = sessionsByProject[project.id] ?? [];
             const projectSearch = search.trim();
-            // 过滤掉已激活为 Agent 的历史会话，避免重复显示
+            // 过滤掉已激活为 Agent 的历史会话,避免重复显示
             const activeAgentSessionPaths = new Set(
               projectAgents
                 .filter((agent) => agent.sessionPath)
@@ -2976,9 +3007,9 @@ export function App() {
                   }}
                   onClick={() => {
                     if (projectDragPreventClickRef.current) return;
-                    // 项目节点现在同时承载运行中的 Agent 和历史会话；有任一子项时点击项目行切换展开状态。
+                    // 项目节点现在同时承载运行中的 Agent 和历史会话;有任一子项时点击项目行切换展开状态。
                     const wasCollapsed = collapsedProjects.has(project.id);
-                    const willBeExpanded = wasCollapsed; // 如果之前折叠，点击后会展开
+                    const willBeExpanded = wasCollapsed; // 如果之前折叠,点击后会展开
 
                     if (hasProjectChildren) {
                       setCollapsedProjects((prev) => {
@@ -2989,7 +3020,7 @@ export function App() {
                       });
                     }
 
-                    // 展开项目时加载会话（如果之前未加载过）
+                    // 展开项目时加载会话(如果之前未加载过)
                     if (willBeExpanded && !projectIsChat) {
                       const hasLoadedSessions = sessionsByProject[project.id]?.length > 0;
                       if (!hasLoadedSessions) {
@@ -3515,7 +3546,7 @@ export function App() {
         )}
 
         <footer ref={composerRef} className="composer">
-          {/* 图片预览作为输入框上方的附件栏，避免占用 textarea 的可输入区域。 */}
+          {/* 图片预览作为输入框上方的附件栏,避免占用 textarea 的可输入区域。 */}
           {attachedImages.length > 0 && (
             <div className="image-preview-area">
               {attachedImages.map((img, index) => (
@@ -3586,10 +3617,10 @@ export function App() {
                 setPrompt(newValue);
                 setSuggestionsOpen(true);
 
-                // 如果正在历史导航，检测到用户手动编辑内容则退出历史模式
+                // 如果正在历史导航,检测到用户手动编辑内容则退出历史模式
                 if (historyNavigating) {
                   const currentHistoryCommand = commandHistory[historyIndex];
-                  // 如果编辑后的内容与当前历史命令不同，说明用户在编辑
+                  // 如果编辑后的内容与当前历史命令不同,说明用户在编辑
                   if (newValue !== currentHistoryCommand) {
                     setHistoryIndex(-1);
                     setHistoryNavigating(false);
@@ -3734,7 +3765,7 @@ export function App() {
               project={drawer === "sessions" ? sessionsProject : undefined}
               files={files}
               sessions={sessions}
-              modifiedFiles={modifiedFiles}
+              gitChangedFiles={gitChangedFiles}
               expandedDirs={expandedDirs}
               onToggleDirectory={toggleDirectory}
               pinned={drawerPinned}
@@ -3742,7 +3773,10 @@ export function App() {
               onCollapse={collapseDrawer}
               onClose={closeDrawer}
               onFileContextMenu={(node, x, y) => setFileMenu({ node, x, y })}
-              onRefreshFiles={() => refreshFiles(activeProjectId)}
+              onRefreshFiles={() => {
+                refreshFiles(activeProjectId);
+                refreshGitChangedFiles(activeProjectId);
+              }}
               onRefreshSessions={() =>
                 refreshSessions(sessionsProjectId ?? activeProjectId)
               }
@@ -4080,11 +4114,13 @@ export function App() {
         <FileDiffViewer
           filePath={diffViewFile}
           mode={diffViewMode}
+          originalContent={diffViewMode === "diff" ? diffViewOriginalContent : undefined}
           onClose={() => { setDiffViewFile(null); setDiffViewMode("view"); }}
           readContent={(path) => api.files.readContent(path)}
           readOriginalContent={(path) => api.git.originalContent(path)}
           saveContent={(path, content) => api.files.writeContent(path, content)}
           theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+          maxFileSizeMB={settings.maxEditorFileSizeMB}
         />
       )}
       {previewImage && (
@@ -4152,7 +4188,7 @@ export function App() {
         open={configOpen}
         onClose={() => setConfigOpen(false)}
         onSaved={() => {
-          // 配置保存后不再自动 reload，用户可通过 Restart 按钮手动重载
+          // 配置保存后不再自动 reload,用户可通过 Restart 按钮手动重载
         }}
       />
     </div>
@@ -4299,7 +4335,7 @@ function buildFeedbackReport(input: {
   const projectPath = input.project?.path
     ? maskHomePath(input.project.path)
     : t("feedback.report.projectNone");
-  // 反馈报告刻意只展示脱敏路径和运行时版本，避免把用户 home 目录、API key 或会话内容默认发出去。
+  // 反馈报告刻意只展示脱敏路径和运行时版本,避免把用户 home 目录、API key 或会话内容默认发出去。
   return [
     t("feedback.report.description"),
     input.description.trim() || t("feedback.report.descriptionEmpty"),
@@ -4383,7 +4419,7 @@ function UpdateModal(props: {
             </p>
           )}
           <div className="update-notes markdown-body">
-            {/* GitHub Release notes 通常是 Markdown；这里复用聊天渲染链路支持标题、列表、链接和代码块。 */}
+            {/* GitHub Release notes 通常是 Markdown;这里复用聊天渲染链路支持标题、列表、链接和代码块。 */}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {props.info.releaseNotes.trim() || t("update.noReleaseNotes")}
             </ReactMarkdown>

@@ -5,6 +5,18 @@ import { t } from "../../i18n";
 import { Columns3, Edit3, Maximize2, X } from "lucide-react";
 import { setupMonaco } from "../../utils/monacoSetup";
 
+const BINARY_EXTENSIONS = new Set([
+	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
+	"mp3", "wav", "ogg", "flac", "m4a",
+	"mp4", "avi", "mkv", "mov", "webm",
+	"zip", "tar", "gz", "bz2", "7z", "rar",
+	"exe", "dll", "so", "dylib", "wasm",
+	"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+	"ttf", "otf", "woff", "woff2", "eot",
+	"o", "a", "lib", "obj", "class", "pyc", "pyo",
+	"db", "sqlite", "sqlite3",
+]);
+
 let monacoSetupOnce = false;
 function ensureMonaco() {
 	if (monacoSetupOnce) return;
@@ -19,13 +31,19 @@ export function FileDiffViewer(props: {
 	mode?: ViewMode;
 	onClose: () => void;
 	readContent: (path: string) => Promise<string>;
+	/** 从会话消息 meta 中提取的工具执行前原始内容，优先于 Git HEAD。 */
+	originalContent?: string;
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
 	readOriginalContent?: (path: string) => Promise<string>;
 	saveContent?: (path: string, content: string) => Promise<void>;
 	theme?: "light" | "dark";
+	/** 单个文件超过此大小（MB）时不加载编辑器。默认 5MB。 */
+	maxFileSizeMB?: number;
 }) {
+	const maxFileSize = (props.maxFileSizeMB ?? 5) * 1024 * 1024;
 	const [content, setContent] = useState("");
-	// 差异模式左侧展示的 Git HEAD 原始内容；新增/未跟踪文件为空字符串。
+	// 差异模式左侧展示的原始内容：优先使用会话缓存（originalContent），
+	// 没有则从 Git HEAD 读取。新增/未跟踪文件为空字符串。
 	const [original, setOriginal] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -34,6 +52,7 @@ export function FileDiffViewer(props: {
 	const [loadedPath, setLoadedPath] = useState<string | null>(null);
 	const [dirty, setDirty] = useState(false);
 	const [saving, setSaving] = useState(false);
+	const [showHint, setShowHint] = useState(false);
 
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -50,14 +69,37 @@ export function FileDiffViewer(props: {
 			setError(null);
 			setDirty(false);
 			try {
-				// 差异模式需要同时拿到当前内容和 HEAD 原始内容；并发读取减少打开延迟。
+				// 检查文件扩展名是否属于二进制/不可编辑类型
+				const ext = (props.filePath.split(".").pop() ?? "").toLowerCase();
+				if (BINARY_EXTENSIONS.has(ext)) {
+					setError(t("editor.binaryFileNotSupported", { ext }));
+					setLoading(false);
+					return;
+				}
+				// 差异模式优先使用会话缓存原始内容（originalContent），
+				// 没有时降级到 Git HEAD；两者都无则左侧显示空（新增文件）。
+				const originalPromise =
+					isDiffMode && props.originalContent
+						? Promise.resolve(props.originalContent)
+						: isDiffMode && props.readOriginalContent
+							? props.readOriginalContent(props.filePath).catch(() => "")
+							: Promise.resolve("");
 				const [result, originalResult] = await Promise.all([
 					props.readContent(props.filePath),
-					isDiffMode && props.readOriginalContent
-						? props.readOriginalContent(props.filePath).catch(() => "")
-						: Promise.resolve(""),
+					originalPromise,
 				]);
 				if (!cancelled) {
+					// 文件内容超过上限时不加载编辑器，防止 Monaco 处理大文件卡死
+					if (result.length > maxFileSize) {
+						setError(
+							t("editor.fileTooLarge", {
+								size: (result.length / 1024 / 1024).toFixed(1),
+								max: (maxFileSize / 1024 / 1024).toFixed(0),
+							}),
+						);
+						setLoading(false);
+						return;
+					}
 					setContent(result);
 					setOriginal(originalResult);
 					setLoadedPath(props.filePath);
@@ -74,36 +116,65 @@ export function FileDiffViewer(props: {
 		}
 		void load();
 		return () => { cancelled = true; };
-	}, [props.filePath, props.readContent, props.readOriginalContent, isDiffMode, loadedPath]);
+	}, [props.filePath, props.readContent, props.readOriginalContent, props.originalContent, isDiffMode, loadedPath]);
 
 	const handleClose = useCallback(() => {
 		props.onClose();
 	}, [props.onClose]);
 
-	const handleEditToggle = useCallback(async () => {
-		if (readOnly) {
-			setReadOnly(false);
-		} else {
-			// 保存时从当前激活的编辑器取最新内容：差异模式则读 modified 模型，
-			// 避免仅依赖 state 造成与编辑器实际内容不同步。
-			const latest = isDiffMode
-				? diffEditorRef.current?.getModifiedEditor().getValue() ?? content
-				: editorRef.current?.getValue() ?? content;
-			if (dirty && props.saveContent) {
-				setSaving(true);
-				try {
-					await props.saveContent(props.filePath, latest);
-					setContent(latest);
-					setDirty(false);
-				} catch (e) {
-					setError(e instanceof Error ? e.message : String(e));
-				} finally {
-					setSaving(false);
-				}
-			}
-			setReadOnly(true);
+	// 从编辑器当前实例获取最新内容，不依赖 state 以避免与 Monaco 实际内容不同步。
+	const getLatestContent = useCallback(() => {
+		return isDiffMode
+			? diffEditorRef.current?.getModifiedEditor().getValue() ?? content
+			: editorRef.current?.getValue() ?? content;
+	}, [isDiffMode, content]);
+
+	const doSave = useCallback(async () => {
+		if (!props.saveContent || !dirty) return;
+		const latest = getLatestContent();
+		setSaving(true);
+		try {
+			await props.saveContent(props.filePath, latest);
+			setContent(latest);
+			setDirty(false);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setSaving(false);
 		}
-	}, [readOnly, dirty, content, isDiffMode, props.filePath, props.saveContent]);
+	}, [dirty, getLatestContent, props.saveContent, props.filePath]);
+
+	// Ctrl+S / Cmd+S 快捷键保存
+	const handleKeyDown = useCallback((e: KeyboardEvent) => {
+		if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+			e.preventDefault();
+			void doSave();
+		}
+	}, [doSave]);
+
+	useEffect(() => {
+		if (!readOnly) {
+			window.addEventListener("keydown", handleKeyDown);
+			return () => window.removeEventListener("keydown", handleKeyDown);
+		}
+	}, [readOnly, handleKeyDown]);
+
+	// 进入编辑时显示快捷键提示，3 秒后自动消失
+	useEffect(() => {
+		if (showHint) {
+			const timer = setTimeout(() => setShowHint(false), 3000);
+			return () => clearTimeout(timer);
+		}
+	}, [showHint]);
+
+	const handleEditToggle = useCallback(() => {
+		setReadOnly(false);
+		setShowHint(true);
+	}, []);
+
+	const handleExitEdit = useCallback(() => {
+		setReadOnly(true);
+	}, []);
 
 	const handleEditorChange = useCallback((value: string | undefined) => {
 		if (value !== undefined) {
@@ -147,14 +218,32 @@ export function FileDiffViewer(props: {
 		lineNumbers: "on",
 		folding: true,
 		automaticLayout: true,
+		// 编辑模式下启用语法补全和关键字提示
+		quickSuggestions: true,
+		suggestOnTriggerCharacters: true,
+		tabCompletion: "on",
+		wordBasedSuggestions: "currentDocument",
+		parameterHints: { enabled: true },
+		// 大文件优化：超长行截断 tokenize，防止渲染卡死
+		maxTokenizationLineLength: 4000,
+		largeFileOptimizations: true,
 	};
 
 	const diffOptions: Monaco.editor.IStandaloneDiffEditorConstructionOptions = {
 		...editorOptions,
-		// 差异模式下只跟随 readOnly 状态控制 modified 侧是否可编辑；
-		// 先前硬编码为 true 导致“编辑”按钮切换后仍不可编辑。
 		readOnly,
 		renderSideBySide: sideBySide,
+		// 显示真实差异，包括行尾空格差异
+		ignoreTrimWhitespace: false,
+		// 大文件时折叠未变化区域，只显示有变动的代码段；最小上下文 3 行
+		hideUnchangedRegions: {
+			enabled: true,
+			minimumLineCount: 3,
+			contextLineCount: 3,
+			revealLineCount: 5,
+		},
+		// 紧凑模式，差异视图两端对齐只显示有改动的行
+		compactMode: true,
 	};
 
 	return (
@@ -164,6 +253,7 @@ export function FileDiffViewer(props: {
 					<span className="file-diff-title" title={props.filePath}>
 						{fileName}
 						{dirty && " · 未保存"}
+						{showHint && <span className="file-diff-hint">{t("app.saveFileShortcut")}</span>}
 					</span>
 					<div className="file-diff-header-actions">
 						{isDiffMode && !loading && !error && (
@@ -175,14 +265,22 @@ export function FileDiffViewer(props: {
 								{sideBySide ? <Maximize2 size={15} /> : <Columns3 size={15} />}
 							</button>
 						)}
-						{props.saveContent && (
+						{props.saveContent && readOnly && (
 							<button
 								className="file-diff-toggle-btn"
-								title={readOnly ? t("app.editFile") : (saving ? t("common.saving") : t("app.saveFile"))}
+								title={t("app.editFile")}
 								onClick={handleEditToggle}
-								disabled={saving}
 							>
 								<Edit3 size={15} />
+							</button>
+						)}
+						{!readOnly && props.saveContent && (
+							<button
+								className="file-diff-toggle-btn"
+								title={t("app.exitEdit")}
+								onClick={handleExitEdit}
+							>
+								<X size={15} />
 							</button>
 						)}
 						<button className="file-diff-close" onClick={handleClose} aria-label={t("common.close")}>
