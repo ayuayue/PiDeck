@@ -1,244 +1,242 @@
 /**
- * CardRenderer — RunState → CardKit 2.0 卡片 JSON 的纯函数渲染器
+ * CardRenderer v4 — RunState → 飞书 interactive 卡片 JSON
  *
- * 参考 Proma 的 card-renderer-v2.ts：
- * - streaming_mode 标志告诉飞书这是动态卡
- * - 工具调用 >= 3 时合并为摘要面板
- * - 底部 summary 是手机端通知预览的短文本
- * - 可折叠面板展示工具输入输出
+ * v4 设计原则：
+ * - hr 分割线切分每个区域，层级清晰如 MD 标题
+ * - 思考过程用 note 小字，和输出正文区分开
+ * - 轨迹一行一条，紧凑整洁
+ * - 工具调用带参数预览
+ *
+ * 配合 CardStream v2 的 im.v1.message.patch 实现真正流式。
  */
 
-import type { Block, FooterStatus, RunState, ToolEntry } from "./CardRunState";
+import type { Block, RunState, ToolEntry, TrailEntry } from "./CardRunState";
 
-const REASONING_MAX = 1500;
-const TEXT_BLOCK_MAX = 20_000;
-const MIN_TOOLS_TO_COLLAPSE = 3;
-const TOOL_BODY_MAX = 4000;
+const OUTPUT_MAX = 15_000;
+const THINKING_MAX = 2_000;
+const TRAIL_ENTRIES_MAX = 20;
 
 export interface RenderOptions {
 	header?: string;
 	stopHint?: string;
-	showToolCalls?: boolean;
 }
 
-interface ToolGroup { kind: "tools"; tools: ToolEntry[] }
-interface TextGroup { kind: "text"; content: string }
-type Group = ToolGroup | TextGroup;
-
 export function renderRunCard(state: RunState, opts: RenderOptions = {}): object {
-	const showToolCalls = opts.showToolCalls !== false;
 	const elements: object[] = [];
+	const isRunning = state.terminal === "running";
 
-	// 思考过程面板
+	// ── 1. 活动轨迹 ──
+	elements.push(renderTrail(state.trail, isRunning));
+
+	// ── 2. 思考过程（note 小字，和输出区分） ──
 	if (state.reasoning.content) {
-		elements.push(reasoningPanel(state.reasoning.content, state.reasoning.active));
+		if (elements.length > 0) elements.push(hr());
+		elements.push(renderThinking(state.reasoning.content, state.reasoning.active));
 	}
 
-	// 内容块
-	const visibleBlocks = showToolCalls
-		? state.blocks
-		: state.blocks.filter((b) => b.kind !== "tool");
-
-	for (const group of groupBlocks(visibleBlocks)) {
-		if (group.kind === "text") {
-			if (group.content.trim()) {
-				elements.push(markdown(truncate(group.content, TEXT_BLOCK_MAX)));
-			}
-		} else {
-			elements.push(...renderToolGroup(group.tools, state.terminal !== "running"));
+	// ── 3. 当前正在执行的操作 ──
+	const runningTools = state.blocks.filter(
+		(b) => b.kind === "tool" && b.tool.status === "running",
+	);
+	for (const b of runningTools) {
+		if (b.kind === "tool") {
+			if (needsSep(elements)) elements.push(hr());
+			elements.push(renderRunningTool(b.tool));
 		}
 	}
 
-	// 终态标记
-	if (state.terminal === "interrupted") {
-		elements.push(noteMd("_已被中断_"));
-	} else if (state.terminal === "error" && state.errorMsg) {
-		elements.push(noteMd(`❌ Agent 失败：${state.errorMsg}`));
-	} else if (state.terminal === "done" && elements.length === 0) {
-		elements.push(noteMd("_（Agent 未返回内容）_"));
+	// ── 4. 输出正文 ──
+	if (state.outputText.trim()) {
+		if (needsSep(elements)) elements.push(hr());
+		elements.push(renderOutput(state.outputText, isRunning));
 	}
 
-	// 运行中：显示 footer + 停止提示
-	if (state.terminal === "running") {
-		if (state.footer) elements.push(footerStatus(state.footer, state.blocks));
-		if (opts.stopHint) elements.push(noteMd(opts.stopHint));
-	} else {
-		// 完成后：显示耗时等 meta
-		elements.push(metaFooter(state));
+	// ── 5. 已完成的工具 ──
+	const doneTools = state.blocks.filter(
+		(b) => b.kind === "tool" && b.tool.status !== "running",
+	);
+	if (doneTools.length > 0) {
+		if (needsSep(elements)) elements.push(hr());
+		elements.push(renderDoneTools(doneTools));
 	}
+
+	// ── 6. 终态提示 ──
+	if (state.terminal === "interrupted") {
+		elements.push(hr());
+		elements.push(note("⏹ 已被中断"));
+	} else if (state.terminal === "error" && state.errorMsg) {
+		elements.push(hr());
+		elements.push(note(`❌ 失败: ${state.errorMsg}`));
+	}
+
+	// ── 7. 底部状态栏 ──
+	elements.push(hr());
+	elements.push(renderFooter(state, isRunning, opts.stopHint));
 
 	const card: Record<string, unknown> = {
-		schema: "2.0",
-		config: {
-			streaming_mode: state.terminal === "running",
-			summary: { content: summaryText(state) },
-		},
-		body: { elements },
+		config: { wide_screen_mode: true, update_multi: true },
+		elements,
 	};
 
 	if (opts.header) {
 		card.header = {
 			title: { tag: "plain_text", content: opts.header },
-			template: state.terminal === "error" ? "red" : state.terminal === "running" ? "blue" : "default",
+			template: state.terminal === "error" ? "red"
+				: state.terminal === "interrupted" ? "grey"
+				: state.terminal === "done" ? "green"
+				: "blue",
 		};
 	}
 
 	return card;
 }
 
-function* groupBlocks(blocks: Block[]): Generator<Group> {
-	let toolBuf: ToolEntry[] = [];
-	for (const b of blocks) {
-		if (b.kind === "tool") {
-			toolBuf.push(b.tool);
-		} else {
-			if (toolBuf.length > 0) {
-				yield { kind: "tools", tools: toolBuf };
-				toolBuf = [];
-			}
-			yield { kind: "text", content: b.content };
+// ========== 区域渲染 ==========
+
+/** 活动轨迹 — 一行一条，紧凑 */
+function renderTrail(trail: TrailEntry[], isRunning: boolean): object {
+	let entries = trail;
+	let hidden = 0;
+	if (entries.length > TRAIL_ENTRIES_MAX) {
+		hidden = entries.length - TRAIL_ENTRIES_MAX;
+		entries = entries.slice(-TRAIL_ENTRIES_MAX);
+	}
+
+	const lines: string[] = [];
+	lines.push("**📋 活动轨迹**");
+
+	if (entries.length === 0) {
+		lines.push(isRunning ? "_等待 Agent 启动..._" : "_无记录_");
+	} else {
+		if (hidden > 0) lines.push(`_…前面 ${hidden} 条_`);
+		for (const e of entries) {
+			const time = fmt(e.timestamp);
+			const icon = e.status === "running" ? "🔄" : e.status === "error" ? "❌" : "✅";
+			let line = `\`${time}\` ${icon} ${e.text}`;
+			if (e.detail) line += ` — ${e.detail}`;
+			lines.push(line);
 		}
 	}
-	if (toolBuf.length > 0) yield { kind: "tools", tools: toolBuf };
+
+	return md(lines.join("\n"));
 }
 
-function renderToolGroup(tools: ToolEntry[], finalized: boolean): object[] {
-	if (tools.length === 0) return [];
-	if (tools.length < MIN_TOOLS_TO_COLLAPSE) {
-		return tools.map((t) => toolPanel(t));
+/** 思考过程 — notation 小字，和正文区分层级 */
+function renderThinking(content: string, active: boolean): object {
+	const display = content.length > THINKING_MAX
+		? content.slice(0, THINKING_MAX) + "\n\n…（已截断）"
+		: content;
+
+	const title = active ? "**💭 思考中**" : "**💭 思考过程**";
+	return { tag: "markdown", content: `${title}\n${display}`, text_size: "notation" };
+}
+
+/** 正在运行的工具 */
+function renderRunningTool(tool: ToolEntry): object {
+	const preview = toolInputPreview(tool);
+	const lines: string[] = [];
+	lines.push(`**🔧 正在调用 \`${tool.name}\``);
+	if (preview) lines.push(`\`${preview}\``);
+	return md(lines.join("\n"));
+}
+
+/** 输出正文 */
+function renderOutput(text: string, streaming: boolean): object {
+	const display = text.length > OUTPUT_MAX
+		? text.slice(0, OUTPUT_MAX) + "\n\n…（已截断）"
+		: text;
+	const marker = streaming ? " 🔵" : "";
+	return md(`**📤 输出**${marker}\n\n${display}`);
+}
+
+/** 已完成的工具列表 */
+function renderDoneTools(blocks: Block[]): object {
+	const tools = blocks
+		.filter((b) => b.kind === "tool")
+		.map((b) => (b as { kind: "tool"; tool: ToolEntry }).tool);
+
+	const MAX = 8;
+	let hidden = 0;
+	let shown = tools;
+	if (tools.length > MAX) {
+		hidden = tools.length - MAX;
+		shown = tools.slice(0, MAX);
 	}
-	if (finalized) {
-		return [toolSummaryPanel(tools, true)];
+
+	const lines: string[] = ["**🔧 已完成工具**"];
+	for (const t of shown) {
+		const icon = t.status === "error" ? "❌" : "✅";
+		const preview = toolInputPreview(t);
+		const previewPart = preview ? ` — \`${preview}\`` : "";
+		lines.push(`${icon} **${t.name}**${previewPart}`);
 	}
-	// 运行期：已完成的合并成摘要，最新的单独
-	const prior = tools.slice(0, -1);
-	const latest = tools[tools.length - 1];
-	const out: object[] = [];
-	if (prior.length > 0) out.push(toolSummaryPanel(prior, false));
-	if (latest) out.push(toolPanel(latest));
-	return out;
+	if (hidden > 0) lines.push(`_…还有 ${hidden} 个_`);
+
+	return md(lines.join("\n"));
 }
 
-function reasoningPanel(content: string, active: boolean): object {
-	const title = active ? "**🧠 思考中...**" : "**💭 思考完成（点击查看）**";
-	return collapsiblePanel({
-		title,
-		expanded: active,
-		border: "grey",
-		body: truncate(content, REASONING_MAX),
-	});
+/** 底部状态栏 */
+function renderFooter(state: RunState, isRunning: boolean, stopHint?: string): object {
+	const parts: string[] = [];
+
+	if (isRunning) {
+		// 运行中：显示当前阶段
+		if (state.footer === "thinking") {
+			parts.push("🧠 思考中");
+		} else if (state.footer === "tool_running") {
+			const rt = [...state.blocks].reverse().find(
+				(b) => b.kind === "tool" && b.tool.status === "running",
+			);
+			if (rt?.kind === "tool") parts.push(`🔧 调用 \`${rt.tool.name}\``);
+			else parts.push("🔧 调用工具");
+		} else if (state.footer === "streaming") {
+			parts.push("✍️ 输出中");
+		} else {
+			parts.push("⏳ 处理中");
+		}
+
+		if (stopHint) parts.push(stopHint);
+	} else {
+		// 完成：显示耗时
+		if (state.meta.durationMs !== undefined) {
+			parts.push(`⏱ ${(state.meta.durationMs / 1000).toFixed(1)}s`);
+		}
+		parts.push("✅ 完成");
+	}
+
+	return note(parts.join("  |  "));
 }
 
-function toolPanel(tool: ToolEntry): object {
-	return collapsiblePanel({
-		title: toolHeaderText(tool),
-		expanded: false,
-		border: tool.status === "error" ? "red" : "grey",
-		body: toolBodyMd(tool) || "_无输出_",
-	});
-}
+// ========== 工具函数 ==========
 
-function toolSummaryPanel(tools: ToolEntry[], finalized: boolean): object {
-	const suffix = finalized ? "（已结束）" : "";
-	const title = `**${tools.length} 个工具调用${suffix}**`;
-	const headerList = tools.map((t) => `- ${toolHeaderText(t)}`).join("\n");
-	return {
-		tag: "collapsible_panel",
-		expanded: false,
-		header: panelHeader(title),
-		border: { color: "blue", corner_radius: "5px" },
-		vertical_spacing: "8px",
-		padding: "8px 8px 8px 8px",
-		elements: [{ tag: "markdown", content: headerList, text_size: "notation" }],
-	};
-}
-
-function collapsiblePanel(opts: { title: string; expanded: boolean; border: "grey" | "red" | "blue"; body: string }): object {
-	return {
-		tag: "collapsible_panel",
-		expanded: opts.expanded,
-		header: panelHeader(opts.title),
-		border: { color: opts.border, corner_radius: "5px" },
-		vertical_spacing: "8px",
-		padding: "8px 8px 8px 8px",
-		elements: [{ tag: "markdown", content: opts.body, text_size: "notation" }],
-	};
-}
-
-function panelHeader(titleMd: string): object {
-	return {
-		title: { tag: "markdown", content: titleMd },
-		vertical_align: "center",
-		icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
-		icon_position: "follow_text",
-		icon_expanded_angle: -180,
-	};
-}
-
-function markdown(content: string): object {
+function md(content: string): object {
 	return { tag: "markdown", content };
 }
 
-function noteMd(content: string): object {
-	return { tag: "markdown", content, text_size: "notation" };
+function note(content: string): object {
+	return { tag: "note", elements: [{ tag: "plain_text", content }] };
 }
 
-function footerStatus(status: Exclude<FooterStatus, null>, blocks: Block[]): object {
-	if (status === "thinking") return noteMd("🧠 正在思考...");
-	if (status === "streaming") return noteMd("✍️ 正在输出...");
-	// tool_running
-	const runningTool = [...blocks].reverse().find(
-		(b) => b.kind === "tool" && b.tool.status === "running",
-	);
-	if (runningTool && runningTool.kind === "tool") {
-		return noteMd(`🔧 正在调用 \`${runningTool.tool.name}\``);
-	}
-	return noteMd("🔧 正在调用工具...");
+function hr(): object {
+	return { tag: "hr" };
 }
 
-function metaFooter(state: RunState): object {
-	const parts: string[] = [];
-	if (state.meta.durationMs !== undefined) {
-		parts.push(`⏱ ${(state.meta.durationMs / 1000).toFixed(1)}s`);
-	}
-	if (state.meta.model) {
-		parts.push(state.meta.model);
-	}
-	return noteMd(parts.length > 0 ? parts.join("  ·  ") : "✅ 已完成");
+/** 最后一个元素不是 hr 才需要分割线 */
+function needsSep(elements: object[]): boolean {
+	if (elements.length === 0) return false;
+	const last = elements[elements.length - 1] as Record<string, unknown>;
+	return last.tag !== "hr";
 }
 
-function summaryText(state: RunState): string {
-	if (state.terminal === "interrupted") return "已中断";
-	if (state.terminal === "error") return "出错";
-	if (state.terminal === "done") return "已完成";
-	if (state.footer === "tool_running") {
-		const runningTool = [...state.blocks].reverse().find(
-			(b) => b.kind === "tool" && b.tool.status === "running",
-		);
-		if (runningTool && runningTool.kind === "tool") return `正在调用 ${runningTool.tool.name}`;
-		return "正在调用工具";
-	}
-	if (state.footer === "streaming") return "正在输出";
-	if (state.footer === "thinking") return "思考中";
-	return "处理中";
-}
-
-function truncate(s: string, max: number): string {
-	return s.length > max ? `${s.slice(0, max)}…（已截断）` : s;
-}
-
-function toolHeaderText(tool: ToolEntry): string {
-	const icon = tool.status === "error" ? "❌" : tool.status === "done" ? "✅" : "🔄";
-	const name = tool.name;
-	const summary = toolInputSummary(tool);
-	const summaryPart = summary ? ` \`${summary}\`` : "";
-	return `${icon} **${name}**${summaryPart}`;
-}
-
-function toolInputSummary(tool: ToolEntry): string {
+function toolInputPreview(tool: ToolEntry): string {
 	const input = tool.input;
 	if (!input || typeof input !== "object") return "";
 	const obj = input as Record<string, unknown>;
+	if (tool.name === "read" && typeof obj.filePath === "string") return clip(obj.filePath, 80);
+	if (tool.name === "bash" && typeof obj.command === "string") return clip(obj.command, 80);
+	if (tool.name === "write" && typeof obj.filePath === "string") return clip(obj.filePath, 80);
+	if (tool.name === "edit" && typeof obj.filePath === "string") return clip(obj.filePath, 80);
+	if (tool.name === "grep" && typeof obj.pattern === "string") return clip(obj.pattern, 80);
 	if (typeof obj.command === "string") return clip(obj.command, 80);
 	if (typeof obj.file_path === "string") return clip(obj.file_path, 80);
 	if (typeof obj.path === "string") return clip(obj.path, 80);
@@ -246,18 +244,13 @@ function toolInputSummary(tool: ToolEntry): string {
 	return "";
 }
 
-function toolBodyMd(tool: ToolEntry): string {
-	const parts: string[] = [];
-	if (tool.input && typeof tool.input === "object") {
-		try {
-			const inputStr = JSON.stringify(tool.input, null, 2);
-			parts.push("**Input**\n```json\n" + truncate(inputStr, 1500) + "\n```");
-		} catch { /* ignore */ }
-	}
-	if (tool.output) {
-		parts.push("**Output**\n```\n" + truncate(tool.output, TOOL_BODY_MAX) + "\n```");
-	}
-	return parts.join("\n\n");
+function fmt(ts: number): string {
+	const d = new Date(ts);
+	return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+function p2(n: number): string {
+	return n.toString().padStart(2, "0");
 }
 
 function clip(s: string, max: number): string {
