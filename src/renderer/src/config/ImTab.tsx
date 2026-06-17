@@ -5,7 +5,6 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import QRCode from "qrcode";
 import type {
 	FeishuBotConfig,
 	FeishuBridgeStatus,
@@ -48,46 +47,7 @@ export function ImTab(_props: Props) {
 	const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 	const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
 
-	// 二维码状态
-	const [qrLink, setQrLink] = useState("");
-	const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-	const [qrGenerating, setQrGenerating] = useState(false);
-
 	const api = (window as unknown as { piDesktop?: { feishu?: FeishuApiRaw } }).piDesktop?.feishu;
-
-	// 生成二维码
-	const generateQr = useCallback(async (text: string) => {
-		if (!text.trim()) {
-			setQrDataUrl(null);
-			return;
-		}
-		setQrGenerating(true);
-		try {
-			const dataUrl = await QRCode.toDataURL(text.trim(), {
-				width: 200,
-				margin: 2,
-				color: { dark: "#000000", light: "#ffffff" },
-				errorCorrectionLevel: "M",
-			});
-			setQrDataUrl(dataUrl);
-		} catch {
-			setQrDataUrl(null);
-		} finally {
-			setQrGenerating(false);
-		}
-	}, []);
-
-	// 防抖生成二维码
-	useEffect(() => {
-		const timer = setTimeout(() => {
-			if (qrLink.trim()) {
-				void generateQr(qrLink);
-			} else {
-				setQrDataUrl(null);
-			}
-		}, 400);
-		return () => clearTimeout(timer);
-	}, [qrLink, generateQr]);
 
 	const loadData = useCallback(async () => {
 		if (!api) { setLoading(false); return; }
@@ -485,69 +445,7 @@ export function ImTab(_props: Props) {
 				)}
 			</div>
 
-			{/* 二维码生成 */}
-			<div>
-				<h3 style={{ margin: "0 0 12px 0", fontSize: 15, color: "var(--text-primary, #e0e0e0)" }}>
-					📱 生成安装二维码
-				</h3>
-				<div style={{
-					display: "flex",
-					gap: 16,
-					alignItems: "flex-start",
-					flexWrap: "wrap",
-				}}>
-					<div style={{ flex: "1 1 260px" }}>
-						<p style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>
-							粘贴飞书应用的安装链接，生成二维码供他人扫码安装 Bot。
-						</p>
-						<input
-							type="text"
-							value={qrLink}
-							onChange={(e) => setQrLink(e.target.value)}
-							placeholder="https://applink.feishu.cn/client/bot/..."
-							style={{
-								width: "100%",
-								padding: "6px 10px",
-								borderRadius: 4,
-								border: "1px solid var(--border-color, #333)",
-								background: "var(--bg-primary, #0d0d1a)",
-								color: "var(--text-primary, #e0e0e0)",
-								fontSize: 13,
-								boxSizing: "border-box",
-							}}
-						/>
-						<div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
-							💡 在飞书开放平台「应用发布」→「分享应用」中复制安装链接。
-						</div>
-					</div>
-					<div style={{
-						width: 150,
-						height: 150,
-						border: "2px dashed var(--border-color, #444)",
-						borderRadius: 8,
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						background: "#fff",
-						flexShrink: 0,
-						overflow: "hidden",
-					}}>
-						{qrGenerating ? (
-							<span style={{ color: "#888", fontSize: 12 }}>生成中...</span>
-						) : qrDataUrl ? (
-							<img
-								src={qrDataUrl}
-								alt="飞书安装二维码"
-								style={{ width: 138, height: 138 }}
-							/>
-						) : (
-							<div style={{ textAlign: "center", color: "#ccc" }}>
-								<div style={{ fontSize: 28 }}>📱</div>
-							</div>
-						)}
-					</div>
-				</div>
-			</div>
+
 
 			{/* 帮助信息 */}
 			<details style={{ fontSize: 12, color: "#888" }}>
