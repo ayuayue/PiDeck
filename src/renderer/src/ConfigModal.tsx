@@ -6,6 +6,7 @@ import { RawTab } from "./config/RawTab";
 import { SettingsTab } from "./config/SettingsTab";
 import { SkillsTab } from "./config/SkillsTab";
 import { ExtensionsTab } from "./config/ExtensionsTab";
+import { ImTab } from "./config/ImTab";
 import { CloseIconButton } from "./components/ui/IconButton";
 import { t } from "./i18n";
 import type {
@@ -802,6 +803,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 		{ id: "models", label: t("config.nav.models") },
 		{ id: "auth", label: t("config.nav.auth") },
 		{ id: "settings", label: t("config.nav.settings") },
+		{ id: "im", label: "IM 连接" },
 		{ id: "raw", label: t("config.nav.raw") },
 	];
 
@@ -965,6 +967,10 @@ function ConfigModalContent(props: ConfigModalProps) {
 							onChange={setSettingsData}
 							onSave={handleSaveSettings}
 						/>
+					)}
+
+					{section === "config" && !loading && tab === "im" && (
+						<ImTab />
 					)}
 
 					{section === "skills" && !loading && (

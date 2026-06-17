@@ -481,5 +481,21 @@ export function createPreviewApi(): PiDesktopApi {
 				};
 			},
 		},
+		feishu: {
+			connect: async () => ({ success: true, message: "预览模式" }),
+			disconnect: async () => ({ success: true }),
+			connectByBot: async () => ({ success: false, message: "预览模式不支持" }),
+			statusRequest: async () => ({ status: "disconnected" as const, activeBindings: 0 }),
+			onStatus: () => () => {},
+			botsList: async () => [],
+			botAdd: async () => ({ success: false, error: "预览模式不支持" }),
+			botRemove: async () => false,
+			botConfig: async () => undefined,
+			testConnection: async () => ({ success: false, message: "预览模式不支持" }),
+			bindingsList: async () => [],
+			bindingRemove: async () => false,
+			bindingUpdate: async () => undefined,
+			onMessages: () => () => {},
+		},
 	};
 }

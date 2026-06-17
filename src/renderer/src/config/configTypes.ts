@@ -1,4 +1,4 @@
-export type ConfigTab = "models" | "auth" | "settings" | "raw";
+export type ConfigTab = "models" | "auth" | "settings" | "im" | "raw";
 
 // ── 匹配 pi 实际文件格式的类型 ────────────────────────
 

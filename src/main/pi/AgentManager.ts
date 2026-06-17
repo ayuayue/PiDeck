@@ -29,6 +29,8 @@ export class AgentManager {
 	private readonly toolMessageIds = new Map<string, Map<string, string>>();
 	/** 每个 agent 只保留一条自动重试状态消息，避免短暂 5xx/网络错误把会话刷屏。 */
 	private readonly retryStatusMessageIds = new Map<string, string>();
+	/** 本地事件监听器（用于 FeishuBridge 等主进程内部订阅） */
+	private readonly localEventListeners = new Set<(agentId: string, event: unknown) => void>();
 
 	constructor(
 		private readonly getProject: (id: string) => Project | undefined,
@@ -666,6 +668,12 @@ export class AgentManager {
 		this.emitState();
 	}
 
+	/** 注册本地事件监听器（供 FeishuBridge 等主进程内部模块使用） */
+	addLocalEventListener(listener: (agentId: string, event: unknown) => void): () => void {
+		this.localEventListeners.add(listener);
+		return () => { this.localEventListeners.delete(listener); };
+	}
+
 	stopAll() {
 		// 应用退出时统一清理所有 pi 子进程，避免后台 agent 残留占用模型或文件句柄。
 		for (const runtime of this.agents.values()) {
@@ -677,6 +685,10 @@ export class AgentManager {
 	}
 
 	private handlePiEvent(agentId: string, event: unknown) {
+		// 通知本地监听器（FeishuBridge 等主进程内部订阅）
+		for (const listener of this.localEventListeners) {
+			try { listener(agentId, event); } catch {}
+		}
 		this.emit(ipcChannels.agentsEvent, { agentId, event });
 
 		if (!event || typeof event !== "object") return;

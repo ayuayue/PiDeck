@@ -97,4 +97,23 @@ export const ipcChannels = {
 	terminalClose: "terminal:close",
 	terminalData: "terminal:data",
 	terminalExit: "terminal:exit",
+
+	// ===== 飞书桥接 =====
+	feishuConnect: "feishu:connect",
+	feishuDisconnect: "feishu:disconnect",
+	feishuStatus: "feishu:status",
+	feishuStatusRequest: "feishu:status-request",
+	feishuBotsList: "feishu:bots-list",
+	feishuBotAdd: "feishu:bot-add",
+	feishuBotRemove: "feishu:bot-remove",
+	feishuBotConfig: "feishu:bot-config",
+	feishuTestConnection: "feishu:test-connection",
+	feishuBindingsList: "feishu:bindings-list",
+	feishuBindingRemove: "feishu:binding-remove",
+	feishuBindingUpdate: "feishu:binding-update",
+	feishuMessages: "feishu:messages",
+	feishuQrCode: "feishu:qr-code",
+	feishuConnectByBot: "feishu:connect-by-bot",
+	/** Pi 创建会话时触发飞书自动拉群 */
+	feishuAutoGroup: "feishu:auto-group",
 } as const;

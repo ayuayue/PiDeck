@@ -380,3 +380,69 @@ export type ThinkingUpdate = {
 	thinking: string;
 };
 
+// ===== 飞书桥接类型 =====
+
+export type FeishuBotConfig = {
+	id: string;
+	name: string;
+	enabled: boolean;
+	appId: string;
+	appSecret: string; // 加密存储
+	defaultWorkspaceId?: string;
+	defaultChannelId?: string;
+	defaultModelId?: string;
+	requireMention?: boolean;
+	/** 用户自己的 open_id（用于自动拉群时加入 user_id_list）。在飞书中给 Bot 发 /whoami 即可获取 */
+	defaultUserOpenId?: string;
+};
+
+export type FeishuBridgeStatus = {
+	status: "disconnected" | "connecting" | "connected" | "error";
+	activeBindings: number;
+	connectedAt?: number;
+	errorMessage?: string;
+	botOpenId?: string;
+	botName?: string;
+};
+
+export type FeishuChatBinding = {
+	chatId: string;
+	botId: string;
+	userId: string;
+	sessionId: string;
+	workspaceId: string;
+	channelId?: string;
+	modelId?: string;
+	source: "feishu" | "session-mirror";
+	chatType: "p2p" | "group";
+	groupName?: string;
+	createdAt: number;
+};
+
+export type FeishuChatMessage = {
+	chatId: string;
+	messageId: string;
+	senderOpenId: string;
+	senderName?: string;
+	chatType: "p2p" | "group";
+	groupName?: string;
+	messageType: "text" | "image" | "post" | "file";
+	text: string;
+	imageKeys: string[];
+	fileKeys: string[];
+	timestamp: number;
+};
+
+export type FeishuConnectInput = {
+	appId: string;
+	appSecret: string;
+	name?: string;
+	defaultUserOpenId?: string;
+};
+
+export type FeishuTestResult = {
+	success: boolean;
+	message: string;
+	botName?: string;
+};
+

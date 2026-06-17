@@ -42,7 +42,9 @@
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
-    "node-pty": "^1.1.0"
+    "@larksuiteoapi/node-sdk": "^1.67.0",
+    "node-pty": "^1.1.0",
+    "qrcode": "^1.5.4"
   },
   "build": {
     "appId": "com.ayuayue.pi-desktop",
@@ -97,12 +99,13 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@fiahfy/icns": "^0.0.7",
     "@types/node": "^24.0.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "electron": "^38.0.0",
+    "electron": "^38.8.6",
     "electron-builder": "^26.8.1",
     "electron-vite": "^4.0.0",
     "lucide-react": "^1.17.0",

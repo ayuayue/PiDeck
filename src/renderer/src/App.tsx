@@ -27,10 +27,13 @@ import {
   Pin,
   Square,
   X,
+  MessageCircle,
 } from "lucide-react";
 import { createPreviewApi } from "./previewApi";
 import { createBrowserApi } from "./browserApi";
 import { ConfigModal } from "./ConfigModal";
+import { FeishuPanel } from "./components/feishu/FeishuPanel";
+import { useFeishuBridge } from "./hooks/useFeishuBridge";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { CloseIconButton } from "./components/ui/IconButton";
 import { getComposerEnterIntent } from "./composerBehavior";
@@ -369,6 +372,7 @@ export function App() {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
+  const [feishuPanelOpen, setFeishuPanelOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [windowAlwaysOnTop, setWindowAlwaysOnTop] = useState(false);
@@ -451,6 +455,9 @@ export function App() {
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingAgentsRef = useRef<AgentTab[]>([]);
   const projectDragPreventClickRef = useRef(false);
+
+  // ===== 飞书桥接 =====
+  const feishu = useFeishuBridge();
 
   const activeProject = projects.find(
     (project) => project.id === activeProjectId,
@@ -3145,6 +3152,24 @@ export function App() {
             );
           })}
         </div>
+        {feishuPanelOpen && (
+          <FeishuPanel
+            status={feishu.status}
+            bots={feishu.bots}
+            bindings={feishu.bindings}
+            connecting={feishu.connecting}
+            isConnected={feishu.isConnected}
+            hasConfig={feishu.hasConfig}
+            onConnect={async (appId: string, appSecret: string, name: string, defaultUserOpenId?: string) => {
+              return await feishu.connect({ appId, appSecret, name, defaultUserOpenId });
+            }}
+            onDisconnect={feishu.disconnect}
+            onRemoveBot={feishu.removeBot}
+            onUpdateBotConfig={feishu.updateBotConfig}
+            onTest={feishu.testConnection}
+            onRemoveBinding={feishu.removeBinding}
+          />
+        )}
         {!isLanWeb && (
           <div className="toolbar-actions sidebar-bottom-actions">
             <div className="sidebar-bottom-primary-actions">
@@ -3168,6 +3193,28 @@ export function App() {
                 onClick={() => setFeedbackOpen(true)}
               >
                 <MessageSquare size={17} />
+              </button>
+              <button
+                className={`icon-button feishu-icon${feishu.isConnected ? " feishu-connected" : ""}`}
+                title={feishu.isConnected ? "飞书已连接" : "飞书 Bridge"}
+                onClick={() => setFeishuPanelOpen((prev) => !prev)}
+                style={{
+                  position: "relative",
+                }}
+              >
+                <MessageCircle size={17} />
+                {feishu.isConnected && (
+                  <span style={{
+                    position: "absolute",
+                    bottom: 1,
+                    right: 1,
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: "var(--color-accent)",
+                    boxShadow: "0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent)",
+                  }} />
+                )}
               </button>
             </div>
             <button

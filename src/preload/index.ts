@@ -6,25 +6,31 @@ import type {
 	AppInfo,
 	AppSettings,
 	AppUpdateInfo,
-	FeedbackEnvironment,
 	AvailableModel,
 	ChatMessage,
 	CodexImportReport,
 	CodexSessionSummary,
 	ClaudeImportReport,
 	ClaudeSessionSummary,
+	ConfigFileDiagnostic,
 	CreateAgentInput,
+	CreatePiSkillInput,
+	FeedbackEnvironment,
+	FeishuBotConfig,
+	FeishuBridgeStatus,
+	FeishuChatBinding,
+	FeishuChatMessage,
+	FeishuConnectInput,
+	FeishuTestResult,
 	FileTreeNode,
 	ForkMessage,
 	GitBranchInfo,
 	PiCommand,
+	PiExtensionListResult,
 	PiInstallStatus,
 	PiProxyTestResult,
-	ConfigFileDiagnostic,
-	PiExtensionListResult,
 	PiSkillListResult,
 	PiSkillSummary,
-	CreatePiSkillInput,
 	Project,
 	SendPromptInput,
 	SessionSummary,
@@ -415,6 +421,48 @@ const api = {
 			subscribe(ipcChannels.terminalData, callback),
 		onExit: (callback: (payload: TerminalExitEvent) => void) =>
 			subscribe(ipcChannels.terminalExit, callback),
+	},
+
+	// ===== 飞书桥接 =====
+	feishu: {
+		connect: (input: FeishuConnectInput) =>
+			ipcRenderer.invoke(ipcChannels.feishuConnect, input) as Promise<{
+				success: boolean;
+				message: string;
+			}>,
+		disconnect: () =>
+			ipcRenderer.invoke(ipcChannels.feishuDisconnect) as Promise<{ success: boolean }>,
+		connectByBot: (botId: string) =>
+			ipcRenderer.invoke(ipcChannels.feishuConnectByBot, botId) as Promise<{
+				success: boolean;
+				message: string;
+			}>,
+		statusRequest: () =>
+			ipcRenderer.invoke(ipcChannels.feishuStatusRequest) as Promise<FeishuBridgeStatus>,
+		onStatus: (callback: (status: FeishuBridgeStatus) => void) =>
+			subscribe(ipcChannels.feishuStatus, callback),
+		botsList: () =>
+			ipcRenderer.invoke(ipcChannels.feishuBotsList) as Promise<FeishuBotConfig[]>,
+		botAdd: (input: FeishuConnectInput) =>
+			ipcRenderer.invoke(ipcChannels.feishuBotAdd, input) as Promise<{
+				success: boolean;
+				bot?: FeishuBotConfig;
+				error?: string;
+			}>,
+		botRemove: (botId: string) =>
+			ipcRenderer.invoke(ipcChannels.feishuBotRemove, botId) as Promise<boolean>,
+		botConfig: (botId: string, patch: Partial<FeishuBotConfig>) =>
+			ipcRenderer.invoke(ipcChannels.feishuBotConfig, botId, patch) as Promise<FeishuBotConfig | undefined>,
+		testConnection: (appId: string, appSecret: string) =>
+			ipcRenderer.invoke(ipcChannels.feishuTestConnection, appId, appSecret) as Promise<FeishuTestResult>,
+		bindingsList: () =>
+			ipcRenderer.invoke(ipcChannels.feishuBindingsList) as Promise<FeishuChatBinding[]>,
+		bindingRemove: (chatId: string) =>
+			ipcRenderer.invoke(ipcChannels.feishuBindingRemove, chatId) as Promise<boolean>,
+		bindingUpdate: (chatId: string, patch: Partial<FeishuChatBinding>) =>
+			ipcRenderer.invoke(ipcChannels.feishuBindingUpdate, chatId, patch) as Promise<FeishuChatBinding | undefined>,
+		onMessages: (callback: (message: FeishuChatMessage) => void) =>
+			subscribe(ipcChannels.feishuMessages, callback),
 	},
 };
 

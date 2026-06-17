@@ -13,12 +13,26 @@ import { is } from "@electron-toolkit/utils";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
+
+// 开发模式下 stdout 管道可能断开导致 EPIPE 崩溃，全局静默处理
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+	if (err.code === "EPIPE") return;
+	throw err;
+});
+process.stderr.on("error", (err: NodeJS.ErrnoException) => {
+	if (err.code === "EPIPE") return;
+	throw err;
+});
 import { ipcChannels } from "../shared/ipc";
 import type {
 	AppSettings,
 	AppUpdateAsset,
 	AppUpdateInfo,
 	CreateAgentInput,
+	FeishuBotConfig,
+	FeishuBridgeStatus,
+	FeishuConnectInput,
+	FeishuTestResult,
 	SendPromptInput,
 	CreatePiSkillInput,
 } from "../shared/types";
@@ -39,6 +53,16 @@ import { TelemetryService } from "./telemetry/TelemetryService";
 import { SkillManager } from "./skills/SkillManager";
 import { ExtensionManager } from "./extensions/ExtensionManager";
 import { WebServiceManager } from "./web/WebServiceManager";
+import { FeishuBridge } from "./feishu/FeishuBridge";
+import {
+	listBots,
+	getBot,
+	addBot as addFeishuBot,
+	removeBot as removeFeishuBot,
+	updateBot as updateFeishuBot,
+	getDecryptedBotAppSecret,
+} from "./feishu/FeishuConfig";
+import type { FeishuChatBinding } from "../shared/types";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -58,6 +82,7 @@ let skillManager: SkillManager;
 let extensionManager: ExtensionManager;
 let webServiceManager: WebServiceManager;
 let terminalManager: TerminalSessionManager;
+let feishuBridge: FeishuBridge | null = null;
 
 const RELEASES_URL = "https://github.com/ayuayue/pi-desktop/releases";
 const LATEST_RELEASE_API =
@@ -274,6 +299,173 @@ function createWindow() {
 	} else {
 		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
 	}
+}
+
+// ===== 飞书桥接 IPC =====
+
+/** 自动连接：启动时检查已保存的 Bot 配置，自动连接 */
+async function autoConnectFeishu() {
+	const bots = listBots();
+	if (bots.length === 0) return;
+	// 取第一个启用的 Bot
+	const bot = bots.find((b) => b.enabled);
+	if (!bot) return;
+
+	console.log("[飞书] 检测到已保存的 Bot 配置，自动连接:", bot.name);
+	try {
+		feishuBridge = new FeishuBridge(bot, agentManager, () => mainWindow, () => projectStore.list());
+		await feishuBridge.start();
+		console.log("[飞书] 自动连接成功");
+	} catch (error) {
+		console.error("[飞书] 自动连接失败:", error);
+		feishuBridge = null;
+		// 失败不阻塞启动，用户可手动连接
+	}
+}
+
+function registerFeishuIpc() {
+	// 连接飞书
+	ipcMain.handle(ipcChannels.feishuConnect, async (_event, input: FeishuConnectInput) => {
+		try {
+			// 如果已有连接，先断开
+			if (feishuBridge) {
+				feishuBridge.stop();
+			}
+
+			const botConfig = addFeishuBot({
+				name: input.name || "飞书机器人",
+				appId: input.appId,
+				appSecret: input.appSecret,
+				defaultUserOpenId: input.defaultUserOpenId,
+			});
+
+			feishuBridge = new FeishuBridge(botConfig, agentManager, () => mainWindow, () => projectStore.list());
+			await feishuBridge.start();
+			return { success: true, message: "连接成功" };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return { success: false, message };
+		}
+	});
+
+	// 断开连接
+	ipcMain.handle(ipcChannels.feishuDisconnect, async () => {
+		if (feishuBridge) {
+			feishuBridge.stop();
+			feishuBridge = null;
+		}
+		return { success: true };
+	});
+
+	// 查询状态
+	ipcMain.handle(ipcChannels.feishuStatusRequest, async () => {
+		if (feishuBridge) {
+			return feishuBridge.getStatus();
+		}
+		return { status: "disconnected", activeBindings: 0 } as FeishuBridgeStatus;
+	});
+
+	// Bot 列表
+	ipcMain.handle(ipcChannels.feishuBotsList, async () => {
+		return listBots();
+	});
+
+	// 添加 Bot
+	ipcMain.handle(ipcChannels.feishuBotAdd, async (_event, input: FeishuConnectInput) => {
+		// 同 feishuConnect，但可以添加多个 Bot
+		try {
+			const botConfig = addFeishuBot({
+				name: input.name || "飞书机器人",
+				appId: input.appId,
+				appSecret: input.appSecret,
+				defaultUserOpenId: input.defaultUserOpenId,
+			});
+			return { success: true, bot: botConfig };
+		} catch (error) {
+			return { success: false, error: error instanceof Error ? error.message : String(error) };
+		}
+	});
+
+	// 删除 Bot
+	ipcMain.handle(ipcChannels.feishuBotRemove, async (_event, botId: string) => {
+		if (feishuBridge) {
+			feishuBridge.stop();
+			feishuBridge = null;
+		}
+		return removeFeishuBot(botId);
+	});
+
+	// 更新 Bot 配置
+	ipcMain.handle(ipcChannels.feishuBotConfig, async (_event, botId: string, patch: Partial<FeishuBotConfig>) => {
+		const updated = updateFeishuBot(botId, patch);
+		// 热更新到运行中的 bridge，无需重连
+		if (feishuBridge && feishuBridge.getStatus().status === "connected") {
+			feishuBridge.updateBotConfig(patch);
+			console.log("[飞书] 配置已热更新:", Object.keys(patch).join(", "));
+		}
+		return updated;
+	});
+
+	// 测试连接
+	ipcMain.handle(ipcChannels.feishuTestConnection, async (_event, appId: string, appSecret: string) => {
+		// 创建临时 bridge 实例来测试连接
+		const testBridge = new FeishuBridge(
+			{
+				id: "test",
+				name: "测试",
+				enabled: true,
+				appId,
+				appSecret: "", // 将在 testConnection 中传入
+			},
+			agentManager,
+			() => mainWindow,
+			() => projectStore.list(),
+		);
+		return testBridge.testConnection(appId, appSecret);
+	});
+
+	// 绑定列表
+	ipcMain.handle(ipcChannels.feishuBindingsList, async () => {
+		if (feishuBridge) {
+			return feishuBridge.listBindings();
+		}
+		return [];
+	});
+
+	// 移除绑定
+	ipcMain.handle(ipcChannels.feishuBindingRemove, async (_event, chatId: string) => {
+		if (feishuBridge) {
+			return feishuBridge.removeBinding(chatId);
+		}
+		return false;
+	});
+
+	// 更新绑定
+	ipcMain.handle(ipcChannels.feishuBindingUpdate, async (_event, chatId: string, patch: Partial<FeishuChatBinding>) => {
+		if (feishuBridge) {
+			return feishuBridge.updateBinding(chatId, patch);
+		}
+		return undefined;
+	});
+
+	// 通过已保存的 Bot ID 连接（自动解密 Secret）
+	ipcMain.handle(ipcChannels.feishuConnectByBot, async (_event, botId: string) => {
+		try {
+			if (feishuBridge) {
+				feishuBridge.stop();
+			}
+			const botConfig = getBot(botId);
+			if (!botConfig) {
+				return { success: false, message: "Bot 配置不存在" };
+			}
+			feishuBridge = new FeishuBridge(botConfig, agentManager, () => mainWindow, () => projectStore.list());
+			await feishuBridge.start();
+			return { success: true, message: "连接成功" };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return { success: false, message };
+		}
+	});
 }
 
 function registerIpc() {
@@ -511,9 +703,16 @@ function registerIpc() {
 	);
 
 	ipcMain.handle(ipcChannels.agentsList, () => agentManager.list());
-	ipcMain.handle(ipcChannels.agentsCreate, (_event, input: CreateAgentInput) =>
-		agentManager.create(input),
-	);
+	ipcMain.handle(ipcChannels.agentsCreate, async (_event, input: CreateAgentInput) => {
+		const tab = await agentManager.create(input);
+		// Session Mirror: Pi 中创建会话时，飞书自动拉群（1会话=1群）
+		if (feishuBridge && feishuBridge.getStatus().status === "connected") {
+			void feishuBridge.ensureSessionMirror(tab.id, tab.title).catch((e) => {
+				console.error("[飞书] 自动拉群失败:", e);
+			});
+		}
+		return tab;
+	});
 	ipcMain.handle(
 		ipcChannels.agentsRename,
 		(_event, agentId: string, name: string) =>
@@ -523,12 +722,36 @@ function registerIpc() {
 		terminalManager.closeAgent(agentId);
 		await agentManager.stop(agentId);
 	});
-	ipcMain.handle(ipcChannels.agentsPrompt, (_event, input: SendPromptInput) =>
-		agentManager.sendPrompt(input),
-	);
-	ipcMain.handle(ipcChannels.agentsAbort, (_event, agentId: string) =>
-		agentManager.abort(agentId),
-	);
+	ipcMain.handle(ipcChannels.agentsPrompt, async (_event, input: SendPromptInput) => {
+		// Session Mirror: Pi 中发消息时，为飞书群开启流式卡片 + 转发用户消息
+		if (feishuBridge && feishuBridge.getStatus().status === "connected") {
+			const tab = agentManager.list().find(t => t.id === input.agentId);
+			if (tab) {
+				// 1. 确保有飞书群绑定（如果还没有，自动拉群）
+				void feishuBridge.ensureSessionMirror(tab.id, tab.title).catch((e) => {
+					console.error("[飞书] ensureSessionMirror 失败:", e);
+				});
+				// 2. 开启流式卡片
+				void feishuBridge.startSessionMirrorRun(tab.id, tab.title).catch((e) => {
+					console.error("[飞书] SessionMirror 流式卡片初始化失败:", e);
+				});
+				// 3. 转发用户消息到飞书（双向同步）
+				if (input.message.trim()) {
+					void feishuBridge.forwardUserMessageToFeishu(tab.id, input.message).catch((e) => {
+						console.error("[飞书] 转发 PiDeck 消息失败:", e);
+					});
+				}
+			}
+		}
+		return agentManager.sendPrompt(input);
+	});
+	ipcMain.handle(ipcChannels.agentsAbort, async (_event, agentId: string) => {
+		// Session Mirror: 停止飞书流式卡片
+		if (feishuBridge) {
+			feishuBridge.stopSessionMirrorRun(agentId);
+		}
+		return agentManager.abort(agentId);
+	});
 	ipcMain.handle(ipcChannels.agentsExportHtml, (_event, agentId: string) =>
 		agentManager.exportHtml(agentId),
 	);
@@ -764,6 +987,11 @@ app.whenReady().then(async () => {
 		void settingsStore.update({ webServiceEnabled: false });
 	});
 	registerIpc();
+	registerFeishuIpc();
+
+	// 🆕 自动连接：如果已有 Bot 配置，自动启动飞书连接
+	autoConnectFeishu();
+
 	sendTelemetryHeartbeat();
 	createWindow();
 	setupTray();
