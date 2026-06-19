@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -58,6 +59,7 @@ import {
   EmptyState,
   EnvironmentDialog,
   FileContextMenu,
+  ConfirmDialog,
   ImagePreviewModal,
   LogoMark,
   ModelPicker,
@@ -285,6 +287,8 @@ export function App() {
   const goalIterationRef = useRef(0);
   /** 标记是否已经在等待自动续接,防止多个异步续接冲突 */
   const goalContinuationPendingRef = useRef(false);
+  /** 最大自动续接次数，达到后自动标记完成避免死循环 */
+  const GOAL_MAX_CONTINUATIONS = 5;
   /** 上一次 isAgentBusy 状态,用于检测 busy→idle 转换 */
   const prevIsAgentBusyRef = useRef(false);
 
@@ -332,6 +336,18 @@ export function App() {
     y: number;
     node: FileTreeNode;
   } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    danger?: boolean;
+    confirmLabel?: string;
+  } | null>(null);
+  const [renamingFile, setRenamingFile] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
+  const [renamingFileInput, setRenamingFileInput] = useState("");
   const [agentMenu, setAgentMenu] = useState<{
     x: number;
     y: number;
@@ -2380,8 +2396,26 @@ export function App() {
     prevIsAgentBusyRef.current = busy;
     if (wasBusy && !busy && goalStatusRef.current === "active" && activeAgentId) {
       const text = goalTextRef.current;
+      // 直接扫描消息确认是否有 goal_complete（防范 effect 时序问题）
+      const goalMsgs = activeAgentId ? messagesByAgent[activeAgentId] : undefined;
+      if (goalMsgs?.some((m) => m.role === "tool" && m.meta?.toolName === "goal_complete")) {
+        goalStatusRef.current = "complete";
+        setGoalStatus("complete");
+        setGoalCompletedAt(Date.now());
+        return;
+      }
+
       const iteration = goalIterationRef.current + 1;
       goalIterationRef.current = iteration;
+
+      // 达到最大续接次数时自动完成，防止死循环
+      if (iteration > GOAL_MAX_CONTINUATIONS) {
+        goalStatusRef.current = "complete";
+        setGoalStatus("complete");
+        setGoalCompletedAt(Date.now());
+        return;
+      }
+
       if (!goalContinuationPendingRef.current && text) {
         goalContinuationPendingRef.current = true;
         const continuationMsg = `[goal 自动续接 #${iteration}]
@@ -2539,9 +2573,9 @@ ${goalTextRef.current}
     setGoalStartedAt(Date.now());
     setGoalCompletedAt(0);
 
-    // 仅将目标文本作为普通消息发送，不暴露 goal 系统指令
-    void submitPromptSnapshot(activeAgentId!, objective, undefined, "followUp");
-    showToast(`🎯 Goal started: ${objective}`, 3000);
+    // 将目标文本作为普通消息发送（不使用 followUp，避免显示错误的消息标签）
+    void submitPromptSnapshot(activeAgentId!, objective);
+    // 目标文本作为用户消息显示在对话中，goal 状态可通过 /goal status 查看
   }
 
   async function submitPromptSnapshot(
@@ -3467,7 +3501,7 @@ ${goalTextRef.current}
                     : undefined
                 }
               />
-            </div>
+          </div>
           </div>
           <div
             className={`chat-header-actions${activeAgent?.status === "starting" ? " loading" : ""}`}
@@ -3497,7 +3531,6 @@ ${goalTextRef.current}
                       }
                     }}
                   >
-                    <Plus size={14} />
                     <span className="session-combo-label">{t("app.new")}</span>
                     {activeAgentId && (
                       <span className={`session-combo-chevron${sessionActionsOpen ? " open" : ""}`}>
@@ -4019,6 +4052,33 @@ ${goalTextRef.current}
             void navigator.clipboard.writeText(fileMenu.node.path);
             setFileMenu(null);
           }}
+          onRename={() => {
+            const node = fileMenu.node;
+            setRenamingFile({ path: node.path, name: node.name });
+            setRenamingFileInput(node.name);
+            setFileMenu(null);
+          }}
+          onDelete={() => {
+            const node = fileMenu.node;
+            setFileMenu(null);
+            setConfirmDialog({
+              title: node.type === "directory" ? t("drawer.deleteFolderTitle") : t("drawer.deleteFileTitle"),
+              message: node.type === "directory"
+                ? t("drawer.deleteFolderConfirm", { name: node.name })
+                : t("drawer.deleteFileConfirm", { name: node.name }),
+              danger: true,
+              confirmLabel: t("common.delete"),
+              onConfirm: async () => {
+                setConfirmDialog(null);
+                try {
+                  await api.files.delete(node.path, true);
+                  void refreshFiles();
+                } catch (e) {
+                  console.error("[File] 删除失败:", e);
+                }
+              },
+            });
+          }}
         />
       )}
       {projectMenu && (
@@ -4372,6 +4432,72 @@ ${goalTextRef.current}
           // 配置保存后不再自动 reload,用户可通过 Restart 按钮手动重载
         }}
       />
+
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          danger={confirmDialog.danger}
+          confirmLabel={confirmDialog.confirmLabel}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
+
+      {renamingFile && (
+        <div className="config-modal-overlay" onClick={() => setRenamingFile(null)}>
+          <div className="config-modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <strong>{t("drawer.renameTitle")}</strong>
+            <div style={{ margin: "12px 0" }}>
+              <input
+                type="text"
+                value={renamingFileInput}
+                onChange={(e) => setRenamingFileInput(e.target.value)}
+                className="config-input"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const path = renamingFile.path;
+                    const newName = renamingFileInput.trim();
+                    if (newName && newName !== renamingFile.name) {
+                      void api.files.rename(path, newName).then(() => {
+                        void refreshFiles();
+                        setRenamingFile(null);
+                      }).catch((err) => console.error("[File] 重命名失败:", err));
+                    } else {
+                      setRenamingFile(null);
+                    }
+                  }
+                  if (e.key === "Escape") setRenamingFile(null);
+                }}
+              />
+            </div>
+            <div className="config-modal-actions">
+              <button className="config-btn" onClick={() => setRenamingFile(null)}>
+                {t("common.cancel")}
+              </button>
+              <button
+                className="config-btn primary"
+                onClick={() => {
+                  const path = renamingFile.path;
+                  const newName = renamingFileInput.trim();
+                  if (newName && newName !== renamingFile.name) {
+                    void api.files.rename(path, newName).then(() => {
+                      void refreshFiles();
+                      setRenamingFile(null);
+                    }).catch((err) => console.error("[File] 重命名失败:", err));
+                  } else {
+                    setRenamingFile(null);
+                  }
+                }}
+              >
+                {t("common.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

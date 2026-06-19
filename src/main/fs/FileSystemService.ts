@@ -1,5 +1,5 @@
-import { readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readdir, unlink, rename as fsRename, rm } from "node:fs/promises";
+import { join, relative, dirname } from "node:path";
 import type { FileTreeNode } from "../../shared/types";
 
 const ignoredNames = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", ".venv", "__pycache__"]);
@@ -45,5 +45,23 @@ export class FileSystemService {
       if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+  }
+
+  /** 删除文件或空目录；非空目录需要递归删除 */
+  async delete(targetPath: string, recursive = false): Promise<void> {
+    const stat = await import("node:fs/promises").then((m) => m.stat(targetPath));
+    if (stat.isDirectory()) {
+      await rm(targetPath, { recursive: true, force: true });
+    } else {
+      await unlink(targetPath);
+    }
+  }
+
+  /** 重命名文件或目录 */
+  async rename(targetPath: string, newName: string): Promise<string> {
+    const parent = dirname(targetPath);
+    const newPath = join(parent, newName);
+    await fsRename(targetPath, newPath);
+    return newPath;
   }
 }

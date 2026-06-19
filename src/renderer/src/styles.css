@@ -1469,39 +1469,6 @@ body.is-terminal-resizing {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-/* Goal 徽章 */
-.goal-badge {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	font-size: var(--font-size-caption);
-	line-height: var(--line-height-caption);
-	padding: 1px 8px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-	color: var(--color-accent);
-	font-weight: 500;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	max-width: 200px;
-	cursor: default;
-	transition: background 0.15s;
-}
-.goal-badge.goal-paused {
-	background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-	color: var(--color-warning);
-}
-.goal-badge.goal-complete {
-	background: color-mix(in srgb, var(--color-success) 12%, transparent);
-	color: var(--color-success);
-}
-.goal-status-label {
-	font-size: var(--font-size-micro);
-	font-weight: 600;
-	flex-shrink: 0;
-}
-
 .chat-header-actions {
 	display: flex;
 	gap: var(--space-2);
@@ -6950,7 +6917,7 @@ a.config-btn {
 .config-models-grid-header {
 	display: grid;
 	/* 模型 id/name 容易很长，使用 minmax 防止输入框撑破 modal。 */
-	grid-template-columns: minmax(140px, 1.35fr) minmax(110px, 0.9fr) 90px 90px 48px 32px;
+	grid-template-columns: minmax(100px, 1.2fr) minmax(80px, 0.8fr) 90px 90px 48px 70px 32px;
 	gap: 8px;
 	align-items: center;
 	padding: 0 10px 6px;
@@ -6962,7 +6929,7 @@ a.config-btn {
 
 .config-models-grid-row {
 	display: grid;
-	grid-template-columns: minmax(140px, 1.35fr) minmax(110px, 0.9fr) 90px 90px 48px 32px;
+	grid-template-columns: minmax(100px, 1.2fr) minmax(80px, 0.8fr) 90px 90px 48px 70px 32px;
 	gap: 8px;
 	align-items: center;
 	padding: 8px 10px;
@@ -7016,6 +6983,35 @@ a.config-btn {
 	width: 16px;
 	height: 16px;
 	accent-color: var(--color-accent);
+}
+
+/* 输入类型列：两个复选框垂直堆叠 */
+.config-input-cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.config-input-option {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+	line-height: 1.2;
+}
+
+.config-input-option input[type="checkbox"] {
+	width: 14px;
+	height: 14px;
+	accent-color: var(--color-accent);
+	margin: 0;
+	cursor: pointer;
+}
+
+.config-input-option span {
+	font-size: var(--font-size-caption);
+	color: var(--color-text-secondary);
+	white-space: nowrap;
 }
 
 .config-auth-list {

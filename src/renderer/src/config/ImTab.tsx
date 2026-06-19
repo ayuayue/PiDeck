@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { X } from "lucide-react";
+import { ConfirmDialog } from "../components/app/AppParts";
 import type {
 	FeishuBotConfig,
 	FeishuBridgeStatus,
@@ -111,6 +112,7 @@ export function ImTab(_props: Props) {
 	const [addFormOpenId, setAddFormOpenId] = useState("");
 	const [editingOpenIdBotId, setEditingOpenIdBotId] = useState<string | null>(null);
 	const [editOpenIdValue, setEditOpenIdValue] = useState("");
+	const [deleteConfirmBotId, setDeleteConfirmBotId] = useState<string | null>(null);
 	const [guideOpen, setGuideOpen] = useState(false);
 	const [copiedScope, setCopiedScope] = useState(false);
 	const [copiedEvents, setCopiedEvents] = useState(false);
@@ -217,7 +219,6 @@ export function ImTab(_props: Props) {
 
 	const handleRemoveBot = useCallback(async (botId: string) => {
 		if (!api) return;
-		if (!window.confirm(t("config.im.confirmDeleteBot"))) return;
 		await api.botRemove!(botId);
 		await loadData();
 	}, [api, loadData]);
@@ -441,7 +442,7 @@ export function ImTab(_props: Props) {
 								</button>
 								<button
 									className="config-btn danger-fill"
-									onClick={(e) => { e.stopPropagation(); handleRemoveBot(bot.id); }}
+									onClick={(e) => { e.stopPropagation(); setDeleteConfirmBotId(bot.id); }}
 								>
 									{t("common.delete")}
 								</button>
@@ -554,6 +555,22 @@ export function ImTab(_props: Props) {
 					</>
 				)}
 			</div>
+
+			{/* ── 删除确认弹窗 ── */}
+			{deleteConfirmBotId && (
+				<ConfirmDialog
+					title={t("config.im.confirmDeleteBot")}
+					message={t("config.im.deleteBotMessage")}
+					danger
+					confirmLabel={t("common.delete")}
+					onConfirm={() => {
+						const botId = deleteConfirmBotId;
+						setDeleteConfirmBotId(null);
+						void handleRemoveBot(botId);
+					}}
+					onCancel={() => setDeleteConfirmBotId(null)}
+				/>
+			)}
 
 			{/* ── 配置指南弹窗 ── */}
 			{guideOpen && (

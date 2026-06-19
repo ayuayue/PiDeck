@@ -183,6 +183,8 @@ export function createPreviewApi(): PiDesktopApi {
 			showInFolder: async () => undefined,
 			readContent: async () => "",
 			writeContent: async () => undefined,
+			delete: async () => undefined,
+			rename: async () => "",
 		},
 		sessions: {
 			list: async () => getSessions(),

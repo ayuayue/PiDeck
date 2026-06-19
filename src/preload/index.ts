@@ -69,6 +69,10 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
 		writeContent: (path: string, content: string) =>
 			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content) as Promise<void>,
+		delete: (path: string, recursive?: boolean) =>
+			ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void>,
+		rename: (path: string, newName: string) =>
+			ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<string>,
 	},
 	sessions: {
 		list: (projectId?: string) =>

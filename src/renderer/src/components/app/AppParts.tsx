@@ -1052,10 +1052,6 @@ function buildActivityEvents(
 	showThinking: boolean,
 ): ActivityEvent[] {
 	const events: ActivityEvent[] = [];
-	/** 收集本轮所有回答文本，最终合并为一个 answer event */
-	const allAnswerTexts: string[] = [];
-
-	// 先处理所有 thinking 和 tool 事件，同时收集回答文本
 	for (const item of items) {
 		if (item.kind === "thinking-group") {
 			if (showThinking && item.text.trim()) {
@@ -1076,7 +1072,6 @@ function buildActivityEvents(
 			continue;
 		}
 		const message = item.message;
-		// 收集 thinking 事件
 		if (showThinking && message.thinking?.trim()) {
 			events.push({
 				kind: "thinking",
@@ -1086,39 +1081,17 @@ function buildActivityEvents(
 				sourceCount: 1,
 			});
 		}
-		// 收集所有回答文本（无论中间是否有 tool/thinking 隔开）
 		const answerText = getMessageDisplayText(message);
 		if (message.role === "assistant" && answerText.trim()) {
-			allAnswerTexts.push(answerText);
+			events.push({
+				kind: "answer",
+				id: `${message.id}-answer`,
+				preview: createAnswerPreview(answerText),
+				text: answerText,
+				timestamp: message.timestamp,
+			});
 		}
 	}
-
-	// 将所有回答合并为一条 answer event，放在 timeline 最后
-	if (allAnswerTexts.length > 0) {
-		const mergedText = allAnswerTexts.join("\n\n");
-		const firstAnswerItem = items.find(
-			(item): item is MessageItem =>
-				item.kind === "message" &&
-				item.message.role === "assistant" &&
-				getMessageDisplayText(item.message).trim().length > 0,
-		);
-		const lastAnswerItem = [...items]
-			.reverse()
-			.find(
-				(item): item is MessageItem =>
-					item.kind === "message" &&
-					item.message.role === "assistant" &&
-					getMessageDisplayText(item.message).trim().length > 0,
-			);
-		events.push({
-			kind: "answer",
-			id: `merged-answer-${firstAnswerItem?.message.id ?? ""}-${lastAnswerItem?.message.id ?? ""}`,
-			preview: createAnswerPreview(mergedText),
-			text: mergedText,
-			timestamp: lastAnswerItem?.message.timestamp ?? firstAnswerItem?.message.timestamp ?? 0,
-		});
-	}
-
 	return events;
 }
 
@@ -1493,22 +1466,32 @@ export const AgentRun = memo(function AgentRun(props: {
 					showThinking={props.showThinking}
 				/>
 				<div className="agent-run-stack">
-					{messageItems.map((item) => {
-						// 过滤掉只有 thinking 没有文本的消息
-						const hasText = item.message.text && item.message.text.trim().length > 0;
-						const hasThinking = item.message.thinking && item.message.thinking.trim().length > 0;
-
-						// 如果只有 thinking 没有文本，跳过不显示
-						if (hasThinking && !hasText) {
-							return null;
+					{/* 合并本轮所有 assistant 消息为一个气泡 */}
+					{(() => {
+						const textParts: string[] = [];
+						const thinkingParts: string[] = [];
+						const assistantMessages = messageItems.filter(
+							(item): item is MessageItem => item.message.role === "assistant",
+						);
+						if (assistantMessages.length === 0) return null;
+						const firstMsg = assistantMessages[0]!;
+						for (const item of assistantMessages) {
+							const t = item.message.text.trim();
+							if (t) textParts.push(t);
+							if (item.message.thinking?.trim()) thinkingParts.push(item.message.thinking);
 						}
-
-						// assistant 消息始终显示（不受折叠影响）
-						const fileSummary = props.fileSummariesByMessage?.[item.message.id];
+						if (textParts.length === 0) return null;
+						const merged: ChatMessage = {
+							...firstMsg.message,
+							text: textParts.join("\n\n"),
+							thinking: thinkingParts.join("\n\n") || firstMsg.message.thinking,
+							id: assistantMessages.map((m) => m.message.id).join("|"),
+						};
+						const fileSummary = props.fileSummariesByMessage?.[assistantMessages[0]!.message.id];
 						return (
-							<div key={item.message.id} className="agent-run-message-stack">
+							<div className="agent-run-message-stack">
 								<ChatBubble
-									message={item.message}
+									message={merged}
 									onPreviewImage={props.onPreviewImage}
 									onOpenExternal={props.onOpenExternal}
 									onOpenFile={props.onOpenFile}
@@ -1516,12 +1499,12 @@ export const AgentRun = memo(function AgentRun(props: {
 									showThinking={false}
 									compact
 								/>
-								{item.message.role === "assistant" && fileSummary && fileSummary.length > 0 && (
+								{fileSummary && fileSummary.length > 0 && (
 									<SessionFileSummary files={fileSummary} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />
 								)}
 							</div>
 						);
-					})}
+					})()}
 				</div>
 			</div>
 		</article>
@@ -3012,6 +2995,35 @@ export function PromptSuggestions(props: {
 	);
 }
 
+export function ConfirmDialog(props: {
+	title: string;
+	message: string;
+	onConfirm: () => void;
+	onCancel: () => void;
+	confirmLabel?: string;
+	danger?: boolean;
+}) {
+	return (
+		<div className="config-modal-overlay" onClick={props.onCancel}>
+			<div className="config-modal-dialog" onClick={(e) => e.stopPropagation()}>
+				<strong>{props.title}</strong>
+				<p>{props.message}</p>
+				<div className="config-modal-actions">
+					<button className="config-btn" onClick={props.onCancel}>
+						{t("common.cancel")}
+					</button>
+					<button
+						className={`config-btn${props.danger ? " danger" : " primary"}`}
+						onClick={props.onConfirm}
+					>
+						{props.confirmLabel ?? t("common.confirm")}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export function FileContextMenu(props: {
 	menu: { x: number; y: number; node: FileTreeNode };
 	onClose: () => void;
@@ -3019,8 +3031,11 @@ export function FileContextMenu(props: {
 	onReveal: () => void;
 	onAttach: () => void;
 	onCopyPath: () => void;
+	onDelete?: () => void;
+	onRename?: () => void;
 }) {
 	const isFile = props.menu.node.type === "file";
+	const isDir = props.menu.node.type === "directory";
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
@@ -3036,6 +3051,14 @@ export function FileContextMenu(props: {
 				</button>
 				<button onClick={props.onReveal}>{t("menu.revealFile")}</button>
 				<button onClick={props.onCopyPath}>{t("menu.copyPath")}</button>
+				{props.onRename && (
+					<button onClick={props.onRename}>{t("common.rename")}</button>
+				)}
+				{props.onDelete && (
+					<button className="danger" onClick={props.onDelete}>
+						{t("common.delete")}
+					</button>
+				)}
 			</div>
 		</div>
 	);

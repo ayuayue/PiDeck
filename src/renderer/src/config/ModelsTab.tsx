@@ -849,13 +849,14 @@ export function ModelsTab(props: {
 											<span>{t("config.contextWindow")}</span>
 											<span>{t("config.maxTokens")}</span>
 											<span>{t("config.reasoning")}</span>
+											<span>{t("config.inputTypeImage")}</span>
 											<span></span>
 										</div>
 										{provider.models.map((m, i) => {
 											const modelAdvancedFields = Object.keys(m).filter(
 												(key) => !KNOWN_MODEL_FIELDS.has(key),
 											);
-											const modelComplexFields = ["api", "baseUrl", "thinkingLevelMap", "input", "cost", "headers", "compat"].filter(
+											const modelComplexFields = ["api", "baseUrl", "thinkingLevelMap", "cost", "headers", "compat"].filter(
 												(key) => m[key] !== undefined,
 											);
 											return (
@@ -928,11 +929,27 @@ export function ModelsTab(props: {
 														}
 													/>
 												</label>
-												<button
-													className="config-icon-btn danger"
-													onClick={() => props.onDeleteModel(name, i)}
-													title={t("config.deleteModel")}
-												>
+													<div className="config-input-cell">
+														<label className="config-input-option">
+															<input
+																type="checkbox"
+																checked={(m.input ?? []).includes("image")}
+																onChange={(e) => {
+																	const base = m.input ?? ["text", "image"];
+																	const next = e.target.checked
+																		? [...new Set([...base, "text", "image"])]
+																		: ["text"];
+																	props.onUpdateModel(name, i, "input", next);
+																}}
+															/>
+															<span>{t("config.inputTypeImage")}</span>
+														</label>
+													</div>
+													<button
+														className="config-icon-btn danger"
+														onClick={() => props.onDeleteModel(name, i)}
+														title={t("config.deleteModel")}
+													>
 													<Trash2 size={14} />
 												</button>
 												{(modelComplexFields.length > 0 || modelAdvancedFields.length > 0) && (

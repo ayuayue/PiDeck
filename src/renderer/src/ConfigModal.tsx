@@ -23,11 +23,12 @@ const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi })
 	.piDesktop;
 const DEFAULT_MODEL_CONFIG: Pick<
 	ModelItem,
-	"contextWindow" | "maxTokens" | "reasoning"
+	"contextWindow" | "maxTokens" | "reasoning" | "input"
 > = {
 	contextWindow: 1000000,
 	maxTokens: 128000,
 	reasoning: true,
+	input: ["text", "image"],
 };
 
 /**

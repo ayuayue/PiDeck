@@ -720,6 +720,14 @@ function registerIpc() {
 		await writeFile(path, content, "utf8");
 	});
 
+	ipcMain.handle(ipcChannels.filesDelete, async (_event, path: string, recursive?: boolean) => {
+		await fileSystemService.delete(path, recursive);
+	});
+
+	ipcMain.handle(ipcChannels.filesRename, async (_event, path: string, newName: string) => {
+		return fileSystemService.rename(path, newName);
+	});
+
 	ipcMain.handle(
 		ipcChannels.filesShowInFolder,
 		async (_event, path: string) => {
