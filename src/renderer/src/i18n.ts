@@ -327,6 +327,11 @@ const zhCN = {
   "config.renderCrashedHelpPrefix":
     "这通常是某个配置字段结构超出了当前可视化表单的兼容范围。配置文件不会被修改，建议先查看 ",
   "config.renderCrashedHelpSuffix": "，并把控制台错误和配置片段反馈给我们。",
+  "app.globalRenderCrashed": "界面渲染崩溃",
+  "app.globalRenderCrashedHelp":
+    "渲染进程发生异常导致界面白屏。这通常由某条异常消息内容触发。你可以重载界面恢复；如果反复崩溃，请重启 Agent 或反馈控制台错误。",
+  "app.globalRenderReload": "重载界面",
+  "app.globalRenderCopyError": "复制错误信息",
   "config.saveFailed": "保存失败",
   "config.saved": "配置已保存",
   "config.modelsSavedRestartHint": "模型配置已保存，请重启激活的 Agent 会话以应用新配置",
@@ -1176,6 +1181,11 @@ const enUS: Record<TranslationKey, string> = {
     "A config field shape is outside the current visual form compatibility range. Config files were not modified. Check ",
   "config.renderCrashedHelpSuffix":
     ", then send us the console error and config snippet.",
+  "app.globalRenderCrashed": "UI render crash",
+  "app.globalRenderCrashedHelp":
+    "A render error caused the UI to go blank, usually triggered by an unexpected message. Reload to recover; if it keeps crashing, restart the agent or report the console error.",
+  "app.globalRenderReload": "Reload UI",
+  "app.globalRenderCopyError": "Copy error",
   "config.saveFailed": "Save failed",
   "config.saved": "Configuration saved",
   "config.modelsSavedRestartHint": "Model configuration saved. Please restart active Agent sessions to apply the new configuration.",

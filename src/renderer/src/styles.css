@@ -9568,3 +9568,88 @@ a.config-btn {
 	align-items: center;
 	flex-wrap: wrap;
 }
+.config-im-openid-edit {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+/* 全局渲染错误边界:渲染进程崩溃时替代白屏,提供错误信息和重载入口 */
+.global-error-boundary {
+	position: fixed;
+	inset: 0;
+	z-index: 99999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--space-4, 16px);
+	background: var(--color-bg-app);
+	color: var(--color-text-primary);
+	font-family: var(--font-family-base);
+}
+.global-error-card {
+	max-width: 560px;
+	width: 100%;
+	background: var(--color-bg-panel);
+	border: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.12));
+	padding: var(--space-4, 16px) var(--space-5, 20px);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3, 12px);
+}
+.global-error-card h1 {
+	margin: 0;
+	font-size: var(--font-size-heading);
+	color: var(--color-text-primary);
+}
+.global-error-card p {
+	margin: 0;
+	font-size: var(--font-size-body);
+	line-height: var(--line-height-body, 1.5);
+	color: var(--color-text-secondary);
+}
+.global-error-detail {
+	margin: 0;
+	max-height: 240px;
+	overflow: auto;
+	padding: var(--space-2, 8px) var(--space-3, 12px);
+	background: var(--color-bg-muted);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-family-mono, ui-monospace, monospace);
+	font-size: var(--font-size-caption);
+	white-space: pre-wrap;
+	word-break: break-word;
+	color: var(--color-text-primary);
+}
+.global-error-actions {
+	display: flex;
+	gap: var(--space-2, 8px);
+	flex-wrap: wrap;
+}
+.global-error-actions button {
+	padding: 6px 14px;
+	border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+	border-radius: var(--radius-sm);
+	background: var(--color-bg-panel);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-control);
+	cursor: pointer;
+}
+.global-error-actions button:hover {
+	background: var(--color-bg-hover);
+}
+.global-error-actions button:focus-visible {
+	outline: 2px solid var(--focus-ring, #1a73e8);
+	outline-offset: 2px;
+}
+.global-error-actions .global-error-primary {
+	background: var(--color-accent, #1a73e8);
+	color: var(--color-text-inverse);
+	border-color: transparent;
+}
+.global-error-actions .global-error-primary:hover {
+	filter: brightness(0.95);
+}

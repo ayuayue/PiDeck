@@ -29,10 +29,26 @@ export class AgentManager {
 	private readonly activeAssistantMessageIds = new Map<string, string>();
 	/** pi 的 toolCallId 贯穿 start/update/end，用它把同一次工具调用合并成一条 UI 记录。 */
 	private readonly toolMessageIds = new Map<string, Map<string, string>>();
-	/** 每个 agent 只保留一条自动重试状态消息，避免短暂 5xx/网络错误把会话刷屏。 */
 	private readonly retryStatusMessageIds = new Map<string, string>();
 	/** 本地事件监听器（用于 FeishuBridge 等主进程内部订阅） */
 	private readonly localEventListeners = new Set<(agentId: string, event: unknown) => void>();
+	/**
+	 * 流式消息 emit 节流状态。
+	 * pi 的流式响应（text_delta/thinking_delta/tool_execution_update）是逐 token 高频事件，
+	 * 若每次都把整个 messages 数组全量经 IPC 推给渲染进程，大 session（多工具结果/大输出）
+	 * 的 payload 可达数 MB，单次响应累计传输 GB 级，最终导致渲染进程 OOM/GPU 崩溃白屏。
+	 * 这里把高频流式事件合并到固定窗口（约 50ms）统一 emit 一次；终态事件立即 flush，保证最终状态及时。
+	 */
+	private readonly messageFlushTimers = new Map<string, NodeJS.Timeout>();
+	private readonly pendingMessageAgents = new Set<string>();
+	/** 流式 emit 合并窗口（毫秒）。50ms 兼顾流畅度与传输量，肉眼几乎无延迟。 */
+	private static readonly MESSAGE_FLUSH_INTERVAL_MS = 50;
+	/**
+	 * 工具结果文本截断阈值（字符数）。工具结果（如 bash 输出、文件读取）可能达数十 KB，
+	 * 若完整存入 ChatMessage.meta 并随流式 emit 反复全量传输，会显著放大 IPC payload
+	 * 并推高渲染进程内存，是大会话白屏的重要诱因。超长结果保留首尾各一部分，中间省略。
+	 */
+	private static readonly MAX_TOOL_RESULT_CHARS = 8000;
 
 	constructor(
 		private readonly getProject: (id: string) => Project | undefined,
@@ -65,7 +81,7 @@ export class AgentManager {
 		);
 		this.messages.set(agentId, messages);
 		this.refreshAutoTitle(agentId);
-		this.emit(ipcChannels.agentsMessage, { agentId, messages });
+		this.scheduleMessageEmit(agentId, true);
 		return messages;
 	}
 
@@ -928,6 +944,8 @@ export class AgentManager {
 				typed,
 				typed.isError ? "error" : "done",
 			);
+			// 工具执行结束是终态，立即 flush 把最终结果推给渲染进程，避免节流窗口内用户看不到完成状态。
+			this.flushMessageEmit(agentId);
 			// 工具调用完成后保持 agent 状态为 running，等待后续的 agent_end 事件
 			// 这样在工具完成到 agent 生成回复之间，thinking bubble 仍然会显示
 			if (runtime) {
@@ -995,12 +1013,16 @@ export class AgentManager {
 				this.streamingThinking.set(agentId, finalThinking);
 			}
 			this.upsertAssistantMessage(agentId, partialMessage);
+			// thinking_end 是阶段性终态，立即 flush 让思考块完整落盘显示。
+			this.flushMessageEmit(agentId);
 			return;
 		}
 
 		if (eventType === "message_end" || eventType === "done" || eventType === "error") {
 			this.upsertAssistantMessage(agentId, partialMessage);
 			this.activeAssistantMessageIds.delete(agentId);
+			// message_end/done/error 是本轮回答的最终状态，立即 flush 确保完整消息及时可见。
+			this.flushMessageEmit(agentId);
 		}
 	}
 
@@ -1057,7 +1079,9 @@ export class AgentManager {
 		}
 
 		this.messages.set(agentId, list);
-		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
+		// upsertAssistantMessage 被 text_delta/thinking_delta 高频调用，走节流合并；
+		// message_end/thinking_end 等终态调用方会在调用后显式 flush，保证最终状态及时。
+		this.scheduleMessageEmit(agentId);
 	}
 
 	private upsertToolMessage(
@@ -1107,10 +1131,8 @@ export class AgentManager {
 					.then((content) => {
 						originalContent = content;
 						existing?.meta && (existing.meta.originalContent = content);
-						this.emit(ipcChannels.agentsMessage, {
-							agentId,
-							messages: this.messages.get(agentId) ?? [],
-						});
+						// 文件原始内容补充属于一次性终态更新，立即 flush 让差异编辑器尽快拿到基准。
+						this.scheduleMessageEmit(agentId, true);
 					})
 					.catch(() => {
 						// 文件不存在或被删除，跳过
@@ -1135,8 +1157,8 @@ export class AgentManager {
 			status,
 			toolName,
 			toolCallId,
-			args,
-			result,
+			args: this.truncateForDetail(this.safeJson(args)),
+			result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 			isError,
 			detailText,
 			originalContent,
@@ -1158,7 +1180,9 @@ export class AgentManager {
 		}
 
 		this.messages.set(agentId, list);
-		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
+		// upsertToolMessage 同时服务于 start(终态)/end(终态)/update(流式)，统一节流；
+		// tool_execution_end 调用方会立即 flush 确保工具完成状态及时可见。
+		this.scheduleMessageEmit(agentId);
 	}
 
 	private addMessage(
@@ -1180,7 +1204,8 @@ export class AgentManager {
 		});
 		this.messages.set(agentId, list);
 		if (role === "user" || role === "assistant") this.refreshAutoTitle(agentId);
-		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
+		// 用户消息/错误消息是用户可见的终态事件，立即 flush。
+		this.scheduleMessageEmit(agentId, true);
 	}
 
 	private refreshAutoTitle(agentId: string) {
@@ -1273,7 +1298,8 @@ export class AgentManager {
 		message.meta = { status, attempt, maxAttempts, delayMs, errorMessage: reason };
 
 		this.messages.set(agentId, list);
-		this.emit(ipcChannels.agentsMessage, { agentId, messages: list });
+		// 重试状态变化需要及时反馈，立即 flush。
+		this.scheduleMessageEmit(agentId, true);
 	}
 
 	private convertAgentMessages(
@@ -1339,8 +1365,8 @@ export class AgentManager {
 								status: isError ? "error" : "done",
 								toolName,
 								toolCallId,
-								args: historicalCall?.args,
-								result,
+							args: this.truncateForDetail(this.safeJson(historicalCall?.args)),
+							result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 								isError,
 								detailText,
 							},
@@ -1380,16 +1406,36 @@ export class AgentManager {
 		isError: boolean,
 	) {
 		const details = this.extractToolDetails(result);
+		// args/结果/details 都先序列化再截断，避免单条工具详情撑大 ChatMessage.meta。
+		const argsText = args ? this.truncateForDetail(this.safeJson(args)) : "";
+		const resultText = result
+			? this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result))
+			: "";
+		const detailsText = details ? this.truncateForDetail(this.safeJson(details)) : "";
 		const sections = [
 			`工具：${toolName ?? "tool"}`,
 			`状态：${isError ? "失败" : "完成"}`,
-			args ? `参数：\n${this.safeJson(args)}` : "",
-			result
-				? `结果：\n${this.extractToolResultText(result) || this.safeJson(result)}`
-				: "",
-			details ? `详情：\n${this.safeJson(details)}` : "",
+			args ? `参数：\n${argsText}` : "",
+			result ? `结果：\n${resultText}` : "",
+			details ? `详情：\n${detailsText}` : "",
 		].filter(Boolean);
 		return sections.join("\n\n");
+	}
+
+	/** 对超长工具文本做首尾截断，保留头部和尾部以兼顾开头信息和错误堆栈。 */
+	/** 对超长工具文本做首尾截断，保留头部和尾部以兼顾开头信息和错误堆栈。 */
+	private truncateForDetail(text: unknown): string {
+		// safeJson/extractToolResultText 在某些输入下可能返回 undefined（如 JSON.stringify(undefined)），
+		// 必须在此归一化为字符串，否则后续 .length 访问会抛 TypeError 导致主进程未捕获异常弹窗。
+		const str = typeof text === "string" ? text : text == null ? "" : String(text);
+		if (str.length <= AgentManager.MAX_TOOL_RESULT_CHARS) return str;
+		const keep = Math.floor(AgentManager.MAX_TOOL_RESULT_CHARS / 2);
+		const omitted = str.length - keep * 2;
+		return (
+			`${str.slice(0, keep)}\n` +
+			`…（已省略中间 ${omitted} 字符，完整内容共 ${str.length} 字符）\n` +
+			str.slice(-keep)
+		);
 	}
 
 	private extractToolDetails(result: unknown) {
@@ -1408,11 +1454,13 @@ export class AgentManager {
 			.join("\n");
 	}
 
-	private safeJson(value: unknown) {
+	private safeJson(value: unknown): string {
 		try {
-			return JSON.stringify(value, null, 2);
+			// JSON.stringify(undefined) 返回 undefined（非字符串），统一回退为空串避免上层崩溃。
+			const out = JSON.stringify(value, null, 2);
+			return typeof out === "string" ? out : String(value ?? "");
 		} catch {
-			return String(value);
+			return String(value ?? "");
 		}
 	}
 
@@ -1501,6 +1549,37 @@ export class AgentManager {
 	/** 清理 ANSI 转义码，模型思考内容中常见终端颜色序列 */
 	private stripAnsi(text: string): string {
 		return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+	}
+
+
+	/**
+	 * 安排一次消息 emit。流式高频事件走节流合并（同一 agent 50ms 内多次调用只 emit 一次最新数组）；
+	 * immediate=true 时跳过节流立即 flush，用于 message_end/tool_execution_end 等终态事件，确保最终状态不丢。
+	 */
+	private scheduleMessageEmit(agentId: string, immediate = false) {
+		if (immediate) {
+			this.flushMessageEmit(agentId);
+			return;
+		}
+		if (this.pendingMessageAgents.has(agentId)) return;
+		this.pendingMessageAgents.add(agentId);
+		const timer = setTimeout(() => this.flushMessageEmit(agentId), AgentManager.MESSAGE_FLUSH_INTERVAL_MS);
+		// 节流定时器不应阻止进程退出
+		timer.unref?.();
+		this.messageFlushTimers.set(agentId, timer);
+	}
+
+	private flushMessageEmit(agentId: string) {
+		const timer = this.messageFlushTimers.get(agentId);
+		if (timer) {
+			clearTimeout(timer);
+			this.messageFlushTimers.delete(agentId);
+		}
+		this.pendingMessageAgents.delete(agentId);
+		this.emit(ipcChannels.agentsMessage, {
+			agentId,
+			messages: this.messages.get(agentId) ?? [],
+		});
 	}
 
 	private emitThinking(agentId: string, thinking: string) {

@@ -1,6 +1,7 @@
 import {
 	app,
 	BrowserWindow,
+	dialog,
 	ipcMain,
 	Menu,
 	nativeImage,
@@ -9,7 +10,7 @@ import {
 	Tray,
 } from "electron";
 import { join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, appendFile, mkdir } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
@@ -504,6 +505,51 @@ function createWindow() {
 			}
 		}
 	});
+
+	// 渲染进程崩溃/无响应监听:大会话流式期间可能因 OOM 或 GPU 进程崩溃导致渲染进程 gone,
+	// 之前没有任何监听,崩溃后只剩白屏且无日志。这里捕获原因并提示用户重载,提升可恢复性与可观测性。
+	mainWindow.webContents.on("render-process-gone", (_event, details) => {
+		const reason = details?.reason ?? "unknown";
+		const exitCode = details?.exitCode ?? -1;
+		console.error(`[PiDeck] 渲染进程崩溃: reason=${reason} exitCode=${exitCode}`);
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		void dialog.showMessageBox(mainWindow, {
+			type: "error",
+			title: "PiDeck",
+			message: "界面进程已崩溃",
+			detail: `崩溃原因：${reason}（退出码 ${exitCode}）\n\n这通常由超大会话内容导致内存不足引起。点击确定后将重载界面。`,
+			buttons: ["重载", "退出"],
+			defaultId: 0,
+			cancelId: 1,
+		}).then((result) => {
+			if (result.response === 0) {
+				mainWindow?.webContents.reload();
+			} else {
+				app.quit();
+			}
+		});
+	});
+
+	// 渲染进程无响应(JS 主线程长时间阻塞,常见于超大文本渲染)提示用户,避免静默卡死。
+	mainWindow.webContents.on("unresponsive", () => {
+		console.warn("[PiDeck] 渲染进程无响应");
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		void dialog.showMessageBox(mainWindow, {
+			type: "warning",
+			title: "PiDeck",
+			message: "界面无响应",
+			detail: "界面主线程长时间无响应,可能是某条超大消息内容导致渲染阻塞。\n是否等待恢复?",
+			buttons: ["等待", "强制重载"],
+			defaultId: 0,
+			cancelId: 1,
+		}).then((result) => {
+			if (result.response === 1 && mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.forcefullyCrashRenderer();
+				mainWindow.webContents.reload();
+			}
+		});
+	});
+
 
 	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
 		mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -1213,6 +1259,29 @@ function sendTelemetryHeartbeat() {
 
 	void telemetry.sendHeartbeat().catch(() => undefined);
 }
+
+/**
+ * 主进程全局异常日志记录。
+ * 背景:主进程未捕获异常会触发系统弹窗，用户需要截图转文字才能反馈，很麻烦。
+ * 这里把 uncaughtException / unhandledRejection 的错误信息追加写入用户数据目录下的日志文件，
+ * 用户可直接把日志文件发给我们排查，无需手动转录弹窗。
+ * 同时仍输出到控制台，开发时不丢失信息。
+ */
+function logMainError(kind: string, error: unknown) {
+	const time = new Date().toISOString();
+	const stack = error instanceof Error
+		? `${error.name}: ${error.message}\n${error.stack ?? ""}`
+		: String(error);
+	const line = `[${time}] [${kind}]\n${stack}\n${"-".repeat(60)}\n`;
+	console.error(`[PiDeck] ${kind}:`, error);
+	const dir = join(app.getPath("userData"), "logs");
+	void mkdir(dir, { recursive: true }).then(() =>
+		appendFile(join(dir, "main-errors.log"), line, "utf8").catch(() => undefined),
+	);
+}
+
+process.on("uncaughtException", (error) => logMainError("uncaughtException", error));
+process.on("unhandledRejection", (reason) => logMainError("unhandledRejection", reason));
 
 app.whenReady().then(async () => {
 	projectStore = new ProjectStore();
