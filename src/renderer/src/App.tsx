@@ -1108,6 +1108,7 @@ export function App() {
       }));
   }, [activeProjectId, activeAgentId]);
 
+	// 加载 agent 可用命令，goalEnabled 变化时重新计算以动态添加/移除 /goal 命令
 	useEffect(() => {
 		if (activeAgentId && !isPendingAgentId(activeAgentId))
 			void api.agents

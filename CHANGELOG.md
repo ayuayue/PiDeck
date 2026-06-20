@@ -6,6 +6,12 @@ All notable changes to PiDeck are documented here.
 
 ## [Unreleased]
 
+### 🚀 New Features
+
+- **Built-in Goal toggle**: Goal feature now appears in the Extensions page with enable/disable switch.
+  When disabled, `/goal` commands are hidden and any active goal is cleared.
+
+
 ## v0.6.1 - 2026-06-16
 
 ### 🚀 New Features
