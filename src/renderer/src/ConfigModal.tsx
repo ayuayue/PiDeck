@@ -186,6 +186,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 		extensions: [],
 		raw: "",
 	});
+	const [goalEnabled, setGoalEnabled] = useState(true);
 	const [creatingSkill, setCreatingSkill] = useState(false);
 	const [uninstallingExtensionSource, setUninstallingExtensionSource] = useState<string | null>(null);
 	const [newSkillName, setNewSkillName] = useState("");
@@ -325,6 +326,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 		}
 		if (section === "extensions") {
 			void refreshExtensions();
+			void api.settings.get().then((s) => setGoalEnabled(s.goalEnabled));
 			return;
 		}
 		void loadConfig(tab);
@@ -831,6 +833,17 @@ function ConfigModalContent(props: ConfigModalProps) {
 		}
 	};
 
+	const handleToggleGoal = async () => {
+		try {
+			const next = await api.settings.update({ goalEnabled: !goalEnabled });
+			setGoalEnabled(next.goalEnabled);
+			showToast(next.goalEnabled ? t("config.goalEnabledToast") : t("config.goalDisabledToast"));
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		}
+	};
+
+
 	const handleImport = async () => {
 		const input = document.createElement("input");
 		input.type = "file";
@@ -1059,13 +1072,15 @@ function ConfigModalContent(props: ConfigModalProps) {
 					)}
 
 					{section === "extensions" && !loading && (
-						<ExtensionsTab
-							data={extensionsData}
-							loading={loading}
-							uninstallingSource={uninstallingExtensionSource}
-							onRefresh={refreshExtensions}
-							onUninstall={setUninstallExtensionConfirm}
-						/>
+					<ExtensionsTab
+						data={extensionsData}
+						loading={loading}
+						uninstallingSource={uninstallingExtensionSource}
+						onRefresh={refreshExtensions}
+						onUninstall={setUninstallExtensionConfirm}
+						goalEnabled={goalEnabled}
+						onToggleGoal={handleToggleGoal}
+					/>
 					)}
 
 					{section === "config" && !loading && tab === "raw" && (

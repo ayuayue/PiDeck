@@ -27,7 +27,8 @@ const defaultSettings: AppSettings = {
   webServicePort: 8765,
   rpcTimeout: 600_000,
   linkOpenMode: "external",
-  maxEditorFileSizeMB: 5,
+	maxEditorFileSizeMB: 5,
+	goalEnabled: true,
 };
 
 export class SettingsStore {

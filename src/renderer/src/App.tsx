@@ -454,7 +454,8 @@ export function App() {
     webServicePort: 8765,
     rpcTimeout: 600_000,
     linkOpenMode: "external",
-    maxEditorFileSizeMB: 5,
+		maxEditorFileSizeMB: 5,
+		goalEnabled: true,
   });
   const [settingsNotice, setSettingsNotice] = useState("");
   const [piProxyNotice, setPiProxyNotice] = useState("");
@@ -1107,14 +1108,20 @@ export function App() {
       }));
   }, [activeProjectId, activeAgentId]);
 
-  useEffect(() => {
-    if (activeAgentId && !isPendingAgentId(activeAgentId))
-      void api.agents
-        .commands(activeAgentId)
-        .then((cmds) => setCommands([...cmds, { name: "goal", description: "设置任务目标: /goal <目标>", source: "builtin" }]))
-        .catch(() => setCommands([]));
-    else setCommands([]);
-  }, [activeAgentId]);
+	useEffect(() => {
+		if (activeAgentId && !isPendingAgentId(activeAgentId))
+			void api.agents
+.commands(activeAgentId)
+.then((cmds) => {
+				const extra: PiCommand[] = [];
+				if (settings.goalEnabled) {
+					extra.push({ name: "goal", description: "设置任务目标: /goal <目标>", source: "builtin" });
+				}
+				setCommands([...cmds, ...extra]);
+			})
+.catch(() => setCommands([]));
+		else setCommands([]);
+	}, [activeAgentId, settings.goalEnabled]);
 
   useEffect(() => {
     setSelectedSuggestionIndex(0);
@@ -1259,6 +1266,22 @@ export function App() {
       }
     }
   }, [messagesByAgent, activeAgentId]);
+
+
+	// 当 Goal 被禁用时，清除正在进行的 Goal 状态
+	useEffect(() => {
+		if (!settings.goalEnabled && goalStatusRef.current !== "none") {
+			goalStatusRef.current = "none";
+			goalTextRef.current = "";
+			goalStartedAtRef.current = 0;
+			goalIterationRef.current = 0;
+			goalContinuationPendingRef.current = false;
+			setGoalStatus("none");
+			setGoalText("");
+			setGoalStartedAt(0);
+			setGoalCompletedAt(0);
+		}
+	}, [settings.goalEnabled]);
 
   // 监听用户发送消息的编辑事件,将消息填入输入框
   useEffect(() => {
@@ -2449,12 +2472,12 @@ ${text}
     const message = prompt;
     const images = attachedImages.length > 0 ? attachedImages : undefined;
 
-    // ── /goal 命令处理 ──
-    if (message.trim().startsWith("/goal")) {
-      handleGoalCommand(message.trim());
-      setPrompt("");
-      return;
-    }
+		// ── /goal 命令处理 ──
+		if (settings.goalEnabled && message.trim().startsWith("/goal")) {
+			handleGoalCommand(message.trim());
+			setPrompt("");
+			return;
+		}
 
     // 保存到历史记录(只保存非空的文本命令)
     if (message.trim() && !message.startsWith("!")) {

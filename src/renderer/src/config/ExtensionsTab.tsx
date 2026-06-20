@@ -60,6 +60,8 @@ export function ExtensionsTab(props: {
 	uninstallingSource: string | null;
 	onRefresh: () => void;
 	onUninstall: (extension: PiExtensionSummary) => void;
+	goalEnabled: boolean;
+	onToggleGoal: () => void;
 }) {
 	const [installing, setInstalling] = useState<string | null>(null);
 
@@ -124,6 +126,34 @@ export function ExtensionsTab(props: {
 			</div>
 
 			<hr className="extensions-divider" />
+
+			{/* 内置功能 */}
+			<div className="config-section" style={{ marginBottom: 20 }}>
+				<h3 className="extensions-installed-title" style={{ marginBottom: 12 }}>{t("config.builtinFeatures")}</h3>
+				<div className="extensions-recommended-list">
+					<div className="extensions-recommended-row" style={{ cursor: "default" }}>
+						<div className="extensions-recommended-info">
+							<div className="extensions-recommended-name">
+								<strong>{t("config.builtinGoal")}</strong>
+								<span className={`skill-state ${props.goalEnabled ? "enabled" : "disabled"}`} style={{ marginLeft: 8, verticalAlign: "middle" }}>
+									{props.goalEnabled ? t("common.enabled") : t("common.disabled")}
+								</span>
+							</div>
+							<div className="extensions-recommended-desc">
+								{t("config.builtinGoalDescription")}
+							</div>
+						</div>
+						<div className="extensions-recommended-action">
+							<button
+								className="config-btn"
+								onClick={props.onToggleGoal}
+							>
+								{props.goalEnabled ? t("common.disabled") : t("common.enabled")}
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
 
 			{/* 已安装扩展列表 */}
 			<div className="config-section">

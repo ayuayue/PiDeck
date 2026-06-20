@@ -235,6 +235,8 @@ export type AppSettings = {
 	linkOpenMode: LinkOpenMode;
 	/** 编辑器最大文件大小（MB），超过此大小的文件不加载编辑器。默认 5MB。 */
 	maxEditorFileSizeMB: number;
+	/** 是否启用内置 Goal 功能（/goal 命令 + 自动续接） */
+	goalEnabled: boolean;
 };
 
 export type PiInstallStatus = {
