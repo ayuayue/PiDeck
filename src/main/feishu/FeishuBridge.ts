@@ -79,6 +79,8 @@ export class FeishuBridge {
 
 	private chatBindings = new Map<string, FeishuChatBinding>();
 	private sessionToChat = new Map<string, string>();
+	/** 同一会话可能在创建 Agent 和首次发送消息时同时触发 mirror；用 pending 防止并发重复建群。 */
+	private sessionMirrorPending = new Map<string, Promise<string | undefined>>();
 
 	private groupInfoCache = new Map<string, FeishuGroupInfo>();
 	private userNameCache = new Map<string, string>();
@@ -781,6 +783,16 @@ export class FeishuBridge {
 
 	/** Session Mirror: Pi 侧创建会话时自动拉群（1会话=1群） */
 	async ensureSessionMirror(sessionId: string, sessionTitle?: string, sessionPath?: string): Promise<string | undefined> {
+		const pending = this.sessionMirrorPending.get(sessionId);
+		if (pending) return pending;
+		const task = this.ensureSessionMirrorInner(sessionId, sessionTitle, sessionPath).finally(() => {
+			this.sessionMirrorPending.delete(sessionId);
+		});
+		this.sessionMirrorPending.set(sessionId, task);
+		return task;
+	}
+
+	private async ensureSessionMirrorInner(sessionId: string, sessionTitle?: string, sessionPath?: string): Promise<string | undefined> {
 		if (!this.client || this.status.status !== "connected") {
 			log("[飞书 Session Mirror] Bridge 未连接，跳过自动拉群");
 			return undefined;
@@ -808,29 +820,8 @@ export class FeishuBridge {
 			}
 		}
 
-		// 3. 已有绑定：检查是否需要修复空群，确保 sessionId 映射正确；或者尝试复用孤立的 session-mirror 群
-		if (!existingChatId) {
-			// 3a. 没有直接匹配 → 尝试复用孤立的 session-mirror 群（重启后 sessionId 变化导致的孤儿）
-			for (const [cid, binding] of this.chatBindings) {
-				if (
-					binding.source === "session-mirror" &&
-					binding.botId === this.botConfig.id &&
-					!this.agentManager.list().some(t => t.id === binding.sessionId)
-				) {
-					const oldSessionId = binding.sessionId;
-					existingChatId = cid;
-					binding.sessionId = sessionId;
-					if (sessionPath) binding.sessionPath = sessionPath;
-					this.sessionToChat.set(sessionId, cid);
-					this.feishuSessions.add(sessionId);
-					log(`[飞书 Session Mirror] 复用孤立飞书群: ${cid} (原 ${oldSessionId?.slice(0, 8)} → ${sessionId.slice(0, 8)})`);
-					this.persistBindings();
-					this.pushBindings();
-					break;
-				}
-			}
-		}
-
+		// 3. 已有绑定：检查是否需要修复空群，确保 sessionId 映射正确。
+		// 不再按“孤立群”猜测复用，避免不同会话被错误关联到旧群；精准复用只依赖 sessionId/sessionPath。
 		if (existingChatId) {
 			const effectiveUserOpenId = this.botConfig.defaultUserOpenId || this.userOpenId;
 			const binding = this.chatBindings.get(existingChatId);
@@ -1105,17 +1096,9 @@ export class FeishuBridge {
 		for (const b of bindings) {
 			const tabs = this.agentManager.list();
 			let tab = tabs.find((t) => t.id === b.sessionId);
-
-			// sessionId 不匹配当前 tab → 尝试按群名匹配（重启后 sessionId 可能变）
-			if (!tab && b.groupName && b.source === "session-mirror") {
-				for (const t of tabs) {
-					const expectedName = `Pi Agent - ${(t.title || `新会话 ${t.id.slice(0, 8)}`).slice(0, 50)}`;
-					if (expectedName === b.groupName) {
-						tab = t;
-						log(`[飞书 Bridge] 按群名恢复绑定: ${b.groupName} → sessionId ${t.id}`);
-						break;
-					}
-				}
+			if (!tab && b.sessionPath) {
+				tab = tabs.find((t) => t.sessionPath === b.sessionPath);
+				if (tab) log(`[飞书 Bridge] 按 sessionPath 恢复绑定: ${b.chatId} → sessionId ${tab.id}`);
 			}
 
 			if (tab) {

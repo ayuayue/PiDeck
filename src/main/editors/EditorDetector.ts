@@ -22,10 +22,13 @@ const CANDIDATES: EditorCandidate[] = [
 	{
 		id: "vscode",
 		name: "Visual Studio Code",
-		commands: ["code", "code.cmd"],
+		// Windows 上 VS Code 的 code/code.cmd shim 可能启动后无窗口,优先使用 GUI 主程序 Code.exe。
+		commands: process.platform === "win32" ? [] : ["code"],
 		commonPaths: [
 			...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Programs", "Microsoft VS Code", "Code.exe")),
 			...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Microsoft VS Code", "Code.exe")),
+			...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Programs", "Microsoft VS Code", "bin", "code.cmd")),
+			...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Microsoft VS Code", "bin", "code.cmd")),
 			"/usr/bin/code",
 			"/usr/local/bin/code",
 			"/snap/bin/code",
@@ -169,22 +172,63 @@ export async function detectExternalEditors(): Promise<ExternalEditor[]> {
 	return editors;
 }
 
+function quoteCmdArg(value: string) {
+	return `"${value.replace(/"/g, '\\"')}"`;
+}
+
 export async function openProjectInEditor(editor: ExternalEditor, projectPath: string) {
 	return new Promise<void>((resolve, reject) => {
-		const child = spawn(editor.command, [...(editor.args ?? []), projectPath], {
+		const needsCmd = process.platform === "win32" && /\.(cmd|bat)$/i.test(editor.command);
+		const launchArgs = [...(editor.args ?? []), ...(editor.id === "vscode" ? ["--reuse-window"] : []), projectPath];
+		const command = needsCmd ? (process.env.ComSpec || "cmd.exe") : editor.command;
+		const args = needsCmd
+			// Windows 批处理启动 GUI 程序时使用 start 更可靠；第一个空字符串是窗口标题占位。
+			? ["/d", "/s", "/c", `start "" ${quoteCmdArg(editor.command)} ${launchArgs.map(quoteCmdArg).join(" ")}`]
+			: launchArgs;
+
+		// 打开外部编辑器问题常与 PATH、cmd shim、路径空格有关；保留控制台诊断信息方便用户反馈。
+		console.log("[EditorDetector] launching editor", {
+			editorId: editor.id,
+			editorName: editor.name,
+			command,
+			args,
+			originalCommand: editor.command,
+			projectPath,
+			needsCmd,
+		});
+
+		const child = spawn(command, args, {
 			detached: true,
 			stdio: "ignore",
-			shell: process.platform === "win32",
+			shell: false,
 		});
 		child.once("error", async (error) => {
+			console.error("[EditorDetector] failed to launch editor", {
+				editorId: editor.id,
+				command,
+				args,
+				error,
+			});
 			// 部分 GUI 应用不适合 spawn 时,回退到系统打开路径,避免用户点击后无反馈。
 			const fallbackError = await shell.openPath(projectPath);
 			if (fallbackError) reject(error);
 			else resolve();
 		});
 		child.once("spawn", () => {
+			console.log("[EditorDetector] editor process spawned", {
+				editorId: editor.id,
+				pid: child.pid,
+				command,
+			});
 			child.unref();
 			resolve();
+		});
+		child.once("exit", (code, signal) => {
+			console.log("[EditorDetector] editor launcher exited", {
+				editorId: editor.id,
+				code,
+				signal,
+			});
 		});
 	});
 }

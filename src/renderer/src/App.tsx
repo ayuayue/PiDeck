@@ -120,7 +120,7 @@ const isLanWeb =
 const api =
   window.piDesktop ?? (isLanWeb ? createBrowserApi() : createPreviewApi());
 // 输入框默认高度增加,提供更好的输入体验,适合多行输入和代码片段
-const COMPOSER_MIN_HEIGHT = 120;
+const COMPOSER_MIN_HEIGHT = 240;
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const COMPOSER_MIN_TIMELINE_HEIGHT = 160;
 const SIDEBAR_SESSION_PAGE_SIZE = 5;
@@ -186,6 +186,20 @@ function isSameSessionPath(left?: string, right?: string) {
   return Boolean(
     normalizedLeft && normalizedRight && normalizedLeft === normalizedRight,
   );
+}
+
+const EDITOR_LOGO_URLS: Record<string, string> = {
+  vscode: new URL("./assets/editors/vscode.png", import.meta.url).href,
+  cursor: new URL("./assets/editors/cursor.ico", import.meta.url).href,
+  zed: new URL("./assets/editors/zed.png", import.meta.url).href,
+  idea: new URL("./assets/editors/idea.svg", import.meta.url).href,
+  webstorm: new URL("./assets/editors/webstorm.svg", import.meta.url).href,
+  phpstorm: new URL("./assets/editors/phpstorm.svg", import.meta.url).href,
+  pycharm: new URL("./assets/editors/pycharm.svg", import.meta.url).href,
+};
+
+function getEditorLogoUrl(editorId: string) {
+  return EDITOR_LOGO_URLS[editorId];
 }
 
 function isReplacementForPendingAgent(agent: AgentTab, pending: AgentTab) {
@@ -274,6 +288,7 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const [fileActionsOpen, setFileActionsOpen] = useState(false);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
@@ -511,6 +526,7 @@ export function App() {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const chatPaneRef = useRef<HTMLElement | null>(null);
   const sessionComboRef = useRef<HTMLDivElement | null>(null);
+  const fileActionsRef = useRef<HTMLDivElement | null>(null);
   const chatHeaderRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
   const timelineRef = useRef<HTMLElement | null>(null);
@@ -1216,6 +1232,17 @@ export function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [sessionActionsOpen]);
+
+  useEffect(() => {
+    if (!fileActionsOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (fileActionsRef.current && !fileActionsRef.current.contains(event.target as Node)) {
+        setFileActionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [fileActionsOpen]);
 
   useEffect(() => {
     for (const agent of displayAgents) {
@@ -3373,37 +3400,6 @@ ${goalTextRef.current}
                     >
                       <Info size={14} />
                     </span>
-                    {!projectIsChat && externalEditors.length > 0 && (
-                      <select
-                        className="project-editor-select"
-                        title={t("app.openProjectInEditor")}
-                        value=""
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => {
-                          event.stopPropagation();
-                          const editor = externalEditors.find(
-                            (item) => item.id === event.target.value,
-                          );
-                          event.currentTarget.value = "";
-                          if (!editor) return;
-                          void api.editors.openProject(editor, project.path).catch((error) => {
-                            showToast(
-                              t("app.openEditorFailed", {
-                                error: error instanceof Error ? error.message : String(error),
-                              }),
-                              3000,
-                            );
-                          });
-                        }}
-                      >
-                        <option value="">{t("app.openWithEditor")}</option>
-                        {externalEditors.map((editor) => (
-                          <option key={editor.id} value={editor.id}>
-                            {editor.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
                     {!projectIsChat && (
                       <span
                         className="project-action project-delete"
@@ -3680,7 +3676,6 @@ ${goalTextRef.current}
                           setSessionActionsOpen(false);
                         }}
                       >
-                        <Plus size={14} />
                         <span>{t("app.newSession")}</span>
                       </button>
                       <div className="session-combo-divider" />
@@ -3725,16 +3720,58 @@ ${goalTextRef.current}
               <div className="header-action-group panel-group">
                 {!isLanWeb && (
                   <>
-                    <button
-                      className={drawer === "files" ? "active" : ""}
-                      disabled={isAgentStarting}
-                      onClick={() => {
-                        setDrawerCollapsed(false);
-                        openDrawer("files");
-                      }}
-                    >
-                      {t("app.files")}
-                    </button>
+                    <div className="file-action-combo" ref={fileActionsRef}>
+                      <button
+                        className={drawer === "files" ? "active file-action-trigger" : "file-action-trigger"}
+                        disabled={isAgentStarting}
+                        onClick={() => setFileActionsOpen((open) => !open)}
+                        title={t("app.files")}
+                      >
+                        <span>{t("app.files")}</span>
+                        <ChevronDown size={12} />
+                      </button>
+                      {fileActionsOpen && (
+                        <div className="file-action-menu">
+                          <button
+                            onClick={() => {
+                              setDrawerCollapsed(false);
+                              openDrawer("files");
+                              setFileActionsOpen(false);
+                            }}
+                          >
+                            <span>{t("app.showInSidebar")}</span>
+                          </button>
+                          {externalEditors.map((editor) => (
+                            <button
+                              key={editor.id}
+                              disabled={!(activeAgent?.cwd || (activeProject && !isChatProject(activeProject) ? activeProject.path : undefined))}
+                              onClick={() => {
+                                const projectPath = activeAgent?.cwd || (activeProject && !isChatProject(activeProject) ? activeProject.path : undefined);
+                                if (!projectPath) return;
+                                setFileActionsOpen(false);
+                                void api.editors.openProject(editor, projectPath).catch((error) => {
+                                  showToast(
+                                    t("app.openEditorFailed", {
+                                      error: error instanceof Error ? error.message : String(error),
+                                    }),
+                                    3000,
+                                  );
+                                });
+                              }}
+                            >
+                              <span className={`editor-logo ${editor.id}`}>
+                                {getEditorLogoUrl(editor.id) ? (
+                                  <img src={getEditorLogoUrl(editor.id)} alt="" />
+                                ) : (
+                                  editor.id.slice(0, 2).toUpperCase()
+                                )}
+                              </span>
+                              <span>{editor.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <button
                       className={terminalOpen ? "active" : ""}
                       disabled={!activeAgentId || isAgentStarting}

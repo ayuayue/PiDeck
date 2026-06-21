@@ -1191,21 +1191,6 @@ body:not(.is-list-resizing) .list-collapsed:not(.list-hover-suppressed) .chat-li
 	background: transparent;
 }
 
-.project-editor-select {
-	max-width: 92px;
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-sm);
-	background: var(--color-bg-panel);
-	color: var(--color-text-secondary);
-	font-size: var(--font-size-caption);
-	padding: 2px 4px;
-	cursor: pointer;
-}
-
-.project-editor-select:focus-visible {
-	outline: 2px solid var(--focus-ring);
-	outline-offset: 1px;
-}
 .project-action,
 .project-info {
 	width: 21px;
@@ -1520,7 +1505,8 @@ body.is-terminal-resizing {
 }
 
 /* ---- Session combo (合并新会话 + 下拉,类似 branch-select) ---- */
-.session-combo {
+.session-combo,
+.file-action-combo {
 	position: relative;
 	display: inline-flex;
 }
@@ -1574,6 +1560,12 @@ body.is-terminal-resizing {
 .session-combo-chevron.open {
 	transform: rotate(180deg);
 }
+.file-action-trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+.file-action-menu,
 .session-combo-menu {
 	position: absolute;
 	top: calc(100% + 4px);
@@ -1597,6 +1589,7 @@ body.is-terminal-resizing {
 		transform: translateY(0);
 	}
 }
+.file-action-menu button,
 .session-combo-menu button {
 	width: 100%;
 	display: flex;
@@ -1613,9 +1606,11 @@ body.is-terminal-resizing {
 	cursor: pointer;
 	transition: background 0.1s;
 }
+.file-action-menu button:hover:not(:disabled),
 .session-combo-menu button:hover:not(:disabled) {
 	background: var(--color-bg-hover);
 }
+.file-action-menu button:disabled,
 .session-combo-menu button:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
@@ -1624,6 +1619,40 @@ body.is-terminal-resizing {
 	height: 1px;
 	background: var(--color-border-subtle);
 	margin: var(--space-1) 0;
+}
+.editor-logo {
+	display: inline-grid;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	border-radius: var(--radius-xs);
+	background: var(--color-bg-muted);
+	color: var(--color-text-secondary);
+	font-family: var(--font-family-business);
+	font-size: var(--font-size-micro);
+	font-weight: 700;
+	overflow: hidden;
+}
+.editor-logo img {
+	width: 18px;
+	height: 18px;
+	object-fit: contain;
+	display: block;
+}
+.editor-logo.vscode {
+	background: color-mix(in srgb, var(--color-info) 16%, transparent);
+	color: var(--color-info);
+}
+.editor-logo.webstorm,
+.editor-logo.phpstorm,
+.editor-logo.idea,
+.editor-logo.pycharm {
+	background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+	color: var(--color-accent);
+}
+.editor-logo.zed {
+	background: color-mix(in srgb, var(--color-success) 16%, transparent);
+	color: var(--color-success);
 }
 .chat-header-actions button,
 .panel-action-row button,

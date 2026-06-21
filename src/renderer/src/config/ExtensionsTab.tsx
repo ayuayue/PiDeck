@@ -43,14 +43,13 @@ const RECOMMENDED_PACKAGES: PiPackageInfo[] = [
 		repoUrl: "https://github.com/nicobailon/pi-mcp-adapter",
 	},
 	{
-		name: "pi-memory",
+		name: "@samfp/pi-memory",
 		description: "长期记忆扩展，用于在 Pi 会话之间保存和检索偏好、项目事实与经验教训。",
-		installCmd: "npm:pi-memory",
+		installCmd: "npm:@samfp/pi-memory",
 		tags: ["extension", "memory"],
 		downloads: "",
 		updated: "",
-		npmUrl: "https://www.npmjs.com/package/pi-memory",
-		piPackageName: "memory",
+		npmUrl: "https://pi.dev/packages/@samfp/pi-memory?name=%40samfp%2Fpi-memory",
 	},
 	{
 		name: "pi-subagents",
@@ -90,7 +89,7 @@ export function ExtensionsTab(props: {
 			{/* 预设推荐扩展 — 大列表简洁显示 */}
 			<div className="config-section" style={{ marginBottom: 20 }}>
 				<div className="config-toolbar">
-					<span className="config-count">{t("config.recommendedPackages")}</span>
+					<h3 className="extensions-installed-title">{t("config.recommendedPackages")}</h3>
 				</div>
 				<p className="config-im-form-hint" style={{ marginBottom: 12 }}>
 					{t("config.recommendedPackagesHint")}

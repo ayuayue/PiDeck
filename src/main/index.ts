@@ -824,6 +824,8 @@ function registerIpc() {
 			void appLogger.info("editor", "Project opened in external editor", {
 				editorId: editor.id,
 				editorName: editor.name,
+				command: editor.command,
+				args: editor.args,
 				projectPath,
 			});
 		},
