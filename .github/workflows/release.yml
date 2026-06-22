@@ -47,7 +47,7 @@ jobs:
           echo "------------------------"
 
   build-release:
-    name: Build ${{ matrix.platform }} packages
+    name: Build ${{ matrix.name || matrix.platform }} packages
     needs: extract-changelog
     strategy:
       fail-fast: false
@@ -59,8 +59,15 @@ jobs:
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
           - platform: macos
+            name: macOS x64
+            os: macos-13
+            command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never
+            electron_mirror: ""
+            electron_builder_binaries_mirror: ""
+          - platform: macos
+            name: macOS arm64
             os: macos-latest
-            command: npm run build && npx electron-builder --mac dmg zip --x64 --arm64 --publish never
+            command: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: linux
@@ -90,6 +97,7 @@ jobs:
       - name: Build packages
         run: ${{ matrix.command }}
         env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GitHub Releases occasionally returns 504 for Electron/electron-builder binaries;
           # use a stable mirror for CI downloads while keeping publishing on GitHub Releases.
@@ -101,7 +109,10 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          # 多个 job 并发上传同一个 release；设置 prerelease 和 fail_on_unmatched_files:false
+          # 确保各架构产物都能合并到同一个 Release，不会因文件暂时未生成而失败
           body: ${{ needs.extract-changelog.outputs.release_body }}
+          fail_on_unmatched_files: false
           files: |
             release/*.exe
             release/*.msi
