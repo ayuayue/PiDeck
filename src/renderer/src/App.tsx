@@ -2507,8 +2507,8 @@ export function App() {
         return;
       }
       if (event.key === "Enter") {
-        // IME 确认英文时也会触发 Enter,但不应视为选中建议。
-        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        // IME 确认时也会触发 Enter(keyCode=229 或 isComposing),不放行到建议选中。
+        if ((event.nativeEvent as KeyboardEvent).isComposing || event.keyCode === 229) return;
         event.preventDefault();
         const selected =
           suggestionItems[

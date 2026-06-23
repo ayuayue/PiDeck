@@ -2433,6 +2433,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	width: min(780px, calc(100% - 54px));
 	max-width: min(780px, calc(100% - 54px));
 	min-width: 0;
+	overflow-x: clip;
 }
 .agent-run-content {
 	width: min(780px, calc(100% - 54px));
@@ -2544,8 +2545,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 .markdown-body {
 	max-width: 100%;
 	min-width: 0;
-	/* 列表 marker 会绘制到内容盒左侧，不能用 clip，否则项目符号会被裁掉。 */
-	overflow-x: visible;
+	overflow-x: clip;
 }
 .markdown-body p {
 	margin: 0 0 8px;
@@ -2555,6 +2555,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	box-sizing: border-box;
 	margin: 6px 0 10px;
 	padding-left: 1.45em;
+	list-style-position: inside;
 }
 .markdown-body li {
 	padding-left: 0.2em;
@@ -3779,38 +3780,45 @@ body.is-composer-resizing .composer-resize-handle::after {
 	color: var(--color-text-tertiary);
 	pointer-events: none;
 }
-/* 行内 chip:文件=蓝、skill=紫,样式语言参照模型按钮(.composer-toolbar button)的小圆角 chip。 */
-.composer .input-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	padding: 0 6px;
+/* 行内 chip:文件=蓝、skill=淡紫。输入框 + 消息气泡通用。
+   使用 display:inline + box-decoration-break:clone,长 chip 自动折行时
+   背景/边框在折行处重复,视觉上像两个独立 chip;空间恢复后自动回到一个 chip。 */
+.composer .input-chip,
+.user-message-text .input-chip {
+	display: inline;
+	padding: 0 5px;
 	margin: 0 1px;
 	border-radius: var(--radius-xs);
-	font-size: var(--font-size-caption);
+	font-size: calc(var(--font-size-body) * 0.88);
 	font-family: var(--font-family-business);
 	line-height: 1.7;
-	vertical-align: baseline;
-	white-space: nowrap;
-	user-select: none;
-	-webkit-user-select: none;
+	word-break: break-all;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+	user-select: all;
+	-webkit-user-select: all;
 }
-.composer .input-chip__icon {
+.composer .input-chip__icon,
+.user-message-text .input-chip__icon {
+	margin-right: 2px;
 	opacity: 0.7;
 	font-weight: 600;
+	display: inline;
 }
-.composer .input-chip__label {
-	max-width: 140px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+.composer .input-chip__label,
+.user-message-text .input-chip__label {
+	max-width: none;
+	overflow: visible;
+	word-break: break-all;
 }
-.composer .input-chip--file {
+.composer .input-chip--file,
+.user-message-text .input-chip--file {
 	background: color-mix(in srgb, var(--color-brand-blue) 14%, transparent);
 	color: var(--color-brand-blue);
 	border: 1px solid color-mix(in srgb, var(--color-brand-blue) 28%, transparent);
 }
-.composer .input-chip--skill {
+.composer .input-chip--skill,
+.user-message-text .input-chip--skill {
 	background: color-mix(in srgb, #8b5cf6 18%, transparent);
 	color: #7c3aed;
 	border: 1px solid color-mix(in srgb, #8b5cf6 32%, transparent);

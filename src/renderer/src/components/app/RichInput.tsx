@@ -55,10 +55,9 @@ export type RichInputChip = {
  */
 export function parseRichInputChips(text: string): RichInputChip[] {
 	const chips: RichInputChip[] = [];
-	// / 命令：前一字符须为空白/起始/`(` `[`/中日韩文字，避免路径 a/b、URL https:// 误触。
-	// 与 @ 不同：@ 用 [^A-Za-z0-9] 允许大部分非字母字符；/ 更严格，
-	// 明确列出允许的前置字符(含 CJK)，排除 : @ # 等 URL/路径常见分隔符。
-	const slashRe = /(^|[\s(\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af[])(\/[^\s/]+)/g;
+	// / 命令：前一字符不能是 : 或 /（避免 URL :// 与路径分隔符 /usr/ 误触），
+	// 但允许字母数字前置（与 detectTrigger 保持一致）。
+	const slashRe = /(^|[^:/])(\/[^\s/]+)/g;
 	let m: RegExpExecArray | null;
 	while ((m = slashRe.exec(text)) !== null) {
 		const prefixLen = m[1].length;
@@ -74,7 +73,8 @@ export function parseRichInputChips(text: string): RichInputChip[] {
 		});
 		if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
 	}
-	const atRe = /(^|[^A-Za-z0-9])(@[^\s@]+)/g;
+	// @ 路径：前一字符不能是 : 或 /（与 / 规则对称，允许字母数字前置）。
+	const atRe = /(^|[^:/])(@[^\s@]+)/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const prefixLen = m[1].length;
 		const start = m.index + prefixLen;

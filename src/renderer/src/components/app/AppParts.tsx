@@ -55,6 +55,7 @@ import type {
 	Project,
 	SessionSummary,
 } from "../../../../shared/types";
+import { parseRichInputChips, type RichInputChip } from "./RichInput";
 
 export type DrawerPanel = "files" | "sessions";
 
@@ -1551,6 +1552,37 @@ function stripThinkingTags(text: string): string {
 	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
 }
 
+/** 将消息文本中的 @path / /command 渲染为行内 chip(聊天区展示用,与输入框 chip 视觉一致)。 */
+function renderChipText(text: string): ReactNode[] {
+	const chips = parseRichInputChips(text);
+	if (chips.length === 0) return [text];
+	const nodes: ReactNode[] = [];
+	let cursor = 0;
+	for (const chip of chips) {
+		if (chip.start > cursor) {
+			nodes.push(text.slice(cursor, chip.start));
+		}
+		nodes.push(
+			<span
+				key={`chip-${chip.start}`}
+				className={`input-chip input-chip--${chip.kind}`}
+				data-type={chip.kind}
+				data-raw={chip.raw}
+			>
+				<span className="input-chip__icon">
+					{chip.kind === "file" ? "@" : "/"}
+				</span>
+				<span className="input-chip__label">{chip.label}</span>
+			</span>,
+		);
+		cursor = chip.end;
+	}
+	if (cursor < text.length) {
+		nodes.push(text.slice(cursor));
+	}
+	return nodes;
+}
+
 export const ChatBubble = memo(function ChatBubble(props: {
 	message: ChatMessage;
 	onPreviewImage: (image: ImageContent) => void;
@@ -1659,7 +1691,7 @@ export const ChatBubble = memo(function ChatBubble(props: {
 					)}
 					{/* 用户消息使用纯文本显示,避免特殊字符被 markdown 解释导致渲染异常 */}
 					{isUser ? (
-						<div className="user-message-text">{cleanText}</div>
+						<div className="user-message-text">{renderChipText(cleanText)}</div>
 					) : (
 						<ReactMarkdown
 							remarkPlugins={[remarkGfm]}
@@ -2827,10 +2859,10 @@ export function detectTrigger(
 	if (/[\s@/]/.test(segment)) return null;
 	const prevChar = start > 0 ? before[start - 1] : "";
 	if (prevChar) {
-		// @ 与 / 统一规则:前一字符若是字母/数字,视为 email@host 或路径 a/b、
-		// URL https:// 的一部分,不触发;其它字符(含中日韩、标点、空白)均允许,
-		// 契合中文写作不打空格的习惯(如「用/ppt」「话@文件」)。
-		if (/[A-Za-z0-9]/.test(prevChar)) return null;
+		// 允许字母/数字前置(中文写作不打空格的习惯同样适用于英文上下文)。
+		// 仅 URL 协议(://)与路径分隔符(/usr/bin)不触发,
+		// email@host 的 @ 虽然会触发但不影响体验(选了文件后自然替换掉)。
+		if (/[:/]/.test(prevChar)) return null;
 	}
 	return { start, char, query: segment };
 }
