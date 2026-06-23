@@ -59,31 +59,57 @@ type TextNodeRun = {
 
 // ── Token 解析 ────────────────────────────────────────────
 
+/** 提取文本中所有 URL 区间，后续 chip 解析跳过这些区间。 */
+function findUrlSpans(text: string): { start: number; end: number }[] {
+	const urlRe = /https?:\/\/\S+/g;
+	const spans: { start: number; end: number }[] = [];
+	let m: RegExpExecArray | null;
+	while ((m = urlRe.exec(text)) !== null) {
+		spans.push({ start: m.index, end: m.index + m[0].length });
+	}
+	return spans;
+}
+
+/** 判断区间是否与任一 URL 区间重叠（含部分重叠）。 */
+function overlapsUrl(
+	start: number,
+	end: number,
+	urlSpans: { start: number; end: number }[],
+): boolean {
+	return urlSpans.some((s) => start < s.end && end > s.start);
+}
+
 /**
  * 将 prompt 字符串解析为 chip 列表。
  * /command：前置须为空白/起始/([，命令名内无空白无 /
  * @path：前置非字母数字（避免 email@host），路径内允许 / 不允许空白与 @
  * 重叠时保留先出现的。
+ * URL 中的路径段（如 https://example.com/foo）不会被识别为 chip。
  */
 export function parseRichInputChips(text: string): RichInputChip[] {
 	const chips: RichInputChip[] = [];
+	const urlSpans = findUrlSpans(text);
 
 	const slashRe = /(^|[^:/])(\/[^\s/]+)/g;
 	let m: RegExpExecArray | null;
 	while ((m = slashRe.exec(text)) !== null) {
 		const start = m.index + m[1].length;
-		const raw = m[2];
-		chips.push({ start, end: start + raw.length, raw, kind: "skill", label: raw.slice(1) });
+		const end = start + m[2].length;
+		if (!overlapsUrl(start, end, urlSpans)) {
+			chips.push({ start, end, raw: m[2], kind: "skill", label: m[2].slice(1) });
+		}
 		if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
 	}
 
 	const atRe = /(^|[^:/])(@[^\s@]+)/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index + m[1].length;
-		const raw = m[2];
-		const seg = raw.slice(1);
-		const label = seg.includes("/") ? seg.slice(seg.lastIndexOf("/") + 1) : seg;
-		chips.push({ start, end: start + raw.length, raw, kind: "file", label: label || seg });
+		const end = start + m[2].length;
+		if (!overlapsUrl(start, end, urlSpans)) {
+			const seg = m[2].slice(1);
+			const label = seg.includes("/") ? seg.slice(seg.lastIndexOf("/") + 1) : seg;
+			chips.push({ start, end, raw: m[2], kind: "file", label: label || seg });
+		}
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
 	}
 
