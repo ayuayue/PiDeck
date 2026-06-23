@@ -60,6 +60,7 @@
 	--color-accent-soft: #e9f6ed;
 	--color-brand-green: #0f766e;
 	--color-brand-blue: #2563eb;
+	--color-brand-purple: #7c3aed;
 	--color-brand-amber: #b45309;
 	--color-logo-green: #14b814;
 	--color-logo-green-mid: #12a812;
@@ -152,6 +153,8 @@
 	--color-danger: #ff7b72;
 	--color-danger-soft: #3b1f1d;
 	--color-warning: #d4a72c;
+	--color-brand-purple: #c4b5fd;
+	--color-brand-blue: #93bbfd;
 	--color-info: #6aa4ff;
 	--color-code-bg: #111418;
 	--color-code-text: #d1d5db;
@@ -3819,9 +3822,16 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .composer .input-chip--skill,
 .user-message-text .input-chip--skill {
-	background: color-mix(in srgb, #8b5cf6 18%, transparent);
-	color: #7c3aed;
-	border: 1px solid color-mix(in srgb, #8b5cf6 32%, transparent);
+	background: color-mix(in srgb, var(--color-brand-purple) 15%, transparent);
+	color: var(--color-brand-purple);
+	border: 1px solid color-mix(in srgb, var(--color-brand-purple) 28%, transparent);
+}
+/* 消息气泡中的 chip 可点击，hover 显示手型光标并微亮 */
+.user-message-text .input-chip {
+	cursor: pointer;
+}
+.user-message-text .input-chip:hover {
+	filter: brightness(1.15);
 }
 .composer-box:focus-within {
 	border-color: var(--color-accent);

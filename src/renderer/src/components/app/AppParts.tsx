@@ -1552,8 +1552,9 @@ function stripThinkingTags(text: string): string {
 	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
 }
 
-/** 将消息文本中的 @path / /command 渲染为行内 chip(聊天区展示用,与输入框 chip 视觉一致)。 */
-function renderChipText(text: string): ReactNode[] {
+/** 将消息文本中的 @path / /command 渲染为行内 chip（聊天区展示用，与输入框 chip 视觉一致）。
+ * 可通过 onOpenFile 回调使 chip 可点击跳转。 */
+function renderChipText(text: string, onOpenFile?: (path: string) => void): ReactNode[] {
 	const chips = parseRichInputChips(text);
 	if (chips.length === 0) return [text];
 	const nodes: ReactNode[] = [];
@@ -1562,12 +1563,15 @@ function renderChipText(text: string): ReactNode[] {
 		if (chip.start > cursor) {
 			nodes.push(text.slice(cursor, chip.start));
 		}
+		const clickable = onOpenFile && chip.kind === "file";
 		nodes.push(
 			<span
 				key={`chip-${chip.start}`}
-				className={`input-chip input-chip--${chip.kind}`}
+				className={`input-chip input-chip--${chip.kind}${clickable ? " clickable" : ""}`}
 				data-type={chip.kind}
 				data-raw={chip.raw}
+				title={chip.raw}
+				onClick={clickable ? () => onOpenFile(chip.raw.slice(1)) : undefined}
 			>
 				<span className="input-chip__icon">
 					{chip.kind === "file" ? "@" : "/"}
@@ -1691,7 +1695,7 @@ export const ChatBubble = memo(function ChatBubble(props: {
 					)}
 					{/* 用户消息使用纯文本显示,避免特殊字符被 markdown 解释导致渲染异常 */}
 					{isUser ? (
-						<div className="user-message-text">{renderChipText(cleanText)}</div>
+						<div className="user-message-text">{renderChipText(cleanText, props.onOpenFile)}</div>
 					) : (
 						<ReactMarkdown
 							remarkPlugins={[remarkGfm]}
@@ -3037,6 +3041,8 @@ export function PromptSuggestions(props: {
 	onSelectedIndexChange: (index: number) => void;
 	onClose: () => void;
 	onPick: (value: string) => void;
+	/** 菜单锚定位置（屏幕坐标），未传则使用默认居中定位 */
+	anchorStyle?: React.CSSProperties;
 }) {
 	const listRef = useRef<HTMLDivElement>(null);
 	// 头部标题类型由选中项推导:光标相关触发后,第一个候选的 value 前缀即代表当前是命令还是文件。
@@ -3057,7 +3063,11 @@ export function PromptSuggestions(props: {
 	// 阻止 mousedown 冒泡到 RichInput，避免点击面板时触发 blur 关闭面板，
 	// 但保留各按钮的 onClick 正常工作。
 	return (
-		<div className="command-palette" onMouseDown={(e) => e.preventDefault()}>
+		<div
+			className="command-palette"
+			style={props.anchorStyle}
+			onMouseDown={(e) => e.preventDefault()}
+		>
 			<div className="command-palette-header">
 				<span>{isCommand ? t("prompt.commands") : t("prompt.files")}</span>
 				<IconButton

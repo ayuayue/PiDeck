@@ -47,6 +47,8 @@ export type RichInputProps = {
 	className?: string;
 	/** 受控重渲染后光标应恢复到的纯文本偏移（非 null 时优先于 DOM 当前光标） */
 	caretRef?: React.MutableRefObject<number | null>;
+	/** chip 点击回调，传递被点击 chip 的解析信息 */
+	onChipClick?: (chip: RichInputChip) => void;
 };
 
 type TextNodeRun = {
@@ -260,6 +262,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			value, onChange, onCursorChange, onKeyDown,
 			onPaste, onDrop, onDragOver, onFocus, onBlur,
 			disabled, placeholder, className, caretRef,
+			onChipClick,
 		} = props;
 
 		const rootRef = useRef<HTMLDivElement | null>(null);
@@ -298,6 +301,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				span.setAttribute("contenteditable", "false");
 				span.setAttribute("data-type", chip.kind);
 				span.setAttribute("data-raw", chip.raw);
+				span.title = chip.raw;
 				span.className = `input-chip input-chip--${chip.kind}`;
 
 				const icon = document.createElement("span");
@@ -354,13 +358,15 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				? chips.filter((c) => !(caret > c.start && caret <= c.end))
 				: chips;
 
-			const same =
+			const rangesSame =
 				existingRanges.length === desiredChips.length &&
 				existingRanges.every((r, i) =>
 					r.start === desiredChips[i].start && r.end === desiredChips[i].end,
 				);
 
-			if (!same) renderDom();
+			// chip 区间一致但纯文本不同（如发送后清空），仍须重渲染
+			const textSame = collectFlatText(root) === value;
+			if (!rangesSame || !textSame) renderDom();
 			// renderDom 变化时 chips/value 也变，无遗漏依赖
 			// eslint-disable-next-line react-hooks/exhaustive-deps
 		}, [value, chips]);
@@ -396,15 +402,40 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
 		};
 
+		/** chip 点击：检测点击目标是否为 chip，是则回调上层 */
+		const handleClick = useCallback(
+			(event: React.MouseEvent<HTMLDivElement>) => {
+				handleSelect();
+				if (!onChipClick) return;
+				const target = event.target as HTMLElement;
+				const chip = target.closest?.(".input-chip") as HTMLElement | null;
+				if (!chip) return;
+				const raw = chip.getAttribute("data-raw");
+				const kind = chip.getAttribute("data-type") as "file" | "skill" | null;
+				const label =
+					chip.querySelector(".input-chip__label")?.textContent ??
+					raw?.slice(1) ??
+					"";
+				if (raw && kind) {
+					onChipClick({ start: 0, end: raw.length, raw, kind, label });
+				}
+			},
+			[handleSelect, onChipClick],
+		);
+
 		/** Enter：上层未 consume（非发送）时手动插入 \n，保持扁平 DOM。 */
-		const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-			onKeyDown(event);
-			if (event.defaultPrevented || composingRef.current) return;
-			if (event.key === "Enter") {
-				event.preventDefault();
-				document.execCommand("insertText", false, "\n");
-			}
-		};
+		const handleKeyDown = useCallback(
+			(event: React.KeyboardEvent<HTMLDivElement>) => {
+				onKeyDown(event);
+				if (event.defaultPrevented || composingRef.current) return;
+
+				if (event.key === "Enter") {
+					event.preventDefault();
+					document.execCommand("insertText", false, "\n");
+				}
+			},
+			[onKeyDown, onChange, chips],
+		);
 
 		const handleCompositionStart = () => { composingRef.current = true; };
 		const handleCompositionEnd = () => { composingRef.current = false; handleInput(); };
@@ -428,7 +459,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				onInput={handleInput}
 				onKeyDown={handleKeyDown}
 				onKeyUp={handleSelect}
-				onClick={handleSelect}
+				onClick={handleClick}
 				onFocus={onFocus}
 				onBlur={onBlur}
 				onPaste={handlePaste}

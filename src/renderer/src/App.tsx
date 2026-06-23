@@ -97,7 +97,9 @@ import {
 } from "./components/app/AppParts";
 import {
 	getCaretOffset as getCaretOffsetOf,
+	getRichInputCaretCoords,
 	RichInput,
+	type RichInputChip,
 } from "./components/app/RichInput";
 import { FileDiffViewer } from "./components/app/FileDiffViewer";
 import { createDefaultExternalEditorSettings } from "../../shared/types";
@@ -779,6 +781,36 @@ export function App() {
         : [],
     [suggestionsOpen, prompt, composerCursor, commands, flatFiles],
   );
+
+  /** 菜单光标锚定位置（屏幕坐标），仅在 suggestionsOpen 时计算。 */
+  const suggestionAnchorStyle = useMemo<React.CSSProperties | undefined>(() => {
+    if (!suggestionsOpen) return undefined;
+    const root = composerTextareaRef.current;
+    if (!root) return undefined;
+    const coords = getRichInputCaretCoords(root, composerCursor);
+    if (!coords) return undefined;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const menuW = Math.min(520, vw - 120);
+    const menuH = 380;
+    const gap = 8;
+
+    // 水平：光标左对齐，超出则右贴边
+    let left = coords.left;
+    if (left + menuW > vw - 16) left = Math.max(16, vw - menuW - 16);
+
+    // 垂直：优先光标下方，空间不够则上方
+    const belowTop = coords.top + gap;
+    const aboveBottom = coords.top - gap;
+    if (belowTop + menuH <= vh - 16) {
+      return { top: belowTop, left, bottom: "auto", transform: "none" };
+    }
+    if (aboveBottom - menuH >= 0) {
+      return { top: "auto", bottom: vh - aboveBottom, left, transform: "none" };
+    }
+    return { top: "auto", bottom: 16, left, transform: "none" };
+  }, [suggestionsOpen, composerCursor]);
   const visibleAgents = useMemo(
     () =>
       displayAgents.filter((agent) =>
@@ -4151,12 +4183,21 @@ ${goalTextRef.current}
               onBlur={() => {
                 setSuggestionsOpen(false);
               }}
+              onChipClick={(chip: RichInputChip) => {
+                // 文件 chip：在系统默认应用中打开对应文件
+                if (chip.kind === "file") {
+                  const path = chip.raw.slice(1); // 去掉 @ 前缀
+                  openFilePath(path);
+                }
+                // skill chip 点击暂不处理，后续可扩展跳转 skill 详情
+              }}
             />
             {suggestionsOpen && !composerDisabled && (
               <PromptSuggestions
                 prompt={prompt}
                 items={suggestionItems}
                 selectedIndex={selectedSuggestionIndex}
+                anchorStyle={suggestionAnchorStyle}
                 onSelectedIndexChange={setSelectedSuggestionIndex}
                 onClose={() => {
                   const el = composerTextareaRef.current;
