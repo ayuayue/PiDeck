@@ -95,6 +95,10 @@ import {
   type DrawerPanel,
   type SessionModifiedFile,
 } from "./components/app/AppParts";
+import {
+	getCaretOffset as getCaretOffsetOf,
+	RichInput,
+} from "./components/app/RichInput";
 import { FileDiffViewer } from "./components/app/FileDiffViewer";
 import { createDefaultExternalEditorSettings } from "../../shared/types";
 import type {
@@ -534,7 +538,9 @@ export function App() {
   const composerRef = useRef<HTMLElement | null>(null);
   const timelineRef = useRef<HTMLElement | null>(null);
   const composerBoxRef = useRef<HTMLDivElement | null>(null);
-  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerTextareaRef = useRef<HTMLDivElement | null>(null);
+  // RichInput 受控重渲染后,光标应恢复到的纯文本偏移(供建议选中/清除后恢复选区)。
+  const pendingComposerCaretRef = useRef<number | null>(null);
   const pendingAgentsRef = useRef<AgentTab[]>([]);
   const projectDragPreventClickRef = useRef(false);
 
@@ -1094,12 +1100,12 @@ export function App() {
   }
 
   function ensureComposerTailVisible() {
-    const textarea = composerTextareaRef.current;
-    if (!textarea || document.activeElement !== textarea) return;
-    const selectionAtEnd =
-      textarea.selectionStart === textarea.value.length &&
-      textarea.selectionEnd === textarea.value.length;
-    if (!selectionAtEnd) return;
+    const editor = composerTextareaRef.current;
+    if (!editor || document.activeElement !== editor) return;
+    // RichInput 用纯文本偏移表示光标;光标在末尾时同步滚动到底,行为与原 textarea 一致。
+    const len = editor.textContent?.length ?? 0;
+    const atEnd = getCaretOffsetOf(editor) >= len;
+    if (!atEnd) return;
     requestAnimationFrame(() => {
       const current = composerTextareaRef.current;
       if (!current) return;
@@ -1109,14 +1115,14 @@ export function App() {
 
   function syncComposerAutoHeight() {
     const box = composerBoxRef.current;
-    const textarea = composerTextareaRef.current;
-    if (!box || !textarea) return;
+    const editor = composerTextareaRef.current;
+    if (!box || !editor) return;
 
-    // 宽度变化会改变软换行位置,textarea 的 scrollHeight 才是当前内容真实需要的高度。
+    // 宽度变化会改变软换行位置,编辑区的 scrollHeight 才是当前内容真实需要的高度。
     // 这里减去 chrome 高度(顶部留白/工具条/底部状态条),把问题修在布局源头而不是靠用户手动拖。
-    const chromeHeight = box.offsetHeight - textarea.clientHeight;
+    const chromeHeight = box.offsetHeight - editor.clientHeight;
     const nextHeight = clampComposerHeight(
-      textarea.scrollHeight + chromeHeight,
+      editor.scrollHeight + chromeHeight,
     );
     setComposerAutoHeight((current) =>
       Math.abs(current - nextHeight) <= 1 ? current : nextHeight,
@@ -1359,9 +1365,7 @@ export function App() {
         setPrompt(detail.text);
         // 自动聚焦到输入框
         requestAnimationFrame(() => {
-          document
-            .querySelector<HTMLTextAreaElement>(".composer-box textarea")
-            ?.focus();
+          composerTextareaRef.current?.focus();
         });
       }
     };
@@ -2487,7 +2491,7 @@ export function App() {
   }
 
   function handleComposerKeyDown(
-    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    event: React.KeyboardEvent<HTMLDivElement>,
   ) {
     if (suggestionsOpen && suggestionItems.length > 0) {
       if (event.key === "ArrowDown") {
@@ -2503,6 +2507,8 @@ export function App() {
         return;
       }
       if (event.key === "Enter") {
+        // IME 确认英文时也会触发 Enter,但不应视为选中建议。
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
         event.preventDefault();
         const selected =
           suggestionItems[
@@ -2510,41 +2516,42 @@ export function App() {
           ];
         if (selected) {
           // 以光标为锚替换触发符..光标这一段,并在下一帧恢复光标到插入项之后。
-          const ta = event.currentTarget;
-          const cursor = ta.selectionStart ?? ta.value.length;
-          const result = applySuggestion(ta.value, cursor, selected.value);
+          const el = event.currentTarget;
+          const cursor = getCaretOffsetOf(el);
+          const result = applySuggestion(prompt, cursor, selected.value);
+          // RichInput 的受控同步会基于 value 重渲染并恢复光标,这里同步状态即可。
           setPrompt(result.text);
           setComposerCursor(result.cursor);
+          pendingComposerCaretRef.current = result.cursor;
           setSuggestionsOpen(false);
           requestAnimationFrame(() => {
-            ta.focus();
-            ta.setSelectionRange(result.cursor, result.cursor);
+            composerTextareaRef.current?.focus();
           });
         }
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        const ta = event.currentTarget;
-        const cursor = ta.selectionStart ?? ta.value.length;
-        const result = clearSuggestionTrigger(ta.value, cursor);
+        const el = event.currentTarget;
+        const cursor = getCaretOffsetOf(el);
+        const result = clearSuggestionTrigger(prompt, cursor);
         setPrompt(result.text);
         setComposerCursor(result.cursor);
+        pendingComposerCaretRef.current = result.cursor;
         setSuggestionsOpen(false);
         requestAnimationFrame(() => {
-          ta.focus();
-          ta.setSelectionRange(result.cursor, result.cursor);
+          composerTextareaRef.current?.focus();
         });
         return;
       }
     }
 
     // 历史命令导航:只在光标位于第一行时生效
-    const textarea = event.currentTarget;
-    const cursorPos = textarea.selectionStart;
-    const textBeforeCursor = textarea.value.substring(0, cursorPos);
+    const editor = event.currentTarget;
+    const cursorPos = getCaretOffsetOf(editor);
+    const textBeforeCursor = prompt.substring(0, cursorPos);
     const isFirstLine = !textBeforeCursor.includes('\n');
-    const textAfterCursor = textarea.value.substring(cursorPos);
+    const textAfterCursor = prompt.substring(cursorPos);
     const isLastLine = !textAfterCursor.includes('\n');
 
     if (event.key === "ArrowUp" && isFirstLine && commandHistory.length > 0) {
@@ -2587,9 +2594,9 @@ export function App() {
     }
 
     if (event.key === "Escape") {
-      const ta = event.currentTarget;
-      const cursor = ta.selectionStart ?? ta.value.length;
-      const result = clearSuggestionTrigger(ta.value, cursor);
+      const el = event.currentTarget;
+      const cursor = getCaretOffsetOf(el);
+      const result = clearSuggestionTrigger(prompt, cursor);
       setPrompt(result.text);
       setComposerCursor(result.cursor);
       setSuggestionsOpen(false);
@@ -2606,7 +2613,7 @@ export function App() {
       event.preventDefault();
       void sendPrompt();
     } else if (enterIntent === "newline") {
-      // 让 textarea 自己处理换行,保持输入体验接近普通聊天软件。
+      // RichInput 内部会在 Enter 未被上层 preventDefault 时手动插入 \n。
       return;
     }
   }
@@ -4091,9 +4098,8 @@ ${goalTextRef.current}
                 />
               }
             />
-            <textarea
+            <RichInput
               ref={composerTextareaRef}
-              wrap="soft"
               value={prompt}
               className={
                 prompt.startsWith("!!")
@@ -4102,39 +4108,8 @@ ${goalTextRef.current}
                     ? "bang"
                     : ""
               }
-              onFocus={(event) => {
-                const cursor = event.target.selectionStart ?? event.target.value.length;
-                setComposerCursor(cursor);
-                // 仅当光标处存在 @ / 触发器时才打开建议框,避免聚焦即弹空菜单。
-                setSuggestionsOpen(detectTrigger(event.target.value, cursor) !== null);
-              }}
-              onChange={(event) => {
-                const newValue = event.target.value;
-                const cursor = event.target.selectionStart ?? newValue.length;
-                setPrompt(newValue);
-                setComposerCursor(cursor);
-                setSuggestionsOpen(detectTrigger(newValue, cursor) !== null);
-
-                // 如果正在历史导航,检测到用户手动编辑内容则退出历史模式
-                if (historyNavigating) {
-                  const currentHistoryCommand = commandHistory[historyIndex];
-                  // 如果编辑后的内容与当前历史命令不同,说明用户在编辑
-                  if (newValue !== currentHistoryCommand) {
-                    setHistoryIndex(-1);
-                    setHistoryNavigating(false);
-                    setSavedPrompt("");
-                  }
-                }
-              }}
-              onKeyDown={handleComposerKeyDown}
-              onSelect={(event) => {
-                // 鼠标点击或方向键移动光标后同步位置,保证后续触发检测以新光标为准。
-                setComposerCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
-              }}
-              onPaste={handlePaste}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
               disabled={composerDisabled}
+              caretRef={pendingComposerCaretRef}
               placeholder={
                 isAgentStarting
                   ? t("app.agentStartingPlaceholder")
@@ -4148,6 +4123,34 @@ ${goalTextRef.current}
                           ? t("app.composerEnterPlaceholder")
                           : t("app.composerShortcutPlaceholder")
               }
+              onFocus={() => {
+                // 仅当光标处存在 @ / 触发器时才打开建议框,避免聚焦即弹空菜单。
+                setSuggestionsOpen(detectTrigger(prompt, composerCursor) !== null);
+              }}
+              onChange={(newValue, cursor) => {
+                setPrompt(newValue);
+                setComposerCursor(cursor);
+                setSuggestionsOpen(detectTrigger(newValue, cursor) !== null);
+                // 如果正在历史导航,检测到用户手动编辑内容则退出历史模式
+                if (historyNavigating) {
+                  const currentHistoryCommand = commandHistory[historyIndex];
+                  if (newValue !== currentHistoryCommand) {
+                    setHistoryIndex(-1);
+                    setHistoryNavigating(false);
+                    setSavedPrompt("");
+                  }
+                }
+              }}
+              onCursorChange={(cursor) => {
+                setComposerCursor(cursor);
+              }}
+              onKeyDown={handleComposerKeyDown}
+              onPaste={handlePaste}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onBlur={() => {
+                setSuggestionsOpen(false);
+              }}
             />
             {suggestionsOpen && !composerDisabled && (
               <PromptSuggestions
@@ -4156,41 +4159,27 @@ ${goalTextRef.current}
                 selectedIndex={selectedSuggestionIndex}
                 onSelectedIndexChange={setSelectedSuggestionIndex}
                 onClose={() => {
-                  const ta = document.querySelector<HTMLTextAreaElement>(
-                    ".composer-box textarea",
-                  );
-                  const cursor = ta ? (ta.selectionStart ?? ta.value.length) : composerCursor;
+                  const el = composerTextareaRef.current;
+                  const cursor = el ? getCaretOffsetOf(el) : composerCursor;
                   const result = clearSuggestionTrigger(prompt, cursor);
                   setPrompt(result.text);
                   setComposerCursor(result.cursor);
+                  pendingComposerCaretRef.current = result.cursor;
                   setSuggestionsOpen(false);
                   requestAnimationFrame(() => {
-                    const el = document.querySelector<HTMLTextAreaElement>(
-                      ".composer-box textarea",
-                    );
-                    if (el) {
-                      el.focus();
-                      el.setSelectionRange(result.cursor, result.cursor);
-                    }
+                    composerTextareaRef.current?.focus();
                   });
                 }}
                 onPick={(value) => {
-                  const ta = document.querySelector<HTMLTextAreaElement>(
-                    ".composer-box textarea",
-                  );
-                  const cursor = ta ? (ta.selectionStart ?? ta.value.length) : composerCursor;
+                  const el = composerTextareaRef.current;
+                  const cursor = el ? getCaretOffsetOf(el) : composerCursor;
                   const result = applySuggestion(prompt, cursor, value);
                   setPrompt(result.text);
                   setComposerCursor(result.cursor);
+                  pendingComposerCaretRef.current = result.cursor;
                   setSuggestionsOpen(false);
                   requestAnimationFrame(() => {
-                    const el = document.querySelector<HTMLTextAreaElement>(
-                      ".composer-box textarea",
-                    );
-                    if (el) {
-                      el.focus();
-                      el.setSelectionRange(result.cursor, result.cursor);
-                    }
+                    composerTextareaRef.current?.focus();
                   });
                 }}
               />

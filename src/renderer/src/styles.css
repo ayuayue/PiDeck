@@ -3743,6 +3743,78 @@ body.is-composer-resizing .composer-resize-handle::after {
 	word-break: break-word;
 	grid-row: 2;
 }
+/* RichInput(contentEditable)复刻 textarea 的布局参数,确保替换后尺寸/滚动行为一致。
+   保持 DOM 为「文本节点 + chip span」的扁平结构,white-space:pre-wrap 让 \n 渲染为换行。 */
+.composer .rich-input {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	height: 100%;
+	min-height: 48px;
+	overflow-x: hidden;
+	overflow-y: auto;
+	scrollbar-gutter: stable;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--color-text-primary);
+	padding: 10px 12px;
+	font-size: var(--font-size-body);
+	line-height: var(--line-height-body);
+	font-family: var(--font-family-base);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	grid-row: 2;
+	cursor: text;
+}
+.composer .rich-input.is-disabled {
+	cursor: default;
+	opacity: 0.6;
+}
+/* 占位符:仅当内容为空时通过 :empty + data-attribute 显示,避免空 contentEditable 丢占位文字。 */
+.composer .rich-input:empty::before {
+	content: attr(data-placeholder);
+	color: var(--color-text-tertiary);
+	pointer-events: none;
+}
+/* 行内 chip:文件=蓝、skill=紫,样式语言参照模型按钮(.composer-toolbar button)的小圆角 chip。 */
+.composer .input-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	padding: 0 6px;
+	margin: 0 1px;
+	border-radius: var(--radius-xs);
+	font-size: var(--font-size-caption);
+	font-family: var(--font-family-business);
+	line-height: 1.7;
+	vertical-align: baseline;
+	white-space: nowrap;
+	user-select: none;
+	-webkit-user-select: none;
+}
+.composer .input-chip__icon {
+	opacity: 0.7;
+	font-weight: 600;
+}
+.composer .input-chip__label {
+	max-width: 140px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.composer .input-chip--file {
+	background: color-mix(in srgb, var(--color-brand-blue) 14%, transparent);
+	color: var(--color-brand-blue);
+	border: 1px solid color-mix(in srgb, var(--color-brand-blue) 28%, transparent);
+}
+.composer .input-chip--skill {
+	background: color-mix(in srgb, #8b5cf6 18%, transparent);
+	color: #7c3aed;
+	border: 1px solid color-mix(in srgb, #8b5cf6 32%, transparent);
+}
 .composer-box:focus-within {
 	border-color: var(--color-accent);
 	box-shadow:
@@ -5376,11 +5448,18 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 
 /* ---- 输入框命令模式指示 ---- */
-.composer-box textarea.bang {
+.composer-box textarea.bang,
+.composer-box .rich-input.bang {
 	caret-color: var(--color-warning);
 }
-.composer-box textarea.bang-bang {
+.composer-box textarea.bang-bang,
+.composer-box .rich-input.bang-bang {
 	caret-color: var(--color-danger);
+}
+/* shell 模式下 RichInput 左侧留出与 ::before 指示条对齐的空间,复刻原 textarea 的 padding-left。 */
+.composer-box.shell-mode .rich-input,
+.composer-box.shell-silent-mode .rich-input {
+	padding-left: 18px;
 }
 /* 模型/思考选择器复用斜线命令面板的视觉语言，但通过轻遮罩承载按钮触发的弹层。 */
 .picker-backdrop {
