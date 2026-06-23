@@ -60,7 +60,7 @@ jobs:
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
           - platform: macos
             name: macOS x64
-            os: macos-13
+            os: macos-latest
             command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
