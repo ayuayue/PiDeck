@@ -87,6 +87,7 @@ import {
   buildOutline,
   buildSuggestionItems,
   clearSuggestionTrigger,
+  detectTrigger,
   displayPath,
   flattenFiles,
   groupToolMessages,
@@ -344,6 +345,8 @@ export function App() {
   const [search, setSearch] = useState("");
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  // 记录 composer 光标位置,用于光标相关的 @ / 触发检测与建议项替换。
+  const [composerCursor, setComposerCursor] = useState(0);
   const [fileMenu, setFileMenu] = useState<{
     x: number;
     y: number;
@@ -762,10 +765,13 @@ export function App() {
   const flatFiles = useMemo(() => flattenFiles(files), [files]);
   // 优化:建议项计算仅在必要时触发,避免每次输入都重计算导致卡顿
   // 只有当建议框打开时才计算,关闭时返回空数组
+  // 以光标位置为锚检测触发器,使文字中间也能唤出 @ 文件 / / 命令菜单。
   const suggestionItems = useMemo(
     () =>
-      suggestionsOpen ? buildSuggestionItems(prompt, commands, flatFiles) : [],
-    [suggestionsOpen, prompt, commands, flatFiles],
+      suggestionsOpen
+        ? buildSuggestionItems(prompt, composerCursor, commands, flatFiles)
+        : [],
+    [suggestionsOpen, prompt, composerCursor, commands, flatFiles],
   );
   const visibleAgents = useMemo(
     () =>
@@ -2503,15 +2509,32 @@ export function App() {
             Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
           ];
         if (selected) {
-          setPrompt((current) => applySuggestion(current, selected.value));
+          // 以光标为锚替换触发符..光标这一段,并在下一帧恢复光标到插入项之后。
+          const ta = event.currentTarget;
+          const cursor = ta.selectionStart ?? ta.value.length;
+          const result = applySuggestion(ta.value, cursor, selected.value);
+          setPrompt(result.text);
+          setComposerCursor(result.cursor);
           setSuggestionsOpen(false);
+          requestAnimationFrame(() => {
+            ta.focus();
+            ta.setSelectionRange(result.cursor, result.cursor);
+          });
         }
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setPrompt((current) => clearSuggestionTrigger(current));
+        const ta = event.currentTarget;
+        const cursor = ta.selectionStart ?? ta.value.length;
+        const result = clearSuggestionTrigger(ta.value, cursor);
+        setPrompt(result.text);
+        setComposerCursor(result.cursor);
         setSuggestionsOpen(false);
+        requestAnimationFrame(() => {
+          ta.focus();
+          ta.setSelectionRange(result.cursor, result.cursor);
+        });
         return;
       }
     }
@@ -2564,7 +2587,11 @@ export function App() {
     }
 
     if (event.key === "Escape") {
-      setPrompt((current) => clearSuggestionTrigger(current));
+      const ta = event.currentTarget;
+      const cursor = ta.selectionStart ?? ta.value.length;
+      const result = clearSuggestionTrigger(ta.value, cursor);
+      setPrompt(result.text);
+      setComposerCursor(result.cursor);
       setSuggestionsOpen(false);
       // 如果正在历史导航,ESC 退出并恢复原始输入
       if (historyNavigating) {
@@ -4075,11 +4102,18 @@ ${goalTextRef.current}
                     ? "bang"
                     : ""
               }
-              onFocus={() => setSuggestionsOpen(true)}
+              onFocus={(event) => {
+                const cursor = event.target.selectionStart ?? event.target.value.length;
+                setComposerCursor(cursor);
+                // 仅当光标处存在 @ / 触发器时才打开建议框,避免聚焦即弹空菜单。
+                setSuggestionsOpen(detectTrigger(event.target.value, cursor) !== null);
+              }}
               onChange={(event) => {
                 const newValue = event.target.value;
+                const cursor = event.target.selectionStart ?? newValue.length;
                 setPrompt(newValue);
-                setSuggestionsOpen(true);
+                setComposerCursor(cursor);
+                setSuggestionsOpen(detectTrigger(newValue, cursor) !== null);
 
                 // 如果正在历史导航,检测到用户手动编辑内容则退出历史模式
                 if (historyNavigating) {
@@ -4093,6 +4127,10 @@ ${goalTextRef.current}
                 }
               }}
               onKeyDown={handleComposerKeyDown}
+              onSelect={(event) => {
+                // 鼠标点击或方向键移动光标后同步位置,保证后续触发检测以新光标为准。
+                setComposerCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
+              }}
               onPaste={handlePaste}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
@@ -4118,25 +4156,41 @@ ${goalTextRef.current}
                 selectedIndex={selectedSuggestionIndex}
                 onSelectedIndexChange={setSelectedSuggestionIndex}
                 onClose={() => {
-                  setPrompt((current) => clearSuggestionTrigger(current));
+                  const ta = document.querySelector<HTMLTextAreaElement>(
+                    ".composer-box textarea",
+                  );
+                  const cursor = ta ? (ta.selectionStart ?? ta.value.length) : composerCursor;
+                  const result = clearSuggestionTrigger(prompt, cursor);
+                  setPrompt(result.text);
+                  setComposerCursor(result.cursor);
                   setSuggestionsOpen(false);
                   requestAnimationFrame(() => {
-                    document
-                      .querySelector<HTMLTextAreaElement>(
-                        ".composer-box textarea",
-                      )
-                      ?.focus();
+                    const el = document.querySelector<HTMLTextAreaElement>(
+                      ".composer-box textarea",
+                    );
+                    if (el) {
+                      el.focus();
+                      el.setSelectionRange(result.cursor, result.cursor);
+                    }
                   });
                 }}
                 onPick={(value) => {
-                  setPrompt((current) => applySuggestion(current, value));
+                  const ta = document.querySelector<HTMLTextAreaElement>(
+                    ".composer-box textarea",
+                  );
+                  const cursor = ta ? (ta.selectionStart ?? ta.value.length) : composerCursor;
+                  const result = applySuggestion(prompt, cursor, value);
+                  setPrompt(result.text);
+                  setComposerCursor(result.cursor);
                   setSuggestionsOpen(false);
                   requestAnimationFrame(() => {
-                    document
-                      .querySelector<HTMLTextAreaElement>(
-                        ".composer-box textarea",
-                      )
-                      ?.focus();
+                    const el = document.querySelector<HTMLTextAreaElement>(
+                      ".composer-box textarea",
+                    );
+                    if (el) {
+                      el.focus();
+                      el.setSelectionRange(result.cursor, result.cursor);
+                    }
                   });
                 }}
               />

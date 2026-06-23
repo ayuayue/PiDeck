@@ -2790,22 +2790,74 @@ export function flattenFiles(nodes: FileTreeNode[]): FileTreeNode[] {
 	);
 }
 
-export function applySuggestion(current: string, value: string) {
-	const index = findTriggerIndex(current);
-	if (index === -1) return `${current}${value} `;
-	return `${current.slice(0, index)}${value} `;
+export type ComposerSuggestionResult = {
+	text: string;
+	cursor: number;
+};
+
+export type ComposerTrigger = {
+	start: number;
+	char: string;
+	query: string;
+};
+
+/**
+ * 在光标位置检测 @ / 触发器。
+ *
+ * 早期实现用「整段 prompt 最后一个空白分词」判定,完全忽略光标位置,
+ * 导致光标停在文字中间时,末尾分词在光标之后,文件/skill 菜单无法弹出。
+ * 这里改为以光标为锚:取光标前最后一个 @ 或 /,要求从该字符到光标之间
+ * 连续无空白、无其它触发符,再要求触发符前一字符不是字母/数字(避免误判
+ * email@host、路径 a/b、URL https://)。这样「写一段话@文件」「用/ppt」
+ * 也能在文字中间唤出引用/命令菜单。
+ */
+export function detectTrigger(
+	text: string,
+	cursor: number,
+): ComposerTrigger | null {
+	if (cursor < 0 || cursor > text.length) cursor = text.length;
+	const before = text.slice(0, cursor);
+	const atIdx = before.lastIndexOf("@");
+	const slashIdx = before.lastIndexOf("/");
+	const start = Math.max(atIdx, slashIdx);
+	if (start < 0) return null;
+	const char = before[start];
+	const segment = before.slice(start + 1);
+	// 触发符到光标之间必须连续(无空白、无其它 @ /),否则不是同一个触发上下文。
+	if (/[\s@/]/.test(segment)) return null;
+	const prevChar = start > 0 ? before[start - 1] : "";
+	if (prevChar) {
+		// @ 与 / 统一规则:前一字符若是字母/数字,视为 email@host 或路径 a/b、
+		// URL https:// 的一部分,不触发;其它字符(含中日韩、标点、空白)均允许,
+		// 契合中文写作不打空格的习惯(如「用/ppt」「话@文件」)。
+		if (/[A-Za-z0-9]/.test(prevChar)) return null;
+	}
+	return { start, char, query: segment };
 }
 
-export function clearSuggestionTrigger(current: string) {
-	const index = findTriggerIndex(current);
-	if (index === -1) return current;
-	return current.slice(0, index);
+export function applySuggestion(
+	current: string,
+	cursor: number,
+	value: string,
+): ComposerSuggestionResult {
+	const trigger = detectTrigger(current, cursor);
+	if (!trigger) {
+		const text = `${current}${value} `;
+		return { text, cursor: text.length };
+	}
+	// 用选中项替换「触发符 .. 光标」这一段,保留光标之后的文本。
+	const text = `${current.slice(0, trigger.start)}${value} ${current.slice(cursor)}`;
+	return { text, cursor: trigger.start + value.length + 1 };
 }
 
-function findTriggerIndex(current: string) {
-	const lastSlash = current.lastIndexOf("/");
-	const lastAt = current.lastIndexOf("@");
-	return Math.max(lastSlash, lastAt);
+export function clearSuggestionTrigger(
+	current: string,
+	cursor: number,
+): ComposerSuggestionResult {
+	const trigger = detectTrigger(current, cursor);
+	if (!trigger) return { text: current, cursor };
+	const text = `${current.slice(0, trigger.start)}${current.slice(cursor)}`;
+	return { text, cursor: trigger.start };
 }
 
 export type SuggestionItem = {
@@ -2817,13 +2869,15 @@ export type SuggestionItem = {
 
 export function buildSuggestionItems(
 	prompt: string,
+	cursor: number,
 	commands: PiCommand[],
 	files: FileTreeNode[],
 ): SuggestionItem[] {
 	const allCommands = mergeCommands(commands);
-	const tail = prompt.split(/\s/).at(-1) ?? "";
-	if (tail.startsWith("/")) {
-		const keyword = tail.slice(1).toLowerCase();
+	const trigger = detectTrigger(prompt, cursor);
+	if (!trigger) return [];
+	const keyword = trigger.query.toLowerCase();
+	if (trigger.char === "/") {
 		return allCommands
 			.map((command, index) => ({ command, index }))
 			.filter(({ command }) => command.name.toLowerCase().includes(keyword))
@@ -2840,8 +2894,7 @@ export function buildSuggestionItems(
 				value: `/${command.name}`,
 			}));
 	}
-	if (tail.startsWith("@")) {
-		const keyword = tail.slice(1).toLowerCase();
+	if (trigger.char === "@") {
 		return files
 			.map((file) => ({
 				file,
@@ -2954,7 +3007,8 @@ export function PromptSuggestions(props: {
 	onPick: (value: string) => void;
 }) {
 	const listRef = useRef<HTMLDivElement>(null);
-	const tail = props.prompt.split(/\s/).at(-1) ?? "";
+	// 头部标题类型由选中项推导:光标相关触发后,第一个候选的 value 前缀即代表当前是命令还是文件。
+	const isCommand = props.items[0]?.value.startsWith("/") ?? false;
 
 	// 滚动到选中项
 	useEffect(() => {
@@ -2971,7 +3025,7 @@ export function PromptSuggestions(props: {
 	return (
 		<div className="command-palette">
 			<div className="command-palette-header">
-				<span>{tail.startsWith("/") ? t("prompt.commands") : t("prompt.files")}</span>
+				<span>{isCommand ? t("prompt.commands") : t("prompt.files")}</span>
 				<IconButton
 					className="command-palette-close"
 					label={t("common.close")}
