@@ -2932,7 +2932,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	color: var(--color-text-secondary);
 	padding: 2px 7px;
 	font-family: var(--font-family-base);
-	font-size: var(--font-size-caption);
+	font-size: var(--font-size-control);
 	line-height: var(--line-height-caption);
 	cursor: pointer;
 	transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
@@ -3308,7 +3308,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	color: var(--color-text-secondary);
 	padding: 3px 8px;
 	font-family: var(--font-family-base);
-	font-size: var(--font-size-caption);
+	font-size: var(--font-size-control);
 	line-height: var(--line-height-caption);
 	font-variant-numeric: tabular-nums;
 	cursor: pointer;
@@ -3789,7 +3789,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	padding: 0 5px;
 	margin: 0 1px;
 	border-radius: var(--radius-xs);
-	font-size: calc(var(--font-size-body) * 0.88);
+	font-size: inherit;
 	font-family: var(--font-family-business);
 	line-height: 1.7;
 	word-break: break-all;
@@ -5331,7 +5331,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 	background: var(--color-bg-hover);
 	font-family: var(--font-family-business);
 	line-height: 18px;
-	font-size: var(--font-size-micro);
+	font-size: var(--font-size-caption);
 	font-variant-numeric: tabular-nums;
 }
 .session-status .model-chip {

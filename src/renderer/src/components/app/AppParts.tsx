@@ -3054,8 +3054,10 @@ export function PromptSuggestions(props: {
 
 	if (props.items.length === 0) return null;
 
+	// 阻止 mousedown 冒泡到 RichInput，避免点击面板时触发 blur 关闭面板，
+	// 但保留各按钮的 onClick 正常工作。
 	return (
-		<div className="command-palette">
+		<div className="command-palette" onMouseDown={(e) => e.preventDefault()}>
 			<div className="command-palette-header">
 				<span>{isCommand ? t("prompt.commands") : t("prompt.files")}</span>
 				<IconButton
@@ -3072,10 +3074,7 @@ export function PromptSuggestions(props: {
 						key={item.key}
 						className={`command-palette-item${index === props.selectedIndex ? " selected" : ""}`}
 						onMouseEnter={() => props.onSelectedIndexChange(index)}
-						onMouseDown={(e) => {
-							e.preventDefault();
-							props.onPick(item.value);
-						}}
+						onClick={() => props.onPick(item.value)}
 					>
 						<span className="command-palette-label">{item.label}</span>
 						<span className="command-palette-desc">{item.description}</span>
