@@ -3072,7 +3072,10 @@ export function PromptSuggestions(props: {
 						key={item.key}
 						className={`command-palette-item${index === props.selectedIndex ? " selected" : ""}`}
 						onMouseEnter={() => props.onSelectedIndexChange(index)}
-						onClick={() => props.onPick(item.value)}
+						onMouseDown={(e) => {
+							e.preventDefault();
+							props.onPick(item.value);
+						}}
 					>
 						<span className="command-palette-label">{item.label}</span>
 						<span className="command-palette-desc">{item.description}</span>
