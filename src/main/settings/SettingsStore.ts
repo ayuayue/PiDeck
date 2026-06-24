@@ -34,7 +34,7 @@ const defaultSettings: AppSettings = {
   petEnabled: false,
   petId: "builtin-otter",
   petAlwaysOnTop: true,
-  petOpacity: 1,
+  petScale: 1,
 };
 
 export class SettingsStore {

@@ -46,7 +46,7 @@ export class PetSystem {
 
 		const settings = this.deps.settingsStore.get();
 		if (settings.petEnabled) {
-			await this.petWindow.create();
+			await this.petWindow.create(settings.petScale ?? 1);
 			this.pushCaps();
 			// 立即推送一次当前状态，避免等待去抖导致宠物窗初始空白
 			this.bridge.pushNow(this.deps.agentManager.list());
@@ -130,7 +130,7 @@ export class PetSystem {
 	async reactToSettings(prev: AppSettings, next: AppSettings) {
 		if (next.petEnabled !== prev.petEnabled) {
 			if (next.petEnabled) {
-				await this.petWindow.create();
+				await this.petWindow.create(next.petScale ?? 1);
 				this.pushCaps();
 				this.bridge.pushNow(this.deps.agentManager.list());
 				await this.pushCurrentSprite();
@@ -145,6 +145,9 @@ export class PetSystem {
 		}
 		if (next.petAlwaysOnTop !== prev.petAlwaysOnTop) {
 			this.petWindow.setAlwaysOnTop(next.petAlwaysOnTop);
+		}
+		if (next.petScale !== prev.petScale && next.petScale) {
+			this.petWindow.resize(next.petScale);
 		}
 	}
 

@@ -149,7 +149,7 @@ let previewSettings: AppSettings = {
 	petEnabled: false,
 	petId: "builtin-otter",
 	petAlwaysOnTop: true,
-	petOpacity: 1,
+	petScale: 1,
 };
 
 export function createPreviewApi(): PiDesktopApi {

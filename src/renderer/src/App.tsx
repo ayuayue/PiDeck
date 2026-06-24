@@ -497,7 +497,7 @@ export function App() {
     petEnabled: false,
     petId: "builtin-otter",
     petAlwaysOnTop: true,
-    petOpacity: 1,
+    petScale: 1,
   });
   const [settingsNotice, setSettingsNotice] = useState("");
   const [piProxyNotice, setPiProxyNotice] = useState("");

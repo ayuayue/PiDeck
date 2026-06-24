@@ -29,6 +29,8 @@ export const MODE_ROW: Record<string, number> = {
 export type SpriteSheet = {
 	/** 已解码的 ImageBitmap / HTMLImageElement，供 Canvas drawImage 使用 */
 	image: CanvasImageSource;
+	/** data: URL 或 file: URL，供 CSS background-image 使用（避免 Canvas 闪烁） */
+	url: string;
 	/** 实际网格列数（默认 8） */
 	cols: number;
 	/** 实际网格行数（默认 9） */
@@ -50,6 +52,7 @@ export async function loadSpriteSheet(manifest: PetManifest): Promise<SpriteShee
 	await img.decode();
 	return {
 		image: img,
+		url: manifest.spritesheetUrl,
 		cols: GRID_COLS,
 		rows: GRID_ROWS,
 		cellW: CELL_W,

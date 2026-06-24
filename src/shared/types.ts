@@ -319,8 +319,8 @@ export type AppSettings = {
 	petId: string;
 	/** 宠物窗是否始终置顶，默认 true */
 	petAlwaysOnTop: boolean;
-	/** 宠物不透明度 0.5-1，默认 1（增强项，MVP 暂只用 1） */
-	petOpacity: number;
+	/** 宠物缩放比例 0.3-2.0，默认 1.0，控制窗口与 sprite 渲染尺寸 */
+	petScale: number;
 };
 
 // ── 桌面宠物类型 ──

@@ -3843,6 +3843,28 @@ export function SettingsModal(props: {
 									/>
 									<small className="setting-status">{t("settings.pet.petdexHint")}</small>
 								</SettingsSection>
+								<SettingsSection title={t("settings.pet.scale")} description={t("settings.pet.scaleDesc")}>
+									<div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", maxWidth: 320 }}>
+										<input
+											type="range"
+											min="0.3"
+											max="2.0"
+											step="0.05"
+											value={props.settings.petScale ?? 1}
+											onChange={(e) => props.onChange({ petScale: parseFloat(e.target.value) })}
+											style={{ flex: 1, accentColor: "var(--color-accent)" }}
+										/>
+										<span style={{
+											fontFamily: "var(--font-family-business)",
+											fontSize: "var(--font-size-sm)",
+											color: "var(--color-text-muted)",
+											minWidth: 36,
+											textAlign: "right",
+										}}>
+											{((props.settings.petScale ?? 1) * 100).toFixed(0)}%
+										</span>
+									</div>
+								</SettingsSection>
 								<SettingsSection title={t("settings.pet.preview")} description={t("settings.pet.previewDesc")}>
 									<SelectField
 										className="setting-field"

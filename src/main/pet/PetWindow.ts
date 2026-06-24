@@ -31,8 +31,9 @@ export function detectPetWindowCaps(): PetWindowCaps {
 	}
 }
 
-const PET_WIDTH = 160;
-const PET_HEIGHT = 176;
+/** 1x 基准尺寸（petScale=1 时的窗口 CSS 像素），等比缩放后传给 BrowserWindow */
+const BASE_WIDTH = 160;
+const BASE_HEIGHT = 176;
 
 function positionFilePath() {
 	return join(app.getPath("userData"), "pet-position.json");
@@ -71,8 +72,11 @@ export class PetWindow {
 		return !!this.petWindow && !this.petWindow.isDestroyed();
 	}
 
-	async create(): Promise<BrowserWindow> {
+	async create(scale = 1): Promise<BrowserWindow> {
 		if (this.exists) return this.petWindow!;
+
+		const w = Math.round(BASE_WIDTH * scale);
+		const h = Math.round(BASE_HEIGHT * scale);
 
 		const caps = detectPetWindowCaps();
 		const isMac = process.platform === "darwin";
@@ -80,20 +84,20 @@ export class PetWindow {
 		const persisted = await loadPersistedPosition();
 		const activeDisplay = screen.getDisplayMatching(
 			persisted
-				? { x: persisted.x, y: persisted.y, width: PET_WIDTH, height: PET_HEIGHT }
-				: { x: 0, y: 0, width: PET_WIDTH, height: PET_HEIGHT },
+				? { x: persisted.x, y: persisted.y, width: w, height: h }
+				: { x: 0, y: 0, width: w, height: h },
 		);
 		const workArea = activeDisplay.workArea;
-		const x = persisted?.x ?? workArea.x + workArea.width - PET_WIDTH - 24;
-		const y = persisted?.y ?? workArea.y + workArea.height - PET_HEIGHT - 24;
+		const x = persisted?.x ?? workArea.x + workArea.width - w - 24;
+		const y = persisted?.y ?? workArea.y + workArea.height - h - 24;
 
 		// macOS：「panel」类型（NSPanel）原生支持浮在其他应用的原生全屏之上（Electron #34388）。
 		// 无需手动 setVisibleOnAllWorkspaces / setFullScreenable / app.dock.hide。
 		const panelOptions = isMac ? { type: "panel" as const } : {};
 
 		this.petWindow = new BrowserWindow({
-			width: PET_WIDTH,
-			height: PET_HEIGHT,
+			width: w,
+			height: h,
 			x,
 			y,
 			...panelOptions,
@@ -170,6 +174,22 @@ export class PetWindow {
 	setAlwaysOnTop(value: boolean) {
 		if (!this.exists) return;
 		this.petWindow!.setAlwaysOnTop(value, "floating");
+	}
+
+	/** 缩放宠物窗（不重建，直接 setSize），放缩后检查是否超出屏幕边界 */
+	resize(scale: number) {
+		if (!this.exists) return;
+		const w = Math.round(BASE_WIDTH * scale);
+		const h = Math.round(BASE_HEIGHT * scale);
+		this.petWindow!.setSize(w, h);
+		// 缩放后可能越界，回钳到可见区域
+		const [x, y] = this.petWindow!.getPosition();
+		const display = screen.getDisplayMatching({ x, y, width: w, height: h });
+		const wa = display.workArea;
+		this.petWindow!.setPosition(
+			Math.min(x, wa.x + wa.width - w - 8),
+			Math.min(y, wa.y + wa.height - h - 8),
+		);
 	}
 
 	show() {
