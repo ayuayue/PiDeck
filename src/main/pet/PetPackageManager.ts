@@ -3,7 +3,8 @@ import { readFile, stat } from "node:fs/promises";
 import { join, extname } from "node:path";
 import type { Dirent } from "node:fs";
 import type { PetManifest } from "../../shared/types";
-// 暂无内置宠物，后续如需添加请用 ?asset 导入 sprite 文件
+// 内置宠物 spritesheet 通过 ?asset 导入，electron-vite 在 dev/prod 均提供正确路径
+import arthurSprite from "../../../build/pets/arthur-mergeon/spritesheet.webp?asset";
 
 /**
  * PetPackageManager —— 宠物包管理（设计文档第 7 节）。
@@ -68,7 +69,15 @@ async function fileExists(p: string): Promise<boolean> {
 
 export class PetPackageManager {
 	/** 内置包清单（元数据固定，spritesheet 走 ?asset 路径，list 时转 data URL） */
-	private readonly builtinMeta: Array<Omit<PetManifest, "spritesheetUrl"> & { spritePath: string }> = [];
+	private readonly builtinMeta: Array<Omit<PetManifest, "spritesheetUrl"> & { spritePath: string }> = [
+		{
+			id: "arthur-mergeon",
+			displayName: "Arthur Mergeon",
+			description: "A campfire code gunslinger, carrying old commits, open pull requests, and one hand always near the merge button.",
+			source: "builtin",
+			spritePath: arthurSprite,
+		},
+	];
 
 	/** 列出所有可用宠物包：内置 + petdex 扫描，按 id 去重（内置优先） */
 	async list(): Promise<PetManifest[]> {

@@ -3361,6 +3361,8 @@ export function SettingsModal(props: {
 			.then((pets) => setPetOptions(pets.map((p) => ({ value: p.id, label: p.displayName }))))
 			.catch(() => undefined);
 	}, []);
+	// 宠物动画预览模式：下拉选中值需受控，避免选完弹回"自动"
+	const [petPreviewMode, setPetPreviewMode] = useState("__auto");
 	const applyWebPortDraft = () => {
 		const port = Number(webPortDraft);
 		if (Number.isInteger(port) && port >= 1 && port <= 65535 && port !== props.settings.webServicePort) {
@@ -3898,7 +3900,7 @@ export function SettingsModal(props: {
 									<SelectField
 										className="setting-field"
 										label={t("settings.pet.previewMode")}
-										value="__auto"
+										value={petPreviewMode}
 										options={[
 											{ value: "__auto", label: t("settings.pet.previewAuto") },
 											{ value: "running-right", label: "→ running-right (行1)" },
@@ -3906,8 +3908,22 @@ export function SettingsModal(props: {
 											{ value: "jumping", label: "🤸 jumping (行4)" },
 											{ value: "review", label: "🔍 review (行8)" },
 										]}
-										onChange={(value) => { void window.piDesktop.pet.setPreviewMode(value === "__auto" ? "" : value); }}
+										onChange={(value) => { setPetPreviewMode(value); void window.piDesktop.pet.setPreviewMode(value === "__auto" ? "" : value); }}
 									/>
+									<div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+										<button
+											className="setting-btn-sm"
+											onClick={() => void window.piDesktop.pet.testNotify("error")}
+										>
+											{t("settings.pet.testError")}
+										</button>
+										<button
+											className="setting-btn-sm"
+											onClick={() => void window.piDesktop.pet.testNotify("done")}
+										>
+											{t("settings.pet.testDone")}
+										</button>
+									</div>
 								</SettingsSection>
 							</>
 						)}

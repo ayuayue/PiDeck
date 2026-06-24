@@ -326,7 +326,7 @@ export type AppSettings = {
 // ── 桌面宠物类型 ──
 
 /** 宠物聚合动画状态；映射到 spritesheet 的行号 */
-export type PetMode = "idle" | "running" | "failed" | "waiting" | "waving" | "hidden";
+export type PetMode = "idle" | "running" | "failed" | "waiting" | "waving" | "hidden" | "jumping";
 
 /** 多 Agent 聚合后的全局宠物状态，由 PetStateBridge 计算并推送给宠物窗 */
 export type PetAggregateState = {

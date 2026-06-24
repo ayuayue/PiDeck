@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import type { PetAggregateState, PetManifest, PetNotification, PetWindowCaps } from "@shared/types";
 import { PetOverlay } from "./PetOverlay";
 import { PetInteraction } from "./PetInteraction";
@@ -43,7 +43,8 @@ function PetApp() {
 		const off = window.piDesktop.pet.onSprite(load);
 		const offState = window.piDesktop.pet.onState((s) => setState(s));
 		const offNotify = window.piDesktop.pet.onNotify((n) => {
-			setNotification(n);
+			// 用 performance.now() 打时间戳，与 PetOverlay 内淡入淡出计算同源
+			setNotification({ ...n, timestamp: performance.now() });
 			setTimeout(() => setNotification(null), 4000);
 		});
 		const offPreview = window.piDesktop.pet.onPreviewMode((mode: string) => { setPreviewMode(mode || null); });
@@ -53,12 +54,13 @@ function PetApp() {
 
 	return (
 		<div className={`pet-root${caps && !caps.transparent ? " pet-root--rounded" : ""}`}>
-			{notification && (
-				<div className={`pet-notify pet-notify--${notification.type}`}>
-					<span className="pet-notify-text">{notification.text}</span>
-				</div>
-			)}
-			<PetOverlay sprite={sprite} manifest={null} state={previewMode ? { ...state, mode: previewMode as PetAggregateState["mode"] } : state} dragging={dragging} />
+			<PetOverlay
+				sprite={sprite}
+				manifest={null}
+				state={previewMode ? { ...state, mode: previewMode as PetAggregateState["mode"] } : state}
+				dragging={dragging}
+				notification={notification}
+			/>
 			<PetInteraction state={state} onDragStateChange={setDragging} />
 		</div>
 	);

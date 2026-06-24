@@ -84,6 +84,12 @@ export class PetStateBridge {
 	private lastChangeAt = 0;
 	/** waving 过渡定时器：hidden 前先挥手 N ms */
 	private wavingTimer: NodeJS.Timeout | null = null;
+	/** jumping 庆祝定时器：成功完成时跳跃 → idle */
+	private celebrationTimer: NodeJS.Timeout | null = null;
+	/** failed 过渡定时器：出错后自动切 idle */
+	private failedTimer: NodeJS.Timeout | null = null;
+	/** 错误状态展示冷却：展示过一次 error 后 N ms 内抑制重复推送 */
+	private errorCooldownUntil = 0;
 	/** 当前 AgentTab 列表，用于通知气泡中获取出错 Agent 名称 */
 	private currentTabs: AgentTab[] = [];
 	/** 通知气泡冷却倒数，抑制高频重发（0 表示可发送） */
@@ -97,6 +103,12 @@ export class PetStateBridge {
 	private readonly minStateHoldMs = 600;
 	/** waving 过渡持续时长：所有 Agent 关闭后先挥手再隐藏 */
 	private readonly waveDurationMs = 1500;
+	/** jumping 庆祝持续时长：成功后跳跃 → idle */
+	private readonly celebrationDurationMs = 4000;
+	/** failed 展示持续时长：出错动画播放后自动切 idle */
+	private readonly failedDisplayDurationMs = 4000;
+	/** 错误状态抑制窗口：展示过一次 error 后 10s 内不重复推送 */
+	private readonly errorSuppressDurationMs = 10000;
 
 	constructor(
 		private readonly getPetWindow: () => BrowserWindow | null,
@@ -122,6 +134,14 @@ export class PetStateBridge {
 		if (this.wavingTimer) {
 			clearTimeout(this.wavingTimer);
 			this.wavingTimer = null;
+		}
+		if (this.celebrationTimer) {
+			clearTimeout(this.celebrationTimer);
+			this.celebrationTimer = null;
+		}
+		if (this.failedTimer) {
+			clearTimeout(this.failedTimer);
+			this.failedTimer = null;
 		}
 	}
 
@@ -172,6 +192,52 @@ export class PetStateBridge {
 		if (this.wavingTimer) {
 			clearTimeout(this.wavingTimer);
 			this.wavingTimer = null;
+		}
+
+		// jumping 庆祝过渡：从 running 完成时先跳跃，再切 idle
+		if (target === "idle" && prev?.mode === "running") {
+			this.applyState({ ...state, mode: "jumping" });
+			this.sendNotification({ type: "done", text: "所有任务完成", timestamp: Date.now() });
+			this.notifyCooldown = Date.now() + 3000;
+			this.lastChangeAt = Date.now();
+			if (this.celebrationTimer) clearTimeout(this.celebrationTimer);
+			this.celebrationTimer = setTimeout(() => {
+				this.celebrationTimer = null;
+				this.applyState({ ...state, mode: "idle" });
+			}, this.celebrationDurationMs);
+			return;
+		}
+
+		// jumping 进行中：忽略重叠的 idle 推送
+		if (target === "idle" && prev?.mode === "jumping") {
+			return;
+		}
+
+		// failed 过渡：出错后展示 failed + 通知，N ms 后自动切 idle；
+		// 切 idle 后若 Agent 仍报 error，由 errorCooldown 抑制重复推送。
+		if (target === "failed") {
+			const now = Date.now();
+			if (this.errorCooldownUntil > now) return;
+			this.errorCooldownUntil = now + this.errorSuppressDurationMs;
+			if (prev?.mode !== "failed") {
+				this.applyState(state);
+				const errored = this.currentTabs.find(t => t.status === "error");
+				if (errored) {
+					this.sendNotification({
+						type: "error",
+						text: `${errored.title} 出错了`,
+						agentId: errored.id,
+						timestamp: now,
+					});
+					this.notifyCooldown = now + 3000;
+				}
+				if (this.failedTimer) clearTimeout(this.failedTimer);
+				this.failedTimer = setTimeout(() => {
+					this.failedTimer = null;
+					this.applyState({ ...state, mode: "idle" });
+				}, this.failedDisplayDurationMs);
+			}
+			return;
 		}
 
 		// 动画完成锁：避免 running↔idle 抖动导致半帧切换（hidden/waving 间自由切换不受限）

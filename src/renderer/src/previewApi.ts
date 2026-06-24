@@ -518,6 +518,7 @@ export function createPreviewApi(): PiDesktopApi {
 			setPreviewMode: async () => undefined,
 			onPreviewMode: noop,
 			onCaps: noop,
+			testNotify: async () => undefined,
 			getCurrent: async () => ({ id: "wangcai", displayName: "Wangcai", source: "petdex", spritesheetUrl: "" }),
 		},
 		terminal: {

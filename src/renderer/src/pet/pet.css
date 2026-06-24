@@ -19,36 +19,7 @@ body,
 	/* 透明悬浮窗内只画 sprite，背景透明露出窗口透明背景 */
 	background: transparent;
 }
-/* 通知气泡：出错/完成时在宠物头顶弹窗，4s 自动消失 */
-.pet-notify {
-  position: absolute;
-  top: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 140px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 11px;
-  line-height: 1.4;
-  white-space: nowrap;
-  z-index: 10;
-  pointer-events: none;
-  animation: pet-notify-in 0.25s ease-out;
-}
-.pet-notify--error {
-  background: #fef2f2;
-  color: #dc2626;
-  border: 1px solid #fecaca;
-}
-.pet-notify--done {
-  background: #f0fdf4;
-  color: #16a34a;
-  border: 1px solid #bbf7d0;
-}
-@keyframes pet-notify-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
+/* 通知气泡改为 Canvas 绘制（见 PetOverlay.drawNotification），CSS 样式已废弃 */
 
 /* 降级形态：不支持透明窗时（Linux Wayland / Windows 远程桌面），退化为圆角小窗 */
 .pet-root--rounded {

@@ -511,6 +511,9 @@ const api = {
 			subscribe(ipcChannels.petPreviewMode, callback),
 		onCaps: (callback: (caps: PetWindowCaps) => void) =>
 			subscribe(ipcChannels.petCaps, callback),
+		/** 调试：发送测试通知弹窗 */
+		testNotify: (type: "error" | "done") =>
+			ipcRenderer.invoke(ipcChannels.petTestNotify, type) as Promise<void>,
 	},
 	terminal: {
 		list: (agentId: string) =>

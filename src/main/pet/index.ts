@@ -119,6 +119,18 @@ export class PetSystem {
 				main.webContents.send(ipcChannels.petFocusAgentTarget, { agentId });
 			}
 		});
+
+		// 调试：发送测试通知弹窗（设置面板测试按钮用）
+		ipcMain.handle(ipcChannels.petTestNotify, async (_e, type: "error" | "done") => {
+			const win = this.petWindow.window;
+			if (win && !win.isDestroyed()) {
+				win.webContents.send(ipcChannels.petNotify, {
+					type,
+					text: type === "error" ? "Agent 出错了" : "所有任务完成",
+					timestamp: Date.now(),
+				});
+			}
+		});
 	}
 
 	/**

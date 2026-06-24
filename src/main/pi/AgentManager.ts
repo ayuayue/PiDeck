@@ -890,13 +890,19 @@ export class AgentManager {
 						"running",
 					);
 				}
+				// 重试中保持 running，不能误置为 idle/error，否则宠物聚合状态会提前转 done/failed
+				if (runtime) runtime.tab.status = "running";
 			} else if (errorMsg) {
 				this.addDetailedErrorMessage(agentId, String(errorMsg));
+				// 有错误且不会重试 → Agent 进入 error 态，宠物聚合为 failed（行5），
+				// 否则会被误置为 idle 触发"所有任务完成"通知
+				if (runtime) runtime.tab.status = "error";
 			} else if (
 				typed.stopReason === "error" ||
 				errorMessages.length > 0
 			) {
 				this.addDetailedErrorMessage(agentId, "Agent 返回未知错误，请重试");
+				if (runtime) runtime.tab.status = "error";
 			}
 			if (runtime) this.emitState();
 			// 同步刷新 runtimeState，将 isStreaming 重置为 false；
