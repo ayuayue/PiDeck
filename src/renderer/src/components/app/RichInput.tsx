@@ -49,6 +49,8 @@ export type RichInputProps = {
 	caretRef?: React.MutableRefObject<number | null>;
 	/** chip 点击回调，传递被点击 chip 的解析信息 */
 	onChipClick?: (chip: RichInputChip) => void;
+	/** 已知 skill 名称白名单，仅匹配这些 skill 时渲染 chip */
+	knownSkills?: Set<string>;
 };
 
 type TextNodeRun = {
@@ -79,29 +81,54 @@ function overlapsUrl(
 	return urlSpans.some((s) => start < s.end && end > s.start);
 }
 
+/** 本地 skill 名称缓存（非响应式，skills 在 session 内不变）。 */
+let cachedSkillNames = new Set<string>();
+
+/**
+ * 设置 skill 名称缓存。由 App 层在启动时调用一次填充。
+ */
+export function setCachedSkillNames(names: Set<string>): void {
+	cachedSkillNames = names;
+}
+
+/** 同步获取已缓存的 skill 名称集合。 */
+export function getCachedSkillNames(): Set<string> {
+	return cachedSkillNames;
+}
+
 /**
  * 将 prompt 字符串解析为 chip 列表。
- * /command：前置须为空白/起始/([，命令名内无空白无 /
+ * /skill:name：前置须为空白/起始，仅当 name 在已知 skill 白名单中时渲染。
  * @path：前置非字母数字（避免 email@host），路径内允许 / 不允许空白与 @
  * 重叠时保留先出现的。
  * URL 中的路径段（如 https://example.com/foo）不会被识别为 chip。
  */
-export function parseRichInputChips(text: string): RichInputChip[] {
+export function parseRichInputChips(
+	text: string,
+	knownSkills?: Set<string>,
+): RichInputChip[] {
 	const chips: RichInputChip[] = [];
 	const urlSpans = findUrlSpans(text);
+	const whitelist = knownSkills ?? getCachedSkillNames();
 
-	const slashRe = /(^|[^:/])(\/[^\s/]+)/g;
+	// 仅匹配 /skill:name 格式，不匹配纯路径 /Users 等
+	const slashRe = /(^|[\s(\[])(\/skill:[^\s\/]+)/g;
 	let m: RegExpExecArray | null;
 	while ((m = slashRe.exec(text)) !== null) {
 		const start = m.index + m[1].length;
 		const end = start + m[2].length;
 		if (!overlapsUrl(start, end, urlSpans)) {
-			chips.push({ start, end, raw: m[2], kind: "skill", label: m[2].slice(1) });
+			const skillName = m[2].slice(7); // 去掉 "/skill:"
+			// 白名单检查：仅当本地存在该 skill 时渲染
+			if (whitelist.has(skillName)) {
+				chips.push({ start, end, raw: m[2], kind: "skill", label: skillName });
+			}
 		}
 		if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
 	}
 
-	const atRe = /(^|[^:/])(@[^\s@]+)/g;
+	// 前置须为非字母数字（避免 email@host）、非 :/（避免 URL 路径段）
+	const atRe = /(^|[^\w:/])(@[^\s@]+)/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index + m[1].length;
 		const end = start + m[2].length;
@@ -305,7 +332,10 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			[ref],
 		);
 
-		const chips = useMemo(() => parseRichInputChips(value), [value]);
+		const chips = useMemo(
+			() => parseRichInputChips(value, props.knownSkills),
+			[value, props.knownSkills],
+		);
 
 		/** 全量渲染 DOM：清空 root，按 value + chips 重建文本节点 + chip span。 */
 		const renderDom = useCallback(() => {
@@ -371,17 +401,19 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 			const caret = getCaretOffset(root);
 
-			// 光标是否在某个 token 内部（含末尾，允许继续输入）
+			// 光标是否在某个 file token 内部（含末尾，允许继续输入路径）。
+			// skill chip 是白名单匹配的完整 token，不参与抑制：再输字符会因白名单
+			// 失配而自动 un-chip，无需「继续输入」的宽限。
 			const insideActiveToken = chips.some(
-				(c) => caret > c.start && caret <= c.end,
+				(c) => c.kind === "file" && caret > c.start && caret <= c.end,
 			);
 
 			// DOM 中已存在的 chip 区间
 			const existingRanges = collectChipRanges(root);
 
-			// 期望的 chip 区间（光标在 token 内时排除该 token）
+			// 期望的 chip 区间（光标在 file token 内时排除该 token）
 			const desiredChips = insideActiveToken
-				? chips.filter((c) => !(caret > c.start && caret <= c.end))
+				? chips.filter((c) => !(c.kind === "file" && caret > c.start && caret <= c.end))
 				: chips;
 
 			const rangesSame =

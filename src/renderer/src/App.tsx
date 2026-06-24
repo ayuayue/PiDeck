@@ -99,6 +99,7 @@ import {
 	getCaretOffset as getCaretOffsetOf,
 	getRichInputCaretCoords,
 	RichInput,
+	setCachedSkillNames,
 	type RichInputChip,
 } from "./components/app/RichInput";
 import { FileDiffViewer } from "./components/app/FileDiffViewer";
@@ -551,6 +552,23 @@ export function App() {
   const pendingComposerCaretRef = useRef<number | null>(null);
   const pendingAgentsRef = useRef<AgentTab[]>([]);
   const projectDragPreventClickRef = useRef(false);
+
+  // ===== Skill 白名单 =====
+
+  const [knownSkills, setKnownSkills] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    api.skills
+      .list()
+      .then((res) => {
+        const names = new Set(res.skills.map((s) => s.name));
+        setCachedSkillNames(names);
+        setKnownSkills(names);
+      })
+      .catch(() => {
+        setCachedSkillNames(new Set());
+        setKnownSkills(new Set());
+      });
+  }, []);
 
   // ===== 飞书桥接 =====
 
@@ -4015,6 +4033,7 @@ ${goalTextRef.current}
                       onOpenFile={openFilePath}
                       onResendUserMessage={resendUserMessage}
                       showThinking={settings.showThinking}
+                      knownSkills={knownSkills}
                     />
                     {item.message.role === "assistant" &&
                       turnFileSummaryByMessage[item.message.id]?.length > 0 && (
@@ -4211,6 +4230,7 @@ ${goalTextRef.current}
                 }
                 // skill chip 点击暂不处理，后续可扩展跳转 skill 详情
               }}
+              knownSkills={knownSkills}
             />
             {suggestionsOpen && !composerDisabled && (
               <PromptSuggestions
