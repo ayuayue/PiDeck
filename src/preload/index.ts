@@ -454,6 +454,9 @@ const api = {
 			ipcRenderer.invoke("agents:commands", agentId) as Promise<PiCommand[]>,
 		onState: (callback: (tabs: AgentTab[]) => void) =>
 			subscribe(ipcChannels.agentsState, callback),
+		/** 桌面宠物点击跳转：主进程通知主窗切换到活跃 Agent tab */
+		onFocusTarget: (callback: (target: { agentId: string }) => void) =>
+			subscribe(ipcChannels.petFocusAgentTarget, callback),
 		onMessages: (
 			callback: (payload: { agentId: string; messages: ChatMessage[] }) => void,
 		) => subscribe(ipcChannels.agentsMessage, callback),

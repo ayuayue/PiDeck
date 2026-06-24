@@ -11,6 +11,9 @@ import { ipcChannels } from "../../shared/ipc";
  * 为什么不用 ipcMain.on("agents:state")：AgentManager.emit() 走 webContents.send，
  * 是主进程→渲染层单向通道，ipcMain 收不到主进程自己发出的消息。故改用对称的
  * addStateListener 钩子（与 FeishuBridge 用的 addLocalEventListener 同一模式）。
+ *
+ * waving 过渡态：所有 Agent 进入 closed 时，宠物先短暂挥手（行3）再隐藏，
+ * 而非直接消失，符合设计文档第 3.2 节「closed 过渡态（短暂挥手后隐藏）」。
  */
 
 /** 聚合优先级：error > running > starting > idle；closed 单独处理为 hidden */
@@ -75,21 +78,30 @@ function aggregate(tabs: AgentTab[]): PetAggregateState {
 export class PetStateBridge {
 	/** 去抖定时器句柄 */
 	private debounceTimer: NodeJS.Timeout | null = null;
-	/** 当前已推送的最近状态，用于跳过无变化推送 */
-	private lastMode: PetMode | null = null;
+	/** 当前已推送的最近聚合状态（含 activeAgentId，供点击宠物跳转使用） */
+	private lastState: PetAggregateState | null = null;
+	/** 上次状态变更时间戳，用于动画完成锁 */
+	private lastChangeAt = 0;
+	/** waving 过渡定时器：hidden 前先挥手 N ms */
+	private wavingTimer: NodeJS.Timeout | null = null;
 	/** AgentManager 状态监听取消函数 */
 	private unsubscribe: (() => void) | null = null;
-	/** 上次状态变更时间戳，用于动画完成锁（至少 minStateHoldMs 才允许切下一个状态） */
-	private lastChangeAt = 0;
 
 	/** 去抖窗口：多 Agent 同时启停时避免聚合状态在 running↔idle 间快速跳动 */
 	private readonly debounceMs = 150;
 	/** 动画完成锁：进入新状态后至少保持一个动画周期，避免半帧切换 */
 	private readonly minStateHoldMs = 600;
+	/** waving 过渡持续时长：所有 Agent 关闭后先挥手再隐藏 */
+	private readonly waveDurationMs = 1500;
 
 	constructor(
 		private readonly getPetWindow: () => BrowserWindow | null,
 	) {}
+
+	/** 最近一次聚合状态；点击宠物跳转时取 activeAgentId */
+	get currentState(): PetAggregateState | null {
+		return this.lastState;
+	}
 
 	/** 订阅 AgentManager 状态变更 */
 	attach(agentManager: { addStateListener: (cb: (tabs: AgentTab[]) => void) => () => void }) {
@@ -102,6 +114,10 @@ export class PetStateBridge {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
 			this.debounceTimer = null;
+		}
+		if (this.wavingTimer) {
+			clearTimeout(this.wavingTimer);
+			this.wavingTimer = null;
 		}
 	}
 
@@ -124,23 +140,54 @@ export class PetStateBridge {
 	}
 
 	private push(state: PetAggregateState) {
-		// hidden 与非 hidden 之间必须自由切换；非 hidden 之间受动画完成锁约束，
-		// 避免 running↔idle 抖动导致宠物动画抽搐。
+		const prev = this.lastState;
+		const target = state.mode;
+
+		// hidden 过渡：所有 Agent 关闭时先挥手再隐藏，而非直接消失
+		if (target === "hidden") {
+			// 已在挥手过渡中：由定时器负责切 hidden，忽略重复 hidden 推送
+			if (prev?.mode === "waving") return;
+			// 从非 hidden 进入 hidden：先挥手
+			if (prev && prev.mode !== "hidden") {
+				this.applyState({ ...state, mode: "waving" });
+				if (this.wavingTimer) clearTimeout(this.wavingTimer);
+				this.wavingTimer = setTimeout(() => {
+					this.wavingTimer = null;
+					this.applyState({ ...state, mode: "hidden" });
+				}, this.waveDurationMs);
+				return;
+			}
+			// 之前就是 hidden（或首次无活跃 Agent），直接隐藏
+			this.applyState(state);
+			return;
+		}
+
+		// 非 hidden：若正在挥手过渡则取消（又有 Agent 活跃了），切回实态
+		if (this.wavingTimer) {
+			clearTimeout(this.wavingTimer);
+			this.wavingTimer = null;
+		}
+
+		// 动画完成锁：避免 running↔idle 抖动导致半帧切换（hidden/waving 间自由切换不受限）
 		const now = Date.now();
 		if (
-			state.mode !== "hidden" &&
-			this.lastMode !== null &&
-			this.lastMode !== "hidden" &&
-			state.mode !== this.lastMode &&
+			prev &&
+			prev.mode !== "hidden" &&
+			prev.mode !== "waving" &&
+			target !== prev.mode &&
 			now - this.lastChangeAt < this.minStateHoldMs
 		) {
 			return;
 		}
-		if (state.mode === this.lastMode) return; // 模式未变则不重复推送
+		if (prev?.mode === target) return; // 模式未变不重复推送
 
-		this.lastMode = state.mode;
-		this.lastChangeAt = now;
+		this.applyState(state);
+	}
 
+	/** 实际发送状态给宠物窗并更新 lastState */
+	private applyState(state: PetAggregateState) {
+		this.lastState = state;
+		this.lastChangeAt = Date.now();
 		const win = this.getPetWindow();
 		if (!win || win.isDestroyed()) return;
 		win.webContents.send(ipcChannels.petState, state);

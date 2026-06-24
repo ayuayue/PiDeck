@@ -90,12 +90,16 @@ export class PetSystem {
 			this.petWindow.moveTo(pos.x, pos.y);
 		});
 
-		// 点击宠物跳转活跃 Agent：拉起主窗并聚焦（切到目标 tab 留 MVP-2）
+		// 点击宠物跳转活跃 Agent：恢复 Dock + 拉起主窗并聚焦 + 通知主窗切到活跃 Agent tab
 		ipcMain.handle(ipcChannels.petFocusAgent, async () => {
 			const main = this.deps.getMainWindow();
 			if (!main || main.isDestroyed()) return;
 			if (!main.isVisible()) main.show();
 			main.focus();
+			const agentId = this.bridge.currentState?.activeAgentId;
+			if (agentId) {
+				main.webContents.send(ipcChannels.petFocusAgentTarget, { agentId });
+			}
 		});
 	}
 

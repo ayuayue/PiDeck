@@ -489,6 +489,7 @@ export function createPreviewApi(): PiDesktopApi {
 				{ name: "reload", description: "Reload runtime", source: "builtin" },
 			],
 			onState: noop,
+			onFocusTarget: noop,
 			onMessages: ((
 				callback: (payload: {
 					agentId: string;

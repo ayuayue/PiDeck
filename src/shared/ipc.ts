@@ -161,6 +161,8 @@ export const ipcChannels = {
 	petMoveWindow: "pet:move-window",
 	/** 宠物窗 → 主进程：点击宠物跳转活跃 Agent */
 	petFocusAgent: "pet:focus-agent",
+	/** 主进程 → 主窗口：点击宠物后通知主窗切换到活跃 Agent tab */
+	petFocusAgentTarget: "pet:focus-agent-target",
 	/** 主进程 → 宠物窗：推送当前选中宠物的 manifest（含 spritesheetUrl），切换宠物时热加载 */
 	petCurrentSprite: "pet:current-sprite",
 	/** 宠物窗 → 主进程：拉取当前选中宠物的 manifest（挂载时主动拉取，避免推送竞态丢失） */
