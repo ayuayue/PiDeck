@@ -351,6 +351,16 @@ export type PetManifest = {
 	spritesheetUrl: string;
 };
 
+
+/** 宠物通知气泡：出错/完成时在宠物头顶弹出 */
+export type PetNotification = {
+	type: "error" | "done";
+	text: string;
+	/** 出错时关联的 Agent id */
+	agentId?: string;
+	timestamp: number;
+};
+
 export type PiInstallStatus = {
 	installed: boolean;
 	command?: string;

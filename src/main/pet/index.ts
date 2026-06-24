@@ -23,6 +23,8 @@ export type PetSystemDeps = {
 	settingsStore: SettingsStore;
 	/** 主窗口 getter，用于点击宠物时把主窗拉起 */
 	getMainWindow: () => BrowserWindow | null;
+	/** 主窗口已销毁时重建（closeToTray 时 hide 不 destroy，但若需重建提供此回调） */
+	recreateMainWindow?: () => Promise<BrowserWindow>;
 };
 
 export class PetSystem {
@@ -90,10 +92,24 @@ export class PetSystem {
 			this.petWindow.moveTo(pos.x, pos.y);
 		});
 
+		// 预览动画：设置页下拉切换宠物窗动画行（测试用）
+		ipcMain.handle(ipcChannels.petPreviewMode, async (_e, mode: string) => {
+			const win = this.petWindow.window;
+			if (win && !win.isDestroyed()) {
+				win.webContents.send(ipcChannels.petPreviewMode, mode);
+			}
+		});
+
 		// 点击宠物跳转活跃 Agent：恢复 Dock + 拉起主窗并聚焦 + 通知主窗切到活跃 Agent tab
 		ipcMain.handle(ipcChannels.petFocusAgent, async () => {
-			const main = this.deps.getMainWindow();
-			if (!main || main.isDestroyed()) return;
+			let main = this.deps.getMainWindow();
+			if (!main || main.isDestroyed()) {
+				if (this.deps.recreateMainWindow) {
+					main = await this.deps.recreateMainWindow();
+				} else {
+					return;
+				}
+			}
 			if (!main.isVisible()) main.show();
 			main.focus();
 			const agentId = this.bridge.currentState?.activeAgentId;

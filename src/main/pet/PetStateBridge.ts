@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron";
-import type { AgentStatus, AgentTab, PetAggregateState, PetMode } from "../../shared/types";
+import type { AgentStatus, AgentTab, PetAggregateState, PetMode, PetNotification } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
 
 /**
@@ -84,6 +84,10 @@ export class PetStateBridge {
 	private lastChangeAt = 0;
 	/** waving 过渡定时器：hidden 前先挥手 N ms */
 	private wavingTimer: NodeJS.Timeout | null = null;
+	/** 当前 AgentTab 列表，用于通知气泡中获取出错 Agent 名称 */
+	private currentTabs: AgentTab[] = [];
+	/** 通知气泡冷却倒数，抑制高频重发（0 表示可发送） */
+	private notifyCooldown = 0;
 	/** AgentManager 状态监听取消函数 */
 	private unsubscribe: (() => void) | null = null;
 
@@ -123,6 +127,7 @@ export class PetStateBridge {
 
 	/** 接收最新 AgentTab[]，去抖后聚合推送 */
 	update(tabs: AgentTab[]) {
+		this.currentTabs = tabs;
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
 		this.debounceTimer = setTimeout(() => {
 			this.debounceTimer = null;
@@ -132,6 +137,7 @@ export class PetStateBridge {
 
 	/** 立即推送一次（宠物窗创建后或开关切换时调用，避免等待去抖） */
 	pushNow(tabs: AgentTab[]) {
+		this.currentTabs = tabs;
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
 			this.debounceTimer = null;
@@ -182,6 +188,33 @@ export class PetStateBridge {
 		if (prev?.mode === target) return; // 模式未变不重复推送
 
 		this.applyState(state);
+		this.detectNotification(prev);
+	}
+
+	/** 通知气泡：出错/完成时在宠物头顶弹窗 */
+	private detectNotification(prev: PetAggregateState | null) {
+		const cur = this.lastState;
+		if (!cur) return;
+		// 冷却中抑制重复通知（单次通知后 3s 内不再发送同类通知）
+		const now = Date.now();
+		if (this.notifyCooldown > now) return;
+		if (cur.mode === "failed" && prev?.mode !== "failed") {
+			const errored = this.currentTabs.find(t => t.status === "error");
+			if (errored) {
+				this.sendNotification({ type: "error", text: `${errored.title} 出错了`, agentId: errored.id, timestamp: now });
+				this.notifyCooldown = now + 3000;
+			}
+		} else if (cur.mode === "idle" && (prev?.mode === "running" || prev?.mode === "failed")) {
+			this.sendNotification({ type: "done", text: "所有任务完成", timestamp: now });
+			this.notifyCooldown = now + 3000;
+		}
+	}
+
+	private sendNotification(n: PetNotification) {
+		const win = this.getPetWindow();
+		if (win && !win.isDestroyed()) {
+			win.webContents.send(ipcChannels.petNotify, n);
+		}
 	}
 
 	/** 实际发送状态给宠物窗并更新 lastState */

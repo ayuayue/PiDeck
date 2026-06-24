@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { useState, useEffect, useCallback } from "react";
-import type { PetAggregateState, PetManifest } from "@shared/types";
+import type { PetAggregateState, PetManifest, PetNotification } from "@shared/types";
 import { PetOverlay } from "./PetOverlay";
 import { PetInteraction } from "./PetInteraction";
 import { loadSpriteSheet, type SpriteSheet } from "./PetSpriteSheet";
@@ -24,6 +24,8 @@ function PetApp() {
 	});
 	const [sprite, setSprite] = useState<SpriteSheet | null>(null);
 	const [dragging, setDragging] = useState(false);
+	const [notification, setNotification] = useState<PetNotification | null>(null);
+	const [previewMode, setPreviewMode] = useState<string | null>(null);
 
 	// 挂载时主动拉取当前选中宠物 manifest 加载 sprite，避免主进程推送早于监听注册而丢失
 	useEffect(() => {
@@ -39,12 +41,22 @@ function PetApp() {
 		void window.piDesktop.pet.getCurrent().then(load);
 		const off = window.piDesktop.pet.onSprite(load);
 		const offState = window.piDesktop.pet.onState((s) => setState(s));
-		return () => { cancelled = true; off(); offState(); };
+		const offNotify = window.piDesktop.pet.onNotify((n) => {
+			setNotification(n);
+			setTimeout(() => setNotification(null), 4000);
+		});
+		const offPreview = window.piDesktop.pet.onPreviewMode((mode: string) => { setPreviewMode(mode || null); });
+		return () => { cancelled = true; off(); offState(); offNotify(); offPreview?.(); };
 	}, []);
 
 	return (
 		<div className="pet-root">
-			<PetOverlay sprite={sprite} manifest={null} state={state} dragging={dragging} />
+			{notification && (
+				<div className={`pet-notify pet-notify--${notification.type}`}>
+					<span className="pet-notify-text">{notification.text}</span>
+				</div>
+			)}
+			<PetOverlay sprite={sprite} manifest={null} state={previewMode ? { ...state, mode: previewMode as PetAggregateState["mode"] } : state} dragging={dragging} />
 			<PetInteraction state={state} onDragStateChange={setDragging} />
 		</div>
 	);

@@ -3843,6 +3843,21 @@ export function SettingsModal(props: {
 									/>
 									<small className="setting-status">{t("settings.pet.petdexHint")}</small>
 								</SettingsSection>
+								<SettingsSection title={t("settings.pet.preview")} description={t("settings.pet.previewDesc")}>
+									<SelectField
+										className="setting-field"
+										label={t("settings.pet.previewMode")}
+										value="__auto"
+										options={[
+											{ value: "__auto", label: t("settings.pet.previewAuto") },
+											{ value: "running-right", label: "→ running-right (行1)" },
+											{ value: "running-left", label: "← running-left (行2)" },
+											{ value: "jumping", label: "🤸 jumping (行4)" },
+											{ value: "review", label: "🔍 review (行8)" },
+										]}
+										onChange={(value) => { void window.piDesktop.pet.setPreviewMode(value === "__auto" ? "" : value); }}
+									/>
+								</SettingsSection>
 							</>
 						)}
 						<p>{props.notice || t("settings.restartNotice")}</p>

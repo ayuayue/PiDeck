@@ -23,6 +23,7 @@ import type {
 	CreatePiSkillInput,
 	PetAggregateState,
 	PetManifest,
+	PetNotification,
 	ExternalEditor,
 	ExternalEditorId,
 	ExternalEditorSetting,
@@ -500,6 +501,13 @@ const api = {
 		/** 挂载时主动拉取当前选中宠物 manifest（避免推送竞态） */
 		getCurrent: () =>
 			ipcRenderer.invoke(ipcChannels.petGetCurrent) as Promise<PetManifest | null>,
+		/** 主进程推送通知气泡（出错/完成） */
+		onNotify: (callback: (n: PetNotification) => void) =>
+			subscribe(ipcChannels.petNotify, callback),
+		setPreviewMode: (mode: string) =>
+			ipcRenderer.invoke(ipcChannels.petPreviewMode, mode) as Promise<void>,
+		onPreviewMode: (callback: (mode: string) => void) =>
+			subscribe(ipcChannels.petPreviewMode, callback),
 	},
 	terminal: {
 		list: (agentId: string) =>

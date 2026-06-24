@@ -1696,6 +1696,10 @@ app.whenReady().then(async () => {
 		agentManager,
 		settingsStore,
 		getMainWindow: () => mainWindow,
+		recreateMainWindow: async () => {
+			createWindow();
+			return mainWindow!;
+		},
 	});
 	void petSystem.start().catch((error) => {
 		void appLogger.warn("pet", "Pet system start failed", error);

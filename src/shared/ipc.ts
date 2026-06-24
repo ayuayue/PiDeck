@@ -167,4 +167,8 @@ export const ipcChannels = {
 	petCurrentSprite: "pet:current-sprite",
 	/** 宠物窗 → 主进程：拉取当前选中宠物的 manifest（挂载时主动拉取，避免推送竞态丢失） */
 	petGetCurrent: "pet:get-current",
+	/** 主进程 → 宠物窗：推送通知气泡（出错/完成时宠物头顶弹窗） */
+	petNotify: "pet:notify",
+	/** 设置页 → 主进程 → 宠物窗：预览动画行（测试用） */
+	petPreviewMode: "pet:preview-mode",
 } as const;

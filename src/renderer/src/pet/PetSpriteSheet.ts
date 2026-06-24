@@ -20,7 +20,10 @@ export const MODE_ROW: Record<string, number> = {
 	failed: 5, // 行5 ← error
 	waiting: 6, // 行6 ← starting
 	waving: 3, // 行3 ← closed 过渡态
-	// 增强项（本期不用）：running-right=1, running-left=2, jumping=4, review=8
+	"running-right": 1, // 行1 右向巡游
+	"running-left": 2,  // 行2 左向巡游
+	jumping: 4,  // 行4 跳跃
+	review: 8,    // 行8 审查
 };
 
 export type SpriteSheet = {

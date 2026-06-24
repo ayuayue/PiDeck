@@ -14,14 +14,14 @@ const W = COLS * CELL_W, H = ROWS * CELL_H;
 // 每行主色与动画类型；null 表示占位行
 const ROWS_DEF = [
   { row: 0, color: "#8a909c", anim: "breathe", label: "idle" },      // 灰·呼吸
-  { row: 1, color: "#cfd3dc", anim: null, label: "running-right" },
-  { row: 2, color: "#cfd3dc", anim: null, label: "running-left" },
+  { row: 1, color: "#16a34a", anim: "run-right", label: "running-right" },
+  { row: 2, color: "#16a34a", anim: "run-left", label: "running-left" },
   { row: 3, color: "#2563eb", anim: "wave", label: "waving" },       // 蓝·挥手
-  { row: 4, color: "#cfd3dc", anim: null, label: "jumping" },
+  { row: 4, color: "#8b5cf6", anim: "jump", label: "jumping" },
   { row: 5, color: "#dc2626", anim: "fail", label: "failed" },      // 红·出错闪烁
   { row: 6, color: "#b45309", anim: "wait", label: "waiting" },    // 琥珀·等待脉动
   { row: 7, color: "#16a34a", anim: "run", label: "running" },     // 绿·工作旋转
-  { row: 8, color: "#cfd3dc", anim: null, label: "review" },
+  { row: 8, color: "#0ea5e9", anim: "review", label: "review" },
 ];
 
 function frameSVG(row, col, def) {
@@ -76,6 +76,44 @@ function frameSVG(row, col, def) {
       const handY = cy - 30 + 12 * Math.sin((t / 8) * Math.PI * 2);
       parts.push(`<circle cx="${cx + 44}" cy="${handY}" r="11" fill="${def.color}"/>`);
       parts.push(`<rect x="${cx + 24}" y="${(cy + handY) / 2 - 5}" width="22" height="10" fill="${def.color}" rx="5" transform="rotate(${t * 8} ${cx + 34} ${(cy + handY) / 2})"/>`);
+      break;
+    }
+    case "run-right": {
+      // 右向巡游：绿色圆 + 右箭头平移
+      const dx = (t - 3.5) * 12;
+      parts.push(`<circle cx="${cx + dx}" cy="${cy}" r="56" fill="${def.color}"/>`);
+      parts.push(`<polygon points="${cx + dx},${cy - 16} ${cx + dx + 22},${cy} ${cx + dx},${cy + 16}" fill="#fff" opacity="0.8"/>`);
+      parts.push(`<circle cx="${cx + dx - 16}" cy="${cy - 6}" r="5" fill="#fff"/><circle cx="${cx + dx + 16}" cy="${cy - 6}" r="5" fill="#fff"/>`);
+      parts.push(`<circle cx="${cx + dx - 16}" cy="${cy - 4}" r="2.5" fill="#1a1d24"/><circle cx="${cx + dx + 16}" cy="${cy - 4}" r="2.5" fill="#1a1d24"/>`);
+      break;
+    }
+    case "run-left": {
+      // 左向巡游：绿色圆 + 左箭头平移
+      const dx = -(t - 3.5) * 12;
+      parts.push(`<circle cx="${cx + dx}" cy="${cy}" r="56" fill="${def.color}"/>`);
+      parts.push(`<polygon points="${cx + dx},${cy - 16} ${cx + dx - 22},${cy} ${cx + dx},${cy + 16}" fill="#fff" opacity="0.8"/>`);
+      parts.push(`<circle cx="${cx + dx - 16}" cy="${cy - 6}" r="5" fill="#fff"/><circle cx="${cx + dx + 16}" cy="${cy - 6}" r="5" fill="#fff"/>`);
+      parts.push(`<circle cx="${cx + dx - 16}" cy="${cy - 4}" r="2.5" fill="#1a1d24"/><circle cx="${cx + dx + 16}" cy="${cy - 4}" r="2.5" fill="#1a1d24"/>`);
+      break;
+    }
+    case "jump": {
+      // 跳跃：紫色圆 + 上下弹跳
+      const jy = -Math.abs(Math.sin((t / 8) * Math.PI * 2)) * 40;
+      const squash = 1 + (jy > -5 ? 0.12 : -0.08) * Math.cos((t / 8) * Math.PI);
+      parts.push(`<ellipse cx="${cx}" cy="${cy + jy}" rx="${56 * squash}" ry="${56 / squash}" fill="${def.color}"/>`);
+      parts.push(`<circle cx="${cx - 16}" cy="${cy + jy - 10}" r="5" fill="#fff"/><circle cx="${cx + 16}" cy="${cy + jy - 10}" r="5" fill="#fff"/>`);
+      parts.push(`<circle cx="${cx - 14}" cy="${cy + jy - 8}" r="2.5" fill="#1a1d24"/><circle cx="${cx + 14}" cy="${cy + jy - 8}" r="2.5" fill="#1a1d24"/>`);
+      break;
+    }
+    case "review": {
+      // 审查：浅蓝圆 + 放大镜旋转
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="56" fill="${def.color}" opacity="0.85"/>`);
+      const magR = 18;
+      const ang = (t / 8) * 360;
+      parts.push(`<g transform="rotate(${ang} ${cx} ${cy})">`);
+      parts.push(`<circle cx="${cx}" cy="${cy - 16}" r="${magR}" fill="none" stroke="#fff" stroke-width="5"/>`);
+      parts.push(`<line x1="${cx + 10}" y1="${cy + 6}" x2="${cx + 18}" y2="${cy + 14}" stroke="#fff" stroke-width="4" stroke-linecap="round"/>`);
+      parts.push(`</g>`);
       break;
     }
   }

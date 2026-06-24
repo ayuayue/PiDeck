@@ -514,6 +514,9 @@ export function createPreviewApi(): PiDesktopApi {
 			moveWindow: async () => undefined,
 			focusAgent: async () => undefined,
 			onSprite: noop,
+			onNotify: noop,
+			setPreviewMode: async () => undefined,
+			onPreviewMode: noop,
 			getCurrent: async () => ({ id: "builtin-otter", displayName: "Boba Otter", source: "builtin", spritesheetUrl: "" }),
 		},
 		terminal: {
