@@ -49,8 +49,10 @@ export type RichInputProps = {
 	caretRef?: React.MutableRefObject<number | null>;
 	/** chip 点击回调，传递被点击 chip 的解析信息 */
 	onChipClick?: (chip: RichInputChip) => void;
-	/** 已知 skill 名称白名单，仅匹配这些 skill 时渲染 chip */
-	knownSkills?: Set<string>;
+	/** 已知命令名称白名单，仅匹配这些命令时渲染 chip */
+	knownCommands?: Set<string>;
+	/** 已知文件路径白名单，仅匹配这些路径时渲染 @ chip */
+	knownFiles?: Set<string>;
 };
 
 type TextNodeRun = {
@@ -81,48 +83,71 @@ function overlapsUrl(
 	return urlSpans.some((s) => start < s.end && end > s.start);
 }
 
-/** 本地 skill 名称缓存（非响应式，skills 在 session 内不变）。 */
-let cachedSkillNames = new Set<string>();
+/** 本地可唤起命令名称缓存（非响应式，session 内不变）。 */
+let cachedCommandNames = new Set<string>();
 
 /**
- * 设置 skill 名称缓存。由 App 层在启动时调用一次填充。
+ * 设置命令名称缓存。由 App 层在启动时调用一次填充。
  */
-export function setCachedSkillNames(names: Set<string>): void {
-	cachedSkillNames = names;
+export function setCachedCommandNames(names: Set<string>): void {
+	cachedCommandNames = names;
 }
 
-/** 同步获取已缓存的 skill 名称集合。 */
-export function getCachedSkillNames(): Set<string> {
-	return cachedSkillNames;
+/** 同步获取已缓存的命令名称集合。 */
+export function getCachedCommandNames(): Set<string> {
+	return cachedCommandNames;
+}
+
+/** 本地文件路径缓存（非响应式，随项目切换更新）。 */
+let cachedFilePaths = new Set<string>();
+
+/** 设置文件路径缓存。由 App 层在文件列表变化时更新。 */
+export function setCachedFilePaths(paths: Set<string>): void {
+	cachedFilePaths = paths;
+}
+
+/** 同步获取已缓存的文件路径集合。 */
+export function getCachedFilePaths(): Set<string> {
+	return cachedFilePaths;
 }
 
 /**
  * 将 prompt 字符串解析为 chip 列表。
- * /skill:name：前置须为空白/起始，仅当 name 在已知 skill 白名单中时渲染。
+ * /command：前置须为非 :/（避免 URL scheme 与路径续段），命令名在已知白名单中时渲染；
+ *   后置若紧接 /（如 /Users/foo）视为路径，跳过避免命令名与路径段碰撞。
  * @path：前置非字母数字（避免 email@host），路径内允许 / 不允许空白与 @
  * 重叠时保留先出现的。
  * URL 中的路径段（如 https://example.com/foo）不会被识别为 chip。
  */
 export function parseRichInputChips(
 	text: string,
-	knownSkills?: Set<string>,
+	knownCommands?: Set<string>,
+	knownFiles?: Set<string>,
 ): RichInputChip[] {
 	const chips: RichInputChip[] = [];
 	const urlSpans = findUrlSpans(text);
-	const whitelist = knownSkills ?? getCachedSkillNames();
+	const commandWhitelist = knownCommands ?? getCachedCommandNames();
+	const fileWhitelist = knownFiles ?? getCachedFilePaths();
 
-	// 仅匹配 /skill:name 格式，不匹配纯路径 /Users 等
-	const slashRe = /(^|[\s(\[])(\/skill:[^\s\/]+)/g;
+	// /command：前置非 :/，命令名内无空白无 /；后置非 / 以排除路径续段
+	const slashRe = /(^|[^:/])(\/[^\s/]+)/g;
 	let m: RegExpExecArray | null;
 	while ((m = slashRe.exec(text)) !== null) {
 		const start = m.index + m[1].length;
 		const end = start + m[2].length;
-		if (!overlapsUrl(start, end, urlSpans)) {
-			const skillName = m[2].slice(7); // 去掉 "/skill:"
-			// 白名单检查：仅当本地存在该 skill 时渲染
-			if (whitelist.has(skillName)) {
-				chips.push({ start, end, raw: m[2], kind: "skill", label: skillName });
-			}
+		if (overlapsUrl(start, end, urlSpans)) {
+			if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
+			continue;
+		}
+		// 后置紧接 / 视为路径（如 cd /Users/1900th），即使命令名碰撞也不渲染
+		if (text[end] === "/") {
+			if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
+			continue;
+		}
+		const commandName = m[2].slice(1); // 去掉 /
+		// 白名单检查：仅当本地可唤起该命令时渲染
+		if (commandWhitelist.has(commandName)) {
+			chips.push({ start, end, raw: m[2], kind: "skill", label: commandName });
 		}
 		if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
 	}
@@ -132,11 +157,18 @@ export function parseRichInputChips(
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index + m[1].length;
 		const end = start + m[2].length;
-		if (!overlapsUrl(start, end, urlSpans)) {
-			const seg = m[2].slice(1);
-			const label = seg.includes("/") ? seg.slice(seg.lastIndexOf("/") + 1) : seg;
-			chips.push({ start, end, raw: m[2], kind: "file", label: label || seg });
+		if (overlapsUrl(start, end, urlSpans)) {
+			if (m.index === atRe.lastIndex) atRe.lastIndex++;
+			continue;
 		}
+		const seg = m[2].slice(1); // 去掉 @
+		// 文件白名单检查：仅当路径在当前项目中存在时渲染
+		if (!fileWhitelist.has(seg)) {
+			if (m.index === atRe.lastIndex) atRe.lastIndex++;
+			continue;
+		}
+		const label = seg.includes("/") ? seg.slice(seg.lastIndexOf("/") + 1) : seg;
+		chips.push({ start, end, raw: m[2], kind: "file", label: label || seg });
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
 	}
 
@@ -333,8 +365,8 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 		);
 
 		const chips = useMemo(
-			() => parseRichInputChips(value, props.knownSkills),
-			[value, props.knownSkills],
+			() => parseRichInputChips(value, props.knownCommands, props.knownFiles),
+			[value, props.knownCommands, props.knownFiles],
 		);
 
 		/** 全量渲染 DOM：清空 root，按 value + chips 重建文本节点 + chip span。 */

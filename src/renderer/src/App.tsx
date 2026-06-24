@@ -92,6 +92,7 @@ import {
   flattenFiles,
   groupToolMessages,
   matches,
+  getVisibleCommandNames,
   type DrawerPanel,
   type SessionModifiedFile,
 } from "./components/app/AppParts";
@@ -99,7 +100,8 @@ import {
 	getCaretOffset as getCaretOffsetOf,
 	getRichInputCaretCoords,
 	RichInput,
-	setCachedSkillNames,
+	setCachedCommandNames,
+	setCachedFilePaths,
 	type RichInputChip,
 } from "./components/app/RichInput";
 import { FileDiffViewer } from "./components/app/FileDiffViewer";
@@ -553,22 +555,17 @@ export function App() {
   const pendingAgentsRef = useRef<AgentTab[]>([]);
   const projectDragPreventClickRef = useRef(false);
 
-  // ===== Skill 白名单 =====
+  // ===== 命令白名单（chip 渲染用）=====
 
-  const [knownSkills, setKnownSkills] = useState<Set<string>>(new Set());
+  // 从 / 可唤起的命令列表中提取名称，作为 chip 渲染白名单
+  const knownCommands = useMemo(
+    () => getVisibleCommandNames(commands),
+    [commands],
+  );
   useEffect(() => {
-    api.skills
-      .list()
-      .then((res) => {
-        const names = new Set(res.skills.map((s) => s.name));
-        setCachedSkillNames(names);
-        setKnownSkills(names);
-      })
-      .catch(() => {
-        setCachedSkillNames(new Set());
-        setKnownSkills(new Set());
-      });
-  }, []);
+    setCachedCommandNames(knownCommands);
+  }, [knownCommands]);
+
 
   // ===== 飞书桥接 =====
 
@@ -798,6 +795,16 @@ export function App() {
     [activeMessages.length, activeAgentId],
   );
   const flatFiles = useMemo(() => flattenFiles(files), [files]);
+
+  // 从当前项目文件列表中提取相对路径，作为 @ chip 渲染白名单
+  const knownFiles = useMemo(
+    () => new Set(flatFiles.map((f) => f.relativePath)),
+    [flatFiles],
+  );
+  useEffect(() => {
+    setCachedFilePaths(knownFiles);
+  }, [knownFiles]);
+
   // 优化:建议项计算仅在必要时触发,避免每次输入都重计算导致卡顿
   // 只有当建议框打开时才计算,关闭时返回空数组
   // 以光标位置为锚检测触发器,使文字中间也能唤出 @ 文件 / / 命令菜单。
@@ -4033,7 +4040,8 @@ ${goalTextRef.current}
                       onOpenFile={openFilePath}
                       onResendUserMessage={resendUserMessage}
                       showThinking={settings.showThinking}
-                      knownSkills={knownSkills}
+                      knownCommands={knownCommands}
+                      knownFiles={knownFiles}
                     />
                     {item.message.role === "assistant" &&
                       turnFileSummaryByMessage[item.message.id]?.length > 0 && (
@@ -4230,7 +4238,8 @@ ${goalTextRef.current}
                 }
                 // skill chip 点击暂不处理，后续可扩展跳转 skill 详情
               }}
-              knownSkills={knownSkills}
+              knownCommands={knownCommands}
+              knownFiles={knownFiles}
             />
             {suggestionsOpen && !composerDisabled && (
               <PromptSuggestions

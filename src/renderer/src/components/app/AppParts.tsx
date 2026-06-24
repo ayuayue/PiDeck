@@ -1556,13 +1556,15 @@ function stripThinkingTags(text: string): string {
 
 /** 将消息文本中的 @path / /command 渲染为行内 chip（聊天区展示用，与输入框 chip 视觉一致）。
  * 可通过 onOpenFile 回调使 chip 可点击跳转。
- * knownSkills 为本地 skill 名称白名单，传空时不渲染任何 skill chip。 */
+ * knownCommands 为本地可唤起命令名称白名单，传空时不渲染任何 /command chip。
+ * knownFiles 为当前项目文件路径白名单，传空时不渲染任何 @ chip。 */
 function renderChipText(
 	text: string,
 	onOpenFile?: (path: string) => void,
-	knownSkills?: Set<string>,
+	knownCommands?: Set<string>,
+	knownFiles?: Set<string>,
 ): ReactNode[] {
-	const chips = parseRichInputChips(text, knownSkills);
+	const chips = parseRichInputChips(text, knownCommands, knownFiles);
 	if (chips.length === 0) return [text];
 	const nodes: ReactNode[] = [];
 	let cursor = 0;
@@ -1602,7 +1604,8 @@ export const ChatBubble = memo(function ChatBubble(props: {
 	onOpenFile?: (path: string) => void;
 	onResendUserMessage?: (message: ChatMessage) => void;
 	compact?: boolean;
-	knownSkills?: Set<string>;
+	knownCommands?: Set<string>;
+	knownFiles?: Set<string>;
 }) {
 	const { message } = props;
 	const [expanded, setExpanded] = useState(false);
@@ -1703,7 +1706,7 @@ export const ChatBubble = memo(function ChatBubble(props: {
 					)}
 					{/* 用户消息使用纯文本显示,避免特殊字符被 markdown 解释导致渲染异常 */}
 					{isUser ? (
-						<div className="user-message-text">{renderChipText(cleanText, props.onOpenFile, props.knownSkills)}</div>
+						<div className="user-message-text">{renderChipText(cleanText, props.onOpenFile, props.knownCommands, props.knownFiles)}</div>
 					) : (
 						<ReactMarkdown
 							remarkPlugins={[remarkGfm]}
@@ -2966,6 +2969,11 @@ function mergeCommands(commands: PiCommand[]) {
 		(command) => !names.has(command.name) && isVisibleDesktopCommand(command),
 	);
 	return [...visibleCommands, ...extras];
+}
+
+/** 获取当前可被 / 唤起的可见命令名称集合，作为 chip 渲染白名单。 */
+export function getVisibleCommandNames(commands: PiCommand[]): Set<string> {
+	return new Set(mergeCommands(commands).map((c) => c.name));
 }
 
 const PINNED_COMMAND_NAMES = new Set<string>();
