@@ -171,4 +171,6 @@ export const ipcChannels = {
 	petNotify: "pet:notify",
 	/** 设置页 → 主进程 → 宠物窗：预览动画行（测试用） */
 	petPreviewMode: "pet:preview-mode",
+	/** 主进程 → 宠物窗：推送窗口能力探测结果（透明/穿透/自由定位） ★ 降级形态渲染 */
+	petCaps: "pet:caps",
 } as const;

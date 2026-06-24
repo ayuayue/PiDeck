@@ -4,6 +4,7 @@ import type { SettingsStore } from "../settings/SettingsStore";
 import type { AgentTab, AppSettings, PetManifest } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
 import { PetWindow } from "./PetWindow";
+import { detectPetWindowCaps } from "./PetWindow";
 import { PetStateBridge } from "./PetStateBridge";
 import { PetPackageManager } from "./PetPackageManager";
 
@@ -46,6 +47,7 @@ export class PetSystem {
 		const settings = this.deps.settingsStore.get();
 		if (settings.petEnabled) {
 			await this.petWindow.create();
+			this.pushCaps();
 			// 立即推送一次当前状态，避免等待去抖导致宠物窗初始空白
 			this.bridge.pushNow(this.deps.agentManager.list());
 			await this.pushCurrentSprite();
@@ -129,6 +131,7 @@ export class PetSystem {
 		if (next.petEnabled !== prev.petEnabled) {
 			if (next.petEnabled) {
 				await this.petWindow.create();
+				this.pushCaps();
 				this.bridge.pushNow(this.deps.agentManager.list());
 				await this.pushCurrentSprite();
 			} else {
@@ -142,6 +145,14 @@ export class PetSystem {
 		}
 		if (next.petAlwaysOnTop !== prev.petAlwaysOnTop) {
 			this.petWindow.setAlwaysOnTop(next.petAlwaysOnTop);
+		}
+	}
+
+	/** 推送当前平台宠物窗能力探测结果，供渲染层选择降级形态（透明悬浮 / 圆角小窗 / 托盘点） */
+	private pushCaps() {
+		const win = this.petWindow.window;
+		if (win && !win.isDestroyed()) {
+			win.webContents.send(ipcChannels.petCaps, detectPetWindowCaps());
 		}
 	}
 

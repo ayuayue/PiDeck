@@ -49,3 +49,22 @@ body,
   from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* 降级形态：不支持透明窗时（Linux Wayland / Windows 远程桌面），退化为圆角小窗 */
+.pet-root--rounded {
+  background: #eef0f3;
+  border-radius: 14px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+  overflow: hidden; /* 圆角裁切 canvas 边角 */
+}
+.pet-root--rounded canvas {
+  background: #eef0f3;
+}
+@media (prefers-color-scheme: dark) {
+  .pet-root--rounded {
+    background: #1f2228;
+  }
+  .pet-root--rounded canvas {
+    background: #1f2228;
+  }
+}

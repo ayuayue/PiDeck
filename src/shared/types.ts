@@ -352,6 +352,16 @@ export type PetManifest = {
 };
 
 
+/** 三端宠物窗能力探测结果（设计文档第 5.2 节降级形态） */
+export type PetWindowCaps = {
+	/** 是否支持透明背景（Linux 部分 WM 不支持） */
+	transparent: boolean;
+	/** 是否支持点击穿透（MVP 不用，预留） */
+	clickThrough: boolean;
+	/** 是否支持自由绝对坐标定位（Wayland 受限） */
+	freePosition: boolean;
+};
+
 /** 宠物通知气泡：出错/完成时在宠物头顶弹出 */
 export type PetNotification = {
 	type: "error" | "done";

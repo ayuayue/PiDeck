@@ -2,6 +2,7 @@ import { app, BrowserWindow, screen } from "electron";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { is } from "@electron-toolkit/utils";
+import type { PetWindowCaps } from "../../shared/types";
 
 /**
  * PetWindow —— 透明置顶悬浮窗（三端，设计文档第 5 节）。
@@ -12,13 +13,6 @@ import { is } from "@electron-toolkit/utils";
  *
  * 位置持久化到 userData/pet-position.json；超出屏幕边界则回退右下角默认位。
  */
-
-/** 三端能力探测结果，决定渲染降级形态 */
-export type PetWindowCaps = {
-	transparent: boolean;
-	clickThrough: boolean;
-	freePosition: boolean;
-};
 
 export function detectPetWindowCaps(): PetWindowCaps {
 	switch (process.platform) {

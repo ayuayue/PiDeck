@@ -24,6 +24,7 @@ import type {
 	PetAggregateState,
 	PetManifest,
 	PetNotification,
+	PetWindowCaps,
 	ExternalEditor,
 	ExternalEditorId,
 	ExternalEditorSetting,
@@ -508,6 +509,8 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.petPreviewMode, mode) as Promise<void>,
 		onPreviewMode: (callback: (mode: string) => void) =>
 			subscribe(ipcChannels.petPreviewMode, callback),
+		onCaps: (callback: (caps: PetWindowCaps) => void) =>
+			subscribe(ipcChannels.petCaps, callback),
 	},
 	terminal: {
 		list: (agentId: string) =>

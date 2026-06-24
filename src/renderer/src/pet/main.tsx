@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { useState, useEffect, useCallback } from "react";
-import type { PetAggregateState, PetManifest, PetNotification } from "@shared/types";
+import type { PetAggregateState, PetManifest, PetNotification, PetWindowCaps } from "@shared/types";
 import { PetOverlay } from "./PetOverlay";
 import { PetInteraction } from "./PetInteraction";
 import { loadSpriteSheet, type SpriteSheet } from "./PetSpriteSheet";
@@ -26,6 +26,7 @@ function PetApp() {
 	const [dragging, setDragging] = useState(false);
 	const [notification, setNotification] = useState<PetNotification | null>(null);
 	const [previewMode, setPreviewMode] = useState<string | null>(null);
+	const [caps, setCaps] = useState<PetWindowCaps | null>(null);
 
 	// 挂载时主动拉取当前选中宠物 manifest 加载 sprite，避免主进程推送早于监听注册而丢失
 	useEffect(() => {
@@ -46,11 +47,12 @@ function PetApp() {
 			setTimeout(() => setNotification(null), 4000);
 		});
 		const offPreview = window.piDesktop.pet.onPreviewMode((mode: string) => { setPreviewMode(mode || null); });
-		return () => { cancelled = true; off(); offState(); offNotify(); offPreview?.(); };
+		const offCaps = window.piDesktop.pet.onCaps((c) => { setCaps(c); });
+		return () => { cancelled = true; off(); offState(); offNotify(); offPreview?.(); offCaps?.(); };
 	}, []);
 
 	return (
-		<div className="pet-root">
+		<div className={`pet-root${caps && !caps.transparent ? " pet-root--rounded" : ""}`}>
 			{notification && (
 				<div className={`pet-notify pet-notify--${notification.type}`}>
 					<span className="pet-notify-text">{notification.text}</span>
