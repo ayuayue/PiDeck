@@ -495,7 +495,7 @@ export function App() {
 
     // 桌面宠物默认关闭：关闭后应用与现状完全一致，零回归
     petEnabled: false,
-    petId: "builtin-otter",
+    petId: "wangcai",
     petAlwaysOnTop: true,
     petScale: 1,
   });

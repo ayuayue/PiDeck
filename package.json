@@ -37,6 +37,7 @@
     "docs:dev": "vitepress dev docs-site",
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site",
+    "postinstall": "node scripts/fix-pty-permissions.js",
     "typecheck": "tsc --noEmit",
     "make-icon": "node scripts/make-icon.js"
   },

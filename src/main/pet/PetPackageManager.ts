@@ -3,9 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { join, extname } from "node:path";
 import type { Dirent } from "node:fs";
 import type { PetManifest } from "../../shared/types";
-// 内置宠物素材经 ?asset 导入：electron-vite 构建时复制到输出目录并返回运行时绝对路径，
-// 打包后也能正确定位（与 index.ts:19 的 icon 导入同一机制）。
-import builtinOtterSprite from "../../../build/pets/builtin-otter/spritesheet.webp?asset";
+// 暂无内置宠物，后续如需添加请用 ?asset 导入 sprite 文件
 
 /**
  * PetPackageManager —— 宠物包管理（设计文档第 7 节）。
@@ -70,15 +68,7 @@ async function fileExists(p: string): Promise<boolean> {
 
 export class PetPackageManager {
 	/** 内置包清单（元数据固定，spritesheet 走 ?asset 路径，list 时转 data URL） */
-	private readonly builtinMeta: Array<Omit<PetManifest, "spritesheetUrl"> & { spritePath: string }> = [
-		{
-			id: "builtin-otter",
-			displayName: "Boba Otter",
-			description: "Pideck 内置水獭 · 随 Agent 状态变换",
-			source: "builtin",
-			spritePath: builtinOtterSprite,
-		},
-	];
+	private readonly builtinMeta: Array<Omit<PetManifest, "spritesheetUrl"> & { spritePath: string }> = [];
 
 	/** 列出所有可用宠物包：内置 + petdex 扫描，按 id 去重（内置优先） */
 	async list(): Promise<PetManifest[]> {

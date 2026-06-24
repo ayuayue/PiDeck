@@ -147,7 +147,7 @@ let previewSettings: AppSettings = {
 
 	// 桌面宠物默认关闭
 	petEnabled: false,
-	petId: "builtin-otter",
+	petId: "wangcai",
 	petAlwaysOnTop: true,
 	petScale: 1,
 };
@@ -507,7 +507,7 @@ export function createPreviewApi(): PiDesktopApi {
 		pet: {
 			onState: noop,
 			list: async () => [
-				{ id: "builtin-otter", displayName: "Boba Otter", source: "builtin", spritesheetUrl: "" },
+				{ id: "wangcai", displayName: "Wangcai", source: "petdex", spritesheetUrl: "" },
 			],
 			setEnabled: async () => undefined,
 			setId: async () => undefined,
@@ -518,7 +518,7 @@ export function createPreviewApi(): PiDesktopApi {
 			setPreviewMode: async () => undefined,
 			onPreviewMode: noop,
 			onCaps: noop,
-			getCurrent: async () => ({ id: "builtin-otter", displayName: "Boba Otter", source: "builtin", spritesheetUrl: "" }),
+			getCurrent: async () => ({ id: "wangcai", displayName: "Wangcai", source: "petdex", spritesheetUrl: "" }),
 		},
 		terminal: {
 			list: async (agentId) =>
