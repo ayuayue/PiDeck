@@ -46,7 +46,8 @@
     "@larksuiteoapi/node-sdk": "^1.67.0",
     "@monaco-editor/react": "^4.7.0",
     "monaco-editor": "^0.55.1",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "remark-breaks": "^4.0.0"
   },
   "build": {
     "appId": "com.ayuayue.pi-desktop",

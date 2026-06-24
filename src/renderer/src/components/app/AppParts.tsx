@@ -10,6 +10,7 @@ import {
 } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import {
 	Check,
 	ChevronDown,
@@ -1554,10 +1555,23 @@ function stripThinkingTags(text: string): string {
 	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
 }
 
+/** 将字符串按 \n 拆分，段间插入 <br />。无换行时直接返回字符串。 */
+function splitLines(str: string, brCounter: { n: number }): ReactNode[] {
+	const parts = str.split("\n");
+	if (parts.length === 1) return [str];
+	const result: ReactNode[] = [parts[0]];
+	for (let i = 1; i < parts.length; i++) {
+		result.push(<br key={`br-${brCounter.n++}`} />);
+		result.push(parts[i]);
+	}
+	return result;
+}
+
 /** 将消息文本中的 @path / /command 渲染为行内 chip（聊天区展示用，与输入框 chip 视觉一致）。
  * 可通过 onOpenFile 回调使 chip 可点击跳转。
  * knownCommands 为本地可唤起命令名称白名单，传空时不渲染任何 /command chip。
- * knownFiles 为当前项目文件路径白名单，传空时不渲染任何 @ chip。 */
+ * knownFiles 为当前项目文件路径白名单，传空时不渲染任何 @ chip。
+ * 文本中的 \n 显式渲染为 <br />，不依赖 CSS white-space。 */
 function renderChipText(
 	text: string,
 	onOpenFile?: (path: string) => void,
@@ -1565,12 +1579,13 @@ function renderChipText(
 	knownFiles?: Set<string>,
 ): ReactNode[] {
 	const chips = parseRichInputChips(text, knownCommands, knownFiles);
-	if (chips.length === 0) return [text];
+	if (chips.length === 0) return splitLines(text, { n: 0 });
 	const nodes: ReactNode[] = [];
 	let cursor = 0;
+	const brCounter = { n: 0 };
 	for (const chip of chips) {
 		if (chip.start > cursor) {
-			nodes.push(text.slice(cursor, chip.start));
+			nodes.push(...splitLines(text.slice(cursor, chip.start), brCounter));
 		}
 		const clickable = onOpenFile && chip.kind === "file";
 		nodes.push(
@@ -1591,7 +1606,7 @@ function renderChipText(
 		cursor = chip.end;
 	}
 	if (cursor < text.length) {
-		nodes.push(text.slice(cursor));
+		nodes.push(...splitLines(text.slice(cursor), brCounter));
 	}
 	return nodes;
 }
@@ -1709,7 +1724,7 @@ export const ChatBubble = memo(function ChatBubble(props: {
 						<div className="user-message-text">{renderChipText(cleanText, props.onOpenFile, props.knownCommands, props.knownFiles)}</div>
 					) : (
 						<ReactMarkdown
-							remarkPlugins={[remarkGfm]}
+							remarkPlugins={[remarkGfm, remarkBreaks]}
 							urlTransform={markdownUrlTransform}
 							components={{
 								pre: CodeBlock,

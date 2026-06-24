@@ -2539,11 +2539,11 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	transition: contents 0.12s ease;
 }
 .chat-message.mine .msg-bubble {
-	width: fit-content;
 	max-width: 100%;
 }
 .chat-message.mine .user-message-text {
-	white-space: pre-wrap;
+	white-space: pre-wrap !important;
+	overflow-wrap: break-word;
 }
 .markdown-body {
 	max-width: 100%;
@@ -3585,6 +3585,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 /* 用户消息纯文本样式：保留换行和空白，避免 markdown 渲染带来的格式干扰 */
 .user-message-text {
 	white-space: pre-wrap;
+	overflow-wrap: break-word;
 	word-break: break-word;
 	line-height: 1.6;
 }

@@ -186,13 +186,14 @@ export function parseRichInputChips(
 
 /**
  * 遍历 contentEditable root 的「纯文本模型」。
- * 按文档序依次回调每个文本段和 chip，自动跳过 chip 内部（contenteditable=false）。
- * BR 按 1 字符贡献偏移（防御性，正常使用中不应出现）。
+ * 按文档序依次回调每个文本段、chip 和 BR，自动跳过 chip 内部（contenteditable=false）。
+ * BR 默认按 1 字符贡献偏移；若提供 onBr 回调则同步触发。
  */
 function walkFlat(
 	root: HTMLElement,
 	onText: (node: Text, start: number, end: number) => void,
 	onChip: (el: HTMLElement, start: number, end: number) => void,
+	onBr?: (start: number, end: number) => void,
 ): void {
 	let offset = 0;
 	function visit(node: Node): void {
@@ -207,6 +208,7 @@ function walkFlat(
 				onChip(el, offset, offset + rawLen);
 				offset += rawLen;
 			} else if (el.tagName === "BR") {
+				if (onBr) onBr(offset, offset + 1);
 				offset += 1;
 			} else {
 				node.childNodes.forEach(visit);
@@ -234,13 +236,14 @@ function collectTextRuns(root: HTMLElement): TextNodeRun[] {
 	return runs;
 }
 
-/** 从 DOM 读取纯文本（chip 用 data-raw 还原）。 */
+/** 从 DOM 读取纯文本（chip 用 data-raw 还原，BR 转为 \n）。 */
 function collectFlatText(root: HTMLElement): string {
 	let text = "";
 	walkFlat(
 		root,
 		(node) => { text += node.nodeValue ?? ""; },
 		(el) => { text += el.getAttribute("data-raw") ?? ""; },
+		() => { text += "\n"; },
 	);
 	return text;
 }
@@ -521,7 +524,15 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				if (event.key === "Enter") {
 					event.preventDefault();
-					document.execCommand("insertText", false, "\n");
+					// 不依赖 execCommand（它在 contentEditable 中行为不可靠），
+					// 直接手算新文本并调 onChange，由受控同步 rebuild DOM。
+					const root = rootRef.current;
+					if (!root) return;
+					const flatText = collectFlatText(root);
+					const caret = getCaretOffset(root);
+					const newText = flatText.slice(0, caret) + "\n" + flatText.slice(caret);
+					pendingCaretRef.current = caret + 1;
+					onChange(newText, caret + 1);
 				}
 			},
 			[onKeyDown, onChange, chips],
