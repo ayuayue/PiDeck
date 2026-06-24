@@ -144,6 +144,12 @@ let previewSettings: AppSettings = {
 	linkOpenMode: "external",
 	maxEditorFileSizeMB: 5,
 	externalEditors: createDefaultExternalEditorSettings(),
+
+	// 桌面宠物默认关闭
+	petEnabled: false,
+	petId: "builtin-otter",
+	petAlwaysOnTop: true,
+	petOpacity: 1,
 };
 
 export function createPreviewApi(): PiDesktopApi {
@@ -496,6 +502,18 @@ export function createPreviewApi(): PiDesktopApi {
 			onThinking: noop,
 			onRpcLog: noop,
 			onRuntimeState: noop,
+		},
+		pet: {
+			onState: noop,
+			list: async () => [
+				{ id: "builtin-otter", displayName: "Boba Otter", source: "builtin", spritesheetUrl: "" },
+			],
+			setEnabled: async () => undefined,
+			setId: async () => undefined,
+			moveWindow: async () => undefined,
+			focusAgent: async () => undefined,
+			onSprite: noop,
+			getCurrent: async () => ({ id: "builtin-otter", displayName: "Boba Otter", source: "builtin", spritesheetUrl: "" }),
 		},
 		terminal: {
 			list: async (agentId) =>

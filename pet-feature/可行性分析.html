@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pideck 桌面宠物功能 · 可行性分析</title>
+<style>
+  :root {
+    --bg:#f7f8fa;--bg-soft:#eef0f4;--surface:#fff;--ink:#1a1d24;--ink-soft:#4b515c;--ink-mute:#8a909c;
+    --line:#e3e6ec;--accent:#6d5efc;--accent-soft:#efedff;--green:#16a34a;--green-soft:#dcfce7;
+    --amber:#d97706;--amber-soft:#fef3c7;--red:#dc2626;--code-bg:#0f1117;--code-ink:#e6e6e6;--radius:12px;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.7;font-size:16px;-webkit-font-smoothing:antialiased}
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(247,248,250,.85);backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
+  .topbar-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:12px 24px}
+  .logo-dot{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#9d7bff);display:grid;place-items:center;box-shadow:0 4px 12px rgba(109,94,252,.35)}
+  .logo-dot::after{content:"🐾";font-size:15px}
+  .topbar-title{font-weight:650;font-size:15px}.topbar-sub{color:var(--ink-mute);font-size:13px}
+  .topbar-spacer{flex:1}
+  .badge{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--green-soft);color:var(--green);border:1px solid #bbf7d0}
+  .badge.amber{background:var(--amber-soft);color:var(--amber);border-color:#fde68a}
+  .layout{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:220px 1fr;gap:40px;padding:32px 24px 80px}
+  .toc{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow-y:auto;font-size:13.5px}
+  .toc h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);margin:0 0 10px 12px;font-weight:600}
+  .toc a{display:block;padding:6px 12px;border-radius:7px;color:var(--ink-soft);text-decoration:none;transition:all .15s}
+  .toc a:hover{background:var(--bg-soft);color:var(--ink)}
+  .toc a.active{color:var(--accent);font-weight:600;background:var(--accent-soft)}
+  .content{min-width:0}
+  section{margin-bottom:56px;scroll-margin-top:84px}
+  h1{font-size:34px;line-height:1.25;margin:0 0 10px;letter-spacing:-.02em;font-weight:720}
+  .lead{color:var(--ink-soft);font-size:17px;margin:0 0 6px}
+  h2{font-size:23px;margin:0 0 18px;font-weight:680;letter-spacing:-.01em;padding-bottom:10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  h2 .num{font-size:13px;font-family:var(--mono);font-weight:600;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:6px}
+  h3{font-size:17px;margin:28px 0 12px;font-weight:640}
+  p{margin:0 0 14px}strong{font-weight:640;color:var(--ink)}
+  code.inl{font-family:var(--mono);font-size:13px;background:var(--bg-soft);padding:2px 6px;border-radius:5px;color:#b547e0}
+  ul,ol{padding-left:22px}li{margin-bottom:7px}
+  .callout{border-radius:var(--radius);padding:18px 20px;margin:18px 0;border:1px solid;display:flex;gap:14px;align-items:flex-start}
+  .callout .ico{font-size:20px;line-height:1.4;flex-shrink:0}.callout .body{flex:1}.callout .body p{margin:0}
+  .callout b{display:block;margin-bottom:3px}
+  .callout.warn{background:#fffbeb;border-color:#fde68a}.callout.warn .ico{color:var(--amber)}
+  .callout.info{background:var(--accent-soft);border-color:#ddd6fe}.callout.info .ico{color:var(--accent)}
+  .callout.ok{background:#f0fdf4;border-color:#bbf7d0}.callout.ok .ico{color:var(--green)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--bg-soft);font-weight:620;font-size:13px;color:var(--ink-soft)}
+  td code{font-family:var(--mono);font-size:12.5px;color:#b547e0}
+  tr:hover td{background:#fafbfc}
+  .yes{color:var(--green);font-weight:650}.no{color:var(--red);font-weight:650}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:var(--radius);padding:18px 20px;overflow-x:auto;font-size:13.5px;line-height:1.65;font-family:var(--mono);margin:16px 0;border:1px solid #1f2230}
+  pre .c{color:#6b7180}pre .k{color:#c792ea}pre .s{color:#c3e88d}pre .n{color:#f78c6c}
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .compare .card{border-radius:var(--radius);padding:16px 18px;border:1px solid var(--line);background:var(--surface)}
+  .compare .card .tag{font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+  .compare .card.exp .tag{color:var(--amber)}.compare .card.real .tag{color:var(--accent)}
+  .compare .card h4{margin:0 0 6px;font-size:15px}.compare .card p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+  .pet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}
+  .pet-state{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .pet-state .row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .pet-state .emoji{font-size:22px}.pet-state .name{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink)}
+  .pet-state .idx{font-size:11px;color:var(--ink-mute);font-family:var(--mono);margin-left:auto}
+  .pet-state .desc{font-size:12.5px;color:var(--ink-soft);margin:0}
+  .map-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;padding:8px 0}
+  .map-flow .chip{padding:5px 11px;border-radius:7px;font-family:var(--mono);font-weight:600;border:1px solid var(--line);background:var(--surface)}
+  .map-flow .arrow{color:var(--ink-mute)}.map-flow .note{color:var(--ink-mute)}
+  .map-flow .chip.to{background:var(--accent-soft);border-color:#ddd6fe;color:var(--accent)}
+  .tree{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;font-family:var(--mono);font-size:13px;line-height:1.9;margin:16px 0;color:var(--ink-soft)}
+  .tree .dir{color:var(--accent);font-weight:600}.tree .cmt{color:var(--ink-mute)}.tree .new{color:var(--green);font-weight:600}
+  .meter{height:8px;border-radius:999px;background:var(--bg-soft);overflow:hidden;width:140px}
+  .meter>i{display:block;height:100%;background:linear-gradient(90deg,var(--green),#4ade80);border-radius:999px}
+  .questions{display:grid;gap:12px;margin-top:8px}
+  .question{border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;background:var(--surface);display:flex;gap:14px}
+  .question .qkey{font-family:var(--mono);font-weight:700;color:var(--accent);width:22px;flex-shrink:0;font-size:16px}
+  .question p{margin:0}
+  footer{color:var(--ink-mute);font-size:13px;text-align:center;padding:24px 0 0;border-top:1px solid var(--line)}
+  @media (max-width:860px){.layout{grid-template-columns:1fr;gap:0;padding:20px 18px 60px}.toc{display:none}h1{font-size:27px}.compare,.pet-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-dot"></div>
+    <div>
+      <div class="topbar-title">Pideck 桌面宠物功能</div>
+      <div class="topbar-sub">可行性分析报告</div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <span class="badge">可行性：高</span>
+    <span class="badge amber">预估 3–4 天</span>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="toc">
+    <h4>目录</h4>
+    <a href="#s0">概要结论</a>
+    <a href="#s1">1. 关键认知澄清</a>
+    <a href="#s2">2. Codex 桌宠本质</a>
+    <a href="#s3">3. Pideck 可行性</a>
+    <a href="#s4">4. 状态映射方案</a>
+    <a href="#s5">5. 技术方案</a>
+    <a href="#s6">6. 风险与应对</a>
+    <a href="#s7">7. 工作量预估</a>
+    <a href="#s8">8. 我的建议</a>
+    <a href="#s9">9. 待你拍板</a>
+  </nav>
+
+  <div class="content">
+
+    <section id="s0">
+      <h1>给 Pideck 加一个 Codex 风格的桌面宠物 🐾</h1>
+      <p class="lead">让多 agent 的运行状态变成桌面上一只随时可见的小精灵——不用切窗口就知道哪个在跑、哪个出错了。</p>
+      <div class="callout ok">
+        <div class="ico">✅</div>
+        <div class="body">
+          <b>一句话结论</b>
+          <p>方案<strong>完全可行</strong>，技术风险低。Pideck 已有的 agent 状态机正好是宠物动画的现成驱动源，渲染层自研即可（spritesheet 切帧很简单），素材可直接复用 petdex 的 3000+ 宠物生态。预估 3–4 天交付完整版。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s1">
+      <h2><span class="num">01</span> 先纠正一个关键认知</h2>
+      <p>你说「使用 petdex.dev 中已有的开源动画库」。调研后发现这里有一个需要点明的认知偏差，它会直接影响技术选型：</p>
+      <div class="compare">
+        <div class="card exp">
+          <div class="tag">▸ 你的预期</div>
+          <h4>petdex 是一个动画渲染库</h4>
+          <p>像 framer-motion / lottie 那样，npm 安装后引入即用，负责把动画画出来。</p>
+        </div>
+        <div class="card real">
+          <div class="tag">▸ 实际情况</div>
+          <h4>petdex 是素材仓库 + 格式规范 + 安装器</h4>
+          <p>它提供标准素材包和下载能力，<strong>不含渲染代码</strong>。渲染需要我们自己在 Pideck 里写。</p>
+        </div>
+      </div>
+      <h3>petdex 真正提供的三样东西</h3>
+      <ol>
+        <li><strong>标准素材格式</strong>：一个 <code class="inl">pet.json</code> + 一张 <code class="inl">spritesheet.webp/png</code></li>
+        <li><strong>3000+ 现成宠物包</strong>：<code class="inl">npx petdex install boba</code> 一条命令下载</li>
+        <li><strong>一个桌面 sidecar</strong>：独立进程监听 <code class="inl">127.0.0.1:7777/state</code>，POST 状态 JSON 驱动宠物</li>
+      </ol>
+      <div class="callout info">
+        <div class="ico">💡</div>
+        <div class="body">
+          <b>这意味着什么</b>
+          <p>petdex 的<strong>素材格式和生态可以直接复用</strong>，但渲染层（把 spritesheet 画成会动的动画）需要 Pideck 自己实现。好消息是——这非常简单，Canvas 或 CSS 切帧几十行代码搞定，8–12fps 足够流畅。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s2">
+      <h2><span class="num">02</span> Codex 桌宠的本质</h2>
+      <p>核心一句话：<strong>状态机驱动的精灵图（Sprite Sheet）悬浮窗</strong>。</p>
+      <h3>三大特征</h3>
+      <ul>
+        <li><strong>全局悬浮置顶</strong>：独立透明窗口浮在所有 App 之上，切到任何软件都能看见</li>
+        <li><strong>9 种状态严格映射 Agent 状态</strong>（不是随机播放，是状态机绑定）</li>
+        <li><strong>可交互</strong>：拖动改位置、点击跳回主界面、鼠标逗弄触发跳跃</li>
+      </ul>
+      <h3>素材格式规范（Codex Pet Contract）</h3>
+      <pre><span class="c"># 精灵图集 Spritesheet 规格</span>
+整张尺寸    <span class="n">1536</span> × <span class="n">1872</span> 像素
+网格        <span class="n">8</span> 列 × <span class="n">9</span> 行
+每格尺寸    <span class="n">192</span> × <span class="n">208</span> 像素
+背景        透明（未使用的格子必须全透明）
+
+<span class="c"># 一个宠物包 = 两个文件</span>
+~/.codex/pets/boba/
+  ├─ pet.json           <span class="c"># 元数据：id / displayName / description</span>
+  └─ spritesheet.webp   <span class="c"># 精灵图集</span></pre>
+      <pre><span class="c">// pet.json 极简结构</span>
+{
+  <span class="k">"id"</span>: <span class="s">"boba"</span>,
+  <span class="k">"displayName"</span>: <span class="s">"Boba"</span>,
+  <span class="k">"description"</span>: <span class="s">"拿着珍珠奶茶的小水獭"</span>,
+  <span class="k">"spritesheetPath"</span>: <span class="s">"spritesheet.webp"</span>
+}</pre>
+      <h3>9 行状态各自的含义</h3>
+      <div class="pet-grid">
+        <div class="pet-state"><div class="row"><span class="emoji">😌</span><span class="name">idle</span><span class="idx">行0</span></div><p class="desc">空闲，轻微呼吸/眨眼</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">➡️</span><span class="name">running-right</span><span class="idx">行1</span></div><p class="desc">向右移动</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">⬅️</span><span class="name">running-left</span><span class="idx">行2</span></div><p class="desc">向左移动</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">👋</span><span class="name">waving</span><span class="idx">行3</span></div><p class="desc">挥手，任务完成</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">🤸</span><span class="name">jumping</span><span class="idx">行4</span></div><p class="desc">跳跃，需要决定</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">😥</span><span class="name">failed</span><span class="idx">行5</span></div><p class="desc">萎靡，执行失败</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">🥺</span><span class="name">waiting</span><span class="idx">行6</span></div><p class="desc">等待输入/审批</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">⚙️</span><span class="name">running</span><span class="idx">行7</span></div><p class="desc">思考/处理/打字</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">🔍</span><span class="name">review</span><span class="idx">行8</span></div><p class="desc">审查，等你看 diff</p></div>
+      </div>
+      <div class="callout info">
+        <div class="ico">📐</div>
+        <div class="body">
+          <b>Petdex 官方的状态映射逻辑（重要参考）</b>
+          <p><code class="inl">tool 开始</code> → running　·　<code class="inl">tool 结束</code> → idle　·　<code class="inl">会话结束</code> → waving　·　<code class="inl">出错</code> → failed</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s3">
+      <h2><span class="num">03</span> Pideck 可行性：非常高</h2>
+      <p>关键原因——<strong>Pideck 的底子几乎是量身定做的</strong>。需要的能力大部分已经具备：</p>
+      <table>
+        <thead><tr><th>需求项</th><th>Pideck 现状</th><th>差距</th></tr></thead>
+        <tbody>
+          <tr><td>透明置顶悬浮窗</td><td>Electron 原生支持 <code>transparent + alwaysOnTop + frame:false</code></td><td>新建独立 PetWindow</td></tr>
+          <tr><td>Agent 状态数据源</td><td><span class="yes">✅ 已有完整状态机</span><br><code>starting / idle / running / error / closed</code></td><td>零成本，只需订阅</td></tr>
+          <tr><td>状态推送机制</td><td><span class="yes">✅ AgentManager 已 emit</span><br><code>agentsState</code> / <code>agentsRuntimeState</code></td><td>直接复用</td></tr>
+          <tr><td>配置 / 多语言 / UI 规范</td><td><span class="yes">✅ SettingsStore / i18n / 设计规范齐全</span></td><td>加一个 Pets 设置项</td></tr>
+          <tr><td>宠物素材生态</td><td><span class="no">❌ 暂无</span></td><td>复用 petdex 格式 + 内置几只</td></tr>
+        </tbody>
+      </table>
+      <div class="callout ok">
+        <div class="ico">🎯</div>
+        <div class="body">
+          <b>比 Codex 更有价值的点</b>
+          <p>Codex 是<strong>单 agent</strong>，宠物只是装饰。而 Pideck 管理<strong>多个 agent</strong>，宠物能解决真实痛点——「不用切窗口就知道哪个 agent 在跑、哪个出错了」，相当于一个跨 agent 的灵动岛。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s4">
+      <h2><span class="num">04</span> 状态映射方案</h2>
+      <p>Pideck 的 <code class="inl">AgentStatus</code> 直接映射到宠物状态：</p>
+      <div class="map-flow"><span class="chip">starting</span><span class="arrow">→</span><span class="chip to">waiting</span><span class="note">（启动中，等待就绪）</span></div>
+      <div class="map-flow"><span class="chip">idle</span><span class="arrow">→</span><span class="chip to">idle</span><span class="note">（空闲发呆）</span></div>
+      <div class="map-flow"><span class="chip">running</span><span class="arrow">→</span><span class="chip to">running</span><span class="note">（工作中）</span></div>
+      <div class="map-flow"><span class="chip">error</span><span class="arrow">→</span><span class="chip to">failed</span><span class="note">（出错了）</span></div>
+      <div class="map-flow"><span class="chip">closed</span><span class="arrow">→</span><span class="chip to">waving / 隐藏</span><span class="note">（收工）</span></div>
+      <div class="callout warn">
+        <div class="ico">⚠️</div>
+        <div class="body">
+          <b>多 agent 聚合策略（待定）</b>
+          <p>Pideck 同时管多个 agent，但宠物只有一个。需要明确聚合规则，避免状态混乱跳动。候选：<strong>「任一 running → running；任一 error → failed；全 idle → idle」</strong>，或只跟随<strong>当前激活的 agent</strong>。这个需要你拍板（见第 9 节）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s5">
+      <h2><span class="num">05</span> 技术方案概览</h2>
+      <p>新增 5 个模块，全部是<strong>叠加式</strong>改动，<strong>不破坏现有三栏主界面</strong>：</p>
+      <div class="tree"><span class="dir">src/main/pet/</span>
+  ├─ PetWindow.ts        <span class="cmt"># 透明置顶悬浮窗（多平台差异处理）</span> <span class="new">[新]</span>
+  ├─ PetManager.ts       <span class="cmt"># 扫描并加载 pet 包（内置 + ~/.codex/pets/）</span> <span class="new">[新]</span>
+  └─ PetStateBridge.ts   <span class="cmt"># 订阅 AgentManager 状态 → 映射 → 推送</span> <span class="new">[新]</span>
+
+<span class="dir">src/renderer/pet/</span>
+  ├─ PetOverlay.tsx      <span class="cmt"># Canvas 精灵图渲染 + 状态机</span> <span class="new">[新]</span>
+  └─ PetInteraction.tsx  <span class="cmt"># 拖拽 / 点击 / 逗弄交互</span> <span class="new">[新]</span>
+
+<span class="dir">settings:</span> 外观 → 宠物 tab <span class="new">[新]</span></div>
+      <h3>宠物包来源（双轨制）</h3>
+      <table>
+        <thead><tr><th>来源</th><th>说明</th><th>优势</th></tr></thead>
+        <tbody>
+          <tr><td><strong>内置</strong></td><td>随应用打包 2–3 只默认宠物（<code>assets/pets/</code>）</td><td>开箱即用，不依赖任何外部工具</td></tr>
+          <tr><td><strong>兼容 petdex</strong></td><td>扫描 <code>~/.codex/pets/*/pet.json</code></td><td>用户 <code>npx petdex install xxx</code> 后直接可选 —— 白嫖 3000+ 社区宠物</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="s6">
+      <h2><span class="num">06</span> 风险与应对</h2>
+      <table>
+        <thead><tr><th>风险</th><th>说明</th><th>应对</th></tr></thead>
+        <tbody>
+          <tr><td><strong>多平台透明窗</strong></td><td>macOS 支持最好；Windows 需处理点击穿透 + 黑边；Linux 各窗口管理器差异大</td><td>分平台代码路径，<strong>优先 macOS</strong></td></tr>
+          <tr><td><strong>多 agent 状态聚合</strong></td><td>Pideck 管多个 agent，宠物只有一个，状态可能频繁跳变</td><td>聚合策略 + 点击宠物跳转活跃 agent</td></tr>
+          <tr><td><strong>性能</strong></td><td>持续动画可能占用 CPU</td><td>帧率控制 8–12fps，idle 时降频</td></tr>
+          <tr><td><strong>打包</strong></td><td>内置素材需进 asar</td><td>extraResources 或 assets 打包</td></tr>
+          <tr><td><strong>CSP</strong></td><td>渲染层加载本地图片可能被安全策略拦截</td><td>用自定义协议或 webp 内联</td></tr>
+        </tbody>
+      </table>
+      <div class="callout info">
+        <div class="ico">🛡️</div>
+        <div class="body">
+          <b>没有颠覆性改动</b>
+          <p>所有改动都是新增独立模块 + 加一个设置项，主进程窗口逻辑、三栏布局、现有 IPC 全部不动。最坏情况：关掉宠物开关，应用和现在完全一样。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s7">
+      <h2><span class="num">07</span> 工作量预估</h2>
+      <table>
+        <thead><tr><th>阶段</th><th>内容</th><th>进度</th><th>粗估</th></tr></thead>
+        <tbody>
+          <tr><td><strong>MVP</strong></td><td>透明窗 + 内置 1 只宠物 + idle/running/error 三态 + 状态桥接</td><td><div class="meter"><i style="width:25%"></i></div></td><td>0.5–1 天</td></tr>
+          <tr><td><strong>完整版</strong></td><td>9 态全状态机 + petdex 格式兼容 + 设置面板 + 拖拽交互</td><td><div class="meter"><i style="width:60%"></i></div></td><td>+1–2 天</td></tr>
+          <tr><td><strong>打磨</strong></td><td>多平台适配、性能优化、逗弄动画、开机自启选项</td><td><div class="meter"><i style="width:100%"></i></div></td><td>+1 天</td></tr>
+        </tbody>
+      </table>
+      <p><strong>总估 3–4 天</strong>，技术风险低，无颠覆性改动。</p>
+    </section>
+
+    <section id="s8">
+      <h2><span class="num">08</span> 我的建议</h2>
+      <ol>
+        <li><strong>方案可行，强烈推荐做。</strong>Pideck 作为多 agent 管理器，宠物正好能解决「不用切窗口就知道哪个 agent 在跑」的痛点，比 Codex 单 agent 场景更有价值。</li>
+        <li><strong>渲染层自研 + 素材复用 petdex 格式</strong>，这是唯一正确的路（petdex 没有现成渲染库，只有素材规范）。</li>
+        <li><strong>内置 + 兼容双轨</strong>：开箱即用，又能白嫖生态。用户装了 petdex CLI 后，在 Pideck 设置里就能直接选到社区宠物。</li>
+        <li><strong>建议从 MVP 切入</strong>：先做透明窗 + 内置一只宠物 + 三态，跑通整条链路（状态桥接 → 渲染），再逐步补全 9 态和交互。</li>
+      </ol>
+    </section>
+
+    <section id="s9">
+      <h2><span class="num">09</span> 待你拍板</h2>
+      <p>开始前需要你确认三个方向性问题：</p>
+      <div class="questions">
+        <div class="question">
+          <div class="qkey">A</div>
+          <div>
+            <p><strong>下一步形式？</strong></p>
+            <p>① 先出一份正式<strong>设计方案文档</strong>（含目录 + 细节 + HTML 预览）再动手；还是 ② 直接进 <strong>MVP 实现</strong>（边做边定细节）。</p>
+          </div>
+        </div>
+        <div class="question">
+          <div class="qkey">B</div>
+          <div>
+            <p><strong>平台优先级？</strong></p>
+            <p>先支持 <strong>macOS</strong> 优先（你主力机），还是必须三平台（mac/Win/Linux）同步？</p>
+          </div>
+        </div>
+        <div class="question">
+          <div class="qkey">C</div>
+          <div>
+            <p><strong>状态来源？</strong></p>
+            <p>宠物反映<strong>当前激活的单个 agent</strong>（点击宠物跳到那个 agent），还是<strong>全局聚合</strong>（任一 running 就 running）？</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout ok">
+        <div class="ico">✉️</div>
+        <div class="body">
+          <b>读完后告诉我你的选择</b>
+          <p>看完这份报告，把 A / B / C 的选择（或任何修改意见）告诉我，我就开始下一步。</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<footer>
+  Pideck 桌面宠物功能 · 可行性分析　|　基于 Codex Pets + Petdex 生态调研　|　2026-06-24
+</footer>
+
+<script>
+  // 目录滚动高亮：当前章节自动高亮
+  (function(){
+    const links = Array.from(document.querySelectorAll('.toc a'));
+    const map = {};
+    links.forEach(a => { map[a.getAttribute('href')] = a; });
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          links.forEach(l => l.classList.remove('active'));
+          const link = map['#' + e.target.id];
+          if (link) link.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    document.querySelectorAll('section').forEach(s => obs.observe(s));
+  })();
+</script>
+
+</body>
+</html>

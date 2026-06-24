@@ -14,6 +14,7 @@ import { basename, join } from "node:path";
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
+import { PetSystem, type PetSystemDeps } from "./pet";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
@@ -114,6 +115,7 @@ let skillManager: SkillManager;
 let extensionManager: ExtensionManager;
 let webServiceManager: WebServiceManager;
 let terminalManager: TerminalSessionManager;
+let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
 let feishuBridge: FeishuBridge | null = null;
 
@@ -1241,8 +1243,12 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.settingsUpdate,
 		async (_event, patch: Partial<AppSettings>) => {
+			// 记录更新前的设置，用于驱动桌面宠物对 pet 字段变化的反应
+			const prevSettings = settingsStore.get();
 			const settings = await settingsStore.update(patch);
 			void appLogger.info("settings", "Settings updated", { keys: Object.keys(patch) });
+			// 桌面宠物：设置面板走 settings.update，这里统一驱动开窗/切换/置顶
+			await petSystem?.reactToSettings(prevSettings, settings);
 			if (
 				"desktopProxyEnabled" in patch ||
 				"desktopProxyUrl" in patch ||
@@ -1685,6 +1691,16 @@ app.whenReady().then(async () => {
 		void appLogger.warn("editor", "External editor first launch detection failed", error);
 	});
 
+	// 桌面宠物系统：新增模块，默认关闭（petEnabled=false），不触碰现有 IPC 与主窗逻辑
+	petSystem = new PetSystem({
+		agentManager,
+		settingsStore,
+		getMainWindow: () => mainWindow,
+	});
+	void petSystem.start().catch((error) => {
+		void appLogger.warn("pet", "Pet system start failed", error);
+	});
+
 	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
 	void projectStore
 		.load()
@@ -1711,6 +1727,8 @@ app.on("before-quit", () => {
 	void webServiceManager?.stop();
 	terminalManager?.closeAll();
 	agentManager?.stopAll();
+	petSystem?.stop();
+	petSystem = null;
 });
 
 app.on("window-all-closed", () => {

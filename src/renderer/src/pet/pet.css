@@ -1,0 +1,22 @@
+/* 宠物窗样式：纯透明，仅承载 Canvas 与交互层 */
+html,
+body,
+#root {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	overflow: hidden;
+	/* 允许透明区域不拦截文字选择等默认行为 */
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.pet-root {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	/* 透明悬浮窗内只画 sprite，背景透明露出窗口透明背景 */
+	background: transparent;
+}

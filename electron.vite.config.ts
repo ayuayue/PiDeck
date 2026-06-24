@@ -23,5 +23,14 @@ export default defineConfig({
       },
     },
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        // 多入口：主窗口 index.html + 桌面宠物悬浮窗 pet.html
+        input: {
+          index: resolve("src/renderer/index.html"),
+          pet: resolve("src/renderer/pet.html"),
+        },
+      },
+    },
   },
 });

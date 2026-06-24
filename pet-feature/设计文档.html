@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pideck 桌面宠物 · 详细设计文档</title>
+<style>
+  :root {
+    --bg:#f7f8fa;--bg-soft:#eef0f4;--surface:#fff;--ink:#1a1d24;--ink-soft:#4b515c;--ink-mute:#8a909c;
+    --line:#e3e6ec;--line-strong:#d4d8e0;--accent:#238636;--accent-soft:#e9f6ed;--brand:#2563eb;--brand-soft:#eff5ff;
+    --green:#16a34a;--green-soft:#dcfce7;--amber:#b45309;--amber-soft:#fef3c7;--red:#dc2626;--red-soft:#fee2e2;
+    --code-bg:#0f1117;--code-ink:#e6e6e6;--radius:12px;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.7;font-size:16px;-webkit-font-smoothing:antialiased}
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(247,248,250,.88);backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
+  .topbar-inner{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:12px 24px}
+  .logo-dot{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#2faa4a);display:grid;place-items:center;box-shadow:0 4px 12px rgba(35,134,54,.3);font-size:16px}
+  .topbar-title{font-weight:680;font-size:15px}.topbar-sub{color:var(--ink-mute);font-size:12.5px}
+  .topbar-spacer{flex:1}
+  .badge{font-size:12px;font-weight:620;padding:4px 10px;border-radius:999px;background:var(--green-soft);color:var(--green);border:1px solid #bbf7d0}
+  .badge.brand{background:var(--brand-soft);color:var(--brand);border-color:#bfdbfe}
+  .badge.amber{background:var(--amber-soft);color:var(--amber);border-color:#fde68a}
+  .layout{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:240px 1fr;gap:44px;padding:32px 24px 90px}
+  .toc{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow-y:auto;font-size:13.5px}
+  .toc h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);margin:14px 0 8px 12px;font-weight:600}
+  .toc h4:first-child{margin-top:0}
+  .toc a{display:block;padding:5px 12px;border-radius:7px;color:var(--ink-soft);text-decoration:none;transition:all .15s;line-height:1.45}
+  .toc a:hover{background:var(--bg-soft);color:var(--ink)}
+  .toc a.active{color:var(--accent);font-weight:600;background:var(--accent-soft)}
+  .toc a.sub{padding-left:24px;font-size:12.5px;color:var(--ink-mute)}
+  .content{min-width:0}
+  section{margin-bottom:60px;scroll-margin-top:84px}
+  h1{font-size:34px;line-height:1.25;margin:0 0 12px;letter-spacing:-.02em;font-weight:720}
+  .lead{color:var(--ink-soft);font-size:17px;margin:0 0 6px}
+  .meta-row{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 0}
+  h2{font-size:23px;margin:0 0 20px;font-weight:680;letter-spacing:-.01em;padding-bottom:11px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:11px}
+  h2 .num{font-size:13px;font-family:var(--mono);font-weight:600;color:var(--accent);background:var(--accent-soft);padding:2px 9px;border-radius:6px}
+  h3{font-size:17.5px;margin:30px 0 13px;font-weight:640}
+  h4{font-size:15px;margin:22px 0 10px;font-weight:640;color:var(--ink)}
+  p{margin:0 0 14px}strong{font-weight:640;color:var(--ink)}
+  code.inl{font-family:var(--mono);font-size:13px;background:var(--bg-soft);padding:2px 6px;border-radius:5px;color:#7c3aed}
+  ul,ol{padding-left:22px}li{margin-bottom:7px}
+  .callout{border-radius:var(--radius);padding:17px 20px;margin:18px 0;border:1px solid;display:flex;gap:13px;align-items:flex-start}
+  .callout .ico{font-size:19px;line-height:1.4;flex-shrink:0}.callout .body{flex:1;min-width:0}.callout .body p{margin:0}
+  .callout .body p+p{margin-top:8px}.callout b{display:block;margin-bottom:3px}
+  .callout.warn{background:#fffbeb;border-color:#fde68a}.callout.warn .ico{color:var(--amber)}
+  .callout.info{background:var(--brand-soft);border-color:#bfdbfe}.callout.info .ico{color:var(--brand)}
+  .callout.ok{background:#f0fdf4;border-color:#bbf7d0}.callout.ok .ico{color:var(--green)}
+  .callout.danger{background:var(--red-soft);border-color:#fecaca}.callout.danger .ico{color:var(--red)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--bg-soft);font-weight:620;font-size:13px;color:var(--ink-soft)}
+  td code{font-family:var(--mono);font-size:12.5px;color:#7c3aed}
+  tr:hover td{background:#fafbfc}
+  .yes{color:var(--green);font-weight:650}.no{color:var(--red);font-weight:650}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:var(--radius);padding:18px 20px;overflow-x:auto;font-size:13.5px;line-height:1.7;font-family:var(--mono);margin:16px 0;border:1px solid #1f2230}
+  pre .c{color:#6b7180}pre .k{color:#c792ea}pre .s{color:#c3e88d}pre .n{color:#f78c6c}pre .t{color:#82aaff}pre .fn{color:#ffcb6b}
+  pre .ref{color:#7dd3fc;border-bottom:1px dotted #7dd3fc}
+  .tree{background:var(--code-bg);color:#cdd3e0;border-radius:var(--radius);padding:18px 22px;font-family:var(--mono);font-size:13px;line-height:1.95;margin:16px 0;border:1px solid #1f2230}
+  .tree .dir{color:#c792ea;font-weight:600}.tree .cmt{color:#6b7180}.tree .new{color:#16a34a;font-weight:600}.tree .mod{color:#f78c6c}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+  .card{border-radius:var(--radius);padding:16px 18px;border:1px solid var(--line);background:var(--surface)}
+  .card .tag{font-size:11px;font-weight:660;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--ink-mute)}
+  .card h4{margin:0 0 6px;font-size:15px}.card p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+  .card.code{background:var(--code-bg);border-color:#1f2230}.card.code h4{color:#e6e6e6}.card.code p,.card.code .tag{color:#9aa0ac}
+  .pet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}
+  .pet-state{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px 14px}
+  .pet-state .row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .pet-state .emoji{font-size:22px}.pet-state .name{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink)}
+  .pet-state .idx{font-size:11px;color:var(--ink-mute);font-family:var(--mono);margin-left:auto}
+  .pet-state .desc{font-size:12.5px;color:var(--ink-soft);margin:0}
+  .pet-state.agg{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-soft) inset}
+  .map-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;padding:6px 0}
+  .map-flow .chip{padding:5px 11px;border-radius:7px;font-family:var(--mono);font-weight:600;border:1px solid var(--line);background:var(--surface)}
+  .map-flow .arrow{color:var(--ink-mute)}.map-flow .note{color:var(--ink-mute)}
+  .map-flow .chip.to{background:var(--accent-soft);border-color:#bbf7d0;color:var(--accent)}
+  .map-flow .chip.src{background:var(--bg-soft);color:var(--ink-soft)}
+  .meter{height:8px;border-radius:999px;background:var(--bg-soft);overflow:hidden;width:140px}
+  .meter>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#4ade80);border-radius:999px}
+  .ref-pill{display:inline-block;font-family:var(--mono);font-size:11.5px;color:#0ea5e9;background:#f0f9ff;border:1px solid #bae6fd;border-radius:5px;padding:1px 7px;margin:0 2px;white-space:nowrap}
+  .seq{display:flex;align-items:stretch;gap:0;margin:18px 0;flex-wrap:wrap}
+  .seq .step{flex:1;min-width:130px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;position:relative}
+  .seq .step .n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;margin-bottom:3px}
+  .seq .step .t{font-size:13px;font-weight:600;margin-bottom:2px}
+  .seq .step .d{font-size:11.5px;color:var(--ink-mute);font-family:var(--mono)}
+  .seq .sep{display:flex;align-items:center;color:var(--ink-mute);padding:0 6px;font-size:18px}
+  footer{color:var(--ink-mute);font-size:13px;text-align:center;padding:26px 0 0;border-top:1px solid var(--line)}
+  @media (max-width:880px){.layout{grid-template-columns:1fr;gap:0;padding:20px 18px 60px}.toc{display:none}h1{font-size:27px}.grid2,.grid3,.pet-grid{grid-template-columns:1fr}.seq{flex-direction:column}.seq .sep{transform:rotate(90deg);padding:4px 0}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-dot">🐾</div>
+    <div>
+      <div class="topbar-title">Pideck 桌面宠物 · 详细设计文档</div>
+      <div class="topbar-sub">基于真实代码事实 · 三端跨平台 · 全局聚合单宠</div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <span class="badge">方案确定</span>
+    <span class="badge brand">设计阶段</span>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="toc">
+    <h4>导航</h4>
+    <a href="#s0">概要与决策记录</a>
+    <a href="#s1">1. 目标与范围</a>
+    <a href="#s2">2. 架构总览</a>
+    <a href="#s3">3. 全局聚合状态机</a>
+    <a href="#s3" class="sub">3.1 聚合规则</a>
+    <a href="#s3" class="sub">3.2 状态映射</a>
+    <a href="#s3" class="sub">3.3 去抖与优先级</a>
+    <a href="#s4">4. 数据源与桥接</a>
+    <a href="#s5">5. 透明悬浮窗（三端）</a>
+    <a href="#s5" class="sub">5.1 窗口配置</a>
+    <a href="#s5" class="sub">5.2 三端差异</a>
+    <a href="#s5" class="sub">5.3 点击穿透</a>
+    <a href="#s6">6. 渲染层</a>
+    <a href="#s7">7. 素材与宠物包</a>
+    <a href="#s8">8. 设置与 i18n</a>
+    <a href="#s9">9. 文件清单</a>
+    <a href="#s10">10. IPC 契约</a>
+    <a href="#s11">11. 跨平台兼容矩阵</a>
+    <a href="#s12">12. 分阶段交付</a>
+    <a href="#s13">13. 风险与降级</a>
+    <a href="#s14">14. 验收清单</a>
+  </nav>
+
+  <div class="content">
+
+    <!-- ──────────────────── s0 ──────────────────── -->
+    <section id="s0">
+      <h1>Pideck 桌面宠物 🐾 — 详细设计文档</h1>
+      <p class="lead">让多 Agent 的运行状态化作桌面上<strong>一只</strong>随叫随到的小精灵——不用切窗口就知道哪个 Agent 在跑、哪个出错了。</p>
+      <div class="meta-row">
+        <span class="badge">全局聚合单宠</span>
+        <span class="badge brand">macOS / Windows / Linux 三端</span>
+        <span class="badge amber">复用 petdex 素材格式</span>
+      </div>
+
+      <h3 style="margin-top:28px">决策记录（来自你的拍板）</h3>
+      <table>
+        <thead><tr><th style="width:90px">问题</th><th>你的决定</th><th>对设计的影响</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A · 形式</strong></td><td>先出正式设计文档（HTML），再动手</td><td>本文件即是 A 的交付物。工程实现按文档逐节落地，避免边做边定细节。</td></tr>
+          <tr><td><strong>B · 平台</strong></td><td>mac / Win / Linux 三端都要适合</td><td>窗口方案必须三端兼容，<strong>不能 macOS-only</strong>。透明窗/点击穿透/置顶层级在每端分别处理，预留降级路径。</td></tr>
+          <tr><td><strong>C · 状态来源</strong></td><td>全局聚合，只养一只宠物</td><td>不跟随单个激活 Agent。一只宠物反映<strong>所有 Agent 的聚合状态</strong>，多了反而杂乱。</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok">
+        <div class="ico">📐</div>
+        <div class="body">
+          <b>本文档的定位</b>
+          <p>这是一份<strong>工程可执行</strong>的设计文档：每个设计决策都标注了对应的真实代码位置（<span class="ref-pill">文件:行号</span>）、要新增/修改的文件、以及精确的 IPC 契约与类型定义。看完即可进入实现，不需要二次摸索代码。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────── s1 ──────────────────── -->
+    <section id="s1">
+      <h2><span class="num">01</span> 目标与范围</h2>
+
+      <h3>核心目标</h3>
+      <ol>
+        <li><strong>跨 Agent 状态感知</strong>：用户在任意软件全屏工作时，余光就能看到当前所有 Agent 的聚合状态（空闲/工作/出错/完成），无需切回 Pideck 主窗口。</li>
+        <li><strong>零成本美观</strong>：复用 petdex 的 <code class="inl">pet.json + spritesheet</code> 素材格式与生态，开箱自带可切换的宠物，渲染层自研（Canvas 精灵图切帧）。</li>
+        <li><strong>三端一致体验</strong>：macOS、Windows、Linux 三个平台都能透明悬浮、可拖拽、可点击跳回。</li>
+        <li><strong>叠加式、可关闭</strong>：默认开关，关闭后应用与现状完全一致，不触碰三栏主界面与现有 IPC。</li>
+      </ol>
+
+      <h3>范围划分</h3>
+      <div class="grid2">
+        <div class="card">
+          <div class="tag" style="color:var(--green)">✅ 本期做</div>
+          <h4>核心功能</h4>
+          <p>全局聚合状态机 · 透明悬浮窗（三端）· Canvas 渲染 · 内置宠物 + petdex 兼容 · 设置面板 · 拖拽/点击交互 · 跳转活跃 Agent</p>
+        </div>
+        <div class="card">
+          <div class="tag" style="color:var(--ink-mute)">⏭ 后期可选</div>
+          <h4>增强项（不影响 MVP）</h4>
+          <p>逗弄/摸头动画 · 自动巡游桌面 · 开机自启 · 宠物市场（一键下载社区包）· 通知气泡（出错/完成时宠物头顶提示）</p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="ico">🎯</div>
+        <div class="body">
+          <b>为什么比 Codex 单 Agent 桌宠更有价值</b>
+          <p>Codex 只跑一个 Agent，宠物纯装饰；Pideck 管<strong>多个 Agent</strong>，「不用切窗口就知道哪个在跑、哪个出错」是真实痛点。宠物相当于一个<strong>跨 Agent 的灵动岛</strong>。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────── s2 ──────────────────── -->
+    <section id="s2">
+      <h2><span class="num">02</span> 架构总览</h2>
+      <p>所有改动均为<strong>新增独立模块 + 一个设置项</strong>，主进程窗口逻辑、三栏布局、现有 IPC 全部不动。</p>
+
+      <h3>数据流（端到端）</h3>
+      <div class="seq">
+        <div class="step"><div class="n">① 源</div><div class="t">AgentManager</div><div class="d">emit agents:state<br/>AgentTab[]</div></div>
+        <div class="sep">→</div>
+        <div class="step"><div class="n">② 聚合</div><div class="t">PetStateBridge</div><div class="d">多 Agent → 单状态<br/>去抖·优先级</div></div>
+        <div class="sep">→</div>
+        <div class="step"><div class="n">③ 推送</div><div class="t">pet:state IPC</div><div class="d">向宠物窗 webContents<br/>send 聚合状态</div></div>
+        <div class="sep">→</div>
+        <div class="step"><div class="n">④ 渲染</div><div class="t">PetOverlay</div><div class="d">Canvas 切帧<br/>按状态播放行</div></div>
+      </div>
+
+      <h3>模块分层</h3>
+      <div class="tree"><span class="dir">src/main/pet/</span>                          <span class="cmt"># 主进程：窗口 + 状态桥接 + 包管理</span>
+  ├─ <span class="new">PetWindow.ts</span>        <span class="cmt"># 透明置顶悬浮窗创建（三端差异处理）</span>
+  ├─ <span class="new">PetStateBridge.ts</span>   <span class="cmt"># 订阅 AgentManager → 聚合 → 推送 pet:state</span>
+  └─ <span class="new">PetPackageManager.ts</span> <span class="cmt"># 扫描内置包 + ~/.codex/pets/，加载 pet.json</span>
+
+<span class="dir">src/renderer/pet/</span>                       <span class="cmt"># 渲染层：精灵图渲染 + 交互</span>
+  ├─ <span class="new">PetOverlay.tsx</span>       <span class="cmt"># Canvas 切帧状态机，消费 pet:state</span>
+  ├─ <span class="new">PetSpriteSheet.ts</span>    <span class="cmt"># spritesheet 加载与帧计算（8列×N行网格）</span>
+  └─ <span class="new">PetInteraction.tsx</span>   <span class="cmt"># 拖拽改位置 / 点击跳转活跃 Agent</span>
+
+<span class="dir">src/shared/</span>                             <span class="cmt"># 共享类型与 IPC 契约</span>
+  ├─ <span class="mod">types.ts</span>             <span class="cmt"># + PetAggregateState / PetSettings / PetManifest</span>
+  └─ <span class="mod">ipc.ts</span>               <span class="cmt"># + pet:* channel 定义</span>
+
+<span class="dir">src/main/settings/</span>
+  └─ <span class="mod">SettingsStore.ts</span>     <span class="cmt"># + petEnabled / petId / petAlwaysOnTop 字段</span>
+
+<span class="dir">src/main/index.ts</span>                        <span class="cmt"># + 注册 PetWindow + pet:* IPC + 生命周期挂接</span>
+<span class="dir">src/preload/index.ts</span>                     <span class="cmt"># + pet.* API（onState / setEnabled / list...）</span>
+<span class="dir">src/renderer/src/components/app/AppParts.tsx</span> <span class="cmt"># + 设置面板「宠物」tab</span>
+<span class="dir">src/renderer/src/i18n.ts</span>                 <span class="cmt"># + settings.pet.* 文案（zh/en/pseudo）</span></div>
+
+      <h3>复用的现成能力（不动）</h3>
+      <table>
+        <thead><tr><th>能力</th><th>现有实现位置</th><th>宠物如何用</th></tr></thead>
+        <tbody>
+          <tr><td>Agent 状态数据源</td><td><span class="ref-pill">AgentManager.ts:1515 emitState()</span> → <span class="ref-pill">ipc.ts:84 agentsState</span></td><td>PetStateBridge 订阅同 channel</td></tr>
+          <tr><td>置顶层级（floating）</td><td><span class="ref-pill">index.ts:1232 setAlwaysOnTop(next,"floating")</span></td><td>宠物窗直接复用 "floating" level</td></tr>
+          <tr><td>跨平台 frame 分支范式</td><td><span class="ref-pill">SettingsStore.ts:80 createWindowOptions()</span></td><td>宠物窗参照同款 platform 分支</td></tr>
+          <tr><td>?asset 资源导入</td><td><span class="ref-pill">index.ts:19 import ...?asset</span></td><td>内置宠物 spritesheet 同样导入</td></tr>
+          <tr><td>设置面板结构</td><td><span class="ref-pill">AppParts.tsx:3397 settings-tabs</span> · <span class="ref-pill">:4212 SettingsSection</span></td><td>新增一个 tab，复用 SettingsSection/SettingSwitch</td></tr>
+          <tr><td>设计 token / 暗色</td><td><span class="ref-pill">styles.css:23 :root</span> / <span class="ref-pill">styles.css:136 [data-theme="dark"]</span></td><td>设置面板 UI 用现有 token，自动适配暗色</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ──────────────────── s3 ──────────────────── -->
+    <section id="s3">
+      <h2><span class="num">03</span> 全局聚合状态机 <span style="font-size:13px;color:var(--accent);font-weight:600;margin-left:auto">★ 决策 C 核心</span></h2>
+      <p>这是本设计最关键的部分——多 Agent 如何聚合成<strong>一只宠物的一个状态</strong>。</p>
+
+      <h3>3.1 聚合规则（优先级从高到低）</h3>
+      <p>遍历所有 Agent 的 <code class="inl">AgentStatus</code>（<span class="ref-pill">types.ts:51</span>：starting/idle/running/error/closed），按下表优先级取<strong>首个命中</strong>作为全局状态：</p>
+      <table>
+        <thead><tr><th style="width:36px">序</th><th>触发条件</th><th>聚合状态</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>任一 Agent.status === <code>error</code></td><td><strong>failed</strong></td><td>有 Agent 出错，最该提醒</td></tr>
+          <tr><td>2</td><td>任一 Agent.status === <code>running</code></td><td><strong>running</strong></td><td>有 Agent 正在工作</td></tr>
+          <tr><td>3</td><td>任一 Agent.status === <code>starting</code></td><td><strong>waiting</strong></td><td>有 Agent 启动中</td></tr>
+          <tr><td>4</td><td>所有非 closed 的 Agent 都是 <code>idle</code></td><td><strong>idle</strong></td><td>全部就绪空闲</td></tr>
+          <tr><td>5</td><td>全部 <code>closed</code> 或无 Agent</td><td><strong>hidden</strong></td><td>没有活跃 Agent，宠物隐藏</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <div class="ico">⚠️</div>
+        <div class="body">
+          <b>为什么 error 优先级最高</b>
+          <p>出错是需要用户立即介入的信号，不能被「同时有别的 Agent 在 running」淹没。即便有 3 个 Agent 在跑、1 个崩了，宠物也应显示 failed，提示用户去看。</p>
+        </div>
+      </div>
+
+      <h3>3.2 AgentStatus → 宠物动画行映射</h3>
+      <p>宠物 spritesheet 沿用 petdex/Codex 的 <strong>9 行状态</strong>约定（每行 8 帧）。Pideck 的 5 个 AgentStatus 映射如下（聚合状态与映射共用同一张表）：</p>
+      <div class="pet-grid">
+        <div class="pet-state agg"><div class="row"><span class="emoji">⚙️</span><span class="name">running</span><span class="idx">行7</span></div><p class="desc">← AgentStatus: running（聚合主态）</p></div>
+        <div class="pet-state agg"><div class="row"><span class="emoji">😥</span><span class="name">failed</span><span class="idx">行5</span></div><p class="desc">← AgentStatus: error</p></div>
+        <div class="pet-state agg"><div class="row"><span class="emoji">🥺</span><span class="name">waiting</span><span class="idx">行6</span></div><p class="desc">← AgentStatus: starting</p></div>
+        <div class="pet-state agg"><div class="row"><span class="emoji">😌</span><span class="name">idle</span><span class="idx">行0</span></div><p class="desc">← AgentStatus: idle</p></div>
+        <div class="pet-state agg"><div class="row"><span class="emoji">👋</span><span class="name">waving</span><span class="idx">行3</span></div><p class="desc">← closed 过渡态（短暂挥手后隐藏）</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">➡️</span><span class="name">running-right</span><span class="idx">行1</span></div><p class="desc">巡游移动（增强项，本期不用）</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">⬅️</span><span class="name">running-left</span><span class="idx">行2</span></div><p class="desc">巡游移动（增强项，本期不用）</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">🤸</span><span class="name">jumping</span><span class="idx">行4</span></div><p class="desc">逗弄动画（增强项，本期不用）</p></div>
+        <div class="pet-state"><div class="row"><span class="emoji">🔍</span><span class="name">review</span><span class="idx">行8</span></div><p class="desc">预留：等审批（见下方说明）</p></div>
+      </div>
+      <div class="callout info">
+        <div class="ico">📌</div>
+        <div class="body">
+          <b>关于 review / 审批态</b>
+          <p>Pideck 当前 <code class="inl">AgentStatus</code> 只有 5 态，<strong>没有「等待审批」</strong>（pi 的审批走 tool 消息，不进状态机，见 <span class="ref-pill">AgentManager.ts:920 tool_execution_*</span>）。MVP 不做 review 态；若后期想细化，可订阅 <code class="inl">agents:event</code>（<span class="ref-pill">ipc.ts:85</span>）按 <code class="inl">event.type</code> 推断，预留了行8。</p>
+        </div>
+      </div>
+
+      <h3>3.3 去抖与状态跳变防护</h3>
+      <div class="grid2">
+        <div class="card">
+          <div class="tag">问题</div>
+          <h4>多 Agent 状态高频抖动</h4>
+          <p>多个 Agent 同时启停时，聚合状态可能在 running↔idle 间快速跳动，宠物动画会抽搐。</p>
+        </div>
+        <div class="card">
+          <div class="tag">对策</div>
+          <h4>150ms 去抖 + 动画完成锁</h4>
+          <p>状态变化后等 <strong>150ms</strong> 无新变化才推送；进入新状态后至少播放完一个动画周期（~600ms）才允许切下一个，避免半帧切换。</p>
+        </div>
+      </div>
+      <pre><span class="c">// PetStateBridge 聚合核心（伪代码，见第 10 节完整契约）</span>
+<span class="k">const</span> PRIORITY = [<span class="s">"error"</span>, <span class="s">"running"</span>, <span class="s">"starting"</span>, <span class="s">"idle"</span>];  <span class="c">// closed→hidden</span>
+
+<span class="k">function</span> <span class="fn">aggregate</span>(agents: <span class="t">AgentTab</span>[]): <span class="t">PetAggregateState</span> {
+  <span class="k">const</span> active = agents.filter(a => a.status !== <span class="s">"closed"</span>);
+  <span class="k">if</span> (active.length === 0) <span class="k">return</span> { mode: <span class="s">"hidden"</span> };
+
+  <span class="k">const</span> has = (s: <span class="t">AgentStatus</span>) => active.some(a => a.status === s);
+  <span class="k">let</span> mode: <span class="t">PetMode</span> =
+      has(<span class="s">"error"</span>)    ? <span class="s">"failed"</span>   :
+      has(<span class="s">"running"</span>)  ? <span class="s">"running"</span>  :
+      has(<span class="s">"starting"</span>) ? <span class="s">"waiting"</span>  : <span class="s">"idle"</span>;
+
+  <span class="k">return</span> {
+    mode,                                          <span class="c">// 当前聚合状态</span>
+    runningCount: active.filter(a=>a.status===<span class="s">"running"</span>).length,
+    errorCount:   active.filter(a=>a.status===<span class="s">"error"</span>).length,
+    activeAgentId: pickFocusAgent(active),          <span class="c">// 点击宠物跳转目标</span>
+  };
+}</pre>
+
+      <h4>focus agent 选取（点击宠物跳到谁）</h4>
+      <p>聚合状态下，点击宠物应跳到「最值得关注」的那个 Agent：</p>
+      <ul>
+        <li>有 <code>error</code> → 跳第一个出错的；</li>
+        <li>否则有 <code>running</code> → 跳最近开始 running 的；</li>
+        <li>否则跳最近活跃（createdAt 最大）的 Agent。</li>
+      </ul>
+    </section>
+
+    <!-- ──────────────────── s4 ──────────────────── -->
+    <section id="s4">
+      <h2><span class="num">04</span> 数据源与桥接</h2>
+
+      <h3>4.1 关键约束：emit 是单窗口的</h3>
+      <div class="callout danger">
+        <div class="ico">🚨</div>
+        <div class="body">
+          <b>最重要的实现约束</b>
+          <p><code class="inl">AgentManager.emit()</code>（<span class="ref-pill">AgentManager.ts:1519</span>）只向 <code class="inl">getWindow()</code> 返回的 <strong>mainWindow</strong> 发送（<span class="ref-pill">index.ts:1637</span> 注入 <code class="inl">()=&gt;mainWindow</code>）。<strong>独立的宠物 BrowserWindow 收不到任何 agent 事件。</strong></p>
+          <p><strong>解决方案：</strong>宠物窗口不直接订阅 agent 事件，而是由主进程的 <code class="inl">PetStateBridge</code> 在主窗口侧订阅 <code class="inl">agents:state</code>，聚合后通过新的 <code class="inl">pet:state</code> channel <strong>主动推送</strong>给宠物窗口的 webContents。</p>
+        </div>
+      </div>
+
+      <h3>4.2 数据流路径（完整）</h3>
+      <pre><span class="c">①  AgentManager.emitState()</span>                     <span class="ref">AgentManager.ts:1515</span>
+     └─ window.webContents.send("agents:state", AgentTab[])   <span class="ref">ipc.ts:84</span>
+            │  （送达到 mainWindow 的渲染层）
+            ▼
+<span class="c">②  主窗口渲染层监听</span>
+     api.agents.onState(tabs => ...)                      <span class="ref">preload/index.ts:453</span>
+            │  但渲染层不该承担聚合 → 改用更优路径 ↓
+            ▼
+<span class="c">②' 优选路径：主进程直接订阅（不经过渲染层）</span>
+     PetStateBridge 在主进程内监听 IPC?  ❌ 不可行，emit 是单向 send。
+     <span class="c">// 正解：让 AgentManager 同时通知 PetStateBridge</span>
+            ▼
+<span class="c">③  PetStateBridge 聚合</span>
+     监听机制：在 index.ts 创建 AgentManager 后，
+     注入一个回调钩子（见 4.3），每次 emitState 同步通知 bridge。
+            ▼
+<span class="c">④  bridge 聚合 → pet:state 推送</span>
+     petWindow.webContents.send("pet:state", aggregateState)
+            ▼
+<span class="c">⑤  宠物渲染层</span>
+     api.pet.onState(state => setMode(state.mode))</pre>
+
+      <h3>4.3 推荐的监听注入方式（最小侵入）</h3>
+      <p>不修改 <code class="inl">AgentManager</code> 内部逻辑，而是在 <code class="inl">index.ts</code> app ready 时（<span class="ref-pill">index.ts:1621</span>）用一个轻量钩子接管。两种方案，<strong>推荐方案 A</strong>：</p>
+      <div class="grid2">
+        <div class="card code">
+          <div class="tag" style="color:#4ade80">✅ 方案 A（推荐）</div>
+          <h4>主进程监听 mainWindow 的 IPC</h4>
+          <p>在主进程用 <code class="inl">ipcMain.on("agents:state")</code> 监听（AgentManager send 出来的消息主进程也能收到）。零侵入 AgentManager，纯叠加。</p>
+        </div>
+        <div class="card code">
+          <div class="tag" style="color:var(--amber)">方案 B（备选）</div>
+          <h4>给 AgentManager 加广播</h4>
+          <p>改 <code class="inl">emit()</code> 支持多窗口，或加 <code class="inl">onStateChange(cb)</code>。侵入核心类，不推荐。</p>
+        </div>
+      </div>
+      <pre><span class="c">// 方案 A：index.ts app ready 内，createWindow 之后</span>
+ipcMain.on(<span class="t">ipcChannels.agentsState</span>, (_e, tabs: <span class="t">AgentTab</span>[]) => {
+  petStateBridge.update(tabs);   <span class="c">// bridge 内部去抖聚合后推 pet:state</span>
+});</pre>
+    </section>
+
+    <!-- ──────────────────── s5 ──────────────────── -->
+    <section id="s5">
+      <h2><span class="num">05</span> 透明悬浮窗（三端）<span style="font-size:13px;color:var(--accent);font-weight:600;margin-left:auto">★ 决策 B 核心</span></h2>
+
+      <h3>5.1 窗口配置（PetWindow.ts）</h3>
+      <p>参照现有 <code class="inl">openInternalLinkWindow</code>（<span class="ref-pill">index.ts:454</span>）模板，叠加透明/置顶/无边框：</p>
+      <pre>petWindow = <span class="k">new</span> <span class="t">BrowserWindow</span>({
+  width: 160, height: 176,            <span class="c">// 单宠物尺寸（≈1格 192×208 缩放后）</span>
+  frame: <span class="n">false</span>,
+  transparent: <span class="n">true</span>,
+  resizable: <span class="n">false</span>,
+  maximizable: <span class="n">false</span>,
+  fullscreenable: <span class="n">false</span>,
+  hasShadow: <span class="n">false</span>,
+  skipTaskbar: <span class="n">true</span>,                  <span class="c">// 不出现在任务栏/Dock</span>
+  alwaysOnTop: <span class="n">true</span>,
+  <span class="c">// 复用现有跨平台置顶层级（index.ts:1232 已验证三端）</span>
+  alwaysOnTopLevel: <span class="s">"floating"</span>,
+  <span class="c">// 三端差异项（见 5.2），由平台分支决定：</span>
+  backgroundColor: <span class="s">"#00000000"</span>,
+  vibrancy: platformVibrancy,         <span class="c">// mac: undefined；win: 见下</span>
+  backgroundMaterial: platformMaterial,
+  visibleOnAllWorkspaces: <span class="n">isMac</span>,      <span class="c">// mac 跨 Space；win/linux 按需</span>
+  webPreferences: {
+    preload: join(__dirname, <span class="s">"../preload/index.js"</span>),  <span class="c">// 同主窗口（index.ts:555）</span>
+    sandbox: <span class="n">false</span>,
+    contextIsolation: <span class="n">true</span>,
+    nodeIntegration: <span class="n">false</span>,
+  },
+});</pre>
+
+      <h3>5.2 三端差异处理矩阵</h3>
+      <table>
+        <thead><tr><th style="width:110px">平台</th><th>透明窗支持</th><th>关键配置</th><th>已知坑 / 降级</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>macOS</strong></td>
+            <td><span class="yes">原生完美</span></td>
+            <td><code>transparent:true</code> 即可；<code>visibleOnAllWorkspaces:true</code> 跨桌面空间；置顶用 <code>"floating"</code>（<span class="ref-pill">index.ts:1232</span> 已验证）</td>
+            <td>无。参考点最多、体验最佳。</td>
+          </tr>
+          <tr>
+            <td><strong>Windows</strong></td>
+            <td><span class="yes">支持，需处理黑边</span></td>
+            <td><code>transparent:true</code> + <code>backgroundColor:"#00000000"</code>；Win11 可用 <code>backgroundMaterial:"acrylic"</code>（宠物本身不需要材质，留空）；<code>alwaysOnTop</code> 正常</td>
+            <td>① 老显卡/远程桌面下透明可能渲染黑块 → <strong>降级：检测失败则改用纯色背景 + sprite 带圆角 mask</strong>；② 点击穿透需 <code>setIgnoreMouseEvents</code>（见 5.3）</td>
+          </tr>
+          <tr>
+            <td><strong>Linux</strong></td>
+            <td><span class="amber" style="color:var(--amber)">视 WM 而定</span></td>
+            <td><code>transparent:true</code> + <code>frame:false</code>；X11 下置顶 <code>"floating"</code> 多数 WM 支持；Wayland 需 <code>gtk-titlebar</code> 模式</td>
+            <td>① Wayland 部分合成器不支持透明无边框 → <strong>降级：渲染带 1px 边框的圆角窗，或退化为托盘图标状态点</strong>；② 自由定位受限（Wayland 无全局坐标）→ <strong>启动时居中，拖拽存相对偏移</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="ico">🧪</div>
+        <div class="body">
+          <b>三端验证策略</b>
+          <p>实现时按 <strong>mac → Windows → Linux</strong> 顺序适配。每端写一个能力探测：<code class="inl">detectPetWindowCaps()</code> 返回 <code class="inl">{transparent, clickThrough, freePosition}</code> 三个布尔，渲染层据此选择「透明悬浮」/「圆角小窗」/「托盘点」三种渲染形态，保证三端<strong>都能显示状态</strong>，只是精致度递减。</p>
+        </div>
+      </div>
+
+      <h3>5.3 点击穿透（click-through）</h3>
+      <p>透明区域应允许鼠标穿透到下层应用，宠物本体可点击。</p>
+      <ul>
+        <li><strong>实现</strong>：渲染层用 <code class="inl">requestAnimationFrame</code> 检测鼠标是否在 sprite 像素上（hit-test），调用 <code class="inl">api.pet.setIgnoreMouseEvents(true, {forward:true})</code> 切换穿透。</li>
+        <li><strong>简化方案（MVP）</strong>：不穿透，整个小窗可点击/拖拽（窗很小，160×176，对桌面占用极小）。三端行为一致，避免 hit-test 的复杂度。</li>
+        <li><strong>后期</strong>：再做精确像素穿透。</li>
+      </ul>
+
+      <h3>5.4 生命周期与位置持久化</h3>
+      <ul>
+        <li><strong>创建时机</strong>：app ready 且 <code class="inl">settings.petEnabled</code> 为 true 时创建；开关关闭则销毁。</li>
+        <li><strong>位置持久化</strong>：拖拽后 <code class="inl">petWindow.getBounds()</code> 存入 <code class="inl">userData/pet-position.json</code>，下次启动恢复；超出屏幕边界则回退到右下角默认位。</li>
+        <li><strong>多显示器</strong>：拖到别的屏，存 <code class="inl">{displayId, x, y}</code>。</li>
+        <li><strong>主窗口关闭</strong>：主窗口隐藏到托盘（<span class="ref-pill">index.ts:578 closeToTray</span>）时，宠物窗<strong>保留</strong>（这正是宠物存在的意义——主窗关了也能看状态）。</li>
+      </ul>
+    </section>
+
+    <!-- ──────────────────── s6 ──────────────────── -->
+    <section id="s6">
+      <h2><span class="num">06</span> 渲染层</h2>
+
+      <h3>6.1 PetOverlay.tsx —— Canvas 精灵图渲染</h3>
+      <p>宠物窗口加载一个极简 HTML（<code class="inl">pet.html</code>），只渲染一个 Canvas + PetOverlay 组件。</p>
+      <pre><span class="c">// 渲染核心：按 mode 选行，循环切帧</span>
+<span class="k">const</span> ROWS: Record&lt;<span class="t">PetMode</span>, number&gt; = {
+  idle: 0, running: 7, failed: 5, waiting: 6, waving: 3,
+};
+<span class="k">const</span> FRAMES_PER_ROW = 8, FPS = 10;
+
+<span class="k">function</span> <span class="fn">PetOverlay</span>({ sprite, mode }: Props) {
+  <span class="k">const</span> row = ROWS[mode];
+  <span class="k">const</span> frame = useFrameLoop(FPS);          <span class="c">// 0..7 循环</span>
+  <span class="k">const</span> sx = (frame % FRAMES_PER_ROW) * FRAME_W;
+  <span class="k">const</span> sy = row * FRAME_H;
+  ctx.clearRect(0,0,W,H);
+  ctx.drawImage(sprite, sx, sy, FRAME_W, FRAME_H, 0, 0, W, H);
+}</pre>
+      <div class="grid3">
+        <div class="card"><div class="tag">帧率</div><h4>10 fps</h4><p>idle 时降到 6fps 省电；running/failed 维持 10fps。Codex 实测 8-12fps 足够流畅。</p></div>
+        <div class="card"><div class="tag">尺寸</div><h4>160×176 px</h4><p>单格 192×208 缩放到窗口尺寸，DPR 适配高分屏。</p></div>
+        <div class="card"><div class="tag">背景</div><h4>纯透明</h4><p>Canvas 清屏后只画 sprite，透明区域露出窗口透明背景。</p></div>
+      </div>
+
+      <h3>6.2 PetSpriteSheet.ts —— 素材加载</h3>
+      <p>解析 <code class="inl">pet.json</code> 元数据，加载 spritesheet，计算网格。沿用 Codex/Petdex 规格：</p>
+      <pre><span class="c">// Spritesheet 规格（petdex 标准）</span>
+整张 1536 × 1872 px · 网格 8 列 × 9 行 · 单格 192 × 208 px · 背景透明
+
+<span class="c">// pet.json</span>
+{
+  <span class="k">"id"</span>: <span class="s">"boba"</span>,
+  <span class="k">"displayName"</span>: <span class="s">"Boba"</span>,
+  <span class="k">"spritesheetPath"</span>: <span class="s">"spritesheet.webp"</span>
+}</pre>
+
+      <h3>6.3 PetInteraction.tsx —— 拖拽与点击</h3>
+      <ul>
+        <li><strong>拖拽</strong>：mousedown → 记录偏移 → mousemove 调 <code class="inl">api.pet.moveWindow(x,y)</code>；mouseup 存位置。</li>
+        <li><strong>点击（非拖拽）</strong>：mouseup 时位移 &lt; 3px 视为点击 → <code class="inl">api.pet.focusAgent()</code> → 主窗口 <code class="inl">show()+focus()</code> 并切到 focus agent tab。</li>
+        <li><strong>逗弄（增强项）</strong>：双击触发 jumping 动画一次。</li>
+      </ul>
+    </section>
+
+    <!-- ──────────────────── s7 ──────────────────── -->
+    <section id="s7">
+      <h2><span class="num">07</span> 素材与宠物包</h2>
+
+      <h3>7.1 双轨来源</h3>
+      <table>
+        <thead><tr><th style="width:120px">来源</th><th>说明</th><th>路径</th><th>优势</th></tr></thead>
+        <tbody>
+          <tr><td><strong>内置（打包）</strong></td><td>随应用打包 2-3 只默认宠物</td><td><code>build/pets/</code>，经 <code>?asset</code> 导入（<span class="ref-pill">index.ts:19</span> 范式）</td><td>开箱即用，不依赖外部工具，离线可用</td></tr>
+          <tr><td><strong>petdex 兼容</strong></td><td>扫描用户已安装的社区包</td><td><code>~/.codex/pets/*/pet.json</code>（mac/linux）<br/><code>%USERPROFILE%\.codex\pets\</code>（win）</td><td>用户 <code>npx petdex install xxx</code> 后直接可选，白嫖 3000+ 生态</td></tr>
+        </tbody>
+      </table>
+
+      <h3>7.2 PetPackageManager.ts 职责</h3>
+      <ul>
+        <li><code class="inl">list()</code>：合并内置包 + 扫描到的 petdex 包，去重（按 id），返回 <code class="inl">PetManifest[]</code>。</li>
+        <li><code class="inl">load(id)</code>：读取 <code class="inl">pet.json</code>，校验 spritesheet 存在且尺寸合规，返回可加载的 sprite 路径。</li>
+        <li><strong>跨平台家目录</strong>：用 <code class="inl">app.getPath("home")</code>（不用 <code class="inl">~</code>），三端统一。</li>
+        <li><strong>sprite 加载</strong>：petdex 包是磁盘文件，渲染层需 <code class="inl">file://</code> 加载 → 见第 11 节 CSP 处理。</li>
+      </ul>
+
+      <h3>7.3 内置默认宠物（建议）</h3>
+      <p>MVP 内置 <strong>1 只</strong>（自绘或公开授权素材），覆盖 idle/running/failed/waiting/waving 5 行即可（其余行可空）。完整版再补齐 9 行 + 多选。</p>
+    </section>
+
+    <!-- ──────────────────── s8 ──────────────────── -->
+    <section id="s8">
+      <h2><span class="num">08</span> 设置与 i18n</h2>
+
+      <h3>8.1 新增设置字段（AppSettings）</h3>
+      <p>在 <span class="ref-pill">types.ts:261 AppSettings</span> 内追加（<span class="ref-pill">SettingsStore.ts:6 defaultSettings</span> 同步加默认值）：</p>
+      <pre><span class="c">// 新增字段</span>
+petEnabled: <span class="t">boolean</span>;        <span class="c">// 宠物开关，默认 false（不破坏现状）</span>
+petId: <span class="t">string</span>;            <span class="c">// 当前选中的宠物 id，默认 "builtin-otter"</span>
+petAlwaysOnTop: <span class="t">boolean</span>; <span class="c">// 是否常驻置顶，默认 true</span>
+petOpacity: <span class="t">number</span>;      <span class="c">// 不透明度 0.5-1，默认 1（增强项）</span></pre>
+
+      <h3>8.2 设置面板新增「宠物」tab</h3>
+      <p>在 <span class="ref-pill">AppParts.tsx:4210 SettingsTabId</span> 联合类型追加 <code class="inl">"pet"</code>；在 <span class="ref-pill">AppParts.tsx:3397</span> 的 tabs 数组加一项，参照现有 tab 结构（icon+label+description）。面板内容复用 <code class="inl">SettingsSection</code>（<span class="ref-pill">AppParts.tsx:4212</span>）与 <code class="inl">SettingSwitch</code>（<span class="ref-pill">AppParts.tsx:4228</span>）：</p>
+      <ul>
+        <li>开关：启用桌面宠物（<code class="inl">petEnabled</code>）</li>
+        <li>下拉：选择宠物（<code class="inl">petId</code>，复用 <code class="inl">SelectField</code>，选项来自 <code class="inl">api.pet.list()</code>）</li>
+        <li>开关：始终置顶（<code class="inl">petAlwaysOnTop</code>）</li>
+        <li>说明区：提示如何用 <code>npx petdex install</code> 添加社区宠物</li>
+      </ul>
+      <div class="callout info">
+        <div class="ico">🎨</div>
+        <div class="body">
+          <b>UI 规范遵循</b>
+          <p>所有控件用现有设计 token（<span class="ref-pill">styles.css:23 :root</span>），圆角 <code class="inl">--radius-md</code>、字号 <code class="inl">--font-size-control</code>、间距 <code class="inl">--space-*</code>、焦点环 <code class="inl">--focus-ring</code>。暗色模式由 <code class="inl">[data-theme="dark"]</code>（<span class="ref-pill">styles.css:136</span>）自动适配，无需额外样式。</p>
+        </div>
+      </div>
+
+      <h3>8.3 i18n 文案（zh-CN / en-US / pseudo）</h3>
+      <p>在 <span class="ref-pill">i18n.ts</span> 三份 locale 各加一组扁平 key（沿用现有 <code class="inl">t("key",{var})</code> 格式）：</p>
+      <pre><span class="c">// zh-CN 示例</span>
+<span class="s">"settings.pet.tab"</span>: <span class="s">"桌面宠物"</span>,
+<span class="s">"settings.pet.tabDesc"</span>: <span class="s">"在桌面悬浮显示 Agent 状态"</span>,
+<span class="s">"settings.pet.enable"</span>: <span class="s">"启用桌面宠物"</span>,
+<span class="s">"settings.pet.enableDesc"</span>: <span class="s">"关闭后应用与现在完全一致"</span>,
+<span class="s">"settings.pet.choose"</span>: <span class="s">"选择宠物"</span>,
+<span class="s">"settings.pet.alwaysOnTop"</span>: <span class="s">"始终置顶"</span>,
+<span class="s">"settings.pet.petdexHint"</span>: <span class="s">"运行 npx petdex install &lt;名字&gt; 安装社区宠物"</span>,
+<span class="s">"settings.pet.noPets"</span>: <span class="s">"暂无可用宠物"</span>,</pre>
+      <p><strong>英文 / pseudo 必须同步</strong>（pseudo 用长字符测布局压力，遵守 AGENTS.md 多语言要求）。</p>
+    </section>
+
+    <!-- ──────────────────── s9 ──────────────────── -->
+    <section id="s9">
+      <h2><span class="num">09</span> 文件清单（完整变更）</h2>
+      <h3>新增文件</h3>
+      <div class="tree"><span class="dir">src/main/pet/</span>
+  ├─ <span class="new">PetWindow.ts</span>            <span class="cmt"># 透明悬浮窗创建 + 三端能力探测 + 位置持久化</span>
+  ├─ <span class="new">PetStateBridge.ts</span>       <span class="cmt"># 订阅 agents:state → 聚合 → 推 pet:state</span>
+  ├─ <span class="new">PetPackageManager.ts</span>    <span class="cmt"># 内置包 + petdex 包扫描加载</span>
+  └─ <span class="new">index.ts</span>                <span class="cmt"># 模块出口，createPetSystem()/destroyPetSystem()</span>
+
+<span class="dir">src/renderer/pet/</span>
+  ├─ <span class="new">pet.html</span>                <span class="cmt"># 宠物窗口入口 HTML（独立于主 index.html）</span>
+  ├─ <span class="new">main.tsx</span>                <span class="cmt"># 宠物窗口 React 挂载入口</span>
+  ├─ <span class="new">PetOverlay.tsx</span>          <span class="cmt"># Canvas 切帧渲染</span>
+  ├─ <span class="new">PetSpriteSheet.ts</span>       <span class="cmt"># spritesheet 加载与网格计算</span>
+  ├─ <span class="new">PetInteraction.tsx</span>      <span class="cmt"># 拖拽 / 点击跳转</span>
+  └─ <span class="new">pet.css</span>                <span class="cmt"># 仅宠物窗口样式（极简，body transparent）</span>
+
+<span class="dir">build/pets/</span>                             <span class="cmt"># 内置宠物素材（经 ?asset 打包）</span>
+  └─ <span class="new">builtin-otter/</span>
+       ├─ pet.json
+       └─ spritesheet.webp</div>
+
+      <h3>修改文件</h3>
+      <table>
+        <thead><tr><th>文件</th><th>改动</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ref-pill">src/shared/types.ts</span></td><td>+ <code>PetMode</code> / <code>PetAggregateState</code> / <code>PetManifest</code> 类型；<code>AppSettings</code> 加 4 个字段</td></tr>
+          <tr><td><span class="ref-pill">src/shared/ipc.ts</span></td><td>+ <code>pet:state / pet:list / pet:set-enabled / pet:set-id / pet:move-window / pet:focus-agent</code> channel</td></tr>
+          <tr><td><span class="ref-pill">src/main/settings/SettingsStore.ts</span></td><td><code>defaultSettings</code> 加 pet 字段默认值</td></tr>
+          <tr><td><span class="ref-pill">src/main/index.ts</span></td><td>app ready 内 <code>createPetSystem()</code>；<code>ipcMain.on(agents:state)</code> 桥接；注册 <code>pet:*</code> handlers；主窗口关闭时保留宠物窗</td></tr>
+          <tr><td><span class="ref-pill">src/preload/index.ts</span></td><td>+ <code>pet</code> API 组（onState / list / setEnabled / setId / moveWindow / focusAgent）</td></tr>
+          <tr><td><span class="ref-pill">src/renderer/src/components/app/AppParts.tsx</span></td><td>设置面板加「宠物」tab 与表单</td></tr>
+          <tr><td><span class="ref-pill">src/renderer/src/i18n.ts</span></td><td>三份 locale 加 <code>settings.pet.*</code> 文案</td></tr>
+          <tr><td><span class="ref-pill">src/renderer/src/styles.css</span></td><td>仅宠物设置项少量 class（复用现有 settings-* 为主）</td></tr>
+          <tr><td><span class="ref-pill">electron.vite.config.ts</span></td><td>renderer 多入口：加 <code>pet</code> 入口（rollup input）</td></tr>
+          <tr><td><span class="ref-pill">package.json</span></td><td><code>build.files</code> 确保 <code>build/pets/**</code> 打入 asar（或走 ?asset 自动）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ──────────────────── s10 ──────────────────── -->
+    <section id="s10">
+      <h2><span class="num">10</span> IPC 契约</h2>
+      <h3>新增 channel（src/shared/ipc.ts）</h3>
+      <pre><span class="c">// 推送（主→宠物渲染层）</span>
+<span class="t">"pet:state"</span>           <span class="c">// send PetAggregateState</span>
+
+<span class="c">// 请求（渲染层→主）</span>
+<span class="t">"pet:list"</span>            <span class="c">// handle → PetManifest[]</span>
+<span class="t">"pet:set-enabled"</span>     <span class="c">// handle(boolean) → void</span>
+<span class="t">"pet:set-id"</span>          <span class="c">// handle(string) → void</span>
+<span class="t">"pet:move-window"</span>     <span class="c">// handle({x,y}) → void</span>
+<span class="t">"pet:focus-agent"</span>     <span class="c">// handle() → void（show+focus 主窗 + 切 tab）</span></pre>
+
+      <h3>类型定义（src/shared/types.ts）</h3>
+      <pre><span class="k">export type</span> <span class="t">PetMode</span> = <span class="s">"idle"</span> | <span class="s">"running"</span> | <span class="s">"failed"</span> | <span class="s">"waiting"</span> | <span class="s">"waving"</span> | <span class="s">"hidden"</span>;
+
+<span class="k">export type</span> <span class="t">PetAggregateState</span> = {
+  mode: <span class="t">PetMode</span>;
+  runningCount: <span class="t">number</span>;     <span class="c">// 当前 running 的 Agent 数</span>
+  errorCount: <span class="t">number</span>;       <span class="c">// 当前 error 的 Agent 数（>0 则 mode=failed）</span>
+  activeAgentId: <span class="t">string</span> | <span class="k">null</span>;  <span class="c">// 点击宠物跳转目标</span>
+  timestamp: <span class="t">number</span>;
+};
+
+<span class="k">export type</span> <span class="t">PetManifest</span> = {
+  id: <span class="t">string</span>;
+  displayName: <span class="t">string</span>;
+  description?: <span class="t">string</span>;
+  source: <span class="s">"builtin"</span> | <span class="s">"petdex"</span>;
+  spritesheetUrl: <span class="t">string</span>;    <span class="c">// 渲染层可加载的 URL（见 CSP 说明）</span>
+};</pre>
+
+      <h3>preload 暴露（src/preload/index.ts）</h3>
+      <pre>pet: {
+  onState(cb: (s: <span class="t">PetAggregateState</span>) =&gt; <span class="k">void</span>): <span class="k">void</span>;
+  list(): <span class="t">Promise</span>&lt;<span class="t">PetManifest</span>[]&gt;;
+  setEnabled(v: <span class="t">boolean</span>): <span class="t">Promise</span>&lt;<span class="k">void</span>&gt;;
+  setId(id: <span class="t">string</span>): <span class="t">Promise</span>&lt;<span class="k">void</span>&gt;;
+  moveWindow(pos: { x: <span class="t">number</span>; y: <span class="t">number</span> }): <span class="t">Promise</span>&lt;<span class="k">void</span>&gt;;
+  focusAgent(): <span class="t">Promise</span>&lt;<span class="k">void</span>&gt;;
+}</pre>
+    </section>
+
+    <!-- ──────────────────── s11 ──────────────────── -->
+    <section id="s11">
+      <h2><span class="num">11</span> 跨平台兼容矩阵</h2>
+      <table>
+        <thead><tr><th>能力</th><th>macOS</th><th>Windows</th><th>Linux</th><th>降级策略</th></tr></thead>
+        <tbody>
+          <tr><td>透明悬浮窗</td><td><span class="yes">✅ 原生</span></td><td><span class="yes">✅ 需配置</span></td><td><span style="color:var(--amber);font-weight:650">⚠️ WM 相关</span></td><td>圆角小窗 / 托盘点</td></tr>
+          <tr><td>置顶 floating</td><td><span class="yes">✅</span></td><td><span class="yes">✅</span></td><td><span class="yes">✅ 多数</span></td><td>screen-saver 级</td></tr>
+          <tr><td>跨工作区</td><td><span class="yes">✅</span></td><td><span class="yes">✅</span></td><td><span style="color:var(--amber);font-weight:650">⚠️</span></td><td>仅当前工作区</td></tr>
+          <tr><td>自由拖拽定位</td><td><span class="yes">✅ 绝对坐标</span></td><td><span class="yes">✅ 绝对坐标</span></td><td><span style="color:var(--amber);font-weight:650">⚠️ Wayland 受限</span></td><td>存相对偏移</td></tr>
+          <tr><td>点击穿透</td><td><span class="yes">✅</span></td><td><span class="yes">✅</span></td><td><span class="yes">✅</span></td><td>MVP 不穿透</td></tr>
+          <tr><td>跳过任务栏/Dock</td><td><span class="yes">✅ skipTaskbar</span></td><td><span class="yes">✅ skipTaskbar</span></td><td><span class="yes">✅ skipTaskbar</span></td><td>—</td></tr>
+          <tr><td>加载本地 sprite（file://）</td><td><span class="yes">✅</span></td><td><span class="yes">✅</span></td><td><span class="yes">✅</span></td><td>需加 CSP（下）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>CSP 处理（项目当前无 CSP）</h3>
+      <div class="callout warn">
+        <div class="ico">🔒</div>
+        <div class="body">
+          <b>现状：项目完全未配置 CSP</b>
+          <p>仓库内 grep <code class="inl">Content-Security-Policy</code> / <code class="inl">onHeadersReceived</code> 零命中（<span class="ref-pill">renderer/index.html</span> 无 meta，主进程无 session 头）。现有 app 靠 <code class="inl">loadFile</code>（<span class="ref-pill">index.ts:641</span>）加载本地资源。</p>
+          <p><strong>宠物窗加载 file:// sprite 的两种方式：</strong></p>
+          <p>① <strong>内置包</strong>：走 <code>?asset</code> 导入或 Vite 打包，渲染层用相对 URL，不受限；<br/>② <strong>petdex 磁盘包</strong>：用 <code>file://</code> 绝对路径加载 → 需在宠物窗 session 显式加 CSP：<code class="inl">img-src 'self' file: data:</code>。这是<strong>项目第一个 CSP 配置</strong>，仅作用于宠物窗 session，不影响主窗。</p>
+        </div>
+      </div>
+      <pre><span class="c">// PetWindow.ts：仅给宠物窗 session 加 CSP，主窗不动</span>
+petWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
+  cb({
+    responseHeaders: {
+      ...details.responseHeaders,
+      <span class="s">"Content-Security-Policy"</span>: [
+        <span class="s">"default-src 'self'; img-src 'self' file: data:; script-src 'self'"</span>,
+      ],
+    },
+  });
+});</pre>
+    </section>
+
+    <!-- ──────────────────── s12 ──────────────────── -->
+    <section id="s12">
+      <h2><span class="num">12</span> 分阶段交付</h2>
+      <table>
+        <thead><tr><th style="width:90px">阶段</th><th>内容</th><th>产出</th><th>进度</th><th>预估</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>MVP-1</strong></td>
+            <td>透明窗 + 内置 1 只宠物 + idle/running/failed 三态 + PetStateBridge 聚合（macOS 优先跑通）</td>
+            <td>开关宠物，Agent 跑时宠物动，出错时变 failed</td>
+            <td><div class="meter"><i style="width:30%"></i></div></td>
+            <td>1 天</td>
+          </tr>
+          <tr>
+            <td><strong>MVP-2</strong></td>
+            <td>补 waiting/waving 态 + 拖拽 + 点击跳转 + 设置面板 + i18n + Windows 适配</td>
+            <td>三态完整 + 可配置 + 双端可用</td>
+            <td><div class="meter"><i style="width:65%"></i></div></td>
+            <td>1-1.5 天</td>
+          </tr>
+          <tr>
+            <td><strong>完整版</strong></td>
+            <td>petdex 兼容（扫描 ~/.codex/pets）+ 多宠物切换 + Linux 适配 + 降级形态 + 位置持久化</td>
+            <td>三端可用 + 白嫖生态</td>
+            <td><div class="meter"><i style="width:90%"></i></div></td>
+            <td>1.5 天</td>
+          </tr>
+          <tr>
+            <td><strong>打磨</strong></td>
+            <td>像素点击穿透 + 出错/完成通知气泡 + 性能优化（idle 降频）+ 9 行动画补齐</td>
+            <td>体验完整</td>
+            <td><div class="meter"><i style="width:100%"></i></div></td>
+            <td>1 天</td>
+          </tr>
+        </tbody>
+      </table>
+      <p><strong>总计 4-5 天</strong>（比纯可行性预估多 1 天，因三端都要适配，含 Linux 降级路径）。</p>
+    </section>
+
+    <!-- ──────────────────── s13 ──────────────────── -->
+    <section id="s13">
+      <h2><span class="num">13</span> 风险与降级</h2>
+      <table>
+        <thead><tr><th>风险</th><th>影响</th><th>应对 / 降级</th></tr></thead>
+        <tbody>
+          <tr><td>Linux 某些 WM 不支持透明无边框</td><td>宠物无法透明显示</td><td>能力探测 <code>detectPetWindowCaps()</code> → 退化为圆角小窗 / 托盘状态点</td></tr>
+          <tr><td>Windows 远程桌面/旧显卡透明黑块</td><td>宠物区域显黑</td><td>探测失败 → 关透明，用纯色圆角背景 + sprite mask</td></tr>
+          <tr><td>多 Agent 状态高频抖动</td><td>宠物动画抽搐</td><td>150ms 去抖 + 动画完成锁（第 3.3 节）</td></tr>
+          <tr><td>petdex 包 sprite 格式不符</td><td>加载失败/错位</td><td>加载前校验尺寸（1536×1872，8×9 网格），不符则跳过并提示</td></tr>
+          <tr><td>宠物窗收不到 agent 事件</td><td>宠物不动</td><td>已规避：用方案 A（主进程 <code>ipcMain.on(agents:state)</code> 桥接），第 4 节</td></tr>
+          <tr><td>性能（持续动画耗 CPU）</td><td>后台占用</td><td>idle 降 6fps；hidden 态暂停渲染循环</td></tr>
+          <tr><td>主窗口已关闭但宠物还在</td><td>点击宠物无法回主窗</td><td>focusAgent 时若主窗已 destroy 则 <code>createWindow()</code> 重建</td></tr>
+          <tr><td>CSP 阻断 file:// sprite</td><td>petdex 包图片不显示</td><td>仅宠物窗 session 加 CSP（第 11 节），主窗不受影响</td></tr>
+        </tbody>
+      </table>
+      <div class="callout ok">
+        <div class="ico">🛡️</div>
+        <div class="body">
+          <b>最坏情况兜底</b>
+          <p>宠物默认 <code class="inl">petEnabled:false</code>。任何平台出问题，关闭开关，应用与现状<strong>完全一致</strong>——零回归风险。所有改动都是新增模块，不动三栏布局、不动现有 IPC、不动主窗口逻辑。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────── s14 ──────────────────── -->
+    <section id="s14">
+      <h2><span class="num">14</span> 验收清单</h2>
+      <div class="grid2">
+        <div class="card">
+          <div class="tag" style="color:var(--green)">功能</div>
+          <h4>核心行为</h4>
+          <p>✓ 开关宠物，宠物出现/消失<br/>✓ 任一 Agent running → 宠物 running<br/>✓ 任一 Agent error → 宠物 failed（最高优先）<br/>✓ 全 idle → 宠物 idle<br/>✓ 全 closed → 宠物隐藏<br/>✓ 拖拽改位置并持久化<br/>✓ 点击跳转活跃 Agent</p>
+        </div>
+        <div class="card">
+          <div class="tag" style="color:var(--brand)">三端</div>
+          <h4>跨平台</h4>
+          <p>✓ macOS 透明悬浮正常<br/>✓ Windows 透明无黑边（或降级正常）<br/>✓ Linux 至少有降级形态可用<br/>✓ 三端都能跳过任务栏<br/>✓ 三端位置持久化生效</p>
+        </div>
+        <div class="card">
+          <div class="tag" style="color:var(--amber)">工程</div>
+          <h4>代码质量</h4>
+          <p>✓ <code>npm run typecheck</code> 通过<br/>✓ 新增 UI 走设计 token<br/>✓ 文案三语齐全（zh/en/pseudo）<br/>✓ 内置宠物打入 asar<br/>✓ 关闭开关后无任何副作用</p>
+        </div>
+        <div class="card">
+          <div class="tag" style="color:var(--ink-mute)">生态</div>
+          <h4>petdex 兼容</h4>
+          <p>✓ <code>npx petdex install xxx</code> 后设置里能选到<br/>✓ 不符规格的包被安全跳过<br/>✓ 内置包离线可用</p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="ico">✉️</div>
+        <div class="body">
+          <b>下一步</b>
+          <p>文档到此完整。确认无误后，我从 <strong>MVP-1</strong>（透明窗 + 内置宠物 + 三态聚合，macOS 优先）开始实现。实现前会按 AGENTS.md 要求从 <code class="inl">main</code> 切出 <code class="inl">feat/pet-overlay</code> 分支。</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<footer>
+  Pideck 桌面宠物 · 详细设计文档　|　基于真实代码事实（v0.6.2）　|　2026-06-24　|　决策：A 文档 / B 三端 / C 全局聚合单宠
+</footer>
+
+<script>
+  (function(){
+    const links = Array.from(document.querySelectorAll('.toc a'));
+    const map = {};
+    links.forEach(a => { map[a.getAttribute('href')] = a; });
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          links.forEach(l => l.classList.remove('active'));
+          const link = map['#' + e.target.id];
+          if (link) link.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    document.querySelectorAll('section').forEach(s => obs.observe(s));
+  })();
+</script>
+
+</body>
+</html>

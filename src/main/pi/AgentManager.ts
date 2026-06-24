@@ -34,6 +34,8 @@ export class AgentManager {
 	private readonly creatingSessionAgents = new Map<string, Promise<AgentTab>>();
 	/** 本地事件监听器（用于 FeishuBridge 等主进程内部订阅） */
 	private readonly localEventListeners = new Set<(agentId: string, event: unknown) => void>();
+	/** 状态变更监听器（用于 PetStateBridge 等主进程内部模块订阅 AgentTab[] 聚合状态） */
+	private readonly stateListeners = new Set<(tabs: AgentTab[]) => void>();
 
 	constructor(
 		private readonly getProject: (id: string) => Project | undefined,
@@ -769,6 +771,18 @@ export class AgentManager {
 	addLocalEventListener(listener: (agentId: string, event: unknown) => void): () => void {
 		this.localEventListeners.add(listener);
 		return () => { this.localEventListeners.delete(listener); };
+	}
+
+	/** 注册状态变更监听器（供 PetStateBridge 等主进程内部模块使用）；每次 emitState 后同步回调最新 AgentTab[] */
+	addStateListener(listener: (tabs: AgentTab[]) => void): () => void {
+		this.stateListeners.add(listener);
+		return () => { this.stateListeners.delete(listener); };
+	}
+
+	private notifyStateListeners(tabs: AgentTab[]) {
+		for (const listener of this.stateListeners) {
+			try { listener(tabs); } catch {}
+		}
 	}
 
 	stopAll() {
@@ -1513,7 +1527,12 @@ export class AgentManager {
 	}
 
 	private emitState() {
-		this.emit(ipcChannels.agentsState, this.list());
+		const tabs = this.list();
+		this.emit(ipcChannels.agentsState, tabs);
+		// 同步通知主进程内部状态订阅者（PetStateBridge），使宠物窗能拿到聚合状态。
+		// 设计文档原拟用 ipcMain.on("agents:state") 桥接是错的：webContents.send 是
+		// 主进程→渲染层单向通道，ipcMain 收不到主进程自己发出的消息，故改用本钩子。
+		this.notifyStateListeners(tabs);
 	}
 
 	private emit(channel: string, payload: unknown) {

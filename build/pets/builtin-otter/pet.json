@@ -1,0 +1,10 @@
+{
+  "id": "builtin-otter",
+  "displayName": "Boba Otter",
+  "description": "Pideck 内置水獭 · 随 Agent 状态变换",
+  "spritesheetPath": "spritesheet.webp",
+  "gridCols": 8,
+  "gridRows": 9,
+  "cellWidth": 192,
+  "cellHeight": 208
+}

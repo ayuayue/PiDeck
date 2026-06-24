@@ -21,6 +21,7 @@ import {
 	MessageCircle,
 	Network,
 	Pencil,
+	PawPrint,
 	Pin,
 	Plus,
 	RefreshCw,
@@ -50,6 +51,7 @@ import type {
 	FileTreeNode,
 	GitBranchInfo,
 	ImageContent,
+	PetManifest,
 	PiCommand,
 	PiInstallStatus,
 	Project,
@@ -3321,6 +3323,15 @@ export function SettingsModal(props: {
 	useEffect(() => {
 		setWebPortDraft(String(props.settings.webServicePort));
 	}, [props.settings.webServicePort]);
+
+	// 宠物包列表：异步加载内置 + petdex 社区包，供选择下拉使用
+	const [petOptions, setPetOptions] = useState<{ value: string; label: string }[]>([]);
+	useEffect(() => {
+		window.piDesktop.pet
+			.list()
+			.then((pets) => setPetOptions(pets.map((p) => ({ value: p.id, label: p.displayName }))))
+			.catch(() => undefined);
+	}, []);
 	const applyWebPortDraft = () => {
 		const port = Number(webPortDraft);
 		if (Number.isInteger(port) && port >= 1 && port <= 65535 && port !== props.settings.webServicePort) {
@@ -3358,6 +3369,12 @@ export function SettingsModal(props: {
 			label: t("settings.tabs.dev"),
 			description: t("settings.tabs.devDesc"),
 			icon: <Wrench size={16} />,
+		},
+		{
+			id: "pet",
+			label: t("settings.tabs.pet"),
+			description: t("settings.tabs.petDesc"),
+			icon: <PawPrint size={16} />,
 		},
 	];
 	const themeOptions = [
@@ -3800,6 +3817,34 @@ export function SettingsModal(props: {
 								</SettingsSection>
 							</>
 						)}
+						{activeTab === "pet" && (
+							<>
+								<SettingsSection title={t("settings.pet.title")} description={t("settings.pet.sectionDesc")}>
+									<SettingSwitch
+										title={t("settings.pet.enable")}
+										description={t("settings.pet.enableDesc")}
+										checked={props.settings.petEnabled}
+										onChange={(v) => props.onChange({ petEnabled: v })}
+									/>
+									<SettingSwitch
+										title={t("settings.pet.alwaysOnTop")}
+										description={t("settings.pet.alwaysOnTopDesc")}
+										checked={props.settings.petAlwaysOnTop}
+										onChange={(v) => props.onChange({ petAlwaysOnTop: v })}
+									/>
+								</SettingsSection>
+								<SettingsSection title={t("settings.pet.choose")}>
+									<SelectField
+										className="setting-field"
+										label={t("settings.pet.choose")}
+										value={props.settings.petId}
+										options={petOptions}
+										onChange={(value) => props.onChange({ petId: value })}
+									/>
+									<small className="setting-status">{t("settings.pet.petdexHint")}</small>
+								</SettingsSection>
+							</>
+						)}
 						<p>{props.notice || t("settings.restartNotice")}</p>
 					</div>
 				</div>
@@ -4207,7 +4252,7 @@ function formatBytes(value: number) {
 	return `${value} B`;
 }
 
-type SettingsTabId = "base" | "proxy" | "web" | "dev";
+type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet";
 
 function SettingsSection(props: {
 	title: string;

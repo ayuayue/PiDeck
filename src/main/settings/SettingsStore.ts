@@ -29,6 +29,12 @@ const defaultSettings: AppSettings = {
   linkOpenMode: "external",
   maxEditorFileSizeMB: 5,
   externalEditors: createDefaultExternalEditorSettings(),
+
+  // 桌面宠物默认关闭：关闭后应用与现状完全一致，零回归风险
+  petEnabled: false,
+  petId: "builtin-otter",
+  petAlwaysOnTop: true,
+  petOpacity: 1,
 };
 
 export class SettingsStore {

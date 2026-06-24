@@ -492,6 +492,12 @@ export function App() {
     linkOpenMode: "external",
     maxEditorFileSizeMB: 5,
     externalEditors: createDefaultExternalEditorSettings(),
+
+    // 桌面宠物默认关闭：关闭后应用与现状完全一致，零回归
+    petEnabled: false,
+    petId: "builtin-otter",
+    petAlwaysOnTop: true,
+    petOpacity: 1,
   });
   const [settingsNotice, setSettingsNotice] = useState("");
   const [piProxyNotice, setPiProxyNotice] = useState("");

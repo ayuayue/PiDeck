@@ -21,6 +21,8 @@ import type {
 	ConfigFileDiagnostic,
 	CreateAgentInput,
 	CreatePiSkillInput,
+	PetAggregateState,
+	PetManifest,
 	ExternalEditor,
 	ExternalEditorId,
 	ExternalEditorSetting,
@@ -469,6 +471,32 @@ const api = {
 				state: AgentRuntimeState;
 			}) => void,
 		) => subscribe(ipcChannels.agentsRuntimeState, callback),
+	},
+	pet: {
+		/** 宠物窗监听主进程推送的聚合状态 */
+		onState: (callback: (state: PetAggregateState) => void) =>
+			subscribe(ipcChannels.petState, callback),
+		/** 列出可用宠物包（内置 + petdex） */
+		list: () =>
+			ipcRenderer.invoke(ipcChannels.petList) as Promise<PetManifest[]>,
+		/** 开关宠物 */
+		setEnabled: (value: boolean) =>
+			ipcRenderer.invoke(ipcChannels.petSetEnabled, value) as Promise<void>,
+		/** 切换当前宠物 */
+		setId: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.petSetId, id) as Promise<void>,
+		/** 拖拽移动宠物窗 */
+		moveWindow: (pos: { x: number; y: number }) =>
+			ipcRenderer.invoke(ipcChannels.petMoveWindow, pos) as Promise<void>,
+		/** 点击宠物跳转活跃 Agent */
+		focusAgent: () =>
+			ipcRenderer.invoke(ipcChannels.petFocusAgent) as Promise<void>,
+		/** 主进程推送当前选中宠物的 manifest，据此加载 spritesheet */
+		onSprite: (callback: (manifest: PetManifest) => void) =>
+			subscribe(ipcChannels.petCurrentSprite, callback),
+		/** 挂载时主动拉取当前选中宠物 manifest（避免推送竞态） */
+		getCurrent: () =>
+			ipcRenderer.invoke(ipcChannels.petGetCurrent) as Promise<PetManifest | null>,
 	},
 	terminal: {
 		list: (agentId: string) =>

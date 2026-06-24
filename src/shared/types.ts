@@ -311,6 +311,44 @@ export type AppSettings = {
 	maxEditorFileSizeMB: number;
 	/** 外部编辑器配置：首次异步检测后保存，用户可在设置中手动覆盖路径。 */
 	externalEditors: ExternalEditorSettings;
+
+	// ── 桌面宠物（全局聚合单宠，默认关闭，不破坏现状） ──
+	/** 是否启用桌面宠物悬浮窗，默认 false：关闭后应用与现状完全一致 */
+	petEnabled: boolean;
+	/** 当前选中的宠物包 id，默认内置水獭 */
+	petId: string;
+	/** 宠物窗是否始终置顶，默认 true */
+	petAlwaysOnTop: boolean;
+	/** 宠物不透明度 0.5-1，默认 1（增强项，MVP 暂只用 1） */
+	petOpacity: number;
+};
+
+// ── 桌面宠物类型 ──
+
+/** 宠物聚合动画状态；映射到 spritesheet 的行号 */
+export type PetMode = "idle" | "running" | "failed" | "waiting" | "waving" | "hidden";
+
+/** 多 Agent 聚合后的全局宠物状态，由 PetStateBridge 计算并推送给宠物窗 */
+export type PetAggregateState = {
+	mode: PetMode;
+	/** 当前 running 的 Agent 数 */
+	runningCount: number;
+	/** 当前 error 的 Agent 数（>0 则 mode=failed，优先级最高） */
+	errorCount: number;
+	/** 点击宠物跳转目标 Agent id；无活跃 Agent 时为 null */
+	activeAgentId: string | null;
+	timestamp: number;
+};
+
+/** 宠物包清单项，合并内置包与 petdex 社区包后去重得到 */
+export type PetManifest = {
+	id: string;
+	displayName: string;
+	description?: string;
+	/** 来源：builtin 随应用打包，petdex 扫描自 ~/.codex/pets/ */
+	source: "builtin" | "petdex";
+	/** 渲染层可加载的 spritesheet URL（内置走打包资源，petdex 走 file://） */
+	spritesheetUrl: string;
 };
 
 export type PiInstallStatus = {
