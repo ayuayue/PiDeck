@@ -3814,6 +3814,11 @@ export function SettingsModal(props: {
 										value={petPreviewMode}
 										options={[
 											{ value: "__auto", label: t("settings.pet.previewAuto") },
+											{ value: "idle", label: "😌 idle (行0)" },
+											{ value: "running", label: "⚙️ running (行7)" },
+											{ value: "failed", label: "😥 failed (行5)" },
+											{ value: "waiting", label: "🥺 waiting (行6)" },
+											{ value: "waving", label: "👋 waving (行3)" },
 											{ value: "running-right", label: "→ running-right (行1)" },
 											{ value: "running-left", label: "← running-left (行2)" },
 											{ value: "jumping", label: "🤸 jumping (行4)" },
