@@ -60,9 +60,13 @@ export class PetSystem {
 			await this.petWindow.create(settings.petScale ?? 1);
 			this.pushCaps();
 			// 宠物窗 React 默认 idle，延迟 600ms 再推送实态，
-			// 让宠物先以 idle 亮相再过渡到真实聚合状态
+			// 让宠物先以 idle 亮相再过渡到真实聚合状态。
+			// 若启动时无活跃 Agent 则跳过推送，避免 idle → hidden 闪烁
 			setTimeout(() => {
-				this.bridge.pushNow(this.deps.agentManager.list());
+				const tabs = this.deps.agentManager.list();
+				if (tabs.some(t => t.status !== "closed")) {
+					this.bridge.pushNow(tabs);
+				}
 			}, 600);
 			await this.pushCurrentSprite();
 		}

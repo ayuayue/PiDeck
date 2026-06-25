@@ -498,7 +498,7 @@ export function App() {
 
     // 桌面宠物默认关闭：关闭后应用与现状完全一致，零回归
     petEnabled: false,
-    petId: "wangcai",
+    petId: "clawd",
     petAlwaysOnTop: true,
     petScale: 0.8,
     petPatrolEnabled: true,

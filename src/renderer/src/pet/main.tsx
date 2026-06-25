@@ -12,7 +12,7 @@ import "./pet.css";
  *  1. 启动时读取当前 settings.petId 对应的 PetManifest，加载 spritesheet；
  *  2. 订阅 pet:state 推送，驱动 PetOverlay 按聚合状态切帧。
  *
- * sprite 加载失败时 PetOverlay 自动降级为程序化状态绘制，保证无素材也能显示。
+ * sprite 加载完成前不渲染任何可见内容（透明占位），杜绝「先闪错误宠物」的问题。
  */
 function PetApp() {
 	const [state, setState] = useState<PetAggregateState>({
@@ -23,6 +23,7 @@ function PetApp() {
 		timestamp: 0,
 	});
 	const [sprite, setSprite] = useState<SpriteSheet | null>(null);
+	const [spriteReady, setSpriteReady] = useState(false);
 	const [dragging, setDragging] = useState(false);
 	const [notification, setNotification] = useState<PetNotification | null>(null);
 	const [previewMode, setPreviewMode] = useState<string | null>(null);
@@ -36,8 +37,9 @@ function PetApp() {
 			try {
 				setSprite(await loadSpriteSheet(manifest));
 			} catch {
-				setSprite(null); // 加载失败降级为程序化状态绘制
+				setSprite(null);
 			}
+			setSpriteReady(true);
 		};
 		void window.piDesktop.pet.getCurrent().then(load);
 		const off = window.piDesktop.pet.onSprite(load);
@@ -51,6 +53,11 @@ function PetApp() {
 		const offCaps = window.piDesktop.pet.onCaps((c) => { setCaps(c); });
 		return () => { cancelled = true; off(); offState(); offNotify(); offPreview?.(); offCaps?.(); };
 	}, []);
+
+	// sprite 加载完成前不渲染任何可见内容——杜绝启动时闪现错误宠物或 FallbackCanvas
+	if (!spriteReady) {
+		return <div style={{ width: "100%", height: "100%", background: "transparent" }} />;
+	}
 
 	return (
 		<div className={`pet-root${caps && !caps.transparent ? " pet-root--rounded" : ""}`}>
