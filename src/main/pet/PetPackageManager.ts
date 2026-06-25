@@ -5,6 +5,7 @@ import type { Dirent } from "node:fs";
 import type { PetManifest } from "../../shared/types";
 // 内置宠物 spritesheet 通过 ?asset 导入，electron-vite 在 dev/prod 均提供正确路径
 import arthurSprite from "../../../build/pets/arthur-mergeon/spritesheet.webp?asset";
+import clawdSprite from "../../../build/pets/clawd-3/spritesheet.webp?asset";
 
 /**
  * PetPackageManager —— 宠物包管理（设计文档第 7 节）。
@@ -76,6 +77,13 @@ export class PetPackageManager {
 			description: "A campfire code gunslinger, carrying old commits, open pull requests, and one hand always near the merge button.",
 			source: "builtin",
 			spritePath: arthurSprite,
+		},
+		{
+			id: "clawd",
+			displayName: "Clawd",
+			description: "A tiny pixel Clawd companion made from your sticker GIFs.",
+			source: "builtin",
+			spritePath: clawdSprite,
 		},
 	];
 
