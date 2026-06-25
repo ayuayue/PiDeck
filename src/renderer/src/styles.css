@@ -7357,8 +7357,6 @@ a.config-btn {
 
 .config-model-combobox-menu button {
 	display: flex;
-	flex-direction: column;
-	gap: 2px;
 }
 
 .config-model-combobox-menu small {
@@ -7373,6 +7371,86 @@ a.config-btn {
 .config-model-combobox-menu button:hover small,
 .config-model-combobox-menu button.active small {
 	color: var(--color-accent);
+}
+
+.config-model-combobox-menu-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	padding: 0 4px 5px;
+	margin-bottom: 4px;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.config-model-combobox-menu-actions button {
+	width: auto;
+	min-height: 26px;
+	padding: 4px 8px;
+	color: var(--color-accent);
+	font-size: var(--font-size-micro);
+	font-weight: 650;
+}
+
+.config-model-combobox-menu-actions button:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.config-model-combobox-menu-actions span {
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-micro);
+}
+
+.config-model-combobox-option {
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.config-model-combobox-option:disabled {
+	opacity: 0.64;
+	cursor: not-allowed;
+}
+
+.config-model-combobox-check {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 16px;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-xs);
+	color: var(--color-text-inverse);
+	background: var(--color-bg-panel);
+}
+
+.config-model-combobox-check.checked {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
+.config-model-combobox-text {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.config-model-combobox-text > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.config-model-combobox-badge {
+	flex: 0 0 auto;
+	padding: 2px 6px;
+	border-radius: var(--radius-sm);
+	background: var(--color-bg-muted);
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-micro);
+	line-height: 1.2;
 }
 
 /* 测试连接结果面板 */
