@@ -44,7 +44,8 @@
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site",
     "typecheck": "tsc --noEmit",
-    "make-icon": "node scripts/make-icon.js"
+    "make-icon": "node scripts/make-icon.js",
+    "postinstall": "node scripts/fix-pty-permissions.js"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
