@@ -141,42 +141,54 @@ export function PetOverlay({ sprite, manifest, state, dragging, notification }: 
 			if (alpha <= 0) return;
 
 			const isError = n.type === "error";
-			const textColor = isError ? "#dc2626" : "#22c55e";
+		const textColor = isError ? "#dc2626" : "#22c55e";
 
-			// 气泡尺寸随 pet 缩放（displayW 已含 petScale，除以基准宽 160 得缩放因子）
-			const petScale = displayW / 160;
-			const fontSize = Math.round(16 * dpr * petScale);
-			ctx.save();
-			ctx.globalAlpha = alpha;
-			ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
-			const metrics = ctx.measureText(n.text);
-			const textW = metrics.width;
-			const padX = 16 * dpr * petScale;
-			const padY = 10 * dpr * petScale;
-			const bubbleW = textW + padX * 2;
-			const bubbleH = fontSize + padY * 2;
-			const bubbleX = (displayW * dpr - bubbleW) / 2;
-			const bubbleY = displayH * dpr - bubbleH - 6 * dpr * petScale;
-			const radius = 10 * dpr * petScale;
+		// 气泡尺寸随 pet 缩放（displayW 已含 petScale，除以基准宽 160 得缩放因子）
+		const petScale = displayW / 160;
+		const fontSize = Math.round(14 * dpr * petScale);
+		ctx.save();
+		ctx.globalAlpha = alpha;
+		ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
 
-			// 白色背景（无阴影，避免边缘发虚）
-			ctx.fillStyle = "rgba(255,255,255,0.95)";
-			ctx.beginPath();
-			rndRect(ctx, bubbleX, bubbleY, bubbleW, bubbleH, radius);
-			ctx.fill();
+		// 气泡最大宽度：Canvas 宽减去两侧留白，避免超出宠物窗边界被截断
+		const maxBubbleW = displayW * dpr - 24 * dpr * petScale;
+		const padX = 14 * dpr * petScale;
+		const padY = 8 * dpr * petScale;
 
-			// 黑色虚线描边（缝线样式）
-			ctx.strokeStyle = "#1a1d24";
-			ctx.lineWidth = 1.5 * dpr * petScale;
-			ctx.setLineDash([3 * dpr * petScale, 3 * dpr * petScale]);
-			ctx.stroke();
-			ctx.setLineDash([]);
+		// 自动换行：超宽时拆分为多行，保证不截断
+		const lines = wrapText(ctx, n.text, maxBubbleW - padX * 2);
+		const lineHeight = fontSize * 1.5;
+		const totalTextH = lines.length * lineHeight;
+		const bubbleH = totalTextH + padY * 2;
 
-			// 文字
-			ctx.fillStyle = textColor;
-			ctx.textAlign = "center";
-			ctx.textBaseline = "middle";
-			ctx.fillText(n.text, bubbleX + bubbleW / 2, bubbleY + bubbleH / 2);
+		// 取最宽行作为气泡宽度
+		const lineWidths = lines.map(l => ctx.measureText(l).width);
+		const bubbleW = Math.max(...lineWidths) + padX * 2;
+		const bubbleX = (displayW * dpr - bubbleW) / 2;
+		const bubbleY = displayH * dpr - bubbleH - 6 * dpr * petScale;
+		const radius = 10 * dpr * petScale;
+
+		// 白色背景（无阴影，避免边缘发虚）
+		ctx.fillStyle = "rgba(255,255,255,0.95)";
+		ctx.beginPath();
+		rndRect(ctx, bubbleX, bubbleY, bubbleW, bubbleH, radius);
+		ctx.fill();
+
+		// 黑色虚线描边（缝线样式）
+		ctx.strokeStyle = "#1a1d24";
+		ctx.lineWidth = 1.5 * dpr * petScale;
+		ctx.setLineDash([3 * dpr * petScale, 3 * dpr * petScale]);
+		ctx.stroke();
+		ctx.setLineDash([]);
+
+		// 逐行绘制文字
+		ctx.fillStyle = textColor;
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		for (let i = 0; i < lines.length; i++) {
+			const ly = bubbleY + padY + lineHeight * i + lineHeight / 2;
+			ctx.fillText(lines[i], bubbleX + bubbleW / 2, ly);
+		}
 
 			ctx.restore();
 		};
@@ -297,6 +309,55 @@ function rndRect(
 	ctx.closePath();
 }
 
+/** 将文本拆分多行以适应 maxWidth。中文在字间断行，英文在空格处断行，
+ *  单词不截断（除非单字比 maxWidth 还宽）。返回每行不超宽的文本数组。 */
+function wrapText(
+	ctx: CanvasRenderingContext2D,
+	text: string,
+	maxWidth: number,
+): string[] {
+	if (maxWidth <= 0) return [text];
+	if (ctx.measureText(text).width <= maxWidth) return [text];
+
+	const lines: string[] = [];
+	// 按空格拆分，保留每个片段（中文整段为一个「词」，英文单词独立）
+	const words = text.split(" ");
+	let current = "";
+
+	for (let i = 0; i < words.length; i++) {
+		const word = words[i];
+		const trial = current ? current + " " + word : word;
+
+		if (ctx.measureText(trial).width <= maxWidth) {
+			current = trial;
+		} else {
+			// 单词放不进当前行
+			if (current) {
+				lines.push(current);
+				current = "";
+			}
+			// 单词单放一行仍超宽 → 逐字打断（fallback）
+			if (ctx.measureText(word).width <= maxWidth) {
+				current = word;
+			} else {
+				let chunk = "";
+				for (const ch of word) {
+					const cTrial = chunk + ch;
+					if (ctx.measureText(cTrial).width > maxWidth && chunk.length > 0) {
+						lines.push(chunk);
+						chunk = ch;
+					} else {
+						chunk = cTrial;
+					}
+				}
+				current = chunk;
+			}
+		}
+	}
+	if (current) lines.push(current);
+	return lines;
+}
+
 // ═══════════════════════════════════════════
 // 降级（无素材时）
 // ═══════════════════════════════════════════
@@ -308,6 +369,9 @@ const FALLBACK: Record<PetMode, { color: string; emoji: string }> = {
 	waiting: { color: "#b45309", emoji: "🥺" },
 	waving: { color: "#2563eb", emoji: "👋" },
 	jumping: { color: "#8b5cf6", emoji: "🤸" },
+	"running-right": { color: "#16a34a", emoji: "🏃" },
+	"running-left": { color: "#16a34a", emoji: "🏃‍♂️" },
+	review: { color: "#2563eb", emoji: "🔍" },
 	hidden: { color: "#8a909c", emoji: "" },
 };
 

@@ -7,6 +7,7 @@ import { PetWindow } from "./PetWindow";
 import { detectPetWindowCaps } from "./PetWindow";
 import { PetStateBridge } from "./PetStateBridge";
 import { PetPackageManager } from "./PetPackageManager";
+import { PetPatrol } from "./PetPatrol";
 
 /**
  * 桌面宠物系统出口（设计文档第 2、9、10 节）。
@@ -31,11 +32,21 @@ export type PetSystemDeps = {
 export class PetSystem {
 	readonly petWindow = new PetWindow();
 	readonly packageManager = new PetPackageManager();
+	/** 巡游引擎：idle 时自动沿屏幕底部左右走动，业务态出现即让位 */
+	readonly patrol: PetPatrol;
 	private bridge: PetStateBridge;
 	private registered = false;
 
 	constructor(private readonly deps: PetSystemDeps) {
-		this.bridge = new PetStateBridge(() => this.petWindow.window);
+		this.patrol = new PetPatrol(
+			() => this.petWindow.window,
+			() => this.deps.settingsStore.get().petPatrolPauseMin ?? 5,
+		);
+		this.bridge = new PetStateBridge(
+			() => this.petWindow.window,
+			this.patrol,
+			() => this.deps.settingsStore.get().petPatrolEnabled ?? true,
+		);
 	}
 
 	/** 应用 ready 后调用：注册 IPC + 订阅状态 + 按设置决定是否开窗 */
@@ -48,8 +59,11 @@ export class PetSystem {
 		if (settings.petEnabled) {
 			await this.petWindow.create(settings.petScale ?? 1);
 			this.pushCaps();
-			// 立即推送一次当前状态，避免等待去抖导致宠物窗初始空白
-			this.bridge.pushNow(this.deps.agentManager.list());
+			// 宠物窗 React 默认 idle，延迟 600ms 再推送实态，
+			// 让宠物先以 idle 亮相再过渡到真实聚合状态
+			setTimeout(() => {
+				this.bridge.pushNow(this.deps.agentManager.list());
+			}, 600);
 			await this.pushCurrentSprite();
 		}
 	}
@@ -131,6 +145,11 @@ export class PetSystem {
 				});
 			}
 		});
+
+		// 双击宠物触发逗弄：主进程注入一次 jumping 后恢复真实聚合态
+		ipcMain.handle(ipcChannels.petTease, async () => {
+			this.bridge.tease();
+		});
 	}
 
 	/**
@@ -147,6 +166,7 @@ export class PetSystem {
 				this.bridge.pushNow(this.deps.agentManager.list());
 				await this.pushCurrentSprite();
 			} else {
+				this.patrol.stop();
 				this.petWindow.destroy();
 			}
 			return;
@@ -160,6 +180,16 @@ export class PetSystem {
 		}
 		if (next.petScale !== prev.petScale && next.petScale) {
 			this.petWindow.resize(next.petScale);
+		}
+		// 巡游开关变化：当前若为 idle 则即时启停巡游
+		if (next.petPatrolEnabled !== prev.petPatrolEnabled) {
+			if (next.petPatrolEnabled) {
+				// 开关打开：若当前 idle 则立即启动巡游（Bridge 内部有 maybeStartPatrol 判断）
+				const cur = this.bridge.currentState;
+				if (cur && cur.mode === "idle") this.patrol.start();
+			} else {
+				this.patrol.stop();
+			}
 		}
 	}
 

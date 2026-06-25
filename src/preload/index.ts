@@ -514,6 +514,9 @@ const api = {
 		/** 调试：发送测试通知弹窗 */
 		testNotify: (type: "error" | "done") =>
 			ipcRenderer.invoke(ipcChannels.petTestNotify, type) as Promise<void>,
+		/** 双击宠物触发逗弄：主进程注入一次 jumping 后恢复真实聚合态 */
+		tease: () =>
+			ipcRenderer.invoke(ipcChannels.petTease) as Promise<void>,
 	},
 	terminal: {
 		list: (agentId: string) =>

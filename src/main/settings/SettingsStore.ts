@@ -34,7 +34,11 @@ const defaultSettings: AppSettings = {
   petEnabled: false,
   petId: "arthur-mergeon",
   petAlwaysOnTop: true,
-  petScale: 1,
+  petScale: 0.8,
+  // 巡游默认开启：宠物 idle 时自动沿屏幕底部左右走动，业务态出现即让位
+  petPatrolEnabled: true,
+  // 巡游碰边后 idle 停顿默认 5 分钟
+  petPatrolPauseMin: 5,
 };
 
 export class SettingsStore {

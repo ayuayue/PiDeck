@@ -149,7 +149,9 @@ let previewSettings: AppSettings = {
 	petEnabled: false,
 	petId: "wangcai",
 	petAlwaysOnTop: true,
-	petScale: 1,
+	petScale: 0.8,
+	petPatrolEnabled: true,
+	petPatrolPauseMin: 5,
 };
 
 export function createPreviewApi(): PiDesktopApi {
@@ -519,6 +521,7 @@ export function createPreviewApi(): PiDesktopApi {
 			onPreviewMode: noop,
 			onCaps: noop,
 			testNotify: async () => undefined,
+			tease: async () => undefined,
 			getCurrent: async () => ({ id: "wangcai", displayName: "Wangcai", source: "petdex", spritesheetUrl: "" }),
 		},
 		terminal: {

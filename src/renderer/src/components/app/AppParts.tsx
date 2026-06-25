@@ -3863,6 +3863,34 @@ export function SettingsModal(props: {
 										checked={props.settings.petAlwaysOnTop}
 										onChange={(v) => props.onChange({ petAlwaysOnTop: v })}
 									/>
+									<SettingSwitch
+										title={t("settings.pet.patrol")}
+										description={t("settings.pet.patrolDesc")}
+										checked={props.settings.petPatrolEnabled ?? true}
+										onChange={(v) => props.onChange({ petPatrolEnabled: v })}
+									/>
+								</SettingsSection>
+								<SettingsSection title={t("settings.pet.patrolPause")} description={t("settings.pet.patrolPauseDesc")}>
+									<div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", maxWidth: 320 }}>
+										<input
+											type="range"
+											min="1"
+											max="30"
+											step="1"
+											value={props.settings.petPatrolPauseMin ?? 5}
+											onChange={(e) => props.onChange({ petPatrolPauseMin: parseInt(e.target.value) })}
+											style={{ flex: 1, accentColor: "var(--color-accent)" }}
+										/>
+										<span style={{
+											fontFamily: "var(--font-family-business)",
+											fontSize: "var(--font-size-sm)",
+											color: "var(--color-text-muted)",
+											minWidth: 60,
+											textAlign: "right",
+										}}>
+											{props.settings.petPatrolPauseMin ?? 5} min
+										</span>
+									</div>
 								</SettingsSection>
 								<SettingsSection title={t("settings.pet.choose")}>
 									<SelectField

@@ -84,10 +84,12 @@ export class PetStateBridge {
 	private lastChangeAt = 0;
 	/** waving 过渡定时器：hidden 前先挥手 N ms */
 	private wavingTimer: NodeJS.Timeout | null = null;
-	/** jumping 庆祝定时器：成功完成时跳跃 → idle */
-	private celebrationTimer: NodeJS.Timeout | null = null;
+	/** review 完成定时器：成功完成时展示 review(行8) → idle */
+	private reviewTimer: NodeJS.Timeout | null = null;
 	/** failed 过渡定时器：出错后自动切 idle */
 	private failedTimer: NodeJS.Timeout | null = null;
+	/** tease 逗弄定时器：双击注入 jumping(行4) 后恢复真实态 */
+	private teaseTimer: NodeJS.Timeout | null = null;
 	/** 错误状态展示冷却：展示过一次 error 后 N ms 内抑制重复推送 */
 	private errorCooldownUntil = 0;
 	/** 当前 AgentTab 列表，用于通知气泡中获取出错 Agent 名称 */
@@ -103,15 +105,21 @@ export class PetStateBridge {
 	private readonly minStateHoldMs = 600;
 	/** waving 过渡持续时长：所有 Agent 关闭后先挥手再隐藏 */
 	private readonly waveDurationMs = 1500;
-	/** jumping 庆祝持续时长：成功后跳跃 → idle */
-	private readonly celebrationDurationMs = 4000;
+	/** review 庆祝持续时长：成功后展示 review → idle */
+	private readonly reviewDurationMs = 4000;
 	/** failed 展示持续时长：出错动画播放后自动切 idle */
 	private readonly failedDisplayDurationMs = 4000;
 	/** 错误状态抑制窗口：展示过一次 error 后 10s 内不重复推送 */
 	private readonly errorSuppressDurationMs = 10000;
+	/** 逗弄持续时长：双击注入 jumping 后恢复真实态 */
+	private readonly teaseDurationMs = 2500;
 
 	constructor(
 		private readonly getPetWindow: () => BrowserWindow | null,
+		/** 巡游引擎：idle 时自动沿屏幕底部走动，业务态/临时态出现即让位 */
+		private readonly patrol: { start: () => void; stop: () => void; active: boolean } | null = null,
+		/** 巡游开关读取：返回是否启用 idle 巡游（受设置面板控制） */
+		private readonly isPatrolEnabled: () => boolean = () => true,
 	) {}
 
 	/** 最近一次聚合状态；点击宠物跳转时取 activeAgentId */
@@ -135,14 +143,19 @@ export class PetStateBridge {
 			clearTimeout(this.wavingTimer);
 			this.wavingTimer = null;
 		}
-		if (this.celebrationTimer) {
-			clearTimeout(this.celebrationTimer);
-			this.celebrationTimer = null;
+		if (this.reviewTimer) {
+			clearTimeout(this.reviewTimer);
+			this.reviewTimer = null;
 		}
 		if (this.failedTimer) {
 			clearTimeout(this.failedTimer);
 			this.failedTimer = null;
 		}
+		if (this.teaseTimer) {
+			clearTimeout(this.teaseTimer);
+			this.teaseTimer = null;
+		}
+		this.patrol?.stop();
 	}
 
 	/** 接收最新 AgentTab[]，去抖后聚合推送 */
@@ -194,22 +207,25 @@ export class PetStateBridge {
 			this.wavingTimer = null;
 		}
 
-		// jumping 庆祝过渡：从 running 完成时先跳跃，再切 idle
+		// review 完成过渡：从 running 完成时先展示 review(行8)，再切 idle。
+		// 原完成动画用 jumping，本期 jumping 让位给「逗弄」，完成语义改由 review 承担。
 		if (target === "idle" && prev?.mode === "running") {
-			this.applyState({ ...state, mode: "jumping" });
-			this.sendNotification({ type: "done", text: "所有任务完成", timestamp: Date.now() });
+			this.applyState({ ...state, mode: "review" });
+			this.sendNotification({ type: "done", text: "任务完成，记得 Review", timestamp: Date.now() });
 			this.notifyCooldown = Date.now() + 3000;
 			this.lastChangeAt = Date.now();
-			if (this.celebrationTimer) clearTimeout(this.celebrationTimer);
-			this.celebrationTimer = setTimeout(() => {
-				this.celebrationTimer = null;
+			if (this.reviewTimer) clearTimeout(this.reviewTimer);
+			this.reviewTimer = setTimeout(() => {
+				this.reviewTimer = null;
 				this.applyState({ ...state, mode: "idle" });
-			}, this.celebrationDurationMs);
+				// review 结束回 idle：若开关开则自动续上巡游，体验连贯
+				this.maybeStartPatrol();
+			}, this.reviewDurationMs);
 			return;
 		}
 
-		// jumping 进行中：忽略重叠的 idle 推送
-		if (target === "idle" && prev?.mode === "jumping") {
+		// review 进行中：忽略重叠的 idle 推送，等待 reviewTimer 自然回到 idle
+		if (target === "idle" && prev?.mode === "review") {
 			return;
 		}
 
@@ -235,6 +251,7 @@ export class PetStateBridge {
 				this.failedTimer = setTimeout(() => {
 					this.failedTimer = null;
 					this.applyState({ ...state, mode: "idle" });
+					this.maybeStartPatrol();
 				}, this.failedDisplayDurationMs);
 			}
 			return;
@@ -255,6 +272,23 @@ export class PetStateBridge {
 
 		this.applyState(state);
 		this.detectNotification(prev);
+
+		// 业务态分流：running/waiting 等出现即停巡游；稳定 idle 则启动巡游（受开关控制）
+		if (target === "idle") {
+			this.maybeStartPatrol();
+		} else if (target === "running" || target === "waiting") {
+			this.patrol?.stop();
+		}
+	}
+
+	/** 在满足条件时启动巡游：开关开 + 当前确为 idle + 未被 review/tease 临时态占用 */
+	private maybeStartPatrol() {
+		if (!this.patrol) return;
+		if (!this.isPatrolEnabled()) return;
+		const m = this.lastState?.mode;
+		// 仅在真实 idle 启动；review/jumping 等临时态由各自定时器结束后回调启动
+		if (m !== "idle") return;
+		this.patrol.start();
 	}
 
 	/** 通知气泡：出错/完成时在宠物头顶弹窗 */
@@ -274,6 +308,33 @@ export class PetStateBridge {
 			this.sendNotification({ type: "done", text: "所有任务完成", timestamp: now });
 			this.notifyCooldown = now + 3000;
 		}
+	}
+
+	/**
+	 * 逗弄（双击宠物触发）：注入一次 jumping(行4)，结束后恢复真实聚合态。
+	 *
+	 * 优先级：高于 patrol/review，低于 running/failed/waiting——任务真在跑时
+	 * 不接受逗弄打断，避免工作/庆祝动画被随手一点盖掉。逗弄期间停巡游，
+	 * 结束后若仍 idle 则由 push() 自然续上巡游。
+	 */
+	tease() {
+		// 业务态优先：运行中/出错/启动中不打断真实工作动画
+		const cur = this.lastState?.mode;
+		if (cur && ["running", "failed", "waiting", "hidden", "waving"].includes(cur)) return;
+		if (cur === "review") return; // review 庆祝也不打断，让用户看清完成动画
+
+		// 记住真实聚合态，逗弄结束后恢复它（而非直接写死 idle，避免覆盖并发状态变化）
+		const saved = aggregate(this.currentTabs);
+		if (this.teaseTimer) clearTimeout(this.teaseTimer);
+		this.patrol?.stop(); // 逗弄优先级高于巡游，先停巡游
+
+		// 保存逗弄前的真实态用于恢复；activeAgentId 取最新聚合结果，保证点击跳转仍有效
+		this.applyState({ ...saved, mode: "jumping" });
+		this.teaseTimer = setTimeout(() => {
+			this.teaseTimer = null;
+			// 恢复真实聚合态：push 会依据目标态决定是否重启巡游
+			this.push(aggregate(this.currentTabs));
+		}, this.teaseDurationMs);
 	}
 
 	private sendNotification(n: PetNotification) {

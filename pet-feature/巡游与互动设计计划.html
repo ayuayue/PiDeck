@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pideck 桌面宠物 · 巡游 / Review / 逗弄 设计计划</title>
+<style>
+  :root {
+    --bg:#f7f8fa;--bg-soft:#eef0f4;--surface:#fff;--ink:#1a1d24;--ink-soft:#4b515c;--ink-mute:#8a909c;
+    --line:#e3e6ec;--line-strong:#d4d8e0;--accent:#238636;--accent-soft:#e9f6ed;--brand:#2563eb;--brand-soft:#eff5ff;
+    --green:#16a34a;--green-soft:#dcfce7;--amber:#b45309;--amber-soft:#fef3c7;--red:#dc2626;--red-soft:#fee2e2;
+    --purple:#7c3aed;--purple-soft:#f3e8ff;
+    --code-bg:#0f1117;--code-ink:#e6e6e6;--radius:12px;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.7;font-size:16px;-webkit-font-smoothing:antialiased}
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(247,248,250,.88);backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
+  .topbar-inner{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:12px 24px}
+  .logo-dot{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#2faa4a);display:grid;place-items:center;box-shadow:0 4px 12px rgba(35,134,54,.3);font-size:16px}
+  .topbar-title{font-weight:680;font-size:15px}.topbar-sub{color:var(--ink-mute);font-size:12.5px}
+  .topbar-spacer{flex:1}
+  .badge{font-size:12px;font-weight:620;padding:4px 10px;border-radius:999px;background:var(--green-soft);color:var(--green);border:1px solid #bbf7d0}
+  .badge.brand{background:var(--brand-soft);color:var(--brand);border-color:#bfdbfe}
+  .badge.amber{background:var(--amber-soft);color:var(--amber);border-color:#fde68a}
+  .badge.purple{background:var(--purple-soft);color:var(--purple);border-color:#ddd6fe}
+  .layout{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:240px 1fr;gap:44px;padding:32px 24px 90px}
+  .toc{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow-y:auto;font-size:13.5px}
+  .toc h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);margin:14px 0 8px 12px;font-weight:600}
+  .toc h4:first-child{margin-top:0}
+  .toc a{display:block;padding:5px 12px;border-radius:7px;color:var(--ink-soft);text-decoration:none;transition:all .15s;line-height:1.45}
+  .toc a:hover{background:var(--bg-soft);color:var(--ink)}
+  .toc a.active{color:var(--accent);font-weight:600;background:var(--accent-soft)}
+  .toc a.sub{padding-left:24px;font-size:12.5px;color:var(--ink-mute)}
+  .content{min-width:0}
+  section{margin-bottom:60px;scroll-margin-top:84px}
+  h1{font-size:34px;line-height:1.25;margin:0 0 12px;letter-spacing:-.02em;font-weight:720}
+  .lead{color:var(--ink-soft);font-size:17px;margin:0 0 6px}
+  .meta-row{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 0}
+  h2{font-size:23px;margin:0 0 20px;font-weight:680;letter-spacing:-.01em;padding-bottom:11px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:11px}
+  h2 .num{font-size:13px;font-family:var(--mono);font-weight:600;color:var(--accent);background:var(--accent-soft);padding:2px 9px;border-radius:6px}
+  h3{font-size:17.5px;margin:30px 0 13px;font-weight:640}
+  h4{font-size:15px;margin:22px 0 10px;font-weight:640;color:var(--ink)}
+  p{margin:0 0 14px}strong{font-weight:640;color:var(--ink)}
+  code.inl{font-family:var(--mono);font-size:13px;background:var(--bg-soft);padding:2px 6px;border-radius:5px;color:#7c3aed}
+  ul,ol{padding-left:22px}li{margin-bottom:7px}
+  .callout{border-radius:var(--radius);padding:17px 20px;margin:18px 0;border:1px solid;display:flex;gap:13px;align-items:flex-start}
+  .callout .ico{font-size:19px;line-height:1.4;flex-shrink:0}.callout .body{flex:1;min-width:0}.callout .body p{margin:0}
+  .callout .body p+p{margin-top:8px}.callout b{display:block;margin-bottom:3px}
+  .callout.warn{background:#fffbeb;border-color:#fde68a}.callout.warn .ico{color:var(--amber)}
+  .callout.info{background:var(--brand-soft);border-color:#bfdbfe}.callout.info .ico{color:var(--brand)}
+  .callout.ok{background:#f0fdf4;border-color:#bbf7d0}.callout.ok .ico{color:var(--green)}
+  .callout.danger{background:var(--red-soft);border-color:#fecaca}.callout.danger .ico{color:var(--red)}
+  .callout.purple{background:var(--purple-soft);border-color:#ddd6fe}.callout.purple .ico{color:var(--purple)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--bg-soft);font-weight:620;font-size:13px;color:var(--ink-soft)}
+  td code{font-family:var(--mono);font-size:12.5px;color:#7c3aed}
+  tr:hover td{background:#fafbfc}
+  .yes{color:var(--green);font-weight:650}.no{color:var(--red);font-weight:650}.new{color:var(--green);font-weight:650}.mod{color:var(--amber);font-weight:650}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:var(--radius);padding:18px 20px;overflow-x:auto;font-size:13.5px;line-height:1.7;font-family:var(--mono);margin:16px 0;border:1px solid #1f2230}
+  pre .c{color:#6b7180}pre .k{color:#c792ea}pre .s{color:#c3e88d}pre .n{color:#f78c6c}pre .t{color:#82aaff}pre .fn{color:#ffcb6b}
+  pre .ref{color:#7dd3fc;border-bottom:1px dotted #7dd3fc}
+  .tree{background:var(--code-bg);color:#cdd3e0;border-radius:var(--radius);padding:18px 22px;font-family:var(--mono);font-size:13px;line-height:1.95;margin:16px 0;border:1px solid #1f2230}
+  .tree .dir{color:#c792ea;font-weight:600}.tree .cmt{color:#6b7180}.tree .new{color:#16a34a;font-weight:600}.tree .mod{color:#f78c6c}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+  .card{border-radius:var(--radius);padding:16px 18px;border:1px solid var(--line);background:var(--surface)}
+  .card .tag{font-size:11px;font-weight:660;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--ink-mute)}
+  .card h4{margin:0 0 6px;font-size:15px}.card p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+  .card.code{background:var(--code-bg);border-color:#1f2230}.card.code h4{color:#e6e6e6}.card.code p,.card.code .tag{color:#9aa0ac}
+  .pet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}
+  .pet-state{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px 14px}
+  .pet-state .row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .pet-state .emoji{font-size:22px}.pet-state .name{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink)}
+  .pet-state .idx{font-size:11px;color:var(--ink-mute);font-family:var(--mono);margin-left:auto}
+  .pet-state .desc{font-size:12.5px;color:var(--ink-soft);margin:0}
+  .pet-state.agg{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-soft) inset}
+  .pet-state.enable{border-color:var(--purple);box-shadow:0 0 0 1px var(--purple-soft) inset}
+  .pet-state.enable .idx{color:var(--purple);font-weight:700}
+  .pet-state.dim{opacity:.62}
+  .map-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;padding:6px 0}
+  .map-flow .chip{padding:5px 11px;border-radius:7px;font-family:var(--mono);font-weight:600;border:1px solid var(--line);background:var(--surface)}
+  .map-flow .arrow{color:var(--ink-mute)}.map-flow .note{color:var(--ink-mute)}
+  .map-flow .chip.to{background:var(--accent-soft);border-color:#bbf7d0;color:var(--accent)}
+  .map-flow .chip.src{background:var(--bg-soft);color:var(--ink-soft)}
+  .map-flow .chip.purple{background:var(--purple-soft);border-color:#ddd6fe;color:var(--purple)}
+  .ref-pill{display:inline-block;font-family:var(--mono);font-size:11.5px;color:#0ea5e9;background:#f0f9ff;border:1px solid #bae6fd;border-radius:5px;padding:1px 7px;margin:0 2px;white-space:nowrap}
+  .seq{display:flex;align-items:stretch;gap:0;margin:18px 0;flex-wrap:wrap}
+  .seq .step{flex:1;min-width:130px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;position:relative}
+  .seq .step .n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;margin-bottom:3px}
+  .seq .step .t{font-size:13px;font-weight:600;margin-bottom:2px}
+  .seq .step .d{font-size:11.5px;color:var(--ink-mute);font-family:var(--mono)}
+  .seq .sep{display:flex;align-items:center;color:var(--ink-mute);padding:0 6px;font-size:18px}
+  .prio{display:flex;flex-direction:column;gap:6px;margin:14px 0}
+  .prio .row{display:flex;align-items:center;gap:10px;font-size:13.5px}
+  .prio .lvl{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--ink-mute);width:22px;text-align:right}
+  .prio .bar{height:10px;border-radius:6px;background:var(--bg-soft);flex:0 0 auto}
+  .prio .lbl{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+  footer{color:var(--ink-mute);font-size:13px;text-align:center;padding:26px 0 0;border-top:1px solid var(--line)}
+  @media (max-width:880px){.layout{grid-template-columns:1fr;gap:0;padding:20px 18px 60px}.toc{display:none}h1{font-size:27px}.grid2,.grid3,.pet-grid{grid-template-columns:1fr}.seq{flex-direction:column}.seq .sep{transform:rotate(90deg);padding:4px 0}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-dot">🐾</div>
+    <div>
+      <div class="topbar-title">Pideck 桌面宠物 · 巡游 / Review / 逗弄</div>
+      <div class="topbar-sub">基于真实代码事实 · 复用已预留 spritesheet 行 · 不新增美术资产</div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <span class="badge">方案确定</span>
+    <span class="badge purple">实施计划</span>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="toc">
+    <h4>导航</h4>
+    <a href="#s0">0. 决策记录</a>
+    <a href="#s1">1. 目标与范围</a>
+    <a href="#s2">2. 状态机扩展</a>
+    <a href="#s3">3. 巡游 Patrol</a>
+    <a href="#s3" class="sub">3.1 优先级让位</a>
+    <a href="#s3" class="sub">3.2 PetPatrol 模块</a>
+    <a href="#s3" class="sub">3.3 边界与集成</a>
+    <a href="#s4">4. Review 完成动画</a>
+    <a href="#s5">5. 逗弄 Tease</a>
+    <a href="#s6">6. 完整状态转换图</a>
+    <a href="#s7">7. 文件清单与验证</a>
+  </nav>
+
+  <div class="content">
+
+    <h1>给 Clawd 加上「巡游 / Review / 逗弄」</h1>
+    <p class="lead">在三件已上线能力（idle / running / failed / waiting / waving / jumping / hidden）之上，启用 spritesheet 里<strong>早已预留但未接线</strong>的三行动画：行1 running-right、行2 running-left、行8 review，并新增一个由用户手势触发的 jumping 逗弄入口。</p>
+    <div class="meta-row">
+      <span class="badge">复用 codex/petdex 9 行约定</span>
+      <span class="badge brand">零新增美术</span>
+      <span class="badge amber">主进程状态机扩展</span>
+      <span class="badge purple">三端跨平台</span>
+    </div>
+
+    <section id="s0">
+      <h2><span class="num">0</span>决策记录</h2>
+      <p>以下三项已与用户确认，本计划据此定稿，不再发散替代方案。</p>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="tag">决策一 · Review 语义</div>
+          <h4>完成时显示 review</h4>
+          <p><code class="inl">running → idle</code> 转换的庆祝动画<strong>由 jumping 改为 review</strong>（替代）。jumping 动作保留给「逗弄」使用。</p>
+        </div>
+        <div class="card">
+          <div class="tag">决策二 · 逗弄手势</div>
+          <h4>双击宠物触发跳跃</h4>
+          <p>双击（两次 pointerup 间隔 &lt; 300ms）触发 jumping；<strong>保留单击 = 跳转活跃 Agent</strong>的现有行为，互不冲突。</p>
+        </div>
+        <div class="card">
+          <div class="tag">决策三 · 巡游激活</div>
+          <h4>idle 时自动巡游</h4>
+          <p>无任务运行时自动沿屏幕底部左右走动；running / failed / review / 逗弄时自动让位。设置里提供开关，默认开启。</p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="ico">💡</div>
+        <div class="body">
+          <b>为什么不监听 pi 审批事件来触发 review？</b>
+          <p>pi 的审批走 <code class="inl">tool_execution_*</code> 工具消息流，<strong>不在 <code class="inl">AgentStatus</code> 状态机里</strong>（见 <span class="ref-pill">AgentManager.ts:940</span>）。本期 review 统一对应「任务完成」语义，不解析审批事件，避免引入与现有 5 态 <code class="inl">AgentStatus</code> 冲突的副作用。审批触发留作后续增强项。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s1">
+      <h2><span class="num">1</span>目标与范围</h2>
+
+      <h3>1.1 三个能力的 MVP 边界</h3>
+      <table>
+        <thead><tr><th>能力</th><th>本期做</th><th>本期不做</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>巡游 Patrol</strong></td>
+            <td>idle 时沿当前屏幕底部左右匀速走动，到边界自动翻转方向；巡游中被新状态打断即停</td>
+            <td>多屏跨屏巡游、垂直走动、物理重力/跳跃路径、与其他宠物互动</td>
+          </tr>
+          <tr>
+            <td><strong>Review 完成</strong></td>
+            <td><code class="inl">running → idle</code> 展示 review 行（4s）并弹完成气泡，随后回 idle</td>
+            <td>监听 pi 审批事件、区分「完成」与「待审批」两种语义</td>
+          </tr>
+          <tr>
+            <td><strong>逗弄 Tease</strong></td>
+            <td>双击宠物注入一次 jumping（2.5s），结束后恢复打断前的真实态</td>
+            <td>右键菜单、长按、按住拖拽的「抚摸」连续动画、音效</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok">
+        <div class="ico">✅</div>
+        <div class="body">
+          <b>核心约束：不新增美术资产。</b>
+          <p>9 行 spritesheet 在 <span class="ref-pill">PetSpriteSheet.ts:17</span> 与 <span class="ref-pill">PetOverlay.tsx:34</span> 已全部映射行号 + 帧数；行1/行2/行8 的图素随 <code class="inl">build/pets/clawd-3/spritesheet.webp</code> 已存在。本次只把这三个 mode 接进状态机。</p>
+        </div>
+      </div>
+
+      <h3>1.2 现状一句话总结</h3>
+      <div class="map-flow">
+        <span class="chip src">pi RPC event</span>
+        <span class="arrow">→</span>
+        <span class="chip src">AgentManager.handlePiEvent</span>
+        <span class="arrow">→</span>
+        <span class="chip src">emitState · addStateListener</span>
+        <span class="arrow">→</span>
+        <span class="chip to">PetStateBridge.push</span>
+        <span class="arrow">→</span>
+        <span class="chip to">pet:state / pet:notify</span>
+        <span class="arrow">→</span>
+        <span class="chip to">PetOverlay Canvas</span>
+      </div>
+      <p>关键文件：<span class="ref-pill">PetStateBridge.ts</span>（状态机）、<span class="ref-pill">PetWindow.ts</span>（窗口移动）、<span class="ref-pill">PetInteraction.tsx</span>（手势）、<span class="ref-pill">PetOverlay.tsx</span>（帧循环）、<span class="ref-pill">types.ts:329</span>（PetMode 联合）。</p>
+    </section>
+
+    <section id="s2">
+      <h2><span class="num">2</span>状态机扩展（核心改造）</h2>
+
+      <h3>2.1 spritesheet 9 行全景</h3>
+      <p>下面是 1536×1872 的 8 列 × 9 行 spritesheet 的完整行映射。<span class="new">绿色高亮 = 本期从「预留」变为「启用」</span>。</p>
+
+      <div class="pet-grid">
+        <div class="pet-state agg">
+          <div class="row"><span class="emoji">😌</span><span class="name">idle</span><span class="idx">行0 · 6帧</span></div>
+          <p class="desc">空闲呼吸，已在用</p>
+        </div>
+        <div class="pet-state enable">
+          <div class="row"><span class="emoji">🏃</span><span class="name">running-right</span><span class="idx">行1 · 8帧 · NEW</span></div>
+          <p class="desc">巡游向右走动</p>
+        </div>
+        <div class="pet-state enable">
+          <div class="row"><span class="emoji">🏃‍♂️</span><span class="name">running-left</span><span class="idx">行2 · 8帧 · NEW</span></div>
+          <p class="desc">巡游向左走动</p>
+        </div>
+        <div class="pet-state agg">
+          <div class="row"><span class="emoji">👋</span><span class="name">waving</span><span class="idx">行3 · 4帧</span></div>
+          <p class="desc">关闭前挥手过渡</p>
+        </div>
+        <div class="pet-state agg">
+          <div class="row"><span class="emoji">🤸</span><span class="name">jumping</span><span class="idx">行4 · 5帧</span></div>
+          <p class="desc">逗弄触发（原完成动画让位给 review）</p>
+        </div>
+        <div class="pet-state agg">
+          <div class="row"><span class="emoji">😥</span><span class="name">failed</span><span class="idx">行5 · 8帧</span></div>
+          <p class="desc">出错，已在用</p>
+        </div>
+        <div class="pet-state agg">
+          <div class="row"><span class="emoji">🥺</span><span class="name">waiting</span><span class="idx">行6 · 6帧</span></div>
+          <p class="desc">starting，已在用</p>
+        </div>
+        <div class="pet-state agg">
+          <div class="row"><span class="emoji">⚙️</span><span class="name">running</span><span class="idx">行7 · 6帧</span></div>
+          <p class="desc">任务运行中，已在用</p>
+        </div>
+        <div class="pet-state enable">
+          <div class="row"><span class="emoji">🔍</span><span class="name">review</span><span class="idx">行8 · 6帧 · NEW</span></div>
+          <p class="desc">任务完成庆祝</p>
+        </div>
+      </div>
+
+      <h3>2.2 类型与映射改动</h3>
+      <p>当前 <code class="inl">PetMode</code>（<span class="ref-pill">types.ts:329</span>）只有 7 值，行1/2/8 只在渲染层 <code class="inl">MODE_ROW</code>/<code class="inl">MODE_FRAMES</code> 里有映射、状态机发不出。需做三处最小改动：</p>
+
+      <div class="grid2">
+        <div class="card code">
+          <div class="tag">types.ts:329 · mod</div>
+          <h4>扩展 PetMode 联合类型</h4>
+<pre><span class="k">export type</span> <span class="t">PetMode</span> =
+  | <span class="s">"idle"</span> | <span class="s">"running"</span> | <span class="s">"failed"</span>
+  | <span class="s">"waiting"</span> | <span class="s">"waving"</span> | <span class="s">"hidden"</span>
+  | <span class="s">"jumping"</span>
+  <span class="c">// ── 本期新增：把已预留行接进状态机 ──</span>
+  | <span class="s">"running-right"</span>   <span class="c">// 行1 巡游向右</span>
+  | <span class="s">"running-left"</span>    <span class="c">// 行2 巡游向左</span>
+  | <span class="s">"review"</span>;         <span class="c">// 行8 完成庆祝</span></pre>
+        </div>
+        <div class="card code">
+          <div class="tag">PetOverlay.tsx:304 · mod</div>
+          <h4>FALLBACK 表补 review 条目</h4>
+<pre><span class="k">const</span> <span class="t">FALLBACK</span>: <span class="t">Record</span>&lt;<span class="t">PetMode</span>, {...}&gt; = {
+  <span class="c">// ... 原有 7 项不变 ...</span>
+  <span class="c">// 本期补：无 sprite 时不至于 key 缺失崩溃</span>
+  review:      { color: <span class="s">"#2563eb"</span>, emoji: <span class="s">"🔍"</span> },
+  <span class="s">"running-right"</span>: { color: <span class="s">"#16a34a"</span>, emoji: <span class="s">"🏃"</span> },
+  <span class="s">"running-left"</span>:  { color: <span class="s">"#16a34a"</span>, emoji: <span class="s">"🏃‍♂️"</span> },
+};</pre>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <div class="ico">⚠️</div>
+        <div class="body">
+          <b>关于巡游方向的 mode 设计选择。</b>
+          <p>巡游向右/向左用 <strong>两个独立 mode</strong>（<code class="inl">running-right</code> / <code class="inl">running-left</code>）而不是单个 <code class="inl">patrol</code> + 方向字段，是因为渲染层 <code class="inl">PetOverlay</code> 完全靠 <code class="inl">state.mode</code> 选 spritesheet 行——独立 mode 能零改动复用现有帧循环，无需给 PetOverlay 传额外方向参数。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s3">
+      <h2><span class="num">3</span>功能一：巡游 Patrol</h2>
+
+      <h3>3.1 优先级让位规则</h3>
+      <p>巡游是<strong>低优先级</strong>状态，任何「真实业务态」出现都要立即让位。优先级从高到低：</p>
+      <div class="prio">
+        <div class="row"><span class="lvl">P0</span><span class="bar" style="width:180px;background:#dc2626"></span><span class="lbl">failed / hidden / waving</span><span class="note">— 业务态，巡游停止</span></div>
+        <div class="row"><span class="lvl">P1</span><span class="bar" style="width:155px;background:#b45309"></span><span class="lbl">running / waiting</span><span class="note">— 业务态，巡游停止</span></div>
+        <div class="row"><span class="lvl">P2</span><span class="bar" style="width:120px;background:#7c3aed"></span><span class="lbl">review（完成庆祝 4s）</span><span class="note">— 临时态，巡游停止，结束后回 idle 再自动巡游</span></div>
+        <div class="row"><span class="lvl">P3</span><span class="bar" style="width:95px;background:#8b5cf6"></span><span class="lbl">jumping（逗弄 2.5s）</span><span class="note">— 临时态，巡游停止</span></div>
+        <div class="row"><span class="lvl">P4</span><span class="bar" style="width:70px;background:#238636"></span><span class="lbl">patrol（running-right/left）</span><span class="note">— 仅在 idle 且开关开时启动</span></div>
+        <div class="row"><span class="lvl">P5</span><span class="bar" style="width:45px;background:#8a909c"></span><span class="lbl">idle</span><span class="note">— 巡游的触发条件本身</span></div>
+      </div>
+
+      <h3>3.2 新增模块 PetPatrol</h3>
+      <p>新建 <code class="inl">src/main/pet/PetPatrol.ts</code>。它持有巡游定时器，按方向平移窗口（复用 <span class="ref-pill">PetWindow.moveTo</span>），并在每个 tick 推送 <code class="inl">running-right</code>/<code class="inl">running-left</code> 给宠物窗。</p>
+
+      <pre><span class="c">// src/main/pet/PetPatrol.ts （新文件 · 伪代码示意结构，落地时补类型与边界守护）</span>
+<span class="k">import type</span> { <span class="t">BrowserWindow</span> } <span class="k">from</span> <span class="s">"electron"</span>;
+<span class="k">import</span> { screen } <span class="k">from</span> <span class="s">"electron"</span>;
+<span class="k">import</span> { ipcChannels } <span class="k">from</span> <span class="s">"../../shared/ipc"</span>;
+
+<span class="k">export class</span> <span class="t">PetPatrol</span> {
+  <span class="k">private</span> timer: <span class="t">NodeJS</span>.Timeout | <span class="k">null</span> = <span class="k">null</span>;
+  <span class="k">private</span> direction: <span class="s">"left"</span> | <span class="s">"right"</span> = <span class="s">"right"</span>;
+  <span class="k">private readonly</span> speedPxPerSec = <span class="n">40</span>;   <span class="c">// 慢速，约 2.5s 走 100px</span>
+  <span class="k">private readonly</span> tickMs = <span class="n">50</span>;          <span class="c">// 20fps 位置更新</span>
+  <span class="k">private readonly</span> edgeMargin = <span class="n">16</span>;
+
+  <span class="fn">constructor</span>(<span class="k">private</span> getWin: () =&gt; <span class="t">BrowserWindow</span> | <span class="k">null</span>) {}
+
+  <span class="fn">start</span>() {
+    <span class="k">if</span> (<span class="k">this</span>.timer) <span class="k">return</span>;                <span class="c">// 已在巡游，幂等</span>
+    <span class="k">this</span>.pushMode();                          <span class="c">// 先推一次方向 mode</span>
+    <span class="k">this</span>.timer = setInterval(() =&gt; <span class="k">this</span>.tick(), <span class="k">this</span>.tickMs);
+  }
+
+  <span class="fn">stop</span>() {
+    <span class="k">if</span> (<span class="k">this</span>.timer) { clearTimeout(<span class="k">this</span>.timer); <span class="k">this</span>.timer = <span class="k">null</span>; }
+    <span class="c">// 不强制复位窗口：停在原地，下次 idle 巡游从当前位置继续</span>
+  }
+
+  <span class="k">private</span> <span class="fn">tick</span>() {
+    <span class="k">const</span> win = <span class="k">this</span>.getWin(); <span class="k">if</span> (!win || win.isDestroyed()) <span class="k">return</span>;
+    <span class="k">const</span> [x, y] = win.getPosition();
+    <span class="k">const</span> [w, h] = win.getSize();
+    <span class="k">const</span> wa = screen.getDisplayMatching({x, y, width:w, height:h}).workArea;
+    <span class="k">const</span> step = <span class="k">this</span>.speedPxPerSec * (<span class="k">this</span>.tickMs / <span class="n">1000</span>);
+    <span class="k">let</span> nx = <span class="k">this</span>.direction === <span class="s">"right"</span> ? x + step : x - step;
+
+    <span class="c">// 边界翻转：撞到边缘则反向，并切换 spritesheet 行</span>
+    <span class="k">if</span> (nx &gt;= wa.x + wa.width - w - <span class="k">this</span>.edgeMargin) {
+      nx = wa.x + wa.width - w - <span class="k">this</span>.edgeMargin;
+      <span class="k">this</span>.direction = <span class="s">"left"</span>; <span class="k">this</span>.pushMode();
+    } <span class="k">else if</span> (nx &lt;= wa.x + <span class="k">this</span>.edgeMargin) {
+      nx = wa.x + <span class="k">this</span>.edgeMargin;
+      <span class="k">this</span>.direction = <span class="s">"right"</span>; <span class="k">this</span>.pushMode();
+    }
+    win.setPosition(<span class="t">Math</span>.round(nx), y);
+  }
+
+  <span class="k">private</span> <span class="fn">pushMode</span>() {
+    <span class="k">const</span> win = <span class="k">this</span>.getWin();
+    <span class="k">if</span> (win &amp;&amp; !win.isDestroyed()) {
+      win.webContents.send(ipcChannels.petState, { mode: <span class="k">this</span>.direction === <span class="s">"right"</span> ? <span class="s">"running-right"</span> : <span class="s">"running-left"</span> });
+    }
+  }
+}</pre>
+
+      <div class="callout info">
+        <div class="ico">🧩</div>
+        <div class="body">
+          <b>为什么 PetPatrol 直接 send pet:state，而不走 PetStateBridge？</b>
+          <p>巡游是<strong>纯 UI 层自主行为</strong>，与 Agent 状态无关。PetStateBridge 聚合的是业务态，让 PetPatrol 通过 send 直接驱动方向帧，可避免在 Bridge 里混入「方向」这一非业务概念。Bridge 只负责在业务态变化时调 <code class="inl">patrol.stop()</code>；当回到 idle，Bridge 再调 <code class="inl">patrol.start()</code>，由 PetPatrol 自己决定方向帧。<strong>Bridge 是巡游的「开关」，PetPatrol 是巡游的「引擎」。</strong></p>
+        </div>
+      </div>
+
+      <h3>3.3 边界处理与集成点</h3>
+      <div class="grid2">
+        <div class="card">
+          <div class="tag">边界守护</div>
+          <h4>复用 resize 的回钳思路</h4>
+          <p>每个 tick 用 <code class="inl">screen.getDisplayMatching</code> 取当前屏 <code class="inl">workArea</code>，与 <span class="ref-pill">PetWindow.ts:185-192</span> 的回钳一致，保证多屏/缩放后不越界、不掉到任务栏下。</p>
+        </div>
+        <div class="card">
+          <div class="tag">集成点</div>
+          <h4>PetStateBridge.push 改两处</h4>
+          <p>① 目标为 <code class="inl">idle</code> 且 <code class="inl">petPatrolEnabled</code> → <code class="inl">patrol.start()</code>；② 目标为 <code class="inl">running/failed/waiting/review/jumping</code> → <code class="inl">patrol.stop()</code>。<code class="inl">hidden/waving</code> 也 stop。</p>
+        </div>
+      </div>
+
+      <h4>设置开关</h4>
+      <p><code class="inl">Settings</code>（<span class="ref-pill">types.ts:315-323</span> 已有的 pet 区块）新增一项：</p>
+      <pre><span class="c">// src/shared/types.ts · Settings 内 pet 区块</span>
+<span class="s">/** 是否启用 idle 巡游（沿屏幕底部左右走动），默认 true */</span>
+petPatrolEnabled: <span class="t">boolean</span>;</pre>
+      <p>设置面板加一个开关（与现有 <code class="inl">petAlwaysOnTop</code> 同款 Toggle），<code class="inl">preload</code> 经 <code class="inl">settings.get/set</code> 暴露读写。开关变化时若当前正 idle 则即时启停巡游。</p>
+    </section>
+
+    <section id="s4">
+      <h2><span class="num">4</span>功能二：Review 完成动画</h2>
+
+      <h3>4.1 改造点</h3>
+      <p>原 <code class="inl">jumping</code> 完成过渡逻辑在 <span class="ref-pill">PetStateBridge.ts:197-214</span>。改动极小——把推送的 mode 从 <code class="inl">"jumping"</code> 换成 <code class="inl">"review"</code>，其余定时器与气泡逻辑不变：</p>
+
+      <pre><span class="c">// PetStateBridge.push() · 原 jumping 庆祝块改造</span>
+<span class="c">// running → idle 时先展示 review（行8），再切 idle</span>
+<span class="k">if</span> (target === <span class="s">"idle"</span> &amp;&amp; prev?.mode === <span class="s">"running"</span>) {
+  <span class="k">this</span>.applyState({ ...state, mode: <span class="s">"review"</span> });   <span class="c">// ← 原 "jumping"</span>
+  <span class="k">this</span>.sendNotification({ type: <span class="s">"done"</span>, text: <span class="s">"任务完成，记得 review"</span>, timestamp: <span class="t">Date</span>.now() });
+  <span class="k">this</span>.notifyCooldown = <span class="t">Date</span>.now() + <span class="n">3000</span>;
+  <span class="k">this</span>.lastChangeAt = <span class="t">Date</span>.now();
+  <span class="k">if</span> (<span class="k">this</span>.celebrationTimer) clearTimeout(<span class="k">this</span>.celebrationTimer);
+  <span class="k">this</span>.celebrationTimer = setTimeout(() =&gt; {
+    <span class="k">this</span>.celebrationTimer = <span class="k">null</span>;
+    <span class="k">this</span>.applyState({ ...state, mode: <span class="s">"idle"</span> });
+  }, <span class="k">this</span>.celebrationDurationMs);  <span class="c">// 仍为 4000ms</span>
+  <span class="k">return</span>;
+}</pre>
+
+      <h3>4.2 时序</h3>
+      <div class="seq">
+        <div class="step"><div class="n">T0</div><div class="t">running</div><div class="d">行7 · 任务执行中</div></div>
+        <div class="sep">→</div>
+        <div class="step"><div class="n">T1 · agent_end</div><div class="t">review</div><div class="d">行8 · 4s · 弹完成气泡</div></div>
+        <div class="sep">→</div>
+        <div class="step"><div class="n">T1 + 4s</div><div class="t">idle</div><div class="d">行0 · 触发巡游（若开关开）</div></div>
+      </div>
+
+      <div class="callout ok">
+        <div class="ico">🔗</div>
+        <div class="body">
+          <b>与巡游的衔接。</b>
+          <p>review 4s 结束后回到 idle，此时 §3 的集成点会自动 <code class="inl">patrol.start()</code>，宠物从完成庆祝自然过渡到「溜达」，体验连贯。review 期间 <code class="inl">patrol.stop()</code> 已生效，不会出现「边庆祝边走」的撕裂。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s5">
+      <h2><span class="num">5</span>功能三：逗弄 Tease</h2>
+
+      <h3>5.1 双击手势检测</h3>
+      <p>改造 <span class="ref-pill">PetInteraction.tsx</span>。现有 <code class="inl">onPointerUp</code> 在位移 &lt; <code class="inl">CLICK_THRESHOLD</code>(3px) 时判定为单击。在此基础上加双击判定：<strong>两次 pointerup 间隔 &lt; 300ms 且都属点击</strong> → 触发逗弄；否则维持单击行为。</p>
+
+      <pre><span class="c">// PetInteraction.tsx · 在 onPointerUp 内补充双击判定</span>
+<span class="k">const</span> lastTapAt = useRef(<span class="n">0</span>);
+
+<span class="k">const</span> <span class="fn">onPointerUp</span> = (e) =&gt; {
+  <span class="c">// ... 原有 release / onDragStateChange(false) ...</span>
+  <span class="k">if</span> (moved.current &lt; CLICK_THRESHOLD) {
+    <span class="k">const</span> now = <span class="t">Date</span>.now();
+    <span class="k">if</span> (now - lastTapAt.current &lt; <span class="n">300</span>) {
+      <span class="c">// 双击 → 逗弄，吞掉本次单击跳转</span>
+      lastTapAt.current = <span class="n">0</span>;
+      <span class="k">void</span> window.piDesktop.pet.tease();
+      <span class="k">return</span>;
+    }
+    lastTapAt.current = now;
+    <span class="c">// 延迟单击跳转，给第二次点击留 300ms 判定窗口</span>
+    <span class="k">const</span> pendingClick = <span class="t">setTimeout</span>(() =&gt; {
+      window.piDesktop.pet.focusAgent();
+    }, <span class="n">300</span>);
+    pendingClickRef.current = pendingClick;
+  }
+};</pre>
+      <div class="callout warn">
+        <div class="ico">⚠️</div>
+        <div class="body">
+          <b>双击会引入 ~300ms 的单击延迟。</b>
+          <p>为判定双击，单击跳转需延迟 300ms 执行；若期间来了第二次点击则取消跳转、改为逗弄。这是「单/双击共存」的标准代价（macOS Finder 同款）。若实测觉得单击变钝，可改用「单击立即跳转 + 双击额外逗弄」的并发策略，但会出现双击时先跳转 Agent 再跳跃的副作用——<strong>建议先用延迟方案</strong>，实测后决定。</p>
+        </div>
+      </div>
+
+      <h3>5.2 逗弄的临时状态通道</h3>
+      <p>状态机在主进程，渲染层不能直接改 <code class="inl">mode</code>。新增一条 IPC 把「逗弄」请求送到主进程，由 <code class="inl">PetStateBridge.tease()</code> 注入 jumping：</p>
+
+      <div class="map-flow">
+        <span class="chip src">双击</span>
+        <span class="arrow">→</span>
+        <span class="chip src">pet.tease() · preload</span>
+        <span class="arrow">→</span>
+        <span class="chip src">pet:tease · IPC</span>
+        <span class="arrow">→</span>
+        <span class="chip to">PetStateBridge.tease()</span>
+        <span class="arrow">→</span>
+        <span class="chip purple">jumping 2.5s</span>
+        <span class="arrow">→</span>
+        <span class="chip src">恢复真实态</span>
+      </div>
+
+      <pre><span class="c">// PetStateBridge.tease() · 逗弄注入 jumping，结束后恢复真实聚合态</span>
+<span class="fn">tease</span>() {
+  <span class="c">// 业务态优先：若正在 running/failed/waiting，不打断真实工作动画</span>
+  <span class="k">if</span> (<span class="k">this</span>.lastState &amp;&amp;
+      [<span class="s">"running"</span>, <span class="s">"failed"</span>, <span class="s">"waiting"</span>].includes(<span class="k">this</span>.lastState.mode)) <span class="k">return</span>;
+
+  <span class="k">const</span> saved = <span class="k">this</span>.aggregate(<span class="k">this</span>.currentTabs);  <span class="c">// 记住真实态</span>
+  <span class="k">if</span> (<span class="k">this</span>.teaseTimer) clearTimeout(<span class="k">this</span>.teaseTimer);
+  <span class="k">this</span>.patrol?.stop();                              <span class="c">// 巡游让位</span>
+  <span class="k">this</span>.applyState({ ...saved, mode: <span class="s">"jumping"</span> });
+  <span class="k">this</span>.teaseTimer = setTimeout(() =&gt; {
+    <span class="k">this</span>.teaseTimer = <span class="k">null</span>;
+    <span class="k">this</span>.push(<span class="k">this</span>.aggregate(<span class="k">this</span>.currentTabs));  <span class="c">// 恢复真实态（idle 则自动重启巡游）</span>
+  }, <span class="n">2500</span>);
+}</pre>
+
+      <div class="callout info">
+        <div class="ico">🔒</div>
+        <div class="body">
+          <b>优先级保证。</b>
+          <p>逗弄优先级高于 patrol、review，但<strong>低于 running/failed/waiting</strong>——任务真在跑时不接受逗弄打断，避免庆祝/工作动画被用户随手一点就盖掉。这与 §3.1 的优先级表一致。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="s6">
+      <h2><span class="num">6</span>改造后完整状态转换图</h2>
+      <p>实线 = 业务态转换（PetStateBridge 驱动）；虚线 = UI 自主行为（PetPatrol / tease）。</p>
+
+      <pre>                ┌─────────────────────────────────────────────────────┐
+                │                                                       │
+   agent_start  │     ┌──────────┐    agent_end     ┌─────────┐          │
+   ────────────▶│────▶│ running  │────────────────▶ │ review  │          │
+                │     │ (行7)    │   (无 error)     │ (行8,4s)│          │
+                │     └────┬─────┘                  └────┬────┘          │
+                │          │ error                       │ +4s           │
+                │          ▼                             ▼               │
+                │     ┌──────────┐   4s/冷却      ┌─────────┐            │
+                │     │ failed   │──────────────▶ │  idle   │◀──────┐    │
+                │     │ (行5)    │                │ (行0)   │       │    │
+                │     └──────────┘                └────┬────┘       │    │
+                │                                     │ 自动        │    │
+                │            ┌──────────┐  边界翻转   ▼ (patrol)    │    │
+                │            │running-rt│◀─────────┌────────┐       │    │
+                │            │ (行1)    │          │ patrol │       │    │
+                │            └────┬─────┘          │ engine │       │    │
+                │                 │ 边界翻转       └───┬────┘       │    │
+                │                 ▼                    │            │    │
+                │            ┌──────────┐               │ stop       │    │
+                │            │running-lt│◀──────────────┘            │    │
+                │            │ (行2)    │                            │    │
+                │            └──────────┘                 tease      │    │
+                │ - - - - - - - - - - - - - - - - - - - - - - - - - │    │
+                │   双击 ─▶ tease() ─▶ jumping (行4, 2.5s) ──────────┘    │
+                │                                                          │
+                │   all closed ─▶ waving (行3, 1.5s) ─▶ hidden            │
+                │                                                          │
+                │   starting ─▶ waiting (行6) ─▶ running                  │
+                └─────────────────────────────────────────────────────┘
+   <span class="c">  实线 ─── 业务态（PetStateBridge）   虚线 - - - UI 自主（PetPatrol / tease）</span></pre>
+
+      <h3>6.1 与原状态的 diff</h3>
+      <table>
+        <thead><tr><th>转换</th><th>原状态机</th><th>本期后</th></tr></thead>
+        <tbody>
+          <tr><td>任务完成</td><td><code class="inl">running → jumping → idle</code></td><td><code class="inl">running → <strong>review</strong> → idle</code></td></tr>
+          <tr><td>空闲时</td><td>停在 idle</td><td>idle <strong>自动进入</strong> running-right/left 循环</td></tr>
+          <tr><td>用户双击</td><td>（双击 = 两次单击跳转）</td><td>触发 <strong>jumping 2.5s</strong> 后恢复</td></tr>
+          <tr><td>关闭</td><td>waving → hidden（不变）</td><td>waving → hidden（不变）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="s7">
+      <h2><span class="num">7</span>文件清单与验证</h2>
+
+      <h3>7.1 改动文件树</h3>
+      <div class="tree">
+src/
+├── shared/
+│   ├── <span class="mod">types.ts</span>          <span class="cmt"># PetMode 扩展 3 值 + Settings.petPatrolEnabled</span>
+│   └── <span class="mod">ipc.ts</span>            <span class="cmt"># 新增 petTease: "pet:tease" 通道</span>
+├── preload/
+│   └── <span class="mod">index.ts</span>          <span class="cmt"># pet.tease() 暴露；patrol 开关随 settings 走</span>
+├── main/
+│   ├── pet/
+│   │   ├── <span class="new">PetPatrol.ts</span>   <span class="cmt"># ★ 新增：巡游引擎</span>
+│   │   ├── <span class="mod">PetStateBridge.ts</span> <span class="cmt"># review 转换 + patrol 启停 + tease()</span>
+│   │   └── <span class="mod">index.ts</span>       <span class="cmt"># 注册 pet:tease handler，实例化 PetPatrol</span>
+│   └── <span class="mod">settings 相关</span>     <span class="cmt"># petPatrolEnabled 默认值 true</span>
+└── renderer/src/
+    ├── pet/
+    │   ├── <span class="mod">PetInteraction.tsx</span> <span class="cmt"># 双击检测 + pet.tease()</span>
+    │   └── <span class="mod">PetOverlay.tsx</span>     <span class="cmt"># FALLBACK 补 review / running-left/right</span>
+    └── <span class="mod">设置面板组件</span>        <span class="cmt"># 巡游开关 Toggle</span>
+      </div>
+
+      <h3>7.2 验证计划</h3>
+      <table>
+        <thead><tr><th>验证项</th><th>方式</th><th>预期</th></tr></thead>
+        <tbody>
+          <tr><td>类型安全</td><td><code class="inl">npm run typecheck</code></td><td>0 error；PetMode 新值在所有 switch 处被覆盖</td></tr>
+          <tr><td>动画行可达</td><td>设置面板 preview 下拉切 review / running-left / running-right</td><td>对应行正常播放（行1/2/8 图素已存在）</td></tr>
+          <tr><td>完成 → review</td><td>起一个 agent 跑完一轮</td><td>4s 内显示行8 + 完成气泡，随后回 idle</td></tr>
+          <tr><td>idle 自动巡游</td><td>无任务时静观</td><td>宠物沿屏幕底部左右走动，到边界自动转向</td></tr>
+          <tr><td>巡游让位</td><td>巡游中起一个 agent</td><td>立即停步并切 running；结束后经 review 回 idle 再巡游</td></tr>
+          <tr><td>双击逗弄</td><td>快速双击宠物</td><td>触发 jumping 2.5s 后恢复；单击仍跳转活跃 Agent</td></tr>
+          <tr><td>巡游开关</td><td>设置里关掉 petPatrolEnabled</td><td>idle 时不再巡游，其余功能不受影响</td></tr>
+          <tr><td>多屏/缩放</td><td>外接屏 + 改 petScale</td><td>巡游不越界、不掉任务栏；resize 后边界正确</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout purple">
+        <div class="ico">📋</div>
+        <div class="body">
+          <b>实施顺序建议</b>
+          <p>① 类型扩展（§2.2）→ ② review 转换（§4）→ ③ PetPatrol + 集成 + 开关（§3）→ ④ 双击 + tease 通道（§5）。每步后跑 typecheck，每完成一个能力手动验收一次，避免一次性引入过多改动难以定位。</p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="ico">📖</div>
+        <div class="body">
+          <b>参考依据</b>
+          <p>spritesheet 9 行约定对齐 codex/petdex 宠物体系（社区包扫描自 <code class="inl">~/.codex/pets/</code>，见 <span class="ref-pill">PetPackageManager.ts</span>）。巡游 FSM 模式参考同类开源项目（Electron 桌宠常见的「idle → walk → 边缘翻转 → pause」结构，如 live2Dpet_Miku、maotoumao/desktop-pet 等 GitHub 仓库）。窗口移动复用本项目已验证的 <span class="ref-pill">PetWindow.moveTo</span> 与 resize 边界回钳逻辑，不引入新机制。</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      Pideck 桌面宠物 · 巡游 / Review / 逗弄 设计计划 · 基于真实代码事实编写 · 复用 pet-feature/设计文档.html 视觉规范
+    </footer>
+
+  </div>
+</div>
+
+</body>
+</html>

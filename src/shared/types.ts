@@ -321,12 +321,30 @@ export type AppSettings = {
 	petAlwaysOnTop: boolean;
 	/** 宠物缩放比例 0.3-2.0，默认 1.0，控制窗口与 sprite 渲染尺寸 */
 	petScale: number;
+	/** 是否启用 idle 巡游（无任务时沿屏幕底部左右走动），默认 true；
+	 *  巡游为低优先级 UI 行为，running/failed/review/逗弄 时自动让位。 */
+	petPatrolEnabled: boolean;
+	/** 巡游碰边后 idle 停顿时长（分钟），默认 5，范围 1–30 */
+	petPatrolPauseMin: number;
 };
 
 // ── 桌面宠物类型 ──
 
-/** 宠物聚合动画状态；映射到 spritesheet 的行号 */
-export type PetMode = "idle" | "running" | "failed" | "waiting" | "waving" | "hidden" | "jumping";
+/** 宠物聚合动画状态；映射到 spritesheet 的行号。
+ *  前 7 个为业务态（由 PetStateBridge 聚合 Agent 状态产出）；
+ *  running-right / running-left / review 为本期启用的预留行——
+ *  巡游方向帧由 PetPatrol 引擎直接推送，review 由「任务完成」转换触发。 */
+export type PetMode =
+	| "idle"
+	| "running"
+	| "failed"
+	| "waiting"
+	| "waving"
+	| "hidden"
+	| "jumping"
+	| "running-right" // 行1 巡游向右（PetPatrol 驱动）
+	| "running-left" // 行2 巡游向左（PetPatrol 驱动）
+	| "review"; // 行8 任务完成庆祝（running→idle 转换触发）
 
 /** 多 Agent 聚合后的全局宠物状态，由 PetStateBridge 计算并推送给宠物窗 */
 export type PetAggregateState = {

@@ -500,7 +500,9 @@ export function App() {
     petEnabled: false,
     petId: "wangcai",
     petAlwaysOnTop: true,
-    petScale: 1,
+    petScale: 0.8,
+    petPatrolEnabled: true,
+    petPatrolPauseMin: 5,
   });
   const [settingsNotice, setSettingsNotice] = useState("");
   const [piProxyNotice, setPiProxyNotice] = useState("");
