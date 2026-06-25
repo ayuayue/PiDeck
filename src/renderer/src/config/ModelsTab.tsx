@@ -38,23 +38,63 @@ const KNOWN_MODEL_FIELDS = new Set([
 	"compat",
 ]);
 
+export function buildModelsFromFetchedSelection(
+	fetchedModels: FetchedModel[],
+	selectedModelIds: string[],
+	existingModels: ModelItem[],
+): ModelItem[] {
+	const existingIds = new Set(existingModels.map((model) => model.id));
+	const selectedIds = new Set(selectedModelIds);
+	return fetchedModels
+		.filter((model) => selectedIds.has(model.id) && !existingIds.has(model.id))
+		.map((model) => ({
+			id: model.id,
+			name: model.name ?? model.id,
+			contextWindow: 1000000,
+			maxTokens: 128000,
+			reasoning: true,
+		}));
+}
+
 function FetchedModelCombobox(props: {
 	models: FetchedModel[];
-	value: string;
-	onChange: (value: string) => void;
+	value: string[];
+	existingModelIds: string[];
+	onChange: (value: string[]) => void;
 }) {
 	const [open, setOpen] = useState(true);
 	const inputRef = useRef<HTMLInputElement | null>(null);
-	const selected = props.models.find((model) => model.id === props.value);
-	const displayValue = selected
-		? selected.name && selected.name !== selected.id
-			? `${selected.name} / ${selected.id}`
-			: selected.id
-		: "";
+	const existingModelIdSet = new Set(props.existingModelIds);
+	const selectableModels = props.models.filter((model) => !existingModelIdSet.has(model.id));
+	const selectedModelIdSet = new Set(props.value);
+	const selectedModels = props.models.filter((model) => selectedModelIdSet.has(model.id));
+	const allSelectableSelected =
+		selectableModels.length > 0 &&
+		selectableModels.every((model) => selectedModelIdSet.has(model.id));
+	const displayValue =
+		selectedModels.length === 0
+			? ""
+			: selectedModels.length <= 2
+				? selectedModels
+						.map((model) =>
+							model.name && model.name !== model.id
+								? `${model.name} / ${model.id}`
+								: model.id,
+						)
+						.join(", ")
+				: t("config.modelSelectedCount", { count: selectedModels.length });
 
 	useEffect(() => {
 		inputRef.current?.focus();
 	}, []);
+
+	function toggleModel(modelId: string) {
+		if (existingModelIdSet.has(modelId)) return;
+		const next = new Set(props.value);
+		if (next.has(modelId)) next.delete(modelId);
+		else next.add(modelId);
+		props.onChange([...next]);
+	}
 
 	return (
 		<div
@@ -84,21 +124,53 @@ function FetchedModelCombobox(props: {
 			</button>
 			{open && (
 				<div className="config-combobox-menu config-model-combobox-menu">
-					{props.models.map((model) => (
+					<div className="config-model-combobox-menu-actions">
 						<button
-							key={model.id}
 							type="button"
-							className={model.id === props.value ? "active" : ""}
 							onMouseDown={(e) => {
 								e.preventDefault();
-								props.onChange(model.id);
-								setOpen(false);
+								props.onChange(
+									allSelectableSelected
+										? []
+										: selectableModels.map((model) => model.id),
+								);
 							}}
+							disabled={selectableModels.length === 0}
 						>
-							<span>{model.name ?? model.id}</span>
-							{model.name && model.name !== model.id && <small>{model.id}</small>}
+							{allSelectableSelected ? t("common.deselectAll") : t("common.selectAll")}
 						</button>
-					))}
+						<span>{t("config.modelSelectedCount", { count: selectedModels.length })}</span>
+					</div>
+					{props.models.map((model) => {
+						const selected = selectedModelIdSet.has(model.id);
+						const configured = existingModelIdSet.has(model.id);
+						return (
+							<button
+								key={model.id}
+								type="button"
+								className={`config-model-combobox-option${selected ? " active" : ""}`}
+								onMouseDown={(e) => {
+									e.preventDefault();
+									toggleModel(model.id);
+								}}
+								disabled={configured}
+								aria-pressed={selected}
+							>
+								<span className={`config-model-combobox-check${selected ? " checked" : ""}`}>
+									{selected && <Check size={12} />}
+								</span>
+								<span className="config-model-combobox-text">
+									<span>{model.name ?? model.id}</span>
+									{model.name && model.name !== model.id && <small>{model.id}</small>}
+								</span>
+								{configured && (
+									<span className="config-model-combobox-badge">
+										{t("config.configured")}
+									</span>
+								)}
+							</button>
+						);
+					})}
 				</div>
 			)}
 		</div>
@@ -160,7 +232,7 @@ export function ModelsTab(props: {
 	const providerNames = Object.keys(data.providers);
 	// 当前正在下拉选模型的 provider（null = 手动输入模式）
 	const [addingModelDropdown, setAddingModelDropdown] = useState<string | null>(null);
-	const [addingModelId, setAddingModelId] = useState("");
+	const [addingModelIds, setAddingModelIds] = useState<string[]>([]);
 	const [pendingModelFocusKey, setPendingModelFocusKey] = useState<string | null>(null);
 	const [showGuide, setShowGuide] = useState(false);
 	const [batchMode, setBatchMode] = useState(false);
@@ -765,7 +837,7 @@ export function ModelsTab(props: {
 														className="config-btn small"
 														onClick={() => {
 															setAddingModelDropdown(name);
-															setAddingModelId("");
+															setAddingModelIds([]);
 														}}
 													>
 														{t("config.addModelFromList")}
@@ -797,38 +869,34 @@ export function ModelsTab(props: {
 												<div className="config-model-dropdown-row">
 													<FetchedModelCombobox
 														models={props.fetchedModels[name]}
-														value={addingModelId}
-														onChange={setAddingModelId}
+														value={addingModelIds}
+														existingModelIds={provider.models.map((model) => model.id)}
+														onChange={setAddingModelIds}
 													/>
 													<button
 														className="config-btn primary small"
 														onClick={() => {
-															if (!addingModelId.trim()) return;
-															const selected = props.fetchedModels[
-																name
-															].find((m) => m.id === addingModelId);
 															const provider =
 																data.providers[name];
 															if (!provider) return;
-															const newModel: ModelItem = {
-																id: addingModelId,
-																name: selected?.name ?? addingModelId,
-																contextWindow: 1000000,
-																maxTokens: 128000,
-																reasoning: true,
-															};
+															const newModels = buildModelsFromFetchedSelection(
+																props.fetchedModels[name],
+																addingModelIds,
+																provider.models,
+															);
+															if (newModels.length === 0) return;
 															props.onChangeProvider(
 																name,
 																"models",
 																[
 																	...provider.models,
-																	newModel,
+																	...newModels,
 																],
 															);
 															setAddingModelDropdown(null);
-															setAddingModelId("");
+															setAddingModelIds([]);
 														}}
-														disabled={!addingModelId.trim()}
+														disabled={addingModelIds.length === 0}
 													>
 														{t("common.add")}
 													</button>
@@ -836,7 +904,7 @@ export function ModelsTab(props: {
 														className="config-btn small"
 														onClick={() => {
 															setAddingModelDropdown(null);
-															setAddingModelId("");
+															setAddingModelIds([]);
 														}}
 													>
 														{t("common.cancel")}
