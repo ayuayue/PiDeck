@@ -4095,19 +4095,20 @@ export function SettingsModal(props: {
 										]}
 										onChange={(value) => { setPetPreviewMode(value); void window.piDesktop.pet.setPreviewMode(value === "__auto" ? "" : value); }}
 									/>
-									<div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-										<button
-											className="setting-btn-sm"
+									<div className="setting-inline-actions pet-test-actions">
+										<Button
+											buttonSize="sm"
+											variant="danger"
 											onClick={() => void window.piDesktop.pet.testNotify("error")}
 										>
 											{t("settings.pet.testError")}
-										</button>
-										<button
-											className="setting-btn-sm"
+										</Button>
+										<Button
+											buttonSize="sm"
 											onClick={() => void window.piDesktop.pet.testNotify("done")}
 										>
 											{t("settings.pet.testDone")}
-										</button>
+										</Button>
 									</div>
 								</SettingsSection>
 							</>
