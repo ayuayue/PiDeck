@@ -13,17 +13,16 @@ export const GRID_ROWS = 9;
 export const CELL_W = 192;
 export const CELL_H = 208;
 
-/** PetMode → spritesheet 行号映射（设计文档第 3.2 节） */
+/** PetMode → spritesheet 行号 */
 export const MODE_ROW: Record<string, number> = {
-	idle: 0, // 行0
-	running: 7, // 行7 ← AgentStatus: running（聚合主态）
-	failed: 5, // 行5 ← error
-	waiting: 6, // 行6 ← starting
-	waving: 3, // 行3 ← closed 过渡态
-	"running-right": 1, // 行1 右向巡游
-	"running-left": 2,  // 行2 左向巡游
-	jumping: 4,  // 行4 跳跃
-	review: 8,    // 行8 审查
+	idle: 0, running: 7, failed: 5, waiting: 6, waving: 3,
+	"running-right": 1, "running-left": 2, jumping: 4, review: 8,
+};
+
+/** PetMode → 帧数（连续取前 N 列，列索引 0..N-1） */
+export const MODE_FRAMES: Record<string, number> = {
+	idle: 6, running: 6, failed: 8, waiting: 6, waving: 4,
+	"running-right": 8, "running-left": 8, jumping: 5, review: 6,
 };
 
 export type SpriteSheet = {
