@@ -84,6 +84,8 @@ import {
 	validateExternalEditorCommand,
 } from "./editors/EditorDetector";
 import { FeishuBridge } from "./feishu/FeishuBridge";
+import { wantsFeishuDoc } from "./feishu/docActions";
+import { resolveFeishuFileSendIntent } from "./feishu/fileIntent";
 import {
 	listBots,
 	getBot,
@@ -783,7 +785,7 @@ function registerFeishuIpc() {
 			});
 			void appLogger.info("feishu", "Feishu bot added", { botId: botConfig.id, name: botConfig.name });
 			broadcastBotsChanged();
-			return { success: true, bot: botConfig };
+			return { success: true, bot: { ...botConfig, appSecret: "" } };
 		} catch (error) {
 			return { success: false, error: error instanceof Error ? error.message : String(error) };
 		}
@@ -807,15 +809,15 @@ function registerFeishuIpc() {
 	ipcMain.handle(ipcChannels.feishuBotConfig, async (_event, botId: string, patch: Partial<FeishuBotConfig>) => {
 		const updated = updateFeishuBot(botId, patch);
 		void appLogger.info("feishu", "Feishu bot config updated", { botId, keys: Object.keys(patch) });
-		// 热更新到运行中的 bridge，无需重连
-		if (feishuBridge && feishuBridge.getStatus().status === "connected") {
+		// 只热更新当前在线 Bot；修改其它 Bot 配置不应污染正在运行的 bridge。
+		if (feishuBridge && feishuBridge.getStatus().status === "connected" && feishuBridge.getStatus().botId === botId) {
 			feishuBridge.updateBotConfig(patch);
 			console.log("[飞书] 配置已热更新:", Object.keys(patch).join(", "));
 		}
 		if (updated) {
 			broadcastBotsChanged();
 		}
-		return updated;
+		return updated ? { ...updated, appSecret: "" } : undefined;
 	});
 
 	// 返回解密后的 Secret，仅用于用户主动复制/查看凭证。
@@ -901,15 +903,18 @@ function registerFeishuIpc() {
 	// 设置 Agent 使用的飞书 Bot ID；非空表示用户手动连接当前会话，需要立即创建/复用飞书群绑定。
 	// 传入 null 时取消关联：仅移除绑定（不终止 Agent），同时清理配置映射。
 	ipcMain.handle(ipcChannels.feishuSessionBotSet, async (_event, agentId: string, botId: string | null) => {
-		setSessionBotId(agentId, botId ?? undefined);
 		if (!botId) {
+			setSessionBotId(agentId, undefined);
 			// 取消当前会话的飞书关联：移除绑定但不停止 Agent 进程
 			if (feishuBridge && feishuBridge.getStatus().status === "connected") {
 				feishuBridge.removeBindingBySessionId(agentId);
 			}
 			return;
 		}
-		if (!feishuBridge || feishuBridge.getStatus().status !== "connected") return;
+		const status = feishuBridge?.getStatus();
+		if (!feishuBridge || status?.status !== "connected") return;
+		if (status.botId !== botId) return;
+		setSessionBotId(agentId, botId);
 		const tab = agentManager.list().find((item) => item.id === agentId);
 		if (!tab) return;
 		await feishuBridge.ensureSessionMirror(tab.id, tab.title, tab.sessionPath);
@@ -1411,21 +1416,63 @@ function registerIpc() {
 		void appLogger.info("agent", "Agent stopped", { agentId });
 	});
 	ipcMain.handle(ipcChannels.agentsPrompt, async (_event, input: SendPromptInput) => {
-		// 默认不推送飞书；只有用户手动连接过当前会话，才启用会话级同步。
-		if (feishuBridge && feishuBridge.getStatus().status === "connected" && feishuBridge.hasSessionBinding(input.agentId)) {
+		const bridge = feishuBridge;
+		const bridgeConnected = bridge?.getStatus().status === "connected";
+		const hasFeishuBinding = bridgeConnected && bridge.hasSessionBinding(input.agentId);
+		const docTitle = bridgeConnected ? wantsFeishuDoc(input.message) : undefined;
+		const sessionChatId = bridgeConnected ? bridge.getSessionChatId(input.agentId) : undefined;
+		let agentInstruction: string | undefined;
+		const buildFeishuActionInstruction = (chatId?: string) => [
+			"当前会话已连接飞书聊天。严禁调用 lark-cli、飞书 IM API 或搜索群聊来发送文件；不要询问 chat_id。需要把本地文件发到当前飞书聊天时，最终回答末尾独立一行写 [SEND_FILE:本地文件路径]，PiDeck 会按当前会话绑定自动上传。",
+			chatId ? `当前绑定的飞书 chat_id: ${chatId}。这是只读上下文，用于确认当前会话绑定；发送文件仍必须用 [SEND_FILE:本地文件路径]。` : undefined,
+		].filter(Boolean).join("\n");
+
+		if (bridgeConnected && hasFeishuBinding) {
+			const filePath = resolveFeishuFileSendIntent(input.message, agentManager.getCwd(input.agentId));
+			if (filePath) {
+				const result = await bridge.sendFileForSession(input.agentId, filePath);
+				agentManager.recordHostExchange(input.agentId, input.message, result);
+				void appLogger.info("feishu", "File sent through current session binding", {
+					agentId: input.agentId,
+					filePath,
+					success: result.startsWith("✅"),
+				});
+				return;
+			}
+		}
+
+		// 用户说了要做飞书文档但当前会话未绑定 → 自动绑定并告知 Agent 可用 lark-cli
+		if (bridgeConnected && docTitle && !hasFeishuBinding) {
 			const tab = agentManager.list().find((item) => item.id === input.agentId);
 			if (tab) {
-				void feishuBridge.startSessionMirrorRun(tab.id, tab.title, tab.sessionPath).catch((e) => {
+				await bridge.ensureSessionMirror(tab.id, tab.title, tab.sessionPath).catch((e) => {
+					console.error("[Feishu] auto-bind session mirror failed:", e);
+				});
+				bridge.trackDocRequest(tab.id, docTitle);
+				void bridge.forwardUserMessageToFeishu(tab.id, input.message).catch((e) => {
+					console.error("[Feishu] forward PiDeck message failed:", e);
+				});
+				agentInstruction = `${buildFeishuActionInstruction(bridge.getSessionChatId(tab.id))}\n创建飞书文档时，先输出完整正文，最后独立一行写 [CREATE_DOC:文档标题]。`;
+			}
+		} else if (hasFeishuBinding) {
+			agentInstruction = buildFeishuActionInstruction(sessionChatId);
+			const tab = agentManager.list().find((item) => item.id === input.agentId);
+			if (tab) {
+				void bridge.startSessionMirrorRun(tab.id, tab.title, tab.sessionPath).catch((e) => {
 					console.error("[Feishu] session mirror card init failed:", e);
 				});
 				if (input.message.trim()) {
-					void feishuBridge.forwardUserMessageToFeishu(tab.id, input.message).catch((e) => {
+					void bridge.forwardUserMessageToFeishu(tab.id, input.message).catch((e) => {
 						console.error("[Feishu] forward PiDeck message failed:", e);
 					});
 				}
 			}
 		}
-		const result = await agentManager.sendPrompt(input);
+		const result = await agentManager.sendPrompt(
+			agentInstruction
+				? { ...input, agentMessage: `${agentInstruction}\n\n${input.message}` }
+				: input,
+		);
 		void appLogger.info("agent", "Prompt sent", {
 			agentId: input.agentId,
 			messageLength: input.message.length,

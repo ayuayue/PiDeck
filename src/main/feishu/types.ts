@@ -95,6 +95,9 @@ export type LarkClient = {
 		messageResource: {
 			get: (opts: Record<string, unknown>) => Record<string, unknown>;
 		};
+		file?: {
+			create: (opts: Record<string, unknown>) => Promise<Record<string, unknown>>;
+		};
 		chat: {
 			get: (opts: Record<string, unknown>) => Promise<Record<string, unknown>>;
 			create: (opts: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -108,6 +111,14 @@ export type LarkClient = {
 				patch: (opts: Record<string, unknown>) => Promise<Record<string, unknown>>;
 			};
 		};
+	};
+	docx?: {
+		document: {
+			create: (opts?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+		};
+	};
+	drive?: {
+		file?: Record<string, unknown>;
 	};
 	auth: {
 		tenantAccessToken: {

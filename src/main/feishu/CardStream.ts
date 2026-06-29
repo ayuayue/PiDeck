@@ -2,7 +2,7 @@
  * CardStream — 飞书流式卡片（简化版 v2）
  *
  * 放弃 CardKit 2.0 的 cardkit.v1.card.create + cardkit.v1.card.update，
- * 改用 Proma/pi-feishu-lark 的 im.v1.message.patch 方式：
+ * 改用历史飞书桥接实现验证过的 im.v1.message.patch 方式：
  *
  * 1. im.message.create/reply 发送初始卡片（含 update_multi: true）
  * 2. im.v1.message.patch 原子替换卡片内容

@@ -1,7 +1,7 @@
 /**
  * TaskStatusCard — 飞书任务状态流式卡片
  *
- * 参考 pi-feishu-lark 的 TaskStatusCard 实现：
+ * 参考早期飞书桥接的 TaskStatusCard 实现：
  * 1. 先发一张"处理中"骨架卡片
  * 2. Agent 事件驱动实时更新卡片（400ms 节流）
  * 3. 终态强制 flush

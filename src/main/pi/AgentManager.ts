@@ -16,6 +16,7 @@ import type {
 import { ipcChannels } from "../../shared/ipc";
 import { PiProcess } from "./PiProcess";
 import { formatBashToolMessage } from "./bashResult";
+import { stripFeishuDocActionHint } from "../feishu/docActions";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RpcLogger } from "../logging/RpcLogger";
@@ -72,6 +73,11 @@ export class AgentManager {
 
 	getMessages(agentId: string) {
 		return this.messages.get(agentId) ?? [];
+	}
+
+	recordHostExchange(agentId: string, userText: string, assistantText: string) {
+		this.addMessage(agentId, "user", userText);
+		this.addMessage(agentId, "assistant", assistantText);
 	}
 
 	getCwd(agentId: string) {
@@ -434,9 +440,10 @@ export class AgentManager {
 		// 后续消息必须带 streamingBehavior 否则 pi 直接返回 error。这里自动兜底。
 		// images 用于传递粘贴/拖拽的图片，pi 会将 base64 图片直接传给支持视觉的模型。
 		try {
+			const agentMessage = input.agentMessage?.trim() || trimmed || "Describe this image.";
 			const requestPayload: Record<string, unknown> = {
 				type: "prompt",
-				message: trimmed || "Describe this image.",
+				message: agentMessage,
 				...(hasImages ? { images: input.images } : {}),
 			};
 			// 如果 agent 已经忙碌且调用方没指定 streamingBehavior，默认用 steer；
@@ -1755,9 +1762,9 @@ export class AgentManager {
 	}
 
 	private extractText(content: unknown): string {
-		if (typeof content === "string") return content;
-		if (Array.isArray(content))
-			return content
+		if (typeof content === "string") return stripFeishuDocActionHint(content);
+		if (Array.isArray(content)) {
+			const text = content
 				.map((item) => {
 					if (typeof item === "string") return item;
 					if (item && typeof item === "object") {
@@ -1770,6 +1777,8 @@ export class AgentManager {
 				})
 				.filter(Boolean)
 				.join("\n");
+			return stripFeishuDocActionHint(text);
+		}
 		return "";
 	}
 

@@ -80,7 +80,7 @@ function writeConfig(config: FeishuMultiBotConfig): void {
 
 /** 列出所有 Bot 配置 */
 export function listBots(): FeishuBotConfig[] {
-	return readConfig().bots;
+	return readConfig().bots.map((bot) => ({ ...bot, appSecret: "" }));
 }
 
 /** 获取单个 Bot 配置 */

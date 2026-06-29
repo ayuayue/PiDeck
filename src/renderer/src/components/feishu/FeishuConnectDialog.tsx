@@ -212,7 +212,8 @@ export function FeishuConnectDialog({ onClose, onConnect, onTest, connecting, on
 								<li>im:message — 获取消息</li>
 								<li>im:message:send_as_bot — 发送消息</li>
 								<li>im:chat — 获取群聊信息</li>
-								<li>im:resource — 下载文件/图片</li>
+								<li>im:resource — 下载/上传文件与图片</li>
+								<li>docx:document — 创建与管理文档</li>
 							</ul>
 							<p>5. 在「事件订阅」中开启 im.message.receive_v1（WebSocket 长连接模式）</p>
 							<p>6. 发布应用并审核通过</p>

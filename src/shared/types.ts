@@ -612,6 +612,8 @@ export type SendPromptInput = {
 	message: string;
 	images?: ImageContent[]; // 可选的图片列表
 	streamingBehavior?: "steer" | "followUp";
+	/** 仅发给 Agent 的内部提示，不显示在聊天 UI 中。 */
+	agentMessage?: string;
 };
 
 /** 实时思考内容更新，用于流式展示模型推理过程 */
