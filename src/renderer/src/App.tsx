@@ -4053,6 +4053,16 @@ ${goalTextRef.current}
                   </div>
                   <span className="project-row-actions">
                     <span
+                      className="project-action"
+                      title={t("app.projectNewAgent")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void createAgent(project.id);
+                      }}
+                    >
+                      <Plus size={14} />
+                    </span>
+                    <span
                       className="project-info"
                       title={
                         projectIsChat

@@ -1286,6 +1286,12 @@ body:not(.is-list-resizing) .list-collapsed:not(.list-hover-suppressed) .chat-li
 	background: var(--color-danger-soft);
 	color: var(--color-danger);
 }
+.action-new {
+	color: var(--color-accent);
+}
+.action-new:hover {
+	background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-panel));
+}
 .agent-row {
 	grid-template-columns: minmax(0, 1fr);
 	min-height: 28px;

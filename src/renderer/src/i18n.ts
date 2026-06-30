@@ -110,6 +110,7 @@ const zhCN = {
   "app.projectExpand": "展开",
   "app.projectInfo":
     "项目下方默认展示运行中的 Agent 和最近历史会话；右键项目可导入 Codex 会话或删除目录记录。",
+  "app.projectNewAgent": "新建 Agent",
   "app.projectRemoveTitle": "删除目录记录",
   "app.projectAvatarTitle": "{name} 项目目录",
   "app.projectSessionsLoading": "正在加载历史会话…",
@@ -1245,6 +1246,7 @@ const enUS: Record<TranslationKey, string> = {
   "app.projectExpand": "Expand",
   "app.projectInfo":
     "Projects show running Agents and recent sessions by default. Right-click a project to import Codex sessions or remove the record.",
+  "app.projectNewAgent": "New Agent",
   "app.projectRemoveTitle": "Remove project record",
   "app.projectAvatarTitle": "{name} project folder",
   "app.projectSessionsLoading": "Loading history sessions...",
