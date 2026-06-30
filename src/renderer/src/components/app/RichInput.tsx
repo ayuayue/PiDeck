@@ -142,7 +142,7 @@ export function parseRichInputChips(text: string): RichInputChip[] {
 /**
  * 遍历 contentEditable root 的「纯文本模型」。
  * 按文档序依次回调每个文本段和 chip，自动跳过 chip 内部（contenteditable=false）。
- * onBreak 在遇到 <br> 时回调，供调用方在纯文本中插入换行符。
+ * onBreak 在遇到 <br> 或浏览器粘贴产生的块级分隔时回调，供调用方在纯文本中插入换行符。
  */
 function walkFlat(
 	root: HTMLElement,
@@ -151,21 +151,34 @@ function walkFlat(
 	onBreak?: (start: number, end: number) => void,
 ): void {
 	let offset = 0;
+	let lastWasBreak = false;
+	const blockTags = new Set(["DIV", "P", "LI"]);
+	function appendBreak(): void {
+		onBreak?.(offset, offset + 1);
+		offset += 1;
+		lastWasBreak = true;
+	}
 	function visit(node: Node): void {
 		if (node.nodeType === Node.TEXT_NODE) {
-			const len = node.nodeValue?.length ?? 0;
+			const value = node.nodeValue ?? "";
+			const len = value.length;
 			onText(node as Text, offset, offset + len);
 			offset += len;
+			if (len > 0) lastWasBreak = value.endsWith("\n") || value.endsWith("\r");
 		} else if (node.nodeType === Node.ELEMENT_NODE) {
 			const el = node as HTMLElement;
 			if (el.getAttribute("contenteditable") === "false") {
 				const rawLen = el.getAttribute("data-raw")?.length ?? 0;
 				onChip(el, offset, offset + rawLen);
 				offset += rawLen;
+				if (rawLen > 0) lastWasBreak = false;
 			} else if (el.tagName === "BR") {
-				onBreak?.(offset, offset + 1);
-				offset += 1;
+				appendBreak();
 			} else {
+				const isBlock = blockTags.has(el.tagName);
+				// contentEditable 粘贴多行时常生成 <div>/<p> 块而不是文本节点中的 \n；
+				// 块前补一个分隔即可保留用户原始换行，同时避免连续块/BR 叠加出多余空行。
+				if (isBlock && offset > 0 && !lastWasBreak) appendBreak();
 				node.childNodes.forEach(visit);
 			}
 		}
