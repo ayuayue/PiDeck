@@ -157,6 +157,11 @@
 	--color-bg-muted: #f8f8f5;
 	--color-bg-hover: #f0f1ed;
 }
+:root[data-theme="light"][data-light-background="warm"] .chat-pane,
+:root[data-theme="light"][data-light-background="warm"] .composer,
+:root[data-theme="light"][data-light-background="warm"] .composer-box {
+	background: #fbfaf7;
+}
 
 :root[data-theme="light"][data-light-background="paper"] {
 	--color-bg-app: #fffaf0;
@@ -1484,7 +1489,7 @@ body.is-terminal-resizing {
 	grid-template-rows: auto minmax(0, 1fr) auto var(--terminal-row-h);
 	min-width: 0;
 	min-height: 0;
-	background: var(--color-bg-muted);
+	background: #fcfcfc;
 	border-top-left-radius: var(--radius-lg);
 	border-bottom-left-radius: var(--radius-lg);
 	overflow: hidden;
@@ -3147,8 +3152,8 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	width: fit-content;
 	max-width: min(82%, 64ch);
 	min-width: 0;
-	background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-panel));
-	border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border-subtle));
+	background: var(--color-bg-panel);
+	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-lg);
 	padding: 9px 13px;
 	overflow-wrap: anywhere;
@@ -3444,7 +3449,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 }
 
 .composer {
-	background: var(--color-bg-muted);
+	background: #fcfcfc;
 	padding: var(--space-1) var(--space-2) var(--space-1);
 	min-width: 0;
 	margin-bottom: 10px;
@@ -3462,7 +3467,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	display: grid;
 	grid-template-rows: 32px minmax(48px, 1fr) 32px;
 	border: 1px solid var(--color-border-subtle);
-	background: var(--color-bg-panel);
+	background: #fcfcfc;
 	border-radius: var(--radius-lg);
 	box-shadow: var(--shadow-composer);
 	/* 只让 textarea 自己滚动，避免 toolbar 弹框被输入框边界裁掉。 */
