@@ -10,7 +10,12 @@ type ExtensionsApi = {
 	update: () => Promise<PiCliUpdateResult>;
 };
 
-const api: ExtensionsApi = (window as unknown as { piDesktop?: { extensions: ExtensionsApi } }).piDesktop!.extensions;
+function getExtensionsApi(): ExtensionsApi {
+	const api = (window as unknown as { piDesktop?: { extensions?: ExtensionsApi } })
+		.piDesktop?.extensions;
+	if (!api) throw new Error("PiDeck extensions API is not available");
+	return api;
+}
 
 /** 预设推荐扩展包 */
 const RECOMMENDED_PACKAGES: PiPackageInfo[] = [
@@ -96,7 +101,7 @@ export function ExtensionsTab(props: {
 		// 安装任务按扩展源分别记录；多个扩展并发安装时，不能用单一字符串覆盖前一个 loading 状态。
 		setInstallingSources((current) => new Set(current).add(pkg.installCmd));
 		try {
-			await api.install(pkg.installCmd);
+			await getExtensionsApi().install(pkg.installCmd);
 			props.onRefresh();
 		} catch (e) {
 			alert(t("config.installFailed") + ": " + (e instanceof Error ? e.message : String(e)));
@@ -114,7 +119,7 @@ export function ExtensionsTab(props: {
 		setUpdateResult(null);
 		setShowUpdateDialog(true);
 		try {
-			const result = await api.update();
+			const result = await getExtensionsApi().update();
 			setUpdateResult(result);
 		} catch (e) {
 			alert(t("settings.extensionsUpdateFailed", { error: e instanceof Error ? e.message : String(e) }));

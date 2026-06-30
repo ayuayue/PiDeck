@@ -11,13 +11,19 @@ import {
 } from "electron";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
-import { createWriteStream } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createWriteStream, existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
+import {
+	applyLinuxDisplayBackendWorkaround,
+	isUsingLinuxXWaylandWorkaround,
+} from "./linuxDisplayBackend";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
+
+applyLinuxDisplayBackendWorkaround();
 
 // 开发模式下 stdout 管道可能断开导致 EPIPE 崩溃，全局静默处理
 process.stdout.on("error", (err: NodeJS.ErrnoException) => {
@@ -42,6 +48,7 @@ import type {
 	AppSettings,
 	AppUpdateAsset,
 	AppUpdateDownloadProgress,
+	AppLogLevel,
 	AppLogQuery,
 	AppUpdateDownloadResult,
 	ExternalEditor,
@@ -76,6 +83,7 @@ import { SkillManager } from "./skills/SkillManager";
 import { ExtensionManager } from "./extensions/ExtensionManager";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
 import { WebServiceManager } from "./web/WebServiceManager";
+import { preparePreloadPath } from "./preloadPath";
 import { AppLogger } from "./logging/AppLogger";
 import { RpcLogger } from "./logging/RpcLogger";
 import {
@@ -554,11 +562,30 @@ function printStartupInfo() {
 	`);
 }
 
-function createWindow() {
+async function prepareMainPreloadPath() {
+	const sourcePath = join(__dirname, "../preload/index.js");
+	return preparePreloadPath(sourcePath, "main-preload.js");
+}
+
+async function createWindow() {
 	const windowOptions = settingsStore.createWindowOptions();
+	const showMainWindowImmediately = shouldShowMainWindowImmediately();
+	const sourcePreloadPath = join(__dirname, "../preload/index.js");
+	const mainPreloadPath = await prepareMainPreloadPath();
+	void appLogger.info("app", "Main window preload configured", {
+		sourcePreloadPath,
+		preloadPath: mainPreloadPath,
+		sourceExists: existsSync(sourcePreloadPath),
+		exists: existsSync(mainPreloadPath),
+		appPath: app.getAppPath(),
+		userDataPath: app.getPath("userData"),
+		packaged: app.isPackaged,
+		isDev: is.dev,
+		electronRendererUrl: process.env.ELECTRON_RENDERER_URL ? "set" : "unset",
+	});
 
 	mainWindow = new BrowserWindow({
-		show: false,
+		show: showMainWindowImmediately,
 		backgroundColor: "#eef0f3",
 		width: 1480,
 		height: 960,
@@ -570,27 +597,97 @@ function createWindow() {
 		titleBarStyle: windowOptions.titleBarStyle,
 		trafficLightPosition: windowOptions.trafficLightPosition,
 		webPreferences: {
-			preload: join(__dirname, "../preload/index.js"),
+			preload: mainPreloadPath,
 			sandbox: false,
 			contextIsolation: true,
 			nodeIntegration: false,
 		},
 	});
+	const createdWindow = mainWindow;
+	let hasShownMainWindow = false;
+	function showMainWindowOnce() {
+		if (createdWindow.isDestroyed() || hasShownMainWindow) return;
+		hasShownMainWindow = true;
+		createdWindow.show();
+		createdWindow.focus();
+		// 向开发者工具输出启动信息
+		printStartupInfo();
+	}
 
 	// 窗口保持隐藏时先最大化，再加载页面；避免 ready-to-show 后再最大化造成首帧布局跳变。
-	mainWindow.maximize();
+	if (!showMainWindowImmediately) {
+		mainWindow.maximize();
+	}
 
 	// 所有 target="_blank" 或 window.open 的链接统一经同一入口处理，遵守用户设置的打开方式。
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
 		void openExternalUrl(url);
 		return { action: "deny" };
 	});
-
-	mainWindow.once("ready-to-show", () => {
-		mainWindow?.show();
-		// 向开发者工具输出启动信息
-		printStartupInfo();
+	mainWindow.webContents.on("did-start-loading", () => {
+		void appLogger.info("app", "Main window load started", {
+			url: mainWindow?.webContents.getURL(),
+		});
 	});
+	mainWindow.webContents.on("did-finish-load", () => {
+		void appLogger.info("app", "Main window load finished", {
+			url: mainWindow?.webContents.getURL(),
+		});
+	});
+	mainWindow.webContents.on(
+		"did-fail-load",
+		(_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+			void appLogger.error("app", "Main window load failed", {
+				errorCode,
+				errorDescription,
+				validatedURL,
+				isMainFrame,
+			});
+		},
+	);
+	mainWindow.webContents.on("render-process-gone", (_event, details) => {
+		const level: AppLogLevel = details.reason === "clean-exit" ? "info" : "error";
+		void appLogger.log(level, "app", "Main window renderer process gone", details);
+	});
+	mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+		void appLogger.error("app", "Main window preload failed", {
+			preloadPath,
+			message: error.message,
+			stack: error.stack,
+		});
+	});
+	mainWindow.webContents.on("dom-ready", () => {
+		void mainWindow?.webContents
+			.executeJavaScript("Boolean(window.piDesktop)", true)
+			.then((hasPiDesktop) => {
+				void appLogger.info("app", "Main window preload API availability", {
+					hasPiDesktop,
+					url: mainWindow?.webContents.getURL(),
+				});
+			})
+			.catch((error) => {
+				void appLogger.warn("app", "Main window preload API check failed", error);
+			});
+	});
+	mainWindow.webContents.on(
+		"console-message",
+		(event) => {
+			if (!["warning", "error"].includes(event.level)) return;
+			void appLogger.warn("app", "Main window renderer console error", {
+				level: event.level,
+				message: event.message,
+				line: event.lineNumber,
+				sourceId: event.sourceId,
+			});
+		},
+	);
+
+	mainWindow.once("ready-to-show", showMainWindowOnce);
+	mainWindow.webContents.once("did-finish-load", showMainWindowOnce);
+	setTimeout(showMainWindowOnce, 3000);
+	if (showMainWindowImmediately) {
+		showMainWindowOnce();
+	}
 
 	// 关闭窗口时根据设置决定：隐藏到托盘还是正常退出
 	mainWindow.on("close", (event) => {
@@ -653,11 +750,22 @@ function createWindow() {
 		}
 	});
 
-	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-		mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+	const devRendererUrl = shouldUseDevRendererUrl()
+		? process.env.ELECTRON_RENDERER_URL
+		: undefined;
+	if (devRendererUrl) {
+		mainWindow.loadURL(devRendererUrl);
 	} else {
 		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
 	}
+}
+
+function shouldUseDevRendererUrl() {
+	return is.dev && !app.isPackaged && Boolean(process.env.ELECTRON_RENDERER_URL);
+}
+
+function shouldShowMainWindowImmediately() {
+	return isUsingLinuxXWaylandWorkaround();
 }
 
 // ===== 飞书桥接 IPC =====
@@ -1260,6 +1368,32 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.logsList, async (_event, query: AppLogQuery) =>
 		appLogger.list(query),
 	);
+	ipcMain.handle(
+		ipcChannels.rendererLog,
+		async (
+			_event,
+			level: AppLogLevel,
+			scope: string,
+			message: string,
+			detail?: unknown,
+		) => {
+			const safeLevel = ["debug", "info", "warn", "error"].includes(level)
+				? level
+				: "info";
+			await appLogger.log(safeLevel as AppLogLevel, scope, message, detail);
+		},
+	);
+	ipcMain.on(ipcChannels.preloadReady, (event) => {
+		void appLogger.info("app", "Preload API exposed", {
+			url: event.sender.getURL(),
+		});
+	});
+	ipcMain.on(ipcChannels.preloadError, (event, detail) => {
+		void appLogger.error("app", "Preload API expose failed", {
+			url: event.sender.getURL(),
+			detail,
+		});
+	});
 	ipcMain.handle(ipcChannels.logsClear, async () => appLogger.clear());
 	ipcMain.handle(ipcChannels.logsOpenFolder, async () => appLogger.openFolder());
 	/** 获取 app 日志文件总大小 */
@@ -1426,7 +1560,18 @@ function registerIpc() {
 
 	ipcMain.handle(ipcChannels.agentsList, () => agentManager.list());
 	ipcMain.handle(ipcChannels.agentsCreate, async (_event, input: CreateAgentInput) => {
+		void appLogger.info("agent", "Agent create IPC received", {
+			projectId: input.projectId,
+			sessionPath: input.sessionPath,
+			title: input.title,
+		});
 		const tab = await agentManager.create(input);
+		void appLogger.info("agent", "Agent create IPC completed", {
+			agentId: tab.id,
+			projectId: input.projectId,
+			status: tab.status,
+			sessionPath: tab.sessionPath,
+		});
 		void appLogger.info("agent", "Agent created", {
 			agentId: tab.id,
 			projectId: input.projectId,
@@ -1853,7 +1998,7 @@ app.whenReady().then(async () => {
 	autoConnectFeishu();
 
 	sendTelemetryHeartbeat();
-	createWindow();
+	await createWindow();
 	setupTray();
 	void detectExternalEditorsOnFirstLaunch().catch((error) => {
 		void appLogger.warn("editor", "External editor first launch detection failed", error);
@@ -1865,7 +2010,7 @@ app.whenReady().then(async () => {
 		settingsStore,
 		getMainWindow: () => mainWindow,
 		recreateMainWindow: async () => {
-			createWindow();
+			await createWindow();
 			return mainWindow!;
 		},
 	});
@@ -1895,7 +2040,9 @@ app.whenReady().then(async () => {
 			mainWindow.show();
 			mainWindow.focus();
 		} else {
-			createWindow();
+			void createWindow().catch((error) => {
+				void appLogger.error("app", "Failed to create window on activate", error);
+			});
 		}
 	});
 });

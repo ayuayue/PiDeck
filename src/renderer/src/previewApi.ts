@@ -360,6 +360,12 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			openExternal: async () => undefined,
 			restart: async () => undefined,
+			rendererLog: async (level, scope, message, detail) => {
+				console[level === "error" ? "error" : level === "warn" ? "warn" : "debug"](
+					`[${scope}] ${message}`,
+					detail,
+				);
+			},
 			minimizeWindow: async () => undefined,
 			toggleMaximizeWindow: async () => undefined,
 			toggleAlwaysOnTopWindow: async () => false,

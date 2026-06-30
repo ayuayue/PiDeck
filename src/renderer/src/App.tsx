@@ -146,13 +146,47 @@ import type {
 
 const isLanWeb =
   !window.piDesktop && window.location.protocol.startsWith("http");
+const isElectronRuntime = navigator.userAgent.includes("Electron/");
+const missingElectronPreload = isElectronRuntime && !window.piDesktop;
+function createUnavailableDesktopApi(): typeof window.piDesktop {
+  const fail = () => {
+    throw new Error(t("app.preloadMissing"));
+  };
+  return new Proxy(
+    {},
+    {
+      get: fail,
+      set: fail,
+    },
+  ) as typeof window.piDesktop;
+}
 const api =
-  window.piDesktop ?? (isLanWeb ? createBrowserApi() : createPreviewApi());
+  window.piDesktop ??
+  (missingElectronPreload
+    ? createUnavailableDesktopApi()
+    : isLanWeb
+      ? createBrowserApi()
+      : createPreviewApi());
 // 输入框默认高度增加,提供更好的输入体验,适合多行输入和代码片段
 const COMPOSER_MIN_HEIGHT = 240;
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const COMPOSER_MIN_TIMELINE_HEIGHT = 160;
 const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
+const AGENT_CREATE_TIMEOUT_MS = 60_000;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 function countContentLines(value: unknown) {
   if (typeof value !== "string") return 0;
@@ -343,6 +377,18 @@ function migrateAgentRecord<T>(
 }
 
 export function App() {
+  if (missingElectronPreload) {
+    return (
+      <div className="boot-screen root-loading">
+        <div className="boot-logo root-loading-logo">
+          <LogoMark />
+        </div>
+        <strong>PiDeck</strong>
+        <span>{t("app.preloadMissing")}</span>
+      </div>
+    );
+  }
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [draggingProjectId, setDraggingProjectId] = useState<string>();
   const [dragOverProjectId, setDragOverProjectId] = useState<string>();
@@ -2649,10 +2695,20 @@ export function App() {
       ...current,
       [projectId]: pendingTab.id,
     }));
+    void api.app.rendererLog("info", "renderer", "Agent create requested", {
+      projectId,
+      sessionPath,
+      title,
+      pendingAgentId: pendingTab.id,
+    });
     // 立即关闭抽屉,避免等待 agent 加载期间列表仍然显示
     setDrawer(null);
     try {
-      const tab = await api.agents.create({ projectId, sessionPath, title });
+      const tab = await withTimeout<AgentTab>(
+        api.agents.create({ projectId, sessionPath, title }),
+        AGENT_CREATE_TIMEOUT_MS,
+        t("app.agentCreateTimeout"),
+      );
       pendingAgentsRef.current = pendingAgentsRef.current.filter(
         (agent) => agent.id !== pendingTab.id,
       );
@@ -2687,6 +2743,12 @@ export function App() {
         void refreshProjectSessions(projectId).catch(() => undefined);
       }
       void refreshRuntimeState(tab.id);
+      void api.app.rendererLog("info", "renderer", "Agent create completed", {
+        projectId,
+        pendingAgentId: pendingTab.id,
+        agentId: tab.id,
+        status: tab.status,
+      });
       return tab;
     } catch (e) {
       pendingAgentsRef.current = pendingAgentsRef.current.filter(
@@ -2703,7 +2765,13 @@ export function App() {
         else delete next[projectId];
         return next;
       });
-      // 创建失败时由 main process 上报错误,前端仅回退乐观占位,避免停留在不存在的 agent。
+      showToast(e instanceof Error ? e.message : String(e), 5000);
+      void api.app.rendererLog("warn", "renderer", "Agent create failed", {
+        projectId,
+        pendingAgentId: pendingTab.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      // 创建失败或超时时回退乐观占位，避免停留在不存在的 pending agent。
       return undefined;
     }
   }

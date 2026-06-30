@@ -181,11 +181,24 @@ export class AgentManager {
 		if (!project) throw new Error(`Project not found: ${input.projectId}`);
 
 		const id = randomUUID();
+		void this.appLogger?.info("agent", "Agent create requested", {
+			agentId: id,
+			projectId: input.projectId,
+			projectPath: project.path,
+			sessionPath: input.sessionPath,
+			title: input.title,
+		});
 		const existingForSessionKey = this.normalizeSessionPathForCompare(input.sessionPath);
 		const existingForSession = existingForSessionKey
 			? this.findRuntimeBySessionKey(existingForSessionKey)
 			: undefined;
-		if (existingForSession) return existingForSession.tab;
+		if (existingForSession) {
+			void this.appLogger?.info("agent", "Agent create reused existing session", {
+				agentId: existingForSession.tab.id,
+				sessionPath: input.sessionPath,
+			});
+			return existingForSession.tab;
+		}
 
 		const tab: AgentTab = {
 			id,
@@ -197,10 +210,28 @@ export class AgentManager {
 			createdAt: Date.now(),
 		};
 
-		if (input.sessionPath) await this.repairAssistantUsage(input.sessionPath);
+		if (input.sessionPath) {
+			void this.appLogger?.info("agent", "Agent repair assistant usage start", {
+				agentId: id,
+				sessionPath: input.sessionPath,
+			});
+			await this.repairAssistantUsage(input.sessionPath);
+			void this.appLogger?.info("agent", "Agent repair assistant usage completed", {
+				agentId: id,
+				sessionPath: input.sessionPath,
+			});
+		}
 		// 新建 Agent 和历史会话恢复都走此入口；启动前落盘 trust.json，确保项目级 AGENTS.md/扩展不仅本次 --approve 生效，
 		// 也能出现在 Trust 设置页并在后续会话中自动加载。
+		void this.appLogger?.info("agent", "Agent ensure trusted directory start", {
+			agentId: id,
+			projectPath: project.path,
+		});
 		await this.configManager.ensureTrustedDirectory(project.path);
+		void this.appLogger?.info("agent", "Agent ensure trusted directory completed", {
+			agentId: id,
+			projectPath: project.path,
+		});
 
 		// 代理环境变量只能在子进程启动前注入；设置变更后通过 restart/new agent 创建新的进程快照。
 		// 每个 Agent 独立启动 pi RPC，避免复用进程时 session、事件监听和配置快照串线。
@@ -210,6 +241,11 @@ export class AgentManager {
 		this.messages.set(id, []);
 		this.emitState();
 
+		void this.appLogger?.info("agent", "Agent pi process start", {
+			agentId: id,
+			projectPath: project.path,
+			sessionPath: input.sessionPath,
+		});
 		const client = process.start(input.sessionPath);
 
 		process.on("event", (event) => this.handlePiEvent(id, event));
@@ -281,7 +317,14 @@ export class AgentManager {
 		});
 
 		try {
+			void this.appLogger?.info("agent", "Agent get_state request start", {
+				agentId: id,
+			});
 			const state = await client.request({ type: "get_state" });
+			void this.appLogger?.info("agent", "Agent get_state request completed", {
+				agentId: id,
+				success: state.success,
+			});
 			const data = state.data as
 				| { sessionId?: string; sessionFile?: string; sessionName?: string }
 				| undefined;
@@ -302,6 +345,12 @@ export class AgentManager {
 		} catch (error) {
 			tab.status = "error";
 			const rawMessage = error instanceof Error ? error.message : String(error);
+			void this.appLogger?.error("agent", "Agent create failed", {
+				agentId: id,
+				projectId: project.id,
+				sessionPath: input.sessionPath,
+				error: rawMessage,
+			});
 			// 构建丰富的错误诊断信息
 			const diag = process.getDiagnostics();
 			let enriched = rawMessage;

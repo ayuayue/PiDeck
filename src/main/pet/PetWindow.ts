@@ -3,19 +3,32 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { is } from "@electron-toolkit/utils";
 import type { PetWindowCaps } from "../../shared/types";
+import { preparePreloadPath } from "../preloadPath";
 
 /** 三端宠物窗能力探测；Wayland 降级 */
 export function detectPetWindowCaps(): PetWindowCaps {
 	if (process.platform === "darwin" || process.platform === "win32") {
 		return { transparent: true, clickThrough: true, freePosition: true };
 	}
-	const wayland = !!process.env.WAYLAND_DISPLAY;
+	const ozonePlatform = getOzonePlatform();
+	const wayland = ozonePlatform === "wayland" || (!ozonePlatform && !!process.env.WAYLAND_DISPLAY);
 	return { transparent: !wayland, clickThrough: true, freePosition: !wayland };
 }
 
 const BASE_W = 160, BASE_H = 176;
 
 function posPath() { return join(app.getPath("userData"), "pet-position.json"); }
+
+function getOzonePlatform() {
+	const fromArgv = process.argv.find((arg) => arg.startsWith("--ozone-platform="));
+	if (fromArgv) return fromArgv.split("=", 2)[1]?.trim().toLowerCase();
+	const fromCommandLine = app.commandLine.getSwitchValue("ozone-platform");
+	return fromCommandLine ? fromCommandLine.trim().toLowerCase() : "";
+}
+
+function shouldUseDevRendererUrl() {
+	return is.dev && !app.isPackaged && Boolean(process.env.ELECTRON_RENDERER_URL);
+}
 
 async function loadPos(): Promise<{ x: number; y: number } | null> {
 	try {
@@ -63,6 +76,8 @@ export class PetWindow {
 		const rawY = persisted?.y ?? wa.y + wa.height - h - 24;
 		const x = Math.round(Math.min(maxX, Math.max(wa.x, rawX)));
 		const y = Math.round(Math.min(maxY, Math.max(wa.y, rawY)));
+		const sourcePreloadPath = join(__dirname, "../preload/index.js");
+		const preloadPath = await preparePreloadPath(sourcePreloadPath, "pet-preload.js");
 
 		this.win = new BrowserWindow({
 			width: w, height: h, x, y,
@@ -71,10 +86,18 @@ export class PetWindow {
 			maximizable: false, fullscreenable: false, hasShadow: false,
 			skipTaskbar: true, alwaysOnTop: true, backgroundColor: "#00000000",
 			webPreferences: {
-				preload: join(__dirname, "../preload/index.js"),
+				preload: preloadPath,
 				partition: "persist:pet",
 				sandbox: false, contextIsolation: true, nodeIntegration: false,
 			},
+		});
+		this.win.webContents.on("preload-error", (_event, failedPreloadPath, error) => {
+			console.warn("[PetWindow] preload failed", {
+				preloadPath: failedPreloadPath,
+				sourcePreloadPath,
+				message: error.message,
+				stack: error.stack,
+			});
 		});
 
 		this.win.setAlwaysOnTop(true, "floating");
@@ -97,8 +120,11 @@ export class PetWindow {
 			});
 		}
 
-		const url = is.dev && process.env.ELECTRON_RENDERER_URL ? `${process.env.ELECTRON_RENDERER_URL}/pet.html` : join(__dirname, "../renderer/pet.html");
-		await (is.dev && process.env.ELECTRON_RENDERER_URL ? this.win.loadURL(url) : this.win.loadFile(url));
+		const devRendererUrl = shouldUseDevRendererUrl()
+			? process.env.ELECTRON_RENDERER_URL
+			: undefined;
+		const url = devRendererUrl ? `${devRendererUrl}/pet.html` : join(__dirname, "../renderer/pet.html");
+		await (devRendererUrl ? this.win.loadURL(url) : this.win.loadFile(url));
 
 		// 启动尺寸校正守护（每 5 秒检查），解决透明窗口在部分平台拖拽后尺寸漂移
 		this.startSizeGuard();

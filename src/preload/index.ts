@@ -5,6 +5,7 @@ import type {
 	AgentTab,
 	AppInfo,
 	AppLogEntry,
+	AppLogLevel,
 	AppLogQuery,
 	AppSettings,
 	AppUpdateDownloadProgress,
@@ -274,6 +275,19 @@ const api = {
 		openExternal: (url: string) =>
 			ipcRenderer.invoke(ipcChannels.appOpenExternal, url) as Promise<void>,
 		restart: () => ipcRenderer.invoke(ipcChannels.appRestart) as Promise<void>,
+		rendererLog: (
+			level: AppLogLevel,
+			scope: string,
+			message: string,
+			detail?: unknown,
+		) =>
+			ipcRenderer.invoke(
+				ipcChannels.rendererLog,
+				level,
+				scope,
+				message,
+				detail,
+			) as Promise<void>,
 		minimizeWindow: () =>
 			ipcRenderer.invoke(ipcChannels.appWindowMinimize) as Promise<void>,
 		toggleMaximizeWindow: () =>
@@ -690,6 +704,16 @@ function subscribe<T>(channel: string, callback: (payload: T) => void) {
 	};
 }
 
-contextBridge.exposeInMainWorld("piDesktop", api);
+try {
+	contextBridge.exposeInMainWorld("piDesktop", api);
+	ipcRenderer.send(ipcChannels.preloadReady);
+} catch (error) {
+	const detail =
+		error instanceof Error
+			? { message: error.message, stack: error.stack }
+			: { message: String(error) };
+	console.error("[PiDeck preload] Failed to expose desktop API", detail);
+	ipcRenderer.send(ipcChannels.preloadError, detail);
+}
 
 export type PiDesktopApi = typeof api;
