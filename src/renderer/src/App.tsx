@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Code,
   Info,
   MessageSquare,
   PanelLeftClose,
@@ -28,10 +29,13 @@ import {
   Plus,
   Trash2,
   Minus,
+  FolderOpen,
   Globe,
   Pin,
+  Pencil,
   Square,
   Filter,
+  Terminal,
   X,
 } from "lucide-react";
 import { createPreviewApi } from "./previewApi";
@@ -55,6 +59,8 @@ import {
 } from "./terminalDockState";
 import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
+import { useScratchPad } from "./hooks/useScratchPad";
+import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
   AgentContextMenu,
@@ -168,9 +174,10 @@ const api =
       ? createBrowserApi()
       : createPreviewApi());
 // 输入框默认高度增加,提供更好的输入体验,适合多行输入和代码片段
-const COMPOSER_MIN_HEIGHT = 240;
+const COMPOSER_MIN_HEIGHT = 215;
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const COMPOSER_MIN_TIMELINE_HEIGHT = 160;
+const DRAWER_ANIMATION_MS = 300;
 const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
 const AGENT_CREATE_TIMEOUT_MS = 60_000;
 
@@ -319,19 +326,6 @@ function resolveFileLinkPath(path: string, basePath?: string) {
   return `${basePath.replace(/[\\/]+$/, "")}${separator}${path.replace(/^[\\/]+/, "")}`;
 }
 
-const EDITOR_LOGO_URLS: Record<string, string> = {
-  vscode: new URL("./assets/editors/vscode.png", import.meta.url).href,
-  cursor: new URL("./assets/editors/cursor.ico", import.meta.url).href,
-  zed: new URL("./assets/editors/zed.png", import.meta.url).href,
-  idea: new URL("./assets/editors/idea.svg", import.meta.url).href,
-  webstorm: new URL("./assets/editors/webstorm.svg", import.meta.url).href,
-  phpstorm: new URL("./assets/editors/phpstorm.svg", import.meta.url).href,
-  pycharm: new URL("./assets/editors/pycharm.svg", import.meta.url).href,
-};
-
-function getEditorLogoUrl(editorId: string) {
-  return EDITOR_LOGO_URLS[editorId];
-}
 
 type PendingAgentTab = AgentTab & {
   pendingKind?: "create" | "restart";
@@ -361,6 +355,20 @@ function isReplacementForPendingAgent(agent: AgentTab, pending: PendingAgentTab)
 
 function isPendingAgentId(agentId?: string) {
   return Boolean(agentId?.startsWith("pending-"));
+}
+
+const EDITOR_LOGO_URLS: Record<string, string> = {
+  vscode: new URL("./assets/editors/vscode.png", import.meta.url).href,
+  cursor: new URL("./assets/editors/cursor.ico", import.meta.url).href,
+  zed: new URL("./assets/editors/zed.png", import.meta.url).href,
+  idea: new URL("./assets/editors/idea.svg", import.meta.url).href,
+  webstorm: new URL("./assets/editors/webstorm.svg", import.meta.url).href,
+  phpstorm: new URL("./assets/editors/phpstorm.svg", import.meta.url).href,
+  pycharm: new URL("./assets/editors/pycharm.svg", import.meta.url).href,
+};
+
+function getEditorLogoUrl(editorId: string) {
+  return EDITOR_LOGO_URLS[editorId];
 }
 
 function migrateAgentRecord<T>(
@@ -430,7 +438,6 @@ export function App() {
     Record<string, AgentRuntimeState>
   >({});
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
-  const [externalEditors, setExternalEditors] = useState<ExternalEditor[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [thinkingPickerOpen, setThinkingPickerOpen] = useState(false);
   const [sendBehaviorMenuOpen, setSendBehaviorMenuOpen] = useState(false);
@@ -438,7 +445,6 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
-  const [fileActionsOpen, setFileActionsOpen] = useState(false);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
@@ -449,6 +455,23 @@ export function App() {
     Record<string, ImageContent[]>
   >({});
   const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
+  /** 外部编辑器列表 + 弹出气泡状态 */
+  const [externalEditors, setExternalEditors] = useState<ExternalEditor[]>([]);
+  const [editorsOpen, setEditorsOpen] = useState(false);
+  const [editorsAnchor, setEditorsAnchor] = useState<{ x: number; y: number } | null>(null);
+  const editorsRef = useRef<HTMLDivElement>(null);
+
+  // 点击编辑器气泡外部时关闭
+  useEffect(() => {
+    if (!editorsOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (editorsRef.current && !editorsRef.current.contains(event.target as Node)) {
+        setEditorsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [editorsOpen]);
   /** Goal 状态 */
   const [goalText, setGoalText] = useState<string>("");
   const goalTextRef = useRef("");
@@ -614,6 +637,8 @@ export function App() {
   const [savedPrompt, setSavedPrompt] = useState("");
   const [compacting, setCompacting] = useState(false);
   const [drawer, setDrawer] = useState<DrawerPanel | null>(null);
+  const [renderedDrawer, setRenderedDrawer] = useState<DrawerPanel | null>(null);
+  const drawerUnmountTimerRef = useRef<number | null>(null);
   const [sessionsProjectId, setSessionsProjectId] = useState<string>();
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -668,6 +693,7 @@ export function App() {
     webServicePort: 8765,
     rpcTimeout: 600_000,
     linkOpenMode: "external",
+    contentMaxWidth: 1400,
     maxEditorFileSizeMB: 5,
     externalEditors: createDefaultExternalEditorSettings(),
 
@@ -723,7 +749,6 @@ export function App() {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const chatPaneRef = useRef<HTMLElement | null>(null);
   const sessionComboRef = useRef<HTMLDivElement | null>(null);
-  const fileActionsRef = useRef<HTMLDivElement | null>(null);
   const chatHeaderRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
   const timelineRef = useRef<HTMLElement | null>(null);
@@ -737,6 +762,7 @@ export function App() {
   // ===== 飞书桥接 =====
 
   const feishu = useFeishuBridge();
+  const scratchPad = useScratchPad();
 
   // 当活跃 Agent 切换或绑定列表变更时，加载该 Agent 指定的飞书 Bot
   // 绑定变更后同步刷新，确保配置页断开关联后已连接状态正确反映。
@@ -911,12 +937,39 @@ export function App() {
                 name: sessionsProject?.name ?? t("common.project"),
               })
             : (activeAgent?.sessionPath ?? "");
+  const drawerContentPanel = drawer && !drawerCollapsed ? drawer : renderedDrawer;
 
   useEffect(() => {
     if (!drawerPinnedPanel) return;
     if (drawer !== drawerPinnedPanel) setDrawer(drawerPinnedPanel);
     if (drawerCollapsed) setDrawerCollapsed(false);
   }, [drawer, drawerCollapsed, drawerPinnedPanel]);
+
+  useEffect(() => {
+    if (drawerUnmountTimerRef.current) {
+      window.clearTimeout(drawerUnmountTimerRef.current);
+      drawerUnmountTimerRef.current = null;
+    }
+
+    if (drawer && !drawerCollapsed) {
+      setRenderedDrawer(drawer);
+      return;
+    }
+
+    if (!renderedDrawer) return;
+    // 抽屉收回时保留最后内容，等 grid 列宽动画结束后再卸载；否则文字会先消失，再空壳收回。
+    drawerUnmountTimerRef.current = window.setTimeout(() => {
+      setRenderedDrawer(null);
+      drawerUnmountTimerRef.current = null;
+    }, DRAWER_ANIMATION_MS);
+
+    return () => {
+      if (drawerUnmountTimerRef.current) {
+        window.clearTimeout(drawerUnmountTimerRef.current);
+        drawerUnmountTimerRef.current = null;
+      }
+    };
+  }, [drawer, drawerCollapsed, renderedDrawer]);
 
   useEffect(() => {
     document.documentElement.lang = resolvedLocale;
@@ -1077,7 +1130,7 @@ export function App() {
   useEffect(() => {
     window.setTimeout(() => void refreshProjects(), 0);
     window.setTimeout(() => void api.agents.list().then(setAgents), 0);
-    void api.editors.list().then(setExternalEditors).catch(() => setExternalEditors([]));
+    void api.editors.list().then(setExternalEditors).catch(() => undefined);
     void api.app
       .info()
       .then(setAppInfo)
@@ -1249,6 +1302,27 @@ export function App() {
       offThinking();
     };
   }, []);
+
+  // 全局快捷键：Cmd/Ctrl+Shift+S 呼出/收起草稿本；Esc 关闭
+  const scratchPadToggle = scratchPad.toggle;
+  const scratchPadClose = scratchPad.close;
+  const scratchPadIsOpen = scratchPad.isOpen;
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isSaveShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "s";
+      if (isSaveShortcut) {
+        e.preventDefault();
+        scratchPadToggle();
+        return;
+      }
+      if (e.key === "Escape" && scratchPadIsOpen) {
+        e.stopPropagation();
+        scratchPadClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [scratchPadToggle, scratchPadClose, scratchPadIsOpen]);
 
   // 桌面宠物点击跳转：主进程通知激活某 Agent，切到对应 project + agent tab
   useEffect(() => {
@@ -1620,17 +1694,6 @@ export function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, [sessionActionsOpen]);
 
-  useEffect(() => {
-    if (!fileActionsOpen) return;
-    void api.editors.list().then(setExternalEditors).catch(() => setExternalEditors([]));
-    const handler = (event: MouseEvent) => {
-      if (fileActionsRef.current && !fileActionsRef.current.contains(event.target as Node)) {
-        setFileActionsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [fileActionsOpen]);
 
   useEffect(() => {
     for (const agent of displayAgents) {
@@ -3222,6 +3285,10 @@ ${text}
     setAttachedImages([]);
     setSuggestionsOpen(false);
     setSendBehaviorMenuOpen(false);
+    // 发送后强制重置自动高度：避免粘贴多行内容后 scrollHeight 残留导致 composer 无法恢复默认高度。
+    // 下一帧 DOM 同步后再跑一次 syncComposerAutoHeight，让最终高度以清空后的 scrollHeight 为准。
+    setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
+    requestAnimationFrame(() => syncComposerAutoHeight());
     await submitPromptSnapshot(activeAgentId, message, images);
   }
 
@@ -3241,6 +3308,8 @@ ${text}
     setAttachedImages([]);
     setSuggestionsOpen(false);
     setSendBehaviorMenuOpen(false);
+    setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
+    requestAnimationFrame(() => syncComposerAutoHeight());
     await submitPromptSnapshot(activeAgentId, message, images, "followUp");
   }
 
@@ -3828,7 +3897,12 @@ ${goalTextRef.current}
           "--list-width": `${listCollapsed ? 0 : listWidth}px`,
           "--list-expanded-width": `${listWidth}px`,
           "--list-hover-width": `${Math.max(250, listWidth)}px`,
-          "--drawer-width": `${drawerCollapsed ? 0 : drawerWidth}px`,
+          // 抽屉关闭/折叠时上限也必须归零，否则常驻第 5 列会留下右侧空白。
+          "--drawer-width": `${drawer && !drawerCollapsed ? drawerWidth : 0}px`,
+          // 抽屉列下限：展开且未折叠时 260px，否则 0；实际列宽由 CSS max(下限, min(drawer-width, 38vw)) 计算。
+          // 驱动 5 列恒定 grid 平滑开合（与终端 --terminal-row-h 同理）。
+          "--drawer-col-w": `${drawer && !drawerCollapsed ? 260 : 0}px`,
+          "--drawer-splitter-w": `${drawer && !drawerCollapsed ? 6 : 0}px`,
         } as React.CSSProperties
       }
     >
@@ -4339,7 +4413,13 @@ ${goalTextRef.current}
         onPointerDown={(event) => startResize("list", event)}
       />
 
-      <main ref={chatPaneRef} className="chat-pane">
+      <main
+        ref={chatPaneRef}
+        className="chat-pane"
+        style={settings.contentMaxWidth > 0 && settings.contentMaxWidth < 1400
+          ? { "--content-max-width": `${settings.contentMaxWidth}px` } as React.CSSProperties
+          : undefined}
+      >
         <header ref={chatHeaderRef} className="chat-header">
           <div className="chat-title-block">
             <div className="chat-title-row">
@@ -4500,77 +4580,6 @@ ${goalTextRef.current}
                   )}
                 </div>
               </div>
-              <div className="header-action-group panel-group">
-                {!isLanWeb && (
-                  <>
-                    <div className="file-action-combo" ref={fileActionsRef}>
-                      <button
-                        className={drawer === "files" ? "active file-action-trigger" : "file-action-trigger"}
-                        disabled={isAgentStarting}
-                        onClick={() => setFileActionsOpen((open) => !open)}
-                        title={t("app.files")}
-                      >
-                        <span className="session-combo-label">{t("app.files")}</span>
-                        <span className={`session-combo-chevron${fileActionsOpen ? " open" : ""}`}>
-                          <ChevronDown size={12} />
-                        </span>
-                      </button>
-                      {fileActionsOpen && (
-                        <div className="file-action-menu">
-                          <button
-                            onClick={() => {
-                              setDrawerCollapsed(false);
-                              openDrawer("files");
-                              setFileActionsOpen(false);
-                            }}
-                          >
-                            <span>{t("app.showInSidebar")}</span>
-                          </button>
-                          {externalEditors.map((editor) => (
-                            <button
-                              key={editor.id}
-                              disabled={!(activeAgent?.cwd || (activeProject && !isChatProject(activeProject) ? activeProject.path : undefined))}
-                              onClick={() => {
-                                const projectPath = activeAgent?.cwd || (activeProject && !isChatProject(activeProject) ? activeProject.path : undefined);
-                                if (!projectPath) return;
-                                setFileActionsOpen(false);
-                                void api.editors.openProject(editor, projectPath).catch((error) => {
-                                  showToast(
-                                    t("app.openEditorFailed", {
-                                      error: error instanceof Error ? error.message : String(error),
-                                    }),
-                                    3000,
-                                  );
-                                });
-                              }}
-                            >
-                              <span className={`editor-logo ${editor.id}`}>
-                                {getEditorLogoUrl(editor.id) ? (
-                                  <img src={getEditorLogoUrl(editor.id)} alt="" />
-                                ) : (
-                                  editor.id.slice(0, 2).toUpperCase()
-                                )}
-                              </span>
-                              <span>{editor.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      className={terminalOpen ? "active" : ""}
-                      disabled={!activeAgentId || isAgentStarting}
-                      onClick={() => {
-                        if (!activeAgentId) return;
-                        setTerminalOpenForAgent(activeAgentId, !terminalOpen);
-                      }}
-                      title={t("app.openTerminalTitle")}
-                    >
-                      {t("app.terminal")}
-                    </button>
-                  </>
-                )}
-              </div>
             </>
           </div>
         </header>
@@ -4717,32 +4726,51 @@ ${goalTextRef.current}
             </button>
           )}
 
-        {outlineItems.length > 1 && (
+        {activeAgent && (
           <ConversationOutline
             items={outlineItems}
             onJump={handleOutlineJump}
-          />
-        )}
-
-        {!isLanWeb && terminalOpen && activeAgentId
-          && !settingsOpen
-          && !configOpen
-          && !environmentDialog && (
-          <TerminalDock
-            agentId={activeAgentId}
-            collapsed={terminalCollapsed}
-            height={terminalHeightByAgent[activeAgentId] ?? 220}
-            terminal={api.terminal}
-            onCollapsedChange={(collapsed) =>
-              setTerminalCollapsedForAgent(activeAgentId, collapsed)
-            }
-            onHeightChange={(height) =>
-              setTerminalHeightByAgent((current) => ({
-                ...current,
-                [activeAgentId]: height,
-              }))
-            }
-            onClose={() => setTerminalOpenForAgent(activeAgentId, false)}
+            extraAction={{
+              active: scratchPad.isOpen,
+              label: t("scratchPad.openTooltip"),
+              onClick: () => scratchPad.toggle(),
+              icon: <Pencil size={17} />,
+            }}
+            terminalAction={{
+              active: terminalOpen,
+              label: t("app.terminal"),
+              onClick: () => {
+                if (!activeAgentId) return;
+                setTerminalOpenForAgent(activeAgentId, !terminalOpen);
+              },
+              icon: <Terminal size={17} />,
+            }}
+            filesAction={{
+              active: drawer === "files",
+              label: t("app.files"),
+              onClick: () => {
+                if (drawer === "files" && !drawerCollapsed) {
+                  setDrawer(null);
+                } else {
+                  openDrawer("files");
+                  setDrawerCollapsed(false);
+                }
+              },
+              icon: <FolderOpen size={17} />,
+            }}
+            editorsAction={{
+              active: editorsOpen,
+              label: t("app.openWithEditor"),
+              onClick: (e) => {
+                setEditorsOpen((open) => !open);
+                const btn = (e?.currentTarget as HTMLElement)?.closest("button");
+                if (btn) {
+                  const rect = btn.getBoundingClientRect();
+                  setEditorsAnchor({ x: rect.left - 4, y: rect.top });
+                }
+              },
+              icon: <Code size={17} />,
+            }}
           />
         )}
 
@@ -4986,16 +5014,45 @@ ${goalTextRef.current}
           </div>
         </footer>
         )}
+
+        {!isLanWeb && activeAgentId && !settingsOpen && !configOpen && !environmentDialog && (
+          <TerminalDock
+            agentId={activeAgentId}
+            open={terminalOpen}
+            collapsed={terminalCollapsed}
+            height={terminalHeightByAgent[activeAgentId] ?? 220}
+            terminal={api.terminal}
+            onCollapsedChange={(collapsed) =>
+              setTerminalCollapsedForAgent(activeAgentId, collapsed)
+            }
+            onHeightChange={(height) =>
+              setTerminalHeightByAgent((current) => ({
+                ...current,
+                [activeAgentId]: height,
+              }))
+            }
+            onClose={() => setTerminalOpenForAgent(activeAgentId, false)}
+          />
+        )}
       </main>
 
-      {drawer && !drawerCollapsed && (
-        <div
-          className="splitter splitter-right"
-          onPointerDown={(event) => startResize("drawer", event)}
-        />
-      )}
-      {drawer && !drawerCollapsed && (
-        <aside className="detail-drawer">
+      {/* 右侧分隔条常驻 grid 列 4，宽度由 --drawer-splitter-w 驱动（0/6px）；
+          关闭/折叠时宽度 0 且 pointer-events:none，避免遮挡会话区。 */}
+      <div
+        className="splitter splitter-right"
+        data-active={drawer && !drawerCollapsed}
+        onPointerDown={(event) =>
+          drawer && !drawerCollapsed && startResize("drawer", event)
+        }
+      />
+      {/* 抽屉壳常驻 grid 列 5，宽度由 --drawer-col-w 驱动平滑开合；
+          收回时保留内容到动画结束，让文字随面板一起被 overflow 裁切。 */}
+      <aside
+        className="detail-drawer"
+        data-open={drawer && !drawerCollapsed}
+        data-rendered={Boolean(drawerContentPanel)}
+      >
+        {drawerContentPanel && (
           <LazyWrapper
             className="drawer-content-frame"
             enabled={true}
@@ -5015,8 +5072,8 @@ ${goalTextRef.current}
             }
           >
             <DrawerContent
-              panel={drawer}
-              project={drawer === "sessions" ? sessionsProject : undefined}
+              panel={drawerContentPanel}
+              project={drawerContentPanel === "sessions" ? sessionsProject : undefined}
               files={files}
               sessions={(sessionsProjectId && sessionSourceFilter[sessionsProjectId]) ? sessions.filter(
                 (s) => (sessionSourceFilter[sessionsProjectId]!)!.has(s.source ?? "pi"),
@@ -5061,8 +5118,8 @@ ${goalTextRef.current}
               onOpenFile={openFilePath}
             />
           </LazyWrapper>
-        </aside>
-      )}
+        )}
+      </aside>
       {drawer && drawerCollapsed && (
         <button
           className="drawer-restore"
@@ -5629,6 +5686,76 @@ ${goalTextRef.current}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Scratch Pad（草稿本）：根级渲染，避免受 chat-pane grid 影响定位 */}
+      {scratchPad.isOpen || scratchPad.isClosing ? (
+        <div className={`scratch-pad-overlay${scratchPad.isClosing ? " closing" : ""}`} onClick={() => scratchPad.close()}>
+          <ScratchPadPanel
+            content={scratchPad.content}
+            mode={scratchPad.mode}
+            isClosing={scratchPad.isClosing}
+            isSaving={scratchPad.isSaving}
+            hasError={scratchPad.hasError}
+            onChangeContent={scratchPad.setContent}
+            onSetMode={scratchPad.setMode}
+            onToggleCheckbox={scratchPad.toggleTaskCheckbox}
+            onExport={() => void scratchPad.exportFile()}
+          />
+        </div>
+      ) : null}
+
+      {/* 外部编辑器选择气泡 */}
+      {editorsOpen && editorsAnchor && (
+        <div
+          ref={editorsRef}
+          className="editors-popover"
+          style={{
+            position: "fixed",
+            right: window.innerWidth - editorsAnchor.x,
+            top: editorsAnchor.y,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {externalEditors.length === 0 ? (
+            <div className="editors-popover-empty">{t("app.noExternalEditors")}</div>
+          ) : (
+            externalEditors.map((editor) => (
+              <button
+                key={editor.id}
+                className="editors-popover-item"
+                onClick={() => {
+                  const projectPath =
+                    activeAgent?.cwd ||
+                    (activeProject && !isChatProject(activeProject)
+                      ? activeProject.path
+                      : undefined);
+                  if (projectPath) {
+                    void api.editors.openProject(editor, projectPath).catch((error) => {
+                      showToast(
+                        t("app.openEditorFailed", {
+                          error: error instanceof Error ? error.message : String(error),
+                        }),
+                        3000,
+                      );
+                    });
+                  }
+                  setEditorsOpen(false);
+                  setEditorsAnchor(null);
+                }}
+              >
+                <span className={`editor-logo ${editor.id}`}>
+                  {getEditorLogoUrl(editor.id) ? (
+                    <img src={getEditorLogoUrl(editor.id)} alt="" />
+                  ) : (
+                    editor.id.slice(0, 2).toUpperCase()
+                  )}
+                </span>
+                <span>{editor.name}</span>
+              </button>
+            ))
+          )}
         </div>
       )}
 

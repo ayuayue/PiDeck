@@ -276,6 +276,30 @@ export function SettingsModal(props: {
 										}
 									/>
 								</SettingsSection>
+								<SettingsSection title={t("settings.contentMaxWidth")} description={t("settings.contentMaxWidthDesc")}>
+									<div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", maxWidth: 480 }}>
+										<input
+											type="range"
+											min="50"
+											max="1400"
+											step="50"
+											value={props.settings.contentMaxWidth}
+											onChange={(event) => props.onChange({ contentMaxWidth: parseInt(event.target.value) })}
+											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}
+										/>
+										<span style={{
+											fontFamily: "var(--font-family-business)",
+											fontSize: "var(--font-size-sm)",
+											color: "var(--color-text-muted)",
+											minWidth: 80,
+											textAlign: "right",
+										}}>
+											{props.settings.contentMaxWidth === 1400
+												? t("settings.contentMaxWidthUnlimited")
+												: `${props.settings.contentMaxWidth}px`}
+										</span>
+									</div>
+								</SettingsSection>
 								<SettingsSection title={t("settings.notificationSection")}>
 									<SettingSwitch
 										title={t("settings.closeToTray")}
@@ -699,7 +723,7 @@ export function SettingsModal(props: {
 											step="1"
 											value={props.settings.petPatrolPauseMin ?? 5}
 											onChange={(event) => props.onChange({ petPatrolPauseMin: parseInt(event.target.value) })}
-											style={{ flex: 1, accentColor: "var(--color-accent)" }}
+											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}
 										/>
 										<span style={{
 											fontFamily: "var(--font-family-business)",
@@ -752,7 +776,7 @@ export function SettingsModal(props: {
 											step="0.05"
 											value={props.settings.petScale ?? 1}
 											onChange={(event) => props.onChange({ petScale: parseFloat(event.target.value) })}
-											style={{ flex: 1, accentColor: "var(--color-accent)" }}
+											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}
 										/>
 										<span style={{
 											fontFamily: "var(--font-family-business)",

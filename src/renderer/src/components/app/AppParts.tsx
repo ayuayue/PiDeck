@@ -2673,9 +2673,20 @@ function formatRpcLogForCopy(log: {
 	});
 }
 
+type EntryAction = {
+	active?: boolean;
+	label: string;
+	onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+	icon: ReactNode;
+};
+
 export function ConversationOutline(props: {
 	items: Array<{ id: string; role: string; title: string; time: string }>;
 	onJump: (id: string) => void;
+	extraAction?: EntryAction;
+	terminalAction?: EntryAction;
+	filesAction?: EntryAction;
+	editorsAction?: EntryAction & { anchorRef?: React.RefObject<HTMLButtonElement | null> };
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const [dragging, setDragging] = useState(false);
@@ -2727,14 +2738,17 @@ export function ConversationOutline(props: {
 			className={`outline-hover${dragging ? " dragging" : ""}`}
 			style={{ top }}
 		>
-			<button
-				className="outline-trigger"
-				title={t("outline.trigger", { count: props.items.length })}
-				onPointerDown={startDrag}
-			>
-				☰
-			</button>
-			<nav className="conversation-outline">
+			<div className="outline-zone">
+				<button
+					className={`outline-trigger${props.items.length > 0 ? "" : " is-disabled"}`}
+					disabled={props.items.length === 0}
+					title={t("outline.trigger", { count: props.items.length })}
+					onPointerDown={props.items.length > 0 ? startDrag : undefined}
+				>
+					☰
+				</button>
+				{props.items.length > 0 && (
+				<nav className="conversation-outline">
 				<div className="outline-title">
 					<span
 						className="outline-drag-handle"
@@ -2768,7 +2782,53 @@ export function ConversationOutline(props: {
 						</button>
 					))}
 				</div>
-			</nav>
+				</nav>
+				)}
+			</div>
+			{props.extraAction && (
+				<button
+					type="button"
+					className={`scratch-pad-entry${props.extraAction.active ? " active" : ""}`}
+					title={props.extraAction.label}
+					aria-label={props.extraAction.label}
+					onClick={props.extraAction.onClick}
+				>
+					{props.extraAction.icon}
+				</button>
+			)}
+			{props.terminalAction && (
+				<button
+					type="button"
+					className={`terminal-entry${props.terminalAction.active ? " active" : ""}`}
+					title={props.terminalAction.label}
+					aria-label={props.terminalAction.label}
+					onClick={props.terminalAction.onClick}
+				>
+					{props.terminalAction.icon}
+				</button>
+			)}
+			{props.filesAction && (
+				<button
+					type="button"
+					className={`files-entry${props.filesAction.active ? " active" : ""}`}
+					title={props.filesAction.label}
+					aria-label={props.filesAction.label}
+					onClick={props.filesAction.onClick}
+				>
+					{props.filesAction.icon}
+				</button>
+			)}
+			{props.editorsAction && (
+				<button
+					type="button"
+					className={`editors-entry${props.editorsAction.active ? " active" : ""}`}
+					title={props.editorsAction.label}
+					aria-label={props.editorsAction.label}
+					onClick={props.editorsAction.onClick}
+				>
+					{props.editorsAction.icon}
+				</button>
+			)}
 		</div>
 	);
 }

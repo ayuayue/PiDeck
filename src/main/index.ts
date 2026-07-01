@@ -12,7 +12,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
 import {
@@ -1182,6 +1182,37 @@ function registerIpc() {
 		const result = await fileSystemService.rename(path, newName);
 		void appLogger.info("file", "File renamed", { path, newName, result });
 		return result;
+	});
+
+	// Scratch Pad（草稿本）：全局独立 Markdown 区域，不绑定项目/Agent
+	const scratchPadPath = join(app.getPath("userData"), "scratch-pad.md");
+
+	ipcMain.handle(ipcChannels.scratchPadLoad, async () => {
+		try {
+			const content = await readFile(scratchPadPath, "utf8");
+			const fileStat = await stat(scratchPadPath);
+			return { content, lastEditedAt: fileStat.mtimeMs, cursorPosition: 0 };
+		} catch {
+			// 文件不存在时返回空内容
+			await writeFile(scratchPadPath, "", "utf8");
+			return { content: "", lastEditedAt: 0, cursorPosition: 0 };
+		}
+	});
+
+	ipcMain.handle(ipcChannels.scratchPadSave, async (_event, content: string, cursorPosition: number) => {
+		await writeFile(scratchPadPath, content, "utf8");
+		void appLogger.info("scratchPad", "saved", { bytes: Buffer.byteLength(content, "utf8"), cursorPosition });
+	});
+
+	ipcMain.handle(ipcChannels.scratchPadExport, async () => {
+		const { canceled, filePath } = await dialog.showSaveDialog({
+			defaultPath: "scratch-pad.md",
+			filters: [{ name: "Markdown", extensions: ["md"] }],
+		});
+		if (canceled || !filePath) return false;
+		const content = await readFile(scratchPadPath, "utf8");
+		await writeFile(filePath, content, "utf8");
+		return true;
 	});
 
 	ipcMain.handle(

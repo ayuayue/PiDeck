@@ -50,6 +50,7 @@ import type {
 	PiSkillListResult,
 	PiSkillSummary,
 	Project,
+	ScratchPadData,
 	SendPromptInput,
 	SessionSummary,
 	TerminalDataEvent,
@@ -692,6 +693,12 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.feishuSessionBotGet, agentId) as Promise<string | null>,
 		sessionBotSet: (agentId: string, botId: string | null) =>
 			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, agentId, botId) as Promise<void>,
+	},
+	scratchPad: {
+		load: () => ipcRenderer.invoke(ipcChannels.scratchPadLoad) as Promise<ScratchPadData>,
+		save: (content: string, cursorPosition: number) =>
+			ipcRenderer.invoke(ipcChannels.scratchPadSave, content, cursorPosition) as Promise<void>,
+		export: () => ipcRenderer.invoke(ipcChannels.scratchPadExport) as Promise<boolean>,
 	},
 };
 

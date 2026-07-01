@@ -28,6 +28,7 @@ const defaultSettings: AppSettings = {
   webServicePort: 8765,
   rpcTimeout: 600_000,
   linkOpenMode: "external",
+  contentMaxWidth: 1400,
   maxEditorFileSizeMB: 5,
   externalEditors: createDefaultExternalEditorSettings(),
 

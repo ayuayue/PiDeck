@@ -328,6 +328,8 @@ export type AppSettings = {
 	rpcTimeout: number;
 	/** 外部链接打开方式：external 使用系统默认浏览器，internal 使用应用内独立窗口 */
 	linkOpenMode: LinkOpenMode;
+	/** 内容区最大宽度（px），0 表示不限制（填满 chat-pane）。用于限制消息行宽，左右留白。 */
+	contentMaxWidth: number;
 	/** 编辑器最大文件大小（MB），超过此大小的文件不加载编辑器。默认 5MB。 */
 	maxEditorFileSizeMB: number;
 	/** 外部编辑器配置：首次异步检测后保存，用户可在设置中手动覆盖路径。 */
@@ -689,6 +691,12 @@ export type FeishuChatBinding = {
 	chatType: "p2p" | "group";
 	groupName?: string;
 	createdAt: number;
+};
+
+export type ScratchPadData = {
+	content: string;
+	lastEditedAt: number;
+	cursorPosition: number;
 };
 
 export type FeishuChatMessage = {

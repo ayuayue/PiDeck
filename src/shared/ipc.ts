@@ -212,6 +212,11 @@ export const ipcChannels = {
 	/** 宠物窗 → 主进程：请求显示右键上下文菜单 */
 	petContextMenu: "pet:context-menu",
 
+	// ===== Scratch Pad（草稿本） =====
+	scratchPadLoad: "scratch-pad:load",
+	scratchPadSave: "scratch-pad:save",
+	scratchPadExport: "scratch-pad:export",
+
 	// ── 调试工具 ──
 	/** 设置面板 → 主进程：发送测试通知（调试弹窗样式） */
 	petTestNotify: "pet:test-notify",

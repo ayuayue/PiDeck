@@ -1,5 +1,6 @@
 import {
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 	type MouseEvent as ReactMouseEvent,
@@ -76,6 +77,7 @@ function stripReplayBuffer(tab: TerminalTab): TerminalTab {
 
 export function TerminalDock(props: {
 	agentId: string;
+	open: boolean;
 	collapsed: boolean;
 	height: number;
 	terminal: PiDesktopApi["terminal"];
@@ -105,7 +107,7 @@ export function TerminalDock(props: {
 		themeId === "pi-soft" && appTheme === "dark" && "xtermDark" in theme
 			? theme.xtermDark
 			: theme.xterm;
-	const { collapsed } = props;
+	const { open, collapsed } = props;
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -176,8 +178,15 @@ export function TerminalDock(props: {
 		};
 	}, [props.terminal]);
 
+	useLayoutEffect(() => {
+		// 通过 CSS 变量驱动 chat-pane 的 grid-template-rows 过渡，
+		// 使容器开合动画与消息区压缩同步。
+		const chatPane = containerRef.current?.closest('.chat-pane') as HTMLElement | null;
+		if (!chatPane) return;
+		chatPane.style.setProperty('--terminal-row-h', !open ? '0px' : (collapsed ? '34px' : `${props.height}px`));
+	}, [open, collapsed, props.height]);
+
 	useEffect(() => {
-		xtermRef.current?.dispose();
 		xtermRef.current = null;
 		fitRef.current = null;
 		if (collapsed || !activeTab || !containerRef.current) return;
@@ -334,6 +343,7 @@ export function TerminalDock(props: {
 		<section
 			className={`terminal-dock${collapsed ? " collapsed" : ""}`}
 			data-theme={themeId}
+			data-open={open}
 			style={{ height: collapsed ? 34 : props.height }}
 		>
 			<div

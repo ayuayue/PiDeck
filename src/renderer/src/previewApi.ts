@@ -143,6 +143,7 @@ let previewSettings: AppSettings = {
 	webServicePort: 8765,
 	rpcTimeout: 600_000,
 	linkOpenMode: "external",
+	contentMaxWidth: 1400,
 	maxEditorFileSizeMB: 5,
 	externalEditors: createDefaultExternalEditorSettings(),
 
@@ -650,6 +651,11 @@ export function createPreviewApi(): PiDesktopApi {
 			onWhoamiResult: () => () => {},
 			sessionBotGet: async () => null,
 			sessionBotSet: async () => {},
+		},
+		scratchPad: {
+			load: async () => ({ content: "", lastEditedAt: 0, cursorPosition: 0 }),
+			save: async () => undefined,
+			export: async () => false,
 		},
 	};
 }

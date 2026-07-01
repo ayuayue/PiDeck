@@ -58,6 +58,10 @@
 	--color-accent: #238636;
 	--color-accent-strong: #1f7a32;
 	--color-accent-soft: #e9f6ed;
+	--color-scratch-pad-bg: #faf6ee;
+	--color-scratch-pad-border: #e8e2d4;
+	--color-scratch-pad-ink: #5c5347;
+	--color-scratch-pad-ink-faint: #9b9080;
 	--color-brand-green: #0f766e;
 	--color-brand-blue: #2563eb;
 	--color-brand-purple: #7c3aed;
@@ -153,6 +157,11 @@
 	--color-bg-muted: #f8f8f5;
 	--color-bg-hover: #f0f1ed;
 }
+:root[data-theme="light"][data-light-background="warm"] .chat-pane,
+:root[data-theme="light"][data-light-background="warm"] .composer,
+:root[data-theme="light"][data-light-background="warm"] .composer-box {
+	background: #fbfaf7;
+}
 
 :root[data-theme="light"][data-light-background="paper"] {
 	--color-bg-app: #fffaf0;
@@ -212,6 +221,11 @@
 	--shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.55);
 	--shadow-composer: 0 8px 28px rgba(0, 0, 0, 0.28);
 	--shadow-drawer: -8px 0 24px rgba(0, 0, 0, 0.32);
+	/* Scratch Pad 暗色：深褐调，保持纸感温度 */
+	--color-scratch-pad-bg: #1f1c18;
+	--color-scratch-pad-border: #2e2a25;
+	--color-scratch-pad-ink: #d5cec4;
+	--color-scratch-pad-ink-faint: #8a8378;
 	--focus-ring: 0 0 0 2px rgba(85, 215, 116, 0.28);
 	--overlay-backdrop: rgba(0, 0, 0, 0.48);
 	--overlay-backdrop-soft: rgba(0, 0, 0, 0.4);
@@ -572,14 +586,25 @@ select:focus-visible {
 	--list-expanded-width: 250px;
 	--list-hover-width: 320px;
 	--drawer-width: 270px;
+	/* 抽屉列下限 / 分隔条列宽由 JS 按 open+collapsed 状态注入：
+	   关闭或折叠时为 0，展开时抽屉下限 260px、分隔条 6px。
+	   保持 5 列轨道恒定，grid-template-columns 才能在开合间平滑插值（与终端 --terminal-row-h 同理）。 */
+	--drawer-col-w: 0px;
+	--drawer-splitter-w: 0px;
 	--window-drag-height: 0px;
 	height: 100vh;
 	min-height: 0;
 	display: grid;
-	grid-template-columns: var(--list-width) 6px minmax(0, 1fr);
+	grid-template-columns:
+		var(--list-width) 6px minmax(0, 1fr)
+		var(--drawer-splitter-w) max(var(--drawer-col-w), min(var(--drawer-width), 38vw));
 	grid-template-rows: minmax(0, 1fr);
 	background: var(--color-bg-app);
-	transition: grid-template-columns 0.18s ease;
+	transition: grid-template-columns 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 拖拽调整列宽时禁用过渡，避免宽度变化跟手延迟。 */
+body.is-resizing .wechat-shell {
+	transition: none;
 }
 .wechat-shell.custom-titlebar-enabled {
 	--window-drag-height: 40px;
@@ -664,30 +689,12 @@ select:focus-visible {
 .custom-titlebar-enabled button {
 	-webkit-app-region: no-drag;
 }
-.wechat-shell.drawer-open {
-	grid-template-columns:
-		var(--list-width)
-		6px
-		minmax(0, 1fr)
-		6px
-		minmax(260px, min(var(--drawer-width), 38vw));
-}
-.wechat-shell.drawer-open.drawer-collapsed {
-	grid-template-columns: var(--list-width) 6px minmax(0, 1fr);
-}
+/* 抽屉开合已由 --drawer-col-w / --drawer-splitter-w 驱动 5 列恒定模板平滑过渡，
+   不再需要按 drawer-open / drawer-collapsed 切换轨道数。保留 class 仅为语义/选择器兼容。 */
 .wechat-shell.list-collapsed {
-	grid-template-columns: 0 0 minmax(0, 1fr);
-}
-.wechat-shell.list-collapsed.drawer-open {
 	grid-template-columns:
-		0
-		0
-		minmax(0, 1fr)
-		6px
-		minmax(260px, min(var(--drawer-width), 38vw));
-}
-.wechat-shell.list-collapsed.drawer-open.drawer-collapsed {
-	grid-template-columns: 0 0 minmax(0, 1fr);
+		0 0 minmax(0, 1fr)
+		var(--drawer-splitter-w) max(var(--drawer-col-w), min(var(--drawer-width), 38vw));
 }
 
 .chat-list-pane {
@@ -1479,6 +1486,14 @@ body:not(.is-list-resizing) .list-collapsed:not(.list-hover-suppressed) .chat-li
 .splitter-right {
 	grid-column: 4;
 }
+/* 右侧分隔条宽度由 --drawer-splitter-w 驱动；关闭/折叠时宽度 0 且不响应交互。 */
+.splitter-right:not([data-active="true"]) {
+	pointer-events: none;
+}
+.splitter-right:not([data-active="true"])::before,
+.splitter-right:not([data-active="true"])::after {
+	opacity: 0;
+}
 .splitter::before {
 	content: "";
 	position: absolute;
@@ -1519,13 +1534,28 @@ body.is-terminal-resizing {
 	position: relative;
 	grid-column: 3;
 	display: grid;
-	grid-template-rows: auto minmax(0, 1fr) auto auto;
+	--terminal-row-h: 0px;
+	grid-template-rows: auto minmax(0, 1fr) auto var(--terminal-row-h);
 	min-width: 0;
 	min-height: 0;
-	background: var(--color-bg-muted);
+	background: #fcfcfc;
 	border-top-left-radius: var(--radius-lg);
 	border-bottom-left-radius: var(--radius-lg);
 	overflow: hidden;
+	transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── 内容行宽限制：仅在 --content-max-width 由 JS 注入时生效 ── */
+.chat-pane[style*="--content-max-width"] .message-list {
+	width: min(100%, var(--content-max-width));
+	max-width: var(--content-max-width);
+	margin-inline: auto;
+}
+.chat-pane[style*="--content-max-width"] .composer-box,
+.chat-pane[style*="--content-max-width"] .image-preview-area {
+	width: min(100%, var(--content-max-width));
+	max-width: var(--content-max-width);
+	margin-inline: auto;
 }
 .chat-header {
 	display: grid;
@@ -2201,13 +2231,11 @@ body.is-terminal-resizing {
 	position: relative;
 	z-index: 0;
 	min-height: 120px;
-	max-height: 45vh;
 	border-top: 1px solid var(--terminal-border);
 	background: var(--terminal-panel);
 	color: var(--terminal-fg);
 	display: grid;
 	grid-template-rows: 34px minmax(0, 1fr);
-	overflow: visible;
 	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 	z-index: 60;
 }
@@ -3439,8 +3467,8 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	width: fit-content;
 	max-width: min(82%, 64ch);
 	min-width: 0;
-	background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-panel));
-	border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border-subtle));
+	background: var(--color-bg-panel);
+	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-lg);
 	padding: 9px 13px;
 	overflow-wrap: anywhere;
@@ -3736,10 +3764,10 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 }
 
 .composer {
-	background: var(--color-bg-muted);
-	border-top: 1px solid var(--color-border-subtle);
+	background: #fcfcfc;
 	padding: var(--space-1) var(--space-2) var(--space-1);
 	min-width: 0;
+	margin-bottom: 10px;
 	/* 飞书 Bot 弹框从 toolbar 向上展开，外层不能裁剪浮层。 */
 	overflow: visible;
 	display: flex;
@@ -3754,7 +3782,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	display: grid;
 	grid-template-rows: 32px minmax(48px, 1fr) 32px;
 	border: 1px solid var(--color-border-subtle);
-	background: var(--color-bg-panel);
+	background: #fcfcfc;
 	border-radius: var(--radius-lg);
 	box-shadow: var(--shadow-composer);
 	/* 只让 textarea 自己滚动，避免 toolbar 弹框被输入框边界裁掉。 */
@@ -4227,6 +4255,14 @@ body.is-composer-resizing .composer-resize-handle::after {
 	flex-direction: column;
 	box-shadow: var(--shadow-drawer);
 	overflow: hidden;
+	/* 常驻 grid 列 5；关闭/折叠时列宽为 0，内容由 App 保留到动画结束再卸载。 */
+	transition: box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.detail-drawer:not([data-rendered="true"]) {
+	box-shadow: none;
+}
+.detail-drawer:not([data-open="true"]) {
+	pointer-events: none;
 }
 .drawer-header {
 	height: 58px;
@@ -5273,6 +5309,15 @@ body.is-composer-resizing .composer-resize-handle::after {
 	position: absolute;
 	right: 18px;
 	z-index: 8;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 5px;
+}
+.outline-zone {
+	position: relative;
+	width: 34px;
+	height: 34px;
 }
 .outline-trigger {
 	width: 34px;
@@ -5285,13 +5330,20 @@ body.is-composer-resizing .composer-resize-handle::after {
 	display: grid;
 	place-items: center;
 	font-size: var(--font-size-body);
-	box-shadow: var(--shadow-popover);
 	cursor: ns-resize;
 	touch-action: none;
 }
 .outline-trigger:hover {
 	color: var(--color-accent);
 	border-color: var(--color-accent);
+}
+.outline-trigger.is-disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+.outline-trigger.is-disabled:hover {
+	color: var(--color-text-tertiary);
+	border-color: var(--color-border-subtle);
 }
 .conversation-outline {
 	position: absolute;
@@ -5305,21 +5357,20 @@ body.is-composer-resizing .composer-resize-handle::after {
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-lg);
 	background: var(--color-bg-panel);
-	box-shadow: var(--shadow-popover);
 	opacity: 0;
 	pointer-events: none;
 	transition:
 		opacity 0.14s ease,
 		transform 0.14s ease;
 }
-.outline-hover:hover .conversation-outline,
+.outline-zone:hover .conversation-outline,
 .outline-hover.dragging .conversation-outline {
 	opacity: 1;
 	pointer-events: auto;
 	transform: translateX(0);
 }
-.outline-hover:hover .outline-trigger,
-.outline-hover.dragging .outline-trigger {
+.outline-zone:hover .outline-trigger:not(.is-disabled),
+.outline-hover.dragging .outline-trigger:not(.is-disabled) {
 	opacity: 0;
 }
 .outline-title {
@@ -5406,6 +5457,114 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .conversation-outline .outline-user strong {
 	color: var(--color-info);
+}
+.scratch-pad-entry {
+	position: static;
+	width: 34px;
+	height: 34px;
+	border: 1px solid var(--color-border-subtle);
+	background: var(--color-bg-panel);
+	color: var(--color-text-tertiary);
+	border-radius: var(--radius-lg);
+	padding: 0;
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+}
+.scratch-pad-entry:hover,
+.scratch-pad-entry.active {
+	color: var(--color-accent);
+	border-color: var(--color-accent);
+}
+.terminal-entry {
+	position: static;
+	width: 34px;
+	height: 34px;
+	border: 1px solid var(--color-border-subtle);
+	background: var(--color-bg-panel);
+	color: var(--color-text-tertiary);
+	border-radius: var(--radius-lg);
+	padding: 0;
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+}
+.terminal-entry:hover,
+.terminal-entry.active {
+	color: var(--color-accent);
+	border-color: var(--color-accent);
+}
+.files-entry {
+	position: static;
+	width: 34px;
+	height: 34px;
+	border: 1px solid var(--color-border-subtle);
+	background: var(--color-bg-panel);
+	color: var(--color-text-tertiary);
+	border-radius: var(--radius-lg);
+	padding: 0;
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+}
+.files-entry:hover,
+.files-entry.active {
+	color: var(--color-accent);
+	border-color: var(--color-accent);
+}
+.editors-entry {
+	position: static;
+	width: 34px;
+	height: 34px;
+	border: 1px solid var(--color-border-subtle);
+	background: var(--color-bg-panel);
+	color: var(--color-text-tertiary);
+	border-radius: var(--radius-lg);
+	padding: 0;
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+}
+.editors-entry:hover,
+.editors-entry.active {
+	color: var(--color-accent);
+	border-color: var(--color-accent);
+}
+.editors-popover {
+	position: fixed;
+	z-index: 100;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: var(--space-2);
+	background: var(--color-bg-panel);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-lg);
+	max-height: 240px;
+	overflow-y: auto;
+}
+.editors-popover-item {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 6px 10px;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	font-size: var(--font-size-control);
+	width: 100%;
+	text-align: left;
+}
+.editors-popover-item:hover {
+	background: var(--color-bg-hover);
+	color: var(--color-text-primary);
+}
+.editors-popover-empty {
+	padding: 8px 12px;
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-caption);
 }
 @media (max-width: 1280px) {
 	.outline-hover {
@@ -11989,4 +12148,414 @@ a.config-btn {
 	font-size: var(--font-size-caption);
 	font-weight: 500;
 	color: var(--color-text-secondary);
+}
+
+/* ---------- Scratch Pad（草稿本） ---------- */
+.scratch-pad-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 100;
+	background: rgba(62, 52, 38, 0.05);
+	backdrop-filter: blur(2px);
+	animation: scratch-pad-backdrop-enter 180ms ease-out forwards;
+}
+
+.scratch-pad-overlay.closing {
+	animation: scratch-pad-backdrop-exit 160ms ease-in forwards;
+}
+
+.scratch-pad-panel {
+	position: fixed;
+	right: 18px;
+	top: 20vh;
+	z-index: 101;
+	width: 540px;
+	max-width: calc(100vw - 36px);
+	height: min(640px, 68vh);
+	display: flex;
+	flex-direction: column;
+	background:
+		radial-gradient(ellipse at 50% 0%, rgba(255, 252, 244, 0.98) 0%, var(--color-scratch-pad-bg, #faf6ee) 100%),
+		var(--color-scratch-pad-bg, #faf6ee);
+	border: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	border-radius: 10px;
+	box-shadow:
+		0 2px 4px rgba(90, 78, 58, 0.06),
+		0 8px 24px rgba(90, 78, 58, 0.08),
+		0 24px 48px rgba(90, 78, 58, 0.10);
+	overflow: hidden;
+	transform-origin: top right;
+	animation: scratch-pad-enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+	will-change: opacity, transform;
+}
+
+.scratch-pad-panel.closing {
+	animation: scratch-pad-exit 150ms ease-in forwards;
+}
+
+@keyframes scratch-pad-backdrop-enter {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes scratch-pad-backdrop-exit {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+
+@keyframes scratch-pad-enter {
+	from {
+		opacity: 0;
+		transform: translate3d(10px, -8px, 0) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+}
+
+@keyframes scratch-pad-exit {
+	from {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: translate3d(6px, -4px, 0) scale(0.99);
+	}
+}
+
+.scratch-pad-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 40px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	flex-shrink: 0;
+	background: linear-gradient(180deg, rgba(255, 252, 244, 0.6) 0%, transparent 100%);
+}
+
+.scratch-pad-title {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--color-scratch-pad-ink, #5c5347);
+	font-size: var(--font-size-sm);
+	font-weight: 500;
+}
+
+.scratch-pad-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	margin-left: auto;
+	padding: 3px;
+	border: 1px solid rgba(139, 120, 92, 0.18);
+	border-radius: var(--radius-md);
+	background: rgba(255, 252, 244, 0.48);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+	flex-wrap: nowrap;
+}
+
+.scratch-pad-content {
+	flex: 1;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.scratch-pad-editor {
+	flex: 1;
+	width: 100%;
+	border: none;
+	outline: none;
+	resize: none;
+	padding: 14px 18px;
+	background: transparent;
+	color: var(--color-scratch-pad-ink, #3d3629);
+	font-family: var(--font-family-mono);
+	font-size: var(--font-size-sm);
+	line-height: var(--line-height-relaxed, 1.7);
+}
+
+.scratch-pad-editor::placeholder {
+	color: var(--color-scratch-pad-ink-faint, #9b9080);
+}
+
+.scratch-pad-preview {
+	flex: 1;
+	overflow-y: auto;
+	padding: 14px 18px;
+	color: var(--color-scratch-pad-ink, #3d3629);
+}
+
+.scratch-pad-status {
+	height: 28px;
+	padding: 0 18px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	border-top: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	background: linear-gradient(0deg, rgba(255, 252, 244, 0.5) 0%, transparent 100%);
+	flex-shrink: 0;
+}
+
+.scratch-pad-status-text {
+	font-size: var(--font-size-caption, 11px);
+	color: var(--color-scratch-pad-ink-faint, #9b9080);
+}
+
+.scratch-pad-status.error .scratch-pad-status-text {
+	color: var(--color-danger, #b42318);
+}
+
+/* ---------- Scratch Pad 头部按钮 ---------- */
+.scratch-pad-btn {
+	color: var(--color-scratch-pad-ink-faint, #9b9080);
+}
+
+.scratch-pad-btn:hover {
+	color: var(--color-scratch-pad-ink, #5c5347);
+}
+
+.scratch-pad-btn.active {
+	color: var(--color-scratch-pad-ink, #3d3629);
+}
+
+.scratch-pad-tool-btn {}
+
+/* ---------- Scratch Pad in-panel button ---------- */
+button.scratch-pad-tool-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	width: auto;
+	min-width: 0;
+	height: 30px;
+	padding: 0 8px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	box-shadow: none;
+}
+
+button.scratch-pad-tool-btn:hover {
+	color: var(--color-scratch-pad-ink, #5c5347);
+	border-color: rgba(139, 120, 92, 0.2);
+	background: rgba(255, 248, 232, 0.72);
+}
+
+button.scratch-pad-tool-btn.active {
+	color: var(--color-scratch-pad-ink, #3d3629);
+	border-color: rgba(139, 120, 92, 0.26);
+	background: rgba(245, 232, 202, 0.7);
+	box-shadow: inset 0 1px 2px rgba(90, 78, 58, 0.08);
+}
+
+.scratch-pad-tool-text {
+	font-size: var(--font-size-caption, 12px);
+	white-space: nowrap;
+}
+
+.scratch-pad-kbd {
+	font-family: var(--font-family-mono);
+	font-size: 11px;
+	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	margin-left: 6px;
+}
+
+/* ---------- Obsidian 风格 markdown 渲染 ---------- */
+.scratch-pad-md {
+	color: var(--color-scratch-pad-ink, #3d3629);
+	font-family: var(--font-family-base, system-ui, -apple-system, sans-serif);
+	font-size: var(--font-size-sm, 14px);
+	line-height: var(--color-scratch-pad-line, 1.7);
+	letter-spacing: 0.01em;
+	word-break: break-word;
+}
+
+/* 标题：整体偏小、字重调低，呈现 Obsidian 的克制感 */
+.scratch-pad-md h1,
+.scratch-pad-md h2,
+.scratch-pad-md h3,
+.scratch-pad-md h4,
+.scratch-pad-md h5,
+.scratch-pad-md h6 {
+	margin: 1.6em 0 0.5em;
+	line-height: 1.35;
+	font-weight: 600;
+	color: var(--color-scratch-pad-ink, #3d3629);
+	letter-spacing: -0.01em;
+}
+
+.scratch-pad-md h1 { font-size: 2em; border-bottom: 1px solid var(--color-scratch-pad-border, #e8e2d4); padding-bottom: 0.25em; }
+.scratch-pad-md h2 { font-size: 1.6em; }
+.scratch-pad-md h3 { font-size: 1.4em; font-weight: 600; }
+.scratch-pad-md h4 { font-size: 1.2em; font-weight: 600; }
+.scratch-pad-md h5 { font-size: 1.08em; font-weight: 600; }
+.scratch-pad-md h6 { font-size: 1em; font-weight: 500; }
+
+.scratch-pad-md p {
+	margin: 0.6em 0;
+}
+
+.scratch-pad-md a {
+	color: var(--color-accent, #5c7a99);
+	text-decoration: none;
+}
+
+.scratch-pad-md a:hover {
+	text-decoration: underline;
+}
+
+/* 引用块：左侧竖线 + 浅底色 */
+.scratch-pad-md blockquote {
+	margin: 0.8em 0;
+	padding: 0.5em 1em;
+	border-left: 3px solid var(--color-accent, #a3b5c7);
+	background: rgba(90, 78, 58, 0.035);
+	color: var(--color-scratch-pad-ink-faint, #6c6358);
+	border-radius: 0 6px 6px 0;
+}
+
+.scratch-pad-md blockquote p {
+	margin: 0.4em 0;
+}
+
+/* 列表：缩进 + 标记颜色 */
+.scratch-pad-md ul,
+.scratch-pad-md ol {
+	margin: 0.5em 0;
+	padding-left: 1.6em;
+}
+
+.scratch-pad-md li {
+	margin: 0.25em 0;
+}
+
+.scratch-pad-md li::marker {
+	color: var(--color-scratch-pad-ink-faint, #9b9080);
+}
+
+/* 分割线 */
+.scratch-pad-md hr {
+	margin: 1.5em 0;
+	border: none;
+	border-top: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+}
+
+/* 行内代码 */
+.scratch-pad-md code {
+	padding: 0.15em 0.4em;
+	background: rgba(90, 78, 58, 0.06);
+	border-radius: 4px;
+	font-family: var(--font-family-mono);
+	font-size: 0.92em;
+	color: oklch(0.5 0.08 30);
+}
+
+/* 代码块 */
+.scratch-pad-md pre {
+	margin: 0.8em 0;
+	padding: 1em 1.2em;
+	background: oklch(0.97 0.005 75);
+	border: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	border-radius: 8px;
+	overflow-x: auto;
+}
+
+.scratch-pad-md pre code {
+	padding: 0;
+	background: transparent;
+	border-radius: 0;
+	font-size: 0.9em;
+	line-height: 1.55;
+}
+
+/* 表格 */
+.scratch-pad-md table {
+	margin: 0.8em 0;
+	border-collapse: collapse;
+	font-size: 0.92em;
+}
+
+.scratch-pad-md th,
+.scratch-pad-md td {
+	padding: 0.5em 0.9em;
+	border: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+}
+
+.scratch-pad-md th {
+	background: rgba(90, 78, 58, 0.05);
+	font-weight: 600;
+}
+
+/* Checkbox (GFM task list) */
+.scratch-pad-md input[type="checkbox"] {
+	margin-right: 0.5em;
+	vertical-align: middle;
+	opacity: 0.75;
+	accent-color: var(--color-accent, #5c7a99);
+	cursor: pointer;
+}
+
+/* 隐藏 task list 项的列表标记（·） */
+.scratch-pad-md li:has(> input[type="checkbox"]) {
+	list-style: none;
+	margin-left: -1.4em;
+	padding-left: 0;
+}
+
+.scratch-pad-md li[role="button"] {
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+}
+
+.scratch-pad-md li[role="button"]:hover {
+	background: rgba(90, 78, 58, 0.04);
+}
+
+.scratch-pad-md li[role="button"]:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: 2px;
+}
+
+/* ==高亮== 语法 (remark-highlight-mark) */
+.scratch-pad-md mark {
+	padding: 0.1em 0.25em;
+	border-radius: 3px;
+	background: oklch(0.93 0.12 95 / 0.65);
+	color: inherit;
+}
+
+html[data-theme="dark"] .scratch-pad-md mark {
+	background: oklch(0.5 0.12 95 / 0.35);
+	color: oklch(0.9 0.03 95);
+}
+
+/* 图片 */
+.scratch-pad-md img {
+	max-width: 100%;
+	border-radius: 6px;
+	margin: 0.5em 0;
+}
+
+/* 滚动条优化 */
+.scratch-pad-preview-scroll::-webkit-scrollbar {
+	width: 6px;
+}
+
+.scratch-pad-preview-scroll::-webkit-scrollbar-thumb {
+	background: rgba(90, 78, 58, 0.18);
+	border-radius: 3px;
+}
+
+.scratch-pad-preview-scroll::-webkit-scrollbar-track {
+	background: transparent;
 }
