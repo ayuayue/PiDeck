@@ -58,10 +58,6 @@
 	--color-accent: #238636;
 	--color-accent-strong: #1f7a32;
 	--color-accent-soft: #e9f6ed;
-	--color-scratch-pad-bg: #faf6ee;
-	--color-scratch-pad-border: #e8e2d4;
-	--color-scratch-pad-ink: #5c5347;
-	--color-scratch-pad-ink-faint: #9b9080;
 	--color-brand-green: #0f766e;
 	--color-brand-blue: #2563eb;
 	--color-brand-purple: #7c3aed;
@@ -221,11 +217,6 @@
 	--shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.55);
 	--shadow-composer: 0 8px 28px rgba(0, 0, 0, 0.28);
 	--shadow-drawer: -8px 0 24px rgba(0, 0, 0, 0.32);
-	/* Scratch Pad 暗色：深褐调，保持纸感温度 */
-	--color-scratch-pad-bg: #1f1c18;
-	--color-scratch-pad-border: #2e2a25;
-	--color-scratch-pad-ink: #d5cec4;
-	--color-scratch-pad-ink-faint: #8a8378;
 	--focus-ring: 0 0 0 2px rgba(85, 215, 116, 0.28);
 	--overlay-backdrop: rgba(0, 0, 0, 0.48);
 	--overlay-backdrop-soft: rgba(0, 0, 0, 0.4);
@@ -12158,7 +12149,7 @@ a.config-btn {
 	right: 0;
 	bottom: 0;
 	z-index: 100;
-	background: rgba(62, 52, 38, 0.05);
+	background: var(--overlay-backdrop-soft);
 	backdrop-filter: blur(2px);
 	animation: scratch-pad-backdrop-enter 180ms ease-out forwards;
 }
@@ -12177,15 +12168,10 @@ a.config-btn {
 	height: min(640px, 68vh);
 	display: flex;
 	flex-direction: column;
-	background:
-		radial-gradient(ellipse at 50% 0%, rgba(255, 252, 244, 0.98) 0%, var(--color-scratch-pad-bg, #faf6ee) 100%),
-		var(--color-scratch-pad-bg, #faf6ee);
-	border: 1px solid var(--color-scratch-pad-border, #e8e2d4);
-	border-radius: 10px;
-	box-shadow:
-		0 2px 4px rgba(90, 78, 58, 0.06),
-		0 8px 24px rgba(90, 78, 58, 0.08),
-		0 24px 48px rgba(90, 78, 58, 0.10);
+	background: var(--color-bg-panel);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-modal);
 	overflow: hidden;
 	transform-origin: top right;
 	animation: scratch-pad-enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
@@ -12234,16 +12220,16 @@ a.config-btn {
 	justify-content: space-between;
 	height: 40px;
 	padding: 0 16px;
-	border-bottom: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	border-bottom: 1px solid var(--color-border-subtle);
 	flex-shrink: 0;
-	background: linear-gradient(180deg, rgba(255, 252, 244, 0.6) 0%, transparent 100%);
+	background: var(--color-bg-muted);
 }
 
 .scratch-pad-title {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	color: var(--color-scratch-pad-ink, #5c5347);
+	color: var(--color-text-primary);
 	font-size: var(--font-size-sm);
 	font-weight: 500;
 }
@@ -12254,10 +12240,9 @@ a.config-btn {
 	gap: 3px;
 	margin-left: auto;
 	padding: 3px;
-	border: 1px solid rgba(139, 120, 92, 0.18);
+	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-md);
-	background: rgba(255, 252, 244, 0.48);
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+	background: var(--color-bg-muted);
 	flex-wrap: nowrap;
 }
 
@@ -12276,21 +12261,21 @@ a.config-btn {
 	resize: none;
 	padding: 14px 18px;
 	background: transparent;
-	color: var(--color-scratch-pad-ink, #3d3629);
+	color: var(--color-text-primary);
 	font-family: var(--font-family-mono);
 	font-size: var(--font-size-sm);
 	line-height: var(--line-height-relaxed, 1.7);
 }
 
 .scratch-pad-editor::placeholder {
-	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	color: var(--color-text-tertiary);
 }
 
 .scratch-pad-preview {
 	flex: 1;
 	overflow-y: auto;
 	padding: 14px 18px;
-	color: var(--color-scratch-pad-ink, #3d3629);
+	color: var(--color-text-primary);
 }
 
 .scratch-pad-status {
@@ -12299,31 +12284,31 @@ a.config-btn {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	border-top: 1px solid var(--color-scratch-pad-border, #e8e2d4);
-	background: linear-gradient(0deg, rgba(255, 252, 244, 0.5) 0%, transparent 100%);
+	border-top: 1px solid var(--color-border-subtle);
+	background: var(--color-bg-muted);
 	flex-shrink: 0;
 }
 
 .scratch-pad-status-text {
 	font-size: var(--font-size-caption, 11px);
-	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	color: var(--color-text-tertiary);
 }
 
 .scratch-pad-status.error .scratch-pad-status-text {
-	color: var(--color-danger, #b42318);
+	color: var(--color-danger);
 }
 
 /* ---------- Scratch Pad 头部按钮 ---------- */
 .scratch-pad-btn {
-	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	color: var(--color-text-tertiary);
 }
 
 .scratch-pad-btn:hover {
-	color: var(--color-scratch-pad-ink, #5c5347);
+	color: var(--color-text-primary);
 }
 
 .scratch-pad-btn.active {
-	color: var(--color-scratch-pad-ink, #3d3629);
+	color: var(--color-text-primary);
 }
 
 .scratch-pad-tool-btn {}
@@ -12341,21 +12326,21 @@ button.scratch-pad-tool-btn {
 	border: 1px solid transparent;
 	border-radius: var(--radius-sm);
 	background: transparent;
-	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	color: var(--color-text-tertiary);
 	box-shadow: none;
 }
 
 button.scratch-pad-tool-btn:hover {
-	color: var(--color-scratch-pad-ink, #5c5347);
-	border-color: rgba(139, 120, 92, 0.2);
-	background: rgba(255, 248, 232, 0.72);
+	color: var(--color-text-primary);
+	border-color: var(--color-border-subtle);
+	background: var(--color-bg-hover);
 }
 
 button.scratch-pad-tool-btn.active {
-	color: var(--color-scratch-pad-ink, #3d3629);
-	border-color: rgba(139, 120, 92, 0.26);
-	background: rgba(245, 232, 202, 0.7);
-	box-shadow: inset 0 1px 2px rgba(90, 78, 58, 0.08);
+	color: var(--color-text-primary);
+	border-color: var(--color-border-strong);
+	background: var(--color-bg-active);
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .scratch-pad-tool-text {
@@ -12366,21 +12351,20 @@ button.scratch-pad-tool-btn.active {
 .scratch-pad-kbd {
 	font-family: var(--font-family-mono);
 	font-size: 11px;
-	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	color: var(--color-text-tertiary);
 	margin-left: 6px;
 }
 
-/* ---------- Obsidian 风格 markdown 渲染 ---------- */
+/* ---------- Markdown 渲染 ---------- */
 .scratch-pad-md {
-	color: var(--color-scratch-pad-ink, #3d3629);
-	font-family: var(--font-family-base, system-ui, -apple-system, sans-serif);
+	color: var(--color-text-primary);
+	font-family: var(--font-family-base);
 	font-size: var(--font-size-sm, 14px);
-	line-height: var(--color-scratch-pad-line, 1.7);
+	line-height: var(--line-height-relaxed, 1.7);
 	letter-spacing: 0.01em;
 	word-break: break-word;
 }
 
-/* 标题：整体偏小、字重调低，呈现 Obsidian 的克制感 */
 .scratch-pad-md h1,
 .scratch-pad-md h2,
 .scratch-pad-md h3,
@@ -12390,11 +12374,11 @@ button.scratch-pad-tool-btn.active {
 	margin: 1.6em 0 0.5em;
 	line-height: 1.35;
 	font-weight: 600;
-	color: var(--color-scratch-pad-ink, #3d3629);
+	color: var(--color-text-primary);
 	letter-spacing: -0.01em;
 }
 
-.scratch-pad-md h1 { font-size: 2em; border-bottom: 1px solid var(--color-scratch-pad-border, #e8e2d4); padding-bottom: 0.25em; }
+.scratch-pad-md h1 { font-size: 2em; border-bottom: 1px solid var(--color-border-subtle); padding-bottom: 0.25em; }
 .scratch-pad-md h2 { font-size: 1.6em; }
 .scratch-pad-md h3 { font-size: 1.4em; font-weight: 600; }
 .scratch-pad-md h4 { font-size: 1.2em; font-weight: 600; }
@@ -12406,7 +12390,7 @@ button.scratch-pad-tool-btn.active {
 }
 
 .scratch-pad-md a {
-	color: var(--color-accent, #5c7a99);
+	color: var(--color-accent);
 	text-decoration: none;
 }
 
@@ -12414,21 +12398,19 @@ button.scratch-pad-tool-btn.active {
 	text-decoration: underline;
 }
 
-/* 引用块：左侧竖线 + 浅底色 */
 .scratch-pad-md blockquote {
 	margin: 0.8em 0;
 	padding: 0.5em 1em;
-	border-left: 3px solid var(--color-accent, #a3b5c7);
-	background: rgba(90, 78, 58, 0.035);
-	color: var(--color-scratch-pad-ink-faint, #6c6358);
-	border-radius: 0 6px 6px 0;
+	border-left: 3px solid var(--color-border-strong);
+	background: var(--color-bg-muted);
+	color: var(--color-text-secondary);
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .scratch-pad-md blockquote p {
 	margin: 0.4em 0;
 }
 
-/* 列表：缩进 + 标记颜色 */
 .scratch-pad-md ul,
 .scratch-pad-md ol {
 	margin: 0.5em 0;
@@ -12440,33 +12422,30 @@ button.scratch-pad-tool-btn.active {
 }
 
 .scratch-pad-md li::marker {
-	color: var(--color-scratch-pad-ink-faint, #9b9080);
+	color: var(--color-text-tertiary);
 }
 
-/* 分割线 */
 .scratch-pad-md hr {
 	margin: 1.5em 0;
 	border: none;
-	border-top: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	border-top: 1px solid var(--color-border-subtle);
 }
 
-/* 行内代码 */
 .scratch-pad-md code {
 	padding: 0.15em 0.4em;
-	background: rgba(90, 78, 58, 0.06);
-	border-radius: 4px;
+	background: var(--color-bg-muted);
+	border-radius: var(--radius-sm);
 	font-family: var(--font-family-mono);
 	font-size: 0.92em;
-	color: oklch(0.5 0.08 30);
+	color: var(--color-code-text);
 }
 
-/* 代码块 */
 .scratch-pad-md pre {
 	margin: 0.8em 0;
 	padding: 1em 1.2em;
-	background: oklch(0.97 0.005 75);
-	border: 1px solid var(--color-scratch-pad-border, #e8e2d4);
-	border-radius: 8px;
+	background: var(--color-code-bg);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
 	overflow-x: auto;
 }
 
@@ -12478,7 +12457,6 @@ button.scratch-pad-tool-btn.active {
 	line-height: 1.55;
 }
 
-/* 表格 */
 .scratch-pad-md table {
 	margin: 0.8em 0;
 	border-collapse: collapse;
@@ -12488,24 +12466,22 @@ button.scratch-pad-tool-btn.active {
 .scratch-pad-md th,
 .scratch-pad-md td {
 	padding: 0.5em 0.9em;
-	border: 1px solid var(--color-scratch-pad-border, #e8e2d4);
+	border: 1px solid var(--color-border-subtle);
 }
 
 .scratch-pad-md th {
-	background: rgba(90, 78, 58, 0.05);
+	background: var(--color-bg-muted);
 	font-weight: 600;
 }
 
-/* Checkbox (GFM task list) */
 .scratch-pad-md input[type="checkbox"] {
 	margin-right: 0.5em;
 	vertical-align: middle;
 	opacity: 0.75;
-	accent-color: var(--color-accent, #5c7a99);
+	accent-color: var(--color-accent);
 	cursor: pointer;
 }
 
-/* 隐藏 task list 项的列表标记（·） */
 .scratch-pad-md li:has(> input[type="checkbox"]) {
 	list-style: none;
 	margin-left: -1.4em;
@@ -12518,7 +12494,7 @@ button.scratch-pad-tool-btn.active {
 }
 
 .scratch-pad-md li[role="button"]:hover {
-	background: rgba(90, 78, 58, 0.04);
+	background: var(--color-bg-hover);
 }
 
 .scratch-pad-md li[role="button"]:focus-visible {
@@ -12526,11 +12502,10 @@ button.scratch-pad-tool-btn.active {
 	outline-offset: 2px;
 }
 
-/* ==高亮== 语法 (remark-highlight-mark) */
 .scratch-pad-md mark {
 	padding: 0.1em 0.25em;
 	border-radius: 3px;
-	background: oklch(0.93 0.12 95 / 0.65);
+	background: var(--color-accent-soft);
 	color: inherit;
 }
 
@@ -12539,20 +12514,18 @@ html[data-theme="dark"] .scratch-pad-md mark {
 	color: oklch(0.9 0.03 95);
 }
 
-/* 图片 */
 .scratch-pad-md img {
 	max-width: 100%;
-	border-radius: 6px;
+	border-radius: var(--radius-sm);
 	margin: 0.5em 0;
 }
 
-/* 滚动条优化 */
 .scratch-pad-preview-scroll::-webkit-scrollbar {
 	width: 6px;
 }
 
 .scratch-pad-preview-scroll::-webkit-scrollbar-thumb {
-	background: rgba(90, 78, 58, 0.18);
+	background: var(--color-border-subtle);
 	border-radius: 3px;
 }
 
