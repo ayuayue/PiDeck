@@ -2573,8 +2573,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	align-content: center;
 	gap: 12px;
 	color: var(--color-text-tertiary);
-	background: color-mix(in srgb, var(--color-bg-muted) 76%, transparent);
-	backdrop-filter: blur(2px);
+	background: #fcfcfc;
 	font-size: var(--font-size-body);
 	z-index: 5;
 	animation: fadeIn 0.16s ease;
