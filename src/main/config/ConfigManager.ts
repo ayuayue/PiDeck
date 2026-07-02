@@ -109,7 +109,6 @@ export class ConfigManager {
 		);
 		if (existingEntry) return;
 
-		// 启动/恢复 Agent 前主动信任项目目录，避免 pi 只因 --approve 信任本次运行而不落盘。
 		// 若用户已用不同大小写/分隔符写过同一路径，或显式设为 false，则不覆盖，尊重用户的 trust.json 决策。
 		await this.writeJsonFile("trust.json", {
 			...trustConfig.parsed,

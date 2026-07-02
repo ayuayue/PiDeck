@@ -2099,6 +2099,7 @@ app.whenReady().then(async () => {
 		"pi-deck-file-capture.ts",
 		"pi-deck-ask-question.ts",
 		"pi-deck-plan-mode.ts",
+		"pi-deck-project-trust.ts",
 	]) {
 		await ensurePiDeckExtension(extensionName).catch((error) => {
 			console.error(`Failed to install ${extensionName}:`, error);

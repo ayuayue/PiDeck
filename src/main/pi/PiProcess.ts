@@ -12,7 +12,7 @@ type PiProcessSettings = Pick<
 export class PiProcess extends EventEmitter {
   private proc?: ChildProcessWithoutNullStreams;
   private rpc?: PiRpcClient;
-  /** 从 --version 解析出的主版本号，用于判断是否支持 --approve。pi 0.79.0+ 引入，低版本硬传会报 Unknown option 错误。 */
+  /** 从 --version 解析出的主版本号，用于启动诊断信息。 */
   private piMajorVersion: number | null = null;
 
   /** 启动失败 / 异常退出时的诊断信息 */
@@ -51,9 +51,9 @@ export class PiProcess extends EventEmitter {
   start(sessionPath?: string) {
     if (this.proc) return this.rpc!;
 
+    // 信任确认由内置 pi-deck-project-trust 扩展处理，不再静默 --approve。
+    // PiDeck 桌面端通过 ctx.ui.select 弹窗让用户选择信任策略。
     const args = ["--mode", "rpc"];
-    // pi 0.79.0+ 支持 --approve，低于该版本传参会导致启动失败。
-    if (this.supportsApprove()) args.push("--approve");
     if (sessionPath) args.push("--session", sessionPath);
 
     const locator = new PiLocator();
@@ -132,17 +132,6 @@ export class PiProcess extends EventEmitter {
   stop() {
     if (!this.proc) return;
     this.proc.kill();
-  }
-
-  /**
-   * 执行一次轻量 --version 检测 pi 主版本号，判断是否支持 --approve 参数。
-   * 结果缓存在 piMajorVersion 字段中，避免每次 start 都执行一次子进程。
-   * 若版本检测失败（未安装/低版本未知输出）则保守返回 false，不传 --approve。
-   */
-  private supportsApprove(): boolean {
-    if (this.piMajorVersion !== null) return this.piMajorVersion >= 79;
-    this.tryVersionCheck(new PiLocator());
-    return this.piMajorVersion !== null ? this.piMajorVersion >= 79 : false;
   }
 
   /** @returns versionCheck 是否通过 */

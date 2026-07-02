@@ -227,18 +227,7 @@ export class AgentManager {
 				sessionPath: input.sessionPath,
 			});
 		}
-		// 新建 Agent 和历史会话恢复都走此入口；启动前落盘 trust.json，确保项目级 AGENTS.md/扩展不仅本次 --approve 生效，
-		// 也能出现在 Trust 设置页并在后续会话中自动加载。
-		void this.appLogger?.info("agent", "Agent ensure trusted directory start", {
-			agentId: id,
-			projectPath: project.path,
-		});
-		await this.configManager.ensureTrustedDirectory(project.path);
-		void this.appLogger?.info("agent", "Agent ensure trusted directory completed", {
-			agentId: id,
-			projectPath: project.path,
-		});
-
+		// 信任确认由内置 pi-deck-project-trust 扩展处理：首次进入未信任项目时弹窗让用户选择信任策略。
 		// 代理环境变量只能在子进程启动前注入；设置变更后通过 restart/new agent 创建新的进程快照。
 		// 每个 Agent 独立启动 pi RPC，避免复用进程时 session、事件监听和配置快照串线。
 		const process = new PiProcess(project.path, this.settingsStore.get());
