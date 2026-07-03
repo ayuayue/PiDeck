@@ -3354,7 +3354,6 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 /* 流式思考卡片：实时展示推理过程 */
 .thinking-card.streaming {
 	border-top: 1px solid var(--color-accent);
-	margin-top: 0;
 	border-color: var(--color-accent);
 }
 .thinking-card.streaming .thinking-card-content {
