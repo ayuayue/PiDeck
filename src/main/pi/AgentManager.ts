@@ -1430,17 +1430,17 @@ export class AgentManager {
 	private handleUIRequest(agentId: string, typed: Record<string, any>) {
 		const method = String(typed.method ?? "");
 		const requestId = String(typed.id ?? "");
+		// pi RPC 协议将 setWidget / dialog 字段放在顶层，不嵌套 params
 		if (method === "setWidget") {
-			const params = typed.params ?? {};
 			// Plan Mode 等扩展会频繁刷新 widget；只走 IPC 状态，不落入会话消息，避免 JSONL 被进度噪声污染。
 			this.emit(ipcChannels.agentsUiRequest, {
 				agentId,
 				requestId,
 				method,
 				title: "",
-				widgetKey: String(params.widgetKey ?? requestId),
-				widgetLines: Array.isArray(params.widgetLines) ? params.widgetLines : undefined,
-				widgetPlacement: params.widgetPlacement,
+				widgetKey: String(typed.widgetKey ?? requestId),
+				widgetLines: Array.isArray(typed.widgetLines) ? typed.widgetLines : undefined,
+				widgetPlacement: typed.widgetPlacement,
 			});
 			return;
 		}
@@ -1448,7 +1448,7 @@ export class AgentManager {
 		if (["setStatus", "setTitle"].includes(method)) return;
 
 		// select 无选项时自动取消，不等用户响应
-		if (method === "select" && (!Array.isArray(typed.params?.options) || typed.params.options.length === 0)) {
+		if (method === "select" && (!Array.isArray(typed.options) || typed.options.length === 0)) {
 			this.sendUIResponse(agentId, requestId, { cancelled: true });
 			return;
 		}
@@ -1457,10 +1457,10 @@ export class AgentManager {
 			agentId,
 			requestId,
 			method,
-			title: String(typed.params?.title ?? typed.params?.question ?? ""),
-			options: typed.params?.options as string[] | undefined,
-			placeholder: typed.params?.placeholder as string | undefined,
-			prefill: typed.params?.prefill as string | undefined,
+			title: String(typed.title ?? typed.question ?? ""),
+			options: typed.options as string[] | undefined,
+			placeholder: typed.placeholder as string | undefined,
+			prefill: typed.prefill as string | undefined,
 		};
 
 		// 记录 pending UI 请求，用于 abort 时自动 cancel
