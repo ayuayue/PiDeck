@@ -255,7 +255,15 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("input", async (event, ctx) => {
-		if (!event.text.startsWith(PI_DECK_PLAN_MODE_MARKER)) return;
+		if (!event.text.startsWith(PI_DECK_PLAN_MODE_MARKER)) {
+			// 用户发了一条普通消息（无 plan 标记）：若仍处于 plan 模式且非执行中，
+			// 视为退出 plan——composer 切回 normal 发消息即退出只读模式。
+			// pi-desktop RPC 模式下 /plan 命令不路由，这里作为会话内退出的兜底。
+			if (planModeEnabled && !executionMode) {
+				setPlanMode(ctx, false);
+			}
+			return;
+		}
 
 		// 由桌面输入框模式触发：隐藏标记只用于路由，必须在进入 LLM 前剥离。
 		planModeEnabled = true;
@@ -391,12 +399,13 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 			.filter((entry: { type: string; customType?: string }) => entry.type === "custom" && entry.customType === "pi-deck-plan-mode")
 			.pop() as { data?: PlanModeState } | undefined;
 		if (planModeEntry?.data) {
-			planModeEnabled = planModeEntry.data.enabled ?? planModeEnabled;
+			// plan 模式不跨会话恢复：新会话默认 normal，避免用户被锁在只读模式无法写入。
+			// 仅 execution（正在执行已确认计划）和 todos 跨会话续接。
 			todoItems = planModeEntry.data.todos ?? todoItems;
 			executionMode = planModeEntry.data.executing ?? executionMode;
 			toolsBeforePlanMode = planModeEntry.data.toolsBeforePlanMode ?? toolsBeforePlanMode;
 		}
-		if (planModeEnabled) enablePlanModeTools();
+		planModeEnabled = false;
 		updateWidget(ctx);
 	});
 }
