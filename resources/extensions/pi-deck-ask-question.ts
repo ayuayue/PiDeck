@@ -173,7 +173,7 @@ function singleResult(q: NormalizedQuestion, a: Answer, cancelled: boolean) {
 		content: [
 			{
 				type: "text" as const,
-				text: cancelled ? `用户取消了提问: ${q.question}` : `用户回答: ${JSON.stringify(a.value)}`,
+				text: cancelled ? `用户取消了提问: ${q.question}` : `用户回答: ${typeof a.value === "boolean" ? (a.value ? "是" : "否") : String(a.value ?? "")}`,
 			},
 		],
 		details: {
@@ -222,14 +222,20 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 					? [...base, { label: OTHER_LABEL, value: "__other__", isOther: true }]
 					: base;
 			const labels = opts.map(optionDisplayText);
-			const selected = await ctx.ui.select(q.question, labels);
-			// RPC select 返回选中项的显示文本，按文本反查回 option
-			const chosen = opts.find((o) => optionDisplayText(o) === selected) ?? opts[0];
-			if (chosen.isOther) {
-				const custom = await ctx.ui.input(`${q.question}（自行输入）`, "");
-				return { id: q.id, type: q.type, value: custom, label: custom, wasCustom: true };
+			// 循环：取消「自行输入」后回到选单，而非直接返回
+			while (true) {
+				const selected = await ctx.ui.select(q.question, labels);
+				const chosen = opts.find((o) => optionDisplayText(o) === selected) ?? opts[0];
+				if (chosen.isOther) {
+					const custom = await ctx.ui.input(`${q.question}（自行输入）`, "");
+					if (custom?.trim()) {
+						return { id: q.id, type: q.type, value: custom.trim(), label: custom.trim(), wasCustom: true };
+					}
+					// 取消或空内容 → 继续循环，重新展示选单
+					continue;
+				}
+				return { id: q.id, type: q.type, value: chosen.value, label: chosen.label, wasCustom: false };
 			}
-			return { id: q.id, type: q.type, value: chosen.value, label: chosen.label, wasCustom: false };
 		}
 		case "confirm": {
 			// 第二参数留空时 pi 会用 question 作为描述，保持原行为

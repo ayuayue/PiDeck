@@ -1391,7 +1391,7 @@ function getToolTone(message: ChatMessage): "running" | "error" | "warning" | "o
 }
 
 /** pi 内置工具名集合，用于与 MCP / 扩展工具区分。 */
-const BUILT_IN_TOOLS = new Set(["bash", "edit", "find", "grep", "ls", "read", "write"]);
+const BUILT_IN_TOOLS = new Set(["bash", "edit", "find", "grep", "ls", "read", "write", "ask_question"]);
 
 /**
  * 识别工具来源类型：
