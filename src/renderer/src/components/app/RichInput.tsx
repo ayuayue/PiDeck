@@ -267,6 +267,22 @@ function placeCaretAt(pos: { node: Node; offset: number }): void {
 	sel.addRange(r);
 }
 
+function insertPlainTextAtSelection(root: HTMLElement, text: string): void {
+	const sel = window.getSelection();
+	if (!sel || sel.rangeCount === 0 || !root.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+		root.appendChild(document.createTextNode(text));
+		return;
+	}
+	const range = sel.getRangeAt(0);
+	range.deleteContents();
+	const node = document.createTextNode(text);
+	range.insertNode(node);
+	range.setStartAfter(node);
+	range.collapse(true);
+	sel.removeAllRanges();
+	sel.addRange(range);
+}
+
 // ── 公共光标 API ──────────────────────────────────────────
 
 /** 获取当前光标在 root 中的纯文本偏移。 */
@@ -473,7 +489,10 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				if (hasImage) { onPaste(event); return; }
 			}
 			event.preventDefault();
-			document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+			const root = rootRef.current;
+			if (!root) return;
+			insertPlainTextAtSelection(root, event.clipboardData.getData("text/plain"));
+			handleInput();
 		};
 
 		/** chip 点击：检测点击目标是否为 chip，是则回调上层 */
@@ -505,10 +524,13 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				if (event.key === "Enter") {
 					event.preventDefault();
-					document.execCommand("insertText", false, "\n");
+					const root = rootRef.current;
+					if (!root) return;
+					insertPlainTextAtSelection(root, "\n");
+					handleInput();
 				}
 			},
-			[onKeyDown, onChange, chips],
+			[onKeyDown, handleInput],
 		);
 
 		const handleCompositionStart = () => { composingRef.current = true; };
