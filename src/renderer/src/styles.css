@@ -2010,7 +2010,8 @@ body.is-terminal-resizing {
 .branch-dropdown {
 	position: absolute;
 	top: calc(100% + 4px);
-	left: 0;
+	left: 50%;
+	transform: translateX(-50%);
 	min-width: 100%;
 	max-width: 320px;
 	max-height: 280px;
@@ -2026,11 +2027,11 @@ body.is-terminal-resizing {
 @keyframes branch-dropdown-in {
 	from {
 		opacity: 0;
-		transform: translateY(-4px);
+		transform: translateX(-50%) translateY(-4px);
 	}
 	to {
 		opacity: 1;
-		transform: translateY(0);
+		transform: translateX(-50%) translateY(0);
 	}
 }
 .branch-dropdown button {
@@ -2573,8 +2574,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 	align-content: center;
 	gap: 12px;
 	color: var(--color-text-tertiary);
-	background: color-mix(in srgb, var(--color-bg-muted) 76%, transparent);
-	backdrop-filter: blur(2px);
+	background: #fcfcfc;
 	font-size: var(--font-size-body);
 	z-index: 5;
 	animation: fadeIn 0.16s ease;
