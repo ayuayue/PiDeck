@@ -678,9 +678,17 @@ export class AgentManager {
 
 	async abort(agentId: string) {
 		const runtime = this.requireRuntime(agentId);
-		// pi RPC 原生支持 abort，对应终端里的 Escape：停止当前 LLM/tool 流程并保留会话进程。
-		// 不先取消 pending UI 请求，避免 extension 的 agent_end 提前完成导致 abort RPC 到达时
-		// agent 已释放，产生"停止后又继续"的假象；等 abort RPC 返回后再清理 pending UI 请求。
+
+		// pi 正在等待 extension_ui_response（如 ask_question）时，abort RPC 可能不被处理
+		// 导致 10s 超时、agent 卡住、后续消息报 `Agent is already processing`。
+		// 先发 cancelled 信号解阻塞 pi，再发 abort 清理。
+		const pending = this.pendingUIRequests.get(agentId);
+		if (pending && pending.size > 0) {
+			for (const [requestId] of pending) {
+				this.sendUIResponse(agentId, requestId, { cancelled: true });
+			}
+		}
+
 		await runtime.process.client
 			.request({ type: "abort" }, 10_000)
 			.catch((error) => {
@@ -690,11 +698,7 @@ export class AgentManager {
 					error instanceof Error ? error.message : String(error),
 				);
 			});
-		// abort 返回后，清理该 agent  pending UI 请求并移除 ask_question 卡片
-		// 注意：不调用 sendUIResponse（它会给 pi 发 cancelled 信号，而 pi 内置
-		// ask_question 不识别 cancelled，收到无 value 的响应会默认选第一个选项）。
-		// 直接移除卡片，既不干扰 pi 的 abort 处理，也不让卡片卡在等待状态。
-		const pending = this.pendingUIRequests.get(agentId);
+		// abort 返回后清理 pending 记录
 		if (pending && pending.size > 0) {
 			const messages = this.messages.get(agentId);
 			if (messages) {
@@ -715,7 +719,7 @@ export class AgentManager {
 			this.pendingUIRequests.delete(agentId);
 		}
 		runtime.tab.status = "idle";
-		this.addMessage(agentId, "system", "已请求停止当前响应");
+		this.addMessage(agentId, "system", "已请求停止当前响应", { i18nKey: "app.abortRequested" });
 		this.emitState();
 	}
 

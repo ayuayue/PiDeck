@@ -1692,7 +1692,11 @@ export const DiagnosticMessageCard = memo(function DiagnosticMessageCard(props: 
 				<span>{title}</span>
 				<time>{formatTime(props.message.timestamp)}</time>
 			</div>
-			<pre className="diagnostic-card-body">{stripAnsi(props.message.text)}</pre>
+			<pre className="diagnostic-card-body">{stripAnsi(
+				props.message.meta && typeof props.message.meta === "object" && "i18nKey" in props.message.meta
+					? t((props.message.meta as Record<string, string>).i18nKey as TranslationKey)
+					: props.message.text
+			)}</pre>
 		</article>
 	);
 });
