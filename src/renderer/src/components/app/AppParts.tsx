@@ -1775,13 +1775,6 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 								{opt}
 							</button>
 						))}
-					<button
-						className="ask-question-card-cancel"
-						onClick={handleCancel}
-						disabled={cancelling}
-					>
-						{cancelling ? cancellingLabel : t("common.cancel")}
-					</button>
 					</div>
 				)}
 				{method === "confirm" && (
