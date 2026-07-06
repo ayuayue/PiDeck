@@ -69,6 +69,8 @@ export class AgentManager {
 	 * 用于在 abor t时及时发送 cancellation 防止 pi 等待超时。
 	 */
 	private readonly pendingUIRequests = new Map<string, Map<string, { method: string; title: string }>>();
+	/** abort 时正在等待 ask_question 响应的 agent，用于在工具结果中覆写 answer 为 null。 */
+	private readonly abortedDuringAsk = new Set<string>();
 	/** 待处理的项目信任确认请求。key 为 requestId，用于在 Agent 启动前等待用户的信任决策。 */
 	private readonly pendingTrustRequests = new Map<string, { resolve: (choice: ProjectTrustChoice) => void }>();
 
@@ -139,6 +141,8 @@ export class AgentManager {
 		}
 
 		const messages = this.convertAgentMessages(agentId, trimmed, activeEntryIds);
+		// abort 时 ask_question 的 answer 已被覆写为 null，不再需要跟踪
+		this.abortedDuringAsk.delete(agentId);
 		this.messages.set(agentId, messages);
 		this.refreshAutoTitle(agentId);
 		this.scheduleMessageEmit(agentId, true);
@@ -686,6 +690,7 @@ export class AgentManager {
 		// 工具 result 的 answer = null，answered 为 false → 卡片显示"已取消"。
 		const pending = this.pendingUIRequests.get(agentId);
 		if (pending && pending.size > 0) {
+			this.abortedDuringAsk.add(agentId);
 			for (const [requestId] of pending) {
 				runtime.process.client.sendRaw({
 					type: "extension_ui_response",
@@ -2455,14 +2460,17 @@ export class AgentManager {
 					// 从历史工具结果中提取 ask_question 详情，用于渲染提问卡片（支持单问题和批量格式）。
 					const askCard = (() => {
 						if (toolName !== "ask_question" || !typed.details) return undefined;
+						// abort 时发 value:null 导致 answer 为 null，但 pi 可能已默认选了第一选项。
+						// 覆写 answer 为 null、answered 为 false，确保卡片显示"已取消"。
+						const aborted = this.abortedDuringAsk.has(agentId);
 						// 单问题格式：details.question (string), details.answer
 						if (typed.details.question) {
 							return {
 								question: typed.details.question,
 								type: typed.details.type,
-								answered: typed.details.answered,
-								answer: typed.details.answer,
-								answerLabel: typed.details.answerLabel,
+								answered: aborted ? false : typed.details.answered,
+								answer: aborted ? null : typed.details.answer,
+								answerLabel: aborted ? undefined : typed.details.answerLabel,
 								options: typed.details.options,
 							};
 						}
