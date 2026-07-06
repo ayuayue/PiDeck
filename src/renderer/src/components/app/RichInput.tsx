@@ -524,6 +524,8 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				if (event.key === "Enter") {
 					event.preventDefault();
+					// Shift+Enter 跳过 IME 合成检测：换行不经过输入法
+					if (!event.shiftKey && composingRef.current) return;
 					const root = rootRef.current;
 					if (!root) return;
 					insertPlainTextAtSelection(root, "\n");
