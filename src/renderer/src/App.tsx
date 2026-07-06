@@ -206,6 +206,10 @@ function countContentLines(value: unknown) {
 }
 
 function getToolChangedLineCount(toolName: string, args: any) {
+  // meta.args 可能被 AgentManager 序列化为 JSON 字符串
+  if (typeof args === "string" && args.trim()) {
+    try { args = JSON.parse(args); } catch { return 0; }
+  }
   // 会话结束摘要只能使用 renderer 已收到的工具参数,不能重新 diff 工作区;
   // 这里按编辑/写入工具的输入估算"本次触达行数",避免把用户在会话外的改动也计入。
   if (/edit|patch/i.test(toolName)) {
@@ -229,6 +233,10 @@ function getToolChangedLineCount(toolName: string, args: any) {
 }
 
 function getToolFilePath(args: any) {
+  // meta.args 可能被 AgentManager 序列化为 JSON 字符串（safeJson），需反解为对象再查找路径字段。
+  if (typeof args === "string" && args.trim()) {
+    try { args = JSON.parse(args); } catch { return undefined; }
+  }
   return typeof args?.filePath === "string"
     ? args.filePath
     : typeof args?.file_path === "string"
@@ -254,7 +262,11 @@ function getToolFilePath(args: any) {
 
 /** Extract new file content from tool args for historical diff display */
 function getToolNewContent(toolName: string, args: any, originalContent?: string): string | undefined {
+  // meta.args 可能是 JSON 字符串，反解后再提取内容字段。
   if (!args) return undefined;
+  if (typeof args === "string" && args.trim()) {
+    try { args = JSON.parse(args); } catch { return undefined; }
+  }
   if (/write|create/i.test(toolName) && typeof args.content === "string") return args.content;
   if (/edit|patch/i.test(toolName) && typeof args.oldText === "string" && typeof args.newText === "string" && originalContent) {
     const idx = originalContent.indexOf(args.oldText);
@@ -473,6 +485,8 @@ export function App() {
   );
   /** 当前正在重启的 Agent，用于仅给对应会话显示 loading，避免切到其他 Agent 后仍被全局禁用。 */
   const [restartingAgentId, setRestartingAgentId] = useState<string | null>(null);
+  /** 用户点击 ask_question 取消/abort 后的过渡标记，立即隐藏运行指示器。 */
+  const [cancellingUi, setCancellingUi] = useState(false);
   const [attachedImagesByAgent, setAttachedImagesByAgent] = useState<
     Record<string, ImageContent[]>
   >({});
@@ -940,6 +954,7 @@ export function App() {
 
   const isAwaitingAssistant = Boolean(
     activeAgent &&
+    !cancellingUi &&
     (activeAgent.status === "running" || activeRuntimeState?.isStreaming) &&
     activeMessages.at(-1)?.role !== "assistant",
   );
@@ -965,6 +980,10 @@ export function App() {
   const activeTerminalHeight = activeAgentId
     ? (terminalHeightByAgent[activeAgentId] ?? COMPOSER_DEFAULT_TERMINAL_HEIGHT)
     : COMPOSER_DEFAULT_TERMINAL_HEIGHT;
+  // 终端 grid 行高：关闭时 0，折叠时 34px，展开时 activeTerminalHeight。
+  // 由 App 层直接控制 --terminal-row-h，避免 TerminalDock 的 useLayoutEffect 在
+  // 滚动定位等操作导致父组件重渲染时引发 grid 布局抖动，把隐藏区域的终端拉到显示区域。
+  const terminalRowHeight = !terminalOpen ? 0 : terminalCollapsed ? 34 : activeTerminalHeight;
   const resolvedComposerHeight = Math.max(composerHeight, composerAutoHeight);
   const composerMode = prompt.startsWith("!!")
     ? "silent-shell"
@@ -2232,6 +2251,9 @@ export function App() {
   function viewFilePath(path: string) {
     setDiffViewMode("view");
     setDiffViewFile(path);
+    // 清除之前 diffFilePath 可能残留的 modifiedContent 缓存，
+    // 避免 FileDiffViewer 跳过磁盘读取而展示旧数据。
+    setDiffViewModifiedContent(undefined);
   }
 
   function diffFilePath(path: string, originalContent?: string, content?: string) {
@@ -4527,9 +4549,12 @@ ${goalTextRef.current}
       <main
         ref={chatPaneRef}
         className="chat-pane"
-        style={settings.contentMaxWidth > 0 && settings.contentMaxWidth < 1400
-          ? { "--content-max-width": `${settings.contentMaxWidth}px` } as React.CSSProperties
-          : undefined}
+        style={{
+          "--terminal-row-h": `${terminalRowHeight}px`,
+          ...(settings.contentMaxWidth > 0 && settings.contentMaxWidth < 1400
+            ? { "--content-max-width": `${settings.contentMaxWidth}px` }
+            : undefined),
+        } as React.CSSProperties}
       >
         <header ref={chatHeaderRef} className="chat-header">
           <div className="chat-title-block">
@@ -4805,7 +4830,16 @@ ${goalTextRef.current}
                     return (
                       <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
                         const req = meta.uiRequest;
-                        if (req && activeAgentId) api.agents.sendUiResponse(activeAgentId, req.requestId, response);
+                        if (!req || !activeAgentId) return;
+                        // cancelled 走 abort 而非 sendUiResponse：pi 内置 ask_question 工具
+                        // 不识别 cancelled 字段，收到无 value 的响应会默认选第一个选项。
+                        // abort 能正确打断正在等待 extension_ui_response 的 agent_end 处理器。
+                        if (response.cancelled) {
+                          setCancellingUi(true);
+                          abortAgent(activeAgentId);
+                        } else {
+                          api.agents.sendUiResponse(activeAgentId, req.requestId, response);
+                        }
                       }} />
                     );
                   }
@@ -5130,7 +5164,7 @@ ${goalTextRef.current}
         </footer>
         )}
 
-        {!isLanWeb && activeAgentId && !isPendingAgentId(activeAgentId) && !settingsOpen && !configOpen && !environmentDialog && (
+        {!isLanWeb && activeAgentId && !isPendingAgentId(activeAgentId) && !settingsOpen && !configOpen && !environmentDialog && terminalOpen && (
           <TerminalDock
             agentId={activeAgentId}
             open={terminalOpen}

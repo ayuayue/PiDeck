@@ -4185,6 +4185,11 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   outline: var(--focus-ring);
   outline-offset: 2px;
 }
+.ask-question-card-cancel:disabled,
+.ask-question-card-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* 收起状态工具组里的 skill chip */
 .tool-group-card-chip.skill {

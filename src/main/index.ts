@@ -1894,7 +1894,7 @@ function registerIpc() {
 	});
 
 	/** 用户通过 UI 响应了扩展的 ask_question 请求，转发给 AgentManager 发送 extension_ui_response */
-	ipcMain.handle(ipcChannels.agentsUiResponse, async (_event, agentId: string, requestId: string, response: { value?: string; cancelled?: boolean }) => {
+	ipcMain.handle(ipcChannels.agentsUiResponse, async (_event, agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => {
 		await agentManager.sendUIResponse(agentId, requestId, response);
 	});
 

@@ -8,33 +8,117 @@ All notable changes to PiDeck are documented here.
 
 ### 🚀 New Features
 
-- **Thinking/Response Status Indicator**: Replaced the subtle "running" dot in the
-  toolbar with a three-dot animated indicator at the bottom of the message list.
-  Supports "Thinking", "Executing {tool}", and animated waiting dots —
-  auto-hides when the model starts responding.
-- **Thinking Block Default Expanded**: Reasoning blocks now default to expanded,
-  keeping the inference process visible after streaming ends. Can still be
-  collapsed manually.
+- **Plan Mode**: New mode picker in the composer toolbar, supporting seamless
+  switching between Plan Mode and Normal Mode. In Plan Mode the agent first
+  generates a plan, executes step by step with confirmation, and returns to
+  the menu on cancel.
+- **ask_question Extension Enhancement**:
+  - Batch question support: send multiple questions at once with structured results
+  - Option selection with highlight and confirmation feedback
+  - Collapsed tool card subtitle shows the question text
+  - Results persisted to `meta._askCard`, correctly rendered after session restore
+  - Enhanced promptGuidelines for rule-oriented instructions
+- **Message Edit/Delete**:
+  - Copy, edit, and delete AI responses
+  - Edit/delete user messages with backfill to composer
+  - Fix delete failures, flashback, and sync issues
+  - New plan mode cancel functionality
+- **ScratchPad Overlay**: Brand new scratch pad overlay with content preview,
+  selection mapping, entry migration, right-aligned animation, and theme-aware
+  semantic color tokens.
+- **pi-deck-todo Built-in Extension**: New todo list extension for task
+  management; widget rendering by widget key (no flatMap merging), with
+  truncation and scrolling for long text.
+- **Content Width Restriction**: New draggable content width slider (default
+  unlimited, drag left to narrow, minimum 800 px).
+- **Thinking Block Rework & Status Indicator**:
+  - Thinking rendered as ThinkingBlock cards, AssistantText reverted to plain text
+  - Thinking blocks rendered in-place by `<thinking>` tags, preserving original
+    alternating order in content array (no merging or repositioning)
+  - ThinkingBlock default expanded after streaming; manually collapsible
+  - ThinkingBlock trigger with content preview subtitle, font matching tool-card
+  - Toolbar "running" dot replaced by three-dot animated indicator at message
+    list bottom: supports "Thinking", "Executing {tool}", and waiting states;
+    auto-hides when model starts responding
+  - Optimized waiting indicator spacing (16 px above)
+  - Flat timeline rendering + unified message spacing + inline thinking segments
+- **Extension Management Enhancement**:
+  - Disable/enable built-in extensions with animated button
+  - Project-level skill/extension management, distinguishing global vs project config
+  - Fix extension_ui_request field read path (pi RPC at top-level, not params)
+  - getToolKind distinguishes MCP-direct from underscore-prefixed extension tools
+- **Trust Confirmation System**: Trust confirmation intercepted by desktop UI;
+  untrusted projects can still be opened; projects with running agents cannot
+  be deleted.
+- **DiagnosticMessageCard**: New error/system message card with tone-coded styling.
+- **Settings Page Enhancements**:
+  - defaultProvider/defaultModel dropdowns with cascading and auto-discovery
+  - enabledModels multi-select UI with model favorites pinned to top
+  - Use lucide Star icon instead of Unicode ★
+  - Agent restart no longer auto-switches selection; removed misleading retry option
+- **Session UX Enhancements**:
+  - Session compaction event display + clickable session file path
+  - One-click New Agent button on project rows
+  - External editor entry + session outline visible by default
+  - Empty session outline grayed with persistent hover state
+- **Feishu Bridge Enhancements**:
+  - Optimized model switch card, fixed rich table rendering
+  - Fixed file send false triggers and duplicate sends
+  - Streamlined Feishu bridge code
 
 ### ✨ UI Polish
 
-- **Thinking Card Breathing Animation**: Streaming thinking card now has a
-  pulsing border glow and subtle background pulse, so you can tell the system
-  is still active even when the text stalls.
-- **Thinking Card Background**: Matches the tool-running card style with a
-  subtle accent-tinted background.
-- **Web Search Card Subtitle**: Collapsed `web_search` / `fetch_content` tool
-  cards now show the search query or URL as a subtitle.
+- **Thinking Card Breathing Animation**: Streaming thinking card now has pulsing
+  border glow and subtle background pulse, so you can tell the system is still
+  active even when text stalls.
+- **Thinking Card Background**: Matches the tool-running card style with a subtle
+  accent-tinted background.
+- **Web Search Card Subtitle**: Collapsed `web_search` / `fetch_content` tool cards
+  now show the search query or URL as a subtitle.
 - **Content Width Slider**: Minimum value raised from 50 to 800 px to prevent
   overly narrow composition area.
-- **Waiting Indicator Spacing**: Three-dot waiting indicator now has 16 px
-  margin above, matching card spacing.
+- **Waiting Indicator Spacing**: Three-dot indicator now has 16 px margin above.
+- **Composer Optimization**: Default height reduced by 25 px, forced reset after
+  sending; composer moved down 10 px for more bottom breathing room.
+- **Terminal Toggle Animation**: Changed to smooth slide-in from below the input
+  area instead of a jarring pop.
+- **Right Drawer Animation**: Grid layout transition animation improved, reverted
+  to 0.18s ease version for fluidity.
+- **ScratchPad UX**: Preview selection, entry migration, animation, right-aligned
+  layout; file list collapsed by default.
+- **Chat Area Background**: Unified to `#fcfcfc` in light mode, `#fbfaf7` in warm mode.
+- **Tool Card Fixes**: JSON string parameter parsing, removed elapsed-time threshold,
+  summary moved after timestamp; restored tool-call elapsed time display.
+- **Slash Command Labels** now in Chinese, matching the dropdown display.
+- **Branch-dropdown** centered positioning + unified New Agent background color.
+- **ConfigModal**: User-Agent field layout fix, compat options description added.
+- **Compatibility Settings**: Explicitly writes `false` when unchecked, simplified desc.
 
 ### 🐛 Bug Fixes
 
 - **Dark Mode White Backgrounds**: Fixed hardcoded `#fcfcfc` in `.chat-pane`,
   `.composer`, `.composer-box`, and loading overlay — now properly adapts to
   dark mode via `--color-bg-panel`.
+- **RichInput Newline Fix**: Fixed multi-line paste newline loss in contentEditable.
+- **Message Rendering Fixes**:
+  - Increased global message spacing specificity to override component margins
+  - Removed `.thinking-card.streaming` margin-top:0, restored global 16px spacing
+  - extension-widget-stack and composer-footer now respect content width limit
+  - AssistantText supports message.thinking fallback rendering
+  - Thinking/tool rendered in chronological order; fixed auto-scroll and cache hit rate
+- **Plan Mode Fixes**: Cross-session deadlock, inability to exit within session,
+  slash command breakage; cancel returns to menu; dialog options improved.
+- **ask_question Fixes**: Three bug fixes, extension integration restored
+  (was overwritten by scratchpad changes).
+- **Message Edit/Delete Fixes**: Role detection error, reload state out of sync,
+  delete failure/flashback.
+- **Linux Wayland Fixes**: Desktop pet drag fix and dev startup improvements.
+- **Feishu Fixes**: Rich table rendering, file send false triggers and duplicates,
+  session file sending.
+- **Codex Subagent Session Import**: Display fix, grouped under parent session.
+- **Pending Agent**: No longer loads terminal; closed terminals silently ignore resize.
+- **Regenerated package-lock.json** to fix npm ci failures.
+- **Restored ask_question extension integration** (overwritten by scratchpad changes).
 
 ## v0.6.3 - 2026-06-28
 

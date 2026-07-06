@@ -19,12 +19,24 @@
 > **Latest: v0.6.4** (2026-07-05)
 
 ### v0.6.4 Updates
-- 🚀 Thinking/Response status indicator: toolbar "running" dot → animated
-  three-dot indicator at the bottom of the message list
-- 🚀 Thinking blocks now default expanded after streaming
-- ✨ Breathing border pulse + tinted background on streaming thinking card
-- 🐛 Fixed hardcoded white backgrounds in dark mode (4 areas → CSS variables)
-- 🐛 Web search card subtitle, content width slider min 50→800
+- 🚀 **Plan Mode**: New mode picker in composer — agent generates a plan, then
+  executes step by step with confirmation
+- 🚀 **ask_question Enhanced**: Batch questions, structured options, persisted
+  results, polished cards
+- 🚀 **Message Edit/Delete**: Copy, edit, delete AI responses and user messages
+- 🚀 **ScratchPad Overlay**: Brand new scratch pad with preview and animation
+- 🚀 **pi-deck-todo Extension**: Built-in todo list extension
+- 🚀 **Content Width Restriction**: Draggable width slider, unlimited by default
+- 🚀 **Thinking Block Rework**: Card-based thinking, in-place alternation,
+  default expanded, status indicator
+- 🚀 **Extension Management**: Disable/enable built-in extensions, project-level
+  skill management
+- 🚀 **Trust Confirmation**: Desktop-intercepted trust, open untrusted projects
+- ✨ Thinking card breathing animation, web search card subtitle, composer
+  height optimization
+- ✨ Terminal/drawer smooth animation, unified chat background, tool card fixes
+- 🐛 Dark mode white backgrounds, RichInput newline loss, plan mode deadlock
+- 🐛 Linux Wayland fixes, Feishu fixes, message rendering fixes
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -36,7 +48,13 @@
 |---|---|
 | **Multi-Project Workspace** | Add, search, drag-sort, and switch between local project folders. Run multiple pi agents simultaneously with per-project isolation. |
 | **Built-in Chat Workspace** | A fixed Chat entry at the top of the project list writes to the app user-data directory for general conversations that do not need a code project. |
+| **Plan Mode** | Switch to Plan Mode from the composer toolbar — the agent generates a plan, executes step by step with confirmation, and returns to the menu on cancel. |
+| **Message Edit/Delete** | Copy, edit, and delete AI responses and user messages; edited text is backfilled to the composer for re-sending. |
+| **ScratchPad** | Overlay-style scratch pad with content preview, selection mapping, and theme-aware semantic colors. |
+| **Content Width Restriction** | Draggable content width slider (unlimited by default, drag left to narrow) for long code lines or compact layouts. |
 | **Configuration, Skill & Extension Management** | Visual editors for pi's `models.json`, `auth.json`, and `settings.json`, plus global Skill and Extension management. |
+| **Extension Enable/Disable** | Disable/enable built-in extensions, project-level skill/extension management, distinguishing global vs project config. |
+| **Trust Confirmation System** | Desktop-intercepted trust confirmation; untrusted projects can still be opened; projects with running agents cannot be deleted. |
 | **Proxy Settings** | Manage pi agent process proxy and desktop proxy separately; model discovery and connection tests can use the desktop proxy. |
 | **Slash Commands & `!` Shell** | Built-in slash command suggestions (`/reload`, `/compact`, `/session`, …) and `!command` / `!!command` for inline shell execution directly in the chat composer. |
 | **Embedded Terminal Dock** | Agent-scoped terminal tabs with PowerShell/cmd/sh fallback, multiple tabs, theme switching, height resizing, right-click selection copy, and close-all confirmation. |

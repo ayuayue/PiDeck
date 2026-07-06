@@ -1,5 +1,4 @@
 import {
-	Fragment,
 	isValidElement,
 	memo,
 	useEffect,
@@ -117,7 +116,12 @@ const FILE_PATH_KEYS = [
 ] as const;
 
 function getPathField(input: unknown) {
-	if (!input || typeof input !== "object") return undefined;
+	if (!input) return undefined;
+	// meta.args 可能被 AgentManager 序列化为 JSON 字符串（safeJson），需反解再查找路径字段。
+	if (typeof input === "string" && input.trim()) {
+		try { input = JSON.parse(input); } catch { return undefined; }
+	}
+	if (typeof input !== "object") return undefined;
 	const record = input as Record<string, unknown>;
 	for (const key of FILE_PATH_KEYS) {
 		const value = record[key];
@@ -150,6 +154,10 @@ function editChangedLineCount(edit: any) {
 }
 
 function getToolChangedLineCountForPath(toolName: string, args: any, path: string) {
+	// meta.args 可能被 AgentManager 序列化为 JSON 字符串
+	if (typeof args === "string" && args.trim()) {
+		try { args = JSON.parse(args); } catch { return 0; }
+	}
 	// 会话卡片只基于当前轮工具参数估算触达行数，不读取 Git 工作区，
 	// 避免提交后工作区清空导致历史会话修改摘要消失。
 	if (/edit|patch/i.test(toolName)) {
@@ -193,10 +201,16 @@ function mergeModifiedFiles(
 function collectModifiedFilesFromToolMessages(messages: ChatMessage[]) {
 	const byPath = new Map<string, SessionModifiedFile>();
 	for (const message of messages) {
-		const toolName = message.meta?.toolName;
+		// meta 不可用时降级到 message.toolName（部分会话 JSONL 行不携带 meta）
+		const toolName = (message.meta?.toolName ?? (message as any).toolName) as string | undefined;
 		if (typeof toolName !== "string" || !isFileMutationTool(toolName)) continue;
 		const args = message.meta?.args;
-		const filePaths = collectPathFields(args);
+		// 优先从 args 提取路径；arg 不可用时降级到 details._piDeckFilePath（pi-deck-file-capture 扩展记录）
+		const filePaths = args ? collectPathFields(args) : [];
+		if (filePaths.length === 0) {
+			const detailsPath = (message as any).details?._piDeckFilePath as string | undefined;
+			if (detailsPath) filePaths.push(detailsPath);
+		}
 		for (const filePath of filePaths) {
 			const previous = byPath.get(filePath);
 			if (previous) byPath.delete(filePath);
@@ -1568,13 +1582,30 @@ export const ToolCard = memo(function ToolCard(props: {
 							{askCard.answered && (!askCard.options || askCard.options.length === 0) ? (
 								<div className="ask-question-card-answered">
 									<Check size={14} className="ask-question-card-answered-ok" />
-									<span className="ask-question-card-answer-text">{askCard.answerLabel ?? (typeof askCard.answer === "string" ? askCard.answer : t("ask.answered"))}</span>
+									<span className="ask-question-card-answer-text">
+										{askCard.answerLabel ?? (
+											typeof askCard.answer === "string" ? askCard.answer :
+											typeof askCard.answer === "boolean" ? (askCard.answer ? t("common.true") : t("common.false")) :
+											t("ask.answered")
+										)}
+									</span>
 								</div>
-							) : !askCard.answered ? (
+							) : askCard.answered ? (
+								<div className="ask-question-card-answered">
+									<Check size={14} className="ask-question-card-answered-ok" />
+									<span className="ask-question-card-answer-text">
+										{askCard.answerLabel ?? (
+											typeof askCard.answer === "string" ? askCard.answer :
+											typeof askCard.answer === "boolean" ? (askCard.answer ? t("common.true") : t("common.false")) :
+											t("ask.answered")
+										)}
+									</span>
+								</div>
+							) : (
 								<div className="ask-question-card-answered" style={{ color: "var(--color-text-tertiary)" }}>
 									{t("ask.unanswered")}
 								</div>
-							) : null}
+							)}
 						</div>
 					) : (
 						<pre className="tool-card-detail">{detailText}</pre>
@@ -1672,7 +1703,7 @@ export const DiagnosticMessageCard = memo(function DiagnosticMessageCard(props: 
  */
 export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	message: ChatMessage;
-	onRespond?: (response: { value?: string; cancelled?: boolean }) => void;
+	onRespond?: (response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => void;
 }) {
 	const meta = props.message.meta as Record<string, unknown> | undefined;
 	const uiRequest = meta?.uiRequest as Record<string, unknown> | undefined;
@@ -1682,6 +1713,7 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	const cancelled = status === "cancelled" || status === "error";
 
 	const [inputValue, setInputValue] = useState("");
+	const [cancelling, setCancelling] = useState(false);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 
 	// 编辑器输入 ref
@@ -1697,7 +1729,7 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	};
 
 	const handleConfirm = (value: boolean) => {
-		props.onRespond?.({ value: value ? "true" : "false" });
+		props.onRespond?.({ confirmed: value });
 	};
 
 	const handleInputSubmit = () => {
@@ -1707,36 +1739,17 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	};
 
 	const handleCancel = () => {
+		setCancelling(true);
 		props.onRespond?.({ cancelled: true });
 	};
 
-	// 已完成的卡片：显示简要结果
+	// 已回答/取消的卡片：信息已在 ToolCard 的 _askCard 中展示，此处不再重复渲染
 	if (answered || cancelled) {
-		const answerText = answered && response?.value != null ? String(response.value) : "";
-		return (
-			<article
-				className={`ask-question-card ${answered ? "answered" : "cancelled"}`}
-			>
-				<div className="ask-question-card-header">
-					<MessageCircle size={14} />
-					<span className="ask-question-card-title">
-						{String(meta?.uiRequest ? (uiRequest?.title ?? "") : "")}
-					</span>
-					<span className="ask-question-card-status">
-						{answered ? t("ask.answered") : t("ask.cancelled")}
-					</span>
-				</div>
-				{answered && answerText && (
-					<div className="ask-question-card-answer">
-						<Check size={13} />
-						{answerText}
-					</div>
-				)}
-			</article>
-		);
+		return null;
 	}
 
 	// pending 卡片：显示交互界面
+	const cancellingLabel = t("ask.cancelling");
 	const method = String(uiRequest?.method ?? "input");
 	const title = String(uiRequest?.title ?? "");
 	const placeholder = String(uiRequest?.placeholder ?? "");
@@ -1747,7 +1760,7 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 			<div className="ask-question-card-header">
 				<MessageCircle size={14} />
 				<span className="ask-question-card-title">{title || t("ask.defaultTitle")}</span>
-				<span className="ask-question-card-status">{t("ask.waiting")}</span>
+				<span className="ask-question-card-status">{cancelling ? t("ask.cancelling") : t("ask.waiting")}</span>
 			</div>
 			<div className="ask-question-card-body">
 				{method === "select" && options && options.length > 0 && (
@@ -1757,10 +1770,18 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 								key={i}
 								className="ask-question-card-option"
 								onClick={() => handleSelect(opt)}
+								disabled={cancelling}
 							>
 								{opt}
 							</button>
 						))}
+					<button
+						className="ask-question-card-cancel"
+						onClick={handleCancel}
+						disabled={cancelling}
+					>
+						{cancelling ? cancellingLabel : t("common.cancel")}
+					</button>
 					</div>
 				)}
 				{method === "confirm" && (
@@ -1768,14 +1789,23 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 						<button
 							className="ask-question-card-option ask-question-card-option-yes"
 							onClick={() => handleConfirm(true)}
+							disabled={cancelling}
 						>
-							{t("common.confirm")}
+							{t("common.true")}
 						</button>
 						<button
 							className="ask-question-card-option ask-question-card-option-no"
 							onClick={() => handleConfirm(false)}
+							disabled={cancelling}
 						>
-							{t("common.cancel")}
+							{t("common.false")}
+						</button>
+						<button
+							className="ask-question-card-cancel"
+							onClick={handleCancel}
+							disabled={cancelling}
+						>
+							{cancelling ? cancellingLabel : t("common.cancel")}
 						</button>
 					</div>
 				)}
@@ -1793,13 +1823,21 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 									handleInputSubmit();
 								}
 							}}
+							disabled={cancelling}
 						/>
 						<button
 							className="ask-question-card-submit"
 							onClick={handleInputSubmit}
-							disabled={!inputValue.trim()}
+							disabled={!inputValue.trim() || cancelling}
 						>
 							<Check size={14} />
+						</button>
+						<button
+							className="ask-question-card-cancel"
+							onClick={handleCancel}
+							disabled={cancelling}
+						>
+							{cancelling ? cancellingLabel : t("common.cancel")}
 						</button>
 					</div>
 				)}
@@ -1811,20 +1849,22 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 							placeholder={placeholder || t("ask.editorPlaceholder")}
 							value={inputValue}
 							onChange={(e) => setInputValue(e.target.value)}
+							disabled={cancelling}
 						/>
 						<div className="ask-question-card-editor-actions">
 							<button
 								className="ask-question-card-submit"
 								onClick={handleInputSubmit}
-								disabled={!inputValue.trim()}
+								disabled={!inputValue.trim() || cancelling}
 							>
 								{t("ask.submit")}
 							</button>
 							<button
 								className="ask-question-card-cancel"
 								onClick={handleCancel}
+								disabled={cancelling}
 							>
-								{t("common.cancel")}
+								{cancelling ? cancellingLabel : t("common.cancel")}
 							</button>
 						</div>
 					</div>
@@ -2183,7 +2223,7 @@ export const TurnRow = memo(function TurnRow(props: {
 					</div>
 				) : (
 					<>
-						{/* 按时序渲染 thinking / tool / assistant 正文，不再按类型分组 */}
+						{/* 按时序渲染 thinking / tool 条目，assistant 正文已合并统一渲染在下文 */}
 						{run.items.map((item) => {
 							if (item.kind === "thinking-group") {
 								if (!props.showThinking) return null;
@@ -2199,118 +2239,113 @@ export const TurnRow = memo(function TurnRow(props: {
 							if (item.kind === "tool-group") {
 								return <ToolGroupCard key={item.id} group={item} />;
 							}
-							if (item.kind === "message" && item.message.role === "assistant") {
-								return (
-									<Fragment key={item.message.id}>
-										{/* 内联思考（来自 assistant 消息自身的 thinking 字段）：
-										    仅当本轮无独立思考组时才展示，避免冗余 */}
-										{props.showThinking && mergedThinking && !hasStandaloneThinking && (
-											<ThinkingBlock
-												text={mergedThinking}
-												endedAt={run.endedAt}
-												showThinking={props.showThinking}
-											/>
-										)}
-										{/* 助手正文 */}
-										{mergedText && editing ? (
-											<div className="turn-row-edit-area" ref={editAreaRef}>
-												<div className="edit-area-indicator">{t("common.edit")}</div>
-												<textarea
-													className="turn-row-edit-textarea"
-													value={editText}
-													onChange={(e) => setEditText(e.target.value)}
-													onKeyDown={(e) => {
-														// Ctrl+Enter 保存，Escape 取消
-														if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-															e.preventDefault();
-															const targetId = assistantMessages.at(-1)?.message.id;
-															if (targetId && props.onEditMessage) {
-																props.onEditMessage(targetId, editText);
-																setEditing(false);
-															}
-														}
-														if (e.key === "Escape") {
-															setEditing(false);
-														}
-													}}
-													autoFocus
-												/>
-												<div className="turn-row-edit-actions">
-													<button
-														className="turn-row-edit-btn primary"
-														onClick={() => {
-															const targetId = assistantMessages.at(-1)?.message.id;
-															if (targetId && props.onEditMessage) {
-																props.onEditMessage(targetId, editText);
-																setEditing(false);
-															}
-														}}
-													>
-														{t("common.save")}
-													</button>
-													<button
-														className="turn-row-edit-btn"
-														onClick={() => setEditing(false)}
-													>
-														{t("common.cancel")}
-													</button>
-												</div>
-											</div>
-										) : mergedText ? (
-											<AssistantText
-												text={mergedText}
-												images={allImages}
-												onPreviewImage={props.onPreviewImage}
-												onOpenExternal={props.onOpenExternal}
-												onOpenFile={props.onOpenFile}
-												isStreaming={props.isStreaming ?? false}
-											/>
-										) : null}
-										{/* 操作栏 */}
-										{mergedText && !editing && (
-											<div className="turn-row-actions">
-												<CopyMenu text={mergedText} markdown={mergedText} targetRef={rowRef} />
-												{!props.isStreaming && assistantMessages.at(-1)?.message.id && (
-													<>
-														<button
-															className="turn-row-action-btn"
-															onClick={() => {
-																setEditText(mergedText);
-																setEditing(true);
-															}}
-															title={t("common.edit")}
-														>
-															{t("common.edit")}
-														</button>
-														<button
-															className="turn-row-action-btn"
-															onClick={() => {
-																const targetId = assistantMessages.at(-1)?.message.id;
-																if (targetId && props.onDeleteMessage) {
-																	props.onDeleteMessage(targetId);
-																}
-															}}
-															title={t("common.delete")}
-														>
-															{t("common.delete")}
-														</button>
-													</>
-												)}
-											</div>
-										)}
-										{/* 本轮修改文件摘要 */}
-										{fileSummary && fileSummary.length > 0 && (
-											<SessionFileSummary
-												files={fileSummary}
-												onOpenFile={props.onOpenFile}
-												onDiffFile={props.onDiffFile}
-											/>
-										)}
-									</Fragment>
-								);
-							}
+							// assistant 消息已合并为 mergedText，在循环外统一渲染一次，避免重复
 							return null;
 						})}
+						{/* 内联思考（来自 assistant 消息自身的 thinking 字段）：
+						    仅当本轮无独立思考组时才展示，避免冗余 */}
+						{props.showThinking && mergedThinking && !hasStandaloneThinking && (
+							<ThinkingBlock
+								text={mergedThinking}
+								endedAt={run.endedAt}
+								showThinking={props.showThinking}
+							/>
+						)}
+						{/* 助手正文（已合并，只渲染一次） */}
+						{mergedText && editing ? (
+							<div className="turn-row-edit-area" ref={editAreaRef}>
+								<div className="edit-area-indicator">{t("common.edit")}</div>
+								<textarea
+									className="turn-row-edit-textarea"
+									value={editText}
+									onChange={(e) => setEditText(e.target.value)}
+									onKeyDown={(e) => {
+										// Ctrl+Enter 保存，Escape 取消
+										if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+											e.preventDefault();
+											const targetId = assistantMessages.at(-1)?.message.id;
+											if (targetId && props.onEditMessage) {
+												props.onEditMessage(targetId, editText);
+												setEditing(false);
+											}
+										}
+										if (e.key === "Escape") {
+											setEditing(false);
+										}
+									}}
+									autoFocus
+								/>
+								<div className="turn-row-edit-actions">
+									<button
+										className="turn-row-edit-btn primary"
+										onClick={() => {
+											const targetId = assistantMessages.at(-1)?.message.id;
+											if (targetId && props.onEditMessage) {
+												props.onEditMessage(targetId, editText);
+												setEditing(false);
+											}
+										}}
+									>
+										{t("common.save")}
+									</button>
+									<button
+										className="turn-row-edit-btn"
+										onClick={() => setEditing(false)}
+									>
+										{t("common.cancel")}
+									</button>
+								</div>
+							</div>
+						) : mergedText ? (
+							<AssistantText
+								text={mergedText}
+								images={allImages}
+								onPreviewImage={props.onPreviewImage}
+								onOpenExternal={props.onOpenExternal}
+								onOpenFile={props.onOpenFile}
+								isStreaming={props.isStreaming ?? false}
+							/>
+						) : null}
+						{/* 操作栏 */}
+						{mergedText && !editing && (
+							<div className="turn-row-actions">
+								<CopyMenu text={mergedText} markdown={mergedText} targetRef={rowRef} />
+								{!props.isStreaming && assistantMessages.at(-1)?.message.id && (
+									<>
+										<button
+											className="turn-row-action-btn"
+											onClick={() => {
+												setEditText(mergedText);
+												setEditing(true);
+											}}
+											title={t("common.edit")}
+										>
+											{t("common.edit")}
+										</button>
+										<button
+											className="turn-row-action-btn"
+											onClick={() => {
+												const targetId = assistantMessages.at(-1)?.message.id;
+												if (targetId && props.onDeleteMessage) {
+													props.onDeleteMessage(targetId);
+												}
+											}}
+											title={t("common.delete")}
+										>
+											{t("common.delete")}
+										</button>
+									</>
+								)}
+							</div>
+						)}
+						{/* 本轮修改文件摘要：放在工具和助手消息下方，即使本轮只有工具调用也展示 */}
+						{fileSummary && fileSummary.length > 0 && (
+							<SessionFileSummary
+								files={fileSummary}
+								onOpenFile={props.onOpenFile}
+								onDiffFile={props.onDiffFile}
+							/>
+						)}
 					</>
 				)}
 			</div>

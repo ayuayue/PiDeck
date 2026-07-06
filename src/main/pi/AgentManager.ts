@@ -679,10 +679,8 @@ export class AgentManager {
 	async abort(agentId: string) {
 		const runtime = this.requireRuntime(agentId);
 		// pi RPC 原生支持 abort，对应终端里的 Escape：停止当前 LLM/tool 流程并保留会话进程。
-		// 注意：不先取消 pending UI 请求——pi 的 abort 应能打断正在等待 extension_ui_response 的
-		// agent_end 处理器。如果先发 extension_ui_response 解析掉 ctx.ui.select()，会导致
-		// extension 的 agent_end 处理器提前完成、释放 agent，而 abort RPC 还没到达，
-		// 此时如果排队消息被 pi 处理，就会产生停止后又继续的假象。
+		// 不先取消 pending UI 请求，避免 extension 的 agent_end 提前完成导致 abort RPC 到达时
+		// agent 已释放，产生"停止后又继续"的假象；等 abort RPC 返回后再清理 pending UI 请求。
 		await runtime.process.client
 			.request({ type: "abort" }, 10_000)
 			.catch((error) => {
@@ -692,6 +690,30 @@ export class AgentManager {
 					error instanceof Error ? error.message : String(error),
 				);
 			});
+		// abort 返回后，清理该 agent  pending UI 请求并移除 ask_question 卡片
+		// 注意：不调用 sendUIResponse（它会给 pi 发 cancelled 信号，而 pi 内置
+		// ask_question 不识别 cancelled，收到无 value 的响应会默认选第一个选项）。
+		// 直接移除卡片，既不干扰 pi 的 abort 处理，也不让卡片卡在等待状态。
+		const pending = this.pendingUIRequests.get(agentId);
+		if (pending && pending.size > 0) {
+			const messages = this.messages.get(agentId);
+			if (messages) {
+				for (const [requestId] of pending) {
+					const idx = messages.findIndex(
+						(msg) =>
+							msg.role === "system" &&
+							msg.meta?.type === "askQuestion" &&
+							(msg.meta as Record<string, unknown>).uiRequest &&
+							((msg.meta as Record<string, unknown>).uiRequest as Record<string, unknown>).requestId === requestId,
+					);
+					if (idx !== -1) {
+						messages.splice(idx, 1);
+					}
+				}
+				this.messages.set(agentId, messages);
+			}
+			this.pendingUIRequests.delete(agentId);
+		}
 		runtime.tab.status = "idle";
 		this.addMessage(agentId, "system", "已请求停止当前响应");
 		this.emitState();
@@ -1725,17 +1747,22 @@ export class AgentManager {
 	 * 发送 Extension UI 响应（extension_ui_response）到 pi 的 stdin。
 	 * 同时更新对应卡片消息的状态。
 	 */
-	sendUIResponse(agentId: string, requestId: string, response: { value?: string; cancelled?: boolean }) {
+	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) {
 		const runtime = this.agents.get(agentId);
 		if (!runtime) return;
 
 		// 写入 extension_ui_response 到 pi 的 stdin
-		runtime.process.client.sendRaw({
+
+		const extPayload: Record<string, unknown> = {
 			type: "extension_ui_response",
 			id: requestId,
 			value: response.value,
-			cancelled: response.cancelled ?? false,
-		});
+		};
+		// pi 的 ctx.ui.confirm() 检查 confirmed 字段，ctx.ui.select/input 检查 value
+		if ("confirmed" in response) extPayload.confirmed = response.confirmed;
+		// 取消时发 cancelled: true
+		if (response.cancelled) extPayload.cancelled = true;
+		runtime.process.client.sendRaw(extPayload);
 
 		// 清理 pending 记录
 		const pending = this.pendingUIRequests.get(agentId);

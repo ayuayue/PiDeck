@@ -1,6 +1,5 @@
 import {
 	useEffect,
-	useLayoutEffect,
 	useRef,
 	useState,
 	type MouseEvent as ReactMouseEvent,
@@ -178,14 +177,6 @@ export function TerminalDock(props: {
 			offExit();
 		};
 	}, [props.terminal]);
-
-	useLayoutEffect(() => {
-		// 通过 CSS 变量驱动 chat-pane 的 grid-template-rows 过渡，
-		// 使容器开合动画与消息区压缩同步。
-		const chatPane = containerRef.current?.closest('.chat-pane') as HTMLElement | null;
-		if (!chatPane) return;
-		chatPane.style.setProperty('--terminal-row-h', !open ? '0px' : (collapsed ? '34px' : `${props.height}px`));
-	}, [open, collapsed, props.height]);
 
 	useEffect(() => {
 		xtermRef.current = null;
