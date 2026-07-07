@@ -245,7 +245,7 @@ Join the PiDeck QQ group for discussion and feedback:
 
 ## Security
 
-This app starts local `pi` processes and exposes limited file operations through Electron IPC. Only run from trusted source code. The app sends an anonymous, low-frequency `app_heartbeat` by default to understand version distribution, platform compatibility, and active installations; it can be disabled in Settings. It does not collect project paths, code, message content, session content, or file names, and it does not upload files. The third-party analytics service receives request metadata. pi agent process proxy and desktop model fetch/test proxy can be configured separately; external links opened in the system browser still follow the browser/system network settings.
+This app starts local `pi` processes and exposes limited file operations through Electron IPC. Only run from trusted source code. This app does not collect any user data or send usage statistics. pi agent process proxy and desktop model fetch/test proxy can be configured separately; external links opened in the system browser still follow the browser/system network settings.
 
 ## License
 

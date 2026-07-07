@@ -4335,16 +4335,6 @@ export function SettingsModal(props: {
 										}}
 									/>
 								</SettingsSection>
-								<SettingsSection title={t("settings.privacy")}>
-									<SettingSwitch
-										title={t("settings.telemetry")}
-										description={t("settings.telemetryDesc")}
-										checked={props.settings.telemetryEnabled}
-										onChange={(checked) =>
-											props.onChange({ telemetryEnabled: checked })
-										}
-									/>
-								</SettingsSection>
 							</>
 						)}
 						{activeTab === "proxy" && (

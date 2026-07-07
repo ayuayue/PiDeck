@@ -1077,7 +1077,6 @@ const zhCN = {
   "settings.piMissing": "未检测到 pi CLI",
   "settings.piProxy": "pi agent 代理",
   "settings.piProxyDesc": "只注入给新启动的 pi agent 子进程",
-  "settings.privacy": "隐私",
   "settings.proxyBypass": "绕过代理",
   "settings.proxyBypassDesc": "对应 NO_PROXY，多个条目用英文逗号分隔",
   "settings.proxySection": "代理设置",
@@ -1103,9 +1102,6 @@ const zhCN = {
   "settings.showThinking": "显示思考过程",
   "settings.showThinkingDesc":
     "开启后可看到模型推理过程，帮助理解 agent 为什么卡住",
-  "settings.telemetry": "匿名使用统计",
-  "settings.telemetryDesc":
-    "帮助了解版本分布、平台兼容性和活跃安装数量。不会收集项目路径、代码、消息内容或文件名。",
   "settings.testProxy": "检测代理",
   "settings.testingProxy": "检测中...",
   "settings.toggle": "打开/关闭",
@@ -2318,7 +2314,6 @@ const enUS: Record<TranslationKey, string> = {
   "settings.piProxy": "pi agent proxy",
   "settings.piProxyDesc":
     "Injected only into newly started pi agent child processes",
-  "settings.privacy": "Privacy",
   "settings.proxyBypass": "Proxy bypass",
   "settings.proxyBypassDesc": "Maps to NO_PROXY. Separate entries with commas.",
   "settings.proxySection": "Proxy",
@@ -2347,9 +2342,6 @@ const enUS: Record<TranslationKey, string> = {
   "settings.showThinking": "Show thinking",
   "settings.showThinkingDesc":
     "Shows model reasoning to help understand why an agent appears stuck",
-  "settings.telemetry": "Anonymous usage stats",
-  "settings.telemetryDesc":
-    "Helps understand version distribution, platform compatibility, and active installs. Project paths, code, message content, and file names are never collected.",
   "settings.testProxy": "Test proxy",
   "settings.testingProxy": "Testing...",
   "settings.toggle": "Toggle",

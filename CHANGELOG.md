@@ -4,6 +4,14 @@
 
 All notable changes to PiDeck are documented here.
 
+## v0.6.5 - 2026-07-08
+
+### 🔧 Improvements
+
+- **Data collection removed**: Completely removed PostHog anonymous usage statistics. No `app_heartbeat` events are sent. Zero user data collection.
+- **Single instance lock**: Clicking the exe multiple times no longer opens duplicate windows; focuses the existing window instead.
+- **Window size memory**: Window position and size are automatically saved on exit and restored on next launch.
+
 ## v0.6.4 - 2026-07-05
 
 ### 🚀 New Features

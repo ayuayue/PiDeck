@@ -97,9 +97,9 @@ export function SettingsModal(props: {
 		setWebPortDraft(String(props.settings.webServicePort));
 	}, [props.settings.webServicePort]);
 
-	// 宠物包列表：异步加载内置 + petdex 社区包，供选择下拉使用
+	// 瀹犵墿鍖呭垪琛細寮傛鍔犺浇鍐呯疆 + petdex 绀惧尯鍖咃紝渚涢€夋嫨涓嬫媺浣跨敤
 	const [petOptions, setPetOptions] = useState<{ value: string; label: string }[]>([]);
-	// 完整宠物清单（含 spritesheetUrl / 描述），用于选择预览：仅靠 id 无法加载图，需清单里的 url。
+	// 瀹屾暣瀹犵墿娓呭崟锛堝惈 spritesheetUrl / 鎻忚堪锛夛紝鐢ㄤ簬閫夋嫨棰勮锛氫粎闈?id 鏃犳硶鍔犺浇鍥撅紝闇€娓呭崟閲岀殑 url銆?
 	const [petList, setPetList] = useState<PetManifest[]>([]);
 	useEffect(() => {
 		window.piDesktop.pet
@@ -107,7 +107,7 @@ export function SettingsModal(props: {
 			.then((pets) => { setPetList(pets); setPetOptions(pets.map((p) => ({ value: p.id, label: p.displayName }))); })
 			.catch(() => undefined);
 	}, []);
-	// 宠物动画预览模式：下拉选中值需受控，避免选完弹回"自动"
+	// 瀹犵墿鍔ㄧ敾棰勮妯″紡锛氫笅鎷夐€変腑鍊奸渶鍙楁帶锛岄伩鍏嶉€夊畬寮瑰洖"鑷姩"
 	const [petPreviewMode, setPetPreviewMode] = useState("__auto");
 	const applyWebPortDraft = () => {
 		const port = Number(webPortDraft);
@@ -342,7 +342,7 @@ export function SettingsModal(props: {
 										value={String(Math.round(props.settings.rpcTimeout / 1000))}
 										description={t("settings.rpcTimeoutDesc")}
 										onChange={(value) => {
-											// 防止用户设置过小的超时导致 RPC 调用频繁超时，最低 600 秒
+											// 闃叉鐢ㄦ埛璁剧疆杩囧皬鐨勮秴鏃跺鑷?RPC 璋冪敤棰戠箒瓒呮椂锛屾渶浣?600 绉?
 											const seconds = Math.max(600, parseInt(value) || 600);
 											props.onChange({ rpcTimeout: seconds * 1000 });
 										}}
@@ -371,16 +371,7 @@ export function SettingsModal(props: {
 										}}
 									/>
 								</SettingsSection>
-								<SettingsSection title={t("settings.privacy")}>
-									<SettingSwitch
-										title={t("settings.telemetry")}
-										description={t("settings.telemetryDesc")}
-										checked={props.settings.telemetryEnabled}
-										onChange={(checked) =>
-											props.onChange({ telemetryEnabled: checked })
-										}
-									/>
-								</SettingsSection>
+
 							</>
 						)}
 						{activeTab === "proxy" && (
@@ -909,7 +900,7 @@ function PetChooserPreview(props: {
 	);
 }
 
-/** 存储管理子标签页 */
+/** 瀛樺偍绠＄悊瀛愭爣绛鹃〉 */
 function StorageTab(props: {
 	settings: AppSettings;
 	onChange: (patch: Partial<AppSettings>) => void;
@@ -924,7 +915,7 @@ function StorageTab(props: {
 		onConfirm: () => void;
 	} | null>(null);
 
-	// 每 5 秒刷新一次日志大小; 切换到此 tab 时立即刷新（activeTab 由父组件管理,当前存储 tab 自身 mount 时刷新）
+	// 姣?5 绉掑埛鏂颁竴娆℃棩蹇楀ぇ灏? 鍒囨崲鍒版 tab 鏃剁珛鍗冲埛鏂帮紙activeTab 鐢辩埗缁勪欢绠＄悊,褰撳墠瀛樺偍 tab 鑷韩 mount 鏃跺埛鏂帮級
 	useEffect(() => {
 		let mounted = true;
 		const refresh = () => {

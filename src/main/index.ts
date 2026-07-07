@@ -78,7 +78,6 @@ import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
 import { ConfigManager } from "./config/ConfigManager";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
-import { TelemetryService } from "./telemetry/TelemetryService";
 import { SkillManager } from "./skills/SkillManager";
 import { ExtensionManager } from "./extensions/ExtensionManager";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
@@ -137,11 +136,6 @@ let feishuBridge: FeishuBridge | null = null;
 const RELEASES_URL = "https://github.com/ayuayue/pi-desktop/releases";
 const LATEST_RELEASE_API =
 	"https://api.github.com/repos/ayuayue/pi-desktop/releases/latest";
-const POSTHOG_PROJECT_KEY =
-	process.env.POSTHOG_PROJECT_KEY ??
-	"phc_xgJ8gFUMgExZEEPzZ7VRa7698ENcaDRquWZVGYb2dCFK";
-const POSTHOG_HOST = process.env.POSTHOG_HOST ?? "https://us.i.posthog.com";
-
 type GitHubReleaseAsset = {
 	name: string;
 	browser_download_url: string;
@@ -584,11 +578,18 @@ async function createWindow() {
 		electronRendererUrl: process.env.ELECTRON_RENDERER_URL ? "set" : "unset",
 	});
 
+	const saved = settingsStore.get();
+	const initialWidth = saved.windowWidth ?? 1480;
+	const initialHeight = saved.windowHeight ?? 960;
+	const initialX = saved.windowX;
+	const initialY = saved.windowY;
+
 	mainWindow = new BrowserWindow({
 		show: showMainWindowImmediately,
 		backgroundColor: "#eef0f3",
-		width: 1480,
-		height: 960,
+		width: initialWidth,
+		height: initialHeight,
+		...(initialX !== undefined && initialY !== undefined ? { x: initialX, y: initialY } : {}),
 		minWidth: 880,
 		minHeight: 640,
 		title: "",
@@ -610,9 +611,36 @@ async function createWindow() {
 		hasShownMainWindow = true;
 		createdWindow.show();
 		createdWindow.focus();
-		// 向开发者工具输出启动信息
 		printStartupInfo();
 	}
+
+	if (saved.windowIsMaximized) {
+		mainWindow.maximize();
+	}
+
+	// 窗口尺寸/位置记忆：move/resize 时暂存到内存，退出时统一写入磁盘
+	let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null;
+	const queueSaveBounds = () => {
+		if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
+		saveBoundsTimer = setTimeout(() => {
+			if (!mainWindow || mainWindow.isDestroyed()) return;
+			const bounds = mainWindow.getBounds();
+			const isMaximized = mainWindow.isMaximized();
+			settingsStore
+				.update({
+					windowX: bounds.x,
+					windowY: bounds.y,
+					windowWidth: bounds.width,
+					windowHeight: bounds.height,
+					windowIsMaximized: isMaximized,
+				})
+				.catch(() => {});
+		}, 500);
+	};
+	mainWindow.on("resize", queueSaveBounds);
+	mainWindow.on("move", queueSaveBounds);
+	mainWindow.on("maximize", queueSaveBounds);
+	mainWindow.on("unmaximize", queueSaveBounds);
 
 	// 窗口保持隐藏时先最大化，再加载页面；避免 ready-to-show 后再最大化造成首帧布局跳变。
 	if (!showMainWindowImmediately) {
@@ -2036,34 +2064,6 @@ function registerIpc() {
 	});
 }
 
-function sendTelemetryHeartbeat() {
-	const telemetry = new TelemetryService({
-		settingsStore,
-		config: {
-			projectKey: POSTHOG_PROJECT_KEY,
-			host: POSTHOG_HOST,
-		},
-		metadata: {
-			appVersion: app.getVersion(),
-			platform: process.platform,
-			arch: process.arch,
-			packaged: app.isPackaged,
-		},
-		capture: async (request) => {
-			const response = await net.fetch(request.url, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(request.body),
-			});
-			if (!response.ok) {
-				throw new Error(`Telemetry request failed: ${response.status}`);
-			}
-		},
-	});
-
-	void telemetry.sendHeartbeat().catch(() => undefined);
-}
-
 async function detectExternalEditorsOnFirstLaunch() {
 	const current = settingsStore.get().externalEditors;
 	if (Object.values(current).some((editor) => editor.command)) return;
@@ -2073,6 +2073,20 @@ async function detectExternalEditorsOnFirstLaunch() {
 		externalEditors: mergeDetectedExternalEditors(current, detected),
 	});
 	void appLogger.info("editor", "External editors detected on first launch", { count: detected.length });
+}
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+	app.quit();
+} else {
+	app.on("second-instance", () => {
+		const win = mainWindow;
+		if (win) {
+			if (win.isMinimized()) win.restore();
+			if (!win.isVisible()) win.show();
+			win.focus();
+		}
+	});
 }
 
 app.whenReady().then(async () => {
@@ -2171,7 +2185,6 @@ app.whenReady().then(async () => {
 	// 🆕 自动连接：如果已有 Bot 配置，自动启动飞书连接
 	autoConnectFeishu();
 
-	sendTelemetryHeartbeat();
 	await createWindow();
 	setupTray();
 	void detectExternalEditorsOnFirstLaunch().catch((error) => {
@@ -2264,6 +2277,20 @@ async function removeStalePiDeckExtension(extensionName: string): Promise<void> 
 
 app.on("before-quit", () => {
 	isQuitting = true;
+	// 退出前最终保存一次窗口位置和尺寸
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		const bounds = mainWindow.getBounds();
+		const isMaximized = mainWindow.isMaximized();
+		settingsStore
+			.update({
+				windowX: bounds.x,
+				windowY: bounds.y,
+				windowWidth: bounds.width,
+				windowHeight: bounds.height,
+				windowIsMaximized: isMaximized,
+			})
+			.catch(() => {});
+	}
 	tray?.destroy();
 	tray = null;
 	void webServiceManager?.stop();
