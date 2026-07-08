@@ -95,6 +95,7 @@ import {
   UserBubble,
   TurnRow,
   AskQuestionCard,
+  ExtensionWidgetCard,
   MultiSelectModal,
   WorktreeCreateDialog,
   type DrawerPanel,
@@ -529,6 +530,10 @@ export function App() {
   /** Extension widget �ۺ�/չ��״̬���� agent ��������һ���л�ʱ������ */
   const [widgetsCollapsedByAgent, setWidgetsCollapsedByAgent] = useState<
     Record<string, boolean>
+  >({});
+  /** 用户手动关闭的 extension widget（widgetKey） */
+  const [agentDismissedWidgets, setAgentDismissedWidgets] = useState<
+    Record<string, string[]>
   >({});
   /** 输入框发送模式：normal 直接交给 agent，plan 通过隐藏标记触发 PiDeck Plan Mode 扩展。 */
   const [composerAgentModes, setComposerAgentModes] = useState<Record<string, ComposerAgentMode>>({});
@@ -1459,6 +1464,17 @@ export function App() {
           else delete agentWidgets[widgetKey];
           return { ...current, [request.agentId]: agentWidgets };
         });
+        // agent 推送了新的 widget 内容，清除该 widget 的关闭标记使其重新显示
+        if (widgetLines.length > 0) {
+          setAgentDismissedWidgets((prev) => {
+            const current = prev[request.agentId];
+            if (!current?.includes(widgetKey)) return prev;
+            return {
+              ...prev,
+              [request.agentId]: current.filter((k) => k !== widgetKey),
+            };
+          });
+        }
         return;
       }
 
@@ -5150,27 +5166,21 @@ ${goalTextRef.current}
             const collapsed = widgetsCollapsedByAgent[activeAgentId] ?? false;
             return (
               <div className="extension-widgets-container" key="widgets-container">
-                <button
-                  className="extension-widgets-toggle"
-                  onClick={() =>
-                    setWidgetsCollapsedByAgent((prev) => ({
-                      ...prev,
-                      [activeAgentId]: !collapsed,
-                    }))
-                  }
-                  title={collapsed ? t("app.expandList") : t("app.collapseList")}
-                >
-                  <ChevronDown size={14} className={`toggle-arrow${collapsed ? "" : " expanded"}`} />
-                  <span>{t("app.widgetsToggle")}</span>
-                </button>
-                {!collapsed && entries.map(([widgetKey, widgetLines]) => (
-                  <div key={widgetKey} className="extension-widget-stack" aria-live="polite">
-                    {widgetLines.map((line, index) => (
-                      <div key={index} className="extension-widget-line">
-                        {line}
-                      </div>
-                    ))}
-                  </div>
+                {!collapsed && entries.filter(([key]) =>
+                  activeAgentId && !(agentDismissedWidgets[activeAgentId]?.includes(key))
+                ).map(([widgetKey, widgetLines]) => (
+                  <ExtensionWidgetCard
+                    key={widgetKey}
+                    widgetKey={widgetKey}
+                    lines={widgetLines}
+                    onClose={() => {
+                      setAgentDismissedWidgets((prev) => {
+                        const current = prev[activeAgentId!] ?? [];
+                        if (current.includes(widgetKey)) return prev;
+                        return { ...prev, [activeAgentId!]: [...current, widgetKey] };
+                      });
+                    }}
+                  />
                 ))}
               </div>
             );

@@ -507,6 +507,49 @@ export function SessionStatus(props: {
 	);
 }
 
+/** 单个 extension widget 卡片：可折叠标题栏 + 内容行，支持手动关闭 */
+export function ExtensionWidgetCard(props: {
+	widgetKey: string;
+	lines: string[];
+	onClose: () => void;
+}) {
+	const [expanded, setExpanded] = useState(true);
+	return (
+		<div className="extension-widget-card">
+			<button
+				className="extension-widget-card-trigger"
+				onClick={() => setExpanded((v) => !v)}
+				aria-expanded={expanded}
+			>
+				<ChevronDown
+					size={14}
+					className={`extension-widget-card-chevron${expanded ? " open" : ""}`}
+				/>
+				<span className="extension-widget-card-title">{props.widgetKey}</span>
+				<button
+					className="extension-widget-card-close"
+					onClick={(e) => {
+						e.stopPropagation();
+						props.onClose();
+					}}
+					title={t("common.close")}
+				>
+					<X size={12} strokeWidth={2} />
+				</button>
+			</button>
+			{expanded && (
+				<div className="extension-widget-card-content">
+					{props.lines.map((line, index) => (
+						<div key={index} className="extension-widget-card-line">
+							{line}
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
 export function ComposerToolbar(props: {
 	state?: AgentRuntimeState;
 	compacting: boolean;
@@ -1258,6 +1301,8 @@ function getToolSubtitle(message: ChatMessage): string {
 			"pattern", "query", "queries",
 			// 网络获取类（fetch_content 等）
 			"url", "urls",
+			// 待办事项类（todo 等）
+			"action", "text",
 		]) {
 			const v = args[key];
 			if (typeof v === "string" && v) return v;
@@ -1272,6 +1317,12 @@ function getToolSubtitle(message: ChatMessage): string {
 	if (typeof command === "string" && command) return command;
 	const file = meta.file;
 	if (typeof file === "string" && file) return file;
+	// 兜底：取 args 中第一个非空字符串值
+	if (args && typeof args === "object") {
+		for (const val of Object.values(args as Record<string, unknown>)) {
+			if (typeof val === "string" && val) return val;
+		}
+	}
 	return "";
 }
 

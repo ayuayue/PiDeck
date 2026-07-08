@@ -3281,15 +3281,15 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 .tool-card-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   width: 100%;
-  min-height: 28px;
-  padding: 4px 8px;
+  min-height: 32px;
+  padding: 6px 10px;
   border: 0;
   background: transparent;
   color: var(--color-text-secondary);
   font-family: var(--font-family-base);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-control);
   line-height: var(--line-height-control);
   text-align: left;
   cursor: pointer;
@@ -3370,6 +3370,9 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   transform: rotate(180deg);
 }
 .tool-card-content {
+  border: 1px solid var(--color-border-subtle);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: transparent;
   position: relative;
 }
@@ -5245,69 +5248,93 @@ body.is-composer-resizing .composer-resize-handle::after {
   flex-direction: column;
   gap: var(--space-1);
 }
-.extension-widgets-toggle {
+
+/* 单个 widget 卡片，类似工具卡片样式 */
+.extension-widget-card {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  overflow: hidden;
+}
+.extension-widget-card-trigger {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  border: 1px solid
-    color-mix(in srgb, var(--color-brand-green) 24%, var(--color-border-subtle));
-  border-radius: var(--radius-sm);
-  background: color-mix(
-    in srgb,
-    var(--color-brand-green) 7%,
-    var(--color-bg-panel)
-  );
-  color: var(--color-text-tertiary);
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: background 0.15s;
+  gap: 4px;
   width: 100%;
-  text-align: left;
-}
-.extension-widgets-toggle:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-brand-green) 12%,
-    var(--color-bg-hover)
-  );
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
   color: var(--color-text-secondary);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-control);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
 }
-.extension-widgets-toggle .toggle-arrow {
+.extension-widget-card-trigger:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 50%, var(--color-bg));
+}
+.extension-widget-card-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.extension-widget-card-chevron {
   flex-shrink: 0;
-  transition: transform 0.2s;
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s ease;
 }
-.extension-widgets-toggle .toggle-arrow.expanded {
+.extension-widget-card-chevron.open {
   transform: rotate(180deg);
 }
-
-.extension-widget-stack {
-  border: 1px solid
-    color-mix(in srgb, var(--color-brand-green) 24%, var(--color-border-subtle));
-  border-radius: var(--radius-md);
-  background: color-mix(
-    in srgb,
-    var(--color-brand-green) 7%,
-    var(--color-bg-panel)
-  );
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-1) var(--space-2);
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-micro);
-  color: var(--color-text-secondary);
-  max-height: 180px;
-  overflow-y: auto;
+.extension-widget-card-title {
+  min-width: 0;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-transform: capitalize;
 }
-.extension-widget-line {
+.extension-widget-card-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+  padding: 0;
+  opacity: 0.5;
+}
+.extension-widget-card-close:hover {
+  opacity: 1;
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.extension-widget-card-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.extension-widget-card-content {
+  padding: 0 8px 6px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.extension-widget-card-line {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.extension-widget-line + .extension-widget-line {
-  margin-top: 2px;
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
 }
 .composer-footer {
   display: flex;
