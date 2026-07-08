@@ -450,6 +450,12 @@ export function App() {
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>();
   const [activeAgentId, setActiveAgentId] = useState<string>();
+  // 切换 agent（新会话/恢复会话）时刷新设置，使 pi agent 的 hideThinkingBlock 立即生效
+  useEffect(() => {
+    if (activeAgentId) {
+      void api.settings.get().then(setSettings).catch(() => undefined);
+    }
+  }, [activeAgentId]);
   const activeAgentIdRef = useRef<string | undefined>(activeAgentId);
   activeAgentIdRef.current = activeAgentId;
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(

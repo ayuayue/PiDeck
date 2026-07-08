@@ -103,6 +103,11 @@ export class SettingsStore {
   }
 
   get() {
+    // showThinking 由 pi agent 的 hideThinkingBlock 动态决定，每次 get() 都重新读取
+    const computed = readPiAgentShowThinking();
+    if (computed !== undefined) {
+      return { ...this.settings, showThinking: computed };
+    }
     return { ...this.settings };
   }
 
