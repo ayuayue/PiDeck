@@ -529,19 +529,17 @@ export function ExtensionWidgetCard(props: {
 					/>
 					<span className="extension-widget-card-title">{props.widgetKey}</span>
 				</button>
-				<span
+				<button
 					className="extension-widget-card-close"
 					onClick={(e) => {
 						e.stopPropagation();
 						props.onClose();
 					}}
 					title={t("common.close")}
-					role="button"
-					tabIndex={0}
-					onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); props.onClose(); } }}
+					aria-label={t("common.close")}
 				>
 					<X size={12} strokeWidth={2} />
-				</span>
+				</button>
 			</div>
 			{expanded && (
 				<div className="extension-widget-card-content">

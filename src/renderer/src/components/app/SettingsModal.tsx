@@ -282,7 +282,7 @@ export function SettingsModal(props: {
 											type="range"
 											min="800"
 											max="1400"
-											step="50"
+											step="25"
 											value={props.settings.contentMaxWidth}
 											onChange={(event) => props.onChange({ contentMaxWidth: parseInt(event.target.value) })}
 											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}

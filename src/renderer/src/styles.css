@@ -1773,7 +1773,7 @@ body.is-terminal-resizing {
 }
 .chat-pane[style*="--content-max-width"] .composer-box,
 .chat-pane[style*="--content-max-width"] .image-preview-area,
-.chat-pane[style*="--content-max-width"] .extension-widget-stack,
+.chat-pane[style*="--content-max-width"] .extension-widgets-container,
 .chat-pane[style*="--content-max-width"] .composer-footer {
   width: min(100%, var(--content-max-width));
   max-width: var(--content-max-width);
@@ -3947,7 +3947,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 .multi-select-modal-tree {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 10px 12px;
   min-height: 0;
 }
 
@@ -3956,19 +3956,27 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 20px;
+  padding: 7px 10px;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition:
+    background 0.1s ease,
+    border-color 0.1s ease;
   font-size: var(--font-size-small);
   line-height: 1.5;
-  border-left: 3px solid transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
 }
 .multi-select-tree-node:hover {
-  background: var(--color-bg-muted);
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-subtle);
 }
 .multi-select-tree-node.selected {
-  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-bg-article, transparent));
-  border-left-color: var(--color-accent);
+  /* 选中态只依赖复选框本身表达，避免整行底色或左侧色条干扰阅读。 */
+  background: transparent;
+  border-color: transparent;
+}
+.multi-select-modal-tree > .multi-select-tree-node {
+  margin: 2px 0;
 }
 .multi-select-tree-node input[type="checkbox"] {
   flex-shrink: 0;
@@ -3983,7 +3991,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   color: var(--color-text-tertiary);
 }
 .multi-select-node-icon.user {
-  color: var(--color-accent);
+  color: var(--color-text-tertiary);
 }
 .multi-select-node-icon.assistant {
   color: var(--color-text-tertiary);
@@ -4038,14 +4046,20 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 
 /* agent-run 父节点 */
 .multi-select-tree-run {
-  margin: 4px 0;
+  /* 每个 pi run 作为一个小分组，边框负责表达层级，避免依赖选中绿色。 */
+  margin: 6px 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-bg-muted) 52%, transparent);
+  overflow: hidden;
 }
 .multi-select-tree-run .run-parent {
   font-weight: 500;
-  padding: 8px 20px;
-  background: var(--color-bg-muted);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--color-bg-muted) 78%, var(--color-bg-panel));
+  border: 0;
   border-bottom: 1px solid var(--color-border-subtle);
-  border-left: 3px solid var(--color-border);
+  border-radius: 0;
   cursor: pointer;
   user-select: none;
 }
@@ -4053,18 +4067,25 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   background: var(--color-bg-hover);
 }
 .multi-select-tree-run .run-parent.selected {
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-muted));
-  border-left-color: var(--color-accent);
+  /* run 父节点本身已有 muted 底色，选中时不再叠加绿色背景或左侧色条。 */
+  background: color-mix(in srgb, var(--color-bg-muted) 78%, var(--color-bg-panel));
+  border-color: transparent;
+  border-bottom-color: var(--color-border-subtle);
 }
 .multi-select-run-children {
-  background: var(--color-bg-article, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 4px 4px 28px;
+  background: var(--color-bg-panel);
 }
 .multi-select-run-children .run-child {
-  padding: 6px 20px 6px 44px;
-  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 6px 8px;
+  border-bottom: 0;
+  border-radius: var(--radius-sm);
 }
 .multi-select-run-children .run-child:last-child {
-  border-bottom: none;
+  border-bottom: 0;
 }
 
 /* 底部操作栏 */
@@ -5257,10 +5278,10 @@ body.is-composer-resizing .composer-resize-handle::after {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1;
   min-width: 0;
+  max-width: min(100%, 56ch);
   min-height: 28px;
-  padding: 4px 8px;
+  padding: 4px 2px 4px 8px;
   border: 0;
   background: transparent;
   color: var(--color-text-secondary);
@@ -5272,8 +5293,10 @@ body.is-composer-resizing .composer-resize-handle::after {
   transition: background-color 0.12s ease;
 }
 .extension-widget-card-header {
+  /* 操作按钮贴近标题，避免 widget 较宽时关闭入口被推到视线外。 */
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   width: 100%;
 }
 .extension-widget-card-header:hover {
@@ -5294,6 +5317,9 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .extension-widget-card-title {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 500;
   color: var(--color-text-primary);
   text-transform: capitalize;
@@ -5304,13 +5330,15 @@ body.is-composer-resizing .composer-resize-handle::after {
   justify-content: center;
   width: 18px;
   height: 18px;
-  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   border-radius: var(--radius-xs);
   color: var(--color-text-tertiary);
   cursor: pointer;
   flex-shrink: 0;
   transition: all 0.12s ease;
-  opacity: 0.5;
+  opacity: 0.65;
 }
 .extension-widget-card-close:hover {
   opacity: 1;
