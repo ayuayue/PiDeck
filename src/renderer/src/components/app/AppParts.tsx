@@ -1,4 +1,5 @@
 import {
+	Fragment,
 	isValidElement,
 	memo,
 	useCallback,
@@ -2086,28 +2087,21 @@ export const TurnRow = memo(function TurnRow(props: {
 	const duration = isComplete && run.startedAt > 0 ? run.endedAt - run.startedAt : 0;
 	const showDuration = isComplete && duration > 100;
 
-	// 合并本轮所有 assistant 文本与思考（保持原 AgentRun 的合并语义：同一轮多段回答拼成一整篇）
+	// 收集本轮所有 assistant 消息（按 run.items 的时序保持原始顺序）
 	const assistantMessages = run.items.filter(
 		(item): item is MessageItem =>
 			item.kind === "message" && item.message.role === "assistant",
 	);
-	const textParts: string[] = [];
-	const thinkingParts: string[] = [];
 	const allImages: ImageContent[] = [];
 	for (const item of assistantMessages) {
-		const txt = stripThinkingTags(stripAnsi(item.message.text)).trim();
-		if (txt) textParts.push(txt);
-		if (item.message.thinking?.trim())
-			thinkingParts.push(stripAnsi(item.message.thinking));
 		if (item.message.images) allImages.push(...item.message.images);
 	}
-	const mergedText = textParts.join("\n\n");
-	const mergedThinking = thinkingParts.join("\n\n");
+	// 合并后的完整文本仅用于编辑/复制/删除等操作栏，不用于展示
+	const mergedText = assistantMessages
+		.map((item) => stripThinkingTags(stripAnsi(item.message.text)).trim())
+		.filter(Boolean)
+		.join("\n\n");
 
-	// 判断本轮是否有独立思考组（用于 inline thinking 是否展示的决策）
-	const hasStandaloneThinking = run.items.some(
-		(item): item is ThinkingGroupItem => item.kind === "thinking-group",
-	);
 	// 优先使用运行结束时固化到 assistant 消息的摘要；若本轮没有 assistant 文本或历史 id 对不上，
 	// 则直接从本轮 tool 消息兜底提取，保证纯工具调用（如 write）也能在卡片里展示。
 	const toolMessages = run.items.flatMap((item) =>
@@ -2122,8 +2116,7 @@ export const TurnRow = memo(function TurnRow(props: {
 	const rowRef = useRef<HTMLElement | null>(null);
 	// 本轮没有任何可渲染内容时不输出空容器
 	const hasContent =
-		mergedText ||
-		mergedThinking ||
+		assistantMessages.length > 0 ||
 		run.items.some(item => item.kind === "thinking-group") ||
 		run.items.some(item => item.kind === "tool-group") ||
 		allImages.length > 0;
@@ -2140,93 +2133,82 @@ export const TurnRow = memo(function TurnRow(props: {
 					)}
 				</div>
 				<>
-					{/* 按时序渲染 thinking / tool 条目，assistant 正文已合并统一渲染在下文 */}
-						{run.items.map((item) => {
-							if (item.kind === "thinking-group") {
-								if (!props.showThinking) return null;
-								return (
-									<ThinkingBlock
-										key={item.id}
-										text={item.text}
-										startedAt={item.startedAt}
-										endedAt={item.endedAt}
-										showThinking={props.showThinking}
-									/>
-								);
-							}
-							if (item.kind === "tool-group") {
-								return <ToolGroupCard key={item.id} group={item} />;
-							}
-							// assistant 消息已合并为 mergedText，在循环外统一渲染一次，避免重复
-							return null;
-						})}
-						{/* 内联思考（来自 assistant 消息自身的 thinking 字段）：
-						    仅当本轮无独立思考组时才展示，避免冗余 */}
-						{props.showThinking && mergedThinking && !hasStandaloneThinking && (
-							<ThinkingBlock
-								text={mergedThinking}
-								startedAt={run.startedAt}
-								endedAt={run.endedAt}
-								showThinking={props.showThinking}
-							/>
-						)}
-						{/* 助手正文（已合并，只渲染一次） */}
-						{mergedText && editing ? (
-							<div className="turn-row-edit-area" ref={editAreaRef}>
-								<div className="edit-area-indicator">{t("common.edit")}</div>
-								<textarea
-									className="turn-row-edit-textarea"
-									value={editText}
-									onChange={(e) => setEditText(e.target.value)}
-									onKeyDown={(e) => {
-										// Ctrl+Enter 保存，Escape 取消
-										if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-											e.preventDefault();
-											const targetId = assistantMessages.at(-1)?.message.id;
-											if (targetId && props.onEditMessage) {
-												props.onEditMessage(targetId, editText);
-												setEditing(false);
-											}
-										}
-										if (e.key === "Escape") {
-											setEditing(false);
-										}
-									}}
-									autoFocus
+					{/* 按时序渲染思考 / 工具调用 / 助理回复 */}
+					{run.items.map((item) => {
+						if (item.kind === "thinking-group") {
+							if (!props.showThinking) return null;
+							return (
+								<ThinkingBlock
+									key={item.id}
+									text={item.text}
+									startedAt={item.startedAt}
+									endedAt={item.endedAt}
+									showThinking={props.showThinking}
 								/>
-								<div className="turn-row-edit-actions">
-									<button
-										className="turn-row-edit-btn primary"
-										onClick={() => {
-											const targetId = assistantMessages.at(-1)?.message.id;
-											if (targetId && props.onEditMessage) {
-												props.onEditMessage(targetId, editText);
-												setEditing(false);
-											}
-										}}
-									>
-										{t("common.save")}
-									</button>
-									<button
-										className="turn-row-edit-btn"
-										onClick={() => setEditing(false)}
-									>
-										{t("common.cancel")}
-									</button>
-								</div>
-							</div>
-						) : mergedText ? (
-							<AssistantText
-								text={mergedText}
-								images={allImages}
-								onPreviewImage={props.onPreviewImage}
-								onOpenExternal={props.onOpenExternal}
-								onOpenFile={props.onOpenFile}
-								isStreaming={props.isStreaming ?? false}
-							/>
-						) : null}
-						{/* 操作栏 */}
-						{mergedText && !editing && (
+							);
+						}
+						if (item.kind === "tool-group") {
+							return <ToolGroupCard key={item.id} group={item} />;
+						}
+						if (item.kind === "message" && item.message.role === "assistant") {
+							const txt = stripThinkingTags(stripAnsi(item.message.text)).trim();
+							const thinking = item.message.thinking?.trim()
+								? stripAnsi(item.message.thinking)
+								: null;
+							if (!txt && !thinking) return null;
+							return (
+								<Fragment key={item.message.id}>
+									{props.showThinking && thinking && (
+										<ThinkingBlock text={thinking} showThinking={props.showThinking} />
+									)}
+									{editing ? (
+										<div className="turn-row-edit-area" ref={editAreaRef}>
+											<div className="edit-area-indicator">{t("common.edit")}</div>
+											<textarea
+												className="turn-row-edit-textarea"
+												value={editText}
+												onChange={(e) => setEditText(e.target.value)}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+														e.preventDefault();
+														const targetId = assistantMessages.at(-1)?.message.id;
+														if (targetId && props.onEditMessage) {
+															props.onEditMessage(targetId, editText);
+															setEditing(false);
+														}
+													}
+													if (e.key === "Escape") setEditing(false);
+												}}
+												autoFocus
+											/>
+											<div className="turn-row-edit-actions">
+												<button className="turn-row-edit-btn primary" onClick={() => {
+													const targetId = assistantMessages.at(-1)?.message.id;
+													if (targetId && props.onEditMessage) {
+														props.onEditMessage(targetId, editText);
+														setEditing(false);
+													}
+												}}>{t("common.save")}</button>
+												<button className="turn-row-edit-btn" onClick={() => setEditing(false)}>{t("common.cancel")}</button>
+											</div>
+										</div>
+									) : txt ? (
+										<AssistantText
+											text={txt}
+											images={allImages}
+											onPreviewImage={props.onPreviewImage}
+											onOpenExternal={props.onOpenExternal}
+											onOpenFile={props.onOpenFile}
+											isStreaming={props.isStreaming ?? false}
+										/>
+									) : null}
+								</Fragment>
+							);
+						}
+						return null;
+					})}
+					{/* 操作栏 */}
+					{mergedText && !editing && (
 							<div className="turn-row-actions">
 								<CopyMenu text={mergedText} markdown={mergedText} targetRef={rowRef} />
 								<button
