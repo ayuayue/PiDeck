@@ -129,8 +129,8 @@ export function CodexImportModal(props: {
 		</label>
 	);
 	return (
-		<div className="modal-backdrop">
-			<section className="codex-import-modal">
+		<div className="modal-backdrop" onClick={props.onClose}>
+			<section className="codex-import-modal" onClick={(e) => e.stopPropagation()}>
 				<div className="modal-header">
 					<div>
 						<strong>{t("codex.title")}</strong>
@@ -272,8 +272,8 @@ export function ClaudeImportModal(props: {
 		props.sessions.length > 0 &&
 		props.sessions.every((session) => selected.has(session.sourcePath));
 	return (
-		<div className="modal-backdrop">
-			<section className="codex-import-modal">
+		<div className="modal-backdrop" onClick={props.onClose}>
+			<section className="codex-import-modal" onClick={(e) => e.stopPropagation()}>
 				<div className="modal-header">
 					<div>
 						<strong>{t("claude.title")}</strong>
@@ -397,8 +397,8 @@ export function OpenCodeImportModal(props: {
 		props.sessions.length > 0 &&
 		props.sessions.every((session) => selected.has(session.sourcePath));
 	return (
-		<div className="modal-backdrop">
-			<section className="codex-import-modal">
+		<div className="modal-backdrop" onClick={props.onClose}>
+			<section className="codex-import-modal" onClick={(e) => e.stopPropagation()}>
 				<div className="modal-header">
 					<div>
 						<strong>{t("opencode.title")}</strong>

@@ -3888,12 +3888,13 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 .multi-select-modal {
   display: flex;
   flex-direction: column;
-  width: min(680px, calc(100vw - 48px));
-  max-height: min(600px, calc(100vh - 80px));
+  width: min(1300px, calc(100vw - 48px));
+  max-width: min(1300px, calc(100vw - 48px));
+  height: min(850px, calc(100vh - 48px));
   background: var(--color-bg-panel);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-modal);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
   animation: multi-select-slide-in 0.15s ease;
 }
@@ -4110,12 +4111,28 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   outline-offset: 1px;
 }
 
-/* 已选计数 */
+/* 底部操作栏 */
+.multi-select-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 14px 24px;
+  background: var(--color-bg-panel);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -2px 16px color-mix(in srgb, var(--color-shadow) 20%, transparent);
+  z-index: 10;
+}
 .multi-select-count {
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-base);
+  font-weight: 500;
   color: var(--color-text-secondary);
   white-space: nowrap;
-  font-family: var(--font-family-business);
+}
+.multi-select-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 /* 分享按钮 */
@@ -6238,13 +6255,13 @@ body.is-composer-resizing .composer-resize-handle::after {
   accent-color: var(--color-accent);
 }
 .codex-import-modal {
-  width: min(920px, calc(100vw - 56px));
-  max-height: min(760px, calc(100vh - 56px));
+  width: min(1300px, calc(100vw - 48px));
+  height: min(850px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--color-bg-panel);
-  box-shadow: var(--shadow-modal);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
 }
 .codex-import-modal .modal-header small {
