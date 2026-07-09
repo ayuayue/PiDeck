@@ -70,6 +70,10 @@ import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
 import { useScratchPad } from "./hooks/useScratchPad";
 import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
+import {
+  resolveFontBaseStack,
+  resolveFontMonoStack,
+} from "./fontSettings";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
   AgentContextMenu,
@@ -861,6 +865,13 @@ export function App() {
     petPatrolEnabled: true,
     petPatrolPauseMin: 5,
     favoriteModels: [],
+
+    // 字体配置：与 main SettingsStore 默认值保持一致，避免启动时闪烁
+    fontSize: "default",
+    fontFamilyBase: "system",
+    fontFamilyBaseCustom: "",
+    fontFamilyMono: "commit-mono",
+    fontFamilyMonoCustom: "",
   });
   const [settingsNotice, setSettingsNotice] = useState("");
   const [piProxyNotice, setPiProxyNotice] = useState("");
@@ -1220,6 +1231,26 @@ export function App() {
     media.addEventListener?.("change", applyTheme);
     return () => media.removeEventListener?.("change", applyTheme);
   }, [settings.theme, settings.lightBackground]);
+
+  // 字体配置：字号通过 data 属性切换 CSS 预设块；字体族通过 token setProperty 注入（custom 取用户输入字符串）
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.fontSize = settings.fontSize;
+    root.style.setProperty(
+      "--font-family-base",
+      resolveFontBaseStack(settings.fontFamilyBase, settings.fontFamilyBaseCustom),
+    );
+    root.style.setProperty(
+      "--font-family-mono",
+      resolveFontMonoStack(settings.fontFamilyMono, settings.fontFamilyMonoCustom),
+    );
+  }, [
+    settings.fontSize,
+    settings.fontFamilyBase,
+    settings.fontFamilyBaseCustom,
+    settings.fontFamilyMono,
+    settings.fontFamilyMonoCustom,
+  ]);
 
   /** 当前会话中 agent 修改过的文件(从 tool 消息 meta 中提取) */
   // 优化:只在消息数量变化时才重新计算,减少不必要的遍历

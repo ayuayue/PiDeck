@@ -17,6 +17,25 @@ import { TextField } from "../ui/TextField";
 import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../shared/types";
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
+const fontSizeOptions = [
+	{ value: "compact", label: t("settings.fontSizeCompact") },
+	{ value: "default", label: t("settings.fontSizeDefault") },
+	{ value: "medium", label: t("settings.fontSizeMedium") },
+	{ value: "large", label: t("settings.fontSizeLarge") },
+	{ value: "xlarge", label: t("settings.fontSizeXlarge") },
+];
+const fontBaseOptions = [
+	{ value: "system", label: t("settings.fontFamilyBaseSystem") },
+	{ value: "sans", label: t("settings.fontFamilyBaseSans") },
+	{ value: "serif", label: t("settings.fontFamilyBaseSerif") },
+	{ value: "custom", label: t("settings.fontCustomOption") },
+];
+const fontMonoOptions = [
+	{ value: "commit-mono", label: t("settings.fontFamilyMonoCommitMono") },
+	{ value: "system-mono", label: t("settings.fontFamilyMonoSystemMono") },
+	{ value: "custom", label: t("settings.fontCustomOption") },
+];
+
 type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "storage";
 
 function SettingsSection(props: {
@@ -261,6 +280,63 @@ export function SettingsModal(props: {
 											})
 										}
 									/>
+									<SelectField
+										className="setting-field"
+										label={t("settings.fontSize")}
+										value={props.settings.fontSize}
+										options={fontSizeOptions}
+										onChange={(value) =>
+											props.onChange({
+												fontSize: value as AppSettings["fontSize"],
+											})
+										}
+									/>
+									<SelectField
+										className="setting-field"
+										label={t("settings.fontFamilyBase")}
+										description={t("settings.fontFamilyBaseDesc")}
+										value={props.settings.fontFamilyBase}
+										options={fontBaseOptions}
+										onChange={(value) =>
+											props.onChange({
+												fontFamilyBase: value as AppSettings["fontFamilyBase"],
+											})
+										}
+									/>
+									{props.settings.fontFamilyBase === "custom" && (
+										<TextField
+											className="setting-field"
+											label={t("settings.fontFamilyBaseCustomField")}
+											value={props.settings.fontFamilyBaseCustom}
+											placeholder={t("settings.fontFamilyBaseCustomPlaceholder")}
+											onChange={(value) =>
+												props.onChange({ fontFamilyBaseCustom: value })
+											}
+										/>
+									)}
+									<SelectField
+										className="setting-field"
+										label={t("settings.fontFamilyMono")}
+										description={t("settings.fontFamilyMonoDesc")}
+										value={props.settings.fontFamilyMono}
+										options={fontMonoOptions}
+										onChange={(value) =>
+											props.onChange({
+												fontFamilyMono: value as AppSettings["fontFamilyMono"],
+											})
+										}
+									/>
+									{props.settings.fontFamilyMono === "custom" && (
+										<TextField
+											className="setting-field"
+											label={t("settings.fontFamilyMonoCustom")}
+											value={props.settings.fontFamilyMonoCustom}
+											placeholder={t("settings.fontFamilyMonoCustomPlaceholder")}
+											onChange={(value) =>
+												props.onChange({ fontFamilyMonoCustom: value })
+											}
+										/>
+									)}
 									<SettingSwitch
 										title={t("settings.nativeTitleBar")}
 										checked={props.settings.useNativeTitleBar}

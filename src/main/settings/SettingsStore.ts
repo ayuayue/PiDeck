@@ -68,6 +68,13 @@ const defaultSettings: AppSettings = {
   // 巡游碰边后 idle 停顿默认 5 分钟
   petPatrolPauseMin: 5,
   favoriteModels: [],
+
+  // 字体配置：默认值保证与历史版本行为一致，零回归
+  fontSize: "default",
+  fontFamilyBase: "system",
+  fontFamilyBaseCustom: "",
+  fontFamilyMono: "commit-mono",
+  fontFamilyMonoCustom: "",
 };
 
 export class SettingsStore {

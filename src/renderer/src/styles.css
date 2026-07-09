@@ -22,9 +22,12 @@
 
 :root {
   color-scheme: light;
+  /* 默认 UI 基础字体族。system 预设（src/renderer/src/fontSettings.ts）必须与此保持一致：
+     启动时 setProperty 覆盖前 root 先以此默认值渲染，不一致会导致启动闪烁。 */
   --font-family-base:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
-    "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", sans-serif;
   --font-family-brand: "PiDeckPlantin", Georgia, "Times New Roman", serif;
   --font-family-mono:
     "PiDeckCommitMono", ui-monospace, SFMono-Regular, Menlo, Consolas,
@@ -34,6 +37,7 @@
   --font-size-caption: 12px;
   --font-size-control: 13px;
   --font-size-body: 14px;
+  --font-size-chat: 15px;
   --font-size-title: 16px;
   --font-size-brand: 18px;
   --font-size-heading: 20px;
@@ -187,6 +191,77 @@
   --color-bg-active: #e2f4e8;
   --color-border-subtle: #d6e8dc;
   --color-border-strong: #c5d9cc;
+}
+
+/* 字号预设：覆写 --font-size-*、--font-size-chat 与 --line-height-*。
+   会话正文用 --font-size-chat 提高阅读感知；控件高度 token 不随字号变化。 */
+:root[data-font-size="compact"] {
+  --font-size-micro: 10px;
+  --font-size-caption: 11px;
+  --font-size-control: 12px;
+  --font-size-body: 13px;
+  --font-size-chat: 14px;
+  --font-size-title: 15px;
+  --font-size-brand: 17px;
+  --font-size-heading: 18px;
+  --font-size-logo: 33px;
+  --line-height-micro: 15px;
+  --line-height-caption: 17px;
+  --line-height-control: 18px;
+  --line-height-body: 20px;
+  --line-height-title: 22px;
+  --line-height-heading: 26px;
+}
+:root[data-font-size="medium"] {
+  --font-size-micro: 12px;
+  --font-size-caption: 13px;
+  --font-size-control: 14px;
+  --font-size-body: 15px;
+  --font-size-chat: 16px;
+  --font-size-title: 17px;
+  --font-size-brand: 19px;
+  --font-size-heading: 21px;
+  --font-size-logo: 38px;
+  --line-height-micro: 18px;
+  --line-height-caption: 20px;
+  --line-height-control: 22px;
+  --line-height-body: 23px;
+  --line-height-title: 26px;
+  --line-height-heading: 30px;
+}
+:root[data-font-size="large"] {
+  --font-size-micro: 12px;
+  --font-size-caption: 13px;
+  --font-size-control: 14px;
+  --font-size-body: 16px;
+  --font-size-chat: 18px;
+  --font-size-title: 18px;
+  --font-size-brand: 20px;
+  --font-size-heading: 22px;
+  --font-size-logo: 40px;
+  --line-height-micro: 18px;
+  --line-height-caption: 20px;
+  --line-height-control: 22px;
+  --line-height-body: 24px;
+  --line-height-title: 28px;
+  --line-height-heading: 32px;
+}
+:root[data-font-size="xlarge"] {
+  --font-size-micro: 14px;
+  --font-size-caption: 15px;
+  --font-size-control: 16px;
+  --font-size-body: 18px;
+  --font-size-chat: 20px;
+  --font-size-title: 20px;
+  --font-size-brand: 22px;
+  --font-size-heading: 25px;
+  --font-size-logo: 45px;
+  --line-height-micro: 20px;
+  --line-height-caption: 22px;
+  --line-height-control: 24px;
+  --line-height-body: 27px;
+  --line-height-title: 31px;
+  --line-height-heading: 36px;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -3385,7 +3460,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   min-width: 0;
   overflow-x: clip;
   color: var(--color-text-primary);
-  font-size: 15px;
+  font-size: var(--font-size-chat);
   line-height: 1.68;
 }
 
@@ -4039,7 +4114,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   white-space: pre-wrap;
   line-height: 1.6;
   color: var(--color-text-primary);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-chat);
 }
 .user-turn-meta {
   display: inline-flex;

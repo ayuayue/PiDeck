@@ -280,6 +280,9 @@ export type AppThemeMode = "system" | "light" | "dark";
 export type LightBackgroundMode = "white" | "warm" | "paper" | "blue" | "green";
 export type AppLanguageMode = "system" | "zh-CN" | "en-US" | "pseudo";
 export type LinkOpenMode = "external" | "internal";
+export type AppFontSizeMode = "compact" | "default" | "medium" | "large" | "xlarge";
+export type AppFontBaseMode = "system" | "sans" | "serif" | "custom";
+export type AppFontMonoMode = "commit-mono" | "system-mono" | "custom";
 
 export type AppSettings = {
 	useNativeTitleBar: boolean;
@@ -357,6 +360,18 @@ export type AppSettings = {
 	// ── 模型收藏：ModelPicker 中用 ☆ 标记，收藏的模型在列表中置顶 ──
 	/** 收藏的模型 ID 列表 */
 	favoriteModels: string[];
+
+	// ── 字体配置：沿用主题机制实时生效，写入 documentElement token ──
+	/** 界面字号预设，覆写 --font-size-* 与 --line-height-* */
+	fontSize: AppFontSizeMode;
+	/** UI 基础字体预设，system 为跨平台系统栈；custom 时使用 fontFamilyBaseCustom */
+	fontFamilyBase: AppFontBaseMode;
+	/** fontFamilyBase=custom 时的自定义字体族栈，原样写入 CSS font-family */
+	fontFamilyBaseCustom: string;
+	/** 等宽字体预设，commit-mono 为内置 PiDeckCommitMono；custom 时使用 fontFamilyMonoCustom */
+	fontFamilyMono: AppFontMonoMode;
+	/** fontFamilyMono=custom 时的自定义字体族栈，原样写入 CSS font-family */
+	fontFamilyMonoCustom: string;
 };
 
 // ── 桌面宠物类型 ──
