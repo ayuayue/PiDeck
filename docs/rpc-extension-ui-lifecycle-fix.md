@@ -50,6 +50,28 @@ export default function extension(pi: ExtensionAPI) {
 - `notify` 或 `set_editor_text` 可能被当作需要回答的 dialog。
 - Agent 可能停留在 running，因为扩展命令完成后不一定会产生 `agent_end` 事件。
 
+### 验证记录
+
+用临时 extension 通过 Pi CLI RPC 模式验证过该行为：
+
+```bash
+pi --mode rpc \
+  --no-extensions \
+  --no-skills \
+  --no-prompt-templates \
+  --no-context-files \
+  --no-session \
+  --approve \
+  --model deepseek/deepseek-v4-pro \
+  -e <temp-extension.ts>
+```
+
+验证结果：
+
+- `/rpc-idle-demo` 只调用 `ctx.ui.notify()` 和 `ctx.ui.setEditorText()`：RPC `prompt` 返回 success，Pi 发出 `notify` 与 `set_editor_text` 两个 `extension_ui_request`，没有 `agent_start` / `agent_end`，随后 `get_state` 返回 `isStreaming=false`、`isCompacting=false`、`pendingMessageCount=0`。
+- `/rpc-dialog-demo` 调用 `ctx.ui.confirm(..., { timeout: 200 })`：Pi 发出 dialog request，timeout 后 command handler 继续执行，随后 `get_state` 返回无剩余工作。
+- `/rpc-turn-demo` 在 extension command 中调用 `pi.sendUserMessage()`：Pi 发出 `agent_start`，短时间内 `get_state` 返回 `isStreaming=true`，之后正常发出 `agent_end`。这说明 `get_state.isStreaming` 可以阻止 extension command 启动真实 LLM turn 时被过早恢复为 idle。
+
 ## 问题分析
 
 ### 当前的处理策略
@@ -153,4 +175,8 @@ PiDeck 侧可核验位置：
 
 本修复不让 PiDeck 原生支持 Pi TUI component factory。Pi RPC 模式下，原生 `ctx.ui.custom()` 仍不可用；如果扩展需要在 RPC 环境运行自定义组件，仍需由扩展自身提供外部 TUI backend 或降级为 host dialog。
 
-本修复解决的是：PiDeck 对 Pi RPC Extension UI 协议和扩展命令生命周期的适配不完整，导致 UI pending 状态和 Agent running 状态残留。
+对于使用外部 TUI backend 的扩展，本修复覆盖的是外部 TUI 返回后的 PiDeck 状态处理：例如 command 随后调用 `notify` / `setStatus` / `setEditorText`，或 command 同步完成但没有 `agent_end`。
+
+`get_state` 只能证明 Pi 当前没有可观测工作；它不承诺 extension command 返回后不会通过异步 callback 再启动未来工作。如果 extension 在 command handler 返回后才延迟调用 `pi.sendUserMessage()`，PiDeck 可能先短暂恢复 idle，再在后续 `agent_start` 到达时切回 running。
+
+本修复解决的是：PiDeck 对 Pi RPC Extension UI 协议和扩展命令当前生命周期的适配不完整，导致 UI pending 状态和 Agent running 状态残留。
