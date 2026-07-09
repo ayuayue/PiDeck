@@ -55,17 +55,20 @@ export function expandPromptTemplates(
 	const sorted = [...templates].sort((a, b) => b.name.length - a.name.length);
 	const nameToContent = new Map(sorted.map((t) => [t.name, t.content]));
 
-	// 构建 /name1|/name2|/name3 的单一正则，避免多次替换导致级联展开
+	// 构建 /name1|/name2|/name3 的单一正则，捕获命令前后的空白分隔符
 	const escapedNames = sorted.map((t) =>
 		t.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
 	);
 	const regex = new RegExp(
-		`(^|\\s)/(${escapedNames.join("|")})(?=\\s|$)`,
+		`(^|\\s)/(${escapedNames.join("|")})(\\s|$)`,
 		"g",
 	);
 
-	return message.replace(regex, (_match, prefix, name) => {
-		return prefix + (nameToContent.get(name) ?? "/" + name);
+	return message.replace(regex, (_match, prefix, name, suffix) => {
+		const content = nameToContent.get(name) ?? "/" + name;
+		// 命令后有用户输入时用两个换行分隔模板内容和用户输入，提升可读性
+		const separator = suffix && /\s/.test(suffix) ? "\n\n" : "";
+		return prefix + content + separator;
 	});
 }
 

@@ -2296,7 +2296,7 @@ export const TurnRow = memo(function TurnRow(props: {
 										<ThinkingBlock
 											text={thinking}
 											startedAt={run.startedAt}
-											endedAt={run.endedAt}
+											endedAt={item.message.timestamp > run.startedAt ? item.message.timestamp : run.endedAt}
 											showThinking={props.showThinking}
 										/>
 									)}
