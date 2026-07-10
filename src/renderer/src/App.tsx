@@ -3513,6 +3513,7 @@ ${text}
         api.agents.prompt({
           agentId: activeAgentId,
           message: continuationMsg,
+          description: "[goal 自动续接]",
           streamingBehavior: "followUp",
         }).catch(() => {
           goalContinuationPendingRef.current = false;
@@ -3586,8 +3587,9 @@ ${text}
 
     // 在发送前本地展开 prompt template 命令（/name → 完整内容），
     // 避免依赖 pi 的展开导致用户附加文本丢失以及特殊符号干扰
-    const expandedMessage = expandPromptTemplates(message, promptTemplateList);
-    await submitPromptSnapshot(activeAgentId, expandedMessage, images, undefined, currentComposerAgentMode);
+    // 同时提取模板的 description 作为元数据发给 pi agent，让其了解本次 prompt 意图
+    const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(message, promptTemplateList);
+    await submitPromptSnapshot(activeAgentId, expandedMessage, images, undefined, currentComposerAgentMode, templateDescription);
   }
 
   async function sendPromptAsFollowUp() {
@@ -3717,6 +3719,8 @@ ${goalTextRef.current}
     images?: ImageContent[],
     streamingBehavior?: "steer" | "followUp",
     agentMode: ComposerAgentMode = "normal",
+    /** prompt 模板匹配到的 description，作为元数据发给 pi agent 标识意图 */
+    templateDescription?: string,
   ) {
     // 这里接收快照参数,让 composer 发送和历史消息"重新发送"共享同一条路径。
     // Agent 忙碌时显式使用官方 streamingBehavior=steer:消息会进入 pi 的运行中队列,
@@ -3728,6 +3732,7 @@ ${goalTextRef.current}
       message: submission.message,
       images,
       ...(submission.agentMessage ? { agentMessage: submission.agentMessage } : {}),
+      ...(templateDescription ? { description: templateDescription } : {}),
       ...(behavior ? { streamingBehavior: behavior } : {}),
     });
   }

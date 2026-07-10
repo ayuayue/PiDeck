@@ -531,6 +531,7 @@ export class AgentManager {
 			const requestPayload: Record<string, unknown> = {
 				type: "prompt",
 				message: agentMessage,
+				...(input.description ? { description: input.description } : {}),
 				...(hasImages ? { images: input.images } : {}),
 			};
 			// 如果 agent 已经忙碌且调用方没指定 streamingBehavior，默认用 steer；
@@ -853,8 +854,10 @@ export class AgentManager {
 			let summary: string;
 			if (entry.direction === "send") {
 				const type = data.type ?? "?";
-				if (type === "prompt")
-					summary = `→ prompt: ${(data.message ?? "").slice(0, 60)}`;
+				if (type === "prompt") {
+					const desc = data.description ? ` [${data.description}]` : "";
+					summary = `→ prompt${desc}: ${(data.message ?? "").slice(0, 60)}`;
+				}
 				else summary = `→ ${type}`;
 			} else {
 				const type = data.type ?? "?";

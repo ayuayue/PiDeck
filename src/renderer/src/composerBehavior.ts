@@ -73,6 +73,13 @@ export function translateBuiltinPromptDescription(
 	return map[template.name] ?? template.description;
 }
 
+/** 移除 markdown frontmatter 块（--- 包裹的元数据），仅返回正文。
+ *  prompt 模板的 content 包含完整原始内容（含 frontmatter），
+ *  展开时需剥离 frontmatter，避免 `---\ndescription: xxx\n---` 污染对话消息。 */
+function stripFrontmatter(raw: string): string {
+	return raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+}
+
 /**
  * 展开消息中的 prompt template 命令（/templateName）。
  *
@@ -86,16 +93,21 @@ export function translateBuiltinPromptDescription(
  * - 只匹配后跟空格或行尾的 /name，防止部分匹配
  * - 单次正则遍历，不会级联展开替换后的内容
  * - 未找到的模板名保持原样，由 pi 兜底处理
+ * - 展开时剥离 content 中的 frontmatter，避免元数据泄漏到对话消息中
  */
 export function expandPromptTemplates(
 	message: string,
 	templates: PromptTemplateInfo[],
-): string {
-	if (!templates.length || !message.includes("/")) return message;
+): { message: string; description?: string } {
+	if (!templates.length || !message.includes("/")) return { message };
 
 	// 按 name 长度降序排序，确保正则交替时最长匹配优先
 	const sorted = [...templates].sort((a, b) => b.name.length - a.name.length);
 	const nameToContent = new Map(sorted.map((t) => [t.name, t.content]));
+	const nameToDescription = new Map(sorted.map((t) => [t.name, t.description]));
+
+	// 记录最后匹配到的模板名，用于提取 description 作为元数据发送给 pi agent
+	let matchedName: string | undefined;
 
 	// 构建 /name1|/name2|/name3 的单一正则，捕获命令前后的空白分隔符
 	const escapedNames = sorted.map((t) =>
@@ -106,12 +118,21 @@ export function expandPromptTemplates(
 		"g",
 	);
 
-	return message.replace(regex, (_match, prefix, name, suffix) => {
-		const content = nameToContent.get(name) ?? "/" + name;
+	const expanded = message.replace(regex, (_match, prefix, name, suffix) => {
+		matchedName = name;
+		const rawContent = nameToContent.get(name) ?? "/" + name;
+		// 剥离 content 中的 frontmatter 元数据，只保留正文，
+		// 避免 `---\ndescription: xxx\n---` 泄漏到 pi agent 的对话消息中。
+		const content = stripFrontmatter(rawContent);
 		// 命令后有用户输入时用两个换行分隔模板内容和用户输入，提升可读性
 		const separator = suffix && /\s/.test(suffix) ? "\n\n" : "";
 		return prefix + content + separator;
 	});
+
+	return {
+		message: expanded,
+		description: matchedName ? nameToDescription.get(matchedName) : undefined,
+	};
 }
 
 
