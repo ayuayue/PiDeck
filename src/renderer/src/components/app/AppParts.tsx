@@ -546,6 +546,7 @@ export function ModelPicker(props: {
 	const [modelPickerSearch, setModelPickerSearch] = useState("");
 	const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 	const normalizedSearch = modelPickerSearch.trim().toLowerCase();
+	const selectedItemRef = useRef<HTMLButtonElement | null>(null);
 	const currentModelKey = props.current?.provider && props.current?.modelId
 		? `${props.current.provider}/${props.current.modelId}`
 		: undefined;
@@ -611,6 +612,7 @@ export function ModelPicker(props: {
 		const favorited = favoritesSet.has(modelKey);
 		return (
 			<button
+				ref={selected ? selectedItemRef : undefined}
 				key={modelKey}
 				className={`picker-palette-item${selected ? " selected" : ""}`}
 				onClick={() => props.onPick(model)}
@@ -634,6 +636,15 @@ export function ModelPicker(props: {
 			</button>
 		);
 	};
+
+	// 打开选模型弹框时，自动滚动到当前选中的模型行，避免用户从头翻找。
+	useEffect(() => {
+		if (!selectedItemRef.current) return;
+		// 在布局完成后再滚动，确保列表已渲染且尺寸稳定。
+		requestAnimationFrame(() => {
+			selectedItemRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+		});
+	}, [currentModelKey, normalizedSearch]);
 
 	return (
 		<div className="picker-backdrop" onClick={props.onClose}>
