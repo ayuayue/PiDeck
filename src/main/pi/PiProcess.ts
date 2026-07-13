@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PiRpcClient } from "./PiRpcClient";
 import { PiLocator } from "./PiLocator";
@@ -9,11 +9,25 @@ type PiProcessSettings = Pick<
   "piProxyEnabled" | "piProxyUrl" | "piProxyBypass" | "customPiPath"
 >;
 
+type PiProcessLocator = Pick<
+  PiLocator,
+  "resolveCommand" | "createInvocation" | "createProcessEnv"
+>;
+
+type VersionCacheEntry =
+  | { status: "pending"; promise: Promise<boolean> }
+  | { status: "done"; ok: boolean; majorVersion: number | null };
+
 export class PiProcess extends EventEmitter {
   private proc?: ChildProcessWithoutNullStreams;
   private rpc?: PiRpcClient;
   /** 从 --version 解析出的主版本号，用于启动诊断信息。 */
   private piMajorVersion: number | null = null;
+  /**
+   * pi --version 只用于启动失败后的诊断，不应阻塞真正的 RPC 进程启动。
+   * 按 command 路径缓存结果，避免连续打开多个 Agent 时重复启动 Node shim。
+   */
+  private static readonly versionCache = new Map<string, VersionCacheEntry>();
 
   /** 启动失败 / 异常退出时的诊断信息 */
   private diagnostics: {
@@ -30,6 +44,7 @@ export class PiProcess extends EventEmitter {
   constructor(
     private readonly cwd: string,
     private readonly settings?: PiProcessSettings,
+    private readonly locator: PiProcessLocator = new PiLocator(),
   ) {
     super();
   }
@@ -60,13 +75,14 @@ export class PiProcess extends EventEmitter {
     if (trustOverride === "approve") args.push("--approve");
     else if (trustOverride === "no-approve") args.push("--no-approve");
 
-    const locator = new PiLocator();
     // 用户手动指定的 pi 路径优先于自动检测，解决 npm global、nvm 等路径未在 PATH 中的问题
-    const command = locator.resolveCommand(this.settings?.customPiPath);
-    const invocation = locator.createInvocation(command, args);
+    const command = this.locator.resolveCommand(this.settings?.customPiPath);
+    const invocation = this.locator.createInvocation(command, args);
 
-    // 初始化诊断信息
-    const versionOk = this.piMajorVersion !== null && this.piMajorVersion > 0;
+    // 初始化诊断信息。versionCheck 只作为故障诊断字段，不能阻塞 RPC 启动；
+    // 若缓存里已有成功结果立即填入，否则先标记 false，后台检查完成后再更新。
+    const cachedVersion = PiProcess.versionCache.get(command);
+    this.piMajorVersion = cachedVersion?.status === "done" ? cachedVersion.majorVersion : this.piMajorVersion;
     this.diagnostics = {
       command: command,
       args,
@@ -75,8 +91,9 @@ export class PiProcess extends EventEmitter {
       exitCode: null,
       exitSignal: null,
       customPiPath: this.settings?.customPiPath,
-      versionCheck: versionOk || this.tryVersionCheck(locator),
+      versionCheck: cachedVersion?.status === "done" ? cachedVersion.ok : false,
     };
+    void this.ensureVersionCheck(command);
 
     // 每个 agent 绑定独立 cwd，确保 pi 自己发现项目级 AGENTS.md、settings 和 session 分组。
     // 打包后的 Electron 不一定继承用户终端 PATH；这里补齐跨平台 Node 工具链常见 bin 目录，尽量让已安装 pi 的用户开箱即用。
@@ -85,7 +102,7 @@ export class PiProcess extends EventEmitter {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       shell: invocation.shell,
-      env: locator.createProcessEnv(this.settings, invocation.pathPrefix),
+      env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix),
       windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     });
 
@@ -138,24 +155,36 @@ export class PiProcess extends EventEmitter {
     this.proc.kill();
   }
 
-  /** @returns versionCheck 是否通过 */
-  private tryVersionCheck(locator: PiLocator): boolean {
-    try {
-      const command = locator.resolveCommand(this.settings?.customPiPath);
-      const invocation = locator.createInvocation(command, ["--version"]);
-      const result = execFileSync(invocation.command, invocation.args, {
+  /** 后台执行 pi --version：更新诊断缓存，但不阻塞 start()/spawn。 */
+  private ensureVersionCheck(command: string): Promise<boolean> {
+    const cached = PiProcess.versionCache.get(command);
+    if (cached?.status === "done") {
+      this.piMajorVersion = cached.majorVersion;
+      if (this.diagnostics?.command === command) this.diagnostics.versionCheck = cached.ok;
+      return Promise.resolve(cached.ok);
+    }
+    if (cached?.status === "pending") return cached.promise;
+
+    const promise = new Promise<boolean>((resolve) => {
+      const invocation = this.locator.createInvocation(command, ["--version"]);
+      execFile(invocation.command, invocation.args, {
         encoding: "utf8" as const,
         timeout: 5_000,
         shell: false,
-        env: locator.createProcessEnv(this.settings, invocation.pathPrefix),
+        env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix),
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      }, (error, stdout) => {
+        const ok = !error;
+        const majorVersion = ok ? this.parseMajorVersion(stdout.trim()) : 0;
+        PiProcess.versionCache.set(command, { status: "done", ok, majorVersion });
+        this.piMajorVersion = majorVersion;
+        if (this.diagnostics?.command === command) this.diagnostics.versionCheck = ok;
+        this.emit("version-check", { ok, majorVersion });
+        resolve(ok);
       });
-      const version = result.trim();
-      this.piMajorVersion = this.parseMajorVersion(version);
-      return true;
-    } catch {
-      this.piMajorVersion = 0;
-      return false;
-    }
+    });
+    PiProcess.versionCache.set(command, { status: "pending", promise });
+    return promise;
   }
 
   /**

@@ -171,6 +171,15 @@ export class AgentManager {
 
 		const messages = this.convertAgentMessages(agentId, trimmed, activeEntryIds);
 		const t2 = Date.now();
+		void this.appLogger?.info("agent", "Agent messages loaded", {
+			agentId,
+			skipEntries,
+			rawMessages: rawMessages.length,
+			trimmedMessages: trimmed.length,
+			requestMs: t1 - t0,
+			convertMs: t2 - t1,
+			totalMs: t2 - t0,
+		});
 		// abort 时 ask_question 的 answer 已被覆写为 null，不再需要跟踪
 		this.abortedDuringAsk.delete(agentId);
 		this.messages.set(agentId, messages);
@@ -249,6 +258,12 @@ export class AgentManager {
 		const t2 = Date.now();
 
 		const process = new PiProcess(project.path, this.settingsStore.get());
+		process.on("version-check", (payload) => {
+			void this.appLogger?.info("agent", "Pi version check completed", {
+				agentId: id,
+				...(payload && typeof payload === "object" ? payload : {}),
+			});
+		});
 		const runtime: AgentRuntime = { tab, process };
 		this.agents.set(id, runtime);
 		this.messages.set(id, []);
@@ -256,6 +271,12 @@ export class AgentManager {
 
 		const client = process.start(input.sessionPath, trustOverride);
 		const t3 = Date.now();
+		void this.appLogger?.info("agent", "Pi process spawned", {
+			agentId: id,
+			prepareMs: t1 - t0,
+			trustMs: t2 - t1,
+			spawnCallMs: t3 - t2,
+		});
 
 		// 启动后立即连续发送两条命令，让 pi 启动后一次性处理，减少空闲等待
 		const statePromise = client.request({ type: "get_state" });
@@ -367,6 +388,11 @@ export class AgentManager {
 		try {
 			const state = await statePromise;
 			const t4 = Date.now();
+			void this.appLogger?.info("agent", "Agent get_state completed", {
+				agentId: id,
+				stateMs: t4 - t3,
+				totalSinceCreateMs: t4 - t0,
+			});
 			const data = state.data as
 				| { sessionId?: string; sessionFile?: string; sessionName?: string }
 				| undefined;
@@ -386,6 +412,10 @@ export class AgentManager {
 						.then(() => this.loadMessages(id, true)),
 				)
 				.catch(() => undefined);
+			void this.appLogger?.info("agent", "Agent create completed", {
+				agentId: id,
+				totalMs: Date.now() - t0,
+			});
 		} catch (error) {
 			tab.status = "error";
 			const rawMessage = error instanceof Error ? error.message : String(error);
