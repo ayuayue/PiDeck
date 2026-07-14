@@ -8467,6 +8467,11 @@ body.is-composer-resizing .composer-resize-handle::after {
   gap: var(--space-2);
   margin: var(--space-3) 0;
 }
+.setting-divider {
+  margin: var(--space-2) 0;
+  border: 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
 .setting-field > span,
 .setting-field .ui-field-label {
   color: var(--color-text-secondary);

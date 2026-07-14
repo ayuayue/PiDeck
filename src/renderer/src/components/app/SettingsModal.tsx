@@ -375,6 +375,7 @@ export function SettingsModal(props: {
 											/>
 										</>
 									)}
+									<hr className="setting-divider" />
 									<SelectField
 										className="setting-field"
 										label={t("settings.fontFamilyBase")}
@@ -398,6 +399,7 @@ export function SettingsModal(props: {
 											}
 										/>
 									)}
+									<hr className="setting-divider" />
 									<SelectField
 										className="setting-field"
 										label={t("settings.fontFamilyMono")}
