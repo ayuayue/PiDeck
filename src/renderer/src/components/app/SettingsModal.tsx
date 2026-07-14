@@ -415,7 +415,7 @@ export function SettingsModal(props: {
 									{props.settings.fontFamilyMono === "custom" && (
 										<TextField
 											className="setting-field"
-											label={t("settings.fontFamilyMonoCustom")}
+											label={t("settings.fontFamilyMonoCustomField")}
 											value={props.settings.fontFamilyMonoCustom}
 											placeholder={t("settings.fontFamilyMonoCustomPlaceholder")}
 											onChange={(value) =>

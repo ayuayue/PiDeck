@@ -8578,7 +8578,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1);
 }
 .ui-slider-value {
   color: var(--color-text-secondary);

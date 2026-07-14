@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 export function SliderField(props: {
 	label: ReactNode;
@@ -12,6 +12,7 @@ export function SliderField(props: {
 	valueFormatter?: (value: number) => ReactNode;
 	disabled?: boolean;
 }) {
+	const id = useId();
 	const displayValue = props.valueFormatter
 		? props.valueFormatter(props.value)
 		: props.value;
@@ -22,10 +23,13 @@ export function SliderField(props: {
 				.join(" ")}
 		>
 			<div className="ui-slider-header">
-				<span className="ui-field-label">{props.label}</span>
+				<label htmlFor={id} className="ui-field-label">
+					{props.label}
+				</label>
 				<span className="ui-slider-value">{displayValue}</span>
 			</div>
 			<input
+				id={id}
 				type="range"
 				min={props.min}
 				max={props.max}
