@@ -8,15 +8,20 @@ import {
 	PawPrint,
 	Trash2,
 	RefreshCw,
+	Minus,
+	Plus,
 } from "lucide-react";
 import { t } from "../../i18n";
 import { Button } from "../ui/Button";
-import { CloseIconButton } from "../ui/IconButton";
+import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { SelectField } from "../ui/SelectField";
-import { SliderField } from "../ui/SliderField";
 import { TextField } from "../ui/TextField";
 import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../shared/types";
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
+
+const ZOOM_FACTOR_MIN = 0.8;
+const ZOOM_FACTOR_MAX = 1.5;
+const ZOOM_FACTOR_STEP = 0.05;
 
 type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "storage";
 
@@ -99,6 +104,16 @@ export function SettingsModal(props: {
 	);
 	const [webPortDraft, setWebPortDraft] = useState(String(props.settings.webServicePort));
 	const piPath = props.settings.customPiPath || props.piStatus?.command || "";
+	const changeZoomFactor = (delta: number) => {
+		const next = Math.min(
+			ZOOM_FACTOR_MAX,
+			Math.max(
+				ZOOM_FACTOR_MIN,
+				Math.round((props.settings.zoomFactor + delta) * 100) / 100,
+			),
+		);
+		props.onChange({ zoomFactor: next });
+	};
 	const fontSizeOptions = [
 		{ value: "compact", label: t("settings.fontSizeCompact") },
 		{ value: "default", label: t("settings.fontSizeDefault") },
@@ -299,16 +314,30 @@ export function SettingsModal(props: {
 											props.onChange({ showNativeMenu: checked })
 										}
 									/>
-									<SliderField
-										className="setting-field"
-										label={t("settings.zoomFactor")}
-										min={0.8}
-										max={1.5}
-										step={0.05}
-										value={props.settings.zoomFactor}
-										valueFormatter={(value) => `${Math.round(value * 100)}%`}
-										onChange={(value) => props.onChange({ zoomFactor: value })}
-									/>
+									<div className="setting-field setting-zoom-field">
+										<span>{t("settings.zoomFactor")}</span>
+										<div className="setting-zoom-control">
+											<IconButton
+												className="icon-button setting-zoom-button"
+												label={t("settings.zoomOut")}
+												disabled={props.settings.zoomFactor <= ZOOM_FACTOR_MIN}
+												onClick={() => changeZoomFactor(-ZOOM_FACTOR_STEP)}
+											>
+												<Minus size={16} strokeWidth={2.2} aria-hidden="true" />
+											</IconButton>
+											<output className="setting-zoom-value" aria-live="polite">
+												{Math.round(props.settings.zoomFactor * 100)}%
+											</output>
+											<IconButton
+												className="icon-button setting-zoom-button"
+												label={t("settings.zoomIn")}
+												disabled={props.settings.zoomFactor >= ZOOM_FACTOR_MAX}
+												onClick={() => changeZoomFactor(ZOOM_FACTOR_STEP)}
+											>
+												<Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+											</IconButton>
+										</div>
+									</div>
 								</SettingsSection>
 								<SettingsSection title={t("settings.typography")}>
 									<SelectField
