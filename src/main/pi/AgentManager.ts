@@ -3111,8 +3111,9 @@ export class AgentManager {
 							result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 							isError,
 							detailText,
-							// 初始加载不传 originalContent（edit 前后的完整文件内容），
-							// 仅在用户打开 diff 时通过 IPC 按需加载，减少 IPC 数据量。
+							// 历史会话的工具内 diff 必须使用当时保存的快照，不能回退读当前工作区/Git，
+							// 否则文件后续又被修改时会展示错误的“历史 diff”。
+							...(originalContent !== undefined ? { originalContent } : {}),
 							...(askCard ? { _askCard: askCard } : {}),
 						},
 					}];

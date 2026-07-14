@@ -3491,11 +3491,21 @@ body.is-terminal-resizing .terminal-resize-handle::before {
     border-color 0.15s ease,
     background-color 0.15s ease;
 }
+.tool-card-header {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  transition: background-color 0.12s ease;
+}
+.tool-card-header:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 50%, var(--color-bg));
+}
 .tool-card-trigger {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 32px;
   padding: 6px 10px;
   border: 0;
@@ -3506,10 +3516,6 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   line-height: var(--line-height-control);
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-.tool-card-trigger:hover {
-  background: color-mix(in srgb, var(--color-bg-hover) 50%, var(--color-bg));
 }
 .tool-card-trigger:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -3600,6 +3606,30 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   font-size: var(--font-size-caption);
   line-height: 1.6;
   color: var(--color-text-tertiary);
+}
+.tool-card-diff-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-right: auto;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border-subtle));
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  color: var(--color-accent);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  line-height: 1.4;
+  cursor: pointer;
+}
+.tool-card-diff-chip:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.tool-card-diff-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .tool-card-copy {
   position: absolute;

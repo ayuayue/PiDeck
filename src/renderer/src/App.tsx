@@ -92,7 +92,6 @@ import {
   ProjectContextMenu,
   PromptSuggestions,
   SessionContextMenu,
-  SessionFileSummary,
   SessionManagerModal,
   SessionStatus,
 
@@ -645,19 +644,8 @@ export function App() {
   const [sessionDurationByAgent, setSessionDurationByAgent] = useState<
     Record<string, number>
   >({});
-  /** 会话结束后固化的文件修改摘要;新一轮运行时继续展示上一轮结果,避免完成信息被隐藏。 */
-  const [sessionFileSummaryByAgent, setSessionFileSummaryByAgent] = useState<
-    Record<string, SessionModifiedFile[]>
-  >({});
-  /** 每轮回答完成后固化的文件修改摘要,key 为 assistant message id,便于卡片贴在对应回答后。 */
-  const [turnFileSummaryByMessage, setTurnFileSummaryByMessage] = useState<
-    Record<string, SessionModifiedFile[]>
-  >({});
-  // 记录每轮回答开始前已有的修改文件累计状态,用增量差异避免聊天卡片重复展示历史会话文件。
-  const turnFileBaselineByAgentRef = useRef<
-    Record<string, Map<string, SessionModifiedFile>>
-  >({});
-  const finalizedTurnByAgentRef = useRef<Record<string, string | null>>({});
+  // 会话区不再维护独立的“修改文件摘要”卡片；diff 入口贴在 edit/write 工具调用处，
+  // 避免会话输入框上方摘要与 Git 工作区状态/历史会话恢复互相干扰。
   const agentStatusByAgentRef = useRef<Record<string, AgentTab["status"]>>({});
   /** RPC 日志,用于调试 */
   const [rpcLogs, setRpcLogs] = useState<
@@ -2017,12 +2005,6 @@ export function App() {
       if (agent.status === "running") {
         if (previousStatus !== "running") {
           sessionStartByAgentRef.current[agent.id] = Date.now();
-          // Files 面板展示会话总览;聊天流只展示本轮回答新增触达的文件。
-          // 基线记录累计行数而不是仅记录路径:同一个文件在后续回答再次被编辑时也要显示。
-          turnFileBaselineByAgentRef.current[agent.id] = new Map(
-            modifiedFiles.map((file) => [file.path, file]),
-          );
-          finalizedTurnByAgentRef.current[agent.id] = null;
         }
       } else if (agent.status === "idle") {
         const start = sessionStartByAgentRef.current[agent.id];
@@ -2030,44 +2012,6 @@ export function App() {
           setSessionDurationByAgent((d) => ({
             ...d,
             [agent.id]: Date.now() - start,
-          }));
-        }
-        if (modifiedFiles.length > 0) {
-          // 会话级摘要仍保留给右侧 Files 面板作为总览,但不再渲染到聊天底部。
-          setSessionFileSummaryByAgent((current) => ({
-            ...current,
-            [agent.id]: modifiedFiles,
-          }));
-        }
-
-        const lastAssistantMessage = [...(messagesByAgent[agent.id] ?? [])]
-          .reverse()
-          .find((message) => message.role === "assistant");
-        const baseline =
-          turnFileBaselineByAgentRef.current[agent.id] ??
-          new Map<string, SessionModifiedFile>();
-        const turnModifiedFiles = modifiedFiles
-          .map<SessionModifiedFile | null>((file) => {
-            const baselineFile = baseline.get(file.path);
-            const changedLines = Math.max(
-              0,
-              (file.changedLines ?? 0) - (baselineFile?.changedLines ?? 0),
-            );
-            return changedLines > 0 || !baselineFile
-              ? { ...file, changedLines }
-              : null;
-          })
-          .filter((file): file is SessionModifiedFile => Boolean(file));
-
-        if (
-          lastAssistantMessage &&
-          turnModifiedFiles.length > 0 &&
-          finalizedTurnByAgentRef.current[agent.id] !== lastAssistantMessage.id
-        ) {
-          finalizedTurnByAgentRef.current[agent.id] = lastAssistantMessage.id;
-          setTurnFileSummaryByMessage((current) => ({
-            ...current,
-            [lastAssistantMessage.id]: turnModifiedFiles,
           }));
         }
       }
@@ -5559,14 +5503,6 @@ ${goalTextRef.current}
               </div>
             );
           })()}
-          {/* 会话文件修改摘要：位于扩展 widget 与输入框之间，默认折叠，可展开查看所有修改文件 */}
-          {activeAgentId && sessionFileSummaryByAgent[activeAgentId] && (
-            <SessionFileSummary
-              files={sessionFileSummaryByAgent[activeAgentId]}
-              onDiffFile={diffFilePath}
-              sessionIdOrPath={activeAgent?.sessionPath ?? activeAgentId}
-            />
-          )}
           <div
             ref={composerBoxRef}
             className={`composer-box ${

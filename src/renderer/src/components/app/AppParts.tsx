@@ -1350,6 +1350,77 @@ function getToolSubtitle(message: ChatMessage): string {
 	return "";
 }
 
+function getToolArgFilePath(args: Record<string, unknown> | undefined): string | undefined {
+	if (!args) return undefined;
+	for (const key of ["filePath", "file_path", "path", "targetPath", "target_path", "outputPath", "output_path", "file", "fileName", "filename"]) {
+		const value = args[key];
+		if (typeof value === "string" && value) return value;
+	}
+	return undefined;
+}
+
+function countTextLines(value: string) {
+	return value ? value.split(/\r\n|\r|\n/).length : 0;
+}
+
+function applyTextReplacement(content: string, oldText: unknown, newText: unknown): string | undefined {
+	if (typeof oldText !== "string" || typeof newText !== "string") return undefined;
+	const index = content.indexOf(oldText);
+	if (index < 0) return undefined;
+	return content.slice(0, index) + newText + content.slice(index + oldText.length);
+}
+
+function buildEditedContentFromArgs(args: Record<string, unknown>, originalContent: string): string | undefined {
+	let next = originalContent;
+	const edits = Array.isArray(args.edits) ? args.edits : undefined;
+	if (edits) {
+		// edit 工具的多段替换应以工具调用时的原始内容为基准顺序重放，
+		// 这样 diff 来自本次工具参数，而不是依赖当前工作区或 Git 状态。
+		for (const edit of edits) {
+			if (!edit || typeof edit !== "object") return undefined;
+			const replacement = applyTextReplacement(
+				next,
+				(edit as Record<string, unknown>).oldText ?? (edit as Record<string, unknown>).old_text,
+				(edit as Record<string, unknown>).newText ?? (edit as Record<string, unknown>).new_text,
+			);
+			if (replacement === undefined) return undefined;
+			next = replacement;
+		}
+		return next;
+	}
+	return applyTextReplacement(
+		next,
+		args.oldText ?? args.old_text,
+		args.newText ?? args.new_text,
+	);
+}
+
+function getToolDiffTarget(message: ChatMessage): { path: string; originalContent: string; content: string; changedLines: number } | undefined {
+	const toolName = getToolName(message);
+	if (!/write|edit|create|patch/i.test(toolName)) return undefined;
+	const args = parseToolArgs(message.meta?.args);
+	const path = getToolArgFilePath(args);
+	if (!args || !path) return undefined;
+	const originalContent = typeof message.meta?.originalContent === "string" ? message.meta.originalContent : "";
+	if (/write|create/i.test(toolName)) {
+		const content = typeof args.content === "string"
+			? args.content
+			: typeof args.text === "string"
+				? args.text
+				: undefined;
+		if (content === undefined) return undefined;
+		return { path, originalContent, content, changedLines: countTextLines(content) };
+	}
+	const content = buildEditedContentFromArgs(args, originalContent);
+	if (content === undefined) return undefined;
+	return {
+		path,
+		originalContent,
+		content,
+		changedLines: Math.max(countTextLines(originalContent), countTextLines(content)),
+	};
+}
+
 /**
  * 识别模型主动触发的 skill：pi 系统提示会指示 LLM 用 read 工具读取 SKILL.md 来加载 skill，
  * 所以 toolName==="read" 且 path 以 SKILL.md 结尾时，视为 skill 调用，返回 skill 名（父目录名）。
@@ -1428,6 +1499,7 @@ function getToolKindLabel(toolName: string): string {
 export const ToolCard = memo(function ToolCard(props: {
 	message: ChatMessage;
 	defaultOpen?: boolean;
+	onDiffFile?: DiffFileHandler;
 }) {
 	const [expanded, setExpanded] = useState(props.defaultOpen ?? false);
 	const status = getToolStatus(props.message);
@@ -1436,6 +1508,7 @@ export const ToolCard = memo(function ToolCard(props: {
 	const tone = getToolTone(props.message);
 	const subtitle = getToolSubtitle(props.message);
 	const kindLabel = getToolKindLabel(toolName);
+	const diffTarget = getToolDiffTarget(props.message);
 	const durationMs =
 		typeof props.message.meta?.durationMs === "number"
 			? props.message.meta.durationMs
@@ -1469,43 +1542,55 @@ const statusLabel =
 			data-tool-kind={isSkillRead ? "skill" : getToolKind(toolName)}
 			data-message-id={props.message.id}
 		>
-			<button
-				className="tool-card-trigger"
-				onClick={() => setExpanded((v) => !v)}
-				aria-expanded={expanded}
-			>
-				<span className="tool-card-icon">
-					{isSkillRead ? <Brain size={14} /> : isAskCard ? <MessageCircle size={14} /> : toolIcon(toolName)}
-				</span>
-				<span className="tool-card-name">
-					{isSkillRead ? `skill:${skillName}` : isAskCard ? t("ask.toolName") : toolName}
-				</span>
-				<ChevronDown
-					size={14}
-					className={`tool-card-chevron${expanded ? " open" : ""}`}
-				/>
-				{!isSkillRead && kindLabel && (
-					<span className="tool-card-kind">{kindLabel}</span>
+			<div className="tool-card-header">
+				<button
+					className="tool-card-trigger"
+					onClick={() => setExpanded((v) => !v)}
+					aria-expanded={expanded}
+				>
+					<span className="tool-card-icon">
+						{isSkillRead ? <Brain size={14} /> : isAskCard ? <MessageCircle size={14} /> : toolIcon(toolName)}
+					</span>
+					<span className="tool-card-name">
+						{isSkillRead ? `skill:${skillName}` : isAskCard ? t("ask.toolName") : toolName}
+					</span>
+					<ChevronDown
+						size={14}
+						className={`tool-card-chevron${expanded ? " open" : ""}`}
+					/>
+					{!isSkillRead && kindLabel && (
+						<span className="tool-card-kind">{kindLabel}</span>
+					)}
+					<span className="tool-card-status">
+						{status === "running" && <span className="tool-card-spinner" aria-hidden="true" />}
+						{askCard?.answered ? t("ask.answered") : (statusLabel)}
+					</span>
+					{showDuration && (
+						<span className="tool-card-duration" title={t("tool.durationTitle")}>
+							{formatDuration(durationMs)}
+						</span>
+					)}
+					{isAskCard && askCard?.question ? (
+						<span className="tool-card-subtitle" title={askCard.question}>
+							| {askCard.question}
+						</span>
+					) : subtitle ? (
+						<span className="tool-card-subtitle" title={subtitle}>
+							| {subtitle}
+						</span>
+					) : null}
+				</button>
+				{diffTarget && props.onDiffFile && (
+					<button
+						className="tool-card-diff-chip"
+						type="button"
+						onClick={() => props.onDiffFile?.(diffTarget.path, diffTarget.originalContent, diffTarget.content)}
+						title={`${t("tool.viewDiff")} · ${diffTarget.path}`}
+					>
+						{t("tool.diff")}
+					</button>
 				)}
-				<span className="tool-card-status">
-					{status === "running" && <span className="tool-card-spinner" aria-hidden="true" />}
-					{askCard?.answered ? t("ask.answered") : (statusLabel)}
-				</span>
-				{showDuration && (
-					<span className="tool-card-duration" title={t("tool.durationTitle")}>
-						{formatDuration(durationMs)}
-					</span>
-				)}
-				{isAskCard && askCard?.question ? (
-					<span className="tool-card-subtitle" title={askCard.question}>
-						| {askCard.question}
-					</span>
-				) : subtitle ? (
-					<span className="tool-card-subtitle" title={subtitle}>
-						| {subtitle}
-					</span>
-				) : null}
-			</button>
+			</div>
 			{expanded && (
 				<div className="tool-card-content">
 					{isAskCard && askCard ? (
@@ -1577,12 +1662,13 @@ const statusLabel =
 /** 工具组直接平铺为工具列表；每个 ToolCard 自己默认折叠，避免外层再占一行。 */
 export const ToolGroupCard = memo(function ToolGroupCard(props: {
 	group: ToolGroupItem;
+	onDiffFile?: DiffFileHandler;
 }) {
 	return (
 		<section className="tool-group-card flat" data-message-id={props.group.id}>
 			<div className="tool-group-card-list">
 				{props.group.messages.map((message) => (
-					<ToolCard key={message.id} message={message} />
+					<ToolCard key={message.id} message={message} onDiffFile={props.onDiffFile} />
 				))}
 			</div>
 		</section>
@@ -2156,7 +2242,7 @@ export const TurnRow = memo(function TurnRow(props: {
 							);
 						}
 						if (item.kind === "tool-group") {
-							return <ToolGroupCard key={item.id} group={item} />;
+							return <ToolGroupCard key={item.id} group={item} onDiffFile={props.onDiffFile} />;
 						}
 						if (item.kind === "message" && item.message.role === "assistant") {
 							const txt = stripThinkingTags(stripAnsi(item.message.text)).trim();
