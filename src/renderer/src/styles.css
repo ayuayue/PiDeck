@@ -38,7 +38,7 @@
   --font-size-control: 13px;
   --font-size-body: 14px;
   --font-size-chat: 15px;
-  --font-size-input: var(--font-size-body);
+  --font-size-input: 14px;
   --font-size-title: 16px;
   --font-size-brand: 18px;
   --font-size-heading: 20px;
@@ -47,7 +47,7 @@
   --line-height-caption: 18px;
   --line-height-control: 20px;
   --line-height-body: 22px;
-  --line-height-input: var(--line-height-body);
+  --line-height-input: 22px;
   --line-height-title: 24px;
   --line-height-heading: 28px;
   --color-bg-app: #f3f4f1;
