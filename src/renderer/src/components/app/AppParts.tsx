@@ -605,6 +605,11 @@ export function ModelPicker(props: {
 		if (bIndex !== -1) return 1;
 		return a.localeCompare(b);
 	});
+	const providerGroupKeys = favorites.length > 0
+		? ['__favorites__', ...sortedProviders]
+		: sortedProviders;
+	const allProviderGroupsCollapsed =
+		providerGroupKeys.length > 0 && providerGroupKeys.every((groupKey) => collapsedGroups.has(groupKey));
 
 	const renderModelRow = (model: AvailableModel) => {
 		const modelKey = `${model.provider}/${model.id}`;
@@ -669,6 +674,27 @@ export function ModelPicker(props: {
 						onChange={(event) => setModelPickerSearch(event.target.value)}
 						placeholder={t("app.modelPickerSearch")}
 					/>
+					{providerGroupKeys.length > 0 && (
+						<button
+							type="button"
+							className="picker-palette-link"
+							onClick={() => {
+								// 一键折叠/展开当前结果里的所有 provider 分组，避免模型太多时需要逐个点开或收起。
+								setCollapsedGroups((prev) => {
+									if (allProviderGroupsCollapsed) {
+										const next = new Set(prev);
+										for (const groupKey of providerGroupKeys) next.delete(groupKey);
+										return next;
+									}
+									const next = new Set(prev);
+									for (const groupKey of providerGroupKeys) next.add(groupKey);
+									return next;
+								});
+							}}
+						>
+							{allProviderGroupsCollapsed ? t("app.modelExpandAllProviders") : t("app.modelCollapseAllProviders")}
+						</button>
+					)}
 				</div>
 				<div className="picker-palette-list">
 					{/* 收藏分区：置于最顶部，可折叠 */}
