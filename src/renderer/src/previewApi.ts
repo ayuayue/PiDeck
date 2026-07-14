@@ -158,6 +158,9 @@ let previewSettings: AppSettings = {
 	favoriteModels: [],
 
 	fontSize: "default",
+	uiFontSize: null,
+	chatFontSize: null,
+	inputFontSize: null,
 	fontFamilyBase: "system",
 	fontFamilyBaseCustom: "",
 	fontFamilyMono: "commit-mono",

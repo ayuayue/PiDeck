@@ -71,6 +71,9 @@ const defaultSettings: AppSettings = {
 
   // 字体配置：默认值保证与历史版本行为一致，零回归
   fontSize: "default",
+  uiFontSize: null,
+  chatFontSize: null,
+  inputFontSize: null,
   fontFamilyBase: "system",
   fontFamilyBaseCustom: "",
   fontFamilyMono: "commit-mono",

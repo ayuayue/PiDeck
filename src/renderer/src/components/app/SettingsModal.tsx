@@ -110,6 +110,11 @@ export function SettingsModal(props: {
 	onChange: (patch: Partial<AppSettings>) => void;
 }) {
 	const [activeTab, setActiveTab] = useState<SettingsTabId>("base");
+	const [perAreaFontSize, setPerAreaFontSize] = useState(
+		props.settings.uiFontSize !== null ||
+			props.settings.chatFontSize !== null ||
+			props.settings.inputFontSize !== null,
+	);
 	const [webPortDraft, setWebPortDraft] = useState(String(props.settings.webServicePort));
 	const piPath = props.settings.customPiPath || props.piStatus?.command || "";
 	useEffect(() => {
@@ -280,6 +285,22 @@ export function SettingsModal(props: {
 											})
 										}
 									/>
+									<SettingSwitch
+										title={t("settings.nativeTitleBar")}
+										checked={props.settings.useNativeTitleBar}
+										onChange={(checked) =>
+											props.onChange({ useNativeTitleBar: checked })
+										}
+									/>
+									<SettingSwitch
+										title={t("settings.nativeMenu")}
+										checked={props.settings.showNativeMenu}
+										onChange={(checked) =>
+											props.onChange({ showNativeMenu: checked })
+										}
+									/>
+								</SettingsSection>
+								<SettingsSection title={t("settings.typography")}>
 									<SelectField
 										className="setting-field"
 										label={t("settings.fontSize")}
@@ -291,6 +312,58 @@ export function SettingsModal(props: {
 											})
 										}
 									/>
+									<SettingSwitch
+										title={t("settings.fontSizePerArea")}
+										description={t("settings.fontSizePerAreaDesc")}
+										checked={perAreaFontSize}
+										onChange={(checked) => {
+											setPerAreaFontSize(checked);
+											if (!checked) {
+												props.onChange({
+													uiFontSize: null,
+													chatFontSize: null,
+													inputFontSize: null,
+												});
+											}
+										}}
+									/>
+									{perAreaFontSize && (
+										<>
+											<SelectField
+												className="setting-field"
+												label={t("settings.uiFontSize")}
+												value={props.settings.uiFontSize ?? props.settings.fontSize}
+												options={fontSizeOptions}
+												onChange={(value) =>
+													props.onChange({
+														uiFontSize: value as AppSettings["uiFontSize"],
+													})
+												}
+											/>
+											<SelectField
+												className="setting-field"
+												label={t("settings.chatFontSize")}
+												value={props.settings.chatFontSize ?? props.settings.fontSize}
+												options={fontSizeOptions}
+												onChange={(value) =>
+													props.onChange({
+														chatFontSize: value as AppSettings["chatFontSize"],
+													})
+												}
+											/>
+											<SelectField
+												className="setting-field"
+												label={t("settings.inputFontSize")}
+												value={props.settings.inputFontSize ?? props.settings.fontSize}
+												options={fontSizeOptions}
+												onChange={(value) =>
+													props.onChange({
+														inputFontSize: value as AppSettings["inputFontSize"],
+													})
+												}
+											/>
+										</>
+									)}
 									<SelectField
 										className="setting-field"
 										label={t("settings.fontFamilyBase")}
@@ -337,20 +410,6 @@ export function SettingsModal(props: {
 											}
 										/>
 									)}
-									<SettingSwitch
-										title={t("settings.nativeTitleBar")}
-										checked={props.settings.useNativeTitleBar}
-										onChange={(checked) =>
-											props.onChange({ useNativeTitleBar: checked })
-										}
-									/>
-									<SettingSwitch
-										title={t("settings.nativeMenu")}
-										checked={props.settings.showNativeMenu}
-										onChange={(checked) =>
-											props.onChange({ showNativeMenu: checked })
-										}
-									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.contentMaxWidth")} description={t("settings.contentMaxWidthDesc")}>
 									<div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", maxWidth: 480 }}>

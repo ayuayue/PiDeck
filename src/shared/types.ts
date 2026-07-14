@@ -362,8 +362,14 @@ export type AppSettings = {
 	favoriteModels: string[];
 
 	// ── 字体配置：沿用主题机制实时生效，写入 documentElement token ──
-	/** 界面字号预设，覆写 --font-size-* 与 --line-height-* */
+	/** 全局字号基准档位；未单独设置各区域时，所有字号 token 均由此推导 */
 	fontSize: AppFontSizeMode;
+	/** UI 字号覆盖；null 表示跟随 fontSize。控制 sidebar、按钮、列表、弹窗等 */
+	uiFontSize: AppFontSizeMode | null;
+	/** 会话正文字号覆盖；null 表示跟随 fontSize。控制用户消息与助手回复 */
+	chatFontSize: AppFontSizeMode | null;
+	/** 输入框字号覆盖；null 表示跟随 fontSize。控制 composer 输入区 */
+	inputFontSize: AppFontSizeMode | null;
 	/** UI 基础字体预设，system 为跨平台系统栈；custom 时使用 fontFamilyBaseCustom */
 	fontFamilyBase: AppFontBaseMode;
 	/** fontFamilyBase=custom 时的自定义字体族栈，原样写入 CSS font-family */

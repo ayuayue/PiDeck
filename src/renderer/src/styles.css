@@ -38,6 +38,7 @@
   --font-size-control: 13px;
   --font-size-body: 14px;
   --font-size-chat: 15px;
+  --font-size-input: var(--font-size-body);
   --font-size-title: 16px;
   --font-size-brand: 18px;
   --font-size-heading: 20px;
@@ -46,6 +47,7 @@
   --line-height-caption: 18px;
   --line-height-control: 20px;
   --line-height-body: 22px;
+  --line-height-input: var(--line-height-body);
   --line-height-title: 24px;
   --line-height-heading: 28px;
   --color-bg-app: #f3f4f1;
@@ -193,14 +195,17 @@
   --color-border-strong: #c5d9cc;
 }
 
-/* 字号预设：覆写 --font-size-*、--font-size-chat 与 --line-height-*。
-   会话正文用 --font-size-chat 提高阅读感知；控件高度 token 不随字号变化。 */
-:root[data-font-size="compact"] {
+/* 字号预设：拆分为 UI / 会话正文 / 输入框三轨，各自通过 data 属性切换。
+   - data-ui-font-size 控制 sidebar、按钮、列表、弹窗等 UI 字号
+     （micro / caption / control / body / title / brand / heading / logo）
+   - data-chat-font-size 控制会话正文 --font-size-chat
+   - data-input-font-size 控制 composer 输入框 --font-size-input
+   控件高度 token 不随字号变化。 */
+:root[data-ui-font-size="compact"] {
   --font-size-micro: 10px;
   --font-size-caption: 11px;
   --font-size-control: 12px;
   --font-size-body: 13px;
-  --font-size-chat: 14px;
   --font-size-title: 15px;
   --font-size-brand: 17px;
   --font-size-heading: 18px;
@@ -212,12 +217,11 @@
   --line-height-title: 22px;
   --line-height-heading: 26px;
 }
-:root[data-font-size="medium"] {
+:root[data-ui-font-size="medium"] {
   --font-size-micro: 12px;
   --font-size-caption: 13px;
   --font-size-control: 14px;
   --font-size-body: 15px;
-  --font-size-chat: 16px;
   --font-size-title: 17px;
   --font-size-brand: 19px;
   --font-size-heading: 21px;
@@ -229,29 +233,27 @@
   --line-height-title: 26px;
   --line-height-heading: 30px;
 }
-:root[data-font-size="large"] {
-  --font-size-micro: 12px;
-  --font-size-caption: 13px;
-  --font-size-control: 14px;
+:root[data-ui-font-size="large"] {
+  --font-size-micro: 13px;
+  --font-size-caption: 14px;
+  --font-size-control: 15px;
   --font-size-body: 16px;
-  --font-size-chat: 18px;
   --font-size-title: 18px;
   --font-size-brand: 20px;
   --font-size-heading: 22px;
   --font-size-logo: 40px;
-  --line-height-micro: 18px;
-  --line-height-caption: 20px;
-  --line-height-control: 22px;
+  --line-height-micro: 19px;
+  --line-height-caption: 21px;
+  --line-height-control: 23px;
   --line-height-body: 24px;
   --line-height-title: 28px;
   --line-height-heading: 32px;
 }
-:root[data-font-size="xlarge"] {
+:root[data-ui-font-size="xlarge"] {
   --font-size-micro: 14px;
   --font-size-caption: 15px;
   --font-size-control: 16px;
   --font-size-body: 18px;
-  --font-size-chat: 20px;
   --font-size-title: 20px;
   --font-size-brand: 22px;
   --font-size-heading: 25px;
@@ -263,6 +265,39 @@
   --line-height-title: 31px;
   --line-height-heading: 36px;
 }
+
+:root[data-chat-font-size="compact"] {
+  --font-size-chat: 14px;
+}
+:root[data-chat-font-size="medium"] {
+  --font-size-chat: 16px;
+}
+:root[data-chat-font-size="large"] {
+  --font-size-chat: 18px;
+}
+:root[data-chat-font-size="xlarge"] {
+  --font-size-chat: 20px;
+}
+
+:root[data-input-font-size="compact"] {
+  --font-size-input: 13px;
+  --line-height-input: 20px;
+}
+:root[data-input-font-size="medium"] {
+  --font-size-input: 15px;
+  --line-height-input: 23px;
+}
+:root[data-input-font-size="large"] {
+  --font-size-input: 16px;
+  --line-height-input: 24px;
+}
+:root[data-input-font-size="xlarge"] {
+  --font-size-input: 18px;
+  --line-height-input: 27px;
+}
+
+/* 兼容性：旧的全局 fontSize 仍作为三轨未设置时的默认值，
+   由 JS 在 documentElement.dataset.fontSize 上保留。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --color-bg-app: #111315;
@@ -5428,8 +5463,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: transparent;
   color: var(--color-text-primary);
   padding: 10px 12px;
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
+  font-size: var(--font-size-input);
+  line-height: var(--line-height-input);
   font-family: var(--font-family-base);
   white-space: pre-wrap;
   overflow-wrap: anywhere;

@@ -3,22 +3,30 @@ import type { AppFontBaseMode, AppFontMonoMode } from "../../shared/types";
 /**
  * 字体配置解析模块
  *
- * 与 App.tsx 主题 effect 及 styles.css 的 :root[data-font-size] 预设块协同，
+ * 与 App.tsx 主题 effect 及 styles.css 的 :root[data-*-font-size] 预设块协同，
  * 提供用户可配置的界面字号与字体族。
  *
  * ── CSS 自定义属性对应的界面区域（无法从单文件推断）──
- *   --font-size-chat      → 会话正文（用户消息与助手回复），用更明显的阅读字号
+ *   --font-size-micro     → 侧边栏摘要、徽标、计时、状态辅助文本
+ *   --font-size-caption   → Agent 行、分支名、次级标签
+ *   --font-size-control   → 侧边栏会话标题、按钮、表单标签
+ *   --font-size-body      → 弹窗正文、设置说明、通用内容（随 UI 字号变化）
+ *   --font-size-chat      → 会话正文（用户消息与助手回复）
+ *   --font-size-input     → composer 输入框（可独立于会话正文）
  *   --font-family-base    → 正文、按钮、列表、表单、输入框、会话气泡（全局继承）
- *   --font-family-mono    → 代码块、消息编辑框、命令面板、tool card 详情（共 52 处）
+ *   --font-family-mono    → 代码块、消息编辑框、命令面板、tool card 详情
  *   --font-family-business → 徽标、计时、状态、agent ID 等短技术文本
  *                           （是 --font-family-mono 的别名，因此 mono 被改写时同步变化）
- *   --font-family-brand   → 品牌字标（2 处，不开放配置）
+ *   --font-family-brand   → 品牌字标（不开放配置）
  *
  * ── 生效机制 ──
- *   fontSize（枚举档位） → documentElement.dataset.fontSize
- *                         → styles.css 的 :root[data-font-size="..."] 覆写字号 token
- *                         → --font-size-chat 单独控制会话正文阅读字号
- *   fontFamilyBase/mono  → documentElement.style.setProperty("--font-family-*", 预设栈或自定义字符串)
+ *   全局 fontSize 与三个覆盖字段（uiFontSize / chatFontSize / inputFontSize）
+ *   在 App.tsx 中解析为 documentElement.dataset 上的三个独立属性：
+ *     data-ui-font-size    → styles.css :root[data-ui-font-size="..."]    → micro/caption/control/body
+ *     data-chat-font-size  → styles.css :root[data-chat-font-size="..."]  → --font-size-chat
+ *     data-input-font-size → styles.css :root[data-input-font-size="..."] → --font-size-input
+ *   未单独设置的区域回退到 fontSize。
+ *   fontFamilyBase/mono → documentElement.style.setProperty("--font-family-*", 预设栈或自定义字符串)
  *
  * ── 同步约束（修改前必须确认）──
  *   1. FONT_BASE_PRESETS 中的 system 预设栈必须与 styles.css :root 的 --font-family-base
@@ -39,7 +47,9 @@ import type { AppFontBaseMode, AppFontMonoMode } from "../../shared/types";
  *   2. 预设栈：fontSettings.ts 加预设条目。
  *   3. 默认值：SettingsStore.ts + App.tsx 初始 state + previewApi.ts 同步补齐。
  *   4. 界面：SettingsModal.tsx 加 SelectField 选项 + i18n.ts 加文案 key。
- *   5. 若新增字号档位：styles.css 须加 :root[data-font-size="..."] 块，并同步设置 --font-size-chat 与行高。
+ *   5. 若新增字号档位：styles.css 须同步加
+ *      :root[data-ui-font-size="..."]、:root[data-chat-font-size="..."]、
+ *      :root[data-input-font-size="..."] 三块，并分别设置对应 token 与行高。
  */
 
 /**

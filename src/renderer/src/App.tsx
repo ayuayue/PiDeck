@@ -868,6 +868,9 @@ export function App() {
 
     // 字体配置：与 main SettingsStore 默认值保持一致，避免启动时闪烁
     fontSize: "default",
+    uiFontSize: null,
+    chatFontSize: null,
+    inputFontSize: null,
     fontFamilyBase: "system",
     fontFamilyBaseCustom: "",
     fontFamilyMono: "commit-mono",
@@ -1232,9 +1235,17 @@ export function App() {
     return () => media.removeEventListener?.("change", applyTheme);
   }, [settings.theme, settings.lightBackground]);
 
-  // 字体配置：字号通过 data 属性切换 CSS 预设块；字体族通过 token setProperty 注入（custom 取用户输入字符串）
+  // 字体配置：字号拆分为 UI / 会话正文 / 输入框三轨，各自通过 data 属性切换 CSS 预设块；
+  // 未单独设置时回退到全局 fontSize。字体族通过 token setProperty 注入（custom 取用户输入字符串）。
   useEffect(() => {
     const root = document.documentElement;
+    const uiFontSize = settings.uiFontSize ?? settings.fontSize;
+    const chatFontSize = settings.chatFontSize ?? settings.fontSize;
+    const inputFontSize = settings.inputFontSize ?? settings.fontSize;
+    root.dataset.uiFontSize = uiFontSize;
+    root.dataset.chatFontSize = chatFontSize;
+    root.dataset.inputFontSize = inputFontSize;
+    // 旧属性保留，兼容外部依赖或测试仍读取 dataset.fontSize 的场景
     root.dataset.fontSize = settings.fontSize;
     root.style.setProperty(
       "--font-family-base",
@@ -1246,6 +1257,9 @@ export function App() {
     );
   }, [
     settings.fontSize,
+    settings.uiFontSize,
+    settings.chatFontSize,
+    settings.inputFontSize,
     settings.fontFamilyBase,
     settings.fontFamilyBaseCustom,
     settings.fontFamilyMono,
