@@ -546,6 +546,7 @@ export function ModelPicker(props: {
 	const [modelPickerSearch, setModelPickerSearch] = useState("");
 	const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 	const normalizedSearch = modelPickerSearch.trim().toLowerCase();
+	const selectedItemRef = useRef<HTMLButtonElement | null>(null);
 	const currentModelKey = props.current?.provider && props.current?.modelId
 		? `${props.current.provider}/${props.current.modelId}`
 		: undefined;
@@ -604,6 +605,11 @@ export function ModelPicker(props: {
 		if (bIndex !== -1) return 1;
 		return a.localeCompare(b);
 	});
+	const providerGroupKeys = favorites.length > 0
+		? ['__favorites__', ...sortedProviders]
+		: sortedProviders;
+	const allProviderGroupsCollapsed =
+		providerGroupKeys.length > 0 && providerGroupKeys.every((groupKey) => collapsedGroups.has(groupKey));
 
 	const renderModelRow = (model: AvailableModel) => {
 		const modelKey = `${model.provider}/${model.id}`;
@@ -611,6 +617,7 @@ export function ModelPicker(props: {
 		const favorited = favoritesSet.has(modelKey);
 		return (
 			<button
+				ref={selected ? selectedItemRef : undefined}
 				key={modelKey}
 				className={`picker-palette-item${selected ? " selected" : ""}`}
 				onClick={() => props.onPick(model)}
@@ -635,6 +642,15 @@ export function ModelPicker(props: {
 		);
 	};
 
+	// 打开选模型弹框时，自动滚动到当前选中的模型行，避免用户从头翻找。
+	useEffect(() => {
+		if (!selectedItemRef.current) return;
+		// 在布局完成后再滚动，确保列表已渲染且尺寸稳定。
+		requestAnimationFrame(() => {
+			selectedItemRef.current?.scrollIntoView({ block: "center", inline: "nearest" });
+		});
+	}, [currentModelKey, normalizedSearch]);
+
 	return (
 		<div className="picker-backdrop" onClick={props.onClose}>
 			<div
@@ -658,6 +674,27 @@ export function ModelPicker(props: {
 						onChange={(event) => setModelPickerSearch(event.target.value)}
 						placeholder={t("app.modelPickerSearch")}
 					/>
+					{providerGroupKeys.length > 0 && (
+						<button
+							type="button"
+							className="picker-palette-link"
+							onClick={() => {
+								// 一键折叠/展开当前结果里的所有 provider 分组，避免模型太多时需要逐个点开或收起。
+								setCollapsedGroups((prev) => {
+									if (allProviderGroupsCollapsed) {
+										const next = new Set(prev);
+										for (const groupKey of providerGroupKeys) next.delete(groupKey);
+										return next;
+									}
+									const next = new Set(prev);
+									for (const groupKey of providerGroupKeys) next.add(groupKey);
+									return next;
+								});
+							}}
+						>
+							{allProviderGroupsCollapsed ? t("app.modelExpandAllProviders") : t("app.modelCollapseAllProviders")}
+						</button>
+					)}
 				</div>
 				<div className="picker-palette-list">
 					{/* 收藏分区：置于最顶部，可折叠 */}
@@ -721,6 +758,8 @@ const THINKING_LEVELS = [
 	{ value: "high", labelKey: "thinking.levelLabel.high", descriptionKey: "thinking.level.high" },
 	// xhigh 只在部分模型上可用;选择后以前端收到的 runtime state 为准,必要时提示用户已被回退。
 	{ value: "xhigh", labelKey: "thinking.levelLabel.xhigh", descriptionKey: "thinking.level.xhigh" },
+	// max 是最高推理深度,需要模型支持;适合极端复杂的任务。
+	{ value: "max", labelKey: "thinking.levelLabel.max", descriptionKey: "thinking.level.max" },
 ] satisfies Array<{ value: string; labelKey: TranslationKey; descriptionKey: TranslationKey }>;
 
 export function ComposerModePicker(props: {
