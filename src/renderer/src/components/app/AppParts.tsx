@@ -642,7 +642,7 @@ export function ModelPicker(props: {
 		if (!selectedItemRef.current) return;
 		// 在布局完成后再滚动，确保列表已渲染且尺寸稳定。
 		requestAnimationFrame(() => {
-			selectedItemRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+			selectedItemRef.current?.scrollIntoView({ block: "center", inline: "nearest" });
 		});
 	}, [currentModelKey, normalizedSearch]);
 
