@@ -370,6 +370,8 @@ export type AppSettings = {
 	chatFontSize: AppFontSizeMode | null;
 	/** 输入框字号覆盖；null 表示跟随 fontSize。控制 composer 输入区 */
 	inputFontSize: AppFontSizeMode | null;
+	/** 全局窗口缩放比例，1 为 100%；通过 webContents.setZoomFactor 生效 */
+	zoomFactor: number;
 	/** UI 基础字体预设，system 为跨平台系统栈；custom 时使用 fontFamilyBaseCustom */
 	fontFamilyBase: AppFontBaseMode;
 	/** fontFamilyBase=custom 时的自定义字体族栈，原样写入 CSS font-family */

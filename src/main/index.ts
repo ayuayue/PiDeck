@@ -654,6 +654,8 @@ async function createWindow() {
 		void appLogger.info("app", "Main window load finished", {
 			url: mainWindow?.webContents.getURL(),
 		});
+		// 恢复用户设置的窗口缩放；在 did-finish-load 后应用，避免早期设置被覆盖。
+		mainWindow?.webContents.setZoomFactor(settingsStore.get().zoomFactor);
 	});
 	mainWindow.webContents.on(
 		"did-fail-load",
@@ -1744,6 +1746,9 @@ function registerIpc() {
 			}
 			if ("useNativeTitleBar" in patch) {
 				settingsStore.notifyTitleBarChange(mainWindow);
+			}
+			if ("zoomFactor" in patch) {
+				mainWindow?.webContents.setZoomFactor(settings.zoomFactor);
 			}
 			if (
 				"webServiceEnabled" in patch ||

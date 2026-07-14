@@ -8569,6 +8569,26 @@ body.is-composer-resizing .composer-resize-handle::after {
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
 }
+.ui-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.ui-slider-value {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-business);
+}
+.ui-slider-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.ui-slider-field input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .setting-field input:disabled {
   background: var(--color-bg-muted);
   color: var(--color-text-tertiary);

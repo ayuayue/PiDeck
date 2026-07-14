@@ -13,6 +13,7 @@ import { t } from "../../i18n";
 import { Button } from "../ui/Button";
 import { CloseIconButton } from "../ui/IconButton";
 import { SelectField } from "../ui/SelectField";
+import { SliderField } from "../ui/SliderField";
 import { TextField } from "../ui/TextField";
 import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../shared/types";
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
@@ -298,6 +299,16 @@ export function SettingsModal(props: {
 										onChange={(checked) =>
 											props.onChange({ showNativeMenu: checked })
 										}
+									/>
+									<SliderField
+										className="setting-field"
+										label={t("settings.zoomFactor")}
+										min={0.8}
+										max={1.5}
+										step={0.05}
+										value={props.settings.zoomFactor}
+										valueFormatter={(value) => `${Math.round(value * 100)}%`}
+										onChange={(value) => props.onChange({ zoomFactor: value })}
 									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.typography")}>

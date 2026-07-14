@@ -74,6 +74,7 @@ const defaultSettings: AppSettings = {
   uiFontSize: null,
   chatFontSize: null,
   inputFontSize: null,
+  zoomFactor: 1,
   fontFamilyBase: "system",
   fontFamilyBaseCustom: "",
   fontFamilyMono: "commit-mono",
