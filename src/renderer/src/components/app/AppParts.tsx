@@ -721,6 +721,8 @@ const THINKING_LEVELS = [
 	{ value: "high", labelKey: "thinking.levelLabel.high", descriptionKey: "thinking.level.high" },
 	// xhigh 只在部分模型上可用;选择后以前端收到的 runtime state 为准,必要时提示用户已被回退。
 	{ value: "xhigh", labelKey: "thinking.levelLabel.xhigh", descriptionKey: "thinking.level.xhigh" },
+	// max 是最高推理深度,需要模型支持;适合极端复杂的任务。
+	{ value: "max", labelKey: "thinking.levelLabel.max", descriptionKey: "thinking.level.max" },
 ] satisfies Array<{ value: string; labelKey: TranslationKey; descriptionKey: TranslationKey }>;
 
 export function ComposerModePicker(props: {
