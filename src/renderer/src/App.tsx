@@ -70,10 +70,6 @@ import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
 import { useScratchPad } from "./hooks/useScratchPad";
 import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
-import {
-  resolveFontBaseStack,
-  resolveFontMonoStack,
-} from "./fontSettings";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
   AgentContextMenu,
@@ -1236,8 +1232,7 @@ export function App() {
     return () => media.removeEventListener?.("change", applyTheme);
   }, [settings.theme, settings.lightBackground]);
 
-  // 字体配置：字号拆分为 UI / 会话正文 / 输入框三轨，各自通过 data 属性切换 CSS 预设块；
-  // 未单独设置时回退到全局 fontSize。字体族通过 token setProperty 注入（custom 取用户输入字符串）。
+  // 字号与命名字体预设由 data 属性选择 CSS token；只有 custom 字体需要注入用户输入。
   useEffect(() => {
     const root = document.documentElement;
     const uiFontSize = settings.uiFontSize ?? settings.fontSize;
@@ -1248,14 +1243,22 @@ export function App() {
     root.dataset.inputFontSize = inputFontSize;
     // 旧属性保留，兼容外部依赖或测试仍读取 dataset.fontSize 的场景
     root.dataset.fontSize = settings.fontSize;
-    root.style.setProperty(
-      "--font-family-base",
-      resolveFontBaseStack(settings.fontFamilyBase, settings.fontFamilyBaseCustom),
-    );
-    root.style.setProperty(
-      "--font-family-mono",
-      resolveFontMonoStack(settings.fontFamilyMono, settings.fontFamilyMonoCustom),
-    );
+    root.dataset.fontBase = settings.fontFamilyBase;
+    root.dataset.fontMono = settings.fontFamilyMono;
+
+    const baseCustomFont = settings.fontFamilyBaseCustom.trim();
+    if (settings.fontFamilyBase === "custom" && baseCustomFont) {
+      root.style.setProperty("--font-family-base", baseCustomFont);
+    } else {
+      root.style.removeProperty("--font-family-base");
+    }
+
+    const monoCustomFont = settings.fontFamilyMonoCustom.trim();
+    if (settings.fontFamilyMono === "custom" && monoCustomFont) {
+      root.style.setProperty("--font-family-mono", monoCustomFont);
+    } else {
+      root.style.removeProperty("--font-family-mono");
+    }
   }, [
     settings.fontSize,
     settings.uiFontSize,

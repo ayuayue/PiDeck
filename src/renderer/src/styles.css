@@ -22,8 +22,7 @@
 
 :root {
   color-scheme: light;
-  /* 默认 UI 基础字体族。system 预设（src/renderer/src/fontSettings.ts）必须与此保持一致：
-     启动时 setProperty 覆盖前 root 先以此默认值渲染，不一致会导致启动闪烁。 */
+  /* 默认 UI 基础字体族。 */
   --font-family-base:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
     "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB",
@@ -139,6 +138,23 @@
   font-family: var(--font-family-base);
   background: var(--color-bg-app);
   color: var(--color-text-primary);
+}
+
+:root[data-font-base="sans"] {
+  --font-family-base:
+    "Inter", "Segoe UI", "Microsoft YaHei", "PingFang SC",
+    "HarmonyOS Sans SC", "Noto Sans CJK SC", sans-serif;
+}
+
+:root[data-font-base="serif"] {
+  --font-family-base:
+    Georgia, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC",
+    "SimSun", serif;
+}
+
+:root[data-font-mono="system-mono"] {
+  --font-family-mono:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 :root[data-theme="light"][data-light-background="white"] {
