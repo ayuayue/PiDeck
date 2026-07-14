@@ -18,25 +18,6 @@ import { TextField } from "../ui/TextField";
 import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../shared/types";
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
-const fontSizeOptions = [
-	{ value: "compact", label: t("settings.fontSizeCompact") },
-	{ value: "default", label: t("settings.fontSizeDefault") },
-	{ value: "medium", label: t("settings.fontSizeMedium") },
-	{ value: "large", label: t("settings.fontSizeLarge") },
-	{ value: "xlarge", label: t("settings.fontSizeXlarge") },
-];
-const fontBaseOptions = [
-	{ value: "system", label: t("settings.fontFamilyBaseSystem") },
-	{ value: "sans", label: t("settings.fontFamilyBaseSans") },
-	{ value: "serif", label: t("settings.fontFamilyBaseSerif") },
-	{ value: "custom", label: t("settings.fontCustomOption") },
-];
-const fontMonoOptions = [
-	{ value: "commit-mono", label: t("settings.fontFamilyMonoCommitMono") },
-	{ value: "system-mono", label: t("settings.fontFamilyMonoSystemMono") },
-	{ value: "custom", label: t("settings.fontCustomOption") },
-];
-
 type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "storage";
 
 function SettingsSection(props: {
@@ -118,6 +99,24 @@ export function SettingsModal(props: {
 	);
 	const [webPortDraft, setWebPortDraft] = useState(String(props.settings.webServicePort));
 	const piPath = props.settings.customPiPath || props.piStatus?.command || "";
+	const fontSizeOptions = [
+		{ value: "compact", label: t("settings.fontSizeCompact") },
+		{ value: "default", label: t("settings.fontSizeDefault") },
+		{ value: "medium", label: t("settings.fontSizeMedium") },
+		{ value: "large", label: t("settings.fontSizeLarge") },
+		{ value: "xlarge", label: t("settings.fontSizeXlarge") },
+	];
+	const fontBaseOptions = [
+		{ value: "system", label: t("settings.fontFamilyBaseSystem") },
+		{ value: "sans", label: t("settings.fontFamilyBaseSans") },
+		{ value: "serif", label: t("settings.fontFamilyBaseSerif") },
+		{ value: "custom", label: t("settings.fontCustomOption") },
+	];
+	const fontMonoOptions = [
+		{ value: "commit-mono", label: t("settings.fontFamilyMonoCommitMono") },
+		{ value: "system-mono", label: t("settings.fontFamilyMonoSystemMono") },
+		{ value: "custom", label: t("settings.fontCustomOption") },
+	];
 	useEffect(() => {
 		setWebPortDraft(String(props.settings.webServicePort));
 	}, [props.settings.webServicePort]);
