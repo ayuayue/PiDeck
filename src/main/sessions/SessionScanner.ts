@@ -165,6 +165,17 @@ export class SessionScanner {
     return files;
   }
 
+  private parentSessionFileForSubagentPath(filePath: string) {
+    // pi-subagents persists resumable runs as <parent-stem>/<run-id>/run-N/session.jsonl.
+    // Match the full layout so unrelated nested Pi sessions remain visible.
+    if (basename(filePath).toLowerCase() !== "session.jsonl") return undefined;
+    const runDirectory = dirname(filePath);
+    if (!/^run-\d+$/i.test(basename(runDirectory))) return undefined;
+    const runRoot = dirname(runDirectory);
+    const parentSessionRoot = dirname(runRoot);
+    return join(dirname(parentSessionRoot), `${basename(parentSessionRoot)}.jsonl`);
+  }
+
   private async readSummary(filePath: string): Promise<SessionSummary | null> {
     const [raw, info] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
     const lines = raw.split(/\r?\n/).filter(Boolean);
@@ -184,9 +195,22 @@ export class SessionScanner {
     let codexAgentRole: string | undefined;
     let codexAgentNickname: string | undefined;
     let codexSourcePath: string | undefined;
+    let latestSessionInfoName: string | undefined;
+    let forkParentSession: string | undefined;
+    let hasSubagentChildMarker = false;
 
     for (const line of lines) {
       const entry = JSON.parse(line) as any;
+      if (entry.type === "session_info") {
+        // Forked sessions may contain an older copied name; only the latest marker is authoritative.
+        latestSessionInfoName = this.optionalString(entry.name ?? entry.data?.name);
+      }
+      if (entry.type === "session") {
+        forkParentSession ||= this.optionalString(entry.parentSession ?? entry.header?.parentSession);
+      }
+      if (entry.type === "custom" && entry.customType === "pi-subagents.child-session") {
+        hasSubagentChildMarker = true;
+      }
       // 扫描前几行的非消息条目，检测导入来源标记
       if (source === "pi") {
         if (entry.type === "codex_import") {
@@ -214,6 +238,18 @@ export class SessionScanner {
         if (text && message.role === "assistant" && !firstAssistantText) firstAssistantText = text;
       }
     }
+
+    // New pi-subagents runs carry an explicit marker. The path/fork checks retain compatibility
+    // with older runs, but require the generated child name so ordinary nested sessions survive.
+    const hasLegacySubagentName = latestSessionInfoName?.startsWith("subagent-") === true;
+    const hasLegacyOwnedPath = Boolean(this.parentSessionFileForSubagentPath(filePath));
+    if (
+      source === "pi"
+      && (
+        hasSubagentChildMarker
+        || (hasLegacySubagentName && (hasLegacyOwnedPath || Boolean(forkParentSession)))
+      )
+    ) return null;
 
     if (source === "codex" && codexSourcePath && !codexParentThreadId) {
       const fallbackInfo = this.readCodexThreadInfo(codexSourcePath);
