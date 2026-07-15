@@ -8824,6 +8824,66 @@ body.is-composer-resizing .composer-resize-handle::after {
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
 }
+.setting-fontsize-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setting-fontsize-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+/* 整个行点击折叠，但仅在标签和图标区域显示为可点击光标 */
+.setting-fontsize-header .ui-field-label {
+  cursor: pointer;
+}
+
+.setting-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s;
+}
+.setting-collapse-btn:hover {
+  color: var(--color-text-primary);
+}
+.setting-collapse-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.setting-collapse-btn .chevron {
+  transition: transform 0.18s ease;
+}
+.setting-collapse-btn .chevron.rotated {
+  transform: rotate(90deg);
+}
+
+.setting-fontsize-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-fontsize-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 4px 28px;
+  border-left: 2px solid var(--color-border-subtle);
+  margin-left: 11px;
+}
+
 .setting-zoom-field {
   display: flex;
   align-items: center;
@@ -12737,6 +12797,56 @@ a.config-btn {
 :root[data-theme="dark"] .settings-section-header strong,
 :root[data-theme="dark"] .setting-row strong,
 :root[data-theme="dark"] .setting-switch-row strong {
+  color: var(--color-text-primary);
+}
+
+/* ── Tab 栏 ──────────────────── */
+
+.file-diff-tab-bar {
+  display: flex;
+  gap: 1px;
+  overflow-x: auto;
+  background: var(--color-border-subtle);
+  flex-shrink: 0;
+}
+.file-diff-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-panel);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
+  transition: background 0.1s ease;
+  user-select: none;
+}
+.file-diff-tab:hover {
+  background: var(--color-bg-hover);
+}
+.file-diff-tab.active {
+  color: var(--color-text-primary);
+  background: var(--color-bg-base);
+}
+.file-diff-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.file-diff-tab-close:hover {
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 

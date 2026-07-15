@@ -38,6 +38,14 @@ export function FileDiffViewer(props: {
 	/** 在弹框/侧栏之间切换 */
 	onToggleMode?: () => void;
 	onClose: () => void;
+	/** 多 tab 支持：全部 tab 列表 */
+	tabs?: { id: string; filePath: string }[];
+	/** 当前活跃 tab ID */
+	activeTabId?: string | null;
+	/** 切换到指定 tab */
+	onSelectTab?: (id: string) => void;
+	/** 关闭指定 tab */
+	onCloseTab?: (id: string) => void;
 	readContent: (path: string) => Promise<string>;
 	/** 从会话消息 meta 中提取的工具执行前原始内容，优先于 Git HEAD。 */
 	originalContent?: string;
@@ -266,6 +274,32 @@ export function FileDiffViewer(props: {
 	const displayMode = props.displayMode ?? "drawer";
 	const headerContent = (
 		<>
+			{props.tabs && props.tabs.length > 1 && (
+				<div className="file-diff-tab-bar">
+					{props.tabs.map((tab) => (
+						<div
+							key={tab.id}
+							role="tab"
+							aria-selected={tab.id === props.activeTabId}
+							className={`file-diff-tab${tab.id === props.activeTabId ? " active" : ""}`}
+							onClick={() => props.onSelectTab?.(tab.id)}
+							onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onSelectTab?.(tab.id); } }}
+							title={tab.filePath}
+							tabIndex={0}
+						>
+							<span>{tab.filePath.split(/[/\\]/).pop()}</span>
+							<button
+								type="button"
+								className="file-diff-tab-close"
+								onClick={(e) => { e.stopPropagation(); props.onCloseTab?.(tab.id); }}
+								aria-label={t("common.close")}
+							>
+								<X size={11} />
+							</button>
+						</div>
+					))}
+				</div>
+			)}
 			<div className="file-diff-header">
 				<span className="file-diff-title" title={props.filePath}>
 					{fileName}

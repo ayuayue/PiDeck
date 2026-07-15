@@ -748,22 +748,83 @@ export function App() {
   	y: number;
   	projectId: string;
   } | null>(null);
-  const [diffViewFile, setDiffViewFile] = useState<string | null>(null);
-  const [diffViewMode, setDiffViewMode] = useState<"view" | "diff">("view");
-  const [diffViewOriginalContent, setDiffViewOriginalContent] = useState<string>("");
-  const [diffViewModifiedContent, setDiffViewModifiedContent] = useState<string | undefined>(undefined);
   /** 编辑器展示模式：弹框或侧栏 */
   const [editorMode, setEditorMode] = useState<"modal" | "drawer">("drawer");
   const toggleEditorMode = useCallback(() => {
     setEditorMode((prev) => {
       const next = prev === "modal" ? "drawer" : "modal";
       if (next === "drawer") {
-        // 切到侧栏时确保 drawer 打开
         setDrawer("editor");
         setDrawerCollapsed(false);
       }
       return next;
     });
+  }, []);
+  /** Editor tab：文件中转查看/差异查看。最多 5 个，超出移除最早打开的那个。 */
+  interface EditorTab {
+    id: string;
+    filePath: string;
+    mode: "view" | "diff";
+    originalContent: string;
+    modifiedContent?: string;
+  }
+  const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  /** 当前活跃 tab 派生数据 */
+  const activeTab = useMemo(
+    () => editorTabs.find((t) => t.id === activeTabId) ?? null,
+    [editorTabs, activeTabId],
+  );
+  /** 打开（或切换到已存在的）编辑器 tab。已打开时跳转；未打开时新增，超过 5 个淘汰最早 tab。 */
+  const openEditorTab = useCallback(
+    (path: string, mode: "view" | "diff", originalContent?: string, modifiedContent?: string) => {
+      setEditorTabs((prev) => {
+        const existing = prev.find((t) => t.filePath === path);
+        if (existing) {
+          // 已打开的 tab：更新 mode 和 content（工具 diff 可能和普通查看模式不同）
+          setActiveTabId(existing.id);
+          return prev.map((t) =>
+            t.id === existing.id
+              ? { ...t, mode, originalContent: originalContent ?? "", modifiedContent }
+              : t,
+          );
+        }
+        const newTab: EditorTab = {
+          id: crypto.randomUUID(),
+          filePath: path,
+          mode,
+          originalContent: originalContent ?? "",
+          modifiedContent,
+        };
+        const next = [...prev, newTab];
+        if (next.length > 5) next.shift();
+        setActiveTabId(newTab.id);
+        return next;
+      });
+    },
+    [],
+  );
+  /** 关闭指定 tab。关闭活跃 tab 时切到相邻 tab；一个都不剩时关闭编辑器。 */
+  const closeEditorTab = useCallback(
+    (tabId: string) => {
+      setEditorTabs((prev) => {
+        const idx = prev.findIndex((t) => t.id === tabId);
+        if (idx < 0) return prev;
+        const next = prev.filter((t) => t.id !== tabId);
+        if (next.length === 0) {
+          setActiveTabId(null);
+        } else if (tabId === activeTabId) {
+          const neighborIdx = Math.min(idx, next.length - 1);
+          setActiveTabId(next[neighborIdx].id);
+        }
+        return next;
+      });
+    },
+    [activeTabId],
+  );
+  /** 切换活跃 tab。 */
+  const selectEditorTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
   }, []);
   const [codexImportProject, setCodexImportProject] = useState<Project | null>(
     null,
@@ -809,6 +870,12 @@ export function App() {
   const [drawer, setDrawer] = useState<DrawerPanel | null>(null);
   const [renderedDrawer, setRenderedDrawer] = useState<DrawerPanel | null>(null);
   const drawerUnmountTimerRef = useRef<number | null>(null);
+  // 最后一个 editor tab 被关闭时自动收起 drawer
+  useEffect(() => {
+    if (editorTabs.length === 0 && drawer === "editor") {
+      setDrawer(null);
+    }
+  }, [editorTabs.length, drawer]);
   const [sessionsProjectId, setSessionsProjectId] = useState<string>();
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2555,12 +2622,7 @@ export function App() {
   }
 
   function viewFilePath(path: string) {
-    setDiffViewMode("view");
-    setDiffViewFile(path);
-    // 清除之前 diffFilePath 可能残留的 modifiedContent 缓存，
-    // 避免 FileDiffViewer 跳过磁盘读取而展示旧数据。
-    setDiffViewModifiedContent(undefined);
-    // 侧栏模式下才打开 drawer；弹框模式由 <FileDiffViewer> 自行渲染
+    openEditorTab(path, "view");
     if (editorMode === "drawer") {
       setDrawer("editor");
       setDrawerCollapsed(false);
@@ -2568,20 +2630,15 @@ export function App() {
   }
 
   function diffFilePath(path: string, originalContent?: string, content?: string) {
-    setDiffViewMode("diff");
-    setDiffViewFile(path);
     // 会话卡片传入的是工具执行前缓存的原始内容，提交后 Git 工作区可能已清空，
     // 因此优先使用会话级快照；文件边栏不传该值时仍回退到当前会话累计修改记录。
     const modified = modifiedFiles.find((f) => f.path === path);
-    setDiffViewOriginalContent(originalContent ?? modified?.originalContent ?? "");
-    // 修改后内容优先使用调用侧传入的 content（历史会话摘要数据），
-    // 其次使用当前会话的 modifiedFiles 缓存；两者皆无时 FileDiffViewer 会回退到读磁盘。
-    setDiffViewModifiedContent(content ?? modified?.content ?? undefined);
-    // 侧栏模式下才打开 drawer
-    if (editorMode === "drawer") {
-      setDrawer("editor");
-      setDrawerCollapsed(false);
-    }
+    const resolvedOriginal = originalContent ?? modified?.originalContent ?? "";
+    const resolvedModified = content ?? modified?.content ?? undefined;
+    // 工具 diff 以弹框打开（其后可最小化到侧栏）
+    setEditorMode("modal");
+    setDrawer(null);
+    openEditorTab(path, "diff", resolvedOriginal, resolvedModified);
   }
 
   async function refreshSessionHistory(projectId = sessionsProjectId) {
@@ -5950,16 +6007,20 @@ ${goalTextRef.current}
         data-open={drawer && !drawerCollapsed}
         data-rendered={Boolean(drawerContentPanel)}
       >
-        {editorMode === "drawer" && drawerContentPanel === "editor" && !drawerCollapsed && diffViewFile ? (
+        {editorMode === "drawer" && drawerContentPanel === "editor" && !drawerCollapsed && activeTab ? (
           <Suspense fallback={<div className="drawer-content-frame"><div className="file-diff-loading">Loading...</div></div>}>
             <FileDiffViewer
               displayMode="drawer"
-              filePath={diffViewFile}
-              mode={diffViewMode}
+              filePath={activeTab.filePath}
+              mode={activeTab.mode}
               onToggleMode={toggleEditorMode}
-              originalContent={diffViewMode === "diff" ? diffViewOriginalContent : undefined}
-              modifiedContent={diffViewModifiedContent}
-              onClose={() => { setDiffViewFile(null); setDiffViewMode("view"); setDrawer(null); }}
+              originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
+              modifiedContent={activeTab.modifiedContent}
+              tabs={editorTabs}
+              activeTabId={activeTabId}
+              onSelectTab={selectEditorTab}
+              onCloseTab={closeEditorTab}
+              onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}
               readContent={(path) => api.files.readContent(path)}
               readOriginalContent={(path) => api.git.originalContent(path)}
               saveContent={(path, content) => api.files.writeContent(path, content)}
@@ -6610,16 +6671,20 @@ ${goalTextRef.current}
         />
       </Suspense>
       )}
-      {editorMode === "modal" && diffViewFile && (
+      {editorMode === "modal" && activeTab && (
         <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">Loading...</span></div>}>
         <FileDiffViewer
           displayMode="modal"
-          filePath={diffViewFile}
-          mode={diffViewMode}
+          filePath={activeTab.filePath}
+          mode={activeTab.mode}
           onToggleMode={toggleEditorMode}
-          originalContent={diffViewMode === "diff" ? diffViewOriginalContent : undefined}
-          modifiedContent={diffViewModifiedContent}
-          onClose={() => { setDiffViewFile(null); setDiffViewMode("view"); }}
+          originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
+          modifiedContent={activeTab.modifiedContent}
+          tabs={editorTabs}
+          activeTabId={activeTabId}
+          onSelectTab={selectEditorTab}
+          onCloseTab={closeEditorTab}
+          onClose={() => { setActiveTabId(null); setEditorTabs([]); }}
           readContent={(path) => api.files.readContent(path)}
           readOriginalContent={(path) => api.git.originalContent(path)}
           saveContent={(path, content) => api.files.writeContent(path, content)}
