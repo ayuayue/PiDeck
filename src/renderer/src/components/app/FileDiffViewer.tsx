@@ -359,6 +359,7 @@ export function FileDiffViewer(props: {
 				{error && <div className="file-diff-error">{error}</div>}
 				{!loading && !error && (
 					<>
+						{/* Markdown 预览：仅 view 模式且 preview 启用 */}
 						{!isDiffMode && preview && (
 							<div className="file-diff-preview">
 								<ReactMarkdown
@@ -370,26 +371,32 @@ export function FileDiffViewer(props: {
 								</ReactMarkdown>
 							</div>
 						)}
-						<div style={{ display: isDiffMode || !preview ? "flex" : "none", height: "100%", flexDirection: "column" }}>
-							<Editor
-								value={content}
-								language={language}
-								theme={props.theme === "dark" ? "vs-dark" : "vs"}
-								options={editorOptions}
-								onMount={handleEditorMount}
-								onChange={handleEditorChange}
-							/>
-						</div>
-						<div style={{ display: !isDiffMode ? "none" : "flex", height: "100%", flexDirection: "column" }}>
-							<DiffEditor
-								original={original}
-								modified={content}
-								language={language}
-								theme={props.theme === "dark" ? "vs-dark" : "vs"}
-								options={diffOptions}
-								onMount={handleDiffEditorMount}
-							/>
-						</div>
+						{/* view 模式、非预览：常规 Editor */}
+						{!isDiffMode && !preview && (
+							<div style={{ height: "100%", flexDirection: "column" }}>
+								<Editor
+									value={content}
+									language={language}
+									theme={props.theme === "dark" ? "vs-dark" : "vs"}
+									options={editorOptions}
+									onMount={handleEditorMount}
+									onChange={handleEditorChange}
+								/>
+							</div>
+						)}
+						{/* diff 模式：仅 DiffEditor（不与 Editor 同时渲染，避免 Monaco 模型销毁竞态） */}
+						{isDiffMode && (
+							<div style={{ height: "100%", flexDirection: "column" }}>
+								<DiffEditor
+									original={original}
+									modified={content}
+									language={language}
+									theme={props.theme === "dark" ? "vs-dark" : "vs"}
+									options={diffOptions}
+									onMount={handleDiffEditorMount}
+								/>
+							</div>
+						)}
 					</>
 				)}
 			</div>
