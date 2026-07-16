@@ -290,6 +290,10 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			exportHtml: async () => ({ path: "preview-session.html" }),
 			delete: async () => undefined,
+			readMessages: async () => [
+				{ role: "user", content: "Preview user message", timestamp: Date.now() - 60000 },
+				{ role: "assistant", content: "Preview assistant response", timestamp: Date.now() - 30000 },
+			],
 		},
 		codexSessions: {
 			scan: async () => [],

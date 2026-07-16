@@ -395,6 +395,26 @@ export class SessionScanner {
     return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   }
 
+  async readMessages(filePath: string): Promise<Array<{ role: string; content: string; timestamp: number }>> {
+    const raw = await readFile(filePath, "utf8");
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const messages: Array<{ role: string; content: string; timestamp: number }> = [];
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as any;
+        if (entry.type && entry.type !== "message") continue;
+        if (entry.sessionName && !entry.message) continue;
+        const message = entry.message ?? entry.data?.message ?? entry;
+        if (!message?.role) continue;
+        const content = this.extractText(message.content).trim();
+        if (!content) continue;
+        if (message.role !== "user" && message.role !== "assistant") continue;
+        messages.push({ role: message.role, content, timestamp: entry.ts ?? entry.timestamp ?? Date.now() });
+      } catch { /* skip */ }
+    }
+    return messages;
+  }
+
   private safePathToken(path: string) {
     const normalized = path.replace(/\\/g, "/");
     const win = normalized.match(/^([A-Za-z]):\/(.+)$/);

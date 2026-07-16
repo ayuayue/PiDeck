@@ -73,6 +73,7 @@ import {
 import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
 import { useScratchPad } from "./hooks/useScratchPad";
+import { SessionReferenceModal, type SessionReferenceResult } from "./components/app/SessionReferenceModal";
 import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
@@ -642,6 +643,8 @@ export function App() {
 
   /** 当前 agent 流式思考的实时文本,agent_end 时清空 */
   const [multiSelectOpen, setMultiSelectOpen] = useState(false);
+  const [sessionRefPickerOpen, setSessionRefPickerOpen] = useState(false);
+  const [sessionRefPickerTarget, setSessionRefPickerTarget] = useState<SessionSummary | null>(null);
 
   const [streamingThinking, setStreamingThinking] = useState<
     Record<string, string>
@@ -1517,13 +1520,17 @@ export function App() {
   const flatFiles = useMemo(() => flattenFiles(files), [files]);
   // 优化:建议项计算仅在必要时触发,避免每次输入都重计算导致卡顿
   // 只有当建议框打开时才计算,关闭时返回空数组
-  // 以光标位置为锚检测触发器,使文字中间也能唤出 @ 文件 / / 命令菜单。
+  const activeProjectSessions = useMemo(
+    () => (activeProjectId ? sessionsByProject[activeProjectId] ?? [] : []),
+    [activeProjectId, sessionsByProject],
+  );
+
   const suggestionItems = useMemo(
     () =>
       suggestionsOpen
-        ? buildSuggestionItems(prompt, composerCursor, commands, flatFiles)
+        ? buildSuggestionItems(prompt, composerCursor, commands, flatFiles, activeProjectSessions)
         : [],
-    [suggestionsOpen, prompt, composerCursor, commands, flatFiles],
+    [suggestionsOpen, prompt, composerCursor, commands, flatFiles, activeProjectSessions],
   );
 
   /** 有效命令名白名单：仅已知命令渲染为 chip */
@@ -1543,6 +1550,11 @@ export function App() {
   const validFilePaths = useMemo(
     () => new Set(flatFiles.map((f) => f.relativePath)),
     [flatFiles],
+  );
+
+  const validSessionRefs: Set<string> = useMemo(
+    () => new Set(activeProjectSessions.map((s) => s.name ?? s.filePath)),
+    [activeProjectSessions],
   );
 
   /** 菜单光标锚定位置（屏幕坐标），仅在 suggestionsOpen 时计算。 */
@@ -5767,10 +5779,23 @@ ${goalTextRef.current}
 
           {/* 多选分享弹框：会话树 */}
           {multiSelectOpen && (
-            <MultiSelectModal
-              renderedRuns={renderedRuns}
-              onClose={() => setMultiSelectOpen(false)}
-              onCopy={handleMultiSelectCopy}
+            <MultiSelectModal renderedRuns={renderedRuns} onClose={() => setMultiSelectOpen(false)} onCopy={handleMultiSelectCopy} />
+          )}
+
+          {sessionRefPickerOpen && sessionRefPickerTarget && (
+            <SessionReferenceModal
+              session={sessionRefPickerTarget}
+              onClose={() => { setSessionRefPickerOpen(false); setSessionRefPickerTarget(null); }}
+              onConfirm={(result: SessionReferenceResult) => {
+                const modeLabel = result.fullContext ? t("sessionRef.fullContext") : `${result.messages.length} ${t("sessionRef.selectMessages").toLowerCase()}`;
+                const header = `\n\n---\n> \u{1F4CE} ${t("sessionRef.title")}: **${result.sessionName}** (${modeLabel})\n`;
+                const body = result.messages.map((m) => `> **${m.role === "user" ? "\u{1F9D1} User" : "\u{1F916} Assistant"}:** ${m.content.replace(/\n/g, "\n> ")}`).join("\n> \n");
+                const newText = `${prompt}${header}${body}\n---\n`;
+                setPrompt(newText); setComposerCursor(newText.length); pendingComposerCaretRef.current = newText.length;
+                setSessionRefPickerOpen(false); setSessionRefPickerTarget(null);
+                requestAnimationFrame(() => { composerTextareaRef.current?.focus(); });
+              }}
+              loadMessages={async (fp: string) => api.sessions.readMessages(fp)}
             />
           )}
 
@@ -5921,6 +5946,7 @@ ${goalTextRef.current}
               disabled={composerDisabled}
               validCommandNames={validCommandNames}
               validFilePaths={validFilePaths}
+              validSessionRefs={validSessionRefs}
               caretRef={pendingComposerCaretRef}
               placeholder={
                 isAgentStarting
@@ -5966,12 +5992,11 @@ ${goalTextRef.current}
                 setSuggestionsOpen(false);
               }}
               onChipClick={(chip: RichInputChip) => {
-                // 文件 chip：在系统默认应用中打开对应文件
-                if (chip.kind === "file") {
-                  const path = chip.raw.slice(1); // 去掉 @ 前缀
-                  openFilePath(path);
+                if (chip.kind === "file") { const path = chip.raw.slice(1); openFilePath(path); }
+                if (chip.kind === "session") {
+                  const s = activeProjectSessions.find((x) => (x.name ?? x.filePath) === chip.label);
+                  if (s) { setSessionRefPickerTarget(s); setSessionRefPickerOpen(true); }
                 }
-                // skill chip 点击暂不处理，后续可扩展跳转 skill 详情
               }}
             />
             {suggestionsOpen && !composerDisabled && (

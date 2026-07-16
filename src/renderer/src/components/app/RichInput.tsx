@@ -28,7 +28,7 @@ export type RichInputChip = {
 	start: number;
 	end: number;
 	raw: string;
-	kind: "file" | "skill";
+	kind: "file" | "skill" | "session";
 	label: string;
 };
 
@@ -53,6 +53,7 @@ export type RichInputProps = {
 	validCommandNames?: Set<string>;
 	/** 有效文件路径集合，白名单：不在集合内的 @ 引用不渲染 chip */
 	validFilePaths?: Set<string>;
+	validSessionRefs?: Set<string>;
 };
 
 type TextNodeRun = {
@@ -100,6 +101,7 @@ export function parseRichInputChips(
 	text: string,
 	validCommandNames?: Set<string>,
 	validFilePaths?: Set<string>,
+	validSessionRefs?: Set<string>,
 ): RichInputChip[] {
 	const chips: RichInputChip[] = [];
 	const urlSpans = findUrlSpans(text);
@@ -139,6 +141,21 @@ export function parseRichInputChips(
 			chips.push({ start, end, raw: m[1], kind: "file", label: label || seg });
 		}
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
+	}
+
+	// &session：前置排除 \w、?、=、&，避免 URL 查询参数和变量名误触发
+	const ampRe = /(?<![:/.\w#!~?=&])(&[\p{L}\p{N}_\- ]+)/gu;
+	while ((m = ampRe.exec(text)) !== null) {
+		const start = m.index;
+		const end = start + m[1].length;
+		if (!overlapsUrl(start, end, urlSpans)) {
+			const label = m[1].slice(1).trim();
+			if (!label) continue;
+			if (!validSessionRefs || validSessionRefs.has(label)) {
+				chips.push({ start, end, raw: m[1], kind: "session", label });
+			}
+		}
+		if (m.index === ampRe.lastIndex) ampRe.lastIndex++;
 	}
 
 	// 去重叠：保留先出现的，剔除被包含的
@@ -354,6 +371,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			onPaste, onDrop, onDragOver, onFocus, onBlur,
 			disabled, placeholder, className, caretRef,
 			onChipClick, validCommandNames, validFilePaths,
+			validSessionRefs,
 		} = props;
 
 		const rootRef = useRef<HTMLDivElement | null>(null);
@@ -370,7 +388,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			[ref],
 		);
 
-		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths), [value, validCommandNames, validFilePaths]);
+		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs), [value, validCommandNames, validFilePaths, validSessionRefs]);
 
 		/** 全量渲染 DOM：清空 root，按 value + chips 重建文本节点 + chip span。 */
 		const renderDom = useCallback(() => {
@@ -397,7 +415,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				const icon = document.createElement("span");
 				icon.className = "input-chip__icon";
-				icon.textContent = chip.kind === "file" ? "@" : "/";
+				icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "&" : "/";
 				const label = document.createElement("span");
 				label.className = "input-chip__label";
 				label.textContent = chip.label;

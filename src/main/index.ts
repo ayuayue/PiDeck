@@ -1454,6 +1454,12 @@ function registerIpc() {
 		void appLogger.info("session", "Session deleted", { filePath });
 	});
 	ipcMain.handle(
+		ipcChannels.sessionsReadMessages,
+		async (_event, filePath: string) => {
+			return sessionScanner.readMessages(filePath);
+		},
+	);
+	ipcMain.handle(
 		ipcChannels.codexSessionsScan,
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
