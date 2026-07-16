@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { X, MessageCircle, Brain } from "lucide-react";
 import { t } from "../../i18n";
 import type { SessionSummary } from "../../../../shared/types";
+import { summarizeMessage, stripAnsi } from "./AppUtils";
 
 type SessionMessage = { role: string; content: string; timestamp: number };
 
@@ -89,9 +90,8 @@ export function SessionReferenceModal(props: {
 									? <MessageCircle size={14} className="multi-select-node-icon user" />
 									: <Brain size={14} className="multi-select-node-icon assistant" />}
 								<span className="multi-select-node-label">
-									<span className="multi-select-node-summary">
-										{msg.content.slice(0, 200)}{msg.content.length > 200 ? "..." : ""}
-									</span>
+									<span className="multi-select-node-run-label">{msg.role === "user" ? "You" : "pi"}</span>
+									<span className="multi-select-node-summary">{summarizeMessage(stripAnsi(msg.content))}</span>
 								</span>
 							</label>
 						);
