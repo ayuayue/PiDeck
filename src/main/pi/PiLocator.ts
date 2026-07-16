@@ -44,15 +44,15 @@ export class PiLocator {
     if (normalizedCustomPath && !this.isUnsupportedPowerShellShim(normalizedCustomPath)) {
       return normalizedCustomPath;
     }
-    const candidates = this.getCandidates();
-    const found = candidates.find(candidate => existsSync(candidate));
-    if (found) return found;
-
-    // WSL 模式：直接尝试 WSL，不做 Windows fallback。
+    // 用户显式开启 WSL 时优先使用 WSL 中的 pi，不轮询本地 PATH 中的 Windows 版本
     if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
       const wslCommand = this.resolveWslCommand(wslDistro, wslUser);
       if (wslCommand) return wslCommand;
     }
+
+    const candidates = this.getCandidates();
+    const found = candidates.find(candidate => existsSync(candidate));
+    if (found) return found;
     return "pi";
   }
 
@@ -84,11 +84,11 @@ export class PiLocator {
 
   createProcessEnv(settings?: PiProxySettings, pathPrefix?: string, wsl?: PiCommandInvocation["wsl"]) {
     if (wsl) {
-      // WSL 模式不需要把 Windows 工具链目录塞进 PATH；wsl.exe 会继承系统环境。
-      // 但仍需注入代理变量，因为 wsl.exe 子进程会通过 Windows 网络栈访问外网。
+      // WSL 模式：保留原始 PATH 以便找到 wsl.exe（在 System32 中），
+      // 同时注入代理环境变量（wsl.exe 子进程通过 Windows 网络栈访问外网）。
       const base = {
         ...process.env,
-        PATH: (pathPrefix ? [pathPrefix] : []).join(delimiter),
+        PATH: pathPrefix || process.env.PATH || "",
       };
       return this.applyPiProxyEnv(base, settings);
     }
@@ -111,7 +111,7 @@ export class PiLocator {
       const user = parts[2];
       const piCommand = parts[3] || "pi";
       return {
-        command: "wsl.exe",
+        command: this.wslExePath,
         args: ["-d", distro, "-u", user, piCommand, ...args],
         shell: false,
         wsl: { distro, user, piCommand },
@@ -302,10 +302,15 @@ export class PiLocator {
    * 尝试在 WSL 中检测 pi 是否可用。
    * 返回 "wsl://<distro>/<user>/pi" 标记字符串，供 resolveCommand/createInvocation 识别。
    */
+  private get wslExePath(): string {
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    return join(systemRoot, "System32", "wsl.exe");
+  }
+
   private resolveWslCommand(distro: string, user: string): string | undefined {
     try {
       const wslArgs = ["-d", distro, "-u", user, "which", "pi"];
-      const result = execFileSync("wsl.exe", wslArgs, {
+      const result = execFileSync(this.wslExePath, wslArgs, {
         encoding: "utf8",
         timeout: 8_000,
         windowsHide: true,
@@ -322,7 +327,7 @@ export class PiLocator {
   private checkWslCommand(distro: string, user: string, piCommand: string): Promise<PiInstallStatus> {
     return new Promise(resolve => {
       const wslArgs = ["-d", distro, "-u", user, piCommand, "--version"];
-      execFile("wsl.exe", wslArgs, {
+      execFile(this.wslExePath, wslArgs, {
         env: this.createProcessEnv(undefined, undefined, { distro, user, piCommand }),
         shell: false,
         windowsHide: true,

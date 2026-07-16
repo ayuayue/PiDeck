@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { app, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -8,34 +9,105 @@ import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
 export class SessionScanner {
   private readonly root = join(app.getPath("home"), ".pi", "agent", "sessions");
   private readonly codexRoot = join(app.getPath("home"), ".codex", "sessions");
-  /** WSL 会话目录（通过 UNC 路径访问），由 configureWsl 设置 */
-  private wslRoot = "";
+  /** WSL 配置（发行版和用户名），由 configureWsl 设置；null 表示未启用 */
+  private wslConfig: { distro: string; user: string } | null = null;
+
+  /** 获取 wsl.exe 完整路径 */
+  private get wslExePath(): string {
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    return join(systemRoot, "System32", "wsl.exe");
+  }
 
   /**
-   * 配置 WSL 会话目录。当启用 WSL 模式时，额外扫描 WSL 中的 pi 会话。
-   * wslDistro 和 wslUser 用于构造 UNC 路径：\\wsl$\<distro>\home\<user>\.pi\agent\sessions
+   * 配置 WSL 会话目录。启用时通过 wsl.exe 命令扫描 WSL 中的 pi 会话。
    */
   configureWsl(wslDistro: string, wslUser: string) {
-    this.wslRoot = `\\\\wsl$\\${wslDistro}\\home\\${wslUser}\\.pi\\agent\\sessions`;
+    this.wslConfig = { distro: wslDistro, user: wslUser };
   }
 
   /** 清除 WSL 配置 */
   clearWsl() {
-    this.wslRoot = "";
+    this.wslConfig = null;
+  }
+
+  /** WSL 中 pi session 目录（相对 home） */
+  private get wslSessionsDir() {
+    return "/home/" + this.wslConfig!.user + "/.pi/agent/sessions";
+  }
+
+  /** 通过 wsl.exe 读取文件内容 */
+  private readWslFile(wslPath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "cat", wslPath], {
+        encoding: "utf8",
+        timeout: 10_000,
+        windowsHide: true,
+      }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout);
+      });
+    });
+  }
+
+  /** 通过 wsl.exe 获取文件修改时间戳 */
+  private readWslFileMtime(wslPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "stat", "-c", "%Y", wslPath], {
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(Number(stdout.trim()) * 1000);
+      });
+    });
+  }
+
+  /** 通过 wsl.exe 递归查找所有 .jsonl 文件，返回 "wsl://<相对路径>" 格式的标记路径 */
+  private async collectWslJsonl(): Promise<string[]> {
+    const wslHome = "/home/" + this.wslConfig!.user;
+    const sessionsDir = wslHome + "/.pi/agent/sessions";
+    return new Promise((resolve, reject) => {
+      execFile(this.wslExePath, [
+        "-d", this.wslConfig!.distro, "-u", this.wslConfig!.user,
+        "find", sessionsDir, "-name", "*.jsonl", "-type", "f"
+      ], {
+        encoding: "utf8",
+        timeout: 15_000,
+        windowsHide: true,
+      }, (err, stdout) => {
+        if (err) { reject(err); return; }
+        const files = stdout.trim().split(/\r?\n/).filter(Boolean);
+        // 用 wsl:// 协议标记方便后续读取，只存相对 home 的路径
+        resolve(files);
+      });
+    });
+  }
+
+  /** 判断文件路径是否为 WSL 标记路径 */
+  private isWslPath(filePath: string): boolean {
+    return filePath.startsWith("/home/");
   }
 
   async list(projectPath?: string): Promise<SessionSummary[]> {
     const files = await this.collectJsonl(this.root).catch(() => [] as string[]);
     // 如果有 WSL 配置，也扫描 WSL 会话目录
-    const wslFiles = this.wslRoot
-      ? await this.collectJsonl(this.wslRoot).catch(() => [] as string[])
+    const wslFiles = this.wslConfig
+      ? await this.collectWslJsonl().catch(() => [] as string[])
       : [];
     const allFiles = [...files, ...wslFiles];
     const summaries = await Promise.all(allFiles.map(file => this.readSummary(file).catch(() => null)));
 
-    return summaries
-      .filter((summary): summary is SessionSummary => Boolean(summary))
-      .filter(summary => !projectPath || this.isSameProject(summary, projectPath))
+    const validSummaries = summaries.filter((summary): summary is SessionSummary => Boolean(summary));
+    if (!projectPath) {
+      return validSummaries.sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+    // 异步 isSameProject 过滤
+    const matched = await Promise.all(
+      validSummaries.map(summary => this.isSameProject(summary, projectPath!))
+    );
+    return validSummaries
+      .filter((_, i) => matched[i])
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
@@ -197,7 +269,12 @@ export class SessionScanner {
   }
 
   private async readSummary(filePath: string): Promise<SessionSummary | null> {
-    const [raw, info] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
+    // WSL 路径通过 wsl.exe 命令读取，Windows 路径直接用 fs
+    const isWsl = this.isWslPath(filePath);
+    const [raw, info] = await Promise.all([
+      isWsl ? this.readWslFile(filePath) : readFile(filePath, "utf8"),
+      isWsl ? this.readWslFileMtime(filePath).then(m => ({ mtimeMs: m })) : stat(filePath),
+    ]);
     const lines = raw.split(/\r?\n/).filter(Boolean);
     if (lines.length === 0) return null;
 
@@ -361,31 +438,42 @@ export class SessionScanner {
   }
 
   private decodeSessionDir(encoded: string) {
-    // pi 会把 cwd 存成 --C--Users-name-project-- 这种目录名；这里只用于展示和匹配，不写回 session。
+    // pi 会把 cwd 存成 --C--Users-name-project--（Windows）或 --mnt-c-Users-name-project--（WSL）等目录名；
+    // 这里只用于展示和匹配，不写回 session。
     const trimmed = encoded.replace(/^--|--$/g, "");
+    // WSL /mnt/ 路径：--mnt-c-Users-...--
+    if (trimmed.startsWith("mnt-")) {
+      return "/" + trimmed.replace(/-/g, "/");
+    }
+    // Windows 路径：--C--Users-...--
     const drive = trimmed.match(/^([A-Za-z])--(.+)$/);
     if (drive) return `${drive[1]}:/${drive[2].replace(/-/g, "/")}`.replace(/\//g, "\\");
-    return trimmed.replace(/-/g, "\\");
+    // 其他 Linux/WSL 路径
+    return trimmed.replace(/-/g, "/");
   }
 
-  private isSameProject(summary: SessionSummary, projectPath: string) {
+  private async isSameProject(summary: SessionSummary, projectPath: string) {
     const normalizedProject = this.normalize(projectPath);
     const normalizedSessionProject = summary.projectPath ? this.normalize(summary.projectPath) : "";
     if (normalizedSessionProject === normalizedProject) return true;
-    if (this.isParentSessionForProject(normalizedSessionProject, normalizedProject, summary.filePath)) return true;
+    if (await this.isParentSessionForProject(normalizedSessionProject, normalizedProject, summary.filePath)) return true;
     return this.normalize(summary.filePath).includes(this.safePathToken(projectPath));
   }
 
-  private isParentSessionForProject(sessionProject: string, projectPath: string, filePath: string) {
+  private async isParentSessionForProject(sessionProject: string, projectPath: string, filePath: string) {
     // 早期用户常在 home 目录启动 pi 再操作子项目；这类历史 session 的 cwd 是父目录，
     // 但文件内容可能明确提到当前项目。仅对父目录 session 做内容校验，避免把无关 home 会话全部展示到子项目下。
     if (!sessionProject || !projectPath.startsWith(`${sessionProject}/`)) return false;
-    return this.readCachedText(filePath).includes(projectPath);
+    const text = await this.readCachedText(filePath);
+    return text.includes(projectPath);
   }
 
-  private readCachedText(filePath: string) {
+  private async readCachedText(filePath: string) {
     try {
-      return readFileSync(filePath, "utf8").replace(/\\/g, "/").toLowerCase();
+      const raw = this.isWslPath(filePath)
+        ? await this.readWslFile(filePath)
+        : readFileSync(filePath, "utf8");
+      return raw.replace(/\\/g, "/").toLowerCase();
     } catch {
       return "";
     }

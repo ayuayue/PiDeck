@@ -793,11 +793,15 @@ export function SettingsModal(props: {
 										)}
 									</div>
 								<div className="setting-pi-wsl-panel">
-									<SettingSwitch
-										title={t("settings.wsl.enable")}
-										description={t("settings.wsl.enableDesc")}
-										checked={props.settings.wslEnabled}
-										onChange={(value) => props.onChange({ wslEnabled: value })}
+									<SelectField
+										label={t("settings.piSource.label")}
+										description={t("settings.piSource.desc")}
+										value={props.settings.wslEnabled ? "wsl" : "windows"}
+										options={[
+											{ value: "windows", label: t("settings.piSource.windows") },
+											{ value: "wsl", label: t("settings.piSource.wsl") },
+										]}
+										onChange={(value) => props.onChange({ wslEnabled: value === "wsl" })}
 									/>
 									{props.settings.wslEnabled && (
 										<>
