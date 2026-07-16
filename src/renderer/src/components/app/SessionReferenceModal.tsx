@@ -1,17 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X, MessageCircle, Brain, FileText } from "lucide-react";
 import { t } from "../../i18n";
 import type { SessionSummary } from "../../../../shared/types";
-import { summarizeMessage, stripAnsi } from "./AppUtils";
+import { summarizeMessage, stripAnsi, formatTime } from "./AppUtils";
 
 type SessionMessage = { role: string; content: string; timestamp: number };
-
-/** 相邻 user+assistant 对，复用多选分享的 agent-run 树结构 */
-type SessionTurn = {
-	key: string;
-	user: SessionMessage;
-	assistant: SessionMessage | null;
-};
 
 export type SessionReferenceResult = {
 	sessionName: string;
@@ -24,7 +17,6 @@ export function SessionReferenceModal(props: {
 	onClose: () => void;
 	onConfirm: (result: SessionReferenceResult, selectedIndices: number[]) => void;
 	loadMessages: (filePath: string) => Promise<SessionMessage[]>;
-	/** 上次保存的选择（索引集合），null 或空 = 全选 */
 	initialSelected?: Set<number>;
 }) {
 	const [messages, setMessages] = useState<SessionMessage[]>([]);
@@ -39,7 +31,6 @@ export function SessionReferenceModal(props: {
 		props.loadMessages(props.session.filePath).then((msgs) => {
 			if (!cancelled) {
 				setMessages(msgs);
-				// 恢复上次选择，无则全选
 				if (props.initialSelected && props.initialSelected.size > 0) {
 					setSelectedIds(props.initialSelected);
 				} else {
@@ -53,49 +44,10 @@ export function SessionReferenceModal(props: {
 		return () => { cancelled = true; };
 	}, [props.session.filePath]);
 
-	// 将消息按 user→assistant 分组为 turns
-	const turns = useMemo(() => {
-		const result: SessionTurn[] = [];
-		let i = 0;
-		while (i < messages.length) {
-			const msg = messages[i];
-			if (msg.role === "user") {
-				const next = messages[i + 1];
-				result.push({
-					key: `t${i}`,
-					user: msg,
-					assistant: next?.role === "assistant" ? next : null,
-				});
-				i += next?.role === "assistant" ? 2 : 1;
-			} else if (msg.role === "assistant") {
-				result.push({ key: `t${i}`, user: msg, assistant: null });
-				i++;
-			} else {
-				i++;
-			}
-		}
-		return result;
-	}, [messages]);
-
 	const toggleMessage = useCallback((index: number) => {
 		setSelectedIds((prev) => {
 			const next = new Set(prev);
 			next.has(index) ? next.delete(index) : next.add(index);
-			return next;
-		});
-	}, []);
-
-	/** 切换整个 turn：同时勾选/取消 user + assistant */
-	const toggleTurn = useCallback((turnStart: number, hasAssistant: boolean) => {
-		setSelectedIds((prev) => {
-			const next = new Set(prev);
-			const ids = [turnStart];
-			if (hasAssistant) ids.push(turnStart + 1);
-			const allSelected = ids.every((id) => next.has(id));
-			for (const id of ids) {
-				if (allSelected) next.delete(id);
-				else next.add(id);
-			}
 			return next;
 		});
 	}, []);
@@ -135,72 +87,61 @@ export function SessionReferenceModal(props: {
 				<div className="multi-select-modal-tree session-ref-message-list">
 					{loading && <div className="session-ref-loading">{t("common.loading")}...</div>}
 					{error && <div className="session-ref-error">{t("sessionRef.loadError")}: {error}</div>}
-					{!loading && !error && turns.map((turn, ti) => {
-						const userIdx = messages.indexOf(turn.user);
-						const assistantIdx = turn.assistant ? messages.indexOf(turn.assistant) : -1;
-						const userChecked = selectedIds.has(userIdx);
-						const assistantChecked = assistantIdx >= 0 && selectedIds.has(assistantIdx);
-						const hasAssistant = turn.assistant !== null;
-						const turnAnyChecked = userChecked || assistantChecked;
+					{!loading && !error && messages.map((msg, index) => {
+						const isChecked = selectedIds.has(index);
 
-						return (
-							<div key={turn.key} className="multi-select-tree-run">
-								{/* User 消息 — 作为 turn 的父行 */}
+						// 用户消息：独立行，跟 MultiSelectModal 中 user message 一致
+						if (msg.role === "user") {
+							return (
 								<label
-									className={`multi-select-tree-node run-parent${turnAnyChecked ? " selected" : ""}`}
+									key={index}
+									className={`multi-select-tree-node${isChecked ? " selected" : ""}`}
 								>
-									<input
-										type="checkbox"
-										checked={userChecked}
-										onChange={() => toggleTurn(userIdx, hasAssistant)}
-									/>
-									<MessageCircle size={15} className="multi-select-node-icon user" />
+									<input type="checkbox" checked={isChecked} onChange={() => toggleMessage(index)} />
+									<MessageCircle size={14} className="multi-select-node-icon user" />
 									<span className="multi-select-node-label">
-										<span className="multi-select-node-run-label">You</span>
-										<span className="multi-select-node-summary">
-											{summarizeMessage(stripAnsi(turn.user.content))}
-										</span>
+										<span className="multi-select-node-summary">{summarizeMessage(stripAnsi(msg.content))}</span>
 									</span>
 								</label>
+							);
+						}
 
-								{/* Assistant 子行 */}
-								{hasAssistant && (
+						// 助理/其他消息：套 agent-run 结构，父行控制子行勾选
+						if (msg.role === "assistant") {
+							return (
+								<div key={index} className="multi-select-tree-run">
+									<div
+										className={`multi-select-tree-node run-parent${isChecked ? " selected" : ""}`}
+										onClick={() => toggleMessage(index)}
+									>
+										<Brain size={15} className="multi-select-node-icon assistant" />
+										<span className="multi-select-node-label">
+											<span className="multi-select-node-run-label">pi</span>
+											<span className="multi-select-node-time">{formatTime(msg.timestamp)}</span>
+										</span>
+									</div>
 									<div className="multi-select-run-children">
-										<label
-											className={`multi-select-tree-node run-child${assistantChecked ? " selected" : ""}`}
-										>
-											<input
-												type="checkbox"
-												checked={assistantChecked}
-												onChange={() => toggleMessage(assistantIdx)}
-											/>
+										<label className={`multi-select-tree-node run-child${isChecked ? " selected" : ""}`}>
+											<input type="checkbox" checked={isChecked} onChange={() => toggleMessage(index)} />
 											<FileText size={14} className="multi-select-node-icon child" />
 											<span className="multi-select-node-label">
-												<span className="multi-select-node-summary">
-													{summarizeMessage(stripAnsi(turn.assistant!.content))}
-												</span>
+												<span className="multi-select-node-summary">{summarizeMessage(stripAnsi(msg.content))}</span>
 											</span>
 										</label>
 									</div>
-								)}
+								</div>
+							);
+						}
 
-								{/* 无 assistant 的独立消息（system/error 等显示为单独子行） */}
-								{!hasAssistant && turn.user.role === "assistant" && (
-									<div className="multi-select-run-children">
-										<label
-											className={`multi-select-tree-node run-child${userChecked ? " selected" : ""}`}
-										>
-											<input type="checkbox" checked={userChecked} onChange={() => toggleMessage(userIdx)} />
-											<Brain size={14} className="multi-select-node-icon assistant" />
-											<span className="multi-select-node-label">
-												<span className="multi-select-node-summary">
-													{summarizeMessage(stripAnsi(turn.user.content))}
-												</span>
-											</span>
-										</label>
-									</div>
-								)}
-							</div>
+						// 其他角色（system/error 等）
+						return (
+							<label key={index} className={`multi-select-tree-node${isChecked ? " selected" : ""}`}>
+								<input type="checkbox" checked={isChecked} onChange={() => toggleMessage(index)} />
+								<FileText size={14} className="multi-select-node-icon child" />
+								<span className="multi-select-node-label">
+									<span className="multi-select-node-summary">{summarizeMessage(stripAnsi(msg.content))}</span>
+								</span>
+							</label>
 						);
 					})}
 				</div>
