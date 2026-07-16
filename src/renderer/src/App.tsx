@@ -3890,6 +3890,36 @@ ${text}
     }
   }, [isAgentBusy, activeAgentId, api.agents, messagesByAgent]);
 
+  /** 解析消息中的 & 会话引用，将 chip 替换为引用上下文 */
+  async function resolveSessionRefs(message: string): Promise<string> {
+    let resolved = message;
+    const sorted = [...activeProjectSessions].sort(
+      (a, b) => (b.name ?? b.filePath).length - (a.name ?? a.filePath).length,
+    );
+    for (const session of sorted) {
+      const sessionName = session.name ?? session.filePath;
+      const raw = `&${sessionName}`;
+      if (!resolved.includes(raw)) continue;
+      let msgs: Array<{ role: string; content: string }> | undefined;
+      if (sessionRefSelections[raw]) {
+        msgs = sessionRefSelections[raw].messages;
+      } else {
+        try {
+          const all = await api.sessions.readMessages(session.filePath);
+          msgs = all.map((m) => ({ role: m.role, content: m.content }));
+          setSessionRefSelections((prev) => ({ ...prev, [raw]: { messages: msgs!, fullContext: true, selectedIndices: msgs!.map((_, i) => i) } }));
+        } catch { /* skip */ }
+      }
+      if (msgs && msgs.length > 0) {
+        const ctx = msgs.map((m) => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`).join("\n");
+        resolved = resolved.replaceAll(raw, `<referenced_session name="${sessionName}">\n${ctx}\n</referenced_session>`);
+      } else {
+        resolved = resolved.replaceAll(raw, "");
+      }
+    }
+    return resolved;
+  }
+
   async function sendPrompt() {
     if (
       isAgentStarting ||
@@ -3952,34 +3982,7 @@ ${text}
     // 让输入框保持固定大小，超出部分滚动显示
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
 
-    // 解析 & 会话引用：按会话名长度降序排列，避免短名错误匹配长名的子串（如 "Session" 误匹配 "Session 2"）
-    let resolvedMessage = message;
-    const sortedSessions = [...activeProjectSessions].sort(
-      (a, b) => (b.name ?? b.filePath).length - (a.name ?? a.filePath).length,
-    );
-    for (const session of sortedSessions) {
-      const sessionName = session.name ?? session.filePath;
-      const raw = `&${sessionName}`;
-      if (!resolvedMessage.includes(raw)) continue;
-      let messages: Array<{ role: string; content: string }> | undefined;
-      if (sessionRefSelections[raw]) {
-        messages = sessionRefSelections[raw].messages;
-      } else {
-        try {
-          const all = await api.sessions.readMessages(session.filePath);
-          const msgs = all.map((m) => ({ role: m.role, content: m.content }));
-          messages = msgs;
-          setSessionRefSelections((prev) => ({ ...prev, [raw]: { messages: msgs, fullContext: true, selectedIndices: msgs.map((_, i) => i) } }));
-        } catch { /* skip */ }
-      }
-      if (messages && messages.length > 0) {
-        const context = messages.map((m) => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`).join("\n");
-        resolvedMessage = resolvedMessage.replaceAll(raw, `<referenced_session name="${sessionName}">\n${context}\n</referenced_session>`);
-      } else {
-        resolvedMessage = resolvedMessage.replaceAll(raw, "");
-      }
-    }
-
+    const resolvedMessage = await resolveSessionRefs(message);
     const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(resolvedMessage, promptTemplateList);
     await submitPromptSnapshot(activeAgentId, expandedMessage, images, undefined, currentComposerAgentMode, templateDescription);
     // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
@@ -4016,10 +4019,9 @@ ${text}
     setAttachedImages([]);
     setSuggestionsOpen(false);
     setSendBehaviorMenuOpen(false);
-    // 发送后固定 composer 高度
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
-    await submitPromptSnapshot(activeAgentId, message, images, "followUp", currentComposerAgentMode);
-    // 用 MutationObserver 监听消息列表 DOM 变化
+    const resolvedMessage = await resolveSessionRefs(message);
+    await submitPromptSnapshot(activeAgentId, resolvedMessage, images, "followUp", currentComposerAgentMode);
     const scrollOnNewMessage = () => {
       const timeline = timelineRef.current;
       if (!timeline) return;
