@@ -146,7 +146,7 @@ export function parseRichInputChips(
 	// &session：会话名可能含空格，不能直接用贪婪词匹配（会吞掉后续文字）。
 	// 策略：先贪婪捕获 & 后的非换行非 & 段，再从白名单前缀匹配出精确会话名区间；
 	// 仅该会话名区间渲染为 chip，其余文字保持可编辑。无白名单时回退为无空格单词。
-	const ampRe = /(?<![:/.\w#!~?=&])(&[^&\n]+)/gu;
+	const ampRe = /(?<![:/.#!~?=&])(&[^&\n]+)/gu;
 	while ((m = ampRe.exec(text)) !== null) {
 		const start = m.index;
 		const captured = m[1].slice(1); // 去掉 & 前缀
