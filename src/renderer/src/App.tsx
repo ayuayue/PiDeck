@@ -3899,22 +3899,33 @@ ${text}
     for (const session of sorted) {
       const sessionName = session.name ?? session.filePath;
       const raw = `&${sessionName}`;
-      if (!resolved.includes(raw)) continue;
+      // 大小写不敏感查找，但保留原始大小写用于替换
+      const lowerResolved = resolved.toLowerCase();
+      const lowerRaw = raw.toLowerCase();
+      if (!lowerResolved.includes(lowerRaw)) continue;
       let msgs: Array<{ role: string; content: string }> | undefined;
       if (sessionRefSelections[raw]) {
         msgs = sessionRefSelections[raw].messages;
       } else {
         try {
           const all = await api.sessions.readMessages(session.filePath);
-          msgs = all.map((m) => ({ role: m.role, content: m.content }));
-          setSessionRefSelections((prev) => ({ ...prev, [raw]: { messages: msgs!, fullContext: true, selectedIndices: msgs!.map((_, i) => i) } }));
-        } catch { /* skip */ }
+          if (!all || all.length === 0) {
+            console.warn(`[&ref] session "${sessionName}" has 0 messages`);
+          }
+          const loaded = all.map((m) => ({ role: m.role, content: m.content }));
+          msgs = loaded;
+          setSessionRefSelections((prev) => ({ ...prev, [raw]: { messages: loaded, fullContext: true, selectedIndices: loaded.map((_, i) => i) } }));
+        } catch (err) {
+          console.error(`[&ref] Failed to read "${sessionName}" from ${session.filePath}:`, err);
+        }
       }
       if (msgs && msgs.length > 0) {
         const ctx = msgs.map((m) => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`).join("\n");
-        resolved = resolved.replaceAll(raw, `<referenced_session name="${sessionName}">\n${ctx}\n</referenced_session>`);
+        const refBlock = `<referenced_session name="${sessionName}">\n${ctx}\n</referenced_session>`;
+        // 大小写不敏感替换：用正则匹配原始文本中的实际 chip 文本
+        resolved = resolved.replace(new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), refBlock);
       } else {
-        resolved = resolved.replaceAll(raw, "");
+        resolved = resolved.replace(new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "");
       }
     }
     return resolved;
