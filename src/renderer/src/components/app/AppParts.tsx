@@ -476,46 +476,31 @@ export function SessionStatus(props: {
 }) {
 	const state = props.state;
 	if (!state) return null;
-	const thinkingLevelLabel = THINKING_LEVELS.find(
-		(level) => level.value === state.thinkingLevel,
-	)?.labelKey;
 	return (
 		<div className="session-status">
-			<span className="model-chip">
-				{state.provider ? `${state.provider}/` : ""}{state.modelName ?? state.modelId ?? "model"}
-			</span>
-			<span className="think-chip">
-				{t("app.think")}: {thinkingLevelLabel ? t(thinkingLevelLabel) : state.thinkingLevel ?? "-"}
-			</span>
 			{state.contextPercent != null && (
 				<span className="ctx-chip">
 					{t("app.ctx")}:{" "}
 					{state.contextPercent?.toFixed?.(1) ??
 						state.contextPercent}
 					% / {formatCompact(state.contextWindow)}
+					{state.inputTokens != null && (
+						<>{" "}↑ {formatCompact(state.inputTokens)}</>
+					)}
+					{state.outputTokens != null && (
+						<>{" "}↓ {formatCompact(state.outputTokens)}</>
+					)}
 				</span>
 			)}
-			{state.inputTokens != null && (
-				<span className="token-chip token-input">
-					↑ {formatCompact(state.inputTokens)}
-				</span>
-			)}
-			{state.outputTokens != null && (
-				<span className="token-chip token-output">
-					↓ {formatCompact(state.outputTokens)}
-				</span>
-			)}
-			{state.cacheHitPercent != null && (
+			{(state.cacheHitPercent != null || state.cacheTotal != null) && (
 				<span className="cache-chip">
-					{t("app.cacheHit")}: {state.cacheHitPercent?.toFixed?.(0) ?? state.cacheHitPercent}%
-				</span>
-			)}
-			{state.cacheTotal != null && (
-				<span className="cache-chip cache-total">{t("app.cache")}: {formatCompact(state.cacheTotal)}</span>
-			)}
-			{state.cost != null && (
-				<span className="cost-chip" title={t("app.totalCost")}>
-					${state.cost.toFixed(3)}
+					{state.cacheHitPercent != null && (
+						<>{t("app.cacheHit")}: {state.cacheHitPercent?.toFixed?.(0) ?? state.cacheHitPercent}%</>
+					)}
+					{state.cacheHitPercent != null && state.cacheTotal != null && " "}
+					{state.cacheTotal != null && (
+						<>{t("app.cache")}: {formatCompact(state.cacheTotal)}</>
+					)}
 				</span>
 			)}
 		</div>
@@ -526,6 +511,21 @@ export function SessionStatus(props: {
 // widgetKey 由扩展定义且跨重启稳定,可按 widgetKey 持久化折叠状态。
 const EXTENSION_WIDGET_COLLAPSED_KEY_PREFIX =
 	"pid:extension-widget-collapsed:";
+
+/** 渲染 widget 单行内容，将 ✓ 标记高亮为绿色，让 todo 等扩展的完成态更醒目。 */
+function renderWidgetLine(line: string): ReactNode {
+	const parts = line.split(/(✓)/g);
+	if (parts.length <= 1) return line;
+	return parts.map((part, i) =>
+		part === "✓" ? (
+			<span key={i} className="widget-check-done">
+				✓
+			</span>
+		) : (
+			part
+		),
+	);
+}
 
 export function ExtensionWidgetCard(props: {
 	widgetKey: string;
@@ -590,7 +590,7 @@ export function ExtensionWidgetCard(props: {
 				<div className="extension-widget-card-content">
 					{props.lines.map((line, index) => (
 						<div key={index} className="extension-widget-card-line">
-							{line}
+							{renderWidgetLine(line)}
 						</div>
 					))}
 				</div>
@@ -1229,9 +1229,6 @@ export function BranchSelector(props: {
 	const current = props.gitInfo.current ?? "";
 	const branches = props.gitInfo.branches;
 
-	// 无分支信息时不渲染
-	if (!current && branches.length === 0) return null;
-
 	const handleCreateBranch = () => {
 		const trimmed = newBranchName.trim();
 		if (!trimmed) return;
@@ -1256,9 +1253,11 @@ export function BranchSelector(props: {
 					<GitBranch size={14} />
 				</span>
 				<span className="branch-label" title={current}>
-					{current || "detached"}
+					{current || t("app.branchNone")}
 				</span>
-				<span className="branch-badge">{branches.length}</span>
+				{branches.length > 0 && (
+					<span className="branch-badge">{branches.length}</span>
+				)}
 				<span className={`branch-chevron${open ? " open" : ""}`}>
 					<ChevronDown size={12} />
 				</span>
@@ -2094,6 +2093,7 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 							className="ask-question-card-submit"
 							onClick={handleInputSubmit}
 							disabled={!inputValue.trim() || cancelling}
+							title={t("ask.submit")}
 						>
 							<Check size={14} />
 						</button>
@@ -2101,8 +2101,10 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 							className="ask-question-card-cancel"
 							onClick={handleCancel}
 							disabled={cancelling}
+							title={t("common.cancel")}
+							aria-label={t("common.cancel")}
 						>
-							{cancelling ? cancellingLabel : t("common.cancel")}
+							<X size={14} />
 						</button>
 					</div>
 				)}
@@ -2128,8 +2130,10 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 								className="ask-question-card-cancel"
 								onClick={handleCancel}
 								disabled={cancelling}
+								title={t("common.cancel")}
+								aria-label={t("common.cancel")}
 							>
-								{cancelling ? cancellingLabel : t("common.cancel")}
+								<X size={14} />
 							</button>
 						</div>
 					</div>
@@ -2314,6 +2318,15 @@ function PetChooserPreview(props: {
 
 /** 助手正文：扁平 markdown 渲染，无气泡包裹，全宽排版，支持内嵌图片。
  *  路径链接化用 remark 插件在 mdast 层处理（见底部 remarkLinkifyPaths），不再前置改写原始字符串。 */
+/** 表格容器：与 code-block-wrap 保持相同的宽度与圆角，内部 <table> 仍负责横向滚动。 */
+function TableWrapper(props: React.ComponentProps<"table">) {
+	return (
+		<div className="table-wrap">
+			<table {...props} />
+		</div>
+	);
+}
+
 /** 流式输出期间的轻量代码块：不加载 mermaid、不跑数学/语法高亮，只展示原始文本，
  *  避免未闭合的 ```mermaid 围栏触发 mermaid.initialize/render 挤占主线程。 */
 function StreamingCodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
@@ -2372,6 +2385,7 @@ export const AssistantText = memo(
 					urlTransform={markdownUrlTransform}
 					components={{
 						pre: streaming ? StreamingCodeBlock : CodeBlock,
+						table: TableWrapper,
 						span: MathSpan,
 						a: (linkProps) => (
 							<MarkdownLink
@@ -2579,39 +2593,6 @@ export const TurnRow = memo(function TurnRow(props: {
 						<span className="turn-row-duration">{formatDuration(duration)}</span>
 					)}
 				</div>
-				{/* 执行过程概要（含工具/思考/中间回答），默认折叠 */}
-				{hasFoldableContent && summaryText && (
-					<div className="execution-summary">
-						<button
-							type="button"
-							className="execution-summary-toggle"
-							onClick={() => setExecutionExpanded((prev) => !prev)}
-							aria-expanded={executionExpanded}
-							title={executionExpanded ? t("common.collapse") : t("common.expand")}
-						>
-							{executionExpanded ? (
-								<ChevronDown size={14} aria-hidden="true" />
-							) : (
-								<ChevronRight size={14} aria-hidden="true" />
-							)}
-							<span>{summaryText}</span>
-						</button>
-						{executionExpanded && (
-							<div className="execution-summary-details">
-								{executionItems.map(renderExecutionItem)}
-								{/* 最终回答的思考也纳入折叠区 */}
-								{hasFinalThinking && (
-									<ThinkingBlock
-										text={finalThinking!}
-										startedAt={run.startedAt}
-										endedAt={finalMessageItem!.message.timestamp > run.startedAt ? finalMessageItem!.message.timestamp : run.endedAt}
-										showThinking={props.showThinking}
-									/>
-								)}
-							</div>
-						)}
-					</div>
-				)}
 				{/* 最终回答（始终可见）；其中的思考已归入执行过程折叠区 */}
 				{finalMessageItem && (
 					<Fragment key={finalMessageItem.message.id}>
@@ -2657,6 +2638,39 @@ export const TurnRow = memo(function TurnRow(props: {
 							/>
 						) : null}
 					</Fragment>
+				)}
+				{/* 执行过程概要（含工具/思考/中间回答），默认折叠，置于最终回答之后，避免抢占首屏 */}
+				{hasFoldableContent && summaryText && (
+					<div className="execution-summary">
+						<button
+							type="button"
+							className="execution-summary-toggle"
+							onClick={() => setExecutionExpanded((prev) => !prev)}
+							aria-expanded={executionExpanded}
+							title={executionExpanded ? t("common.collapse") : t("common.expand")}
+						>
+							{executionExpanded ? (
+								<ChevronDown size={14} aria-hidden="true" />
+							) : (
+								<ChevronRight size={14} aria-hidden="true" />
+							)}
+							<span>{summaryText}</span>
+						</button>
+						{executionExpanded && (
+							<div className="execution-summary-details">
+								{executionItems.map(renderExecutionItem)}
+								{/* 最终回答的思考也纳入折叠区 */}
+								{hasFinalThinking && (
+									<ThinkingBlock
+										text={finalThinking!}
+										startedAt={run.startedAt}
+										endedAt={finalMessageItem!.message.timestamp > run.startedAt ? finalMessageItem!.message.timestamp : run.endedAt}
+										showThinking={props.showThinking}
+									/>
+								)}
+							</div>
+						)}
+					</div>
 				)}
 				{/* 操作栏 */}
 				{mergedText && !editing && (

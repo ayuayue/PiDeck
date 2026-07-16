@@ -993,7 +993,7 @@ export function App() {
   /** 安装是否已成功完成 */
   const [installCompleted, setInstallCompleted] = useState(false);
   const [environmentDialog, setEnvironmentDialog] = useState(false);
-  const DEFAULT_LIST_WIDTH = 190;
+  const DEFAULT_LIST_WIDTH = 260;
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH);
   const [drawerWidth, setDrawerWidth] = useState(270);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
@@ -4591,12 +4591,13 @@ ${goalTextRef.current}
         </div>
       )}
       <aside
-        className="chat-list-pane"
+        className="chat-list-pane v3-braun"
         onPointerLeave={() => {
           if (listHoverRevealSuppressed) setListHoverRevealSuppressed(false);
         }}
       >
-        <div className="list-toolbar">
+        <div className="sidebar-body">
+          <div className="list-toolbar">
           <div className="app-badge">
             <LogoMark />
             <span className="brand-wordmark" aria-label="PiDeck">
@@ -4862,8 +4863,9 @@ ${goalTextRef.current}
                     </button>
                   </div>
                 )}
-                {!isCollapsed &&
-                  projectDisplay.visibleChildren.map((child) => {
+                {!isCollapsed && (
+                  <div className="session-card">
+                    {projectDisplay.visibleChildren.map((child) => {
                     const subagentGroupKey = `${project.id}:${child.key}`;
                     const subagentsExpanded = expandedCodexSubagentGroups.has(subagentGroupKey);
                     const renderCodexSubagents = (subagents: SessionSummary[]) => {
@@ -5038,6 +5040,8 @@ ${goalTextRef.current}
                       })}
                     </span>
                   </button>
+                )}
+                  </div>
                 )}
                 {!isCollapsed && project.worktreeEnabled && (
                   <div className="worktree-children worktree-sandbox-list">
@@ -5267,6 +5271,7 @@ ${goalTextRef.current}
             </button>
           </div>
         )}
+        </div>
       </aside>
 
       <div
@@ -5297,13 +5302,27 @@ ${goalTextRef.current}
                   "PiDeck"}
               </strong>
               {activeAgent && (
-                <span className="chat-path" title={`${activeProject?.path ?? activeAgent.cwd}  Agent ID: ${activeAgent.id}`}>
-                  {t("app.path")}: {displayPath(activeProject?.path ?? activeAgent.cwd)}
-                  <span className="chat-agent-id">AgentId: {activeAgent.id.slice(0, 8)}</span>
+                <span className={`agent-status-badge status-${activeAgent.status}`}>
+                  {activeAgent.status === "running"
+                    ? t("app.statusRunning")
+                    : activeAgent.status === "starting"
+                      ? t("app.statusStarting")
+                      : activeAgent.status === "error"
+                        ? t("app.statusError")
+                        : t("app.statusIdle")}
+                </span>
+              )}
+              {activeAgent && (
+                <span className="chat-agent-id" title={activeAgent.id}>
+                  AgentId: {activeAgent.id.slice(0, 8)}
                 </span>
               )}
             </div>
-            <div className="chat-subtitle-row">
+          </div>
+          <div
+            className={`chat-header-actions${activeAgent?.status === "starting" ? " loading" : ""}`}
+          >
+            <>
               <SessionStatus
                 state={activeRuntimeState}
                 duration={
@@ -5312,43 +5331,39 @@ ${goalTextRef.current}
                     : undefined
                 }
               />
-          </div>
-          </div>
-          <div
-            className={`chat-header-actions${activeAgent?.status === "starting" ? " loading" : ""}`}
-          >
-            <>
-              <div className="header-action-group branch-group">
-                {!isLanWeb && (
-                  <BranchSelector
-                    gitInfo={gitInfo}
-                    switchingBranch={switchingBranch}
-                    onSwitch={switchBranch}
-                    onCreateBranch={createBranch}
-                  />
-                )}
-              </div>
-              <div className="header-action-group session-group">
-                <div className="session-combo" ref={sessionComboRef}>
-                  <button
-                    className="session-combo-trigger"
-                    disabled={!activeProjectId || isAgentStarting}
-                    title={t("app.newSession")}
-                    onClick={() => {
-                      if (activeAgentId) {
-                        setSessionActionsOpen((open) => !open);
-                      } else {
-                        createAgent();
-                      }
-                    }}
-                  >
-                    <span className="session-combo-label">{t("app.new")}</span>
-                    {activeAgentId && (
-                      <span className={`session-combo-chevron${sessionActionsOpen ? " open" : ""}`}>
-                        <ChevronDown size={12} />
-                      </span>
-                    )}
-                  </button>
+              <div className="header-actions-right">
+                <div className="header-action-group branch-group">
+                  {!isLanWeb && (
+                    <BranchSelector
+                      gitInfo={gitInfo}
+                      switchingBranch={switchingBranch}
+                      onSwitch={switchBranch}
+                      onCreateBranch={createBranch}
+                    />
+                  )}
+                </div>
+                <div className="header-action-group session-group">
+                  <div className="session-combo" ref={sessionComboRef}>
+                    <button
+                      className="session-combo-trigger"
+                      disabled={!activeProjectId || isAgentStarting}
+                      title={t("app.newSession")}
+                      onClick={() => {
+                        if (activeAgentId) {
+                          setSessionActionsOpen((open) => !open);
+                        } else {
+                          createAgent();
+                        }
+                      }}
+                    >
+                      <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                      <span className="session-combo-label">{t("app.new")}</span>
+                      {activeAgentId && (
+                        <span className={`session-combo-chevron${sessionActionsOpen ? " open" : ""}`}>
+                          <ChevronDown size={12} />
+                        </span>
+                      )}
+                    </button>
                   {sessionActionsOpen && activeAgentId && (
                     <div className="session-combo-menu">
                       <button
@@ -5434,6 +5449,7 @@ ${goalTextRef.current}
                     </div>
                   )}
                 </div>
+              </div>
               </div>
             </>
           </div>
