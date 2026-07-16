@@ -5787,8 +5787,8 @@ ${goalTextRef.current}
               session={sessionRefPickerTarget}
               onClose={() => { setSessionRefPickerOpen(false); setSessionRefPickerTarget(null); }}
               onConfirm={(result: SessionReferenceResult) => {
-                const modeLabel = result.fullContext ? t("sessionRef.fullContext") : `${result.messages.length} ${t("sessionRef.selectMessages").toLowerCase()}`;
-                const header = `\n\n---\n> \u{1F4CE} ${t("sessionRef.title")}: **${result.sessionName}** (${modeLabel})\n`;
+                const countLabel = t("sessionRef.messageCount", { count: result.messages.length });
+                const header = `\n\n---\n> \u{1F4CE} ${t("sessionRef.title")}: **${result.sessionName}** (${countLabel})\n`;
                 const body = result.messages.map((m) => `> **${m.role === "user" ? "\u{1F9D1} User" : "\u{1F916} Assistant"}:** ${m.content.replace(/\n/g, "\n> ")}`).join("\n> \n");
                 const newText = `${prompt}${header}${body}\n---\n`;
                 setPrompt(newText); setComposerCursor(newText.length); pendingComposerCaretRef.current = newText.length;

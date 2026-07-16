@@ -6125,15 +6125,6 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .session-ref-modal { width: min(700px, calc(100vw - 48px)); max-height: min(650px, calc(100vh - 48px)); }
 .session-ref-name { color: var(--color-accent); font-weight: 600; }
-.session-ref-mode-tabs { display: flex; border-bottom: 1px solid var(--color-border-subtle); flex-shrink: 0; }
-.session-ref-mode-btn {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 10px 16px; border: none; background: transparent; color: var(--color-text-secondary);
-  font-size: var(--font-size-body); font-family: var(--font-family-base); cursor: pointer;
-  border-bottom: 2px solid transparent; transition: all 0.15s ease;
-}
-.session-ref-mode-btn:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.session-ref-mode-btn.active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
 .session-ref-message-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 .session-ref-message-list .multi-select-tree-node.disabled { opacity: 0.5; cursor: default; }
 .session-ref-loading, .session-ref-error { display: flex; align-items: center; justify-content: center; padding: 40px 16px; color: var(--color-text-tertiary); }
