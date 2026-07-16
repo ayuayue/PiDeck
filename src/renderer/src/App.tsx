@@ -645,6 +645,10 @@ export function App() {
   const [multiSelectOpen, setMultiSelectOpen] = useState(false);
   const [sessionRefPickerOpen, setSessionRefPickerOpen] = useState(false);
   const [sessionRefPickerTarget, setSessionRefPickerTarget] = useState<SessionSummary | null>(null);
+  /** & 会话引用选择缓存：key = chip raw（如 "&My Session"），value = 选中的消息列表 */
+  const [sessionRefSelections, setSessionRefSelections] = useState<
+    Record<string, { messages: Array<{ role: string; content: string }>; fullContext: boolean }>
+  >({});
 
   const [streamingThinking, setStreamingThinking] = useState<
     Record<string, string>
@@ -3948,10 +3952,30 @@ ${text}
     // 让输入框保持固定大小，超出部分滚动显示
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
 
-    // 在发送前本地展开 prompt template 命令（/name → 完整内容），
-    // 避免依赖 pi 的展开导致用户附加文本丢失以及特殊符号干扰
-    // 同时提取模板的 description 作为元数据发给 pi agent，让其了解本次 prompt 意图
-    const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(message, promptTemplateList);
+    // 解析 & 会话引用：遍历活跃项目会话，匹配 prompt 中的 &会话名，注入上下文
+    let resolvedMessage = message;
+    for (const session of activeProjectSessions) {
+      const sessionName = session.name ?? session.filePath;
+      const raw = `&${sessionName}`;
+      if (!resolvedMessage.includes(raw)) continue;
+      let messages: Array<{ role: string; content: string }> | undefined;
+      if (sessionRefSelections[raw]) {
+        messages = sessionRefSelections[raw].messages;
+      } else {
+        try {
+          const all = await api.sessions.readMessages(session.filePath);
+          const msgs = all.map((m) => ({ role: m.role, content: m.content }));
+          messages = msgs;
+          setSessionRefSelections((prev) => ({ ...prev, [raw]: { messages: msgs, fullContext: true } }));
+        } catch { /* skip */ }
+      }
+      if (messages && messages.length > 0) {
+        const context = messages.map((m) => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`).join("\n");
+        resolvedMessage = resolvedMessage.replace(raw, `<referenced_session name="${sessionName}">\n${context}\n</referenced_session>`);
+      }
+    }
+
+    const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(resolvedMessage, promptTemplateList);
     await submitPromptSnapshot(activeAgentId, expandedMessage, images, undefined, currentComposerAgentMode, templateDescription);
     // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
     const scrollOnNewMessage = () => {
@@ -5787,13 +5811,13 @@ ${goalTextRef.current}
               session={sessionRefPickerTarget}
               onClose={() => { setSessionRefPickerOpen(false); setSessionRefPickerTarget(null); }}
               onConfirm={(result: SessionReferenceResult) => {
-                const countLabel = t("sessionRef.messageCount", { count: result.messages.length });
-                const header = `\n\n---\n> \u{1F4CE} ${t("sessionRef.title")}: **${result.sessionName}** (${countLabel})\n`;
-                const body = result.messages.map((m) => `> **${m.role === "user" ? "\u{1F9D1} User" : "\u{1F916} Assistant"}:** ${m.content.replace(/\n/g, "\n> ")}`).join("\n> \n");
-                const newText = `${prompt}${header}${body}\n---\n`;
-                setPrompt(newText); setComposerCursor(newText.length); pendingComposerCaretRef.current = newText.length;
-                setSessionRefPickerOpen(false); setSessionRefPickerTarget(null);
-                requestAnimationFrame(() => { composerTextareaRef.current?.focus(); });
+                const chipRaw = `&${result.sessionName}`;
+                setSessionRefSelections((prev) => ({
+                  ...prev,
+                  [chipRaw]: { messages: result.messages, fullContext: result.fullContext },
+                }));
+                setSessionRefPickerOpen(false);
+                setSessionRefPickerTarget(null);
               }}
               loadMessages={async (fp: string) => api.sessions.readMessages(fp)}
             />
