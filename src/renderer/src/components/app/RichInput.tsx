@@ -149,7 +149,7 @@ export function parseRichInputChips(
 	const ampRe = /(?<![:/.\w#!~?=&])(&[^&\n]+)/gu;
 	while ((m = ampRe.exec(text)) !== null) {
 		const start = m.index;
-		const captured = m[1];
+		const captured = m[1].slice(1); // 去掉 & 前缀
 		let name = "";
 		if (validSessionRefs && validSessionRefs.size > 0) {
 			for (const ref of validSessionRefs) {
