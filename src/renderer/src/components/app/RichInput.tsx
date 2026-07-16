@@ -143,17 +143,29 @@ export function parseRichInputChips(
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
 	}
 
-	// &session：前置排除 \w、?、=、&，避免 URL 查询参数和变量名误触发
-	const ampRe = /(?<![:/.\w#!~?=&])(&[\p{L}\p{N}_\- ]+)/gu;
+	// &session：会话名可能含空格，不能直接用贪婪词匹配（会吞掉后续文字）。
+	// 策略：先贪婪捕获 & 后的非换行非 & 段，再从白名单前缀匹配出精确会话名区间；
+	// 仅该会话名区间渲染为 chip，其余文字保持可编辑。无白名单时回退为无空格单词。
+	const ampRe = /(?<![:/.\w#!~?=&])(&[^&\n]+)/gu;
 	while ((m = ampRe.exec(text)) !== null) {
 		const start = m.index;
-		const end = start + m[1].length;
-		if (!overlapsUrl(start, end, urlSpans)) {
-			const label = m[1].slice(1).trim();
-			if (!label) continue;
-			if (!validSessionRefs || validSessionRefs.has(label)) {
-				chips.push({ start, end, raw: m[1], kind: "session", label });
+		const captured = m[1];
+		let name = "";
+		if (validSessionRefs && validSessionRefs.size > 0) {
+			for (const ref of validSessionRefs) {
+				if (captured === ref || captured.startsWith(ref + " ")) {
+					if (ref.length > name.length) name = ref;
+				}
 			}
+			if (!name) { if (m.index === ampRe.lastIndex) ampRe.lastIndex++; continue; }
+		} else {
+			name = captured.split(/\s/)[0] ?? "";
+			if (!name) { if (m.index === ampRe.lastIndex) ampRe.lastIndex++; continue; }
+		}
+		const raw = `&${name}`;
+		const end = start + raw.length;
+		if (!overlapsUrl(start, end, urlSpans)) {
+			chips.push({ start, end, raw, kind: "session", label: name });
 		}
 		if (m.index === ampRe.lastIndex) ampRe.lastIndex++;
 	}
@@ -523,7 +535,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				const chip = target.closest?.(".input-chip") as HTMLElement | null;
 				if (!chip) return;
 				const raw = chip.getAttribute("data-raw");
-				const kind = chip.getAttribute("data-type") as "file" | "skill" | null;
+				const kind = chip.getAttribute("data-type") as RichInputChip["kind"] | null;
 				const label =
 					chip.querySelector(".input-chip__label")?.textContent ??
 					raw?.slice(1) ??
