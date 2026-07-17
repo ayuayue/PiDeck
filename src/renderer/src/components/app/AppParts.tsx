@@ -2072,7 +2072,8 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 			<div className="ask-question-card-body">
 				{method === "select" && options && options.length > 0 && (
 					<div className="ask-question-card-options">
-						{options.map((opt, i) => (
+						{/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
+						{options.filter((opt) => !opt.startsWith("✎")).map((opt, i) => (
 							<button
 								key={i}
 								className="ask-question-card-option"

@@ -7249,7 +7249,11 @@ ${goalTextRef.current}
             </div>
           ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
             <div className="ask-dialog-options">
-              {activeUiAsk.options.map((opt, i) => {
+              {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
+              {activeUiAsk.options.filter((opt) => {
+                const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                return !label.startsWith("✎");
+              }).map((opt, i) => {
                 const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
                 const label = typeof opt === "string" ? opt : (opt as any).label ?? val;
                 return (
