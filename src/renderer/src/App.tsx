@@ -900,6 +900,47 @@ export function App() {
   const [savedPrompt, setSavedPrompt] = useState("");
   const [compacting, setCompacting] = useState(false);
   const [drawer, setDrawer] = useState<DrawerPanel | null>(null);
+
+  // ── 每个 Agent 的抽屉面板状态持久化（localStorage） ──
+  // 用户切换会话时自动恢复上次的文件面板状态和展开目录，避免每次进来都要重新点开。
+  const AGENT_DRAWER_KEY_PREFIX = "pid:agent-drawer:";
+  const AGENT_EXPANDED_DIRS_KEY_PREFIX = "pid:agent-expanded-dirs:";
+
+  const saveDrawerState = useCallback((agentId: string, panel: DrawerPanel | null, pinned: boolean) => {
+    try {
+      localStorage.setItem(AGENT_DRAWER_KEY_PREFIX + agentId, JSON.stringify({ panel, pinned }));
+    } catch { /* localStorage 不可用时静默忽略 */ }
+  }, []);
+
+  const loadDrawerState = useCallback((agentId: string): { panel: DrawerPanel | null; pinned: boolean } | null => {
+    try {
+      const raw = localStorage.getItem(AGENT_DRAWER_KEY_PREFIX + agentId);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && (parsed.panel === null || ["files", "sessions", "browser", "editor"].includes(parsed.panel))) {
+          return parsed;
+        }
+      }
+    } catch { /* ignore */ }
+    return null;
+  }, []);
+
+  const saveExpandedDirs = useCallback((agentId: string, dirs: Set<string>) => {
+    try {
+      localStorage.setItem(AGENT_EXPANDED_DIRS_KEY_PREFIX + agentId, JSON.stringify([...dirs]));
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadExpandedDirs = useCallback((agentId: string): Set<string> => {
+    try {
+      const raw = localStorage.getItem(AGENT_EXPANDED_DIRS_KEY_PREFIX + agentId);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr);
+      }
+    } catch { /* ignore */ }
+    return new Set();
+  }, []);
   const [renderedDrawer, setRenderedDrawer] = useState<DrawerPanel | null>(null);
   const drawerUnmountTimerRef = useRef<number | null>(null);
   // 最后一个 editor tab 被关闭时自动收起 drawer
@@ -1070,6 +1111,28 @@ export function App() {
 
   const feishu = useFeishuBridge();
   const scratchPad = useScratchPad();
+
+  // 当活跃 Agent 切换时，从 localStorage 恢复该 Agent 的抽屉面板状态和展开目录
+  // 使得用户切换会话后文件面板和展开目录保持之前的状态。
+  useEffect(() => {
+    if (!activeAgentId) return;
+    const savedState = loadDrawerState(activeAgentId);
+    if (savedState) {
+      const panel: DrawerPanel | null = savedState.panel;
+      if (savedState.pinned && panel) {
+        setDrawerPinnedByAgent((current) => {
+          if (current[activeAgentId] === panel) return current;
+          return { ...current, [activeAgentId]: panel };
+        });
+      }
+      if (panel) {
+        setDrawer(panel);
+        setDrawerCollapsed(false);
+      }
+    }
+    const dirs = loadExpandedDirs(activeAgentId);
+    setExpandedDirs(dirs);
+  }, [activeAgentId, loadDrawerState, loadExpandedDirs]);
 
   // 当活跃 Agent 切换或绑定列表变更时，加载该 Agent 指定的飞书 Bot
   // 绑定变更后同步刷新，确保配置页断开关联后已连接状态正确反映。
@@ -2704,11 +2767,11 @@ export function App() {
     showToast(t("app.projectRefreshed"), 1800);
   }
 
-  async function refreshFiles(projectId = activeProjectId) {
+  async function refreshFiles(projectId = activeProjectId, silent = false) {
     if (!projectId) return;
     const next = await api.files.list(projectId);
     setFiles(next);
-    showToast(t("app.filesRefreshed"), 1800);
+    if (!silent) showToast(t("app.filesRefreshed"), 1800);
   }
 
   async function refreshGitChangedFiles(projectId = activeProjectId) {
@@ -4537,8 +4600,15 @@ ${goalTextRef.current}
       setSessionsProjectId(activeProjectId);
       void refreshSessions(activeProjectId);
     }
+    // 打开文件面板时触发一次静默刷新，确保目录结构是最新的，避免上次打开时文件已有变更但未刷新。
+    if (panel === "files" && activeProjectId) {
+      void refreshFiles(activeProjectId, true);
+      void refreshGitChangedFiles(activeProjectId);
+    }
     setDrawer((current) => {
       if (current === panel) return drawerPinned ? current : null;
+      // 持久化当前 Agent 的抽屉面板状态
+      if (activeAgentId) saveDrawerState(activeAgentId, panel, drawerPinned);
       return panel;
     });
   }
@@ -4555,12 +4625,15 @@ ${goalTextRef.current}
 
   function toggleDrawerPinned() {
     if (!activeAgentId || !drawer) return;
+    const willPin = !drawerPinned;
     setDrawerPinnedByAgent((current) => {
       const next = { ...current };
       if (next[activeAgentId]) delete next[activeAgentId];
       else next[activeAgentId] = drawer;
       return next;
     });
+    // 持久化钉选状态
+    saveDrawerState(activeAgentId, drawer, willPin);
   }
 
   function toggleDirectory(path: string) {
@@ -4569,6 +4642,8 @@ ${goalTextRef.current}
       const next = new Set(current);
       if (next.has(path)) next.delete(path);
       else next.add(path);
+      // 持久化展开状态到 localStorage，切换回此会话时恢复
+      if (activeAgentId) saveExpandedDirs(activeAgentId, next);
       return next;
     });
   }
