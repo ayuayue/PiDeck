@@ -5972,6 +5972,121 @@ body.ask-dialog-open .ask-card-preview {
   font-family: var(--font-family-mono);
   font-size: 0.92em;
 }
+/* 行内代码 chip：:not(pre) > code 只命中行内 code，代码块（pre > code）天然隔离，无需额外 reset */
+.markdown-body :not(pre) > code {
+  padding: 0.15em 0.35em;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+}
+
+/* ===== Markdown 普通元素排版（heading/链接/引用/hr/图片/文字格式） ===== */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+.markdown-body h1 {
+  font-size: 1.65em;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: 0.2em;
+}
+.markdown-body h2 {
+  font-size: 1.4em;
+}
+.markdown-body h3 {
+  font-size: 1.2em;
+}
+.markdown-body h4 {
+  font-size: 1.08em;
+}
+.markdown-body h5 {
+  font-size: 1em;
+}
+.markdown-body h6 {
+  font-size: 0.95em;
+  color: var(--color-text-secondary);
+}
+/* 消息以标题开头时去掉顶部留白，避免气泡顶部出现多余空隙 */
+.markdown-body > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+
+.markdown-body a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+/* 链接焦点环走全局 a:focus-visible 统一样式，不在此处覆盖 */
+
+.markdown-body blockquote {
+  margin: 0.8em 0;
+  padding: 0.6em 1em;
+  border-left: 3px solid var(--color-border-strong);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.markdown-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+.markdown-body em {
+  font-style: italic;
+}
+/* remarkGfm 的 ~~删除线~~ 渲染为 <del>（不是 <s>），选择器必须匹配 del 才生效 */
+.markdown-body del {
+  text-decoration: line-through;
+  color: var(--color-text-secondary);
+}
+
+/* 文件路径链接（remarkLinkifyPaths 生成的 file:// 链接）：等宽字体 + 图标 chip，与普通外链区分 */
+.markdown-link-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-family-mono);
+  font-size: 0.92em;
+  color: var(--color-accent);
+  background: var(--color-bg-muted);
+  padding: 0.1em 0.4em;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.markdown-link-file:hover {
+  background: var(--color-bg-hover);
+  text-decoration: underline;
+}
+.markdown-link-file-icon {
+  flex-shrink: 0;
+}
 
 .empty-state {
   height: 100%;

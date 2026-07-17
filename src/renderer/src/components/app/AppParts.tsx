@@ -3273,7 +3273,9 @@ function MarkdownLink(
 		onOpenFile?: (path: string) => void;
 	},
 ) {
-	const { onOpenExternal, onOpenFile, ...anchorProps } = props;
+	const { onOpenExternal, onOpenFile, children, className, title, ...anchorProps } = props;
+	// remarkLinkifyPaths 生成的文件路径链接走 file:// 协议，与普通外链区分展示
+	const isFileLink = props.href?.startsWith("file://") ?? false;
 	const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		e.preventDefault();
 		if (!props.href) return;
@@ -3289,7 +3291,29 @@ function MarkdownLink(
 			void onOpenExternal(props.href);
 		}
 	};
-	return <a {...anchorProps} onClick={handleClick} />;
+	const linkClass =
+		[className, isFileLink ? "markdown-link-file" : undefined]
+			.filter(Boolean)
+			.join(" ") || undefined;
+	return (
+		<a
+			{...anchorProps}
+			className={linkClass}
+			onClick={handleClick}
+			// 文件链接 hover 展示解码后的完整路径，便于确认目标文件；
+			// 普通链接不传 title，保留 markdown 自带 title 语法的原行为
+			title={isFileLink ? decodeURIComponent(props.href!.slice(7)) : title}
+		>
+			{isFileLink ? (
+				<>
+					<FileText size={12} className="markdown-link-file-icon" />
+					<span>{children}</span>
+				</>
+			) : (
+				children
+			)}
+		</a>
+	);
 }
 
 function extractText(node: ReactNode): string {
