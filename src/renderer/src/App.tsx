@@ -3903,6 +3903,8 @@ ${text}
       const lowerResolved = resolved.toLowerCase();
       const lowerRaw = raw.toLowerCase();
       if (!lowerResolved.includes(lowerRaw)) continue;
+      // 预编译正则 pattern，避免在 if/else 分支中重复创建
+      const pattern = new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
       let msgs: Array<{ role: string; content: string }> | undefined;
       if (sessionRefSelections[raw]) {
         msgs = sessionRefSelections[raw].messages;
@@ -3919,10 +3921,9 @@ ${text}
       if (msgs && msgs.length > 0) {
         const ctx = msgs.map((m) => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`).join("\n");
         const refBlock = `<referenced_session name="${sessionName}">\n${ctx}\n</referenced_session>`;
-        // 大小写不敏感替换：用正则匹配原始文本中的实际 chip 文本
-        resolved = resolved.replace(new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), refBlock);
+        resolved = resolved.replace(pattern, refBlock);
       } else {
-        resolved = resolved.replace(new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "");
+        resolved = resolved.replace(pattern, "");
       }
     }
     return resolved;
@@ -4030,6 +4031,7 @@ ${text}
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
     const resolvedMessage = await resolveSessionRefs(message);
     await submitPromptSnapshot(activeAgentId, resolvedMessage, images, "followUp", currentComposerAgentMode);
+    // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
     const scrollOnNewMessage = () => {
       const timeline = timelineRef.current;
       if (!timeline) return;

@@ -45,6 +45,7 @@ downloads/
 
 .pi-lens
 .pi/
+.pi-subagents/
 
 # Cloned source for reference
 opencode-source/

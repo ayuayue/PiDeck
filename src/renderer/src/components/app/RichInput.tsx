@@ -426,7 +426,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				const icon = document.createElement("span");
 				icon.className = "input-chip__icon";
-				icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "" : "/";
+				icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "&" : "/";
 				const label = document.createElement("span");
 				label.className = "input-chip__label";
 				label.textContent = chip.label;

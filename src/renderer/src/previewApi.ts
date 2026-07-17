@@ -290,6 +290,7 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			exportHtml: async () => ({ path: "preview-session.html" }),
 			delete: async () => undefined,
+			// 预览模式下返回固定 mock 数据，真实环境由主进程从 JSONL 文件读取
 			readMessages: async () => [
 				{ role: "user", content: "Preview user message", timestamp: Date.now() - 60000 },
 				{ role: "assistant", content: "Preview assistant response", timestamp: Date.now() - 30000 },

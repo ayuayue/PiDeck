@@ -326,9 +326,9 @@ export function detectTrigger(
 	const char = before[start];
 	const segment = before.slice(start + 1);
 	if (char === "&") {
-		if (/[\n&]/.test(segment)) return null;
+		if (/[\n]/.test(segment)) return null;
 		const prev = start > 0 ? before[start - 1] : "";
-		// 只阻止 URL 查询参数场景（?foo=bar&），不拦 &&、&chip& 等正常连续引用
+		// 只阻止 URL 查询参数场景（?foo=bar&），不拦 &&、&chip& 等正常场景
 		if (prev === "=" || prev === "?") return null;
 		return { start, char, query: segment };
 	}

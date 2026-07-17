@@ -401,16 +401,16 @@ export class SessionScanner {
     const messages: Array<{ role: string; content: string; timestamp: number }> = [];
     for (const line of lines) {
       try {
-        const entry = JSON.parse(line) as any;
+        const entry = JSON.parse(line) as Record<string, unknown>;
         if (entry.type && entry.type !== "message") continue;
         if (entry.sessionName && !entry.message) continue;
-        const message = entry.message ?? entry.data?.message ?? entry;
+        const message = (entry.message ?? (entry.data as Record<string, unknown> | undefined)?.message ?? entry) as Record<string, unknown> | undefined;
         if (!message?.role) continue;
         const content = this.extractText(message.content).trim();
         if (!content) continue;
         if (message.role !== "user" && message.role !== "assistant") continue;
-        messages.push({ role: message.role, content, timestamp: entry.ts ?? entry.timestamp ?? Date.now() });
-      } catch { /* skip */ }
+        messages.push({ role: String(message.role), content, timestamp: Number(entry.ts ?? entry.timestamp ?? Date.now()) });
+      } catch { console.warn(`[SessionScanner] 跳过无法解析的 JSONL 行: ${filePath}`); }
     }
     return messages;
   }
