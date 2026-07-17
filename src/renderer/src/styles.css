@@ -2691,6 +2691,24 @@ body.is-terminal-resizing {
     transform: translateX(-50%) translateY(0);
   }
 }
+.ponytail-notice {
+  position: absolute;
+  top: calc(100% + 20px);
+  right: 0;
+  z-index: 101;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-control);
+  white-space: pre-wrap;
+  pointer-events: none;
+}
 .file-action-menu button,
 .session-combo-menu button {
   width: 100%;

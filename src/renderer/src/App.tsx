@@ -558,6 +558,8 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const [ponytailNotice, setPonytailNotice] = useState<string | null>(null);
+  const ponytailNoticeTimeoutRef = useRef<number | null>(null);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
@@ -1782,7 +1784,20 @@ export function App() {
     const offUiRequest = api.agents.onUiRequest((request) => {
       if (request.method === "notify") {
         const notifyRequest = request as UiRequest;
-        if (notifyRequest.message) showToast(notifyRequest.message, notifyRequest.notifyType === "error" ? 5000 : 3500);
+        if (notifyRequest.message) {
+          if (/ponytail/i.test(notifyRequest.message)) {
+            setPonytailNotice(notifyRequest.message);
+            if (ponytailNoticeTimeoutRef.current) {
+              window.clearTimeout(ponytailNoticeTimeoutRef.current);
+            }
+            ponytailNoticeTimeoutRef.current = window.setTimeout(() => {
+              setPonytailNotice(null);
+              ponytailNoticeTimeoutRef.current = null;
+            }, 3500);
+          } else {
+            showToast(notifyRequest.message, notifyRequest.notifyType === "error" ? 5000 : 3500);
+          }
+        }
         return;
       }
 
@@ -5483,6 +5498,11 @@ ${goalTextRef.current}
                         </span>
                       )}
                     </button>
+                    {ponytailNotice && (
+                      <div className="ponytail-notice" role="status">
+                        {ponytailNotice}
+                      </div>
+                    )}
                   {sessionActionsOpen && activeAgentId && (
                     <div className="session-combo-menu">
                       <button
