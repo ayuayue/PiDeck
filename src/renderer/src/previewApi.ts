@@ -632,7 +632,7 @@ export function createPreviewApi(): PiDesktopApi {
 				return agent;
 			},
 			stop: async () => undefined,
-			prompt: async () => undefined,
+			prompt: async () => ({ accepted: true }),
 			abort: async () => undefined,
 			exportHtml: async () => ({ path: "preview.html" }),
 			getForkMessages: async () => [

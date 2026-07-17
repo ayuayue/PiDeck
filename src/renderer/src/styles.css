@@ -2328,6 +2328,7 @@ body.is-terminal-resizing {
 .chat-pane[style*="--content-max-width"] .composer-box,
 .chat-pane[style*="--content-max-width"] .image-preview-area,
 .chat-pane[style*="--content-max-width"] .extension-widgets-container,
+.chat-pane[style*="--content-max-width"] .queued-track,
 .chat-pane[style*="--content-max-width"] .composer-footer {
   width: min(100%, var(--content-max-width));
   max-width: var(--content-max-width);
@@ -4577,6 +4578,183 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   background: color-mix(in srgb, var(--color-info) 10%, var(--color-bg-panel));
   color: var(--color-info);
 }
+
+/* ── 待发送消息：和 composer-box 共用 contentMaxWidth，自然保持右侧对齐 ── */
+.queued-track {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  max-height: var(--queued-track-max-height, min(32vh, 240px));
+  padding-bottom: var(--space-1);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.queued-card {
+  position: relative;
+  width: fit-content;
+  max-width: min(82%, 64ch);
+  min-width: 0;
+  padding: 7px 10px;
+  background: var(--color-chat-card-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.queued-card:hover,
+.queued-card:focus-within {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-border);
+}
+.queued-card-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.queued-tag {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  font-weight: 600;
+  line-height: var(--line-height-micro);
+}
+.queued-tag.follow-up {
+  border-color: color-mix(
+    in srgb,
+    var(--color-info) 20%,
+    var(--color-border-subtle)
+  );
+  background: color-mix(in srgb, var(--color-info) 10%, var(--color-bg-panel));
+  color: var(--color-info);
+}
+.queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queued-attachment-count,
+.queued-status {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+}
+.queued-status.failed {
+  color: var(--color-danger);
+}
+.queued-status.unknown {
+  color: var(--color-warning);
+}
+.queued-card.sending {
+  opacity: 0.72;
+}
+.queued-card.failed {
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 32%,
+    var(--color-border-subtle)
+  );
+}
+.queued-card.unknown {
+  border-color: color-mix(
+    in srgb,
+    var(--color-warning) 32%,
+    var(--color-border-subtle)
+  );
+}
+.queued-actions {
+  position: absolute;
+  right: var(--space-1);
+  top: 50%;
+  bottom: auto;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-popover);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(2px, -50%);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.queued-card:hover .queued-actions,
+.queued-card:focus-within .queued-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
+}
+.queued-btn {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.queued-btn:hover:not(:disabled) {
+  color: var(--color-accent);
+  background: var(--color-bg-hover);
+}
+.queued-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.queued-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.queued-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.queued-btn-cancel:hover:not(:disabled) {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+@media (hover: none), (pointer: coarse) {
+  .queued-actions {
+    position: static;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-top: var(--space-1);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+  .queued-btn {
+    min-height: 32px;
+    padding-inline: 10px;
+  }
+}
+
 /* 用户操作栏：hover 显隐，保留 24px 占位 */
 .user-turn-actions {
   min-height: 24px;
@@ -6108,7 +6286,6 @@ body.ask-dialog-open .ask-question-card.pending {
 .composer-box {
   position: relative;
   min-height: 112px;
-  max-height: 50vh;
   min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(48px, 1fr) auto;

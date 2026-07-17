@@ -253,6 +253,8 @@ export type AgentRuntimeState = {
 	isExecutingTool?: boolean;
 	/** 当前正在执行的工具名称，如 read、write、bash */
 	executingToolName?: string;
+	/** 工具状态事件的单调序号，用于忽略晚到的异步完整状态。 */
+	toolStateSequence?: number;
 	contextTokens?: number | null;
 	contextWindow?: number | null;
 	contextPercent?: number | null;
@@ -831,6 +833,12 @@ export type SendPromptInput = {
 	 *  从模板 description、用户输入首行自动提取；飞书/WebService 等外部来源可不传。 */
 	description?: string;
 };
+
+/** 主进程完成 pi prompt 预检后的明确接收结果。 */
+export type SendPromptResult =
+	| { accepted: true }
+	| { accepted: false; error: string; delivery?: "rejected" }
+	| { accepted: false; error: string; delivery: "unknown" };
 
 /** 实时思考内容更新，用于流式展示模型推理过程 */
 export type ThinkingUpdate = {

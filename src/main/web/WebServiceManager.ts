@@ -12,6 +12,7 @@ import type {
 	CreateAgentInput,
 	Project,
 	SendPromptInput,
+	SendPromptResult,
 	SessionSummary,
 } from "../../shared/types";
 
@@ -26,7 +27,7 @@ type WebServiceDependencies = {
 	listSessions: (projectId: string) => Promise<SessionSummary[]>;
 	getMessages: (agentId: string) => ChatMessage[];
 	createAgent: (input: CreateAgentInput) => Promise<AgentTab>;
-	sendPrompt: (input: SendPromptInput) => Promise<void>;
+	sendPrompt: (input: SendPromptInput) => Promise<SendPromptResult>;
 	stopAgent: (agentId: string) => Promise<void>;
 	runtimeState: (agentId: string) => Promise<AgentRuntimeState>;
 	cycleModel: (agentId: string) => Promise<AgentRuntimeState>;
@@ -134,14 +135,21 @@ export class WebServiceManager {
 			}
 			const promptMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/prompt$/);
 			if (promptMatch && request.method === "POST") {
-				const body = await this.readJson<{ message?: string }>(request);
+				const body = await this.readJson<Omit<SendPromptInput, "agentId">>(request);
 				const message = body.message?.trim() ?? "";
-				if (!message) {
-					this.sendError(response, 400, "message 不能为空");
+				if (!message && !body.images?.length) {
+					this.sendError(response, 400, "message 或 images 不能为空");
 					return;
 				}
-				await this.deps.sendPrompt({ agentId: decodeURIComponent(promptMatch[1]), message });
-				this.sendJson(response, { ok: true });
+				const result = await this.deps.sendPrompt({
+					...body,
+					agentId: decodeURIComponent(promptMatch[1]),
+					message,
+				});
+				// prompt endpoint is a transport for SendPromptResult. Semantic rejection is still
+				// a successful HTTP exchange so browser clients can distinguish rejected from
+				// post-write unknown instead of collapsing both into a thrown fetch error.
+				this.sendJson(response, { result });
 				return;
 			}
 			const stopMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/stop$/);
@@ -380,11 +388,25 @@ export class WebServiceManager {
 		});
 		el("composer").addEventListener("submit", async (event) => {
 			event.preventDefault();
-			const message = el("prompt").value.trim();
+			const prompt = el("prompt");
+			const message = prompt.value.trim();
 			if (!message || !activeAgentId) return;
-			el("prompt").value = "";
-			await api(\`/api/agents/\${encodeURIComponent(activeAgentId)}/prompt\`, { method: "POST", body: JSON.stringify({ message }) });
-			await refresh();
+			const targetAgentId = activeAgentId;
+			prompt.value = "";
+			try {
+				const response = await api(\`/api/agents/\${encodeURIComponent(targetAgentId)}/prompt\`, { method: "POST", body: JSON.stringify({ message }) });
+				if (!response.result.accepted) {
+					if (response.result.delivery !== "unknown" && activeAgentId === targetAgentId) {
+						prompt.value = message;
+					}
+					throw new Error(response.result.error);
+				}
+				await refresh();
+			} catch (error) {
+				// Only transport errors reach this branch. The request may already have been
+				// accepted, so restoring an apparently retryable draft could duplicate it.
+				throw error;
+			}
 		});
 		el("prompt").addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey) return;

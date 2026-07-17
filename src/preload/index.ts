@@ -63,6 +63,7 @@ import type {
 	PromptStoreItem,
 	ScratchPadData,
 	SendPromptInput,
+	SendPromptResult,
 	SessionSummary,
 	TerminalDataEvent,
 	TerminalExitEvent,
@@ -544,7 +545,7 @@ const api = {
 		stop: (agentId: string) =>
 			ipcRenderer.invoke(ipcChannels.agentsStop, agentId) as Promise<void>,
 		prompt: (input: SendPromptInput) =>
-			ipcRenderer.invoke(ipcChannels.agentsPrompt, input) as Promise<void>,
+			ipcRenderer.invoke(ipcChannels.agentsPrompt, input) as Promise<SendPromptResult>,
 		abort: (agentId: string) =>
 			ipcRenderer.invoke(ipcChannels.agentsAbort, agentId) as Promise<void>,
 		exportHtml: (agentId: string) =>

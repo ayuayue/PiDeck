@@ -14,6 +14,7 @@ import type {
 	ImageContent,
 	Project,
 	SendPromptInput,
+	SendPromptResult,
 	ThinkingUpdate,
 } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
@@ -22,6 +23,10 @@ import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
+import {
+  updateActiveToolCalls,
+  type ActiveToolCallState,
+} from "../../shared/toolRuntimeState";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RpcLogger } from "../logging/RpcLogger";
@@ -44,6 +49,10 @@ export class AgentManager {
 	private readonly retryStatusMessageIds = new Map<string, string>();
 	/** 同一历史会话正在创建 Agent 时共享同一个 Promise，避免快速重复点击/IPC 竞态创建多个进程。 */
 	private readonly creatingSessionAgents = new Map<string, Promise<AgentTab>>();
+	/** 工具 start/end 事件的单调序号，renderer 用它忽略迟到的异步完整状态。 */
+	private readonly toolStateSequenceByAgent = new Map<string, number>();
+	/** 每个 agent 当前仍在执行的 toolCall；并行工具必须等最后一个结束才发 false 边沿。 */
+	private readonly activeToolCallsByAgent = new Map<string, Map<string, string>>();
 	/** 记录每个 agent 当前执行的工具名称，无工具时为 null */
 	private readonly toolExecutingByAgent = new Map<string, string | null>();
 	/** 缓存每个 agent 的 entryId → JSONL 行号映射，用于编辑/删除定位。每次 loadMessages 后刷新。 */
@@ -683,13 +692,15 @@ export class AgentManager {
 		return runtime.tab;
 	}
 
-	async sendPrompt(input: SendPromptInput) {
+	async sendPrompt(input: SendPromptInput): Promise<SendPromptResult> {
 		const runtime = this.requireRuntime(input.agentId);
 		const trimmed = input.message.trim();
 		const hasImages = input.images && input.images.length > 0;
 		const agentMessage = input.agentMessage?.trim() || trimmed || "Describe this image.";
 		// 允许只有图片没有文字的情况发送
-		if (!trimmed && !hasImages) return;
+		if (!trimmed && !hasImages) {
+			return { accepted: false, error: "消息不能为空" };
+		}
 
 		// 解析 !/!! 前缀：与 pi 终端行为一致
 		// !command  → 执行命令并将输出发送给 LLM（excludeFromContext: false）
@@ -702,36 +713,23 @@ export class AgentManager {
 				? trimmed.slice(2).trim()
 				: trimmed.slice(1).trim();
 			if (command) {
-				await this.executeBashCommand(input.agentId, command, isBashExcluded);
-				return;
+				return this.executeBashCommand(input.agentId, command, isBashExcluded);
 			}
 		}
 
 		// 判断 agent 是否已在忙碌中；运行中继续发送时必须带 streamingBehavior，
 		// 否则 pi RPC 会拒绝请求。该值也用于给用户消息打上投递语义标记。
 		const alreadyBusy = runtime.tab.status === "running";
+		const statusBeforePrompt = runtime.tab.status;
 		const promptDeliveryBehavior = input.streamingBehavior ?? (alreadyBusy ? "steer" : undefined);
-
-		// 保存用户消息（包含图片）。运行中消息先显示在对话里，并标记它会在何时被 pi 消费：
-		// steer=下一次 LLM 调用前，followUp=当前 agent 完全停止后。
-		this.addMessage(
-			input.agentId,
-			"user",
-			trimmed || "[图片]",
-			promptDeliveryBehavior ? { streamingBehavior: promptDeliveryBehavior } : undefined,
-			input.images,
-		);
 
 		// 在设置状态为 running 之前检查进程是否还活着，避免进程崩溃后状态不一致
 		if (!runtime.process.isRunning()) {
+			const errorMessage = "Agent 进程已停止，请重启 Agent 后重试";
 			runtime.tab.status = "error";
-			this.addMessage(
-				input.agentId,
-				"error",
-				"Agent 进程已停止，请重启 Agent 后重试",
-			);
+			this.addMessage(input.agentId, "error", errorMessage);
 			this.emitState();
-			return;
+			return { accepted: false, error: errorMessage };
 		}
 
 		runtime.tab.status = "running";
@@ -762,44 +760,44 @@ export class AgentManager {
 			if (!response.success) {
 				// pi RPC 会把不支持图片、忙碌队列参数缺失等前置错误作为 success:false 返回；
 				// 必须显式显示出来，否则 UI 会停在“已发送但无响应”的状态。
-				runtime.tab.status = "idle";
-				this.addMessage(
-					input.agentId,
-					"error",
-					response.error ?? "图片消息发送失败",
-				);
+				const errorMessage = response.error ?? "图片消息发送失败";
+				runtime.tab.status = statusBeforePrompt === "running" ? "running" : "idle";
+				this.addMessage(input.agentId, "error", errorMessage);
 				this.emitState();
-			} else if (promptIsExtensionCommand) {
+				return { accepted: false, error: errorMessage };
+			}
+
+			// 只有 pi prompt 预检成功后才把 user bubble 落入时间线。失败时 renderer 会保留
+			// 本地待发送卡片，避免同一条消息同时显示为“已发送”和“发送失败待重试”。
+			this.addMessage(
+				input.agentId,
+				"user",
+				trimmed || "[图片]",
+				promptDeliveryBehavior ? { streamingBehavior: promptDeliveryBehavior } : undefined,
+				input.images,
+			);
+
+			if (promptIsExtensionCommand) {
 				// 机制：Pi 扩展命令可在 prompt 阶段直接执行并返回，不进入 agent run。
 				// 证据：@earendil-works/pi-coding-agent/dist/core/agent-session.js 中 AgentSession.prompt()
 				//      先调用 _tryExecuteExtensionCommand()；命中后 return，不再调用 _runAgentPrompt()。
 				// 推导：不能等 agent_end；只有 Pi get_state 明确报告无剩余工作时才恢复 idle。
 				this.scheduleIdleCheckAfterExtensionCommand(input.agentId);
 			}
+			return { accepted: true };
 		} catch (error) {
-			// 超时或进程崩溃后，需要明确提示用户重启 Agent
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const isProcessDead = errorMessage.includes("pi process is not running") || 
-			                     errorMessage.includes("RPC command timed out");
-			
-			if (isProcessDead) {
-				runtime.tab.status = "error";
-				this.addMessage(
-					input.agentId,
-					"error",
-					errorMessage.includes("timed out") 
-						? `命令执行超时（${Math.round(this.settingsStore.get().rpcTimeout / 1000)}秒），Agent 进程可能已停止。请重启 Agent 后重试，或在设置中增加 RPC 超时时间。`
-						: `Agent 进程已停止，请重启 Agent 后重试。`,
-				);
-			} else {
-				runtime.tab.status = "idle";
-				this.addMessage(
-					input.agentId,
-					"error",
-					`消息发送失败：${errorMessage}`,
-				);
-			}
+			// prompt RPC 调用前已通过同步 write() 写入 pi stdin；此处所有异常都只说明
+			// preflight 响应未到达，无法证明 pi 没有接收。返回 unknown，renderer 会永久禁用
+			// 该快照的重试/编辑/取消，防止用户把同一条消息提交两次。
+			runtime.tab.status = statusBeforePrompt === "running" ? "running" : "error";
+			this.addMessage(
+				input.agentId,
+				"error",
+				`消息接收结果未知（${errorMessage}）。请先检查当前会话，避免重复发送；必要时重启 Agent。`,
+			);
 			this.emitState();
+			return { accepted: false, error: errorMessage, delivery: "unknown" };
 		}
 	}
 
@@ -811,24 +809,17 @@ export class AgentManager {
 		agentId: string,
 		command: string,
 		excludeFromContext: boolean,
-	) {
-		this.addMessage(
-			agentId,
-			"user",
-			`${excludeFromContext ? "!!" : "!"}${command}`,
-		);
+	): Promise<SendPromptResult> {
 		const runtime = this.requireRuntime(agentId);
+		const statusBeforeCommand = runtime.tab.status;
 		
 		// 检查进程是否还活着
 		if (!runtime.process.isRunning()) {
+			const errorMessage = "Agent 进程已停止，请重启 Agent 后重试";
 			runtime.tab.status = "error";
-			this.addMessage(
-				agentId,
-				"error",
-				"Agent 进程已停止，请重启 Agent 后重试",
-			);
+			this.addMessage(agentId, "error", errorMessage);
 			this.emitState();
-			return;
+			return { accepted: false, error: errorMessage };
 		}
 		
 		runtime.tab.status = "running";
@@ -844,6 +835,17 @@ export class AgentManager {
 				60_000,
 			);
 
+			if (!response.success) {
+				const errorMessage = response.error ?? "命令执行失败";
+				this.addMessage(agentId, "error", `命令执行失败：${errorMessage}`);
+				return { accepted: false, error: errorMessage };
+			}
+
+			this.addMessage(
+				agentId,
+				"user",
+				`${excludeFromContext ? "!!" : "!"}${command}`,
+			);
 			const data = response.data as
 				| {
 						output?: string;
@@ -869,30 +871,21 @@ export class AgentManager {
 				});
 				this.addMessage(agentId, "tool", toolMessage.text, toolMessage.meta);
 			}
+			return { accepted: true };
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const isProcessDead = errorMessage.includes("pi process is not running") || 
-			                     errorMessage.includes("RPC command timed out");
-			
-			if (isProcessDead) {
-				runtime.tab.status = "error";
-				this.addMessage(
-					agentId,
-					"error",
-					errorMessage.includes("timed out") 
-						? `命令执行超时，Agent 进程可能已停止。请重启 Agent 后重试。`
-						: `Agent 进程已停止，请重启 Agent 后重试。`,
-				);
-			} else {
-				this.addMessage(
-					agentId,
-					"error",
-					`命令执行失败：${errorMessage}`,
-				);
-			}
+			// bash 请求也在计时前写入 stdin；异常只能判定响应未知。对于可能有副作用的命令，
+			// 把它标成可重试失败会比保守阻止重试更危险。
+			runtime.tab.status = statusBeforeCommand === "running" ? "running" : "error";
+			this.addMessage(
+				agentId,
+				"error",
+				`命令接收结果未知（${errorMessage}）。请先检查命令输出或工作区状态，避免重复执行。`,
+			);
+			return { accepted: false, error: errorMessage, delivery: "unknown" };
 		} finally {
 			if (runtime.tab.status !== "error") {
-				runtime.tab.status = "idle";
+				runtime.tab.status = statusBeforeCommand === "running" ? "running" : "idle";
 			}
 			this.emitState();
 		}
@@ -1275,6 +1268,7 @@ export class AgentManager {
 			/** 工具执行状态从本地追踪，无需 Pi 进程查询 */
 			isExecutingTool: !!(this.toolExecutingByAgent.get(agentId)),
 			executingToolName: this.toolExecutingByAgent.get(agentId) ?? undefined,
+			toolStateSequence: this.toolStateSequenceByAgent.get(agentId) ?? 0,
 			contextTokens: stats?.contextUsage?.tokens,
 			contextWindow: stats?.contextUsage?.contextWindow ?? model?.contextWindow,
 			contextPercent: stats?.contextUsage?.percent,
@@ -1291,9 +1285,50 @@ export class AgentManager {
 		};
 	}
 
+	private applyActiveToolCallState(agentId: string, state: ActiveToolCallState) {
+		if (state.calls.size > 0) {
+			this.activeToolCallsByAgent.set(agentId, state.calls);
+			this.toolExecutingByAgent.set(agentId, state.executingToolName ?? "tool");
+			this.emitToolRuntimeTransition(
+				agentId,
+				true,
+				state.executingToolName ?? "tool",
+			);
+			return;
+		}
+		this.activeToolCallsByAgent.delete(agentId);
+		this.toolExecutingByAgent.set(agentId, null);
+		this.emitToolRuntimeTransition(agentId, false);
+	}
+
+	private emitToolRuntimeTransition(
+		agentId: string,
+		isExecutingTool: boolean,
+		executingToolName?: string,
+	) {
+		const toolStateSequence = (this.toolStateSequenceByAgent.get(agentId) ?? 0) + 1;
+		this.toolStateSequenceByAgent.set(agentId, toolStateSequence);
+		// 工具边沿直接从原始 pi 事件发出，不等待 get_state/get_session_stats。
+		// 这样即使工具极快完成或完整状态请求乱序，renderer 仍能稳定看到 true → false。
+		this.emit(ipcChannels.agentsRuntimeState, {
+			agentId,
+			state: {
+				isExecutingTool,
+				executingToolName,
+				toolStateSequence,
+			},
+		});
+	}
+
 	private async emitRuntimeState(agentId: string) {
 		try {
 			const state = await this.getRuntimeState(agentId);
+			const latestToolSequence = this.toolStateSequenceByAgent.get(agentId) ?? 0;
+			// getRuntimeState 包含异步 RPC；若期间发生新工具事件，只覆盖非工具字段，
+			// 工具字段保留调用完成时的最新本地真值和序号。
+			state.isExecutingTool = !!this.toolExecutingByAgent.get(agentId);
+			state.executingToolName = this.toolExecutingByAgent.get(agentId) ?? undefined;
+			state.toolStateSequence = latestToolSequence;
 			this.emit(ipcChannels.agentsRuntimeState, { agentId, state });
 		} catch {
 			// 运行态刷新失败不影响主流程；下一次轮询或事件会继续同步。
@@ -1901,6 +1936,9 @@ export class AgentManager {
 		runtime.process.stop();
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.activeToolCallsByAgent.delete(agentId);
+		this.toolExecutingByAgent.delete(agentId);
+		this.toolStateSequenceByAgent.delete(agentId);
 		this.emitState();
 
 		// 用相同的 session 重新创建 agent，新进程会重新加载所有配置
@@ -2060,6 +2098,9 @@ export class AgentManager {
 		const process = runtime.process;
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.activeToolCallsByAgent.delete(agentId);
+		this.toolExecutingByAgent.delete(agentId);
+		this.toolStateSequenceByAgent.delete(agentId);
 		// agent 关闭时自动关闭 RPC 日志记录
 		this.rpcLoggingAgents.delete(agentId);
 		process.stop();
@@ -2124,6 +2165,8 @@ export class AgentManager {
 			runtime.tab.status = "running";
 			this.activeAssistantMessageIds.delete(agentId);
 			this.toolMessageIds.delete(agentId);
+			this.activeToolCallsByAgent.delete(agentId);
+			this.toolExecutingByAgent.set(agentId, null);
 			this.emitState();
 		}
 
@@ -2276,6 +2319,8 @@ export class AgentManager {
 				this.streamingThinking.delete(agentId);
 				this.activeAssistantMessageIds.delete(agentId);
 				this.toolMessageIds.delete(agentId);
+				this.activeToolCallsByAgent.delete(agentId);
+				this.toolExecutingByAgent.set(agentId, null);
 				this.rpcCompactingAgents.delete(agentId);
 				this.emitThinking(agentId, "");
 				this.emitState();
@@ -2309,19 +2354,21 @@ export class AgentManager {
 
 		if (typed.type === "tool_execution_start") {
 			this.upsertToolMessage(agentId, typed, "running");
-			// 记录当前正在执行的工具名，用于前端准确展示“执行中”而非泛泛的“响应中”
-			this.toolExecutingByAgent.set(agentId, typed.toolName ?? "tool");
+			// 并行工具会先连续发多个 start；按 toolCallId 追踪，只有最后一个 end 才能表示工具阶段完成。
+			const toolName = typed.toolName ?? "tool";
+			const toolCallId = String(typed.toolCallId ?? `${toolName}-${Date.now()}`);
+			const toolState = updateActiveToolCalls(
+				this.activeToolCallsByAgent.get(agentId) ?? new Map<string, string>(),
+				{ type: "start", toolCallId, toolName },
+			);
+			this.applyActiveToolCallState(agentId, toolState);
 			// 工具调用开始时确保 agent 状态为 running
 			if (runtime) {
 				runtime.tab.status = "running";
 				this.emitState();
 			}
-			// 推送运行时状态更新，使前端能立即知道工具正在执行
-			void this.getRuntimeState(agentId)
-				.then((state) =>
-					this.emit(ipcChannels.agentsRuntimeState, { agentId, state }),
-				)
-				.catch(() => undefined);
+			// 完整 runtime 信息异步补发；工具边沿已经同步推送，不依赖此请求的完成顺序。
+			void this.emitRuntimeState(agentId);
 		}
 
 		if (typed.type === "tool_execution_end") {
@@ -2332,20 +2379,22 @@ export class AgentManager {
 			);
 			// 工具执行结束是终态，立即 flush 把最终结果推给渲染进程，避免节流窗口内用户看不到完成状态。
 			this.flushMessageEmit(agentId);
-			// 清除工具执行状态
-			this.toolExecutingByAgent.set(agentId, null);
+			// 清除本次 toolCall；并行批次仅在最后一个工具结束时发布 false，
+			// 否则 steer 会在其他工具仍运行时过早进入 pi 队列。
+			const activeToolCalls = this.activeToolCallsByAgent.get(agentId) ?? new Map<string, string>();
+			const toolState = updateActiveToolCalls(activeToolCalls, {
+				type: "end",
+				toolCallId: String(typed.toolCallId ?? ""),
+			});
+			this.applyActiveToolCallState(agentId, toolState);
 			// 工具调用完成后保持 agent 状态为 running，等待后续的 agent_end 事件
 			// 这样在工具完成到 agent 生成回复之间，thinking bubble 仍然会显示
 			if (runtime) {
 				runtime.tab.status = "running";
 				this.emitState();
 			}
-			// 推送运行时状态更新
-			void this.getRuntimeState(agentId)
-				.then((state) =>
-					this.emit(ipcChannels.agentsRuntimeState, { agentId, state }),
-				)
-				.catch(() => undefined);
+			// 完整 runtime 信息异步补发；序号保证它不会倒灌旧工具状态。
+			void this.emitRuntimeState(agentId);
 		}
 
 		if (typed.type === "tool_execution_update") {
@@ -3439,9 +3488,7 @@ export class AgentManager {
 		this.streamingThinking.delete(agentId);
 		this.emitThinking(agentId, "");
 		this.emitState();
-		void this.getRuntimeState(agentId)
-			.then((state) => this.emit(ipcChannels.agentsRuntimeState, { agentId, state }))
-			.catch(() => undefined);
+		void this.emitRuntimeState(agentId);
 	}
 
 	private extractToolResultText(result: unknown) {
