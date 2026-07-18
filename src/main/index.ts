@@ -1600,6 +1600,89 @@ function registerIpc() {
 		},
 	);
 
+	// -- Git 增强：提交历史 / 分支对比 / Graph
+	ipcMain.handle(
+		ipcChannels.gitCommitLog,
+		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string }) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getCommitLog(project.path, options);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRefs,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getRefs(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitBranchCompare,
+		async (_event, projectId: string, base: string, target: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.compareBranches(project.path, base, target);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitDetail,
+		async (_event, projectId: string, ref: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			return gitService.getCommitDetail(project.path, ref);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitDiffFileBetween,
+		async (_event, projectId: string, ref1: string, ref2: string, filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return "";
+			return gitService.diffFileBetweenRefs(project.path, ref1, ref2, filePath);
+		},
+	);
+
+
+	// Git 工作区状态 + Stage/Unstage
+	ipcMain.handle(
+		ipcChannels.gitStatus,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return { merge: [], index: [], workingTree: [], untracked: [] };
+			return gitService.getStatus(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitStage,
+		async (_event, projectId: string, paths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.stageFiles(project.path, paths);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitUnstage,
+		async (_event, projectId: string, paths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.unstageFiles(project.path, paths);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommit,
+		async (_event, projectId: string, message: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.commit(project.path, message);
+		},
+	);
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();

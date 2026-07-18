@@ -40,6 +40,9 @@ import {
   Terminal,
   Filter,
   GitBranch,
+  GitGraph,
+  Minimize2,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
@@ -110,6 +113,7 @@ import {
   type DrawerPanel,
   type SessionModifiedFile,
 } from "./components/app/AppParts";
+import { GitPanel } from "./components/app/GitPanel";
 import { BrowserPanel } from "./components/app/BrowserPanel";
 import {
   groupToolMessages,
@@ -5597,6 +5601,15 @@ ${goalTextRef.current}
                       onCreateBranch={createBranch}
                     />
                   )}
+                  {activeProjectId && (
+                    <button
+                      className={`header-action-btn${drawer === "git" ? " active" : ""}`}
+                      title="Git History & Compare"
+                      onClick={() => openDrawer("git")}
+                    >
+                      <GitGraph size={15} />
+                    </button>
+                  )}
                 </div>
                 <div className="header-action-group session-group">
                   <div className="session-combo" ref={sessionComboRef}>
@@ -6340,7 +6353,33 @@ ${goalTextRef.current}
               onToggleFullscreen={() => setBrowserFullscreen(true)}
             />
           </div>
-        ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" ? (
+        ) : drawerContentPanel === "git" && !drawerCollapsed && activeProjectId ? (
+          <div className="drawer-content-frame">
+            <div className="drawer-header">
+              <strong>Git</strong>
+              <div className="drawer-header-actions">
+                <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
+                  <Minimize2 size={15} />
+                </button>
+                <button onClick={closeDrawer} title={t("common.close")}>
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+            <GitPanel
+              projectId={activeProjectId}
+              commitLog={(projectId: string, opts?: { maxEntries?: number; ref?: string; allBranches?: boolean }) => api.git.commitLog(projectId, opts)}
+              commitDetail={(projectId: string, ref: string) => api.git.commitDetail(projectId, ref)}
+              branchCompare={(projectId: string, base: string, target: string) => api.git.branchCompare(projectId, base, target)}
+              getStatus={(projectId: string) => api.git.status(projectId)}
+              stageFiles={(projectId: string, paths: string[]) => api.git.stage(projectId, paths)}
+              unstageFiles={(projectId: string, paths: string[]) => api.git.unstage(projectId, paths)}
+              commit={(projectId: string, message: string) => api.git.commit(projectId, message)}
+              branches={gitInfo.branches}
+              currentBranch={gitInfo.current}
+            />
+          </div>
+        ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" && drawerContentPanel !== "git" ? (
           <LazyWrapper
             className="drawer-content-frame"
             enabled={true}

@@ -44,6 +44,9 @@ import type {
 	FileTreeNode,
 	ForkMessage,
 	GitBranchInfo,
+	CommitEntry,
+	GitRef,
+	BranchDiffResult,
 	WorktreeEntry,
 	PiCliUpdateResult,
 	PiCommand,
@@ -271,6 +274,70 @@ const api = {
 				projectId,
 				worktreePath,
 			) as Promise<boolean>,
+		// Git 增强：提交历史、分支对比、Graph
+		commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; path?: string }) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCommitLog,
+				projectId,
+				options,
+			) as Promise<CommitEntry[]>,
+		// Git 引用（分支 / 远程分支 / Tag）
+		refs: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitRefs,
+				projectId,
+			) as Promise<GitRef[]>,
+		// 分支对比概要（变更文件 + ahead/behind）
+		branchCompare: (projectId: string, base: string, target: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitBranchCompare,
+				projectId,
+				base,
+				target,
+			) as Promise<BranchDiffResult>,
+		// 单个 commit 详情
+		commitDetail: (projectId: string, ref: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCommitDetail,
+				projectId,
+				ref,
+			) as Promise<CommitEntry | null>,
+		// 两个 ref 间单个文件的 diff
+		diffFileBetween: (projectId: string, ref1: string, ref2: string, filePath: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitDiffFileBetween,
+				projectId,
+				ref1,
+				ref2,
+				filePath,
+			) as Promise<string>,
+		// Git 工作区状态（VS Code 风格分组：Staged/Unstaged/Untracked/Merge）
+		status: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitStatus,
+				projectId,
+			) as Promise<import("../shared/types").GitResourceGroups>,
+		// Stage 文件
+		stage: (projectId: string, paths: string[]) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitStage,
+				projectId,
+				paths,
+			) as Promise<void>,
+		// Unstage 文件
+		unstage: (projectId: string, paths: string[]) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitUnstage,
+				projectId,
+				paths,
+			) as Promise<void>,
+		// Commit
+		commit: (projectId: string, message: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCommit,
+				projectId,
+				message,
+			) as Promise<void>,
 	},
 	pi: {
 		check: () =>

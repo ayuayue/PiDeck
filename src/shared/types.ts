@@ -804,6 +804,88 @@ export type WorktreeEntry = {
 	branch: string;
 };
 
+// ── VS Code 风格 Git Status 系统 ─────────────────────────────────────
+
+/** Git 文件状态枚举，对应 VS Code Status enum（非 const，用于运行时映射） */
+export enum GitStatus {
+	INDEX_MODIFIED,
+	INDEX_ADDED,
+	INDEX_DELETED,
+	INDEX_RENAMED,
+	INDEX_COPIED,
+	MODIFIED,
+	DELETED,
+	UNTRACKED,
+	IGNORED,
+	INTENT_TO_ADD,
+	INTENT_TO_RENAME,
+	TYPE_CHANGED,
+	ADDED_BY_US,
+	ADDED_BY_THEM,
+	DELETED_BY_US,
+	DELETED_BY_THEM,
+	BOTH_ADDED,
+	BOTH_DELETED,
+	BOTH_MODIFIED,
+}
+
+/** Git 资源组类型，对应 VS Code ResourceGroupType */
+export type GitResourceGroupType = "merge" | "index" | "workingTree" | "untracked";
+
+/** 单个 Git 变更资源，对应 VS Code Resource 类 */
+export type GitResource = {
+	/** 文件绝对路径 */
+	path: string;
+	/** Git 状态 */
+	status: GitStatus;
+	/** 状态字母 (M/A/D/R/U/!/T) */
+	letter: string;
+	/** 重命名/拷贝的原始路径 */
+	oldPath?: string;
+};
+
+/** 按组分类的 Git 资源 */
+export type GitResourceGroups = {
+	merge: GitResource[];
+	index: GitResource[];
+	workingTree: GitResource[];
+	untracked: GitResource[];
+};
+
+// ── Git 增强：提交历史 / 分支对比 / Graph ──────────────────────────────
+
+/** 单个 Git 提交记录，对应 git log 一行输出 */
+export type CommitEntry = {
+	hash: string;          // 完整 SHA
+	shortHash: string;     // 短 SHA（前 7 位）
+	message: string;       // 提交信息首行（subject）
+	authorName: string;
+	authorEmail: string;
+	authorDate: number;    // unix timestamp
+	parents: string[];     // 父提交 hash 列表
+	refNames: string[];    // 关联的 ref 名称（如 HEAD -> main, origin/main）
+	/** git log --graph 输出的 ASCII 图谱行（等宽字体渲染即得分支图） */
+	graph: string[];
+	/** 改动的文件统计（仅 getCommitDetail 填充，getCommitLog 不包含） */
+	shortStat?: { files: number; insertions: number; deletions: number };
+};
+
+/** Git 引用（分支 / 远程分支 / Tag） */
+export type GitRef = {
+	name: string;          // 短名称（如 main, v1.0）
+	fullName: string;      // 完整 ref（如 refs/heads/main）
+	hash: string;          // 对象 SHA
+	type: "head" | "remote" | "tag";
+};
+
+/** 两个分支之间的差异概要 */
+export type BranchDiffResult = {
+	/** 变更的文件列表（base...target 三点语法 symmetric difference） */
+	files: { path: string; status: GitFileStatus }[];
+	ahead: number;   // target 比 base 多几个 commit
+	behind: number;  // target 比 base 少几个 commit（等于 0 时 base 是 target 的子集）
+};
+
 export type CreateAgentInput = {
 	projectId: string;
 	title?: string;

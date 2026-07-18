@@ -118,7 +118,7 @@ import { parseRichInputChips, type RichInputChip } from "./RichInput";
 /** 复用 petdex 标准网格规格，在主设置面板里为宠物选择器渲染单格动画预览 */
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
-export type DrawerPanel = "files" | "sessions" | "browser" | "editor";
+export type DrawerPanel = "files" | "sessions" | "browser" | "editor" | "git";
 
 export type SessionModifiedFile = {
 	path: string;
