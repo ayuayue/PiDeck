@@ -1,6 +1,26 @@
-import type { AppLanguageMode } from "../../shared/types"
+import type { AppLanguageMode } from "../../shared/types";
 
 export type SupportedLocale = "zh-CN" | "en-US" | "pseudo";
+
+function normalizeSystemLanguage(language: string | undefined): string {
+  return (language ?? "").trim().replace(/_/g, "-").toLowerCase();
+}
+
+/**
+ * Resolve the app locale from a user choice and one ordered system-language hint.
+ * Callers intentionally pass Electron's preferred OS language first, then browser hints;
+ * keeping this pure makes the precedence testable and preserves explicit user choices.
+ */
+export function resolveLocale(
+  mode: AppLanguageMode,
+  systemLanguage = typeof navigator === "undefined"
+    ? "en-US"
+    : (navigator.languages?.[0] ?? navigator.language),
+): SupportedLocale {
+  if (mode === "zh-CN" || mode === "en-US" || mode === "pseudo") return mode;
+  const normalized = normalizeSystemLanguage(systemLanguage);
+  return normalized === "zh" || normalized.startsWith("zh-") ? "zh-CN" : "en-US";
+}
 
 const zhCN = {
   "app.chatProject": "聊天",
@@ -129,6 +149,48 @@ const zhCN = {
   "browser.urlPlaceholder": "输入网址或搜索...",
   "browser.fullscreen": "全屏",
   "browser.close": "关闭",
+  "git.sourceControl": "源代码管理",
+  "git.changes": "更改",
+  "git.mergeChanges": "合并更改",
+  "git.stagedChanges": "暂存的更改",
+  "git.sourceControlGraph": "源代码管理图",
+  "git.compareChanges": "比较更改",
+  "git.commit": "提交",
+  "git.commitStaged": "提交已暂存 ({count})",
+  "git.commitAll": "暂存并提交全部 {count} 个更改",
+  "git.smartCommitTitle": "提交更改",
+  "git.smartCommitPrompt": "没有可提交的暂存更改。是否暂存所有更改并直接提交？",
+  "git.smartCommitYes": "是",
+  "git.smartCommitAlways": "始终",
+  "git.smartCommitNever": "从不",
+  "git.stageBeforeCommit": "请先点击文件旁的 +，或在“更改”标题栏点击 + 暂存文件，然后再提交。",
+  "git.resolveConflictsBeforeCommit": "请先解决合并冲突，然后再提交。",
+  "git.committing": "正在提交…",
+  "git.commitPlaceholder": "消息（Ctrl+Enter 提交到“{branch}”）",
+  "git.noPendingChanges": "没有待提交的更改。",
+  "git.stage": "暂存",
+  "git.stageAll": "全部暂存",
+  "git.unstage": "取消暂存",
+  "git.unstageAll": "全部取消暂存",
+  "git.resizePanes": "调整源代码管理面板高度",
+  "git.filterReference": "筛选引用",
+  "git.showCurrentBranch": "仅显示当前分支",
+  "git.showAllBranches": "显示所有分支",
+  "git.loadingCommits": "正在加载提交…",
+  "git.noCommits": "未找到提交。",
+  "git.filesChanged": "已更改 {count} 个文件",
+  "git.base": "基准",
+  "git.compare": "比较",
+  "git.selectBase": "选择基准分支",
+  "git.selectCompare": "选择比较分支",
+  "git.compareSummary": "领先 {ahead} · 落后 {behind} · 已更改 {count} 个文件",
+  "git.compareHint": "选择两个分支以比较它们的更改。",
+  "git.relativeSeconds": "{count} 秒前",
+  "git.relativeMinutes": "{count} 分钟前",
+  "git.relativeHours": "{count} 小时前",
+  "git.relativeDays": "{count} 天前",
+  "git.relativeMonths": "{count} 个月前",
+  "git.relativeYears": "{count} 年前",
   "browser.devicePC": "PC",
   "browser.deviceMobile": "手机",
   "browser.deviceTablet": "平板",
@@ -961,6 +1023,7 @@ const zhCN = {
   "drawer.changedLinesShort": "约 {count} 行",
   "drawer.closePanel": "关闭面板",
   "drawer.collapsePanel": "折叠面板",
+  "drawer.sourceControl": "源代码管理",
   "drawer.expandPanel": "展开右侧面板",
   "drawer.fileItems": "{count} 个项目",
   "drawer.deleteFileTitle": "删除文件",
@@ -1536,6 +1599,48 @@ const enUS: Record<TranslationKey, string> = {
   "browser.urlPlaceholder": "Enter URL or search...",
   "browser.fullscreen": "Fullscreen",
   "browser.close": "Close",
+  "git.sourceControl": "Source Control",
+  "git.changes": "Changes",
+  "git.mergeChanges": "Merge Changes",
+  "git.stagedChanges": "Staged Changes",
+  "git.sourceControlGraph": "Source Control Graph",
+  "git.compareChanges": "Compare Changes",
+  "git.commit": "Commit",
+  "git.commitStaged": "Commit Staged ({count})",
+  "git.commitAll": "Stage and Commit All {count} Changes",
+  "git.smartCommitTitle": "Commit Changes",
+  "git.smartCommitPrompt": "There are no staged changes to commit. Would you like to stage all your changes and commit them directly?",
+  "git.smartCommitYes": "Yes",
+  "git.smartCommitAlways": "Always",
+  "git.smartCommitNever": "Never",
+  "git.stageBeforeCommit": "Stage files first with the + beside a file or the + in the Changes header, then commit.",
+  "git.resolveConflictsBeforeCommit": "Resolve merge conflicts before committing.",
+  "git.committing": "Committing…",
+  "git.commitPlaceholder": "Message (Ctrl+Enter to commit on '{branch}')",
+  "git.noPendingChanges": "There are no pending changes.",
+  "git.stage": "Stage",
+  "git.stageAll": "Stage All",
+  "git.unstage": "Unstage",
+  "git.unstageAll": "Unstage All",
+  "git.resizePanes": "Resize Source Control panes",
+  "git.filterReference": "Filter reference",
+  "git.showCurrentBranch": "Show Current Branch",
+  "git.showAllBranches": "Show All Branches",
+  "git.loadingCommits": "Loading commits…",
+  "git.noCommits": "No commits found.",
+  "git.filesChanged": "{count} files changed",
+  "git.base": "Base",
+  "git.compare": "Compare",
+  "git.selectBase": "Select base branch",
+  "git.selectCompare": "Select comparison branch",
+  "git.compareSummary": "{ahead} ahead · {behind} behind · {count} changed files",
+  "git.compareHint": "Select two branches to compare their changes.",
+  "git.relativeSeconds": "{count}s ago",
+  "git.relativeMinutes": "{count}m ago",
+  "git.relativeHours": "{count}h ago",
+  "git.relativeDays": "{count}d ago",
+  "git.relativeMonths": "{count}mo ago",
+  "git.relativeYears": "{count}y ago",
   "browser.devicePC": "PC",
   "browser.deviceMobile": "Mobile",
   "browser.deviceTablet": "Tablet",
@@ -2387,6 +2492,7 @@ const enUS: Record<TranslationKey, string> = {
   "drawer.changedLinesShort": "about {count} lines",
   "drawer.closePanel": "Close panel",
   "drawer.collapsePanel": "Collapse panel",
+  "drawer.sourceControl": "Source Control",
   "drawer.expandPanel": "Expand right panel",
   "drawer.fileItems": "{count} items",
   "drawer.deleteFileTitle": "Delete File",
@@ -2870,16 +2976,6 @@ const dictionaries: Record<SupportedLocale, Record<TranslationKey, string>> = {
 };
 
 let currentLocale: SupportedLocale = resolveLocale("system");
-
-export function resolveLocale(
-  mode: AppLanguageMode,
-  systemLanguage = typeof navigator === "undefined"
-    ? "en-US"
-    : navigator.language,
-): SupportedLocale {
-  if (mode === "zh-CN" || mode === "en-US" || mode === "pseudo") return mode;
-  return systemLanguage.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
-}
 
 export function setI18nLocale(locale: SupportedLocale) {
   currentLocale = locale;

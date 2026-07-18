@@ -390,6 +390,7 @@ export function createPreviewApi(): PiDesktopApi {
 				version: "preview",
 				releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
 			}),
+			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			checkUpdate: async () => ({
 				currentVersion: "preview",
 				latestVersion: "preview",

@@ -223,17 +223,15 @@ export class GitService {
 	// ── 以下为 Git 增强方法（复刻 VS Code git.ts） ──────────────────────
 
 	/**
-	 * 获取提交历史列表，复刻 VS Code 的 log() 方法。
-	 * 同时获取 git log --graph 的 ASCII 图谱行，前端用等宽字体渲染即得分支图。
-	 *
-	 * @param allBranches 默认 true；设为 false 时只看当前分支线性历史
+	 * 获取提交历史列表。图谱由前端根据 parent hashes 构建连续 swimlane，
+	 * 与 VS Code 的 SCM History 模型一致，不再混用 git --graph 的 ASCII 行。
 	 */
 	async getCommitLog(
 		cwd: string,
 		options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean },
 	): Promise<CommitEntry[]> {
 		const COMMIT_FORMAT = "%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B";
-		const args = ["log", `--format=${COMMIT_FORMAT}`, "-z"];
+		const args = ["log", `--format=${COMMIT_FORMAT}`, "-z", "--topo-order"];
 		const useAll = options?.allBranches ?? true;
 
 		if (useAll && !options?.ref) {
@@ -254,20 +252,7 @@ export class GitService {
 			const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: 32 * 1024 * 1024 });
 			if (!stdout) return [];
 
-			const commits = parseCommits(stdout);
-
-			// 单独获取 ASCII graph
-			const graphArgs = ["log", "--graph", "--color=never", `--format=%h %d %s`];
-			if (useAll && !options?.ref) graphArgs.push("--all");
-			if (options?.ref) {
-				graphArgs.push(options.ref);
-			} else {
-				graphArgs.push(`-n${options?.maxEntries ?? 32}`);
-			}
-			const { stdout: graphOut } = await execFileAsync("git", graphArgs,
-				{ cwd, maxBuffer: 32 * 1024 * 1024 });
-
-			return mergeGraphLines(commits, graphOut);
+			return parseCommits(stdout);
 		} catch {
 			return [];
 		}
@@ -552,37 +537,4 @@ function parsePorcelainStatus(raw: string): GitResource[] {
 	}
 
 	return result;
-}
-
-/** 匹配 git log --graph 输出中的 commit 节点行（以 `*` 开头，前面只有图谱字符） */
-const graphCommitNodeRe = /^[|\\/\s]*\*/;
-
-/**
- * 将 git log --graph 的 ASCII 输出合并到 commit 记录中。
- */
-function mergeGraphLines(commits: CommitEntry[], graphOutput: string): CommitEntry[] {
-	if (!graphOutput.trim()) return commits;
-	const graphLines = graphOutput.split(/\r?\n/).filter(Boolean);
-
-	const commitGraphIndices: number[] = [];
-	for (let i = 0; i < graphLines.length; i++) {
-		if (graphCommitNodeRe.test(graphLines[i]!)) {
-			commitGraphIndices.push(i);
-		}
-	}
-
-	if (commitGraphIndices.length !== commits.length) {
-		return commits;
-	}
-
-	for (let i = 0; i < commits.length; i++) {
-		const commitIdx = commitGraphIndices[i]!;
-		const startIdx = i > 0 ? commitGraphIndices[i - 1]! + 1 : 0;
-		commits[i] = {
-			...commits[i]!,
-			graph: graphLines.slice(startIdx, commitIdx + 1),
-		};
-	}
-
-	return commits;
 }

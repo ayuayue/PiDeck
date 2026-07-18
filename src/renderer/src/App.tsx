@@ -1079,7 +1079,8 @@ export function App() {
     releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
   });
   const [piChecking, setPiChecking] = useState(false);
-  const resolvedLocale = resolveLocale(settings.language);
+  const [systemLanguage, setSystemLanguage] = useState<string | null>(null);
+  const resolvedLocale = resolveLocale(settings.language, systemLanguage ?? undefined);
   setI18nLocale(resolvedLocale);
   // 手动输入 pi 路径相关状态
   const [customPiPath, setCustomPiPath] = useState("");
@@ -1721,6 +1722,10 @@ export function App() {
     window.setTimeout(() => void refreshProjects(), 0);
     window.setTimeout(() => void api.agents.list().then(setAgents), 0);
     void api.editors.list().then(setExternalEditors).catch(() => undefined);
+    void api.app
+      .preferredSystemLanguages()
+      .then((languages) => setSystemLanguage(languages.find((language) => typeof language === "string" && language.trim()) ?? null))
+      .catch(() => setSystemLanguage(null));
     void api.app
       .info()
       .then(setAppInfo)
@@ -6356,7 +6361,7 @@ ${goalTextRef.current}
         ) : drawerContentPanel === "git" && !drawerCollapsed && activeProjectId ? (
           <div className="drawer-content-frame">
             <div className="drawer-header">
-              <strong>Git</strong>
+              <strong>{t("drawer.sourceControl")}</strong>
               <div className="drawer-header-actions">
                 <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
                   <Minimize2 size={15} />
@@ -6368,13 +6373,12 @@ ${goalTextRef.current}
             </div>
             <GitPanel
               projectId={activeProjectId}
-              commitLog={(projectId: string, opts?: { maxEntries?: number; ref?: string; allBranches?: boolean }) => api.git.commitLog(projectId, opts)}
-              commitDetail={(projectId: string, ref: string) => api.git.commitDetail(projectId, ref)}
-              branchCompare={(projectId: string, base: string, target: string) => api.git.branchCompare(projectId, base, target)}
-              getStatus={(projectId: string) => api.git.status(projectId)}
-              stageFiles={(projectId: string, paths: string[]) => api.git.stage(projectId, paths)}
-              unstageFiles={(projectId: string, paths: string[]) => api.git.unstage(projectId, paths)}
-              commit={(projectId: string, message: string) => api.git.commit(projectId, message)}
+              commitLog={api.git.commitLog}
+              branchCompare={api.git.branchCompare}
+              getStatus={api.git.status}
+              stageFiles={api.git.stage}
+              unstageFiles={api.git.unstage}
+              commit={api.git.commit}
               branches={gitInfo.branches}
               currentBranch={gitInfo.current}
             />

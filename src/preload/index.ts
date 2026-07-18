@@ -275,7 +275,7 @@ const api = {
 				worktreePath,
 			) as Promise<boolean>,
 		// Git 增强：提交历史、分支对比、Graph
-		commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; path?: string }) =>
+		commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }) =>
 			ipcRenderer.invoke(
 				ipcChannels.gitCommitLog,
 				projectId,
@@ -383,6 +383,8 @@ const api = {
 	},
 	app: {
 		info: () => ipcRenderer.invoke(ipcChannels.appInfo) as Promise<AppInfo>,
+		preferredSystemLanguages: () =>
+			ipcRenderer.invoke(ipcChannels.appPreferredSystemLanguages) as Promise<string[]>,
 		checkUpdate: () =>
 			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<AppUpdateInfo>,
 		downloadUpdate: (asset: { name: string; url: string }) =>

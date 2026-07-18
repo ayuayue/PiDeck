@@ -1603,7 +1603,7 @@ function registerIpc() {
 	// -- Git 增强：提交历史 / 分支对比 / Graph
 	ipcMain.handle(
 		ipcChannels.gitCommitLog,
-		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string }) => {
+		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }) => {
 			const project = projectStore.get(projectId);
 			if (!project) return [];
 			return gitService.getCommitLog(project.path, options);
@@ -1849,6 +1849,15 @@ function registerIpc() {
 		version: app.getVersion(),
 		releasesUrl: RELEASES_URL,
 	}));
+	ipcMain.handle(ipcChannels.appPreferredSystemLanguages, () => {
+		// Renderer navigator.language can reflect Chromium launch flags or a stale browser locale.
+		// Electron exposes the OS preference order directly; use it for the "follow system" setting.
+		try {
+			return app.getPreferredSystemLanguages();
+		} catch {
+			return [];
+		}
+	});
 	ipcMain.handle(ipcChannels.appCheckUpdate, () =>
 		checkForAppUpdate(settingsStore.get().installationType),
 	);

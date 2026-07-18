@@ -98,6 +98,7 @@ export const ipcChannels = {
 	/** 检查 npm 是否可用 */
 	piCheckNpm: "pi:check-npm",
 	appInfo: "app:info",
+	appPreferredSystemLanguages: "app:preferred-system-languages",
 	appCheckUpdate: "app:check-update",
 	appDownloadUpdate: "app:download-update",
 	appInstallUpdate: "app:install-update",
