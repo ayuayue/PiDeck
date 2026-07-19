@@ -17434,8 +17434,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 
 .wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun,
 .list-collapsed:not(.list-hover-suppressed) .chat-list-pane.v3-braun:hover,
-.list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane.v3-braun:focus-within {
+.list-collapsed:not(.list-hover-suppressed) .chat-list-pane.v3-braun:focus-within {
   background: var(--color-bg-panel);
 }
 
@@ -17476,7 +17475,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .search-box {
   height: 34px;
   border-radius: var(--radius-md);
-  background: #fafafa;
+  background: #FAFAFA;
   border-color: var(--color-border-subtle);
 }
 

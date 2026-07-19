@@ -54,6 +54,19 @@ describe("Seti file icon integration", () => {
     assert.match(source, /status: f\.status/);
   });
 
+  test("Git panel and file tree share the same vendored Seti lookup and color mapping", () => {
+    const fileTree = readFileSync("src/renderer/src/components/app/AppParts.tsx", "utf8");
+    const gitPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+    const sharedLookup = readFileSync("src/renderer/src/fileIcons.ts", "utf8");
+
+    assert.match(fileTree, /import \{ getFileIconSeti, getFileIconColor, getFileTypeLabel \} from "\.\.\/\.\.\/fileIcons"/);
+    assert.match(gitPanel, /import \{ getFileIconColor, getFileIconSeti \} from "\.\.\/\.\.\/fileIcons"/);
+    assert.match(fileTree, /getFileIconSeti\(name\)/);
+    assert.match(gitPanel, /getFileIconSeti\(name\)/);
+    assert.match(sharedLookup, /from "\.\/vendor\/seti-icons"/);
+    assert.match(sharedLookup, /SETI_COLOR_TO_CSS/);
+  });
+
   test("Git changed-file parser preserves paths and renamed status", () => {
     const source = readFileSync("src/main/git/GitService.ts", "utf8");
     assert.match(source, /"--name-status", "-z"/);
