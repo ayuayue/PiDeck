@@ -9,12 +9,12 @@ function cssRule(selector) {
   return styles.match(new RegExp(`${selector} \\{([\\s\\S]*?)\\n\\}`))?.[1];
 }
 
-test("Ponytail 通知锚定在新会话控件下方而不是全局 toast", () => {
-  assert.match(app, /if \(\/ponytail\/i\.test\(notifyRequest\.message\)\)/);
-  assert.match(app, /className="ponytail-notice"/);
+test("通知锚定在新会话控件下方而不是全局 toast", () => {
+  assert.match(app, /showNotice\(notifyRequest\.message/);
+  assert.match(app, /className="app-notice"/);
 
-  const notice = cssRule("\\.ponytail-notice");
-  assert.ok(notice, "Ponytail 提示样式必须存在");
+  const notice = cssRule("\\.app-notice");
+  assert.ok(notice, "通知样式必须存在");
   assert.match(notice, /position:\s*absolute;/);
   assert.match(notice, /top:\s*calc\(100% \+ 20px\);/);
   assert.match(notice, /right:\s*0;/);
