@@ -454,7 +454,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={webviewRef} className="browser-webview" src={initialTab.url} allowpopups />
+				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups />
 			</div>
 		</div>
 	);
