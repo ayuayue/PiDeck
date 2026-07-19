@@ -451,6 +451,7 @@ export class AgentManager {
 		const trustOverride = await this.ensureProjectTrust(project);
 		const t2 = Date.now();
 
+		void this.appLogger?.info("agent", "Agent pi process start", { agentId: id });
 		const process = new PiProcess(project.path, this.settingsStore.get());
 		process.on("version-check", (payload) => {
 			void this.appLogger?.info("agent", "Pi version check completed", {
@@ -474,6 +475,7 @@ export class AgentManager {
 
 		// 启动后先获取状态，get_messages 必须等状态就绪后再发送，
 		// 确保 pi 进程已完全加载会话文件，避免竞态导致返回空结果。
+		void this.appLogger?.info("agent", "Agent get_state request start", { agentId: id });
 		const statePromise = client.request({ type: "get_state" });
 		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
 
@@ -581,6 +583,7 @@ export class AgentManager {
 		});
 
 		try {
+			void this.appLogger?.info("agent", "Agent get_state request completed", { agentId: id });
 			const state = await statePromise;
 			const t4 = Date.now();
 			void this.appLogger?.info("agent", "Agent get_state completed", {
@@ -2708,7 +2711,9 @@ export class AgentManager {
 		const cwd = project.path;
 		if (!this.hasTrustRequiringResources(cwd)) {
 			// 干净项目：pi 无需加载项目级资源，pi-desktop 自动记入信任，避免每次创建 Agent 重复检查。
+			void this.appLogger?.info("agent", "Agent ensure trusted directory start", { cwd });
 			await this.configManager.ensureTrustedDirectory(cwd);
+			void this.appLogger?.info("agent", "Agent ensure trusted directory completed", { cwd });
 			return undefined;
 		}
 		const decision = await this.configManager.getProjectTrustDecision(cwd);

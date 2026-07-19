@@ -6129,6 +6129,11 @@ export function App() {
             className={`chat-header-actions${activeAgent?.status === "starting" ? " loading" : ""}`}
           >
             <>
+              {activeAgent?.id && (
+                <span className="chat-agent-id" title={activeAgent.id}>
+                  {activeAgent.id.slice(0, 8)}
+                </span>
+              )}
               <SessionStatus
                 state={activeRuntimeState}
                 duration={

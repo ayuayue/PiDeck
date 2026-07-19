@@ -6423,7 +6423,7 @@ body.ask-dialog-open .ask-question-card.pending {
   text-wrap: balance;
 }
 .empty-tagline-yours {
-  color: color-mix(in srgb, var(--color-chat-link) 90%, white);
+  color: var(--color-brand-green);
   font-style: italic;
 }
 .empty-state .empty-subtitle {
@@ -6463,11 +6463,7 @@ body.ask-dialog-open .ask-question-card.pending {
   min-width: 148px;
   height: 46px;
   border: none;
-  background: color-mix(
-    in srgb,
-    var(--color-accent-soft) 75%,
-    var(--color-accent)
-  );
+  background: var(--color-accent-soft);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--color-accent) 18%, transparent);
   color: var(--color-accent-strong);
   font-family: var(--font-family-base);
@@ -7102,7 +7098,6 @@ body.is-composer-resizing .composer-resize-handle::after {
 .composer-footer .send-behavior-chevron:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
   outline-offset: -2px;
-}
 }
 .send-behavior-menu {
   position: absolute;
@@ -8521,10 +8516,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .outline-hover {
   position: absolute;
-  right: calc(
-    11px + var(--drawer-splitter-w) +
-      max(var(--drawer-col-w), min(var(--drawer-width), 38vw))
-  );
+  right: calc(11px + var(--drawer-splitter-w) + max(var(--drawer-col-w), min(var(--drawer-width), 38vw)));
   top: calc(var(--outline-top, 180px) + var(--window-drag-height, 0px));
   z-index: 15;
   display: flex;

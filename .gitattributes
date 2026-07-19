@@ -1,0 +1,17 @@
+# 统一以 LF 换行，避免 Windows 上 core.autocrlf=true 把工作区文件转成 CRLF，
+# 从而破坏依赖精确换行匹配的 CSS 契约测试（如 sidebarDivider / outlineDrawerOffset）。
+# eol=lf 会覆盖 autocrlf 的检出行为，保证所有平台检出一致的 LF。
+* text=auto eol=lf
+
+# 二进制资源不强制 LF
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
