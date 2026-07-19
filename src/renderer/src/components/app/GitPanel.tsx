@@ -1305,7 +1305,7 @@ function SourceControlGraph(props: {
       hoverTimer.current = null;
       setHover({ commit, anchor: anchorRect });
       void loadCommitDetail(commit.hash);
-    }, 350);
+    }, 500);
   }, [clearHoverTimer, loadCommitDetail]);
 
   const dismissHover = useCallback(() => {
@@ -1349,11 +1349,13 @@ function SourceControlGraph(props: {
                       className={`git-history-row${isCurrent ? " current" : ""}${expanded ? " expanded" : ""}`}
                       aria-expanded={expanded}
                       aria-describedby={hover?.commit.hash === commit.hash ? "git-commit-hover" : undefined}
-                      onClick={() => toggleCommit(commit.hash)}
+                      onClick={() => {
+                        // 点击只展开文件列表；先取消 hover，避免按钮获得焦点后误显示提交详情。
+                        dismissHover();
+                        toggleCommit(commit.hash);
+                      }}
                       onMouseEnter={(event) => scheduleHover(commit, event.currentTarget)}
                       onMouseLeave={dismissHover}
-                      onFocus={(event) => scheduleHover(commit, event.currentTarget)}
-                      onBlur={dismissHover}
                     >
                       <GraphLanes row={row} current={isCurrent} />
                       <span className="git-history-label">

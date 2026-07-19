@@ -146,10 +146,12 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(styles, /min-width:\s*120px/);
   });
 
-  test("shows delayed commit hovers and lazily expands changed files", () => {
+  test("shows details only after a short mouse hover and lazily expands files on click", () => {
     assert.match(panel, /function CommitHoverCard/);
     assert.match(panel, /createPortal\([\s\S]*?document\.body/);
-    assert.match(panel, /window\.setTimeout\([\s\S]*?350/);
+    assert.match(panel, /window\.setTimeout\([\s\S]*?500/);
+    assert.match(panel, /onClick=\{\(\) => \{[\s\S]*?dismissHover\(\);[\s\S]*?toggleCommit\(commit\.hash\);/);
+    assert.doesNotMatch(panel, /onFocus=\{\(event\) => scheduleHover/);
     assert.match(panel, /void loadCommitDetail\(commit\.hash\)/);
     assert.match(panel, /detailRequests\.current\.get\(hash\)/);
     assert.match(panel, /role="list"/);
