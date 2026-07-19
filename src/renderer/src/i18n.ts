@@ -182,6 +182,8 @@ const zhCN = {
   "app.projectChatGuide": "内置对话区，不需要选择项目目录",
   "app.openSessionFile": "点击用系统编辑器打开此会话文件",
   "app.compactionEvent": "会话已压缩",
+  "app.compactionCount": "已压缩 {count} 次",
+  "app.compactionTooltip": "压缩了 {count} 次，仅显示压缩后的会话记录",
   "app.projectChatInfo":
     "Chat 是固定置顶的内置对话区；会话写入应用用户目录，不需要先添加项目。",
   "app.projectCollapse": "折叠",
@@ -1017,6 +1019,7 @@ const zhCN = {
   "menu.openSession": "打开会话",
   "menu.projectResources": "技能&扩展&提示词",
   "menu.removeProject": "删除目录记录",
+  "menu.projectInfo": "项目信息",
   "menu.enableWorktree": "启用工作区",
   "menu.disableWorktree": "关闭工作区",
   "menu.revealProject": "在文件管理器中定位",
@@ -1590,6 +1593,8 @@ const enUS: Record<TranslationKey, string> = {
   "app.projectChatGuide": "Built-in chat area. No project folder required.",
   "app.openSessionFile": "Click to open this session file in system editor",
   "app.compactionEvent": "Session compacted",
+  "app.compactionCount": "Compacted {count} times",
+  "app.compactionTooltip": "Compacted {count} times — only post-compaction messages are shown",
   "app.projectChatInfo":
     "Chat is a pinned built-in conversation area. Sessions are written to the app user data directory.",
   "app.projectCollapse": "Collapse",
@@ -2441,6 +2446,7 @@ const enUS: Record<TranslationKey, string> = {
   "menu.openSession": "Open Session",
   "menu.projectResources": "Skills && Extensions && Prompts",
   "menu.removeProject": "Remove project record",
+  "menu.projectInfo": "Project Info",
   "menu.enableWorktree": "Enable Workspaces",
   "menu.disableWorktree": "Disable Workspaces",
   "menu.revealProject": "Reveal in File Manager",

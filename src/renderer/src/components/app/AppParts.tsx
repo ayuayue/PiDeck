@@ -1950,6 +1950,7 @@ export const CompactionCard = memo(function CompactionCard(props: {
 }) {
 	const summary = props.message.text;
 	const tokensBefore = (props.message.meta as any)?.tokensBefore;
+	const compactionCount = (props.message.meta as any)?.compactionCount;
 	const time = formatTime(props.message.timestamp);
 	return (
 		<article
@@ -1959,6 +1960,11 @@ export const CompactionCard = memo(function CompactionCard(props: {
 			<span className="compaction-card-icon" aria-hidden="true">🔁</span>
 			<div className="compaction-card-body">
 				<span className="compaction-card-summary">{stripAnsi(summary)}</span>
+				{typeof compactionCount === "number" && compactionCount > 0 && (
+					<span className="compaction-card-count">
+						{t("app.compactionCount", { count: compactionCount })}
+					</span>
+				)}
 				{typeof tokensBefore === "number" && (
 					<span className="compaction-card-tokens">
 						~{Math.round(tokensBefore / 1000)}k tokens before
@@ -5214,6 +5220,8 @@ export function ProjectContextMenu(props: {
 	onManageSessions: () => void;
 	onFilterSessions: () => void;
 	onToggleWorktree: () => void;
+	onRefreshProject: () => void;
+	onProjectInfo: () => void;
 	onRemoveProject: () => void;
 }) {
 	const isWorktreeEnabled = props.menu.project.worktreeEnabled ?? false;
@@ -5244,6 +5252,9 @@ export function ProjectContextMenu(props: {
 				<button onClick={props.onToggleWorktree}>
 					{isWorktreeEnabled ? t("menu.disableWorktree") : t("menu.enableWorktree")}
 				</button>
+				<hr className="context-separator" />
+				<button onClick={props.onRefreshProject}>{t("app.projectRefresh")}</button>
+				<button onClick={props.onProjectInfo}>{t("menu.projectInfo")}</button>
 				<hr className="context-separator" />
 				<button onClick={props.onRemoveProject}>{t("menu.removeProject")}</button>
 			</div>

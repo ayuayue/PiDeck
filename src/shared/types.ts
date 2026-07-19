@@ -63,6 +63,8 @@ export type AgentTab = {
 	sessionId?: string;
 	sessionPath?: string;
 	createdAt: number;
+	/** 会话累计压缩次数，由主进程解析会话文件得到，用于前端展示“已压缩 N 次”。 */
+	compactionCount?: number;
 };
 
 export type TerminalShell = "pwsh" | "powershell" | "cmd" | "zsh" | "bash" | "fish" | "sh";

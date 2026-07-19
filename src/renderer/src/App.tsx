@@ -40,7 +40,6 @@ import {
   Terminal,
   Filter,
   GitBranch,
-  RefreshCw,
   X,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
@@ -5088,16 +5087,6 @@ ${goalTextRef.current}
                   <span className="project-row-actions">
                     <span
                       className="project-action"
-                      title={t("app.projectRefresh")}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void refreshProjectTree(project);
-                      }}
-                    >
-                      <RefreshCw size={14} />
-                    </span>
-                    <span
-                      className="project-action"
                       title={t("app.projectNewAgent")}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -5106,43 +5095,6 @@ ${goalTextRef.current}
                     >
                       <Plus size={14} />
                     </span>
-                    <span
-                      className="project-info"
-                      title={
-                        projectIsChat
-                          ? t("app.projectChatInfo")
-                          : t("app.projectInfo")
-                      }
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <Info size={14} />
-                    </span>
-                    {!projectIsChat && (
-                      <span
-                        className="project-action project-delete"
-                        title={t("app.projectRemoveTitle")}
-                        onClick={async (event) => {
-                          event.stopPropagation();
-                          try {
-                            const next = await api.projects.remove(project.id);
-                            setProjects(next);
-                            updateAfterProjectRemoved(project.id, next);
-                          } catch (e) {
-                            // 项目仍有运行中的 Agent 时禁止删除，主进程抛 PROJECT_HAS_RUNNING_AGENT
-                            if (String((e as Error)?.message ?? e).includes("PROJECT_HAS_RUNNING_AGENT")) {
-                              setConfirmDialog({
-                                title: t("app.projectRemoveBlockedTitle"),
-                                message: t("app.projectRemoveBlockedByAgent"),
-                                confirmLabel: t("app.projectRemoveBlockedAck"),
-                                onConfirm: () => setConfirmDialog(null),
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </span>
-                    )}
                   </span>
                 </button>
                 {!isCollapsed && project.worktreeEnabled && (
@@ -5607,6 +5559,14 @@ ${goalTextRef.current}
                     : activeProject?.name) ??
                   "PiDeck"}
               </strong>
+              {activeAgent?.compactionCount ? (
+                <span
+                  className="compaction-count-badge"
+                  title={t("app.compactionTooltip", { count: activeAgent.compactionCount })}
+                >
+                  {activeAgent.compactionCount}
+                </span>
+              ) : null}
             </div>
           </div>
           <div
@@ -6610,6 +6570,15 @@ ${goalTextRef.current}
                 console.error('Toggle worktree failed', e);
               }
             }
+          }}
+          onRefreshProject={() => {
+            void refreshProjectTree(projectMenu.project);
+            setProjectMenu(null);
+          }}
+          onProjectInfo={() => {
+            // 原内联 info 按钮为装饰性 no-op；移到右键菜单后给出项目路径提示。
+            showToast(projectMenu.project.path, 4000);
+            setProjectMenu(null);
           }}
           onRemoveProject={async () => {
             const project = projectMenu.project;

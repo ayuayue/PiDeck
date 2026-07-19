@@ -69,8 +69,9 @@ export class AgentManager {
 	private static readonly MAX_AUTO_HISTORY_LOAD_BYTES = 5 * 1024 * 1024;
 	/**
 	 * 大会话直接从文件尾部读取时，最多保留的最近消息轮次（每条 user 消息算一轮）。
+	 * 原值 8 对于一些需要回看较多历史的长会话偏少，提高至 30 轮。
 	 */
-	private static readonly MAX_HISTORY_LOAD_TURNS = 8;
+	private static readonly MAX_HISTORY_LOAD_TURNS = 30;
 	/**
 	 * 工具结果文本截断阈值（字符数）。工具结果（如 bash 输出、文件读取）可能达数十 KB，
 	 * 若完整存入 ChatMessage.meta 并随流式 emit 反复全量传输，会显著放大 IPC payload
@@ -178,9 +179,8 @@ export class AgentManager {
 		const t1 = Date.now();
 
 		const rawMessages = (response.data as { messages?: unknown[] } | undefined)?.messages ?? [];
-		const trimmed = this.trimHistoryMessages(rawMessages);
 
-		// 解析 entryId 列表
+		// 解析 entryId 列表（需要先于 convertAgentMessages，用于把消息关联到 pi 的会话分支）。
 		let activeEntryIds: string[] | undefined;
 		if (entriesResult) {
 			const entriesData = entriesResult.data as
@@ -191,7 +191,50 @@ export class AgentManager {
 			}
 		}
 
-		const messages = this.convertAgentMessages(agentId, trimmed, activeEntryIds);
+		// 按对话轮次截断（保留最近若干轮 user 消息）。压缩摘要不是 user 消息，会被此逻辑保留在尾部，
+		// 因此下方会单独把它插到最前面，确保不被按 user 轮次切掉。
+		const trimmed = this.trimHistoryMessages(rawMessages);
+
+		// 解析会话文件里的压缩记录：拿到最后一次压缩摘要 + 压缩次数。
+		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
+		// 这里从原始会话文件补回摘要与次数，保证桌面端能看到“已压缩”提示并与 pi 行为一致。
+		// 若 RPC 已经返回了压缩/分支摘要，则不再重复补，避免时间线出现两张摘要卡片。
+		let compactionSummaryRaw: unknown | null = null;
+		const rpcAlreadyHasSummary = rawMessages.some(
+			(m) => (m as { role?: unknown })?.role === "compactionSummary"
+				|| (m as { role?: unknown })?.role === "branchSummary",
+		);
+		if (runtime.tab.sessionPath) {
+			const compaction = await this.parseSessionCompactions(runtime.tab.sessionPath).catch(() => null);
+			if (compaction && compaction.count > 0) {
+				// 仅当 RPC 未返回摘要时才从文件补回
+				if (!rpcAlreadyHasSummary) {
+					const last = compaction.entries[compaction.entries.length - 1];
+					compactionSummaryRaw = {
+						role: "compactionSummary",
+						// convertAgentMessages 读取 typed.summary 作为摘要正文，而非 content 数组
+						summary: last.summary || "[摘要]",
+						// 时间戳需要是数字；会话文件里是 ISO 字符串，这里转成毫秒
+						timestamp: last.timestamp ? Date.parse(last.timestamp) : Date.now(),
+						meta: {
+							compactionId: last.id || null,
+							compactionCount: compaction.count,
+							firstKeptEntryId: last.firstKeptEntryId,
+						},
+					};
+				}
+				// 把压缩次数写回 tab，供前端（会话头/标签）展示“已压缩 N 次”。
+				if (runtime.tab.compactionCount !== compaction.count) {
+					runtime.tab.compactionCount = compaction.count;
+					this.emitState();
+				}
+			}
+		}
+
+		// 将压缩摘要插到消息最前面（在 trim 之后，避免被按 user 轮次切掉）。
+		const finalRaw = compactionSummaryRaw ? [compactionSummaryRaw, ...trimmed] : trimmed;
+
+		const messages = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
 		const t2 = Date.now();
 		void this.appLogger?.info("agent", "Agent messages loaded", {
 			agentId,
@@ -310,6 +353,49 @@ export class AgentManager {
 		};
 	}
 
+	/**
+	 * 从原始会话文件解析压缩（compaction）记录。
+	 * pi 的 get_messages 对压缩后的会话只返回压缩后的消息，不携带压缩摘要，
+	 * 因此桌面端直接从 JSONL 里扫描 type:="compaction" 的条目，用于：
+	 *   1) 在时间线最前面补回“压缩摘要”卡片（与 pi 行为一致）；
+	 *   2) 统计压缩次数，供前端展示“已压缩 N 次”。
+	 */
+	private async parseSessionCompactions(sessionPath: string): Promise<{
+		count: number;
+		entries: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string }>;
+	}> {
+		let content: string;
+		try {
+			content = await readFile(sessionPath, "utf8");
+		} catch (error) {
+			void this.appLogger?.warn("agent", "Failed to read session file for compaction parsing", {
+				sessionPath,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { count: 0, entries: [] };
+		}
+
+		const entries: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string }> = [];
+		for (const line of content.split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line);
+				// 只识别 pi 写入的压缩条目；summary 可能为空字符串，但只要有 compaction 类型就计数。
+				if (entry?.type === "compaction") {
+					entries.push({
+						id: typeof entry.id === "string" ? entry.id : "",
+						summary: typeof entry.summary === "string" ? entry.summary : "",
+						timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
+						firstKeptEntryId: typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
+					});
+				}
+			} catch {
+				// 跳过单行解析失败
+			}
+		}
+		return { count: entries.length, entries };
+	}
+
 	private findRuntimeBySessionKey(sessionKey: string) {
 		return [...this.agents.values()].find(
 			(runtime) =>
@@ -377,13 +463,10 @@ export class AgentManager {
 			spawnCallMs: t3 - t2,
 		});
 
-		// 启动后立即获取状态；历史消息仅在文件不大时预取。
-		// 大会话 get_messages 会返回超大单行 JSON，JSON.parse 会阻塞 Electron 主进程，宁可先让 Agent 可用。
+		// 启动后先获取状态，get_messages 必须等状态就绪后再发送，
+		// 确保 pi 进程已完全加载会话文件，避免竞态导致返回空结果。
 		const statePromise = client.request({ type: "get_state" });
 		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
-		const messagesPromise = historyLoadDecision.shouldLoad
-			? client.request({ type: "get_messages" })
-			: undefined;
 
 		// ... 事件监听器（省略，与原来一致）
 		process.on("event", (event) => this.handlePiEvent(id, event));
@@ -512,6 +595,10 @@ export class AgentManager {
 			// 因此历史消息后台加载，避免 40MB+ 会话把“打开 Agent”阻塞到十几秒。
 			// 同时插入一条临时系统消息，给用户明确的加载反馈，避免空白页面看起来像冻结。
 			// preserveMessagesAfter 保护加载期间用户新发的消息/流式回复，防止历史结果回写时覆盖当前会话。
+			// 状态就绪后发送 get_messages，确保 pi 进程已完全加载会话文件，避免竞态。
+			const messagesPromise = historyLoadDecision.shouldLoad
+				? client.request({ type: "get_messages" })
+				: undefined;
 			const preserveMessagesAfter = Date.now();
 			if (messagesPromise) {
 				if (input.sessionPath) {
@@ -1316,7 +1403,7 @@ export class AgentManager {
 		return Math.max(0, Math.min(100, value));
 	}
 
-	private trimHistoryMessages(rawMessages: unknown[], maxTurns = 20) {
+	private trimHistoryMessages(rawMessages: unknown[], maxTurns = 40) {
 		if (rawMessages.length === 0) return rawMessages;
 		// 按对话轮次截断：找到最后 maxTurns 个用户提问，保留对应轮次及之后的全部消息
 		const userIndices: number[] = [];
@@ -3201,6 +3288,10 @@ export class AgentManager {
 						meta: {
 							type: isCompaction ? "compaction" : "branchSummary",
 							tokensBefore: typed.tokensBefore,
+						// 保留压缩次数（桌面端从会话文件解析得到），供前端展示“已压缩 N 次”
+						...(isCompaction && typed.meta?.compactionCount != null
+							? { compactionCount: typed.meta.compactionCount }
+							: {}),
 						},
 					}];
 				}

@@ -2427,6 +2427,28 @@ body.is-terminal-resizing {
   white-space: nowrap;
   cursor: default;
 }
+/* 标题后的压缩次数小徽标：只显示数字，带边框，与 session-source-badge 等状态徽标视觉一致；
+   hover 通过 title 提示“压缩了几次，仅显示压缩后的会话记录”。 */
+.compaction-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, var(--color-border-subtle));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-panel));
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: default;
+}
 .compaction-card {
   display: flex;
   align-items: flex-start;
@@ -2465,6 +2487,18 @@ body.is-terminal-resizing {
   font-size: 11px;
   color: var(--color-text-tertiary);
   font-family: var(--font-family-monospace);
+}
+/* 压缩摘要卡片里的“已压缩 N 次”标记，和头部徽标保持一致语义 */
+.compaction-card-count {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-business);
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
 .compaction-card-time {
@@ -8873,7 +8907,6 @@ body.is-composer-resizing .composer-resize-handle::after {
   padding: 0 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-pill);
-  background: var(--color-chat-card-bg);
   font-family: var(--font-family-business);
   line-height: var(--line-height-caption);
   font-size: var(--font-size-caption);
@@ -8882,35 +8915,17 @@ body.is-composer-resizing .composer-resize-handle::after {
 .session-status .ctx-chip {
   max-width: none;
   flex: 0 0 auto;
-  color: var(--color-brand-green);
-  background: color-mix(
-    in srgb,
-    var(--color-brand-green) 10%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(in srgb, var(--color-brand-green) 20%, transparent);
+  border-color: var(--color-border-subtle);
 }
 .session-status .cache-chip {
   max-width: none;
   flex: 0 0 auto;
-  color: var(--color-brand-purple);
-  background: color-mix(
-    in srgb,
-    var(--color-brand-purple) 10%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(in srgb, var(--color-brand-purple) 20%, transparent);
+  border-color: var(--color-border-subtle);
 }
 .session-status .cost-chip {
   max-width: none;
   flex: 0 0 auto;
-  color: var(--color-warning);
-  background: color-mix(
-    in srgb,
-    var(--color-warning) 10%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  border-color: var(--color-border-subtle);
   font-weight: 600;
   font-family: var(--font-family-business);
   font-variant-numeric: tabular-nums;
