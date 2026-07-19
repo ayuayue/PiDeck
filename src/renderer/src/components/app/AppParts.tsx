@@ -5,6 +5,7 @@ import {
 	useCallback,
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -5208,6 +5209,36 @@ export function SessionManagerModal(props: {
 	);
 }
 
+/**
+ * 右键菜单定位：渲染后按真实尺寸修正位置。
+ * 当菜单超出视口底部/右侧时向上/向左翻转，仍放不下则夹紧到视口内，
+ * 保证整块菜单始终可见、不被屏幕裁切（不使用滚动）。
+ */
+function useMenuPosition(initial: { x: number; y: number }) {
+	const [pos, setPos] = useState(initial);
+	const ref = useRef<HTMLDivElement>(null);
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		const rect = el.getBoundingClientRect();
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		let { x, y } = initial;
+		// 下方空间不足时翻转到光标上方，仍放不下则夹紧到视口内
+		if (y + rect.height > vh) {
+			const flipped = y - rect.height;
+			y = flipped >= 8 ? flipped : Math.max(8, vh - rect.height - 8);
+		}
+		// 右侧空间不足时翻转到光标左侧，仍放不下则夹紧到视口内
+		if (x + rect.width > vw) {
+			const flipped = x - rect.width;
+			x = flipped >= 8 ? flipped : Math.max(8, vw - rect.width - 8);
+		}
+		if (x !== pos.x || y !== pos.y) setPos({ x, y });
+	}, [initial.x, initial.y]);
+	return { pos, ref };
+}
+
 export function ProjectContextMenu(props: {
 	menu: { x: number; y: number; project: Project };
 	onClose: () => void;
@@ -5221,15 +5252,16 @@ export function ProjectContextMenu(props: {
 	onFilterSessions: () => void;
 	onToggleWorktree: () => void;
 	onRefreshProject: () => void;
-	onProjectInfo: () => void;
 	onRemoveProject: () => void;
 }) {
 	const isWorktreeEnabled = props.menu.project.worktreeEnabled ?? false;
+	const { pos, ref } = useMenuPosition(props.menu);
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
 				className="context-menu"
-				style={{ left: props.menu.x, top: props.menu.y }}
+				style={{ left: pos.x, top: pos.y }}
+				ref={ref}
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button onClick={props.onRevealProject}>{t("menu.revealProject")}</button>
@@ -5254,7 +5286,6 @@ export function ProjectContextMenu(props: {
 				</button>
 				<hr className="context-separator" />
 				<button onClick={props.onRefreshProject}>{t("app.projectRefresh")}</button>
-				<button onClick={props.onProjectInfo}>{t("menu.projectInfo")}</button>
 				<hr className="context-separator" />
 				<button onClick={props.onRemoveProject}>{t("menu.removeProject")}</button>
 			</div>
@@ -5275,11 +5306,13 @@ export function AgentContextMenu(props: {
 	onOpenSessionFile?: () => void;
 	onCloseAgent: () => void;
 }) {
+	const { pos, ref } = useMenuPosition(props.menu);
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
 				className="context-menu"
-				style={{ left: props.menu.x, top: props.menu.y }}
+				style={{ left: pos.x, top: pos.y }}
+				ref={ref}
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>
@@ -5321,11 +5354,13 @@ export function SessionContextMenu(props: {
 	onShowLogs?: () => void;
 	onDeleteSession: () => void;
 }) {
+	const { pos, ref } = useMenuPosition(props.menu);
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
 				className="context-menu"
-				style={{ left: props.menu.x, top: props.menu.y }}
+				style={{ left: pos.x, top: pos.y }}
+				ref={ref}
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>

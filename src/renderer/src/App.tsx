@@ -5014,7 +5014,8 @@ ${goalTextRef.current}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     setProjectMenu({
-                      ...adjustMenuPos(event.clientX, event.clientY, 200, 320),
+                      x: event.clientX,
+                      y: event.clientY,
                       project,
                     });
                   }}
@@ -5165,7 +5166,8 @@ ${goalTextRef.current}
                                 onContextMenu={(event) => {
                                   event.preventDefault();
                                   setSessionMenu({
-                                    ...adjustMenuPos(event.clientX, event.clientY, 200, 280),
+                                    x: event.clientX,
+                                    y: event.clientY,
                                     projectId: project.id,
                                     session: subagent,
                                   });
@@ -5208,7 +5210,8 @@ ${goalTextRef.current}
                               return next;
                             });
                             setAgentMenu({
-                              ...adjustMenuPos(event.clientX, event.clientY, 200, 260),
+                              x: event.clientX,
+                              y: event.clientY,
                               agent,
                             });
                           }}
@@ -5248,7 +5251,8 @@ ${goalTextRef.current}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           setSessionMenu({
-                            ...adjustMenuPos(event.clientX, event.clientY, 200, 280),
+                            x: event.clientX,
+                            y: event.clientY,
                             projectId: project.id,
                             session,
                           });
@@ -5371,7 +5375,8 @@ ${goalTextRef.current}
                               e.preventDefault();
                               if (childProject) {
                                 setProjectMenu({
-                                  ...adjustMenuPos(e.clientX, e.clientY, 200, 320),
+                                  x: e.clientX,
+                                  y: e.clientY,
                                   project: childProject,
                                 });
                               }
@@ -5424,7 +5429,8 @@ ${goalTextRef.current}
                                   return next;
                                 });
                                 setAgentMenu({
-                                  ...adjustMenuPos(event.clientX, event.clientY, 200, 260),
+                                  x: event.clientX,
+                                  y: event.clientY,
                                   agent,
                                 });
                               }}
@@ -6573,11 +6579,6 @@ ${goalTextRef.current}
           }}
           onRefreshProject={() => {
             void refreshProjectTree(projectMenu.project);
-            setProjectMenu(null);
-          }}
-          onProjectInfo={() => {
-            // 原内联 info 按钮为装饰性 no-op；移到右键菜单后给出项目路径提示。
-            showToast(projectMenu.project.path, 4000);
             setProjectMenu(null);
           }}
           onRemoveProject={async () => {

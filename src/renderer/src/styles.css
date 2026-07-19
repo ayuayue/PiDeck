@@ -1586,12 +1586,13 @@ body:not(.is-list-resizing)
 .project-group {
   position: relative;
   display: block;
-  margin-bottom: 8px;
+  /* 项目之间仅保留较小间距，避免目录树过于松散；行内 padding 已承担点击热区。 */
+  margin-bottom: 4px;
 }
 .project-group.chat-project-group {
   /* 内置聊天区不是普通项目目录，使用轻量卡片感与下面的真实项目树分开。 */
-  margin: 0 0 10px;
-  padding: 4px 4px 10px;
+  margin: 0 0 6px;
+  padding: 4px 4px 6px;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .project-group.chat-project-group > .conversation:first-child {
