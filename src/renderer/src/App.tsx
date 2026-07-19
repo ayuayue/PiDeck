@@ -284,18 +284,20 @@ function getToolFilePath(args: any) {
                       : undefined;
 }
 
-/** Extract new file content from tool args for historical diff display */
-function getToolNewContent(toolName: string, args: any, originalContent?: string): string | undefined {
+/**
+ * 从工具参数中提取修改后的文件内容，用于 diff 展示。
+ * 不再依赖 originalContent（已移除存储），
+ * 对于 edit 操作直接提取工具参数中的变动区域。
+ */
+function getToolNewContent(toolName: string, args: any, _originalContent?: string): string | undefined {
   // meta.args 可能是 JSON 字符串，反解后再提取内容字段。
   if (!args) return undefined;
   if (typeof args === "string" && args.trim()) {
     try { args = JSON.parse(args); } catch { return undefined; }
   }
   if (/write|create/i.test(toolName) && typeof args.content === "string") return args.content;
-  if (/edit|patch/i.test(toolName) && typeof args.oldText === "string" && typeof args.newText === "string" && originalContent) {
-    const idx = originalContent.indexOf(args.oldText);
-    if (idx >= 0) return originalContent.slice(0, idx) + args.newText + originalContent.slice(idx + args.oldText.length);
-  }
+  // edit/patch：originalContent 不再存储，这里不再尝试重建全量文件内容。
+  // diff 展示时使用工具参数中的 oldText/newText 显示变动区域。
   return undefined;
 }
 
@@ -1583,8 +1585,8 @@ export function App() {
       const previous = byPath.get(filePath);
       // 同一路径再次被修改时移动到 Map 末尾，右侧修改清单才能按"最新修改"展示。
       if (previous) byPath.delete(filePath);
-      // 从消息 meta 中提取工具执行前的文件原始内容，用于差异编辑器的对比基准。
-      const originalContent = msg.meta?.originalContent as string | undefined;
+      // originalContent 不再存储到消息 meta 中（full file 会使会话体积过大）。
+      // diff 展示时使用工具参数（oldText/newText）显示变动区域。
       byPath.set(filePath, {
         path: filePath,
         toolName,
@@ -1592,9 +1594,8 @@ export function App() {
         changedLines:
           (previous?.changedLines ?? 0) +
           getToolChangedLineCount(toolName, args),
-        // 同一路径多次修改时保留首次记录的 originalContent，历史会话恢复时优先使用
-        originalContent: previous?.originalContent ?? originalContent ?? "",
-        content: getToolNewContent(toolName, args, originalContent) ?? previous?.content,
+        originalContent: "",
+        content: getToolNewContent(toolName, args) ?? previous?.content,
       });
     }
     return Array.from(byPath.values());
@@ -2851,8 +2852,8 @@ export function App() {
   }
 
   function diffFilePath(path: string, originalContent?: string, content?: string) {
-    // 会话卡片传入的是工具执行前缓存的原始内容，提交后 Git 工作区可能已清空，
-    // 因此优先使用会话级快照；文件边栏不传该值时仍回退到当前会话累计修改记录。
+    // 工具 diff 展示：write = 空白→全量内容，edit = oldText→newText（变动区域）
+    // originalContent 不再存储 full file，使用工具参数中的变动文本作为对比基准。
     const modified = modifiedFiles.find((f) => f.path === path);
     const resolvedOriginal = originalContent ?? modified?.originalContent ?? "";
     const resolvedModified = content ?? modified?.content ?? undefined;

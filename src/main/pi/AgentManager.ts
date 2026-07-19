@@ -2773,68 +2773,11 @@ export class AgentManager {
 		// 避免使用消息 timestamp（会在 update/end 时刷新）导致历史恢复后耗时不可还原。
 		const durationMs =
 			status === "running" ? undefined : Math.max(0, Date.now() - startedAt);
-
-		// 工具首次开始执行时尝试异步读取原始文件内容（pi-deck-file-capture 扩展未安装时的回退方案）。
-		// 当扩展已安装时，后续 tool_execution_end 会从 result.details._piDeckOriginalContent
-		// 同步拿到原始内容，可跳过此处的异步读取。
-		let originalContent: string | undefined = existing?.meta?.originalContent as
-			| string
-			| undefined;
-		if (
-			status === "running" &&
-			!originalContent &&
-			typeof args === "object" &&
-			args !== null
-		) {
-			const filePath =
-				typeof (args as any).filePath === "string"
-					? (args as any).filePath
-					: typeof (args as any).path === "string"
-						? (args as any).path
-						: undefined;
-			if (filePath) {
-				readFile(filePath, "utf8")
-					.then((content) => {
-						originalContent = content;
-						// originalContent 是异步补齐的；必须替换 message/meta 和数组引用，
-						// 否则 renderer 的浅比较与 useMemo 会继续使用空快照，diff 左侧就会空白。
-						const currentList = this.messages.get(agentId) ?? [];
-						const nextList = currentList.map((message) =>
-							message.id === messageId
-								? {
-									...message,
-									meta: {
-										...(message.meta ?? {}),
-										originalContent: content,
-									},
-								}
-								: message,
-						);
-						this.messages.set(agentId, nextList);
-						this.scheduleMessageEmit(agentId, true);
-					})
-					.catch(() => {
-						// 文件不存在或被删除，跳过
-					});
-			}
-		}
 		const result =
 			event.result ??
 			event.partialResult ??
 			event.output ??
 			existing?.meta?.result;
-
-		// 优先使用 pi-deck-file-capture 扩展注入的原始内容（在 tool_execution_end 中可用）
-		// 该扩展在工具执行前从磁盘读取原文件，结果存入 details._piDeckOriginalContent，
-		// 无需异步读取，且数据会持久化到 session JSONL 供历史会话恢复。
-		if (
-			!originalContent &&
-			result &&
-			typeof result === "object" &&
-			(result as any).details?._piDeckOriginalContent
-		) {
-			originalContent = (result as any).details._piDeckOriginalContent as string;
-		}
 		const detailText = this.formatToolDetail(
 			toolName,
 			args,
@@ -2913,7 +2856,9 @@ export class AgentManager {
 			result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 			isError,
 			detailText,
-			originalContent,
+			// originalContent 不再存储到消息中（full file 会使会话元数据体积过大）。
+			// diff 使用工具参数（oldText/newText 等）展示变动区域，无需完整文件快照。
+			
 			...(askCard ? { _askCard: askCard } : {}),
 		};
 
@@ -3235,9 +3180,8 @@ export class AgentManager {
 							result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 							isError,
 							detailText,
-							// 历史会话的工具内 diff 必须使用当时保存的快照，不能回退读当前工作区/Git，
-							// 否则文件后续又被修改时会展示错误的“历史 diff”。
-							...(originalContent !== undefined ? { originalContent } : {}),
+							// 历史会话不保存 originalContent（full file），diff 使用工具参数
+							//（oldText/newText）展示变动区域，避免会话文件体积膨胀。
 							...(askCard ? { _askCard: askCard } : {}),
 						},
 					}];

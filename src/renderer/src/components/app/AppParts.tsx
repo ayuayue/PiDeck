@@ -1629,36 +1629,30 @@ function countTextLines(value: string) {
 	return value ? value.split(/\r\n|\r|\n/).length : 0;
 }
 
-function applyTextReplacement(content: string, oldText: unknown, newText: unknown): string | undefined {
-	if (typeof oldText !== "string" || typeof newText !== "string") return undefined;
-	const index = content.indexOf(oldText);
-	if (index < 0) return undefined;
-	return content.slice(0, index) + newText + content.slice(index + oldText.length);
-}
-
-function buildEditedContentFromArgs(args: Record<string, unknown>, originalContent: string): string | undefined {
-	let next = originalContent;
+/**
+ * 从 edit 工具参数中提取变更区域（oldText → newText）
+ * 用于 diff 展示。不再拼接全量文件，只展示变动部分。
+ */
+function getEditDiffContent(args: Record<string, unknown>): { oldText: string; newText: string } | undefined {
 	const edits = Array.isArray(args.edits) ? args.edits : undefined;
 	if (edits) {
-		// edit 工具的多段替换应以工具调用时的原始内容为基准顺序重放，
-		// 这样 diff 来自本次工具参数，而不是依赖当前工作区或 Git 状态。
-		for (const edit of edits) {
-			if (!edit || typeof edit !== "object") return undefined;
-			const replacement = applyTextReplacement(
-				next,
-				(edit as Record<string, unknown>).oldText ?? (edit as Record<string, unknown>).old_text,
-				(edit as Record<string, unknown>).newText ?? (edit as Record<string, unknown>).new_text,
-			);
-			if (replacement === undefined) return undefined;
-			next = replacement;
-		}
-		return next;
+		// 多段编辑拼接所有 oldText / newText
+		const parts = edits.map((edit: unknown) => {
+			if (!edit || typeof edit !== "object") return null;
+			const oldText = String((edit as Record<string, unknown>).oldText ?? (edit as Record<string, unknown>).old_text ?? "");
+			const newText = String((edit as Record<string, unknown>).newText ?? (edit as Record<string, unknown>).new_text ?? "");
+			return { oldText, newText };
+		}).filter((p): p is { oldText: string; newText: string } => p !== null);
+		if (parts.length === 0) return undefined;
+		return {
+			oldText: parts.map(p => p.oldText).join("\n"),
+			newText: parts.map(p => p.newText).join("\n"),
+		};
 	}
-	return applyTextReplacement(
-		next,
-		args.oldText ?? args.old_text,
-		args.newText ?? args.new_text,
-	);
+	const oldText = typeof args.oldText === "string" ? args.oldText : typeof args.old_text === "string" ? args.old_text : undefined;
+	const newText = typeof args.newText === "string" ? args.newText : typeof args.new_text === "string" ? args.new_text : undefined;
+	if (oldText === undefined || newText === undefined) return undefined;
+	return { oldText, newText };
 }
 
 function getToolDiffTarget(message: ChatMessage): { path: string; originalContent: string; content: string; changedLines: number } | undefined {
@@ -1667,7 +1661,6 @@ function getToolDiffTarget(message: ChatMessage): { path: string; originalConten
 	const args = parseToolArgs(message.meta?.args);
 	const path = getToolArgFilePath(args);
 	if (!args || !path) return undefined;
-	const originalContent = typeof message.meta?.originalContent === "string" ? message.meta.originalContent : "";
 	if (/write|create/i.test(toolName)) {
 		const content = typeof args.content === "string"
 			? args.content
@@ -1675,15 +1668,16 @@ function getToolDiffTarget(message: ChatMessage): { path: string; originalConten
 				? args.text
 				: undefined;
 		if (content === undefined) return undefined;
-		return { path, originalContent, content, changedLines: countTextLines(content) };
+		return { path, originalContent: "", content, changedLines: countTextLines(content) };
 	}
-	const content = buildEditedContentFromArgs(args, originalContent);
-	if (content === undefined) return undefined;
+	// edit/patch：不存储 full file originalContent，只展示变动区域
+	const diff = getEditDiffContent(args);
+	if (!diff) return undefined;
 	return {
 		path,
-		originalContent,
-		content,
-		changedLines: Math.max(countTextLines(originalContent), countTextLines(content)),
+		originalContent: diff.oldText,
+		content: diff.newText,
+		changedLines: Math.max(countTextLines(diff.oldText), countTextLines(diff.newText)),
 	};
 }
 
