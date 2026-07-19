@@ -186,6 +186,42 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(styles, /\.git-history-file-row:focus-visible/);
   });
 
+  test("opens workspace resources lazily without replacing the Git drawer", () => {
+    assert.match(panel, /className="git-resource-open"/);
+    assert.match(panel, /onOpenWorkspaceFileDiff\("merge", resource\.path\)/);
+    assert.match(panel, /onOpenWorkspaceFileDiff\("index", resource\.path\)/);
+    assert.match(panel, /resource\.status === GitStatus\.UNTRACKED \? "untracked" : "workingTree"/);
+    assert.match(panel, /action=\{\{ label: t\("git\.stage"\)/);
+    assert.match(app, /api\.git\.workspaceFileDiff/);
+    assert.match(app, /workspace:\$\{projectId\}:\$\{group\}:\$\{diff\.path\}/);
+    assert.match(app, /preserveDrawer\?:\s*boolean/);
+    assert.match(app, /onToggleMode=\{activeTab\.preserveDrawer \? undefined : toggleEditorMode\}/);
+    const commitOpen = app.match(/async function openCommitFileDiff[\s\S]*?async function refreshSessionHistory/)?.[0] ?? "";
+    assert.doesNotMatch(commitOpen, /setDrawer\(null\)/);
+    assert.match(preload, /workspaceFileDiff:/);
+    assert.match(main, /gitWorkspaceFileDiff/);
+    assert.match(gitService, /async getWorkspaceFileDiff/);
+    assert.match(gitService, /group === "untracked"/);
+    assert.match(gitService, /group === "index"/);
+    assert.match(gitService, /group === "workingTree"/);
+    assert.match(styles, /\.git-resource-open:focus-visible/);
+    assert.match(i18n, /"git\.openWorkspaceDiff"/);
+  });
+
+  test("bounds Git diff memory and validates renderer-controlled Git inputs", () => {
+    assert.match(gitService, /commitDetailCacheLimit = 16/);
+    assert.match(gitService, /commitDetailCacheByteLimit = 2 \* 1024 \* 1024/);
+    assert.match(gitService, /maxBuffer:\s*limit \+ 1/);
+    assert.match(gitService, /Buffer\.byteLength\(stdout, "utf8"\) > limit/);
+    assert.match(gitService, /metadata\.size > limit/);
+    assert.match(gitService, /stdout\.includes\("\\0"\)/);
+    assert.match(gitService, /resolveCommitHash/);
+    assert.match(gitService, /--end-of-options/);
+    assert.match(gitService, /Math\.min\(500/);
+    assert.match(gitService, /resolveMutationPaths/);
+    assert.match(gitService, /--porcelain", "-z", "--", "\."/);
+  });
+
   test("loads commit files against the first parent and preserves rename origins", () => {
     assert.match(gitService, /commit\.parents\[0\]/);
     assert.match(gitService, /\["diff", "--name-status", "-z", "--find-renames", commit\.parents\[0\], commit\.hash\]/);

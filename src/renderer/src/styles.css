@@ -18200,19 +18200,38 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   height: 26px;
   align-items: center;
   gap: 0;
-  padding: 0 7px 0 17px;
+  padding: 0 7px 0 0;
   font-family: var(--git-ui-font);
   font-size: var(--font-size-body);
   line-height: 26px;
 }
 .git-resource-row:hover, .git-resource-row:focus-within { background: var(--git-panel-hover); }
+.git-resource-open {
+  display: flex;
+  min-width: 0;
+  height: 26px;
+  flex: 1;
+  align-items: center;
+  padding: 0 0 0 17px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+.git-resource-open.static { cursor: default; }
+.git-resource-open:disabled { cursor: progress; opacity: 0.72; }
+.git-resource-open:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
 .git-file-icon { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; align-items: center; justify-content: center; margin-right: 6px; }
 .git-file-icon svg { width: 16px; height: 16px; fill: currentColor; }
 .git-file-fallback { box-sizing: border-box; width: 12px; height: 14px; border: 1px solid var(--git-desc-fg); border-radius: var(--radius-xs); }
 .git-resource-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
 .git-resource-path { min-width: 0; flex: 1; overflow: hidden; padding: 0 5px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: var(--font-size-caption); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.git-resource-actions { display: none; flex: 0 0 auto; margin-right: var(--space-1); }
-.git-resource-row:hover .git-resource-actions, .git-resource-row:focus-within .git-resource-actions { display: flex; }
+.git-resource-actions { display: flex; flex: 0 0 auto; margin-right: var(--space-1); visibility: hidden; }
+.git-resource-row:hover .git-resource-actions, .git-resource-row:focus-within .git-resource-actions { visibility: visible; }
 .git-decoration { width: 16px; flex: 0 0 16px; margin-left: 5px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: 12px; font-weight: 600; text-align: right; }
 .git-resource-row.status-modified .git-decoration { color: var(--git-modified); }
 .git-resource-row.status-added .git-decoration { color: var(--git-added); }

@@ -46,6 +46,8 @@ import type {
 	GitBranchInfo,
 	CommitDetail,
 	GitCommitFileDiff,
+	GitWorkspaceDiffGroup,
+	GitWorkspaceFileDiff,
 	CommitEntry,
 	GitRef,
 	BranchDiffResult,
@@ -250,12 +252,6 @@ const api = {
 				ipcChannels.gitOriginalContent,
 				filePath,
 			) as Promise<string>,
-		// 获取工作区中对比 HEAD 有变更的文件列表
-		changedFiles: (projectId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitChangedFiles,
-				projectId,
-			) as Promise<{ path: string; status: string }[]>,
 		// 列出项目的 git worktree（排除主工作区）
 		worktreeList: (projectId: string) =>
 			ipcRenderer.invoke(
@@ -328,6 +324,14 @@ const api = {
 				ipcChannels.gitStatus,
 				projectId,
 			) as Promise<import("../shared/types").GitResourceGroups>,
+		// Git Changes 中单个文件的两侧快照（按点击惰性读取）
+		workspaceFileDiff: (projectId: string, group: GitWorkspaceDiffGroup, filePath: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitWorkspaceFileDiff,
+				projectId,
+				group,
+				filePath,
+			) as Promise<GitWorkspaceFileDiff | null>,
 		// Stage 文件
 		stage: (projectId: string, paths: string[]) =>
 			ipcRenderer.invoke(

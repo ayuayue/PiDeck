@@ -1536,17 +1536,8 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.gitOriginalContent,
 		async (_event, filePath: string) => {
-			return gitService.getOriginalContent(filePath);
-		},
-	);
-
-	// 获取工作区中被 Git 跟踪的变更文件列表（对比 HEAD），返回到前端用于右侧文件面板。
-	ipcMain.handle(
-		ipcChannels.gitChangedFiles,
-		async (_event, projectId: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) return [];
-			return gitService.getChangedFiles(project.path);
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getOriginalContent(filePath, maxBytes);
 		},
 	);
 
@@ -1642,7 +1633,8 @@ function registerIpc() {
 		async (_event, projectId: string, ref: string, filePath: string, originalPath?: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) return null;
-			return gitService.getCommitFileDiff(project.path, ref, filePath, originalPath);
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getCommitFileDiff(project.path, ref, filePath, originalPath, maxBytes);
 		},
 	);
 
@@ -1663,6 +1655,16 @@ function registerIpc() {
 			const project = projectStore.get(projectId);
 			if (!project) return { merge: [], index: [], workingTree: [], untracked: [] };
 			return gitService.getStatus(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitWorkspaceFileDiff,
+		async (_event, projectId: string, group: import("../shared/types").GitWorkspaceDiffGroup, filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getWorkspaceFileDiff(project.path, group, filePath, maxBytes);
 		},
 	);
 

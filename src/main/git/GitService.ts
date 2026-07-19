@@ -1,13 +1,81 @@
 import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { lstat, open, readlink, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff } from "../../shared/types";
+import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff } from "../../shared/types";
 import { GitStatus } from "../../shared/types";
 import type { GitResource, GitResourceGroups } from "../../shared/types";
 
 const execFileAsync = promisify(execFile);
 
 export class GitService {
+	/** 只缓存轻量 commit 元数据/文件清单；正文永不缓存，且 LRU 总预算不超过 2MB。 */
+	private readonly commitDetailCache = new Map<string, { detail: CommitDetail; bytes: number }>();
+	private readonly commitDetailCacheLimit = 16;
+	private readonly commitDetailCacheByteLimit = 2 * 1024 * 1024;
+	private commitDetailCacheBytes = 0;
+
+	private estimateCommitDetailBytes(detail: CommitDetail): number {
+		const commit = detail.commit;
+		const text = [
+			commit.hash,
+			commit.shortHash,
+			commit.authorName,
+			commit.authorEmail,
+			commit.message,
+			commit.fullMessage ?? "",
+			...commit.parents,
+			...commit.refNames,
+		];
+		for (const file of detail.files) text.push(file.path, file.originalPath ?? "");
+		// JS 字符串通常按 UTF-16 存储；对象本身按每条文件记录追加小额估算。
+		return text.reduce((total, value) => total + value.length * 2, 0) + detail.files.length * 64;
+	}
+
+	private readCommitDetailCache(key: string): CommitDetail | undefined {
+		const cached = this.commitDetailCache.get(key);
+		if (!cached) return undefined;
+		this.commitDetailCache.delete(key);
+		this.commitDetailCache.set(key, cached);
+		return cached.detail;
+	}
+
+	private writeCommitDetailCache(key: string, detail: CommitDetail): void {
+		const bytes = this.estimateCommitDetailBytes(detail);
+		if (bytes > this.commitDetailCacheByteLimit) return;
+		const previous = this.commitDetailCache.get(key);
+		if (previous) this.commitDetailCacheBytes -= previous.bytes;
+		this.commitDetailCache.delete(key);
+		this.commitDetailCache.set(key, { detail, bytes });
+		this.commitDetailCacheBytes += bytes;
+		while (
+			this.commitDetailCache.size > this.commitDetailCacheLimit ||
+			this.commitDetailCacheBytes > this.commitDetailCacheByteLimit
+		) {
+			const oldestKey = this.commitDetailCache.keys().next().value;
+			if (oldestKey === undefined) break;
+			const oldest = this.commitDetailCache.get(oldestKey);
+			if (oldest) this.commitDetailCacheBytes -= oldest.bytes;
+			this.commitDetailCache.delete(oldestKey);
+		}
+	}
+
+	/** 将 renderer 提供的 commit-ish 安全解析为完整 SHA，后续命令只接收 hash。 */
+	private async resolveCommitHash(cwd: string, ref: string): Promise<string | null> {
+		try {
+			const { stdout } = await execFileAsync(
+				"git",
+				["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
+				{ cwd },
+			);
+			const hash = stdout.trim();
+			return /^[0-9a-f]{40}$/i.test(hash) ? hash : null;
+		} catch {
+			return null;
+		}
+	}
+
 	/**
 	 * 判断给定目录是否处于一个 git 仓库内。
 	 * 启用工作区模式前做前置校验，避免非 git 项目开启后只能看到空列表、
@@ -50,7 +118,11 @@ export class GitService {
 
 	async checkout(cwd: string, branch: string): Promise<GitBranchInfo> {
 		try {
-			await execFileAsync("git", ["checkout", branch], { cwd });
+			if (!branch || branch.startsWith("-")) throw new Error("Invalid branch name");
+			const fullRef = `refs/heads/${branch}`;
+			await execFileAsync("git", ["check-ref-format", fullRef], { cwd });
+			await execFileAsync("git", ["show-ref", "--verify", "--quiet", fullRef], { cwd });
+			await execFileAsync("git", ["checkout", "--end-of-options", branch], { cwd });
 		} catch (e: unknown) {
 			const msg = e instanceof Error ? e.message : String(e);
 			// execFile 默认只输出 stdout；checkout 失败时 stderr 包含真正原因。
@@ -64,6 +136,8 @@ export class GitService {
 	 * 使用 checkout -b 命令在当前分支基础上创建新分支。
 	 */
 	async createBranch(cwd: string, branchName: string): Promise<GitBranchInfo> {
+		if (!branchName || branchName.startsWith("-")) throw new Error("Invalid branch name");
+		await execFileAsync("git", ["check-ref-format", `refs/heads/${branchName}`], { cwd });
 		await execFileAsync("git", ["checkout", "-b", branchName], { cwd });
 		return this.getBranches(cwd);
 	}
@@ -78,7 +152,7 @@ export class GitService {
 	 * - 文件不在任何 Git 仓库内（git 命令失败）→ 返回空字符串。
 	 * - 文件是未跟踪的新增文件（HEAD 中不存在该路径）→ git show 报错，返回空字符串。
 	 */
-	async getOriginalContent(filePath: string): Promise<string> {
+	async getOriginalContent(filePath: string, maxBytes = 5 * 1024 * 1024): Promise<string> {
 		try {
 			const dir = dirname(filePath);
 			const { stdout: rootRaw } = await execFileAsync(
@@ -93,130 +167,194 @@ export class GitService {
 			const relPath = relative(repoRoot, filePath).replace(/\\/g, "/");
 			if (!relPath || relPath.startsWith("..")) return "";
 
+			const blobRef = `HEAD:${relPath}`;
+			const limit = Math.max(1, Math.floor(maxBytes));
 			const { stdout } = await execFileAsync(
 				"git",
-				["-C", repoRoot, "show", `HEAD:${relPath}`],
-				{ maxBuffer: 32 * 1024 * 1024 },
+				["-C", repoRoot, "show", blobRef],
+				{ maxBuffer: limit + 1 },
 			);
-			return stdout;
+			return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0") ? "" : stdout;
 		} catch {
 			return "";
 		}
 	}
 
-	/**
-	 * 获取工作区中相对于 HEAD 被修改的文件列表（包括已暂存和未暂存的修改，
-	 * 以及未跟踪的新增文件）。前端根据此列表展示 Git 工作区变动概览。
-	 * 返回 { path, status } 数组，status 值为 "modified" | "added" | "deleted" | "renamed"。
-	 */
-	async getChangedFiles(
-		cwd: string,
-	): Promise<{ path: string; status: string }[]> {
+	private async getStatusContext(cwd: string): Promise<{
+		groups: GitResourceGroups;
+		repoRoot: string;
+		inputProjectRoot: string;
+		projectRoot: string;
+	}> {
+		// `-- .` 将 monorepo 中的状态限定到当前项目目录，避免 sibling 资源进入抽屉。
+		const [{ stdout: statusRaw }, { stdout: rootRaw }] = await Promise.all([
+			execFileAsync(
+				"git", ["status", "--porcelain", "-z", "--", "."],
+				{ cwd, maxBuffer: 16 * 1024 * 1024 },
+			),
+			execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd }),
+		]);
+		const repoRoot = await realpath(resolve(rootRaw.trim()));
+		const inputProjectRoot = resolve(cwd);
+		const projectRoot = await realpath(inputProjectRoot);
+		const toProjectPath = (canonicalPath: string): string | null => {
+			const scoped = relative(projectRoot, canonicalPath);
+			if (scoped === ".." || scoped.startsWith(`..${sep}`) || isAbsolute(scoped)) return null;
+			// 对外保留 ProjectStore 中的路径表示（Windows 可能是 8.3 短路径）。
+			return resolve(inputProjectRoot, scoped);
+		};
+		const resources = parsePorcelainStatus(statusRaw).flatMap((resource) => {
+			const displayPath = toProjectPath(resolve(repoRoot, resource.path));
+			if (!displayPath) return [];
+			const displayOldPath = resource.oldPath
+				? toProjectPath(resolve(repoRoot, resource.oldPath))
+				: null;
+			if (resource.oldPath && !displayOldPath) return [];
+			return [{
+				...resource,
+				path: displayPath,
+				...(displayOldPath ? { oldPath: displayOldPath } : {}),
+			}];
+		});
+		const groups: GitResourceGroups = { merge: [], index: [], workingTree: [], untracked: [] };
+		for (const resource of resources) {
+			if (resource.status === GitStatus.UNTRACKED) groups.untracked.push(resource);
+			else if (resource.status === GitStatus.INDEX_MODIFIED || resource.status === GitStatus.INDEX_ADDED ||
+				resource.status === GitStatus.INDEX_DELETED || resource.status === GitStatus.INDEX_RENAMED ||
+				resource.status === GitStatus.INDEX_COPIED || resource.status === GitStatus.INDEX_TYPE_CHANGED)
+				groups.index.push(resource);
+			else if (resource.status === GitStatus.ADDED_BY_US || resource.status === GitStatus.ADDED_BY_THEM ||
+				resource.status === GitStatus.DELETED_BY_US || resource.status === GitStatus.DELETED_BY_THEM ||
+				resource.status === GitStatus.BOTH_ADDED || resource.status === GitStatus.BOTH_DELETED || resource.status === GitStatus.BOTH_MODIFIED)
+				groups.merge.push(resource);
+			else groups.workingTree.push(resource);
+		}
+		return { groups, repoRoot, inputProjectRoot, projectRoot };
+	}
+
+	/** 获取 Git 工作区状态（VS Code 风格分组）。 */
+	async getStatus(cwd: string): Promise<GitResourceGroups> {
 		try {
-			const { stdout: repoRootRaw } = await execFileAsync(
-				"git",
-				["rev-parse", "--show-toplevel"],
-				{ cwd },
-			);
-			const repoRoot = resolve(repoRootRaw.trim());
-			const projectRoot = resolve(cwd);
-			const [{ stdout: stagedRaw }, { stdout: unstagedRaw }, { stdout: untrackedRaw }] =
-				await Promise.all([
-					execFileAsync(
-						"git",
-						["diff", "--cached", "--name-status", "-z", "--diff-filter=ACDMR"],
-						{ cwd: repoRoot },
-					),
-					execFileAsync(
-						"git",
-						["diff", "--name-status", "-z", "--diff-filter=ACDMR"],
-						{ cwd: repoRoot },
-					),
-					execFileAsync(
-						"git",
-						["ls-files", "--others", "--exclude-standard", "-z"],
-						{ cwd: repoRoot },
-					),
-				]);
-
-			const files: { path: string; status: string }[] = [];
-			const seen = new Set<string>();
-
-			// Git 始终返回仓库根相对路径；嵌套项目只展示自己目录内的变更。
-			const addFile = (repoRelativePath: string, status: string) => {
-				if (!repoRelativePath) return;
-				const absolutePath = resolve(repoRoot, repoRelativePath);
-				const projectRelativePath = relative(projectRoot, absolutePath);
-				if (
-					projectRelativePath === ".." ||
-					projectRelativePath.startsWith(`..${sep}`) ||
-					isAbsolute(projectRelativePath) ||
-					seen.has(absolutePath)
-				) return;
-				seen.add(absolutePath);
-				files.push({ path: absolutePath, status });
-			};
-
-			// `-z` 让 Git 用 NUL 分隔状态和路径，避免空格、引号或非 ASCII 文件名被拆坏。
-			// rename/copy 会额外返回旧路径；文件树徽标应绑定到当前存在的新路径。
-			const addDiffEntries = (raw: string) => {
-				const fields = raw.split("\0");
-				for (let index = 0; index < fields.length - 1; ) {
-					const statusToken = fields[index++];
-					const statusChar = statusToken[0];
-					const oldOrCurrentPath = fields[index++];
-					const isRenameOrCopy = statusChar === "R" || statusChar === "C";
-					const currentPath = isRenameOrCopy ? fields[index++] : oldOrCurrentPath;
-					const status =
-						statusChar === "A" ? "added"
-							: statusChar === "D" ? "deleted"
-								: statusChar === "R" ? "renamed"
-									: "modified";
-					addFile(currentPath, status);
-				}
-			};
-
-			addDiffEntries(stagedRaw);
-			addDiffEntries(unstagedRaw);
-
-			for (const path of untrackedRaw.split("\0")) {
-				addFile(path, "added");
-			}
-
-			return files;
+			return (await this.getStatusContext(cwd)).groups;
 		} catch {
-			return [];
+			return { merge: [], index: [], workingTree: [], untracked: [] };
 		}
 	}
 
 	/**
-	 * 获取 Git 工作区状态（VS Code 风格分组）。
-	 * 返回 merge/index/workingTree/untracked 四组资源。
-	 * 复刻 VS Code repository.ts 的 status() + Resource groups。
+	 * 按 VS Code SCM 资源组语义读取单个工作区文件的两侧快照。
+	 * 该方法只在点击资源行时执行，并先用最新 status 验证资源仍属于请求组；
+	 * 主进程同时按编辑器文件上限拒绝大对象，避免 renderer 和 Monaco 获得超大字符串。
 	 */
-	async getStatus(cwd: string): Promise<GitResourceGroups> {
+	async getWorkspaceFileDiff(
+		cwd: string,
+		group: GitResourceGroupType,
+		filePath: string,
+		maxBytes: number,
+	): Promise<GitWorkspaceFileDiff | null> {
 		try {
-			const { stdout: statusRaw } = await execFileAsync(
-				"git", ["status", "--porcelain", "-z"], { cwd, maxBuffer: 16 * 1024 * 1024 },
-			);
-			const resources = parsePorcelainStatus(statusRaw);
-			const groups: GitResourceGroups = {
-				merge: [], index: [], workingTree: [], untracked: [],
-			};
-			for (const r of resources) {
-				if (r.status === GitStatus.UNTRACKED) groups.untracked.push(r);
-				else if (r.status === GitStatus.INDEX_MODIFIED || r.status === GitStatus.INDEX_ADDED ||
-					r.status === GitStatus.INDEX_DELETED || r.status === GitStatus.INDEX_RENAMED)
-					groups.index.push(r);
-				else if (r.status === GitStatus.ADDED_BY_US || r.status === GitStatus.ADDED_BY_THEM ||
-					r.status === GitStatus.DELETED_BY_US || r.status === GitStatus.DELETED_BY_THEM ||
-					r.status === GitStatus.BOTH_ADDED || r.status === GitStatus.BOTH_DELETED || r.status === GitStatus.BOTH_MODIFIED)
-					groups.merge.push(r);
-				else groups.workingTree.push(r);
+			if (group !== "merge" && group !== "index" && group !== "workingTree" && group !== "untracked") {
+				return null;
 			}
-			return groups;
+			const {
+				groups,
+				repoRoot,
+				inputProjectRoot: inputRoot,
+				projectRoot,
+			} = await this.getStatusContext(cwd);
+			const samePath = (left: string, right: string) => process.platform === "win32"
+				? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+				: left === right;
+			const resource = groups[group].find((entry) => samePath(entry.path, resolve(filePath)));
+			if (!resource) return null;
+
+			const toRepoPath = (absolutePath: string) => {
+				const scoped = relative(inputRoot, resolve(absolutePath));
+				if (scoped === ".." || scoped.startsWith(`..${sep}`) || isAbsolute(scoped)) {
+					throw new Error("Git resource is outside the project");
+				}
+				const canonicalPath = resolve(projectRoot, scoped);
+				const result = relative(repoRoot, canonicalPath).replace(/\\/g, "/");
+				if (!result || result === ".." || result.startsWith("../") || isAbsolute(result)) {
+					throw new Error("Git resource is outside the repository");
+				}
+				return result;
+			};
+			const currentPath = toRepoPath(resource.path);
+			const oldPath = resource.oldPath ? toRepoPath(resource.oldPath) : currentPath;
+			const limit = Math.max(1, Math.floor(maxBytes));
+			const readBlob = async (blobRef: string): Promise<string | null> => {
+				try {
+					// maxBuffer 按字节硬限制输出；一次 git show 即可兼顾内存边界与较低进程开销。
+					const { stdout } = await execFileAsync("git", ["show", blobRef], {
+						cwd: repoRoot,
+						maxBuffer: limit + 1,
+					});
+					return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0") ? null : stdout;
+				} catch {
+					return null;
+				}
+			};
+			const readWorkingTree = async (): Promise<string | null> => {
+				try {
+					const pathMetadata = await lstat(resource.path);
+					if (pathMetadata.isSymbolicLink()) {
+						const target = await readlink(resource.path);
+						return Buffer.byteLength(target, "utf8") <= limit && !target.includes("\0") ? target : null;
+					}
+					if (!pathMetadata.isFile()) return null;
+					// 从同一个、不跟随 symlink 的文件句柄做有界读取，消除 stat/readFile 间增长或替换竞态。
+					const noFollow = process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
+					const handle = await open(resource.path, constants.O_RDONLY | noFollow);
+					try {
+						const metadata = await handle.stat();
+						if (!metadata.isFile() || metadata.size > limit) return null;
+						// 按打开后实际大小分配，仅多读 1 字节用于发现读取期间的增长。
+						const capacity = Math.min(limit + 1, Math.max(1, metadata.size + 1));
+						const content = Buffer.allocUnsafe(capacity);
+						let total = 0;
+						while (total < capacity) {
+							const { bytesRead } = await handle.read(content, total, capacity - total, total);
+							if (bytesRead === 0) break;
+							total += bytesRead;
+						}
+						if (total > limit) return null;
+						const bounded = content.subarray(0, total);
+						return bounded.includes(0) ? null : bounded.toString("utf8");
+					} finally {
+						await handle.close();
+					}
+				} catch {
+					return null;
+				}
+			};
+
+			let originalContent: string | null;
+			let modifiedContent: string | null;
+			if (group === "untracked") {
+				originalContent = "";
+				modifiedContent = await readWorkingTree();
+			} else if (group === "index") {
+				originalContent = resource.status === GitStatus.INDEX_ADDED
+					? ""
+					: await readBlob(`HEAD:${oldPath}`);
+				modifiedContent = resource.status === GitStatus.INDEX_DELETED
+					? ""
+					: await readBlob(`:${currentPath}`);
+			} else if (group === "workingTree") {
+				originalContent = await readBlob(`:${resource.oldPath ? oldPath : currentPath}`);
+				modifiedContent = resource.status === GitStatus.DELETED ? "" : await readWorkingTree();
+			} else {
+				const missingFromHead = resource.status === GitStatus.ADDED_BY_THEM ||
+					resource.status === GitStatus.DELETED_BY_US ||
+					resource.status === GitStatus.BOTH_DELETED;
+				originalContent = missingFromHead ? "" : await readBlob(`HEAD:${currentPath}`);
+				modifiedContent = resource.status === GitStatus.BOTH_DELETED ? "" : await readWorkingTree();
+			}
+			if (originalContent === null || modifiedContent === null) return null;
+			return { path: resource.path, originalContent, modifiedContent };
 		} catch {
-			return { merge: [], index: [], workingTree: [], untracked: [] };
+			return null;
 		}
 	}
 
@@ -230,8 +368,10 @@ export class GitService {
 		cwd: string,
 		options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean },
 	): Promise<CommitEntry[]> {
-		const COMMIT_FORMAT = "%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B";
-		const args = ["log", `--format=${COMMIT_FORMAT}`, "-z", "--topo-order"];
+		// 列表只需要 subject；完整 body 仅在按需 commit detail 中读取，避免无用的大字符串传输。
+		const COMMIT_FORMAT = "%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%s";
+		const maxEntries = Math.min(500, Math.max(1, Math.floor(options?.maxEntries ?? 32)));
+		const args = ["log", `--format=${COMMIT_FORMAT}`, "-z", "--topo-order", `-n${maxEntries}`];
 		const useAll = options?.allBranches ?? true;
 
 		if (useAll && !options?.ref) {
@@ -239,9 +379,9 @@ export class GitService {
 		}
 
 		if (options?.ref) {
-			args.push(options.ref);
-		} else {
-			args.push(`-n${options?.maxEntries ?? 32}`);
+			const hash = await this.resolveCommitHash(cwd, options.ref);
+			if (!hash) return [];
+			args.push(hash);
 		}
 
 		if (options?.path) {
@@ -285,8 +425,13 @@ export class GitService {
 		base: string,
 		target: string,
 	): Promise<BranchDiffResult> {
-		const range = `${base}...${target}`;
 		try {
+			const [baseHash, targetHash] = await Promise.all([
+				this.resolveCommitHash(cwd, base),
+				this.resolveCommitHash(cwd, target),
+			]);
+			if (!baseHash || !targetHash) return { files: [], ahead: 0, behind: 0 };
+			const range = `${baseHash}...${targetHash}`;
 			const [{ stdout: diffOut }, { stdout: countOut }] = await Promise.all([
 				execFileAsync(
 					"git",
@@ -321,8 +466,13 @@ export class GitService {
 		ref2: string,
 		filePath: string,
 	): Promise<string> {
-		const range = `${ref1}...${ref2}`;
 		try {
+			const [leftHash, rightHash] = await Promise.all([
+				this.resolveCommitHash(cwd, ref1),
+				this.resolveCommitHash(cwd, ref2),
+			]);
+			if (!leftHash || !rightHash) return "";
+			const range = `${leftHash}...${rightHash}`;
 			const { stdout } = await execFileAsync(
 				"git",
 				["diff", range, "--", filePath],
@@ -345,15 +495,14 @@ export class GitService {
 	): Promise<CommitDetail | null> {
 		const COMMIT_FORMAT = "%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B";
 		try {
-			// Renderer IPC 可被任意渲染代码调用，不能直接把 ref 放进 git show 的选项区。
-			// `--end-of-options` 将输入严格解析为 commit-ish，再只向后续命令传完整 hash。
-			const { stdout: resolvedRef } = await execFileAsync(
-				"git",
-				["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
-				{ cwd },
-			);
-			const commitHash = resolvedRef.trim();
-			if (!/^[0-9a-f]{40}$/i.test(commitHash)) return null;
+			// Graph 已提供完整 SHA 时直接使用；其他 renderer ref 必须先安全解析，不能进入 git 选项区。
+			const commitHash = /^[0-9a-f]{40}$/i.test(ref)
+				? ref
+				: await this.resolveCommitHash(cwd, ref);
+			if (!commitHash) return null;
+			const cacheKey = `${resolve(cwd)}\0${commitHash.toLowerCase()}`;
+			const cached = this.readCommitDetailCache(cacheKey);
+			if (cached) return cached;
 			const { stdout } = await execFileAsync(
 				"git",
 				["show", "-s", "--shortstat", `--format=${COMMIT_FORMAT}`, "-z", commitHash, "--"],
@@ -372,7 +521,11 @@ export class GitService {
 				maxBuffer: 32 * 1024 * 1024,
 			});
 
-			return { commit, files: parseDiffNameStatus(filesRaw) };
+			const detail = { commit, files: parseDiffNameStatus(filesRaw) };
+			// LRU 准入预算同时作为 IPC 硬上限，防止异常大 message/文件清单进入 renderer。
+			if (this.estimateCommitDetailBytes(detail) > this.commitDetailCacheByteLimit) return null;
+			this.writeCommitDetailCache(cacheKey, detail);
+			return detail;
 		} catch {
 			return null;
 		}
@@ -388,6 +541,7 @@ export class GitService {
 		ref: string,
 		filePath: string,
 		originalPath?: string,
+		maxBytes = 5 * 1024 * 1024,
 	): Promise<GitCommitFileDiff | null> {
 		try {
 			const detail = await this.getCommitDetail(cwd, ref);
@@ -399,23 +553,23 @@ export class GitService {
 
 			const parent = detail.commit.parents[0] ?? "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 			const oldPath = file.originalPath ?? file.path;
+			const limit = Math.max(1, Math.floor(maxBytes));
 			const readBlob = async (blobRef: string): Promise<string | null> => {
 				try {
 					const { stdout } = await execFileAsync("git", ["show", blobRef], {
 						cwd,
-						maxBuffer: 32 * 1024 * 1024,
+						maxBuffer: limit + 1,
 					});
-					return stdout;
+					return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0") ? null : stdout;
 				} catch {
 					return null;
 				}
 			};
-			// 只有 Git 状态明确表示该侧不存在时才返回空字符串。其他读取失败必须
-			// 向上传递为不可用，避免把损坏对象、权限错误或超限文件伪装成空文件。
-			const [originalContent, modifiedContent] = await Promise.all([
-				file.status === "added" ? Promise.resolve("") : readBlob(`${parent}:${oldPath}`),
-				file.status === "deleted" ? Promise.resolve("") : readBlob(`${detail.commit.hash}:${file.path}`),
-			]);
+			// 只有 Git 状态明确表示该侧不存在时才返回空字符串。两侧顺序读取，
+			// 避免两个接近上限的 git show 缓冲区同时驻留在主进程内存中。
+			const originalContent = file.status === "added" ? "" : await readBlob(`${parent}:${oldPath}`);
+			if (originalContent === null) return null;
+			const modifiedContent = file.status === "deleted" ? "" : await readBlob(`${detail.commit.hash}:${file.path}`);
 			if (originalContent === null || modifiedContent === null) return null;
 			return {
 				path: file.path,
@@ -428,14 +582,43 @@ export class GitService {
 		}
 	}
 
+	/**
+	 * 依据最新 status 校验 renderer 请求的资源，并为 rename/copy 补齐新旧两个 pathspec。
+	 * 这样既阻止项目目录外路径，也避免单路径 Unstage 留下旧路径的 staged deletion。
+	 */
+	private async resolveMutationPaths(
+		cwd: string,
+		paths: string[],
+		operation: "stage" | "unstage",
+	): Promise<string[]> {
+		const groups = await this.getStatus(cwd);
+		const candidates = operation === "stage"
+			? [...groups.merge, ...groups.workingTree, ...groups.untracked]
+			: groups.index;
+		const requested = new Set(paths.map((entry) => resolve(entry)));
+		const matched = candidates.filter((resource) => requested.has(resolve(resource.path)));
+		if (matched.length !== requested.size) throw new Error("Git resource is stale or outside the project");
+		return [...new Set(matched.flatMap((resource) => [resource.path, resource.oldPath].filter((entry): entry is string => Boolean(entry))))];
+	}
+
 	/** Stage 文件（git add） */
 	async stageFiles(cwd: string, paths: string[]): Promise<void> {
-		await execFileAsync("git", ["add", "--", ...paths], { cwd });
+		const safePaths = await this.resolveMutationPaths(cwd, paths, "stage");
+		if (safePaths.length === 0) return;
+		await execFileAsync("git", ["add", "--", ...safePaths], { cwd });
 	}
 
 	/** Unstage 文件（git restore --staged） */
 	async unstageFiles(cwd: string, paths: string[]): Promise<void> {
-		await execFileAsync("git", ["restore", "--staged", "--", ...paths], { cwd });
+		const safePaths = await this.resolveMutationPaths(cwd, paths, "unstage");
+		if (safePaths.length === 0) return;
+		const head = await this.resolveCommitHash(cwd, "HEAD");
+		if (head) {
+			await execFileAsync("git", ["restore", "--staged", "--", ...safePaths], { cwd });
+		} else {
+			// Unborn repository 没有 HEAD，restore --staged 无基线；从 index 移除但保留工作区文件。
+			await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", ...safePaths], { cwd });
+		}
 	}
 
 	/** 创建提交 */
@@ -567,50 +750,49 @@ function parsePorcelainStatus(raw: string): GitResource[] {
 	const result: GitResource[] = [];
 	const fields = raw.split("\0").filter(Boolean);
 
-	for (let i = 0; i < fields.length; ) {
-		const line = fields[i++]!;
+	for (let index = 0; index < fields.length; ) {
+		const line = fields[index++]!;
 		if (line.length < 3) continue;
 
 		const x = line[0]!; // index status
 		const y = line[1]!; // working tree status
-		let filePath = line.slice(3);
-		let oldPath: string | undefined;
+		const filePath = line.slice(3);
+		// porcelain -z 的 rename/copy 顺序是“当前路径\0原路径\0”，与普通可读格式相反。
+		const oldPath = x === "R" || x === "C" || y === "R" || y === "C"
+			? fields[index++]
+			: undefined;
+		const push = (status: GitStatus, letter: string, includeOldPath = false) => {
+			result.push({
+				path: filePath,
+				status,
+				letter,
+				...(includeOldPath && oldPath ? { oldPath } : {}),
+			});
+		};
 
-		// Rename: next field is the new path
-		if (x === "R" || x === "C") {
-			oldPath = filePath;
-			filePath = fields[i++] ?? filePath;
-		}
+		// 未解决冲突是一条独立资源，不能再同时拆入 index/workingTree。
+		if (x === "U" && y === "U") { push(GitStatus.BOTH_MODIFIED, "!"); continue; }
+		if (x === "A" && y === "A") { push(GitStatus.BOTH_ADDED, "!"); continue; }
+		if (x === "D" && y === "D") { push(GitStatus.BOTH_DELETED, "!"); continue; }
+		if (x === "A" && y === "U") { push(GitStatus.ADDED_BY_US, "!"); continue; }
+		if (x === "U" && y === "A") { push(GitStatus.ADDED_BY_THEM, "!"); continue; }
+		if (x === "D" && y === "U") { push(GitStatus.DELETED_BY_US, "!"); continue; }
+		if (x === "U" && y === "D") { push(GitStatus.DELETED_BY_THEM, "!"); continue; }
+		if (x === "?" && y === "?") { push(GitStatus.UNTRACKED, "U"); continue; }
+		if (x === "!" && y === "!") { push(GitStatus.IGNORED, "I"); continue; }
 
-		let status: number;
-		let letter: string;
+		// X 与 Y 必须分别生成资源：同一文件可以同时含“已暂存”和“未暂存”修改。
+		if (x === "M") push(GitStatus.INDEX_MODIFIED, "M");
+		else if (x === "A") push(GitStatus.INDEX_ADDED, "A");
+		else if (x === "D") push(GitStatus.INDEX_DELETED, "D");
+		else if (x === "R") push(GitStatus.INDEX_RENAMED, "R", true);
+		else if (x === "C") push(GitStatus.INDEX_COPIED, "C", true);
+		else if (x === "T") push(GitStatus.INDEX_TYPE_CHANGED, "T");
 
-		// Merge conflicts
-		if (x === "U" && y === "U") { status = GitStatus.BOTH_MODIFIED; letter = "!"; }
-		else if (x === "A" && y === "A") { status = GitStatus.BOTH_ADDED; letter = "!"; }
-		else if (x === "D" && y === "D") { status = GitStatus.BOTH_DELETED; letter = "!"; }
-		else if (x === "A" && y === "U") { status = GitStatus.ADDED_BY_US; letter = "!"; }
-		else if (x === "U" && y === "A") { status = GitStatus.ADDED_BY_THEM; letter = "!"; }
-		else if (x === "D" && y === "U") { status = GitStatus.DELETED_BY_US; letter = "!"; }
-		else if (x === "U" && y === "D") { status = GitStatus.DELETED_BY_THEM; letter = "!"; }
-		// Index changes
-		else if (x === "M") { status = GitStatus.INDEX_MODIFIED; letter = "M"; }
-		else if (x === "A") { status = GitStatus.INDEX_ADDED; letter = "A"; }
-		else if (x === "D") { status = GitStatus.INDEX_DELETED; letter = "D"; }
-		else if (x === "R") { status = GitStatus.INDEX_RENAMED; letter = "R"; }
-		else if (x === "C") { status = GitStatus.INDEX_COPIED; letter = "C"; }
-		else if (x === "T") { status = GitStatus.TYPE_CHANGED; letter = "T"; }
-		// Working tree changes
-		else if (y === "M") { status = GitStatus.MODIFIED; letter = "M"; }
-		else if (y === "D") { status = GitStatus.DELETED; letter = "D"; }
-		// Untracked / Ignored
-		else if (x === "?" && y === "?") { status = GitStatus.UNTRACKED; letter = "U"; }
-		else if (x === "!" && y === "!") { status = GitStatus.IGNORED; letter = "I"; }
-		// Type changed
-		else if (y === "T") { status = GitStatus.TYPE_CHANGED; letter = "T"; }
-		else { status = GitStatus.MODIFIED; letter = "M"; } // fallback
-
-		result.push({ path: filePath, status: status as import("../../shared/types").GitStatus, letter, oldPath });
+		if (y === "M") push(GitStatus.MODIFIED, "M");
+		else if (y === "D") push(GitStatus.DELETED, "D");
+		else if (y === "R" || y === "C") push(GitStatus.INTENT_TO_RENAME, "R", true);
+		else if (y === "T") push(GitStatus.TYPE_CHANGED, "T");
 	}
 
 	return result;

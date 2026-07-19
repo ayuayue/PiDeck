@@ -10,7 +10,7 @@ import rehypeKatex from "rehype-katex";
 import { defaultUrlTransform } from "react-markdown";
 
 const BINARY_EXTENSIONS = new Set([
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
+	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
 	"mp3", "wav", "ogg", "flac", "m4a",
 	"mp4", "avi", "mkv", "mov", "webm",
 	"zip", "tar", "gz", "bz2", "7z", "rar",

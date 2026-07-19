@@ -831,6 +831,8 @@ export enum GitStatus {
 	BOTH_ADDED,
 	BOTH_DELETED,
 	BOTH_MODIFIED,
+	/** 追加在末尾以保持既有 GitStatus 数值稳定。 */
+	INDEX_TYPE_CHANGED,
 }
 
 /** Git 资源组类型，对应 VS Code ResourceGroupType */
@@ -854,6 +856,20 @@ export type GitResourceGroups = {
 	index: GitResource[];
 	workingTree: GitResource[];
 	untracked: GitResource[];
+};
+
+/** Git Changes 各资源组打开 Diff 时的比较上下文。 */
+export type GitWorkspaceDiffGroup = GitResourceGroupType;
+
+/**
+ * Git 工作区单文件 Diff 的两侧快照。内容只在用户点击资源行时读取，
+ * 不随 status 轮询返回，避免在常驻 Git 抽屉中缓存所有变更文件内容。
+ */
+export type GitWorkspaceFileDiff = {
+	/** 当前工作区文件绝对路径，供只读 Diff Viewer 识别语言和标签。 */
+	path: string;
+	originalContent: string;
+	modifiedContent: string;
 };
 
 // ── Git 增强：提交历史 / 分支对比 / Graph ──────────────────────────────

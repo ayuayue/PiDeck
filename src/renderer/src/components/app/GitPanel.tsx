@@ -7,6 +7,7 @@ import type {
   CommitEntry,
   GitChangedFile,
   GitFileStatus,
+  GitResourceGroupType,
   GitResourceGroups,
 } from "../../../../shared/types";
 import { GitStatus } from "../../../../shared/types";
@@ -18,6 +19,7 @@ type GitPanelProps = {
   commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; allBranches?: boolean }) => Promise<CommitEntry[]>;
   commitDetail: (projectId: string, ref: string) => Promise<CommitDetail | null>;
   onOpenCommitFileDiff: (commit: CommitEntry, file: GitChangedFile) => void | Promise<void>;
+  onOpenWorkspaceFileDiff: (group: GitResourceGroupType, path: string) => void | Promise<void>;
   branchCompare: (projectId: string, base: string, target: string) => Promise<BranchDiffResult>;
   getStatus: (projectId: string) => Promise<GitResourceGroups>;
   stageFiles: (projectId: string, paths: string[]) => Promise<void>;
@@ -268,31 +270,56 @@ function ResourceRow(props: {
   path: string;
   compareStatus?: GitFileStatus;
   action?: { label: string; run: () => void };
+  onOpen?: () => void | Promise<void>;
 }) {
+  const [opening, setOpening] = useState(false);
   const name = fileNameOnly(props.path);
   const tone = props.compareStatus ? statusTone(props.compareStatus, true) : statusTone(props.status);
   const letter = props.compareStatus ? compareStatusLetter(props.compareStatus) : props.letter;
   return (
     <div className={`git-resource-row ${tone}`} title={props.path}>
-      <FileIcon name={name} />
-      <span className="git-resource-name">{name}</span>
-      <span className="git-resource-path">{props.path}</span>
+      {props.onOpen ? (
+        <button
+          type="button"
+          className="git-resource-open"
+          aria-label={t("git.openWorkspaceDiff", { path: props.path })}
+          aria-busy={opening}
+          disabled={opening}
+          onClick={async () => {
+            setOpening(true);
+            try {
+              await props.onOpen?.();
+            } finally {
+              setOpening(false);
+            }
+          }}
+        >
+          <FileIcon name={name} />
+          <span className="git-resource-name">{name}</span>
+          <span className="git-resource-path">{props.path}</span>
+        </button>
+      ) : (
+        <div className="git-resource-open static">
+          <FileIcon name={name} />
+          <span className="git-resource-name">{name}</span>
+          <span className="git-resource-path">{props.path}</span>
+        </div>
+      )}
       {props.action && (
         <div className="git-resource-actions">
           <button
             type="button"
             className="git-action-btn git-stage-action"
             aria-label={props.action.label}
-            onClick={(event) => {
-              event.stopPropagation();
-              props.action?.run();
-            }}
+            onClick={() => props.action?.run()}
           >
             <GitStageGlyph unstage={props.action.label === t("git.unstage")} />
           </button>
         </div>
       )}
-      <span className="git-decoration" aria-hidden="true">{letter}</span>
+      <span className="git-decoration" aria-hidden="true">
+        {opening ? <Loader2 size={13} className="git-spin" /> : letter}
+      </span>
     </div>
   );
 }
@@ -686,7 +713,16 @@ export function GitPanel(props: GitPanelProps) {
             <div className="git-resource-list">
               {groups.merge.length > 0 && (
                 <ResourceGroup title={t("git.mergeChanges")} count={groups.merge.length} open={resourceOpen.merge} onToggle={() => toggleResource("merge")}>
-                  {groups.merge.map((resource) => <ResourceRow key={resource.path} status={resource.status} letter={resource.letter} path={resource.path} />)}
+                  {groups.merge.map((resource) => (
+                    <ResourceRow
+                      key={resource.path}
+                      status={resource.status}
+                      letter={resource.letter}
+                      path={resource.path}
+                      onOpen={() => props.onOpenWorkspaceFileDiff("merge", resource.path)}
+                      action={{ label: t("git.stage"), run: () => act(() => props.stageFiles(props.projectId, [resource.path])) }}
+                    />
+                  ))}
                 </ResourceGroup>
               )}
               {groups.index.length > 0 && (
@@ -704,6 +740,7 @@ export function GitPanel(props: GitPanelProps) {
                       status={resource.status}
                       letter={resource.letter}
                       path={resource.path}
+                      onOpen={() => props.onOpenWorkspaceFileDiff("index", resource.path)}
                       action={{ label: t("git.unstage"), run: () => act(() => props.unstageFiles(props.projectId, [resource.path])) }}
                     />
                   ))}
@@ -724,6 +761,10 @@ export function GitPanel(props: GitPanelProps) {
                       status={resource.status}
                       letter={resource.letter}
                       path={resource.path}
+                      onOpen={() => props.onOpenWorkspaceFileDiff(
+                        resource.status === GitStatus.UNTRACKED ? "untracked" : "workingTree",
+                        resource.path,
+                      )}
                       action={{ label: t("git.stage"), run: () => act(() => props.stageFiles(props.projectId, [resource.path])) }}
                     />
                   ))}
@@ -1007,6 +1048,25 @@ type CommitDetailState = {
   error: string | null;
 };
 
+const GRAPH_DETAIL_CACHE_LIMIT = 16;
+const GRAPH_DETAIL_CACHE_BYTE_LIMIT = 2 * 1024 * 1024;
+
+function estimateGraphDetailBytes(state: CommitDetailState): number {
+  if (!state.detail) return (state.error?.length ?? 0) * 2 + 64;
+  const { commit, files } = state.detail;
+  const text = [
+    commit.hash,
+    commit.authorName,
+    commit.authorEmail,
+    commit.message,
+    commit.fullMessage ?? "",
+    ...commit.parents,
+    ...commit.refNames,
+  ];
+  for (const file of files) text.push(file.path, file.originalPath ?? "");
+  return text.reduce((sum, value) => sum + value.length * 2, 0) + files.length * 64;
+}
+
 function CommitHoverCard(props: {
   hover: CommitHoverState;
   state: CommitDetailState | undefined;
@@ -1087,6 +1147,7 @@ function SourceControlGraph(props: {
   const loadSequence = useRef(0);
   const detailSequence = useRef(0);
   const detailStateRef = useRef<Record<string, CommitDetailState>>({});
+  const detailAccessOrder = useRef<string[]>([]);
   const detailRequests = useRef(new Map<string, Promise<CommitDetail | null>>());
   const hoverTimer = useRef<number | null>(null);
 
@@ -1101,6 +1162,7 @@ function SourceControlGraph(props: {
     detailSequence.current += 1;
     detailRequests.current.clear();
     detailStateRef.current = {};
+    detailAccessOrder.current = [];
     setDetailStates({});
     setExpandedHashes(new Set());
     setHover(null);
@@ -1108,14 +1170,37 @@ function SourceControlGraph(props: {
   }, [clearHoverTimer]);
 
   const updateDetailState = useCallback((hash: string, state: CommitDetailState) => {
-    detailStateRef.current = { ...detailStateRef.current, [hash]: state };
-    setDetailStates(detailStateRef.current);
+    const next = { ...detailStateRef.current, [hash]: state };
+    detailAccessOrder.current = [...detailAccessOrder.current.filter((entry) => entry !== hash), hash];
+    const totalBytes = () => Object.values(next).reduce((sum, entry) => sum + estimateGraphDetailBytes(entry), 0);
+    const evicted: string[] = [];
+    while (
+      detailAccessOrder.current.length > GRAPH_DETAIL_CACHE_LIMIT ||
+      totalBytes() > GRAPH_DETAIL_CACHE_BYTE_LIMIT
+    ) {
+      const oldest = detailAccessOrder.current.shift();
+      if (!oldest) break;
+      delete next[oldest];
+      evicted.push(oldest);
+    }
+    if (evicted.length > 0) {
+      setExpandedHashes((current) => {
+        const updated = new Set(current);
+        for (const evictedHash of evicted) updated.delete(evictedHash);
+        return updated;
+      });
+    }
+    detailStateRef.current = next;
+    setDetailStates(next);
   }, []);
 
   const loadCommitDetail = useCallback((hash: string): Promise<CommitDetail | null> => {
     const cached = detailStateRef.current[hash];
     // 成功和失败结果都保留到 Graph 下次刷新；否则不可用的提交会在每次 hover 时重复拉起 Git 子进程。
-    if (cached && !cached.loading) return Promise.resolve(cached.detail);
+    if (cached && !cached.loading) {
+      detailAccessOrder.current = [...detailAccessOrder.current.filter((entry) => entry !== hash), hash];
+      return Promise.resolve(cached.detail);
+    }
     const pending = detailRequests.current.get(hash);
     if (pending) return pending;
 

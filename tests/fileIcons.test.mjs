@@ -67,11 +67,13 @@ describe("Seti file icon integration", () => {
     assert.match(sharedLookup, /SETI_COLOR_TO_CSS/);
   });
 
-  test("Git changed-file parser preserves paths and renamed status", () => {
+  test("Git status and history parsers preserve rename paths", () => {
     const source = readFileSync("src/main/git/GitService.ts", "utf8");
     assert.match(source, /"--name-status", "-z"/);
-    assert.match(source, /statusChar === "R" \? "renamed"/);
+    assert.match(source, /statusChar === "R" \|\| statusChar === "C" \? "renamed"/);
     assert.match(source, /const currentPath = isRenameOrCopy \? fields\[index\+\+\]/);
+    assert.match(source, /porcelain -z 的 rename\/copy 顺序是“当前路径\\0原路径\\0”/);
+    assert.match(source, /includeOldPath && oldPath/);
   });
 
   test("stylesheet sizes and colors Seti SVG icons", () => {

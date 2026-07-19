@@ -321,7 +321,6 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			// 预览环境无真实 Git，返回空原始内容，差异左侧显示为空。
 			originalContent: async () => "",
-			changedFiles: async () => [],
 			worktreeList: async () => [],
 			worktreeCreate: async (_projectId, branchName) => ({
 				path: `/tmp/worktree/${branchName}`,
@@ -335,6 +334,7 @@ export function createPreviewApi(): PiDesktopApi {
 				commitFileDiff: async () => null,
 				diffFileBetween: async () => "",
 				status: async () => ({ merge: [], index: [], workingTree: [], untracked: [] }),
+				workspaceFileDiff: async () => null,
 				stage: async () => {},
 				unstage: async () => {},
 				commit: async () => {},

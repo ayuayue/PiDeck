@@ -169,6 +169,7 @@ import type {
   GitBranchInfo,
   CommitEntry,
   GitChangedFile,
+  GitResourceGroupType,
   WorktreeEntry,
   ImageContent,
   PiCommand,
@@ -798,7 +799,9 @@ export function App() {
       return next;
     });
   }, []);
-  /** Editor tab：文件中转查看/差异查看。最多 5 个，超出移除最早打开的那个。 */
+  /** Editor tab：文件中转查看/差异查看。条数与正文估算内存双重受限。 */
+  const EDITOR_TAB_LIMIT = 5;
+  const EDITOR_TAB_TEXT_BUDGET = 24 * 1024 * 1024;
   interface EditorTab {
     id: string;
     filePath: string;
@@ -811,7 +814,12 @@ export function App() {
     tabKey?: string;
     /** 历史 Diff 在标签中追加短 hash，便于区分同一路径的不同提交。 */
     label?: string;
+    /** Git Diff 覆盖在 Git drawer 上，不允许切换成 Editor drawer 破坏原面板状态。 */
+    preserveDrawer?: boolean;
+    /** 仅用于内存淘汰，不改变 tab 的可见排列顺序。 */
+    lastAccess: number;
   }
+  const editorTabAccessSequenceRef = useRef(0);
   const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   /** 当前活跃 tab 派生数据 */
@@ -832,7 +840,25 @@ export function App() {
     (path: string, content: string) => api.files.writeContent(path, content),
     [],
   );
-  /** 打开（或切换到已存在的）编辑器 tab。已打开时跳转；未打开时新增，超过 5 个淘汰最早 tab。 */
+  const editorTabTextBytes = (tab: EditorTab) =>
+    (tab.originalContent.length + (tab.modifiedContent?.length ?? 0)) * 2;
+  const trimEditorTabs = (tabs: EditorTab[], protectedId: string) => {
+    const next = [...tabs];
+    let textBytes = next.reduce((sum, tab) => sum + editorTabTextBytes(tab), 0);
+    while (
+      next.length > 1 &&
+      (next.length > EDITOR_TAB_LIMIT || textBytes > EDITOR_TAB_TEXT_BUDGET)
+    ) {
+      const candidates = next.filter((tab) => tab.id !== protectedId);
+      if (candidates.length === 0) break;
+      const oldest = candidates.reduce((left, right) => left.lastAccess <= right.lastAccess ? left : right);
+      const index = next.findIndex((tab) => tab.id === oldest.id);
+      const [removed] = next.splice(index, 1);
+      if (removed) textBytes -= editorTabTextBytes(removed);
+    }
+    return next;
+  };
+  /** 打开或切换 tab。命中时更新访问序号；超条数/正文预算时淘汰最久未访问项。 */
   const openEditorTab = useCallback(
     (
       path: string,
@@ -842,16 +868,26 @@ export function App() {
       allowSave = true,
       tabKey?: string,
       label?: string,
+      preserveDrawer = false,
     ) => {
       setEditorTabs((prev) => {
         const existing = prev.find((t) => t.filePath === path && t.tabKey === tabKey);
         if (existing) {
-          // 已打开的 tab：更新 mode 和 content（工具 diff 可能和普通查看模式不同）
+          const updated = {
+            ...existing,
+            mode,
+            originalContent: originalContent ?? "",
+            modifiedContent,
+            allowSave,
+            tabKey,
+            label,
+            preserveDrawer,
+            lastAccess: ++editorTabAccessSequenceRef.current,
+          };
           setActiveTabId(existing.id);
-          return prev.map((t) =>
-            t.id === existing.id
-              ? { ...t, mode, originalContent: originalContent ?? "", modifiedContent, allowSave, tabKey, label }
-              : t,
+          return trimEditorTabs(
+            prev.map((tab) => tab.id === existing.id ? updated : tab),
+            existing.id,
           );
         }
         const newTab: EditorTab = {
@@ -863,9 +899,10 @@ export function App() {
           allowSave,
           tabKey,
           label,
+          preserveDrawer,
+          lastAccess: ++editorTabAccessSequenceRef.current,
         };
-        const next = [...prev, newTab];
-        if (next.length > 5) next.shift();
+        const next = trimEditorTabs([...prev, newTab], newTab.id);
         setActiveTabId(newTab.id);
         return next;
       });
@@ -892,6 +929,9 @@ export function App() {
   );
   /** 切换活跃 tab。 */
   const selectEditorTab = useCallback((tabId: string) => {
+    setEditorTabs((current) => current.map((tab) => tab.id === tabId
+      ? { ...tab, lastAccess: ++editorTabAccessSequenceRef.current }
+      : tab));
     setActiveTabId(tabId);
   }, []);
   /** 稳定版文件读写回调，避免内联函数导致 FileDiffViewer 的 useEffect 每轮渲染都重新触发。 */
@@ -2892,6 +2932,40 @@ export function App() {
     openEditorTab(path, "diff", resolvedOriginal, resolvedModified);
   }
 
+  async function openWorkspaceFileDiff(group: GitResourceGroupType, path: string) {
+    if (!activeProjectId) return;
+    const projectId = activeProjectId;
+    try {
+      const diff = await api.git.workspaceFileDiff(projectId, group, path);
+      if (activeProjectIdRef.current !== projectId) return;
+      if (!diff) {
+        showToast(t("git.workspaceDiffUnavailable"));
+        return;
+      }
+      const groupLabel = group === "index"
+        ? t("git.stagedChanges")
+        : group === "merge"
+          ? t("git.mergeChanges")
+          : t("git.changes");
+      // Git SCM 的工作区/暂存区快照均按只读 Diff 展示；内容仅在点击时读取，关闭弹窗即释放 tab 引用。
+      setEditorMode("modal");
+      openEditorTab(
+        diff.path,
+        "diff",
+        diff.originalContent,
+        diff.modifiedContent,
+        false,
+        `workspace:${projectId}:${group}:${diff.path}`,
+        `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${groupLabel})`,
+        true,
+      );
+    } catch (error) {
+      if (activeProjectIdRef.current === projectId) {
+        showToast(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+
   async function openCommitFileDiff(commit: CommitEntry, file: GitChangedFile) {
     if (!activeProjectId) return;
     const projectId = activeProjectId;
@@ -2908,9 +2982,8 @@ export function App() {
         showToast(t("git.fileDiffUnavailable"));
         return;
       }
-      // 历史快照由 Git 直接提供两侧内容，复用 Monaco Diff Viewer，但始终以只读弹框展示。
+      // 历史快照复用只读 Monaco Diff Viewer；保留 Git drawer 挂载以维持 pane、展开与滚动状态。
       setEditorMode("modal");
-      setDrawer(null);
       openEditorTab(
         diff.path,
         "diff",
@@ -2919,6 +2992,7 @@ export function App() {
         false,
         `${commit.hash}:${diff.path}`,
         `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${commit.shortHash})`,
+        true,
       );
     } catch (error) {
       if (activeProjectIdRef.current === projectId) {
@@ -6403,7 +6477,7 @@ ${goalTextRef.current}
               displayMode="drawer"
               filePath={activeTab.filePath}
               mode={activeTab.mode}
-              onToggleMode={toggleEditorMode}
+              onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
               originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
               modifiedContent={activeTab.modifiedContent}
               tabs={editorTabs}
@@ -6443,6 +6517,7 @@ ${goalTextRef.current}
               commitLog={api.git.commitLog}
               commitDetail={api.git.commitDetail}
               onOpenCommitFileDiff={openCommitFileDiff}
+              onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
               branchCompare={api.git.branchCompare}
               getStatus={api.git.status}
               stageFiles={api.git.stage}
@@ -7115,7 +7190,7 @@ ${goalTextRef.current}
           displayMode="modal"
           filePath={activeTab.filePath}
           mode={activeTab.mode}
-          onToggleMode={toggleEditorMode}
+          onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
           originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
           modifiedContent={activeTab.modifiedContent}
           tabs={editorTabs}
