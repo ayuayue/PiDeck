@@ -191,10 +191,14 @@ export function BrowserPanel(props: {
 		}
 		applyDeviceUserAgent(wv, moduleState.device);
 
+		let navigatedOnce = false;
 		const onDomReady = () => {
 			webviewReadyRef.current = true;
-			// 如果有 pending 外部导航，webview 就绪后立即执行
-			if (moduleState.navigateKey > 0) {
+			// 仅首次 dom-ready 时消费外部导航（navigateTo 调用），
+			// 避免后续每次页面加载都触发 loadURL 导致无限刷新。
+			if (!navigatedOnce && moduleState.navigateKey > 0) {
+				navigatedOnce = true;
+				moduleState.navigateKey = 0;
 				const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
 				if (activeTab) {
 					applyDeviceUserAgent(wv, moduleState.device);
