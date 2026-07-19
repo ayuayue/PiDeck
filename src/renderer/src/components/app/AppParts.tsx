@@ -118,7 +118,7 @@ import { parseRichInputChips, type RichInputChip } from "./RichInput";
 /** 复用 petdex 标准网格规格，在主设置面板里为宠物选择器渲染单格动画预览 */
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
-export type DrawerPanel = "files" | "sessions" | "browser" | "editor";
+export type DrawerPanel = "files" | "sessions" | "browser" | "editor" | "git";
 
 export type SessionModifiedFile = {
 	path: string;
@@ -3817,6 +3817,7 @@ export function ConversationOutline(props: {
 	extraAction?: EntryAction;
 	terminalAction?: EntryAction;
 	filesAction?: EntryAction;
+	gitAction?: EntryAction;
 	editorsAction?: EntryAction & { anchorRef?: React.RefObject<HTMLButtonElement | null> };
 	browserAction?: EntryAction;
 }) {
@@ -3950,6 +3951,17 @@ export function ConversationOutline(props: {
 					{props.filesAction.icon}
 				</button>
 			)}
+			{props.gitAction && (
+				<button
+					type="button"
+					className={`git-entry${props.gitAction.active ? " active" : ""}`}
+					title={props.gitAction.label}
+					aria-label={props.gitAction.label}
+					onClick={props.gitAction.onClick}
+				>
+					{props.gitAction.icon}
+				</button>
+			)}
 			{props.editorsAction && (
 				<button
 					type="button"
@@ -3995,10 +4007,9 @@ export function DrawerContent(props: {
 	files: FileTreeNode[];
 	sessions: SessionSummary[];
 	sessionsLoading?: boolean;
-	/** Git 工作区中对比 HEAD 有变更的文件列表 */
-	gitChangedFiles: { path: string; status: string }[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
+	onCollapseAllDirectories: () => void;
 	pinned: boolean;
 	onTogglePin: () => void;
 	onCollapse: () => void;
@@ -4012,7 +4023,6 @@ export function DrawerContent(props: {
 	onCopySession: (session: SessionSummary) => void | Promise<void>;
 	onExportSession: (session: SessionSummary) => void | Promise<void>;
 	onDeleteSession: (session: SessionSummary) => void | Promise<void>;
-	onDiffFile?: DiffFileHandler;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
 }) {
@@ -4048,18 +4058,12 @@ export function DrawerContent(props: {
 			{props.panel === "files" && (
 				<FilesPanel
 					files={props.files}
-					// 将 Git 变更文件列表转换为 SessionModifiedFile 格式传入 FilesPanel 展示
-					modifiedFiles={props.gitChangedFiles.map((f) => ({
-						path: f.path,
-						toolName: "git",
-						status: f.status,
-					}))}
 					expandedDirs={props.expandedDirs}
 					onToggleDirectory={props.onToggleDirectory}
+					onCollapseAll={props.onCollapseAllDirectories}
 					onFileContextMenu={props.onFileContextMenu}
 					onRefreshFiles={props.onRefreshFiles}
 					onOpenFolder={props.onOpenFolder}
-					onDiffFile={props.onDiffFile}
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
 				/>
@@ -4079,51 +4083,18 @@ export function DrawerContent(props: {
 	);
 }
 
-const MODIFIED_FILES_PREVIEW_LIMIT = 5;
-const MODIFIED_FILES_EXPANDED_STORAGE_KEY = "pid:modified-files-expanded";
-
 function FilesPanel(props: {
 	files: FileTreeNode[];
-	/** Git 工作区中对比 HEAD 有变更的文件；会话卡片的修改摘要不使用该数据源。 */
-	modifiedFiles: SessionModifiedFile[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onRefreshFiles: () => void;
+	/** 收起文件树中所有已展开的目录，清空 expandedDirs。 */
+	onCollapseAll?: () => void;
 	onOpenFolder?: () => void;
-	onDiffFile?: DiffFileHandler;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
 }) {
-	const [modifiedFilesExpanded, setModifiedFilesExpanded] = useState(() => {
-		if (typeof window === "undefined") return false;
-		return localStorage.getItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY) === "true";
-	});
-	const handleToggleModifiedFiles = useCallback(() => {
-		setModifiedFilesExpanded((current) => {
-			const next = !current;
-			localStorage.setItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY, String(next));
-			return next;
-		});
-	}, []);
-	// 后端按修改时间升序传入；抽屉顶部优先展示最新文件，避免文件多时用户看不到刚改的内容。
-	const latestModifiedFiles = [...props.modifiedFiles].reverse();
-	const visibleModifiedFiles = modifiedFilesExpanded
-		? latestModifiedFiles
-		: latestModifiedFiles.slice(0, MODIFIED_FILES_PREVIEW_LIMIT);
-	const hiddenModifiedFileCount = Math.max(
-		0,
-		latestModifiedFiles.length - visibleModifiedFiles.length,
-	);
-
-	const gitStatusMap = useMemo(() => {
-		const map = new Map<string, string>();
-		for (const f of props.modifiedFiles) {
-			if (f.toolName === "git" && f.status) map.set(f.path, f.status);
-		}
-		return map;
-	}, [props.modifiedFiles]);
-
 	return (
 		<div className="files-panel">
 			<div className="panel-action-row">
@@ -4135,73 +4106,28 @@ function FilesPanel(props: {
 							{t("drawer.openFolder")}
 						</button>
 					)}
-					<button onClick={props.onRefreshFiles}>{t("common.refresh")}</button>
-				</div>
-			</div>
-			{props.modifiedFiles.length > 0 && (
-				<div className="modified-files-section">
-					<div className="modified-files-header">
-						<span>{t("drawer.gitChangedFiles")}</span>
-						<small>{t("drawer.gitChangedFilesDesc")}</small>
-					</div>
-					{visibleModifiedFiles.map((file) => {
-						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
-						const isRunning = file.status === "running";
-						// 构造最小的 FileTreeNode 以复用右键菜单,保持修改清单和文件树相同的打开/定位入口。
-						const fakeNode: FileTreeNode = {
-							name: fileName,
-							path: file.path,
-							relativePath: file.path,
-							type: "file",
-						};
-						return (
-							<div
-								key={file.path}
-								className={`modified-file-row${isRunning ? " running" : ""}`}
-								title={file.path}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									props.onFileContextMenu(fakeNode, e.clientX, e.clientY);
-								}}
-								onClick={() => props.onDiffFile?.(file.path, file.originalContent, file.content)}
-							>
-								<span
-									className={`modified-file-icon${isRunning ? "" : " done"}`}
-								>
-									{file.toolName === "git"
-										? gitStatusIcon(file.status)
-										: isRunning
-											? "◌"
-											: "✓"}
-								</span>
-								<span className="modified-file-name">{fileName}</span>
-								{file.toolName === "git" && file.status !== "deleted" && (
-									<span className="modified-file-lines">{file.status === "added" ? "新" : "改"}</span>
-								)}
-								{file.toolName !== "git" && Boolean(file.changedLines) && (
-									<span className="modified-file-lines">
-										{t("drawer.changedLines", {
-											count: file.changedLines ?? 0,
-										})}
-									</span>
-								)}
-								<span className="modified-file-tool">{file.toolName}</span>
-							</div>
-						);
-					})}
-					{latestModifiedFiles.length > MODIFIED_FILES_PREVIEW_LIMIT && (
+					{/* 刷新与全部收起使用纯图标按钮，保持工具栏紧凑、与列表项字号对齐 */}
+					<button
+						className="icon-only"
+						onClick={props.onRefreshFiles}
+						title={t("common.refresh")}
+						aria-label={t("common.refresh")}
+					>
+						<RefreshCw size={14} />
+					</button>
+					{props.onCollapseAll && (
 						<button
-							className="modified-files-toggle"
-							type="button"
-							onClick={handleToggleModifiedFiles}
+							className="icon-only"
+							onClick={props.onCollapseAll}
+							title={t("drawer.collapseAllDirs")}
+							aria-label={t("drawer.collapseAllDirs")}
+							disabled={props.expandedDirs.size === 0}
 						>
-							{modifiedFilesExpanded
-								? t("common.collapse")
-								: t("drawer.moreFiles", { count: hiddenModifiedFileCount })}
+							<ChevronsDownUp size={14} />
 						</button>
 					)}
 				</div>
-			)}
+			</div>
 			{props.files.map((node) => (
 				<FileNode
 					key={node.path}
@@ -4211,8 +4137,6 @@ function FilesPanel(props: {
 					onFileContextMenu={props.onFileContextMenu}
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
-					onDiffFile={props.onDiffFile}
-					gitStatuses={gitStatusMap}
 				/>
 			))}
 		</div>
@@ -4378,14 +4302,11 @@ function FileNode(props: {
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
-	onDiffFile?: (path: string) => void;
-	gitStatuses?: Map<string, string>;
 	depth?: number;
 }) {
-	const { node, expandedDirs, onToggleDirectory, depth = 0, gitStatuses } = props;
+	const { node, expandedDirs, onToggleDirectory, depth = 0 } = props;
 	const expanded = expandedDirs.has(node.path);
 	const typeLabel = node.type === "file" ? getFileTypeLabel(node.name) : "";
-	const gitStatus = gitStatuses?.get(node.path);
 	const rowStyle = { "--file-depth-offset": `${depth * 16}px` } as CSSProperties;
 	const menu = (event: React.MouseEvent) => {
 		event.preventDefault();
@@ -4400,9 +4321,6 @@ function FileNode(props: {
 					onContextMenu={menu}>
 					<span className="file-node-icon">
 						{fileIconElement(node.name, false, false)}
-						{gitStatus && (
-							<span aria-hidden="true" className={`file-node-git-badge git-${gitStatus}`} />
-						)}
 					</span>
 					<span className="file-node-name">{node.name}</span>
 					<span className="file-node-type-label">{typeLabel}</span>
@@ -4429,27 +4347,12 @@ function FileNode(props: {
 							onFileContextMenu={props.onFileContextMenu}
 							onOpenFile={props.onOpenFile}
 							onViewFile={props.onViewFile}
-							onDiffFile={props.onDiffFile}
-							gitStatuses={gitStatuses}
 							depth={depth + 1} />
 					))}
 				</div>
 			)}
 		</div>
 	);
-}
-
-function gitStatusIcon(status: string): string {
-	switch (status) {
-		case "added":
-			return "+";
-		case "deleted":
-			return "×";
-		case "renamed":
-			return "→";
-		default:
-			return "~";
-	}
 }
 
 function SessionsPanel(props: {

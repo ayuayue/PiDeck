@@ -126,6 +126,7 @@ let previewSettings: AppSettings = {
 	lightBackground: "white",
 	language: "system",
 	piEnvironmentChecked: true,
+	enableGitManagement: true,
 	closeToTray: true,
 	enableNotifications: true,
 	// showThinking 由 pi agent 的 hideThinkingBlock 控制，运行时从主进程加载
@@ -322,13 +323,23 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			// 预览环境无真实 Git，返回空原始内容，差异左侧显示为空。
 			originalContent: async () => "",
-			changedFiles: async () => [],
 			worktreeList: async () => [],
 			worktreeCreate: async (_projectId, branchName) => ({
 				path: `/tmp/worktree/${branchName}`,
 				branch: branchName,
 			}),
 			worktreeRemove: async () => true,
+				commitLog: async () => [],
+				refs: async () => [],
+				branchCompare: async () => ({ files: [], ahead: 0, behind: 0 }),
+				commitDetail: async () => null,
+				commitFileDiff: async () => null,
+				diffFileBetween: async () => "",
+				status: async () => ({ merge: [], index: [], workingTree: [], untracked: [] }),
+				workspaceFileDiff: async () => null,
+				stage: async () => {},
+				unstage: async () => {},
+				commit: async () => {},
 		},
 		logs: {
 			list: async () => [],
@@ -383,6 +394,7 @@ export function createPreviewApi(): PiDesktopApi {
 				version: "preview",
 				releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
 			}),
+			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			checkUpdate: async () => ({
 				currentVersion: "preview",
 				latestVersion: "preview",

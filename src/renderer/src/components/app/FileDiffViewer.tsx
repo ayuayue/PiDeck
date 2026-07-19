@@ -10,7 +10,7 @@ import rehypeKatex from "rehype-katex";
 import { defaultUrlTransform } from "react-markdown";
 
 const BINARY_EXTENSIONS = new Set([
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
+	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
 	"mp3", "wav", "ogg", "flac", "m4a",
 	"mp4", "avi", "mkv", "mov", "webm",
 	"zip", "tar", "gz", "bz2", "7z", "rar",
@@ -39,7 +39,7 @@ export function FileDiffViewer(props: {
 	onToggleMode?: () => void;
 	onClose: () => void;
 	/** 多 tab 支持：全部 tab 列表 */
-	tabs?: { id: string; filePath: string }[];
+	tabs?: { id: string; filePath: string; label?: string }[];
 	/** 当前活跃 tab ID */
 	activeTabId?: string | null;
 	/** 切换到指定 tab */
@@ -82,6 +82,13 @@ export function FileDiffViewer(props: {
 	const [preview, setPreview] = useState(isMarkdown && !isDiffMode && readOnly);
 
 	useEffect(() => {
+		// 每个 tab 都从只读模式开始，尤其不能把工作区文件的编辑状态带入历史提交 Diff。
+		setReadOnly(true);
+		setDirty(false);
+		setShowHint(false);
+	}, [props.activeTabId, props.filePath]);
+
+	useEffect(() => {
 		ensureMonaco();
 
 		let cancelled = false;
@@ -104,7 +111,7 @@ export function FileDiffViewer(props: {
 					? Promise.resolve(props.modifiedContent)
 					: props.readContent(props.filePath);
 				const originalPromise =
-					isDiffMode && props.originalContent
+					isDiffMode && props.originalContent !== undefined
 						? Promise.resolve(props.originalContent)
 						: isDiffMode && props.readOriginalContent
 							? props.readOriginalContent(props.filePath).catch(() => "")
@@ -114,11 +121,12 @@ export function FileDiffViewer(props: {
 					originalPromise,
 				]);
 				if (!cancelled) {
-					// 文件内容超过上限时不加载编辑器，防止 Monaco 处理大文件卡死
-					if (result.length > maxFileSize) {
+					const largestContentSize = Math.max(result.length, originalResult.length);
+					// Diff 任一侧超过上限都不加载 Monaco；删除文件虽右侧为空，左侧仍可能很大。
+					if (largestContentSize > maxFileSize) {
 						setError(
 							t("editor.fileTooLarge", {
-								size: (result.length / 1024 / 1024).toFixed(1),
+								size: (largestContentSize / 1024 / 1024).toFixed(1),
 								max: (maxFileSize / 1024 / 1024).toFixed(0),
 							}),
 						);
@@ -127,10 +135,6 @@ export function FileDiffViewer(props: {
 					}
 					setContent(result);
 					setOriginal(originalResult);
-					if (result === "" && !loading) {
-						// 文件可能已被删除或为空
-						setError(t("config.fileDeletedOrEmpty"));
-					}
 				}
 			} catch (e) {
 				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -142,8 +146,8 @@ export function FileDiffViewer(props: {
 		return () => { cancelled = true; };
 	// readContent/readOriginalContent 是稳定的 API 回调（上层已 useCallback），
 	// 不参与 effect deps，避免父组件因其他状态变化重渲染时反复加载文件导致编辑器重置到顶部。
-	// originalContent（diff 前置内容）和 isDiffMode（view/diff 模式切换）需要监听。
-	}, [props.filePath, props.originalContent, isDiffMode]);
+	// 两侧缓存内容都需要监听：同一路径可在多个历史提交 Diff tab 之间切换。
+	}, [props.filePath, props.originalContent, props.modifiedContent, isDiffMode]);
 
 	const handleClose = useCallback(() => {
 		props.onClose();
@@ -284,10 +288,10 @@ export function FileDiffViewer(props: {
 							className={`file-diff-tab${tab.id === props.activeTabId ? " active" : ""}`}
 							onClick={() => props.onSelectTab?.(tab.id)}
 							onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onSelectTab?.(tab.id); } }}
-							title={tab.filePath}
+							title={tab.label ?? tab.filePath}
 							tabIndex={0}
 						>
-							<span>{tab.filePath.split(/[/\\]/).pop()}</span>
+							<span>{tab.label ?? tab.filePath.split(/[/\\]/).pop()}</span>
 							<button
 								type="button"
 								className="file-diff-tab-close"

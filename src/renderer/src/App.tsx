@@ -43,6 +43,9 @@ import {
   Terminal,
   Filter,
   GitBranch,
+  GitGraph,
+  Minimize2,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
@@ -129,6 +132,7 @@ import {
   type DrawerPanel,
   type SessionModifiedFile,
 } from "./components/app/AppParts";
+import { GitPanel } from "./components/app/GitPanel";
 import { BrowserPanel } from "./components/app/BrowserPanel";
 import {
   groupToolMessages,
@@ -182,6 +186,9 @@ import type {
   OpenCodeSessionSummary,
   FileTreeNode,
   GitBranchInfo,
+  CommitEntry,
+  GitChangedFile,
+  GitResourceGroupType,
   WorktreeEntry,
   ImageContent,
   PiCommand,
@@ -537,6 +544,8 @@ export function App() {
   const [agents, setAgents] = useState<AgentTab[]>([]);
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>();
+  const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
   const [activeAgentId, setActiveAgentId] = useState<string>();
   // 切换 agent（新会话/恢复会话）时刷新设置，使 pi agent 的 hideThinkingBlock 立即生效
   useEffect(() => {
@@ -556,10 +565,6 @@ export function App() {
     Record<string, ChatMessage[]>
   >({});
   const [files, setFiles] = useState<FileTreeNode[]>([]);
-  /** Git 工作区中对比 HEAD 有变更的文件列表（用于右侧面板展示）。 */
-  const [gitChangedFiles, setGitChangedFiles] = useState<
-    { path: string; status: string }[]
-  >([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsByProject, setSessionsByProject] = useState<
     Record<string, SessionSummary[]>
@@ -840,14 +845,27 @@ export function App() {
       return next;
     });
   }, []);
-  /** Editor tab：文件中转查看/差异查看。最多 5 个，超出移除最早打开的那个。 */
+  /** Editor tab：文件中转查看/差异查看。条数与正文估算内存双重受限。 */
+  const EDITOR_TAB_LIMIT = 5;
+  const EDITOR_TAB_TEXT_BUDGET = 24 * 1024 * 1024;
   interface EditorTab {
     id: string;
     filePath: string;
     mode: "view" | "diff";
     originalContent: string;
     modifiedContent?: string;
+    /** 历史提交 Diff 必须只读，不能把旧快照误保存回当前工作区。 */
+    allowSave: boolean;
+    /** 同一文件在不同提交中可以有多个历史 Diff，使用该 key 避免互相覆盖。 */
+    tabKey?: string;
+    /** 历史 Diff 在标签中追加短 hash，便于区分同一路径的不同提交。 */
+    label?: string;
+    /** Git Diff 覆盖在 Git drawer 上，不允许切换成 Editor drawer 破坏原面板状态。 */
+    preserveDrawer?: boolean;
+    /** 仅用于内存淘汰，不改变 tab 的可见排列顺序。 */
+    lastAccess: number;
   }
+  const editorTabAccessSequenceRef = useRef(0);
   const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   /** 当前活跃 tab 派生数据 */
@@ -868,18 +886,54 @@ export function App() {
     (path: string, content: string) => api.files.writeContent(path, content),
     [],
   );
-  /** 打开（或切换到已存在的）编辑器 tab。已打开时跳转；未打开时新增，超过 5 个淘汰最早 tab。 */
+  const editorTabTextBytes = (tab: EditorTab) =>
+    (tab.originalContent.length + (tab.modifiedContent?.length ?? 0)) * 2;
+  const trimEditorTabs = (tabs: EditorTab[], protectedId: string) => {
+    const next = [...tabs];
+    let textBytes = next.reduce((sum, tab) => sum + editorTabTextBytes(tab), 0);
+    while (
+      next.length > 1 &&
+      (next.length > EDITOR_TAB_LIMIT || textBytes > EDITOR_TAB_TEXT_BUDGET)
+    ) {
+      const candidates = next.filter((tab) => tab.id !== protectedId);
+      if (candidates.length === 0) break;
+      const oldest = candidates.reduce((left, right) => left.lastAccess <= right.lastAccess ? left : right);
+      const index = next.findIndex((tab) => tab.id === oldest.id);
+      const [removed] = next.splice(index, 1);
+      if (removed) textBytes -= editorTabTextBytes(removed);
+    }
+    return next;
+  };
+  /** 打开或切换 tab。命中时更新访问序号；超条数/正文预算时淘汰最久未访问项。 */
   const openEditorTab = useCallback(
-    (path: string, mode: "view" | "diff", originalContent?: string, modifiedContent?: string) => {
+    (
+      path: string,
+      mode: "view" | "diff",
+      originalContent?: string,
+      modifiedContent?: string,
+      allowSave = true,
+      tabKey?: string,
+      label?: string,
+      preserveDrawer = false,
+    ) => {
       setEditorTabs((prev) => {
-        const existing = prev.find((t) => t.filePath === path);
+        const existing = prev.find((t) => t.filePath === path && t.tabKey === tabKey);
         if (existing) {
-          // 已打开的 tab：更新 mode 和 content（工具 diff 可能和普通查看模式不同）
+          const updated = {
+            ...existing,
+            mode,
+            originalContent: originalContent ?? "",
+            modifiedContent,
+            allowSave,
+            tabKey,
+            label,
+            preserveDrawer,
+            lastAccess: ++editorTabAccessSequenceRef.current,
+          };
           setActiveTabId(existing.id);
-          return prev.map((t) =>
-            t.id === existing.id
-              ? { ...t, mode, originalContent: originalContent ?? "", modifiedContent }
-              : t,
+          return trimEditorTabs(
+            prev.map((tab) => tab.id === existing.id ? updated : tab),
+            existing.id,
           );
         }
         const newTab: EditorTab = {
@@ -888,9 +942,13 @@ export function App() {
           mode,
           originalContent: originalContent ?? "",
           modifiedContent,
+          allowSave,
+          tabKey,
+          label,
+          preserveDrawer,
+          lastAccess: ++editorTabAccessSequenceRef.current,
         };
-        const next = [...prev, newTab];
-        if (next.length > 5) next.shift();
+        const next = trimEditorTabs([...prev, newTab], newTab.id);
         setActiveTabId(newTab.id);
         return next;
       });
@@ -917,6 +975,9 @@ export function App() {
   );
   /** 切换活跃 tab。 */
   const selectEditorTab = useCallback((tabId: string) => {
+    setEditorTabs((current) => current.map((tab) => tab.id === tabId
+      ? { ...tab, lastAccess: ++editorTabAccessSequenceRef.current }
+      : tab));
     setActiveTabId(tabId);
   }, []);
   /** 稳定版文件读写回调，避免内联函数导致 FileDiffViewer 的 useEffect 每轮渲染都重新触发。 */
@@ -991,7 +1052,7 @@ export function App() {
       const raw = localStorage.getItem(AGENT_DRAWER_KEY_PREFIX + agentId);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && (parsed.panel === null || ["files", "sessions", "browser", "editor"].includes(parsed.panel))) {
+        if (parsed && typeof parsed === "object" && (parsed.panel === null || ["files", "sessions", "browser", "editor", "git"].includes(parsed.panel))) {
           return parsed;
         }
       }
@@ -1063,6 +1124,7 @@ export function App() {
     lightBackground: "white",
     language: "system",
     piEnvironmentChecked: false,
+    enableGitManagement: true,
     closeToTray: true,
     enableNotifications: true,
     // showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
@@ -1121,7 +1183,8 @@ export function App() {
     releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
   });
   const [piChecking, setPiChecking] = useState(false);
-  const resolvedLocale = resolveLocale(settings.language);
+  const [systemLanguage, setSystemLanguage] = useState<string | null>(null);
+  const resolvedLocale = resolveLocale(settings.language, systemLanguage ?? undefined);
   setI18nLocale(resolvedLocale);
   // 手动输入 pi 路径相关状态
   const [customPiPath, setCustomPiPath] = useState("");
@@ -1196,20 +1259,38 @@ export function App() {
     const savedState = loadDrawerState(activeAgentId);
     if (savedState) {
       const panel: DrawerPanel | null = savedState.panel;
-      if (savedState.pinned && panel) {
+      const canRestorePanel = panel !== "git" || settings.enableGitManagement;
+      if (savedState.pinned && panel && canRestorePanel) {
         setDrawerPinnedByAgent((current) => {
           if (current[activeAgentId] === panel) return current;
           return { ...current, [activeAgentId]: panel };
         });
       }
-      if (panel) {
+      if (panel && canRestorePanel) {
         setDrawer(panel);
         setDrawerCollapsed(false);
       }
     }
     const dirs = loadExpandedDirs(activeAgentId);
     setExpandedDirs(dirs);
-  }, [activeAgentId, loadDrawerState, loadExpandedDirs]);
+  }, [activeAgentId, loadDrawerState, loadExpandedDirs, settings.enableGitManagement]);
+
+  useEffect(() => {
+    if (settings.enableGitManagement) return;
+
+    // 关闭功能时同步移除当前 Git 抽屉及钉选状态，避免隐藏入口后留下无法操作的面板。
+    setDrawer((current) => current === "git" ? null : current);
+    setDrawerPinnedByAgent((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([, panel]) => panel !== "git"),
+      );
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+    if (activeAgentId) {
+      const saved = loadDrawerState(activeAgentId);
+      if (saved?.panel === "git") saveDrawerState(activeAgentId, null, false);
+    }
+  }, [activeAgentId, loadDrawerState, saveDrawerState, settings.enableGitManagement]);
 
   // 当活跃 Agent 切换或绑定列表变更时，加载该 Agent 指定的飞书 Bot
   // 绑定变更后同步刷新，确保配置页断开关联后已连接状态正确反映。
@@ -1819,6 +1900,10 @@ export function App() {
     window.setTimeout(() => void refreshProjects(), 0);
     window.setTimeout(() => void api.agents.list().then(setAgents), 0);
     void api.editors.list().then(setExternalEditors).catch(() => undefined);
+    void api.app
+      .preferredSystemLanguages()
+      .then((languages) => setSystemLanguage(languages.find((language) => typeof language === "string" && language.trim()) ?? null))
+      .catch(() => setSystemLanguage(null));
     void api.app
       .info()
       .then(setAppInfo)
@@ -2607,13 +2692,9 @@ export function App() {
             ? current
             : next,
         );
-        // 同时刷新 Git 工作区变更文件列表（对比 HEAD）
-        const changed = await api.git.changedFiles(activeProjectId);
-        if (!stopped) setGitChangedFiles(changed);
       } catch {
         if (!stopped) {
           setGitInfo({ current: null, branches: [] });
-          setGitChangedFiles([]);
         }
       }
     };
@@ -2944,17 +3025,6 @@ export function App() {
     if (!silent) showToast(t("app.filesRefreshed"), 1800);
   }
 
-  async function refreshGitChangedFiles(projectId = activeProjectId) {
-    if (!projectId) return;
-    try {
-      const next = await api.git.changedFiles(projectId);
-      setGitChangedFiles(next);
-    } catch {
-      // 非 Git 项目或 git 未安装，静默置空
-      setGitChangedFiles([]);
-    }
-  }
-
   function openFilePath(path: string) {
     // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析后交给系统默认应用。
     const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
@@ -2983,6 +3053,75 @@ export function App() {
     setEditorMode("modal");
     setDrawer(null);
     openEditorTab(path, "diff", resolvedOriginal, resolvedModified);
+  }
+
+  async function openWorkspaceFileDiff(group: GitResourceGroupType, path: string) {
+    if (!activeProjectId) return;
+    const projectId = activeProjectId;
+    try {
+      const diff = await api.git.workspaceFileDiff(projectId, group, path);
+      if (activeProjectIdRef.current !== projectId) return;
+      if (!diff) {
+        showToast(t("git.workspaceDiffUnavailable"));
+        return;
+      }
+      const groupLabel = group === "index"
+        ? t("git.stagedChanges")
+        : group === "merge"
+          ? t("git.mergeChanges")
+          : t("git.changes");
+      // Git SCM 的工作区/暂存区快照均按只读 Diff 展示；内容仅在点击时读取，关闭弹窗即释放 tab 引用。
+      setEditorMode("modal");
+      openEditorTab(
+        diff.path,
+        "diff",
+        diff.originalContent,
+        diff.modifiedContent,
+        false,
+        `workspace:${projectId}:${group}:${diff.path}`,
+        `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${groupLabel})`,
+        true,
+      );
+    } catch (error) {
+      if (activeProjectIdRef.current === projectId) {
+        showToast(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+
+  async function openCommitFileDiff(commit: CommitEntry, file: GitChangedFile) {
+    if (!activeProjectId) return;
+    const projectId = activeProjectId;
+    try {
+      const diff = await api.git.commitFileDiff(
+        projectId,
+        commit.hash,
+        file.path,
+        file.originalPath,
+      );
+      // 用户等待 Git 读取期间可能已切换项目；旧项目结果不能覆盖当前编辑器上下文。
+      if (activeProjectIdRef.current !== projectId) return;
+      if (!diff) {
+        showToast(t("git.fileDiffUnavailable"));
+        return;
+      }
+      // 历史快照复用只读 Monaco Diff Viewer；保留 Git drawer 挂载以维持 pane、展开与滚动状态。
+      setEditorMode("modal");
+      openEditorTab(
+        diff.path,
+        "diff",
+        diff.originalContent,
+        diff.modifiedContent,
+        false,
+        `${commit.hash}:${diff.path}`,
+        `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${commit.shortHash})`,
+        true,
+      );
+    } catch (error) {
+      if (activeProjectIdRef.current === projectId) {
+        showToast(error instanceof Error ? error.message : String(error));
+      }
+    }
   }
 
   async function refreshSessionHistory(projectId = sessionsProjectId) {
@@ -5064,6 +5203,7 @@ export function App() {
   }
 
   function openDrawer(panel: DrawerPanel) {
+    if (panel === "git" && !settings.enableGitManagement) return;
     if (drawerPinned && panel !== drawerPinnedPanel) return;
     if (panel === "sessions" && activeProjectId) {
       setSessionsProjectId(activeProjectId);
@@ -5072,7 +5212,6 @@ export function App() {
     // 打开文件面板时触发一次静默刷新，确保目录结构是最新的，避免上次打开时文件已有变更但未刷新。
     if (panel === "files" && activeProjectId) {
       void refreshFiles(activeProjectId, true);
-      void refreshGitChangedFiles(activeProjectId);
     }
     setDrawer((current) => {
       if (current === panel) return drawerPinned ? current : null;
@@ -5115,6 +5254,13 @@ export function App() {
       if (activeAgentId) saveExpandedDirs(activeAgentId, next);
       return next;
     });
+  }
+
+  function collapseAllDirectories() {
+    const collapsedDirs = new Set<string>();
+    setExpandedDirs(collapsedDirs);
+    // 全部收起同样持久化，避免用户切换会话后又恢复此前展开的目录。
+    if (activeAgentId) saveExpandedDirs(activeAgentId, collapsedDirs);
   }
 
   function startResize(target: "list" | "drawer", event: PointerEvent) {
@@ -6834,6 +6980,19 @@ export function App() {
               },
               icon: <FolderOpen size={17} />,
             }}
+            gitAction={settings.enableGitManagement && activeProjectId && !isChatProject(activeProject) ? {
+              active: drawer === "git",
+              label: t("drawer.sourceControl"),
+              onClick: () => {
+                if (drawer === "git" && !drawerCollapsed) {
+                  setDrawer(null);
+                } else {
+                  openDrawer("git");
+                  setDrawerCollapsed(false);
+                }
+              },
+              icon: <GitGraph size={17} />,
+            } : undefined}
             editorsAction={{
               active: editorsOpen,
               label: t("app.openWithEditor"),
@@ -6891,7 +7050,7 @@ export function App() {
               displayMode="drawer"
               filePath={activeTab.filePath}
               mode={activeTab.mode}
-              onToggleMode={toggleEditorMode}
+              onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
               originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
               modifiedContent={activeTab.modifiedContent}
               tabs={editorTabs}
@@ -6901,7 +7060,7 @@ export function App() {
               onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}
               readContent={readEditorFileContent}
               readOriginalContent={readEditorOriginalContent}
-              saveContent={saveEditorFileContent}
+              saveContent={activeTab.allowSave ? saveEditorFileContent : undefined}
               theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
               maxFileSizeMB={settings.maxEditorFileSizeMB}
             />
@@ -6913,7 +7072,35 @@ export function App() {
               onToggleFullscreen={() => setBrowserFullscreen(true)}
             />
           </div>
-        ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" ? (
+        ) : settings.enableGitManagement && drawerContentPanel === "git" && !drawerCollapsed && activeProjectId ? (
+          <div className="drawer-content-frame">
+            <div className="drawer-header">
+              <strong>{t("drawer.sourceControl")}</strong>
+              <div className="drawer-header-actions">
+                <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
+                  <Minimize2 size={15} />
+                </button>
+                <button onClick={closeDrawer} title={t("common.close")}>
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+            <GitPanel
+              projectId={activeProjectId}
+              commitLog={api.git.commitLog}
+              commitDetail={api.git.commitDetail}
+              onOpenCommitFileDiff={openCommitFileDiff}
+              onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
+              branchCompare={api.git.branchCompare}
+              getStatus={api.git.status}
+              stageFiles={api.git.stage}
+              unstageFiles={api.git.unstage}
+              commit={api.git.commit}
+              branches={gitInfo.branches}
+              currentBranch={gitInfo.current}
+            />
+          </div>
+        ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" && drawerContentPanel !== "git" ? (
           <LazyWrapper
             className="drawer-content-frame"
             enabled={true}
@@ -6940,9 +7127,9 @@ export function App() {
                 (s) => !s.parentSessionPath && (sessionSourceFilter[sessionsProjectId]!)!.has(s.source ?? "pi"),
               ).concat(sessions.filter(s => s.parentSessionPath)) : sessions}
               sessionsLoading={sessionHistoryLoading}
-              gitChangedFiles={gitChangedFiles}
               expandedDirs={expandedDirs}
               onToggleDirectory={toggleDirectory}
+              onCollapseAllDirectories={collapseAllDirectories}
               pinned={drawerPinned}
               onTogglePin={toggleDrawerPinned}
               onCollapse={collapseDrawer}
@@ -6950,7 +7137,6 @@ export function App() {
               onFileContextMenu={(node, x, y) => setFileMenu({ node, x, y })}
               onRefreshFiles={() => {
                 refreshFiles(activeProjectId);
-                refreshGitChangedFiles(activeProjectId);
               }}
               onOpenFolder={() => {
                 const p = projects.find((p) => p.id === activeProjectId);
@@ -6978,7 +7164,6 @@ export function App() {
               }
               onExportSession={exportHistorySession}
               onDeleteSession={deleteHistorySession}
-              onDiffFile={diffFilePath}
               onViewFile={viewFilePath}
               onOpenFile={openFilePath}
             />
@@ -7578,7 +7763,7 @@ export function App() {
           displayMode="modal"
           filePath={activeTab.filePath}
           mode={activeTab.mode}
-          onToggleMode={toggleEditorMode}
+          onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
           originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
           modifiedContent={activeTab.modifiedContent}
           tabs={editorTabs}
@@ -7588,7 +7773,7 @@ export function App() {
           onClose={() => { setActiveTabId(null); setEditorTabs([]); }}
           readContent={readEditorFileContent}
           readOriginalContent={readEditorOriginalContent}
-          saveContent={saveEditorFileContent}
+          saveContent={activeTab.allowSave ? saveEditorFileContent : undefined}
           theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
           maxFileSizeMB={settings.maxEditorFileSizeMB}
         />

@@ -1561,17 +1561,8 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.gitOriginalContent,
 		async (_event, filePath: string) => {
-			return gitService.getOriginalContent(filePath);
-		},
-	);
-
-	// 获取工作区中被 Git 跟踪的变更文件列表（对比 HEAD），返回到前端用于右侧文件面板。
-	ipcMain.handle(
-		ipcChannels.gitChangedFiles,
-		async (_event, projectId: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) return [];
-			return gitService.getChangedFiles(project.path);
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getOriginalContent(filePath, maxBytes);
 		},
 	);
 
@@ -1625,6 +1616,109 @@ function registerIpc() {
 		},
 	);
 
+	// -- Git 增强：提交历史 / 分支对比 / Graph
+	ipcMain.handle(
+		ipcChannels.gitCommitLog,
+		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getCommitLog(project.path, options);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRefs,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getRefs(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitBranchCompare,
+		async (_event, projectId: string, base: string, target: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.compareBranches(project.path, base, target);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitDetail,
+		async (_event, projectId: string, ref: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			return gitService.getCommitDetail(project.path, ref);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitFileDiff,
+		async (_event, projectId: string, ref: string, filePath: string, originalPath?: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getCommitFileDiff(project.path, ref, filePath, originalPath, maxBytes);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitDiffFileBetween,
+		async (_event, projectId: string, ref1: string, ref2: string, filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return "";
+			return gitService.diffFileBetweenRefs(project.path, ref1, ref2, filePath);
+		},
+	);
+
+
+	// Git 工作区状态 + Stage/Unstage
+	ipcMain.handle(
+		ipcChannels.gitStatus,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return { merge: [], index: [], workingTree: [], untracked: [] };
+			return gitService.getStatus(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitWorkspaceFileDiff,
+		async (_event, projectId: string, group: import("../shared/types").GitWorkspaceDiffGroup, filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getWorkspaceFileDiff(project.path, group, filePath, maxBytes);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitStage,
+		async (_event, projectId: string, paths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.stageFiles(project.path, paths);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitUnstage,
+		async (_event, projectId: string, paths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.unstageFiles(project.path, paths);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommit,
+		async (_event, projectId: string, message: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.commit(project.path, message);
+		},
+	);
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();
@@ -1791,6 +1885,15 @@ function registerIpc() {
 		version: app.getVersion(),
 		releasesUrl: RELEASES_URL,
 	}));
+	ipcMain.handle(ipcChannels.appPreferredSystemLanguages, () => {
+		// Renderer navigator.language can reflect Chromium launch flags or a stale browser locale.
+		// Electron exposes the OS preference order directly; use it for the "follow system" setting.
+		try {
+			return app.getPreferredSystemLanguages();
+		} catch {
+			return [];
+		}
+	});
 	ipcMain.handle(ipcChannels.appCheckUpdate, () =>
 		checkForAppUpdate(settingsStore.get().installationType),
 	);

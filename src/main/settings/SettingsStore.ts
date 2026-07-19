@@ -37,6 +37,7 @@ const defaultSettings: AppSettings = {
   lightBackground: "white",
   language: "system",
   piEnvironmentChecked: false,
+  enableGitManagement: true,
   closeToTray: true,
   enableNotifications: true,
   showThinking: readPiAgentShowThinking() ?? true,
