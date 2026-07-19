@@ -2429,13 +2429,12 @@ function registerIpc() {
 		return result;
 	});
 	ipcMain.handle(ipcChannels.extensionsToggle, async (_event, source: string, enabled: boolean) => {
-		// Built-in extensions: also deploy/remove the .ts file so pi actually stops/starts loading it
 		if (source.startsWith("pi-deck-") && source.endsWith(".ts")) {
 			if (enabled) {
+				// 启用：确保 .ts 文件存在（处理老版本误删文件的恢复场景）
 				await ensurePiDeckExtension(source);
-			} else {
-				await removeStalePiDeckExtension(source);
 			}
+			// 禁用时不删除 .ts 文件：通过 settings.json 的 disabledExtensions 控制 pi 加载即可
 		}
 		await extensionManager.setEnabled(source, enabled);
 		void appLogger.info("extension", "Extension toggled", { source, enabled });
@@ -2910,8 +2909,8 @@ app.whenReady().then(async () => {
 		"pi-deck-todo.ts",
 	]) {
 		if (disabledBuiltIn.has(extensionName)) {
-			// 已禁用：确保 .ts 文件被移除，避免 pi 残余加载
-			await removeStalePiDeckExtension(extensionName).catch(() => {});
+			// 已禁用：跳过部署但保留 .ts 文件，方便用户在扩展管理页重新启用老版本
+			// 误删过文件的场景通过 ExtensionManager 中的内置扩展补充列表兜底。
 			continue;
 		}
 		await ensurePiDeckExtension(extensionName).catch((error) => {

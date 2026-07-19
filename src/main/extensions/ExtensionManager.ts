@@ -7,6 +7,14 @@ import type { PiLocator } from "../pi/PiLocator";
 
 type SettingsProvider = () => AppSettings;
 
+/** PiDeck 内置扩展列表，用于在扫描不到时仍展示在扩展管理页中。 */
+const BUILT_IN_EXTENSIONS = [
+	"pi-deck-file-capture.ts",
+	"pi-deck-ask-question.ts",
+	"pi-deck-plan-mode.ts",
+	"pi-deck-todo.ts",
+] as const;
+
 /**
  * 通过 pi CLI 管理已安装扩展，避免桌面端直接改写 pi settings 导致和 CLI 行为不一致。
  * 自动检测 pi 版本，条件性添加 --no-approve（仅 pi >= 0.79.0 支持），
@@ -38,6 +46,20 @@ export class ExtensionManager {
 		for (const local of localExtensions) {
 			if (!local.path || !installedPaths.has(local.path)) {
 				merged.push(local);
+			}
+		}
+
+		// 补充：将已禁用/文件缺失的内置扩展也纳入列表，确保用户可在 UI 中重新启用。
+		const existingSources = new Set(merged.map((ext) => ext.source));
+		for (const builtIn of BUILT_IN_EXTENSIONS) {
+			if (!existingSources.has(builtIn)) {
+				merged.push({
+					id: `local:${builtIn}`,
+					source: builtIn,
+					path: undefined,
+					scope: "user",
+					builtIn: true,
+				});
 			}
 		}
 
