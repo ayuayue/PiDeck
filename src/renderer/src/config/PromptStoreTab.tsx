@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { showNotice } from "../utils/notice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, Download, ExternalLink, Globe, Search } from "lucide-react";
 import type { PromptStoreItem, PromptStoreSearchResult, PiPromptTemplateSummary } from "../../../shared/types";
@@ -74,7 +74,7 @@ export function PromptStoreTab(props: {
 				description: item.description,
 				content: item.content,
 			});
-			toast(t("config.promptStoreImported"), { duration: 2500 });
+			showNotice(t("config.promptStoreImported"), 2500);
 			props.onImported?.();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));

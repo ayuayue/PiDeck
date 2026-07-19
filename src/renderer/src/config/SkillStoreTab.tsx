@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { showNotice } from "../utils/notice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Download, ExternalLink, Search, Sparkles } from "lucide-react";
 import type { PromptStoreItem, PromptStoreSearchResult, PiSkillSummary } from "../../../shared/types";
@@ -52,7 +52,7 @@ export function SkillStoreTab(props: {
 		setError(null);
 		try {
 			await api.skillStore.import(item, props.locationId);
-			toast("已导入到本地 Skills", { duration: 2500 });
+			showNotice("已导入到本地 Skills", 2500);
 			props.onImported?.();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));

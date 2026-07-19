@@ -1,5 +1,10 @@
 import { stripFeishuDocActionHint } from "../feishu/docActions";
 
+function stripCpaCompletionMarker(text: string): string {
+	// CPA uses this final-line sentinel for transport completion; it is not user-visible content.
+	return text.replace(/(?:^|\r?\n)<CPA_DONE>\s*$/, "");
+}
+
 /**
  * 将 pi/RPC 的 content 字段转换为桌面端消息正文。
  * 兼容部分 Anthropic-compatible 服务把同一段 assistant 文本拆成多个 {type:"text"}
@@ -7,7 +12,9 @@ import { stripFeishuDocActionHint } from "../feishu/docActions";
  * 否则中文会被渲染成一行一个短片段的“竖排”消息。
  */
 export function extractMessageText(content: unknown): string {
-	if (typeof content === "string") return stripFeishuDocActionHint(content);
+	if (typeof content === "string") {
+		return stripCpaCompletionMarker(stripFeishuDocActionHint(content));
+	}
 	if (!Array.isArray(content)) return "";
 
 	let text = "";
@@ -34,5 +41,5 @@ export function extractMessageText(content: unknown): string {
 		text += String(typed.text ?? "");
 	}
 
-	return stripFeishuDocActionHint(text);
+	return stripCpaCompletionMarker(stripFeishuDocActionHint(text));
 }

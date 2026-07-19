@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { showNotice } from "./utils/notice";
 import { Component, useState, useEffect, useCallback, type ReactNode } from "react";
 import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
@@ -443,7 +443,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 	}, [open, section, tab, loadConfig]);
 
 	const showToast = (msg: string) => {
-		toast(msg, { duration: 2500 });
+		showNotice(msg, 2500);
 	};
 
 	const saveAndReload = async (

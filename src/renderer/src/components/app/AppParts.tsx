@@ -81,7 +81,7 @@ import {
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { t, type TranslationKey } from "../../i18n";
-import { toast } from "sonner";
+import { showNotice } from "../../utils/notice";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { Modal } from "../ui/Modal";
@@ -2498,9 +2498,14 @@ export const TurnRow = memo(function TurnRow(props: {
 		}
 		return -1;
 	})();
-	const hasExecutionProcess = lastAssistantIndex > 0;
-	const executionItems = hasExecutionProcess
-		? (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]).slice(0, lastAssistantIndex)
+	// 执行过程 = 除最终回答外的所有条目（最终回答在折叠区外始终可见，不能再进折叠详情）。
+	// 边界：lastAssistantIndex === 0（如「思考+直接回答」的无工具回合）时，若取 run.items 全量，
+	// 最终回答会被同时渲染进折叠详情和下方正文，展开后出现两份；filter 排除它本身，
+	// 同时保留最终回答之后可能存在的尾部 tool/thinking 条目（slice 方案会将其丢弃）。
+	const executionItems = lastAssistantIndex >= 0
+		? (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]).filter(
+			(_, index) => index !== lastAssistantIndex,
+		)
 		: (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]);
 	const finalMessageItem = lastAssistantIndex >= 0 ? (run.items[lastAssistantIndex] as MessageItem) : null;
 
@@ -3276,7 +3281,9 @@ function MarkdownLink(
 		onOpenFile?: (path: string) => void;
 	},
 ) {
-	const { onOpenExternal, onOpenFile, ...anchorProps } = props;
+	const { onOpenExternal, onOpenFile, children, className, title, ...anchorProps } = props;
+	// remarkLinkifyPaths 生成的文件路径链接走 file:// 协议，与普通外链区分展示
+	const isFileLink = props.href?.startsWith("file://") ?? false;
 	const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		e.preventDefault();
 		if (!props.href) return;
@@ -3292,7 +3299,29 @@ function MarkdownLink(
 			void onOpenExternal(props.href);
 		}
 	};
-	return <a {...anchorProps} onClick={handleClick} />;
+	const linkClass =
+		[className, isFileLink ? "markdown-link-file" : undefined]
+			.filter(Boolean)
+			.join(" ") || undefined;
+	return (
+		<a
+			{...anchorProps}
+			className={linkClass}
+			onClick={handleClick}
+			// 文件链接 hover 展示解码后的完整路径，便于确认目标文件；
+			// 普通链接不传 title，保留 markdown 自带 title 语法的原行为
+			title={isFileLink ? decodeURIComponent(props.href!.slice(7)) : title}
+		>
+			{isFileLink ? (
+				<>
+					<FileText size={12} className="markdown-link-file-icon" />
+					<span>{children}</span>
+				</>
+			) : (
+				children
+			)}
+		</a>
+	);
 }
 
 function extractText(node: ReactNode): string {
@@ -4463,20 +4492,21 @@ function SessionsPanel(props: {
 		successText: string,
 	) {
 		setSessionActionLoading({ filePath: session.filePath, action: actionType });
-		toast(
+		showNotice(
 			actionType === "copy"
 				? t("drawer.sessionActionCopying")
 				: actionType === "export"
 					? t("drawer.sessionActionExporting")
 					: t("drawer.sessionActionDeleting"),
+			3500,
 		);
 		try {
 			await action();
-			toast(successText, { duration: 1600 });
+			showNotice(successText, 1600);
 		} catch (error) {
-			toast(
+			showNotice(
 				error instanceof Error ? error.message : t("drawer.sessionActionFailed"),
-				{ duration: 2400 },
+				2400,
 			);
 		} finally {
 			setSessionActionLoading(null);

@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { showNotice } from "../utils/notice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, FileEdit, Pencil, ShoppingBag, Trash2, X } from "lucide-react";
 import type {
@@ -66,7 +66,7 @@ export function PromptsTab(props: {
 	// 保存完成后显示 toast 提示（改用 sonner）
 	useEffect(() => {
 		if (prevSaving.current && !props.editSaving) {
-			toast(t("config.promptSavedHint"), { duration: 2000 });
+			showNotice(t("config.promptSavedHint"), 2000);
 		}
 		prevSaving.current = props.editSaving;
 	});
