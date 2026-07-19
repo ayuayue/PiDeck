@@ -4868,6 +4868,8 @@ export function PromptSuggestions(props: {
 	const listRef = useRef<HTMLDivElement>(null);
 	// 头部标题类型由选中项推导:光标相关触发后,第一个候选的 value 前缀即代表当前是命令还是文件。
 	const isCommand = props.items[0]?.value.startsWith("/") ?? false;
+	const isSession = props.items[0]?.value.startsWith("&") ?? false;
+	const headerLabel = isCommand ? t("prompt.commands") : isSession ? t("prompt.sessions") : t("prompt.files");
 
 	// 滚动到选中项
 	useEffect(() => {
@@ -4890,7 +4892,7 @@ export function PromptSuggestions(props: {
 			onMouseDown={(e) => e.preventDefault()}
 		>
 			<div className="command-palette-header">
-				<span>{isCommand ? t("prompt.commands") : t("prompt.files")}</span>
+				<span>{headerLabel}</span>
 				<IconButton
 					className="command-palette-close"
 					label={t("common.close")}

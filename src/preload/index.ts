@@ -180,6 +180,10 @@ const api = {
 			}>,
 		delete: (filePath: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsDelete, filePath) as Promise<void>,
+		readMessages: (filePath: string) =>
+			ipcRenderer.invoke(ipcChannels.sessionsReadMessages, filePath) as Promise<
+				Array<{ role: string; content: string; timestamp: number }>
+			>,
 	},
 	codexSessions: {
 		scan: (projectId: string) =>

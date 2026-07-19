@@ -73,6 +73,7 @@ import {
 import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
 import { useScratchPad } from "./hooks/useScratchPad";
+import { SessionReferenceModal, type SessionReferenceResult } from "./components/app/SessionReferenceModal";
 import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
@@ -645,6 +646,12 @@ export function App() {
 
   /** 当前 agent 流式思考的实时文本,agent_end 时清空 */
   const [multiSelectOpen, setMultiSelectOpen] = useState(false);
+  const [sessionRefPickerOpen, setSessionRefPickerOpen] = useState(false);
+  const [sessionRefPickerTarget, setSessionRefPickerTarget] = useState<SessionSummary | null>(null);
+  /** & 会话引用选择缓存：key = chip raw（如 "&My Session"），value = 选中的消息列表 */
+  const [sessionRefSelections, setSessionRefSelections] = useState<
+    Record<string, { messages: Array<{ role: string; content: string }>; fullContext: boolean; selectedIndices: number[] }>
+  >({});
 
   const [streamingThinking, setStreamingThinking] = useState<
     Record<string, string>
@@ -1583,13 +1590,17 @@ export function App() {
   const flatFiles = useMemo(() => flattenFiles(files), [files]);
   // 优化:建议项计算仅在必要时触发,避免每次输入都重计算导致卡顿
   // 只有当建议框打开时才计算,关闭时返回空数组
-  // 以光标位置为锚检测触发器,使文字中间也能唤出 @ 文件 / / 命令菜单。
+  const activeProjectSessions = useMemo(
+    () => (activeProjectId ? sessionsByProject[activeProjectId] ?? [] : []),
+    [activeProjectId, sessionsByProject],
+  );
+
   const suggestionItems = useMemo(
     () =>
       suggestionsOpen
-        ? buildSuggestionItems(prompt, composerCursor, commands, flatFiles)
+        ? buildSuggestionItems(prompt, composerCursor, commands, flatFiles, activeProjectSessions)
         : [],
-    [suggestionsOpen, prompt, composerCursor, commands, flatFiles],
+    [suggestionsOpen, prompt, composerCursor, commands, flatFiles, activeProjectSessions],
   );
 
   /** 有效命令名白名单：仅已知命令渲染为 chip */
@@ -1609,6 +1620,11 @@ export function App() {
   const validFilePaths = useMemo(
     () => new Set(flatFiles.map((f) => f.relativePath)),
     [flatFiles],
+  );
+
+  const validSessionRefs: Set<string> = useMemo(
+    () => new Set(activeProjectSessions.map((s) => s.name ?? s.filePath)),
+    [activeProjectSessions],
   );
 
   /** 菜单光标锚定位置（屏幕坐标），仅在 suggestionsOpen 时计算。 */
@@ -3949,6 +3965,45 @@ ${text}
     }
   }, [isAgentBusy, activeAgentId, api.agents, messagesByAgent]);
 
+  /** 解析消息中的 & 会话引用，将 chip 替换为引用上下文 */
+  async function resolveSessionRefs(message: string): Promise<string> {
+    let resolved = message;
+    const sorted = [...activeProjectSessions].sort(
+      (a, b) => (b.name ?? b.filePath).length - (a.name ?? a.filePath).length,
+    );
+    for (const session of sorted) {
+      const sessionName = session.name ?? session.filePath;
+      const raw = `&${sessionName}`;
+      // 大小写不敏感查找，但保留原始大小写用于替换
+      const lowerResolved = resolved.toLowerCase();
+      const lowerRaw = raw.toLowerCase();
+      if (!lowerResolved.includes(lowerRaw)) continue;
+      // 预编译正则 pattern，避免在 if/else 分支中重复创建
+      const pattern = new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+      let msgs: Array<{ role: string; content: string }> | undefined;
+      if (sessionRefSelections[raw]) {
+        msgs = sessionRefSelections[raw].messages;
+      } else {
+        try {
+          const all = await api.sessions.readMessages(session.filePath);
+          const loaded = all.map((m) => ({ role: m.role, content: m.content }));
+          msgs = loaded;
+          setSessionRefSelections((prev) => ({ ...prev, [raw]: { messages: loaded, fullContext: true, selectedIndices: loaded.map((_, i) => i) } }));
+        } catch {
+          // 加载失败时 chip 会在下面 else 分支被移除
+        }
+      }
+      if (msgs && msgs.length > 0) {
+        const ctx = msgs.map((m) => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`).join("\n");
+        const refBlock = `<referenced_session name="${sessionName}">\n${ctx}\n</referenced_session>`;
+        resolved = resolved.replace(pattern, refBlock);
+      } else {
+        resolved = resolved.replace(pattern, "");
+      }
+    }
+    return resolved;
+  }
+
   async function sendPrompt() {
     if (
       isAgentStarting ||
@@ -4011,10 +4066,8 @@ ${text}
     // 让输入框保持固定大小，超出部分滚动显示
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
 
-    // 在发送前本地展开 prompt template 命令（/name → 完整内容），
-    // 避免依赖 pi 的展开导致用户附加文本丢失以及特殊符号干扰
-    // 同时提取模板的 description 作为元数据发给 pi agent，让其了解本次 prompt 意图
-    const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(message, promptTemplateList);
+    const resolvedMessage = await resolveSessionRefs(message);
+    const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(resolvedMessage, promptTemplateList);
     await submitPromptSnapshot(activeAgentId, expandedMessage, images, undefined, currentComposerAgentMode, templateDescription);
     // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
     const scrollOnNewMessage = () => {
@@ -4050,10 +4103,10 @@ ${text}
     setAttachedImages([]);
     setSuggestionsOpen(false);
     setSendBehaviorMenuOpen(false);
-    // 发送后固定 composer 高度
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
-    await submitPromptSnapshot(activeAgentId, message, images, "followUp", currentComposerAgentMode);
-    // 用 MutationObserver 监听消息列表 DOM 变化
+    const resolvedMessage = await resolveSessionRefs(message);
+    await submitPromptSnapshot(activeAgentId, resolvedMessage, images, "followUp", currentComposerAgentMode);
+    // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
     const scrollOnNewMessage = () => {
       const timeline = timelineRef.current;
       if (!timeline) return;
@@ -5860,10 +5913,30 @@ ${goalTextRef.current}
 
           {/* 多选分享弹框：会话树 */}
           {multiSelectOpen && (
-            <MultiSelectModal
-              renderedRuns={renderedRuns}
-              onClose={() => setMultiSelectOpen(false)}
-              onCopy={handleMultiSelectCopy}
+            <MultiSelectModal renderedRuns={renderedRuns} onClose={() => setMultiSelectOpen(false)} onCopy={handleMultiSelectCopy} />
+          )}
+
+          {sessionRefPickerOpen && sessionRefPickerTarget && (
+            <SessionReferenceModal
+              session={sessionRefPickerTarget}
+              initialSelected={
+                (() => {
+                  const chipRaw = `&${sessionRefPickerTarget.name ?? sessionRefPickerTarget.filePath}`;
+                  const saved = sessionRefSelections[chipRaw];
+                  return saved?.selectedIndices?.length ? new Set(saved.selectedIndices) : undefined;
+                })()
+              }
+              onClose={() => { setSessionRefPickerOpen(false); setSessionRefPickerTarget(null); }}
+              onConfirm={(result: SessionReferenceResult, selectedIndices: number[]) => {
+                const chipRaw = `&${result.sessionName}`;
+                setSessionRefSelections((prev) => ({
+                  ...prev,
+                  [chipRaw]: { messages: result.messages, fullContext: result.fullContext, selectedIndices },
+                }));
+                setSessionRefPickerOpen(false);
+                setSessionRefPickerTarget(null);
+              }}
+              loadMessages={async (fp: string) => api.sessions.readMessages(fp)}
             />
           )}
 
@@ -6003,6 +6076,7 @@ ${goalTextRef.current}
               disabled={composerDisabled}
               validCommandNames={validCommandNames}
               validFilePaths={validFilePaths}
+              validSessionRefs={validSessionRefs}
               caretRef={pendingComposerCaretRef}
               placeholder={
                 isAgentStarting
@@ -6048,12 +6122,11 @@ ${goalTextRef.current}
                 setSuggestionsOpen(false);
               }}
               onChipClick={(chip: RichInputChip) => {
-                // 文件 chip：在系统默认应用中打开对应文件
-                if (chip.kind === "file") {
-                  const path = chip.raw.slice(1); // 去掉 @ 前缀
-                  openFilePath(path);
+                if (chip.kind === "file") { const path = chip.raw.slice(1); openFilePath(path); }
+                if (chip.kind === "session") {
+                  const s = activeProjectSessions.find((x) => (x.name ?? x.filePath) === chip.label);
+                  if (s) { setSessionRefPickerTarget(s); setSessionRefPickerOpen(true); }
                 }
-                // skill chip 点击暂不处理，后续可扩展跳转 skill 详情
               }}
             />
             {suggestionsOpen && !composerDisabled && (

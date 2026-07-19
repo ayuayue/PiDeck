@@ -28,7 +28,7 @@ export type RichInputChip = {
 	start: number;
 	end: number;
 	raw: string;
-	kind: "file" | "skill";
+	kind: "file" | "skill" | "session";
 	label: string;
 };
 
@@ -53,6 +53,7 @@ export type RichInputProps = {
 	validCommandNames?: Set<string>;
 	/** 有效文件路径集合，白名单：不在集合内的 @ 引用不渲染 chip */
 	validFilePaths?: Set<string>;
+	validSessionRefs?: Set<string>;
 };
 
 type TextNodeRun = {
@@ -100,6 +101,7 @@ export function parseRichInputChips(
 	text: string,
 	validCommandNames?: Set<string>,
 	validFilePaths?: Set<string>,
+	validSessionRefs?: Set<string>,
 ): RichInputChip[] {
 	const chips: RichInputChip[] = [];
 	const urlSpans = findUrlSpans(text);
@@ -139,6 +141,32 @@ export function parseRichInputChips(
 			chips.push({ start, end, raw: m[1], kind: "file", label: label || seg });
 		}
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
+	}
+
+	// &session：捕获 & 后到换行/末尾的全部文本，再从白名单中按前缀匹配出会话名。
+	// 白名单优先（取最长匹配），无白名单时取第一个空格前的单词。会话名可包含 &
+	const ampRe = /(?<![:/.#!~?=&])(&[^\n]+)/gu;
+	while ((m = ampRe.exec(text)) !== null) {
+		const start = m.index;
+		const captured = m[1].slice(1);
+		let name = "";
+		if (validSessionRefs && validSessionRefs.size > 0) {
+			for (const ref of validSessionRefs) {
+				if (captured === ref || captured.startsWith(ref + " ")) {
+					if (ref.length > name.length) name = ref;
+				}
+			}
+		}
+		if (!name) {
+			name = captured.split(/\s/)[0] ?? "";
+		}
+		if (!name) { if (m.index === ampRe.lastIndex) ampRe.lastIndex++; continue; }
+		const raw = `&${name}`;
+		const end = start + raw.length;
+		if (!overlapsUrl(start, end, urlSpans)) {
+			chips.push({ start, end, raw, kind: "session", label: name });
+		}
+		if (m.index === ampRe.lastIndex) ampRe.lastIndex++;
 	}
 
 	// 去重叠：保留先出现的，剔除被包含的
@@ -354,6 +382,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			onPaste, onDrop, onDragOver, onFocus, onBlur,
 			disabled, placeholder, className, caretRef,
 			onChipClick, validCommandNames, validFilePaths,
+			validSessionRefs,
 		} = props;
 
 		const rootRef = useRef<HTMLDivElement | null>(null);
@@ -370,7 +399,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			[ref],
 		);
 
-		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths), [value, validCommandNames, validFilePaths]);
+		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs), [value, validCommandNames, validFilePaths, validSessionRefs]);
 
 		/** 全量渲染 DOM：清空 root，按 value + chips 重建文本节点 + chip span。 */
 		const renderDom = useCallback(() => {
@@ -397,11 +426,11 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				const icon = document.createElement("span");
 				icon.className = "input-chip__icon";
-				icon.textContent = chip.kind === "file" ? "@" : "/";
+				icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "&" : "/";
 				const label = document.createElement("span");
 				label.className = "input-chip__label";
 				label.textContent = chip.label;
-				span.appendChild(icon);
+				if (icon.textContent) span.appendChild(icon);
 				span.appendChild(label);
 				root.appendChild(span);
 				cursor = chip.end;
@@ -505,7 +534,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				const chip = target.closest?.(".input-chip") as HTMLElement | null;
 				if (!chip) return;
 				const raw = chip.getAttribute("data-raw");
-				const kind = chip.getAttribute("data-type") as "file" | "skill" | null;
+				const kind = chip.getAttribute("data-type") as RichInputChip["kind"] | null;
 				const label =
 					chip.querySelector(".input-chip__label")?.textContent ??
 					raw?.slice(1) ??

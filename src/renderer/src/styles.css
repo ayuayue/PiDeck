@@ -6300,6 +6300,24 @@ body.is-composer-resizing .composer-resize-handle::after {
   cursor: default;
 }
 
+.composer .input-chip--session,
+.user-turn-text .input-chip--session {
+  background: color-mix(in srgb, var(--color-brand-green) 14%, transparent);
+  color: var(--color-brand-green);
+  border: 1px solid color-mix(in srgb, var(--color-brand-green) 28%, transparent);
+  cursor: pointer;
+}
+.composer .input-chip--session:hover {
+  background: color-mix(in srgb, var(--color-brand-green) 24%, transparent);
+}
+
+.session-ref-modal { width: min(700px, calc(100vw - 48px)); max-height: min(650px, calc(100vh - 48px)); }
+.session-ref-name { color: var(--color-accent); font-weight: 600; }
+.session-ref-message-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.session-ref-message-list .multi-select-tree-node.disabled { opacity: 0.5; cursor: default; }
+.session-ref-loading, .session-ref-error { display: flex; align-items: center; justify-content: center; padding: 40px 16px; color: var(--color-text-tertiary); }
+.session-ref-error { color: var(--color-error); }
+
 .composer-box:focus-within {
   border-color: var(--color-accent);
   box-shadow: var(--shadow-composer), var(--focus-ring);
