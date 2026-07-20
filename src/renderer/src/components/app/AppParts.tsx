@@ -39,6 +39,10 @@ import {
 	matches,
 	displayPath,
 	flattenFiles,
+	parseToolArgs,
+	getToolFilePath,
+	countTextLines,
+	getToolEditDiff,
 } from "./AppUtils";
 
 // Mermaid 库体积数 MB，仅在真正出现 mermaid 代码块时才动态加载，
@@ -1558,28 +1562,7 @@ function toolIcon(toolName: string): ReactNode {
 	return <Wrench size={14} />;
 }
 
-function parseToolArgs(value: unknown): Record<string, unknown> | undefined {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	if (typeof value !== "string" || !value.trim()) return undefined;
-	try {
-		let parsed = JSON.parse(value) as unknown;
-		// 兼容已二次 JSON.stringify 的异常数据（meta 中存储的 args 字符串被 safeJson 再包一层）
-		if (typeof parsed === "string" && parsed.trim()) {
-			try {
-				parsed = JSON.parse(parsed) as unknown;
-			} catch {
-				return undefined;
-			}
-		}
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? parsed as Record<string, unknown>
-			: undefined;
-	} catch {
-		return undefined;
-	}
-}
+
 
 /** 从工具消息 meta 中提取副标题（文件路径或命令），让 trigger 行能体现工具作用对象。
  *  pi 的工具参数可能是对象，也可能已被主进程截断/序列化为 JSON 字符串；两种格式都要兼容，否则 bash 命令摘要会丢失。 */
@@ -1624,42 +1607,7 @@ function getToolSubtitle(message: ChatMessage): string {
 }
 
 function getToolArgFilePath(args: Record<string, unknown> | undefined): string | undefined {
-	if (!args) return undefined;
-	for (const key of ["filePath", "file_path", "path", "targetPath", "target_path", "outputPath", "output_path", "file", "fileName", "filename"]) {
-		const value = args[key];
-		if (typeof value === "string" && value) return value;
-	}
-	return undefined;
-}
-
-function countTextLines(value: string) {
-	return value ? value.split(/\r\n|\r|\n/).length : 0;
-}
-
-/**
- * 从 edit 工具参数中提取变更区域（oldText → newText）
- * 用于 diff 展示。不再拼接全量文件，只展示变动部分。
- */
-function getEditDiffContent(args: Record<string, unknown>): { oldText: string; newText: string } | undefined {
-	const edits = Array.isArray(args.edits) ? args.edits : undefined;
-	if (edits) {
-		// 多段编辑拼接所有 oldText / newText
-		const parts = edits.map((edit: unknown) => {
-			if (!edit || typeof edit !== "object") return null;
-			const oldText = String((edit as Record<string, unknown>).oldText ?? (edit as Record<string, unknown>).old_text ?? "");
-			const newText = String((edit as Record<string, unknown>).newText ?? (edit as Record<string, unknown>).new_text ?? "");
-			return { oldText, newText };
-		}).filter((p): p is { oldText: string; newText: string } => p !== null);
-		if (parts.length === 0) return undefined;
-		return {
-			oldText: parts.map(p => p.oldText).join("\n"),
-			newText: parts.map(p => p.newText).join("\n"),
-		};
-	}
-	const oldText = typeof args.oldText === "string" ? args.oldText : typeof args.old_text === "string" ? args.old_text : undefined;
-	const newText = typeof args.newText === "string" ? args.newText : typeof args.new_text === "string" ? args.new_text : undefined;
-	if (oldText === undefined || newText === undefined) return undefined;
-	return { oldText, newText };
+	return getToolFilePath(args);
 }
 
 function getToolDiffTarget(message: ChatMessage): { path: string; originalContent: string; content: string; changedLines: number } | undefined {
@@ -1678,7 +1626,7 @@ function getToolDiffTarget(message: ChatMessage): { path: string; originalConten
 		return { path, originalContent: "", content, changedLines: countTextLines(content) };
 	}
 	// edit/patch：不存储 full file originalContent，只展示变动区域
-	const diff = getEditDiffContent(args);
+	const diff = getToolEditDiff(args);
 	if (!diff) return undefined;
 	return {
 		path,

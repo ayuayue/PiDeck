@@ -146,6 +146,10 @@ import {
   flattenFiles,
   matches,
   mergeCommands,
+  getToolFilePath,
+  getToolNewContent,
+  getToolChangedLineCount,
+  countTextLines,
   type MessageItem,
 } from "./components/app/AppUtils";
 import {
@@ -248,83 +252,8 @@ function withTimeout<T>(
   });
 }
 
-function countContentLines(value: unknown) {
-  if (typeof value !== "string") return 0;
-  if (!value) return 0;
-  return value.split(/\r\n|\r|\n/).length;
-}
 
-function getToolChangedLineCount(toolName: string, args: any) {
-  // meta.args 可能被 AgentManager 序列化为 JSON 字符串
-  if (typeof args === "string" && args.trim()) {
-    try { args = JSON.parse(args); } catch { return 0; }
-  }
-  // 会话结束摘要只能使用 renderer 已收到的工具参数,不能重新 diff 工作区;
-  // 这里按编辑/写入工具的输入估算"本次触达行数",避免把用户在会话外的改动也计入。
-  if (/edit|patch/i.test(toolName)) {
-    const edits = Array.isArray(args?.edits) ? args.edits : undefined;
-    if (edits) {
-      return edits.reduce((total: number, edit: any) => {
-        const oldLines = countContentLines(edit?.oldText ?? edit?.old_text);
-        const newLines = countContentLines(edit?.newText ?? edit?.new_text);
-        return total + Math.max(oldLines, newLines);
-      }, 0);
-    }
-    return Math.max(
-      countContentLines(args?.oldText ?? args?.old_text),
-      countContentLines(args?.newText ?? args?.new_text),
-    );
-  }
-  if (/write|create/i.test(toolName)) {
-    return countContentLines(args?.content ?? args?.text ?? args?.data ?? args?.body);
-  }
-  return 0;
-}
 
-function getToolFilePath(args: any) {
-  // meta.args 可能被 AgentManager 序列化为 JSON 字符串（safeJson），需反解为对象再查找路径字段。
-  if (typeof args === "string" && args.trim()) {
-    try { args = JSON.parse(args); } catch { return undefined; }
-  }
-  return typeof args?.filePath === "string"
-    ? args.filePath
-    : typeof args?.file_path === "string"
-      ? args.file_path
-      : typeof args?.path === "string"
-        ? args.path
-        : typeof args?.targetPath === "string"
-          ? args.targetPath
-          : typeof args?.target_path === "string"
-            ? args.target_path
-            : typeof args?.outputPath === "string"
-              ? args.outputPath
-              : typeof args?.output_path === "string"
-                ? args.output_path
-                : typeof args?.file === "string"
-                  ? args.file
-                  : typeof args?.fileName === "string"
-                    ? args.fileName
-                    : typeof args?.filename === "string"
-                      ? args.filename
-                      : undefined;
-}
-
-/**
- * 从工具参数中提取修改后的文件内容，用于 diff 展示。
- * 不再依赖 originalContent（已移除存储），
- * 对于 edit 操作直接提取工具参数中的变动区域。
- */
-function getToolNewContent(toolName: string, args: any, _originalContent?: string): string | undefined {
-  // meta.args 可能是 JSON 字符串，反解后再提取内容字段。
-  if (!args) return undefined;
-  if (typeof args === "string" && args.trim()) {
-    try { args = JSON.parse(args); } catch { return undefined; }
-  }
-  if (/write|create/i.test(toolName) && typeof args.content === "string") return args.content;
-  // edit/patch：originalContent 不再存储，这里不再尝试重建全量文件内容。
-  // diff 展示时使用工具参数中的 oldText/newText 显示变动区域。
-  return undefined;
-}
 
 function displayProjectDirectoryName(project: Project) {
   if (isChatProject(project)) return "Chat";

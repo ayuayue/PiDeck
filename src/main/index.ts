@@ -2880,7 +2880,6 @@ app.whenReady().then(async () => {
 	const disabledBuiltIn = new Set<string>(disabledExtList);
 
 	for (const extensionName of [
-		"pi-deck-file-capture.ts",
 		"pi-deck-ask-question.ts",
 		"pi-deck-plan-mode.ts",
 		"pi-deck-todo.ts",
@@ -2899,6 +2898,11 @@ app.whenReady().then(async () => {
 	// 该扩展无法弹窗，信任确认改由桌面端 AgentManager.ensureProjectTrust 自行处理，删除残留避免用户误解。
 	await removeStalePiDeckExtension("pi-deck-project-trust.ts").catch((error) => {
 		console.error("Failed to remove stale pi-deck-project-trust extension:", error);
+	});
+
+	// 清理已废弃的 pi-deck-file-capture 扩展：该扩展的功能已被 renderer 端的直接工具参数解析取代。
+	await removeStalePiDeckExtension("pi-deck-file-capture.ts").catch((error) => {
+		console.error("Failed to remove stale pi-deck-file-capture extension:", error);
 	});
 
 	await appLogger.info("app", "Application started", {

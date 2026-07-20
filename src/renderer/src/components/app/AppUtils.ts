@@ -513,3 +513,106 @@ export function buildSuggestionItems(
 	}
 	return [];
 }
+
+/* ── 工具参数解析 ── */
+
+export function parseToolArgs(value: unknown): Record<string, unknown> | undefined {
+	if (!value) return undefined;
+	if (typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+	if (typeof value !== "string" || !value.trim()) return undefined;
+	try {
+		let parsed = JSON.parse(value) as unknown;
+		if (typeof parsed === "string" && parsed.trim()) {
+			try { parsed = JSON.parse(parsed); } catch { return undefined; }
+		}
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function getToolFilePath(args: any): string | undefined {
+	if (!args) return undefined;
+	if (typeof args === "string" && args.trim()) {
+		try { args = JSON.parse(args); } catch { return undefined; }
+	}
+	if (typeof args !== "object") return undefined;
+	const a = args as Record<string, unknown>;
+	return typeof a.filePath === "string" && a.filePath ? a.filePath
+		: typeof a.file_path === "string" && a.file_path ? a.file_path
+		: typeof a.path === "string" && a.path ? a.path
+		: typeof a.targetPath === "string" && a.targetPath ? a.targetPath
+		: typeof a.target_path === "string" && a.target_path ? a.target_path
+		: typeof a.outputPath === "string" && a.outputPath ? a.outputPath
+		: typeof a.output_path === "string" && a.output_path ? a.output_path
+		: typeof a.file === "string" && a.file ? a.file
+		: typeof a.fileName === "string" && a.fileName ? a.fileName
+		: typeof a.filename === "string" && a.filename ? a.filename
+		: undefined;
+}
+
+export function countTextLines(value: string): number {
+	return value ? value.split(/\r\n|\r|\n/).length : 0;
+}
+
+export function getToolEditDiff(args: Record<string, unknown>): { oldText: string; newText: string } | undefined {
+	const edits = Array.isArray(args.edits) ? args.edits : undefined;
+	if (edits) {
+		const parts = edits.map((edit: unknown) => {
+			if (!edit || typeof edit !== "object") return null;
+			const e = edit as Record<string, unknown>;
+			const oldText = String(e.oldText ?? e.old_text ?? "");
+			const newText = String(e.newText ?? e.new_text ?? "");
+			return { oldText, newText };
+		}).filter((p): p is { oldText: string; newText: string } => p !== null);
+		if (parts.length === 0) return undefined;
+		return {
+			oldText: parts.map(p => p.oldText).join("\n"),
+			newText: parts.map(p => p.newText).join("\n"),
+		};
+	}
+	const oldText = typeof args.oldText === "string" ? args.oldText : typeof args.old_text === "string" ? args.old_text : undefined;
+	const newText = typeof args.newText === "string" ? args.newText : typeof args.new_text === "string" ? args.new_text : undefined;
+	if (oldText === undefined || newText === undefined) return undefined;
+	return { oldText, newText };
+}
+
+export function getToolNewContent(toolName: string, args: any): string | undefined {
+	if (!args) return undefined;
+	if (typeof args === "string" && args.trim()) {
+		try { args = JSON.parse(args); } catch { return undefined; }
+	}
+	if (!toolName) return undefined;
+	if (/write|create/i.test(toolName)) {
+		const a = args as Record<string, unknown>;
+		return typeof a.content === "string" ? a.content : typeof a.text === "string" ? a.text : typeof a.data === "string" ? a.data : typeof a.body === "string" ? a.body : undefined;
+	}
+	if (/edit|patch/i.test(toolName)) {
+		const diff = getToolEditDiff(args);
+		return diff?.newText;
+	}
+	return undefined;
+}
+
+export function getToolChangedLineCount(toolName: string, args: any): number {
+	if (typeof args === "string" && args.trim()) {
+		try { args = JSON.parse(args); } catch { return 0; }
+	}
+	if (!toolName) return 0;
+	if (/edit|patch/i.test(toolName)) {
+		const edits = Array.isArray(args?.edits) ? args.edits : undefined;
+		if (edits) {
+			return edits.reduce((total: number, edit: any) => {
+				const oldLines = countTextLines(String(edit?.oldText ?? edit?.old_text ?? ""));
+				const newLines = countTextLines(String(edit?.newText ?? edit?.new_text ?? ""));
+				return total + Math.max(oldLines, newLines);
+			}, 0);
+		}
+		return Math.max(countTextLines(String(args?.oldText ?? args?.old_text ?? "")), countTextLines(String(args?.newText ?? args?.new_text ?? "")));
+	}
+	if (/write|create/i.test(toolName)) {
+		return countTextLines(String(args?.content ?? args?.text ?? args?.data ?? args?.body ?? ""));
+	}
+	return 0;
+}
+
