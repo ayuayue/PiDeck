@@ -1057,7 +1057,17 @@ function registerFeishuIpc() {
 }
 
 function registerIpc() {
-	ipcMain.handle(ipcChannels.projectsList, () => projectStore.list());
+	// 获取当前环境过滤后的项目列表（WSL 模式只显示 WSL 项目，Chat 始终显示）
+	const getVisibleProjects = () => {
+		const settings = settingsStore.get();
+		const all = projectStore.list();
+		if (settings.wslEnabled) {
+			return all.filter((p) => p.kind === "chat" || p.environment === "wsl");
+		}
+		return all.filter((p) => p.kind === "chat" || !p.environment || p.environment === "windows");
+	};
+
+	ipcMain.handle(ipcChannels.projectsList, () => getVisibleProjects());
 	ipcMain.handle(ipcChannels.editorsList, async () => listConfiguredExternalEditors(settingsStore.get()));
 	ipcMain.handle(ipcChannels.editorsChooseExecutable, async () => {
 		const options = {
@@ -1124,8 +1134,10 @@ function registerIpc() {
 		},
 	);
 	ipcMain.handle(ipcChannels.projectsAdd, async () => {
-		const project = await projectStore.chooseAndAdd();
-		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path });
+		const settings = settingsStore.get();
+		const env = settings.wslEnabled ? "wsl" as const : "windows" as const;
+		const project = await projectStore.chooseAndAdd(env);
+		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: env });
 		return project;
 	});
 	ipcMain.handle(ipcChannels.projectsRemove, async (_event, id: string) => {
@@ -1135,14 +1147,14 @@ function registerIpc() {
 		}
 		await projectStore.remove(id);
 		void appLogger.info("project", "Project removed", { projectId: id });
-		return projectStore.list();
+		return getVisibleProjects();
 	});
 	ipcMain.handle(
 		ipcChannels.projectsReorder,
 		async (_event, projectIds: string[]) => {
 			const result = await projectStore.reorder(projectIds);
 			void appLogger.info("project", "Projects reordered", { count: projectIds.length });
-			return result;
+			return getVisibleProjects();
 		},
 	);
 	ipcMain.handle(ipcChannels.projectResourcesList, async (_event, projectId: string) => {
@@ -1243,7 +1255,7 @@ function registerIpc() {
 			if (typeof path !== "string" || path.length === 0) throw new Error("Invalid chat path");
 			const project = await projectStore.setChatProjectPath(path);
 			// 路径变更后广播项目列表变化，渲染端据此刷新聊天项目的会话。
-			mainWindow?.webContents.send(ipcChannels.projectsChanged, projectStore.list());
+			mainWindow?.webContents.send(ipcChannels.projectsChanged, getVisibleProjects());
 			void appLogger.info("project", "Chat project path updated", { path });
 			return project;
 		},
@@ -1255,8 +1267,24 @@ function registerIpc() {
 		return fileSystemService.listTree(project.path);
 	});
 
+	// 将 WSL Linux 路径转为 Windows 可访问的路径（/mnt/c → C:\，/home/... → \\wsl$\<distro>\...）
+	const toWindowsPath = (linuxPath: string): string => {
+		if (!linuxPath || /^[A-Za-z]:/.test(linuxPath)) return linuxPath; // 已是 Windows 路径
+		// /mnt/c/Users/... → C:\Users\...
+		const mntMatch = linuxPath.match(/^\/mnt\/([a-z])\/(.*)/);
+		if (mntMatch) {
+			return `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, '\\')}`;
+		}
+		// /home/user/... → \\wsl$\<distro>\home\user\...
+		const settings = settingsStore.get();
+		if (settings.wslEnabled && settings.wslDistro) {
+			return `\\\\wsl$\\${settings.wslDistro}\\${linuxPath.replace(/^\//, '').replace(/\//g, '\\')}`;
+		}
+		return linuxPath;
+	};
+
 	ipcMain.handle(ipcChannels.filesOpen, async (_event, path: string) => {
-		const error = await shell.openPath(path);
+		const error = await shell.openPath(toWindowsPath(path));
 		// Electron 通过返回字符串报告打开失败；显式抛出后前端才能提示路径不存在或系统无法打开。
 		if (error) throw new Error(error);
 	});
@@ -1268,7 +1296,7 @@ function registerIpc() {
 
 	ipcMain.handle(ipcChannels.filesReadContent, async (_event, path: string) => {
 		try {
-			return await readFile(path, "utf8");
+			return await readFile(toWindowsPath(path), "utf8");
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 				return "";
@@ -1410,7 +1438,7 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.filesShowInFolder,
 		async (_event, path: string) => {
-			shell.showItemInFolder(path);
+			shell.showItemInFolder(toWindowsPath(path));
 		},
 	);
 
@@ -1418,7 +1446,15 @@ function registerIpc() {
 		ipcChannels.sessionsList,
 		async (_event, projectId?: string) => {
 			const project = projectId ? projectStore.get(projectId) : undefined;
-			return sessionScanner.list(project?.path);
+			let projectPath = project?.path;
+			// WSL 模式：将 Windows 项目路径转为 WSL /mnt/ 格式，
+			// 使 WSL 会话（CWD = /mnt/c/...）能正确匹配到项目。
+			if (projectPath && settingsStore.get().wslEnabled && settingsStore.get().wslDistro) {
+				projectPath = projectPath
+					.replace(/^([A-Za-z]):\\/, (_: string, d: string) => `/mnt/${d.toLowerCase()}/`)
+					.replace(/\\/g, '/');
+			}
+			return sessionScanner.list(projectPath);
 		},
 	);
 	ipcMain.handle(
@@ -1708,6 +1744,80 @@ function registerIpc() {
 		});
 		return status;
 	});
+	// 智能查找 wsl.exe：优先绝对路径（含 32-bit Sysnative 绕过），全部不存在时回退到 PATH
+	const wslExeResolved = (() => {
+		const root = process.env.SystemRoot || "C:\\Windows";
+		const candidates = process.arch === "ia32"
+			? [join(root, "Sysnative", "wsl.exe"), join(root, "System32", "wsl.exe")]
+			: [join(root, "System32", "wsl.exe")];
+		for (const candidate of candidates) {
+			if (existsSync(candidate)) return { command: candidate, shell: false };
+		}
+		return { command: "wsl", shell: true };
+	})();
+	const wslExePath = wslExeResolved.command;
+	const wslShell = wslExeResolved.shell;
+	// WSL: 列出已安装的发行版（仅 Windows 有效，其他平台返回空数组）
+	ipcMain.handle(ipcChannels.wslListDistros, async () => {
+		if (process.platform !== "win32") return [] as string[];
+		try {
+			const { execFile } = await import("node:child_process");
+			return new Promise<string[]>((resolve) => {
+				execFile(wslExePath, ["-l", "-q"], { encoding: "utf8", timeout: 10_000, windowsHide: true, shell: wslShell },
+					(err, stdout) => {
+						if (err) { resolve([]); return; }
+						// 过滤空行、\0 字符、Windows 文件后缀等非法发行版名
+						const distros = stdout.split(/\r?\n/)
+							.map((s) => s.trim())
+							.filter((s) => s.length > 0 && !s.includes("\\") && !s.includes("\x00"));
+						resolve(distros);
+					});
+			});
+		} catch { return [] as string[]; }
+	});
+	// WSL: 验证连接性 — 分步检查 distro+user 可达性 和 pi 可用性
+	ipcMain.handle(ipcChannels.wslValidateConnection, async (_event, distro: string, user: string) => {
+		if (process.platform !== "win32") {
+			return { ok: false, whoami: "", piVersion: "", error: "WSL 仅在 Windows 上可用" };
+		}
+		try {
+			const { execFile } = await import("node:child_process");
+			// Step 1: 验证 distro + user 可达
+			const whoami = await new Promise<string>((resolve, reject) => {
+				execFile(wslExePath, ["-d", distro, "-u", user, "whoami"],
+					{ encoding: "utf8", timeout: 10_000, windowsHide: true, shell: wslShell },
+					(err, stdout) => {
+						if (err) { reject(err); return; }
+						resolve(stdout.trim());
+					});
+			});
+			// Step 2: 检查 pi 是否已安装
+			let piVersion = "";
+			try {
+				piVersion = await new Promise<string>((resolve, reject) => {
+					execFile(wslExePath, ["-d", distro, "-u", user, "pi", "--version"],
+						{ encoding: "utf8", timeout: 10_000, windowsHide: true, shell: wslShell },
+						(err, stdout) => {
+							if (err) { reject(err); return; }
+							resolve(stdout.trim());
+						});
+				});
+			} catch { /* pi 未安装，piVersion 保持空 */ }
+			return {
+				ok: true,
+				whoami,
+				piVersion,
+				error: piVersion ? "" : "pi CLI 未安装 — 请在 WSL 中运行 npm i -g @earendil-works/pi",
+			};
+		} catch (err) {
+			return {
+				ok: false,
+				whoami: "",
+				piVersion: "",
+				error: `无法连接到 WSL 发行版 "${distro}" 用户 "${user}"：${err instanceof Error ? err.message : String(err)}`,
+			};
+		}
+	});
 	ipcMain.handle(ipcChannels.piUpdateCheck, async () => {
 		const result = await extensionManager.checkPiUpdate();
 		void appLogger.info("pi", "Pi update check completed", { currentVersion: result.currentVersion, latestVersion: result.latestVersion, hasUpdate: result.hasUpdate, error: result.error });
@@ -1861,6 +1971,7 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.appInfo, () => ({
 		version: app.getVersion(),
 		releasesUrl: RELEASES_URL,
+		platform: process.platform,
 	}));
 	ipcMain.handle(ipcChannels.appPreferredSystemLanguages, () => {
 		// Renderer navigator.language can reflect Chromium launch flags or a stale browser locale.
@@ -2027,7 +2138,7 @@ function registerIpc() {
 			// WSL 设置变更时同步更新会话扫描器
 			if ("wslEnabled" in patch || "wslDistro" in patch || "wslUser" in patch) {
 				if (settings.wslEnabled && settings.wslDistro && settings.wslUser) {
-					sessionScanner.configureWsl(settings.wslDistro, settings.wslUser);
+					await sessionScanner.configureWsl(settings.wslDistro, settings.wslUser);
 				} else {
 					sessionScanner.clearWsl();
 				}
@@ -2865,7 +2976,7 @@ app.whenReady().then(async () => {
 	{
 		const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
 		if (wslEnabled && wslDistro && wslUser) {
-			sessionScanner.configureWsl(wslDistro, wslUser);
+			await sessionScanner.configureWsl(wslDistro, wslUser);
 		} else {
 			sessionScanner.clearWsl();
 		}
@@ -2946,9 +3057,13 @@ app.whenReady().then(async () => {
 	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
 	void projectStore
 		.load()
-		.then(() =>
-			mainWindow?.webContents.send("projects:changed", projectStore.list()),
-		)
+		.then(() => {
+			const s = settingsStore.get();
+			const visible = s.wslEnabled
+				? projectStore.list().filter((p) => p.kind === "chat" || p.environment === "wsl")
+				: projectStore.list().filter((p) => p.kind === "chat" || !p.environment || p.environment === "windows");
+			mainWindow?.webContents.send("projects:changed", visible);
+		})
 		.catch(() => undefined);
 
 	// 启动后异步检查 RPC 超时时间，如果小于 600 秒则自动修正为 600 秒

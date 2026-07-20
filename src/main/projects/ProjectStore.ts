@@ -77,17 +77,18 @@ export class ProjectStore {
     }
   }
 
-  async chooseAndAdd() {
+  async chooseAndAdd(environment?: "windows" | "wsl") {
     const result = await dialog.showOpenDialog({
       title: "选择项目目录",
       properties: ["openDirectory"],
     });
 
     if (result.canceled || result.filePaths.length === 0) return null;
-    return this.add(result.filePaths[0]);
+    return this.add(result.filePaths[0], undefined, environment);
   }
 
-  async add(path: string, worktreeParentId?: string) {
+  /** 添加项目，可指定所属环境（缺省 windows） */
+  async add(path: string, worktreeParentId?: string, environment?: "windows" | "wsl") {
     const normalizedPath = this.normalizeProjectPath(path);
     const existing = this.projects.find(project => this.sameProjectPath(project.path, normalizedPath));
     if (existing) {
@@ -108,6 +109,8 @@ export class ProjectStore {
       path: normalizedPath,
       lastOpenedAt: Date.now(),
       sortOrder: this.nextSortOrder(),
+      // 兼容旧数据：environment 缺省视为 windows
+      environment: environment || "windows",
       ...(worktreeParentId ? { worktreeParentId } : {}),
     };
 

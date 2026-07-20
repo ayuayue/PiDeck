@@ -10,6 +10,8 @@ export type Project = {
 	worktreeEnabled?: boolean;
 	/** 如果是 worktree 子项目，指向父项目的 id */
 	worktreeParentId?: string;
+	/** 项目所属环境：windows 或 wsl。缺省视为 windows（兼容旧数据）。 */
+	environment?: "windows" | "wsl";
 };
 
 export const SUPPORTED_EXTERNAL_EDITORS = [
@@ -125,6 +127,8 @@ export type SessionSummary = {
 	messageCount: number;
 	/** 会话来源：pi 原生、Codex 导入、Claude 导入、OpenCode 导入 */
 	source?: "pi" | "codex" | "claude" | "opencode";
+	/** 标记此会话文件来自 WSL，rename/delete/copy 等操作需走 wsl.exe */
+	wsl?: boolean;
 	codexSessionId?: string;
 	codexThreadSource?: "user" | "subagent";
 	codexParentThreadId?: string;
@@ -325,8 +329,7 @@ export type AppSettings = {
 	desktopProxyBypass: string;
 	/** 用户手动指定的 pi CLI 命令路径，自动检测不到时用于兜底 */
 	customPiPath: string;
-	/** WSL 中检测到的 pi 命令路径（只读缓存，由 PiLocator.check 回填） */
-	wslPiCommand?: string;
+
 	/** 是否发送匿名、低频、最小字段的使用统计 */
 	telemetryEnabled: boolean;
 	/** 是否开启局域网 Web 服务 */
@@ -720,6 +723,8 @@ export type PiProxyTestResult = {
 export type AppInfo = {
 	version: string;
 	releasesUrl: string;
+	/** 当前运行平台：win32 / darwin / linux，用于 UI 中按平台条件渲染（如 WSL 选项仅在 Windows 显示） */
+	platform: NodeJS.Platform;
 };
 
 export type FeedbackEnvironment = {

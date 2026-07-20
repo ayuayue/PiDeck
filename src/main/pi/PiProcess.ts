@@ -85,7 +85,11 @@ export class PiProcess extends EventEmitter {
     // 信任确认由桌面端 AgentManager.ensureProjectTrust 在启动 pi 前完成，不再静默 --approve。
     // pi 在 RPC 模式下 project_trust 事件 hasUI 恒为 false，故信任弹窗由桌面端自行处理。
     const args = ["--mode", "rpc"];
-    if (sessionPath) args.push("--session", sessionPath);
+    // WSL 模式下仅跳过 Windows 格式的会话路径（跨环境残留数据），
+    // WSL 原生路径（/home/... 或 /mnt/...）正常传递以恢复已有会话。
+    const isWsl = this.settings?.wslEnabled && this.settings?.wslDistro && this.settings?.wslUser;
+    const isWinPath = sessionPath && /^[A-Za-z]:[/\\]/.test(sessionPath);
+    if (sessionPath && !(isWsl && isWinPath)) args.push("--session", sessionPath);
 
     // 用户手动指定的 pi 路径优先于自动检测，解决 npm global、nvm 等路径未在 PATH 中的问题
     const command = this.locator.resolveCommand(this.settings?.customPiPath, this.settings?.wslEnabled, this.settings?.wslDistro, this.settings?.wslUser);
@@ -106,8 +110,11 @@ export class PiProcess extends EventEmitter {
 
     const invocation = this.locator.createInvocation(command, args);
 
-    // WSL 模式下需要把 Windows 路径转为 Linux 路径，否则 pi 在 WSL 中找不到项目目录和 session 文件。
-    const wslCwd = invocation.wsl ? PiLocator.windowsPathToWslPath(this.cwd) : this.cwd;
+    // WSL 模式：spawn 的 cwd 必须是 Windows 路径（wsl.exe 会将其转为 WSL 初始目录），
+    // 不能用 Linux 路径否则 spawn ENOENT。session 参数传 WSL Linux 路径（pi 在 WSL 内读取）。
+    const spawnCwd = this.cwd;
+    // 诊断用 WSL Linux 路径，表示 pi 在 WSL 内看到的工作目录
+    const diagnosticCwd = invocation.wsl ? PiLocator.windowsPathToWslPath(this.cwd) : this.cwd;
     // 如果 args 中携带了 --session，也需要把 Windows 路径转为 WSL 路径。
     const sessionIndex = invocation.args.indexOf("--session");
     const finalArgs = sessionIndex >= 0 && invocation.wsl
@@ -121,7 +128,7 @@ export class PiProcess extends EventEmitter {
     this.diagnostics = {
       command: command,
       args: finalArgs,
-      cwd: wslCwd,
+      cwd: diagnosticCwd,
       stderr: [],
       exitCode: null,
       exitSignal: null,
@@ -132,11 +139,13 @@ export class PiProcess extends EventEmitter {
       void this.ensureVersionCheck(command);
     }
 
+    console.log('[PiProcess] spawn:', JSON.stringify({ command: invocation.command, wslShell: invocation.shell, cwd: spawnCwd, args: finalArgs.slice(0, 6) }));
+
     // 每个 agent 绑定独立 cwd，确保 pi 自己发现项目级 AGENTS.md、settings 和 session 分组。
     // 打包后的 Electron 不一定继承用户终端 PATH；这里补齐跨平台 Node 工具链常见 bin 目录，尽量让已安装 pi 的用户开箱即用。
     // Windows 下通过 PiLocator.createInvocation 显式包裹含空格的 npm shim 路径，避免 cmd 拆分路径导致 agent 启动失败。
     this.proc = spawn(invocation.command, finalArgs, {
-      cwd: wslCwd,
+      cwd: spawnCwd,
       stdio: ["pipe", "pipe", "pipe"],
       shell: invocation.shell,
       env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix, invocation.wsl),

@@ -381,6 +381,20 @@ const api = {
 		checkNpm: () =>
 			ipcRenderer.invoke(ipcChannels.piCheckNpm) as Promise<NpmAvailabilityResult>,
 	},
+	/** WSL 相关操作（仅 Windows 有效） */
+	wsl: {
+		/** 获取已安装的 WSL 发行版列表 */
+		listDistros: () =>
+			ipcRenderer.invoke(ipcChannels.wslListDistros) as Promise<string[]>,
+		/** 验证 WSL 连接：检查 distro + user 是否可达，以及 pi 是否已安装 */
+		validateConnection: (distro: string, user: string) =>
+			ipcRenderer.invoke(ipcChannels.wslValidateConnection, distro, user) as Promise<{
+				ok: boolean;
+				whoami: string;
+				piVersion: string;
+				error: string;
+			}>,
+	},
 	logs: {
 		list: (query?: AppLogQuery) =>
 			ipcRenderer.invoke(ipcChannels.logsList, query ?? {}) as Promise<AppLogEntry[]>,

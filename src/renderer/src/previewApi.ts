@@ -389,10 +389,20 @@ export function createPreviewApi(): PiDesktopApi {
 				version: "preview",
 			}),
 		},
+		wsl: {
+			listDistros: async () => ["Ubuntu", "Debian"],
+			validateConnection: async (_distro, _user) => ({
+				ok: true,
+				whoami: "preview",
+				piVersion: "preview",
+				error: "",
+			}),
+		},
 		app: {
 			info: async () => ({
 				version: "preview",
 				releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
+				platform: "win32" as NodeJS.Platform,
 			}),
 			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			checkUpdate: async () => ({

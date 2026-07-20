@@ -109,10 +109,11 @@ export class PiLocator {
       const parsed = this.parseWslUrl(command);
       if (!parsed) return { command, args, shell: false };
       const { distro, user, piCommand } = parsed;
+      const wslExe = this.resolveWslExe();
       return {
-        command: this.wslExePath,
+        command: wslExe.command,
         args: ["-d", distro, "-u", user, piCommand, ...args],
-        shell: false,
+        shell: wslExe.shell,
         wsl: { distro, user, piCommand },
       };
     }
@@ -297,9 +298,33 @@ export class PiLocator {
    * 尝试在 WSL 中检测 pi 是否可用。
    * 返回 "wsl://<distro>/<user>/pi" 标记字符串，供 resolveCommand/createInvocation 识别。
    */
-  private get wslExePath(): string {
+  /**
+   * wsl.exe 完整路径。32 位进程在 64 位 Windows 上访问 System32 会被文件系统重定向到
+   * SysWOW64，而 wsl.exe 仅存在于真实 System32 中。使用 Sysnative 别名绕过重定向。
+   */
+  /**
+   * wsl.exe 完整路径（优先绝对路径，fopen 失败时回退到 PATH）。
+   * 32 位进程在 64 位 Windows 上访问 System32 会被文件系统重定向，
+   * Sysnative 别名可绕过；若均不可用则通过 shell PATH 查找。
+   */
+  private resolveWslExe(): { command: string; shell: boolean } {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
-    return join(systemRoot, "System32", "wsl.exe");
+    // 尝试真实 System32（通过 Sysnative 处理 32-bit 重定向）
+    const candidates = process.arch === "ia32"
+      ? [join(systemRoot, "Sysnative", "wsl.exe"), join(systemRoot, "System32", "wsl.exe")]
+      : [join(systemRoot, "System32", "wsl.exe")];
+    for (const candidate of candidates) {
+      const ok = existsSync(candidate);
+      console.log('[PiLocator] resolveWslExe candidate:', candidate, 'exists:', ok);
+      if (ok) return { command: candidate, shell: false };
+    }
+    // 绝对路径均不存在：通过 cmd.exe PATH 查找 wsl.exe
+    console.log('[PiLocator] resolveWslExe fallback: shell mode with "wsl"');
+    return { command: "wsl", shell: true };
+  }
+  /** @deprecated 使用 resolveWslExe() 代替，支持 PATH 回退 */
+  private get wslExePath(): string {
+    return this.resolveWslExe().command;
   }
 
   /**
@@ -314,11 +339,13 @@ export class PiLocator {
 
   private resolveWslCommand(distro: string, user: string): string | undefined {
     try {
+      const wslExe = this.resolveWslExe();
       const wslArgs = ["-d", distro, "-u", user, "which", "pi"];
-      const result = execFileSync(this.wslExePath, wslArgs, {
+      const result = execFileSync(wslExe.command, wslArgs, {
         encoding: "utf8",
         timeout: 8_000,
         windowsHide: true,
+        shell: wslExe.shell,
       }).trim();
       if (result && result.length > 0 && !result.includes("not found")) {
         return `wsl://${distro}/${user}/pi`;
@@ -331,10 +358,11 @@ export class PiLocator {
 
   private checkWslCommand(distro: string, user: string, piCommand: string): Promise<PiInstallStatus> {
     return new Promise(resolve => {
+      const wslExe = this.resolveWslExe();
       const wslArgs = ["-d", distro, "-u", user, piCommand, "--version"];
-      execFile(this.wslExePath, wslArgs, {
+      execFile(wslExe.command, wslArgs, {
         env: this.createProcessEnv(undefined, undefined, { distro, user, piCommand }),
-        shell: false,
+        shell: wslExe.shell,
         windowsHide: true,
         timeout: 8_000,
         encoding: "utf8",

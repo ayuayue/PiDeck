@@ -96,6 +96,10 @@ export const ipcChannels = {
 	gitCommit: "git:commit",
 	piCheck: "pi:check",
 	piCheckCustom: "pi:check-custom",
+	/** 获取已安装的 WSL 发行版列表（仅 Windows） */
+	wslListDistros: "wsl:list-distros",
+	/** 验证 WSL 连接：检查 distro + user 是否可达，以及 pi 是否已安装 */
+	wslValidateConnection: "wsl:validate-connection",
 	piUpdateCheck: "pi:update-check",
 	piUpdate: "pi:update",
 	/** 在系统终端中执行安装命令（npm install）并返回结果 */

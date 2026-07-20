@@ -10528,6 +10528,40 @@ body.is-composer-resizing .composer-resize-handle::after {
   border: 1px solid var(--color-border-subtle);
   color: var(--color-accent);
 }
+/* WSL 用户验证行：输入框 + 验证按钮 */
+.setting-wsl-user-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.setting-wsl-user-row .setting-field {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+/* WSL 验证结果反馈 */
+.setting-wsl-validation {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.setting-wsl-validation.success {
+  background: var(--color-success-bg, #f0fdf4);
+  border: 1px solid var(--color-success-border, #bbf7d0);
+}
+.setting-wsl-validation.error {
+  background: var(--color-error-bg, #fef2f2);
+  border: 1px solid var(--color-error-border, #fecaca);
+}
+/* WSL 面板操作按钮（应用/取消） */
+.setting-wsl-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
 .settings-panel p {
   color: var(--color-text-tertiary);
   line-height: 1.5;

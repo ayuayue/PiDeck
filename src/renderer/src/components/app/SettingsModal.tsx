@@ -136,6 +136,95 @@ export function SettingsModal(props: {
 		setWebPortDraft(String(props.settings.webServicePort));
 	}, [props.settings.webServicePort]);
 
+	// ── WSL 配置草稿状态 ──
+	// WSL 的三个耦合字段（enabled/distro/user）不直接 onChange 落盘，
+	// 而是进入本地 draft，用户点击"应用"后原子保存，避免中间态导致功能异常。
+	const [wslDraft, setWslDraft] = useState({
+		enabled: props.settings.wslEnabled,
+		distro: props.settings.wslDistro,
+		user: props.settings.wslUser,
+	});
+	const [wslUserInput, setWslUserInput] = useState(props.settings.wslUser);
+	const [wslDistros, setWslDistros] = useState<string[]>([]);
+	const [wslDistrosLoading, setWslDistrosLoading] = useState(false);
+	/** 防止 listDistros 失败后无限重试：无论结果如何最多拉取一次 */
+	const [wslDistrosAttempted, setWslDistrosAttempted] = useState(false);
+	const [wslValidating, setWslValidating] = useState(false);
+	const [wslValidation, setWslValidation] = useState<{
+		ok: boolean;
+		whoami: string;
+		piVersion: string;
+		error: string;
+	} | null>(null);
+	// 外部 settings 变更时同步回 draft（如用户切换设置页 tab 后返回）
+	useEffect(() => {
+		setWslDraft({
+			enabled: props.settings.wslEnabled,
+			distro: props.settings.wslDistro,
+			user: props.settings.wslUser,
+		});
+		setWslUserInput(props.settings.wslUser);
+		setWslValidation(null);
+	}, [props.settings.wslEnabled, props.settings.wslDistro, props.settings.wslUser]);
+	// WSL 发行版列表懒加载（仅 Windows + WSL 开启时拉取，无论成败只拉一次）
+	useEffect(() => {
+		const isWin = props.appInfo.platform === "win32";
+		// 预加载脚本可能未更新（需重启应用），缺少 wsl API 时静默跳过
+		if (isWin && wslDraft.enabled && !wslDistrosAttempted && !wslDistrosLoading && window.piDesktop.wsl) {
+			setWslDistrosLoading(true);
+			window.piDesktop.wsl
+				.listDistros()
+				.then((list) => { setWslDistros(list); setWslDistrosAttempted(true); })
+				.catch(() => { setWslDistros([]); setWslDistrosAttempted(true); })
+				.finally(() => setWslDistrosLoading(false));
+		}
+	}, [wslDraft.enabled, wslDistrosAttempted, wslDistrosLoading, props.appInfo.platform]);
+	const distroOptions = wslDistros.length > 0
+		? wslDistros.map((d) => ({ value: d, label: d }))
+		: [{ value: wslDraft.distro, label: wslDraft.distro }];
+	const handleValidateWslUser = async () => {
+		if (!window.piDesktop.wsl) {
+			setWslValidation({ ok: false, whoami: "", piVersion: "", error: "WSL API 未就绪，请重启应用后再试" });
+			return;
+		}
+		setWslValidating(true);
+		setWslValidation(null);
+		try {
+			const result = await window.piDesktop.wsl.validateConnection(wslDraft.distro, wslUserInput);
+			setWslValidation(result);
+			if (result.ok) {
+				setWslDraft((prev) => ({ ...prev, user: wslUserInput }));
+			}
+		} catch (err) {
+			setWslValidation({ ok: false, whoami: "", piVersion: "", error: String(err) });
+		} finally {
+			setWslValidating(false);
+		}
+	};
+	const handleApplyWsl = () => {
+		// 原子保存三个 WSL 字段，触发主进程配置 SessionScanner 并刷新会话列表
+		props.onChange({
+			wslEnabled: wslDraft.enabled,
+			wslDistro: wslDraft.distro,
+			wslUser: wslDraft.user,
+		});
+	};
+	const handleCancelWsl = () => {
+		setWslDraft({
+			enabled: props.settings.wslEnabled,
+			distro: props.settings.wslDistro,
+			user: props.settings.wslUser,
+		});
+		setWslUserInput(props.settings.wslUser);
+		setWslValidation(null);
+	};
+	// 草稿已变更或用户已通过验证 → 允许应用
+	const wslCanApply =
+		wslDraft.enabled !== props.settings.wslEnabled ||
+		wslDraft.distro !== props.settings.wslDistro ||
+		wslDraft.user !== props.settings.wslUser ||
+		(wslValidation?.ok === true && wslDraft.user === wslUserInput);
+
 	// 宠物包列表：异步加载内置 + petdex 社区包，供选择下拉使用
 	const [petOptions, setPetOptions] = useState<{ value: string; label: string }[]>([]);
 	// 完整宠物清单（含 spritesheetUrl / 描述），用于选择预览：仅靠 id 无法加载图，需清单里的 url。
@@ -800,55 +889,119 @@ export function SettingsModal(props: {
 											</small>
 										)}
 									</div>
+								{/* WSL pi 来源配置：仅 Windows 可见，使用局部 draft + 原子保存 */}
+								{props.appInfo.platform === "win32" && (
 								<div className="setting-pi-wsl-panel">
 									<SelectField
 										className="setting-field"
 										label={t("settings.piSource.label")}
 										description={t("settings.piSource.desc")}
-										value={props.settings.wslEnabled ? "wsl" : "windows"}
+										value={wslDraft.enabled ? "wsl" : "windows"}
 										options={[
 											{ value: "windows", label: t("settings.piSource.windows") },
 											{ value: "wsl", label: t("settings.piSource.wsl") },
 										]}
-										onChange={(value) => props.onChange({ wslEnabled: value === "wsl" })}
+										onChange={(value) => setWslDraft((prev) => ({ ...prev, enabled: value === "wsl" }))}
 									/>
-									{props.settings.wslEnabled && (
+									{wslDraft.enabled && (
 										<>
 											<div className="setting-wsl-fields">
-												<TextField
-													className="setting-field"
-													label={t("settings.wsl.distro")}
-													value={props.settings.wslDistro}
-													onChange={(value) => props.onChange({ wslDistro: value })}
-													placeholder="Ubuntu"
-												/>
-												<TextField
-													className="setting-field"
-													label={t("settings.wsl.user")}
-													value={props.settings.wslUser}
-													onChange={(value) => props.onChange({ wslUser: value })}
-													placeholder="root"
-												/>
-											</div>
-											<small className="setting-status info">
-												{t("settings.wsl.detectHint")}
-											</small>
-											<div className="setting-wsl-hints">
-												<div className="setting-wsl-hint">
-													<strong>{t("settings.wsl.howToGetDistro")}</strong>
-													<code>wsl -l -v</code>
+												{/* 发行版：自动检测到列表时用下拉，否则退化为手输 */}
+												{wslDistros.length > 0 ? (
+													<SelectField
+														className="setting-field"
+														label={t("settings.wsl.distro")}
+														value={wslDraft.distro}
+														options={distroOptions}
+														onChange={(value) => {
+															setWslDraft((prev) => ({ ...prev, distro: value }));
+															setWslValidation(null);
+														}}
+													/>
+												) : (
+													<TextField
+														className="setting-field"
+														label={t("settings.wsl.distro")}
+														value={wslDraft.distro}
+														onChange={(value) => {
+															setWslDraft((prev) => ({ ...prev, distro: value }));
+															setWslValidation(null);
+														}}
+														placeholder="Ubuntu"
+													/>
+												)}
+												{wslDistrosLoading && (
+													<small className="setting-status info">{t("settings.wsl.detectingDistros")}</small>
+												)}
+												<div className="setting-wsl-user-row">
+													<TextField
+														className="setting-field"
+														label={t("settings.wsl.user")}
+														value={wslUserInput}
+														onChange={(value) => {
+															setWslUserInput(value);
+															setWslValidation(null);
+														}}
+														placeholder="root"
+													/>
+													<Button
+														buttonSize="sm"
+														disabled={!wslUserInput.trim() || wslValidating}
+														loading={wslValidating}
+														onClick={handleValidateWslUser}
+													>
+														{t("settings.wsl.validateUser")}
+													</Button>
 												</div>
-												<div className="setting-wsl-hint">
-													<strong>{t("settings.wsl.howToGetUser")}</strong>
-													<code>wsl -d {props.settings.wslDistro || "Ubuntu"} -u {props.settings.wslUser || "root"} whoami</code>
-												</div>
 											</div>
-											<small className="setting-status warning">
-												{t("settings.wsl.warning")}
-											</small>
+											{/* 验证结果反馈 */}
+											{wslValidation && (
+												<div className={`setting-wsl-validation ${wslValidation.ok ? "success" : "error"}`}>
+													{wslValidation.ok ? (
+														<>
+															<small className="setting-status success">
+																{t("settings.wsl.validationOk", {
+																	user: wslValidation.whoami,
+																	distro: wslDraft.distro,
+																})}
+															</small>
+															{wslValidation.piVersion ? (
+																<small className="setting-status success">
+																	{t("settings.wsl.piDetected", { version: wslValidation.piVersion })}
+																</small>
+															) : (
+																<small className="setting-status warning">
+																	{wslValidation.error || t("settings.wsl.piNotInstalled")}
+																</small>
+															)}
+														</>
+													) : (
+														<small className="setting-status error">{wslValidation.error}</small>
+													)}
+												</div>
+											)}
+											{/* 应用/取消按钮：仅草稿已变更时可用 */}
+											<div className="setting-wsl-actions">
+												<Button
+													buttonSize="sm"
+													disabled={!wslCanApply}
+													onClick={handleApplyWsl}
+												>
+													{t("common.apply")}
+												</Button>
+												<Button
+													buttonSize="sm"
+													variant="secondary"
+													disabled={!wslCanApply}
+													onClick={handleCancelWsl}
+												>
+													{t("common.cancel")}
+												</Button>
+											</div>
 										</>
 									)}
 								</div>
+								)}
 								<div className="setting-row">
 										<div>
 											<strong>{t("settings.currentVersion")}</strong>

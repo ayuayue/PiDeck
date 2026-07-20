@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { app, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { SessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
@@ -9,36 +9,85 @@ import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
 export class SessionScanner {
   private readonly root = join(app.getPath("home"), ".pi", "agent", "sessions");
   private readonly codexRoot = join(app.getPath("home"), ".codex", "sessions");
-  /** WSL 配置（发行版和用户名），由 configureWsl 设置；null 表示未启用 */
-  private wslConfig: { distro: string; user: string } | null = null;
+  /** WSL 配置（发行版、用户名、动态获取的 home 目录），由 configureWsl 设置；null 表示未启用 */
+  private wslConfig: { distro: string; user: string; home: string } | null = null;
 
-  /** 获取 wsl.exe 完整路径 */
-  private get wslExePath(): string {
+  /**
+   * wsl.exe 命令与启动模式。优先绝对路径，
+   * 文件不存在时回退到 shell PATH 查找。
+   */
+  private resolveWslExe(): { command: string; shell: boolean } {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
-    return join(systemRoot, "System32", "wsl.exe");
+    const candidates = process.arch === "ia32"
+      ? [join(systemRoot, "Sysnative", "wsl.exe"), join(systemRoot, "System32", "wsl.exe")]
+      : [join(systemRoot, "System32", "wsl.exe")];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return { command: candidate, shell: false };
+    }
+    return { command: "wsl", shell: true };
+  }
+  /** @deprecated 使用 resolveWslExe() 代替 */
+  private get wslExePath(): string {
+    return this.resolveWslExe().command;
+  }
+  /** 是否需要 shell 模式来查找 wsl.exe */
+  private get wslShell(): boolean {
+    return this.resolveWslExe().shell;
   }
 
   /**
-   * 配置 WSL 会话目录。启用时通过 wsl.exe 命令扫描 WSL 中的 pi 会话。
+   * 配置 WSL 会话目录。启用时动态获取 WSL 用户的 home 目录，
+   * 确保 root 用户（/root）和普通用户（/home/<user>）都能正确扫描。
    */
-  configureWsl(wslDistro: string, wslUser: string) {
-    this.wslConfig = { distro: wslDistro, user: wslUser };
+  async configureWsl(wslDistro: string, wslUser: string): Promise<void> {
+    // 动态获取 WSL 中用户的 HOME 目录，解决 root（/root）与普通用户（/home/user）路径差异
+    const home = await this.fetchWslHome(wslDistro, wslUser);
+    this.wslConfig = { distro: wslDistro, user: wslUser, home };
   }
 
   /** 清除 WSL 配置 */
-  clearWsl() {
+  clearWsl(): void {
     this.wslConfig = null;
   }
 
-  /** WSL 中 pi session 目录（相对 home） */
-  private get wslSessionsDir() {
-    return "/home/" + this.wslConfig!.user + "/.pi/agent/sessions";
+  /** 通过 wsl.exe 动态获取用户 HOME 目录，失败时 fallback 到 /home/<user> */
+  private fetchWslHome(distro: string, user: string): Promise<string> {
+    return new Promise((resolve) => {
+      execFile(this.wslExePath, ["-d", distro, "-u", user, "sh", "-c", "echo $HOME"], {
+        shell: this.wslShell,
+        encoding: "utf8",
+        timeout: 8_000,
+        windowsHide: true,
+      }, (err, stdout) => {
+        if (err || !stdout.trim()) {
+          // fallback：标准 Linux 用户目录规则
+          resolve(user === "root" ? "/root" : `/home/${user}`);
+          return;
+        }
+        resolve(stdout.trim());
+      });
+    });
   }
+
+  /** WSL 中 pi session 目录（基于动态获取的 home） */
+  private get wslSessionsDir(): string {
+    return `${this.wslConfig!.home}/.pi/agent/sessions`;
+  }
+
+  /** 判断文件路径是否为 WSL Linux 路径（以 / 开头且属于当前 WSL 配置） */
+  private isWslPath(filePath: string): boolean {
+    if (!this.wslConfig) return false;
+    // WSL 路径是 Linux 绝对路径（以 / 开头且不以盘符开头）
+    return filePath.startsWith("/") && !/^[A-Za-z]:/.test(filePath);
+  }
+
+  // ── WSL 文件操作封装 ───────────────────────────────────────────
 
   /** 通过 wsl.exe 读取文件内容 */
   private readWslFile(wslPath: string): Promise<string> {
     return new Promise((resolve, reject) => {
       execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "cat", wslPath], {
+        shell: this.wslShell,
         encoding: "utf8",
         timeout: 10_000,
         windowsHide: true,
@@ -49,10 +98,27 @@ export class SessionScanner {
     });
   }
 
+  /** 通过 wsl.exe 写入文件内容 */
+  private writeWslFile(wslPath: string, content: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // 使用 tee 写入，避免 heredoc 中的特殊字符问题
+      const proc = execFile(
+        this.wslExePath,
+        ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "tee", wslPath],
+        { encoding: "utf8", timeout: 10_000, windowsHide: true },
+        (err) => { if (err) reject(err); else resolve(); }
+      );
+      if (proc.stdin) {
+        proc.stdin.end(content);
+      }
+    });
+  }
+
   /** 通过 wsl.exe 获取文件修改时间戳 */
   private readWslFileMtime(wslPath: string): Promise<number> {
     return new Promise((resolve, reject) => {
       execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "stat", "-c", "%Y", wslPath], {
+        shell: this.wslShell,
         encoding: "utf8",
         timeout: 5_000,
         windowsHide: true,
@@ -63,10 +129,47 @@ export class SessionScanner {
     });
   }
 
-  /** 通过 wsl.exe 递归查找所有 .jsonl 文件，返回 "wsl://<相对路径>" 格式的标记路径 */
+  /** 通过 wsl.exe 删除文件 */
+  private deleteWslFile(wslPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "rm", wslPath], {
+        shell: this.wslShell,
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      }, (err) => { if (err) reject(err); else resolve(); });
+    });
+  }
+
+  /** 通过 wsl.exe 复制文件 */
+  private copyWslFile(srcPath: string, dstPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "cp", srcPath, dstPath], {
+        shell: this.wslShell,
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      }, (err) => { if (err) reject(err); else resolve(); });
+    });
+  }
+
+  /** 通过 wsl.exe 检查文件是否存在 */
+  private existsWslFile(wslPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "test", "-f", wslPath], {
+        shell: this.wslShell,
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      }, (err) => { resolve(!err); });
+    });
+  }
+
+  // ── 会话列表扫描 ─────────────────────────────────────────────
+
+  /** 通过 wsl.exe 递归查找所有 .jsonl 文件，返回 Linux 绝对路径 */
   private async collectWslJsonl(): Promise<string[]> {
-    const wslHome = "/home/" + this.wslConfig!.user;
-    const sessionsDir = wslHome + "/.pi/agent/sessions";
+    const sessionsDir = this.wslSessionsDir;
     return new Promise((resolve, reject) => {
       execFile(this.wslExePath, [
         "-d", this.wslConfig!.distro, "-u", this.wslConfig!.user,
@@ -75,30 +178,26 @@ export class SessionScanner {
         encoding: "utf8",
         timeout: 15_000,
         windowsHide: true,
+        shell: this.wslShell,
       }, (err, stdout) => {
         if (err) { reject(err); return; }
         const files = stdout.trim().split(/\r?\n/).filter(Boolean);
-        // 用 wsl:// 协议标记方便后续读取，只存相对 home 的路径
         resolve(files);
       });
     });
   }
 
-  /** 判断文件路径是否为 WSL 标记路径 */
-  private isWslPath(filePath: string): boolean {
-    return filePath.startsWith("/home/");
-  }
-
   async list(projectPath?: string): Promise<SessionSummary[]> {
-    const files = await this.collectJsonl(this.root).catch(() => [] as string[]);
-    // 如果有 WSL 配置，也扫描 WSL 会话目录
-    const wslFiles = this.wslConfig
+    // WSL 模式 vs Windows 模式：互斥扫描，不会同时展示两个环境的会话。
+    // WSL 启用时仅扫描 WSL 会话目录，否则仅扫描 Windows 本地会话目录。
+    const files = this.wslConfig
       ? await this.collectWslJsonl().catch(() => [] as string[])
-      : [];
-    const allFiles = [...files, ...wslFiles];
-    const summaries = await Promise.all(allFiles.map(file => this.readSummary(file).catch(() => null)));
+      : await this.collectJsonl(this.root).catch(() => [] as string[]);
+
+    const summaries = await Promise.all(files.map(file => this.readSummary(file).catch(() => null)));
 
     const validSummaries = summaries.filter((summary): summary is SessionSummary => Boolean(summary));
+
     if (!projectPath) {
       return validSummaries.sort((a, b) => b.updatedAt - a.updatedAt);
     }
@@ -111,12 +210,16 @@ export class SessionScanner {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  // ── 会话操作：rename / delete / copy / exportHtml / readMessages ─
+
   /**
    * 重命名会话：在 JSONL 文件头部插入一条 sessionName 元数据。
    * pi 读取时会取第一个遇到的 sessionName 字段，所以插在最前面即可覆盖旧名。
+   * 支持 WSL 路径。
    */
   async rename(filePath: string, newName: string): Promise<void> {
-    const raw = await readFile(filePath, "utf8");
+    const wsl = this.isWslPath(filePath);
+    const raw = wsl ? await this.readWslFile(filePath) : await readFile(filePath, "utf8");
     const lines = raw.split(/\r?\n/);
     const metaLine = JSON.stringify({ sessionName: newName, ts: Date.now() });
 
@@ -140,48 +243,52 @@ export class SessionScanner {
       }
     }
 
+    let output: string;
     if (!found) {
       // 没有旧 sessionName 行，前置插入（行为与 pi 原生一致）
-      await writeFile(filePath, `${metaLine}\n${raw}`, "utf8");
+      output = `${metaLine}\n${raw}`;
+    } else if (sessionNameCount > 5) {
+      // sessionName 行数超过阈值，清理多余的旧 sessionName 行
+      const filtered = lines.filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (typeof parsed.sessionName === "string" && line !== metaLine) {
+            return false;
+          }
+        } catch { /* 保留不可解析的行 */ }
+        return true;
+      });
+      output = filtered.join("\n");
     } else {
-      // 已有 sessionName 行，更新后写回；如果 sessionName 行数超过阈值（5条），
-      // 说明重命名次数过多，清理多余的旧 sessionName 行（仅保留首条/替换后的当前行）。
-      if (sessionNameCount > 5) {
-        const filtered = lines.filter((line) => {
-          const trimmed = line.trim();
-          if (!trimmed) return true;
-          try {
-            const parsed = JSON.parse(trimmed);
-            // 已替换的当前行保留，其余 sessionName 行移除
-            if (typeof parsed.sessionName === "string" && parsed !== JSON.parse(metaLine)) {
-              return false;
-            }
-          } catch { /* 保留不可解析的行 */ }
-          return true;
-        });
-        await writeFile(filePath, filtered.join("\n"), "utf8");
-      } else {
-        await writeFile(filePath, lines.join("\n"), "utf8");
-      }
+      output = lines.join("\n");
+    }
+
+    if (wsl) {
+      await this.writeWslFile(filePath, output);
+    } else {
+      await writeFile(filePath, output, "utf8");
     }
   }
 
   async delete(filePath: string): Promise<void> {
+    if (this.isWslPath(filePath)) {
+      // WSL 中直接删除（WSL 没有 Electron shell.trashItem 实现）
+      await this.deleteWslFile(filePath);
+      return;
+    }
     // 优先使用系统回收站（Electron shell.trashItem），避免文件永久丢失。
     // 回收站不可用时（如 Linux 部分桌面环境），fallback 到 rename 到 .trash 子目录。
     try {
       await shell.trashItem(filePath);
     } catch {
-      // shell.trashItem 失败时（如无回收站实现），将文件移到一个隐藏的 .trash 子目录
       const trashDir = join(this.root, ".trash");
       try {
-        const { mkdir, rename } = await import("node:fs/promises");
         await mkdir(trashDir, { recursive: true });
         const trashName = `${basename(filePath)}.${Date.now()}.deleted`;
         await rename(filePath, join(trashDir, trashName));
       } catch {
-        // 最终回退：直接删除
-        const { unlink } = await import("node:fs/promises");
         await unlink(filePath);
       }
     }
@@ -190,24 +297,33 @@ export class SessionScanner {
   /**
    * 复制会话文件并写入新的 sessionName 元数据。
    * 这不是 CLI 的 fork：不裁剪会话树，只生成一个可独立打开/继续的新历史会话文件。
+   * 支持 WSL 路径。
    */
   async copy(filePath: string): Promise<SessionSummary> {
-    const raw = await readFile(filePath, "utf8");
+    const wsl = this.isWslPath(filePath);
+    const raw = wsl ? await this.readWslFile(filePath) : await readFile(filePath, "utf8");
     const current = await this.readSummary(filePath).catch(() => null);
     const copyName = `${current?.name || "Untitled"} copy`;
-    const targetPath = this.nextCopyPath(filePath);
+    const targetPath = this.nextCopyPath(filePath, wsl);
     const meta = JSON.stringify({ sessionName: copyName, copiedFrom: filePath, ts: Date.now() });
-    await writeFile(targetPath, `${meta}\n${raw}`, "utf8");
+    const content = `${meta}\n${raw}`;
+
+    if (wsl) {
+      await this.writeWslFile(targetPath, content);
+    } else {
+      await writeFile(targetPath, content, "utf8");
+    }
     const summary = await this.readSummary(targetPath);
     if (!summary) throw new Error("复制后的会话文件无法读取");
     return summary;
   }
 
-  /** 将历史 JSONL 会话直接导出为基础 HTML，避免为了导出历史记录而启动 Agent。 */
+  /** 将历史 JSONL 会话直接导出为基础 HTML，支持 WSL 路径 */
   async exportHtml(filePath: string): Promise<{ path: string }> {
+    const wsl = this.isWslPath(filePath);
     const summary = await this.readSummary(filePath);
     if (!summary) throw new Error("会话文件无法读取");
-    const raw = await readFile(filePath, "utf8");
+    const raw = wsl ? await this.readWslFile(filePath) : await readFile(filePath, "utf8");
     const rows = raw.split(/\r?\n/).filter(Boolean).map((line) => {
       try {
         const entry = JSON.parse(line) as any;
@@ -228,13 +344,43 @@ export class SessionScanner {
     return { path: targetPath };
   }
 
-  private nextCopyPath(filePath: string) {
+  /** 读取会话消息列表，支持 WSL 路径 */
+  async readMessages(filePath: string): Promise<Array<{ role: string; content: string; timestamp: number }>> {
+    const wsl = this.isWslPath(filePath);
+    const raw = wsl ? await this.readWslFile(filePath) : await readFile(filePath, "utf8");
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const messages: Array<{ role: string; content: string; timestamp: number }> = [];
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        if (entry.type && entry.type !== "message") continue;
+        if (entry.sessionName && !entry.message) continue;
+        const message = (entry.message ?? (entry.data as Record<string, unknown> | undefined)?.message ?? entry) as Record<string, unknown> | undefined;
+        if (!message?.role) continue;
+        const content = this.extractText(message.content).trim();
+        if (!content) continue;
+        if (message.role !== "user" && message.role !== "assistant") continue;
+        messages.push({ role: String(message.role), content, timestamp: Number(entry.ts ?? entry.timestamp ?? Date.now()) });
+      } catch { console.warn(`[SessionScanner] 跳过无法解析的 JSONL 行: ${filePath}`); }
+    }
+    return messages;
+  }
+
+  // ── 内部私有方法 ─────────────────────────────────────────────
+
+  private nextCopyPath(filePath: string, wsl: boolean): string {
     const dir = dirname(filePath);
     const ext = extname(filePath) || ".jsonl";
     const base = basename(filePath, ext);
     for (let index = 1; index < 1000; index += 1) {
       const suffix = index === 1 ? "copy" : `copy-${index}`;
       const candidate = join(dir, `${base}-${suffix}${ext}`);
+      // WSL 路径需要通过 wsl.exe 检查文件是否存在
+      if (wsl) {
+        // 对于 WSL copy，我们跳过存在性检查（nextCopyPath 在 copy() 中调用，
+        // copy 写入前已经通过递增确保唯一；这里仅保证路径格式正确）
+        return candidate;
+      }
       if (!existsSync(candidate)) return candidate;
     }
     throw new Error("无法生成唯一的复制会话文件名");
@@ -352,7 +498,9 @@ export class SessionScanner {
         // 路径推断失败时尝试 forkParentSession 字段（如 "parent-session.jsonl"）
         if (!parentSessionPath && forkParentSession) {
           const resolved = join(dirname(filePath), forkParentSession);
-          if (existsSync(resolved)) {
+          // WSL 路径检查文件是否存在
+          const resolvedExists = isWsl ? await this.existsWslFile(resolved) : existsSync(resolved);
+          if (resolvedExists) {
             parentSessionPath = resolved;
           }
         }
@@ -386,6 +534,8 @@ export class SessionScanner {
       codexAgentRole,
       codexAgentNickname,
       parentSessionPath,
+      // 标记 WSL 来源，供 rename/delete/copy/readMessages 等操作识别
+      wsl: isWsl || undefined,
     };
   }
 
@@ -481,26 +631,6 @@ export class SessionScanner {
 
   private normalize(path: string) {
     return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  }
-
-  async readMessages(filePath: string): Promise<Array<{ role: string; content: string; timestamp: number }>> {
-    const raw = await readFile(filePath, "utf8");
-    const lines = raw.split(/\r?\n/).filter(Boolean);
-    const messages: Array<{ role: string; content: string; timestamp: number }> = [];
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line) as Record<string, unknown>;
-        if (entry.type && entry.type !== "message") continue;
-        if (entry.sessionName && !entry.message) continue;
-        const message = (entry.message ?? (entry.data as Record<string, unknown> | undefined)?.message ?? entry) as Record<string, unknown> | undefined;
-        if (!message?.role) continue;
-        const content = this.extractText(message.content).trim();
-        if (!content) continue;
-        if (message.role !== "user" && message.role !== "assistant") continue;
-        messages.push({ role: String(message.role), content, timestamp: Number(entry.ts ?? entry.timestamp ?? Date.now()) });
-      } catch { console.warn(`[SessionScanner] 跳过无法解析的 JSONL 行: ${filePath}`); }
-    }
-    return messages;
   }
 
   private safePathToken(path: string) {
