@@ -3691,14 +3691,12 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.55;
   transition: opacity 0.15s ease;
 }
 .turn-row:hover .turn-row-actions,
 .turn-row:focus-within .turn-row-actions {
   opacity: 1;
-  pointer-events: auto;
 }
 .turn-row-action-btn,
 .copy-menu-trigger {
@@ -4866,14 +4864,12 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.55;
   transition: opacity 0.15s ease;
 }
 .user-turn:hover .user-turn-actions,
 .user-turn:focus-within .user-turn-actions {
   opacity: 1;
-  pointer-events: auto;
 }
 .user-turn-action-btn {
   border: 0;

@@ -287,8 +287,8 @@ const zhCN = {
   "app.emptyNoProject": "先从左侧添加项目目录。",
   "app.resend": "重发",
   "app.resendTitle": "用同一条用户消息再次发送给 AI",
-  "app.editAndResend": "编辑后重发",
-  "app.editAndResendTitle": "编辑后立即发送",
+  "app.editAndResend": "在输入框中编辑",
+  "app.editAndResendTitle": "放回输入框编辑，手动发送",
   "app.resizeComposer": "拖动调整输入框高度",
   "app.restartTitle":
     "重启 Agent 进程，重新加载配置文件（供应商、API key 等）",
@@ -1765,8 +1765,8 @@ const enUS: Record<TranslationKey, string> = {
   "app.emptyNoProject": "Add a project folder from the left first.",
   "app.resend": "Resend",
   "app.resendTitle": "Send the same user message to AI again",
-  "app.editAndResend": "Edit && Resend",
-  "app.editAndResendTitle": "Edit message and send immediately",
+  "app.editAndResend": "Edit in input",
+  "app.editAndResendTitle": "Edit in input box and send manually",
   "app.resizeComposer": "Drag to resize composer",
   "app.restartTitle":
     "Restart the Agent process and reload configuration files such as providers and API keys",

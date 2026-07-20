@@ -66,7 +66,6 @@ import {
 	Globe2,
 	MessageCircle,
 	Network,
-	Pencil,
 	PawPrint,
 	Pin,
 	Plus,
@@ -79,6 +78,12 @@ import {
 	X,
 	Star,
 	FolderOpen,
+	Copy,
+	Trash,
+	Share,
+	SquarePen,
+	Send,
+	UserPen,
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { t, type TranslationKey } from "../../i18n";
@@ -1514,8 +1519,9 @@ function CopyMenu(props: {
 				type="button"
 				onClick={toggleOpen}
 				aria-expanded={open}
+				title={t("common.copy")}
 			>
-				{copied ? `${t("common.copy")} ✓` : t("common.copy")}
+				{copied ? <><Check size={14} /> ✓</> : <Copy size={14} />}
 			</button>
 			{open && (
 				<div className="copy-menu-popover" style={menuStyle}>
@@ -1542,7 +1548,7 @@ function toolIcon(toolName: string): ReactNode {
 	const key = toolName.toLowerCase();
 	if (key.includes("read") || key.includes("view")) return <FileText size={14} />;
 	if (key.includes("write") || key.includes("edit") || key.includes("apply_patch") || key.includes("patch"))
-		return <Pencil size={14} />;
+		return <SquarePen size={14} />;
 	if (key.includes("bash") || key.includes("shell") || key.includes("terminal")) return <Terminal size={14} />;
 	if (key.includes("grep") || key.includes("search")) return <Search size={14} />;
 	if (key.includes("glob") || key.includes("list") || key.includes("ls")) return <Folder size={14} />;
@@ -2748,9 +2754,9 @@ export const TurnRow = memo(function TurnRow(props: {
 						<button
 							className="turn-row-action-btn"
 							onClick={props.onEnterMultiSelect}
-							title={t("app.multiSelectEnter")}
+						title={t("app.multiSelectEnter")}
 						>
-							{t("app.multiSelectEnter")}
+							<Share size={14} />
 						</button>
 						{!props.isStreaming && !props.agentRunning && assistantMessages.at(-1)?.message.id && (
 							<>
@@ -2760,9 +2766,9 @@ export const TurnRow = memo(function TurnRow(props: {
 										setEditText(mergedText);
 										setEditing(true);
 									}}
-									title={t("common.edit")}
+								title={t("common.edit")}
 								>
-									{t("common.edit")}
+									<SquarePen size={14} />
 								</button>
 								<button
 									className="turn-row-action-btn"
@@ -2774,7 +2780,7 @@ export const TurnRow = memo(function TurnRow(props: {
 									}}
 									title={t("common.delete")}
 								>
-									{t("common.delete")}
+									<Trash size={14} />
 								</button>
 							</>
 						)}
@@ -2940,30 +2946,30 @@ export const UserBubble = memo(function UserBubble(props: {
 					className="user-turn-action-btn"
 					onClick={props.onEnterMultiSelect}
 					title={t("app.multiSelectEnter")}
-				>
-					{t("app.multiSelectEnter")}
-				</button>
+						>
+							<Share size={14} />
+						</button>
 				{!editing && !props.agentRunning && (
 					<>
 						<button className="user-turn-action-btn" onClick={() => {
 							setEditText(cleanText);
 							setEditing(true);
-						}}>
-							{t("common.edit")}
+						}} title={t("common.edit")}>
+							<SquarePen size={14} />
 						</button>
 						<button
 							className="user-turn-action-btn"
 							onClick={handleEditAndResend}
 							title={t("app.editAndResendTitle")}
 						>
-							{t("app.editAndResend")}
+							<UserPen size={14} />
 						</button>
 						<button
 							className="user-turn-action-btn"
 							onClick={() => props.onDeleteMessage?.(message.id)}
 							title={t("common.delete")}
 						>
-							{t("common.delete")}
+							<Trash size={14} />
 						</button>
 						{props.isLastUserMessage && (
 							<button
@@ -2971,7 +2977,7 @@ export const UserBubble = memo(function UserBubble(props: {
 								onClick={() => props.onResendUserMessage?.(message)}
 								title={t("app.resendTitle")}
 							>
-								{t("app.resend")}
+								<Send size={14} />
 							</button>
 						)}
 					</>
