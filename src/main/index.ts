@@ -128,7 +128,6 @@ import type { FeishuChatBinding } from "../shared/types";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let internalLinkWindow: BrowserWindow | null = null;
 /** 标记是否由用户主动退出（托盘菜单「退出」），区别于窗口关闭隐藏到托盘 */
 let isQuitting = false;
 let projectStore: ProjectStore;
@@ -497,42 +496,20 @@ async function openExternalUrl(url: string) {
 	if (!url.startsWith("http:") && !url.startsWith("https:")) return;
 	const settings = settingsStore.get();
 	if (settings.linkOpenMode === "internal") {
-		openInternalLinkWindow(url);
+		openInternalLinkInBrowserPanel(url);
 		return;
 	}
 	await shell.openExternal(url);
 }
 
-function openInternalLinkWindow(url: string) {
-	// 内部打开使用独立 BrowserWindow，避免外部网页导航污染主工作台，同时保留系统浏览器作为默认选项。
-	if (!internalLinkWindow || internalLinkWindow.isDestroyed()) {
-		internalLinkWindow = new BrowserWindow({
-			width: 1180,
-			height: 820,
-			minWidth: 760,
-			minHeight: 520,
-			title: "PiDeck",
-			parent: mainWindow ?? undefined,
-			webPreferences: {
-				nodeIntegration: false,
-				contextIsolation: true,
-				sandbox: true,
-			},
-		});
-		internalLinkWindow.on("closed", () => {
-			internalLinkWindow = null;
-		});
-		internalLinkWindow.webContents.setWindowOpenHandler(({ url: nextUrl }) => {
-			void openExternalUrl(nextUrl);
-			return { action: "deny" };
-		});
-	}
-	internalLinkWindow.loadURL(url).catch((error) => {
+function openInternalLinkInBrowserPanel(url: string) {
+	// 内部打开：将 URL 发送到渲染进程，由 BrowserPanel 在侧栏/弹框中加载，
+	// 替代之前的独立 BrowserWindow 方案，保持一致的浏览体验。
+	if (!mainWindow || mainWindow.isDestroyed()) {
 		void shell.openExternal(url);
-		console.warn("Failed to load internal link window, falling back to browser:", error);
-	});
-	internalLinkWindow.show();
-	internalLinkWindow.focus();
+		return;
+	}
+	mainWindow.webContents.send(ipcChannels.appOpenInBrowser, url);
 }
 
 function printStartupInfo() {
@@ -1247,6 +1224,31 @@ function registerIpc() {
 		},
 	);
 
+	// ── 聊天项目目录设置 ──
+
+	ipcMain.handle(ipcChannels.projectsChooseChatPath, async () => {
+		// 系统文件选择器，默认定位到当前聊天目录，便于用户就地切换。
+		const result = await dialog.showOpenDialog({
+			title: "选择聊天记录目录",
+			defaultPath: projectStore.getChatProjectPath(),
+			properties: ["openDirectory"],
+		});
+		if (result.canceled || result.filePaths.length === 0) return null;
+		return result.filePaths[0];
+	});
+
+	ipcMain.handle(
+		ipcChannels.projectsSetChatPath,
+		async (_event, path: string) => {
+			if (typeof path !== "string" || path.length === 0) throw new Error("Invalid chat path");
+			const project = await projectStore.setChatProjectPath(path);
+			// 路径变更后广播项目列表变化，渲染端据此刷新聊天项目的会话。
+			mainWindow?.webContents.send(ipcChannels.projectsChanged, projectStore.list());
+			void appLogger.info("project", "Chat project path updated", { path });
+			return project;
+		},
+	);
+
 	ipcMain.handle(ipcChannels.filesList, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -1454,6 +1456,12 @@ function registerIpc() {
 		void appLogger.info("session", "Session deleted", { filePath });
 	});
 	ipcMain.handle(
+		ipcChannels.sessionsReadMessages,
+		async (_event, filePath: string) => {
+			return sessionScanner.readMessages(filePath);
+		},
+	);
+	ipcMain.handle(
 		ipcChannels.codexSessionsScan,
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
@@ -1530,17 +1538,8 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.gitOriginalContent,
 		async (_event, filePath: string) => {
-			return gitService.getOriginalContent(filePath);
-		},
-	);
-
-	// 获取工作区中被 Git 跟踪的变更文件列表（对比 HEAD），返回到前端用于右侧文件面板。
-	ipcMain.handle(
-		ipcChannels.gitChangedFiles,
-		async (_event, projectId: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) return [];
-			return gitService.getChangedFiles(project.path);
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getOriginalContent(filePath, maxBytes);
 		},
 	);
 
@@ -1594,6 +1593,109 @@ function registerIpc() {
 		},
 	);
 
+	// -- Git 增强：提交历史 / 分支对比 / Graph
+	ipcMain.handle(
+		ipcChannels.gitCommitLog,
+		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getCommitLog(project.path, options);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRefs,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return [];
+			return gitService.getRefs(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitBranchCompare,
+		async (_event, projectId: string, base: string, target: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.compareBranches(project.path, base, target);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitDetail,
+		async (_event, projectId: string, ref: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			return gitService.getCommitDetail(project.path, ref);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitFileDiff,
+		async (_event, projectId: string, ref: string, filePath: string, originalPath?: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getCommitFileDiff(project.path, ref, filePath, originalPath, maxBytes);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitDiffFileBetween,
+		async (_event, projectId: string, ref1: string, ref2: string, filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return "";
+			return gitService.diffFileBetweenRefs(project.path, ref1, ref2, filePath);
+		},
+	);
+
+
+	// Git 工作区状态 + Stage/Unstage
+	ipcMain.handle(
+		ipcChannels.gitStatus,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return { merge: [], index: [], workingTree: [], untracked: [] };
+			return gitService.getStatus(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitWorkspaceFileDiff,
+		async (_event, projectId: string, group: import("../shared/types").GitWorkspaceDiffGroup, filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) return null;
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.getWorkspaceFileDiff(project.path, group, filePath, maxBytes);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitStage,
+		async (_event, projectId: string, paths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.stageFiles(project.path, paths);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitUnstage,
+		async (_event, projectId: string, paths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.unstageFiles(project.path, paths);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommit,
+		async (_event, projectId: string, message: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.commit(project.path, message);
+		},
+	);
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();
@@ -1760,6 +1862,15 @@ function registerIpc() {
 		version: app.getVersion(),
 		releasesUrl: RELEASES_URL,
 	}));
+	ipcMain.handle(ipcChannels.appPreferredSystemLanguages, () => {
+		// Renderer navigator.language can reflect Chromium launch flags or a stale browser locale.
+		// Electron exposes the OS preference order directly; use it for the "follow system" setting.
+		try {
+			return app.getPreferredSystemLanguages();
+		} catch {
+			return [];
+		}
+	});
 	ipcMain.handle(ipcChannels.appCheckUpdate, () =>
 		checkForAppUpdate(settingsStore.get().installationType),
 	);
@@ -2295,13 +2406,12 @@ function registerIpc() {
 		return result;
 	});
 	ipcMain.handle(ipcChannels.extensionsToggle, async (_event, source: string, enabled: boolean) => {
-		// Built-in extensions: also deploy/remove the .ts file so pi actually stops/starts loading it
 		if (source.startsWith("pi-deck-") && source.endsWith(".ts")) {
 			if (enabled) {
+				// 启用：确保 .ts 文件存在（处理老版本误删文件的恢复场景）
 				await ensurePiDeckExtension(source);
-			} else {
-				await removeStalePiDeckExtension(source);
 			}
+			// 禁用时不删除 .ts 文件：通过 settings.json 的 disabledExtensions 控制 pi 加载即可
 		}
 		await extensionManager.setEnabled(source, enabled);
 		void appLogger.info("extension", "Extension toggled", { source, enabled });
@@ -2776,8 +2886,8 @@ app.whenReady().then(async () => {
 		"pi-deck-todo.ts",
 	]) {
 		if (disabledBuiltIn.has(extensionName)) {
-			// 已禁用：确保 .ts 文件被移除，避免 pi 残余加载
-			await removeStalePiDeckExtension(extensionName).catch(() => {});
+			// 已禁用：跳过部署但保留 .ts 文件，方便用户在扩展管理页重新启用老版本
+			// 误删过文件的场景通过 ExtensionManager 中的内置扩展补充列表兜底。
 			continue;
 		}
 		await ensurePiDeckExtension(extensionName).catch((error) => {

@@ -14,6 +14,7 @@ import type {
 	ImageContent,
 	Project,
 	SendPromptInput,
+	SendPromptResult,
 	ThinkingUpdate,
 } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
@@ -22,6 +23,10 @@ import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
+import {
+  updateActiveToolCalls,
+  type ActiveToolCallState,
+} from "../../shared/toolRuntimeState";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RpcLogger } from "../logging/RpcLogger";
@@ -44,6 +49,10 @@ export class AgentManager {
 	private readonly retryStatusMessageIds = new Map<string, string>();
 	/** 同一历史会话正在创建 Agent 时共享同一个 Promise，避免快速重复点击/IPC 竞态创建多个进程。 */
 	private readonly creatingSessionAgents = new Map<string, Promise<AgentTab>>();
+	/** 工具 start/end 事件的单调序号，renderer 用它忽略迟到的异步完整状态。 */
+	private readonly toolStateSequenceByAgent = new Map<string, number>();
+	/** 每个 agent 当前仍在执行的 toolCall；并行工具必须等最后一个结束才发 false 边沿。 */
+	private readonly activeToolCallsByAgent = new Map<string, Map<string, string>>();
 	/** 记录每个 agent 当前执行的工具名称，无工具时为 null */
 	private readonly toolExecutingByAgent = new Map<string, string | null>();
 	/** 缓存每个 agent 的 entryId → JSONL 行号映射，用于编辑/删除定位。每次 loadMessages 后刷新。 */
@@ -69,8 +78,9 @@ export class AgentManager {
 	private static readonly MAX_AUTO_HISTORY_LOAD_BYTES = 5 * 1024 * 1024;
 	/**
 	 * 大会话直接从文件尾部读取时，最多保留的最近消息轮次（每条 user 消息算一轮）。
+	 * 原值 8 对于一些需要回看较多历史的长会话偏少，提高至 30 轮。
 	 */
-	private static readonly MAX_HISTORY_LOAD_TURNS = 8;
+	private static readonly MAX_HISTORY_LOAD_TURNS = 30;
 	/**
 	 * 工具结果文本截断阈值（字符数）。工具结果（如 bash 输出、文件读取）可能达数十 KB，
 	 * 若完整存入 ChatMessage.meta 并随流式 emit 反复全量传输，会显著放大 IPC payload
@@ -178,9 +188,8 @@ export class AgentManager {
 		const t1 = Date.now();
 
 		const rawMessages = (response.data as { messages?: unknown[] } | undefined)?.messages ?? [];
-		const trimmed = this.trimHistoryMessages(rawMessages);
 
-		// 解析 entryId 列表
+		// 解析 entryId 列表（需要先于 convertAgentMessages，用于把消息关联到 pi 的会话分支）。
 		let activeEntryIds: string[] | undefined;
 		if (entriesResult) {
 			const entriesData = entriesResult.data as
@@ -191,7 +200,50 @@ export class AgentManager {
 			}
 		}
 
-		const messages = this.convertAgentMessages(agentId, trimmed, activeEntryIds);
+		// 按对话轮次截断（保留最近若干轮 user 消息）。压缩摘要不是 user 消息，会被此逻辑保留在尾部，
+		// 因此下方会单独把它插到最前面，确保不被按 user 轮次切掉。
+		const trimmed = this.trimHistoryMessages(rawMessages);
+
+		// 解析会话文件里的压缩记录：拿到最后一次压缩摘要 + 压缩次数。
+		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
+		// 这里从原始会话文件补回摘要与次数，保证桌面端能看到“已压缩”提示并与 pi 行为一致。
+		// 若 RPC 已经返回了压缩/分支摘要，则不再重复补，避免时间线出现两张摘要卡片。
+		let compactionSummaryRaw: unknown | null = null;
+		const rpcAlreadyHasSummary = rawMessages.some(
+			(m) => (m as { role?: unknown })?.role === "compactionSummary"
+				|| (m as { role?: unknown })?.role === "branchSummary",
+		);
+		if (runtime.tab.sessionPath) {
+			const compaction = await this.parseSessionCompactions(runtime.tab.sessionPath).catch(() => null);
+			if (compaction && compaction.count > 0) {
+				// 仅当 RPC 未返回摘要时才从文件补回
+				if (!rpcAlreadyHasSummary) {
+					const last = compaction.entries[compaction.entries.length - 1];
+					compactionSummaryRaw = {
+						role: "compactionSummary",
+						// convertAgentMessages 读取 typed.summary 作为摘要正文，而非 content 数组
+						summary: last.summary || "[摘要]",
+						// 时间戳需要是数字；会话文件里是 ISO 字符串，这里转成毫秒
+						timestamp: last.timestamp ? Date.parse(last.timestamp) : Date.now(),
+						meta: {
+							compactionId: last.id || null,
+							compactionCount: compaction.count,
+							firstKeptEntryId: last.firstKeptEntryId,
+						},
+					};
+				}
+				// 把压缩次数写回 tab，供前端（会话头/标签）展示“已压缩 N 次”。
+				if (runtime.tab.compactionCount !== compaction.count) {
+					runtime.tab.compactionCount = compaction.count;
+					this.emitState();
+				}
+			}
+		}
+
+		// 将压缩摘要插到消息最前面（在 trim 之后，避免被按 user 轮次切掉）。
+		const finalRaw = compactionSummaryRaw ? [compactionSummaryRaw, ...trimmed] : trimmed;
+
+		const messages = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
 		const t2 = Date.now();
 		void this.appLogger?.info("agent", "Agent messages loaded", {
 			agentId,
@@ -310,6 +362,49 @@ export class AgentManager {
 		};
 	}
 
+	/**
+	 * 从原始会话文件解析压缩（compaction）记录。
+	 * pi 的 get_messages 对压缩后的会话只返回压缩后的消息，不携带压缩摘要，
+	 * 因此桌面端直接从 JSONL 里扫描 type:="compaction" 的条目，用于：
+	 *   1) 在时间线最前面补回“压缩摘要”卡片（与 pi 行为一致）；
+	 *   2) 统计压缩次数，供前端展示“已压缩 N 次”。
+	 */
+	private async parseSessionCompactions(sessionPath: string): Promise<{
+		count: number;
+		entries: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string }>;
+	}> {
+		let content: string;
+		try {
+			content = await readFile(sessionPath, "utf8");
+		} catch (error) {
+			void this.appLogger?.warn("agent", "Failed to read session file for compaction parsing", {
+				sessionPath,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { count: 0, entries: [] };
+		}
+
+		const entries: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string }> = [];
+		for (const line of content.split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line);
+				// 只识别 pi 写入的压缩条目；summary 可能为空字符串，但只要有 compaction 类型就计数。
+				if (entry?.type === "compaction") {
+					entries.push({
+						id: typeof entry.id === "string" ? entry.id : "",
+						summary: typeof entry.summary === "string" ? entry.summary : "",
+						timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
+						firstKeptEntryId: typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
+					});
+				}
+			} catch {
+				// 跳过单行解析失败
+			}
+		}
+		return { count: entries.length, entries };
+	}
+
 	private findRuntimeBySessionKey(sessionKey: string) {
 		return [...this.agents.values()].find(
 			(runtime) =>
@@ -356,6 +451,7 @@ export class AgentManager {
 		const trustOverride = await this.ensureProjectTrust(project);
 		const t2 = Date.now();
 
+		void this.appLogger?.info("agent", "Agent pi process start", { agentId: id });
 		const process = new PiProcess(project.path, this.settingsStore.get());
 		process.on("version-check", (payload) => {
 			void this.appLogger?.info("agent", "Pi version check completed", {
@@ -368,7 +464,7 @@ export class AgentManager {
 		this.messages.set(id, []);
 		this.emitState();
 
-		const client = process.start(input.sessionPath, trustOverride);
+		const client = await process.start(input.sessionPath, trustOverride);
 		const t3 = Date.now();
 		void this.appLogger?.info("agent", "Pi process spawned", {
 			agentId: id,
@@ -377,13 +473,11 @@ export class AgentManager {
 			spawnCallMs: t3 - t2,
 		});
 
-		// 启动后立即获取状态；历史消息仅在文件不大时预取。
-		// 大会话 get_messages 会返回超大单行 JSON，JSON.parse 会阻塞 Electron 主进程，宁可先让 Agent 可用。
+		// 启动后先获取状态，get_messages 必须等状态就绪后再发送，
+		// 确保 pi 进程已完全加载会话文件，避免竞态导致返回空结果。
+		void this.appLogger?.info("agent", "Agent get_state request start", { agentId: id });
 		const statePromise = client.request({ type: "get_state" });
 		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
-		const messagesPromise = historyLoadDecision.shouldLoad
-			? client.request({ type: "get_messages" })
-			: undefined;
 
 		// ... 事件监听器（省略，与原来一致）
 		process.on("event", (event) => this.handlePiEvent(id, event));
@@ -489,6 +583,7 @@ export class AgentManager {
 		});
 
 		try {
+			void this.appLogger?.info("agent", "Agent get_state request completed", { agentId: id });
 			const state = await statePromise;
 			const t4 = Date.now();
 			void this.appLogger?.info("agent", "Agent get_state completed", {
@@ -512,6 +607,10 @@ export class AgentManager {
 			// 因此历史消息后台加载，避免 40MB+ 会话把“打开 Agent”阻塞到十几秒。
 			// 同时插入一条临时系统消息，给用户明确的加载反馈，避免空白页面看起来像冻结。
 			// preserveMessagesAfter 保护加载期间用户新发的消息/流式回复，防止历史结果回写时覆盖当前会话。
+			// 状态就绪后发送 get_messages，确保 pi 进程已完全加载会话文件，避免竞态。
+			const messagesPromise = historyLoadDecision.shouldLoad
+				? client.request({ type: "get_messages" })
+				: undefined;
 			const preserveMessagesAfter = Date.now();
 			if (messagesPromise) {
 				if (input.sessionPath) {
@@ -683,13 +782,15 @@ export class AgentManager {
 		return runtime.tab;
 	}
 
-	async sendPrompt(input: SendPromptInput) {
+	async sendPrompt(input: SendPromptInput): Promise<SendPromptResult> {
 		const runtime = this.requireRuntime(input.agentId);
 		const trimmed = input.message.trim();
 		const hasImages = input.images && input.images.length > 0;
 		const agentMessage = input.agentMessage?.trim() || trimmed || "Describe this image.";
 		// 允许只有图片没有文字的情况发送
-		if (!trimmed && !hasImages) return;
+		if (!trimmed && !hasImages) {
+			return { accepted: false, error: "消息不能为空" };
+		}
 
 		// 解析 !/!! 前缀：与 pi 终端行为一致
 		// !command  → 执行命令并将输出发送给 LLM（excludeFromContext: false）
@@ -702,36 +803,23 @@ export class AgentManager {
 				? trimmed.slice(2).trim()
 				: trimmed.slice(1).trim();
 			if (command) {
-				await this.executeBashCommand(input.agentId, command, isBashExcluded);
-				return;
+				return this.executeBashCommand(input.agentId, command, isBashExcluded);
 			}
 		}
 
 		// 判断 agent 是否已在忙碌中；运行中继续发送时必须带 streamingBehavior，
 		// 否则 pi RPC 会拒绝请求。该值也用于给用户消息打上投递语义标记。
 		const alreadyBusy = runtime.tab.status === "running";
+		const statusBeforePrompt = runtime.tab.status;
 		const promptDeliveryBehavior = input.streamingBehavior ?? (alreadyBusy ? "steer" : undefined);
-
-		// 保存用户消息（包含图片）。运行中消息先显示在对话里，并标记它会在何时被 pi 消费：
-		// steer=下一次 LLM 调用前，followUp=当前 agent 完全停止后。
-		this.addMessage(
-			input.agentId,
-			"user",
-			trimmed || "[图片]",
-			promptDeliveryBehavior ? { streamingBehavior: promptDeliveryBehavior } : undefined,
-			input.images,
-		);
 
 		// 在设置状态为 running 之前检查进程是否还活着，避免进程崩溃后状态不一致
 		if (!runtime.process.isRunning()) {
+			const errorMessage = "Agent 进程已停止，请重启 Agent 后重试";
 			runtime.tab.status = "error";
-			this.addMessage(
-				input.agentId,
-				"error",
-				"Agent 进程已停止，请重启 Agent 后重试",
-			);
+			this.addMessage(input.agentId, "error", errorMessage);
 			this.emitState();
-			return;
+			return { accepted: false, error: errorMessage };
 		}
 
 		runtime.tab.status = "running";
@@ -762,44 +850,44 @@ export class AgentManager {
 			if (!response.success) {
 				// pi RPC 会把不支持图片、忙碌队列参数缺失等前置错误作为 success:false 返回；
 				// 必须显式显示出来，否则 UI 会停在“已发送但无响应”的状态。
-				runtime.tab.status = "idle";
-				this.addMessage(
-					input.agentId,
-					"error",
-					response.error ?? "图片消息发送失败",
-				);
+				const errorMessage = response.error ?? "图片消息发送失败";
+				runtime.tab.status = statusBeforePrompt === "running" ? "running" : "idle";
+				this.addMessage(input.agentId, "error", errorMessage);
 				this.emitState();
-			} else if (promptIsExtensionCommand) {
+				return { accepted: false, error: errorMessage };
+			}
+
+			// 只有 pi prompt 预检成功后才把 user bubble 落入时间线。失败时 renderer 会保留
+			// 本地待发送卡片，避免同一条消息同时显示为“已发送”和“发送失败待重试”。
+			this.addMessage(
+				input.agentId,
+				"user",
+				trimmed || "[图片]",
+				promptDeliveryBehavior ? { streamingBehavior: promptDeliveryBehavior } : undefined,
+				input.images,
+			);
+
+			if (promptIsExtensionCommand) {
 				// 机制：Pi 扩展命令可在 prompt 阶段直接执行并返回，不进入 agent run。
 				// 证据：@earendil-works/pi-coding-agent/dist/core/agent-session.js 中 AgentSession.prompt()
 				//      先调用 _tryExecuteExtensionCommand()；命中后 return，不再调用 _runAgentPrompt()。
 				// 推导：不能等 agent_end；只有 Pi get_state 明确报告无剩余工作时才恢复 idle。
 				this.scheduleIdleCheckAfterExtensionCommand(input.agentId);
 			}
+			return { accepted: true };
 		} catch (error) {
-			// 超时或进程崩溃后，需要明确提示用户重启 Agent
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const isProcessDead = errorMessage.includes("pi process is not running") || 
-			                     errorMessage.includes("RPC command timed out");
-			
-			if (isProcessDead) {
-				runtime.tab.status = "error";
-				this.addMessage(
-					input.agentId,
-					"error",
-					errorMessage.includes("timed out") 
-						? `命令执行超时（${Math.round(this.settingsStore.get().rpcTimeout / 1000)}秒），Agent 进程可能已停止。请重启 Agent 后重试，或在设置中增加 RPC 超时时间。`
-						: `Agent 进程已停止，请重启 Agent 后重试。`,
-				);
-			} else {
-				runtime.tab.status = "idle";
-				this.addMessage(
-					input.agentId,
-					"error",
-					`消息发送失败：${errorMessage}`,
-				);
-			}
+			// prompt RPC 调用前已通过同步 write() 写入 pi stdin；此处所有异常都只说明
+			// preflight 响应未到达，无法证明 pi 没有接收。返回 unknown，renderer 会永久禁用
+			// 该快照的重试/编辑/取消，防止用户把同一条消息提交两次。
+			runtime.tab.status = statusBeforePrompt === "running" ? "running" : "error";
+			this.addMessage(
+				input.agentId,
+				"error",
+				`消息接收结果未知（${errorMessage}）。请先检查当前会话，避免重复发送；必要时重启 Agent。`,
+			);
 			this.emitState();
+			return { accepted: false, error: errorMessage, delivery: "unknown" };
 		}
 	}
 
@@ -811,24 +899,17 @@ export class AgentManager {
 		agentId: string,
 		command: string,
 		excludeFromContext: boolean,
-	) {
-		this.addMessage(
-			agentId,
-			"user",
-			`${excludeFromContext ? "!!" : "!"}${command}`,
-		);
+	): Promise<SendPromptResult> {
 		const runtime = this.requireRuntime(agentId);
+		const statusBeforeCommand = runtime.tab.status;
 		
 		// 检查进程是否还活着
 		if (!runtime.process.isRunning()) {
+			const errorMessage = "Agent 进程已停止，请重启 Agent 后重试";
 			runtime.tab.status = "error";
-			this.addMessage(
-				agentId,
-				"error",
-				"Agent 进程已停止，请重启 Agent 后重试",
-			);
+			this.addMessage(agentId, "error", errorMessage);
 			this.emitState();
-			return;
+			return { accepted: false, error: errorMessage };
 		}
 		
 		runtime.tab.status = "running";
@@ -844,6 +925,17 @@ export class AgentManager {
 				60_000,
 			);
 
+			if (!response.success) {
+				const errorMessage = response.error ?? "命令执行失败";
+				this.addMessage(agentId, "error", `命令执行失败：${errorMessage}`);
+				return { accepted: false, error: errorMessage };
+			}
+
+			this.addMessage(
+				agentId,
+				"user",
+				`${excludeFromContext ? "!!" : "!"}${command}`,
+			);
 			const data = response.data as
 				| {
 						output?: string;
@@ -869,30 +961,21 @@ export class AgentManager {
 				});
 				this.addMessage(agentId, "tool", toolMessage.text, toolMessage.meta);
 			}
+			return { accepted: true };
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const isProcessDead = errorMessage.includes("pi process is not running") || 
-			                     errorMessage.includes("RPC command timed out");
-			
-			if (isProcessDead) {
-				runtime.tab.status = "error";
-				this.addMessage(
-					agentId,
-					"error",
-					errorMessage.includes("timed out") 
-						? `命令执行超时，Agent 进程可能已停止。请重启 Agent 后重试。`
-						: `Agent 进程已停止，请重启 Agent 后重试。`,
-				);
-			} else {
-				this.addMessage(
-					agentId,
-					"error",
-					`命令执行失败：${errorMessage}`,
-				);
-			}
+			// bash 请求也在计时前写入 stdin；异常只能判定响应未知。对于可能有副作用的命令，
+			// 把它标成可重试失败会比保守阻止重试更危险。
+			runtime.tab.status = statusBeforeCommand === "running" ? "running" : "error";
+			this.addMessage(
+				agentId,
+				"error",
+				`命令接收结果未知（${errorMessage}）。请先检查命令输出或工作区状态，避免重复执行。`,
+			);
+			return { accepted: false, error: errorMessage, delivery: "unknown" };
 		} finally {
 			if (runtime.tab.status !== "error") {
-				runtime.tab.status = "idle";
+				runtime.tab.status = statusBeforeCommand === "running" ? "running" : "idle";
 			}
 			this.emitState();
 		}
@@ -1057,7 +1140,7 @@ export class AgentManager {
 		});
 
 		const process = new PiProcess(project.path, this.settingsStore.get());
-		const client = process.start(sessionPath);
+		const client = await process.start(sessionPath);
 
 		// 注册事件监听（与 create() 保持一致）
 		process.on("event", (event) => this.handlePiEvent(agentId, event));
@@ -1275,6 +1358,7 @@ export class AgentManager {
 			/** 工具执行状态从本地追踪，无需 Pi 进程查询 */
 			isExecutingTool: !!(this.toolExecutingByAgent.get(agentId)),
 			executingToolName: this.toolExecutingByAgent.get(agentId) ?? undefined,
+			toolStateSequence: this.toolStateSequenceByAgent.get(agentId) ?? 0,
 			contextTokens: stats?.contextUsage?.tokens,
 			contextWindow: stats?.contextUsage?.contextWindow ?? model?.contextWindow,
 			contextPercent: stats?.contextUsage?.percent,
@@ -1291,9 +1375,50 @@ export class AgentManager {
 		};
 	}
 
+	private applyActiveToolCallState(agentId: string, state: ActiveToolCallState) {
+		if (state.calls.size > 0) {
+			this.activeToolCallsByAgent.set(agentId, state.calls);
+			this.toolExecutingByAgent.set(agentId, state.executingToolName ?? "tool");
+			this.emitToolRuntimeTransition(
+				agentId,
+				true,
+				state.executingToolName ?? "tool",
+			);
+			return;
+		}
+		this.activeToolCallsByAgent.delete(agentId);
+		this.toolExecutingByAgent.set(agentId, null);
+		this.emitToolRuntimeTransition(agentId, false);
+	}
+
+	private emitToolRuntimeTransition(
+		agentId: string,
+		isExecutingTool: boolean,
+		executingToolName?: string,
+	) {
+		const toolStateSequence = (this.toolStateSequenceByAgent.get(agentId) ?? 0) + 1;
+		this.toolStateSequenceByAgent.set(agentId, toolStateSequence);
+		// 工具边沿直接从原始 pi 事件发出，不等待 get_state/get_session_stats。
+		// 这样即使工具极快完成或完整状态请求乱序，renderer 仍能稳定看到 true → false。
+		this.emit(ipcChannels.agentsRuntimeState, {
+			agentId,
+			state: {
+				isExecutingTool,
+				executingToolName,
+				toolStateSequence,
+			},
+		});
+	}
+
 	private async emitRuntimeState(agentId: string) {
 		try {
 			const state = await this.getRuntimeState(agentId);
+			const latestToolSequence = this.toolStateSequenceByAgent.get(agentId) ?? 0;
+			// getRuntimeState 包含异步 RPC；若期间发生新工具事件，只覆盖非工具字段，
+			// 工具字段保留调用完成时的最新本地真值和序号。
+			state.isExecutingTool = !!this.toolExecutingByAgent.get(agentId);
+			state.executingToolName = this.toolExecutingByAgent.get(agentId) ?? undefined;
+			state.toolStateSequence = latestToolSequence;
 			this.emit(ipcChannels.agentsRuntimeState, { agentId, state });
 		} catch {
 			// 运行态刷新失败不影响主流程；下一次轮询或事件会继续同步。
@@ -1316,7 +1441,7 @@ export class AgentManager {
 		return Math.max(0, Math.min(100, value));
 	}
 
-	private trimHistoryMessages(rawMessages: unknown[], maxTurns = 20) {
+	private trimHistoryMessages(rawMessages: unknown[], maxTurns = 40) {
 		if (rawMessages.length === 0) return rawMessages;
 		// 按对话轮次截断：找到最后 maxTurns 个用户提问，保留对应轮次及之后的全部消息
 		const userIndices: number[] = [];
@@ -1901,6 +2026,9 @@ export class AgentManager {
 		runtime.process.stop();
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.activeToolCallsByAgent.delete(agentId);
+		this.toolExecutingByAgent.delete(agentId);
+		this.toolStateSequenceByAgent.delete(agentId);
 		this.emitState();
 
 		// 用相同的 session 重新创建 agent，新进程会重新加载所有配置
@@ -1953,7 +2081,7 @@ export class AgentManager {
 		const project = this.getProject(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
 		const process = new PiProcess(project.path, this.settingsStore.get());
-		process.start(sessionPath);
+		await process.start(sessionPath);
 		try {
 			return await run(process);
 		} finally {
@@ -2060,6 +2188,9 @@ export class AgentManager {
 		const process = runtime.process;
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.activeToolCallsByAgent.delete(agentId);
+		this.toolExecutingByAgent.delete(agentId);
+		this.toolStateSequenceByAgent.delete(agentId);
 		// agent 关闭时自动关闭 RPC 日志记录
 		this.rpcLoggingAgents.delete(agentId);
 		process.stop();
@@ -2124,6 +2255,8 @@ export class AgentManager {
 			runtime.tab.status = "running";
 			this.activeAssistantMessageIds.delete(agentId);
 			this.toolMessageIds.delete(agentId);
+			this.activeToolCallsByAgent.delete(agentId);
+			this.toolExecutingByAgent.set(agentId, null);
 			this.emitState();
 		}
 
@@ -2276,6 +2409,8 @@ export class AgentManager {
 				this.streamingThinking.delete(agentId);
 				this.activeAssistantMessageIds.delete(agentId);
 				this.toolMessageIds.delete(agentId);
+				this.activeToolCallsByAgent.delete(agentId);
+				this.toolExecutingByAgent.set(agentId, null);
 				this.rpcCompactingAgents.delete(agentId);
 				this.emitThinking(agentId, "");
 				this.emitState();
@@ -2309,19 +2444,21 @@ export class AgentManager {
 
 		if (typed.type === "tool_execution_start") {
 			this.upsertToolMessage(agentId, typed, "running");
-			// 记录当前正在执行的工具名，用于前端准确展示“执行中”而非泛泛的“响应中”
-			this.toolExecutingByAgent.set(agentId, typed.toolName ?? "tool");
+			// 并行工具会先连续发多个 start；按 toolCallId 追踪，只有最后一个 end 才能表示工具阶段完成。
+			const toolName = typed.toolName ?? "tool";
+			const toolCallId = String(typed.toolCallId ?? `${toolName}-${Date.now()}`);
+			const toolState = updateActiveToolCalls(
+				this.activeToolCallsByAgent.get(agentId) ?? new Map<string, string>(),
+				{ type: "start", toolCallId, toolName },
+			);
+			this.applyActiveToolCallState(agentId, toolState);
 			// 工具调用开始时确保 agent 状态为 running
 			if (runtime) {
 				runtime.tab.status = "running";
 				this.emitState();
 			}
-			// 推送运行时状态更新，使前端能立即知道工具正在执行
-			void this.getRuntimeState(agentId)
-				.then((state) =>
-					this.emit(ipcChannels.agentsRuntimeState, { agentId, state }),
-				)
-				.catch(() => undefined);
+			// 完整 runtime 信息异步补发；工具边沿已经同步推送，不依赖此请求的完成顺序。
+			void this.emitRuntimeState(agentId);
 		}
 
 		if (typed.type === "tool_execution_end") {
@@ -2332,20 +2469,22 @@ export class AgentManager {
 			);
 			// 工具执行结束是终态，立即 flush 把最终结果推给渲染进程，避免节流窗口内用户看不到完成状态。
 			this.flushMessageEmit(agentId);
-			// 清除工具执行状态
-			this.toolExecutingByAgent.set(agentId, null);
+			// 清除本次 toolCall；并行批次仅在最后一个工具结束时发布 false，
+			// 否则 steer 会在其他工具仍运行时过早进入 pi 队列。
+			const activeToolCalls = this.activeToolCallsByAgent.get(agentId) ?? new Map<string, string>();
+			const toolState = updateActiveToolCalls(activeToolCalls, {
+				type: "end",
+				toolCallId: String(typed.toolCallId ?? ""),
+			});
+			this.applyActiveToolCallState(agentId, toolState);
 			// 工具调用完成后保持 agent 状态为 running，等待后续的 agent_end 事件
 			// 这样在工具完成到 agent 生成回复之间，thinking bubble 仍然会显示
 			if (runtime) {
 				runtime.tab.status = "running";
 				this.emitState();
 			}
-			// 推送运行时状态更新
-			void this.getRuntimeState(agentId)
-				.then((state) =>
-					this.emit(ipcChannels.agentsRuntimeState, { agentId, state }),
-				)
-				.catch(() => undefined);
+			// 完整 runtime 信息异步补发；序号保证它不会倒灌旧工具状态。
+			void this.emitRuntimeState(agentId);
 		}
 
 		if (typed.type === "tool_execution_update") {
@@ -2572,7 +2711,9 @@ export class AgentManager {
 		const cwd = project.path;
 		if (!this.hasTrustRequiringResources(cwd)) {
 			// 干净项目：pi 无需加载项目级资源，pi-desktop 自动记入信任，避免每次创建 Agent 重复检查。
+			void this.appLogger?.info("agent", "Agent ensure trusted directory start", { cwd });
 			await this.configManager.ensureTrustedDirectory(cwd);
+			void this.appLogger?.info("agent", "Agent ensure trusted directory completed", { cwd });
 			return undefined;
 		}
 		const decision = await this.configManager.getProjectTrustDecision(cwd);
@@ -2773,68 +2914,11 @@ export class AgentManager {
 		// 避免使用消息 timestamp（会在 update/end 时刷新）导致历史恢复后耗时不可还原。
 		const durationMs =
 			status === "running" ? undefined : Math.max(0, Date.now() - startedAt);
-
-		// 工具首次开始执行时尝试异步读取原始文件内容（pi-deck-file-capture 扩展未安装时的回退方案）。
-		// 当扩展已安装时，后续 tool_execution_end 会从 result.details._piDeckOriginalContent
-		// 同步拿到原始内容，可跳过此处的异步读取。
-		let originalContent: string | undefined = existing?.meta?.originalContent as
-			| string
-			| undefined;
-		if (
-			status === "running" &&
-			!originalContent &&
-			typeof args === "object" &&
-			args !== null
-		) {
-			const filePath =
-				typeof (args as any).filePath === "string"
-					? (args as any).filePath
-					: typeof (args as any).path === "string"
-						? (args as any).path
-						: undefined;
-			if (filePath) {
-				readFile(filePath, "utf8")
-					.then((content) => {
-						originalContent = content;
-						// originalContent 是异步补齐的；必须替换 message/meta 和数组引用，
-						// 否则 renderer 的浅比较与 useMemo 会继续使用空快照，diff 左侧就会空白。
-						const currentList = this.messages.get(agentId) ?? [];
-						const nextList = currentList.map((message) =>
-							message.id === messageId
-								? {
-									...message,
-									meta: {
-										...(message.meta ?? {}),
-										originalContent: content,
-									},
-								}
-								: message,
-						);
-						this.messages.set(agentId, nextList);
-						this.scheduleMessageEmit(agentId, true);
-					})
-					.catch(() => {
-						// 文件不存在或被删除，跳过
-					});
-			}
-		}
 		const result =
 			event.result ??
 			event.partialResult ??
 			event.output ??
 			existing?.meta?.result;
-
-		// 优先使用 pi-deck-file-capture 扩展注入的原始内容（在 tool_execution_end 中可用）
-		// 该扩展在工具执行前从磁盘读取原文件，结果存入 details._piDeckOriginalContent，
-		// 无需异步读取，且数据会持久化到 session JSONL 供历史会话恢复。
-		if (
-			!originalContent &&
-			result &&
-			typeof result === "object" &&
-			(result as any).details?._piDeckOriginalContent
-		) {
-			originalContent = (result as any).details._piDeckOriginalContent as string;
-		}
 		const detailText = this.formatToolDetail(
 			toolName,
 			args,
@@ -2913,7 +2997,9 @@ export class AgentManager {
 			result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 			isError,
 			detailText,
-			originalContent,
+			// originalContent 不再存储到消息中（full file 会使会话元数据体积过大）。
+			// diff 使用工具参数（oldText/newText 等）展示变动区域，无需完整文件快照。
+			
 			...(askCard ? { _askCard: askCard } : {}),
 		};
 
@@ -3235,9 +3321,8 @@ export class AgentManager {
 							result: this.truncateForDetail(this.extractToolResultText(result) || this.safeJson(result)),
 							isError,
 							detailText,
-							// 历史会话的工具内 diff 必须使用当时保存的快照，不能回退读当前工作区/Git，
-							// 否则文件后续又被修改时会展示错误的“历史 diff”。
-							...(originalContent !== undefined ? { originalContent } : {}),
+							// 历史会话不保存 originalContent（full file），diff 使用工具参数
+							//（oldText/newText）展示变动区域，避免会话文件体积膨胀。
 							...(askCard ? { _askCard: askCard } : {}),
 						},
 					}];
@@ -3257,6 +3342,10 @@ export class AgentManager {
 						meta: {
 							type: isCompaction ? "compaction" : "branchSummary",
 							tokensBefore: typed.tokensBefore,
+						// 保留压缩次数（桌面端从会话文件解析得到），供前端展示“已压缩 N 次”
+						...(isCompaction && typed.meta?.compactionCount != null
+							? { compactionCount: typed.meta.compactionCount }
+							: {}),
 						},
 					}];
 				}
@@ -3439,9 +3528,7 @@ export class AgentManager {
 		this.streamingThinking.delete(agentId);
 		this.emitThinking(agentId, "");
 		this.emitState();
-		void this.getRuntimeState(agentId)
-			.then((state) => this.emit(ipcChannels.agentsRuntimeState, { agentId, state }))
-			.catch(() => undefined);
+		void this.emitRuntimeState(agentId);
 	}
 
 	private extractToolResultText(result: unknown) {

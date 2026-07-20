@@ -7,9 +7,18 @@ import type { PiLocator } from "../pi/PiLocator";
 
 type SettingsProvider = () => AppSettings;
 
+/** PiDeck 内置扩展列表，用于在扫描不到时仍展示在扩展管理页中。 */
+const BUILT_IN_EXTENSIONS = [
+	"pi-deck-file-capture.ts",
+	"pi-deck-ask-question.ts",
+	"pi-deck-plan-mode.ts",
+	"pi-deck-todo.ts",
+] as const;
+
 /**
  * 通过 pi CLI 管理已安装扩展，避免桌面端直接改写 pi settings 导致和 CLI 行为不一致。
- * list/remove 都使用 --no-approve，防止配置弹窗因为项目级信任确认而阻塞。
+ * 自动检测 pi 版本，条件性添加 --no-approve（仅 pi >= 0.79.0 支持），
+ * 兼容老版本避免 unknown option 错误。
  */
 export class ExtensionManager {
 	constructor(
@@ -17,8 +26,12 @@ export class ExtensionManager {
 		private readonly getSettings: SettingsProvider,
 	) {}
 
+	/** 缓存的 pi 版本号，用于条件性传递 --no-approve。 */
+	private piVersion: string | null = null;
+	private piVersionPromise: Promise<string | null> | null = null;
+
 	async list(): Promise<PiExtensionListResult> {
-		const raw = await this.runPi(["list", "--no-approve"], 20_000);
+		const raw = await this.runPi(["list"], 20_000);
 		const piInstalled = await Promise.all(
 			this.parseListOutput(raw).map((extension) => this.enrichExtensionVersion(extension)),
 		);
@@ -33,6 +46,20 @@ export class ExtensionManager {
 		for (const local of localExtensions) {
 			if (!local.path || !installedPaths.has(local.path)) {
 				merged.push(local);
+			}
+		}
+
+		// 补充：将已禁用/文件缺失的内置扩展也纳入列表，确保用户可在 UI 中重新启用。
+		const existingSources = new Set(merged.map((ext) => ext.source));
+		for (const builtIn of BUILT_IN_EXTENSIONS) {
+			if (!existingSources.has(builtIn)) {
+				merged.push({
+					id: `local:${builtIn}`,
+					source: builtIn,
+					path: undefined,
+					scope: "user",
+					builtIn: true,
+				});
 			}
 		}
 
@@ -106,14 +133,13 @@ export class ExtensionManager {
 			"remove",
 			normalized,
 			...(scope === "project" ? ["-l"] : []),
-			"--no-approve",
 		], 30_000);
 	}
 
 	async install(source: string): Promise<string> {
 		const normalized = source.trim();
 		if (!normalized) throw new Error("扩展名称不能为空");
-		return this.runPi(["install", normalized, "--no-approve"], 60_000);
+		return this.runPi(["install", normalized], 60_000);
 	}
 
 	async checkPiUpdate(): Promise<PiUpdateCheckResult> {
@@ -135,18 +161,18 @@ export class ExtensionManager {
 		const check = await this.checkPiUpdate();
 		if (!check.hasUpdate) {
 			return {
-				command: "pi update pi --no-approve",
+				command: "pi update pi",
 				output: check.error ?? `当前版本 ${check.currentVersion ?? "unknown"}，最新版本 ${check.latestVersion ?? "unknown"}，无需更新。`,
 				updated: false,
 			};
 		}
-		const output = await this.runPi(["update", "pi", "--no-approve"], 120_000, { offline: false });
-		return this.toUpdateResult("pi update pi --no-approve", output, true);
+		const output = await this.runPi(["update", "pi"], 120_000, { offline: false });
+		return this.toUpdateResult("pi update pi", output, true);
 	}
 
 	async updateExtensions(): Promise<PiCliUpdateResult> {
-		const output = await this.runPi(["update", "--extensions", "--no-approve"], 120_000, { offline: false });
-		return this.toUpdateResult("pi update --extensions --no-approve", output, true);
+		const output = await this.runPi(["update", "--extensions"], 120_000, { offline: false });
+		return this.toUpdateResult("pi update --extensions", output, true);
 	}
 
 	private async enrichExtensionVersion(extension: PiExtensionSummary): Promise<PiExtensionSummary> {
@@ -243,9 +269,48 @@ export class ExtensionManager {
 		}
 	}
 
-	private async runPi(args: string[], timeout: number, options: { offline?: boolean } = {}) {
+	/**
+	 * --no-approve 标志在 pi 0.79.0 引入。检测本地安装的 pi 版本是否支持。
+	 */
+	private async noApproveSupported(): Promise<boolean> {
+		const version = await this.getPiVersion();
+		if (!version) return false;
+		const match = version.match(/^(\d+)\.(\d+)/);
+		if (!match) return false;
+		const major = parseInt(match[1], 10);
+		const minor = parseInt(match[2], 10);
+		// pi >= 0.79.0 或 1.x+ 都支持 --no-approve
+		return major > 0 || minor >= 79;
+	}
+
+	private async getPiVersion(): Promise<string | null> {
+		if (this.piVersion) return this.piVersion;
+		if (this.piVersionPromise) return this.piVersionPromise;
+		this.piVersionPromise = this.detectPiVersion();
+		return this.piVersionPromise;
+	}
+
+	private async detectPiVersion(): Promise<string | null> {
+		try {
+			const status = await this.locator.check(this.getSettings().customPiPath);
+			if (status.installed && status.version) {
+				this.piVersion = status.version;
+				return status.version;
+			}
+		} catch {
+			// 版本检测失败时静默处理，后续调用方会 fallback 为不支持 --no-approve
+		}
+		return null;
+	}
+
+	private async runPi(args: string[], timeout: number, options: { offline?: boolean } = {}): Promise<string> {
+		// --no-approve 在 pi 0.79+ 才支持，老版本需要跳过以避免 unknown option 错误。
+		const finalArgs = [...args];
+		if (await this.noApproveSupported()) {
+			finalArgs.push("--no-approve");
+		}
 		const command = this.locator.resolveCommand(this.getSettings().customPiPath);
-		const invocation = this.locator.createInvocation(command, args);
+		const invocation = this.locator.createInvocation(command, finalArgs);
 		const env = this.locator.createProcessEnv(this.getSettings(), invocation.pathPrefix);
 		// list/remove/install 使用离线模式避免配置页被网络和包管理器输出拖慢；update 必须允许联网，
 		// 否则 pi 只会返回简化的 Updated packages，无法真正走 npm 更新流程。

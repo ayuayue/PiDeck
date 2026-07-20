@@ -291,6 +291,14 @@ export function SettingsModal(props: {
 										}
 									/>
 									<SettingSwitch
+										title={t("settings.gitManagement")}
+										description={t("settings.gitManagementDesc")}
+										checked={props.settings.enableGitManagement}
+										onChange={(checked) =>
+											props.onChange({ enableGitManagement: checked })
+										}
+									/>
+									<SettingSwitch
 										title={t("settings.nativeTitleBar")}
 										checked={props.settings.useNativeTitleBar}
 										onChange={(checked) =>

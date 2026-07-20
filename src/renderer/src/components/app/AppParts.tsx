@@ -5,6 +5,7 @@ import {
 	useCallback,
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -81,7 +82,7 @@ import {
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { t, type TranslationKey } from "../../i18n";
-import { toast } from "sonner";
+import { showNotice } from "../../utils/notice";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { Modal } from "../ui/Modal";
@@ -117,7 +118,7 @@ import { parseRichInputChips, type RichInputChip } from "./RichInput";
 /** 复用 petdex 标准网格规格，在主设置面板里为宠物选择器渲染单格动画预览 */
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
-export type DrawerPanel = "files" | "sessions" | "browser" | "editor";
+export type DrawerPanel = "files" | "sessions" | "browser" | "editor" | "git";
 
 export type SessionModifiedFile = {
 	path: string;
@@ -1629,36 +1630,30 @@ function countTextLines(value: string) {
 	return value ? value.split(/\r\n|\r|\n/).length : 0;
 }
 
-function applyTextReplacement(content: string, oldText: unknown, newText: unknown): string | undefined {
-	if (typeof oldText !== "string" || typeof newText !== "string") return undefined;
-	const index = content.indexOf(oldText);
-	if (index < 0) return undefined;
-	return content.slice(0, index) + newText + content.slice(index + oldText.length);
-}
-
-function buildEditedContentFromArgs(args: Record<string, unknown>, originalContent: string): string | undefined {
-	let next = originalContent;
+/**
+ * 从 edit 工具参数中提取变更区域（oldText → newText）
+ * 用于 diff 展示。不再拼接全量文件，只展示变动部分。
+ */
+function getEditDiffContent(args: Record<string, unknown>): { oldText: string; newText: string } | undefined {
 	const edits = Array.isArray(args.edits) ? args.edits : undefined;
 	if (edits) {
-		// edit 工具的多段替换应以工具调用时的原始内容为基准顺序重放，
-		// 这样 diff 来自本次工具参数，而不是依赖当前工作区或 Git 状态。
-		for (const edit of edits) {
-			if (!edit || typeof edit !== "object") return undefined;
-			const replacement = applyTextReplacement(
-				next,
-				(edit as Record<string, unknown>).oldText ?? (edit as Record<string, unknown>).old_text,
-				(edit as Record<string, unknown>).newText ?? (edit as Record<string, unknown>).new_text,
-			);
-			if (replacement === undefined) return undefined;
-			next = replacement;
-		}
-		return next;
+		// 多段编辑拼接所有 oldText / newText
+		const parts = edits.map((edit: unknown) => {
+			if (!edit || typeof edit !== "object") return null;
+			const oldText = String((edit as Record<string, unknown>).oldText ?? (edit as Record<string, unknown>).old_text ?? "");
+			const newText = String((edit as Record<string, unknown>).newText ?? (edit as Record<string, unknown>).new_text ?? "");
+			return { oldText, newText };
+		}).filter((p): p is { oldText: string; newText: string } => p !== null);
+		if (parts.length === 0) return undefined;
+		return {
+			oldText: parts.map(p => p.oldText).join("\n"),
+			newText: parts.map(p => p.newText).join("\n"),
+		};
 	}
-	return applyTextReplacement(
-		next,
-		args.oldText ?? args.old_text,
-		args.newText ?? args.new_text,
-	);
+	const oldText = typeof args.oldText === "string" ? args.oldText : typeof args.old_text === "string" ? args.old_text : undefined;
+	const newText = typeof args.newText === "string" ? args.newText : typeof args.new_text === "string" ? args.new_text : undefined;
+	if (oldText === undefined || newText === undefined) return undefined;
+	return { oldText, newText };
 }
 
 function getToolDiffTarget(message: ChatMessage): { path: string; originalContent: string; content: string; changedLines: number } | undefined {
@@ -1667,7 +1662,6 @@ function getToolDiffTarget(message: ChatMessage): { path: string; originalConten
 	const args = parseToolArgs(message.meta?.args);
 	const path = getToolArgFilePath(args);
 	if (!args || !path) return undefined;
-	const originalContent = typeof message.meta?.originalContent === "string" ? message.meta.originalContent : "";
 	if (/write|create/i.test(toolName)) {
 		const content = typeof args.content === "string"
 			? args.content
@@ -1675,15 +1669,16 @@ function getToolDiffTarget(message: ChatMessage): { path: string; originalConten
 				? args.text
 				: undefined;
 		if (content === undefined) return undefined;
-		return { path, originalContent, content, changedLines: countTextLines(content) };
+		return { path, originalContent: "", content, changedLines: countTextLines(content) };
 	}
-	const content = buildEditedContentFromArgs(args, originalContent);
-	if (content === undefined) return undefined;
+	// edit/patch：不存储 full file originalContent，只展示变动区域
+	const diff = getEditDiffContent(args);
+	if (!diff) return undefined;
 	return {
 		path,
-		originalContent,
-		content,
-		changedLines: Math.max(countTextLines(originalContent), countTextLines(content)),
+		originalContent: diff.oldText,
+		content: diff.newText,
+		changedLines: Math.max(countTextLines(diff.oldText), countTextLines(diff.newText)),
 	};
 }
 
@@ -1956,6 +1951,7 @@ export const CompactionCard = memo(function CompactionCard(props: {
 }) {
 	const summary = props.message.text;
 	const tokensBefore = (props.message.meta as any)?.tokensBefore;
+	const compactionCount = (props.message.meta as any)?.compactionCount;
 	const time = formatTime(props.message.timestamp);
 	return (
 		<article
@@ -1965,6 +1961,11 @@ export const CompactionCard = memo(function CompactionCard(props: {
 			<span className="compaction-card-icon" aria-hidden="true">🔁</span>
 			<div className="compaction-card-body">
 				<span className="compaction-card-summary">{stripAnsi(summary)}</span>
+				{typeof compactionCount === "number" && compactionCount > 0 && (
+					<span className="compaction-card-count">
+						{t("app.compactionCount", { count: compactionCount })}
+					</span>
+				)}
 				{typeof tokensBefore === "number" && (
 					<span className="compaction-card-tokens">
 						~{Math.round(tokensBefore / 1000)}k tokens before
@@ -2498,9 +2499,14 @@ export const TurnRow = memo(function TurnRow(props: {
 		}
 		return -1;
 	})();
-	const hasExecutionProcess = lastAssistantIndex > 0;
-	const executionItems = hasExecutionProcess
-		? (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]).slice(0, lastAssistantIndex)
+	// 执行过程 = 除最终回答外的所有条目（最终回答在折叠区外始终可见，不能再进折叠详情）。
+	// 边界：lastAssistantIndex === 0（如「思考+直接回答」的无工具回合）时，若取 run.items 全量，
+	// 最终回答会被同时渲染进折叠详情和下方正文，展开后出现两份；filter 排除它本身，
+	// 同时保留最终回答之后可能存在的尾部 tool/thinking 条目（slice 方案会将其丢弃）。
+	const executionItems = lastAssistantIndex >= 0
+		? (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]).filter(
+			(_, index) => index !== lastAssistantIndex,
+		)
 		: (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]);
 	const finalMessageItem = lastAssistantIndex >= 0 ? (run.items[lastAssistantIndex] as MessageItem) : null;
 
@@ -3276,7 +3282,9 @@ function MarkdownLink(
 		onOpenFile?: (path: string) => void;
 	},
 ) {
-	const { onOpenExternal, onOpenFile, ...anchorProps } = props;
+	const { onOpenExternal, onOpenFile, children, className, title, ...anchorProps } = props;
+	// remarkLinkifyPaths 生成的文件路径链接走 file:// 协议，与普通外链区分展示
+	const isFileLink = props.href?.startsWith("file://") ?? false;
 	const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		e.preventDefault();
 		if (!props.href) return;
@@ -3292,7 +3300,29 @@ function MarkdownLink(
 			void onOpenExternal(props.href);
 		}
 	};
-	return <a {...anchorProps} onClick={handleClick} />;
+	const linkClass =
+		[className, isFileLink ? "markdown-link-file" : undefined]
+			.filter(Boolean)
+			.join(" ") || undefined;
+	return (
+		<a
+			{...anchorProps}
+			className={linkClass}
+			onClick={handleClick}
+			// 文件链接 hover 展示解码后的完整路径，便于确认目标文件；
+			// 普通链接不传 title，保留 markdown 自带 title 语法的原行为
+			title={isFileLink ? decodeURIComponent(props.href!.slice(7)) : title}
+		>
+			{isFileLink ? (
+				<>
+					<FileText size={12} className="markdown-link-file-icon" />
+					<span>{children}</span>
+				</>
+			) : (
+				children
+			)}
+		</a>
+	);
 }
 
 function extractText(node: ReactNode): string {
@@ -3787,6 +3817,7 @@ export function ConversationOutline(props: {
 	extraAction?: EntryAction;
 	terminalAction?: EntryAction;
 	filesAction?: EntryAction;
+	gitAction?: EntryAction;
 	editorsAction?: EntryAction & { anchorRef?: React.RefObject<HTMLButtonElement | null> };
 	browserAction?: EntryAction;
 }) {
@@ -3920,6 +3951,17 @@ export function ConversationOutline(props: {
 					{props.filesAction.icon}
 				</button>
 			)}
+			{props.gitAction && (
+				<button
+					type="button"
+					className={`git-entry${props.gitAction.active ? " active" : ""}`}
+					title={props.gitAction.label}
+					aria-label={props.gitAction.label}
+					onClick={props.gitAction.onClick}
+				>
+					{props.gitAction.icon}
+				</button>
+			)}
 			{props.editorsAction && (
 				<button
 					type="button"
@@ -3965,10 +4007,9 @@ export function DrawerContent(props: {
 	files: FileTreeNode[];
 	sessions: SessionSummary[];
 	sessionsLoading?: boolean;
-	/** Git 工作区中对比 HEAD 有变更的文件列表 */
-	gitChangedFiles: { path: string; status: string }[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
+	onCollapseAllDirectories: () => void;
 	pinned: boolean;
 	onTogglePin: () => void;
 	onCollapse: () => void;
@@ -3982,7 +4023,6 @@ export function DrawerContent(props: {
 	onCopySession: (session: SessionSummary) => void | Promise<void>;
 	onExportSession: (session: SessionSummary) => void | Promise<void>;
 	onDeleteSession: (session: SessionSummary) => void | Promise<void>;
-	onDiffFile?: DiffFileHandler;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
 }) {
@@ -4018,18 +4058,12 @@ export function DrawerContent(props: {
 			{props.panel === "files" && (
 				<FilesPanel
 					files={props.files}
-					// 将 Git 变更文件列表转换为 SessionModifiedFile 格式传入 FilesPanel 展示
-					modifiedFiles={props.gitChangedFiles.map((f) => ({
-						path: f.path,
-						toolName: "git",
-						status: f.status,
-					}))}
 					expandedDirs={props.expandedDirs}
 					onToggleDirectory={props.onToggleDirectory}
+					onCollapseAll={props.onCollapseAllDirectories}
 					onFileContextMenu={props.onFileContextMenu}
 					onRefreshFiles={props.onRefreshFiles}
 					onOpenFolder={props.onOpenFolder}
-					onDiffFile={props.onDiffFile}
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
 				/>
@@ -4049,51 +4083,18 @@ export function DrawerContent(props: {
 	);
 }
 
-const MODIFIED_FILES_PREVIEW_LIMIT = 5;
-const MODIFIED_FILES_EXPANDED_STORAGE_KEY = "pid:modified-files-expanded";
-
 function FilesPanel(props: {
 	files: FileTreeNode[];
-	/** Git 工作区中对比 HEAD 有变更的文件；会话卡片的修改摘要不使用该数据源。 */
-	modifiedFiles: SessionModifiedFile[];
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onRefreshFiles: () => void;
+	/** 收起文件树中所有已展开的目录，清空 expandedDirs。 */
+	onCollapseAll?: () => void;
 	onOpenFolder?: () => void;
-	onDiffFile?: DiffFileHandler;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
 }) {
-	const [modifiedFilesExpanded, setModifiedFilesExpanded] = useState(() => {
-		if (typeof window === "undefined") return false;
-		return localStorage.getItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY) === "true";
-	});
-	const handleToggleModifiedFiles = useCallback(() => {
-		setModifiedFilesExpanded((current) => {
-			const next = !current;
-			localStorage.setItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY, String(next));
-			return next;
-		});
-	}, []);
-	// 后端按修改时间升序传入；抽屉顶部优先展示最新文件，避免文件多时用户看不到刚改的内容。
-	const latestModifiedFiles = [...props.modifiedFiles].reverse();
-	const visibleModifiedFiles = modifiedFilesExpanded
-		? latestModifiedFiles
-		: latestModifiedFiles.slice(0, MODIFIED_FILES_PREVIEW_LIMIT);
-	const hiddenModifiedFileCount = Math.max(
-		0,
-		latestModifiedFiles.length - visibleModifiedFiles.length,
-	);
-
-	const gitStatusMap = useMemo(() => {
-		const map = new Map<string, string>();
-		for (const f of props.modifiedFiles) {
-			if (f.toolName === "git" && f.status) map.set(f.path, f.status);
-		}
-		return map;
-	}, [props.modifiedFiles]);
-
 	return (
 		<div className="files-panel">
 			<div className="panel-action-row">
@@ -4105,73 +4106,28 @@ function FilesPanel(props: {
 							{t("drawer.openFolder")}
 						</button>
 					)}
-					<button onClick={props.onRefreshFiles}>{t("common.refresh")}</button>
-				</div>
-			</div>
-			{props.modifiedFiles.length > 0 && (
-				<div className="modified-files-section">
-					<div className="modified-files-header">
-						<span>{t("drawer.gitChangedFiles")}</span>
-						<small>{t("drawer.gitChangedFilesDesc")}</small>
-					</div>
-					{visibleModifiedFiles.map((file) => {
-						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
-						const isRunning = file.status === "running";
-						// 构造最小的 FileTreeNode 以复用右键菜单,保持修改清单和文件树相同的打开/定位入口。
-						const fakeNode: FileTreeNode = {
-							name: fileName,
-							path: file.path,
-							relativePath: file.path,
-							type: "file",
-						};
-						return (
-							<div
-								key={file.path}
-								className={`modified-file-row${isRunning ? " running" : ""}`}
-								title={file.path}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									props.onFileContextMenu(fakeNode, e.clientX, e.clientY);
-								}}
-								onClick={() => props.onDiffFile?.(file.path, file.originalContent, file.content)}
-							>
-								<span
-									className={`modified-file-icon${isRunning ? "" : " done"}`}
-								>
-									{file.toolName === "git"
-										? gitStatusIcon(file.status)
-										: isRunning
-											? "◌"
-											: "✓"}
-								</span>
-								<span className="modified-file-name">{fileName}</span>
-								{file.toolName === "git" && file.status !== "deleted" && (
-									<span className="modified-file-lines">{file.status === "added" ? "新" : "改"}</span>
-								)}
-								{file.toolName !== "git" && Boolean(file.changedLines) && (
-									<span className="modified-file-lines">
-										{t("drawer.changedLines", {
-											count: file.changedLines ?? 0,
-										})}
-									</span>
-								)}
-								<span className="modified-file-tool">{file.toolName}</span>
-							</div>
-						);
-					})}
-					{latestModifiedFiles.length > MODIFIED_FILES_PREVIEW_LIMIT && (
+					{/* 刷新与全部收起使用纯图标按钮，保持工具栏紧凑、与列表项字号对齐 */}
+					<button
+						className="icon-only"
+						onClick={props.onRefreshFiles}
+						title={t("common.refresh")}
+						aria-label={t("common.refresh")}
+					>
+						<RefreshCw size={14} />
+					</button>
+					{props.onCollapseAll && (
 						<button
-							className="modified-files-toggle"
-							type="button"
-							onClick={handleToggleModifiedFiles}
+							className="icon-only"
+							onClick={props.onCollapseAll}
+							title={t("drawer.collapseAllDirs")}
+							aria-label={t("drawer.collapseAllDirs")}
+							disabled={props.expandedDirs.size === 0}
 						>
-							{modifiedFilesExpanded
-								? t("common.collapse")
-								: t("drawer.moreFiles", { count: hiddenModifiedFileCount })}
+							<ChevronsDownUp size={14} />
 						</button>
 					)}
 				</div>
-			)}
+			</div>
 			{props.files.map((node) => (
 				<FileNode
 					key={node.path}
@@ -4181,8 +4137,6 @@ function FilesPanel(props: {
 					onFileContextMenu={props.onFileContextMenu}
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
-					onDiffFile={props.onDiffFile}
-					gitStatuses={gitStatusMap}
 				/>
 			))}
 		</div>
@@ -4348,14 +4302,11 @@ function FileNode(props: {
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
-	onDiffFile?: (path: string) => void;
-	gitStatuses?: Map<string, string>;
 	depth?: number;
 }) {
-	const { node, expandedDirs, onToggleDirectory, depth = 0, gitStatuses } = props;
+	const { node, expandedDirs, onToggleDirectory, depth = 0 } = props;
 	const expanded = expandedDirs.has(node.path);
 	const typeLabel = node.type === "file" ? getFileTypeLabel(node.name) : "";
-	const gitStatus = gitStatuses?.get(node.path);
 	const rowStyle = { "--file-depth-offset": `${depth * 16}px` } as CSSProperties;
 	const menu = (event: React.MouseEvent) => {
 		event.preventDefault();
@@ -4370,9 +4321,6 @@ function FileNode(props: {
 					onContextMenu={menu}>
 					<span className="file-node-icon">
 						{fileIconElement(node.name, false, false)}
-						{gitStatus && (
-							<span aria-hidden="true" className={`file-node-git-badge git-${gitStatus}`} />
-						)}
 					</span>
 					<span className="file-node-name">{node.name}</span>
 					<span className="file-node-type-label">{typeLabel}</span>
@@ -4399,27 +4347,12 @@ function FileNode(props: {
 							onFileContextMenu={props.onFileContextMenu}
 							onOpenFile={props.onOpenFile}
 							onViewFile={props.onViewFile}
-							onDiffFile={props.onDiffFile}
-							gitStatuses={gitStatuses}
 							depth={depth + 1} />
 					))}
 				</div>
 			)}
 		</div>
 	);
-}
-
-function gitStatusIcon(status: string): string {
-	switch (status) {
-		case "added":
-			return "+";
-		case "deleted":
-			return "×";
-		case "renamed":
-			return "→";
-		default:
-			return "~";
-	}
 }
 
 function SessionsPanel(props: {
@@ -4463,20 +4396,21 @@ function SessionsPanel(props: {
 		successText: string,
 	) {
 		setSessionActionLoading({ filePath: session.filePath, action: actionType });
-		toast(
+		showNotice(
 			actionType === "copy"
 				? t("drawer.sessionActionCopying")
 				: actionType === "export"
 					? t("drawer.sessionActionExporting")
 					: t("drawer.sessionActionDeleting"),
+			3500,
 		);
 		try {
 			await action();
-			toast(successText, { duration: 1600 });
+			showNotice(successText, 1600);
 		} catch (error) {
-			toast(
+			showNotice(
 				error instanceof Error ? error.message : t("drawer.sessionActionFailed"),
-				{ duration: 2400 },
+				2400,
 			);
 		} finally {
 			setSessionActionLoading(null);
@@ -4868,6 +4802,8 @@ export function PromptSuggestions(props: {
 	const listRef = useRef<HTMLDivElement>(null);
 	// 头部标题类型由选中项推导:光标相关触发后,第一个候选的 value 前缀即代表当前是命令还是文件。
 	const isCommand = props.items[0]?.value.startsWith("/") ?? false;
+	const isSession = props.items[0]?.value.startsWith("&") ?? false;
+	const headerLabel = isCommand ? t("prompt.commands") : isSession ? t("prompt.sessions") : t("prompt.files");
 
 	// 滚动到选中项
 	useEffect(() => {
@@ -4890,7 +4826,7 @@ export function PromptSuggestions(props: {
 			onMouseDown={(e) => e.preventDefault()}
 		>
 			<div className="command-palette-header">
-				<span>{isCommand ? t("prompt.commands") : t("prompt.files")}</span>
+				<span>{headerLabel}</span>
 				<IconButton
 					className="command-palette-close"
 					label={t("common.close")}
@@ -5176,6 +5112,36 @@ export function SessionManagerModal(props: {
 	);
 }
 
+/**
+ * 右键菜单定位：渲染后按真实尺寸修正位置。
+ * 当菜单超出视口底部/右侧时向上/向左翻转，仍放不下则夹紧到视口内，
+ * 保证整块菜单始终可见、不被屏幕裁切（不使用滚动）。
+ */
+function useMenuPosition(initial: { x: number; y: number }) {
+	const [pos, setPos] = useState(initial);
+	const ref = useRef<HTMLDivElement>(null);
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		const rect = el.getBoundingClientRect();
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		let { x, y } = initial;
+		// 下方空间不足时翻转到光标上方，仍放不下则夹紧到视口内
+		if (y + rect.height > vh) {
+			const flipped = y - rect.height;
+			y = flipped >= 8 ? flipped : Math.max(8, vh - rect.height - 8);
+		}
+		// 右侧空间不足时翻转到光标左侧，仍放不下则夹紧到视口内
+		if (x + rect.width > vw) {
+			const flipped = x - rect.width;
+			x = flipped >= 8 ? flipped : Math.max(8, vw - rect.width - 8);
+		}
+		if (x !== pos.x || y !== pos.y) setPos({ x, y });
+	}, [initial.x, initial.y]);
+	return { pos, ref };
+}
+
 export function ProjectContextMenu(props: {
 	menu: { x: number; y: number; project: Project };
 	onClose: () => void;
@@ -5188,14 +5154,17 @@ export function ProjectContextMenu(props: {
 	onManageSessions: () => void;
 	onFilterSessions: () => void;
 	onToggleWorktree: () => void;
+	onRefreshProject: () => void;
 	onRemoveProject: () => void;
 }) {
 	const isWorktreeEnabled = props.menu.project.worktreeEnabled ?? false;
+	const { pos, ref } = useMenuPosition(props.menu);
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
 				className="context-menu"
-				style={{ left: props.menu.x, top: props.menu.y }}
+				style={{ left: pos.x, top: pos.y }}
+				ref={ref}
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button onClick={props.onRevealProject}>{t("menu.revealProject")}</button>
@@ -5219,6 +5188,8 @@ export function ProjectContextMenu(props: {
 					{isWorktreeEnabled ? t("menu.disableWorktree") : t("menu.enableWorktree")}
 				</button>
 				<hr className="context-separator" />
+				<button onClick={props.onRefreshProject}>{t("app.projectRefresh")}</button>
+				<hr className="context-separator" />
 				<button onClick={props.onRemoveProject}>{t("menu.removeProject")}</button>
 			</div>
 		</div>
@@ -5238,11 +5209,13 @@ export function AgentContextMenu(props: {
 	onOpenSessionFile?: () => void;
 	onCloseAgent: () => void;
 }) {
+	const { pos, ref } = useMenuPosition(props.menu);
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
 				className="context-menu"
-				style={{ left: props.menu.x, top: props.menu.y }}
+				style={{ left: pos.x, top: pos.y }}
+				ref={ref}
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>
@@ -5284,11 +5257,13 @@ export function SessionContextMenu(props: {
 	onShowLogs?: () => void;
 	onDeleteSession: () => void;
 }) {
+	const { pos, ref } = useMenuPosition(props.menu);
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
 			<div
 				className="context-menu"
-				style={{ left: props.menu.x, top: props.menu.y }}
+				style={{ left: pos.x, top: pos.y }}
+				ref={ref}
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>

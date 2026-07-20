@@ -9,7 +9,9 @@ const CHAT_PROJECT_NAME = "Chat";
 
 export class ProjectStore {
   private readonly filePath = join(app.getPath("userData"), "projects.json");
-  private readonly chatProjectPath = join(app.getPath("userData"), "chat-workspace");
+  private readonly chatPathFile = join(app.getPath("userData"), "chat-path.json");
+  // 聊天工作区目录：默认在 userData 下，用户可在侧栏聊天项目设置中改为任意目录并持久化。
+  private chatProjectPath = join(app.getPath("userData"), "chat-workspace");
   private projects: Project[] = [];
 
   async load() {
@@ -19,6 +21,8 @@ export class ProjectStore {
     } catch {
       this.projects = [];
     }
+    // 先读取用户自定义的聊天目录（若存在），再据此修正内置聊天项目路径。
+    await this.loadChatProjectPath();
     const chatChanged = this.ensureChatProject();
     const orderChanged = this.ensureSortOrder();
     const changed = chatChanged || orderChanged;
@@ -38,6 +42,39 @@ export class ProjectStore {
 
   get(id: string) {
     return this.projects.find(project => project.id === id);
+  }
+
+  getChatProjectPath() {
+    return this.chatProjectPath;
+  }
+
+  /**
+   * 设置内置聊天项目的会话目录并持久化。
+   * 更新内存中的聊天项目路径、写入 chat-path.json，并确保目标目录存在。
+   * 返回更新后的聊天项目（便于主进程向渲染端广播 projects:changed）。
+   */
+  async setChatProjectPath(path: string) {
+    const normalized = this.normalizeProjectPath(path);
+    this.chatProjectPath = normalized;
+    await writeFile(this.chatPathFile, JSON.stringify({ path: normalized }), "utf8");
+    const chat = this.projects.find(
+      (project) => this.isChatProject(project) || project.id === CHAT_PROJECT_ID,
+    );
+    if (chat) chat.path = normalized;
+    await mkdir(normalized, { recursive: true });
+    await this.save();
+    return chat ?? null;
+  }
+
+  /** 读取用户自定义的聊天目录；不存在或解析失败时回退到默认 chat-workspace。 */
+  private async loadChatProjectPath() {
+    try {
+      const raw = await readFile(this.chatPathFile, "utf8");
+      const parsed = JSON.parse(raw) as { path?: string };
+      if (parsed.path) this.chatProjectPath = this.normalizeProjectPath(parsed.path);
+    } catch {
+      // 无自定义路径时保持默认 userData/chat-workspace
+    }
   }
 
   async chooseAndAdd() {

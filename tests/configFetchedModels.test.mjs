@@ -5,7 +5,7 @@ import ts from "typescript";
 import vm from "node:vm";
 
 function loadModelsTabModule() {
-	const source = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
+	const source = readFileSync("src/renderer/src/config/modelsUtils.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,

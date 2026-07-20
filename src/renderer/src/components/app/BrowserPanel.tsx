@@ -51,14 +51,15 @@ function genTabId(): string {
 }
 
 /**
- * 浏览器状态要跨“抽屉模式/弹框模式”保留。
+ * 浏览器状态要跨"抽屉模式/弹框模式"保留。
  * 这里用模块级状态保存轻量 tab 元数据，避免切换容器时丢 URL/标题/设备模式。
  * 真正的 WebContents 仍随组件挂载重建，避免同时运行两个 webview 实例。
  */
-const moduleState: { tabs: TabEntry[]; activeTabId: string | null; device: DeviceType } = {
+const moduleState: { tabs: TabEntry[]; activeTabId: string | null; device: DeviceType; navigateKey: number } = {
 	tabs: [],
 	activeTabId: null,
 	device: "pc",
+	navigateKey: 0,
 };
 
 function ensureInitialTab() {
@@ -74,6 +75,30 @@ function getInitialActiveTab(): TabEntry {
 		moduleState.tabs.find((tab) => tab.id === moduleState.activeTabId) ??
 		moduleState.tabs[0]
 	);
+}
+
+/**
+ * 供外部（App.tsx）调用：在浏览器侧栏/弹框中导航到指定 URL。
+ * 如果没有标签页则创建一个，然后切换到该标签页并加载 URL。
+ */
+/**
+ * 供外部（App.tsx）调用：在浏览器侧栏/弹框中导航到指定 URL。
+ * 如果没有标签页则创建一个，然后切换到该标签页并加载 URL。
+ * 通过递增 navigateKey 触发 BrowserPanel 的 useEffect 执行导航。
+ */
+export function navigateTo(url: string) {
+	ensureInitialTab();
+	if (moduleState.activeTabId) {
+		const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
+		if (activeTab) {
+			activeTab.url = url;
+		}
+	} else {
+		const id = genTabId();
+		moduleState.tabs.push({ id, title: "PiDeck", url });
+		moduleState.activeTabId = id;
+	}
+	moduleState.navigateKey += 1;
 }
 
 type WebviewEvent<T extends string> = T extends "did-navigate"
@@ -166,6 +191,23 @@ export function BrowserPanel(props: {
 		}
 		applyDeviceUserAgent(wv, moduleState.device);
 
+		let navigatedOnce = false;
+		const onDomReady = () => {
+			webviewReadyRef.current = true;
+			// 仅首次 dom-ready 时消费外部导航（navigateTo 调用），
+			// 避免后续每次页面加载都触发 loadURL 导致无限刷新。
+			if (!navigatedOnce && moduleState.navigateKey > 0) {
+				navigatedOnce = true;
+				moduleState.navigateKey = 0;
+				const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
+				if (activeTab) {
+					applyDeviceUserAgent(wv, moduleState.device);
+					wv.loadURL(activeTab.url);
+				}
+			}
+		};
+		wv.addEventListener("dom-ready", onDomReady);
+
 		const onDidNavigate = (event: Event) => {
 			const nextUrl = (event as unknown as WebviewEvent<"did-navigate">).url;
 			setUrl(nextUrl);
@@ -213,6 +255,7 @@ export function BrowserPanel(props: {
 		wv.addEventListener("new-window", onNewWindow);
 
 		return () => {
+			wv.removeEventListener("dom-ready", onDomReady);
 			wv.removeEventListener("did-navigate", onDidNavigate);
 			wv.removeEventListener("did-navigate-in-page", onDidNavigateInPage);
 			wv.removeEventListener("did-start-loading", onDidStartLoading);
@@ -220,6 +263,7 @@ export function BrowserPanel(props: {
 			wv.removeEventListener("load-progress", onProgress);
 			wv.removeEventListener("page-title-updated", onPageTitleUpdated);
 			wv.removeEventListener("new-window", onNewWindow);
+			webviewReadyRef.current = false;
 		};
 	}, [applyDeviceUserAgent, updateActiveTab, url]);
 
@@ -252,6 +296,14 @@ export function BrowserPanel(props: {
 		persistTabs([...moduleState.tabs, newTab], id);
 		loadUrl(DEFAULT_HOME);
 	}, [loadUrl, persistTabs]);
+
+	// webview 是否已触发 dom-ready，用于延迟外部导航直到 webview 就绪。
+	const webviewReadyRef = useRef(false);
+	const [navigateKey, setNavigateKey] = useState(0);
+	useEffect(() => {
+		if (moduleState.navigateKey === 0) return;
+		setNavigateKey(moduleState.navigateKey);
+	}, [navigateKey]);
 
 	const closeTab = useCallback(
 		(tabId: string, event: React.MouseEvent) => {
@@ -402,7 +454,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={webviewRef} className="browser-webview" src={initialTab.url} allowpopups />
+				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups />
 			</div>
 		</div>
 	);

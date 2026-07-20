@@ -483,6 +483,26 @@ export class SessionScanner {
     return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   }
 
+  async readMessages(filePath: string): Promise<Array<{ role: string; content: string; timestamp: number }>> {
+    const raw = await readFile(filePath, "utf8");
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const messages: Array<{ role: string; content: string; timestamp: number }> = [];
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        if (entry.type && entry.type !== "message") continue;
+        if (entry.sessionName && !entry.message) continue;
+        const message = (entry.message ?? (entry.data as Record<string, unknown> | undefined)?.message ?? entry) as Record<string, unknown> | undefined;
+        if (!message?.role) continue;
+        const content = this.extractText(message.content).trim();
+        if (!content) continue;
+        if (message.role !== "user" && message.role !== "assistant") continue;
+        messages.push({ role: String(message.role), content, timestamp: Number(entry.ts ?? entry.timestamp ?? Date.now()) });
+      } catch { console.warn(`[SessionScanner] 跳过无法解析的 JSONL 行: ${filePath}`); }
+    }
+    return messages;
+  }
+
   private safePathToken(path: string) {
     const normalized = path.replace(/\\/g, "/");
     const win = normalized.match(/^([A-Za-z]):\/(.+)$/);

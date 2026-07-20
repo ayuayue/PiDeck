@@ -28,7 +28,7 @@ export type RichInputChip = {
 	start: number;
 	end: number;
 	raw: string;
-	kind: "file" | "skill";
+	kind: "file" | "skill" | "session";
 	label: string;
 };
 
@@ -53,6 +53,7 @@ export type RichInputProps = {
 	validCommandNames?: Set<string>;
 	/** 有效文件路径集合，白名单：不在集合内的 @ 引用不渲染 chip */
 	validFilePaths?: Set<string>;
+	validSessionRefs?: Set<string>;
 };
 
 type TextNodeRun = {
@@ -100,6 +101,7 @@ export function parseRichInputChips(
 	text: string,
 	validCommandNames?: Set<string>,
 	validFilePaths?: Set<string>,
+	validSessionRefs?: Set<string>,
 ): RichInputChip[] {
 	const chips: RichInputChip[] = [];
 	const urlSpans = findUrlSpans(text);
@@ -139,6 +141,32 @@ export function parseRichInputChips(
 			chips.push({ start, end, raw: m[1], kind: "file", label: label || seg });
 		}
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
+	}
+
+	// &session：捕获 & 后到换行/末尾的全部文本，再从白名单中按前缀匹配出会话名。
+	// 白名单优先（取最长匹配），无白名单时取第一个空格前的单词。会话名可包含 &
+	const ampRe = /(?<![:/.#!~?=&])(&[^\n]+)/gu;
+	while ((m = ampRe.exec(text)) !== null) {
+		const start = m.index;
+		const captured = m[1].slice(1);
+		let name = "";
+		if (validSessionRefs && validSessionRefs.size > 0) {
+			for (const ref of validSessionRefs) {
+				if (captured === ref || captured.startsWith(ref + " ")) {
+					if (ref.length > name.length) name = ref;
+				}
+			}
+		}
+		if (!name) {
+			name = captured.split(/\s/)[0] ?? "";
+		}
+		if (!name) { if (m.index === ampRe.lastIndex) ampRe.lastIndex++; continue; }
+		const raw = `&${name}`;
+		const end = start + raw.length;
+		if (!overlapsUrl(start, end, urlSpans)) {
+			chips.push({ start, end, raw, kind: "session", label: name });
+		}
+		if (m.index === ampRe.lastIndex) ampRe.lastIndex++;
 	}
 
 	// 去重叠：保留先出现的，剔除被包含的
@@ -354,11 +382,17 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			onPaste, onDrop, onDragOver, onFocus, onBlur,
 			disabled, placeholder, className, caretRef,
 			onChipClick, validCommandNames, validFilePaths,
+			validSessionRefs,
 		} = props;
 
 		const rootRef = useRef<HTMLDivElement | null>(null);
 		const composingRef = useRef(false);
 		const pendingCaretRef = useRef<number | null>(null);
+		// contentEditable 会先原生修改 DOM，再异步收到上层受控 value。
+		// 记录最新原生结果，避免按键连发时较旧的 value 回传把 DOM 回滚并重建。
+		const nativeInputValueRef = useRef<string | null>(null);
+		const nativeInputCaretRef = useRef<number | null>(null);
+		const caretRestoreFrameRef = useRef<number | null>(null);
 
 		// 合并外部 ref 与内部 rootRef
 		const setRef = useCallback(
@@ -370,7 +404,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			[ref],
 		);
 
-		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths), [value, validCommandNames, validFilePaths]);
+		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs), [value, validCommandNames, validFilePaths, validSessionRefs]);
 
 		/** 全量渲染 DOM：清空 root，按 value + chips 重建文本节点 + chip span。 */
 		const renderDom = useCallback(() => {
@@ -381,7 +415,9 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			const restoreCaret =
 				caretRef?.current ?? pendingCaretRef.current ?? getCaretOffset(root);
 
-			// 重建 DOM
+			// 重建已接管 DOM，同步清除尚未确认的原生输入快照。
+			nativeInputValueRef.current = null;
+			nativeInputCaretRef.current = null;
 			root.textContent = "";
 			let cursor = 0;
 			for (const chip of chips) {
@@ -397,11 +433,11 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 				const icon = document.createElement("span");
 				icon.className = "input-chip__icon";
-				icon.textContent = chip.kind === "file" ? "@" : "/";
+				icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "&" : "/";
 				const label = document.createElement("span");
 				label.className = "input-chip__label";
 				label.textContent = chip.label;
-				span.appendChild(icon);
+				if (icon.textContent) span.appendChild(icon);
 				span.appendChild(label);
 				root.appendChild(span);
 				cursor = chip.end;
@@ -415,8 +451,12 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			if (caretRef) caretRef.current = null;
 			pendingCaretRef.current = null;
 
-			// 下一帧恢复光标
-			requestAnimationFrame(() => {
+			// 下一帧恢复光标；新渲染会取消旧 Agent/旧 value 排队的恢复，避免切换后光标跳动。
+			if (caretRestoreFrameRef.current !== null) {
+				cancelAnimationFrame(caretRestoreFrameRef.current);
+			}
+			caretRestoreFrameRef.current = requestAnimationFrame(() => {
+				caretRestoreFrameRef.current = null;
 				const el = rootRef.current;
 				if (!el) return;
 				const runs = collectTextRuns(el);
@@ -434,7 +474,16 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			const root = rootRef.current;
 			if (!root) return;
 
-			const caret = getCaretOffset(root);
+			const nativeInputValue = nativeInputValueRef.current;
+			if (nativeInputValue !== null && value !== nativeInputValue) {
+				// React 可能正在依次提交长按按键产生的旧 value；DOM 已经更新得更快。
+				// 等待最新原生值被上层确认，期间绝不回滚 contentEditable。
+				return;
+			}
+
+			const caret = nativeInputValue === value
+				? (nativeInputCaretRef.current ?? getCaretOffset(root))
+				: getCaretOffset(root);
 
 			// 光标是否在某个 token 内部（含末尾，允许继续输入）
 			const insideActiveToken = chips.some(
@@ -457,20 +506,41 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 			// chip 区间一致但纯文本不同（如发送后清空），仍须重渲染
 			const textSame = collectFlatText(root) === value;
-			if (!rangesSame || !textSame) renderDom();
+			if (!rangesSame || !textSame) {
+				renderDom();
+				return;
+			}
+
+			// 上层已经确认最新原生输入；保留浏览器 DOM 与选区，不做无意义重建。
+			if (nativeInputValue === value) {
+				nativeInputValueRef.current = null;
+				nativeInputCaretRef.current = null;
+			}
 			// renderDom 变化时 chips/value 也变，无遗漏依赖
 			// eslint-disable-next-line react-hooks/exhaustive-deps
 		}, [value, chips]);
 
 		// 挂载时首次渲染
-		useLayoutEffect(() => { renderDom(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+		useLayoutEffect(() => {
+			renderDom();
+			return () => {
+				if (caretRestoreFrameRef.current !== null) {
+					cancelAnimationFrame(caretRestoreFrameRef.current);
+					caretRestoreFrameRef.current = null;
+				}
+			};
+		}, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 		/** 用户输入后：从 DOM 读取纯文本 + 光标偏移，回写上层。 */
 		const handleInput = useCallback(() => {
 			if (composingRef.current) return;
 			const root = rootRef.current;
 			if (!root) return;
-			onChange(collectFlatText(root), getCaretOffset(root));
+			const nextValue = collectFlatText(root);
+			const nextCaret = getCaretOffset(root);
+			nativeInputValueRef.current = nextValue;
+			nativeInputCaretRef.current = nextCaret;
+			onChange(nextValue, nextCaret);
 		}, [onChange]);
 
 		/** 光标/选区变化：通知上层光标位置。 */
@@ -505,7 +575,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				const chip = target.closest?.(".input-chip") as HTMLElement | null;
 				if (!chip) return;
 				const raw = chip.getAttribute("data-raw");
-				const kind = chip.getAttribute("data-type") as "file" | "skill" | null;
+				const kind = chip.getAttribute("data-type") as RichInputChip["kind"] | null;
 				const label =
 					chip.querySelector(".input-chip__label")?.textContent ??
 					raw?.slice(1) ??

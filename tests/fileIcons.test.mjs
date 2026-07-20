@@ -50,15 +50,30 @@ describe("Seti file icon integration", () => {
     assert.match(source, /dangerouslySetInnerHTML=\{\{ __html: svg \}\}/);
     assert.match(source, /aria-hidden="true"/);
     assert.match(source, /file-node-type-label/);
-    assert.match(source, /file-node-git-badge/);
-    assert.match(source, /status: f\.status/);
+    assert.match(source, /file-node-seti-icon/);
+    assert.match(source, /function fileIconElement/);
   });
 
-  test("Git changed-file parser preserves paths and renamed status", () => {
+  test("Git panel and file tree share the same vendored Seti lookup and color mapping", () => {
+    const fileTree = readFileSync("src/renderer/src/components/app/AppParts.tsx", "utf8");
+    const gitPanel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
+    const sharedLookup = readFileSync("src/renderer/src/fileIcons.ts", "utf8");
+
+    assert.match(fileTree, /import \{ getFileIconSeti, getFileIconColor, getFileTypeLabel \} from "\.\.\/\.\.\/fileIcons"/);
+    assert.match(gitPanel, /import \{ getFileIconColor, getFileIconSeti \} from "\.\.\/\.\.\/fileIcons"/);
+    assert.match(fileTree, /getFileIconSeti\(name\)/);
+    assert.match(gitPanel, /getFileIconSeti\(name\)/);
+    assert.match(sharedLookup, /from "\.\/vendor\/seti-icons"/);
+    assert.match(sharedLookup, /SETI_COLOR_TO_CSS/);
+  });
+
+  test("Git status and history parsers preserve rename paths", () => {
     const source = readFileSync("src/main/git/GitService.ts", "utf8");
     assert.match(source, /"--name-status", "-z"/);
-    assert.match(source, /statusChar === "R" \? "renamed"/);
+    assert.match(source, /statusChar === "R" \|\| statusChar === "C" \? "renamed"/);
     assert.match(source, /const currentPath = isRenameOrCopy \? fields\[index\+\+\]/);
+    assert.match(source, /porcelain -z 的 rename\/copy 顺序是“当前路径\\0原路径\\0”/);
+    assert.match(source, /includeOldPath && oldPath/);
   });
 
   test("stylesheet sizes and colors Seti SVG icons", () => {

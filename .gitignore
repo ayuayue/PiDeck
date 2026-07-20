@@ -45,6 +45,10 @@ downloads/
 
 .pi-lens
 .pi/
+.pi-subagents/
+
+# Local collaboration notes are machine/user-specific and must never be committed or proposed for a PR.
+docs/PiDeck-协作说明.md
 
 # Cloned source for reference
 opencode-source/

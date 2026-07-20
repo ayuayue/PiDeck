@@ -8,7 +8,7 @@ import {
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { toast } from "sonner";
+import { showNotice } from "../../utils/notice";
 import { ChevronDown, ChevronUp, MoreHorizontal, Plus, X } from "lucide-react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { TerminalTab } from "../../../../shared/types";
@@ -317,7 +317,7 @@ export function TerminalDock(props: {
 		event.preventDefault();
 		event.stopPropagation();
 		await navigator.clipboard.writeText(selection);
-		toast(t("terminal.copied"), { duration: 1200 });
+		showNotice(t("terminal.copied"), 1200);
 		xtermRef.current?.focus();
 	}
 

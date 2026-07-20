@@ -126,6 +126,7 @@ let previewSettings: AppSettings = {
 	lightBackground: "white",
 	language: "system",
 	piEnvironmentChecked: true,
+	enableGitManagement: true,
 	closeToTray: true,
 	enableNotifications: true,
 	// showThinking 由 pi agent 的 hideThinkingBlock 控制，运行时从主进程加载
@@ -226,6 +227,8 @@ export function createPreviewApi(): PiDesktopApi {
 			listRoot: async () => projects,
 			listWorktreeChildren: async () => [],
 			toggleWorktreeEnabled: async () => projects[0],
+			chooseChatPath: async () => null,
+			setChatPath: async () => projects[0],
 		},
 		projectResources: {
 			list: async () => ({ skills: [], extensions: [] }),
@@ -290,6 +293,11 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			exportHtml: async () => ({ path: "preview-session.html" }),
 			delete: async () => undefined,
+			// 预览模式下返回固定 mock 数据，真实环境由主进程从 JSONL 文件读取
+			readMessages: async () => [
+				{ role: "user", content: "Preview user message", timestamp: Date.now() - 60000 },
+				{ role: "assistant", content: "Preview assistant response", timestamp: Date.now() - 30000 },
+			],
 		},
 		codexSessions: {
 			scan: async () => [],
@@ -315,13 +323,23 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			// 预览环境无真实 Git，返回空原始内容，差异左侧显示为空。
 			originalContent: async () => "",
-			changedFiles: async () => [],
 			worktreeList: async () => [],
 			worktreeCreate: async (_projectId, branchName) => ({
 				path: `/tmp/worktree/${branchName}`,
 				branch: branchName,
 			}),
 			worktreeRemove: async () => true,
+				commitLog: async () => [],
+				refs: async () => [],
+				branchCompare: async () => ({ files: [], ahead: 0, behind: 0 }),
+				commitDetail: async () => null,
+				commitFileDiff: async () => null,
+				diffFileBetween: async () => "",
+				status: async () => ({ merge: [], index: [], workingTree: [], untracked: [] }),
+				workspaceFileDiff: async () => null,
+				stage: async () => {},
+				unstage: async () => {},
+				commit: async () => {},
 		},
 		logs: {
 			list: async () => [],
@@ -376,6 +394,7 @@ export function createPreviewApi(): PiDesktopApi {
 				version: "preview",
 				releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
 			}),
+			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			checkUpdate: async () => ({
 				currentVersion: "preview",
 				latestVersion: "preview",
@@ -391,6 +410,7 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			installUpdate: async () => undefined,
 			onUpdateProgress: () => () => undefined,
+			onOpenInBrowser: () => () => undefined,
 			feedbackEnvironment: async () => ({
 				appVersion: "preview",
 				platform: "win32",
@@ -632,7 +652,7 @@ export function createPreviewApi(): PiDesktopApi {
 				return agent;
 			},
 			stop: async () => undefined,
-			prompt: async () => undefined,
+			prompt: async () => ({ accepted: true }),
 			abort: async () => undefined,
 			exportHtml: async () => ({ path: "preview.html" }),
 			getForkMessages: async () => [
