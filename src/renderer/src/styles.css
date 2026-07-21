@@ -7517,6 +7517,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 .file-node-row {
   --file-depth-offset: 0px;
   width: 100%;
+  height: 22px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: var(--space-2);
@@ -7524,13 +7525,15 @@ body.is-composer-resizing .composer-resize-handle::after {
   border: 0;
   background: transparent;
   color: var(--color-text-primary);
-  padding: 7px var(--space-2) 7px
+  padding: 0 var(--space-2) 0
     calc(var(--space-2) + var(--file-depth-offset));
   border-radius: var(--radius-sm);
   text-align: left;
-  font-size: var(--font-size-control);
-  font-weight: 500;
-  line-height: var(--line-height-control);
+  /* VS Code 风格：14px body 字号 + 400 字重 + 22px fixed 行高；
+     height=line-height 精确对齐，flex/grid center 居中，ClearType 最锐利 */
+  font-size: var(--font-size-body);
+  font-weight: 400;
+  line-height: 22px;
   white-space: nowrap;
 }
 .file-node-row:hover {
@@ -7546,10 +7549,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .file-node-row.file {
   cursor: default;
-  color: var(--color-text-secondary);
 }
 .file-node-row.directory {
-  color: var(--color-text-secondary);
   font-weight: 600;
   cursor: default;
 }
