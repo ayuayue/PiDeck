@@ -59,6 +59,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	ChevronsUpDown,
+	ChevronUp,
 	MoveDown,
 	MoveUp,
 	ChevronsDownUp,
@@ -90,6 +91,7 @@ import {
 	UserPen,
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
+import { normalizeSessionPathForCompare } from "../../agentListDisplay";
 import { t, type TranslationKey } from "../../i18n";
 import { showNotice } from "../../utils/notice";
 import { Button } from "../ui/Button";
@@ -2679,6 +2681,15 @@ export const TurnRow = memo(function TurnRow(props: {
 							{executionExpanded && (
 								<div className="execution-summary-details">
 									{executionItemsWithFinalThinking.map(renderExecutionItem)}
+									<button
+										type="button"
+										className="execution-summary-collapse"
+										onClick={() => setExecutionExpanded(false)}
+										title={t("common.collapse")}
+									>
+										<ChevronUp size={12} aria-hidden="true" />
+										<span>{t("common.collapse")}</span>
+									</button>
 								</div>
 							)}
 						</div>
@@ -2718,6 +2729,15 @@ export const TurnRow = memo(function TurnRow(props: {
 						{executionExpanded && (
 							<div className="execution-summary-details">
 								{executionItemsWithFinalThinking.map(renderExecutionItem)}
+								<button
+									type="button"
+									className="execution-summary-collapse"
+									onClick={() => setExecutionExpanded(false)}
+									title={t("common.collapse")}
+								>
+									<ChevronUp size={12} aria-hidden="true" />
+									<span>{t("common.collapse")}</span>
+								</button>
 							</div>
 						)}
 					</div>
@@ -4458,14 +4478,15 @@ function SessionsPanel(props: {
 		}
 	}
 
-	// 计算子会话到父会话的分组映射
+	// 计算子会话到父会话的分组映射；路径可能跨 Windows/WSL 或经过 IPC，统一分隔符和大小写。
 	const parentToChildren = useMemo(() => {
 		const map = new Map<string, SessionSummary[]>();
 		for (const s of props.sessions) {
-			if (s.parentSessionPath) {
-				const list = map.get(s.parentSessionPath) ?? [];
+			const parentKey = normalizeSessionPathForCompare(s.parentSessionPath);
+			if (parentKey) {
+				const list = map.get(parentKey) ?? [];
 				list.push(s);
-				map.set(s.parentSessionPath, list);
+				map.set(parentKey, list);
 			}
 		}
 		return map;
@@ -4477,10 +4498,11 @@ function SessionsPanel(props: {
 	);
 	const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 	const toggleParent = useCallback((filePath: string) => {
+		const key = normalizeSessionPathForCompare(filePath) ?? filePath;
 		setExpandedParents(prev => {
 			const next = new Set(prev);
-			if (next.has(filePath)) next.delete(filePath);
-			else next.add(filePath);
+			if (next.has(key)) next.delete(key);
+			else next.add(key);
 			return next;
 		});
 	}, []);
@@ -4498,8 +4520,9 @@ function SessionsPanel(props: {
 				</div>
 			)}
 			{parentSessions.map((session) => {
-				const children = parentToChildren.get(session.filePath);
-				const isExpanded = expandedParents.has(session.filePath);
+				const children = parentToChildren.get(normalizeSessionPathForCompare(session.filePath) ?? "");
+				const normalizedPath = normalizeSessionPathForCompare(session.filePath) ?? session.filePath;
+				const isExpanded = expandedParents.has(normalizedPath);
 				return (
 				<div
 					key={session.filePath}
@@ -4662,7 +4685,9 @@ function SessionsPanel(props: {
 				</div>
 				);
 			})}
-			{deleteConfirmSession && (
+			{deleteConfirmSession && (() => {
+					const deleteChildren = parentToChildren.get(normalizeSessionPathForCompare(deleteConfirmSession.filePath) ?? "") ?? [];
+					return (
 				<div className="session-delete-confirm-backdrop" onClick={() => setDeleteConfirmSession(null)}>
 					<section
 						className="session-delete-confirm"
@@ -4670,9 +4695,14 @@ function SessionsPanel(props: {
 					>
 						<strong>{t("drawer.sessionDeleteTitle")}</strong>
 						<p>
-							{t("drawer.sessionDeleteBody", {
-								name: deleteConfirmSession.name || t("common.untitled"),
-							})}
+							{deleteChildren.length > 0
+								? t("drawer.sessionDeleteBodyWithChildren", {
+										name: deleteConfirmSession.name || t("common.untitled"),
+										count: deleteChildren.length,
+									})
+								: t("drawer.sessionDeleteBody", {
+										name: deleteConfirmSession.name || t("common.untitled"),
+									})}
 						</p>
 						<div className="session-delete-confirm-actions">
 							<button onClick={() => setDeleteConfirmSession(null)}>{t("common.cancel")}</button>
@@ -4694,7 +4724,8 @@ function SessionsPanel(props: {
 						</div>
 					</section>
 				</div>
-			)}
+			); })()
+		}
 		</div>
 	);
 }

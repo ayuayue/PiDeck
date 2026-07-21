@@ -154,6 +154,36 @@ let appLogger: AppLogger;
 let rpcLogger: RpcLogger;
 let feishuBridge: FeishuBridge | null = null;
 
+/**
+ * 解析 pi --list-models 表格输出为 AvailableModel[]。
+ * 表格格式：provider  model  context  max-out  thinking  images
+ */
+function parsePiListModels(stdout: string): Array<{ provider: string; id: string; name?: string; thinking: boolean; supportsImages: boolean }> {
+	const lines = stdout.split(/\r?\n/).filter(Boolean);
+	if (lines.length < 2) return [];
+	// 跳过表头
+	const dataLines = lines.slice(1);
+	const models: Array<{ provider: string; id: string; name?: string; thinking: boolean; supportsImages: boolean }> = [];
+	for (const line of dataLines) {
+		// 列1: provider, 列2: model, 列6: thinking (yes/no), 列7: images (yes/no)
+		const parts = line.trim().split(/\s+/);
+		if (parts.length < 3) continue;
+		const provider = parts[0];
+		const modelId = parts[1];
+		// thinking 和 images 在倒数第二列和最后一列
+		const thinking = parts[parts.length - 2]?.toLowerCase() === "yes";
+		const images = parts[parts.length - 1]?.toLowerCase() === "yes";
+		models.push({
+			provider,
+			id: modelId,
+			name: `${provider}/${modelId}`,
+			thinking,
+			supportsImages: images,
+		});
+	}
+	return models;
+}
+
 function applyNativeThemeSource(settings: AppSettings) {
 	// 原生标题栏不受 renderer CSS 影响；跟随应用主题，避免暗色界面顶部仍是系统浅色栏。
 	nativeTheme.themeSource = settings.theme === "system" ? "system" : settings.theme;
@@ -1498,6 +1528,20 @@ function registerIpc() {
 		},
 	);
 	ipcMain.handle(
+		ipcChannels.sessionsReadMeta,
+		async (_event, filePath: string) => {
+			return sessionScanner.readSessionMeta(filePath);
+		},
+	);
+	ipcMain.handle(
+		ipcChannels.sessionsReadChatMessages,
+		async (_event, filePath: string) => {
+			// SessionScanner 统一处理本地/WSL 文件读取；消息转换与压缩归档完全复用 AgentManager。
+			const content = await sessionScanner.readSessionRawText(filePath);
+			return agentManager.readSessionDisplayMessages(filePath, "_viewer", content);
+		},
+	);
+	ipcMain.handle(
 		ipcChannels.codexSessionsScan,
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
@@ -1725,6 +1769,15 @@ function registerIpc() {
 	);
 
 	ipcMain.handle(
+		ipcChannels.gitDiscard,
+		async (_event, projectId: string, group: "workingTree" | "untracked", filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.discardFile(project.path, group, filePath);
+		},
+	);
+
+	ipcMain.handle(
 		ipcChannels.gitCommit,
 		async (_event, projectId: string, message: string) => {
 			const project = projectStore.get(projectId);
@@ -1743,6 +1796,57 @@ function registerIpc() {
 			error: status.error,
 		});
 		return status;
+	});
+	// 从 pi --list-models 获取可用模型列表（无需启动 agent）
+	// 全局缓存：首次运行后复用，避免每次打开选择器都 fork 子进程
+	let cachedListModels: ReturnType<typeof parsePiListModels> | null = null;
+	let cachedListModelsPending: Promise<ReturnType<typeof parsePiListModels>> | null = null;
+	ipcMain.handle(ipcChannels.projectsListModels, async (_event, projectId?: string) => {
+		try {
+			if (cachedListModels) return cachedListModels;
+			// 已有在途请求时复用同一个 Promise，避免并发 fork 多个 pi 进程
+			if (cachedListModelsPending) return cachedListModelsPending;
+
+			cachedListModelsPending = (async () => {
+				const settings = settingsStore.get();
+				const command = piLocator.resolveCommand(
+					settings.customPiPath,
+					settings.wslEnabled,
+					settings.wslDistro,
+					settings.wslUser,
+				);
+				const invocation = piLocator.createInvocation(command, ["--list-models"]);
+				const { execFile } = await import("node:child_process");
+				const result = await new Promise<{ stdout: string }>((resolve, reject) => {
+					execFile(invocation.command, invocation.args, {
+						env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+						shell: invocation.shell,
+						windowsHide: true,
+						timeout: 15_000,
+						encoding: "utf8",
+						windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+					}, (error, stdout, stderr) => {
+						if (error) {
+							const message = (stderr || error.message).slice(0, 300);
+							reject(new Error(message));
+						} else {
+							resolve({ stdout });
+						}
+					});
+				});
+				const models = parsePiListModels(result.stdout);
+				cachedListModels = models;
+				return models;
+			})();
+			const models = await cachedListModelsPending;
+			return models;
+		} catch (error) {
+			cachedListModelsPending = null;
+			void appLogger.warn("pi", "Failed to list models", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return [];
+		}
 	});
 	// 智能查找 wsl.exe：优先绝对路径（含 32-bit Sysnative 绕过），全部不存在时回退到 PATH
 	const wslExeResolved = (() => {
