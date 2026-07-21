@@ -6931,6 +6931,16 @@ body.is-composer-resizing .composer-resize-handle::after {
   font-size: var(--font-size-caption);
   grid-row: 3;
   min-width: 0;
+  /* 防止 footer 的透明区域拦截 textarea 的点击事件 */
+  pointer-events: none;
+}
+/* footer 内的交互元素需要恢复点击能力 */
+.composer-footer .footer-actions,
+.composer-footer button,
+.composer-footer .send-behavior-menu-wrap,
+.composer-footer .send-behavior-toggle,
+.composer-footer .composer-mode-status {
+  pointer-events: auto;
 }
 .composer-footer .footer-actions {
   display: flex;
@@ -6977,12 +6987,6 @@ body.is-composer-resizing .composer-resize-handle::after {
   box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
 }
 /* 圆形操作按钮（发送/停止） */
-.composer-footer .footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
 .composer-footer .btn-circle {
   width: 36px;
   height: 36px;

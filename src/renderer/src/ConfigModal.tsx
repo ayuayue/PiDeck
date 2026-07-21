@@ -448,13 +448,14 @@ function ConfigModalContent(props: ConfigModalProps) {
 
 	/**
 	 * 模型配置保存后，通知所有运行中的 Agent 尝试刷新模型配置。
-	 * 
+	 *
 	 * 当前仅尝试 reload_config RPC（策略 1），pi 0.80.10 尚未支持此命令，
 	 * 因此实际为 no-op。进程重启方案（策略 2）已注释，原因：
 	 *   - 运行中重启会打断用户对话/工具执行
 	 *   - 涉及 exit 事件竞态、模型恢复等复杂边界
-	 * 
+	 *
 	 * pi 合并 https://github.com/earendil-works/pi/issues/6890 后自动生效。
+	 */
 	const refreshRunningAgents = async () => {
 		try {
 			const agents = await api.agents.list();
