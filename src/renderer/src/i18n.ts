@@ -1393,6 +1393,8 @@ const zhCN = {
   "settings.proxyTest": "代理检测",
   "settings.proxyTestButton": "检测代理",
   "settings.proxyUrl": "代理地址",
+  "settings.proxyUnsaved": "代理设置有未保存的更改",
+  "settings.proxyApplyHint": "修改后点击「保存」按钮才会生效",
   "settings.restartApp": "重启 PiDeck",
   "settings.restartAppButton": "重启",
   "settings.restartAppDesc":
@@ -2926,6 +2928,8 @@ const enUS: Record<TranslationKey, string> = {
   "settings.proxyTest": "Proxy test",
   "settings.proxyTestButton": "Test proxy",
   "settings.proxyUrl": "Proxy URL",
+  "settings.proxyUnsaved": "Unsaved proxy changes",
+  "settings.proxyApplyHint": "Click Save for changes to take effect",
   "settings.restartApp": "Restart PiDeck",
   "settings.restartAppButton": "Restart",
   "settings.restartAppDesc":

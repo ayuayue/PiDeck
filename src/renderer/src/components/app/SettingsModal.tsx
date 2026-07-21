@@ -1,5 +1,5 @@
 // @ts-nocheck - extracted from AppParts, pre-existing type issues
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import {
 	Settings2,
 	Network,
@@ -24,6 +24,13 @@ const ZOOM_FACTOR_MAX = 1.5;
 const ZOOM_FACTOR_STEP = 0.05;
 
 type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "storage";
+
+/** 代理设置草稿：未保存前不生效，用户点击保存后才提交。 */
+type ProxyDraft = Pick<
+	AppSettings,
+	"piProxyEnabled" | "piProxyUrl" | "piProxyBypass" |
+	"desktopProxyEnabled" | "desktopProxyUrl" | "desktopProxyBypass"
+>;
 
 function SettingsSection(props: {
 	title: string;
@@ -97,6 +104,60 @@ export function SettingsModal(props: {
 	onChange: (patch: Partial<AppSettings>) => void;
 }) {
 	const [activeTab, setActiveTab] = useState<SettingsTabId>("base");
+	// ── 代理设置草稿状态 ──
+	const [proxyDraft, setProxyDraft] = useState<ProxyDraft | null>(null);
+	// 进入代理设置页时初始化草稿，离开时丢弃草稿（未保存的更改不生效）
+	useEffect(() => {
+		if (activeTab === "proxy") {
+			setProxyDraft({
+				piProxyEnabled: props.settings.piProxyEnabled,
+				piProxyUrl: props.settings.piProxyUrl,
+				piProxyBypass: props.settings.piProxyBypass,
+				desktopProxyEnabled: props.settings.desktopProxyEnabled,
+				desktopProxyUrl: props.settings.desktopProxyUrl,
+				desktopProxyBypass: props.settings.desktopProxyBypass,
+			});
+		} else {
+			setProxyDraft(null);
+		}
+	}, [activeTab]);
+	// 检测代理草稿是否与已保存的设置不同
+	const proxyDirty = useMemo(() => {
+		if (!proxyDraft) return false;
+		return (
+			proxyDraft.piProxyEnabled !== props.settings.piProxyEnabled ||
+			proxyDraft.piProxyUrl !== props.settings.piProxyUrl ||
+			proxyDraft.piProxyBypass !== props.settings.piProxyBypass ||
+			proxyDraft.desktopProxyEnabled !== props.settings.desktopProxyEnabled ||
+			proxyDraft.desktopProxyUrl !== props.settings.desktopProxyUrl ||
+			proxyDraft.desktopProxyBypass !== props.settings.desktopProxyBypass
+		);
+	}, [proxyDraft, props.settings]);
+	// 应用代理设置：仅将变更的字段提交给父组件保存
+	const applyProxyChanges = () => {
+		if (!proxyDraft) return;
+		const patch: Partial<AppSettings> = {};
+		if (proxyDraft.piProxyEnabled !== props.settings.piProxyEnabled) patch.piProxyEnabled = proxyDraft.piProxyEnabled;
+		if (proxyDraft.piProxyUrl !== props.settings.piProxyUrl) patch.piProxyUrl = proxyDraft.piProxyUrl;
+		if (proxyDraft.piProxyBypass !== props.settings.piProxyBypass) patch.piProxyBypass = proxyDraft.piProxyBypass;
+		if (proxyDraft.desktopProxyEnabled !== props.settings.desktopProxyEnabled) patch.desktopProxyEnabled = proxyDraft.desktopProxyEnabled;
+		if (proxyDraft.desktopProxyUrl !== props.settings.desktopProxyUrl) patch.desktopProxyUrl = proxyDraft.desktopProxyUrl;
+		if (proxyDraft.desktopProxyBypass !== props.settings.desktopProxyBypass) patch.desktopProxyBypass = proxyDraft.desktopProxyBypass;
+		props.onChange(patch);
+		setProxyDraft({ ...proxyDraft });
+	};
+	// 取消代理设置：恢复为已保存的值
+	const cancelProxyChanges = () => {
+		setProxyDraft({
+			piProxyEnabled: props.settings.piProxyEnabled,
+			piProxyUrl: props.settings.piProxyUrl,
+			piProxyBypass: props.settings.piProxyBypass,
+			desktopProxyEnabled: props.settings.desktopProxyEnabled,
+			desktopProxyUrl: props.settings.desktopProxyUrl,
+			desktopProxyBypass: props.settings.desktopProxyBypass,
+		});
+	};
+
 	const [perAreaFontSize, setPerAreaFontSize] = useState(
 		props.settings.uiFontSize !== null ||
 			props.settings.chatFontSize !== null ||
@@ -641,6 +702,14 @@ export function SettingsModal(props: {
 						)}
 						{activeTab === "proxy" && (
 							<>
+								{/* 未保存更改的提示横幅 */}
+								{proxyDirty && (
+									<div className="setting-proxy-unsaved-bar">
+										<span className="setting-proxy-unsaved-dot" />
+										<span>{t("settings.proxyUnsaved")}</span>
+										<small>{t("settings.proxyApplyHint")}</small>
+									</div>
+								)}
 								<SettingsSection
 									title={t("settings.piProxy")}
 									description={t("settings.piProxyDesc")}
@@ -648,30 +717,30 @@ export function SettingsModal(props: {
 									<SettingSwitch
 										title={t("settings.enablePiProxy")}
 										description={t("settings.settingTakesEffectAfterRestart")}
-										checked={props.settings.piProxyEnabled}
+										checked={proxyDraft?.piProxyEnabled ?? props.settings.piProxyEnabled}
 										onChange={(checked) =>
-											props.onChange({ piProxyEnabled: checked })
+											setProxyDraft((prev) => prev ? { ...prev, piProxyEnabled: checked } : null)
 										}
 									/>
-									{props.settings.piProxyEnabled && (
+									{(proxyDraft?.piProxyEnabled ?? props.settings.piProxyEnabled) && (
 										<div className="setting-proxy-panel">
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyUrl")}
-												value={props.settings.piProxyUrl}
+												value={proxyDraft?.piProxyUrl ?? props.settings.piProxyUrl}
 												placeholder="http://127.0.0.1:7890"
 												onChange={(value) =>
-													props.onChange({ piProxyUrl: value })
+													setProxyDraft((prev) => prev ? { ...prev, piProxyUrl: value } : null)
 												}
 											/>
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyBypass")}
-												value={props.settings.piProxyBypass}
+												value={proxyDraft?.piProxyBypass ?? props.settings.piProxyBypass}
 												placeholder="localhost,127.0.0.1,::1"
 												description={t("settings.noProxyHint")}
 												onChange={(value) =>
-													props.onChange({ piProxyBypass: value })
+													setProxyDraft((prev) => prev ? { ...prev, piProxyBypass: value } : null)
 												}
 											/>
 											<div className="setting-row">
@@ -703,35 +772,48 @@ export function SettingsModal(props: {
 									<SettingSwitch
 										title={t("settings.enableDesktopProxy")}
 										description={t("settings.desktopProxyDesc")}
-										checked={props.settings.desktopProxyEnabled}
+										checked={proxyDraft?.desktopProxyEnabled ?? props.settings.desktopProxyEnabled}
 										onChange={(checked) =>
-											props.onChange({ desktopProxyEnabled: checked })
+											setProxyDraft((prev) => prev ? { ...prev, desktopProxyEnabled: checked } : null)
 										}
 									/>
-									{props.settings.desktopProxyEnabled && (
+									{(proxyDraft?.desktopProxyEnabled ?? props.settings.desktopProxyEnabled) && (
 										<div className="setting-proxy-panel">
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyUrl")}
-												value={props.settings.desktopProxyUrl}
+												value={proxyDraft?.desktopProxyUrl ?? props.settings.desktopProxyUrl}
 												placeholder="http://127.0.0.1:7890"
 												onChange={(value) =>
-													props.onChange({ desktopProxyUrl: value })
+													setProxyDraft((prev) => prev ? { ...prev, desktopProxyUrl: value } : null)
 												}
 											/>
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyBypass")}
-												value={props.settings.desktopProxyBypass}
+												value={proxyDraft?.desktopProxyBypass ?? props.settings.desktopProxyBypass}
 												placeholder="localhost,127.0.0.1,::1"
 												description={t("settings.electronProxyHint")}
 												onChange={(value) =>
-													props.onChange({ desktopProxyBypass: value })
+													setProxyDraft((prev) => prev ? { ...prev, desktopProxyBypass: value } : null)
 												}
 											/>
 										</div>
 									)}
 								</SettingsSection>
+								{/* 保存/取消操作栏：点击保存后才将草稿中的代理设置提交生效 */}
+								<div className="setting-proxy-actions">
+									<Button onClick={applyProxyChanges} disabled={!proxyDirty} variant="primary">
+										{t("common.save")}
+									</Button>
+									<Button
+										onClick={cancelProxyChanges}
+										disabled={!proxyDirty}
+										variant="secondary"
+									>
+										{t("common.cancel")}
+									</Button>
+								</div>
 							</>
 						)}
 						{activeTab === "web" && (

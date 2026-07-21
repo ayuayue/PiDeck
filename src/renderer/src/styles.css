@@ -10444,6 +10444,46 @@ body.is-composer-resizing .composer-resize-handle::after {
   margin: 2px 0 6px;
 }
 
+/* 代理设置未保存提示栏 */
+.setting-proxy-unsaved-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg, #fef9c3);
+  border: 1px solid var(--color-warning-border, #fde047);
+  color: var(--color-warning-text, #854d0e);
+  font-size: var(--font-size-control);
+}
+.setting-proxy-unsaved-bar small {
+  margin-left: auto;
+  opacity: 0.8;
+  font-size: var(--font-size-caption);
+}
+:root[data-theme="dark"] .setting-proxy-unsaved-bar {
+  background: var(--color-warning-bg, #422006);
+  border-color: var(--color-warning-border, #854d0e);
+}
+/* 未保存圆点指示器 */
+.setting-proxy-unsaved-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-warning, #eab308);
+  flex-shrink: 0;
+}
+/* 代理保存/取消操作栏 */
+.setting-proxy-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
 /* 设置行卡片（环境检测/版本/存储等） */
 .setting-row {
   display: grid;
