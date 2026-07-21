@@ -4552,8 +4552,6 @@ export function App() {
     // 不论之前是否滚动回看，发新消息都强制自动滚到底，确保能看到 agent 的回答。
     setAutoScroll(true);
     autoScrollRef.current = true;
-    const scrollTimeline = timelineRef.current;
-    if (scrollTimeline) scrollTimeline.scrollTo({ top: scrollTimeline.scrollHeight, behavior: "instant" });
     setPrompt("");
     setAttachedImages([]);
     setBusyDraftByAgent((current) => {
@@ -4624,21 +4622,14 @@ export function App() {
       }
       return;
     }
-    // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
-    const scrollOnNewMessage = () => {
-      const timeline = timelineRef.current;
-      if (!timeline) return;
-      const list = timeline.querySelector(".message-list");
-      if (!list) return;
-      const observer = new MutationObserver(() => {
-        if (!autoScrollRef.current) return;
-        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
-      });
-      observer.observe(list, { childList: true, subtree: false });
-      // 8 秒后自动断开，避免累积
-      setTimeout(() => observer.disconnect(), 8000);
-    };
-    requestAnimationFrame(scrollOnNewMessage);
+    // 此时用户消息已经渲染到 DOM（状态在 await 前已提交），直接滚到底部确保用户看不到消息开头。
+    // 后续流式渲染靠 ResizeObserver（已有 useEffect）自动追踪容器高度变化持续滚动。
+    requestAnimationFrame(() => {
+      const el = timelineRef.current;
+      if (el && autoScrollRef.current) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+      }
+    });
   }
 
   async function sendPromptAsFollowUp() {
