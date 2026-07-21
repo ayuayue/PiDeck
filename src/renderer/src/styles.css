@@ -10890,6 +10890,24 @@ body.is-composer-resizing .composer-resize-handle::after {
   font-size: var(--font-size-control);
 }
 
+/* ── 技能商店二级 tab 栏 ──────────────────────────── */
+.skills-store-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  overflow: hidden;
+}
+.skills-store-source-bar {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.skills-store-source-bar .prompts-tab-btn {
+  font-size: var(--font-size-caption);
+  padding: 4px 12px;
+}
+
 /* ── SkillHub 商店模态框 ─────────────────────────────── */
 .skillhub-modal {
   width: min(900px, calc(100vw - 48px));

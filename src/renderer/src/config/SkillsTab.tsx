@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, FileEdit, Pencil, ShoppingBag, ToggleLeft, ToggleRight, Trash2, X, Store } from "lucide-react";
+import { Check, FileEdit, Pencil, ShoppingBag, ToggleLeft, ToggleRight, Trash2, X, Store, Globe } from "lucide-react";
 import type {
 	CreatePiSkillInput,
 	PiSkillListResult,
@@ -29,7 +29,10 @@ export function SkillsTab(props: {
 	onRename: (skill: PiSkillSummary, newName: string) => Promise<void>;
 }) {
 	const { data } = props;
-	const [skillTab, setSkillTab] = useState<"local" | "store" | "skillhub">("local");
+	// 一级 tab：本地 / 商店
+	const [skillTab, setSkillTab] = useState<"local" | "store">("local");
+	// 二级 tab（商店内）：选择供应商
+	const [storeSource, setStoreSource] = useState<"promptchat" | "skillhub">("skillhub");
 	const [locationPickerOpen, setLocationPickerOpen] = useState(false);
 	const canCreate = props.newName.trim() && props.newDescription.trim();
 	// 按选中的位置目录过滤 skill 列表
@@ -39,7 +42,7 @@ export function SkillsTab(props: {
 		data.locations[0];
 	return (
 		<div className="skills-tab">
-			{/* tab 切换栏 */}
+			{/* 一级 tab：本地 / 商店 */}
 			<div className="prompts-tab-bar">
 				<button
 					className={`prompts-tab-btn ${skillTab === "local" ? "active" : ""}`}
@@ -54,22 +57,36 @@ export function SkillsTab(props: {
 					<ShoppingBag size={14} strokeWidth={1.8} />
 					{t("config.promptStoreTab")}
 				</button>
-				<button
-					className={`prompts-tab-btn ${skillTab === "skillhub" ? "active" : ""}`}
-					onClick={() => setSkillTab("skillhub")}
-				>
-					<Store size={14} strokeWidth={1.8} />
-					{t("config.tabs.skillHub")}
-				</button>
 			</div>
 
 			{skillTab === "store" ? (
-				<SkillStoreTab
-					onImported={props.onRefresh}
-					locationId={props.newLocationId}
-				/>
-			) : skillTab === "skillhub" ? (
-				<SkillHubStorePanel />
+				<div className="skills-store-content">
+					{/* 二级 tab：供应商切换 */}
+					<div className="prompts-tab-bar skills-store-source-bar">
+						<button
+							className={`prompts-tab-btn ${storeSource === "skillhub" ? "active" : ""}`}
+							onClick={() => setStoreSource("skillhub")}
+						>
+							<Store size={14} strokeWidth={1.8} />
+							{t("config.tabs.skillHub")}
+						</button>
+						<button
+							className={`prompts-tab-btn ${storeSource === "promptchat" ? "active" : ""}`}
+							onClick={() => setStoreSource("promptchat")}
+						>
+							<Globe size={14} strokeWidth={1.8} />
+							Prompt.chat
+						</button>
+					</div>
+					{storeSource === "skillhub" ? (
+						<SkillHubStorePanel />
+					) : (
+						<SkillStoreTab
+							onImported={props.onRefresh}
+							locationId={props.newLocationId}
+						/>
+					)}
+				</div>
 			) : (
 				<>
 					<div className="config-toolbar">
