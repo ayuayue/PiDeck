@@ -2483,6 +2483,21 @@ export function App() {
     }
   }, [commandHistory]);
 
+  // 切换 Agent 时重置滚动状态，确保回到该 Agent 时自动滚到底部
+  useEffect(() => {
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    // 延迟一帧滚动：等 React 完成渲染、DOM 更新后再滚到底部
+    const frame = requestAnimationFrame(() => {
+      const timeline = timelineRef.current;
+      if (timeline) {
+        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeAgentId]);
+
   // 监听用户滚动,判断是否需要显示"移动到最新"按钮
   useEffect(() => {
     const timeline = timelineRef.current;
