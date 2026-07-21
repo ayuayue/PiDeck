@@ -3016,7 +3016,7 @@ app.whenReady().then(async () => {
 			.then((raw: string) => JSON.parse(raw).disabledExtensions ?? [])
 			.catch(() => [] as string[]);
 		const disabledBuiltIn = new Set<string>(disabledExtList);
-		for (const extensionName of ["pi-deck-ask-question.ts", "pi-deck-plan-mode.ts", "pi-deck-todo.ts"]) {
+		for (const extensionName of ["pi-deck-ask-question.ts", "pi-deck-nul-redirect-fix.ts", "pi-deck-plan-mode.ts", "pi-deck-todo.ts"]) {
 			if (disabledBuiltIn.has(extensionName)) continue;
 			await ensurePiDeckExtension(extensionName, homeDir).catch((error) => {
 				console.error(`Failed to install ${extensionName}:`, error);
