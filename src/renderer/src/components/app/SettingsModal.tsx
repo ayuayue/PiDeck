@@ -980,25 +980,28 @@ export function SettingsModal(props: {
 													)}
 												</div>
 											)}
-											{/* 应用/取消按钮：仅草稿已变更时可用 */}
-											<div className="setting-wsl-actions">
-												<Button
-													buttonSize="sm"
-													disabled={!wslCanApply}
-													onClick={handleApplyWsl}
-												>
-													{t("common.apply")}
-												</Button>
-												<Button
-													buttonSize="sm"
-													variant="secondary"
-													disabled={!wslCanApply}
-													onClick={handleCancelWsl}
-												>
-													{t("common.cancel")}
-												</Button>
-											</div>
 										</>
+									)}
+									{/* 应用/取消按钮：草稿变更时始终显示（包括从 WSL 切回 Windows 的场景，此时 wslDraft.enabled 已为 false，
+										但按钮仍需可见以让用户提交变更）。仅用 wslCanApply 控制可见性即可。 */}
+									{wslCanApply && (
+										<div className="setting-wsl-actions">
+											<Button
+												buttonSize="sm"
+												disabled={!wslCanApply}
+												onClick={handleApplyWsl}
+											>
+												{t("common.apply")}
+											</Button>
+											<Button
+												buttonSize="sm"
+												variant="secondary"
+												disabled={!wslCanApply}
+												onClick={handleCancelWsl}
+											>
+												{t("common.cancel")}
+											</Button>
+										</div>
 									)}
 								</div>
 								)}
