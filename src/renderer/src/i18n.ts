@@ -255,6 +255,8 @@ const zhCN = {
   "app.compactionEvent": "会话已压缩",
   "app.compactionCount": "已压缩 {count} 次",
   "app.compactionTooltip": "压缩了 {count} 次，仅显示压缩后的会话记录",
+  "app.compactionExpand": "点击展开压缩前记录",
+  "app.compactionCollapse": "点击收起",
   "app.projectChatInfo":
     "Chat 是固定置顶的内置对话区；会话写入应用用户目录，不需要先添加项目。",
   "app.projectCollapse": "折叠",
@@ -1736,6 +1738,8 @@ const enUS: Record<TranslationKey, string> = {
   "app.compactionEvent": "Session compacted",
   "app.compactionCount": "Compacted {count} times",
   "app.compactionTooltip": "Compacted {count} times — only post-compaction messages are shown",
+  "app.compactionExpand": "Click to view pre-compaction messages",
+  "app.compactionCollapse": "Click to collapse",
   "app.projectChatInfo":
     "Chat is a pinned built-in conversation area. Sessions are written to the app user data directory.",
   "app.projectCollapse": "Collapse",

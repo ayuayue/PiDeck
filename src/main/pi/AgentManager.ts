@@ -206,9 +206,9 @@ export class AgentManager {
 		// 因此下方会单独把它插到最前面，确保不被按 user 轮次切掉。
 		const trimmed = this.trimHistoryMessages(rawMessages);
 
-		// 解析会话文件里的压缩记录：拿到最后一次压缩摘要 + 压缩次数。
+		// 解析会话文件里的压缩记录：拿到所有压缩段摘要 + 归档消息。
 		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
-		// 这里从原始会话文件补回摘要与次数，保证桌面端能看到“已压缩”提示并与 pi 行为一致。
+		// 这里从原始会话文件补回：压缩摘要卡片 + 归档消息（支持展开查看压缩前内容）。
 		// 若 RPC 已经返回了压缩/分支摘要，则不再重复补，避免时间线出现两张摘要卡片。
 		let compactionSummaryRaw: unknown | null = null;
 		const rpcAlreadyHasSummary = rawMessages.some(
@@ -216,11 +216,12 @@ export class AgentManager {
 				|| (m as { role?: unknown })?.role === "branchSummary",
 		);
 		if (runtime.tab.sessionPath) {
-			const compaction = await this.parseSessionCompactions(runtime.tab.sessionPath).catch(() => null);
-			if (compaction && compaction.count > 0) {
+			const archiveData = await this.parseSessionArchives(runtime.tab.sessionPath, agentId).catch(() => null);
+			if (archiveData && archiveData.compactions.length > 0) {
 				// 仅当 RPC 未返回摘要时才从文件补回
 				if (!rpcAlreadyHasSummary) {
-					const last = compaction.entries[compaction.entries.length - 1];
+					const last = archiveData.compactions[archiveData.compactions.length - 1];
+					const archivedMessages = archiveData.archivedMessagesByCompactionId.get(last.id);
 					compactionSummaryRaw = {
 						role: "compactionSummary",
 						// convertAgentMessages 读取 typed.summary 作为摘要正文，而非 content 数组
@@ -229,14 +230,17 @@ export class AgentManager {
 						timestamp: last.timestamp ? Date.parse(last.timestamp) : Date.now(),
 						meta: {
 							compactionId: last.id || null,
-							compactionCount: compaction.count,
+							compactionCount: archiveData.compactions.length,
 							firstKeptEntryId: last.firstKeptEntryId,
+							tokensBefore: last.tokensBefore,
+							// 归档消息：展开时内联渲染压缩前的完整对话
+							archivedMessages: archivedMessages ?? [],
 						},
 					};
 				}
-				// 把压缩次数写回 tab，供前端（会话头/标签）展示“已压缩 N 次”。
-				if (runtime.tab.compactionCount !== compaction.count) {
-					runtime.tab.compactionCount = compaction.count;
+				// 把压缩次数写回 tab，供前端（会话头/标签）展示"已压缩 N 次"。
+				if (runtime.tab.compactionCount !== archiveData.compactions.length) {
+					runtime.tab.compactionCount = archiveData.compactions.length;
 					this.emitState();
 				}
 			}
@@ -367,44 +371,119 @@ export class AgentManager {
 	/**
 	 * 从原始会话文件解析压缩（compaction）记录。
 	 * pi 的 get_messages 对压缩后的会话只返回压缩后的消息，不携带压缩摘要，
-	 * 因此桌面端直接从 JSONL 里扫描 type:="compaction" 的条目，用于：
-	 *   1) 在时间线最前面补回“压缩摘要”卡片（与 pi 行为一致）；
-	 *   2) 统计压缩次数，供前端展示“已压缩 N 次”。
+	 * 因此桌面端直接从 JSONL 里扫描 type:="compaction" 和 type:="message" 条目，用于：
+	 *   1) 在时间线最前面补回"压缩摘要"卡片（与 pi 行为一致）；
+	 *   2) 统计压缩次数，供前端展示"已压缩 N 次";
+	 *   3) 提取每个压缩段归档的消息，支持在时间线中展开查看压缩前内容。
 	 */
-	private async parseSessionCompactions(sessionPath: string): Promise<{
-		count: number;
-		entries: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string }>;
+	private async parseSessionArchives(sessionPath: string, agentId: string): Promise<{
+		compactions: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string; tokensBefore?: number }>;
+		/** 每个压缩条目对应的归档消息（ChatMessage 格式），key 为压缩条目 id */
+		archivedMessagesByCompactionId: Map<string, ChatMessage[]>;
 	}> {
 		let content: string;
 		try {
 			content = await readFile(sessionPath, "utf8");
 		} catch (error) {
-			void this.appLogger?.warn("agent", "Failed to read session file for compaction parsing", {
+			void this.appLogger?.warn("agent", "Failed to read session file for archive parsing", {
 				sessionPath,
 				error: error instanceof Error ? error.message : String(error),
 			});
-			return { count: 0, entries: [] };
+			return { compactions: [], archivedMessagesByCompactionId: new Map() };
 		}
 
-		const entries: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string }> = [];
+		// 一次遍历收集所有 entry 和原始消息
+		const allEntries: Array<{ id: string; parentId: string | null; type: string; message?: unknown; summary?: string; firstKeptEntryId?: string; tokensBefore?: number; timestamp: string }> = [];
+		const rawMessagesByEntryId = new Map<string, unknown>();
+
 		for (const line of content.split("\n")) {
 			if (!line.trim()) continue;
 			try {
 				const entry = JSON.parse(line);
-				// 只识别 pi 写入的压缩条目；summary 可能为空字符串，但只要有 compaction 类型就计数。
-				if (entry?.type === "compaction") {
-					entries.push({
-						id: typeof entry.id === "string" ? entry.id : "",
-						summary: typeof entry.summary === "string" ? entry.summary : "",
-						timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
-						firstKeptEntryId: typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
-					});
+				if (!entry || typeof entry !== "object") continue;
+				allEntries.push({
+					id: typeof entry.id === "string" ? entry.id : "",
+					parentId: typeof entry.parentId === "string" ? entry.parentId : null,
+					type: typeof entry.type === "string" ? entry.type : "",
+					message: entry.message,
+					summary: typeof entry.summary === "string" ? entry.summary : undefined,
+					firstKeptEntryId: typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
+					tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : undefined,
+					timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
+				});
+				// 缓存消息型 entry 的原始 message 对象，供后续 convertAgentMessages 使用
+				if (entry.type === "message" && entry.message && typeof entry.message === "object" && entry.id) {
+					rawMessagesByEntryId.set(entry.id, entry.message);
 				}
 			} catch {
 				// 跳过单行解析失败
 			}
 		}
-		return { count: entries.length, entries };
+
+		// 建立 entryId → entry 索引（含 parentId 关系）
+		const entryById = new Map<string, typeof allEntries[number]>();
+		for (const entry of allEntries) {
+			if (entry.id) entryById.set(entry.id, entry);
+		}
+
+		// 提取压缩条目（按文件顺序，即时间顺序）
+		const compactionEntries = allEntries.filter((e) => e.type === "compaction");
+		const compactions = compactionEntries.map((c) => ({
+			id: c.id,
+			summary: c.summary ?? "",
+			timestamp: c.timestamp,
+			firstKeptEntryId: c.firstKeptEntryId,
+			tokensBefore: c.tokensBefore,
+		}));
+
+		// 为每个压缩条目收集其归档范围内的消息。
+		// 归档范围：从压缩条目的 parentId 沿 parentId 链向上，收集所有 type=message 的条目，
+		// 直到遇到该压缩条目的 firstKeptEntryId 或上一个压缩条目的 firstKeptEntryId（避免重复归组）。
+		const archivedMessagesByCompactionId = new Map<string, ChatMessage[]>();
+		const coveredEntryIds = new Set<string>();
+
+		// 按文件顺序处理（从旧到新），确保较早的压缩条目优先确定范围
+		for (const compEntry of compactionEntries) {
+			const rawMessages: unknown[] = [];
+			const seenIds = new Set<string>();
+
+			// 从压缩条目的 parentId 开始向上回溯
+			let currentId: string | null = compEntry.parentId;
+			while (currentId) {
+				if (seenIds.has(currentId)) break; // 防止循环
+				seenIds.add(currentId);
+
+				const entry = entryById.get(currentId);
+				if (!entry) break;
+
+				// 遇到 firstKept 或已被上一个压缩条目覆盖的条目时停止
+				if (currentId === compEntry.firstKeptEntryId) break;
+				if (coveredEntryIds.has(currentId)) break;
+
+				// 收集消息型 entry
+				if (entry.type === "message") {
+					const rawMsg = rawMessagesByEntryId.get(currentId);
+					if (rawMsg) {
+						rawMessages.push(rawMsg);
+						coveredEntryIds.add(currentId);
+					}
+				}
+
+				currentId = entry.parentId;
+			}
+
+			if (rawMessages.length > 0) {
+				// 反转消息顺序（回溯得到的是从新到旧，需反转为从旧到新）
+				rawMessages.reverse();
+				// 转换为 ChatMessage 格式
+				const chatMessages = this.convertAgentMessages(agentId, rawMessages);
+				if (chatMessages.length > 0) {
+					archivedMessagesByCompactionId.set(compEntry.id, chatMessages);
+				}
+			}
+		}
+
+		return { compactions, archivedMessagesByCompactionId };
 	}
 
 	private findRuntimeBySessionKey(sessionKey: string) {

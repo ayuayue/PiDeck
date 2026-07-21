@@ -2450,16 +2450,40 @@ body.is-terminal-resizing {
   flex: 0 0 auto;
   cursor: default;
 }
+/* ── 压缩卡片（可展开查看归档消息） ── */
 .compaction-card {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
+  flex-direction: column;
   margin: var(--space-px) 0;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg-panel));
   border: 1px solid color-mix(in srgb, var(--color-accent) 8%, transparent);
+  overflow: hidden;
+}
+
+.compaction-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
   user-select: none;
+  border-radius: inherit;
+}
+
+.compaction-card-header:hover {
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+
+.compaction-card-header:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .compaction-card-icon {
@@ -2473,6 +2497,14 @@ body.is-terminal-resizing {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
+}
+
+.compaction-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
 }
 
 .compaction-card-summary {
@@ -2489,7 +2521,7 @@ body.is-terminal-resizing {
   color: var(--color-text-tertiary);
   font-family: var(--font-family-monospace);
 }
-/* 压缩摘要卡片里的“已压缩 N 次”标记，和头部徽标保持一致语义 */
+
 .compaction-card-count {
   display: inline-flex;
   align-items: center;
@@ -2502,10 +2534,75 @@ body.is-terminal-resizing {
   border: 1px solid color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
+.compaction-card-hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-business);
+  opacity: 0.8;
+}
+
 .compaction-card-time {
   font-size: 11px;
   color: var(--color-text-tertiary);
   opacity: 0.7;
+}
+
+/* ── 压缩卡片归档区 ── */
+.compaction-card-archive {
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.compaction-card-archive-divider {
+  /* 视觉间隔由 border-top 承担 */
+}
+
+/* ── 归档消息列表 ── */
+.archived-message-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--space-1) var(--space-2);
+}
+
+.archived-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: 2px var(--space-1);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+  border-radius: 2px;
+}
+
+.archived-message:hover {
+  background: color-mix(in srgb, var(--color-accent) 4%, transparent);
+}
+
+.archived-message-role {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.archived-message-text {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.archived-message--user .archived-message-text {
+  color: var(--color-text-primary);
+}
+
+.archived-message--tool .archived-message-text {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-monospace);
+  font-size: 11px;
 }
 
 .chat-header-actions {

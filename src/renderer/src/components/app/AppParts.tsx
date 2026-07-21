@@ -1447,16 +1447,32 @@ export function EmptyState(props: { hasProject: boolean; onCreate: () => void })
 async function copyElementAsPng(element: HTMLElement) {
 	// 截图复制依赖浏览器 ClipboardItem PNG 支持；失败时由调用方提示/回退，不影响文本复制。
 	// 使用 toBlob 而非 toPng+fetch 避免 CSP 拒绝连接 data: URL。
-	const blob = await toBlob(element, {
-		cacheBust: true,
-		pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-		backgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || undefined,
-		filter: (node) =>
-			!(node instanceof HTMLElement) ||
-			(!node.classList.contains("turn-row-actions") &&
-				!node.classList.contains("user-turn-actions") &&
-				!node.classList.contains("copy-menu-popover")),
-	});
+	// 克隆节点 + 内边距 + 临时注入 body 的方式与分享为图片（handleMultiSelectCopy）保持一致，
+	// 避免直接截图导致图片紧贴内容边缘、缺少留白。
+	const clone = element.cloneNode(true) as HTMLElement;
+	clone.style.padding = "24px";
+	clone.style.background =
+		getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || "#fff";
+	// 将 clone 插入到原元素旁边，确保 CSS 样式正确继承（父层选择器、rem 等）
+	if (element.parentElement) {
+		element.parentElement.insertBefore(clone, element.nextSibling);
+	}
+	let blob: Blob | null = null;
+	try {
+		blob = await toBlob(clone, {
+			cacheBust: true,
+			pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+			backgroundColor:
+				getComputedStyle(document.documentElement).getPropertyValue("--color-bg-panel") || undefined,
+			filter: (node) =>
+				!(node instanceof HTMLElement) ||
+				(!node.classList.contains("turn-row-actions") &&
+					!node.classList.contains("user-turn-actions") &&
+					!node.classList.contains("copy-menu-popover")),
+		});
+	} finally {
+		clone.remove();
+	}
 	if (!blob) return;
 	await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
 }
@@ -1899,37 +1915,95 @@ function getDiagnosticTone(message: ChatMessage): "error" | "warning" | "success
 	return "info";
 }
 
-/** 压缩事件卡片：在时间线上标记会话被压缩过，展示摘要和节约的 token 数。 */
+/** 压缩事件卡片：在时间线上标记会话被压缩过，展示摘要和节约的 token 数。
+ * 支持展开查看压缩前的归档消息。 */
 export const CompactionCard = memo(function CompactionCard(props: {
 	message: ChatMessage;
 }) {
+	const [expanded, setExpanded] = useState(false);
 	const summary = props.message.text;
 	const tokensBefore = (props.message.meta as any)?.tokensBefore;
 	const compactionCount = (props.message.meta as any)?.compactionCount;
+	const archivedMessages = (props.message.meta as any)?.archivedMessages as ChatMessage[] | undefined;
 	const time = formatTime(props.message.timestamp);
+	const hasArchived = Array.isArray(archivedMessages) && archivedMessages.length > 0;
+
 	return (
 		<article
-			className="compaction-card"
+			className={`compaction-card${expanded ? " compaction-card--expanded" : ""}`}
 			data-message-id={props.message.id}
 		>
-			<span className="compaction-card-icon" aria-hidden="true">🔁</span>
-			<div className="compaction-card-body">
-				<span className="compaction-card-summary">{stripAnsi(summary)}</span>
-				{typeof compactionCount === "number" && compactionCount > 0 && (
-					<span className="compaction-card-count">
-						{t("app.compactionCount", { count: compactionCount })}
-					</span>
-				)}
-				{typeof tokensBefore === "number" && (
-					<span className="compaction-card-tokens">
-						~{Math.round(tokensBefore / 1000)}k tokens before
-					</span>
-				)}
-				<time className="compaction-card-time">{time}</time>
-			</div>
+			<button
+				type="button"
+				className="compaction-card-header"
+				onClick={() => hasArchived && setExpanded(!expanded)}
+				disabled={!hasArchived}
+				aria-expanded={expanded}
+			>
+				<span className="compaction-card-icon" aria-hidden="true">
+					{hasArchived ? (expanded ? "📂" : "📁") : "🔁"}
+				</span>
+				<div className="compaction-card-body">
+					<span className="compaction-card-summary">{stripAnsi(summary)}</span>
+					<div className="compaction-card-meta">
+						{typeof compactionCount === "number" && compactionCount > 0 && (
+							<span className="compaction-card-count">
+								{t("app.compactionCount", { count: compactionCount })}
+							</span>
+						)}
+						{typeof tokensBefore === "number" && (
+							<span className="compaction-card-tokens">
+								~{Math.round(tokensBefore / 1000)}k tokens before
+							</span>
+						)}
+						{hasArchived && (
+							<span className="compaction-card-hint">
+								{expanded ? t("app.compactionCollapse") : t("app.compactionExpand")}
+							</span>
+						)}
+					</div>
+					<time className="compaction-card-time">{time}</time>
+				</div>
+			</button>
+			{expanded && hasArchived && (
+				<div className="compaction-card-archive">
+					<div className="compaction-card-archive-divider" />
+					<ArchivedMessageList messages={archivedMessages} />
+				</div>
+			)}
 		</article>
 	);
 });
+
+/** 归档消息列表：压缩卡片展开时，以简略格式渲染压缩前的消息历史。 */
+function ArchivedMessageList({ messages }: { messages: ChatMessage[] }) {
+	return (
+		<div className="archived-message-list">
+			{messages.map((msg) => (
+				<ArchivedMessage key={msg.id} message={msg} />
+			))}
+		</div>
+	);
+}
+
+/** 单条归档消息：根据角色显示对应的图标和内容预览。
+ * 只展示纯文本内容，不渲染 Markdown / 代码高亮 / 工具详情，保持归档区视觉干净。 */
+function ArchivedMessage({ message }: { message: ChatMessage }) {
+	const text = stripAnsi(message.text).trim();
+	// 截断过长的消息以减少展开区体积
+	const preview = text.length > 300 ? text.slice(0, 300) + "…" : text;
+	const roleIcon =
+		message.role === "user" ? "👤" :
+		message.role === "assistant" ? "🤖" :
+		message.role === "tool" ? "🔧" : "💬";
+
+	return (
+		<div className={`archived-message archived-message--${message.role}`}>
+			<span className="archived-message-role">{roleIcon}</span>
+			<span className="archived-message-text">{preview || "(empty)"}</span>
+		</div>
+	);
+}
 
 /** 错误/RPC/系统诊断消息使用独立卡片，避免和普通 AI 正文混在一起难以扫读。 */
 export const DiagnosticMessageCard = memo(function DiagnosticMessageCard(props: {
