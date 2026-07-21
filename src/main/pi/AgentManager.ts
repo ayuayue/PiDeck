@@ -215,6 +215,12 @@ export class AgentManager {
 			(m) => (m as { role?: unknown })?.role === "compactionSummary"
 				|| (m as { role?: unknown })?.role === "branchSummary",
 		);
+		void this.appLogger?.info("agent", "Compaction check", {
+			agentId,
+			hasSessionPath: !!runtime.tab.sessionPath,
+			rpcAlreadyHasSummary,
+			rawMessageCount: rawMessages.length,
+		});
 		if (runtime.tab.sessionPath) {
 			const archiveData = await this.parseSessionArchives(runtime.tab.sessionPath, agentId).catch((err) => {
 			void this.appLogger?.warn("agent", "Failed to parse session archives", {
