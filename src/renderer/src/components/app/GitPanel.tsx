@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, GitBranch, Loader2, Plus, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { ConfirmDialog } from "./AppParts";
@@ -31,6 +31,10 @@ type GitPanelProps = {
   commit: (projectId: string, message: string) => Promise<void>;
   branches: string[];
   currentBranch: string | null;
+  /** 切换分支 */
+  onSwitchBranch?: (branch: string) => void;
+  /** 创建新分支 */
+  onCreateBranch?: (branchName: string) => void;
 };
 
 type PaneId = "changes" | "graph" | "compare";
@@ -739,8 +743,102 @@ export function GitPanel(props: GitPanelProps) {
     />
   );
 
+  /** 新建分支弹窗状态 */
+  const [branchOpen, setBranchOpen] = useState(false);
+  const [branchCreating, setBranchCreating] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const branchBarRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭分支下拉
+  useEffect(() => {
+    if (!branchOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (branchBarRef.current && !branchBarRef.current.contains(event.target as Node)) {
+        setBranchOpen(false);
+        setBranchCreating(false);
+        setNewBranchName("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [branchOpen]);
+
   return (
     <div ref={panelRef} className="git-panel" aria-label={t("git.sourceControl")}>
+      {/* 当前分支 + 切换下拉 */}
+      <div className="git-branch-bar" ref={branchBarRef}>
+        <button
+          className="git-branch-trigger"
+          onClick={() => setBranchOpen((v) => !v)}
+          title={props.currentBranch ? t("app.branchCurrent", { branch: props.currentBranch, count: props.branches.length }) : undefined}
+        >
+          <GitBranch size={14} />
+          <span className="git-branch-label">{props.currentBranch || t("app.branchNone")}</span>
+          {props.branches.length > 0 && <span className="git-branch-badge">{props.branches.length}</span>}
+          <ChevronDown size={12} className={`git-branch-chevron${branchOpen ? " open" : ""}`} />
+        </button>
+        {branchOpen && (
+          <div className="git-branch-dropdown">
+            {props.branches.map((branch) => (
+              <button
+                key={branch}
+                className={`git-branch-item${branch === props.currentBranch ? " active" : ""}`}
+                onClick={() => {
+                  if (branch !== props.currentBranch) props.onSwitchBranch?.(branch);
+                  setBranchOpen(false);
+                }}
+              >
+                {branch === props.currentBranch && <Check size={14} className="git-branch-check" />}
+                <span>{branch}</span>
+              </button>
+            ))}
+            <div className="git-branch-divider" />
+            {branchCreating ? (
+              <div className="git-branch-create-form">
+                <input
+                  type="text"
+                  placeholder={t("app.branchNewPlaceholder") ?? t("app.branchNewPlaceholder")}
+                  value={newBranchName}
+                  onChange={(e) => setNewBranchName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newBranchName.trim()) {
+                      props.onCreateBranch?.(newBranchName.trim());
+                      setBranchCreating(false);
+                      setNewBranchName("");
+                      setBranchOpen(false);
+                    }
+                    if (e.key === "Escape") {
+                      setBranchCreating(false);
+                      setNewBranchName("");
+                    }
+                  }}
+                  autoFocus
+                />
+                <button
+                  className="git-branch-create-confirm"
+                  disabled={!newBranchName.trim()}
+                  onClick={() => {
+                    props.onCreateBranch?.(newBranchName.trim());
+                    setBranchCreating(false);
+                    setNewBranchName("");
+                    setBranchOpen(false);
+                  }}
+                >
+                  <Check size={14} />
+                </button>
+              </div>
+            ) : (
+              <button
+                className="git-branch-item git-branch-create-btn"
+                onClick={() => setBranchCreating(true)}
+              >
+                <Plus size={14} />
+                <span>{t("app.branchCreate")}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
       <section
         id="git-pane-changes"
         className={`git-pane git-pane-changes${paneState.open.changes ? " open" : " collapsed"}`}

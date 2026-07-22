@@ -99,7 +99,6 @@ import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
   AgentContextMenu,
-  BranchSelector,
   ComposerToolbar,
   CompactionCard,
   ConversationOutline,
@@ -6522,16 +6521,6 @@ export function App() {
                 }
               />
               <div className="header-actions-right">
-                <div className="header-action-group branch-group">
-                  {!isLanWeb && (
-                    <BranchSelector
-                      gitInfo={gitInfo}
-                      switchingBranch={switchingBranch}
-                      onSwitch={switchBranch}
-                      onCreateBranch={createBranch}
-                    />
-                  )}
-                </div>
                 <div className="header-action-group session-group">
                   <div className="session-combo" ref={sessionComboRef}>
                     <button
@@ -7506,6 +7495,8 @@ export function App() {
                   commit={api.git.commit}
                   branches={gitInfo.branches}
                   currentBranch={gitInfo.current}
+                  onSwitchBranch={switchBranch}
+                  onCreateBranch={createBranch}
                 />
               </div>
               {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (

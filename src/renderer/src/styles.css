@@ -18778,6 +18778,148 @@ html[data-theme="dark"] .scratch-pad-md mark {
 /* ═══════════════════════════════════════════════════════════════
    Git panel — VS Code-style three-pane Source Control workbench
    ═══════════════════════════════════════════════════════════════ */
+/* ── Git 面板顶部分支栏 ───────────────────── */
+.git-branch-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-muted);
+  flex-shrink: 0;
+}
+.git-branch-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.git-branch-trigger:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-subtle);
+}
+.git-branch-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.git-branch-label {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-branch-badge {
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-hover);
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.git-branch-chevron {
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s;
+}
+.git-branch-chevron.open {
+  transform: rotate(180deg);
+}
+.git-branch-dropdown {
+  position: absolute;
+  left: 8px;
+  top: 100%;
+  z-index: 30;
+  min-width: 180px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-lg);
+}
+.git-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.git-branch-item:hover {
+  background: var(--color-bg-hover);
+}
+.git-branch-item.active {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.git-branch-check {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+.git-branch-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border-subtle);
+}
+.git-branch-create-btn {
+  color: var(--color-text-secondary);
+  gap: 6px;
+}
+.git-branch-create-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+.git-branch-create-form input {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  outline: none;
+}
+.git-branch-create-form input:focus {
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+.git-branch-create-confirm {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  cursor: pointer;
+}
+.git-branch-create-confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .git-panel {
   --git-ui-font: var(--font-family-base);
   --git-panel-bg: var(--color-bg-panel);
