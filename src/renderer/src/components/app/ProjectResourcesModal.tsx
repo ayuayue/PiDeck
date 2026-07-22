@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { showNotice } from "../../utils/notice";
 
 import { Check, FileEdit, Pencil, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
 import { LazyMonacoEditor } from "../ui/LazyMonacoEditor";
@@ -64,11 +64,7 @@ export function ProjectResourcesModal(props: {
 			setError(null);
 			try {
 				setData(await api.list(props.project.id));
-				if (showToast) toast(t("projectResources.refreshed"), {
-					duration: 2000,
-					position: "top-center",
-					style: { minWidth: 160, textAlign: "center" },
-				});
+				if (showToast) showNotice(t("projectResources.refreshed"), 2000);
 			} catch (err) {
 				setError(err instanceof Error ? err.message : String(err));
 			} finally {

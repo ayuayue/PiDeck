@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { showNotice } from "../utils/notice";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download, Search } from "lucide-react";
 import type { YaoPromptListResult, YaoPromptItem, YaoPromptDetailResult, PiPromptTemplateSummary, YaoPromptCategory } from "../../../shared/types";
@@ -62,7 +62,7 @@ export function YaoPromptTab(props: {
 		setError(null);
 		try {
 			await api.yaoPrompts.import(item.slug, item.category);
-			toast("已导入到本地模板", { duration: 2500 });
+			showNotice("已导入到本地模板", 2500);
 			props.onImported?.();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));

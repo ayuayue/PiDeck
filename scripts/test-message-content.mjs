@@ -55,4 +55,16 @@ assert.equal(
 	"thinking block keeps a semantic boundary while adjacent text stays contiguous",
 );
 
+assert.equal(
+	extractMessageText("最终回答\n<CPA_DONE>"),
+	"最终回答",
+	"trailing CPA completion marker must not reach the UI",
+);
+
+assert.equal(
+	extractMessageText("示例：<CPA_DONE> 不是传输尾标"),
+	"示例：<CPA_DONE> 不是传输尾标",
+	"only a standalone trailing CPA completion marker may be removed",
+);
+
 console.log("messageContent tests passed");

@@ -60,6 +60,7 @@
   --color-text-tertiary: #8b8f94;
   --color-text-inverse: #ffffff;
   --color-border-subtle: #e5e5df;
+  --color-border-default: #dfdfd7;
   --color-border-strong: #d7d7cf;
   --color-accent: #238636;
   --color-accent-strong: #1f7a32;
@@ -170,6 +171,7 @@
   --color-bg-hover: #eaeaea;
   --color-bg-active: #d4edda;
   --color-border-subtle: #e2e2e2;
+  --color-border-default: #d9d9d9;
   --color-border-strong: #d0d0d0;
   --shadow-composer: 0 8px 28px rgba(20, 24, 31, 0.06);
   --shadow-drawer: -8px 0 24px rgba(20, 24, 31, 0.06);
@@ -193,6 +195,7 @@
   --color-bg-muted: #fff8e8;
   --color-bg-hover: #f7efd8;
   --color-border-subtle: #eadfc8;
+  --color-border-default: #e2d5b9;
   --color-border-strong: #dacbad;
 }
 
@@ -203,6 +206,7 @@
   --color-bg-hover: #e8f1ff;
   --color-bg-active: #e6f0ff;
   --color-border-subtle: #d9e6f7;
+  --color-border-default: #d0dff3;
   --color-border-strong: #c7d9ef;
 }
 
@@ -213,6 +217,7 @@
   --color-bg-hover: #e7f3eb;
   --color-bg-active: #e2f4e8;
   --color-border-subtle: #d6e8dc;
+  --color-border-default: #cee0d4;
   --color-border-strong: #c5d9cc;
 }
 
@@ -332,6 +337,7 @@
   --color-text-tertiary: #858e99;
   --color-text-inverse: #ffffff;
   --color-border-subtle: #2a2f35;
+  --color-border-default: #32383f;
   --color-border-strong: #3a414a;
   --color-accent: #35c45a;
   --color-accent-strong: #55d774;
@@ -1410,6 +1416,35 @@ body:not(.is-list-resizing)
 }
 .list-collapsed .splitter-left {
   display: none;
+}
+
+/* ── 全局统一滚动条：细滑块、透明轨道，融入面板背景 ──
+   个别容器（如会话列表、终端）用更具体的选择器隐藏或覆盖。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+  /* 8px 槽内留 2px 透明边，视觉粗细约 4px，更轻地融入背景 */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .conversation-list {
@@ -2656,6 +2691,24 @@ body.is-terminal-resizing {
     transform: translateX(-50%) translateY(0);
   }
 }
+.app-notice {
+  position: absolute;
+  top: calc(100% + 20px);
+  right: 0;
+  z-index: 101;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-control);
+  white-space: pre-wrap;
+  pointer-events: none;
+}
 .file-action-menu button,
 .session-combo-menu button {
   width: 100%;
@@ -2986,21 +3039,6 @@ body.is-terminal-resizing {
   padding: 18px clamp(24px, 4vw, 48px) 24px;
   min-height: 0;
   scroll-padding-top: 18px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border-default) transparent;
-}
-.message-timeline::-webkit-scrollbar {
-  width: 8px;
-}
-.message-timeline::-webkit-scrollbar-track {
-  background: transparent;
-}
-.message-timeline::-webkit-scrollbar-thumb {
-  background: var(--color-border-default);
-  border-radius: 4px;
-}
-.message-timeline::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-strong);
 }
 .scroll-to-bottom-btn {
   position: absolute;
@@ -4071,8 +4109,8 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   transform: rotate(180deg);
 }
 .tool-card-content {
-  border: 1px solid var(--color-border-subtle);
-  border-top: 0;
+  /* 与 thinking-card-content 统一：仅顶部细分隔线，去除四周边框盒感 */
+  border-top: 1px solid var(--color-border-subtle);
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: transparent;
   position: relative;
@@ -4353,7 +4391,8 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 }
 .thinking-card-content {
   padding: var(--space-2) var(--space-3) var(--space-3);
-  border-top: 0;
+  /* 内嵌滚动块统一：透明背景 + 顶部细分隔线，不用盒子边框，融入会话白底 */
+  border-top: 1px solid var(--color-border-subtle);
   color: var(--color-text-tertiary);
   font-size: var(--font-size-caption);
   line-height: 1.6;
@@ -5983,6 +6022,121 @@ body.ask-dialog-open .ask-question-card.pending {
   font-family: var(--font-family-mono);
   font-size: 0.92em;
 }
+/* 行内代码 chip：:not(pre) > code 只命中行内 code，代码块（pre > code）天然隔离，无需额外 reset */
+.markdown-body :not(pre) > code {
+  padding: 0.15em 0.35em;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+}
+
+/* ===== Markdown 普通元素排版（heading/链接/引用/hr/图片/文字格式） ===== */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+.markdown-body h1 {
+  font-size: 1.65em;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: 0.2em;
+}
+.markdown-body h2 {
+  font-size: 1.4em;
+}
+.markdown-body h3 {
+  font-size: 1.2em;
+}
+.markdown-body h4 {
+  font-size: 1.08em;
+}
+.markdown-body h5 {
+  font-size: 1em;
+}
+.markdown-body h6 {
+  font-size: 0.95em;
+  color: var(--color-text-secondary);
+}
+/* 消息以标题开头时去掉顶部留白，避免气泡顶部出现多余空隙 */
+.markdown-body > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+
+.markdown-body a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+/* 链接焦点环走全局 a:focus-visible 统一样式，不在此处覆盖 */
+
+.markdown-body blockquote {
+  margin: 0.8em 0;
+  padding: 0.6em 1em;
+  border-left: 3px solid var(--color-border-strong);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.markdown-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+.markdown-body em {
+  font-style: italic;
+}
+/* remarkGfm 的 ~~删除线~~ 渲染为 <del>（不是 <s>），选择器必须匹配 del 才生效 */
+.markdown-body del {
+  text-decoration: line-through;
+  color: var(--color-text-secondary);
+}
+
+/* 文件路径链接（remarkLinkifyPaths 生成的 file:// 链接）：等宽字体 + 图标 chip，与普通外链区分 */
+.markdown-link-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-family-mono);
+  font-size: 0.92em;
+  color: var(--color-accent);
+  background: var(--color-bg-muted);
+  padding: 0.1em 0.4em;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.markdown-link-file:hover {
+  background: var(--color-bg-hover);
+  text-decoration: underline;
+}
+.markdown-link-file-icon {
+  flex-shrink: 0;
+}
 
 .empty-state {
   height: 100%;
@@ -5990,7 +6144,8 @@ body.ask-dialog-open .ask-question-card.pending {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: min(6vh, 60px) var(--space-6);
+  /* 视觉中心略偏上比数学居中更自然，底部留出补偿空间 */
+  padding-bottom: 12vh;
   color: var(--color-text-tertiary);
 }
 .empty-logo {
@@ -6004,19 +6159,24 @@ body.ask-dialog-open .ask-question-card.pending {
     var(--color-accent-strong) 0%,
     var(--color-accent) 100%
   );
+  box-shadow:
+    0 18px 40px color-mix(in srgb, var(--color-accent) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
   margin-bottom: var(--space-8);
 }
 .empty-tagline {
   display: grid;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-8);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
   color: var(--color-text-primary);
   font-family: var(--font-family-brand);
   font-size: clamp(28px, 3.8vw, 54px);
   font-weight: 600;
-  line-height: 0.98;
-  letter-spacing: -0.04em;
+  /* 两行大字需要呼吸空间，0.98 会让上下行笔画相触 */
+  line-height: 1.08;
+  letter-spacing: -0.03em;
   text-align: center;
+  text-wrap: balance;
 }
 .empty-tagline-yours {
   color: color-mix(in srgb, var(--color-chat-link) 90%, white);
@@ -6025,9 +6185,12 @@ body.ask-dialog-open .ask-question-card.pending {
 .empty-state .empty-subtitle {
   margin: 0 0 var(--space-8);
   color: var(--color-text-secondary);
+  /* 与主标题同族衬线，靠字号和灰度分层 */
   font-family: var(--font-family-brand);
-  font-size: clamp(24px, 3vw, 34px);
-  line-height: 1.55;
+  font-size: clamp(17px, 1.6vw, 21px);
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0;
   text-align: center;
 }
 .empty-subtitle-line {
@@ -6061,6 +6224,7 @@ body.ask-dialog-open .ask-question-card.pending {
     var(--color-accent-soft) 75%,
     var(--color-accent)
   );
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--color-accent) 18%, transparent);
   color: var(--color-accent-strong);
   font-family: var(--font-family-base);
   font-size: var(--font-size-brand);
@@ -6299,6 +6463,24 @@ body.is-composer-resizing .composer-resize-handle::after {
 .user-turn-text .input-chip {
   cursor: default;
 }
+
+.composer .input-chip--session,
+.user-turn-text .input-chip--session {
+  background: color-mix(in srgb, var(--color-brand-green) 14%, transparent);
+  color: var(--color-brand-green);
+  border: 1px solid color-mix(in srgb, var(--color-brand-green) 28%, transparent);
+  cursor: pointer;
+}
+.composer .input-chip--session:hover {
+  background: color-mix(in srgb, var(--color-brand-green) 24%, transparent);
+}
+
+.session-ref-modal { width: min(700px, calc(100vw - 48px)); max-height: min(650px, calc(100vh - 48px)); }
+.session-ref-name { color: var(--color-accent); font-weight: 600; }
+.session-ref-message-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.session-ref-message-list .multi-select-tree-node.disabled { opacity: 0.5; cursor: default; }
+.session-ref-loading, .session-ref-error { display: flex; align-items: center; justify-content: center; padding: 40px 16px; color: var(--color-text-tertiary); }
+.session-ref-error { color: var(--color-error); }
 
 .composer-box:focus-within {
   border-color: var(--color-accent);
@@ -9153,18 +9335,6 @@ body.is-composer-resizing .composer-resize-handle::after {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border-default) transparent;
-}
-.picker-palette-list::-webkit-scrollbar {
-  width: 6px;
-}
-.picker-palette-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.picker-palette-list::-webkit-scrollbar-thumb {
-  background: var(--color-border-default);
-  border-radius: 3px;
 }
 .model-group {
   margin-bottom: 4px;
@@ -17240,19 +17410,6 @@ html[data-theme="dark"] .scratch-pad-md mark {
   margin: 0.5em 0;
 }
 
-.scratch-pad-preview-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-
-.scratch-pad-preview-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-border-subtle);
-  border-radius: 3px;
-}
-
-.scratch-pad-preview-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
 /* ── PiDeck 左侧边栏 v3 Braun 卡片化重设计 ── */
 
 .chat-list-pane.v3-braun {
@@ -17351,18 +17508,16 @@ html[data-theme="dark"] .scratch-pad-md mark {
   /* 将滚动条移入侧栏右侧留白，等量内边距保持列表内容不贴边。 */
   margin-right: calc(-1 * var(--space-3));
   padding-right: var(--space-3);
+}
+
+/* v3-braun 侧栏会话列表保持可见滚动条（基础 .conversation-list 为隐藏）；
+   只声明宽度压过 0 值，粗细颜色沿用全局统一滚动条。 */
+.chat-list-pane.v3-braun .sidebar-body .conversation-list {
   scrollbar-width: thin;
 }
-
 .chat-list-pane.v3-braun .sidebar-body .conversation-list::-webkit-scrollbar {
-  width: 5px;
-}
-
-.chat-list-pane.v3-braun
-  .sidebar-body
-  .conversation-list::-webkit-scrollbar-thumb {
-  background: var(--color-border-strong);
-  border-radius: 3px;
+  width: 8px;
+  height: 8px;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .project-group {
