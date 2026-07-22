@@ -895,7 +895,7 @@ select:focus-visible {
   --list-width: 190px;
   --list-expanded-width: 190px;
   --list-hover-width: 250px;
-  --drawer-width: 270px;
+  --drawer-width: 250px;
   /* 抽屉列宽由 JS 按实际展开状态注入，短过渡与面板滑动同步。 */
   --drawer-col-w: 0px;
   --drawer-splitter-w: 0px;
@@ -2067,17 +2067,10 @@ body:not(.is-list-resizing)
   padding: 0;
   border-radius: var(--radius-md);
   background: transparent;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s ease;
-}
-.project-group > .conversation:first-child:hover .project-row-actions,
-.project-group > .conversation:first-child:focus-within .project-row-actions {
-  /* 项目操作属于辅助动作，默认收起能显著降低左栏视觉噪音。 */
   opacity: 1;
   pointer-events: auto;
+  transition: opacity 0.12s ease;
 }
-
 .project-action,
 .project-info {
   width: 21px;
@@ -2201,6 +2194,7 @@ body:not(.is-list-resizing)
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
+  transition: opacity 0.18s ease;
 }
 .session-row:hover {
   background: var(--color-bg-hover);
@@ -2498,6 +2492,20 @@ body.is-terminal-resizing {
   font-weight: 700;
   color: var(--color-text-primary);
 }
+
+/* 匿名聊天徽标 */
+.chat-title-row .anonymous-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  margin-left: 2px;
+}
 .chat-agent-id {
   display: inline-flex;
   align-items: center;
@@ -2536,6 +2544,21 @@ body.is-terminal-resizing {
   flex: 0 0 auto;
   cursor: default;
 }
+
+/* 侧边栏匿名聊天指示器 */
+.conversation-title .anonymous-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent-soft);
+}
+
 /* ── 压缩卡片（可展开查看归档消息） ── */
 .compaction-card {
   display: flex;
@@ -7152,6 +7175,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 /* Plan mode toolbar 按钮样式已统一移至 composer-toolbar 区域。 */
 
 .composer-footer span[role="button"] {
@@ -19128,6 +19152,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 .git-drawer-stack[data-detail-open="true"] .git-drawer-source {
@@ -19769,13 +19794,14 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   transform: rotate(-90deg);
 }
 .git-tree-directory-name {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  font-family: var(--font-family-business);
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-business);
 }
 .git-tree-directory-count {
   margin-left: auto;

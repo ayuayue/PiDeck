@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
 import {
@@ -83,6 +84,7 @@ import { ProjectStore } from "./projects/ProjectStore";
 import { FileSystemService } from "./fs/FileSystemService";
 import { AgentManager } from "./pi/AgentManager";
 import { PiLocator } from "./pi/PiLocator";
+import { PiRpcClient } from "./pi/PiRpcClient";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
 import { CodexSessionImporter } from "./sessions/CodexSessionImporter";
@@ -1309,6 +1311,14 @@ function registerIpc() {
 		return result.filePaths[0];
 	});
 
+	ipcMain.handle(ipcChannels.dialogPickFiles, async (_event, options?: { title?: string }) => {
+		const result = await dialog.showOpenDialog({
+			title: options?.title ?? "选择文件或文件夹",
+			properties: ["openFile", "openDirectory", "multiSelections"],
+		});
+		return result.canceled ? [] : result.filePaths;
+	});
+
 	ipcMain.handle(
 		ipcChannels.projectsSetChatPath,
 		async (_event, path: string) => {
@@ -1861,53 +1871,179 @@ function registerIpc() {
 		},
 	);
 
+	async function ensureGenProcess(
+		projectPath: string,
+		command: string,
+	): Promise<PiRpcClient> {
+		console.log("[QuickGen] ensureGenProcess", { projectPath, command, existingPid: genProcess?.pid ?? null });
+
+		// 如果已有进程还在运行，直接复用（跨项目也复用）
+		if (genProcess && genRpcClient && genProcess.exitCode === null) {
+			console.log("[QuickGen] reusing existing process, pid:", genProcess.pid);
+			genProcessCwd = projectPath;
+			resetGenIdleTimer();
+			return genRpcClient;
+		}
+
+		// 清理旧进程（已死才重建）
+		if (genProcess) {
+			console.log("[QuickGen] stopping old process");
+			stopGenProcess();
+		}
+
+		const settings = settingsStore.get();
+		const invocation = piLocator.createInvocation(command, [
+			"--mode", "rpc",
+			"--no-session",
+			"--no-tools",
+			"--no-extensions",
+			"--no-skills",
+			"--no-prompt-templates",
+			"--no-context-files",
+			"--no-themes",
+			"--thinking", "off",
+		]);
+
+		console.log("[QuickGen] spawning", { command: invocation.command, args: invocation.args, cwd: projectPath });
+
+		genProcess = spawn(invocation.command, invocation.args, {
+			cwd: projectPath,
+			env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+			stdio: ["pipe", "pipe", "pipe"],
+			shell: invocation.shell,
+			windowsHide: true,
+			windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+		});
+		genProcessCwd = projectPath;
+		console.log("[QuickGen] spawned, pid:", genProcess.pid);
+
+		genRpcClient = new PiRpcClient(genProcess.stdin!, genProcess.stdout!);
+		console.log("[QuickGen] RPC client created");
+
+		// stderr 仅用于调试日志
+		genProcess.stderr!.on("data", (chunk: Buffer) => {
+			const text = chunk.toString("utf8").slice(0, 300);
+			console.log("[QuickGen] stderr:", text);
+			void appLogger?.warn("git", "QuickGen stderr", text);
+		});
+
+		// 进程退出时清理状态
+		genProcess.on("exit", (code, signal) => {
+			console.log("[QuickGen] process exited", { code, signal });
+			void appLogger?.warn("git", "QuickGen process exited", { code, signal });
+			stopGenProcess();
+		});
+
+		genProcess.on("error", (err) => {
+			console.log("[QuickGen] process ERROR", err.message);
+			void appLogger?.error("git", "QuickGen process error", err.message);
+		});
+
+		resetGenIdleTimer();
+		return genRpcClient;
+	}
+
+	/** 通过持久化的 RPC 进程快速生成文本 */
+	async function quickGenerate(projectPath: string, prompt: string): Promise<string> {
+		console.log("[QuickGen] quickGenerate called", { projectPath });
+		const settings = settingsStore.get();
+		const command = piLocator.resolveCommand(
+			settings.customPiPath,
+			settings.wslEnabled,
+			settings.wslDistro,
+			settings.wslUser,
+		);
+		console.log("[QuickGen] resolved command", { command });
+
+		const rpc = await ensureGenProcess(projectPath, command);
+		console.log("[QuickGen] process ready, sending prompt", { length: prompt.length });
+
+		return new Promise<string>((resolve, reject) => {
+			const collected: string[] = [];
+			let settled = false;
+			const timeout = setTimeout(() => {
+				if (!settled) {
+					console.log("[QuickGen] TIMEOUT", { collected: collected.join("").slice(0, 200) });
+					void appLogger?.warn("git", "QuickGen timed out", { collected: collected.join("").slice(0, 200) });
+					reject(new Error("Quick generate timed out"));
+				}
+			}, 60_000);
+
+			const onEvent = (event: Record<string, unknown>) => {
+				const eventType = event.type as string;
+				if (eventType === "message_update") {
+					const ae = (event as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+					if (ae?.type === "text_delta" && typeof ae.delta === "string") {
+						collected.push(ae.delta);
+						console.log("[QuickGen] text_delta", { delta: ae.delta.slice(0, 50) });
+					}
+				}
+				if (eventType === "agent_settled" || eventType === "agent_end") {
+					console.log("[QuickGen] event received", { eventType });
+					settled = true;
+					clearTimeout(timeout);
+					rpc.off("event", onEvent);
+					const text = collected.join("");
+					console.log("[QuickGen] completed", { length: text.length });
+					void appLogger?.warn("git", "QuickGen completed", { length: text.length });
+					resolve(text);
+				}
+			};
+
+			rpc.on("event", onEvent);
+
+			console.log("[QuickGen] sending prompt via RPC");
+			rpc.request({ type: "prompt", message: prompt }).then((response) => {
+				console.log("[QuickGen] prompt response", { success: response.success, error: response.error });
+				if (!response.success) {
+					clearTimeout(timeout);
+					rpc.off("event", onEvent);
+					reject(new Error(response.error ?? "Prompt rejected"));
+				}
+			}).catch((err) => {
+				console.log("[QuickGen] prompt request failed", { error: err.message });
+				clearTimeout(timeout);
+				rpc.off("event", onEvent);
+				reject(err);
+			});
+		});
+	}
+
+	console.log("[QuickGen] gitGenerateCommitMessage handler registered");
 	ipcMain.handle(
 		ipcChannels.gitGenerateCommitMessage,
 		async (_event, projectId: string) => {
+			console.log("[QuickGen] IPC handler called", { projectId });
 			const project = projectStore.get(projectId);
-			if (!project) return "";
-			const diff = await gitService.getStagedDiff(project.path);
-			if (!diff.trim()) return "";
+			if (!project) {
+				console.log("[QuickGen] project not found");
+				return "";
+			}
 
-			// 构建提示词：因在模板字面量中避免嵌套反引号，使用数组拼接
-			const prompt = [
-				"请根据以下 git diff 生成一条中文 git commit message。",
-				"格式：feat: / fix: / refactor: / chore: / docs: / style: / perf: / test: 等标准约定式提交前缀。",
-				"只输出 message 本身，不要解释，不要包含 markdown 标记。",
-				"",
-				diff.slice(0, 8000),
-			].join("\n");
+			const diff = await gitService.getStagedDiff(project.path, 10000);
+			if (!diff.trim()) {
+				console.log("[QuickGen] no staged diff");
+				return "";
+			}
+			console.log("[QuickGen] diff obtained", { length: diff.length });
 
-			const settings = settingsStore.get();
-			const command = piLocator.resolveCommand(
-				settings.customPiPath,
-				settings.wslEnabled,
-				settings.wslDistro,
-				settings.wslUser,
-			);
-			const invocation = piLocator.createInvocation(command, [
-				"-p", prompt,
-			]);
-			const { execFile } = await import("node:child_process");
-			const result = await new Promise<string>((resolve, reject) => {
-				execFile(invocation.command, invocation.args, {
-					env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
-					shell: invocation.shell,
-					windowsHide: true,
-					timeout: 30_000,
-					encoding: "utf8",
-					windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-				}, (error, stdout, stderr) => {
-					if (error) {
-						const message = (stderr || error.message).slice(0, 500);
-						void appLogger.warn("git", "Generate commit message failed", { error: message });
-						reject(new Error(message));
-						return;
-					}
-					resolve(stdout.trim());
-				});
-			});
-			return result;
+			// 从设置中读取提示词模板，替换 {diff} 为实际 diff 内容
+			const promptTemplate = settingsStore.get().gitCommitMessagePrompt ||
+				"请根据以下 git diff 生成一条中文 git commit message。\n\n{diff}\n\n直接输出 commit 消息。";
+			const prompt = promptTemplate.replace("{diff}", diff.slice(0, 8000));
+
+			try {
+				console.log("[QuickGen] calling quickGenerate");
+				const result = await quickGenerate(project.path, prompt);
+				console.log("[QuickGen] done", { length: result.length });
+				void appLogger?.warn("git", "Generate commit message result", { length: result.length, text: result.slice(0, 100) });
+				return result.trim();
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.log("[QuickGen] FAILED", { error: msg });
+				void appLogger?.warn("git", "Generate commit message failed", { error: msg });
+				throw err;
+			}
 		},
 	);
 
@@ -3308,6 +3444,37 @@ async function detectExternalEditorsOnFirstLaunch() {
 	void appLogger.info("editor", "External editors detected on first launch", { count: detected.length });
 }
 
+// ── 持久化轻量 pi RPC 进程（用于快速文本生成，避免每次启动开销） ──────
+let genProcess: ChildProcess | null = null;
+let genRpcClient: PiRpcClient | null = null;
+let genProcessCwd = "";
+let genIdleTimer: NodeJS.Timeout | null = null;
+
+/** 清理快速生成进程，包括 RPC 客户端和空闲定时器 */
+function stopGenProcess() {
+	if (genIdleTimer) {
+		clearTimeout(genIdleTimer);
+		genIdleTimer = null;
+	}
+	genRpcClient?.close();
+	genRpcClient = null;
+	if (genProcess && genProcess.exitCode === null) {
+		try { genProcess.kill(); } catch { /* ignore */ }
+	}
+	genProcess = null;
+	genProcessCwd = "";
+}
+
+/** 重置空闲定时器：30 分钟无请求自动杀掉进程释放内存 */
+function resetGenIdleTimer() {
+	if (genIdleTimer) clearTimeout(genIdleTimer);
+	genIdleTimer = setTimeout(() => {
+		void appLogger?.debug("git", "QuickGen idle timeout, killing process");
+		stopGenProcess();
+	}, 30 * 60 * 1000);
+	if (genIdleTimer && typeof genIdleTimer === "object") genIdleTimer.unref?.();
+}
+
 app.whenReady().then(async () => {
 	projectStore = new ProjectStore();
 	fileSystemService = new FileSystemService();
@@ -3606,6 +3773,7 @@ app.on("before-quit", () => {
 	agentManager?.stopAll();
 	petSystem?.stop();
 	petSystem = null;
+	stopGenProcess();
 });
 
 app.on("window-all-closed", () => {

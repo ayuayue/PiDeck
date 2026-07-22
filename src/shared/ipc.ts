@@ -304,4 +304,8 @@ export const ipcChannels = {
 
 	// ===== 内置浏览器 =====
 	browserOpenExternal: "browser:open-external",
+
+	// ===== 系统文件选择器 =====
+	/** 打开系统原生文件/文件夹选择器，返回选中路径列表 */
+	dialogPickFiles: "dialog:pick-files",
 } as const;

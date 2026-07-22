@@ -646,6 +646,8 @@ export function ComposerToolbar(props: {
 	feishuIndicator?: ReactNode;
 	/** 会话文件路径卡片,渲染在思考按钮之后、feishuIndicator 之后 */
 	pathIndicator?: ReactNode;
+	/** 文件引用按钮回调 */
+	onAttachFile?: () => void;
 
 }) {
 	const ctxPercent = props.state?.contextPercent;
@@ -697,6 +699,15 @@ export function ComposerToolbar(props: {
 			<button onClick={props.onPickThinking} disabled={props.disabled}>
 				{t("app.think")}: {thinkingDisplay}
 			</button>
+			{props.onAttachFile && (
+				<button
+					onClick={props.onAttachFile}
+					disabled={props.disabled}
+					title={t("app.attachFileDesc")}
+				>
+					{t("app.attachFile")}
+				</button>
+			)}
 			{props.feishuIndicator}
 			{props.pathIndicator}
 

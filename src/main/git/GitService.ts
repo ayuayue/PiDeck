@@ -369,7 +369,7 @@ export class GitService {
 	 * 获取当前暂存区（staged）的完整 diff 文本，用于 AI 生成提交摘要。
 	 * 优先返回暂存区的 diff，无暂存文件时返回工作区 diff。
 	 * @param cwd 仓库工作目录
-	 * @param maxBytes 最大返回字节数（默认 100KB），超出截断
+	 * @param maxBytes 最大返回字符数（默认 100KB），超出截断。maxBuffer 固定为 10MB 确保 git 完整输出。
 	 */
 	async getStagedDiff(cwd: string, maxBytes = 100 * 1024): Promise<string> {
 		try {
@@ -378,7 +378,7 @@ export class GitService {
 				cwd,
 				encoding: "utf8",
 				timeout: GIT_MUTATION_TIMEOUT_MS,
-				maxBuffer: maxBytes + 1024,
+				maxBuffer: 10 * 1024 * 1024,
 			});
 			// 无暂存内容时直接返回空，不再回退到工作区 diff；由调用方提示用户先暂存
 			if (!stdout.trim()) return "";

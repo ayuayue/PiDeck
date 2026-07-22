@@ -64,6 +64,45 @@ function SettingSwitch(props: {
 }
 
 /** 已修改但未保存的字段标记：在标签右侧显示一个黄色圆点 */
+function SettingTextarea(props: {
+	title: string;
+	description?: string;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="setting-field">
+			<div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+				<strong style={{ color: "var(--color-text-primary)", fontSize: "var(--font-size-control)", fontWeight: 500 }}>
+					{props.title}
+				</strong>
+				{props.description && (
+					<small style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)", lineHeight: 1.4 }}>
+						{props.description}
+					</small>
+				)}
+			</div>
+			<textarea
+				value={props.value}
+				rows={8}
+				onChange={(event) => props.onChange(event.target.value)}
+				style={{
+					width: "100%",
+					fontFamily: "var(--font-family-mono)",
+					fontSize: "var(--font-size-sm)",
+					padding: "var(--space-2) var(--space-3)",
+					border: "1px solid var(--color-border-subtle)",
+					borderRadius: "var(--radius-sm)",
+					background: "var(--color-bg-input)",
+					color: "var(--color-text-primary)",
+					resize: "vertical",
+					lineHeight: "var(--line-height-body)",
+				}}
+			/>
+		</div>
+	);
+}
+
 function DirtyMarker(props: { dirty: boolean; label: string }) {
 	if (!props.dirty) return null;
 	return (
@@ -659,6 +698,24 @@ export function SettingsModal(props: {
 										</small>
 									</div>
 								</SettingsSection>
+								<SettingsSection title={t("settings.git")}>
+									<SettingSwitch
+										title={t("settings.gitManagement")}
+										description={t("settings.gitManagementDesc")}
+										checked={draftSettings.enableGitManagement}
+										onChange={(checked) =>
+											updateDraft({ enableGitManagement: checked })
+										}
+									/>
+									{draftSettings.enableGitManagement && (
+										<SettingTextarea
+											title={t("settings.gitCommitMessagePrompt")}
+											description={t("settings.gitCommitMessagePromptDesc")}
+											value={draftSettings.gitCommitMessagePrompt}
+											onChange={(value) => updateDraft({ gitCommitMessagePrompt: value })}
+										/>
+									)}
+								</SettingsSection>
 							</>
 						)}
 						{/* ── 外观设置 tab ── */}
@@ -679,14 +736,6 @@ export function SettingsModal(props: {
 											}
 										/>
 									</div>
-									<SettingSwitch
-										title={t("settings.gitManagement")}
-										description={t("settings.gitManagementDesc")}
-										checked={draftSettings.enableGitManagement}
-										onChange={(checked) =>
-											updateDraft({ enableGitManagement: checked })
-										}
-									/>
 									<SettingSwitch
 										title={t("settings.nativeTitleBar")}
 										checked={draftSettings.useNativeTitleBar}

@@ -127,6 +127,7 @@ let previewSettings: AppSettings = {
 	language: "system",
 	piEnvironmentChecked: true,
 	enableGitManagement: true,
+	gitCommitMessagePrompt: "",
 	closeToTray: true,
 	enableNotifications: true,
 	// showThinking 由 pi agent 的 hideThinkingBlock 控制，运行时从主进程加载
@@ -841,6 +842,9 @@ export function createPreviewApi(): PiDesktopApi {
 			onWhoamiResult: () => () => {},
 			sessionBotGet: async () => null,
 			sessionBotSet: async () => {},
+		},
+		dialog: {
+			pickFiles: async () => [],
 		},
 		browser: {
 			openExternal: async () => {},

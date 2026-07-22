@@ -994,6 +994,16 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, agentId, botId) as Promise<void>,
 	},
 
+	// ===== 系统文件选择器 =====
+	dialog: {
+		/**
+		 * 打开系统原生文件/文件夹选择器，支持多选。
+		 * 返回选中路径列表，取消时返回空数组。
+		 */
+		pickFiles: (options?: { title?: string }) =>
+			ipcRenderer.invoke(ipcChannels.dialogPickFiles, options) as Promise<string[]>,
+	},
+
 	// ===== 内置浏览器 =====
 	browser: {
 		/** 在系统默认浏览器中打开外部链接。

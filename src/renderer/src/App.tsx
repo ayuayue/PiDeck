@@ -33,6 +33,7 @@ import {
   Minus,
   FolderOpen,
   FolderCog,
+  FolderPlus,
   Globe,
   Pin,
   Pencil,
@@ -42,6 +43,7 @@ import {
   Filter,
   GitBranch,
   RefreshCw,
+  HatGlasses,
   X,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
@@ -1165,6 +1167,7 @@ export function App() {
     language: "system",
     piEnvironmentChecked: false,
     enableGitManagement: true,
+    gitCommitMessagePrompt: "",
     closeToTray: true,
     enableNotifications: true,
     // showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
@@ -1252,7 +1255,7 @@ export function App() {
   const [environmentDialog, setEnvironmentDialog] = useState(false);
   const DEFAULT_LIST_WIDTH = 221;
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH);
-  const [drawerWidth, setDrawerWidth] = useState(270);
+  const [drawerWidth, setDrawerWidth] = useState(250);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [composerOffsetHeight, setComposerOffsetHeight] = useState(0);
   /** ResizeObserver 驱动布局预算重新计算；ref 尺寸本身变化不会触发 React render。 */
@@ -3903,6 +3906,7 @@ export function App() {
     projectId = activeProjectId,
     sessionPath?: string,
     title?: string,
+    noSession?: boolean,
   ): Promise<AgentTab | undefined> {
     if (!projectId) return;
     const project = projects.find((item) => item.id === projectId);
@@ -3926,9 +3930,10 @@ export function App() {
       id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       projectId,
       cwd: project.path,
-      title: title || `${project.name} agent`,
+      title: noSession ? title || t("app.anonymousChatTitle", { name: project.name }) : (title || `${project.name} agent`),
       status: "starting",
       sessionPath,
+      noSession,
       createdAt: Date.now(),
     };
     pendingAgentsRef.current = [...pendingAgentsRef.current, pendingTab];
@@ -3939,16 +3944,23 @@ export function App() {
       ...current,
       [projectId]: pendingTab.id,
     }));
-    void api.app.rendererLog("info", "renderer", "Agent create requested", {
-      projectId,
-      sessionPath,
-      title,
-      pendingAgentId: pendingTab.id,
-    });
+    if (noSession) {
+      void api.app.rendererLog("info", "renderer", "Anonymous agent create requested", {
+        projectId,
+        pendingAgentId: pendingTab.id,
+      });
+    } else {
+      void api.app.rendererLog("info", "renderer", "Agent create requested", {
+        projectId,
+        sessionPath,
+        title,
+        pendingAgentId: pendingTab.id,
+      });
+    }
     // 创建 agent 时不改变抽屉状态，避免打断用户已有的文件浏览。
     try {
       const tab = await withTimeout<AgentTab>(
-        api.agents.create({ projectId, sessionPath, title }),
+        api.agents.create({ projectId, sessionPath, title, noSession }),
         AGENT_CREATE_TIMEOUT_MS,
         t("app.agentCreateTimeout"),
       );
@@ -5259,6 +5271,41 @@ export function App() {
     setAttachedImages([]);
   }
 
+  /**
+   * 打开系统原生文件/文件夹选择器，将选中路径以 @path 引用格式插入到消息中。
+   * 仅引用路径，不读取/上传文件内容。
+   */
+  async function handleAttachFile() {
+    try {
+      const paths = await window.piDesktop.dialog.pickFiles({
+        title: t("app.attachFile"),
+      });
+      if (paths.length === 0) return;
+      const el = composerTextareaRef.current;
+      const cursor = el ? getCaretOffsetOf(el) : composerCursor;
+      const liveComposerPrompt = activeAgentIdRef.current
+        ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
+        : prompt;
+      // 将选中的路径拼接为引用文本，每个路径一行
+      const refText = paths.map((p) => `@${p}`).join(" ");
+      const spacer = cursor > 0 && liveComposerPrompt[cursor - 1] !== " " && liveComposerPrompt[cursor - 1] !== "\n" ? " " : "";
+      const newText =
+        liveComposerPrompt.slice(0, cursor) +
+        spacer +
+        refText +
+        liveComposerPrompt.slice(cursor);
+      const newCursor = cursor + spacer.length + refText.length;
+      setPrompt(newText);
+      setComposerCursor(newCursor);
+      pendingComposerCaretRef.current = newCursor;
+      requestAnimationFrame(() => {
+        composerTextareaRef.current?.focus();
+      });
+    } catch {
+      // 用户取消或出错时不作处理
+    }
+  }
+
   async function updateSettings(patch: Partial<AppSettings>) {
     const changesWebService =
       "webServiceEnabled" in patch ||
@@ -5658,7 +5705,7 @@ export function App() {
           "--list-hover-width": `${Math.max(190, listWidth)}px`,
           // Grid 列宽过渡期间保留内容；退出结束后再由 renderedDrawer 卸载。
           "--drawer-width": `${drawer && !drawerCollapsed ? drawerWidth : 0}px`,
-          "--drawer-col-w": `${drawer && !drawerCollapsed ? 260 : 0}px`,
+          "--drawer-col-w": `${drawer && !drawerCollapsed ? 250 : 0}px`,
           "--drawer-splitter-w": `${drawer && !drawerCollapsed ? 6 : 0}px`,
         } as React.CSSProperties
       }
@@ -5752,7 +5799,7 @@ export function App() {
             />
           </div>
           <button className="round-add" onClick={addProject} title={t("app.addProject")}>
-            <Plus size={18} />
+            <FolderPlus size={18} />
           </button>
         </div>
 
@@ -5945,6 +5992,16 @@ export function App() {
                       }}
                     >
                       <Plus size={14} />
+                    </span>
+                    <span
+                      className="project-action"
+                      title={t("app.anonymousChat")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void createAgent(project.id, undefined, undefined, true);
+                      }}
+                    >
+                      <HatGlasses size={14} />
                     </span>
                   </span>
                 </button>
@@ -6339,6 +6396,14 @@ export function App() {
                                     <div className="conversation-title">
                                       {agent.status && (<span className={`agent-status-indicator status-${agent.status}`}>{t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}</span>)}
                                       <strong>{agent.title}</strong>
+                                      {agent.noSession && (
+                                        <span
+                                          className="anonymous-indicator"
+                                          title={t("app.anonymousChat")}
+                                        >
+                                          <HatGlasses size={11} />
+                                        </span>
+                                      )}
                                       {totalSubagentCount > 0 && (
                                         <span className="subagent-inline-toggle" onClick={(e) => { e.stopPropagation(); setExpandedSubagentGroups(c => { const n = new Set(c); n.has(subagentGroupKey) ? n.delete(subagentGroupKey) : n.add(subagentGroupKey); return n; }); }} title={t("app.piSubagentCount", { count: totalSubagentCount })}>
                                           <ChevronDown size={10} className={subagentExpanded ? "expanded" : ""} />
@@ -6515,6 +6580,15 @@ export function App() {
                     : activeProject?.name) ??
                   "PiDeck"}
               </strong>
+              {activeAgent?.noSession && (
+                <span
+                  className="anonymous-badge"
+                  title={t("app.anonymousChat")}
+                  aria-label={t("app.anonymousChat")}
+                >
+                  <HatGlasses size={14} />
+                </span>
+              )}
               {activeAgent?.compactionCount ? (
                 <span
                   className="compaction-count-badge"
@@ -7283,6 +7357,7 @@ export function App() {
               composerAgentMode={currentComposerAgentMode}
               onOpenComposerModePicker={() => setComposerModePickerOpen(true)}
               onCancelPlan={() => setCurrentComposerAgentMode("normal")}
+              onAttachFile={handleAttachFile}
               feishuIndicator={
                 feishu.bots.length > 0 ? (
                   <FeishuLinkIndicator
@@ -7699,6 +7774,7 @@ export function App() {
               <div className="git-drawer-source" aria-hidden={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
                 <GitPanel
                   projectId={activeProjectId}
+                  projectRoot={activeProject?.path}
                   commitLog={api.git.commitLog}
                   commitDetail={api.git.commitDetail}
                   onOpenCommitFileDiff={openCommitFileDiff}
@@ -8060,8 +8136,23 @@ export function App() {
             setAgentMenu(null);
           }}
           onCloseAgent={() => {
-            void closeAgent(agentMenu.agent.id);
+            const agent = agentMenu.agent;
             setAgentMenu(null);
+            if (agent.noSession) {
+              // 匿名聊天关闭会丢失未保存的记录，需要确认
+              setConfirmDialog({
+                title: t("app.anonymousChatCloseTitle"),
+                message: t("app.anonymousChatCloseBody"),
+                danger: true,
+                confirmLabel: t("common.close"),
+                onConfirm: () => {
+                  setConfirmDialog(null);
+                  void closeAgent(agent.id);
+                },
+              });
+            } else {
+              void closeAgent(agent.id);
+            }
           }}
         />
       )}
@@ -8097,16 +8188,12 @@ export function App() {
           onDeleteSession={() => {
             const session = sessionMenu.session;
             setSessionMenu(null);
-            // 检查是否有子会话：如有则弹出确认，否则直接删除
+            // 无论是否有子会话，都弹出确认框
             const projectSessions = sessionsByProject[sessionMenu.projectId] ?? [];
             const childCount = projectSessions.filter(
               (s) => isSameSessionPath(s.parentSessionPath, session.filePath),
             ).length;
-            if (childCount > 0) {
-              setSidebarDeleteConfirm({ session, childCount });
-            } else {
-              void deleteHistorySession(session);
-            }
+            setSidebarDeleteConfirm({ session, childCount });
           }}
         />
       )}
@@ -8121,10 +8208,14 @@ export function App() {
           >
             <strong>{t("drawer.sessionDeleteTitle")}</strong>
             <p>
-              {t("drawer.sessionDeleteBodyWithChildren", {
-                name: sidebarDeleteConfirm.session.name || t("common.untitled"),
-                count: sidebarDeleteConfirm.childCount,
-              })}
+              {sidebarDeleteConfirm.childCount > 0
+                ? t("drawer.sessionDeleteBodyWithChildren", {
+                    name: sidebarDeleteConfirm.session.name || t("common.untitled"),
+                    count: sidebarDeleteConfirm.childCount,
+                  })
+                : t("drawer.sessionDeleteBody", {
+                    name: sidebarDeleteConfirm.session.name || t("common.untitled"),
+                  })}
             </p>
             <div className="session-delete-confirm-actions">
               <button onClick={() => setSidebarDeleteConfirm(null)}>
@@ -8162,6 +8253,8 @@ export function App() {
             }
             showToast(t("app.sessionDeleted"), 2200);
             const projectId = sessionManagerProject.id;
+            // 先关闭弹框，避免列表数据在刷新期间显示不一致
+            setSessionManagerProject(null);
             await refreshSessions(projectId);
             await refreshProjectSessions(projectId);
           }}

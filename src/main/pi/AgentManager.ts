@@ -662,6 +662,7 @@ export class AgentManager {
 			title: input.title || `${project.name} agent`,
 			status: "starting",
 			sessionPath: input.sessionPath,
+			noSession: input.noSession,
 			createdAt: Date.now(),
 		};
 
@@ -682,7 +683,7 @@ export class AgentManager {
 		this.messages.set(id, []);
 		this.emitState();
 
-		const client = await process.start(input.sessionPath, trustOverride);
+		const client = await process.start(input.sessionPath, trustOverride, input.noSession);
 		const t3 = Date.now();
 		const diag = process.getDiagnostics();
 		void this.appLogger?.info("agent", "Pi process spawned", {

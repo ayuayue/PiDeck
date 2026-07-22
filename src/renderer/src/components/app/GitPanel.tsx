@@ -39,6 +39,8 @@ import { t, type TranslationKey } from "../../i18n";
 
 type GitPanelProps = {
   projectId: string;
+  /** 项目根目录路径，用于将绝对路径转为相对路径显示 */
+  projectRoot?: string;
   commitLog: (
     projectId: string,
     options?: { maxEntries?: number; ref?: string; allBranches?: boolean },
@@ -303,10 +305,23 @@ function fileNameOnly(path: string): string {
 /** 按目录分组 Git 资源，返回 { dir -> resources[] } 映射 */
 function groupByDir(
 	resources: import("../../../../shared/types").GitResource[],
+	/** 项目根目录，传入后目录名显示为相对路径而非绝对路径 */
+	rootPath?: string,
 ): Map<string, import("../../../../shared/types").GitResource[]> {
 	const dirs = new Map<string, import("../../../../shared/types").GitResource[]>();
 	for (const r of resources) {
-		const parts = r.path.split(/[/\\]/);
+		// 将绝对路径转为相对路径，使目录分组显示简洁的相对路径而非长绝对路径
+		let p = r.path;
+		if (rootPath) {
+			const normalizedRoot = rootPath.replace(/[\\]+/g, "/").replace(/\/+$/, "");
+			const normalizedPath = p.replace(/[\\]+/g, "/");
+			if (normalizedPath.startsWith(normalizedRoot + "/")) {
+				p = normalizedPath.slice(normalizedRoot.length + 1);
+			} else if (normalizedPath === normalizedRoot) {
+				p = "";
+			}
+		}
+		const parts = p.split(/[/\\]/);
 		const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
 		if (!dirs.has(dir)) dirs.set(dir, []);
 		dirs.get(dir)!.push(r);
@@ -323,8 +338,10 @@ function FileTree(props: {
 	discardFile?: (path: string, group: "workingTree" | "untracked") => void;
 	mutating: boolean;
 	onOpenWorkspaceFileDiff: (group: import("../../../../shared/types").GitResourceGroupType, path: string) => void;
+	/** 项目根目录路径，用于显示相对路径 */
+	projectRoot?: string;
 }) {
-	const byDir = groupByDir(props.resources);
+	const byDir = groupByDir(props.resources, props.projectRoot);
 	// 按目录名排序，根目录排最前
 	const dirs = [...byDir.keys()].sort((a, b) => {
 		if (a === "") return -1;
@@ -1460,6 +1477,7 @@ export function GitPanel(props: GitPanelProps) {
                     groupType="merge"
                     onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
                     mutating={mutating || committing}
+                    projectRoot={props.projectRoot}
                   />
                 </ResourceGroup>
               )}
@@ -1486,6 +1504,7 @@ export function GitPanel(props: GitPanelProps) {
                     onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
                     mutating={mutating || committing}
                     unstageFile={(path) => act(() => props.unstageFiles(props.projectId, [path]))}
+                    projectRoot={props.projectRoot}
                   />
                 </ResourceGroup>
               )}
@@ -1513,6 +1532,7 @@ export function GitPanel(props: GitPanelProps) {
                     mutating={mutating || committing}
                     stageFile={(path) => act(() => props.stageFiles(props.projectId, [path]))}
                     discardFile={(path, group) => setDiscardTarget({ group, path })}
+                    projectRoot={props.projectRoot}
                   />
                 </ResourceGroup>
               )}
