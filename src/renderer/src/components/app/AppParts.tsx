@@ -1888,7 +1888,7 @@ const statusLabel =
 						onClick={handleCopy}
 						title={t("tool.copyDetail")}
 					>
-						{copied ? `${t("common.copy")} ✓` : t("common.copy")}
+						{copied ? <Check size={14} /> : <Copy size={14} />}
 					</button>
 				</div>
 			)}
@@ -2396,10 +2396,17 @@ function StreamingCodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 		? (child.props as { className?: string; children?: ReactNode })
 		: undefined;
 	const text = extractText(codeProps?.children ?? props.children);
+	const [copied, setCopied] = useState(false);
+	const handleCopy = () => {
+		navigator.clipboard.writeText(text);
+		setCopied(true);
+		showNotice(t("app.codeCopied"), 1200);
+		setTimeout(() => setCopied(false), 1800);
+	};
 	return (
 		<div className="code-block-wrap">
-			<button className="code-copy" onClick={() => { navigator.clipboard.writeText(text); showNotice(t("app.codeCopied"), 1200); }}>
-				{t("code.copy")}
+			<button className="code-copy" onClick={handleCopy} title={t("code.copy")}>
+				{copied ? <Check size={14} /> : <Copy size={14} />}
 			</button>
 			<pre {...props}>{props.children}</pre>
 		</div>
@@ -3217,17 +3224,27 @@ function MathSpan(props: React.HTMLAttributes<HTMLSpanElement>) {
 	const { className, children, ...spanProps } = props;
 	const ref = useRef<HTMLSpanElement | null>(null);
 	const isDisplayMath = /\bkatex-display\b/.test(className ?? "");
-	if (!isDisplayMath) return <span className={className} {...spanProps}>{children}</span>;
+	// 只对 KaTeX 最外层 span 添加复制按钮，内部嵌套的 katex-mathml / katex-html 等直接透传。
+	// 行内公式外层 class 精确为 "katex"，块级外层为 "katex-display"（可能同时含 "katex"）。
+	const isOuterKatex = isDisplayMath || className === "katex";
+	if (!isOuterKatex) return <span className={className} {...spanProps}>{children}</span>;
+	const [copied, setCopied] = useState(false);
 	const copyMath = () => {
 		const annotation = ref.current?.querySelector('annotation[encoding="application/x-tex"]');
 		const source = annotation?.textContent || extractText(children);
-		void navigator.clipboard.writeText(`$$\n${source}\n$$`);
+		// 行内公式用 $...$ 包裹，块级公式用 $$...$$ 包裹
+		const texContent = isDisplayMath ? `$$\n${source}\n$$` : `$${source}$`;
+		void navigator.clipboard.writeText(texContent);
+		setCopied(true);
 		showNotice(t("app.latexCopied"), 1200);
+		setTimeout(() => setCopied(false), 1800);
 	};
 	return (
-		<span className="math-copy-wrap">
+		<span className={`math-copy-wrap${isDisplayMath ? "" : " math-copy-wrap--inline"}`}>
 			<span ref={ref} className={className} {...spanProps}>{children}</span>
-			<button className="math-copy-btn" type="button" onClick={copyMath}>{t("common.copy")}</button>
+			<button className={`math-copy-btn${isDisplayMath ? "" : " math-copy-btn--inline"}`} type="button" onClick={copyMath} title={t("common.copy")}>
+				{copied ? <Check size={isDisplayMath ? 12 : 10} /> : <Copy size={isDisplayMath ? 12 : 10} />}
+			</button>
 		</span>
 	);
 }
@@ -3242,13 +3259,21 @@ function CodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 	if (/\blanguage-mermaid\b/i.test(languageClass)) {
 		return <MermaidDiagram chart={text} />;
 	}
+	const [copied, setCopied] = useState(false);
+	const handleCopy = () => {
+		navigator.clipboard.writeText(text);
+		setCopied(true);
+		showNotice(t("app.codeCopied"), 1200);
+		setTimeout(() => setCopied(false), 1800);
+	};
 	return (
 		<div className="code-block-wrap">
 			<button
 				className="code-copy"
-				onClick={() => { navigator.clipboard.writeText(text); showNotice(t("app.codeCopied"), 1200); }}
+				onClick={handleCopy}
+				title={t("code.copy")}
 			>
-				{t("code.copy")}
+				{copied ? <Check size={14} /> : <Copy size={14} />}
 			</button>
 			<pre {...props}>{props.children}</pre>
 		</div>
@@ -3309,7 +3334,7 @@ function MermaidDiagram(props: { chart: string }) {
 			) : (
 				<>
 					<div className="mermaid-toolbar" aria-label="Mermaid diagram controls">
-						<button type="button" onClick={() => { navigator.clipboard.writeText(`\`\`\`mermaid\n${props.chart}\n\`\`\``); showNotice(t("app.mermaidCopied"), 1200); }}>{t("common.copy")}</button>
+						<button type="button" onClick={() => { navigator.clipboard.writeText(`\`\`\`mermaid\n${props.chart}\n\`\`\``); showNotice(t("app.mermaidCopied"), 1200); }} title={t("common.copy")}><Copy size={14} /></button>
 						<button type="button" onClick={() => setZoom((value) => Math.max(0.5, value - 0.1))}>−</button>
 						<span>{Math.round(zoom * 100)}%</span>
 						<button type="button" onClick={() => setZoom((value) => Math.min(2.5, value + 0.1))}>＋</button>
@@ -3335,8 +3360,9 @@ function MermaidMarkdownFallback(props: { chart: string; error: string }) {
 			<button
 				className="code-copy"
 				onClick={() => { navigator.clipboard.writeText(markdown); showNotice(t("app.codeCopied"), 1200); }}
+				title={t("code.copy")}
 			>
-				{t("code.copy")}
+				<Copy size={14} />
 			</button>
 			<pre>{markdown}</pre>
 			<small className="mermaid-error-message">Mermaid render failed: {props.error}</small>
