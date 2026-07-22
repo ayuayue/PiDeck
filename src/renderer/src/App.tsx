@@ -5830,13 +5830,16 @@ export function App() {
                     el.classList.add('click-animating');
                     setTimeout(() => el.classList.remove('click-animating'), 400);
 
-                    // 点击项目行：总是展开项目 + 同步加载会话记录
+                    // 点击项目行：切换展开/折叠状态
+                    const wasCollapsed = collapsedProjects.has(project.id);
                     setCollapsedProjects((prev) => {
                       const next = new Set(prev);
-                      next.delete(project.id);
+                      if (next.has(project.id)) next.delete(project.id);
+                      else next.add(project.id);
                       return next;
                     });
-                    if (!projectIsChat) {
+                    // 展开时同步加载会话记录
+                    if (wasCollapsed && !projectIsChat) {
                       const hasLoadedSessions = sessionsByProject[project.id]?.length > 0;
                       if (!hasLoadedSessions) {
                         void refreshProjectSessions(project.id).catch(() => undefined);
