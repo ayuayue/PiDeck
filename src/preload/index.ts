@@ -414,6 +414,12 @@ const api = {
 				ipcChannels.gitGenerateCommitMessage,
 				projectId,
 			) as Promise<string>,
+		/** 初始化 Git 仓库 */
+		init: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitInit,
+				projectId,
+			) as Promise<void>,
 	},
 	pi: {
 		check: () =>

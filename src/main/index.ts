@@ -1872,6 +1872,16 @@ function registerIpc() {
 		},
 	);
 
+	ipcMain.handle(
+		ipcChannels.gitInit,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			const { execFile } = await import("node:child_process");
+			await execFile("git", ["init"], { cwd: project.path });
+		},
+	);
+
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();

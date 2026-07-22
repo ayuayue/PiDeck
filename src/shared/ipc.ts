@@ -106,6 +106,7 @@ export const ipcChannels = {
 	gitReset: "git:reset",
 	gitDropCommit: "git:drop-commit",
 	gitGenerateCommitMessage: "git:generate-commit-message",
+	gitInit: "git:init",
 	piCheck: "pi:check",
 	piCheckCustom: "pi:check-custom",
 	/** 获取已安装的 WSL 发行版列表（仅 Windows） */

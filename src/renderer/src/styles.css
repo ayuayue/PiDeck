@@ -14874,6 +14874,8 @@ a.config-btn {
   background: var(--color-border-subtle);
   flex-shrink: 0;
   min-width: 0;
+  /* 编辑器 tab bar 顶部加一条 accent 色细线，与 drawer header 区分 */
+  border-top: 2px solid var(--color-accent);
 }
 .file-diff-tab {
   display: flex;
@@ -14896,6 +14898,7 @@ a.config-btn {
 .file-diff-tab.active {
   color: var(--color-text-primary);
   background: var(--color-bg-base);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 .file-diff-tab-close {
   display: inline-flex;
@@ -14949,6 +14952,7 @@ a.config-btn {
   padding: 0 var(--space-4);
   padding-left: var(--space-6);
   border-bottom: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-accent);
   background: var(--color-bg-muted);
   flex-shrink: 0;
   min-width: 0;
@@ -15007,11 +15011,12 @@ a.config-btn {
   place-items: center;
   line-height: 1;
   cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
 .file-diff-toggle-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
 .file-diff-close {
@@ -15026,11 +15031,13 @@ a.config-btn {
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
 }
 
 .file-diff-close:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
 }
 
 .file-diff-body {
@@ -19630,6 +19637,21 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 .git-compare-files { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; }
 .git-spin { animation: git-spin 1s linear infinite; }
 @keyframes git-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* 未初始化 Git 仓库时的提示 */
+.git-not-init {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+}
+.git-not-init-prompt {
+  color: var(--git-desc-fg);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-body);
+}
 @media (max-width: 420px) {
   .git-history-label { gap: 6px; }
   .git-history-author, .git-resource-path { display: none; }

@@ -87,6 +87,8 @@ type GitPanelProps = {
     projectId: string,
     stagedPaths?: string[],
   ) => Promise<string>;
+  /** 初始化 Git 仓库 */
+  gitInit?: (projectId: string) => Promise<void>;
 };
 
 type PaneId = "changes" | "graph" | "compare";
@@ -741,6 +743,8 @@ export function GitPanel(props: GitPanelProps) {
   const [commitMessage, setCommitMessage] = useState("");
   const [committing, setCommitting] = useState(false);
   const [mutating, setMutating] = useState(false);
+  const [notAGitRepo, setNotAGitRepo] = useState(false);
+  const [initializing, setInitializing] = useState(false);
   const [smartCommitPreference, setSmartCommitPreference] =
     useState<SmartCommitPreference>(() =>
       readSmartCommitPreference(props.projectId),
@@ -792,6 +796,7 @@ export function GitPanel(props: GitPanelProps) {
     setSmartCommitPreference(readSmartCommitPreference(props.projectId));
     setShowSmartCommitPrompt(false);
     setDiscardTarget(null);
+    setNotAGitRepo(false);
   }, [props.projectId]);
 
   useEffect(() => {
@@ -849,7 +854,14 @@ export function GitPanel(props: GitPanelProps) {
         ) {
           if (!silent) {
             setGroups(EMPTY_GROUPS);
-            setError(errorMessage(caught));
+            const msg = errorMessage(caught);
+            // 检测"不是 Git 仓库"的错误，展示初始化提示
+            if (/not a git repository|fatal:/.test(msg)) {
+              setNotAGitRepo(true);
+              setError("");
+            } else {
+              setError(msg);
+            }
           }
           // 静默失败不影响已展示的旧分组数据；不做任何 UI 状态变更。
         }
@@ -1194,6 +1206,35 @@ export function GitPanel(props: GitPanelProps) {
         </PaneHeader>
         {paneState.open.changes && (
           <div className="git-pane-body git-changes-body">
+            {notAGitRepo ? (
+              <div className="git-not-init">
+                <div className="git-not-init-prompt">{t("git.notAGitRepo")}</div>
+                <button
+                  type="button"
+                  className="git-compare-btn"
+                  disabled={initializing}
+                  onClick={async () => {
+                    if (!props.gitInit) return;
+                    setInitializing(true);
+                    try {
+                      await props.gitInit(props.projectId);
+                      setNotAGitRepo(false);
+                      // 初始化完成后刷新状态
+                      void refresh();
+                    } catch (caught) {
+                      setError(errorMessage(caught));
+                    }
+                    setInitializing(false);
+                  }}
+                >
+                  {initializing ? (
+                    <Loader2 size={14} className="git-spin" />
+                  ) : (
+                    t("git.initRepo")
+                  )}
+                </button>
+              </div>
+            ) : (
             <div className="git-scm-input-wrap">
               <textarea
                 className="git-scm-input"

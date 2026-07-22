@@ -7509,6 +7509,7 @@ export function App() {
                   reset={api.git.reset}
                   dropCommit={api.git.dropCommit}
                   generateCommitMessage={api.git.generateCommitMessage}
+                  gitInit={api.git.init}
                 />
               </div>
               {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (
