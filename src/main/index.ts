@@ -1908,7 +1908,20 @@ function registerIpc() {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
 			const { execFile } = await import("node:child_process");
-			await execFile("git", ["init"], { cwd: project.path });
+			const { promisify } = await import("node:util");
+			const execFileAsync = promisify(execFile);
+			// 初始化仓库并创建 main 分支，生成一个初始空提交
+			await execFileAsync("git", ["init"], { cwd: project.path });
+			try {
+				await execFileAsync("git", ["checkout", "-b", "main"], { cwd: project.path });
+			} catch {
+				// 部分 git 版本在无提交时 checkout -b 可能失败，改用 branch -M
+				await execFileAsync("git", ["branch", "-M", "main"], { cwd: project.path });
+			}
+			await execFileAsync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+				cwd: project.path,
+				env: { ...process.env, GIT_AUTHOR_NAME: "PiDeck", GIT_AUTHOR_EMAIL: "pideck@local", GIT_COMMITTER_NAME: "PiDeck", GIT_COMMITTER_EMAIL: "pideck@local" },
+			});
 		},
 	);
 
