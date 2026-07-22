@@ -1262,24 +1262,23 @@ export function GitPanel(props: GitPanelProps) {
                   disabled={commitGenLoading || mutating}
                   onClick={async () => {
                     if (!props.generateCommitMessage) return;
-                    // 无暂存文件时提示用户先暂存再生成摘要
                     if (groups.index.length === 0) {
                       showNotice(t("git.stageBeforeGenerateCommitMessage"), 3000);
                       return;
                     }
                     setCommitGenLoading(true);
                     try {
-                      const message = await props.generateCommitMessage(
-                        props.projectId,
-                      );
+                      const message = await props.generateCommitMessage(props.projectId);
                       if (message) setCommitMessage(message);
+                      setCommitGenLoading(false);
                     } catch (err) {
                       showNotice(
                         err instanceof Error ? err.message : t("git.generateCommitMessageFailed"),
                         5000,
                         "error",
                       );
-                    setCommitGenLoading(false);
+                      setCommitGenLoading(false);
+                    }
                   }}
                 >
                   {commitGenLoading ? (
