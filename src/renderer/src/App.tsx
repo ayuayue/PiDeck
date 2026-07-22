@@ -493,6 +493,8 @@ export function App() {
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
     new Set(),
   );
+  const collapsedProjectsRef = useRef(collapsedProjects);
+  collapsedProjectsRef.current = collapsedProjects;
   const [activeAgentByProject, setActiveAgentByProject] = useState<
     Record<string, string>
   >({});
@@ -1248,7 +1250,7 @@ export function App() {
   /** 安装是否已成功完成 */
   const [installCompleted, setInstallCompleted] = useState(false);
   const [environmentDialog, setEnvironmentDialog] = useState(false);
-  const DEFAULT_LIST_WIDTH = 260;
+  const DEFAULT_LIST_WIDTH = 221;
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH);
   const [drawerWidth, setDrawerWidth] = useState(270);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
@@ -5830,17 +5832,23 @@ export function App() {
                     el.classList.add('click-animating');
                     setTimeout(() => el.classList.remove('click-animating'), 400);
 
-                    // 点击项目行：始终展开 + 加载会话
-                    setCollapsedProjects((prev) => {
-                      const next = new Set(prev);
-                      next.delete(project.id);
-                      return next;
-                    });
-                    if (!projectIsChat) {
-                      const hasLoadedSessions = sessionsByProject[project.id]?.length > 0;
-                      if (!hasLoadedSessions) {
-                        void refreshProjectSessions(project.id).catch(() => undefined);
-                      }
+                    // 点击项目行：切换展开/折叠状态
+                    const hasLoadedSessions = (sessionsByProject[project.id]?.length ?? 0) > 0;
+                    // 首次点击尚未加载会话 → 始终展开 + 加载；加载过之后点击 → 正常切换
+                    if (!hasLoadedSessions && !projectIsChat) {
+                      setCollapsedProjects((prev) => {
+                        const next = new Set(prev);
+                        next.delete(project.id);
+                        return next;
+                      });
+                      void refreshProjectSessions(project.id).catch(() => undefined);
+                    } else {
+                      setCollapsedProjects((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(project.id)) next.delete(project.id);
+                        else next.add(project.id);
+                        return next;
+                      });
                     }
 
                     setActiveProjectId(project.id);
@@ -5962,7 +5970,6 @@ export function App() {
                 )}
                 {!isCollapsed &&
                   (projectDisplay.visibleChildren.length > 0 ||
-                    projectSessionsLoading ||
                     projectDisplay.hiddenChildCount > 0) && (
                   <div className="session-card">
                     {projectDisplay.visibleChildren.map((child) => {
@@ -6167,12 +6174,7 @@ export function App() {
                       </Fragment>
                     );
                   })}
-                {!isCollapsed && projectSessionsLoading && (
-                  <div className="project-session-loading">
-                    <div className="loader" />
-                    <span>{t("app.projectSessionsLoading")}</span>
-                  </div>
-                )}
+
                 {!isCollapsed && projectDisplay.hiddenChildCount > 0 && (
                   <button
                     className="session-more-row"
