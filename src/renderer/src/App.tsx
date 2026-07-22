@@ -21,7 +21,6 @@ import {
   ChevronRight,
   ChevronDown,
   Code,
-  Info,
   MessageCircle,
   MessageSquare,
   PanelLeftClose,
@@ -1696,15 +1695,15 @@ export function App() {
   const activeUiAsk = useMemo(() => {
     if (!activeUiRequest) return undefined;
     return Object.values(activeUiRequest).find(
-      (req) => !req.completed && ["select", "confirm", "input", "editor"].includes(req.method),
+      (req) => !req.completed && req.agentId === activeAgentId && ["select", "confirm", "input", "editor"].includes(req.method),
     );
-  }, [activeUiRequest]);
+  }, [activeUiRequest, activeAgentId]);
   // dialog 显示条件：仅当有活跃的交互式 UI 请求时
   const showAskDialog = activeUiAsk !== undefined;
   // 用 body class 控制内联 ask 卡片的显示
   useEffect(() => {
-    document.body.classList.toggle("ask-dialog-open", showAskDialog);
-    return () => document.body.classList.remove("ask-dialog-open");
+    document.body.classList.toggle("ask-bar-active", showAskDialog);
+    return () => document.body.classList.remove("ask-bar-active");
   }, [showAskDialog]);
 
   const isAwaitingAssistant = Boolean(
@@ -5831,17 +5830,13 @@ export function App() {
                     el.classList.add('click-animating');
                     setTimeout(() => el.classList.remove('click-animating'), 400);
 
-                    // 点击项目行始终切换展开/折叠状态
-                    const wasCollapsed = collapsedProjects.has(project.id);
+                    // 点击项目行：总是展开项目 + 同步加载会话记录
                     setCollapsedProjects((prev) => {
                       const next = new Set(prev);
-                      if (next.has(project.id)) next.delete(project.id);
-                      else next.add(project.id);
+                      next.delete(project.id);
                       return next;
                     });
-
-                    // 展开项目时同步加载会话记录，loading 指示器让用户知道正在加载
-                    if (wasCollapsed && !projectIsChat) {
+                    if (!projectIsChat) {
                       const hasLoadedSessions = sessionsByProject[project.id]?.length > 0;
                       if (!hasLoadedSessions) {
                         void refreshProjectSessions(project.id).catch(() => undefined);
@@ -7038,6 +7033,203 @@ export function App() {
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          )}
+          {showAskDialog && activeUiAsk && (
+            <div className="ask-inline-bar">
+              <div className="ask-inline-bar-header">
+                <MessageCircle size={14} />
+                <span>{t("ask.toolName")}</span>
+                {/* select 类型取消提示 */}
+                {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
+                  <span className="ask-inline-bar-cancel-hint">{t("ask.cancelHint")}</span>
+                )}
+                <button
+                  className="ask-inline-bar-close"
+                  title={t("common.close")}
+                  onClick={() => {
+                    const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
+                    if (isSelect) {
+                      showToast(t("ask.cancelHint"));
+                    }
+                    if (activeUiAsk.requestId && activeAgentId) {
+                      /* 立即从本地 state 移除，同时通知 Pi */
+                      setActiveUiRequest((current) => {
+                        if (!current) return null;
+                        const next = { ...current };
+                        delete next[activeUiAsk.requestId];
+                        if (Object.keys(next).length === 0) return null;
+                        return next;
+                      });
+                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+                    }
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="ask-inline-bar-question">{activeUiAsk.title || t("ask.pending")}</div>
+              <div className="ask-inline-bar-body">
+                {activeUiAsk.method === "confirm" ? (
+                  <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
+                    <button
+                      className="ask-inline-bar-option ask-inline-bar-option-yes"
+                      onClick={() => {
+                        if (activeUiAsk.requestId && activeAgentId) {
+                          /* 立即移除，同时发送响应 */
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
+                        }
+                      }}
+                    >
+                      {t("common.true")}
+                    </button>
+                    <button
+                      className="ask-inline-bar-option ask-inline-bar-option-no"
+                      onClick={() => {
+                        if (activeUiAsk.requestId && activeAgentId) {
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
+                        }
+                      }}
+                    >
+                      {t("common.false")}
+                    </button>
+                  </div>
+                ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
+                  <div className="ask-inline-bar-options">
+                    {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
+                    {activeUiAsk.options.filter((opt) => {
+                      const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                      return !label.startsWith("✎");
+                    }).map((opt, i) => {
+                      const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
+                      const label = typeof opt === "string" ? opt : (opt as any).label ?? val;
+                      return (
+                        <button
+                          key={i}
+                          className="ask-inline-bar-option"
+                          onClick={() => {
+                            if (activeUiAsk.requestId && activeAgentId) {
+                              setActiveUiRequest((current) => {
+                                if (!current) return null;
+                                const next = { ...current };
+                                delete next[activeUiAsk.requestId];
+                                if (Object.keys(next).length === 0) return null;
+                                return next;
+                              });
+                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
+                            }
+                          }}
+                        >
+                          <span className="ask-inline-bar-option-marker">{label}</span>
+                        </button>
+                      );
+                    })}
+                    <div className="ask-inline-bar-custom-input">
+                      <input
+                        id="ask-inline-bar-custom-field"
+                        className="ask-inline-bar-custom-field"
+                        placeholder={t("ask.customPlaceholder")}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
+                            const val = el?.value?.trim() ?? "";
+                            if (val && activeUiAsk.requestId && activeAgentId) {
+                              setActiveUiRequest((current) => {
+                                if (!current) return null;
+                                const next = { ...current };
+                                delete next[activeUiAsk.requestId];
+                                if (Object.keys(next).length === 0) return null;
+                                return next;
+                              });
+                              /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
+                              pendingCustomInputRef.current = val;
+                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                            }
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="ask-inline-bar-submit-btn"
+                        onClick={() => {
+                          const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
+                          const val = el?.value?.trim() ?? "";
+                          if (val && activeUiAsk.requestId && activeAgentId) {
+                            setActiveUiRequest((current) => {
+                              if (!current) return null;
+                              const next = { ...current };
+                              delete next[activeUiAsk.requestId];
+                              if (Object.keys(next).length === 0) return null;
+                              return next;
+                            });
+                            /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
+                            pendingCustomInputRef.current = val;
+                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                          }
+                        }}
+                      >
+                        {t("common.submit")}
+                      </button>
+                    </div>
+                  </div>
+                ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
+                  <div className="ask-inline-bar-input-area">
+                    <input
+                      id="ask-inline-bar-input"
+                      className="ask-inline-bar-input"
+                      placeholder={activeUiAsk.placeholder || ""}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
+                          const value = (e.target as HTMLInputElement).value;
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+                        }
+                      }}
+                    />
+                    <button
+                      className="ask-inline-bar-submit-btn"
+                      onClick={() => {
+                        const value = (document.getElementById("ask-inline-bar-input") as HTMLInputElement)?.value ?? "";
+                        if (activeUiAsk.requestId && activeAgentId) {
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+                        }
+                      }}
+                    >
+                      {t("common.submit")}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
           )}
@@ -8536,151 +8728,7 @@ export function App() {
         </div>
       )}
 
-    {/* ask_question 弹出 dialog - 仅在 pi 通过 extension_ui_request 发送交互请求时显示 */}
-    {showAskDialog && activeUiAsk && (
-      <div className="modal-backdrop" onClick={undefined}>
-        <div className="ask-dialog" onClick={(e) => e.stopPropagation()}>
-          <div className="ask-dialog-header">
-            <MessageCircle size={16} />
-            <span>{t("ask.toolName")}</span>
-            {/* 关闭按钮：点击后取消当前请求，select 类型会提示模型默认选第一项 */}
-            <button
-              className="ask-dialog-close-btn"
-              title={t("common.close")}
-              onClick={() => {
-                const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
-                if (isSelect) {
-                  showToast(t("ask.cancelHint"));
-                }
-                if (activeUiAsk.requestId && activeAgentId) {
-                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
-                }
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-          <div className="ask-dialog-question">{activeUiAsk.title || t("ask.pending")}</div>
-          {activeUiAsk.method === "confirm" ? (
-            <div className="ask-dialog-options ask-dialog-options-confirm">
-              <button
-                className="ask-dialog-option"
-                onClick={() => {
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
-                  }
-                }}
-              >
-                {t("common.true")}
-              </button>
-              <button
-                className="ask-dialog-option"
-                onClick={() => {
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
-                  }
-                }}
-              >
-                {t("common.false")}
-              </button>
-            </div>
-          ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
-            <div className="ask-dialog-options">
-              {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
-              {activeUiAsk.options.filter((opt) => {
-                const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
-                return !label.startsWith("✎");
-              }).map((opt, i) => {
-                const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
-                const label = typeof opt === "string" ? opt : (opt as any).label ?? val;
-                return (
-                  <button
-                    key={i}
-                    className="ask-dialog-option"
-                    onClick={() => {
-                      if (activeUiAsk.requestId && activeAgentId) {
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
-                      }
-                    }}
-                  >
-                    <span className="ask-dialog-option-marker">{label}</span>
-                  </button>
-                );
-              })}
-              <div className="ask-dialog-custom-input">
-                <input
-                  id="ask-dialog-custom-field"
-                  className="ask-dialog-custom-field"
-                  placeholder={t("ask.customPlaceholder")}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const el = document.getElementById("ask-dialog-custom-field") as HTMLInputElement | null;
-                      const val = el?.value?.trim() ?? "";
-                      if (val && activeUiAsk.requestId && activeAgentId) {
-                        /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
-                        pendingCustomInputRef.current = val;
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
-                      }
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="ask-dialog-submit-btn"
-                  onClick={() => {
-                    const el = document.getElementById("ask-dialog-custom-field") as HTMLInputElement | null;
-                    const val = el?.value?.trim() ?? "";
-                    if (val && activeUiAsk.requestId && activeAgentId) {
-                      /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
-                      pendingCustomInputRef.current = val;
-                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
-                    }
-                  }}
-                >
-                  {t("common.submit")}
-                </button>
-              </div>
-            </div>
-          ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
-            <div className="ask-dialog-input-area">
-              <input
-                id="ask-dialog-input"
-                className="ask-dialog-input"
-                placeholder={activeUiAsk.placeholder || ""}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
-                    const value = (e.target as HTMLInputElement).value;
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                  }
-                }}
-              />
-              <button
-                className="ask-dialog-submit-btn"
-                onClick={() => {
-                  const value = (document.getElementById("ask-dialog-input") as HTMLInputElement)?.value ?? "";
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                  }
-                }}
-              >
-                {t("common.submit")}
-              </button>
-            </div>
 
-          ) : null}
-          {/* select 类型取消提示 */}
-          {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
-            <div className="ask-dialog-cancel-hint">
-              <Info size={12} />
-              <span>{t("ask.cancelHint")}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
     </div>
   );
 }
