@@ -2257,13 +2257,22 @@ export function App() {
           return { ...current, [request.agentId]: agentWidgets };
         });
         // agent 推送了新的 widget 内容，清除该 widget 的关闭标记使其重新显示
+        // 使用与 onClose 一致的 sessionPath 作为 key，避免 key 不匹配导致关闭后无法恢复
+        // ref: https://github.com/ayuayue/PiDeck/issues/73
         if (widgetLines.length > 0) {
+          const dismissedTargetAgent = agentsRef.current.find(
+            (a) => a.id === request.agentId,
+          );
+          const widgetSessionKey = getAgentSessionStorageKey(
+            dismissedTargetAgent,
+            request.agentId,
+          );
           setAgentDismissedWidgets((prev) => {
-            const current = prev[request.agentId];
+            const current = prev[widgetSessionKey];
             if (!current?.includes(widgetKey)) return prev;
             return {
               ...prev,
-              [request.agentId]: current.filter((k) => k !== widgetKey),
+              [widgetSessionKey]: current.filter((k) => k !== widgetKey),
             };
           });
         }
