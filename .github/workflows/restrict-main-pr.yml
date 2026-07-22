@@ -2,9 +2,9 @@ name: Restrict main branch PR from non-members
 
 on:
   pull_request_target:
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
     branches:
-      - main
+      - 'main'
 
 jobs:
   check-author:
@@ -13,38 +13,45 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - name: Check author association
+      - uses: actions/github-script@v7
         id: check
-        run: |
-          # 允许直接向 main 提 PR 的关联类型：
-          #   OWNER       - 仓库所有者
-          #   COLLABORATOR - 被添加为协作者的用户（有 write 及以上权限）
-          # 需要重定向到 dev 的类型：
-          #   CONTRIBUTOR, FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, NONE
-          ASSOCIATION="${{ github.event.pull_request.author_association }}"
-          echo "PR author association: $ASSOCIATION"
-          echo "association=$ASSOCIATION" >> $GITHUB_OUTPUT
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.issue.number;
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+            const association = pr.data.author_association;
+            const author = pr.data.user.login;
+            core.info(`PR #${prNumber} author: ${author}, association: ${association}`);
 
-      - name: Close PR if from non-member
-        if: >
-          steps.check.outputs.association != 'OWNER' &&
-          steps.check.outputs.association != 'COLLABORATOR'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh pr close "$PR_NUM" \
-            --comment "👋 你好 @${PR_AUTHOR}，感谢你的贡献！
+            if (association !== 'OWNER' && association !== 'COLLABORATOR') {
+              core.info(`Non-member PR to main — will close and comment.`);
+              const body =
+                `👋 你好 @${author}，感谢你的贡献！\n\n` +
+                `本仓库的非协作者 PR 请提交到 \`dev\` 分支，而不是 \`main\`。\n\n` +
+                `请将 PR 的目标分支改为 \`dev\` 后重新提交，谢谢！\n___\n` +
+                `Hi @${author}, thanks for your contribution!\n\n` +
+                `For non-collaborators, please submit PRs targeting the \`dev\` branch instead of \`main\`.\n\n` +
+                `Please update your PR target to \`dev\` and re-submit. Thank you!`;
 
-            本仓库的非协作者 PR 请提交到 \`dev\` 分支，而不是 \`main\`。
-
-            请将 PR 的目标分支改为 \`dev\` 后重新提交，谢谢！
-            ___
-            Hi @${PR_AUTHOR}, thanks for your contribution!
-
-            For non-collaborators, please submit PRs targeting the \`dev\` branch instead of \`main\`.
-
-            Please update your PR target to \`dev\` and re-submit. Thank you!" \
-            --repo "$REPO"
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body,
+              });
+              await github.rest.pulls.update({
+                owner,
+                repo,
+                pull_number: prNumber,
+                state: 'closed',
+              });
+              core.setOutput('action', 'closed');
+            } else {
+              core.info(`Member PR to main — allowed.`);
+              core.setOutput('action', 'allowed');
+            }
