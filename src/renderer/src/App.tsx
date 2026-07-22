@@ -7499,6 +7499,10 @@ export function App() {
                   currentBranch={gitInfo.current}
                   onSwitchBranch={switchBranch}
                   onCreateBranch={createBranch}
+                  cherryPick={api.git.cherryPick}
+                  revert={api.git.revert}
+                  reset={api.git.reset}
+                  dropCommit={api.git.dropCommit}
                 />
               </div>
               {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (

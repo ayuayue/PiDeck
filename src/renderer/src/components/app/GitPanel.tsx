@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, GitBranch, Loader2, Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, GitBranch, Loader2, Plus, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { ConfirmDialog } from "./AppParts";
+import { showNotice } from "../../utils/notice";
 import type {
   BranchDiffResult,
   CommitDetail,
@@ -15,7 +16,7 @@ import type {
 } from "../../../../shared/types";
 import { GitStatus } from "../../../../shared/types";
 import { getFileIconColor, getFileIconSeti } from "../../fileIcons";
-import { t } from "../../i18n";
+import { t, type TranslationKey } from "../../i18n";
 
 type GitPanelProps = {
   projectId: string;
@@ -35,6 +36,12 @@ type GitPanelProps = {
   onSwitchBranch?: (branch: string) => void;
   /** 创建新分支 */
   onCreateBranch?: (branchName: string) => void;
+  cherryPick?: (projectId: string, hash: string) => Promise<void>;
+  revert?: (projectId: string, hash: string) => Promise<void>;
+  reset?: (projectId: string, hash: string, mode: "soft" | "mixed" | "hard") => Promise<void>;
+  dropCommit?: (projectId: string, hash: string) => Promise<void>;
+  /** AI 生成提交摘要 */
+  generateCommitMessage?: (projectId: string, stagedPaths?: string[]) => Promise<string>;
 };
 
 type PaneId = "changes" | "graph" | "compare";
@@ -744,6 +751,7 @@ export function GitPanel(props: GitPanelProps) {
   );
 
   /** 新建分支弹窗状态 */
+  const [commitGenLoading, setCommitGenLoading] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchCreating, setBranchCreating] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
@@ -866,15 +874,34 @@ export function GitPanel(props: GitPanelProps) {
                 }}
                 rows={3}
               />
-              <Button
-                variant="primary"
-                className="git-commit-btn"
-                loading={committing}
-                disabled={!canCommit}
-                onClick={() => void doCommit()}
-              >
-                {committing ? t("git.committing") : t("git.commit")}
-              </Button>
+              <div className="git-commit-actions">
+                <button
+                  type="button"
+                  className="git-commit-gen-btn"
+                  title={t("git.generateCommitMessage")}
+                  disabled={commitGenLoading || mutating}
+                  onClick={async () => {
+                    if (!props.generateCommitMessage) return;
+                    setCommitGenLoading(true);
+                    try {
+                      const message = await props.generateCommitMessage(props.projectId);
+                      if (message) setCommitMessage(message);
+                    } catch {}
+                    setCommitGenLoading(false);
+                  }}
+                >
+                  {commitGenLoading ? <Loader2 size={14} className="git-spin" /> : <Sparkles size={14} />}
+                </button>
+                <Button
+                  variant="primary"
+                  className="git-commit-btn"
+                  loading={committing}
+                  disabled={!canCommit}
+                  onClick={() => void doCommit()}
+                >
+                  {committing ? t("git.committing") : t("git.commit")}
+                </Button>
+              </div>
             </div>
 
             {error && <div className="git-status-msg error">{error}</div>}
@@ -970,6 +997,10 @@ export function GitPanel(props: GitPanelProps) {
         open={paneState.open.graph}
         height={paneState.heights.graph}
         onToggle={() => togglePane("graph")}
+        cherryPick={props.cherryPick}
+        revert={props.revert}
+        reset={props.reset}
+        dropCommit={props.dropCommit}
       />
 
       {paneState.open.graph && visibleSashAfterGraph && renderSash("graph", visibleSashAfterGraph)}
@@ -1340,6 +1371,10 @@ function SourceControlGraph(props: {
   open: boolean;
   height: number;
   onToggle: () => void;
+  cherryPick?: GitPanelProps["cherryPick"];
+  revert?: GitPanelProps["revert"];
+  reset?: GitPanelProps["reset"];
+  dropCommit?: GitPanelProps["dropCommit"];
 }) {
   const [commits, setCommits] = useState<CommitEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1485,6 +1520,45 @@ function SourceControlGraph(props: {
     };
   }, [clearHoverTimer, clearHoverDismissTimer]);
 
+  /** 提交条目右键菜单状态 */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; commit: CommitEntry } | null>(null);
+  /** 确认弹框状态 */
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+  /** 右键操作loading */
+  const [contextMenuLoading, setContextMenuLoading] = useState<string | null>(null);
+  /** 加载更多的计数（每次加 30） */
+  const [loadCount, setLoadCount] = useState(30);
+
+  /** 右键菜单关闭 */
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  /** 执行右键操作（通过 ref 引用 load，避免循环依赖） */
+  const loadRef = useRef<() => void>(() => {});
+  const runGitAction = useCallback(async (
+    action: string,
+    run: () => Promise<void> | void,
+    successKey: TranslationKey,
+  ) => {
+    const hash = contextMenu?.commit.hash ?? "";
+    setContextMenuLoading(action);
+    closeContextMenu();
+    try {
+      await run();
+      showNotice(t(successKey, { hash: hash.substring(0, 7) }), 2000);
+      loadRef.current();
+    } catch (err) {
+      showNotice(t("git.contextMenuFailed", { error: errorMessage(err) }), 3000);
+    } finally {
+      setContextMenuLoading(null);
+    }
+  }, [contextMenu, closeContextMenu]);
+
+useEffect(() => { loadRef.current = load; });
+
   const load = useCallback(async () => {
     if (!props.open) return;
     const request = ++loadSequence.current;
@@ -1493,14 +1567,14 @@ function SourceControlGraph(props: {
     setError(null);
     resetCommitDetails();
     try {
-      const next = await props.commitLog(projectId, { maxEntries: 50, ref: ref || undefined, allBranches: !ref });
+      const next = await props.commitLog(projectId, { maxEntries: loadCount, ref: ref || undefined, allBranches: !ref });
       if (request === loadSequence.current && projectId === props.projectId) setCommits(next);
     } catch (caught) {
       if (request === loadSequence.current && projectId === props.projectId) setError(errorMessage(caught));
     } finally {
       if (request === loadSequence.current && projectId === props.projectId) setLoading(false);
     }
-  }, [props.commitLog, props.open, props.projectId, ref, resetCommitDetails]);
+  }, [props.commitLog, props.open, props.projectId, ref, resetCommitDetails, loadCount]);
 
   useEffect(() => { void load(); }, [load]);
   const graphRows = useMemo(() => buildGraphRows(commits), [commits]);
@@ -1577,6 +1651,18 @@ function SourceControlGraph(props: {
           {!loading && !error && !commits.length && <div className="git-status-msg">{t("git.noCommits")}</div>}
           {commits.length > 0 && (
             <div className="git-history-list" role="list" onScroll={dismissHover}>
+              {/* "加载更多"按钮：当返回的提交数等于当前请求数时，可能还有更多可按需加载 */}
+              {commits.length === loadCount && commits.length > 0 && (
+                <button
+                  type="button"
+                  className="git-load-more-btn"
+                  onClick={() => {
+                    setLoadCount((prev) => prev + 30);
+                  }}
+                >
+                  {t("git.loadMore")}
+                </button>
+              )}
               {graphRows.map((row) => {
                 const commit = row.commit;
                 const detailState = detailStates[commit.hash];
@@ -1595,6 +1681,10 @@ function SourceControlGraph(props: {
                         // 点击只展开文件列表；先取消 hover，避免按钮获得焦点后误显示提交详情。
                         dismissHover();
                         toggleCommit(commit.hash);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setContextMenu({ x: event.clientX, y: event.clientY, commit });
                       }}
                       onMouseEnter={(event) => scheduleHover(commit, event.currentTarget)}
                       onMouseLeave={handleRowMouseLeave}
@@ -1647,6 +1737,88 @@ function SourceControlGraph(props: {
               state={detailStates[hover.commit.hash]}
               onMouseEnter={handleCardMouseEnter}
               onMouseLeave={handleCardMouseLeave}
+            />
+          )}
+          {/* 提交右键菜单 */}
+          {contextMenu && (
+            <div className="context-backdrop" onClick={closeContextMenu}>
+              <div
+                className="context-menu"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  disabled={contextMenuLoading !== null}
+                  onClick={() => runGitAction("cherryPick", () => props.cherryPick?.(props.projectId, contextMenu.commit.hash), "git.cherryPickSuccess")}
+                >
+                  {contextMenuLoading === "cherryPick" ? <Loader2 size={14} className="git-spin" /> : <GitBranch size={14} />}
+                  {t("git.cherryPick")}
+                </button>
+                <button
+                  disabled={contextMenuLoading !== null}
+                  onClick={() => runGitAction("revert", () => props.revert?.(props.projectId, contextMenu.commit.hash), "git.revertSuccess")}
+                >
+                  {contextMenuLoading === "revert" ? <Loader2 size={14} className="git-spin" /> : <RotateCcw size={14} />}
+                  {t("git.revert")}
+                </button>
+                <hr className="context-separator" />
+                <button
+                  disabled={contextMenuLoading !== null}
+                  onClick={() => runGitAction("resetSoft", () => props.reset?.(props.projectId, contextMenu.commit.hash, "soft"), "git.contextMenuSuccess")}
+                >
+                  {contextMenuLoading === "resetSoft" ? <Loader2 size={14} className="git-spin" /> : null}
+                  {t("git.resetSoft")}
+                </button>
+                <button
+                  disabled={contextMenuLoading !== null}
+                  onClick={() => runGitAction("resetMixed", () => props.reset?.(props.projectId, contextMenu.commit.hash, "mixed"), "git.contextMenuSuccess")}
+                >
+                  {contextMenuLoading === "resetMixed" ? <Loader2 size={14} className="git-spin" /> : null}
+                  {t("git.resetMixed")}
+                </button>
+                <button
+                  disabled={contextMenuLoading !== null}
+                  onClick={() => {
+                    closeContextMenu();
+                    setConfirmAction({
+                      title: t("git.resetHardConfirmTitle"),
+                      message: t("git.resetHardConfirmMessage", { hash: contextMenu.commit.hash.substring(0, 7) }),
+                      onConfirm: () => runGitAction("resetHard", () => props.reset?.(props.projectId, contextMenu.commit.hash, "hard"), "git.contextMenuSuccess"),
+                    });
+                  }}
+                >
+                  {t("git.resetHard")}
+                </button>
+                <hr className="context-separator" />
+                <button
+                  className="danger"
+                  disabled={contextMenuLoading !== null}
+                  onClick={() => {
+                    closeContextMenu();
+                    setConfirmAction({
+                      title: t("git.dropCommitConfirmTitle"),
+                      message: t("git.dropCommitConfirmMessage", { hash: contextMenu.commit.hash.substring(0, 7) }),
+                      onConfirm: () => runGitAction("drop", () => props.dropCommit?.(props.projectId, contextMenu.commit.hash), "git.contextMenuSuccess"),
+                    });
+                  }}
+                >
+                  {contextMenuLoading === "drop" ? <Loader2 size={14} className="git-spin" /> : null}
+                  {t("git.dropCommit")}
+                </button>
+              </div>
+            </div>
+          )}
+          {/* 确认弹框 */}
+          {confirmAction && (
+            <ConfirmDialog
+              title={confirmAction.title}
+              message={confirmAction.message}
+              confirmLabel={t("common.confirm")}
+              onConfirm={() => {
+                confirmAction.onConfirm();
+                setConfirmAction(null);
+              }}
+              onCancel={() => setConfirmAction(null)}
             />
           )}
         </div>

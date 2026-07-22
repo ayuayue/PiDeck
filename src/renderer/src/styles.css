@@ -19174,6 +19174,50 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   font-size: var(--font-size-body);
   font-weight: 500;
 }
+.git-commit-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+.git-commit-gen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-control);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.git-commit-gen-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.git-commit-gen-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.git-load-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.git-load-more-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
 .git-compare-btn { min-width: 64px; min-height: 24px; padding: 0 7px; }
 .git-compare-btn:disabled { opacity: .45; cursor: not-allowed; }
 
