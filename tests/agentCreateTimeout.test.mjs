@@ -13,3 +13,14 @@ test("agent creation uses a bounded timeout instead of leaving pending agents fo
 	assert.match(source, /pendingAgentsRef\.current = pendingAgentsRef\.current\.filter/);
 	assert.match(source, /showToast\(e instanceof Error \? e\.message : String\(e\), 5000\)/);
 });
+
+test("fresh agent creation exits an old session viewer before selecting the pending tab", () => {
+	const createAgentSource = source.match(
+		/async function createAgent\([\s\S]*?\n  \/\*\* 打开会话查看器/,
+	)?.[0] ?? "";
+	assert.match(createAgentSource, /if \(!sessionPath\) clearSessionViewerNow\(\);/);
+	assert.ok(
+		createAgentSource.indexOf("clearSessionViewerNow()") <
+			createAgentSource.indexOf("setActiveAgentId(pendingTab.id)"),
+	);
+});

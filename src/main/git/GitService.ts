@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, open, readlink, realpath } from "node:fs/promises";
+import { lstat, open, readlink, realpath, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff } from "../../shared/types";
@@ -8,6 +8,7 @@ import { GitStatus } from "../../shared/types";
 import type { GitResource, GitResourceGroups } from "../../shared/types";
 
 const execFileAsync = promisify(execFile);
+const GIT_MUTATION_TIMEOUT_MS = 30_000;
 
 export class GitService {
 	/** 只缓存轻量 commit 元数据/文件清单；正文永不缓存，且 LRU 总预算不超过 2MB。 */
@@ -189,10 +190,10 @@ export class GitService {
 		// `-- .` 将 monorepo 中的状态限定到当前项目目录，避免 sibling 资源进入抽屉。
 		const [{ stdout: statusRaw }, { stdout: rootRaw }] = await Promise.all([
 			execFileAsync(
-				"git", ["status", "--porcelain", "-z", "--", "."],
-				{ cwd, maxBuffer: 16 * 1024 * 1024 },
+				"git", ["status", "--porcelain", "-z", "--untracked-files=all", "--", "."],
+				{ cwd, maxBuffer: 16 * 1024 * 1024, timeout: GIT_MUTATION_TIMEOUT_MS },
 			),
-			execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd }),
+			execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS }),
 		]);
 		const repoRoot = await realpath(resolve(rootRaw.trim()));
 		const inputProjectRoot = resolve(cwd);
@@ -595,17 +596,29 @@ export class GitService {
 		const candidates = operation === "stage"
 			? [...groups.merge, ...groups.workingTree, ...groups.untracked]
 			: groups.index;
-		const requested = new Set(paths.map((entry) => resolve(entry)));
-		const matched = candidates.filter((resource) => requested.has(resolve(resource.path)));
+		const normalizePath = (entry: string) => {
+			const normalized = resolve(entry);
+			return process.platform === "win32" ? normalized.toLocaleLowerCase() : normalized;
+		};
+		const requested = new Set(paths.map(normalizePath));
+		const matched = candidates.filter((resource) => requested.has(normalizePath(resource.path)));
 		if (matched.length !== requested.size) throw new Error("Git resource is stale or outside the project");
-		return [...new Set(matched.flatMap((resource) => [resource.path, resource.oldPath].filter((entry): entry is string => Boolean(entry))))];
+		return [...new Set(matched.flatMap((resource) => {
+			// 只有 unstaged rename/copy 的 Stage 和 staged rename/copy 的 Unstage 需要新旧路径；
+			// 普通工作区修改（包括 staged rename 后的新路径编辑）只操作当前路径，避免不存在的 oldPath 令整条命令失败。
+			const includeOldPath = operation === "unstage" ||
+				resource.status === GitStatus.INTENT_TO_RENAME;
+			return includeOldPath && resource.oldPath
+				? [resource.path, resource.oldPath]
+				: [resource.path];
+		}))];
 	}
 
 	/** Stage 文件（git add） */
 	async stageFiles(cwd: string, paths: string[]): Promise<void> {
 		const safePaths = await this.resolveMutationPaths(cwd, paths, "stage");
 		if (safePaths.length === 0) return;
-		await execFileAsync("git", ["add", "--", ...safePaths], { cwd });
+		await execFileAsync("git", ["--literal-pathspecs", "add", "--", ...safePaths], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 	}
 
 	/** Unstage 文件（git restore --staged） */
@@ -614,16 +627,49 @@ export class GitService {
 		if (safePaths.length === 0) return;
 		const head = await this.resolveCommitHash(cwd, "HEAD");
 		if (head) {
-			await execFileAsync("git", ["restore", "--staged", "--", ...safePaths], { cwd });
+			await execFileAsync("git", ["--literal-pathspecs", "restore", "--staged", "--", ...safePaths], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 		} else {
 			// Unborn repository 没有 HEAD，restore --staged 无基线；从 index 移除但保留工作区文件。
-			await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", ...safePaths], { cwd });
+			await execFileAsync("git", ["--literal-pathspecs", "rm", "--cached", "--ignore-unmatch", "--", ...safePaths], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 		}
+	}
+
+	/**
+	 * 丢弃单个未暂存资源。Tracked 文件只恢复 worktree 到 index，因此 MM/AM 文件的暂存内容不会丢失；
+	 * untracked 资源只允许删除 status 明确列出的单个文件或符号链接，目录必须由用户在文件管理器中处理。
+	 */
+	async discardFile(
+		cwd: string,
+		group: "workingTree" | "untracked",
+		filePath: string,
+	): Promise<void> {
+		if (group !== "workingTree" && group !== "untracked") {
+			throw new Error("Git resource group cannot be discarded");
+		}
+		const { groups, repoRoot } = await this.getStatusContext(cwd);
+		const requestedPath = resolve(filePath);
+		const samePath = (left: string, right: string) => process.platform === "win32"
+			? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+			: left === right;
+		const resource = groups[group].find((entry) => samePath(resolve(entry.path), requestedPath));
+		if (!resource) throw new Error("Git resource is stale or outside the project");
+
+		if (group === "untracked") {
+			const metadata = await lstat(resource.path);
+			if (!metadata.isFile() && !metadata.isSymbolicLink()) {
+				throw new Error("Only individual untracked files can be discarded");
+			}
+			// unlink 对符号链接只删除链接自身，不会跟随到项目外目标；若文件在校验后被替换为目录，unlink 会安全失败。
+			await unlink(resource.path);
+			return;
+		}
+
+		await execFileAsync("git", ["--literal-pathspecs", "restore", "--worktree", "--", resource.path], { cwd: repoRoot, timeout: GIT_MUTATION_TIMEOUT_MS });
 	}
 
 	/** 创建提交 */
 	async commit(cwd: string, message: string): Promise<void> {
-		await execFileAsync("git", ["commit", "-m", message], { cwd });
+		await execFileAsync("git", ["commit", "-m", message], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 	}
 }
 

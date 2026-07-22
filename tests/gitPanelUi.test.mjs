@@ -119,7 +119,7 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(panel, /function fitPaneHeights/);
     assert.match(panel, /ResizeObserver/);
     assert.match(panel, /statusRequestRef/);
-    assert.match(panel, /request === statusRequestRef\.current && projectId === props\.projectId/);
+    assert.match(panel, /request === statusRequestRef\.current && projectId === projectIdRef\.current/);
     assert.match(panel, /requestSequence/);
     assert.match(panel, /const PANE_MIN_BODY_HEIGHT = 24/);
     assert.match(panel, /availableHeight - PANE_IDS\.length \* PANE_HEADER_HEIGHT/);
@@ -146,14 +146,37 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(styles, /min-width:\s*120px/);
   });
 
+  test("runs silent refreshes without overlapping slow status requests", () => {
+    assert.match(panel, /const statusRunningRequestRef = useRef<\{ projectId: string; request: number \} \| null>\(null\)/);
+    assert.match(panel, /statusRunningRequestRef\.current\?\.projectId === props\.projectId/);
+    assert.match(panel, /statusRunningRequestRef\.current = runningRequest/);
+    assert.match(panel, /statusRunningRequestRef\.current = null/);
+  });
+
+  test("keeps mutation locked until IPC settles and times out the real git commands", () => {
+    assert.doesNotMatch(panel, /mutationTimerRef/);
+    assert.doesNotMatch(panel, /setTimeout\([\s\S]*?mutationRunningRef\.current = false/);
+    assert.match(gitService, /const GIT_MUTATION_TIMEOUT_MS = 30_000;/);
+    assert.ok(
+      (gitService.match(/timeout: GIT_MUTATION_TIMEOUT_MS/g) ?? []).length >= 7,
+      "all mutation and mutation-validation git commands should have a process timeout",
+    );
+  });
+
   test("shows details only after a short mouse hover and lazily expands files on click", () => {
     assert.match(panel, /function CommitHoverCard/);
     assert.match(panel, /createPortal\([\s\S]*?document\.body/);
-    assert.match(panel, /window\.setTimeout\([\s\S]*?500/);
+    assert.match(panel, /const COMMIT_HOVER_OPEN_DELAY_MS = 500/);
+    assert.match(panel, /window\.setTimeout\([\s\S]*?COMMIT_HOVER_OPEN_DELAY_MS/);
+    assert.match(panel, /const COMMIT_HOVER_DISMISS_DELAY_MS = 400/);
+    assert.match(panel, /window\.setTimeout\([\s\S]*?COMMIT_HOVER_DISMISS_DELAY_MS/);
     assert.match(panel, /onClick=\{\(\) => \{[\s\S]*?dismissHover\(\);[\s\S]*?toggleCommit\(commit\.hash\);/);
     assert.doesNotMatch(panel, /onFocus=\{\(event\) => scheduleHover/);
     assert.match(panel, /void loadCommitDetail\(commit\.hash\)/);
     assert.match(panel, /detailRequests\.current\.get\(hash\)/);
+    assert.match(styles, /\.git-commit-hover\s*\{[\s\S]*?pointer-events:\s*auto/);
+    assert.match(panel, /onMouseEnter=\{handleCardMouseEnter\}/);
+    assert.match(panel, /onMouseLeave=\{handleCardMouseLeave\}/);
     assert.match(panel, /role="list"/);
     assert.match(panel, /role="listitem"/);
     assert.match(panel, /className=\{`git-history-row/);
@@ -176,8 +199,9 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(panel, /aria-label=\{t\("git\.openFileDiff"/);
     assert.match(panel, /props\.onOpenCommitFileDiff\(commit, file\)/);
     assert.match(app, /api\.git\.commitFileDiff/);
-    assert.match(app, /`\$\{commit\.hash\}:\$\{diff\.path\}`/);
-    assert.match(app, /saveContent=\{activeTab\.allowSave \? saveEditorFileContent : undefined\}/);
+    assert.match(app, /setGitDrawerDiff\(\{/);
+    assert.match(app, /label: `\$\{diff\.path\.split[\s\S]*?\$\{commit\.shortHash\}/);
+    assert.match(app, /<FileDiffViewer[\s\S]*?displayMode="drawer"[\s\S]*?gitDrawerDiff\.originalContent/);
     assert.match(preload, /gitCommitFileDiff/);
     assert.match(main, /gitCommitFileDiff/);
     assert.match(gitService, /async getCommitFileDiff/);
@@ -193,11 +217,13 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(panel, /onOpenWorkspaceFileDiff\("merge", resource\.path\)/);
     assert.match(panel, /onOpenWorkspaceFileDiff\("index", resource\.path\)/);
     assert.match(panel, /resource\.status === GitStatus\.UNTRACKED \? "untracked" : "workingTree"/);
-    assert.match(panel, /action=\{\{ label: t\("git\.stage"\)/);
+    assert.match(panel, /actions=\{\[\{ kind: "stage", label: t\("git\.stage"\)/);
     assert.match(app, /api\.git\.workspaceFileDiff/);
-    assert.match(app, /workspace:\$\{projectId\}:\$\{group\}:\$\{diff\.path\}/);
-    assert.match(app, /preserveDrawer\?:\s*boolean/);
-    assert.match(app, /onToggleMode=\{activeTab\.preserveDrawer \? undefined : toggleEditorMode\}/);
+    assert.match(app, /setGitDrawerDiff\(\{[\s\S]*?projectId,[\s\S]*?filePath: diff\.path/);
+    assert.match(app, /className="git-drawer-stack"/);
+    assert.match(app, /className="git-drawer-source"/);
+    assert.match(app, /className="git-drawer-detail"/);
+    assert.match(app, /setGitDrawerDiff\(null\)/);
     const commitOpen = app.match(/async function openCommitFileDiff[\s\S]*?async function refreshSessionHistory/)?.[0] ?? "";
     assert.doesNotMatch(commitOpen, /setDrawer\(null\)/);
     assert.match(preload, /workspaceFileDiff:/);
@@ -208,6 +234,40 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(gitService, /group === "workingTree"/);
     assert.match(styles, /\.git-resource-open:focus-visible/);
     assert.match(i18n, /"git\.openWorkspaceDiff"/);
+  });
+
+  test("fills the Git detail drawer and reuses FileDiffViewer for real modal expansion", () => {
+    assert.match(styles, /\.file-diff-viewer\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?width:\s*100%/);
+    assert.match(styles, /\.git-drawer-detail > \.file-diff-viewer\s*\{[\s\S]*?flex:\s*1 1 100%;[\s\S]*?width:\s*100%/);
+    assert.match(app, /const \[gitDiffDisplayMode, setGitDiffDisplayMode\] = useState<"modal" \| "drawer">\("drawer"\)/);
+    assert.match(app, /const toggleGitDiffDisplayMode = useCallback/);
+    assert.match(app, /setDrawer\("git"\);[\s\S]*?setDrawerCollapsed\(false\);[\s\S]*?setGitDiffDisplayMode\("drawer"\)/);
+    assert.match(app, /editorMode === "modal" && activeTab && gitDiffDisplayMode !== "modal"/);
+    assert.match(app, /gitDiffDisplayMode === "drawer"[\s\S]*?<FileDiffViewer[\s\S]*?displayMode="drawer"[\s\S]*?onToggleMode=\{toggleGitDiffDisplayMode\}/);
+    assert.match(app, /gitDiffDisplayMode === "modal"[\s\S]*?<FileDiffViewer[\s\S]*?displayMode="modal"[\s\S]*?onToggleMode=\{toggleGitDiffDisplayMode\}/);
+  });
+
+  test("keeps only the newest Git diff request and invalidates pending work on every close", () => {
+    assert.match(app, /const gitDiffRequestSequenceRef = useRef\(0\)/);
+    assert.match(app, /const request = \+\+gitDiffRequestSequenceRef\.current/g);
+    assert.match(app, /request !== gitDiffRequestSequenceRef\.current/g);
+    assert.match(app, /const closeGitDiff = useCallback\(\(\) => \{[\s\S]*?gitDiffRequestSequenceRef\.current \+= 1;[\s\S]*?setGitDrawerDiff\(null\)/);
+    const gitAction = app.match(/gitAction=\{[\s\S]*?\} : undefined\}/)?.[0] ?? "";
+    assert.match(gitAction, /if \(gitDrawerDiff\) \{\s*closeGitDiff\(\);\s*return;/);
+  });
+
+  test("wires single-file discard through the narrow IPC boundary", () => {
+    assert.match(preload, /discard: \(projectId: string, group: "workingTree" \| "untracked", filePath: string\)/);
+    assert.match(main, /ipcChannels\.gitDiscard/);
+    assert.match(gitService, /async discardFile/);
+    assert.match(gitService, /"--literal-pathspecs", "add"/);
+    assert.match(gitService, /"--literal-pathspecs", "restore", "--staged"/);
+    assert.match(gitService, /"--literal-pathspecs", "restore", "--worktree"/);
+    assert.match(gitService, /await unlink\(resource\.path\)/);
+    assert.match(panel, /kind: "discard"/);
+    assert.match(panel, /<ConfirmDialog/);
+    assert.match(i18n, /"git\.discardConfirmMessage"/);
+    assert.match(i18n, /"git\.discardUntrackedConfirmMessage"/);
   });
 
   test("bounds Git diff memory and validates renderer-controlled Git inputs", () => {
@@ -221,7 +281,7 @@ describe("Git panel VS Code Source Control contract", () => {
     assert.match(gitService, /--end-of-options/);
     assert.match(gitService, /Math\.min\(500/);
     assert.match(gitService, /resolveMutationPaths/);
-    assert.match(gitService, /--porcelain", "-z", "--", "\."/);
+    assert.match(gitService, /"--porcelain", "-z", "--untracked-files=all", "--", "\."/);
   });
 
   test("loads commit files against the first parent and preserves rename origins", () => {

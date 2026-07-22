@@ -133,6 +133,11 @@ const api = {
 		// 设置聊天记录目录
 		setChatPath: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.projectsSetChatPath, path) as Promise<Project | null>,
+		// 通过 pi --list-models 获取可用模型列表（无需启动 agent）
+		listModels: (projectId?: string) =>
+			ipcRenderer.invoke(ipcChannels.projectsListModels, projectId) as Promise<
+				AvailableModel[]
+			>,
 	},
 	projectResources: {
 		list: (projectId: string) =>
@@ -197,6 +202,16 @@ const api = {
 		readMessages: (filePath: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsReadMessages, filePath) as Promise<
 				Array<{ role: string; content: string; timestamp: number }>
+			>,
+		readSessionMeta: (filePath: string) =>
+			ipcRenderer.invoke(ipcChannels.sessionsReadMeta, filePath) as Promise<{
+				provider?: string;
+				modelId?: string;
+				thinkingLevel?: string;
+			}>,
+		readChatMessages: (filePath: string) =>
+			ipcRenderer.invoke(ipcChannels.sessionsReadChatMessages, filePath) as Promise<
+				import("../shared/types").ChatMessage[]
 			>,
 	},
 	codexSessions: {
@@ -352,6 +367,14 @@ const api = {
 				ipcChannels.gitUnstage,
 				projectId,
 				paths,
+			) as Promise<void>,
+		// 丢弃单个未暂存文件；主进程会按最新 status 再次验证 group 与路径。
+		discard: (projectId: string, group: "workingTree" | "untracked", filePath: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitDiscard,
+				projectId,
+				group,
+				filePath,
 			) as Promise<void>,
 		// Commit
 		commit: (projectId: string, message: string) =>

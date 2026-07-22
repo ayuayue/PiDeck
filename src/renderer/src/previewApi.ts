@@ -230,6 +230,7 @@ export function createPreviewApi(): PiDesktopApi {
 			toggleWorktreeEnabled: async () => projects[0],
 			chooseChatPath: async () => null,
 			setChatPath: async () => projects[0],
+			listModels: async () => [],
 		},
 		projectResources: {
 			list: async () => ({ skills: [], extensions: [] }),
@@ -299,6 +300,8 @@ export function createPreviewApi(): PiDesktopApi {
 				{ role: "user", content: "Preview user message", timestamp: Date.now() - 60000 },
 				{ role: "assistant", content: "Preview assistant response", timestamp: Date.now() - 30000 },
 			],
+			readSessionMeta: async () => ({}),
+			readChatMessages: async () => [],
 		},
 		codexSessions: {
 			scan: async () => [],
@@ -340,6 +343,7 @@ export function createPreviewApi(): PiDesktopApi {
 				workspaceFileDiff: async () => null,
 				stage: async () => {},
 				unstage: async () => {},
+				discard: async () => {},
 				commit: async () => {},
 		},
 		logs: {

@@ -1782,6 +1782,7 @@ body:not(.is-list-resizing)
 }
 .worktree-row .worktree-branch-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2096,6 +2097,7 @@ body:not(.is-list-resizing)
 .agent-row .conversation-title {
   justify-content: flex-start;
   gap: 6px;
+  overflow: hidden;
 }
 .agent-row .conversation-title strong {
   flex: 1;
@@ -2225,6 +2227,40 @@ body:not(.is-list-resizing)
 .session-source-badge.opencode {
   color: #fff;
   background: #059669;
+}
+.session-source-badge.pi {
+  color: #0891b2;
+  background: color-mix(in srgb, #0891b2 14%, var(--color-bg-panel));
+}
+/* 父行内嵌的子会话折叠按钮：置于行尾，不单独占横条 */
+.subagent-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-micro);
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+.subagent-inline-toggle:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+.subagent-inline-toggle svg {
+  transform: rotate(-90deg);
+  transition: transform 0.12s ease;
+}
+.subagent-inline-toggle svg.expanded {
+  transform: rotate(0deg);
+}
+.subagent-inline-count {
+  font-family: var(--font-family-business);
+  font-weight: 600;
 }
 .session-row.active .conversation-title strong {
   color: var(--color-text-primary);
@@ -3195,6 +3231,7 @@ body.is-terminal-resizing {
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
+  overflow-anchor: none;
   padding: 18px clamp(24px, 4vw, 48px) 24px;
   min-height: 0;
   scroll-padding-top: 18px;
@@ -3783,7 +3820,27 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
-
+.execution-summary-collapse {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  cursor: pointer;
+  align-self: flex-start;
+  transition: color 0.15s ease;
+}
+.execution-summary-collapse:hover {
+  color: var(--color-text-secondary);
+}
+.execution-summary-collapse:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .turn-row-meta {
   display: inline-flex;
   align-items: center;
@@ -7357,16 +7414,17 @@ body.is-composer-resizing .composer-resize-handle::after {
   flex-direction: column;
   box-shadow: none;
   overflow: hidden;
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-  /* Grid 列宽只切换一次，抽屉表面由合成动画完成横向移动。 */
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  /*
+   * 抽屉承载文件树、Git 列表等密集小字号文本。不要在静止态保留
+   * transform / will-change；Windows Chromium 会因此把整个 surface 长期放入
+   * 合成层，并可能把 ClearType 子像素抗锯齿降级为灰度抗锯齿。开合只由父
+   * Grid 的列宽过渡完成，避免文字在两个不同动画时序中被重复栅格化。
+   */
 }
 .detail-drawer:not([data-rendered="true"]) {
   box-shadow: none;
 }
 .detail-drawer:not([data-open="true"]) {
-  transform: translate3d(100%, 0, 0);
   pointer-events: none;
 }
 .drawer-header {
@@ -7464,6 +7522,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 .file-node-row {
   --file-depth-offset: 0px;
   width: 100%;
+  height: 22px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: var(--space-2);
@@ -7471,13 +7530,15 @@ body.is-composer-resizing .composer-resize-handle::after {
   border: 0;
   background: transparent;
   color: var(--color-text-primary);
-  padding: 7px var(--space-2) 7px
+  padding: 0 var(--space-2) 0
     calc(var(--space-2) + var(--file-depth-offset));
   border-radius: var(--radius-sm);
   text-align: left;
-  font-size: var(--font-size-control);
-  font-weight: 500;
-  line-height: 1.28;
+  /* VS Code 风格：14px body 字号 + 400 字重 + 22px fixed 行高；
+     height=line-height 精确对齐，flex/grid center 居中，ClearType 最锐利 */
+  font-size: var(--font-size-body);
+  font-weight: 400;
+  line-height: 22px;
   white-space: nowrap;
 }
 .file-node-row:hover {
@@ -7493,10 +7554,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .file-node-row.file {
   cursor: default;
-  color: var(--color-text-secondary);
 }
 .file-node-row.directory {
-  color: var(--color-text-secondary);
   font-weight: 600;
   cursor: default;
 }
@@ -14758,7 +14817,9 @@ a.config-btn {
 
 .file-diff-viewer {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  width: 100%;
   height: 100%;
   min-width: 0;
   overflow: hidden;
@@ -18562,7 +18623,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-group {
-  margin: 2px 0;
+  margin: 2px 0 2px 28px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -18571,7 +18632,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-toggle,
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row {
   margin: 0;
-  padding: 6px 8px;
+  padding: 6px 8px 6px 20px;
   border-radius: var(--radius-sm);
   background: var(--color-bg-panel);
 }
@@ -18672,6 +18733,38 @@ html[data-theme="dark"] .scratch-pad-md mark {
   font-size: var(--font-size-body);
   font-weight: 400;
   line-height: var(--line-height-body);
+}
+.git-drawer-stack {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.git-drawer-source {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.git-drawer-stack[data-detail-open="true"] .git-drawer-source {
+  visibility: hidden;
+  pointer-events: none;
+}
+.git-drawer-detail {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-bg-panel);
+}
+/* FileDiffViewer 是该 flex 容器的直接子项；显式占满可用横向空间，
+   避免 Monaco 按行号/变更装饰的最小内容宽度收缩成截图中的窄条。 */
+.git-drawer-detail > .file-diff-viewer {
+  flex: 1 1 100%;
+  width: 100%;
 }
 
 .git-pane {
@@ -18811,24 +18904,23 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   line-height: 20px;
   transform: translateY(-1px);
 }
-.git-action-btn:focus-visible, .git-commit-btn:focus-visible, .git-compare-btn:focus-visible, .git-scm-input:focus-visible, .git-compact-select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.git-action-btn:focus-visible, .git-compare-btn:focus-visible, .git-scm-input:focus-visible, .git-compact-select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.git-action-btn:active:not(:disabled) { background: var(--git-panel-active); color: var(--git-panel-fg); }
 .git-action-btn:disabled { opacity: .45; cursor: default; }
 
 .git-scm-input-wrap {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 7px;
-  align-items: end;
-  padding: 7px 10px 5px;
-  border-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 10px 6px;
 }
 .git-scm-input {
   box-sizing: border-box;
   width: 100%;
-  min-height: 46px;
-  max-height: 96px;
+  min-height: 64px;
+  max-height: 120px;
   resize: vertical;
-  padding: 5px 7px;
+  padding: var(--space-2);
   border: 1px solid var(--git-input-border);
   border-radius: 2px;
   background: var(--git-input-bg);
@@ -18838,7 +18930,7 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   line-height: var(--line-height-input);
 }
 .git-scm-input::placeholder { color: var(--git-desc-fg); }
-.git-commit-btn, .git-compare-btn {
+.git-compare-btn {
   display: inline-flex;
   min-height: 28px;
   align-items: center;
@@ -18853,9 +18945,16 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   font-family: var(--git-ui-font);
   font-size: var(--font-size-control);
 }
-.git-commit-btn { min-width: 70px; }
+.git-commit-btn {
+  width: 100%;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+  font-family: var(--git-ui-font);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+}
 .git-compare-btn { min-width: 64px; min-height: 24px; padding: 0 7px; }
-.git-commit-btn:disabled, .git-compare-btn:disabled { opacity: .45; cursor: not-allowed; }
+.git-compare-btn:disabled { opacity: .45; cursor: not-allowed; }
 
 .git-smart-commit-backdrop {
   position: fixed;
@@ -18982,7 +19081,8 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 .git-file-fallback { box-sizing: border-box; width: 12px; height: 14px; border: 1px solid var(--git-desc-fg); border-radius: var(--radius-xs); }
 .git-resource-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
 .git-resource-path { min-width: 0; flex: 1; overflow: hidden; padding: 0 5px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: var(--font-size-caption); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.git-resource-actions { display: flex; flex: 0 0 auto; margin-right: var(--space-1); visibility: hidden; }
+.git-resource-actions { display: flex; flex: 0 0 auto; gap: 1px; margin-right: var(--space-1); visibility: hidden; }
+.git-discard-action:hover:not(:disabled), .git-discard-action:focus-visible { color: var(--color-danger); }
 .git-resource-row:hover .git-resource-actions, .git-resource-row:focus-within .git-resource-actions { visibility: visible; }
 .git-decoration { width: 16px; flex: 0 0 16px; margin-left: 5px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: 12px; font-weight: 600; text-align: right; }
 .git-resource-row.status-modified .git-decoration { color: var(--git-modified); }
@@ -18994,7 +19094,21 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 .git-graph-cell { display: block; height: 28px; flex: 0 0 auto; overflow: hidden; }
 .git-graph-svg { display: block; max-width: none; }
 .git-graph-svg path, .git-graph-svg circle { vector-effect: non-scaling-stroke; }
-.git-compact-select { max-width: 130px; height: 24px; padding: 0 21px 0 5px; border: 1px solid var(--git-input-border); border-radius: var(--radius-sm); background: var(--git-input-bg); color: var(--git-panel-fg); font-family: var(--git-ui-font); font-size: var(--font-size-control); }
+.git-compact-select {
+  max-width: 130px;
+  height: 24px;
+  padding: 0 22px 0 7px;
+  border: 1px solid var(--git-input-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--git-input-bg);
+  color: var(--git-panel-fg);
+  cursor: pointer;
+  font-family: var(--git-ui-font);
+  font-size: var(--font-size-control);
+}
+.git-compact-select:hover { border-color: var(--color-border-strong); background-color: var(--git-panel-hover); }
+.git-compact-select:active { background-color: var(--git-panel-active); }
+.git-compact-select:disabled { opacity: .45; cursor: not-allowed; }
 .git-pane-header .git-compact-select {
   width: 160px;
   max-width: min(160px, 38vw);
@@ -19103,7 +19217,7 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   font-family: var(--font-family-base);
   font-size: var(--font-size-control);
   line-height: 1.45;
-  pointer-events: none;
+  pointer-events: auto;
 }
 .git-commit-hover-author { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
 .git-commit-hover-avatar { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--color-bg-muted); color: var(--git-panel-fg); font-family: var(--font-family-business); font-size: var(--font-size-caption); font-weight: 600; }

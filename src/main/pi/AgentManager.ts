@@ -148,6 +148,102 @@ export class AgentManager {
 		return this.messages.get(agentId) ?? [];
 	}
 
+	/**
+	 * 不启动 pi 进程，直接从 JSONL 构造与运行态相同的时间线数据。
+	 * Viewer 必须复用 AgentManager 的压缩归档与消息转换规则，避免维护第二套显示模型。
+	 */
+	async readSessionDisplayMessages(
+		sessionPath: string,
+		agentId = "_viewer",
+		sessionContent?: string,
+	): Promise<ChatMessage[]> {
+		const content = sessionContent ?? await readFile(sessionPath, "utf8");
+		const entries: Array<{
+			id: string;
+			parentId: string | null;
+			type: string;
+			message?: unknown;
+			summary?: string;
+			firstKeptEntryId?: string;
+			tokensBefore?: number;
+			timestamp?: string;
+		}> = [];
+
+		for (const line of content.split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line);
+				if (!entry || typeof entry !== "object" || typeof entry.id !== "string") continue;
+				entries.push({
+					id: entry.id,
+					parentId: typeof entry.parentId === "string" ? entry.parentId : null,
+					type: typeof entry.type === "string" ? entry.type : "",
+					message: entry.message,
+					summary: typeof entry.summary === "string" ? entry.summary : undefined,
+					firstKeptEntryId: typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
+					tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : undefined,
+					timestamp: typeof entry.timestamp === "string" ? entry.timestamp : undefined,
+				});
+			} catch {
+				// 单行损坏不应阻断整个 Viewer。
+			}
+		}
+		if (entries.length === 0) return [];
+
+		// JSONL 最后一个 entry 是 pi 当前叶节点；沿 parentId 回溯得到与 get_messages 一致的活动分支。
+		const byId = new Map(entries.map((entry) => [entry.id, entry]));
+		const activeBranch: typeof entries = [];
+		const seen = new Set<string>();
+		let current: (typeof entries)[number] | undefined = entries[entries.length - 1];
+		while (current && !seen.has(current.id)) {
+			seen.add(current.id);
+			activeBranch.push(current);
+			current = current.parentId ? byId.get(current.parentId) : undefined;
+		}
+		activeBranch.reverse();
+
+		const lastCompactionIndex = activeBranch.findLastIndex((entry) => entry.type === "compaction");
+		const lastCompaction = lastCompactionIndex >= 0 ? activeBranch[lastCompactionIndex] : undefined;
+		const firstKeptIndex = lastCompaction?.firstKeptEntryId
+			? activeBranch.findIndex((entry) => entry.id === lastCompaction.firstKeptEntryId)
+			: -1;
+		// pi 压缩后上下文由 summary + firstKeptEntryId 起的保留消息 + 后续消息组成；
+		// 不能只取 compaction entry 之后，否则会漏掉压缩时明确保留的尾部消息。
+		const currentStartIndex = firstKeptIndex >= 0
+			? firstKeptIndex
+			: lastCompactionIndex >= 0
+				? lastCompactionIndex + 1
+				: 0;
+		const currentEntries = activeBranch
+			.slice(currentStartIndex)
+			.filter((entry) => entry.type === "message" && entry.message);
+		const rawMessages = currentEntries.map((entry) => entry.message);
+		const trimmed = this.trimHistoryMessages(rawMessages);
+		const trimStart = trimmed.length > 0 ? rawMessages.indexOf(trimmed[0]) : 0;
+		const activeEntryIds = currentEntries.slice(Math.max(0, trimStart)).map((entry) => entry.id);
+
+		let finalRaw: unknown[] = trimmed;
+		if (lastCompaction) {
+			const compactionEntry = lastCompaction;
+			const archiveData = await this.parseSessionArchives(sessionPath, agentId, content);
+			const archivedMessages = archiveData.archivedMessagesByCompactionId.get(compactionEntry.id) ?? [];
+			finalRaw = [{
+				role: "compactionSummary",
+				summary: compactionEntry.summary || "[摘要]",
+				timestamp: compactionEntry.timestamp ? Date.parse(compactionEntry.timestamp) : Date.now(),
+				meta: {
+					compactionId: compactionEntry.id,
+					compactionCount: archiveData.compactions.length,
+					firstKeptEntryId: compactionEntry.firstKeptEntryId,
+					tokensBefore: compactionEntry.tokensBefore,
+					archivedMessages,
+				},
+			}, ...trimmed];
+		}
+
+		return this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
+	}
+
 	recordHostExchange(agentId: string, userText: string, assistantText: string) {
 		this.addMessage(agentId, "user", userText);
 		this.addMessage(agentId, "assistant", assistantText);
@@ -404,14 +500,18 @@ export class AgentManager {
 	 *   2) 统计压缩次数，供前端展示"已压缩 N 次";
 	 *   3) 提取每个压缩段归档的消息，支持在时间线中展开查看压缩前内容。
 	 */
-	private async parseSessionArchives(sessionPath: string, agentId: string): Promise<{
+	private async parseSessionArchives(
+		sessionPath: string,
+		agentId: string,
+		sessionContent?: string,
+	): Promise<{
 		compactions: Array<{ id: string; summary: string; timestamp: string; firstKeptEntryId?: string; tokensBefore?: number }>;
 		/** 每个压缩条目对应的归档消息（ChatMessage 格式），key 为压缩条目 id */
 		archivedMessagesByCompactionId: Map<string, ChatMessage[]>;
 	}> {
 		let content: string;
 		try {
-			content = await readFile(sessionPath, "utf8");
+			content = sessionContent ?? await readFile(sessionPath, "utf8");
 		} catch (error) {
 			void this.appLogger?.warn("agent", "Failed to read session file for archive parsing", {
 				sessionPath,
@@ -1624,12 +1724,12 @@ export class AgentManager {
 
 	/**
 	 * 刷新模型配置：让运行中的 agent 重新加载 models.json，无需完全重启。
-	 * 
+	 *
 	 * 当前仅支持轻量级 reload_config RPC（策略 1）。
 	 * 策略 2（进程重启）已注释，等待 pi 官方支持 reload_config RPC 后再考虑：
 	 *   - 运行中的 Agent 重启进程会打断正在进行的对话/工具执行
 	 *   - 进程重启涉及 exit 事件竞态、模型恢复等复杂边界条件
-	 * 
+	 *
 	 * RPC 提案：https://github.com/earendil-works/pi/issues/6890
 	 * pi 合并 reload_config 后，本方法将自动生效，无需任何修改。
 	 */

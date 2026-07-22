@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { Button } from "../ui/Button";
+import { IconButton } from "../ui/IconButton";
+import { ConfirmDialog } from "./AppParts";
 import type {
   BranchDiffResult,
   CommitDetail,
@@ -24,6 +27,7 @@ type GitPanelProps = {
   getStatus: (projectId: string) => Promise<GitResourceGroups>;
   stageFiles: (projectId: string, paths: string[]) => Promise<void>;
   unstageFiles: (projectId: string, paths: string[]) => Promise<void>;
+  discardFile: (projectId: string, group: "workingTree" | "untracked", path: string) => Promise<void>;
   commit: (projectId: string, message: string) => Promise<void>;
   branches: string[];
   currentBranch: string | null;
@@ -269,7 +273,12 @@ function ResourceRow(props: {
   letter: string;
   path: string;
   compareStatus?: GitFileStatus;
-  action?: { label: string; run: () => void };
+  actions?: Array<{
+    label: string;
+    kind: "stage" | "unstage" | "discard";
+    disabled?: boolean;
+    run: () => void;
+  }>;
   onOpen?: () => void | Promise<void>;
 }) {
   const [opening, setOpening] = useState(false);
@@ -305,16 +314,21 @@ function ResourceRow(props: {
           <span className="git-resource-path">{props.path}</span>
         </div>
       )}
-      {props.action && (
+      {props.actions && props.actions.length > 0 && (
         <div className="git-resource-actions">
-          <button
-            type="button"
-            className="git-action-btn git-stage-action"
-            aria-label={props.action.label}
-            onClick={() => props.action?.run()}
-          >
-            <GitStageGlyph unstage={props.action.label === t("git.unstage")} />
-          </button>
+          {props.actions.map((action) => (
+            <IconButton
+              key={action.kind}
+              className={`git-action-btn${action.kind === "discard" ? " git-discard-action" : " git-stage-action"}`}
+              label={action.label}
+              disabled={action.disabled}
+              onClick={action.run}
+            >
+              {action.kind === "discard"
+                ? <RotateCcw size={14} strokeWidth={2} aria-hidden="true" />
+                : <GitStageGlyph unstage={action.kind === "unstage"} />}
+            </IconButton>
+          ))}
         </div>
       )}
       <span className="git-decoration" aria-hidden="true">
@@ -331,6 +345,7 @@ function ResourceGroup(props: {
   onToggle: () => void;
   allAction?: () => void;
   allLabel?: string;
+  allDisabled?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -351,6 +366,7 @@ function ResourceGroup(props: {
               type="button"
               className="git-action-btn git-stage-action"
               aria-label={props.allLabel}
+              disabled={props.allDisabled}
               onClick={() => props.allAction?.()}
             >
               <GitStageGlyph unstage={props.allLabel === t("git.unstageAll")} />
@@ -485,15 +501,22 @@ function PaneSash(props: {
 
 export function GitPanel(props: GitPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const projectIdRef = useRef(props.projectId);
+  projectIdRef.current = props.projectId;
   const statusRequestRef = useRef(0);
+  const statusRunningRequestRef = useRef<{ projectId: string; request: number } | null>(null);
+  const mutationRequestRef = useRef(0);
+  const mutationRunningRef = useRef(false);
   const [availableHeight, setAvailableHeight] = useState(720);
   const [groups, setGroups] = useState<GitResourceGroups>(EMPTY_GROUPS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [committing, setCommitting] = useState(false);
+  const [mutating, setMutating] = useState(false);
   const [smartCommitPreference, setSmartCommitPreference] = useState<SmartCommitPreference>(() => readSmartCommitPreference(props.projectId));
   const [showSmartCommitPrompt, setShowSmartCommitPrompt] = useState(false);
+  const [discardTarget, setDiscardTarget] = useState<{ group: "workingTree" | "untracked"; path: string } | null>(null);
   const [resourceOpen, setResourceOpen] = useState({ merge: true, staged: true, changes: true });
   const [paneState, setPaneState] = useState<PaneState>(() => readPaneState(props.projectId));
 
@@ -512,12 +535,21 @@ export function GitPanel(props: GitPanelProps) {
   }, []);
 
   useEffect(() => {
+    // 项目切换会复用同一个 GitPanel 实例；递增序号让旧项目进行中的 status/mutation 结果失效。
+    statusRequestRef.current += 1;
+    mutationRequestRef.current += 1;
     const next = readPaneState(props.projectId);
     setPaneState({ ...next, heights: fitPaneHeights(next, availableHeight) });
     setGroups(EMPTY_GROUPS);
     setError(null);
+    setCommitMessage("");
+    setCommitting(false);
+    mutationRunningRef.current = false;
+    setMutating(false);
+    setResourceOpen({ merge: true, staged: true, changes: true });
     setSmartCommitPreference(readSmartCommitPreference(props.projectId));
     setShowSmartCommitPrompt(false);
+    setDiscardTarget(null);
   }, [props.projectId]);
 
   useEffect(() => {
@@ -532,25 +564,53 @@ export function GitPanel(props: GitPanelProps) {
     }
   }, [paneState, props.projectId]);
 
-  const refresh = useCallback(async () => {
+  /**
+   * 拉取最新 Git 工作区状态。
+   *
+   * @param silent - 静默模式：不显示 loading 动画、不清除已有错误和分组数据；
+   *                 用于后台轮询，避免闪烁和打断用户正在查看的 Diff 内容。
+   */
+  const refresh = useCallback(async (silent = false) => {
+    // 静默轮询不打断 mutation，也不与前一个 status 请求重叠；否则慢于 5 秒的请求会彼此作废，列表永久不更新。
+    if (silent && (
+      mutationRunningRef.current ||
+      statusRunningRequestRef.current?.projectId === props.projectId
+    )) return;
     const request = ++statusRequestRef.current;
     const projectId = props.projectId;
-    setLoading(true);
-    setError(null);
+    const runningRequest = { projectId, request };
+    statusRunningRequestRef.current = runningRequest;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const next = await props.getStatus(projectId);
-      if (request === statusRequestRef.current && projectId === props.projectId) setGroups(next);
+      if (request === statusRequestRef.current && projectId === projectIdRef.current) setGroups(next);
     } catch (caught) {
-      if (request === statusRequestRef.current && projectId === props.projectId) {
-        setGroups(EMPTY_GROUPS);
-        setError(errorMessage(caught));
+      if (request === statusRequestRef.current && projectId === projectIdRef.current) {
+        if (!silent) {
+          setGroups(EMPTY_GROUPS);
+          setError(errorMessage(caught));
+        }
+        // 静默失败不影响已展示的旧分组数据；不做任何 UI 状态变更。
       }
     } finally {
-      if (request === statusRequestRef.current && projectId === props.projectId) setLoading(false);
+      if (statusRunningRequestRef.current === runningRequest) statusRunningRequestRef.current = null;
+      if (request === statusRequestRef.current && projectId === projectIdRef.current && !silent) setLoading(false);
     }
   }, [props.getStatus, props.projectId]);
 
+  // 打开 Git drawer 时首次加载；依赖 refresh 引用稳定。
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // 静默轮询：每 5 秒拉取一次最新工作区状态，不显示 loading 动画、不覆盖错误。
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refresh(true);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
 
   const toggleResource = (key: keyof typeof resourceOpen) => {
     setResourceOpen((current) => ({ ...current, [key]: !current[key] }));
@@ -575,24 +635,35 @@ export function GitPanel(props: GitPanelProps) {
   // VS Code enables the action for either staged changes or working-tree changes
   // when smart commit is enabled/suggested; the command decides whether to prompt.
   const hasChangesToCommit = stagedCount > 0 || (workingChanges.length > 0 && (smartCommitPreference.enableSmartCommit || smartCommitPreference.suggestSmartCommit));
-  const canCommit = Boolean(commitMessage.trim()) && hasChangesToCommit && !hasUnresolvedConflicts && !committing;
+  const canCommit = Boolean(commitMessage.trim()) && hasChangesToCommit && !hasUnresolvedConflicts && !committing && !mutating;
   const total = groups.merge.length + stagedCount + workingChanges.length;
 
   const act = async (operation: () => Promise<void>) => {
+    if (mutationRunningRef.current || committing) return;
+    const mutationRequest = ++mutationRequestRef.current;
+    mutationRunningRef.current = true;
+    setMutating(true);
     const projectId = props.projectId;
     try {
       await operation();
-      if (projectId === props.projectId) await refresh();
+      if (projectId === projectIdRef.current) await refresh();
     } catch (caught) {
       // Do not let refresh clear the mutation error before the user can read it.
-      if (projectId === props.projectId) setError(errorMessage(caught));
+      if (projectId === projectIdRef.current) setError(errorMessage(caught));
+    } finally {
+      if (mutationRequest === mutationRequestRef.current) {
+        mutationRunningRef.current = false;
+        if (projectId === projectIdRef.current) setMutating(false);
+      }
     }
   };
 
   const runCommit = async (stageAll: boolean) => {
     const message = commitMessage.trim();
-    if (!message || committing || hasUnresolvedConflicts) return;
+    if (!message || committing || mutating || hasUnresolvedConflicts || mutationRunningRef.current) return;
     const projectId = props.projectId;
+    const mutationRequest = ++mutationRequestRef.current;
+    mutationRunningRef.current = true;
     setCommitting(true);
     setError(null);
     try {
@@ -601,13 +672,16 @@ export function GitPanel(props: GitPanelProps) {
         if (paths.length > 0) await props.stageFiles(projectId, paths);
       }
       await props.commit(projectId, message);
-      if (projectId !== props.projectId) return;
+      if (projectId !== projectIdRef.current) return;
       setCommitMessage("");
       await refresh();
     } catch (caught) {
-      if (projectId === props.projectId) setError(errorMessage(caught));
+      if (projectId === projectIdRef.current) setError(errorMessage(caught));
     } finally {
-      if (projectId === props.projectId) setCommitting(false);
+      if (mutationRequest === mutationRequestRef.current) {
+        mutationRunningRef.current = false;
+        if (projectId === projectIdRef.current) setCommitting(false);
+      }
     }
   };
 
@@ -640,6 +714,13 @@ export function GitPanel(props: GitPanelProps) {
       writeSmartCommitPreference(props.projectId, next);
     }
     void runCommit(true);
+  };
+
+  const confirmDiscard = () => {
+    const target = discardTarget;
+    if (!target) return;
+    setDiscardTarget(null);
+    void act(() => props.discardFile(props.projectId, target.group, target.path));
   };
 
   const visibleSashAfterChanges = adjacentVisiblePane(paneState.open, "changes", 1);
@@ -685,26 +766,17 @@ export function GitPanel(props: GitPanelProps) {
                     void doCommit();
                   }
                 }}
-                rows={2}
+                rows={3}
               />
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 className="git-commit-btn"
+                loading={committing}
                 disabled={!canCommit}
-                title={hasUnresolvedConflicts
-                  ? t("git.resolveConflictsBeforeCommit")
-                  : stagedCount > 0
-                    ? t("git.commitStaged", { count: stagedCount })
-                    : t("git.commitAll", { count: workingChanges.length })}
                 onClick={() => void doCommit()}
               >
-                {committing ? <Loader2 size={14} className="git-spin" /> : <Check size={14} />}
-                <span>{committing
-                  ? t("git.committing")
-                  : stagedCount > 0
-                    ? t("git.commitStaged", { count: stagedCount })
-                    : t("git.commit")}</span>
-              </button>
+                {committing ? t("git.committing") : t("git.commit")}
+              </Button>
             </div>
 
             {error && <div className="git-status-msg error">{error}</div>}
@@ -720,7 +792,7 @@ export function GitPanel(props: GitPanelProps) {
                       letter={resource.letter}
                       path={resource.path}
                       onOpen={() => props.onOpenWorkspaceFileDiff("merge", resource.path)}
-                      action={{ label: t("git.stage"), run: () => act(() => props.stageFiles(props.projectId, [resource.path])) }}
+                      actions={[{ kind: "stage", label: t("git.stage"), disabled: mutating || committing, run: () => act(() => props.stageFiles(props.projectId, [resource.path])) }]}
                     />
                   ))}
                 </ResourceGroup>
@@ -733,6 +805,7 @@ export function GitPanel(props: GitPanelProps) {
                   onToggle={() => toggleResource("staged")}
                   allAction={() => act(() => props.unstageFiles(props.projectId, groups.index.map((resource) => resource.path)))}
                   allLabel={t("git.unstageAll")}
+                  allDisabled={mutating || committing}
                 >
                   {groups.index.map((resource) => (
                     <ResourceRow
@@ -741,7 +814,7 @@ export function GitPanel(props: GitPanelProps) {
                       letter={resource.letter}
                       path={resource.path}
                       onOpen={() => props.onOpenWorkspaceFileDiff("index", resource.path)}
-                      action={{ label: t("git.unstage"), run: () => act(() => props.unstageFiles(props.projectId, [resource.path])) }}
+                      actions={[{ kind: "unstage", label: t("git.unstage"), disabled: mutating || committing, run: () => act(() => props.unstageFiles(props.projectId, [resource.path])) }]}
                     />
                   ))}
                 </ResourceGroup>
@@ -754,6 +827,7 @@ export function GitPanel(props: GitPanelProps) {
                   onToggle={() => toggleResource("changes")}
                   allAction={() => act(() => props.stageFiles(props.projectId, workingChanges.map((resource) => resource.path)))}
                   allLabel={t("git.stageAll")}
+                  allDisabled={mutating || committing}
                 >
                   {workingChanges.map((resource) => (
                     <ResourceRow
@@ -765,7 +839,18 @@ export function GitPanel(props: GitPanelProps) {
                         resource.status === GitStatus.UNTRACKED ? "untracked" : "workingTree",
                         resource.path,
                       )}
-                      action={{ label: t("git.stage"), run: () => act(() => props.stageFiles(props.projectId, [resource.path])) }}
+                      actions={[
+                        {
+                          kind: "discard",
+                          label: resource.status === GitStatus.UNTRACKED ? t("git.discardUntracked") : t("git.discard"),
+                          disabled: mutating || committing,
+                          run: () => setDiscardTarget({
+                            group: resource.status === GitStatus.UNTRACKED ? "untracked" : "workingTree",
+                            path: resource.path,
+                          }),
+                        },
+                        { kind: "stage", label: t("git.stage"), disabled: mutating || committing, run: () => act(() => props.stageFiles(props.projectId, [resource.path])) },
+                      ]}
                     />
                   ))}
                 </ResourceGroup>
@@ -799,6 +884,20 @@ export function GitPanel(props: GitPanelProps) {
         height={paneState.heights.compare}
         onToggle={() => togglePane("compare")}
       />
+
+      {discardTarget && createPortal(
+        <ConfirmDialog
+          title={discardTarget.group === "untracked" ? t("git.discardUntrackedConfirmTitle") : t("git.discardConfirmTitle")}
+          message={discardTarget.group === "untracked"
+            ? t("git.discardUntrackedConfirmMessage", { path: fileNameOnly(discardTarget.path) })
+            : t("git.discardConfirmMessage", { path: fileNameOnly(discardTarget.path) })}
+          danger
+          confirmLabel={discardTarget.group === "untracked" ? t("common.delete") : t("app.retractDiscard")}
+          onConfirm={confirmDiscard}
+          onCancel={() => setDiscardTarget(null)}
+        />,
+        document.body,
+      )}
 
       {showSmartCommitPrompt && createPortal(
         <div className="git-smart-commit-backdrop" role="presentation" onClick={() => setShowSmartCommitPrompt(false)}>
@@ -1050,6 +1149,9 @@ type CommitDetailState = {
 
 const GRAPH_DETAIL_CACHE_LIMIT = 16;
 const GRAPH_DETAIL_CACHE_BYTE_LIMIT = 2 * 1024 * 1024;
+const COMMIT_HOVER_OPEN_DELAY_MS = 500;
+// 浮层与窄抽屉中的 commit 行之间可能隔着 8px；给鼠标足够时间跨过间隙并进入可滚动浮层。
+const COMMIT_HOVER_DISMISS_DELAY_MS = 400;
 
 function estimateGraphDetailBytes(state: CommitDetailState): number {
   if (!state.detail) return (state.error?.length ?? 0) * 2 + 64;
@@ -1070,6 +1172,8 @@ function estimateGraphDetailBytes(state: CommitDetailState): number {
 function CommitHoverCard(props: {
   hover: CommitHoverState;
   state: CommitDetailState | undefined;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const commit = props.state?.detail?.commit ?? props.hover.commit;
   const shortStat = props.state?.detail?.commit.shortStat;
@@ -1092,6 +1196,8 @@ function CommitHoverCard(props: {
       className="git-commit-hover"
       role="tooltip"
       style={{ left, top, width }}
+      onMouseEnter={props.onMouseEnter}
+      onMouseLeave={props.onMouseLeave}
     >
       <div className="git-commit-hover-author">
         <span className="git-commit-hover-avatar" aria-hidden="true">{initial}</span>
@@ -1150,11 +1256,20 @@ function SourceControlGraph(props: {
   const detailAccessOrder = useRef<string[]>([]);
   const detailRequests = useRef(new Map<string, Promise<CommitDetail | null>>());
   const hoverTimer = useRef<number | null>(null);
+  const hoverDismissTimer = useRef<number | null>(null);
+  const hoverOverCard = useRef(false);
 
   const clearHoverTimer = useCallback(() => {
     if (hoverTimer.current !== null) {
       window.clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
+    }
+  }, []);
+
+  const clearHoverDismissTimer = useCallback(() => {
+    if (hoverDismissTimer.current !== null) {
+      window.clearTimeout(hoverDismissTimer.current);
+      hoverDismissTimer.current = null;
     }
   }, []);
 
@@ -1167,7 +1282,9 @@ function SourceControlGraph(props: {
     setExpandedHashes(new Set());
     setHover(null);
     clearHoverTimer();
-  }, [clearHoverTimer]);
+    clearHoverDismissTimer();
+    hoverOverCard.current = false;
+  }, [clearHoverTimer, clearHoverDismissTimer]);
 
   const updateDetailState = useCallback((hash: string, state: CommitDetailState) => {
     const next = { ...detailStateRef.current, [hash]: state };
@@ -1249,12 +1366,14 @@ function SourceControlGraph(props: {
     const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         clearHoverTimer();
+        clearHoverDismissTimer();
         setHover(null);
       }
     };
     // Hover 使用打开时缓存的 DOMRect；窗口尺寸变化后旧坐标不再可靠，直接关闭等待重新触发。
     const dismissOnResize = () => {
       clearHoverTimer();
+      clearHoverDismissTimer();
       setHover(null);
     };
     window.addEventListener("keydown", dismissOnEscape);
@@ -1263,9 +1382,10 @@ function SourceControlGraph(props: {
       window.removeEventListener("keydown", dismissOnEscape);
       window.removeEventListener("resize", dismissOnResize);
       clearHoverTimer();
+      clearHoverDismissTimer();
       detailSequence.current += 1;
     };
-  }, [clearHoverTimer]);
+  }, [clearHoverTimer, clearHoverDismissTimer]);
 
   const load = useCallback(async () => {
     if (!props.open) return;
@@ -1300,18 +1420,42 @@ function SourceControlGraph(props: {
 
   const scheduleHover = useCallback((commit: CommitEntry, anchor: HTMLElement) => {
     clearHoverTimer();
+    clearHoverDismissTimer();
+    hoverOverCard.current = false;
     const anchorRect = anchor.getBoundingClientRect();
     hoverTimer.current = window.setTimeout(() => {
       hoverTimer.current = null;
       setHover({ commit, anchor: anchorRect });
       void loadCommitDetail(commit.hash);
-    }, 500);
+    }, COMMIT_HOVER_OPEN_DELAY_MS);
   }, [clearHoverTimer, loadCommitDetail]);
 
   const dismissHover = useCallback(() => {
     clearHoverTimer();
+    clearHoverDismissTimer();
     setHover(null);
-  }, [clearHoverTimer]);
+  }, [clearHoverTimer, clearHoverDismissTimer]);
+
+  /** 鼠标离开提交行按钮时延迟关闭，允许用户跨过间隙后进入并滚动详情浮层。 */
+  const handleRowMouseLeave = useCallback(() => {
+    clearHoverTimer();
+    clearHoverDismissTimer();
+    hoverDismissTimer.current = window.setTimeout(() => {
+      if (!hoverOverCard.current) setHover(null);
+    }, COMMIT_HOVER_DISMISS_DELAY_MS);
+  }, [clearHoverTimer, clearHoverDismissTimer]);
+
+  /** 鼠标进入浮层卡片，取消延迟消失。 */
+  const handleCardMouseEnter = useCallback(() => {
+    hoverOverCard.current = true;
+    clearHoverDismissTimer();
+  }, [clearHoverDismissTimer]);
+
+  /** 鼠标离开浮层卡片，直接关闭。 */
+  const handleCardMouseLeave = useCallback(() => {
+    hoverOverCard.current = false;
+    setHover(null);
+  }, []);
 
   return (
     <section
@@ -1355,7 +1499,7 @@ function SourceControlGraph(props: {
                         toggleCommit(commit.hash);
                       }}
                       onMouseEnter={(event) => scheduleHover(commit, event.currentTarget)}
-                      onMouseLeave={dismissHover}
+                      onMouseLeave={handleRowMouseLeave}
                     >
                       <GraphLanes row={row} current={isCurrent} />
                       <span className="git-history-label">
@@ -1399,7 +1543,14 @@ function SourceControlGraph(props: {
               })}
             </div>
           )}
-          {hover && <CommitHoverCard hover={hover} state={detailStates[hover.commit.hash]} />}
+          {hover && (
+            <CommitHoverCard
+              hover={hover}
+              state={detailStates[hover.commit.hash]}
+              onMouseEnter={handleCardMouseEnter}
+              onMouseLeave={handleCardMouseLeave}
+            />
+          )}
         </div>
       )}
     </section>
