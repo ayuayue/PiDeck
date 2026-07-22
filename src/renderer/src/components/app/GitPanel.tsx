@@ -419,6 +419,83 @@ function PaneHeader(props: {
   );
 }
 
+/**
+ * 紧凑型下拉筛选器，替换原生 <select> 用于 Git pane header 中的过滤/选择场景。
+ * 使用统一的按钮+弹出菜单，避免 Windows 原生 <select> 样式不一致的问题。
+ */
+function GitCompactFilter(props: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const selected = props.options.find((o) => o.value === props.value);
+
+  return (
+    <div ref={containerRef} className={`git-compact-filter${props.className ? ` ${props.className}` : ""}`}>
+      <button
+        type="button"
+        className="git-compact-filter-btn"
+        aria-label={props.ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        <span className="git-compact-filter-label">{selected?.label ?? props.value}</span>
+        <ChevronDown size={12} className={`git-compact-filter-chevron${open ? " open" : ""}`} />
+      </button>
+      {open && (
+        <div className="git-compact-filter-menu" role="listbox">
+          {props.options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={`git-compact-filter-opt${opt.value === props.value ? " active" : ""}`}
+              role="option"
+              aria-selected={opt.value === props.value}
+              onClick={() => {
+                props.onChange(opt.value);
+                setOpen(false);
+              }}
+            >
+              {opt.label}
+              {opt.value === props.value && <Check size={12} className="git-compact-filter-check" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PaneSash(props: {
   before: PaneId;
   after: PaneId;
@@ -1636,10 +1713,15 @@ useEffect(() => { loadRef.current = load; });
       style={{ "--git-pane-height": `${props.height}px` } as React.CSSProperties}
     >
       <PaneHeader id="graph" title={t("git.sourceControlGraph")} count={commits.length} open={props.open} onToggle={props.onToggle}>
-        <select className="git-compact-select" value={ref} onChange={(event) => setRef(event.target.value)} aria-label={t("git.filterReference")}>
-          <option value="">{t("common.all")}</option>
-          {props.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-        </select>
+        <GitCompactFilter
+          value={ref}
+          ariaLabel={t("git.filterReference")}
+          options={[
+            { value: "", label: t("common.all") },
+            ...props.branches.map((branch) => ({ value: branch, label: branch })),
+          ]}
+          onChange={(value) => setRef(value)}
+        />
         <button type="button" className="git-action-btn" title={t("common.refresh")} aria-label={t("common.refresh")} onClick={() => void load()}>
           <RefreshCw size={14} />
         </button>
@@ -1890,18 +1972,28 @@ function CompareChanges(props: {
           <div className="git-compare-controls">
             <label>
               <span>{t("git.base")}</span>
-              <select className="git-compact-select" value={base} onChange={(event) => setBase(event.target.value)} aria-label={t("git.base")}>
-                <option value="">{t("git.selectBase")}</option>
-                {props.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-              </select>
+              <GitCompactFilter
+                value={base}
+                ariaLabel={t("git.base")}
+                options={[
+                  { value: "", label: t("git.selectBase") },
+                  ...props.branches.map((branch) => ({ value: branch, label: branch })),
+                ]}
+                onChange={(value) => setBase(value)}
+              />
             </label>
             <span className="git-compare-arrow" aria-hidden="true">→</span>
             <label>
               <span>{t("git.compare")}</span>
-              <select className="git-compact-select" value={target} onChange={(event) => setTarget(event.target.value)} aria-label={t("git.compare")}>
-                <option value="">{t("git.selectCompare")}</option>
-                {props.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-              </select>
+              <GitCompactFilter
+                value={target}
+                ariaLabel={t("git.compare")}
+                options={[
+                  { value: "", label: t("git.selectCompare") },
+                  ...props.branches.map((branch) => ({ value: branch, label: branch })),
+                ]}
+                onChange={(value) => setTarget(value)}
+              />
             </label>
             <button type="button" className="git-compare-btn" disabled={!base || !target || base === target || loading} onClick={() => void run()}>
               {loading ? <Loader2 size={14} className="git-spin" /> : t("git.compare")}
