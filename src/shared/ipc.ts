@@ -101,6 +101,10 @@ export const ipcChannels = {
 	gitUnstage: "git:unstage",
 	gitDiscard: "git:discard",
 	gitCommit: "git:commit",
+	gitCherryPick: "git:cherry-pick",
+	gitRevert: "git:revert",
+	gitReset: "git:reset",
+	gitDropCommit: "git:drop-commit",
 	piCheck: "pi:check",
 	piCheckCustom: "pi:check-custom",
 	/** 获取已安装的 WSL 发行版列表（仅 Windows） */

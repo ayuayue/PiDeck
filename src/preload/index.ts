@@ -383,6 +383,31 @@ const api = {
 				projectId,
 				message,
 			) as Promise<void>,
+		cherryPick: (projectId: string, hash: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCherryPick,
+				projectId,
+				hash,
+			) as Promise<void>,
+		revert: (projectId: string, hash: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitRevert,
+				projectId,
+				hash,
+			) as Promise<void>,
+		reset: (projectId: string, hash: string, mode: "soft" | "mixed" | "hard") =>
+			ipcRenderer.invoke(
+				ipcChannels.gitReset,
+				projectId,
+				hash,
+				mode,
+			) as Promise<void>,
+		dropCommit: (projectId: string, hash: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitDropCommit,
+				projectId,
+				hash,
+			) as Promise<void>,
 	},
 	pi: {
 		check: () =>

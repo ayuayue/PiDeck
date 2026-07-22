@@ -671,6 +671,34 @@ export class GitService {
 	async commit(cwd: string, message: string): Promise<void> {
 		await execFileAsync("git", ["commit", "-m", message], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 	}
+
+	/** Cherry-pick：将指定提交应用到当前分支 */
+	async cherryPick(cwd: string, hash: string): Promise<void> {
+		await execFileAsync("git", ["cherry-pick", hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/** Revert：创建一个反向提交撤销指定提交的变更 */
+	async revertCommit(cwd: string, hash: string): Promise<void> {
+		await execFileAsync("git", ["revert", "--no-edit", hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/**
+	 * Reset：移动 HEAD 到指定提交
+	 * @param mode soft｜mixed｜hard，默认 soft
+	 */
+	async resetToCommit(cwd: string, hash: string, mode: "soft" | "mixed" | "hard" = "soft"): Promise<void> {
+		await execFileAsync("git", ["reset", `--${mode}`, hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/**
+	 * Drop：从当前分支删除指定提交（使用 rebase --onto）
+	 * 注意：只能删除非 HEAD 的提交
+	 */
+	async dropCommit(cwd: string, hash: string): Promise<void> {
+		// 先获取 parent hash
+		const { stdout: parentHash } = await execFileAsync("git", ["rev-parse", `${hash}^`], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+		await execFileAsync("git", ["rebase", "--onto", parentHash.trim(), hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
 }
 
 // ── 解析工具函数（复刻 VS Code git.ts）──────────────────────────────────

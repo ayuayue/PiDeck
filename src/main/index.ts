@@ -1785,6 +1785,43 @@ function registerIpc() {
 			await gitService.commit(project.path, message);
 		},
 	);
+
+	ipcMain.handle(
+		ipcChannels.gitCherryPick,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.cherryPick(project.path, hash);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRevert,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.revertCommit(project.path, hash);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitReset,
+		async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard") => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.resetToCommit(project.path, hash, mode);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitDropCommit,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.dropCommit(project.path, hash);
+		},
+	);
+
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();

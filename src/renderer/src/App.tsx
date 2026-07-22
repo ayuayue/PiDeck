@@ -3163,6 +3163,8 @@ export function App() {
         ...current,
         [projectId]: true,
       }));
+      // 让出主线程确保 React 提交 loading 状态到 DOM，避免快速 API 响应导致 loading 状态在同一批中被覆盖
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
     try {
       const next = await withTimeout(
