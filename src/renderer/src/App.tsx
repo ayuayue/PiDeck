@@ -7567,7 +7567,7 @@ export function App() {
               },
               icon: <FolderOpen size={17} />,
             }}
-            gitAction={settings.enableGitManagement && activeProjectId && !isChatProject(activeProject) ? {
+            gitAction={settings.enableGitManagement && activeProjectId ? {
               active: drawer === "git",
               label: t("drawer.sourceControl"),
               onClick: () => {
