@@ -1013,42 +1013,37 @@ export function SettingsModal(props: {
 								/>
 								<div className="setting-row">
 									<div>
-										<strong>{t("settings.currentVersion")}</strong>
-										<small>v{props.appInfo.version}</small>
-									</div>
-									<Button
-										onClick={props.onCheckUpdate}
-										loading={props.updateChecking}
-										disabled={draftSettings.disableUpdateCheck}
-									>
-										{draftSettings.disableUpdateCheck
-											? t("settings.updateCheckDisabled")
-											: t("settings.checkUpdate")}
-									</Button>
-								</div>
-								<div className="setting-row">
-									<div>
 										<strong>{t("settings.piUpdate")}</strong>
-										<small>{t("settings.piUpdateDesc")}</small>
-										<small className="setting-status info">
-											{t("settings.piUpdateVersions", {
-												current:
-													props.piUpdateCheck?.currentVersion ??
-													props.piStatus?.version ??
-													"-",
-												latest: props.piUpdateCheck?.latestVersion ?? "-",
-											})}
-										</small>
+										<span style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)" }}>
+											<span>v{props.appInfo.version}</span>
+											{props.piUpdateCheck?.currentVersion || props.piStatus?.version ? (
+												<span>
+													{t("settings.piUpdateVersions", {
+														current: props.piUpdateCheck?.currentVersion ?? props.piStatus?.version ?? "-",
+														latest: props.piUpdateCheck?.latestVersion ?? "-",
+													})}
+												</span>
+											) : (
+												<span>{t("settings.piUpdateDesc")}</span>
+											)}
+										</span>
 									</div>
 									<div className="setting-inline-actions">
+										<Button
+											onClick={draftSettings.disableUpdateCheck ? undefined : props.onCheckUpdate}
+											loading={props.updateChecking}
+											disabled={draftSettings.disableUpdateCheck}
+										>
+											{draftSettings.disableUpdateCheck
+												? t("settings.updateCheckDisabled")
+												: t("settings.checkUpdate")}
+										</Button>
 										<Button
 											onClick={props.onCheckPiUpdate}
 											loading={props.piUpdateChecking}
 											disabled={draftSettings.disableUpdateCheck}
 										>
-											{draftSettings.disableUpdateCheck
-												? t("settings.updateCheckDisabled")
-												: t("settings.checkPiUpdate")}
+											{t("settings.checkPiUpdate")}
 										</Button>
 										<Button
 											onClick={props.onUpdatePi}
