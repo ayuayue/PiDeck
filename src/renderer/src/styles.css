@@ -4320,7 +4320,8 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 }
 .tool-card-name {
   flex: 0 0 auto;
-  font-weight: 600;
+  font-weight: 650;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
   text-transform: lowercase;
 }
@@ -4402,34 +4403,31 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   align-items: center;
   flex: 0 0 auto;
   align-self: center;
-  height: 26px;
+  height: 22px;
   margin-right: auto;
-  padding: 0 12px;
+  padding: 0 8px;
   border: 1px solid
-    color-mix(in srgb, var(--color-accent) 28%, var(--color-border-subtle));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
-  color: var(--color-accent);
+    color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: color-mix(in srgb, var(--color-accent) 80%, var(--color-text-tertiary));
   font-family: var(--font-family-business);
   font-size: var(--font-size-micro);
-  line-height: var(--line-height-control);
+  line-height: 1;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background-color 0.12s,
+    border-color 0.12s,
+    color 0.12s;
 }
 .tool-card-diff-chip:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--color-accent) 48%,
-    var(--color-border-subtle)
-  );
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 .tool-card-diff-chip:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 /* 工具卡片复制按钮：与 session CopyMenu 统一的图标风格 */
 .tool-card-copy {
@@ -4646,7 +4644,8 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 }
 .thinking-card-trigger span {
   flex: 0 0 auto;
-  font-weight: 500;
+  font-weight: 650;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
 }
 .thinking-card-trigger small {

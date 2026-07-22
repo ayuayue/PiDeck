@@ -1441,16 +1441,16 @@ function CopyMenu(props: {
 /** 按工具名选择语义图标：read→文件、edit→铅笔、bash→终端、grep→搜索等，未匹配回退扳手。 */
 function toolIcon(toolName: string): ReactNode {
 	const key = toolName.toLowerCase();
-	if (key.includes("read") || key.includes("view")) return <FileText size={14} />;
+	if (key.includes("read") || key.includes("view")) return <FileText size={15} />;
 	if (key.includes("write") || key.includes("edit") || key.includes("apply_patch") || key.includes("patch"))
-		return <SquarePen size={14} />;
-	if (key.includes("bash") || key.includes("shell") || key.includes("terminal")) return <Terminal size={14} />;
-	if (key.includes("grep") || key.includes("search")) return <Search size={14} />;
-	if (key.includes("glob") || key.includes("list") || key.includes("ls")) return <Folder size={14} />;
-	if (key.includes("task") || key.includes("subagent") || key.includes("agent")) return <Network size={14} />;
-	if (key.includes("web") || key.includes("fetch")) return <Globe2 size={14} />;
-	if (key.includes("todo")) return <Check size={14} />;
-	return <Wrench size={14} />;
+		return <SquarePen size={15} />;
+	if (key.includes("bash") || key.includes("shell") || key.includes("terminal")) return <Terminal size={15} />;
+	if (key.includes("grep") || key.includes("search")) return <Search size={15} />;
+	if (key.includes("glob") || key.includes("list") || key.includes("ls")) return <Folder size={15} />;
+	if (key.includes("task") || key.includes("subagent") || key.includes("agent")) return <Network size={15} />;
+	if (key.includes("web") || key.includes("fetch")) return <Globe2 size={15} />;
+	if (key.includes("todo")) return <Check size={15} />;
+	return <Wrench size={15} />;
 }
 
 
@@ -1656,7 +1656,7 @@ const statusLabel =
 					aria-expanded={expanded}
 				>
 					<span className="tool-card-icon">
-						{isSkillRead ? <Brain size={14} /> : isAskCard ? <MessageCircle size={14} /> : toolIcon(toolName)}
+						{isSkillRead ? <Brain size={15} /> : isAskCard ? <MessageCircle size={15} /> : toolIcon(toolName)}
 					</span>
 					<span className="tool-card-name">
 						{isSkillRead ? `skill:${skillName}` : isAskCard ? t("ask.toolName") : toolName}
@@ -2107,10 +2107,10 @@ export const ThinkingBlock = memo(function ThinkingBlock(props: {
 				onClick={() => setExpanded((v) => !v)}
 				aria-expanded={expanded}
 			>
-				<Brain size={14} />
+				<Brain size={15} />
 				<span>{t("thinking.title")}</span>
 				<ChevronDown
-					size={14}
+					size={15}
 					className={`thinking-card-chevron${expanded ? " open" : ""}`}
 				/>
 				{!expanded && props.text && (

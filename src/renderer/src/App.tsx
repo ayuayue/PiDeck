@@ -42,7 +42,6 @@ import {
   Terminal,
   Filter,
   GitBranch,
-  Minimize2,
   RefreshCw,
   X,
 } from "lucide-react";
@@ -7479,7 +7478,7 @@ export function App() {
               <strong>{t("drawer.sourceControl")}</strong>
               <div className="drawer-header-actions">
                 <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
-                  <Minimize2 size={15} />
+                  <Minus size={15} />
                 </button>
                 <button onClick={closeDrawer} title={t("common.close")}>
                   <X size={15} />

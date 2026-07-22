@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DiffEditor, Editor } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { t } from "../../i18n";
-import { ArrowLeft, Columns3, Edit3, Maximize2, Minimize2, X, Eye, FileCode } from "lucide-react";
+import { ArrowLeft, Edit3, Maximize, Minimize2, SquareSplitHorizontal, X, Eye, FileCode } from "lucide-react";
 import { setupMonaco } from "../../utils/monacoSetup";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -328,7 +328,7 @@ export function FileDiffViewer(props: {
 							title={sideBySide ? t("app.showSingle") : t("app.showSplit")}
 							onClick={() => setSideBySide(!sideBySide)}
 						>
-							{sideBySide ? <Maximize2 size={15} /> : <Columns3 size={15} />}
+							<SquareSplitHorizontal size={15} />
 						</button>
 					)}
 					{props.saveContent && readOnly && (
@@ -355,7 +355,7 @@ export function FileDiffViewer(props: {
 							title={displayMode === "modal" ? t("app.minimizeToDrawer") : t("app.expandToModal")}
 							onClick={props.onToggleMode}
 						>
-							{displayMode === "modal" ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+							{displayMode === "modal" ? <Minimize2 size={15} /> : <Maximize size={15} />}
 						</button>
 					)}
 					{props.onBack && displayMode === "drawer" && (
