@@ -1542,6 +1542,15 @@ body:not(.is-list-resizing)
     opacity: 0.6;
   }
 }
+.conversation-loading {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border-subtle);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
 .conversation-body {
   min-width: 0;
 }
@@ -1639,6 +1648,14 @@ body:not(.is-list-resizing)
   /* 点击即时反馈：按下时背景闪一下、微缩、弹回 */
   transition: background 0.12s ease, transform 0.1s ease;
   animation: none;
+}
+.project-group > .conversation:first-child.project-loading {
+  /* 会话加载中：行背景微微呼吸，提示后台仍在工作 */
+  animation: project-loading-pulse 1.2s ease-in-out infinite;
+}
+@keyframes project-loading-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
 }
 .project-group > .conversation:first-child:active:not(.dragging) {
   background: color-mix(in srgb, var(--color-bg-hover) 70%, var(--color-accent-soft));
@@ -19385,8 +19402,8 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 .git-resource-open.static { cursor: default; }
 .git-resource-open:disabled { cursor: progress; opacity: 0.72; }
 .git-resource-open:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.git-file-icon { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; align-items: center; justify-content: center; margin-right: 6px; }
-.git-file-icon svg { width: 16px; height: 16px; fill: currentColor; }
+.git-file-icon { display: inline-flex; width: 20px; height: 20px; flex: 0 0 20px; align-items: center; justify-content: center; margin-right: 6px; }
+.git-file-icon svg { width: 100%; height: 100%; fill: currentColor; }
 .git-file-fallback { box-sizing: border-box; width: 12px; height: 14px; border: 1px solid var(--git-desc-fg); border-radius: var(--radius-xs); }
 .git-resource-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
 .git-resource-actions { display: flex; flex: 0 0 auto; gap: 1px; margin-right: var(--space-1); visibility: hidden; }
