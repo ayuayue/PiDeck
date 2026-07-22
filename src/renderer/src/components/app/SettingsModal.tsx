@@ -890,6 +890,13 @@ export function SettingsModal(props: {
 											</Button>
 										</div>
 									</div>
+									{props.piUpdateResult && (
+										<pre className="setting-update-output">
+											{props.piUpdateResult.command}
+											{"\n"}
+											{props.piUpdateResult.output}
+										</pre>
+									)}
 
 									<hr className="setting-divider" />
 
@@ -1062,14 +1069,6 @@ export function SettingsModal(props: {
 											</Button>
 										</div>
 									</div>
-									{props.piUpdateResult && (
-										<pre className="setting-update-output">
-											{props.piUpdateResult.command}
-											{"\n"}
-											{props.piUpdateResult.output}
-										</pre>
-									)}
-
 									<hr className="setting-divider" />
 
 									{/* 禁用版本检测 */}
