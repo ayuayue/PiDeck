@@ -872,7 +872,7 @@ const zhCN = {
   "config.xhighOff": "关闭",
   "config.xhighDesc": "声明该模型支持 pi 的 xhigh 档位，并选择发送给上游的 reasoning_effort 值。选择后会自动开启推理和 provider 的 reasoning_effort。",
   "config.inputType": "输入",
-  "config.inputTypeImage": "图片",
+  "config.inputTypeImage": "图片支持",
   "config.renameCancel": "取消重命名",
   "config.renameConfirm": "确认重命名",
   "config.renameProvider": "重命名供应商",
