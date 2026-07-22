@@ -865,6 +865,23 @@ export function SettingsModal(props: {
 													{t("environment.clearCheckFlag")}
 												</Button>
 											)}
+											<Button
+												onClick={props.onCheckPiUpdate}
+												loading={props.piUpdateChecking}
+												disabled={draftSettings.disableUpdateCheck}
+											>
+												{t("settings.checkPiUpdate")}
+											</Button>
+											<Button
+												onClick={props.onUpdatePi}
+												loading={props.piUpdating}
+												disabled={
+													draftSettings.disableUpdateCheck ||
+													!props.piUpdateCheck?.hasUpdate
+												}
+											>
+												{t("settings.updatePi")}
+											</Button>
 										</div>
 									</div>
 
@@ -1022,19 +1039,9 @@ export function SettingsModal(props: {
 									{/* 版本与更新 */}
 									<div className="setting-row">
 										<div>
-											<strong>{t("settings.piUpdate")}</strong>
-											<span style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)" }}>
-												<span>v{props.appInfo.version}</span>
-												{props.piUpdateCheck?.currentVersion || props.piStatus?.version ? (
-													<span>
-														{t("settings.piUpdateVersions", {
-															current: props.piUpdateCheck?.currentVersion ?? props.piStatus?.version ?? "-",
-															latest: props.piUpdateCheck?.latestVersion ?? "-",
-														})}
-													</span>
-												) : (
-													<span>{t("settings.piUpdateDesc")}</span>
-												)}
+											<strong>PiDeck</strong>
+											<span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)" }}>
+												v{props.appInfo.version}
 											</span>
 										</div>
 										<div className="setting-inline-actions">
@@ -1046,23 +1053,6 @@ export function SettingsModal(props: {
 												{draftSettings.disableUpdateCheck
 													? t("settings.updateCheckDisabled")
 													: t("settings.checkUpdate")}
-											</Button>
-											<Button
-												onClick={props.onCheckPiUpdate}
-												loading={props.piUpdateChecking}
-												disabled={draftSettings.disableUpdateCheck}
-											>
-												{t("settings.checkPiUpdate")}
-											</Button>
-											<Button
-												onClick={props.onUpdatePi}
-												loading={props.piUpdating}
-												disabled={
-													draftSettings.disableUpdateCheck ||
-													!props.piUpdateCheck?.hasUpdate
-												}
-											>
-												{t("settings.updatePi")}
 											</Button>
 										</div>
 									</div>
