@@ -10626,12 +10626,9 @@ body.is-composer-resizing .composer-resize-handle::after {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  min-height: 52px;
-  margin: 10px 0;
-  padding: 0 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-panel);
+  min-height: 44px;
+  margin: 6px 0;
+  padding: 0;
 }
 .setting-row div {
   display: grid;
