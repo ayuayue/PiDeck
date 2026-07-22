@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -297,6 +298,111 @@ function relativeTime(ms: number): string {
 
 function fileNameOnly(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;
+}
+
+/** 按目录分组 Git 资源，返回 { dir -> resources[] } 映射 */
+function groupByDir(
+	resources: import("../../../../shared/types").GitResource[],
+): Map<string, import("../../../../shared/types").GitResource[]> {
+	const dirs = new Map<string, import("../../../../shared/types").GitResource[]>();
+	for (const r of resources) {
+		const parts = r.path.split(/[/\\]/);
+		const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+		if (!dirs.has(dir)) dirs.set(dir, []);
+		dirs.get(dir)!.push(r);
+	}
+	return dirs;
+}
+
+/** 按目录树渲染文件列表 */
+function FileTree(props: {
+	resources: import("../../../../shared/types").GitResource[];
+	groupType: import("../../../../shared/types").GitResourceGroupType;
+	stageFile?: (path: string) => void;
+	unstageFile?: (path: string) => void;
+	discardFile?: (path: string, group: "workingTree" | "untracked") => void;
+	mutating: boolean;
+	onOpenWorkspaceFileDiff: (group: import("../../../../shared/types").GitResourceGroupType, path: string) => void;
+}) {
+	const byDir = groupByDir(props.resources);
+	// 按目录名排序，根目录排最前
+	const dirs = [...byDir.keys()].sort((a, b) => {
+		if (a === "") return -1;
+		if (b === "") return 1;
+		return a.localeCompare(b);
+	});
+	// 每个目录的折叠状态
+	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+	const toggleDir = (dir: string) => {
+		setCollapsedDirs((prev) => {
+			const next = new Set(prev);
+			if (next.has(dir)) next.delete(dir);
+			else next.add(dir);
+			return next;
+		});
+	};
+
+	return (
+		<>
+		{dirs.map((dir) => {
+			const resources = byDir.get(dir)!;
+			// 单目录且无嵌套时不显示目录头
+			const isSingleRoot = dirs.length === 1 && dir === "";
+			return (
+				<Fragment key={dir || "root"}>
+					{!isSingleRoot && (
+						<div
+							className="git-tree-directory"
+							onClick={() => toggleDir(dir)}
+						>
+							<ChevronDown
+								size={12}
+								className={`git-tree-chevron${collapsedDirs.has(dir) ? "" : " open"}`}
+							/>
+							<span className="git-tree-directory-name">
+								{dir || "/"}
+							</span>
+							<span className="git-tree-directory-count">{resources.length}</span>
+						</div>
+					)}
+					{(!collapsedDirs.has(dir) || isSingleRoot) && resources.map((r) => {
+						const actions: Array<{
+							label: string;
+							kind: "stage" | "unstage" | "discard";
+							disabled?: boolean;
+							run: () => void;
+						}> = [];
+						if (props.groupType === "index") {
+							actions.push({
+								label: t("git.unstage"),
+								kind: "unstage",
+								disabled: props.mutating,
+								run: () => props.unstageFile?.(r.path),
+							});
+						} else if (props.groupType === "workingTree" || props.groupType === "untracked") {
+							actions.push({
+								label: t("git.stage"),
+								kind: "stage",
+								disabled: props.mutating,
+								run: () => props.stageFile?.(r.path),
+							});
+						}
+						return (
+							<ResourceRow
+								key={r.path}
+								status={r.status}
+								letter={r.letter}
+								path={r.path}
+								onOpen={() => props.onOpenWorkspaceFileDiff(props.groupType, r.path)}
+								actions={actions}
+							/>
+						);
+					})}
+				</Fragment>
+			);
+		})}
+		</>
+	);
 }
 
 function statusTone(
@@ -1349,30 +1455,12 @@ export function GitPanel(props: GitPanelProps) {
                   open={resourceOpen.merge}
                   onToggle={() => toggleResource("merge")}
                 >
-                  {groups.merge.map((resource) => (
-                    <ResourceRow
-                      key={resource.path}
-                      status={resource.status}
-                      letter={resource.letter}
-                      path={resource.path}
-                      onOpen={() =>
-                        props.onOpenWorkspaceFileDiff("merge", resource.path)
-                      }
-                      actions={[
-                        {
-                          kind: "stage",
-                          label: t("git.stage"),
-                          disabled: mutating || committing,
-                          run: () =>
-                            act(() =>
-                              props.stageFiles(props.projectId, [
-                                resource.path,
-                              ]),
-                            ),
-                        },
-                      ]}
-                    />
-                  ))}
+                  <FileTree
+                    resources={groups.merge}
+                    groupType="merge"
+                    onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
+                    mutating={mutating || committing}
+                  />
                 </ResourceGroup>
               )}
               {groups.index.length > 0 && (
@@ -1392,30 +1480,13 @@ export function GitPanel(props: GitPanelProps) {
                   allLabel={t("git.unstageAll")}
                   allDisabled={mutating || committing}
                 >
-                  {groups.index.map((resource) => (
-                    <ResourceRow
-                      key={resource.path}
-                      status={resource.status}
-                      letter={resource.letter}
-                      path={resource.path}
-                      onOpen={() =>
-                        props.onOpenWorkspaceFileDiff("index", resource.path)
-                      }
-                      actions={[
-                        {
-                          kind: "unstage",
-                          label: t("git.unstage"),
-                          disabled: mutating || committing,
-                          run: () =>
-                            act(() =>
-                              props.unstageFiles(props.projectId, [
-                                resource.path,
-                              ]),
-                            ),
-                        },
-                      ]}
-                    />
-                  ))}
+                  <FileTree
+                    resources={groups.index}
+                    groupType="index"
+                    onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
+                    mutating={mutating || committing}
+                    unstageFile={(path) => act(() => props.unstageFiles(props.projectId, [path]))}
+                  />
                 </ResourceGroup>
               )}
               {workingChanges.length > 0 && (
@@ -1435,51 +1506,14 @@ export function GitPanel(props: GitPanelProps) {
                   allLabel={t("git.stageAll")}
                   allDisabled={mutating || committing}
                 >
-                  {workingChanges.map((resource) => (
-                    <ResourceRow
-                      key={`${resource.status}-${resource.path}`}
-                      status={resource.status}
-                      letter={resource.letter}
-                      path={resource.path}
-                      onOpen={() =>
-                        props.onOpenWorkspaceFileDiff(
-                          resource.status === GitStatus.UNTRACKED
-                            ? "untracked"
-                            : "workingTree",
-                          resource.path,
-                        )
-                      }
-                      actions={[
-                        {
-                          kind: "discard",
-                          label:
-                            resource.status === GitStatus.UNTRACKED
-                              ? t("git.discardUntracked")
-                              : t("git.discard"),
-                          disabled: mutating || committing,
-                          run: () =>
-                            setDiscardTarget({
-                              group:
-                                resource.status === GitStatus.UNTRACKED
-                                  ? "untracked"
-                                  : "workingTree",
-                              path: resource.path,
-                            }),
-                        },
-                        {
-                          kind: "stage",
-                          label: t("git.stage"),
-                          disabled: mutating || committing,
-                          run: () =>
-                            act(() =>
-                              props.stageFiles(props.projectId, [
-                                resource.path,
-                              ]),
-                            ),
-                        },
-                      ]}
-                    />
-                  ))}
+                  <FileTree
+                    resources={workingChanges}
+                    groupType="workingTree"
+                    onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
+                    mutating={mutating || committing}
+                    stageFile={(path) => act(() => props.stageFiles(props.projectId, [path]))}
+                    discardFile={(path, group) => setDiscardTarget({ group, path })}
+                  />
                 </ResourceGroup>
               )}
             </div>

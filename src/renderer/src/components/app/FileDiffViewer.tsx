@@ -80,8 +80,9 @@ export function FileDiffViewer(props: {
 	const fileName = props.filePath.split(/[/\\]/).pop() ?? props.filePath;
 	const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
 	const isMarkdown = ext === "md" || ext === "mdx";
-	// 只读视图下 markdown 文件默认启用预览；差异模式或编辑模式保持源码视图。
-	const [preview, setPreview] = useState(isMarkdown && !isDiffMode && readOnly);
+	const isHtml = ext === "html" || ext === "htm";
+	// 只读视图下 markdown/html 文件默认启用预览；差异模式或编辑模式保持源码视图。
+	const [preview, setPreview] = useState((isMarkdown || isHtml) && !isDiffMode && readOnly);
 
 	useEffect(() => {
 		// 每个 tab 都从只读模式开始，尤其不能把工作区文件的编辑状态带入历史提交 Diff。
@@ -313,7 +314,7 @@ export function FileDiffViewer(props: {
 					{showHint && <span className="file-diff-hint">{t("app.saveFileShortcut")}</span>}
 				</span>
 				<div className="file-diff-header-actions">
-					{isMarkdown && !isDiffMode && !loading && !error && (
+					{(isMarkdown || isHtml) && !isDiffMode && !loading && !error && (
 						<button
 							className="file-diff-toggle-btn"
 							title={preview ? t("editor.source") : t("editor.preview")}
@@ -379,7 +380,7 @@ export function FileDiffViewer(props: {
 				{!loading && !error && (
 					<>
 						{/* Markdown 预览：仅 view 模式且 preview 启用 */}
-						{!isDiffMode && preview && (
+						{!isDiffMode && preview && isMarkdown && (
 							<div className="file-diff-preview">
 								<ReactMarkdown
 									remarkPlugins={[remarkGfm]}
@@ -389,6 +390,10 @@ export function FileDiffViewer(props: {
 									{content}
 								</ReactMarkdown>
 							</div>
+						)}
+						{/* HTML 预览：仅 view 模式且 preview 启用 */}
+						{!isDiffMode && preview && isHtml && (
+							<HtmlPreview content={content} />
 						)}
 						{/* view 模式、非预览：常规 Editor */}
 						{!isDiffMode && !preview && (
@@ -450,4 +455,25 @@ function extToMonacoLanguage(ext: string): string {
 		dockerfile: "dockerfile", makefile: "makefile",
 	};
 	return map[ext] ?? "plaintext";
+}
+
+/**
+ * HTML 预览组件：通过 sandboxed iframe 安全渲染 HTML。
+ * 使用 srcdoc 避免 CSP frame-src 限制；不带 allow-scripts 确保内联脚本不执行。
+ */
+function HtmlPreview({ content }: { content: string }) {
+	return (
+		<iframe
+			className="file-diff-preview"
+			srcDoc={content}
+			title="HTML preview"
+			sandbox=""
+			style={{
+				width: "100%",
+				height: "100%",
+				border: "none",
+				background: "white",
+			}}
+		/>
+	);
 }

@@ -15149,6 +15149,7 @@ a.config-btn {
 /* ── Markdown 预览区 ──────────────────────────── */
 .file-diff-preview {
   height: 100%;
+  min-height: 200px;
   overflow-y: auto;
   padding: 16px 24px;
   color: var(--color-text-primary);
@@ -19744,6 +19745,45 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 @keyframes git-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* 未初始化 Git 仓库时的提示 */
+.git-tree-directory {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  user-select: none;
+}
+.git-tree-directory:hover {
+  background: var(--git-panel-hover);
+}
+.git-tree-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform 0.12s ease;
+}
+.git-tree-chevron.open {
+  transform: rotate(0deg);
+}
+.git-tree-chevron:not(.open) {
+  transform: rotate(-90deg);
+}
+.git-tree-directory-name {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-business);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-tree-directory-count {
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-micro);
+  font-family: var(--font-family-business);
+  padding: 0 4px;
+}
 .git-not-installed {
   display: flex;
   flex-direction: column;
