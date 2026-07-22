@@ -3329,8 +3329,6 @@ body.is-terminal-resizing {
   grid-template-rows: 30px minmax(0, 1fr);
   box-shadow: none;
   z-index: 60;
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
   transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .terminal-dock[data-motion-state="hidden"] {
@@ -3680,10 +3678,18 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   color: var(--color-text-tertiary);
   background: var(--color-bg-panel);
   font-size: var(--font-size-body);
-  animation: fadeIn 0.16s ease;
+  animation: historyLoadingIn 0.2s ease;
 }
 .history-loading .loader {
   display: none;
+}
+@keyframes historyLoadingIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes historyLoadingOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 /* 骨架屏占位消息：模拟用户气泡 + AI 文本行 */
 .history-loading-placeholder {
@@ -7429,6 +7435,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   flex-direction: column;
   box-shadow: none;
   overflow: hidden;
+  /* 强制子像素抗锯齿，确保所有抽屉文本使用 ClearType 而非灰度渲染 */
+  -webkit-font-smoothing: subpixel-antialiased;
   /*
    * 抽屉承载文件树、Git 列表等密集小字号文本。不要在静止态保留
    * transform / will-change；Windows Chromium 会因此把整个 surface 长期放入
@@ -7500,6 +7508,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 强制子像素抗锯齿，避免 GPU 合成层导致 ClearType 降级为灰度渲染 */
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 .drawer-restore {
   position: fixed;
@@ -14962,6 +14972,11 @@ a.config-btn {
   overflow: hidden;
 }
 
+/* 强制 Monaco 编辑器使用 ClearType（子像素抗锯齿），避免其默认 antialiased 在 Windows 上字体发虚 */
+.file-diff-body :where(.monaco-editor, .monaco-editor *) {
+  -webkit-font-smoothing: subpixel-antialiased !important;
+}
+
 .file-diff-loading,
 .file-diff-error {
   display: grid;
@@ -14984,7 +14999,6 @@ a.config-btn {
   font-family: var(--font-family-base);
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
-  -webkit-font-smoothing: antialiased;
 }
 .file-diff-preview h1,
 .file-diff-preview h2,
