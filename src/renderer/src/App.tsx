@@ -7524,8 +7524,7 @@ export function App() {
         )}
       </main>
 
-        {activeAgent && (
-          <ConversationOutline
+        <ConversationOutline
             items={outlineItems}
             onJump={handleOutlineJump}
             extraAction={{
@@ -7534,15 +7533,14 @@ export function App() {
               onClick: () => scratchPad.toggle(),
               icon: <Pencil size={17} />,
             }}
-            terminalAction={{
+            terminalAction={activeAgentId ? {
               active: terminalOpen,
               label: t("app.terminal"),
               onClick: () => {
-                if (!activeAgentId) return;
                 setTerminalOpenForAgent(activeAgentId, !terminalOpen);
               },
               icon: <Terminal size={17} />,
-            }}
+            } : undefined}
             filesAction={{
               active: drawer === "files",
               label: t("app.files"),
@@ -7609,7 +7607,6 @@ export function App() {
               icon: <Globe size={17} />,
             }}
           />
-        )}
 
       {/* 右侧分隔条常驻 grid 列 4，宽度由 --drawer-splitter-w 驱动（0/6px）；
           关闭/折叠时宽度 0 且 pointer-events:none，避免遮挡会话区。 */}
