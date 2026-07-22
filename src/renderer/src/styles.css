@@ -10809,6 +10809,29 @@ body.is-composer-resizing .composer-resize-handle::after {
   line-height: 1.5;
   font-size: var(--font-size-control);
 }
+
+/* 设置项已修改标记：黄色圆点 */
+.setting-dirty-marker {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-warning, #eab308);
+  margin-left: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  animation: setting-dirty-pulse 2s ease-in-out infinite;
+}
+.setting-field > span,
+.setting-section-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+@keyframes setting-dirty-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 @media (max-width: 820px) {
   .config-layout {
     grid-template-columns: 1fr;

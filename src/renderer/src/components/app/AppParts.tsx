@@ -54,6 +54,7 @@ function loadMermaid() {
 }
 import {
 	AlertTriangle,
+	Brush,
 	Check,
 	ChevronDown,
 	ChevronLeft,
@@ -5318,7 +5319,7 @@ export function SettingsModal(props: {
 	onClose: () => void;
 	onChange: (patch: Partial<AppSettings>) => void;
 }) {
-	const [activeTab, setActiveTab] = useState<SettingsTabId>("base");
+	const [activeTab, setActiveTab] = useState<SettingsTabId>("common");
 	const [webPortDraft, setWebPortDraft] = useState(String(props.settings.webServicePort));
 	const piPath = props.settings.customPiPath || props.piStatus?.command || "";
 	useEffect(() => {
@@ -5352,9 +5353,9 @@ export function SettingsModal(props: {
 		icon: ReactNode;
 	}> = [
 		{
-			id: "base",
-			label: t("settings.tabs.base"),
-			description: t("settings.tabs.baseDesc"),
+			id: "common",
+			label: t("settings.tabs.common"),
+			description: t("settings.tabs.commonDesc"),
 			icon: <Settings2 size={16} />,
 		},
 		{
@@ -5364,10 +5365,10 @@ export function SettingsModal(props: {
 			icon: <Network size={16} />,
 		},
 		{
-			id: "web",
-			label: t("settings.tabs.web"),
-			description: t("settings.tabs.webDesc"),
-			icon: <Globe2 size={16} />,
+			id: "appearance",
+			label: t("settings.tabs.appearance"),
+			description: t("settings.tabs.appearanceDesc"),
+			icon: <Brush size={16} />,
 		},
 		{
 			id: "dev",
@@ -5440,7 +5441,7 @@ export function SettingsModal(props: {
 						))}
 					</nav>
 					<div className="settings-panel">
-						{activeTab === "base" && (
+						{activeTab === "common" && (
 							<>
 								<SettingsSection title={t("settings.interface")}>
 									<SelectField
@@ -5669,7 +5670,7 @@ export function SettingsModal(props: {
 								</SettingsSection>
 							</>
 						)}
-						{activeTab === "web" && (
+						{activeTab === "appearance" && (
 							<SettingsSection
 								title={t("settings.webLocalService")}
 								description={t("settings.webLocalServiceDesc")}
@@ -6421,7 +6422,7 @@ function formatBytes(value: number) {
 	return `${value} B`;
 }
 
-type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet";
+type SettingsTabId = "common" | "appearance" | "proxy" | "dev" | "pet";
 
 function SettingsSection(props: {
 	title: string;
