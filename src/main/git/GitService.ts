@@ -374,15 +374,8 @@ export class GitService {
 				timeout: GIT_MUTATION_TIMEOUT_MS,
 				maxBuffer: maxBytes + 1024,
 			});
-			// 无暂存内容时回退到工作区 diff
-			if (!stdout.trim()) {
-				({ stdout } = await execFileAsync("git", ["diff", "--unified=3"], {
-					cwd,
-					encoding: "utf8",
-					timeout: GIT_MUTATION_TIMEOUT_MS,
-					maxBuffer: maxBytes + 1024,
-				}));
-			}
+			// 无暂存内容时直接返回空，不再回退到工作区 diff；由调用方提示用户先暂存
+			if (!stdout.trim()) return "";
 			const truncated = stdout.length > maxBytes
 				? stdout.slice(0, maxBytes) + "\n\n... (diff truncated)"
 				: stdout;

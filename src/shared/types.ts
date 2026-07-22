@@ -404,6 +404,7 @@ export type AppSettings = {
 	/** 是否禁用版本更新检测（PiDeck + Pi CLI），默认 false 表示正常检测；
 	 *  开启后自动跳过启动和定时检测，设置页中检测按钮也禁用。 */
 	disableUpdateCheck: boolean;
+
 };
 
 // ── 桌面宠物类型 ──
