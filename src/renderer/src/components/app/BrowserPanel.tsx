@@ -166,6 +166,14 @@ export function BrowserPanel(props: {
 		[],
 	);
 
+	// 组件挂载后设置 allowfileaccess，使 webview 能加载 file:// URL
+	useEffect(() => {
+		const el = webviewRef.current;
+		if (el && !el.hasAttribute("allowfileaccess")) {
+			el.setAttribute("allowfileaccess", "true");
+		}
+	}, []);
+
 	const loadUrl = useCallback(
 		(targetUrl: string, nextDevice = moduleState.device) => {
 			const wv = webviewRef.current;
@@ -202,7 +210,7 @@ export function BrowserPanel(props: {
 				const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
 				if (activeTab) {
 					applyDeviceUserAgent(wv, moduleState.device);
-					wv.loadURL(activeTab.url);
+					wv.loadURL(activeTab.url).catch(() => {});
 				}
 			}
 		};
@@ -460,7 +468,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={"true" as any} />
+				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={true} />
 			</div>
 		</div>
 	);
