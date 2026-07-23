@@ -2457,6 +2457,46 @@ export const TurnRow = memo(function TurnRow(props: {
 	}, [isComplete, props.agentRunning]);
 
 	const rowRef = useRef<HTMLElement | null>(null);
+	// 最终回答的思考文本与标记，在 useMemo 之前提取（useMemo 本身是 hook，
+	// 必须放在所有 early return 之前，否则 agentRunning 切换到 true 时
+	// 会因少执行一个 hook 而触发 "Rendered fewer hooks" 报错。）
+	const finalThinkingTxt = finalMessageItem?.message.thinking?.trim()
+		? stripAnsi(finalMessageItem.message.thinking)
+		: null;
+	const hasFinalThinking = Boolean(finalThinkingTxt && props.showThinking);
+	// 将最终消息的思考插入执行过程（放在工具之前），确保时序正确：思考→工具→文本
+	const executionItemsWithFinalThinking = useMemo(() => {
+		const items = [...executionItems];
+		if (hasFinalThinking && finalThinkingTxt && props.showThinking) {
+			const thinkingItem: ThinkingGroupItem = {
+				kind: "thinking-group",
+				id: `final-thinking-${finalMessageItem?.message.id ?? run.id}`,
+				messages: finalMessageItem?.message ? [finalMessageItem.message] : [],
+				text: finalThinkingTxt,
+				startedAt: run.startedAt,
+				endedAt: finalMessageItem?.message.timestamp ?? run.endedAt,
+			};
+			items.push(thinkingItem);
+		}
+		return items;
+	}, [executionItems, hasFinalThinking, finalThinkingTxt, props.showThinking,
+		finalMessageItem?.message.id, finalMessageItem?.message.timestamp,
+		finalMessageItem?.message, run.id, run.startedAt, run.endedAt,
+	]);
+
+	// 统计（在 early return 之前，确保 hook 数量一致）
+	const totalThinkingCount = executionItemsWithFinalThinking.filter((i) => i.kind === "thinking-group").length;
+	const totalToolCount = executionItemsWithFinalThinking.filter((i) => i.kind === "tool-group").length;
+	const totalInterReplyCount = executionItemsWithFinalThinking.filter(
+		(i) => i.kind === "message" && i.message.role === "assistant",
+	).length;
+	const summaryParts: string[] = [];
+	if (totalToolCount > 0) summaryParts.push(`${totalToolCount}个工具`);
+	if (totalThinkingCount > 0) summaryParts.push(`${totalThinkingCount}次思考`);
+	if (totalInterReplyCount > 0) summaryParts.push(`${totalInterReplyCount}次回答`);
+	const summaryText = summaryParts.length > 0 ? `执行过程: ${summaryParts.join(" ")}` : "";
+	const hasFoldableContent = executionItemsWithFinalThinking.length > 0 || run.items.some((i) => i.kind !== "message");
+
 	// 本轮没有任何可渲染内容时不输出空容器
 	const hasContent =
 		assistantMessages.length > 0 ||
@@ -2500,11 +2540,6 @@ export const TurnRow = memo(function TurnRow(props: {
 		return null;
 	};
 
-	const finalThinking = finalMessageItem?.message.thinking?.trim()
-		? stripAnsi(finalMessageItem.message.thinking)
-		: null;
-	const hasFinalThinking = Boolean(finalThinking && props.showThinking);
-
 	// Streaming 模式：agent 仍在执行中，按时间顺序渲染所有条目，
 	// 不把最后一条 assistant 回答分离到最底部，避免新的思考和工具出现在已回答文本之上。
 	if (props.agentRunning) {
@@ -2547,40 +2582,7 @@ export const TurnRow = memo(function TurnRow(props: {
 		);
 	}
 
-	// 将最终消息的思考插入执行过程（放在工具之前），确保时序正确：思考→工具→文本
-	const executionItemsWithFinalThinking = useMemo(() => {
-		const items = [...executionItems];
-		if (hasFinalThinking && finalThinking && props.showThinking) {
-			const thinkingItem: ThinkingGroupItem = {
-				kind: "thinking-group",
-				id: `final-thinking-${finalMessageItem?.message.id ?? run.id}`,
-				messages: finalMessageItem?.message ? [finalMessageItem.message] : [],
-				text: finalThinking,
-				startedAt: run.startedAt,
-				endedAt: finalMessageItem?.message.timestamp ?? run.endedAt,
-			};
-			// 插到 executionItems 的 lastAssistantIndex 位置，保持与原 run.items 一致的时序
-			const insertIndex = Math.min(lastAssistantIndex, items.length);
-			items.splice(insertIndex, 0, thinkingItem);
-		}
-		return items;
-	}, [executionItems, hasFinalThinking, finalThinking, props.showThinking, finalMessageItem, run.id, run.startedAt, run.endedAt]);
 
-	// 统计
-	const totalThinkingCount = executionItemsWithFinalThinking.filter((i) => i.kind === "thinking-group").length;
-	const totalToolCount = executionItemsWithFinalThinking.filter((i) => i.kind === "tool-group").length;
-	const totalInterReplyCount = executionItemsWithFinalThinking.filter(
-		(i) => i.kind === "message" && i.message.role === "assistant",
-	).length;
-	/** 将统计拼成概要文本。 */
-	const summaryParts: string[] = [];
-	if (totalToolCount > 0) summaryParts.push(`${totalToolCount}个工具`);
-	if (totalThinkingCount > 0) summaryParts.push(`${totalThinkingCount}次思考`);
-	if (totalInterReplyCount > 0) summaryParts.push(`${totalInterReplyCount}次回答`);
-	const summaryText = summaryParts.length > 0 ? `执行过程: ${summaryParts.join(" ")}` : "";
-
-	// 是否有任何需要折叠的内容
-	const hasFoldableContent = executionItemsWithFinalThinking.length > 0 || run.items.some((i) => i.kind !== "message");
 
 	// 没有助手指令消息的情况：整轮只含工具/思考，用执行过程折叠渲染
 	if (lastAssistantIndex === -1) {
