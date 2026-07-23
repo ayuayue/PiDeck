@@ -100,6 +100,64 @@ export type AgentRunItem = {
 
 export type RenderMessage = MessageItem | ToolGroupItem | ThinkingGroupItem | AgentRunItem;
 
+export function sameChatMessageForRender(previous: ChatMessage, next: ChatMessage): boolean {
+	if (
+		previous.id !== next.id ||
+		previous.role !== next.role ||
+		previous.text !== next.text ||
+		previous.thinking !== next.thinking ||
+		previous.timestamp !== next.timestamp
+	) {
+		return false;
+	}
+	const previousImages = previous.images ?? [];
+	const nextImages = next.images ?? [];
+	return (
+		previousImages.length === nextImages.length &&
+		previousImages.every(
+			(image, index) =>
+				image.mimeType === nextImages[index]?.mimeType &&
+				image.data === nextImages[index]?.data,
+		)
+	);
+}
+
+export function sameAgentRunForRender(previous: AgentRunItem, next: AgentRunItem): boolean {
+	if (
+		previous.id !== next.id ||
+		previous.startedAt !== next.startedAt ||
+		previous.endedAt !== next.endedAt ||
+		previous.items.length !== next.items.length
+	) {
+		return false;
+	}
+	return previous.items.every((item, index) => {
+		const other = next.items[index];
+		if (!other || item.kind !== other.kind) return false;
+		if (item.kind === "message" && other.kind === "message") {
+			return sameChatMessageForRender(item.message, other.message);
+		}
+		if (item.kind === "thinking-group" && other.kind === "thinking-group") {
+			return (
+				item.id === other.id &&
+				item.text === other.text &&
+				item.startedAt === other.startedAt &&
+				item.endedAt === other.endedAt
+			);
+		}
+		if (item.kind === "tool-group" && other.kind === "tool-group") {
+			return (
+				item.id === other.id &&
+				item.messages.length === other.messages.length &&
+				item.messages.every((message, messageIndex) =>
+					sameChatMessageForRender(message, other.messages[messageIndex]),
+				)
+			);
+		}
+		return false;
+	});
+}
+
 export function getMultiSelectImageCaptureIds(
 	items: RenderMessage[],
 	selectedIds: Set<string>,

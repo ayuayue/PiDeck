@@ -7,6 +7,7 @@ import { basename as posixBasename, dirname as posixDirname, join as posixJoin }
 import type { ChatMessage, ChatRole, SessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
 import { extractMessageText, extractThinkingRaw } from "../pi/messageContent";
+import { SessionSummaryCache, type SessionFileVersion } from "./sessionSummaryCache";
 
 export class SessionScanner {
   private readonly root = join(app.getPath("home"), ".pi", "agent", "sessions");
@@ -15,6 +16,8 @@ export class SessionScanner {
   private wslConfig: { distro: string; user: string; home: string } | null = null;
   /** 比 renderer watchdog 更短，确保超时前先终止实际扫描，避免后台请求堆积。 */
   private scanTimeoutMs = 18_000;
+  private readonly summaryCache = new SessionSummaryCache<SessionSummary | null>();
+  private summaryCacheFileSetKey = "";
 
   /**
    * wsl.exe 命令与启动模式。优先绝对路径，
@@ -47,11 +50,13 @@ export class SessionScanner {
     // 动态获取 WSL 中用户的 HOME 目录，解决 root（/root）与普通用户（/home/user）路径差异
     const home = await this.fetchWslHome(wslDistro, wslUser);
     this.wslConfig = { distro: wslDistro, user: wslUser, home };
+    this.clearSummaryCache();
   }
 
   /** 清除 WSL 配置 */
   clearWsl(): void {
     this.wslConfig = null;
+    this.clearSummaryCache();
   }
 
   /** 通过 wsl.exe 动态获取用户 HOME 目录，失败时 fallback 到 /home/<user> */
@@ -138,18 +143,22 @@ export class SessionScanner {
     });
   }
 
-  /** 通过 wsl.exe 获取文件修改时间戳 */
-  private readWslFileMtime(wslPath: string, signal?: AbortSignal): Promise<number> {
+  /** 通过 wsl.exe 获取缓存判定所需的修改时间和大小。 */
+  private readWslFileVersion(wslPath: string, signal?: AbortSignal): Promise<SessionFileVersion> {
     return new Promise((resolve, reject) => {
-      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "stat", "-c", "%Y", wslPath], {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "stat", "-c", "%Y %s", wslPath], {
         shell: this.wslShell,
         encoding: "utf8",
         timeout: 5_000,
         signal,
         windowsHide: true,
       }, (err, stdout) => {
-        if (err) reject(err);
-        else resolve(Number(stdout.trim()) * 1000);
+        if (err) {
+          reject(err);
+          return;
+        }
+        const [mtimeSeconds, size] = stdout.trim().split(/\s+/).map(Number);
+        resolve({ mtimeMs: mtimeSeconds * 1000, size });
       });
     });
   }
@@ -233,6 +242,11 @@ export class SessionScanner {
       const files = this.wslConfig
         ? await this.collectWslJsonl(signal).catch(rethrowAbort([] as string[]))
         : await this.collectJsonl(this.root).catch(() => [] as string[]);
+      const fileSetKey = [...files].sort().join("\n");
+      if (fileSetKey !== this.summaryCacheFileSetKey) {
+        this.summaryCache.clear();
+        this.summaryCacheFileSetKey = fileSetKey;
+      }
 
       const summaries = await Promise.all(files.map(file =>
         this.readSummary(file, signal).catch(rethrowAbort(null))
@@ -769,14 +783,23 @@ export class SessionScanner {
   }
 
   private async readSummary(filePath: string, signal?: AbortSignal): Promise<SessionSummary | null> {
-    // WSL 路径通过 wsl.exe 命令读取，Windows 路径直接用 fs
+    // 先读取轻量文件指纹；未变化时复用摘要，避免周期扫描反复读取和解析全部 JSONL。
     const isWsl = this.isWslPath(filePath);
-    const [raw, info] = await Promise.all([
-      isWsl ? this.readWslFile(filePath, signal) : readFile(filePath, "utf8"),
-      isWsl ? this.readWslFileMtime(filePath, signal).then(m => ({ mtimeMs: m })) : stat(filePath),
-    ]);
+    const info = isWsl
+      ? await this.readWslFileVersion(filePath, signal)
+      : await stat(filePath);
+    const version = { mtimeMs: info.mtimeMs, size: info.size };
+    const cached = this.summaryCache.get(filePath, version);
+    if (cached !== undefined) return cached;
+
+    const raw = isWsl
+      ? await this.readWslFile(filePath, signal)
+      : await readFile(filePath, "utf8");
     const lines = raw.split(/\r?\n/).filter(Boolean);
-    if (lines.length === 0) return null;
+    if (lines.length === 0) {
+      this.summaryCache.set(filePath, version, null);
+      return null;
+    }
 
     let name: string | undefined;
     let projectPath: string | undefined;
@@ -906,7 +929,7 @@ export class SessionScanner {
 
     const inferredName = this.cleanTitle(name) || this.cleanTitle(firstUserText) || this.cleanTitle(firstAssistantText) || "Untitled";
 
-    return {
+    const summary: SessionSummary = {
       id: filePath,
       filePath,
       projectPath: projectPath ? this.normalize(projectPath) : this.inferProjectPathFromFile(filePath),
@@ -924,6 +947,13 @@ export class SessionScanner {
       // 标记 WSL 来源，供 rename/delete/copy/readMessages 等操作识别
       wsl: isWsl || undefined,
     };
+    this.summaryCache.set(filePath, version, summary);
+    return summary;
+  }
+
+  private clearSummaryCache(): void {
+    this.summaryCache.clear();
+    this.summaryCacheFileSetKey = "";
   }
 
   private optionalString(value: unknown) {

@@ -23,6 +23,7 @@ import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
+import { LatestByKeyEmitter } from "./LatestByKeyEmitter";
 import {
   updateActiveToolCalls,
   type ActiveToolCallState,
@@ -62,6 +63,10 @@ export class AgentManager {
 	/** 流式消息 emit 节流状态。 */
 	private readonly messageFlushTimers = new Map<string, NodeJS.Timeout>();
 	private readonly pendingMessageAgents = new Set<string>();
+	private readonly thinkingEmitter = new LatestByKeyEmitter<string, string>(
+		50,
+		(agentId, thinking) => this.emitThinkingNow(agentId, thinking),
+	);
 	/** 流式 emit 合并窗口（毫秒）。50ms 兼顾流畅度与传输量，肉眼几乎无延迟。 */
 	private static readonly MESSAGE_FLUSH_INTERVAL_MS = 50;
 	/**
@@ -3112,7 +3117,7 @@ export class AgentManager {
 			const prev = this.streamingThinking.get(agentId) ?? "";
 			const delta = String(assistantEvent.delta ?? "");
 			this.streamingThinking.set(agentId, prev + delta);
-			this.emitThinking(agentId, this.stripAnsi(prev + delta));
+			this.thinkingEmitter.push(agentId, this.stripAnsi(prev + delta));
 			this.upsertAssistantMessage(agentId, partialMessage);
 			return;
 		}
@@ -3123,6 +3128,8 @@ export class AgentManager {
 			);
 			if (finalThinking) {
 				this.streamingThinking.set(agentId, finalThinking);
+				this.thinkingEmitter.push(agentId, this.stripAnsi(finalThinking));
+				this.thinkingEmitter.flush(agentId);
 			}
 			this.upsertAssistantMessage(agentId, partialMessage);
 			// thinking_end 是阶段性终态，立即 flush 让思考块完整落盘显示。
@@ -3969,6 +3976,11 @@ export class AgentManager {
 	}
 
 	private emitThinking(agentId: string, thinking: string) {
+		if (!thinking) this.thinkingEmitter.cancel(agentId);
+		this.emitThinkingNow(agentId, thinking);
+	}
+
+	private emitThinkingNow(agentId: string, thinking: string) {
 		const update: ThinkingUpdate = { agentId, thinking };
 		this.emit(ipcChannels.agentsThinking, update);
 	}

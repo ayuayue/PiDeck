@@ -43,6 +43,8 @@ import {
 	getToolFilePath,
 	countTextLines,
 	getToolEditDiff,
+	sameAgentRunForRender,
+	sameChatMessageForRender,
 } from "./AppUtils";
 
 // Mermaid 库体积数 MB，仅在真正出现 mermaid 代码块时才动态加载，
@@ -2719,7 +2721,12 @@ export const TurnRow = memo(function TurnRow(props: {
 			</div>
 		</article>
 	);
-});
+}, (previous, next) =>
+	sameAgentRunForRender(previous.run, next.run) &&
+	previous.showThinking === next.showThinking &&
+	previous.isStreaming === next.isStreaming &&
+	previous.agentRunning === next.agentRunning,
+);
 
 /**
  * 从用户消息文本中提取 pi 展开后的 <skill name="..." location="...">...</skill> 块。
@@ -2915,7 +2922,13 @@ export const UserBubble = memo(function UserBubble(props: {
 			</div>
 		</article>
 	);
-});
+}, (previous, next) =>
+	sameChatMessageForRender(previous.message, next.message) &&
+	previous.isLastUserMessage === next.isLastUserMessage &&
+	previous.agentRunning === next.agentRunning &&
+	previous.validCommandNames === next.validCommandNames &&
+	previous.validFilePaths === next.validFilePaths,
+);
 
 /**
  * remark 插件：把助手正文里的裸文件路径转换成可点击的 file:// 链接。

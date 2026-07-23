@@ -70,6 +70,7 @@ import {
 } from "./agentListDisplay";
 import { resolveLocale, setI18nLocale, t } from "./i18n";
 import { mergeAgentRuntimeState } from "./utils/agentRuntimeState";
+import { sameSessionSummaryList } from "./utils/sessionSummaryList";
 import {
   acknowledgeUnknownPrompt,
   canDiscardQueuedPrompt,
@@ -1585,20 +1586,7 @@ export function App() {
       ),
     ),
   );
-  const activeProjectSessionSyncKey = useMemo(() => {
-    if (!activeProjectId) return "";
-    return displayAgents
-      .filter((agent) => agent.projectId === activeProjectId)
-      .map((agent) => {
-        const runtime = runtimeStateByAgent[agent.id];
-        return `${agent.id}:${agent.status}:${runtime?.isStreaming ? 1 : 0}:${runtime?.isExecutingTool ? 1 : 0}`;
-      })
-      .sort()
-      .join("|");
-  }, [activeProjectId, displayAgents, runtimeStateByAgent]);
-
-  // 消息分页:超过 100 条消息时启用,大幅减少输入卡顿
-  // 首屏 100 条,每次加载 100 条,一页一页懒加载
+  // 历史首屏控制在 50 条，避免打开旧会话时同步解析过多 Markdown/KaTeX。
   const {
     visibleMessages: paginatedMessages,
     hasMore: hasMoreMessages,
@@ -1607,9 +1595,9 @@ export function App() {
     isLoading: isLoadingMoreMessages,
   } = useMessagePagination({
     messages: activeMessages,
-    initialPageSize: 100, // 首屏 100 条
-    pageSize: 100,        // 每次加载 100 条
-    enabled: activeMessages.length > 100, // 超过 100 条才启用
+    initialPageSize: 50,
+    pageSize: 50,
+    enabled: activeMessages.length > 50,
   });
 
   /** 最后一条用户消息的 id，用于决定重发按钮只在最新消息上显示。 */
@@ -2421,14 +2409,13 @@ export function App() {
       return () => { disposed = true; };
     }
 
-    // pi-subagents 会在 Agent 运行期间直接向 sessions 目录写入子会话，主进程没有文件变更事件。
-    // 仅在当前项目运行期间低频扫描，兼顾实时嵌套与 WSL/大历史目录的 IO 成本。
-    const timer = window.setInterval(scheduleRefresh, 3000);
+    // 子会话由扩展直接写盘，运行期间保留低频兜底；工具 start/end 不应重置计时器并触发额外扫描。
+    const timer = window.setInterval(scheduleRefresh, 15_000);
     return () => {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [activeProjectId, activeProjectHasBusyAgent, activeProjectSessionSyncKey, collapsedProjects]);
+  }, [activeProjectId, activeProjectHasBusyAgent, collapsedProjects]);
 
   function getComposerMaxHeight() {
     const chatPane = chatPaneRef.current;
@@ -3186,10 +3173,11 @@ export function App() {
       );
       if (sessionRequestByProjectRef.current[projectId] !== request) return next;
       const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
-      setSessionsByProject((current) => ({
-        ...current,
-        [projectId]: sorted,
-      }));
+      setSessionsByProject((current) => {
+        const previous = current[projectId] ?? [];
+        if (sameSessionSummaryList(previous, sorted)) return current;
+        return { ...current, [projectId]: sorted };
+      });
       setVisibleProjectChildCountByProject((current) => ({
         ...current,
         [projectId]: current[projectId] ?? SIDEBAR_PROJECT_CHILD_PAGE_SIZE,
@@ -4042,10 +4030,9 @@ export function App() {
   }
 
   function applyAgentRuntimeState(agentId: string, incoming: AgentRuntimeState) {
-    const nextState = mergeAgentRuntimeState(
-      runtimeStateByAgentRef.current[agentId],
-      incoming,
-    );
+    const currentState = runtimeStateByAgentRef.current[agentId];
+    const nextState = mergeAgentRuntimeState(currentState, incoming);
+    if (nextState === currentState) return nextState;
     runtimeStateByAgentRef.current = {
       ...runtimeStateByAgentRef.current,
       [agentId]: nextState,
