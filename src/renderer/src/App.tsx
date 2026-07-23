@@ -1530,12 +1530,6 @@ export function App() {
     if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
   }
 
-  function setAttachedImages(
-    value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]),
-  ) {
-    const targetAgentId = activeAgentIdRef.current;
-    if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
-  }
   const terminalDockState = activeAgentId
     ? terminalDockStateByAgent[activeAgentId]
     : undefined;

@@ -24,7 +24,7 @@ features:
   - title: Git 集成
     details: 实时分支显示和切换，文件树展示 Git 状态，VS Code 风格三面板（变更/历史/比较），AI 提交摘要生成，branch graph 可视化，cherry-pick/revert/reset/drop 操作，worktree 工作区支持。
   - title: 对话 & 引用
-    details: & 会话引用快捷输入，跨会话上下文注入。消息队列在 Agent 忙碌时排队发送。会话大纲面板快速跳转。
+    details: "& 会话引用快捷输入，跨会话上下文注入。消息队列在 Agent 忙碌时排队发送。会话大纲面板快速跳转。"
   - title: 文件编辑器
     details: 多 Tab 文件编辑器，弹框/侧栏双模式，Diff 差异对比，Markdown 预览，Monaco 编辑器支持。
   - title: 内置工具
