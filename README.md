@@ -8,7 +8,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.6.5-green)
+![Version](https://img.shields.io/badge/version-0.6.6--beta.1-yellow)
 
 **PiDeck** 是一个开源的Pi桌面工作台，用于在本地项目目录中统一管理 pi Agent 会话，并支持导入 Codex、Claude 本地会话以便统一浏览和恢复。基于 Electron + TypeScript 构建，提供多项目工作区、AI 会话管理、Git 集成、内置终端、模型配置和插件扩展能力，让本地 AI 编码助手在多项目环境中保持统一、可追溯、可配置。
 
@@ -20,22 +20,19 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.6.5**（2026-07-13）
+> **最新版本 v0.6.6-beta.1**（2026-07-22）
 
-### v0.6.5 更新
-- 🚀 **Prompt 模板系统**：全新模板管理、内置模板、`/` picker 快速插入、变量占位符
-- 🚀 **Prompt/Skill 商店**：集成 prompts.chat 和 Yao Open Prompts（121 个中文 Prompt）
-- 🚀 **Git Worktree 工作区**：分支管理、会话按 worktree 分组
-- 🚀 **消息多选 & 分享**：多选转发、复制文字/图片
-- 🚀 **内置浏览器预览**：右侧抽屉浏览网页，支持多标签、全屏和移动端视口
-- 🚀 **会话管理器**：右键项目打开、多选删除、来源筛选
-- 🚀 **外部编辑器集成**：右键项目直接「打开方式」选择编辑器
-- 🚀 **xhigh 推理级别**支持
-- ✨ 公共 MonacoEditor 组件抽取、统一图标按钮、统一弹框尺寸
-- 🐛 Windows 启动崩溃修复（0x80000003）
-- 🐛 pi 压缩后进程重启断连修复、Extension RPC 生命周期修复
-- 🐛 消息交错渲染、分片 text 竖排显示、思考状态动态读取、工作区会话加载修复
-- 🔧 会话打开性能优化、IPC 裁剪、清理调试日志
+### v0.6.6-beta.1 更新亮点
+- 🚀 **Git 源代码管理**：VS Code 风格三面板（变更/历史/比较）、AI 提交摘要生成、Cherry-pick/Revert/Reset/Drop、Graph 可视化、分支切换、Worktree 工作区
+- 🚀 **& 会话引用快捷输入**：键入 `&` 搜索引用同项目会话、选择特定消息或全部上下文、持久化选择
+- 🚀 **多 Tab 文件编辑器**：5 个并发 Tab、弹框/侧栏双模式、Diff 对比
+- 🚀 **消息队列**：Agent 忙碌时排队发送、支持撤回编辑、Follow-up/Steer 模式
+- 🚀 **WSL 环境支持**：完整 WSL 隔离、pi 检测、会话扫描、发行版选择
+- 🚀 **内置浏览器**：多标签、全屏、设备预设
+- 🚀 **SkillHub 社区技能商店**
+- ✨ 设置页重构、分区域字体、窗口缩放、文件图标（VS Code Seti）
+- ✨ 浮动快捷操作栏（终端/文件/Git/浏览器/草稿本/编辑器）
+- 🐛 RichInput 光标漂移根治、Monaco 懒加载、大量稳定性修复
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

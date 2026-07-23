@@ -31,7 +31,8 @@ describe("optional Git management entry", () => {
     assert.match(appParts, /filesAction\?: EntryAction;\s*gitAction\?: EntryAction;/);
     assert.match(appParts, /props\.filesAction[\s\S]*?props\.gitAction[\s\S]*?props\.editorsAction/);
     assert.match(app, /gitAction=\{settings\.enableGitManagement && activeProjectId && !isChatProject\(activeProject\) \?/);
-    assert.match(app, /icon: <GitGraph size=\{17\} \/>/);
+    assert.match(app, /GIT_LOGO_URL = new URL\("\.\/assets\/git-logo\.svg"/);
+    assert.match(app, /icon: <img className="git-entry-logo" src=\{GIT_LOGO_URL\}/);
     assert.match(styles, /\.git-entry\s*\{[\s\S]*?width:\s*34px;[\s\S]*?height:\s*34px/);
   });
 

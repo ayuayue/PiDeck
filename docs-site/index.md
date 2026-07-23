@@ -22,7 +22,13 @@ features:
   - title: 会话历史与恢复
     details: 恢复历史会话，按时间线查看工具调用和回答细节，并回放历史会话中的修改内容，支持 Codex 和 Claude 会话导入。
   - title: Git 集成
-    details: 实时分支显示和切换，文件树展示 Git 状态，支持本地和远程分支管理，worktree 工作区支持。
+    details: 实时分支显示和切换，文件树展示 Git 状态，VS Code 风格三面板（变更/历史/比较），AI 提交摘要生成，branch graph 可视化，cherry-pick/revert/reset/drop 操作，worktree 工作区支持。
+  - title: 对话 & 引用
+    details: & 会话引用快捷输入，跨会话上下文注入。消息队列在 Agent 忙碌时排队发送。会话大纲面板快速跳转。
+  - title: 文件编辑器
+    details: 多 Tab 文件编辑器，弹框/侧栏双模式，Diff 差异对比，Markdown 预览，Monaco 编辑器支持。
+  - title: 内置工具
+    details: 内置浏览器（多标签/全屏/设备预设）、草稿本、外部编辑器集成、浮动快捷操作栏、内置终端。
   - title: 内嵌终端 Dock
     details: 当前 Agent 绑定独立终端 tab，支持 PowerShell/cmd/sh fallback、多 tab、主题切换、拖拽高度、右键复制。
   - title: 配置与插件管理

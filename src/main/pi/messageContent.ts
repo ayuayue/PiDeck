@@ -43,3 +43,20 @@ export function extractMessageText(content: unknown): string {
 
 	return stripCpaCompletionMarker(stripFeishuDocActionHint(text));
 }
+
+/**
+ * 从 pi/RPC content 数组中提取 thinking 块的纯文本（不含标签包裹）。
+ * 与 AgentManager.extractThinking 逻辑一致，用于会话文件直接读取场景。
+ */
+export function extractThinkingRaw(content: unknown): string {
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((item) => {
+			if (!item || typeof item !== "object") return "";
+			const typed = item as Record<string, unknown>;
+			if (typed.type !== "thinking") return "";
+			return String(typed.thinking ?? typed.text ?? "");
+		})
+		.filter(Boolean)
+		.join("\n");
+}

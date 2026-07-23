@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
 import {
@@ -83,6 +84,7 @@ import { ProjectStore } from "./projects/ProjectStore";
 import { FileSystemService } from "./fs/FileSystemService";
 import { AgentManager } from "./pi/AgentManager";
 import { PiLocator } from "./pi/PiLocator";
+import { PiRpcClient } from "./pi/PiRpcClient";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
 import { CodexSessionImporter } from "./sessions/CodexSessionImporter";
@@ -96,7 +98,7 @@ import { ConfigManager } from "./config/ConfigManager";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { PromptManager } from "./prompts/PromptManager";
-import { YaoPromptManager } from "./prompts/YaoPromptManager";
+import { XuePromptManager } from "./prompts/XuePromptManager";
 import { SkillManager } from "./skills/SkillManager";
 import { ExtensionManager } from "./extensions/ExtensionManager";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
@@ -143,7 +145,7 @@ let piLocator: PiLocator;
 let agentManager: AgentManager;
 let configManager: ConfigManager;
 let promptManager: PromptManager;
-let yaoPromptManager: YaoPromptManager;
+let xuePromptManager: XuePromptManager;
 let skillManager: SkillManager;
 let extensionManager: ExtensionManager;
 let projectResourceManager: ProjectResourceManager;
@@ -153,6 +155,36 @@ let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
 let rpcLogger: RpcLogger;
 let feishuBridge: FeishuBridge | null = null;
+
+/**
+ * 解析 pi --list-models 表格输出为 AvailableModel[]。
+ * 表格格式：provider  model  context  max-out  thinking  images
+ */
+function parsePiListModels(stdout: string): Array<{ provider: string; id: string; name?: string; thinking: boolean; supportsImages: boolean }> {
+	const lines = stdout.split(/\r?\n/).filter(Boolean);
+	if (lines.length < 2) return [];
+	// 跳过表头
+	const dataLines = lines.slice(1);
+	const models: Array<{ provider: string; id: string; name?: string; thinking: boolean; supportsImages: boolean }> = [];
+	for (const line of dataLines) {
+		// 列1: provider, 列2: model, 列6: thinking (yes/no), 列7: images (yes/no)
+		const parts = line.trim().split(/\s+/);
+		if (parts.length < 3) continue;
+		const provider = parts[0];
+		const modelId = parts[1];
+		// thinking 和 images 在倒数第二列和最后一列
+		const thinking = parts[parts.length - 2]?.toLowerCase() === "yes";
+		const images = parts[parts.length - 1]?.toLowerCase() === "yes";
+		models.push({
+			provider,
+			id: modelId,
+			name: `${provider}/${modelId}`,
+			thinking,
+			supportsImages: images,
+		});
+	}
+	return models;
+}
 
 function applyNativeThemeSource(settings: AppSettings) {
 	// 原生标题栏不受 renderer CSS 影响；跟随应用主题，避免暗色界面顶部仍是系统浅色栏。
@@ -186,17 +218,47 @@ function normalizeVersion(version: string) {
 	return version.trim().replace(/^v/i, "");
 }
 
+function parseVersion(version: string) {
+	const normalized = normalizeVersion(version);
+	const dashIdx = normalized.indexOf("-");
+	const mainVer = dashIdx >= 0 ? normalized.slice(0, dashIdx) : normalized;
+	const preRel = dashIdx >= 0 ? normalized.slice(dashIdx + 1) : "";
+	return {
+		main: mainVer.split(".").map((p) => Number(p)),
+		pre: preRel
+			? preRel.split(/[.-]/).map((p) => (isNaN(Number(p)) ? p : Number(p)))
+			: [],
+	};
+}
+
+/**
+ * 语义化版本比较，符合 semver 规范：
+ * - 主版本号（major.minor.patch）逐段比较
+ * - pre-release 版本 < 正式版（如 0.6.6-beta.1 < 0.6.6）
+ * - pre-release 之间逐段比较，数字按数值、字符串按字典序
+ */
 function compareVersions(left: string, right: string) {
-	const leftParts = normalizeVersion(left)
-		.split(/[.-]/)
-		.map((part) => Number(part) || 0);
-	const rightParts = normalizeVersion(right)
-		.split(/[.-]/)
-		.map((part) => Number(part) || 0);
-	const length = Math.max(leftParts.length, rightParts.length);
-	for (let index = 0; index < length; index += 1) {
-		const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+	const l = parseVersion(left);
+	const r = parseVersion(right);
+	const maxLen = Math.max(l.main.length, r.main.length);
+	for (let i = 0; i < maxLen; i++) {
+		const diff = (l.main[i] ?? 0) - (r.main[i] ?? 0);
 		if (diff !== 0) return diff;
+	}
+	// 主版本相等时比较 pre-release
+	if (l.pre.length === 0 && r.pre.length > 0) return 1;  // 正式版 > pre-release
+	if (l.pre.length > 0 && r.pre.length === 0) return -1; // pre-release < 正式版
+	// 两个都是 pre-release，逐段比较
+	const preLen = Math.max(l.pre.length, r.pre.length);
+	for (let i = 0; i < preLen; i++) {
+		if (l.pre[i] === undefined) return -1;
+		if (r.pre[i] === undefined) return 1;
+		if (typeof l.pre[i] === "number" && typeof r.pre[i] === "number") {
+			if (l.pre[i] !== r.pre[i]) return (l.pre[i] as number) - (r.pre[i] as number);
+		} else {
+			const cmp = String(l.pre[i]).localeCompare(String(r.pre[i]));
+			if (cmp !== 0) return cmp;
+		}
 	}
 	return 0;
 }
@@ -1249,6 +1311,14 @@ function registerIpc() {
 		return result.filePaths[0];
 	});
 
+	ipcMain.handle(ipcChannels.dialogPickFiles, async (_event, options?: { title?: string }) => {
+		const result = await dialog.showOpenDialog({
+			title: options?.title ?? "选择文件或文件夹",
+			properties: ["openFile", "openDirectory", "multiSelections"],
+		});
+		return result.canceled ? [] : result.filePaths;
+	});
+
 	ipcMain.handle(
 		ipcChannels.projectsSetChatPath,
 		async (_event, path: string) => {
@@ -1320,6 +1390,15 @@ function registerIpc() {
 		void appLogger.info("file", "File renamed", { path, newName, result });
 		return result;
 	});
+
+	ipcMain.handle(
+		ipcChannels.filesCreate,
+		async (_event, parentDir: string, name: string, type: "file" | "directory") => {
+			const result = await fileSystemService.create(parentDir, name, type);
+			void appLogger.info("file", "File/folder created", { parentDir, name, type, result });
+			return result;
+		},
+	);
 
 	// Scratch Pad（草稿本）：多草稿支持，每份草稿为 drafts/ 下的独立 .md 文件
 	const draftsDir = join(app.getPath("userData"), "drafts");
@@ -1495,6 +1574,20 @@ function registerIpc() {
 		ipcChannels.sessionsReadMessages,
 		async (_event, filePath: string) => {
 			return sessionScanner.readMessages(filePath);
+		},
+	);
+	ipcMain.handle(
+		ipcChannels.sessionsReadMeta,
+		async (_event, filePath: string) => {
+			return sessionScanner.readSessionMeta(filePath);
+		},
+	);
+	ipcMain.handle(
+		ipcChannels.sessionsReadChatMessages,
+		async (_event, filePath: string) => {
+			// SessionScanner 统一处理本地/WSL 文件读取；消息转换与压缩归档完全复用 AgentManager。
+			const content = await sessionScanner.readSessionRawText(filePath);
+			return agentManager.readSessionDisplayMessages(filePath, "_viewer", content);
 		},
 	);
 	ipcMain.handle(
@@ -1725,6 +1818,15 @@ function registerIpc() {
 	);
 
 	ipcMain.handle(
+		ipcChannels.gitDiscard,
+		async (_event, projectId: string, group: "workingTree" | "untracked", filePath: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.discardFile(project.path, group, filePath);
+		},
+	);
+
+	ipcMain.handle(
 		ipcChannels.gitCommit,
 		async (_event, projectId: string, message: string) => {
 			const project = projectStore.get(projectId);
@@ -1732,6 +1834,269 @@ function registerIpc() {
 			await gitService.commit(project.path, message);
 		},
 	);
+
+	ipcMain.handle(
+		ipcChannels.gitCherryPick,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.cherryPick(project.path, hash);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRevert,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.revertCommit(project.path, hash);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitReset,
+		async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard") => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.resetToCommit(project.path, hash, mode);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitDropCommit,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.dropCommit(project.path, hash);
+		},
+	);
+
+	async function ensureGenProcess(
+		projectPath: string,
+		command: string,
+	): Promise<PiRpcClient> {
+		console.log("[QuickGen] ensureGenProcess", { projectPath, command, existingPid: genProcess?.pid ?? null });
+
+		// 如果已有进程还在运行，直接复用（跨项目也复用）
+		if (genProcess && genRpcClient && genProcess.exitCode === null) {
+			console.log("[QuickGen] reusing existing process, pid:", genProcess.pid);
+			genProcessCwd = projectPath;
+			resetGenIdleTimer();
+			return genRpcClient;
+		}
+
+		// 清理旧进程（已死才重建）
+		if (genProcess) {
+			console.log("[QuickGen] stopping old process");
+			stopGenProcess();
+		}
+
+		const settings = settingsStore.get();
+		const invocation = piLocator.createInvocation(command, [
+			"--mode", "rpc",
+			"--no-session",
+			"--no-tools",
+			"--no-extensions",
+			"--no-skills",
+			"--no-prompt-templates",
+			"--no-context-files",
+			"--no-themes",
+			"--thinking", "off",
+		]);
+
+		console.log("[QuickGen] spawning", { command: invocation.command, args: invocation.args, cwd: projectPath });
+
+		genProcess = spawn(invocation.command, invocation.args, {
+			cwd: projectPath,
+			env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+			stdio: ["pipe", "pipe", "pipe"],
+			shell: invocation.shell,
+			windowsHide: true,
+			windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+		});
+		genProcessCwd = projectPath;
+		console.log("[QuickGen] spawned, pid:", genProcess.pid);
+
+		genRpcClient = new PiRpcClient(genProcess.stdin!, genProcess.stdout!);
+		console.log("[QuickGen] RPC client created");
+
+		// stderr 仅用于调试日志
+		genProcess.stderr!.on("data", (chunk: Buffer) => {
+			const text = chunk.toString("utf8").slice(0, 300);
+			console.log("[QuickGen] stderr:", text);
+			void appLogger?.warn("git", "QuickGen stderr", text);
+		});
+
+		// 进程退出时清理状态
+		genProcess.on("exit", (code, signal) => {
+			console.log("[QuickGen] process exited", { code, signal });
+			void appLogger?.warn("git", "QuickGen process exited", { code, signal });
+			stopGenProcess();
+		});
+
+		genProcess.on("error", (err) => {
+			console.log("[QuickGen] process ERROR", err.message);
+			void appLogger?.error("git", "QuickGen process error", err.message);
+		});
+
+		resetGenIdleTimer();
+		return genRpcClient;
+	}
+
+	/** 通过持久化的 RPC 进程快速生成文本 */
+	async function quickGenerate(projectPath: string, prompt: string): Promise<string> {
+		console.log("[QuickGen] quickGenerate called", { projectPath });
+		const settings = settingsStore.get();
+		const command = piLocator.resolveCommand(
+			settings.customPiPath,
+			settings.wslEnabled,
+			settings.wslDistro,
+			settings.wslUser,
+		);
+		console.log("[QuickGen] resolved command", { command });
+
+		const rpc = await ensureGenProcess(projectPath, command);
+		console.log("[QuickGen] process ready, sending prompt", { length: prompt.length });
+
+		return new Promise<string>((resolve, reject) => {
+			const collected: string[] = [];
+			let settled = false;
+			const timeout = setTimeout(() => {
+				if (!settled) {
+					console.log("[QuickGen] TIMEOUT", { collected: collected.join("").slice(0, 200) });
+					void appLogger?.warn("git", "QuickGen timed out", { collected: collected.join("").slice(0, 200) });
+					reject(new Error("Quick generate timed out"));
+				}
+			}, 60_000);
+
+			const onEvent = (event: Record<string, unknown>) => {
+				const eventType = event.type as string;
+				if (eventType === "message_update") {
+					const ae = (event as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+					if (ae?.type === "text_delta" && typeof ae.delta === "string") {
+						collected.push(ae.delta);
+						console.log("[QuickGen] text_delta", { delta: ae.delta.slice(0, 50) });
+					}
+				}
+				if (eventType === "agent_settled" || eventType === "agent_end") {
+					console.log("[QuickGen] event received", { eventType });
+					settled = true;
+					clearTimeout(timeout);
+					rpc.off("event", onEvent);
+					const text = collected.join("");
+					console.log("[QuickGen] completed", { length: text.length });
+					void appLogger?.warn("git", "QuickGen completed", { length: text.length });
+					resolve(text);
+				}
+			};
+
+			rpc.on("event", onEvent);
+
+			console.log("[QuickGen] sending prompt via RPC");
+			rpc.request({ type: "prompt", message: prompt }).then((response) => {
+				console.log("[QuickGen] prompt response", { success: response.success, error: response.error });
+				if (!response.success) {
+					clearTimeout(timeout);
+					rpc.off("event", onEvent);
+					reject(new Error(response.error ?? "Prompt rejected"));
+				}
+			}).catch((err) => {
+				console.log("[QuickGen] prompt request failed", { error: err.message });
+				clearTimeout(timeout);
+				rpc.off("event", onEvent);
+				reject(err);
+			});
+		});
+	}
+
+	console.log("[QuickGen] gitGenerateCommitMessage handler registered");
+	ipcMain.handle(
+		ipcChannels.gitGenerateCommitMessage,
+		async (_event, projectId: string) => {
+			console.log("[QuickGen] IPC handler called", { projectId });
+			const project = projectStore.get(projectId);
+			if (!project) {
+				console.log("[QuickGen] project not found");
+				return "";
+			}
+
+			const diff = await gitService.getStagedDiff(project.path, 10000);
+			if (!diff.trim()) {
+				console.log("[QuickGen] no staged diff");
+				return "";
+			}
+			console.log("[QuickGen] diff obtained", { length: diff.length });
+
+			// 从设置中读取提示词模板，替换 {diff} 为实际 diff 内容
+			const promptTemplate = settingsStore.get().gitCommitMessagePrompt ||
+				"请根据以下 git diff 生成一条中文 git commit message。\n\n{diff}\n\n直接输出 commit 消息。";
+			const prompt = promptTemplate.replace("{diff}", diff.slice(0, 8000));
+
+			try {
+				console.log("[QuickGen] calling quickGenerate");
+				const result = await quickGenerate(project.path, prompt);
+				console.log("[QuickGen] done", { length: result.length });
+				void appLogger?.warn("git", "Generate commit message result", { length: result.length, text: result.slice(0, 100) });
+				return result.trim();
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.log("[QuickGen] FAILED", { error: msg });
+				void appLogger?.warn("git", "Generate commit message failed", { error: msg });
+				throw err;
+			}
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitPush,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.push(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitPull,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.pull(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitFetch,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			await gitService.fetch(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitInit,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			const { execFile } = await import("node:child_process");
+			const { promisify } = await import("node:util");
+			const execFileAsync = promisify(execFile);
+			// 初始化仓库并创建 main 分支，生成一个初始空提交
+			await execFileAsync("git", ["init"], { cwd: project.path });
+			try {
+				await execFileAsync("git", ["checkout", "-b", "main"], { cwd: project.path });
+			} catch {
+				// 部分 git 版本在无提交时 checkout -b 可能失败，改用 branch -M
+				await execFileAsync("git", ["branch", "-M", "main"], { cwd: project.path });
+			}
+			await execFileAsync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+				cwd: project.path,
+				env: { ...process.env, GIT_AUTHOR_NAME: "PiDeck", GIT_AUTHOR_EMAIL: "pideck@local", GIT_COMMITTER_NAME: "PiDeck", GIT_COMMITTER_EMAIL: "pideck@local" },
+			});
+		},
+	);
+
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();
@@ -1743,6 +2108,57 @@ function registerIpc() {
 			error: status.error,
 		});
 		return status;
+	});
+	// 从 pi --list-models 获取可用模型列表（无需启动 agent）
+	// 全局缓存：首次运行后复用，避免每次打开选择器都 fork 子进程
+	let cachedListModels: ReturnType<typeof parsePiListModels> | null = null;
+	let cachedListModelsPending: Promise<ReturnType<typeof parsePiListModels>> | null = null;
+	ipcMain.handle(ipcChannels.projectsListModels, async (_event, projectId?: string) => {
+		try {
+			if (cachedListModels) return cachedListModels;
+			// 已有在途请求时复用同一个 Promise，避免并发 fork 多个 pi 进程
+			if (cachedListModelsPending) return cachedListModelsPending;
+
+			cachedListModelsPending = (async () => {
+				const settings = settingsStore.get();
+				const command = piLocator.resolveCommand(
+					settings.customPiPath,
+					settings.wslEnabled,
+					settings.wslDistro,
+					settings.wslUser,
+				);
+				const invocation = piLocator.createInvocation(command, ["--list-models"]);
+				const { execFile } = await import("node:child_process");
+				const result = await new Promise<{ stdout: string }>((resolve, reject) => {
+					execFile(invocation.command, invocation.args, {
+						env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+						shell: invocation.shell,
+						windowsHide: true,
+						timeout: 15_000,
+						encoding: "utf8",
+						windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+					}, (error, stdout, stderr) => {
+						if (error) {
+							const message = (stderr || error.message).slice(0, 300);
+							reject(new Error(message));
+						} else {
+							resolve({ stdout });
+						}
+					});
+				});
+				const models = parsePiListModels(result.stdout);
+				cachedListModels = models;
+				return models;
+			})();
+			const models = await cachedListModelsPending;
+			return models;
+		} catch (error) {
+			cachedListModelsPending = null;
+			void appLogger.warn("pi", "Failed to list models", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return [];
+		}
 	});
 	// 智能查找 wsl.exe：优先绝对路径（含 32-bit Sysnative 绕过），全部不存在时回退到 PATH
 	const wslExeResolved = (() => {
@@ -2143,14 +2559,14 @@ function registerIpc() {
 					promptManager.configureWsl(settings.wslDistro, settings.wslUser);
 					extensionManager.configureWsl(settings.wslDistro, settings.wslUser);
 					if (configManager) configManager.configureWsl(settings.wslDistro, settings.wslUser);
-					if (yaoPromptManager) yaoPromptManager.configureWsl(settings.wslDistro, settings.wslUser);
+					if (xuePromptManager) xuePromptManager.configureWsl(settings.wslDistro, settings.wslUser);
 				} else {
 					sessionScanner.clearWsl();
 					skillManager.configureWsl(null);
 					promptManager.configureWsl(null);
 					extensionManager.configureWsl(null);
 					if (configManager) configManager.configureWsl(null);
-					if (yaoPromptManager) yaoPromptManager.configureWsl(null);
+					if (xuePromptManager) xuePromptManager.configureWsl(null);
 				}
 			}
 			return settings;
@@ -2479,131 +2895,73 @@ function registerIpc() {
 		}
 	});
 
-	// ── SkillHub（skill.xfyun.cn / skillhub CLI） ────────────────────
-	/** 搜索 SkillHub（通过 skillhub CLI 查询 skill.xfyun.cn 注册中心） */
-	ipcMain.handle(ipcChannels.skillHubSearch, async (_event, query: string, _page: number = 1) => {
+	// ── Skills.sh（https://www.skills.sh） ─────────────────────────
+	/** 搜索 Skills.sh 注册中心 */
+	ipcMain.handle(ipcChannels.skillHubSearch, async (_event, opts: { query: string; limit?: number }) => {
+		const { query, limit = 50 } = opts;
 		try {
-			const { execSync } = await import("node:child_process");
-			const cliPath = require.resolve("@astron-team/skillhub/dist/index.js");
-			const cmd = `node "${cliPath}" search "${query.replace(/"/g, "\\\"")}" --limit 50 --json`;
-			const output = execSync(cmd, {
-				encoding: "utf8",
-				timeout: 15_000,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const result = JSON.parse(output);
-			if (!result.ok) throw new Error(result.message || "搜索失败");
-
-			const items = (result.items || []).map((item: Record<string, unknown>) => ({
-				slug: `${item.namespace as string}/${item.slug as string}`,
-				name: item.slug as string,
-				description: (item.summary as string) || "",
+			const response = await fetch(
+				`https://www.skills.sh/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+				{ signal: AbortSignal.timeout(15_000) },
+			);
+			if (!response.ok) throw new Error(`API 返回 ${response.status}`);
+			const json = (await response.json()) as {
+				skills?: Array<{ id: string; skillId: string; name: string; installs: number; source: string }>;
+			};
+			const skills = json.skills ?? [];
+			// skills.sh 的 id 格式为 "source/skillName"，提取 package 名用于安装
+			const items = skills.map((item) => ({
+				slug: item.id,
+				name: item.name,
+				description: "",
 				description_zh: "",
 				iconUrl: undefined,
 				stars: 0,
-				downloads: 0,
-				installs: 0,
+				downloads: item.installs,
+				installs: item.installs,
 				category: "",
-				subCategories: undefined,
-				version: (item.latestVersion as string) || "",
-				ownerName: (item.namespace as string) || "",
-				namespace: { canonicalName: "", displayName: "", publicSlug: item.namespace as string || "" },
-				labels: undefined,
-				tags: undefined,
-				source: "skillhub-cli",
-				verified: false,
-				updatedAt: undefined,
+				version: "",
+				ownerName: item.source,
+				source: "skills.sh",
 			}));
-			return { query, total: result.total ?? items.length, items };
+			// 按安装量降序排列
+			items.sort((a, b) => b.installs - a.installs);
+			return { query, total: items.length, items };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			throw new Error(`搜索 SkillHub 失败: ${message}`);
+			throw new Error(`搜索 Skills.sh 失败: ${message}`);
 		}
 	});
 
-	/** 获取 SkillHub skill 详情（通过 CLI JSON 输出） */
-	ipcMain.handle(ipcChannels.skillHubDetail, async (_event, slug: string) => {
-		// 从前端传入的 slug 是 "namespace/slug" 格式
-		const parts = slug.split("/");
-		const skillSlug = parts.length > 1 ? parts.slice(1).join("/") : slug;
-		const ns = parts.length > 1 ? parts[0] : "global";
-		try {
-			const { execSync } = await import("node:child_process");
-			const cliPath = require.resolve("@astron-team/skillhub/dist/index.js");
-			// 搜索该 skill 的详情（通过 search 精确匹配）
-			const cmd = `node "${cliPath}" search "${skillSlug}" --namespace "${ns}" --limit 1 --json`;
-			const output = execSync(cmd, {
-				encoding: "utf8",
-				timeout: 15_000,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const result = JSON.parse(output);
-			if (!result.ok || !result.items || result.items.length === 0) return null;
-			const item = result.items[0] as Record<string, unknown>;
-			return {
-				skill: {
-					slug: skillSlug as string,
-					displayName: (item.slug as string) || skillSlug,
-					summary: (item.summary as string) || "",
-					summary_zh: "",
-					iconUrl: undefined,
-					stats: { comments: 0, downloads: 0, installs: 0, stars: 0, versions: 0 },
-					category: "",
-					subCategories: undefined,
-					labels: undefined,
-					createdAt: 0,
-					updatedAt: 0,
-					source: "skillhub-cli",
-					verified: false,
-				},
-				latestVersion: {
-					version: (item.latestVersion as string) || "",
-					changelog: undefined,
-					createdAt: 0,
-				},
-				owner: { displayName: (item.namespace as string) || "", handle: (item.namespace as string) || "", image: null },
-				namespace: { canonicalName: "", displayName: "", handle: (item.namespace as string) || "", publicSlug: (item.namespace as string) || "" },
-				securityReports: undefined,
-			} as import("../shared/types").SkillHubDetail;
-		} catch (err) {
-			return null;
-		}
-	});
+	/** 获取 Skills.sh skill 详情（直接返回 null，用不到） */
+	ipcMain.handle(ipcChannels.skillHubDetail, async () => null);
 
-	/** 安装 SkillHub skill 到 pi agent skills 目录 */
-	ipcMain.handle(ipcChannels.skillHubInstall, async (_event, slug: string, _installDir: string) => {
-		const homedir = (await import("node:os")).homedir();
-		const targetDir = join(homedir, ".pi", "agent", "skills");
-		// slug 是 "namespace/slug" 格式
-		const parts = slug.split("/");
-		const skillSlug = parts.length > 1 ? parts.slice(1).join("/") : slug;
-		const ns = parts.length > 1 ? parts[0] : "global";
+	/** 安装 Skills.sh skill：npx skills add <package> */
+	ipcMain.handle(ipcChannels.skillHubInstall, async (_event, slug: string) => {
+		// slug 是 "source/skillName" 格式，例如 "anthropics/skills/pdf"
+		const lastSlash = slug.lastIndexOf("/");
+		const pkg = lastSlash > 0 ? slug.slice(0, lastSlash) : slug;
+		const skillName = lastSlash > 0 ? slug.slice(lastSlash + 1) : "";
 		try {
-			const { execSync } = await import("node:child_process");
-			const cliPath = require.resolve("@astron-team/skillhub/dist/index.js");
-			const cmd = `node "${cliPath}" install "${skillSlug}" --namespace "${ns}" --dir "${targetDir}" --json`;
-			const output = execSync(cmd, {
-				encoding: "utf8",
-				timeout: 30_000,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const result = JSON.parse(output);
-			if (result.ok) {
-				void appLogger.info("skill-hub", "Installed skill", { slug, targetDir });
-				return { success: true, slug, installDir: targetDir };
-			}
-			throw new Error(result.message || "安装失败");
+			const { exec } = await import("node:child_process");
+			const { promisify } = await import("node:util");
+			const execAsync = promisify(exec);
+			// -g 安装到用户全局目录, -s 指定单个 skill, -y 跳过交互确认
+			const cmd = `npx skills add "${pkg}" -g -s "${skillName}" -y`;
+			await execAsync(cmd, { encoding: "utf8", timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
+			void appLogger.info("skill-hub", "Installed skill", { slug, pkg, skillName });
+			return { success: true, slug, installDir: "" };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			void appLogger.warn("skill-hub", "Install failed", { slug, error: message });
-			return { success: false, slug, installDir: targetDir, error: message };
+			return { success: false, slug, installDir: "", error: message };
 		}
 	});
 
 	// ── Yao Open Prompts（中文提示词精选） ─────────────────────────────
 	ipcMain.handle(ipcChannels.yaoPromptsList, async () => {
 		try {
-			const result = await yaoPromptManager.list();
+			const result = await xuePromptManager.list();
 			return result;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -2614,7 +2972,7 @@ function registerIpc() {
 
 	ipcMain.handle(ipcChannels.yaoPromptsDetail, async (_event, slug: string, category: string) => {
 		try {
-			const result = await yaoPromptManager.detail(slug, category);
+			const result = await xuePromptManager.detail(slug, category);
 			if (!result) throw new Error(`未找到提示词: ${slug}`);
 			return result;
 		} catch (err) {
@@ -2626,7 +2984,7 @@ function registerIpc() {
 
 	ipcMain.handle(ipcChannels.yaoPromptsImport, async (_event, slug: string, category: string) => {
 		try {
-			const result = await yaoPromptManager.importToPi(slug, category);
+			const result = await xuePromptManager.importToPi(slug, category);
 			void appLogger.info("yao-prompts", "Imported to pi templates", { slug, localName: result.name });
 			return result;
 		} catch (err) {
@@ -3055,6 +3413,37 @@ async function detectExternalEditorsOnFirstLaunch() {
 	void appLogger.info("editor", "External editors detected on first launch", { count: detected.length });
 }
 
+// ── 持久化轻量 pi RPC 进程（用于快速文本生成，避免每次启动开销） ──────
+let genProcess: ChildProcess | null = null;
+let genRpcClient: PiRpcClient | null = null;
+let genProcessCwd = "";
+let genIdleTimer: NodeJS.Timeout | null = null;
+
+/** 清理快速生成进程，包括 RPC 客户端和空闲定时器 */
+function stopGenProcess() {
+	if (genIdleTimer) {
+		clearTimeout(genIdleTimer);
+		genIdleTimer = null;
+	}
+	genRpcClient?.close();
+	genRpcClient = null;
+	if (genProcess && genProcess.exitCode === null) {
+		try { genProcess.kill(); } catch { /* ignore */ }
+	}
+	genProcess = null;
+	genProcessCwd = "";
+}
+
+/** 重置空闲定时器：30 分钟无请求自动杀掉进程释放内存 */
+function resetGenIdleTimer() {
+	if (genIdleTimer) clearTimeout(genIdleTimer);
+	genIdleTimer = setTimeout(() => {
+		void appLogger?.debug("git", "QuickGen idle timeout, killing process");
+		stopGenProcess();
+	}, 30 * 60 * 1000);
+	if (genIdleTimer && typeof genIdleTimer === "object") genIdleTimer.unref?.();
+}
+
 app.whenReady().then(async () => {
 	projectStore = new ProjectStore();
 	fileSystemService = new FileSystemService();
@@ -3070,7 +3459,7 @@ app.whenReady().then(async () => {
 	piLocator = new PiLocator();
 	configManager = new ConfigManager();
 	promptManager = new PromptManager();
-	yaoPromptManager = new YaoPromptManager();
+	xuePromptManager = new XuePromptManager();
 	skillManager = new SkillManager();
 	extensionManager = new ExtensionManager(piLocator, () => settingsStore.get());
 	projectResourceManager = new ProjectResourceManager((projectId) => projectStore.get(projectId));
@@ -3117,14 +3506,14 @@ app.whenReady().then(async () => {
 			promptManager.configureWsl(wslDistro, wslUser);
 			extensionManager.configureWsl(wslDistro, wslUser);
 				if (configManager) configManager.configureWsl(wslDistro, wslUser);
-			if (yaoPromptManager) yaoPromptManager.configureWsl(wslDistro, wslUser);
+			if (xuePromptManager) xuePromptManager.configureWsl(wslDistro, wslUser);
 		} else {
 			sessionScanner.clearWsl();
 			skillManager.configureWsl(null);
 			promptManager.configureWsl(null);
 			extensionManager.configureWsl(null);
 			if (configManager) configManager.configureWsl(null);
-			if (yaoPromptManager) yaoPromptManager.configureWsl(null);
+			if (xuePromptManager) xuePromptManager.configureWsl(null);
 		}
 	};
 	await syncWslConfig();
@@ -3353,6 +3742,7 @@ app.on("before-quit", () => {
 	agentManager?.stopAll();
 	petSystem?.stop();
 	petSystem = null;
+	stopGenProcess();
 });
 
 app.on("window-all-closed", () => {

@@ -22,7 +22,7 @@ function loadCodexMetaModule() {
 	return sandbox.exports;
 }
 
-function loadSessionScanner(homePath) {
+function loadSessionScanner(homePath, fsOverrides = {}) {
 	const source = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -32,10 +32,16 @@ function loadSessionScanner(homePath) {
 	});
 	const codexMeta = loadCodexMetaModule();
 	const sandbox = {
+		AbortController,
+		AbortSignal,
+		Buffer,
+		clearTimeout,
 		exports: {},
+		setTimeout,
 		require: (id) => {
 			if (id === "electron") return { app: { getPath: () => homePath } };
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "node:fs") return { ...require(id), ...fsOverrides };
 			return require(id);
 		},
 	};
@@ -54,6 +60,54 @@ function session(name, cwd) {
 		{ type: "message", message: { role: "user", content: "hello" } },
 	];
 }
+
+test("validates a local parent session by reading only the bounded file head", () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-session-head-"));
+	try {
+		const fixture = Buffer.from(`${JSON.stringify({ type: "session_info", name: "Parent" })}\n`);
+		let requestedBytes = 0;
+		let closed = false;
+		const { SessionScanner } = loadSessionScanner(home, {
+			openSync: () => 42,
+			readSync: (_fd, buffer, offset, length) => {
+				requestedBytes = length;
+				fixture.copy(buffer, offset);
+				return fixture.length;
+			},
+			closeSync: () => { closed = true; },
+		});
+		const scanner = new SessionScanner();
+		assert.equal(scanner.isSessionFile("virtual-parent.jsonl"), true);
+		assert.equal(requestedBytes, 4096);
+		assert.equal(closed, true);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("aborts a hung WSL scan before the renderer watchdog and allows a clean retry", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-session-scan-timeout-"));
+	try {
+		const { SessionScanner } = loadSessionScanner(home);
+		const scanner = new SessionScanner();
+		scanner.wslConfig = { distro: "Ubuntu", user: "dev", home: "/home/dev" };
+		scanner.scanTimeoutMs = 10;
+		let attempts = 0;
+		scanner.collectWslJsonl = async (signal) => {
+			attempts += 1;
+			if (attempts > 1) return [];
+			return new Promise((_resolve, reject) => {
+				signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+			});
+		};
+
+		await assert.rejects(scanner.list());
+		assert.equal((await scanner.list()).length, 0);
+		assert.equal(attempts, 2);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
 
 test("hides persisted pi-subagents runs without deleting them or unrelated nested sessions", async () => {
 	const home = mkdtempSync(join(tmpdir(), "pideck-subagent-scanner-"));
@@ -99,6 +153,82 @@ test("hides persisted pi-subagents runs without deleting them or unrelated neste
 		assert.equal(workerSummary.parentSessionPath, parentFile);
 		const reviewerSummary = summaries.find(s => s.filePath === reviewerFile);
 		assert.equal(reviewerSummary.parentSessionPath, parentFile);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("groups WSL child sessions with POSIX parent paths", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-wsl-subagent-scanner-"));
+	try {
+		const projectPath = "/mnt/f/git-optimize";
+		const sessionsRoot = "/home/dev/.pi/agent/sessions";
+		const parentFile = `${sessionsRoot}/--mnt-f-git-optimize--/parent.jsonl`;
+		const forkParentFile = `${sessionsRoot}/--mnt-f-git-optimize--/fork-parent.jsonl`;
+		const childFile = `${sessionsRoot}/--mnt-f-git-optimize--/parent/run-abc/run-0/session.jsonl`;
+		const forkChildFile = `${sessionsRoot}/--mnt-f-git-optimize--/detached/run-xyz/run-0/session.jsonl`;
+		const files = new Map([
+			[parentFile, `${session("Parent", projectPath).map((entry) => JSON.stringify(entry)).join("\n")}\n`],
+			[forkParentFile, `${session("Fork parent", projectPath).map((entry) => JSON.stringify(entry)).join("\n")}\n`],
+			[childFile, `${session("subagent-worker-wsl-0", projectPath).map((entry) => JSON.stringify(entry)).join("\n")}\n`],
+			[forkChildFile, `${[
+				{ type: "session", id: "wsl-fork-child", parentSession: "../../../fork-parent.jsonl", cwd: projectPath },
+				...session("subagent-worker-wsl-fork-0", projectPath),
+			].map((entry) => JSON.stringify(entry)).join("\n")}\n`],
+		]);
+		const { SessionScanner } = loadSessionScanner(home);
+		const scanner = new SessionScanner();
+		scanner.wslConfig = { distro: "Ubuntu", user: "dev", home: "/home/dev" };
+		scanner.collectWslJsonl = async () => [...files.keys()];
+		const fullReadCount = new Map();
+		scanner.readWslFile = async (filePath) => {
+			fullReadCount.set(filePath, (fullReadCount.get(filePath) ?? 0) + 1);
+			const value = files.get(filePath);
+			if (value == null) throw new Error(`missing WSL fixture: ${filePath}`);
+			return value;
+		};
+		scanner.readWslFileHead = async (filePath) => {
+			const value = files.get(filePath);
+			if (value == null) throw new Error(`missing WSL fixture: ${filePath}`);
+			return value.slice(0, 4096);
+		};
+		scanner.readWslFileMtime = async () => 1;
+		scanner.existsWslFile = async (filePath) => files.has(filePath);
+
+		const summaries = await scanner.list(projectPath);
+		assert.equal(summaries.length, 4);
+		assert.equal(summaries.find((item) => item.filePath === childFile)?.parentSessionPath, parentFile);
+		assert.equal(summaries.find((item) => item.filePath === forkChildFile)?.parentSessionPath, forkParentFile);
+		assert.equal(summaries.some((item) => item.parentSessionPath?.includes("\\")), false);
+		assert.equal(fullReadCount.get(parentFile), 1);
+		assert.equal(fullReadCount.get(forkParentFile), 1);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("uses a valid renamed parent session and ignores false-positive path owners", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-renamed-parent-subagent-scanner-"));
+	try {
+		const projectPath = "C:\\repo\\project";
+		const piDir = join(home, ".pi", "agent", "sessions", "--C--repo-project--");
+		const parentFile = join(piDir, "renamed-parent.jsonl");
+		const childFile = join(piDir, "renamed-parent", "run-abc", "run-0", "session.jsonl");
+		const fakeOwnerFile = join(piDir, "manual.jsonl");
+		const lookalikeFile = join(piDir, "manual", "arbitrary", "run-0", "session.jsonl");
+
+		writeSession(parentFile, [
+			{ sessionName: "Renamed parent", ts: Date.now() },
+			...session("Original parent", projectPath),
+		]);
+		writeSession(childFile, session("subagent-worker-renamed-parent-0", projectPath));
+		writeSession(fakeOwnerFile, [{ sessionName: "Not a Pi session" }]);
+		writeSession(lookalikeFile, session("Path lookalike", projectPath));
+
+		const { SessionScanner } = loadSessionScanner(home);
+		const summaries = await new SessionScanner().list(projectPath);
+		assert.equal(summaries.find((item) => item.filePath === childFile)?.parentSessionPath, parentFile);
+		assert.equal(summaries.find((item) => item.filePath === lookalikeFile)?.parentSessionPath, undefined);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
@@ -153,18 +283,43 @@ test("handles orphan, fork, rename and imported-session compatibility without fa
 		assert.equal(visiblePaths.has(manualForkFile), true);
 		assert.equal(visiblePaths.has(markedCustomFile), true);
 		assert.equal(visiblePaths.has(importedFile), true);
-		// orphan: 路径可推断父会话（尽管父文件不存在）
+		// 父文件不存在时不能把路径形似扩展产物的 JSONL 静默挂到虚构父会话下。
 		const orphanSummary = summaries.find(s => s.filePath === orphanFile);
-		assert.equal(orphanSummary.parentSessionPath, join(piDir, "deleted-parent.jsonl"));
-		// renamedChild: 路径可推断父会话
+		assert.equal(orphanSummary.parentSessionPath, undefined);
+		// renamedChild: 父文件不存在，不能挂到虚构父会话下。
 		const renamedSummary = summaries.find(s => s.filePath === renamedChildFile);
-		assert.equal(renamedSummary.parentSessionPath, join(piDir, "renamed-parent.jsonl"));
+		assert.equal(renamedSummary.parentSessionPath, undefined);
 		// legacyFork: 标准 .jsonl 文件路径不可推断父会话，fork parent 文件不存在
 		const forkSummary = summaries.find(s => s.filePath === legacyForkFile);
 		assert.equal(forkSummary.parentSessionPath, undefined);
 		// markedCustomFile: 显式标记，路径不可推断父会话（无 parentSessionPath）
 		const customSummary = summaries.find(s => s.filePath === markedCustomFile);
 		assert.equal(customSummary.parentSessionPath, undefined);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("resolves fork child with absolute Windows parent path via parentSession header", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-abs-fork-scanner-"));
+	try {
+		const projectPath = "C:\\repo\\project";
+		const sessionsRoot = join(home, ".pi", "agent", "sessions");
+		const projDir = join(sessionsRoot, "--C--repo-project--");
+		const parentFile = join(projDir, "parent.jsonl");
+		const forkChildFile = join(projDir, "fork-child.jsonl");
+
+		writeSession(parentFile, session("Parent", projectPath));
+		writeSession(forkChildFile, [
+			{ type: "session", parentSession: parentFile, cwd: projectPath },
+			...session("subagent-reviewer-abc-1", projectPath),
+		]);
+
+		const { SessionScanner } = loadSessionScanner(home);
+		const summaries = await new SessionScanner().list(projectPath);
+		assert.equal(summaries.length, 2);
+		const forkSummary = summaries.find(s => s.filePath === forkChildFile);
+		assert.equal(forkSummary.parentSessionPath, parentFile);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}

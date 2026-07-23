@@ -4,7 +4,146 @@
 
 All notable changes to PiDeck are documented here.
 
-## v0.6.5 - 2026-07-13
+## v0.6.6-beta.2 - 2026-07-22
+
+### 🐛 Bug Fixes
+
+- **TurnRow "Rendered fewer hooks" crash** — Moved `useMemo` before early returns
+  in `TurnRow`, fixing white screen on sending messages.
+- **Stop button invisible during agent response** — Extracted from
+  `hasComposerContent` condition; now always shown when agent is busy.
+- **Historical session not scrolling to bottom** — Added `activeMessages.length`
+  to ResizeObserver deps so observer is created after messages load.
+- **NoSession anonymous agent duplicate in sidebar** — Added `noSession` matching
+  path to `isReplacementForPendingAgent`.
+- **Agent startup status stuck on "starting"** — Fix `setAgents` in `createAgent`
+  to overwrite existing entries when the API returns, preventing stale status.
+- **Session loading indicator flicker** — Enforce a 200 ms minimum display duration
+  to avoid a brief flash on fast API responses.
+- **Git Commit Message Generation** — Replace per-call `pi -p` process with a persistent
+  `pi --mode rpc` daemon, eliminating repeated cold-start overhead. Start with
+  `--no-session --no-tools --no-extensions --no-skills --no-prompt-templates
+  --no-context-files --no-themes --thinking off` for minimal startup cost.
+- **GitService.getStagedDiff maxBuffer** — Fixed `maxBuffer` being too small (5 KB),
+  causing large diffs to silently fail with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`.
+  Changed to fixed 10 MB.
+- **Dev terminal Chinese garbled** — Auto-run `chcp 65001` on Windows to set UTF-8
+  code page.
+
+### 🚀 New Features
+
+- **Composer redesign (OpenCode style)** — Replaced the top pill-button toolbar
+  with a bottom bar: mode toggle / prompt template / attachment / model name /
+  thinking level (all clickable).
+- **Local packaging** — `npm run compile-exe` for fast portable `.exe` (skip tsc,
+  ASAR no compression). `npm run dist:win -- [format]` supports single-format
+  builds (nsis / portable / zip).
+- **Git Push / Pull** — Add Push and Pull buttons to the Changes pane header,
+  with full IPC pipeline and error notifications.
+- **Customizable Commit Message Prompt** — New Setting `gitCommitMessagePrompt`,
+  a textarea in the Git section of Settings. The template supports `{diff}`
+  placeholder. Default prompt includes Gitmoji mapping.
+- **Git panel relative paths** — Directory group headers now show paths relative to
+  project root instead of absolute file system paths.
+
+## v0.6.6-beta.1 - 2026-07-22
+
+### 🚀 New Features
+
+- **Git Source Control (Major Rewrite)**
+  - VS Code-style 3-tab Git panel: Changes / History / Compare
+  - AI-powered commit message generation (one-click via pi model)
+  - Git graph visualization with colored lanes and branch/tag labels
+  - Cherry-pick, revert, soft/mixed/hard reset, and drop commit via context menu
+  - Branch switching and creation directly from the Git panel
+  - Worktree support: create/delete/list workspaces with session grouping
+  - Floating Git entry button in the conversation outline area
+  - Git init prompt for uninitialized repositories
+  - File status badges (staged vs unstaged) with unified file icons
+- **Session Reference (&) Quick Input**
+  - Type `&` in composer to search and reference sessions from the same project
+  - Select specific messages or reference full session context
+  - Persistent selection across re-opened reference dialog
+  - & chip rendering with accurate boundary matching
+- **Multi-Tab File Editor**
+  - Up to 5 concurrent editor tabs with modal/drawer dual display mode
+  - Diff mode with side-by-side comparison
+  - Monaco Editor with dark/light theme, markdown preview, and multi-cursor support
+  - Auto-save (Ctrl+S) with dirty state indicator
+- **Conversation Outline & Action Bar**
+  - Floating outline panel with jump-to-message navigation
+  - Quick actions: Terminal, File drawer, Git, Built-in browser, Scratch Pad, External editor
+  - Draggable repositioning with height memory
+  - Git entry no longer depends on active agent — always visible when a project is selected
+- **Retractable Client Message Queue**
+  - Queue messages while agent is busy — follow-up or steer modes
+  - Retract queued messages back to input for editing before sending
+  - Visual queue status: sending, failed, queued count
+- **Built-in Browser**
+  - Right-drawer browser panel with multi-tab support
+  - Fullscreen mode and device presets (PC / Mobile / Tablet)
+  - External link → internal browser navigation
+- **WSL Environment Support**
+  - Full WSL isolation: pi detection, session scanning, file access
+  - WSL distro selection, user validation, connection testing
+  - Windows/WSL pi source switching in Settings > Developer
+- **SkillHub Integration**
+  - Skill store tab for browsing and installing community skills
+  - CLI registry-based skill discovery with installation management
+- **Toast Notification System**
+  - App-notice system replacing sonner toast dependency
+  - Contextual toasts for agent ops, file actions, copy, model switch
+  - Subtle dot-accent design without intrusive green borders
+- **Ask Question Dialog**
+  - Interactive option dialogs with select/confirm/input types
+  - Button-row layout with option labels; disabled selections when answered
+  - Custom input via inline text field (✎ mode)
+- **Session Compaction Refinements**
+  - Expandable compaction card with pre-compression message history
+  - Compaction count badge on agent tab
+  - Process restart tracking after auto-compaction
+
+### ✨ UI/UX Enhancements
+
+- **Settings Redesigned**: global save/cancel, new tab categories (General / Proxy / Web / Developer / Pet / Storage), config-btn unified style
+- **Per-area Font Sizes**: independent font size for sidebar (UI), chat content, and input box; font family presets (system/sans/serif/custom); zoom factor (80%–150%)
+- **Model Picker**: scroll-to-top/bottom buttons, collapse/expand all providers, max thinking level support
+- **File Icons**: VS Code Seti icon set for file tree, Git status badges on file rows, 20×20 uniform icon size
+- **File Diff Viewer**: inline diff chips in tool cards, tab-bar with accent top border, monospace filename
+- **Project Interaction**: click to expand + load sessions with row pulse animation, inline loading spinner
+- **Floating Action Buttons**: terminal, files, git, scratch pad, editors, browser all available in the outline hover zone
+- **Empty State**: vertically centered with better typography and layout
+- **Right-click Context Menus**: copy path for project/session/agent, viewport-clamped position
+- **Chinese/Unicode Support**: full Unicode naming for prompts, skills, sessions; chip regex using `\p{L}`
+- **Dark Mode**: refined colors and contrast
+
+### 🔧 Performance & Architecture
+
+- **RichInput Rewrite**: uncontrolled + local patch architecture, fixes cursor drift during composition
+- **Monaco Editor Lazy Loading**: 17.6MB Web Worker loaded only when opening file diffs
+- **App-notice system**: replaced sonner toast dependency with built-in notice mechanism
+- **Archived messages**: pass through compaction layer, diagnostic logging for compaction flow
+- **Package Size**: larksuiteoapi lib/ cleanup, afterPack optimization, renderer chunk splitting
+- **originalContent removal**: diff now uses tool parameter changed regions instead of storing full content
+- **remove-markdown**: replaced hand-written regex for Markdown-to-plain-text conversion
+- **Unified tool argument parsing**: fixed `getToolNewContent` returning undefined for edit operations
+- **IPC payload reduction**: stripped unnecessary fields from session messages
+
+### 🐛 Bug Fixes
+
+- **Git Panel**: fixed ternary expression missing closing `)}` causing build failure; fixed catch block in AI commit generation; fixed stuck loading state on commit generation
+- **File Editor**: Monaco 'TextModel disposed before DiffEditorWidget model got reset'; removed `loadedPath` early return; fixed mode/content switching
+- **Caret/Scroll**: auto-scroll now resets on agent tab switch; composer footer floats over textarea; message scroll jumps to end after sending
+- **WSL**: apply/cancel buttons visible when switching back to Windows mode; distro detection and user validation
+- **Extension Lifecycle**: disabled extensions can be re-enabled; built-in extensions recoverable
+- **Ask Dialog**: select custom input delegates to Pi's ✎ stream; hide inline ask-question-card when dialog is open; confirm type button support
+- **Session Reference**: & chip no longer consumes subsequent input; case-insensitive session matching; safe regex escaping for `replaceAll`; sort by name length to avoid substring false matches
+- **Rendering**: fix message order (user → assistant), first-send delay, message contamination after abort; process execution folding uses `agentRunning` instead of `isStreaming`; system messages no longer split ask folded regions
+- **File Tree**: font aligned with VS Code (14px/400w/22px height=line-height) with ClearType rendering; sidebar drawer state persisted per project directory
+- **Large Sessions**: skip full load, read last 8 messages from JSONL tail instead
+- **Package/Deps**: re-generated lockfile for CI `npm ci` sync; removed deprecated `.npmrc allow-scripts` config
+- **Legacy pi**: compatibility with `--no-approve` parameter
+- **Notifications**: toast not blocked by settings modal; proxy config uses two-step draft-then-save
 
 ### 🚀 New Features
 

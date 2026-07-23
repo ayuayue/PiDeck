@@ -3,11 +3,10 @@ import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import {
 	Settings2,
 	Network,
-	Globe2,
 	Wrench,
 	PawPrint,
 	Trash2,
-	RefreshCw,
+	Brush,
 	Minus,
 	Plus,
 } from "lucide-react";
@@ -23,7 +22,7 @@ const ZOOM_FACTOR_MIN = 0.8;
 const ZOOM_FACTOR_MAX = 1.5;
 const ZOOM_FACTOR_STEP = 0.05;
 
-type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "storage";
+type SettingsTabId = "common" | "appearance" | "proxy" | "dev" | "pet" | "storage";
 
 /** 代理设置草稿：未保存前不生效，用户点击保存后才提交。 */
 type ProxyDraft = Pick<
@@ -71,6 +70,57 @@ function SettingSwitch(props: {
 	);
 }
 
+/** 已修改但未保存的字段标记：在标签右侧显示一个黄色圆点 */
+function SettingTextarea(props: {
+	title: string;
+	description?: string;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="setting-field">
+			<div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+				<strong style={{ color: "var(--color-text-primary)", fontSize: "var(--font-size-control)", fontWeight: 500 }}>
+					{props.title}
+				</strong>
+				{props.description && (
+					<small style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)", lineHeight: 1.4 }}>
+						{props.description}
+					</small>
+				)}
+			</div>
+			<textarea
+				value={props.value}
+				rows={8}
+				onChange={(event) => props.onChange(event.target.value)}
+				style={{
+					width: "100%",
+					fontFamily: "var(--font-family-mono)",
+					fontSize: "var(--font-size-sm)",
+					padding: "var(--space-2) var(--space-3)",
+					border: "1px solid var(--color-border-subtle)",
+					borderRadius: "var(--radius-sm)",
+					background: "var(--color-bg-input)",
+					color: "var(--color-text-primary)",
+					resize: "vertical",
+					lineHeight: "var(--line-height-body)",
+				}}
+			/>
+		</div>
+	);
+}
+
+function DirtyMarker(props: { dirty: boolean; label: string }) {
+	if (!props.dirty) return null;
+	return (
+		<span
+			className="setting-dirty-marker"
+			title={t("settings.dirtyTooltip")}
+			aria-label={props.label}
+		/>
+	);
+}
+
 export function SettingsModal(props: {
 	settings: AppSettings;
 	piStatus: PiInstallStatus | null;
@@ -103,77 +153,100 @@ export function SettingsModal(props: {
 	onClose: () => void;
 	onChange: (patch: Partial<AppSettings>) => void;
 }) {
-	const [activeTab, setActiveTab] = useState<SettingsTabId>("base");
-	// ── 代理设置草稿状态 ──
-	const [proxyDraft, setProxyDraft] = useState<ProxyDraft | null>(null);
-	// 进入代理设置页时初始化草稿，离开时丢弃草稿（未保存的更改不生效）
-	useEffect(() => {
-		if (activeTab === "proxy") {
-			setProxyDraft({
-				piProxyEnabled: props.settings.piProxyEnabled,
-				piProxyUrl: props.settings.piProxyUrl,
-				piProxyBypass: props.settings.piProxyBypass,
-				desktopProxyEnabled: props.settings.desktopProxyEnabled,
-				desktopProxyUrl: props.settings.desktopProxyUrl,
-				desktopProxyBypass: props.settings.desktopProxyBypass,
-			});
-		} else {
-			setProxyDraft(null);
-		}
-	}, [activeTab]);
-	// 检测代理草稿是否与已保存的设置不同
-	const proxyDirty = useMemo(() => {
-		if (!proxyDraft) return false;
-		return (
-			proxyDraft.piProxyEnabled !== props.settings.piProxyEnabled ||
-			proxyDraft.piProxyUrl !== props.settings.piProxyUrl ||
-			proxyDraft.piProxyBypass !== props.settings.piProxyBypass ||
-			proxyDraft.desktopProxyEnabled !== props.settings.desktopProxyEnabled ||
-			proxyDraft.desktopProxyUrl !== props.settings.desktopProxyUrl ||
-			proxyDraft.desktopProxyBypass !== props.settings.desktopProxyBypass
-		);
-	}, [proxyDraft, props.settings]);
-	// 应用代理设置：仅将变更的字段提交给父组件保存
-	const applyProxyChanges = () => {
-		if (!proxyDraft) return;
-		const patch: Partial<AppSettings> = {};
-		if (proxyDraft.piProxyEnabled !== props.settings.piProxyEnabled) patch.piProxyEnabled = proxyDraft.piProxyEnabled;
-		if (proxyDraft.piProxyUrl !== props.settings.piProxyUrl) patch.piProxyUrl = proxyDraft.piProxyUrl;
-		if (proxyDraft.piProxyBypass !== props.settings.piProxyBypass) patch.piProxyBypass = proxyDraft.piProxyBypass;
-		if (proxyDraft.desktopProxyEnabled !== props.settings.desktopProxyEnabled) patch.desktopProxyEnabled = proxyDraft.desktopProxyEnabled;
-		if (proxyDraft.desktopProxyUrl !== props.settings.desktopProxyUrl) patch.desktopProxyUrl = proxyDraft.desktopProxyUrl;
-		if (proxyDraft.desktopProxyBypass !== props.settings.desktopProxyBypass) patch.desktopProxyBypass = proxyDraft.desktopProxyBypass;
-		props.onChange(patch);
-		setProxyDraft({ ...proxyDraft });
-	};
-	// 取消代理设置：恢复为已保存的值
-	const cancelProxyChanges = () => {
-		setProxyDraft({
-			piProxyEnabled: props.settings.piProxyEnabled,
-			piProxyUrl: props.settings.piProxyUrl,
-			piProxyBypass: props.settings.piProxyBypass,
-			desktopProxyEnabled: props.settings.desktopProxyEnabled,
-			desktopProxyUrl: props.settings.desktopProxyUrl,
-			desktopProxyBypass: props.settings.desktopProxyBypass,
+	const [activeTab, setActiveTab] = useState<SettingsTabId>("common");
+	// ── 全局设置草稿：进入弹框时快照 props.settings，所有修改在 draft 上操作，保存时统一提交 ──
+	const [draftSettings, setDraftSettings] = useState<AppSettings>(() => ({ ...props.settings }));
+	const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+	/** 打开弹框时的原始设置快照，用于取消时回退 */
+	const baseSnapshotRef = useRef<AppSettings>({ ...props.settings });
+	/** 标记是否为首次挂载（跳过外部 props.settings 同步） */
+	const initialMountRef = useRef(true);
+
+	/** 更新草稿并标记对应字段为已修改。调用方传入的 patch 中的每个 key 都会追加到 dirtyFields。 */
+	const updateDraft = (patch: Partial<AppSettings>) => {
+		setDraftSettings((prev) => ({ ...prev, ...patch }));
+		setDirtyFields((prev) => {
+			const next = new Set(prev);
+			for (const key of Object.keys(patch)) {
+				next.add(key);
+			}
+			return next;
 		});
 	};
 
+	/** 检查指定字段在草稿中是否已被修改（与初始快照比较） */
+	const isDirty = (field: keyof AppSettings): boolean => {
+		return dirtyFields.has(field);
+	};
+
+	/** 保存全部已修改的字段：计算差异后一次性提交 */
+	const saveAll = () => {
+		if (dirtyFields.size === 0) return;
+		const patch: Partial<AppSettings> = {};
+		for (const key of dirtyFields) {
+			(patch as Record<string, unknown>)[key] = (draftSettings as Record<string, unknown>)[key];
+		}
+		props.onChange(patch);
+		// 更新快照基准为当前草稿值，并清除修改标记
+		baseSnapshotRef.current = { ...baseSnapshotRef.current, ...patch };
+		setDirtyFields(new Set());
+	};
+
+	/** 取消全部修改：将草稿回退到初始快照，丢弃所有未保存变更 */
+	const cancelAll = () => {
+		setDraftSettings({ ...baseSnapshotRef.current });
+		setDirtyFields(new Set());
+		setPetPreviewMode("__auto");
+		setWslValidation(null);
+		setWslUserInput(baseSnapshotRef.current.wslUser);
+		setPerAreaFontSize(
+			baseSnapshotRef.current.uiFontSize !== null ||
+				baseSnapshotRef.current.chatFontSize !== null ||
+				baseSnapshotRef.current.inputFontSize !== null,
+		);
+		setWebPortDraft(String(baseSnapshotRef.current.webServicePort));
+	};
+
+	/** 关闭弹框：有未保存变更时弹出确认对话框，无变更时直接关闭 */
+	const handleClose = () => {
+		if (dirtyFields.size > 0) {
+			setCloseConfirmOpen(true);
+		} else {
+			props.onClose();
+		}
+	};
+
+	/** 关闭确认弹框时选择保存并关闭 */
+	const handleSaveAndClose = () => {
+		saveAll();
+		setCloseConfirmOpen(false);
+		props.onClose();
+	};
+
+	/** 关闭确认弹框时选择放弃更改 */
+	const handleDiscardAndClose = () => {
+		setCloseConfirmOpen(false);
+		props.onClose();
+	};
+
+	const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+
 	const [perAreaFontSize, setPerAreaFontSize] = useState(
-		props.settings.uiFontSize !== null ||
-			props.settings.chatFontSize !== null ||
-			props.settings.inputFontSize !== null,
+		draftSettings.uiFontSize !== null ||
+			draftSettings.chatFontSize !== null ||
+			draftSettings.inputFontSize !== null,
 	);
-	const [webPortDraft, setWebPortDraft] = useState(String(props.settings.webServicePort));
+	const [webPortDraft, setWebPortDraft] = useState(String(draftSettings.webServicePort));
 	const piPath = props.settings.customPiPath || props.piStatus?.command || "";
 	const changeZoomFactor = (delta: number) => {
 		const next = Math.min(
 			ZOOM_FACTOR_MAX,
 			Math.max(
 				ZOOM_FACTOR_MIN,
-				Math.round((props.settings.zoomFactor + delta) * 100) / 100,
+				Math.round((draftSettings.zoomFactor + delta) * 100) / 100,
 			),
 		);
-		props.onChange({ zoomFactor: next });
+		updateDraft({ zoomFactor: next });
 	};
 	const fontSizeOptions = [
 		{ value: "compact", label: t("settings.fontSizeCompact") },
@@ -193,22 +266,11 @@ export function SettingsModal(props: {
 		{ value: "system-mono", label: t("settings.fontFamilyMonoSystemMono") },
 		{ value: "custom", label: t("settings.fontCustomOption") },
 	];
-	useEffect(() => {
-		setWebPortDraft(String(props.settings.webServicePort));
-	}, [props.settings.webServicePort]);
 
-	// ── WSL 配置草稿状态 ──
-	// WSL 的三个耦合字段（enabled/distro/user）不直接 onChange 落盘，
-	// 而是进入本地 draft，用户点击"应用"后原子保存，避免中间态导致功能异常。
-	const [wslDraft, setWslDraft] = useState({
-		enabled: props.settings.wslEnabled,
-		distro: props.settings.wslDistro,
-		user: props.settings.wslUser,
-	});
-	const [wslUserInput, setWslUserInput] = useState(props.settings.wslUser);
+	// ── WSL 相关状态 ──
+	const [wslUserInput, setWslUserInput] = useState(draftSettings.wslUser);
 	const [wslDistros, setWslDistros] = useState<string[]>([]);
 	const [wslDistrosLoading, setWslDistrosLoading] = useState(false);
-	/** 防止 listDistros 失败后无限重试：无论结果如何最多拉取一次 */
 	const [wslDistrosAttempted, setWslDistrosAttempted] = useState(false);
 	const [wslValidating, setWslValidating] = useState(false);
 	const [wslValidation, setWslValidation] = useState<{
@@ -217,21 +279,10 @@ export function SettingsModal(props: {
 		piVersion: string;
 		error: string;
 	} | null>(null);
-	// 外部 settings 变更时同步回 draft（如用户切换设置页 tab 后返回）
-	useEffect(() => {
-		setWslDraft({
-			enabled: props.settings.wslEnabled,
-			distro: props.settings.wslDistro,
-			user: props.settings.wslUser,
-		});
-		setWslUserInput(props.settings.wslUser);
-		setWslValidation(null);
-	}, [props.settings.wslEnabled, props.settings.wslDistro, props.settings.wslUser]);
 	// WSL 发行版列表懒加载（仅 Windows + WSL 开启时拉取，无论成败只拉一次）
 	useEffect(() => {
 		const isWin = props.appInfo.platform === "win32";
-		// 预加载脚本可能未更新（需重启应用），缺少 wsl API 时静默跳过
-		if (isWin && wslDraft.enabled && !wslDistrosAttempted && !wslDistrosLoading && window.piDesktop.wsl) {
+		if (isWin && draftSettings.wslEnabled && !wslDistrosAttempted && !wslDistrosLoading && window.piDesktop.wsl) {
 			setWslDistrosLoading(true);
 			window.piDesktop.wsl
 				.listDistros()
@@ -239,10 +290,12 @@ export function SettingsModal(props: {
 				.catch(() => { setWslDistros([]); setWslDistrosAttempted(true); })
 				.finally(() => setWslDistrosLoading(false));
 		}
-	}, [wslDraft.enabled, wslDistrosAttempted, wslDistrosLoading, props.appInfo.platform]);
+	}, [draftSettings.wslEnabled, wslDistrosAttempted, wslDistrosLoading, props.appInfo.platform]);
+
 	const distroOptions = wslDistros.length > 0
 		? wslDistros.map((d) => ({ value: d, label: d }))
-		: [{ value: wslDraft.distro, label: wslDraft.distro }];
+		: [{ value: draftSettings.wslDistro, label: draftSettings.wslDistro }];
+
 	const handleValidateWslUser = async () => {
 		if (!window.piDesktop.wsl) {
 			setWslValidation({ ok: false, whoami: "", piVersion: "", error: "WSL API 未就绪，请重启应用后再试" });
@@ -251,10 +304,11 @@ export function SettingsModal(props: {
 		setWslValidating(true);
 		setWslValidation(null);
 		try {
-			const result = await window.piDesktop.wsl.validateConnection(wslDraft.distro, wslUserInput);
+			const result = await window.piDesktop.wsl.validateConnection(draftSettings.wslDistro, wslUserInput);
 			setWslValidation(result);
 			if (result.ok) {
-				setWslDraft((prev) => ({ ...prev, user: wslUserInput }));
+				// 验证通过后，将用户输入写入 draft
+				updateDraft({ wslUser: wslUserInput });
 			}
 		} catch (err) {
 			setWslValidation({ ok: false, whoami: "", piVersion: "", error: String(err) });
@@ -262,33 +316,9 @@ export function SettingsModal(props: {
 			setWslValidating(false);
 		}
 	};
-	const handleApplyWsl = () => {
-		// 原子保存三个 WSL 字段，触发主进程配置 SessionScanner 并刷新会话列表
-		props.onChange({
-			wslEnabled: wslDraft.enabled,
-			wslDistro: wslDraft.distro,
-			wslUser: wslDraft.user,
-		});
-	};
-	const handleCancelWsl = () => {
-		setWslDraft({
-			enabled: props.settings.wslEnabled,
-			distro: props.settings.wslDistro,
-			user: props.settings.wslUser,
-		});
-		setWslUserInput(props.settings.wslUser);
-		setWslValidation(null);
-	};
-	// 草稿已变更或用户已通过验证 → 允许应用
-	const wslCanApply =
-		wslDraft.enabled !== props.settings.wslEnabled ||
-		wslDraft.distro !== props.settings.wslDistro ||
-		wslDraft.user !== props.settings.wslUser ||
-		(wslValidation?.ok === true && wslDraft.user === wslUserInput);
 
-	// 宠物包列表：异步加载内置 + petdex 社区包，供选择下拉使用
+	// 宠物包列表
 	const [petOptions, setPetOptions] = useState<{ value: string; label: string }[]>([]);
-	// 完整宠物清单（含 spritesheetUrl / 描述），用于选择预览：仅靠 id 无法加载图，需清单里的 url。
 	const [petList, setPetList] = useState<PetManifest[]>([]);
 	useEffect(() => {
 		window.piDesktop.pet
@@ -296,35 +326,42 @@ export function SettingsModal(props: {
 			.then((pets) => { setPetList(pets); setPetOptions(pets.map((p) => ({ value: p.id, label: p.displayName }))); })
 			.catch(() => undefined);
 	}, []);
-	// 宠物动画预览模式：下拉选中值需受控，避免选完弹回"自动"
+	// 进入开发设置 tab 时，若 piStatus 为空则自动检测（避免每次需手动点击「检测环境」）
+	useEffect(() => {
+		if (activeTab === "dev" && props.piStatus === null && !props.piChecking) {
+			props.onCheckPi();
+		}
+	}, [activeTab, props.piStatus, props.piChecking, props.onCheckPi]);
 	const [petPreviewMode, setPetPreviewMode] = useState("__auto");
+
 	const applyWebPortDraft = () => {
 		const port = Number(webPortDraft);
-		if (Number.isInteger(port) && port >= 1 && port <= 65535 && port !== props.settings.webServicePort) {
-			props.onChange({ webServicePort: port });
+		if (Number.isInteger(port) && port >= 1 && port <= 65535 && port !== draftSettings.webServicePort) {
+			updateDraft({ webServicePort: port });
 		} else {
-			setWebPortDraft(String(props.settings.webServicePort));
+			setWebPortDraft(String(draftSettings.webServicePort));
 		}
 	};
+
 	const tabs: Array<{
 		id: SettingsTabId;
 		label: string;
 		icon: ReactNode;
 	}> = [
 		{
-			id: "base",
-			label: t("settings.tabs.base"),
+			id: "common",
+			label: t("settings.tabs.common"),
 			icon: <Settings2 size={16} />,
+		},
+		{
+			id: "appearance",
+			label: t("settings.tabs.appearance"),
+			icon: <Brush size={16} />,
 		},
 		{
 			id: "proxy",
 			label: t("settings.tabs.proxy"),
 			icon: <Network size={16} />,
-		},
-		{
-			id: "web",
-			label: t("settings.tabs.web"),
-			icon: <Globe2 size={16} />,
 		},
 		{
 			id: "dev",
@@ -369,20 +406,35 @@ export function SettingsModal(props: {
 		{ value: "external", label: t("settings.linkOpenMode.external") },
 		{ value: "internal", label: t("settings.linkOpenMode.internal") },
 	];
-	const lightBackgroundDisabled = props.settings.theme === "dark";
+	const lightBackgroundDisabled = draftSettings.theme === "dark";
+
+	const hasDirtyChanges = dirtyFields.size > 0;
 
 	return (
-		<div className="modal-backdrop" onClick={props.onClose}>
+		<div className="modal-backdrop" onClick={handleClose}>
 			<div
 				className="settings-modal"
 				onClick={(e) => e.stopPropagation()}
 			>
 				<div className="modal-header">
 					<strong>{t("settings.title")}</strong>
-					<CloseIconButton
-						label={t("common.close")}
-						onClick={props.onClose}
-					/>
+					<div className="modal-header-actions" style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+						{/* 全局保存/取消按钮：仅在存在未保存变更时显示，样式与配置弹框的导入/导出按钮一致 */}
+						{hasDirtyChanges && (
+							<>
+								<button className="config-btn primary" onClick={saveAll}>
+									{t("common.save")}
+								</button>
+								<button className="config-btn" onClick={cancelAll}>
+									{t("common.cancel")}
+								</button>
+							</>
+						)}
+						<CloseIconButton
+							label={t("common.close")}
+							onClick={handleClose}
+						/>
+					</div>
 				</div>
 				<div className="settings-layout">
 					<nav className="settings-tabs" aria-label={t("settings.title")}>
@@ -398,88 +450,57 @@ export function SettingsModal(props: {
 						))}
 					</nav>
 					<div className="settings-panel">
-						{activeTab === "base" && (
+						{/* ── 常用设置 tab ── */}
+						{activeTab === "common" && (
 							<>
 								<SettingsSection title={t("settings.interface")}>
-									<SelectField
-										className="setting-field"
-										label={t("settings.theme")}
-										value={props.settings.theme}
-										options={themeOptions}
-										onChange={(value) =>
-											props.onChange({
-												theme: value as AppSettings["theme"],
-											})
-										}
-									/>
-									<SelectField
-										className="setting-field"
-										label={t("settings.lightBackground")}
-										description={
-											lightBackgroundDisabled
-												? t("settings.lightBackgroundDisabledDesc")
-												: t("settings.lightBackgroundDesc")
-										}
-										disabled={lightBackgroundDisabled}
-										value={props.settings.lightBackground}
-										options={lightBackgroundOptions}
-										onChange={(value) =>
-											props.onChange({
-												lightBackground: value as AppSettings["lightBackground"],
-											})
-										}
-									/>
-									<SelectField
-										className="setting-field"
-										label={t("settings.language")}
-										value={props.settings.language}
-										options={languageOptions}
-										onChange={(value) =>
-											props.onChange({
-												language: value as AppSettings["language"],
-											})
-										}
-									/>
-									<SettingSwitch
-										title={t("settings.gitManagement")}
-										description={t("settings.gitManagementDesc")}
-										checked={props.settings.enableGitManagement}
-										onChange={(checked) =>
-											props.onChange({ enableGitManagement: checked })
-										}
-									/>
-									<SettingSwitch
-										title={t("settings.nativeTitleBar")}
-										checked={props.settings.useNativeTitleBar}
-										onChange={(checked) =>
-											props.onChange({ useNativeTitleBar: checked })
-										}
-									/>
-									<SettingSwitch
-										title={t("settings.nativeMenu")}
-										checked={props.settings.showNativeMenu}
-										onChange={(checked) =>
-											props.onChange({ showNativeMenu: checked })
-										}
-									/>
+									<div className="setting-field">
+										<span>
+											{t("settings.theme")}
+											<DirtyMarker dirty={isDirty("theme")} label={t("settings.theme")} />
+										</span>
+										<SelectField
+											value={draftSettings.theme}
+											options={themeOptions}
+											onChange={(value) =>
+												updateDraft({ theme: value as AppSettings["theme"] })
+											}
+										/>
+									</div>
+									<div className="setting-field">
+										<span>
+											{t("settings.language")}
+											<DirtyMarker dirty={isDirty("language")} label={t("settings.language")} />
+										</span>
+										<SelectField
+											value={draftSettings.language}
+											options={languageOptions}
+											onChange={(value) =>
+												updateDraft({ language: value as AppSettings["language"] })
+											}
+										/>
+									</div>
 									<div className="setting-field setting-zoom-field">
-										<span>{t("settings.zoomFactor")}</span>
+										<span>
+											{t("settings.zoomFactor")}
+											<DirtyMarker dirty={isDirty("zoomFactor")} label={t("settings.zoomFactor")} />
+										</span>
 										<div className="setting-zoom-control">
 											<IconButton
 												className="icon-button setting-zoom-button"
 												label={t("settings.zoomOut")}
-												disabled={props.settings.zoomFactor <= ZOOM_FACTOR_MIN}
+												disabled={draftSettings.zoomFactor <= ZOOM_FACTOR_MIN}
 												onClick={() => changeZoomFactor(-ZOOM_FACTOR_STEP)}
 											>
 												<Minus size={16} strokeWidth={2.2} aria-hidden="true" />
 											</IconButton>
 											<output className="setting-zoom-value" aria-live="polite">
-												{Math.round(props.settings.zoomFactor * 100)}%
+												{Math.round(draftSettings.zoomFactor * 100)}%
 											</output>
 											<IconButton
 												className="icon-button setting-zoom-button"
 												label={t("settings.zoomIn")}
-												disabled={props.settings.zoomFactor >= ZOOM_FACTOR_MAX}
+												disabled={draftSettings.zoomFactor >= ZOOM_FACTOR_MAX}
 												onClick={() => changeZoomFactor(ZOOM_FACTOR_STEP)}
 											>
 												<Plus size={16} strokeWidth={2.2} aria-hidden="true" />
@@ -488,17 +509,19 @@ export function SettingsModal(props: {
 									</div>
 								</SettingsSection>
 								<SettingsSection title={t("settings.typography")}>
-									<SelectField
-										className="setting-field"
-										label={t("settings.fontSize")}
-										value={props.settings.fontSize}
-										options={fontSizeOptions}
-										onChange={(value) =>
-											props.onChange({
-												fontSize: value as AppSettings["fontSize"],
-											})
-										}
-									/>
+									<div className="setting-field">
+										<span>
+											{t("settings.fontSize")}
+											<DirtyMarker dirty={isDirty("fontSize")} label={t("settings.fontSize")} />
+										</span>
+										<SelectField
+											value={draftSettings.fontSize}
+											options={fontSizeOptions}
+											onChange={(value) =>
+												updateDraft({ fontSize: value as AppSettings["fontSize"] })
+											}
+										/>
+									</div>
 									<SettingSwitch
 										title={t("settings.fontSizePerArea")}
 										description={t("settings.fontSizePerAreaDesc")}
@@ -506,99 +529,234 @@ export function SettingsModal(props: {
 										onChange={(checked) => {
 											setPerAreaFontSize(checked);
 											if (!checked) {
-												props.onChange({
-													uiFontSize: null,
-													chatFontSize: null,
-													inputFontSize: null,
-												});
+												updateDraft({ uiFontSize: null, chatFontSize: null, inputFontSize: null });
 											}
 										}}
 									/>
 									{perAreaFontSize && (
 										<>
-											<SelectField
-												className="setting-field"
-												label={t("settings.uiFontSize")}
-												value={props.settings.uiFontSize ?? props.settings.fontSize}
-												options={fontSizeOptions}
-												onChange={(value) =>
-													props.onChange({
-														uiFontSize: value as AppSettings["uiFontSize"],
-													})
-												}
-											/>
-											<SelectField
-												className="setting-field"
-												label={t("settings.chatFontSize")}
-												value={props.settings.chatFontSize ?? props.settings.fontSize}
-												options={fontSizeOptions}
-												onChange={(value) =>
-													props.onChange({
-														chatFontSize: value as AppSettings["chatFontSize"],
-													})
-												}
-											/>
-											<SelectField
-												className="setting-field"
-												label={t("settings.inputFontSize")}
-												value={props.settings.inputFontSize ?? props.settings.fontSize}
-												options={fontSizeOptions}
-												onChange={(value) =>
-													props.onChange({
-														inputFontSize: value as AppSettings["inputFontSize"],
-													})
-												}
-											/>
+											<div className="setting-field">
+												<span>
+													{t("settings.uiFontSize")}
+													<DirtyMarker dirty={isDirty("uiFontSize")} label={t("settings.uiFontSize")} />
+												</span>
+												<SelectField
+													value={draftSettings.uiFontSize ?? draftSettings.fontSize}
+													options={fontSizeOptions}
+													onChange={(value) =>
+														updateDraft({ uiFontSize: value as AppSettings["uiFontSize"] })
+													}
+												/>
+											</div>
+											<div className="setting-field">
+												<span>
+													{t("settings.chatFontSize")}
+													<DirtyMarker dirty={isDirty("chatFontSize")} label={t("settings.chatFontSize")} />
+												</span>
+												<SelectField
+													value={draftSettings.chatFontSize ?? draftSettings.fontSize}
+													options={fontSizeOptions}
+													onChange={(value) =>
+														updateDraft({ chatFontSize: value as AppSettings["chatFontSize"] })
+													}
+												/>
+											</div>
+											<div className="setting-field">
+												<span>
+													{t("settings.inputFontSize")}
+													<DirtyMarker dirty={isDirty("inputFontSize")} label={t("settings.inputFontSize")} />
+												</span>
+												<SelectField
+													value={draftSettings.inputFontSize ?? draftSettings.fontSize}
+													options={fontSizeOptions}
+													onChange={(value) =>
+														updateDraft({ inputFontSize: value as AppSettings["inputFontSize"] })
+													}
+												/>
+											</div>
 										</>
 									)}
 									<hr className="setting-divider" />
-									<SelectField
-										className="setting-field"
-										label={t("settings.fontFamilyBase")}
-										description={t("settings.fontFamilyBaseDesc")}
-										value={props.settings.fontFamilyBase}
-										options={fontBaseOptions}
-										onChange={(value) =>
-											props.onChange({
-												fontFamilyBase: value as AppSettings["fontFamilyBase"],
-											})
-										}
-									/>
-									{props.settings.fontFamilyBase === "custom" && (
+									<div className="setting-field">
+										<span>
+											{t("settings.fontFamilyBase")}
+											<DirtyMarker dirty={isDirty("fontFamilyBase")} label={t("settings.fontFamilyBase")} />
+										</span>
+										<SelectField
+											value={draftSettings.fontFamilyBase}
+											options={fontBaseOptions}
+											onChange={(value) =>
+												updateDraft({ fontFamilyBase: value as AppSettings["fontFamilyBase"] })
+											}
+										/>
+									</div>
+									{draftSettings.fontFamilyBase === "custom" && (
 										<TextField
 											className="setting-field"
 											label={t("settings.fontFamilyBaseCustomField")}
-											value={props.settings.fontFamilyBaseCustom}
+											value={draftSettings.fontFamilyBaseCustom}
 											placeholder={t("settings.fontFamilyBaseCustomPlaceholder")}
 											onChange={(value) =>
-												props.onChange({ fontFamilyBaseCustom: value })
+												updateDraft({ fontFamilyBaseCustom: value })
 											}
 										/>
 									)}
 									<hr className="setting-divider" />
-									<SelectField
-										className="setting-field"
-										label={t("settings.fontFamilyMono")}
-										description={t("settings.fontFamilyMonoDesc")}
-										value={props.settings.fontFamilyMono}
-										options={fontMonoOptions}
-										onChange={(value) =>
-											props.onChange({
-												fontFamilyMono: value as AppSettings["fontFamilyMono"],
-											})
-										}
-									/>
-									{props.settings.fontFamilyMono === "custom" && (
+									<div className="setting-field">
+										<span>
+											{t("settings.fontFamilyMono")}
+											<DirtyMarker dirty={isDirty("fontFamilyMono")} label={t("settings.fontFamilyMono")} />
+										</span>
+										<SelectField
+											value={draftSettings.fontFamilyMono}
+											options={fontMonoOptions}
+											onChange={(value) =>
+												updateDraft({ fontFamilyMono: value as AppSettings["fontFamilyMono"] })
+											}
+										/>
+									</div>
+									{draftSettings.fontFamilyMono === "custom" && (
 										<TextField
 											className="setting-field"
 											label={t("settings.fontFamilyMonoCustomField")}
-											value={props.settings.fontFamilyMonoCustom}
+											value={draftSettings.fontFamilyMonoCustom}
 											placeholder={t("settings.fontFamilyMonoCustomPlaceholder")}
 											onChange={(value) =>
-												props.onChange({ fontFamilyMonoCustom: value })
+												updateDraft({ fontFamilyMonoCustom: value })
 											}
 										/>
 									)}
+								</SettingsSection>
+								<SettingsSection title={t("settings.notificationSection")}>
+									<div className="setting-field">
+										<span>
+											{t("settings.inputShortcut")}
+											<DirtyMarker dirty={isDirty("sendShortcut")} label={t("settings.inputShortcut")} />
+										</span>
+										<SelectField
+											value={draftSettings.sendShortcut}
+											options={sendShortcutOptions}
+											onChange={(value) =>
+												updateDraft({ sendShortcut: value as AppSettings["sendShortcut"] })
+											}
+										/>
+									</div>
+									<div className="setting-field">
+										<span>
+											{t("settings.linkOpenMode")}
+											<DirtyMarker dirty={isDirty("linkOpenMode")} label={t("settings.linkOpenMode")} />
+										</span>
+										<SelectField
+											value={draftSettings.linkOpenMode}
+											options={linkOpenModeOptions}
+											onChange={(value) =>
+												updateDraft({ linkOpenMode: value as AppSettings["linkOpenMode"] })
+											}
+										/>
+									</div>
+									<SettingSwitch
+										title={t("settings.closeToTray")}
+										checked={draftSettings.closeToTray}
+										onChange={(checked) =>
+											updateDraft({ closeToTray: checked })
+										}
+									/>
+									<SettingSwitch
+										title={t("settings.enableNotifications")}
+										checked={draftSettings.enableNotifications}
+										onChange={(checked) =>
+											updateDraft({ enableNotifications: checked })
+										}
+									/>
+								</SettingsSection>
+								<SettingsSection title={t("settings.advanced")}>
+									<div className="setting-field">
+										<span>
+											{t("settings.rpcTimeout")}
+											<DirtyMarker dirty={isDirty("rpcTimeout")} label={t("settings.rpcTimeout")} />
+										</span>
+										<input
+											type="number"
+											value={String(Math.round(draftSettings.rpcTimeout / 1000))}
+											onChange={(e) => {
+												const seconds = Math.max(600, parseInt(e.target.value) || 600);
+												updateDraft({ rpcTimeout: seconds * 1000 });
+											}}
+										/>
+										<small style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)" }}>
+											{t("settings.rpcTimeoutDesc")}
+										</small>
+									</div>
+									<div className="setting-field">
+										<span>
+											{t("settings.maxEditorFileSize")}
+											<DirtyMarker dirty={isDirty("maxEditorFileSizeMB")} label={t("settings.maxEditorFileSize")} />
+										</span>
+										<input
+											type="number"
+											value={String(draftSettings.maxEditorFileSizeMB)}
+											onChange={(e) => {
+												const mb = Math.max(1, parseInt(e.target.value) || 5);
+												updateDraft({ maxEditorFileSizeMB: mb });
+											}}
+										/>
+										<small style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)" }}>
+											{t("settings.maxEditorFileSizeDesc")}
+										</small>
+									</div>
+								</SettingsSection>
+								<SettingsSection title={t("settings.git")}>
+									<SettingSwitch
+										title={t("settings.gitManagement")}
+										description={t("settings.gitManagementDesc")}
+										checked={draftSettings.enableGitManagement}
+										onChange={(checked) =>
+											updateDraft({ enableGitManagement: checked })
+										}
+									/>
+									{draftSettings.enableGitManagement && (
+										<SettingTextarea
+											title={t("settings.gitCommitMessagePrompt")}
+											description={t("settings.gitCommitMessagePromptDesc")}
+											value={draftSettings.gitCommitMessagePrompt}
+											onChange={(value) => updateDraft({ gitCommitMessagePrompt: value })}
+										/>
+									)}
+								</SettingsSection>
+							</>
+						)}
+						{/* ── 外观设置 tab ── */}
+						{activeTab === "appearance" && (
+							<>
+								<SettingsSection title={t("settings.interface")}>
+									<div className="setting-field">
+										<span>
+											{t("settings.lightBackground")}
+											<DirtyMarker dirty={isDirty("lightBackground")} label={t("settings.lightBackground")} />
+										</span>
+										<SelectField
+											disabled={lightBackgroundDisabled}
+											value={draftSettings.lightBackground}
+											options={lightBackgroundOptions}
+											onChange={(value) =>
+												updateDraft({ lightBackground: value as AppSettings["lightBackground"] })
+											}
+										/>
+									</div>
+									<SettingSwitch
+										title={t("settings.nativeTitleBar")}
+										checked={draftSettings.useNativeTitleBar}
+										onChange={(checked) =>
+											updateDraft({ useNativeTitleBar: checked })
+										}
+									/>
+									<SettingSwitch
+										title={t("settings.nativeMenu")}
+										checked={draftSettings.showNativeMenu}
+										onChange={(checked) =>
+											updateDraft({ showNativeMenu: checked })
+										}
+									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.contentMaxWidth")} description={t("settings.contentMaxWidthDesc")}>
 									<div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", maxWidth: 480 }}>
@@ -607,8 +765,8 @@ export function SettingsModal(props: {
 											min="800"
 											max="1400"
 											step="25"
-											value={props.settings.contentMaxWidth}
-											onChange={(event) => props.onChange({ contentMaxWidth: parseInt(event.target.value) })}
+											value={draftSettings.contentMaxWidth}
+											onChange={(event) => updateDraft({ contentMaxWidth: parseInt(event.target.value) })}
 											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}
 										/>
 										<span style={{
@@ -618,88 +776,15 @@ export function SettingsModal(props: {
 											minWidth: 80,
 											textAlign: "right",
 										}}>
-											{props.settings.contentMaxWidth === 1400
+											{draftSettings.contentMaxWidth === 1400
 												? t("settings.contentMaxWidthUnlimited")
-												: `${props.settings.contentMaxWidth}px`}
+												: `${draftSettings.contentMaxWidth}px`}
 										</span>
 									</div>
 								</SettingsSection>
-								<SettingsSection title={t("settings.notificationSection")}>
-									<SettingSwitch
-										title={t("settings.closeToTray")}
-										checked={props.settings.closeToTray}
-										onChange={(checked) =>
-											props.onChange({ closeToTray: checked })
-										}
-									/>
-									<SettingSwitch
-										title={t("settings.enableNotifications")}
-										checked={props.settings.enableNotifications}
-										onChange={(checked) =>
-											props.onChange({ enableNotifications: checked })
-										}
-									/>
-
-									<SelectField
-										className="setting-field"
-										label={t("settings.inputShortcut")}
-										value={props.settings.sendShortcut}
-										options={sendShortcutOptions}
-										onChange={(value) =>
-											props.onChange({
-												sendShortcut:
-													value as AppSettings["sendShortcut"],
-											})
-										}
-									/>
-									<TextField
-										className="setting-field"
-										label={t("settings.rpcTimeout")}
-										type="number"
-										value={String(Math.round(props.settings.rpcTimeout / 1000))}
-										description={t("settings.rpcTimeoutDesc")}
-										onChange={(value) => {
-											// 防止用户设置过小的超时导致 RPC 调用频繁超时，最低 600 秒
-											const seconds = Math.max(600, parseInt(value) || 600);
-											props.onChange({ rpcTimeout: seconds * 1000 });
-										}}
-									/>
-									<SelectField
-										className="setting-field"
-										label={t("settings.linkOpenMode")}
-										description={t("settings.linkOpenModeDesc")}
-										value={props.settings.linkOpenMode}
-										options={linkOpenModeOptions}
-										onChange={(value) =>
-											props.onChange({
-												linkOpenMode: value as AppSettings["linkOpenMode"],
-											})
-										}
-									/>
-									<TextField
-										className="setting-field"
-										label={t("settings.maxEditorFileSize")}
-										description={t("settings.maxEditorFileSizeDesc")}
-										type="number"
-										value={String(props.settings.maxEditorFileSizeMB)}
-										onChange={(value) => {
-											const mb = Math.max(1, parseInt(value) || 5);
-											props.onChange({ maxEditorFileSizeMB: mb });
-										}}
-									/>
-								</SettingsSection>
-								<SettingsSection title={t("settings.privacy")}>
-									<SettingSwitch
-										title={t("settings.telemetry")}
-										description={t("settings.telemetryDesc")}
-										checked={props.settings.telemetryEnabled}
-										onChange={(checked) =>
-											props.onChange({ telemetryEnabled: checked })
-										}
-									/>
-								</SettingsSection>
 							</>
 						)}
+						{/* ── 代理设置 tab ── */}
 						{activeTab === "proxy" && (
 							<>
 								{/* 未保存更改的提示横幅 */}
@@ -717,30 +802,30 @@ export function SettingsModal(props: {
 									<SettingSwitch
 										title={t("settings.enablePiProxy")}
 										description={t("settings.settingTakesEffectAfterRestart")}
-										checked={proxyDraft?.piProxyEnabled ?? props.settings.piProxyEnabled}
+										checked={draftSettings.piProxyEnabled}
 										onChange={(checked) =>
-											setProxyDraft((prev) => prev ? { ...prev, piProxyEnabled: checked } : null)
+											updateDraft({ piProxyEnabled: checked })
 										}
 									/>
-									{(proxyDraft?.piProxyEnabled ?? props.settings.piProxyEnabled) && (
+									{draftSettings.piProxyEnabled && (
 										<div className="setting-proxy-panel">
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyUrl")}
-												value={proxyDraft?.piProxyUrl ?? props.settings.piProxyUrl}
+												value={draftSettings.piProxyUrl}
 												placeholder="http://127.0.0.1:7890"
 												onChange={(value) =>
-													setProxyDraft((prev) => prev ? { ...prev, piProxyUrl: value } : null)
+													updateDraft({ piProxyUrl: value })
 												}
 											/>
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyBypass")}
-												value={proxyDraft?.piProxyBypass ?? props.settings.piProxyBypass}
+												value={draftSettings.piProxyBypass}
 												placeholder="localhost,127.0.0.1,::1"
 												description={t("settings.noProxyHint")}
 												onChange={(value) =>
-													setProxyDraft((prev) => prev ? { ...prev, piProxyBypass: value } : null)
+													updateDraft({ piProxyBypass: value })
 												}
 											/>
 											<div className="setting-row">
@@ -772,30 +857,30 @@ export function SettingsModal(props: {
 									<SettingSwitch
 										title={t("settings.enableDesktopProxy")}
 										description={t("settings.desktopProxyDesc")}
-										checked={proxyDraft?.desktopProxyEnabled ?? props.settings.desktopProxyEnabled}
+										checked={draftSettings.desktopProxyEnabled}
 										onChange={(checked) =>
-											setProxyDraft((prev) => prev ? { ...prev, desktopProxyEnabled: checked } : null)
+											updateDraft({ desktopProxyEnabled: checked })
 										}
 									/>
-									{(proxyDraft?.desktopProxyEnabled ?? props.settings.desktopProxyEnabled) && (
+									{draftSettings.desktopProxyEnabled && (
 										<div className="setting-proxy-panel">
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyUrl")}
-												value={proxyDraft?.desktopProxyUrl ?? props.settings.desktopProxyUrl}
+												value={draftSettings.desktopProxyUrl}
 												placeholder="http://127.0.0.1:7890"
 												onChange={(value) =>
-													setProxyDraft((prev) => prev ? { ...prev, desktopProxyUrl: value } : null)
+													updateDraft({ desktopProxyUrl: value })
 												}
 											/>
 											<TextField
 												className="setting-field"
 												label={t("settings.proxyBypass")}
-												value={proxyDraft?.desktopProxyBypass ?? props.settings.desktopProxyBypass}
+												value={draftSettings.desktopProxyBypass}
 												placeholder="localhost,127.0.0.1,::1"
 												description={t("settings.electronProxyHint")}
 												onChange={(value) =>
-													setProxyDraft((prev) => prev ? { ...prev, desktopProxyBypass: value } : null)
+													updateDraft({ desktopProxyBypass: value })
 												}
 											/>
 										</div>
@@ -816,98 +901,38 @@ export function SettingsModal(props: {
 								</div>
 							</>
 						)}
-						{activeTab === "web" && (
-							<SettingsSection
-								title={t("settings.webLocalService")}
-								description={t("settings.webLocalServiceDesc")}
-							>
-								<SettingSwitch
-									title={t("settings.enableWebService")}
-									description={
-										props.webServiceChanging
-											? t("settings.webOpening")
-											: t("settings.webOffDesc")
-									}
-									checked={props.settings.webServiceEnabled}
-									disabled={props.webServiceChanging}
-									onChange={(checked) =>
-										props.onChange({ webServiceEnabled: checked })
-									}
-								/>
-								<div className="web-endpoint-panel">
-									<div className="web-endpoint-grid">
-										<div className="web-endpoint-metric">
-											<span>{t("common.host")}</span>
-											<code>{props.settings.webServiceHost}</code>
-										</div>
-										<label className="web-endpoint-metric editable">
-											<span>{t("common.port")}</span>
-											<input
-												type="number"
-												min={1}
-												max={65535}
-												value={webPortDraft}
-												disabled={props.webServiceChanging}
-												onChange={(event) => setWebPortDraft(event.target.value)}
-												onBlur={applyWebPortDraft}
-												onKeyDown={(event) => {
-													if (event.key === "Enter") {
-														event.preventDefault();
-														applyWebPortDraft();
-														event.currentTarget.blur();
-													}
-												}}
-											/>
-										</label>
-									</div>
-									<div className="web-endpoint-summary">
-										<span className={props.settings.webServiceEnabled ? "online" : ""} />
-										<div>
-											<strong>
-												http://127.0.0.1:{webPortDraft || props.settings.webServicePort}
-											</strong>
-											<small>{t("settings.localWebHint")}</small>
-										</div>
-										<Button
-											buttonSize="sm"
-											disabled={!props.settings.webServiceEnabled}
-											onClick={() =>
-												props.onOpenWebService(webPortDraft || String(props.settings.webServicePort))
-											}
-										>
-											{t("common.open")}
-										</Button>
-									</div>
-								</div>
-							</SettingsSection>
-						)}
+						{/* ── 开发设置 tab（含 Web 服务） ── */}
 						{activeTab === "dev" && (
 							<>
 								<SettingsSection title={t("settings.environment")}>
-									<div className="setting-row">
-										<div>
-											<strong>{t("settings.piEnvironment")}</strong>
-											<small>
-												{props.piStatus
-													? props.piStatus.installed
-														? t("settings.foundPi", {
-																version: props.piStatus.version ?? "pi",
-															})
-														: t("settings.piMissing")
-													: t("settings.piCliAvailable")}
-											</small>
-											{piPath && (
-												<small className="setting-path">
-													{t("settings.currentPath", { path: piPath })}
-												</small>
-											)}
-											{props.piStatus && !props.piStatus.installed && props.piStatus.error && (
-												<small className="setting-status error setting-error-detail">
-													{t("settings.detectFailed", {
-														error: props.piStatus.error,
-													})}
-												</small>
-											)}
+									{/* Pi CLI 状态：安装检测 + 路径信息 + 重新检测 */}
+									<div className="setting-pi-status">
+										<div className="setting-pi-status-indicator">
+											<span
+												className={"pi-status-dot " + (props.piStatus?.installed ? "online" : "offline")}
+											/>
+											<div className="setting-pi-status-text">
+												<strong>Pi CLI</strong>
+												<span>
+													{props.piStatus
+														? props.piStatus.installed
+															? t("settings.foundPi", {
+																	version: props.piStatus.version ?? "pi",
+																})
+															: t("settings.piMissing")
+														: t("settings.piCliAvailable")}
+												</span>
+												{piPath && (
+													<span className="setting-path">
+														{piPath}
+													</span>
+												)}
+												{props.piStatus && !props.piStatus.installed && props.piStatus.error && (
+													<span className="setting-status error">
+														{props.piStatus.error}
+													</span>
+												)}
+											</div>
 										</div>
 										<div className="setting-inline-actions">
 											<Button onClick={props.onCheckPi} disabled={props.piChecking}>
@@ -923,8 +948,135 @@ export function SettingsModal(props: {
 													{t("environment.clearCheckFlag")}
 												</Button>
 											)}
+											<Button
+												onClick={props.onCheckPiUpdate}
+												loading={props.piUpdateChecking}
+												disabled={draftSettings.disableUpdateCheck}
+											>
+												{t("settings.checkPiUpdate")}
+											</Button>
+											<Button
+												onClick={props.onUpdatePi}
+												loading={props.piUpdating}
+												disabled={
+													draftSettings.disableUpdateCheck ||
+													!props.piUpdateCheck?.hasUpdate
+												}
+											>
+												{t("settings.updatePi")}
+											</Button>
 										</div>
 									</div>
+									{props.piUpdateResult && (
+										<pre className="setting-update-output">
+											{props.piUpdateResult.command}
+											{"\n"}
+											{props.piUpdateResult.output}
+										</pre>
+									)}
+
+									<hr className="setting-divider" />
+
+									{/* Pi 来源：Windows 原生 / WSL（仅 Windows 可见） */}
+									{props.appInfo.platform === "win32" && (
+									<div className="setting-pi-source-block">
+										<div className="setting-pi-source-row">
+											<span>{t("settings.piSource.label")}</span>
+											<SelectField
+												value={draftSettings.wslEnabled ? "wsl" : "windows"}
+												options={[
+													{ value: "windows", label: t("settings.piSource.windows") },
+													{ value: "wsl", label: t("settings.piSource.wsl") },
+												]}
+												onChange={(value) => {
+													updateDraft({ wslEnabled: value === "wsl" });
+													setWslValidation(null);
+												}}
+											/>
+										</div>
+										{draftSettings.wslEnabled && (
+											<div className="setting-pi-wsl-config">
+												<div className="setting-wsl-fields">
+													{wslDistros.length > 0 ? (
+														<SelectField
+															className="setting-field"
+															label={t("settings.wsl.distro")}
+															value={draftSettings.wslDistro}
+															options={distroOptions}
+															onChange={(value) => {
+																updateDraft({ wslDistro: value });
+																setWslValidation(null);
+															}}
+														/>
+													) : (
+														<TextField
+															className="setting-field"
+															label={t("settings.wsl.distro")}
+															value={draftSettings.wslDistro}
+															onChange={(value) => {
+																updateDraft({ wslDistro: value });
+																setWslValidation(null);
+															}}
+															placeholder="Ubuntu"
+														/>
+													)}
+													{wslDistrosLoading && (
+														<small className="setting-status info">{t("settings.wsl.detectingDistros")}</small>
+													)}
+													<div className="setting-wsl-user-row">
+														<TextField
+															className="setting-field"
+															label={t("settings.wsl.user")}
+															value={wslUserInput}
+															onChange={(value) => {
+																setWslUserInput(value);
+																setWslValidation(null);
+															}}
+															placeholder="root"
+														/>
+														<Button
+															buttonSize="sm"
+															disabled={!wslUserInput.trim() || wslValidating}
+															loading={wslValidating}
+															onClick={handleValidateWslUser}
+														>
+															{t("settings.wsl.validateUser")}
+														</Button>
+													</div>
+												</div>
+												{wslValidation && (
+													<div className={`setting-wsl-validation ${wslValidation.ok ? "success" : "error"}`}>
+														{wslValidation.ok ? (
+															<>
+																<small className="setting-status success">
+																	{t("settings.wsl.validationOk", {
+																		user: wslValidation.whoami,
+																		distro: draftSettings.wslDistro,
+																	})}
+																</small>
+																{wslValidation.piVersion ? (
+																	<small className="setting-status success">
+																		{t("settings.wsl.piDetected", { version: wslValidation.piVersion })}
+																	</small>
+																) : (
+																	<small className="setting-status warning">
+																		{wslValidation.error || t("settings.wsl.piNotInstalled")}
+																	</small>
+																)}
+															</>
+														) : (
+															<small className="setting-status error">{wslValidation.error}</small>
+														)}
+													</div>
+												)}
+											</div>
+										)}
+									</div>
+									)}
+
+									<hr className="setting-divider" />
+
+									{/* 自定义 Pi 路径 */}
 									<div className="setting-pi-path-panel">
 										<TextField
 											className="setting-field"
@@ -971,188 +1123,40 @@ export function SettingsModal(props: {
 											</small>
 										)}
 									</div>
-								{/* WSL pi 来源配置：仅 Windows 可见，使用局部 draft + 原子保存 */}
-								{props.appInfo.platform === "win32" && (
-								<div className="setting-pi-wsl-panel">
-									<SelectField
-										className="setting-field"
-										label={t("settings.piSource.label")}
-										description={t("settings.piSource.desc")}
-										value={wslDraft.enabled ? "wsl" : "windows"}
-										options={[
-											{ value: "windows", label: t("settings.piSource.windows") },
-											{ value: "wsl", label: t("settings.piSource.wsl") },
-										]}
-										onChange={(value) => setWslDraft((prev) => ({ ...prev, enabled: value === "wsl" }))}
-									/>
-									{wslDraft.enabled && (
-										<>
-											<div className="setting-wsl-fields">
-												{/* 发行版：自动检测到列表时用下拉，否则退化为手输 */}
-												{wslDistros.length > 0 ? (
-													<SelectField
-														className="setting-field"
-														label={t("settings.wsl.distro")}
-														value={wslDraft.distro}
-														options={distroOptions}
-														onChange={(value) => {
-															setWslDraft((prev) => ({ ...prev, distro: value }));
-															setWslValidation(null);
-														}}
-													/>
-												) : (
-													<TextField
-														className="setting-field"
-														label={t("settings.wsl.distro")}
-														value={wslDraft.distro}
-														onChange={(value) => {
-															setWslDraft((prev) => ({ ...prev, distro: value }));
-															setWslValidation(null);
-														}}
-														placeholder="Ubuntu"
-													/>
-												)}
-												{wslDistrosLoading && (
-													<small className="setting-status info">{t("settings.wsl.detectingDistros")}</small>
-												)}
-												<div className="setting-wsl-user-row">
-													<TextField
-														className="setting-field"
-														label={t("settings.wsl.user")}
-														value={wslUserInput}
-														onChange={(value) => {
-															setWslUserInput(value);
-															setWslValidation(null);
-														}}
-														placeholder="root"
-													/>
-													<Button
-														buttonSize="sm"
-														disabled={!wslUserInput.trim() || wslValidating}
-														loading={wslValidating}
-														onClick={handleValidateWslUser}
-													>
-														{t("settings.wsl.validateUser")}
-													</Button>
-												</div>
-											</div>
-											{/* 验证结果反馈 */}
-											{wslValidation && (
-												<div className={`setting-wsl-validation ${wslValidation.ok ? "success" : "error"}`}>
-													{wslValidation.ok ? (
-														<>
-															<small className="setting-status success">
-																{t("settings.wsl.validationOk", {
-																	user: wslValidation.whoami,
-																	distro: wslDraft.distro,
-																})}
-															</small>
-															{wslValidation.piVersion ? (
-																<small className="setting-status success">
-																	{t("settings.wsl.piDetected", { version: wslValidation.piVersion })}
-																</small>
-															) : (
-																<small className="setting-status warning">
-																	{wslValidation.error || t("settings.wsl.piNotInstalled")}
-																</small>
-															)}
-														</>
-													) : (
-														<small className="setting-status error">{wslValidation.error}</small>
-													)}
-												</div>
-											)}
-										</>
-									)}
-									{/* 应用/取消按钮：草稿变更时始终显示（包括从 WSL 切回 Windows 的场景，此时 wslDraft.enabled 已为 false，
-										但按钮仍需可见以让用户提交变更）。仅用 wslCanApply 控制可见性即可。 */}
-									{wslCanApply && (
-										<div className="setting-wsl-actions">
-											<Button
-												buttonSize="sm"
-												disabled={!wslCanApply}
-												onClick={handleApplyWsl}
-											>
-												{t("common.apply")}
-											</Button>
-											<Button
-												buttonSize="sm"
-												variant="secondary"
-												disabled={!wslCanApply}
-												onClick={handleCancelWsl}
-											>
-												{t("common.cancel")}
-											</Button>
-										</div>
-									)}
-								</div>
-								)}
-								<SettingSwitch
-									title={t("settings.disableUpdateCheck")}
-									description={t("settings.disableUpdateCheckDesc")}
-									checked={props.settings.disableUpdateCheck}
-									onChange={(checked) =>
-										props.onChange({ disableUpdateCheck: checked })
-									}
-								/>
-								<div className="setting-row">
-										<div>
-											<strong>{t("settings.currentVersion")}</strong>
-											<small>v{props.appInfo.version}</small>
-										</div>
-										<Button
-											onClick={props.onCheckUpdate}
-											loading={props.updateChecking}
-											disabled={props.settings.disableUpdateCheck}
-										>
-											{props.settings.disableUpdateCheck
-												? t("settings.updateCheckDisabled")
-												: t("settings.checkUpdate")}
-										</Button>
-									</div>
+
+									<hr className="setting-divider" />
+
+									{/* 版本与更新 */}
 									<div className="setting-row">
 										<div>
-											<strong>{t("settings.piUpdate")}</strong>
-											<small>{t("settings.piUpdateDesc")}</small>
-											<small className="setting-status info">
-												{t("settings.piUpdateVersions", {
-													current:
-														props.piUpdateCheck?.currentVersion ??
-														props.piStatus?.version ??
-														"-",
-													latest: props.piUpdateCheck?.latestVersion ?? "-",
-												})}
-											</small>
+											<strong>PiDeck</strong>
+											<span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-caption)" }}>
+												v{props.appInfo.version}
+											</span>
 										</div>
 										<div className="setting-inline-actions">
 											<Button
-												onClick={props.onCheckPiUpdate}
-												loading={props.piUpdateChecking}
-												disabled={props.settings.disableUpdateCheck}
+												onClick={draftSettings.disableUpdateCheck ? undefined : props.onCheckUpdate}
+												loading={props.updateChecking}
+												disabled={draftSettings.disableUpdateCheck}
 											>
-												{props.settings.disableUpdateCheck
+												{draftSettings.disableUpdateCheck
 													? t("settings.updateCheckDisabled")
-													: t("settings.checkPiUpdate")}
-											</Button>
-											<Button
-												onClick={props.onUpdatePi}
-												loading={props.piUpdating}
-												disabled={
-													props.settings.disableUpdateCheck ||
-													!props.piUpdateCheck?.hasUpdate
-												}
-											>
-												{t("settings.updatePi")}
+													: t("settings.checkUpdate")}
 											</Button>
 										</div>
 									</div>
-									{props.piUpdateResult && (
-										<pre className="setting-update-output">
-											{props.piUpdateResult.command}
-											{"\n"}
-											{props.piUpdateResult.output}
-										</pre>
-									)}
+									<hr className="setting-divider" />
+
+									{/* 禁用版本检测 */}
+									<SettingSwitch
+										title={t("settings.disableUpdateCheck")}
+										description={t("settings.disableUpdateCheckDesc")}
+										checked={draftSettings.disableUpdateCheck}
+										onChange={(checked) =>
+											updateDraft({ disableUpdateCheck: checked })
+										}
+									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.debug")}>
 									<div className="setting-row">
@@ -1174,28 +1178,99 @@ export function SettingsModal(props: {
 										</Button>
 									</div>
 								</SettingsSection>
+								<SettingsSection title={t("settings.webLocalService")} description={t("settings.webLocalServiceDesc")}>
+									<SettingSwitch
+										title={t("settings.enableWebService")}
+										description={
+											props.webServiceChanging
+												? t("settings.webOpening")
+												: t("settings.webOffDesc")
+										}
+										checked={draftSettings.webServiceEnabled}
+										disabled={props.webServiceChanging}
+										onChange={(checked) =>
+											updateDraft({ webServiceEnabled: checked })
+										}
+									/>
+									<div className="web-endpoint-panel">
+										<div className="web-endpoint-grid">
+											<div className="web-endpoint-metric">
+												<span>{t("common.host")}</span>
+												<code>{draftSettings.webServiceHost}</code>
+											</div>
+											<label className="web-endpoint-metric editable">
+												<span>{t("common.port")}</span>
+												<input
+													type="number"
+													min={1}
+													max={65535}
+													value={webPortDraft}
+													disabled={props.webServiceChanging}
+													onChange={(event) => setWebPortDraft(event.target.value)}
+													onBlur={applyWebPortDraft}
+													onKeyDown={(event) => {
+														if (event.key === "Enter") {
+															event.preventDefault();
+															applyWebPortDraft();
+															event.currentTarget.blur();
+														}
+													}}
+												/>
+											</label>
+										</div>
+										<div className="web-endpoint-summary">
+											<span className={draftSettings.webServiceEnabled ? "online" : ""} />
+											<div>
+												<strong>
+													http://127.0.0.1:{webPortDraft || draftSettings.webServicePort}
+												</strong>
+												<small>{t("settings.localWebHint")}</small>
+											</div>
+											<Button
+												buttonSize="sm"
+												disabled={!draftSettings.webServiceEnabled}
+												onClick={() =>
+													props.onOpenWebService(webPortDraft || String(draftSettings.webServicePort))
+												}
+											>
+												{t("common.open")}
+											</Button>
+										</div>
+									</div>
+								</SettingsSection>
+								<SettingsSection title={t("settings.privacy")}>
+									<SettingSwitch
+										title={t("settings.telemetry")}
+										description={t("settings.telemetryDesc")}
+										checked={draftSettings.telemetryEnabled}
+										onChange={(checked) =>
+											updateDraft({ telemetryEnabled: checked })
+										}
+									/>
+								</SettingsSection>
 							</>
 						)}
+						{/* ── 桌面宠物 tab ── */}
 						{activeTab === "pet" && (
 							<>
 								<SettingsSection title={t("settings.pet.title")} description={t("settings.pet.sectionDesc")}>
 									<SettingSwitch
 										title={t("settings.pet.enable")}
 										description={t("settings.pet.enableDesc")}
-										checked={props.settings.petEnabled}
-										onChange={(value) => props.onChange({ petEnabled: value })}
+										checked={draftSettings.petEnabled}
+										onChange={(value) => updateDraft({ petEnabled: value })}
 									/>
 									<SettingSwitch
 										title={t("settings.pet.alwaysOnTop")}
 										description={t("settings.pet.alwaysOnTopDesc")}
-										checked={props.settings.petAlwaysOnTop}
-										onChange={(value) => props.onChange({ petAlwaysOnTop: value })}
+										checked={draftSettings.petAlwaysOnTop}
+										onChange={(value) => updateDraft({ petAlwaysOnTop: value })}
 									/>
 									<SettingSwitch
 										title={t("settings.pet.patrol")}
 										description={t("settings.pet.patrolDesc")}
-										checked={props.settings.petPatrolEnabled ?? true}
-										onChange={(value) => props.onChange({ petPatrolEnabled: value })}
+										checked={draftSettings.petPatrolEnabled ?? true}
+										onChange={(value) => updateDraft({ petPatrolEnabled: value })}
 									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.pet.patrolPause")} description={t("settings.pet.patrolPauseDesc")}>
@@ -1205,8 +1280,8 @@ export function SettingsModal(props: {
 											min="1"
 											max="30"
 											step="1"
-											value={props.settings.petPatrolPauseMin ?? 5}
-											onChange={(event) => props.onChange({ petPatrolPauseMin: parseInt(event.target.value) })}
+											value={draftSettings.petPatrolPauseMin ?? 5}
+											onChange={(event) => updateDraft({ petPatrolPauseMin: parseInt(event.target.value) })}
 											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}
 										/>
 										<span style={{
@@ -1216,7 +1291,7 @@ export function SettingsModal(props: {
 											minWidth: 60,
 											textAlign: "right",
 										}}>
-											{props.settings.petPatrolPauseMin ?? 5} min
+											{draftSettings.petPatrolPauseMin ?? 5} min
 										</span>
 									</div>
 								</SettingsSection>
@@ -1224,16 +1299,16 @@ export function SettingsModal(props: {
 									<SelectField
 										className="setting-field"
 										label={t("settings.pet.choose")}
-										value={props.settings.petId}
+										value={draftSettings.petId}
 										options={petOptions}
 										onChange={(value) => {
 											setPetPreviewMode("__auto");
-											props.onChange({ petId: value });
+											updateDraft({ petId: value });
 										}}
 									/>
 									<small className="setting-status">{t("settings.pet.petdexHint")}</small>
 									{(() => {
-										const selected = petList.find((pet) => pet.id === props.settings.petId);
+										const selected = petList.find((pet) => pet.id === draftSettings.petId);
 										return (
 											<>
 												{selected && (
@@ -1258,8 +1333,8 @@ export function SettingsModal(props: {
 											min="0.3"
 											max="2.0"
 											step="0.05"
-											value={props.settings.petScale ?? 1}
-											onChange={(event) => props.onChange({ petScale: parseFloat(event.target.value) })}
+											value={draftSettings.petScale ?? 1}
+											onChange={(event) => updateDraft({ petScale: parseFloat(event.target.value) })}
 											style={{ flex: 1, accentColor: "var(--color-accent)", direction: "rtl" }}
 										/>
 										<span style={{
@@ -1269,7 +1344,7 @@ export function SettingsModal(props: {
 											minWidth: 36,
 											textAlign: "right",
 										}}>
-											{((props.settings.petScale ?? 1) * 100).toFixed(0)}%
+											{((draftSettings.petScale ?? 1) * 100).toFixed(0)}%
 										</span>
 									</div>
 								</SettingsSection>
@@ -1313,14 +1388,35 @@ export function SettingsModal(props: {
 								</SettingsSection>
 							</>
 						)}
+						{/* ── 存储与日志 tab ── */}
 						{activeTab === "storage" && (
 							<StorageTab
-								settings={props.settings}
-								onChange={props.onChange}
+								settings={draftSettings}
+								onChange={updateDraft}
 							/>
 						)}
 					</div>
 				</div>
+				{/* 未保存变更确认对话框 */}
+				{closeConfirmOpen && (
+					<div className="config-modal-overlay" onClick={() => setCloseConfirmOpen(false)}>
+						<div className="config-modal-dialog" onClick={(e) => e.stopPropagation()}>
+							<strong>{t("settings.unsavedTitle")}</strong>
+							<p>{t("settings.unsavedMessage")}</p>
+							<div className="config-modal-actions">
+								<button className="config-btn" onClick={() => setCloseConfirmOpen(false)}>
+									{t("common.cancel")}
+								</button>
+								<button className="config-btn danger" onClick={handleDiscardAndClose}>
+									{t("settings.discardChanges")}
+								</button>
+								<button className="config-btn primary" onClick={handleSaveAndClose}>
+									{t("settings.saveAndClose")}
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -1407,7 +1503,6 @@ function StorageTab(props: {
 		onConfirm: () => void;
 	} | null>(null);
 
-	// 每 5 秒刷新一次日志大小; 切换到此 tab 时立即刷新（activeTab 由父组件管理,当前存储 tab 自身 mount 时刷新）
 	useEffect(() => {
 		let mounted = true;
 		const refresh = () => {

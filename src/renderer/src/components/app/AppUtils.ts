@@ -100,6 +100,64 @@ export type AgentRunItem = {
 
 export type RenderMessage = MessageItem | ToolGroupItem | ThinkingGroupItem | AgentRunItem;
 
+export function sameChatMessageForRender(previous: ChatMessage, next: ChatMessage): boolean {
+	if (
+		previous.id !== next.id ||
+		previous.role !== next.role ||
+		previous.text !== next.text ||
+		previous.thinking !== next.thinking ||
+		previous.timestamp !== next.timestamp
+	) {
+		return false;
+	}
+	const previousImages = previous.images ?? [];
+	const nextImages = next.images ?? [];
+	return (
+		previousImages.length === nextImages.length &&
+		previousImages.every(
+			(image, index) =>
+				image.mimeType === nextImages[index]?.mimeType &&
+				image.data === nextImages[index]?.data,
+		)
+	);
+}
+
+export function sameAgentRunForRender(previous: AgentRunItem, next: AgentRunItem): boolean {
+	if (
+		previous.id !== next.id ||
+		previous.startedAt !== next.startedAt ||
+		previous.endedAt !== next.endedAt ||
+		previous.items.length !== next.items.length
+	) {
+		return false;
+	}
+	return previous.items.every((item, index) => {
+		const other = next.items[index];
+		if (!other || item.kind !== other.kind) return false;
+		if (item.kind === "message" && other.kind === "message") {
+			return sameChatMessageForRender(item.message, other.message);
+		}
+		if (item.kind === "thinking-group" && other.kind === "thinking-group") {
+			return (
+				item.id === other.id &&
+				item.text === other.text &&
+				item.startedAt === other.startedAt &&
+				item.endedAt === other.endedAt
+			);
+		}
+		if (item.kind === "tool-group" && other.kind === "tool-group") {
+			return (
+				item.id === other.id &&
+				item.messages.length === other.messages.length &&
+				item.messages.every((message, messageIndex) =>
+					sameChatMessageForRender(message, other.messages[messageIndex]),
+				)
+			);
+		}
+		return false;
+	});
+}
+
 export function getMultiSelectImageCaptureIds(
 	items: RenderMessage[],
 	selectedIds: Set<string>,
@@ -132,6 +190,8 @@ export function groupToolMessages(messages: ChatMessage[]): RenderMessage[] {
 	let currentRun: Array<MessageItem | ToolGroupItem | ThinkingGroupItem> = [];
 	let runStartedAt = 0;
 	let runEndedAt = 0;
+	/** 当前回合的触发用户消息时间戳，用于替代 assistant/tool 时间戳作为回合起点 */
+	let lastUserTimestamp = 0;
 
 	function isThinkingOnly(message: ChatMessage) {
 		return (
@@ -213,12 +273,14 @@ export function groupToolMessages(messages: ChatMessage[]): RenderMessage[] {
 				.map((item) => (item.kind === "message" ? item.message.id : item.id))
 				.join("|"),
 			items: merged,
-			startedAt: runStartedAt,
+			// 回合起点优先用触发它的用户消息时间戳，无用户消息时回退到 run 内首条消息时间戳
+			startedAt: lastUserTimestamp || runStartedAt,
 			endedAt: runEndedAt || runStartedAt,
 		});
 		currentRun = [];
 		runStartedAt = 0;
 		runEndedAt = 0;
+		lastUserTimestamp = 0;
 	}
 
 	function appendRunMessage(message: ChatMessage) {
@@ -284,6 +346,8 @@ export function groupToolMessages(messages: ChatMessage[]): RenderMessage[] {
 				flushRun();
 			}
 			result.push({ kind: "message", message });
+			// 记录触发回合的用户消息时间戳，作为回合的真实起点
+			lastUserTimestamp = message.timestamp;
 		}
 	}
 	// 最后 flush 当前 run（含合并后的暂存 run）
