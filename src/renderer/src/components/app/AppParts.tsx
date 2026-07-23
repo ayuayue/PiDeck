@@ -4035,8 +4035,7 @@ export function DrawerContent(props: {
 	return (
 		<>
 			<div className="drawer-header">
-				{props.panel === "files" && <LogoMark />}
-				<strong>{title}</strong>
+					<strong>{title}</strong>
 				<div className="drawer-header-actions">
 					<button
 						className={props.pinned ? "active" : ""}
@@ -4152,7 +4151,6 @@ function FilesPanel(props: {
 	return (
 		<div className="files-panel" ref={panelRef}>
 			<div className="panel-action-row">
-				<span>{t("drawer.fileItems", { count: props.files.length })}</span>
 				<div className="panel-action-buttons">
 					{props.onOpenFolder && (
 						<button
