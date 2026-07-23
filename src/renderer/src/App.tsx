@@ -1261,7 +1261,7 @@ export function App() {
   const [environmentDialog, setEnvironmentDialog] = useState(false);
   const DEFAULT_LIST_WIDTH = 221;
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH);
-  const [drawerWidth, setDrawerWidth] = useState(250);
+  const [drawerWidth, setDrawerWidth] = useState(320);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [composerOffsetHeight, setComposerOffsetHeight] = useState(0);
   /** ResizeObserver 驱动布局预算重新计算；ref 尺寸本身变化不会触发 React render。 */
@@ -5745,7 +5745,7 @@ export function App() {
           "--list-hover-width": `${Math.max(190, listWidth)}px`,
           // Grid 列宽过渡期间保留内容；退出结束后再由 renderedDrawer 卸载。
           "--drawer-width": `${drawer && !drawerCollapsed ? drawerWidth : 0}px`,
-          "--drawer-col-w": `${drawer && !drawerCollapsed ? 250 : 0}px`,
+          "--drawer-col-w": `${drawer && !drawerCollapsed ? drawerWidth : 0}px`,
           "--drawer-splitter-w": `${drawer && !drawerCollapsed ? 6 : 0}px`,
         } as React.CSSProperties
       }
