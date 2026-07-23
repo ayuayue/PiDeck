@@ -46,6 +46,7 @@ import {
 	sameAgentRunForRender,
 	sameChatMessageForRender,
 } from "./AppUtils";
+import { getComposerEnterIntent } from "../../composerBehavior";
 
 // Mermaid 库体积数 MB，仅在真正出现 mermaid 代码块时才动态加载，
 // 避免随渲染进程常驻、放大内存占用并在流式期间抢占主线程。
@@ -2031,7 +2032,8 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 							value={inputValue}
 							onChange={(e) => setInputValue(e.target.value)}
 							onKeyDown={(e) => {
-								if (e.key === "Enter" && !e.shiftKey) {
+								// 与主输入框一致：IME 确认候选词的回车不触发提交
+							if (getComposerEnterIntent(e, "enter-send") === "send") {
 									e.preventDefault();
 									handleInputSubmit();
 								}

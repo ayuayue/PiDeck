@@ -7266,7 +7266,8 @@ export function App() {
                         placeholder={t("ask.customPlaceholder")}
                         autoFocus
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") {
+                          // 与主输入框一致：IME 确认候选词的回车不触发提交
+                          if (getComposerEnterIntent(e, "enter-send") === "send") {
                             e.preventDefault();
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
@@ -7317,7 +7318,8 @@ export function App() {
                       placeholder={activeUiAsk.placeholder || ""}
                       autoFocus
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
+                        // 与主输入框一致：IME 确认候选词的回车不触发提交
+                        if (getComposerEnterIntent(e, "enter-send") === "send" && activeUiAsk.requestId && activeAgentId) {
                           const value = (e.target as HTMLInputElement).value;
                           setActiveUiRequest((current) => {
                             if (!current) return null;
