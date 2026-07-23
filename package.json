@@ -67,7 +67,8 @@
     "docs:preview": "vitepress preview docs-site",
     "postinstall": "node scripts/fix-pty-permissions.js",
     "typecheck": "tsc --noEmit",
-    "make-icon": "node scripts/make-icon.js"
+    "make-icon": "node scripts/make-icon.js",
+    "compile-exe": "node scripts/compile-exe.js"
   },
   "dependencies": {
     "@astron-team/skillhub": "^0.1.8",
