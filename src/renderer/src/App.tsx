@@ -2719,7 +2719,7 @@ export function App() {
     resizeObserver.observe(messageList);
 
     return () => resizeObserver.disconnect();
-  }, [activeAgentId, autoScroll, activeAgent?.status]);
+  }, [activeAgentId, autoScroll, activeAgent?.status, activeMessages.length]);
 
   // 加载更多历史消息后，按顶部锁定的方式恢复滚动位置。
   // 历史消息会插入到 .message-list 顶部，若不补偿新增高度，浏览器保持原 scrollTop 会导致视图跳动，
