@@ -1,6 +1,6 @@
 // @ts-nocheck - SkillHub store panel, new feature
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Download, Star, ArrowLeft, Sparkles, Check, AlertCircle } from "lucide-react";
+import { Search, Download, ArrowLeft, Sparkles, Check, AlertCircle } from "lucide-react";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
 import type { SkillHubItem, SkillHubDetail, SkillHubSearchResult, SkillHubInstallResult } from "../../../shared/types";
@@ -190,22 +190,19 @@ export function SkillHubStorePanel() {
 						<article
 							key={item.slug}
 							className="skillhub-card"
-							onClick={() => window.open(`https://www.skills.sh/search?q=${encodeURIComponent(item.name)}`, "_blank")}
+							onClick={() => {
+								(window as any).piDesktop.app.openExternal(
+									`https://www.skills.sh/search?q=${encodeURIComponent(item.name)}`
+								);
+							}}
 						>
 							<div className="skillhub-card-main">
 								<strong className="skillhub-card-title">{item.name}</strong>
-								<p className="skillhub-card-desc">
-									{(item.description_zh || item.description || "").substring(0, 120)}
-									{(item.description_zh || item.description || "").length > 120 ? "…" : ""}
-								</p>
 								<div className="skillhub-card-meta">
-									{item.category && <span className="skillhub-card-category">{item.category}</span>}
 									<span className="skillhub-card-stats">
-										<Star size={11} fill="currentColor" /> {fmtNum(item.stars)}
+										<Download size={12} /> {fmtNum(item.downloads)} 安装
 									</span>
-									<span className="skillhub-card-stats">
-										<Download size={11} /> {fmtNum(item.downloads)}
-									</span>
+									<span className="skillhub-card-source">{item.ownerName}</span>
 								</div>
 							</div>
 							<button

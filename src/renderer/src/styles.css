@@ -11327,6 +11327,16 @@ body.is-composer-resizing .composer-resize-handle::after {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+}
+.skillhub-card-source {
+  font-size: var(--font-size-micro);
+  font-family: var(--font-family-business);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .skillhub-card-install-btn {
   display: flex;
