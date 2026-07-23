@@ -9198,6 +9198,31 @@ body.is-composer-resizing .composer-resize-handle::after {
 .browser-tab-add:hover {
   color: var(--color-accent);
 }
+.browser-tabbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+.browser-tabbar-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.browser-tabbar-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
 
 .browser-toolbar {
   display: flex;
