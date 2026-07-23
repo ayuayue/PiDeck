@@ -2910,7 +2910,7 @@ function registerIpc() {
 			if (json.code !== 0) throw new Error(json.data ? "API 返回异常" : "搜索失败");
 			const skills = json.data?.skills ?? [];
 			const items = skills.map((item: Record<string, unknown>) => ({
-				slug: `${(item.namespace as Record<string, string>)?.publicSlug ?? item.ownerName ?? "unknown"}/${item.slug as string}`,
+				slug: `${(item.namespace as Record<string, string>)?.handle ?? item.ownerName ?? "unknown"}/${item.slug as string}`,
 				name: (item.name as string) || (item.slug as string),
 				description: (item.description as string) || "",
 				description_zh: (item.description_zh as string) || "",

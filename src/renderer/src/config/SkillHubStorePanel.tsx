@@ -37,6 +37,7 @@ export function SkillHubStorePanel() {
 	const [query, setQuery] = useState("");
 	const [sortBy, setSortBy] = useState("score");
 	const [searching, setSearching] = useState(false);
+	const [installingSlugs, setInstallingSlugs] = useState<Set<string>>(new Set());
 	const [result, setResult] = useState<SkillHubSearchResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [previewSlug, setPreviewSlug] = useState<string | null>(null);
@@ -90,16 +91,22 @@ export function SkillHubStorePanel() {
 
 	/** 列表直接安装（不进入详情） */
 	const handleInstallFromList = async (slug: string, name: string) => {
-		setInstalling(true);
+		setInstallingSlugs((prev) => new Set(prev).add(slug));
 		try {
 			const result = await api.skillHub.install(slug, "");
 			if (result.success) {
 				showNotice(t("app.skillsInstalled", { name }), 3000);
+			} else {
+				showNotice(result.error || t("common.error"), 5000, "error");
 			}
 		} catch (err) {
 			showNotice(err instanceof Error ? err.message : String(err), 5000, "error");
 		} finally {
-			setInstalling(false);
+			setInstallingSlugs((prev) => {
+				const next = new Set(prev);
+				next.delete(slug);
+				return next;
+			});
 		}
 	};
 
@@ -316,13 +323,13 @@ export function SkillHubStorePanel() {
 							<button
 								className="skillhub-card-install-btn"
 								title={t("common.install")}
-								disabled={installing}
+								disabled={installingSlugs.has(item.slug)}
 								onClick={async (e) => {
 									e.stopPropagation();
 									await handleInstallFromList(item.slug, item.name);
 								}}
 							>
-								{installing ? t("common.installing") : <Download size={14} />}
+								{installingSlugs.has(item.slug) ? <span className="skillhub-installing-dot" /> : <Download size={14} />}
 							</button>
 						</article>
 					))}

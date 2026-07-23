@@ -11346,6 +11346,18 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: var(--color-accent-soft);
   border-color: var(--color-accent);
 }
+.skillhub-installing-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: skillhub-spin 0.6s linear infinite;
+}
+@keyframes skillhub-spin {
+  to { transform: rotate(360deg); }
+}
 /* 详情视图 */
 .skillhub-detail-toolbar {
   display: flex;
