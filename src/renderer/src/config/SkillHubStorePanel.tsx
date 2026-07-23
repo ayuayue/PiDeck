@@ -1,18 +1,60 @@
 // @ts-nocheck - SkillHub store panel, new feature
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Download, ArrowLeft, Check, AlertCircle, BadgeCheck } from "lucide-react";
+import { Search, Download, ArrowLeft, Check, AlertCircle, X, Trash2, BadgeCheck } from "lucide-react";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
 import { openInSystemBrowser } from "../utils/openExternal";
 import type { SkillHubItem, SkillHubDetail, SkillHubSearchResult, SkillHubInstallResult, PiSkillListResult } from "../../../shared/types";
 
-/** 获取本地已安装 skill 名称 → slugs 映射（同名取第一个匹配的 skills.sh slug） */
-async function getInstalledSlugsSet(searchItems: SkillHubItem[]): Promise<Set<string>> {
+const STORAGE_KEY = "skillhub-installed-v1";
+
+/** localStorage 持久化的安装记录（slug + name，用于验证删除后自动清理） */
+interface PersistedInstall {
+	slug: string;
+	name: string;
+}
+
+function loadPersisted(): PersistedInstall[] {
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY);
+		return raw ? JSON.parse(raw) : [];
+	} catch {
+		return [];
+	}
+}
+
+function savePersisted(entries: PersistedInstall[]) {
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+	} catch { /* noop */ }
+}
+
+/** 添加入口到持久化列表（去重） */
+function persistInstall(prev: PersistedInstall[], slug: string, name: string): PersistedInstall[] {
+	const existing = prev.find((e) => e.slug === slug);
+	if (existing) {
+		existing.name = name;
+		return prev;
+	}
+	return [...prev, { slug, name }];
+}
+
+/** 获取本地已安装 skill 名称集合 */
+async function getInstalledNames(): Promise<Set<string>> {
 	try {
 		const piDesktop = (window as any).piDesktop;
 		if (!piDesktop?.skills?.list) return new Set();
 		const list: PiSkillListResult = await piDesktop.skills.list();
-		const installed = new Set(list.skills.map((s) => s.name.toLowerCase()));
+		return new Set(list.skills.map((s) => s.name.toLowerCase()));
+	} catch {
+		return new Set();
+	}
+}
+
+/** 获取本地已安装 skill 名称 → slugs 映射（同名取唯一匹配的 skills.sh slug） */
+async function getInstalledSlugsSet(searchItems: SkillHubItem[]): Promise<Set<string>> {
+	try {
+		const installed = await getInstalledNames();
 
 		// 统计搜索结果中各 name 出现的次数
 		const nameCount = new Map<string, number>();
@@ -59,6 +101,8 @@ export function SkillHubStorePanel() {
 	const [query, setQuery] = useState("");
 	const [searching, setSearching] = useState(false);
 	const [installedSlugs, setInstalledSlugs] = useState<Set<string>>(new Set());
+	/** 持久化安装记录（跨组件卸载/重启），用于同名歧义时强制标记已安装 */
+	const persistedRef = useRef<PersistedInstall[]>(loadPersisted);
 	const [installingSlugs, setInstallingSlugs] = useState<Set<string>>(new Set());
 	const [result, setResult] = useState<SkillHubSearchResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -86,8 +130,22 @@ export function SkillHubStorePanel() {
 			const data = await api.skillHub.search(q, 50);
 			// 搜索后判断已安装状态（需要搜索结果列表来消除同名歧义）
 			const installed = await getInstalledSlugsSet(data.items);
+			// 合并持久化记录 → 确保已安装的始终显示为已安装（即使文件系统检测因同名不唯一而跳过）
+			// 同时验证持久化记录是否仍然有效：检查对应 name 是否还在本地已安装列表中
+			const allInstalledNames = await getInstalledNames();
+			const merged = new Set(installed);
+			const validPersisted: PersistedInstall[] = [];
+			for (const entry of persistedRef.current) {
+				if (allInstalledNames.has(entry.name.toLowerCase())) {
+					merged.add(entry.slug);
+					validPersisted.push(entry);
+				}
+			}
+			// 更新持久化存储（自动清理已删除的条目）
+			persistedRef.current = validPersisted;
+			savePersisted(validPersisted);
 			setResult(data);
-			setInstalledSlugs(installed);
+			setInstalledSlugs(merged);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {
@@ -121,8 +179,9 @@ export function SkillHubStorePanel() {
 			const result = await api.skillHub.install(slug, "");
 			if (result.success) {
 				showNotice(t("app.skillsInstalled", { name }), 3000);
-				// 安装成功 → 标记该 slug（确保同名歧义场景下仍显示已安装）
-				setInstalledSlugs((prev) => new Set(prev).add(slug));
+				// 安装成功 → 持久化安装记录（确保跨组件卸载后仍显示已安装，删除后自动清理）
+				persistedRef.current = persistInstall(persistedRef.current, slug, name);
+				savePersisted(persistedRef.current);
 				// 刷新搜索结果（更新已安装标注）
 				void handleSearch(query);
 			} else {
@@ -262,7 +321,7 @@ export function SkillHubStorePanel() {
 								>
 									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 								</button>
-								{!installedNames.has(item.name.toLowerCase()) && (
+								{!installedSlugs.has(item.slug) && (
 									<button
 										className="skillhub-card-action-btn primary"
 										title={t("common.install")}

@@ -66,7 +66,16 @@ export class SkillManager {
 		const skills = (
 			await Promise.all(this.locations.map((location) => this.scanLocation(location)))
 		).flat();
-		return { locations: this.locations, skills };
+		// 按 name 去重，优先保留 pi-global 目录下的条目
+		// （避免 ~/.pi/agent/skills/ 和 ~/.agents/skills/ 不同步导致同名重复）
+		const seen = new Map<string, PiSkillSummary>();
+		for (const skill of skills) {
+			const key = skill.name.toLowerCase();
+			if (!seen.has(key) || (seen.get(key)!.sourceId !== "pi-global" && skill.sourceId === "pi-global")) {
+				seen.set(key, skill);
+			}
+		}
+		return { locations: this.locations, skills: Array.from(seen.values()) };
 	}
 
 	async create(input: CreatePiSkillInput): Promise<PiSkillSummary> {
