@@ -407,22 +407,24 @@ select:focus-visible {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 10px;
+  gap: 12px;
   color: var(--color-text-primary);
   background: var(--color-bg-app);
 }
 .boot-logo {
-  width: 58px;
-  height: 58px;
+  width: 118px;
+  height: 118px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
   background: var(--logo-boot-gradient);
   color: var(--color-text-inverse);
-  font-size: var(--font-size-logo);
-  font-weight: 900;
-  box-shadow: 0 12px 28px
-    color-mix(in srgb, var(--color-logo-green) 20%, transparent);
+  box-shadow: 0 18px 40px
+    color-mix(in srgb, var(--color-logo-green) 28%, transparent);
+}
+.boot-logo svg {
+  width: 66px;
+  height: 66px;
 }
 .boot-screen span {
   color: var(--color-text-tertiary);
@@ -7291,26 +7293,19 @@ body.is-composer-resizing .composer-resize-handle::after {
   gap: 8px;
 }
 .composer-bottom-bar .send-behavior-toggle {
-  height: 36px;
+  height: 28px;
   padding: 0;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-pill);
+  border: 0;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   display: inline-flex;
   align-items: stretch;
   background: var(--color-accent);
-  color: #fff;
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
+  color: var(--color-text-inverse);
+  transition: background-color 0.12s ease;
 }
 .composer-bottom-bar .send-behavior-toggle:hover {
-  border-color: var(--color-accent-strong);
   background: var(--color-accent-strong);
-}
-.composer-bottom-bar .send-behavior-toggle:focus-within {
-  box-shadow: var(--focus-ring);
 }
 .composer-bottom-bar .send-behavior-primary,
 .composer-bottom-bar .send-behavior-chevron {
@@ -7324,28 +7319,23 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease;
 }
 .composer-bottom-bar .send-behavior-primary {
-  width: 34px;
+  width: 28px;
 }
 .composer-bottom-bar .send-behavior-chevron {
-  width: 23px;
-  border-left: 1px solid color-mix(in srgb, #fff 32%, transparent);
-  color: color-mix(in srgb, #fff 88%, transparent);
+  width: 20px;
+  border-left: 1px solid color-mix(in srgb, var(--color-text-inverse) 25%, transparent);
+  color: color-mix(in srgb, var(--color-text-inverse) 70%, transparent);
 }
 .composer-bottom-bar .send-behavior-primary:hover,
 .composer-bottom-bar .send-behavior-chevron:hover {
   background: color-mix(in srgb, #fff 14%, transparent);
-  color: #fff;
-}
-.composer-bottom-bar .send-behavior-primary:active,
-.composer-bottom-bar .send-behavior-chevron:active {
-  background: color-mix(in srgb, #000 12%, transparent);
 }
 .composer-bottom-bar .send-behavior-primary:focus-visible,
 .composer-bottom-bar .send-behavior-chevron:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 .send-behavior-menu {
@@ -11405,6 +11395,20 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 @keyframes skillhub-spin {
   to { transform: rotate(360deg); }
+}
+
+.skillhub-installed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-success-soft, rgba(34, 197, 94, 0.12));
+  color: var(--color-success, #22c55e);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
 }
 /* 详情视图 */
 .skillhub-detail-toolbar {
@@ -17926,6 +17930,35 @@ a.config-btn {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.prompt-store-installed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-success-soft, rgba(34, 197, 94, 0.12));
+  color: var(--color-success, #22c55e);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.prompt-store-preview-install-name {
+  margin-top: 8px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+}
+.prompt-store-preview-install-name code {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted, rgba(0,0,0,0.04));
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+}
 .prompt-store-card-desc {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
@@ -18071,6 +18104,29 @@ a.config-btn {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
+}
+
+/* ── 中文提示词分页控件 ── */
+.yao-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 0 8px;
+}
+.yao-pagination .config-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.yao-pagination-info {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+  min-width: 60px;
+  text-align: center;
 }
 /* ── 重试配置 ── */
 .config-retry-group {
