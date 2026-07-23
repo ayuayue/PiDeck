@@ -313,6 +313,16 @@ export function FileDiffViewer(props: {
 				</div>
 			)}
 			<div className="file-diff-header">
+				{props.onBack && displayMode === "drawer" && (
+					<button
+						className="file-diff-close"
+						onClick={props.onBack}
+						title={t("common.back")}
+						aria-label={t("common.back")}
+					>
+						<ArrowLeft size={18} />
+					</button>
+				)}
 				<span className="file-diff-title" title={props.filePath}>
 					{fileName}
 					{dirty && " · 未保存"}
@@ -362,16 +372,6 @@ export function FileDiffViewer(props: {
 							onClick={props.onToggleMode}
 						>
 							{displayMode === "modal" ? <Minimize2 size={15} /> : <Maximize size={15} />}
-						</button>
-					)}
-					{props.onBack && displayMode === "drawer" && (
-						<button
-							className="file-diff-close"
-							onClick={props.onBack}
-							title={t("common.back")}
-							aria-label={t("common.back")}
-						>
-							<ArrowLeft size={18} />
 						</button>
 					)}
 					<button className="file-diff-close" onClick={handleClose} aria-label={t("common.close")}>
