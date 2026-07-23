@@ -751,7 +751,7 @@ function GitCompactFilter(props: {
                 setOpen(false);
               }}
             >
-              {opt.label}
+              <span className="git-compact-filter-opt-label">{opt.label}</span>
               {opt.value === props.value && (
                 <Check size={12} className="git-compact-filter-check" />
               )}

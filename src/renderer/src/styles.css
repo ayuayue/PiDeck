@@ -895,7 +895,7 @@ select:focus-visible {
   --list-width: 190px;
   --list-expanded-width: 190px;
   --list-hover-width: 250px;
-  --drawer-width: 250px;
+  --drawer-width: 320px;
   /* 抽屉列宽由 JS 按实际展开状态注入，短过渡与面板滑动同步。 */
   --drawer-col-w: 0px;
   --drawer-splitter-w: 0px;
@@ -19209,7 +19209,6 @@ html[data-theme="dark"] .scratch-pad-md mark {
   min-height: 0;
   flex: 0 0 auto;
   flex-direction: column;
-  overflow: hidden;
   border-bottom: 1px solid var(--git-panel-border);
   background: var(--git-panel-bg);
 }
@@ -19638,10 +19637,10 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 }
 .git-compact-filter-menu {
   position: absolute;
-  left: 0;
+  right: 0;
   top: 100%;
   z-index: 30;
-  min-width: 160px;
+  min-width: 200px;
   max-height: 240px;
   overflow-y: auto;
   margin-top: 2px;
@@ -19665,6 +19664,13 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   font-size: var(--font-size-caption);
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
+}
+.git-compact-filter-opt-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .git-compact-filter-opt:hover {
   background: color-mix(in srgb, var(--color-text-primary) 8%, var(--color-bg-panel));

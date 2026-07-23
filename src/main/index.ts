@@ -2895,124 +2895,63 @@ function registerIpc() {
 		}
 	});
 
-	// ── SkillHub（api.skillhub.cn） ────────────────────────────────
-	/** 搜索 SkillHub（直接调 api.skillhub.cn，支持排序） */
-	ipcMain.handle(ipcChannels.skillHubSearch, async (_event, opts: { query: string; page?: number; pageSize?: number; sortBy?: string; order?: string }) => {
-		const { query, page = 1, pageSize = 24, sortBy = "score", order = "desc" } = opts;
-		const apiUrl = `https://api.skillhub.cn/api/skills?page=${page}&pageSize=${pageSize}&sortBy=${encodeURIComponent(sortBy)}&order=${encodeURIComponent(order)}&keyword=${encodeURIComponent(query)}`;
+	// ── Skills.sh（https://www.skills.sh） ─────────────────────────
+	/** 搜索 Skills.sh 注册中心 */
+	ipcMain.handle(ipcChannels.skillHubSearch, async (_event, opts: { query: string; limit?: number }) => {
+		const { query, limit = 50 } = opts;
 		try {
-			const response = await fetch(apiUrl, {
-				signal: AbortSignal.timeout(15_000),
-				headers: { Accept: "application/json", "User-Agent": "PiDeck/0.6.6" },
-			});
+			const response = await fetch(
+				`https://www.skills.sh/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+				{ signal: AbortSignal.timeout(15_000) },
+			);
 			if (!response.ok) throw new Error(`API 返回 ${response.status}`);
-			const json = (await response.json()) as { code: number; data: { skills: Record<string, unknown>[]; total: number } };
-			if (json.code !== 0) throw new Error(json.data ? "API 返回异常" : "搜索失败");
-			const skills = json.data?.skills ?? [];
-			const items = skills.map((item: Record<string, unknown>) => ({
-				slug: `${(item.namespace as Record<string, string>)?.handle ?? item.ownerName ?? "unknown"}/${item.slug as string}`,
-				name: (item.name as string) || (item.slug as string),
-				description: (item.description as string) || "",
-				description_zh: (item.description_zh as string) || "",
-				iconUrl: (item.iconUrl as string) || undefined,
-				stars: (item.stars as number) || 0,
-				downloads: (item.downloads as number) || 0,
-				installs: (item.installs as number) || 0,
-				category: (item.category as string) || "",
-				subCategories: (item.subCategories as Array<{ key: string; name: string }>) || undefined,
-				version: (item.version as string) || (item.latestVersion as string) || "",
-				ownerName: (item.ownerName as string) || "",
-				namespace: (item.namespace as Record<string, string>) || undefined,
-				labels: (item.labels as Record<string, string>) || undefined,
-				tags: (item.tags as Record<string, string>) || undefined,
-				source: (item.source as string) || "skillhub",
-				verified: Boolean(item.verified),
-				updatedAt: (item.updated_at as number) || undefined,
-				homepage: (item.homepage as string) || undefined,
+			const json = (await response.json()) as {
+				skills?: Array<{ id: string; skillId: string; name: string; installs: number; source: string }>;
+			};
+			const skills = json.skills ?? [];
+			// skills.sh 的 id 格式为 "source/skillName"，提取 package 名用于安装
+			const items = skills.map((item) => ({
+				slug: item.id,
+				name: item.name,
+				description: "",
+				description_zh: "",
+				iconUrl: undefined,
+				stars: 0,
+				downloads: item.installs,
+				installs: item.installs,
+				category: "",
+				version: "",
+				ownerName: item.source,
+				source: "skills.sh",
 			}));
-			return { query, total: json.data?.total ?? items.length, items };
+			// 按安装量降序排列
+			items.sort((a, b) => b.installs - a.installs);
+			return { query, total: items.length, items };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			throw new Error(`搜索 SkillHub 失败: ${message}`);
+			throw new Error(`搜索 Skills.sh 失败: ${message}`);
 		}
 	});
 
-	/** 获取 SkillHub skill 详情（通过 CLI JSON 输出） */
-	ipcMain.handle(ipcChannels.skillHubDetail, async (_event, slug: string) => {
-		// 从前端传入的 slug 是 "namespace/slug" 格式
-		const parts = slug.split("/");
-		const skillSlug = parts.length > 1 ? parts.slice(1).join("/") : slug;
-		const ns = parts.length > 1 ? parts[0] : "global";
-		try {
-			const { execSync } = await import("node:child_process");
-			const cliPath = require.resolve("@astron-team/skillhub/dist/index.js");
-			// 搜索该 skill 的详情（通过 search 精确匹配）
-			const cmd = `node "${cliPath}" search "${skillSlug}" --namespace "${ns}" --limit 1 --json`;
-			const output = execSync(cmd, {
-				encoding: "utf8",
-				timeout: 15_000,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const result = JSON.parse(output);
-			if (!result.ok || !result.items || result.items.length === 0) return null;
-			const item = result.items[0] as Record<string, unknown>;
-			return {
-				skill: {
-					slug: skillSlug as string,
-					displayName: (item.slug as string) || skillSlug,
-					summary: (item.summary as string) || "",
-					summary_zh: "",
-					iconUrl: undefined,
-					stats: { comments: 0, downloads: 0, installs: 0, stars: 0, versions: 0 },
-					category: "",
-					subCategories: undefined,
-					labels: undefined,
-					createdAt: 0,
-					updatedAt: 0,
-					source: "skillhub-cli",
-					verified: false,
-				},
-				latestVersion: {
-					version: (item.latestVersion as string) || "",
-					changelog: undefined,
-					createdAt: 0,
-				},
-				owner: { displayName: (item.namespace as string) || "", handle: (item.namespace as string) || "", image: null },
-				namespace: { canonicalName: "", displayName: "", handle: (item.namespace as string) || "", publicSlug: (item.namespace as string) || "" },
-				securityReports: undefined,
-			} as import("../shared/types").SkillHubDetail;
-		} catch (err) {
-			return null;
-		}
-	});
+	/** 获取 Skills.sh skill 详情（直接返回 null，用不到） */
+	ipcMain.handle(ipcChannels.skillHubDetail, async () => null);
 
-	/** 安装 SkillHub skill 到 pi agent skills 目录 */
-	ipcMain.handle(ipcChannels.skillHubInstall, async (_event, slug: string, _installDir: string) => {
-		const homedir = (await import("node:os")).homedir();
-		const targetDir = join(homedir, ".pi", "agent", "skills");
-		// slug 是 "namespace/slug" 格式
-		const parts = slug.split("/");
-		const skillSlug = parts.length > 1 ? parts.slice(1).join("/") : slug;
-		const ns = parts.length > 1 ? parts[0] : "global";
+	/** 安装 Skills.sh skill：npx skills add <package> */
+	ipcMain.handle(ipcChannels.skillHubInstall, async (_event, slug: string) => {
+		// slug 是 "source/skillName" 格式，提取 package 名 = source
+		// 例如 "anthropics/skills/pdf" → package = "anthropics/skills"
+		const lastSlash = slug.lastIndexOf("/");
+		const pkg = lastSlash > 0 ? slug.slice(0, lastSlash) : slug;
 		try {
 			const { execSync } = await import("node:child_process");
-			const cliPath = require.resolve("@astron-team/skillhub/dist/index.js");
-			const cmd = `node "${cliPath}" install "${skillSlug}" --namespace "${ns}" --dir "${targetDir}" --json`;
-			const output = execSync(cmd, {
-				encoding: "utf8",
-				timeout: 30_000,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const result = JSON.parse(output);
-			if (result.ok) {
-				void appLogger.info("skill-hub", "Installed skill", { slug, targetDir });
-				return { success: true, slug, installDir: targetDir };
-			}
-			throw new Error(result.message || "安装失败");
+			const cmd = `npx skills add "${pkg}"`;
+			execSync(cmd, { encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
+			void appLogger.info("skill-hub", "Installed skill package", { slug, pkg });
+			return { success: true, slug, installDir: "" };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			void appLogger.warn("skill-hub", "Install failed", { slug, error: message });
-			return { success: false, slug, installDir: targetDir, error: message };
+			return { success: false, slug, installDir: "", error: message };
 		}
 	});
 
