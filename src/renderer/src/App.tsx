@@ -5727,11 +5727,25 @@ export function App() {
     }
   }
 
-  const handlePreviewHtml = (filePath: string) => {
-    const url = new URL('file:///' + filePath.split('\\').join('/')).toString();
-    navigateTo(url);
-    setDrawer('browser');
-    setDrawerCollapsed(false);
+  /** HTML 文件预览：在内置浏览器中打开 */
+  const handlePreviewHtml = async (filePath: string) => {
+    // 如果编辑器是模态模式，先关闭弹框
+    if (editorMode === "modal") {
+      setActiveTabId(null);
+      setEditorTabs([]);
+    }
+    // 在内置浏览器中以 data URL 方式预览 HTML 文件（避免 webview 禁止 file:// 协议）
+    try {
+      const content = await api.files.readContent(filePath);
+      const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(content);
+      setDrawer("browser");
+      setDrawerCollapsed(false);
+      navigateTo(dataUrl);
+    } catch {
+      // fallback: 用系统浏览器打开
+      const url = new URL('file:///' + filePath.split('\\').join('/')).toString();
+      void api.app.openExternal(url);
+    }
   };
 
   return (
