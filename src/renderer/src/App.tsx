@@ -6810,8 +6810,10 @@ export function App() {
             </div>
           )}
 
-          {/* Agent 启动时显示骨架屏；消息尚未到达时继续展示，避免闪空 */}
-          {(activeAgent?.status === "starting" || (Boolean(activeAgent) && activeMessages.length === 0 && !isPendingAgentId(activeAgent!.id))) ? (
+          {/* Agent 启动时显示骨架屏；消息尚未到达时继续展示，避免闪空
+               Agent 状态已是 idle 时不再显示，即使消息还未到达，
+               避免 "正在启动 Agent" 在启动完成后仍卡住。 */}
+          {(activeAgent?.status === "starting" || (activeAgent?.status !== "idle" && Boolean(activeAgent) && activeMessages.length === 0 && !isPendingAgentId(activeAgent!.id))) ? (
             <div className="history-loading">
               <div className="history-loading-placeholder">
                 <div className="skeleton-bubble" />
