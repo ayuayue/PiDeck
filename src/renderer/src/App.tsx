@@ -140,7 +140,7 @@ import {
   type SessionModifiedFile,
 } from "./components/app/AppParts";
 import { GitPanel } from "./components/app/GitPanel";
-import { BrowserPanel, navigateTo } from "./components/app/BrowserPanel";
+import { BrowserPanel, moduleState, navigateTo } from "./components/app/BrowserPanel";
 import {
   groupToolMessages,
   getMultiSelectImageCaptureIds,
@@ -5734,11 +5734,14 @@ export function App() {
       setActiveTabId(null);
       setEditorTabs([]);
     }
-    // 打开内置浏览器面板，webview 挂载后通过 onDomReady 消费 navigateKey 加载 URL
+    // 通过 navigateTo 设置 URL 后重置 navigateKey，让 webview 直接加载 file:// URL
     const fileUrl = 'file:///' + filePath.split('\\').join('/');
+    navigateTo(fileUrl);
+    if (moduleState!.navigateKey) {
+      moduleState!.navigateKey = 0;
+    }
     setDrawer("browser");
     setDrawerCollapsed(false);
-    navigateTo(fileUrl);
   };
 
   return (

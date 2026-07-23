@@ -55,7 +55,7 @@ function genTabId(): string {
  * 这里用模块级状态保存轻量 tab 元数据，避免切换容器时丢 URL/标题/设备模式。
  * 真正的 WebContents 仍随组件挂载重建，避免同时运行两个 webview 实例。
  */
-const moduleState: { tabs: TabEntry[]; activeTabId: string | null; device: DeviceType; navigateKey: number } = {
+export const moduleState: { tabs: TabEntry[]; activeTabId: string | null; device: DeviceType; navigateKey: number } = {
 	tabs: [],
 	activeTabId: null,
 	device: "pc",
@@ -165,14 +165,6 @@ export function BrowserPanel(props: {
 		},
 		[],
 	);
-
-	// 组件挂载后设置 allowfileaccess，使 webview 能加载 file:// URL
-	useEffect(() => {
-		const el = webviewRef.current;
-		if (el && !el.hasAttribute("allowfileaccess")) {
-			el.setAttribute("allowfileaccess", "true");
-		}
-	}, []);
 
 	const loadUrl = useCallback(
 		(targetUrl: string, nextDevice = moduleState.device) => {
@@ -468,7 +460,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={true} />
+				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={true} />
 			</div>
 		</div>
 	);
