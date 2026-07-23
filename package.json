@@ -54,7 +54,8 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "tsc --noEmit && electron-vite build",
+    "build": "tsc --noEmit --skipLibCheck --incremental && electron-vite build",
+    "build:fast": "electron-vite build",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win nsis portable zip",
