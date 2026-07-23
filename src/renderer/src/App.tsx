@@ -7577,7 +7577,18 @@ export function App() {
                 )}
               </div>
               <div className="composer-bottom-right">
-                {(showBusySendControls && hasComposerContent) || (!isAgentBusy && !keepBusyDraftControls) ? (
+                {/* 停止按钮：agent 繁忙时始终显示，不依赖输入框是否有内容 */}
+                {isAgentBusy ? (
+                  <button
+                    type="button"
+                    className="composer-bar-btn stop"
+                    onClick={() => abortAgent()}
+                    title={t("app.stop")}
+                    aria-label={t("app.stop")}
+                  >
+                    <Square size={15} strokeWidth={0} fill="currentColor" />
+                  </button>
+                ) : (showBusySendControls && hasComposerContent) || !keepBusyDraftControls ? (
                   <>
                     {showBusySendControls && hasComposerContent && (
                       <div className="send-behavior-toggle">
@@ -7605,17 +7616,7 @@ export function App() {
                         </button>
                       </div>
                     )}
-                    {isAgentBusy ? (
-                      <button
-                        type="button"
-                        className="composer-bar-btn stop"
-                        onClick={() => abortAgent()}
-                        title={t("app.stop")}
-                        aria-label={t("app.stop")}
-                      >
-                        <Square size={15} strokeWidth={0} fill="currentColor" />
-                      </button>
-                    ) : !keepBusyDraftControls ? (
+                    {!keepBusyDraftControls ? (
                       <button
                         type="button"
                         disabled={isAgentStarting || (!activeAgentId) || (!prompt.trim() && attachedImages.length === 0)}

@@ -58,7 +58,7 @@
     "build:fast": "electron-vite build",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win nsis portable zip",
+    "dist:win": "node scripts/dist-win.js",
     "dist:mac": "npm run build && electron-builder --mac dmg zip",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "preview": "electron-vite preview",
