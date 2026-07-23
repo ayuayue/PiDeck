@@ -441,9 +441,14 @@ export function BrowserPanel(props: {
 						</button>
 					</>
 				) : (
-					<button className="browser-nav-btn" onClick={onToggleFullscreen} title={t("browser.fullscreen")}>
-						<Maximize2 size={14} />
-					</button>
+					<>
+						<button className="browser-nav-btn" onClick={onClose} title={t("common.close")}>
+							<X size={15} />
+						</button>
+						<button className="browser-nav-btn" onClick={onToggleFullscreen} title={t("browser.fullscreen")}>
+							<Maximize2 size={14} />
+						</button>
+					</>
 				)}
 			</div>
 
