@@ -79,12 +79,13 @@ export class PiProcess extends EventEmitter {
     return this.diagnostics;
   }
 
-  async start(sessionPath?: string, trustOverride?: "approve" | "no-approve") {
+  async start(sessionPath?: string, trustOverride?: "approve" | "no-approve", noSession?: boolean) {
     if (this.proc) return this.rpc!;
 
     // 信任确认由桌面端 AgentManager.ensureProjectTrust 在启动 pi 前完成，不再静默 --approve。
     // pi 在 RPC 模式下 project_trust 事件 hasUI 恒为 false，故信任弹窗由桌面端自行处理。
     const args = ["--mode", "rpc"];
+    if (noSession) args.push("--no-session");
     // WSL 模式下仅跳过 Windows 格式的会话路径（跨环境残留数据），
     // WSL 原生路径（/home/... 或 /mnt/...）正常传递以恢复已有会话。
     const isWsl = this.settings?.wslEnabled && this.settings?.wslDistro && this.settings?.wslUser;

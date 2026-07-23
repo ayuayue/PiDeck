@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DiffEditor, Editor } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { t } from "../../i18n";
-import { Columns3, Edit3, Maximize2, Minimize2, X, Eye, FileCode } from "lucide-react";
+import { ArrowLeft, Edit3, Maximize, Minimize2, SquareSplitHorizontal, X, Eye, FileCode } from "lucide-react";
 import { setupMonaco } from "../../utils/monacoSetup";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,6 +37,8 @@ export function FileDiffViewer(props: {
 	displayMode?: "modal" | "drawer";
 	/** 在弹框/侧栏之间切换 */
 	onToggleMode?: () => void;
+	/** 返回按钮回调（侧栏模式时提供，点击返回上一面板） */
+	onBack?: () => void;
 	onClose: () => void;
 	/** 多 tab 支持：全部 tab 列表 */
 	tabs?: { id: string; filePath: string; label?: string }[];
@@ -54,6 +56,8 @@ export function FileDiffViewer(props: {
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
 	readOriginalContent?: (path: string) => Promise<string>;
 	saveContent?: (path: string, content: string) => Promise<void>;
+	/** HTML 文件点击预览时，切换到内置浏览器面板预览。 */
+	onPreviewHtml?: (filePath: string) => void;
 	theme?: "light" | "dark";
 	/** 单个文件超过此大小（MB）时不加载编辑器。默认 5MB。 */
 	maxFileSizeMB?: number;
@@ -78,7 +82,8 @@ export function FileDiffViewer(props: {
 	const fileName = props.filePath.split(/[/\\]/).pop() ?? props.filePath;
 	const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
 	const isMarkdown = ext === "md" || ext === "mdx";
-	// 只读视图下 markdown 文件默认启用预览；差异模式或编辑模式保持源码视图。
+	const isHtml = ext === "html" || ext === "htm";
+	// 只读视图下 markdown 文件默认启用预览；html 走内置浏览器，不在 iframe 内预览。
 	const [preview, setPreview] = useState(isMarkdown && !isDiffMode && readOnly);
 
 	useEffect(() => {
@@ -86,7 +91,10 @@ export function FileDiffViewer(props: {
 		setReadOnly(true);
 		setDirty(false);
 		setShowHint(false);
-	}, [props.activeTabId, props.filePath]);
+		// 文件类型切换时重置预览状态，防止跨文件残留导致内容区域空白
+		const isMd = ext === "md" || ext === "mdx";
+		setPreview(isMd && props.mode !== "diff");
+	}, [props.activeTabId, props.filePath, props.mode]);
 
 	useEffect(() => {
 		ensureMonaco();
@@ -305,17 +313,33 @@ export function FileDiffViewer(props: {
 				</div>
 			)}
 			<div className="file-diff-header">
+				{props.onBack && displayMode === "drawer" && (
+					<button
+						className="file-diff-close"
+						onClick={props.onBack}
+						title={t("common.back")}
+						aria-label={t("common.back")}
+					>
+						<ArrowLeft size={18} />
+					</button>
+				)}
 				<span className="file-diff-title" title={props.filePath}>
 					{fileName}
 					{dirty && " · 未保存"}
 					{showHint && <span className="file-diff-hint">{t("app.saveFileShortcut")}</span>}
 				</span>
 				<div className="file-diff-header-actions">
-					{isMarkdown && !isDiffMode && !loading && !error && (
+					{(isMarkdown || isHtml) && !isDiffMode && !loading && !error && (
 						<button
 							className="file-diff-toggle-btn"
 							title={preview ? t("editor.source") : t("editor.preview")}
-							onClick={() => setPreview(!preview)}
+							onClick={() => {
+								if (isHtml && props.onPreviewHtml) {
+									props.onPreviewHtml(props.filePath);
+								} else {
+									setPreview(!preview);
+								}
+							}}
 						>
 							{preview ? <FileCode size={15} /> : <Eye size={15} />}
 						</button>
@@ -326,7 +350,7 @@ export function FileDiffViewer(props: {
 							title={sideBySide ? t("app.showSingle") : t("app.showSplit")}
 							onClick={() => setSideBySide(!sideBySide)}
 						>
-							{sideBySide ? <Maximize2 size={15} /> : <Columns3 size={15} />}
+							<SquareSplitHorizontal size={15} />
 						</button>
 					)}
 					{props.saveContent && readOnly && (
@@ -353,7 +377,7 @@ export function FileDiffViewer(props: {
 							title={displayMode === "modal" ? t("app.minimizeToDrawer") : t("app.expandToModal")}
 							onClick={props.onToggleMode}
 						>
-							{displayMode === "modal" ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+							{displayMode === "modal" ? <Minimize2 size={15} /> : <Maximize size={15} />}
 						</button>
 					)}
 					<button className="file-diff-close" onClick={handleClose} aria-label={t("common.close")}>
@@ -367,7 +391,7 @@ export function FileDiffViewer(props: {
 				{!loading && !error && (
 					<>
 						{/* Markdown 预览：仅 view 模式且 preview 启用 */}
-						{!isDiffMode && preview && (
+						{!isDiffMode && preview && isMarkdown && (
 							<div className="file-diff-preview">
 								<ReactMarkdown
 									remarkPlugins={[remarkGfm]}
@@ -377,6 +401,10 @@ export function FileDiffViewer(props: {
 									{content}
 								</ReactMarkdown>
 							</div>
+						)}
+						{/* HTML 预览：仅 view 模式且 preview 启用 */}
+						{!isDiffMode && preview && isHtml && (
+							<HtmlPreview content={content} />
 						)}
 						{/* view 模式、非预览：常规 Editor */}
 						{!isDiffMode && !preview && (
@@ -438,4 +466,27 @@ function extToMonacoLanguage(ext: string): string {
 		dockerfile: "dockerfile", makefile: "makefile",
 	};
 	return map[ext] ?? "plaintext";
+}
+
+/**
+ * HTML 预览组件：通过 sandboxed iframe 渲染 HTML。
+ * 使用 srcdoc 避免 CSP frame-src 限制；
+ * 放开 allow-scripts / allow-same-origin 以支持本地开发场景的外部 CSS/JS 加载。
+ * 注意：被预览的 HTML 中的脚本会执行，仅用于可信本地文件。
+ */
+function HtmlPreview({ content }: { content: string }) {
+	return (
+		<iframe
+			className="file-diff-preview"
+			srcDoc={content}
+			title="HTML preview"
+			sandbox="allow-scripts allow-same-origin allow-forms"
+			style={{
+				width: "100%",
+				height: "100%",
+				border: "none",
+				background: "white",
+			}}
+		/>
+	);
 }

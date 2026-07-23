@@ -21,5 +21,14 @@ export function mergeAgentRuntimeState(
     } = incoming;
     return { ...current, ...nonToolState };
   }
-  return { ...current, ...incoming };
+  const merged = { ...current, ...incoming };
+  if (
+    current &&
+    Object.keys(merged).every(
+      (key) => current[key as keyof AgentRuntimeState] === merged[key as keyof AgentRuntimeState],
+    )
+  ) {
+    return current;
+  }
+  return merged;
 }

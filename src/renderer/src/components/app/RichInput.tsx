@@ -9,17 +9,18 @@ import {
 /**
  * RichInput —— contentEditable 输入区，替代 textarea。
  *
- * 核心设计：
- * - 单一数据源：外部 value 字符串，chip 在字符串中以 @path / /command 内联表示。
- * - contentEditable 是受控渲染层：token 渲染为 contenteditable=false 的 chip span。
- * - 光标偏移统一用纯文本偏移，chip 贡献 data-raw 长度，与 textarea selectionStart 语义一致。
+ * 架构原则（React Issue #2047 — contentEditable 不应做受控组件）：
+ * - 浏览器通过 contentEditable 自主管理文本节点和光标，React 零干预。
+ * - Chip（@file、/command、&session）是挂在文本节点之间的装饰层，由 React 局部维护。
+ * - 仅在 chip 真正变化时，对受影响的文本节点做最小拆分/合并，其余文本节点和光标不受影响。
+ * - 外部程序化变更（建议选择、历史恢复、发送清空）触发全量 DOM 重建，此时不处于用户打字状态。
  *
  * 已处理的边界：
  * 1. IME 中文：composition 期间锁定，不回写 value、不触发 onChange。
- * 2. 受控回写：DOM 纯文本与 value 一致时跳过重渲染；不一致时渲染并恢复光标。
+ * 2. Chip 同步：diff 新旧 chip，局部拆分文本节点插入/移除 span，不重建整个 DOM。
  * 3. 粘贴：只取纯文本，防止富文本污染。
- * 4. 换行：Enter 未被上层 consume 时手动插入 \n，保持 DOM 扁平。
- * 5. token 内编辑：光标在 token 内部时不 chip 化，允许继续输入。
+ * 4. 换行：Enter 未被上层 consume 时让浏览器原生处理，随后 input 事件同步 value。
+ * 5. 光标在 chip 内部：contenteditable=false 阻止浏览器进入，无需额外处理。
  */
 
 // ── 类型 ──────────────────────────────────────────────────
@@ -246,7 +247,6 @@ function collectTextRuns(root: HTMLElement): TextNodeRun[] {
 	return runs;
 }
 
-/** 从 DOM 读取纯文本（chip 用 data-raw 还原）。 */
 /**
  * 从 DOM 读取纯文本（chip 用 data-raw 还原）。
  * 注意：浏览器可能将 contentEditable 中的 \n 存为 \r\n 或 <br>，
@@ -373,6 +373,215 @@ export function getRichInputCaretCoords(
 	return { top: rect.top, left: rect.left };
 }
 
+// ── Chip DOM 操作（局部修补，不重建整个 DOM） ──────────────
+
+/** 创建一个 chip span 元素（不含文本，文本由相邻文本节点承载）。 */
+function createChipSpan(chip: RichInputChip): HTMLSpanElement {
+	const span = document.createElement("span");
+	span.setAttribute("contenteditable", "false");
+	span.setAttribute("data-type", chip.kind);
+	span.setAttribute("data-raw", chip.raw);
+	span.title = chip.raw;
+	span.className = `input-chip input-chip--${chip.kind}`;
+
+	const icon = document.createElement("span");
+	icon.className = "input-chip__icon";
+	icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "&" : "/";
+	const label = document.createElement("span");
+	label.className = "input-chip__label";
+	label.textContent = chip.label;
+	if (icon.textContent) span.appendChild(icon);
+	span.appendChild(label);
+	return span;
+}
+
+/**
+ * 在 root 的指定文本偏移处插入 chip span。
+ * 拆分覆盖 [chip.start, chip.end) 的文本节点，
+ * 将中间的文本段替换为 chip span（文本不变，chip.raw 承载对应字符语义）。
+ */
+function insertChipSpan(root: HTMLElement, chip: RichInputChip): void {
+	const runs = collectTextRuns(root);
+
+	// 定位 chip.start 所在的文本运行
+	let startRun: TextNodeRun | null = null;
+	let startRunIdx = -1;
+	for (let i = 0; i < runs.length; i++) {
+		const r = runs[i];
+		if (chip.start >= r.start && chip.start < r.end) {
+			startRun = r;
+			startRunIdx = i;
+			break;
+		}
+	}
+	if (!startRun) return;
+
+	// 拆分第一个文本节点：chip.start 处
+	const offsetInStart = chip.start - startRun.start;
+	const afterStart = startRun.node.splitText(offsetInStart);
+
+	// 定位 chip.end 所在的文本运行（拆分后重新收集，因为 DOM 已变）
+	const runsAfterSplit = collectTextRuns(root);
+	let endRun: TextNodeRun | null = null;
+	for (const r of runsAfterSplit) {
+		if (chip.end > r.start && chip.end <= r.end) {
+			endRun = r;
+			break;
+		}
+	}
+	if (!endRun) return;
+
+	// 拆分 chip.end 处
+	const offsetInEnd = chip.end - endRun.start;
+	const afterEnd = endRun.node.splitText(offsetInEnd);
+
+	// 收集 chip 区间内的文本节点（在 start 拆分后的第二个节点到 end 拆分的第一个节点之间）
+	const chipTextNodes: Text[] = [];
+	walkFlat(root, (node, s) => {
+		if (s >= chip.start && s < chip.end && node.nodeValue != null) {
+			chipTextNodes.push(node);
+		}
+	}, () => {});
+
+	// 移除 chip 区间内的文本节点，用 chip span 替代
+	const span = createChipSpan(chip);
+	if (chipTextNodes.length > 0) {
+		const firstText = chipTextNodes[0];
+		firstText.parentNode!.insertBefore(span, firstText);
+		for (const tn of chipTextNodes) {
+			if (tn.parentNode) tn.parentNode.removeChild(tn);
+		}
+	}
+}
+
+/**
+ * 收集 DOM 中所有 chip 元素的映射：{el, start, end, raw, kind}。
+ */
+function collectChipEntries(root: HTMLElement): Array<{
+	el: HTMLElement;
+	start: number;
+	end: number;
+	raw: string;
+	kind: string;
+}> {
+	const entries: Array<{ el: HTMLElement; start: number; end: number; raw: string; kind: string }> = [];
+	walkFlat(
+		root,
+		() => {},
+		(el, s, e) => {
+			entries.push({
+				el,
+				start: s,
+				end: e,
+				raw: el.getAttribute("data-raw") ?? "",
+				kind: el.getAttribute("data-type") ?? "",
+			});
+		},
+	);
+	return entries;
+}
+
+/**
+ * 将 chip span 还原为纯文本节点（用 data-raw 内容替换 span），
+ * 并合并相邻文本节点，保持 DOM 扁平。
+ *
+ * 注意：合并时会 removeChild 相邻文本节点。调用方应在操作前后
+ * 保存/恢复光标（参考 syncChipsToDom）。
+ */
+function unwrapChipSpan(el: HTMLElement): void {
+	const raw = el.getAttribute("data-raw") ?? "";
+	const textNode = document.createTextNode(raw);
+	const parent = el.parentNode;
+	if (!parent) return;
+
+	// 先收集相邻文本节点引用和内容（在 DOM 变更前完成，避免引用失效）
+	const prevText: Text | null =
+		el.previousSibling?.nodeType === Node.TEXT_NODE
+			? (el.previousSibling as Text)
+			: null;
+	const nextText: Text | null =
+		el.nextSibling?.nodeType === Node.TEXT_NODE
+			? (el.nextSibling as Text)
+			: null;
+
+	// 插入新文本节点，移除 chip span
+	parent.insertBefore(textNode, el);
+	parent.removeChild(el);
+
+	// 将相邻文本内容转移到新节点，再移除旧节点。
+	// 内容转移在前、节点移除在后，确保纯文本始终不丢失。
+	if (prevText) {
+		textNode.textContent = prevText.textContent + textNode.textContent;
+		parent.removeChild(prevText);
+	}
+	if (nextText) {
+		textNode.textContent += nextText.textContent;
+		parent.removeChild(nextText);
+	}
+}
+
+/**
+ * 局部同步 chip span：diff 当前 DOM 中的 chip 与期望 chip，
+ * 仅移除/新增/更新变化的 chip span，不触碰任何文本节点内容。
+ *
+ * 关键：chip 的增删会拆分/合并文本节点，可能使浏览器 Selection 丢失。
+ * 因此在操作前缓存光标偏移，操作后恢复，确保光标不漂移。
+ */
+function syncChipsToDom(root: HTMLElement, desiredChips: RichInputChip[]): void {
+	// 缓存光标偏移：DOM 操作（splitText / removeChild / 合并相邻文本节点）
+	// 会破坏浏览器原生光标位置，必须在操作前保存、操作后恢复。
+	const savedCaret = getCaretOffset(root);
+
+	const existingEntries = collectChipEntries(root);
+
+	// 双指针 diff（两者均按 start 升序）
+	const toRemove: typeof existingEntries = [];
+	const toAdd: RichInputChip[] = [];
+	let ei = 0;
+	let di = 0;
+
+	while (ei < existingEntries.length || di < desiredChips.length) {
+		const existing = existingEntries[ei];
+		const desired = desiredChips[di];
+
+		if (!existing) {
+			toAdd.push(desired);
+			di++;
+		} else if (!desired) {
+			toRemove.push(existing);
+			ei++;
+		} else if (existing.start === desired.start && existing.end === desired.end) {
+			// 位置相同：仅属性变化时原地更新 span
+			if (existing.raw !== desired.raw || existing.kind !== desired.kind) {
+				const newSpan = createChipSpan(desired);
+				existing.el.parentNode!.replaceChild(newSpan, existing.el);
+			}
+			ei++;
+			di++;
+		} else if (existing.start < desired.start) {
+			toRemove.push(existing);
+			ei++;
+		} else {
+			toAdd.push(desired);
+			di++;
+		}
+	}
+
+	// 先逆向移除旧的 chip（避免索引偏移影响后续插入）
+	for (let i = toRemove.length - 1; i >= 0; i--) {
+		unwrapChipSpan(toRemove[i].el);
+	}
+
+	// 再按文本偏移顺序插入新的 chip
+	for (const chip of toAdd) {
+		insertChipSpan(root, chip);
+	}
+
+	// 恢复光标到 DOM 操作前的位置。纯文本模型在 chip 增删前后保持一致
+	// （chip.raw === 被替换的文本内容），因此 savedCaret 仍然有效。
+	setRichInputCaret(root, savedCaret);
+}
+
 // ── RichInput 组件 ────────────────────────────────────────
 
 export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
@@ -387,12 +596,16 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 		const rootRef = useRef<HTMLDivElement | null>(null);
 		const composingRef = useRef(false);
-		const pendingCaretRef = useRef<number | null>(null);
-		// contentEditable 会先原生修改 DOM，再异步收到上层受控 value。
-		// 记录最新原生结果，避免按键连发时较旧的 value 回传把 DOM 回滚并重建。
+
+		// contentEditable 先原生更新 DOM，再通过 input 事件回传最新值。
+		// 保存最后一次 handleInput 捕获的原生文本与光标偏移，
+		// 供外部变更检测和光标参考。
 		const nativeInputValueRef = useRef<string | null>(null);
 		const nativeInputCaretRef = useRef<number | null>(null);
-		const caretRestoreFrameRef = useRef<number | null>(null);
+
+		// 程序化 DOM 重建期间（rebuildDom），textContent 清空会触发 input 事件；
+		// suppressInputRef 要求 handleInput 静默跳过，防止将空值写回上层形成反馈循环。
+		const suppressInputRef = useRef(false);
 
 		// 合并外部 ref 与内部 rootRef
 		const setRef = useCallback(
@@ -404,136 +617,140 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			[ref],
 		);
 
-		const chips = useMemo(() => parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs), [value, validCommandNames, validFilePaths, validSessionRefs]);
+		const chips = useMemo(
+			() => parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs),
+			[value, validCommandNames, validFilePaths, validSessionRefs],
+		);
 
-		/** 全量渲染 DOM：清空 root，按 value + chips 重建文本节点 + chip span。 */
-		const renderDom = useCallback(() => {
-			const root = rootRef.current;
-			if (!root) return;
+		/**
+		 * 全量重建 DOM：仅在挂载或外部程序化变更时使用。
+		 * 清空 root，按 value + chips 重建文本节点和 chip span，恢复光标。
+		 *
+		 * 注意：此函数通过 textContent="" 破坏性清空 DOM，
+		 * 仅在用户不处于打字状态时调用（挂载、建议选择、发送清空等）。
+		 */
+		const rebuildDom = useCallback(
+			(restoreCaret?: number | null) => {
+				const root = rootRef.current;
+				if (!root) return;
 
-			// 缓存光标偏移：程序化 > 手动 > 当前光标
-			const restoreCaret =
-				caretRef?.current ?? pendingCaretRef.current ?? getCaretOffset(root);
+				// 缓存光标优先级：显式传入 > handleInput 按键瞬间记录 > 当前 DOM 反推。
+				// nativeInputCaretRef 在 handleInput 中于用户按键瞬间同步记录，
+				// 不受后续浏览器 DOM 规范化（合并文本节点、拼写检查标记等）影响，
+				// 是打字场景下最准确的光标来源。
+				const caret = restoreCaret
+					?? nativeInputCaretRef.current
+					?? getCaretOffset(root);
 
-			// 重建已接管 DOM，同步清除尚未确认的原生输入快照。
-			nativeInputValueRef.current = null;
-			nativeInputCaretRef.current = null;
-			root.textContent = "";
-			let cursor = 0;
-			for (const chip of chips) {
-				if (chip.start > cursor) {
-					root.appendChild(document.createTextNode(value.slice(cursor, chip.start)));
+				// 阻止清空触发的 input 事件污染上层
+				suppressInputRef.current = true;
+				root.textContent = "";
+				suppressInputRef.current = false;
+
+				// 清除 DOM 已重置后的输入快照（光标已缓存到 caret 变量）
+				nativeInputValueRef.current = null;
+				nativeInputCaretRef.current = null;
+
+				let cursor = 0;
+				for (const chip of chips) {
+					if (chip.start > cursor) {
+						root.appendChild(document.createTextNode(value.slice(cursor, chip.start)));
+					}
+					root.appendChild(createChipSpan(chip));
+					cursor = chip.end;
 				}
-				const span = document.createElement("span");
-				span.setAttribute("contenteditable", "false");
-				span.setAttribute("data-type", chip.kind);
-				span.setAttribute("data-raw", chip.raw);
-				span.title = chip.raw;
-				span.className = `input-chip input-chip--${chip.kind}`;
+				if (cursor <= value.length) {
+					root.appendChild(document.createTextNode(value.slice(cursor)));
+				}
 
-				const icon = document.createElement("span");
-				icon.className = "input-chip__icon";
-				icon.textContent = chip.kind === "file" ? "@" : chip.kind === "session" ? "&" : "/";
-				const label = document.createElement("span");
-				label.className = "input-chip__label";
-				label.textContent = chip.label;
-				if (icon.textContent) span.appendChild(icon);
-				span.appendChild(label);
-				root.appendChild(span);
-				cursor = chip.end;
-			}
-			// 末尾文本节点（即使为空也保留，确保光标锚定）
-			if (cursor <= value.length) {
-				root.appendChild(document.createTextNode(value.slice(cursor)));
-			}
-
-			// 消费程序化光标
-			if (caretRef) caretRef.current = null;
-			pendingCaretRef.current = null;
-
-			// 下一帧恢复光标；新渲染会取消旧 Agent/旧 value 排队的恢复，避免切换后光标跳动。
-			if (caretRestoreFrameRef.current !== null) {
-				cancelAnimationFrame(caretRestoreFrameRef.current);
-			}
-			caretRestoreFrameRef.current = requestAnimationFrame(() => {
-				caretRestoreFrameRef.current = null;
-				const el = rootRef.current;
-				if (!el) return;
-				const runs = collectTextRuns(el);
-				const pos = resolveOffset(runs, Math.min(restoreCaret, value.length));
+				// 恢复光标
+				const runs = collectTextRuns(root);
+				const pos = resolveOffset(runs, Math.min(caret, value.length));
 				if (pos) placeCaretAt(pos);
-			});
-		}, [chips, value, caretRef]);
 
-		// 受控同步：仅在需要时重渲染
-		// - caretRef 非空（程序化变更）→ 强制渲染
-		// - 光标在 token 内部 → 只过滤该 token，其余 chip 正常渲染
-		// - DOM chip 区间与期望不一致 → 渲染
+				// 消费程序化光标标记
+				if (caretRef) caretRef.current = null;
+			},
+			[value, chips, caretRef],
+		);
+
+		/**
+		 * 三条同步路径，按优先级互斥：
+		 *
+		 * 1. caretRef 非空 → 外部程序化变更（建议选择、历史恢复）
+		 *    执行全量 rebuildDom，光标由 caretRef 指定。
+		 *
+		 * 2. value 与 DOM 文本不一致 → 外部非打字变更（发送清空等）
+		 *    执行全量 rebuildDom，光标尽可能保留。
+		 *
+		 * 3. chip 区间变化 → 浏览器的文本不变，仅 chip 装饰需更新
+		 *    执行局部 syncChipsToDom，文本节点和光标不受影响。
+		 *
+		 * 4. 全部一致 → 不做任何 DOM 操作。
+		 */
 		useLayoutEffect(() => {
-			if (caretRef?.current !== null) { renderDom(); return; }
 			const root = rootRef.current;
 			if (!root) return;
 
-			const nativeInputValue = nativeInputValueRef.current;
-			if (nativeInputValue !== null && value !== nativeInputValue) {
-				// React 可能正在依次提交长按按键产生的旧 value；DOM 已经更新得更快。
-				// 等待最新原生值被上层确认，期间绝不回滚 contentEditable。
+			// Path 1：程序化变更
+			const caretTarget = caretRef?.current;
+			if (caretTarget != null) {
+				rebuildDom(caretTarget);
 				return;
 			}
 
-			const caret = nativeInputValue === value
-				? (nativeInputCaretRef.current ?? getCaretOffset(root))
-				: getCaretOffset(root);
+			// Path 2：外部文本变更（value 与 DOM 不一致，且非来自最近一次 handleInput）
+			const nativeInputValue = nativeInputValueRef.current;
+			const domText = collectFlatText(root);
 
-			// 光标是否在某个 token 内部（含末尾，允许继续输入）
-			const insideActiveToken = chips.some(
-				(c) => caret > c.start && caret <= c.end,
-			);
+			if (value !== domText) {
+				// 如果 value 与 handleInput 刚回传的原生值一致，说明 React 正在确认用户输入，
+				// 不做任何操作——DOM 已经是最新的，等待下一个 effect 清理 nativeInputValue 标记。
+				if (nativeInputValue !== null && value === nativeInputValue) {
+					nativeInputValueRef.current = null;
+					nativeInputCaretRef.current = null;
+					return;
+				}
+				// 否则是真正的「外部变更」：发送清空、建议恢复等 → 全量重建
+				rebuildDom(null);
+				return;
+			}
 
-			// DOM 中已存在的 chip 区间
+			// Path 3：仅 chip 变化，文本不变 → 局部修补
 			const existingRanges = collectChipRanges(root);
-
-			// 期望的 chip 区间（光标在 token 内时排除该 token）
-			const desiredChips = insideActiveToken
-				? chips.filter((c) => !(caret > c.start && caret <= c.end))
-				: chips;
-
 			const rangesSame =
-				existingRanges.length === desiredChips.length &&
+				existingRanges.length === chips.length &&
 				existingRanges.every((r, i) =>
-					r.start === desiredChips[i].start && r.end === desiredChips[i].end,
+					r.start === chips[i].start && r.end === chips[i].end,
 				);
 
-			// chip 区间一致但纯文本不同（如发送后清空），仍须重渲染
-			const textSame = collectFlatText(root) === value;
-			if (!rangesSame || !textSame) {
-				renderDom();
+			if (!rangesSame) {
+				suppressInputRef.current = true;
+				syncChipsToDom(root, chips);
+				suppressInputRef.current = false;
 				return;
 			}
 
-			// 上层已经确认最新原生输入；保留浏览器 DOM 与选区，不做无意义重建。
+			// Path 4：全部一致，无操作
+			// 清理 handleInput 快照（上层已确认）
 			if (nativeInputValue === value) {
 				nativeInputValueRef.current = null;
 				nativeInputCaretRef.current = null;
 			}
-			// renderDom 变化时 chips/value 也变，无遗漏依赖
 			// eslint-disable-next-line react-hooks/exhaustive-deps
 		}, [value, chips]);
 
 		// 挂载时首次渲染
 		useLayoutEffect(() => {
-			renderDom();
-			return () => {
-				if (caretRestoreFrameRef.current !== null) {
-					cancelAnimationFrame(caretRestoreFrameRef.current);
-					caretRestoreFrameRef.current = null;
-				}
-			};
-		}, []); // eslint-disable-line react-hooks/exhaustive-deps
+			rebuildDom(null);
+			// eslint-disable-next-line react-hooks/exhaustive-deps
+		}, []);
 
 		/** 用户输入后：从 DOM 读取纯文本 + 光标偏移，回写上层。 */
 		const handleInput = useCallback(() => {
 			if (composingRef.current) return;
+			// rebuildDom / syncChipsToDom 期间的 input 事件应静默跳过
+			if (suppressInputRef.current) return;
 			const root = rootRef.current;
 			if (!root) return;
 			const nextValue = collectFlatText(root);
@@ -546,6 +763,8 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 		/** 光标/选区变化：通知上层光标位置。 */
 		const handleSelect = useCallback(() => {
 			if (composingRef.current) return;
+			// chip DOM 操作期间光标临时失效，跳过以避免传播错误偏移
+			if (suppressInputRef.current) return;
 			const root = rootRef.current;
 			if (!root) return;
 			onCursorChange(getCaretOffset(root));
@@ -587,7 +806,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			[handleSelect, onChipClick],
 		);
 
-		/** Enter：上层未 consume（非发送）时手动插入 \n，保持扁平 DOM。 */
+		/** Enter：上层未 consume（非发送）时，让浏览器原生处理换行，随后 input 事件同步 value。 */
 		const handleKeyDown = useCallback(
 			(event: React.KeyboardEvent<HTMLDivElement>) => {
 				onKeyDown(event);
@@ -601,7 +820,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 					// 处理换行（插入 <br> 并正确放置光标），随后触发 input 事件同步 value。
 				}
 			},
-			[onKeyDown, handleInput],
+			[onKeyDown],
 		);
 
 		const handleCompositionStart = () => { composingRef.current = true; };

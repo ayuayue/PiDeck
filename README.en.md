@@ -8,7 +8,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.6.5-green)
+![Version](https://img.shields.io/badge/version-0.6.6--beta.1-yellow)
 
 **PiDeck** is an open-source pi desktop workbench for managing pi Agent sessions across local project folders, with import support for local Codex and Claude sessions so you can browse and restore them in one place. Built with Electron + TypeScript, it provides multi-project workspace management, AI session history, Git integration, built-in terminal, visual config management, and plugin extensions—so local AI coding assistants stay consistent, traceable, and configurable across projects.
 
@@ -20,7 +20,7 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.6.5** (2026-07-13)
+> **Latest: v0.6.6-beta.1** (2026-07-22)
 
 ### v0.6.5 Updates
 - 🚀 **Prompt Templates System**: Full template management, built-in templates,

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, open, readlink, realpath } from "node:fs/promises";
+import { lstat, open, readlink, realpath, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff } from "../../shared/types";
@@ -8,6 +8,7 @@ import { GitStatus } from "../../shared/types";
 import type { GitResource, GitResourceGroups } from "../../shared/types";
 
 const execFileAsync = promisify(execFile);
+const GIT_MUTATION_TIMEOUT_MS = 30_000;
 
 export class GitService {
 	/** 只缓存轻量 commit 元数据/文件清单；正文永不缓存，且 LRU 总预算不超过 2MB。 */
@@ -189,10 +190,10 @@ export class GitService {
 		// `-- .` 将 monorepo 中的状态限定到当前项目目录，避免 sibling 资源进入抽屉。
 		const [{ stdout: statusRaw }, { stdout: rootRaw }] = await Promise.all([
 			execFileAsync(
-				"git", ["status", "--porcelain", "-z", "--", "."],
-				{ cwd, maxBuffer: 16 * 1024 * 1024 },
+				"git", ["status", "--porcelain", "-z", "--untracked-files=all", "--", "."],
+				{ cwd, maxBuffer: 16 * 1024 * 1024, timeout: GIT_MUTATION_TIMEOUT_MS },
 			),
-			execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd }),
+			execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS }),
 		]);
 		const repoRoot = await realpath(resolve(rootRaw.trim()));
 		const inputProjectRoot = resolve(cwd);
@@ -232,11 +233,17 @@ export class GitService {
 		return { groups, repoRoot, inputProjectRoot, projectRoot };
 	}
 
-	/** 获取 Git 工作区状态（VS Code 风格分组）。 */
+	/** 获取 Git 工作区状态（VS Code 风格分组）。
+	 * 非 Git 仓库和 Git 未安装的错误向上抛出，让渲染层展示初始化提示或安装引导。 */
 	async getStatus(cwd: string): Promise<GitResourceGroups> {
 		try {
 			return (await this.getStatusContext(cwd)).groups;
-		} catch {
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			// 非 Git 仓库或 Git 未安装时抛出异常，让渲染层展示对应提示
+			if (/not a git repository|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
+				throw err;
+			}
 			return { merge: [], index: [], workingTree: [], untracked: [] };
 		}
 	}
@@ -355,6 +362,32 @@ export class GitService {
 			return { path: resource.path, originalContent, modifiedContent };
 		} catch {
 			return null;
+		}
+	}
+
+	/**
+	 * 获取当前暂存区（staged）的完整 diff 文本，用于 AI 生成提交摘要。
+	 * 优先返回暂存区的 diff，无暂存文件时返回工作区 diff。
+	 * @param cwd 仓库工作目录
+	 * @param maxBytes 最大返回字符数（默认 100KB），超出截断。maxBuffer 固定为 10MB 确保 git 完整输出。
+	 */
+	async getStagedDiff(cwd: string, maxBytes = 100 * 1024): Promise<string> {
+		try {
+			// 先试暂存区 diff
+			let { stdout } = await execFileAsync("git", ["diff", "--staged", "--unified=3"], {
+				cwd,
+				encoding: "utf8",
+				timeout: GIT_MUTATION_TIMEOUT_MS,
+				maxBuffer: 10 * 1024 * 1024,
+			});
+			// 无暂存内容时直接返回空，不再回退到工作区 diff；由调用方提示用户先暂存
+			if (!stdout.trim()) return "";
+			const truncated = stdout.length > maxBytes
+				? stdout.slice(0, maxBytes) + "\n\n... (diff truncated)"
+				: stdout;
+			return truncated;
+		} catch {
+			return "";
 		}
 	}
 
@@ -595,17 +628,29 @@ export class GitService {
 		const candidates = operation === "stage"
 			? [...groups.merge, ...groups.workingTree, ...groups.untracked]
 			: groups.index;
-		const requested = new Set(paths.map((entry) => resolve(entry)));
-		const matched = candidates.filter((resource) => requested.has(resolve(resource.path)));
+		const normalizePath = (entry: string) => {
+			const normalized = resolve(entry);
+			return process.platform === "win32" ? normalized.toLocaleLowerCase() : normalized;
+		};
+		const requested = new Set(paths.map(normalizePath));
+		const matched = candidates.filter((resource) => requested.has(normalizePath(resource.path)));
 		if (matched.length !== requested.size) throw new Error("Git resource is stale or outside the project");
-		return [...new Set(matched.flatMap((resource) => [resource.path, resource.oldPath].filter((entry): entry is string => Boolean(entry))))];
+		return [...new Set(matched.flatMap((resource) => {
+			// 只有 unstaged rename/copy 的 Stage 和 staged rename/copy 的 Unstage 需要新旧路径；
+			// 普通工作区修改（包括 staged rename 后的新路径编辑）只操作当前路径，避免不存在的 oldPath 令整条命令失败。
+			const includeOldPath = operation === "unstage" ||
+				resource.status === GitStatus.INTENT_TO_RENAME;
+			return includeOldPath && resource.oldPath
+				? [resource.path, resource.oldPath]
+				: [resource.path];
+		}))];
 	}
 
 	/** Stage 文件（git add） */
 	async stageFiles(cwd: string, paths: string[]): Promise<void> {
 		const safePaths = await this.resolveMutationPaths(cwd, paths, "stage");
 		if (safePaths.length === 0) return;
-		await execFileAsync("git", ["add", "--", ...safePaths], { cwd });
+		await execFileAsync("git", ["--literal-pathspecs", "add", "--", ...safePaths], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 	}
 
 	/** Unstage 文件（git restore --staged） */
@@ -614,16 +659,92 @@ export class GitService {
 		if (safePaths.length === 0) return;
 		const head = await this.resolveCommitHash(cwd, "HEAD");
 		if (head) {
-			await execFileAsync("git", ["restore", "--staged", "--", ...safePaths], { cwd });
+			await execFileAsync("git", ["--literal-pathspecs", "restore", "--staged", "--", ...safePaths], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 		} else {
 			// Unborn repository 没有 HEAD，restore --staged 无基线；从 index 移除但保留工作区文件。
-			await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", ...safePaths], { cwd });
+			await execFileAsync("git", ["--literal-pathspecs", "rm", "--cached", "--ignore-unmatch", "--", ...safePaths], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
 		}
+	}
+
+	/**
+	 * 丢弃单个未暂存资源。Tracked 文件只恢复 worktree 到 index，因此 MM/AM 文件的暂存内容不会丢失；
+	 * untracked 资源只允许删除 status 明确列出的单个文件或符号链接，目录必须由用户在文件管理器中处理。
+	 */
+	async discardFile(
+		cwd: string,
+		group: "workingTree" | "untracked",
+		filePath: string,
+	): Promise<void> {
+		if (group !== "workingTree" && group !== "untracked") {
+			throw new Error("Git resource group cannot be discarded");
+		}
+		const { groups, repoRoot } = await this.getStatusContext(cwd);
+		const requestedPath = resolve(filePath);
+		const samePath = (left: string, right: string) => process.platform === "win32"
+			? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+			: left === right;
+		const resource = groups[group].find((entry) => samePath(resolve(entry.path), requestedPath));
+		if (!resource) throw new Error("Git resource is stale or outside the project");
+
+		if (group === "untracked") {
+			const metadata = await lstat(resource.path);
+			if (!metadata.isFile() && !metadata.isSymbolicLink()) {
+				throw new Error("Only individual untracked files can be discarded");
+			}
+			// unlink 对符号链接只删除链接自身，不会跟随到项目外目标；若文件在校验后被替换为目录，unlink 会安全失败。
+			await unlink(resource.path);
+			return;
+		}
+
+		await execFileAsync("git", ["--literal-pathspecs", "restore", "--worktree", "--", resource.path], { cwd: repoRoot, timeout: GIT_MUTATION_TIMEOUT_MS });
 	}
 
 	/** 创建提交 */
 	async commit(cwd: string, message: string): Promise<void> {
-		await execFileAsync("git", ["commit", "-m", message], { cwd });
+		await execFileAsync("git", ["commit", "-m", message], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/** Cherry-pick：将指定提交应用到当前分支 */
+	async cherryPick(cwd: string, hash: string): Promise<void> {
+		await execFileAsync("git", ["cherry-pick", hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/** Revert：创建一个反向提交撤销指定提交的变更 */
+	async revertCommit(cwd: string, hash: string): Promise<void> {
+		await execFileAsync("git", ["revert", "--no-edit", hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/**
+	 * Reset：移动 HEAD 到指定提交
+	 * @param mode soft｜mixed｜hard，默认 soft
+	 */
+	async resetToCommit(cwd: string, hash: string, mode: "soft" | "mixed" | "hard" = "soft"): Promise<void> {
+		await execFileAsync("git", ["reset", `--${mode}`, hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/**
+	 * Drop：从当前分支删除指定提交（使用 rebase --onto）
+	 * 注意：只能删除非 HEAD 的提交
+	 */
+	async dropCommit(cwd: string, hash: string): Promise<void> {
+		// 先获取 parent hash
+		const { stdout: parentHash } = await execFileAsync("git", ["rev-parse", `${hash}^`], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+		await execFileAsync("git", ["rebase", "--onto", parentHash.trim(), hash], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS });
+	}
+
+	/** Push：将当前分支推送到远程 */
+	async push(cwd: string): Promise<void> {
+		await execFileAsync("git", ["push"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS * 4 });
+	}
+
+	/** Pull：从远程拉取并合并到当前分支 */
+	async pull(cwd: string): Promise<void> {
+		await execFileAsync("git", ["pull"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS * 4 });
+	}
+
+	/** Fetch：从远程获取最新数据但不合并 */
+	async fetch(cwd: string): Promise<void> {
+		await execFileAsync("git", ["fetch"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS * 4 });
 	}
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -315,6 +315,95 @@ describe("GitService committed-file diff integration", () => {
     } finally {
       rmSync(unbornDir, { recursive: true, force: true });
     }
+  });
+
+  test("discards only the requested unstaged layer and deletes exact untracked files", async () => {
+    const service = new GitService();
+
+    write("discard-layered.txt", "head\n");
+    write("discard-deleted.txt", "restore me\n");
+    git("add", "--", "discard-layered.txt", "discard-deleted.txt");
+    git("commit", "-m", "discard base");
+
+    write("discard-layered.txt", "staged\n");
+    git("add", "--", "discard-layered.txt");
+    write("discard-layered.txt", "working\n");
+    const layeredPath = join(repositoryDir, "discard-layered.txt");
+    await service.discardFile(repositoryDir, "workingTree", layeredPath);
+    assert.equal(execFileSync("git", ["show", ":discard-layered.txt"], { cwd: repositoryDir, encoding: "utf8" }), "staged\n");
+    assert.equal(readFileSync(layeredPath, "utf8"), "staged\n");
+    assert.equal((await service.getStatus(repositoryDir)).index.some((resource) => resource.path === layeredPath), true);
+
+    const deletedPath = join(repositoryDir, "discard-deleted.txt");
+    rmSync(deletedPath);
+    await service.discardFile(repositoryDir, "workingTree", deletedPath);
+    assert.equal(existsSync(deletedPath), true);
+
+    write("discard-untracked.txt", "temporary\n");
+    const untrackedPath = join(repositoryDir, "discard-untracked.txt");
+    await service.discardFile(repositoryDir, "untracked", untrackedPath);
+    assert.equal(existsSync(untrackedPath), false);
+    await assert.rejects(() => service.discardFile(repositoryDir, "untracked", untrackedPath));
+
+    git("reset", "--hard", "HEAD");
+  });
+
+  test("keeps discard scoped to the active nested project", async () => {
+    const service = new GitService();
+    mkdirSync(join(repositoryDir, "discard-nested"), { recursive: true });
+    mkdirSync(join(repositoryDir, "discard-sibling"), { recursive: true });
+    write("discard-nested/inside.txt", "inside\n");
+    write("discard-sibling/outside.txt", "outside\n");
+    git("add", "--", "discard-nested/inside.txt", "discard-sibling/outside.txt");
+    git("commit", "-m", "discard scope base");
+    write("discard-nested/inside.txt", "inside changed\n");
+    write("discard-sibling/outside.txt", "outside changed\n");
+
+    const nestedRoot = join(repositoryDir, "discard-nested");
+    const insidePath = join(nestedRoot, "inside.txt");
+    const outsidePath = join(repositoryDir, "discard-sibling", "outside.txt");
+    await assert.rejects(() => service.discardFile(nestedRoot, "workingTree", outsidePath));
+    await service.discardFile(nestedRoot, "workingTree", insidePath);
+    assert.equal(readFileSync(insidePath, "utf8"), "inside\n");
+    assert.equal(readFileSync(outsidePath, "utf8"), "outside changed\n");
+    git("reset", "--hard", "HEAD");
+  });
+
+  test("handles a staged rename with an unstaged edit using only the current worktree path", async () => {
+    const service = new GitService();
+    write("rename-discard-source.txt", "rename head\n");
+    git("add", "--", "rename-discard-source.txt");
+    git("commit", "-m", "rename discard base");
+    git("mv", "rename-discard-source.txt", "rename-discard-target.txt");
+    write("rename-discard-target.txt", "rename working\n");
+
+    const targetPath = join(repositoryDir, "rename-discard-target.txt");
+    await service.discardFile(repositoryDir, "workingTree", targetPath);
+    assert.equal(readFileSync(targetPath, "utf8"), "rename head\n");
+    write("rename-discard-target.txt", "rename staged update\n");
+    await service.stageFiles(repositoryDir, [targetPath]);
+    assert.equal(execFileSync("git", ["show", ":rename-discard-target.txt"], { cwd: repositoryDir, encoding: "utf8" }), "rename staged update\n");
+    git("reset", "--hard", "HEAD");
+    rmSync(targetPath, { force: true });
+  });
+
+  test("treats stage and unstage paths literally", async () => {
+    const service = new GitService();
+    write("literal[ab].txt", "literal head\n");
+    write("literala.txt", "a head\n");
+    write("literalb.txt", "b head\n");
+    git("add", "--", "literal[ab].txt", "literala.txt", "literalb.txt");
+    git("commit", "-m", "literal base");
+    write("literal[ab].txt", "literal changed\n");
+    write("literala.txt", "a changed\n");
+    write("literalb.txt", "b changed\n");
+
+    const literalPath = join(repositoryDir, "literal[ab].txt");
+    await service.stageFiles(repositoryDir, [literalPath]);
+    assert.deepEqual(git("diff", "--cached", "--name-only").split(/\r?\n/).filter(Boolean), ["literal[ab].txt"]);
+    await service.unstageFiles(repositoryDir, [literalPath]);
+    assert.equal(git("diff", "--cached", "--name-only"), "");
+    git("reset", "--hard", "HEAD");
   });
 
   test("resolves refs before git show and rejects option-like input", async () => {

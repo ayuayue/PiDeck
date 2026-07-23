@@ -1,4 +1,4 @@
-import { readdir, unlink, rename as fsRename, rm } from "node:fs/promises";
+import { readdir, unlink, rename as fsRename, rm, mkdir, writeFile } from "node:fs/promises";
 import { join, relative, dirname } from "node:path";
 import type { FileTreeNode } from "../../shared/types";
 
@@ -63,5 +63,16 @@ export class FileSystemService {
     const newPath = join(parent, newName);
     await fsRename(targetPath, newPath);
     return newPath;
+  }
+
+  /** 在指定目录下创建文件或文件夹 */
+  async create(parentDir: string, name: string, type: "file" | "directory"): Promise<string> {
+    const fullPath = join(parentDir, name);
+    if (type === "directory") {
+      await mkdir(fullPath, { recursive: true });
+    } else {
+      await writeFile(fullPath, "", "utf8");
+    }
+    return fullPath;
   }
 }

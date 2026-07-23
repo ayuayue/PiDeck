@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.6.5",
+  "version": "0.6.6-beta.2",
   "description": "PiDeck is an open-source desktop workbench to manage multiple pi AI coding agents across local project folders with session history, Git integration, terminal, and config management.",
   "private": true,
   "license": "MIT",
@@ -54,10 +54,11 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "tsc --noEmit && electron-vite build",
+    "build": "tsc --noEmit --skipLibCheck --incremental && electron-vite build",
+    "build:fast": "electron-vite build",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win nsis portable zip",
+    "dist:win": "node scripts/dist-win.js",
     "dist:mac": "npm run build && electron-builder --mac dmg zip",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "preview": "electron-vite preview",
@@ -66,7 +67,8 @@
     "docs:preview": "vitepress preview docs-site",
     "postinstall": "node scripts/fix-pty-permissions.js",
     "typecheck": "tsc --noEmit",
-    "make-icon": "node scripts/make-icon.js"
+    "make-icon": "node scripts/make-icon.js",
+    "compile-exe": "node scripts/compile-exe.js"
   },
   "dependencies": {
     "@astron-team/skillhub": "^0.1.8",
@@ -74,7 +76,9 @@
     "@larksuiteoapi/node-sdk": "^1.67.0",
     "@radix-ui/react-dialog": "^1.1.19",
     "node-pty": "^1.1.0",
-    "sonner": "^2.0.7"
+    "remove-markdown": "^0.6.4",
+    "sonner": "^2.0.7",
+    "sql.js": "^1.14.1"
   },
   "build": {
     "appId": "com.ayuayue.pi-desktop",

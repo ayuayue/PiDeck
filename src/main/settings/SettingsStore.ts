@@ -38,6 +38,25 @@ const defaultSettings: AppSettings = {
   language: "system",
   piEnvironmentChecked: false,
   enableGitManagement: true,
+  gitCommitMessagePrompt: `请根据以下 git diff 生成一条中文 git commit message。
+
+变更描述：
+{diff}
+
+Gitmoji 对应关系：
+✨ feat - 新功能
+🐛 fix - Bug 修复
+📚 docs - 文档更新
+💎 style - 代码格式
+♻️ refactor - 重构
+🧪 test - 测试
+🔧 chore - 构建/工具
+
+要求：
+1. 使用对应的 Gitmoji 开头
+2. 第一行简要说明修改的模块和做了什么
+3. 后续用 - 列出具体变更点
+4. 直接输出 commit 消息，不要解释`,
   closeToTray: true,
   enableNotifications: true,
   showThinking: readPiAgentShowThinking() ?? true,

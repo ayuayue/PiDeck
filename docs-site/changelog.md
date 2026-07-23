@@ -5,6 +5,25 @@
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.6.6-beta.1
+
+发布时间：2026-07-22
+
+- 🚀 **Git 源代码管理**：VS Code 风格三面板（变更/历史/比较）、AI 提交摘要、Cherry-pick/Revert/Reset/Drop、Graph 可视化、分支切换、Worktree
+- 🚀 **& 会话引用**：键入 & 快速搜索引用同项目会话
+- 🚀 **多 Tab 文件编辑器**：5 个并发 Tab，弹框/侧栏双模式，Diff 对比
+- 🚀 **消息队列**：Agent 忙碌时可排队发送，支持撤回编辑
+- 🚀 **WSL 环境支持**：完整 WSL 隔离、pi 检测、发行版选择
+- 🚀 **内置浏览器**：多标签、全屏、设备预设
+- 🚀 **SkillHub 社区技能商店**
+- ✨ 设置页重构、分区域字体、窗口缩放、VS Code Seti 文件图标
+- ✨ 浮动快捷操作栏（终端/文件/Git/浏览器/草稿本/编辑器）
+- ✨ 会话大纲 + 可拖拽定位
+- 🐛 RichInput 光标漂移彻底修复、Monaco 懒加载
+- 🐛 Git 面板三元表达式修复、AI 提交生成 loading 修复
+- 🐛 大量 WSL、扩展生命周期、字符渲染稳定性修复
+- 🔧 自建 app-notice 替代 sonner toast，包体积优化
+
 ## v0.6.5
 
 发布时间：2026-07-13
@@ -19,7 +38,7 @@
 - ✨ 公共 MonacoEditor 组件、统一图标按钮、统一弹框 1300×850
 - 🐛 Windows 启动崩溃修复（--no-sandbox 禁用沙箱，0x80000003）
 - 🐛 pi 压缩后进程重启断连修复 + Extension RPC 生命周期修复
-- 🐛 兼容分片 `content[].text` 输出，修复部分模型回答被额外换行成“竖排”
+- 🐛 兼容分片 `content[].text` 输出，修复部分模型回答被额外换行成"竖排"
 - 🔧 会话打开性能优化、IPC 传输裁剪、清理调试日志
 
 ## v0.6.4

@@ -379,6 +379,16 @@ export function BrowserPanel(props: {
 				<button className="browser-tab-add" onClick={addTab} title={t("browser.newTab")}>
 					<Plus size={14} />
 				</button>
+				{!props.isFullscreen && (
+					<div className="browser-tabbar-actions">
+						<button className="browser-tabbar-btn" onClick={onToggleFullscreen} title={t("browser.fullscreen")}>
+							<Maximize2 size={13} />
+						</button>
+						<button className="browser-tabbar-btn" onClick={onClose} title={t("common.close")}>
+							<X size={14} />
+						</button>
+					</div>
+				)}
 			</div>
 
 			<div className="browser-toolbar">
@@ -440,11 +450,7 @@ export function BrowserPanel(props: {
 							<X size={15} />
 						</button>
 					</>
-				) : (
-					<button className="browser-nav-btn" onClick={onToggleFullscreen} title={t("browser.fullscreen")}>
-						<Maximize2 size={14} />
-					</button>
-				)}
+				) : null}
 			</div>
 
 			{isLoading && (
@@ -454,7 +460,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups />
+				<webview ref={webviewRef} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={"true" as any} />
 			</div>
 		</div>
 	);

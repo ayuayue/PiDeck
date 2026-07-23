@@ -22,7 +22,6 @@ import {
   ChevronRight,
   ChevronDown,
   Code,
-  Info,
   MessageCircle,
   MessageSquare,
   PanelLeftClose,
@@ -32,9 +31,13 @@ import {
   Plus,
   Trash2,
   Wrench,
+  FileText,
+  ListChecks,
+  Paperclip,
   Minus,
   FolderOpen,
   FolderCog,
+  FolderPlus,
   Globe,
   Pin,
   Pencil,
@@ -46,6 +49,7 @@ import {
   GitGraph,
   Minimize2,
   RefreshCw,
+  HatGlasses,
   X,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
@@ -57,6 +61,7 @@ import { TerminalDock } from "./components/terminal/TerminalDock";
 import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
 import { useFeishuBridge } from "./hooks/useFeishuBridge";
 import { CloseIconButton } from "./components/ui/IconButton";
+import { THINKING_LEVELS } from "./components/app/AppParts";
 import {
   buildComposerPromptSubmission,
   expandPromptTemplates,
@@ -65,11 +70,14 @@ import {
   translateBuiltinPromptDescription,
 } from "./composerBehavior";
 import {
+  getAgentForSessionPath,
   getProjectAgentSessionDisplay,
   isSameSessionPath,
+  isSidebarSessionRowActive,
 } from "./agentListDisplay";
 import { resolveLocale, setI18nLocale, t } from "./i18n";
 import { mergeAgentRuntimeState } from "./utils/agentRuntimeState";
+import { sameSessionSummaryList } from "./utils/sessionSummaryList";
 import {
   acknowledgeUnknownPrompt,
   canDiscardQueuedPrompt,
@@ -99,8 +107,6 @@ import { ScratchPadPanel } from "./components/scratchPad/ScratchPadPanel";
 import { LazyWrapper } from "./hooks/useLazyComponent";
 import {
   AgentContextMenu,
-  BranchSelector,
-  ComposerToolbar,
   CompactionCard,
   ConversationOutline,
   DiagnosticMessageCard,
@@ -129,6 +135,7 @@ import {
   ExtensionWidgetCard,
   MultiSelectModal,
   WorktreeCreateDialog,
+  stripMarkdown,
   type DrawerPanel,
   type SessionModifiedFile,
 } from "./components/app/AppParts";
@@ -155,6 +162,7 @@ import {
 import {
 	getCaretOffset as getCaretOffsetOf,
 	getRichInputCaretCoords,
+	parseRichInputChips,
 	RichInput,
 	type RichInputChip,
 } from "./components/app/RichInput";
@@ -233,10 +241,11 @@ const api =
 const COMPOSER_MIN_HEIGHT = 175;
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const COMPOSER_MIN_TIMELINE_HEIGHT = 160;
-const DRAWER_ANIMATION_MS = 180;
+const DRAWER_ANIMATION_MS = 120;
 const TERMINAL_DOCK_MOTION_MS = 180;
 const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
 const AGENT_CREATE_TIMEOUT_MS = 60_000;
+const SESSION_REFRESH_TIMEOUT_MS = 20_000;
 
 function withTimeout<T>(
   promise: Promise<T>,
@@ -276,6 +285,11 @@ function formatCodexSubagentName(session: SessionSummary) {
     .filter(Boolean)
     .join(" · ");
   return label || session.name || t("app.codexSubagent");
+}
+
+/** pi 原生子会话名称：优先使用会话名，回退到 "子会话" */
+function formatPiSubagentName(session: SessionSummary) {
+  return session.name || t("app.piSubagent");
 }
 
 function isAbsoluteFilePath(path: string) {
@@ -382,6 +396,8 @@ function isReplacementForPendingAgent(agent: AgentTab, pending: PendingAgentTab)
   if (isSameSessionPath(agent.sessionPath, pending.sessionPath)) return true;
   if (pending.sessionPath && agent.createdAt >= pending.createdAt - 1000)
     return true;
+  // noSession 匿名 agent：没有 sessionPath，靠 noSession 标记 + 归属项目匹配
+  if (pending.noSession && agent.noSession) return true;
   return (
     agent.title === pending.title && agent.createdAt >= pending.createdAt - 1000
   );
@@ -390,7 +406,6 @@ function isReplacementForPendingAgent(agent: AgentTab, pending: PendingAgentTab)
 function isPendingAgentId(agentId?: string) {
   return Boolean(agentId?.startsWith("pending-"));
 }
-
 const EDITOR_LOGO_URLS: Record<string, string> = {
   vscode: new URL("./assets/editors/vscode.png", import.meta.url).href,
   cursor: new URL("./assets/editors/cursor.png", import.meta.url).href,
@@ -489,6 +504,8 @@ export function App() {
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
     new Set(),
   );
+  const collapsedProjectsRef = useRef(collapsedProjects);
+  collapsedProjectsRef.current = collapsedProjects;
   const [activeAgentByProject, setActiveAgentByProject] = useState<
     Record<string, string>
   >({});
@@ -500,6 +517,10 @@ export function App() {
   const [sessionsByProject, setSessionsByProject] = useState<
     Record<string, SessionSummary[]>
   >({});
+  /** 会话扫描可能由项目展开、运行态结束和周期同步同时触发；按项目丢弃旧响应，避免慢请求覆盖新子会话。 */
+  const sessionRequestByProjectRef = useRef<Record<string, number>>({});
+  const sessionRefreshRunningRef = useRef<Set<string>>(new Set());
+  const sessionRefreshPendingRef = useRef<Set<string>>(new Set());
   const [sessionLoadingByProject, setSessionLoadingByProject] = useState<
     Record<string, boolean>
   >({});
@@ -537,9 +558,13 @@ export function App() {
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
   );
-  // contentEditable 的实时值不等待大型 App 完成渲染；发送路径始终从这里读取最新草稿。
+  // contentEditable 的实时值通过 livePromptByAgentRef 保持最新，发送路径始终从这里读取草稿。
+  // promptByAgent 仅用于驱动 RichInput 的 chip 渲染（非文本同步），只在 chips 变化时更新。
   const livePromptByAgentRef = useRef<Record<string, string>>({});
-  const [, startPromptTransition] = useTransition();
+  // 仅跟踪输入框中是否有非空白文本（驱动发送按钮状态），避免每键触发全量 App 重渲染。
+  const [hasComposerText, setHasComposerText] = useState(false);
+  // 仅跟踪 ! / !! 前缀变化（驱动 CSS 类和 placeholder），避免每键触发重渲染。
+  const [composerBangMode, setComposerBangMode] = useState<"none" | "bang" | "bang-bang">("none");
   /** 当前正在重启的 Agent，用于仅给对应会话显示 loading，避免切到其他 Agent 后仍被全局禁用。 */
   const [restartingAgentId, setRestartingAgentId] = useState<string | null>(null);
   /** 用户点击 ask_question 取消/abort 后的过渡标记，立即隐藏运行指示器。 */
@@ -547,6 +572,8 @@ export function App() {
   const [attachedImagesByAgent, setAttachedImagesByAgent] = useState<
     Record<string, ImageContent[]>
   >({});
+  const attachedImagesByAgentRef = useRef<Record<string, ImageContent[]>>(attachedImagesByAgent);
+  attachedImagesByAgentRef.current = attachedImagesByAgent;
   const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
   /** 存储用户在 select 弹框自定义输入框中键入的值，用于在后续 input 弹框中自动提交 */
   const pendingCustomInputRef = useRef("");
@@ -611,8 +638,15 @@ export function App() {
   >(() => loadDismissedExtensionWidgets());
   /** 输入框发送模式：normal 直接交给 agent，plan 通过隐藏标记触发 PiDeck Plan Mode 扩展。 */
   const [composerAgentModes, setComposerAgentModes] = useState<Record<string, ComposerAgentMode>>({});
-  /** 当前 agent 的发送模式，按 agentId 隔离。 */
-  const currentComposerAgentMode = composerAgentModes[activeAgentId ?? ""] ?? "normal";
+  /** 查看器模式的发送模式（仅在无 agent 时使用） */
+  // 侧栏选中态：当前活跃 Agent 对应的 session 路径（activeAgent 在后面定义，这里用函数式）
+  const displayedSidebarSessionPath = activeAgentId
+    ? [...agents, ...pendingAgents].find((agent) => agent.id === activeAgentId)?.sessionPath
+    : undefined;
+  const activeAgentComposerMode = activeAgentId
+    ? composerAgentModes[activeAgentId]
+    : undefined;
+  const currentComposerAgentMode = activeAgentComposerMode ?? "normal";
   const setComposerAgentModeForAgent = (agentId: string, mode: ComposerAgentMode) => {
     setComposerAgentModes((prev) => ({ ...prev, [agentId]: mode }));
   };
@@ -729,6 +763,11 @@ export function App() {
     projectId: string;
     session: SessionSummary;
   } | null>(null);
+  /** 侧边栏删除确认：父会话包含子会话时弹窗提醒 */
+  const [sidebarDeleteConfirm, setSidebarDeleteConfirm] = useState<{
+    session: SessionSummary;
+    childCount: number;
+  } | null>(null);
   const [agentRenameValue, setAgentRenameValue] = useState("");
   const [agentRenaming, setAgentRenaming] = useState(false);
   const [projectMenu, setProjectMenu] = useState<{
@@ -756,8 +795,10 @@ export function App() {
   const [sessionSourceFilter, setSessionSourceFilter] = useState<
   	Record<string, Set<"pi" | "codex" | "claude" | "opencode"> | null>
   >(() => loadSessionSourceFilter());
-  const [expandedCodexSubagentGroups, setExpandedCodexSubagentGroups] =
+  /** 侧栏子会话展开状态（统一管理 Codex 子代理和 pi 子会话） */
+  const [expandedSubagentGroups, setExpandedSubagentGroups] =
     useState<Set<string>>(() => new Set());
+
   /** 来源过滤弹窗（关联项目ID和位置） */
   const [sessionFilterOpen, setSessionFilterOpen] = useState<{
   	x: number;
@@ -796,6 +837,35 @@ export function App() {
     /** 仅用于内存淘汰，不改变 tab 的可见排列顺序。 */
     lastAccess: number;
   }
+  interface GitDrawerDiff {
+    projectId: string;
+    filePath: string;
+    originalContent: string;
+    modifiedContent: string;
+    label: string;
+  }
+  const [gitDrawerDiff, setGitDrawerDiff] = useState<GitDrawerDiff | null>(null);
+  /** Git 快照保留在独立状态中，以便弹窗最小化后仍能回到原 Git 抽屉详情。 */
+  const [gitDiffDisplayMode, setGitDiffDisplayMode] = useState<"modal" | "drawer">("drawer");
+  // 同项目内快速连续打开 A/B 文件时，只允许最后一次请求落入预览；关闭详情也会使在途请求失效。
+  const gitDiffRequestSequenceRef = useRef(0);
+  const closeGitDiff = useCallback(() => {
+    gitDiffRequestSequenceRef.current += 1;
+    setGitDrawerDiff(null);
+    setGitDiffDisplayMode("drawer");
+  }, []);
+  const toggleGitDiffDisplayMode = useCallback(() => {
+    if (gitDiffDisplayMode === "drawer") {
+      // 文件预览弹窗只有一个所有者；放大 Git Diff 前先退出普通文件弹窗模式。
+      setEditorMode("drawer");
+      setGitDiffDisplayMode("modal");
+      return;
+    }
+    // 最小化必须真正恢复 Git 抽屉，不能只移除 modal 后把用户留在其他面板。
+    setDrawer("git");
+    setDrawerCollapsed(false);
+    setGitDiffDisplayMode("drawer");
+  }, [gitDiffDisplayMode]);
   const editorTabAccessSequenceRef = useRef(0);
   const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -804,6 +874,13 @@ export function App() {
     () => editorTabs.find((t) => t.id === activeTabId) ?? null,
     [editorTabs, activeTabId],
   );
+  useEffect(() => {
+    // Git Diff 属于项目工作区快照；项目切换后必须释放旧快照，避免右侧栏展示错误项目内容。
+    gitDiffRequestSequenceRef.current += 1;
+    setGitDrawerDiff(null);
+    setGitDiffDisplayMode("drawer");
+  }, [activeProjectId]);
+
   // FileDiffViewer 会在读取函数变化时重载文件；这些 IO 入口必须保持引用稳定，避免 App 轮询/消息更新导致预览滚动回到顶部。
   const readEditorFileContent = useCallback(
     (path: string) => api.files.readContent(path),
@@ -959,13 +1036,22 @@ export function App() {
   const [openCodeImportReport, setOpenCodeImportReport] =
     useState<OpenCodeImportReport | null>(null);
   // showToast 使用 app-notice 统一展示，见下方函数定义
-  // 历史命令相关状态
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  // 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
+  const promptHistoryRef = useRef<Record<string, string[]>>({});
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [historyNavigating, setHistoryNavigating] = useState(false);
   const [savedPrompt, setSavedPrompt] = useState("");
   const [compacting, setCompacting] = useState(false);
   const [drawer, setDrawer] = useState<DrawerPanel | null>(null);
+
+  useEffect(() => {
+    // 详情仍在抽屉模式时，用户切换到其他面板应关闭快照，并且即使内容尚未返回也要废弃在途读取；
+    // modal 模式允许底层面板变化，最小化时会显式恢复 Git 抽屉。
+    if (drawer !== "git" && gitDiffDisplayMode === "drawer") {
+      gitDiffRequestSequenceRef.current += 1;
+      if (gitDrawerDiff) setGitDrawerDiff(null);
+    }
+  }, [drawer, gitDiffDisplayMode, gitDrawerDiff]);
 
   // ── 按项目目录持久化抽屉面板状态和展开目录（localStorage） ──
   // 文件侧边栏属于项目目录，所有在该项目下运行的 agent 共享同一套展开与面板状态。
@@ -1038,6 +1124,8 @@ export function App() {
   }, []);
   const [renderedDrawer, setRenderedDrawer] = useState<DrawerPanel | null>(null);
   const drawerUnmountTimerRef = useRef<number | null>(null);
+  /** 打开文件编辑器前所在的抽屉面板，供返回按钮恢复 */
+  const prevDrawerPanelRef = useRef<DrawerPanel | null>(null);
   // 最后一个 editor tab 被关闭时自动收起 drawer
   useEffect(() => {
     if (editorTabs.length === 0 && drawer === "editor") {
@@ -1069,6 +1157,9 @@ export function App() {
   /** 用 ref 同步 autoScroll，供 ResizeObserver 回调读取最新值，避免响应式时序间隙导致滚动抢跑。 */
   const autoScrollRef = useRef(true);
   autoScrollRef.current = autoScroll;
+  /** 标记当前滚动是否由程序触发（ResizeObserver / scrollToBottom 等），
+   *  用于在 scroll 事件中区分用户手动滚动，防止竞态误关 autoScroll。 */
+  const programmaticScrollRef = useRef(false);
   /** 是否显示"移动到最新"按钮 */
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   /** 会话定位跳转到尚未加载的旧消息时，先扩展分页再在 effect 中滚动定位；此状态保存待跳转的消息 id。 */
@@ -1085,6 +1176,7 @@ export function App() {
     language: "system",
     piEnvironmentChecked: false,
     enableGitManagement: true,
+    gitCommitMessagePrompt: "",
     closeToTray: true,
     enableNotifications: true,
     // showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
@@ -1170,9 +1262,9 @@ export function App() {
   /** 安装是否已成功完成 */
   const [installCompleted, setInstallCompleted] = useState(false);
   const [environmentDialog, setEnvironmentDialog] = useState(false);
-  const DEFAULT_LIST_WIDTH = 260;
+  const DEFAULT_LIST_WIDTH = 221;
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH);
-  const [drawerWidth, setDrawerWidth] = useState(270);
+  const [drawerWidth, setDrawerWidth] = useState(320);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [composerOffsetHeight, setComposerOffsetHeight] = useState(0);
   /** ResizeObserver 驱动布局预算重新计算；ref 尺寸本身变化不会触发 React render。 */
@@ -1318,8 +1410,30 @@ export function App() {
   // displayAgents 的 ref，供只挂载一次的 IPC 监听器读取最新 Agent 列表，避免闭包陈旧
   const displayAgentsRef = useRef(displayAgents);
   displayAgentsRef.current = displayAgents;
-  const activeAgent = displayAgents.find((agent) => agent.id === activeAgentId);
-  const prompt = activeAgentId ? (promptByAgent[activeAgentId] ?? "") : "";
+  // Agent 关闭后清除对应历史命令
+  useEffect(() => {
+    const currentIds = new Set(displayAgents.map(a => a.id));
+    for (const id of Object.keys(promptHistoryRef.current)) {
+      if (!currentIds.has(id)) delete promptHistoryRef.current[id];
+    }
+  }, [displayAgents]);
+  // Agent 切换时重置历史导航状态，避免跨 Agent 泄漏 historyIndex / savedPrompt
+  useEffect(() => {
+    setHistoryIndex(-1);
+    setHistoryNavigating(false);
+    setSavedPrompt("");
+  }, [activeAgentId]);
+  // 查看器已移除：activeAgent 直接从 displayAgents / pendingAgents 取，不再有伪 Agent。
+  const activeAgent = activeAgentId
+    ? [...displayAgents, ...pendingAgents].find((agent) => agent.id === activeAgentId)
+    : undefined;
+  // prompt 文本：优先从 live ref 读取（始终保持最新），promptByAgent 仅在 chips 变化时更新作为兜底。
+  // 不建立 state 依赖——普通按键不会触发 App 重渲染，仅靠 hasComposerContent / composerBangMode
+  // 等布尔状态在真正翻转时驱动 UI 刷新。建议框打开时由 composerCursor 变化驱动重渲染。
+  const promptAgentKey = activeAgentId ?? "";
+  const prompt = promptAgentKey
+    ? (livePromptByAgentRef.current[promptAgentKey] ?? promptByAgent[promptAgentKey] ?? "")
+    : "";
   const attachedImages = activeAgentId
     ? (attachedImagesByAgent[activeAgentId] ?? [])
     : [];
@@ -1333,6 +1447,9 @@ export function App() {
     const nextValue = typeof value === "function" ? value(previous) : value;
     if (nextValue) livePromptByAgentRef.current[targetAgentId] = nextValue;
     else delete livePromptByAgentRef.current[targetAgentId];
+    // 程序化更新（建议选择、历史恢复、发送后清空等）需要同步更新 state
+    // 以触发 RichInput 的 chip 渲染和 useLayoutEffect 受控检查。
+    syncComposerFlags(nextValue);
     setPromptByAgent((current) => {
       if (!nextValue) {
         const next = { ...current };
@@ -1346,10 +1463,36 @@ export function App() {
     });
   }
 
+  /** 同步 hasComposerText / composerBangMode 等布尔状态，仅在值翻转时触发重渲染。 */
+  function syncComposerFlags(text: string) {
+    const hasContent = text.trim().length > 0;
+    setHasComposerText((prev) => (prev !== hasContent ? hasContent : prev));
+    const bangMode: "none" | "bang" | "bang-bang" = text.startsWith("!!")
+      ? "bang-bang"
+      : text.startsWith("!")
+        ? "bang"
+        : "none";
+    setComposerBangMode((prev) => (prev !== bangMode ? bangMode : prev));
+  }
+
   function setPromptFromNativeInput(agentId: string, value: string) {
+    // 同步更新 live ref（发送路径读取）。普通按键不触发 promptByAgent 更新——
+    // RichInput 的 contentEditable 自行管理 DOM，React state 仅用于 chip 重渲染。
     if (value) livePromptByAgentRef.current[agentId] = value;
     else delete livePromptByAgentRef.current[agentId];
-    startPromptTransition(() => {
+
+    // 仅布尔状态翻转时才触发重渲染（有/无内容、!/!! 前缀变化）
+    syncComposerFlags(value);
+
+    // 仅 chips 变化时才更新 promptByAgent（触发 RichInput 的 useMemo chips 重算 + renderDom）
+    const oldValue = promptByAgent[agentId] ?? "";
+    const oldChipsKey = parseRichInputChips(oldValue, validCommandNames, validFilePaths, validSessionRefs)
+      .map((c) => `${c.start}:${c.end}:${c.kind}`)
+      .join(",");
+    const newChipsKey = parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs)
+      .map((c) => `${c.start}:${c.end}:${c.kind}`)
+      .join(",");
+    if (oldChipsKey !== newChipsKey) {
       setPromptByAgent((current) => {
         if (!value) {
           const next = { ...current };
@@ -1358,7 +1501,7 @@ export function App() {
         }
         return { ...current, [agentId]: value };
       });
-    });
+    }
   }
 
   function setPrompt(value: string | ((current: string) => string)) {
@@ -1370,19 +1513,21 @@ export function App() {
     agentId: string,
     value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]),
   ) {
-    setAttachedImagesByAgent((current) => {
-      const previous = current[agentId] ?? [];
-      const nextValue = typeof value === "function" ? value(previous) : value;
-      if (nextValue.length === 0) {
-        const next = { ...current };
-        delete next[agentId];
-        return next;
-      }
-      return {
-        ...current,
-        [agentId]: nextValue,
-      };
-    });
+    const current = attachedImagesByAgentRef.current;
+    const previous = current[agentId] ?? [];
+    const nextValue = typeof value === "function" ? value(previous) : value;
+    const next = { ...current };
+    if (nextValue.length === 0) delete next[agentId];
+    else next[agentId] = nextValue;
+    attachedImagesByAgentRef.current = next;
+    setAttachedImagesByAgent(next);
+  }
+
+  function setAttachedImages(
+    value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]),
+  ) {
+    const targetAgentId = activeAgentIdRef.current;
+    if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
   }
 
   function setAttachedImages(
@@ -1442,12 +1587,21 @@ export function App() {
   const activeMessages = activeAgentId
     ? (messagesByAgent[activeAgentId] ?? [])
     : [];
-  const activeRuntimeState = activeAgentId
+  const agentRuntimeState = activeAgentId
     ? runtimeStateByAgent[activeAgentId]
     : undefined;
-
-  // 消息分页:超过 100 条消息时启用,大幅减少输入卡顿
-  // 首屏 100 条,每次加载 100 条,一页一页懒加载
+  const activeRuntimeState = agentRuntimeState;
+  const activeProjectHasBusyAgent = Boolean(
+    activeProjectId && displayAgents.some((agent) =>
+      agent.projectId === activeProjectId && (
+        agent.status === "starting" ||
+        agent.status === "running" ||
+        runtimeStateByAgent[agent.id]?.isStreaming ||
+        runtimeStateByAgent[agent.id]?.isExecutingTool
+      ),
+    ),
+  );
+  // 历史首屏控制在 50 条，避免打开旧会话时同步解析过多 Markdown/KaTeX。
   const {
     visibleMessages: paginatedMessages,
     hasMore: hasMoreMessages,
@@ -1456,9 +1610,9 @@ export function App() {
     isLoading: isLoadingMoreMessages,
   } = useMessagePagination({
     messages: activeMessages,
-    initialPageSize: 100, // 首屏 100 条
-    pageSize: 100,        // 每次加载 100 条
-    enabled: activeMessages.length > 100, // 超过 100 条才启用
+    initialPageSize: 50,
+    pageSize: 50,
+    enabled: activeMessages.length > 50,
   });
 
   /** 最后一条用户消息的 id，用于决定重发按钮只在最新消息上显示。 */
@@ -1528,7 +1682,7 @@ export function App() {
           text = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
           text = text.replace(/<thinking>[\s\S]*?<\/thinking>/g, "");
           text = text.replace(/<skill\s+name="[^"]*"[^>]*>[\s\S]*?<\/skill>/gi, "");
-          return text.trim();
+          return stripMarkdown(text);
         }).join(separator)
       : selected.map((m) => m.text).join(separator);
 
@@ -1549,15 +1703,15 @@ export function App() {
   const activeUiAsk = useMemo(() => {
     if (!activeUiRequest) return undefined;
     return Object.values(activeUiRequest).find(
-      (req) => !req.completed && ["select", "confirm", "input", "editor"].includes(req.method),
+      (req) => !req.completed && req.agentId === activeAgentId && ["select", "confirm", "input", "editor"].includes(req.method),
     );
-  }, [activeUiRequest]);
+  }, [activeUiRequest, activeAgentId]);
   // dialog 显示条件：仅当有活跃的交互式 UI 请求时
   const showAskDialog = activeUiAsk !== undefined;
   // 用 body class 控制内联 ask 卡片的显示
   useEffect(() => {
-    document.body.classList.toggle("ask-dialog-open", showAskDialog);
-    return () => document.body.classList.remove("ask-dialog-open");
+    document.body.classList.toggle("ask-bar-active", showAskDialog);
+    return () => document.body.classList.remove("ask-bar-active");
   }, [showAskDialog]);
 
   const isAwaitingAssistant = Boolean(
@@ -1618,9 +1772,11 @@ export function App() {
     getComposerMaxHeight(),
     Math.max(composerHeight, composerAutoHeight),
   );
-  const composerMode = prompt.startsWith("!!")
+  // composerMode 基于 composerBangMode（state）而非 prompt（ref），避免每键触发重渲染。
+  // composerBangMode 仅在 ! / !! 前缀真正变化时更新。
+  const composerMode = composerBangMode === "bang-bang"
     ? "silent-shell"
-    : prompt.startsWith("!")
+    : composerBangMode === "bang"
       ? "shell"
       : currentComposerAgentMode === "plan"
         ? "plan"
@@ -1659,7 +1815,7 @@ export function App() {
     }
 
     if (!renderedDrawer) return;
-    // 抽屉收回时保留最后内容，等 transform 动画结束后再卸载；否则文字会先消失，再空壳收回。
+    // 抽屉收回时保留最后内容，等 Grid 列宽过渡结束后再卸载；否则文字会先消失，再空壳收回。
     drawerUnmountTimerRef.current = window.setTimeout(() => {
       setRenderedDrawer(null);
       drawerUnmountTimerRef.current = null;
@@ -1914,16 +2070,6 @@ export function App() {
       }
     });
 
-    // 加载历史命令
-    try {
-      const savedHistory = localStorage.getItem("pideck-command-history");
-      if (savedHistory) {
-        setCommandHistory(JSON.parse(savedHistory));
-      }
-    } catch (error) {
-      console.error("Failed to load command history:", error);
-    }
-
     const offProjects = api.projects.onChanged((next) => {
       setProjects(next);
       if (!activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
@@ -2117,13 +2263,22 @@ export function App() {
           return { ...current, [request.agentId]: agentWidgets };
         });
         // agent 推送了新的 widget 内容，清除该 widget 的关闭标记使其重新显示
+        // 使用与 onClose 一致的 sessionPath 作为 key，避免 key 不匹配导致关闭后无法恢复
+        // ref: https://github.com/ayuayue/PiDeck/issues/73
         if (widgetLines.length > 0) {
+          const dismissedTargetAgent = agentsRef.current.find(
+            (a) => a.id === request.agentId,
+          );
+          const widgetSessionKey = getAgentSessionStorageKey(
+            dismissedTargetAgent,
+            request.agentId,
+          );
           setAgentDismissedWidgets((prev) => {
-            const current = prev[request.agentId];
+            const current = prev[widgetSessionKey];
             if (!current?.includes(widgetKey)) return prev;
             return {
               ...prev,
-              [request.agentId]: current.filter((k) => k !== widgetKey),
+              [widgetSessionKey]: current.filter((k) => k !== widgetKey),
             };
           });
         }
@@ -2256,6 +2411,27 @@ export function App() {
     );
   }, [displayAgents]);
 
+  useEffect(() => {
+    if (!activeProjectId || collapsedProjects.has(activeProjectId)) return;
+    // 进入/退出运行态时都立即扫描一次，保证最终 child session 不因最后一次写入时序而遗漏。
+    let disposed = false;
+    const scheduleRefresh = () => {
+      if (disposed) return;
+      void refreshProjectSessions(activeProjectId, true).catch(() => undefined);
+    };
+    scheduleRefresh();
+    if (!activeProjectHasBusyAgent) {
+      return () => { disposed = true; };
+    }
+
+    // 子会话由扩展直接写盘，运行期间保留低频兜底；工具 start/end 不应重置计时器并触发额外扫描。
+    const timer = window.setInterval(scheduleRefresh, 15_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [activeProjectId, activeProjectHasBusyAgent, collapsedProjects]);
+
   function getComposerMaxHeight() {
     const chatPane = chatPaneRef.current;
     const header = chatHeaderRef.current;
@@ -2337,6 +2513,7 @@ export function App() {
   function scrollToBottom() {
     const timeline = timelineRef.current;
     if (!timeline) return;
+    programmaticScrollRef.current = true;
     timeline.scrollTo({ top: timeline.scrollHeight, behavior: "smooth" });
     setAutoScroll(true);
     autoScrollRef.current = true;
@@ -2457,17 +2634,6 @@ export function App() {
     setSelectedSuggestionIndex(0);
   }, [suggestionItems.length]);
 
-  // 持久化历史命令
-  useEffect(() => {
-    if (commandHistory.length > 0) {
-      try {
-        localStorage.setItem("pideck-command-history", JSON.stringify(commandHistory));
-      } catch (error) {
-        // 容量超限时静默失败
-      }
-    }
-  }, [commandHistory]);
-
   // 持久化会话来源过滤配置
   useEffect(() => {
     try {
@@ -2477,16 +2643,22 @@ export function App() {
     }
   }, [sessionSourceFilter]);
 
-  // 持久化历史命令
+  // 切换 Agent 时重置滚动状态，确保回到该 Agent 时自动滚到底部。
+  // 历史命令已由当前分支按 Agent 隔离，不恢复 dev 旧的全局 commandHistory 持久化。
   useEffect(() => {
-    if (commandHistory.length > 0) {
-      try {
-        localStorage.setItem("pideck-command-history", JSON.stringify(commandHistory));
-      } catch (error) {
-        console.error("Failed to save command history:", error);
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    const frame = requestAnimationFrame(() => {
+      const timeline = timelineRef.current;
+      if (timeline) {
+        programmaticScrollRef.current = true;
+        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
       }
-    }
-  }, [commandHistory]);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeAgentId]);
+
 
   // 切换 Agent 时重置滚动状态，确保回到该 Agent 时自动滚到底部
   useEffect(() => {
@@ -2511,6 +2683,20 @@ export function App() {
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = timeline;
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+
+      // 程序触发的滚动（ResizeObserver / scrollToBottom 等）只允许开启 autoScroll，
+      // 不允许关闭。防止竞态：scrollTo(bottom) 后、scroll 事件触发前，scrollHeight
+      // 可能已大幅变化（思考块折叠、代码块/工具输出出现），导致误判为"用户滚离了底部"。
+      if (programmaticScrollRef.current) {
+        programmaticScrollRef.current = false;
+        if (isAtBottom) {
+          setAutoScroll(true);
+          autoScrollRef.current = true;
+          setShowScrollToBottom(false);
+        }
+        // 非底部也不关 autoScroll — 交给后续事件重新判断。
+        return;
+      }
 
       if (isAtBottom) {
         setAutoScroll(true);
@@ -2548,6 +2734,7 @@ export function App() {
     // 用户已滚到上方（autoScroll=false），但状态更新尚未生效，observer 闭包中的 autoScroll 仍为 true。
     const scrollIfNeeded = () => {
       if (!autoScrollRef.current) return;
+      programmaticScrollRef.current = true;
       timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
     };
     // 重建 observer 时先主动滚一次，处理 autoScroll 从 false→true 但列表高度未变的场景。
@@ -2557,7 +2744,7 @@ export function App() {
     resizeObserver.observe(messageList);
 
     return () => resizeObserver.disconnect();
-  }, [activeAgentId, autoScroll, activeAgent?.status]);
+  }, [activeAgentId, autoScroll, activeAgent?.status, activeMessages.length]);
 
   // 加载更多历史消息后，按顶部锁定的方式恢复滚动位置。
   // 历史消息会插入到 .message-list 顶部，若不补偿新增高度，浏览器保持原 scrollTop 会导致视图跳动，
@@ -2991,28 +3178,61 @@ export function App() {
     setSessions([...next].sort((a, b) => b.updatedAt - a.updatedAt));
   }
 
-  async function refreshProjectSessions(projectId: string) {
-    setSessionLoadingByProject((current) => ({
-      ...current,
-      [projectId]: true,
-    }));
-    try {
-      const next = await api.sessions.list(projectId);
-      const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
-      setSessionsByProject((current) => ({
+  async function refreshProjectSessions(projectId: string, silent = false) {
+    if (sessionRefreshRunningRef.current.has(projectId)) {
+      // 无论来源是周期同步还是用户操作，都必须在当前快照完成后补扫一次。
+      sessionRefreshPendingRef.current.add(projectId);
+      return;
+    }
+    const request = (sessionRequestByProjectRef.current[projectId] ?? 0) + 1;
+    sessionRequestByProjectRef.current[projectId] = request;
+    sessionRefreshRunningRef.current.add(projectId);
+    const loadingStart = Date.now();
+    const MIN_LOADING_MS = 200;
+    if (!silent) {
+      setSessionLoadingByProject((current) => ({
         ...current,
-        [projectId]: sorted,
+        [projectId]: true,
       }));
+      // 让出主线程确保 React 提交 loading 状态到 DOM，避免快速 API 响应导致 loading 状态在同一批中被覆盖
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    try {
+      const next = await withTimeout(
+        api.sessions.list(projectId),
+        SESSION_REFRESH_TIMEOUT_MS,
+        t("app.sessionRefreshTimeout"),
+      );
+      if (sessionRequestByProjectRef.current[projectId] !== request) return next;
+      const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+      setSessionsByProject((current) => {
+        const previous = current[projectId] ?? [];
+        if (sameSessionSummaryList(previous, sorted)) return current;
+        return { ...current, [projectId]: sorted };
+      });
       setVisibleProjectChildCountByProject((current) => ({
         ...current,
         [projectId]: current[projectId] ?? SIDEBAR_PROJECT_CHILD_PAGE_SIZE,
       }));
       return sorted;
     } finally {
-      setSessionLoadingByProject((current) => ({
-        ...current,
-        [projectId]: false,
-      }));
+      if (sessionRequestByProjectRef.current[projectId] === request) {
+        sessionRefreshRunningRef.current.delete(projectId);
+        if (!silent) {
+          const elapsed = Date.now() - loadingStart;
+          if (elapsed < MIN_LOADING_MS) {
+            await new Promise<void>((resolve) => setTimeout(resolve, MIN_LOADING_MS - elapsed));
+          }
+          setSessionLoadingByProject((current) => ({
+            ...current,
+            [projectId]: false,
+          }));
+        }
+        if (sessionRefreshPendingRef.current.delete(projectId)) {
+          // 忙碌期间错过的 tick 只补扫一次，避免并发，同时覆盖“子会话刚好在请求快照后落盘”的边界。
+          void refreshProjectSessions(projectId, true).catch(() => undefined);
+        }
+      }
     }
   }
 
@@ -3049,11 +3269,14 @@ export function App() {
   }
 
   function viewFilePath(path: string) {
+    // HTML/HTM 文件默认在编辑器中打开（与 .md 一致），
+    // 需要预览时通过编辑器工具栏的「浏览器预览」按钮切换到内置浏览器。
     openEditorTab(path, "view");
-    if (editorMode === "drawer") {
-      setDrawer("editor");
-      setDrawerCollapsed(false);
-    }
+    // 始终切换到侧栏模式，确保文件预览在抽屉中渲染
+    setEditorMode("drawer");
+    prevDrawerPanelRef.current = drawer;
+    setDrawer("editor");
+    setDrawerCollapsed(false);
   }
 
   function diffFilePath(path: string, originalContent?: string, content?: string) {
@@ -3062,7 +3285,8 @@ export function App() {
     const modified = modifiedFiles.find((f) => f.path === path);
     const resolvedOriginal = originalContent ?? modified?.originalContent ?? "";
     const resolvedModified = content ?? modified?.content ?? undefined;
-    // 工具 diff 以弹框打开（其后可最小化到侧栏）
+    // 工具 diff 与 Git diff 共享弹窗层；打开普通 diff 时先关闭 Git 快照，避免两个 backdrop 叠加。
+    closeGitDiff();
     setEditorMode("modal");
     setDrawer(null);
     openEditorTab(path, "diff", resolvedOriginal, resolvedModified);
@@ -3071,9 +3295,10 @@ export function App() {
   async function openWorkspaceFileDiff(group: GitResourceGroupType, path: string) {
     if (!activeProjectId) return;
     const projectId = activeProjectId;
+    const request = ++gitDiffRequestSequenceRef.current;
     try {
       const diff = await api.git.workspaceFileDiff(projectId, group, path);
-      if (activeProjectIdRef.current !== projectId) return;
+      if (activeProjectIdRef.current !== projectId || request !== gitDiffRequestSequenceRef.current) return;
       if (!diff) {
         showToast(t("git.workspaceDiffUnavailable"));
         return;
@@ -3083,20 +3308,19 @@ export function App() {
         : group === "merge"
           ? t("git.mergeChanges")
           : t("git.changes");
-      // Git SCM 的工作区/暂存区快照均按只读 Diff 展示；内容仅在点击时读取，关闭弹窗即释放 tab 引用。
-      setEditorMode("modal");
-      openEditorTab(
-        diff.path,
-        "diff",
-        diff.originalContent,
-        diff.modifiedContent,
-        false,
-        `workspace:${projectId}:${group}:${diff.path}`,
-        `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${groupLabel})`,
-        true,
-      );
+      // Git SCM 快照先在当前 Git 抽屉内展示；用户可通过公共 FileDiffViewer 放大到弹窗，
+      // 同时保持 GitPanel 挂载，避免丢失 pane、滚动和 Graph 状态。
+      setEditorMode("drawer");
+      setGitDiffDisplayMode("drawer");
+      setGitDrawerDiff({
+        projectId,
+        filePath: diff.path,
+        originalContent: diff.originalContent,
+        modifiedContent: diff.modifiedContent,
+        label: `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${groupLabel})`,
+      });
     } catch (error) {
-      if (activeProjectIdRef.current === projectId) {
+      if (activeProjectIdRef.current === projectId && request === gitDiffRequestSequenceRef.current) {
         showToast(error instanceof Error ? error.message : String(error));
       }
     }
@@ -3105,6 +3329,7 @@ export function App() {
   async function openCommitFileDiff(commit: CommitEntry, file: GitChangedFile) {
     if (!activeProjectId) return;
     const projectId = activeProjectId;
+    const request = ++gitDiffRequestSequenceRef.current;
     try {
       const diff = await api.git.commitFileDiff(
         projectId,
@@ -3112,26 +3337,24 @@ export function App() {
         file.path,
         file.originalPath,
       );
-      // 用户等待 Git 读取期间可能已切换项目；旧项目结果不能覆盖当前编辑器上下文。
-      if (activeProjectIdRef.current !== projectId) return;
+      // 用户等待 Git 读取期间可能已切换项目或点击了另一个文件；旧结果不能覆盖当前预览。
+      if (activeProjectIdRef.current !== projectId || request !== gitDiffRequestSequenceRef.current) return;
       if (!diff) {
         showToast(t("git.fileDiffUnavailable"));
         return;
       }
-      // 历史快照复用只读 Monaco Diff Viewer；保留 Git drawer 挂载以维持 pane、展开与滚动状态。
-      setEditorMode("modal");
-      openEditorTab(
-        diff.path,
-        "diff",
-        diff.originalContent,
-        diff.modifiedContent,
-        false,
-        `${commit.hash}:${diff.path}`,
-        `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${commit.shortHash})`,
-        true,
-      );
+      // 历史快照同样先在 Git 抽屉内只读展示；放大后仍保留这份快照供最小化恢复。
+      setEditorMode("drawer");
+      setGitDiffDisplayMode("drawer");
+      setGitDrawerDiff({
+        projectId,
+        filePath: diff.path,
+        originalContent: diff.originalContent,
+        modifiedContent: diff.modifiedContent,
+        label: `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${commit.shortHash})`,
+      });
     } catch (error) {
-      if (activeProjectIdRef.current === projectId) {
+      if (activeProjectIdRef.current === projectId && request === gitDiffRequestSequenceRef.current) {
         showToast(error instanceof Error ? error.message : String(error));
       }
     }
@@ -3286,11 +3509,19 @@ export function App() {
     session: SessionSummary,
   ) {
     setSessionMenu(null);
-    return createAgent(
-      projectId,
+    const existingAgent = getAgentForSessionPath(
+      displayAgents.filter((agent) => agent.projectId === projectId),
       session.filePath,
-      session.name || t("common.untitled"),
     );
+    if (existingAgent) {
+      // 已启动的子会话仍复用父会话下的原行；点击它应直接切回 Agent，不能再退回 Viewer 后重复走启动交接。
+      setActiveProjectId(projectId);
+      setActiveAgentId(existingAgent.id);
+      setAutoScroll(true);
+      autoScrollRef.current = true;
+      return;
+    }
+    return createAgent(projectId, session.filePath, session.name);
   }
 
   async function copySidebarSession(
@@ -3701,6 +3932,7 @@ export function App() {
     projectId = activeProjectId,
     sessionPath?: string,
     title?: string,
+    noSession?: boolean,
   ): Promise<AgentTab | undefined> {
     if (!projectId) return;
     const project = projects.find((item) => item.id === projectId);
@@ -3724,9 +3956,10 @@ export function App() {
       id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       projectId,
       cwd: project.path,
-      title: title || `${project.name} agent`,
+      title: noSession ? title || t("app.anonymousChatTitle", { name: project.name }) : (title || `${project.name} agent`),
       status: "starting",
       sessionPath,
+      noSession,
       createdAt: Date.now(),
     };
     pendingAgentsRef.current = [...pendingAgentsRef.current, pendingTab];
@@ -3737,19 +3970,38 @@ export function App() {
       ...current,
       [projectId]: pendingTab.id,
     }));
-    void api.app.rendererLog("info", "renderer", "Agent create requested", {
-      projectId,
-      sessionPath,
-      title,
-      pendingAgentId: pendingTab.id,
-    });
+    if (noSession) {
+      void api.app.rendererLog("info", "renderer", "Anonymous agent create requested", {
+        projectId,
+        pendingAgentId: pendingTab.id,
+      });
+    } else {
+      void api.app.rendererLog("info", "renderer", "Agent create requested", {
+        projectId,
+        sessionPath,
+        title,
+        pendingAgentId: pendingTab.id,
+      });
+    }
     // 创建 agent 时不改变抽屉状态，避免打断用户已有的文件浏览。
     try {
       const tab = await withTimeout<AgentTab>(
-        api.agents.create({ projectId, sessionPath, title }),
+        api.agents.create({ projectId, sessionPath, title, noSession }),
         AGENT_CREATE_TIMEOUT_MS,
         t("app.agentCreateTimeout"),
       );
+      // 立即将 tab 加入 agents，避免等待 IPC agents:state 事件导致 UI 闪烁。
+      // 如果 agent 已存在（onState 先行到达），也要覆盖其 status 等信息，
+      // 否则可能卡在 "starting" 不更新。
+      setAgents((current) => {
+        const index = current.findIndex((a) => a.id === tab.id);
+        if (index >= 0) {
+          const next = [...current];
+          next[index] = tab;
+          return next;
+        }
+        return [...current, tab];
+      });
       pendingAgentsRef.current = pendingAgentsRef.current.filter(
         (agent) => agent.id !== pendingTab.id,
       );
@@ -3823,10 +4075,9 @@ export function App() {
   }
 
   function applyAgentRuntimeState(agentId: string, incoming: AgentRuntimeState) {
-    const nextState = mergeAgentRuntimeState(
-      runtimeStateByAgentRef.current[agentId],
-      incoming,
-    );
+    const currentState = runtimeStateByAgentRef.current[agentId];
+    const nextState = mergeAgentRuntimeState(currentState, incoming);
+    if (nextState === currentState) return nextState;
     runtimeStateByAgentRef.current = {
       ...runtimeStateByAgentRef.current,
       [agentId]: nextState,
@@ -3883,15 +4134,31 @@ export function App() {
   	};
   }
 
+  // 无 agent 时模型列表缓存，避免每次打开模型选择器都 fork pi --list-models
+  const cachedModelsRef = useRef<AvailableModel[] | null>(null);
+
   async function openModelPicker() {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
-    const models = await api.agents.availableModels(activeAgentId);
+    // 有 agent → 走 RPC 路径获取可用模型
+    if (activeAgentId && !isPendingAgentId(activeAgentId)) {
+      const models = await api.agents.availableModels(activeAgentId);
+      setAvailableModels(models);
+      setModelPickerOpen(true);
+      return;
+    }
+    // 无 agent → 优先用缓存，否则走 pi --list-models
+    if (cachedModelsRef.current) {
+      setAvailableModels(cachedModelsRef.current);
+      setModelPickerOpen(true);
+      return;
+    }
+    const models = await api.projects.listModels(activeProjectId);
+    cachedModelsRef.current = models;
     setAvailableModels(models);
     setModelPickerOpen(true);
   }
 
   async function openPromptTemplatePicker() {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
+    // prompt 模板读取的是文件系统，不需要 agent RPC
     const allTemplates: typeof promptTemplateList = [];
     try {
       const globalResult = await api.prompts.list();
@@ -3938,13 +4205,17 @@ export function App() {
   }
 
   async function selectModel(model: AvailableModel) {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
-    const state = await api.agents.setModel(
-      activeAgentId,
-      model.provider,
-      model.id,
-    );
-    applyAgentRuntimeState(activeAgentId, state);
+    // 有 agent → RPC 立即生效
+    if (activeAgentId && !isPendingAgentId(activeAgentId)) {
+      const state = await api.agents.setModel(
+        activeAgentId,
+        model.provider,
+        model.id,
+      );
+      applyAgentRuntimeState(activeAgentId, state);
+      setModelPickerOpen(false);
+      return;
+    }
     setModelPickerOpen(false);
     showToast(t("app.modelSwitched", { name: model.name ?? model.id }), 2000);
   }
@@ -3971,36 +4242,38 @@ export function App() {
   }
 
   async function selectThinking(level: string) {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
-    try {
-      // 使用 setThinking 明确落到用户选择的档位,避免 cycle 模式需要反复点击才能到目标级别。
-      const state = await api.agents.setThinking(activeAgentId, level);
-      applyAgentRuntimeState(activeAgentId, state);
-      setThinkingPickerOpen(false);
-      // pi runtime 会按模型能力 clamp thinking level;对比实际状态,避免用户误以为已运行在不支持的档位。
-      if (state.thinkingLevel && state.thinkingLevel !== level) {
+    // 有 agent → RPC 立即生效
+    if (activeAgentId && !isPendingAgentId(activeAgentId)) {
+      try {
+        const state = await api.agents.setThinking(activeAgentId, level);
+        applyAgentRuntimeState(activeAgentId, state);
+        setThinkingPickerOpen(false);
+        if (state.thinkingLevel && state.thinkingLevel !== level) {
+          showToast(
+            t("app.thinkingUnsupported", {
+              level,
+              fallback: state.thinkingLevel,
+            }),
+          );
+        }
+      } catch (error) {
         showToast(
-          t("app.thinkingUnsupported", {
-            level,
-            fallback: state.thinkingLevel,
-          }),
-        );
-      }
-    } catch (error) {
-      showToast(
-        t("app.thinkingSwitchFailed", {
+          t("app.thinkingSwitchFailed", {
           error: error instanceof Error ? error.message : String(error),
         }),
       );
     }
+    } else {
+      setThinkingPickerOpen(false);
+    }
   }
 
-  async function compactAgent(compactPrompt?: string) {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
+  async function compactAgent(compactPrompt?: string, agentId = activeAgentId) {
+    if (!agentId || isPendingAgentId(agentId)) return;
     setCompacting(true);
     try {
-      const state = await api.agents.compact(activeAgentId, compactPrompt);
-      applyAgentRuntimeState(activeAgentId, state);
+      const state = await api.agents.compact(agentId, compactPrompt);
+      applyAgentRuntimeState(agentId, state);
       showToast(t("app.compactDone"));
     } catch (e) {
       showToast(t("app.compactFailed"));
@@ -4332,7 +4605,10 @@ export function App() {
     const textAfterCursor = prompt.substring(cursorPos);
     const isLastLine = !textAfterCursor.includes('\n');
 
-    if (event.key === "ArrowUp" && isFirstLine && commandHistory.length > 0) {
+    // 当前 Agent 的历史记录
+    const agentHistory = promptHistoryRef.current[activeAgentIdRef.current ?? ''] ?? [];
+
+    if (event.key === "ArrowUp" && isFirstLine && agentHistory.length > 0) {
       event.preventDefault();
 
       // 首次导航时保存当前输入
@@ -4341,13 +4617,13 @@ export function App() {
         setHistoryNavigating(true);
         const newIndex = 0;
         setHistoryIndex(newIndex);
-        setPrompt(commandHistory[newIndex]);
+        setPrompt(agentHistory[newIndex]);
       } else {
         // 继续向上导航
-        const newIndex = Math.min(historyIndex + 1, commandHistory.length - 1);
+        const newIndex = Math.min(historyIndex + 1, agentHistory.length - 1);
         if (newIndex !== historyIndex) {
           setHistoryIndex(newIndex);
-          setPrompt(commandHistory[newIndex]);
+          setPrompt(agentHistory[newIndex]);
         }
       }
       return;
@@ -4359,8 +4635,15 @@ export function App() {
       if (historyIndex > 0) {
         // 向下导航
         const newIndex = historyIndex - 1;
+        // 防御：如果新索引越界（Agent 切换后历史更短），安全退出导航模式
+        if (newIndex >= agentHistory.length) {
+          setHistoryIndex(-1);
+          setHistoryNavigating(false);
+          setSavedPrompt("");
+          return;
+        }
         setHistoryIndex(newIndex);
-        setPrompt(commandHistory[newIndex]);
+        setPrompt(agentHistory[newIndex]);
       } else {
         // 回到最初输入的内容
         setHistoryIndex(-1);
@@ -4399,14 +4682,15 @@ export function App() {
     }
   }
 
-  /** 判断 agent 是否处于忙碌状态(正在处理消息或流式输出中) */
   const isAgentStarting = activeAgent?.status === "starting";
   const composerDisabled = !activeAgent || isAgentStarting;
   const isAgentBusy = Boolean(
     activeAgent &&
     (activeAgent.status === "running" || activeRuntimeState?.isStreaming),
   );
-  const hasComposerContent = Boolean(prompt.trim() || attachedImages.length > 0);
+  // hasComposerContent 合并文本状态（hasComposerText，仅在空↔非空翻转时触发重渲染）
+  // 与图片附件；images 本身已是 state 变化即触发重渲染。
+  const hasComposerContent = hasComposerText || attachedImages.length > 0;
   const keepBusyDraftControls = Boolean(
     activeAgentId && hasComposerContent && busyDraftByAgent[activeAgentId],
   );
@@ -4509,22 +4793,32 @@ export function App() {
     }, 160);
   }
 
-  /** 解析消息中的 & 会话引用，将 chip 替换为引用上下文 */
-  async function sendPrompt() {
-    const targetAgentId = activeAgentId;
-    const livePrompt = targetAgentId
+  async function sendPrompt(override?: {
+    agentId: string;
+    message: string;
+    images: ImageContent[];
+    agentMode: ComposerAgentMode;
+  }) {
+    const targetAgentId = override?.agentId ?? activeAgentId;
+    // 发送前从 DOM 直读文本，避免 contentEditable 的 IME 组合期间 handleInput 被锁导致 ref 落后于 DOM
+    if (!override && targetAgentId) {
+      const domText = (composerTextareaRef.current?.textContent ?? "").replace(/\u200B/g, "");
+      if (domText) livePromptByAgentRef.current[targetAgentId] = domText;
+    }
+    const livePrompt = override?.message ?? (targetAgentId
       ? (livePromptByAgentRef.current[targetAgentId] ?? prompt)
-      : prompt;
+      : prompt);
+    const attachedImagesSnapshot = override?.images ?? attachedImages;
+    const agentMode = override?.agentMode ?? currentComposerAgentMode;
     if (
-      isAgentStarting ||
+      (!override && isAgentStarting) ||
       !targetAgentId ||
-      (!livePrompt.trim() && attachedImages.length === 0)
+      (!livePrompt.trim() && attachedImagesSnapshot.length === 0)
     )
       return;
     const message = livePrompt;
-    // 在任何 await 之前清掉实时草稿，防止双击/Enter 连发读取同一份消息。
-    delete livePromptByAgentRef.current[targetAgentId];
-    const images = attachedImages.length > 0 ? attachedImages : undefined;
+    if (!override) delete livePromptByAgentRef.current[targetAgentId];
+    const images = attachedImagesSnapshot.length > 0 ? attachedImagesSnapshot : undefined;
 
     const trimmedMessage = message.trim();
 
@@ -4534,21 +4828,19 @@ export function App() {
     if (/^\/compact(?:\s|$)/.test(trimmedMessage)) {
       const compactPrompt = trimmedMessage.replace(/^\/compact\s*/, "").trim();
       // /compact 是桌面端内置控制命令，必须走 RPC compact 通道；否则会被当作普通消息发送给 agent。
-      setPrompt("");
+      setPromptForAgent(targetAgentId, "");
+      setAttachedImagesForAgent(targetAgentId, []);
       setSuggestionsOpen(false);
-      await compactAgent(compactPrompt || undefined);
+      await compactAgent(compactPrompt || undefined, targetAgentId);
       return;
     }
 
-    // 保存到历史记录(只保存非空的文本命令)
+    // 保存到当前 Agent 的历史记录（不持久化，Agent 关闭即清除）
     if (message.trim() && !message.startsWith("!")) {
-      setCommandHistory((prev) => {
-        // 避免重复保存相同的命令
-        const filtered = prev.filter(cmd => cmd !== message.trim());
-        // 保留最近 50 条
-        const newHistory = [message.trim(), ...filtered].slice(0, 50);
-        return newHistory;
-      });
+      const agentId = targetAgentId;
+      const prev = promptHistoryRef.current[agentId] ?? [];
+      const filtered = prev.filter(cmd => cmd !== message.trim());
+      promptHistoryRef.current[agentId] = [message.trim(), ...filtered].slice(0, 50);
     }
 
     // 重置历史导航状态
@@ -4561,8 +4853,11 @@ export function App() {
     // 不论之前是否滚动回看，发新消息都强制自动滚到底，确保能看到 agent 的回答。
     setAutoScroll(true);
     autoScrollRef.current = true;
-    setPrompt("");
-    setAttachedImages([]);
+    // Viewer 首条是独立快照，不消费恢复期间新写入真实 Agent 的第二条草稿。
+    if (!override) {
+      setPromptForAgent(targetAgentId, "");
+      setAttachedImagesForAgent(targetAgentId, []);
+    }
     setBusyDraftByAgent((current) => {
       if (!current[targetAgentId]) return current;
       const next = { ...current };
@@ -4589,7 +4884,7 @@ export function App() {
       displayText: message,
       images,
       behavior: "steer",
-      agentMode: currentComposerAgentMode,
+      agentMode,
       templateDescription,
       timestamp: Date.now(),
 
@@ -4612,7 +4907,7 @@ export function App() {
       expandedMessage,
       images,
       undefined,
-      currentComposerAgentMode,
+      agentMode,
       templateDescription,
     );
     if (accepted === "unknown") {
@@ -4623,7 +4918,7 @@ export function App() {
       return;
     }
     if (!accepted) {
-      livePromptByAgentRef.current[targetAgentId] = message;
+      // 首条失败时恢复到第二条草稿之前；不要预写 live ref，否则会重复拼接。
       setPromptForAgent(targetAgentId, (current) =>
         [message, current].filter((text) => text.trim()).join("\n\n"),
       );
@@ -4637,6 +4932,7 @@ export function App() {
     requestAnimationFrame(() => {
       const el = timelineRef.current;
       if (el && autoScrollRef.current) {
+        programmaticScrollRef.current = true;
         el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
       }
     });
@@ -4659,10 +4955,21 @@ export function App() {
     const images = attachedImages.length > 0 ? attachedImages : undefined;
     setAutoScroll(true);
     autoScrollRef.current = true;
+    programmaticScrollRef.current = true;
     const scrollTimeline = timelineRef.current;
     if (scrollTimeline) scrollTimeline.scrollTo({ top: scrollTimeline.scrollHeight, behavior: "instant" });
     setPrompt("");
     setAttachedImages([]);
+    // 保存到当前 Agent 的历史记录（与 sendPrompt 保持一致）
+    if (message.trim() && !message.startsWith("!")) {
+      const prev = promptHistoryRef.current[targetAgentId] ?? [];
+      const filtered = prev.filter(cmd => cmd !== message.trim());
+      promptHistoryRef.current[targetAgentId] = [message.trim(), ...filtered].slice(0, 50);
+    }
+    // 重置历史导航状态
+    setHistoryIndex(-1);
+    setHistoryNavigating(false);
+    setSavedPrompt("");
     setBusyDraftByAgent((current) => {
       if (!current[targetAgentId]) return current;
       const next = { ...current };
@@ -4726,6 +5033,7 @@ export function App() {
       if (!list) return;
       const observer = new MutationObserver(() => {
         if (!autoScrollRef.current) return;
+        programmaticScrollRef.current = true;
         timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
       });
       observer.observe(list, { childList: true, subtree: false });
@@ -4995,6 +5303,41 @@ export function App() {
     setAttachedImages([]);
   }
 
+  /**
+   * 打开系统原生文件/文件夹选择器，将选中路径以 @path 引用格式插入到消息中。
+   * 仅引用路径，不读取/上传文件内容。
+   */
+  async function handleAttachFile() {
+    try {
+      const paths = await window.piDesktop.dialog.pickFiles({
+        title: t("app.attachFile"),
+      });
+      if (paths.length === 0) return;
+      const el = composerTextareaRef.current;
+      const cursor = el ? getCaretOffsetOf(el) : composerCursor;
+      const liveComposerPrompt = activeAgentIdRef.current
+        ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
+        : prompt;
+      // 将选中的路径拼接为引用文本，每个路径一行
+      const refText = paths.map((p) => `@${p}`).join(" ");
+      const spacer = cursor > 0 && liveComposerPrompt[cursor - 1] !== " " && liveComposerPrompt[cursor - 1] !== "\n" ? " " : "";
+      const newText =
+        liveComposerPrompt.slice(0, cursor) +
+        spacer +
+        refText +
+        liveComposerPrompt.slice(cursor);
+      const newCursor = cursor + spacer.length + refText.length;
+      setPrompt(newText);
+      setComposerCursor(newCursor);
+      pendingComposerCaretRef.current = newCursor;
+      requestAnimationFrame(() => {
+        composerTextareaRef.current?.focus();
+      });
+    } catch {
+      // 用户取消或出错时不作处理
+    }
+  }
+
   async function updateSettings(patch: Partial<AppSettings>) {
     const changesWebService =
       "webServiceEnabled" in patch ||
@@ -5220,6 +5563,7 @@ export function App() {
   function openDrawer(panel: DrawerPanel) {
     if (panel === "git" && !settings.enableGitManagement) return;
     if (drawerPinned && panel !== drawerPinnedPanel) return;
+    if (panel !== "git") setGitDrawerDiff(null);
     if (panel === "sessions" && activeProjectId) {
       setSessionsProjectId(activeProjectId);
       void refreshSessions(activeProjectId);
@@ -5239,6 +5583,7 @@ export function App() {
   function closeDrawer() {
     if (drawerPinned) return;
     if (activeProjectId) saveDrawerState(activeProjectId, null, false);
+    setGitDrawerDiff(null);
     setDrawer(null);
   }
 
@@ -5277,6 +5622,22 @@ export function App() {
     setExpandedDirs(collapsedDirs);
     // 全部收起同样持久化，避免用户切换项目后又恢复此前展开的目录。
     if (activeProjectId) saveExpandedDirs(activeProjectId, collapsedDirs);
+  }
+
+  function expandAllDirectories() {
+    // 收集当前文件树中的所有目录路径并全部展开，方便用户快速浏览完整结构。
+    const allDirs = new Set<string>();
+    const collectDirs = (nodes: FileTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.type === "directory") {
+          allDirs.add(node.path);
+          if (node.children) collectDirs(node.children);
+        }
+      }
+    };
+    collectDirs(files);
+    setExpandedDirs(allDirs);
+    if (activeProjectId) saveExpandedDirs(activeProjectId, allDirs);
   }
 
   function startResize(target: "list" | "drawer", event: PointerEvent) {
@@ -5372,6 +5733,13 @@ export function App() {
     }
   }
 
+  const handlePreviewHtml = (filePath: string) => {
+    const url = new URL('file:///' + filePath.split('\\').join('/')).toString();
+    navigateTo(url);
+    setDrawer('browser');
+    setDrawerCollapsed(false);
+  };
+
   return (
     <div
       className={[
@@ -5390,9 +5758,9 @@ export function App() {
           "--list-width": `${listCollapsed ? 0 : listWidth}px`,
           "--list-expanded-width": `${listWidth}px`,
           "--list-hover-width": `${Math.max(190, listWidth)}px`,
-          // 短布局过渡在面板滑动时同步收缩；内容仍由 renderedDrawer 保留到退出结束。
+          // Grid 列宽过渡期间保留内容；退出结束后再由 renderedDrawer 卸载。
           "--drawer-width": `${drawer && !drawerCollapsed ? drawerWidth : 0}px`,
-          "--drawer-col-w": `${drawer && !drawerCollapsed ? 260 : 0}px`,
+          "--drawer-col-w": `${drawer && !drawerCollapsed ? drawerWidth : 0}px`,
           "--drawer-splitter-w": `${drawer && !drawerCollapsed ? 6 : 0}px`,
         } as React.CSSProperties
       }
@@ -5485,8 +5853,8 @@ export function App() {
               placeholder={t("app.search")}
             />
           </div>
-          <button className="round-add" onClick={addProject}>
-            <Plus size={18} />
+          <button className="round-add" onClick={addProject} title={t("app.addProject")}>
+            <FolderPlus size={18} />
           </button>
         </div>
 
@@ -5498,6 +5866,9 @@ export function App() {
               : displayProjectDirectoryName(project);
             const canDragProject = canReorderProjects && !projectIsChat;
             const projectAgents = filteredAgents.filter(
+              (agent) => agent.projectId === project.id,
+            );
+            const allProjectAgents = displayAgents.filter(
               (agent) => agent.projectId === project.id,
             );
             const projectSearch = search.trim();
@@ -5531,13 +5902,12 @@ export function App() {
             const isDraggingProject = draggingProjectId === project.id;
             const isProjectDropTarget = dragOverProjectId === project.id;
             const projectRowClass = [
-              project.id === activeProjectId && !activeAgentId
-                ? "conversation active"
-                : "conversation",
+              "conversation",
               canDragProject ? "project-draggable" : "",
               projectIsChat ? "chat-project" : "",
               isDraggingProject ? "dragging" : "",
               isProjectDropTarget ? "drag-over" : "",
+              projectSessionsLoading ? "project-loading" : "",
             ]
               .filter(Boolean)
               .join(" ");
@@ -5566,27 +5936,30 @@ export function App() {
                       project,
                     });
                   }}
-                  onClick={() => {
+                  onClick={(event) => {
                     if (projectDragPreventClickRef.current) return;
-                    // 项目节点现在同时承载运行中的 Agent 和历史会话;有任一子项时点击项目行切换展开状态。
-                    const wasCollapsed = collapsedProjects.has(project.id);
-                    const willBeExpanded = wasCollapsed; // 如果之前折叠,点击后会展开
+                    // 项目点击脉冲动画：给按钮临时加动画 class，提供即时视觉反馈
+                    const el = event.currentTarget;
+                    el.classList.add('click-animating');
+                    setTimeout(() => el.classList.remove('click-animating'), 400);
 
-                    if (hasProjectChildren) {
+                    // 点击项目行：切换展开/折叠状态
+                    const hasLoadedSessions = (sessionsByProject[project.id]?.length ?? 0) > 0;
+                    // 首次点击尚未加载会话 → 始终展开 + 加载；加载过之后点击 → 正常切换
+                    if (!hasLoadedSessions && !projectIsChat) {
+                      setCollapsedProjects((prev) => {
+                        const next = new Set(prev);
+                        next.delete(project.id);
+                        return next;
+                      });
+                      void refreshProjectSessions(project.id).catch(() => undefined);
+                    } else {
                       setCollapsedProjects((prev) => {
                         const next = new Set(prev);
                         if (next.has(project.id)) next.delete(project.id);
                         else next.add(project.id);
                         return next;
                       });
-                    }
-
-                    // 展开项目时加载会话(如果之前未加载过)
-                    if (willBeExpanded && !projectIsChat) {
-                      const hasLoadedSessions = sessionsByProject[project.id]?.length > 0;
-                      if (!hasLoadedSessions) {
-                        void refreshProjectSessions(project.id).catch(() => undefined);
-                      }
                     }
 
                     setActiveProjectId(project.id);
@@ -5600,6 +5973,16 @@ export function App() {
                         ? t("app.projectExpand")
                         : t("app.projectCollapse")
                     }
+                    onClick={(e) => {
+                      // 点击折叠图标仅切换折叠状态，不加载会话
+                      e.stopPropagation();
+                      setCollapsedProjects((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(project.id)) next.delete(project.id);
+                        else next.add(project.id);
+                        return next;
+                      });
+                    }}
                   >
                     <Play size={12} />
                   </span>
@@ -5612,6 +5995,9 @@ export function App() {
                       <strong title={project.path}>
                         {projectDirectoryName}
                       </strong>
+                      {projectSessionsLoading && (
+                        <span className="conversation-loading" />
+                      )}
                       {(sessionSourceFilter[project.id] ?? null) !== null && (
                         <Filter
                           size={12}
@@ -5662,12 +6048,22 @@ export function App() {
                     >
                       <Plus size={14} />
                     </span>
+                    <span
+                      className="project-action"
+                      title={t("app.anonymousChat")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void createAgent(project.id, undefined, undefined, true);
+                      }}
+                    >
+                      <HatGlasses size={14} />
+                    </span>
                   </span>
                 </button>
                 {!isCollapsed && project.worktreeEnabled && (
                   <div className="worktree-children worktree-main-header-only">
                     <button
-                      className={`conversation worktree-workspace-header${project.id === activeProjectId && !activeAgentId ? " active" : ""}`}
+                      className="conversation worktree-workspace-header"
                       // 点击主工作区 header 等同于选中父项目本身：激活主项目并加载其会话，
                       // 避免与点击父项目行产生行为分歧导致用户迷惑。
                       onClick={() => {
@@ -5695,69 +6091,116 @@ export function App() {
                 )}
                 {!isCollapsed &&
                   (projectDisplay.visibleChildren.length > 0 ||
-                    projectSessionsLoading ||
                     projectDisplay.hiddenChildCount > 0) && (
                   <div className="session-card">
                     {projectDisplay.visibleChildren.map((child) => {
                     const subagentGroupKey = `${project.id}:${child.key}`;
-                    const subagentsExpanded = expandedCodexSubagentGroups.has(subagentGroupKey);
-                    const renderCodexSubagents = (subagents: SessionSummary[]) => {
-                      if (subagents.length === 0) return null;
+                    const subagentsExpanded = expandedSubagentGroups.has(subagentGroupKey);
+                    const totalSubagentCount = (child.codexSubagents?.length ?? 0) + (child.piSubagents?.length ?? 0);
+                    const renderSubagentRow = (
+                      subagent: SessionSummary,
+                      label: ReactNode,
+                    ) => {
+                      const subagentAgent = getAgentForSessionPath(
+                        allProjectAgents,
+                        subagent.filePath,
+                      );
                       return (
-                        <div className="codex-subagent-sidebar-group">
-                          <button
-                            type="button"
-                            className="codex-subagent-sidebar-toggle"
-                            onClick={() => {
-                              setExpandedCodexSubagentGroups((current) => {
-                                const next = new Set(current);
-                                if (next.has(subagentGroupKey)) next.delete(subagentGroupKey);
-                                else next.add(subagentGroupKey);
+                        <button
+                          key={subagent.filePath}
+                          className={`conversation agent-row session-row codex-subagent-sidebar-row${isSameSessionPath(subagent.filePath, displayedSidebarSessionPath) ? " active" : ""}`}
+                          title={subagent.filePath}
+                          onContextMenu={async (event) => {
+                            event.preventDefault();
+                            if (subagentAgent) {
+                              const logging = await window.piDesktop.rpcLogs.getLogging(subagentAgent.id);
+                              setAgentRpcLogging((prev) => {
+                                const next = new Map(prev);
+                                next.set(subagentAgent.id, logging);
                                 return next;
                               });
-                            }}
-                          >
-                            <ChevronDown
-                              size={12}
-                              className={subagentsExpanded ? "expanded" : ""}
-                            />
-                            {t("app.codexSubagentCount", { count: subagents.length })}
-                          </button>
-                          {subagentsExpanded &&
-                            subagents.map((subagent) => (
-                              <button
-                                key={subagent.filePath}
-                                className="conversation agent-row session-row codex-subagent-sidebar-row"
-                                title={subagent.filePath}
-                                onContextMenu={(event) => {
-                                  event.preventDefault();
-                                  setSessionMenu({
-                                    x: event.clientX,
-                                    y: event.clientY,
-                                    projectId: project.id,
-                                    session: subagent,
-                                  });
-                                }}
-                                onClick={() =>
-                                  void openSidebarSession(project.id, subagent)
-                                }
-                              >
-                                <div className="conversation-body">
-                                  <div className="conversation-title">
-                                    <strong>{formatCodexSubagentName(subagent)}</strong>
-                                    <span className="session-source-badge codex subagent">
-                                      {t("app.codexSubagent")}
-                                    </span>
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
+                              setAgentMenu({
+                                x: event.clientX,
+                                y: event.clientY,
+                                agent: subagentAgent,
+                              });
+                              return;
+                            }
+                            setSessionMenu({
+                              x: event.clientX,
+                              y: event.clientY,
+                              projectId: project.id,
+                              session: subagent,
+                            });
+                          }}
+                          onClick={() => {
+                            if (subagentAgent) {
+                              setActiveProjectId(subagentAgent.projectId);
+                              setActiveAgentId(subagentAgent.id);
+                              return;
+                            }
+                            void openSidebarSession(project.id, subagent);
+                          }}
+                        >
+                          <div className="conversation-body">
+                            <div className="conversation-title">{label}</div>
+                          </div>
+                        </button>
+                      );
+                    };
+                    const renderCodexSubagents = (subagents: SessionSummary[]) => {
+                      if (subagents.length === 0 || !subagentsExpanded) return null;
+                      return (
+                        <div className="codex-subagent-sidebar-group">
+                          {subagents.map((subagent) => renderSubagentRow(
+                            subagent,
+                            <>
+                              <strong>{formatCodexSubagentName(subagent)}</strong>
+                              <span className="session-source-badge codex subagent">
+                                {t("app.codexSubagent")}
+                              </span>
+                            </>,
+                          ))}
                         </div>
                       );
                     };
+                    const renderPiSubagents = (subagents: SessionSummary[]) => {
+                      if (subagents.length === 0 || !subagentsExpanded) return null;
+                      return (
+                        <div className="codex-subagent-sidebar-group">
+                          {subagents.map((subagent) => renderSubagentRow(
+                            subagent,
+                            <strong>{formatPiSubagentName(subagent)}</strong>,
+                          ))}
+                        </div>
+                      );
+                    };
+                    const renderInlineSubagentToggle = totalSubagentCount > 0 ? (
+                      <span
+                        className="subagent-inline-toggle"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedSubagentGroups((current) => {
+                            const next = new Set(current);
+                            if (next.has(subagentGroupKey)) next.delete(subagentGroupKey);
+                            else next.add(subagentGroupKey);
+                            return next;
+                          });
+                        }}
+                        title={t("app.piSubagentCount", { count: totalSubagentCount })}
+                      >
+                        <ChevronDown size={10} className={subagentsExpanded ? "expanded" : ""} />
+                        <span className="subagent-inline-count">{totalSubagentCount}</span>
+                      </span>
+                    ) : null;
                     if (child.type === "agent") {
                       const agent = child.agent;
-                      const isActiveAgent = agent.id === activeAgentId;
+                      const isActiveAgent = isSidebarSessionRowActive({
+                        rowSessionPath: agent.sessionPath,
+                        displayedSessionPath: displayedSidebarSessionPath,
+                        rowAgentId: agent.id,
+                        activeAgentId,
+                      });
                       return (
                         <Fragment key={child.key}>
                         <button
@@ -5800,10 +6243,12 @@ export function App() {
                                   {t(`sessionSource.${child.source}` as any)}
                                 </span>
                               )}
+                              {renderInlineSubagentToggle}
                             </div>
                           </div>
                         </button>
                         {renderCodexSubagents(child.codexSubagents)}
+                        {renderPiSubagents(child.piSubagents)}
                         </Fragment>
                       );
                     }
@@ -5812,7 +6257,7 @@ export function App() {
                     return (
                       <Fragment key={child.key}>
                       <button
-                        className="conversation agent-row session-row"
+                        className={`conversation agent-row session-row${isSameSessionPath(session.filePath, displayedSidebarSessionPath) ? " active" : ""}`}
                         title={session.filePath}
                         onContextMenu={(event) => {
                           event.preventDefault();
@@ -5841,18 +6286,16 @@ export function App() {
                                 {t(`sessionSource.${session.source}` as any)}
                               </span>
                             )}
+                            {renderInlineSubagentToggle}
                           </div>
                         </div>
                       </button>
                       {renderCodexSubagents(child.codexSubagents)}
+                      {renderPiSubagents(child.piSubagents)}
                       </Fragment>
                     );
                   })}
-                {!isCollapsed && projectSessionsLoading && (
-                  <div className="project-session-loading">
-                    {t("app.projectSessionsLoading")}
-                  </div>
-                )}
+
                 {!isCollapsed && projectDisplay.hiddenChildCount > 0 && (
                   <button
                     className="session-more-row"
@@ -5904,21 +6347,20 @@ export function App() {
                       return merged;
                     })().map((wt) => {
                       const childProject = projects.find(p => p.path === wt.path);
-                      const isActive = childProject?.id === activeProjectId;
                       const childAgents = childProject
                         ? filteredAgents.filter((agent) => agent.projectId === childProject.id)
                         : [];
                       const rawChildSessions = childProject ? (sessionsByProject[childProject.id] ?? []) : [];
-                      // 已经打开成 Agent 的历史会话不再作为 session 行重复展示，避免同一会话出现两条入口。
-                      const childSessions = rawChildSessions.filter(
-                        (session) => !childAgents.some((agent) => isSameSessionPath(agent.sessionPath, session.filePath)),
-                      );
                       // 默认只展示 3 条会话，展开后显示全部，避免子工作区会话过多时侧栏过长。
                       const sessionsExpanded = expandedWorktreeSessions.has(wt.path);
-                      const visibleSessions = sessionsExpanded
-                        ? childSessions
-                        : childSessions.slice(0, 3);
-                      const hiddenSessionCount = childSessions.length - visibleSessions.length;
+                      // 使用统一分组函数，使 worktree 子会话也能嵌套显示在父条目下
+                      const wtDisplay = childProject ? getProjectAgentSessionDisplay({
+                        agents: childAgents,
+                        sessions: rawChildSessions,
+                        visibleChildCount: sessionsExpanded ? Number.MAX_SAFE_INTEGER : 3,
+                      }) : null;
+                      const wtChildren = wtDisplay?.visibleChildren ?? [];
+                      const hiddenSessionCount = (wtDisplay?.hiddenChildCount ?? 0);
                       // 取目录名作为副信息，帮助用户区分多个 worktree。
                       const dirName = wt.path.split(/[/\\]/).filter(Boolean).pop() || wt.path;
                       // PiDeck 创建的 worktree 分支使用 pideck/{slug} 命名；侧栏只展示 slug，
@@ -5927,7 +6369,7 @@ export function App() {
                       return (
                         <Fragment key={wt.path}>
                           <button
-                            className={`conversation worktree-row${isActive ? " active" : ""}${removingWorktreePaths.has(wt.path) ? " worktree-removing" : ""}`}
+                            className={`conversation worktree-row${removingWorktreePaths.has(wt.path) ? " worktree-removing" : ""}`}
                             onClick={() => {
                               if (childProject) {
                                 setActiveProjectId(childProject.id);
@@ -5982,55 +6424,117 @@ export function App() {
                               </span>
                             )}
                           </button>
-                          {childAgents.map((agent) => (
-                            <button
-                              key={agent.id}
-                              className={agent.id === activeAgentId ? "conversation agent-row worktree-nested-row active" : "conversation agent-row worktree-nested-row"}
-                              onContextMenu={async (event) => {
-                                event.preventDefault();
-                                const logging = await window.piDesktop.rpcLogs.getLogging(agent.id);
-                                setAgentRpcLogging((prev) => {
-                                  const next = new Map(prev);
-                                  next.set(agent.id, logging);
-                                  return next;
-                                });
-                                setAgentMenu({
-                                  x: event.clientX,
-                                  y: event.clientY,
-                                  agent,
-                                });
-                              }}
-                              onClick={() => {
-                                setActiveProjectId(agent.projectId);
-                                setActiveAgentId(agent.id);
-                              }}
-                            >
-                              <span className="agent-node-marker" aria-hidden="true" />
-                              <div className="conversation-body">
-                                <div className="conversation-title">
-                                  {agent.status && (
-                                    <span className={`agent-status-indicator status-${agent.status}`}>
-                                      {t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}
-                                    </span>
-                                  )}
-                                  <strong>{agent.title}</strong>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                          {visibleSessions.map((session) => (
-                            <button
-                              key={session.filePath}
-                              className="conversation agent-row session-row worktree-nested-row"
-                              title={session.filePath}
-                              onClick={() => void openSidebarSession(childProject!.id, session)}
-                            >
-                              <span className="session-node-marker" aria-hidden="true" />
-                              <div className="conversation-body">
-                                <div className="conversation-title"><strong title={session.name || t("common.untitled")}>{session.name || t("common.untitled")}</strong></div>
-                              </div>
-                            </button>
-                          ))}
+                          {wtChildren.filter(c => c.type === "agent").map((item) => {
+                            const agent = item.agent;
+                            const totalSubagentCount = (item.codexSubagents?.length ?? 0) + (item.piSubagents?.length ?? 0);
+                            const subagentGroupKey = `wt:${childProject!.id}:${item.key}`;
+                            const subagentExpanded = expandedSubagentGroups.has(subagentGroupKey);
+                            return (
+                              <Fragment key={item.key}>
+                                <button
+                                  className={`conversation agent-row worktree-nested-row${isSidebarSessionRowActive({
+                                    rowSessionPath: agent.sessionPath,
+                                    displayedSessionPath: displayedSidebarSessionPath,
+                                    rowAgentId: agent.id,
+                                    activeAgentId,
+                                  }) ? " active" : ""}`}
+                                  onContextMenu={async (event) => {
+                                    event.preventDefault();
+                                    const logging = await window.piDesktop.rpcLogs.getLogging(agent.id);
+                                    setAgentRpcLogging((prev) => { const next = new Map(prev); next.set(agent.id, logging); return next; });
+                                    setAgentMenu({ x: event.clientX, y: event.clientY, agent });
+                                  }}
+                                  onClick={() => { setActiveProjectId(agent.projectId); setActiveAgentId(agent.id); }}
+                                >
+                                  <span className="agent-node-marker" aria-hidden="true" />
+                                  <div className="conversation-body">
+                                    <div className="conversation-title">
+                                      {agent.status && (<span className={`agent-status-indicator status-${agent.status}`}>{t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}</span>)}
+                                      <strong>{agent.title}</strong>
+                                      {agent.noSession && (
+                                        <span
+                                          className="anonymous-indicator"
+                                          title={t("app.anonymousChat")}
+                                        >
+                                          <HatGlasses size={11} />
+                                        </span>
+                                      )}
+                                      {totalSubagentCount > 0 && (
+                                        <span className="subagent-inline-toggle" onClick={(e) => { e.stopPropagation(); setExpandedSubagentGroups(c => { const n = new Set(c); n.has(subagentGroupKey) ? n.delete(subagentGroupKey) : n.add(subagentGroupKey); return n; }); }} title={t("app.piSubagentCount", { count: totalSubagentCount })}>
+                                          <ChevronDown size={10} className={subagentExpanded ? "expanded" : ""} />
+                                          <span className="subagent-inline-count">{totalSubagentCount}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </button>
+                                {subagentExpanded && item.codexSubagents?.length > 0 && (
+                                  <div className="codex-subagent-sidebar-group">
+                                    {item.codexSubagents.map((sa) => (
+                                      <button key={sa.filePath} className={`conversation agent-row session-row codex-subagent-sidebar-row${isSameSessionPath(sa.filePath, displayedSidebarSessionPath) ? " active" : ""}`} title={sa.filePath} onClick={() => void openSidebarSession(childProject!.id, sa)}>
+                                        <div className="conversation-body"><div className="conversation-title"><strong>{formatCodexSubagentName(sa)}</strong><span className="session-source-badge codex subagent">{t("app.codexSubagent")}</span></div></div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                {subagentExpanded && item.piSubagents?.length > 0 && (
+                                  <div className="codex-subagent-sidebar-group">
+                                    {item.piSubagents.map((sa) => (
+                                      <button key={sa.filePath} className={`conversation agent-row session-row codex-subagent-sidebar-row${isSameSessionPath(sa.filePath, displayedSidebarSessionPath) ? " active" : ""}`} title={sa.filePath} onClick={() => void openSidebarSession(childProject!.id, sa)}>
+                                        <div className="conversation-body"><div className="conversation-title"><strong>{formatPiSubagentName(sa)}</strong></div></div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                          {wtChildren.filter(c => c.type === "session").map((item) => {
+                            const session = item.session;
+                            const totalSubagentCount = (item.codexSubagents?.length ?? 0) + (item.piSubagents?.length ?? 0);
+                            const subagentGroupKey = `wt:${childProject!.id}:${item.key}`;
+                            const subagentExpanded = expandedSubagentGroups.has(subagentGroupKey);
+                            return (
+                              <Fragment key={item.key}>
+                                <button
+                                  className={`conversation agent-row session-row worktree-nested-row${isSameSessionPath(session.filePath, displayedSidebarSessionPath) ? " active" : ""}`}
+                                  title={session.filePath}
+                                  onClick={() => void openSidebarSession(childProject!.id, session)}
+                                >
+                                  <span className="session-node-marker" aria-hidden="true" />
+                                  <div className="conversation-body">
+                                    <div className="conversation-title">
+                                      <strong title={session.name || t("common.untitled")}>{session.name || t("common.untitled")}</strong>
+                                      {totalSubagentCount > 0 && (
+                                        <span className="subagent-inline-toggle" onClick={(e) => { e.stopPropagation(); setExpandedSubagentGroups(c => { const n = new Set(c); n.has(subagentGroupKey) ? n.delete(subagentGroupKey) : n.add(subagentGroupKey); return n; }); }} title={t("app.piSubagentCount", { count: totalSubagentCount })}>
+                                          <ChevronDown size={10} className={subagentExpanded ? "expanded" : ""} />
+                                          <span className="subagent-inline-count">{totalSubagentCount}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </button>
+                                {subagentExpanded && item.codexSubagents?.length > 0 && (
+                                  <div className="codex-subagent-sidebar-group">
+                                    {item.codexSubagents.map((sa) => (
+                                      <button key={sa.filePath} className={`conversation agent-row session-row codex-subagent-sidebar-row${isSameSessionPath(sa.filePath, displayedSidebarSessionPath) ? " active" : ""}`} title={sa.filePath} onClick={() => void openSidebarSession(childProject!.id, sa)}>
+                                        <div className="conversation-body"><div className="conversation-title"><strong>{formatCodexSubagentName(sa)}</strong><span className="session-source-badge codex subagent">{t("app.codexSubagent")}</span></div></div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                {subagentExpanded && item.piSubagents?.length > 0 && (
+                                  <div className="codex-subagent-sidebar-group">
+                                    {item.piSubagents.map((sa) => (
+                                      <button key={sa.filePath} className={`conversation agent-row session-row codex-subagent-sidebar-row${isSameSessionPath(sa.filePath, displayedSidebarSessionPath) ? " active" : ""}`} title={sa.filePath} onClick={() => void openSidebarSession(childProject!.id, sa)}>
+                                        <div className="conversation-body"><div className="conversation-title"><strong>{formatPiSubagentName(sa)}</strong></div></div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </Fragment>
+                            );
+                          })}
                           {hiddenSessionCount > 0 && (
                             <button
                               className="worktree-sessions-more"
@@ -6131,6 +6635,15 @@ export function App() {
                     : activeProject?.name) ??
                   "PiDeck"}
               </strong>
+              {activeAgent?.noSession && (
+                <span
+                  className="anonymous-badge"
+                  title={t("app.anonymousChat")}
+                  aria-label={t("app.anonymousChat")}
+                >
+                  <HatGlasses size={14} />
+                </span>
+              )}
               {activeAgent?.compactionCount ? (
                 <span
                   className="compaction-count-badge"
@@ -6159,16 +6672,6 @@ export function App() {
                 }
               />
               <div className="header-actions-right">
-                <div className="header-action-group branch-group">
-                  {!isLanWeb && (
-                    <BranchSelector
-                      gitInfo={gitInfo}
-                      switchingBranch={switchingBranch}
-                      onSwitch={switchBranch}
-                      onCreateBranch={createBranch}
-                    />
-                  )}
-                </div>
                 <div className="header-action-group session-group">
                   <div className="session-combo" ref={sessionComboRef}>
                     <button
@@ -6329,7 +6832,10 @@ export function App() {
             </div>
           )}
 
-          {activeAgent?.status === "starting" && (
+          {/* Agent 启动时显示骨架屏；消息尚未到达时继续展示，避免闪空
+               Agent 状态已是 idle 时不再显示，即使消息还未到达，
+               避免 "正在启动 Agent" 在启动完成后仍卡住。 */}
+          {(activeAgent?.status === "starting" || (activeAgent?.status !== "idle" && Boolean(activeAgent) && activeMessages.length === 0 && !isPendingAgentId(activeAgent!.id))) ? (
             <div className="history-loading">
               <div className="history-loading-placeholder">
                 <div className="skeleton-bubble" />
@@ -6348,14 +6854,14 @@ export function App() {
               </div>
               <span style={{ paddingTop: "16px", alignSelf: "center", fontSize: "var(--font-size-small)" }}>{t("app.agentStarting")}</span>
             </div>
-          )}
+          ) : null}
           {!activeAgent && (
             <EmptyState
               hasProject={Boolean(activeProjectId)}
               onCreate={() => createAgent()}
             />
           )}
-          {activeAgent && activeAgent.status !== "starting" && (
+          {(activeAgent && activeAgent.status !== "starting" && activeMessages.length > 0) ? (
             <div className="message-list">
               {/* 使用 groupToolMessages 渲染：user/error/system 独立条目，
                   assistant + tool 聚合为 agnet-run（TurnRow 自带操作栏） */}
@@ -6481,7 +6987,7 @@ export function App() {
                 />
               )}
             </div>
-          )}
+          ) : null}
 
           {/* 多选分享弹框：会话树 */}
           {multiSelectOpen && (
@@ -6682,12 +7188,209 @@ export function App() {
               </div>
             </div>
           )}
+          {showAskDialog && activeUiAsk && (
+            <div className="ask-inline-bar">
+              <div className="ask-inline-bar-header">
+                <MessageCircle size={14} />
+                <span>{t("ask.toolName")}</span>
+                {/* select 类型取消提示 */}
+                {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
+                  <span className="ask-inline-bar-cancel-hint">{t("ask.cancelHint")}</span>
+                )}
+                <button
+                  className="ask-inline-bar-close"
+                  title={t("common.close")}
+                  onClick={() => {
+                    const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
+                    if (isSelect) {
+                      showToast(t("ask.cancelHint"));
+                    }
+                    if (activeUiAsk.requestId && activeAgentId) {
+                      /* 立即从本地 state 移除，同时通知 Pi */
+                      setActiveUiRequest((current) => {
+                        if (!current) return null;
+                        const next = { ...current };
+                        delete next[activeUiAsk.requestId];
+                        if (Object.keys(next).length === 0) return null;
+                        return next;
+                      });
+                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+                    }
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="ask-inline-bar-question">{activeUiAsk.title || t("ask.pending")}</div>
+              <div className="ask-inline-bar-body">
+                {activeUiAsk.method === "confirm" ? (
+                  <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
+                    <button
+                      className="ask-inline-bar-option ask-inline-bar-option-yes"
+                      onClick={() => {
+                        if (activeUiAsk.requestId && activeAgentId) {
+                          /* 立即移除，同时发送响应 */
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
+                        }
+                      }}
+                    >
+                      {t("common.true")}
+                    </button>
+                    <button
+                      className="ask-inline-bar-option ask-inline-bar-option-no"
+                      onClick={() => {
+                        if (activeUiAsk.requestId && activeAgentId) {
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
+                        }
+                      }}
+                    >
+                      {t("common.false")}
+                    </button>
+                  </div>
+                ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
+                  <div className="ask-inline-bar-options">
+                    {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
+                    {activeUiAsk.options.filter((opt) => {
+                      const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                      return !label.startsWith("✎");
+                    }).map((opt, i) => {
+                      const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
+                      const label = typeof opt === "string" ? opt : (opt as any).label ?? val;
+                      return (
+                        <button
+                          key={i}
+                          className="ask-inline-bar-option"
+                          onClick={() => {
+                            if (activeUiAsk.requestId && activeAgentId) {
+                              setActiveUiRequest((current) => {
+                                if (!current) return null;
+                                const next = { ...current };
+                                delete next[activeUiAsk.requestId];
+                                if (Object.keys(next).length === 0) return null;
+                                return next;
+                              });
+                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
+                            }
+                          }}
+                        >
+                          <span className="ask-inline-bar-option-marker">{label}</span>
+                        </button>
+                      );
+                    })}
+                    <div className="ask-inline-bar-custom-input">
+                      <input
+                        id="ask-inline-bar-custom-field"
+                        className="ask-inline-bar-custom-field"
+                        placeholder={t("ask.customPlaceholder")}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
+                            const val = el?.value?.trim() ?? "";
+                            if (val && activeUiAsk.requestId && activeAgentId) {
+                              setActiveUiRequest((current) => {
+                                if (!current) return null;
+                                const next = { ...current };
+                                delete next[activeUiAsk.requestId];
+                                if (Object.keys(next).length === 0) return null;
+                                return next;
+                              });
+                              /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
+                              pendingCustomInputRef.current = val;
+                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                            }
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="ask-inline-bar-submit-btn"
+                        onClick={() => {
+                          const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
+                          const val = el?.value?.trim() ?? "";
+                          if (val && activeUiAsk.requestId && activeAgentId) {
+                            setActiveUiRequest((current) => {
+                              if (!current) return null;
+                              const next = { ...current };
+                              delete next[activeUiAsk.requestId];
+                              if (Object.keys(next).length === 0) return null;
+                              return next;
+                            });
+                            /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
+                            pendingCustomInputRef.current = val;
+                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                          }
+                        }}
+                      >
+                        {t("common.submit")}
+                      </button>
+                    </div>
+                  </div>
+                ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
+                  <div className="ask-inline-bar-input-area">
+                    <input
+                      id="ask-inline-bar-input"
+                      className="ask-inline-bar-input"
+                      placeholder={activeUiAsk.placeholder || ""}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
+                          const value = (e.target as HTMLInputElement).value;
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+                        }
+                      }}
+                    />
+                    <button
+                      className="ask-inline-bar-submit-btn"
+                      onClick={() => {
+                        const value = (document.getElementById("ask-inline-bar-input") as HTMLInputElement)?.value ?? "";
+                        if (activeUiAsk.requestId && activeAgentId) {
+                          setActiveUiRequest((current) => {
+                            if (!current) return null;
+                            const next = { ...current };
+                            delete next[activeUiAsk.requestId];
+                            if (Object.keys(next).length === 0) return null;
+                            return next;
+                          });
+                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+                        }
+                      }}
+                    >
+                      {t("common.submit")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
           <div
             ref={composerBoxRef}
             className={`composer-box ${
-              prompt.startsWith("!!")
+              composerBangMode === "bang-bang"
                 ? "shell-silent-mode"
-                : prompt.startsWith("!")
+                : composerBangMode === "bang"
                   ? "shell-mode"
                   : currentComposerAgentMode === "plan"
                     ? "plan-mode"
@@ -6700,45 +7403,13 @@ export function App() {
               title={t("app.resizeComposer")}
               onPointerDown={startComposerResize}
             />
-            <ComposerToolbar
-              state={activeRuntimeState}
-              compacting={compacting}
-              disabled={isAgentBusy || composerDisabled}
-              onPickModel={openModelPicker}
-              onPickThinking={() => setThinkingPickerOpen(true)}
-              onPickPromptTemplate={openPromptTemplatePicker}
-              onCompact={() => compactAgent()}
-              composerAgentMode={currentComposerAgentMode}
-              onOpenComposerModePicker={() => setComposerModePickerOpen(true)}
-              onCancelPlan={() => setCurrentComposerAgentMode("normal")}
-              feishuIndicator={
-                feishu.bots.length > 0 ? (
-                  <FeishuLinkIndicator
-                  status={feishu.status}
-                  bots={feishu.bots}
-                  activeAgentId={activeAgentId}
-                  activeBotId={feishu.activeBotId}
-                  sessionBotId={sessionFeishuBotId}
-                  isConnected={feishu.isConnected}
-                  connecting={feishu.connecting}
-                  onConnectByBot={feishu.connectByBot}
-                  onDisconnect={feishu.disconnect}
-                  onSetSessionBot={async (agentId: string, botId: string | null) => {
-                    await feishu.setSessionBot(agentId, botId);
-                    setSessionFeishuBotId(botId ?? undefined);
-                  }}
-                  />
-                ) : undefined
-              }
-
-            />
             <RichInput
               ref={composerTextareaRef}
               value={prompt}
               className={
-                prompt.startsWith("!!")
+                composerBangMode === "bang-bang"
                   ? "bang-bang"
-                  : prompt.startsWith("!")
+                  : composerBangMode === "bang"
                     ? "bang"
                     : ""
               }
@@ -6752,9 +7423,9 @@ export function App() {
                   ? t("app.agentStartingPlaceholder")
                   : !activeAgent
                     ? t("app.composerNoAgentPlaceholder")
-                    : prompt.startsWith("!!")
+                    : composerBangMode === "bang-bang"
                       ? t("app.composerSilentPlaceholder")
-                      : prompt.startsWith("!")
+                      : composerBangMode === "bang"
                         ? t("app.composerShellPlaceholder")
                         : currentComposerAgentMode === "plan"
                           ? t("app.composerPlanPlaceholder")
@@ -6768,7 +7439,9 @@ export function App() {
               }}
               onChange={(newValue, cursor) => {
                 const targetAgentId = activeAgentIdRef.current;
-                if (targetAgentId) setPromptFromNativeInput(targetAgentId, newValue);
+                if (targetAgentId) {
+                  setPromptFromNativeInput(targetAgentId, newValue);
+                }
                 if (targetAgentId) {
                   setBusyDraftByAgent((current) => {
                     if (!newValue.trim()) {
@@ -6788,7 +7461,8 @@ export function App() {
                 }
                 // 如果正在历史导航,检测到用户手动编辑内容则退出历史模式
                 if (historyNavigating) {
-                  const currentHistoryCommand = commandHistory[historyIndex];
+                  const agentHistory = promptHistoryRef.current[activeAgentId ?? ''] ?? [];
+                  const currentHistoryCommand = agentHistory[historyIndex];
                   if (newValue !== currentHistoryCommand) {
                     setHistoryIndex(-1);
                     setHistoryNavigating(false);
@@ -6853,23 +7527,99 @@ export function App() {
                 }}
               />
             )}
-            <div className="composer-footer">
-              {composerMode && (
-                <span className="composer-mode-status">{composerStatusText}</span>
-              )}
-              <div className="footer-actions">
-                <div
-                  className="send-behavior-menu-wrap"
-                  onMouseLeave={scheduleSendBehaviorMenuClose}
+
+            {/* 底部操作栏：mode切换 + prompt模板 + 附件 + 模型信息 */}
+            <div className="composer-bottom-bar">
+              <div className="composer-bottom-left">
+                {currentComposerAgentMode && (
+                  <button
+                    type="button"
+                    className={`composer-bar-btn${currentComposerAgentMode === "plan" ? " active" : ""}`}
+                    disabled={isAgentBusy || isAgentStarting}
+                    onClick={() => setComposerModePickerOpen(true)}
+                    title={t("app.composerModeTitle")}
+                  >
+                    {currentComposerAgentMode === "plan" ? (
+                      <>
+                        <ListChecks size={15} strokeWidth={2} />
+                        <span>{t("app.composerModePlan")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Wrench size={15} strokeWidth={2} />
+                        <span>{t("app.composerModeNormal")}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="composer-bar-btn icon"
+                  disabled={isAgentBusy || isAgentStarting}
+                  onClick={openPromptTemplatePicker}
+                  title={t("app.promptTemplatePickerTitle")}
                 >
-                  {showBusySendControls && hasComposerContent && (
+                  <FileText size={15} strokeWidth={1.8} />
+                </button>
+                <button
+                  type="button"
+                  className="composer-bar-btn icon"
+                  disabled={isAgentBusy || isAgentStarting}
+                  onClick={handleAttachFile}
+                  title={t("app.attachFileDesc")}
+                >
+                  <Paperclip size={15} strokeWidth={1.8} />
+                </button>
+              </div>
+              <div className="composer-bottom-center">
+                <button
+                  type="button"
+                  className="composer-bar-btn model"
+                  disabled={isAgentBusy || isAgentStarting}
+                  onClick={openModelPicker}
+                  title={t("app.modelPickerTitle")}
+                >
+                  {activeRuntimeState?.modelName
+                    ? `${activeRuntimeState.provider ? `${activeRuntimeState.provider}/` : ""}${activeRuntimeState.modelName}`
+                    : t("app.model") + ": —"}
+                </button>
+                {activeRuntimeState?.thinkingLevel && (
+                  <button
+                    type="button"
+                    className="composer-bar-btn thinking"
+                    disabled={isAgentBusy || isAgentStarting}
+                    onClick={() => setThinkingPickerOpen(true)}
+                    title={t("app.thinkingPickerTitle")}
+                  >
+                    {(() => {
+                      const level = THINKING_LEVELS.find((l) => l.value === activeRuntimeState.thinkingLevel);
+                      return level ? t(level.labelKey) : activeRuntimeState.thinkingLevel;
+                    })()}
+                  </button>
+                )}
+              </div>
+              <div className="composer-bottom-right">
+                {/* 停止按钮：agent 繁忙时始终显示，不依赖输入框是否有内容 */}
+                {isAgentBusy ? (
+                  <button
+                    type="button"
+                    className="composer-bar-btn stop"
+                    onClick={() => abortAgent()}
+                    title={t("app.stop")}
+                    aria-label={t("app.stop")}
+                  >
+                    <Square size={15} strokeWidth={0} fill="currentColor" />
+                  </button>
+                ) : (showBusySendControls && hasComposerContent) || !keepBusyDraftControls ? (
+                  <>
+                    {showBusySendControls && hasComposerContent && (
                       <div className="send-behavior-toggle">
                         <button
                           type="button"
                           className="send-behavior-primary"
                           title={t("app.sendSteerTitle")}
                           aria-label={t("app.sendSteerTitle")}
-                          onClick={sendPrompt}
+                          onClick={() => void sendPrompt()}
                         >
                           <ArrowUp size={15} strokeWidth={2.4} />
                         </button>
@@ -6888,52 +7638,38 @@ export function App() {
                         </button>
                       </div>
                     )}
-                  {isAgentBusy ? (
-                    <button
-                      type="button"
-                      className="btn-circle stop"
-                      onClick={() => abortAgent()}
-                      title={t("app.stop")}
-                      aria-label={t("app.stop")}
-                    >
-                      <Square size={18} strokeWidth={0} fill="currentColor" />
-                    </button>
-                  ) : !keepBusyDraftControls ? (
-                    <button
-                      type="button"
-                      disabled={
-                        isAgentStarting ||
-                        !activeAgentId ||
-                        (!prompt.trim() && attachedImages.length === 0)
-                      }
-                      className="btn-circle send"
-                      onClick={sendPrompt}
-                      title={t("app.send")}
-                      aria-label={t("app.send")}
-                    >
-                      <ArrowUp size={18} strokeWidth={2.5} />
-                    </button>
-                  ) : null}
-                  {sendBehaviorMenuOpen && showBusySendControls && hasComposerContent && (
-                    <div
-                      className="send-behavior-menu"
-                      role="menu"
-                      onMouseEnter={keepSendBehaviorMenuOpen}
-                      onMouseLeave={scheduleSendBehaviorMenuClose}
-                    >
-                      <button className="send-behavior-option steer" type="button" role="menuitem" onClick={sendPrompt}>
-                        <span className="send-behavior-option-dot" aria-hidden="true" />
-                        <span>{t("app.sendSteerTitle")}</span>
+                    {!keepBusyDraftControls ? (
+                      <button
+                        type="button"
+                        disabled={isAgentStarting || (!activeAgentId) || (!prompt.trim() && attachedImages.length === 0)}
+                        className="composer-bar-btn send"
+                        onClick={() => void sendPrompt()}
+                        title={t("app.send")}
+                        aria-label={t("app.send")}
+                      >
+                        <ArrowUp size={16} strokeWidth={2.5} />
                       </button>
-                      <button className="send-behavior-option follow-up" type="button" role="menuitem" onClick={sendPromptAsFollowUp}>
-                        <span className="send-behavior-option-dot" aria-hidden="true" />
-                        <span>{t("app.sendFollowUpTitle")}</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
+                    ) : null}
+                    {sendBehaviorMenuOpen && showBusySendControls && hasComposerContent && (
+                      <div className="send-behavior-menu" role="menu"
+                        onMouseEnter={keepSendBehaviorMenuOpen}
+                        onMouseLeave={scheduleSendBehaviorMenuClose}
+                      >
+                        <button className="send-behavior-option steer" type="button" role="menuitem" onClick={() => void sendPrompt()}>
+                          <span className="send-behavior-option-dot" aria-hidden="true" />
+                          <span>{t("app.sendSteerTitle")}</span>
+                        </button>
+                        <button className="send-behavior-option follow-up" type="button" role="menuitem" onClick={sendPromptAsFollowUp}>
+                          <span className="send-behavior-option-dot" aria-hidden="true" />
+                          <span>{t("app.sendFollowUpTitle")}</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : null}
               </div>
             </div>
+
           </div>
         </footer>
         )}
@@ -6970,8 +7706,7 @@ export function App() {
         )}
       </main>
 
-        {activeAgent && (
-          <ConversationOutline
+        <ConversationOutline
             items={outlineItems}
             onJump={handleOutlineJump}
             extraAction={{
@@ -6980,15 +7715,14 @@ export function App() {
               onClick: () => scratchPad.toggle(),
               icon: <Pencil size={17} />,
             }}
-            terminalAction={{
+            terminalAction={activeAgentId ? {
               active: terminalOpen,
               label: t("app.terminal"),
               onClick: () => {
-                if (!activeAgentId) return;
                 setTerminalOpenForAgent(activeAgentId, !terminalOpen);
               },
               icon: <Terminal size={17} />,
-            }}
+            } : undefined}
             filesAction={{
               active: drawer === "files",
               label: t("app.files"),
@@ -7003,11 +7737,15 @@ export function App() {
               },
               icon: <FolderOpen size={17} />,
             }}
-            gitAction={settings.enableGitManagement && activeProjectId && !isChatProject(activeProject) ? {
+            gitAction={settings.enableGitManagement && activeProjectId ? {
               active: drawer === "git",
               label: t("drawer.sourceControl"),
               onClick: () => {
                 if (drawer === "git" && !drawerCollapsed) {
+                  if (gitDrawerDiff) {
+                    closeGitDiff();
+                    return;
+                  }
                   if (activeProjectId) saveDrawerState(activeProjectId, null, false);
                   setDrawer(null);
                 } else {
@@ -7015,7 +7753,7 @@ export function App() {
                   setDrawerCollapsed(false);
                 }
               },
-              icon: <GitGraph size={17} />,
+              icon: <GitBranch size={17} />,
             } : undefined}
             editorsAction={{
               active: editorsOpen,
@@ -7051,7 +7789,6 @@ export function App() {
               icon: <Globe size={17} />,
             }}
           />
-        )}
 
       {/* 右侧分隔条常驻 grid 列 4，宽度由 --drawer-splitter-w 驱动（0/6px）；
           关闭/折叠时宽度 0 且 pointer-events:none，避免遮挡会话区。 */}
@@ -7063,7 +7800,7 @@ export function App() {
         }
       />
       {/* 抽屉壳常驻 grid 列 5，宽度由 --drawer-col-w 驱动平滑开合；
-          收回时保留内容到动画结束，让文字随面板一起被 overflow 裁切。 */}
+          收回时保留内容到 Grid 过渡结束，让文字随列宽一起被 overflow 裁切。 */}
       <aside
         className="detail-drawer"
         data-open={drawer && !drawerCollapsed}
@@ -7072,10 +7809,21 @@ export function App() {
         {editorMode === "drawer" && drawerContentPanel === "editor" && !drawerCollapsed && activeTab ? (
           <Suspense fallback={<div className="drawer-content-frame"><div className="file-diff-loading">Loading...</div></div>}>
             <FileDiffViewer
+              key={activeTab.filePath}
               displayMode="drawer"
-              filePath={activeTab.filePath}
+              onPreviewHtml={handlePreviewHtml}
+filePath={activeTab.filePath}
               mode={activeTab.mode}
               onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
+              onBack={prevDrawerPanelRef.current && prevDrawerPanelRef.current !== "editor" ? () => {
+                const prev = prevDrawerPanelRef.current;
+                prevDrawerPanelRef.current = null;
+                if (prev) {
+                  setActiveTabId(null);
+                  setEditorTabs([]);
+                  setDrawer(prev);
+                }
+              } : undefined}
               originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
               modifiedContent={activeTab.modifiedContent}
               tabs={editorTabs}
@@ -7103,27 +7851,64 @@ export function App() {
               <strong>{t("drawer.sourceControl")}</strong>
               <div className="drawer-header-actions">
                 <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
-                  <Minimize2 size={15} />
+                  <Minus size={15} />
                 </button>
                 <button onClick={closeDrawer} title={t("common.close")}>
                   <X size={15} />
                 </button>
               </div>
             </div>
-            <GitPanel
-              projectId={activeProjectId}
-              commitLog={api.git.commitLog}
-              commitDetail={api.git.commitDetail}
-              onOpenCommitFileDiff={openCommitFileDiff}
-              onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
-              branchCompare={api.git.branchCompare}
-              getStatus={api.git.status}
-              stageFiles={api.git.stage}
-              unstageFiles={api.git.unstage}
-              commit={api.git.commit}
-              branches={gitInfo.branches}
-              currentBranch={gitInfo.current}
-            />
+            <div className="git-drawer-stack" data-detail-open={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
+              <div className="git-drawer-source" aria-hidden={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
+                <GitPanel
+                  projectId={activeProjectId}
+                  projectRoot={activeProject?.path}
+                  commitLog={api.git.commitLog}
+                  commitDetail={api.git.commitDetail}
+                  onOpenCommitFileDiff={openCommitFileDiff}
+                  onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
+                  branchCompare={api.git.branchCompare}
+                  getStatus={api.git.status}
+                  stageFiles={api.git.stage}
+                  unstageFiles={api.git.unstage}
+                  discardFile={api.git.discard}
+                  commit={api.git.commit}
+                  branches={gitInfo.branches}
+                  currentBranch={gitInfo.current}
+                  onSwitchBranch={switchBranch}
+                  onCreateBranch={createBranch}
+                  cherryPick={api.git.cherryPick}
+                  revert={api.git.revert}
+                  reset={api.git.reset}
+                  dropCommit={api.git.dropCommit}
+                  generateCommitMessage={api.git.generateCommitMessage}
+                  gitInit={api.git.init}
+                  push={api.git.push}
+                  pull={api.git.pull}
+                />
+              </div>
+              {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (
+                <div className="git-drawer-detail">
+                  <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
+                    <FileDiffViewer
+                      displayMode="drawer"
+                      onPreviewHtml={handlePreviewHtml}
+filePath={gitDrawerDiff.filePath}
+                      mode="diff"
+                      onToggleMode={toggleGitDiffDisplayMode}
+                      originalContent={gitDrawerDiff.originalContent}
+                      modifiedContent={gitDrawerDiff.modifiedContent}
+                      tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
+                      activeTabId={gitDrawerDiff.filePath}
+                      onClose={closeGitDiff}
+                      readContent={readEditorFileContent}
+                      theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+                      maxFileSizeMB={settings.maxEditorFileSizeMB}
+                    />
+                  </Suspense>
+                </div>
+              )}
+            </div>
           </div>
         ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" && drawerContentPanel !== "git" ? (
           <LazyWrapper
@@ -7150,11 +7935,12 @@ export function App() {
               files={files}
               sessions={(sessionsProjectId && sessionSourceFilter[sessionsProjectId]) ? sessions.filter(
                 (s) => !s.parentSessionPath && (sessionSourceFilter[sessionsProjectId]!)!.has(s.source ?? "pi"),
-              ).concat(sessions.filter(s => s.parentSessionPath)) : sessions}
+              ).concat(sessions.filter(s => s.parentSessionPath && (sessionSourceFilter[sessionsProjectId]!)!.has(s.source ?? "pi"))) : sessions}
               sessionsLoading={sessionHistoryLoading}
               expandedDirs={expandedDirs}
               onToggleDirectory={toggleDirectory}
               onCollapseAllDirectories={collapseAllDirectories}
+              onExpandAllDirectories={expandAllDirectories}
               pinned={drawerPinned}
               onTogglePin={toggleDrawerPinned}
               onCollapse={collapseDrawer}
@@ -7172,9 +7958,9 @@ export function App() {
               }
               onOpenSession={(session) =>
                 createAgent(
-                  sessionsProjectId ?? activeProjectId,
+                  sessionsProjectId ?? activeProjectId ?? "",
                   session.filePath,
-                  session.name || t("common.untitled"),
+                  session.name,
                 )
               }
               onRenameSession={async (filePath, newName) => {
@@ -7191,6 +7977,12 @@ export function App() {
               onDeleteSession={deleteHistorySession}
               onViewFile={viewFilePath}
               onOpenFile={openFilePath}
+              onCreateItem={(parentDir, name, type) => {
+                void api.files.create(parentDir, name, type).then(() => {
+                  if (activeProjectId) void refreshFiles(activeProjectId);
+                });
+              }}
+              projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
             />
           </LazyWrapper>
         ) : null}
@@ -7436,8 +8228,23 @@ export function App() {
             setAgentMenu(null);
           }}
           onCloseAgent={() => {
-            void closeAgent(agentMenu.agent.id);
+            const agent = agentMenu.agent;
             setAgentMenu(null);
+            if (agent.noSession) {
+              // 匿名聊天关闭会丢失未保存的记录，需要确认
+              setConfirmDialog({
+                title: t("app.anonymousChatCloseTitle"),
+                message: t("app.anonymousChatCloseBody"),
+                danger: true,
+                confirmLabel: t("common.close"),
+                onConfirm: () => {
+                  setConfirmDialog(null);
+                  void closeAgent(agent.id);
+                },
+              });
+            } else {
+              void closeAgent(agent.id);
+            }
           }}
         />
       )}
@@ -7473,9 +8280,52 @@ export function App() {
           onDeleteSession={() => {
             const session = sessionMenu.session;
             setSessionMenu(null);
-            void deleteHistorySession(session);
+            // 无论是否有子会话，都弹出确认框
+            const projectSessions = sessionsByProject[sessionMenu.projectId] ?? [];
+            const childCount = projectSessions.filter(
+              (s) => isSameSessionPath(s.parentSessionPath, session.filePath),
+            ).length;
+            setSidebarDeleteConfirm({ session, childCount });
           }}
         />
+      )}
+      {sidebarDeleteConfirm && (
+        <div
+          className="session-delete-confirm-backdrop"
+          onClick={() => setSidebarDeleteConfirm(null)}
+        >
+          <section
+            className="session-delete-confirm"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <strong>{t("drawer.sessionDeleteTitle")}</strong>
+            <p>
+              {sidebarDeleteConfirm.childCount > 0
+                ? t("drawer.sessionDeleteBodyWithChildren", {
+                    name: sidebarDeleteConfirm.session.name || t("common.untitled"),
+                    count: sidebarDeleteConfirm.childCount,
+                  })
+                : t("drawer.sessionDeleteBody", {
+                    name: sidebarDeleteConfirm.session.name || t("common.untitled"),
+                  })}
+            </p>
+            <div className="session-delete-confirm-actions">
+              <button onClick={() => setSidebarDeleteConfirm(null)}>
+                {t("common.cancel")}
+              </button>
+              <button
+                className="danger"
+                onClick={() => {
+                  const target = sidebarDeleteConfirm.session;
+                  setSidebarDeleteConfirm(null);
+                  void deleteHistorySession(target);
+                }}
+              >
+                {t("common.delete")}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
       {sessionManagerProject && (
         <SessionManagerModal
@@ -7495,6 +8345,8 @@ export function App() {
             }
             showToast(t("app.sessionDeleted"), 2200);
             const projectId = sessionManagerProject.id;
+            // 先关闭弹框，避免列表数据在刷新期间显示不一致
+            setSessionManagerProject(null);
             await refreshSessions(projectId);
             await refreshProjectSessions(projectId);
           }}
@@ -7802,11 +8654,12 @@ export function App() {
         />
       </Suspense>
       )}
-      {editorMode === "modal" && activeTab && (
+      {editorMode === "modal" && activeTab && gitDiffDisplayMode !== "modal" && (
         <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">Loading...</span></div>}>
         <FileDiffViewer
           displayMode="modal"
-          filePath={activeTab.filePath}
+          onPreviewHtml={handlePreviewHtml}
+filePath={activeTab.filePath}
           mode={activeTab.mode}
           onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
           originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
@@ -7823,6 +8676,25 @@ export function App() {
           maxFileSizeMB={settings.maxEditorFileSizeMB}
         />
       </Suspense>
+      )}
+      {gitDiffDisplayMode === "modal" && gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && (
+        <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">Loading...</span></div>}>
+          <FileDiffViewer
+            displayMode="modal"
+            onPreviewHtml={handlePreviewHtml}
+filePath={gitDrawerDiff.filePath}
+            mode="diff"
+            onToggleMode={toggleGitDiffDisplayMode}
+            originalContent={gitDrawerDiff.originalContent}
+            modifiedContent={gitDrawerDiff.modifiedContent}
+            tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
+            activeTabId={gitDrawerDiff.filePath}
+            onClose={closeGitDiff}
+            readContent={readEditorFileContent}
+            theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+            maxFileSizeMB={settings.maxEditorFileSizeMB}
+          />
+        </Suspense>
       )}
       {previewImage && (
         <ImagePreviewModal
@@ -8067,151 +8939,7 @@ export function App() {
         </div>
       )}
 
-    {/* ask_question 弹出 dialog - 仅在 pi 通过 extension_ui_request 发送交互请求时显示 */}
-    {showAskDialog && activeUiAsk && (
-      <div className="modal-backdrop" onClick={undefined}>
-        <div className="ask-dialog" onClick={(e) => e.stopPropagation()}>
-          <div className="ask-dialog-header">
-            <MessageCircle size={16} />
-            <span>{t("ask.toolName")}</span>
-            {/* 关闭按钮：点击后取消当前请求，select 类型会提示模型默认选第一项 */}
-            <button
-              className="ask-dialog-close-btn"
-              title={t("common.close")}
-              onClick={() => {
-                const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
-                if (isSelect) {
-                  showToast(t("ask.cancelHint"));
-                }
-                if (activeUiAsk.requestId && activeAgentId) {
-                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
-                }
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-          <div className="ask-dialog-question">{activeUiAsk.title || t("ask.pending")}</div>
-          {activeUiAsk.method === "confirm" ? (
-            <div className="ask-dialog-options ask-dialog-options-confirm">
-              <button
-                className="ask-dialog-option"
-                onClick={() => {
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
-                  }
-                }}
-              >
-                {t("common.true")}
-              </button>
-              <button
-                className="ask-dialog-option"
-                onClick={() => {
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
-                  }
-                }}
-              >
-                {t("common.false")}
-              </button>
-            </div>
-          ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
-            <div className="ask-dialog-options">
-              {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
-              {activeUiAsk.options.filter((opt) => {
-                const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
-                return !label.startsWith("✎");
-              }).map((opt, i) => {
-                const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
-                const label = typeof opt === "string" ? opt : (opt as any).label ?? val;
-                return (
-                  <button
-                    key={i}
-                    className="ask-dialog-option"
-                    onClick={() => {
-                      if (activeUiAsk.requestId && activeAgentId) {
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
-                      }
-                    }}
-                  >
-                    <span className="ask-dialog-option-marker">{label}</span>
-                  </button>
-                );
-              })}
-              <div className="ask-dialog-custom-input">
-                <input
-                  id="ask-dialog-custom-field"
-                  className="ask-dialog-custom-field"
-                  placeholder={t("ask.customPlaceholder")}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const el = document.getElementById("ask-dialog-custom-field") as HTMLInputElement | null;
-                      const val = el?.value?.trim() ?? "";
-                      if (val && activeUiAsk.requestId && activeAgentId) {
-                        /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
-                        pendingCustomInputRef.current = val;
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
-                      }
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="ask-dialog-submit-btn"
-                  onClick={() => {
-                    const el = document.getElementById("ask-dialog-custom-field") as HTMLInputElement | null;
-                    const val = el?.value?.trim() ?? "";
-                    if (val && activeUiAsk.requestId && activeAgentId) {
-                      /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
-                      pendingCustomInputRef.current = val;
-                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
-                    }
-                  }}
-                >
-                  {t("common.submit")}
-                </button>
-              </div>
-            </div>
-          ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
-            <div className="ask-dialog-input-area">
-              <input
-                id="ask-dialog-input"
-                className="ask-dialog-input"
-                placeholder={activeUiAsk.placeholder || ""}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
-                    const value = (e.target as HTMLInputElement).value;
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                  }
-                }}
-              />
-              <button
-                className="ask-dialog-submit-btn"
-                onClick={() => {
-                  const value = (document.getElementById("ask-dialog-input") as HTMLInputElement)?.value ?? "";
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                  }
-                }}
-              >
-                {t("common.submit")}
-              </button>
-            </div>
 
-          ) : null}
-          {/* select 类型取消提示 */}
-          {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
-            <div className="ask-dialog-cancel-hint">
-              <Info size={12} />
-              <span>{t("ask.cancelHint")}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
     </div>
   );
 }

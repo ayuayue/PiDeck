@@ -87,6 +87,14 @@ function getElectronViteInvocation({
 
 function runDev() {
 	const invocation = getElectronViteInvocation();
+	// Windows 下切换到 UTF-8 代码页，使终端能正确显示中文输出
+	if (process.platform === "win32") {
+		try {
+			require("child_process").execSync("chcp 65001", { stdio: "ignore" });
+		} catch {
+			// 忽略失败，仅影响中文显示
+		}
+	}
 	const child = spawn(invocation.command, invocation.args, {
 		stdio: "inherit",
 		env: createDevEnvironment(),
