@@ -16608,6 +16608,9 @@ a.config-btn {
 .extensions-recommended-action {
   flex-shrink: 0;
   padding-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* 推荐与已安装之间的分隔线 */
