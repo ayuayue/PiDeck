@@ -2928,6 +2928,7 @@ function registerIpc() {
 				source: (item.source as string) || "skillhub",
 				verified: Boolean(item.verified),
 				updatedAt: (item.updated_at as number) || undefined,
+				homepage: (item.homepage as string) || undefined,
 			}));
 			return { query, total: json.data?.total ?? items.length, items };
 		} catch (err) {

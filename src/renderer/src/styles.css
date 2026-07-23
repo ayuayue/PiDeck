@@ -19258,7 +19258,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.git-pane-header-actions { display: flex; min-width: 0; align-items: center; gap: 1px; overflow: hidden; }
+.git-pane-header-actions { display: flex; min-width: 0; align-items: center; gap: 1px; }
 .git-pane-header-actions .git-action-btn { flex: 0 0 auto; }
 .git-pane-count {
   min-width: 14px;

@@ -655,6 +655,8 @@ export interface SkillHubItem {
 	source?: string;
 	verified?: boolean;
 	updatedAt?: number;
+	/** 在 skillhub 网站上的详情页 URL，点击卡片时直接跳转 */
+	homepage?: string;
 }
 
 /** SkillHub skill 详情（含版本信息） */

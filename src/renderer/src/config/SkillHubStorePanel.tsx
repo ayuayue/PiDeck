@@ -136,100 +136,10 @@ export function SkillHubStorePanel() {
 						<ArrowLeft size={14} />
 						{t("config.promptStoreBack")}
 					</button>
-					<button
-						className="config-btn primary"
-						onClick={handleInstall}
-						disabled={installing || !detail}
-					>
-						{installing ? t("common.installing") + "…" : <><Download size={14} /> {t("common.install")}</>}
-					</button>
 				</div>
-
-				{installResult && (
-					<div className={`skillhub-install-result ${installResult.success ? "success" : "error"}`}>
-						{installResult.success ? (
-							<><Check size={16} /> {t("app.skillsInstalled", { name: detail?.skill?.displayName || previewSlug })}</>
-						) : (
-							<><AlertCircle size={16} /> {installResult.error || t("common.error")}</>
-						)}
-					</div>
-				)}
-
-				{detailLoading && (
-					<div className="config-loading">{t("common.loading")}…</div>
-				)}
-
-				{detail && !detailLoading && (
-					<div className="skillhub-detail">
-						<div className="skillhub-detail-header">
-							{detail.skill.iconUrl ? (
-								<img
-									className="skillhub-detail-icon"
-									src={detail.skill.iconUrl}
-									alt=""
-									onError={(e) => {
-										(e.target as HTMLImageElement).style.display = "none";
-										const fallback = (e.target as HTMLImageElement).nextElementSibling;
-										if (fallback) (fallback as HTMLElement).style.display = "flex";
-									}}
-								/>
-							) : null}
-							<div className="skillhub-detail-icon skillhub-detail-icon--fallback"
-								style={{ display: detail.skill.iconUrl ? "none" : "flex" }}>
-								<Sparkles size={20} />
-							</div>
-							<div>
-								<h2>{detail.skill.displayName}</h2>
-								<div className="skillhub-detail-meta">
-									<span className="skillhub-detail-owner">{detail.owner.displayName}</span>
-									{detail.skill.verified && <span className="skillhub-detail-badge">{t("common.verified")}</span>}
-								</div>
-							</div>
-						</div>
-
-						<div className="skillhub-detail-stats">
-							<div className="skillhub-detail-stat">
-								<Star size={14} fill="currentColor" />
-								<span>{fmtNum(detail.skill.stats.stars)}</span>
-							</div>
-							<div className="skillhub-detail-stat">
-								<Download size={14} />
-								<span>{fmtNum(detail.skill.stats.downloads)}</span>
-							</div>
-							<div className="skillhub-detail-stat">
-								<span>{detail.skill.stats.versions} {t("common.versions")}</span>
-							</div>
-						</div>
-
-						{detail.skill.category && (
-							<div className="skillhub-detail-tags">
-								<span className="skillhub-tag">{detail.skill.category}</span>
-								{detail.skill.subCategories?.map((sc) => (
-									<span key={sc.key} className="skillhub-tag skillhub-tag--sub">{sc.name}</span>
-								))}
-							</div>
-						)}
-
-						<div className="skillhub-detail-section">
-							<h4>{t("common.description")}</h4>
-							<p>{detail.skill.summary_zh || detail.skill.summary}</p>
-						</div>
-
-						<div className="skillhub-detail-section">
-							<h4>{t("common.version")}</h4>
-							<p className="skillhub-detail-version">
-								<code>{detail.latestVersion.version}</code>
-								{detail.latestVersion.changelog && (
-									<span className="skillhub-detail-changelog">{detail.latestVersion.changelog}</span>
-								)}
-							</p>
-						</div>
-					</div>
-				)}
-
-				{!detail && !detailLoading && (
-					<div className="config-loading">{t("common.loading")}…</div>
-				)}
+				<div className="config-empty" style={{ marginTop: 24 }}>
+					<p>{t("config.skillHubDetailNotAvailable")}</p>
+				</div>
 			</div>
 		);
 	}
@@ -302,7 +212,10 @@ export function SkillHubStorePanel() {
 						<article
 							key={item.slug}
 							className="skillhub-card"
-							onClick={() => void openDetail(item.slug)}
+							onClick={() => {
+								const url = item.homepage || `https://www.skillhub.cn/skills?keyword=${encodeURIComponent(item.name)}`;
+								window.open(url, "_blank");
+							}}
 						>
 							<div className="skillhub-card-main">
 								<strong className="skillhub-card-title">{item.name}</strong>
