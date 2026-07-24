@@ -112,6 +112,10 @@
         "to": "yao-prompts"
       },
       {
+        "from": "resources/xueprompts.db",
+        "to": "xueprompts.db"
+      },
+      {
         "from": "build/pets",
         "to": "pets",
         "filter": [

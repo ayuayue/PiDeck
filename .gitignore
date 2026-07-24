@@ -53,3 +53,6 @@ docs/PiDeck-协作说明.md
 # Cloned source for reference
 opencode-source/
 nul
+
+
+*.tsbuildinfo
