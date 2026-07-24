@@ -7269,6 +7269,31 @@ body.is-composer-resizing .composer-resize-handle::after {
   padding: 0 6px;
   height: 22px;
 }
+/* 分支只读展示：右侧纯文本，无背景/边框/阴影，不抢发送按钮焦点。 */
+.composer-bar-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-micro);
+  font-family: var(--font-family-business);
+  cursor: default;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.composer-bar-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .composer-bar-btn.thinking {
   color: var(--color-accent);
 }
@@ -15801,44 +15826,36 @@ a.config-btn {
   position: relative;
 }
 
-/* 在 toolbar 中与按钮高度对齐 */
+/* 与 composer-bar-btn 对齐：透明底、弱色文字，仅 hover 时轻微高亮 */
 .feishu-link-trigger {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: var(--control-height-xs);
+  height: 26px;
   border: 0;
   border-radius: var(--radius-xs);
-  background: var(--color-bg-muted);
-  color: var(--color-text-secondary);
+  background: transparent;
+  color: var(--color-text-tertiary);
   padding: 0 8px;
   font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
   cursor: pointer;
   white-space: nowrap;
+  max-width: 160px;
   transition:
-    color 0.12s,
-    background 0.12s;
+    color 0.12s ease,
+    background 0.12s ease;
 }
-.feishu-link-trigger:hover {
-  color: var(--color-accent);
-  background: var(--color-bg-active);
+.feishu-link-trigger:hover,
+.feishu-link-trigger.open {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
 }
 .feishu-link-trigger:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 1px;
 }
 .feishu-link-trigger:active {
-  background: var(--color-bg-active);
-}
-
-/* toolbar 入口与模型/思考保持同样文字样式，连接状态只通过小圆点表达。 */
-.feishu-link-trigger.connected,
-.feishu-link-trigger.connecting {
-  color: var(--color-text-secondary);
-}
-.feishu-link-trigger.connected:hover,
-.feishu-link-trigger.connecting:hover {
-  color: var(--color-accent);
   background: var(--color-bg-active);
 }
 
@@ -15869,36 +15886,29 @@ a.config-btn {
   white-space: nowrap;
 }
 
-.feishu-link-pin {
-  font-size: 10px;
-  line-height: 1;
-  margin-left: -1px;
-}
-
-/* ── Popover ── */
+/* ── Popover：克制小面板，贴近模型/思考选择器风格 ── */
 .feishu-link-popover {
   position: absolute;
   left: 0;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 6px);
   z-index: 130;
-  min-width: 420px;
-  max-width: 520px;
-  padding: 8px;
+  width: min(280px, calc(100vw - 48px));
+  padding: 6px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--color-bg-panel);
   box-shadow: var(--shadow-popover);
-  animation: picker-check-in 0.16s ease-out;
+  animation: picker-check-in 0.14s ease-out;
 }
 
 .feishu-link-popover-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 6px 6px 10px;
+  gap: 8px;
+  padding: 4px 6px 8px;
   border-bottom: 1px solid var(--color-border-subtle);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .feishu-link-popover-heading {
   display: flex;
@@ -15909,11 +15919,11 @@ a.config-btn {
 .feishu-link-popover-heading-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 .feishu-link-popover-heading-text strong {
-  font-size: var(--font-size-control);
+  font-size: var(--font-size-caption);
   font-weight: 600;
   color: var(--color-text-primary);
 }
@@ -15924,41 +15934,34 @@ a.config-btn {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.feishu-link-popover-section-title {
-  padding: 2px 6px 6px;
-  font-size: var(--font-size-micro);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--color-text-tertiary);
-}
 
-.composer-toolbar .feishu-link-popover-action {
-  height: auto;
-  min-width: 0;
+.feishu-link-popover-action {
+  flex: 0 0 auto;
+  height: 24px;
   border: 0;
   background: transparent;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-micro);
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 0 6px;
   border-radius: var(--radius-sm);
 }
-.composer-toolbar .feishu-link-popover-action:hover {
-  background: var(--color-bg-active);
+.feishu-link-popover-action:hover {
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
-.composer-toolbar .feishu-link-popover-action:focus-visible {
+.feishu-link-popover-action:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 1px;
 }
-.composer-toolbar .feishu-link-popover-action:disabled {
+.feishu-link-popover-action:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
 .feishu-link-popover-error {
-  padding: 4px 8px;
-  margin-bottom: 4px;
+  padding: 6px 8px;
+  margin: 0 0 4px;
   font-size: var(--font-size-micro);
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
@@ -15968,87 +15971,55 @@ a.config-btn {
 .feishu-link-popover-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 240px;
+  gap: 2px;
+  max-height: 220px;
   overflow-y: auto;
-  padding-right: 2px;
 }
 
-.composer-toolbar .feishu-link-bot-item {
+.feishu-link-bot-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: auto;
+  gap: 8px;
+  width: 100%;
   min-width: 0;
-  padding: 8px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-primary);
   font-size: var(--font-size-caption);
   cursor: pointer;
   text-align: left;
-  width: 100%;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    transform 0.12s ease;
+  transition: background 0.12s ease;
 }
-.composer-toolbar .feishu-link-bot-item:hover {
-  background: var(--color-bg-active);
-  border-color: var(--color-border-subtle);
-  color: var(--color-text-primary);
+.feishu-link-bot-item:hover {
+  background: var(--color-bg-hover);
 }
-.composer-toolbar .feishu-link-bot-item:active {
-  transform: translateY(1px);
-}
-.composer-toolbar .feishu-link-bot-item:focus-visible {
+.feishu-link-bot-item:focus-visible {
   outline: var(--focus-ring);
   outline-offset: -1px;
 }
-.composer-toolbar .feishu-link-bot-item:disabled {
+.feishu-link-bot-item:disabled {
   opacity: 0.6;
   cursor: default;
 }
-.composer-toolbar .feishu-link-bot-item.active {
-  border-color: color-mix(
-    in srgb,
-    var(--color-accent) 28%,
-    var(--color-border-subtle)
-  );
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-panel));
+.feishu-link-bot-item.active {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
-.composer-toolbar .feishu-link-bot-item.pinned {
-  box-shadow: inset 2px 0 0 var(--color-accent);
+.feishu-link-bot-item.pinned {
+  box-shadow: inset 2px 0 0 var(--color-border-strong);
 }
 
-.feishu-link-bot-avatar {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 12%,
-    var(--color-bg-muted)
-  );
-  color: var(--color-accent);
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-caption);
-  font-weight: 700;
-}
 .feishu-link-bot-info {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
   overflow: hidden;
 }
 .feishu-link-bot-name {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -16061,48 +16032,21 @@ a.config-btn {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.feishu-link-bot-badges {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  margin-top: 2px;
-  overflow: hidden;
-}
-.feishu-link-bot-badge {
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 1px 5px;
-  border-radius: var(--radius-pill);
-  white-space: nowrap;
-}
-.feishu-link-bot-badge.active {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent);
-}
-.feishu-link-bot-badge.pinned {
-  background: var(--color-bg-muted);
-  color: var(--color-text-secondary);
-}
+
 .feishu-link-bot-check {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
   color: var(--color-accent);
   font-weight: 700;
-  font-size: 13px;
-  opacity: 0;
-}
-.feishu-link-bot-check.visible {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  opacity: 1;
+  font-size: 12px;
 }
 .feishu-link-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
   border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: feishu-link-spin 0.75s linear infinite;
@@ -16113,19 +16057,13 @@ a.config-btn {
   }
 }
 
-.feishu-link-popover-footer {
-  padding: 4px 8px 2px;
-  border-top: 1px solid var(--color-border-subtle);
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 .feishu-link-popover-hint {
+  margin-top: 4px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--color-border-subtle);
   font-size: var(--font-size-micro);
+  line-height: 1.4;
   color: var(--color-text-tertiary);
-  text-align: center;
-  padding: 4px 0;
 }
 
 /* ── 外部链接配置 Tab ────────────────────── */
