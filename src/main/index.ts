@@ -106,6 +106,8 @@ import { WebServiceManager } from "./web/WebServiceManager";
 import { preparePreloadPath } from "./preloadPath";
 import { AppLogger } from "./logging/AppLogger";
 import { RpcLogger } from "./logging/RpcLogger";
+import { resolveWslEnvironment } from "./wsl/WslEnvironment";
+import type { WslEnvironment } from "./wsl/WslPaths";
 import {
 	detectExternalEditors,
 	listConfiguredExternalEditors,
@@ -155,6 +157,32 @@ let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
 let rpcLogger: RpcLogger;
 let feishuBridge: FeishuBridge | null = null;
+let activeWslEnvironment: WslEnvironment | null = null;
+
+/**
+ * WSL HOME 只在这里解析一次，再把同一个环境对象下发给所有文件边界消费者。
+ * 这样 root、自定义 HOME 和普通用户不会在各管理器中被分别猜测。
+ */
+async function syncWslEnvironment(settings: AppSettings): Promise<WslEnvironment | null> {
+	const environment = settings.wslEnabled && settings.wslDistro && settings.wslUser
+		? await resolveWslEnvironment(settings.wslDistro, settings.wslUser, {
+			warn: (message, detail) => {
+				console.warn(`[PiDeck] ${message}`, detail);
+				void appLogger?.warn("wsl", message, detail);
+			},
+		})
+		: null;
+
+	activeWslEnvironment = environment;
+	await sessionScanner.configureWsl(environment);
+	skillManager.configureWsl(environment);
+	promptManager.configureWsl(environment);
+	extensionManager.configureWsl(environment);
+	agentManager?.configureWsl(environment);
+	configManager?.configureWsl(environment);
+	xuePromptManager?.configureWsl(environment);
+	return environment;
+}
 
 /**
  * 解析 pi --list-models 表格输出为 AvailableModel[]。
@@ -1220,7 +1248,11 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.projectsAdd, async () => {
 		const settings = settingsStore.get();
 		const env = settings.wslEnabled ? "wsl" as const : "windows" as const;
-		const project = await projectStore.chooseAndAdd(env);
+		// 上游将 WSL 初始化移到首帧后的后台任务；用户若立即点击添加项目，按需等待同一环境解析。
+		const wslEnvironment = env === "wsl"
+			? activeWslEnvironment ?? await syncWslEnvironment(settings)
+			: null;
+		const project = await projectStore.chooseAndAdd(env, wslEnvironment);
 		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: env });
 		return project;
 	});
@@ -1547,15 +1579,7 @@ function registerIpc() {
 		ipcChannels.sessionsList,
 		async (_event, projectId?: string) => {
 			const project = projectId ? projectStore.get(projectId) : undefined;
-			let projectPath = project?.path;
-			// WSL 模式：将 Windows 项目路径转为 WSL /mnt/ 格式，
-			// 使 WSL 会话（CWD = /mnt/c/...）能正确匹配到项目。
-			if (projectPath && settingsStore.get().wslEnabled && settingsStore.get().wslDistro) {
-				projectPath = projectPath
-					.replace(/^([A-Za-z]):\\/, (_: string, d: string) => `/mnt/${d.toLowerCase()}/`)
-					.replace(/\\/g, '/');
-			}
-			return sessionScanner.list(projectPath);
+			return sessionScanner.list(project?.path);
 		},
 	);
 	ipcMain.handle(
@@ -2576,21 +2600,7 @@ function registerIpc() {
 			}
 			// WSL 设置变更时同步更新会话扫描器和配置管理器
 			if ("wslEnabled" in patch || "wslDistro" in patch || "wslUser" in patch) {
-				if (settings.wslEnabled && settings.wslDistro && settings.wslUser) {
-					await sessionScanner.configureWsl(settings.wslDistro, settings.wslUser);
-					skillManager.configureWsl(settings.wslDistro, settings.wslUser);
-					promptManager.configureWsl(settings.wslDistro, settings.wslUser);
-					extensionManager.configureWsl(settings.wslDistro, settings.wslUser);
-					if (configManager) configManager.configureWsl(settings.wslDistro, settings.wslUser);
-					if (xuePromptManager) xuePromptManager.configureWsl(settings.wslDistro, settings.wslUser);
-				} else {
-					sessionScanner.clearWsl();
-					skillManager.configureWsl(null);
-					promptManager.configureWsl(null);
-					extensionManager.configureWsl(null);
-					if (configManager) configManager.configureWsl(null);
-					if (xuePromptManager) xuePromptManager.configureWsl(null);
-				}
+				await syncWslEnvironment(settings);
 			}
 			return settings;
 		},
@@ -3040,7 +3050,7 @@ function registerIpc() {
 		if (source.startsWith("pi-deck-") && source.endsWith(".ts")) {
 			if (enabled) {
 				// 启用：确保 .ts 文件存在（处理老版本误删文件的恢复场景）
-				await ensurePiDeckExtension(source);
+				await ensurePiDeckExtension(source, activeWslEnvironment?.windowsHome);
 			}
 			// 禁用时不删除 .ts 文件：通过 settings.json 的 disabledExtensions 控制 pi 加载即可
 		}
@@ -3564,26 +3574,6 @@ app.whenReady().then(async () => {
  * 这些工作不影响首帧可见，但会拖慢 packaged app 的“点击图标 → 窗口出来”。
  */
 async function runPostWindowStartupTasks(): Promise<void> {
-	// 根据已加载的 WSL 设置配置会话扫描器，使其能同时扫描 WSL 中的 pi 会话目录
-	const syncWslConfig = async () => {
-		const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
-		if (wslEnabled && wslDistro && wslUser) {
-			await sessionScanner.configureWsl(wslDistro, wslUser);
-			skillManager.configureWsl(wslDistro, wslUser);
-			promptManager.configureWsl(wslDistro, wslUser);
-			extensionManager.configureWsl(wslDistro, wslUser);
-			if (configManager) configManager.configureWsl(wslDistro, wslUser);
-			if (xuePromptManager) xuePromptManager.configureWsl(wslDistro, wslUser);
-		} else {
-			sessionScanner.clearWsl();
-			skillManager.configureWsl(null);
-			promptManager.configureWsl(null);
-			extensionManager.configureWsl(null);
-			if (configManager) configManager.configureWsl(null);
-			if (xuePromptManager) xuePromptManager.configureWsl(null);
-		}
-	};
-
 	// 自动部署 PiDeck 内置扩展：这些扩展提供桌面端差异预览、提问卡片和 Plan Mode。
 	// Windows 和 WSL 环境各自部署一份，保证切换 pi 来源后扩展仍然可用。
 	const deployExtensionsTo = async (homeDir: string) => {
@@ -3602,7 +3592,7 @@ async function runPostWindowStartupTasks(): Promise<void> {
 
 	// 并行做无依赖的后台初始化，缩短窗口出现后的空闲等待。
 	await Promise.all([
-		syncWslConfig().catch((error) => {
+		syncWslEnvironment(settingsStore.get()).catch((error) => {
 			console.error("Failed to sync WSL config:", error);
 		}),
 		deployExtensionsTo(app.getPath("home")).catch((error) => {
@@ -3619,16 +3609,9 @@ async function runPostWindowStartupTasks(): Promise<void> {
 		}),
 	]);
 
-	// WSL 启用时额外部署到 WSL 目录（通过 \\wsl$ UNC）
-	const wslSettings = settingsStore.get();
-	if (wslSettings.wslEnabled && wslSettings.wslDistro && wslSettings.wslUser) {
-		// UNC: \\wsl$\Distro\home\user
-		const wslUncHome =
-			"\\\\wsl$\\" +
-			wslSettings.wslDistro +
-			"\\home\\" +
-			wslSettings.wslUser;
-		void deployExtensionsTo(wslUncHome).catch(() => {
+	// WSL 启用时额外部署到动态解析出的 HOME。
+	if (activeWslEnvironment) {
+		void deployExtensionsTo(activeWslEnvironment.windowsHome).catch(() => {
 			console.warn("[PiDeck] Failed to deploy extensions to WSL, skipping");
 		});
 	}
@@ -3798,8 +3781,8 @@ async function ensureAllPiSettingsDefaults(): Promise<void> {
 	await ensurePiSettingsDefaults(winDir, piVersion).catch(() => {});
 
 	// WSL（如果已配置）
-	if (s.wslEnabled && s.wslDistro && s.wslUser) {
-		const wslDir = join(`\\\\wsl$\\${s.wslDistro}\\home\\${s.wslUser}`, ".pi", "agent");
+	if (activeWslEnvironment) {
+		const wslDir = join(activeWslEnvironment.windowsHome, ".pi", "agent");
 		await ensurePiSettingsDefaults(wslDir, piVersion).catch(() => {});
 	}
 }

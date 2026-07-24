@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { AppSettings, PiCliUpdateResult, PiExtensionListResult, PiExtensionSummary, PiUpdateCheckResult } from "../../shared/types";
 import type { PiLocator } from "../pi/PiLocator";
+import { toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 
 type SettingsProvider = () => AppSettings;
 
@@ -21,8 +22,7 @@ const BUILT_IN_EXTENSIONS = [
  * 兼容老版本避免 unknown option 错误。
  */
 export class ExtensionManager {
-	/** WSL UNC home 路径（如 \\wsl$\Debian\home\piuser），null 表示使用本地 Windows home */
-	private wslHome: string | null = null;
+	private wslEnvironment: WslEnvironment | null = null;
 	/** 扩展列表缓存：避免每次打开配置页都重新跑 pi list + npm view。 */
 	private listCache: PiExtensionListResult | null = null;
 	/** 缓存是否包含 npm 版本信息（仅 forceRefresh 路径会写入 true）。 */
@@ -37,19 +37,15 @@ export class ExtensionManager {
 		private readonly getSettings: SettingsProvider,
 	) {}
 
-	/** 配置 WSL 模式（通过 \\wsl$ UNC 访问 WSL 内 ~/.pi/agent/extensions/） */
-	configureWsl(distro: string | null, user?: string) {
-		if (distro && user) {
-			this.wslHome = `\\\\wsl$\\${distro}\\home\\${user}`;
-		} else {
-			this.wslHome = null;
-		}
+	/** 将扩展文件边界切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
+	configureWsl(environment: WslEnvironment | null) {
+		this.wslEnvironment = environment;
 		// 切换 WSL/本地 home 后旧缓存失效。
 		this.invalidateListCache();
 	}
 
 	private get homeDir(): string {
-		return this.wslHome ?? homedir();
+		return this.wslEnvironment?.windowsHome ?? homedir();
 	}
 
 	/** 缓存的 pi 版本号，用于条件性传递 --no-approve。 */
@@ -265,7 +261,10 @@ export class ExtensionManager {
 
 	private async readInstalledVersion(path?: string) {
 		if (!path) return undefined;
-		const raw = await readFile(join(path, "package.json"), "utf8");
+		const hostPath = this.wslEnvironment
+			? toWindowsHostPath(path, this.wslEnvironment)
+			: path;
+		const raw = await readFile(join(hostPath, "package.json"), "utf8");
 		const parsed = JSON.parse(raw) as { version?: string };
 		return parsed.version;
 	}
@@ -312,7 +311,7 @@ export class ExtensionManager {
 	}
 
 	async setEnabled(source: string, enabled: boolean): Promise<void> {
-		const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+		const settingsPath = join(this.homeDir, ".pi", "agent", "settings.json");
 		let raw = "{}";
 		try { raw = await readFile(settingsPath, "utf8"); } catch {}
 		const settings = JSON.parse(raw);
@@ -330,7 +329,7 @@ export class ExtensionManager {
 	}
 
 	private async getDisabledExtensions(): Promise<Set<string>> {
-		const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+		const settingsPath = join(this.homeDir, ".pi", "agent", "settings.json");
 		try {
 			const raw = await readFile(settingsPath, "utf8");
 			const settings = JSON.parse(raw);

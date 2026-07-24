@@ -3950,11 +3950,22 @@ export function App() {
   }
 
   async function addProject() {
-    const project = await api.projects.add();
-    if (!project) return;
-    await refreshProjects();
-    setActiveProjectId(project.id);
-    setActiveAgentId(undefined);
+    try {
+      const project = await api.projects.add();
+      if (!project) return;
+      await refreshProjects();
+      setActiveProjectId(project.id);
+      setActiveAgentId(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showNotice(
+        message.includes("WSL_DISTRO_MISMATCH")
+          ? t("app.wslDistroMismatch")
+          : t("app.addProjectFailed", { error: message }),
+        5000,
+        "error",
+      );
+    }
   }
 
   function updateAfterProjectRemoved(

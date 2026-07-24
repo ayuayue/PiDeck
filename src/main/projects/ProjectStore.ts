@@ -3,6 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Project } from "../../shared/types";
+import {
+  normalizeSelectedWslProjectPath,
+  parseWslUncPath,
+  WslPathError,
+  type WslEnvironment,
+} from "../wsl/WslPaths";
 
 const CHAT_PROJECT_ID = "builtin-chat";
 const CHAT_PROJECT_NAME = "Chat";
@@ -77,20 +83,25 @@ export class ProjectStore {
     }
   }
 
-  async chooseAndAdd(environment?: "windows" | "wsl") {
+  async chooseAndAdd(
+    environment?: "windows" | "wsl",
+    wslEnvironment?: WslEnvironment | null,
+  ) {
+    if (environment === "wsl" && !wslEnvironment) {
+      throw new WslPathError("INVALID_WSL_PATH", "The active WSL environment is unavailable.");
+    }
     const result = await dialog.showOpenDialog({
       title: "选择项目目录",
+      ...(environment === "wsl" ? { defaultPath: wslEnvironment!.windowsHome } : {}),
       properties: ["openDirectory"],
     });
 
     if (result.canceled || result.filePaths.length === 0) return null;
     let projectPath = result.filePaths[0];
 
-    // WSL 模式：将 Windows 路径（如 C:\Users\14012\project）转为 WSL 格式（/mnt/c/Users/14012/project）
+    // WSL 盘符项目沿用 /mnt 存储格式；WSL 内部项目保留为可供 Windows 主进程访问的规范 UNC。
     if (environment === "wsl") {
-      projectPath = projectPath
-        .replace(/^([A-Za-z]):\\/, (_: string, d: string) => `/mnt/${d.toLowerCase()}/`)
-        .replace(/\\/g, '/');
+      projectPath = normalizeSelectedWslProjectPath(projectPath, wslEnvironment!);
     }
 
     return this.add(projectPath, undefined, environment);
@@ -277,6 +288,12 @@ export class ProjectStore {
   }
 
   private sameProjectPath(a: string, b: string) {
+    const leftWsl = parseWslUncPath(a);
+    const rightWsl = parseWslUncPath(b);
+    if (leftWsl && rightWsl) {
+      return leftWsl.distro.toLowerCase() === rightWsl.distro.toLowerCase()
+        && leftWsl.linuxPath === rightWsl.linuxPath;
+    }
     const left = this.normalizeProjectPath(a);
     const right = this.normalizeProjectPath(b);
     // WSL 路径保留原始大小写（Linux 文件系统区分大小写）

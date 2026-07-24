@@ -7,12 +7,13 @@ import { basename as posixBasename, dirname as posixDirname, join as posixJoin }
 import type { ChatMessage, ChatRole, SessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
 import { extractMessageText, extractThinkingRaw } from "../pi/messageContent";
+import { toWslLinuxPath, type WslEnvironment } from "../wsl/WslPaths";
 import { SessionSummaryCache, type SessionFileVersion } from "./sessionSummaryCache";
 
 export class SessionScanner {
   private readonly root = join(app.getPath("home"), ".pi", "agent", "sessions");
   private readonly codexRoot = join(app.getPath("home"), ".codex", "sessions");
-  /** WSL 配置（发行版、用户名、动态获取的 home 目录），由 configureWsl 设置；null 表示未启用 */
+  /** WSL 配置由主进程统一解析；内部保留 home 字段以维持扫描代码的单一 Linux 路径语义。 */
   private wslConfig: { distro: string; user: string; home: string } | null = null;
   /** 比 renderer watchdog 更短，确保超时前先终止实际扫描，避免后台请求堆积。 */
   private scanTimeoutMs = 18_000;
@@ -42,14 +43,10 @@ export class SessionScanner {
     return this.resolveWslExe().shell;
   }
 
-  /**
-   * 配置 WSL 会话目录。启用时动态获取 WSL 用户的 home 目录，
-   * 确保 root 用户（/root）和普通用户（/home/<user>）都能正确扫描。
-   */
-  async configureWsl(wslDistro: string, wslUser: string): Promise<void> {
-    // 动态获取 WSL 中用户的 HOME 目录，解决 root（/root）与普通用户（/home/user）路径差异
-    const home = await this.fetchWslHome(wslDistro, wslUser);
-    this.wslConfig = { distro: wslDistro, user: wslUser, home };
+  async configureWsl(environment: WslEnvironment | null): Promise<void> {
+    this.wslConfig = environment
+      ? { distro: environment.distro, user: environment.user, home: environment.linuxHome }
+      : null;
     // 环境切换时只重置“本轮扫描键”，并从磁盘重新装载缓存；不要把另一环境的磁盘缓存清空。
     this.summaryCacheFileSetKey = "";
     await this.summaryCache.reloadFromDisk();
@@ -60,25 +57,6 @@ export class SessionScanner {
     this.wslConfig = null;
     this.summaryCacheFileSetKey = "";
     void this.summaryCache.reloadFromDisk();
-  }
-
-  /** 通过 wsl.exe 动态获取用户 HOME 目录，失败时 fallback 到 /home/<user> */
-  private fetchWslHome(distro: string, user: string): Promise<string> {
-    return new Promise((resolve) => {
-      execFile(this.wslExePath, ["-d", distro, "-u", user, "sh", "-c", "echo $HOME"], {
-        shell: this.wslShell,
-        encoding: "utf8",
-        timeout: 8_000,
-        windowsHide: true,
-      }, (err, stdout) => {
-        if (err || !stdout.trim()) {
-          // fallback：标准 Linux 用户目录规则
-          resolve(user === "root" ? "/root" : `/home/${user}`);
-          return;
-        }
-        resolve(stdout.trim());
-      });
-    });
   }
 
   /** WSL 中 pi session 目录（基于动态获取的 home） */
@@ -227,6 +205,9 @@ export class SessionScanner {
   }
 
   async list(projectPath?: string): Promise<SessionSummary[]> {
+    const normalizedProjectPath = projectPath && this.wslConfig
+      ? toWslLinuxPath(projectPath, this.wslConfig)
+      : projectPath;
     // WSL 扫描会启动大量外部命令；整体 watchdog 必须早于 renderer 超时，
     // 这样超时会真正终止底层 wsl.exe，而不是只释放前端锁后继续堆积扫描。
     const controller = this.wslConfig ? new AbortController() : null;
@@ -262,12 +243,12 @@ export class SessionScanner {
 
       const validSummaries = summaries.filter((summary): summary is SessionSummary => Boolean(summary));
 
-      if (!projectPath) {
+      if (!normalizedProjectPath) {
         return validSummaries.sort((a, b) => b.updatedAt - a.updatedAt);
       }
       // 异步 isSameProject 过滤
       const matched = await Promise.all(
-        validSummaries.map(summary => this.isSameProject(summary, projectPath!, signal))
+        validSummaries.map(summary => this.isSameProject(summary, normalizedProjectPath, signal))
       );
       signal?.throwIfAborted();
       const filtered = validSummaries

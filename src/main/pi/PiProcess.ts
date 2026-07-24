@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { PiRpcClient } from "./PiRpcClient";
 import { PiLocator } from "./PiLocator";
 import type { AppSettings } from "../../shared/types";
+import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
 
 type PiProcessSettings = Pick<
   AppSettings,
@@ -86,11 +87,7 @@ export class PiProcess extends EventEmitter {
     // pi 在 RPC 模式下 project_trust 事件 hasUI 恒为 false，故信任弹窗由桌面端自行处理。
     const args = ["--mode", "rpc"];
     if (noSession) args.push("--no-session");
-    // WSL 模式下仅跳过 Windows 格式的会话路径（跨环境残留数据），
-    // WSL 原生路径（/home/... 或 /mnt/...）正常传递以恢复已有会话。
-    const isWsl = this.settings?.wslEnabled && this.settings?.wslDistro && this.settings?.wslUser;
-    const isWinPath = sessionPath && /^[A-Za-z]:[/\\]/.test(sessionPath);
-    if (sessionPath && !(isWsl && isWinPath)) args.push("--session", sessionPath);
+    if (sessionPath) args.push("--session", sessionPath);
 
     // 用户手动指定的 pi 路径优先于自动检测，解决 npm global、nvm 等路径未在 PATH 中的问题
     const command = this.locator.resolveCommand(this.settings?.customPiPath, this.settings?.wslEnabled, this.settings?.wslDistro, this.settings?.wslUser);
@@ -109,30 +106,31 @@ export class PiProcess extends EventEmitter {
       // 版本不支持信任标志时静默跳过：老版本 pi 无 trust 系统，自动加载所有资源。
     }
 
-    const invocation = this.locator.createInvocation(command, args);
-
-    // WSL 模式：spawn 的 cwd 必须是 Windows 路径（wsl.exe 会将其转为 WSL 初始目录），
-    // 不能用 Linux 路径否则 spawn ENOENT。
-    // 项目路径可能是 WSL Linux 格式（/mnt/d/...），需要转回 Windows 盘符路径。
     let spawnCwd = this.cwd;
     let diagnosticCwd = this.cwd;
-    if (invocation.wsl) {
-      // /mnt/d/tmp → D:\tmp
-      const mntMatch = spawnCwd.match(/^\/mnt\/([a-z])\/(.*)/);
-      if (mntMatch) {
-        spawnCwd = `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, '\\')}`;
-      } else if (spawnCwd.startsWith("/")) {
-        // WSL 内部路径（/home/piuser/...）：Windows 无法作为 CWD，回退到 Windows home
-        spawnCwd = process.env.USERPROFILE || "C:\\Users\\Default";
+    let finalPiArgs = args;
+    let wslCwd: string | undefined;
+    if (command.startsWith("wsl://")) {
+      const distro = this.settings?.wslDistro;
+      if (!distro) throw new Error("WSL distribution is unavailable for pi startup.");
+      const environment = { distro };
+      wslCwd = toWslLinuxPath(this.cwd, environment);
+      spawnCwd = toWindowsHostPath(this.cwd, environment);
+      diagnosticCwd = wslCwd;
+
+      const sessionIndex = args.indexOf("--session");
+      if (sessionIndex >= 0) {
+        finalPiArgs = args.map((arg, index) =>
+          index === sessionIndex + 1 ? toWslLinuxPath(arg, environment) : arg,
+        );
       }
-      // 诊断用保持 Linux 路径
-      diagnosticCwd = spawnCwd !== this.cwd ? this.cwd : PiLocator.windowsPathToWslPath(this.cwd);
     }
-    // 如果 args 中携带了 --session，也需要把 Windows 路径转为 WSL 路径。
-    const sessionIndex = invocation.args.indexOf("--session");
-    const finalArgs = sessionIndex >= 0 && invocation.wsl
-      ? invocation.args.map((a, i) => i === sessionIndex + 1 ? PiLocator.windowsPathToWslPath(a) : a)
-      : invocation.args;
+    const invocation = this.locator.createInvocation(
+      command,
+      finalPiArgs,
+      wslCwd ? { wslCwd } : undefined,
+    );
+    const finalArgs = invocation.args;
 
     // 初始化诊断信息。信任场景的版本检测已在上方同步完成。
     // 非信任场景仍异步触发，不阻塞 RPC 启动。

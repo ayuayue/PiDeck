@@ -26,11 +26,17 @@ async function loadTsModule(filePath, replacements = {}) {
 }
 
 const rpcModule = await loadTsModule("src/main/pi/PiRpcClient.ts");
-globalThis.__pideckTestDeps = { PiRpcClient: rpcModule.PiRpcClient };
+const wslPathsModule = await loadTsModule("src/main/wsl/WslPaths.ts");
+globalThis.__pideckTestDeps = {
+	PiRpcClient: rpcModule.PiRpcClient,
+	toWindowsHostPath: wslPathsModule.toWindowsHostPath,
+	toWslLinuxPath: wslPathsModule.toWslLinuxPath,
+};
 const piProcessModule = await loadTsModule("src/main/pi/PiProcess.ts", {
 	'import { PiRpcClient } from "./PiRpcClient";': "const { PiRpcClient } = globalThis.__pideckTestDeps;",
 	'import { PiLocator } from "./PiLocator";': "class PiLocator {}",
 	'import type { AppSettings } from "../../shared/types";': "",
+	'import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";': "const { toWindowsHostPath, toWslLinuxPath } = globalThis.__pideckTestDeps;",
 	"const AppSettings = undefined;": "",
 });
 
@@ -68,12 +74,13 @@ class FakeLocator {
 mkdirSync(join(tmpdir(), "pideck-pi-process-test"), { recursive: true });
 const proc = new PiProcess(join(tmpdir(), "pideck-pi-process-test"), {}, new FakeLocator());
 const startedAt = performance.now();
-const client = proc.start(undefined, "no-approve");
+const clientPromise = proc.start(undefined, "no-approve");
 const startElapsed = performance.now() - startedAt;
 assert.ok(
 	startElapsed < 500,
 	`PiProcess.start should not wait for slow pi --version, took ${startElapsed.toFixed(0)}ms`,
 );
+const client = await clientPromise;
 const response = await client.request({ type: "get_state" }, 2_000);
 assert.equal(response.success, true);
 proc.stop();
