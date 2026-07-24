@@ -9,17 +9,69 @@
     />
     <title></title>
     <style>
-      /* 启动画面 CSS 内联在这里，确保 JS 和主 CSS 加载前画面就能正确渲染 */
+      /* 启动画面 —— 独立于 #root，React 挂载后通过 fade-out 过渡平滑移除 */
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { height: 100%; overflow: hidden; background: #eef0f3; }
-      .root-loading { width: 100vw; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
-      .root-loading-logo { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 14px; background: linear-gradient(145deg, #1a9e3c, #0d7a2a); box-shadow: 0 12px 28px rgba(26, 158, 60, 0.2); }
-      .root-loading strong { color: #1f2937; font-size: 16px; font-weight: 600; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; }
-      .root-loading span { color: #6b7280; font-size: 13px; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; }
+
+      #boot-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #eef0f3;
+        transition: opacity 380ms ease, transform 380ms ease;
+        will-change: opacity, transform;
+      }
+      #boot-overlay.fade-out {
+        opacity: 0;
+        transform: scale(1.04);
+        pointer-events: none;
+      }
+      .boot-logo {
+        width: 118px;
+        height: 118px;
+        display: grid;
+        place-items: center;
+        border-radius: 20px;
+        background: linear-gradient(145deg, #1a9e3c, #0d7a2a);
+        box-shadow: 0 18px 40px rgba(26, 158, 60, 0.28);
+      }
+      .boot-logo svg {
+        width: 66px;
+        height: 66px;
+      }
+      .boot-title {
+        color: #1f2937;
+        font-size: 18px;
+        font-weight: 600;
+        font-family: system-ui, -apple-system, sans-serif;
+        line-height: 1.4;
+      }
+      .boot-subtitle {
+        color: #6b7280;
+        font-size: 14px;
+        font-family: system-ui, -apple-system, sans-serif;
+        line-height: 1.4;
+      }
     </style>
   </head>
   <body>
-    <div id="root"><div class="boot-screen root-loading"><div class="boot-logo root-loading-logo"><svg viewBox="140 140 520 520" width="32" height="32" aria-hidden="true"><path fill="#fff" fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/><path fill="#fff" d="M517.36 400H634.72V634.72H517.36Z"/></svg></div><strong>PiDeck</strong><span>正在启动…</span></div></div>
+    <div id="root"></div>
+    <!-- 启动画面覆盖层：React 挂载后通过 fade-out 动画淡出再移除 -->
+    <div id="boot-overlay">
+      <div class="boot-logo">
+        <svg viewBox="140 140 520 520" aria-hidden="true">
+          <path fill="#fff" fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
+          <path fill="#fff" d="M517.36 400H634.72V634.72H517.36Z"/>
+        </svg>
+      </div>
+      <strong class="boot-title">PiDeck</strong>
+      <span class="boot-subtitle">正在启动…</span>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

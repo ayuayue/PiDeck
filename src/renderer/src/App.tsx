@@ -140,7 +140,7 @@ import {
   type SessionModifiedFile,
 } from "./components/app/AppParts";
 import { GitPanel } from "./components/app/GitPanel";
-import { BrowserPanel, navigateTo } from "./components/app/BrowserPanel";
+import { BrowserPanel, moduleState, navigateTo } from "./components/app/BrowserPanel";
 import {
   groupToolMessages,
   getMultiSelectImageCaptureIds,
@@ -5727,10 +5727,20 @@ export function App() {
     }
   }
 
+  /** HTML 文件预览：在内置浏览器中打开 */
   const handlePreviewHtml = (filePath: string) => {
-    const url = new URL('file:///' + filePath.split('\\').join('/')).toString();
-    navigateTo(url);
-    setDrawer('browser');
+    // 如果编辑器是模态模式，先关闭弹框
+    if (editorMode === "modal") {
+      setActiveTabId(null);
+      setEditorTabs([]);
+    }
+    // 通过 navigateTo 设置 URL 后重置 navigateKey，让 webview 直接加载 file:// URL
+    const fileUrl = 'file:///' + filePath.split('\\').join('/');
+    navigateTo(fileUrl);
+    if (moduleState!.navigateKey) {
+      moduleState!.navigateKey = 0;
+    }
+    setDrawer("browser");
     setDrawerCollapsed(false);
   };
 
@@ -7593,58 +7603,35 @@ export function App() {
                 )}
               </div>
               <div className="composer-bottom-right">
-                {/* 停止按钮：agent 繁忙时始终显示，不依赖输入框是否有内容 */}
-                {isAgentBusy ? (
-                  <button
-                    type="button"
-                    className="composer-bar-btn stop"
-                    onClick={() => abortAgent()}
-                    title={t("app.stop")}
-                    aria-label={t("app.stop")}
-                  >
-                    <Square size={15} strokeWidth={0} fill="currentColor" />
-                  </button>
-                ) : (showBusySendControls && hasComposerContent) || !keepBusyDraftControls ? (
-                  <>
-                    {showBusySendControls && hasComposerContent && (
-                      <div className="send-behavior-toggle">
-                        <button
-                          type="button"
-                          className="send-behavior-primary"
-                          title={t("app.sendSteerTitle")}
-                          aria-label={t("app.sendSteerTitle")}
-                          onClick={() => void sendPrompt()}
-                        >
-                          <ArrowUp size={15} strokeWidth={2.4} />
-                        </button>
-                        <button
-                          type="button"
-                          className="send-behavior-chevron"
-                          title={t("app.sendBehaviorTitle")}
-                          aria-label={t("app.sendBehaviorTitle")}
-                          aria-haspopup="menu"
-                          aria-expanded={sendBehaviorMenuOpen}
-                          onMouseEnter={keepSendBehaviorMenuOpen}
-                          onFocus={keepSendBehaviorMenuOpen}
-                          onClick={() => setSendBehaviorMenuOpen((open) => !open)}
-                        >
-                          <ChevronDown size={12} strokeWidth={2.2} />
-                        </button>
-                      </div>
-                    )}
-                    {!keepBusyDraftControls ? (
+                {/* 队列/发送按钮：有内容时才显示行为选择器（靠左） */}
+                {showBusySendControls && hasComposerContent && (
+                  <div style={{ position: "relative" }}>
+                    <div className="send-behavior-toggle">
                       <button
                         type="button"
-                        disabled={isAgentStarting || (!activeAgentId) || (!prompt.trim() && attachedImages.length === 0)}
-                        className="composer-bar-btn send"
+                        className="send-behavior-primary"
+                        title={isAgentBusy ? t("app.sendSteerTitle") : t("app.send")}
+                        aria-label={isAgentBusy ? t("app.sendSteerTitle") : t("app.send")}
                         onClick={() => void sendPrompt()}
-                        title={t("app.send")}
-                        aria-label={t("app.send")}
                       >
-                        <ArrowUp size={16} strokeWidth={2.5} />
+                        <ArrowUp size={15} strokeWidth={2.4} />
                       </button>
-                    ) : null}
-                    {sendBehaviorMenuOpen && showBusySendControls && hasComposerContent && (
+                      <button
+                        type="button"
+                        className="send-behavior-chevron"
+                        title={t("app.sendBehaviorTitle")}
+                        aria-label={t("app.sendBehaviorTitle")}
+                        aria-haspopup="menu"
+                        aria-expanded={sendBehaviorMenuOpen}
+                        onMouseEnter={keepSendBehaviorMenuOpen}
+                        onFocus={keepSendBehaviorMenuOpen}
+                        onClick={() => setSendBehaviorMenuOpen((open) => !open)}
+                      >
+                        <ChevronDown size={12} strokeWidth={2.2} />
+                      </button>
+                    </div>
+                    {/* 行为选择下拉菜单 */}
+                    {sendBehaviorMenuOpen && (
                       <div className="send-behavior-menu" role="menu"
                         onMouseEnter={keepSendBehaviorMenuOpen}
                         onMouseLeave={scheduleSendBehaviorMenuClose}
@@ -7659,8 +7646,33 @@ export function App() {
                         </button>
                       </div>
                     )}
-                  </>
-                ) : null}
+                  </div>
+                )}
+                {/* 停止按钮：agent 繁忙时始终显示（靠右） */}
+                {isAgentBusy && (
+                  <button
+                    type="button"
+                    className="composer-bar-btn stop"
+                    onClick={() => abortAgent()}
+                    title={t("app.stop")}
+                    aria-label={t("app.stop")}
+                  >
+                    <Square size={15} strokeWidth={0} fill="currentColor" />
+                  </button>
+                )}
+                {/* idle 时无草稿显示普通发送按钮 */}
+                {!isAgentBusy && !keepBusyDraftControls && !showBusySendControls && (
+                  <button
+                    type="button"
+                    disabled={isAgentStarting || (!activeAgentId) || (!prompt.trim() && attachedImages.length === 0)}
+                    className="composer-bar-btn send"
+                    onClick={() => void sendPrompt()}
+                    title={t("app.send")}
+                    aria-label={t("app.send")}
+                  >
+                    <ArrowUp size={16} strokeWidth={2.5} />
+                  </button>
+                )}
               </div>
             </div>
 
