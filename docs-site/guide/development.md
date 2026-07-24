@@ -33,11 +33,13 @@
 
 本站点使用 VitePress，源码位于 `docs-site/`。GitHub Pages workflow 会在推送到 `main` 后构建 `docs-site/.vitepress/dist` 并发布。
 
-如果仓库改用自定义域名，可以在 Pages workflow 中设置：
+站点已使用自定义域名 `https://pideck.caoayu.top`，Pages workflow 中设置：
 
 ```yaml
 env:
   VITEPRESS_BASE: /
+  DOCS_SITE_ORIGIN: https://pideck.caoayu.top
 ```
 
-默认配置面向 `https://ayuayue.github.io/PiDeck/`，所以 base 为 `/PiDeck/`。
+`docs-site/public/CNAME` 写入 `pideck.caoayu.top`，构建后进入产物，避免部署冲掉域名绑定。
+若临时需要兼容旧地址 `https://ayuayue.github.io/PiDeck/`，可本地设置 `VITEPRESS_BASE=/PiDeck/`。
