@@ -8,6 +8,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { FeishuBridgeStatus, FeishuBotConfig } from "../../../../shared/types";
 import { t } from "../../i18n";
+import { showNotice } from "../../utils/notice";
 
 type Props = {
 	status: FeishuBridgeStatus;
@@ -79,17 +80,18 @@ export function FeishuLinkIndicator({
 			if (botId !== activeBotId) {
 				const connectResult = await onConnectByBot(botId);
 				if (!connectResult.success) {
-					window.alert(connectResult.message || t("feishu.link.connectFailed"));
+					// 使用应用内 toast，避免原生 alert 打断桌面交互
+					showNotice(connectResult.message || t("feishu.link.connectFailed"), 5000, "error");
 					return;
 				}
 			}
 			if (!activeAgentId) {
-				window.alert(t("feishu.link.noActiveSession"));
+				showNotice(t("feishu.link.noActiveSession"), 4000, "error");
 				return;
 			}
 			const bindResult = await onSetSessionBot(activeAgentId, botId);
 			if (bindResult && bindResult.success === false) {
-				window.alert(bindResult.message || t("feishu.link.bindFailed"));
+				showNotice(bindResult.message || t("feishu.link.bindFailed"), 6500, "error");
 				return;
 			}
 			window.setTimeout(() => setOpen(false), 180);
