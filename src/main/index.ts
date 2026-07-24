@@ -2394,6 +2394,7 @@ function registerIpc() {
 		version: app.getVersion(),
 		releasesUrl: RELEASES_URL,
 		platform: process.platform,
+		homeDir: app.getPath("home"),
 	}));
 	ipcMain.handle(ipcChannels.appPreferredSystemLanguages, () => {
 		// Renderer navigator.language can reflect Chromium launch flags or a stale browser locale.

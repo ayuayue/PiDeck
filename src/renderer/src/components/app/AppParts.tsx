@@ -46,6 +46,7 @@ import {
 	sameAgentRunForRender,
 	sameChatMessageForRender,
 } from "./AppUtils";
+import { getComposerEnterIntent } from "../../composerBehavior";
 
 // Mermaid 库体积数 MB，仅在真正出现 mermaid 代码块时才动态加载，
 // 避免随渲染进程常驻、放大内存占用并在流式期间抢占主线程。
@@ -67,6 +68,7 @@ import {
 	MoveUp,
 	ChevronsDownUp,
 	GitBranch,
+	Bot,
 	Brain,
 	Eye,
 	FileText,
@@ -630,6 +632,282 @@ export function ExtensionWidgetCard(props: {
 		</div>
 	);
 }
+
+// 记忆管理阈值
+const HUNGRY_THRESHOLD = 0.15;
+const ARCHIVE_THRESHOLD = 0.1;
+const MEM_STORE_PATH = "/.pi/agent/memory-store.json";
+
+const TYPE_LABEL: Record<string, string> = {
+	decision: "🎯 决策",
+	convention: "📐 约定",
+	pattern: "🔁 模式",
+	preference: "⭐ 偏好",
+	fact: "📌 事实",
+	lesson: "💡 经验",
+};
+
+function potencyBadge(p: number): { icon: string; cls: string } {
+	if (p >= 0.8) return { icon: "🔥", cls: "mem-badge-high" };
+	if (p >= 0.4) return { icon: "⭐", cls: "mem-badge-mid" };
+	if (p > ARCHIVE_THRESHOLD) return { icon: "⚠️", cls: "mem-badge-low" };
+	return { icon: "📦", cls: "mem-badge-archived" };
+}
+
+function formatMemoryTime(ts: number | undefined): string {
+	if (!ts) return "从未";
+	const days = Math.floor((Date.now() - ts) / 864e5);
+	if (days === 0) return "今天";
+	if (days === 1) return "昨天";
+	return `${days}天前`;
+}
+
+interface MemoryItem {
+	id: string;
+	type: string;
+	content: string;
+	potency: number;
+	tenured?: boolean;
+	lastInjectedAt?: number;
+}
+
+interface MemoryStore {
+	memories: MemoryItem[];
+}
+
+/**
+ * MemSpacedCard — 记忆管理卡片
+ *
+ * 直接从 ~/.pi/agent/memory-store.json 读取记忆数据，展示概览统计、低效记忆和全部记忆列表。
+ * 支持手动刷新、AI 整理记忆库入口。
+ */
+export const MemSpacedCard = memo(function MemSpacedCard(props: {
+	widgetKey: string;
+	lines: string[];
+	homeDir: string;
+	agentId?: string;
+	onClose: () => void;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const [view, setView] = useState<"summary" | "low-potency" | "all">("summary");
+	const [data, setData] = useState<MemoryStore | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState("");
+
+	const storePath = props.homeDir ? `${props.homeDir}${MEM_STORE_PATH}` : "";
+
+	const loadData = useCallback(async () => {
+		if (!storePath) return;
+		setLoading(true);
+		try {
+			const raw = await window.piDesktop.files.readContent(storePath);
+			if (!raw || raw.trim() === "") {
+				setData(null);
+				return;
+			}
+			setData(JSON.parse(raw));
+			setError("");
+		} catch (e) {
+			const err = e as { code?: string };
+			if (err?.code !== "ENOENT") {
+				setError("加载失败");
+			}
+		} finally {
+			setLoading(false);
+		}
+	}, [storePath]);
+
+	useEffect(() => {
+		loadData();
+	}, [loadData]);
+
+	// 当 lines 变化时（扩展推送新数据）自动重新加载
+	useEffect(() => {
+		loadData();
+	}, [props.lines, loadData]);
+
+	const activeCount = data?.memories.filter((m) => m.potency >= ARCHIVE_THRESHOLD).length ?? 0;
+	const hungryMemories = data?.memories.filter(
+		(m) => m.potency < HUNGRY_THRESHOLD && m.potency >= ARCHIVE_THRESHOLD,
+	) ?? [];
+	const hungryCount = hungryMemories.length;
+	const tenuredCount = data?.memories.filter((m) => m.tenured).length ?? 0;
+
+	return (
+		<div className="mem-spaced-card">
+			<div className="mem-spaced-card-header">
+				<button
+					className="mem-spaced-card-trigger"
+					onClick={() => setExpanded((prev) => !prev)}
+					aria-expanded={expanded}
+				>
+					<ChevronDown
+						size={14}
+						className={`mem-spaced-card-chevron${expanded ? " open" : ""}`}
+					/>
+					<span className="mem-spaced-card-title">{props.widgetKey}</span>
+					<span className="mem-spaced-card-status">
+						<Brain size={12} />
+						{loading ? "..." : `${activeCount} 活跃`}
+					</span>
+				</button>
+				<button
+					className="mem-spaced-card-close"
+					onClick={props.onClose}
+					title="关闭"
+				>
+					<X size={12} strokeWidth={2} />
+				</button>
+			</div>
+			{expanded && !loading && data && (
+				<div className="mem-spaced-card-content">
+					<div className="mem-spaced-card-tabs">
+						<button
+							className={`mem-spaced-card-tab${view === "summary" ? " active" : ""}`}
+							onClick={() => setView("summary")}
+						>
+							概览
+						</button>
+						<button
+							className={`mem-spaced-card-tab${view === "low-potency" ? " active" : ""}`}
+							onClick={() => setView("low-potency")}
+						>
+							低效记忆{hungryCount > 0 && ` (${hungryCount})`}
+						</button>
+						<button
+							className={`mem-spaced-card-tab${view === "all" ? " active" : ""}`}
+							onClick={() => setView("all")}
+						>
+							全部记忆
+						</button>
+					</div>
+					{view === "summary" && (
+						<div className="mem-spaced-card-summary">
+							<div className="mem-spaced-card-stat">
+								<span>总记忆</span>
+								<span>{data.memories.length}</span>
+							</div>
+							<div className="mem-spaced-card-stat">
+								<span>活跃</span>
+								<span>{activeCount}</span>
+							</div>
+							<div className="mem-spaced-card-stat">
+								<span>低效</span>
+								<span className={hungryCount > 0 ? "mem-hungry" : ""}>{hungryCount}</span>
+							</div>
+							<div className="mem-spaced-card-stat">
+								<span>已固定</span>
+								<span>{tenuredCount}</span>
+							</div>
+						</div>
+					)}
+					{view === "low-potency" && (
+						<div className="mem-spaced-card-list">
+							{hungryMemories.length === 0 ? (
+								<div className="mem-spaced-card-empty">✅ 暂无低效记忆</div>
+							) : (
+								<div className="mem-card-scroll">
+									{hungryMemories.slice(0, 15).map((m) => {
+										const badge = potencyBadge(m.potency);
+										return (
+											<div key={m.id} className="mem-spaced-card-item">
+												<span className={`mem-badge ${badge.cls}`}>{badge.icon}</span>
+												<span className="mem-item-content">
+													{m.content.slice(0, 60)}
+													{m.content.length > 60 ? "…" : ""}
+												</span>
+												<span className="mem-item-meta">
+													{TYPE_LABEL[m.type] ?? ""}
+													{" p:"}
+													{m.potency.toFixed(2)}
+													{" "}
+													{formatMemoryTime(m.lastInjectedAt)}
+												</span>
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</div>
+					)}
+					{view === "all" && (
+						<div className="mem-spaced-card-list">
+							{data.memories.length === 0 ? (
+								<div className="mem-spaced-card-empty">暂无记忆</div>
+							) : (
+								<div className="mem-card-scroll">
+									{[...data.memories].sort((a, b) => b.potency - a.potency).slice(0, 50).map((m) => {
+										const badge = potencyBadge(m.potency);
+										const pct = Math.round(m.potency * 100);
+										return (
+											<div key={m.id} className="mem-spaced-card-item mem-all-item">
+												<span className={`mem-badge ${badge.cls}`}>{badge.icon}</span>
+												<div className="mem-all-body">
+													<span className="mem-item-content">
+														{m.content.slice(0, 70)}
+														{m.content.length > 70 ? "..." : ""}
+													</span>
+													<div className="mem-all-bar-wrap">
+														<div className="mem-all-bar" style={{ width: `${pct}%` }} />
+													</div>
+												</div>
+												<span className="mem-item-meta">
+													{(TYPE_LABEL[m.type] ?? "").slice(0, 2)}
+													{" "}
+													{pct}%
+												</span>
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</div>
+					)}
+					<div className="mem-spaced-card-footer">
+						<div className="mem-footer-left">
+							{props.agentId && (
+								<button
+									className="mem-org-btn"
+									title="让 AI 分析并整理记忆库"
+									onClick={() => {
+										window.piDesktop.agents.prompt({
+											agentId: props.agentId!,
+											message: "请帮我整理记忆库，读取 ~/.pi/agent/memory-store.json，分析其中的记忆条目：清理重复、合并相近、删除临时状态信息。\n\n规则：\n1. 只输出分析报告，不要调用任何工具\n2. 不要提问，不要确认，直接输出报告\n3. 用户会根据你的报告在界面上自行操作",
+											description: "整理记忆库",
+										});
+									}}
+								>
+									<Bot size={14} />
+									<span>整理</span>
+								</button>
+							)}
+						</div>
+						<div className="mem-footer-right">
+							<span className="mem-spaced-card-count">{activeCount} 条</span>
+							<button
+								className="mem-refresh-btn"
+								title="重新加载记忆数据"
+								onClick={loadData}
+							>
+								<RefreshCw size={13} />
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+			{expanded && loading && (
+				<div className="mem-spaced-card-content">
+					<div className="mem-spaced-card-empty">加载中...</div>
+				</div>
+			)}
+			{expanded && error && (
+				<div className="mem-spaced-card-content">
+					<div className="mem-spaced-card-empty mem-error">{error}</div>
+				</div>
+			)}
+		</div>
+	);
+});
 
 export function ComposerToolbar(props: {
 	state?: AgentRuntimeState;
@@ -2031,7 +2309,8 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 							value={inputValue}
 							onChange={(e) => setInputValue(e.target.value)}
 							onKeyDown={(e) => {
-								if (e.key === "Enter" && !e.shiftKey) {
+								// 与主输入框一致：IME 确认候选词的回车不触发提交
+							if (getComposerEnterIntent(e, "enter-send") === "send") {
 									e.preventDefault();
 									handleInputSubmit();
 								}
