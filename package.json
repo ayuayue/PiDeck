@@ -87,6 +87,9 @@
     "compression": "maximum",
     "afterPack": "./scripts/after-pack-cleanup.js",
     "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/sql.js/dist/*.wasm"
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"

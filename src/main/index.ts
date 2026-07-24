@@ -554,8 +554,14 @@ function setupTray() {
 	tray.setContextMenu(contextMenu);
 }
 
-async function openExternalUrl(url: string) {
-	if (!url.startsWith("http:") && !url.startsWith("https:")) return;
+async function openExternalUrl(url: string, forceSystem?: boolean) {
+	// 允许 http/https 以及 file:// 协议（用于本地 HTML 预览等场景）
+	if (!url.startsWith("http:") && !url.startsWith("https:") && !url.startsWith("file:")) return;
+	// forceSystem 为 true 时绕过 linkOpenMode 设置，始终用系统默认浏览器
+	if (forceSystem) {
+		await shell.openExternal(url);
+		return;
+	}
 	const settings = settingsStore.get();
 	if (settings.linkOpenMode === "internal") {
 		openInternalLinkInBrowserPanel(url);
@@ -2475,9 +2481,10 @@ function registerIpc() {
 			pi,
 		};
 	});
-	ipcMain.handle(ipcChannels.appOpenExternal, async (_event, url: string) => {
+	ipcMain.handle(ipcChannels.appOpenExternal, async (_event, url: string, forceSystem?: boolean) => {
 		// 外部链接统一经主进程打开，避免 renderer 直接依赖 shell 权限，并遵守用户设置的打开方式。
-		await openExternalUrl(url);
+		// forceSystem 为 true 时绕过 linkOpenMode 检查，始终用系统默认浏览器。
+		await openExternalUrl(url, forceSystem);
 	});
 	ipcMain.handle(ipcChannels.appRestart, async () => {
 		// 标记为退出状态，避免 closeToTray 阻止重启
@@ -2959,9 +2966,14 @@ function registerIpc() {
 	});
 
 	// ── Yao Open Prompts（中文提示词精选） ─────────────────────────────
-	ipcMain.handle(ipcChannels.yaoPromptsList, async () => {
+	ipcMain.handle(ipcChannels.yaoPromptsList, async (_event, opts?: {
+		category?: string;
+		search?: string;
+		page?: number;
+		pageSize?: number;
+	}) => {
 		try {
-			const result = await xuePromptManager.list();
+			const result = await xuePromptManager.list(opts);
 			return result;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
