@@ -17,6 +17,30 @@ export function stripFeishuActionMarkers(text: string): string {
 	return text.replace(/\[(SEND_FILE|CREATE_DOC):[^\]]*\]/g, "").trim();
 }
 
+/**
+ * 清洗同步到飞书的 assistant 正文：
+ * - 去掉 <thinking> 标签块
+ * - 去掉残留的 SEND_FILE/CREATE_DOC 动作标记
+ * - 去掉 PiDeck 内部能力提示与宿主注入说明
+ * 只保留用户可见的最终回复。
+ */
+export function sanitizeFeishuUserVisibleText(text: string): string {
+	if (!text) return "";
+	let next = text.replace(/\r\n/g, "\n");
+	// 思考过程不应出现在飞书最终消息里
+	next = next.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+	// 兼容模型直接输出未闭合标签的情况
+	next = next.replace(/<\/?thinking>/gi, "");
+	next = stripFeishuDocActionHint(next);
+	next = stripFeishuActionMarkers(next);
+	// 去掉宿主注入的飞书动作说明（若模型回显）
+	next = next
+		.replace(/^当前会话已连接飞书聊天[\s\S]*?(?:\n{2,}|$)/, "")
+		.replace(/\n{0,2}\[这是飞书群聊消息[\s\S]*?\]\s*$/g, "")
+		.replace(/\n{0,2}\[飞书群聊消息[\s\S]*?\]\s*$/g, "");
+	return next.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function splitDocTextBlocks(text: string, maxChars = 1800): string[] {
 	const normalized = stripFeishuActionMarkers(text).replace(/\r\n/g, "\n").trim();
 	if (!normalized) return [];
