@@ -3180,6 +3180,14 @@ function registerIpc() {
 		await agentManager.deleteMessage(agentId, messageId);
 		void appLogger.info("agent", "Message deleted", { agentId, messageId });
 	});
+	ipcMain.handle(
+		ipcChannels.agentsPrepareResend,
+		async (_event, agentId: string, messageId: string) => {
+			const result = await agentManager.prepareResendFromMessage(agentId, messageId);
+			void appLogger.info("agent", "Message prepared for resend", { agentId, messageId });
+			return result;
+		},
+	);
 	ipcMain.handle(ipcChannels.agentsReload, async (_event, agentId: string) => {
 		const result = await agentManager.reload(agentId);
 		void appLogger.info("agent", "Agent reloaded", { agentId });
@@ -3787,6 +3795,8 @@ app.on("before-quit", () => {
 	void webServiceManager?.stop();
 	terminalManager?.closeAll();
 	agentManager?.stopAll();
+	// 退出前刷盘会话摘要缓存，保证下次冷启动可复用未变化文件的摘要。
+	void sessionScanner?.flushSummaryCache();
 	petSystem?.stop();
 	petSystem = null;
 	stopGenProcess();
