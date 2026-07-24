@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   useCallback,
+  useTransition,
   type PointerEvent,
   type CSSProperties,
   type ReactNode,
@@ -45,6 +46,8 @@ import {
   Terminal,
   Filter,
   GitBranch,
+  GitGraph,
+  Minimize2,
   RefreshCw,
   HatGlasses,
   X,
@@ -137,7 +140,7 @@ import {
   type SessionModifiedFile,
 } from "./components/app/AppParts";
 import { GitPanel } from "./components/app/GitPanel";
-import { BrowserPanel, navigateTo } from "./components/app/BrowserPanel";
+import { BrowserPanel, moduleState, navigateTo } from "./components/app/BrowserPanel";
 import {
   groupToolMessages,
   getMultiSelectImageCaptureIds,
@@ -1526,6 +1529,7 @@ export function App() {
     const targetAgentId = activeAgentIdRef.current;
     if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
   }
+
   const terminalDockState = activeAgentId
     ? terminalDockStateByAgent[activeAgentId]
     : undefined;
@@ -2649,6 +2653,21 @@ export function App() {
     return () => cancelAnimationFrame(frame);
   }, [activeAgentId]);
 
+
+  // 切换 Agent 时重置滚动状态，确保回到该 Agent 时自动滚到底部
+  useEffect(() => {
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    // 延迟一帧滚动：等 React 完成渲染、DOM 更新后再滚到底部
+    const frame = requestAnimationFrame(() => {
+      const timeline = timelineRef.current;
+      if (timeline) {
+        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeAgentId]);
 
   // 监听用户滚动,判断是否需要显示"移动到最新"按钮
   useEffect(() => {
@@ -5708,6 +5727,23 @@ export function App() {
     }
   }
 
+  /** HTML 文件预览：在内置浏览器中打开 */
+  const handlePreviewHtml = (filePath: string) => {
+    // 如果编辑器是模态模式，先关闭弹框
+    if (editorMode === "modal") {
+      setActiveTabId(null);
+      setEditorTabs([]);
+    }
+    // 通过 navigateTo 设置 URL 后重置 navigateKey，让 webview 直接加载 file:// URL
+    const fileUrl = 'file:///' + filePath.split('\\').join('/');
+    navigateTo(fileUrl);
+    if (moduleState!.navigateKey) {
+      moduleState!.navigateKey = 0;
+    }
+    setDrawer("browser");
+    setDrawerCollapsed(false);
+  };
+
   return (
     <div
       className={[
@@ -7569,58 +7605,35 @@ export function App() {
                 )}
               </div>
               <div className="composer-bottom-right">
-                {/* 停止按钮：agent 繁忙时始终显示，不依赖输入框是否有内容 */}
-                {isAgentBusy ? (
-                  <button
-                    type="button"
-                    className="composer-bar-btn stop"
-                    onClick={() => abortAgent()}
-                    title={t("app.stop")}
-                    aria-label={t("app.stop")}
-                  >
-                    <Square size={15} strokeWidth={0} fill="currentColor" />
-                  </button>
-                ) : (showBusySendControls && hasComposerContent) || !keepBusyDraftControls ? (
-                  <>
-                    {showBusySendControls && hasComposerContent && (
-                      <div className="send-behavior-toggle">
-                        <button
-                          type="button"
-                          className="send-behavior-primary"
-                          title={t("app.sendSteerTitle")}
-                          aria-label={t("app.sendSteerTitle")}
-                          onClick={() => void sendPrompt()}
-                        >
-                          <ArrowUp size={15} strokeWidth={2.4} />
-                        </button>
-                        <button
-                          type="button"
-                          className="send-behavior-chevron"
-                          title={t("app.sendBehaviorTitle")}
-                          aria-label={t("app.sendBehaviorTitle")}
-                          aria-haspopup="menu"
-                          aria-expanded={sendBehaviorMenuOpen}
-                          onMouseEnter={keepSendBehaviorMenuOpen}
-                          onFocus={keepSendBehaviorMenuOpen}
-                          onClick={() => setSendBehaviorMenuOpen((open) => !open)}
-                        >
-                          <ChevronDown size={12} strokeWidth={2.2} />
-                        </button>
-                      </div>
-                    )}
-                    {!keepBusyDraftControls ? (
+                {/* 队列/发送按钮：有内容时才显示行为选择器（靠左） */}
+                {showBusySendControls && hasComposerContent && (
+                  <div style={{ position: "relative" }}>
+                    <div className="send-behavior-toggle">
                       <button
                         type="button"
-                        disabled={isAgentStarting || (!activeAgentId) || (!prompt.trim() && attachedImages.length === 0)}
-                        className="composer-bar-btn send"
+                        className="send-behavior-primary"
+                        title={isAgentBusy ? t("app.sendSteerTitle") : t("app.send")}
+                        aria-label={isAgentBusy ? t("app.sendSteerTitle") : t("app.send")}
                         onClick={() => void sendPrompt()}
-                        title={t("app.send")}
-                        aria-label={t("app.send")}
                       >
-                        <ArrowUp size={16} strokeWidth={2.5} />
+                        <ArrowUp size={15} strokeWidth={2.4} />
                       </button>
-                    ) : null}
-                    {sendBehaviorMenuOpen && showBusySendControls && hasComposerContent && (
+                      <button
+                        type="button"
+                        className="send-behavior-chevron"
+                        title={t("app.sendBehaviorTitle")}
+                        aria-label={t("app.sendBehaviorTitle")}
+                        aria-haspopup="menu"
+                        aria-expanded={sendBehaviorMenuOpen}
+                        onMouseEnter={keepSendBehaviorMenuOpen}
+                        onFocus={keepSendBehaviorMenuOpen}
+                        onClick={() => setSendBehaviorMenuOpen((open) => !open)}
+                      >
+                        <ChevronDown size={12} strokeWidth={2.2} />
+                      </button>
+                    </div>
+                    {/* 行为选择下拉菜单 */}
+                    {sendBehaviorMenuOpen && (
                       <div className="send-behavior-menu" role="menu"
                         onMouseEnter={keepSendBehaviorMenuOpen}
                         onMouseLeave={scheduleSendBehaviorMenuClose}
@@ -7635,8 +7648,33 @@ export function App() {
                         </button>
                       </div>
                     )}
-                  </>
-                ) : null}
+                  </div>
+                )}
+                {/* 停止按钮：agent 繁忙时始终显示（靠右） */}
+                {isAgentBusy && (
+                  <button
+                    type="button"
+                    className="composer-bar-btn stop"
+                    onClick={() => abortAgent()}
+                    title={t("app.stop")}
+                    aria-label={t("app.stop")}
+                  >
+                    <Square size={15} strokeWidth={0} fill="currentColor" />
+                  </button>
+                )}
+                {/* idle 时无草稿显示普通发送按钮 */}
+                {!isAgentBusy && !keepBusyDraftControls && !showBusySendControls && (
+                  <button
+                    type="button"
+                    disabled={isAgentStarting || (!activeAgentId) || (!prompt.trim() && attachedImages.length === 0)}
+                    className="composer-bar-btn send"
+                    onClick={() => void sendPrompt()}
+                    title={t("app.send")}
+                    aria-label={t("app.send")}
+                  >
+                    <ArrowUp size={16} strokeWidth={2.5} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -7781,7 +7819,8 @@ export function App() {
             <FileDiffViewer
               key={activeTab.filePath}
               displayMode="drawer"
-              filePath={activeTab.filePath}
+              onPreviewHtml={handlePreviewHtml}
+filePath={activeTab.filePath}
               mode={activeTab.mode}
               onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
               onBack={prevDrawerPanelRef.current && prevDrawerPanelRef.current !== "editor" ? () => {
@@ -7861,7 +7900,8 @@ export function App() {
                   <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
                     <FileDiffViewer
                       displayMode="drawer"
-                      filePath={gitDrawerDiff.filePath}
+                      onPreviewHtml={handlePreviewHtml}
+filePath={gitDrawerDiff.filePath}
                       mode="diff"
                       onToggleMode={toggleGitDiffDisplayMode}
                       originalContent={gitDrawerDiff.originalContent}
@@ -8626,7 +8666,8 @@ export function App() {
         <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">Loading...</span></div>}>
         <FileDiffViewer
           displayMode="modal"
-          filePath={activeTab.filePath}
+          onPreviewHtml={handlePreviewHtml}
+filePath={activeTab.filePath}
           mode={activeTab.mode}
           onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
           originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
@@ -8648,7 +8689,8 @@ export function App() {
         <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">Loading...</span></div>}>
           <FileDiffViewer
             displayMode="modal"
-            filePath={gitDrawerDiff.filePath}
+            onPreviewHtml={handlePreviewHtml}
+filePath={gitDrawerDiff.filePath}
             mode="diff"
             onToggleMode={toggleGitDiffDisplayMode}
             originalContent={gitDrawerDiff.originalContent}

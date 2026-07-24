@@ -1,9 +1,33 @@
 import { showNotice } from "../utils/notice";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, Download, ExternalLink, Globe, Search } from "lucide-react";
-import type { PromptStoreItem, PromptStoreSearchResult, PiPromptTemplateSummary } from "../../../shared/types";
+import { ArrowLeft, BookOpen, Check, Download, ExternalLink, Globe, Search } from "lucide-react";
+import type { PromptStoreItem, PromptStoreSearchResult, PiPromptTemplateSummary, PiPromptTemplateListResult } from "../../../shared/types";
 import { t } from "../i18n";
 import { YaoPromptTab } from "./YaoPromptTab";
+
+/**
+ * 根据导入逻辑生成的文件名（与主进程 promptStoreImport 中一致）
+ */
+function predictImportName(title: string): string {
+	return title
+		.trim()
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}-]+/gu, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "");
+}
+
+/** 获取本地已安装 prompt 名称集合 */
+async function getInstalledPromptNames(): Promise<Set<string>> {
+	try {
+		const piDesktop = (window as any).piDesktop;
+		if (!piDesktop?.prompts?.list) return new Set();
+		const list: PiPromptTemplateListResult = await piDesktop.prompts.list();
+		return new Set(list.templates.filter((t) => t.userCreated).map((t) => t.name.toLowerCase()));
+	} catch {
+		return new Set();
+	}
+}
 
 const api = (window as unknown as { piDesktop: { promptStore: { search: (q: string, opts?: { limit?: number }) => Promise<PromptStoreSearchResult>; get: (id: string) => Promise<PromptStoreItem>; import: (data: { title: string; description: string; content: string }) => Promise<PiPromptTemplateSummary> } } }).piDesktop;
 
@@ -22,6 +46,7 @@ export function PromptStoreTab(props: {
 	const [searching, setSearching] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<PromptStoreSearchResult | null>(null);
+	const [installedNames, setInstalledNames] = useState<Set<string>>(new Set());
 	const [previewItem, setPreviewItem] = useState<PromptStoreItem | null>(null);
 	const [importingId, setImportingId] = useState<string | null>(null);
 	/* toast 已改用 sonner 实现 */
@@ -45,8 +70,12 @@ export function PromptStoreTab(props: {
 		setError(null);
 		setSearching(true);
 		try {
-			const data = await api.promptStore.search(q, { limit: 20 });
+			const [data, installed] = await Promise.all([
+				api.promptStore.search(q, { limit: 20 }),
+				getInstalledPromptNames(),
+			]);
 			setResult(data);
+			setInstalledNames(installed);
 		} catch (err) {
 			setError(t("config.promptStoreError"));
 			setResult(null);
@@ -75,7 +104,11 @@ export function PromptStoreTab(props: {
 				content: item.content,
 			});
 			showNotice(t("config.promptStoreImported"), 2500);
+			// 刷新本地列表 + 重新搜索以更新已安装标注
 			props.onImported?.();
+			if (query.trim()) {
+				void handleSearch(query);
+			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {
@@ -122,6 +155,9 @@ export function PromptStoreTab(props: {
 							<span>{t("config.promptStoreBy")} <strong>{previewItem.author}</strong></span>
 							<span>{t("config.promptStoreFrom")} <strong>{previewItem.category}</strong></span>
 							<span className="prompt-store-votes">{t("config.promptStoreVotes", { count: previewItem.votes })}</span>
+						</div>
+						<div className="prompt-store-preview-install-name">
+							{t("config.promptStoreInstallName")} <code>/{predictImportName(previewItem.title)}</code>
 						</div>
 						{previewItem.tags.length > 0 && (
 							<div className="prompt-store-tags">
@@ -224,12 +260,19 @@ export function PromptStoreTab(props: {
 							onClick={() => showPreview(item)}
 						>
 							<div className="prompt-store-card-main">
-								<strong className="prompt-store-card-title">{item.title}</strong>
-								<p className="prompt-store-card-desc">{item.description}</p>
-								<div className="prompt-store-card-meta">
-									<span>{item.author}</span>
-									<span className="prompt-store-card-category">{item.category}</span>
-								</div>
+								<strong className="prompt-store-card-title">
+								{item.title}
+								{installedNames.has(predictImportName(item.title)) && (
+									<span className="prompt-store-installed-badge">
+										<Check size={11} /> {t("config.installed")}
+									</span>
+								)}
+							</strong>
+							<p className="prompt-store-card-desc">{item.description}</p>
+							<div className="prompt-store-card-meta">
+								<span>{item.author}</span>
+								<span className="prompt-store-card-category">{item.category}</span>
+							</div>
 							</div>
 							<div className="prompt-store-card-actions">
 								<button
@@ -239,13 +282,15 @@ export function PromptStoreTab(props: {
 								>
 									<ExternalLink size={14} strokeWidth={1.8} />
 								</button>
-								<button
-									className="config-btn primary small"
-									onClick={(e) => { e.stopPropagation(); void handleImport(item); }}
-									disabled={importingId === item.id}
-								>
-									{importingId === item.id ? t("config.promptStoreImporting") : t("config.promptStoreImport")}
-								</button>
+								{!installedNames.has(predictImportName(item.title)) && (
+									<button
+										className="config-btn primary small"
+										onClick={(e) => { e.stopPropagation(); void handleImport(item); }}
+										disabled={importingId === item.id}
+									>
+										{importingId === item.id ? t("config.promptStoreImporting") : t("config.promptStoreImport")}
+									</button>
+								)}
 							</div>
 						</article>
 					))}

@@ -747,6 +747,12 @@ export type YaoPromptListResult = {
 	categories: YaoPromptCategory[];
 	prompts: YaoPromptItem[];
 	repoPath: string;
+	/** 分页相关：匹配的总数（仅分页查询时返回） */
+	total?: number;
+	/** 当前页码（1-based，仅分页查询时返回） */
+	page?: number;
+	/** 每页条数（仅分页查询时返回） */
+	pageSize?: number;
 };
 
 export type YaoPromptDetailResult = {

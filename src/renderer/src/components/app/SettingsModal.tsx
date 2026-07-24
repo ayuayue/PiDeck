@@ -24,6 +24,13 @@ const ZOOM_FACTOR_STEP = 0.05;
 
 type SettingsTabId = "common" | "appearance" | "proxy" | "dev" | "pet" | "storage";
 
+/** 代理设置草稿：未保存前不生效，用户点击保存后才提交。 */
+type ProxyDraft = Pick<
+	AppSettings,
+	"piProxyEnabled" | "piProxyUrl" | "piProxyBypass" |
+	"desktopProxyEnabled" | "desktopProxyUrl" | "desktopProxyBypass"
+>;
+
 function SettingsSection(props: {
 	title: string;
 	description?: string;
@@ -780,6 +787,14 @@ export function SettingsModal(props: {
 						{/* ── 代理设置 tab ── */}
 						{activeTab === "proxy" && (
 							<>
+								{/* 未保存更改的提示横幅 */}
+								{proxyDirty && (
+									<div className="setting-proxy-unsaved-bar">
+										<span className="setting-proxy-unsaved-dot" />
+										<span>{t("settings.proxyUnsaved")}</span>
+										<small>{t("settings.proxyApplyHint")}</small>
+									</div>
+								)}
 								<SettingsSection
 									title={t("settings.piProxy")}
 									description={t("settings.piProxyDesc")}
@@ -871,6 +886,19 @@ export function SettingsModal(props: {
 										</div>
 									)}
 								</SettingsSection>
+								{/* 保存/取消操作栏：点击保存后才将草稿中的代理设置提交生效 */}
+								<div className="setting-proxy-actions">
+									<Button onClick={applyProxyChanges} disabled={!proxyDirty} variant="primary">
+										{t("common.save")}
+									</Button>
+									<Button
+										onClick={cancelProxyChanges}
+										disabled={!proxyDirty}
+										variant="secondary"
+									>
+										{t("common.cancel")}
+									</Button>
+								</div>
 							</>
 						)}
 						{/* ── 开发设置 tab（含 Web 服务） ── */}

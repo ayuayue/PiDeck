@@ -35,13 +35,24 @@ export class XuePromptManager {
 
 	/**
 	 * 初始化 sql.js WASM，传入 locateFile 确保能找到 sql-wasm.wasm
+	 *
+	 * 打包后 sql-wasm.wasm 通过 asarUnpack 解压到
+	 * app.asar.unpacked/node_modules/sql.js/dist/ 下，
+	 * 不能从 asar 内加载 WASM 二进制。
 	 */
 	private async initSql(): Promise<import("sql.js").SqlJsStatic> {
 		if (!this.sqlPromise) {
 			this.sqlPromise = initSqlJs({
 				locateFile: (file: string) => {
 					if (app.isPackaged) {
-						return join(process.resourcesPath, file);
+						return join(
+							process.resourcesPath,
+							"app.asar.unpacked",
+							"node_modules",
+							"sql.js",
+							"dist",
+							file
+						);
 					}
 					return join(app.getAppPath(), "node_modules", "sql.js", "dist", file);
 				},
@@ -85,12 +96,21 @@ export class XuePromptManager {
 	}
 
 	/**
-	 * 列出所有分类和提示词
+	 * 列出分类和提示词。
+	 *
+	 * 不传 opts 时保持向后兼容 — 返回全量分类和提示词。
+	 * 传 opts 时支持分页查询：categories 始终返回全部分类，
+	 * prompts 按 category/search 过滤并分页，同时返回 total 总数。
 	 */
-	async list(): Promise<YaoPromptListResult> {
+	async list(opts?: {
+		category?: string;
+		search?: string;
+		page?: number;
+		pageSize?: number;
+	}): Promise<YaoPromptListResult> {
 		const db = await this.getDb();
 		try {
-			// 查询分类
+			// 始终查询全部分类（数据量小，分类栏需要）
 			const catRows = db.exec(
 				"SELECT slug, name, count FROM xueprompt_categories ORDER BY count DESC"
 			);
@@ -102,9 +122,61 @@ export class XuePromptManager {
 				count: Number(row[2] ?? 0),
 			}));
 
-			// 查询所有提示词
+			if (!opts) {
+				// 向后兼容：全量查询
+				const promptRows = db.exec(
+					"SELECT slug, url, title, category, content, description FROM xueprompts ORDER BY category, title"
+				);
+				const prompts: YaoPromptItem[] = (
+					promptRows[0]?.values ?? []
+				).map((row: any[]) => ({
+					slug: String(row[0] ?? ""),
+					title: String(row[2] ?? ""),
+					category: String(row[3] ?? ""),
+					subcategory: "",
+					tags: [],
+					description: row[5] ? this.blobToString(row[5]) : "",
+					path: String(row[0] ?? ""),
+				}));
+				return { categories, prompts, repoPath: this.dbPath };
+			}
+
+			// 分页查询：构建 WHERE 条件
+			const conditions: string[] = [];
+			const params: any[] = [];
+
+			if (opts.category) {
+				// xueprompts.category 存的是原始分类名（如 "营销/SEO提示词"），
+				// opts.category 是分类的 slug（如 "营销-seo提示词"），
+				// 通过子查询从 xueprompt_categories 拿到原始名再匹配。
+				conditions.push("(category = ? OR category = (SELECT name FROM xueprompt_categories WHERE slug = ?))");
+				params.push(opts.category, opts.category);
+			}
+			if (opts.search) {
+				conditions.push("(title LIKE ? OR description LIKE ?)");
+				const like = `%${opts.search}%`;
+				params.push(like, like);
+			}
+
+			const whereClause = conditions.length > 0
+				? `WHERE ${conditions.join(" AND ")}`
+				: "";
+
+			// 总数
+			const countResult = db.exec(
+				`SELECT COUNT(*) FROM xueprompts ${whereClause}`,
+				params
+			);
+			const total = Number(countResult[0]?.values?.[0]?.[0] ?? 0);
+
+			// 分页
+			const page = Math.max(1, opts.page ?? 1);
+			const pageSize = Math.max(1, Math.min(100, opts.pageSize ?? 20));
+			const offset = (page - 1) * pageSize;
+
 			const promptRows = db.exec(
-				"SELECT slug, url, title, category, content, description FROM xueprompts ORDER BY category, title"
+				`SELECT slug, url, title, category, content, description FROM xueprompts ${whereClause} ORDER BY category, title LIMIT ? OFFSET ?`,
+				[...params, pageSize, offset]
 			);
 			const prompts: YaoPromptItem[] = (
 				promptRows[0]?.values ?? []
@@ -112,15 +184,13 @@ export class XuePromptManager {
 				slug: String(row[0] ?? ""),
 				title: String(row[2] ?? ""),
 				category: String(row[3] ?? ""),
-				// xueprompt 数据没有 subcategory/tags 字段，返回空值
 				subcategory: "",
 				tags: [],
 				description: row[5] ? this.blobToString(row[5]) : "",
-				// SQLite 模式下 path 无意义，用 slug 填充兼容类型
 				path: String(row[0] ?? ""),
 			}));
 
-			return { categories, prompts, repoPath: this.dbPath };
+			return { categories, prompts, repoPath: this.dbPath, total, page, pageSize };
 		} finally {
 			db.close();
 		}

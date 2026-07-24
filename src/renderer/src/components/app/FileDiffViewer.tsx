@@ -56,6 +56,8 @@ export function FileDiffViewer(props: {
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
 	readOriginalContent?: (path: string) => Promise<string>;
 	saveContent?: (path: string, content: string) => Promise<void>;
+	/** HTML 文件点击预览时，切换到内置浏览器面板预览。 */
+	onPreviewHtml?: (filePath: string) => void;
 	theme?: "light" | "dark";
 	/** 单个文件超过此大小（MB）时不加载编辑器。默认 5MB。 */
 	maxFileSizeMB?: number;
@@ -81,8 +83,8 @@ export function FileDiffViewer(props: {
 	const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
 	const isMarkdown = ext === "md" || ext === "mdx";
 	const isHtml = ext === "html" || ext === "htm";
-	// 只读视图下 markdown/html 文件默认启用预览；差异模式或编辑模式保持源码视图。
-	const [preview, setPreview] = useState((isMarkdown || isHtml) && !isDiffMode && readOnly);
+	// 只读视图下 markdown 文件默认启用预览；html 走内置浏览器，不在 iframe 内预览。
+	const [preview, setPreview] = useState(isMarkdown && !isDiffMode && readOnly);
 
 	useEffect(() => {
 		// 每个 tab 都从只读模式开始，尤其不能把工作区文件的编辑状态带入历史提交 Diff。
@@ -90,10 +92,8 @@ export function FileDiffViewer(props: {
 		setDirty(false);
 		setShowHint(false);
 		// 文件类型切换时重置预览状态，防止跨文件残留导致内容区域空白
-		const ext = (props.filePath.split(".").pop() ?? "").toLowerCase();
 		const isMd = ext === "md" || ext === "mdx";
-		const isHt = ext === "html" || ext === "htm";
-		setPreview((isMd || isHt) && props.mode !== "diff");
+		setPreview(isMd && props.mode !== "diff");
 	}, [props.activeTabId, props.filePath, props.mode]);
 
 	useEffect(() => {
@@ -333,7 +333,13 @@ export function FileDiffViewer(props: {
 						<button
 							className="file-diff-toggle-btn"
 							title={preview ? t("editor.source") : t("editor.preview")}
-							onClick={() => setPreview(!preview)}
+							onClick={() => {
+								if (isHtml && props.onPreviewHtml) {
+									props.onPreviewHtml(props.filePath);
+								} else {
+									setPreview(!preview);
+								}
+							}}
 						>
 							{preview ? <FileCode size={15} /> : <Eye size={15} />}
 						</button>
@@ -463,8 +469,10 @@ function extToMonacoLanguage(ext: string): string {
 }
 
 /**
- * HTML 预览组件：通过 sandboxed iframe 安全渲染 HTML。
- * 使用 srcdoc 避免 CSP frame-src 限制；不带 allow-scripts 确保内联脚本不执行。
+ * HTML 预览组件：通过 sandboxed iframe 渲染 HTML。
+ * 使用 srcdoc 避免 CSP frame-src 限制；
+ * 放开 allow-scripts / allow-same-origin 以支持本地开发场景的外部 CSS/JS 加载。
+ * 注意：被预览的 HTML 中的脚本会执行，仅用于可信本地文件。
  */
 function HtmlPreview({ content }: { content: string }) {
 	return (
@@ -472,7 +480,7 @@ function HtmlPreview({ content }: { content: string }) {
 			className="file-diff-preview"
 			srcDoc={content}
 			title="HTML preview"
-			sandbox=""
+			sandbox="allow-scripts allow-same-origin allow-forms"
 			style={{
 				width: "100%",
 				height: "100%",

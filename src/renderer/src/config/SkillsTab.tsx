@@ -46,7 +46,7 @@ export function SkillsTab(props: {
 			<div className="prompts-tab-bar">
 				<button
 					className={`prompts-tab-btn ${skillTab === "local" ? "active" : ""}`}
-					onClick={() => setSkillTab("local")}
+					onClick={() => { setSkillTab("local"); props.onRefresh(); }}
 				>
 					{t("config.nav.skills")}
 				</button>
@@ -280,7 +280,7 @@ function SkillCard(props: {
 						title={skill.enabled ? t("common.disable") : t("common.enabled")}
 						style={skill.enabled ? { color: "var(--color-accent)" } : undefined}
 					>
-						{skill.enabled ? <ToggleRight size={14} strokeWidth={1.8} /> : <ToggleLeft size={14} strokeWidth={1.8} />}
+						{skill.enabled ? <ToggleRight size={18} strokeWidth={1.8} /> : <ToggleLeft size={18} strokeWidth={1.8} />}
 					</button>
 					<button
 						className="config-icon-btn"
