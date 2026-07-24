@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://ayuayue.github.io/PiDeck/sitemap.xml
+Sitemap: https://pideck.caoayu.top/sitemap.xml

@@ -34,6 +34,10 @@ jobs:
   build:
     name: Build VitePress site
     runs-on: ubuntu-latest
+    # 自定义域名 pideck.caoayu.top 挂在站点根路径，不能再按 /PiDeck/ 子路径构建。
+    env:
+      VITEPRESS_BASE: /
+      DOCS_SITE_ORIGIN: https://pideck.caoayu.top
 
     steps:
       - name: Checkout repository
@@ -58,7 +62,8 @@ jobs:
 
       - name: Generate sitemap
         run: |
-          BASE="${VITEPRESS_BASE:-/PiDeck/}"
+          BASE="${VITEPRESS_BASE:-/}"
+          ORIGIN="${DOCS_SITE_ORIGIN:-https://pideck.caoayu.top}"
           SITEMAP="docs-site/.vitepress/dist/sitemap.xml"
           echo '<?xml version="1.0" encoding="UTF-8"?>' > "$SITEMAP"
           echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' >> "$SITEMAP"
@@ -70,7 +75,7 @@ jobs:
             else
               loc="$BASE$rel/"
             fi
-            echo "  <url><loc>https://ayuayue.github.io/PiDeck${loc}</loc></url>" >> "$SITEMAP"
+            echo "  <url><loc>${ORIGIN}${loc}</loc></url>" >> "$SITEMAP"
           done
           echo '</urlset>' >> "$SITEMAP"
           cat "$SITEMAP"
