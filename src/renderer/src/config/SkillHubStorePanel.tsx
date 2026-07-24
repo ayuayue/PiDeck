@@ -17,7 +17,9 @@ interface PersistedInstall {
 function loadPersisted(): PersistedInstall[] {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
-		return raw ? JSON.parse(raw) : [];
+		if (!raw) return [];
+		const parsed = JSON.parse(raw);
+		return Array.isArray(parsed) ? parsed : [];
 	} catch {
 		return [];
 	}
@@ -31,6 +33,7 @@ function savePersisted(entries: PersistedInstall[]) {
 
 /** 添加入口到持久化列表（去重） */
 function persistInstall(prev: PersistedInstall[], slug: string, name: string): PersistedInstall[] {
+	if (!Array.isArray(prev)) prev = [];
 	const existing = prev.find((e) => e.slug === slug);
 	if (existing) {
 		existing.name = name;
@@ -134,8 +137,10 @@ export function SkillHubStorePanel() {
 			// 同时验证持久化记录是否仍然有效：检查对应 name 是否还在本地已安装列表中
 			const allInstalledNames = await getInstalledNames();
 			const merged = new Set(installed);
+			// ref 可能在组件热更新后仍持有旧 session 的脏数据，运行时兜底确保可迭代。
+			const persisted = Array.isArray(persistedRef.current) ? persistedRef.current : [];
 			const validPersisted: PersistedInstall[] = [];
-			for (const entry of persistedRef.current) {
+			for (const entry of persisted) {
 				if (allInstalledNames.has(entry.name.toLowerCase())) {
 					merged.add(entry.slug);
 					validPersisted.push(entry);

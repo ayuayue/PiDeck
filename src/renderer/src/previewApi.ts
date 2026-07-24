@@ -419,6 +419,7 @@ export function createPreviewApi(): PiDesktopApi {
 				version: "preview",
 				releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
 				platform: "win32" as NodeJS.Platform,
+				homeDir: "C:/Users/preview",
 			}),
 			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			checkUpdate: async () => ({
@@ -520,7 +521,7 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 		},
 		extensions: {
-			list: async () => ({
+			list: async (_forceRefresh = false) => ({
 				extensions: [
 					{
 						id: "user:npm:preview-extension",
@@ -749,6 +750,7 @@ export function createPreviewApi(): PiDesktopApi {
 			],
 			editMessage: async () => undefined,
 			deleteMessage: async () => undefined,
+			prepareResend: async () => ({ text: "Preview prompt" }),
 			onState: noop,
 			onFocusTarget: noop,
 			onMessages: ((
@@ -844,7 +846,7 @@ export function createPreviewApi(): PiDesktopApi {
 			onBotsChanged: () => () => {},
 			onWhoamiResult: () => () => {},
 			sessionBotGet: async () => null,
-			sessionBotSet: async () => {},
+			sessionBotSet: async () => ({ success: true }),
 		},
 		dialog: {
 			pickFiles: async () => [],

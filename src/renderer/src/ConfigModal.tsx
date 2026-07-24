@@ -434,7 +434,8 @@ function ConfigModalContent(props: ConfigModalProps) {
 			return;
 		}
 		if (section === "extensions") {
-			void refreshExtensions();
+			// 切到扩展页默认吃缓存；只有点刷新按钮才 forceRefresh。
+			void refreshExtensions(false);
 			return;
 		}
 		if (section === "editors") return;
@@ -1237,11 +1238,16 @@ function ConfigModalContent(props: ConfigModalProps) {
 		}
 	};
 
-	const refreshExtensions = async () => {
+	/**
+	 * 加载扩展列表。
+	 * - forceRefresh=false：优先用主进程缓存（启动预热后通常秒开）
+	 * - forceRefresh=true：手动刷新时强制重扫，并查询 npm 更新信息
+	 */
+	const refreshExtensions = async (forceRefresh = false) => {
 		setExtensionsLoading(true);
 		setError(null);
 		try {
-			const res = await api.extensions.list();
+			const res = await api.extensions.list(forceRefresh);
 			setExtensionsData(res);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
@@ -1589,7 +1595,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 							data={extensionsData}
 							loading={extensionsLoading}
 							uninstallingSource={uninstallingExtensionSource}
-							onRefresh={refreshExtensions}
+							onRefresh={() => void refreshExtensions(true)}
 							onUninstall={setUninstallExtensionConfirm}
 						/>
 					)}

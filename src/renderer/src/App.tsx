@@ -552,7 +552,11 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
-  const [appNotice, setAppNotice] = useState<{ message: string; duration: number } | null>(null);
+  const [appNotice, setAppNotice] = useState<{
+    message: string;
+    duration: number;
+    kind?: "info" | "error" | "warning";
+  } | null>(null);
   const appNoticeTimeoutRef = useRef<number | null>(null);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
@@ -604,7 +608,11 @@ export function App() {
   useEffect(() => {
     return subscribeToNotice((data) => {
       if (data) {
-        setAppNotice({ message: data.message, duration: data.duration });
+        setAppNotice({
+          message: data.message,
+          duration: data.duration,
+          kind: data.kind,
+        });
         if (appNoticeTimeoutRef.current) {
           window.clearTimeout(appNoticeTimeoutRef.current);
         }
@@ -1150,8 +1158,11 @@ export function App() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [windowAlwaysOnTop, setWindowAlwaysOnTop] = useState(false);
   const [_debugOpen, _setDebugOpen] = useState(false);
-  /** RPC 日志弹窗目标 agent */
+  /** 每个 agent 是否开启 RPC 日志记录（右键菜单开关） */
   const [agentRpcLogging, setAgentRpcLogging] = useState<Map<string, boolean>>(new Map());
+  /** 同步 ref，供 onRpcLog 订阅回调读取最新开关，避免闭包拿到旧 Map。 */
+  const agentRpcLoggingRef = useRef<Map<string, boolean>>(new Map());
+  agentRpcLoggingRef.current = agentRpcLogging;
   /** 是否自动滚动到最新消息 */
   const [autoScroll, setAutoScroll] = useState(true);
   /** 用 ref 同步 autoScroll，供 ResizeObserver 回调读取最新值，避免响应式时序间隙导致滚动抢跑。 */
@@ -1235,6 +1246,7 @@ export function App() {
     version: "-",
     releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
     platform: "win32",
+    homeDir: "",
   });
   const [piChecking, setPiChecking] = useState(false);
   const [systemLanguage, setSystemLanguage] = useState<string | null>(null);
@@ -2304,6 +2316,51 @@ export function App() {
     const offTrustRequest = api.agents.onTrustRequest((request) => {
       setTrustRequest(request);
     });
+
+    // RPC 日志开启后，向 DevTools console 输出精简摘要，便于 F12 直接查看。
+    // 性能约束：
+    // 1) 仅对已开启 logging 的 agent 输出
+    // 2) 高频事件（message_update / token_delta 等）采样，避免刷屏卡顿
+    // 3) 不打印完整 data 大对象，只打 summary
+    const rpcConsoleCountByAgent = new Map<string, number>();
+    let rpcConsoleWindowStart = Date.now();
+    let rpcConsoleWindowCount = 0;
+    const RPC_CONSOLE_WINDOW_MS = 1000;
+    const RPC_CONSOLE_WINDOW_LIMIT = 40;
+    const RPC_CONSOLE_PER_AGENT_LIMIT = 12;
+    const offRpcLog = api.agents.onRpcLog((payload) => {
+      const loggingOn = agentRpcLoggingRef.current.get(payload.agentId) === true;
+      if (!loggingOn) return;
+
+      const now = Date.now();
+      if (now - rpcConsoleWindowStart >= RPC_CONSOLE_WINDOW_MS) {
+        rpcConsoleWindowStart = now;
+        rpcConsoleWindowCount = 0;
+        rpcConsoleCountByAgent.clear();
+      }
+      if (rpcConsoleWindowCount >= RPC_CONSOLE_WINDOW_LIMIT) return;
+
+      const agentCount = rpcConsoleCountByAgent.get(payload.agentId) ?? 0;
+      if (agentCount >= RPC_CONSOLE_PER_AGENT_LIMIT) return;
+
+      const summary = String(payload.summary ?? "");
+      // 流式高频事件只保留少量样本，避免 DevTools 渲染压力。
+      const isHighFrequency =
+        summary.includes("message_update") ||
+        summary.includes("token") ||
+        summary.includes("delta") ||
+        summary.includes("partial");
+      if (isHighFrequency && agentCount >= 3) return;
+
+      rpcConsoleWindowCount += 1;
+      rpcConsoleCountByAgent.set(payload.agentId, agentCount + 1);
+
+      const shortId = payload.agentId.slice(0, 8);
+      const arrow = payload.direction === "send" ? "→" : "←";
+      // 仅输出一行摘要；完整 payload 仍落盘到 RPC 日志文件，避免 console 卡死。
+      console.debug(`[rpc ${shortId}] ${arrow} ${summary}`);
+    });
+
     return () => {
       offProjects();
       offState();
@@ -2316,6 +2373,7 @@ export function App() {
       offThinking();
       offUiRequest();
       offTrustRequest();
+      offRpcLog();
     };
   }, []);
 
@@ -5110,15 +5168,38 @@ export function App() {
    *  锁会在 agent 状态切回 idle 时自动清除（下方 useEffect），超时 30s 兜底释放。 */
   const resendingIdsRef = useRef<Set<string>>(new Set());
 
-  function resendUserMessage(message: ChatMessage) {
+  async function resendUserMessage(message: ChatMessage) {
     if (!activeAgentId || message.agentId !== activeAgentId) return;
     if (resendingIdsRef.current.has(message.id)) return;
+    // 同文件截断重发需要 idle：先删掉该用户消息及其后续，再重新 prompt。
+    if (isAgentBusy || isAgentStarting) {
+      showToast(t("message.busyGeneric"), 3000);
+      return;
+    }
     resendingIdsRef.current.add(message.id);
     // 30 秒兜底释放，防止锁泄漏
     setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
 
-    // "重新发送"按原消息快照再次提交,不修改输入框,图片也复用原始 base64 内容。
-    void submitPromptSnapshot(activeAgentId, message.text, message.images);
+    try {
+      // 不走 fork（会新建会话文件），在同文件内截断后重发。
+      const prepared = await api.agents.prepareResend(activeAgentId, message.id);
+      const text =
+        typeof prepared?.text === "string" && prepared.text.trim()
+          ? prepared.text
+          : message.text;
+      const images =
+        prepared?.images && prepared.images.length > 0
+          ? prepared.images
+          : message.images;
+      await submitPromptSnapshot(activeAgentId, text, images);
+    } catch (error) {
+      showToast(
+        t("app.resendFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        4000,
+      );
+    }
   }
 
   /** agent 切回 idle 时释放所有重发锁，允许下次正常重发。 */
@@ -5439,6 +5520,7 @@ export function App() {
     try {
       const next = await api.git.checkout(activeProjectId, branch);
       setGitInfo(next);
+      setBranchByProject((prev) => ({ ...prev, [activeProjectId]: next.current }));
     } catch (error) {
       showToast(
         t("app.branchSwitchFailed", {
@@ -5450,6 +5532,7 @@ export function App() {
         .branches(activeProjectId)
         .catch(() => ({ current: null, branches: [] }));
       setGitInfo(refreshed);
+      setBranchByProject((prev) => ({ ...prev, [activeProjectId]: refreshed.current }));
     } finally {
       setSwitchingBranch(null);
     }
@@ -5461,6 +5544,7 @@ export function App() {
     try {
       const next = await api.git.createBranch(activeProjectId, branchName);
       setGitInfo(next);
+      setBranchByProject((prev) => ({ ...prev, [activeProjectId]: next.current }));
       showToast(t("app.branchCreated", { branch: branchName }), 2500);
     } catch (error) {
       showToast(
@@ -6699,7 +6783,16 @@ export function App() {
                       )}
                     </button>
                     {appNotice && (
-                      <div className="app-notice" role="status">
+                      <div
+                        className={
+                          appNotice.kind === "error"
+                            ? "app-notice app-notice-error"
+                            : appNotice.kind === "warning"
+                              ? "app-notice app-notice-warning"
+                              : "app-notice"
+                        }
+                        role={appNotice.kind === "error" ? "alert" : "status"}
+                      >
                         {appNotice.message}
                       </div>
                     )}
@@ -7574,6 +7667,19 @@ export function App() {
                 >
                   <Paperclip size={15} strokeWidth={1.8} />
                 </button>
+                {/* 飞书状态入口：有配置 Bot 时显示，可按会话绑定/切换机器人 */}
+                <FeishuLinkIndicator
+                  status={feishu.status}
+                  bots={feishu.bots}
+                  activeAgentId={activeAgentId}
+                  activeBotId={feishu.activeBotId}
+                  sessionBotId={sessionFeishuBotId}
+                  isConnected={feishu.isConnected}
+                  connecting={feishu.connecting}
+                  onConnectByBot={feishu.connectByBot}
+                  onDisconnect={feishu.disconnect}
+                  onSetSessionBot={feishu.setSessionBot}
+                />
               </div>
               <div className="composer-bottom-center">
                 <button
@@ -7603,6 +7709,19 @@ export function App() {
                 )}
               </div>
               <div className="composer-bottom-right">
+                {/* 当前项目分支只读展示：放右侧发送区前，纯文本样式无边框阴影。 */}
+                {gitInfo.current && (
+                  <span
+                    className="composer-bar-branch"
+                    title={t("app.branchCurrent", {
+                      branch: gitInfo.current,
+                      count: gitInfo.branches.length,
+                    })}
+                  >
+                    <GitBranch size={12} strokeWidth={1.8} aria-hidden="true" />
+                    <span className="composer-bar-branch-name">{gitInfo.current}</span>
+                  </span>
+                )}
                 {/* 队列/发送按钮：有内容时才显示行为选择器（靠左） */}
                 {showBusySendControls && hasComposerContent && (
                   <div style={{ position: "relative" }}>
@@ -8212,6 +8331,14 @@ filePath={gitDrawerDiff.filePath}
                 next.set(id, enabled);
                 return next;
               });
+              // 开启后在 console 提示一次，方便用户知道 F12 可直接看摘要。
+              if (enabled) {
+                console.info(
+                  `[rpc ${id.slice(0, 8)}] logging enabled — DevTools console will show throttled RPC summaries`,
+                );
+              } else {
+                console.info(`[rpc ${id.slice(0, 8)}] logging disabled`);
+              }
             });
             setAgentMenu(null);
           }}

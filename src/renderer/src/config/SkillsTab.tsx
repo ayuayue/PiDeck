@@ -46,7 +46,7 @@ export function SkillsTab(props: {
 			<div className="prompts-tab-bar">
 				<button
 					className={`prompts-tab-btn ${skillTab === "local" ? "active" : ""}`}
-					onClick={() => setSkillTab("local")}
+					onClick={() => { setSkillTab("local"); props.onRefresh(); }}
 				>
 					{t("config.nav.skills")}
 				</button>

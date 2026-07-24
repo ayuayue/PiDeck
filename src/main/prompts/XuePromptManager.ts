@@ -146,8 +146,11 @@ export class XuePromptManager {
 			const params: any[] = [];
 
 			if (opts.category) {
-				conditions.push("category = ?");
-				params.push(opts.category);
+				// xueprompts.category 存的是原始分类名（如 "营销/SEO提示词"），
+				// opts.category 是分类的 slug（如 "营销-seo提示词"），
+				// 通过子查询从 xueprompt_categories 拿到原始名再匹配。
+				conditions.push("(category = ? OR category = (SELECT name FROM xueprompt_categories WHERE slug = ?))");
+				params.push(opts.category, opts.category);
 			}
 			if (opts.search) {
 				conditions.push("(title LIKE ? OR description LIKE ?)");

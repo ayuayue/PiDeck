@@ -50,13 +50,16 @@ export class SessionScanner {
     // 动态获取 WSL 中用户的 HOME 目录，解决 root（/root）与普通用户（/home/user）路径差异
     const home = await this.fetchWslHome(wslDistro, wslUser);
     this.wslConfig = { distro: wslDistro, user: wslUser, home };
-    this.clearSummaryCache();
+    // 环境切换时只重置“本轮扫描键”，并从磁盘重新装载缓存；不要把另一环境的磁盘缓存清空。
+    this.summaryCacheFileSetKey = "";
+    await this.summaryCache.reloadFromDisk();
   }
 
   /** 清除 WSL 配置 */
   clearWsl(): void {
     this.wslConfig = null;
-    this.clearSummaryCache();
+    this.summaryCacheFileSetKey = "";
+    void this.summaryCache.reloadFromDisk();
   }
 
   /** 通过 wsl.exe 动态获取用户 HOME 目录，失败时 fallback 到 /home/<user> */
@@ -237,6 +240,9 @@ export class SessionScanner {
     };
 
     try {
+      // 重启后先恢复磁盘摘要缓存，避免全量重读 JSONL。
+      await this.summaryCache.ensureLoaded();
+
       // WSL 模式 vs Windows 模式：互斥扫描，不会同时展示两个环境的会话。
       // WSL 启用时仅扫描 WSL 会话目录，否则仅扫描 Windows 本地会话目录。
       const files = this.wslConfig
@@ -244,7 +250,8 @@ export class SessionScanner {
         : await this.collectJsonl(this.root).catch(() => [] as string[]);
       const fileSetKey = [...files].sort().join("\n");
       if (fileSetKey !== this.summaryCacheFileSetKey) {
-        this.summaryCache.clear();
+        // 仅修剪当前环境下已消失文件，保留未变化会话的摘要命中（含磁盘恢复的条目）。
+        this.summaryCache.prune(files, this.wslConfig ? "wsl" : "local");
         this.summaryCacheFileSetKey = fileSetKey;
       }
 
@@ -951,9 +958,9 @@ export class SessionScanner {
     return summary;
   }
 
-  private clearSummaryCache(): void {
-    this.summaryCache.clear();
-    this.summaryCacheFileSetKey = "";
+  /** 应用退出前刷盘，保证本轮扫描结果可被下次启动复用。 */
+  async flushSummaryCache(): Promise<void> {
+    await this.summaryCache.flush();
   }
 
   private optionalString(value: unknown) {

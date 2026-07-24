@@ -94,7 +94,7 @@ export function PromptsTab(props: {
 			<div className="prompts-tab-bar">
 				<button
 					className={`prompts-tab-btn ${promptTab === "local" ? "active" : ""}`}
-					onClick={() => setPromptTab("local")}
+					onClick={() => { setPromptTab("local"); props.onRefresh(); }}
 				>
 					{t("config.nav.prompts")}
 				</button>

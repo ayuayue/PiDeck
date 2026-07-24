@@ -23,6 +23,12 @@ import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
+import {
+	assertResendRootEntry,
+	collectDescendantEntryIds,
+	findLastUserMessageLine,
+	takeActiveEntryId,
+} from "./sessionEntryIds";
 import { LatestByKeyEmitter } from "./LatestByKeyEmitter";
 import {
   updateActiveToolCalls,
@@ -2060,28 +2066,35 @@ export class AgentManager {
 
 		// 方案三：按角色 + 文本内容匹配（兜底方案）
 		// 当 JSONL 中存在多个分支时，计数方案会错误统计非活跃分支的条目。
-		// 改用文本匹配，只找与 msg 角色和文本内容完全一致的 entry。
-		// 注意：相同文本在不同消息中重复时只能返回第一个匹配，但对常见场景足够。
+		// 用户消息优先取「最后一次」匹配：重复文案时第一个命中往往是更早的历史，
+		// 重发若绑到更早 root 会把中间整段对话当后代删掉。
 		console.log(`[locateJsonlEntry] scheme3 scanning by role=${msg.role} + text match`);
-		let matchCount = 0;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i].trim();
-			if (!line) continue;
-			try {
-				const entry = JSON.parse(line);
-				const entryRole = (entry as any)?.message?.role;
-				if (
-					entryRole === msg.role ||
-					(entryRole === "toolResult" && msg.role === "tool")
-				) {
-					const text = this.extractText((entry as any)?.message?.content);
-					if (text === msg.text) {
-						matchCount++;
-						console.log(`[locateJsonlEntry] scheme3 found at line=${i}, role=${entryRole}, match#=${matchCount}`);
-						return { lineIndex: i, entry };
+		if (msg.role === "user") {
+			const last = findLastUserMessageLine(lines, msg.text, (content) => this.extractText(content));
+			if (last) {
+				console.log(`[locateJsonlEntry] scheme3 last-user found at line=${last.lineIndex}`);
+				return last;
+			}
+		} else {
+			for (let i = 0; i < lines.length; i++) {
+				const line = lines[i].trim();
+				if (!line) continue;
+				try {
+					const entry = JSON.parse(line);
+					if ((entry as any)?.type === "deleted") continue;
+					const entryRole = (entry as any)?.message?.role;
+					if (
+						entryRole === msg.role ||
+						(entryRole === "toolResult" && msg.role === "tool")
+					) {
+						const text = this.extractText((entry as any)?.message?.content);
+						if (text === msg.text) {
+							console.log(`[locateJsonlEntry] scheme3 found at line=${i}, role=${entryRole}`);
+							return { lineIndex: i, entry };
+						}
 					}
-				}
-			} catch { /* 跳过不可解析的行 */ }
+				} catch { /* 跳过不可解析的行 */ }
+			}
 		}
 
 		console.error(`[locateJsonlEntry] ALL SCHEMES FAILED. msg.id=${msg.id}, role=${msg.role}, text=[${msg.text.slice(0, 100)}], jsonlLines=${lines.length}`);
@@ -2290,6 +2303,137 @@ export class AgentManager {
 			agentId,
 			messageId,
 			elapsedMs: Date.now() - startTime,
+		});
+	}
+
+	/**
+	 * 同文件重发：截断该用户消息及其所有后代（assistant/tool 等），再返回可重新 prompt 的原文。
+	 * 不调用 fork，因此不会生成新的会话文件。
+	 */
+	async prepareResendFromMessage(
+		agentId: string,
+		messageId: string,
+	): Promise<{ text: string; images?: ImageContent[] }> {
+		const startTime = Date.now();
+		void this.appLogger?.info("agent", "Prepare resend requested", { agentId, messageId });
+
+		return await this.withSessionLock(agentId, async () => {
+			await this.ensureAgentIdle(agentId);
+
+			const runtime = this.requireRuntime(agentId);
+			const sessionPath = runtime.tab.sessionPath;
+			if (!sessionPath) throw new Error("Session not persisted");
+
+			const messages = this.messages.get(agentId);
+			if (!messages) throw new Error("No messages for agent");
+			const msg = messages.find((m) => m.id === messageId);
+			if (!msg) throw new Error("Message not found");
+			if (msg.role !== "user") throw new Error("Only user messages can be resent");
+
+			const raw = await readFile(sessionPath, "utf8").catch(() => "");
+			if (!raw) throw new Error("Session file is empty");
+			const lines = raw.split(/\r?\n/);
+			let lineIndex = -1;
+			let entry: Record<string, any>;
+			try {
+				const located = this.locateJsonlEntry(lines, messages, msg);
+				lineIndex = located.lineIndex;
+				entry = located.entry;
+				// entryId 错位时可能定位到 assistant 或更早的 user；
+				// 校验失败则回退到「最后一条同文案 user」，禁止带着错误根继续截断。
+				assertResendRootEntry(entry, msg.text, (content) => this.extractText(content));
+			} catch (locateError) {
+				const fallback = findLastUserMessageLine(lines, msg.text, (content) =>
+					this.extractText(content),
+				);
+				if (!fallback) throw locateError;
+				void this.appLogger?.warn("agent", "Prepare resend: entry locate mismatch, using last text match", {
+					agentId,
+					messageId,
+					error: locateError instanceof Error ? locateError.message : String(locateError),
+				});
+				lineIndex = fallback.lineIndex;
+				entry = fallback.entry;
+				assertResendRootEntry(entry, msg.text, (content) => this.extractText(content));
+			}
+			const rootEntryId = typeof (entry as any)?.id === "string" ? String((entry as any).id) : undefined;
+			if (!rootEntryId) throw new Error("User message entryId missing");
+
+			// 只收集该用户消息及其后代（assistant/tool 等），保留 root 之前的全部历史。
+			const removeIds = collectDescendantEntryIds(lines, rootEntryId);
+
+			await this.backupSessionFile(sessionPath);
+
+			for (let i = 0; i < lines.length; i++) {
+				const line = lines[i]?.trim();
+				if (!line) continue;
+				try {
+					const parsed = JSON.parse(line) as { id?: string; type?: string };
+					if (!parsed?.id || parsed.type === "deleted") continue;
+					if (!removeIds.has(parsed.id)) continue;
+					lines[i] = JSON.stringify({
+						type: "deleted",
+						originalEntryId: parsed.id,
+						ts: Date.now(),
+						reason: "resend-truncate",
+					});
+				} catch {
+					// 跳过无法解析的行
+				}
+			}
+
+			// 兜底：若 entry 定位到了行但 id 集合异常，至少截掉该行本身。
+			if (lineIndex >= 0 && lineIndex < lines.length) {
+				const current = lines[lineIndex]?.trim();
+				if (current && !current.includes('"type":"deleted"')) {
+					lines[lineIndex] = JSON.stringify({
+						type: "deleted",
+						originalEntryId: rootEntryId,
+						ts: Date.now(),
+						reason: "resend-truncate",
+					});
+				}
+			}
+
+			await writeFile(sessionPath, lines.join("\n"), "utf8");
+
+			try {
+				await this.reloadSession(agentId);
+			} catch (error) {
+				const errMsg = error instanceof Error ? error.message : String(error);
+				void this.appLogger?.error("agent", "Prepare resend: reload failed, restoring backup", {
+					agentId,
+					messageId,
+					error: errMsg,
+					elapsedMs: Date.now() - startTime,
+				});
+				try {
+					const backupPath = this.findLatestBackup(sessionPath);
+					if (backupPath) {
+						const backupContent = await readFile(backupPath, "utf8");
+						await writeFile(sessionPath, backupContent, "utf8");
+						await this.loadMessages(agentId).catch(() => {});
+					}
+				} catch (restoreError) {
+					void this.appLogger?.error("agent", "Prepare resend: failed to restore backup", {
+						agentId,
+						error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+					});
+				}
+				throw error;
+			}
+
+			void this.appLogger?.info("agent", "Prepare resend completed", {
+				agentId,
+				messageId,
+				removed: removeIds.size,
+				elapsedMs: Date.now() - startTime,
+			});
+
+			return {
+				text: msg.text,
+				...(msg.images?.length ? { images: msg.images } : {}),
+			};
 		});
 	}
 
@@ -3497,15 +3641,16 @@ export class AgentManager {
 				const typed = message as any;
 
 				if (typed.role === "user") {
-					// 在角色块内读取 entryId，避免 compactionSummary 等元消息抢占 slot
-					const currentEntryId = activeEntryIds && entryIndex < activeEntryIds.length
-						? activeEntryIds[entryIndex]
-						: undefined;
+					// 先消费 activeEntryIds 槽位，再决定是否渲染。
+					// 边界：空文本 user 不展示，但 get_entries 仍有对应 entry，
+					// 若不推进 index，后续消息 entryId 会整体前移错位。
+					const taken = takeActiveEntryId(activeEntryIds, entryIndex);
+					entryIndex = taken.nextIndex;
+					const currentEntryId = taken.entryId;
 					const images = this.extractImages(typed.content);
 					const text = this.extractText(typed.content) ||
 						(images.length > 0 ? "[图片]" : "");
 					if (!text.trim()) return [];
-					entryIndex++;
 					return [{
 						id: `${agentId}-history-${currentEntryId ?? index}`,
 						agentId,
@@ -3521,13 +3666,15 @@ export class AgentManager {
 					}];
 				}
 				if (typed.role === "assistant") {
-					const currentEntryId = activeEntryIds && entryIndex < activeEntryIds.length
-						? activeEntryIds[entryIndex]
-						: undefined;
+					// 工具调用回合常见「assistant 仅含 toolCall、无可见文本」：UI 跳过，
+					// 但仍必须消费 entry 槽位，否则后面用户消息会绑到更早的 entryId，
+					// 重发截断会沿错误根节点删掉大半段历史。
+					const taken = takeActiveEntryId(activeEntryIds, entryIndex);
+					entryIndex = taken.nextIndex;
+					const currentEntryId = taken.entryId;
 					const text = this.extractText(typed.content);
 					if (!text.trim()) return [];
 					const thinking = this.extractThinking(typed.content);
-					entryIndex++;
 					return [{
 						id: `${agentId}-history-${currentEntryId ?? index}`,
 						agentId,
@@ -3542,9 +3689,9 @@ export class AgentManager {
 					}];
 				}
 				if (typed.role === "toolResult") {
-					const currentEntryId = activeEntryIds && entryIndex < activeEntryIds.length
-						? activeEntryIds[entryIndex]
-						: undefined;
+					const taken = takeActiveEntryId(activeEntryIds, entryIndex);
+					entryIndex = taken.nextIndex;
+					const currentEntryId = taken.entryId;
 					const toolCallId = String(typed.toolCallId ?? `history-tool-${index}`);
 					const historicalCall = historicalToolCalls.get(toolCallId);
 					const toolName = String(typed.toolName ?? historicalCall?.name ?? "tool");
@@ -3608,7 +3755,7 @@ export class AgentManager {
 						}
 						return undefined;
 					})();
-					entryIndex++;
+					// entryIndex 已在上方 takeActiveEntryId 推进
 					return [{
 						id: `${agentId}-history-${currentEntryId ?? index}`,
 						agentId,

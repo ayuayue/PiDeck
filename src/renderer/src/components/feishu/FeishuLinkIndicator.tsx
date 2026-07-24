@@ -1,17 +1,13 @@
 /**
  * FeishuLinkIndicator — 输入框中的飞书链接状态指示器
  *
- * 在 composer footer 中显示飞书连接状态，提供切换 Bot 的快捷入口。
- * 支持按会话（Agent）指定使用的 Bot，默认使用设置中已配置并连接的 Bot。
- *
- * 设计约束：
- * - 占用组件高度恒定，不随状态变化导致输入框跳动
- * - 状态指示器附带文字 label，hover/active/focus-visible 均有完整交互态
- * - 所有可见文本走 i18n
+ * 在 composer 底部栏中显示飞书连接状态，提供按会话切换 Bot 的入口。
+ * 视觉对齐 composer-bar-btn：透明底、弱色文字，状态仅用圆点表达。
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { FeishuBridgeStatus, FeishuBotConfig } from "../../../../shared/types";
+import { t } from "../../i18n";
 
 type Props = {
 	status: FeishuBridgeStatus;
@@ -26,14 +22,7 @@ type Props = {
 	connecting: boolean;
 	onConnectByBot: (botId: string) => Promise<{ success: boolean; message: string }>;
 	onDisconnect: () => void;
-	onSetSessionBot: (agentId: string, botId: string | null) => Promise<void>;
-};
-
-const STATUS_LABEL: Record<string, string> = {
-	connected: "已连接",
-	connecting: "连接中",
-	disconnected: "未连接",
-	error: "错误",
+	onSetSessionBot: (agentId: string, botId: string | null) => Promise<{ success: boolean; message?: string; chatId?: string } | void>;
 };
 
 export function FeishuLinkIndicator({
@@ -45,7 +34,6 @@ export function FeishuLinkIndicator({
 	isConnected,
 	connecting,
 	onConnectByBot,
-	onDisconnect,
 	onSetSessionBot,
 }: Props) {
 	const [open, setOpen] = useState(false);
@@ -53,7 +41,6 @@ export function FeishuLinkIndicator({
 	const popoverRef = useRef<HTMLDivElement | null>(null);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 
-	// 点击 Popover 外部时关闭
 	useEffect(() => {
 		if (!open) return;
 		const handleClickOutside = (e: MouseEvent) => {
@@ -70,7 +57,6 @@ export function FeishuLinkIndicator({
 		return () => document.removeEventListener("mousedown", handleClickOutside);
 	}, [open]);
 
-	// ESC 关闭
 	useEffect(() => {
 		if (!open) return;
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -80,52 +66,46 @@ export function FeishuLinkIndicator({
 		return () => document.removeEventListener("keydown", handleKeyDown);
 	}, [open]);
 
-	/** 当前全局 Bridge 连接中的 Bot 名称 */
-	const activeBotName = activeBotId
-		? bots.find((b) => b.id === activeBotId)?.name
-		: undefined;
-	/** 当前会话手动绑定的 Bot；会话未绑定时不应展示为已连接。 */
 	const sessionBot = sessionBotId
 		? bots.find((b) => b.id === sessionBotId)
 		: undefined;
+	// 仅当会话绑定 Bot 且全局 bridge 也连着该 Bot 时，才算“会话已连接”
 	const sessionConnected = Boolean(isConnected && sessionBot && sessionBot.id === activeBotId);
-
-	/** 是否有任何 Bot 配置 */
 	const hasBots = bots.length > 0;
 
 	const handleSelectBot = useCallback(async (botId: string) => {
 		setSelectingBotId(botId);
 		try {
-			// 如果选择的 Bot 不是当前连接的，先连接全局 Bridge；随后持久化当前会话绑定并创建群组。
 			if (botId !== activeBotId) {
-				await onConnectByBot(botId);
+				const connectResult = await onConnectByBot(botId);
+				if (!connectResult.success) {
+					window.alert(connectResult.message || t("feishu.link.connectFailed"));
+					return;
+				}
 			}
-			if (activeAgentId) {
-				await onSetSessionBot(activeAgentId, botId);
+			if (!activeAgentId) {
+				window.alert(t("feishu.link.noActiveSession"));
+				return;
 			}
-			// 成功后稍作停留，让用户看到完成态，避免点击后弹框瞬间消失造成“没生效”的错觉。
-			window.setTimeout(() => setOpen(false), 220);
+			const bindResult = await onSetSessionBot(activeAgentId, botId);
+			if (bindResult && bindResult.success === false) {
+				window.alert(bindResult.message || t("feishu.link.bindFailed"));
+				return;
+			}
+			window.setTimeout(() => setOpen(false), 180);
 		} finally {
-			window.setTimeout(() => setSelectingBotId(null), 220);
+			window.setTimeout(() => setSelectingBotId(null), 180);
 		}
 	}, [activeBotId, activeAgentId, onConnectByBot, onSetSessionBot]);
 
 	const handleClearSessionBot = useCallback(async () => {
 		if (activeAgentId) {
-			// 这里只断开当前会话的飞书关联，不影响其他会话或全局 Bridge 连接。
 			await onSetSessionBot(activeAgentId, null);
 		}
 		setOpen(false);
 	}, [activeAgentId, onSetSessionBot]);
 
-	const handleDisconnect = useCallback(async () => {
-		await handleClearSessionBot();
-	}, [handleClearSessionBot]);
-
-	if (!hasBots) {
-		// 没有配置任何 Bot 时不显示指示器
-		return null;
-	}
+	if (!hasBots) return null;
 
 	const statusClass = connecting
 		? "connecting"
@@ -133,50 +113,57 @@ export function FeishuLinkIndicator({
 			? "connected"
 			: "disconnected";
 
+	const triggerLabel = sessionConnected && sessionBot
+		? t("feishu.link.connectedWithName", { name: sessionBot.name })
+		: connecting
+			? t("feishu.link.connecting")
+			: t("feishu.link.disconnected");
+
+	const statusText = sessionConnected
+		? t("feishu.link.sessionConnected")
+		: connecting
+			? t("feishu.link.connectingShort")
+			: t("feishu.link.disconnectedShort");
+
 	return (
 		<div className="feishu-link-indicator">
 			<button
 				ref={triggerRef}
-				className={`feishu-link-trigger ${statusClass}${sessionBotId ? " session-assigned" : ""}`}
+				type="button"
+				className={`feishu-link-trigger ${statusClass}${open ? " open" : ""}`}
 				onClick={() => setOpen((prev) => !prev)}
-				title={sessionConnected && sessionBot ? `当前会话飞书: ${sessionBot.name}` : "当前会话未连接飞书"}
-				aria-label="飞书连接状态"
+				title={sessionConnected && sessionBot
+					? t("feishu.link.triggerConnectedTitle", { name: sessionBot.name })
+					: t("feishu.link.triggerDisconnectedTitle")}
+				aria-label={t("feishu.link.ariaLabel")}
+				aria-expanded={open}
+				aria-haspopup="menu"
 			>
-				<span className={`feishu-link-dot ${statusClass}`} />
-				<span className="feishu-link-label">
-					{sessionConnected && sessionBot
-						? `飞书: ${sessionBot.name}`
-						: statusClass === "connecting"
-							? "飞书: 连接中"
-							: "飞书: 未连接"}
-				</span>
+				<span className={`feishu-link-dot ${statusClass}`} aria-hidden="true" />
+				<span className="feishu-link-label">{triggerLabel}</span>
 			</button>
 
 			{open && (
-				<div
-					ref={popoverRef}
-					className="feishu-link-popover"
-					role="menu"
-				>
-					{/* ── 头部：状态 + 断开 ── */}
+				<div ref={popoverRef} className="feishu-link-popover" role="menu">
 					<div className="feishu-link-popover-header">
 						<div className="feishu-link-popover-heading">
-							<span className={`feishu-link-dot ${statusClass}`} />
+							<span className={`feishu-link-dot ${statusClass}`} aria-hidden="true" />
 							<div className="feishu-link-popover-heading-text">
-								<strong>飞书机器人</strong>
+								<strong>{t("feishu.link.popoverTitle")}</strong>
 								<span>
-									{sessionConnected ? "当前会话已连接" : STATUS_LABEL[statusClass] || statusClass}
-									{sessionConnected && sessionBot ? ` · ${sessionBot.name}` : activeBotName ? ` · 全局已连接 ${activeBotName}` : ""}
+									{statusText}
+									{sessionBot ? ` · ${sessionBot.name}` : ""}
 								</span>
 							</div>
 						</div>
 						{sessionBotId && (
 							<button
+								type="button"
 								className="feishu-link-popover-action"
-								onClick={handleDisconnect}
+								onClick={handleClearSessionBot}
 								disabled={connecting}
 							>
-								断开当前会话
+								{t("feishu.link.disconnectSession")}
 							</button>
 						)}
 					</div>
@@ -185,8 +172,6 @@ export function FeishuLinkIndicator({
 						<div className="feishu-link-popover-error">{status.errorMessage}</div>
 					)}
 
-					{/* ── Bot 列表 ── */}
-					<div className="feishu-link-popover-section-title">选择机器人</div>
 					<div className="feishu-link-popover-list">
 						{bots.map((bot) => {
 							const isActive = bot.id === activeBotId;
@@ -196,50 +181,39 @@ export function FeishuLinkIndicator({
 							return (
 								<button
 									key={bot.id}
-									className={`feishu-link-bot-item${isActive ? " active" : ""}${isSessionPinned ? " pinned" : ""}`}
+									type="button"
+									className={`feishu-link-bot-item${isSessionConnectedBot ? " active" : ""}${isSessionPinned && !isActive ? " pinned" : ""}`}
 									onClick={() => handleSelectBot(bot.id)}
 									disabled={connecting || Boolean(selectingBotId)}
 									role="menuitem"
 								>
-									<span className="feishu-link-bot-avatar">飞</span>
 									<div className="feishu-link-bot-info">
 										<span className="feishu-link-bot-name">{bot.name}</span>
-										<span className="feishu-link-bot-meta">App ID · {bot.appId.slice(0, 16)}…</span>
-										<div className="feishu-link-bot-badges">
-											{isSelecting && <span className="feishu-link-bot-badge active">正在连接…</span>}
-											{!isSelecting && isSessionConnectedBot && <span className="feishu-link-bot-badge active">当前会话已连接</span>}
-											{!isSelecting && isActive && !isSessionPinned && <span className="feishu-link-bot-badge active">全局在线</span>}
-											{isSessionPinned && !isActive && (
-												<span className="feishu-link-bot-badge pinned" title="此会话已选择该 Bot，但当前未连接">
-													当前会话未连接
-												</span>
-											)}
-										</div>
+										<span className="feishu-link-bot-meta">
+											{isSelecting
+												? t("feishu.link.connectingShort")
+												: isSessionConnectedBot
+													? t("feishu.link.sessionConnected")
+													: isActive
+														? t("feishu.link.globalOnline")
+														: isSessionPinned
+															? t("feishu.link.sessionNotConnected")
+															: bot.appId}
+										</span>
 									</div>
-									<span className={`feishu-link-bot-check${isSelecting || isSessionConnectedBot || isSessionPinned ? " visible" : ""}`}>
-										{isSelecting ? <span className="feishu-link-spinner" /> : "✓"}
-									</span>
+									{(isSelecting || isSessionConnectedBot || isSessionPinned) && (
+										<span className="feishu-link-bot-check" aria-hidden="true">
+											{isSelecting ? <span className="feishu-link-spinner" /> : "✓"}
+										</span>
+									)}
 								</button>
 							);
 						})}
 					</div>
 
-					{/* ── 底部操作 ── */}
-					{sessionBotId && (
-						<div className="feishu-link-popover-footer">
-							<button
-								className="feishu-link-popover-action"
-								onClick={handleClearSessionBot}
-							>
-								清除此会话的固定设置
-							</button>
-						</div>
-					)}
-					{!sessionConnected && bots.length > 0 && (
-						<div className="feishu-link-popover-footer">
-							<div className="feishu-link-popover-hint">
-								当前会话未连接飞书，选择一个 Bot 后才会创建群组并同步消息
-							</div>
+					{!sessionConnected && (
+						<div className="feishu-link-popover-hint">
+							{t("feishu.link.selectHint")}
 						</div>
 					)}
 				</div>

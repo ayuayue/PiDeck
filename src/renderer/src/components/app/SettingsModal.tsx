@@ -1,5 +1,5 @@
 // @ts-nocheck - extracted from AppParts, pre-existing type issues
-import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
+import { Component, useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import {
 	Settings2,
 	Network,
@@ -24,12 +24,15 @@ const ZOOM_FACTOR_STEP = 0.05;
 
 type SettingsTabId = "common" | "appearance" | "proxy" | "dev" | "pet" | "storage";
 
-/** 代理设置草稿：未保存前不生效，用户点击保存后才提交。 */
-type ProxyDraft = Pick<
-	AppSettings,
-	"piProxyEnabled" | "piProxyUrl" | "piProxyBypass" |
-	"desktopProxyEnabled" | "desktopProxyUrl" | "desktopProxyBypass"
->;
+/** 代理相关字段：用于判断代理 tab 是否有未保存变更。 */
+const PROXY_FIELDS: (keyof AppSettings)[] = [
+	"piProxyEnabled",
+	"piProxyUrl",
+	"piProxyBypass",
+	"desktopProxyEnabled",
+	"desktopProxyUrl",
+	"desktopProxyBypass",
+];
 
 function SettingsSection(props: {
 	title: string;
@@ -121,7 +124,7 @@ function DirtyMarker(props: { dirty: boolean; label: string }) {
 	);
 }
 
-export function SettingsModal(props: {
+type SettingsModalProps = {
 	settings: AppSettings;
 	piStatus: PiInstallStatus | null;
 	piChecking: boolean;
@@ -152,7 +155,61 @@ export function SettingsModal(props: {
 	onOpenWebService: (port: string) => void;
 	onClose: () => void;
 	onChange: (patch: Partial<AppSettings>) => void;
-}) {
+};
+
+/**
+ * 设置弹框错误边界：渲染异常时保留可关闭的错误面板，避免整页白屏无法退出。
+ */
+class SettingsModalErrorBoundary extends Component<
+	{ onClose: () => void; children: ReactNode },
+	{ error: Error | null }
+> {
+	override state = { error: null as Error | null };
+
+	static getDerivedStateFromError(error: Error) {
+		return { error };
+	}
+
+	override render() {
+		if (!this.state.error) return this.props.children;
+		return (
+			<div className="modal-backdrop" onClick={this.props.onClose}>
+				<div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+					<div className="modal-header">
+						<strong>{t("settings.loadFailed")}</strong>
+						<CloseIconButton
+							label={t("common.close")}
+							onClick={this.props.onClose}
+						/>
+					</div>
+					<div className="settings-layout">
+						<div className="settings-content" style={{ padding: "var(--space-5)" }}>
+							<div className="config-diagnostic-card">
+								<div>
+									<strong>{t("settings.renderCrashed")}</strong>
+									<span>{this.state.error.message}</span>
+									<small>{t("settings.renderCrashedHelp")}</small>
+								</div>
+								<pre>{this.state.error.stack ?? this.state.error.message}</pre>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		);
+	}
+}
+
+/** 对外导出：包一层错误边界，内部渲染异常时仍可关闭弹框。 */
+export function SettingsModal(props: SettingsModalProps) {
+	return (
+		<SettingsModalErrorBoundary onClose={props.onClose}>
+			<SettingsModalContent {...props} />
+		</SettingsModalErrorBoundary>
+	);
+}
+
+function SettingsModalContent(props: SettingsModalProps) {
 	const [activeTab, setActiveTab] = useState<SettingsTabId>("common");
 	// ── 全局设置草稿：进入弹框时快照 props.settings，所有修改在 draft 上操作，保存时统一提交 ──
 	const [draftSettings, setDraftSettings] = useState<AppSettings>(() => ({ ...props.settings }));
@@ -409,6 +466,8 @@ export function SettingsModal(props: {
 	const lightBackgroundDisabled = draftSettings.theme === "dark";
 
 	const hasDirtyChanges = dirtyFields.size > 0;
+	// 代理 tab 仍展示未保存提示；实际保存/取消统一走全局草稿，避免旧 proxyDirty 局部状态残留。
+	const proxyDirty = PROXY_FIELDS.some((field) => dirtyFields.has(field));
 
 	return (
 		<div className="modal-backdrop" onClick={handleClose}>
@@ -886,13 +945,13 @@ export function SettingsModal(props: {
 										</div>
 									)}
 								</SettingsSection>
-								{/* 保存/取消操作栏：点击保存后才将草稿中的代理设置提交生效 */}
+								{/* 代理变更与全局草稿共用保存/取消，确保点击后真正提交或回退 */}
 								<div className="setting-proxy-actions">
-									<Button onClick={applyProxyChanges} disabled={!proxyDirty} variant="primary">
+									<Button onClick={saveAll} disabled={!proxyDirty} variant="primary">
 										{t("common.save")}
 									</Button>
 									<Button
-										onClick={cancelProxyChanges}
+										onClick={cancelAll}
 										disabled={!proxyDirty}
 										variant="secondary"
 									>

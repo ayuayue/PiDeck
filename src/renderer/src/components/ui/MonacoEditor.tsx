@@ -1,4 +1,4 @@
-import { memo, useEffect } from "react";
+import { memo } from "react";
 import { Editor } from "@monaco-editor/react";
 import { setupMonaco } from "../../utils/monacoSetup";
 
@@ -9,6 +9,10 @@ function ensureMonacoOnce(): void {
 	monacoInitialized = true;
 	setupMonaco();
 }
+
+// 在模块作用域同步初始化，确保 <Editor> 挂载前 loader.config({ monaco }) 已生效，
+// 避免 Monaco 从 CDN 加载被 CSP 阻止。
+ensureMonacoOnce();
 
 export type MonacoEditorProps = {
 	value: string;
@@ -26,14 +30,6 @@ export const MonacoEditor = memo(function MonacoEditor({
 	height = "100%",
 	readOnly = false,
 }: MonacoEditorProps) {
-	// 首次渲染时确保 Monaco 已初始化（worker 配置 + loader），
-	// 必须放在组件内，因为 Monaco 需要在浏览器 DOM 环境中初始化，
-	// 不能放在模块作用域（Node.js 环境下 import 时会报 self 未定义）。
-	// 使用 ensureMonacoOnce 保证只执行一次，避免后续渲染重复设置。
-	useEffect(() => {
-		ensureMonacoOnce();
-	}, []);
-
 	const theme =
 		document.documentElement.getAttribute("data-theme") === "dark"
 			? "vs-dark"

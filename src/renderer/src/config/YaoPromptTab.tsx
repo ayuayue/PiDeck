@@ -118,6 +118,9 @@ export function YaoPromptTab(props: {
 			await api.yaoPrompts.import(item.slug, item.category);
 			showNotice("已导入到本地模板", 2500);
 			props.onImported?.();
+			// 刷新已安装标注，立即可见
+			const installed = await getInstalledPromptNames();
+			setInstalledNames(installed);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {

@@ -4,7 +4,68 @@
 
 All notable changes to PiDeck are documented here.
 
-## v0.6.6-beta.2 - 2026-07-22
+## v0.6.6-beta.2 (ongoing)
+
+### 🚀 New Features
+
+- **XuePrompt Chinese Prompt Store** — Replaced old yao-prompts files with SQLite database
+  (~4000 Chinese prompts). Supports 20+ category filters, FTS3 full-text search, pagination,
+  and one-click import.
+- **HTML preview uses built-in browser** — Opening an HTML file in the file editor defaults
+  to source view. Clicking the preview button switches to the right-side browser panel with
+  webview rendering, eliminating iframe sandbox restrictions (external CSS/JS now loads).
+- **Skills.sh Community Skill Store** — SkillHub tab switched to CLI registry
+  (skill.xfyun.cn) for search, installing via `npx -g -s <skill> -y` with sort by downloads
+  and installation animations.
+- **Recommended extension packages** — All packages now show copy-install-command buttons,
+  action buttons arranged horizontally, and install status per-package.
+- **Async skill installation** — `npx skills install` runs via `execFile` without blocking
+  the main process UI.
+
+### ✨ UX Improvements
+
+- **Behavior selector moved left of stop button** — Steer/Follow-Up button group on the left,
+  stop button on the right for clearer visual layout.
+- **Composer bottom bar style unified** — `send-behavior-toggle` now uses `composer-bar-btn`
+  style (28px small radius).
+- **Skills/Prompts auto-refresh on local tab** — Switching back from store tab triggers
+  refresh so newly installed items are immediately visible.
+- **Prompt Chinese store shows installed badge immediately** — `installedNames` refreshed
+  after import, no manual refresh needed.
+- **SkillHub auto-updates installed badge** — Correctly marks installed via persisted records
+  even across name ambiguity.
+- **Built-in browser webview stability** — Fixed initial load cancellation (ERR_ABORTED),
+  dom-ready infinite refresh, and webview-not-ready white screen issues.
+- **Browser close/maximize buttons moved to tab bar** — Saves vertical space.
+- **Copy install command button** — Added next to install buttons for manual terminal use.
+
+### 🐛 Bug Fixes
+
+- **Docs site build failure** — VitePress YAML frontmatter `&` was parsed as anchor; wrapped
+  in quotes.
+- **TypeScript CI failure** — Duplicate `setAttachedImages` function in App.tsx.
+- **Monaco editor CSP error** — `loader.config({ monaco })` moved from `useEffect` to module
+  scope to ensure it is called before `<Editor>` mounts, preventing CDN fallback blocked by CSP.
+- **SkillHub search `persistedRef.current is not iterable` crash** — Added `Array.isArray`
+  guard in `loadPersisted()` plus runtime check before `for-of` iteration.
+- **XuePrompt category shows count but no data** — Category field in DB stores original name
+  while frontend passes slugified version; fixed with subquery matching both.
+- **Title bar color mismatch** — Added `background: var(--color-bg-sidebar)` to
+  `.window-controls` to match `.window-drag-layer`.
+- **sql.js ESM loading failure in packaged app** — Fixed WASM path resolution inside
+  asar-unpacked directory.
+
+### 🧪 Experimental
+
+- **WSL environment support** — Session scanning and listing adapted; file operations
+  (rename/delete/copy/exportHtml/readMessages) support WSL paths. ⚠️ **Not fully tested**;
+  Windows mode is unaffected.
+
+### 📝 Remaining
+
+- Full WSL testing and adaptation
+- Additional WSL features (skill management, prompt management, etc.)
+- README screenshots update before release
 
 ### 🐛 Bug Fixes
 

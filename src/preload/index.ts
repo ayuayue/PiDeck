@@ -44,6 +44,7 @@ import type {
 	FileTreeNode,
 	ForkMessage,
 	GitBranchInfo,
+	ImageContent,
 	CommitDetail,
 	GitCommitFileDiff,
 	GitWorkspaceDiffGroup,
@@ -618,8 +619,9 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.yaoPromptsImport, slug, category) as Promise<PiPromptTemplateSummary>,
 	},
 	extensions: {
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.extensionsList) as Promise<PiExtensionListResult>,
+		// forceRefresh=true 时跳过主进程缓存并补充 npm 版本信息。
+		list: (forceRefresh = false) =>
+			ipcRenderer.invoke(ipcChannels.extensionsList, forceRefresh) as Promise<PiExtensionListResult>,
 		uninstall: (source: string, scope?: "user" | "project" | "unknown") =>
 			ipcRenderer.invoke(ipcChannels.extensionsUninstall, source, scope) as Promise<void>,
 		install: (source: string) =>
@@ -783,6 +785,13 @@ const api = {
 				agentId,
 				messageId,
 			) as Promise<void>,
+		// 同文件重发准备：截断原用户消息及其后续，返回可重新 prompt 的原文。
+		prepareResend: (agentId: string, messageId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.agentsPrepareResend,
+				agentId,
+				messageId,
+			) as Promise<{ text: string; images?: ImageContent[] }>,
 		reload: (agentId: string) =>
 			ipcRenderer.invoke(ipcChannels.agentsReload, agentId) as Promise<void>,
 		restart: (agentId: string) =>
@@ -1009,7 +1018,11 @@ const api = {
 		sessionBotGet: (agentId: string) =>
 			ipcRenderer.invoke(ipcChannels.feishuSessionBotGet, agentId) as Promise<string | null>,
 		sessionBotSet: (agentId: string, botId: string | null) =>
-			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, agentId, botId) as Promise<void>,
+			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, agentId, botId) as Promise<{
+				success: boolean;
+				message?: string;
+				chatId?: string;
+			}>,
 	},
 
 	// ===== 系统文件选择器 =====

@@ -4,7 +4,53 @@
 
 这里记录 PiDeck 各版本的重要变化。
 
-## v0.6.6-beta.2 - 2026-07-22
+## v0.6.6-beta.2 (持续更新中)
+
+### 🚀 新功能
+
+- **XuePrompt 中文提示词精选** — 取代旧的 yao-prompts 文件，改为 SQLite 数据库存储
+  （~4000 条中文提示词），支持 20+ 分类筛选、FTS3 全文搜索、分页浏览、一键导入。
+- **HTML 预览改为内置浏览器** — 文件编辑器打开 HTML 默认显示源码，点击预览按钮切到
+  右侧浏览器面板用 webview 渲染，不再受 iframe sandbox 限制，外部 CSS/JS 正常加载。
+- **Skills.sh 社区技能商店** — SkillHub 标签切换到 CLI 注册中心 (skill.xfyun.cn) 驱动搜索，
+  安装使用 `npx -g -s <skill> -y` 模式，支持安装量排序和安装中动画。
+- **推荐扩展包改进** — 全部显示复制安装命令按钮，操作按钮横向排列，安装状态按实际变动。
+- **技能安装异步执行** — `npx skills install` 改为 `execFile` 异步调用，不再阻塞主进程 UI。
+
+### ✨ 交互优化
+
+- **行为选择器移到停止按钮左侧** — Steer/Follow-Up 按钮组放到左边，停止按钮靠右，视觉更清晰。
+- **Composer 底部栏样式统一** — `send-behavior-toggle` 改为 `composer-bar-btn` 风格（28px 小圆角）。
+- **Skills/Prompts 切回本地 Tab 自动刷新** — 从商店 tab 切回本地时自动拉取最新列表，安装后立即可见。
+- **Prompt 中文精选安装后立即显示已安装状态** — 导入后刷新 `installedNames`，无需手动刷新。
+- **SkillHub 安装后自动更新已安装标注** — 同名歧义时通过持久化记录正确标记已安装。
+- **内置浏览器 webview 稳定性修复** — 解决初始加载被取消（ERR_ABORTED）、dom-ready 无限刷新、webview 未就绪白屏问题。
+- **浏览器面板关闭/最大化按钮移至标签栏** — 节省顶部空间，操作更顺手。
+- **安装按钮旁加复制命令按钮** — 方便手动终端安装。
+
+### 🐛 Bug 修复
+
+- **Docs 站构建失败** — VitePress YAML frontmatter 中 `&` 被误解析为 anchor，改为引号包裹。
+- **TypeScript CI 构建失败** — App.tsx 中 `setAttachedImages` 函数被重复定义。
+- **Monaco 编辑器 CSP 报错** — `loader.config({ monaco })` 从 `useEffect` 移至模块作用域同步初始化，
+  确保 `<Editor>` 挂载前配置生效，不再从 CDN 加载被 CSP 阻止。
+- **SkillHub 搜索 `persistedRef.current is not iterable` 崩溃** — `loadPersisted()` 增加
+  `Array.isArray` 防御，运行时 `for-of` 迭代前再加兜底检查。
+- **XuePrompt 分类点击无数据** — 数据库中 `category` 存的是原始名，前端传的是 slug 化版本，
+  改为子查询同时匹配 slug 和原始名。
+- **标题栏色差** — `.window-controls` 补充 `background: var(--color-bg-sidebar)`，与 `.window-drag-layer` 背景一致。
+- **sql.js 打包后 ESM 加载失败** — 修复 `node_modules/sql.js` 在 asar 中无法找到 WASM 的问题。
+
+### 🧪 实验性
+
+- **WSL 环境支持** — 会话扫描和列表已适配，文件操作（rename/delete/copy/exportHtml/readMessages）
+  支持 WSL 路径。⚠️ **未做完整测试**，仅保证 Windows 模式下不受影响。
+
+### 📝 待完成
+
+- WSL 完整测试与适配
+- 更多 WSL 功能（技能管理、Prompt 管理等）
+- 版本发布前更新 README 截图
 
 ### 🐛 Bug 修复
 

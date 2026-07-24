@@ -169,6 +169,8 @@ export const ipcChannels = {
 	agentsReload: "agents:reload",
 	agentsEditMessage: "agents:edit-message",
 	agentsDeleteMessage: "agents:delete-message",
+	/** 同文件重发：截断该用户消息及其后续，不生成新会话文件 */
+	agentsPrepareResend: "agents:prepare-resend",
 	agentsRestart: "agents:restart",
 	agentsCompact: "agents:compact",
 	agentsRuntimeState: "agents:runtime-state",
