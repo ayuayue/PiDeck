@@ -1105,6 +1105,7 @@ function registerFeishuIpc() {
 
 	// 设置 Agent 使用的飞书 Bot ID；非空表示用户手动连接当前会话，需要立即创建/复用飞书群绑定。
 	// 传入 null 时取消关联：仅移除绑定（不终止 Agent），同时清理配置映射。
+	// 返回结果给前端：以前静默 return 会导致 UI 显示“已连接”但实际没有群绑定，飞书发消息无响应。
 	ipcMain.handle(ipcChannels.feishuSessionBotSet, async (_event, agentId: string, botId: string | null) => {
 		if (!botId) {
 			setSessionBotId(agentId, undefined);
@@ -1112,15 +1113,30 @@ function registerFeishuIpc() {
 			if (feishuBridge && feishuBridge.getStatus().status === "connected") {
 				feishuBridge.removeBindingBySessionId(agentId);
 			}
-			return;
+			return { success: true };
 		}
 		const status = feishuBridge?.getStatus();
-		if (!feishuBridge || status?.status !== "connected") return;
-		if (status.botId !== botId) return;
-		setSessionBotId(agentId, botId);
+		if (!feishuBridge || status?.status !== "connected") {
+			return { success: false, message: "飞书未连接，请先在配置中连接机器人" };
+		}
+		if (status.botId !== botId) {
+			return { success: false, message: "请先切换并连接所选机器人，再绑定当前会话" };
+		}
 		const tab = agentManager.list().find((item) => item.id === agentId);
-		if (!tab) return;
-		await feishuBridge.ensureSessionMirror(tab.id, tab.title, tab.sessionPath);
+		if (!tab) {
+			return { success: false, message: "当前会话不存在或已关闭" };
+		}
+		// 先建群绑定，成功后再写映射；避免“映射成功但群创建失败”的假连接状态。
+		const chatId = await feishuBridge.ensureSessionMirror(tab.id, tab.title, tab.sessionPath);
+		if (!chatId) {
+			return {
+				success: false,
+				message:
+					"创建/复用飞书群失败。请检查：1) 开放平台已开通 im:chat 权限 2) 已配置你的 Open ID（可向 Bot 发送 /whoami 获取）",
+			};
+		}
+		setSessionBotId(agentId, botId);
+		return { success: true, chatId };
 	});
 }
 

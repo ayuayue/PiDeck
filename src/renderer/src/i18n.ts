@@ -1652,6 +1652,9 @@ const zhCN = {
   "feishu.link.popoverTitle": "飞书机器人",
   "feishu.link.disconnectSession": "断开",
   "feishu.link.selectHint": "选择一个机器人后，当前会话才会创建群组并同步消息",
+  "feishu.link.connectFailed": "连接飞书机器人失败",
+  "feishu.link.bindFailed": "绑定当前会话到飞书失败",
+  "feishu.link.noActiveSession": "请先打开一个会话再连接飞书",
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
@@ -3322,6 +3325,9 @@ const enUS: Record<TranslationKey, string> = {
   "feishu.link.popoverTitle": "Feishu bots",
   "feishu.link.disconnectSession": "Unlink",
   "feishu.link.selectHint": "Choose a bot to create a chat and sync this session",
+  "feishu.link.connectFailed": "Failed to connect Feishu bot",
+  "feishu.link.bindFailed": "Failed to link this session to Feishu",
+  "feishu.link.noActiveSession": "Open a session before linking Feishu",
 };
 
 type Params = Record<string, string | number | boolean | null | undefined>;

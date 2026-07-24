@@ -22,7 +22,7 @@ type Props = {
 	connecting: boolean;
 	onConnectByBot: (botId: string) => Promise<{ success: boolean; message: string }>;
 	onDisconnect: () => void;
-	onSetSessionBot: (agentId: string, botId: string | null) => Promise<void>;
+	onSetSessionBot: (agentId: string, botId: string | null) => Promise<{ success: boolean; message?: string; chatId?: string } | void>;
 };
 
 export function FeishuLinkIndicator({
@@ -77,10 +77,20 @@ export function FeishuLinkIndicator({
 		setSelectingBotId(botId);
 		try {
 			if (botId !== activeBotId) {
-				await onConnectByBot(botId);
+				const connectResult = await onConnectByBot(botId);
+				if (!connectResult.success) {
+					window.alert(connectResult.message || t("feishu.link.connectFailed"));
+					return;
+				}
 			}
-			if (activeAgentId) {
-				await onSetSessionBot(activeAgentId, botId);
+			if (!activeAgentId) {
+				window.alert(t("feishu.link.noActiveSession"));
+				return;
+			}
+			const bindResult = await onSetSessionBot(activeAgentId, botId);
+			if (bindResult && bindResult.success === false) {
+				window.alert(bindResult.message || t("feishu.link.bindFailed"));
+				return;
 			}
 			window.setTimeout(() => setOpen(false), 180);
 		} finally {

@@ -846,7 +846,7 @@ export function createPreviewApi(): PiDesktopApi {
 			onBotsChanged: () => () => {},
 			onWhoamiResult: () => () => {},
 			sessionBotGet: async () => null,
-			sessionBotSet: async () => {},
+			sessionBotSet: async () => ({ success: true }),
 		},
 		dialog: {
 			pickFiles: async () => [],

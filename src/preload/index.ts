@@ -1018,7 +1018,11 @@ const api = {
 		sessionBotGet: (agentId: string) =>
 			ipcRenderer.invoke(ipcChannels.feishuSessionBotGet, agentId) as Promise<string | null>,
 		sessionBotSet: (agentId: string, botId: string | null) =>
-			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, agentId, botId) as Promise<void>,
+			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, agentId, botId) as Promise<{
+				success: boolean;
+				message?: string;
+				chatId?: string;
+			}>,
 	},
 
 	// ===== 系统文件选择器 =====

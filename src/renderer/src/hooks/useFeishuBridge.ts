@@ -36,7 +36,7 @@ type PiDesktopFeishuApi = {
 	onBotsChanged: (callback: (bots: FeishuBotConfig[]) => void) => () => void;
 	onWhoamiResult: (callback: (openId: string) => void) => () => void;
 	sessionBotGet: (agentId: string) => Promise<string | null>;
-	sessionBotSet: (agentId: string, botId: string | null) => Promise<void>;
+	sessionBotSet: (agentId: string, botId: string | null) => Promise<{ success: boolean; message?: string; chatId?: string }>;
 };
 
 function getApi(): PiDesktopFeishuApi | undefined {
@@ -155,16 +155,20 @@ export function useFeishuBridge() {
 	 * 设置某个 Agent 使用的 Bot ID
 	 */
 	const setSessionBot = useCallback(async (agentId: string, botId: string | null) => {
-		if (!api) return;
-		await api.sessionBotSet(agentId, botId);
-		setSessionBotMap((prev) => {
-			if (botId) {
-				return { ...prev, [agentId]: botId };
-			}
-			const next = { ...prev };
-			delete next[agentId];
-			return next;
-		});
+		if (!api) return { success: false, message: "API 未就绪" };
+		const result = await api.sessionBotSet(agentId, botId);
+		// 仅在主进程真正绑定成功后更新本地映射，避免 UI 假阳性“已连接”。
+		if (result?.success !== false) {
+			setSessionBotMap((prev) => {
+				if (botId) {
+					return { ...prev, [agentId]: botId };
+				}
+				const next = { ...prev };
+				delete next[agentId];
+				return next;
+			});
+		}
+		return result ?? { success: true };
 	}, [api]);
 
 	const connectTemp = useCallback(async (input: FeishuConnectInput) => {
