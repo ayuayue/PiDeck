@@ -419,7 +419,7 @@ export function createPreviewApi(): PiDesktopApi {
 				version: "preview",
 				releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
 				platform: "win32" as NodeJS.Platform,
-				homeDir: "",
+				homeDir: "C:/Users/preview",
 			}),
 			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			checkUpdate: async () => ({
@@ -521,7 +521,7 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 		},
 		extensions: {
-			list: async () => ({
+			list: async (_forceRefresh = false) => ({
 				extensions: [
 					{
 						id: "user:npm:preview-extension",

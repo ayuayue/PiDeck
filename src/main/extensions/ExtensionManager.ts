@@ -23,6 +23,14 @@ const BUILT_IN_EXTENSIONS = [
 export class ExtensionManager {
 	/** WSL UNC home 路径（如 \\wsl$\Debian\home\piuser），null 表示使用本地 Windows home */
 	private wslHome: string | null = null;
+	/** 扩展列表缓存：避免每次打开配置页都重新跑 pi list + npm view。 */
+	private listCache: PiExtensionListResult | null = null;
+	/** 缓存是否包含 npm 版本信息（仅 forceRefresh 路径会写入 true）。 */
+	private listCacheHasVersionInfo = false;
+	/** 进行中的列表请求，用于启动预热与并发去重。 */
+	private listInflight: Promise<PiExtensionListResult> | null = null;
+	/** 进行中请求是否为强制刷新（含版本信息）。 */
+	private listInflightForce = false;
 
 	constructor(
 		private readonly locator: PiLocator,
@@ -36,6 +44,8 @@ export class ExtensionManager {
 		} else {
 			this.wslHome = null;
 		}
+		// 切换 WSL/本地 home 后旧缓存失效。
+		this.invalidateListCache();
 	}
 
 	private get homeDir(): string {
@@ -46,11 +56,48 @@ export class ExtensionManager {
 	private piVersion: string | null = null;
 	private piVersionPromise: Promise<string | null> | null = null;
 
-	async list(): Promise<PiExtensionListResult> {
+	/** 安装/卸载/开关后主动清缓存，下一次 list 重新获取。 */
+	invalidateListCache() {
+		this.listCache = null;
+		this.listCacheHasVersionInfo = false;
+	}
+
+	/**
+	 * 列出扩展。
+	 * - forceRefresh=false：优先返回内存缓存；无缓存时做一次轻量扫描（跳过 npm view）。
+	 * - forceRefresh=true：强制重新 `pi list`，并补充 npm 版本信息。
+	 */
+	async list(forceRefresh = false): Promise<PiExtensionListResult> {
+		// 有缓存且（非强制刷新，或缓存已含版本信息）时直接返回。
+		if (this.listCache && (!forceRefresh || this.listCacheHasVersionInfo)) {
+			return this.listCache;
+		}
+		// 已有同级或更强请求在飞时复用，避免并发打爆 pi/npm。
+		if (this.listInflight && (!forceRefresh || this.listInflightForce)) {
+			return this.listInflight;
+		}
+
+		this.listInflightForce = forceRefresh;
+		this.listInflight = this.loadList(forceRefresh)
+			.then((result) => {
+				this.listCache = result;
+				this.listCacheHasVersionInfo = forceRefresh;
+				return result;
+			})
+			.finally(() => {
+				this.listInflight = null;
+				this.listInflightForce = false;
+			});
+		return this.listInflight;
+	}
+
+	private async loadList(includeVersionInfo: boolean): Promise<PiExtensionListResult> {
 		const raw = await this.runPi(["list"], 20_000);
-		const piInstalled = await Promise.all(
-			this.parseListOutput(raw).map((extension) => this.enrichExtensionVersion(extension)),
-		);
+		const parsed = this.parseListOutput(raw);
+		// npm view 是扩展页变慢的主因；默认列表先跳过，只有手动刷新时再查更新。
+		const piInstalled = includeVersionInfo
+			? await Promise.all(parsed.map((extension) => this.enrichExtensionVersion(extension)))
+			: parsed;
 
 		// 扫描本地自动发现的扩展（~/.pi/agent/extensions/ 下的 .ts 文件和目录），
 		// pi list 只列出通过 pi install 安装的包，不包含本地文件扩展。
@@ -79,7 +126,7 @@ export class ExtensionManager {
 			}
 		}
 
-				// 读取 disabledExtensions 列表，标记扩展启用/禁用状态
+		// 读取 disabledExtensions 列表，标记扩展启用/禁用状态
 		const disabledExts = await this.getDisabledExtensions();
 		for (const ext of merged) {
 			ext.enabled = !disabledExts.has(ext.source);
@@ -150,12 +197,16 @@ export class ExtensionManager {
 			normalized,
 			...(scope === "project" ? ["-l"] : []),
 		], 30_000);
+		// 列表已变，清缓存，避免 UI 继续读到旧安装态。
+		this.invalidateListCache();
 	}
 
 	async install(source: string): Promise<string> {
 		const normalized = source.trim();
 		if (!normalized) throw new Error("扩展名称不能为空");
-		return this.runPi(["install", normalized], 60_000);
+		const result = await this.runPi(["install", normalized], 60_000);
+		this.invalidateListCache();
+		return result;
 	}
 
 	async checkPiUpdate(): Promise<PiUpdateCheckResult> {
@@ -188,6 +239,8 @@ export class ExtensionManager {
 
 	async updateExtensions(): Promise<PiCliUpdateResult> {
 		const output = await this.runPi(["update", "--extensions"], 120_000, { offline: false });
+		// 更新后版本信息变化，强制下次 list 重新获取。
+		this.invalidateListCache();
 		return this.toUpdateResult("pi update --extensions", output, true);
 	}
 
@@ -272,6 +325,8 @@ export class ExtensionManager {
 			}
 		}
 		await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+		// 开关状态变化后同步清缓存，避免 UI 显示旧 enabled。
+		this.invalidateListCache();
 	}
 
 	private async getDisabledExtensions(): Promise<Set<string>> {

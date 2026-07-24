@@ -618,8 +618,9 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.yaoPromptsImport, slug, category) as Promise<PiPromptTemplateSummary>,
 	},
 	extensions: {
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.extensionsList) as Promise<PiExtensionListResult>,
+		// forceRefresh=true 时跳过主进程缓存并补充 npm 版本信息。
+		list: (forceRefresh = false) =>
+			ipcRenderer.invoke(ipcChannels.extensionsList, forceRefresh) as Promise<PiExtensionListResult>,
 		uninstall: (source: string, scope?: "user" | "project" | "unknown") =>
 			ipcRenderer.invoke(ipcChannels.extensionsUninstall, source, scope) as Promise<void>,
 		install: (source: string) =>

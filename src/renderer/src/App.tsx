@@ -133,7 +133,6 @@ import {
   TurnRow,
   AskQuestionCard,
   ExtensionWidgetCard,
-  MemSpacedCard,
   MultiSelectModal,
   WorktreeCreateDialog,
   stripMarkdown,
@@ -553,7 +552,11 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
-  const [appNotice, setAppNotice] = useState<{ message: string; duration: number } | null>(null);
+  const [appNotice, setAppNotice] = useState<{
+    message: string;
+    duration: number;
+    kind?: "info" | "error" | "warning";
+  } | null>(null);
   const appNoticeTimeoutRef = useRef<number | null>(null);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
@@ -605,7 +608,11 @@ export function App() {
   useEffect(() => {
     return subscribeToNotice((data) => {
       if (data) {
-        setAppNotice({ message: data.message, duration: data.duration });
+        setAppNotice({
+          message: data.message,
+          duration: data.duration,
+          kind: data.kind,
+        });
         if (appNoticeTimeoutRef.current) {
           window.clearTimeout(appNoticeTimeoutRef.current);
         }
@@ -6701,7 +6708,16 @@ export function App() {
                       )}
                     </button>
                     {appNotice && (
-                      <div className="app-notice" role="status">
+                      <div
+                        className={
+                          appNotice.kind === "error"
+                            ? "app-notice app-notice-error"
+                            : appNotice.kind === "warning"
+                              ? "app-notice app-notice-warning"
+                              : "app-notice"
+                        }
+                        role={appNotice.kind === "error" ? "alert" : "status"}
+                      >
                         {appNotice.message}
                       </div>
                     )}
@@ -7076,44 +7092,24 @@ export function App() {
               <div className="extension-widgets-container" key="widgets-container">
                 {!widgetsCollapsed && entries.filter(([key]) =>
                   widgetSessionKey && !(agentDismissedWidgets[widgetSessionKey]?.includes(key))
-                ).sort(([a], [b]) => {
-                  // mem-spaced 始终排在最靠近输入框的位置（最后）
-                  if (a === "mem-spaced") return 1;
-                  if (b === "mem-spaced") return -1;
-                  return 0;
-                }).map(([widgetKey, widgetLines]) => {
-                  const dismiss = () => {
-                    if (!widgetSessionKey) return;
-                    setAgentDismissedWidgets((prev) => {
-                      const current = prev[widgetSessionKey] ?? [];
-                      if (current.includes(widgetKey)) return prev;
-                      const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
-                      saveDismissedExtensionWidgets(next);
-                      return next;
-                    });
-                  };
-                  if (widgetKey === "mem-spaced") {
-                    return (
-                      <MemSpacedCard
-                        key={widgetKey}
-                        widgetKey={widgetKey}
-                        lines={widgetLines}
-                        homeDir={appInfo.homeDir}
-                        agentId={activeAgentId}
-                        onClose={dismiss}
-                      />
-                    );
-                  }
-                  return (
-                    <ExtensionWidgetCard
-                      key={widgetKey}
-                      widgetKey={widgetKey}
-                      lines={widgetLines}
-                      sessionIdOrPath={widgetSessionKey}
-                      onClose={dismiss}
-                    />
-                  );
-                })}
+                ).map(([widgetKey, widgetLines]) => (
+                  <ExtensionWidgetCard
+                    key={widgetKey}
+                    widgetKey={widgetKey}
+                    lines={widgetLines}
+                    sessionIdOrPath={widgetSessionKey}
+                    onClose={() => {
+                      if (!widgetSessionKey) return;
+                      setAgentDismissedWidgets((prev) => {
+                        const current = prev[widgetSessionKey] ?? [];
+                        if (current.includes(widgetKey)) return prev;
+                        const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
+                        saveDismissedExtensionWidgets(next);
+                        return next;
+                      });
+                    }}
+                  />
+                ))}
               </div>
             );
           })()}
@@ -7324,8 +7320,7 @@ export function App() {
                         placeholder={t("ask.customPlaceholder")}
                         autoFocus
                         onKeyDown={(e) => {
-                          // 与主输入框一致：IME 确认候选词的回车不触发提交
-                          if (getComposerEnterIntent(e, "enter-send") === "send") {
+                          if (e.key === "Enter") {
                             e.preventDefault();
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
@@ -7376,8 +7371,7 @@ export function App() {
                       placeholder={activeUiAsk.placeholder || ""}
                       autoFocus
                       onKeyDown={(e) => {
-                        // 与主输入框一致：IME 确认候选词的回车不触发提交
-                        if (getComposerEnterIntent(e, "enter-send") === "send" && activeUiAsk.requestId && activeAgentId) {
+                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
                           const value = (e.target as HTMLInputElement).value;
                           setActiveUiRequest((current) => {
                             if (!current) return null;
@@ -7598,19 +7592,6 @@ export function App() {
                 >
                   <Paperclip size={15} strokeWidth={1.8} />
                 </button>
-                <span className="composer-bar-separator">|</span>
-                <FeishuLinkIndicator
-                  status={feishu.status}
-                  bots={feishu.bots}
-                  activeAgentId={activeAgentId}
-                  activeBotId={feishu.activeBotId}
-                  sessionBotId={sessionFeishuBotId}
-                  isConnected={feishu.isConnected}
-                  connecting={feishu.connecting}
-                  onConnectByBot={feishu.connectByBot}
-                  onDisconnect={feishu.disconnect}
-                  onSetSessionBot={feishu.setSessionBot}
-                />
               </div>
               <div className="composer-bottom-center">
                 <button

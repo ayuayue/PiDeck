@@ -2394,7 +2394,6 @@ function registerIpc() {
 		version: app.getVersion(),
 		releasesUrl: RELEASES_URL,
 		platform: process.platform,
-		homeDir: app.getPath("home"),
 	}));
 	ipcMain.handle(ipcChannels.appPreferredSystemLanguages, () => {
 		// Renderer navigator.language can reflect Chromium launch flags or a stale browser locale.
@@ -3007,7 +3006,10 @@ function registerIpc() {
 		}
 	});
 
-	ipcMain.handle(ipcChannels.extensionsList, () => extensionManager.list());
+	// forceRefresh=true 时跳过内存缓存，重新跑 pi list 并查 npm 版本；默认走缓存。
+	ipcMain.handle(ipcChannels.extensionsList, (_event, forceRefresh?: boolean) =>
+		extensionManager.list(Boolean(forceRefresh)),
+	);
 	ipcMain.handle(ipcChannels.extensionsUninstall, async (_event, source: string, scope?: "user" | "project" | "unknown") => {
 		const result = await extensionManager.uninstall(source, scope);
 		void appLogger.info("extension", "Extension uninstalled", { source, scope });
@@ -3508,8 +3510,36 @@ app.whenReady().then(async () => {
 		(channel, payload) => mainWindow?.webContents.send(channel, payload),
 	);
 
+	// 启动关键路径只等设置加载与 IPC 注册，尽快 createWindow。
+	// 扩展部署、WSL 同步、代理/Web 服务/宠物等后置，避免打包后点击启动要先等一长串磁盘/网络 IO。
 	await settingsStore.load();
+	registerIpc();
+	registerFeishuIpc();
+	await createWindow();
+	setupTray();
 
+	void runPostWindowStartupTasks().catch((error) => {
+		void appLogger.warn("app", "Post-window startup tasks failed", error);
+	});
+
+	// macOS dock 点击或任务栏点击时恢复窗口
+	app.on("activate", () => {
+		if (mainWindow) {
+			mainWindow.show();
+			mainWindow.focus();
+		} else {
+			void createWindow().catch((error) => {
+				void appLogger.error("app", "Failed to create window on activate", error);
+			});
+		}
+	});
+});
+
+/**
+ * 窗口出现后的后台启动任务。
+ * 这些工作不影响首帧可见，但会拖慢 packaged app 的“点击图标 → 窗口出来”。
+ */
+async function runPostWindowStartupTasks(): Promise<void> {
 	// 根据已加载的 WSL 设置配置会话扫描器，使其能同时扫描 WSL 中的 pi 会话目录
 	const syncWslConfig = async () => {
 		const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
@@ -3518,7 +3548,7 @@ app.whenReady().then(async () => {
 			skillManager.configureWsl(wslDistro, wslUser);
 			promptManager.configureWsl(wslDistro, wslUser);
 			extensionManager.configureWsl(wslDistro, wslUser);
-				if (configManager) configManager.configureWsl(wslDistro, wslUser);
+			if (configManager) configManager.configureWsl(wslDistro, wslUser);
 			if (xuePromptManager) xuePromptManager.configureWsl(wslDistro, wslUser);
 		} else {
 			sessionScanner.clearWsl();
@@ -3529,7 +3559,6 @@ app.whenReady().then(async () => {
 			if (xuePromptManager) xuePromptManager.configureWsl(null);
 		}
 	};
-	await syncWslConfig();
 
 	// 自动部署 PiDeck 内置扩展：这些扩展提供桌面端差异预览、提问卡片和 Plan Mode。
 	// Windows 和 WSL 环境各自部署一份，保证切换 pi 来源后扩展仍然可用。
@@ -3546,53 +3575,70 @@ app.whenReady().then(async () => {
 			});
 		}
 	};
-	// 始终部署到 Windows 本地 home
-	await deployExtensionsTo(app.getPath("home"));
+
+	// 并行做无依赖的后台初始化，缩短窗口出现后的空闲等待。
+	await Promise.all([
+		syncWslConfig().catch((error) => {
+			console.error("Failed to sync WSL config:", error);
+		}),
+		deployExtensionsTo(app.getPath("home")).catch((error) => {
+			console.error("Failed to deploy extensions:", error);
+		}),
+		applyDesktopProxy(settingsStore.get()).catch((error) => {
+			console.error("Failed to apply desktop proxy:", error);
+		}),
+		appLogger.info("app", "Application started", {
+			version: app.getVersion(),
+			platform: process.platform,
+			arch: process.arch,
+			installationType: settingsStore.get().installationType,
+		}),
+	]);
+
 	// WSL 启用时额外部署到 WSL 目录（通过 \\wsl$ UNC）
 	const wslSettings = settingsStore.get();
 	if (wslSettings.wslEnabled && wslSettings.wslDistro && wslSettings.wslUser) {
-		const wslUncHome = `\\\\wsl$\\${wslSettings.wslDistro}\\home\\${wslSettings.wslUser}`;
-		await deployExtensionsTo(wslUncHome).catch(() => {
-			console.warn('[PiDeck] Failed to deploy extensions to WSL, skipping');
+		// UNC: \\wsl$\Distro\home\user
+		const wslUncHome =
+			"\\\\wsl$\\" +
+			wslSettings.wslDistro +
+			"\\home\\" +
+			wslSettings.wslUser;
+		void deployExtensionsTo(wslUncHome).catch(() => {
+			console.warn("[PiDeck] Failed to deploy extensions to WSL, skipping");
 		});
 	}
 
 	// 补齐 pi settings.json 缺失的默认配置项，新安装或精简配置的用户无需手动添加。
-	await ensureAllPiSettingsDefaults().catch((error) => {
+	void ensureAllPiSettingsDefaults().catch((error) => {
 		console.error("Failed to ensure pi settings defaults:", error);
 	});
 
 	// 清理已废弃的 pi-deck-project-trust 扩展：RPC 模式下 pi 的 project_trust 事件 hasUI 恒为 false，
 	// 该扩展无法弹窗，信任确认改由桌面端 AgentManager.ensureProjectTrust 自行处理，删除残留避免用户误解。
-	await removeStalePiDeckExtension("pi-deck-project-trust.ts").catch((error) => {
+	void removeStalePiDeckExtension("pi-deck-project-trust.ts").catch((error) => {
 		console.error("Failed to remove stale pi-deck-project-trust extension:", error);
 	});
 
 	// 清理已废弃的 pi-deck-file-capture 扩展：该扩展的功能已被 renderer 端的直接工具参数解析取代。
-	await removeStalePiDeckExtension("pi-deck-file-capture.ts").catch((error) => {
+	void removeStalePiDeckExtension("pi-deck-file-capture.ts").catch((error) => {
 		console.error("Failed to remove stale pi-deck-file-capture extension:", error);
 	});
 
-	await appLogger.info("app", "Application started", {
-		version: app.getVersion(),
-		platform: process.platform,
-		arch: process.arch,
-		installationType: settingsStore.get().installationType,
-	});
-	await applyDesktopProxy(settingsStore.get());
-	await webServiceManager.applySettings(settingsStore.get()).catch((error) => {
+	void webServiceManager.applySettings(settingsStore.get()).catch((error) => {
 		console.error("Failed to start web service:", error);
 		void settingsStore.update({ webServiceEnabled: false });
 	});
-	registerIpc();
-	registerFeishuIpc();
 
-	// 🆕 自动连接：如果已有 Bot 配置，自动启动飞书连接
+	// 自动连接：如果已有 Bot 配置，自动启动飞书连接
 	autoConnectFeishu();
-
 	sendTelemetryHeartbeat();
-	await createWindow();
-	setupTray();
+
+	// 启动后预热扩展列表缓存，打开配置页时优先命中内存结果。
+	void extensionManager.list(false).catch((error) => {
+		void appLogger.warn("extension", "Warmup extensions list failed", error);
+	});
+
 	void detectExternalEditorsOnFirstLaunch().catch((error) => {
 		void appLogger.warn("editor", "External editor first launch detection failed", error);
 	});
@@ -3630,19 +3676,7 @@ app.whenReady().then(async () => {
 			void appLogger.warn("settings", "Failed to ensure rpcTimeout minimum", error);
 		});
 	}, 0);
-
-	// macOS dock 点击或任务栏点击时恢复窗口
-	app.on("activate", () => {
-		if (mainWindow) {
-			mainWindow.show();
-			mainWindow.focus();
-		} else {
-			void createWindow().catch((error) => {
-				void appLogger.error("app", "Failed to create window on activate", error);
-			});
-		}
-	});
-});
+}
 
 /**
  * 将 PiDeck 内置的 pi 扩展部署到用户扩展目录，使 pi 自动加载。
