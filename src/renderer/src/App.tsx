@@ -133,6 +133,7 @@ import {
   TurnRow,
   AskQuestionCard,
   ExtensionWidgetCard,
+  MemSpacedCard,
   MultiSelectModal,
   WorktreeCreateDialog,
   stripMarkdown,
@@ -1235,6 +1236,7 @@ export function App() {
     version: "-",
     releasesUrl: "https://github.com/ayuayue/pi-desktop/releases",
     platform: "win32",
+    homeDir: "",
   });
   const [piChecking, setPiChecking] = useState(false);
   const [systemLanguage, setSystemLanguage] = useState<string | null>(null);
@@ -7074,24 +7076,44 @@ export function App() {
               <div className="extension-widgets-container" key="widgets-container">
                 {!widgetsCollapsed && entries.filter(([key]) =>
                   widgetSessionKey && !(agentDismissedWidgets[widgetSessionKey]?.includes(key))
-                ).map(([widgetKey, widgetLines]) => (
-                  <ExtensionWidgetCard
-                    key={widgetKey}
-                    widgetKey={widgetKey}
-                    lines={widgetLines}
-                    sessionIdOrPath={widgetSessionKey}
-                    onClose={() => {
-                      if (!widgetSessionKey) return;
-                      setAgentDismissedWidgets((prev) => {
-                        const current = prev[widgetSessionKey] ?? [];
-                        if (current.includes(widgetKey)) return prev;
-                        const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
-                        saveDismissedExtensionWidgets(next);
-                        return next;
-                      });
-                    }}
-                  />
-                ))}
+                ).sort(([a], [b]) => {
+                  // mem-spaced 始终排在最靠近输入框的位置（最后）
+                  if (a === "mem-spaced") return 1;
+                  if (b === "mem-spaced") return -1;
+                  return 0;
+                }).map(([widgetKey, widgetLines]) => {
+                  const dismiss = () => {
+                    if (!widgetSessionKey) return;
+                    setAgentDismissedWidgets((prev) => {
+                      const current = prev[widgetSessionKey] ?? [];
+                      if (current.includes(widgetKey)) return prev;
+                      const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
+                      saveDismissedExtensionWidgets(next);
+                      return next;
+                    });
+                  };
+                  if (widgetKey === "mem-spaced") {
+                    return (
+                      <MemSpacedCard
+                        key={widgetKey}
+                        widgetKey={widgetKey}
+                        lines={widgetLines}
+                        homeDir={appInfo.homeDir}
+                        agentId={activeAgentId}
+                        onClose={dismiss}
+                      />
+                    );
+                  }
+                  return (
+                    <ExtensionWidgetCard
+                      key={widgetKey}
+                      widgetKey={widgetKey}
+                      lines={widgetLines}
+                      sessionIdOrPath={widgetSessionKey}
+                      onClose={dismiss}
+                    />
+                  );
+                })}
               </div>
             );
           })()}
@@ -7576,6 +7598,19 @@ export function App() {
                 >
                   <Paperclip size={15} strokeWidth={1.8} />
                 </button>
+                <span className="composer-bar-separator">|</span>
+                <FeishuLinkIndicator
+                  status={feishu.status}
+                  bots={feishu.bots}
+                  activeAgentId={activeAgentId}
+                  activeBotId={feishu.activeBotId}
+                  sessionBotId={sessionFeishuBotId}
+                  isConnected={feishu.isConnected}
+                  connecting={feishu.connecting}
+                  onConnectByBot={feishu.connectByBot}
+                  onDisconnect={feishu.disconnect}
+                  onSetSessionBot={feishu.setSessionBot}
+                />
               </div>
               <div className="composer-bottom-center">
                 <button

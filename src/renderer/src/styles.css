@@ -7025,21 +7025,13 @@ body.is-composer-resizing .composer-resize-handle::after {
 .composer-box.shell-silent-mode textarea {
   padding-left: 18px;
 }
-.composer-box.shell-mode .composer-bottom-bar {
-  border-top-color: color-mix(in srgb, var(--color-warning) 20%, transparent);
-}
-.composer-box.shell-silent-mode .composer-bottom-bar {
-  border-top-color: color-mix(in srgb, var(--color-danger) 20%, transparent);
-}
-.composer-box.plan-mode .composer-bottom-bar {
-  border-top-color: color-mix(in srgb, var(--color-brand-green) 20%, transparent);
-}
+
 .extension-widgets-container {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   /* 扩展 widget（尤其 Todo/Plan）可能返回大量行；限制总高度，避免展开后把会话区顶到不可见。 */
-  max-height: clamp(96px, 22vh, 220px);
+  max-height: clamp(160px, 45vh, 360px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
@@ -7161,6 +7153,288 @@ body.is-composer-resizing .composer-resize-handle::after {
   color: var(--color-success);
   font-weight: 700;
 }
+
+/* ── 记忆管理卡片 MemSpacedCard ── */
+.mem-spaced-card {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: #F9FBF9;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.mem-spaced-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mem-spaced-card-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.mem-spaced-card-trigger:hover {
+  background: var(--color-bg-hover);
+}
+.mem-spaced-card-trigger:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mem-spaced-card-chevron {
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.mem-spaced-card-chevron.open {
+  transform: rotate(0deg);
+}
+.mem-spaced-card-chevron:not(.open) {
+  transform: rotate(-90deg);
+}
+.mem-spaced-card-title {
+  font-weight: 600;
+  font-size: var(--font-size-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mem-spaced-card-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-micro);
+  color: var(--color-text-tertiary);
+  padding-right: 4px;
+}
+.mem-spaced-card-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.mem-spaced-card-close:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.mem-spaced-card-close:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.mem-spaced-card-content {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 10px 12px;
+}
+.mem-spaced-card-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.mem-spaced-card-tab {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.mem-spaced-card-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.mem-spaced-card-tab.active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+.mem-spaced-card-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mem-spaced-card-stat {
+  flex: 1;
+  min-width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+}
+.mem-spaced-card-stat > span:first-child {
+  font-size: var(--font-size-micro);
+  color: var(--color-text-tertiary);
+}
+.mem-spaced-card-stat > span:last-child {
+  font-size: var(--font-size-h3);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-business);
+}
+.mem-spaced-card-stat .mem-hungry {
+  color: var(--color-danger);
+}
+.mem-spaced-card-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+.mem-card-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mem-spaced-card-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 6px;
+  border-radius: var(--radius-xs);
+  transition: background 0.1s;
+}
+.mem-spaced-card-item:hover {
+  background: var(--color-bg-hover);
+}
+.mem-spaced-card-item.mem-all-item {
+  align-items: center;
+}
+.mem-badge {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+.mem-badge-high {}
+.mem-badge-mid {}
+.mem-badge-low {}
+.mem-badge-archived {}
+.mem-item-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+.mem-item-meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.mem-all-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mem-all-bar-wrap {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-bg-muted);
+  overflow: hidden;
+}
+.mem-all-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-accent);
+  transition: width 0.3s;
+}
+.mem-spaced-card-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+}
+.mem-spaced-card-empty.mem-error {
+  color: var(--color-danger);
+}
+.mem-spaced-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.mem-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mem-org-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.mem-org-btn:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.mem-org-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.mem-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mem-spaced-card-count {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+}
+.mem-refresh-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.mem-refresh-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.mem-refresh-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
 /* ── 底部操作栏（OpenCode 风格）── */
 .composer-bottom-bar {
   display: flex;
@@ -7169,13 +7443,19 @@ body.is-composer-resizing .composer-resize-handle::after {
   padding: 4px 10px 8px 10px;
   flex-shrink: 0;
   min-height: 32px;
-  border-top: 1px solid var(--color-border-subtle);
 }
 .composer-bottom-left {
   display: flex;
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
+}
+.composer-bar-separator {
+  color: var(--color-border-subtle);
+  font-size: var(--font-size-caption);
+  user-select: none;
+  line-height: 1;
+  margin: 0 2px;
 }
 .composer-bottom-center {
   flex: 1;
@@ -7234,6 +7514,11 @@ body.is-composer-resizing .composer-resize-handle::after {
   justify-content: center;
 }
 .composer-bar-btn.stop {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--radius-sm);
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
@@ -15802,22 +16087,21 @@ a.config-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: var(--control-height-xs);
+  height: 26px;
   border: 0;
   border-radius: var(--radius-xs);
-  background: var(--color-bg-muted);
-  color: var(--color-text-secondary);
-  padding: 0 8px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  padding: 0 6px;
   font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
   cursor: pointer;
   white-space: nowrap;
-  transition:
-    color 0.12s,
-    background 0.12s;
+  transition: all 0.12s ease;
 }
 .feishu-link-trigger:hover {
-  color: var(--color-accent);
-  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
 }
 .feishu-link-trigger:focus-visible {
   outline: var(--focus-ring);
@@ -15826,16 +16110,20 @@ a.config-btn {
 .feishu-link-trigger:active {
   background: var(--color-bg-active);
 }
+.feishu-link-trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* toolbar 入口与模型/思考保持同样文字样式，连接状态只通过小圆点表达。 */
 .feishu-link-trigger.connected,
 .feishu-link-trigger.connecting {
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
 }
 .feishu-link-trigger.connected:hover,
 .feishu-link-trigger.connecting:hover {
-  color: var(--color-accent);
-  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
 }
 
 .feishu-link-dot {
