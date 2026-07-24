@@ -9,6 +9,25 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 
+function loadTranspiledModule(filePath, overrides = new Map()) {
+	const source = readFileSync(filePath, "utf8");
+	const { outputText } = ts.transpileModule(source, {
+		compilerOptions: {
+			module: ts.ModuleKind.CommonJS,
+			target: ts.ScriptTarget.ES2022,
+		},
+	});
+	const sandbox = {
+		clearTimeout,
+		exports: {},
+		process,
+		require: (id) => overrides.has(id) ? overrides.get(id) : require(id),
+		setTimeout,
+	};
+	vm.runInNewContext(outputText, sandbox, { filename: filePath });
+	return sandbox.exports;
+}
+
 function loadCodexMetaModule() {
 	const source = readFileSync("src/shared/codexSessionMeta.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
@@ -33,6 +52,15 @@ function loadSessionScanner(homePath) {
 		},
 	});
 	const codexMeta = loadCodexMetaModule();
+	const messageContent = loadTranspiledModule(
+		"src/main/pi/messageContent.ts",
+		new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]),
+	);
+	const sessionSummaryCache = loadTranspiledModule(
+		"src/main/sessions/sessionSummaryCache.ts",
+		new Map([["electron", { app: { getPath: () => homePath } }]]),
+	);
+	const wslPaths = loadTranspiledModule("src/main/wsl/WslPaths.ts");
 	const sandbox = {
 		exports: {},
 		require: (id) => {
@@ -40,6 +68,9 @@ function loadSessionScanner(homePath) {
 				return { app: { getPath: () => homePath } };
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/messageContent") return messageContent;
+			if (id === "./sessionSummaryCache") return sessionSummaryCache;
+			if (id === "../wsl/WslPaths") return wslPaths;
 			return require(id);
 		},
 	};

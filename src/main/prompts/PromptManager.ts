@@ -8,6 +8,7 @@ import type {
 	PiPromptTemplateListResult,
 	PiPromptTemplateSummary,
 } from "../../shared/types";
+import type { WslEnvironment } from "../wsl/WslPaths";
 
 function makeBuiltinContent(name: string, body: string): string {
 	return `---\ndescription: ${name}\n---\n\n${body}`;
@@ -175,13 +176,9 @@ export class PromptManager {
 		this.promptsDir = join(home ?? homedir(), ".pi", "agent", "prompts");
 	}
 
-	/** 配置 WSL 模式（通过 \\wsl$ UNC 访问 WSL 内文件） */
-	configureWsl(distro: string | null, user?: string) {
-		if (distro && user) {
-			this.promptsDir = join(`\\\\wsl$\\${distro}\\home\\${user}`, ".pi", "agent", "prompts");
-		} else {
-			this.promptsDir = join(homedir(), ".pi", "agent", "prompts");
-		}
+	/** 将 prompt 目录切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
+	configureWsl(environment: WslEnvironment | null) {
+		this.promptsDir = join(environment?.windowsHome ?? homedir(), ".pi", "agent", "prompts");
 	}
 
 	getDir(): string {

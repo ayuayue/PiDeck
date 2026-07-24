@@ -103,14 +103,20 @@ export class PiLocator {
     return this.applyPiProxyEnv(env, settings);
   }
 
-  createInvocation(command: string, args: string[]): PiCommandInvocation {
+  createInvocation(command: string, args: string[], options: { wslCwd?: string } = {}): PiCommandInvocation {
     // WSL 模式：command 为 "wsl://<distro>/<user>/pi" 形式的标记
     if (command.startsWith("wsl://")) {
       const parsed = this.parseWslUrl(command);
       if (!parsed) return { command, args, shell: false };
       const { distro, user, piCommand } = parsed;
       const wslExe = this.resolveWslExe();
-      const wslArgs = ["-d", distro, "-u", user, piCommand, ...args];
+      const wslArgs = [
+        "-d", distro,
+        "-u", user,
+        ...(options.wslCwd ? ["--cd", options.wslCwd] : []),
+        piCommand,
+        ...args,
+      ];
       console.log('[PiLocator] WSL invocation:', wslExe.command, wslArgs.join(' '), 'shell:', wslExe.shell);
       return {
         command: wslExe.command,
@@ -379,27 +385,6 @@ export class PiLocator {
     });
   }
 
-  /**
-   * 将 Windows 路径转换为 WSL/Linux 路径。
-   * - D:\project -> /mnt/d/project
-   * - \\wsl$\Debian\home\piuser\project -> /home/piuser/project
-   */
-  static windowsPathToWslPath(windowsPath: string): string {
-    if (!windowsPath) return windowsPath;
-    // WSL UNC 路径: \\wsl$\<distro>\... -> /home/<user>/...
-    if (windowsPath.startsWith("\\\\wsl$")) {
-      const parts = windowsPath.split(/[\\\/]/).filter(Boolean);
-      if (parts.length >= 3 && parts[0].toLowerCase() === "wsl$") {
-        return "/" + parts.slice(2).join("/");
-      }
-    }
-    // 盘符路径: C:\folder -> /mnt/c/folder
-    const driveMatch = windowsPath.match(/^([A-Za-z]):\\(.*)/);
-    if (driveMatch) {
-      return "/mnt/" + driveMatch[1].toLowerCase() + "/" + driveMatch[2].replace(/\\/g, "/");
-    }
-    return windowsPath;
-  }
   private decodeBuffer(buf: Buffer | null): string {
     if (!buf || buf.length === 0) return '';
     const utf8 = buf.toString('utf8');

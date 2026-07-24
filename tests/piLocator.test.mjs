@@ -82,3 +82,18 @@ test("uses the pi cmd shim bin directory as PATH prefix on Windows when node.exe
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("places an explicit WSL cwd before the pi command", () => {
+	const { PiLocator } = loadPiLocatorModule("win32");
+	const invocation = new PiLocator().createInvocation(
+		"wsl://Ubuntu-24.04/root/pi",
+		["--mode", "rpc"],
+		{ wslCwd: "/root/ba cli" },
+	);
+
+	assert.deepEqual(
+		Array.from(invocation.args),
+		["-d", "Ubuntu-24.04", "-u", "root", "--cd", "/root/ba cli", "pi", "--mode", "rpc"],
+	);
+	assert.equal(invocation.wsl.distro, "Ubuntu-24.04");
+});

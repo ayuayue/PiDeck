@@ -1,8 +1,10 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { normalize, join, dirname } from "node:path";
+import { dirname as posixDirname, normalize as posixNormalize } from "node:path/posix";
 import { homedir } from "node:os";
 import { net } from "electron";
 import type { ConfigFileDiagnostic, ConfigFileReadResult } from "../../shared/types";
+import type { WslEnvironment } from "../wsl/WslPaths";
 
 /** pi 全局配置目录：~/.pi/agent/ */
 const PI_AGENT_DIR = join(homedir(), ".pi", "agent");
@@ -81,16 +83,11 @@ export class ConfigManager {
 		this.configDir = configDir ?? PI_AGENT_DIR;
 	}
 
-	/**
-	 * 配置 WSL 模式：将配置目录指向 WSL 发行版内的 ~/.pi/agent/（通过 \\wsl$ UNC 访问）。
-	 * 传入 null 恢复为本地 Windows 配置目录。
-	 */
-	configureWsl(distro: string | null, user?: string) {
-		if (distro && user) {
-			this.configDir = join(`\\\\wsl$\\${distro}\\home\\${user}`, ".pi", "agent");
-		} else {
-			this.configDir = PI_AGENT_DIR;
-		}
+	/** 将配置目录切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
+	configureWsl(environment: WslEnvironment | null) {
+		this.configDir = environment
+			? join(environment.windowsHome, ".pi", "agent")
+			: PI_AGENT_DIR;
 	}
 
 	// ── 读取 ──────────────────────────────────────────────
@@ -112,7 +109,7 @@ export class ConfigManager {
 	}
 
 	async ensureTrustedDirectory(directoryPath: string): Promise<void> {
-		const normalizedPath = normalize(directoryPath);
+		const normalizedPath = this.normalizeTrustPath(directoryPath);
 		const trustConfig = await this.getTrustConfig();
 		if (trustConfig.diagnostic) return;
 
@@ -146,7 +143,7 @@ export class ConfigManager {
 	async setProjectTrustDecision(cwd: string, decision: boolean): Promise<void> {
 		const trustConfig = await this.getTrustConfig();
 		if (trustConfig.diagnostic) return;
-		const key = normalize(cwd);
+		const key = this.normalizeTrustPath(cwd);
 		await this.writeJsonFile("trust.json", {
 			...trustConfig.parsed,
 			[key]: decision,
@@ -166,15 +163,23 @@ export class ConfigManager {
 		while (true) {
 			const value = normalized.get(current);
 			if (value === true || value === false) return value;
-			const parent = dirname(current);
+			const parent = current.startsWith("/") ? posixDirname(current) : dirname(current);
 			if (parent === current) return null;
 			current = parent;
 		}
 	}
 
 	private normalizeTrustPathKey(path: string) {
-		const normalized = normalize(path).replace(/[\\/]+$/, "");
-		return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+		const normalized = this.normalizeTrustPath(path).replace(/[\\/]+$/, "");
+		return process.platform === "win32" && !normalized.startsWith("/")
+			? normalized.toLowerCase()
+			: normalized;
+	}
+
+	private normalizeTrustPath(path: string) {
+		if (!path.startsWith("/")) return normalize(path);
+		const normalized = posixNormalize(path);
+		return normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
 	}
 
 	// ── 保存（可视化表单） ────────────────────────────────

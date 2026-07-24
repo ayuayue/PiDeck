@@ -9,6 +9,25 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 
+function loadTranspiledModule(filePath, overrides = new Map()) {
+	const source = readFileSync(filePath, "utf8");
+	const { outputText } = ts.transpileModule(source, {
+		compilerOptions: {
+			module: ts.ModuleKind.CommonJS,
+			target: ts.ScriptTarget.ES2022,
+		},
+	});
+	const sandbox = {
+		clearTimeout,
+		exports: {},
+		process,
+		require: (id) => overrides.has(id) ? overrides.get(id) : require(id),
+		setTimeout,
+	};
+	vm.runInNewContext(outputText, sandbox, { filename: filePath });
+	return sandbox.exports;
+}
+
 function loadCodexMetaModule() {
 	const source = readFileSync("src/shared/codexSessionMeta.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
@@ -31,6 +50,15 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 		},
 	});
 	const codexMeta = loadCodexMetaModule();
+	const messageContent = loadTranspiledModule(
+		"src/main/pi/messageContent.ts",
+		new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]),
+	);
+	const sessionSummaryCache = loadTranspiledModule(
+		"src/main/sessions/sessionSummaryCache.ts",
+		new Map([["electron", { app: { getPath: () => homePath } }]]),
+	);
+	const wslPaths = loadTranspiledModule("src/main/wsl/WslPaths.ts");
 	const sandbox = {
 		AbortController,
 		AbortSignal,
@@ -41,6 +69,9 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 		require: (id) => {
 			if (id === "electron") return { app: { getPath: () => homePath } };
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/messageContent") return messageContent;
+			if (id === "./sessionSummaryCache") return sessionSummaryCache;
+			if (id === "../wsl/WslPaths") return wslPaths;
 			if (id === "node:fs") return { ...require(id), ...fsOverrides };
 			return require(id);
 		},
@@ -162,6 +193,7 @@ test("groups WSL child sessions with POSIX parent paths", async () => {
 	const home = mkdtempSync(join(tmpdir(), "pideck-wsl-subagent-scanner-"));
 	try {
 		const projectPath = "/mnt/f/git-optimize";
+		const selectedProjectPath = "//wsl.localhost/Ubuntu/mnt/f/git-optimize";
 		const sessionsRoot = "/home/dev/.pi/agent/sessions";
 		const parentFile = `${sessionsRoot}/--mnt-f-git-optimize--/parent.jsonl`;
 		const forkParentFile = `${sessionsRoot}/--mnt-f-git-optimize--/fork-parent.jsonl`;
@@ -192,10 +224,13 @@ test("groups WSL child sessions with POSIX parent paths", async () => {
 			if (value == null) throw new Error(`missing WSL fixture: ${filePath}`);
 			return value.slice(0, 4096);
 		};
-		scanner.readWslFileMtime = async () => 1;
+		scanner.readWslFileVersion = async (filePath) => ({
+			mtimeMs: 1,
+			size: files.get(filePath)?.length ?? 0,
+		});
 		scanner.existsWslFile = async (filePath) => files.has(filePath);
 
-		const summaries = await scanner.list(projectPath);
+		const summaries = await scanner.list(selectedProjectPath);
 		assert.equal(summaries.length, 4);
 		assert.equal(summaries.find((item) => item.filePath === childFile)?.parentSessionPath, parentFile);
 		assert.equal(summaries.find((item) => item.filePath === forkChildFile)?.parentSessionPath, forkParentFile);
