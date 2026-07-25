@@ -7,7 +7,7 @@
 
 ## v0.6.6
 
-发布时间：2026-07-24
+发布时间：2026-07-25
 
 - 🚀 **侧栏品牌区重新设计**：Pi 官方 canvas logo 裁掉空边 + Plantin 字标，agent 启停动画
 - 🚀 **多 Tab 文件编辑器**：最多 5 个并发 Tab，弹框/侧栏双模式，Diff 差异对比
@@ -24,8 +24,11 @@
 - ✨ 设置页重构（全局保存/取消）、字号分区配置、文件侧栏增强、Diff 分栏修复
 - ✨ 自建 Toast 通知系统、可展开的压缩卡片、Session 摘要缓存持久化
 - 🐛 大量 Bug 修复（Monaco CSP、TextModel disposed 白屏、WSL 路径、中文乱码等）
+- 🐛 飞书链接打包后 "Cannot find package @larksuiteoapi/node-sdk" 修复
 
 特别感谢所有贡献者，以及 **微时佬友** 提供的 Grok 模型服务 🎉
+
+感谢所有给 PiDeck 提建议和反馈 Bug 的用户 🙏
 
 ## v0.6.5
 
