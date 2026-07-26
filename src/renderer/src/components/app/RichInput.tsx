@@ -755,9 +755,17 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			if (!root) return;
 			const nextValue = collectFlatText(root);
 			const nextCaret = getCaretOffset(root);
-			nativeInputValueRef.current = nextValue;
-			nativeInputCaretRef.current = nextCaret;
-			onChange(nextValue, nextCaret);
+			// 浏览器在 contentEditable 空时自动插入 <br>，导致 collectFlatText 返回 "\n"。
+			// 如果 DOM 没有可见文本内容，将值规约为空字符串，并清除 <br> 使 :empty 能匹配。
+			const effectiveValue = !root.textContent?.trim() ? "" : nextValue;
+			if (!effectiveValue) {
+				// 清除 contentEditable 自动插入的 <br> 残余，确保 CSS :empty 伪类能匹配以显示 placeholder
+				const brs = root.querySelectorAll("br");
+				for (const br of brs) br.remove();
+			}
+			nativeInputValueRef.current = effectiveValue;
+			nativeInputCaretRef.current = effectiveValue ? nextCaret : 0;
+			onChange(effectiveValue, effectiveValue ? nextCaret : 0);
 		}, [onChange]);
 
 		/** 光标/选区变化：通知上层光标位置。 */

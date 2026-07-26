@@ -1112,8 +1112,26 @@ export function App() {
   const [openCodeImportRunning, setOpenCodeImportRunning] = useState(false);
   const [openCodeImportReport, setOpenCodeImportReport] =
     useState<OpenCodeImportReport | null>(null);
-  // showToast 使用 app-notice 统一展示，见下方函数定义
-  // 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
+  // 历史命令：按 agent 隔离。通过 localStorage 持久化，重启后可恢复上下方向键导航的历史。
+  // promptHistoryRef 在首次挂载时从 localStorage 恢复，每次会话重新加载时清空当前 agent 的旧记录。
+  const PROMPT_HISTORY_STORAGE_KEY = "pid:prompt-history";
+  function savePromptHistory() {
+    try {
+      localStorage.setItem(PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(promptHistoryRef.current));
+    } catch {
+      // 配额/隐私模式失败时静默忽略
+    }
+  }
+  function loadPromptHistory(): void {
+    try {
+      const raw = localStorage.getItem(PROMPT_HISTORY_STORAGE_KEY);
+      if (raw) promptHistoryRef.current = JSON.parse(raw) as Record<string, string[]>;
+    } catch {
+      // localStorage 不可用时忽略
+    }
+  }
+  /** 跟踪哪些 agent 已经用会话消息重建过 prompt history；重启/替换时清除标记，下次 onMessages 重新重建 */
+  const promptHistoryInitedRef = useRef<Set<string>>(new Set());
   const promptHistoryRef = useRef<Record<string, string[]>>({});
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [historyNavigating, setHistoryNavigating] = useState(false);
@@ -1491,12 +1509,22 @@ export function App() {
   // displayAgents 的 ref，供只挂载一次的 IPC 监听器读取最新 Agent 列表，避免闭包陈旧
   const displayAgentsRef = useRef(displayAgents);
   displayAgentsRef.current = displayAgents;
+  // 从 localStorage 恢复历史（组件挂载时执行一次）
+  useEffect(() => {
+    loadPromptHistory();
+  }, []);
+
   // Agent 关闭后清除对应历史命令
   useEffect(() => {
     const currentIds = new Set(displayAgents.map(a => a.id));
+    let changed = false;
     for (const id of Object.keys(promptHistoryRef.current)) {
-      if (!currentIds.has(id)) delete promptHistoryRef.current[id];
+      if (!currentIds.has(id)) {
+        delete promptHistoryRef.current[id];
+        changed = true;
+      }
     }
+    if (changed) savePromptHistory();
   }, [displayAgents]);
   // Agent 切换时重置历史导航状态，避免跨 Agent 泄漏 historyIndex / savedPrompt
   useEffect(() => {
@@ -1565,7 +1593,8 @@ export function App() {
     // 仅布尔状态翻转时才触发重渲染（有/无内容、!/!! 前缀变化）
     syncComposerFlags(value);
 
-    // 仅 chips 变化时才更新 promptByAgent（触发 RichInput 的 useMemo chips 重算 + renderDom）
+    // 仅 chips 变化时才更新 promptByAgent（触发 RichInput 的 useMemo chips 重算 + renderDom）。
+    // 但文本从有到无/从无到有时也要更新，否则 prompt 兜底读旧值导致 placeholder 不显示。
     const oldValue = promptByAgent[agentId] ?? "";
     const oldChipsKey = parseRichInputChips(oldValue, validCommandNames, validFilePaths, validSessionRefs)
       .map((c) => `${c.start}:${c.end}:${c.kind}`)
@@ -1573,7 +1602,8 @@ export function App() {
     const newChipsKey = parseRichInputChips(value, validCommandNames, validFilePaths, validSessionRefs)
       .map((c) => `${c.start}:${c.end}:${c.kind}`)
       .join(",");
-    if (oldChipsKey !== newChipsKey) {
+    const isEmptyChanged = Boolean(oldValue) !== Boolean(value);
+    if (oldChipsKey !== newChipsKey || isEmptyChanged) {
       setPromptByAgent((current) => {
         if (!value) {
           const next = { ...current };
@@ -2268,6 +2298,12 @@ export function App() {
       updateQueuedPrompts((current) =>
         migrateQueuedPrompts(current, pendingReplacementById, draftIds),
       );
+      // 重启/替换 agent 时清除 prompt history 重建标记，等待 onMessages 重新从会话重建
+      for (const [oldAgentId] of pendingReplacementById) {
+        promptHistoryInitedRef.current.delete(oldAgentId);
+        delete promptHistoryRef.current[oldAgentId];
+      }
+
       for (const [oldAgentId] of pendingReplacementById) {
         queueFlushByAgentRef.current.delete(oldAgentId);
       }
@@ -2279,10 +2315,11 @@ export function App() {
         migrateAgentRecord(current, pendingReplacementById, draftIds),
       );
     });
-    // 优化:历史会话加载时消息更新频繁,只在消息真正变化时更新 state,避免不必要的重渲染导致输入卡顿
+    // 优化:历史会话加载时消息更新频繁,只在消息真正变化时 update state,避免不必要的重渲染导致输入卡顿
     const offMessages = api.agents.onMessages((payload) =>
       setMessagesByAgent((current) => {
         const prevMessages = current[payload.agentId];
+        const agentId = payload.agentId;
         // 消息数量相同且引用相同时跳过更新,减少输入框重渲染
         if (
           prevMessages?.length === payload.messages.length &&
@@ -2290,9 +2327,25 @@ export function App() {
         ) {
           return current;
         }
+
+        // 首次加载/重启后加载会话时，重建 prompt history
+        if (!promptHistoryInitedRef.current.has(agentId)) {
+          promptHistoryInitedRef.current.add(agentId);
+          const userMessages = payload.messages
+            .filter((m) => m.role === "user" && m.text?.trim())
+            .map((m) => m.text.trim());
+          if (userMessages.length > 0) {
+            // 反向排列：最新的在前
+            promptHistoryRef.current[agentId] = userMessages.reverse().slice(0, 50);
+          } else {
+            delete promptHistoryRef.current[agentId];
+          }
+          savePromptHistory();
+        }
+
         return {
           ...current,
-          [payload.agentId]: payload.messages,
+          [agentId]: payload.messages,
         };
       }),
     );
@@ -5117,12 +5170,13 @@ export function App() {
       return;
     }
 
-    // 保存到当前 Agent 的历史记录（不持久化，Agent 关闭即清除）
+    // 保存到当前 Agent 的历史记录（持久化到 localStorage，重启后可恢复）
     if (message.trim() && !message.startsWith("!")) {
       const agentId = targetAgentId;
       const prev = promptHistoryRef.current[agentId] ?? [];
       const filtered = prev.filter(cmd => cmd !== message.trim());
       promptHistoryRef.current[agentId] = [message.trim(), ...filtered].slice(0, 50);
+      savePromptHistory();
     }
 
     // 重置历史导航状态
@@ -5247,6 +5301,7 @@ export function App() {
       const prev = promptHistoryRef.current[targetAgentId] ?? [];
       const filtered = prev.filter(cmd => cmd !== message.trim());
       promptHistoryRef.current[targetAgentId] = [message.trim(), ...filtered].slice(0, 50);
+      savePromptHistory();
     }
     // 重置历史导航状态
     setHistoryIndex(-1);
