@@ -95,10 +95,16 @@ import {
   type QueuedPromptSnapshot,
 } from "./utils/queuedPromptQueue";
 import {
+  loadTerminalHeight,
+  migrateTerminalDockAgentState,
+  projectTerminalSessionKey,
   pruneTerminalDockState,
+  resolveTerminalOwner,
+  saveTerminalHeight,
   setTerminalDockCollapsed,
   setTerminalDockOpen,
-  type TerminalDockStateByProject,
+  terminalOwnerKey,
+  type TerminalDockStateByOwner,
 } from "./terminalDockState";
 import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
@@ -1346,14 +1352,16 @@ export function App() {
   const [chatLayoutHeight, setChatLayoutHeight] = useState(() => window.innerHeight);
   const [composerAutoHeight, setComposerAutoHeight] =
     useState(COMPOSER_MIN_HEIGHT);
-  const [terminalDockStateByProject, setTerminalDockStateByProject] =
-    useState<TerminalDockStateByProject>({});
-  const [terminalHeightByAgent, setTerminalHeightByAgent] = useState<
-    Record<string, number>
-  >({});
+  // open/collapsed 按 owner（agent 或 project）会话内记忆；高度全局一份并落盘
+  const [terminalDockStateByOwner, setTerminalDockStateByOwner] =
+    useState<TerminalDockStateByOwner>({});
+  const [terminalHeight, setTerminalHeight] = useState(() =>
+    loadTerminalHeight(COMPOSER_DEFAULT_TERMINAL_HEIGHT),
+  );
   const [terminalDockMounted, setTerminalDockMounted] = useState(false);
   const [terminalDockClosing, setTerminalDockClosing] = useState(false);
-  const [terminalDockProjectId, setTerminalDockProjectId] = useState<string>();
+  /** 当前挂载的 Dock 对应的 owner key，用于切换 owner 时决定是否立即卸载 */
+  const [terminalDockOwnerKey, setTerminalDockOwnerKey] = useState<string>();
   const terminalDockCloseTimerRef = useRef<number | null>(null);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
@@ -1603,30 +1611,35 @@ export function App() {
     if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
   }
 
-  const terminalDockState = activeProjectId
-    ? terminalDockStateByProject[activeProjectId]
+  // 有 activeAgent → agent owner；空项目引导页 → project owner。状态绝不因流式/刷新被改写。
+  const terminalOwner = resolveTerminalOwner(activeAgentId, activeProjectId);
+  const activeTerminalOwnerKey = terminalOwner
+    ? terminalOwnerKey(terminalOwner)
     : undefined;
-  // 终端打开/折叠状态按 agent 隔离,避免切换项目/agent 后丢失当前终端 UI 状态。
+  const terminalDockState = activeTerminalOwnerKey
+    ? terminalDockStateByOwner[activeTerminalOwnerKey]
+    : undefined;
   const terminalOpen = Boolean(terminalDockState?.open);
   const terminalCollapsed = Boolean(terminalDockState?.collapsed);
   const terminalDockVisible =
-    terminalDockMounted && terminalDockProjectId === activeProjectId;
+    terminalDockMounted && terminalDockOwnerKey === activeTerminalOwnerKey;
 
   // 轨道尺寸只在开关时变更一次，终端本身用 transform 完成合成动画。
   // 关闭时保留组件至动画结束，避免同步销毁 xterm 阻塞第一帧。
+  // 切换 owner 时若新 owner 未打开，立即卸载，不把旧 owner 的关闭动画带到新上下文。
   useEffect(() => {
-    if (terminalOpen && activeProjectId) {
+    if (terminalOpen && activeTerminalOwnerKey) {
       if (terminalDockCloseTimerRef.current != null) {
         window.clearTimeout(terminalDockCloseTimerRef.current);
         terminalDockCloseTimerRef.current = null;
       }
-      setTerminalDockProjectId(activeProjectId);
+      setTerminalDockOwnerKey(activeTerminalOwnerKey);
       setTerminalDockClosing(false);
       setTerminalDockMounted(true);
       return;
     }
     if (!terminalDockMounted) return;
-    if (terminalDockProjectId !== activeProjectId) {
+    if (terminalDockOwnerKey !== activeTerminalOwnerKey) {
       setTerminalDockMounted(false);
       return;
     }
@@ -1645,7 +1658,7 @@ export function App() {
         terminalDockCloseTimerRef.current = null;
       }
     };
-  }, [activeProjectId, terminalDockProjectId, terminalDockMounted, terminalOpen]);
+  }, [activeTerminalOwnerKey, terminalDockOwnerKey, terminalDockMounted, terminalOpen]);
 
   const drawerPinnedPanel = activeProjectId
     ? drawerPinnedByProject[activeProjectId]
@@ -1832,9 +1845,8 @@ export function App() {
   const activeThinking = activeAgentId
     ? (streamingThinking[activeAgentId] ?? "")
     : "";
-  const activeTerminalHeight = activeProjectId
-    ? (terminalHeightByAgent[activeProjectId] ?? COMPOSER_DEFAULT_TERMINAL_HEIGHT)
-    : COMPOSER_DEFAULT_TERMINAL_HEIGHT;
+  // 高度全局共享：切 agent/项目不重置；仅用户拖拽会改并落盘
+  const activeTerminalHeight = terminalHeight;
   const requestedTerminalRowHeight =
     !terminalDockVisible || terminalDockClosing
       ? 0
@@ -2225,12 +2237,13 @@ export function App() {
         ...nextAgents.map((agent) => agent.id),
         ...remainingPendingAgents.map((agent) => agent.id),
       ]);
-      setTerminalDockStateByProject((current) =>
-        pruneTerminalDockState(current, activeIds),
-      );
-      setTerminalHeightByAgent((current) =>
-        Object.fromEntries(
-          Object.entries(current).filter(([agentId]) => activeIds.has(agentId)),
+      // 仅迁移/裁剪 agent 键；project 键留给 projects+displayAgents effect。
+      // 禁止用 agentId 集合 prune project 键（流式 onState 会误关 Dock）。
+      setTerminalDockStateByOwner((current) =>
+        migrateTerminalDockAgentState(
+          current,
+          pendingReplacementById,
+          draftIds,
         ),
       );
       setDrawerPinnedByProject((current) =>
@@ -2642,11 +2655,13 @@ export function App() {
   }, [activeAgentId]);
 
   useEffect(() => {
-    const activeIds = new Set(displayAgents.map((agent) => agent.id));
-    setTerminalDockStateByProject((current) =>
-      pruneTerminalDockState(current, activeIds),
+    // displayAgents 含 pending；项目键按完整 projects 列表保留（无 agent 的项目也能开终端）
+    const liveAgentIds = new Set(displayAgents.map((agent) => agent.id));
+    const liveProjectIds = new Set(projects.map((project) => project.id));
+    setTerminalDockStateByOwner((current) =>
+      pruneTerminalDockState(current, liveAgentIds, liveProjectIds),
     );
-  }, [displayAgents]);
+  }, [displayAgents, projects]);
 
   useEffect(() => {
     // 折叠中的项目不跑周期扫描，避免后台无意义刷会话列表
@@ -4781,16 +4796,25 @@ export function App() {
     }
   }
 
-  function setTerminalOpenForProject(projectId: string, open: boolean) {
-    setTerminalDockStateByProject((current) =>
-      setTerminalDockOpen(current, projectId, open),
+  /** 按当前上下文 owner 写入 open；流式/刷新路径不得调用此函数关终端 */
+  function setTerminalOpenForOwner(open: boolean) {
+    if (!activeTerminalOwnerKey) return;
+    setTerminalDockStateByOwner((current) =>
+      setTerminalDockOpen(current, activeTerminalOwnerKey, open),
     );
   }
 
-  function setTerminalCollapsedForProject(projectId: string, collapsed: boolean) {
-    setTerminalDockStateByProject((current) =>
-      setTerminalDockCollapsed(current, projectId, collapsed),
+  function setTerminalCollapsedForOwner(collapsed: boolean) {
+    if (!activeTerminalOwnerKey) return;
+    setTerminalDockStateByOwner((current) =>
+      setTerminalDockCollapsed(current, activeTerminalOwnerKey, collapsed),
     );
+  }
+
+  function updateTerminalHeight(height: number) {
+    const next = Math.max(120, Math.round(height));
+    setTerminalHeight(next);
+    saveTerminalHeight(next);
   }
 
   function handleComposerKeyDown(
@@ -8039,19 +8063,23 @@ export function App() {
 
         {!isLanWeb && !settingsOpen && !configOpen && !environmentDialog && terminalDockVisible && (
           <TerminalDock
-            key={terminalDockProjectId}
-            agentId={activeAgentId}
+            key={terminalDockOwnerKey}
+            sessionKey={
+              activeAgentId
+                ? activeAgentId
+                : activeProject?.path
+                  ? projectTerminalSessionKey(activeProject.path)
+                  : undefined
+            }
             projectCwd={activeProject?.path}
             open={terminalDockVisible}
             closing={terminalDockClosing}
             collapsed={terminalCollapsed}
             height={terminalRowHeight}
             terminal={api.terminal}
-            onCollapsedChange={(collapsed) =>
-              activeProjectId && setTerminalCollapsedForProject(activeProjectId, collapsed)
-            }
+            onCollapsedChange={(collapsed) => setTerminalCollapsedForOwner(collapsed)}
             onHeightChange={(height) => {
-              if (!activeProjectId) return;
+              // 高度全局一份：只受布局上限约束，不按 owner 分桶
               const maxHeight = Math.max(
                 120,
                 chatLayoutHeight -
@@ -8061,12 +8089,9 @@ export function App() {
                   28 -
                   queuedChromeBudget,
               );
-              setTerminalHeightByAgent((current) => ({
-                ...current,
-                [activeProjectId]: Math.min(height, maxHeight),
-              }));
+              updateTerminalHeight(Math.min(height, maxHeight));
             }}
-            onClose={() => activeProjectId && setTerminalOpenForProject(activeProjectId, false)}
+            onClose={() => setTerminalOpenForOwner(false)}
           />
         )}
       </main>
@@ -8080,11 +8105,11 @@ export function App() {
               onClick: () => scratchPad.toggle(),
               icon: <Pencil size={17} />,
             }}
-            terminalAction={activeProjectId ? {
+            terminalAction={activeTerminalOwnerKey ? {
               active: terminalOpen,
               label: t("app.terminal"),
               onClick: () => {
-                setTerminalOpenForProject(activeProjectId, !terminalOpen);
+                setTerminalOpenForOwner(!terminalOpen);
               },
               icon: <Terminal size={17} />,
             } : undefined}
