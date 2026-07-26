@@ -334,7 +334,7 @@ const zhCN = {
   "app.modelUnfavorite": "取消收藏",
   "app.modelFavorites": "收藏",
   "app.moreAgents": "更多 {count} 个 Agent",
-  "app.openTerminalTitle": "显示或隐藏当前 Agent 的终端",
+  "app.openTerminalTitle": "显示或隐藏当前上下文的终端",
   "app.piCheckFailed": "pi 检测失败：{error}",
   "app.piCheckPassed": "pi 检测通过：{value}",
   "app.piPathCleared": "已清除自定义 pi 路径，将恢复自动检测。",
@@ -2000,7 +2000,7 @@ const enUS: Record<TranslationKey, string> = {
   "app.agentCreateTimeout":
     "Agent startup timed out. Check whether pi can start normally, then try again.",
   "app.sessionRefreshTimeout": "Session list refresh timed out. Try again shortly.",
-  "app.openTerminalTitle": "Show or hide this Agent terminal",
+  "app.openTerminalTitle": "Show or hide the terminal for the current context",
   "app.piCheckFailed": "pi check failed: {error}",
   "app.piCheckPassed": "pi check passed: {value}",
   "app.piPathCleared":

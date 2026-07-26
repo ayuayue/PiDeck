@@ -78,7 +78,8 @@ function stripReplayBuffer(tab: TerminalTab): TerminalTab {
 }
 
 export function TerminalDock(props: {
-	agentId?: string;
+	/** 主进程 PTY 桶键：agentId，或无 agent 时的 `cwd:...` */
+	sessionKey?: string;
 	projectCwd?: string;
 	open: boolean;
 	closing: boolean;
@@ -94,10 +95,11 @@ export function TerminalDock(props: {
 	const fitRef = useRef<FitAddon | null>(null);
 	const activeTabIdRef = useRef("");
 	const buffersRef = useRef<Record<string, string>>({});
-	/** 无 agent 时用 "_project_" 作为终端归属 ID */
-	const agentKey = props.agentId ?? "_project_";
-	/** 无 agent 时用项目路径作为 CWD */
-	const effectiveCwd = props.agentId ? undefined : props.projectCwd;
+	// sessionKey 由 App 按 owner 解析；缺省时不应 ensure，避免误写入全局桶
+	const sessionKey = props.sessionKey;
+	/** 无 agent（cwd 桶）时显式传项目路径作为 CWD */
+	const effectiveCwd =
+		sessionKey && sessionKey.startsWith("cwd:") ? props.projectCwd : undefined;
 	/* copyNotice 已改用 toast (sonner) 实现 */
 	const [tabs, setTabs] = useState<TerminalTab[]>([]);
 	const [activeTabId, setActiveTabId] = useState("");
@@ -161,12 +163,12 @@ export function TerminalDock(props: {
 	}, [activeTab?.id]);
 
 	useEffect(() => {
-		if (!open || !contentReady) return;
+		if (!open || !contentReady || !sessionKey) return;
 		let cancelled = false;
 		async function loadTabs() {
 			setLoading(true);
 			try {
-				const nextTabs = await props.terminal.ensure(agentKey, effectiveCwd);
+				const nextTabs = await props.terminal.ensure(sessionKey!, effectiveCwd);
 				if (cancelled) return;
 				buffersRef.current = nextTabs.reduce<Record<string, string>>(
 					(current, tab) => ({
@@ -185,7 +187,7 @@ export function TerminalDock(props: {
 		return () => {
 			cancelled = true;
 		};
-	}, [agentKey, props.terminal, open, contentReady]);
+	}, [sessionKey, effectiveCwd, props.terminal, open, contentReady]);
 
 	// 独立加载可用 shell 列表，避免与 loadTabs 耦合
 	useEffect(() => {
@@ -300,7 +302,8 @@ export function TerminalDock(props: {
 	/* copyNotice cleanup 已禁用（改为 toast sonner） */
 
 	async function addTab() {
-		const next = await props.terminal.create(agentKey, undefined, effectiveCwd);
+		if (!sessionKey) return;
+		const next = await props.terminal.create(sessionKey, undefined, effectiveCwd);
 		setTabs((current) => [...current, stripReplayBuffer(next)]);
 		setActiveTabId(next.id);
 		props.onCollapsedChange(false);
@@ -308,7 +311,8 @@ export function TerminalDock(props: {
 
 	/** 用指定 shell 创建新终端 tab */
 	async function addTabWithShell(shell: string) {
-		const next = await props.terminal.create(agentKey, shell, effectiveCwd);
+		if (!sessionKey) return;
+		const next = await props.terminal.create(sessionKey, shell, effectiveCwd);
 		setTabs((current) => [...current, stripReplayBuffer(next)]);
 		setActiveTabId(next.id);
 		props.onCollapsedChange(false);
