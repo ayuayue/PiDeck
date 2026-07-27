@@ -597,7 +597,7 @@ export function ExtensionWidgetCard(props: {
 	}, [storageKey]);
 
 	return (
-		<div className="extension-widget-card">
+		<div className="extension-widget-card" data-widget-key={props.widgetKey}>
 			<div className="extension-widget-card-header">
 				<button
 					className="extension-widget-card-trigger"

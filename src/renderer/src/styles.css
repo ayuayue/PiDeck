@@ -7514,6 +7514,12 @@ body.is-composer-resizing .composer-resize-handle::after {
   color: var(--color-text-tertiary);
   line-height: var(--extension-widget-line-height);
 }
+.extension-widget-card:is(
+  [data-widget-key="pi-deck-todo"],
+  [data-widget-key="pi-deck-plan-todos"]
+) .extension-widget-card-line {
+  font-family: var(--font-family-base);
+}
 .extension-widget-card-line .widget-check-done {
   color: var(--color-success);
   font-weight: 700;
