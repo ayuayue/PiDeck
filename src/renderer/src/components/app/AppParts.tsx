@@ -100,6 +100,7 @@ import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileI
 import { normalizeSessionPathForCompare } from "../../agentListDisplay";
 import { t, type TranslationKey } from "../../i18n";
 import { showNotice } from "../../utils/notice";
+import { filePathFromHref, stripFileLocation, toInternalFileHref } from "../../utils/fileLinks";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { Modal } from "../ui/Modal";
@@ -3321,7 +3322,12 @@ const remarkLinkifyPaths = () => {
 		const visit = (node: any) => {
 			if (!node || typeof node !== "object") return;
 			const type: string = node.type;
-			if (type === "code" || type === "inlineCode" || type === "link") return;
+			if (type === "code" || type === "inlineCode") return;
+			if (type === "link") {
+				const fileHref = typeof node.url === "string" ? toInternalFileHref(node.url) : null;
+				if (fileHref) node.url = fileHref;
+				return;
+			}
 			if (type === "text" && typeof node.value === "string") {
 				const text: string = node.value;
 				FILE_PATH_RE.lastIndex = 0;
@@ -3648,22 +3654,25 @@ function MarkdownLink(
 	},
 ) {
 	const { onOpenExternal, onOpenFile, children, className, title, ...anchorProps } = props;
-	// remarkLinkifyPaths 生成的文件路径链接走 file:// 协议，与普通外链区分展示
-	const isFileLink = props.href?.startsWith("file://") ?? false;
+	const filePath = filePathFromHref(props.href);
+	const isFileLink = filePath !== null;
 	const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		e.preventDefault();
 		if (!props.href) return;
-		
-		// 处理文件路径链接（file:// 协议）
-		if (props.href.startsWith('file://')) {
-			const filePath = decodeURIComponent(props.href.slice(7));
-			if (onOpenFile) {
-				void onOpenFile(filePath);
-			}
+
+		if (filePath !== null) {
+			if (onOpenFile) void onOpenFile(stripFileLocation(filePath));
 		} else {
-			// 普通 URL 链接用系统浏览器打开
 			void onOpenExternal(props.href);
 		}
+	};
+	const handleContextMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
+		if (filePath === null) return;
+		e.preventDefault();
+		void navigator.clipboard.writeText(filePath).then(
+			() => showNotice(t("app.pathCopied"), 1200),
+			() => showNotice(t("copy.failed"), 2000, "error"),
+		);
 	};
 	const linkClass =
 		[className, isFileLink ? "markdown-link-file" : undefined]
@@ -3674,9 +3683,8 @@ function MarkdownLink(
 			{...anchorProps}
 			className={linkClass}
 			onClick={handleClick}
-			// 文件链接 hover 展示解码后的完整路径，便于确认目标文件；
-			// 普通链接不传 title，保留 markdown 自带 title 语法的原行为
-			title={isFileLink ? decodeURIComponent(props.href!.slice(7)) : title}
+			onContextMenu={handleContextMenu}
+			title={isFileLink ? filePath : title}
 		>
 			{isFileLink ? (
 				<>
