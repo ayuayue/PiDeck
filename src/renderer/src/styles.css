@@ -3064,6 +3064,78 @@ body.is-terminal-resizing {
   background: transparent;
 }
 
+/* 系统标题栏模式下的左侧列表开关：样式对齐 header-drawer-toggle */
+.list-toggle-native {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  width: 30px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-md);
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    color 0.15s;
+}
+.list-toggle-native:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  box-shadow: 0 1px 3px
+    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+}
+.list-toggle-native:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+/* 折叠后的浮动恢复入口：避开左侧 14px 折叠条 */
+.list-toggle-native.floating {
+  position: fixed;
+  top: 12px;
+  left: 22px;
+  z-index: 920;
+}
+
+/* 系统标题栏模式下的右侧边栏开关：宽高对齐 session-combo-trigger */
+.header-drawer-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  min-width: 90px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-md);
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    color 0.15s;
+}
+.header-drawer-toggle:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  box-shadow: 0 1px 3px
+    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+}
+.header-drawer-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.header-drawer-toggle.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
 /* ---- Session combo (合并新会话 + 下拉,类似 branch-select) ---- */
 .session-combo,
 .file-action-combo {

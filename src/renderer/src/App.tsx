@@ -6388,6 +6388,18 @@ export function App() {
           </button>
         </div>
       )}
+      {/* 系统标题栏模式 + 列表已折叠：侧栏内容整体隐藏，需浮动按钮恢复 */}
+      {settings.useNativeTitleBar && listCollapsed && (
+        <button
+          type="button"
+          className="list-toggle-native floating"
+          title={t("app.expandList")}
+          aria-label={t("app.expandList")}
+          onClick={toggleListCollapsed}
+        >
+          <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+        </button>
+      )}
       <aside
         className="chat-list-pane v3-braun"
       >
@@ -6397,6 +6409,18 @@ export function App() {
             {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
             <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
+          {/* 系统标题栏模式下左上角没有 window-controls-left，折叠入口放到工具栏 */}
+          {settings.useNativeTitleBar && (
+            <button
+              type="button"
+              className="list-toggle-native"
+              title={t("app.collapseList")}
+              aria-label={t("app.collapseList")}
+              onClick={toggleListCollapsed}
+            >
+              <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
         </div>
         <button
           className="collapse-button list-collapse"
@@ -7417,6 +7441,18 @@ export function App() {
                 </div>
               </div>
               </div>
+              {/* 系统标题栏模式下右上角没有 window-controls，右侧边栏开关放到会话头部 */}
+              {settings.useNativeTitleBar && (
+                <button
+                  type="button"
+                  className={`header-drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
+                  title={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                  aria-label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                  onClick={toggleRightDrawer}
+                >
+                  <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+              )}
             </>
           </div>
         </header>
