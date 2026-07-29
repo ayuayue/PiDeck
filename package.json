@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.6.6-beta",
+  "version": "0.6.7-beta",
   "description": "PiDeck is an open-source desktop workbench to manage multiple pi AI coding agents across local project folders with session history, Git integration, terminal, and config management.",
   "private": true,
   "license": "MIT",
@@ -62,7 +62,7 @@
     "dist:mac": "npm run build && electron-builder --mac dmg zip",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "preview": "electron-vite preview",
-    "docs:dev": "vitepress dev docs-site",
+    "docs:dev": "vitepress dev docs-site --host",
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site",
     "postinstall": "node scripts/fix-pty-permissions.js",

@@ -117,6 +117,7 @@ import { PromptManager } from "./prompts/PromptManager";
 import { XuePromptManager } from "./prompts/XuePromptManager";
 import { SkillManager } from "./skills/SkillManager";
 import { BUILT_IN_EXTENSIONS, ExtensionManager } from "./extensions/ExtensionManager";
+import { restoreAllParkedExtensions } from "./pi/piExtensionFilter";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
 import { WebServiceManager } from "./web/WebServiceManager";
 import { preparePreloadPath } from "./preloadPath";
@@ -3867,6 +3868,21 @@ async function runPostWindowStartupTasks(): Promise<void> {
 	void ensureAllPiSettingsDefaults().catch((error) => {
 		console.error("Failed to ensure pi settings defaults:", error);
 	});
+
+	// 清理上次异常退出留下的 codeisland 停放文件，避免扩展在磁盘上永久消失。
+	try {
+		const home = app.getPath("home");
+		const restored = restoreAllParkedExtensions([
+			join(home, ".pi", "agent", "extensions"),
+		]);
+		if (restored.length > 0) {
+			void appLogger.info("extension", "Restored parked incompatible extensions from previous session", {
+				restored,
+			});
+		}
+	} catch (error) {
+		console.error("Failed to restore parked extensions:", error);
+	}
 
 	// 清理已废弃的 pi-deck-project-trust 扩展：RPC 模式下 pi 的 project_trust 事件 hasUI 恒为 false，
 	// 该扩展无法弹窗，信任确认改由桌面端 AgentManager.ensureProjectTrust 自行处理，删除残留避免用户误解。

@@ -51,6 +51,8 @@ import {
   X,
   PanelLeft,
   PanelRight,
+  // 上下文压缩按钮：用 Shrink 表达“收拢上下文”，与模型/思考等底栏控件并列。
+  Shrink,
 } from "lucide-react";
 import { showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
@@ -4629,13 +4631,22 @@ export function App() {
 
   async function compactAgent(compactPrompt?: string, agentId = activeAgentId) {
     if (!agentId || isPendingAgentId(agentId)) return;
+    // 按 agent 维度锁 compacting：避免全局 boolean 在切换会话时错绑状态，
+    // 也保证 /compact 与底栏按钮走同一条路径、同一套 busy/toast 语义。
     setCompacting(true);
     try {
       const state = await api.agents.compact(agentId, compactPrompt);
       applyAgentRuntimeState(agentId, state);
       showToast(t("app.compactDone"));
     } catch (e) {
-      showToast(t("app.compactFailed"));
+      // 主进程会把 pi 的可读错误（Already compacted / session too small / 鉴权失败）原样抛出。
+      const detail = e instanceof Error ? e.message.trim() : String(e ?? "").trim();
+      showToast(
+        detail
+          ? t("app.compactFailedWithReason", { error: detail })
+          : t("app.compactFailed"),
+        6500,
+      );
     } finally {
       setCompacting(false);
     }
@@ -5072,9 +5083,13 @@ export function App() {
 
   const isAgentStarting = activeAgent?.status === "starting";
   const composerDisabled = !activeAgent || isAgentStarting;
+  // isCompacting / 本地 compacting 也算 busy：压缩期间禁止再发消息，并显示停止区语义。
   const isAgentBusy = Boolean(
     activeAgent &&
-    (activeAgent.status === "running" || activeRuntimeState?.isStreaming),
+    (activeAgent.status === "running" ||
+      activeRuntimeState?.isStreaming ||
+      activeRuntimeState?.isCompacting ||
+      compacting),
   );
   // hasComposerContent 合并文本状态（hasComposerText，仅在空↔非空翻转时触发重渲染）
   // 与图片附件；images 本身已是 state 变化即触发重渲染。
@@ -5213,12 +5228,16 @@ export function App() {
     // 已删除内置 /goal 拦截，命令直接发给 agent。
 
     // ── /compact 命令处理 ──
-    if (/^\/compact(?:\s|$)/.test(trimmedMessage)) {
-      const compactPrompt = trimmedMessage.replace(/^\/compact\s*/, "").trim();
-      // /compact 是桌面端内置控制命令，必须走 RPC compact 通道；否则会被当作普通消息发送给 agent。
+    // 与底栏“压缩”按钮同一实现：走 agents.compact RPC，而不是把 /compact 当普通 prompt 发给模型。
+    if (/^\/compact(?:\s|$)/i.test(trimmedMessage)) {
+      const compactPrompt = trimmedMessage.replace(/^\/compact\s*/i, "").trim();
       setPromptForAgent(targetAgentId, "");
       setAttachedImagesForAgent(targetAgentId, []);
       setSuggestionsOpen(false);
+      // 清空 contentEditable 显示（仅清 ref 时 DOM 可能残留 /compact 文本）
+      if (composerTextareaRef.current) {
+        composerTextareaRef.current.textContent = "";
+      }
       await compactAgent(compactPrompt || undefined, targetAgentId);
       return;
     }
@@ -8412,6 +8431,39 @@ export function App() {
                       const level = THINKING_LEVELS.find((l) => l.value === activeRuntimeState.thinkingLevel);
                       return level ? t(level.labelKey) : activeRuntimeState.thinkingLevel;
                     })()}
+                  </button>
+                )}
+                {/* 上下文压缩：与 /compact 同一路径。
+                    旧 ComposerToolbar 有此按钮，底栏改版后漏接；
+                    有 context 百分比时显示百分比，否则仍提供手动入口。 */}
+                {activeAgentId && !isPendingAgentId(activeAgentId) && (
+                  <button
+                    type="button"
+                    className={`composer-bar-btn compact${compacting || activeRuntimeState?.isCompacting ? " compacting" : ""}`}
+                    disabled={
+                      isAgentStarting ||
+                      compacting ||
+                      Boolean(activeRuntimeState?.isCompacting) ||
+                      Boolean(activeRuntimeState?.isStreaming)
+                    }
+                    onClick={() => void compactAgent()}
+                    title={
+                      activeRuntimeState?.contextPercent != null
+                        ? t("app.contextCompactTitle", {
+                            percent: Number(activeRuntimeState.contextPercent).toFixed(1),
+                          })
+                        : t("app.compact")
+                    }
+                    aria-label={t("app.compact")}
+                  >
+                    <Shrink size={14} strokeWidth={1.9} aria-hidden="true" />
+                    <span>
+                      {compacting || activeRuntimeState?.isCompacting
+                        ? t("app.compacting")
+                        : activeRuntimeState?.contextPercent != null
+                          ? `${t("app.compact")} ${Number(activeRuntimeState.contextPercent).toFixed(0)}%`
+                          : t("app.compact")}
+                    </span>
                   </button>
                 )}
               </div>

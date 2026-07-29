@@ -7507,6 +7507,31 @@ body.ask-bar-active .ask-inline-bar--timeline {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+/* ```latex / ```tex / ```math 围栏：与代码块同壳，内容区用 KaTeX 块级排版 */
+.latex-block-content {
+  max-width: 100%;
+  min-width: 0;
+  padding: 36px var(--space-3) var(--space-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.latex-block-content .katex-display {
+  margin: 0;
+}
+
+.latex-block-error {
+  display: block;
+  margin: 36px var(--space-3) var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-business);
+}
+
+.latex-block--fallback pre {
+  padding-top: var(--space-2);
+}
 .markdown-body table {
   display: block;
   box-sizing: border-box;
@@ -8437,6 +8462,23 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .composer-bar-btn.thinking:hover {
   color: var(--color-accent);
+}
+/* 上下文压缩：与 thinking 同列，压缩中用 accent 轻提示 */
+.composer-bar-btn.compact {
+  height: 28px;
+  padding: 0 8px;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-style: normal;
+  font-weight: 600;
+}
+.composer-bar-btn.compact:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.composer-bar-btn.compact.compacting {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 /* 分支只读展示：secondary 色而非 tertiary，避免灰色看不见 */
 .composer-bar-branch {

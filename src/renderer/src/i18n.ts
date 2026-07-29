@@ -151,6 +151,7 @@ const zhCN = {
   "app.compacting": "压缩中…",
   "app.compactDone": "上下文压缩完成",
   "app.compactFailed": "压缩失败",
+  "app.compactFailedWithReason": "压缩失败：{error}",
   "app.agentCreateTimeout": "Agent 启动超时，请检查 pi 是否能正常启动，或稍后重试。",
   "app.sessionRefreshTimeout": "会话列表刷新超时，请稍后重试。",
   "app.agentStarting": "正在启动 Agent…",
@@ -1327,7 +1328,7 @@ const zhCN = {
   "prompt.closeHint": "Esc 关闭",
   "prompt.command.auth.description": "管理 OAuth 或 API key 认证",
   "prompt.command.clone.description": "复制当前分支到新会话",
-  "prompt.command.compact.description": "压缩上下文，可选自定义提示词",
+  "prompt.command.compact.description": "压缩上下文（桌面内置，可选自定义说明）",
   "prompt.command.copy.description": "复制最后一条回复到剪贴板",
   "prompt.command.export.description": "导出会话为 HTML 文件",
   "prompt.command.hotkeys.description": "显示所有快捷键",
@@ -1865,6 +1866,7 @@ const enUS: Record<TranslationKey, string> = {
   "app.compacting": "Compacting…",
   "app.compactDone": "Context compacted",
   "app.compactFailed": "Compaction failed",
+  "app.compactFailedWithReason": "Compaction failed: {error}",
   "app.agentStarting": "Starting Agent...",
   "app.agentStartingPlaceholder": "Agent is starting...",
   "app.abortRequested": "Stop requested",
@@ -3061,7 +3063,7 @@ const enUS: Record<TranslationKey, string> = {
   "prompt.command.clone.description":
     "Copy the current branch into a new session",
   "prompt.command.compact.description":
-    "Compact context with an optional custom prompt",
+    "Compact context (desktop built-in; optional custom instructions)",
   "prompt.command.copy.description": "Copy the last response to the clipboard",
   "prompt.command.export.description": "Export the session as an HTML file",
   "prompt.command.hotkeys.description": "Show all keyboard shortcuts",

@@ -15,6 +15,7 @@ import {
 } from "react";
 import { toBlob } from "html-to-image";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import katex from "katex";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -4056,8 +4057,13 @@ function CodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 	const languageClass = codeProps?.className ?? "";
 	const text = extractText(codeProps?.children ?? props.children);
 	const [copied, setCopied] = useState(false);
+	// mermaid / latex 围栏都走专用渲染，避免把图表或公式当普通代码块展示。
 	if (/\blanguage-mermaid\b/i.test(languageClass)) {
 		return <MermaidDiagram chart={text} />;
+	}
+	// 模型常输出 ```latex / ```tex / ```math 而不是 $...$，这里补齐 KaTeX 渲染路径。
+	if (/\blanguage-(?:latex|tex|math)\b/i.test(languageClass)) {
+		return <LatexBlock source={text} />;
 	}
 	const handleCopy = () => {
 		writeClipboard(text);
@@ -4075,6 +4081,70 @@ function CodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 				{copied ? <Check size={14} /> : <Copy size={14} />}
 			</button>
 			<pre {...props}>{props.children}</pre>
+		</div>
+	);
+}
+
+/**
+ * 将 ```latex / ```tex / ```math 代码围栏渲染为 KaTeX 公式。
+ * 与 remark-math 的 $...$ / $$...$$ 路径互补：模型更常输出 language fence。
+ * 渲染失败时回退到源码展示，避免整条消息白屏。
+ */
+function LatexBlock(props: { source: string }) {
+	const [copied, setCopied] = useState(false);
+	const source = props.source.trim();
+	const rendered = useMemo(() => {
+		if (!source) return { html: "", error: null as string | null };
+		try {
+			// displayMode + throwOnError:false：多行方程块也能尽量渲染；错误以 katex-error span 呈现。
+			const html = katex.renderToString(source, {
+				displayMode: true,
+				throwOnError: false,
+				strict: "ignore",
+				trust: false,
+			});
+			return { html, error: null as string | null };
+		} catch (err) {
+			return {
+				html: "",
+				error: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}, [source]);
+
+	const handleCopy = () => {
+		// 复制为可再次粘贴的 $$...$$ 块，兼容 remark-math 与编辑器粘贴。
+		const texContent = source.includes("\n") ? `$$\n${source}\n$$` : `$$${source}$$`;
+		void writeClipboard(texContent);
+		setCopied(true);
+		showNotice(t("app.latexCopied"), 1200);
+		setTimeout(() => setCopied(false), 1800);
+	};
+
+	if (rendered.error || !rendered.html) {
+		return (
+			<div className="code-block-wrap latex-block latex-block--fallback">
+				<button className="code-copy" type="button" onClick={handleCopy} title={t("common.copy")}>
+					{copied ? <Check size={14} /> : <Copy size={14} />}
+				</button>
+				{rendered.error && (
+					<small className="latex-block-error">{rendered.error}</small>
+				)}
+				<pre><code className="language-latex">{source}</code></pre>
+			</div>
+		);
+	}
+
+	return (
+		<div className="code-block-wrap latex-block">
+			<button className="code-copy" type="button" onClick={handleCopy} title={t("common.copy")}>
+				{copied ? <Check size={14} /> : <Copy size={14} />}
+			</button>
+			{/* KaTeX 输出已消毒（trust:false），dangerouslySetInnerHTML 仅用于插入渲染结果 */}
+			<div
+				className="latex-block-content"
+				dangerouslySetInnerHTML={{ __html: rendered.html }}
+			/>
 		</div>
 	);
 }

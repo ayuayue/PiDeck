@@ -102,21 +102,66 @@ export class PiLocator {
     if (wsl) {
       // WSL 模式：保留原始 PATH 以便找到 wsl.exe（在 System32 中），
       // 同时注入代理环境变量（wsl.exe 子进程通过 Windows 网络栈访问外网）。
-      const base = {
+      const base = this.sanitizePiChildEnv({
         ...process.env,
         PATH: pathPrefix || process.env.PATH || "",
-      };
+      });
       return this.applyPiProxyEnv(base, settings);
     }
     const searchDirs = pathPrefix
       ? [pathPrefix, ...this.getSearchDirs().filter(dir => dir !== pathPrefix)]
       : this.getSearchDirs();
-    const env = {
+    const env = this.sanitizePiChildEnv({
       ...process.env,
       PATH: searchDirs.join(delimiter),
-    };
+    });
 
     return this.applyPiProxyEnv(env, settings);
+  }
+
+  /**
+   * 给 pi 子进程消毒 Electron 宿主环境。
+   * 桌面端主进程 env 常带 ELECTRON_* / 可能含 electron 注入的 NODE_OPTIONS；
+   * 原样继承后 jiti 加载扩展或子进程行为可能与终端 CLI 不一致，
+   * 极端情况下与第三方扩展（如 CodeIsland）组合会导致整应用异常退出。
+   */
+  sanitizePiChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const next: NodeJS.ProcessEnv = { ...env };
+
+    for (const key of Object.keys(next)) {
+      // Electron 运行时变量不应进入独立 Node/pi 进程。
+      if (key.startsWith("ELECTRON_") || key === "ELECTRON_RUN_AS_NODE") {
+        delete next[key];
+        continue;
+      }
+      // Chromium/打包壳相关变量对 pi 无意义，避免污染工具链探测。
+      if (key.startsWith("CHROME_") || key.startsWith("GOOGLE_API_")) {
+        delete next[key];
+      }
+    }
+
+    // NODE_OPTIONS 若含 electron / asar / 宿主 require 钩子，会让子进程 Node 行为偏离终端。
+    const nodeOptions = next.NODE_OPTIONS;
+    if (typeof nodeOptions === "string" && nodeOptions.trim()) {
+      const cleaned = nodeOptions
+        .split(/\s+/)
+        .filter((token) => {
+          if (!token) return false;
+          const lower = token.toLowerCase();
+          return !(
+            lower.includes("electron") ||
+            lower.includes("asar") ||
+            lower.includes("app.asar") ||
+            lower.includes("electron-vite")
+          );
+        })
+        .join(" ")
+        .trim();
+      if (cleaned) next.NODE_OPTIONS = cleaned;
+      else delete next.NODE_OPTIONS;
+    }
+
+    return next;
   }
 
   createInvocation(command: string, args: string[], options: { wslCwd?: string } = {}): PiCommandInvocation {

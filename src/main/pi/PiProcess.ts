@@ -1,7 +1,14 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { PiRpcClient } from "./PiRpcClient";
 import { PiLocator } from "./PiLocator";
+import {
+  parkBlockedExtensionsInDir,
+  unparkBlockedExtensions,
+  type ParkedExtension,
+} from "./piExtensionFilter";
 import type { AppSettings } from "../../shared/types";
 import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
 
@@ -23,6 +30,11 @@ type PiProcessLocator = Pick<
   PiLocator,
   "resolveCommand" | "createInvocation" | "createProcessEnv"
 >;
+
+/** 可选：覆盖扩展扫描用的用户 home（WSL 映射 Windows home 时传入）。 */
+type PiProcessOptions = {
+  agentHomeDir?: string;
+};
 
 type VersionCacheEntry =
   | { status: "pending"; promise: Promise<boolean> }
@@ -78,12 +90,15 @@ export class PiProcess extends EventEmitter {
     exitSignal: string | null;
     customPiPath: string | undefined;
     versionCheck: boolean;
+    /** 被桌面端 RPC 启动路径自动隔离的扩展名（如 codeisland） */
+    blockedExtensions?: string[];
   } | null = null;
 
   constructor(
     private readonly cwd: string,
     private readonly settings?: PiProcessSettings,
     private readonly locator: PiProcessLocator = new PiLocator(),
+    private readonly options: PiProcessOptions = {},
   ) {
     super();
     // EventEmitter 在没有 listener 时 emit('error') 会变成未捕获异常并可能拖垮主进程。
@@ -106,8 +121,39 @@ export class PiProcess extends EventEmitter {
     exitSignal: string | null;
     customPiPath: string | undefined;
     versionCheck: boolean;
+    blockedExtensions?: string[];
   }> | null {
     return this.diagnostics;
+  }
+
+  /** 本进程生命周期内临时停放的扩展，exit/stop 时还原。 */
+  private parkedExtensions: ParkedExtension[] = [];
+
+  /**
+   * 仅停放 codeisland 等黑名单文件，不碰 npm packages / 其它本地扩展。
+   * 用户已开 piRpcNoExtensions 时无需停放（扩展本就不会加载）。
+   */
+  private parkIncompatibleExtensions(): string[] {
+    if (this.settings?.piRpcNoExtensions) return [];
+    const home = this.options.agentHomeDir?.trim() || homedir();
+    const dirs = [
+      join(home, ".pi", "agent", "extensions"),
+      join(this.cwd, ".pi", "extensions"),
+    ];
+    const parked: ParkedExtension[] = [];
+    for (const dir of dirs) {
+      parked.push(...parkBlockedExtensionsInDir(dir));
+    }
+    this.parkedExtensions = parked;
+    // 去重 basename 供诊断展示
+    return [...new Set(parked.map((p) => p.name))];
+  }
+
+  /** 还原本进程停放的扩展；幂等，可多次调用。 */
+  private restoreParkedExtensions(): void {
+    if (this.parkedExtensions.length === 0) return;
+    unparkBlockedExtensions(this.parkedExtensions);
+    this.parkedExtensions = [];
   }
 
   async start(sessionPath?: string, trustOverride?: "approve" | "no-approve", noSession?: boolean) {
@@ -124,6 +170,17 @@ export class PiProcess extends EventEmitter {
     // 诊断开关：坏扩展/技能有时会拖垮 RPC 初始化；用户可在开发设置临时关闭后重试。
     if (this.settings?.piRpcNoExtensions) args.push("--no-extensions");
     if (this.settings?.piRpcNoSkills) args.push("--no-skills");
+
+    // 仅临时停放 codeisland 等黑名单扩展文件；npm packages 与其它本地扩展照常加载。
+    // 不用 --no-extensions 白名单，避免误伤 package 扩展。
+    const blockedNames = this.parkIncompatibleExtensions();
+    if (blockedNames.length > 0) {
+      console.warn(
+        "[PiProcess] Desktop-incompatible extensions parked for RPC:",
+        blockedNames.join(", "),
+      );
+    }
+
     if (noSession) args.push("--no-session");
     if (sessionPath) args.push("--session", sessionPath);
 
@@ -183,6 +240,7 @@ export class PiProcess extends EventEmitter {
       exitSignal: null,
       customPiPath: this.settings?.customPiPath,
       versionCheck: cachedVersion?.status === "done" ? cachedVersion.ok : false,
+      blockedExtensions: blockedNames.length > 0 ? blockedNames : undefined,
     };
     if (!trustOverride) {
       void this.ensureVersionCheck(command);
@@ -210,6 +268,8 @@ export class PiProcess extends EventEmitter {
         this.diagnostics.stderr.push(err.message);
         this.diagnostics.exitCode = -1;
       }
+      // spawn 失败也要还原停放的扩展，避免 codeisland 永久消失。
+      this.restoreParkedExtensions();
       // 同步失败也走 error 通道，让 AgentManager 能把诊断写到会话卡片而不是主进程崩掉。
       this.emit("error", err);
       throw err;
@@ -250,6 +310,8 @@ export class PiProcess extends EventEmitter {
         this.diagnostics.exitCode = code;
         this.diagnostics.exitSignal = signal;
       }
+      // pi 退出后还原临时停放的扩展，保证 CLI 仍能加载 codeisland。
+      this.restoreParkedExtensions();
       this.rpc?.close(new Error(`pi exited: code=${code ?? "null"}, signal=${signal ?? "null"}`));
       this.emit("exit", { code, signal });
       this.proc = undefined;
@@ -269,8 +331,13 @@ export class PiProcess extends EventEmitter {
   }
 
   stop() {
-    if (!this.proc) return;
+    if (!this.proc) {
+      // 进程已不在仍可能残留停放态（例如 start 中途失败路径）。
+      this.restoreParkedExtensions();
+      return;
+    }
     this.proc.kill();
+    // 真正还原在 exit 回调里做；此处不提前 unpark，避免与仍在退出的 pi 竞态。
   }
 
   /** 后台执行 pi --version：更新诊断缓存，但不阻塞 start()/spawn。 */
