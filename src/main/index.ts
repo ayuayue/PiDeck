@@ -44,11 +44,25 @@ process.stderr.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 process.on("uncaughtException", (error) => {
-	void appLogger?.error("process", "Uncaught exception", error);
+	// 绝不在这里 process.exit：目标是“失败可诊断”，而不是把偶发 spawn/事件错误变成整应用闪退。
+	// 尤其 macOS arm 上 pi 子进程 ENOENT/架构不匹配时，历史上曾出现 error 事件无 listener 升级为 uncaught。
+	void appLogger?.error("process", "Uncaught exception", {
+		name: error instanceof Error ? error.name : typeof error,
+		message: error instanceof Error ? error.message : String(error),
+		stack: error instanceof Error ? error.stack : undefined,
+		platform: process.platform,
+		arch: process.arch,
+	});
 	console.error("Uncaught exception:", error);
 });
 process.on("unhandledRejection", (reason) => {
-	void appLogger?.error("process", "Unhandled rejection", reason);
+	void appLogger?.error("process", "Unhandled rejection", {
+		reason: reason instanceof Error
+			? { name: reason.name, message: reason.message, stack: reason.stack }
+			: reason,
+		platform: process.platform,
+		arch: process.arch,
+	});
 	console.error("Unhandled rejection:", reason);
 });
 import { ipcChannels } from "../shared/ipc";
@@ -85,6 +99,7 @@ import { ProjectStore } from "./projects/ProjectStore";
 import { FileSystemService } from "./fs/FileSystemService";
 import { AgentManager } from "./pi/AgentManager";
 import { PiLocator } from "./pi/PiLocator";
+import { PiProcess } from "./pi/PiProcess";
 import { PiRpcClient } from "./pi/PiRpcClient";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
@@ -768,7 +783,19 @@ async function createWindow() {
 	);
 	mainWindow.webContents.on("render-process-gone", (_event, details) => {
 		const level: AppLogLevel = details.reason === "clean-exit" ? "info" : "error";
-		void appLogger.log(level, "app", "Main window renderer process gone", details);
+		void appLogger.log(level, "app", "Main window renderer process gone", {
+			...details,
+			platform: process.platform,
+			arch: process.arch,
+		});
+	});
+	// 子进程（含 GPU/utility）异常退出：Mac 上偶发“整窗闪一下”，需要留下 reason/exitCode。
+	app.on("child-process-gone", (_event, details) => {
+		void appLogger.error("process", "Child process gone", {
+			...details,
+			platform: process.platform,
+			arch: process.arch,
+		});
 	});
 	mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
 		void appLogger.error("app", "Main window preload failed", {
@@ -3135,22 +3162,38 @@ function registerIpc() {
 			projectId: input.projectId,
 			sessionPath: input.sessionPath,
 			title: input.title,
+			platform: process.platform,
+			arch: process.arch,
 		});
-		const tab = await agentManager.create(input);
-		void appLogger.info("agent", "Agent create IPC completed", {
-			agentId: tab.id,
-			projectId: input.projectId,
-			status: tab.status,
-			sessionPath: tab.sessionPath,
-		});
-		void appLogger.info("agent", "Agent created", {
-			agentId: tab.id,
-			projectId: input.projectId,
-			title: tab.title,
-			sessionPath: tab.sessionPath,
-		});
-		// 不再自动为新会话创建飞书群；必须由用户在会话输入框的飞书菜单中手动连接后才同步。
-		return tab;
+		try {
+			const tab = await agentManager.create(input);
+			void appLogger.info("agent", "Agent create IPC completed", {
+				agentId: tab.id,
+				projectId: input.projectId,
+				status: tab.status,
+				sessionPath: tab.sessionPath,
+			});
+			void appLogger.info("agent", "Agent created", {
+				agentId: tab.id,
+				projectId: input.projectId,
+				title: tab.title,
+				sessionPath: tab.sessionPath,
+			});
+			// 不再自动为新会话创建飞书群；必须由用户在会话输入框的飞书菜单中手动连接后才同步。
+			return tab;
+		} catch (error) {
+			// createUnlocked 内部已尽量吞掉 pi 启动失败；这里兜底信任/项目查找等前置异常，
+			// 保证 IPC 层也有结构化日志，方便 Mac 闪退类反馈对照 userData/logs。
+			void appLogger.error("agent", "Agent create IPC failed", {
+				projectId: input.projectId,
+				sessionPath: input.sessionPath,
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+				platform: process.platform,
+				arch: process.arch,
+			});
+			throw error;
+		}
 	});
 	ipcMain.handle(
 		ipcChannels.agentsRename,
@@ -3351,7 +3394,7 @@ function registerIpc() {
 	});
 
 	/** 用户通过 UI 响应了扩展的 ask_question 请求，转发给 AgentManager 发送 extension_ui_response */
-	ipcMain.handle(ipcChannels.agentsUiResponse, async (_event, agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => {
+	ipcMain.handle(ipcChannels.agentsUiResponse, async (_event, agentId: string, requestId: string, response: { value?: string | boolean | null; cancelled?: boolean; confirmed?: boolean }) => {
 		await agentManager.sendUIResponse(agentId, requestId, response);
 	});
 
@@ -3691,8 +3734,8 @@ app.whenReady().then(async () => {
  * 这些工作不影响首帧可见，但会拖慢 packaged app 的“点击图标 → 窗口出来”。
  */
 async function runPostWindowStartupTasks(): Promise<void> {
-	// 自动部署 PiDeck 内置扩展。
-	// 跳过用户已手动移除的，部署策略记录在桌面 settings.json 的 removedBuiltInExtensions 中。
+	// 启动后异步校准内置扩展：对比 resources 与用户目录全文，不一致则覆盖。
+	// 用户手动移除的记在 removedBuiltInExtensions，跳过自动部署。
 	const deployExtensionsTo = async (homeDir: string) => {
 		// 迁移旧的 pi disabledExtensions 配置到 PiDeck 自有设置
 		try {
@@ -3724,11 +3767,59 @@ async function runPostWindowStartupTasks(): Promise<void> {
 		} catch {
 			// 迁移失败不影响主流程
 		}
+
 		const removedBuiltIn = new Set(settingsStore.get().removedBuiltInExtensions ?? []);
-		for (const extensionName of BUILT_IN_EXTENSIONS) {
-			if (removedBuiltIn.has(extensionName)) continue;
-			await ensurePiDeckExtension(extensionName, homeDir).catch((error) => {
-				console.error(`Failed to install ${extensionName}:`, error);
+		const summary = {
+			homeDir,
+			installed: [] as string[],
+			updated: [] as string[],
+			unchanged: [] as string[],
+			skippedRemoved: [] as string[],
+			missingSource: [] as string[],
+			failed: [] as Array<{ name: string; error: string }>,
+		};
+
+		// 并行校准：磁盘 IO 为主，互不依赖
+		await Promise.all(
+			BUILT_IN_EXTENSIONS.map(async (extensionName) => {
+				if (removedBuiltIn.has(extensionName)) {
+					summary.skippedRemoved.push(extensionName);
+					return;
+				}
+				try {
+					const result = await ensurePiDeckExtension(extensionName, homeDir);
+					if (result === "installed") summary.installed.push(extensionName);
+					else if (result === "updated") summary.updated.push(extensionName);
+					else if (result === "unchanged") summary.unchanged.push(extensionName);
+					else if (result === "missing-source") summary.missingSource.push(extensionName);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					summary.failed.push({ name: extensionName, error: message });
+					console.error(`Failed to sync ${extensionName}:`, error);
+				}
+			}),
+		);
+
+		const changedCount = summary.installed.length + summary.updated.length;
+		if (changedCount > 0) {
+			// 文件有变时清扩展列表缓存，配置页/下次 list 能看到最新状态
+			extensionManager.invalidateListCache();
+		}
+
+		void appLogger.info("extension", "Built-in extensions sync finished", {
+			homeDir: summary.homeDir,
+			installed: summary.installed,
+			updated: summary.updated,
+			unchanged: summary.unchanged,
+			skippedRemoved: summary.skippedRemoved,
+			missingSource: summary.missingSource,
+			failed: summary.failed,
+			changedCount,
+		});
+		if (summary.failed.length > 0) {
+			void appLogger.warn("extension", "Some built-in extensions failed to sync", {
+				homeDir: summary.homeDir,
+				failed: summary.failed,
 			});
 		}
 	};
@@ -3743,6 +3834,10 @@ async function runPostWindowStartupTasks(): Promise<void> {
 		}),
 		applyDesktopProxy(settingsStore.get()).catch((error) => {
 			console.error("Failed to apply desktop proxy:", error);
+		}),
+		// 预热 pi --version 缓存：避免首次创建 Agent 时 trust 路径同步卡住 数秒。
+		PiProcess.warmVersionCache(settingsStore.get()).catch((error) => {
+			console.warn("[PiDeck] Failed to warm pi version cache:", error);
 		}),
 		appLogger.info("app", "Application started", {
 			version: app.getVersion(),
@@ -3828,11 +3923,25 @@ async function runPostWindowStartupTasks(): Promise<void> {
 	}, 0);
 }
 
+/** ensurePiDeckExtension 的校准结果，供启动任务汇总日志。 */
+type PiDeckExtensionSyncResult =
+	| "installed"
+	| "updated"
+	| "unchanged"
+	| "missing-source";
+
 /**
  * 将 PiDeck 内置的 pi 扩展部署到用户扩展目录，使 pi 自动加载。
- * 仅在目标文件不存在或内容不一致时覆盖写入，避免不必要的磁盘操作。
+ * 启动时异步对比 resources 源文件与 ~/.pi/agent/extensions 目标：
+ * - 目标不存在 → 安装
+ * - 内容不一致（老版本/用户手改）→ 覆盖为 PiDeck 当前版本
+ * - 内容一致 → 跳过写盘
+ * 用户在设置里「移除」的内置扩展由调用方按 removedBuiltInExtensions 跳过，本函数不读该列表。
  */
-async function ensurePiDeckExtension(extensionName: string, wslHome?: string): Promise<void> {
+async function ensurePiDeckExtension(
+	extensionName: string,
+	wslHome?: string,
+): Promise<PiDeckExtensionSyncResult> {
 	const home = wslHome ?? app.getPath("home");
 	const extensionsDir = join(home, ".pi", "agent", "extensions");
 	const targetPath = join(extensionsDir, extensionName);
@@ -3842,20 +3951,34 @@ async function ensurePiDeckExtension(extensionName: string, wslHome?: string): P
 		? join(app.getAppPath(), "resources", "extensions", extensionName)
 		: join(process.resourcesPath, "extensions", extensionName);
 
-	// 检查源文件是否存在
 	const sourceContent = await readFile(sourcePath, "utf-8").catch(() => null);
 	if (!sourceContent) {
 		console.warn(`[PiDeck] Extension source not found: ${sourcePath}`);
-		return;
+		void appLogger?.warn("extension", "Built-in extension source missing", {
+			extensionName,
+			sourcePath,
+		});
+		return "missing-source";
 	}
 
-	// 读取目标文件，只在内容不一致时覆盖（兼顾首次安装和版本更新）
 	const existingContent = await readFile(targetPath, "utf-8").catch(() => null);
-	if (existingContent === sourceContent) return;
+	// 全文比对：任意与 resources 不一致都覆盖，避免用户仍跑旧版 ask/plan/todo 扩展。
+	if (existingContent === sourceContent) {
+		return "unchanged";
+	}
 
+	const action: PiDeckExtensionSyncResult = existingContent == null ? "installed" : "updated";
 	await mkdir(extensionsDir, { recursive: true });
 	await writeFile(targetPath, sourceContent, "utf-8");
-	console.log(`[PiDeck] Installed extension: ${targetPath}`);
+	console.log(`[PiDeck] ${action === "installed" ? "Installed" : "Updated"} extension: ${targetPath}`);
+	void appLogger?.info("extension", `Built-in extension ${action}`, {
+		extensionName,
+		targetPath,
+		sourcePath,
+		previousBytes: existingContent?.length ?? 0,
+		nextBytes: sourceContent.length,
+	});
+	return action;
 }
 
 /**

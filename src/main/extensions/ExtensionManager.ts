@@ -154,16 +154,16 @@ export class ExtensionManager {
 			ext.enabled = !(ext.builtIn && removedBuiltIn.has(ext.source));
 		}
 
-		// 检测扩展冲突：三方扩展与内置扩展同名时，自动禁用内置扩展
+		// 仅检测 todo / plan / ask 固定冲突：三方包名含对应关键词时自动禁用内置版。
+		// nul-redirect-fix 等其它内置扩展暂不参与冲突检测，避免 mode 等通用词误伤。
 		const conflicts: { builtIn: string; thirdParty: string }[] = [];
-		for (const builtInName of BUILT_IN_EXTENSIONS) {
+		for (const [builtInName, keyword] of BUILT_IN_CONFLICT_KEYWORDS) {
 			if (removedBuiltIn.has(builtInName)) continue; // 已移除的不重复检测
-			const shortName = builtInName.replace(/^pi-deck-/, "").replace(/\.ts$/, "");
 			const conflicting = merged.find(
 				(ext) =>
 					!ext.builtIn &&
 					ext.enabled !== false &&
-					this.extensionNameMatches(ext.source, shortName),
+					extensionNameMatches(ext.source, keyword),
 			);
 			if (conflicting) {
 				removedBuiltIn.add(builtInName);
@@ -530,28 +530,27 @@ export class ExtensionManager {
 
 		return result;
 	}
+}
 
-	/**
-	 * 检查扩展来源是否与内置扩展的短名匹配（如 todo 匹配 pi-deck-todo.ts）。
-	 * npm:todo，本地 todo.ts 都以 todo 作为识别名。
-	 */
-	/**
-	 * 检测扩展是否与内置扩展功能冲突（同名或注册相同命令关键词）。
-	 * 例如 @juicesharp/rpiv-todo 的包名含 "todo"，与 pi-deck-todo 冲突。
-	 */
-	private extensionNameMatches(source: string, shortName: string): boolean {
-		const clean = source
-			.replace(/^(?:npm|file|github|git|https?):/i, "")
-			.replace(/\.ts$/, "")
-			.replace(/@[^/]+\//, "")
-			.toLowerCase();
-		// 精确匹配（如 todo === todo）
-		if (clean === shortName.toLowerCase()) return true;
-		// 关键词子串匹配（如 rpiv-todo 含 todo）
-		if (clean.includes(shortName.toLowerCase())) return true;
-		// 包名分段匹配（如 rpiv-ask-user-question 分段后含 ask）
-		const parts = clean.split(/[-_]/);
-		const shortParts = shortName.toLowerCase().split(/[-_]/);
-		return shortParts.some((sp) => parts.includes(sp));
-	}
+/**
+ * 当前参与冲突检测的内置扩展与关键词。
+ * todo / plan / ask：三方包名含关键词即视为功能冲突；其它内置扩展暂不自动互斥。
+ */
+export const BUILT_IN_CONFLICT_KEYWORDS = [
+	["pi-deck-todo.ts", "todo"],
+	["pi-deck-plan-mode.ts", "plan"],
+	["pi-deck-ask-question.ts", "ask"],
+] as const;
+
+/**
+ * 固定关键词冲突匹配：清理协议/作用域后，包名是否包含指定关键词。
+ * 例：rpiv-todo、my-plan-helper 命中；context-mode 不含 plan/todo 不命中。
+ */
+export function extensionNameMatches(source: string, keyword: string): boolean {
+	const clean = source
+		.replace(/^(?:npm|file|github|git|https?):/i, "")
+		.replace(/\.ts$/, "")
+		.replace(/@[^/]+\//, "")
+		.toLowerCase();
+	return clean.includes(keyword.toLowerCase());
 }

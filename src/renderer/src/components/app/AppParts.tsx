@@ -103,6 +103,7 @@ import { t, type TranslationKey } from "../../i18n";
 import { showNotice } from "../../utils/notice";
 import { writeClipboard } from "../../utils/clipboard";
 import { filePathFromHref, stripFileLocation, toInternalFileHref } from "../../utils/fileLinks";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { Modal } from "../ui/Modal";
@@ -509,10 +510,12 @@ export function SessionStatus(props: {
 }) {
 	const state = props.state;
 	if (!state) return null;
+	// 会话头部状态用轻量 Badge，与左右分栏/新会话按钮同一套素雅边框语言，
+	// 避免各 chip 自定义高度/圆角造成头部控件参差。
 	return (
 		<div className="session-status">
 			{state.contextPercent != null && (
-				<span className="ctx-chip">
+				<Badge variant="outline" badgeSize="sm" className="ctx-chip">
 					{t("app.ctx")}:{" "}
 					{state.contextPercent?.toFixed?.(1) ??
 						state.contextPercent}
@@ -523,10 +526,10 @@ export function SessionStatus(props: {
 					{state.outputTokens != null && (
 						<>{" "}↓ {formatCompact(state.outputTokens)}</>
 					)}
-				</span>
+				</Badge>
 			)}
 			{(state.cacheHitPercent != null || state.cacheTotal != null) && (
-				<span className="cache-chip">
+				<Badge variant="outline" badgeSize="sm" className="cache-chip">
 					{state.cacheHitPercent != null && (
 						<>{t("app.cacheHit")}: {state.cacheHitPercent?.toFixed?.(0) ?? state.cacheHitPercent}%</>
 					)}
@@ -534,12 +537,17 @@ export function SessionStatus(props: {
 					{state.cacheTotal != null && (
 						<>{t("app.cache")}: {formatCompact(state.cacheTotal)}</>
 					)}
-				</span>
+				</Badge>
 			)}
 			{state.cost != null && (
-				<span className="cost-chip" title={t("app.totalCost")}>
+				<Badge
+					variant="outline"
+					badgeSize="sm"
+					className="cost-chip"
+					title={t("app.totalCost")}
+				>
 					${state.cost.toFixed(3)}
-				</span>
+				</Badge>
 			)}
 		</div>
 	);
@@ -2430,6 +2438,17 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	};
 
 	const handleCancel = () => {
+		// 消息流内卡片取消也给 toast，与 composer 内联栏行为一致。
+		const method = String(uiRequest?.method ?? "input");
+		const cancelHint =
+			method === "confirm"
+				? t("ask.cancelConfirmHint")
+				: method === "input"
+					? t("ask.cancelInputHint")
+					: method === "editor"
+						? t("ask.cancelEditorHint")
+						: t("ask.cancelHint");
+		showNotice(cancelHint);
 		setCancelling(true);
 		props.onRespond?.({ cancelled: true });
 	};
@@ -2651,16 +2670,18 @@ export const BatchAskInlineBar = memo(function BatchAskInlineBar(props: {
 
 	return (
 		<div className="ask-inline-bar ask-inline-bar--batch">
-			{/* 标题行：进度 + 关闭 */}
+			{/* 标题行：进度 + 取消提示 + 关闭 */}
 			<div className="ask-inline-bar-header">
 				<MessageCircle size={14} />
 				<span>{uiRequest.title || t("ask.batchTitle", { count: String(totalQ) })}</span>
 				<span className="ask-inline-bar-batch-progress">
 					{t("ask.batchProgress", { done: String(answeredCount), total: String(totalQ) })}
 				</span>
+				<span className="ask-inline-bar-cancel-hint">{t("ask.cancelBatchHint")}</span>
 				<button
 					className="ask-inline-bar-close"
 					onClick={props.onCancel}
+					title={t("ask.cancelBatchHint")}
 					aria-label={t("common.cancel")}
 				>
 					<X size={14} />
@@ -7013,6 +7034,31 @@ export function SettingsModal(props: {
 									onChange={(checked) =>
 										props.onChange({ disableUpdateCheck: checked })
 									}
+								/>
+								{/* 不要再插 setting-divider：SettingSwitch 已有 border-bottom，叠 divider 会双线。 */}
+								<div className="setting-row setting-row--section-label">
+									<div>
+										<strong>{t("settings.piRpcStartup")}</strong>
+										<small>{t("settings.piRpcStartupDesc")}</small>
+									</div>
+								</div>
+								<SettingSwitch
+									title={t("settings.piRpcOffline")}
+									description={t("settings.piRpcOfflineDesc")}
+									checked={props.settings.piRpcOffline}
+									onChange={(checked) => props.onChange({ piRpcOffline: checked })}
+								/>
+								<SettingSwitch
+									title={t("settings.piRpcNoExtensions")}
+									description={t("settings.piRpcNoExtensionsDesc")}
+									checked={props.settings.piRpcNoExtensions}
+									onChange={(checked) => props.onChange({ piRpcNoExtensions: checked })}
+								/>
+								<SettingSwitch
+									title={t("settings.piRpcNoSkills")}
+									description={t("settings.piRpcNoSkillsDesc")}
+									checked={props.settings.piRpcNoSkills}
+									onChange={(checked) => props.onChange({ piRpcNoSkills: checked })}
 								/>
 								<div className="setting-row">
 										<div>

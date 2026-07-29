@@ -14,6 +14,9 @@ type PiProcessSettings = Pick<
   | "wslEnabled"
   | "wslDistro"
   | "wslUser"
+  | "piRpcOffline"
+  | "piRpcNoExtensions"
+  | "piRpcNoSkills"
 >;
 
 type PiProcessLocator = Pick<
@@ -46,6 +49,25 @@ export class PiProcess extends EventEmitter {
     return minorVersion >= 79;
   }
 
+  /**
+   * 应用启动时预热 pi --version 缓存，避免首次创建 Agent（尤其 trust 路径）同步等待版本检测。
+   * 失败不抛错：仅影响缓存命中与诊断字段，不阻塞主流程。
+   */
+  static warmVersionCache(
+    settings?: PiProcessSettings,
+    locator: PiProcessLocator = new PiLocator(),
+  ): Promise<boolean> {
+    const command = locator.resolveCommand(
+      settings?.customPiPath,
+      settings?.wslEnabled,
+      settings?.wslDistro,
+      settings?.wslUser,
+    );
+    // 复用实例方法的缓存逻辑：构造临时实例只为调用 ensureVersionCheck。
+    const probe = new PiProcess(process.cwd(), settings, locator);
+    return probe.ensureVersionCheck(command);
+  }
+
   /** 启动失败 / 异常退出时的诊断信息 */
   private diagnostics: {
     command: string;
@@ -64,6 +86,14 @@ export class PiProcess extends EventEmitter {
     private readonly locator: PiProcessLocator = new PiLocator(),
   ) {
     super();
+    // EventEmitter 在没有 listener 时 emit('error') 会变成未捕获异常并可能拖垮主进程。
+    // AgentManager 在 await start() 之后才挂业务 error 监听，spawn 的 ENOENT 等错误
+    // 往往在中间窗口异步到达。这里先挂一个诊断 sink，保证永远不会因 0 listener 崩进程；
+    // 业务侧仍可再挂自己的 listener 做 UI 提示。
+    this.on("error", (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[PiProcess] child process error (pre-listener safe sink):", message);
+    });
   }
 
   /** 返回诊断信息（进程启动失败或异常退出后调用） */
@@ -86,6 +116,14 @@ export class PiProcess extends EventEmitter {
     // 信任确认由桌面端 AgentManager.ensureProjectTrust 在启动 pi 前完成，不再静默 --approve。
     // pi 在 RPC 模式下 project_trust 事件 hasUI 恒为 false，故信任弹窗由桌面端自行处理。
     const args = ["--mode", "rpc"];
+    // RPC 无 TUI，不需要主题发现/加载；跳过可少扫用户/项目/package themes，加快冷启动。
+    // 内置 dark/light 仍可被扩展渲染路径按需使用，只是不扫盘加载自定义主题。
+    args.push("--no-themes");
+    // 桌面端模型列表来自本地 models.json；默认 --offline 跳过 pi 启动期模型目录网络刷新。
+    if (this.settings?.piRpcOffline !== false) args.push("--offline");
+    // 诊断开关：坏扩展/技能有时会拖垮 RPC 初始化；用户可在开发设置临时关闭后重试。
+    if (this.settings?.piRpcNoExtensions) args.push("--no-extensions");
+    if (this.settings?.piRpcNoSkills) args.push("--no-skills");
     if (noSession) args.push("--no-session");
     if (sessionPath) args.push("--session", sessionPath);
 
@@ -157,13 +195,25 @@ export class PiProcess extends EventEmitter {
     // 每个 agent 绑定独立 cwd，确保 pi 自己发现项目级 AGENTS.md、settings 和 session 分组。
     // 打包后的 Electron 不一定继承用户终端 PATH；这里补齐跨平台 Node 工具链常见 bin 目录，尽量让已安装 pi 的用户开箱即用。
     // Windows 下通过 PiLocator.createInvocation 显式包裹含空格的 npm shim 路径，避免 cmd 拆分路径导致 agent 启动失败。
-    this.proc = spawn(invocation.command, finalArgs, {
-      cwd: spawnCwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: invocation.shell,
-      env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix, invocation.wsl),
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-    });
+    // spawn 本身很少同步抛错（ENOENT 等多半异步 error 事件），但 cwd 非法等仍可能同步失败，必须捕获。
+    try {
+      this.proc = spawn(invocation.command, finalArgs, {
+        cwd: spawnCwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: invocation.shell,
+        env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix, invocation.wsl),
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (this.diagnostics) {
+        this.diagnostics.stderr.push(err.message);
+        this.diagnostics.exitCode = -1;
+      }
+      // 同步失败也走 error 通道，让 AgentManager 能把诊断写到会话卡片而不是主进程崩掉。
+      this.emit("error", err);
+      throw err;
+    }
 
     this.rpc = new PiRpcClient(this.proc.stdin, this.proc.stdout);
 
@@ -184,7 +234,16 @@ export class PiProcess extends EventEmitter {
       this.emit("stderr", text);
     });
 
-    this.proc.on("error", error => this.emit("error", error));
+    // 立即绑定 error/exit：不要等 AgentManager 挂业务监听。
+    // macOS 上 pi 路径缺失/架构不匹配时，error 事件可能在 start() 返回后几毫秒就到。
+    this.proc.on("error", (error) => {
+      if (this.diagnostics) {
+        this.diagnostics.stderr.push(error.message);
+        // spawn 失败通常没有 exit code；用 -1 标记“未能真正拉起进程”。
+        if (this.diagnostics.exitCode === null) this.diagnostics.exitCode = -1;
+      }
+      this.emit("error", error);
+    });
     this.proc.on("exit", (code, signal) => {
       // 退出时更新诊断信息
       if (this.diagnostics) {

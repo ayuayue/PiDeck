@@ -260,3 +260,37 @@ function isComposingInput(event: ComposerKeyboardState) {
 			event.nativeEvent?.which === 229,
 	);
 }
+
+/**
+ * 解析历史导航应该快照的 composer 草稿。
+ *
+ * 业务背景：普通键盘输入只更新 livePromptByAgentRef，不会触发 App 重渲染；
+ * 因此 ArrowUp 闭包里的 renderedPrompt 可能停留在上次 chips/空状态翻转时。
+ * 必须优先读 live ref，否则按上键再按下键时会丢掉中间继续输入的部分。
+ */
+export function resolveComposerHistoryDraft(params: {
+	activeAgentId: string | null | undefined;
+	livePromptByAgent: Record<string, string>;
+	renderedPrompt: string;
+}): string {
+	const { activeAgentId, livePromptByAgent, renderedPrompt } = params;
+	if (!activeAgentId) return renderedPrompt;
+	return livePromptByAgent[activeAgentId] ?? renderedPrompt;
+}
+
+/**
+ * 判断光标是否在第一行/最后一行。
+ * 历史导航只在单行边界触发，避免多行编辑时 ArrowUp/Down 抢走光标移动。
+ */
+export function getComposerHistoryLineBounds(
+	text: string,
+	cursorPos: number,
+): { isFirstLine: boolean; isLastLine: boolean } {
+	const safePos = Math.max(0, Math.min(cursorPos, text.length));
+	const textBeforeCursor = text.substring(0, safePos);
+	const textAfterCursor = text.substring(safePos);
+	return {
+		isFirstLine: !textBeforeCursor.includes("\n"),
+		isLastLine: !textAfterCursor.includes("\n"),
+	};
+}

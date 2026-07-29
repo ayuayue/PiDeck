@@ -114,7 +114,7 @@ test("starts WSL pi with Linux cwd/session while keeping a Windows-accessible sp
 	assert.equal(invocationCalls[0].options.wslCwd, "/root/ba_cli");
 	assert.deepEqual(
 		invocationCalls[0].args,
-		["--mode", "rpc", "--session", "/root/.pi/agent/sessions/session.jsonl"],
+		["--mode", "rpc", "--no-themes", "--offline", "--session", "/root/.pi/agent/sessions/session.jsonl"],
 	);
 	assert.equal(spawnCalls[0].options.cwd, "\\\\wsl.localhost\\Ubuntu-24.04\\root\\ba_cli");
 	assert.deepEqual(
@@ -123,7 +123,7 @@ test("starts WSL pi with Linux cwd/session while keeping a Windows-accessible sp
 			"-d", "Ubuntu-24.04",
 			"-u", "root",
 			"--cd", "/root/ba_cli",
-			"pi", "--mode", "rpc",
+			"pi", "--mode", "rpc", "--no-themes", "--offline",
 			"--session", "/root/.pi/agent/sessions/session.jsonl",
 		],
 	);

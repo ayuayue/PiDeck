@@ -2,8 +2,10 @@
  * PiDeck Ask Question Extension
  *
  * 注册 ask_question 工具，让 LLM 可以向用户提问并从桌面端 UI 获取回答。
- * 使用 pi RPC Extension UI Protocol（ctx.ui.select/confirm/input/editor）实现用户交互，
+ * 使用 pi RPC Extension UI Protocol（ctx.ui.select/input/editor）实现用户交互，
  * 桌面端处理 extension_ui_request/response 协议循环。
+ * confirm 不调用 ctx.ui.confirm：RPC 把 cancelled 也解析成 false，与「否」无法区分；
+ * 改为 select(是/否)，点叉走 value:null，与 select 取消语义一致。
  *
  * 两种用法：
  *   1. 单问题模式（向后兼容）：顶层 type/question/options/placeholder/prefill/allowOther
@@ -247,7 +249,16 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 			// 循环：取消「自行输入」后回到选单，而非直接返回
 			while (true) {
 				const selected = await ctx.ui.select(q.question, labels);
-				const chosen = opts.find((o) => optionDisplayText(o) === selected) ?? opts[0];
+				// 用户点叉/取消：桌面端发 value:null 或 cancelled → selected 为 null/undefined。
+				// 绝不能 fallback 到 opts[0]，否则会「取消却答了第一项」。
+				if (selected == null || selected === "") {
+					return { id: q.id, type: q.type, value: null };
+				}
+				const chosen = opts.find((o) => optionDisplayText(o) === selected);
+				if (!chosen) {
+					// 未知返回值也当取消，避免误绑第一项
+					return { id: q.id, type: q.type, value: null };
+				}
 				if (chosen.isOther) {
 					const custom = await ctx.ui.input(`${q.question}（自行输入）`, "");
 					if (custom?.trim()) {
@@ -260,9 +271,23 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 			}
 		}
 		case "confirm": {
-			// 第二参数留空时 pi 会用 question 作为描述，保持原行为
-			const confirmed = await ctx.ui.confirm(q.question, q.question);
-			return { id: q.id, type: q.type, value: confirmed };
+			// pi RPC 的 ctx.ui.confirm：cancelled 与缺省都解析为 false，和点「否」无法区分。
+			// 因此 confirm 改走 select（是/否）；点叉发 value:null → selected 为 null/undefined，
+			// 与 select 取消路径一致，不会误答成 false。
+			const yesLabel = "是";
+			const noLabel = "否";
+			const selected = await ctx.ui.select(q.question, [yesLabel, noLabel]);
+			if (selected == null || selected === "") {
+				return { id: q.id, type: q.type, value: null };
+			}
+			if (selected === yesLabel) {
+				return { id: q.id, type: q.type, value: true, label: yesLabel };
+			}
+			if (selected === noLabel) {
+				return { id: q.id, type: q.type, value: false, label: noLabel };
+			}
+			// 未知回传当取消，避免误绑
+			return { id: q.id, type: q.type, value: null };
 		}
 		case "editor": {
 			const text = await ctx.ui.editor(q.question, q.prefill ?? "");
@@ -389,7 +414,10 @@ export default function (pi: ExtensionAPI) {
 			// 单问题：保持原有 select/confirm/input/editor 串行协议
 			try {
 				const answer = await askOne(questions[0], ctx);
-				return singleResult(questions[0], answer, false);
+				// select/confirm 点叉 → value:null；input/editor 取消 → undefined。
+				// 必须标 cancelled，否则 LLM 会把空答案当有效回复（confirm 更不能把取消当 false）。
+				const cancelled = answer.value === null || answer.value === undefined;
+				return singleResult(questions[0], answer, cancelled);
 			} catch {
 				return singleResult(questions[0], { id: questions[0].id, type: questions[0].type, value: null }, true);
 			}

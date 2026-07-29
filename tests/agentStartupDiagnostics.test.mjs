@@ -30,7 +30,19 @@ test("agent startup writes diagnostics across renderer IPC and pi launch boundar
 test("renderer startup reports bootstrap mount and global errors", () => {
 	assert.match(rendererMainSource, /Renderer bootstrap started/);
 	assert.match(rendererMainSource, /Renderer React tree mounted/);
-	assert.match(rendererMainSource, /Renderer startup uncaught error/);
-	assert.match(rendererMainSource, /Renderer startup unhandled rejection/);
+	// main.tsx 文案已从 "Renderer startup ..." 收敛为更通用的 runtime 前缀
+	assert.match(rendererMainSource, /Renderer uncaught error/);
+	assert.match(rendererMainSource, /Renderer unhandled rejection/);
 	assert.match(rendererMainSource, /Renderer root element missing/);
+});
+
+test("agent create IPC and process handlers keep structured crash diagnostics", () => {
+	assert.match(indexSource, /Agent create IPC failed/);
+	assert.match(indexSource, /Child process gone/);
+	assert.match(indexSource, /platform: process\.platform/);
+	assert.match(mainSource, /attachPiProcessLifecycle/);
+	assert.match(mainSource, /buildStartupFailureMessage/);
+	assert.match(mainSource, /handlePiEvent failed/);
+	// spawn error 必须在 start 前可被业务侧接住，避免 mac 上闪退难排查
+	assert.match(mainSource, /监听器必须在 process\.start\(\) 之前挂上/);
 });

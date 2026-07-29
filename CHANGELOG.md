@@ -4,6 +4,111 @@
 
 All notable changes to PiDeck are documented here.
 
+## v0.6.7 - 2026-07-29
+
+### 🚀 New Features
+
+- **Compact titlebar + Codex-style right sidebar** — Slimmer top chrome and
+  right-drawer tabs restyled for denser multi-panel workflows (Files / Git /
+  Browser / ScratchPad).
+- **File editor nested under Files tab** — Editor tabs live inside the Files
+  drawer instead of a separate surface; drawer chrome is tighter and more
+  consistent with Git/Browser panels.
+- **File tree drag / drop / move** — Drag files into the tree, paste files, and
+  drag-to-move entries inside the project file panel.
+- **@ file suggestions with directory tree & search** — File picker shows a
+  browsable tree plus filter, making deep paths easier to reference.
+- **Composer file path refs via paste / drop** — Drop or paste files into the
+  input to insert path chips; spaced paths are preserved correctly.
+- **Text links open in built-in editor** — Clicking text-file links opens the
+  in-app editor; binary files still open externally.
+- **Batch Ask Tab UI** — `ask_question` batch mode renders all questions as tabs
+  with an optional Submit/review step before returning answers.
+- **Ctrl/Cmd+click markdown links open system browser** — Modifier-click leaves
+  the in-app browser and hands the URL to the OS default browser.
+- **Tailwind CSS v4 + shadcn + sonner toasts** — Renderer styling stack upgraded;
+  toast notifications migrate to `sonner` with theme-aware presentation.
+- **Sidebar project expand/collapse persistence** — Project fold state is
+  remembered across app restarts.
+
+### ✨ UX Improvements
+
+- **Plan mode flow polish** — End-of-plan three-card layout, revise back button,
+  and clearer read-only skip behavior.
+- **Composer widgets & extension UI** — Extension widgets stay above the
+  composer, height is more compact, and built-in extension conflict handling is
+  friendlier (including todo labels).
+- **UI color neutralization** — Reduce saturated green accents; refine composer
+  bar and status indicator contrast.
+- **Worktree sidebar hierarchy** — Clearer nesting, collapsible worktree
+  sessions, lighter fills, and less visual noise on active rows.
+- **Extension install / uninstall UX** — Clearer progress and reliable local file
+  cleanup on uninstall.
+- **RPC / agent launch options** — Optional `--no-themes` / `--offline` /
+  `--no-extensions` / `--no-skills`, version cache warm-up on app start, and
+  dev settings to disable extensions/skills for faster or safer launches.
+- **Docs & community** — Docs-site screenshots updated to the latest UI; README
+  Star History chart auto-updates via CI; tutorial video production workflow
+  added for maintainers.
+
+### 🐛 Bug Fixes
+
+- **Composer history ↑/↓ drops half-typed draft** — ArrowUp now snapshots the
+  live draft from `livePromptByAgentRef` instead of a stale rendered prompt, so
+  ArrowDown restores the full in-progress text.
+- **Agent start crash-safety / diagnostics (esp. macOS arm)** — Attach pi process
+  lifecycle listeners before `spawn`, keep a default `error` sink so ENOENT no
+  longer becomes an uncaught main-process crash, surface structured startup
+  failure cards, and log platform/arch + child-process-gone details for Issue
+  triage. Also expand macOS pi search paths (`/opt/homebrew/bin`, etc.) for
+  Dock-launched PATH gaps.
+- **System titlebar missing sidebar toggles** (#104) — Left/right sidebar
+  switches remain available when using the OS native title bar.
+- **Paste image as attachment + spaced path refs** — Image paste attaches as
+  image content; file path chips keep spaces instead of breaking mid-path.
+- **Terminal dock race / unhandled rejection** — Harden dock against pending
+  agent transitions and avoid unhandled promise rejections on close/switch.
+- **Terminal dock owner isolation** — Dock state is keyed by owner so project
+  terminals no longer leak across agents/sessions.
+- **Clipboard “Document is not focused”** — All copy paths go through Electron
+  main-process `clipboard.writeText` via preload, with graceful fallbacks.
+- **Local file links + todo widget fonts** (#103) — Local file links are
+  clickable again; todo widgets honor the configured interface font.
+- **Incomplete tool/thinking turns merge into next reply** — Thinking-only
+  assistant turns are preserved; normal incomplete runs no longer get merged
+  into the following answer.
+- **Resend safety** — Resend only truncates descendants of the current user
+  turn and refuses unsafe non-last-user roots.
+- **Select cancel no longer picks first option** — Cancel returns `value: null`
+  instead of a cancelled sentinel that could be misread as a selection.
+- **Agent `get_state` timeout auto-retry** — Startup state fetch retries on
+  timeout instead of leaving the agent stuck.
+- **Composer placeholder & prompt history** — Clearing the input restores the
+  placeholder; prompt history persists across restart.
+- **Manual release with empty tag** — Workflow_dispatch without a tag publishes
+  a formal release instead of a draft-only artifact.
+- **macOS test build OOM** — CI mac build uses `build:fast` and a higher Node
+  heap limit.
+- **package-lock dependency sync** — Restore missing lockfile entries after
+  merge/tooling drift.
+
+### 🙏 Acknowledgements
+
+Thanks to all contributors for their PRs, issues, and feedback in this release:
+
+- **@1900EasonJin** — System titlebar sidebar toggles (#104)
+- **@zzq168281-coder** — Interactive local file links & todo font honor (#103)
+- **@me9rez** — TypeScript incremental build output hygiene (#97)
+
+Special thanks to **微时佬友** for providing the Grok model service used in our
+community testing environment 🎉
+
+> 💬 **Join our QQ group for feedback & discussion: 1026218644**
+
+Thanks to all users who submitted suggestions and bug reports for PiDeck! 🙏
+
+---
+
 ## v0.6.6 - 2026-07-25
 
 ### 🚀 New Features

@@ -736,7 +736,36 @@ export class AgentManager {
 		this.messages.set(id, []);
 		this.emitState();
 
-		const client = await process.start(input.sessionPath, trustOverride, input.noSession);
+		// 关键：监听器必须在 process.start() 之前挂上。
+		// spawn 的 ENOENT / EACCES 等 error 事件是异步的；若等 start() 返回后再 on("error")，
+		// 中间窗口可能 0 listener，EventEmitter 会把 error 升级成未捕获异常，
+		// 在部分 macOS arm 环境上表现为“一点启动 Agent 就闪退”。
+		this.attachPiProcessLifecycle(id, process, {
+			projectPath: project.path,
+			onExit: (payload) => this.handleCreateProcessExit(id, tab, payload),
+		});
+
+		let client: Awaited<ReturnType<PiProcess["start"]>>;
+		try {
+			client = await process.start(input.sessionPath, trustOverride, input.noSession);
+		} catch (error) {
+			// start() 同步失败（非法 cwd、spawn 抛错等）也要落到会话错误卡，而不是 IPC 裸抛。
+			tab.status = "error";
+			const rawMessage = error instanceof Error ? error.message : String(error);
+			void this.appLogger?.error("agent", "Agent pi process start threw", {
+				agentId: id,
+				projectId: project.id,
+				sessionPath: input.sessionPath,
+				error: rawMessage,
+				diagnostics: process.getDiagnostics(),
+				// 注意：局部变量 process 是 PiProcess，宿主平台要用 globalThis.process
+				platform: globalThis.process.platform,
+				arch: globalThis.process.arch,
+			});
+			this.addMessage(id, "error", this.buildStartupFailureMessage(rawMessage, process.getDiagnostics()));
+			this.emitState();
+			return tab;
+		}
 		const t3 = Date.now();
 		const diag = process.getDiagnostics();
 		void this.appLogger?.info("agent", "Pi process spawned", {
@@ -747,6 +776,8 @@ export class AgentManager {
 			command: diag?.command,
 			args: diag?.args?.join(' '),
 			cwd: diag?.cwd,
+			platform: globalThis.process.platform,
+			arch: globalThis.process.arch,
 		});
 
 		// 启动后先获取状态，get_messages 必须等状态就绪后再发送。
@@ -788,111 +819,6 @@ export class AgentManager {
 			throw new Error("Unreachable: get_state retry loop exhausted");
 		})();
 		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
-
-		// ... 事件监听器（省略，与原来一致）
-		process.on("event", (event) => this.handlePiEvent(id, event));
-		process.on("stderr", (text) =>
-			this.emit(ipcChannels.agentsLog, { agentId: id, text }),
-		);
-		process.on("protocol-error", (line) => {
-			this.emit(ipcChannels.agentsLog, {
-				agentId: id,
-				text: `Protocol error: ${line}`,
-			});
-			this.appLogger?.error("agent", `Protocol error: ${(line as string)?.slice(0, 200)}`, {
-				agentId: id,
-				project: project.path,
-			});
-		});
-		// 转发 RPC 日志到前端，用于调试面板展示请求/响应/事件
-		process.on("rpc-log", (entry: { direction: string; data: unknown }) => {
-			const data = entry.data as Record<string, any>;
-			let summary: string;
-			if (entry.direction === "send") {
-				// 发送的命令：显示类型和关键参数
-				const type = data.type ?? "?";
-				if (type === "prompt")
-					summary = `→ prompt: ${(data.message ?? "").slice(0, 60)}`;
-				else if (type === "set_model")
-					summary = `→ set_model: ${data.provider}/${data.modelId}`;
-				else if (type === "set_thinking_level")
-					summary = `→ set_thinking: ${data.level}`;
-				else if (type === "bash")
-					summary = `→ bash: ${(data.command ?? "").slice(0, 60)}`;
-				else summary = `→ ${type}`;
-			} else {
-				// 收到的响应/事件
-				const type = data.type ?? "?";
-				if (type === "response")
-					summary = `← ${data.command ?? "?"} ${data.success ? "✓" : "✗"}${data.error ? ` ${data.error}` : ""}`;
-				else if (type === "message_update") {
-					const evt = data.assistantMessageEvent?.type ?? "?";
-					summary = `← message_update.${evt}`;
-				} else summary = `← ${type}`;
-			}
-			const logEntry = {
-				id: randomUUID(),
-				agentId: id,
-				direction: entry.direction,
-				summary,
-				data,
-				time: Date.now(),
-			};
-			this.emit(ipcChannels.agentsRpcLog, logEntry);
-			// 只有用户手动开启 RPC 日志记录的 agent 才落盘
-			if (this.rpcLoggingAgents.has(id)) {
-				this.rpcLogger?.push(logEntry);
-			}
-		});
-		process.on("exit", (payload: { code: number | null; signal: string | null }) => {
-			// 模型配置刷新期间的进程退出由 refreshModels() 负责重连，此处静默忽略
-			if (this.modelRefreshingAgents.has(id)) return;
-			// 用户主动停止 → 不自动重连
-			if (this.userInitiatedStop.has(id)) {
-				this.userInitiatedStop.delete(id);
-				tab.status = "closed";
-				this.emitState();
-				return;
-			}
-
-			// 手动压缩期间退出 → compact() 的 catch 块会负责重连
-			if (this.compactingAgents.has(id)) {
-				tab.status = "closed";
-				this.emitState();
-				return;
-			}
-
-			// 自动压缩 / 进程干净退出（exit code 0）且有会话路径 → 尝试一次自动重连
-			if (!this.autoRestartAttempted.has(id) && tab.sessionPath && payload.code === 0) {
-				this.autoRestartAttempted.add(id);
-				tab.status = "starting";
-				this.emitState();
-				this.reattachProcess(id, tab.sessionPath)
-					.then(() => {
-						tab.status = "idle";
-						this.addMessage(id, "system", "会话压缩完成，Agent 已自动重连");
-						this.emitState();
-					})
-					.catch(() => {
-						tab.status = "closed";
-						this.addMessage(id, "error", "Agent 进程意外退出，自动重连失败");
-						this.emitState();
-					});
-				return;
-			}
-
-			tab.status = "closed";
-			this.emitState();
-		});
-		process.on("error", (error) => {
-			tab.status = "error";
-			this.addMessage(id, "error", error.message);
-			this.appLogger?.error("agent", "Pi process error", {
-				agentId: id,
-				error: error instanceof Error ? error.message : String(error),
-			});
-			this.emitState();
-		});
 
 		try {
 			void this.appLogger?.info("agent", "Agent get_state request completed", { agentId: id });
@@ -999,56 +925,11 @@ export class AgentManager {
 				projectId: project.id,
 				sessionPath: input.sessionPath,
 				error: rawMessage,
+				diagnostics: process.getDiagnostics(),
+				platform: globalThis.process.platform,
+				arch: globalThis.process.arch,
 			});
-			// 构建丰富的错误诊断信息
-			const diag = process.getDiagnostics();
-			let enriched = rawMessage;
-			if (diag) {
-				const lines: string[] = [];
-				// 退出码
-				if (diag.exitCode !== null) {
-					lines.push(`退出码: ${diag.exitCode}${diag.exitSignal ? ` (signal: ${diag.exitSignal})` : ""}`);
-				}
-				// stderr 输出（截取末尾最有用的部分）
-				const stderrText = diag.stderr.join("").trim();
-				if (stderrText) {
-					// 只保留末尾 600 字符，避免刷屏
-					const snippet = stderrText.length > 600 ? "…" + stderrText.slice(-600) : stderrText;
-					lines.push(`进程错误输出:\n${snippet}`);
-				}
-				// pi 路径与版本检测
-				lines.push(`pi 路径: ${diag.command}`);
-				if (diag.customPiPath) {
-					lines.push(`自定义路径: ${diag.customPiPath}`);
-				}
-				lines.push(`工作目录: ${diag.cwd}`);
-				lines.push(`版本检测: ${diag.versionCheck ? "✓ 通过" : "✗ 失败"}`);
-
-				// 诊断与指引
-				lines.push("");
-				lines.push("━━━ 排查步骤 ━━━");
-				if (!diag.versionCheck) {
-					lines.push("1. 在终端执行 pi --version，确认 pi 是否已安装且路径正确");
-					lines.push("2. 如未安装，执行 npm install -g @earendil-works/pi-coding-agent");
-					lines.push("3. 安装后再次在终端执行 pi --version 验证");
-				} else if (diag.exitCode !== 0) {
-					lines.push("1. 在终端执行 pi --mode rpc 看是否能正常启动");
-					lines.push("2. 注意终端中的错误信息，根据异常信息修复");
-				} else if (!stderrText && diag.exitCode === null) {
-					// 已有自动重试机制（最多 3 次 × 15s），仍超时说明并非瞬时延迟，
-					// 而是 pi 进程初始化确实受阻（如文件解析死锁、网络请求阻塞）。
-					lines.push("1. 桌面端已自动重试 get_state 3 次，但 pi 仍未响应。");
-					lines.push("2. 在终端执行 pi --mode rpc 看是否能正常启动，注意终端中的错误信息");
-				} else {
-					lines.push("1. 在终端执行 pi --mode rpc 确认 pi 能否正常启动");
-					lines.push("2. 检查设置中的 pi 路径是否正确");
-				}
-				lines.push("");
-				lines.push("如问题持续，可在 GitHub 提交 Issue 并附上以上信息。");
-
-				enriched = `⚠️ Pi RPC 启动失败\n\n${rawMessage}\n\n${lines.join("\n")}`;
-			}
-			this.addMessage(id, "error", enriched);
+			this.addMessage(id, "error", this.buildStartupFailureMessage(rawMessage, process.getDiagnostics()));
 		}
 
 		this.emitState();
@@ -1456,6 +1337,11 @@ export class AgentManager {
 		});
 
 		const process = new PiProcess(project.path, this.settingsStore.get());
+		// 与 createUnlocked 一致：先挂生命周期监听，再 start，避免 error 事件无 listener。
+		this.attachPiProcessLifecycle(agentId, process, {
+			projectPath: project.path,
+			onExit: (payload) => this.handleReattachProcessExit(agentId, runtime, payload),
+		});
 		const client = await process.start(sessionPath);
 		const restartDiag = process.getDiagnostics();
 		void this.appLogger?.info("agent", "Pi process restarted", {
@@ -1463,82 +1349,6 @@ export class AgentManager {
 			command: restartDiag?.command,
 			args: restartDiag?.args?.join(' '),
 			cwd: restartDiag?.cwd,
-		});
-
-		// 注册事件监听（与 create() 保持一致）
-		process.on("event", (event) => this.handlePiEvent(agentId, event));
-		process.on("stderr", (text) =>
-			this.emit(ipcChannels.agentsLog, { agentId, text }),
-		);
-		process.on("protocol-error", (line) => {
-			this.emit(ipcChannels.agentsLog, {
-				agentId,
-				text: `Protocol error: ${line}`,
-			});
-		});
-		process.on("rpc-log", (entry: { direction: string; data: unknown }) => {
-			const data = entry.data as Record<string, any>;
-			let summary: string;
-			if (entry.direction === "send") {
-				const type = data.type ?? "?";
-				if (type === "prompt") {
-					const desc = data.description ? ` [${data.description}]` : "";
-					summary = `→ prompt${desc}: ${(data.message ?? "").slice(0, 60)}`;
-				}
-				else summary = `→ ${type}`;
-			} else {
-				const type = data.type ?? "?";
-				if (type === "response")
-					summary = `← ${data.command ?? "?"} ${data.success ? "✓" : "✗"}${data.error ? ` ${data.error}` : ""}`;
-				else summary = `← ${type}`;
-			}
-			const logEntry = {
-				id: randomUUID(),
-				agentId,
-				direction: entry.direction,
-				summary,
-				data,
-				time: Date.now(),
-			};
-			this.emit(ipcChannels.agentsRpcLog, logEntry);
-		});
-		process.on("exit", (payload: { code: number | null; signal: string | null }) => {
-			// 模型配置刷新期间的进程退出由 refreshModels() 负责重连，此处静默忽略
-			if (this.modelRefreshingAgents.has(agentId)) return;
-			if (this.userInitiatedStop.has(agentId)) {
-				this.userInitiatedStop.delete(agentId);
-				runtime.tab.status = "closed";
-				this.emitState();
-				return;
-			}
-
-			// 自动压缩也可能发生在重连后的进程中；继续复用同一会话文件重附加，
-			// 但仍用 autoRestartAttempted 做单次保护，避免真正异常退出时无限重启。
-			if (!this.autoRestartAttempted.has(agentId) && runtime.tab.sessionPath && payload.code === 0) {
-				this.autoRestartAttempted.add(agentId);
-				runtime.tab.status = "starting";
-				this.emitState();
-				this.reattachProcess(agentId, runtime.tab.sessionPath)
-					.then(() => {
-						runtime.tab.status = "idle";
-						this.addMessage(agentId, "system", "会话压缩完成，Agent 已自动重连");
-						this.emitState();
-					})
-					.catch(() => {
-						runtime.tab.status = "closed";
-						this.addMessage(agentId, "error", "Agent 进程意外退出，自动重连失败");
-						this.emitState();
-					});
-				return;
-			}
-
-			runtime.tab.status = "closed";
-			this.emitState();
-		});
-		process.on("error", (error) => {
-			runtime.tab.status = "error";
-			this.addMessage(agentId, "error", error.message);
-			this.emitState();
 		});
 
 		// 替换旧进程引用（但不修改 agents map 中的 key）
@@ -2700,6 +2510,14 @@ export class AgentManager {
 		const project = this.getProject(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
 		const process = new PiProcess(project.path, this.settingsStore.get());
+		// 临时会话同样可能触发 spawn error；先挂 sink 再 start，避免未捕获 error 拖垮主进程。
+		process.on("error", (error) => {
+			void this.appLogger?.error("agent", "Temporary session pi process error", {
+				projectId,
+				sessionPath,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
 		await process.start(sessionPath);
 		try {
 			return await run(process);
@@ -2843,6 +2661,293 @@ export class AgentManager {
 		this.agents.clear();
 		this.messages.clear();
 		this.emitState();
+	}
+
+	/**
+	 * 统一挂接 PiProcess 生命周期监听。
+	 * 必须在 start() 之前调用，避免 spawn error 在无 listener 窗口升级成未捕获异常。
+	 */
+	private attachPiProcessLifecycle(
+		agentId: string,
+		piProcess: PiProcess,
+		options: {
+			projectPath?: string;
+			onExit: (payload: { code: number | null; signal: string | null }) => void;
+		},
+	) {
+		piProcess.on("event", (event) => {
+			try {
+				this.handlePiEvent(agentId, event);
+			} catch (error) {
+				// 单条 pi 事件处理失败不能拖垮主进程；记录后继续接收后续事件。
+				void this.appLogger?.error("agent", "handlePiEvent failed", {
+					agentId,
+					error: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+					eventType:
+						event && typeof event === "object"
+							? String((event as { type?: unknown }).type ?? "unknown")
+							: typeof event,
+				});
+			}
+		});
+		piProcess.on("stderr", (text) =>
+			this.emit(ipcChannels.agentsLog, { agentId, text }),
+		);
+		piProcess.on("protocol-error", (line) => {
+			this.emit(ipcChannels.agentsLog, {
+				agentId,
+				text: `Protocol error: ${line}`,
+			});
+			void this.appLogger?.error(
+				"agent",
+				`Protocol error: ${(line as string)?.slice(0, 200)}`,
+				{
+					agentId,
+					project: options.projectPath,
+				},
+			);
+		});
+		piProcess.on("rpc-log", (entry: { direction: string; data: unknown }) => {
+			try {
+				const data = entry.data as Record<string, any>;
+				let summary: string;
+				if (entry.direction === "send") {
+					const type = data.type ?? "?";
+					if (type === "prompt")
+						summary = `→ prompt: ${(data.message ?? "").slice(0, 60)}`;
+					else if (type === "set_model")
+						summary = `→ set_model: ${data.provider}/${data.modelId}`;
+					else if (type === "set_thinking_level")
+						summary = `→ set_thinking: ${data.level}`;
+					else if (type === "bash")
+						summary = `→ bash: ${(data.command ?? "").slice(0, 60)}`;
+					else summary = `→ ${type}`;
+				} else {
+					const type = data.type ?? "?";
+					if (type === "response")
+						summary = `← ${data.command ?? "?"} ${data.success ? "✓" : "✗"}${data.error ? ` ${data.error}` : ""}`;
+					else if (type === "message_update") {
+						const evt = data.assistantMessageEvent?.type ?? "?";
+						summary = `← message_update.${evt}`;
+					} else summary = `← ${type}`;
+				}
+				const logEntry = {
+					id: randomUUID(),
+					agentId,
+					direction: entry.direction,
+					summary,
+					data,
+					time: Date.now(),
+				};
+				this.emit(ipcChannels.agentsRpcLog, logEntry);
+				if (this.rpcLoggingAgents.has(agentId)) {
+					this.rpcLogger?.push(logEntry);
+				}
+			} catch (error) {
+				void this.appLogger?.warn("agent", "rpc-log handler failed", {
+					agentId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		});
+		piProcess.on("exit", (payload: { code: number | null; signal: string | null }) => {
+			try {
+				void this.appLogger?.info("agent", "Pi process exit", {
+					agentId,
+					code: payload.code,
+					signal: payload.signal,
+					diagnostics: piProcess.getDiagnostics(),
+				});
+				options.onExit(payload);
+			} catch (error) {
+				void this.appLogger?.error("agent", "Pi process exit handler failed", {
+					agentId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		});
+		piProcess.on("error", (error: Error) => {
+			const runtime = this.agents.get(agentId);
+			if (runtime) runtime.tab.status = "error";
+			const message = error instanceof Error ? error.message : String(error);
+			void this.appLogger?.error("agent", "Pi process error", {
+				agentId,
+				error: message,
+				stack: error instanceof Error ? error.stack : undefined,
+				diagnostics: piProcess.getDiagnostics(),
+				platform: globalThis.process.platform,
+				arch: globalThis.process.arch,
+			});
+			this.addMessage(
+				agentId,
+				"error",
+				this.buildStartupFailureMessage(message, piProcess.getDiagnostics()),
+			);
+			this.emitState();
+		});
+	}
+
+	/** createUnlocked 路径的进程 exit：支持压缩后自动重连，其余标 closed。 */
+	private handleCreateProcessExit(
+		agentId: string,
+		tab: AgentTab,
+		payload: { code: number | null; signal: string | null },
+	) {
+		if (this.modelRefreshingAgents.has(agentId)) return;
+		if (this.userInitiatedStop.has(agentId)) {
+			this.userInitiatedStop.delete(agentId);
+			tab.status = "closed";
+			this.emitState();
+			return;
+		}
+		if (this.compactingAgents.has(agentId)) {
+			tab.status = "closed";
+			this.emitState();
+			return;
+		}
+		if (!this.autoRestartAttempted.has(agentId) && tab.sessionPath && payload.code === 0) {
+			this.autoRestartAttempted.add(agentId);
+			tab.status = "starting";
+			this.emitState();
+			this.reattachProcess(agentId, tab.sessionPath)
+				.then(() => {
+					tab.status = "idle";
+					this.addMessage(agentId, "system", "会话压缩完成，Agent 已自动重连");
+					this.emitState();
+				})
+				.catch((error) => {
+					tab.status = "closed";
+					void this.appLogger?.error("agent", "Auto reattach after clean exit failed", {
+						agentId,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					this.addMessage(agentId, "error", "Agent 进程意外退出，自动重连失败");
+					this.emitState();
+				});
+			return;
+		}
+		tab.status = "closed";
+		// 非 0 退出且还没写过错误卡时，补一条可排查信息（避免用户只看到 closed）。
+		if (payload.code !== 0 && payload.code !== null) {
+			const runtime = this.agents.get(agentId);
+			const diag = runtime?.process.getDiagnostics() ?? null;
+			this.addMessage(
+				agentId,
+				"error",
+				this.buildStartupFailureMessage(
+					`pi 进程退出 code=${payload.code}${payload.signal ? ` signal=${payload.signal}` : ""}`,
+					diag,
+				),
+			);
+		}
+		this.emitState();
+	}
+
+	/** reattach 路径的进程 exit：同样做单次自动重连保护。 */
+	private handleReattachProcessExit(
+		agentId: string,
+		runtime: AgentRuntime,
+		payload: { code: number | null; signal: string | null },
+	) {
+		if (this.modelRefreshingAgents.has(agentId)) return;
+		if (this.userInitiatedStop.has(agentId)) {
+			this.userInitiatedStop.delete(agentId);
+			runtime.tab.status = "closed";
+			this.emitState();
+			return;
+		}
+		if (!this.autoRestartAttempted.has(agentId) && runtime.tab.sessionPath && payload.code === 0) {
+			this.autoRestartAttempted.add(agentId);
+			runtime.tab.status = "starting";
+			this.emitState();
+			this.reattachProcess(agentId, runtime.tab.sessionPath)
+				.then(() => {
+					runtime.tab.status = "idle";
+					this.addMessage(agentId, "system", "会话压缩完成，Agent 已自动重连");
+					this.emitState();
+				})
+				.catch((error) => {
+					runtime.tab.status = "closed";
+					void this.appLogger?.error("agent", "Reattach auto-restart failed", {
+						agentId,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					this.addMessage(agentId, "error", "Agent 进程意外退出，自动重连失败");
+					this.emitState();
+				});
+			return;
+		}
+		runtime.tab.status = "closed";
+		this.emitState();
+	}
+
+	/**
+	 * 把 pi 启动/退出失败整理成可复制的诊断文案。
+	 * 目标：用户不至于只看到闪退或空白，Issue 也能直接贴日志。
+	 */
+	private buildStartupFailureMessage(
+		rawMessage: string,
+		diag: ReturnType<PiProcess["getDiagnostics"]>,
+	): string {
+		if (!diag) {
+			return `⚠️ Pi RPC 启动失败\n\n${rawMessage}\n\nplatform=${globalThis.process.platform} arch=${globalThis.process.arch}`;
+		}
+		const lines: string[] = [];
+		if (diag.exitCode !== null) {
+			lines.push(`退出码: ${diag.exitCode}${diag.exitSignal ? ` (signal: ${diag.exitSignal})` : ""}`);
+		}
+		const stderrText = diag.stderr.join("").trim();
+		if (stderrText) {
+			const snippet = stderrText.length > 600 ? "…" + stderrText.slice(-600) : stderrText;
+			lines.push(`进程错误输出:\n${snippet}`);
+		}
+		lines.push(`pi 路径: ${diag.command}`);
+		if (diag.customPiPath) lines.push(`自定义路径: ${diag.customPiPath}`);
+		lines.push(`工作目录: ${diag.cwd}`);
+		lines.push(`版本检测: ${diag.versionCheck ? "✓ 通过" : "✗ 失败"}`);
+		lines.push(`运行环境: ${globalThis.process.platform}/${globalThis.process.arch}`);
+		lines.push("");
+		lines.push("━━━ 排查步骤 ━━━");
+		if (!diag.versionCheck) {
+			lines.push("1. 在终端执行 pi --version，确认 pi 是否已安装且路径正确");
+			lines.push("2. 如未安装，执行 npm install -g @earendil-works/pi-coding-agent");
+			lines.push("3. macOS 若从 Dock 启动，可在设置中填写完整 pi 路径（Homebrew 常见 /opt/homebrew/bin/pi）");
+		} else if (diag.exitCode !== 0 && diag.exitCode !== null) {
+			lines.push("1. 在终端执行 pi --mode rpc 看是否能正常启动");
+			lines.push("2. 注意终端中的错误信息（架构不匹配/权限/扩展崩溃都会体现在这里）");
+		} else if (!stderrText && diag.exitCode === null) {
+			lines.push("1. 桌面端已自动重试 get_state，但 pi 仍未响应。");
+			lines.push("2. 在终端执行 pi --mode rpc 看是否能正常启动，注意终端中的错误信息");
+		} else {
+			lines.push("1. 在终端执行 pi --mode rpc 确认 pi 能否正常启动");
+			lines.push("2. 检查设置中的 pi 路径是否正确");
+		}
+		const startFlags = this.settingsStore.get();
+		const noExt = Boolean(startFlags.piRpcNoExtensions);
+		const noSkills = Boolean(startFlags.piRpcNoSkills);
+		lines.push("");
+		lines.push("━━━ 扩展 / 技能排查 ━━━");
+		if (noExt || noSkills) {
+			lines.push(
+				`当前启动已禁用：${[
+					noExt ? "扩展 (--no-extensions)" : null,
+					noSkills ? "技能 (--no-skills)" : null,
+				]
+					.filter(Boolean)
+					.join("、")}`,
+			);
+			lines.push("若仍失败，更可能是 pi 本体/路径/会话文件问题，而不是扩展加载。");
+		} else {
+			lines.push("若怀疑某个扩展或技能导致启动失败：");
+			lines.push("1. 打开 设置 → 开发设置");
+			lines.push("2. 临时开启「禁用扩展启动」和/或「禁用技能启动」");
+			lines.push("3. 保存后重新启动 Agent 验证");
+			lines.push("若禁用后能启动，再逐个排查 ~/.pi/agent/extensions 与 skills。");
+		}
+		lines.push("");
+		lines.push("如问题持续，可在 GitHub 提交 Issue 并附上以上信息与应用日志。");
+		return `⚠️ Pi RPC 启动失败\n\n${rawMessage}\n\n${lines.join("\n")}`;
 	}
 
 	private handlePiEvent(agentId: string, event: unknown) {
@@ -3260,20 +3365,23 @@ export class AgentManager {
 	 * 发送 Extension UI 响应（extension_ui_response）到 pi 的 stdin。
 	 * 同时更新对应卡片消息的状态。
 	 */
-	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) {
+	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean | null; cancelled?: boolean; confirmed?: boolean }) {
 		const runtime = this.agents.get(agentId);
 		if (!runtime) return;
 
 		// 写入 extension_ui_response 到 pi 的 stdin
 
+		// 写入 extension_ui_response。
+		// 注意：普通 select 取消应走 value:null（见 abort / 渲染层 respondCancel），
+		// 不要对 select 误发 cancelled:true，否则 pi 返回 undefined，旧 ask 扩展会选第一项。
 		const extPayload: Record<string, unknown> = {
 			type: "extension_ui_response",
 			id: requestId,
-			value: response.value,
 		};
-		// pi 的 ctx.ui.confirm() 检查 confirmed 字段，ctx.ui.select/input 检查 value
+		// value 允许显式 null（取消 select）；undefined 表示字段未提供则不写入。
+		if ("value" in response) extPayload.value = response.value;
+		// pi 的 ctx.ui.confirm() 检查 confirmed 字段
 		if ("confirmed" in response) extPayload.confirmed = response.confirmed;
-		// 取消时发 cancelled: true
 		if (response.cancelled) extPayload.cancelled = true;
 		runtime.process.client.sendRaw(extPayload);
 

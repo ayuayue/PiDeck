@@ -173,6 +173,9 @@ let previewSettings: AppSettings = {
 	fontFamilyMonoCustom: "",
 	removedBuiltInExtensions: [],
 	disableUpdateCheck: false,
+	piRpcOffline: true,
+	piRpcNoExtensions: false,
+	piRpcNoSkills: false,
 };
 
 export function createPreviewApi(): PiDesktopApi {

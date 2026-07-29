@@ -24,7 +24,6 @@ import {
   Code,
   MessageCircle,
   MessageSquare,
-  PanelLeftClose,
   Search,
   Play,
   Plus,
@@ -62,7 +61,7 @@ import { TrustConfirmModal } from "./components/app/TrustConfirmModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
 import { useFeishuBridge } from "./hooks/useFeishuBridge";
-import { CloseIconButton } from "./components/ui/IconButton";
+import { CloseIconButton, IconButton } from "./components/ui/IconButton";
 import { writeClipboard } from "./utils/clipboard";
 import { Toaster } from "./components/ui/sonner";
 import { THINKING_LEVELS } from "./components/app/AppParts";
@@ -70,7 +69,9 @@ import {
   buildComposerPromptSubmission,
   expandPromptTemplates,
   getComposerEnterIntent,
+  getComposerHistoryLineBounds,
   parseArgumentHint,
+  resolveComposerHistoryDraft,
   translateBuiltinPromptDescription,
 } from "./composerBehavior";
 import {
@@ -1331,6 +1332,9 @@ export function App() {
     fontFamilyMonoCustom: "",
     removedBuiltInExtensions: [],
     disableUpdateCheck: false,
+    piRpcOffline: true,
+    piRpcNoExtensions: false,
+    piRpcNoSkills: false,
   });
   /* settingsNotice 已改用 showToast (app-notice) 实现 */
   const [piProxyNotice, setPiProxyNotice] = useState("");
@@ -4970,13 +4974,21 @@ export function App() {
       }
     }
 
-    // 历史命令导航:只在光标位于第一行时生效
+    // 历史命令导航：只在光标位于第一行/最后一行时生效。
+    // 普通输入只更新 livePromptByAgentRef、不触发 App 重渲染，因此这里必须读 live 草稿，
+    // 不能用闭包里的 prompt——否则 ArrowUp 会把“上次重渲染时的半截文本”当草稿保存，
+    // ArrowDown 恢复后就会丢掉中间继续输入的内容。
     const editor = event.currentTarget;
     const cursorPos = getCaretOffsetOf(editor);
-    const textBeforeCursor = prompt.substring(0, cursorPos);
-    const isFirstLine = !textBeforeCursor.includes('\n');
-    const textAfterCursor = prompt.substring(cursorPos);
-    const isLastLine = !textAfterCursor.includes('\n');
+    const liveComposerDraft = resolveComposerHistoryDraft({
+      activeAgentId: activeAgentIdRef.current,
+      livePromptByAgent: livePromptByAgentRef.current,
+      renderedPrompt: prompt,
+    });
+    const { isFirstLine, isLastLine } = getComposerHistoryLineBounds(
+      liveComposerDraft,
+      cursorPos,
+    );
 
     // 当前 Agent 的历史记录
     const agentHistory = promptHistoryRef.current[activeAgentIdRef.current ?? ''] ?? [];
@@ -4984,9 +4996,9 @@ export function App() {
     if (event.key === "ArrowUp" && isFirstLine && agentHistory.length > 0) {
       event.preventDefault();
 
-      // 首次导航时保存当前输入
+      // 首次导航时保存当前 live 草稿（不是可能过期的 rendered prompt）
       if (!historyNavigating) {
-        setSavedPrompt(prompt);
+        setSavedPrompt(liveComposerDraft);
         setHistoryNavigating(true);
         const newIndex = 0;
         setHistoryIndex(newIndex);
@@ -5030,9 +5042,11 @@ export function App() {
     if (event.key === "Escape") {
       const el = event.currentTarget;
       const cursor = getCaretOffsetOf(el);
-      const liveComposerPrompt = activeAgentIdRef.current
-        ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
-        : prompt;
+      const liveComposerPrompt = resolveComposerHistoryDraft({
+        activeAgentId: activeAgentIdRef.current,
+        livePromptByAgent: livePromptByAgentRef.current,
+        renderedPrompt: prompt,
+      });
       const result = clearSuggestionTrigger(liveComposerPrompt, cursor);
       setPrompt(result.text);
       setComposerCursor(result.cursor);
@@ -5503,6 +5517,17 @@ export function App() {
     // 30 秒兜底释放，防止锁泄漏
     setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
 
+    // 与 sendPrompt 一致：无论用户是否在回看历史，重发都强制贴底并持续跟随流式输出。
+    // 否则截断后消息变短、视口停在中部，新消息会“悬在上面一点”，ResizeObserver 也不会跟踪。
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    programmaticScrollRef.current = true;
+    const resendTimeline = timelineRef.current;
+    if (resendTimeline) {
+      resendTimeline.scrollTo({ top: resendTimeline.scrollHeight, behavior: "instant" });
+    }
+
     try {
       // 不走 fork（会新建会话文件），在同文件内截断后重发。
       const prepared = await api.agents.prepareResend(activeAgentId, message.id);
@@ -5514,7 +5539,21 @@ export function App() {
         prepared?.images && prepared.images.length > 0
           ? prepared.images
           : message.images;
-      await submitPromptSnapshot(activeAgentId, text, images);
+      const accepted = await submitPromptSnapshot(activeAgentId, text, images);
+      if (accepted !== true) return;
+
+      // 截断重载 + 重新 prompt 后，DOM 会先缩后涨；多帧贴底，保证新用户消息与流式回复都可见。
+      const stickToBottom = () => {
+        if (!autoScrollRef.current) return;
+        const timeline = timelineRef.current;
+        if (!timeline) return;
+        programmaticScrollRef.current = true;
+        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
+      };
+      requestAnimationFrame(() => {
+        stickToBottom();
+        requestAnimationFrame(stickToBottom);
+      });
     } catch (error) {
       showToast(
         t("app.resendFailed", {
@@ -6316,33 +6355,7 @@ export function App() {
         <div className="window-drag-layer" aria-hidden="true" />
       )}
       {!settings.useNativeTitleBar && (
-        <div className="window-controls-left">
-          <button
-            type="button"
-            className={`window-control sidebar-toggle${listCollapsed ? " collapsed" : ""}`}
-            aria-label={listCollapsed ? t("app.expandList") : t("app.collapseList")}
-            title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
-            onClick={toggleListCollapsed}
-          >
-            <PanelLeft size={13} strokeWidth={2.2} aria-hidden="true" />
-          </button>
-        </div>
-      )}
-      {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
-          <button
-            type="button"
-            className={`window-control drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
-            aria-label={
-              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
-            }
-            title={
-              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
-            }
-            onClick={toggleRightDrawer}
-          >
-            <PanelRight size={13} strokeWidth={2.2} aria-hidden="true" />
-          </button>
           <button
             type="button"
             className={`window-control pin${windowAlwaysOnTop ? " active" : ""}`}
@@ -6388,17 +6401,17 @@ export function App() {
           </button>
         </div>
       )}
-      {/* 系统标题栏模式 + 列表已折叠：侧栏内容整体隐藏，需浮动按钮恢复 */}
-      {settings.useNativeTitleBar && listCollapsed && (
-        <button
-          type="button"
+      {/* 侧栏折叠后的浮动恢复入口：与工具栏/会话头部分栏按钮同尺寸 */}
+      {listCollapsed && (
+        <IconButton
+          label={t("app.expandList")}
+          variant="outline"
+          buttonSize="sm"
           className="list-toggle-native floating"
-          title={t("app.expandList")}
-          aria-label={t("app.expandList")}
           onClick={toggleListCollapsed}
         >
           <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
-        </button>
+        </IconButton>
       )}
       <aside
         className="chat-list-pane v3-braun"
@@ -6409,18 +6422,16 @@ export function App() {
             {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
             <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
-          {/* 系统标题栏模式下左上角没有 window-controls-left，折叠入口放到工具栏 */}
-          {settings.useNativeTitleBar && (
-            <button
-              type="button"
-              className="list-toggle-native"
-              title={t("app.collapseList")}
-              aria-label={t("app.collapseList")}
-              onClick={toggleListCollapsed}
-            >
-              <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
-            </button>
-          )}
+          {/* 左侧工具栏折叠入口：与右侧 header-drawer-toggle 共用 IconButton 尺寸 */}
+          <IconButton
+            label={t("app.collapseList")}
+            variant="outline"
+            buttonSize="sm"
+            className="list-toggle-native"
+            onClick={toggleListCollapsed}
+          >
+            <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+          </IconButton>
         </div>
         <button
           className="collapse-button list-collapse"
@@ -7441,18 +7452,17 @@ export function App() {
                 </div>
               </div>
               </div>
-              {/* 系统标题栏模式下右上角没有 window-controls，右侧边栏开关放到会话头部 */}
-              {settings.useNativeTitleBar && (
-                <button
-                  type="button"
-                  className={`header-drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
-                  title={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                  aria-label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                  onClick={toggleRightDrawer}
-                >
-                  <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
-                </button>
-              )}
+              {/* 右侧边栏开关：与左侧 list-toggle 同组件同尺寸，和「新会话」同一 outline 语言 */}
+              <IconButton
+                label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                variant="outline"
+                buttonSize="sm"
+                active={Boolean(drawer && !drawerCollapsed)}
+                className="header-drawer-toggle"
+                onClick={toggleRightDrawer}
+              >
+                <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
+              </IconButton>
             </>
           </div>
         </header>
@@ -7583,9 +7593,10 @@ export function App() {
                       <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
                         const req = meta.uiRequest;
                         if (!req || !activeAgentId) return;
-                        // cancelled 通过 sendUiResponse 正常发送：pi 的 rpc-mode 对
-                        // select/input/editor 返回 undefined（卡片显示"已取消"），
-                        // confirm 返回 false（同"否"，pi 的 ctx.ui.confirm() 不区分取消和否）
+                        // cancelled 通过 sendUiResponse 正常发送。
+                        // select/input/editor：cancelled 或 value:null → undefined/null。
+                        // 原生 confirm：pi 会把 cancelled 解析成 false（与「否」同值）；
+                        // ask_question 扩展已把 confirm 改走 select，避免点叉误答成否。
                         if (response.cancelled) {
                           setCancellingUi(true);
                           api.agents.sendUiResponse(activeAgentId, req.requestId, response);
@@ -7912,6 +7923,8 @@ export function App() {
               activeAgentId={activeAgentId}
               onCancel={() => {
                 if (activeUiAsk.requestId && activeAgentId) {
+                  // 与单问一致：关闭问卷时给明确 toast，避免静默取消。
+                  showToast(t("ask.cancelBatchHint"));
                   setActiveUiRequest((current) => {
                     if (!current) return null;
                     const next = { ...current };
@@ -7937,40 +7950,113 @@ export function App() {
             />
           )}
           {/* 传统单问（select/confirm/input/editor） */}
-          {showAskDialog && activeUiAsk && activeUiAsk.method !== "batch_ask" && (
-            <div className="ask-inline-bar">
+          {showAskDialog && activeUiAsk && activeUiAsk.method !== "batch_ask" && (() => {
+            // Plan 结束后的「下一步」选单：关闭=退出计划模式，绝不是「默认第一项」。
+            // 扩展用标题前缀 [PI_DECK_PLAN_NEXT] 标记；选项用「标题|说明」编码，桌面端拆主副文案。
+            const PLAN_NEXT_MARKER = "[PI_DECK_PLAN_NEXT]";
+            const PLAN_REVISE_MARKER = "[PI_DECK_PLAN_REVISE]";
+            const rawTitle = activeUiAsk.title || "";
+            const isPlanNextSelect =
+              activeUiAsk.method === "select" && rawTitle.includes(PLAN_NEXT_MARKER);
+            // 「修改计划」二次编辑：取消应回到三选一，而不是退出计划模式。
+            const isPlanReviseEditor =
+              activeUiAsk.method === "editor" && rawTitle.includes(PLAN_REVISE_MARKER);
+            const displayTitle = isPlanNextSelect
+              ? rawTitle.replace(PLAN_NEXT_MARKER, "").trim()
+              : isPlanReviseEditor
+                ? rawTitle.replace(PLAN_REVISE_MARKER, "").trim()
+                : (rawTitle || t("ask.pending"));
+            const isSelectWithOptions =
+              activeUiAsk.method === "select" &&
+              Array.isArray(activeUiAsk.options) &&
+              activeUiAsk.options.length > 0;
+            // 按提问类型给取消 toast/提示：select 已有；confirm/input/editor 之前点叉会静默取消。
+            const cancelHintKey = isPlanNextSelect
+              ? "ask.planNextCancelHint"
+              : isPlanReviseEditor
+                ? "ask.planReviseBackHint"
+                : activeUiAsk.method === "confirm"
+                  ? "ask.cancelConfirmHint"
+                  : activeUiAsk.method === "input"
+                    ? "ask.cancelInputHint"
+                    : activeUiAsk.method === "editor"
+                      ? "ask.cancelEditorHint"
+                      : "ask.cancelHint";
+
+            const dismissAsk = () => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              setActiveUiRequest((current) => {
+                if (!current) return null;
+                const next = { ...current };
+                delete next[activeUiAsk.requestId];
+                if (Object.keys(next).length === 0) return null;
+                return next;
+              });
+            };
+            const respondValue = (value: string) => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              dismissAsk();
+              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+            };
+            const respondCancel = () => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              dismissAsk();
+              // 普通 select 取消：发 value:null（与 abort 路径一致），避免 cancelled→undefined
+              // 被旧版 ask_question 的 `?? opts[0]` 回落成第一项。Plan 下一步/修改计划仍用 cancelled。
+              if (activeUiAsk.method === "select" && !isPlanNextSelect) {
+                api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                  value: null,
+                });
+                return;
+              }
+              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+            };
+
+            /** Plan 选项：优先匹配已知前缀 → i18n；否则按「标题|说明」拆分 */
+            const planOptionMeta = (raw: string): { title: string; desc?: string; tone?: "primary" | "secondary" | "muted" } => {
+              if (raw.startsWith("开始执行")) {
+                return { title: t("ask.planNextExecute"), desc: t("ask.planNextExecuteDesc"), tone: "primary" };
+              }
+              if (raw.startsWith("先不执行") || raw.startsWith("继续规划")) {
+                return { title: t("ask.planNextContinue"), desc: t("ask.planNextContinueDesc"), tone: "secondary" };
+              }
+              if (raw.startsWith("修改计划")) {
+                return { title: t("ask.planNextRevise"), desc: t("ask.planNextReviseDesc"), tone: "muted" };
+              }
+              const sep = raw.indexOf("|");
+              if (sep > 0) {
+                return { title: raw.slice(0, sep).trim(), desc: raw.slice(sep + 1).trim() || undefined };
+              }
+              const dash = raw.indexOf(" — ");
+              if (dash > 0) {
+                return { title: raw.slice(0, dash).trim(), desc: raw.slice(dash + 3).trim() || undefined };
+              }
+              return { title: raw };
+            };
+
+            return (
+            <div className={`ask-inline-bar${isPlanNextSelect ? " ask-inline-bar--plan-next" : ""}`}>
               <div className="ask-inline-bar-header">
                 <MessageCircle size={14} />
-                <span>{t("ask.toolName")}</span>
-                {/* select 类型取消提示 */}
-                {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
-                  <span className="ask-inline-bar-cancel-hint">{t("ask.cancelHint")}</span>
-                )}
+                <span>{(isPlanNextSelect || isPlanReviseEditor) ? t("app.composerModePlan") : t("ask.toolName")}</span>
+                {/* 所有单问类型都展示取消语义，避免只有 select 有提示。 */}
+                <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
                 <button
                   className="ask-inline-bar-close"
-                  title={t("common.close")}
+                  title={isPlanReviseEditor ? t("ask.planReviseBack") : t("common.close")}
                   onClick={() => {
-                    const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
-                    if (isSelect) {
-                      showToast(t("ask.cancelHint"));
-                    }
-                    if (activeUiAsk.requestId && activeAgentId) {
-                      /* 立即从本地 state 移除，同时通知 Pi */
-                      setActiveUiRequest((current) => {
-                        if (!current) return null;
-                        const next = { ...current };
-                        delete next[activeUiAsk.requestId];
-                        if (Object.keys(next).length === 0) return null;
-                        return next;
-                      });
-                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
-                    }
+                    // 点叉一律 toast：select/confirm/input/editor/plan 专用文案已由 cancelHintKey 区分。
+                    showToast(t(cancelHintKey));
+                    respondCancel();
                   }}
                 >
                   <X size={14} />
                 </button>
               </div>
-              <div className="ask-inline-bar-question">{activeUiAsk.title || t("ask.pending")}</div>
+              <div className="ask-inline-bar-question">{displayTitle}</div>
+              {isPlanNextSelect && (
+                <div className="ask-inline-bar-guide">{t("ask.planNextGuide")}</div>
+              )}
               <div className="ask-inline-bar-body">
                 {activeUiAsk.method === "confirm" ? (
                   <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
@@ -7978,13 +8064,7 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
+                          dismissAsk();
                           api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
                         }
                       }}
@@ -7995,13 +8075,7 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-no"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
+                          dismissAsk();
                           api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
                         }
                       }}
@@ -8010,6 +8084,43 @@ export function App() {
                     </button>
                   </div>
                 ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
+                  isPlanNextSelect ? (
+                    <div className="ask-plan-next-options" role="listbox" aria-label={displayTitle}>
+                      {activeUiAsk.options.filter((opt) => {
+                        const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                        return !label.startsWith("✎");
+                      }).map((opt, i) => {
+                        const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
+                        const meta = planOptionMeta(val);
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            role="option"
+                            className={`ask-plan-next-option${meta.tone ? ` tone-${meta.tone}` : ""}`}
+                            title={meta.desc ? `${meta.title}：${meta.desc}` : meta.title}
+                            onClick={() => respondValue(val)}
+                          >
+                            {/* 横排三钮：标题单行 + 说明最多两行；完整文案放 title 防截断看不清 */}
+                            <span className="ask-plan-next-option-title">{meta.title}</span>
+                            {meta.desc ? (
+                              <span className="ask-plan-next-option-desc">{meta.desc}</span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className="ask-plan-next-dismiss"
+                        onClick={() => {
+                          showToast(t("ask.planNextCancelHint"));
+                          respondCancel();
+                        }}
+                      >
+                        {t("ask.planNextClose")}
+                      </button>
+                    </div>
+                  ) : (
                   <div className="ask-inline-bar-options">
                     {activeUiAsk.options.filter((opt) => {
                       const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
@@ -8021,18 +8132,7 @@ export function App() {
                         <button
                           key={i}
                           className="ask-inline-bar-option"
-                          onClick={() => {
-                            if (activeUiAsk.requestId && activeAgentId) {
-                              setActiveUiRequest((current) => {
-                                if (!current) return null;
-                                const next = { ...current };
-                                delete next[activeUiAsk.requestId];
-                                if (Object.keys(next).length === 0) return null;
-                                return next;
-                              });
-                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
-                            }
-                          }}
+                          onClick={() => respondValue(val)}
                         >
                           <span className="ask-inline-bar-option-marker">{label}</span>
                         </button>
@@ -8050,13 +8150,7 @@ export function App() {
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
                             if (val && activeUiAsk.requestId && activeAgentId) {
-                              setActiveUiRequest((current) => {
-                                if (!current) return null;
-                                const next = { ...current };
-                                delete next[activeUiAsk.requestId];
-                                if (Object.keys(next).length === 0) return null;
-                                return next;
-                              });
+                              dismissAsk();
                               pendingCustomInputRef.current = val;
                               api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                             }
@@ -8070,13 +8164,7 @@ export function App() {
                           const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                           const val = el?.value?.trim() ?? "";
                           if (val && activeUiAsk.requestId && activeAgentId) {
-                            setActiveUiRequest((current) => {
-                              if (!current) return null;
-                              const next = { ...current };
-                              delete next[activeUiAsk.requestId];
-                              if (Object.keys(next).length === 0) return null;
-                              return next;
-                            });
+                            dismissAsk();
                             pendingCustomInputRef.current = val;
                             api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                           }
@@ -8086,50 +8174,74 @@ export function App() {
                       </button>
                     </div>
                   </div>
+                  )
                 ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
-                  <div className="ask-inline-bar-input-area">
-                    <input
-                      id="ask-inline-bar-input"
-                      className="ask-inline-bar-input"
-                      placeholder={activeUiAsk.placeholder || ""}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
-                          const value = (e.target as HTMLInputElement).value;
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                        }
-                      }}
-                    />
-                    <button
-                      className="ask-inline-bar-submit-btn"
-                      onClick={() => {
-                        const value = (document.getElementById("ask-inline-bar-input") as HTMLInputElement)?.value ?? "";
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                        }
-                      }}
-                    >
-                      {t("common.submit")}
-                    </button>
+                  <div className={`ask-inline-bar-input-area${isPlanReviseEditor ? " ask-inline-bar-input-area--plan-revise" : ""}`}>
+                    {isPlanReviseEditor ? (
+                      <textarea
+                        id="ask-inline-bar-input"
+                        className="ask-inline-bar-input ask-inline-bar-textarea"
+                        placeholder={activeUiAsk.placeholder || t("ask.planRevisePlaceholder")}
+                        rows={3}
+                        autoFocus
+                        defaultValue={activeUiAsk.prefill || ""}
+                      />
+                    ) : (
+                      <input
+                        id="ask-inline-bar-input"
+                        className="ask-inline-bar-input"
+                        placeholder={activeUiAsk.placeholder || ""}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
+                            const value = (e.target as HTMLInputElement).value;
+                            respondValue(value);
+                          }
+                        }}
+                      />
+                    )}
+                    <div className="ask-inline-bar-input-actions">
+                      {isPlanReviseEditor && (
+                        <button
+                          type="button"
+                          className="ask-inline-bar-back-btn"
+                          title={t("ask.planReviseBackHint")}
+                          onClick={() => {
+                            showToast(t("ask.planReviseBackHint"));
+                            // cancelled → pi editor 返回 undefined → 扩展 while 循环回到三选一
+                            respondCancel();
+                          }}
+                        >
+                          {t("ask.planReviseBack")}
+                        </button>
+                      )}
+                      <button
+                        className="ask-inline-bar-submit-btn"
+                        onClick={() => {
+                          const el = document.getElementById("ask-inline-bar-input") as
+                            | HTMLInputElement
+                            | HTMLTextAreaElement
+                            | null;
+                          const value = el?.value ?? "";
+                          if (isPlanReviseEditor && !value.trim()) {
+                            // 空提交等价于返回，避免误发空修改意见
+                            showToast(t("ask.planReviseBackHint"));
+                            respondCancel();
+                            return;
+                          }
+                          respondValue(value);
+                        }}
+                      >
+                        {isPlanReviseEditor ? t("ask.planReviseSubmit") : t("common.submit")}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
             </div>
-          )}
+            );
+          })()}
+
           <div
             ref={composerBoxRef}
             className={`composer-box ${

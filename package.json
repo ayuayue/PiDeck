@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "PiDeck is an open-source desktop workbench to manage multiple pi AI coding agents across local project folders with session history, Git integration, terminal, and config management.",
   "private": true,
   "license": "MIT",
@@ -75,12 +75,15 @@
     "@electron-toolkit/utils": "^4.0.0",
     "@larksuiteoapi/node-sdk": "^1.67.0",
     "@radix-ui/react-dialog": "^1.1.19",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next-themes": "^0.4.6",
     "node-pty": "^1.1.0",
+    "radix-ui": "^1.6.7",
     "remove-markdown": "^0.6.4",
     "sonner": "^2.0.7",
-    "sql.js": "^1.14.1"
+    "sql.js": "^1.14.1",
+    "tailwind-merge": "^3.6.0"
   },
   "build": {
     "appId": "com.ayuayue.pi-desktop",

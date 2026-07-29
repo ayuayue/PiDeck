@@ -5,6 +5,35 @@
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.6.7
+
+发布时间：2026-07-29
+
+- 🚀 **紧凑标题栏 + Codex 风格右侧栏**：顶栏更省高度，右侧 Files/Git/Browser/草稿本 Tab 更密
+- 🚀 **文件编辑器收纳到 Files Tab**：编辑器与文件抽屉一体，chrome 更统一
+- 🚀 **文件树拖放 / 粘贴 / 移动**：树内拖入、粘贴、拖拽移动
+- 🚀 **@ 文件建议支持目录树与搜索**：深层路径更好选
+- 🚀 **Composer 粘贴/拖入路径引用**：带空格路径 chip 正确保留
+- 🚀 **文本链接默认内置编辑器打开**：二进制仍走系统程序
+- 🚀 **批量提问 Tab UI**：`ask_question` 批量问题一次展示，可选审阅提交
+- 🚀 **Ctrl/Cmd+点击 Markdown 链接打开系统浏览器**
+- 🚀 **Tailwind v4 + shadcn + sonner Toast**
+- 🚀 **侧栏项目展开/折叠状态跨重启持久化**
+- ✨ Plan 模式流程打磨、Composer 挂件更紧凑、Worktree 侧栏层级更清晰
+- ✨ RPC 启动可选禁用扩展/技能，版本缓存预热
+- 🐛 输入框历史 ↑/↓ 丢失半截草稿、系统标题栏侧栏开关 (#104)
+- 🐛 Agent 启动防闪退/诊断增强（尤其 macOS arm）：spawn 前挂监听 + 错误卡片 + Homebrew PATH
+- 🐛 剪贴板失焦失败、终端 Dock 竞态/串台、未完成 thinking 并入下一条回复
+- 🐛 本地文件链接可点 + todo 字体 (#103)、Select 取消误选、重发截断更安全
+
+感谢本版贡献者：**@1900EasonJin** (#104)、**@zzq168281-coder** (#103)、**@me9rez** (#97)
+
+特别感谢 **微时佬友** 提供的 Grok 模型服务 🎉
+
+> 💬 **QQ 反馈交流群：1026218644**
+
+感谢所有给 PiDeck 提建议和反馈 Bug 的用户 🙏
+
 ## v0.6.6
 
 发布时间：2026-07-25

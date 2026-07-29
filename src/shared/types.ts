@@ -417,6 +417,23 @@ export type AppSettings = {
 	 *  开启后自动跳过启动和定时检测，设置页中检测按钮也禁用。 */
 	disableUpdateCheck: boolean;
 
+	// ── Agent 启动诊断/加速（开发设置） ──
+	/**
+	 * 启动 pi RPC 时附加 --offline，跳过 pi 启动期模型目录网络刷新。
+	 * 桌面端模型列表来自本地 models.json，默认开启以加快冷启动。
+	 */
+	piRpcOffline: boolean;
+	/**
+	 * 启动 pi RPC 时附加 --no-extensions，跳过扩展发现与加载。
+	 * 用于排查「坏扩展导致 RPC 起不来」；开启后 todo/plan/ask 等扩展不可用。
+	 */
+	piRpcNoExtensions: boolean;
+	/**
+	 * 启动 pi RPC 时附加 --no-skills，跳过 skills 发现与加载。
+	 * 用于排查/加速；开启后技能命令与 skill 相关能力不可用。
+	 */
+	piRpcNoSkills: boolean;
+
 	// ── 侧栏 UI 状态 ──
 	/**
 	 * 左侧边栏处于展开状态的项目 id 列表（含 builtin-chat）。

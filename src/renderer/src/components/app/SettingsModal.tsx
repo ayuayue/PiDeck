@@ -635,8 +635,8 @@ function SettingsModalContent(props: SettingsModalProps) {
 											</div>
 										</>
 									)}
-									<hr className="setting-divider" />
-									<div className="setting-field">
+									{/* 不接 setting-divider：上方 SettingSwitch 已有 border-bottom，再画线会双线 */}
+									<div className="setting-field setting-field--after-switch">
 										<span>
 											{t("settings.fontFamilyBase")}
 											<DirtyMarker dirty={isDirty("fontFamilyBase")} label={t("settings.fontFamilyBase")} />
@@ -1203,6 +1203,33 @@ function SettingsModalContent(props: SettingsModalProps) {
 										onChange={(checked) =>
 											updateDraft({ disableUpdateCheck: checked })
 										}
+									/>
+
+									{/* Agent RPC 启动诊断：改完后需重启 Agent。
+									    不要再插 setting-divider：SettingSwitch 已有 border-bottom，叠 divider 会双线。 */}
+									<div className="setting-row setting-row--section-label">
+										<div>
+											<strong>{t("settings.piRpcStartup")}</strong>
+											<small>{t("settings.piRpcStartupDesc")}</small>
+										</div>
+									</div>
+									<SettingSwitch
+										title={t("settings.piRpcOffline")}
+										description={t("settings.piRpcOfflineDesc")}
+										checked={draftSettings.piRpcOffline}
+										onChange={(checked) => updateDraft({ piRpcOffline: checked })}
+									/>
+									<SettingSwitch
+										title={t("settings.piRpcNoExtensions")}
+										description={t("settings.piRpcNoExtensionsDesc")}
+										checked={draftSettings.piRpcNoExtensions}
+										onChange={(checked) => updateDraft({ piRpcNoExtensions: checked })}
+									/>
+									<SettingSwitch
+										title={t("settings.piRpcNoSkills")}
+										description={t("settings.piRpcNoSkillsDesc")}
+										checked={draftSettings.piRpcNoSkills}
+										onChange={(checked) => updateDraft({ piRpcNoSkills: checked })}
 									/>
 								</SettingsSection>
 								<SettingsSection title={t("settings.debug")}>

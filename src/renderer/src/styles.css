@@ -966,8 +966,8 @@ body.is-resizing .wechat-shell {
   position: fixed;
   top: 0;
   left: 0;
-  /* 右侧留给：右栏切换 + 置顶/最小化/最大化/关闭（5 个控件） */
-  right: calc(var(--window-control-width, 36px) * 5);
+  /* 右侧留给：置顶/最小化/最大化/关闭（4 个控件） */
+  right: calc(var(--window-control-width, 36px) * 4);
   height: var(--window-drag-height);
   z-index: 900;
   background: var(--color-bg-sidebar);
@@ -980,23 +980,12 @@ body.is-resizing .wechat-shell {
   z-index: 920;
   display: grid;
   /* 右栏切换 + pin + min + max + close */
-  grid-template-columns: repeat(5, var(--window-control-width, 36px));
+  grid-template-columns: repeat(4, var(--window-control-width, 36px));
   height: var(--window-drag-height);
   background: var(--color-bg-sidebar);
   -webkit-app-region: no-drag;
 }
-/* 左侧标题栏按钮（如侧边栏切换），布局与右侧 window-controls 对称 */
-.window-controls-left {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 920;
-  display: grid;
-  grid-template-columns: repeat(1, var(--window-control-width, 36px));
-  height: var(--window-drag-height);
-  background: transparent;
-  -webkit-app-region: no-drag;
-}
+
 .window-control {
   border: 0;
   border-radius: 0;
@@ -1284,8 +1273,109 @@ body.is-resizing .wechat-shell {
   background: var(--color-bg-hover);
   color: var(--color-accent);
 }
+/*
+ * shadcn 风 IconButton：左右分栏、会话头部开关统一走这套尺寸与边框，
+ * 避免 list-toggle / header-drawer-toggle 各自一套导致大小/圆角不一致。
+ */
+.ui-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
+}
+.ui-icon-button-sm {
+  width: 26px;
+  height: 26px;
+}
+.ui-icon-button-md {
+  width: 30px;
+  height: 30px;
+}
+.ui-icon-button-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.ui-icon-button-outline {
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
+}
+.ui-icon-button-soft {
+  border-color: transparent;
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+}
+.ui-icon-button:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.ui-icon-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.ui-icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ui-icon-button.active {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-panel));
+}
 .ui-icon-button svg {
   display: block;
+  flex: none;
+}
+/* 轻量 Badge：会话头部 ctx/cache/cost 等状态信息 */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-business);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-caption);
+  font-size: var(--font-size-caption);
+}
+.ui-badge-sm {
+  height: 26px;
+  padding: 0 8px;
+}
+.ui-badge-md {
+  height: 28px;
+  padding: 0 10px;
+}
+.ui-badge-secondary {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+}
+.ui-badge-outline {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+}
+.ui-badge-muted {
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--color-bg-muted) 80%, transparent);
+  color: var(--color-text-tertiary);
 }
 .ui-button {
   min-height: var(--control-height-md);
@@ -3064,35 +3154,12 @@ body.is-terminal-resizing {
   background: transparent;
 }
 
-/* 系统标题栏模式下的左侧列表开关：样式对齐 header-drawer-toggle */
+/*
+ * 左右分栏开关：视觉与交互由 .ui-icon-button-* 提供。
+ * 这里只保留定位/间距，避免再写一套 26×30 与 26×26 混用导致左右大小不一。
+ */
 .list-toggle-native {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  width: 30px;
-  border: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  border-radius: var(--radius-md);
-  padding: 0;
-  cursor: pointer;
   flex: 0 0 auto;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s,
-    color 0.15s;
-}
-.list-toggle-native:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-strong);
-  box-shadow: 0 1px 3px
-    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
-}
-.list-toggle-native:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 /* 折叠后的浮动恢复入口：避开左侧 14px 折叠条 */
 .list-toggle-native.floating {
@@ -3101,39 +3168,8 @@ body.is-terminal-resizing {
   left: 22px;
   z-index: 920;
 }
-
-/* 系统标题栏模式下的右侧边栏开关：宽高对齐 session-combo-trigger */
 .header-drawer-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  min-width: 90px;
-  border: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  border-radius: var(--radius-md);
-  padding: 0;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s,
-    color 0.15s;
-}
-.header-drawer-toggle:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-strong);
-  box-shadow: 0 1px 3px
-    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
-}
-.header-drawer-toggle:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-.header-drawer-toggle.active {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
+  flex: 0 0 auto;
 }
 
 /* ---- Session combo (合并新会话 + 下拉,类似 branch-select) ---- */
@@ -3151,11 +3187,11 @@ body.is-terminal-resizing {
   border: 1px solid var(--color-border-subtle);
   background: var(--color-bg-panel);
   color: var(--color-text-primary);
-  /* 与 empty-state / logo 统一用方圆角，不用胶囊 pill */
+  /* 与 IconButton outline / Badge outline 同一套素雅边框，不用胶囊 pill */
   border-radius: var(--radius-md);
   padding: 0 10px;
   font-size: var(--font-size-control);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition:
     background 0.15s,
@@ -3163,6 +3199,7 @@ body.is-terminal-resizing {
     box-shadow 0.15s,
     color 0.15s;
   white-space: nowrap;
+  box-shadow: none;
 }
 .session-combo-trigger:hover:not(:disabled) {
   background: var(--color-bg-hover);
@@ -3495,7 +3532,13 @@ body.is-terminal-resizing {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
 }
-.chat-header-actions button,
+/*
+ * 头部文字按钮默认尺寸。
+ * 注意：不要用 `.chat-header-actions button` 一刀切，否则会把右侧
+ * IconButton（分栏开关）也拉成 min-width:60 / height:32，看起来比左侧大一圈。
+ */
+.chat-header-actions > button:not(.ui-icon-button),
+.chat-header-actions .header-action-group > button:not(.ui-icon-button),
 .panel-action-row button {
   flex: 0 0 auto;
   min-width: 60px;
@@ -3512,23 +3555,29 @@ body.is-terminal-resizing {
     border-color 0.15s,
     color 0.15s;
 }
-.chat-header-actions .session-combo-trigger {
-  min-width: 102px;
+/* 分栏 IconButton 在头部里保持 26×26，与左侧 list-toggle / 新会话高度一致 */
+.chat-header-actions .ui-icon-button {
+  min-width: 0;
+  width: 26px;
   height: 26px;
-  padding: 0 12px;
+  padding: 0;
+}
+.chat-header-actions .session-combo-trigger {
+  min-width: 90px;
+  height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-panel);
   color: var(--color-text-primary);
-  box-shadow: 0 1px 2px
-    color-mix(in srgb, var(--color-text-primary) 5%, transparent);
+  font-weight: 500;
+  box-shadow: none;
 }
 .chat-header-actions .session-combo-trigger:hover:not(:disabled) {
   border-color: var(--color-border-strong);
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-  box-shadow: 0 2px 5px
-    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  box-shadow: none;
 }
 .chat-header-actions .primary-action {
   min-width: 60px;
@@ -3735,11 +3784,13 @@ body.is-terminal-resizing {
 }
 
 /* ---- Header action buttons ---- */
-.chat-header-actions button:hover {
+.chat-header-actions > button:not(.ui-icon-button):hover,
+.chat-header-actions .header-action-group > button:not(.ui-icon-button):hover {
   background: var(--color-bg-hover);
   border-color: var(--color-border-strong);
 }
-.chat-header-actions button.active {
+.chat-header-actions > button:not(.ui-icon-button).active,
+.chat-header-actions .header-action-group > button:not(.ui-icon-button).active {
   background: transparent;
   border-color: var(--color-accent);
   color: var(--color-accent);
@@ -6502,8 +6553,10 @@ body.ask-bar-active .ask-question-card.pending {
   font-weight: 500;
 }
 
-/* ask_question 内联栏 - 在当前会话的输入框上方显示，不遮挡其他页面 */
+/* ask_question 内联栏 - 输入框上方；普通 ask 与 Plan 下一步共用紧凑高度 */
 .ask-inline-bar {
+  /* 与 Plan 下一步共用总高上限，避免某一类弹层特别高 */
+  --ask-inline-max-height: min(220px, 32vh);
   border: 1px solid var(--color-border-strong);
   border-bottom: none;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
@@ -6512,8 +6565,13 @@ body.ask-bar-active .ask-question-card.pending {
     var(--color-accent) 6%,
     var(--color-bg-panel)
   );
-  padding: var(--space-3) var(--space-3) var(--space-3);
+  padding: 8px 10px 8px;
   margin: 0;
+  max-height: var(--ask-inline-max-height);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .ask-inline-bar-header {
   display: flex;
@@ -6522,7 +6580,8 @@ body.ask-bar-active .ask-question-card.pending {
   color: var(--color-accent);
   font-weight: 600;
   font-size: var(--font-size-caption);
-  margin-bottom: var(--space-2);
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .ask-inline-bar-cancel-hint {
   color: var(--color-text-tertiary);
@@ -6534,8 +6593,8 @@ body.ask-bar-active .ask-question-card.pending {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   margin-left: auto;
   border: none;
   border-radius: var(--radius-sm);
@@ -6550,23 +6609,27 @@ body.ask-bar-active .ask-question-card.pending {
   color: var(--color-text-primary);
 }
 .ask-inline-bar-question {
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
   word-break: break-word;
   color: var(--color-text-primary);
-  font-weight: 500;
-  margin-bottom: var(--space-3);
+  font-weight: 600;
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .ask-inline-bar-body {
-  /* 容器，子元素决定实际布局 */
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .ask-inline-bar-options {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  max-height: 180px;
-  overflow-y: auto;
-  padding-right: var(--space-1);
+  gap: 6px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 .ask-inline-bar-options-confirm {
   display: flex;
@@ -6582,15 +6645,15 @@ body.ask-bar-active .ask-question-card.pending {
   display: inline-flex;
   align-items: flex-start;
   justify-content: flex-start;
-  min-height: 30px;
-  padding: 6px 14px;
+  min-height: 26px;
+  padding: 4px 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-chat-control-bg);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-control);
+  font-size: var(--font-size-caption);
   font-weight: 500;
-  line-height: var(--line-height-body);
+  line-height: var(--line-height-caption);
   cursor: pointer;
   transition: all 0.12s ease;
   font-family: var(--font-family-base);
@@ -6634,6 +6697,114 @@ body.ask-bar-active .ask-question-card.pending {
   font-weight: 500;
   line-height: var(--line-height-body);
 }
+
+/* Plan 结束「下一步」：紧凑卡片选项；总高与普通 ask 共用 --ask-inline-max-height */
+.ask-inline-bar--plan-next {
+  border-color: color-mix(in srgb, var(--color-brand-blue) 35%, var(--color-border-strong));
+  background: color-mix(
+    in srgb,
+    var(--color-brand-blue) 7%,
+    var(--color-bg-panel)
+  );
+}
+.ask-inline-bar-guide {
+  margin: 0 0 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-micro);
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+.ask-plan-next-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+/* 三列紧凑卡：标题单行 + 说明两行；用 grid 保宽，避免 flex min-width:0 把中文挤成竖排 */
+.ask-plan-next-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-chat-control-bg);
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+.ask-plan-next-option:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+}
+.ask-plan-next-option:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ask-plan-next-option.tone-primary {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-chat-control-bg));
+}
+.ask-plan-next-option.tone-primary:hover {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-bg-hover));
+}
+.ask-plan-next-option.tone-secondary {
+  border-color: color-mix(in srgb, var(--color-brand-blue) 35%, var(--color-border-subtle));
+}
+.ask-plan-next-option-title {
+  max-width: 100%;
+  font-size: var(--font-size-caption);
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ask-plan-next-option-desc {
+  max-width: 100%;
+  font-size: var(--font-size-micro);
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+  font-weight: 400;
+  /* 中文按词/短语换行，禁止单字竖排；最多两行 */
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ask-plan-next-dismiss {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-micro);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+}
+.ask-plan-next-dismiss:hover {
+  color: var(--color-text-secondary);
+}
+.ask-plan-next-dismiss:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
 .ask-inline-bar-custom-input {
   display: flex;
   gap: var(--space-2);
@@ -6660,6 +6831,49 @@ body.ask-bar-active .ask-question-card.pending {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+}
+/* 修改计划：多行输入 + 返回/提交并排，避免只能提交或关掉 */
+.ask-inline-bar-input-area--plan-revise {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.ask-inline-bar-textarea {
+  width: 100%;
+  min-height: 64px;
+  max-height: 120px;
+  height: auto;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: var(--line-height-body);
+  font-family: var(--font-family-base);
+}
+.ask-inline-bar-input-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.ask-inline-bar-back-btn {
+  height: var(--control-height-lg);
+  padding: 0 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-control);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ask-inline-bar-back-btn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-hover);
+}
+.ask-inline-bar-back-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 .ask-inline-bar-input {
   flex: 1;
@@ -10572,41 +10786,17 @@ body.is-composer-resizing .composer-resize-handle::after {
   font-size: var(--font-size-caption);
   overflow: visible;
   flex-shrink: 0;
-}
-.session-status span {
-  display: inline-flex;
   align-items: center;
-  min-width: 0;
-  max-width: 180px;
-  height: 26px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 0 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  font-family: var(--font-family-business);
-  line-height: var(--line-height-caption);
-  font-size: var(--font-size-caption);
-  font-variant-numeric: tabular-nums;
 }
-.session-status .ctx-chip {
-  max-width: none;
-  flex: 0 0 auto;
-  border-color: var(--color-border-subtle);
-}
-.session-status .cache-chip {
-  max-width: none;
-  flex: 0 0 auto;
-  border-color: var(--color-border-subtle);
-}
+/* chip 外观由 .ui-badge 提供；这里只做布局约束 */
+.session-status .ctx-chip,
+.session-status .cache-chip,
 .session-status .cost-chip {
   max-width: none;
   flex: 0 0 auto;
-  border-color: var(--color-border-subtle);
+}
+.session-status .cost-chip {
   font-weight: 600;
-  font-family: var(--font-family-business);
-  font-variant-numeric: tabular-nums;
 }
 
 /* Agent 状态徽章 */
@@ -11359,6 +11549,16 @@ body.is-composer-resizing .composer-resize-handle::after {
   border: 0;
   border-top: 1px solid var(--color-border-subtle);
 }
+/* SettingSwitch 已自带 border-bottom；其后的表单项只加间距，避免双线 */
+.setting-field--after-switch {
+  margin-top: var(--space-2);
+}
+/* SettingSwitch 后若仍需要分组，用无边框 spacer 代替 divider */
+.setting-spacer {
+  height: var(--space-2);
+  margin: 0;
+  border: 0;
+}
 .setting-field > span,
 .setting-field .ui-field-label {
   color: var(--color-text-secondary);
@@ -11713,6 +11913,11 @@ body.is-composer-resizing .composer-resize-handle::after {
   min-height: 44px;
   margin: 6px 0;
   padding: 0;
+}
+/* 分组小标题（插在 SettingSwitch 之间）：不再额外画线，依赖上一行 switch 的 border-bottom */
+.setting-row--section-label {
+  min-height: 0;
+  margin: 10px 0 2px;
 }
 .setting-row div {
   display: grid;
@@ -19643,6 +19848,12 @@ html[data-theme="dark"] .scratch-pad-md mark {
   border-bottom-right-radius: 0;
 }
 
+/* 折叠态：v3-braun 的选择器优先级高于通用 .list-collapsed 规则，
+   需显式隐藏 sidebar-body 避免文字残留可见。 */
+.list-collapsed .chat-list-pane.v3-braun .sidebar-body {
+  display: none !important;
+}
+
 .wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun {
   background: var(--color-bg-panel);
 }
@@ -19676,11 +19887,15 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 
 .chat-list-pane.v3-braun .sidebar-body .brand-lockup {
-  gap: 14px;
+  gap: 10px;
   align-items: center;
-  /* 保留基础右移，侧栏场景不再清零 */
-  margin: 0 0 0 8px;
+  margin: 0;
   padding: 0;
+}
+
+.chat-list-pane.v3-braun .sidebar-body .brand-lockup .pi-logo-canvas-stage {
+  width: 28px;
+  height: 28px;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .search-row {
@@ -21260,6 +21475,36 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   gap: var(--space-2);
   justify-content: flex-end;
   margin-top: var(--space-1);
+}
+
+/* ── Sonner Toast ──
+ * 去 richColors，中性背景 + 左侧色条区分类型，保持 shadcn 式的素雅。
+ * 图标更小、留白克制，不过度装饰。
+ */
+[data-sonner-toaster] {
+  font-family: var(--font-family-base);
+}
+
+[data-sonner-toaster] [data-close-button] {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+[data-sonner-toaster] [data-sonner-toast]:hover [data-close-button] {
+  opacity: 0.5;
+}
+
+/* Toast 类型色图标：中性底色下用图标颜色区分类型 */
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--color-danger);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--color-warning);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--color-accent);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--color-info);
 }
 
 

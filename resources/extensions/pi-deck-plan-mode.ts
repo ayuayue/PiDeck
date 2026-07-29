@@ -370,16 +370,25 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 		persistState();
 
 		const todoListText = todoItems.map((item) => `${item.step}. ☐ ${item.text}`).join("\n");
-		// 循环展示选单：取消「修改计划」时回到选单，避免用户误点后 agent 空停
+		// 循环展示选单：取消「修改计划」时回到选单，避免用户误点后 agent 空停。
+		// 标题前缀 [PI_DECK_PLAN_NEXT] 给桌面端识别：关闭=退出计划模式，不是「默认第一项」。
+		// 标题前缀 [PI_DECK_PLAN_NEXT]：桌面端识别后换专用 UI/取消提示。
+		// 选项用「标题|说明」编码，桌面端拆成主副文案；前缀仍用于 startsWith 匹配。
+		const PLAN_NEXT_TITLE =
+			"[PI_DECK_PLAN_NEXT] 计划草案已就绪（" + todoItems.length + " 步）";
+		const PLAN_OPT_EXECUTE = "开始执行|恢复写权限，按步骤改代码并勾进度";
+		// 「先不执行」只结束本轮、保持只读；不会自动再分析，需用户再发消息。
+		const PLAN_OPT_CONTINUE = "先不执行|结束本轮，保持只读；再发消息后 AI 才继续";
+		const PLAN_OPT_REVISE = "修改计划|写下修改意见，重新出一版计划";
 		let actionTaken = false;
 		while (!actionTaken) {
-			const choice = await ctx.ui.select("PiDeck 计划模式 — 计划已生成，请选择下一步", [
-				"执行计划（AI 开始逐步实施，并自动标记完成进度）",
-				"继续只读分析（AI 继续分析，仍不能修改文件）",
-				"修改计划（编辑计划步骤后重新提交给 AI）",
+			const choice = await ctx.ui.select(PLAN_NEXT_TITLE, [
+				PLAN_OPT_EXECUTE,
+				PLAN_OPT_CONTINUE,
+				PLAN_OPT_REVISE,
 			]);
 
-			if (choice?.startsWith("执行")) {
+			if (choice?.startsWith("开始执行")) {
 				planModeEnabled = false;
 				executionMode = true;
 				restoreNormalModeTools();
@@ -398,18 +407,23 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 					{ triggerTurn: true, deliverAs: "followUp" },
 				);
 				actionTaken = true;
-			} else if (choice?.startsWith("修改")) {
-				const refinement = await ctx.ui.editor("如何修改计划？", "");
+			} else if (choice?.startsWith("修改计划")) {
+				// 标题前缀 [PI_DECK_PLAN_REVISE]：桌面端显示「返回上一步」而不是误当成退出计划。
+				// 取消/空内容 → refinement 为 undefined/空，循环回到三选一，不会退出 plan。
+				const refinement = await ctx.ui.editor(
+					"[PI_DECK_PLAN_REVISE] 写下你想怎么改这份计划（可返回重选）",
+					"",
+				);
 				if (refinement?.trim()) {
 					pi.sendUserMessage(refinement.trim(), { deliverAs: "followUp" });
 					actionTaken = true;
 				}
-				// 取消或空内容 → 循环回到选单
-			} else if (choice?.startsWith("继续")) {
-				// 继续只读分析 → 直接退出循环，agent 结束当前回合
+				// 取消或空内容 → 不设 actionTaken，while 循环重新弹出三选一
+			} else if (choice?.startsWith("先不执行") || choice?.startsWith("继续规划")) {
+				// 结束本轮、保持 plan 只读；不 triggerTurn，用户再发消息才会继续
 				actionTaken = true;
 			} else {
-				// 用户关闭选单（点击外部 / Esc）→ 退出 plan 模式，不发送后续消息，会话保持打开
+				// 关闭选单（X / Esc）→ 退出 plan 模式；不会默认选「开始执行」
 				setPlanMode(ctx, false);
 				actionTaken = true;
 			}

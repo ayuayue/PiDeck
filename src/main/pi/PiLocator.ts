@@ -76,6 +76,22 @@ export class PiLocator {
       ...this.listChildDirs(join(home, ".nvm", "versions", "node")).map(dir => join(dir, "bin")),
       join(home, ".asdf", "shims"),
       join(home, ".volta", "bin"),
+      // macOS GUI 启动（Dock/Finder）经常拿不到终端里的 Homebrew PATH。
+      // Apple Silicon 默认 /opt/homebrew，Intel 常见 /usr/local；两者都扫一遍，
+      // 避免 M4 上 pi 装在 brew 里却被桌面端判定“未安装/启动失败”。
+      ...(process.platform === "darwin"
+        ? [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            join(home, "Library", "pnpm"),
+            join(home, ".fnm", "current", "bin"),
+            ...this.listChildDirs(join(home, ".fnm", "node-versions")).map((dir) =>
+              join(dir, "installation", "bin"),
+            ),
+          ]
+        : []),
+      // Linux 常见全局 bin，同样覆盖“桌面启动 PATH 不完整”的场景。
+      ...(process.platform === "linux" ? ["/usr/local/bin", "/usr/bin"] : []),
     ];
 
     // These directories only locate an existing pi installation; pi itself is not bundled yet.
