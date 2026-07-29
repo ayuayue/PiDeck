@@ -94,7 +94,6 @@ import {
 	Trash,
 	Share,
 	SquarePen,
-	Send,
 	UserPen,
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
@@ -2169,73 +2168,119 @@ const statusLabel =
 				<div className="tool-card-content">
 					{isAskCard && askCard ? (
 						<div className="ask-question-card-tool-inner">
-							{/* 批量：问题与答案尽量同一行；任一侧过长时自动换行，不互相覆盖 */}
-							{Array.isArray(askCard.items) && askCard.items.length > 0 ? (
-								<div className="ask-question-card-batch-list">
-									{askCard.items.map((item, idx) => {
-										const answerText = formatAskAnswerText(item.answer, item.answerLabel);
-										return (
-											<div key={item.id ?? idx} className="ask-question-card-batch-item">
-												<span className="ask-question-card-batch-num" aria-hidden="true">
-													{idx + 1}
-												</span>
-												<div className="ask-question-card-batch-row">
-													<span className="ask-question-card-batch-q" title={item.question || item.id}>
-														{item.question || item.id}
+							{/*
+							 * 单问 / 批量统一成 Q→A 行卡。
+							 * 业务规则：批量 items 优先；单问（select/confirm/input/editor）
+							 * 也走同一布局，避免会话里两套视觉语言。
+							 */}
+							{(() => {
+								const rows =
+									Array.isArray(askCard.items) && askCard.items.length > 0
+										? askCard.items.map((item, idx) => ({
+												key: item.id ?? String(idx),
+												num: idx + 1,
+												question: item.question || item.id,
+												answered: Boolean(item.answered),
+												answerText: formatAskAnswerText(item.answer, item.answerLabel),
+										  }))
+										: [
+												{
+													key: "single",
+													num: 1,
+													question: askCard.question ?? "",
+													answered: Boolean(askCard.answered),
+													answerText: formatAskAnswerText(
+														askCard.answer,
+														askCard.answerLabel,
+													),
+												},
+										  ];
+								const isSingleSelect =
+									!(Array.isArray(askCard.items) && askCard.items.length > 0) &&
+									Array.isArray(askCard.options) &&
+									askCard.options.length > 0;
+
+								return (
+									<>
+										<div className="ask-question-card-batch-list">
+											{rows.map((row) => (
+												<div key={row.key} className="ask-question-card-batch-item">
+													<span className="ask-question-card-batch-num" aria-hidden="true">
+														{row.num}
 													</span>
-													<span className="ask-question-card-batch-sep" aria-hidden="true">
-														→
-													</span>
-													{item.answered ? (
-														<span className="ask-question-card-batch-a" title={answerText}>
-															{answerText}
+													<div className="ask-question-card-batch-row">
+														<span
+															className="ask-question-card-batch-q"
+															title={row.question}
+														>
+															{row.question}
 														</span>
-													) : (
-														<span className="ask-question-card-batch-a ask-question-card-batch-a--muted">
-															{askCard.cancelled ? t("ask.cancelled") : t("ask.unanswered")}
+														<span className="ask-question-card-batch-sep" aria-hidden="true">
+															→
 														</span>
-													)}
-												</div>
-											</div>
-										);
-									})}
-								</div>
-							) : (
-								<>
-									<div className="ask-question-card-title"><MessageCircle size={13} />{askCard.question}</div>
-									{askCard.options && askCard.options.length > 0 && (
-										<div className="ask-question-card-options-list">
-											{askCard.options.map((opt, i) => {
-												const optLabel = typeof opt === "string" ? opt : (opt as any).label ?? String((opt as any).value ?? "");
-												const optValue = typeof opt === "string" ? opt : String((opt as any).value ?? optLabel);
-												const desc = typeof opt === "object" && opt ? (opt as any).description : undefined;
-												const isSelected = Boolean(askCard.answered) && (optLabel === askCard.answerLabel || optValue === askCard.answer);
-												return (
-													<div key={i} className={`ask-question-card-option-item${isSelected ? " selected" : ""}`}>
-														<span className="ask-question-card-option-selector">{isSelected ? "✓" : ""}</span>
-														<div className="ask-question-card-option-text">
-															<span className="ask-question-card-option-label">{optLabel}</span>
-															{desc && <span className="ask-question-card-option-desc">{desc}</span>}
-														</div>
+														{row.answered ? (
+															<span
+																className="ask-question-card-batch-a"
+																title={row.answerText}
+															>
+																{row.answerText}
+															</span>
+														) : (
+															<span className="ask-question-card-batch-a ask-question-card-batch-a--muted">
+																{askCard.cancelled
+																	? t("ask.cancelled")
+																	: t("ask.unanswered")}
+															</span>
+														)}
 													</div>
-												);
-											})}
+												</div>
+											))}
 										</div>
-									)}
-									{askCard.answered ? (
-										<div className="ask-question-card-answered ask-question-card-answered--wrap">
-											<Check size={14} className="ask-question-card-answered-ok" />
-											<span className="ask-question-card-answer-text">
-												{formatAskAnswerText(askCard.answer, askCard.answerLabel)}
-											</span>
-										</div>
-									) : (
-										<div className="ask-question-card-answered" style={{ color: "var(--color-text-tertiary)" }}>
-											{t("ask.unanswered")}
-										</div>
-									)}
-								</>
-							)}
+										{/* 单问 select：折叠展示备选项，选中项轻量高亮，便于回看完整上下文 */}
+										{isSingleSelect && (
+											<div className="ask-question-card-options-list ask-question-card-options-list--compact">
+												{askCard.options!.map((opt, i) => {
+													const optLabel =
+														typeof opt === "string"
+															? opt
+															: ((opt as { label?: string }).label ??
+																String((opt as { value?: unknown }).value ?? ""));
+													const optValue =
+														typeof opt === "string"
+															? opt
+															: String(
+																	(opt as { value?: unknown }).value ?? optLabel,
+															  );
+													const desc =
+														typeof opt === "object" && opt
+															? (opt as { description?: string }).description
+															: undefined;
+													const isSelected =
+														Boolean(askCard.answered) &&
+														(optLabel === askCard.answerLabel ||
+															optValue === askCard.answer);
+													return (
+														<div
+															key={i}
+															className={`ask-question-card-option-item${isSelected ? " selected" : ""}`}
+														>
+															<span className="ask-question-card-option-selector" aria-hidden="true">
+																{isSelected ? <Check size={12} strokeWidth={2.4} /> : null}
+															</span>
+															<div className="ask-question-card-option-text">
+																<span className="ask-question-card-option-label">{optLabel}</span>
+																{desc ? (
+																	<span className="ask-question-card-option-desc">{desc}</span>
+																) : null}
+															</div>
+														</div>
+													);
+												})}
+											</div>
+										)}
+									</>
+								);
+							})()}
 						</div>
 					) : (
 						<pre className="tool-card-detail">{detailText}</pre>
@@ -2465,40 +2510,54 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	const placeholder = String(uiRequest?.placeholder ?? "");
 	const options = uiRequest?.options as string[] | undefined;
 
+	// 时间线内 pending 单问：复用 ask-inline-bar 控件语言，与输入区单问/批量题卡一致。
 	return (
-		<article className="ask-question-card pending" data-message-id={props.message.id}>
-			<div className="ask-question-card-header">
+		<article className="ask-inline-bar ask-inline-bar--timeline" data-message-id={props.message.id}>
+			<div className="ask-inline-bar-header">
 				<MessageCircle size={14} />
-				<span className="ask-question-card-title">{title || t("ask.defaultTitle")}</span>
-				<span className="ask-question-card-status">{cancelling ? t("ask.cancelling") : t("ask.waiting")}</span>
+				<span>{title || t("ask.defaultTitle")}</span>
+				<span className="ask-inline-bar-cancel-hint">
+					{cancelling ? t("ask.cancelling") : t("ask.waiting")}
+				</span>
+				<button
+					className="ask-inline-bar-close"
+					onClick={handleCancel}
+					disabled={cancelling}
+					title={t("common.cancel")}
+					aria-label={t("common.cancel")}
+				>
+					<X size={14} />
+				</button>
 			</div>
-			<div className="ask-question-card-body">
+			<div className="ask-inline-bar-body">
 				{method === "select" && options && options.length > 0 && (
-					<div className="ask-question-card-options">
-						{/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
-						{options.filter((opt) => !opt.startsWith("✎")).map((opt, i) => (
-							<button
-								key={i}
-								className="ask-question-card-option"
-								onClick={() => handleSelect(opt)}
-								disabled={cancelling}
-							>
-								{opt}
-							</button>
-						))}
+					<div className="ask-inline-bar-options">
+						{/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，自定义输入由其它路径承接 */}
+						{options
+							.filter((opt) => !opt.startsWith("✎"))
+							.map((opt, i) => (
+								<button
+									key={i}
+									className="ask-inline-bar-option"
+									onClick={() => handleSelect(opt)}
+									disabled={cancelling}
+								>
+									<span className="ask-inline-bar-option-marker">{opt}</span>
+								</button>
+							))}
 					</div>
 				)}
 				{method === "confirm" && (
-					<div className="ask-question-card-options ask-question-card-options-confirm">
+					<div className="ask-inline-bar-options ask-inline-bar-options-confirm">
 						<button
-							className="ask-question-card-option ask-question-card-option-yes"
+							className="ask-inline-bar-option ask-inline-bar-option-yes"
 							onClick={() => handleConfirm(true)}
 							disabled={cancelling}
 						>
 							{t("common.true")}
 						</button>
 						<button
-							className="ask-question-card-option ask-question-card-option-no"
+							className="ask-inline-bar-option ask-inline-bar-option-no"
 							onClick={() => handleConfirm(false)}
 							disabled={cancelling}
 						>
@@ -2506,68 +2565,46 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 						</button>
 					</div>
 				)}
-				{method === "input" && (
-					<div className="ask-question-card-input-row">
-						<textarea
-							ref={inputRef}
-							className="ask-question-card-input"
-							placeholder={placeholder || t("ask.inputPlaceholder")}
-							value={inputValue}
-							onChange={(e) => setInputValue(e.target.value)}
-							onKeyDown={(e) => {
+				{(method === "input" || method === "editor") && (
+					<div
+						className={`ask-inline-bar-input-area${method === "editor" ? " ask-inline-bar-input-area--plan-revise" : ""}`}
+					>
+						{method === "editor" ? (
+							<textarea
+								ref={editorRef}
+								className="ask-inline-bar-input ask-inline-bar-textarea"
+								placeholder={placeholder || t("ask.editorPlaceholder")}
+								value={inputValue}
+								onChange={(e) => setInputValue(e.target.value)}
+								disabled={cancelling}
+								rows={3}
+							/>
+						) : (
+							<textarea
+								ref={inputRef}
+								className="ask-inline-bar-input ask-inline-bar-textarea"
+								placeholder={placeholder || t("ask.inputPlaceholder")}
+								value={inputValue}
+								onChange={(e) => setInputValue(e.target.value)}
+								onKeyDown={(e) => {
 								// 与主输入框一致：IME 确认候选词的回车不触发提交
-							if (getComposerEnterIntent(e, "enter-send") === "send") {
+								if (getComposerEnterIntent(e, "enter-send") === "send") {
 									e.preventDefault();
 									handleInputSubmit();
 								}
-							}}
-							disabled={cancelling}
-						/>
-						<button
-							className="ask-question-card-submit"
-							onClick={handleInputSubmit}
-							disabled={!inputValue.trim() || cancelling}
-							title={t("ask.submit")}
-						>
-							<Check size={14} />
-						</button>
-						<button
-							className="ask-question-card-cancel"
-							onClick={handleCancel}
-							disabled={cancelling}
-							title={t("common.cancel")}
-							aria-label={t("common.cancel")}
-						>
-							<X size={14} />
-						</button>
-					</div>
-				)}
-				{method === "editor" && (
-					<div className="ask-question-card-editor-area">
-						<textarea
-							ref={editorRef}
-							className="ask-question-card-editor"
-							placeholder={placeholder || t("ask.editorPlaceholder")}
-							value={inputValue}
-							onChange={(e) => setInputValue(e.target.value)}
-							disabled={cancelling}
-						/>
-						<div className="ask-question-card-editor-actions">
+								}}
+								disabled={cancelling}
+								rows={2}
+							/>
+						)}
+						<div className="ask-inline-bar-input-actions">
 							<button
-								className="ask-question-card-submit"
+								className="ask-inline-bar-submit-btn"
 								onClick={handleInputSubmit}
 								disabled={!inputValue.trim() || cancelling}
+								title={t("ask.submit")}
 							>
 								{t("ask.submit")}
-							</button>
-							<button
-								className="ask-question-card-cancel"
-								onClick={handleCancel}
-								disabled={cancelling}
-								title={t("common.cancel")}
-								aria-label={t("common.cancel")}
-							>
-								<X size={14} />
 							</button>
 						</div>
 					</div>
@@ -3203,7 +3240,6 @@ export const TurnRow = memo(function TurnRow(props: {
 	onOpenExternal: (url: string) => void;
 	onOpenFile?: (path: string) => void;
 	onDiffFile?: DiffFileHandler;
-	onResendUserMessage?: (message: ChatMessage) => void;
 	onDeleteMessage?: (messageId: string) => void;
 	onEditMessage?: (messageId: string, newText: string) => void;
 	/** Agent 正在处理请求或流式输出中时禁用编辑/删除等操作按钮 */
@@ -3627,11 +3663,8 @@ export const UserBubble = memo(function UserBubble(props: {
 	message: ChatMessage;
 	onPreviewImage: (image: ImageContent) => void;
 	onOpenFile?: (path: string) => void;
-	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (messageId: string, newText: string) => void;
 	onDeleteMessage?: (messageId: string) => void;
-	/** 附件（中止/失败）可重发时显示重发按钮 */
-	showResendButton?: boolean;
 	validCommandNames?: Set<string>;
 	validFilePaths?: Set<string>;
 	/** Agent 正在处理请求或流式输出中时禁用编辑/删除等操作按钮 */
@@ -3784,15 +3817,7 @@ export const UserBubble = memo(function UserBubble(props: {
 						>
 							<Trash size={14} />
 						</button>
-						{props.showResendButton && (
-							<button
-								className="user-turn-action-btn"
-								onClick={() => props.onResendUserMessage?.(message)}
-								title={t("app.resendTitle")}
-							>
-								<Send size={14} />
-							</button>
-						)}
+
 					</>
 				)}
 			</div>
@@ -3800,7 +3825,6 @@ export const UserBubble = memo(function UserBubble(props: {
 	);
 }, (previous, next) =>
 	sameChatMessageForRender(previous.message, next.message) &&
-	previous.showResendButton === next.showResendButton &&
 	previous.agentRunning === next.agentRunning &&
 	previous.validCommandNames === next.validCommandNames &&
 	previous.validFilePaths === next.validFilePaths,

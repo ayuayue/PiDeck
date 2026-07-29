@@ -3139,7 +3139,7 @@ function registerIpc() {
 		return result;
 	});
 	ipcMain.handle(ipcChannels.extensionsRemoveBuiltIn, async (_event, source: string) => {
-		// 移除内置扩展：标记到 PiDeck 设置中，下次启动不再自动部署
+		// 移除内置扩展：标记跳过自动部署，并删除用户目录文件，避免 pi 仍加载导致工具冲突
 		await extensionManager.removeBuiltIn(source);
 		void appLogger.info("extension", "Built-in extension removed", { source });
 	});
@@ -3784,6 +3784,15 @@ async function runPostWindowStartupTasks(): Promise<void> {
 			BUILT_IN_EXTENSIONS.map(async (extensionName) => {
 				if (removedBuiltIn.has(extensionName)) {
 					summary.skippedRemoved.push(extensionName);
+					// 历史「仅标记移除、文件仍保留」会让 pi 继续加载残留扩展，
+					// 与三方同名工具（如 rpiv-todo 的 todo）冲突导致 RPC 启动失败。启动时清残留。
+					try {
+						await rm(join(homeDir, ".pi", "agent", "extensions", extensionName), { force: true });
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						summary.failed.push({ name: extensionName, error: `purge residual: ${message}` });
+						console.error(`Failed to purge residual ${extensionName}:`, error);
+					}
 					return;
 				}
 				try {

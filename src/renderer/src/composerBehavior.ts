@@ -294,3 +294,31 @@ export function getComposerHistoryLineBounds(
 		isLastLine: !textAfterCursor.includes("\n"),
 	};
 }
+
+/**
+ * 判断一组选项是否为纯是/否确认题。
+ *
+ * 业务背景：ask_question 的 confirm 在扩展层改走 select([是, 否])，
+ * 以区分「点叉取消」与「选否」。桌面端若按普通 select 渲染，会误加自定义输入框。
+ * 规则：恰好两项，且归一化后恰好覆盖 {yes,no}，不含其它文案。
+ */
+export function isYesNoConfirmOptions(
+	options: Array<string | { label?: string; value?: string }> | undefined | null,
+): boolean {
+	if (!Array.isArray(options) || options.length !== 2) return false;
+	const labels = options.map((opt) => {
+		const raw =
+			typeof opt === "string"
+				? opt
+				: String(opt?.label ?? opt?.value ?? "");
+		return raw.trim().toLowerCase();
+	});
+	// 过滤自定义入口标记，防止异常数据混入后仍被当 confirm
+	if (labels.some((l) => l.startsWith("✎") || l === "__other__")) return false;
+	const yesSet = new Set(["是", "yes", "y", "true", "确认", "ok", "okay"]);
+	const noSet = new Set(["否", "no", "n", "false", "取消"]);
+	const kinds = labels.map((l) =>
+		yesSet.has(l) ? "yes" : noSet.has(l) ? "no" : "other",
+	);
+	return kinds.includes("yes") && kinds.includes("no") && !kinds.includes("other");
+}

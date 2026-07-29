@@ -776,6 +776,7 @@ export function createPreviewApi(): PiDesktopApi {
 			}) as any,
 			onLog: noop,
 			onThinking: noop,
+			onNotice: noop,
 			onRpcLog: noop,
 			onRuntimeState: noop,
 			onUiRequest: noop,

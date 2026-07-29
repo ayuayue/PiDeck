@@ -443,7 +443,10 @@ export type AppSettings = {
 	sidebarExpandedProjectIds?: string[];
 
 	// ── 扩展管理 ──
-	/** 用户手动移除的内置扩展列表（如 pi-deck-todo.ts），下次启动不再自动部署。 */
+	/**
+	 * 用户手动移除（或因三方冲突自动让位）的内置扩展列表（如 pi-deck-todo.ts）。
+	 * 下次启动跳过自动部署，并清理用户目录残留文件，避免 pi 仍加载导致工具冲突。
+	 */
 	removedBuiltInExtensions: string[];
 
 };

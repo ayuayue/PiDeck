@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -56,7 +56,12 @@ test("reads an installed WSL npm extension version through its canonical host pa
 				return readFile(fixturePath, encoding);
 			},
 		});
-		const manager = new ExtensionManager({}, () => ({}));
+		const manager = new ExtensionManager(
+			{},
+			() => ({}),
+			() => ({ removedBuiltInExtensions: [] }),
+			async () => ({ removedBuiltInExtensions: [] }),
+		);
 		manager.configureWsl(wslPaths.createWslEnvironment("Ubuntu-24.04", "root", "/root"));
 
 		const version = await manager.readInstalledVersion(
@@ -74,28 +79,69 @@ test("reads an installed WSL npm extension version through its canonical host pa
 	}
 });
 
-test("reads and writes extension enablement in the active WSL HOME", async () => {
-	let settingsContent = JSON.stringify({ disabledExtensions: [] });
-	const reads = [];
-	const writes = [];
-	const { ExtensionManager, wslPaths } = loadExtensionManager({
-		readFile: async (filePath) => {
-			reads.push(String(filePath));
-			return settingsContent;
-		},
-		writeFile: async (filePath, content) => {
-			writes.push(String(filePath));
-			settingsContent = String(content);
-		},
-	});
-	const manager = new ExtensionManager({}, () => ({}));
-	manager.configureWsl(wslPaths.createWslEnvironment("Ubuntu-24.04", "root", "/root"));
+test("removeBuiltIn deletes the extension file under the active WSL HOME", async () => {
+	const fixtureHome = mkdtempSync(join(tmpdir(), "pideck-builtin-remove-"));
+	// 模拟 //wsl.localhost/Ubuntu-24.04/root 映射到临时目录的语义：直接用本地 fixture 作为 windowsHome
+	const extensionsDir = join(fixtureHome, ".pi", "agent", "extensions");
+	mkdirSync(extensionsDir, { recursive: true });
+	const targetFile = join(extensionsDir, "pi-deck-todo.ts");
+	writeFileSync(targetFile, "export default function () {}", "utf8");
 
-	await manager.setEnabled("pi-deck-todo.ts", false);
-	const disabled = await manager.getDisabledExtensions();
+	let savedSettings = { removedBuiltInExtensions: [] };
+	const removedPaths = [];
 
-	const expectedPath = "//wsl.localhost/Ubuntu-24.04/root/.pi/agent/settings.json";
-	assert.equal(reads.every((filePath) => filePath.replace(/\\/g, "/") === expectedPath), true);
-	assert.equal(writes[0].replace(/\\/g, "/"), expectedPath);
-	assert.equal(disabled.has("pi-deck-todo.ts"), true);
+	try {
+		const { ExtensionManager } = loadExtensionManager({
+			rm: async (filePath, options) => {
+				removedPaths.push({ path: String(filePath), options });
+				// 真正删掉 fixture 文件，验证路径正确
+				rmSync(String(filePath), { force: true, ...(options ?? {}) });
+			},
+		});
+
+		const manager = new ExtensionManager(
+			{},
+			() => ({}),
+			() => savedSettings,
+			async (patch) => {
+				savedSettings = { ...savedSettings, ...patch };
+				return savedSettings;
+			},
+		);
+		// 不走真实 WSL 路径映射：把 homeDir 指到 fixture
+		manager.configureWsl({
+			distro: "Ubuntu-24.04",
+			user: "root",
+			linuxHome: "/root",
+			windowsHome: fixtureHome,
+		});
+
+		assert.equal(existsSync(targetFile), true);
+		await manager.removeBuiltIn("pi-deck-todo.ts");
+
+		assert.equal(existsSync(targetFile), false);
+		assert.equal(savedSettings.removedBuiltInExtensions.includes("pi-deck-todo.ts"), true);
+		assert.equal(removedPaths.length, 1);
+		assert.equal(
+			removedPaths[0].path.replace(/\\/g, "/"),
+			targetFile.replace(/\\/g, "/"),
+		);
+		assert.equal(removedPaths[0].options?.force, true);
+	} finally {
+		rmSync(fixtureHome, { recursive: true, force: true });
+	}
+});
+
+test("removeBuiltInFile rejects path traversal and non-builtin names", async () => {
+	const { ExtensionManager } = loadExtensionManager();
+	const manager = new ExtensionManager(
+		{},
+		() => ({}),
+		() => ({ removedBuiltInExtensions: [] }),
+		async (s) => s,
+	);
+
+	await assert.rejects(() => manager.removeBuiltInFile("../evil.ts"), /非法内置扩展路径/);
+	await assert.rejects(() => manager.removeBuiltInFile("not-builtin.ts"), /非法内置扩展路径/);
+	await assert.rejects(() => manager.removeBuiltIn("npm:something"), /只能操作内置扩展/);
 });

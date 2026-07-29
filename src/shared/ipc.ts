@@ -197,6 +197,12 @@ export const ipcChannels = {
 	/** 流式思考内容更新，agent 忙碌时实时推送当前思考文本 */
 	agentsThinking: "agents:thinking",
 
+	/**
+	 * 主进程 → 渲染进程的轻量 toast 通知（如 abort 已请求停止）。
+	 * 避免把瞬时状态反馈写成会话时间线里的系统卡片。
+	 */
+	agentsNotice: "agents:notice",
+
 	/** Agent Extension UI 协议：主进程 → 渲染进程，推送扩展的 UI 请求（select/confirm/input/editor） */
 	agentsUiRequest: "agents:ui-request",
 	/** 渲染进程 → 主进程，传递用户在 UI 请求中的响应（选中的选项、输入的文本等） */

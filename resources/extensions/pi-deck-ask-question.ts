@@ -254,7 +254,15 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 				if (selected == null || selected === "") {
 					return { id: q.id, type: q.type, value: null };
 				}
-				const chosen = opts.find((o) => optionDisplayText(o) === selected);
+				// 兼容桌面端回传显示文案 / value / OTHER_LABEL 三种形态，
+				// 避免「自行输入」因文案拼接差异匹配失败而落成取消。
+				const chosen =
+					opts.find((o) => optionDisplayText(o) === selected) ??
+					opts.find((o) => o.value === selected) ??
+					opts.find((o) => o.label === selected) ??
+					(selected === OTHER_LABEL || selected === "__other__"
+						? opts.find((o) => o.isOther)
+						: undefined);
 				if (!chosen) {
 					// 未知返回值也当取消，避免误绑第一项
 					return { id: q.id, type: q.type, value: null };

@@ -130,3 +130,21 @@ test("history line bounds use the live draft cursor position", () => {
 	assert.equal(last.isFirstLine, false);
 	assert.equal(last.isLastLine, true);
 });
+
+// confirm 扩展层走 select([是,否])：桌面端必须识别为纯是否题，不展示自定义输入。
+test("detects yes/no confirm options and rejects multi-choice selects", () => {
+	const { isYesNoConfirmOptions } = loadComposerBehaviorModule();
+
+	assert.equal(isYesNoConfirmOptions(["是", "否"]), true);
+	assert.equal(isYesNoConfirmOptions(["Yes", "No"]), true);
+	assert.equal(
+		isYesNoConfirmOptions([
+			{ label: "是", value: "yes" },
+			{ label: "否", value: "no" },
+		]),
+		true,
+	);
+	assert.equal(isYesNoConfirmOptions(["继续", "查看目录", "写代码"]), false);
+	assert.equal(isYesNoConfirmOptions(["是"]), false);
+	assert.equal(isYesNoConfirmOptions(["是", "否", "其它"]), false);
+});

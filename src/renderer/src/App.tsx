@@ -70,6 +70,7 @@ import {
   expandPromptTemplates,
   getComposerEnterIntent,
   getComposerHistoryLineBounds,
+  isYesNoConfirmOptions,
   parseArgumentHint,
   resolveComposerHistoryDraft,
   translateBuiltinPromptDescription,
@@ -80,7 +81,7 @@ import {
   isSameSessionPath,
   isSidebarSessionRowActive,
 } from "./agentListDisplay";
-import { resolveLocale, setI18nLocale, t } from "./i18n";
+import { resolveLocale, setI18nLocale, t, type TranslationKey } from "./i18n";
 import { mergeAgentRuntimeState } from "./utils/agentRuntimeState";
 import { sameSessionSummaryList } from "./utils/sessionSummaryList";
 import {
@@ -1820,36 +1821,6 @@ export function App() {
   }, [activeMessages, renderedRuns]);
 
 
-  /**
-   * 判断用户消息是否可重发：仅当该消息为最后一条用户消息，且其后的 assistant 响应
-   * 被中止（系统提示）或执行失败（error 消息）时才显示重发按钮。
-   * 正常完成的 assistant 响应不应触发重发。
-   */
-  const resendableMessageIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (let i = activeMessages.length - 1; i >= 0; i--) {
-      const msg = activeMessages[i];
-      if (msg.role !== "user") continue;
-      // 从最后一条用户消息开始，检查其后最近的消息状态
-      let hasAbortOrError = false;
-      for (let j = i + 1; j < activeMessages.length; j++) {
-        const next = activeMessages[j];
-        if (next.role === "user") break; // 下一条用户消息，不属本轮
-        if (next.role === "error") { hasAbortOrError = true; break; }
-        if (next.role === "system") {
-          const meta = next.meta as Record<string, unknown> | undefined;
-          if (meta?.i18nKey === "app.abortRequested") { hasAbortOrError = true; break; }
-        }
-        if (next.role === "assistant" && next.text?.trim()) {
-          // 存在正常的 assistant 回复 → 不显示重发
-          break;
-        }
-      }
-      if (hasAbortOrError) ids.add(msg.id);
-      break; // 只检查最后一条用户消息
-    }
-    return ids;
-  }, [activeMessages]);
 
   // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor/batch_ask）
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
@@ -2426,6 +2397,14 @@ export function App() {
         [payload.agentId]: payload.thinking,
       })),
     );
+    // 主进程瞬时状态反馈（如 abort 已请求停止）走 toast，不进会话时间线
+    const offNotice = api.agents.onNotice((payload) => {
+      const text =
+        payload.i18nKey
+          ? t(payload.i18nKey as TranslationKey)
+          : payload.message;
+      showNotice(text, payload.duration ?? 2500, payload.kind ?? "info");
+    });
     // 监听 Extension UI 请求：对话类渲染为提问卡片；setWidget 类作为 composer 上方的轻量状态块展示。
     const offUiRequest = api.agents.onUiRequest((request) => {
       if (request.method === "notify") {
@@ -2483,22 +2462,36 @@ export function App() {
       }
 
       setActiveUiRequest((current) => {
-        // 如果 requestId 已存在且带了 completed 标记，清除该请求
-        if (current?.[request.requestId] && request.completed) {
+        // completed 事件：只删对应 requestId；其它 pending 请求保留。
+        if (request.completed) {
+          if (!current?.[request.requestId]) return current;
           const next = { ...current };
           delete next[request.requestId];
           if (Object.keys(next).length === 0) return null;
           return next;
         }
-        /* 用户通过 select 弹框自定义输入框提交自定义值后，Pi 会收到 "✎ 自行输入..."
-           选项值并发送 input 弹框让用户输入。此处检测到 pending 值后自动提交 input
-           弹框，对用户表现为一次提交即完成，无需二次输入。 */
+
+        /*
+         * select 自定义输入两步协议：
+         * 1) 用户在桌面端自定义框提交文本 → 先回 "✎ 自行输入..." 给扩展
+         * 2) 扩展再发 input UI 请求收集正文
+         * 这里检测到 pending 自定义文本时，立刻把真实值回给第二步 input，
+         * 不弹二次输入框。若 agentId 丢失则丢弃 pending，避免挂死。
+         */
         if (request.method === "input" && pendingCustomInputRef.current) {
           const value = pendingCustomInputRef.current;
           pendingCustomInputRef.current = "";
-          api.agents.sendUiResponse(activeAgentIdRef.current ?? "", request.requestId, { value });
-          return current; // 不显示 input 弹框
+          const targetAgentId = request.agentId || activeAgentIdRef.current;
+          if (targetAgentId) {
+            // 异步回填，避免在 setState updater 里直接做副作用
+            queueMicrotask(() => {
+              api.agents.sendUiResponse(targetAgentId, request.requestId, { value });
+            });
+          }
+          // 不把这个 input 请求放进 activeUiRequest，用户侧保持「一次提交」
+          return current;
         }
+
         // 新增或更新 UI 请求
         return { ...(current ?? {}), [request.requestId]: request as UiRequest };
       });
@@ -2562,6 +2555,7 @@ export function App() {
       offOpenInBrowser?.();
       offRuntimeState();
       offThinking();
+      offNotice();
       offUiRequest();
       offTrustRequest();
       offRpcLog();
@@ -4656,11 +4650,18 @@ export function App() {
 
   async function abortAgent(agentId = activeAgentId) {
     if (!agentId || isPendingAgentId(agentId)) return;
-    // 立即清除流式状态，让思考气泡和 loading 立刻消失，不等后端 RPC 返回
+    // 立即清除流式状态与本地 thinking 缓存，让思考气泡和 loading 立刻消失，不等后端 RPC 返回。
+    // 若不先清 streamingThinking，后端残留 delta 被拦截前 UI 仍会继续显示旧思考。
     const previous = runtimeStateByAgentRef.current[agentId];
     if (previous) {
       applyAgentRuntimeState(agentId, { ...previous, isStreaming: false });
     }
+    setStreamingThinking((current) => {
+      if (!(agentId in current)) return current;
+      const next = { ...current };
+      delete next[agentId];
+      return next;
+    });
     await api.agents.abort(agentId);
     // 不调用 refreshRuntimeState：AgentManager.abort() 会通过 emitState 推送正确状态，
     // 避免后端 get_state 返回过时的 isStreaming: true 覆盖前端立刻设的 false。
@@ -5500,76 +5501,6 @@ export function App() {
       return false;
     }
   }
-
-  /** 重发防重复：通过 messageId 锁避免同一消息多次重发。
-   *  锁会在 agent 状态切回 idle 时自动清除（下方 useEffect），超时 30s 兜底释放。 */
-  const resendingIdsRef = useRef<Set<string>>(new Set());
-
-  async function resendUserMessage(message: ChatMessage) {
-    if (!activeAgentId || message.agentId !== activeAgentId) return;
-    if (resendingIdsRef.current.has(message.id)) return;
-    // 同文件截断重发需要 idle：只删当前用户消息及其本轮后代，保留更早历史，再重新 prompt。
-    if (isAgentBusy || isAgentStarting) {
-      showToast(t("message.busyGeneric"), 3000);
-      return;
-    }
-    resendingIdsRef.current.add(message.id);
-    // 30 秒兜底释放，防止锁泄漏
-    setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
-
-    // 与 sendPrompt 一致：无论用户是否在回看历史，重发都强制贴底并持续跟随流式输出。
-    // 否则截断后消息变短、视口停在中部，新消息会“悬在上面一点”，ResizeObserver 也不会跟踪。
-    setAutoScroll(true);
-    autoScrollRef.current = true;
-    setShowScrollToBottom(false);
-    programmaticScrollRef.current = true;
-    const resendTimeline = timelineRef.current;
-    if (resendTimeline) {
-      resendTimeline.scrollTo({ top: resendTimeline.scrollHeight, behavior: "instant" });
-    }
-
-    try {
-      // 不走 fork（会新建会话文件），在同文件内截断后重发。
-      const prepared = await api.agents.prepareResend(activeAgentId, message.id);
-      const text =
-        typeof prepared?.text === "string" && prepared.text.trim()
-          ? prepared.text
-          : message.text;
-      const images =
-        prepared?.images && prepared.images.length > 0
-          ? prepared.images
-          : message.images;
-      const accepted = await submitPromptSnapshot(activeAgentId, text, images);
-      if (accepted !== true) return;
-
-      // 截断重载 + 重新 prompt 后，DOM 会先缩后涨；多帧贴底，保证新用户消息与流式回复都可见。
-      const stickToBottom = () => {
-        if (!autoScrollRef.current) return;
-        const timeline = timelineRef.current;
-        if (!timeline) return;
-        programmaticScrollRef.current = true;
-        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
-      };
-      requestAnimationFrame(() => {
-        stickToBottom();
-        requestAnimationFrame(stickToBottom);
-      });
-    } catch (error) {
-      showToast(
-        t("app.resendFailed", {
-          error: error instanceof Error ? error.message : String(error),
-        }),
-        4000,
-      );
-    }
-  }
-
-  /** agent 切回 idle 时释放所有重发锁，允许下次正常重发。 */
-  useEffect(() => {
-    if (activeAgent?.status !== "running" && activeAgent?.status !== "starting") {
-      resendingIdsRef.current.clear();
-    }
-  }, [activeAgent?.status]);
 
   /** 将主进程抛出的错误消息中的 BUSY_ 前缀码转为前端多语言文案 */
   function translateAgentErrorMessage(msg: string): string {
@@ -7570,11 +7501,9 @@ export function App() {
                       message={message}
                       onPreviewImage={setPreviewImage}
                       onOpenFile={openFilePath}
-                      onResendUserMessage={resendUserMessage}
                       onEditMessage={editMessage}
                       onDeleteMessage={deleteMessage}
                       agentRunning={isAgentBusy}
-                      showResendButton={resendableMessageIds.has(message.id)}
                       validCommandNames={validCommandNames}
                       validFilePaths={validFilePaths}
                       onEnterMultiSelect={() => setMultiSelectOpen(true)}
@@ -7589,10 +7518,18 @@ export function App() {
                 if (message.role === "system") {
                   const meta = message.meta as any;
                   if (meta?.type === "askQuestion") {
+                    // 正在用 composer 内联栏回答同一 request 时，隐藏时间线 pending 卡，避免双份 UI。
+                    // 已回答/取消的卡由 AskQuestionCard 内部 return null，最终结果看 ToolCard。
+                    const req = meta.uiRequest as { requestId?: string } | undefined;
+                    const isActivePending =
+                      meta.status === "pending" &&
+                      Boolean(req?.requestId) &&
+                      Boolean(activeUiAsk?.requestId) &&
+                      req?.requestId === activeUiAsk?.requestId;
+                    if (isActivePending) return null;
                     return (
                       <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
-                        const req = meta.uiRequest;
-                        if (!req || !activeAgentId) return;
+                        if (!req?.requestId || !activeAgentId) return;
                         // cancelled 通过 sendUiResponse 正常发送。
                         // select/input/editor：cancelled 或 value:null → undefined/null。
                         // 原生 confirm：pi 会把 cancelled 解析成 false（与「否」同值）；
@@ -7970,12 +7907,18 @@ export function App() {
               activeUiAsk.method === "select" &&
               Array.isArray(activeUiAsk.options) &&
               activeUiAsk.options.length > 0;
+            // 扩展 confirm 实际走 select([是,否])：识别后只渲染是否按钮，不给自定义输入。
+            const isYesNoConfirm =
+              activeUiAsk.method === "confirm" ||
+              (activeUiAsk.method === "select" &&
+                !isPlanNextSelect &&
+                isYesNoConfirmOptions(activeUiAsk.options));
             // 按提问类型给取消 toast/提示：select 已有；confirm/input/editor 之前点叉会静默取消。
             const cancelHintKey = isPlanNextSelect
               ? "ask.planNextCancelHint"
               : isPlanReviseEditor
                 ? "ask.planReviseBackHint"
-                : activeUiAsk.method === "confirm"
+                : isYesNoConfirm
                   ? "ask.cancelConfirmHint"
                   : activeUiAsk.method === "input"
                     ? "ask.cancelInputHint"
@@ -8001,9 +7944,11 @@ export function App() {
             const respondCancel = () => {
               if (!activeUiAsk.requestId || !activeAgentId) return;
               dismissAsk();
-              // 普通 select 取消：发 value:null（与 abort 路径一致），避免 cancelled→undefined
-              // 被旧版 ask_question 的 `?? opts[0]` 回落成第一项。Plan 下一步/修改计划仍用 cancelled。
-              if (activeUiAsk.method === "select" && !isPlanNextSelect) {
+              // 普通 select / 是否题 取消：必须发 value:null（select 协议），
+              // 不能发 cancelled:true —— 否则 pi 可能回 undefined，旧 ask 扩展会误选第一项。
+              // 扩展层 confirm 也是 select([是,否])，取消语义与 select 相同。
+              // Plan 下一步/修改计划仍用 cancelled（扩展自己解释返回）。
+              if ((activeUiAsk.method === "select" || isYesNoConfirm) && !isPlanNextSelect) {
                 api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
                   value: null,
                 });
@@ -8058,27 +8003,22 @@ export function App() {
                 <div className="ask-inline-bar-guide">{t("ask.planNextGuide")}</div>
               )}
               <div className="ask-inline-bar-body">
-                {activeUiAsk.method === "confirm" ? (
+                {isYesNoConfirm ? (
                   <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
+                    {/*
+                     * 仅 UI 收敛为是否两钮；协议仍是 select：
+                     * 选是/否 → value:"是"/"否"；点叉 → value:null。
+                     * 绝不能发 confirmed 字段，取消也不能走 cancelled:true。
+                     */}
                     <button
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
-                      onClick={() => {
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          dismissAsk();
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
-                        }
-                      }}
+                      onClick={() => respondValue("是")}
                     >
                       {t("common.true")}
                     </button>
                     <button
                       className="ask-inline-bar-option ask-inline-bar-option-no"
-                      onClick={() => {
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          dismissAsk();
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
-                        }
-                      }}
+                      onClick={() => respondValue("否")}
                     >
                       {t("common.false")}
                     </button>
@@ -8138,6 +8078,7 @@ export function App() {
                         </button>
                       );
                     })}
+                    {/* 仅普通 select 提供自定义输入；confirm/是否题不展示 */}
                     <div className="ask-inline-bar-custom-input">
                       <input
                         id="ask-inline-bar-custom-field"
@@ -8150,9 +8091,13 @@ export function App() {
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
                             if (val && activeUiAsk.requestId && activeAgentId) {
-                              dismissAsk();
+                              // 先缓存真实自定义文本，再回 OTHER_LABEL 触发扩展第二步 input。
+                              // 顺序不能反：onUiRequest(input) 可能很快到达，必须先写 pending。
                               pendingCustomInputRef.current = val;
-                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                              dismissAsk();
+                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                                value: "✎ 自行输入...",
+                              });
                             }
                           }
                         }}
@@ -8164,9 +8109,11 @@ export function App() {
                           const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                           const val = el?.value?.trim() ?? "";
                           if (val && activeUiAsk.requestId && activeAgentId) {
-                            dismissAsk();
                             pendingCustomInputRef.current = val;
-                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                            dismissAsk();
+                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                              value: "✎ 自行输入...",
+                            });
                           }
                         }}
                       >

@@ -6334,10 +6334,11 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 .tool-card--ask {
   background: transparent;
 }
-/* ask dialog 打开时隐藏内联卡片的全部内容，避免对话中重复显示提问 */
+/* ask dialog 打开时隐藏时间线内重复的提问卡，只保留 composer 上方内联栏 */
 body.ask-bar-active .tool-card--ask,
 body.ask-bar-active .ask-card-preview,
-body.ask-bar-active .ask-question-card.pending {
+body.ask-bar-active .ask-question-card.pending,
+body.ask-bar-active .ask-inline-bar--timeline {
   display: none;
 }
 .tool-card--ask .tool-card-icon {
@@ -6365,56 +6366,66 @@ body.ask-bar-active .ask-question-card.pending {
   color: var(--color-info);
   flex-shrink: 0;
 }
-.ask-question-card-tool-inner .ask-question-card-options-list {
+/* 单问 select 备选项：紧凑列表，与批量 Q→A 行同属一套素雅语言 */
+.ask-question-card-options-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.ask-question-card-options-list--compact {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--color-border-subtle) 80%, transparent);
 }
 .ask-question-card-tool-inner .ask-question-card-option-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 26px;
+  padding: 5px 8px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-chat-control-bg);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-panel) 70%, transparent);
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
   line-height: var(--line-height-caption);
-  transition: none;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease,
+    color 0.12s ease;
 }
 .ask-question-card-tool-inner .ask-question-card-option-item.selected {
-  border-color: var(--color-accent);
-  background: var(--color-chat-control-bg);
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-panel));
   color: var(--color-text-primary);
 }
 .ask-question-card-tool-inner .ask-question-card-option-selector {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: var(--color-bg-panel);
   flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--color-success);
-  transition: none;
+  color: transparent;
 }
 .ask-question-card-tool-inner
   .ask-question-card-option-item.selected
   .ask-question-card-option-selector {
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-bg-panel));
   color: var(--color-success);
 }
 .ask-question-card-tool-inner .ask-question-card-option-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
 }
 .ask-question-card-tool-inner .ask-question-card-option-label {
@@ -6423,54 +6434,14 @@ body.ask-bar-active .ask-question-card.pending {
   color: inherit;
   font-family: var(--font-family-base);
   font-weight: 500;
+  word-break: break-word;
 }
 .ask-question-card-tool-inner .ask-question-card-option-desc {
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-micro);
+  line-height: 1.35;
   color: var(--color-text-tertiary);
   font-weight: 400;
-}
-.ask-question-card-tool-inner .ask-question-card-answered {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-chat-card-bg);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
-  color: var(--color-chat-link);
-  font-weight: 700;
-}
-.ask-question-card-tool-inner .ask-question-card-answered svg {
-  flex-shrink: 0;
-  stroke-width: 2.5;
-  color: var(--color-success);
-}
-/* 长答案允许换行，避免 fixed height 下文字覆盖错位 */
-.ask-question-card-tool-inner .ask-question-card-answered--wrap {
-  height: auto;
-  min-height: 24px;
-  max-width: 100%;
-  align-items: flex-start;
-  padding: 4px 10px;
-  white-space: normal;
   word-break: break-word;
-}
-.ask-question-card-tool-inner .ask-question-card-answered--muted {
-  color: var(--color-text-tertiary);
-  font-weight: 500;
-  height: auto;
-  min-height: 24px;
-  padding: 4px 10px;
-}
-.ask-question-card-tool-inner .ask-question-card-answer-text {
-  min-width: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: var(--line-height-caption);
 }
 
 /* 批量问卷结果：问题与答案尽量同一行；任一侧过长时自动换行，不互相覆盖 */
@@ -6573,6 +6544,16 @@ body.ask-bar-active .ask-question-card.pending {
   flex-direction: column;
   min-height: 0;
 }
+/* 时间线内 pending 单问：完整圆角卡片，不贴 composer 底边 */
+.ask-inline-bar--timeline {
+  --ask-inline-max-height: none;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-bg-panel) 92%, var(--color-accent) 8%);
+  margin: 8px 0;
+  max-height: none;
+  overflow: visible;
+}
 .ask-inline-bar-header {
   display: flex;
   align-items: center;
@@ -6645,23 +6626,28 @@ body.ask-bar-active .ask-question-card.pending {
   display: inline-flex;
   align-items: flex-start;
   justify-content: flex-start;
-  min-height: 26px;
-  padding: 4px 10px;
+  min-height: 28px;
+  padding: 6px 12px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-chat-control-bg);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
   line-height: var(--line-height-caption);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
   font-family: var(--font-family-base);
   white-space: normal;
   text-align: left;
   word-break: break-word;
   flex: 1 1 auto;
   max-width: 100%;
+  box-shadow: none;
 }
 .ask-inline-bar-option:hover {
   color: var(--color-text-primary);
@@ -6675,25 +6661,46 @@ body.ask-bar-active .ask-question-card.pending {
   outline: var(--focus-ring);
   outline-offset: 2px;
 }
+/* 批量/单问共用 selected：与 badge/outline 控件同一强调色 */
+.ask-inline-bar-option.selected {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-panel));
+  color: var(--color-text-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
 .ask-inline-bar-option-yes {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border-subtle));
+  color: var(--color-success);
   justify-content: center;
   align-items: center;
   white-space: nowrap;
-  flex: none;
+  flex: 1 1 0;
+  min-width: 88px;
+}
+.ask-inline-bar-option-yes:hover,
+.ask-inline-bar-option-yes.selected {
+  border-color: color-mix(in srgb, var(--color-success) 55%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-success) 10%, var(--color-bg-panel));
+  color: var(--color-success);
 }
 .ask-inline-bar-option-no {
-  border-color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border-subtle));
   color: var(--color-danger);
   justify-content: center;
   align-items: center;
   white-space: nowrap;
-  flex: none;
+  flex: 1 1 0;
+  min-width: 88px;
+}
+.ask-inline-bar-option-no:hover,
+.ask-inline-bar-option-no.selected {
+  border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-bg-panel));
+  color: var(--color-danger);
 }
 .ask-inline-bar-option-marker {
   font-size: var(--font-size-control);
-  color: var(--color-text-primary);
+  color: inherit;
   font-weight: 500;
   line-height: var(--line-height-body);
 }

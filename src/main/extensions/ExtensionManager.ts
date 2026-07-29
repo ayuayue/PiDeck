@@ -156,7 +156,10 @@ export class ExtensionManager {
 
 		// 仅检测 todo / plan / ask 固定冲突：三方包名含对应关键词时自动禁用内置版。
 		// nul-redirect-fix 等其它内置扩展暂不参与冲突检测，避免 mode 等通用词误伤。
+		// 注意：此处不走 disableBuiltIn（会 invalidateListCache），避免 list 请求中途 generation
+		// 变化导致结果被丢弃后反复重入。
 		const conflicts: { builtIn: string; thirdParty: string }[] = [];
+		let removedChanged = false;
 		for (const [builtInName, keyword] of BUILT_IN_CONFLICT_KEYWORDS) {
 			if (removedBuiltIn.has(builtInName)) continue; // 已移除的不重复检测
 			const conflicting = merged.find(
@@ -167,7 +170,10 @@ export class ExtensionManager {
 			);
 			if (conflicting) {
 				removedBuiltIn.add(builtInName);
-				await this.saveRemovedBuiltIn([...removedBuiltIn]);
+				removedChanged = true;
+				// 必须删掉磁盘文件：pi 会加载 ~/.pi/agent/extensions 下全部 .ts，
+				// 仅写 removedBuiltInExtensions 无法阻止 Tool 同名冲突导致 RPC 启动失败。
+				await this.removeBuiltInFile(builtInName).catch(() => undefined);
 				conflicts.push({
 					builtIn: builtInName,
 					thirdParty: conflicting.source,
@@ -179,6 +185,15 @@ export class ExtensionManager {
 					}
 				}
 			}
+		}
+		if (removedChanged) {
+			await this.saveRemovedBuiltIn([...removedBuiltIn]);
+		}
+
+		// 已标记移除但磁盘仍有残留时主动清掉，修复「UI 已禁用但仍冲突」的历史状态。
+		for (const builtInName of removedBuiltIn) {
+			if (!builtInName.startsWith("pi-deck-")) continue;
+			await this.removeBuiltInFile(builtInName).catch(() => undefined);
 		}
 
 		return { extensions: merged, raw, conflicts: conflicts.length > 0 ? conflicts : undefined };
@@ -262,7 +277,7 @@ export class ExtensionManager {
 	async uninstall(source: string, scope: PiExtensionSummary["scope"] = "user"): Promise<void> {
 		const normalized = source.trim();
 		if (!normalized) throw new Error("扩展来源不能为空");
-		// 内置扩展：移除 PiDeck 设置中的自动部署标记，不删除文件
+		// 内置扩展走 removeBuiltIn（设置 + 删文件），不要走 pi remove
 		if (normalized.startsWith("pi-deck-")) {
 			throw new Error("内置扩展请使用 removeBuiltIn 操作");
 		}
@@ -280,22 +295,22 @@ export class ExtensionManager {
 	}
 
 	/**
-	 * 「移除」内置扩展：仅写入 PiDeck 设置，下次启动自动跳过部署。
-	 * 不删除扩展文件，保留在 ~/.pi/agent/extensions/ 中以便恢复。
+	 * 「移除」内置扩展：写入 PiDeck 设置跳过自动部署，并删除用户目录中的扩展文件。
+	 * 必须删文件：pi 会自动加载 ~/.pi/agent/extensions 下的 .ts，仅改设置无法阻止加载，
+	 * 与同名三方工具（如 npm:@juicesharp/rpiv-todo 的 todo）会直接冲突导致 RPC 启动失败。
+	 * 恢复时由 ensurePiDeckExtension 从 resources 重新部署。
 	 */
 	async removeBuiltIn(source: string): Promise<void> {
 		const normalized = source.trim();
 		if (!normalized.startsWith("pi-deck-")) {
 			throw new Error("只能操作内置扩展");
 		}
-		const current = this.getPiDeckSettings().removedBuiltInExtensions ?? [];
-		if (current.includes(normalized)) return;
-		await this.saveRemovedBuiltIn([...current, normalized]);
-		this.invalidateListCache();
+		await this.disableBuiltIn(normalized);
 	}
 
 	/**
 	 * 恢复已移除的内置扩展：从 PiDeck 设置中移除记录，下次启动自动部署。
+	 * 实际文件由调用方 ensurePiDeckExtension 写回。
 	 */
 	async restoreBuiltIn(source: string): Promise<void> {
 		const normalized = source.trim();
@@ -304,6 +319,38 @@ export class ExtensionManager {
 		if (next.length === current.length) return;
 		await this.saveRemovedBuiltIn(next);
 		this.invalidateListCache();
+	}
+
+	/**
+	 * 禁用内置扩展的统一路径：记入 removedBuiltInExtensions + 删除磁盘文件。
+	 * 供手动移除与三方冲突自动让位共用，保证 pi 进程侧立即不再加载。
+	 */
+	async disableBuiltIn(source: string): Promise<void> {
+		const normalized = source.trim();
+		if (!normalized.startsWith("pi-deck-")) {
+			throw new Error("只能操作内置扩展");
+		}
+		const current = this.getPiDeckSettings().removedBuiltInExtensions ?? [];
+		if (!current.includes(normalized)) {
+			await this.saveRemovedBuiltIn([...current, normalized]);
+		}
+		await this.removeBuiltInFile(normalized);
+		this.invalidateListCache();
+	}
+
+	/**
+	 * 删除用户扩展目录中的内置扩展文件。
+	 * 只允许 pi-deck-* 单层 basename，防止路径穿越。
+	 * force: 文件本就不存在时静默成功（幂等，适合启动残留清理）。
+	 */
+	async removeBuiltInFile(source: string): Promise<void> {
+		const extensionsDir = join(this.homeDir, ".pi", "agent", "extensions");
+		const trimmed = source.trim();
+		const name = basename(trimmed);
+		if (!name || name !== trimmed || !name.startsWith("pi-deck-") || name === "." || name === "..") {
+			throw new Error("非法内置扩展路径");
+		}
+		await rm(join(extensionsDir, name), { force: true });
 	}
 
 	private async saveRemovedBuiltIn(removedList: string[]): Promise<void> {

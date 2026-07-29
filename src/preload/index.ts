@@ -1000,6 +1000,16 @@ const api = {
 		onThinking: (
 			callback: (payload: ThinkingUpdate) => void,
 		) => subscribe(ipcChannels.agentsThinking, callback),
+		/** 主进程轻量 toast 通知（如 abort 已请求停止） */
+		onNotice: (
+			callback: (payload: {
+				agentId?: string;
+				message: string;
+				i18nKey?: string;
+				kind?: "info" | "warning" | "error";
+				duration?: number;
+			}) => void,
+		) => subscribe(ipcChannels.agentsNotice, callback),
 		onRpcLog: (
 			callback: (payload: { agentId: string; direction: string; summary: string; data: unknown }) => void,
 		) => subscribe(ipcChannels.agentsRpcLog, callback),
