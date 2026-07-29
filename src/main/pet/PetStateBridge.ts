@@ -131,8 +131,10 @@ export class PetStateBridge {
 			return;
 		}
 
-		// 取消 waving 过渡（又有 Agent 活跃了）
-		this.clearTransition();
+		// ⚠️ 过渡恢复定时器（review→idle / failed→idle / tease 恢复）只能在「确定要落地新状态」时取消。
+		// 原实现在此无条件 clearTransition()，而下方冷却/锁/重叠检查又会提前 return：
+		// 恢复定时器被取消、状态却不变 → 宠物永远卡在 review/failed/jumping
+		// （用户反馈：成功后一直跳舞、一直重复一个动作不停下来，根因在此）。
 
 		// ── running→review→idle ──
 		if (target === "idle" && prev?.mode === "running") {
@@ -140,18 +142,21 @@ export class PetStateBridge {
 			this.sendNotif({ type: "done", text: "任务完成，记得 Review", timestamp: Date.now() });
 			this.lastChangeAt = Date.now();
 			this.setTransition(4000, () => {
+				// 双保险：定时器触发时若状态已被其它推送切走，不强行归位
+				if (this.lastState?.mode !== "review") return;
 				this.applyState({ ...state, mode: "idle" });
 				this.maybeStartPatrol();
 			});
 			return;
 		}
 
-		// review 进行中忽略重叠 idle 推送
+		// review 进行中忽略重叠 idle 推送（恢复定时器会把它带回 idle，绝不能取消）
 		if (target === "idle" && prev?.mode === "review") return;
 
 		// ── failed 过渡 ──
 		if (target === "failed") {
 			const now = Date.now();
+			// 冷却期内的重复 error 推送：忽略且保留恢复定时器（否则会永远卡在 failed）
 			if (this.errorCooldownUntil > now) return;
 			this.errorCooldownUntil = now + 10000;
 			if (prev?.mode !== "failed") {
@@ -159,6 +164,7 @@ export class PetStateBridge {
 				const errored = this.currentTabs.find(t => t.status === "error");
 				if (errored) this.sendNotif({ type: "error", text: `${errored.title} 出错了`, agentId: errored.id, timestamp: now });
 				this.setTransition(4000, () => {
+					if (this.lastState?.mode !== "failed") return;
 					this.applyState({ ...state, mode: "idle" });
 					this.maybeStartPatrol();
 				});
@@ -171,6 +177,8 @@ export class PetStateBridge {
 		if (prev && prev.mode !== "hidden" && prev.mode !== "waving" && target !== prev.mode && now - this.lastChangeAt < this.minStateHoldMs) return;
 		if (prev?.mode === target) return;
 
+		// 走到这里说明确实要落地新状态：取消 pending 过渡（如 waving→hidden、tease 恢复）
+		this.clearTransition();
 		this.applyState(state);
 
 		// 巡游：业务态停，idle 启
