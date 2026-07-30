@@ -109,4 +109,6 @@ export const KNOWN_PROVIDER_ENDPOINTS: Record<
 	"huggingface": { baseUrl: "https://api-inference.huggingface.co/v1", apiType: "openai-completions" },
 	"opencode": { baseUrl: "https://opencode.ai/zen/v1", apiType: "openai-completions" },
 	"opencode-go": { baseUrl: "https://opencode.ai/zen/go/v1", apiType: "openai-completions" },
+	"minimax": { baseUrl: "https://api.minimax.io/v1", apiType: "openai-completions" },
+	"minimax-cn": { baseUrl: "https://api.minimaxi.com/v1", apiType: "openai-completions" },
 };
