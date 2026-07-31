@@ -734,6 +734,10 @@ const zhCN = {
   "config.saveSelectedModels": "保存所选模型",
   "config.addSkill": "创建 Skill",
   "config.advancedPreservedTitle": "高级字段已保留",
+  "config.bodyOverride": "自定义请求体",
+  "config.bodyOverrideHint": "内联 JSON 与 bodyFile 按 供应商→模型 顺序深合并进每次请求（由 pi-deck-body-override 扩展应用）；字段需匹配当前 API 类型的请求体格式。",
+  "config.bodyOverrideFilePlaceholder": "可选：本地 JSON 文件路径（bodyFile）",
+  "config.bodyOverrideInvalid": "JSON 无效，未应用",
   "config.advancedPreservedProvider":
     "{fields} 不会被可视化表单丢弃；复杂结构请在源文件中编辑。",
   "config.advancedPreservedModel": "高级字段已保留：{fields}。",
@@ -2487,6 +2491,10 @@ const enUS: Record<TranslationKey, string> = {
   "config.saveSelectedModels": "Save selected models",
   "config.addSkill": "Create Skill",
   "config.advancedPreservedTitle": "Advanced fields preserved",
+  "config.bodyOverride": "Custom request body",
+  "config.bodyOverrideHint": "Inline JSON and bodyFile are deep-merged into every request in provider→model order (applied by the pi-deck-body-override extension); fields must match the current API type's request body format.",
+  "config.bodyOverrideFilePlaceholder": "Optional: local JSON file path (bodyFile)",
+  "config.bodyOverrideInvalid": "Invalid JSON — not applied",
   "config.advancedPreservedProvider":
     "{fields} will not be dropped by the visual form. Edit complex structures in Raw Files.",
   "config.advancedPreservedModel": "Advanced fields preserved: {fields}.",

@@ -18,6 +18,10 @@ export type ModelItem = {
 	input?: string[];
 	contextWindow?: number;
 	maxTokens?: number;
+	/** 自定义请求体：内联 JSON，由 pi-deck-body-override 扩展深合并进每次请求 */
+	body?: Record<string, unknown>;
+	/** 自定义请求体：本地 JSON 文件路径（相对路径基于 ~/.pi/agent/） */
+	bodyFile?: string;
 	[key: string]: unknown;
 };
 
@@ -27,6 +31,10 @@ export type ProviderConfig = {
 	apiKey?: string;
 	compat?: ProviderCompat;
 	models: ModelItem[];
+	/** 自定义请求体：内联 JSON，模型级同名字段优先级更高 */
+	body?: Record<string, unknown>;
+	/** 自定义请求体：本地 JSON 文件路径（相对路径基于 ~/.pi/agent/） */
+	bodyFile?: string;
 	[key: string]: unknown;
 };
 

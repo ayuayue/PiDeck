@@ -21624,3 +21624,10 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 }
 
 
+.config-body-override{display:flex;flex-direction:column;gap:6px;min-width:0}
+.config-body-textarea{border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);width:100%;min-height:56px;box-sizing:border-box;font-family:var(--font-mono,monospace);font-size:var(--font-size-control);background:var(--color-bg-panel);color:var(--color-text-primary);padding:8px 12px;resize:vertical;transition:border-color .15s}
+.config-body-textarea:focus{outline:none;border-color:var(--color-accent,#4f8cff)}
+.config-body-textarea.invalid{border-color:#e5534b}
+.config-body-invalid{font-size:var(--font-size-caption);color:#e5534b}
+.config-model-body-override{grid-column:1/-1;padding:2px 0 6px}
+.config-model-body-override .config-body-textarea{min-height:40px}

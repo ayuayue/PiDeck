@@ -23,6 +23,8 @@ const KNOWN_PROVIDER_FIELDS = new Set([
 	"modelOverrides",
 	"compat",
 	"oauth",
+	"body",
+	"bodyFile",
 ]);
 const KNOWN_MODEL_FIELDS = new Set([
 	"id",
@@ -37,7 +39,78 @@ const KNOWN_MODEL_FIELDS = new Set([
 	"maxTokens",
 	"headers",
 	"compat",
+	"body",
+	"bodyFile",
 ]);
+
+// 自定义请求体编辑器：内联 JSON（body）+ 本地文件路径（bodyFile）。
+// body / bodyFile 不是 pi models.json 的官方字段，但 pi 的 TypeBox 校验放行未知
+// 字段；保存后由 pi-deck-body-override 扩展在 before_provider_request 时深合并进
+// 请求体。编辑时用本地文本状态，只有解析为合法 JSON 对象才提交，避免污染表单数据。
+function BodyOverrideFields(props: {
+	body?: Record<string, unknown>;
+	bodyFile?: string;
+	compact?: boolean;
+	onChangeBody: (value: Record<string, unknown> | undefined) => void;
+	onChangeBodyFile: (value: string | undefined) => void;
+}) {
+	const serialize = (value: Record<string, unknown> | undefined) =>
+		value ? JSON.stringify(value, null, 2) : "";
+	const [text, setText] = useState(() => serialize(props.body));
+	const [invalid, setInvalid] = useState(false);
+	// 外部 body 变化（非本次提交引起）时才重置本地文本，避免打字过程中被重新格式化
+	const bodyKey = JSON.stringify(props.body ?? null);
+	const lastCommittedRef = useRef(bodyKey);
+	useEffect(() => {
+		if (bodyKey !== lastCommittedRef.current) {
+			lastCommittedRef.current = bodyKey;
+			setText(serialize(props.body));
+			setInvalid(false);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [bodyKey]);
+	const handleText = (value: string) => {
+		setText(value);
+		const trimmed = value.trim();
+		if (!trimmed) {
+			setInvalid(false);
+			lastCommittedRef.current = "null";
+			props.onChangeBody(undefined);
+			return;
+		}
+		try {
+			const parsed = JSON.parse(trimmed);
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				setInvalid(false);
+				lastCommittedRef.current = JSON.stringify(parsed);
+				props.onChangeBody(parsed);
+			} else {
+				setInvalid(true);
+			}
+		} catch {
+			setInvalid(true);
+		}
+	};
+	return (
+		<div className="config-body-override">
+			<textarea
+				className={`config-body-textarea${invalid ? " invalid" : ""}`}
+				value={text}
+				onChange={(e) => handleText(e.target.value)}
+				placeholder='{ "temperature": 0.6 }'
+				rows={props.compact ? 2 : 4}
+				spellCheck={false}
+			/>
+			{invalid && <span className="config-body-invalid">{t("config.bodyOverrideInvalid")}</span>}
+			<input
+				value={props.bodyFile ?? ""}
+				onChange={(e) => props.onChangeBodyFile(e.target.value.trim() || undefined)}
+				placeholder={t("config.bodyOverrideFilePlaceholder")}
+			/>
+			<span className="config-field-hint">{t("config.bodyOverrideHint")}</span>
+		</div>
+	);
+}
 
 function FetchedModelCombobox(props: {
 	models: FetchedModel[];
@@ -789,6 +862,16 @@ export function ModelsTab(props: {
 											</div>
 										</div>
 
+										<div className="config-form-row">
+											<label>{t("config.bodyOverride")}</label>
+											<BodyOverrideFields
+												body={provider.body}
+												bodyFile={provider.bodyFile}
+												onChangeBody={(value) => props.onChangeProvider(name, "body", value)}
+												onChangeBodyFile={(value) => props.onChangeProvider(name, "bodyFile", value)}
+											/>
+										</div>
+
 										{(providerComplexFields.length > 0 || providerAdvancedFields.length > 0) && (
 											<div className="config-advanced-preserved">
 												<strong>{t("config.advancedPreservedTitle")}</strong>
@@ -1019,6 +1102,15 @@ export function ModelsTab(props: {
 														</a>
 													</div>
 												)}
+												<div className="config-model-body-override">
+													<BodyOverrideFields
+														compact
+														body={m.body}
+														bodyFile={m.bodyFile}
+														onChangeBody={(value) => props.onUpdateModel(name, i, "body", value)}
+														onChangeBodyFile={(value) => props.onUpdateModel(name, i, "bodyFile", value)}
+													/>
+												</div>
 											</div>
 											);
 										})}
