@@ -8072,10 +8072,13 @@ export function App() {
               : isPlanReviseEditor
                 ? rawTitle.replace(PLAN_REVISE_MARKER, "").trim()
                 : (rawTitle || t("ask.pending"));
-            const isSelectWithOptions =
+            const hasCustomSelectOption =
               activeUiAsk.method === "select" &&
               Array.isArray(activeUiAsk.options) &&
-              activeUiAsk.options.length > 0;
+              activeUiAsk.options.some((opt) => {
+                const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                return label.startsWith("✎");
+              });
             // 扩展 confirm 实际走 select([是,否])：识别后只渲染是否按钮，不给自定义输入。
             const isYesNoConfirm =
               activeUiAsk.method === "confirm" ||
@@ -8247,13 +8250,13 @@ export function App() {
                         </button>
                       );
                     })}
-                    {/* 仅普通 select 提供自定义输入；confirm/是否题不展示 */}
-                    <div className="ask-inline-bar-custom-input">
+                    {/* 扩展仅在允许自定义时加入「✎ 自行输入...」选项；无该选项时隐藏输入框。 */}
+                    <div className="ask-inline-bar-custom-input" hidden={!hasCustomSelectOption || isYesNoConfirm}>
                       <input
                         id="ask-inline-bar-custom-field"
                         className="ask-inline-bar-custom-field"
                         placeholder={t("ask.customPlaceholder")}
-                        autoFocus
+                        autoFocus={hasCustomSelectOption && !isYesNoConfirm}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
