@@ -6839,6 +6839,12 @@ body.ask-bar-active .ask-inline-bar--timeline {
   align-items: center;
   width: 100%;
 }
+/* .ask-inline-bar-custom-input 的 display:flex 优先级与浏览器 [hidden] 默认样式（display:none）相同，
+ * author 样式会覆盖 UA 样式，导致 hidden 属性被 display:flex 盖掉、
+ * 输入框在 allowOther:false 时仍然可见。显式声明 [hidden] 优先级更高的规则修正。 */
+.ask-inline-bar-custom-input[hidden] {
+  display: none;
+}
 .ask-inline-bar-custom-field {
   flex: 1;
   height: var(--control-height-sm);
