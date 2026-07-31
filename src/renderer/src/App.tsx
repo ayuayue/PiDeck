@@ -73,6 +73,7 @@ import {
   getComposerEnterIntent,
   getComposerHistoryLineBounds,
   isYesNoConfirmOptions,
+  shouldShowCustomSelectInput,
   parseArgumentHint,
   resolveComposerHistoryDraft,
   translateBuiltinPromptDescription,
@@ -8247,48 +8248,50 @@ export function App() {
                         </button>
                       );
                     })}
-                    {/* 仅普通 select 提供自定义输入；confirm/是否题不展示 */}
-                    <div className="ask-inline-bar-custom-input">
-                      <input
-                        id="ask-inline-bar-custom-field"
-                        className="ask-inline-bar-custom-field"
-                        placeholder={t("ask.customPlaceholder")}
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
+                    {/* 只有 allowOther 未被显式禁止的普通 select 才提供自定义输入；confirm/是否题不展示。 */}
+                    {shouldShowCustomSelectInput(activeUiAsk.allowOther, isYesNoConfirm) && (
+                      <div className="ask-inline-bar-custom-input">
+                        <input
+                          id="ask-inline-bar-custom-field"
+                          className="ask-inline-bar-custom-field"
+                          placeholder={t("ask.customPlaceholder")}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
+                              const val = el?.value?.trim() ?? "";
+                              if (val && activeUiAsk.requestId && activeAgentId) {
+                                // 先缓存真实自定义文本，再回 OTHER_LABEL 触发扩展第二步 input。
+                                // 顺序不能反：onUiRequest(input) 可能很快到达，必须先写 pending。
+                                pendingCustomInputRef.current = val;
+                                dismissAsk();
+                                api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                                  value: "✎ 自行输入...",
+                                });
+                              }
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="ask-inline-bar-submit-btn"
+                          onClick={() => {
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
                             if (val && activeUiAsk.requestId && activeAgentId) {
-                              // 先缓存真实自定义文本，再回 OTHER_LABEL 触发扩展第二步 input。
-                              // 顺序不能反：onUiRequest(input) 可能很快到达，必须先写 pending。
                               pendingCustomInputRef.current = val;
                               dismissAsk();
                               api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
                                 value: "✎ 自行输入...",
                               });
                             }
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="ask-inline-bar-submit-btn"
-                        onClick={() => {
-                          const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
-                          const val = el?.value?.trim() ?? "";
-                          if (val && activeUiAsk.requestId && activeAgentId) {
-                            pendingCustomInputRef.current = val;
-                            dismissAsk();
-                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
-                              value: "✎ 自行输入...",
-                            });
-                          }
-                        }}
-                      >
-                        {t("common.submit")}
-                      </button>
-                    </div>
+                          }}
+                        >
+                          {t("common.submit")}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   )
                 ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (

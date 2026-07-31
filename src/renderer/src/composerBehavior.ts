@@ -322,3 +322,17 @@ export function isYesNoConfirmOptions(
 	);
 	return kinds.includes("yes") && kinds.includes("no") && !kinds.includes("other");
 }
+
+/**
+ * 判断普通 select 是否应该显示桌面端的自定义输入入口。
+ *
+ * allowOther 在 Extension UI 请求中是可选字段：只有显式 false 才禁止自定义答案，
+ * 这样既保留标准 select 请求的默认行为，也能尊重 ask_question 的 allowOther:false。
+ * 是/否确认题即使允许自定义，也必须保持为两个固定选项。
+ */
+export function shouldShowCustomSelectInput(
+	allowOther: boolean | undefined,
+	isYesNoConfirm: boolean,
+): boolean {
+	return allowOther !== false && !isYesNoConfirm;
+}

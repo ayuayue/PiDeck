@@ -148,3 +148,14 @@ test("detects yes/no confirm options and rejects multi-choice selects", () => {
 	assert.equal(isYesNoConfirmOptions(["是"]), false);
 	assert.equal(isYesNoConfirmOptions(["是", "否", "其它"]), false);
 });
+
+test("only hides custom select input when allowOther is explicitly false", () => {
+	const { shouldShowCustomSelectInput } = loadComposerBehaviorModule();
+
+	assert.equal(shouldShowCustomSelectInput(false, false), false);
+	assert.equal(shouldShowCustomSelectInput(true, false), true);
+	// Legacy/native select requests may omit allowOther; the default remains enabled.
+	assert.equal(shouldShowCustomSelectInput(undefined, false), true);
+	// Confirm-style select must stay constrained to its yes/no options.
+	assert.equal(shouldShowCustomSelectInput(true, true), false);
+});
