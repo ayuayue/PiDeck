@@ -5,6 +5,7 @@ import { t } from "../../i18n";
 import type { SidebarActions } from "./SidebarContent";
 import { SessionTree } from "./SessionTree";
 import { Button } from "../ui-shadcn/button";
+import { PathTooltip } from "../ui-shadcn/PathTooltip";
 import { cn } from "../../lib/utils";
 import { mergeWorkspaceTreeRows, type WorkspaceTreeRow } from "./workspaceTreeModel";
 
@@ -110,7 +111,7 @@ function WorkspaceTreeRowView(props: {
   const isActive = childProject?.id === props.currentProjectId;
 
   return (
-    <div className={cn("workspace-tree-row group flex min-w-0 flex-wrap items-center gap-0.5 rounded-md p-0.5 text-muted-foreground transition-colors", isActive && "bg-accent/60 text-foreground")}>
+    <div className={cn("workspace-tree-row group flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg p-0.5 text-muted-foreground transition-colors", isActive && "bg-accent/60 text-foreground")}>
       <Button
         type="button"
         variant="ghost"
@@ -126,29 +127,31 @@ function WorkspaceTreeRowView(props: {
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
       </Button>
 
-      <button
-        type="button"
-        className="workspace-tree-select flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-control text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-        title={row.path}
-        disabled={!childProject}
-        onClick={() => childProject && props.actions.projects.select(childProject.id)}
-        onContextMenu={(event) => {
-          if (!childProject) return;
-          event.preventDefault();
-          void props.controller.openMenu({
-            kind: "project",
-            projectId: childProject.id,
-            x: event.clientX,
-            y: event.clientY,
-          });
-        }}
-      >
-        <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate font-medium">{row.branch}</span>
-        {row.directory !== row.branch && (
-          <span className="workspace-tree-directory max-w-20 shrink-0 truncate text-micro text-muted-foreground">{row.directory}</span>
-        )}
-      </button>
+      {/* 悬浮展示完整分支名 + 工作区路径（分支名在行内常被 truncate） */}
+      <PathTooltip content={`${row.branch}${row.directory !== row.branch ? ` (${row.directory})` : ""}\n${row.path}`}>
+        <button
+          type="button"
+          className="workspace-tree-select flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-control text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          disabled={!childProject}
+          onClick={() => childProject && props.actions.projects.select(childProject.id)}
+          onContextMenu={(event) => {
+            if (!childProject) return;
+            event.preventDefault();
+            void props.controller.openMenu({
+              kind: "project",
+              projectId: childProject.id,
+              x: event.clientX,
+              y: event.clientY,
+            });
+          }}
+        >
+          <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate font-medium">{row.branch}</span>
+          {row.directory !== row.branch && (
+            <span className="workspace-tree-directory max-w-20 shrink-0 truncate text-micro text-muted-foreground">{row.directory}</span>
+          )}
+        </button>
+      </PathTooltip>
 
       {childProject && (
         <div className="workspace-tree-actions pointer-events-none flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">

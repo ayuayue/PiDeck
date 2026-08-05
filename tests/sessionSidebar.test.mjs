@@ -229,7 +229,7 @@ test("ProjectTree shows the project directory name like the dev reference", () =
   assert.match(projectTree, /function displayProjectDirectoryName\(project: Project\)/);
   assert.match(projectTree, /project\.path\.replace\(/);
   assert.match(projectTree, /const projectDirectoryName = displayProjectDirectoryName\(project\)/);
-  assert.match(projectTree, /title=\{project\.path\}/);
+  assert.match(projectTree, /<PathTooltip content=\{project\.path\}>/);
   assert.match(projectTree, /\{projectDirectoryName\}/);
   assert.match(projectTree, /const relatedProjects = controller\.catalog\.projects\.filter/);
   assert.match(projectTree, /const rootProjectSessions = props\.controller\.catalog\.sessionsByProject\[project\.id\]/);

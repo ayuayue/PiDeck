@@ -1,5 +1,5 @@
 import { test as base, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -33,12 +33,17 @@ export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | 
 		try {
 			// Windows 桌面端通过 cmd shim 调起自定义 pi（见 PiLocator.createInvocation），
 			// 这里生成一个指向本仓库 mock-pi.cjs 的 shim；node 用当前进程的解释器绝对路径。
-			const shimPath = join(userDataRoot, "mock-pi.cmd");
+			// 平台相关 shim：Windows 用 .cmd（cmd /c 路径语义）；macOS/Linux 生成可执行 .sh
+			// （PiLocator.createInvocation 在非 Windows 平台直接 spawn 命令路径，.cmd 无法执行）。
+			const shimName = process.platform === "win32" ? "mock-pi.cmd" : "mock-pi.sh";
+			const shimPath = join(userDataRoot, shimName);
 			const scriptPath = join(repoRoot, "e2e", "mock-pi.cjs");
-			writeFileSync(
-				shimPath,
-				`@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
-			);
+			const shimBody =
+				process.platform === "win32"
+					? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+					: `#!/bin/sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`;
+			writeFileSync(shimPath, shimBody);
+			if (process.platform !== "win32") chmodSync(shimPath, 0o755);
 			// 预置设置：customPiPath 指向 shim；piEnvironmentChecked=true 跳过启动
 			// 环境检测弹窗（否则会盖住欢迎页按钮造成点击竞态）。其余字段缺省。
 			// 注意：未打包运行时 main/index.ts 会把 userData 追加 "-dev" 后缀，

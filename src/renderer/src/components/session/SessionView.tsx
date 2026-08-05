@@ -187,6 +187,90 @@ export function SessionView({
   const [composerHeight, setComposerHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
   const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
 
+  // ── composer 面板自适应高度（#115 U5 布局换装） ──────────────
+  // 面板高度由 react-resizable-panels 持有；输入区上方出现可变内容（Todo/记忆
+  // widget、图片附件等）时，footer 固定高度会把 composer-box 挤到 min-height 并
+  // 被 overflow-hidden 裁切，输入区显示不清晰。这里通过 panelRef 命令式 resize：
+  // 内容需要更高 → 自动增高；内容减少（含完全消失）且当前高度由内容驱动 → 回缩，
+  // 但用户手动拖高的高度不被内容变化回缩。
+  const composerPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const composerHeightStateRef = useRef(COMPOSER_DEFAULT_HEIGHT);
+  // 用户手动拖拽后的面板高度（未拖拽时等于默认值）；内容自适应不会回缩到它以下
+  const userComposerHeightRef = useRef(COMPOSER_DEFAULT_HEIGHT);
+  // 内容驱动高度：最近一次内容所需的面板高度。回缩只发生在 current <= 该值
+  // （面板高度未超过内容所需，即没有被用户手动拖高）。
+  const contentDrivenHeightRef = useRef(COMPOSER_DEFAULT_HEIGHT);
+  // resize() 经 ResizeObserver 异步触发 onResize；用「时间窗口 + 内容驱动高度
+  // 匹配」双重判断区分程序 resize 与用户拖拽，避免程序增高后的回调被误判为
+  // 用户操作（误判会把用户手动高度抬到内容高度，导致内容减少时不再回缩）。
+  const programmaticResizeTargetRef = useRef<number | null>(null);
+  const programResizeExpireRef = useRef(0);
+
+  function applyComposerHeight(px: number, fromUser: boolean) {
+    composerHeightStateRef.current = px;
+    setComposerHeight(px);
+    if (fromUser) {
+      userComposerHeightRef.current = px;
+    }
+  }
+
+  function programResize(target: number): boolean {
+    programmaticResizeTargetRef.current = target;
+    programResizeExpireRef.current = Date.now() + 200;
+    try {
+      composerPanelRef.current?.resize(target);
+    } catch {
+      // 面板尚未注册到 ResizablePanelGroup（挂载早期时序）时 resize 会抛
+      // Group not found；静默跳过并清除目标值，下一轮内容测量会再次尝试。
+      programmaticResizeTargetRef.current = null;
+      return false;
+    }
+    // 兜底：resize 未触发 onResize（面板未挂载/已卸载）时也清除目标值，
+    // 避免残留目标吞掉下一次真实拖拽（与目标恰好一致的极小概率）。
+    window.setTimeout(() => {
+      if (Date.now() >= programResizeExpireRef.current) {
+        programmaticResizeTargetRef.current = null;
+      }
+    }, 250);
+    return true;
+  }
+
+  /**
+   * ComposerArea 上报可变内容占用的额外高度（px）。
+   * 目标高度 = 内容所需（默认输入区 + 额外内容），且不低于用户手动拖拽的高度。
+   * - 内容需要更高 → 自动增高，并记录内容驱动高度；
+   * - 内容减少 → 仅当当前高度由内容驱动（未超过内容所需）时回缩，
+   *   用户手动拖高的高度不被内容变化回缩。
+   */
+  function handleComposerContentHeight(extraHeight: number) {
+    const maxAllowed = Math.max(COMPOSER_MIN_HEIGHT, composerMaxHeight);
+    const userPreferred = Math.max(
+      userComposerHeightRef.current,
+      COMPOSER_MIN_HEIGHT,
+    );
+    const target = Math.min(
+      Math.max(userPreferred, COMPOSER_DEFAULT_HEIGHT + extraHeight),
+      maxAllowed,
+    );
+    const current = composerHeightStateRef.current;
+    if (target === current) return;
+    if (target > current) {
+      // 内容需要更高 → 自动增高，记录内容驱动高度
+      contentDrivenHeightRef.current = target;
+      if (programResize(target)) applyComposerHeight(target, false);
+      return;
+    }
+    // 内容减少需要更矮：仅当当前高度由内容驱动（未超过内容所需）时回缩；
+    // 用户手动拖高的高度不被内容变化回缩。
+    if (current <= contentDrivenHeightRef.current) {
+      contentDrivenHeightRef.current = Math.min(
+        contentDrivenHeightRef.current,
+        target,
+      );
+      if (programResize(target)) applyComposerHeight(target, false);
+    }
+  }
+
   // 终端 Panel 随 terminalOpen 动态挂载，约束注册有一帧延迟（与抽屉同款问题），
   // imperative 同步统一推迟一帧并容错。
   useEffect(() => {
@@ -202,7 +286,23 @@ export function SessionView({
   }, [terminalCollapsed, terminalOpen, terminalDockVisible]);
 
   function handleComposerResize(size: PanelSize) {
-    setComposerHeight(Math.round(size.inPixels));
+    const px = Math.round(size.inPixels);
+    const now = Date.now();
+    // 程序 resize 的异步回调：时间窗口内（刚 programResize），或最终高度与
+    // 内容驱动高度一致（即使回调延迟/像素取整）都视为程序化结果，不记为用户
+    // 手动高度，避免内容减少时误判导致不回缩。
+    const isProgrammatic =
+      (programmaticResizeTargetRef.current != null &&
+        now < programResizeExpireRef.current) ||
+      Math.abs(px - contentDrivenHeightRef.current) <= 2;
+    if (isProgrammatic) {
+      programmaticResizeTargetRef.current = null;
+      composerHeightStateRef.current = px;
+      setComposerHeight(px);
+      return;
+    }
+    programmaticResizeTargetRef.current = null;
+    applyComposerHeight(px, true);
   }
 
   function handleTerminalResize(size: PanelSize) {
@@ -309,6 +409,7 @@ export function SessionView({
             <ResizableHandle className="v-splitter" />
             <ResizablePanel
               id="composer"
+              panelRef={composerPanelRef}
               minSize={COMPOSER_MIN_HEIGHT}
               maxSize={composerMaxHeight}
               defaultSize={composerHeight}
@@ -320,6 +421,7 @@ export function SessionView({
                 sessionId={sessionId}
                 gitInfo={gitInfo}
                 height={composerHeight}
+                onContentHeightChange={handleComposerContentHeight}
                 onOpenFile={openFilePath}
                 enqueue={enqueueSessionPrompt}
                 ensureSessionId={ensureSessionId}

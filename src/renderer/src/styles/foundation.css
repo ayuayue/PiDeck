@@ -1940,7 +1940,15 @@ select:focus-visible {
   margin: 1px 0 0 8px;
   background: transparent;
   color: var(--color-text-secondary);
-  border-radius: var(--radius-md);
+  /* 与项目行统一用 --radius-lg：此前 --radius-md 会覆盖 Tailwind rounded-lg，
+     导致 active 的 Agent 行与项目行圆角弧度不一致（8px vs 10px，行高差进一步放大视觉差）。 */
+  border-radius: var(--radius-lg);
+  /* 会话/agent 行是 <button>：Chromium 中 button 的 width:auto 会 shrink-to-fit
+     （宽度跟随内容），导致名字短的行过短、名字长的行超出被裁。
+     fill-available/stretch 扣除 margin 后撑满，右边缘与项目行对齐、右圆角完整；
+     不用 w-full(100%)：100% 不扣 margin 会向右溢出被 overflow-x:hidden 裁掉。 */
+  width: -webkit-fill-available;
+  width: stretch;
   transition: background 0.1s ease;
 }
 .agent-row::before {
@@ -1978,7 +1986,9 @@ select:focus-visible {
 .agent-more-row,
 .session-more-row {
   position: relative;
-  width: 100%;
+  /* 同 .agent-row：button 的 width:auto 是 shrink-to-fit，fill-available 扣除 margin 撑满。 */
+  width: -webkit-fill-available;
+  width: stretch;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -2007,7 +2017,11 @@ select:focus-visible {
   margin: 2px 0 0 8px;
   padding: 4px 6px 4px 28px;
   border: 0;
-  border-radius: var(--radius-md);
+  /* 与项目行统一用 --radius-lg，原因同 .agent-row。 */
+  border-radius: var(--radius-lg);
+  /* 同 .agent-row：button 的 width:auto 是 shrink-to-fit，fill-available 扣除 margin 撑满。 */
+  width: -webkit-fill-available;
+  width: stretch;
   background: transparent;
   color: var(--color-text-secondary);
 }
@@ -2185,6 +2199,13 @@ select:focus-visible {
    bg 系列 token 的半透明由 App.tsx 注入（覆盖所有面板/输入框，整体协调）；
    未启用时保持原不透明背景（零回归） */
 :root[data-bg-image="on"] .wechat-shell {
+  background: transparent;
+}
+/* 壁纸模式输入区一体性：composer 区域不再叠半透明白（半透明白 + 白色遮罩 = 视觉纯白），
+   直接透出背景图，与聊天区/侧栏一致。边框+阴影保留，卡片边界感仍在。
+   特异性提到 3 类，压过 :root[data-theme="dark"] .composer-box 的 bg-muted 覆盖。 */
+:root[data-bg-image="on"] .session-v-composer .composer,
+:root[data-bg-image="on"] .composer .composer-box {
   background: transparent;
 }
 /* 壁纸模式下弹窗（shadcn Dialog）比普通面板再实一档：统一各弹窗透明度，

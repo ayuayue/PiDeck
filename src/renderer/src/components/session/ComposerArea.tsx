@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ComposerBottomBar,
   ImagePreviewModal,
@@ -31,9 +31,104 @@ export type ComposerAreaProps = {
    *  本地 state 仅作非受控回退（#115 U5 布局换装）。 */
   height?: number;
   onHeightChange?: (height: number) => void;
+  /** 输入区上方可变内容（附件栏 / 扩展 widget / 队列 / 投递通知）当前占用的额外高度（px）。
+   *  内容出现时上报给外层，由外层命令式增高 composer 面板，避免固定高度挤压输入区。 */
+  onContentHeightChange?: (extraHeight: number) => void;
   enqueue?: (sessionId: string, snapshot: EnqueuePromptSnapshot) => boolean;
   ensureSessionId?: (sessionId: string) => Promise<string>;
 };
+
+const CONTENT_GAP_PX = 8;
+
+type ComposerMeasuredExtrasProps = {
+  widgets: ReactNode;
+  queuePanel?: ReactNode;
+  deliveryNotice: ReactNode;
+  attachmentBar: ReactNode;
+  onHeightChange: (extraHeight: number) => void;
+};
+
+/**
+ * 必须作为 ComposerRuntimeIntegrations render-prop 子树中的独立组件存在：
+ * widget 的关闭/更新只会重渲染这棵子树，不会重渲染外层 ComposerArea。
+ * 测量 effect 放在这里，才能在 widget 变化的同一帧回缩面板，而不是等用户输入。
+ */
+function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
+  const widgetsRef = useRef<HTMLDivElement | null>(null);
+  const attachmentBarRef = useRef<HTMLDivElement | null>(null);
+  const lastContentExtraRef = useRef(0);
+  const mountedRef = useRef(false);
+  const onHeightChangeRef = useRef(props.onHeightChange);
+  onHeightChangeRef.current = props.onHeightChange;
+
+  const measureExtra = () => {
+    const widgetsH = widgetsRef.current?.offsetHeight ?? 0;
+    const imageBarH = attachmentBarRef.current?.offsetHeight ?? 0;
+    // gap 实测：Tailwind gap-2 是 rem，随根字号变化；用 rowGap 拿到真实 px。
+    let gapPx = CONTENT_GAP_PX;
+    const footerEl = widgetsRef.current?.parentElement;
+    if (footerEl && typeof window !== "undefined") {
+      const rowGap = parseFloat(window.getComputedStyle(footerEl).rowGap || "");
+      if (!Number.isNaN(rowGap) && rowGap > 0) gapPx = rowGap;
+    }
+    return Math.ceil(
+      widgetsH + imageBarH + (imageBarH > 0 ? gapPx : 0),
+    );
+  };
+
+  const reportExtra = () => {
+    const extra = measureExtra();
+    if (extra === lastContentExtraRef.current) return;
+    lastContentExtraRef.current = extra;
+    onHeightChangeRef.current(extra);
+  };
+
+  // props.widgets 变化会重渲染本组件；在 paint 前同步 resize，输入区不会闪高一帧。
+  useLayoutEffect(() => {
+    if (!mountedRef.current) return;
+    reportExtra();
+  });
+
+  const hasAttachmentBar = props.attachmentBar != null;
+  useEffect(() => {
+    let rafId = 0;
+    const schedule = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        mountedRef.current = true;
+        reportExtra();
+      });
+    };
+    const observer = new ResizeObserver(schedule);
+    if (widgetsRef.current) observer.observe(widgetsRef.current);
+    if (attachmentBarRef.current) observer.observe(attachmentBarRef.current);
+    // 首测延迟到下一帧：此时 ResizablePanel 已注册到 group。
+    schedule();
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [hasAttachmentBar]);
+
+  return (
+    <>
+      <div
+        ref={widgetsRef}
+        className="flex shrink-0 min-h-0 min-w-0 flex-col gap-2"
+      >
+        {props.widgets}
+        {props.queuePanel}
+        {props.deliveryNotice}
+      </div>
+      {hasAttachmentBar ? (
+        <div ref={attachmentBarRef} className="shrink-0">
+          {props.attachmentBar}
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function ComposerArea(
   props,
@@ -61,6 +156,15 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
   // 其余场景（测试、嵌入）回退本地默认值，与全局默认高度保持一致。
   const [localHeight, setLocalHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
   const height = props.height ?? localHeight;
+  const handleContentHeightChange = (extra: number) => {
+    if (props.height != null) {
+      props.onContentHeightChange?.(extra);
+    } else if (extra > 0) {
+      setLocalHeight((current) =>
+        Math.max(current, extra + COMPOSER_DEFAULT_HEIGHT),
+      );
+    }
+  };
 
   return (
     <ComposerRuntimeIntegrations sessionId={props.sessionId}>
@@ -74,20 +178,27 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
             style={{ height: props.height != null ? "100%" : height }}
             data-session-id={props.sessionId}
           >
-            <ComposerAttachmentBar
-              images={composer.attachments}
-              onPreview={composer.images.preview}
-              onRemove={composer.images.remove}
-              onClear={composer.images.clear}
-            />
-            {widgets}
-            {props.queuePanel}
-            <SessionDeliveryNotice
-              status={composer.sendState.status}
-              message={composer.sendState.unknownSnapshot?.message}
-              images={composer.sendState.unknownSnapshot?.images}
-              error={composer.sendState.error}
-              onAcknowledge={composer.delivery.acknowledgeUnknown}
+            <ComposerMeasuredExtras
+              widgets={widgets}
+              queuePanel={props.queuePanel}
+              deliveryNotice={(
+                <SessionDeliveryNotice
+                  status={composer.sendState.status}
+                  message={composer.sendState.unknownSnapshot?.message}
+                  images={composer.sendState.unknownSnapshot?.images}
+                  error={composer.sendState.error}
+                  onAcknowledge={composer.delivery.acknowledgeUnknown}
+                />
+              )}
+              attachmentBar={composer.attachments.length > 0 ? (
+                <ComposerAttachmentBar
+                  images={composer.attachments}
+                  onPreview={composer.images.preview}
+                  onRemove={composer.images.remove}
+                  onClear={composer.images.clear}
+                />
+              ) : null}
+              onHeightChange={handleContentHeightChange}
             />
             <div
               // overflow-visible：保留命令面板/建议浮层；面板 minSize 已保证底栏不被裁切

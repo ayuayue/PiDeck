@@ -40,6 +40,7 @@ import {
 } from "../ui-shadcn/dialog";
 import type { FileTreeNode, Project, SessionSummary } from "../../../../shared/types";
 import { Input } from "../ui-shadcn/input";
+import { PathTooltip } from "../ui-shadcn/PathTooltip";
 
 // Button 收口状态（P0 UI 统一）：抽屉头部/文件工具行图标按钮已换 shadcn Button（ghost + 原 tailwind class 保留）。
 // 保留原生 button（内容排版/折叠区块语义 + 自定义 CSS 驱动，P2 CSS 收口时迁移）：
@@ -731,24 +732,25 @@ function SessionsPanel(props: {
 						</div>
 					) : (
 						<div className="session-card-display">
-							<button
-								className="session-card-inner"
-								onClick={() => props.onOpen(session)}
-								title={session.filePath}
-							>
-								<div className="session-card-title">
-									<strong>{session.name || t("common.untitled")}</strong>
-									{session.source && session.source !== "pi" && (
-										<SessionSourceBadge source={session.source} />
-									)}
-									<small>
-										{new Date(session.updatedAt).toLocaleString()} ·{" "}
-										{t("drawer.sessionMessages", {
-											count: session.messageCount,
-										})}
-									</small>
-								</div>
-							</button>
+							<PathTooltip content={`${session.name || t("common.untitled")}\n${session.filePath}`}>
+								<button
+									className="session-card-inner"
+									onClick={() => props.onOpen(session)}
+								>
+									<div className="session-card-title">
+										<strong>{session.name || t("common.untitled")}</strong>
+										{session.source && session.source !== "pi" && (
+											<SessionSourceBadge source={session.source} />
+										)}
+										<small>
+											{new Date(session.updatedAt).toLocaleString()} ·{" "}
+											{t("drawer.sessionMessages", {
+												count: session.messageCount,
+											})}
+										</small>
+									</div>
+								</button>
+							</PathTooltip>
 							<div className="session-card-actions">
 								<Button
 									variant="ghost"
@@ -840,22 +842,23 @@ function SessionsPanel(props: {
 					{isExpanded && children?.map((child) => (
 						<div key={child.filePath} className="session-card session-card-child">
 							<div className="session-card-display">
-								<button
-									className="session-card-inner"
-									onClick={() => props.onOpen(child)}
-									title={child.filePath}
-								>
-									<div className="session-card-title">
-										<strong>{child.name || t("common.untitled")}</strong>
-										<SessionSourceBadge label={t("drawer.subagentSession")} source="codex" />
-										<small>
-											{new Date(child.updatedAt).toLocaleString()} ·{" "}
-											{t("drawer.sessionMessages", {
-												count: child.messageCount,
-											})}
-										</small>
-									</div>
-								</button>
+								<PathTooltip content={`${child.name || t("common.untitled")}\n${child.filePath}`}>
+									<button
+										className="session-card-inner"
+										onClick={() => props.onOpen(child)}
+									>
+										<div className="session-card-title">
+											<strong>{child.name || t("common.untitled")}</strong>
+											<SessionSourceBadge label={t("drawer.subagentSession")} source="codex" />
+											<small>
+												{new Date(child.updatedAt).toLocaleString()} ·{" "}
+												{t("drawer.sessionMessages", {
+													count: child.messageCount,
+												})}
+											</small>
+										</div>
+									</button>
+								</PathTooltip>
 							</div>
 						</div>
 					))}

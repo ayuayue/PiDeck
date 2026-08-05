@@ -8,8 +8,6 @@ import { useFeishuBridge } from "../../hooks/useFeishuBridge";
 import { FeishuLinkIndicator } from "../feishu/FeishuLinkIndicator";
 import { ExtensionWidgetCard } from "./ComposerParts";
 
-const DISMISSED_WIDGETS_KEY = "pid:session-composer-dismissed-widgets";
-
 export type RuntimeHandle = {
   agentId: string;
   runtimeGeneration: number;
@@ -42,25 +40,6 @@ export function isCoherentComposerRuntimeUi(
   );
 }
 
-function loadDismissedWidgets(): Record<string, string[]> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DISMISSED_WIDGETS_KEY) ?? "{}");
-    return parsed && typeof parsed === "object"
-      ? parsed as Record<string, string[]>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function persistDismissedWidgets(value: Record<string, string[]>) {
-  try {
-    localStorage.setItem(DISMISSED_WIDGETS_KEY, JSON.stringify(value));
-  } catch {
-    // Storage is optional in preview/test runtimes.
-  }
-}
-
 export type ComposerRuntimeSlots = {
   widgets: ReactNode;
   feishuIndicator: ReactNode;
@@ -79,7 +58,9 @@ export function ComposerRuntimeIntegrations(props: {
   );
   const feishu = useFeishuBridge();
   const [sessionBotId, setSessionBotId] = useState<string>();
-  const [dismissedBySession, setDismissedBySession] = useState(loadDismissedWidgets);
+  // 关闭是「临时」的：dismiss 只存在组件内存，不写入 localStorage，
+  // 刷新 / 重挂载 / 切换会话后自动恢复，widget 不会永久消失。
+  const [dismissedBySession, setDismissedBySession] = useState<Record<string, string[]>>({});
   const botRequestSequenceRef = useRef(0);
   const runtimeHandleRef = useRef<RuntimeHandle | undefined>(undefined);
   const runtimeHandle = runtime?.agentId
@@ -131,12 +112,10 @@ export function ComposerRuntimeIntegrations(props: {
     setDismissedBySession((current) => {
       const existing = current[dismissalScope] ?? [];
       if (existing.includes(widgetKey)) return current;
-      const next = {
+      return {
         ...current,
         [dismissalScope]: [...existing, widgetKey],
       };
-      persistDismissedWidgets(next);
-      return next;
     });
   }
 

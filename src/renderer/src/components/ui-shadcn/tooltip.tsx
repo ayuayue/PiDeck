@@ -32,10 +32,14 @@ function TooltipTrigger({
 
 function TooltipContent({
   className,
+  arrowClassName,
   sideOffset = 0,
   children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: React.ComponentProps<typeof TooltipPrimitive.Content> & {
+  /** 覆盖箭头背景色：默认跟随 bg-foreground，面板风 Tooltip 需传 bg-popover 等保持一致。 */
+  arrowClassName?: string;
+}) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
@@ -48,7 +52,7 @@ function TooltipContent({
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="z-(--z-popover) size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground" />
+        <TooltipPrimitive.Arrow className={cn("z-(--z-popover) size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground", arrowClassName)} />
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )

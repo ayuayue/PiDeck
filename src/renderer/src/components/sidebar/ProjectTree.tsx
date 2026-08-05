@@ -6,6 +6,7 @@ import { t } from "../../i18n";
 import type { SidebarActions } from "./SidebarContent";
 import { SessionTree } from "./SessionTree";
 import { WorktreeTree } from "./WorktreeTree";
+import { PathTooltip } from "../ui-shadcn/PathTooltip";
 import { cn } from "../../lib/utils";
 
 /** pure official：项目/会话树行共享的 shadcn 风格底（hover=accent 面，active 同系） */
@@ -113,7 +114,10 @@ export function ProjectTree(props: {
           >
             <div className="conversation-body min-w-0 flex-1">
               <div className="conversation-title flex min-w-0 items-center">
-                <strong className="min-w-0 flex-1 truncate font-medium" title={project.path}>{projectDirectoryName}</strong>
+                {/* 悬浮展示完整项目目录名 + 路径（目录名在行内常被 truncate） */}
+                <PathTooltip content={`${projectDirectoryName}\n${project.path}`}>
+                  <strong className="min-w-0 flex-1 truncate font-medium">{projectDirectoryName}</strong>
+                </PathTooltip>
               </div>
               {/* 项目名称只承担导航信息；详细会话状态由下方的 Agent/历史会话行承担。 */}
             </div>
