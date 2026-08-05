@@ -116,7 +116,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
         <>
 
           {/* 文件编辑独立 Header：与内容区分离渲染，返回键不依赖文件内容加载（始终可点） */}
-          <div className="drawer-header flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
+          <div className="drawer-header flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
             <div className="flex min-w-0 items-center gap-2">
               {editor.activeTab && (
                 <Button
@@ -199,7 +199,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
       ) : drawer === "browser" && !drawerCollapsed ? (
         <div className="drawer-content-frame flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* 与 files/git 对齐的抽屉标题栏：浏览器面板此前缺 header，点叉无法关闭侧边栏 */}
-          <div className="drawer-header flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
+          <div className="drawer-header flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
             <strong className="truncate text-body font-semibold text-foreground">{files.t("app.browser")}</strong>
             <div className="drawer-header-actions flex shrink-0 items-center gap-1">
               <Button type="button" variant="ghost" size="icon-sm" className="inline-grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground" onClick={chrome.onCollapseDrawer} title={files.t("drawer.collapsePanel")}>
@@ -219,7 +219,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
         </div>
       ) : git.enableGitManagement && drawer === "git" && !drawerCollapsed && git.activeProjectId ? (
         <div className="drawer-content-frame flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="drawer-header flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
+          <div className="drawer-header flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
             <strong className="truncate text-body font-semibold text-foreground">{files.t("drawer.sourceControl")}</strong>
             <div className="drawer-header-actions flex shrink-0 items-center gap-1">
               <Button type="button" variant="ghost" size="icon-sm" className="inline-grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground" onClick={chrome.onCollapseDrawer} title={files.t("drawer.collapsePanel")}>

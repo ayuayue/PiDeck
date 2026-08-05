@@ -100,8 +100,8 @@ export function DrawerContent(props: {
 				: t("drawer.historyTitle");
 	return (
 		<>
-			{/* pure official：与 Git 抽屉共用 h-12 顶栏密度 */}
-			<div className="drawer-header flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
+			{/* 顶栏与主区状态栏（chat-header h-10 = 40px）同高，底边线同一 y 值 */}
+			<div className="drawer-header flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/40 bg-background px-3">
 				<strong className="truncate text-sm font-semibold text-foreground">{title}</strong>
 				<div className="drawer-header-actions flex shrink-0 items-center gap-1">
 					<Button
