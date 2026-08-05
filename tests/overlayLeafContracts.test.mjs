@@ -35,6 +35,32 @@ test("overlay roots expose narrow contracts and never subscribe to raw UI reques
   assert.match(read("components/overlays/ScratchPadOverlay.tsx"), /scratch-pad-overlay/);
 });
 
+// DialogClose / ESC / 遮罩关闭都依赖 onOpenChange(false) 真正调用 onClose；
+// 写成 `!next && onClose` 只会返回函数引用，不会关弹层。
+test("dialog onOpenChange handlers invoke onClose instead of returning the callback", () => {
+  const files = [
+    "components/overlays/SessionActionOverlays.tsx",
+    "components/overlays/OverlayComponents.tsx",
+    "components/app/ImportModals.tsx",
+    "components/app/ProjectResourcesModal.tsx",
+    "components/session/WorkspaceSurface.tsx",
+  ];
+  for (const file of files) {
+    const source = read(file);
+    // 禁止 `!next && onClose` / `!next && props.onClose` 这种未调用写法
+    assert.doesNotMatch(
+      source,
+      /!next\s*&&\s*(?:props\.)?onClose(?!\s*\()/,
+      `${file} must call onClose() in onOpenChange`,
+    );
+    assert.match(
+      source,
+      /onOpenChange=\{\(next\)\s*=>\s*!next\s*&&\s*(?:props\.)?onClose\(\)\}/,
+      `${file} must wire onOpenChange to onClose()`,
+    );
+  }
+});
+
 test("async leaf controllers contain cancellation and stale-result guards", () => {
   const imports = read("hooks/useImportController.ts");
   const updates = read("hooks/useAppUpdateController.ts");

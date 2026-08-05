@@ -965,7 +965,6 @@
   height: 28px;
   padding: 0 6px 0 8px;
   cursor: pointer;
-  border-left: 2px solid transparent;
   user-select: none;
   transition: background 100ms ease;
 }
@@ -974,9 +973,9 @@
   background: var(--color-bg-hover);
 }
 
+/* 选中态只用背景表达（与侧栏项目/会话行一致），不再叠加左侧 accent 指示条 */
 .scratch-pad-draft-item.active {
   background: var(--color-bg-active);
-  border-left-color: var(--color-accent);
 }
 
 .scratch-pad-draft-item:focus-visible {

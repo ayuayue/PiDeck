@@ -89,7 +89,7 @@ export function AppSidebar(props: AppSidebarProps) {
         type="button"
         variant="outline"
         size="icon-sm"
-        className="list-toggle-native floating"
+        className="list-toggle-native floating !size-7"
         aria-label={t("app.expandList")}
         title={t("app.expandList")}
         onClick={props.toggleListCollapsed}

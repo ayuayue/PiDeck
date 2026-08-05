@@ -41,7 +41,6 @@ export type ComposerAreaProps = {
 const CONTENT_GAP_PX = 8;
 
 type ComposerMeasuredExtrasProps = {
-  widgets: ReactNode;
   queuePanel?: ReactNode;
   deliveryNotice: ReactNode;
   attachmentBar: ReactNode;
@@ -50,8 +49,8 @@ type ComposerMeasuredExtrasProps = {
 
 /**
  * 必须作为 ComposerRuntimeIntegrations render-prop 子树中的独立组件存在：
- * widget 的关闭/更新只会重渲染这棵子树，不会重渲染外层 ComposerArea。
- * 测量 effect 放在这里，才能在 widget 变化的同一帧回缩面板，而不是等用户输入。
+ * extras 的关闭/更新只会重渲染这棵子树，不会重渲染外层 ComposerArea。
+ * 测量 effect 放在这里，才能在 extras 变化的同一帧回缩面板，而不是等用户输入。
  */
 function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
   const widgetsRef = useRef<HTMLDivElement | null>(null);
@@ -83,7 +82,7 @@ function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
     onHeightChangeRef.current(extra);
   };
 
-  // props.widgets 变化会重渲染本组件；在 paint 前同步 resize，输入区不会闪高一帧。
+  // props 变化会重渲染本组件；在 paint 前同步 resize，输入区不会闪高一帧。
   useLayoutEffect(() => {
     if (!mountedRef.current) return;
     reportExtra();
@@ -117,7 +116,6 @@ function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
         ref={widgetsRef}
         className="flex shrink-0 min-h-0 min-w-0 flex-col gap-2"
       >
-        {props.widgets}
         {props.queuePanel}
         {props.deliveryNotice}
       </div>
@@ -168,7 +166,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 
   return (
     <ComposerRuntimeIntegrations sessionId={props.sessionId}>
-      {({ widgets, feishuIndicator }) => (
+      {({ feishuIndicator }) => (
         <>
           {/* overflow-hidden：面板到 minSize 时禁止整块 footer 再出滚动条；
               文本区自身仍可在 RichInput 内滚动，底栏 shrink-0 始终可见 */}
@@ -179,7 +177,6 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
             data-session-id={props.sessionId}
           >
             <ComposerMeasuredExtras
-              widgets={widgets}
               queuePanel={props.queuePanel}
               deliveryNotice={(
                 <SessionDeliveryNotice
@@ -212,6 +209,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
                       : "",
               ].filter(Boolean).join(" ")}
             >
+              {/* 扩展 widget（Todo/Plan）已迁至 chat-header 左侧 SessionWidgetChips。 */}
               <RichInput
                 ref={composer.editor.ref}
                 value={composer.draft}

@@ -1,12 +1,12 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, FolderGit2, HatGlasses, Plus, Sparkles } from "lucide-react";
 import type { AvailableModel, Project } from "../../../../shared/types";
 import { t, type TranslationKey } from "../../i18n";
 import { desktopApi } from "../../desktopApi";
 import { Button } from "../ui-shadcn/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "../ui-shadcn/command";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
+import { CommandItem } from "../ui-shadcn/command";
+import { CommandPickerGroup, CommandPickerPanel } from "../ui-shadcn/command-picker";
 import { WELCOME_MODEL_KEY, WELCOME_THINKING_KEY } from "../../utils/chatSessionBootstrap";
 import { EmptyState } from "./SurfaceParts";
 import { THINKING_LEVELS, groupModelsByProvider } from "./sessionPickerOptions";
@@ -39,7 +39,7 @@ export function ProjectEmptyState(props: {
   const [modelChoice, setModelChoice] = useState("");
   const [thinkingChoice, setThinkingChoice] = useState("");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const selectedModelRef = useRef<HTMLDivElement | null>(null);
+  const [thinkingPickerOpen, setThinkingPickerOpen] = useState(false);
   useEffect(() => {
     let alive = true;
     void desktopApi.projects.listModels(props.activeProject?.id).then((items) => {
@@ -123,21 +123,6 @@ export function ProjectEmptyState(props: {
 
   const groupedModels = groupModelsByProvider(models);
 
-  useEffect(() => {
-    if (!modelPickerOpen || !modelChoice || !selectedModelRef.current) return;
-    // cmdk 会把当前项带入可视区，但默认位置可能贴着列表底边；按几何位置校正到视口中央，
-    // 让用户打开长列表时第一眼就能确认当前模型，不依赖浏览器的 scrollIntoView 对嵌套 Portal 的猜测。
-    const frame = requestAnimationFrame(() => {
-      const item = selectedModelRef.current;
-      const list = item?.closest<HTMLElement>("[data-slot=command-list]");
-      if (!item || !list) return;
-      const itemRect = item.getBoundingClientRect();
-      const listRect = list.getBoundingClientRect();
-      list.scrollTop += itemRect.top - (listRect.top + (listRect.height - itemRect.height) / 2);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [modelPickerOpen, modelChoice, models]);
-
   const saveModelChoice = (value: string) => {
     setModelChoice(value);
     const model = models.find((item) => `${item.provider}/${item.id}` === value);
@@ -210,38 +195,38 @@ export function ProjectEmptyState(props: {
                         {modelChoice || t("app.model")}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" className="w-[min(380px,calc(100vw-48px))] p-0">
-                      <Command defaultValue={modelChoice}>
-                        <CommandInput placeholder={t("app.modelPickerSearch")} autoFocus />
-                        <CommandList>
-                          <CommandEmpty>{t("app.modelPickerEmpty")}</CommandEmpty>
-                          {Object.entries(groupedModels).map(([provider, providerModels], providerIndex) => (
-                            <Fragment key={provider}>
-                              <CommandGroup heading={`${provider} (${providerModels.length})`}>
-                                {providerModels.map((model) => {
-                                const value = `${model.provider}/${model.id}`;
-                                return (
-                                  <CommandItem
-                                    key={value}
-                                    value={value}
-                                    onSelect={() => {
-                                      saveModelChoice(value);
-                                      setModelPickerOpen(false);
-                                    }}
-                                    ref={value === modelChoice ? selectedModelRef : undefined}
-                                    className="items-start py-2"
-                                  >
-                                    <span className="min-w-0 flex-1 break-words">{value}</span>
-                                    <Check className={`mt-0.5 shrink-0 ${value === modelChoice ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
-                                  </CommandItem>
-                                );
-                                })}
-                              </CommandGroup>
-                              {providerIndex < Object.keys(groupedModels).length - 1 && <CommandSeparator />}
-                            </Fragment>
-                          ))}
-                        </CommandList>
-                      </Command>
+                    <PopoverContent align="start" className="w-[min(430px,calc(100vw-48px))] p-0">
+                      <CommandPickerPanel
+                        title={t("app.modelPickerTitle")}
+                        searchPlaceholder={t("app.modelPickerSearch")}
+                        emptyLabel={t("app.modelPickerEmpty")}
+                        showGroupActions
+                        value={modelChoice}
+                        onClose={() => setModelPickerOpen(false)}
+                      >
+                        {Object.entries(groupedModels).map(([provider, providerModels]) => (
+                          <CommandPickerGroup id={`provider:${provider}`} key={provider} label={provider} count={providerModels.length}>
+                            {providerModels.map((model) => {
+                              const value = `${model.provider}/${model.id}`;
+                              return (
+                                <CommandItem
+                                  key={value}
+                                  value={value}
+                                  data-picker-value={value}
+                                  onSelect={() => {
+                                    saveModelChoice(value);
+                                    setModelPickerOpen(false);
+                                  }}
+                                  className="items-start py-2"
+                                >
+                                  <span className="min-w-0 flex-1 break-words">{value}</span>
+                                  <Check className={`mt-0.5 shrink-0 ${value === modelChoice ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandPickerGroup>
+                        ))}
+                      </CommandPickerPanel>
                     </PopoverContent>
                   </Popover>
                 </dd>
@@ -249,16 +234,45 @@ export function ProjectEmptyState(props: {
               <div className="flex items-baseline gap-2">
                 <dt className="text-text-tertiary">{t("app.think")}</dt>
                 <dd>
-                  <Select value={thinkingChoice} onValueChange={saveThinkingChoice}>
-                    <SelectTrigger size="sm" className="!h-auto !w-auto gap-1 border-0 bg-transparent p-0 font-mono text-[13px] font-medium text-text-primary underline decoration-border-subtle underline-offset-4 shadow-none hover:decoration-border-strong focus:ring-0 [&_svg]:!size-3">
-                      <SelectValue placeholder={t("app.think")} />
-                    </SelectTrigger>
-                    <SelectContent>
+                  <Popover open={thinkingPickerOpen} onOpenChange={setThinkingPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="align-baseline font-mono font-medium text-text-primary underline decoration-border-subtle underline-offset-4 transition-colors hover:decoration-border-strong"
+                        title={thinkingLabel(thinkingChoice)}
+                      >
+                        {thinkingLabel(thinkingChoice)}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[min(360px,calc(100vw-48px))] p-0">
+                      <CommandPickerPanel
+                        title={t("app.thinkingPickerTitle")}
+                        hint={t("app.thinkingPickerHint")}
+                        searchPlaceholder={t("app.commandPickerSearch")}
+                        emptyLabel={t("app.commandPickerEmpty")}
+                        value={thinkingChoice}
+                        onClose={() => setThinkingPickerOpen(false)}
+                      >
                         {THINKING_LEVELS.map((level) => (
-                          <SelectItem key={level.value} value={level.value}>{thinkingLabel(level.value)}</SelectItem>
+                          <CommandItem
+                            key={level.value}
+                            value={level.value}
+                            data-picker-value={level.value}
+                            onSelect={() => {
+                              saveThinkingChoice(level.value);
+                              setThinkingPickerOpen(false);
+                            }}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-control font-medium">{thinkingLabel(level.value)}</span>
+                              <span className="block text-caption text-muted-foreground">{t(level.descriptionKey)}</span>
+                            </span>
+                            <Check className={`shrink-0 ${level.value === thinkingChoice ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+                          </CommandItem>
                         ))}
-                    </SelectContent>
-                  </Select>
+                      </CommandPickerPanel>
+                    </PopoverContent>
+                  </Popover>
                 </dd>
               </div>
             </dl>

@@ -7,6 +7,70 @@ import type { ReactNode } from "react";
 import type { ChatMessage, FileTreeNode, PiCommand } from "../../../../shared/types";
 import { formatFilePathRef } from "./RichInput";
 
+/* ── 文件树拖拽负载 ── */
+
+/**
+ * 文件树行拖拽时写入 dataTransfer 的两个 MIME：
+ * - PI_FILE_PATH_DRAG_MIME：纯绝对路径，供「移动到目录」落点使用（历史约定，勿改名）。
+ * - PI_FILE_NODE_DRAG_MIME：完整节点 JSON，composer 落点据此生成 @ 引用（区分文件/目录）。
+ */
+export const PI_FILE_PATH_DRAG_MIME = "text/pi-file-path";
+export const PI_FILE_NODE_DRAG_MIME = "application/x-pi-file-node";
+
+export interface FileNodeDragPayload {
+	path: string;
+	relativePath: string;
+	type: "file" | "directory";
+}
+
+/** 拖拽开始侧：把节点信息写入 dataTransfer（路径 + JSON 双写，兼容只读路径的旧落点） */
+export function writeFileNodeDragPayload(dataTransfer: DataTransfer, node: FileTreeNode): void {
+	dataTransfer.setData(PI_FILE_PATH_DRAG_MIME, node.path);
+	const payload: FileNodeDragPayload = {
+		path: node.path,
+		relativePath: node.relativePath,
+		type: node.type,
+	};
+	dataTransfer.setData(PI_FILE_NODE_DRAG_MIME, JSON.stringify(payload));
+}
+
+/**
+ * 落点侧：读取文件树拖拽负载。
+ * 优先解析 JSON；只有纯路径时按「文件 + 绝对路径」兜底（兼容未带 JSON 的拖拽源）。
+ * 非文件树拖拽（如 OS 文件拖入）返回 null。
+ */
+export function readFileNodeDragPayload(dataTransfer: DataTransfer): FileNodeDragPayload | null {
+	const raw = dataTransfer.getData(PI_FILE_NODE_DRAG_MIME);
+	if (raw) {
+		try {
+			const parsed = JSON.parse(raw) as Partial<FileNodeDragPayload>;
+			if (typeof parsed.path === "string" && parsed.path) {
+				return {
+					path: parsed.path,
+					relativePath: typeof parsed.relativePath === "string" ? parsed.relativePath : "",
+					type: parsed.type === "directory" ? "directory" : "file",
+				};
+			}
+		} catch {
+			// JSON 损坏时继续走纯路径兜底
+		}
+	}
+	const plainPath = dataTransfer.getData(PI_FILE_PATH_DRAG_MIME);
+	return plainPath ? { path: plainPath, relativePath: "", type: "file" } : null;
+}
+
+/**
+ * 文件树节点 → composer @ 引用文本。
+ * 项目内节点优先 relativePath（与 @ 建议一致，可过 chip 白名单校验）；
+ * relativePath 缺失时退回绝对路径（chip 规则对绝对路径直接放行）。
+ * 目录由 formatFilePathRef 追加尾斜杠，含空格路径自动加引号。
+ */
+export function fileNodeDragPayloadToRef(payload: FileNodeDragPayload): string {
+	return formatFilePathRef(payload.relativePath || payload.path, {
+		isDirectory: payload.type === "directory",
+	});
+}
+
 /* ── ANSI 清理 ── */
 
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;

@@ -4316,3 +4316,31 @@ div.fixed.inset-0.z-50 {
   border-top: 1px solid var(--color-border-subtle);
   margin: 1.2em 0;
 }
+
+/* sonner 全局 toast：卡片本体保持中性面板色（见 ui-shadcn/sonner.tsx），
+   类型语义只通过图标色区分，避免整块彩色背景破坏工作台的中性视觉 */
+/* Radix Dialog 模态打开时会给 body 设 pointer-events:none（react-remove-scroll），
+   toast 不属于 dialog 内容，必须显式恢复事件，否则弹框期间 toast 连同关闭按钮全部点不到 */
+[data-sonner-toaster],
+[data-sonner-toaster] * {
+  pointer-events: auto;
+}
+/* Electron 自定义标题栏的 .window-drag-layer 带 -webkit-app-region: drag，
+   命中测试优先级高于 z-index，toast 叠在其上会连 hover 都无响应；
+   app-region 不继承，需要显式覆盖 toaster 及其所有后代 */
+[data-sonner-toaster],
+[data-sonner-toaster] * {
+  -webkit-app-region: no-drag;
+}
+[data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--color-danger);
+}
+[data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--color-warning);
+}
+[data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--color-info);
+}
+[data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--color-logo-green-deep);
+}

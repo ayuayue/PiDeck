@@ -2,11 +2,9 @@ import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   sessionRuntimeBySessionIdAtomFamily,
-  sessionRuntimeUiBySessionIdAtomFamily,
 } from "../../atoms";
 import { useFeishuBridge } from "../../hooks/useFeishuBridge";
 import { FeishuLinkIndicator } from "../feishu/FeishuLinkIndicator";
-import { ExtensionWidgetCard } from "./ComposerParts";
 
 export type RuntimeHandle = {
   agentId: string;
@@ -19,13 +17,6 @@ export function sameRuntimeHandle(
 ): boolean {
   return left?.agentId === right?.agentId &&
     left?.runtimeGeneration === right?.runtimeGeneration;
-}
-
-export function widgetDismissalScope(
-  sessionId: string,
-  runtimeGeneration: number | undefined,
-): string {
-  return `${sessionId}:${runtimeGeneration ?? "detached"}`;
 }
 
 export function isCoherentComposerRuntimeUi(
@@ -41,26 +32,18 @@ export function isCoherentComposerRuntimeUi(
 }
 
 export type ComposerRuntimeSlots = {
-  widgets: ReactNode;
   feishuIndicator: ReactNode;
 };
 
 export function ComposerRuntimeIntegrations(props: {
   sessionId: string;
-  widgetsCollapsed?: boolean;
   children: (slots: ComposerRuntimeSlots) => ReactNode;
 }) {
   const runtime = useAtomValue(
     sessionRuntimeBySessionIdAtomFamily(props.sessionId),
   );
-  const runtimeUi = useAtomValue(
-    sessionRuntimeUiBySessionIdAtomFamily(props.sessionId),
-  );
   const feishu = useFeishuBridge();
   const [sessionBotId, setSessionBotId] = useState<string>();
-  // 关闭是「临时」的：dismiss 只存在组件内存，不写入 localStorage，
-  // 刷新 / 重挂载 / 切换会话后自动恢复，widget 不会永久消失。
-  const [dismissedBySession, setDismissedBySession] = useState<Record<string, string[]>>({});
   const botRequestSequenceRef = useRef(0);
   const runtimeHandleRef = useRef<RuntimeHandle | undefined>(undefined);
   const runtimeHandle = runtime?.agentId
@@ -98,27 +81,6 @@ export function ComposerRuntimeIntegrations(props: {
     }
   }, [feishu.bots, sessionBotId]);
 
-  const coherentRuntimeUi = isCoherentComposerRuntimeUi(runtimeHandle, runtimeUi)
-    ? runtimeUi
-    : undefined;
-  const dismissalScope = widgetDismissalScope(
-    props.sessionId,
-    runtimeHandle?.runtimeGeneration,
-  );
-  const dismissed = dismissedBySession[dismissalScope] ?? [];
-  const widgets = coherentRuntimeUi?.widgets ?? {};
-
-  function dismissWidget(widgetKey: string) {
-    setDismissedBySession((current) => {
-      const existing = current[dismissalScope] ?? [];
-      if (existing.includes(widgetKey)) return current;
-      return {
-        ...current,
-        [dismissalScope]: [...existing, widgetKey],
-      };
-    });
-  }
-
   async function setRuntimeBot(sessionId: string, botId: string | null) {
     const expected = runtimeHandleRef.current;
     // 不拦截无 runtime 的请求：历史会话未启动 Agent 时，主进程 feishuSessionBotSet
@@ -135,23 +97,8 @@ export function ComposerRuntimeIntegrations(props: {
     return result;
   }
 
-  const widgetSlot = props.widgetsCollapsed || Object.keys(widgets).length === 0
-    ? null
-    : (
-        <div className="extension-widgets-container">
-          {Object.entries(widgets)
-            .filter(([widgetKey]) => !dismissed.includes(widgetKey))
-            .map(([widgetKey, lines]) => (
-              <ExtensionWidgetCard
-                key={`${props.sessionId}:${runtimeHandle?.runtimeGeneration}:${widgetKey}`}
-                widgetKey={widgetKey}
-                lines={lines}
-                sessionIdOrPath={props.sessionId}
-                onClose={() => dismissWidget(widgetKey)}
-              />
-            ))}
-        </div>
-      );
+  // 扩展 widget（Todo/Plan）已迁至 chat-header 左侧的 SessionWidgetChips，
+  // composer 只保留飞书指示器槽位。
   // main 对齐：只要有已配置的 Bot 就显示飞书入口。Agent 未启动时点连接会由主进程
   // 自动启动 runtime 并绑定（feishuSessionBotSet 内 activateRuntime），不再需要先手动启动。
   const feishuSlot = feishu.bots.length > 0 ? (
@@ -169,5 +116,5 @@ export function ComposerRuntimeIntegrations(props: {
     />
   ) : null;
 
-  return <>{props.children({ widgets: widgetSlot, feishuIndicator: feishuSlot })}</>;
+  return <>{props.children({ feishuIndicator: feishuSlot })}</>;
 }

@@ -509,9 +509,6 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 						<span className="min-w-0 truncate font-normal text-text-secondary">{request.title || t("ask.defaultTitle")}</span>
 					</Button>
 				</CollapsibleTrigger>
-				{request.method === "select" && request.options?.length ? (
-					<span className="shrink-0 text-micro font-normal text-text-tertiary">{t("ask.cancelHint")}</span>
-				) : null}
 				<Button variant="ghost" size="icon"
 					aria-label={t("common.close")} title={t("common.close")}
 					disabled={responding}

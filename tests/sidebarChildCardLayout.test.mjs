@@ -101,7 +101,7 @@ test("sidebar omits the redundant projects heading and tabs shrink to their titl
   assert.match(tabBar, /session-tabs-scroll flex min-w-0 flex-1/);
   assert.match(tabBar, /session-tabs-actions flex shrink-0/);
   assert.match(sidebarContent, /sidebar-body flex min-h-0 flex-1 flex-col gap-2 px-1\.5 py-1/);
-  assert.match(sessionTree, /min-h-11 w-full/);
+  assert.match(sessionTree, /min-h-11 items-center/);
   assert.match(sessionTree, /history-session-row mx-0 mb-1 last:mb-0 min-h-11 pl-3 pr-3 py-2/);
   assert.match(sessionTree, /历史会话不是运行中的 Agent/);
   assert.match(sessionTree, /flex flex-col gap-2 py-1/);
@@ -120,9 +120,10 @@ test("sidebar omits the redundant projects heading and tabs shrink to their titl
   assert.doesNotMatch(sourceBadge, /bg-(?:indigo|amber|emerald)-/);
 });
 
-test("session actions are embedded in the tab bar instead of a second header row", () => {
+test("session actions render below the tab bar so tabs keep their full width", () => {
   assert.match(tabBar, /actions\?: ReactNode/);
-  assert.match(tabBar, /\{props\.actions\}/);
-  assert.match(sessionView, /<SessionTabsBar[\s\S]*actions=\{[\s\S]*<SessionHeader[\s\S]*embedded/);
-  assert.doesNotMatch(sessionView, /<SessionHeader\s*\n\s*headerRef=/);
+  assert.match(tabBar, /props\.actions !== null/);
+  assert.match(tabBar, /props\.actions \?\?/);
+  assert.match(sessionView, /<SessionTabsBar \{\.\.\.sessionTabs\} actions=\{null\} \/>[\s\S]*<SessionHeader\s*\n\s*headerRef=/);
+  assert.doesNotMatch(sessionView, /<SessionTabsBar[\s\S]*actions=\{[\s\S]*<SessionHeader[\s\S]*embedded/);
 });

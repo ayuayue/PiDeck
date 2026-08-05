@@ -38,8 +38,12 @@ import {
   buildSuggestionItems,
   clearSuggestionTrigger,
   detectTrigger,
+  fileNodeDragPayloadToRef,
   flattenFiles,
   mergeCommands,
+  PI_FILE_NODE_DRAG_MIME,
+  PI_FILE_PATH_DRAG_MIME,
+  readFileNodeDragPayload,
 } from "../components/app/AppUtils";
 import {
   getCaretOffset,
@@ -695,16 +699,17 @@ export function useSessionComposerController(
   }, [setAttachments]);
 
   /**
-   * 将本地路径以 @path 引用插入到输入框当前光标处。
-   * 与「加入对话引用」按钮、粘贴/拖拽文件共用同一套规则：只引用路径，不上传内容。
+   * 把已格式化的引用文本（@path、@"a b/" 等）插入输入框当前光标处。
+   * 文件树拖拽、OS 文件拖入/粘贴、「加入对话引用」按钮共用同一插入规则：
+   * 只引用路径，不上传内容；与前字符之间按需补空格。
    */
-  const insertFilePathRefs = useCallback((paths: string[]) => {
-    if (paths.length === 0) return;
+  const insertRefTexts = useCallback((refTexts: string[]) => {
+    if (refTexts.length === 0) return;
     const liveDraft = liveDomDraftRef.current.sessionId === sessionId
       ? liveDomDraftRef.current.value
       : draft;
     const liveCursor = editorRef.current ? getCaretOffset(editorRef.current) : cursor;
-    const refText = paths.map((path) => `@${path}`).join(" ");
+    const refText = refTexts.join(" ");
     const previous = liveDraft[liveCursor - 1];
     const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
     const next = liveDraft.slice(0, liveCursor) + spacer + refText + liveDraft.slice(liveCursor);
@@ -715,6 +720,11 @@ export function useSessionComposerController(
     caretRef.current = nextCursor;
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [cursor, draft, sessionId, setDraft]);
+
+  /** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用） */
+  const insertFilePathRefs = useCallback((paths: string[]) => {
+    insertRefTexts(paths.map((path) => `@${path}`));
+  }, [insertRefTexts]);
 
   /** 从 File 列表解析本地路径（Electron 32+ 必须走 webUtils，不能用已移除的 File.path） */
   const resolveLocalPathsFromFiles = useCallback((files: File[]) => {
@@ -772,11 +782,18 @@ export function useSessionComposerController(
   }, [addImageFiles, insertFilePathRefs, resolveLocalPathsFromFiles]);
 
   /**
-   * 拖拽：本地文件/目录一律以 @path 引用插入（含图片文件，不上传内容）。
-   * 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
+   * 拖拽：
+   * 1) 文件树节点（含目录）→ 按节点信息生成 @ 引用；
+   * 2) OS 本地文件/目录 → 以 @path 引用插入（含图片文件，不上传内容）；
+   * 3) 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
    */
   const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    const nodePayload = readFileNodeDragPayload(event.dataTransfer);
+    if (nodePayload) {
+      insertRefTexts([fileNodeDragPayloadToRef(nodePayload)]);
+      return;
+    }
     const files = Array.from(event.dataTransfer.files);
     if (files.length === 0) return;
     const paths = resolveLocalPathsFromFiles(files);
@@ -785,7 +802,7 @@ export function useSessionComposerController(
       return;
     }
     void addImageFiles(getDroppedImageFiles(event.dataTransfer));
-  }, [addImageFiles, insertFilePathRefs, resolveLocalPathsFromFiles]);
+  }, [addImageFiles, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles]);
 
   /** 「加入对话引用」按钮：系统选择器选中的文件/目录以 @path 插入 */
   const attachFile = useCallback(async () => {
@@ -912,7 +929,17 @@ export function useSessionComposerController(
       onKeyDown,
       onPaste,
       onDrop,
-      onDragOver: (event: React.DragEvent<HTMLDivElement>) => event.preventDefault(),
+      onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        // 文件树拖拽的 effectAllowed 含 move（内部移动语义），拖入 composer 时
+        // 显式声明 copy，避免光标显示为“移动”，实际行为是插入引用
+        if (
+          event.dataTransfer.types.includes(PI_FILE_NODE_DRAG_MIME) ||
+          event.dataTransfer.types.includes(PI_FILE_PATH_DRAG_MIME)
+        ) {
+          event.dataTransfer.dropEffect = "copy";
+        }
+      },
       onFocus: () => setSuggestionsOpen(detectTrigger(draft, cursor) !== null),
       onBlur: () => setSuggestionsOpen(false),
       onChipClick,

@@ -189,7 +189,7 @@ export function SessionStatus(props: {
 		? `¥${(state.cost * USD_TO_CNY_RATE).toFixed(2)}`
 		: undefined;
 
-	const detailRows: Array<{ label: string; value: string }> = [];
+	const detailRows: Array<{ label: string; value: string; emphasis?: boolean }> = [];
 	if (state.contextPercent != null || state.contextTokens != null) {
 		detailRows.push({
 			label: t("ctx.detail.context"),
@@ -221,8 +221,8 @@ export function SessionStatus(props: {
 		});
 	}
 	if (state.cost != null) {
-		detailRows.push({ label: t("ctx.detail.cost"), value: `$${state.cost.toFixed(3)}` });
-		detailRows.push({ label: t("ctx.detail.costCny"), value: cnyAmount ?? "-" });
+		detailRows.push({ label: t("ctx.detail.cost"), value: `$${state.cost.toFixed(3)}`, emphasis: true });
+		detailRows.push({ label: t("ctx.detail.costCny"), value: cnyAmount ?? "-", emphasis: true });
 	}
 	const hasDetail = detailRows.length > 0;
 
@@ -266,18 +266,33 @@ export function SessionStatus(props: {
 	);
 
 	if (!hasDetail) return statusInner;
-	// 悬停展示完整上下文明细：不改变现有 chips 外观，只增加信息深度
+	// 用有标题的 popover 承载明细：标题解释这组数字，行内用标签/数值对比降低阅读成本。
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>{statusInner}</TooltipTrigger>
-			<TooltipContent side="bottom" align="end" className="ctx-detail-tooltip">
-				<div className="flex flex-col gap-1">
-					{detailRows.map((row) => (
-						<div key={row.label} className="flex items-center justify-between gap-3 text-xs">
-							<span className="text-muted-foreground">{row.label}</span>
-							<span className="font-mono tabular-nums">{row.value}</span>
-						</div>
-					))}
+			<TooltipContent
+				side="bottom"
+				align="end"
+				sideOffset={8}
+				arrowClassName="!bg-popover !fill-popover"
+				className="ctx-detail-tooltip !w-auto min-w-64 max-w-[min(320px,calc(100vw-24px))] !rounded-md !border !border-border !bg-popover !px-3 !py-2.5 !text-popover-foreground !shadow-lg"
+			>
+				<div className="grid gap-2.5">
+					<div className="flex items-center justify-between gap-4 border-b border-border/70 pb-2">
+						<span className="text-caption font-semibold text-popover-foreground">{t("ctx.detail.title")}</span>
+						<span className="text-micro text-muted-foreground">{t("app.ctx")}</span>
+					</div>
+					<div className="grid gap-1">
+						{detailRows.map((row) => (
+							<div
+								key={row.label}
+								className={`flex items-baseline justify-between gap-4 px-1 py-0.5 text-caption leading-5${row.emphasis ? " mt-1 border-t border-border/70 pt-1.5" : ""}`}
+							>
+								<span className="shrink-0 text-muted-foreground">{row.label}</span>
+								<span className="min-w-0 text-right font-mono font-semibold tabular-nums text-popover-foreground">{row.value}</span>
+							</div>
+						))}
+					</div>
 				</div>
 			</TooltipContent>
 		</Tooltip>
@@ -916,7 +931,7 @@ export const TurnRow = memo(function TurnRow(props: {
 				{finalMessageItem && (
 					<Fragment key={finalMessageItem.message.id}>
 						{editing ? (
-							<div className="flex flex-col gap-2 rounded-sm border-l-[3px] border-l-[var(--color-accent)] bg-[color:color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg-panel))] pl-2" ref={editAreaRef}>
+							<div className="flex flex-col gap-2 rounded-md border border-border-subtle bg-[color:color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg-panel))] pl-2" ref={editAreaRef}>
 								<div className="flex items-center gap-1 text-xs font-medium text-[var(--color-accent)] before:content-['✎'] before:text-sm">{t("common.edit")}</div>
 								<Textarea
 									className="min-h-[100px] max-h-[400px] w-full resize-y rounded-sm border border-[var(--color-accent)] bg-bg-panel p-2 font-mono text-sm leading-relaxed text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[0_0_0_2px_var(--focus-ring)]"
@@ -1124,7 +1139,7 @@ export const UserBubble = memo(function UserBubble(props: {
 				</div>
 			)}
 			{editing && (
-				<div className="flex w-full min-w-0 flex-col gap-2 rounded-sm border-l-[3px] border-l-[var(--color-accent)] bg-[color:color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg-panel))] pl-2" ref={editAreaRef}>
+				<div className="flex w-full min-w-0 flex-col gap-2 rounded-md border border-border-subtle bg-[color:color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg-panel))] pl-2" ref={editAreaRef}>
 					<div className="flex items-center gap-1 text-xs font-medium text-[var(--color-accent)] before:content-['✎'] before:text-sm">{t("common.edit")}</div>
 					<Textarea
 						className="min-h-[100px] max-h-[400px] w-full resize-y rounded-sm border border-[var(--color-accent)] bg-bg-panel p-2 font-mono text-sm leading-relaxed text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[0_0_0_2px_var(--focus-ring)]"

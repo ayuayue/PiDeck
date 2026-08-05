@@ -17,3 +17,13 @@ test("collapsed sidebar reveal does not override the v3 conversation list layout
   // The hover-reveal selectors were removed; restoring the sidebar is now
   // handled by a titlebar button which does not depend on CSS hover rules.
 });
+
+
+test("collapsed sidebar offsets the session tab bar from the floating restore button", () => {
+  assert.match(
+    css,
+    /\.wechat-shell\.list-collapsed \.chat-header,\n\.wechat-shell\.list-collapsed \.session-tabs-bar \{\n  padding-left: 56px;/,
+  );
+  assert.doesNotMatch(css, /\.list-collapsed \.chat-list-pane::before/);
+  assert.match(css, /\.list-toggle-native\.floating \{[\s\S]*?top: calc\(var\(--window-drag-height\) \+ 4px\);/);
+});

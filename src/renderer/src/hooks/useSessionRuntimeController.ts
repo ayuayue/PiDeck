@@ -7,9 +7,12 @@ import {
   currentSessionIdAtom,
   currentSessionRuntimeAtom,
   currentSessionRuntimeUiAtom,
+  sessionRecordsAtom,
+  sessionRuntimeUiByIdAtom,
 } from "../atoms/session-atoms";
 import { currentSessionSendStateAtom } from "../atoms/composer-atoms";
 import type { QueuedPrompt } from "./useQueuedPrompt";
+import { t } from "../i18n";
 
 // ── narrow selector (stable unless agentId changes; streaming state updates do NOT change this) ──
 
@@ -51,7 +54,7 @@ export interface UseSessionRuntimeControllerOptions {
   restartingAgentId: string | null;
   sessionDurationByAgent: Record<string, number>;
   activeProjectId: string | undefined;
-  showNotice: (message: string, duration?: number) => void;
+  showNotice: (message: string, duration?: number, kind?: "info" | "warning" | "error") => void;
 }
 
 export function useSessionRuntimeController(
@@ -71,6 +74,8 @@ export function useSessionRuntimeController(
   const currentSession = useAtomValue(currentSessionAtom);
   const currentSessionRuntime = useAtomValue(currentSessionRuntimeAtom);
   const currentSessionRuntimeUi = useAtomValue(currentSessionRuntimeUiAtom);
+  const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
+  const sessionRecords = useAtomValue(sessionRecordsAtom);
   const currentSessionSendState = useAtomValue(currentSessionSendStateAtom);
   const activeAgentId = useAtomValue(activeAgentIdAtom);
 	const runtimeTarget = currentSessionId && currentSessionRuntime?.agentId
@@ -155,6 +160,7 @@ export function useSessionRuntimeController(
   // ── UI notification effect ──
 
   const lastNoticeRef = useRef("");
+  const notifiedBackgroundAskRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const notification = currentSessionRuntimeUi?.notification;
     if (!currentSessionId || !notification) return;
@@ -163,9 +169,33 @@ export function useSessionRuntimeController(
     lastNoticeRef.current = key;
     showNotice(
       notification.message,
-      notification.notifyType === "error" ? 5000 : 3500,
+      notification.notifyType === "error" || notification.notifyType === "warning" ? 3000 : 1500,
+      notification.notifyType,
     );
   }, [currentSessionId, currentSessionRuntimeUi, showNotice]);
+
+  useEffect(() => {
+    for (const [sessionId, runtimeUi] of Object.entries(sessionRuntimeUiById)) {
+      if (sessionId === currentSessionId) continue;
+      const pendingAsk = Object.values(runtimeUi.requests).find(({ request, status }) =>
+        status === "pending" && ["select", "confirm", "input", "editor", "batch_ask"].includes(request.method),
+      );
+      if (!pendingAsk) continue;
+
+      const key = `${sessionId}:${runtimeUi.runtimeGeneration}:${pendingAsk.request.requestId}`;
+      if (notifiedBackgroundAskRef.current.has(key)) continue;
+      notifiedBackgroundAskRef.current.add(key);
+      // Ask 属于阻塞式交互，不能像普通提示一样自动消失；用户切回会话处理后可手动关闭。
+      const title = sessionRecords[sessionId]?.title?.trim() || pendingAsk.request.title || t("ask.defaultTitle");
+      showNotice(t("ask.backgroundPending", { title }), Number.POSITIVE_INFINITY, "warning");
+    }
+    // 限制长期运行时的去重集合，避免大量历史会话累积内存。
+    if (notifiedBackgroundAskRef.current.size > 200) {
+      notifiedBackgroundAskRef.current = new Set(
+        Array.from(notifiedBackgroundAskRef.current).slice(-100),
+      );
+    }
+  }, [currentSessionId, sessionRecords, sessionRuntimeUiById, showNotice]);
 
   return {
     currentSessionId,

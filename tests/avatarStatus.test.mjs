@@ -39,8 +39,8 @@ test("sidebar project groups and splitters use soft neutral boundaries", () => {
     /\.chat-list-pane\.v3-braun \.sidebar-body \.project-group \{([\s\S]*?)\n\}/,
   )?.[1] ?? "";
   assert.doesNotMatch(projectGroupStyles, /border-bottom:/);
-  assert.match(foundation, /\.splitter::before \{[\s\S]*?box-shadow: 0 0 8px/);
-  assert.match(foundation, /\.splitter:hover::before,[\s\S]*?box-shadow: 0 0 10px/);
+  assert.match(foundation, /\.splitter::before \{[\s\S]*?box-shadow: 0 0 6px/);
+  assert.match(foundation, /\.splitter:hover::before,[\s\S]*?box-shadow: 0 0 14px/);
   assert.doesNotMatch(foundation, /\.splitter:hover::before,[\s\S]*--color-accent\) 32%/);
 });
 

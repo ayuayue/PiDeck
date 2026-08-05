@@ -3112,7 +3112,8 @@ export class AgentManager {
 		if (existing) {
 			existing.text = extractedText || `${existing.text}${fallbackDelta}`;
 			if (nextThinking) existing.thinking = nextThinking;
-			existing.timestamp = Date.now();
+			// 保留原始时间戳，不随 delta 刷新。思考耗时依赖首条消息的时间戳与
+			// 最后一条消息的时间戳之差，每次刷新会导致思考耗时始终为 0ms。
 		} else {
 			const text = extractedText || fallbackDelta;
 			if (!text) return;

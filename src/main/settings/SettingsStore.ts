@@ -166,13 +166,13 @@ Gitmoji 对应关系：
   // ── 实验性渲染（#115）：Streamdown 已转正为唯一 markdown 引擎（迁移自 react-markdown） ──
   useWebContentsViewBrowser: false,
 
-  // 字体配置：默认使用内置霞鹜文楷；system 仍保留为可选的系统字体栈。
+  // 字体配置：默认使用系统字体；霞鹜文楷作为可选字体保留。
   fontSize: "medium",
   uiFontSize: null,
   chatFontSize: null,
   inputFontSize: null,
   zoomFactor: 1,
-  fontFamilyBase: "lxgw-wenkai",
+  fontFamilyBase: "system",
   fontFamilyBaseCustom: "",
   fontFamilyMono: "commit-mono",
   fontFamilyMonoCustom: "",

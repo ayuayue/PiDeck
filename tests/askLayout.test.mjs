@@ -52,6 +52,7 @@ test("ask overlay keeps fold, cancel, batch and resume interactions", () => {
   assert.match(overlay, /method === "batch_ask"/);
   assert.match(overlay, /BatchAskInlineBar/);
   assert.match(overlay, /ask-inline-bar/);
+  assert.doesNotMatch(overlay, /ask\.cancelHint/);
 });
 
 test("ask is rendered at the bottom of the session timeline", () => {

@@ -1527,14 +1527,14 @@ body.ask-dialog-open .ask-question-card.pending {
   opacity: 0.75;
 }
 
-/* Ask 面板与工具卡片共用“步骤卡片”节奏：入场一次，展开内容只做尺寸过渡。 */
+/* Ask 面板与工具卡片共用“步骤卡片”节奏：入场一次，展开内容只做尺寸过渡。
+   中性化改版后不再使用左侧 accent 竖条，边界由组件层整圈 hairline 边框承担。 */
 .ask-inline-bar {
   position: relative;
   overflow: hidden;
   margin-left: 18px;
   width: calc(100% - 18px);
   max-width: calc(100% - 18px);
-  border-left: 3px solid var(--color-accent);
   border-radius: var(--radius-md);
   box-shadow: 0 1px 2px color-mix(in srgb, #000 5%, transparent);
   animation: ask-step-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -1985,7 +1985,10 @@ body.ask-dialog-open .ask-question-card.pending {
 /* 占位符:仅当内容为空时通过 :empty + data-attribute 显示,避免空 contentEditable 丢占位文字。 */
 .composer .rich-input:empty::before {
   content: attr(data-placeholder);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-input);
+  line-height: var(--line-height-input);
+  opacity: 0.82;
   pointer-events: none;
 }
 /* 行内 chip:文件=蓝、skill=淡紫。输入框 + 消息气泡通用。
@@ -2151,6 +2154,9 @@ body.ask-dialog-open .ask-question-card.pending {
   border-radius: var(--radius-sm);
   background: transparent;
   overflow: hidden;
+  /* 禁止 flex 收缩：overflow:hidden 的 flex item 最小高度会塌为 0，
+     容器限高时卡片会被静默裁剪且不出滚动条；shrink:0 让溢出由容器滚动承担。 */
+  flex-shrink: 0;
 }
 .extension-widget-card-trigger {
   display: flex;

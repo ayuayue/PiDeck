@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import {
+  type Layout,
+  type LayoutChangedMeta,
   type PanelImperativeHandle,
-  type PanelSize,
 } from "react-resizable-panels";
 import {
   ResizableHandle,
@@ -18,9 +19,12 @@ import type { WorkspaceDrawerPanel } from "../../hooks/useWorkspacePanels";
  * 状态归属约定：
  * - App 侧的 px 状态（listWidth/drawerWidth/listCollapsed/drawerCollapsed）仍是
  *   单一事实源，同时驱动 CSS 变量（hover 宽度、抽屉内部动画等旧样式仍依赖它们）。
- * - 面板库负责拖拽交互；拖拽结果经 onResize 回写 px 状态，外部状态变化
- *   （标题栏折叠按钮、恢复默认宽度）经 imperative resize/collapse/expand 同步回面板。
- * - 宽度变化超过 1px 才回写/同步，避免 state → resize → onResize 的反馈回路。
+ * - 面板库负责拖拽交互；拖拽**过程中不回写 React 状态**（每个 pointermove 都
+ *   setState 会让整个工作台每帧重渲染，且 defaultSize 随动会触发库重布局，
+ *   两者叠加就是肉眼可见的抖动）；拖拽释放/键盘调整完成时经 Group 的
+ *   onLayoutChanged 统一提交一次。外部状态变化（标题栏折叠按钮、恢复默认宽度）
+ *   经 imperative resize/collapse/expand 同步回面板。
+ * - 宽度变化超过 1px 才回写/同步，避免 state → resize → layout 的反馈回路。
  *
  * 折叠语义对齐旧实现：
  * - 侧栏 collapsedSize=14（旧版收起后保留 14px 边缘提示条，恢复走标题栏按钮）；
@@ -136,24 +140,31 @@ export function AppShell(props: AppShellProps) {
     return () => cancelAnimationFrame(frame);
   }, [drawerWidth, drawer, drawerCollapsed]);
 
-  // ── 拖拽 → px 状态回写 ──
-  function handleListResize(size: PanelSize) {
-    const px = Math.round(size.inPixels);
-    const collapsed = px <= LIST_COLLAPSED_SIZE + 1;
-    if (collapsed !== listCollapsed) setListCollapsed(collapsed);
-    if (!collapsed && Math.abs(px - listWidth) > 1) setListWidth(px);
-  }
-
-  function handleDrawerResize(size: PanelSize) {
-    const px = Math.round(size.inPixels);
-    const collapsed = px <= 1;
-    if (collapsed) {
-      // 拖拽折叠仅允许未钉住场景（pinned 面板 collapsible=false，不会走到这）
-      if (!drawerCollapsed) setDrawerCollapsed(true);
-      return;
+  // ── 拖拽完成 → px/折叠状态统一回写 ──
+  // onLayoutChanged 在一次布局变更“完成”时触发（拖拽释放、分隔条键盘调整），
+  // 拖拽过程中不触发；isUserInteraction=false 的程序化变更（如上面的 effect 同步）
+  // 不回写，防止 effect → resize → 回写 的反馈回路。
+  function handleLayoutChanged(_layout: Layout, meta: LayoutChangedMeta) {
+    if (!meta.isUserInteraction) return;
+    const listPanel = listPanelRef.current;
+    if (listPanel) {
+      const px = Math.round(listPanel.getSize().inPixels);
+      const collapsed = listPanel.isCollapsed() || px <= LIST_COLLAPSED_SIZE + 1;
+      if (collapsed !== listCollapsed) setListCollapsed(collapsed);
+      if (!collapsed && Math.abs(px - listWidth) > 1) setListWidth(px);
     }
-    if (drawerCollapsed) setDrawerCollapsed(false);
-    if (Math.abs(px - drawerWidth) > 1) setDrawerWidth(px);
+    const drawerPanel = drawerPanelRef.current;
+    if (drawerPanel) {
+      const px = Math.round(drawerPanel.getSize().inPixels);
+      const collapsed = drawerPanel.isCollapsed() || px <= 1;
+      if (collapsed) {
+        // 拖拽折叠仅允许未钉住场景（pinned 面板 collapsible=false，不会走到这）
+        if (!drawerCollapsed) setDrawerCollapsed(true);
+      } else {
+        if (drawerCollapsed) setDrawerCollapsed(false);
+        if (Math.abs(px - drawerWidth) > 1) setDrawerWidth(px);
+      }
+    }
   }
 
   return (
@@ -185,7 +196,7 @@ export function AppShell(props: AppShellProps) {
         toggleMaximizeWindow={toggleMaximizeWindow}
         closeWindow={closeWindow}
       />
-      <ResizablePanelGroup orientation="horizontal" className="shell-panel-group">
+      <ResizablePanelGroup orientation="horizontal" className="shell-panel-group" onLayoutChanged={handleLayoutChanged}>
         <ResizablePanel
           id="list"
           panelRef={listPanelRef}
@@ -194,7 +205,6 @@ export function AppShell(props: AppShellProps) {
           minSize={LIST_MIN}
           maxSize={LIST_MAX}
           defaultSize={listCollapsed ? LIST_COLLAPSED_SIZE : listWidth}
-          onResize={handleListResize}
           className="shell-panel-list"
         >
           {sidebarContent}
@@ -233,7 +243,6 @@ export function AppShell(props: AppShellProps) {
           minSize={drawerPinned ? DRAWER_MIN_PINNED : DRAWER_MIN}
           maxSize={DRAWER_MAX}
           defaultSize={0}
-          onResize={handleDrawerResize}
           className="shell-panel-drawer"
         >
           <WorkspaceDrawerHost

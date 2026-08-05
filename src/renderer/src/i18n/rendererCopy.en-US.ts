@@ -466,6 +466,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.sessionReadFailed": "Failed to read session messages",
   "app.settingsSaved": "Settings saved.",
   "app.widgetsToggle": "Todo",
+  "app.widgetTitleTodo": "TODO",
+  "app.widgetTitlePlan": "PLAN",
   "app.shellProxyDisabled": "pi agent proxy disabled.",
   "app.shellProxySaved":
     "pi agent proxy saved. Create or restart agents for it to take effect.",
@@ -1321,6 +1323,9 @@ export const enUS: Record<TranslationKey, string> = {
   "drawer.collapseAllDirs": "Collapse all directories",
   "drawer.expandAllDirs": "Expand all directories",
   "editor.fileEditor": "File editor",
+  "editor.emptyTitle": "No open files",
+  "editor.emptyHint": "Click a file in the Files panel to view or edit it here",
+  "editor.emptyOpenFiles": "Open Files panel",
   "drawer.sourceControl": "Source Control",
   "drawer.expandPanel": "Expand right panel",
   "drawer.fileItems": "{count} files and folders",

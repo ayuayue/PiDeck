@@ -30,11 +30,11 @@
 
 :root {
   color-scheme: light;
-  /* 默认使用内置霞鹜文楷；system 预设在下方显式恢复系统字体栈。 */
+  /* 默认使用系统字体栈；霞鹜文楷由 data-font-base="lxgw-wenkai" 选择器启用。 */
   --font-family-base:
-    "LXGW WenKai", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
-    "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
-    "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
   --font-family-brand: "PiDeckPlantin", Georgia, "Times New Roman", serif;
   --font-family-mono:
     "PiDeckCommitMono", ui-monospace, SFMono-Regular, Menlo, Consolas,
@@ -1074,6 +1074,14 @@ select:focus-visible {
 .shell-panel-chat .chat-pane,
 .shell-panel-drawer .detail-drawer {
   height: 100%;
+}
+/* 拖拽区高度同时暴露在 :root：sonner toaster、兑底 toast 等浮层渲染在 #root 内、
+   并非 .wechat-shell 的后代，读不到 shell 作用域变量，会错误地按 0px 计算顶部 offset */
+:root {
+  --window-drag-height: 0px;
+}
+:root:has(.wechat-shell.custom-titlebar-enabled) {
+  --window-drag-height: 40px;
 }
 .wechat-shell.custom-titlebar-enabled {
   --window-drag-height: 40px;
@@ -2146,10 +2154,11 @@ select:focus-visible {
    旧 grid-column / body.is-resizing 已废弃，不再依赖。 */
 .splitter {
   position: relative;
-  background: transparent;
+  /* 覆盖 shadcn ResizableHandle 默认 bg-border：separator 本体不再画线，
+     视觉只保留 ::before 一条，避免“双线”（与 .v-splitter 同一处理） */
+  background: transparent !important;
   cursor: col-resize;
   z-index: 3;
-  transition: background 0.18s ease;
 }
 .splitter-left {
   background: transparent;
@@ -2170,9 +2179,9 @@ select:focus-visible {
   bottom: 0;
   left: 0;
   width: 1px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--color-border-subtle) 42%, transparent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--color-border-subtle) 24%, transparent);
+  /* 中性灰，不用 border-strong/accent：绿色主题下硬线+阴影会显得发绿 */
+  background: color-mix(in srgb, var(--color-border-subtle) 50%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-border-subtle) 26%, transparent);
   transition: background 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
   pointer-events: none;
 }
@@ -2186,13 +2195,21 @@ select:focus-visible {
   right: -5px;
   pointer-events: none;
 }
+/* hover/拖拽态：不画更粗的硬线，改为 3px 水平渐变淡化扩散 + 柔影，
+   纯中性灰（text-tertiary 系），任何主题色下都不发绿 */
 .splitter:hover::before,
 .splitter:active::before,
 .splitter[data-separator="active"]::before {
-  width: 1px;
-  background: color-mix(in srgb, var(--color-border-strong) 58%, transparent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--color-border-strong) 20%, transparent);
-  opacity: 0.72;
+  left: -1px;
+  width: 3px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--color-text-tertiary) 20%, transparent) 50%,
+    transparent
+  );
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-text-tertiary) 15%, transparent);
+  opacity: 0.9;
 }
 
 /* 换肤壁纸模式：启用背景图（data-bg-image="on"）时主容器透明，

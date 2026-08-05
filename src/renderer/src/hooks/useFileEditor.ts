@@ -326,6 +326,10 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
       setEditorTabs(next);
       if (next.length === 0) {
         setActiveTabId(null);
+        // 编辑器是独立抽屉面板：关闭最后一个 tab 后停留在面板空状态，
+        // 并复位 modal 模式——残留 "modal" 会让抽屉分支（editorMode==="drawer" 才渲染）空白
+        editorModeRef.current = "drawer";
+        setEditorMode("drawer");
       } else if (tabId === activeTabId) {
         const neighborIdx = Math.min(idx, next.length - 1);
         setActiveTabId(next[neighborIdx].id);
@@ -359,13 +363,13 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
   const closeEditor = useCallback(() => {
     setActiveTabId(null);
     setEditorTabs([]);
+    // 同 closeEditorTab：复位 modal 残留状态，保证回到抽屉时是正常的编辑器面板
+    editorModeRef.current = "drawer";
+    setEditorMode("drawer");
   }, []);
 
-  useEffect(() => {
-    if (editorTabs.length === 0 && drawer === "editor") {
-      setDrawer(null);
-    }
-  }, [editorTabs.length, drawer, setDrawer]);
+  // 注意：不要在 tab 清空时自动 setDrawer(null)。编辑器是活动栏上的一等面板，
+  // 空 tab 时由 DrawerSurface 渲染空状态，面板去留交给用户通过 rail/关闭键控制。
 
   // ---- file actions ----
   const openFilePath = useCallback(

@@ -137,13 +137,13 @@ function getReadSkillName(message: ChatMessage): string | undefined {
 	return segs[segs.length - 2] ?? fileName;
 }
 
-/** 计算工具的语气色：running 黄、error 红、非零退出 warning、其余 ok。 */
-function getToolTone(message: ChatMessage): "running" | "error" | "warning" | "ok" {
+/** 计算工具的语气色：running 黄、error 红、其余 ok。
+ * 工具内部命令失败（exitCode != 0）不影响工具调用本身的成功状态，
+ * 因此不根据 exitCode 变色，只有工具调用层面出错才标红。 */
+function getToolTone(message: ChatMessage): "running" | "error" | "ok" {
 	const status = getToolStatus(message);
-	const exitCode = getToolExitCode(message);
 	if (status === "running") return "running";
 	if (status === "error" || message.meta?.isError === true) return "error";
-	if (typeof exitCode === "number" && exitCode !== 0) return "warning";
 	return "ok";
 }
 
@@ -230,7 +230,7 @@ const statusLabel =
 	return (
 		<TimelineMarker
 			kind="tool"
-			tone={tone === "error" ? "error" : tone === "warning" ? "warning" : tone === "running" ? "active" : "success"}
+			tone={tone === "error" ? "error" : tone === "running" ? "active" : "success"}
 		>
 		<section
 			className={`tool-card w-full min-w-0 overflow-hidden rounded-md border border-border-subtle bg-bg-panel transition-[border-color,background-color,box-shadow] duration-200 tone-${tone}${isSkillRead ? " tool-card--skill" : ""}${isAskCard ? " tool-card--ask" : ""}${status === "running" ? " tool-card--running" : ""}`}

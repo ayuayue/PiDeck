@@ -9,9 +9,10 @@ import { WorktreeTree } from "./WorktreeTree";
 import { PathTooltip } from "../ui-shadcn/PathTooltip";
 import { cn } from "../../lib/utils";
 
-/** pure official：项目/会话树行共享的 shadcn 风格底（hover=accent 面，active 同系） */
+/** pure official：项目/会话树行共享的 shadcn 风格底（hover=accent 面，active 同系）
+ * 默认透明背景，只有激活的行才显示背景色和阴影，避免所有行都像浮层卡片。 */
 const treeRowClass =
-  "group conversation relative flex min-h-7 w-full items-center gap-1.5 rounded-lg border border-transparent bg-background px-2 py-0 text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
+  "group conversation relative flex min-h-7 w-full items-center gap-1.5 rounded-lg border border-transparent px-2 py-0 text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
 function isChatProject(project: Project) {
   return project.kind === "chat";

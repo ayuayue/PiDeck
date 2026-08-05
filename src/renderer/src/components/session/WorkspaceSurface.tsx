@@ -28,6 +28,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui-shadc
 import { FileSortControl } from "./FileSortControl";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { sortFileNodes, FILE_SORT_OPTIONS, FILE_SORT_DEFAULT_DIRECTION, type FileSortMode, type FileSortDirection } from "../../utils/fileTreeSort";
+import { writeFileNodeDragPayload } from "../app/AppUtils";
 import { t } from "../../i18n";
 import type { WorkspaceDrawerPanel } from "../../hooks/useWorkspacePanels";
 import { showNotice } from "../../utils/notice";
@@ -496,10 +497,11 @@ function FileNode(props: {
 		props.onFileContextMenu(node, event.clientX, event.clientY);
 	};
 	// 内部拖拽移动：dataTransfer 携带源路径，目录行是落点；OS 文件拖入则是复制
+	// effectAllowed=copyMove：目录落点显式选 move（内部移动），composer 落点选 copy（插入 @ 引用）
 	const handleDragStart = useCallback((event: React.DragEvent) => {
-		event.dataTransfer.effectAllowed = "move";
-		event.dataTransfer.setData("text/pi-file-path", node.path);
-	}, [node.path]);
+		event.dataTransfer.effectAllowed = "copyMove";
+		writeFileNodeDragPayload(event.dataTransfer, node);
+	}, [node]);
 	const handleDragOver = useCallback((event: React.DragEvent) => {
 		event.preventDefault();
 		event.stopPropagation();

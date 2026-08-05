@@ -1,5 +1,5 @@
 import { useAtomValue } from "jotai";
-import { Pin, PinOff, Plus, PanelRight, X } from "lucide-react";
+import { Folder, MessagesSquare, Pin, PinOff, Plus, PanelRight, X } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   sessionRecordByIdAtomFamily,
@@ -34,6 +34,13 @@ import { cn } from "../../lib/utils";
 /** 拖拽中的源 Tab id；onDrop 时消费 */
 const TAB_DRAG_DATA_KEY = "text/pideck-session-tab";
 
+/** “+” 下拉里的新建目标：聊天对话区或已打开项目 */
+export type NewSessionTarget = {
+  projectId: string;
+  label: string;
+  isChat: boolean;
+};
+
 export type SessionTabsBarProps = {
   tabs: readonly string[];
   pinnedTabs: readonly string[];
@@ -42,7 +49,9 @@ export type SessionTabsBarProps = {
   onClose: (sessionId: string) => void;
   onCloseOthers: (sessionId: string) => void;
   onCloseAll: () => void;
-  onNewSession: () => void;
+  /** 新建会话目标（聊天区置顶 + 已打开项目），由 App 从项目库存装配 */
+  newSessionTargets: readonly NewSessionTarget[];
+  onNewSessionInProject: (projectId: string) => void;
   onTogglePin: (sessionId: string) => void;
   onReorder: (sourceId: string, targetId: string, position: "before" | "after") => void;
   /** 无当前会话时仍显示右侧抽屉入口。 */
@@ -126,38 +135,34 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
           onDragEnd={handleDragEnd}
         />
         ))}
+        {/* 浏览器式新建入口：跟在最后一张标签后面，下拉选择新建到哪个项目 */}
+        <NewSessionMenu
+          targets={props.newSessionTargets}
+          onSelect={props.onNewSessionInProject}
+        />
       </div>
-      <div className="session-tabs-actions flex shrink-0 items-center gap-1 border-l border-border/30 pl-1">
-        {props.actions}
-        {!props.actions && (
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="session-tabs-new ml-0.5 inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              title={t("tabs.new")}
-              aria-label={t("tabs.new")}
-              onClick={props.onNewSession}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-            {props.onToggleDrawer && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className={`header-drawer-toggle size-7${props.drawerOpen ? " active" : ""}`}
-                title={props.drawerOpen ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                aria-label={props.drawerOpen ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                onClick={props.onToggleDrawer}
-              >
-                <PanelRight className="size-3.5" aria-hidden="true" />
-              </Button>
-            )}
-          </>
-        )}
-      </div>
+      {/* null 表示当前会话由下方 SessionHeader 承载操作；undefined 才保留无会话空态的快捷入口。 */}
+      {props.actions !== null && (
+        <div className="session-tabs-actions flex shrink-0 items-center gap-1 border-l border-border/30 pl-1">
+          {props.actions ?? (
+            <>
+              {props.onToggleDrawer && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className={`header-drawer-toggle size-7${props.drawerOpen ? " active" : ""}`}
+                  title={props.drawerOpen ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                  aria-label={props.drawerOpen ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                  onClick={props.onToggleDrawer}
+                >
+                  <PanelRight className="size-3.5" aria-hidden="true" />
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -301,5 +306,53 @@ function SessionTab(props: {
         </DropdownMenu>
       )}
     </>
+  );
+}
+
+/**
+ * 新建会话入口（浏览器式 “+”）：固定在标签带末端，下拉选择新建目标。
+ * 聊天对话区置顶，之后是已打开的工作区项目；目标列表由 App 装配好传入，
+ * 这里只做展示与选择回调，不接触项目库存。
+ */
+function NewSessionMenu(props: {
+  targets: readonly NewSessionTarget[];
+  onSelect: (projectId: string) => void;
+}) {
+  const chatTargets = props.targets.filter((target) => target.isChat);
+  const projectTargets = props.targets.filter((target) => !target.isChat);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="session-tabs-new ml-0.5 inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          title={t("tabs.new")}
+          aria-label={t("tabs.new")}
+        >
+          <Plus className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="bottom" className="min-w-44">
+        {chatTargets.map((target) => (
+          <DropdownMenuItem key={target.projectId} onSelect={() => props.onSelect(target.projectId)}>
+            <span className="inline-flex items-center gap-2">
+              <MessagesSquare className="size-3.5 text-muted-foreground" aria-hidden="true" />
+              {target.label}
+            </span>
+          </DropdownMenuItem>
+        ))}
+        {chatTargets.length > 0 && projectTargets.length > 0 && <DropdownMenuSeparator />}
+        {projectTargets.map((target) => (
+          <DropdownMenuItem key={target.projectId} onSelect={() => props.onSelect(target.projectId)}>
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="truncate">{target.label}</span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

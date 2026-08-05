@@ -261,7 +261,8 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
       canRestart={runtime.canRestartSession}
       restartingAgentId={restartingAgentId ?? undefined}
       isRestarting={runtime.isRestartingThisAgent}
-      showRestart={!isLanWeb}
+      // 没有绑定运行时的草稿也会有会话 ID，但重启只对已启动 Agent 有意义。
+      showRestart={Boolean(runtime.activeAgentId) && !isLanWeb}
       sessionDuration={runtime.sessionDuration}
       onHeaderTrigger={() => {
         if (runtime.activeAgentId || currentSessionId) {
@@ -269,10 +270,6 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
         } else {
           void runCreateSessionDraft();
         }
-      }}
-      onNewSession={() => {
-        void runCreateSessionDraft();
-        setSessionActionsOpen(false);
       }}
       onStop={() => {
         void abortAgent();

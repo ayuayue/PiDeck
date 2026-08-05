@@ -43,19 +43,24 @@ test("composer measures variable content above the input and reports the extra h
   assert.match(composerArea, /extra \+ COMPOSER_DEFAULT_HEIGHT/);
 });
 
-test("widget height sync lives in a child that rerenders when runtime widgets change", () => {
-  // ComposerRuntimeIntegrations owns widget state. Closing a widget rerenders its render-prop
-  // subtree, not the outer ComposerArea, so the layout effect must live in a child receiving
-  // widgets as props; otherwise the panel only shrinks after the user types and rerenders
-  // ComposerArea for an unrelated reason.
+test("extras height sync lives in a child that rerenders when runtime extras change", () => {
+  // ComposerMeasuredExtras 作为 render-prop 子树中的独立组件持有测量 effect：
+  // extras（队列/投递通知/图片栏）变化时只重渲染这棵子树，而不是整个 ComposerArea。
+  // Todo/Plan widget 已随 chat-header SessionWidgetChips 迁出 composer（issue-113 合并）。
   assert.match(
     composerArea,
     /function ComposerMeasuredExtras[\s\S]*useLayoutEffect/,
   );
   assert.match(
     composerArea,
-    /<ComposerMeasuredExtras[\s\S]*widgets=\{widgets\}/,
+    /<ComposerMeasuredExtras[\s\S]*deliveryNotice=\{/,
   );
+  assert.match(composerArea, /<ComposerMeasuredExtras[\s\S]*queuePanel=\{props\.queuePanel\}/);
+  const widgetChips = readFileSync(
+    "src/renderer/src/components/session/SessionWidgetChips.tsx",
+    "utf8",
+  );
+  assert.match(widgetChips, /isCoherentComposerRuntimeUi/);
 });
 
 test("content containers are shrink-proof so panel resizes cannot feedback-loop", () => {

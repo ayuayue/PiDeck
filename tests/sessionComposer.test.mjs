@@ -418,19 +418,6 @@ test("deferred template results are accepted only for the current Session/projec
   assert.deepEqual(accepted, ["templates-b"]);
 });
 
-test("widget dismissal is scoped by runtime generation so restart re-shows the widget", () => {
-  const { widgetDismissalScope } = compile(
-    "src/renderer/src/components/session/ComposerRuntimeIntegrations.tsx",
-    { react: {}, jotai: {} },
-  );
-  const dismissed = {
-    [widgetDismissalScope("session-a", 1)]: ["plan"],
-  };
-  assert.equal(dismissed[widgetDismissalScope("session-a", 1)].includes("plan"), true);
-  assert.equal(Boolean(dismissed[widgetDismissalScope("session-a", 2)]), false);
-  assert.notEqual(widgetDismissalScope("session-a", 1), widgetDismissalScope("session-a", 2));
-});
-
 test("selected Session reference messages zip original indices with compressed messages", () => {
   const {
     createSessionReferenceSelection,

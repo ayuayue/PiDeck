@@ -8,6 +8,9 @@ const settingsStore = readFileSync("src/main/settings/SettingsStore.ts", "utf8")
 const settingsTypes = readFileSync("src/shared/types/settings.ts", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
 const fileSortControl = readFileSync("src/renderer/src/components/session/FileSortControl.tsx", "utf8");
+const composerComponents = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
+const projectEmptyState = readFileSync("src/renderer/src/components/session/ProjectEmptyState.tsx", "utf8");
+const commandPicker = readFileSync("src/renderer/src/components/ui-shadcn/command-picker.tsx", "utf8");
 const i18n = [
   readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"),
   readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8"),
@@ -47,6 +50,17 @@ test("File sorting leaves hover state to Radix DropdownMenu", () => {
   assert.match(fileSortControl, /<DropdownMenu open=\{open\} onOpenChange=\{setOpen\}>/);
   assert.doesNotMatch(fileSortControl, /onMouseEnter|onMouseLeave|closeTimerRef/);
 });
+
+test("Shared model picker keeps one model line and supports collapse and selected-item positioning", () => {
+  assert.match(composerComponents, /<CommandPickerGroup id=\"favorites\"/);
+  assert.doesNotMatch(composerComponents, /picker-palette-label.*model\.name/);
+  assert.match(commandPicker, /showGroupActions/);
+  assert.match(commandPicker, /search\.trim\(\) \? <CommandEmpty/);
+  assert.match(commandPicker, /scrollIntoView\(\{ block: \"center\" \}\)/);
+  assert.match(projectEmptyState, /<CommandPickerPanel/);
+  assert.match(projectEmptyState, /showGroupActions/);
+});
+
 
 test("Git summary settings expose the shared command model picker", () => {
   assert.match(settingsModal, /projects\.listModels\(\)/);
