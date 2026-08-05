@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toggleTaskCheckbox as toggleTaskLine } from "../components/scratchPad/scratchPadLists";
 import type { DraftMeta, ScratchPadData } from "../../../shared/types";
 
 const AUTOSAVE_DELAY = 1500;
@@ -235,12 +236,7 @@ export function useScratchPad(): UseScratchPadResult {
 
 	/* 切换指定行（task list 项）的选中状态：直接根据源 markdown 行号反转 */
 	const toggleTaskCheckbox = useCallback((lineIndex: number) => {
-		const lines = content.split('\n');
-		if (lineIndex < 0 || lineIndex >= lines.length) return;
-		lines[lineIndex] = lines[lineIndex].replace(/\[([ xX])\]/, (_, mark) =>
-			mark.trim() === '' ? '[x]' : '[ ]'
-		);
-		setContent(lines.join('\n'));
+		setContent(toggleTaskLine(content, lineIndex));
 	}, [content, setContent]);
 
 	return {

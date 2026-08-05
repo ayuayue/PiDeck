@@ -2246,7 +2246,9 @@ select:focus-visible {
    与侧栏/会话区/抽屉同一基色，不透明度更高保证内容可读。
    关键：在 dialog-content 上局部覆盖 bg 系列变量（CSS 变量继承）——
    弹窗内 section 卡片/控件引用同一档位，消除"Header 透 / Body 实"的多层叠加不一致 */
-:root[data-bg-image="on"] [data-slot="dialog-content"] {
+:root[data-bg-image="on"] [data-slot="dialog-content"],
+/* 草稿本同理：不跟随壁纸半透明，header(bg-muted)/body(bg-panel) 同基色同档位，顶部一体 */
+:root[data-bg-image="on"] .scratch-pad-panel {
   /* 弹窗保底 90% 不透明：模态内容优先可读——此前仅比普通面板实 25%
      （55% 不透明），半透明弹窗会让背后的侧栏 logo 等元素透出干扰阅读 */
   --wallpaper-dialog-alpha: max(90%, calc(var(--wallpaper-panel-alpha, 30%) + 25%));
@@ -2257,6 +2259,14 @@ select:focus-visible {
   --color-bg-active: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-dialog-alpha), transparent);
   --color-background: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-dialog-alpha), transparent);
   --color-card: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-dialog-alpha), transparent);
+}
+/* 草稿本是独立书写平面：壁纸模式下遮罩与面板使用同一不透明底色，
+   避免圆角抗锯齿边缘露出深色遮罩而形成黑角。 */
+:root[data-bg-image="on"] .scratch-pad-overlay {
+  background: var(--wallpaper-base, var(--color-bg-app));
+}
+:root[data-bg-image="on"] .scratch-pad-panel {
+  --wallpaper-dialog-alpha: 100%;
 }
 
 .chat-pane {

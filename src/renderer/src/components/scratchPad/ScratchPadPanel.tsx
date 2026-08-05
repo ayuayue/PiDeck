@@ -5,6 +5,7 @@ import remarkMath from "remark-math";
 import { defaultRemarkPlugins } from "streamdown";
 import { Download, Eye, FilePlus, PanelRightOpen, Pencil, Trash2 } from "lucide-react";
 import { MarkdownStream } from "../session/MarkdownStream";
+import { continueListOnNewline, normalizeOrderedLists, prepareTaskListPreview } from "./scratchPadLists";
 import type { Plugin } from "unified";
 import type { Root, Element, Text } from "hast";
 import type { DraftMeta } from "../../../../shared/types";
@@ -46,63 +47,6 @@ type ScratchPadPanelProps = {
 	onCreateDraft: () => void;
 	onDeleteDraft: (draftPath: string) => void;
 };
-
-/* 列表回车续号：覆盖 GFM task list + 普通列表 + 有序列表 */
-function handleListNewline(value: string, selectionStart: number): { next: string; cursor: number } | null {
-	const before = value.slice(0, selectionStart);
-	const after = value.slice(selectionStart);
-	const lines = before.split("\n");
-	const currentLine = lines[lines.length - 1];
-
-	/* GFM task list: - [ ] / - [x] / - [X] */
-	const taskMatch = currentLine.match(/^(\s*-\s+\[[ xX]\]\s+)(.*)$/);
-	if (taskMatch) {
-		const [, prefix, content] = taskMatch;
-		if (content.trim() === "") {
-			const removed = before.slice(0, before.length - currentLine.length);
-			const next = (removed.endsWith("\n") ? removed.slice(0, -1) : removed) + "\n" + after;
-			return { next, cursor: next.length - after.length };
-		}
-		return {
-			next: before + "\n" + prefix + after,
-			cursor: before.length + 1 + prefix.length,
-		};
-	}
-
-	/* 普通无序列表: -, *, + */
-	const ul = currentLine.match(/^(\s*)([-*+]) (.*)$/);
-	if (ul) {
-		const [, indent, marker, content] = ul;
-		if (content.trim() === "") {
-			const removed = before.slice(0, before.length - currentLine.length);
-			const next = (removed.endsWith("\n") ? removed.slice(0, -1) : removed) + "\n" + after;
-			return { next, cursor: next.length - after.length };
-		}
-		return {
-			next: before + "\n" + indent + marker + " " + after,
-			cursor: before.length + 1 + indent.length + marker.length + 1,
-		};
-	}
-
-	/* 有序列表: 1. */
-	const ol = currentLine.match(/^(\s*)(\d+)\. (.*)$/);
-	if (ol) {
-		const [, indent, num, content] = ol;
-		if (content.trim() === "") {
-			const removed = before.slice(0, before.length - currentLine.length);
-			const next = (removed.endsWith("\n") ? removed.slice(0, -1) : removed) + "\n" + after;
-			return { next, cursor: next.length - after.length };
-		}
-		const nextNum = Number(num) + 1;
-		const insert = `${indent}${nextNum}. `;
-		return {
-			next: before + "\n" + insert + after,
-			cursor: before.length + 1 + insert.length,
-		};
-	}
-
-	return null;
-}
 
 /*
  * 自写 rehype 插件：把文本节点里的 ==text== 模式转成 <mark>text</mark>。
@@ -209,12 +153,23 @@ export const ScratchPadPanel = memo(function ScratchPadPanel(props: ScratchPadPa
 	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
 		const ta = e.currentTarget;
-		const res = handleListNewline(ta.value, ta.selectionStart);
+		const res = continueListOnNewline(ta.value, ta.selectionStart);
 		if (!res) return;
 		e.preventDefault();
 		onChangeContent(res.next);
 		requestAnimationFrame(() => {
 			ta.selectionStart = ta.selectionEnd = res.cursor;
+		});
+	}, [onChangeContent]);
+
+	const handleContentChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+		const textarea = event.currentTarget;
+		const next = normalizeOrderedLists(textarea.value);
+		onChangeContent(next);
+		if (next === textarea.value) return;
+		const cursor = Math.min(textarea.selectionStart, next.length);
+		requestAnimationFrame(() => {
+			textarea.selectionStart = textarea.selectionEnd = cursor;
 		});
 	}, [onChangeContent]);
 
@@ -288,10 +243,10 @@ export const ScratchPadPanel = memo(function ScratchPadPanel(props: ScratchPadPa
 					{mode === "edit" ? (
 						<Textarea
 							ref={editorRef}
-							className="scratch-pad-editor"
+							className="scratch-pad-editor rounded-none border-0 shadow-none dark:bg-transparent focus-visible:border-transparent focus-visible:ring-0"
 							value={content}
 							placeholder={t("scratchPad.placeholder")}
-							onChange={(e) => onChangeContent(e.target.value)}
+							onChange={handleContentChange}
 							onKeyDown={handleKeyDown}
 							autoFocus
 							spellCheck={false}
@@ -305,7 +260,8 @@ export const ScratchPadPanel = memo(function ScratchPadPanel(props: ScratchPadPa
 							) : (
 								<div className="scratch-pad-md">
 									<MarkdownStream
-										text={content}
+										key={`scratch-pad-${content}`}
+										text={prepareTaskListPreview(content)}
 										onOpenExternal={() => undefined}
 										remarkPlugins={[defaultRemarkPlugins.gfm, remarkMath, remarkBreaks]}
 										rehypePlugins={[rehypeKatex, rehypeHighlightMark]}
@@ -322,16 +278,10 @@ export const ScratchPadPanel = memo(function ScratchPadPanel(props: ScratchPadPa
 													<li
 														{...liProps}
 														className={classes}
-														role="button"
-														tabIndex={0}
+														/* 勾选只响应方框本身：只有点击 checkbox 才切换，点文字不触发 */
 														onClick={(event) => {
 															const target = event.target as HTMLElement;
-															if (target.closest("a,button")) return;
-															onToggleCheckbox(lineIndex);
-														}}
-														onKeyDown={(event) => {
-															if (event.key !== "Enter" && event.key !== " ") return;
-															event.preventDefault();
+															if (!target.closest('input[type="checkbox"]')) return;
 															onToggleCheckbox(lineIndex);
 														}}
 													>
@@ -339,14 +289,22 @@ export const ScratchPadPanel = memo(function ScratchPadPanel(props: ScratchPadPa
 													</li>
 												);
 											},
-											input: ({ ...inputProps }) => (
-												<Input
-													{...inputProps}
-													disabled={inputProps.type === "checkbox" ? false : inputProps.disabled}
-													readOnly={inputProps.type === "checkbox" ? true : inputProps.readOnly}
-													tabIndex={inputProps.type === "checkbox" ? -1 : inputProps.tabIndex}
-												/>
-											),
+											input: ({ className, ...inputProps }) => {
+												if (inputProps.type === "checkbox") {
+													/* 任务项 checkbox 不能用共享 Input：h-9 w-full 会把方框
+													   撑成整行，文字被挤到下一行 */
+													return (
+														<input
+															{...inputProps}
+															className={className ? `scratch-pad-checkbox ${className}` : "scratch-pad-checkbox"}
+															disabled={false}
+															readOnly
+															tabIndex={-1}
+														/>
+													);
+												}
+												return <Input {...inputProps} className={className} />;
+											},
 										}}
 									/>
 								</div>
