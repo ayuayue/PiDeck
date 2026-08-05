@@ -2208,6 +2208,13 @@ select:focus-visible {
 :root[data-bg-image="on"] .composer .composer-box {
   background: transparent;
 }
+/* 壁纸模式空态/起始页一体性：这两个组件自铺 bg-background（壁纸下 30% 白）
+   叠在 chat-pane 的半透明面板（30% 白）上，双层≈51% 白，比其他区域亮一截；
+   改为透出下层，与聊天区/侧栏一致。 */
+:root[data-bg-image="on"] .empty-state,
+:root[data-bg-image="on"] .session-start-surface {
+  background: transparent;
+}
 /* 壁纸模式下弹窗（shadcn Dialog）比普通面板再实一档：统一各弹窗透明度，
    与侧栏/会话区/抽屉同一基色，不透明度更高保证内容可读。
    关键：在 dialog-content 上局部覆盖 bg 系列变量（CSS 变量继承）——
