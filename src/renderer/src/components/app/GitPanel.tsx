@@ -886,7 +886,7 @@ export function GitPanel(props: GitPanelProps) {
           ref={branchTriggerRef}
           type="button"
           variant="outline"
-          className="inline-flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-left text-xs text-foreground hover:bg-accent"
+          className="inline-flex h-7 min-w-0 flex-1 items-center justify-start gap-1.5 rounded-md border border-border bg-background px-2 text-left text-xs text-foreground hover:bg-accent"
           onClick={() => {
             if (!branchOpen) updateBranchDropdownPosition();
             setBranchOpen((v) => !v);
@@ -901,7 +901,7 @@ export function GitPanel(props: GitPanelProps) {
           }
         >
           <GitBranch size={14} className="shrink-0 text-muted-foreground" />
-          <span className="git-branch-label min-w-0 max-w-[120px] flex-1 truncate">
+          <span className="git-branch-label min-w-0 flex-1 truncate">
             {props.currentBranch || t("app.branchNone")}
           </span>
           {props.branches.length > 0 && (
@@ -1022,7 +1022,7 @@ export function GitPanel(props: GitPanelProps) {
       </div>
       <section
         id="git-pane-changes"
-        className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${paneState.open.changes ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
+        className={`flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${paneState.open.changes ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
         style={paneStyle("changes")}
       >
         <PaneHeader
@@ -1471,7 +1471,7 @@ function CompareChanges(props: {
   return (
     <section
       id="git-pane-compare"
-      className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
+      className={`flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
       style={
         { "--git-pane-height": `${props.height}px` } as React.CSSProperties
       }
@@ -1484,7 +1484,7 @@ function CompareChanges(props: {
         onToggle={props.onToggle}
       />
       {props.open && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
+        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain pb-[5px]">
           <div className="git-compare-controls">
             <Label>
               <span>{t("git.base")}</span>

@@ -840,7 +840,7 @@ export function SourceControlGraph(props: GitGraphProps) {
   return (
     <section
       id="git-pane-graph"
-      className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
+      className={`flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
       style={
         { "--git-pane-height": `${props.height}px` } as CSSProperties
       }
@@ -877,14 +877,14 @@ export function SourceControlGraph(props: GitGraphProps) {
       {props.open && (
         <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
           {loading && !commits.length && (
-            <div className="git-status-msg">
+            <div className="git-status-msg flex min-h-[22px] shrink-0 items-center gap-1 px-[9px] text-[13px] text-[var(--git-desc-fg)]">
               <Loader2 size={14} className="animate-spin" />{" "}
               {t("git.loadingCommits")}
             </div>
           )}
-          {error && <div className="git-status-msg error">{error}</div>}
+          {error && <div className="git-status-msg error flex min-h-[22px] shrink-0 items-center gap-1 px-[9px] text-[13px] text-[var(--git-conflict)]">{error}</div>}
           {!loading && !error && !commits.length && (
-            <div className="git-status-msg">{t("git.noCommits")}</div>
+            <div className="git-status-msg flex min-h-[22px] shrink-0 items-center gap-1 px-[9px] text-[13px] text-[var(--git-desc-fg)]">{t("git.noCommits")}</div>
           )}
           {commits.length > 0 && (
             <div
