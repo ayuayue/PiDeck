@@ -97,7 +97,8 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 
   // overflow-visible：SessionHeader 的 session-combo 下拉菜单向下弹出，hidden 会把它裁掉导致“+新会话”看似无反应；Tab 滚动已由内部 .session-tabs-scroll 的 overflow-x-auto 承担。
   return (
-    <div className="session-tabs-bar flex h-9 shrink-0 items-center gap-1 overflow-visible border-b border-border/40 bg-background/80 px-2">
+    // h-[41px] 与右侧抽屉活动栏（.drawer-activity-rail：32px 按钮 + 8px padding + 1px 边框）精确对齐，改任一侧需同步。
+    <div className="session-tabs-bar flex h-[41px] shrink-0 items-center gap-1 overflow-visible border-b border-border/40 bg-background/80 px-2">
       <div className="session-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabItems.map(({ sessionId }) => (
         <SessionTab
