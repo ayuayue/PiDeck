@@ -4,6 +4,7 @@ import { selectAtom } from "jotai/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, ReactNode, RefObject } from "react";
 import type { ChatMessage, ImageContent } from "../../../../shared/types";
+import { MarkdownStream } from "./MarkdownStream";
 import {
   CompactionCard,
   DiagnosticMessageCard,
@@ -505,9 +506,14 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
             {isAwaitingAssistant && (
               <>
                 {props.showThinking && activeThinking && (
-                  <section className="thinking-card">
+                  <section className="thinking-card markdown-body text-text-tertiary">
                     <div className="thinking-card-content">
-                      {activeThinking}
+                      <MarkdownStream
+                        text={activeThinking}
+                        isStreaming
+                        onOpenExternal={props.onOpenExternal}
+                        onOpenFile={props.onOpenFile}
+                      />
                     </div>
                   </section>
                 )}

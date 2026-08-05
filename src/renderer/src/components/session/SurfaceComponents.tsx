@@ -750,6 +750,8 @@ export const TurnRow = memo(function TurnRow(props: {
 					startedAt={item.startedAt}
 					endedAt={item.endedAt}
 					showThinking={props.showThinking}
+					onOpenExternal={props.onOpenExternal}
+					onOpenFile={props.onOpenFile}
 				/>
 			);
 		}

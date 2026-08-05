@@ -15,6 +15,7 @@ import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { WebAssistantText } from "./WebAssistantText";
+import { MarkdownStream } from "@/components/session/MarkdownStream";
 import { TimelineMarker } from "../components/session/TimelineMarker";
 
 /** 用户消息右对齐气泡（结构与桌面 UserBubble 一致，去掉操作栏/附件能力）。 */
@@ -61,8 +62,14 @@ export const WebThinkingBlock = memo(function WebThinkingBlock(props: { text: st
 				)}
 			</button>
 			{expanded && (
-				<div className="border-t border-border-subtle px-3 pt-2 pb-3 text-caption text-text-tertiary whitespace-pre-wrap">
-					{props.text}
+				<div className="markdown-body border-t border-border-subtle px-3 pt-2 pb-3 text-text-tertiary">
+					<MarkdownStream
+						text={props.text}
+						onOpenExternal={(url: string) => {
+							// Web 端无系统浏览器通道，直接新窗口打开
+							window.open(url, "_blank", "noopener");
+						}}
+					/>
 				</div>
 			)}
 		</section>

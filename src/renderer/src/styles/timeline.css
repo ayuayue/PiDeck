@@ -463,6 +463,12 @@
 .thinking-card-chevron.open {
   transform: rotate(180deg);
 }
+/* 思考正文显式锁定为会话正文字号：比工具卡片 bash 输出（caption 档）大一档，
+   随 data-ui-font-size 档位联动，不依赖 body 继承避免被外层容器意外覆盖。 */
+[data-marker-kind="thinking"] .markdown-body,
+.thinking-card.markdown-body {
+  font-size: var(--font-size-body);
+}
 /* 流式思考卡片：实时展示推理过程 */
 
 /* ---------- 流式响应指示器：RespondingIndicator ---------- */

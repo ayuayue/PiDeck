@@ -5,6 +5,7 @@ import { t, translateI18nDescriptor } from "../../i18n";
 import { formatDuration, formatTime, stripAnsi } from "./TimelineFormat";
 import { Textarea } from "../ui-shadcn/textarea";
 import { TimelineMarker } from "./TimelineMarker";
+import { MarkdownStream } from "./MarkdownStream";
 
 // Button 收口状态（P0）：本文件按钮全部保留原生——
 // compaction-card-header / thinking-card-trigger 是折叠触发器 + 内容排版容器（内部 span/small/em 结构）；
@@ -315,13 +316,17 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	);
 });
 
-/** 思考过程折叠卡片：默认收起，展开后显示完整推理文本（超长时提供截断展开）。 */
-export const ThinkingBlock = memo(function ThinkingBlock(props: {
-	text: string;
-	startedAt?: number;
-	endedAt?: number;
-	showThinking?: boolean;
-}) {
+/** 思考过程折叠卡片：默认展开，展开后以 Markdown 结构渲染推理文本（标题/列表/代码块），
+ * 超长时折叠态提供 220 字符截断预览。 */
+export const ThinkingBlock = memo(
+	function ThinkingBlock(props: {
+		text: string;
+		startedAt?: number;
+		endedAt?: number;
+		showThinking?: boolean;
+		onOpenExternal: (url: string) => void;
+		onOpenFile?: (path: string) => void;
+	}) {
 	// 默认展开，方便用户看到推理过程；可手动折叠
 	const [expanded, setExpanded] = useState(true);
 	if (!props.showThinking || !props.text.trim()) return null;
@@ -359,11 +364,26 @@ export const ThinkingBlock = memo(function ThinkingBlock(props: {
 				)}
 				{durationText && <small className="shrink-0 font-mono text-micro tabular-nums text-text-tertiary">{durationText}</small>}
 			</button>
-			{expanded && <div className="border-t border-border-subtle px-3 pt-2 pb-3 text-caption text-text-tertiary">{previewText}</div>}
+			{expanded && (
+				<div className="markdown-body border-t border-border-subtle px-3 pt-2 pb-3 text-text-tertiary">
+					<MarkdownStream
+						text={previewText}
+						onOpenExternal={props.onOpenExternal}
+						onOpenFile={props.onOpenFile}
+					/>
+				</div>
+			)}
 		</section>
 		</TimelineMarker>
 	);
-});
+	},
+	// 回调函数（onOpenExternal/onOpenFile）行为稳定（读 ref），不参与比较
+	(prev, next) =>
+		prev.text === next.text &&
+		prev.startedAt === next.startedAt &&
+		prev.endedAt === next.endedAt &&
+		prev.showThinking === next.showThinking,
+);
 
 
 
