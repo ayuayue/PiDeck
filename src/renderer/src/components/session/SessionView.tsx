@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState, type RefObject, type ReactNode, type MutableRefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject, type ReactNode, type MutableRefObject } from "react";
 import {
+  type GroupImperativeHandle,
   type PanelImperativeHandle,
   type PanelSize,
 } from "react-resizable-panels";
@@ -186,6 +187,7 @@ export function SessionView({
   // Ask 属于会话交互状态，不再参与 composer 的高度分配；它固定在时间线底部，避免把输入框挤出面板。
   const [composerHeight, setComposerHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
   const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const sessionGroupRef = useRef<GroupImperativeHandle | null>(null);
 
   // ── composer 面板自适应高度（#115 U5 布局换装） ──────────────
   // 面板高度由 react-resizable-panels 持有；输入区上方出现可变内容（Todo/记忆
@@ -218,6 +220,38 @@ export function SessionView({
     programmaticResizeTargetRef.current = target;
     programResizeExpireRef.current = Date.now() + 200;
     try {
+      // 优先走 Group.setLayout：composer 增高时保持 terminal 高度不变，从 timeline
+      // 拿空间。库的 panel.resize() 默认从相邻面板（terminal）拿空间，粘贴图片会
+      // 把终端面板压扁（#115 U5 反馈）。timeline 低于 minSize 时由 K() 自动 clamp。
+      const group = sessionGroupRef.current;
+      const composerSize = composerPanelRef.current?.getSize();
+      if (
+        group &&
+        composerSize &&
+        composerSize.inPixels > 0 &&
+        composerSize.asPercentage > 0
+      ) {
+        const layout = group.getLayout();
+        if (Object.keys(layout).length > 0) {
+          // getSize() 返回 px 与百分比，反推 group 总高，把目标 px 转成百分比。
+          const groupPx = (composerSize.inPixels / composerSize.asPercentage) * 100;
+          const targetPct = Math.min(100, (target / groupPx) * 100);
+          const delta = targetPct - composerSize.asPercentage;
+          // setLayout 要求键与当前面板集合一致：terminal 卸载后 getLayout 仍
+          // 保留其百分比，必须剔除，否则 K() 校验键数不匹配会 throw。
+          const next: Record<string, number> = { ...layout };
+          if (layout.terminal !== undefined && !terminalPanelVisible) {
+            delete next.terminal;
+          }
+          next.composer = targetPct;
+          if (layout.timeline !== undefined) {
+            next.timeline = Math.max(0, layout.timeline - delta);
+          }
+          group.setLayout(next);
+          return true;
+        }
+      }
+      // group 未就绪（挂载早期）回退旧路径：相邻面板（terminal）让出空间。
       composerPanelRef.current?.resize(target);
     } catch {
       // 面板尚未注册到 ResizablePanelGroup（挂载早期时序）时 resize 会抛
@@ -327,6 +361,42 @@ export function SessionView({
     !isLanWeb && !settingsOpen && !configOpen && !environmentDialog &&
     terminalDockVisible && terminalOpen;
 
+  // 最近一次三面板布局快照（terminal 可见时持续记录），关闭终端时恢复用。
+  const lastThreePanelLayoutRef = useRef<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (!terminalPanelVisible) return;
+    try {
+      lastThreePanelLayoutRef.current =
+        sessionGroupRef.current?.getLayout() ?? null;
+    } catch { /* Group 未挂载 */ }
+  });
+
+  // terminal 面板卸载时 Group 重注册：2 面板布局缓存缺失会按 defaultSize
+  // 回退（输入框高度跳变 + 内容被压缩出滚动条）。这里在 paint 前用「关闭前
+  // 的三面板布局」主动恢复：composer 保持关闭前高度，timeline 吸收 terminal
+  // 释放的空间；setLayout 同时填充 "timeline,composer" 缓存，重开终端时
+  // 三面板缓存恢复原布局。程序化标记避免恢复触发的 onResize 污染用户手动高度。
+  useLayoutEffect(() => {
+    if (terminalPanelVisible || terminalOpen) return;
+    const prev = lastThreePanelLayoutRef.current;
+    const group = sessionGroupRef.current;
+    const panel = composerPanelRef.current;
+    if (!prev || !group || !panel || prev.composer === undefined) return;
+    try {
+      const next: Record<string, number> = { ...prev };
+      delete next.terminal;
+      next.timeline = 100 - prev.composer;
+      const size = panel.getSize();
+      if (size.inPixels <= 0 || size.asPercentage <= 0) return;
+      const groupPx = size.inPixels / (size.asPercentage / 100);
+      const expectedPx = Math.round(groupPx * (prev.composer / 100));
+      programmaticResizeTargetRef.current = expectedPx;
+      programResizeExpireRef.current = Date.now() + 200;
+      group.setLayout(next);
+      applyComposerHeight(expectedPx, false);
+    } catch { /* Group 未就绪 */ }
+  }, [terminalPanelVisible, terminalOpen]);
+
   return (
     <>
       <SessionTabsBar
@@ -358,7 +428,11 @@ export function SessionView({
           />
         }
       />
-      <ResizablePanelGroup orientation="vertical" className="session-v-group">
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="session-v-group"
+        groupRef={sessionGroupRef}
+      >
         <ResizablePanel id="timeline" minSize={160} className="session-v-timeline">
           <div className="relative h-full min-h-0">
           <SessionMessageTimeline
