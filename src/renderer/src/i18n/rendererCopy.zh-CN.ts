@@ -252,6 +252,7 @@ export const zhCN = {
   "browser.close": "关闭",
   "git.sourceControl": "源代码管理",
   "git.changes": "更改",
+  "git.unstagedChanges": "未暂存的更改",
   "git.mergeChanges": "合并更改",
   "git.stagedChanges": "暂存的更改",
   "git.sourceControlGraph": "源代码管理图",
