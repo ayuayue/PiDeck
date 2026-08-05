@@ -1,5 +1,6 @@
 import {
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 	type MouseEvent as ReactMouseEvent,
@@ -118,6 +119,10 @@ export function TerminalDock(props: {
 	const [appTheme, setAppTheme] = useState(
 		() => document.documentElement.dataset.theme ?? "light",
 	);
+	/** 壁纸模式：终端背景跟随输出区同档透明度（canvas/DOM 渲染的背景必须走 JS） */
+	const [wallpaperMode, setWallpaperMode] = useState(
+		() => document.documentElement.dataset.bgImage === "on",
+	);
 	/** 可用 shell 列表 */
 	const [shells, setShells] = useState<
 		{ shell: string; label: string; available: boolean }[]
@@ -125,10 +130,37 @@ export function TerminalDock(props: {
 	const [shellMenuOpen, setShellMenuOpen] = useState(false);
 	const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 	const theme = TERMINAL_THEMES[themeId];
-	const xtermTheme =
-		themeId === "pi-soft" && appTheme === "dark" && "xtermDark" in theme
-			? theme.xtermDark
-			: theme.xterm;
+	const xtermTheme = useMemo(() => {
+		const base =
+			themeId === "pi-soft" && appTheme === "dark" && "xtermDark" in theme
+				? theme.xtermDark
+				: theme.xterm;
+		if (!wallpaperMode || !base.background.startsWith("#")) return base;
+		// 注：xterm 的颜色解析只支持 hex（含 9 位 #RRGGBBAA），
+		// "transparent"/rgba() 会解析失败回退黑色——必须输出 hex+alpha。
+		if (base.background.length === 7) {
+			const hex = base.background.slice(1);
+			const r = Number.parseInt(hex.slice(0, 2), 16);
+			const g = Number.parseInt(hex.slice(2, 4), 16);
+			const b = Number.parseInt(hex.slice(4, 6), 16);
+			const isLight = (r + g + b) / 3 > 128;
+			if (isLight) {
+				// 浅色主题：全透明（#RRGGBB00），透出 chat-pane 单层，与输出区同透明度。
+				return { ...base, background: `${base.background}00` };
+			}
+			// 深色主题：保留主题底色 + 全局面板档 alpha（深底深透，浅字仍可读）。
+			const raw = getComputedStyle(document.documentElement)
+				.getPropertyValue("--wallpaper-panel-alpha")
+				.trim();
+			const mix = Number.parseFloat(raw);
+			const alpha = Number.isFinite(mix) ? Math.min(1, Math.max(0, mix / 100)) : 0.8;
+			const alphaHex = Math.round(alpha * 255)
+				.toString(16)
+				.padStart(2, "0");
+			return { ...base, background: `${base.background}${alphaHex}` };
+		}
+		return base;
+	}, [themeId, appTheme, wallpaperMode]);
 	const { open, collapsed } = props;
 
 	useEffect(() => {
@@ -155,10 +187,11 @@ export function TerminalDock(props: {
 		const root = document.documentElement;
 		const observer = new MutationObserver(() => {
 			setAppTheme(root.dataset.theme ?? "light");
+			setWallpaperMode(root.dataset.bgImage === "on");
 		});
 		observer.observe(root, {
 			attributes: true,
-			attributeFilter: ["data-theme"],
+			attributeFilter: ["data-theme", "data-bg-image"],
 		});
 		return () => observer.disconnect();
 	}, []);

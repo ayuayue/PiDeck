@@ -2228,6 +2228,20 @@ select:focus-visible {
   --git-panel-bg: transparent;
   --git-input-bg: transparent;
 }
+/* 壁纸模式终端一体性：dock 容器/header 透出 chat-pane 单层，与输出区同透明度；
+   xterm 背景在 TerminalDock.tsx 中处理（浅色主题透明，深色主题保留面板档 alpha）。 */
+:root[data-bg-image="on"] .terminal-dock,
+:root[data-bg-image="on"] .terminal-dock-header {
+  --terminal-bg: transparent;
+  background: transparent;
+}
+/* xterm 容器三层默认叠 var(--terminal-bg)（+!important），壁纸模式下同样透明，
+   否则白层会盖住 JS 设置的透明背景。 */
+:root[data-bg-image="on"] .terminal-xterm .xterm,
+:root[data-bg-image="on"] .terminal-xterm .xterm-viewport,
+:root[data-bg-image="on"] .terminal-xterm .xterm-screen {
+  background: transparent !important;
+}
 /* 壁纸模式下弹窗（shadcn Dialog）比普通面板再实一档：统一各弹窗透明度，
    与侧栏/会话区/抽屉同一基色，不透明度更高保证内容可读。
    关键：在 dialog-content 上局部覆盖 bg 系列变量（CSS 变量继承）——
