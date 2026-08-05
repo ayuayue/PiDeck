@@ -2215,6 +2215,19 @@ select:focus-visible {
 :root[data-bg-image="on"] .session-start-surface {
   background: transparent;
 }
+/* 壁纸模式 Git 抽屉一体性：.git-panel / drawer-header / 内部控件各叠一层
+   bg-background，在 .detail-drawer（与聊天区同档）上叠加后会比聊天区更白；
+   只保留 .detail-drawer 一层，让右侧与输出区透明度一致。
+   --git-panel-bg 同时被各折叠 pane / 提交区背景引用，一并透明化。 */
+:root[data-bg-image="on"] .shell-panel-drawer .drawer-header,
+:root[data-bg-image="on"] .shell-panel-drawer .git-panel,
+:root[data-bg-image="on"] .shell-panel-drawer .git-panel .bg-background {
+  background: transparent;
+}
+:root[data-bg-image="on"] .shell-panel-drawer .git-panel {
+  --git-panel-bg: transparent;
+  --git-input-bg: transparent;
+}
 /* 壁纸模式下弹窗（shadcn Dialog）比普通面板再实一档：统一各弹窗透明度，
    与侧栏/会话区/抽屉同一基色，不透明度更高保证内容可读。
    关键：在 dialog-content 上局部覆盖 bg 系列变量（CSS 变量继承）——
