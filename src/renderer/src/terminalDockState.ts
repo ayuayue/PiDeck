@@ -93,21 +93,38 @@ export function setTerminalDockCollapsed(
 
 /**
  * 只按对应集合裁剪：agent 键对照 liveAgentIds，project 键对照 liveProjectIds。
- * 历史 bug：用 agentId 集合 prune projectId 键，流式/状态推送时会把 open 清掉。
+ * 旧版 hook 曾把 agentId 直接作为 key 写入；遇到仍存活的旧 key 时原地迁成
+ * `agent:<id>`，避免热更新或升级中的流式事件把已打开终端直接清掉。
  */
 export function pruneTerminalDockState(
 	current: TerminalDockStateByOwner,
 	liveAgentIds: Set<string>,
 	liveProjectIds: Set<string>,
 ): TerminalDockStateByOwner {
-	return Object.fromEntries(
-		Object.entries(current).filter(([key]) => {
-			const owner = parseTerminalOwnerKey(key);
-			if (!owner) return false;
-			if (owner.kind === "agent") return liveAgentIds.has(owner.id);
-			return liveProjectIds.has(owner.id);
-		}),
-	);
+	let next: TerminalDockStateByOwner | undefined;
+	for (const [key, value] of Object.entries(current)) {
+		const owner = parseTerminalOwnerKey(key);
+		if (!owner) {
+			if (!liveAgentIds.has(key)) {
+				next ??= { ...current };
+				delete next[key];
+				continue;
+			}
+			const canonicalKey = terminalOwnerKey({ kind: "agent", id: key });
+			next ??= { ...current };
+			if (next[canonicalKey] === undefined) next[canonicalKey] = value;
+			delete next[key];
+			continue;
+		}
+		const live = owner.kind === "agent"
+			? liveAgentIds.has(owner.id)
+			: liveProjectIds.has(owner.id);
+		if (!live) {
+			next ??= { ...current };
+			delete next[key];
+		}
+	}
+	return next ?? current;
 }
 
 /** pending agent → 真实 agent 时，把 UI 状态迁到新 id（与其它 agent 记录迁移一致） */

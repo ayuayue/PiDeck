@@ -22,8 +22,13 @@ import { SessionMessageTimeline } from "./SessionMessageTimeline";
 import { ComposerArea } from "./ComposerArea";
 import { SessionRuntimeDock } from "./SessionRuntimeDock";
 import { QueuedPromptPanel } from "./ComposerPanels";
-import { COMPOSER_DEFAULT_HEIGHT, COMPOSER_MIN_HEIGHT } from "../../rendererUtils";
+import { COMPOSER_DEFAULT_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, growComposerWithinTimelineBudget } from "../../rendererUtils";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
+
+// terminal 程序化布局保护窗口（ms）：programResize 后该窗口内的 terminal
+// onResize 一律视为程序化结果，不写 collapsed 状态。独立于 composer 的共享
+// 标记，避免 composer onResize 先触发清掉保护后，terminal 回调被误判为折叠。
+const TERMINAL_PROGRAMMATIC_PROTECT_MS = 250;
 
 export type SessionViewProps = {
   // ── Session identity ──
@@ -207,6 +212,11 @@ export function SessionView({
   // 用户操作（误判会把用户手动高度抬到内容高度，导致内容减少时不再回缩）。
   const programmaticResizeTargetRef = useRef<number | null>(null);
   const programResizeExpireRef = useRef(0);
+  // terminal 专用的程序化保护窗口：programResize 设置、仅由超时清空。
+  // 不能复用 programmaticResizeTargetRef——composer 的 onResize 会把它清掉，
+  // 若 terminal 的 onResize 后触发（连续 setLayout 竞态下 K() 把 terminal
+  // 压到折叠阈值），就落在保护窗口外被误判为用户折叠，导致发送消息时终端被收起。
+  const terminalProgrammaticExpireRef = useRef(0);
 
   function applyComposerHeight(px: number, fromUser: boolean) {
     composerHeightStateRef.current = px;
@@ -219,6 +229,8 @@ export function SessionView({
   function programResize(target: number): boolean {
     programmaticResizeTargetRef.current = target;
     programResizeExpireRef.current = Date.now() + 200;
+    terminalProgrammaticExpireRef.current =
+      Date.now() + TERMINAL_PROGRAMMATIC_PROTECT_MS;
     try {
       // 优先走 Group.setLayout：composer 增高时保持 terminal 高度不变，从 timeline
       // 拿空间。库的 panel.resize() 默认从相邻面板（terminal）拿空间，粘贴图片会
@@ -236,16 +248,24 @@ export function SessionView({
           // getSize() 返回 px 与百分比，反推 group 总高，把目标 px 转成百分比。
           const groupPx = (composerSize.inPixels / composerSize.asPercentage) * 100;
           const targetPct = Math.min(100, (target / groupPx) * 100);
-          const delta = targetPct - composerSize.asPercentage;
+          // 增高预算受 timeline 保底线限制：timeline 让不出空间时不再硬扣，
+          // 否则库 K() 会把 clamp 差额压给 collapsible 的 terminal，导致发送消息/输出时终端被收起。
+          const budget = growComposerWithinTimelineBudget(
+            layout,
+            composerSize.asPercentage,
+            targetPct,
+            groupPx,
+            TIMELINE_MIN_HEIGHT,
+          );
           // setLayout 要求键与当前面板集合一致：terminal 卸载后 getLayout 仍
           // 保留其百分比，必须剔除，否则 K() 校验键数不匹配会 throw。
           const next: Record<string, number> = { ...layout };
           if (layout.terminal !== undefined && !terminalPanelVisible) {
             delete next.terminal;
           }
-          next.composer = targetPct;
+          next.composer = budget.composer;
           if (layout.timeline !== undefined) {
-            next.timeline = Math.max(0, layout.timeline - delta);
+            next.timeline = budget.timeline;
           }
           group.setLayout(next);
           return true;
@@ -342,12 +362,22 @@ export function SessionView({
   function handleTerminalResize(size: PanelSize) {
     const px = Math.round(size.inPixels);
     if (!activeAgentId) return;
-    // 34px 为折叠条高度：拖到折叠阈值视为折叠，拖回展开
+    // 34px 为折叠条高度：拖到折叠阈值视为折叠，拖回展开。
+    // 程序化 setLayout（composer 增高/回缩）触发的 onResize 不算用户折叠意图：
+    // 布局挤压导致的面板变矮不应把 collapsed 状态写死，否则下次打开仍是收起的。
+    // 用独立保护窗口而非共享的 programmaticResizeTargetRef：后者会被 composer 的
+    // onResize 消费清空，terminal 回调后触发时会失去保护。
+    const withinProgrammaticWindow =
+      Date.now() < terminalProgrammaticExpireRef.current;
     if (px <= 35) {
-      if (!terminalCollapsed) setTerminalCollapsedForAgent(activeAgentId, true);
+      if (!terminalCollapsed && !withinProgrammaticWindow) {
+        setTerminalCollapsedForAgent(activeAgentId, true);
+      }
       return;
     }
-    if (terminalCollapsed) setTerminalCollapsedForAgent(activeAgentId, false);
+    if (terminalCollapsed && !withinProgrammaticWindow) {
+      setTerminalCollapsedForAgent(activeAgentId, false);
+    }
     const maxHeight = Math.max(120, availableTerminalHeight);
     setTerminalHeightByAgent((current) => ({
       ...current,
@@ -433,7 +463,7 @@ export function SessionView({
         className="session-v-group"
         groupRef={sessionGroupRef}
       >
-        <ResizablePanel id="timeline" minSize={160} className="session-v-timeline">
+        <ResizablePanel id="timeline" minSize={TIMELINE_MIN_HEIGHT} className="session-v-timeline">
           <div className="relative h-full min-h-0">
           <SessionMessageTimeline
             sessionId={sessionId}

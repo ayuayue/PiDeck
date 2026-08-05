@@ -1276,13 +1276,13 @@ export function App() {
       pendingAgentsRef.current = remainingPendingAgents;
       setPendingAgents(remainingPendingAgents);
     }
-    const activeIds = new Set(nextAgents.map((agent) => agent.id));
-        // activeProjectIds removed (dead)
     const draftIds = new Set([
       ...nextAgents.map((agent) => agent.id),
       ...remainingPendingAgents.map((agent) => agent.id),
     ]);
-    pruneTerminalDockState(activeIds);
+    // 终端状态清理统一由下方 useEffect([displayAgents]) 的 prune 负责：
+    // 此处再调一次会在流式 runtime 更新时与 displayAgents effect 重复执行，
+    // 形成不必要的 setState 链（历史日志：发送消息后 Maximum update depth）。
     livePromptByAgentRef.current = migrateAgentRecord(
       livePromptByAgentRef.current,
       pendingReplacementById,

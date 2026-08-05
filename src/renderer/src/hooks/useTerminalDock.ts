@@ -4,13 +4,14 @@ import {
   setTerminalDockOpen,
   setTerminalDockCollapsed,
   pruneTerminalDockState,
+  terminalOwnerKey,
 } from "../terminalDockState";
 
 const COMPOSER_DEFAULT_TERMINAL_HEIGHT = 220;
 const TERMINAL_DOCK_MOTION_MS = 180;
 
 export function useTerminalDock(activeAgentId: string | undefined) {
-  const [terminalDockStateByAgent, setTerminalDockStateByAgent] =
+  const [terminalDockStateByOwner, setTerminalDockStateByOwner] =
     useState<TerminalDockStateByOwner>({});
   const [terminalHeightByAgent, setTerminalHeightByAgent] = useState<
     Record<string, number>
@@ -21,8 +22,11 @@ export function useTerminalDock(activeAgentId: string | undefined) {
   const terminalDockCloseTimerRef = useRef<number | null>(null);
 
   // 终端打开/折叠状态按 agent 隔离,避免切换项目/agent 后丢失当前终端 UI 状态。
-  const terminalDockState = activeAgentId
-    ? terminalDockStateByAgent[activeAgentId]
+  const activeOwnerKey = activeAgentId
+    ? terminalOwnerKey({ kind: "agent", id: activeAgentId })
+    : undefined;
+  const terminalDockState = activeOwnerKey
+    ? terminalDockStateByOwner[activeOwnerKey] ?? terminalDockStateByOwner[activeAgentId ?? ""]
     : undefined;
   const terminalOpen = Boolean(terminalDockState?.open);
   const terminalCollapsed = Boolean(terminalDockState?.collapsed);
@@ -68,27 +72,30 @@ export function useTerminalDock(activeAgentId: string | undefined) {
   }, [activeAgentId, terminalDockAgentId, terminalDockMounted, terminalOpen]);
 
   function setTerminalOpenForAgent(agentId: string, open: boolean) {
-    setTerminalDockStateByAgent((current) =>
-      setTerminalDockOpen(current, agentId, open),
+    setTerminalDockStateByOwner((current) =>
+      setTerminalDockOpen(current, terminalOwnerKey({ kind: "agent", id: agentId }), open),
     );
   }
 
   function setTerminalCollapsedForAgent(agentId: string, collapsed: boolean) {
-    setTerminalDockStateByAgent((current) =>
-      setTerminalDockCollapsed(current, agentId, collapsed),
+    setTerminalDockStateByOwner((current) =>
+      setTerminalDockCollapsed(current, terminalOwnerKey({ kind: "agent", id: agentId }), collapsed),
     );
   }
 
   /** 清理已关闭 agent 的终端状态，在 agent 列表变化时调用。 */
   function prune(activeIds: Set<string>) {
-    setTerminalDockStateByAgent((current) =>
+    setTerminalDockStateByOwner((current) =>
       pruneTerminalDockState(current, activeIds, new Set()),
     );
-    setTerminalHeightByAgent((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(([agentId]) => activeIds.has(agentId)),
-      ),
-    );
+    setTerminalHeightByAgent((current) => {
+      const liveEntries = Object.entries(current).filter(([agentId]) =>
+        activeIds.has(agentId),
+      );
+      return liveEntries.length === Object.keys(current).length
+        ? current
+        : Object.fromEntries(liveEntries);
+    });
   }
 
   return {

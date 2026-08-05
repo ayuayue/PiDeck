@@ -68,3 +68,38 @@ test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 		}
 	}
 });
+
+test("layout: terminal stays open while the agent streams", async ({ window }) => {
+	test.setTimeout(120_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	await window.getByRole("button", { name: "启动 Agent" }).click();
+	const composer = window.locator(".composer .rich-input");
+	await expect(composer).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
+
+	// 先完成一轮，确保 outline 已有 activeAgentId 和终端入口。
+	await composer.click();
+	await window.keyboard.type("终端流式预热");
+	await window.keyboard.press("Enter");
+	await expect(window.locator(".message-timeline"))
+		.toContainText("Mock 回复：「终端流式预热」流式渲染验证完成", { timeout: 20_000 });
+
+	await window.getByRole("button", { name: "终端", exact: true }).first().click();
+	const dock = window.locator(".terminal-dock");
+	await expect(dock).toBeVisible({ timeout: 8_000 });
+	await expect(dock).not.toHaveClass(/collapsed/);
+	await expect(dock.locator(".xterm").first()).toBeVisible({ timeout: 20_000 });
+
+	// mock-pi 的 SLOW 回复约持续 4 秒；流式 runtime-state 更新期间，终端 state
+	// 不能被 prune 误删，否则 dock 会在这里消失或进入 collapsed 状态。
+	await composer.click();
+	await window.keyboard.type("SLOW 保持终端展开");
+	await window.keyboard.press("Enter");
+	await window.waitForTimeout(800);
+	await expect(dock).toBeVisible();
+	await expect(dock).not.toHaveClass(/collapsed/);
+
+	await expect(window.locator(".message-timeline"))
+		.toContainText("Mock 回复：「SLOW 保持终端展开」流式渲染验证完成", { timeout: 20_000 });
+	await expect(dock).toBeVisible();
+	await expect(dock).not.toHaveClass(/collapsed/);
+});
