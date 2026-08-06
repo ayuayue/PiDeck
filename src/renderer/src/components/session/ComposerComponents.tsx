@@ -65,6 +65,8 @@ export function renderWidgetLine(line: string): ReactNode {
 export function widgetDisplayTitle(widgetKey: string): string {
 	if (widgetKey === "pi-deck-todo") return t("app.widgetTitleTodo");
 	if (widgetKey === "pi-deck-plan-todos") return t("app.widgetTitlePlan");
+	if (widgetKey === "mem-spaced") return "🧠 记忆模块";
+	if (widgetKey === "pi-deck-advisor") return "🕶 顾问模式";
 	return widgetKey;
 }
 

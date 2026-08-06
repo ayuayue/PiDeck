@@ -352,8 +352,8 @@ function BatchQuestion(props: {
 										disabled={props.responding}
 										onClick={() => props.onAnswer(value, label)}
 									>
-										<span className="min-w-0 max-w-full truncate text-caption font-medium leading-4 text-text-primary">{label}</span>
-										{description ? <span className="min-w-0 max-w-full truncate text-micro font-normal leading-4 text-text-tertiary">{description}</span> : null}
+										<span className="min-w-0 max-w-full truncate text-caption font-medium leading-4 text-text-primary" title={label}>{label}</span>
+										{description ? <span className="min-w-0 max-w-full truncate text-micro font-normal leading-4 text-text-tertiary" title={description}>{description}</span> : null}
 									</Button>
 								);
 							})}
@@ -529,7 +529,7 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 								disabled={responding}
 								onClick={() => submitValue(option)}
 							>
-								<span className="text-caption font-medium leading-[1.5] text-text-primary">{option}</span>
+								<span className="min-w-0 max-w-full truncate text-caption font-medium leading-[1.5] text-text-primary" title={option}>{option}</span>
 							</Button>
 						))}
 						{request.allowOther ? (

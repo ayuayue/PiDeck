@@ -160,8 +160,9 @@ function WidgetChip(props: {
 }) {
 	const title = widgetDisplayTitle(props.widgetKey);
 	const { done, total } = widgetProgress(props.lines);
-	// 无 ☑/☐ 行（如 todo 折叠态只回 "2/4" 一行）时，chip 摘要退化为首行文本
-	const summary = total > 0 ? `${done}/${total}` : (props.lines[0] ?? "");
+	// 仅对带 ☑/☐ 完成进度的 widget（todo/plan）在 chip 上显示进度摘要；
+	// 状态型 widget（mem-spaced / pi-deck-advisor 等）的统计行只点开 Popover 看，避免标签被长文本撑爆。
+	const summary = total > 0 ? `${done}/${total}` : "";
 	const Icon =
 		props.widgetKey === "pi-deck-plan-todos" ? ClipboardList : ListChecks;
 	// 全部完成时用成功色描边提示，一眼可辨无需再点开
