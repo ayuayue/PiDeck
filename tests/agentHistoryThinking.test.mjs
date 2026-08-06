@@ -42,6 +42,10 @@ function loadAgentMessageProjectorModule() {
           takeActiveEntryId: (ids, index) => ({ entryId: ids?.[index], nextIndex: index + 1 }),
         };
       }
+      // 25fd516 起 AgentManager 引入内置扩展参数拼接；本测试不涉及扩展加载，透传即可
+      if (specifier === "../extensions/builtInExtensions") {
+        return { appendBuiltInExtensionArgs: (args) => [...args] };
+      }
       return nodeRequire(specifier);
     },
     Date,
@@ -156,6 +160,10 @@ function loadAgentManagerModule() {
       if (specifier === "../../shared/toolRuntimeState") return { updateActiveToolCalls: () => undefined };
       if (specifier === "../wsl/WslPaths") {
         return { toWindowsHostPath: (path) => path, toWslLinuxPath: (path) => path };
+      }
+      // 25fd516 起 AgentManager 引入内置扩展参数拼接；本测试不涉及扩展加载，透传即可
+      if (specifier === "../extensions/builtInExtensions") {
+        return { appendBuiltInExtensionArgs: (args) => [...args] };
       }
       return nodeRequire(specifier);
     },

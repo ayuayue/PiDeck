@@ -73,6 +73,8 @@ export type SidebarController = {
   toggleProject: (projectId: string) => void;
   /** 展开/折叠某个项目；forceExpand=true 时只展开不切换 */
   setProjectExpanded: (projectId: string, forceExpand?: boolean) => void;
+  /** 批量折叠/展开工作区项目：任一展开则全折叠，全折叠则全展开；Chat 由自己标题栏控制。 */
+  toggleCollapseAllProjects: () => void;
   sourceFilterFor: (projectId: string) => SidebarSourceFilter;
   setSourceEnabled: (projectId: string, source: SessionSource, enabled: boolean) => void;
   /** Matches the dev filter menu: first source click narrows from All to that source. */
@@ -322,6 +324,25 @@ export function useSidebarController(options: {
   const toggleProject = useCallback((projectId: string) => {
     setProjectExpanded(projectId);
   }, [setProjectExpanded]);
+  const toggleCollapseAllProjects = useCallback(() => {
+    const previous = expandedProjectIdsRef.current;
+    // 只作用于根工作区项目：Chat 折叠由自己的标题栏按钮管理，worktree 子项目不独立折叠。
+    const workspaceIds = projects
+      .filter((project) => project.kind !== "chat" && !project.worktreeParentId)
+      .map((project) => project.id);
+    const hasExpanded = workspaceIds.some((id) => previous.has(id));
+    const next = new Set(previous);
+    if (hasExpanded) {
+      // 任一项目展开 → 全部折叠（仅移除工作区 id，保留 Chat 折叠状态原状）
+      workspaceIds.forEach((id) => next.delete(id));
+    } else {
+      // 全部已折叠 → 展开全部工作区项目
+      workspaceIds.forEach((id) => next.add(id));
+    }
+    if (sameProjectIdSet(next, previous)) return;
+    settingsHydratedRef.current = true;
+    commitExpandedProjectIds(next);
+  }, [commitExpandedProjectIds, projects]);
   const setSourceEnabled = useCallback((projectId: string, source: SessionSource, enabled: boolean) => {
     setSourceFilters((current) => {
       const previous = current[projectId] ?? null;
@@ -397,6 +418,7 @@ export function useSidebarController(options: {
     isProjectCollapsed: (projectId) => !expandedProjectIds.has(projectId),
     toggleProject,
     setProjectExpanded,
+    toggleCollapseAllProjects,
     sourceFilterFor: (projectId) => sourceFilters[projectId] ?? null,
     setSourceEnabled,
     toggleSourceFilter,

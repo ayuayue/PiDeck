@@ -259,6 +259,99 @@ test("anonymous detach clears its record and rejects a late catalog refresh", ()
   assert.deepEqual(store.get(atoms.sessionIdsByProjectAtom)["project-1"], []);
 });
 
+test("incremental message flush merges tail upserts and discards non-contiguous deltas", () => {
+  const atoms = loadAtoms();
+  const store = createStore();
+  const emit = (payload) =>
+    store.set(atoms.applySessionRuntimeEventAtom, {
+      sessionId: "session-a",
+      agentId: "agent-a",
+      runtimeGeneration: 1,
+      sourceChannel: "agents:message",
+      payload,
+    });
+  const readMessages = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"].messages;
+
+  // 1) 全量基线（终态校准形态）
+  emit({ agentId: "agent-a", messages: [
+    { id: "m1", role: "user", text: "q" },
+    { id: "m2", role: "assistant", text: "a" },
+  ] });
+  assert.equal(readMessages().length, 2);
+
+  // 2) 纯 append：upsertFrom == 旧长度 → 尾部追加
+  emit({ agentId: "agent-a", upsertFrom: 2, totalLength: 3, messages: [
+    { id: "m3", role: "tool", text: "tool" },
+  ] });
+  // vm realm 数组与字面量数组原型不同，deepStrictEqual 会误判，展开为本 realm 数组再比
+  assert.deepEqual([...readMessages().map((m) => m.id)], ["m1", "m2", "m3"]);
+
+  // 3) 尾部替换：upsertFrom < 旧长度 → 从该处起覆盖（流式 delta 形态）
+  emit({ agentId: "agent-a", upsertFrom: 2, totalLength: 3, messages: [
+    { id: "m3", role: "tool", text: "tool-done" },
+  ] });
+  assert.equal(readMessages()[2].text, "tool-done");
+  assert.equal(readMessages().length, 3);
+
+  // 4) 长度不连续（upsertFrom > 旧长度，漏了事件）→ 丢弃，等终态全量
+  emit({ agentId: "agent-a", upsertFrom: 9, totalLength: 10, messages: [
+    { id: "m10", role: "assistant", text: "lost" },
+  ] });
+  assert.equal(readMessages().length, 3, "non-contiguous upsert must be discarded");
+
+  // 5) totalLength 校验失败（本地合并后与主进程不一致）→ 丢弃
+  emit({ agentId: "agent-a", upsertFrom: 2, totalLength: 99, messages: [
+    { id: "m3", role: "tool", text: "bad" },
+  ] });
+  assert.equal(readMessages()[2].text, "tool-done", "totalLength mismatch must be discarded");
+
+  // 6) 终态全量校准：一次 full 覆盖所有中间态
+  emit({ agentId: "agent-a", messages: [
+    { id: "m1", role: "user", text: "q" },
+    { id: "m2", role: "assistant", text: "final" },
+  ] });
+  assert.deepEqual([...readMessages().map((m) => m.text)], ["q", "final"]);
+});
+
+test("incremental upsert is ignored while cache holds disk-sourced messages", () => {
+  const atoms = loadAtoms();
+  const store = createStore();
+  // 磁盘分页来源的缓存（激活前磁盘加载）：runtime 增量不可合入，防止错乱
+  store.set(atoms.cacheSessionMessagesAtom, {
+    sessionId: "session-a",
+    messages: [{ id: "d1", role: "user", text: "disk" }],
+    source: "disk",
+    page: { total: 1, nextBefore: null },
+  });
+  store.set(atoms.applySessionRuntimeEventAtom, {
+    sessionId: "session-a",
+    agentId: "agent-a",
+    runtimeGeneration: 1,
+    sourceChannel: "agents:message",
+    payload: { agentId: "agent-a", upsertFrom: 0, totalLength: 2, messages: [
+      { id: "r1", role: "user", text: "runtime" },
+      { id: "r2", role: "assistant", text: "runtime-a" },
+    ] },
+  });
+  const entry = store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+  assert.equal(entry.source, "disk", "disk entry must not be clobbered by runtime upsert");
+  assert.equal(entry.messages.length, 1);
+
+  // 随后的全量（激活完成）可以正常接管
+  store.set(atoms.applySessionRuntimeEventAtom, {
+    sessionId: "session-a",
+    agentId: "agent-a",
+    runtimeGeneration: 1,
+    sourceChannel: "agents:message",
+    payload: { agentId: "agent-a", messages: [
+      { id: "r1", role: "user", text: "runtime" },
+    ] },
+  });
+  const next = store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+  assert.equal(next.source, "runtime");
+  assert.equal(next.messages[0].text, "runtime");
+});
+
 test("isolates composer state and only clears the submitted snapshot", () => {
   const atoms = loadAtoms();
   const store = createStore();

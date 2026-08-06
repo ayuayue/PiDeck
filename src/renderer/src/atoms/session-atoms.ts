@@ -608,12 +608,36 @@ export const applySessionRuntimeEventAtom = atom(
       payload
     ) {
       const messages = payload.messages;
+      // 增量 flush 协议（2026-08 渲染卡顿优化）：主进程节流 flush 只发尾部增量
+      // （upsertFrom + totalLength），终态 immediate flush 永远全量。
+      const upsertFrom = typeof payload.upsertFrom === "number" ? payload.upsertFrom : undefined;
+      const totalLength = typeof payload.totalLength === "number" ? payload.totalLength : undefined;
       if (Array.isArray(messages)) {
-        set(cacheSessionMessagesAtom, {
-          sessionId: event.sessionId,
-          messages: messages as ChatMessage[],
-          source: "runtime",
-        });
+        if (upsertFrom !== undefined && totalLength !== undefined) {
+          const current = get(sessionMessagesCacheAtom)[event.sessionId];
+          // 增量合并：本地 runtime 缓存长度 >= upsertFrom 时从该处起替换尾部；
+          // 长度不连续（缓存缺失/磁盘来源/漏事件）则丢弃，等终态全量校准——
+          // 中间态滞后至多为本轮回答内的显示延迟，终态 full 到达后完全纠正。
+          if (current?.source === "runtime" && current.messages.length >= upsertFrom) {
+            const merged = [
+              ...current.messages.slice(0, upsertFrom),
+              ...(messages as ChatMessage[]),
+            ];
+            if (merged.length === totalLength) {
+              set(cacheSessionMessagesAtom, {
+                sessionId: event.sessionId,
+                messages: merged,
+                source: "runtime",
+              });
+            }
+          }
+        } else {
+          set(cacheSessionMessagesAtom, {
+            sessionId: event.sessionId,
+            messages: messages as ChatMessage[],
+            source: "runtime",
+          });
+        }
       }
     }
 

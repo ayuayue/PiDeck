@@ -4078,7 +4078,7 @@ div.fixed.inset-0.z-50 {
   color: var(--color-text-primary);
 }
 
-/* ── Monaco 文件差异查看器 ──────────────────── */
+/* ── 文件差异查看器（CodeMirror 6） ──────────────── */
 
 .file-diff-modal {
   width: min(1400px, calc(100vw - 48px));
@@ -4205,8 +4205,8 @@ div.fixed.inset-0.z-50 {
   overflow: hidden;
 }
 
-/* 强制 Monaco 编辑器使用 ClearType（子像素抗锯齿），避免其默认 antialiased 在 Windows 上字体发虚 */
-.file-diff-body :where(.monaco-editor, .monaco-editor *) {
+/* 强制 CodeMirror 使用 ClearType（子像素抗锯齿），避免默认 antialiased 在 Windows 上字体发虚 */
+.file-diff-body :where(.cm-editor, .cm-editor *) {
   -webkit-font-smoothing: subpixel-antialiased !important;
 }
 

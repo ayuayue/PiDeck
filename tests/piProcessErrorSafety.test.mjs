@@ -62,6 +62,11 @@ function loadPiProcess(spawnImpl) {
 			if (id === "./PiLocator") return { PiLocator: FakePiLocator };
 			if (id === "../wsl/WslPaths") return paths;
 			if (id === "./piExtensionFilter") return extensionFilter;
+			// 25fd516 起 PiProcess 引入内置扩展参数拼接；本测试只关心 spawn 错误转发，
+			// mock 为原样透传，避免 vm sandbox 的 require 按 tests/ 相对路径误解析。
+			if (id === "../extensions/builtInExtensions") {
+				return { appendBuiltInExtensionArgs: (args) => [...args] };
+			}
 			return require(id);
 		},
 	};

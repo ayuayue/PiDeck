@@ -40,6 +40,8 @@ export const ipcChannels = {
 	sessionsList: "sessions:list",
 	/** Session-first catalog APIs. */
 	sessionsCatalogList: "sessions:catalog-list",
+	/** 后台扫描完成后主进程 → 渲染层的推送（目录缓存已合并，渲染层应重新拉取）。 */
+	sessionsCatalogRefreshed: "sessions:catalog-refreshed",
 	sessionsCatalogCreateDraft: "sessions:catalog-create-draft",
 	/** Starts an in-memory `--no-session` conversation. */
 	sessionsCreateAnonymous: "sessions:create-anonymous",

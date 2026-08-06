@@ -21,7 +21,27 @@ import type {
 	SessionCommandResult,
 	SendPromptInput,
 	SendPromptResult,
+	SessionRecord,
 } from "../../shared/types";
+import { BackgroundScanCoordinator } from "../sessions/BackgroundScanCoordinator";
+
+/**
+ * 已扫描过项目的集合（模块级）：决定 catalogList 走「首次同步扫描」还是
+ * 「缓存先回显 + 后台扫描推送」。进程生命周期内单调增长，无需清理。
+ */
+const scannedProjects = new Set<string>();
+
+/** 后台目录扫描协调器：同项目触发去重 + 冷却合并（3 秒轮询不会演变成并发重扫）。 */
+const catalogScanCoordinator = new BackgroundScanCoordinator(5000);
+
+/**
+ * 供主进程装配层（启动预扫描）触发的后台扫描调度入口。
+ * 标记项目为已扫描，保证预热后首次展开项目走缓存回显路径。
+ */
+export function scheduleCatalogBackgroundScan(projectId: string, task: () => Promise<void>): boolean {
+	scannedProjects.add(projectId);
+	return catalogScanCoordinator.schedule(projectId, task);
+}
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { SessionScanner } from "../sessions/SessionScanner";
@@ -120,7 +140,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	);
 	ipcMain.handle(
 		ipcChannels.sessionsCatalogList,
-		async (_event, projectId: string) => {
+		async (_event, projectId: string, options?: { scan?: boolean }) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(mainCopy("project.notFound"));
 			let projectPath = project.path;
@@ -130,19 +150,57 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					.replace(/^([A-Za-z]):\\/, (_: string, drive: string) => `/mnt/${drive.toLowerCase()}/`)
 					.replace(/\\/g, "/");
 			}
-			const summaries = await sessionScanner.list(projectPath);
 			const { wslEnabled, wslDistro, wslUser } = settings;
-			const records = await sessionCatalog.mergeScanned(
-				projectId,
-				summaries,
-				wslEnabled ? { wslDistro, wslUser } : {},
-			);
-			const bindings = sessionRuntimeCoordinator.attachCatalogRuntimes(records);
-			for (const binding of bindings) {
-				const tab = agentManager.list().find((candidate) => candidate.id === binding.agentId);
-				if (tab) emitSessionRuntimeEvent(tab.id, ipcChannels.agentsState, tab);
+
+			// 扫描 + 合并 + 运行时绑定（首次同步路径与后台路径共用）
+			const runScanAndMerge = async (): Promise<SessionRecord[]> => {
+				const summaries = await sessionScanner.list(projectPath);
+				const records = await sessionCatalog.mergeScanned(
+					projectId,
+					summaries,
+					wslEnabled ? { wslDistro, wslUser } : {},
+				);
+				const bindings = sessionRuntimeCoordinator.attachCatalogRuntimes(records);
+				for (const binding of bindings) {
+					const tab = agentManager.list().find((candidate) => candidate.id === binding.agentId);
+					if (tab) emitSessionRuntimeEvent(tab.id, ipcChannels.agentsState, tab);
+				}
+				return records;
+			};
+
+			// 目录缓存中的现有记录（上次扫描/运行时创建的合并结果，启动时从磁盘加载）
+			const cachedRecords = sessionCatalog.listEntries()
+				.filter((entry) => entry.projectId === projectId)
+				.map((entry) => sessionCatalog.getRecord(entry.id))
+				.filter((record): record is SessionRecord => Boolean(record));
+
+			// 纯读路径：事件回调/订阅刷新专用，不再触发扫描（防止推送-拉取循环触发）
+			if (options?.scan === false) return cachedRecords;
+
+			// 首次访问该项目：缓存无数据可回显，同步扫描保证首次有结果；
+			// 之后转入「缓存先回显 + 后台扫描推送」模式。
+			if (!scannedProjects.has(projectId)) {
+				scannedProjects.add(projectId);
+				return runScanAndMerge();
 			}
-			return records;
+
+			// 已有缓存：立即返回，后台扫描（去重+冷却）完成后推送 catalog-refreshed，
+			// 渲染层收到后以 scan:false 重新拉取合并结果。
+			catalogScanCoordinator.schedule(projectId, async () => {
+				try {
+					await runScanAndMerge();
+					const window = getMainWindow();
+					if (window && !window.isDestroyed()) {
+						window.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId });
+					}
+				} catch (error) {
+					void appLogger.warn("session", "Background catalog scan failed", {
+						projectId,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			});
+			return cachedRecords;
 		},
 	);
 	ipcMain.handle(

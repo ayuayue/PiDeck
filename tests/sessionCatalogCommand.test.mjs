@@ -32,6 +32,8 @@ function createHookForRuntimeTest() {
         return {
           useRef: (initial) => ({ current: initial }),
           useState: (initial) => [initial, () => undefined],
+          // catalog-refreshed 订阅的 effect：测试不驱动推送事件，注册后丢弃即可
+          useEffect: () => undefined,
         };
       }
       if (request === "../atoms/session-selectors") {

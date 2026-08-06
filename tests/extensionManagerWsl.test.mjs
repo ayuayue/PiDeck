@@ -34,6 +34,10 @@ function loadExtensionManager(fsOverrides = {}) {
 				return { ...require(id), ...fsOverrides };
 			}
 			if (id === "../wsl/WslPaths") return wslPaths;
+			// 25fd516 起 ExtensionManager 依赖内置扩展清单模块；按真实模块透传（纯数据 + 纯函数）
+			if (id === "./builtInExtensions") {
+				return require("../src/main/extensions/builtInExtensions.ts");
+			}
 			return require(id);
 		},
 	};

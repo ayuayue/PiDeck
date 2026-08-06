@@ -1,23 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DiffEditor, Editor } from "@monaco-editor/react";
-import type * as Monaco from "monaco-editor";
+import { useCallback, useEffect, useState } from "react";
 import { t } from "../../i18n";
 import { ArrowLeft, Edit3, Maximize, Minimize2, SquareSplitHorizontal, X, Eye, FileCode } from "lucide-react";
-import { setupMonaco } from "../../utils/monacoSetup";
 import { Button } from "../ui-shadcn/button";
 import { MarkdownStream } from "../session/MarkdownStream";
 import { defaultUrlTransform } from "../session/MarkdownLinkCore";
 import { defaultRemarkPlugins, defaultRehypePlugins } from "streamdown";
 import rehypeKatex from "rehype-katex";
+import { CodeMirrorEditor } from "./CodeMirrorEditor";
+import { MergeDiffView } from "./MergeDiffView";
 
 import { isBinaryExtension } from "../../utils/isTextFile";
-
-let monacoSetupOnce = false;
-function ensureMonaco() {
-	if (monacoSetupOnce) return;
-	monacoSetupOnce = true;
-	setupMonaco();
-}
 
 type ViewMode = "view" | "diff";
 
@@ -66,9 +58,6 @@ export function FileDiffViewer(props: {
 	const [saving, setSaving] = useState(false);
 	const [showHint, setShowHint] = useState(false);
 
-	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
-	const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
-
 	const isDiffMode = props.mode === "diff";
 	const fileName = props.filePath.split(/[/\\]/).pop() ?? props.filePath;
 	const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
@@ -86,8 +75,6 @@ export function FileDiffViewer(props: {
 	}, [isDiffMode, isMarkdown, props.activeTabId, props.filePath]);
 
 	useEffect(() => {
-		ensureMonaco();
-
 		let cancelled = false;
 		async function load() {
 			setLoading(true);
@@ -118,7 +105,7 @@ export function FileDiffViewer(props: {
 				]);
 				if (!cancelled) {
 					const largestContentSize = Math.max(result.length, originalResult.length);
-					// Diff 任一侧超过上限都不加载 Monaco；删除文件虽右侧为空，左侧仍可能很大。
+					// Diff 任一侧超过上限都不加载编辑器；删除文件虽右侧为空，左侧仍可能很大。
 					if (largestContentSize > maxFileSize) {
 						setError(
 							t("editor.fileTooLarge", {
@@ -149,12 +136,8 @@ export function FileDiffViewer(props: {
 		props.onClose();
 	}, [props.onClose]);
 
-	// 从编辑器当前实例获取最新内容，不依赖 state 以避免与 Monaco 实际内容不同步。
-	const getLatestContent = useCallback(() => {
-		return isDiffMode
-			? diffEditorRef.current?.getModifiedEditor().getValue() ?? content
-			: editorRef.current?.getValue() ?? content;
-	}, [isDiffMode, content]);
+	// 从当前内容 state 取最新值（编辑器 onChange 已实时同步；CM6 无 Monaco 的实例取值路径）
+	const getLatestContent = useCallback(() => content, [content]);
 
 	const doSave = useCallback(async () => {
 		if (!props.saveContent || !dirty) return;
@@ -203,75 +186,12 @@ export function FileDiffViewer(props: {
 		setReadOnly(true);
 	}, []);
 
-	const handleEditorChange = useCallback((value: string | undefined) => {
-		if (value !== undefined) {
-			setContent(value);
-			setDirty(true);
-		}
+	const handleEditorChange = useCallback((value: string) => {
+		setContent(value);
+		setDirty(true);
 	}, []);
 
-	const handleEditorMount = useCallback((editor: Monaco.editor.IStandaloneCodeEditor) => {
-		editorRef.current = editor;
-	}, []);
-
-	const handleDiffEditorMount = useCallback((editor: Monaco.editor.IStandaloneDiffEditor) => {
-		diffEditorRef.current = editor;
-		// 差异编辑器没有统一的 onChange；手动监听 modified 模型变化以跟踪未保存状态。
-		const modified = editor.getModifiedEditor();
-		modified.onDidChangeModelContent(() => {
-			setContent(modified.getValue());
-			setDirty(true);
-		});
-	}, []);
-
-	// 组件卸载前先清理 Monaco 编辑器引用，避免异步清理造成 TextModel disposed 竞态。
-	useEffect(() => {
-		return () => {
-			editorRef.current?.dispose();
-			diffEditorRef.current?.dispose();
-			editorRef.current = null;
-			diffEditorRef.current = null;
-		};
-	}, []);
-
-	const language = extToMonacoLanguage(ext);
-
-	const editorOptions: Monaco.editor.IStandaloneEditorConstructionOptions = {
-		readOnly,
-		minimap: { enabled: false },
-		scrollBeyondLastLine: false,
-		lineNumbers: "on",
-		folding: true,
-		automaticLayout: true,
-		// 编辑模式下启用语法补全和关键字提示
-		quickSuggestions: true,
-		suggestOnTriggerCharacters: true,
-		tabCompletion: "on",
-		wordBasedSuggestions: "currentDocument",
-		parameterHints: { enabled: true },
-		// 大文件优化：超长行截断 tokenize，防止渲染卡死
-		maxTokenizationLineLength: 4000,
-		largeFileOptimizations: true,
-	};
-
-	const diffOptions: Monaco.editor.IStandaloneDiffEditorConstructionOptions = {
-		...editorOptions,
-		readOnly,
-		renderSideBySide: sideBySide,
-		// 0 = close Monaco narrow-width auto-merge; split/unified controlled by UI button only
-		renderSideBySideInlineBreakpoint: 0,
-		// 显示真实差异，包括行尾空格差异
-		ignoreTrimWhitespace: false,
-		// 大文件时折叠未变化区域，只显示有变动的代码段；最小上下文 3 行
-		hideUnchangedRegions: {
-			enabled: true,
-			minimumLineCount: 3,
-			contextLineCount: 3,
-			revealLineCount: 5,
-		},
-		// 紧凑模式，差异视图两端对齐只显示有改动的行
-		compactMode: true,
-	};
+	const language = ext;
 
 	const displayMode = props.displayMode ?? "drawer";
 	const headerContent = (
@@ -407,36 +327,29 @@ export function FileDiffViewer(props: {
 						{!isDiffMode && preview && isHtml && (
 							<HtmlPreview content={content} />
 						)}
-						{/* view 模式、非预览：常规 Editor */}
+						{/* view 模式、非预览：常规编辑器（CodeMirror 6） */}
 						{!isDiffMode && !preview && (
 							<div style={{ height: "100%", flexDirection: "column" }}>
-								<Editor
+								<CodeMirrorEditor
 									value={content}
 									language={language}
-									theme={props.theme === "dark" ? "vs-dark" : "vs"}
-									options={editorOptions}
-									onMount={handleEditorMount}
+									readOnly={readOnly}
 									onChange={handleEditorChange}
-									// 首次打开 Monaco chunk 异步加载中显示加载态，避免白屏
-									//（Dev 模式尤其明显：首帧空白 → 关闭重开才正常）
-									loading={<div className="file-diff-loading">{t("common.loading")}</div>}
 								/>
 							</div>
 						)}
-						{/* diff 模式：仅 DiffEditor（不与 Editor 同时渲染，避免 Monaco 模型销毁竞态） */}
+						{/* diff 模式：MergeView（分栏）/ unifiedMergeView（单栏），
+							与 Editor 不同时渲染，key 切换强制重建避免状态串台 */}
 						{isDiffMode && (
 							<div style={{ height: "100%", flexDirection: "column" }}>
-								<DiffEditor
+								<MergeDiffView
 									key={sideBySide ? "split" : "unified"}
-									keepCurrentOriginalModel
-									keepCurrentModifiedModel
 									original={original}
 									modified={content}
 									language={language}
-									theme={props.theme === "dark" ? "vs-dark" : "vs"}
-									options={diffOptions}
-									onMount={handleDiffEditorMount}
-									loading={<div className="file-diff-loading">{t("common.loading")}</div>}
+									readOnly={readOnly}
+									sideBySide={sideBySide}
+									onChange={handleEditorChange}
 								/>
 							</div>
 						)}
@@ -479,17 +392,4 @@ function HtmlPreview({ content }: { content: string }) {
 			style={{ width: "100%", height: "100%", border: "none" }}
 		/>
 	);
-}
-
-function extToMonacoLanguage(ext: string): string {
-	const map: Record<string, string> = {
-		ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-		json: "json", jsonc: "json", md: "markdown", mdx: "markdown", css: "css", scss: "scss", less: "less",
-		html: "html", htm: "html", yaml: "yaml", yml: "yaml", xml: "xml", svg: "xml",
-		sh: "shell", bash: "shell", zsh: "shell",
-		py: "python", rb: "ruby", go: "go", rs: "rust", java: "java", c: "c", "c++": "cpp", cpp: "cpp", h: "c", hpp: "cpp",
-		sql: "sql", graphql: "graphql", gql: "graphql", proto: "protobuf", toml: "toml", ini: "ini", cfg: "ini", env: "dotenv",
-		dockerfile: "dockerfile", makefile: "makefile",
-	};
-	return map[ext] ?? "plaintext";
 }

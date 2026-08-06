@@ -273,7 +273,7 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		sessions: {
 			list: async () => getSessions(),
-			listCatalog: async (projectId): Promise<SessionRecord[]> => getSessions().map((session) => ({
+			listCatalog: async (projectId, _options?: { scan?: boolean }): Promise<SessionRecord[]> => getSessions().map((session) => ({
 				id: `preview-record:${session.id}`,
 				projectId,
 				title: session.name || "Preview session",
@@ -289,6 +289,8 @@ export function createPreviewApi(): PiDesktopApi {
 				updatedAt: session.updatedAt,
 				wsl: session.wsl,
 			})),
+			// 预览模式无后台扫描推送：返回空退订函数满足接口契约
+			onCatalogRefreshed: () => () => undefined,
 			createDraft: async (input): Promise<SessionRecord> => ({
 				id: `preview-draft:${input.projectId}`,
 				projectId: input.projectId,

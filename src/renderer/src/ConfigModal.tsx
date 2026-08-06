@@ -24,7 +24,7 @@ import { EditorsTab } from "./config/EditorsTab";
 import { ImTab } from "./config/ImTab";
 import { LogsTab } from "./config/LogsTab";
 import { t } from "./i18n";
-import { LazyMonacoEditor } from "./components/app/LazyMonacoEditor";
+import { CodeMirrorEditor } from "./components/app/CodeMirrorEditor";
 import { translateBuiltinPromptDescription } from "./composerBehavior";
 import type {
 	AuthFile,
@@ -1609,7 +1609,7 @@ function ConfigModalContent(props: ConfigModalProps) {
 										<div className="py-12 text-center text-control text-text-tertiary">{t("common.loading")}</div>
 									) : (
 										<div className="prompts-monaco-wrap">
-											<LazyMonacoEditor
+											<CodeMirrorEditor
 												value={editGlobalContent}
 												onChange={setEditGlobalContent}
 											/>

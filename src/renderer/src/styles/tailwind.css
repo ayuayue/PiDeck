@@ -2,18 +2,18 @@
  * Tailwind v4 入口（UI 2.0 / issue #115）。
  *
  * pure official：shadcn new-york + zinc。
- * - primary / ring → 正文色（zinc-900 / 暗色 zinc-50）
- * - accent → 悬停浅面（bg-active），与官方一致
- * - 不把 primary 绑到 foundation 的 --color-accent，避免与 accent 语义打架
+ * - primary / ring → 跟随 foundation 的 --color-accent（data-accent 主题色）；
+ *   默认 neutral accent 就是 zinc-900 / 暗色 zinc-50，等价官方 zinc primary
+ * - accent（工具类 bg-accent）→ 悬停浅面（bg-active），与官方一致
  */
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Streamdown 及其可选插件（code/mermaid/math）的 Tailwind v4 源码扫描：
-   不声明则其内置控件（表格复制/下载、代码块、mermaid 工具栏）的类名不生成，
-   表现为控件缺背景/边框/hover 态（样式残缺）。路径相对本文件。 */
+/* Streamdown 及其插件（mermaid/math）的 Tailwind v4 源码扫描：
+   不声明则其内置控件（表格复制/下载、mermaid 工具栏）的类名不生成，
+   表现为控件缺背景/边框/hover 态（样式残缺）。路径相对本文件。
+   代码高亮插件已移除（shiki 内存优化，见 MarkdownStream.tsx 注释）。 */
 @source "../../../../node_modules/streamdown/dist/*.js";
-@source "../../../../node_modules/@streamdown/code/dist/*.js";
 @source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
 @source "../../../../node_modules/@streamdown/math/dist/*.js";
 

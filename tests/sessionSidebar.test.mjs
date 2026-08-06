@@ -224,12 +224,28 @@ test("Chat section keeps an independent collapse control after the parent projec
   assert.match(chatSection, /!collapsed && \([\s\S]*?<SessionTree/);
 });
 
+test("Projects section header provides batch collapse wired to the controller", () => {
+  const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
+  const controller = readFileSync("src/renderer/src/hooks/useSidebarController.ts", "utf8");
+
+  // 标题栏折叠按钮调用 controller 的批量切换，并给出折叠/展开文案（与 Chat 标题栏同款图标）。
+  assert.match(projectTree, /toggleCollapseAllProjects\(\)/);
+  assert.match(projectTree, /anyWorkspaceExpanded/);
+  assert.match(projectTree, /title=\{anyWorkspaceExpanded \? t\("app\.projectCollapseAll"\) : t\("app\.projectExpandAll"\)\}/);
+  assert.match(projectTree, /<ChevronsDownUp size=\{14\} aria-hidden="true" \/>/);
+  // controller 批量切换只作用于根工作区项目（排除 chat 与 worktree 子项目）。
+  assert.match(controller, /toggleCollapseAllProjects/);
+  assert.match(controller, /project\.kind !== "chat" && !project\.worktreeParentId/);
+});
+
 test("ProjectTree shows the project directory name like the dev reference", () => {
   const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
   assert.match(projectTree, /function displayProjectDirectoryName\(project: Project\)/);
   assert.match(projectTree, /project\.path\.replace\(/);
   assert.match(projectTree, /const projectDirectoryName = displayProjectDirectoryName\(project\)/);
-  assert.match(projectTree, /<PathTooltip content=\{project\.path\}>/);
+
+  // 代码实际实现：tooltip 显示「目录名 + 换行 + 完整路径」两行（fork 测试断言滞后于其代码演进）
+  assert.match(projectTree, /<PathTooltip content=\{`\$\{projectDirectoryName\}\\n\$\{project\.path\}`\}>/);
   assert.match(projectTree, /\{projectDirectoryName\}/);
   assert.match(projectTree, /const relatedProjects = controller\.catalog\.projects\.filter/);
   assert.match(projectTree, /const rootProjectSessions = props\.controller\.catalog\.sessionsByProject\[project\.id\]/);

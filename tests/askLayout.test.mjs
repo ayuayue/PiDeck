@@ -43,7 +43,8 @@ test("composer default height stays compact while remaining vertically resizable
   assert.match(rendererUtils, /COMPOSER_MIN_HEIGHT = 148/);
   assert.match(sessionView, /COMPOSER_DEFAULT_HEIGHT/);
   assert.match(sessionView, /minSize=\{COMPOSER_MIN_HEIGHT\}/);
-  assert.match(sessionView, /ResizablePanelGroup orientation="vertical"/);
+  // 标签与 prop 允许跨行（终端布局修复后 Group 多了 groupRef，JSX 折行）
+  assert.match(sessionView, /<ResizablePanelGroup[\s\S]*?orientation="vertical"/);
   assert.match(sessionView, /id="composer"/);
 });
 

@@ -52,8 +52,8 @@ export interface UseFileEditorInput {
   setDrawer: (panel: DrawerPanel | null) => void;
   setDrawerCollapsed: (collapsed: boolean) => void;
   showToast: (message: string, duration?: number) => void;
-  /** 读取文件内容的 API */
-  readFileContent: (path: string) => Promise<string>;
+  /** 读取文件内容的 API；maxBytes 用于编辑器大文件前置拦截（主进程 stat 检查，不传输超限内容） */
+  readFileContent: (path: string, maxBytes?: number) => Promise<string>;
   /** 读取 Git 原始内容的 API */
   readGitOriginalContent: (path: string) => Promise<string>;
   /** 保存文件内容的 API */
@@ -92,7 +92,7 @@ export interface UseFileEditorOutput {
   activeTabId: string | null;
   activeTab: EditorTab | null;
   editorTabAccessSequenceRef: React.MutableRefObject<number>;
-  readEditorFileContent: (path: string) => Promise<string>;
+  readEditorFileContent: (path: string, maxBytes?: number) => Promise<string>;
   readEditorOriginalContent: (path: string) => Promise<string>;
   saveEditorFileContent: (path: string, content: string) => Promise<void>;
   openEditorTab: (
@@ -221,7 +221,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 
   // ---- IO callbacks ----
   const readEditorFileContent = useCallback(
-    (path: string) => readFileContent(path),
+    (path: string, maxBytes?: number) => readFileContent(path, maxBytes),
     [readFileContent],
   );
   const readEditorOriginalContent = useCallback(

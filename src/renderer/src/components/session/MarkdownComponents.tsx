@@ -13,8 +13,8 @@ import { showNotice } from "../../utils/notice";
 
 /**
  * Markdown 渲染辅助（Streamdown 转正后精简）：
- * mermaid 由 @streamdown/mermaid 插件渲染、代码高亮由 @streamdown/code、
- * 数学公式由 @streamdown/math——本文件仅保留通用文本提取工具与公式复制包装。
+ * mermaid 由 @streamdown/mermaid 插件渲染、数学公式由 @streamdown/math；
+ * 代码高亮已移除（2026-08 内存优化）。本文件仅保留通用文本提取工具与公式复制包装。
  */
 
 /** 从 ReactNode 树提取纯文本（复制/导出场景使用）。 */

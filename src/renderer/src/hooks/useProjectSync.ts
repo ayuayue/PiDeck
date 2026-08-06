@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Project, FileTreeNode, GitBranchInfo, WorktreeEntry, SessionSummary, SessionRecord } from "../../../shared/types";
 import type { SessionLoadState } from "../atoms/session-atoms";
 import { sessionRecordToSummary } from "../atoms/session-selectors";
@@ -29,7 +29,11 @@ type UseProjectSyncInput = {
   api: {
     projects: { list: () => Promise<Project[]> };
     git: { worktreeList: (projectId: string) => Promise<WorktreeEntry[]>; branches: (projectId: string) => Promise<{ current: string | null; branches: string[] }> };
-    sessions: { listCatalog: (projectId: string) => Promise<SessionRecord[]> };
+    sessions: {
+      listCatalog: (projectId: string, options?: { scan?: boolean }) => Promise<SessionRecord[]>;
+      /** 后台扫描完成推送（主进程 → 渲染层）；可选，缺省时退化为纯轮询。 */
+      onCatalogRefreshed?: (listener: (input: { projectId: string }) => void) => () => void;
+    };
     files: { list: (projectId: string) => Promise<FileTreeNode[]> };
   };
   showToast: (message: string, duration?: number) => void;
@@ -189,6 +193,26 @@ export function useProjectSync(input: UseProjectSyncInput) {
       completion.reject(unexpectedError);
     });
   }
+
+  // ── 后台扫描完成推送（2026-08 展开项目卡顿优化）──
+  // 主进程后台扫描合并完成后推送 catalog-refreshed：以 scan:false 静默拉取合并结果，
+  // 复用 request 序号防止过期响应覆盖更新数据；silent（无 loading 态、不打断用户操作）。
+  useEffect(() => {
+    if (!api.sessions.onCatalogRefreshed) return;
+    const unsubscribe = api.sessions.onCatalogRefreshed(({ projectId }) => {
+      const request = (sessionRequestByProjectRef.current[projectId] ?? 0) + 1;
+      sessionRequestByProjectRef.current[projectId] = request;
+      void api.sessions
+        .listCatalog(projectId, { scan: false })
+        .then((records) => {
+          if (sessionRequestByProjectRef.current[projectId] !== request) return;
+          replaceProjectSessions({ projectId, sessions: records });
+        })
+        .catch(() => undefined); // 静默路径失败不打断：下一次轮询/推送仍会纠正
+    });
+    return unsubscribe;
+    // replaceProjectSessions/api 由 App 以稳定引用提供（useCallback/useMemo），依赖安全
+  }, [api, replaceProjectSessions]);
 
   function refreshProjectSessions(projectId: string, silent = false): ProjectSessionRefreshPromise {
     const current = sessionRefreshCompletionByProjectRef.current[projectId];

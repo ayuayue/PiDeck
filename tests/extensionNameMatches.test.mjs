@@ -29,6 +29,8 @@ function loadExtensionConflictHelpers() {
 		exports: {},
 		require: (id) => {
 			if (id === "../wsl/WslPaths") return wslPaths;
+			// ExtensionManager 依赖内置扩展清单；名字匹配测试用空清单即可
+			if (id === "./builtInExtensions") return { BUILT_IN_EXTENSIONS: [] };
 			return require(id);
 		},
 	};

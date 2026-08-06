@@ -46,6 +46,33 @@ export function trimHistoryMessages(rawMessages: unknown[], maxTurns = 40): unkn
 	return rawMessages.slice(userIndices[0]);
 }
 
+/**
+ * 构造 agents:message 事件的 payload（增量 flush 协议，2026-08 渲染卡顿优化）。
+ *
+ * 背景：流式期间主进程每 50ms flush 一次，此前每次都发送全量消息数组——
+ * 几百条消息的结构化克隆每 50ms 在渲染主线程反序列化一次，是流式卡顿主因。
+ *
+ * 协议：调用方显式标记 dirtyFrom（自上次 flush 以来最早的变化下标）时，
+ * 只发送尾部切片 + upsertFrom + totalLength；渲染层按「从 upsertFrom 起替换尾部」合并，
+ * 长度不连续则丢弃并等待下一次全量校准（终态 flush 永远全量，见 flushMessageEmit）。
+ * dirtyFrom 缺失或越界（编辑/删除/截断/重载等未标记路径）一律回退全量。
+ */
+export function buildMessageFlushPayload(
+	agentId: string,
+	all: ChatMessage[],
+	dirtyFrom: number | undefined,
+): { agentId: string; messages: ChatMessage[]; upsertFrom?: number; totalLength?: number } {
+	if (dirtyFrom !== undefined && dirtyFrom >= 0 && dirtyFrom < all.length) {
+		return {
+			agentId,
+			messages: all.slice(dirtyFrom),
+			upsertFrom: dirtyFrom,
+			totalLength: all.length,
+		};
+	}
+	return { agentId, messages: all };
+}
+
 /** 清洗会话标题文本。 */
 export function cleanTitle(value?: string): string | undefined {
 	const text = value?.replace(/\s+/g, " ").trim();

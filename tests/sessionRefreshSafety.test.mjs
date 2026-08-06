@@ -204,7 +204,10 @@ test("defers settlement through silent retries and identity-cleans the shared co
 });
 
 test("retains public signatures without assertion casts", () => {
-  assert.match(projectSync, /sessions: \{ listCatalog: \(projectId: string\) => Promise<SessionRecord\[]> \};/);
+  // listCatalog 签名扩展：options.scan=false 为纯读缓存路径（后台扫描推送回调专用），
+  // onCatalogRefreshed 订阅为可选（缺省退化为纯轮询）
+  assert.match(projectSync, /listCatalog: \(projectId: string, options\?: \{ scan\?: boolean \}\) => Promise<SessionRecord\[]>/);
+  assert.match(projectSync, /onCatalogRefreshed\?: \(listener: \(input: \{ projectId: string \}\) => void\) => \(\) => void/);
   assert.match(projectSync, /async function refreshSessions\(projectId = activeProjectId\): Promise<SessionSummary\[]> \{/);
   assert.match(projectSync, /function refreshProjectSessions\(projectId: string, silent = false\): ProjectSessionRefreshPromise \{/);
   assert.doesNotMatch(projectSync, /\bas (?:SessionRecord|SessionSummary)\b/);

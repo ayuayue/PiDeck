@@ -9,7 +9,7 @@ import type {
 	PiPromptTemplateSummary,
 } from "../../../shared/types";
 import { t } from "../i18n";
-import { LazyMonacoEditor } from "../components/app/LazyMonacoEditor";
+import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { PromptStoreTab } from "./PromptStoreTab";
 import { Input } from "../components/ui-shadcn/input";
 import { Textarea } from "../components/ui-shadcn/textarea";
@@ -265,7 +265,7 @@ export function PromptsTab(props: {
 							<div className="py-12 text-center text-control text-text-tertiary">{t("common.loading")}</div>
 						) : (
 							<div className="prompts-monaco-wrap">
-								<LazyMonacoEditor
+								<CodeMirrorEditor
 									value={props.editContent}
 									onChange={props.onChangeEditContent}
 								/>

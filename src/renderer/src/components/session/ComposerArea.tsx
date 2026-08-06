@@ -41,6 +41,7 @@ export type ComposerAreaProps = {
 const CONTENT_GAP_PX = 8;
 
 type ComposerMeasuredExtrasProps = {
+  widgets: ReactNode;
   queuePanel?: ReactNode;
   deliveryNotice: ReactNode;
   attachmentBar: ReactNode;
@@ -49,8 +50,8 @@ type ComposerMeasuredExtrasProps = {
 
 /**
  * 必须作为 ComposerRuntimeIntegrations render-prop 子树中的独立组件存在：
- * extras 的关闭/更新只会重渲染这棵子树，不会重渲染外层 ComposerArea。
- * 测量 effect 放在这里，才能在 extras 变化的同一帧回缩面板，而不是等用户输入。
+ * widget 的关闭/更新只会重渲染这棵子树，不会重渲染外层 ComposerArea。
+ * 测量 effect 放在这里，才能在 widget 变化的同一帧回缩面板，而不是等用户输入。
  */
 function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
   const widgetsRef = useRef<HTMLDivElement | null>(null);
@@ -82,7 +83,7 @@ function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
     onHeightChangeRef.current(extra);
   };
 
-  // props 变化会重渲染本组件；在 paint 前同步 resize，输入区不会闪高一帧。
+  // props.widgets 变化会重渲染本组件；在 paint 前同步 resize，输入区不会闪高一帧。
   useLayoutEffect(() => {
     if (!mountedRef.current) return;
     reportExtra();
@@ -116,6 +117,7 @@ function ComposerMeasuredExtras(props: ComposerMeasuredExtrasProps) {
         ref={widgetsRef}
         className="flex shrink-0 min-h-0 min-w-0 flex-col gap-2"
       >
+        {props.widgets}
         {props.queuePanel}
         {props.deliveryNotice}
       </div>
@@ -176,7 +178,11 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
             style={{ height: props.height != null ? "100%" : height }}
             data-session-id={props.sessionId}
           >
+            {/* 扩展 widget（Todo/Plan）已迁至 chat-header 左侧 SessionWidgetChips，
+                composer 内不再有 widget，widgets 槽位传 null；
+                ComposerMeasuredExtras 负责测量附件/队列/通知高度并驱动 composer 自动增高。 */}
             <ComposerMeasuredExtras
+              widgets={null}
               queuePanel={props.queuePanel}
               deliveryNotice={(
                 <SessionDeliveryNotice

@@ -18,7 +18,8 @@ export type AccentPreset = {
 
 export const ACCENT_PRESETS: readonly AccentPreset[] = [
 	// 出厂默认使用黑白灰；绿色保留为显式可选主题，避免默认界面被高饱和色占据。
-	{ id: "default", labelKey: "settings.accent.default", preview: "#6b7280" },
+	// preview 与 foundation.css 的默认 --color-accent 保持一致（浅色 zinc-900 近黑）。
+	{ id: "default", labelKey: "settings.accent.default", preview: "#18181b" },
 	{ id: "green", labelKey: "settings.accent.green", preview: "#238636" },
 	{ id: "blue", labelKey: "settings.accent.blue", preview: "#2563eb" },
 	{ id: "purple", labelKey: "settings.accent.purple", preview: "#7c3aed" },

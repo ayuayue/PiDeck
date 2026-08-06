@@ -522,7 +522,10 @@ function SettingsModalContent(props: SettingsModalProps) {
 								<Button variant="default" size="sm" onClick={saveAll}>
 									{t("common.save")}
 								</Button>
-								<Button variant="secondary" size="sm" onClick={cancelAll}>
+								{/* 放弃更改用 outline（白底描边）而非灰底 secondary：与黑色主按钮形成
+								    清晰的主次层级（shadcn dialog 的 confirm/cancel 惯例），避免一对按钮
+								    都是灰色填充分不出哪个是提交。 */}
+								<Button variant="outline" size="sm" onClick={cancelAll}>
 									{t("common.cancel")}
 								</Button>
 							</>

@@ -28,9 +28,10 @@ test("all project rows omit aggregate running and history counts", () => {
 });
 
 test("default theme is neutral while green remains an explicit option", () => {
-  assert.match(themePresets, /\{ id: "default", labelKey: "settings\.accent\.default", preview: "#6b7280" \}/);
+  // 默认 neutral accent = shadcn zinc primary（浅色近黑 #18181b），保证主按钮不是中灰
+  assert.match(themePresets, /\{ id: "default", labelKey: "settings\.accent\.default", preview: "#18181b" \}/);
   assert.match(themePresets, /\{ id: "green", labelKey: "settings\.accent\.green", preview: "#238636" \}/);
-  assert.match(foundation, /--color-accent: #6b7280;/);
+  assert.match(foundation, /--color-accent: #18181b;/);
   assert.match(foundation, /:root\[data-accent="green"\][\s\S]*--color-accent: #238636;/);
 });
 

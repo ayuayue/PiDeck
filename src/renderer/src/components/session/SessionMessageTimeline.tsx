@@ -143,6 +143,17 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
     seenTailMessageIdRef.current = nextTail;
     if (!nextTail || !previousTail) return; // 首帧（历史加载完成前）只记录基线
     if (nextTail === previousTail) return;
+    // 发送置顶动画：尾部新增的是用户消息时，把它平滑滚动钉到视口顶部，
+    // 此前的消息整体被顶出屏幕（垫片逻辑见 controller.pinTurnToTop）。
+    // 乐观上屏的消息被权威消息换绑（id 变了但原 pin 目标已不存在）时只重定向不重播。
+    const tailMessage = activeMessages[activeMessages.length - 1];
+    if (tailMessage?.role === "user" && tailMessage.id !== controller.pinnedTurnId) {
+      const pinnedGone = Boolean(
+        controller.pinnedTurnId &&
+          !activeMessages.some((message) => message.id === controller.pinnedTurnId),
+      );
+      controller.pinTurnToTop?.(tailMessage.id, { animate: !pinnedGone });
+    }
     // 找到基线之后的新增消息（尾部追加，而非分页前插）
     const baselineIndex = activeMessages.findIndex((message) => message.id === previousTail);
     const fresh = baselineIndex < 0
@@ -425,10 +436,16 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
           <SessionStartSurface onQuickPrompt={props.onQuickPrompt} />
         )}
 
+      {/* 长会话渲染治理：message-list 对屏外行跳过 layout/paint（content-visibility:auto）。
+          - 尾部 14 个子元素（最新若干 run + 思考卡/指示器/文件汇总/pin 垫片）排除在外：
+            pin 测量（measurePinSpacer）与自动跟随只依赖尾部，排除后测量路径上无估算盒，
+            置顶精度不受上方估算影响（rowTop 与 scrollHeight 的估算误差同向抵消）。
+          - contain-intrinsic-size 的 auto 关键字让浏览器记住已渲染行的真实高度，
+            从未渲染的行用 240px 估算，滚动条位置由 Chromium scroll anchoring 收敛。 */}
       {hasActiveConversation &&
         !isConversationLoading &&
         activeMessages.length > 0 && (
-          <div className="message-list">
+          <div className="message-list [&>*:not(:nth-last-child(-n+14))]:[content-visibility:auto] [&>*:not(:nth-last-child(-n+14))]:[contain-intrinsic-size:auto_240px]">
             {renderedRuns.map((item, index) => {
               if (item.kind === "agent-run") {
                 const isRunStreaming = Boolean(
@@ -567,6 +584,16 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
                   onDiffFile={props.onDiffFile}
                 />
               )}
+
+            {/* 发送置顶垫片：撑起滚动空间，让最新用户消息能钉到视口顶部；
+                高度由 controller 随回答流式增长动态收敛 */}
+            {(controller.pinSpacerHeight ?? 0) > 0 && (
+              <div
+                aria-hidden="true"
+                className="timeline-pin-spacer"
+                style={{ height: controller.pinSpacerHeight }}
+              />
+            )}
           </div>
         )}
 

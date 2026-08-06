@@ -36,7 +36,8 @@ test("resizable handle maps v4 aria-orientation opposite to group layout", () =>
 });
 
 test("session and shell use v4 Group orientation props only", () => {
-  assert.match(sessionViewCode, /ResizablePanelGroup orientation="vertical"/);
+  // 标签与 prop 允许跨行（终端布局修复后 Group 多了 groupRef，JSX 折行）
+  assert.match(sessionViewCode, /<ResizablePanelGroup[\s\S]*?orientation="vertical"/);
   assert.match(appShellCode, /ResizablePanelGroup orientation="horizontal"/);
   assert.doesNotMatch(sessionViewCode, /\bdirection=/);
   assert.doesNotMatch(appShellCode, /\bdirection=/);

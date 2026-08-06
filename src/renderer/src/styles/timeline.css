@@ -127,7 +127,8 @@
   height: 26px;
   padding: 0 12px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 999px;
+  /* 与其他按钮（shadcn rounded-md）同一圆角档位，不再用全圆 pill */
+  border-radius: var(--radius-md);
   background: var(--color-chat-card-bg);
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);

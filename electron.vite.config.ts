@@ -6,36 +6,6 @@ import { tmpdir } from "node:os";
 import type { Plugin } from "vite";
 
 /**
- * Monaco TS worker 引用了压缩过的 typescriptServices.js（TypeScript 编译器本体），
- * Rollup 无法解析该文件的语法。本插件在构建时跳过对这个 worker 的预处理，
- * 让运行时通过 new Worker() 自行加载 worker 文件。
- */
-function monacoTsWorkerPlugin(): Plugin {
-	const WORKER_PATH = "monaco-editor/esm/vs/language/typescript/ts.worker";
-	return {
-		name: "monaco-ts-worker",
-		// enforce: "pre" 确保在 Rollup/Vite 默认解析前拦截，
-		// 否则 Rollup 会直接处理 ts.worker.js（无 default export）导致构建失败。
-		enforce: "pre",
-		resolveId(id) {
-			if (id === WORKER_PATH || id.startsWith(WORKER_PATH + "?")) {
-				return "\0monaco-ts-worker";
-			}
-		},
-		load(id) {
-			if (id === "\0monaco-ts-worker") {
-				// 返回一个空的 worker 代理；TSServer 通常在桌面 IDE 用不上，
-				// diff viewer 等场景用纯文本模式体验差异可接受。
-				return {
-					code: `export default class TsWorker {};`,
-					map: null,
-				};
-			}
-		},
-	};
-}
-
-/**
  * KaTeX 字体精简 Vite 插件
  *
  * katex.min.css 中的每个 @font-face 声明了三种格式（woff2 / woff / truetype），
@@ -99,7 +69,7 @@ export default defineConfig({
         "@shared": resolve("src/shared"),
       },
     },
-    plugins: [react(), tailwindcss(), katexWoff2OnlyPlugin(), monacoTsWorkerPlugin()],
+    plugins: [react(), tailwindcss(), katexWoff2OnlyPlugin()],
     build: {
       // 不计算 gzip 压缩后大小（节约构建时间）
       reportCompressedSize: false,
@@ -116,15 +86,12 @@ export default defineConfig({
         },
         output: {
           // 将大体积的第三方依赖拆分为独立 chunk，减少首屏需要加载和解析的 JS 体积。
-          // 拆分策略：React 全家桶、Monaco Editor、图标库、Markdown 渲染栈各归一类。
+          // 拆分策略：React 全家桶、图标库、Markdown 渲染栈各归一类。
           // 利用 Rollup 的 chunk 缓存机制：vendor 不变时浏览器复用缓存，加快二次加载。
           // Mermaid 已在渲染层用 dynamic import 惰性加载，此处不额外聚合，避免破坏已有 code splitting。
           manualChunks(id) {
             if (id.includes("/node_modules/react/") || id.includes("/node_modules/react-dom/") || id.includes("/node_modules/scheduler/")) {
               return "vendor-react";
-            }
-            if (id.includes("/node_modules/monaco-editor/")) {
-              return "vendor-monaco";
             }
             if (id.includes("/node_modules/lucide-react/")) {
               return "vendor-icons";

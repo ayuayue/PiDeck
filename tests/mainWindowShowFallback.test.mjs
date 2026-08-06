@@ -64,7 +64,10 @@ test("drawer viewer: toggleEditorMode closes drawer when expanding to modal (fix
   assert.match(source, /editorModeRef\.current = next;/);
   // 文件树打开始终 drawer 模式 + 记录来源面板（返回键）
   assert.match(source, /文件树打开始终进抽屉模式/);
-  // Monaco 首次加载 loading fallback（首帧空白修复）
+  // 编辑器（CodeMirror 6）同步加载，无 Monaco 首帧空白问题；
+  // 加载态仍保留给文件内容异步读取（loading state → file-diff-loading）
   const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
-  assert.match(viewer, /loading=\{<div className="file-diff-loading">/);
+  assert.match(viewer, /\{loading && <div className="file-diff-loading">/);
+  assert.match(viewer, /<CodeMirrorEditor/);
+  assert.match(viewer, /<MergeDiffView/);
 });

@@ -648,6 +648,12 @@ export const AssistantText = memo(
 		prev.images === next.images,
 );
 
+/** 一轮回答内的展示段（issue #130）：
+ *  process = 连续思考/工具组成的折叠段；text = 回答文本段（常驻平铺）。 */
+type TurnSegment =
+	| { kind: "process"; id: string; items: (ThinkingGroupItem | ToolGroupItem)[] }
+	| { kind: "text"; id: string; message: ChatMessage };
+
 /** 一轮 AI 回答的扁平容器：左侧竖线聚合，内含思考/工具/正文/文件摘要。
  *  替代旧的 AgentRun + ChatBubble 助手分支 + RunActivity 三层结构。 */
 export const TurnRow = memo(function TurnRow(props: {
@@ -708,22 +714,7 @@ export const TurnRow = memo(function TurnRow(props: {
 		}
 		return -1;
 	})();
-	// 执行过程 = 除最终回答外的所有条目（最终回答在折叠区外始终可见，不能再进折叠详情）。
-	// 边界：lastAssistantIndex === 0（如「思考+直接回答」的无工具回合）时，若取 run.items 全量，
-	// 最终回答会被同时渲染进折叠详情和下方正文，展开后出现两份；filter 排除它本身，
-	// 同时保留最终回答之后可能存在的尾部 tool/thinking 条目（slice 方案会将其丢弃）。
-	const executionItems = lastAssistantIndex >= 0
-		? (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]).filter(
-			(_, index) => index !== lastAssistantIndex,
-		)
-		: (run.items as (ThinkingGroupItem | ToolGroupItem | MessageItem)[]);
 	const finalMessageItem = lastAssistantIndex >= 0 ? (run.items[lastAssistantIndex] as MessageItem) : null;
-
-	const toolCount = executionItems.filter((i) => i.kind === "tool-group").length;
-	const thinkingCount = executionItems.filter((i) => i.kind === "thinking-group").length;
-	const interReplyCount = executionItems.filter(
-		(i) => i.kind === "message" && i.message.role === "assistant",
-	).length;
 
 	// 最终回答文本，用于判断自然完成 vs 手动中断。
 	// 提前定义以在 useEffect 中使用（auto-collapse 逻辑需要判断是否有最终文本回答）。
@@ -754,8 +745,9 @@ export const TurnRow = memo(function TurnRow(props: {
 		allImages.length > 0;
 	if (!hasContent) return null;
 
-	/** 渲染执行过程中的一个条目（thinking-group / tool-group / assistant message）。 */
-	const renderExecutionItem = (item: ThinkingGroupItem | ToolGroupItem | MessageItem) => {
+	/** 渲染执行过程折叠区里的一个条目（thinking-group / tool-group）。
+	 *  回答文本不再进入折叠区（issue #130），由 text 段常驻平铺渲染。 */
+	const renderExecutionItem = (item: ThinkingGroupItem | ToolGroupItem) => {
 		if (item.kind === "thinking-group") {
 			if (!props.showThinking) return null;
 			return (
@@ -770,16 +762,70 @@ export const TurnRow = memo(function TurnRow(props: {
 				/>
 			);
 		}
-		if (item.kind === "tool-group") {
-			return <ToolGroupCard key={item.id} group={item} />;
+		return <ToolGroupCard key={item.id} group={item} />;
+	};
+
+	const finalThinking = finalMessageItem?.message.thinking?.trim()
+		? stripAnsi(finalMessageItem.message.thinking)
+		: null;
+	const hasFinalThinking = Boolean(finalThinking && props.showThinking);
+
+	/** 把一轮回答按时序拆成「过程段（思考+工具，可折叠）」与「回答文本段（常驻平铺）」。
+	 *  issue #130：中间过渡回答是面向用户的正式内容，不再折进执行过程；
+	 *  连续的思考/工具合成一个折叠段，回答文本段原位平铺，保留真实调用时序。 */
+	const segments = useMemo<TurnSegment[]>(() => {
+		const result: TurnSegment[] = [];
+		const pushProcessItem = (item: ThinkingGroupItem | ToolGroupItem) => {
+			const last = result[result.length - 1];
+			if (last?.kind === "process") last.items.push(item);
+			else result.push({ kind: "process", id: item.id, items: [item] });
+		};
+		run.items.forEach((item, index) => {
+			// 最终回答单独渲染（支持编辑），不进任何段
+			if (index === lastAssistantIndex) return;
+			if (item.kind === "thinking-group" || item.kind === "tool-group") {
+				pushProcessItem(item);
+				return;
+			}
+			if (item.kind === "message" && item.message.role === "assistant") {
+				// 空文本消息不展示（与旧逻辑一致）
+				if (!stripThinkingTags(stripAnsi(item.message.text)).trim()) return;
+				result.push({ kind: "text", id: item.message.id, message: item.message });
+			}
+		});
+		// 最终回答的思考并入其前的过程段尾部，保持「思考→回答」时序
+		if (hasFinalThinking && finalThinking) {
+			pushProcessItem({
+				kind: "thinking-group",
+				id: `final-thinking-${finalMessageItem?.message.id ?? run.id}`,
+				messages: finalMessageItem?.message ? [finalMessageItem.message] : [],
+				text: finalThinking,
+				startedAt: run.startedAt,
+				endedAt: finalMessageItem?.message.timestamp ?? run.endedAt,
+			});
 		}
-		if (item.kind === "message" && item.message.role === "assistant") {
-			const txt = stripThinkingTags(stripAnsi(item.message.text)).trim();
-			if (!txt) return null;
+		return result;
+	}, [run.items, lastAssistantIndex, hasFinalThinking, finalThinking, finalMessageItem, run.id, run.startedAt, run.endedAt]);
+
+	/** 单个过程段的概要文本：只统计思考/工具（回答不再计入折叠，issue #130）。 */
+	const segmentSummary = (items: (ThinkingGroupItem | ToolGroupItem)[]): string => {
+		const tools = items.filter((i) => i.kind === "tool-group").length;
+		const thinks = items.filter((i) => i.kind === "thinking-group").length;
+		const parts: string[] = [];
+		if (tools > 0) parts.push(t("activity.executionToolCount", { count: tools }));
+		if (thinks > 0) parts.push(t("activity.executionThinkingCount", { count: thinks }));
+		return parts.length > 0
+			? t("activity.executionSummary", { summary: parts.join(" ") })
+			: "";
+	};
+
+	/** 渲染一个段：过程段折叠（概要 + 可展开详情），回答文本段常驻平铺。 */
+	const renderSegment = (segment: TurnSegment) => {
+		if (segment.kind === "text") {
 			return (
-				<div key={item.message.id} className="timeline-inline-text">
+				<div key={segment.id} className="timeline-inline-text">
 					<AssistantText
-						text={txt}
+						text={stripThinkingTags(stripAnsi(segment.message.text)).trim()}
 						images={allImages}
 						onPreviewImage={props.onPreviewImage}
 						onOpenExternal={props.onOpenExternal}
@@ -789,50 +835,41 @@ export const TurnRow = memo(function TurnRow(props: {
 				</div>
 			);
 		}
-		return null;
+		const summary = segmentSummary(segment.items);
+		if (!summary) return null;
+		return (
+			<div className="execution-summary" key={segment.id}>
+				<button
+					type="button"
+					className="execution-summary-toggle"
+					onClick={() => setExecutionExpanded((prev) => !prev)}
+					aria-expanded={executionExpanded}
+					title={executionExpanded ? t("common.collapse") : t("common.expand")}
+				>
+					{executionExpanded ? (
+						<ChevronDown size={14} aria-hidden="true" />
+					) : (
+						<ChevronRight size={14} aria-hidden="true" />
+					)}
+					<span>{summary}</span>
+				</button>
+				{executionExpanded && (
+					<div className="execution-summary-details">
+						{segment.items.map(renderExecutionItem)}
+						<button
+							type="button"
+							className="execution-summary-collapse"
+							onClick={() => setExecutionExpanded(false)}
+							title={t("common.collapse")}
+						>
+							<ChevronUp size={12} aria-hidden="true" />
+							<span>{t("common.collapse")}</span>
+						</button>
+					</div>
+				)}
+			</div>
+		);
 	};
-
-	const finalThinking = finalMessageItem?.message.thinking?.trim()
-		? stripAnsi(finalMessageItem.message.thinking)
-		: null;
-	const hasFinalThinking = Boolean(finalThinking && props.showThinking);
-
-	// 将最终消息的思考插入执行过程（放在工具之前），确保时序正确：思考→工具→文本
-	const executionItemsWithFinalThinking = useMemo(() => {
-		const items = [...executionItems];
-		if (hasFinalThinking && finalThinking && props.showThinking) {
-			const thinkingItem: ThinkingGroupItem = {
-				kind: "thinking-group",
-				id: `final-thinking-${finalMessageItem?.message.id ?? run.id}`,
-				messages: finalMessageItem?.message ? [finalMessageItem.message] : [],
-				text: finalThinking,
-				startedAt: run.startedAt,
-				endedAt: finalMessageItem?.message.timestamp ?? run.endedAt,
-			};
-			// 插到 executionItems 的 lastAssistantIndex 位置，保持与原 run.items 一致的时序
-			const insertIndex = Math.min(lastAssistantIndex, items.length);
-			items.splice(insertIndex, 0, thinkingItem);
-		}
-		return items;
-	}, [executionItems, hasFinalThinking, finalThinking, props.showThinking, finalMessageItem, run.id, run.startedAt, run.endedAt]);
-
-	// 统计
-	const totalThinkingCount = executionItemsWithFinalThinking.filter((i) => i.kind === "thinking-group").length;
-	const totalToolCount = executionItemsWithFinalThinking.filter((i) => i.kind === "tool-group").length;
-	const totalInterReplyCount = executionItemsWithFinalThinking.filter(
-		(i) => i.kind === "message" && i.message.role === "assistant",
-	).length;
-	/** 将统计拼成概要文本。 */
-	const summaryParts: string[] = [];
-	if (totalToolCount > 0) summaryParts.push(t("activity.executionToolCount", { count: totalToolCount }));
-	if (totalThinkingCount > 0) summaryParts.push(t("activity.executionThinkingCount", { count: totalThinkingCount }));
-	if (totalInterReplyCount > 0) summaryParts.push(t("activity.executionAnswerCount", { count: totalInterReplyCount }));
-	const summaryText = summaryParts.length > 0
-		? t("activity.executionSummary", { summary: summaryParts.join(" ") })
-		: "";
-
-	// 是否有任何需要折叠的内容
-	const hasFoldableContent = executionItemsWithFinalThinking.length > 0 || run.items.some((i) => i.kind !== "message");
 
 	// 没有助手指令消息的情况：整轮只含工具/思考，用执行过程折叠渲染
 	if (lastAssistantIndex === -1) {
@@ -846,39 +883,8 @@ export const TurnRow = memo(function TurnRow(props: {
 							<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatDuration(duration)}</span>
 						)}
 					</div>
-					{/* 执行过程概要（含工具/思考），默认折叠 */}
-					{hasFoldableContent && summaryText && (
-						<div className="execution-summary">
-							<button
-								type="button"
-								className="execution-summary-toggle"
-								onClick={() => setExecutionExpanded((prev) => !prev)}
-								aria-expanded={executionExpanded}
-								title={executionExpanded ? t("common.collapse") : t("common.expand")}
-							>
-								{executionExpanded ? (
-									<ChevronDown size={14} aria-hidden="true" />
-								) : (
-									<ChevronRight size={14} aria-hidden="true" />
-								)}
-								<span>{summaryText}</span>
-							</button>
-							{executionExpanded && (
-								<div className="execution-summary-details">
-									{executionItemsWithFinalThinking.map(renderExecutionItem)}
-									<button
-										type="button"
-										className="execution-summary-collapse"
-										onClick={() => setExecutionExpanded(false)}
-										title={t("common.collapse")}
-									>
-										<ChevronUp size={12} aria-hidden="true" />
-										<span>{t("common.collapse")}</span>
-									</button>
-								</div>
-							)}
-						</div>
-					)}
+					{/* 过程段（思考+工具）折叠展示，回答文本段常驻平铺（issue #130） */}
+					{segments.map(renderSegment)}
 				</div>
 			</article>
 		);
@@ -894,39 +900,9 @@ export const TurnRow = memo(function TurnRow(props: {
 						<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatDuration(duration)}</span>
 					)}
 				</div>
-				{/* 执行过程概要（含工具/思考/中间回答），置于最终回答之前以保持调用顺序。 */}
-				{hasFoldableContent && summaryText && (
-					<div className="execution-summary">
-						<button
-							type="button"
-							className="execution-summary-toggle"
-							onClick={() => setExecutionExpanded((prev) => !prev)}
-							aria-expanded={executionExpanded}
-							title={executionExpanded ? t("common.collapse") : t("common.expand")}
-						>
-							{executionExpanded ? (
-								<ChevronDown size={14} aria-hidden="true" />
-							) : (
-								<ChevronRight size={14} aria-hidden="true" />
-							)}
-							<span>{summaryText}</span>
-						</button>
-						{executionExpanded && (
-							<div className="execution-summary-details">
-								{executionItemsWithFinalThinking.map(renderExecutionItem)}
-								<button
-									type="button"
-									className="execution-summary-collapse"
-									onClick={() => setExecutionExpanded(false)}
-									title={t("common.collapse")}
-								>
-									<ChevronUp size={12} aria-hidden="true" />
-									<span>{t("common.collapse")}</span>
-								</button>
-							</div>
-						)}
-					</div>
-				)}
+				{/* 过程段（思考+工具）折叠展示，回答文本段常驻平铺（issue #130），
+				    段按真实调用时序排列，最终回答始终在最后单独渲染。 */}
+				{segments.map(renderSegment)}
 				{/* 最终回答（始终可见）；最终思考已融入执行过程折叠区 */}
 				{finalMessageItem && (
 					<Fragment key={finalMessageItem.message.id}>

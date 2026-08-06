@@ -1,5 +1,5 @@
 import { dialog, ipcMain, shell, type BrowserWindow } from "electron";
-import { cp, readFile, rename as fsRename, rm, writeFile } from "node:fs/promises";
+import { cp, readFile, rename as fsRename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import type { FileSystemService } from "../fs/FileSystemService";
@@ -67,8 +67,18 @@ export function registerFilesIpc({
 		await openExternalUrl(url, true);
 	});
 
-	ipcMain.handle(ipcChannels.filesReadContent, async (_event, path: string) => {
+	ipcMain.handle(ipcChannels.filesReadContent, async (_event, path: string, maxBytes?: number) => {
 		try {
+			// 编辑器场景传入 maxBytes（maxEditorFileSizeMB 设置项）：读取前先 stat 拦截，
+			// 避免大文件全量读入主进程再经 IPC 传输（几百 MB 字符串会同时压垮两侧内存）。
+			// 其他调用方（技能/提示词小文件）不传参，行为不变。
+			if (typeof maxBytes === "number" && Number.isFinite(maxBytes) && maxBytes > 0) {
+				const fileStat = await stat(toWindowsPath(path));
+				if (fileStat.size > maxBytes) {
+					// 结构化前缀供渲染层识别后走 i18n 文案；message 不直接展示给用户
+					throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(maxBytes)}`);
+				}
+			}
 			return await readFile(toWindowsPath(path), "utf8");
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {

@@ -10,7 +10,14 @@
 2. 优先复用已有 shadcn 源码组件；缺少组件时先评估是否真的需要，不为替换而替换。
 3. 用户可感知的状态必须有明确层级：项目、工作区、运行中会话、历史会话、子 Agent 不混在同一层。
 4. 动画服务于状态变化，不用于装饰；布局尺寸不能因切换内容而无预期抖动。
+   - motion token 统一：三档时长（120ms 微反馈 / 200ms 常规 / 320ms 面板级）+ 统一缓动
+     （ease-out-quint 进场、ease-in 离场），进 Tailwind `@theme`，全站禁止裸写 `transition: all`。
+   - 布局动画只动 transform/opacity（合成器线程）；width/height 动画是 layout 抖动与掉帧主因，列为评审红线。
+   - 列表进入 stagger 限流：只对前 8–12 个元素 stagger，其余直接出现（大列表 stagger 是掉帧重灾区）。
+   - 加载态（会话激活、项目展开）用骨架屏代替白屏或跳动，与「状态尺寸固定」同一条线。
 5. 用户可见文案全部进入中英文 i18n；新增复杂逻辑必须写“为什么”和边界条件注释。
+6. 性能预算与视觉同级：渲染进程内存、切会话耗时、流式帧率有可量化门禁（见 Batch 6），
+   超出预算的视觉/动画改动不得合并；内存分析基线见 `docs/memory-profile-analysis.md`。
 
 ## 优先级总表
 
@@ -23,6 +30,7 @@
 | P0 | 设置、Pi 管理、反馈页面标题与 label 统一 | 🟡 第一批已完成，继续扩展 | `SettingsModal.tsx`、`config/*`、反馈 overlay、共享组件 | 标题层级、label 字号、字重、描述色、间距统一 |
 | P0 | Markdown 渲染后的工具调用展示 | ✅ Batch 2 已完成 | `MarkdownStream.tsx`、`ToolCallComponents.tsx`、`TimelineEventCards.tsx` | 工具 Logo、状态、展开/折叠、详情、错误和流式状态一致 |
 | P0 | 会话响应动画与空白页 | ✅ Batch 3 已完成 | `SurfaceComponents.tsx`、`TimelineEventCards.tsx`、`timeline.css` | 响应中、工具执行中、空会话、异常和加载状态不互相跳动 |
+| P0 | 性能与内存（渲染进程 1.6GB → ≤800MB） | ⬜ 待开始 | `atoms/session-atoms.ts`、`hooks/useSessionTimelineController.ts`、`main/index.ts`、`MarkdownStream.tsx`、`main/sessions/SessionScanner.ts` | 激活分页、tab keep-alive、shiki 裁剪、scanner 异步；门禁见 Batch 6 |
 | P1 | Todo / Plan / Ask | ✅ 已接通 | `ComposerComponents.tsx`（widget）、`ComposerRuntimeIntegrations.tsx`、`TimelineEventCards.tsx`（Ask） | Ask 的 pending/answered/cancelled；todo/plan 走真实 pi widget 事件 |
 | P1 | `/theming` 统一 | 🟡 基础已完成 | `themePresets.ts`、`tailwind.css`、`foundation.css` | token 单一来源；明暗、accent、皮肤、背景图和组件状态一致 |
 | P1 | Avatar 作为项目 Logo 与状态表达 | ✅ Batch 4 已完成 | `ProjectAvatar`、`AgentAvatar`、项目树 | 项目身份、运行态、错误态、worktree 状态一眼可辨 |
@@ -76,7 +84,34 @@
 - [x] 全量死 CSS 扫描：删除 30 条零引用规则（含 `:hover`/`:focus-visible` 变体），共享选择器列表保守保留。
 - [ ] 更新 E2E 视觉巡检和手测清单。
 
+### Batch 6：性能与内存（渲染进程预算）
+
+> 背景：2026-08 实测打包版渲染进程 1.6GB（私有内存）、切会话卡顿、展开项目同步扫描卡顿，
+> 详见 `docs/memory-profile-analysis.md`。U2 Streamdown 引入 shiki 双主题全语言常驻，
+> 内存账单需在本批次回收。
+>
+> 门禁（写入 ui-2.0 §9）：活跃 3 会话时渲染进程私有内存 ≤800MB；切会话 P95 ≤150ms；
+> 展开项目首屏回显 ≤300ms（骨架屏先行，后台刷新）。
+
+- [ ] 会话激活 IPC 分页：激活只下发最近 50–100 条，历史按需经 `prependSessionMessagePageAtom` 拼接
+      （`main/index.ts` activateRuntime 链路 + `useSessionTimelineController`）。
+- [ ] tab keep-alive + 延迟卸载：最近 2–3 个会话 tab 以 visibility 保活，空闲/内存压力回收更老的；
+      切回保活 tab 不重渲染（切 tab 动画的前提）。
+- [ ] shiki 语言裁剪 + 懒加载：`@streamdown/code` 全语言 grammar 常驻裁为常用子集，冷门语言动态 import。
+- [ ] markdown 静态产物按内容 hash 缓存，切回秒开（Streamdown 官方推荐粒度）。
+- [ ] `SessionScanner.list` 异步化 + 摘要缓存先回显，展开项目不阻塞 UI。
+- [ ] 大工具输出（bash/diff）超阈值截断存储，内存与渲染双降压。
+- [ ] motion token 落地 Tailwind `@theme`，timeline 长列表 `content-visibility: auto` + `contain-intrinsic-size`。
+- [ ] FileDiffViewer 关闭 tab 时 dispose monaco editor/model（验证现有实现）。
+
 ## 本次变更记录
+
+### 2026-08：新增 Batch 6 性能与内存批次 + motion 规范
+
+- 打包版实测渲染进程 1.6GB（私有内存）、切会话卡顿、展开项目同步扫描卡顿（`docs/memory-profile-analysis.md`）。
+- 优先级总表新增 P0「性能与内存」任务；Batch 6 立项：激活分页、tab keep-alive、shiki 裁剪、markdown 缓存、scanner 异步、工具输出截断、motion token、monaco dispose 验证。
+- 总体原则第 4 条扩写为 motion 规范（三档时长/统一缓动/transform-only/stagger 限流/骨架屏），新增第 6 条性能预算原则。
+- `docs/ui-2.0-revamp-plan.md` §9 验收标准加第 6 条性能门禁（≤800MB / P95≤150ms / 首屏≤300ms）。
 
 ### 2026-08：建立优化清单
 

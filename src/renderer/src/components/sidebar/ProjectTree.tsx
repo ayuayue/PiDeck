@@ -1,4 +1,4 @@
-import { ChevronsDownUp, Filter, HatGlasses, Play, Plus } from "lucide-react";
+import { ChevronsDownUp, Filter, FolderPlus, HatGlasses, Play, Plus } from "lucide-react";
 import type { DragEvent } from "react";
 import type { Project, WorktreeEntry } from "../../../../shared/types";
 import type { SidebarController } from "../../hooks/useSidebarController";
@@ -178,6 +178,11 @@ export function ProjectTree(props: {
 
   const chatProjects = rootProjects.filter(isChatProject);
   const workspaceProjects = rootProjects.filter((project) => !isChatProject(project));
+  // 任一工作区项目展开即视为“展开态”，供标题栏批量折叠按钮切换文案与 aria-expanded。
+  // 基于完整 catalog（非搜索过滤后视图）计算，避免搜索时按钮状态与目录全局状态不一致。
+  const anyWorkspaceExpanded = props.controller.catalog.projects.some(
+    (project) => !project.worktreeParentId && !isChatProject(project) && !props.controller.isProjectCollapsed(project.id),
+  );
   return <>
     {chatProjects.map((project) => {
       const collapsed = props.controller.isProjectCollapsed(project.id);
@@ -241,7 +246,33 @@ export function ProjectTree(props: {
     })}
     {workspaceProjects.length > 0 && (
       <section aria-label={t("app.sidebarProjects")}>
-        <div className="px-2 pb-1 text-caption font-medium text-muted-foreground">{t("app.sidebarProjects")}</div>
+        {/* 标题栏右侧提供添加项目与批量折叠入口，行为与搜索框旁的 FolderPlus 按钮一致；
+            与 Chat 标题栏按钮（size-6 圆角悬浮层）同款视觉，避免层级混乱。 */}
+        <div className="flex items-center justify-between px-2 pb-1">
+          <span className="text-caption font-medium text-muted-foreground">{t("app.sidebarProjects")}</span>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title={anyWorkspaceExpanded ? t("app.projectCollapseAll") : t("app.projectExpandAll")}
+              aria-label={anyWorkspaceExpanded ? t("app.projectCollapseAll") : t("app.projectExpandAll")}
+              aria-expanded={anyWorkspaceExpanded}
+              onClick={() => props.controller.toggleCollapseAllProjects()}
+            >
+              {/* 与 Chat 标题栏同款折叠图标：点击在「全部折叠/全部展开」之间切换 */}
+              <ChevronsDownUp size={14} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title={t("app.addProject")}
+              aria-label={t("app.addProject")}
+              onClick={() => void props.actions.projects.add()}
+            >
+              <FolderPlus size={13} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
         {workspaceProjects.map(renderProject)}
       </section>
     )}

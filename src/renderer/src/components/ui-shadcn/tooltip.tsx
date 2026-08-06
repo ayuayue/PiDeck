@@ -32,9 +32,9 @@ function TooltipTrigger({
 
 function TooltipContent({
   className,
+  arrowClassName,
   sideOffset = 0,
   children,
-  arrowClassName,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content> & {
   /** 覆盖箭头背景色：默认跟随 bg-foreground，面板风 Tooltip 需传 bg-popover 等保持一致。 */

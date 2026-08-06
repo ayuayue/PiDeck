@@ -528,6 +528,16 @@
   overflow: hidden;
 }
 
+/* CodeMirror 6 宿主容器：编辑器铺满父容器（旧 Monaco 同名职责，类名保留以兼容布局） */
+.codemirror-host {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.codemirror-host .cm-editor {
+  height: 100%;
+}
+
 /* ── Prompt 商店（prompts.chat） ── */
 .prompts-tab-btn.active {
   color: var(--color-accent);
@@ -1590,7 +1600,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   background: var(--color-bg-panel);
 }
 /* FileDiffViewer 是该 flex 容器的直接子项；显式占满可用横向空间，
-   避免 Monaco 按行号/变更装饰的最小内容宽度收缩成截图中的窄条。 */
+   避免编辑器按行号/变更装饰的最小内容宽度收缩成截图中的窄条。 */
 .git-drawer-detail > .file-diff-viewer {
   flex: 1 1 100%;
   width: 100%;
@@ -1601,7 +1611,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   pointer-events: none;
 }
 /* FileDiffViewer 是该 flex 容器的直接子项；显式占满可用横向空间，
-   避免 Monaco 按行号/变更装饰的最小内容宽度收缩成截图中的窄条。 */
+   避免编辑器按行号/变更装饰的最小内容宽度收缩成截图中的窄条。 */
 
 .git-pane.collapsed { height: 26px; }
 .git-pane:last-child { border-bottom: 0; }

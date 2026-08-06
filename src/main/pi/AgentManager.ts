@@ -55,6 +55,7 @@ import {
 	pickNumber,
 	clampPercent,
 	trimHistoryMessages,
+	buildMessageFlushPayload,
 	cleanTitle,
 	inferTitleFromMessages,
 	isDefaultAgentTitle,
@@ -108,6 +109,9 @@ export class AgentManager {
 	/** 流式消息 emit 节流状态。 */
 	private readonly messageFlushTimers = new Map<string, NodeJS.Timeout>();
 	private readonly pendingMessageAgents = new Set<string>();
+	/** 增量消息 flush 的脏下标：自上次 flush 以来最早的变化位置（取多次标记的最小值）。
+	 *  只在流式 upsert/append 高频路径显式标记；编辑/删除/截断/重载不标记 → flush 回退全量。 */
+	private readonly messageDirtyFromByAgent = new Map<string, number>();
 	private readonly thinkingEmitter = new LatestByKeyEmitter<string, string>(
 		50,
 		(agentId, thinking) => this.emitThinkingNow(agentId, thinking),
@@ -1899,6 +1903,7 @@ export class AgentManager {
 		runtime.process.stop();
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.messageDirtyFromByAgent.delete(agentId);
 		this.activeToolCallsByAgent.delete(agentId);
 		this.toolExecutingByAgent.delete(agentId);
 		this.toolStateSequenceByAgent.delete(agentId);
@@ -2071,6 +2076,7 @@ export class AgentManager {
 		const process = runtime.process;
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.messageDirtyFromByAgent.delete(agentId);
 		this.activeToolCallsByAgent.delete(agentId);
 		this.toolExecutingByAgent.delete(agentId);
 		this.toolStateSequenceByAgent.delete(agentId);
@@ -3097,7 +3103,8 @@ export class AgentManager {
 			this.activeAssistantMessageIds.set(agentId, messageId);
 		}
 
-		const existing = list.find((message) => message.id === messageId);
+		const existingIndex = list.findIndex((message) => message.id === messageId);
+		const existing = existingIndex >= 0 ? list[existingIndex] : undefined;
 		const extractedText =
 			partialMessage && typeof partialMessage === "object"
 				? this.messageProjector.extractText((partialMessage as any).content)
@@ -3114,6 +3121,7 @@ export class AgentManager {
 			if (nextThinking) existing.thinking = nextThinking;
 			// 保留原始时间戳，不随 delta 刷新。思考耗时依赖首条消息的时间戳与
 			// 最后一条消息的时间戳之差，每次刷新会导致思考耗时始终为 0ms。
+			this.markMessagesDirtyFrom(agentId, existingIndex);
 		} else {
 			const text = extractedText || fallbackDelta;
 			if (!text) return;
@@ -3125,6 +3133,7 @@ export class AgentManager {
 				timestamp: Date.now(),
 				...(nextThinking ? { thinking: nextThinking } : {}),
 			});
+			this.markMessagesDirtyFrom(agentId, list.length - 1);
 		}
 
 		// 思考切换到正文（text_delta）时，emitThinking("") 会立即清空渲染进程的
@@ -3169,7 +3178,8 @@ export class AgentManager {
 		}
 
 		const list = this.messages.get(agentId) ?? [];
-		const existing = list.find((message) => message.id === messageId);
+		const existingToolIndex = list.findIndex((message) => message.id === messageId);
+		const existing = existingToolIndex >= 0 ? list[existingToolIndex] : undefined;
 		const isError = status === "error" || event.isError === true;
 		const args = event.args ?? existing?.meta?.args;
 		const startedAt =
@@ -3286,6 +3296,7 @@ export class AgentManager {
 			existing.text = text;
 			existing.timestamp = Date.now();
 			existing.meta = meta;
+			this.markMessagesDirtyFrom(agentId, existingToolIndex);
 		} else {
 			list.push({
 				id: messageId,
@@ -3295,6 +3306,7 @@ export class AgentManager {
 				timestamp: Date.now(),
 				meta,
 			});
+			this.markMessagesDirtyFrom(agentId, list.length - 1);
 		}
 
 		this.messages.set(agentId, list);
@@ -3694,6 +3706,9 @@ export class AgentManager {
 
 	private scheduleMessageEmit(agentId: string, immediate = false) {
 		if (immediate) {
+			// 终态 immediate flush 永远全量：作为渲染层增量合并的天然校准点，
+			// 丢弃的增量（长度不连续）由这里的全量纠正（message_end/tool 结束/加载完成）。
+			this.messageDirtyFromByAgent.delete(agentId);
 			this.flushMessageEmit(agentId);
 			return;
 		}
@@ -3712,10 +3727,18 @@ export class AgentManager {
 			this.messageFlushTimers.delete(agentId);
 		}
 		this.pendingMessageAgents.delete(agentId);
-		this.emit(ipcChannels.agentsMessage, {
-			agentId,
-			messages: this.messages.get(agentId) ?? [],
-		});
+		const all = this.messages.get(agentId) ?? [];
+		const dirtyFrom = this.messageDirtyFromByAgent.get(agentId);
+		this.messageDirtyFromByAgent.delete(agentId);
+		this.emit(ipcChannels.agentsMessage, buildMessageFlushPayload(agentId, all, dirtyFrom));
+	}
+
+	/** 标记 agent 消息数组自 index 起变脏（多次标记取最小值），供增量 flush 使用。 */
+	private markMessagesDirtyFrom(agentId: string, index: number) {
+		const prev = this.messageDirtyFromByAgent.get(agentId);
+		if (prev === undefined || index < prev) {
+			this.messageDirtyFromByAgent.set(agentId, Math.max(0, index));
+		}
 	}
 
 	private emitThinking(agentId: string, thinking: string) {

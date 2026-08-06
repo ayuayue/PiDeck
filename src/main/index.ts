@@ -189,7 +189,7 @@ import { registerGitIpc } from "./ipc/gitIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
 import { registerTerminalIpc } from "./ipc/terminalIpc";
 import { registerScratchPadIpc } from "./ipc/scratchPadIpc";
-import { registerSessionIpc } from "./ipc/sessionIpc";
+import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { fetchModelList, getCachedModelList, refreshModelList } from "./pi/modelListCache";
 import { registerFilesIpc } from "./ipc/filesIpc";
@@ -2109,6 +2109,42 @@ function registerIpc() {
 		exportCatalogSessionHtml,
 		replaceAgentSession,
 	});
+
+	// ── 启动预扫描（2026-08 展开项目卡顿优化）──
+	// 延迟 3s 启动、项目间错开 1.5s 逐个调度后台扫描：预热 catalog 缓存，
+	// 用户首次展开项目时直接命中缓存回显，不再同步全量扫描卡 UI。
+	// 错开 + 协调器去重/冷却（sessionIpc 内）保证不与用户触发的扫描并发重扫。
+	const prewarmTimer = setTimeout(() => {
+		const projects = projectStore.list();
+		projects.forEach((project, index) => {
+			const timer = setTimeout(() => {
+				scheduleCatalogBackgroundScan(project.id, async () => {
+					try {
+						const settings = settingsStore.get();
+						let projectPath = project.path;
+						if (settings.wslEnabled && settings.wslDistro) {
+							projectPath = projectPath
+								.replace(/^([A-Za-z]):\\/, (_: string, drive: string) => `/mnt/${drive.toLowerCase()}/`)
+								.replace(/\\/g, "/");
+						}
+						const summaries = await sessionScanner.list(projectPath);
+						await sessionCatalog.mergeScanned(
+							project.id,
+							summaries,
+							settings.wslEnabled ? { wslDistro: settings.wslDistro, wslUser: settings.wslUser } : {},
+						);
+					} catch (error) {
+						void appLogger.warn("session", "Catalog prewarm scan failed", {
+							projectId: project.id,
+							error: error instanceof Error ? error.message : String(error),
+						});
+					}
+				});
+			}, index * 1500);
+			timer.unref?.();
+		});
+	}, 3000);
+	prewarmTimer.unref?.();
 
 	registerGitIpc({
 		appLogger,

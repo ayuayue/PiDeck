@@ -294,8 +294,8 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesOpen, path) as Promise<void>,
 		showInFolder: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesShowInFolder, path) as Promise<void>,
-		readContent: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
+		readContent: (path: string, maxBytes?: number) =>
+			ipcRenderer.invoke(ipcChannels.filesReadContent, path, maxBytes) as Promise<string>,
 		/** 读取二进制文件为 data URL（粘贴资源管理器图片文件时用） */
 		readBase64: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadBase64, path) as Promise<string>,
@@ -349,10 +349,18 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.sessionsList, projectId) as Promise<
 				SessionSummary[]
 			>,
-		listCatalog: (projectId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogList, projectId) as Promise<
+		listCatalog: (projectId: string, options?: { scan?: boolean }) =>
+			ipcRenderer.invoke(ipcChannels.sessionsCatalogList, projectId, options) as Promise<
 				SessionRecord[]
 			>,
+		/** 后台扫描完成推送：目录缓存已合并，监听方应以 scan:false 重新拉取。返回退订函数。 */
+		onCatalogRefreshed: (listener: (input: { projectId: string }) => void) => {
+			const handler = (_event: unknown, payload: { projectId: string }) => listener(payload);
+			ipcRenderer.on(ipcChannels.sessionsCatalogRefreshed, handler);
+			return () => {
+				ipcRenderer.removeListener(ipcChannels.sessionsCatalogRefreshed, handler);
+			};
+		},
 		createDraft: (input: CreateSessionDraftInput) =>
 			ipcRenderer.invoke(ipcChannels.sessionsCatalogCreateDraft, input) as Promise<SessionRecord>,
 		createAnonymous: (input: CreateAnonymousSessionInput) =>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { showNotice } from "../../utils/notice";
 
 import { Check, FileEdit, Pencil, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
-import { LazyMonacoEditor } from "../app/LazyMonacoEditor";
+import { CodeMirrorEditor } from "../app/CodeMirrorEditor";
 import {
 	Dialog,
 	DialogClose,
@@ -397,7 +397,7 @@ export function ProjectResourcesModal(props: {
 								<div className="py-12 text-center text-[13px] text-text-tertiary">{t("common.loading")}</div>
 							) : (
 								<div className="prompts-monaco-wrap">
-									<LazyMonacoEditor
+									<CodeMirrorEditor
 										value={editContent}
 										onChange={setEditContent}
 									/>
@@ -576,7 +576,7 @@ export function ProjectResourcesModal(props: {
 								<div className="py-12 text-center text-[13px] text-text-tertiary">{t("common.loading")}</div>
 							) : (
 								<div className="prompts-monaco-wrap">
-									<LazyMonacoEditor
+									<CodeMirrorEditor
 										value={editProjectPromptContent}
 										onChange={setEditProjectPromptContent}
 									/>
