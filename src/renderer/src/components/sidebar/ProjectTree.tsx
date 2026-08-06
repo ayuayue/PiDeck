@@ -147,7 +147,7 @@ export function ProjectTree(props: {
           </div>
         </div>
         {!collapsed && (
-          <div className="ml-2 mt-2 mr-1 space-y-1 pb-1">
+          <div className="mt-2 space-y-1 pb-1">
             {/* 展开内容不依赖当前选中项，项目切换只改变高亮，避免两棵会话树同时伸缩造成布局抖动。 */}
             {project.worktreeEnabled ? (
               <WorktreeTree

@@ -112,9 +112,8 @@ type GitPanelProps = {
 };
 
 type PaneId = "changes" | "graph" | "compare";
-type PaneHeights = Record<PaneId, number>;
 type PaneOpenState = Record<PaneId, boolean>;
-type PaneState = { heights: PaneHeights; open: PaneOpenState };
+type PaneState = { open: PaneOpenState };
 type SmartCommitPreference = {
   enableSmartCommit: boolean;
   suggestSmartCommit: boolean;
@@ -127,96 +126,6 @@ const EMPTY_GROUPS: GitResourceGroups = {
   untracked: [],
 };
 const PANE_IDS: PaneId[] = ["changes", "graph", "compare"];
-const PANE_MIN_BODY_HEIGHT = 24;
-const PANE_HEADER_HEIGHT = 26;
-/* 分支栏大约高度，用于 fitPaneHeights 中从可用空间预减，避免未计入分支栏高度导致 pane body 溢出 */
-const BRANCH_BAR_HEIGHT = 36;
-const PANE_RESIZE_STEP = 20;
-const PANE_RESIZE_LARGE_STEP = 60;
-
-function visiblePaneIds(open: PaneOpenState): PaneId[] {
-  return PANE_IDS.filter((id) => open[id]);
-}
-
-function resizePair(
-  state: PaneState,
-  beforeId: PaneId,
-  afterId: PaneId,
-  beforeHeight: number,
-  afterHeight: number,
-): PaneState {
-  return {
-    ...state,
-    heights: {
-      ...state.heights,
-      [beforeId]: Math.max(PANE_MIN_BODY_HEIGHT, Math.round(beforeHeight)),
-      [afterId]: Math.max(PANE_MIN_BODY_HEIGHT, Math.round(afterHeight)),
-    },
-  };
-}
-
-/**
- * Allocate every visible body against the real drawer budget. Collapsed panes still
- * consume their header row; the last visible pane receives spare room, matching the
- * way VS Code keeps its view container filled without destroying persisted sizes.
- */
-function fitPaneHeights(
-  state: PaneState,
-  availableHeight: number,
-): PaneHeights {
-  const visible = visiblePaneIds(state.open);
-  const heights = { ...state.heights };
-  if (!visible.length) return heights;
-
-  const bodyBudget = Math.max(
-    PANE_MIN_BODY_HEIGHT * visible.length,
-    availableHeight - PANE_IDS.length * PANE_HEADER_HEIGHT - BRANCH_BAR_HEIGHT,
-  );
-  const requestedTotal = visible.reduce((sum, id) => sum + heights[id], 0);
-  if (requestedTotal < bodyBudget) {
-    // 仅当只有一个 pane 可见时才把剩余空间灌入该 pane（保持 VS Code SCM 视图行为）；
-    // 多个 pane 同时可见时保持各自请求高度，多余空间由抽屉底部自然留白，
-    // 避免第一个 pane 过度膨胀把后续 pane 挤出可视区。
-    if (visible.length === 1) {
-      heights[visible[0]] += bodyBudget - requestedTotal;
-    }
-    return heights;
-  }
-  if (requestedTotal === bodyBudget) return heights;
-
-  const minimumTotal = PANE_MIN_BODY_HEIGHT * visible.length;
-  const distributable = Math.max(0, bodyBudget - minimumTotal);
-  const requestedAboveMinimum = visible.reduce(
-    (sum, id) => sum + Math.max(0, heights[id] - PANE_MIN_BODY_HEIGHT),
-    0,
-  );
-  for (const id of visible) {
-    const requested = Math.max(0, heights[id] - PANE_MIN_BODY_HEIGHT);
-    heights[id] =
-      PANE_MIN_BODY_HEIGHT +
-      (requestedAboveMinimum > 0
-        ? Math.round((distributable * requested) / requestedAboveMinimum)
-        : 0);
-  }
-  return heights;
-}
-
-function adjacentVisiblePane(
-  open: PaneOpenState,
-  pane: PaneId,
-  direction: -1 | 1,
-): PaneId | null {
-  const start = PANE_IDS.indexOf(pane);
-  for (
-    let index = start + direction;
-    index >= 0 && index < PANE_IDS.length;
-    index += direction
-  ) {
-    const candidate = PANE_IDS[index];
-    if (open[candidate]) return candidate;
-  }
-  return null;
-}
 
 function paneStateStorageKey(projectId: string): string {
   return `pideck:git-panel:${projectId}:pane-state:v3`;
@@ -257,7 +166,6 @@ function writeSmartCommitPreference(
 
 function defaultPaneState(): PaneState {
   return {
-    heights: { changes: 100, graph: 200, compare: 160 },
     open: { changes: true, graph: false, compare: false },
   };
 }
@@ -268,22 +176,11 @@ function readPaneState(projectId: string): PaneState {
     const raw = localStorage.getItem(paneStateStorageKey(projectId));
     if (!raw) return fallback;
     const value = JSON.parse(raw) as Partial<PaneState>;
-    const heights = PANE_IDS.reduce((result, id) => {
-      const height = value.heights?.[id];
-      result[id] =
-        typeof height === "number" && Number.isFinite(height)
-          ? Math.max(PANE_MIN_BODY_HEIGHT, Math.round(height))
-          : fallback.heights[id];
-      return result;
-    }, {} as PaneHeights);
-    const open = PANE_IDS.reduce((result, id) => {
-      result[id] =
-        typeof value.open?.[id] === "boolean"
-          ? value.open[id]
-          : fallback.open[id];
-      return result;
-    }, {} as PaneOpenState);
-    return { heights, open };
+    const open = { ...fallback.open };
+    for (const id of PANE_IDS) {
+      if (typeof value.open?.[id] === "boolean") open[id] = value.open[id];
+    }
+    return { open };
   } catch {
     return fallback;
   }
@@ -291,108 +188,6 @@ function readPaneState(projectId: string): PaneState {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function PaneSash(props: {
-  before: PaneId;
-  after: PaneId;
-  beforeHeight: number;
-  afterHeight: number;
-  onResize: (beforeHeight: number, afterHeight: number) => void;
-}) {
-  const frameRef = useRef<number | undefined>(undefined);
-  const pendingHeightsRef = useRef<{ before: number; after: number } | null>(
-    null,
-  );
-
-  const flushPendingHeights = () => {
-    if (frameRef.current !== undefined) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = undefined;
-    }
-    const pending = pendingHeightsRef.current;
-    pendingHeightsRef.current = null;
-    if (pending) props.onResize(pending.before, pending.after);
-  };
-
-  const scheduleHeights = (before: number, after: number) => {
-    pendingHeightsRef.current = { before, after };
-    if (frameRef.current !== undefined) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = undefined;
-      const pending = pendingHeightsRef.current;
-      pendingHeightsRef.current = null;
-      if (pending) props.onResize(pending.before, pending.after);
-    });
-  };
-
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startBeforeHeight = props.beforeHeight;
-    const startAfterHeight = props.afterHeight;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const onMove = (moveEvent: PointerEvent) => {
-      const requestedBefore = startBeforeHeight + moveEvent.clientY - startY;
-      const before = Math.max(
-        PANE_MIN_BODY_HEIGHT,
-        Math.min(
-          requestedBefore,
-          startBeforeHeight + startAfterHeight - PANE_MIN_BODY_HEIGHT,
-        ),
-      );
-      const after = startBeforeHeight + startAfterHeight - before;
-      scheduleHeights(before, after);
-    };
-    const onEnd = () => {
-      flushPendingHeights();
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onEnd);
-      window.removeEventListener("pointercancel", onEnd);
-      document.body.classList.remove("is-git-pane-resizing");
-    };
-    document.body.classList.add("is-git-pane-resizing");
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onEnd);
-    window.addEventListener("pointercancel", onEnd);
-  };
-
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const step = event.shiftKey ? PANE_RESIZE_LARGE_STEP : PANE_RESIZE_STEP;
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    const direction = event.key === "ArrowUp" ? -1 : 1;
-    const requestedBefore = props.beforeHeight + direction * step;
-    const before = Math.max(
-      PANE_MIN_BODY_HEIGHT,
-      Math.min(
-        requestedBefore,
-        props.beforeHeight + props.afterHeight - PANE_MIN_BODY_HEIGHT,
-      ),
-    );
-    const after = props.beforeHeight + props.afterHeight - before;
-    props.onResize(before, after);
-  };
-
-  return (
-    <div
-      className="git-pane-sash relative z-[1] box-border h-1.5 shrink-0 basis-1.5 -my-[3px] cursor-row-resize touch-none before:absolute before:top-0.5 before:right-0 before:left-0 before:h-px before:bg-[var(--git-panel-border)] before:transition-[background-color,height] before:duration-150 hover:before:h-0.5 hover:before:bg-[var(--color-accent)] focus-visible:before:h-0.5 focus-visible:before:bg-[var(--color-accent)]"
-      role="separator"
-      tabIndex={0}
-      aria-orientation="horizontal"
-      aria-label={t("git.resizePanes")}
-      aria-valuemin={PANE_MIN_BODY_HEIGHT}
-      aria-valuemax={Math.max(
-        PANE_MIN_BODY_HEIGHT,
-        props.beforeHeight + props.afterHeight - PANE_MIN_BODY_HEIGHT,
-      )}
-      aria-valuenow={props.beforeHeight}
-      data-before={props.before}
-      data-after={props.after}
-      onPointerDown={startResize}
-      onKeyDown={onKeyDown}
-    />
-  );
 }
 
 export function GitPanel(props: GitPanelProps) {
@@ -406,7 +201,6 @@ export function GitPanel(props: GitPanelProps) {
   } | null>(null);
   const mutationRequestRef = useRef(0);
   const mutationRunningRef = useRef(false);
-  const [availableHeight, setAvailableHeight] = useState(720);
   const [groups, setGroups] = useState<GitResourceGroups>(EMPTY_GROUPS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -439,28 +233,11 @@ export function GitPanel(props: GitPanelProps) {
   );
 
   useEffect(() => {
-    const element = panelRef.current;
-    if (!element) return;
-    const updateHeight = () =>
-      setAvailableHeight(
-        Math.max(PANE_MIN_BODY_HEIGHT, Math.round(element.clientHeight)),
-      );
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateHeight);
-      return () => window.removeEventListener("resize", updateHeight);
-    }
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     // 项目切换会复用同一个 GitPanel 实例；递增序号让旧项目进行中的 status/mutation 结果失效。
     statusRequestRef.current += 1;
     mutationRequestRef.current += 1;
     const next = readPaneState(props.projectId);
-    setPaneState({ ...next, heights: fitPaneHeights(next, availableHeight) });
+    setPaneState(next);
     setGroups(EMPTY_GROUPS);
     setError(null);
     setCommitMessage("");
@@ -474,13 +251,6 @@ export function GitPanel(props: GitPanelProps) {
     setDiscardTarget(null);
     setNotAGitRepo(false);
   }, [props.projectId]);
-
-  useEffect(() => {
-    setPaneState((current) => ({
-      ...current,
-      heights: fitPaneHeights(current, availableHeight),
-    }));
-  }, [availableHeight]);
 
   useEffect(() => {
     try {
@@ -575,23 +345,11 @@ export function GitPanel(props: GitPanelProps) {
     setResourceOpen((current) => ({ ...current, [key]: !current[key] }));
   };
   const togglePane = (id: PaneId) => {
-    setPaneState((current) => {
-      const open = { ...current.open, [id]: !current.open[id] };
-      const next = { ...current, open };
-      return { ...next, heights: fitPaneHeights(next, availableHeight) };
-    });
+    setPaneState((current) => ({
+      ...current,
+      open: { ...current.open, [id]: !current.open[id] },
+    }));
   };
-  const resizePanes = (
-    before: PaneId,
-    after: PaneId,
-    beforeHeight: number,
-    afterHeight: number,
-  ) => {
-    setPaneState((current) =>
-      resizePair(current, before, after, beforeHeight, afterHeight),
-    );
-  };
-
   const workingChanges = useMemo(
     () => [...groups.workingTree, ...groups.untracked],
     [groups.workingTree, groups.untracked],
@@ -793,29 +551,6 @@ export function GitPanel(props: GitPanelProps) {
     }
   };
 
-  const visibleSashAfterChanges = adjacentVisiblePane(
-    paneState.open,
-    "changes",
-    1,
-  );
-  const visibleSashAfterGraph = adjacentVisiblePane(paneState.open, "graph", 1);
-  const paneStyle = (id: PaneId): React.CSSProperties =>
-    ({
-      "--git-pane-height": `${paneState.heights[id]}px`,
-    }) as React.CSSProperties;
-
-  const renderSash = (before: PaneId, after: PaneId) => (
-    <PaneSash
-      before={before}
-      after={after}
-      beforeHeight={paneState.heights[before]}
-      afterHeight={paneState.heights[after]}
-      onResize={(beforeHeight, afterHeight) =>
-        resizePanes(before, after, beforeHeight, afterHeight)
-      }
-    />
-  );
-
   /** 新建分支弹窗状态 */
   const [commitGenLoading, setCommitGenLoading] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
@@ -886,7 +621,7 @@ export function GitPanel(props: GitPanelProps) {
           ref={branchTriggerRef}
           type="button"
           variant="outline"
-          className="inline-flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-left text-xs text-foreground hover:bg-accent"
+          className="inline-flex h-7 min-w-0 flex-1 items-center justify-start gap-1.5 rounded-md border border-border bg-background px-2 text-left text-xs text-foreground hover:bg-accent"
           onClick={() => {
             if (!branchOpen) updateBranchDropdownPosition();
             setBranchOpen((v) => !v);
@@ -901,7 +636,7 @@ export function GitPanel(props: GitPanelProps) {
           }
         >
           <GitBranch size={14} className="shrink-0 text-muted-foreground" />
-          <span className="git-branch-label min-w-0 max-w-[120px] flex-1 truncate">
+          <span className="git-branch-label min-w-0 flex-1 truncate">
             {props.currentBranch || t("app.branchNone")}
           </span>
           {props.branches.length > 0 && (
@@ -1020,10 +755,11 @@ export function GitPanel(props: GitPanelProps) {
           document.body,
         )}
       </div>
+      {/* 整体滚动容器：pane 按内容自适应高度，超出时整个 git 栏可上下滚动 */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       <section
         id="git-pane-changes"
-        className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${paneState.open.changes ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
-        style={paneStyle("changes")}
+        className={`flex flex-none flex-col border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${paneState.open.changes ? "" : " h-[26px]"}`}
       >
         <PaneHeader
           id="changes"
@@ -1103,7 +839,7 @@ export function GitPanel(props: GitPanelProps) {
           )}
         </PaneHeader>
         {paneState.open.changes && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex flex-col">
             {gitNotInstalled ? (
               <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
                 <div className="text-[32px] leading-none opacity-60">⚡</div>
@@ -1211,7 +947,7 @@ export function GitPanel(props: GitPanelProps) {
               <div className="git-status-msg flex min-h-[22px] shrink-0 items-center gap-1 px-[9px] text-[13px] text-[var(--git-desc-fg)]">{t("git.noPendingChanges")}</div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+            <div className="flex flex-col overflow-x-hidden">
               {groups.merge.length > 0 && (
                 <ResourceGroup
                   title={t("git.mergeChanges")}
@@ -1261,7 +997,7 @@ export function GitPanel(props: GitPanelProps) {
               )}
               {workingChanges.length > 0 && (
                 <ResourceGroup
-                  title={t("git.changes")}
+                  title={t("git.unstagedChanges")}
                   count={workingChanges.length}
                   open={resourceOpen.changes}
                   onToggle={() => toggleResource("changes")}
@@ -1294,9 +1030,6 @@ export function GitPanel(props: GitPanelProps) {
         )}
       </section>
 
-      {visibleSashAfterChanges &&
-        renderSash("changes", visibleSashAfterChanges)}
-
       <SourceControlGraph
         projectId={props.projectId}
         commitLog={props.commitLog}
@@ -1305,7 +1038,6 @@ export function GitPanel(props: GitPanelProps) {
         branches={props.branches}
         currentBranch={props.currentBranch}
         open={paneState.open.graph}
-        height={paneState.heights.graph}
         onToggle={() => togglePane("graph")}
         cherryPick={props.cherryPick}
         revert={props.revert}
@@ -1313,18 +1045,14 @@ export function GitPanel(props: GitPanelProps) {
         dropCommit={props.dropCommit}
       />
 
-      {paneState.open.graph &&
-        visibleSashAfterGraph &&
-        renderSash("graph", visibleSashAfterGraph)}
-
       <CompareChanges
         projectId={props.projectId}
         branches={props.branches}
         branchCompare={props.branchCompare}
         open={paneState.open.compare}
-        height={paneState.heights.compare}
         onToggle={() => togglePane("compare")}
       />
+      </div>
 
       {discardTarget &&
         createPortal(
@@ -1417,7 +1145,6 @@ function CompareChanges(props: {
   branches: string[];
   branchCompare: GitPanelProps["branchCompare"];
   open: boolean;
-  height: number;
   onToggle: () => void;
 }) {
   const [base, setBase] = useState("");
@@ -1471,10 +1198,7 @@ function CompareChanges(props: {
   return (
     <section
       id="git-pane-compare"
-      className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? " h-[calc(var(--git-pane-height)+26px)]" : " h-[26px]"}`}
-      style={
-        { "--git-pane-height": `${props.height}px` } as React.CSSProperties
-      }
+      className={`flex flex-none flex-col border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${props.open ? "" : " h-[26px]"}`}
     >
       <PaneHeader
         id="compare"
@@ -1484,7 +1208,7 @@ function CompareChanges(props: {
         onToggle={props.onToggle}
       />
       {props.open && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
+        <div className="flex flex-col overflow-x-hidden pb-[5px]">
           <div className="git-compare-controls">
             <Label>
               <span>{t("git.base")}</span>
@@ -1542,7 +1266,7 @@ function CompareChanges(props: {
                   count: result.files.length,
                 })}
               </div>
-              <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+              <div className="flex flex-col">
                 {result.files.map((file) => (
                   <ResourceRow
                     key={file.path}

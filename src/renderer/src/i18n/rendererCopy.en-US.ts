@@ -254,6 +254,7 @@ export const enUS: Record<TranslationKey, string> = {
   "browser.close": "Close",
   "git.sourceControl": "Source Control",
   "git.changes": "Changes",
+  "git.unstagedChanges": "Unstaged Changes",
   "git.mergeChanges": "Merge Changes",
   "git.stagedChanges": "Staged Changes",
   "git.sourceControlGraph": "Source Control Graph",

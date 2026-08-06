@@ -243,6 +243,7 @@ test("ProjectTree shows the project directory name like the dev reference", () =
   assert.match(projectTree, /function displayProjectDirectoryName\(project: Project\)/);
   assert.match(projectTree, /project\.path\.replace\(/);
   assert.match(projectTree, /const projectDirectoryName = displayProjectDirectoryName\(project\)/);
+
   // 代码实际实现：tooltip 显示「目录名 + 换行 + 完整路径」两行（fork 测试断言滞后于其代码演进）
   assert.match(projectTree, /<PathTooltip content=\{`\$\{projectDirectoryName\}\\n\$\{project\.path\}`\}>/);
   assert.match(projectTree, /\{projectDirectoryName\}/);

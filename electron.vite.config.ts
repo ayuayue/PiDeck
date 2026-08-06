@@ -2,6 +2,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
+import { tmpdir } from "node:os";
 import type { Plugin } from "vite";
 
 /**
@@ -51,6 +52,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
   },
   renderer: {
+    // 项目位于同步空间，同步软件会持续读写 node_modules；Vite 依赖预优化
+    // （默认 node_modules/.vite/deps）容易被打断，残留 deps_temp_* 空壳并让浏览器
+    // 持有的旧 chunk hash 失效（动态 import 504）。缓存移到系统临时目录避开干扰。
+    cacheDir: resolve(tmpdir(), "pideck-vite-renderer-cache"),
     // Windows 上 localhost 可能优先解析到 IPv6 ::1，Electron 加载 dev server 时会超时；固定 IPv4 保证本机访问稳定。
     server: {
       host: "127.0.0.1",

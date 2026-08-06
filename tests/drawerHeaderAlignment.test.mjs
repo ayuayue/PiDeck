@@ -14,8 +14,8 @@ const drawerSurface = readFileSync(
 );
 
 test("drawer header uses official compact chrome classes", () => {
-  assert.match(drawerSurface, /drawer-header flex h-12/);
-  assert.match(drawerSurface, /border-b border-border\/40 bg-background/);
+  // 与主区状态栏（chat-header）同高：均为 h-10 = 40px，底边线同一 y 值
+  assert.match(drawerSurface, /drawer-header flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border\/40 bg-background px-3/);
   assert.match(drawerSurface, /truncate text-body font-semibold/);
 });
 

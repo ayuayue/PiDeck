@@ -11,10 +11,11 @@ import type { SidebarActions } from "./SidebarContent";
 import { SessionSourceBadge } from "../session/SessionSourceBadge";
 import { cn } from "../../lib/utils";
 
-/** pure official：与 ProjectTree 对齐的会话/agent 行底色
- * 默认透明背景，只有激活的行才显示背景色和阴影，避免所有行都像浮层卡片。 */
+/** pure official：与 ProjectTree 对齐的会话/agent 行底色。
+ * 注意：不要加 w-full——w-full(width:100%) 叠加 .agent-row/.session-row 的 margin-left 缩进
+ * 会让行向右溢出父容器，右圆角被 overflow-x:hidden 裁掉；width:auto（foundation.css）即可撑满。 */
 const sessionRowClass =
-	"conversation agent-row relative flex min-h-11 w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
+	"conversation agent-row relative flex min-h-11 items-center gap-2 rounded-lg border border-transparent bg-background px-3 py-2 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
 function matchesSearch(value: string, search: string) {
   return !search || value.toLowerCase().includes(search.toLowerCase());

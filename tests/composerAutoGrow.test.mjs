@@ -58,6 +58,13 @@ test("extras height sync lives in a child that rerenders when variable content c
     composerArea,
     /<ComposerMeasuredExtras[\s\S]*widgets=\{null\}/,
   );
+  assert.match(composerArea, /<ComposerMeasuredExtras[\s\S]*deliveryNotice=\{/);
+  assert.match(composerArea, /<ComposerMeasuredExtras[\s\S]*queuePanel=\{props\.queuePanel\}/);
+  const widgetChips = readFileSync(
+    "src/renderer/src/components/session/SessionWidgetChips.tsx",
+    "utf8",
+  );
+  assert.match(widgetChips, /isCoherentComposerRuntimeUi/);
 });
 
 test("content containers are shrink-proof so panel resizes cannot feedback-loop", () => {

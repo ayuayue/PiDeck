@@ -37,8 +37,8 @@ function TooltipContent({
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content> & {
-  /** 允许数据型 Tooltip 让箭头与自定义弹层表面保持同色。 */
-  arrowClassName?: string
+  /** 覆盖箭头背景色：默认跟随 bg-foreground，面板风 Tooltip 需传 bg-popover 等保持一致。 */
+  arrowClassName?: string;
 }) {
   return (
     <TooltipPrimitive.Portal>
@@ -52,10 +52,7 @@ function TooltipContent({
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className={cn(
-          "z-(--z-popover) size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground",
-          arrowClassName,
-        )} />
+        <TooltipPrimitive.Arrow className={cn("z-(--z-popover) size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground", arrowClassName)} />
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )

@@ -153,7 +153,7 @@ export function SessionHeader(props: SessionHeaderProps) {
       ref={props.headerRef}
       role="banner"
       /* 仅作为旧调用方兼容壳；当前 SessionView 使用 embedded 模式。 */
-      className="chat-header grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 bg-background px-3 py-1"
+      className="chat-header grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 bg-background px-3 h-10"
     >
       {actions}
     </div>

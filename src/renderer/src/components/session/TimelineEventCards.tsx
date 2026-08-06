@@ -219,10 +219,11 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 							<button
 								key={i}
 								className="ask-question-card-option"
+								title={opt}
 								onClick={() => handleSelect(opt)}
 								disabled={cancelling}
 							>
-								{opt}
+								<span className="block max-w-full truncate">{opt}</span>
 							</button>
 						))}
 					</div>
