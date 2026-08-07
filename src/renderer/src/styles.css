@@ -1637,6 +1637,60 @@ body.is-resizing .wechat-shell {
   scrollbar-width: none;
   padding: 8px 8px 48px;
 }
+/* ── 置顶收藏区：侧边栏最上方，跨项目汇总置顶会话 ── */
+.pinned-section {
+  margin-bottom: 6px;
+}
+.pinned-section-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px 4px;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.02em;
+}
+.pinned-section-count {
+  margin-left: auto;
+  font-size: var(--font-size-micro);
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-muted);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 16px;
+}
+.pinned-row {
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+}
+.pinned-row-icon {
+  display: grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+}
+.pinned-row.active .pinned-row-icon {
+  color: var(--color-text-primary);
+}
+.pinned-row-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pinned-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-body);
+}
+.pinned-row-project {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-micro);
+  color: var(--color-text-tertiary);
+}
 .conversation-list::-webkit-scrollbar {
   width: 0;
   height: 0;

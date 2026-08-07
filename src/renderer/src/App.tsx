@@ -4671,6 +4671,55 @@ export function App() {
     );
   }
 
+  /**
+   * 置顶收藏区：跨项目汇总所有已置顶会话，按用户置顶顺序展示。
+   * 同一会话可能同时出现在 Chat（全局列表）与所属项目：优先归属真实项目，Chat 兜底。
+   */
+  const pinnedRows = useMemo(() => {
+    if (pinnedSessionKeys.size === 0) return [] as { project: Project; session: SessionSummary }[];
+    const byPath = new Map<string, { project: Project; session: SessionSummary }>();
+    for (const project of projects) {
+      const list = sessionsByProject[project.id] ?? [];
+      for (const session of list) {
+        if (!isSessionPinned(session.filePath, pinnedSessionKeys)) continue;
+        const key = normalizeSessionPathForCompare(session.filePath) ?? session.filePath;
+        const existing = byPath.get(key);
+        if (!existing || (isChatProject(existing.project) && !isChatProject(project))) {
+          byPath.set(key, { project, session });
+        }
+      }
+    }
+    // 按 settings.pinnedSessions 中的置顶先后排序，置顶顺序稳定可预期
+    const pinOrder = new Map(
+      (settings.pinnedSessions ?? []).map((path, index) => [
+        normalizeSessionPathForCompare(path) ?? path,
+        index,
+      ]),
+    );
+    return [...byPath.values()].sort((a, b) => {
+      const ai =
+        pinOrder.get(normalizeSessionPathForCompare(a.session.filePath) ?? a.session.filePath) ??
+        Number.MAX_SAFE_INTEGER;
+      const bi =
+        pinOrder.get(normalizeSessionPathForCompare(b.session.filePath) ?? b.session.filePath) ??
+        Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+  }, [projects, sessionsByProject, pinnedSessionKeys, settings.pinnedSessions]);
+
+  // 置顶收藏区需要跨项目解析会话：首次出现置顶会话时，把尚未加载会话列表的项目静默补拉一次
+  //（不展开项目，仅填充数据；置顶会话通常很少，成本可控）。
+  const pinnedResolutionAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (pinnedSessionKeys.size === 0 || pinnedResolutionAttemptedRef.current) return;
+    pinnedResolutionAttemptedRef.current = true;
+    for (const project of projects) {
+      if (project.id in sessionsByProject) continue;
+      void refreshProjectSessions(project.id, true).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedSessionKeys]);
+
   async function cycleThinking() {
     if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
     const state = await api.agents.cycleThinking(activeAgentId);
@@ -6602,6 +6651,47 @@ export function App() {
         </div>
 
         <div className="conversation-list">
+          {/* 置顶收藏区：跨项目汇总置顶会话，放在侧边栏最上方；搜索时隐藏避免干扰结果 */}
+          {pinnedRows.length > 0 && !search.trim() && (
+            <div className="pinned-section">
+              <div className="pinned-section-header">
+                <Pin size={12} strokeWidth={2} aria-hidden="true" />
+                <span>{t("app.pinnedSection")}</span>
+                <span className="pinned-section-count">{pinnedRows.length}</span>
+              </div>
+              {pinnedRows.map(({ project, session }) => (
+                <button
+                  key={`pinned:${project.id}:${session.filePath}`}
+                  className={`conversation agent-row session-row pinned-row${isSameSessionPath(session.filePath, displayedSidebarSessionPath) ? " active" : ""}`}
+                  title={session.filePath}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSessionMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      projectId: project.id,
+                      session,
+                    });
+                  }}
+                  onClick={() => void openSidebarSession(project.id, session)}
+                >
+                  <span className="pinned-row-icon" aria-hidden="true">
+                    <Pin size={12} strokeWidth={2} />
+                  </span>
+                  <span className="pinned-row-body">
+                    <span className="pinned-row-title" title={session.name || t("common.untitled")}>
+                      {session.name || t("common.untitled")}
+                    </span>
+                    <span className="pinned-row-project">
+                      {isChatProject(project)
+                        ? t("app.chatProject")
+                        : displayProjectDirectoryName(project)}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           {filteredProjects.map((project) => {
             const projectIsChat = isChatProject(project);
             const projectDirectoryName = projectIsChat
