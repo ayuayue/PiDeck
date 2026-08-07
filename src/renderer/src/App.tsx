@@ -81,7 +81,10 @@ import {
   getAgentForSessionPath,
   getProjectAgentSessionDisplay,
   isSameSessionPath,
+  isSessionPinned,
   isSidebarSessionRowActive,
+  normalizeSessionPathForCompare,
+  sortSessionsPinnedFirst,
 } from "./agentListDisplay";
 import { resolveLocale, setI18nLocale, t, type TranslationKey } from "./i18n";
 import { mergeAgentRuntimeState } from "./utils/agentRuntimeState";
@@ -1335,6 +1338,7 @@ export function App() {
     petPatrolEnabled: true,
     petPatrolPauseMin: 5,
     favoriteModels: [],
+    pinnedSessions: [],
 
     // 字体配置：与 main SettingsStore 默认值保持一致，避免启动时闪烁
     fontSize: "default",
@@ -3519,7 +3523,7 @@ export function App() {
 
   async function refreshSessions(projectId = activeProjectId) {
     const next = await api.sessions.list(projectId);
-    setSessions([...next].sort((a, b) => b.updatedAt - a.updatedAt));
+    setSessions(sortSessionsPinnedFirst(next, pinnedSessionKeys));
   }
 
   async function refreshProjectSessions(projectId: string, silent = false) {
@@ -3548,7 +3552,7 @@ export function App() {
         t("app.sessionRefreshTimeout"),
       );
       if (sessionRequestByProjectRef.current[projectId] !== request) return next;
-      const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+      const sorted = sortSessionsPinnedFirst(next, pinnedSessionKeys);
       setSessionsByProject((current) => {
         const previous = current[projectId] ?? [];
         if (sameSessionSummaryList(previous, sorted)) return current;
@@ -4628,6 +4632,96 @@ export function App() {
       1500,
     );
   }
+
+  /** 置顶会话路径集合（归一化），供侧边栏排序与行标记共用 */
+  const pinnedSessionKeys = useMemo(
+    () =>
+      new Set(
+        (settings.pinnedSessions ?? []).map(
+          (path) => normalizeSessionPathForCompare(path) ?? path,
+        ),
+      ),
+    [settings.pinnedSessions],
+  );
+
+  /** 切换会话置顶：置顶后侧边栏与历史列表置顶优先，未置顶恢复按最近更新排序 */
+  function togglePinSession(filePath: string) {
+    const current = settings.pinnedSessions ?? [];
+    const isNowPinned = !current.some((path) => isSameSessionPath(path, filePath));
+    const next = isNowPinned
+      ? [...current, filePath]
+      : current.filter((path) => !isSameSessionPath(path, filePath));
+    void updateSettings({ pinnedSessions: next });
+    // 用「下一次」的置顶集合立即重排本地列表，新置顶的会话马上生效，无需等待下一次会话扫描
+    const nextKeys = new Set(
+      next.map((path) => normalizeSessionPathForCompare(path) ?? path),
+    );
+    const sortPinned = (list: SessionSummary[]) => sortSessionsPinnedFirst(list, nextKeys);
+    setSessions((prev) => sortPinned(prev));
+    setSessionsByProject((prev) => {
+      const nextMap: Record<string, SessionSummary[]> = {};
+      for (const [projectId, list] of Object.entries(prev)) {
+        nextMap[projectId] = sortPinned(list);
+      }
+      return nextMap;
+    });
+    showToast(
+      isNowPinned ? t("app.sessionPinned") : t("app.sessionUnpinned"),
+      1500,
+    );
+  }
+
+  /**
+   * 置顶收藏区：跨项目汇总所有已置顶会话，按用户置顶顺序展示。
+   * 同一会话可能同时出现在 Chat（全局列表）与所属项目：优先归属真实项目，Chat 兜底。
+   */
+  const pinnedRows = useMemo(() => {
+    if (pinnedSessionKeys.size === 0) return [] as { project: Project; session: SessionSummary }[];
+    const byPath = new Map<string, { project: Project; session: SessionSummary }>();
+    for (const project of projects) {
+      const list = sessionsByProject[project.id] ?? [];
+      for (const session of list) {
+        if (!isSessionPinned(session.filePath, pinnedSessionKeys)) continue;
+        const key = normalizeSessionPathForCompare(session.filePath) ?? session.filePath;
+        const existing = byPath.get(key);
+        if (!existing || (isChatProject(existing.project) && !isChatProject(project))) {
+          byPath.set(key, { project, session });
+        }
+      }
+    }
+    // 按 settings.pinnedSessions 中的置顶先后排序，置顶顺序稳定可预期
+    const pinOrder = new Map(
+      (settings.pinnedSessions ?? []).map((path, index) => [
+        normalizeSessionPathForCompare(path) ?? path,
+        index,
+      ]),
+    );
+    return [...byPath.values()].sort((a, b) => {
+      const ai =
+        pinOrder.get(normalizeSessionPathForCompare(a.session.filePath) ?? a.session.filePath) ??
+        Number.MAX_SAFE_INTEGER;
+      const bi =
+        pinOrder.get(normalizeSessionPathForCompare(b.session.filePath) ?? b.session.filePath) ??
+        Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+  }, [projects, sessionsByProject, pinnedSessionKeys, settings.pinnedSessions]);
+
+  // 置顶收藏区需要跨项目解析会话：项目/会话列表均为异步加载，
+  // 效果触发时 projects 可能还未就绪，因此随 projects/sessionsByProject 变化重试；
+  // 已补拉过的项目记入 ref，避免失败时无限重试。
+  const pinnedPrefetchRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (pinnedSessionKeys.size === 0) return;
+    if (!pinnedPrefetchRef.current) pinnedPrefetchRef.current = new Set();
+    for (const project of projects) {
+      if (project.id in sessionsByProject) continue;
+      if (pinnedPrefetchRef.current.has(project.id)) continue;
+      pinnedPrefetchRef.current.add(project.id);
+      void refreshProjectSessions(project.id, true).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedSessionKeys, projects, sessionsByProject]);
 
   async function cycleThinking() {
     if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
@@ -6037,7 +6131,7 @@ export function App() {
         void api.projects.list().then(setProjects).catch(() => undefined);
         if (activeProjectId) {
           void api.sessions.list(activeProjectId).then((sessions) => {
-            setSessions([...sessions].sort((a, b) => b.updatedAt - a.updatedAt));
+            setSessions(sortSessionsPinnedFirst(sessions, pinnedSessionKeys));
           }).catch(() => undefined);
         }
       }
@@ -6560,6 +6654,47 @@ export function App() {
         </div>
 
         <div className="conversation-list">
+          {/* 置顶收藏区：跨项目汇总置顶会话，放在侧边栏最上方；搜索时隐藏避免干扰结果 */}
+          {pinnedRows.length > 0 && !search.trim() && (
+            <div className="pinned-section">
+              <div className="pinned-section-header">
+                <Pin size={12} strokeWidth={2} aria-hidden="true" />
+                <span>{t("app.pinnedSection")}</span>
+                <span className="pinned-section-count">{pinnedRows.length}</span>
+              </div>
+              {pinnedRows.map(({ project, session }) => (
+                <button
+                  key={`pinned:${project.id}:${session.filePath}`}
+                  className={`conversation agent-row session-row pinned-row${isSameSessionPath(session.filePath, displayedSidebarSessionPath) ? " active" : ""}`}
+                  title={session.filePath}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSessionMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      projectId: project.id,
+                      session,
+                    });
+                  }}
+                  onClick={() => void openSidebarSession(project.id, session)}
+                >
+                  <span className="pinned-row-icon" aria-hidden="true">
+                    <Pin size={12} strokeWidth={2} />
+                  </span>
+                  <span className="pinned-row-body">
+                    <span className="pinned-row-title" title={session.name || t("common.untitled")}>
+                      {session.name || t("common.untitled")}
+                    </span>
+                    <span className="pinned-row-project">
+                      {isChatProject(project)
+                        ? t("app.chatProject")
+                        : displayProjectDirectoryName(project)}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           {filteredProjects.map((project) => {
             const projectIsChat = isChatProject(project);
             const projectDirectoryName = projectIsChat
@@ -6593,6 +6728,7 @@ export function App() {
               agents: projectAgents,
               sessions: projectSessions,
               visibleChildCount,
+              pinnedSessionKeys,
             });
             const projectSessionsLoading = Boolean(
               sessionLoadingByProject[project.id],
@@ -6966,6 +7102,14 @@ export function App() {
                           <div className="conversation-body">
                             <div className="conversation-title">
                               <strong>{agent.title}</strong>
+                              {child.pinned && (
+                                <span
+                                  className="session-pinned-marker"
+                                  title={t("app.sessionPinnedTitle")}
+                                >
+                                  <Pin size={12} strokeWidth={2} aria-hidden="true" />
+                                </span>
+                              )}
                               {child.source && child.source !== "pi" && (
                                 <span className={`session-source-badge ${child.source}`}>
                                   {t(`sessionSource.${child.source}` as any)}
@@ -7011,6 +7155,14 @@ export function App() {
                             <strong title={session.name || t("common.untitled")}>
                               {session.name || t("common.untitled")}
                             </strong>
+                            {child.pinned && (
+                              <span
+                                className="session-pinned-marker"
+                                title={t("app.sessionPinnedTitle")}
+                              >
+                                <Pin size={12} strokeWidth={2} aria-hidden="true" />
+                              </span>
+                            )}
                             {session.source && session.source !== "pi" && (
                               <span className={`session-source-badge ${session.source}`}>
                                 {t(`sessionSource.${session.source}` as any)}
@@ -7091,6 +7243,7 @@ export function App() {
                         agents: childAgents,
                         sessions: rawChildSessions,
                         visibleChildCount: sessionsExpanded ? Number.MAX_SAFE_INTEGER : 3,
+                        pinnedSessionKeys,
                       }) : null;
                       const wtChildren = wtDisplay?.visibleChildren ?? [];
                       const hiddenSessionCount = (wtDisplay?.hiddenChildCount ?? 0);
@@ -9385,8 +9538,16 @@ export function App() {
         <AgentContextMenu
           menu={agentMenu}
           actionLoading={agentActionLoading}
+          pinned={
+            agentMenu.agent.sessionPath
+              ? isSessionPinned(agentMenu.agent.sessionPath, pinnedSessionKeys)
+              : false
+          }
           onClose={() => {
             if (!agentActionLoading) setAgentMenu(null);
+          }}
+          onTogglePin={() => {
+            if (agentMenu.agent.sessionPath) togglePinSession(agentMenu.agent.sessionPath);
           }}
           onRename={() => openAgentRename(agentMenu.agent)}
           onExport={() => {
@@ -9458,9 +9619,11 @@ export function App() {
         <SessionContextMenu
           menu={sessionMenu}
           actionLoading={sessionActionLoading}
+          pinned={isSessionPinned(sessionMenu.session.filePath, pinnedSessionKeys)}
           onClose={() => {
             if (!sessionActionLoading) setSessionMenu(null);
           }}
+          onTogglePin={() => togglePinSession(sessionMenu.session.filePath)}
           onRename={() =>
             openSessionRename(sessionMenu.projectId, sessionMenu.session)
           }

@@ -6524,7 +6524,10 @@ export function ProjectContextMenu(props: {
 export function AgentContextMenu(props: {
 	menu: { x: number; y: number; agent: AgentTab };
 	actionLoading?: "copy" | "export" | null;
+	/** 会话是否已置顶（仅存在 sessionPath 时有意义），决定菜单项显示「置顶」还是「取消置顶」 */
+	pinned?: boolean;
 	onClose: () => void;
+	onTogglePin?: () => void;
 	onRename: () => void;
 	onExport: () => void;
 	onCopySession: () => void;
@@ -6555,6 +6558,12 @@ export function AgentContextMenu(props: {
 				</button>
 				{props.menu.agent.sessionPath && (
 					<>
+						{props.onTogglePin && (
+							<button disabled={Boolean(props.actionLoading)} onClick={props.onTogglePin}>
+								<Pin size={13} strokeWidth={2} aria-hidden="true" />
+								{props.pinned ? t("menu.unpinSession") : t("menu.pinSession")}
+							</button>
+						)}
 						<button disabled={Boolean(props.actionLoading)} onClick={props.onCopySessionFilePath}>
 							{t("menu.copySessionFilePath")}
 						</button>
@@ -6580,7 +6589,10 @@ export function AgentContextMenu(props: {
 export function SessionContextMenu(props: {
 	menu: { x: number; y: number; session: SessionSummary };
 	actionLoading?: "copy" | "export" | null;
+	/** 会话是否已置顶，决定菜单项显示「置顶」还是「取消置顶」 */
+	pinned?: boolean;
 	onClose: () => void;
+	onTogglePin: () => void;
 	onRename: () => void;
 	onExport: () => void;
 	onCopySession: () => void;
@@ -6599,6 +6611,10 @@ export function SessionContextMenu(props: {
 				onClick={(event) => event.stopPropagation()}
 			>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>
+				<button disabled={Boolean(props.actionLoading)} onClick={props.onTogglePin}>
+					<Pin size={13} strokeWidth={2} aria-hidden="true" />
+					{props.pinned ? t("menu.unpinSession") : t("menu.pinSession")}
+				</button>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onCopySession}>
 					{props.actionLoading === "copy" && <span className="mini-loader" />}
 					{props.actionLoading === "copy" ? t("menu.copying") : t("menu.copySession")}
