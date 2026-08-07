@@ -412,6 +412,10 @@ export type AppSettings = {
 	/** 收藏的模型 ID 列表 */
 	favoriteModels: string[];
 
+	// ── 会话置顶：历史会话右键菜单可置顶，置顶的会话在侧边栏与历史列表中排最前 ──
+	/** 置顶的会话文件路径列表 */
+	pinnedSessions: string[];
+
 	// ── 字体配置：沿用主题机制实时生效，写入 documentElement token ──
 	/** 全局字号基准档位；未单独设置各区域时，所有字号 token 均由此推导 */
 	fontSize: AppFontSizeMode;

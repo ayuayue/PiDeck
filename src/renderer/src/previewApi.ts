@@ -164,6 +164,7 @@ let previewSettings: AppSettings = {
 	petPatrolEnabled: true,
 	petPatrolPauseMin: 5,
 	favoriteModels: [],
+	pinnedSessions: [],
 
 	fontSize: "default",
 	uiFontSize: null,

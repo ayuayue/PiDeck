@@ -8,6 +8,8 @@ export type ProjectChildItem =
 			key: string;
 			agent: AgentTab;
 			sortAt: number;
+			/** 置顶状态：对应会话在置顶集合中时，整行优先展示 */
+			pinned: boolean;
 			/** 该 Agent 对应的会话来源（历史会话激活时从 SessionSummary 传递） */
 			source?: "pi" | "codex" | "claude" | "opencode";
 			/** Codex 导入的子会话 */
@@ -20,6 +22,8 @@ export type ProjectChildItem =
 			key: string;
 			session: SessionSummary;
 			sortAt: number;
+			/** 置顶状态：置顶会话排在最前，即使很久未活跃 */
+			pinned: boolean;
 			/** Codex 导入的子会话 */
 			codexSubagents: SessionSummary[];
 			/** pi 原生子会话（pi-subagents 等扩展产生的，通过 parentSessionPath 关联） */
@@ -43,6 +47,31 @@ export function isSameSessionPath(left?: string, right?: string) {
 	return Boolean(
 		normalizedLeft && normalizedRight && normalizedLeft === normalizedRight,
 	);
+}
+
+/** 会话是否在置顶集合中（路径按归一化形式比较，与列表高亮判定保持一致） */
+export function isSessionPinned(
+	sessionPath: string | undefined,
+	pinnedSessionKeys: Set<string> | undefined,
+) {
+	if (!sessionPath || !pinnedSessionKeys || pinnedSessionKeys.size === 0) return false;
+	return pinnedSessionKeys.has(normalizeSessionPathForCompare(sessionPath) ?? sessionPath);
+}
+
+/**
+ * 置顶会话优先、其余按 updatedAt 倒序的通用排序。
+ * 侧边栏与历史抽屉共用，保证两处顺序一致。
+ */
+export function sortSessionsPinnedFirst<T extends { filePath: string; updatedAt: number }>(
+	list: T[],
+	pinnedSessionKeys: Set<string> | undefined,
+): T[] {
+	return [...list].sort((a, b) => {
+		const ap = isSessionPinned(a.filePath, pinnedSessionKeys) ? 1 : 0;
+		const bp = isSessionPinned(b.filePath, pinnedSessionKeys) ? 1 : 0;
+		if (ap !== bp) return bp - ap;
+		return b.updatedAt - a.updatedAt;
+	});
 }
 
 /**
@@ -136,10 +165,13 @@ export function getProjectAgentSessionDisplay({
 	agents,
 	sessions,
 	visibleChildCount,
+	pinnedSessionKeys,
 }: {
 	agents: AgentTab[];
 	sessions: SessionSummary[];
 	visibleChildCount?: number;
+	/** 置顶会话路径集合（归一化），为 undefined 时表示未启用置顶 */
+	pinnedSessionKeys?: Set<string>;
 }): ProjectAgentSessionDisplay {
 	const sessionByKey = new Map<string, SessionSummary>();
 	const unkeyedSessions: SessionSummary[] = [];
@@ -230,6 +262,8 @@ export function getProjectAgentSessionDisplay({
 			key: `agent:${agent.id}`,
 			agent,
 			sortAt: agent.createdAt,
+			// 无会话路径的 Agent 无法与置顶集合匹配，按未置顶处理
+			pinned: false,
 			codexSubagents: [],
 			piSubagents: [],
 		})),
@@ -243,6 +277,11 @@ export function getProjectAgentSessionDisplay({
 					key: `session-agent:${sessionKey}`,
 					agent,
 					sortAt: getAgentSortAt(agent, sessionByKey),
+					// 会话被置顶后激活为 Agent，行仍应保持置顶优先
+					pinned: isSessionPinned(
+						linkedSession?.filePath ?? agent.sessionPath,
+						pinnedSessionKeys,
+					),
 					// 历史会话激活为 Agent 后仍携带来源标记，供侧边栏区分导入会话
 					source: linkedSession?.source,
 					codexSubagents: linkedSession
@@ -261,6 +300,7 @@ export function getProjectAgentSessionDisplay({
 				key: `session:${sessionKey}`,
 				session,
 				sortAt: session.updatedAt,
+				pinned: isSessionPinned(session.filePath, pinnedSessionKeys),
 				codexSubagents: codexSubagentsByParent.get(getCodexParentKey(session)) ?? [],
 				piSubagents: getPiSubagents(session.filePath),
 			})),
@@ -269,6 +309,7 @@ export function getProjectAgentSessionDisplay({
 			key: `session-file:${session.filePath}`,
 			session,
 			sortAt: session.updatedAt,
+			pinned: isSessionPinned(session.filePath, pinnedSessionKeys),
 			codexSubagents: codexSubagentsByParent.get(getCodexParentKey(session)) ?? [],
 			piSubagents: getPiSubagents(session.filePath),
 		})),
@@ -306,6 +347,8 @@ export function getProjectAgentSessionDisplay({
 					key: `session:${orphanKey}`,
 					session: orphan,
 					sortAt: orphan.updatedAt,
+					// 孤儿恢复行同样尊重置顶状态，避免置顶子会话降级后沉底
+					pinned: isSessionPinned(orphan.filePath, pinnedSessionKeys),
 					codexSubagents: [],
 					piSubagents: [],
 				});
@@ -313,7 +356,11 @@ export function getProjectAgentSessionDisplay({
 		}
 	}
 
-	children.sort((left, right) => right.sortAt - left.sortAt);
+	// 置顶会话优先，其余按最近更新倒序
+	children.sort((left, right) => {
+		if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
+		return right.sortAt - left.sortAt;
+	});
 
 	const limit = visibleChildCount ?? DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT;
 	const visibleChildren = children.slice(0, limit);
