@@ -81,7 +81,10 @@ import {
   getAgentForSessionPath,
   getProjectAgentSessionDisplay,
   isSameSessionPath,
+  isSessionPinned,
   isSidebarSessionRowActive,
+  normalizeSessionPathForCompare,
+  sortSessionsPinnedFirst,
 } from "./agentListDisplay";
 import { resolveLocale, setI18nLocale, t, type TranslationKey } from "./i18n";
 import { mergeAgentRuntimeState } from "./utils/agentRuntimeState";
@@ -1335,6 +1338,7 @@ export function App() {
     petPatrolEnabled: true,
     petPatrolPauseMin: 5,
     favoriteModels: [],
+    pinnedSessions: [],
 
     // 字体配置：与 main SettingsStore 默认值保持一致，避免启动时闪烁
     fontSize: "default",
@@ -3519,7 +3523,7 @@ export function App() {
 
   async function refreshSessions(projectId = activeProjectId) {
     const next = await api.sessions.list(projectId);
-    setSessions([...next].sort((a, b) => b.updatedAt - a.updatedAt));
+    setSessions(sortSessionsPinnedFirst(next, pinnedSessionKeys));
   }
 
   async function refreshProjectSessions(projectId: string, silent = false) {
@@ -3548,7 +3552,7 @@ export function App() {
         t("app.sessionRefreshTimeout"),
       );
       if (sessionRequestByProjectRef.current[projectId] !== request) return next;
-      const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+      const sorted = sortSessionsPinnedFirst(next, pinnedSessionKeys);
       setSessionsByProject((current) => {
         const previous = current[projectId] ?? [];
         if (sameSessionSummaryList(previous, sorted)) return current;
@@ -4625,6 +4629,44 @@ export function App() {
     void updateSettings({ favoriteModels: next });
     showToast(
       isNowFavorite ? t("app.modelFavorited", { name: modelId }) : t("app.modelUnfavorited", { name: modelId }),
+      1500,
+    );
+  }
+
+  /** 置顶会话路径集合（归一化），供侧边栏排序与行标记共用 */
+  const pinnedSessionKeys = useMemo(
+    () =>
+      new Set(
+        (settings.pinnedSessions ?? []).map(
+          (path) => normalizeSessionPathForCompare(path) ?? path,
+        ),
+      ),
+    [settings.pinnedSessions],
+  );
+
+  /** 切换会话置顶：置顶后侧边栏与历史列表置顶优先，未置顶恢复按最近更新排序 */
+  function togglePinSession(session: SessionSummary) {
+    const current = settings.pinnedSessions ?? [];
+    const isNowPinned = !current.some((path) => isSameSessionPath(path, session.filePath));
+    const next = isNowPinned
+      ? [...current, session.filePath]
+      : current.filter((path) => !isSameSessionPath(path, session.filePath));
+    void updateSettings({ pinnedSessions: next });
+    // 用「下一次」的置顶集合立即重排本地列表，新置顶的会话马上生效，无需等待下一次会话扫描
+    const nextKeys = new Set(
+      next.map((path) => normalizeSessionPathForCompare(path) ?? path),
+    );
+    const sortPinned = (list: SessionSummary[]) => sortSessionsPinnedFirst(list, nextKeys);
+    setSessions((prev) => sortPinned(prev));
+    setSessionsByProject((prev) => {
+      const nextMap: Record<string, SessionSummary[]> = {};
+      for (const [projectId, list] of Object.entries(prev)) {
+        nextMap[projectId] = sortPinned(list);
+      }
+      return nextMap;
+    });
+    showToast(
+      isNowPinned ? t("app.sessionPinned") : t("app.sessionUnpinned"),
       1500,
     );
   }
@@ -6037,7 +6079,7 @@ export function App() {
         void api.projects.list().then(setProjects).catch(() => undefined);
         if (activeProjectId) {
           void api.sessions.list(activeProjectId).then((sessions) => {
-            setSessions([...sessions].sort((a, b) => b.updatedAt - a.updatedAt));
+            setSessions(sortSessionsPinnedFirst(sessions, pinnedSessionKeys));
           }).catch(() => undefined);
         }
       }
@@ -6593,6 +6635,7 @@ export function App() {
               agents: projectAgents,
               sessions: projectSessions,
               visibleChildCount,
+              pinnedSessionKeys,
             });
             const projectSessionsLoading = Boolean(
               sessionLoadingByProject[project.id],
@@ -7011,6 +7054,14 @@ export function App() {
                             <strong title={session.name || t("common.untitled")}>
                               {session.name || t("common.untitled")}
                             </strong>
+                            {child.pinned && (
+                              <span
+                                className="session-pinned-marker"
+                                title={t("app.sessionPinnedTitle")}
+                              >
+                                <Pin size={12} strokeWidth={2} aria-hidden="true" />
+                              </span>
+                            )}
                             {session.source && session.source !== "pi" && (
                               <span className={`session-source-badge ${session.source}`}>
                                 {t(`sessionSource.${session.source}` as any)}
@@ -7091,6 +7142,7 @@ export function App() {
                         agents: childAgents,
                         sessions: rawChildSessions,
                         visibleChildCount: sessionsExpanded ? Number.MAX_SAFE_INTEGER : 3,
+                        pinnedSessionKeys,
                       }) : null;
                       const wtChildren = wtDisplay?.visibleChildren ?? [];
                       const hiddenSessionCount = (wtDisplay?.hiddenChildCount ?? 0);
@@ -9458,9 +9510,11 @@ export function App() {
         <SessionContextMenu
           menu={sessionMenu}
           actionLoading={sessionActionLoading}
+          pinned={isSessionPinned(sessionMenu.session.filePath, pinnedSessionKeys)}
           onClose={() => {
             if (!sessionActionLoading) setSessionMenu(null);
           }}
+          onTogglePin={() => togglePinSession(sessionMenu.session)}
           onRename={() =>
             openSessionRename(sessionMenu.projectId, sessionMenu.session)
           }

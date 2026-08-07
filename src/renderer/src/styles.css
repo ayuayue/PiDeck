@@ -2642,6 +2642,14 @@ body.is-resizing .wechat-shell {
 .session-node-marker {
   display: none;
 }
+.session-pinned-marker {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--accent, var(--text-secondary));
+  opacity: 0.9;
+  vertical-align: -1px;
+}
 .session-source-badge {
   margin-left: 6px;
   padding: 1px 7px;

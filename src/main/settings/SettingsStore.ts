@@ -143,6 +143,8 @@ Gitmoji 对应关系：
   // 巡游碰边后 idle 停顿默认 5 分钟
   petPatrolPauseMin: 5,
   favoriteModels: [],
+  // 会话置顶：默认不置顶任何会话，零回归
+  pinnedSessions: [],
 
   // ── 扩展管理 ──
   /** 用户手动移除的内置扩展，启动时跳过自动部署 */
