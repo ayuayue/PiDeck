@@ -44,8 +44,12 @@ function katexWoff2OnlyPlugin(): Plugin {
 }
 
 export default defineConfig({
-  main: {
+main: {
     plugins: [externalizeDepsPlugin()],
+    define: {
+      // 构建标记：npm run dist:win:dev 打包时注入 true，用于隔离 dev 构建的配置目录与 AppUserModelID。
+      __PIDECK_DEV_BUILD__: JSON.stringify(process.env.PIDECK_DEV_BUILD === "1"),
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

@@ -59,6 +59,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:win": "node scripts/dist-win.js",
+    "dist:win:dev": "node scripts/dist-win-dev.js",
     "dist:mac": "npm run build && electron-builder --mac dmg zip",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "preview": "electron-vite preview",
@@ -88,6 +89,12 @@
   "build": {
     "appId": "com.ayuayue.pi-desktop",
     "productName": "PiDeck",
+    "protocols": [
+      {
+        "name": "PiDeck Agent Link",
+        "schemes": ["pideck"]
+      }
+    ],
     "asar": true,
     "compression": "maximum",
     "afterPack": "./scripts/after-pack-cleanup.js",
@@ -200,5 +207,14 @@
     "vite": "^7.3.5",
     "vitepress": "^1.6.4",
     "zustand": "^5.0.0"
+  },
+  "allowScripts": {
+    "electron@38.8.6": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.27.7": true,
+    "esbuild@0.21.5": true,
+    "node-pty@1.1.0": true,
+    "protobufjs@7.6.4": true,
+    "sharp@0.34.5": true
   }
 }
