@@ -4645,12 +4645,12 @@ export function App() {
   );
 
   /** 切换会话置顶：置顶后侧边栏与历史列表置顶优先，未置顶恢复按最近更新排序 */
-  function togglePinSession(session: SessionSummary) {
+  function togglePinSession(filePath: string) {
     const current = settings.pinnedSessions ?? [];
-    const isNowPinned = !current.some((path) => isSameSessionPath(path, session.filePath));
+    const isNowPinned = !current.some((path) => isSameSessionPath(path, filePath));
     const next = isNowPinned
-      ? [...current, session.filePath]
-      : current.filter((path) => !isSameSessionPath(path, session.filePath));
+      ? [...current, filePath]
+      : current.filter((path) => !isSameSessionPath(path, filePath));
     void updateSettings({ pinnedSessions: next });
     // 用「下一次」的置顶集合立即重排本地列表，新置顶的会话马上生效，无需等待下一次会话扫描
     const nextKeys = new Set(
@@ -4707,18 +4707,21 @@ export function App() {
     });
   }, [projects, sessionsByProject, pinnedSessionKeys, settings.pinnedSessions]);
 
-  // 置顶收藏区需要跨项目解析会话：首次出现置顶会话时，把尚未加载会话列表的项目静默补拉一次
-  //（不展开项目，仅填充数据；置顶会话通常很少，成本可控）。
-  const pinnedResolutionAttemptedRef = useRef(false);
+  // 置顶收藏区需要跨项目解析会话：项目/会话列表均为异步加载，
+  // 效果触发时 projects 可能还未就绪，因此随 projects/sessionsByProject 变化重试；
+  // 已补拉过的项目记入 ref，避免失败时无限重试。
+  const pinnedPrefetchRef = useRef<Set<string> | null>(null);
   useEffect(() => {
-    if (pinnedSessionKeys.size === 0 || pinnedResolutionAttemptedRef.current) return;
-    pinnedResolutionAttemptedRef.current = true;
+    if (pinnedSessionKeys.size === 0) return;
+    if (!pinnedPrefetchRef.current) pinnedPrefetchRef.current = new Set();
     for (const project of projects) {
       if (project.id in sessionsByProject) continue;
+      if (pinnedPrefetchRef.current.has(project.id)) continue;
+      pinnedPrefetchRef.current.add(project.id);
       void refreshProjectSessions(project.id, true).catch(() => undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinnedSessionKeys]);
+  }, [pinnedSessionKeys, projects, sessionsByProject]);
 
   async function cycleThinking() {
     if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
@@ -7099,6 +7102,14 @@ export function App() {
                           <div className="conversation-body">
                             <div className="conversation-title">
                               <strong>{agent.title}</strong>
+                              {child.pinned && (
+                                <span
+                                  className="session-pinned-marker"
+                                  title={t("app.sessionPinnedTitle")}
+                                >
+                                  <Pin size={12} strokeWidth={2} aria-hidden="true" />
+                                </span>
+                              )}
                               {child.source && child.source !== "pi" && (
                                 <span className={`session-source-badge ${child.source}`}>
                                   {t(`sessionSource.${child.source}` as any)}
@@ -9527,8 +9538,16 @@ export function App() {
         <AgentContextMenu
           menu={agentMenu}
           actionLoading={agentActionLoading}
+          pinned={
+            agentMenu.agent.sessionPath
+              ? isSessionPinned(agentMenu.agent.sessionPath, pinnedSessionKeys)
+              : false
+          }
           onClose={() => {
             if (!agentActionLoading) setAgentMenu(null);
+          }}
+          onTogglePin={() => {
+            if (agentMenu.agent.sessionPath) togglePinSession(agentMenu.agent.sessionPath);
           }}
           onRename={() => openAgentRename(agentMenu.agent)}
           onExport={() => {
@@ -9604,7 +9623,7 @@ export function App() {
           onClose={() => {
             if (!sessionActionLoading) setSessionMenu(null);
           }}
-          onTogglePin={() => togglePinSession(sessionMenu.session)}
+          onTogglePin={() => togglePinSession(sessionMenu.session.filePath)}
           onRename={() =>
             openSessionRename(sessionMenu.projectId, sessionMenu.session)
           }
