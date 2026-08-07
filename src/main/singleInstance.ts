@@ -32,6 +32,17 @@ export type VersionSingleInstanceResult = {
 	dispose: () => void;
 };
 
+/**
+ * 次实例通过 .focus 文件传给主实例的信息。
+ * argv：次实例的完整命令行参数，用于识别「点击系统通知」激活场景
+ * （通知 toast 的 launch 参数会附加到被唤起实例的 argv 中）。
+ */
+export type FocusPayload = {
+	at: number;
+	fromPid: number;
+	argv?: string[];
+};
+
 type LockPayload = {
 	pid: number;
 	version: string;
@@ -120,12 +131,12 @@ function tryClaimLock(lockPath: string, version: string): boolean {
  * 尝试成为当前版本的主实例。
  * @param enabled 设置项 singleInstance；false 时允许多开（不写锁）
  * @param version app.getVersion()
- * @param onFocusRequest 同版本次实例请求前置窗口时回调
+ * @param onFocusRequest 同版本次实例请求前置窗口时回调（携带次实例的 argv，可解析通知激活参数）
  */
 export function acquireVersionSingleInstance(
 	enabled: boolean,
 	version: string,
-	onFocusRequest: () => void,
+	onFocusRequest: (payload: FocusPayload) => void,
 ): VersionSingleInstanceResult {
 	if (!enabled) {
 		return { isPrimary: true, dispose: () => undefined };
@@ -137,11 +148,17 @@ export function acquireVersionSingleInstance(
 	const focusName = basename(focusPath);
 
 	if (!tryClaimLock(lockPath, version)) {
-		// 次实例：通知主实例聚焦后自行退出
+		// 次实例：通知主实例聚焦后自行退出。
+		// 附带完整 argv：通知激活启动的实例 argv 里有 toast launch 参数，
+		// 主实例据此识别要跳转的 agent（Electron 自身无法完成该转发，因为次实例随即退出）。
 		try {
 			writeFileSync(
 				focusPath,
-				JSON.stringify({ at: Date.now(), fromPid: process.pid }),
+				JSON.stringify({
+					at: Date.now(),
+					fromPid: process.pid,
+					argv: process.argv.slice(1),
+				}),
 				"utf8",
 			);
 		} catch {
@@ -153,13 +170,19 @@ export function acquireVersionSingleInstance(
 	const handleFocusSignal = () => {
 		try {
 			if (!existsSync(focusPath)) return;
+			let payload: FocusPayload = { at: Date.now(), fromPid: 0 };
+			try {
+				payload = JSON.parse(readFileSync(focusPath, "utf8")) as FocusPayload;
+			} catch {
+				// 旧格式或损坏时退化为空 payload
+			}
 			// 读完即删，避免重复触发
 			try {
 				unlinkSync(focusPath);
 			} catch {
 				// ignore
 			}
-			onFocusRequest();
+			onFocusRequest(payload);
 		} catch {
 			// ignore
 		}

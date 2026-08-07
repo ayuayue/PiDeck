@@ -25,23 +25,28 @@ import {
 	readElectronChromiumSandboxPreference,
 	readSingleInstancePreference,
 } from "./settings/SettingsStore";
-import { acquireVersionSingleInstance } from "./singleInstance";
+import { acquireVersionSingleInstance, type FocusPayload } from "./singleInstance";
 import type { StartupWindowMode } from "../shared/types";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
+
+// 构建标记：npm run dist:win:dev 打包时由 vite define 注入 true（构建期替换，非运行时环境变量）。
+declare const __PIDECK_DEV_BUILD__: boolean;
+
+// 开发态（electron-vite dev）或 dev 构建（dist:win:dev）统一使用 -dev 配置目录，
+// 避免与正式版（pi-desktop / PiDeck）的数据、单实例锁和通知归属互相污染。
+const isDevBuild = !app.isPackaged || __PIDECK_DEV_BUILD__;
 
 applyLinuxDisplayBackendWorkaround();
 
 // 开发态与正式版隔离 userData。
 // 否则 npm run dev 会与已安装的 PiDeck 共用数据/锁，表现为「开发启动被复用到正式版窗口」。
 // 必须在读取 settings / 版本单实例锁之前设置。
-if (!app.isPackaged) {
-	const baseUserData = app.getPath("userData");
-	// 仅在尚未指向 *-dev 时追加，避免重复拼接。
-	if (!/[\\/]pi-desktop-dev$/i.test(baseUserData) && !/dev$/i.test(baseUserData)) {
-		app.setPath("userData", `${baseUserData}-dev`);
-	}
+if (isDevBuild) {
+	// 显式固定为 pi-desktop-dev：dev 构建的 productName 是 PiDeckDev，
+	// 默认 userData 会落在 %APPDATA%\PiDeckDev，必须指回 dev 配置目录以复用现有配置。
+	app.setPath("userData", join(app.getPath("appData"), "pi-desktop-dev"));
 }
 
 // Chromium 沙箱开关必须在 app.ready 前生效。
@@ -53,16 +58,28 @@ if (!electronChromiumSandboxEnabled) {
 	app.commandLine.appendSwitch("no-sandbox");
 }
 
+// Windows 系统通知必须设置 AppUserModelID，否则通知不显示、点击事件不触发。
+// dev 与正式版使用不同 AppID，避免通知中心归属混淆（与 dev userData 隔离思路一致）。
+if (process.platform === "win32") {
+	app.setAppUserModelId(isDevBuild ? "com.ayuayue.pi-desktop-dev" : "com.ayuayue.pi-desktop");
+}
+
+// 注册 pideck:// 自定义协议：系统通知点击（toast activationType="protocol"）通过该协议唤起应用，
+// 唤起实例的 argv 携带 pideck://agent/<agentId> URL，主进程据此跳转对应对话。
+// 运行时注册写入 HKCU 注册表；打包安装时 electron-builder 的 protocols 配置会同步注册。
+app.setAsDefaultProtocolClient("pideck");
+
 // 按「应用版本」隔离的单实例：同版本复用窗口，不同版本可并行。
 // 不用 Electron requestSingleInstanceLock：它按 userData 全局互斥，会导致 0.6.7 与 0.6.8 无法同开。
 // focus 回调稍后挂到 focusMainWindow（定义在文件后部），避免顶层 TDZ。
-let focusExistingWindow: (() => void) | null = null;
+// payload 携带次实例的 argv，可解析「点击系统通知」激活时携带的 agentId。
+let focusExistingWindow: ((payload?: FocusPayload) => void) | null = null;
 const singleInstanceEnabled = readSingleInstancePreference();
 const versionSingleInstance = acquireVersionSingleInstance(
 	singleInstanceEnabled,
 	app.getVersion(),
-	() => {
-		focusExistingWindow?.();
+	(payload) => {
+		focusExistingWindow?.(payload);
 	},
 );
 const gotSingleInstanceLock = versionSingleInstance.isPrimary;
@@ -620,23 +637,55 @@ function focusMainWindow() {
 }
 
 /**
- * 同版本次实例请求聚焦：窗口已在则前置；若窗口尚未创建/已销毁，ready 后重建。
- * 挂到顶层 focusExistingWindow，供版本单实例锁的 .focus 信号调用。
+ * 从 argv 中提取通知激活携带的 agentId。
+ * 支持两种唤起参数格式：
+ * - pideck://agent/<uuid>（toast activationType="protocol" 的协议 URL，主路径）
+ * - pideck-agent:<uuid>（toast activationType="foreground" 的 launch 参数，兜底）
+ * 返回 undefined 表示本次唤起不是通知点击，仅聚焦窗口即可。
  */
-function handleVersionFocusRequest() {
+function extractAgentIdFromArgv(argv?: string[]): string | undefined {
+	if (!argv || argv.length === 0) return undefined;
+	const uuidRe = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+	for (const arg of argv) {
+		const protocolMatch = String(arg).match(new RegExp(`pideck://agent/(${uuidRe})`, "i"));
+		if (protocolMatch) return protocolMatch[1];
+		const legacyMatch = String(arg).match(new RegExp(`pideck-agent:(${uuidRe})`, "i"));
+		if (legacyMatch) return legacyMatch[1];
+	}
+	return undefined;
+}
+
+/**
+ * 同版本次实例请求聚焦：窗口已在则前置；若窗口尚未创建/已销毁，ready 后重建。
+ * 若唤起源自「点击系统通知」（argv 携带 pideck://agent/ 或 pideck-agent:），额外向 renderer
+ * 发送聚焦目标，切换到对应 Agent 对话。挂到顶层 focusExistingWindow，供版本单实例锁调用。
+ */
+function handleVersionFocusRequest(payload?: FocusPayload) {
+	const agentId = extractAgentIdFromArgv(payload?.argv);
+	const activateAgent = () => {
+		if (agentId && mainWindow && !mainWindow.isDestroyed()) {
+			mainWindow.webContents.send(ipcChannels.petFocusAgentTarget, { agentId });
+		}
+	};
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		focusMainWindow();
+		activateAgent();
 		return;
 	}
 	void app.whenReady().then(() => {
 		if (mainWindow && !mainWindow.isDestroyed()) {
 			focusMainWindow();
+			activateAgent();
 			return;
-		}
+	}
 		if (settingsStore) {
-			void createWindow().catch((error) => {
-				void appLogger?.error("app", "Failed to recreate window on version focus request", error);
-			});
+			void createWindow()
+				.then(() => {
+					activateAgent();
+				})
+				.catch((error) => {
+					void appLogger?.error("app", "Failed to recreate window on version focus request", error);
+				});
 		}
 	});
 }
@@ -3842,6 +3891,13 @@ app.whenReady().then(async () => {
 	registerFeishuIpc();
 	await createWindow();
 	setupTray();
+
+	// 冷启动通知唤起：应用未运行时点击系统通知，本进程即为唯一实例（无次实例 .focus 流转），
+	// argv 携带 pideck://agent/<id>，窗口就绪后直接跳转到对应对话（agent 已加载时 renderer 会响应）。
+	const coldStartAgentId = extractAgentIdFromArgv(process.argv);
+	if (coldStartAgentId && mainWindow && !mainWindow.isDestroyed()) {
+		mainWindow.webContents.send(ipcChannels.petFocusAgentTarget, { agentId: coldStartAgentId });
+	}
 
 	void runPostWindowStartupTasks().catch((error) => {
 		void appLogger.warn("app", "Post-window startup tasks failed", error);

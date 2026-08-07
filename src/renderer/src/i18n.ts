@@ -1555,7 +1555,7 @@ const zhCN = {
   "settings.detecting": "检测中...",
   "settings.detectEnvironment": "检测环境",
   "settings.enableDesktopProxy": "启用桌面端网络代理",
-  "settings.enableNotifications": "会话结束时发送系统通知",
+  "settings.enableNotifications": "Agent 完成响应或向你提问时发送系统通知",
   "settings.enablePiProxy": "启用 pi agent 代理",
   "settings.enableWebService": "启用 Web 服务",
   "settings.environment": "环境",
@@ -3329,7 +3329,7 @@ const enUS: Record<TranslationKey, string> = {
   "settings.detectEnvironment": "Check environment",
   "settings.enableDesktopProxy": "Enable desktop network proxy",
   "settings.enableNotifications":
-    "Send system notifications when sessions finish",
+    "Send system notifications when agents finish or ask you a question",
   "settings.enablePiProxy": "Enable pi agent proxy",
   "settings.enableWebService": "Enable Web service",
   "settings.environment": "Environment",
