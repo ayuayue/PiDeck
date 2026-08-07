@@ -156,6 +156,8 @@ export class AgentManager {
 	private readonly pendingUIRequests = new Map<string, Map<string, { method: string; title: string }>>();
 	/** abort 时正在等待 ask_question 响应的 agent，用于在工具结果中覆写 answer 为 null。 */
 	private readonly abortedDuringAsk = new Set<string>();
+	/** 已发送 ask_question 系统通知的 agent；新一轮 run（agent_start）时清除，避免重复通知。 */
+	private readonly notifiedAskAgents = new Set<string>();
 	/** 待处理的项目信任确认请求。key 为 requestId，用于在 Agent 启动前等待用户的信任决策。 */
 	private readonly pendingTrustRequests = new Map<string, { resolve: (choice: ProjectTrustChoice) => void }>();
 	private wslEnvironment: WslEnvironment | null = null;
@@ -3066,6 +3068,7 @@ export class AgentManager {
 			// 1) 清理 recentlyAborted，允许状态机恢复 running
 			// 2) 推进 stream generation，解封流式闸门（唯一合法解封点）
 			this.recentlyAborted.delete(agentId);
+			this.notifiedAskAgents.delete(agentId);
 			this.openAgentStream(agentId);
 			runtime.tab.status = "running";
 			this.activeAssistantMessageIds.delete(agentId);
@@ -3257,7 +3260,7 @@ export class AgentManager {
 				const messages = this.messages.get(agentId) ?? [];
 				const lastMessage = messages[messages.length - 1];
 				if (lastMessage?.role === "assistant") {
-					this.notifySessionEnd(runtime.tab.title);
+					this.notifySessionEnd(agentId, runtime.tab.title);
 				}
 			}
 		}
@@ -3456,6 +3459,13 @@ export class AgentManager {
 		// 通知渲染进程显示交互卡片
 		this.emit(ipcChannels.agentsUiRequest, request);
 		this.scheduleUIRequestTimeout(agentId, requestId, typed.timeout);
+
+		// 对话类 UI 请求（select/confirm/input/editor/batch_ask）发送系统通知，提醒用户 AI 正在等待回答。
+		// 与 ask_question 工具路径共用去重标记（agent_start 时清除），避免同一轮多次提问刷屏。
+		if (!this.notifiedAskAgents.has(agentId)) {
+			this.notifiedAskAgents.add(agentId);
+			this.notifyAskQuestion(agentId, request.title);
+		}
 	}
 
 	/**
@@ -3822,6 +3832,18 @@ export class AgentManager {
 		// pi RPC 返回格式可能为 result.details 嵌套 或 result 顶层（无 details 包装）
 		const askDetails = this.extractAskQuestionDetails(toolName, result, args);
 		const askCard = this.buildAskCard(agentId, askDetails);
+		// ask_question 工具执行完成且尚未回答时，发送系统通知提醒用户（每轮 run 只通知一次，
+		// 去重标记在 agent_start 时清除；abort 场景 tool_execution_end 已被封印拦截，不会误报）。
+		if (
+			toolName === "ask_question" &&
+			status === "done" &&
+			askCard &&
+			askCard.answered === false &&
+			!this.notifiedAskAgents.has(agentId)
+		) {
+			this.notifiedAskAgents.add(agentId);
+			this.notifyAskQuestion(agentId, String(askCard.question ?? ""));
+		}
 		const meta = {
 			status,
 			toolName,
@@ -4587,9 +4609,10 @@ export class AgentManager {
 	/**
 	 * 会话结束时发送系统通知。
 	 * 仅在设置中启用通知且 Electron Notification 可用时触发，
-	 * 通知用户 agent 已完成响应，可以查看结果或继续对话。
+	 * 通知用户 agent 已完成响应，可以查看结果或继续对话；
+	 * 点击通知会聚焦主窗口并切换到对应 Agent 对话。
 	 */
-	private notifySessionEnd(sessionTitle: string) {
+	private notifySessionEnd(agentId: string, sessionTitle: string) {
 		try {
 			const settings = this.settingsStore.get();
 			if (!settings.enableNotifications) return;
@@ -4597,15 +4620,98 @@ export class AgentManager {
 
 			// 使用应用名称作为通知标题，在 Windows/macOS 通知中心中显示为应用标识
 			const appName = app.getName();
+			const body = `${sessionTitle} 已完成响应`;
 			const notification = new Notification({
 				title: appName,
-				body: `${sessionTitle} 已完成响应`,
+				body,
 				silent: false,
+				// 自定义 toast XML：launch 携带 agentId，点击后通过 argv 跳转对应 Agent
+				toastXml: this.buildToastXml(appName, body, agentId),
+			});
+			notification.on("click", () => {
+				this.focusMainWindowForAgent(agentId);
 			});
 			notification.show();
 		} catch {
 			// 通知失败不影响主流程，静默处理
 		}
+	}
+
+	/**
+	 * AI 通过 ask_question 工具询问用户时发送系统通知。
+	 * 仅在设置中启用通知且 Electron Notification 可用时触发；
+	 * 点击通知会聚焦主窗口并切换到对应 Agent 对话。
+	 */
+	private notifyAskQuestion(agentId: string, question: string) {
+		try {
+			const settings = this.settingsStore.get();
+			if (!settings.enableNotifications) return;
+			if (!Notification.isSupported()) return;
+
+			const runtime = this.agents.get(agentId);
+			const sessionTitle = runtime?.tab.title ?? app.getName();
+			// 截断过长的提问内容，避免通知气泡被撑满
+			const questionText = question.length > 60 ? `${question.slice(0, 60)}…` : question;
+			const appName = app.getName();
+			const body = `${sessionTitle} 正在询问：${questionText}`;
+			const notification = new Notification({
+				title: appName,
+				body,
+				silent: false,
+				// 自定义 toast XML：launch 携带 agentId，点击后通过 argv 跳转对应 Agent
+				toastXml: this.buildToastXml(appName, body, agentId),
+			});
+			notification.on("click", () => {
+				this.focusMainWindowForAgent(agentId);
+			});
+			notification.on("failed", (_event, error) => {
+				// Windows 拒绝显示 toast 时触发（show() 本身不抛异常），记 warn 便于排查
+				void this.appLogger?.warn("agent", "Ask notification failed to show", { agentId, error: String(error) });
+			});
+			notification.show();
+		} catch {
+			// 通知失败不影响主流程，静默处理
+		}
+	}
+
+	/**
+	 * 聚焦主窗口并让渲染进程切换到指定 Agent 对话。
+	 * 复用桌面宠物的 onFocusTarget 通道（renderer 已监听并切到对应 project + agent tab）。
+	 */
+	private focusMainWindowForAgent(agentId: string) {
+		try {
+			const win = this.getWindow();
+			if (!win || win.isDestroyed()) {
+				void this.appLogger?.warn("agent", "Notification focus skipped: no main window", { agentId });
+				return;
+			}
+			if (win.isMinimized()) win.restore();
+			if (!win.isVisible()) win.show();
+			win.focus();
+			win.webContents.send(ipcChannels.petFocusAgentTarget, { agentId });
+		} catch (error) {
+			// 聚焦失败不影响主流程，静默处理
+			void this.appLogger?.warn("agent", "Notification focus failed", { agentId, error });
+		}
+	}
+
+	/**
+	 * 生成带 agentId 激活参数的 Windows toast XML。
+	 * 使用 activationType="protocol" + pideck:// 协议 URL：点击通知时 Windows 通过
+	 * 注册表协议关联唤起应用（不依赖 ToastActivatorCLSID / 快捷方式匹配，更可靠），
+	 * 被唤起实例的 argv 携带协议 URL，主实例据此识别要跳转的 Agent。
+	 */
+	private buildToastXml(title: string, body: string, agentId: string): string {
+		const esc = (s: string) =>
+			s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+		return `<toast activationType="protocol" launch="pideck://agent/${agentId}">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>${esc(title)}</text>
+      <text>${esc(body)}</text>
+    </binding>
+  </visual>
+</toast>`;
 	}
 
 	/** 清理 ANSI 转义码，模型思考内容中常见终端颜色序列 */
