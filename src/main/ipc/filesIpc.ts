@@ -6,6 +6,7 @@ import type { FileSystemService } from "../fs/FileSystemService";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { AppLogger } from "../logging/AppLogger";
+import { parseWslUncPath, toWindowsHostPath } from "../wsl/WslPaths";
 
 export type FilesIpcDeps = {
 	fileSystemService: FileSystemService;
@@ -24,20 +25,15 @@ export function registerFilesIpc({
 	getMainWindow,
 	openExternalUrl,
 }: FilesIpcDeps): void {
-	// 将 WSL Linux 路径转为 Windows 可访问的路径（/mnt/c → C:\，/home/... → \\wsl$\<distro>\...）
-	const toWindowsPath = (linuxPath: string): string => {
-		if (!linuxPath || /^[A-Za-z]:/.test(linuxPath)) return linuxPath; // 已是 Windows 路径
-		// /mnt/c/Users/... → C:\Users\...
-		const mntMatch = linuxPath.match(/^\/mnt\/([a-z])\/(.*)/);
-		if (mntMatch) {
-			return `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, "\\")}`;
-		}
-		// /home/user/... → \\wsl$\<distro>\home\user\...
+	// Windows Node 的 fs/Electron 边界不能消费 WSL Linux 路径：/mnt/<drive> 要回到
+	// 盘符，/home/... 与 UNC 则要统一为当前发行版的 canonical UNC。已经是普通
+	// Windows/网络路径的输入保持不变，避免误把用户的非 WSL 网络盘当成 Linux 路径。
+	const toWindowsPath = (path: string): string => {
+		if (!path || process.platform !== "win32") return path;
 		const settings = settingsStore.get();
-		if (settings.wslEnabled && settings.wslDistro) {
-			return `\\\\wsl$\\${settings.wslDistro}\\${linuxPath.replace(/^\//, "").replace(/\//g, "\\")}`;
-		}
-		return linuxPath;
+		if (!settings.wslEnabled || !settings.wslDistro) return path;
+		if (!path.startsWith("/") && !parseWslUncPath(path)) return path;
+		return toWindowsHostPath(path, { distro: settings.wslDistro });
 	};
 
 	ipcMain.handle(ipcChannels.dialogPickFiles, async (_event, options?: { title?: string; includeDirectories?: boolean }) => {
@@ -56,7 +52,7 @@ export function registerFilesIpc({
 	ipcMain.handle(ipcChannels.filesList, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
-		return fileSystemService.listTree(project.path);
+		return fileSystemService.listTree(toWindowsPath(project.path));
 	});
 
 	ipcMain.handle(ipcChannels.filesOpen, async (_event, path: string) => {
@@ -99,7 +95,7 @@ export function registerFilesIpc({
 	});
 
 	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: string, content: string) => {
-		await writeFile(path, content, "utf8");
+		await writeFile(toWindowsPath(path), content, "utf8");
 		void appLogger.info("file", "File written", { path, bytes: Buffer.byteLength(content, "utf8") });
 	});
 
@@ -129,7 +125,7 @@ export function registerFilesIpc({
 	ipcMain.handle(
 		ipcChannels.filesCreate,
 		async (_event, parentDir: string, name: string, type: "file" | "directory") => {
-			const result = await fileSystemService.create(parentDir, name, type);
+			const result = await fileSystemService.create(toWindowsPath(parentDir), name, type);
 			void appLogger.info("file", "File/folder created", { parentDir, name, type, result });
 			return result;
 		},
@@ -137,7 +133,7 @@ export function registerFilesIpc({
 
 	ipcMain.handle(ipcChannels.filesDelete, async (_event, path: string, recursive?: boolean) => {
 		try {
-			await fileSystemService.delete(path, recursive);
+			await fileSystemService.delete(toWindowsPath(path), recursive);
 			void appLogger.info("file", "File deleted", { path, recursive: Boolean(recursive) });
 		} catch (error) {
 			// 删除失败同样留痕（回收站不可用/权限不足/路径不存在等），
@@ -152,7 +148,7 @@ export function registerFilesIpc({
 	});
 
 	ipcMain.handle(ipcChannels.filesRename, async (_event, path: string, newName: string) => {
-		const result = await fileSystemService.rename(path, newName);
+		const result = await fileSystemService.rename(toWindowsPath(path), newName);
 		void appLogger.info("file", "File renamed", { path, newName, result });
 		return result;
 	});
@@ -160,14 +156,16 @@ export function registerFilesIpc({
 	ipcMain.handle(
 		ipcChannels.filesCopy,
 		async (_event, sourcePaths: string[], targetDir: string) => {
+			const hostTargetDir = toWindowsPath(targetDir);
 			const results: string[] = [];
 			for (const src of sourcePaths) {
 				try {
-					const name = basename(src);
-					const dest = join(targetDir, name);
+					const hostSrc = toWindowsPath(src);
+					const name = basename(hostSrc);
+					const dest = join(hostTargetDir, name);
 					// 递归复制目录/文件；同名已存在时跳过覆盖（errorOnExist: false 反而报错，
 					// 这里语义为「已存在则不重复复制」——与资源管理器粘贴行为一致）
-					await cp(src, dest, { recursive: true, errorOnExist: false });
+					await cp(hostSrc, dest, { recursive: true, errorOnExist: false });
 					results.push(dest);
 					void appLogger.info("file", "File/folder copied", { src, dest });
 				} catch (error) {
@@ -182,17 +180,19 @@ export function registerFilesIpc({
 	ipcMain.handle(
 		ipcChannels.filesMove,
 		async (_event, sourcePaths: string[], targetDir: string) => {
+			const hostTargetDir = toWindowsPath(targetDir);
 			const results: string[] = [];
 			for (const src of sourcePaths) {
 				try {
-					const name = basename(src);
-					const dest = join(targetDir, name);
+					const hostSrc = toWindowsPath(src);
+					const name = basename(hostSrc);
+					const dest = join(hostTargetDir, name);
 					// 同设备优先 rename（瞬时）；跨设备/跨盘 rename 会报 EXDEV，回退 cp + rm
 					try {
-						await fsRename(src, dest);
+						await fsRename(hostSrc, dest);
 					} catch {
-						await cp(src, dest, { recursive: true });
-						await rm(src, { recursive: true, force: true });
+						await cp(hostSrc, dest, { recursive: true });
+						await rm(hostSrc, { recursive: true, force: true });
 					}
 					results.push(dest);
 					void appLogger.info("file", "File/folder moved", { src, dest });

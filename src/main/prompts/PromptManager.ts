@@ -9,7 +9,7 @@ import type {
 	PiPromptTemplateListResult,
 	PiPromptTemplateSummary,
 } from "../../shared/types";
-import type { WslEnvironment } from "../wsl/WslPaths";
+import { parseWslUncPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 type PromptCopy = (
@@ -178,6 +178,7 @@ when appropriate. If unsure whether a skill is needed, follow the rule:
  */
 export class PromptManager {
 	private promptsDir: string;
+	private wslEnvironment: WslEnvironment | null = null;
 
 	constructor(
 		home?: string,
@@ -188,7 +189,24 @@ export class PromptManager {
 
 	/** 将 prompt 目录切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
 	configureWsl(environment: WslEnvironment | null) {
+		this.wslEnvironment = environment;
 		this.promptsDir = join(environment?.windowsHome ?? homedir(), ".pi", "agent", "prompts");
+	}
+
+	/** 项目路径来自 renderer 的存储格式，Windows fs 边界统一使用当前 WSL 的主机路径。 */
+	private hostPath(path: string): string {
+		if (
+			!this.wslEnvironment ||
+			process.platform !== "win32" ||
+			(!path.startsWith("/") && !parseWslUncPath(path))
+		) {
+			return path;
+		}
+		try {
+			return toWindowsHostPath(path, this.wslEnvironment);
+		} catch {
+			return path;
+		}
 	}
 
 	getDir(): string {
@@ -258,19 +276,20 @@ export class PromptManager {
 	}
 
 	async delete(filePath: string): Promise<void> {
-		if (!filePath.startsWith(this.promptsDir)) {
+		const hostFilePath = this.hostPath(filePath);
+		if (!hostFilePath.startsWith(this.promptsDir)) {
 			throw new Error(this.translate("mainPrompt.globalDeleteOnly"));
 		}
-		if (!existsSync(filePath)) {
+		if (!existsSync(hostFilePath)) {
 			throw new Error(this.translate("mainPrompt.fileNotFound"));
 		}
 		// 提示词模板是用户内容：删除走系统回收站（可恢复）；回收站不可用时抛错，拒绝硬删。
-		await trashPath(filePath, { source: "prompts:delete" });
+		await trashPath(hostFilePath, { source: "prompts:delete" });
 	}
 
 	/** 扫描项目 .pi/prompts/ 目录下的模板 */
 	async listByProject(projectPath: string): Promise<PiPromptTemplateListResult> {
-		const projectPromptsDir = join(projectPath, ".pi", "prompts");
+		const projectPromptsDir = join(this.hostPath(projectPath), ".pi", "prompts");
 		const entries = await readdir(projectPromptsDir).catch(() => []);
 		const templates: PiPromptTemplateSummary[] = [];
 		for (const entry of entries) {
@@ -301,7 +320,7 @@ export class PromptManager {
 		projectPath: string,
 		input: CreatePiPromptTemplateInput,
 	): Promise<PiPromptTemplateSummary> {
-		const projectPromptsDir = join(projectPath, ".pi", "prompts");
+		const projectPromptsDir = join(this.hostPath(projectPath), ".pi", "prompts");
 		await mkdir(projectPromptsDir, { recursive: true });
 		const name = this.normalizeName(input.name);
 		if (!name) throw new Error(this.translate("mainPrompt.nameRequiredDetailed"));
@@ -324,7 +343,7 @@ export class PromptManager {
 
 	/** 从项目 .pi/prompts/ 删除模板 */
 	async deleteFromProject(projectPath: string, fileName: string): Promise<void> {
-		const filePath = join(projectPath, ".pi", "prompts", fileName);
+		const filePath = join(this.hostPath(projectPath), ".pi", "prompts", fileName);
 		if (!existsSync(filePath)) throw new Error(this.translate("mainPrompt.fileNotFound"));
 		// 项目内模板同样走回收站，避免误删后无法恢复。
 		await trashPath(filePath, { source: "prompts:delete-project" });
@@ -339,17 +358,18 @@ export class PromptManager {
 	 * 读取模板原始内容（供编辑器使用）
 	 */
 	async readContent(filePath: string): Promise<string> {
-		return readFile(filePath, "utf8");
+		return readFile(this.hostPath(filePath), "utf8");
 	}
 
 	/**
 	 * 保存模板内容
 	 */
 	async writeContent(filePath: string, content: string): Promise<void> {
-		if (!filePath.startsWith(this.promptsDir)) {
+		const hostFilePath = this.hostPath(filePath);
+		if (!hostFilePath.startsWith(this.promptsDir)) {
 			throw new Error(this.translate("mainPrompt.globalEditOnly"));
 		}
-		await writeFile(filePath, content, "utf8");
+		await writeFile(hostFilePath, content, "utf8");
 	}
 
 	private parseFrontmatter(raw: string): Record<string, string> {
@@ -396,7 +416,7 @@ export class PromptManager {
 
 	/** 重命名项目级模板 */
 	async renameInProject(projectPath: string, oldName: string, newName: string): Promise<PiPromptTemplateSummary> {
-		const projectPromptsDir = join(projectPath, ".pi", "prompts");
+		const projectPromptsDir = join(this.hostPath(projectPath), ".pi", "prompts");
 		const normalizedOld = this.normalizeName(oldName);
 		const normalizedNew = this.normalizeName(newName);
 		if (!normalizedOld || !normalizedNew) throw new Error(this.translate("mainPrompt.nameRequired"));

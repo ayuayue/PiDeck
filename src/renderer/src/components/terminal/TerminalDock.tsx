@@ -17,7 +17,7 @@ import { ChevronDown, ChevronUp, MoreHorizontal, Plus, X } from "lucide-react";
 import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import { Button } from "../ui-shadcn/button";
 import type { PiDesktopApi } from "../../../../preload";
-import type { TerminalTab, TerminalTarget } from "../../../../shared/types";
+import type { TerminalShell, TerminalTab, TerminalTarget } from "../../../../shared/types";
 import { t } from "../../i18n";
 
 const TERMINAL_THEMES = {
@@ -380,14 +380,13 @@ export function TerminalDock(props: {
 
 	/* copyNotice cleanup 已禁用（改为 toast sonner） */
 
-	async function addTabWithShell(_shell: string) {
-		// 当前 preload API 仅支持 create(target)；shell 选择先走默认 create，后续再扩展参数。
+	async function addTabWithShell(shell: string) {
 		setShellMenuOpen(false);
-		await addTab();
+		await addTab(shell as TerminalShell);
 	}
 
-	async function addTab() {
-		const next = await props.terminal.create(props.target);
+	async function addTab(shell?: TerminalShell) {
+		const next = await props.terminal.create(props.target, shell);
 		setTabs((current) => [...current, stripReplayBuffer(next)]);
 		setActiveTabId(next.id);
 		props.onCollapsedChange(false);

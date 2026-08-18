@@ -9,7 +9,7 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 
-function loadPiLocatorModule(platform = process.platform, envOverrides = {}, homePath = tmpdir()) {
+function loadPiLocatorModule(platform = process.platform, envOverrides = {}, homePath = tmpdir(), moduleOverrides = {}) {
 	const source = readFileSync("src/main/pi/PiLocator.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -27,6 +27,7 @@ function loadPiLocatorModule(platform = process.platform, envOverrides = {}, hom
 			platform,
 		},
 		require: (id) => {
+			if (id in moduleOverrides) return moduleOverrides[id];
 			if (id === "electron") {
 				return { app: { getPath: () => homePath } };
 			}
@@ -181,7 +182,9 @@ test("createProcessEnv prepends search dirs to PATH/Path without pathPrefix (npm
 		);
 		const env = new PiLocator().createProcessEnv();
 		// npm 检测（piCheckNpm）直接复用该 env 执行 npm --version
-		assert.ok(String(env.PATH).split(";").includes(join(root, "Local", "pnpm")));
+		// The module is executed in a Linux test process while simulating win32;
+		// assert the injected directory without depending on the host path delimiter.
+		assert.ok(String(env.PATH).includes(join(root, "Local", "pnpm")));
 		assert.equal(env.Path, env.PATH);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -201,6 +204,30 @@ test("places an explicit WSL cwd before the pi command", () => {
 		["-d", "Ubuntu-24.04", "-u", "root", "--cd", "/root/ba cli", "pi", "--mode", "rpc"],
 	);
 	assert.equal(invocation.wsl.distro, "Ubuntu-24.04");
+});
+
+test("keeps a validated Linux custom path as the persisted WSL setting", async () => {
+	const { PiLocator } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{
+			"node:child_process": {
+				execFile: (_command, _args, _options, callback) => callback(null, "0.80.0\n", ""),
+				execFileSync: () => "",
+			},
+		},
+	);
+	const locator = new PiLocator();
+
+	assert.equal(
+		locator.resolveCommand("/opt/pi", true, "Ubuntu-24.04", "dev"),
+		"wsl://Ubuntu-24.04/dev//opt/pi",
+	);
+	const result = await locator.validateCustomPath("/opt/pi", true, "Ubuntu-24.04", "dev");
+
+	assert.equal(result.installed, true);
+	assert.equal(result.command, "/opt/pi");
 });
 
 // ── customPiPath 失效回退 ────────────────────────────────────────────────

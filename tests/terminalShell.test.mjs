@@ -8,6 +8,19 @@ import vm from "node:vm";
 // .mjs 没有 CJS require；vm 沙箱内的 fallback require 必须显式创建。
 const require = createRequire(import.meta.url);
 
+function loadTranspiledModule(filePath, customRequire = require) {
+	const { outputText } = ts.transpileModule(readFileSync(filePath, "utf8"), {
+		compilerOptions: {
+			module: ts.ModuleKind.CommonJS,
+			target: ts.ScriptTarget.ES2022,
+			esModuleInterop: true,
+		},
+	});
+	const sandbox = { exports: {}, require: customRequire };
+	vm.runInNewContext(outputText, sandbox, { filename: filePath });
+	return sandbox.exports;
+}
+
 function plain(value) {
 	return JSON.parse(JSON.stringify(value));
 }
@@ -35,6 +48,12 @@ function loadTerminalSessionManagerModule() {
 			if (name === "node:fs") return { existsSync: () => false };
 			if (name === "node:child_process") {
 				return { execSync: () => { throw new Error("not available in test sandbox"); } };
+			}
+			if (name === "../wsl/WslPaths") {
+				return loadTranspiledModule("src/main/wsl/WslPaths.ts");
+			}
+			if (name === "../wsl/wslExe") {
+				return { getWslExe: () => ({ command: "wsl.exe", shell: false }) };
 			}
 			return require(name);
 		},
@@ -116,6 +135,12 @@ function loadWithPty() {
 			if (name === "node:child_process") {
 				return { execSync: () => { throw new Error("not available in test sandbox"); } };
 			}
+			if (name === "../wsl/WslPaths") {
+				return loadTranspiledModule("src/main/wsl/WslPaths.ts");
+			}
+			if (name === "../wsl/wslExe") {
+				return { getWslExe: () => ({ command: "wsl.exe", shell: false }) };
+			}
 			return require(name);
 		},
 	};
@@ -159,6 +184,29 @@ test("project terminals are spawned in the project cwd, agent terminals in agent
 
 	assert.equal(spawns[0].cwd, "D:/work/proj");
 	assert.equal(spawns[1].cwd, "C:/agents/agentB");
+});
+
+test("configured WSL terminals use the Linux cwd inside the selected distro", () => {
+	const { manager, spawns } = loadWithPty();
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+		() => ({ wslEnabled: true, wslDistro: "Ubuntu-24.04", wslUser: "dev" }),
+	);
+
+	const tab = instance.create(projectTarget("D:/work/proj"), "wsl");
+
+	assert.equal(tab.shell, "wsl");
+	assert.equal(spawns[0].command, "wsl.exe");
+	assert.deepEqual(plain(spawns[0].args), [
+		"-d",
+		"Ubuntu-24.04",
+		"-u",
+		"dev",
+		"--cd",
+		"/mnt/d/work/proj",
+	]);
+	assert.equal(spawns[0].cwd, "D:\\work\\proj");
 });
 
 test("closing an agent leaves project terminal buckets intact", () => {

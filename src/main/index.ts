@@ -259,6 +259,7 @@ import { XuePromptManager } from "./prompts/XuePromptManager";
 import { SkillManager } from "./skills/SkillManager";
 import { ExtensionManager } from "./extensions/ExtensionManager";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
+import { toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
@@ -2411,6 +2412,12 @@ function registerIpc() {
 		projectResourceManager,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 		getMainWindow: () => mainWindow,
+		resolveWslEnvironment: async (distro, user) => {
+			const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
+			return resolveWslEnvironment(distro, user, {
+				warn: (msg: string, detail: Record<string, unknown>) => console.warn("[PiDeck] " + msg, detail),
+			});
+		},
 	});
 
 	registerScratchPadIpc({ appLogger });
@@ -2752,6 +2759,7 @@ function registerIpc() {
 		configureExtensionManagerWsl: (env) => extensionManager.configureWsl(env),
 		configureConfigManagerWsl: (env) => configManager.configureWsl(env),
 		configureXuePromptManagerWsl: (env) => xuePromptManager.configureWsl(env),
+		configureAgentManagerWsl: (env) => agentManager.configureWsl(env),
 		sessionCommandIpcError,
 		// 重启路径需要同步 isQuitting / 停服务，避免 closeToTray 吞掉 relaunch
 		webServiceManager,
@@ -2905,6 +2913,22 @@ app.whenReady().then(async () => {
 	projectResourceManager = new ProjectResourceManager(
 		(projectId) => projectStore.get(projectId),
 		mainCopy,
+		(project) => {
+			const settings = settingsStore.get();
+			if (
+				process.platform === "win32" &&
+				project.environment === "wsl" &&
+				settings.wslEnabled &&
+				settings.wslDistro
+			) {
+				try {
+					return toWindowsHostPath(project.path, { distro: settings.wslDistro });
+				} catch {
+					return project.path;
+				}
+			}
+			return project.path;
+		},
 	);
 	agentManager = new AgentManager(
 		(id) => projectStore.get(id),
@@ -3185,6 +3209,7 @@ app.whenReady().then(async () => {
 	terminalManager = new TerminalSessionManager(
 		(agentId) => agentManager.getCwd(agentId),
 		(channel, payload) => mainWindow?.webContents.send(channel, payload),
+		() => settingsStore.get(),
 	);
 	// C12：退出清理登记（before-quit 统一 runAll）
 	quitCleanup.register("terminal", () => terminalManager?.closeAll());
@@ -3244,6 +3269,7 @@ app.whenReady().then(async () => {
 				warn: (msg: string, detail: unknown) => console.warn("[PiDeck] " + String(msg), detail),
 			});
 			await sessionScanner.configureWsl(wslEnv);
+			agentManager.configureWsl(wslEnv);
 			skillManager.configureWsl(wslEnv);
 			promptManager.configureWsl(wslEnv);
 			extensionManager.configureWsl(wslEnv);
@@ -3251,6 +3277,7 @@ app.whenReady().then(async () => {
 			if (xuePromptManager) xuePromptManager.configureWsl(wslEnv);
 		} else {
 			sessionScanner.clearWsl();
+			agentManager.configureWsl(null);
 			skillManager.configureWsl(null);
 			promptManager.configureWsl(null);
 			extensionManager.configureWsl(null);

@@ -407,7 +407,13 @@ export class ExtensionManager {
 
 	async checkPiUpdate(): Promise<PiUpdateCheckResult> {
 		try {
-			const status = await this.locator.check(this.getSettings().customPiPath);
+			const settings = this.getSettings();
+			const status = await this.locator.check(
+				settings.customPiPath,
+				settings.wslEnabled,
+				settings.wslDistro,
+				settings.wslUser,
+			);
 			if (!status.installed) return { hasUpdate: false, error: this.translate("mainExtension.piNotInstalled") };
 			const latestVersion = await this.npmViewVersion("@earendil-works/pi-coding-agent");
 			return {
@@ -575,7 +581,13 @@ export class ExtensionManager {
 
 	private async detectPiVersion(): Promise<string | null> {
 		try {
-			const status = await this.locator.check(this.getSettings().customPiPath);
+			const settings = this.getSettings();
+			const status = await this.locator.check(
+				settings.customPiPath,
+				settings.wslEnabled,
+				settings.wslDistro,
+				settings.wslUser,
+			);
 			if (status.installed && status.version) {
 				this.piVersion = status.version;
 				return status.version;

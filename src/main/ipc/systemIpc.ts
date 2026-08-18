@@ -133,6 +133,7 @@ export type SystemIpcDeps = {
 	configureExtensionManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
 	configureConfigManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
 	configureXuePromptManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
+	configureAgentManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
 	/** Session command IPC error converter */
 	sessionCommandIpcError?: (error: import("../../shared/types").SessionCommandError) => Error;
 	/** Extension manager for pi update */
@@ -191,6 +192,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		configureExtensionManagerWsl,
 		configureConfigManagerWsl,
 		configureXuePromptManagerWsl,
+		configureAgentManagerWsl,
 		sessionCommandIpcError,
 		extensionManager,
 		webServiceManager,
@@ -216,7 +218,13 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	});
 
 	ipcMain.handle(ipcChannels.piCheckCustom, async (_event, customPath: string) => {
-		const status = await piLocator.validateCustomPath(customPath);
+		const settings = settingsStore.get();
+		const status = await piLocator.validateCustomPath(
+			customPath,
+			settings.wslEnabled,
+			settings.wslDistro,
+			settings.wslUser,
+		);
 		if (status.installed && status.command) {
 			await settingsStore.update({ customPiPath: status.command });
 		}
@@ -634,7 +642,13 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	// ── 反馈环境 ─────────────────────────────────────────────────────
 
 	ipcMain.handle(ipcChannels.appFeedbackEnvironment, async () => {
-		const pi = await piLocator.check();
+		const settings = settingsStore.get();
+		const pi = await piLocator.check(
+			settings.customPiPath,
+			settings.wslEnabled,
+			settings.wslDistro,
+			settings.wslUser,
+		);
 		return {
 			appVersion: app.getVersion(),
 			platform: process.platform,
@@ -796,6 +810,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				if (configureExtensionManagerWsl) configureExtensionManagerWsl(environment);
 				if (configureConfigManagerWsl) configureConfigManagerWsl(environment);
 				if (configureXuePromptManagerWsl) configureXuePromptManagerWsl(environment);
+				if (configureAgentManagerWsl) configureAgentManagerWsl(environment);
 			} else {
 				if (clearSessionScannerWsl) clearSessionScannerWsl();
 				if (configureSkillManagerWsl) configureSkillManagerWsl(null);
@@ -803,6 +818,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				if (configureExtensionManagerWsl) configureExtensionManagerWsl(null);
 				if (configureConfigManagerWsl) configureConfigManagerWsl(null);
 				if (configureXuePromptManagerWsl) configureXuePromptManagerWsl(null);
+				if (configureAgentManagerWsl) configureAgentManagerWsl(null);
 			}
 		}
 		return settings;

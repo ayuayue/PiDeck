@@ -47,9 +47,11 @@ test("Git IPC keeps project lookup, bounded diffs, and stale-worktree cleanup", 
     assert.match(gitIpc, new RegExp(`ipcChannels\\.${channel}`));
   }
   assert.match(gitIpc, /maxEditorFileSizeMB/);
-  assert.match(gitIpc, /const stillInGit = \(await worktreeService\.list\(project\.path\)\)\.some/);
-  assert.match(gitIpc, /if \(ok \|\| !stillInGit\)/);
-  assert.match(gitIpc, /projectStore\.remove\(child\.id\)/);
+	assert.match(gitIpc, /const stillInGit = \(await worktreeService\.list\(hostProjectPath\)\)\.some/);
+	assert.match(gitIpc, /if \(ok \|\| !stillInGit\)/);
+	assert.match(gitIpc, /projectStore\.remove\(child\.id\)/);
+	assert.match(gitIpc, /const projectHostPath = \(project: \{ path: string \}\) => hostPath\(project\.path\)/);
+	assert.match(gitIpc, /paths\.map\(hostPath\)/);
 });
 
 test("git:fetch skips non-repositories instead of throwing", () => {
@@ -57,5 +59,5 @@ test("git:fetch skips non-repositories instead of throwing", () => {
   const fetchFn = service.slice(service.indexOf("async fetch(cwd: string)"), service.indexOf("async getAheadBehind"));
   assert.match(fetchFn, /not a git repository/);
   assert.match(fetchFn, /return;/);
-  assert.match(gitIpc, /if \(!\(await gitService\.isGitRepo\(project\.path\)\)\) return;/);
+	assert.match(gitIpc, /if \(!\(await gitService\.isGitRepo\(projectHostPath\(project\)\)\)\) return;/);
 });

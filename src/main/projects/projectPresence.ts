@@ -14,6 +14,7 @@ import type { Project } from "../../shared/types";
 import { parseWslUncPath } from "../wsl/WslPaths";
 
 export type PathCheck = (path: string) => Promise<boolean>;
+export type ProjectPathResolver = (project: Project) => string;
 
 /** 默认路径检查：stat 成功即存在（ENOENT 及一切异常视为不存在）。 */
 export const defaultPathCheck: PathCheck = async (path) => {
@@ -32,6 +33,7 @@ export const defaultPathCheck: PathCheck = async (path) => {
 export async function attachProjectPresence(
 	projects: readonly Project[],
 	checkPath: PathCheck = defaultPathCheck,
+	resolvePath: ProjectPathResolver = (project) => project.path,
 ): Promise<Project[]> {
 	const results: Project[] = [];
 	for (const project of projects) {
@@ -40,7 +42,7 @@ export async function attachProjectPresence(
 			continue;
 		}
 		results.push(
-			(await isProjectMissing(project, checkPath))
+			(await isProjectMissing(project, checkPath, resolvePath))
 				? { ...project, missing: true }
 				: project,
 		);
@@ -52,13 +54,15 @@ export async function attachProjectPresence(
 async function isProjectMissing(
 	project: Project,
 	checkPath: PathCheck,
+	resolvePath: ProjectPathResolver,
 ): Promise<boolean> {
-	if (await checkPath(project.path)) return false;
+	const hostPath = resolvePath(project);
+	if (await checkPath(hostPath)) return false;
 	// WSL 项目（UNC 路径）：stat 失败可能是发行版未启动（UNC 根不可达），
 	// 此时不标记——否则每次 WSL 未启动都会误报「目录不存在」。
 	// 发行版根可达但项目路径仍缺失，才是真正被删除/移动。
 	if (project.environment === "wsl") {
-		const unc = parseWslUncPath(project.path);
+		const unc = parseWslUncPath(hostPath) ?? parseWslUncPath(project.path);
 		if (!unc) return true; // 无法解析的 WSL 路径视为缺失
 		if (!(await checkPath(`\\\\wsl.localhost\\${unc.distro}`))) return false;
 	}

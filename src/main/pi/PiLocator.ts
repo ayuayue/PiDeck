@@ -45,10 +45,19 @@ export class PiLocator {
   /**
    * Resolves the pi CLI across packaged Electron environments where shell PATH is often incomplete.
    * When `customPath` is provided, it takes priority over auto-detection —
-   * this is the user's manually specified path from settings.
-   */
+  * this is the user's manually specified path from settings.
+  */
   resolveCommand(customPath?: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string) {
     const normalizedCustomPath = this.normalizeCustomPath(customPath);
+    // wsl:// 是显式的运行目标，优先保留；普通本地路径则不能覆盖已启用的 WSL
+    // 模式，否则设置页残留的 Windows pi.cmd 会把 Agent 静默切回宿主机。
+    if (normalizedCustomPath?.startsWith("wsl://")) return normalizedCustomPath;
+    if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
+      const wslCustomPath = this.toWslCustomPath(normalizedCustomPath, wslEnabled, wslDistro, wslUser);
+      if (wslCustomPath) return wslCustomPath;
+      const wslCommand = this.resolveWslCommand(wslDistro, wslUser);
+      if (wslCommand) return wslCommand;
+    }
     // 用户手动指定路径优先，适用于 npm/pnpm/yarn 全局安装、nvm/volta/asdf/mise 等极端情况。
     // 旧版本可能已保存 pi.ps1；Windows 现在不再调用 PowerShell shim，遇到时忽略并回退自动检测。
     // 路径已失效（文件被删 / 版本管理器切换后旧路径残留）时同样回退自动检测——否则 check()
@@ -62,12 +71,6 @@ export class PiLocator {
     ) {
       return normalizedCustomPath;
     }
-    // 用户显式开启 WSL 时优先使用 WSL 中的 pi，不轮询本地 PATH 中的 Windows 版本
-    if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
-      const wslCommand = this.resolveWslCommand(wslDistro, wslUser);
-      if (wslCommand) return wslCommand;
-    }
-
     const candidates = this.getCandidates();
     const found = candidates.find(candidate => existsSync(candidate));
     if (found) return found;
@@ -282,8 +285,14 @@ export class PiLocator {
    * 直接对给定路径执行 --version，绕过 getCandidates 的目录扫描，
    * 适用于用户从终端复制完整路径（如 D:\nodejs\pi.cmd）后手动粘贴的场景。
    */
-  async validateCustomPath(customPath: string): Promise<PiInstallStatus> {
-    const command = this.normalizeCustomPath(customPath);
+  async validateCustomPath(
+    customPath: string,
+    wslEnabled?: boolean,
+    wslDistro?: string,
+    wslUser?: string,
+  ): Promise<PiInstallStatus> {
+    const normalized = this.normalizeCustomPath(customPath);
+    const command = this.toWslCustomPath(normalized, wslEnabled, wslDistro, wslUser) ?? normalized;
     if (!command) {
       return { installed: false, searchedDirs: [], error: this.translate("mainPi.pathRequired") };
     }
@@ -291,17 +300,25 @@ export class PiLocator {
     if (command.startsWith("wsl://")) {
       const parsed = this.parseWslUrl(command);
       if (!parsed) return { installed: false, searchedDirs: [], error: this.translate("mainPi.invalidWslUrl") };
-      return this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+      const status = await this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+      // Keep the user's Linux path as the persisted custom setting. `resolveCommand()`
+      // converts it to the internal wsl:// marker on the next launch, while the settings
+      // UI continues to show the path the user entered instead of an internal URL.
+      return { ...status, command: normalized };
     }
     return this.runCheck(command, []);
   }
 
   async check(customPath?: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string): Promise<PiInstallStatus> {
     const normalizedCustomPath = this.normalizeCustomPath(customPath);
-    if (normalizedCustomPath && this.isUnsupportedPowerShellShim(normalizedCustomPath)) {
+    if (
+      normalizedCustomPath &&
+      this.isUnsupportedPowerShellShim(normalizedCustomPath) &&
+      !(wslEnabled && process.platform === "win32" && wslDistro && wslUser)
+    ) {
       return this.unsupportedPowerShellStatus(normalizedCustomPath, this.getSearchDirs());
     }
-    const command = normalizedCustomPath || this.resolveCommand(customPath, wslEnabled, wslDistro, wslUser);
+    const command = this.resolveCommand(customPath, wslEnabled, wslDistro, wslUser);
     const searchedDirs = this.getSearchDirs();
 
     if (command.startsWith("wsl://")) {
@@ -359,6 +376,26 @@ export class PiLocator {
 
   private isUnsupportedPowerShellShim(command: string) {
     return process.platform === "win32" && command.trim().toLowerCase().endsWith(".ps1");
+  }
+
+  private toWslCustomPath(
+    command: string,
+    wslEnabled?: boolean,
+    wslDistro?: string,
+    wslUser?: string,
+  ): string | null {
+    if (
+      !command ||
+      !wslEnabled ||
+      process.platform !== "win32" ||
+      !wslDistro ||
+      !wslUser ||
+      !command.startsWith("/")
+    ) {
+      return null;
+    }
+    // 双斜杠是有意保留的：URL 的分隔符之后还要保留 Linux 命令的首个 `/`。
+    return `wsl://${wslDistro}/${wslUser}/${command}`;
   }
 
   private unsupportedPowerShellStatus(

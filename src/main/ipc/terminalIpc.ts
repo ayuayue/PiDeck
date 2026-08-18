@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
-import type { SessionCommandError, SessionRuntimeTarget, TerminalTarget } from "../../shared/types";
+import type { SessionCommandError, SessionRuntimeTarget, TerminalShell, TerminalTarget } from "../../shared/types";
 import type { AppLogger } from "../logging/AppLogger";
 import type { SessionRuntimeCoordinator } from "../sessions/SessionRuntimeCoordinator";
 import type { TerminalSessionManager } from "../terminal/TerminalSessionManager";
@@ -40,9 +40,9 @@ export function registerTerminalIpc({
 		requireTerminalTarget(target);
 		return terminalManager.ensure(target);
 	});
-	ipcMain.handle(ipcChannels.terminalCreate, async (_event, target: TerminalTarget) => {
+	ipcMain.handle(ipcChannels.terminalCreate, async (_event, target: TerminalTarget, shell?: TerminalShell) => {
 		requireTerminalTarget(target);
-		const result = await terminalManager.create(target);
+		const result = await terminalManager.create(target, shell);
 		void appLogger.info("terminal", "Terminal created", {
 			kind: target.kind,
 			sessionId: target.kind === "agent" ? target.sessionId : undefined,

@@ -10,6 +10,12 @@ import { PiRpcClient } from "../pi/PiRpcClient";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { WorktreeService } from "../git/WorktreeService";
+import {
+	normalizeSelectedWslProjectPath,
+	parseWslUncPath,
+	toWindowsHostPath,
+	toWslLinuxPath,
+} from "../wsl/WslPaths";
 
 export type GitIpcDeps = {
 	appLogger: Pick<AppLogger, "warn" | "info" | "error">;
@@ -80,6 +86,9 @@ async function ensureGenProcess(
 	if (genProcess) stopGenProcess();
 
 	const settings = settingsStore.get();
+	const wslCwd = settings.wslEnabled && settings.wslDistro && command.startsWith("wsl://")
+		? toWslLinuxPath(projectPath, { distro: settings.wslDistro })
+		: undefined;
 	const invocation = piLocator.createInvocation(command, [
 		"--mode", "rpc",
 		"--no-session",
@@ -90,10 +99,13 @@ async function ensureGenProcess(
 		"--no-context-files",
 		"--no-themes",
 		"--thinking", "off",
-	]);
+	], wslCwd ? { wslCwd } : {});
+	const spawnCwd = wslCwd && settings.wslDistro
+		? toWindowsHostPath(projectPath, { distro: settings.wslDistro })
+		: projectPath;
 
 	const childProcess = spawn(invocation.command, invocation.args, {
-		cwd: projectPath,
+		cwd: spawnCwd,
 		env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
 		stdio: ["pipe", "pipe", "pipe"],
 		shell: invocation.shell,
@@ -101,7 +113,7 @@ async function ensureGenProcess(
 		windowsVerbatimArguments: invocation.windowsVerbatimArguments,
 	});
 	genProcess = childProcess;
-	genProcessCwd = projectPath;
+	genProcessCwd = spawnCwd;
 
 	genRpcClient = new PiRpcClient(childProcess.stdin!, childProcess.stdout!);
 
@@ -220,10 +232,37 @@ export function registerGitIpc({
 	settingsStore,
 	worktreeService,
 }: GitIpcDeps): void {
+	const hostPath = (path: string): string => {
+		const settings = settingsStore.get();
+		if (
+			process.platform !== "win32" ||
+			!settings.wslEnabled ||
+			!settings.wslDistro ||
+			(!path.startsWith("/") && !parseWslUncPath(path))
+		) {
+			return path;
+		}
+		return toWindowsHostPath(path, { distro: settings.wslDistro });
+	};
+
+	const projectHostPath = (project: { path: string }) => hostPath(project.path);
+	const projectStoredPath = (path: string, project: { environment?: string }) => {
+		const settings = settingsStore.get();
+		if (
+			process.platform !== "win32" ||
+			project.environment !== "wsl" ||
+			!settings.wslEnabled ||
+			!settings.wslDistro
+		) {
+			return path;
+		}
+		return normalizeSelectedWslProjectPath(path, { distro: settings.wslDistro });
+	};
+
 	ipcMain.handle(ipcChannels.gitBranches, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
-		return gitService.getBranches(project.path);
+		return gitService.getBranches(projectHostPath(project));
 	});
 
 	ipcMain.handle(
@@ -231,7 +270,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, branch: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const result = await gitService.checkout(project.path, branch);
+			const result = await gitService.checkout(projectHostPath(project), branch);
 			// 切换分支可能覆盖未提交的工作区改动：记 warn 审计日志，排查"文件消失"时能定位到切换动作。
 			void appLogger.warn("git", "Branch checked out", { projectId, branch, changed: result });
 			return result;
@@ -243,7 +282,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, branchName: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			return gitService.createBranch(project.path, branchName);
+			return gitService.createBranch(projectHostPath(project), branchName);
 		},
 	);
 
@@ -252,7 +291,7 @@ export function registerGitIpc({
 		ipcChannels.gitOriginalContent,
 		async (_event, filePath: string) => {
 			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-			return gitService.getOriginalContent(filePath, maxBytes);
+			return gitService.getOriginalContent(hostPath(filePath), maxBytes);
 		},
 	);
 
@@ -261,12 +300,16 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const entries = await worktreeService.list(project.path);
+			const entries = await worktreeService.list(projectHostPath(project));
+			const storedEntries = entries.map((entry) => ({
+				...entry,
+				path: projectStoredPath(entry.path, project),
+			}));
 			// 每次扫描都同步注册外部新增 worktree，保证侧栏数据和 git 状态一致。
-			for (const wt of entries) {
-				await projectStore.add(wt.path, projectId);
+			for (const wt of storedEntries) {
+				await projectStore.add(wt.path, projectId, project.environment === "wsl" ? "wsl" : "windows");
 			}
-			return entries;
+			return storedEntries;
 		},
 	);
 
@@ -275,9 +318,10 @@ export function registerGitIpc({
 		async (_event, projectId: string, branchName: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const info = await worktreeService.create(project.path, projectId, branchName);
-			await projectStore.add(info.path, projectId);
-			return info;
+			const info = await worktreeService.create(projectHostPath(project), projectId, branchName);
+			const storedPath = projectStoredPath(info.path, project);
+			await projectStore.add(storedPath, projectId, project.environment === "wsl" ? "wsl" : "windows");
+			return { ...info, path: storedPath };
 		},
 	);
 
@@ -287,19 +331,21 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
 			try {
-				const ok = await worktreeService.remove(worktreePath, project.path);
+				const hostWorktreePath = hostPath(worktreePath);
+				const hostProjectPath = projectHostPath(project);
+				const ok = await worktreeService.remove(hostWorktreePath, hostProjectPath);
 				const normalizeForCompare = (value: string) => {
 					const resolved = resolve(value);
 					return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 				};
-				const normalizedTarget = normalizeForCompare(worktreePath);
-				const stillInGit = (await worktreeService.list(project.path)).some(
+				const normalizedTarget = normalizeForCompare(hostWorktreePath);
+				const stillInGit = (await worktreeService.list(hostProjectPath)).some(
 					(entry) => normalizeForCompare(entry.path) === normalizedTarget,
 				);
 				// 如果 git 已经没有该 worktree（包括用户在外部删过导致 remove 返回 false），
 				// 也要清理 PiDeck 项目记录，否则重启后会从 projects.json 恢复成"删不掉"。
 				if (ok || !stillInGit) {
-					const child = projectStore.findByPath(worktreePath);
+					const child = projectStore.findByPath(projectStoredPath(hostWorktreePath, project));
 					if (child) await projectStore.remove(child.id);
 					// worktree 删除 = 物理目录删除（走回收站），记审计日志便于追踪。
 					void appLogger.info("git", "Worktree removed", {
@@ -332,7 +378,10 @@ export function registerGitIpc({
 		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }) => {
 			const project = projectStore.get(projectId);
 			if (!project) return [];
-			return gitService.getCommitLog(project.path, options);
+			const hostOptions = options?.path
+				? { ...options, path: hostPath(options.path) }
+				: options;
+			return gitService.getCommitLog(projectHostPath(project), hostOptions);
 		},
 	);
 
@@ -341,7 +390,7 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) return [];
-			return gitService.getRefs(project.path);
+			return gitService.getRefs(projectHostPath(project));
 		},
 	);
 
@@ -350,7 +399,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, base: string, target: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			return gitService.compareBranches(project.path, base, target);
+			return gitService.compareBranches(projectHostPath(project), base, target);
 		},
 	);
 
@@ -359,7 +408,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, ref: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) return null;
-			return gitService.getCommitDetail(project.path, ref);
+			return gitService.getCommitDetail(projectHostPath(project), ref);
 		},
 	);
 
@@ -369,7 +418,13 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) return null;
 			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-			return gitService.getCommitFileDiff(project.path, ref, filePath, originalPath, maxBytes);
+			return gitService.getCommitFileDiff(
+				projectHostPath(project),
+				ref,
+				hostPath(filePath),
+				originalPath ? hostPath(originalPath) : originalPath,
+				maxBytes,
+			);
 		},
 	);
 
@@ -378,7 +433,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, ref1: string, ref2: string, filePath: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) return "";
-			return gitService.diffFileBetweenRefs(project.path, ref1, ref2, filePath);
+			return gitService.diffFileBetweenRefs(projectHostPath(project), ref1, ref2, hostPath(filePath));
 		},
 	);
 
@@ -389,7 +444,7 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) return { merge: [], index: [], workingTree: [], untracked: [] };
-			return gitService.getStatus(project.path);
+			return gitService.getStatus(projectHostPath(project));
 		},
 	);
 
@@ -399,7 +454,7 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) return null;
 			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-			return gitService.getWorkspaceFileDiff(project.path, group, filePath, maxBytes);
+			return gitService.getWorkspaceFileDiff(projectHostPath(project), group, hostPath(filePath), maxBytes);
 		},
 	);
 
@@ -408,7 +463,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, paths: string[]) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.stageFiles(project.path, paths);
+			await gitService.stageFiles(projectHostPath(project), paths.map(hostPath));
 		},
 	);
 
@@ -417,7 +472,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, paths: string[]) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.unstageFiles(project.path, paths);
+			await gitService.unstageFiles(projectHostPath(project), paths.map(hostPath));
 		},
 	);
 
@@ -427,7 +482,7 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
 			try {
-				await gitService.discardFile(project.path, group, filePath);
+				await gitService.discardFile(projectHostPath(project), group, hostPath(filePath));
 				// untracked 丢弃 = 删除用户文件（走回收站），记审计日志便于追踪。
 				void appLogger.info("git", "Changes discarded", { projectId, group, filePath });
 			} catch (error) {
@@ -447,7 +502,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, message: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.commit(project.path, message);
+			await gitService.commit(projectHostPath(project), message);
 			void appLogger.info("git", "Commit created", { projectId, message });
 		},
 	);
@@ -457,7 +512,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, hash: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.cherryPick(project.path, hash);
+			await gitService.cherryPick(projectHostPath(project), hash);
 			void appLogger.info("git", "Commit cherry-picked", { projectId, hash });
 		},
 	);
@@ -467,7 +522,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, hash: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.revertCommit(project.path, hash);
+			await gitService.revertCommit(projectHostPath(project), hash);
 			void appLogger.info("git", "Commit reverted", { projectId, hash });
 		},
 	);
@@ -477,7 +532,7 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.push(project.path);
+			await gitService.push(projectHostPath(project));
 			void appLogger.info("git", "Pushed", { projectId });
 		},
 	);
@@ -487,7 +542,7 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.pull(project.path);
+			await gitService.pull(projectHostPath(project));
 			void appLogger.info("git", "Pulled", { projectId });
 		},
 	);
@@ -497,7 +552,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard") => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.resetToCommit(project.path, hash, mode);
+			await gitService.resetToCommit(projectHostPath(project), hash, mode);
 			// hard reset 会丢工作区/暂存区改动（reflog 外的不可恢复路径），warn 级突出显示。
 			void appLogger.warn("git", "Reset to commit", { projectId, hash, mode });
 		},
@@ -508,7 +563,7 @@ export function registerGitIpc({
 		async (_event, projectId: string, hash: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			await gitService.dropCommit(project.path, hash);
+			await gitService.dropCommit(projectHostPath(project), hash);
 			void appLogger.warn("git", "Commit dropped", { projectId, hash });
 		},
 	);
@@ -519,7 +574,8 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) return { ok: true, message: "" };
 
-			const diff = await gitService.getStagedDiff(project.path);
+			const hostProjectPath = projectHostPath(project);
+			const diff = await gitService.getStagedDiff(hostProjectPath);
 			if (!diff.trim()) return { ok: true, message: "" };
 
 			const settings = settingsStore.get();
@@ -541,7 +597,7 @@ export function registerGitIpc({
 
 			try {
 				const result = await quickGenerate(
-					project.path,
+					hostProjectPath,
 					prompt,
 					piLocator,
 					settingsStore,
@@ -571,7 +627,7 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
 			const { execFile } = await import("node:child_process");
-			await execFile("git", ["init"], { cwd: project.path });
+			await execFile("git", ["init"], { cwd: projectHostPath(project) });
 			void appLogger.info("git", "Repository initialized", { projectId, path: project.path });
 		},
 	);
@@ -583,8 +639,8 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			if (!(await gitService.isGitRepo(project.path))) return;
-			await gitService.fetch(project.path);
+			if (!(await gitService.isGitRepo(projectHostPath(project)))) return;
+			await gitService.fetch(projectHostPath(project));
 		},
 	);
 
@@ -594,7 +650,7 @@ export function registerGitIpc({
 		async (_event, projectId: string) => {
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
-			return gitService.getAheadBehind(project.path);
+			return gitService.getAheadBehind(projectHostPath(project));
 		},
 	);
 
@@ -608,7 +664,7 @@ export function registerGitIpc({
 			if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || !p)) {
 				throw new Error("Invalid paths");
 			}
-			await gitService.deleteFiles(project.path, paths);
+			await gitService.deleteFiles(projectHostPath(project), paths.map(hostPath));
 			// 批量删除文件：最高风险操作之一，完整记录路径清单（含数量）便于误删回溯。
 			void appLogger.warn("git", "Files deleted (recycle bin)", { projectId, count: paths.length, paths });
 		},

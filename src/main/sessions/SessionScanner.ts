@@ -102,6 +102,15 @@ export class SessionScanner {
     return this.resolveWslExe().shell;
   }
 
+  /** WSL session paths are Linux paths even though this class runs in Windows Node. */
+  private joinRuntimePath(...parts: string[]): string {
+    const first = parts[0] ?? "";
+    if (this.wslConfig && first.startsWith("/")) {
+      return posixJoin(...parts.map((part) => part.replace(/\\/g, "/")));
+    }
+    return join(...parts);
+  }
+
   async configureWsl(environment: WslEnvironment | null): Promise<void> {
     this.wslConfig = environment
       ? { distro: environment.distro, user: environment.user, home: environment.linuxHome }
@@ -665,7 +674,7 @@ export class SessionScanner {
   private archiveDirFor(filePath: string): string | undefined {
     const root = this.findSessionsRootForFile(filePath);
     if (!root) return undefined;
-    return join(root, SessionScanner.ARCHIVE_DIR_NAME);
+    return this.joinRuntimePath(root, SessionScanner.ARCHIVE_DIR_NAME);
   }
 
   /**
@@ -677,12 +686,13 @@ export class SessionScanner {
     const archiveDir = this.archiveDirFor(filePath);
     if (!archiveDir) throw new Error("会话不在可扫描目录内，无法归档");
     // 归档目标 = 归档目录 + 原文件名；重名时追加时间戳避免覆盖已有归档。
-    const target = join(archiveDir, basename(filePath));
+    const target = this.joinRuntimePath(archiveDir, basename(filePath));
     const finalTarget = existsSync(target) || (wsl && await this.existsWslFile(target))
-      ? join(archiveDir, `${basename(filePath, extname(filePath))}.${Date.now()}${extname(filePath)}`)
+      ? this.joinRuntimePath(archiveDir, `${basename(filePath, extname(filePath))}.${Date.now()}${extname(filePath)}`)
       : target;
 
     if (wsl) {
+      await this.mkdirWsl(archiveDir);
       await this.moveWsl(filePath, finalTarget);
     } else {
       await mkdir(archiveDir, { recursive: true });
@@ -691,7 +701,7 @@ export class SessionScanner {
     // 同级子会话目录（<stem>/）一并移入归档，保持子会话归属。
     const siblingDir = this.getSiblingDir(filePath);
     if (siblingDir) {
-      const targetSibling = join(archiveDir, basename(siblingDir));
+      const targetSibling = this.joinRuntimePath(archiveDir, basename(siblingDir));
       if (wsl) {
         if (await this.existsWslDir(siblingDir)) await this.moveWsl(siblingDir, targetSibling);
       } else if (existsSync(siblingDir)) {
@@ -745,7 +755,7 @@ export class SessionScanner {
     const results: SessionSummary[] = [];
     const seen = new Set<string>();
     for (const root of roots) {
-      const archiveDir = join(root, SessionScanner.ARCHIVE_DIR_NAME);
+      const archiveDir = this.joinRuntimePath(root, SessionScanner.ARCHIVE_DIR_NAME);
       const files = this.wslConfig
         ? await this.collectJsonlFromDirWsl(archiveDir).catch(() => [] as string[])
         : await this.collectJsonl(archiveDir).catch(() => [] as string[]);
@@ -771,12 +781,24 @@ export class SessionScanner {
     });
   }
 
+  /** Ensure a WSL archive directory exists before mv/dd writes into it. */
+  private mkdirWsl(dirPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile(this.wslExePath, ["-d", this.wslConfig!.distro, "-u", this.wslConfig!.user, "mkdir", "-p", "--", dirPath], {
+        shell: this.wslShell,
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      }, (err) => { if (err) reject(err); else resolve(); });
+    });
+  }
+
   /** 读归档索引（JSON：{ archivedPath: originalPath }） */
   private async readArchiveIndex(wsl: boolean): Promise<Record<string, string>> {
     const roots = wsl ? [this.wslSessionsDir] : [this.root];
     const merged: Record<string, string> = {};
     for (const root of roots) {
-      const indexPath = join(root, SessionScanner.ARCHIVE_DIR_NAME, SessionScanner.ARCHIVE_INDEX_NAME);
+      const indexPath = this.joinRuntimePath(root, SessionScanner.ARCHIVE_DIR_NAME, SessionScanner.ARCHIVE_INDEX_NAME);
       try {
         const raw = wsl ? await this.readWslFile(indexPath) : await readFile(indexPath, "utf8");
         Object.assign(merged, JSON.parse(raw) as Record<string, string>);
@@ -790,11 +812,12 @@ export class SessionScanner {
   /** 写入归档索引（合并现有条目 + 新增/删除） */
   private async writeArchiveIndex(entries: Record<string, string>, wsl: boolean): Promise<void> {
     const archiveDir = wsl
-      ? join(this.wslSessionsDir, SessionScanner.ARCHIVE_DIR_NAME)
+      ? this.joinRuntimePath(this.wslSessionsDir, SessionScanner.ARCHIVE_DIR_NAME)
       : join(this.root, SessionScanner.ARCHIVE_DIR_NAME);
     const content = JSON.stringify(entries, null, 2);
     if (wsl) {
-      await this.writeWslFile(join(archiveDir, SessionScanner.ARCHIVE_INDEX_NAME), content);
+      await this.mkdirWsl(archiveDir);
+      await this.writeWslFile(this.joinRuntimePath(archiveDir, SessionScanner.ARCHIVE_INDEX_NAME), content);
     } else {
       await mkdir(archiveDir, { recursive: true });
       await writeFile(join(archiveDir, SessionScanner.ARCHIVE_INDEX_NAME), content, "utf8");
@@ -898,7 +921,7 @@ export class SessionScanner {
     const copyName = this.translate("session.copyTitle", {
       title: current?.name || this.translate("session.untitled"),
     });
-    const targetPath = this.nextCopyPath(filePath, wsl);
+    const targetPath = await this.nextCopyPath(filePath, wsl);
     // copiedFrom 作为附加字段保留来源信息；pi 会忽略未知字段，不影响加载。
     const content = this.appendSessionInfoLine(raw, copyName, { copiedFrom: filePath });
 
@@ -1081,18 +1104,19 @@ export class SessionScanner {
 
   // ── 内部私有方法 ─────────────────────────────────────────────
 
-  private nextCopyPath(filePath: string, wsl: boolean): string {
-    const dir = dirname(filePath);
+  private async nextCopyPath(filePath: string, wsl: boolean): Promise<string> {
+    const dir = wsl ? posixDirname(filePath) : dirname(filePath);
     const ext = extname(filePath) || ".jsonl";
-    const base = basename(filePath, ext);
+    const base = wsl ? posixBasename(filePath, ext) : basename(filePath, ext);
     for (let index = 1; index < 1000; index += 1) {
       const suffix = index === 1 ? "copy" : `copy-${index}`;
-      const candidate = join(dir, `${base}-${suffix}${ext}`);
+      const candidate = wsl
+        ? posixJoin(dir, `${base}-${suffix}${ext}`)
+        : join(dir, `${base}-${suffix}${ext}`);
       // WSL 路径需要通过 wsl.exe 检查文件是否存在
       if (wsl) {
-        // 对于 WSL copy，我们跳过存在性检查（nextCopyPath 在 copy() 中调用，
-        // copy 写入前已经通过递增确保唯一；这里仅保证路径格式正确）
-        return candidate;
+        if (!(await this.existsWslFile(candidate))) return candidate;
+        continue;
       }
       if (!existsSync(candidate)) return candidate;
     }

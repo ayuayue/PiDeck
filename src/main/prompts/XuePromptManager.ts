@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { app } from "electron";
 import initSqlJs from "sql.js";
 import { PromptManager } from "./PromptManager";
+import type { WslEnvironment } from "../wsl/WslPaths";
 import type {
 	YaoPromptCategory,
 	YaoPromptItem,
@@ -61,9 +62,8 @@ export class XuePromptManager {
 		return this.sqlPromise;
 	}
 
-	// configureWsl deferred until WSL infrastructure is ported
-	configureWsl(_wsl: any) {
-		this.promptManager.configureWsl(null);
+	configureWsl(wsl: WslEnvironment | null) {
+		this.promptManager.configureWsl(wsl);
 	}
 
 	/**

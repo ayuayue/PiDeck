@@ -142,6 +142,15 @@ function loadAgentManager() {
 				};
 			}
 			if (id === "./LatestByKeyEmitter") return { LatestByKeyEmitter };
+			if (id === "./extensionStartupFallback") {
+				return {
+					shouldRetryWithoutExtensions: () => false,
+					formatExtensionFallbackDebug: () => "",
+				};
+			}
+			if (id === "./extensionError") {
+				return { formatExtensionErrorReason: (error) => String(error) };
+			}
 			if (id === "./streamGate") return streamGate;
 			if (id === "./cacheHitStats") return cacheHitStats;
 			if (id === "../../shared/toolRuntimeState") return { updateActiveToolCalls: () => new Map() };

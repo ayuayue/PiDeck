@@ -32,10 +32,10 @@ test("terminal creation and listing cross IPC with an owner-validated target", (
 	// 按 cwd 隔离）；preload/Dock/IPC 全链路统一 TerminalTarget。
 	assert.match(preload, /terminal: \{[\s\S]*list: \(target: TerminalTarget\)/);
 	assert.match(preload, /ensure: \(target: TerminalTarget\)/);
-	assert.match(preload, /create: \(target: TerminalTarget\)/);
+	assert.match(preload, /create: \(target: TerminalTarget, shell\?: TerminalShell\)/);
 	assert.match(terminalDock, /target: TerminalTarget/);
 	assert.match(terminalDock, /props\.terminal\.ensure\(props\.target\)/);
-	assert.match(terminalDock, /props\.terminal\.create\(props\.target\)/);
+	assert.match(terminalDock, /props\.terminal\.create\(props\.target, shell\)/);
 	assert.match(
 		mainIpcSource,
 		/const requireTerminalTarget = \(target: TerminalTarget\)[\s\S]*kind === "project"[\s\S]*validateTarget\(target\)/,
@@ -46,7 +46,7 @@ test("terminal creation and listing cross IPC with an owner-validated target", (
 	);
 	assert.match(
 		mainIpcSource,
-		/terminalCreate[\s\S]*requireTerminalTarget\(target\)[\s\S]*terminalManager\.create\(target\)/,
+		/terminalCreate[\s\S]*requireTerminalTarget\(target\)[\s\S]*terminalManager\.create\(target, shell\)/,
 	);
 	assert.doesNotMatch(main, /ipcMain\.handle\(ipcChannels\.terminal/);
 });

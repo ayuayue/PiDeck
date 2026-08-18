@@ -9,6 +9,11 @@ import type { AppLogger } from "../logging/AppLogger";
 import type { ProjectResourceManager } from "../projects/ProjectResourceManager";
 import { attachProjectPresence } from "../projects/projectPresence";
 import { registerProjectResourceIpc } from "./projectResourceIpc";
+import {
+	normalizeSelectedWslProjectPath,
+	toWindowsHostPath,
+	type WslEnvironment,
+} from "../wsl/WslPaths";
 
 export type ProjectsIpcDeps = {
 	projectStore: ProjectStore;
@@ -20,6 +25,7 @@ export type ProjectsIpcDeps = {
 	projectResourceManager: ProjectResourceManager;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
 	getMainWindow: () => BrowserWindow | null;
+	resolveWslEnvironment?: (distro: string, user: string) => Promise<WslEnvironment>;
 };
 
 export function registerProjectsIpc({
@@ -32,7 +38,43 @@ export function registerProjectsIpc({
 	projectResourceManager,
 	mainCopy,
 	getMainWindow,
+	resolveWslEnvironment,
 }: ProjectsIpcDeps): void {
+	const resolveProjectHostPath = (project: { path: string; environment?: string }) => {
+		const settings = settingsStore.get();
+		if (
+			process.platform !== "win32" ||
+			project.environment !== "wsl" ||
+			!settings.wslEnabled ||
+			!settings.wslDistro
+		) {
+			return project.path;
+		}
+		try {
+			return toWindowsHostPath(project.path, { distro: settings.wslDistro });
+		} catch {
+			// Presence checks should not turn a temporary WSL/path mismatch into a hard IPC failure.
+			return project.path;
+		}
+	};
+
+	const resolveProjectStoredPath = (path: string, project: { environment?: string }) => {
+		const settings = settingsStore.get();
+		if (
+			process.platform !== "win32" ||
+			project.environment !== "wsl" ||
+			!settings.wslEnabled ||
+			!settings.wslDistro
+		) {
+			return path;
+		}
+		try {
+			return normalizeSelectedWslProjectPath(path, { distro: settings.wslDistro });
+		} catch {
+			return path;
+		}
+	};
+
 	// 可见项目 = 按环境过滤 + 目录存在性标记（missing 保留记录，见 projectPresence.ts）
 	const getVisibleProjects = async () => {
 		const settings = settingsStore.get();
@@ -40,14 +82,17 @@ export function registerProjectsIpc({
 		const visible = settings.wslEnabled
 			? all.filter((p) => p.kind === "chat" || p.environment === "wsl")
 			: all.filter((p) => p.kind === "chat" || !p.environment || p.environment === "windows");
-		return attachProjectPresence(visible);
+		return attachProjectPresence(visible, undefined, resolveProjectHostPath);
 	};
 
 	ipcMain.handle(ipcChannels.projectsList, async () => getVisibleProjects());
 	ipcMain.handle(ipcChannels.projectsAdd, async () => {
 		const settings = settingsStore.get();
 		const env = settings.wslEnabled ? "wsl" as const : "windows" as const;
-		const project = await projectStore.chooseAndAdd(env);
+		const wslEnvironment = env === "wsl" && settings.wslDistro && settings.wslUser && resolveWslEnvironment
+			? await resolveWslEnvironment(settings.wslDistro, settings.wslUser)
+			: null;
+		const project = await projectStore.chooseAndAdd(env, wslEnvironment);
 		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: env });
 		return project;
 	});
@@ -90,7 +135,7 @@ export function registerProjectsIpc({
 			// 即将启用时先校验是否 git 仓库；非 git 项目开启工作区模式没有意义，
 			// 只会看到空列表并在创建时报错，这里提前给出明确错误让前端提示用户。
 			if (!existing.worktreeEnabled) {
-				const isRepo = await gitService.isGitRepo(existing.path);
+				const isRepo = await gitService.isGitRepo(resolveProjectHostPath(existing));
 				if (!isRepo) {
 					throw new Error("NOT_A_GIT_REPO");
 				}
@@ -100,11 +145,12 @@ export function registerProjectsIpc({
 			// 开启 worktree 模式时，自动注册已有的 git worktree
 			if (project.worktreeEnabled) {
 				try {
-					const entries = await worktreeService.list(project.path);
+					const entries = await worktreeService.list(resolveProjectHostPath(project));
 					for (const wt of entries) {
 						// findByPath 返回 null 表示未注册
-						if (!projectStore.findByPath(wt.path)) {
-							await projectStore.add(wt.path, projectId);
+						const storedPath = resolveProjectStoredPath(wt.path, project);
+						if (!projectStore.findByPath(storedPath)) {
+							await projectStore.add(storedPath, projectId, project.environment);
 						}
 					}
 				} catch {

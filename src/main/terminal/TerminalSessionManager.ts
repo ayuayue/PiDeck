@@ -4,6 +4,8 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { ipcChannels } from "../../shared/ipc";
 import type { TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
+import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
+import { getWslExe } from "../wsl/wslExe";
 
 // 简单日志，不依赖 appLogger 以避免循环引用
 const log = (msg: string) => {
@@ -22,6 +24,12 @@ type TerminalShellCandidate = {
 	shell: TerminalShell;
 	command: string;
 	args: string[];
+};
+
+type TerminalWslSettings = {
+	wslEnabled?: boolean;
+	wslDistro?: string;
+	wslUser?: string;
 };
 
 /**
@@ -126,6 +134,7 @@ export class TerminalSessionManager {
 	constructor(
 		private readonly getCwd: (agentId: string) => string,
 		private readonly emit: Emit,
+		private readonly getSettings: () => TerminalWslSettings = () => ({}),
 	) {}
 
 	/** 目标所属终端桶；project 目标不存在运行中的 agent，不查 runtime */
@@ -305,11 +314,27 @@ export class TerminalSessionManager {
 				const env = { ...process.env };
 				if (!env.LANG) env.LANG = "en_US.UTF-8";
 				if (!env.LC_ALL) env.LC_ALL = "en_US.UTF-8";
-				const terminal = pty.spawn(candidate.command, candidate.args, {
+				const wsl = candidate.shell === "wsl" ? this.getSettings() : undefined;
+				let command = candidate.command;
+				let args = candidate.args;
+				let spawnCwd = cwd;
+				if (wsl?.wslEnabled && wsl.wslDistro && wsl.wslUser) {
+					try {
+						args = [
+							...args,
+							"--cd",
+							toWslLinuxPath(cwd, { distro: wsl.wslDistro }),
+						];
+						spawnCwd = toWindowsHostPath(cwd, { distro: wsl.wslDistro });
+					} catch (error) {
+						log(`Failed to convert WSL terminal cwd: ${error instanceof Error ? error.message : String(error)}`);
+					}
+				}
+				const terminal = pty.spawn(command, args, {
 					name: "xterm-256color",
 					cols: 80,
 					rows: 24,
-					cwd,
+					cwd: spawnCwd,
 					env,
 				});
 				return { shell: candidate.shell, pty: terminal };
@@ -324,7 +349,25 @@ export class TerminalSessionManager {
 	}
 
 	private shellCandidates(): TerminalShellCandidate[] {
-		return getTerminalShellCandidates(process.platform, process.env);
+		const candidates = getTerminalShellCandidates(process.platform, process.env);
+		const settings = this.getSettings();
+		if (
+			process.platform !== "win32" ||
+			!settings.wslEnabled ||
+			!settings.wslDistro ||
+			!settings.wslUser
+		) {
+			return candidates;
+		}
+		const wslExe = getWslExe();
+		return [
+			{
+				shell: "wsl" as const,
+				command: wslExe.command,
+				args: ["-d", settings.wslDistro, "-u", settings.wslUser],
+			},
+			...candidates.filter((candidate) => candidate.shell !== "wsl"),
+		];
 	}
 
 	private displayShell(shell: TerminalShell) {
