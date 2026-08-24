@@ -257,17 +257,102 @@ export async function changeMasterPassword(
 	return createMasterKeyConfig(newPassword);
 }
 
-function isPiDeckSyncIndexV1(value: unknown): value is PiDeckSyncIndexV1 {
-	if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.meta)) return false;
-	return (
-		typeof value.meta.deviceId === "string" &&
-		typeof value.meta.appVersion === "string" &&
-		typeof value.meta.syncedAt === "number" &&
-		Number.isFinite(value.meta.syncedAt) &&
-		typeof value.syncedAt === "number" &&
-		Number.isFinite(value.syncedAt)
-	);
+function isSafeText(value: unknown, maxLength: number): value is string {
+	return typeof value === "string" && value.length > 0 && value.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(value);
 }
+
+function isSafeRelativePath(value: unknown): value is string {
+	if (!isSafeText(value, 4096) || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) return false;
+	const parts = value.split("/");
+	return parts.every((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
+function isSafeSessionId(value: unknown): value is string {
+	return typeof value === "string" && /^[A-Za-z0-9_][A-Za-z0-9._-]{0,255}$/.test(value);
+}
+
+function isSha256(value: unknown): value is string {
+	return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+function isBoundedRecord(value: unknown, maxKeys = 5000): value is Record<string, unknown> {
+	return isRecord(value) && Object.keys(value).length <= maxKeys;
+}
+
+function isValidSyncFileBundle(value: unknown): boolean {
+	if (!isRecord(value) || !isSafeRelativePath(value.relativePath) || !isSha256(value.contentHash)) return false;
+	const content = value.content;
+	const hasContent = typeof content === "string";
+	const objectKey = value.objectKey;
+	const hasObjectKey = typeof objectKey === "string";
+	if (hasContent && content.length > 256 * 1024) return false;
+	if (hasObjectKey && (!isSafeText(objectKey, 1024) || !objectKey.startsWith("pideck-files/"))) return false;
+	return hasContent !== hasObjectKey;
+}
+
+function isValidSyncSessionRef(value: unknown): boolean {
+	if (!isRecord(value)) return false;
+	if (!isSafeSessionId(value.sessionId) || !isSafeRelativePath(value.relativePath) || !isSha256(value.contentHash)) return false;
+	if (value.scope !== "global" && value.scope !== "project") return false;
+	if (value.scope === "global" && value.projectId !== undefined) return false;
+	if (value.scope === "project" && (!isSafeSessionId(value.projectId) || value.projectId === "__global__")) return false;
+	const size = value.size;
+	if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || size > 512 * 1024 * 1024) return false;
+	const mtimeMs = value.mtimeMs;
+	if (typeof mtimeMs !== "number" || !Number.isFinite(mtimeMs) || mtimeMs < 0) return false;
+	return value.objectKey === `pideck-sessions/${value.sessionId}.jsonl.enc`;
+}
+
+function isValidSyncProject(value: unknown): boolean {
+	if (!isRecord(value) || !isSafeSessionId(value.projectId) || !isSafeText(value.name, 512)) return false;
+	if (value.kind !== undefined && value.kind !== "normal" && value.kind !== "chat" && value.kind !== "external") return false;
+	if (value.environment !== undefined && value.environment !== "windows" && value.environment !== "wsl") return false;
+	if (value.pathHint !== undefined && !isSafeText(value.pathHint, 4096)) return false;
+	if (value.resources !== undefined) {
+		if (!isRecord(value.resources)) return false;
+		for (const key of ["prompts", "skills", "localExtensions"] as const) {
+			const bundles = value.resources[key];
+			if (bundles !== undefined && (!Array.isArray(bundles) || bundles.length > 2000 || !bundles.every(isValidSyncFileBundle))) return false;
+		}
+		if (value.resources.piSettings !== undefined && !isBoundedRecord(value.resources.piSettings)) return false;
+		if (value.resources.extensionSources !== undefined && (
+			!Array.isArray(value.resources.extensionSources) ||
+			value.resources.extensionSources.length > 500 ||
+			!value.resources.extensionSources.every((source) => (
+				isRecord(source) && isSafeText(source.source, 2048) &&
+				(source.scope === "user" || source.scope === "project") &&
+				(source.version === undefined || isSafeText(source.version, 512)) &&
+				(source.lockContent === undefined || typeof source.lockContent === "string")
+			))
+		)) return false;
+	}
+	if (value.sessions !== undefined && (
+		!Array.isArray(value.sessions) || value.sessions.length > 5000 || !value.sessions.every(isValidSyncSessionRef)
+	)) return false;
+	if (value.catalogEntries !== undefined && (
+		!Array.isArray(value.catalogEntries) || value.catalogEntries.length > 5000 ||
+		!value.catalogEntries.every((entry) => isBoundedRecord(entry, 128))
+	)) return false;
+	return true;
+}
+
+export function isPiDeckSyncIndexV1(value: unknown): value is PiDeckSyncIndexV1 {
+	if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.meta)) return false;
+	if (!isSafeText(value.meta.deviceId, 256) || !isSafeText(value.meta.appVersion, 256)) return false;
+	if (value.meta.deviceName !== undefined && !isSafeText(value.meta.deviceName, 256)) return false;
+	if (typeof value.meta.syncedAt !== "number" || !Number.isFinite(value.meta.syncedAt)) return false;
+	if (typeof value.syncedAt !== "number" || !Number.isFinite(value.syncedAt)) return false;
+	if (value.settings !== undefined && !isBoundedRecord(value.settings)) return false;
+	if (value.pi !== undefined && !isRecord(value.pi)) return false;
+	if (value.dsh !== undefined && !isRecord(value.dsh)) return false;
+	if (value.projects !== undefined && (
+		!Array.isArray(value.projects) || value.projects.length > 500 || !value.projects.every(isValidSyncProject)
+	)) return false;
+	if (value.imageGen !== undefined && !isRecord(value.imageGen)) return false;
+	if (value.extensionState !== undefined && !isRecord(value.extensionState)) return false;
+	return true;
+}
+
 
 function readSyncedFileMeta(file: SyncedFile): {
 	iv: Buffer;

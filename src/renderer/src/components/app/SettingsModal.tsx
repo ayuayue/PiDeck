@@ -19,6 +19,7 @@ import {
 	GitBranch,
 	SlidersHorizontal,
 	MonitorCog,
+	Cloud,
 	X,
 } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
@@ -75,6 +76,7 @@ const ProcessMetricsTab = lazy(() => import("./settings/ProcessMetricsTab").then
 const UsageStatsTab = lazy(() => import("./settings/UsageStatsTab").then((m) => ({ default: m.UsageStatsTab })));
 const VisionBridgeSettingsTab = lazy(() => import("./settings/VisionBridgeSettingsTab").then((m) => ({ default: m.VisionBridgeSettingsTab })));
 const ImageGenSettingsTab = lazy(() => import("./settings/ImageGenSettingsTab").then((m) => ({ default: m.ImageGenSettingsTab })));
+const CloudSyncSettingsTab = lazy(() => import("./settings/CloudSyncSettingsTab").then((m) => ({ default: m.CloudSyncSettingsTab })));
 
 // 配置管理分区（pi 配置文件管理）作为独立 chunk 懒加载：首开设置窗口不加载 ConfigModal 数组。
 const ConfigPane = lazy(() =>
@@ -246,6 +248,7 @@ const TAB_META: Record<SettingsTabId, { labelKey: TranslationKey; icon: ReactNod
 	process: { labelKey: "settings.tabs.process", icon: <Activity size={16} /> },
 	vision: { labelKey: "settings.tabs.vision", icon: <Eye size={16} /> },
 	imagegen: { labelKey: "settings.tabs.imagegen", icon: <ImageIcon size={16} /> },
+	cloudsync: { labelKey: "settings.tabs.cloudsync", icon: <Cloud size={16} /> },
 };
 
 /**
@@ -895,6 +898,14 @@ function SettingsModalContent(props: SettingsModalProps) {
 							<ImageGenSettingsTab ref={imageGenRef} onDirtyChange={handleImageGenDirtyChange} />
 						</Suspense>
 					</TabsContent>
+					{/* ── 云同步 tab：主密码/Provider/选择树由 CloudSyncSettingsTab 自管理 ── */}
+					{activeTab === "cloudsync" && (
+						<TabsContent value="cloudsync" className="settings-panel min-w-0">
+							<Suspense fallback={<SettingsTabLoading />}>
+								<CloudSyncSettingsTab />
+							</Suspense>
+						</TabsContent>
+					)}
 				</Tabs>
 				</TabsContent>
 			</Tabs>

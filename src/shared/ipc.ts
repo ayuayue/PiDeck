@@ -626,4 +626,21 @@ export const ipcChannels = {
 	 */
 	clipboardWriteText: "clipboard:write-text",
 
+	// ===== 云同步（CloudSyncManager，主进程持有密码/密钥/Provider 凭据） =====
+	cloudSyncGetState: "cloud-sync:get-state",
+	/** 主进程 → 渲染：同步状态/安全状态变化推送 */
+	cloudSyncStateChanged: "cloud-sync:state-changed",
+	cloudSyncSetupMasterKey: "cloud-sync:setup-master-key",
+	cloudSyncUnlock: "cloud-sync:unlock",
+	cloudSyncLock: "cloud-sync:lock",
+	cloudSyncChangePassword: "cloud-sync:change-password",
+	cloudSyncConfigureProvider: "cloud-sync:configure-provider",
+	cloudSyncDisconnectProvider: "cloud-sync:disconnect-provider",
+	cloudSyncConnect: "cloud-sync:connect",
+	cloudSyncScan: "cloud-sync:scan",
+	cloudSyncUpdateSelection: "cloud-sync:update-selection",
+	cloudSyncSyncNow: "cloud-sync:sync-now",
+	cloudSyncSetAutoSync: "cloud-sync:set-auto-sync",
+	cloudSyncSetStrategy: "cloud-sync:set-strategy",
+
 } as const;

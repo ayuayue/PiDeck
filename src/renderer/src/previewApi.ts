@@ -1300,5 +1300,43 @@ export function createPreviewApi(): PiDesktopApi {
 			restorePrevious: async () => ({ ok: false, code: "no-backup", message: "preview stub" }),
 			openFile: async () => undefined,
 		},
+
+		// 云同步预览桩：无主密码/Provider，返回未配置状态
+		cloudSync: {
+			getState: async () => ({
+				securityState: "NO_KEY",
+				syncState: "IDLE",
+				providers: {
+				github: { provider: "github", status: "disconnected", configured: false },
+				google: { provider: "google", status: "disconnected", configured: false },
+				onedrive: { provider: "onedrive", status: "disconnected", configured: false },
+				webdav: { provider: "webdav", status: "disconnected", configured: false },
+				s3: { provider: "s3", status: "disconnected", configured: false },
+			},
+				deviceId: "preview",
+				deviceName: "Preview",
+				localVersion: 0,
+				remoteVersion: 0,
+				lastError: null,
+				autoSyncEnabled: false,
+				autoSyncInterval: 5,
+				syncStrategy: "smartMerge",
+				pendingLocalSync: false,
+			}),
+			onStateChanged: () => noop,
+			setupMasterKey: async () => ({ securityState: "UNLOCKED" } as never),
+			unlock: async () => false,
+			lock: async () => undefined,
+			changePassword: async () => false,
+			configureProvider: async () => ({ securityState: "UNLOCKED" } as never),
+			disconnectProvider: async () => undefined,
+			connect: async () => ({ id: "preview" }),
+			scan: async () => ({ scannedAt: 0, projects: [], roots: [], totalSessions: 0, selectedSessions: 0, totalResources: 0, selectedResources: 0 }),
+			updateSelection: async () => ({ scannedAt: 0, projects: [], roots: [], totalSessions: 0, selectedSessions: 0, totalResources: 0, selectedResources: 0 }),
+			syncNow: async () => ({ pushed: false, pulled: false, reason: "Preview" }),
+			setAutoSync: async () => ({ securityState: "NO_KEY" } as never),
+			setStrategy: async () => ({ securityState: "NO_KEY" } as never),
+>>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))
+		},
 	};
 }

@@ -13,6 +13,7 @@ import {
 	Tray,
 } from "electron";
 import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -310,6 +311,8 @@ import { registerPasteFilesIpc } from "./ipc/pasteFilesIpc";
 import { registerSecurityIpc } from "./ipc/securityIpc";
 import { registerVisionIpc } from "./ipc/visionIpc";
 import { registerImageGenIpc } from "./ipc/imagegenIpc";
+import { registerCloudSyncIpc } from "./ipc/cloudSyncIpc";
+import { CloudSyncManager } from "./cloudSync/CloudSyncManager";
 import { ImageGenService } from "./imagegen/ImageGenService";
 import { ImageSessionStore } from "./imagegen/ImageSessionStore";
 import { ImageGenConfigStore } from "./imagegen/ImageGenConfigStore";
@@ -433,6 +436,7 @@ let feishuBridge: FeishuBridge | null = null;
 let usageStatsService: UsageStatsService | null = null;
 /** 粘贴文件启动清理（registerIpc 阶段赋值；whenReady 后 fire-and-forget 执行） */
 let cleanupPasteFiles: (() => Promise<number>) | undefined;
+let cloudSyncManager: CloudSyncManager;
 
 /** 退出清理登记表（C12）：常驻资源创建处登记，before-quit 统一顺序执行。 */
 const quitCleanup = new QuitCleanupRegistry();
@@ -496,6 +500,13 @@ function broadcastVisibleProjects(): void {
 	// 这里只广播 store 清单；渲染层接到事件后会再调用 projects:list 附加实时 presence。
 	// 直接把未检测版本写进 atom 会短暂抹掉 missing 标记，使失效目录看起来又恢复正常。
 	window.webContents.send(ipcChannels.projectsChanged, visible);
+}
+
+/** 云同步状态变化 → 渲染层（设置页/全局状态订阅共用）。 */
+function broadcastCloudSyncStateChanged(): void {
+	const window = mainWindow;
+	if (!window || window.isDestroyed() || !cloudSyncManager) return;
+	window.webContents.send(ipcChannels.cloudSyncStateChanged, cloudSyncManager.getStateSnapshot());
 }
 
 /**
@@ -2914,6 +2925,11 @@ function registerIpc() {
 		openExternalUrl,
 	});
 	registerClipboardIpc({ appLogger });
+	// 云同步：主进程业务在 CloudSyncManager，handler 薄层只校验入参/适配返回值
+	registerCloudSyncIpc({
+		manager: cloudSyncManager,
+		notifyStateChanged: () => broadcastCloudSyncStateChanged(),
+	});
 }
 
 function sendTelemetryHeartbeat() {
@@ -3604,6 +3620,25 @@ app.whenReady().then(async () => {
 		(filePath) => sessionScanner.inferSessionNameAndValidity(filePath),
 	);
 	await sessionCatalog.load();
+	// 云同步编排：主进程唯一持有密码/派生 key/Provider 凭据；扫描与恢复都走主进程。
+	cloudSyncManager = new CloudSyncManager({
+		userDataDir: app.getPath("userData"),
+		homeDir: app.getPath("home"),
+		deviceName: hostname(),
+		appVersion: app.getVersion(),
+		listProjects: () => projectStore.list(),
+		listSessionRecords: () => sessionCatalog.listEntries().map((entry) => sessionCatalog.getRecord(entry.id)).filter((record): record is SessionRecord => Boolean(record)),
+		getDesktopSettings: () => settingsStore.get(),
+		// filterSyncableDesktopSettings 已把未知 key 过滤掉，这里收窄为 AppSettings 字段。
+		updateDesktopSettings: async (patch) => {
+			await settingsStore.update(patch as Partial<AppSettings>);
+		},
+		onStateChanged: () => broadcastCloudSyncStateChanged(),
+		log: (domain, message, details) => void appLogger.info(domain, message, details),
+	});
+	await cloudSyncManager.initialize();
+	// C12：退出清理登记（before-quit 统一 runAll；cloud-sync 定时器与适配器随进程结束回收）
+	quitCleanup.register("cloud-sync", () => cloudSyncManager?.dispose());
 	// 多后端网关装配：pi + dsh（DSH 在窗口创建后后台预热，失败时按需重试）。
 	// Coordinator 与事件桥接均面向合成器，新增后端只需追加网关实例。
 	compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager]);

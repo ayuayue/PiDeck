@@ -121,6 +121,11 @@ import type {
 	HealthReport,
 	HealthReportContext,
 	HealthReportFormat,
+	CloudSyncStateSnapshot,
+	CloudSyncSelectionTree,
+	CloudSyncSelectionUpdate,
+	CloudSyncProviderConfigInput,
+	ProviderAccount,
 } from "../shared/types";
 import type {
 	ProviderUsageResult,
@@ -1837,6 +1842,43 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.catalogUpdateRestorePrevious) as Promise<CatalogUpdateResult>,
 		/** 用系统默认程序打开当前生效的目录文件（覆盖层优先，否则内置） */
 		openFile: () => ipcRenderer.invoke(ipcChannels.catalogOpenFile) as Promise<void>,
+	},
+
+	// ── 云同步：主进程持有密码/密钥/Provider 凭据；渲染层只拿状态快照与选择树 ──
+	cloudSync: {
+		getState: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncGetState) as Promise<CloudSyncStateSnapshot>,
+		onStateChanged: (callback: (state: CloudSyncStateSnapshot) => void) =>
+			subscribe(ipcChannels.cloudSyncStateChanged, callback),
+		setupMasterKey: (password: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncSetupMasterKey, password) as Promise<CloudSyncStateSnapshot>,
+		unlock: (password: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncUnlock, password) as Promise<boolean>,
+		lock: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncLock) as Promise<void>,
+		changePassword: (oldPassword: string, newPassword: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncChangePassword, oldPassword, newPassword) as Promise<boolean>,
+		configureProvider: (input: CloudSyncProviderConfigInput) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncConfigureProvider, input) as Promise<CloudSyncStateSnapshot>,
+		disconnectProvider: (provider: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncDisconnectProvider, provider) as Promise<void>,
+		connect: (provider: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncConnect, provider) as Promise<ProviderAccount>,
+		scan: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncScan) as Promise<CloudSyncSelectionTree>,
+		updateSelection: (update: CloudSyncSelectionUpdate) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncUpdateSelection, update) as Promise<CloudSyncSelectionTree>,
+		syncNow: (options?: { allowShrink?: boolean }) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncSyncNow, options ?? null) as Promise<{
+				pushed: boolean;
+				pulled: boolean;
+				reason?: string;
+			}>,
+		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncSetAutoSync, enabled, intervalMinutes) as Promise<CloudSyncStateSnapshot>,
+		setStrategy: (strategy: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncSetStrategy, strategy) as Promise<CloudSyncStateSnapshot>,
+>>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))
 	},
 };
 

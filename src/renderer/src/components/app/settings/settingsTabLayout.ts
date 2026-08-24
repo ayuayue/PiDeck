@@ -29,6 +29,7 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "pet" },
 	{ id: "vision" },
 	{ id: "imagegen" },
+	{ id: "cloudsync", dividerBefore: true },
 	{ id: "web", dividerBefore: true },
 	{ id: "editors" },
 	{ id: "git" },

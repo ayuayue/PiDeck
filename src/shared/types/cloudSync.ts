@@ -90,6 +90,17 @@ export interface ProviderConnection {
 	error?: string;
 }
 
+/** Renderer-safe provider state. Credentials, tokens and raw provider config never cross IPC. */
+export interface CloudSyncProviderSnapshot {
+	provider: CloudProvider;
+	status: ProviderConnectionStatus;
+	configured: boolean;
+	account?: ProviderAccount;
+	lastSync?: number;
+	lastSyncVersion?: number;
+	error?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Encrypted sync file schema
 // ---------------------------------------------------------------------------
@@ -213,9 +224,99 @@ export interface PiDeckSyncIndexV1 {
 	syncedAt: number;
 }
 
-// ---------------------------------------------------------------------------
-// Sync state and events
-// ---------------------------------------------------------------------------
+export type CloudSyncResourceCategory = "settings" | "prompts" | "skills" | "extensions";
+
+export type CloudSyncCandidateStatus = "available" | "unavailable";
+
+/** Session/resource candidates are read-only server snapshots; paths are never exposed. */
+export interface CloudSyncSessionCandidate {
+	selectionId: string;
+	sessionId: string;
+	title: string;
+	projectId: string;
+	scope: "global" | "project";
+	relativePath: string;
+	size: number;
+	mtimeMs: number;
+	source: string;
+	environment: "native" | "wsl";
+	selected: boolean;
+	status: CloudSyncCandidateStatus;
+	reason?: string;
+}
+
+export interface CloudSyncResourceCandidate {
+	selectionId: string;
+	projectId: string;
+	category: CloudSyncResourceCategory;
+	relativePath: string;
+	size: number;
+	mtimeMs: number;
+	selected: boolean;
+	status: CloudSyncCandidateStatus;
+	reason?: string;
+}
+
+export interface CloudSyncScanRootStatus {
+	id: string;
+	label: string;
+	kind: "global-sessions" | "project-sessions" | "global-resources" | "project-resources";
+	projectId?: string;
+	ok: boolean;
+	count: number;
+	error?: string;
+}
+
+export interface CloudSyncProjectSelectionNode {
+	projectId: string;
+	name: string;
+	kind?: "normal" | "chat" | "external";
+	environment?: "windows" | "wsl";
+	pathHint?: string;
+	missing?: boolean;
+	sessions: CloudSyncSessionCandidate[];
+	resources: CloudSyncResourceCandidate[];
+}
+
+export interface CloudSyncSelectionTree {
+	scannedAt: number;
+	projects: CloudSyncProjectSelectionNode[];
+	roots: CloudSyncScanRootStatus[];
+	totalSessions: number;
+	selectedSessions: number;
+	totalResources: number;
+	selectedResources: number;
+}
+
+export interface CloudSyncContentPreferences {
+	desktopSettings: boolean;
+	piModels: boolean;
+	piCredentials: boolean;
+	dshSettings: boolean;
+	dshCredentials: boolean;
+	projects: boolean;
+	catalog: boolean;
+	prompts: boolean;
+	skills: boolean;
+	extensions: boolean;
+	security: boolean;
+}
+
+export interface CloudSyncSelectionPreferences {
+	selectedSessionIds: string[];
+	selectedResourceIds: string[];
+	content: CloudSyncContentPreferences;
+}
+
+export interface CloudSyncSelectionUpdate {
+	selectedSessionIds: string[];
+	selectedResourceIds: string[];
+	content?: Partial<CloudSyncContentPreferences>;
+}
+
+export type CloudSyncProviderConfigInput =
+	| { provider: "webdav"; config: WebDAVConfig }
+	| { provider: "s3"; config: S3Config };
 
 export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";
 
@@ -226,7 +327,7 @@ export type CloudSyncStrategy = "smartMerge" | "preferCloud" | "preferLocal";
 export interface CloudSyncStateSnapshot {
 	securityState: CloudSyncSecurityState;
 	syncState: CloudSyncState;
-	providers: Record<CloudProvider, ProviderConnection>;
+	providers: Record<CloudProvider, CloudSyncProviderSnapshot>;
 	deviceId: string;
 	deviceName: string;
 	localVersion: number;
