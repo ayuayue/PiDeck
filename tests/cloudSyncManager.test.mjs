@@ -354,3 +354,74 @@ test("manager three-way merge: both sides changed produces a resolvable conflict
 		await rm(base, { recursive: true, force: true });
 	}
 });
+
+test("manager records missing extensions and retries install (M5)", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-mgr-"));
+	try {
+		const userDataDir = join(base, "userData");
+		const homeDir = join(base, "home");
+		const agentDir = join(homeDir, ".pi", "agent");
+		const sessionsDir = join(agentDir, "sessions");
+		await mkdir(sessionsDir, { recursive: true });
+		// 全局 settings.json 声明两个包扩展
+		await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+			packages: ["npm:pi-tracker", { source: "github:org/repo", version: "v1.0.0" }],
+		}), "utf8");
+
+		const storage = new InMemoryStorage();
+		const installed = new Set();
+		let githubOk = false;
+		const manager = new CloudSyncManager({
+			userDataDir,
+			homeDir,
+			deviceName: "test",
+			appVersion: "0.0.0-test",
+			listProjects: () => [],
+			listSessionRecords: () => [],
+			getDesktopSettings: minimalSettings,
+			updateDesktopSettings: async () => undefined,
+			createAdapter: () => storage,
+			installExtension: async (source) => {
+				if (source === "npm:pi-tracker") {
+					installed.add(source);
+					return { ok: true };
+				}
+				if (githubOk) {
+					installed.add(source);
+					return { ok: true };
+				}
+				return { ok: false, error: "offline" };
+			},
+			listExtensions: async () => [...installed].map((source) => ({ source })),
+		});
+		await manager.initialize();
+		await manager.setupMasterKey(PASSWORD);
+		await manager.configureProvider({
+			provider: "s3",
+			config: { endpoint: "https://example.invalid", region: "us-east-1", bucket: "bucket", accessKeyId: "ak", secretAccessKey: "sk" },
+		});
+		await manager.connectProvider("s3");
+		// 全选全局资源（settings.json 在内的 prompts/skills/extensions）
+		const tree = await manager.scanSelection();
+		const globalNode = tree.projects.find((node) => node.projectId === "__global__");
+		const resourceIds = globalNode.resources.filter((resource) => resource.category === "settings").map((resource) => resource.selectionId);
+		await manager.updateSelection({ selectedSessionIds: [], selectedResourceIds: resourceIds });
+		const pushed = await manager.syncNow();
+		assert.equal(pushed.pushed, true);
+
+		// npm:pi-tracker 安装成功；github 声明安装失败 → 记录缺失
+		const missing = manager.getStateSnapshot().missingExtensions;
+		assert.equal(missing.length, 1);
+		assert.equal(missing[0].source, "github:org/repo");
+		assert.match(missing[0].error, /offline/);
+
+		// 重试：安装已恢复，缺失清单清空
+		githubOk = true;
+		const retried = await manager.retryMissingExtensions();
+		assert.equal(retried.length, 0);
+		assert.equal(manager.getStateSnapshot().missingExtensions.length, 0);
+		await manager.dispose();
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});

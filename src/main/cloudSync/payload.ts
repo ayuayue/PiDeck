@@ -7,6 +7,7 @@ import type {
 } from "../../shared/types.ts";
 import type {
 	CloudSyncFileBundle,
+	CloudSyncExtensionSource,
 	CloudSyncProject,
 	CloudSyncProjectResources,
 	CloudSyncSessionRef,
@@ -154,6 +155,35 @@ function hashText(content: string): string {
 }
 
 /** Build a text resource bundle; large content becomes a separately uploaded object. */
+/** 从 pi settings.json 提取包扩展声明（packages 数组：字符串或 {source,...} 对象）。 */
+export function extractExtensionSources(
+	piSettings: unknown,
+	scope: "user" | "project",
+): CloudSyncExtensionSource[] {
+	if (typeof piSettings !== "object" || piSettings === null || Array.isArray(piSettings)) return [];
+	const packages = (piSettings as Record<string, unknown>).packages;
+	if (!Array.isArray(packages) || packages.length > 500) return [];
+	const result: CloudSyncExtensionSource[] = [];
+	const seen = new Set<string>();
+	for (const entry of packages) {
+		let source: unknown = entry;
+		let version: unknown;
+		if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+			source = (entry as Record<string, unknown>).source;
+			version = (entry as Record<string, unknown>).version;
+		}
+		if (typeof source !== "string" || !source.trim() || source.length > 2048) continue;
+		if (seen.has(source)) continue;
+		seen.add(source);
+		result.push({
+			source,
+			scope,
+			...(typeof version === "string" && version.length > 0 && version.length <= 512 ? { version } : {}),
+		});
+	}
+	return result;
+}
+
 export function createTextFileBundle(
 	relativePath: string,
 	content: string,

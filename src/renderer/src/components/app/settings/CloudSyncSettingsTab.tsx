@@ -237,6 +237,7 @@ export function CloudSyncSettingsTab() {
 		updateSelection,
 		syncNow,
 		resolveConflicts,
+		restoreExtensions,
 		setAutoSync,
 		setStrategy,
 	} = useCloudSync();
@@ -461,6 +462,24 @@ export function CloudSyncSettingsTab() {
 								</div>
 								<Button size="sm" className="mt-3" onClick={() => void applyConflictResolutions()} loading={busy}>
 									{t("cloudSync.conflict.apply")}
+								</Button>
+							</SettingBox>
+						) : null}
+
+						{state && state.missingExtensions.length > 0 ? (
+							<SettingBox>
+								<div className="mb-2 text-sm font-medium">{t("cloudSync.extensions.title")}</div>
+								<div className="mb-2 text-caption text-text-tertiary">{t("cloudSync.extensions.desc")}</div>
+								<div className="space-y-1">
+									{state.missingExtensions.map((extension) => (
+										<div key={`${extension.scope}:${extension.source}`} className="flex items-center justify-between gap-2 text-sm">
+											<span className="truncate">{extension.source} <span className="text-caption text-text-tertiary">({extension.scope})</span></span>
+											{extension.error ? <span className="shrink-0 text-caption text-warning" title={extension.error}>⚠</span> : null}
+										</div>
+									))}
+								</div>
+								<Button size="sm" className="mt-3" variant="outline" onClick={() => void restoreExtensions()} loading={busy}>
+									{t("cloudSync.extensions.retry")}
 								</Button>
 							</SettingBox>
 						) : null}

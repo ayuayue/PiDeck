@@ -83,6 +83,7 @@ export function useCloudSync() {
 		syncNow: (allowShrink?: boolean) => run(() => desktopApi.cloudSync.syncNow({ allowShrink })),
 		resolveConflicts: (resolutions: Array<{ id: string; choice: "local" | "remote" }>) =>
 			run(() => desktopApi.cloudSync.resolveConflicts(resolutions)),
+		restoreExtensions: () => run(() => desktopApi.cloudSync.restoreExtensions()),
 		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
 			run(() => desktopApi.cloudSync.setAutoSync(enabled, intervalMinutes)),
 		setStrategy: (strategy: string) => run(() => desktopApi.cloudSync.setStrategy(strategy)),

@@ -3633,6 +3633,26 @@ app.whenReady().then(async () => {
 		updateDesktopSettings: async (patch) => {
 			await settingsStore.update(patch as Partial<AppSettings>);
 		},
+		// M5：包扩展安装走 ExtensionManager（pi install）；失败只记录缺失，不阻断同步。
+		installExtension: async (source) => {
+			try {
+				await extensionManager.install(source);
+				return { ok: true };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		},
+		listExtensions: async () => {
+			try {
+				const result = await extensionManager.list(false);
+				return result.extensions.map((summary) => ({
+					source: summary.source,
+					scope: summary.scope,
+				}));
+			} catch {
+				return [];
+			}
+		},
 		onStateChanged: () => broadcastCloudSyncStateChanged(),
 		log: (domain, message, details) => void appLogger.info(domain, message, details),
 	});

@@ -347,6 +347,13 @@ export interface CloudSyncConflictResolution {
 	choice: "local" | "remote";
 }
 
+/** 已声明但本机未安装/安装失败的包扩展（恢复后按声明触发 pi install）。 */
+export interface CloudSyncMissingExtension {
+	source: string;
+	scope: "user" | "project";
+	error?: string;
+}
+
 export type CloudSyncProviderConfigInput =
 	| { provider: "webdav"; config: WebDAVConfig }
 	| { provider: "s3"; config: S3Config };
@@ -372,6 +379,8 @@ export interface CloudSyncStateSnapshot {
 	pendingLocalSync: boolean;
 	/** 待解决的冲突（三路合并产物）；为空表示无冲突。 */
 	conflicts: CloudSyncConflict[];
+	/** 已声明但尚未安装成功的包扩展。 */
+	missingExtensions: CloudSyncMissingExtension[];
 }
 
 export const CLOUD_SYNC_STORAGE_KEYS = {

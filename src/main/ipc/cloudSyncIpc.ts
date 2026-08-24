@@ -186,6 +186,12 @@ export function registerCloudSyncIpc(deps: {
 		return manager.getStateSnapshot();
 	});
 
+	ipcMain.handle(ipcChannels.cloudSyncRestoreExtensions, async () => {
+		const result = await manager.retryMissingExtensions();
+		notifyStateChanged();
+		return result;
+	});
+
 	ipcMain.handle(ipcChannels.cloudSyncSetStrategy, async (_event, strategy: unknown) => {
 		await manager.setStrategy(parseStrategy(strategy));
 		notifyStateChanged();

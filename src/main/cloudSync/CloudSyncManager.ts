@@ -12,6 +12,7 @@ import type {
 	CloudSyncConflict,
 	CloudSyncConflictResolution,
 	CloudSyncMasterKeyConfig,
+	CloudSyncMissingExtension,
 	CloudSyncProviderConfigInput,
 	CloudSyncProviderSnapshot,
 	CloudSyncSelectionPreferences,
@@ -58,6 +59,7 @@ import {
 	buildPiDeckSyncIndex,
 	createSessionRef,
 	createTextFileBundle,
+	extractExtensionSources,
 	filterSyncableDesktopSettings,
 	GLOBAL_SYNC_PROJECT_ID,
 	resolveGlobalSessionPath,
@@ -90,6 +92,8 @@ type CloudSyncPersistedState = {
 	lastSyncDeviceId: string | null;
 	/** 上一次成功同步的索引（三路合并的 base）。 */
 	lastSyncedIndex: PiDeckSyncIndexV1 | null;
+	/** 已声明但尚未安装成功的包扩展（M5 恢复检查）。 */
+	missingExtensions: CloudSyncMissingExtension[];
 	/** 上一次成功同步时的选中会话/资源数量（缩水保护基线）。 */
 	lastSyncedSessionCount: number;
 	lastSyncedResourceCount: number;
@@ -128,6 +132,7 @@ function createDefaultState(): CloudSyncPersistedState {
 		lastSyncAt: null,
 		lastSyncDeviceId: null,
 		lastSyncedIndex: null,
+		missingExtensions: [],
 		lastSyncedSessionCount: 0,
 		lastSyncedResourceCount: 0,
 	};
@@ -229,6 +234,10 @@ export interface CloudSyncManagerOptions {
 	updateDesktopSettings: (patch: Record<string, unknown>) => Promise<void>;
 	/** 测试注入点：默认走 createCloudSyncObjectStorage（真实 WebDAV/S3）。 */
 	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config) => PiDeckCloudObjectStorage;
+	/** 包扩展安装（M5）：默认未注入时不自动安装，只记录缺失清单。 */
+	installExtension?: (source: string, scope: "user" | "project") => Promise<{ ok: boolean; error?: string }>;
+	/** 已安装扩展清单（source + scope），用于判断声明是否缺失。 */
+	listExtensions?: () => Promise<Array<{ source: string; scope?: string }>>;
 	onStateChanged?: (snapshot: CloudSyncStateSnapshot) => void;
 	log?: (domain: string, message: string, details?: Record<string, unknown>) => void;
 }
@@ -302,6 +311,7 @@ export class CloudSyncManager {
 			syncStrategy: this.state.strategy,
 			pendingLocalSync: this.pendingLocalSync,
 			conflicts: this.pendingConflictContext?.conflicts ?? [],
+			missingExtensions: this.state.missingExtensions,
 		};
 	}
 
@@ -712,6 +722,8 @@ export class CloudSyncManager {
 		}
 
 		const index = await this.buildLocalIndex(scan, selectedSessions, selectedResources);
+		// M5：按本地声明检查/安装缺失包扩展（失败只记录，不阻断推送）。
+		await this.checkAndRestoreExtensions(index);
 		// 版本号取 max(local, remote)，防止覆盖远端时把版本计数器回退。
 		const existingVersion = Math.max(this.state.localVersion, remoteVersionArg ?? this.state.localVersion);
 		const file = await encryptPayload(
@@ -789,6 +801,9 @@ export class CloudSyncManager {
 			}
 		}
 
+		// M5：按合并后的声明检查/安装缺失包扩展（失败只记录，不阻断同步）。
+		await this.checkAndRestoreExtensions(result.merged);
+
 		this.state.localVersion = remoteVersion + 1;
 		this.state.remoteVersion = remoteVersion + 1;
 		this.state.lastSyncAt = Date.now();
@@ -804,6 +819,88 @@ export class CloudSyncManager {
 		await this.persist();
 		this.syncState = "IDLE";
 		this.emitState();
+	}
+
+	/**
+	 * M5：按声明检查包扩展。缺失的尝试自动安装；失败记入 missingExtensions
+	 * （启动保护由 enabledExtensionResolver 白名单兜底，缺失扩展不阻断 pi 启动）。
+	 */
+	private async checkAndRestoreExtensions(index: PiDeckSyncIndexV1): Promise<void> {
+		if (!this.options.installExtension || !this.options.listExtensions) {
+			// 未注入安装能力（如测试环境）：清空缺失清单，不产生虚假告警。
+			this.state.missingExtensions = [];
+			await this.persist();
+			this.emitState();
+			return;
+		}
+		const declared = this.collectDeclaredExtensions(index);
+		if (declared.length === 0) {
+			this.state.missingExtensions = [];
+			await this.persist();
+			this.emitState();
+			return;
+		}
+		let installed: Array<{ source: string; scope?: string }> = [];
+		try {
+			installed = await this.options.listExtensions();
+		} catch {
+			// 列表失败时无法判断缺失，保守不自动安装。
+		}
+		const installedSources = new Set(installed.map((item) => item.source));
+		const missing: CloudSyncMissingExtension[] = [];
+		for (const source of declared) {
+			if (installedSources.has(source.source)) continue;
+			try {
+				const result = await this.options.installExtension(source.source, source.scope);
+				if (!result.ok) missing.push({ source: source.source, scope: source.scope, error: result.error });
+			} catch (error) {
+				missing.push({ source: source.source, scope: source.scope, error: error instanceof Error ? error.message : String(error) });
+			}
+		}
+		this.state.missingExtensions = missing;
+		await this.persist();
+		this.emitState();
+	}
+
+	/** 手动重试缺失扩展安装（设置页「重试安装」）。 */
+	async retryMissingExtensions(): Promise<CloudSyncMissingExtension[]> {
+		const index = this.state.lastSyncedIndex;
+		if (!index) return this.state.missingExtensions;
+		const declared = this.collectDeclaredExtensions(index);
+		if (declared.length === 0 || !this.options.installExtension) {
+			this.state.missingExtensions = [];
+			await this.persist();
+			this.emitState();
+			return [];
+		}
+		const missing: CloudSyncMissingExtension[] = [];
+		for (const source of declared) {
+			try {
+				const result = await this.options.installExtension(source.source, source.scope);
+				if (!result.ok) missing.push({ source: source.source, scope: source.scope, error: result.error });
+			} catch (error) {
+				missing.push({ source: source.source, scope: source.scope, error: error instanceof Error ? error.message : String(error) });
+			}
+		}
+		this.state.missingExtensions = missing;
+		await this.persist();
+		this.emitState();
+		return missing;
+	}
+
+	private collectDeclaredExtensions(index: PiDeckSyncIndexV1): Array<{ source: string; scope: "user" | "project" }> {
+		const result: Array<{ source: string; scope: "user" | "project" }> = [];
+		const seen = new Set<string>();
+		for (const project of index.projects ?? []) {
+			const sources = project.resources?.extensionSources ?? [];
+			for (const source of sources) {
+				const key = `${source.scope}:${source.source}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				result.push({ source: source.source, scope: source.scope });
+			}
+		}
+		return result;
 	}
 
 	private sessionByRef(scan: CloudSyncScanSnapshot, sessionId: string): CloudSyncInternalSession | null {
@@ -967,7 +1064,11 @@ export class CloudSyncManager {
 		if (settingsItems.length > 0) {
 			const content = await readTextBounded(settingsItems[0].filePath, CLOUD_SYNC_SCANNER_LIMITS.maxResourceBytes);
 			try {
-				result.piSettings = JSON.parse(content) as Record<string, unknown>;
+				const parsed = JSON.parse(content) as Record<string, unknown>;
+				result.piSettings = parsed;
+				// 包扩展声明：结构化为 extensionSources，便于恢复时按声明安装。
+				const sources = extractExtensionSources(parsed, settingsItems[0].candidate.projectId === GLOBAL_SYNC_PROJECT_ID ? "user" : "project");
+				if (sources.length > 0) result.extensionSources = sources;
 			} catch {
 				// A broken local settings.json is skipped rather than crashing the sync.
 			}
@@ -1041,6 +1142,10 @@ export class CloudSyncManager {
 				await this.options.updateDesktopSettings(filtered);
 			}
 		}
+
+		// M5：按恢复后的声明检查/安装缺失包扩展。
+		await this.checkAndRestoreExtensions(remoteIndex);
+
 
 		this.state.remoteVersion = remoteVersion;
 		this.state.localVersion = remoteVersion;

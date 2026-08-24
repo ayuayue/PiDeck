@@ -122,6 +122,7 @@ import type {
 	HealthReportContext,
 	HealthReportFormat,
 	CloudSyncStateSnapshot,
+	CloudSyncMissingExtension,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
 	CloudSyncProviderConfigInput,
@@ -1879,6 +1880,8 @@ const api = {
 				pushed: boolean;
 				pulled: boolean;
 			}>,
+		restoreExtensions: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncRestoreExtensions) as Promise<CloudSyncMissingExtension[]>,
 		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncSetAutoSync, enabled, intervalMinutes) as Promise<CloudSyncStateSnapshot>,
 		setStrategy: (strategy: string) =>
