@@ -78,6 +78,8 @@ export function useCloudSync() {
 		disconnectProvider: (provider: string) =>
 			run(() => desktopApi.cloudSync.disconnectProvider(provider)),
 		connect: (provider: string) => run(() => desktopApi.cloudSync.connect(provider)),
+		githubDeviceStart: (clientId: string) => run(() => desktopApi.cloudSync.githubDeviceStart(clientId)),
+		githubDevicePoll: () => run(() => desktopApi.cloudSync.githubDevicePoll()),
 		scan,
 		updateSelection,
 		syncNow: (allowShrink?: boolean) => run(() => desktopApi.cloudSync.syncNow({ allowShrink })),

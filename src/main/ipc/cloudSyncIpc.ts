@@ -12,6 +12,7 @@ import type {
 	CloudSyncProviderConfigInput,
 	CloudSyncSelectionUpdate,
 	CloudSyncStrategy,
+	GithubGistConfig,
 	WebDAVConfig,
 	S3Config,
 } from "../../shared/types/cloudSync";
@@ -47,6 +48,14 @@ function isS3Config(value: unknown): value is S3Config {
 	return true;
 }
 
+function isGithubGistConfig(value: unknown): value is GithubGistConfig {
+	if (!isPlainObject(value)) return false;
+	if (value.token !== undefined && typeof value.token !== "string") return false;
+	if (value.clientId !== undefined && typeof value.clientId !== "string") return false;
+	if (value.gistId !== undefined && typeof value.gistId !== "string") return false;
+	return Boolean(value.token || value.clientId);
+}
+
 function parseProviderConfigInput(value: unknown): CloudSyncProviderConfigInput {
 	if (!isPlainObject(value)) throw new TypeError("Provider config must be an object");
 	const provider = value.provider;
@@ -55,6 +64,9 @@ function parseProviderConfigInput(value: unknown): CloudSyncProviderConfigInput 
 	}
 	if (provider === "s3") {
 		return { provider, config: isS3Config(value.config) ? value.config : throwType("S3 config is invalid") };
+	}
+	if (provider === "github") {
+		return { provider, config: isGithubGistConfig(value.config) ? value.config : throwType("GitHub config is invalid") };
 	}
 	throw new TypeError("Unknown cloud provider");
 }
@@ -148,6 +160,19 @@ export function registerCloudSyncIpc(deps: {
 		const account = await manager.connectProvider(parseProvider(provider));
 		notifyStateChanged();
 		return account;
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncGithubDeviceStart, async (_event, clientId: unknown) => {
+		if (typeof clientId !== "string" || clientId.length === 0 || clientId.length > 128) {
+			throw new TypeError("GitHub client id is invalid");
+		}
+		return manager.startGithubDeviceFlow(clientId);
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncGithubDevicePoll, async () => {
+		const result = await manager.pollGithubDeviceFlow();
+		if (result.status === "ok") notifyStateChanged();
+		return result;
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncScan, () => manager.scanSelection());

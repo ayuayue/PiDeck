@@ -1,4 +1,4 @@
-import type { S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
+import type { GithubGistConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
 
 const MAX_ENDPOINT_LENGTH = 2048;
 const MAX_CREDENTIAL_LENGTH = 16_384;
@@ -112,5 +112,24 @@ export function normalizeS3Config(value: unknown): S3Config {
 		if (normalizedPrefix) config.prefix = normalizedPrefix;
 	}
 	if (allowInsecure) config.allowInsecure = true;
+	return config;
+}
+
+/** Validate GitHub Gist config; the token is sealed at rest and never logged. */
+export function normalizeGithubGistConfig(value: unknown): GithubGistConfig {
+	if (!isRecord(value)) throw new TypeError("GitHub config is invalid");
+	const config: GithubGistConfig = {};
+	if (value.token !== undefined) {
+		config.token = requiredString(value, "token", MAX_CREDENTIAL_LENGTH);
+	}
+	if (value.clientId !== undefined) {
+		config.clientId = requiredString(value, "clientId", 128);
+	}
+	if (value.gistId !== undefined) {
+		config.gistId = requiredString(value, "gistId", 128);
+	}
+	if (!config.token && !config.clientId) {
+		throw new TypeError("GitHub config requires a token or a client id");
+	}
 	return config;
 }

@@ -64,6 +64,17 @@ export interface OAuthTokens {
 	scope?: string;
 }
 
+/** GitHub Gist 同步目标：token 经主密钥加密落盘；clientId 用于 Device Flow 换 token。 */
+export interface GithubGistConfig {
+	/** OAuth access token（仅主进程持有）。 */
+	token?: string;
+	/** 复用已有 Gist；缺省自动创建命名 Gist。 */
+	gistId?: string;
+	/** GitHub OAuth App 的 Client ID（Device Flow 必需，用户自备）。 */
+	clientId?: string;
+}
+
+
 export interface ProviderAccount {
 	id: string;
 	email?: string;
@@ -360,7 +371,9 @@ export interface CloudSyncMissingExtension {
 
 export type CloudSyncProviderConfigInput =
 	| { provider: "webdav"; config: WebDAVConfig }
-	| { provider: "s3"; config: S3Config };
+	| { provider: "s3"; config: S3Config }
+	| { provider: "github"; config: GithubGistConfig };
+
 
 export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";
 

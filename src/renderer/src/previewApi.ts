@@ -1333,6 +1333,8 @@ export function createPreviewApi(): PiDesktopApi {
 			configureProvider: async () => ({ securityState: "UNLOCKED" } as never),
 			disconnectProvider: async () => undefined,
 			connect: async () => ({ id: "preview" }),
+			githubDeviceStart: async () => ({ deviceCode: "d", userCode: "u", verificationUrl: "https://github.com/login/device", expiresIn: 900, interval: 5 }),
+			githubDevicePoll: async () => ({ status: "pending" }),
 			scan: async () => ({ scannedAt: 0, projects: [], roots: [], totalSessions: 0, selectedSessions: 0, totalResources: 0, selectedResources: 0 }),
 			updateSelection: async () => ({ scannedAt: 0, projects: [], roots: [], totalSessions: 0, selectedSessions: 0, totalResources: 0, selectedResources: 0 }),
 			syncNow: async () => ({ pushed: false, pulled: false, reason: "Preview" }),

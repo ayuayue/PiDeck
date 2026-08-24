@@ -637,6 +637,8 @@ export const ipcChannels = {
 	cloudSyncConfigureProvider: "cloud-sync:configure-provider",
 	cloudSyncDisconnectProvider: "cloud-sync:disconnect-provider",
 	cloudSyncConnect: "cloud-sync:connect",
+	cloudSyncGithubDeviceStart: "cloud-sync:github-device-start",
+	cloudSyncGithubDevicePoll: "cloud-sync:github-device-poll",
 	cloudSyncScan: "cloud-sync:scan",
 	cloudSyncUpdateSelection: "cloud-sync:update-selection",
 	cloudSyncSyncNow: "cloud-sync:sync-now",

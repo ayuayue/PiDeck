@@ -1865,6 +1865,19 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.cloudSyncDisconnectProvider, provider) as Promise<void>,
 		connect: (provider: string) =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncConnect, provider) as Promise<ProviderAccount>,
+		githubDeviceStart: (clientId: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncGithubDeviceStart, clientId) as Promise<{
+				deviceCode: string;
+				userCode: string;
+				verificationUrl: string;
+				expiresIn: number;
+				interval: number;
+			}>,
+		githubDevicePoll: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncGithubDevicePoll) as Promise<{
+				status: "ok" | "pending" | "error";
+				error?: string;
+			}>,
 		scan: () =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncScan) as Promise<CloudSyncSelectionTree>,
 		updateSelection: (update: CloudSyncSelectionUpdate) =>

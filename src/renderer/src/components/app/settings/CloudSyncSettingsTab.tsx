@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Cloud, KeyRound, Lock, Unlock, RefreshCw, ShieldCheck } from "lucide-react";
+import { Cloud, FolderGit2, KeyRound, Lock, Unlock, RefreshCw, ShieldCheck } from "lucide-react";
 import { t } from "../../../i18n";
 import { useCloudSync } from "../../../hooks/useCloudSync";
 import { SettingsSection } from "./SettingsStorageTab";
@@ -238,6 +238,8 @@ export function CloudSyncSettingsTab() {
 		syncNow,
 		resolveConflicts,
 		restoreExtensions,
+		githubDeviceStart,
+		githubDevicePoll,
 		setAutoSync,
 		setStrategy,
 	} = useCloudSync();
@@ -316,6 +318,24 @@ export function CloudSyncSettingsTab() {
 	const providers = state?.providers;
 	const webdavSnapshot = providers?.webdav;
 	const s3Snapshot = providers?.s3;
+	const githubSnapshot = providers?.github;
+
+	// GitHub Device Flow：token 只在主进程换取并配置，渲染层只展示验证 URL/code。
+	const [githubClientId, setGithubClientId] = useState("");
+	const [githubFlow, setGithubFlow] = useState<{ userCode: string; verificationUrl: string; interval: number } | null>(null);
+	const startGithubConnect = useCallback(async () => {
+		const flow = await githubDeviceStart(githubClientId.trim());
+		if (!flow) return;
+		setGithubFlow({ userCode: flow.userCode, verificationUrl: flow.verificationUrl, interval: Math.max(5, flow.interval) });
+		const timer = window.setInterval(async () => {
+			const result = await githubDevicePoll();
+			if (!result) return;
+			if (result.status !== "pending") {
+				window.clearInterval(timer);
+				setGithubFlow(null);
+			}
+		}, 5000);
+	}, [githubDeviceStart, githubDevicePoll, githubClientId]);
 
 	return (
 		<div className="space-y-2">
@@ -373,6 +393,35 @@ export function CloudSyncSettingsTab() {
 								onConnect={(config) => void configureProvider(config as never)}
 								onDisconnect={() => void disconnectProvider("s3")}
 							/>
+							<div className="space-y-2 rounded-md border border-border-subtle p-3">
+								<div className="flex items-center justify-between">
+									<div className="flex items-center gap-2 text-body font-medium">
+										<FolderGit2 size={16} />
+										{t("cloudSync.provider.githubTitle")}
+									</div>
+									<span className={cn("text-caption", githubSnapshot?.status === "connected" ? "text-success" : "text-text-tertiary")}>
+										{githubSnapshot?.status === "connected" ? t("cloudSync.provider.connected") : t("cloudSync.provider.disconnected")}
+									</span>
+								</div>
+								<div className="flex items-center gap-2">
+									<Input placeholder={t("cloudSync.provider.githubClientId")} value={githubClientId} onChange={(event) => setGithubClientId(event.target.value)} />
+									<Button size="sm" onClick={() => void startGithubConnect()} disabled={!githubClientId.trim()}>
+										{t("cloudSync.provider.githubConnect")}
+									</Button>
+									{githubSnapshot?.configured ? (
+										<Button size="sm" variant="outline" onClick={() => void disconnectProvider("github")}>
+											{t("cloudSync.provider.remove")}
+										</Button>
+									) : null}
+								</div>
+								{githubFlow ? (
+									<div className="space-y-1 text-sm">
+										<div>{t("cloudSync.provider.githubOpenUrl")} <a className="text-primary underline" href={githubFlow.verificationUrl} target="_blank" rel="noreferrer">{githubFlow.verificationUrl}</a></div>
+										<div>{t("cloudSync.provider.githubUserCode")} <code className="rounded bg-accent px-1.5 py-0.5 font-mono">{githubFlow.userCode}</code></div>
+										<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
+									</div>
+								) : null}
+							</div>
 						</div>
 					</SettingsSection>
 

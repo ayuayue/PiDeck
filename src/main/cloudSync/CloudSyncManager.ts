@@ -22,6 +22,7 @@ import type {
 	CloudSyncState,
 	CloudSyncStateSnapshot,
 	CloudSyncStrategy,
+	GithubGistConfig,
 	PiDeckSyncIndexV1,
 	ProviderAccount,
 	ProviderConnectionStatus,
@@ -44,6 +45,11 @@ import {
 	verifyPassword,
 } from "./EncryptionService.ts";
 import {
+	pollGithubDeviceFlow,
+	startGithubDeviceFlow,
+	type GithubDeviceFlowStart,
+} from "./adapters/GithubGistObjectStorage.ts";
+import {
 	CloudSyncScanner,
 	CLOUD_SYNC_SCANNER_LIMITS,
 	type CloudSyncInternalResource,
@@ -52,7 +58,7 @@ import {
 } from "./CloudSyncScanner.ts";
 import type { PiDeckCloudObjectStorage } from "./objectStorage.ts";
 import { createCloudSyncObjectStorage } from "./adapters/index.ts";
-import { normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
+import { normalizeGithubGistConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
 import {
 	buildCatalogSyncEntry,
 	buildCloudSyncProject,
@@ -235,7 +241,7 @@ export interface CloudSyncManagerOptions {
 	getDesktopSettings: () => AppSettings;
 	updateDesktopSettings: (patch: Record<string, unknown>) => Promise<void>;
 	/** 测试注入点：默认走 createCloudSyncObjectStorage（真实 WebDAV/S3）。 */
-	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config) => PiDeckCloudObjectStorage;
+	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config | GithubGistConfig) => PiDeckCloudObjectStorage;
 	/** 包扩展安装（M5）：默认未注入时不自动安装，只记录缺失清单。 */
 	installExtension?: (source: string, scope: "user" | "project") => Promise<{ ok: boolean; error?: string }>;
 	/** 已安装扩展清单（source + scope），用于判断声明是否缺失。 */
@@ -258,7 +264,7 @@ export class CloudSyncManager {
 	private state: CloudSyncPersistedState = createDefaultState();
 	private password: string | null = null;
 	/** Unsealed provider configs, available only while unlocked. */
-	private providerConfigs = new Map<CloudProvider, WebDAVConfig | S3Config>();
+	private providerConfigs = new Map<CloudProvider, WebDAVConfig | S3Config | GithubGistConfig>();
 	private adapters = new Map<CloudProvider, PiDeckCloudObjectStorage>();
 	private syncState: CloudSyncState = "IDLE";
 	private lastError: string | null = null;
@@ -273,6 +279,8 @@ export class CloudSyncManager {
 	} | null = null;
 	private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 	private disposed = false;
+	/** GitHub Device Flow 进行中的上下文（主进程持有，token 永不进 renderer）。 */
+	private githubDeviceFlow: (GithubDeviceFlowStart & { clientId: string }) | null = null;
 
 	constructor(options: CloudSyncManagerOptions) {
 		this.options = options;
@@ -447,6 +455,36 @@ export class CloudSyncManager {
 		await adapter.disconnect().catch(() => undefined);
 		this.adapters.delete(provider);
 		this.emitState();
+	}
+
+	// ── GitHub Device Flow（token 只在主进程流转） ───────────────────
+
+	async startGithubDeviceFlow(clientId: string): Promise<GithubDeviceFlowStart> {
+		const flow = await startGithubDeviceFlow(clientId);
+		this.githubDeviceFlow = { ...flow, clientId };
+		return flow;
+	}
+
+	/** 轮询设备授权；成功后直接用 token 配置 github provider（token 不进 renderer）。 */
+	async pollGithubDeviceFlow(): Promise<{ status: "ok" | "pending" | "error"; error?: string }> {
+		const flow = this.githubDeviceFlow;
+		if (!flow) return { status: "error", error: "No active device flow" };
+		try {
+			const result = await pollGithubDeviceFlow(flow.clientId, flow.deviceCode);
+			if (result.accessToken) {
+				this.githubDeviceFlow = null;
+				await this.configureProvider({ provider: "github", config: { token: result.accessToken, clientId: flow.clientId } });
+				return { status: "ok" };
+			}
+			if (result.error === "authorization_pending" || result.error === "slow_down") {
+				return { status: "pending" };
+			}
+			this.githubDeviceFlow = null;
+			return { status: "error", error: result.errorDescription ?? result.error };
+		} catch (error) {
+			this.githubDeviceFlow = null;
+			return { status: "error", error: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	// ── Selection & scanning ─────────────────────────────────────────
@@ -640,7 +678,7 @@ export class CloudSyncManager {
 
 	private providerSnapshots(): Record<CloudProvider, CloudSyncProviderSnapshot> {
 		const result = {} as Record<CloudProvider, CloudSyncProviderSnapshot>;
-		for (const provider of ["webdav", "s3"] as const) {
+		for (const provider of ["webdav", "s3", "github"] as const) {
 			const entry = this.state.providers[provider];
 			const adapter = this.adapters.get(provider);
 			const status: ProviderConnectionStatus = adapter ? "connected" : "disconnected";
@@ -1322,14 +1360,15 @@ export class CloudSyncManager {
 		return this.adapters.values().next().value ?? null;
 	}
 
-	private normalizeProviderInput(input: CloudSyncProviderConfigInput): WebDAVConfig | S3Config {
+	private normalizeProviderInput(input: CloudSyncProviderConfigInput): WebDAVConfig | S3Config | GithubGistConfig {
 		if (input.provider === "webdav") return normalizeWebDAVConfig(input.config);
 		if (input.provider === "s3") return normalizeS3Config(input.config);
+		if (input.provider === "github") return normalizeGithubGistConfig(input.config);
 		throw new TypeError(`Unsupported cloud provider: ${String((input as { provider?: unknown }).provider)}`);
 	}
 
 	private async sealConfig(
-		config: WebDAVConfig | S3Config,
+		config: WebDAVConfig | S3Config | GithubGistConfig,
 		password: string,
 		masterConfig: CloudSyncMasterKeyConfig,
 	): Promise<string> {
@@ -1364,7 +1403,7 @@ export class CloudSyncManager {
 					},
 					key,
 				);
-				this.providerConfigs.set(provider as CloudProvider, JSON.parse(plaintext) as WebDAVConfig | S3Config);
+				this.providerConfigs.set(provider as CloudProvider, JSON.parse(plaintext) as WebDAVConfig | S3Config | GithubGistConfig);
 			} catch {
 				// A corrupt sealed entry is dropped; the user can reconfigure the provider.
 				this.state.providers[provider] = null;
