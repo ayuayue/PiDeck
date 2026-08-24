@@ -2690,7 +2690,11 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.content.sessionCount": "{selected}/{count} sessions",
   "cloudSync.content.versions": "Local v{local} · Cloud v{remote}",
   "cloudSync.content.state": "State: {state}",
->>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))
+  "cloudSync.conflict.title": "Conflicts to resolve",
+  "cloudSync.conflict.desc": "These items changed on both sides. Choose which version to keep for each, then sync.",
+  "cloudSync.conflict.local": "Local",
+  "cloudSync.conflict.remote": "Cloud",
+  "cloudSync.conflict.apply": "Apply & sync",
   "imagegen.done": "Image generated",
   "imagegen.status.generating": "Generating image",
   "imagegen.status.complete": "Image ready",

@@ -1322,6 +1322,7 @@ export function createPreviewApi(): PiDesktopApi {
 				autoSyncInterval: 5,
 				syncStrategy: "smartMerge",
 				pendingLocalSync: false,
+				conflicts: [],
 			}),
 			onStateChanged: () => noop,
 			setupMasterKey: async () => ({ securityState: "UNLOCKED" } as never),
@@ -1334,6 +1335,7 @@ export function createPreviewApi(): PiDesktopApi {
 			scan: async () => ({ scannedAt: 0, projects: [], roots: [], totalSessions: 0, selectedSessions: 0, totalResources: 0, selectedResources: 0 }),
 			updateSelection: async () => ({ scannedAt: 0, projects: [], roots: [], totalSessions: 0, selectedSessions: 0, totalResources: 0, selectedResources: 0 }),
 			syncNow: async () => ({ pushed: false, pulled: false, reason: "Preview" }),
+			resolveConflicts: async () => ({ pushed: false, pulled: false }),
 			setAutoSync: async () => ({ securityState: "NO_KEY" } as never),
 			setStrategy: async () => ({ securityState: "NO_KEY" } as never),
 >>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))

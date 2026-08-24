@@ -263,3 +263,94 @@ test("manager shrink guard blocks pushing an emptied selection", async () => {
 		await rm(base, { recursive: true, force: true });
 	}
 });
+
+test("manager three-way merge: both sides changed produces a resolvable conflict", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-mgr-"));
+	try {
+		const userDataDir = join(base, "userData");
+		const home1 = join(base, "home1");
+		const home2 = join(base, "home2");
+		const sessions1 = join(home1, ".pi", "agent", "sessions");
+		const sessions2 = join(home2, ".pi", "agent", "sessions");
+		await mkdir(sessions1, { recursive: true });
+		await mkdir(sessions2, { recursive: true });
+		const sessionFile1 = join(sessions1, "session-a.jsonl");
+		const sessionFile2 = join(sessions2, "session-a.jsonl");
+		await writeFile(sessionFile1, '{"role":"user","content":"v1"}\n', "utf8");
+
+		const storage = new InMemoryStorage();
+		const manager1 = new CloudSyncManager({
+			userDataDir,
+			homeDir: home1,
+			deviceName: "dev-1",
+			appVersion: "0.0.0-test",
+			listProjects: () => [],
+			listSessionRecords: () => [],
+			getDesktopSettings: minimalSettings,
+			updateDesktopSettings: async () => undefined,
+			createAdapter: () => storage,
+		});
+		await manager1.initialize();
+		await manager1.setupMasterKey(PASSWORD);
+		await manager1.configureProvider({
+			provider: "s3",
+			config: { endpoint: "https://example.invalid", region: "us-east-1", bucket: "bucket", accessKeyId: "ak", secretAccessKey: "sk" },
+		});
+		await manager1.connectProvider("s3");
+
+		// 设备 1 首次推送（base v1）
+		const tree1 = await manager1.scanSelection();
+		const selectionId = tree1.projects[0].sessions[0].selectionId;
+		await manager1.updateSelection({ selectedSessionIds: [selectionId], selectedResourceIds: [] });
+		await manager1.syncNow();
+
+		// 设备 2 用不同内容同步同一会话（远端 v2）
+		await writeFile(sessionFile2, '{"role":"user","content":"v2-remote"}\n', "utf8");
+		const manager2 = new CloudSyncManager({
+			userDataDir: join(base, "userData2"),
+			homeDir: home2,
+			deviceName: "dev-2",
+			appVersion: "0.0.0-test",
+			listProjects: () => [],
+			listSessionRecords: () => [],
+			getDesktopSettings: minimalSettings,
+			updateDesktopSettings: async () => undefined,
+			createAdapter: () => storage,
+		});
+		await manager2.initialize();
+		await manager2.setupMasterKey(PASSWORD);
+		await manager2.configureProvider({
+			provider: "s3",
+			config: { endpoint: "https://example.invalid", region: "us-east-1", bucket: "bucket", accessKeyId: "ak", secretAccessKey: "sk" },
+		});
+		await manager2.connectProvider("s3");
+		// 设备 2 是新设备：preferLocal 允许在无 base 时直接推送其本地内容到云端
+		await manager2.setStrategy("preferLocal");
+		const tree2 = await manager2.scanSelection();
+		await manager2.updateSelection({ selectedSessionIds: [tree2.projects[0].sessions[0].selectionId], selectedResourceIds: [] });
+		await manager2.syncNow();
+		await manager2.dispose();
+
+		// 设备 1 本地也改（v2-local），触发三方合并 → 冲突
+		await writeFile(sessionFile1, '{"role":"user","content":"v2-local"}\n', "utf8");
+		const tree1b = await manager1.scanSelection();
+		await manager1.updateSelection({ selectedSessionIds: [tree1b.projects[0].sessions[0].selectionId], selectedResourceIds: [] });
+		const conflicted = await manager1.syncNow();
+		assert.equal(conflicted.pushed, false);
+		assert.equal(manager1.getStateSnapshot().syncState, "CONFLICT");
+		const conflicts = manager1.getStateSnapshot().conflicts;
+		assert.equal(conflicts.length, 1);
+		assert.equal(conflicts[0].kind, "session");
+
+		// 选择远端版本 → 下载并落地，冲突清除
+		const resolved = await manager1.resolveConflicts([{ id: conflicts[0].id, choice: "remote" }]);
+		assert.equal(resolved.pulled, true);
+		assert.equal(manager1.getStateSnapshot().conflicts.length, 0);
+		assert.equal(manager1.getStateSnapshot().syncState, "IDLE");
+		const localContent = await readFile(sessionFile1, "utf8");
+		assert.match(localContent, /v2-remote/);
+		await manager1.dispose();
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});

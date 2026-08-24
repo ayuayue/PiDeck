@@ -9,6 +9,8 @@ import type {
 } from "../../shared/types.ts";
 import type {
 	CloudProvider,
+	CloudSyncConflict,
+	CloudSyncConflictResolution,
 	CloudSyncMasterKeyConfig,
 	CloudSyncProviderConfigInput,
 	CloudSyncProviderSnapshot,
@@ -64,6 +66,10 @@ import {
 	toPortableRelativePath,
 	type CloudSyncProjectOptions,
 } from "./payload.ts";
+import {
+	mergeSyncIndexes,
+	type CloudSyncMergeResult,
+} from "./merge.ts";
 
 type PersistedProviderEntry =
 	| { configured: true; sealed: string }
@@ -82,6 +88,8 @@ type CloudSyncPersistedState = {
 	remoteVersion: number;
 	lastSyncAt: number | null;
 	lastSyncDeviceId: string | null;
+	/** 上一次成功同步的索引（三路合并的 base）。 */
+	lastSyncedIndex: PiDeckSyncIndexV1 | null;
 	/** 上一次成功同步时的选中会话/资源数量（缩水保护基线）。 */
 	lastSyncedSessionCount: number;
 	lastSyncedResourceCount: number;
@@ -119,6 +127,7 @@ function createDefaultState(): CloudSyncPersistedState {
 		remoteVersion: 0,
 		lastSyncAt: null,
 		lastSyncDeviceId: null,
+		lastSyncedIndex: null,
 		lastSyncedSessionCount: 0,
 		lastSyncedResourceCount: 0,
 	};
@@ -244,6 +253,13 @@ export class CloudSyncManager {
 	private lastError: string | null = null;
 	private pendingLocalSync = false;
 	private lastTree: CloudSyncSelectionTree | null = null;
+	/** CONFLICT 时的三方上下文与冲突清单（resolveConflicts 使用）。 */
+	private pendingConflictContext: {
+		base: PiDeckSyncIndexV1 | null;
+		local: PiDeckSyncIndexV1;
+		remote: PiDeckSyncIndexV1;
+		conflicts: CloudSyncConflict[];
+	} | null = null;
 	private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 	private disposed = false;
 
@@ -285,6 +301,7 @@ export class CloudSyncManager {
 			autoSyncInterval: this.state.autoSync.intervalMinutes,
 			syncStrategy: this.state.strategy,
 			pendingLocalSync: this.pendingLocalSync,
+			conflicts: this.pendingConflictContext?.conflicts ?? [],
 		};
 	}
 
@@ -338,6 +355,7 @@ export class CloudSyncManager {
 	async lock(): Promise<void> {
 		this.password = null;
 		this.providerConfigs.clear();
+		this.pendingConflictContext = null;
 		await this.disconnectAllAdapters();
 		this.syncState = "IDLE";
 		this.emitState();
@@ -462,9 +480,10 @@ export class CloudSyncManager {
 	// ── Sync orchestration ───────────────────────────────────────────
 
 	/**
-	 * Guarded push/pull with a version counter and shrink protection.
-	 * Full three-way merge lands in M6; this milestone guarantees no lost
-	 * remote data and no reverse overwrite when local selection empties.
+	 * Guarded push/pull with a version counter, shrink protection and a
+	 * three-way merge (base = last synced index). Entities changed on one side
+	 * only are applied automatically; entities changed on both sides become
+	 * conflicts that must be resolved by the user before the next write.
 	 */
 	async syncNow(options?: { allowShrink?: boolean }): Promise<{ pushed: boolean; pulled: boolean; reason?: string }> {
 		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
@@ -498,7 +517,7 @@ export class CloudSyncManager {
 					this.emitState();
 					return { pushed: false, pulled: false, reason: "Nothing to sync" };
 				}
-				await this.push(scan, selectedSessions, selectedResources, undefined);
+				await this.push(scan, selectedSessions, selectedResources, undefined, undefined);
 				return { pushed: true, pulled: false };
 			}
 
@@ -507,26 +526,56 @@ export class CloudSyncManager {
 			const remoteAhead = remoteVersion > this.state.localVersion;
 
 			if (remoteAhead && localDirty) {
-				// Both sides changed: conflict resolution is deferred to M6; for now
-				// the configured strategy decides, with a safe default that never
-				// discards the remote silently.
-				if (this.state.strategy === "preferLocal") {
-					await this.push(scan, selectedSessions, selectedResources, remote.revision);
-					return { pushed: true, pulled: false };
+				const base = this.state.lastSyncedIndex;
+				if (!base) {
+					// 首次交锋没有 base，无法安全三路合并：
+					// 本地未选任何内容 → 直接恢复云端；否则按策略决定，绝不静默丢弃远端。
+					if (selectedSessions.length === 0 && selectedResources.length === 0) {
+						await this.pull(remoteIndex, scan, remoteVersion);
+						return { pushed: false, pulled: true };
+					}
+					if (this.state.strategy === "preferLocal") {
+						await this.push(scan, selectedSessions, selectedResources, remote.revision, remoteVersion);
+						return { pushed: true, pulled: false };
+					}
+					if (this.state.strategy === "preferCloud") {
+						await this.pull(remoteIndex, scan, remoteVersion);
+						return { pushed: false, pulled: true };
+					}
+					this.syncState = "CONFLICT";
+					this.lastError = "首次同步前本地与云端都有数据，请选择冲突策略后重试";
+					this.emitState();
+					return { pushed: false, pulled: false, reason: this.lastError };
 				}
-				this.syncState = "CONFLICT";
-				this.lastError = "Remote and local changes conflict; choose cloud or local to resolve";
-				this.emitState();
-				return { pushed: false, pulled: false, reason: this.lastError };
+
+				const localIndex = await this.buildLocalIndex(scan, selectedSessions, selectedResources);
+				const mergeResult = mergeSyncIndexes(base, localIndex, remoteIndex, this.state.strategy);
+				if (mergeResult.conflicts.length > 0) {
+					this.pendingConflictContext = {
+						base,
+					local: localIndex,
+					remote: remoteIndex,
+					conflicts: mergeResult.conflicts,
+				};
+					this.syncState = "CONFLICT";
+					this.lastError = null;
+					this.emitState();
+					return { pushed: false, pulled: false, reason: "conflicts" };
+				}
+				await this.applyMerged(scan, mergeResult, remoteVersion, remote.revision);
+				return {
+					pushed: mergeResult.transfers.sessionUpload.length > 0 || mergeResult.transfers.resourceUpload.length > 0,
+					pulled: mergeResult.transfers.sessionDownload.length > 0 || mergeResult.transfers.resourceDownload.length > 0,
+				};
 			}
 
 			if (remoteAhead) {
-				await this.pull(remoteIndex, scan, remote.file.meta.version);
+				await this.pull(remoteIndex, scan, remoteVersion);
 				return { pushed: false, pulled: true };
 			}
 
 			if (localDirty) {
-				await this.push(scan, selectedSessions, selectedResources, remote.revision);
+				await this.push(scan, selectedSessions, selectedResources, remote.revision, remoteVersion);
 				return { pushed: true, pulled: false };
 			}
 
@@ -539,6 +588,40 @@ export class CloudSyncManager {
 			this.emitState();
 			throw error;
 		}
+	}
+
+	/** 按用户对每个冲突的选择重跑合并并落地（选择必须覆盖全部待解冲突）。 */
+	async resolveConflicts(resolutions: CloudSyncConflictResolution[]): Promise<{ pushed: boolean; pulled: boolean }> {
+		const context = this.pendingConflictContext;
+		if (!context) throw new Error("No pending conflicts");
+		if (this.adapters.size === 0) throw new Error("Connect a cloud provider first");
+		const conflictIds = new Set(context.conflicts.map((conflict) => conflict.id));
+		const choices = new Map<string, "local" | "remote">();
+		for (const resolution of resolutions) {
+			if (!conflictIds.has(resolution.id) || (resolution.choice !== "local" && resolution.choice !== "remote")) {
+				throw new TypeError(`Invalid conflict resolution: ${resolution.id}`);
+			}
+			choices.set(resolution.id, resolution.choice);
+		}
+		if (choices.size !== conflictIds.size) {
+			throw new TypeError("All conflicts must be resolved before continuing");
+		}
+		const mergeResult = mergeSyncIndexes(
+			context.base,
+			context.local,
+			context.remote,
+			this.state.strategy,
+			choices,
+		);
+		this.pendingConflictContext = null;
+		const scan = await this.scanner.scan(this.getSelectionPreferences());
+		const remote = await this.readRemoteIndex();
+		const remoteVersion = remote.found ? remote.file.meta.version : this.state.remoteVersion;
+		await this.applyMerged(scan, mergeResult, remoteVersion, remote.found ? remote.revision : undefined);
+		return {
+			pushed: mergeResult.transfers.sessionUpload.length > 0 || mergeResult.transfers.resourceUpload.length > 0,
+			pulled: mergeResult.transfers.sessionDownload.length > 0 || mergeResult.transfers.resourceDownload.length > 0,
+		};
 	}
 
 	// ── Internal helpers ─────────────────────────────────────────────
@@ -615,6 +698,7 @@ export class CloudSyncManager {
 		selectedSessions: CloudSyncInternalSession[],
 		selectedResources: CloudSyncInternalResource[],
 		expectedRevisionArg: string | undefined,
+		remoteVersionArg?: number,
 	): Promise<void> {
 		const provider = this.firstAdapter();
 		if (!provider) throw new Error("No connected provider");
@@ -628,13 +712,15 @@ export class CloudSyncManager {
 		}
 
 		const index = await this.buildLocalIndex(scan, selectedSessions, selectedResources);
+		// 版本号取 max(local, remote)，防止覆盖远端时把版本计数器回退。
+		const existingVersion = Math.max(this.state.localVersion, remoteVersionArg ?? this.state.localVersion);
 		const file = await encryptPayload(
 			index,
 			this.requirePassword(),
 			this.state.deviceId,
 			this.state.deviceName,
 			this.options.appVersion,
-			this.state.localVersion,
+			existingVersion,
 		);
 		const capabilities = await provider.getCapabilities();
 		// WebDAV has no conditional writes; only S3-style providers guard with a revision.
@@ -642,16 +728,96 @@ export class CloudSyncManager {
 		await provider.writeObject(CLOUD_SYNC_CONSTANTS.SYNC_INDEX_OBJECT_KEY, Buffer.from(JSON.stringify(file), "utf8"), {
 			expectedRevision: conditionalRevision,
 		});
-		this.state.localVersion += 1;
-		this.state.remoteVersion = this.state.localVersion;
+		const nextVersion = existingVersion + 1;
+		this.state.localVersion = nextVersion;
+		this.state.remoteVersion = nextVersion;
 		this.state.lastSyncAt = Date.now();
 		this.state.lastSyncDeviceId = this.state.deviceId;
 		this.state.lastSyncedSessionCount = selectedSessions.length;
 		this.state.lastSyncedResourceCount = selectedResources.length;
+		this.state.lastSyncedIndex = index;
 		this.pendingLocalSync = false;
+		this.pendingConflictContext = null;
 		await this.persist();
 		this.syncState = "IDLE";
 		this.emitState();
+	}
+
+	/** 合并结果落地：按传输计划上传/下载对象，写回合并索引为新的 base。 */
+	private async applyMerged(
+		scan: CloudSyncScanSnapshot,
+		result: CloudSyncMergeResult,
+		remoteVersion: number,
+		expectedRevisionArg: string | undefined,
+	): Promise<void> {
+		const provider = this.firstAdapter();
+		if (!provider) throw new Error("No connected provider");
+
+		for (const ref of result.transfers.sessionUpload) {
+			const local = this.sessionByRef(scan, ref.sessionId);
+			if (local) await this.uploadSessionObject(local, provider);
+		}
+		for (const item of result.transfers.resourceUpload) {
+			const local = this.resourceByRef(scan, item.projectId, item.bundle.relativePath);
+			if (local) await this.uploadResourceObject(local, provider);
+		}
+		for (const ref of result.transfers.sessionDownload) {
+			await this.downloadSessionRef(ref, provider);
+		}
+		for (const item of result.transfers.resourceDownload) {
+			await this.downloadResourceBundle(item.projectId, item.bundle, provider);
+		}
+
+		const file = await encryptPayload(
+			result.merged,
+			this.requirePassword(),
+			this.state.deviceId,
+			this.state.deviceName,
+			this.options.appVersion,
+			remoteVersion,
+		);
+		const capabilities = await provider.getCapabilities();
+		const conditionalRevision = capabilities.conditionalWrites ? expectedRevisionArg : undefined;
+		await provider.writeObject(CLOUD_SYNC_CONSTANTS.SYNC_INDEX_OBJECT_KEY, Buffer.from(JSON.stringify(file), "utf8"), {
+			expectedRevision: conditionalRevision,
+		});
+
+		if (result.settingsAdoptedFromRemote && result.merged.settings) {
+			const filtered = filterSyncableDesktopSettings(result.merged.settings);
+			if (Object.keys(filtered).length > 0) {
+				await this.options.updateDesktopSettings(filtered);
+			}
+		}
+
+		this.state.localVersion = remoteVersion + 1;
+		this.state.remoteVersion = remoteVersion + 1;
+		this.state.lastSyncAt = Date.now();
+		this.state.lastSyncDeviceId = this.state.deviceId;
+		this.state.lastSyncedIndex = result.merged;
+		this.state.lastSyncedSessionCount = result.merged.projects?.reduce((sum, project) => sum + (project.sessions?.length ?? 0), 0) ?? 0;
+		this.state.lastSyncedResourceCount = result.merged.projects?.reduce(
+			(sum, project) => sum + (project.resources ? Object.keys(project.resources).length : 0),
+			0,
+		) ?? 0;
+		this.pendingLocalSync = false;
+		this.pendingConflictContext = null;
+		await this.persist();
+		this.syncState = "IDLE";
+		this.emitState();
+	}
+
+	private sessionByRef(scan: CloudSyncScanSnapshot, sessionId: string): CloudSyncInternalSession | null {
+		for (const item of scan.sessions.values()) {
+			if (item.candidate.sessionId === sessionId) return item;
+		}
+		return null;
+	}
+
+	private resourceByRef(scan: CloudSyncScanSnapshot, projectId: string, relativePath: string): CloudSyncInternalResource | null {
+		for (const item of scan.resources.values()) {
+			if (item.candidate.projectId === projectId && item.candidate.relativePath === relativePath) return item;
+		}
+		return null;
 	}
 
 	private async uploadSessionObject(item: CloudSyncInternalSession, provider: PiDeckCloudObjectStorage): Promise<void> {
@@ -841,17 +1007,7 @@ export class CloudSyncManager {
 		// Restore session objects referenced by the remote index.
 		for (const project of remoteIndex.projects ?? []) {
 			for (const sessionRef of project.sessions ?? []) {
-				const target = await this.resolveSessionTarget(sessionRef);
-				const root = this.sessionTargetRoot(sessionRef);
-				if (!target || !root) continue;
-				await mkdir(dirname(target), { recursive: true });
-				await ensureNoSymlinkEscape(root, target);
-				const object = await provider.readObject(sessionRef.objectKey);
-				if (!object.found || !object.bytes) continue;
-				const existing = await this.readExistingHash(target);
-				if (existing === sessionRef.contentHash) continue;
-				const content = await this.decryptObject(object.bytes);
-				await writeFileAtomic(target, content);
+				await this.downloadSessionRef(sessionRef, provider);
 			}
 		}
 
@@ -859,25 +1015,21 @@ export class CloudSyncManager {
 		for (const project of remoteIndex.projects ?? []) {
 			const resources = project.resources;
 			if (!resources) continue;
-			const scopeRoot = project.projectId === GLOBAL_SYNC_PROJECT_ID
-				? join(this.options.homeDir, ".pi", "agent")
-				: this.options.listProjects().find((candidate) => candidate.id === project.projectId)?.path;
-			if (!scopeRoot) continue;
 			for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? [])]) {
-				const content = bundle.content ?? await this.readObjectText(provider, bundle.objectKey ?? "");
-				if (content === undefined) continue;
-				const target = join(scopeRoot, bundle.relativePath);
-				await mkdir(dirname(target), { recursive: true });
-				await ensureNoSymlinkEscape(scopeRoot, target);
-				await writeFileAtomic(target, content);
+				await this.downloadResourceBundle(project.projectId, bundle, provider);
 			}
 			if (resources.piSettings) {
-				const target = project.projectId === GLOBAL_SYNC_PROJECT_ID
-					? join(scopeRoot, "settings.json")
-					: join(scopeRoot, ".pi", "settings.json");
-				await mkdir(dirname(target), { recursive: true });
-				await ensureNoSymlinkEscape(scopeRoot, target);
-				await writeFileAtomic(target, JSON.stringify(resources.piSettings, null, 2));
+				const scopeRoot = project.projectId === GLOBAL_SYNC_PROJECT_ID
+					? join(this.options.homeDir, ".pi", "agent")
+					: this.options.listProjects().find((candidate) => candidate.id === project.projectId)?.path;
+				if (scopeRoot) {
+					const target = project.projectId === GLOBAL_SYNC_PROJECT_ID
+						? join(scopeRoot, "settings.json")
+						: join(scopeRoot, ".pi", "settings.json");
+					await mkdir(dirname(target), { recursive: true });
+					await ensureNoSymlinkEscape(scopeRoot, target);
+					await writeFileAtomic(target, JSON.stringify(resources.piSettings, null, 2));
+				}
 			}
 		}
 
@@ -899,10 +1051,48 @@ export class CloudSyncManager {
 			(sum, project) => sum + (project.resources ? Object.keys(project.resources).length : 0),
 			0,
 		);
+		this.state.lastSyncedIndex = remoteIndex;
 		this.pendingLocalSync = false;
+		this.pendingConflictContext = null;
 		await this.persist();
 		this.syncState = "IDLE";
 		this.emitState();
+	}
+
+	/** 下载单个会话对象并写入目标路径（hash 相同则跳过）。 */
+	private async downloadSessionRef(
+		sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef,
+		provider: PiDeckCloudObjectStorage,
+	): Promise<void> {
+		const target = await this.resolveSessionTarget(sessionRef);
+		const root = this.sessionTargetRoot(sessionRef);
+		if (!target || !root) return;
+		await mkdir(dirname(target), { recursive: true });
+		await ensureNoSymlinkEscape(root, target);
+		const object = await provider.readObject(sessionRef.objectKey);
+		if (!object.found || !object.bytes) return;
+		const existing = await this.readExistingHash(target);
+		if (existing === sessionRef.contentHash) return;
+		const content = await this.decryptObject(object.bytes);
+		await writeFileAtomic(target, content);
+	}
+
+	/** 下载单个资源 bundle 并写入对应作用域目录。 */
+	private async downloadResourceBundle(
+		projectId: string,
+		bundle: import("../../shared/types/cloudSync.ts").CloudSyncFileBundle,
+		provider: PiDeckCloudObjectStorage,
+	): Promise<void> {
+		const scopeRoot = projectId === GLOBAL_SYNC_PROJECT_ID
+			? join(this.options.homeDir, ".pi", "agent")
+			: this.options.listProjects().find((candidate) => candidate.id === projectId)?.path;
+		if (!scopeRoot) return;
+		const content = bundle.content ?? await this.readObjectText(provider, bundle.objectKey ?? "");
+		if (content === undefined) return;
+		const target = join(scopeRoot, bundle.relativePath);
+		await mkdir(dirname(target), { recursive: true });
+		await ensureNoSymlinkEscape(scopeRoot, target);
+		await writeFileAtomic(target, content);
 	}
 
 	private async resolveSessionTarget(

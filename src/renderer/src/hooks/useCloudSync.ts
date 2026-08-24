@@ -81,6 +81,8 @@ export function useCloudSync() {
 		scan,
 		updateSelection,
 		syncNow: (allowShrink?: boolean) => run(() => desktopApi.cloudSync.syncNow({ allowShrink })),
+		resolveConflicts: (resolutions: Array<{ id: string; choice: "local" | "remote" }>) =>
+			run(() => desktopApi.cloudSync.resolveConflicts(resolutions)),
 		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
 			run(() => desktopApi.cloudSync.setAutoSync(enabled, intervalMinutes)),
 		setStrategy: (strategy: string) => run(() => desktopApi.cloudSync.setStrategy(strategy)),

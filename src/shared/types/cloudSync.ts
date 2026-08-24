@@ -314,6 +314,39 @@ export interface CloudSyncSelectionUpdate {
 	content?: Partial<CloudSyncContentPreferences>;
 }
 
+// ---------------------------------------------------------------------------
+// Three-way merge / conflict model (M6)
+// ---------------------------------------------------------------------------
+
+export type CloudSyncConflictKind =
+	| "session"
+	| "resource"
+	| "settings"
+	| "catalog"
+	| "project";
+
+/** One side of a conflicted entity; hashes are optional for non-file entities. */
+export interface CloudSyncConflictSide {
+	hash?: string;
+	updatedAt?: number;
+}
+
+export interface CloudSyncConflict {
+	/** Stable id: `session:<sessionId>` / `settings:<field>` / `resource:<projectId>:<category>:<path>` … */
+	id: string;
+	kind: CloudSyncConflictKind;
+	label: string;
+	projectId?: string;
+	entityId?: string;
+	local: CloudSyncConflictSide;
+	remote: CloudSyncConflictSide;
+}
+
+export interface CloudSyncConflictResolution {
+	id: string;
+	choice: "local" | "remote";
+}
+
 export type CloudSyncProviderConfigInput =
 	| { provider: "webdav"; config: WebDAVConfig }
 	| { provider: "s3"; config: S3Config };
@@ -337,6 +370,8 @@ export interface CloudSyncStateSnapshot {
 	autoSyncInterval: number;
 	syncStrategy: CloudSyncStrategy;
 	pendingLocalSync: boolean;
+	/** 待解决的冲突（三路合并产物）；为空表示无冲突。 */
+	conflicts: CloudSyncConflict[];
 }
 
 export const CLOUD_SYNC_STORAGE_KEYS = {

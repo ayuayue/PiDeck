@@ -1874,6 +1874,11 @@ const api = {
 				pulled: boolean;
 				reason?: string;
 			}>,
+		resolveConflicts: (resolutions: Array<{ id: string; choice: "local" | "remote" }>) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncResolveConflicts, resolutions) as Promise<{
+				pushed: boolean;
+				pulled: boolean;
+			}>,
 		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncSetAutoSync, enabled, intervalMinutes) as Promise<CloudSyncStateSnapshot>,
 		setStrategy: (strategy: string) =>

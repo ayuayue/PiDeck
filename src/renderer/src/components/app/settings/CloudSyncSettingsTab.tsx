@@ -236,6 +236,7 @@ export function CloudSyncSettingsTab() {
 		scan,
 		updateSelection,
 		syncNow,
+		resolveConflicts,
 		setAutoSync,
 		setStrategy,
 	} = useCloudSync();
@@ -246,6 +247,8 @@ export function CloudSyncSettingsTab() {
 	const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
 	const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(new Set());
 	const [autoSyncInterval, setAutoSyncInterval] = useState(5);
+	/** 冲突选择（id → local/remote），默认本地优先。 */
+	const [conflictChoices, setConflictChoices] = useState<Record<string, "local" | "remote">>({});
 
 	const selectionTree = tree as CloudSyncSelectionTree | null;
 
@@ -299,6 +302,15 @@ export function CloudSyncSettingsTab() {
 		setSelectedSessionIds(new Set(all ? selectionTree.projects.flatMap((project) => project.sessions).map((session) => session.selectionId) : []));
 		setSelectedResourceIds(new Set(all ? selectionTree.projects.flatMap((project) => project.resources).map((resource) => resource.selectionId) : []));
 	}, [selectionTree]);
+
+	const applyConflictResolutions = useCallback(async () => {
+		const resolutions = (state?.conflicts ?? []).map((conflict) => ({
+			id: conflict.id,
+			choice: conflictChoices[conflict.id] ?? "local",
+		}));
+		if (resolutions.length === 0) return;
+		await resolveConflicts(resolutions);
+	}, [state?.conflicts, conflictChoices, resolveConflicts]);
 
 	const providers = state?.providers;
 	const webdavSnapshot = providers?.webdav;
@@ -415,6 +427,43 @@ export function CloudSyncSettingsTab() {
 						) : (
 							<div className="mt-3 text-caption text-text-tertiary">{t("cloudSync.content.empty")}</div>
 						)}
+
+						{state && state.conflicts.length > 0 ? (
+							<SettingBox>
+								<div className="mb-2 text-sm font-medium">{t("cloudSync.conflict.title")}</div>
+								<div className="mb-2 text-caption text-text-tertiary">{t("cloudSync.conflict.desc")}</div>
+								<div className="space-y-2">
+									{state.conflicts.map((conflict) => (
+										<div key={conflict.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle px-2 py-1.5">
+											<span className="flex-1 truncate text-sm">{conflict.label}</span>
+											<div className="flex items-center gap-3 text-sm">
+												<label className="flex cursor-pointer items-center gap-1">
+													<input
+															type="radio"
+															name={`conflict-${conflict.id}`}
+															checked={(conflictChoices[conflict.id] ?? "local") === "local"}
+															onChange={() => setConflictChoices((prev) => ({ ...prev, [conflict.id]: "local" }))}
+													/>
+													{t("cloudSync.conflict.local")}
+												</label>
+												<label className="flex cursor-pointer items-center gap-1">
+													<input
+															type="radio"
+															name={`conflict-${conflict.id}`}
+															checked={(conflictChoices[conflict.id] ?? "local") === "remote"}
+															onChange={() => setConflictChoices((prev) => ({ ...prev, [conflict.id]: "remote" }))}
+													/>
+													{t("cloudSync.conflict.remote")}
+												</label>
+											</div>
+										</div>
+									))}
+								</div>
+								<Button size="sm" className="mt-3" onClick={() => void applyConflictResolutions()} loading={busy}>
+									{t("cloudSync.conflict.apply")}
+								</Button>
+							</SettingBox>
+						) : null}
 
 						{state?.lastError ? (
 							<div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

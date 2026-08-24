@@ -640,6 +640,7 @@ export const ipcChannels = {
 	cloudSyncScan: "cloud-sync:scan",
 	cloudSyncUpdateSelection: "cloud-sync:update-selection",
 	cloudSyncSyncNow: "cloud-sync:sync-now",
+	cloudSyncResolveConflicts: "cloud-sync:resolve-conflicts",
 	cloudSyncSetAutoSync: "cloud-sync:set-auto-sync",
 	cloudSyncSetStrategy: "cloud-sync:set-strategy",
 

@@ -2665,7 +2665,11 @@ export const zhCN = {
   "cloudSync.content.sessionCount": "{selected}/{count} 会话",
   "cloudSync.content.versions": "本地 v{local} · 云端 v{remote}",
   "cloudSync.content.state": "状态：{state}",
->>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))
+  "cloudSync.conflict.title": "冲突待解决",
+  "cloudSync.conflict.desc": "以下内容在本地和云端都有改动，请逐项选择保留哪一版后继续同步。",
+  "cloudSync.conflict.local": "本地",
+  "cloudSync.conflict.remote": "云端",
+  "cloudSync.conflict.apply": "应用选择并同步",
   "imagegen.done": "图片已生成",
   "imagegen.status.generating": "正在生成图片",
   "imagegen.status.complete": "图片已就绪",

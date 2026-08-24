@@ -8,6 +8,7 @@ import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type {
 	CloudProvider,
+	CloudSyncConflictResolution,
 	CloudSyncProviderConfigInput,
 	CloudSyncSelectionUpdate,
 	CloudSyncStrategy,
@@ -159,6 +160,24 @@ export function registerCloudSyncIpc(deps: {
 
 	ipcMain.handle(ipcChannels.cloudSyncSyncNow, (_event, options: unknown) =>
 		manager.syncNow(options && typeof options === "object" ? { allowShrink: Boolean((options as { allowShrink?: unknown }).allowShrink) } : undefined));
+
+	ipcMain.handle(ipcChannels.cloudSyncResolveConflicts, async (_event, resolutions: unknown) => {
+		if (!Array.isArray(resolutions) || resolutions.length > 1000) {
+			throw new TypeError("Conflict resolutions must be an array");
+		}
+		const parsed = resolutions.map((resolution): CloudSyncConflictResolution => {
+			if (!isPlainObject(resolution) || typeof resolution.id !== "string" || resolution.id.length > 512) {
+				throw new TypeError("Conflict resolution has an invalid id");
+			}
+			if (resolution.choice !== "local" && resolution.choice !== "remote") {
+				throw new TypeError("Conflict resolution choice must be local or remote");
+			}
+			return { id: resolution.id, choice: resolution.choice };
+		});
+		const result = await manager.resolveConflicts(parsed);
+		notifyStateChanged();
+		return result;
+	});
 
 	ipcMain.handle(ipcChannels.cloudSyncSetAutoSync, async (_event, enabled: unknown, intervalMinutes: unknown) => {
 		if (typeof enabled !== "boolean") throw new TypeError("Auto sync enabled must be a boolean");
