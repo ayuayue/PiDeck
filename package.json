@@ -87,13 +87,16 @@
     "probe:dsh": "node scripts/dsh-embed-probe.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1116.0",
     "@electron-toolkit/utils": "^4.0.0",
     "@larksuiteoapi/node-sdk": "^1.67.0",
+    "@smithy/node-http-handler": "^4.11.3",
     "electron-updater": "^6.8.9",
     "node-pty": "^1.1.0",
     "sql.js": "^1.14.1",
     "tar": "^7.5.15",
-    "undici": "^6.28.0"
+    "undici": "^6.28.0",
+    "webdav": "^5.10.0"
   },
   "build": {
     "appId": "com.ayuayue.pi-desktop",
