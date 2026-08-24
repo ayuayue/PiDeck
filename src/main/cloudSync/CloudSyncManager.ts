@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import type {
 	AppSettings,
 	Project,
@@ -111,6 +112,7 @@ const DEFAULT_CONTENT_PREFERENCES = (): CloudSyncSelectionPreferences["content"]
 	skills: true,
 	extensions: true,
 	security: true,
+	imageGen: true,
 });
 
 function createDefaultState(): CloudSyncPersistedState {
@@ -572,7 +574,7 @@ export class CloudSyncManager {
 					this.emitState();
 					return { pushed: false, pulled: false, reason: "conflicts" };
 				}
-				await this.applyMerged(scan, mergeResult, remoteVersion, remote.revision);
+				await this.applyMerged(scan, mergeResult, remoteIndex, remoteVersion, remote.revision);
 				return {
 					pushed: mergeResult.transfers.sessionUpload.length > 0 || mergeResult.transfers.resourceUpload.length > 0,
 					pulled: mergeResult.transfers.sessionDownload.length > 0 || mergeResult.transfers.resourceDownload.length > 0,
@@ -627,7 +629,7 @@ export class CloudSyncManager {
 		const scan = await this.scanner.scan(this.getSelectionPreferences());
 		const remote = await this.readRemoteIndex();
 		const remoteVersion = remote.found ? remote.file.meta.version : this.state.remoteVersion;
-		await this.applyMerged(scan, mergeResult, remoteVersion, remote.found ? remote.revision : undefined);
+		await this.applyMerged(scan, mergeResult, context.remote, remoteVersion, remote.found ? remote.revision : undefined);
 		return {
 			pushed: mergeResult.transfers.sessionUpload.length > 0 || mergeResult.transfers.resourceUpload.length > 0,
 			pulled: mergeResult.transfers.sessionDownload.length > 0 || mergeResult.transfers.resourceDownload.length > 0,
@@ -759,6 +761,7 @@ export class CloudSyncManager {
 	private async applyMerged(
 		scan: CloudSyncScanSnapshot,
 		result: CloudSyncMergeResult,
+		remoteIndex: PiDeckSyncIndexV1,
 		remoteVersion: number,
 		expectedRevisionArg: string | undefined,
 	): Promise<void> {
@@ -803,6 +806,8 @@ export class CloudSyncManager {
 
 		// M5：按合并后的声明检查/安装缺失包扩展（失败只记录，不阻断同步）。
 		await this.checkAndRestoreExtensions(result.merged);
+		// M8：pi auth/models 与 ImageGen 配置按分类开关恢复（本地优先，缺失取远端）。
+		await this.restoreSensitiveContent(result.merged, remoteIndex);
 
 		this.state.localVersion = remoteVersion + 1;
 		this.state.remoteVersion = remoteVersion + 1;
@@ -935,7 +940,9 @@ export class CloudSyncManager {
 	private async encryptObject(content: string): Promise<SyncedFile> {
 		const salt = generateRandomBytes(CLOUD_SYNC_CONSTANTS.SALT_LENGTH);
 		const key = await deriveKey(this.requirePassword(), salt, CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
-		const encrypted = encrypt(content, key, salt);
+		// M8：对象正文先 gzip 再加密，显著压缩 JSONL/base64 图片体积。
+		const compressed = gzipSync(Buffer.from(content, "utf8")).toString("base64");
+		const encrypted = encrypt(compressed, key, salt);
 		return {
 			meta: {
 				version: 1,
@@ -948,6 +955,7 @@ export class CloudSyncManager {
 				algorithm: "AES-256-GCM",
 				kdf: "PBKDF2",
 				kdfIterations: encrypted.kdfIterations,
+				compressed: "gzip",
 			},
 			payload: encodeBase64(encrypted.ciphertext),
 		};
@@ -955,16 +963,21 @@ export class CloudSyncManager {
 
 	private async decryptObject(bytes: Uint8Array): Promise<string> {
 		const raw = Buffer.from(bytes).toString("utf8");
-		const file = JSON.parse(raw) as SyncedFile;
+		const file = JSON.parse(raw) as SyncedFile & { meta: { compressed?: string } };
 		const { meta } = file;
 		if (meta.algorithm !== "AES-256-GCM" || meta.kdf !== "PBKDF2") throw new TypeError("Unsupported object format");
 		const iv = decodeBase64(meta.iv);
 		const salt = decodeBase64(meta.salt);
 		const key = await deriveKey(this.requirePassword(), salt, meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
-		return decrypt(
+		const plain = decrypt(
 			{ ciphertext: decodeBase64(file.payload), iv, salt, kdf: "PBKDF2", kdfIterations: meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS },
 			key,
 		);
+		// 旧对象无 compressed 字段：明文即 UTF-8 文本，向后兼容。
+		if (meta.compressed === "gzip") {
+			return gunzipSync(Buffer.from(plain, "base64")).toString("utf8");
+		}
+		return plain;
 	}
 
 	private async buildLocalIndex(
@@ -1026,14 +1039,75 @@ export class CloudSyncManager {
 		}
 		projects.unshift(buildGlobalCloudSyncProject(globalOptions));
 
+		const pi = await this.buildPiSyncContent(content);
+		const imageGen = await this.buildImageGenContent(content);
 		return buildPiDeckSyncIndex({
 			deviceId: this.state.deviceId,
 			deviceName: this.state.deviceName,
 			appVersion: this.options.appVersion,
 			syncedAt: Date.now(),
 			...(content.desktopSettings ? { settings } : {}),
+			...(pi ? { pi } : {}),
+			...(imageGen ? { imageGen } : {}),
 			projects,
 		});
+	}
+
+	/** M8：按分类开关收集 pi 模型配置与认证（密钥进加密载荷，默认开）。 */
+	private async buildPiSyncContent(content: CloudSyncSelectionPreferences["content"]): Promise<PiDeckSyncIndexV1["pi"] | undefined> {
+		const pi: PiDeckSyncIndexV1["pi"] = {};
+		const agentDir = join(this.options.homeDir, ".pi", "agent");
+		if (content.piCredentials) {
+			const auth = await this.readJsonFile(join(agentDir, "auth.json"));
+			if (auth) pi.auth = auth as NonNullable<PiDeckSyncIndexV1["pi"]>["auth"];
+		}
+		if (content.piModels) {
+			const models = await this.readJsonFile(join(agentDir, "models.json"));
+			if (models) pi.models = models as NonNullable<PiDeckSyncIndexV1["pi"]>["models"];
+		}
+		return Object.keys(pi).length > 0 ? pi : undefined;
+	}
+
+	/** M8：生图配置（imagegen.json，含 apiKey）随分类开关同步。 */
+	private async buildImageGenContent(content: CloudSyncSelectionPreferences["content"]): Promise<PiDeckSyncIndexV1["imageGen"] | undefined> {
+		if (!content.imageGen) return undefined;
+		const imageGen = await this.readJsonFile(join(this.options.userDataDir, "imagegen.json"));
+		if (!imageGen) return undefined;
+		return imageGen as PiDeckSyncIndexV1["imageGen"];
+	}
+
+	private async readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
+		try {
+			const raw = await readFile(filePath, "utf8");
+			const parsed = JSON.parse(raw) as unknown;
+			return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+		} catch {
+			return null;
+		}
+	}
+
+	/** M8：按分类开关恢复 pi auth/models 与 ImageGen 配置（本地优先，缺失取远端）。 */
+	private async restoreSensitiveContent(merged: PiDeckSyncIndexV1, remote: PiDeckSyncIndexV1): Promise<void> {
+		const content = this.state.selection.content;
+		const agentDir = join(this.options.homeDir, ".pi", "agent");
+		if (content.piCredentials) {
+			const auth = merged.pi?.auth ?? remote.pi?.auth;
+			if (auth) await this.writeJsonSafe(join(agentDir, "auth.json"), auth);
+		}
+		if (content.piModels) {
+			const models = merged.pi?.models ?? remote.pi?.models;
+			if (models) await this.writeJsonSafe(join(agentDir, "models.json"), models);
+		}
+		if (content.imageGen) {
+			const imageGen = merged.imageGen ?? remote.imageGen;
+			if (imageGen) await this.writeJsonSafe(join(this.options.userDataDir, "imagegen.json"), imageGen);
+		}
+	}
+
+	private async writeJsonSafe(filePath: string, value: unknown): Promise<void> {
+		await mkdir(dirname(filePath), { recursive: true });
+		await ensureNoSymlinkEscape(dirname(filePath), filePath);
+		await writeFileAtomic(filePath, JSON.stringify(value, null, 2));
 	}
 
 	private async buildSessionRef(item: CloudSyncInternalSession): Promise<import("../../shared/types/cloudSync.ts").CloudSyncSessionRef> {
@@ -1145,6 +1219,8 @@ export class CloudSyncManager {
 
 		// M5：按恢复后的声明检查/安装缺失包扩展。
 		await this.checkAndRestoreExtensions(remoteIndex);
+		// M8：pi auth/models 与 ImageGen 配置按分类开关恢复。
+		await this.restoreSensitiveContent(remoteIndex, remoteIndex);
 
 
 		this.state.remoteVersion = remoteVersion;

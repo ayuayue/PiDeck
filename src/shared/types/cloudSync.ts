@@ -116,6 +116,8 @@ export interface SyncFileMeta {
 	algorithm: "AES-256-GCM";
 	kdf: "PBKDF2";
 	kdfIterations?: number;
+	/** 对象正文压缩格式；缺省表示明文即 UTF-8 文本（向后兼容旧对象）。 */
+	compressed?: "gzip";
 }
 
 export interface SyncedFile {
@@ -300,6 +302,8 @@ export interface CloudSyncContentPreferences {
 	skills: boolean;
 	extensions: boolean;
 	security: boolean;
+	/** 生图供应商配置（imagegen.json，含 apiKey，默认同步）。 */
+	imageGen: boolean;
 }
 
 export interface CloudSyncSelectionPreferences {

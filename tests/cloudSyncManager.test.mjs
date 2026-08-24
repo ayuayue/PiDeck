@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { CloudSyncManager } from "../src/main/cloudSync/CloudSyncManager.ts";
+import { decryptPayload } from "../src/main/cloudSync/EncryptionService.ts";
 import { createDefaultExternalEditorSettings } from "../src/shared/types/project.ts";
 
 const PASSWORD = "correct horse battery staple";
@@ -421,6 +422,88 @@ test("manager records missing extensions and retries install (M5)", async () => 
 		assert.equal(retried.length, 0);
 		assert.equal(manager.getStateSnapshot().missingExtensions.length, 0);
 		await manager.dispose();
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("M8: gzip-compressed objects and pi auth sync round-trip", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-mgr-"));
+	try {
+		const userDataDir = join(base, "userData");
+		const home1 = join(base, "home1");
+		const home2 = join(base, "home2");
+		const agent1 = join(home1, ".pi", "agent");
+		const sessions1 = join(agent1, "sessions");
+		await mkdir(sessions1, { recursive: true });
+		await writeFile(join(sessions1, "session-a.jsonl"), '{"role":"user","content":"hi"}\n', "utf8");
+		// 本机密钥配置：默认分类开关开启，应进入加密载荷
+		await writeFile(join(agent1, "auth.json"), JSON.stringify({ openai: { type: "api", key: "sk-test-123" } }), "utf8");
+		await writeFile(join(agent1, "models.json"), JSON.stringify({ providers: { openai: { models: [{ id: "gpt-5.6" }] } } }), "utf8");
+
+		const storage = new InMemoryStorage();
+		const manager1 = new CloudSyncManager({
+			userDataDir,
+			homeDir: home1,
+			deviceName: "dev-1",
+			appVersion: "0.0.0-test",
+			listProjects: () => [],
+			listSessionRecords: () => [],
+			getDesktopSettings: minimalSettings,
+			updateDesktopSettings: async () => undefined,
+			createAdapter: () => storage,
+		});
+		await manager1.initialize();
+		await manager1.setupMasterKey(PASSWORD);
+		await manager1.configureProvider({
+			provider: "s3",
+			config: { endpoint: "https://example.invalid", region: "us-east-1", bucket: "bucket", accessKeyId: "ak", secretAccessKey: "sk" },
+		});
+		await manager1.connectProvider("s3");
+		const tree1 = await manager1.scanSelection();
+		await manager1.updateSelection({ selectedSessionIds: [tree1.projects[0].sessions[0].selectionId], selectedResourceIds: [] });
+		await manager1.syncNow();
+
+		// 会话对象正文已 gzip + 加密（无 catalog 记录时 sessionId 为稳定 orphan id）
+		const sessionKey = [...storage.objects.keys()].find((key) => key.startsWith("pideck-sessions/"));
+		assert.ok(sessionKey, "session object should exist");
+		const sessionObject = storage.objects.get(sessionKey);
+		const sessionFile = JSON.parse(Buffer.from(sessionObject.bytes).toString("utf8"));
+		assert.equal(sessionFile.meta.compressed, "gzip");
+
+		// 远端索引包含 pi.auth / pi.models（密文内）
+		const indexObject = storage.objects.get("pideck-index.json");
+		const remoteIndex = await decryptPayload(JSON.parse(Buffer.from(indexObject.bytes).toString("utf8")), PASSWORD);
+		assert.equal(remoteIndex.pi.auth.openai.key, "sk-test-123");
+		assert.equal(remoteIndex.pi.models.providers.openai.models[0].id, "gpt-5.6");
+
+		// 设备 2 全新（无本地选择）→ 拉取恢复云端：auth.json / models.json / 会话都落盘
+		const manager2 = new CloudSyncManager({
+			userDataDir: join(base, "userData2"),
+			homeDir: home2,
+			deviceName: "dev-2",
+			appVersion: "0.0.0-test",
+			listProjects: () => [],
+			listSessionRecords: () => [],
+			getDesktopSettings: minimalSettings,
+			updateDesktopSettings: async () => undefined,
+			createAdapter: () => storage,
+		});
+		await manager2.initialize();
+		await manager2.setupMasterKey(PASSWORD);
+		await manager2.configureProvider({
+			provider: "s3",
+			config: { endpoint: "https://example.invalid", region: "us-east-1", bucket: "bucket", accessKeyId: "ak", secretAccessKey: "sk" },
+		});
+		await manager2.connectProvider("s3");
+		const pulled = await manager2.syncNow();
+		assert.equal(pulled.pulled, true);
+		const restoredAuth = JSON.parse(await readFile(join(home2, ".pi", "agent", "auth.json"), "utf8"));
+		assert.equal(restoredAuth.openai.key, "sk-test-123");
+		const restoredSession = await readFile(join(home2, ".pi", "agent", "sessions", "session-a.jsonl"), "utf8");
+		assert.match(restoredSession, /"content":"hi"/);
+		await manager1.dispose();
+		await manager2.dispose();
 	} finally {
 		await rm(base, { recursive: true, force: true });
 	}
