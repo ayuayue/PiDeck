@@ -1,6 +1,7 @@
 # PiDeck 云同步计划（Cloud Sync Plan）
 
-> 状态：调研/方案阶段，未开始实现。
+> 状态：**实现中**。M1-M4、M5/M6/M8（主体）、M2（WebDAV/S3/GitHub）已在 `feat/cloud-sync` 分支落地并配套单测；
+> 剩余：Google Drive/OneDrive 适配器、自动同步 debounce 触发源、DSH 会话同步、飞书数据、分块上传。
 > 参考实现：`F:\Netcatty`（Netcatty 的端到端加密云同步）。
 > 目标：把 Netcatty 的云同步能力按 PiDeck 的架构规则搬到本仓库，并加入“用户选择同步哪些会话”的产品能力。
 
@@ -561,52 +562,51 @@ interface PiDeckCloudObjectStorage {
 
 ## 10. 实施里程碑
 
-1. **M1 基础类型与加密**
-   - 新增 `shared/types/cloudSync.ts`
-   - 新增 `main/cloudSync/EncryptionService.ts`
-   - 补齐单测：加解密、主密码校验。
+> 状态图例：✅ 已完成并提交；🟡 主体完成、有明确缺口；❌ 未开始。
 
-2. **M2 云适配器**
-   - 先搬 WebDAV + S3（最容易自建验证）
-   - 再搬 GitHub + Google + OneDrive
-   - 统一 `PiDeckCloudObjectStorage` 接口
-   - 补 OAuth bridge / 客户端 ID 配置。
+1. **M1 基础类型与加密** ✅
+   - `shared/types/cloudSync.ts`（共享契约、主密钥配置、Provider 状态）
+   - `main/cloudSync/EncryptionService.ts`（PBKDF2-SHA256 + AES-256-GCM，密码/派生 key 只存主进程）
+   - 单测：加解密、主密码校验、远端载荷 bounded schema 校验（`tests/cloudSyncEncryption/IndexValidation.test.mjs`）
 
-3. **M3 Index payload**
-   - `payload.ts`：收集 PiDeck settings、pi/DSH 配置、统一 project 树。
-   - 每个 project 包含：metadata + resources + sessions + catalogEntries。
-   - 本地应用/恢复逻辑。
-   - 路径重映射与安全过滤。
+2. **M2 云适配器** 🟡
+   - ✅ WebDAV（临时文件 PUT+MOVE + 写后读回校验）与 S3（ETag revision + 条件写）
+   - ✅ GitHub Gist（Device Flow 授权 + 单 Gist 多文件加密对象；token 只在主进程流转；1MB/文件上限按方案 §6.2 处理）
+   - ❌ Google Drive / OneDrive：需要用户自备 OAuth 客户端凭据，未实现（工厂明确报错）
+   - ✅ 统一 `PiDeckCloudObjectStorage` 接口 + 对象 key 安全校验
 
-4. **M4 项目级同步与资源选择**
-   - 扫描全局 `~/.pi/agent/sessions/**/*.jsonl`
-   - 扫描已注册项目下的 `.pi/sessions/**/*.jsonl`
-   - 扫描每个项目的 `.pi/skills`、`.pi/prompts`、`.pi/extensions`、`.pi/settings.json`
-   - 设置页提供“项目树 → 一键全选/全不选 + 逐个勾选会话 + 资源类目选择”UI
-   - `projects[]` manifest
-   - 独立会话对象、资源文件对象上传/下载。
+3. **M3 Index payload** ✅
+   - `payload.ts`：桌面设置白名单过滤、统一 project 树（metadata + resources + sessions + catalogEntries）
+   - 路径重映射与安全过滤（相对路径、无绝对路径泄漏；恢复侧 symlink 逃逸检查）
+   - 大文件按 SHA-256 生成独立对象，小文件内嵌索引
 
-5. **M5 项目资源落盘与扩展安装**
-   - 文件资源写回 `.pi/skills`、`.pi/prompts`、`.pi/extensions`
-   - 包扩展声明恢复
-   - 自动/手动执行 `pi install` 或项目内 `npm install`
-   - 启动前“扩展缺失检查”与白名单保护，避免 pi 启动报错
+4. **M4 项目级同步与资源选择** ✅
+   - `main/cloudSync/CloudSyncScanner.ts`：扫描全局/项目 `.pi/sessions` 与 `.pi/skills|prompts|extensions|settings.json`；
+     每个 root 带 ok/error 状态（失败不伪装空目录）；跳过 symlink/归档；大小上限；catalog 归属的未知项目生成合成节点（待映射）
+   - `main/cloudSync/CloudSyncManager.ts`：主密码/Provider 生命周期（凭据经主密钥加密落盘）、扫描选择、版本守卫 push/pull、缩水保护、自动同步定时器 + quit 清理
+   - 设置页「云同步」tab：主密码 → Provider 表单 → 扫描/选择树 → 同步操作（`CloudSyncSettingsTab` + `useCloudSync`）
+   - IPC/preload：`cloud-sync:*` 通道，入参在边界校验
 
-6. **M6 合并与冲突**
-   - 三路合并（项目/资源/会话/catalog/settings）
-   - shrink guard
-   - 冲突 UI
+5. **M5 项目资源落盘与扩展安装** 🟡
+   - ✅ 文件资源写回 `.pi/skills` / `.pi/prompts` / `.pi/extensions` / `settings.json`（pull 与合并落地路径）
+   - ✅ 包扩展声明恢复：`extensionSources` 结构化（从 pi settings `packages` 提取），恢复后按声明自动 `pi install`（注入 ExtensionManager），失败记录 `missingExtensions` 并在设置页重试
+   - ✅ 启动保护：既有 `enabledExtensionResolver` 白名单天然跳过缺失 npm 包，不阻断 pi 启动
+   - ❌ 项目内 `npm install` 与“声明+锁文件”细粒度同步未做（当前同步整份 settings.json）
 
-7. **M7 自动同步 + 状态**
-   - auto sync timer
-   - 同步状态推送
-   - 生命周期清理
+6. **M6 合并与冲突** ✅
+   - `main/cloudSync/merge.ts` 三路合并：settings 字段级、会话按 sessionId+contentHash、资源按 (projectId, category, relativePath)、catalog 按 id、project 元数据逐字段；base = 上次成功同步索引
+   - 冲突收集 + 设置页逐项选本地/云端并应用（`resolveConflicts`，覆盖全部冲突才继续）
+   - shrink guard：选择清空需显式确认；扫描失败阻止推送
 
-8. **M8 打磨**
-   - 大小上限、gzip、分块
-   - 密钥同步分类开关（默认开启，用户可关）
-   - 飞书/ImageGen 等可选数据
-   - 文档与测试
+7. **M7 自动同步 + 状态** 🟡
+   - ✅ auto sync 定时器（间隔可配）、同步状态推送（`cloud-sync:state-changed`）、quit 清理
+   - ❌ debounce 触发源：目前按定时轮询；监听项目树/catalog/settings 变更后 debounce 触发尚未接（方案 §8）
+
+8. **M8 打磨** 🟡
+   - ✅ 大小上限（会话 512MB / 资源 10MB / 内嵌 256KB / Gist 1MB）与 gzip 对象压缩（向后兼容旧对象）
+   - ✅ 密钥同步分类开关：pi auth/models、ImageGen 配置默认进加密载荷，可在选择偏好里关闭
+   - ❌ 分块上传、DSH settings/credentials、飞书数据、CRDT 未做
+   - ✅ 文档与测试：cloudSync* 共 36 个针对性测试
 
 ---
 
@@ -618,17 +618,18 @@ interface PiDeckCloudObjectStorage {
 2. **DSH 会话（已确认）**
    第一版只做 pi 全局 + 项目级 `.pi/sessions`，不做 DSH 会话。
 
-3. **密钥默认策略（按你的要求已调整）**
-   pi auth、DSH credentials、imagegen apiKey、飞书 appSecret 默认进入加密 payload 同步；用户可在“同步内容选择”里关闭。是否按这个默认值执行？
+3. **密钥默认策略（已实现，DSH 部分待办）**
+   pi auth、models 与 imagegen apiKey 默认进入加密 payload 同步，并可在“同步内容选择”里关闭（`CloudSyncContentPreferences`：piCredentials/piModels/imageGen，默认 true）。
+   **未实现**：DSH credentials（`$DSH_HOME/.credentials.yaml`）与飞书 appSecret（feishu.json）。
 
-4. **GitHub Gist 容量（已确认）**
-   第一版 GitHub 承载索引、配置声明、轻量数据和**小会话**；大会话和大资源文件只走 WebDAV/S3/Drive/OneDrive。
+4. **GitHub Gist 容量（已实现）**
+   Gist 适配器按方案限制：索引/配置声明/轻量数据/小会话走 Gist；单文件上限 1MB，超出时报错并提示改用 WebDAV/S3（`getCapabilities().maxObjectBytes`）。
 
-5. **是否要抄 CRDT v2**
-   建议第一版不抄，先做三路合并 + 手动冲突；稳定后再看是否引入 CRDT。
+5. **是否要抄 CRDT v2（未引入）**
+   保持第一版方案：三路合并 + 手动冲突已落地（M6）；CRDT 未引入，后续稳定后再评估。
 
-6. **项目级会话在目标机器没有对应项目时**
-   计划是先落到“全局同步/待映射区”，等用户建立项目后再迁移。是否接受这个兜底策略？
+6. **项目级会话在目标机器没有对应项目时（已实现）**
+   恢复时落入 `userData/cloud-sync-pending/<projectId>/` 待映射区；扫描选择树为 catalog 归属但本机未注册的项目生成合成节点（missing=true），用户添加项目后可重新同步落位。
 
-7. **扩展安装策略（已确认）**
-   包扩展默认只同步“声明 + 版本/锁”，不做完整 node_modules 同步；目标机恢复后自动 `pi install` / `npm install`，失败则标记“缺少扩展”并跳过加载、不阻断启动。
+7. **扩展安装策略（已实现）**
+   包扩展只同步“声明”（`extensionSources` 从 settings.json `packages` 提取），不做 node_modules 同步；目标机恢复后自动 `pi install`，失败标记 `missingExtensions`（设置页可重试）；启动保护由 `enabledExtensionResolver` 白名单跳过缺失包，不阻断 pi 启动。
