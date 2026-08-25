@@ -2772,7 +2772,7 @@ export const zhCN = {
   "cloudSync.tree.extensions": "扩展插件",
   "cloudSync.tree.settings": "设置",
   "cloudSync.tree.config": "配置",
-  "cloudSync.tree.configHint": "~/.pi/agent/ 下散落的配置文件（含自选同步项）",
+  "cloudSync.tree.configHint": "散落配置文件（models-store.json 默认不勾；auth.json/models.json 由上方分类开关管理，settings.json 在「设置」类别；含自选同步项）",
   "cloudSync.tree.addCustomPath": "添加文件或文件夹…",
   "cloudSync.tree.mountHere": "同步到此目录",
   "cloudSync.tree.mountHereHint": "该项目在云端存在，尚未指定本地同步目录。",

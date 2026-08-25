@@ -693,15 +693,19 @@ interface PiDeckCloudObjectStorage {
     ☐ 设置                      ← .pi/settings.json（不单独成类，跟随项目）
   ▸ 全局
     ☐ 会话 (n)
+    ☐ 设置                      ← ~/.pi/agent/settings.json（pi agent 配置，文件级）
     ☐ 提示词 (n)                ← ~/.pi/agent/prompts
     ☐ 技能 (n)                  ← ~/.pi/agent/skills
     ☐ 扩展 (n)                  ← ~/.pi/agent/extensions（安装清单+插件配置）
-    ▸ 配置                      ← 新增：~/.pi/agent 顶层散落配置文件
-      ☐ auth.json   ☐ models.json   ☐ settings.json   ☐ models-store.json（默认关）
+    ▸ 配置                      ← 散落文件 + 自选同步项
+      ☐ models-store.json（默认关）
 ```
 
+- **单一入口原则（消除分类开关与树节点重叠）**：每个配置只有一个管理入口。
+  - `auth.json` / `models.json`：由**分类开关**（pi 认证密钥 / pi 模型配置）对象级管理（payload.pi 域，字段级合并），**不进** config 文件候选；
+  - `~/.pi/agent/settings.json`：归全局「设置」类别（文件级）；`userData/settings.json`（PiDeck 自身设置）由「PiDeck 设置」分类开关白名单管；
+  - config 节点只承载机器相关的 `models-store.json`（默认关）与用户自选同步路径。
 - **trust.json 明确排除**：信任规则是“路径 → 规则”，换机器路径全变，同步无意义且有风险；不扫描、不进树。
-- 全局配置默认勾选 `auth.json / models.json / settings.json`；`models-store.json`（~293KB 商店元数据）默认关。
 
 ### 12.3 扩展/插件配置文件（用户重点）
 

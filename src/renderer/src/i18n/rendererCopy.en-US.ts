@@ -2797,7 +2797,7 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.tree.extensions": "Extensions",
   "cloudSync.tree.settings": "Settings",
   "cloudSync.tree.config": "Config",
-  "cloudSync.tree.configHint": "Loose config files under ~/.pi/agent/ (incl. custom sync items)",
+  "cloudSync.tree.configHint": "Loose config files (models-store.json off by default; auth.json/models.json are managed by the toggles above, settings.json lives in the Settings group; incl. custom sync items)",
   "cloudSync.tree.addCustomPath": "Add files or folder…",
   "cloudSync.tree.mountHere": "Sync here",
   "cloudSync.tree.mountHereHint": "This project exists in the cloud but has no local sync folder yet.",

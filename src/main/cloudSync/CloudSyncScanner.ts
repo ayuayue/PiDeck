@@ -34,8 +34,8 @@ export const DEFAULT_SCAN_EXCLUSIONS = [
 	"subagent-artifacts",
 ] as const;
 
-/** 全局「配置」类别白名单：~/.pi/agent 顶层散落配置文件（trust.json 明确排除，settings.json 归 settings 类别）。 */
-export const GLOBAL_CONFIG_FILE_WHITELIST = ["auth.json", "models.json", "models-store.json"] as const;
+/** 全局「配置」类别白名单：只留机器相关的散落文件。auth.json/models.json 由分类开关（pi 认证/pi 模型）对象级管理，settings.json 归「设置」类别，均不进此清单。 */
+export const GLOBAL_CONFIG_FILE_WHITELIST = ["models-store.json"] as const;
 
 export type CloudSyncInternalSession = {
 	candidate: CloudSyncSessionCandidate;

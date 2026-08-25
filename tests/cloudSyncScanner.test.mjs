@@ -167,7 +167,7 @@ test("scanner honors existing selection and groups sessions by catalog project i
 	}
 });
 
-test("scanner scans global config whitelist (config category) and excludes trust/bak", async () => {
+test("scanner exposes only machine-local loose files in the config category; auth/models owned by toggles", async () => {
 	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-scan-"));
 	const home = join(base, "home");
 	try {
@@ -189,7 +189,8 @@ test("scanner scans global config whitelist (config category) and excludes trust
 		const configPaths = global.resources
 			.filter((resource) => resource.category === "config")
 			.map((resource) => resource.relativePath);
-		assert.deepEqual(configPaths.sort(), ["auth.json", "models-store.json", "models.json"].sort());
+		// 单一入口：auth.json/models.json 归分类开关（payload.pi 对象域），不进 config 文件候选。
+		assert.deepEqual(configPaths, ["models-store.json"]);
 		// trust.json 与 *.bak* 被排除：不进任何候选
 		const allPaths = global.resources.map((resource) => resource.relativePath);
 		assert.ok(!allPaths.includes("trust.json"), "trust.json must be excluded");
