@@ -345,6 +345,10 @@ export interface CloudSyncResourceCandidate {
 	projectId: string;
 	category: CloudSyncResourceCategory;
 	relativePath: string;
+	/** 展示用原始路径（如 machine-only 自选路径的真实绝对路径）。 */
+	label?: string;
+	/** 自选同步路径的清单 id（config 类别资源来自「添加文件/文件夹」时携带，供 UI 移除）。 */
+	customPathId?: string;
 	size: number;
 	mtimeMs: number;
 	selected: boolean;

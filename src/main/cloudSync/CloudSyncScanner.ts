@@ -744,8 +744,21 @@ export class CloudSyncScanner {
 		}
 		if (info.isSymbolicLink() || (!info.isFile() && !info.isDirectory())) return null;
 		if (info.size > MAX_RESOURCE_BYTES) return null;
-		const relativePath = normalizeRelativePath(customPath.relativePath);
-		if (!relativePath || relativePath.startsWith("/") || /^[A-Za-z]:/.test(relativePath)) return null;
+		const rawRelative = normalizeRelativePath(customPath.relativePath);
+		if (!rawRelative) return null;
+		// 自选路径相对化：项目内 → 项目相对（随项目恢复）；home 内 → `~/` 前缀（恢复写回用户 home，
+		// 不是 agent 根目录）；都无法相对 → 仅本机（machine-only key 承载内容，原始路径放 label 展示）。
+		let relativePath: string;
+		let label: string | undefined;
+		if (rawRelative.startsWith("/") || /^[A-Za-z]:/.test(rawRelative)) {
+			const digest = createHash("sha256").update(rawRelative, "utf8").digest("hex").slice(0, 16);
+			relativePath = `machine-only/${digest}-${basename(rawRelative)}`;
+			label = customPath.label || customPath.filePath;
+		} else if (customPath.relativeTo === "home") {
+			relativePath = `~/${rawRelative}`;
+		} else {
+			relativePath = rawRelative;
+		}
 		if (this.isExcluded(relativePath) || this.isExcluded(basename(relativePath))) return null;
 		const projectId = customPath.projectId ?? GLOBAL_SYNC_PROJECT_ID;
 		const id = resourceSelectionId(projectId, "config", relativePath);
@@ -754,6 +767,8 @@ export class CloudSyncScanner {
 			projectId,
 			category: "config",
 			relativePath,
+			...(label ? { label } : {}),
+			...(customPath.id ? { customPathId: customPath.id } : {}),
 			size: info.size,
 			mtimeMs: info.mtimeMs,
 			selected: preferences.selectedResourceIds.includes(id),

@@ -697,6 +697,8 @@ function ResourceRow(props: {
 	selected: boolean;
 	disabled: boolean;
 	reason?: string;
+	/** 自选同步路径的移除按钮（customPathId 资源）。 */
+	onRemove?: () => void;
 	onToggle: () => void;
 }) {
 	return (
@@ -709,6 +711,20 @@ function ResourceRow(props: {
 			</span>
 			{props.disabled && props.reason ? (
 				<span className="shrink-0 text-caption text-warning" title={props.reason}>⚠</span>
+			) : null}
+			{props.onRemove ? (
+				<button
+					type="button"
+					tabIndex={-1}
+					className="shrink-0 rounded px-1 text-caption text-text-tertiary opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
+					title={t("cloudSync.tree.removeCustomPath")}
+					onClick={(event) => {
+						event.preventDefault();
+						props.onRemove?.();
+					}}
+				>
+					×
+				</button>
 			) : null}
 		</label>
 	);
@@ -745,10 +761,11 @@ function CategoryHeader(props: {
 	);
 }
 
-/** 资源类别在树内的展示顺序：全局节点含 config，项目节点含 settings。 */
+/** 资源类别在树内的展示顺序：全局含 settings 与 config，项目节点同样含 config（自选同步项）。 */
 function categoryOrder(isGlobal: boolean): CloudSyncResourceCategory[] {
-	// 全局含 settings（~/.pi/agent/settings.json）与 config（顶层散落文件）；项目含 settings（.pi/settings.json）。
-	return isGlobal ? ["settings", "prompts", "skills", "extensions", "config"] : ["prompts", "skills", "extensions", "settings"];
+	// 全局含 settings（~/.pi/agent/settings.json）与 config（顶层散落文件 + home 相对/仅本机自选）；
+	// 项目含 settings（.pi/settings.json）与 config（项目内自选同步路径）。
+	return isGlobal ? ["settings", "prompts", "skills", "extensions", "config"] : ["prompts", "skills", "extensions", "settings", "config"];
 }
 
 /** 项目选择节点：可折叠；节点头部全选会话，展开后按类别分组（M9 §12.2）。 */
@@ -761,6 +778,8 @@ function ProjectSelectionNode(props: {
 	onToggleNodeSessions: (projectId: string, all: boolean) => void;
 	/** M9：类别分组批量勾选（sessions 或资源类别）。 */
 	onToggleCategory: (projectId: string, category: "sessions" | CloudSyncResourceCategory, selected: boolean) => void;
+	/** M9：移除自选同步路径（config 类别资源行上的 ×）。 */
+	onRemoveCustomPath: (customPathId: string) => void;
 	/** M9：云端待映射项目 → 手动指定本地同步目录（接线点，当前占位）。 */
 	onMountProject?: (remoteProjectId: string, name: string) => void;
 	/** 实时选择集合（勾选态/计数以集合为准，不依赖扫描快照）。 */
@@ -874,10 +893,14 @@ function ProjectSelectionNode(props: {
 											{items.map((resource) => (
 												<ResourceRow
 													key={resource.selectionId}
+													label={resource.label}
 													relativePath={resource.relativePath}
 													selected={props.resourceSelection.has(resource.selectionId)}
 													disabled={resource.status === "unavailable"}
 													reason={resource.reason}
+													onRemove={resource.customPathId
+														? () => props.onRemoveCustomPath(resource.customPathId!)
+														: undefined}
 													onToggle={() => props.onToggleResource(resource.selectionId)}
 												/>
 											))}
@@ -925,6 +948,7 @@ export function CloudSyncSettingsTab() {
 		exportBackup,
 		importBackup,
 		pickCustomPath,
+		removeCustomPath,
 		pickMountDirectory,
 		mountProject,
 		unmountProject,
@@ -1016,6 +1040,11 @@ export function CloudSyncSettingsTab() {
 		await pickCustomPath();
 		void scan();
 	}, [pickCustomPath, scan]);
+
+	/** M9：移除自选同步路径并重扫。 */
+	const onRemoveCustomPath = useCallback((customPathId: string) => {
+		void removeCustomPath(customPathId).then(() => scan());
+	}, [removeCustomPath, scan]);
 
 	/** M9：云端项目手动挂载 —— 弹目录选择器 → mount-project 持久化映射。 */
 	const onMountProject = useCallback(async (remoteProjectId: string, name: string) => {
@@ -1476,6 +1505,7 @@ export function CloudSyncSettingsTab() {
 											onToggleResource={toggleResource}
 											onToggleNodeSessions={toggleNodeSessions}
 											onToggleCategory={toggleCategory}
+											onRemoveCustomPath={onRemoveCustomPath}
 											onMountProject={onMountProject}
 											sessionSelection={selectedSessionIds}
 											resourceSelection={selectedResourceIds}

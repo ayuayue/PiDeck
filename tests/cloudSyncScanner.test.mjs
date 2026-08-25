@@ -251,10 +251,12 @@ test("scanner adds custom sync paths as config candidates", async () => {
 		});
 		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
 		assert.ok(global);
-		const custom = global.resources.find((resource) => resource.relativePath === "my-tool/web.json");
+		// home 相对自选路径以 `~/` 前缀进入树（恢复时写回用户 home，而不是 agent 根目录）
+		const custom = global.resources.find((resource) => resource.relativePath === "~/my-tool/web.json");
 		assert.ok(custom, "custom path must appear as a resource candidate");
 		assert.equal(custom.category, "config");
 		assert.equal(custom.projectId, "__global__");
+		assert.equal(custom.customPathId, "cp-1");
 		// 不存在的自选路径静默跳过，不抛异常
 		const snapshot2 = await scanner.scan(DEFAULT_PREFERENCES, {
 			customPaths: [{

@@ -67,6 +67,7 @@ import {
 	CLOUD_SYNC_SCANNER_LIMITS,
 	type CloudSyncInternalResource,
 	type CloudSyncInternalSession,
+	type CloudSyncScanOptions,
 	type CloudSyncScanSnapshot,
 } from "./CloudSyncScanner.ts";
 import type { PiDeckCloudObjectStorage } from "./objectStorage.ts";
@@ -924,8 +925,16 @@ export class CloudSyncManager {
 
 	// ── Selection & scanning ─────────────────────────────────────────
 
+	/** M9：扫描器选项 —— 用户排除黑名单（glob）+ 自选同步路径（否则两者只存 state、不进扫描树）。 */
+	private scanOptions(): CloudSyncScanOptions {
+		return {
+			exclusions: this.state.exclusions.map((item) => item.pattern),
+			customPaths: this.state.customPaths.map((item) => ({ ...item })),
+		};
+	}
+
 	async scanSelection(): Promise<CloudSyncSelectionTree> {
-		const snapshot = await this.scanner.scan(this.getSelectionPreferences());
+		const snapshot = await this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
 		this.lastTree = snapshot.tree;
 		return snapshot.tree;
 	}
@@ -1037,7 +1046,7 @@ export class CloudSyncManager {
 		this.lastError = null;
 		this.emitState();
 		try {
-			const scan = await this.scanner.scan(this.getSelectionPreferences());
+			const scan = await this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
 			const selectedSessions = [...scan.sessions.values()].filter((item) => item.candidate.selected);
 			const selectedResources = [...scan.resources.values()].filter((item) => item.candidate.selected);
 
@@ -1157,7 +1166,7 @@ export class CloudSyncManager {
 			choices,
 		);
 		this.pendingConflictContext = null;
-		const scan = await this.scanner.scan(this.getSelectionPreferences());
+		const scan = await this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
 		const remote = await this.readRemoteIndex();
 		const remoteVersion = remote.found ? remote.file.meta.version : this.state.remoteVersion;
 		await this.applyMerged(scan, mergeResult, context.remote, remoteVersion, remote.found ? remote.revision : undefined);
@@ -1846,19 +1855,36 @@ export class CloudSyncManager {
 		await this.writeDshSessionContent(target, content);
 	}
 
+	/**
+	 * 资源落位目标（M9 自选路径感知）：
+	 * `~/` 前缀 = home 相对自选路径 → 用户 home（不是 agent 根目录）；machine-only → 全局 agentRoot；
+	 * 否则全局 → agentRoot；本地项目 → 项目路径；否则查挂载映射；无 → null。
+	 */
+	private resolveResourceTarget(
+		projectId: string,
+		relativePath: string,
+	): { root: string; relative: string } | null {
+		if (relativePath.startsWith("~/")) {
+			return { root: this.options.homeDir, relative: relativePath.slice(2) };
+		}
+		const root = this.resolveResourceScopeRoot(projectId);
+		if (!root) return null;
+		return { root, relative: relativePath };
+	}
+
 	/** 下载单个资源 bundle 并写入对应作用域目录。 */
 	private async downloadResourceBundle(
 		projectId: string,
 		bundle: import("../../shared/types/cloudSync.ts").CloudSyncFileBundle,
 		provider: PiDeckCloudObjectStorage,
 	): Promise<void> {
-		const scopeRoot = this.resolveResourceScopeRoot(projectId);
-		if (!scopeRoot) return;
+		const targetInfo = this.resolveResourceTarget(projectId, bundle.relativePath);
+		if (!targetInfo) return;
 		const content = bundle.content ?? await this.readObjectText(provider, bundle.objectKey ?? "");
 		if (content === undefined) return;
-		const target = join(scopeRoot, bundle.relativePath);
+		const target = join(targetInfo.root, targetInfo.relative);
 		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(scopeRoot, target);
+		await ensureNoSymlinkEscape(targetInfo.root, target);
 		await writeFileAtomic(target, content);
 	}
 
@@ -1964,7 +1990,7 @@ export class CloudSyncManager {
 		const outputPath = options?.outputPath;
 		if (!outputPath) throw new Error("Backup output path is required");
 
-		const scan = await this.scanner.scan(this.getSelectionPreferences());
+		const scan = await this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
 		const selectedSessions = [...scan.sessions.values()].filter((item) => item.candidate.selected);
 		const selectedResources = [...scan.resources.values()].filter((item) => item.candidate.selected);
 		const index = await this.buildLocalIndex(scan, selectedSessions, selectedResources);
@@ -2184,16 +2210,14 @@ export class CloudSyncManager {
 		content: string,
 		mode: CloudSyncImportMode,
 	): Promise<boolean> {
-		const scopeRoot = projectId === GLOBAL_SYNC_PROJECT_ID
-			? join(this.options.homeDir, ".pi", "agent")
-			: this.options.listProjects().find((candidate) => candidate.id === projectId)?.path;
-		if (!scopeRoot) return false;
-		const target = join(scopeRoot, relativePath);
+		const targetInfo = this.resolveResourceTarget(projectId, relativePath);
+		if (!targetInfo) return false;
+		const target = join(targetInfo.root, targetInfo.relative);
 		const existing = await this.readExistingHash(target);
 		if (existing === createHash("sha256").update(content, "utf8").digest("hex")) return false;
 		if (existing && mode !== "overwrite") return false;
 		await mkdir(dirname(target), { recursive: true });
-		await ensureNoSymlinkEscape(scopeRoot, target);
+		await ensureNoSymlinkEscape(targetInfo.root, target);
 		await writeFileAtomic(target, content);
 		return true;
 	}

@@ -2812,6 +2812,7 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.tree.config": "Config",
   "cloudSync.tree.configHint": "Loose config files (models-store.json off by default; auth.json/models.json are managed by the toggles above, settings.json lives in the Settings group; incl. custom sync items)",
   "cloudSync.tree.addCustomPath": "Add files or folder…",
+  "cloudSync.tree.removeCustomPath": "Remove from custom sync list",
   "cloudSync.tree.mountHere": "Sync here",
   "cloudSync.tree.mountHereHint": "This project exists in the cloud but has no local sync folder yet.",
   "cloudSync.tree.mounts": "Mounted cloud projects",
