@@ -126,6 +126,7 @@ function ProviderCard(props: {
 	onConnect: (config: Record<string, unknown>) => void;
 	onDisconnect: () => void;
 }) {
+	const [editing, setEditing] = useState(false);
 	const [config, setConfig] = useState<Record<string, unknown>>({});
 
 	const set = (key: string, value: string | boolean) => {
@@ -166,35 +167,102 @@ function ProviderCard(props: {
 		);
 
 	return (
-		<div className="rounded-lg border border-border-subtle bg-background/40 p-3">
-			<div className="flex items-center justify-between gap-2">
-				<div className="flex items-center gap-2 text-body font-medium">
-					{props.icon}
-					{props.title}
-				</div>
-				<div className="flex items-center gap-2">
-					{props.account ? <span className="max-w-40 truncate text-caption text-text-tertiary">{props.account}</span> : null}
-					<span className="flex items-center gap-1.5 text-caption text-text-tertiary">
-						<StatusDot status={props.status} />
-						{props.status === "connected"
-							? t("cloudSync.provider.connected")
-							: props.status === "connecting"
-								? t("cloudSync.provider.connecting")
+		<div className="overflow-hidden rounded-lg border border-border-subtle">
+			<div
+				className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-accent/40"
+				role="button"
+				tabIndex={0}
+				onClick={() => setEditing((prev) => !prev)}
+				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
+			>
+				{editing ? <ChevronDown size={15} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={15} className="shrink-0 text-text-tertiary" />}
+				{props.icon}
+				<span className="min-w-0 flex-1 truncate text-sm font-medium">{props.title}</span>
+				{props.account ? <span className="shrink-0 truncate text-caption text-text-tertiary">{props.account}</span> : null}
+				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
+					<StatusDot status={props.status} />
+					{props.status === "connected"
+						? t("cloudSync.provider.connected")
+						: props.status === "connecting"
+							? t("cloudSync.provider.connecting")
+							: props.status === "disconnected" && props.configured
+								? t("cloudSync.provider.configured")
 								: t("cloudSync.provider.disconnected")}
-					</span>
+				</span>
+			</div>
+			{editing ? (
+				<div className="space-y-2 border-t border-border-subtle px-3 py-3">
+					{fields}
+					<div className="flex items-center gap-2">
+						<Button size="sm" onClick={() => props.onConnect({ ...config, provider: props.provider })}>
+							{t("cloudSync.provider.saveAndConnect")}
+						</Button>
+						{props.configured ? (
+							<Button size="sm" variant="outline" onClick={props.onDisconnect}>
+								{t("cloudSync.provider.remove")}
+							</Button>
+						) : null}
+					</div>
 				</div>
+			) : null}
+		</div>
+	);
+}
+
+/** GitHub 服务卡：与 ProviderCard 同款折叠式，正文为 Device Flow 连接区。 */
+function GithubProviderCard(props: {
+	status: string;
+	configured: boolean;
+	clientId: string;
+	onClientIdChange: (value: string) => void;
+	onConnect: () => void;
+	onDisconnect: () => void;
+	flow: { userCode: string; verificationUrl: string; interval: number } | null;
+}) {
+	const [editing, setEditing] = useState(false);
+	return (
+		<div className="overflow-hidden rounded-lg border border-border-subtle">
+			<div
+				className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-accent/40"
+				role="button"
+				tabIndex={0}
+				onClick={() => setEditing((prev) => !prev)}
+				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
+			>
+				{editing ? <ChevronDown size={15} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={15} className="shrink-0 text-text-tertiary" />}
+				<FolderGit2 size={16} className="shrink-0 text-primary" />
+				<span className="min-w-0 flex-1 truncate text-sm font-medium">{t("cloudSync.provider.githubTitle")}</span>
+				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
+					<StatusDot status={props.status} />
+					{props.status === "connected"
+						? t("cloudSync.provider.connected")
+						: props.status === "disconnected" && props.configured
+							? t("cloudSync.provider.configured")
+							: t("cloudSync.provider.disconnected")}
+				</span>
 			</div>
-			<div className="mt-3 grid gap-2">{fields}</div>
-			<div className="mt-3 flex items-center gap-2">
-				<Button size="sm" onClick={() => props.onConnect({ ...config, provider: props.provider })}>
-					{t("cloudSync.provider.saveAndConnect")}
-				</Button>
-				{props.configured ? (
-					<Button size="sm" variant="outline" onClick={props.onDisconnect}>
-						{t("cloudSync.provider.remove")}
-					</Button>
-				) : null}
-			</div>
+			{editing ? (
+				<div className="space-y-2 border-t border-border-subtle px-3 py-3">
+					<div className="flex flex-wrap items-center gap-2">
+						<Input placeholder={t("cloudSync.provider.githubClientId")} value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} className="max-w-64" />
+						<Button size="sm" onClick={props.onConnect} disabled={!props.clientId.trim()}>
+							{t("cloudSync.provider.githubConnect")}
+						</Button>
+						{props.configured ? (
+							<Button size="sm" variant="outline" onClick={props.onDisconnect}>
+								{t("cloudSync.provider.remove")}
+							</Button>
+						) : null}
+					</div>
+					{props.flow ? (
+						<div className="space-y-1 rounded-md bg-accent/40 px-3 py-2 text-sm">
+							<div className="break-all">{t("cloudSync.provider.githubOpenUrl")} <a className="text-primary underline" href={props.flow.verificationUrl} target="_blank" rel="noreferrer">{props.flow.verificationUrl}</a></div>
+							<div>{t("cloudSync.provider.githubUserCode")} <code className="rounded bg-accent px-1.5 py-0.5 font-mono">{props.flow.userCode}</code></div>
+							<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
+						</div>
+					) : null}
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -540,36 +608,15 @@ export function CloudSyncSettingsTab() {
 										onConnect={(config) => void configureProvider(config as never)}
 										onDisconnect={() => void disconnectProvider("s3")}
 									/>
-									<div className="rounded-lg border border-border-subtle bg-background/40 p-3">
-										<div className="flex items-center justify-between gap-2">
-											<div className="flex items-center gap-2 text-body font-medium">
-												<FolderGit2 size={16} className="text-primary" />
-												{t("cloudSync.provider.githubTitle")}
-											</div>
-											<span className="flex items-center gap-1.5 text-caption text-text-tertiary">
-												<StatusDot status={githubSnapshot?.status ?? "disconnected"} />
-												{githubSnapshot?.status === "connected" ? t("cloudSync.provider.connected") : t("cloudSync.provider.disconnected")}
-											</span>
-										</div>
-										<div className="mt-3 flex flex-wrap items-center gap-2">
-											<Input placeholder={t("cloudSync.provider.githubClientId")} value={githubClientId} onChange={(event) => setGithubClientId(event.target.value)} className="max-w-64" />
-											<Button size="sm" onClick={() => void startGithubConnect()} disabled={!githubClientId.trim()}>
-												{t("cloudSync.provider.githubConnect")}
-											</Button>
-											{githubSnapshot?.configured ? (
-												<Button size="sm" variant="outline" onClick={() => void disconnectProvider("github")}>
-													{t("cloudSync.provider.remove")}
-												</Button>
-											) : null}
-										</div>
-										{githubFlow ? (
-											<div className="mt-3 space-y-1 rounded-md bg-accent/40 px-3 py-2 text-sm">
-												<div className="break-all">{t("cloudSync.provider.githubOpenUrl")} <a className="text-primary underline" href={githubFlow.verificationUrl} target="_blank" rel="noreferrer">{githubFlow.verificationUrl}</a></div>
-												<div>{t("cloudSync.provider.githubUserCode")} <code className="rounded bg-accent px-1.5 py-0.5 font-mono">{githubFlow.userCode}</code></div>
-												<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
-											</div>
-										) : null}
-									</div>
+									<GithubProviderCard
+										status={githubSnapshot?.status ?? "disconnected"}
+										configured={Boolean(githubSnapshot?.configured)}
+										clientId={githubClientId}
+										onClientIdChange={setGithubClientId}
+										onConnect={() => void startGithubConnect()}
+										onDisconnect={() => void disconnectProvider("github")}
+										flow={githubFlow}
+									/>
 								</div>
 							</SettingsSection>
 

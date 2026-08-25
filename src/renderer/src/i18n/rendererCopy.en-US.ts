@@ -2688,6 +2688,7 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.provider.saveAndConnect": "Save & Connect",
   "cloudSync.provider.remove": "Remove",
   "cloudSync.provider.connected": "Connected",
+  "cloudSync.provider.configured": "Configured",
   "cloudSync.provider.connecting": "Connecting…",
   "cloudSync.provider.disconnected": "Disconnected",
   "cloudSync.content.title": "Sync Content",

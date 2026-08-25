@@ -2663,6 +2663,7 @@ export const zhCN = {
   "cloudSync.provider.saveAndConnect": "保存并连接",
   "cloudSync.provider.remove": "移除",
   "cloudSync.provider.connected": "已连接",
+  "cloudSync.provider.configured": "已配置",
   "cloudSync.provider.connecting": "连接中…",
   "cloudSync.provider.disconnected": "未连接",
   "cloudSync.content.title": "同步内容",
