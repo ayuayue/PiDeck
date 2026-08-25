@@ -702,9 +702,11 @@ interface PiDeckCloudObjectStorage {
 ```
 
 - **单一入口原则（消除分类开关与树节点重叠）**：每个配置只有一个管理入口。
-  - `auth.json` / `models.json`：由**分类开关**（pi 认证密钥 / pi 模型配置）对象级管理（payload.pi 域，字段级合并），**不进** config 文件候选；
-  - `~/.pi/agent/settings.json`：归全局「设置」类别（文件级）；`userData/settings.json`（PiDeck 自身设置）由「PiDeck 设置」分类开关白名单管；
-  - config 节点只承载机器相关的 `models-store.json`（默认关）与用户自选同步路径。
+  - `auth.json` / `models.json`：由**分类开关**（Pi 认证密钥 / Pi 模型配置）对象级管理（payload.pi 域，字段级合并），**不进** config 文件候选；
+  - `~/.pi/agent/settings.json`：由「全局配置」区块的 **Pi 设置（agent）** 开关管理（联动全局树「设置」类别全选）；`userData/settings.json`（PiDeck 自身设置）由「PiDeck 设置」分类开关白名单管；
+  - config 节点只承载机器相关的 `models-store.json`（「散落配置」开关，默认关）与用户自选同步路径。
+- **统一全局配置 + 联动**：上方「全局配置」区块是全部全局配置文件的管理入口；其中 Pi 设置（agent）与散落配置两项为**资源类别联动开关**——开关状态 = 下方 Pi 全局树对应类别是否全选，切换开关即批量全选/全不选，树内个别取消后开关自动变灰。
+- **Pi 全局标注**：全局节点在 UI 显示为「Pi 全局」（Pi 的全局会话/提示词/技能/扩展），与其它项目节点明确区分。
 - **trust.json 明确排除**：信任规则是“路径 → 规则”，换机器路径全变，同步无意义且有风险；不扫描、不进树。
 
 ### 12.3 扩展/插件配置文件（用户重点）

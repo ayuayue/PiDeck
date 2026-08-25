@@ -90,15 +90,19 @@ function SecretInput(props: { placeholder?: string; value: string; onChange: (va
 
 /** 全局配置分类开关：密钥/模型/生图随加密载荷同步；DSH 未实现时禁用。 */
 const CONTENT_CATEGORIES: Array<{
-	key: keyof CloudSyncContentPreferences;
+	key: keyof CloudSyncContentPreferences | "agentSettings" | "looseConfig";
 	labelKey: TranslationKey;
 	descKey?: TranslationKey;
 	supported: boolean;
+	/** 资源类别联动：开关状态 = 全局树该类别全选，切换即批量全选/全不选。 */
+	resourceCategory?: CloudSyncResourceCategory;
 }> = [
 	{ key: "desktopSettings", labelKey: "cloudSync.content.catDesktopSettings", descKey: "cloudSync.content.catDesktopSettingsDesc", supported: true },
 	{ key: "piModels", labelKey: "cloudSync.content.catPiModels", descKey: "cloudSync.content.catPiModelsDesc", supported: true },
 	{ key: "piCredentials", labelKey: "cloudSync.content.catPiCredentials", descKey: "cloudSync.content.catPiCredentialsDesc", supported: true },
 	{ key: "imageGen", labelKey: "cloudSync.content.catImageGen", descKey: "cloudSync.content.catImageGenDesc", supported: true },
+	{ key: "agentSettings", labelKey: "cloudSync.content.catAgentSettings", descKey: "cloudSync.content.catAgentSettingsDesc", supported: true, resourceCategory: "settings" },
+	{ key: "looseConfig", labelKey: "cloudSync.content.catLooseConfig", descKey: "cloudSync.content.catLooseConfigDesc", supported: true, resourceCategory: "config" },
 	{ key: "dshSettings", labelKey: "cloudSync.content.catDshSettings", supported: false },
 	{ key: "dshCredentials", labelKey: "cloudSync.content.catDshCredentials", supported: false },
 ];
@@ -666,12 +670,10 @@ function ProjectSelectionNode(props: {
 }) {
 	const { node } = props;
 	const isGlobal = node.projectId === GLOBAL_SYNC_PROJECT_ID;
-	/** 会话列表默认折叠（M9 反馈：点开项目时不要全部敞开；点头部可随时展开/收起）。 */
-	const [sessionsCollapsed, setSessionsCollapsed] = useState(true);
-	/** 资源类别组（提示词/技能/扩展/设置/配置）默认展开、可折叠（与多类别场景保持一致体验）。 */
-	const [collapsedResourceCategories, setCollapsedResourceCategories] = useState<ReadonlySet<string>>(new Set());
-	const toggleResourceCategory = useCallback((category: string) => {
-		setCollapsedResourceCategories((prev) => {
+	/** 所有类别组（会话 + 资源）默认收起；点类别头展开/收起（M9 反馈：点开项目时全部折叠）。 */
+	const [expandedCategories, setExpandedCategories] = useState<ReadonlySet<string>>(new Set());
+	const toggleCategoryCollapse = useCallback((category: string) => {
+		setExpandedCategories((prev) => {
 			const next = new Set(prev);
 			if (next.has(category)) next.delete(category);
 			else next.add(category);
@@ -694,7 +696,7 @@ function ProjectSelectionNode(props: {
 						onCheckedChange={() => props.onToggleNodeSessions(node.projectId, sessionsSelectedCount < sessionCount)}
 						onClick={(event) => event.stopPropagation()}
 					/>
-					<span className="min-w-0 flex-1 truncate text-sm font-medium">{node.name}</span>
+					<span className="min-w-0 flex-1 truncate text-sm font-medium">{isGlobal ? t("cloudSync.tree.globalPi") : node.name}</span>
 					{node.missing ? (
 						<>
 							<span className="shrink-0 rounded bg-warning/15 px-1.5 py-0.5 text-caption text-warning">{t("cloudSync.content.missingProject")}</span>
@@ -728,11 +730,11 @@ function ProjectSelectionNode(props: {
 								selected={sessionsSelectedCount}
 								onToggle={(selected) => props.onToggleCategory(node.projectId, "sessions", selected)}
 								collapsible
-								collapsed={sessionsCollapsed}
-								onToggleCollapse={() => setSessionsCollapsed((prev) => !prev)}
+								collapsed={!expandedCategories.has("sessions")}
+								onToggleCollapse={() => toggleCategoryCollapse("sessions")}
 								sticky
 							/>
-							{sessionsCollapsed ? null : (
+							{expandedCategories.has("sessions") ? (
 								<div className="space-y-0.5 pl-5">
 									{node.sessions.map((session) => (
 										<SessionRow
@@ -746,7 +748,7 @@ function ProjectSelectionNode(props: {
 										/>
 									))}
 								</div>
-							)}
+							) : null}
 						</div>
 					) : null}
 					{categoryOrder(isGlobal).map((category) => {
@@ -761,10 +763,10 @@ function ProjectSelectionNode(props: {
 									selected={selected}
 									onToggle={(all) => props.onToggleCategory(node.projectId, category, all)}
 									collapsible
-									collapsed={collapsedResourceCategories.has(category)}
-									onToggleCollapse={() => toggleResourceCategory(category)}
+									collapsed={!expandedCategories.has(category)}
+									onToggleCollapse={() => toggleCategoryCollapse(category)}
 								/>
-								{collapsedResourceCategories.has(category) ? null : (
+								{expandedCategories.has(category) ? (
 									<>
 										{isGlobal && category === "config" ? (
 											<div className="px-2 pb-1 text-caption text-text-tertiary">{t("cloudSync.tree.configHint")}</div>
@@ -782,7 +784,7 @@ function ProjectSelectionNode(props: {
 											))}
 										</div>
 									</>
-								)}
+								) : null}
 							</div>
 						);
 					})}
@@ -1273,26 +1275,42 @@ export function CloudSyncSettingsTab() {
 								<div className="mt-3 rounded-lg border border-border-subtle bg-background/40 p-3">
 									<div className="mb-2 text-sm font-medium">{t("cloudSync.content.globalConfig")}</div>
 									<div className="grid gap-1.5 sm:grid-cols-2">
-										{CONTENT_CATEGORIES.map((category) => (
-											<label
-												key={category.key}
-												className={cn(
-													"flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50",
-													!category.supported && "cursor-not-allowed opacity-60",
-												)}
-											>
-												<Checkbox
-													checked={Boolean(selectionTree.content[category.key])}
-													disabled={!category.supported}
-													onCheckedChange={(checked) => toggleContentCategory(category.key, Boolean(checked))}
-												/>
-												<span className="min-w-0 flex-1">
-													<span className="block truncate">{t(category.labelKey)}</span>
-													{category.descKey ? <span className="block truncate text-caption text-text-tertiary">{t(category.descKey)}</span> : null}
-												</span>
-												{!category.supported ? <span className="shrink-0 text-caption text-text-tertiary">{t("cloudSync.content.notSupported")}</span> : null}
-											</label>
-										))}
+										{CONTENT_CATEGORIES.map((category) => {
+											const globalNode = selectionTree.projects.find((candidate) => candidate.projectId === GLOBAL_SYNC_PROJECT_ID);
+											const linkedItems = category.resourceCategory
+												? (globalNode?.resources.filter((resource) => resource.category === category.resourceCategory) ?? [])
+												: [];
+											// 联动开关：状态 = 全局树对应类别全选（无三态）；切换 = 批量全选/全不选。
+											const linkedChecked = linkedItems.length > 0 && linkedItems.every((item) => selectedResourceIds.has(item.selectionId));
+											const checked = category.resourceCategory ? linkedChecked : Boolean(selectionTree.content[category.key as keyof CloudSyncContentPreferences]);
+											const onToggle = (value: boolean) => {
+												if (category.resourceCategory) {
+													toggleCategory(GLOBAL_SYNC_PROJECT_ID, category.resourceCategory, value);
+												} else {
+													toggleContentCategory(category.key as keyof CloudSyncContentPreferences, value);
+												}
+											};
+											return (
+												<label
+													key={category.key}
+													className={cn(
+														"flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50",
+														!category.supported && "cursor-not-allowed opacity-60",
+													)}
+												>
+													<Checkbox
+														checked={checked}
+														disabled={!category.supported}
+														onCheckedChange={(value) => onToggle(Boolean(value))}
+													/>
+													<span className="min-w-0 flex-1">
+														<span className="block truncate">{t(category.labelKey)}</span>
+														{category.descKey ? <span className="block truncate text-caption text-text-tertiary">{t(category.descKey)}</span> : null}
+													</span>
+													{!category.supported ? <span className="shrink-0 text-caption text-text-tertiary">{t("cloudSync.content.notSupported")}</span> : null}
+												</label>
+											);
+										})}
 									</div>
 									<div className="mt-2 text-caption text-text-tertiary">{t("cloudSync.content.globalConfigHint")}</div>
 								</div>
