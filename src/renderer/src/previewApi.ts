@@ -1375,6 +1375,8 @@ export function createPreviewApi(): PiDesktopApi {
 			exportBackup: async () => null,
 			oneDriveStart: async () => null,
 			oneDrivePoll: async () => ({ status: "pending" }),
+			googleStart: async () => null,
+			googlePoll: async () => ({ status: "pending" }),
 			setExclusions: async () => ({ securityState: "NO_KEY" } as never),
 			addCustomPath: async () => ({ securityState: "NO_KEY" } as never),
 			removeCustomPath: async () => ({ securityState: "NO_KEY" } as never),

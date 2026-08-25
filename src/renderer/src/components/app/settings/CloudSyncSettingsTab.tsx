@@ -668,6 +668,16 @@ function ProjectSelectionNode(props: {
 	const isGlobal = node.projectId === GLOBAL_SYNC_PROJECT_ID;
 	/** 会话列表默认折叠（M9 反馈：点开项目时不要全部敞开；点头部可随时展开/收起）。 */
 	const [sessionsCollapsed, setSessionsCollapsed] = useState(true);
+	/** 资源类别组（提示词/技能/扩展/设置/配置）默认展开、可折叠（与多类别场景保持一致体验）。 */
+	const [collapsedResourceCategories, setCollapsedResourceCategories] = useState<ReadonlySet<string>>(new Set());
+	const toggleResourceCategory = useCallback((category: string) => {
+		setCollapsedResourceCategories((prev) => {
+			const next = new Set(prev);
+			if (next.has(category)) next.delete(category);
+			else next.add(category);
+			return next;
+		});
+	}, []);
 	const sessionsSelectedCount = node.sessions.filter((session) => props.sessionSelection.has(session.selectionId)).length;
 	const sessionCount = node.sessions.length;
 	const resourcesSelectedCount = node.resources.filter((resource) => props.resourceSelection.has(resource.selectionId)).length;
@@ -750,22 +760,29 @@ function ProjectSelectionNode(props: {
 									total={items.length}
 									selected={selected}
 									onToggle={(all) => props.onToggleCategory(node.projectId, category, all)}
+									collapsible
+									collapsed={collapsedResourceCategories.has(category)}
+									onToggleCollapse={() => toggleResourceCategory(category)}
 								/>
-								{isGlobal && category === "config" ? (
-									<div className="px-2 pb-1 text-caption text-text-tertiary">{t("cloudSync.tree.configHint")}</div>
-								) : null}
-								<div className="space-y-0.5 pl-5">
-									{items.map((resource) => (
-										<ResourceRow
-											key={resource.selectionId}
-											relativePath={resource.relativePath}
-											selected={props.resourceSelection.has(resource.selectionId)}
-											disabled={resource.status === "unavailable"}
-											reason={resource.reason}
-											onToggle={() => props.onToggleResource(resource.selectionId)}
-										/>
-									))}
-								</div>
+								{collapsedResourceCategories.has(category) ? null : (
+									<>
+										{isGlobal && category === "config" ? (
+											<div className="px-2 pb-1 text-caption text-text-tertiary">{t("cloudSync.tree.configHint")}</div>
+										) : null}
+										<div className="space-y-0.5 pl-5">
+											{items.map((resource) => (
+												<ResourceRow
+													key={resource.selectionId}
+													relativePath={resource.relativePath}
+													selected={props.resourceSelection.has(resource.selectionId)}
+													disabled={resource.status === "unavailable"}
+													reason={resource.reason}
+													onToggle={() => props.onToggleResource(resource.selectionId)}
+												/>
+											))}
+										</div>
+									</>
+								)}
 							</div>
 						);
 					})}
