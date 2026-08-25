@@ -269,7 +269,7 @@ function GithubProviderCard(props: {
 				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
 			>
 				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
-				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[#24292e] text-white dark:bg-white dark:text-[#24292e]">
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
 					<GithubMarkIcon className="size-5" />
 				</span>
 				<span className="min-w-0 flex-1 truncate text-sm font-medium">{t("cloudSync.provider.githubTitle")}</span>
