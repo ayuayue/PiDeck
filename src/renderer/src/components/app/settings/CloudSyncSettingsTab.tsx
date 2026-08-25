@@ -496,6 +496,7 @@ function categoryLabel(category: CloudSyncResourceCategory): string {
 		case "prompts": return "prompts";
 		case "skills": return "skills";
 		case "extensions": return "extensions";
+		case "config": return "config";
 	}
 }
 
