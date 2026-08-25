@@ -650,5 +650,15 @@ export const ipcChannels = {
 	cloudSyncExport: "cloud-sync:export",
 	/** 本地一键导入：从备份包恢复（可离线、无需云服务） */
 	cloudSyncImport: "cloud-sync:import",
+	/** M9：设置扫描排除规则（用户黑名单） */
+	cloudSyncSetExclusions: "cloud-sync:set-exclusions",
+	/** M9：添加自选同步路径（文件/文件夹） */
+	cloudSyncAddCustomPath: "cloud-sync:add-custom-path",
+	/** M9：移除自选同步路径 */
+	cloudSyncRemoveCustomPath: "cloud-sync:remove-custom-path",
+	/** M9：云端项目挂载到本地目录（全手动策略） */
+	cloudSyncMountProject: "cloud-sync:mount-project",
+	/** M9：解除挂载 */
+	cloudSyncUnmountProject: "cloud-sync:unmount-project",
 
 } as const;

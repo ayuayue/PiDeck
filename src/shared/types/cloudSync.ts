@@ -269,7 +269,7 @@ export interface PiDeckSyncIndexV1 {
 	syncedAt: number;
 }
 
-export type CloudSyncResourceCategory = "settings" | "prompts" | "skills" | "extensions";
+export type CloudSyncResourceCategory = "settings" | "prompts" | "skills" | "extensions" | "config";
 
 export type CloudSyncCandidateStatus = "available" | "unavailable";
 
@@ -361,6 +361,47 @@ export interface CloudSyncSelectionUpdate {
 	selectedSessionIds: string[];
 	selectedResourceIds: string[];
 	content?: Partial<CloudSyncContentPreferences>;
+}
+
+// ---------------------------------------------------------------------------
+// M9: 排除名单 / 自选同步 / 挂载映射（第二轮评审 §12）
+// ---------------------------------------------------------------------------
+
+/** 扫描排除规则（内置默认 + 用户黑名单）；pattern 为 glob 或相对路径片段。 */
+export interface CloudSyncExclusion {
+	id: string;
+	pattern: string;
+}
+
+/** 自选同步路径（用户点「添加」手动选中的文件/文件夹）。 */
+export interface CloudSyncCustomPath {
+	id: string;
+	filePath: string;
+	/** 存储基准：项目内相对 / home 相对 / 绝对路径（仅本机）。 */
+	relativeTo: "project" | "home" | "absolute";
+	/** 相对基准的路径（absolute 时为完整路径）。 */
+	relativePath: string;
+	/** relativeTo=project 时归属的项目 id。 */
+	projectId?: string;
+	label: string;
+}
+
+/** 云端项目 → 本地目录的手动挂载映射（全手动策略，§12.5）。 */
+export interface CloudSyncMount {
+	remoteProjectId: string;
+	remoteProjectName: string;
+	localPath: string;
+	mountedAt: number;
+}
+
+/** 类别节点批量勾选请求（UI 用；选择集合仍以 selectedSessionIds/selectedResourceIds 为准）。 */
+export interface CloudSyncCategoryToggle {
+	/** 节点所属项目（__global__ 为全局节点）。 */
+	projectId: string;
+	/** sessions 或资源类别。 */
+	category: "sessions" | CloudSyncResourceCategory;
+	/** 批量设为选中（false = 取消全选）。 */
+	selected: boolean;
 }
 
 // ---------------------------------------------------------------------------
