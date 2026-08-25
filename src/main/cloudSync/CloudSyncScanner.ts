@@ -3,6 +3,7 @@ import { lstat, readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import type { Project, SessionRecord } from "../../shared/types.ts";
 import type {
+	CloudSyncCustomPath,
 	CloudSyncProjectSelectionNode,
 	CloudSyncResourceCandidate,
 	CloudSyncResourceCategory,
@@ -18,6 +19,23 @@ const MAX_FILES_PER_ROOT = 5_000;
 const MAX_RESOURCE_BYTES = 10 * 1024 * 1024;
 const MAX_SESSION_BYTES = 512 * 1024 * 1024;
 const SKIPPED_DIRECTORIES = new Set([".pideck-archive", ".trash", "subagent-artifacts", "node_modules"]);
+
+/**
+ * 内置扫描排除模式（M9，§12.4）：后缀/文件名/目录名匹配。
+ * 与用户黑名单（glob）合并后统一应用；`*` 匹配任意字符。
+ */
+export const DEFAULT_SCAN_EXCLUSIONS = [
+	"*.bak*",
+	"*.log",
+	"*-events.jsonl",
+	"node_modules",
+	".trash",
+	".pideck-archive",
+	"subagent-artifacts",
+] as const;
+
+/** 全局「配置」类别白名单：~/.pi/agent 顶层散落配置文件（trust.json 明确排除，settings.json 归 settings 类别）。 */
+export const GLOBAL_CONFIG_FILE_WHITELIST = ["auth.json", "models.json", "models-store.json"] as const;
 
 export type CloudSyncInternalSession = {
 	candidate: CloudSyncSessionCandidate;
@@ -54,6 +72,14 @@ export interface CloudSyncScannerOptions {
 	homeDir: string;
 	listProjects: () => Project[];
 	listSessionRecords: () => SessionRecord[];
+}
+
+/** scan() 的可选输入（M9）：用户黑名单 glob + 自选同步路径。 */
+export interface CloudSyncScanOptions {
+	/** 用户黑名单（glob），与内置排除合并。 */
+	exclusions?: string[];
+	/** 用户自选同步路径（点「添加」选中的文件/文件夹）。 */
+	customPaths?: CloudSyncCustomPath[];
 }
 
 function normalizePath(value: string): string {
@@ -113,6 +139,36 @@ function safeRootRelativePath(rootPath: string, filePath: string): string {
 }
 
 /**
+ * 把排除 pattern 编译为正则：双星斜杠 → 零层或多层目录，单星 → 段内任意字符，其余按字面量。
+ * 仅用于匹配文件名/目录名与扫描相对路径，不做 shell 语义。
+ */
+function compileExclusionPattern(pattern: string): RegExp {
+	let body = "";
+	for (let index = 0; index < pattern.length; index++) {
+		const char = pattern[index];
+		if (char === "*") {
+			if (pattern[index + 1] === "*") {
+				if (pattern[index + 2] === "/") {
+					body += "(?:.*/)?";
+					index += 2;
+				} else {
+					body += ".*";
+					index += 1;
+				}
+			} else {
+				body += "[^/]*";
+			}
+			continue;
+		}
+		body += SPECIAL_EXCLUSION_CHARS.has(char) ? `\\${char}` : char;
+	}
+	return new RegExp(`^(?:${body})$`);
+}
+
+/** 正则元字符集合（glob 编译转义用）。 */
+const SPECIAL_EXCLUSION_CHARS = new Set([...".*+?^${}()|[]\\"]);
+
+/**
  * Main-process scanner for the cloud sync selection tree.
  * It deliberately does not reuse the renderer project/session list: scan errors
  * are retained as root status, symlinks are skipped, and absolute paths stay
@@ -120,12 +176,16 @@ function safeRootRelativePath(rootPath: string, filePath: string): string {
  */
 export class CloudSyncScanner {
 	private readonly options: CloudSyncScannerOptions;
+	/** 合并后的排除正则（内置默认 + 用户黑名单）。 */
+	private exclusionRegexps: RegExp[] = [];
 
 	constructor(options: CloudSyncScannerOptions) {
 		this.options = options;
 	}
 
-	async scan(preferences: CloudSyncSelectionPreferences): Promise<CloudSyncScanSnapshot> {
+	async scan(preferences: CloudSyncSelectionPreferences, scanOptions: CloudSyncScanOptions = {}): Promise<CloudSyncScanSnapshot> {
+		this.exclusionRegexps = [...DEFAULT_SCAN_EXCLUSIONS, ...(scanOptions.exclusions ?? [])].map(compileExclusionPattern);
+		const customPaths = scanOptions.customPaths ?? [];
 		const projects = this.options.listProjects();
 		const records = this.options.listSessionRecords();
 		const recordsByPath = recordByPath(records);
@@ -248,6 +308,15 @@ export class CloudSyncScanner {
 			}
 		}
 
+		// M9：自选同步路径（文件/文件夹）加入对应节点（category=config，供「自选」展示）。
+		for (const customPath of customPaths) {
+			const item = await this.scanCustomPath(customPath, preferences);
+			if (!item) continue;
+			const node = projectNodes.get(item.candidate.projectId) ?? globalNode;
+			node.resources.push(item.candidate);
+			resources.set(item.candidate.selectionId, item);
+		}
+
 		for (const node of projectNodes.values()) {
 			node.sessions.sort((left, right) => right.mtimeMs - left.mtimeMs);
 			node.resources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
@@ -276,11 +345,17 @@ export class CloudSyncScanner {
 
 	private globalResourceRoots(): Array<{ category: CloudSyncResourceCategory; rootPath: string; relativeBase: string }> {
 		const agentRoot = join(this.options.homeDir, ".pi", "agent");
+		const configRoots = GLOBAL_CONFIG_FILE_WHITELIST.map((name) => ({
+			category: "config" as const,
+			rootPath: join(agentRoot, name),
+			relativeBase: name,
+		}));
 		return [
 			{ category: "settings", rootPath: join(agentRoot, "settings.json"), relativeBase: "" },
 			{ category: "prompts", rootPath: join(agentRoot, "prompts"), relativeBase: "prompts" },
 			{ category: "skills", rootPath: join(agentRoot, "skills"), relativeBase: "skills" },
 			{ category: "extensions", rootPath: join(agentRoot, "extensions"), relativeBase: "extensions" },
+			...configRoots,
 		];
 	}
 
@@ -348,14 +423,16 @@ export class CloudSyncScanner {
 		const items: CloudSyncInternalResource[] = [];
 		const statuses: CloudSyncScanRootStatus[] = [];
 		for (const root of roots) {
-			const isSingleFile = root.category === "settings";
+			const isSingleFile = root.category === "settings" || root.category === "config";
 			const files = isSingleFile
 				? await this.listSingleFile(root.rootPath, root.relativeBase)
 				: await this.listFiles(root.rootPath);
 			for (const file of files.items) {
 				const relativePath = root.category === "settings"
 					? (projectId === GLOBAL_SYNC_PROJECT_ID ? "settings.json" : ".pi/settings.json")
-					: normalizeRelativePath(join(root.relativeBase, file.relativePath));
+					: root.category === "config"
+						? file.relativePath
+						: normalizeRelativePath(join(root.relativeBase, file.relativePath));
 				const id = resourceSelectionId(projectId, root.category, relativePath);
 				const unavailable = file.size > MAX_RESOURCE_BYTES;
 				const candidate: CloudSyncResourceCandidate = {
@@ -372,8 +449,8 @@ export class CloudSyncScanner {
 				items.push({ candidate, filePath: file.filePath, rootPath: isSingleFile ? root.rootPath : root.rootPath });
 			}
 			statuses.push({
-				id: `${projectId}:${root.category}:${root.relativeBase || "settings"}`,
-				label: `${projectId === GLOBAL_SYNC_PROJECT_ID ? "Global" : projectId} ${root.category}`,
+				id: `${projectId}:${root.category}:${root.category === "config" ? root.relativeBase : root.relativeBase || "settings"}`,
+				label: `${projectId === GLOBAL_SYNC_PROJECT_ID ? "Global" : projectId} ${root.category}${root.category === "config" ? `/${root.relativeBase}` : ""}`,
 				kind: projectId === GLOBAL_SYNC_PROJECT_ID ? "global-resources" : "project-resources",
 				...(projectId === GLOBAL_SYNC_PROJECT_ID ? {} : { projectId }),
 				ok: files.status.ok,
@@ -384,10 +461,49 @@ export class CloudSyncScanner {
 		return { items, statuses };
 	}
 
+	/** 命中任一排除模式（内置默认 + 用户黑名单）。 */
+	private isExcluded(nameOrRelativePath: string): boolean {
+		for (const regexp of this.exclusionRegexps) {
+			if (regexp.test(nameOrRelativePath)) return true;
+		}
+		return false;
+	}
+
+	/** 校验并扫描一个自选同步路径；不存在/超限/符号链接时静默跳过。 */
+	private async scanCustomPath(
+		customPath: CloudSyncCustomPath,
+		preferences: CloudSyncSelectionPreferences,
+	): Promise<CloudSyncInternalResource | null> {
+		let info;
+		try {
+			info = await lstat(customPath.filePath);
+		} catch {
+			return null; // 不存在/无权限：跳过，不抛异常
+		}
+		if (info.isSymbolicLink() || (!info.isFile() && !info.isDirectory())) return null;
+		if (info.size > MAX_RESOURCE_BYTES) return null;
+		const relativePath = normalizeRelativePath(customPath.relativePath);
+		if (!relativePath || relativePath.startsWith("/") || /^[A-Za-z]:/.test(relativePath)) return null;
+		if (this.isExcluded(relativePath) || this.isExcluded(basename(relativePath))) return null;
+		const projectId = customPath.projectId ?? GLOBAL_SYNC_PROJECT_ID;
+		const id = resourceSelectionId(projectId, "config", relativePath);
+		const candidate: CloudSyncResourceCandidate = {
+			selectionId: id,
+			projectId,
+			category: "config",
+			relativePath,
+			size: info.size,
+			mtimeMs: info.mtimeMs,
+			selected: preferences.selectedResourceIds.includes(id),
+			status: "available",
+		};
+		return { candidate, filePath: customPath.filePath, rootPath: customPath.filePath };
+	}
+
 	private async listSingleFile(filePath: string, relativeBase: string): Promise<RootScanResult<FileEntry>> {
 		try {
 			const info = await lstat(filePath);
-			if (!info.isFile()) {
+			if (!info.isFile() || this.isExcluded(basename(filePath))) {
 				return { items: [], status: { id: filePath, label: relativeBase || "settings", kind: "global-resources", ok: true, count: 0 } };
 			}
 			return {
@@ -445,18 +561,25 @@ export class CloudSyncScanner {
 		for (const entry of entries) {
 			if (items.length >= MAX_FILES_PER_ROOT) throw new Error("Cloud sync scan file limit exceeded");
 			if (entry.name.startsWith(".") && entry.name !== ".pi" && entry.name !== ".agents") continue;
+			// M9：内置默认 + 用户黑名单按文件名/目录名排除（命中即不递归、不入候选）。
+			if (this.isExcluded(entry.name)) continue;
 			if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
 			const path = join(currentPath, entry.name);
 			const info = await lstat(path);
 			if (info.isSymbolicLink()) continue;
 			if (info.isDirectory()) {
+				// 目录的相对路径也过一遍排除（支持 `**/secret*` 这类跨目录模式）。
+				if (this.isExcluded(safeRootRelativePath(rootPath, path))) continue;
 				await this.walk(rootPath, path, extension, items);
 				continue;
 			}
 			if (!info.isFile() || (extension && !entry.name.toLowerCase().endsWith(extension))) continue;
+			const relativePath = safeRootRelativePath(rootPath, path);
+			// 相对路径再匹配一遍，支持 `**/secret*` 这类跨目录黑名单。
+			if (this.isExcluded(relativePath)) continue;
 			items.push({
 				filePath: path,
-				relativePath: safeRootRelativePath(rootPath, path),
+				relativePath,
 				size: info.size,
 				mtimeMs: info.mtimeMs,
 			});

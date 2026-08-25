@@ -10,6 +10,7 @@ import type {
 	CloudSyncProviderConfigInput,
 	GithubGistConfig,
 	LocalFolderConfig,
+	OneDriveConfig,
 	S3Config,
 	WebDAVConfig,
 } from "../../shared/types/cloudSync.ts";
@@ -61,6 +62,16 @@ function isLocalFolderConfig(value: unknown): value is LocalFolderConfig {
 	return !value.folderPath.includes("\0");
 }
 
+function isOneDriveConfig(value: unknown): value is OneDriveConfig {
+	if (!isPlainObject(value)) return false;
+	if (typeof value.clientId !== "string" || value.clientId.length === 0 || value.clientId.length > 128) return false;
+	if (value.tenant !== undefined && typeof value.tenant !== "string") return false;
+	if (value.accessToken !== undefined && typeof value.accessToken !== "string") return false;
+	if (value.refreshToken !== undefined && typeof value.refreshToken !== "string") return false;
+	if (value.expiresAt !== undefined && typeof value.expiresAt !== "number") return false;
+	return true;
+}
+
 export function parseProviderConfigInput(value: unknown): CloudSyncProviderConfigInput {
 	if (!isPlainObject(value)) throw new TypeError("Provider config must be an object");
 	const provider = value.provider;
@@ -77,6 +88,9 @@ export function parseProviderConfigInput(value: unknown): CloudSyncProviderConfi
 	}
 	if (provider === "local") {
 		return { provider, config: isLocalFolderConfig(value.config) ? value.config : throwType("Local folder config is invalid") };
+	}
+	if (provider === "onedrive") {
+		return { provider, config: isOneDriveConfig(value.config) ? value.config : throwType("OneDrive config is invalid") };
 	}
 	throw new TypeError("Unknown cloud provider");
 }

@@ -94,6 +94,22 @@ export function useCloudSync() {
 			run(() => desktopApi.cloudSync.exportBackup(options)),
 		importBackup: (input: CloudSyncImportInput) =>
 			run(() => desktopApi.cloudSync.importBackup(input)),
+		oneDriveStart: (clientId: string) => run(() => desktopApi.cloudSync.oneDriveStart(clientId)),
+		oneDrivePoll: () => run(() => desktopApi.cloudSync.oneDrivePoll()),
+		setExclusions: (patterns: string[]) => run(() => desktopApi.cloudSync.setExclusions(patterns)),
+		addCustomPath: (input: {
+			filePath: string;
+			relativeTo: "project" | "home" | "absolute";
+			relativePath: string;
+			projectId?: string;
+			label?: string;
+		}) => run(() => desktopApi.cloudSync.addCustomPath(input)),
+		removeCustomPath: (id: string) => run(() => desktopApi.cloudSync.removeCustomPath(id)),
+		mountProject: (input: { remoteProjectId: string; remoteProjectName: string; localPath: string }) =>
+			run(() => desktopApi.cloudSync.mountProject(input)),
+		unmountProject: (remoteProjectId: string) => run(() => desktopApi.cloudSync.unmountProject(remoteProjectId)),
+		pickCustomPath: () => run(() => desktopApi.cloudSync.pickCustomPath()),
+		pickMountDirectory: () => run(() => desktopApi.cloudSync.pickMountDirectory()),
 	};
 }
 

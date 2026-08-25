@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import type { GithubGistConfig, LocalFolderConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
+import type { GithubGistConfig, LocalFolderConfig, OneDriveConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
 
 const MAX_ENDPOINT_LENGTH = 2048;
 const MAX_CREDENTIAL_LENGTH = 16_384;
@@ -153,4 +153,41 @@ export function normalizeLocalFolderConfig(value: unknown): LocalFolderConfig {
 		throw new TypeError("Local folder path must be absolute");
 	}
 	return { folderPath };
+}
+
+/**
+ * Validate the OneDrive (Microsoft Graph) config.
+ *
+ * clientId is user-supplied (Azure app, mobile-and-desktop platform, redirect
+ * http://localhost) — the same BYO-credentials pattern as GitHub Gist. Tokens
+ * are optional at config time and only ever held in the main process, sealed
+ * with the master password.
+ */
+export function normalizeOneDriveConfig(value: unknown): OneDriveConfig {
+	if (!isRecord(value)) throw new TypeError("OneDrive config is invalid");
+	const clientId = requiredString(value, "clientId", 128);
+	if (clientId.trim().length === 0 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+		throw new TypeError("OneDrive clientId is invalid");
+	}
+	const config: OneDriveConfig = { clientId };
+	if (value.tenant !== undefined) {
+		const tenant = requiredString(value, "tenant", 128);
+		if (tenant.trim().length === 0 || /[\u0000-\u001f\u007f]/.test(tenant)) {
+			throw new TypeError("OneDrive tenant is invalid");
+		}
+		config.tenant = tenant;
+	}
+	if (value.accessToken !== undefined) {
+		config.accessToken = requiredString(value, "accessToken", MAX_CREDENTIAL_LENGTH);
+	}
+	if (value.refreshToken !== undefined) {
+		config.refreshToken = requiredString(value, "refreshToken", MAX_CREDENTIAL_LENGTH);
+	}
+	if (value.expiresAt !== undefined) {
+		if (typeof value.expiresAt !== "number" || !Number.isFinite(value.expiresAt)) {
+			throw new TypeError("OneDrive expiresAt is invalid");
+		}
+		config.expiresAt = value.expiresAt;
+	}
+	return config;
 }

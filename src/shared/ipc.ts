@@ -650,6 +650,10 @@ export const ipcChannels = {
 	cloudSyncExport: "cloud-sync:export",
 	/** 本地一键导入：从备份包恢复（可离线、无需云服务） */
 	cloudSyncImport: "cloud-sync:import",
+	/** OneDrive 浏览器授权启动（token 只在主进程流转） */
+	cloudSyncOneDriveStart: "cloud-sync:onedrive-start",
+	/** OneDrive 授权轮询（成功即完成 provider 配置） */
+	cloudSyncOneDrivePoll: "cloud-sync:onedrive-poll",
 	/** M9：设置扫描排除规则（用户黑名单） */
 	cloudSyncSetExclusions: "cloud-sync:set-exclusions",
 	/** M9：添加自选同步路径（文件/文件夹） */
@@ -660,5 +664,9 @@ export const ipcChannels = {
 	cloudSyncMountProject: "cloud-sync:mount-project",
 	/** M9：解除挂载 */
 	cloudSyncUnmountProject: "cloud-sync:unmount-project",
+	/** M9：弹文件/文件夹选择器，选择后归属计算并加入自选同步清单 */
+	cloudSyncPickCustomPath: "cloud-sync:pick-custom-path",
+	/** M9：弹目录选择器，供云端项目挂载选本地目录 */
+	cloudSyncPickMountDirectory: "cloud-sync:pick-mount-directory",
 
 } as const;

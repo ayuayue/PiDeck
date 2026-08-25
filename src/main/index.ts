@@ -2929,6 +2929,7 @@ function registerIpc() {
 	registerCloudSyncIpc({
 		manager: cloudSyncManager,
 		notifyStateChanged: () => broadcastCloudSyncStateChanged(),
+		listProjects: () => projectStore.list(),
 	});
 }
 

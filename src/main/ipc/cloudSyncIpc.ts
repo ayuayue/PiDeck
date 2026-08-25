@@ -5,6 +5,8 @@
  */
 
 import { dialog, ipcMain } from "electron";
+import { homedir } from "node:os";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import type {
 	CloudProvider,
@@ -18,10 +20,14 @@ import type {
 import { isBuiltinCloudProvider } from "../../shared/types/cloudSync";
 import { parseProviderConfigInput } from "../cloudSync/parseProviderConfig";
 import type { CloudSyncManager } from "../cloudSync/CloudSyncManager";
+import type { Project } from "../../shared/types";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 }
+
+/** 自选路径归属判断用的项目列表（由 registerCloudSyncIpc 注入）。 */
+let listProjectsForCustomPath: () => Project[] = () => [];
 
 function parseProvider(provider: unknown): CloudProvider {
 	if (typeof provider !== "string" || !isBuiltinCloudProvider(provider)) {
@@ -59,6 +65,85 @@ function parseStrategy(value: unknown): CloudSyncStrategy {
 		throw new TypeError("Unknown sync strategy");
 	}
 	return value;
+}
+
+/** M9：自选同步路径入参校验（renderer 数据不可信，边界收口）。 */
+function parseCustomPathInput(value: unknown): {
+	filePath: string;
+	relativeTo: "project" | "home" | "absolute";
+	relativePath: string;
+	projectId?: string;
+	label?: string;
+} {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new TypeError("Custom path input must be an object");
+	}
+	const input = value as Record<string, unknown>;
+	if (typeof input.filePath !== "string" || input.filePath.trim().length === 0 || input.filePath.length > 4096) {
+		throw new TypeError("Custom path filePath is invalid");
+	}
+	const relativeTo = input.relativeTo;
+	if (relativeTo !== "project" && relativeTo !== "home" && relativeTo !== "absolute") {
+		throw new TypeError("Custom path relativeTo is invalid");
+	}
+	if (typeof input.relativePath !== "string" || input.relativePath.length === 0 || input.relativePath.length > 4096) {
+		throw new TypeError("Custom path relativePath is invalid");
+	}
+	return {
+		filePath: input.filePath,
+		relativeTo,
+		relativePath: input.relativePath,
+		...(typeof input.projectId === "string" && input.projectId.length > 0 ? { projectId: input.projectId } : {}),
+		...(typeof input.label === "string" && input.label.trim().length > 0 ? { label: input.label.trim() } : {}),
+	};
+}
+
+/** M9：自选路径归属计算 —— 命中项目目录 → project 相对；否则 home 相对；无法相对 → absolute（仅本机）。 */
+function mapCustomPathToPortable(filePath: string): {
+	filePath: string;
+	relativeTo: "project" | "home" | "absolute";
+	relativePath: string;
+	projectId?: string;
+	label: string;
+} | null {
+	const normalized = resolve(filePath);
+	const projects = listProjectsForCustomPath();
+	for (const project of projects) {
+		const projectRoot = resolve(project.path);
+		const relativePath = relative(projectRoot, normalized);
+		if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) continue;
+		return {
+			filePath: normalized,
+			relativeTo: "project",
+			relativePath,
+			projectId: project.id,
+			label: `${project.name}/${relativePath}`,
+		};
+	}
+	const homeRoot = resolve(homedir());
+	const homeRelative = relative(homeRoot, normalized);
+	if (homeRelative && homeRelative !== ".." && !homeRelative.startsWith(`..${sep}`) && !isAbsolute(homeRelative)) {
+		return { filePath: normalized, relativeTo: "home", relativePath: homeRelative, label: homeRelative };
+	}
+	return { filePath: normalized, relativeTo: "absolute", relativePath: normalized, label: normalized };
+}
+
+/** M9：云端项目挂载入参校验。 */
+function parseMountInput(value: unknown): { remoteProjectId: string; remoteProjectName: string; localPath: string } {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new TypeError("Mount input must be an object");
+	}
+	const input = value as Record<string, unknown>;
+	if (typeof input.remoteProjectId !== "string" || input.remoteProjectId.trim().length === 0 || input.remoteProjectId.length > 256) {
+		throw new TypeError("Mount remoteProjectId is invalid");
+	}
+	if (typeof input.remoteProjectName !== "string" || input.remoteProjectName.trim().length === 0 || input.remoteProjectName.length > 512) {
+		throw new TypeError("Mount remoteProjectName is invalid");
+	}
+	if (typeof input.localPath !== "string" || input.localPath.trim().length === 0 || input.localPath.length > 4096) {
+		throw new TypeError("Mount localPath is invalid");
+	}
+	return { remoteProjectId: input.remoteProjectId.trim(), remoteProjectName: input.remoteProjectName.trim(), localPath: input.localPath };
 }
 
 function parseImportMode(value: unknown): CloudSyncImportMode {
@@ -109,7 +194,9 @@ async function resolveBackupSavePath(title?: string): Promise<string | null> {
 export function registerCloudSyncIpc(deps: {
 	manager: CloudSyncManager;
 	notifyStateChanged: () => void;
+	listProjects?: () => Project[];
 }): void {
+	if (deps.listProjects) listProjectsForCustomPath = deps.listProjects;
 	const { manager, notifyStateChanged } = deps;
 
 	ipcMain.handle(ipcChannels.cloudSyncGetState, () => manager.getStateSnapshot());
@@ -229,6 +316,84 @@ export function registerCloudSyncIpc(deps: {
 		const parsed = parseImportInput(input);
 		const result = await manager.importBackup(parsed);
 		notifyStateChanged();
+		return result;
+	});
+
+	// ── M9: exclusions / custom paths / mounts ─────────────────────────
+
+	ipcMain.handle(ipcChannels.cloudSyncSetExclusions, async (_event, patterns: unknown) => {
+		if (!Array.isArray(patterns) || patterns.some((item) => typeof item !== "string")) {
+			throw new TypeError("Exclusions must be an array of strings");
+		}
+		await manager.setExclusions(patterns);
+		notifyStateChanged();
+		return manager.getStateSnapshot();
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncAddCustomPath, async (_event, input: unknown) => {
+		const parsed = parseCustomPathInput(input);
+		await manager.addCustomPath(parsed);
+		notifyStateChanged();
+		return manager.getStateSnapshot();
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncRemoveCustomPath, async (_event, id: unknown) => {
+		if (typeof id !== "string" || id.length === 0) throw new TypeError("Custom path id is invalid");
+		await manager.removeCustomPath(id);
+		notifyStateChanged();
+		return manager.getStateSnapshot();
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncMountProject, async (_event, input: unknown) => {
+		const parsed = parseMountInput(input);
+		await manager.mountProject(parsed);
+		notifyStateChanged();
+		return manager.getStateSnapshot();
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncUnmountProject, async (_event, remoteProjectId: unknown) => {
+		if (typeof remoteProjectId !== "string" || remoteProjectId.length === 0) throw new TypeError("Remote project id is invalid");
+		await manager.unmountProject(remoteProjectId);
+		notifyStateChanged();
+		return manager.getStateSnapshot();
+	});
+
+	/** M9：弹原生文件/文件夹选择器，归属计算后直接加入自选同步清单。 */
+	ipcMain.handle(ipcChannels.cloudSyncPickCustomPath, async () => {
+		const result = await dialog.showOpenDialog({
+			title: "选择要同步的文件或文件夹",
+			properties: ["openFile", "openDirectory", "multiSelections"],
+		});
+		if (result.canceled || result.filePaths.length === 0) return manager.getStateSnapshot();
+		for (const filePath of result.filePaths) {
+			const mapped = mapCustomPathToPortable(filePath);
+			if (!mapped) continue;
+			await manager.addCustomPath(mapped);
+		}
+		notifyStateChanged();
+		return manager.getStateSnapshot();
+	});
+
+	/** M9：弹目录选择器，返回选中目录（挂载到云端项目用）。 */
+	ipcMain.handle(ipcChannels.cloudSyncPickMountDirectory, async () => {
+		const result = await dialog.showOpenDialog({
+			title: "选择同步目标目录",
+			properties: ["openDirectory"],
+		});
+		if (result.canceled || result.filePaths.length === 0) return null;
+		return result.filePaths[0];
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncOneDriveStart, async (_event, clientId: unknown) => {
+		if (typeof clientId !== "string" || clientId.trim().length === 0 || clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+			throw new TypeError("OneDrive client id is invalid");
+		}
+		return manager.startOneDriveOAuth(clientId.trim());
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncOneDrivePoll, async () => {
+		const result = await manager.pollOneDriveOAuth();
+		if (result.status === "ok") notifyStateChanged();
 		return result;
 	});
 }

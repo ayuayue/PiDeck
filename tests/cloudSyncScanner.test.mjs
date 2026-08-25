@@ -166,3 +166,107 @@ test("scanner honors existing selection and groups sessions by catalog project i
 		await rm(base, { recursive: true, force: true });
 	}
 });
+
+test("scanner scans global config whitelist (config category) and excludes trust/bak", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-scan-"));
+	const home = join(base, "home");
+	try {
+		await makeHome(home, {
+			".pi/agent/auth.json": "{}",
+			".pi/agent/models.json": "{}",
+			".pi/agent/models-store.json": "{}",
+			".pi/agent/trust.json": "{}",
+			".pi/agent/models.json.bak-20260803": "{}",
+		});
+		const scanner = new CloudSyncScanner({
+			homeDir: home,
+			listProjects: () => [],
+			listSessionRecords: () => [],
+		});
+		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
+		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
+		assert.ok(global);
+		const configPaths = global.resources
+			.filter((resource) => resource.category === "config")
+			.map((resource) => resource.relativePath);
+		assert.deepEqual(configPaths.sort(), ["auth.json", "models-store.json", "models.json"].sort());
+		// trust.json 与 *.bak* 被排除：不进任何候选
+		const allPaths = global.resources.map((resource) => resource.relativePath);
+		assert.ok(!allPaths.includes("trust.json"), "trust.json must be excluded");
+		assert.ok(!allPaths.some((path) => path.includes(".bak")), "*.bak* files must be excluded");
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("scanner applies user exclusion blacklist (glob)", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-scan-"));
+	const home = join(base, "home");
+	try {
+		await makeHome(home, {
+			".pi/agent/prompts/keep.md": "keep",
+			".pi/agent/prompts/secret.md": "secret",
+			".pi/agent/prompts/secret/nested.md": "nested",
+		});
+		const scanner = new CloudSyncScanner({
+			homeDir: home,
+			listProjects: () => [],
+			listSessionRecords: () => [],
+		});
+		const snapshot = await scanner.scan(DEFAULT_PREFERENCES, { exclusions: ["**/secret*"] });
+		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
+		assert.ok(global);
+		const promptPaths = global.resources
+			.filter((resource) => resource.category === "prompts")
+			.map((resource) => resource.relativePath);
+		assert.ok(promptPaths.includes("prompts/keep.md"), "non-excluded file must survive");
+		assert.ok(!promptPaths.includes("prompts/secret.md"), "**/secret* must filter the file");
+		assert.ok(!promptPaths.includes("prompts/secret/nested.md"), "**/secret* must filter nested paths");
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("scanner adds custom sync paths as config candidates", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-scan-"));
+	const home = join(base, "home");
+	const customFile = join(base, "my-tool", "web.json");
+	try {
+		await mkdir(join(base, "my-tool"), { recursive: true });
+		await writeFile(customFile, "{}", "utf8");
+		const scanner = new CloudSyncScanner({
+			homeDir: home,
+			listProjects: () => [],
+			listSessionRecords: () => [],
+		});
+		const snapshot = await scanner.scan(DEFAULT_PREFERENCES, {
+			customPaths: [{
+				id: "cp-1",
+				filePath: customFile,
+				relativeTo: "home",
+				relativePath: "my-tool/web.json",
+				label: "my-tool web.json",
+			}],
+		});
+		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
+		assert.ok(global);
+		const custom = global.resources.find((resource) => resource.relativePath === "my-tool/web.json");
+		assert.ok(custom, "custom path must appear as a resource candidate");
+		assert.equal(custom.category, "config");
+		assert.equal(custom.projectId, "__global__");
+		// 不存在的自选路径静默跳过，不抛异常
+		const snapshot2 = await scanner.scan(DEFAULT_PREFERENCES, {
+			customPaths: [{
+				id: "cp-missing",
+				filePath: join(base, "nope", "missing.json"),
+				relativeTo: "home",
+				relativePath: "nope/missing.json",
+				label: "missing",
+			}],
+		});
+		const global2 = snapshot2.tree.projects.find((node) => node.projectId === "__global__");
+		assert.equal(global2.resources.filter((resource) => resource.relativePath === "nope/missing.json").length, 0);
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});

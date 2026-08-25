@@ -126,6 +126,7 @@ import type {
 	CloudSyncImportInput,
 	CloudSyncImportResult,
 	CloudSyncMissingExtension,
+	CloudSyncOneDriveFlowStart,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
 	CloudSyncProviderConfigInput,
@@ -1906,6 +1907,27 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.cloudSyncExport, options) as Promise<CloudSyncExportResult | null>,
 		importBackup: (input: CloudSyncImportInput) =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncImport, input) as Promise<CloudSyncImportResult>,
+		oneDriveStart: (clientId: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncOneDriveStart, clientId) as Promise<CloudSyncOneDriveFlowStart | null>,
+		oneDrivePoll: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncOneDrivePoll) as Promise<{ status: "ok" | "pending" | "error"; error?: string }>,
+		setExclusions: (patterns: string[]) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncSetExclusions, patterns) as Promise<CloudSyncStateSnapshot>,
+		addCustomPath: (input: {
+			filePath: string;
+			relativeTo: "project" | "home" | "absolute";
+			relativePath: string;
+			projectId?: string;
+			label?: string;
+		}) => ipcRenderer.invoke(ipcChannels.cloudSyncAddCustomPath, input) as Promise<CloudSyncStateSnapshot>,
+		removeCustomPath: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncRemoveCustomPath, id) as Promise<CloudSyncStateSnapshot>,
+		mountProject: (input: { remoteProjectId: string; remoteProjectName: string; localPath: string }) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncMountProject, input) as Promise<CloudSyncStateSnapshot>,
+		unmountProject: (remoteProjectId: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncUnmountProject, remoteProjectId) as Promise<CloudSyncStateSnapshot>,
+		pickCustomPath: () => ipcRenderer.invoke(ipcChannels.cloudSyncPickCustomPath) as Promise<CloudSyncStateSnapshot>,
+		pickMountDirectory: () => ipcRenderer.invoke(ipcChannels.cloudSyncPickMountDirectory) as Promise<string | null>,
 	},
 };
 

@@ -43,7 +43,7 @@ export interface CloudSyncMergeResult {
 
 interface ResourceEntry {
 	projectId: string;
-	category: "prompts" | "skills" | "localExtensions";
+	category: "prompts" | "skills" | "localExtensions" | "config";
 	bundle: CloudSyncFileBundle;
 }
 
@@ -77,7 +77,7 @@ function flattenIndex(index: PiDeckSyncIndexV1 | null): {
 		for (const session of project.sessions ?? []) {
 			sessions.set(session.sessionId, session);
 		}
-		for (const category of ["prompts", "skills", "localExtensions"] as const) {
+		for (const category of ["prompts", "skills", "localExtensions", "config"] as const) {
 			for (const bundle of project.resources?.[category] ?? []) {
 				resources.set(resourceKey(project.projectId, category, bundle.relativePath), {
 					projectId: project.projectId,

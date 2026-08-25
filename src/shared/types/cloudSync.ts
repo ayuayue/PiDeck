@@ -38,7 +38,7 @@ export function isBuiltinCloudProvider(provider: string): provider is BuiltinClo
 // 对象读写接口，加密/索引/合并/冲突/缩水保护全部 provider 无关；差异只收敛在
 // "文件如何上传到云端" 的连接方式上，供设置页文案与能力提示使用。
 //
-// - oauth  ：浏览器授权后经官方 API 直连（OneDrive / Google Drive，适配器规划中）；
+// - oauth  ：浏览器授权后经官方 API 直连（OneDrive 已实现，Google Drive 规划中）；
 // - config ：用户填写服务商地址与凭据（WebDAV / S3 / GitHub Gist，已实现）；
 // - folder ：本地同步文件夹，上传交给用户已有的网盘客户端（第 6 类，已实现）。
 
@@ -104,6 +104,29 @@ export interface GithubGistConfig {
 export interface LocalFolderConfig {
 	/** 本地文件夹绝对路径（连接时自动创建）。 */
 	folderPath: string;
+}
+
+/**
+ * OneDrive（Microsoft Graph）直连配置（oauth 类）。
+ * clientId 由用户在 Azure 注册「移动和桌面应用」后自备（与 GitHub Gist 同模式）；
+ * token 仅在主进程流转并随主密码密封落盘，永不进 renderer。
+ */
+export interface OneDriveConfig {
+	/** Azure 应用 Client ID（必填）。 */
+	clientId: string;
+	/** 缺省 "consumers"（个人账号）；企业账号可填租户 id/域名。 */
+	tenant?: string;
+	/** OAuth 完成后密封落盘（仅主进程持有）。 */
+	accessToken?: string;
+	refreshToken?: string;
+	/** accessToken 过期时间（epoch ms）。 */
+	expiresAt?: number;
+}
+
+/** OneDrive 浏览器授权启动结果：verificationUrl 用系统浏览器打开。 */
+export interface CloudSyncOneDriveFlowStart {
+	verificationUrl: string;
+	port: number;
 }
 
 
@@ -218,6 +241,8 @@ export interface CloudSyncProjectResources {
 	skills?: CloudSyncFileBundle[];
 	localExtensions?: CloudSyncFileBundle[];
 	extensionSources?: CloudSyncExtensionSource[];
+	/** M9：全局配置/自选路径资源（category=config，相对 agentRoot 或 home 的 portable path）。 */
+	config?: CloudSyncFileBundle[];
 }
 
 export interface CloudSyncProject {
@@ -448,7 +473,8 @@ export type CloudSyncProviderConfigInput =
 	| { provider: "webdav"; config: WebDAVConfig }
 	| { provider: "s3"; config: S3Config }
 	| { provider: "github"; config: GithubGistConfig }
-	| { provider: "local"; config: LocalFolderConfig };
+	| { provider: "local"; config: LocalFolderConfig }
+	| { provider: "onedrive"; config: OneDriveConfig };
 
 
 export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";
@@ -509,6 +535,12 @@ export interface CloudSyncStateSnapshot {
 	conflicts: CloudSyncConflict[];
 	/** 已声明但尚未安装成功的包扩展。 */
 	missingExtensions: CloudSyncMissingExtension[];
+	/** M9：用户扫描排除规则（黑名单）。 */
+	exclusions: CloudSyncExclusion[];
+	/** M9：自选同步路径清单。 */
+	customPaths: CloudSyncCustomPath[];
+	/** M9：云端项目 → 本地目录挂载映射（全手动策略）。 */
+	mounts: CloudSyncMount[];
 }
 
 export const CLOUD_SYNC_STORAGE_KEYS = {

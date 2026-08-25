@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
+import { createServer } from "node:http";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -12,12 +13,15 @@ import type {
 	CloudProvider,
 	CloudSyncConflict,
 	CloudSyncConflictResolution,
+	CloudSyncCustomPath,
+	CloudSyncExclusion,
 	CloudSyncExportResult,
 	CloudSyncImportInput,
 	CloudSyncImportMode,
 	CloudSyncImportResult,
 	CloudSyncMasterKeyConfig,
 	CloudSyncMissingExtension,
+	CloudSyncOneDriveFlowStart,
 	CloudSyncProviderConfigInput,
 	CloudSyncProviderSnapshot,
 	CloudSyncSelectionPreferences,
@@ -29,6 +33,7 @@ import type {
 	CloudSyncStrategy,
 	GithubGistConfig,
 	LocalFolderConfig,
+	OneDriveConfig,
 	PiDeckSyncIndexV1,
 	ProviderAccount,
 	ProviderConnectionStatus,
@@ -64,8 +69,9 @@ import {
 } from "./CloudSyncScanner.ts";
 import type { PiDeckCloudObjectStorage } from "./objectStorage.ts";
 import { createCloudSyncObjectStorage } from "./adapters/index.ts";
-import { normalizeGithubGistConfig, normalizeLocalFolderConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
+import { normalizeGithubGistConfig, normalizeLocalFolderConfig, normalizeOneDriveConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
 import { BackupFileReader, BackupFileWriter, parseBackupManifest, type PiDeckBackupManifestV1 } from "./exportImport.ts";
+import { createMountRegistry } from "./cloudSyncMounts.ts";
 import {
 	buildCatalogSyncEntry,
 	buildCloudSyncProject,
@@ -108,6 +114,10 @@ type CloudSyncPersistedState = {
 	lastSyncedIndex: PiDeckSyncIndexV1 | null;
 	/** 已声明但尚未安装成功的包扩展（M5 恢复检查）。 */
 	missingExtensions: CloudSyncMissingExtension[];
+	/** M9：用户扫描排除规则（黑名单 glob）。 */
+	exclusions: CloudSyncExclusion[];
+	/** M9：自选同步路径清单。 */
+	customPaths: CloudSyncCustomPath[];
 	/** 上一次成功同步时的选中会话/资源数量（缩水保护基线）。 */
 	lastSyncedSessionCount: number;
 	lastSyncedResourceCount: number;
@@ -148,6 +158,8 @@ function createDefaultState(): CloudSyncPersistedState {
 		lastSyncDeviceId: null,
 		lastSyncedIndex: null,
 		missingExtensions: [],
+		exclusions: [],
+		customPaths: [],
 		lastSyncedSessionCount: 0,
 		lastSyncedResourceCount: 0,
 	};
@@ -248,11 +260,19 @@ export interface CloudSyncManagerOptions {
 	getDesktopSettings: () => AppSettings;
 	updateDesktopSettings: (patch: Record<string, unknown>) => Promise<void>;
 	/** 测试注入点：默认走 createCloudSyncObjectStorage（真实 WebDAV/S3）。 */
-	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig) => PiDeckCloudObjectStorage;
+	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig | OneDriveConfig) => PiDeckCloudObjectStorage;
 	/** 包扩展安装（M5）：默认未注入时不自动安装，只记录缺失清单。 */
 	installExtension?: (source: string, scope: "user" | "project") => Promise<{ ok: boolean; error?: string }>;
 	/** 已安装扩展清单（source + scope），用于判断声明是否缺失。 */
 	listExtensions?: () => Promise<Array<{ source: string; scope?: string }>>;
+	/** OneDrive OAuth 测试注入点：缺省走真实 Graph token 端点（全局 fetch）。 */
+	exchangeOneDriveCode?: (input: {
+		clientId: string;
+		tenant: string;
+		code: string;
+		codeVerifier: string;
+		redirectUri: string;
+	}) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
 	onStateChanged?: (snapshot: CloudSyncStateSnapshot) => void;
 	log?: (domain: string, message: string, details?: Record<string, unknown>) => void;
 }
@@ -271,7 +291,7 @@ export class CloudSyncManager {
 	private state: CloudSyncPersistedState = createDefaultState();
 	private password: string | null = null;
 	/** Unsealed provider configs, available only while unlocked. */
-	private providerConfigs = new Map<CloudProvider, WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig>();
+	private providerConfigs = new Map<CloudProvider, WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig | OneDriveConfig>();
 	private adapters = new Map<CloudProvider, PiDeckCloudObjectStorage>();
 	private syncState: CloudSyncState = "IDLE";
 	private lastError: string | null = null;
@@ -288,6 +308,17 @@ export class CloudSyncManager {
 	private disposed = false;
 	/** GitHub Device Flow 进行中的上下文（主进程持有，token 永不进 renderer）。 */
 	private githubDeviceFlow: (GithubDeviceFlowStart & { clientId: string }) | null = null;
+	/** OneDrive 浏览器授权进行中的上下文（PKCE codeVerifier 单次有效，回环服务随 dispose 清理）。 */
+	private oneDriveFlow: {
+		clientId: string;
+		codeVerifier: string;
+		state: string;
+		port: number;
+		server: import("node:http").Server;
+		resolved: { code: string } | { error: string } | null;
+	} | null = null;
+	/** M9：云端项目 → 本地目录挂载注册表（全手动策略）。 */
+	private mounts: ReturnType<typeof createMountRegistry> | null = null;
 
 	constructor(options: CloudSyncManagerOptions) {
 		this.options = options;
@@ -306,6 +337,7 @@ export class CloudSyncManager {
 			await this.persist();
 		}
 		this.syncState = "IDLE";
+		this.mounts = createMountRegistry(this.options.userDataDir);
 		this.emitState();
 		this.configureAutoSyncTimer();
 	}
@@ -329,6 +361,9 @@ export class CloudSyncManager {
 			pendingLocalSync: this.pendingLocalSync,
 			conflicts: this.pendingConflictContext?.conflicts ?? [],
 			missingExtensions: this.state.missingExtensions,
+			exclusions: this.state.exclusions.map((item) => ({ ...item })),
+			customPaths: this.state.customPaths.map((item) => ({ ...item })),
+			mounts: this.mounts?.list() ?? [],
 		};
 	}
 
@@ -427,6 +462,13 @@ export class CloudSyncManager {
 		this.providerConfigs.set(input.provider, config);
 		this.pendingLocalSync = true;
 		await this.persist();
+		// 「保存并连接」语义：持久化后尽力自动连接；连接失败不阻断配置，
+		// 错误写入 lastError 供 UI 提示，并可用卡片「连接」按钮重试。
+		try {
+			await this.connectProvider(input.provider);
+		} catch (error) {
+			this.lastError = error instanceof Error ? error.message : String(error);
+		}
 		this.emitState();
 	}
 
@@ -494,6 +536,148 @@ export class CloudSyncManager {
 		}
 	}
 
+	// ── OneDrive 浏览器授权（PKCE + 回环回调，token 只在主进程流转） ──
+
+	/**
+	 * Start the OneDrive authorization-code + PKCE flow.
+	 *
+	 * clientId is user-supplied (Azure app with the "Mobile and desktop
+	 * applications" platform and an `http://localhost` redirect). A loopback
+	 * HTTP server on 127.0.0.1:{port} receives the callback; the renderer
+	 * shows verificationUrl and polls pollOneDriveOAuth().
+	 */
+	async startOneDriveOAuth(clientId: string): Promise<CloudSyncOneDriveFlowStart> {
+		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
+		if (clientId.trim().length === 0 || clientId.length > 128) throw new TypeError("OneDrive clientId is invalid");
+		// 重启流程：关掉旧回环服务，避免端口/状态残留。
+		this.closeOneDriveFlowServer();
+
+		const codeVerifier = randomBytes(43).toString("base64url");
+		const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+		const state = randomUUID();
+		const resolved: { code: string } | { error: string } | null = null;
+
+		const server = createServer((request, response) => {
+			const url = new URL(request.url ?? "/", "http://127.0.0.1");
+			const code = url.searchParams.get("code");
+			const error = url.searchParams.get("error");
+			const callbackState = url.searchParams.get("state");
+			if (this.oneDriveFlow && callbackState === this.oneDriveFlow.state && (code || error)) {
+				this.oneDriveFlow.resolved = code ? { code } : { error: error ?? "access_denied" };
+				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+				response.end("<!doctype html><meta charset=\"utf-8\"><p>授权成功，可以关闭此页面。</p>");
+				// 回调已到达：给渲染层轮询留出余量后关闭回环服务。
+				setTimeout(() => this.closeOneDriveFlowServer(), 300);
+				return;
+			}
+			response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+			response.end("Not found");
+		});
+
+		await new Promise<void>((resolveListen, rejectListen) => {
+			server.once("error", rejectListen);
+			server.listen(0, "127.0.0.1", () => {
+				server.removeListener("error", rejectListen);
+				resolveListen();
+			});
+		});
+		const port = (server.address() as { port: number }).port;
+		this.oneDriveFlow = { clientId: clientId.trim(), codeVerifier, state, port, server, resolved };
+
+		const redirectUri = encodeURIComponent(`http://localhost:${port}`);
+		const verificationUrl =
+			"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" +
+			`?client_id=${encodeURIComponent(clientId.trim())}` +
+			`&response_type=code&redirect_uri=${redirectUri}` +
+			"&scope=Files.ReadWrite.AppFolder%20offline_access" +
+			`&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}`;
+		return { verificationUrl, port };
+	}
+
+	/** 轮询 OneDrive 授权；拿到 code 后换 token 并完成 provider 配置。 */
+	async pollOneDriveOAuth(): Promise<{ status: "ok" | "pending" | "error"; error?: string }> {
+		const flow = this.oneDriveFlow;
+		if (!flow) return { status: "error", error: "No active OneDrive authorization flow" };
+		if (!flow.resolved) return { status: "pending" };
+		try {
+			if ("error" in flow.resolved) {
+				this.oneDriveFlow = null;
+				this.closeOneDriveFlowServer();
+				return { status: "error", error: flow.resolved.error };
+			}
+			const redirectUri = `http://localhost:${flow.port}`;
+			const exchange = this.options.exchangeOneDriveCode ?? this.exchangeOneDriveCode;
+			const tokens = await exchange({
+				clientId: flow.clientId,
+				tenant: "consumers",
+				code: flow.resolved.code,
+				codeVerifier: flow.codeVerifier,
+				redirectUri,
+			});
+			this.oneDriveFlow = null;
+			this.closeOneDriveFlowServer();
+			await this.configureProvider({
+				provider: "onedrive",
+				config: {
+					clientId: flow.clientId,
+					accessToken: tokens.accessToken,
+					...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
+					expiresAt: Date.now() + tokens.expiresIn * 1000,
+				},
+			});
+			return { status: "ok" };
+		} catch (error) {
+			this.oneDriveFlow = null;
+			this.closeOneDriveFlowServer();
+			return { status: "error", error: error instanceof Error ? error.message : String(error) };
+		}
+	}
+
+	/** 默认 token 交换：POST Microsoft identity 端点（全局 fetch，无新依赖）。 */
+	private readonly exchangeOneDriveCode = async (input: {
+		clientId: string;
+		tenant: string;
+		code: string;
+		codeVerifier: string;
+		redirectUri: string;
+	}): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
+		const body = new URLSearchParams({
+			client_id: input.clientId,
+			grant_type: "authorization_code",
+			code: input.code,
+			redirect_uri: input.redirectUri,
+			code_verifier: input.codeVerifier,
+			scope: "Files.ReadWrite.AppFolder offline_access",
+		});
+		const response = await fetch(`https://login.microsoftonline.com/${input.tenant}/oauth2/v2.0/token`, {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body,
+		});
+		if (response.status !== 200) {
+			throw new Error(`OneDrive token exchange failed (HTTP ${response.status})`);
+		}
+		const token = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
+		if (typeof token.access_token !== "string" || token.access_token.length === 0) {
+			throw new Error("OneDrive token exchange returned no access token");
+		}
+		return {
+			accessToken: token.access_token,
+			...(typeof token.refresh_token === "string" && token.refresh_token.length > 0 ? { refreshToken: token.refresh_token } : {}),
+			expiresIn: typeof token.expires_in === "number" && Number.isFinite(token.expires_in) ? token.expires_in : 3600,
+		};
+	};
+
+	private closeOneDriveFlowServer(): void {
+		const flow = this.oneDriveFlow;
+		if (!flow) return;
+		try {
+			flow.server.close();
+		} catch {
+			// 已关闭/从未监听：忽略。
+		}
+	}
+
 	// ── Selection & scanning ─────────────────────────────────────────
 
 	async scanSelection(): Promise<CloudSyncSelectionTree> {
@@ -530,6 +714,64 @@ export class CloudSyncManager {
 			throw new TypeError("Unknown cloud sync strategy");
 		}
 		this.state.strategy = strategy;
+		await this.persist();
+		this.emitState();
+	}
+
+	// ── M9: exclusions / custom paths / mounts ─────────────────────────
+
+	/** 替换用户扫描排除黑名单（glob 列表，去重、限长、trim）。 */
+	async setExclusions(patterns: string[]): Promise<void> {
+		const clean = Array.isArray(patterns)
+			? patterns.map((item) => (typeof item === "string" ? item.trim() : "")).filter((item) => item.length > 0 && item.length <= 512)
+			: [];
+		this.state.exclusions = [...new Set(clean)].map((pattern, index) => ({ id: `ex-${Date.now()}-${index}`, pattern }));
+		await this.persist();
+		this.emitState();
+	}
+
+	/** 添加自选同步路径（用户点「添加」手动选中）；校验入参后入清单。 */
+	async addCustomPath(input: {
+		filePath: string;
+		relativeTo: "project" | "home" | "absolute";
+		relativePath: string;
+		projectId?: string;
+		label?: string;
+	}): Promise<void> {
+		if (!input || typeof input.filePath !== "string" || input.filePath.trim().length === 0 || input.filePath.length > 4096) {
+			throw new TypeError("Custom path is invalid");
+		}
+		const entry: CloudSyncCustomPath = {
+			id: `cp-${randomUUID()}`,
+			filePath: input.filePath,
+			relativeTo: input.relativeTo === "project" ? "project" : input.relativeTo === "home" ? "home" : "absolute",
+			relativePath: input.relativePath,
+			...(input.projectId ? { projectId: input.projectId } : {}),
+			label: input.label?.trim() || input.relativePath,
+		};
+		this.state.customPaths = [...this.state.customPaths, entry];
+		await this.persist();
+		this.emitState();
+	}
+
+	/** 移除自选同步路径。 */
+	async removeCustomPath(id: string): Promise<void> {
+		this.state.customPaths = this.state.customPaths.filter((item) => item.id !== id);
+		await this.persist();
+		this.emitState();
+	}
+
+	/** 云端项目手动挂载到本地目录（全手动策略）；挂载映射持久化在 registry。 */
+	async mountProject(input: { remoteProjectId: string; remoteProjectName: string; localPath: string }): Promise<void> {
+		if (!this.mounts) throw new Error("Mount registry is not initialized");
+		this.mounts.mount(input);
+		await this.persist();
+		this.emitState();
+	}
+
+	/** 解除云端项目挂载；未挂载时静默。 */
+	async unmountProject(remoteProjectId: string): Promise<void> {
+		this.mounts?.unmount(remoteProjectId);
 		await this.persist();
 		this.emitState();
 	}
@@ -685,7 +927,7 @@ export class CloudSyncManager {
 
 	private providerSnapshots(): Record<CloudProvider, CloudSyncProviderSnapshot> {
 		const result = {} as Record<CloudProvider, CloudSyncProviderSnapshot>;
-		for (const provider of ["webdav", "s3", "github", "local"] as const) {
+		for (const provider of ["webdav", "s3", "github", "local", "onedrive"] as const) {
 			const entry = this.state.providers[provider];
 			const adapter = this.adapters.get(provider);
 			const status: ProviderConnectionStatus = adapter ? "connected" : "disconnected";
@@ -1207,6 +1449,7 @@ export class CloudSyncManager {
 			if (category === "prompts") result.prompts = bundles;
 			else if (category === "skills") result.skills = bundles;
 			else if (category === "extensions") result.localExtensions = bundles;
+			else if (category === "config") result.config = bundles;
 		}
 		return result;
 	}
@@ -1240,7 +1483,7 @@ export class CloudSyncManager {
 		for (const project of remoteIndex.projects ?? []) {
 			const resources = project.resources;
 			if (!resources) continue;
-			for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? [])]) {
+			for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? []), ...(resources.config ?? [])]) {
 				await this.downloadResourceBundle(project.projectId, bundle, provider);
 			}
 			if (resources.piSettings) {
@@ -1314,9 +1557,7 @@ export class CloudSyncManager {
 		bundle: import("../../shared/types/cloudSync.ts").CloudSyncFileBundle,
 		provider: PiDeckCloudObjectStorage,
 	): Promise<void> {
-		const scopeRoot = projectId === GLOBAL_SYNC_PROJECT_ID
-			? join(this.options.homeDir, ".pi", "agent")
-			: this.options.listProjects().find((candidate) => candidate.id === projectId)?.path;
+		const scopeRoot = this.resolveResourceScopeRoot(projectId);
 		if (!scopeRoot) return;
 		const content = bundle.content ?? await this.readObjectText(provider, bundle.objectKey ?? "");
 		if (content === undefined) return;
@@ -1324,6 +1565,14 @@ export class CloudSyncManager {
 		await mkdir(dirname(target), { recursive: true });
 		await ensureNoSymlinkEscape(scopeRoot, target);
 		await writeFileAtomic(target, content);
+	}
+
+	/** M9：资源落位根目录 —— 全局 → agentRoot；本地项目 → 项目路径；否则查挂载映射；无 → null。 */
+	private resolveResourceScopeRoot(projectId: string): string | undefined {
+		if (projectId === GLOBAL_SYNC_PROJECT_ID) return join(this.options.homeDir, ".pi", "agent");
+		const localProject = this.options.listProjects().find((candidate) => candidate.id === projectId);
+		if (localProject) return localProject.path;
+		return this.mounts?.get(projectId)?.localPath;
 	}
 
 	private async resolveSessionTarget(
@@ -1334,7 +1583,9 @@ export class CloudSyncManager {
 		}
 		const project = this.options.listProjects().find((candidate) => candidate.id === sessionRef.projectId);
 		if (!project) {
-			// No matching local project: land in the pending folder for later mapping.
+			// M9：已挂载的云端项目 → 落挂载目录；否则进 pending 待映射区。
+			const mount = this.mounts?.get(sessionRef.projectId ?? "");
+			if (mount) return resolveProjectSessionPath(mount.localPath, sessionRef.relativePath, ".pi/sessions");
 			return join(this.options.userDataDir, "cloud-sync-pending", sessionRef.projectId ?? "unknown", sessionRef.relativePath);
 		}
 		return resolveProjectSessionPath(project.path, sessionRef.relativePath, ".pi/sessions");
@@ -1514,7 +1765,7 @@ export class CloudSyncManager {
 			}
 			const resources = project.resources;
 			if (resources) {
-				for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? [])]) {
+				for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? []), ...(resources.config ?? [])]) {
 					result.resourceCount += 1;
 					const content = bundle.content ?? await this.decryptBackupEntry(entriesByName.get(bundle.objectKey ?? ""));
 					if (content === undefined) {
@@ -1614,16 +1865,17 @@ export class CloudSyncManager {
 		return this.adapters.values().next().value ?? null;
 	}
 
-	private normalizeProviderInput(input: CloudSyncProviderConfigInput): WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig {
+	private normalizeProviderInput(input: CloudSyncProviderConfigInput): WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig | OneDriveConfig {
 		if (input.provider === "webdav") return normalizeWebDAVConfig(input.config);
 		if (input.provider === "s3") return normalizeS3Config(input.config);
 		if (input.provider === "github") return normalizeGithubGistConfig(input.config);
 		if (input.provider === "local") return normalizeLocalFolderConfig(input.config);
+		if (input.provider === "onedrive") return normalizeOneDriveConfig(input.config);
 		throw new TypeError(`Unsupported cloud provider: ${String((input as { provider?: unknown }).provider)}`);
 	}
 
 	private async sealConfig(
-		config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig,
+		config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig | OneDriveConfig,
 		password: string,
 		masterConfig: CloudSyncMasterKeyConfig,
 	): Promise<string> {
@@ -1721,6 +1973,8 @@ export class CloudSyncManager {
 				this.state.masterKeyConfig = null;
 				this.state.providers = {};
 			}
+			if (!Array.isArray(this.state.exclusions)) this.state.exclusions = [];
+			if (!Array.isArray(this.state.customPaths)) this.state.customPaths = [];
 		} catch (error) {
 			if (isMissingError(error)) {
 				this.state = createDefaultState();
@@ -1766,6 +2020,8 @@ export class CloudSyncManager {
 			clearInterval(this.autoSyncTimer);
 			this.autoSyncTimer = null;
 		}
+		this.closeOneDriveFlowServer();
+		this.oneDriveFlow = null;
 		await this.disconnectAllAdapters();
 		this.password = null;
 		this.providerConfigs.clear();
