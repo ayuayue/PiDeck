@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -92,12 +92,13 @@ function SecretInput(props: { placeholder?: string; value: string; onChange: (va
 const CONTENT_CATEGORIES: Array<{
 	key: keyof CloudSyncContentPreferences;
 	labelKey: TranslationKey;
+	descKey?: TranslationKey;
 	supported: boolean;
 }> = [
-	{ key: "desktopSettings", labelKey: "cloudSync.content.catDesktopSettings", supported: true },
-	{ key: "piModels", labelKey: "cloudSync.content.catPiModels", supported: true },
-	{ key: "piCredentials", labelKey: "cloudSync.content.catPiCredentials", supported: true },
-	{ key: "imageGen", labelKey: "cloudSync.content.catImageGen", supported: true },
+	{ key: "desktopSettings", labelKey: "cloudSync.content.catDesktopSettings", descKey: "cloudSync.content.catDesktopSettingsDesc", supported: true },
+	{ key: "piModels", labelKey: "cloudSync.content.catPiModels", descKey: "cloudSync.content.catPiModelsDesc", supported: true },
+	{ key: "piCredentials", labelKey: "cloudSync.content.catPiCredentials", descKey: "cloudSync.content.catPiCredentialsDesc", supported: true },
+	{ key: "imageGen", labelKey: "cloudSync.content.catImageGen", descKey: "cloudSync.content.catImageGenDesc", supported: true },
 	{ key: "dshSettings", labelKey: "cloudSync.content.catDshSettings", supported: false },
 	{ key: "dshCredentials", labelKey: "cloudSync.content.catDshCredentials", supported: false },
 ];
@@ -616,14 +617,28 @@ function CategoryHeader(props: {
 	total: number;
 	selected: number;
 	onToggle: (selected: boolean) => void;
+	/** 可折叠类别（会话组）：点头部切换展开/收起。 */
+	collapsible?: boolean;
+	collapsed?: boolean;
+	onToggleCollapse?: () => void;
+	/** 滚动容器内吸顶（会话多时不必滚回顶部即可收起）。 */
+	sticky?: boolean;
 }) {
 	const allSelected = props.total > 0 && props.selected === props.total;
+	const CollapseIcon = props.collapsed ? ChevronRight : ChevronDown;
 	return (
-		<label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/50">
-			<Checkbox checked={allSelected} onCheckedChange={() => props.onToggle(!allSelected)} />
+		<div
+			className={cn(
+				"flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/50",
+				props.sticky && "sticky top-0 z-10 bg-background/95 backdrop-blur",
+			)}
+			onClick={() => props.collapsible && props.onToggleCollapse?.()}
+		>
+			<Checkbox checked={allSelected} onCheckedChange={() => props.onToggle(!allSelected)} onClick={(event) => event.stopPropagation()} />
 			<span className="min-w-0 flex-1 truncate text-caption font-medium text-text-tertiary">{props.label}</span>
 			<span className="shrink-0 text-caption text-text-tertiary">{props.selected}/{props.total}</span>
-		</label>
+			{props.collapsible ? <CollapseIcon size={14} className="shrink-0 text-text-tertiary" /> : null}
+		</div>
 	);
 }
 
@@ -650,6 +665,8 @@ function ProjectSelectionNode(props: {
 }) {
 	const { node } = props;
 	const isGlobal = node.projectId === GLOBAL_SYNC_PROJECT_ID;
+	/** 会话列表默认折叠（M9 反馈：点开项目时不要全部敞开；点头部可随时展开/收起）。 */
+	const [sessionsCollapsed, setSessionsCollapsed] = useState(true);
 	const sessionsSelectedCount = node.sessions.filter((session) => props.sessionSelection.has(session.selectionId)).length;
 	const sessionCount = node.sessions.length;
 	const resourcesSelectedCount = node.resources.filter((resource) => props.resourceSelection.has(resource.selectionId)).length;
@@ -699,20 +716,26 @@ function ProjectSelectionNode(props: {
 								total={node.sessions.length}
 								selected={sessionsSelectedCount}
 								onToggle={(selected) => props.onToggleCategory(node.projectId, "sessions", selected)}
+								collapsible
+								collapsed={sessionsCollapsed}
+								onToggleCollapse={() => setSessionsCollapsed((prev) => !prev)}
+								sticky
 							/>
-							<div className="space-y-0.5 pl-5">
-								{node.sessions.map((session) => (
-									<SessionRow
-										key={session.selectionId}
-										title={session.title}
-										relativePath={session.relativePath}
-										selected={props.sessionSelection.has(session.selectionId)}
-										disabled={session.status === "unavailable"}
-										reason={session.reason}
-										onToggle={() => props.onToggleSession(session.selectionId)}
-									/>
-								))}
-							</div>
+							{sessionsCollapsed ? null : (
+								<div className="space-y-0.5 pl-5">
+									{node.sessions.map((session) => (
+										<SessionRow
+											key={session.selectionId}
+											title={session.title}
+											relativePath={session.relativePath}
+											selected={props.sessionSelection.has(session.selectionId)}
+											disabled={session.status === "unavailable"}
+											reason={session.reason}
+											onToggle={() => props.onToggleSession(session.selectionId)}
+										/>
+									))}
+								</div>
+							)}
 						</div>
 					) : null}
 					{categoryOrder(isGlobal).map((category) => {
@@ -727,6 +750,9 @@ function ProjectSelectionNode(props: {
 									selected={selected}
 									onToggle={(all) => props.onToggleCategory(node.projectId, category, all)}
 								/>
+								{isGlobal && category === "config" ? (
+									<div className="px-2 pb-1 text-caption text-text-tertiary">{t("cloudSync.tree.configHint")}</div>
+								) : null}
 								<div className="space-y-0.5 pl-5">
 									{items.map((resource) => (
 										<ResourceRow
@@ -985,16 +1011,19 @@ export function CloudSyncSettingsTab() {
 	const [onedriveClientId, setOnedriveClientId] = useState("");
 	const [onedriveFlow, setOnedriveFlow] = useState<{ verificationUrl: string } | null>(null);
 	const [onedriveFlowError, setOnedriveFlowError] = useState<string | null>(null);
+	const onedrivePollTimer = useRef<number | null>(null);
 	const startOneDriveConnect = useCallback(async () => {
 		setOnedriveFlowError(null);
 		const flow = await oneDriveStart(onedriveClientId.trim());
 		if (!flow) return;
 		setOnedriveFlow({ verificationUrl: flow.verificationUrl });
-		const timer = window.setInterval(async () => {
+		if (onedrivePollTimer.current !== null) window.clearInterval(onedrivePollTimer.current);
+		onedrivePollTimer.current = window.setInterval(async () => {
 			const result = await oneDrivePoll();
 			if (!result) return;
 			if (result.status !== "pending") {
-				window.clearInterval(timer);
+				if (onedrivePollTimer.current !== null) window.clearInterval(onedrivePollTimer.current);
+				onedrivePollTimer.current = null;
 				setOnedriveFlow(null);
 				if (result.status === "error") {
 					setOnedriveFlowError(result.error ?? "OneDrive authorization failed");
@@ -1002,11 +1031,13 @@ export function CloudSyncSettingsTab() {
 			}
 		}, 5000);
 	}, [oneDriveStart, oneDrivePoll, onedriveClientId]);
-	// 组件卸载时清理轮询定时器（startOneDriveConnect 的 timer 是局部变量，
-	// 由 polling 回调自行清理；组件卸载时 flow 状态清空即可）。
+	// 卸载时清理轮询定时器（生命周期配对）。
 	useEffect(() => {
 		return () => {
-			setOnedriveFlow(null);
+			if (onedrivePollTimer.current !== null) {
+				window.clearInterval(onedrivePollTimer.current);
+				onedrivePollTimer.current = null;
+			}
 		};
 	}, []);
 
@@ -1098,6 +1129,7 @@ export function CloudSyncSettingsTab() {
 											void configureProvider({ provider, config } as unknown as CloudSyncProviderConfigInput);
 										}}
 										onDisconnect={() => void disconnectProvider("webdav")}
+										onReconnect={() => void connect("webdav")}
 									/>
 									<ProviderCard
 										provider="s3"
@@ -1113,6 +1145,7 @@ export function CloudSyncSettingsTab() {
 											void configureProvider({ provider, config } as unknown as CloudSyncProviderConfigInput);
 										}}
 										onDisconnect={() => void disconnectProvider("s3")}
+										onReconnect={() => void connect("s3")}
 									/>
 									<GithubProviderCard
 										status={githubSnapshot?.status ?? "disconnected"}
@@ -1121,6 +1154,7 @@ export function CloudSyncSettingsTab() {
 										onClientIdChange={setGithubClientId}
 										onConnect={() => void startGithubConnect()}
 										onDisconnect={() => void disconnectProvider("github")}
+										onReconnect={() => void connect("github")}
 										flow={githubFlow}
 									/>
 									<LocalFolderProviderCard
@@ -1131,6 +1165,18 @@ export function CloudSyncSettingsTab() {
 											void configureProvider({ provider: "local", config: { folderPath } });
 										}}
 										onDisconnect={() => void disconnectProvider("local")}
+										onReconnect={() => void connect("local")}
+									/>
+									<OneDriveProviderCard
+										status={onedriveSnapshot?.status ?? "disconnected"}
+										configured={Boolean(onedriveSnapshot?.configured)}
+										clientId={onedriveClientId}
+										onClientIdChange={setOnedriveClientId}
+										onStart={() => void startOneDriveConnect()}
+										onDisconnect={() => void disconnectProvider("onedrive")}
+										onReconnect={() => void connect("onedrive")}
+										flow={onedriveFlow}
+										flowError={onedriveFlowError}
 									/>
 								</div>
 							</SettingsSection>
@@ -1222,7 +1268,10 @@ export function CloudSyncSettingsTab() {
 													disabled={!category.supported}
 													onCheckedChange={(checked) => toggleContentCategory(category.key, Boolean(checked))}
 												/>
-												<span className="min-w-0 flex-1 truncate">{t(category.labelKey)}</span>
+												<span className="min-w-0 flex-1">
+													<span className="block truncate">{t(category.labelKey)}</span>
+													{category.descKey ? <span className="block truncate text-caption text-text-tertiary">{t(category.descKey)}</span> : null}
+												</span>
 												{!category.supported ? <span className="shrink-0 text-caption text-text-tertiary">{t("cloudSync.content.notSupported")}</span> : null}
 											</label>
 										))}

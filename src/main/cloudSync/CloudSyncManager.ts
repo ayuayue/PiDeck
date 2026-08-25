@@ -566,8 +566,14 @@ export class CloudSyncManager {
 				this.oneDriveFlow.resolved = code ? { code } : { error: error ?? "access_denied" };
 				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
 				response.end("<!doctype html><meta charset=\"utf-8\"><p>授权成功，可以关闭此页面。</p>");
-				// 回调已到达：给渲染层轮询留出余量后关闭回环服务。
-				setTimeout(() => this.closeOneDriveFlowServer(), 300);
+				// 回调已到达：只关本服务（resolved 留给 poll 处理，绝不能清 flow）。
+				setTimeout(() => {
+					try {
+						server.close();
+					} catch {
+						// 已被 poll/dispose 关闭：忽略。
+					}
+				}, 300);
 				return;
 			}
 			response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
@@ -601,8 +607,9 @@ export class CloudSyncManager {
 		if (!flow.resolved) return { status: "pending" };
 		try {
 			if ("error" in flow.resolved) {
-				this.oneDriveFlow = null;
+				// 先关服务再清状态：closeOneDriveFlowServer 依赖 flow 引用。
 				this.closeOneDriveFlowServer();
+				this.oneDriveFlow = null;
 				return { status: "error", error: flow.resolved.error };
 			}
 			const redirectUri = `http://localhost:${flow.port}`;
@@ -614,8 +621,8 @@ export class CloudSyncManager {
 				codeVerifier: flow.codeVerifier,
 				redirectUri,
 			});
-			this.oneDriveFlow = null;
 			this.closeOneDriveFlowServer();
+			this.oneDriveFlow = null;
 			await this.configureProvider({
 				provider: "onedrive",
 				config: {
@@ -627,8 +634,8 @@ export class CloudSyncManager {
 			});
 			return { status: "ok" };
 		} catch (error) {
-			this.oneDriveFlow = null;
 			this.closeOneDriveFlowServer();
+			this.oneDriveFlow = null;
 			return { status: "error", error: error instanceof Error ? error.message : String(error) };
 		}
 	}

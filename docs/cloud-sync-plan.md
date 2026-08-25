@@ -492,14 +492,15 @@ interface PiDeckCloudObjectStorage {
 
 | 上传方式（kind） | 说明 | 适用 provider | 现状 |
 |---|---|---|---|
-| **oauth**（浏览器授权） | 经官方 API 直连，用户浏览器登录一次即可 | OneDrive（Graph）、Google Drive（Drive API） | 规划中（卡 OAuth 客户端凭据） |
+| **oauth**（浏览器授权） | 经官方 API 直连，用户浏览器登录一次即可 | OneDrive（Graph）、Google Drive（Drive API） | ✅ OneDrive 已实现（PKCE + 回环回调，2026-08）；Google 规划中 |
 | **config**（账号配置） | 用户填写服务商地址与凭据 | WebDAV、S3、GitHub Gist | ✅ 已实现 |
 | **folder**（同步文件夹） | 用户选一个已被网盘客户端自动同步的本地文件夹，上传交给网盘客户端 | 本地文件夹适配器（第 6 类，`"local"`） | ✅ 已实现（`LocalFolderObjectStorage`，2026-08 落地） |
 
-- **类型落点**：`shared/types/cloudSync.ts` 已新增 `CloudProviderKind`（`oauth | config | folder`）与 `CLOUD_PROVIDER_KIND` 映射；`"local"` 已并入 `BUILTIN_CLOUD_PROVIDERS`（kind 为 `folder`）。
-- **实现落点**：`main/cloudSync/adapters/LocalFolderObjectStorage.ts`（临时文件 + rename 原子写、mtime revision + 条件写、路径穿越守卫）；`parseProviderConfigInput` / `normalizeLocalFolderConfig` 边界校验；`CloudSyncManager.providerSnapshots` 纳入 local；设置页「本地同步文件夹」卡片（文件夹选择器复用 `dialog:pick-files(includeDirectories)`）。
-- **UI 落点**：云同步设置页新增“上传方式说明”图例（`cloudSync.provider.howTo*` / `kind.*` 文案），每个服务卡带一句适用说明（`webdavDesc` / `s3Desc` / `githubDesc` / `localDesc`）；OneDrive / Google 卡片在适配器落地后接入同一图例文案。
-- **能力差异**：仍由 `getCapabilities()` 表达（单文件上限、revision、条件写），provider 无关的合并逻辑据此降级（如 Gist 1MB 上限、WebDAV 无条件写、本地文件夹全能力）。
+- **类型落点**：`shared/types/cloudSync.ts` 已新增 `CloudProviderKind`（`oauth | config | folder`）与 `CLOUD_PROVIDER_KIND` 映射；`"local"` 与 `"onedrive"` 已并入 `BUILTIN_CLOUD_PROVIDERS`。
+- **OneDrive 实现落点**：`main/cloudSync/adapters/OneDriveObjectStorage.ts`（`special/approot` 存储根、eTag revision + If-Match/If-None-Match 条件写、>4MB 走 Graph resumable upload session、token 过期自动刷新）；`CloudSyncManager.startOneDriveOAuth/pollOneDriveOAuth`（PKCE + 127.0.0.1 回环服务，token 只在主进程流转并密封落盘，dispose 清理回环服务）；clientId 由用户在 Azure 注册「移动和桌面应用程序」平台（重定向 `http://localhost`）后自备，与 GitHub Gist 同模式。
+- **分块上传结论（评估后不做通用分块层）**：当前无 provider 需要自造分块——S3/R2/本地文件夹原生支持大对象、WebDAV 多数服务可大 PUT、Gist 1MB 是硬上限（分块无意义）；唯一需要"大文件上传机制"的 OneDrive 已用 Graph 原生 **resumable upload session**（上限 250GB ≫ 512MB 会话上限）覆盖。若未来接入坚果云类受限服务，再按服务商原生 multipart 实现，不引入跨 provider 分块抽象。
+- **UI 落点**：云同步设置页新增“上传方式说明”图例（`cloudSync.provider.howTo*` / `kind.*` 文案），每个服务卡带一句适用说明（`webdavDesc` / `s3Desc` / `githubDesc` / `localDesc` / `onedriveDesc`）；WebDAV 卡带「坚果云 / InfiniCloud」快捷模板；所有卡片在"已配置未连接"时提供「连接」重试按钮（`configureProvider` 现已自动连接，失败保留配置供重试）。
+- **能力差异**：仍由 `getCapabilities()` 表达（单文件上限、revision、条件写），provider 无关的合并逻辑据此降级（如 Gist 1MB 上限、WebDAV 无条件写、本地文件夹全能力、OneDrive 250MB + 条件写）。
 - **本地文件夹适配器与一键导入/导出**的完整调研与可用网盘对照见 `docs/cloud-sync-research.md`；导入导出已实现（见 §6.5）。
 
 ### 6.5 本地一键导入/导出（`.pideckbackup`，离线兜底）

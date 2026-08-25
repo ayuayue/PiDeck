@@ -263,15 +263,17 @@ PIDECKBACKUP 容器
 
 ## 6. 建议实施优先级（并入 cloud-sync-plan.md）
 
-| 优先级 | 事项 | 说明 |
-|---|---|---|
-| **P0** | 本地文件夹适配器（Local Folder Provider） | 小白首选，实现成本最低，复用 WebDAV 适配器模式 |
-| **P0** | 一键导入/导出（`.pideckbackup`） | 无云兜底，复用现有管线 90% |
-| **P1** | OneDrive 原生 OAuth | 注册一次 Azure app，浏览器登录，小白最友好的“真云” |
-| **P1** | WebDAV 配置引导优化 | 内置坚果云/InfiniCloud 一键模板 + 教程链接 |
-| **P2** | 分块上传 | 配合大会话对象与受限服务商（坚果云单文件限制） |
-| **P2** | Google Drive | 海外用户选项 |
-| **P3** | DSH 会话/飞书数据同步 | 按原计划后续补齐 |
+> 状态：P0 两项与 P1 两项均已在 2026-08 落地（详见 `cloud-sync-plan.md` §6.4/§6.5）。分块上传经评估**不做通用分块层**：唯一需要"大文件上传机制"的 OneDrive 已用 Graph 原生 resumable upload session 覆盖（>4MB 自动启用，上限 250GB），其余 provider 原生支持大对象或硬限制无解（Gist 1MB）。
+
+| 优先级 | 事项 | 说明 | 状态 |
+|---|---|---|---|
+| **P0** | 本地文件夹适配器（Local Folder Provider） | 小白首选，实现成本最低，复用 WebDAV 适配器模式 | ✅ 已实现 |
+| **P0** | 一键导入/导出（`.pideckbackup`） | 无云兜底，复用现有管线 90% | ✅ 已实现 |
+| **P1** | OneDrive 原生 OAuth | PKCE + 回环回调，浏览器登录；clientId 用户自备（Azure「移动和桌面应用」平台） | ✅ 已实现 |
+| **P1** | WebDAV 配置引导优化 | 内置坚果云/InfiniCloud 一键模板 + 应用密码指引 | ✅ 已实现 |
+| ~~P2~~ | ~~分块上传~~ | 已评估：不做通用分块层；OneDrive 用 Graph upload session 覆盖 | ➖ 取消（按需再议） |
+| **P2** | Google Drive | 海外用户选项（同 OneDrive 模式，换 Drive API） | 规划中 |
+| **P3** | DSH 会话/飞书数据同步 | 按原计划后续补齐 | 待办 |
 
 ---
 
