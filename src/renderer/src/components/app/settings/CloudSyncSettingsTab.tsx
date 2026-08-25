@@ -14,7 +14,7 @@ import {
 	Settings2,
 	ShieldCheck,
 } from "lucide-react";
-import { t } from "../../../i18n";
+import { t, type TranslationKey } from "../../../i18n";
 import { useCloudSync } from "../../../hooks/useCloudSync";
 import { SettingsSection } from "./SettingsStorageTab";
 import { SettingBox } from "./SettingRows";
@@ -23,7 +23,9 @@ import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui-shadcn/collapsible";
 import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import type {
+	CloudSyncContentPreferences,
 	CloudSyncProjectSelectionNode,
 	CloudSyncResourceCategory,
 	CloudSyncSelectionTree,
@@ -31,6 +33,20 @@ import type {
 import { cn } from "../../../lib/utils";
 
 const GLOBAL_SYNC_PROJECT_ID = "__global__";
+
+/** 全局配置分类开关：密钥/模型/生图随加密载荷同步；DSH 未实现时禁用。 */
+const CONTENT_CATEGORIES: Array<{
+	key: keyof CloudSyncContentPreferences;
+	labelKey: TranslationKey;
+	supported: boolean;
+}> = [
+	{ key: "desktopSettings", labelKey: "cloudSync.content.catDesktopSettings", supported: true },
+	{ key: "piModels", labelKey: "cloudSync.content.catPiModels", supported: true },
+	{ key: "piCredentials", labelKey: "cloudSync.content.catPiCredentials", supported: true },
+	{ key: "imageGen", labelKey: "cloudSync.content.catImageGen", supported: true },
+	{ key: "dshSettings", labelKey: "cloudSync.content.catDshSettings", supported: false },
+	{ key: "dshCredentials", labelKey: "cloudSync.content.catDshCredentials", supported: false },
+];
 
 /** 主密码表单：设置 / 解锁共用布局。 */
 function PasswordForm(props: {
@@ -94,7 +110,7 @@ function StatusDot(props: { status: string }) {
 			aria-hidden
 			className={cn(
 				"inline-block size-2 rounded-full",
-				props.status === "connected" ? "bg-success" : props.status === "connecting" ? "bg-warning" : "bg-text-tertiary/50",
+				props.status === "connected" ? "bg-success" : props.status === "connecting" ? "bg-warning" : props.status === "error" ? "bg-destructive" : "bg-text-tertiary/50",
 			)}
 		/>
 	);
@@ -397,6 +413,15 @@ export function CloudSyncSettingsTab() {
 		});
 	}, []);
 
+	/** 内容分类开关（密钥/模型/生图等）：随选择一并持久化。 */
+	const toggleContentCategory = useCallback((key: keyof CloudSyncContentPreferences, checked: boolean) => {
+		void updateSelection({
+			selectedSessionIds: [...selectedSessionIds],
+			selectedResourceIds: [...selectedResourceIds],
+			content: { [key]: checked },
+		});
+	}, [updateSelection, selectedSessionIds, selectedResourceIds]);
+
 	const handleScan = useCallback(async () => {
 		const next = await scan();
 		if (!next) return;
@@ -441,230 +466,291 @@ export function CloudSyncSettingsTab() {
 		}, 5000);
 	}, [githubDeviceStart, githubDevicePoll, githubClientId]);
 
+	const syncState = state?.syncState ?? "IDLE";
+	const syncStatusDot = syncState === "SYNCING"
+		? "connecting"
+		: syncState === "IDLE"
+			? "connected"
+			: syncState === "ERROR" || syncState === "CONFLICT" || syncState === "BLOCKED"
+				? "error"
+				: "disconnected";
+	const syncStatusLabel = t(`cloudSync.state.${syncState}` as TranslationKey);
+
 	return (
 		<div className="space-y-2">
-			<SettingsSection title={t("cloudSync.security.title")} description={t("cloudSync.security.desc")}>
-				{securityState === "NO_KEY" ? (
-					<PasswordForm
-						description={t("cloudSync.security.noKeyDesc")}
-						submitLabel={t("cloudSync.security.setup")}
-						confirm
-						onSubmit={(password) => setupMasterKey(password)}
-					/>
-				) : securityState === "LOCKED" ? (
-					<PasswordForm
-						description={t("cloudSync.security.lockedDesc")}
-						submitLabel={t("cloudSync.security.unlock")}
-						onSubmit={(password) => unlock(password)}
-					/>
-				) : (
-					<SettingBox>
-						<div className="flex flex-wrap items-center justify-between gap-2">
-							<div className="flex items-center gap-2 text-body">
-								<ShieldCheck size={16} className="text-success" />
-								{t("cloudSync.security.unlocked")}
-							</div>
-							<div className="flex items-center gap-2">
-								<Button size="sm" variant="outline" onClick={() => void lock()}>
-									<Lock size={14} /> {t("cloudSync.security.lock")}
-								</Button>
-							</div>
-						</div>
-					</SettingBox>
-				)}
-			</SettingsSection>
+			<Tabs defaultValue="providers" className="w-full">
+				<TabsList className="mb-2 w-fit">
+					<TabsTrigger value="providers">{t("cloudSync.tabs.providers")}</TabsTrigger>
+					<TabsTrigger value="content">{t("cloudSync.tabs.content")}</TabsTrigger>
+				</TabsList>
 
-			{unlocked ? (
-				<>
-					<SettingsSection title={t("cloudSync.provider.title")} description={t("cloudSync.provider.desc")} divided>
-						<div className="grid gap-3">
-							<ProviderCard
-								provider="webdav"
-								icon={<Cloud size={16} className="text-primary" />}
-								title={t("cloudSync.provider.webdavTitle")}
-								configured={Boolean(webdavSnapshot?.configured)}
-								status={webdavSnapshot?.status ?? "disconnected"}
-								account={webdavSnapshot?.account?.name}
-								onConnect={(config) => void configureProvider(config as never)}
-								onDisconnect={() => void disconnectProvider("webdav")}
+				<TabsContent value="providers" className="mt-0">
+					<SettingsSection title={t("cloudSync.security.title")} description={t("cloudSync.security.desc")}>
+						{securityState === "NO_KEY" ? (
+							<PasswordForm
+								description={t("cloudSync.security.noKeyDesc")}
+								submitLabel={t("cloudSync.security.setup")}
+								confirm
+								onSubmit={(password) => setupMasterKey(password)}
 							/>
-							<ProviderCard
-								provider="s3"
-								icon={<Settings2 size={16} className="text-primary" />}
-								title={t("cloudSync.provider.s3Title")}
-								configured={Boolean(s3Snapshot?.configured)}
-								status={s3Snapshot?.status ?? "disconnected"}
-								account={s3Snapshot?.account?.name}
-								onConnect={(config) => void configureProvider(config as never)}
-								onDisconnect={() => void disconnectProvider("s3")}
+						) : securityState === "LOCKED" ? (
+							<PasswordForm
+								description={t("cloudSync.security.lockedDesc")}
+								submitLabel={t("cloudSync.security.unlock")}
+								onSubmit={(password) => unlock(password)}
 							/>
-							<div className="rounded-lg border border-border-subtle bg-background/40 p-3">
-								<div className="flex items-center justify-between gap-2">
-									<div className="flex items-center gap-2 text-body font-medium">
-										<FolderGit2 size={16} className="text-primary" />
-										{t("cloudSync.provider.githubTitle")}
+						) : (
+							<SettingBox>
+								<div className="flex flex-wrap items-center justify-between gap-2">
+									<div className="flex items-center gap-2 text-body">
+										<ShieldCheck size={16} className="text-success" />
+										{t("cloudSync.security.unlocked")}
 									</div>
-									<span className="flex items-center gap-1.5 text-caption text-text-tertiary">
-										<StatusDot status={githubSnapshot?.status ?? "disconnected"} />
-										{githubSnapshot?.status === "connected" ? t("cloudSync.provider.connected") : t("cloudSync.provider.disconnected")}
-									</span>
+									<div className="flex items-center gap-2">
+										<Button size="sm" variant="outline" onClick={() => void lock()}>
+											<Lock size={14} /> {t("cloudSync.security.lock")}
+										</Button>
+									</div>
+								</div>
+							</SettingBox>
+						)}
+					</SettingsSection>
+
+					{unlocked ? (
+						<>
+							<SettingsSection title={t("cloudSync.provider.title")} description={t("cloudSync.provider.desc")} divided>
+								<div className="grid gap-3">
+									<ProviderCard
+										provider="webdav"
+										icon={<Cloud size={16} className="text-primary" />}
+										title={t("cloudSync.provider.webdavTitle")}
+										configured={Boolean(webdavSnapshot?.configured)}
+										status={webdavSnapshot?.status ?? "disconnected"}
+										account={webdavSnapshot?.account?.name}
+										onConnect={(config) => void configureProvider(config as never)}
+										onDisconnect={() => void disconnectProvider("webdav")}
+									/>
+									<ProviderCard
+										provider="s3"
+										icon={<Settings2 size={16} className="text-primary" />}
+										title={t("cloudSync.provider.s3Title")}
+										configured={Boolean(s3Snapshot?.configured)}
+										status={s3Snapshot?.status ?? "disconnected"}
+										account={s3Snapshot?.account?.name}
+										onConnect={(config) => void configureProvider(config as never)}
+										onDisconnect={() => void disconnectProvider("s3")}
+									/>
+									<div className="rounded-lg border border-border-subtle bg-background/40 p-3">
+										<div className="flex items-center justify-between gap-2">
+											<div className="flex items-center gap-2 text-body font-medium">
+												<FolderGit2 size={16} className="text-primary" />
+												{t("cloudSync.provider.githubTitle")}
+											</div>
+											<span className="flex items-center gap-1.5 text-caption text-text-tertiary">
+												<StatusDot status={githubSnapshot?.status ?? "disconnected"} />
+												{githubSnapshot?.status === "connected" ? t("cloudSync.provider.connected") : t("cloudSync.provider.disconnected")}
+											</span>
+										</div>
+										<div className="mt-3 flex flex-wrap items-center gap-2">
+											<Input placeholder={t("cloudSync.provider.githubClientId")} value={githubClientId} onChange={(event) => setGithubClientId(event.target.value)} className="max-w-64" />
+											<Button size="sm" onClick={() => void startGithubConnect()} disabled={!githubClientId.trim()}>
+												{t("cloudSync.provider.githubConnect")}
+											</Button>
+											{githubSnapshot?.configured ? (
+												<Button size="sm" variant="outline" onClick={() => void disconnectProvider("github")}>
+													{t("cloudSync.provider.remove")}
+												</Button>
+											) : null}
+										</div>
+										{githubFlow ? (
+											<div className="mt-3 space-y-1 rounded-md bg-accent/40 px-3 py-2 text-sm">
+												<div className="break-all">{t("cloudSync.provider.githubOpenUrl")} <a className="text-primary underline" href={githubFlow.verificationUrl} target="_blank" rel="noreferrer">{githubFlow.verificationUrl}</a></div>
+												<div>{t("cloudSync.provider.githubUserCode")} <code className="rounded bg-accent px-1.5 py-0.5 font-mono">{githubFlow.userCode}</code></div>
+												<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
+											</div>
+										) : null}
+									</div>
+								</div>
+							</SettingsSection>
+
+							<SettingsSection title={t("cloudSync.status.title")} divided>
+								<SettingBox>
+									<div className="flex flex-wrap items-center justify-between gap-3">
+										<div className="flex items-center gap-3 text-sm">
+											<span className="flex items-center gap-1.5">
+												<StatusDot status={syncStatusDot} />
+												{syncStatusLabel}
+											</span>
+											<span className="text-caption text-text-tertiary">{t("cloudSync.content.versions", { local: state?.localVersion ?? 0, remote: state?.remoteVersion ?? 0 })}</span>
+											{state?.pendingLocalSync ? <span className="text-caption text-warning">{t("cloudSync.status.pending")}</span> : null}
+										</div>
+										<Button size="sm" onClick={() => void syncNow(false)} loading={busy}>
+											<KeyRound size={14} /> {t("cloudSync.content.syncNow")}
+										</Button>
+									</div>
+									{state?.lastError ? (
+										<div className="mt-2 text-sm text-destructive">{state.lastError}</div>
+									) : null}
+									{error ? (
+										<div className="mt-2 text-sm text-destructive">{error}</div>
+									) : null}
+								</SettingBox>
+							</SettingsSection>
+						</>
+					) : null}
+				</TabsContent>
+
+				<TabsContent value="content" className="mt-0">
+					{unlocked ? (
+						<SettingsSection title={t("cloudSync.content.title")} description={t("cloudSync.content.desc")}>
+							<SettingBox>
+								<div className="flex flex-wrap items-center gap-3">
+									<div className="flex items-center gap-2">
+										<span className="text-sm">{t("cloudSync.content.strategy")}</span>
+										<Select value={state?.syncStrategy ?? "smartMerge"} onValueChange={(value) => void setStrategy(value)}>
+											<SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+											<SelectContent>
+												<SelectItem value="smartMerge">{t("cloudSync.content.strategySmartMerge")}</SelectItem>
+												<SelectItem value="preferCloud">{t("cloudSync.content.strategyPreferCloud")}</SelectItem>
+												<SelectItem value="preferLocal">{t("cloudSync.content.strategyPreferLocal")}</SelectItem>
+											</SelectContent>
+										</Select>
+									</div>
+									<label className="flex cursor-pointer items-center gap-2 text-sm">
+										<Checkbox
+											checked={Boolean(state?.autoSyncEnabled)}
+											onCheckedChange={(checked) => void setAutoSync(Boolean(checked), autoSyncInterval)}
+										/>
+										{t("cloudSync.content.autoSync")}
+									</label>
 								</div>
 								<div className="mt-3 flex flex-wrap items-center gap-2">
-									<Input placeholder={t("cloudSync.provider.githubClientId")} value={githubClientId} onChange={(event) => setGithubClientId(event.target.value)} className="max-w-64" />
-									<Button size="sm" onClick={() => void startGithubConnect()} disabled={!githubClientId.trim()}>
-										{t("cloudSync.provider.githubConnect")}
+									<Button size="sm" onClick={() => void handleScan()} loading={busy}>
+										<RefreshCw size={14} /> {t("cloudSync.content.scan")}
 									</Button>
-									{githubSnapshot?.configured ? (
-										<Button size="sm" variant="outline" onClick={() => void disconnectProvider("github")}>
-											{t("cloudSync.provider.remove")}
-										</Button>
-									) : null}
+									<Button size="sm" variant="outline" onClick={() => void handleToggleAll(true)}>{t("cloudSync.content.selectAll")}</Button>
+									<Button size="sm" variant="outline" onClick={() => void handleToggleAll(false)}>{t("cloudSync.content.selectNone")}</Button>
+									<Button size="sm" variant="outline" onClick={() => void syncSelection()} disabled={!selectionTree} loading={busy}>
+										{t("cloudSync.content.saveSelection")}
+									</Button>
+									<span className="flex-1" />
+									<Button size="sm" variant="ghost" onClick={() => setExpandedProjectIds(new Set(selectionTree?.projects.map((project) => project.projectId) ?? []))} disabled={!selectionTree}>
+										{t("cloudSync.content.expandAll")}
+									</Button>
+									<Button size="sm" variant="ghost" onClick={() => setExpandedProjectIds(new Set())} disabled={!selectionTree}>
+										{t("cloudSync.content.collapseAll")}
+									</Button>
 								</div>
-								{githubFlow ? (
-									<div className="mt-3 space-y-1 rounded-md bg-accent/40 px-3 py-2 text-sm">
-										<div className="break-all">{t("cloudSync.provider.githubOpenUrl")} <a className="text-primary underline" href={githubFlow.verificationUrl} target="_blank" rel="noreferrer">{githubFlow.verificationUrl}</a></div>
-										<div>{t("cloudSync.provider.githubUserCode")} <code className="rounded bg-accent px-1.5 py-0.5 font-mono">{githubFlow.userCode}</code></div>
-										<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
+							</SettingBox>
+
+							{selectionTree ? (
+								<div className="mt-3 rounded-lg border border-border-subtle bg-background/40 p-3">
+									<div className="mb-2 text-sm font-medium">{t("cloudSync.content.globalConfig")}</div>
+									<div className="grid gap-1.5 sm:grid-cols-2">
+										{CONTENT_CATEGORIES.map((category) => (
+											<label
+												key={category.key}
+												className={cn(
+													"flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50",
+													!category.supported && "cursor-not-allowed opacity-60",
+												)}
+											>
+												<Checkbox
+													checked={Boolean(selectionTree.content[category.key])}
+													disabled={!category.supported}
+													onCheckedChange={(checked) => toggleContentCategory(category.key, Boolean(checked))}
+												/>
+												<span className="min-w-0 flex-1 truncate">{t(category.labelKey)}</span>
+												{!category.supported ? <span className="shrink-0 text-caption text-text-tertiary">{t("cloudSync.content.notSupported")}</span> : null}
+											</label>
+										))}
 									</div>
-								) : null}
-							</div>
-						</div>
-					</SettingsSection>
-
-					<SettingsSection title={t("cloudSync.content.title")} description={t("cloudSync.content.desc")} divided>
-						<SettingBox>
-							<div className="flex flex-wrap items-center gap-3">
-								<div className="flex items-center gap-2">
-									<span className="text-sm">{t("cloudSync.content.strategy")}</span>
-									<Select value={state?.syncStrategy ?? "smartMerge"} onValueChange={(value) => void setStrategy(value)}>
-										<SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-										<SelectContent>
-											<SelectItem value="smartMerge">{t("cloudSync.content.strategySmartMerge")}</SelectItem>
-											<SelectItem value="preferCloud">{t("cloudSync.content.strategyPreferCloud")}</SelectItem>
-											<SelectItem value="preferLocal">{t("cloudSync.content.strategyPreferLocal")}</SelectItem>
-										</SelectContent>
-									</Select>
+									<div className="mt-2 text-caption text-text-tertiary">{t("cloudSync.content.globalConfigHint")}</div>
 								</div>
-								<label className="flex cursor-pointer items-center gap-2 text-sm">
-									<Checkbox
-										checked={Boolean(state?.autoSyncEnabled)}
-										onCheckedChange={(checked) => void setAutoSync(Boolean(checked), autoSyncInterval)}
-									/>
-									{t("cloudSync.content.autoSync")}
-								</label>
-							</div>
-							<div className="mt-3 flex flex-wrap items-center gap-2">
-								<Button size="sm" onClick={() => void handleScan()} loading={busy}>
-									<RefreshCw size={14} /> {t("cloudSync.content.scan")}
-								</Button>
-								<Button size="sm" variant="outline" onClick={() => void handleToggleAll(true)}>{t("cloudSync.content.selectAll")}</Button>
-								<Button size="sm" variant="outline" onClick={() => void handleToggleAll(false)}>{t("cloudSync.content.selectNone")}</Button>
-								<Button size="sm" variant="outline" onClick={() => void syncSelection()} disabled={!selectionTree} loading={busy}>
-									{t("cloudSync.content.saveSelection")}
-								</Button>
-								<Button size="sm" variant="default" onClick={() => void syncNow(false)} loading={busy}>
-									<KeyRound size={14} /> {t("cloudSync.content.syncNow")}
-								</Button>
-								<span className="flex-1" />
-								<Button size="sm" variant="ghost" onClick={() => setExpandedProjectIds(new Set(selectionTree?.projects.map((project) => project.projectId) ?? []))} disabled={!selectionTree}>
-									{t("cloudSync.content.expandAll")}
-								</Button>
-								<Button size="sm" variant="ghost" onClick={() => setExpandedProjectIds(new Set())} disabled={!selectionTree}>
-									{t("cloudSync.content.collapseAll")}
-								</Button>
-							</div>
-						</SettingBox>
+							) : null}
 
-						{selectionTree && selectionTree.projects.length > 0 ? (
-							<div className="mt-3 max-h-96 space-y-2 overflow-y-auto rounded-lg border border-border-subtle bg-background/30 p-2">
-								{selectionTree.projects.map((node) => (
-									<ProjectSelectionNode
-										key={node.projectId}
-										node={node}
-										expanded={expandedProjectIds.has(node.projectId)}
-										onToggleExpanded={() => toggleExpanded(node.projectId)}
-										onToggleSession={toggleSession}
-										onToggleResource={toggleResource}
-										onToggleNodeSessions={toggleNodeSessions}
-									/>
-								))}
-							</div>
-						) : (
-							<div className="mt-3 text-caption text-text-tertiary">{t("cloudSync.content.empty")}</div>
-						)}
+							{selectionTree && selectionTree.projects.length > 0 ? (
+								<div className="mt-3 max-h-96 space-y-2 overflow-y-auto rounded-lg border border-border-subtle bg-background/30 p-2">
+									{selectionTree.projects.map((node) => (
+										<ProjectSelectionNode
+											key={node.projectId}
+											node={node}
+											expanded={expandedProjectIds.has(node.projectId)}
+											onToggleExpanded={() => toggleExpanded(node.projectId)}
+											onToggleSession={toggleSession}
+											onToggleResource={toggleResource}
+											onToggleNodeSessions={toggleNodeSessions}
+										/>
+									))}
+								</div>
+							) : (
+								<div className="mt-3 text-caption text-text-tertiary">{t("cloudSync.content.empty")}</div>
+							)}
 
-						{state && state.conflicts.length > 0 ? (
-							<SettingBox>
-								<div className="mb-2 text-sm font-medium">{t("cloudSync.conflict.title")}</div>
-								<div className="mb-2 text-caption text-text-tertiary">{t("cloudSync.conflict.desc")}</div>
-								<div className="space-y-2">
-									{state.conflicts.map((conflict) => (
-										<div key={conflict.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle px-2 py-1.5">
-											<span className="flex-1 truncate text-sm">{conflict.label}</span>
-											<div className="flex items-center gap-3 text-sm">
-												<label className="flex cursor-pointer items-center gap-1">
-													<input
-														type="radio"
-														name={`conflict-${conflict.id}`}
-														checked={(conflictChoices[conflict.id] ?? "local") === "local"}
-														onChange={() => setConflictChoices((prev) => ({ ...prev, [conflict.id]: "local" }))}
-													/>
-													{t("cloudSync.conflict.local")}
-												</label>
-												<label className="flex cursor-pointer items-center gap-1">
-													<input
-														type="radio"
-														name={`conflict-${conflict.id}`}
-														checked={(conflictChoices[conflict.id] ?? "local") === "remote"}
-														onChange={() => setConflictChoices((prev) => ({ ...prev, [conflict.id]: "remote" }))}
-													/>
-													{t("cloudSync.conflict.remote")}
-												</label>
+							{state && state.conflicts.length > 0 ? (
+								<SettingBox>
+									<div className="mb-2 text-sm font-medium">{t("cloudSync.conflict.title")}</div>
+									<div className="mb-2 text-caption text-text-tertiary">{t("cloudSync.conflict.desc")}</div>
+									<div className="space-y-2">
+										{state.conflicts.map((conflict) => (
+											<div key={conflict.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle px-2 py-1.5">
+												<span className="flex-1 truncate text-sm">{conflict.label}</span>
+												<div className="flex items-center gap-3 text-sm">
+													<label className="flex cursor-pointer items-center gap-1">
+														<input
+															type="radio"
+															name={`conflict-${conflict.id}`}
+															checked={(conflictChoices[conflict.id] ?? "local") === "local"}
+															onChange={() => setConflictChoices((prev) => ({ ...prev, [conflict.id]: "local" }))}
+														/>
+														{t("cloudSync.conflict.local")}
+													</label>
+													<label className="flex cursor-pointer items-center gap-1">
+														<input
+															type="radio"
+															name={`conflict-${conflict.id}`}
+															checked={(conflictChoices[conflict.id] ?? "local") === "remote"}
+															onChange={() => setConflictChoices((prev) => ({ ...prev, [conflict.id]: "remote" }))}
+														/>
+														{t("cloudSync.conflict.remote")}
+													</label>
+												</div>
 											</div>
-										</div>
-									))}
-								</div>
-								<Button size="sm" className="mt-3" onClick={() => void applyConflictResolutions()} loading={busy}>
-									{t("cloudSync.conflict.apply")}
-								</Button>
-							</SettingBox>
-						) : null}
+										))}
+									</div>
+									<Button size="sm" className="mt-3" onClick={() => void applyConflictResolutions()} loading={busy}>
+										{t("cloudSync.conflict.apply")}
+									</Button>
+								</SettingBox>
+							) : null}
 
-						{state && state.missingExtensions.length > 0 ? (
-							<SettingBox>
-								<div className="mb-2 text-sm font-medium">{t("cloudSync.extensions.title")}</div>
-								<div className="mb-2 text-caption text-text-tertiary">{t("cloudSync.extensions.desc")}</div>
-								<div className="space-y-1">
-									{state.missingExtensions.map((extension) => (
-										<div key={`${extension.scope}:${extension.source}`} className="flex items-center justify-between gap-2 text-sm">
-											<span className="truncate">{extension.source} <span className="text-caption text-text-tertiary">({extension.scope})</span></span>
-											{extension.error ? <span className="shrink-0 text-caption text-warning" title={extension.error}>⚠</span> : null}
-										</div>
-									))}
-								</div>
-								<Button size="sm" className="mt-3" variant="outline" onClick={() => void restoreExtensions()} loading={busy}>
-									{t("cloudSync.extensions.retry")}
-								</Button>
-							</SettingBox>
-						) : null}
+							{state && state.missingExtensions.length > 0 ? (
+								<SettingBox>
+									<div className="mb-2 text-sm font-medium">{t("cloudSync.extensions.title")}</div>
+									<div className="mb-2 text-caption text-text-tertiary">{t("cloudSync.extensions.desc")}</div>
+									<div className="space-y-1">
+										{state.missingExtensions.map((extension) => (
+											<div key={`${extension.scope}:${extension.source}`} className="flex items-center justify-between gap-2 text-sm">
+												<span className="truncate">{extension.source} <span className="text-caption text-text-tertiary">({extension.scope})</span></span>
+												{extension.error ? <span className="shrink-0 text-caption text-warning" title={extension.error}>⚠</span> : null}
+											</div>
+										))}
+									</div>
+									<Button size="sm" className="mt-3" variant="outline" onClick={() => void restoreExtensions()} loading={busy}>
+										{t("cloudSync.extensions.retry")}
+									</Button>
+								</SettingBox>
+							) : null}
 
-						{state?.lastError ? (
-							<div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-								{state.lastError}
+							<div className="mt-3 flex flex-wrap gap-4 text-caption text-text-tertiary">
+								<span>{t("cloudSync.content.versions", { local: state?.localVersion ?? 0, remote: state?.remoteVersion ?? 0 })}</span>
 							</div>
-						) : null}
-						{error ? (
-							<div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-								{error}
-							</div>
-						) : null}
-						<div className="mt-3 flex flex-wrap gap-4 text-caption text-text-tertiary">
-							<span>{t("cloudSync.content.versions", { local: state?.localVersion ?? 0, remote: state?.remoteVersion ?? 0 })}</span>
-							<span>{t("cloudSync.content.state", { state: state?.syncState ?? "IDLE" })}</span>
-						</div>
-					</SettingsSection>
-				</>
-			) : null}
+						</SettingsSection>
+					) : (
+						<div className="text-caption text-text-tertiary">{t("cloudSync.content.lockedHint")}</div>
+					)}
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 }

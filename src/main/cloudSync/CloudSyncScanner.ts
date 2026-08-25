@@ -269,6 +269,7 @@ export class CloudSyncScanner {
 			selectedSessions: orderedProjects.reduce((sum, project) => sum + project.sessions.filter((item) => item.selected).length, 0),
 			totalResources: orderedProjects.reduce((sum, project) => sum + project.resources.length, 0),
 			selectedResources: orderedProjects.reduce((sum, project) => sum + project.resources.filter((item) => item.selected).length, 0),
+			content: { ...preferences.content },
 		};
 		return { tree, sessions, resources, recordsBySessionId };
 	}

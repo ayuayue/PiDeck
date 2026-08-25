@@ -299,6 +299,8 @@ export interface CloudSyncSelectionTree {
 	selectedSessions: number;
 	totalResources: number;
 	selectedResources: number;
+	/** 当前生效的内容分类偏好（密钥/模型/生图等开关），供 UI 绑定与切换。 */
+	content: CloudSyncContentPreferences;
 }
 
 export interface CloudSyncContentPreferences {

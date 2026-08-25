@@ -21,6 +21,7 @@ const DEFAULT_PREFERENCES = {
 		skills: true,
 		extensions: true,
 		security: true,
+		imageGen: true,
 	},
 };
 
@@ -60,6 +61,9 @@ test("scanner builds a global + project selection tree with per-root status", as
 		});
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
 		assert.equal(snapshot.tree.projects.length, 2);
+		// 内容分类偏好透传到选择树（UI 绑定用）
+		assert.equal(snapshot.tree.content.desktopSettings, true);
+		assert.equal(snapshot.tree.content.imageGen, true);
 		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
 		const project = snapshot.tree.projects.find((node) => node.projectId === "proj-1");
 		assert.ok(global);
