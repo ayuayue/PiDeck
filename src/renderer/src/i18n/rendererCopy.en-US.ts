@@ -2697,6 +2697,8 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.provider.field.clientId": "GitHub OAuth App Client ID",
   "cloudSync.provider.field.clientIdHint": "Used for GitHub Device Flow: create an OAuth app under GitHub → Settings → Developer settings → OAuth Apps and paste its Client ID here.",
   "cloudSync.provider.saveAndConnect": "Save & Connect",
+  "cloudSync.provider.showSecret": "Show/hide secret",
+  "cloudSync.provider.allowInsecure": "Allow insecure connection (self-signed, etc.)",
   "cloudSync.provider.remove": "Remove",
   "cloudSync.provider.connected": "Connected",
   "cloudSync.provider.configured": "Configured",

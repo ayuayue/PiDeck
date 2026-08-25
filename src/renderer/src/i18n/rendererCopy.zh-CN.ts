@@ -2672,6 +2672,8 @@ export const zhCN = {
   "cloudSync.provider.field.clientId": "GitHub OAuth App Client ID",
   "cloudSync.provider.field.clientIdHint": "用于 GitHub Device Flow 授权：在 GitHub → Settings → Developer settings → OAuth Apps 创建应用后填入其 Client ID。",
   "cloudSync.provider.saveAndConnect": "保存并连接",
+  "cloudSync.provider.showSecret": "显示/隐藏密码",
+  "cloudSync.provider.allowInsecure": "允许不安全的连接（自签证书等）",
   "cloudSync.provider.remove": "移除",
   "cloudSync.provider.connected": "已连接",
   "cloudSync.provider.configured": "已配置",

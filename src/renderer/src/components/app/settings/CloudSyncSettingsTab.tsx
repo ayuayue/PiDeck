@@ -3,6 +3,8 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Cloud,
+	Eye,
+	EyeOff,
 	FileText,
 	Folder,
 	Globe,
@@ -49,6 +51,32 @@ function Field(props: { label: string; children: React.ReactNode }) {
 		<div className="space-y-1.5">
 			<Label className="text-xs text-text-tertiary">{props.label}</Label>
 			{props.children}
+		</div>
+	);
+}
+
+/** 密码输入：右侧眼睛按钮切换明文/密文。 */
+function SecretInput(props: { placeholder?: string; value: string; onChange: (value: string) => void }) {
+	const [visible, setVisible] = useState(false);
+	return (
+		<div className="relative">
+			<Input
+				type={visible ? "text" : "password"}
+				placeholder={props.placeholder}
+				value={props.value}
+				onChange={(event) => props.onChange(event.target.value)}
+				className="pr-9"
+			/>
+			<button
+				type="button"
+				tabIndex={-1}
+				aria-label={t("cloudSync.provider.showSecret")}
+				title={t("cloudSync.provider.showSecret")}
+				onClick={() => setVisible((prev) => !prev)}
+				className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-foreground"
+			>
+				{visible ? <EyeOff size={15} /> : <Eye size={15} />}
+			</button>
 		</div>
 	);
 }
@@ -146,7 +174,7 @@ function ProviderCard(props: {
 	onDisconnect: () => void;
 }) {
 	const [editing, setEditing] = useState(false);
-	const [config, setConfig] = useState<Record<string, unknown>>({});
+	const [config, setConfig] = useState<Record<string, unknown>>({ authType: "basic", allowInsecure: false });
 
 	const set = (key: string, value: string | boolean) => {
 		setConfig((prev) => ({ ...prev, [key]: value }));
@@ -173,9 +201,16 @@ function ProviderCard(props: {
 						<Input autoComplete="username" placeholder={t("cloudSync.provider.field.username")} value={(config.username as string) ?? ""} onChange={(e) => set("username", e.target.value)} />
 					</Field>
 					<Field label={t("cloudSync.provider.field.password")}>
-						<Input type="password" autoComplete="current-password" placeholder={t("cloudSync.provider.field.password")} value={(config.password as string) ?? ""} onChange={(e) => set("password", e.target.value)} />
+						<SecretInput placeholder={t("cloudSync.provider.field.password")} value={(config.password as string) ?? ""} onChange={(value) => set("password", value)} />
 					</Field>
 				</div>
+				<label className="flex cursor-pointer items-center gap-2 pt-1 text-sm">
+					<Checkbox
+						checked={config.allowInsecure === true}
+						onCheckedChange={(checked) => set("allowInsecure", Boolean(checked))}
+					/>
+					{t("cloudSync.provider.allowInsecure")}
+				</label>
 			</>
 		)
 		: (
@@ -199,9 +234,16 @@ function ProviderCard(props: {
 						<Input autoComplete="off" placeholder={t("cloudSync.provider.field.accessKeyId")} value={(config.accessKeyId as string) ?? ""} onChange={(e) => set("accessKeyId", e.target.value)} />
 					</Field>
 					<Field label={t("cloudSync.provider.field.secretAccessKey")}>
-						<Input type="password" autoComplete="off" placeholder={t("cloudSync.provider.field.secretAccessKey")} value={(config.secretAccessKey as string) ?? ""} onChange={(e) => set("secretAccessKey", e.target.value)} />
+						<SecretInput placeholder={t("cloudSync.provider.field.secretAccessKey")} value={(config.secretAccessKey as string) ?? ""} onChange={(value) => set("secretAccessKey", value)} />
 					</Field>
 				</div>
+				<label className="flex cursor-pointer items-center gap-2 pt-1 text-sm">
+					<Checkbox
+						checked={config.allowInsecure === true}
+						onCheckedChange={(checked) => set("allowInsecure", Boolean(checked))}
+					/>
+					{t("cloudSync.provider.allowInsecure")}
+				</label>
 			</>
 		);
 
@@ -232,12 +274,15 @@ function ProviderCard(props: {
 			{editing ? (
 				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
 					{fields}
-					<div className="flex items-center gap-2 pt-1">
+					<div className="flex flex-wrap items-center gap-2 pt-1">
 						<Button size="sm" onClick={() => props.onConnect({ ...config, provider: props.provider })}>
 							{t("cloudSync.provider.saveAndConnect")}
 						</Button>
+						<Button size="sm" variant="outline" onClick={() => setEditing(false)}>
+							{t("common.cancel")}
+						</Button>
 						{props.configured ? (
-							<Button size="sm" variant="outline" onClick={props.onDisconnect}>
+							<Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={props.onDisconnect}>
 								{t("cloudSync.provider.remove")}
 							</Button>
 						) : null}
