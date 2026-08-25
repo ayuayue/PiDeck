@@ -508,3 +508,24 @@ test("M8: gzip-compressed objects and pi auth sync round-trip", async () => {
 		await rm(base, { recursive: true, force: true });
 	}
 });
+
+test("parseProviderConfigInput accepts the nested shape the UI sends (regression)", async () => {
+	const { parseProviderConfigInput } = await import("../src/main/cloudSync/parseProviderConfig.ts");
+	// UI 扁平形状（历史上漏包 config）→ 拒绝
+	assert.throws(() => parseProviderConfigInput({ provider: "webdav", endpoint: "https://dav.example.com/", authType: "basic", username: "u", password: "p" }), /WebDAV config is invalid/);
+	// 正确嵌套形状 → 通过
+	const parsed = parseProviderConfigInput({
+		provider: "webdav",
+		config: { endpoint: "https://dav.example.com/", username: "u", password: "p" },
+	});
+	assert.equal(parsed.provider, "webdav");
+	// authType 缺省 → basic（UI 默认值兜底）
+	assert.equal(parsed.config.authType, "basic");
+	// S3 嵌套形状
+	const s3 = parseProviderConfigInput({
+		provider: "s3",
+		config: { endpoint: "https://s3.example.com", region: "us-east-1", bucket: "b", accessKeyId: "ak", secretAccessKey: "sk" },
+	});
+	assert.equal(s3.provider, "s3");
+	assert.equal(s3.config.bucket, "b");
+});

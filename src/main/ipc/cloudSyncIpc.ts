@@ -9,70 +9,15 @@ import { ipcChannels } from "../../shared/ipc";
 import type {
 	CloudProvider,
 	CloudSyncConflictResolution,
-	CloudSyncProviderConfigInput,
 	CloudSyncSelectionUpdate,
 	CloudSyncStrategy,
-	GithubGistConfig,
-	WebDAVConfig,
-	S3Config,
 } from "../../shared/types/cloudSync";
 import { isBuiltinCloudProvider } from "../../shared/types/cloudSync";
+import { parseProviderConfigInput } from "../cloudSync/parseProviderConfig";
 import type { CloudSyncManager } from "../cloudSync/CloudSyncManager";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return isRecord(value) && Object.getPrototypeOf(value) === Object.prototype;
-}
-
-function isWebDAVConfig(value: unknown): value is WebDAVConfig {
-	if (!isPlainObject(value)) return false;
-	if (typeof value.endpoint !== "string" || value.endpoint.length === 0 || value.endpoint.length > 2048) return false;
-	if (value.authType !== "basic" && value.authType !== "digest" && value.authType !== "token") return false;
-	if (value.username !== undefined && typeof value.username !== "string") return false;
-	if (value.password !== undefined && typeof value.password !== "string") return false;
-	if (value.token !== undefined && typeof value.token !== "string") return false;
-	return true;
-}
-
-function isS3Config(value: unknown): value is S3Config {
-	if (!isPlainObject(value)) return false;
-	if (typeof value.endpoint !== "string" || value.endpoint.length === 0 || value.endpoint.length > 2048) return false;
-	if (typeof value.region !== "string" || value.region.length === 0) return false;
-	if (typeof value.bucket !== "string" || value.bucket.length === 0) return false;
-	if (typeof value.accessKeyId !== "string" || typeof value.secretAccessKey !== "string") return false;
-	if (value.sessionToken !== undefined && typeof value.sessionToken !== "string") return false;
-	if (value.prefix !== undefined && typeof value.prefix !== "string") return false;
-	return true;
-}
-
-function isGithubGistConfig(value: unknown): value is GithubGistConfig {
-	if (!isPlainObject(value)) return false;
-	if (value.token !== undefined && typeof value.token !== "string") return false;
-	if (value.clientId !== undefined && typeof value.clientId !== "string") return false;
-	if (value.gistId !== undefined && typeof value.gistId !== "string") return false;
-	return Boolean(value.token || value.clientId);
-}
-
-function parseProviderConfigInput(value: unknown): CloudSyncProviderConfigInput {
-	if (!isPlainObject(value)) throw new TypeError("Provider config must be an object");
-	const provider = value.provider;
-	if (provider === "webdav") {
-		return { provider, config: isWebDAVConfig(value.config) ? value.config : throwType("WebDAV config is invalid") };
-	}
-	if (provider === "s3") {
-		return { provider, config: isS3Config(value.config) ? value.config : throwType("S3 config is invalid") };
-	}
-	if (provider === "github") {
-		return { provider, config: isGithubGistConfig(value.config) ? value.config : throwType("GitHub config is invalid") };
-	}
-	throw new TypeError("Unknown cloud provider");
-}
-
-function throwType(message: string): never {
-	throw new TypeError(message);
+	return typeof value === "object" && value !== null && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 function parseProvider(provider: unknown): CloudProvider {

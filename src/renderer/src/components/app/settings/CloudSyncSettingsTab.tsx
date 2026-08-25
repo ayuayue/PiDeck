@@ -29,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import type {
 	CloudSyncContentPreferences,
 	CloudSyncProjectSelectionNode,
+	CloudSyncProviderConfigInput,
 	CloudSyncResourceCategory,
 	CloudSyncSelectionTree,
 } from "../../../../../shared/types";
@@ -686,7 +687,10 @@ export function CloudSyncSettingsTab() {
 										configured={Boolean(webdavSnapshot?.configured)}
 										status={webdavSnapshot?.status ?? "disconnected"}
 										account={webdavSnapshot?.account?.name}
-										onConnect={(config) => void configureProvider(config as never)}
+										onConnect={(raw) => {
+											const { provider, ...config } = raw as { provider: "webdav" | "s3"; [key: string]: unknown };
+											void configureProvider({ provider, config } as CloudSyncProviderConfigInput);
+										}}
 										onDisconnect={() => void disconnectProvider("webdav")}
 									/>
 									<ProviderCard
@@ -696,7 +700,10 @@ export function CloudSyncSettingsTab() {
 										configured={Boolean(s3Snapshot?.configured)}
 										status={s3Snapshot?.status ?? "disconnected"}
 										account={s3Snapshot?.account?.name}
-										onConnect={(config) => void configureProvider(config as never)}
+										onConnect={(raw) => {
+											const { provider, ...config } = raw as { provider: "webdav" | "s3"; [key: string]: unknown };
+											void configureProvider({ provider, config } as CloudSyncProviderConfigInput);
+										}}
 										onDisconnect={() => void disconnectProvider("s3")}
 									/>
 									<GithubProviderCard
