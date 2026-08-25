@@ -486,6 +486,34 @@ interface PiDeckCloudObjectStorage {
 - `@aws-sdk/client-s3`
 - 不新增 Google/OneDrive/GitHub SDK；主进程用全局 `fetch` 即可。
 
+### 6.4 统一抽象：所有 provider 走同一对象存储接口（三类上传方式）
+
+> 结论（调研）：**能统一，且已经在统一**。WebDAV / S3 / Gist 已实现，OneDrive / Google（API 直连）与本地同步文件夹（第 6 类）落地后同样是实现 `PiDeckCloudObjectStorage` 的一个适配器。加密、索引、合并、冲突、缩水保护全部 provider 无关，差异只收敛在“文件如何上传到云端”的连接方式上。
+
+| 上传方式（kind） | 说明 | 适用 provider | 现状 |
+|---|---|---|---|
+| **oauth**（浏览器授权） | 经官方 API 直连，用户浏览器登录一次即可 | OneDrive（Graph）、Google Drive（Drive API） | 规划中（卡 OAuth 客户端凭据） |
+| **config**（账号配置） | 用户填写服务商地址与凭据 | WebDAV、S3、GitHub Gist | ✅ 已实现 |
+| **folder**（同步文件夹） | 用户选一个已被网盘客户端自动同步的本地文件夹，上传交给网盘客户端 | 本地文件夹适配器（第 6 类，`"local"`） | ✅ 已实现（`LocalFolderObjectStorage`，2026-08 落地） |
+
+- **类型落点**：`shared/types/cloudSync.ts` 已新增 `CloudProviderKind`（`oauth | config | folder`）与 `CLOUD_PROVIDER_KIND` 映射；`"local"` 已并入 `BUILTIN_CLOUD_PROVIDERS`（kind 为 `folder`）。
+- **实现落点**：`main/cloudSync/adapters/LocalFolderObjectStorage.ts`（临时文件 + rename 原子写、mtime revision + 条件写、路径穿越守卫）；`parseProviderConfigInput` / `normalizeLocalFolderConfig` 边界校验；`CloudSyncManager.providerSnapshots` 纳入 local；设置页「本地同步文件夹」卡片（文件夹选择器复用 `dialog:pick-files(includeDirectories)`）。
+- **UI 落点**：云同步设置页新增“上传方式说明”图例（`cloudSync.provider.howTo*` / `kind.*` 文案），每个服务卡带一句适用说明（`webdavDesc` / `s3Desc` / `githubDesc` / `localDesc`）；OneDrive / Google 卡片在适配器落地后接入同一图例文案。
+- **能力差异**：仍由 `getCapabilities()` 表达（单文件上限、revision、条件写），provider 无关的合并逻辑据此降级（如 Gist 1MB 上限、WebDAV 无条件写、本地文件夹全能力）。
+- **本地文件夹适配器与一键导入/导出**的完整调研与可用网盘对照见 `docs/cloud-sync-research.md`；导入导出已实现（见 §6.5）。
+
+### 6.5 本地一键导入/导出（`.pideckbackup`，离线兜底）
+
+> 状态：**已实现**（2026-08 随本地文件夹适配器一并落地）。无需任何云服务：导出 = 加密快照文件；导入 = 离线恢复，与云端 pull 共用路径重映射/待映射区/扩展安装/设置应用语义。
+
+- **格式**：单文件容器 `PIDECKBACKUP`（magic + formatVersion + 加密清单头 + 加密对象条目），条目字节与云端对象完全一致 → 导入与云同步共用同一解密路径；流式写入/读取，上限与同步一致（头 16MB / 条目 512MB）。
+- **导出**（`CloudSyncManager.exportBackup`）：复用 scanner → `buildLocalIndex` → `encryptObject` 管线，把当前勾选内容打包；需要解锁主密码，不需要连接任何 provider。
+- **导入**（`CloudSyncManager.importBackup`）：先解备份头（错误密码/损坏文件在改任何状态前失败）→ 主密码一致性（新机 NO_KEY 用导入密码初始化；已有主密码必须一致）→ 按模式落地：
+  - `merge`（默认）：本地已有且内容不同 → 保留本地；`overwrite`：以备份为准；`restoreMissing`：只补缺失。
+  - 会话/资源走 `resolveSessionTarget` 路径重映射；本机无对应项目 → 落 `cloud-sync-pending` 待映射区（`pendingProjects` 上报）；设置白名单、密钥（本地优先）、包扩展自动安装与云端 pull 同语义。
+- **落点**：`main/cloudSync/exportImport.ts`（容器纯函数 + 流式读写）、`cloudSyncIpc.ts`（`cloud-sync:export` / `cloud-sync:import`，保存对话框在边界内）、preload `exportBackup/importBackup`、设置页「备份与恢复」Tab。
+- **测试**：`tests/cloudSyncExportImport.test.mjs`（容器格式/边界/流式往返/manifest 校验/导出/新机往返/三种导入模式/错误密码与损坏文件/待映射区）。
+
 ---
 
 ## 7. 冲突处理
@@ -606,7 +634,15 @@ interface PiDeckCloudObjectStorage {
    - ✅ 大小上限（会话 512MB / 资源 10MB / 内嵌 256KB / Gist 1MB）与 gzip 对象压缩（向后兼容旧对象）
    - ✅ 密钥同步分类开关：pi auth/models、ImageGen 配置默认进加密载荷，可在选择偏好里关闭
    - ❌ 分块上传、DSH settings/credentials、飞书数据、CRDT 未做
-   - ✅ 文档与测试：cloudSync* 共 36 个针对性测试
+   - ✅ 文档与测试：cloudSync* 共 37 个针对性测试
+
+9. **M9 同步内容与选择重构（§12 定稿）** ❌
+   - 节点级二元勾选（全选 + 个别取消），兼容旧 selection 持久化
+   - 树重组：项目分类树（会话/提示词/技能/扩展/设置）+ 全局节点（会话/提示词/技能/扩展/配置）
+   - 全局配置扫描进树（auth/models/settings/models-store），trust.json 排除
+   - 扩展插件配置文件扫描 + 排除名单（内置默认 + 用户黑名单）
+   - 「添加」自选同步（文件选择器 + 额外路径清单）
+   - 全手动挂载：云端项目 → 首次手动指定本地目录，映射持久化；待映射 UI
 
 ---
 
@@ -630,6 +666,69 @@ interface PiDeckCloudObjectStorage {
 
 6. **项目级会话在目标机器没有对应项目时（已实现）**
    恢复时落入 `userData/cloud-sync-pending/<projectId>/` 待映射区；扫描选择树为 catalog 归属但本机未注册的项目生成合成节点（missing=true），用户添加项目后可重新同步落位。
+
+---
+
+## 12. 设计定稿：同步内容与选择（第二轮评审，2026-08）
+
+> 本轮与用户对齐后的最终形态。核心原则：**「一个框 = 底下全部同步」，不搞三态；同步的本质是“把一批文件按目录放到对应文件夹”，UUID 无关紧要；换机器落地目录全手动挂载。**
+
+### 12.1 勾选机制（纯二元）
+
+- 每个节点一个复选框：勾上 = 底下全部选中，不勾 = 不选。
+- 不做三态中继、不做“半选”视觉。
+- 展开后可**单独取消个别文件**（展示为未勾选），类别框仍表示“整体选中”，个别取消不反向影响类别框。
+- 选择模型：`selectedSessionIds / selectedResourceIds` 保持兼容，另加“节点级全选 + 个别取消”两层（nodeSelection + overrides）。
+
+### 12.2 树形结构（按项目分类 + 全局）
+
+```
+☐ 全部项目
+  ▸ <项目名>                    ☐ 项目整体
+    ☐ 会话 (n)                  ← .pi/sessions + .pi/agent/sessions
+    ☐ 提示词 (n)                ← .pi/prompts
+    ☐ 技能 (n)                  ← .pi/skills + .agents/skills
+    ☐ 扩展 (n)                  ← .pi/extensions（本体不传文件，只传安装清单+插件配置）
+    ☐ 设置                      ← .pi/settings.json（不单独成类，跟随项目）
+  ▸ 全局
+    ☐ 会话 (n)
+    ☐ 提示词 (n)                ← ~/.pi/agent/prompts
+    ☐ 技能 (n)                  ← ~/.pi/agent/skills
+    ☐ 扩展 (n)                  ← ~/.pi/agent/extensions（安装清单+插件配置）
+    ▸ 配置                      ← 新增：~/.pi/agent 顶层散落配置文件
+      ☐ auth.json   ☐ models.json   ☐ settings.json   ☐ models-store.json（默认关）
+```
+
+- **trust.json 明确排除**：信任规则是“路径 → 规则”，换机器路径全变，同步无意义且有风险；不扫描、不进树。
+- 全局配置默认勾选 `auth.json / models.json / settings.json`；`models-store.json`（~293KB 商店元数据）默认关。
+
+### 12.3 扩展/插件配置文件（用户重点）
+
+- 扩展**本体**不传文件（维持 M5：只同步安装清单，目标机 `pi install` 重装）。
+- 扩展目录内的**配置文件**（`extensions/<name>/config.json`、`<name>/.env`、`<name>/settings.json` 等）扫描进树，勾选后随载荷上传。
+- 实测当前机器 `~/.pi/agent/extensions` 为空、无 `.env`；真实样例（如搜索插件在 python 子目录的 `web.json`）路径千差万别 → 扫描兜底靠 12.4 的自选同步。
+
+### 12.4 排除名单 + 自选同步（两个互补能力）
+
+- **扫描排除**：内置默认规则（`*.bak*`、`*.log`、`*-events.jsonl`、`node_modules`、`.trash` 等）+ 设置页用户黑名单（路径/glob）；排除项不扫描、不进树。
+- **自选同步**：树底部「添加文件/文件夹」按钮 → 原生文件选择器 → 选中路径加入同步清单，树内显示为「自选」节点（文件级勾选）。存储：项目内相对路径 / home 相对路径；无法相对化时标注「仅本机」。
+
+### 12.5 换机器落地：全手动挂载
+
+- **不做 UUID 自动匹配**（用户明确：UUID 匹不匹配无关紧要）。
+- 云端按项目名组织目录（`projects/<name>/…` + `global/…`）。
+- 拉取时：云端项目未映射 → 待映射列表（现有 `cloud-sync-pending` 机制）；用户首次为每个云端项目手动指定本地目录一次，映射持久化（`remoteProjectId ↔ localPath`），之后稳定落位。
+- 全局部分直接落 `~/.pi/agent/` 对应子目录，无需映射。
+
+### 12.6 影响面
+
+| 项 | 状态 |
+|---|---|
+| 选择模型（节点级 + 个别取消） | 需重构，兼容旧 selection 持久化 |
+| 树结构（类别节点 + 全局配置节点） | 需重构渲染层 + scanner 归组 |
+| trust.json 排除 / 默认排除规则 | scanner 常量 + 设置项 |
+| 用户黑名单 / 自选同步 | 新增 IPC + 存储 + UI |
+| 全手动挂载映射 | 新增映射存储 + 待映射 UI |
 
 7. **扩展安装策略（已实现）**
    包扩展只同步“声明”（`extensionSources` 从 settings.json `packages` 提取），不做 node_modules 同步；目标机恢复后自动 `pi install`，失败标记 `missingExtensions`（设置页可重试）；启动保护由 `enabledExtensionResolver` 白名单跳过缺失包，不阻断 pi 启动。
