@@ -3,6 +3,7 @@ import { useAtom } from "jotai";
 import { desktopApi } from "../desktopApi";
 import { cloudSyncStateAtom, cloudSyncTreeAtom } from "../atoms/cloudSyncAtoms";
 import type {
+	CloudSyncImportInput,
 	CloudSyncProviderConfigInput,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
@@ -89,6 +90,10 @@ export function useCloudSync() {
 		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
 			run(() => desktopApi.cloudSync.setAutoSync(enabled, intervalMinutes)),
 		setStrategy: (strategy: string) => run(() => desktopApi.cloudSync.setStrategy(strategy)),
+		exportBackup: (options?: { outputPath?: string; title?: string }) =>
+			run(() => desktopApi.cloudSync.exportBackup(options)),
+		importBackup: (input: CloudSyncImportInput) =>
+			run(() => desktopApi.cloudSync.importBackup(input)),
 	};
 }
 

@@ -9,6 +9,7 @@
 import type {
 	CloudSyncProviderConfigInput,
 	GithubGistConfig,
+	LocalFolderConfig,
 	S3Config,
 	WebDAVConfig,
 } from "../../shared/types/cloudSync.ts";
@@ -54,6 +55,12 @@ function isGithubGistConfig(value: unknown): value is GithubGistConfig {
 	return Boolean(value.token || value.clientId);
 }
 
+function isLocalFolderConfig(value: unknown): value is LocalFolderConfig {
+	if (!isPlainObject(value)) return false;
+	if (typeof value.folderPath !== "string" || value.folderPath.length === 0 || value.folderPath.length > 4096) return false;
+	return !value.folderPath.includes("\0");
+}
+
 export function parseProviderConfigInput(value: unknown): CloudSyncProviderConfigInput {
 	if (!isPlainObject(value)) throw new TypeError("Provider config must be an object");
 	const provider = value.provider;
@@ -67,6 +74,9 @@ export function parseProviderConfigInput(value: unknown): CloudSyncProviderConfi
 	}
 	if (provider === "github") {
 		return { provider, config: isGithubGistConfig(value.config) ? value.config : throwType("GitHub config is invalid") };
+	}
+	if (provider === "local") {
+		return { provider, config: isLocalFolderConfig(value.config) ? value.config : throwType("Local folder config is invalid") };
 	}
 	throw new TypeError("Unknown cloud provider");
 }

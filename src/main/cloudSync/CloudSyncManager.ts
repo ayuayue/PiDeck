@@ -12,6 +12,10 @@ import type {
 	CloudProvider,
 	CloudSyncConflict,
 	CloudSyncConflictResolution,
+	CloudSyncExportResult,
+	CloudSyncImportInput,
+	CloudSyncImportMode,
+	CloudSyncImportResult,
 	CloudSyncMasterKeyConfig,
 	CloudSyncMissingExtension,
 	CloudSyncProviderConfigInput,
@@ -19,10 +23,12 @@ import type {
 	CloudSyncSelectionPreferences,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
+	CloudSyncSessionRef,
 	CloudSyncState,
 	CloudSyncStateSnapshot,
 	CloudSyncStrategy,
 	GithubGistConfig,
+	LocalFolderConfig,
 	PiDeckSyncIndexV1,
 	ProviderAccount,
 	ProviderConnectionStatus,
@@ -58,7 +64,8 @@ import {
 } from "./CloudSyncScanner.ts";
 import type { PiDeckCloudObjectStorage } from "./objectStorage.ts";
 import { createCloudSyncObjectStorage } from "./adapters/index.ts";
-import { normalizeGithubGistConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
+import { normalizeGithubGistConfig, normalizeLocalFolderConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
+import { BackupFileReader, BackupFileWriter, parseBackupManifest, type PiDeckBackupManifestV1 } from "./exportImport.ts";
 import {
 	buildCatalogSyncEntry,
 	buildCloudSyncProject,
@@ -241,7 +248,7 @@ export interface CloudSyncManagerOptions {
 	getDesktopSettings: () => AppSettings;
 	updateDesktopSettings: (patch: Record<string, unknown>) => Promise<void>;
 	/** 测试注入点：默认走 createCloudSyncObjectStorage（真实 WebDAV/S3）。 */
-	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config | GithubGistConfig) => PiDeckCloudObjectStorage;
+	createAdapter?: (provider: CloudProvider, config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig) => PiDeckCloudObjectStorage;
 	/** 包扩展安装（M5）：默认未注入时不自动安装，只记录缺失清单。 */
 	installExtension?: (source: string, scope: "user" | "project") => Promise<{ ok: boolean; error?: string }>;
 	/** 已安装扩展清单（source + scope），用于判断声明是否缺失。 */
@@ -264,7 +271,7 @@ export class CloudSyncManager {
 	private state: CloudSyncPersistedState = createDefaultState();
 	private password: string | null = null;
 	/** Unsealed provider configs, available only while unlocked. */
-	private providerConfigs = new Map<CloudProvider, WebDAVConfig | S3Config | GithubGistConfig>();
+	private providerConfigs = new Map<CloudProvider, WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig>();
 	private adapters = new Map<CloudProvider, PiDeckCloudObjectStorage>();
 	private syncState: CloudSyncState = "IDLE";
 	private lastError: string | null = null;
@@ -678,7 +685,7 @@ export class CloudSyncManager {
 
 	private providerSnapshots(): Record<CloudProvider, CloudSyncProviderSnapshot> {
 		const result = {} as Record<CloudProvider, CloudSyncProviderSnapshot>;
-		for (const provider of ["webdav", "s3", "github"] as const) {
+		for (const provider of ["webdav", "s3", "github", "local"] as const) {
 			const entry = this.state.providers[provider];
 			const adapter = this.adapters.get(provider);
 			const status: ProviderConnectionStatus = adapter ? "connected" : "disconnected";
@@ -1000,13 +1007,18 @@ export class CloudSyncManager {
 	}
 
 	private async decryptObject(bytes: Uint8Array): Promise<string> {
+		return this.decryptObjectWith(bytes, this.requirePassword());
+	}
+
+	/** 用显式密码解密一个对象条目（备份导入用：先于主密码一致性校验）。 */
+	private async decryptObjectWith(bytes: Uint8Array, password: string): Promise<string> {
 		const raw = Buffer.from(bytes).toString("utf8");
 		const file = JSON.parse(raw) as SyncedFile & { meta: { compressed?: string } };
 		const { meta } = file;
 		if (meta.algorithm !== "AES-256-GCM" || meta.kdf !== "PBKDF2") throw new TypeError("Unsupported object format");
 		const iv = decodeBase64(meta.iv);
 		const salt = decodeBase64(meta.salt);
-		const key = await deriveKey(this.requirePassword(), salt, meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
+		const key = await deriveKey(password, salt, meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
 		const plain = decrypt(
 			{ ciphertext: decodeBase64(file.payload), iv, salt, kdf: "PBKDF2", kdfIterations: meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS },
 			key,
@@ -1354,21 +1366,264 @@ export class CloudSyncManager {
 		return this.decryptObject(result.bytes);
 	}
 
+	// ── Local one-click import/export（离线备份，无需任何云服务） ──────────
+
+	/**
+	 * Export the current selection to a single `.pideckbackup` file.
+	 *
+	 * Reuses the exact cloud pipeline: scanner → buildLocalIndex → encryptObject,
+	 * so exported session/resource objects are byte-identical to cloud objects and
+	 * the import path shares one decryption route. Requires UNLOCKED (master key)
+	 * but no connected provider.
+	 */
+	async exportBackup(options?: { outputPath?: string }): Promise<CloudSyncExportResult> {
+		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
+		const outputPath = options?.outputPath;
+		if (!outputPath) throw new Error("Backup output path is required");
+
+		const scan = await this.scanner.scan(this.getSelectionPreferences());
+		const selectedSessions = [...scan.sessions.values()].filter((item) => item.candidate.selected);
+		const selectedResources = [...scan.resources.values()].filter((item) => item.candidate.selected);
+		const index = await this.buildLocalIndex(scan, selectedSessions, selectedResources);
+
+		const entries: Array<{ name: string; bytes: Uint8Array }> = [];
+		for (const item of selectedSessions) {
+			const content = await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxSessionBytes);
+			const file = await this.encryptObject(content);
+			entries.push({ name: sessionObjectKey(item.candidate.sessionId), bytes: Buffer.from(JSON.stringify(file), "utf8") });
+		}
+		for (const item of selectedResources) {
+			const content = await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxResourceBytes);
+			const file = await this.encryptObject(content);
+			const hash = createHash("sha256").update(content, "utf8").digest("hex");
+			entries.push({ name: `pideck-files/${hash}.enc`, bytes: Buffer.from(JSON.stringify(file), "utf8") });
+		}
+
+		const createdAt = Date.now();
+		const manifest: PiDeckBackupManifestV1 = {
+			schemaVersion: 1,
+			createdAt,
+			deviceId: this.state.deviceId,
+			deviceName: this.state.deviceName,
+			appVersion: this.options.appVersion,
+			index,
+			entries: entries.map((entry) => ({
+				name: entry.name,
+				hash: createHash("sha256").update(entry.bytes).digest("hex"),
+				size: entry.bytes.byteLength,
+			})),
+		};
+		const headerFile = await this.encryptObject(JSON.stringify(manifest));
+		const headerBytes = Buffer.from(JSON.stringify(headerFile), "utf8");
+
+		const writer = await BackupFileWriter.create(outputPath);
+		try {
+			await writer.writeHeader(headerBytes);
+			for (const entry of entries) await writer.writeEntry(entry);
+		} finally {
+			await writer.close();
+		}
+
+		return {
+			filePath: outputPath,
+			createdAt,
+			sessionCount: selectedSessions.length,
+			resourceCount: selectedResources.length,
+			entryCount: entries.length,
+			bytes: (await lstat(outputPath)).size,
+		};
+	}
+
+	/**
+	 * Import a `.pideckbackup` file and restore it with cloud-pull semantics
+	 * (path remapping, pending area, extension auto-install, settings apply).
+	 *
+	 * Order matters: the header is decrypted with the typed password FIRST (a
+	 * corrupt file or wrong password fails before any state change), then the
+	 * password is reconciled with the machine's master password: on a fresh
+	 * machine (NO_KEY) it becomes the master password; otherwise it must match.
+	 */
+	async importBackup(input: CloudSyncImportInput): Promise<CloudSyncImportResult> {
+		const reader = await BackupFileReader.open(input.filePath);
+		let manifest: PiDeckBackupManifestV1;
+		let entriesByName: Map<string, Uint8Array>;
+		try {
+			const { headerBytes } = await reader.readHeader();
+			let headerRaw: string;
+			try {
+				headerRaw = await this.decryptObjectWith(headerBytes, input.password);
+			} catch {
+				throw new Error("Backup password is incorrect or the file is corrupted");
+			}
+			manifest = parseBackupManifest(headerRaw);
+			entriesByName = new Map<string, Uint8Array>();
+			for await (const entry of reader.entries()) {
+				entriesByName.set(entry.name, entry.bytes);
+			}
+		} finally {
+			await reader.close();
+		}
+
+		const security = this.securityState();
+		if (security === "NO_KEY") {
+			await this.setupMasterKey(input.password);
+		} else {
+			const config = this.state.masterKeyConfig;
+			const matches = config ? await verifyPassword(input.password, config) : false;
+			if (!matches) throw new Error("Import password does not match the master password");
+			if (security === "LOCKED" && !(await this.unlock(input.password))) {
+				throw new Error("Import password does not match the master password");
+			}
+		}
+
+		return this.applyBackup(input, manifest, entriesByName);
+	}
+
+	/** 把备份清单落地：会话/资源按模式写回，配置域与云端 pull 同语义。 */
+	private async applyBackup(
+		input: CloudSyncImportInput,
+		manifest: PiDeckBackupManifestV1,
+		entriesByName: Map<string, Uint8Array>,
+	): Promise<CloudSyncImportResult> {
+		const index = manifest.index;
+		const result: CloudSyncImportResult = {
+			filePath: input.filePath,
+			sessionCount: 0,
+			resourceCount: 0,
+			sessionsRestored: 0,
+			resourcesRestored: 0,
+			sessionsSkipped: 0,
+			resourcesSkipped: 0,
+			pendingProjects: [],
+			missingExtensions: [],
+		};
+		const pendingProjects = new Set<string>();
+
+		for (const project of index.projects ?? []) {
+			for (const sessionRef of project.sessions ?? []) {
+				result.sessionCount += 1;
+				const entryBytes = entriesByName.get(sessionRef.objectKey);
+				if (!entryBytes) {
+					result.sessionsSkipped += 1;
+					continue;
+				}
+				const outcome = await this.restoreBackupSession(sessionRef, entryBytes, input.mode);
+				if (outcome.written) result.sessionsRestored += 1;
+				else result.sessionsSkipped += 1;
+				if (outcome.pending) pendingProjects.add(sessionRef.projectId ?? "unknown");
+			}
+			const resources = project.resources;
+			if (resources) {
+				for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? [])]) {
+					result.resourceCount += 1;
+					const content = bundle.content ?? await this.decryptBackupEntry(entriesByName.get(bundle.objectKey ?? ""));
+					if (content === undefined) {
+						result.resourcesSkipped += 1;
+						continue;
+					}
+					if (await this.restoreBackupResource(project.projectId, bundle.relativePath, content, input.mode)) {
+						result.resourcesRestored += 1;
+					} else {
+						result.resourcesSkipped += 1;
+					}
+				}
+			}
+		}
+
+		// 配置域：设置白名单应用、密钥本地优先、包扩展按声明自动安装（与云端 pull 一致）。
+		await this.applyImportedConfig(index);
+
+		this.state.lastSyncedIndex = index;
+		this.state.lastSyncedSessionCount = result.sessionCount;
+		this.state.lastSyncedResourceCount = result.resourceCount;
+		this.state.lastSyncAt = Date.now();
+		this.state.lastSyncDeviceId = manifest.deviceId;
+		this.pendingLocalSync = false;
+		await this.persist();
+		this.emitState();
+
+		result.pendingProjects = [...pendingProjects];
+		result.missingExtensions = [...this.state.missingExtensions];
+		return result;
+	}
+
+	private async restoreBackupSession(
+		sessionRef: CloudSyncSessionRef,
+		entryBytes: Uint8Array,
+		mode: CloudSyncImportMode,
+	): Promise<{ written: boolean; pending: boolean }> {
+		const target = await this.resolveSessionTarget(sessionRef);
+		const root = this.sessionTargetRoot(sessionRef);
+		if (!target) return { written: false, pending: false };
+		const existing = await this.readExistingHash(target);
+		if (existing === sessionRef.contentHash) return { written: false, pending: !root };
+		// merge / restoreMissing：本地已有内容则保留本地（备份是快照，本地可能更新）。
+		if (existing && mode !== "overwrite") return { written: false, pending: !root };
+		const content = await this.decryptObject(entryBytes);
+		await mkdir(dirname(target), { recursive: true });
+		if (root) await ensureNoSymlinkEscape(root, target);
+		await writeFileAtomic(target, content);
+		return { written: true, pending: !root };
+	}
+
+	private async restoreBackupResource(
+		projectId: string,
+		relativePath: string,
+		content: string,
+		mode: CloudSyncImportMode,
+	): Promise<boolean> {
+		const scopeRoot = projectId === GLOBAL_SYNC_PROJECT_ID
+			? join(this.options.homeDir, ".pi", "agent")
+			: this.options.listProjects().find((candidate) => candidate.id === projectId)?.path;
+		if (!scopeRoot) return false;
+		const target = join(scopeRoot, relativePath);
+		const existing = await this.readExistingHash(target);
+		if (existing === createHash("sha256").update(content, "utf8").digest("hex")) return false;
+		if (existing && mode !== "overwrite") return false;
+		await mkdir(dirname(target), { recursive: true });
+		await ensureNoSymlinkEscape(scopeRoot, target);
+		await writeFileAtomic(target, content);
+		return true;
+	}
+
+	/** 解密备份内一个对象条目；缺失/损坏返回 undefined。 */
+	private async decryptBackupEntry(entryBytes: Uint8Array | undefined): Promise<string | undefined> {
+		if (!entryBytes) return undefined;
+		try {
+			return await this.decryptObject(entryBytes);
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** 导入后应用配置域（与云端 pull 的恢复语义一致）。 */
+	private async applyImportedConfig(index: PiDeckSyncIndexV1): Promise<void> {
+		if (index.settings) {
+			const filtered = filterSyncableDesktopSettings(index.settings);
+			if (Object.keys(filtered).length > 0) {
+				await this.options.updateDesktopSettings(filtered);
+			}
+		}
+		await this.checkAndRestoreExtensions(index);
+		await this.restoreSensitiveContent(index, index);
+	}
+
 	// ── Provider / adapter internals ─────────────────────────────────
 
 	private firstAdapter(): PiDeckCloudObjectStorage | null {
 		return this.adapters.values().next().value ?? null;
 	}
 
-	private normalizeProviderInput(input: CloudSyncProviderConfigInput): WebDAVConfig | S3Config | GithubGistConfig {
+	private normalizeProviderInput(input: CloudSyncProviderConfigInput): WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig {
 		if (input.provider === "webdav") return normalizeWebDAVConfig(input.config);
 		if (input.provider === "s3") return normalizeS3Config(input.config);
 		if (input.provider === "github") return normalizeGithubGistConfig(input.config);
+		if (input.provider === "local") return normalizeLocalFolderConfig(input.config);
 		throw new TypeError(`Unsupported cloud provider: ${String((input as { provider?: unknown }).provider)}`);
 	}
 
 	private async sealConfig(
-		config: WebDAVConfig | S3Config | GithubGistConfig,
+		config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig,
 		password: string,
 		masterConfig: CloudSyncMasterKeyConfig,
 	): Promise<string> {
@@ -1403,7 +1658,7 @@ export class CloudSyncManager {
 					},
 					key,
 				);
-				this.providerConfigs.set(provider as CloudProvider, JSON.parse(plaintext) as WebDAVConfig | S3Config | GithubGistConfig);
+				this.providerConfigs.set(provider as CloudProvider, JSON.parse(plaintext) as WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig);
 			} catch {
 				// A corrupt sealed entry is dropped; the user can reconfigure the provider.
 				this.state.providers[provider] = null;

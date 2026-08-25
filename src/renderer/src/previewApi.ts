@@ -1312,6 +1312,7 @@ export function createPreviewApi(): PiDesktopApi {
 				onedrive: { provider: "onedrive", status: "disconnected", configured: false },
 				webdav: { provider: "webdav", status: "disconnected", configured: false },
 				s3: { provider: "s3", status: "disconnected", configured: false },
+				local: { provider: "local", status: "disconnected", configured: false },
 			},
 				deviceId: "preview",
 				deviceName: "Preview",
@@ -1368,7 +1369,18 @@ export function createPreviewApi(): PiDesktopApi {
 			restoreExtensions: async () => [],
 			setAutoSync: async () => ({ securityState: "NO_KEY" } as never),
 			setStrategy: async () => ({ securityState: "NO_KEY" } as never),
->>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))
+			exportBackup: async () => null,
+			importBackup: async () => ({
+				filePath: "",
+				sessionCount: 0,
+				resourceCount: 0,
+				sessionsRestored: 0,
+				resourcesRestored: 0,
+				sessionsSkipped: 0,
+				resourcesSkipped: 0,
+				pendingProjects: [],
+				missingExtensions: [],
+			}),
 		},
 	};
 }

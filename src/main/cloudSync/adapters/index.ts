@@ -1,6 +1,7 @@
 import type { BuiltinCloudProvider } from "../../../shared/types/cloudSync.ts";
 import type { PiDeckCloudObjectStorage } from "../objectStorage.ts";
 import { GithubGistObjectStorage } from "./GithubGistObjectStorage.ts";
+import { LocalFolderObjectStorage } from "./LocalFolderObjectStorage.ts";
 import { S3ObjectStorage } from "./S3ObjectStorage.ts";
 import { WebDAVObjectStorage } from "./WebDAVObjectStorage.ts";
 
@@ -16,6 +17,8 @@ export function createCloudSyncObjectStorage(
 			return new S3ObjectStorage(config);
 		case "github":
 			return new GithubGistObjectStorage(config);
+		case "local":
+			return new LocalFolderObjectStorage(config);
 		default:
 			// Google Drive / OneDrive 需要 OAuth 客户端凭据与独立桥接，暂未实现。
 			throw new Error(`Cloud sync provider ${provider} is not implemented yet`);
@@ -23,5 +26,6 @@ export function createCloudSyncObjectStorage(
 }
 
 export { GithubGistObjectStorage } from "./GithubGistObjectStorage.ts";
+export { LocalFolderObjectStorage } from "./LocalFolderObjectStorage.ts";
 export { S3ObjectStorage } from "./S3ObjectStorage.ts";
 export { WebDAVObjectStorage } from "./WebDAVObjectStorage.ts";

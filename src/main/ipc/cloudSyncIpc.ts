@@ -4,11 +4,14 @@
  * master passwords, derived keys or provider credentials.
  */
 
-import { ipcMain } from "electron";
+import { dialog, ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type {
 	CloudProvider,
 	CloudSyncConflictResolution,
+	CloudSyncExportResult,
+	CloudSyncImportInput,
+	CloudSyncImportMode,
 	CloudSyncSelectionUpdate,
 	CloudSyncStrategy,
 } from "../../shared/types/cloudSync";
@@ -56,6 +59,51 @@ function parseStrategy(value: unknown): CloudSyncStrategy {
 		throw new TypeError("Unknown sync strategy");
 	}
 	return value;
+}
+
+function parseImportMode(value: unknown): CloudSyncImportMode {
+	if (value !== "merge" && value !== "overwrite" && value !== "restoreMissing") {
+		throw new TypeError("Unknown import mode");
+	}
+	return value;
+}
+
+/** 校验导出选项：outputPath 缺省走保存对话框；title 仅作对话框标题（渲染层 i18n 文案）。 */
+function parseExportOptions(value: unknown): { outputPath?: string; title?: string } {
+	if (value === undefined || value === null) return {};
+	if (!isPlainObject(value)) throw new TypeError("Export options must be an object");
+	const outputPath = value.outputPath;
+	const title = value.title;
+	return {
+		...(typeof outputPath === "string" && outputPath.length > 0 && outputPath.length <= 4096 && !outputPath.includes("\0")
+			? { outputPath }
+			: {}),
+		...(typeof title === "string" && title.length > 0 && title.length <= 256 ? { title } : {}),
+	};
+}
+
+function parseImportInput(value: unknown): CloudSyncImportInput {
+	if (!isPlainObject(value)) throw new TypeError("Import input must be an object");
+	const filePath = value.filePath;
+	if (typeof filePath !== "string" || filePath.length === 0 || filePath.length > 4096 || filePath.includes("\0")) {
+		throw new TypeError("Import file path is invalid");
+	}
+	return {
+		filePath,
+		password: parsePassword(value.password),
+		mode: parseImportMode(value.mode),
+	};
+}
+
+/** 导出保存对话框：返回 null 表示用户取消。 */
+async function resolveBackupSavePath(title?: string): Promise<string | null> {
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const result = await dialog.showSaveDialog({
+		title,
+		defaultPath: `PiDeck 备份 ${stamp}.pideckbackup`,
+		filters: [{ name: "PiDeck Backup", extensions: ["pideckbackup"] }],
+	});
+	return result.canceled ? null : result.filePath;
 }
 
 export function registerCloudSyncIpc(deps: {
@@ -166,5 +214,21 @@ export function registerCloudSyncIpc(deps: {
 		await manager.setStrategy(parseStrategy(strategy));
 		notifyStateChanged();
 		return manager.getStateSnapshot();
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncExport, async (_event, options: unknown): Promise<CloudSyncExportResult | null> => {
+		const parsed = parseExportOptions(options);
+		const filePath = parsed.outputPath ?? await resolveBackupSavePath(parsed.title);
+		if (!filePath) return null; // 用户取消保存对话框
+		const result = await manager.exportBackup({ outputPath: filePath });
+		notifyStateChanged();
+		return result;
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncImport, async (_event, input: unknown) => {
+		const parsed = parseImportInput(input);
+		const result = await manager.importBackup(parsed);
+		notifyStateChanged();
+		return result;
 	});
 }

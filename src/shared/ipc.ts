@@ -646,5 +646,9 @@ export const ipcChannels = {
 	cloudSyncRestoreExtensions: "cloud-sync:restore-extensions",
 	cloudSyncSetAutoSync: "cloud-sync:set-auto-sync",
 	cloudSyncSetStrategy: "cloud-sync:set-strategy",
+	/** 本地一键导出：`.pideckbackup` 加密备份包（可离线、无需云服务） */
+	cloudSyncExport: "cloud-sync:export",
+	/** 本地一键导入：从备份包恢复（可离线、无需云服务） */
+	cloudSyncImport: "cloud-sync:import",
 
 } as const;

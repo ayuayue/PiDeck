@@ -1,8 +1,10 @@
-import type { GithubGistConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
+import { isAbsolute } from "node:path";
+import type { GithubGistConfig, LocalFolderConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
 
 const MAX_ENDPOINT_LENGTH = 2048;
 const MAX_CREDENTIAL_LENGTH = 16_384;
 const MAX_S3_PREFIX_LENGTH = 512;
+const MAX_FOLDER_PATH_LENGTH = 4096;
 const SAFE_AUTH_TYPES = new Set<string>(["basic", "digest", "token"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -132,4 +134,23 @@ export function normalizeGithubGistConfig(value: unknown): GithubGistConfig {
 		throw new TypeError("GitHub config requires a token or a client id");
 	}
 	return config;
+}
+
+/**
+ * Validate the local sync-folder config.
+ *
+ * folderPath must be an absolute path (the folder may not exist yet — it is
+ * created on connect). Control characters are rejected to keep object writes
+ * inside the folder; the adapter additionally guards against path traversal.
+ */
+export function normalizeLocalFolderConfig(value: unknown): LocalFolderConfig {
+	if (!isRecord(value)) throw new TypeError("Local folder config is invalid");
+	const folderPath = requiredString(value, "folderPath", MAX_FOLDER_PATH_LENGTH);
+	if (folderPath.includes("\0") || /[\u0000-\u001f\u007f]/.test(folderPath)) {
+		throw new TypeError("Local folder path contains control characters");
+	}
+	if (!isAbsolute(folderPath)) {
+		throw new TypeError("Local folder path must be absolute");
+	}
+	return { folderPath };
 }

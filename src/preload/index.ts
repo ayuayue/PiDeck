@@ -122,6 +122,9 @@ import type {
 	HealthReportContext,
 	HealthReportFormat,
 	CloudSyncStateSnapshot,
+	CloudSyncExportResult,
+	CloudSyncImportInput,
+	CloudSyncImportResult,
 	CloudSyncMissingExtension,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
@@ -1899,7 +1902,10 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.cloudSyncSetAutoSync, enabled, intervalMinutes) as Promise<CloudSyncStateSnapshot>,
 		setStrategy: (strategy: string) =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncSetStrategy, strategy) as Promise<CloudSyncStateSnapshot>,
->>>>>>> 3c223e3e (feat: add cloud sync manager, scanner, IPC and settings UI (M4))
+		exportBackup: (options?: { outputPath?: string; title?: string }) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncExport, options) as Promise<CloudSyncExportResult | null>,
+		importBackup: (input: CloudSyncImportInput) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncImport, input) as Promise<CloudSyncImportResult>,
 	},
 };
 

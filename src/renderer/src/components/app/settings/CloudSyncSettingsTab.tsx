@@ -3,10 +3,12 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Cloud,
+	Download,
 	Eye,
 	EyeOff,
 	FileText,
 	Folder,
+	FolderOpen,
 	Globe,
 	KeyRound,
 	Lock,
@@ -14,8 +16,10 @@ import {
 	RefreshCw,
 	Settings2,
 	ShieldCheck,
+	Upload,
 } from "lucide-react";
 import { t, type TranslationKey } from "../../../i18n";
+import { desktopApi } from "../../../desktopApi";
 import { useCloudSync } from "../../../hooks/useCloudSync";
 import { SettingsSection } from "./SettingsStorageTab";
 import { SettingBox } from "./SettingRows";
@@ -34,6 +38,7 @@ import type {
 	CloudSyncSelectionTree,
 } from "../../../../../shared/types";
 import { cn } from "../../../lib/utils";
+import { showNotice } from "../../../utils/notice";
 
 const GLOBAL_SYNC_PROJECT_ID = "__global__";
 
@@ -168,6 +173,7 @@ function ProviderCard(props: {
 	provider: "webdav" | "s3";
 	icon: React.ReactNode;
 	title: string;
+	description?: string;
 	configured: boolean;
 	status: string;
 	account?: string;
@@ -259,7 +265,10 @@ function ProviderCard(props: {
 			>
 				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
 				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">{props.icon}</span>
-				<span className="min-w-0 flex-1 truncate text-sm font-medium">{props.title}</span>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-medium">{props.title}</span>
+					{props.description ? <span className="block truncate text-caption text-text-tertiary">{props.description}</span> : null}
+				</span>
 				{props.account ? <span className="shrink-0 truncate text-caption text-text-tertiary">{props.account}</span> : null}
 				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
 					<StatusDot status={props.status} />
@@ -318,7 +327,10 @@ function GithubProviderCard(props: {
 				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
 					<GithubMarkIcon className="size-5" />
 				</span>
-				<span className="min-w-0 flex-1 truncate text-sm font-medium">{t("cloudSync.provider.githubTitle")}</span>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-medium">{t("cloudSync.provider.githubTitle")}</span>
+					<span className="block truncate text-caption text-text-tertiary">{t("cloudSync.provider.githubDesc")}</span>
+				</span>
 				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
 					<StatusDot status={props.status} />
 					{props.status === "connected"
@@ -353,6 +365,82 @@ function GithubProviderCard(props: {
 							<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
 						</div>
 					) : null}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+/** 本地同步文件夹服务卡：选一个已被网盘客户端同步的本地文件夹，上传交给网盘客户端。 */
+function LocalFolderProviderCard(props: {
+	status: string;
+	configured: boolean;
+	onConnect: (folderPath: string) => void;
+	onDisconnect: () => void;
+}) {
+	const [editing, setEditing] = useState(false);
+	const [folderPath, setFolderPath] = useState("");
+
+	const browse = async () => {
+		const picked = await desktopApi.dialog.pickFiles({ title: t("cloudSync.provider.localBrowse"), includeDirectories: true });
+		if (picked.length > 0) setFolderPath(picked[0]);
+	};
+
+	return (
+		<div className="overflow-hidden rounded-lg border border-border-subtle">
+			<div
+				className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 hover:bg-accent/40"
+				role="button"
+				tabIndex={0}
+				onClick={() => setEditing((prev) => !prev)}
+				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
+			>
+				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+					<Folder size={16} />
+				</span>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-medium">{t("cloudSync.provider.localTitle")}</span>
+					<span className="block truncate text-caption text-text-tertiary">{t("cloudSync.provider.localDesc")}</span>
+				</span>
+				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
+					<StatusDot status={props.status} />
+					{props.status === "connected"
+						? t("cloudSync.provider.connected")
+						: props.status === "disconnected" && props.configured
+							? t("cloudSync.provider.configured")
+							: t("cloudSync.provider.disconnected")}
+				</span>
+			</div>
+			{editing ? (
+				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
+					<Field label={t("cloudSync.provider.localFieldFolder")}>
+						<div className="flex gap-2">
+							<Input
+								placeholder="C:\\Users\\you\\OneDrive\\PiDeck"
+								value={folderPath}
+								onChange={(event) => setFolderPath(event.target.value)}
+								className="min-w-0 flex-1"
+							/>
+							<Button size="sm" variant="outline" onClick={() => void browse()}>
+								<Folder size={14} /> {t("cloudSync.provider.localBrowse")}
+							</Button>
+						</div>
+						<p className="text-caption text-text-tertiary">{t("cloudSync.provider.kind.folderHint")}</p>
+					</Field>
+					<div className="flex flex-wrap items-center gap-2 pt-1">
+						<Button size="sm" onClick={() => props.onConnect(folderPath.trim())} disabled={!folderPath.trim()}>
+							{t("cloudSync.provider.saveAndConnect")}
+						</Button>
+						<Button size="sm" variant="outline" onClick={() => setEditing(false)}>
+							{t("common.cancel")}
+						</Button>
+						{props.configured ? (
+							<Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={props.onDisconnect}>
+								{t("cloudSync.provider.remove")}
+							</Button>
+						) : null}
+					</div>
 				</div>
 			) : null}
 		</div>
@@ -511,6 +599,8 @@ export function CloudSyncSettingsTab() {
 		githubDevicePoll,
 		setAutoSync,
 		setStrategy,
+		exportBackup,
+		importBackup,
 	} = useCloudSync();
 
 	const securityState = state?.securityState ?? "NO_KEY";
@@ -523,6 +613,10 @@ export function CloudSyncSettingsTab() {
 	const [conflictChoices, setConflictChoices] = useState<Record<string, "local" | "remote">>({});
 	/** 折叠的项目节点；全局默认展开，其余默认收起。 */
 	const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(new Set([GLOBAL_SYNC_PROJECT_ID]));
+	/** 本地备份导入表单状态。 */
+	const [importFilePath, setImportFilePath] = useState("");
+	const [importPassword, setImportPassword] = useState("");
+	const [importMode, setImportMode] = useState<"merge" | "overwrite" | "restoreMissing">("merge");
 
 	const selectionTree = tree as CloudSyncSelectionTree | null;
 
@@ -604,10 +698,46 @@ export function CloudSyncSettingsTab() {
 		await resolveConflicts(resolutions);
 	}, [state?.conflicts, conflictChoices, resolveConflicts]);
 
+	// ── 本地备份：导出 / 导入（离线，无需云服务） ──
+
+	const handleExport = useCallback(async () => {
+		const result = await exportBackup({ title: t("cloudSync.backup.exportTitle") });
+		if (result === undefined) return; // 失败已写入 error
+		if (result === null) {
+			showNotice(t("cloudSync.backup.exportCanceled"), 2000, "info");
+			return;
+		}
+		showNotice(
+			t("cloudSync.backup.exportDone", { path: result.filePath, sessions: result.sessionCount, resources: result.resourceCount }),
+			5000,
+			"info",
+		);
+	}, [exportBackup]);
+
+	const handlePickImportFile = useCallback(async () => {
+		const picked = await desktopApi.dialog.pickFiles({ title: t("cloudSync.backup.importPick") });
+		if (picked.length > 0) setImportFilePath(picked[0]);
+	}, []);
+
+	const handleImport = useCallback(async () => {
+		if (!importFilePath || !importPassword) return;
+		const result = await importBackup({ filePath: importFilePath, password: importPassword, mode: importMode });
+		if (!result) return; // 失败已写入 error
+		const skipped = result.sessionsSkipped + result.resourcesSkipped;
+		const pending = result.pendingProjects.length;
+		const message = t("cloudSync.backup.importDone", {
+			restored: result.sessionsRestored,
+			resourcesRestored: result.resourcesRestored,
+			skipped,
+		}) + (pending > 0 ? t("cloudSync.backup.importPending", { count: pending }) : "");
+		showNotice(message, 5000, "info");
+	}, [importBackup, importFilePath, importPassword, importMode]);
+
 	const providers = state?.providers;
 	const webdavSnapshot = providers?.webdav;
 	const s3Snapshot = providers?.s3;
 	const githubSnapshot = providers?.github;
+	const localSnapshot = providers?.local;
 
 	// GitHub Device Flow：token 只在主进程换取并配置，渲染层只展示验证 URL/code。
 	const [githubClientId, setGithubClientId] = useState("");
@@ -642,6 +772,7 @@ export function CloudSyncSettingsTab() {
 				<TabsList className="mb-2 w-fit">
 					<TabsTrigger value="providers">{t("cloudSync.tabs.providers")}</TabsTrigger>
 					<TabsTrigger value="content">{t("cloudSync.tabs.content")}</TabsTrigger>
+					<TabsTrigger value="backup">{t("cloudSync.backup.title")}</TabsTrigger>
 				</TabsList>
 
 				<TabsContent value="providers" className="mt-0">
@@ -679,11 +810,31 @@ export function CloudSyncSettingsTab() {
 					{unlocked ? (
 						<>
 							<SettingsSection title={t("cloudSync.provider.title")} description={t("cloudSync.provider.desc")} divided boxed={false}>
+								<div className="mb-3 rounded-lg border border-border-subtle bg-background/40 p-3">
+									<div className="text-sm font-medium">{t("cloudSync.provider.howToTitle")}</div>
+									<div className="mt-0.5 text-caption text-text-tertiary">{t("cloudSync.provider.howToDesc")}</div>
+									<div className="mt-2 space-y-2">
+										<div>
+											<span className="text-caption font-medium text-foreground/90">{t("cloudSync.provider.kind.oauth")}</span>
+											<div className="text-caption text-text-tertiary">{t("cloudSync.provider.kind.oauthDesc")}</div>
+										</div>
+										<div>
+											<span className="text-caption font-medium text-foreground/90">{t("cloudSync.provider.kind.config")}</span>
+											<div className="text-caption text-text-tertiary">{t("cloudSync.provider.kind.configDesc")}</div>
+										</div>
+										<div>
+											<span className="text-caption font-medium text-foreground/90">{t("cloudSync.provider.kind.folder")}</span>
+											<div className="text-caption text-text-tertiary">{t("cloudSync.provider.kind.folderDesc")}</div>
+											<div className="text-caption text-text-tertiary">{t("cloudSync.provider.kind.folderHint")}</div>
+										</div>
+									</div>
+								</div>
 								<div className="grid gap-3">
 									<ProviderCard
 										provider="webdav"
 										icon={<Cloud size={16} className="text-primary" />}
 										title={t("cloudSync.provider.webdavTitle")}
+										description={t("cloudSync.provider.webdavDesc")}
 										configured={Boolean(webdavSnapshot?.configured)}
 										status={webdavSnapshot?.status ?? "disconnected"}
 										account={webdavSnapshot?.account?.name}
@@ -698,6 +849,7 @@ export function CloudSyncSettingsTab() {
 										provider="s3"
 										icon={<Settings2 size={16} className="text-primary" />}
 										title={t("cloudSync.provider.s3Title")}
+										description={t("cloudSync.provider.s3Desc")}
 										configured={Boolean(s3Snapshot?.configured)}
 										status={s3Snapshot?.status ?? "disconnected"}
 										account={s3Snapshot?.account?.name}
@@ -716,6 +868,15 @@ export function CloudSyncSettingsTab() {
 										onConnect={() => void startGithubConnect()}
 										onDisconnect={() => void disconnectProvider("github")}
 										flow={githubFlow}
+									/>
+									<LocalFolderProviderCard
+										status={localSnapshot?.status ?? "disconnected"}
+										configured={Boolean(localSnapshot?.configured)}
+										onConnect={(folderPath) => {
+											// 主进程 normalizeLocalFolderConfig 会校验绝对路径等约束。
+											void configureProvider({ provider: "local", config: { folderPath } });
+										}}
+										onDisconnect={() => void disconnectProvider("local")}
 									/>
 								</div>
 							</SettingsSection>
@@ -896,6 +1057,64 @@ export function CloudSyncSettingsTab() {
 					) : (
 						<div className="text-caption text-text-tertiary">{t("cloudSync.content.lockedHint")}</div>
 					)}
+				</TabsContent>
+
+				<TabsContent value="backup" className="mt-0">
+					<SettingsSection title={t("cloudSync.backup.title")} description={t("cloudSync.backup.desc")} boxed={false}>
+						<SettingBox>
+							<div className="text-sm font-medium">{t("cloudSync.backup.exportTitle")}</div>
+							<div className="mt-0.5 text-caption text-text-tertiary">{t("cloudSync.backup.exportDesc")}</div>
+							<div className="mt-3">
+								{unlocked ? (
+									<Button size="sm" onClick={() => void handleExport()} loading={busy}>
+										<Download size={14} /> {busy ? t("cloudSync.backup.exporting") : t("cloudSync.backup.exportButton")}
+									</Button>
+								) : (
+									<div className="text-caption text-text-tertiary">{t("cloudSync.backup.exportRequiresUnlock")}</div>
+								)}
+							</div>
+						</SettingBox>
+
+						<SettingBox>
+							<div className="text-sm font-medium">{t("cloudSync.backup.importTitle")}</div>
+							<div className="mt-0.5 text-caption text-text-tertiary">{t("cloudSync.backup.importDesc")}</div>
+							<div className="mt-3 space-y-3">
+								<Field label={t("cloudSync.backup.importFile")}>
+									<div className="flex gap-2">
+										<Input
+											value={importFilePath}
+											onChange={(event) => setImportFilePath(event.target.value)}
+											placeholder="pideck-backup-2026-08-01.pideckbackup"
+											className="min-w-0 flex-1"
+										/>
+										<Button size="sm" variant="outline" onClick={() => void handlePickImportFile()}>
+											<FolderOpen size={14} /> {t("cloudSync.backup.importPick")}
+										</Button>
+									</div>
+								</Field>
+								<Field label={t("cloudSync.backup.importPassword")}>
+									<SecretInput placeholder={t("cloudSync.backup.importPassword")} value={importPassword} onChange={setImportPassword} />
+								</Field>
+								<Field label={t("cloudSync.backup.importMode")}>
+									<Select value={importMode} onValueChange={(value) => setImportMode(value as "merge" | "overwrite" | "restoreMissing")}>
+										<SelectTrigger className="w-full max-w-sm"><SelectValue /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value="merge">{t("cloudSync.backup.importModeMerge")}</SelectItem>
+											<SelectItem value="overwrite">{t("cloudSync.backup.importModeOverwrite")}</SelectItem>
+											<SelectItem value="restoreMissing">{t("cloudSync.backup.importModeRestoreMissing")}</SelectItem>
+										</SelectContent>
+									</Select>
+								</Field>
+								<Button size="sm" onClick={() => void handleImport()} loading={busy} disabled={!importFilePath.trim() || !importPassword}>
+									<Upload size={14} /> {busy ? t("cloudSync.backup.importing") : t("cloudSync.backup.importButton")}
+								</Button>
+							</div>
+						</SettingBox>
+
+						{error ? (
+							<div className="text-sm text-destructive">{error}</div>
+						) : null}
+					</SettingsSection>
 				</TabsContent>
 			</Tabs>
 		</div>

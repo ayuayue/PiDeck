@@ -19,6 +19,7 @@ export const BUILTIN_CLOUD_PROVIDERS = [
 	"onedrive",
 	"webdav",
 	"s3",
+	"local",
 ] as const;
 
 export type BuiltinCloudProvider = (typeof BUILTIN_CLOUD_PROVIDERS)[number];
@@ -28,6 +29,31 @@ export type CloudProvider = BuiltinCloudProvider;
 export function isBuiltinCloudProvider(provider: string): provider is BuiltinCloudProvider {
 	return (BUILTIN_CLOUD_PROVIDERS as readonly string[]).includes(provider);
 }
+
+// ---------------------------------------------------------------------------
+// Unified provider model: upload-method taxonomy
+// ---------------------------------------------------------------------------
+//
+// 所有 provider（含第 6 类"本地同步文件夹"）统一走 PiDeckCloudObjectStorage
+// 对象读写接口，加密/索引/合并/冲突/缩水保护全部 provider 无关；差异只收敛在
+// "文件如何上传到云端" 的连接方式上，供设置页文案与能力提示使用。
+//
+// - oauth  ：浏览器授权后经官方 API 直连（OneDrive / Google Drive，适配器规划中）；
+// - config ：用户填写服务商地址与凭据（WebDAV / S3 / GitHub Gist，已实现）；
+// - folder ：本地同步文件夹，上传交给用户已有的网盘客户端（第 6 类，已实现）。
+
+export const CLOUD_PROVIDER_KINDS = ["oauth", "config", "folder"] as const;
+
+export type CloudProviderKind = (typeof CLOUD_PROVIDER_KINDS)[number];
+
+export const CLOUD_PROVIDER_KIND: Record<BuiltinCloudProvider, CloudProviderKind> = {
+	github: "config",
+	google: "oauth",
+	onedrive: "oauth",
+	webdav: "config",
+	s3: "config",
+	local: "folder",
+};
 
 // ---------------------------------------------------------------------------
 // Provider connection config
@@ -72,6 +98,12 @@ export interface GithubGistConfig {
 	gistId?: string;
 	/** GitHub OAuth App 的 Client ID（Device Flow 必需，用户自备）。 */
 	clientId?: string;
+}
+
+/** 第 6 类 provider：本地同步文件夹。文件写入后由用户已有的网盘客户端负责上云。 */
+export interface LocalFolderConfig {
+	/** 本地文件夹绝对路径（连接时自动创建）。 */
+	folderPath: string;
 }
 
 
@@ -374,7 +406,8 @@ export interface CloudSyncMissingExtension {
 export type CloudSyncProviderConfigInput =
 	| { provider: "webdav"; config: WebDAVConfig }
 	| { provider: "s3"; config: S3Config }
-	| { provider: "github"; config: GithubGistConfig };
+	| { provider: "github"; config: GithubGistConfig }
+	| { provider: "local"; config: LocalFolderConfig };
 
 
 export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";
@@ -382,6 +415,41 @@ export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";
 export type CloudSyncState = "IDLE" | "SYNCING" | "CONFLICT" | "BLOCKED" | "ERROR";
 
 export type CloudSyncStrategy = "smartMerge" | "preferCloud" | "preferLocal";
+
+// ---------------------------------------------------------------------------
+// Local one-click import/export (offline backup, no cloud required)
+// ---------------------------------------------------------------------------
+
+/** 导入模式：merge 本地优先（已有且不同则保留本地）；overwrite 以备份为准；restoreMissing 只补缺失。 */
+export type CloudSyncImportMode = "merge" | "overwrite" | "restoreMissing";
+
+export interface CloudSyncExportResult {
+	filePath: string;
+	createdAt: number;
+	sessionCount: number;
+	resourceCount: number;
+	entryCount: number;
+	bytes: number;
+}
+
+export interface CloudSyncImportResult {
+	filePath: string;
+	sessionCount: number;
+	resourceCount: number;
+	sessionsRestored: number;
+	resourcesRestored: number;
+	sessionsSkipped: number;
+	resourcesSkipped: number;
+	/** 目标机没有对应项目、落入待映射区的项目 id 列表。 */
+	pendingProjects: string[];
+	missingExtensions: CloudSyncMissingExtension[];
+}
+
+export interface CloudSyncImportInput {
+	filePath: string;
+	password: string;
+	mode: CloudSyncImportMode;
+}
 
 export interface CloudSyncStateSnapshot {
 	securityState: CloudSyncSecurityState;
