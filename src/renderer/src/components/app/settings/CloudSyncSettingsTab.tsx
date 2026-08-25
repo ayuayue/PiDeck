@@ -644,7 +644,8 @@ function CategoryHeader(props: {
 
 /** 资源类别在树内的展示顺序：全局节点含 config，项目节点含 settings。 */
 function categoryOrder(isGlobal: boolean): CloudSyncResourceCategory[] {
-	return isGlobal ? ["prompts", "skills", "extensions", "config"] : ["prompts", "skills", "extensions", "settings"];
+	// 全局含 settings（~/.pi/agent/settings.json）与 config（顶层散落文件）；项目含 settings（.pi/settings.json）。
+	return isGlobal ? ["settings", "prompts", "skills", "extensions", "config"] : ["prompts", "skills", "extensions", "settings"];
 }
 
 /** 项目选择节点：可折叠；节点头部全选会话，展开后按类别分组（M9 §12.2）。 */

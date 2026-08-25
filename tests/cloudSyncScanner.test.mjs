@@ -270,3 +270,26 @@ test("scanner adds custom sync paths as config candidates", async () => {
 		await rm(base, { recursive: true, force: true });
 	}
 });
+
+test("scanner exposes global agent settings.json as a settings-category candidate", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-cloud-scan-"));
+	const home = join(base, "home");
+	try {
+		await makeHome(home, {
+			".pi/agent/settings.json": "{}",
+		});
+		const scanner = new CloudSyncScanner({
+			homeDir: home,
+			listProjects: () => [],
+			listSessionRecords: () => [],
+		});
+		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
+		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
+		assert.ok(global);
+		const settings = global.resources.find((resource) => resource.category === "settings" && resource.relativePath === "settings.json");
+		assert.ok(settings, "global ~/.pi/agent/settings.json must be a settings-category candidate");
+		assert.equal(settings.selectionId, "resource:__global__:settings:settings.json");
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
