@@ -28,6 +28,7 @@ import {
 	type CloudSyncObjectStorageCapabilities,
 	type CloudSyncObjectWriteOptions,
 	type CloudSyncObjectWriteResult,
+	type CloudSyncRotatedTokens,
 	type PiDeckCloudObjectStorage,
 } from "../objectStorage.ts";
 import { normalizeGoogleDriveConfig } from "../providerConfig.ts";
@@ -102,6 +103,8 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 	private accessToken: string | undefined;
 	private refreshToken: string | undefined;
 	private expiresAt: number | undefined;
+	/** token 轮换回调：刷新成功后通知持有者持久化（Google refresh token 会轮换）。 */
+	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void) | null = null;
 
 	constructor(config: unknown, deps?: { fetchLike?: FetchLike }) {
 		this.config = normalizeGoogleDriveConfig(config);
@@ -385,6 +388,17 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 			this.refreshToken = token.refresh_token;
 		}
 		this.expiresAt = typeof token.expires_in === "number" ? Date.now() + token.expires_in * 1000 : undefined;
+		// 轮换后的 token 必须持久化，否则重启后旧 refresh token 失效 → 被迫重新授权。
+		this.onTokensRefreshed?.({
+			accessToken: this.accessToken,
+			...(this.refreshToken ? { refreshToken: this.refreshToken } : {}),
+			...(this.expiresAt !== undefined ? { expiresAt: this.expiresAt } : {}),
+		});
+	}
+
+	/** 注册 token 轮换回调（持有者 = CloudSyncManager，负责密封落盘）。 */
+	setOnTokensRefreshed(callback: (tokens: CloudSyncRotatedTokens) => void): void {
+		this.onTokensRefreshed = callback;
 	}
 
 	private requireToken(): void {

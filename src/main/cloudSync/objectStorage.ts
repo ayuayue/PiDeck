@@ -37,6 +37,13 @@ export interface CloudSyncObjectDeleteOptions {
 	signal?: AbortSignal;
 }
 
+/** OAuth provider 的 token 轮换回调载荷（刷新成功后由持有者持久化落盘）。 */
+export interface CloudSyncRotatedTokens {
+	accessToken: string;
+	refreshToken?: string;
+	expiresAt?: number;
+}
+
 /** Provider-neutral storage for already-encrypted bytes. */
 export interface PiDeckCloudObjectStorage {
 	readonly providerId: CloudProvider;
@@ -51,6 +58,12 @@ export interface PiDeckCloudObjectStorage {
 		options?: CloudSyncObjectWriteOptions,
 	): Promise<CloudSyncObjectWriteResult>;
 	deleteObject(key: string, options?: CloudSyncObjectDeleteOptions): Promise<{ deleted: boolean }>;
+	/**
+	 * OAuth providers：access/refresh token 轮换时回调，供持有者持久化
+	 * （Microsoft consumer / Google 的 refresh token 每次刷新会轮换并作废旧值，
+	 * 不持久化新值会导致重启后刷新失败、被迫重新授权——Netcatty #1189 教训）。
+	 */
+	setOnTokensRefreshed?(callback: (tokens: CloudSyncRotatedTokens) => void): void;
 }
 
 export type CloudSyncProviderConfig = WebDAVConfig | S3Config;

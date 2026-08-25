@@ -53,9 +53,13 @@ npm run dev -- --user-data-dir=C:\PiDeckDeviceB
 | **WebDAV（坚果云）** | 坚果云网页版 → 账户信息 → 安全选项 → 第三方应用管理 → 生成**应用密码**；卡内点「坚果云」模板自动填 endpoint `https://dav.jianguoyun.com/dav/`，用户名=邮箱、密码=应用密码 | ★★★★ |
 | **WebDAV（InfiniCloud）** | infini-cloud.net My Page 开启 Apps connection 生成 Apps Password，WebDAV 地址见 My Page（`https://<子域名>.teracloud.jp/dav/`） | ★★★☆ |
 | **GitHub Gist** | 填 GitHub OAuth App Client ID（Device Flow）或已有 token；单文件 1MB 上限，只适合索引/小数据 | ★★☆ |
-| **OneDrive** | 卡内指引注册 Azure「移动和桌面应用程序」→ 重定向 `http://localhost` → 填 Client ID → 通过浏览器连接（PKCE 授权） | ★★★☆ |
-| **Google Drive** | Google Cloud Console 创建「桌面应用」OAuth 客户端 → 填 Client ID（+可选 Secret）→ 通过浏览器连接（需海外网络） | ★★☆ |
+| **OneDrive** | 卡内指引注册 Azure「移动和桌面应用程序」→ 重定向 `http://localhost` → 填 Client ID → 通过浏览器连接（PKCE 授权）。**若构建期注入了 `VITE_SYNC_ONEDRIVE_CLIENT_ID`，输入框自动隐藏，直接点连接（对齐 Netcatty 零配置）** | ★★★☆ |
+| **Google Drive** | Google Cloud Console 创建「桌面应用」OAuth 客户端 → 填 Client ID（+可选 Secret）→ 通过浏览器连接（需海外网络）。**注入 `VITE_SYNC_GOOGLE_CLIENT_ID` / `_SECRET` 后同样零配置** | ★★☆ |
 | **S3** | 真实 bucket（R2/B2/腾讯 COS/MinIO）或本地 MinIO；技术用户选项 | ★☆ |
+
+> **内置凭据怎么注入**（可选，模拟 Netcatty 零配置）：dev 启动前设置环境变量即可，
+> 例如 PowerShell：`$env:VITE_SYNC_ONEDRIVE_CLIENT_ID="<你的 Azure Client ID>"; npm run dev`。
+> 注入后 OneDrive/Google 卡片不再显示凭据输入框；不注入时保持「用户自备」模式。
 
 **验证点**：卡片状态点变绿 + 显示「已连接」；主进程日志无报错。
 

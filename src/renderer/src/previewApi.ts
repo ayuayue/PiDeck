@@ -1328,6 +1328,7 @@ export function createPreviewApi(): PiDesktopApi {
 				exclusions: [],
 				customPaths: [],
 				mounts: [],
+				oauthBuiltins: { onedrive: false, google: false },
 			}),
 			onStateChanged: () => noop,
 			setupMasterKey: async () => ({ securityState: "UNLOCKED" } as never),

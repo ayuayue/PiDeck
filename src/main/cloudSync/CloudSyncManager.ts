@@ -74,6 +74,7 @@ import { createCloudSyncObjectStorage } from "./adapters/index.ts";
 import { normalizeGithubGistConfig, normalizeGoogleDriveConfig, normalizeLocalFolderConfig, normalizeOneDriveConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
 import { BackupFileReader, BackupFileWriter, parseBackupManifest, type PiDeckBackupManifestV1 } from "./exportImport.ts";
 import { createMountRegistry } from "./cloudSyncMounts.ts";
+import { OAUTH_BUILTIN_CREDENTIALS, type OAuthBuiltinCredentials } from "./oauthCredentials.ts";
 import {
 	buildCatalogSyncEntry,
 	buildCloudSyncProject,
@@ -296,6 +297,8 @@ export interface CloudSyncManagerOptions {
 		codeVerifier: string;
 		redirectUri: string;
 	}) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
+	/** 内置 OAuth 凭据（对齐 Netcatty：构建期 env 注入，缺省读 VITE_SYNC_* 环境变量）。 */
+	oauthBuiltins?: OAuthBuiltinCredentials;
 	onStateChanged?: (snapshot: CloudSyncStateSnapshot) => void;
 	log?: (domain: string, message: string, details?: Record<string, unknown>) => void;
 }
@@ -309,6 +312,8 @@ export interface CloudSyncManagerOptions {
  */
 export class CloudSyncManager {
 	private readonly options: CloudSyncManagerOptions;
+	/** 内置 OAuth 凭据（构建期注入；缺省读 VITE_SYNC_*）。 */
+	private readonly oauthBuiltins: OAuthBuiltinCredentials;
 	private readonly stateFile: string;
 	private readonly scanner: CloudSyncScanner;
 	private state: CloudSyncPersistedState = createDefaultState();
@@ -355,6 +360,7 @@ export class CloudSyncManager {
 
 	constructor(options: CloudSyncManagerOptions) {
 		this.options = options;
+		this.oauthBuiltins = options.oauthBuiltins ?? OAUTH_BUILTIN_CREDENTIALS;
 		this.stateFile = join(options.userDataDir, "cloud-sync-state.json");
 		this.scanner = new CloudSyncScanner({
 			homeDir: options.homeDir,
@@ -398,6 +404,10 @@ export class CloudSyncManager {
 			exclusions: this.state.exclusions.map((item) => ({ ...item })),
 			customPaths: this.state.customPaths.map((item) => ({ ...item })),
 			mounts: this.mounts?.list() ?? [],
+			oauthBuiltins: {
+				onedrive: Boolean(this.oauthBuiltins.onedriveClientId),
+				google: Boolean(this.oauthBuiltins.googleClientId),
+			},
 		};
 	}
 
@@ -526,10 +536,36 @@ export class CloudSyncManager {
 		// 只断开旧连接，不清除已加密的持久化配置。
 		await this.disconnectProviderConnection(provider);
 		const adapter = (this.options.createAdapter ?? createCloudSyncObjectStorage)(provider, config);
+		// OAuth provider：token 轮换时持久化新 token（Microsoft consumer / Google 每次刷新轮换并作废旧值）。
+		if (provider === "onedrive" || provider === "google") {
+			const base = config as OneDriveConfig | GoogleDriveConfig;
+			adapter.setOnTokensRefreshed?.((tokens) => {
+				void this.persistRotatedTokens(provider, { ...base, ...tokens });
+			});
+		}
 		const result = await adapter.connect();
 		this.adapters.set(provider, adapter);
 		this.emitState();
 		return result.account;
+	}
+
+	/** OAuth token 轮换持久化：重新密封落盘（不触发连接重建，避免刷新期间抖动）。 */
+	private async persistRotatedTokens(
+		provider: "onedrive" | "google",
+		config: OneDriveConfig | GoogleDriveConfig,
+	): Promise<void> {
+		if (this.securityState() !== "UNLOCKED") return; // 锁定时无法密封，解锁后下次刷新失败会提示重连
+		try {
+			const sealed = await this.sealConfig(config, this.requirePassword(), this.state.masterKeyConfig!);
+			this.state.providers[provider] = { configured: true, sealed };
+			this.providerConfigs.set(provider, config);
+			await this.persist();
+		} catch (error) {
+			// 持久化尽力而为：本次会话的新 token 仍可用，失败不阻断同步（Netcatty 同策略）。
+			this.options.log?.("cloudSync", `Failed to persist rotated tokens for ${provider}`, {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	async disconnectProviderConnection(provider: CloudProvider): Promise<void> {
@@ -575,14 +611,14 @@ export class CloudSyncManager {
 	/**
 	 * Start the OneDrive authorization-code + PKCE flow.
 	 *
-	 * clientId is user-supplied (Azure app with the "Mobile and desktop
-	 * applications" platform and an `http://localhost` redirect). A loopback
-	 * HTTP server on 127.0.0.1:{port} receives the callback; the renderer
-	 * shows verificationUrl and polls pollOneDriveOAuth().
+	 * clientId：优先使用构建期注入的内置凭据（`VITE_SYNC_ONEDRIVE_CLIENT_ID`，
+	 * 对齐 Netcatty，用户零配置）；未注入时使用用户自备值（BYO）。
+	 * 回环 HTTP 服务收回调；渲染层展示 verificationUrl 并轮询 pollOneDriveOAuth()。
 	 */
 	async startOneDriveOAuth(clientId: string): Promise<CloudSyncOneDriveFlowStart> {
 		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
-		if (clientId.trim().length === 0 || clientId.length > 128) throw new TypeError("OneDrive clientId is invalid");
+		const resolvedClientId = clientId.trim() || this.oauthBuiltins.onedriveClientId;
+		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("OneDrive clientId is invalid");
 		// 重启流程：关掉旧回环服务，避免端口/状态残留。
 		this.closeOneDriveFlowServer();
 
@@ -622,12 +658,12 @@ export class CloudSyncManager {
 			});
 		});
 		const port = (server.address() as { port: number }).port;
-		this.oneDriveFlow = { clientId: clientId.trim(), codeVerifier, state, port, server, resolved };
+		this.oneDriveFlow = { clientId: resolvedClientId, codeVerifier, state, port, server, resolved };
 
 		const redirectUri = encodeURIComponent(`http://localhost:${port}`);
 		const verificationUrl =
 			"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" +
-			`?client_id=${encodeURIComponent(clientId.trim())}` +
+			`?client_id=${encodeURIComponent(resolvedClientId)}` +
 			`&response_type=code&redirect_uri=${redirectUri}` +
 			"&scope=Files.ReadWrite.AppFolder%20offline_access" +
 			`&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}`;
@@ -723,12 +759,15 @@ export class CloudSyncManager {
 
 	/**
 	 * Start the Google authorization-code + PKCE flow (desktop app client).
-	 * clientSecret is optional (PKCE public client); access_type=offline +
-	 * prompt=consent ensure a refresh token for personal accounts.
+	 * clientId/clientSecret：优先使用构建期注入的内置凭据（VITE_SYNC_GOOGLE_*，
+	 * 对齐 Netcatty）；未注入时使用用户自备值（BYO）。access_type=offline +
+	 * prompt=consent 保证个人账号有 refresh token。
 	 */
 	async startGoogleOAuth(clientId: string, clientSecret?: string): Promise<CloudSyncGoogleFlowStart> {
 		if (this.securityState() !== "UNLOCKED") throw new Error("Cloud sync must be unlocked");
-		if (clientId.trim().length === 0 || clientId.length > 128) throw new TypeError("Google Drive clientId is invalid");
+		const resolvedClientId = clientId.trim() || this.oauthBuiltins.googleClientId;
+		const resolvedClientSecret = clientSecret?.trim() || this.oauthBuiltins.googleClientSecret || undefined;
+		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("Google Drive clientId is invalid");
 		this.closeGoogleFlowServer();
 
 		const codeVerifier = randomBytes(43).toString("base64url");
@@ -767,8 +806,8 @@ export class CloudSyncManager {
 		});
 		const port = (server.address() as { port: number }).port;
 		this.googleFlow = {
-			clientId: clientId.trim(),
-			...(clientSecret && clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}),
+			clientId: resolvedClientId,
+			...(resolvedClientSecret ? { clientSecret: resolvedClientSecret } : {}),
 			codeVerifier,
 			state,
 			port,
@@ -780,7 +819,7 @@ export class CloudSyncManager {
 		const scope = encodeURIComponent("https://www.googleapis.com/auth/drive.appfolder");
 		const verificationUrl =
 			"https://accounts.google.com/o/oauth2/v2/auth" +
-			`?client_id=${encodeURIComponent(clientId.trim())}` +
+			`?client_id=${encodeURIComponent(resolvedClientId)}` +
 			`&redirect_uri=${redirectUri}` +
 			`&response_type=code&scope=${scope}` +
 			`&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}` +

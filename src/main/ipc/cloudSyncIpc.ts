@@ -385,10 +385,14 @@ export function registerCloudSyncIpc(deps: {
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncOneDriveStart, async (_event, clientId: unknown) => {
-		if (typeof clientId !== "string" || clientId.trim().length === 0 || clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+		// clientId 可为空串：走构建期注入的内置凭据（对齐 Netcatty）；非空时按 BYO 校验。
+		if (clientId !== null && clientId !== undefined && typeof clientId !== "string") {
 			throw new TypeError("OneDrive client id is invalid");
 		}
-		return manager.startOneDriveOAuth(clientId.trim());
+		if (typeof clientId === "string" && (clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId))) {
+			throw new TypeError("OneDrive client id is invalid");
+		}
+		return manager.startOneDriveOAuth(typeof clientId === "string" ? clientId.trim() : "");
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncOneDrivePoll, async () => {
@@ -398,13 +402,20 @@ export function registerCloudSyncIpc(deps: {
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncGoogleStart, async (_event, clientId: unknown, clientSecret: unknown) => {
-		if (typeof clientId !== "string" || clientId.trim().length === 0 || clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+		// clientId 可为空串：走构建期注入的内置凭据；非空时按 BYO 校验。
+		if (clientId !== null && clientId !== undefined && typeof clientId !== "string") {
+			throw new TypeError("Google Drive client id is invalid");
+		}
+		if (typeof clientId === "string" && (clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId))) {
 			throw new TypeError("Google Drive client id is invalid");
 		}
 		if (clientSecret !== null && clientSecret !== undefined && typeof clientSecret !== "string") {
 			throw new TypeError("Google Drive client secret is invalid");
 		}
-		return manager.startGoogleOAuth(clientId.trim(), typeof clientSecret === "string" ? clientSecret.trim() : undefined);
+		return manager.startGoogleOAuth(
+			typeof clientId === "string" ? clientId.trim() : "",
+			typeof clientSecret === "string" ? clientSecret.trim() : undefined,
+		);
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncGooglePoll, async () => {
