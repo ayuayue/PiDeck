@@ -568,7 +568,7 @@ export interface CloudSyncStateSnapshot {
 	/** M9：云端项目 → 本地目录挂载映射（全手动策略）。 */
 	mounts: CloudSyncMount[];
 	/** 是否已内置 OAuth 应用凭据（构建期注入）：为 true 时设置页隐藏凭据输入、直接浏览器授权。 */
-	oauthBuiltins: { onedrive: boolean; google: boolean };
+	oauthBuiltins: { github: boolean; onedrive: boolean; google: boolean };
 }
 
 export const CLOUD_SYNC_STORAGE_KEYS = {

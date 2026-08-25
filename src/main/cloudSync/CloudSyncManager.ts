@@ -297,6 +297,8 @@ export interface CloudSyncManagerOptions {
 		codeVerifier: string;
 		redirectUri: string;
 	}) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
+	/** GitHub Device Flow 测试注入点：缺省走真实 GitHub 端点（全局 fetch）。 */
+	startGithubDeviceFlowImpl?: (clientId: string) => Promise<GithubDeviceFlowStart>;
 	/** 内置 OAuth 凭据（对齐 Netcatty：构建期 env 注入，缺省读 VITE_SYNC_* 环境变量）。 */
 	oauthBuiltins?: OAuthBuiltinCredentials;
 	onStateChanged?: (snapshot: CloudSyncStateSnapshot) => void;
@@ -405,6 +407,7 @@ export class CloudSyncManager {
 			customPaths: this.state.customPaths.map((item) => ({ ...item })),
 			mounts: this.mounts?.list() ?? [],
 			oauthBuiltins: {
+				github: Boolean(this.oauthBuiltins.githubClientId),
 				onedrive: Boolean(this.oauthBuiltins.onedriveClientId),
 				google: Boolean(this.oauthBuiltins.googleClientId),
 			},
@@ -578,9 +581,16 @@ export class CloudSyncManager {
 
 	// ── GitHub Device Flow（token 只在主进程流转） ───────────────────
 
+	/**
+	 * 启动 GitHub Device Flow。
+	 * clientId：优先使用构建期注入的内置凭据（`VITE_SYNC_GITHUB_CLIENT_ID`，
+	 * 对齐 Netcatty，用户零配置）；未注入时使用用户自备值（BYO）。
+	 */
 	async startGithubDeviceFlow(clientId: string): Promise<GithubDeviceFlowStart> {
-		const flow = await startGithubDeviceFlow(clientId);
-		this.githubDeviceFlow = { ...flow, clientId };
+		const resolvedClientId = clientId.trim() || this.oauthBuiltins.githubClientId;
+		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("GitHub client id is invalid");
+		const flow = await (this.options.startGithubDeviceFlowImpl ?? startGithubDeviceFlow)(resolvedClientId);
+		this.githubDeviceFlow = { ...flow, clientId: resolvedClientId };
 		return flow;
 	}
 

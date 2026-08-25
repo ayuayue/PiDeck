@@ -36,7 +36,7 @@ function createRotatingTokenAdapter() {
 	return adapter;
 }
 
-function makeManager({ userDataDir, homeDir, oauthBuiltins, createAdapter }) {
+function makeManager({ userDataDir, homeDir, oauthBuiltins, createAdapter, startGithubDeviceFlowImpl }) {
 	return new CloudSyncManager({
 		userDataDir,
 		homeDir,
@@ -48,6 +48,7 @@ function makeManager({ userDataDir, homeDir, oauthBuiltins, createAdapter }) {
 		updateDesktopSettings: async () => undefined,
 		...(oauthBuiltins ? { oauthBuiltins } : {}),
 		...(createAdapter ? { createAdapter } : {}),
+		...(startGithubDeviceFlowImpl ? { startGithubDeviceFlowImpl } : {}),
 	});
 }
 
@@ -56,17 +57,58 @@ function makeManager({ userDataDir, homeDir, oauthBuiltins, createAdapter }) {
 test("resolveOauthBuiltinCredentials reads VITE_SYNC_* env vars", () => {
 	assert.deepEqual(
 		resolveOauthBuiltinCredentials({
+			VITE_SYNC_GITHUB_CLIENT_ID: "gh-id",
 			VITE_SYNC_ONEDRIVE_CLIENT_ID: " azure-id ",
 			VITE_SYNC_GOOGLE_CLIENT_ID: "google-id",
 			VITE_SYNC_GOOGLE_CLIENT_SECRET: "secret",
 		}),
-		{ onedriveClientId: "azure-id", googleClientId: "google-id", googleClientSecret: "secret" },
+		{ githubClientId: "gh-id", onedriveClientId: "azure-id", googleClientId: "google-id", googleClientSecret: "secret" },
 	);
 	assert.deepEqual(resolveOauthBuiltinCredentials({}), {
+		githubClientId: "",
 		onedriveClientId: "",
 		googleClientId: "",
 		googleClientSecret: "",
 	});
+});
+
+test("manager uses built-in GitHub clientId for the device flow when the user leaves it empty", async () => {
+	const base = await mkdtemp(join(tmpdir(), "pideck-gh-builtin-"));
+	try {
+		const userDataDir = join(base, "userData");
+		const homeDir = join(base, "home");
+		await mkdir(homeDir, { recursive: true });
+		const requestedClientIds = [];
+		const manager = makeManager({
+			userDataDir,
+			homeDir,
+			oauthBuiltins: { githubClientId: "builtin-gh-id", onedriveClientId: "", googleClientId: "", googleClientSecret: "" },
+			createAdapter: () => createRotatingTokenAdapter(),
+			startGithubDeviceFlowImpl: async (clientId) => {
+				requestedClientIds.push(clientId);
+				return { deviceCode: "dc", userCode: "uc", verificationUrl: "https://github.com/login/device", expiresIn: 900, interval: 5 };
+			},
+		});
+		await manager.initialize();
+		await manager.setupMasterKey(PASSWORD);
+
+		// 用户不填 clientId → 设备流请求使用内置 clientId（对齐 Netcatty）。
+		const flow = await manager.startGithubDeviceFlow("");
+		assert.ok(flow.verificationUrl.length > 0);
+		assert.deepEqual(requestedClientIds, ["builtin-gh-id"]);
+		assert.equal(manager.getStateSnapshot().oauthBuiltins.github, true);
+
+		// 无内置也无输入 → 报错
+		const emptyManager = makeManager({ userDataDir: join(base, "ud2"), homeDir });
+		await emptyManager.initialize();
+		await emptyManager.setupMasterKey(PASSWORD);
+		await assert.rejects(() => emptyManager.startGithubDeviceFlow(""), /GitHub client id is invalid/);
+		await emptyManager.dispose();
+
+		await manager.dispose();
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
 });
 
 test("manager uses built-in OneDrive clientId when the user leaves it empty", async () => {
@@ -151,8 +193,12 @@ test("rotated OAuth tokens are persisted to the sealed provider config and survi
 
 		// 模拟刷新成功后 token 轮换（Microsoft consumer 每次刷新轮换并作废旧 token）。
 		adapter.refreshedCallback({ accessToken: "new-access", refreshToken: "new-refresh", expiresAt: 12345 });
-		// persistRotatedTokens 是异步 fire-and-forget，等它落盘后再重启。
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		// persistRotatedTokens 是异步 fire-and-forget（PBKDF2 密封较慢），有界轮询等它落盘。
+		for (let attempt = 0; attempt < 40; attempt++) {
+			const sealed = manager.providerConfigs.get("onedrive");
+			if (sealed && "refreshToken" in sealed && sealed.refreshToken === "new-refresh") break;
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
 
 		const sealedConfig = manager.providerConfigs.get("onedrive");
 		assert.ok(sealedConfig);

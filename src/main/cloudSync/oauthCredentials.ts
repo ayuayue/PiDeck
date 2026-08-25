@@ -2,8 +2,9 @@
  * OAuth 内置凭据（对齐 Netcatty：clientId 由应用方注册，构建/部署期注入，不进代码库）。
  *
  * 通过环境变量注入（dev 直接生效；打包构建时由部署方设置）：
- * - VITE_SYNC_ONEDRIVE_CLIENT_ID   ：Azure「移动和桌面应用程序」Client ID
- * - VITE_SYNC_GOOGLE_CLIENT_ID     ：Google Cloud「桌面应用」OAuth Client ID
+ * - VITE_SYNC_GITHUB_CLIENT_ID   ：GitHub OAuth App Client ID（Device Flow 公共客户端）
+ * - VITE_SYNC_ONEDRIVE_CLIENT_ID ：Azure「移动和桌面应用程序」Client ID
+ * - VITE_SYNC_GOOGLE_CLIENT_ID   ：Google Cloud「桌面应用」OAuth Client ID
  * - VITE_SYNC_GOOGLE_CLIENT_SECRET ：Google 桌面应用 Client Secret（PKCE 可省略）
  *
  * 注入后设置页隐藏凭据输入、用户点「通过浏览器连接」直接授权（零配置）；
@@ -11,6 +12,7 @@
  */
 
 export interface OAuthBuiltinCredentials {
+	githubClientId: string;
 	onedriveClientId: string;
 	googleClientId: string;
 	googleClientSecret: string;
@@ -20,6 +22,7 @@ export function resolveOauthBuiltinCredentials(
 	env: Record<string, string | undefined> = process.env,
 ): OAuthBuiltinCredentials {
 	return {
+		githubClientId: (env.VITE_SYNC_GITHUB_CLIENT_ID ?? "").trim(),
 		onedriveClientId: (env.VITE_SYNC_ONEDRIVE_CLIENT_ID ?? "").trim(),
 		googleClientId: (env.VITE_SYNC_GOOGLE_CLIENT_ID ?? "").trim(),
 		googleClientSecret: (env.VITE_SYNC_GOOGLE_CLIENT_SECRET ?? "").trim(),

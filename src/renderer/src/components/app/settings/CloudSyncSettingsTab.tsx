@@ -336,10 +336,12 @@ function ProviderCard(props: {
 	);
 }
 
-/** GitHub 服务卡：与 ProviderCard 同款折叠式，正文为 Device Flow 连接区。 */
+/** GitHub 服务卡：与 ProviderCard 同款折叠式，正文为 Device Flow 连接区（浏览器授权）。 */
 function GithubProviderCard(props: {
 	status: string;
 	configured: boolean;
+	/** 已内置应用凭据（构建期注入）：隐藏 Client ID 输入，直接浏览器连接（对齐 Netcatty）。 */
+	builtin?: boolean;
 	clientId: string;
 	onClientIdChange: (value: string) => void;
 	onConnect: () => void;
@@ -376,14 +378,16 @@ function GithubProviderCard(props: {
 			</div>
 			{editing ? (
 				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
-					<Field label={t("cloudSync.provider.field.clientId")}>
-						<div className="space-y-1">
-							<Input placeholder="Iv23li…" value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} />
-							<p className="text-caption text-text-tertiary">{t("cloudSync.provider.field.clientIdHint")}</p>
-						</div>
-					</Field>
+					{!props.builtin ? (
+						<Field label={t("cloudSync.provider.field.clientId")}>
+							<div className="space-y-1">
+								<Input placeholder="Iv23li…" value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} />
+								<p className="text-caption text-text-tertiary">{t("cloudSync.provider.field.clientIdHint")}</p>
+							</div>
+						</Field>
+					) : null}
 					<div className="flex items-center gap-2">
-						<Button size="sm" onClick={props.onConnect} disabled={!props.clientId.trim()}>
+						<Button size="sm" onClick={props.onConnect} disabled={!props.builtin && !props.clientId.trim()}>
 							{t("cloudSync.provider.githubConnect")}
 						</Button>
 						{props.configured && props.status === "disconnected" && props.onReconnect ? (
@@ -1298,6 +1302,7 @@ export function CloudSyncSettingsTab() {
 									<GithubProviderCard
 										status={githubSnapshot?.status ?? "disconnected"}
 										configured={Boolean(githubSnapshot?.configured)}
+										builtin={Boolean(state?.oauthBuiltins?.github)}
 										clientId={githubClientId}
 										onClientIdChange={setGithubClientId}
 										onConnect={() => void startGithubConnect()}

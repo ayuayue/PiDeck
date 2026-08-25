@@ -243,10 +243,14 @@ export function registerCloudSyncIpc(deps: {
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncGithubDeviceStart, async (_event, clientId: unknown) => {
-		if (typeof clientId !== "string" || clientId.length === 0 || clientId.length > 128) {
+		// clientId 可为空串：走构建期注入的内置凭据（对齐 Netcatty）；非空时按 BYO 校验。
+		if (clientId !== null && clientId !== undefined && typeof clientId !== "string") {
 			throw new TypeError("GitHub client id is invalid");
 		}
-		return manager.startGithubDeviceFlow(clientId);
+		if (typeof clientId === "string" && (clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId))) {
+			throw new TypeError("GitHub client id is invalid");
+		}
+		return manager.startGithubDeviceFlow(typeof clientId === "string" ? clientId.trim() : "");
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncGithubDevicePoll, async () => {
