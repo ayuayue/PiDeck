@@ -127,6 +127,7 @@ import type {
 	CloudSyncImportResult,
 	CloudSyncMissingExtension,
 	CloudSyncOneDriveFlowStart,
+	CloudSyncGoogleFlowStart,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
 	CloudSyncProviderConfigInput,
@@ -1911,6 +1912,10 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.cloudSyncOneDriveStart, clientId) as Promise<CloudSyncOneDriveFlowStart | null>,
 		oneDrivePoll: () =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncOneDrivePoll) as Promise<{ status: "ok" | "pending" | "error"; error?: string }>,
+		googleStart: (clientId: string, clientSecret?: string) =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncGoogleStart, clientId, clientSecret ?? null) as Promise<CloudSyncGoogleFlowStart | null>,
+		googlePoll: () =>
+			ipcRenderer.invoke(ipcChannels.cloudSyncGooglePoll) as Promise<{ status: "ok" | "pending" | "error"; error?: string }>,
 		setExclusions: (patterns: string[]) =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncSetExclusions, patterns) as Promise<CloudSyncStateSnapshot>,
 		addCustomPath: (input: {

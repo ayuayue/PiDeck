@@ -12,7 +12,7 @@ import type {
 	CloudSyncSelectionTree,
 	CloudSyncSessionCandidate,
 } from "../../shared/types/cloudSync.ts";
-import { GLOBAL_SYNC_PROJECT_ID } from "./payload.ts";
+import { GLOBAL_SYNC_PROJECT_ID, DSH_SYNC_PROJECT_ID, DSH_SYNC_PROJECT_NAME } from "./payload.ts";
 
 const SESSION_ROOT_RELATIVE = join(".pi", "agent", "sessions");
 const MAX_FILES_PER_ROOT = 5_000;
@@ -70,6 +70,8 @@ type FileEntry = {
 
 export interface CloudSyncScannerOptions {
 	homeDir: string;
+	/** $DSH_HOME（可选）：提供时扫描 DSH 会话（$DSH_HOME/sessions）。 */
+	dshHomeDir?: string;
 	listProjects: () => Project[];
 	listSessionRecords: () => SessionRecord[];
 }
@@ -105,7 +107,7 @@ function isPermissionError(error: unknown): boolean {
 	);
 }
 
-function stableOrphanSessionId(scope: "global" | "project", projectId: string, relativePath: string): string {
+function stableOrphanSessionId(scope: "global" | "project" | "dsh", projectId: string, relativePath: string): string {
 	const digest = createHash("sha256")
 		.update(`${scope}\0${projectId}\0${relativePath}`, "utf8")
 		.digest("hex")
@@ -113,7 +115,7 @@ function stableOrphanSessionId(scope: "global" | "project", projectId: string, r
 	return `orphan-${digest}`;
 }
 
-function selectionId(scope: "global" | "project", projectId: string, sessionId: string): string {
+function selectionId(scope: "global" | "project" | "dsh", projectId: string, sessionId: string): string {
 	return `session:${scope}:${projectId}:${sessionId}`;
 }
 
@@ -317,12 +319,33 @@ export class CloudSyncScanner {
 			resources.set(item.candidate.selectionId, item);
 		}
 
+		// DSH 会话（$DSH_HOME/sessions）：合成节点，用户按会话勾选（scope "dsh"）。
+		if (this.options.dshHomeDir) {
+			const dshNode: CloudSyncProjectSelectionNode = {
+				projectId: DSH_SYNC_PROJECT_ID,
+				name: DSH_SYNC_PROJECT_NAME,
+				kind: "normal",
+				environment: "windows",
+				sessions: [],
+				resources: [],
+			};
+			const dshResult = await this.scanDshSessions(this.options.dshHomeDir, preferences);
+			roots.push(dshResult.status);
+			for (const item of dshResult.items) {
+				dshNode.sessions.push(item.candidate);
+				sessions.set(item.candidate.selectionId, item);
+			}
+			projectNodes.set(DSH_SYNC_PROJECT_ID, dshNode);
+		}
+
 		for (const node of projectNodes.values()) {
 			node.sessions.sort((left, right) => right.mtimeMs - left.mtimeMs);
 			node.resources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 		}
+		const dshNode = projectNodes.get(DSH_SYNC_PROJECT_ID);
 		const orderedProjects = [
 			globalNode,
+			...(dshNode ? [dshNode] : []),
 			...projects
 				.map((project) => projectNodes.get(project.id))
 				.filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
@@ -413,6 +436,93 @@ export class CloudSyncScanner {
 				...(files.status.error ? { error: files.status.error } : {}),
 			},
 		};
+	}
+
+	/**
+	 * 扫描 DSH 会话：`$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`。
+	 * 会话粒度 = 目录粒度（sessionId = 目录名）；内容统一按解压后文本同步（见 manager 上传路径）。
+	 */
+	private async scanDshSessions(
+		dshHome: string,
+		preferences: CloudSyncSelectionPreferences,
+	): Promise<RootScanResult<CloudSyncInternalSession>> {
+		const sessionsRoot = join(dshHome, "sessions");
+		const items: CloudSyncInternalSession[] = [];
+		let ok = true;
+		let error: string | undefined;
+		try {
+			let workspaceDirs: string[];
+			try {
+				workspaceDirs = (await readdir(sessionsRoot, { withFileTypes: true }))
+					.filter((entry) => entry.isDirectory())
+					.map((entry) => entry.name);
+			} catch (caught) {
+				// 尚无 sessions 目录 = 0 个会话，不是失败（全新 $DSH_HOME 常见）。
+				if (isMissingError(caught)) {
+					return { items, status: { id: "dsh-sessions", label: DSH_SYNC_PROJECT_NAME, kind: "dsh-sessions", ok: true, count: 0 } };
+				}
+				throw caught;
+			}
+			for (const workspaceDir of workspaceDirs) {
+				const workspacePath = join(sessionsRoot, workspaceDir);
+				const sessionDirs = (await readdir(workspacePath, { withFileTypes: true }))
+					.filter((entry) => entry.isDirectory())
+					.map((entry) => entry.name);
+				for (const sessionDir of sessionDirs) {
+					const sessionPath = join(workspacePath, sessionDir);
+					const logFile = await this.findDshLogFile(sessionPath);
+					if (!logFile) continue;
+					const stat = await lstat(logFile);
+					if (!stat.isFile()) continue;
+					if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(sessionDir)) continue;
+					const relativePath = `${workspaceDir}/${sessionDir}/${basename(logFile)}`;
+					const candidate: CloudSyncSessionCandidate = {
+						selectionId: selectionId("dsh", DSH_SYNC_PROJECT_ID, sessionDir),
+						sessionId: sessionDir,
+						title: sessionDir,
+						projectId: DSH_SYNC_PROJECT_ID,
+						scope: "dsh",
+						relativePath,
+						size: stat.size,
+						mtimeMs: stat.mtimeMs,
+						source: "dsh",
+						environment: "native",
+						selected: preferences.selectedSessionIds.includes(selectionId("dsh", DSH_SYNC_PROJECT_ID, sessionDir)),
+						status: stat.size > MAX_SESSION_BYTES ? "unavailable" : "available",
+						...(stat.size > MAX_SESSION_BYTES ? { reason: `Session exceeds ${MAX_SESSION_BYTES} byte limit` } : {}),
+					};
+					items.push({ candidate, filePath: logFile, rootPath: sessionsRoot });
+				}
+			}
+		} catch (caught) {
+			ok = false;
+			error = caught instanceof Error ? caught.message : String(caught);
+		}
+		return {
+			items,
+			status: {
+				id: "dsh-sessions",
+				label: DSH_SYNC_PROJECT_NAME,
+				kind: "dsh-sessions",
+				ok,
+				count: items.length,
+				...(error ? { error } : {}),
+			},
+		};
+	}
+
+	/** 会话目录内的日志文件：优先 .zstd，回退 .jsonl。 */
+	private async findDshLogFile(sessionPath: string): Promise<string | null> {
+		for (const name of ["session.jsonl.zstd", "session.jsonl"]) {
+			const candidate = join(sessionPath, name);
+			try {
+				const stat = await lstat(candidate);
+				if (stat.isFile()) return candidate;
+			} catch {
+				// 继续尝试下一个。
+			}
+		}
+		return null;
 	}
 
 	private async scanResourceRoots(

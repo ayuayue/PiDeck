@@ -129,6 +129,30 @@ export interface CloudSyncOneDriveFlowStart {
 	port: number;
 }
 
+/**
+ * Google Drive（Drive API v3）直连配置（oauth 类）。
+ * clientId 由用户在 Google Cloud Console 创建「桌面应用」后自备；
+ * clientSecret 对桌面应用非机密，PKCE 流程可省略，token 刷新时按需携带；
+ * token 仅在主进程流转并随主密码密封落盘，永不进 renderer。
+ */
+export interface GoogleDriveConfig {
+	/** Google Cloud OAuth 客户端 ID（必填）。 */
+	clientId: string;
+	/** 桌面应用类型客户端密钥（可选）。 */
+	clientSecret?: string;
+	/** OAuth 完成后密封落盘（仅主进程持有）。 */
+	accessToken?: string;
+	refreshToken?: string;
+	/** accessToken 过期时间（epoch ms）。 */
+	expiresAt?: number;
+}
+
+/** Google 浏览器授权启动结果：verificationUrl 用系统浏览器打开。 */
+export interface CloudSyncGoogleFlowStart {
+	verificationUrl: string;
+	port: number;
+}
+
 
 export interface ProviderAccount {
 	id: string;
@@ -218,7 +242,8 @@ export interface CloudSyncFileBundle {
 /** A selected session reference. Full content lives in a separate object. */
 export interface CloudSyncSessionRef {
 	sessionId: string;
-	scope: "global" | "project";
+	/** dsh：$DSH_HOME/sessions 下的会话（relativePath 相对 $DSH_HOME/sessions）。 */
+	scope: "global" | "project" | "dsh";
 	projectId?: string;
 	relativePath: string;
 	size: number;
@@ -304,7 +329,7 @@ export interface CloudSyncSessionCandidate {
 	sessionId: string;
 	title: string;
 	projectId: string;
-	scope: "global" | "project";
+	scope: "global" | "project" | "dsh";
 	relativePath: string;
 	size: number;
 	mtimeMs: number;
@@ -330,7 +355,7 @@ export interface CloudSyncResourceCandidate {
 export interface CloudSyncScanRootStatus {
 	id: string;
 	label: string;
-	kind: "global-sessions" | "project-sessions" | "global-resources" | "project-resources";
+	kind: "global-sessions" | "project-sessions" | "global-resources" | "project-resources" | "dsh-sessions";
 	projectId?: string;
 	ok: boolean;
 	count: number;
@@ -474,7 +499,8 @@ export type CloudSyncProviderConfigInput =
 	| { provider: "s3"; config: S3Config }
 	| { provider: "github"; config: GithubGistConfig }
 	| { provider: "local"; config: LocalFolderConfig }
-	| { provider: "onedrive"; config: OneDriveConfig };
+	| { provider: "onedrive"; config: OneDriveConfig }
+	| { provider: "google"; config: GoogleDriveConfig };
 
 
 export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";

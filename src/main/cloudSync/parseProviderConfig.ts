@@ -9,6 +9,7 @@
 import type {
 	CloudSyncProviderConfigInput,
 	GithubGistConfig,
+	GoogleDriveConfig,
 	LocalFolderConfig,
 	OneDriveConfig,
 	S3Config,
@@ -72,6 +73,16 @@ function isOneDriveConfig(value: unknown): value is OneDriveConfig {
 	return true;
 }
 
+function isGoogleDriveConfig(value: unknown): value is GoogleDriveConfig {
+	if (!isPlainObject(value)) return false;
+	if (typeof value.clientId !== "string" || value.clientId.length === 0 || value.clientId.length > 128) return false;
+	if (value.clientSecret !== undefined && typeof value.clientSecret !== "string") return false;
+	if (value.accessToken !== undefined && typeof value.accessToken !== "string") return false;
+	if (value.refreshToken !== undefined && typeof value.refreshToken !== "string") return false;
+	if (value.expiresAt !== undefined && typeof value.expiresAt !== "number") return false;
+	return true;
+}
+
 export function parseProviderConfigInput(value: unknown): CloudSyncProviderConfigInput {
 	if (!isPlainObject(value)) throw new TypeError("Provider config must be an object");
 	const provider = value.provider;
@@ -91,6 +102,9 @@ export function parseProviderConfigInput(value: unknown): CloudSyncProviderConfi
 	}
 	if (provider === "onedrive") {
 		return { provider, config: isOneDriveConfig(value.config) ? value.config : throwType("OneDrive config is invalid") };
+	}
+	if (provider === "google") {
+		return { provider, config: isGoogleDriveConfig(value.config) ? value.config : throwType("Google Drive config is invalid") };
 	}
 	throw new TypeError("Unknown cloud provider");
 }

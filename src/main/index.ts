@@ -3625,6 +3625,8 @@ app.whenReady().then(async () => {
 	cloudSyncManager = new CloudSyncManager({
 		userDataDir: app.getPath("userData"),
 		homeDir: app.getPath("home"),
+		// DSH 会话同步：DSH_HOME 与 DshHost 同一套解析（设置覆盖 > ~/.dsh > 应用私有目录）。
+		dshHomeDir: resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
 		deviceName: hostname(),
 		appVersion: app.getVersion(),
 		listProjects: () => projectStore.list(),

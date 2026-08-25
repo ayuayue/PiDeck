@@ -293,13 +293,17 @@ function isValidSyncFileBundle(value: unknown): boolean {
 function isValidSyncSessionRef(value: unknown): boolean {
 	if (!isRecord(value)) return false;
 	if (!isSafeSessionId(value.sessionId) || !isSafeRelativePath(value.relativePath) || !isSha256(value.contentHash)) return false;
-	if (value.scope !== "global" && value.scope !== "project") return false;
+	// dsh：$DSH_HOME/sessions 会话（relativePath 相对 $DSH_HOME/sessions，objectKey 走 pideck-dsh-sessions/）。
+	if (value.scope !== "global" && value.scope !== "project" && value.scope !== "dsh") return false;
 	if (value.scope === "global" && value.projectId !== undefined) return false;
 	if (value.scope === "project" && (!isSafeSessionId(value.projectId) || value.projectId === "__global__")) return false;
 	const size = value.size;
 	if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || size > 512 * 1024 * 1024) return false;
 	const mtimeMs = value.mtimeMs;
 	if (typeof mtimeMs !== "number" || !Number.isFinite(mtimeMs) || mtimeMs < 0) return false;
+	if (value.scope === "dsh") {
+		return value.objectKey === `pideck-dsh-sessions/${value.sessionId}.jsonl.enc`;
+	}
 	return value.objectKey === `pideck-sessions/${value.sessionId}.jsonl.enc`;
 }
 

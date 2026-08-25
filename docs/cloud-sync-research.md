@@ -271,9 +271,11 @@ PIDECKBACKUP 容器
 | **P0** | 一键导入/导出（`.pideckbackup`） | 无云兜底，复用现有管线 90% | ✅ 已实现 |
 | **P1** | OneDrive 原生 OAuth | PKCE + 回环回调，浏览器登录；clientId 用户自备（Azure「移动和桌面应用」平台） | ✅ 已实现 |
 | **P1** | WebDAV 配置引导优化 | 内置坚果云/InfiniCloud 一键模板 + 应用密码指引 | ✅ 已实现 |
-| ~~P2~~ | ~~分块上传~~ | 已评估：不做通用分块层；OneDrive 用 Graph upload session 覆盖 | ➖ 取消（按需再议） |
-| **P2** | Google Drive | 海外用户选项（同 OneDrive 模式，换 Drive API） | 规划中 |
-| **P3** | DSH 会话/飞书数据同步 | 按原计划后续补齐 | 待办 |
+| ~~P2~~ | ~~分块上传~~ | 已评估：不做通用分块层；OneDrive/Google 用各自原生 resumable session 覆盖 | ➖ 取消（按需再议） |
+| **P2** | Google Drive | 海外用户选项（镜像 OneDrive 模式，Drive API + appDataFolder，clientId 用户自备） | ✅ 已实现 |
+| **P3** | DSH 会话同步 | 按用户选择机制同步 `$DSH_HOME/sessions`（.zstd 解压后走文本管线） | ✅ 已实现 |
+| **P3** | DSH 配置同步（settings/credentials） | 稍后 | 待办 |
+| **P3** | 飞书数据同步 | 暂不做 | 待办 |
 
 ---
 

@@ -396,4 +396,20 @@ export function registerCloudSyncIpc(deps: {
 		if (result.status === "ok") notifyStateChanged();
 		return result;
 	});
+
+	ipcMain.handle(ipcChannels.cloudSyncGoogleStart, async (_event, clientId: unknown, clientSecret: unknown) => {
+		if (typeof clientId !== "string" || clientId.trim().length === 0 || clientId.length > 128 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+			throw new TypeError("Google Drive client id is invalid");
+		}
+		if (clientSecret !== null && clientSecret !== undefined && typeof clientSecret !== "string") {
+			throw new TypeError("Google Drive client secret is invalid");
+		}
+		return manager.startGoogleOAuth(clientId.trim(), typeof clientSecret === "string" ? clientSecret.trim() : undefined);
+	});
+
+	ipcMain.handle(ipcChannels.cloudSyncGooglePoll, async () => {
+		const result = await manager.pollGoogleOAuth();
+		if (result.status === "ok") notifyStateChanged();
+		return result;
+	});
 }

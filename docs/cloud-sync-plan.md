@@ -34,7 +34,7 @@ PiDeck 的云同步采用与 Netcatty 相同的核心理念：
 | 会话 Catalog | `userData/session-catalog.json` | 是 | 是 | 同步索引/元数据 |
 | 全局 pi 会话文件 | `~/.pi/agent/sessions/**/*.jsonl` | 否 | **由用户逐个选择** | 用户选中的会话才同步全文 |
 | 项目级会话文件 | `<project>/.pi/sessions/**/*.jsonl` | 否 | **由用户按项目/会话选择** | 项目已扫描/存在时可选；没有本地项目时先落到全局同步区或等待重映射 |
-| DSH 会话文件 | `$DSH_HOME/sessions/**` | 否 | 可后续做 | 第一版先不做；若做也走“用户选择”机制 |
+| DSH 会话文件 | `$DSH_HOME/sessions/**` | 否 | **是（按会话勾选）** | ✅ 已实现（2026-08）：`$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`，.zstd 解压为文本后走统一加密管线，恢复时按原格式写回（重新压缩）；合成节点 `__dsh__`（「DSH 会话」） |
 | 用户 Prompt 模板 | `~/.pi/agent/prompts/` | 是 | 是 | 只同步用户创建内容，不内置模板 |
 | 用户 Skill | `~/.pi/agent/skills/`、`~/.agents/skills/` | 是 | 是 | 用户内容资产；可打包为文本 |
 | 扩展状态 | settings.json 中的 disabled/removed 字段 | 是 | 是 | 只同步状态，不同步扩展安装包本身 |
@@ -492,15 +492,16 @@ interface PiDeckCloudObjectStorage {
 
 | 上传方式（kind） | 说明 | 适用 provider | 现状 |
 |---|---|---|---|
-| **oauth**（浏览器授权） | 经官方 API 直连，用户浏览器登录一次即可 | OneDrive（Graph）、Google Drive（Drive API） | ✅ OneDrive 已实现（PKCE + 回环回调，2026-08）；Google 规划中 |
+| **oauth**（浏览器授权） | 经官方 API 直连，用户浏览器登录一次即可 | OneDrive（Graph）、Google Drive（Drive API） | ✅ OneDrive 与 Google 均已实现（PKCE + 回环回调，2026-08） |
 | **config**（账号配置） | 用户填写服务商地址与凭据 | WebDAV、S3、GitHub Gist | ✅ 已实现 |
 | **folder**（同步文件夹） | 用户选一个已被网盘客户端自动同步的本地文件夹，上传交给网盘客户端 | 本地文件夹适配器（第 6 类，`"local"`） | ✅ 已实现（`LocalFolderObjectStorage`，2026-08 落地） |
 
-- **类型落点**：`shared/types/cloudSync.ts` 已新增 `CloudProviderKind`（`oauth | config | folder`）与 `CLOUD_PROVIDER_KIND` 映射；`"local"` 与 `"onedrive"` 已并入 `BUILTIN_CLOUD_PROVIDERS`。
+- **类型落点**：`shared/types/cloudSync.ts` 已新增 `CloudProviderKind`（`oauth | config | folder`）与 `CLOUD_PROVIDER_KIND` 映射；`"local"`、`"onedrive"`、`"google"` 均已并入 `BUILTIN_CLOUD_PROVIDERS`。
 - **OneDrive 实现落点**：`main/cloudSync/adapters/OneDriveObjectStorage.ts`（`special/approot` 存储根、eTag revision + If-Match/If-None-Match 条件写、>4MB 走 Graph resumable upload session、token 过期自动刷新）；`CloudSyncManager.startOneDriveOAuth/pollOneDriveOAuth`（PKCE + 127.0.0.1 回环服务，token 只在主进程流转并密封落盘，dispose 清理回环服务）；clientId 由用户在 Azure 注册「移动和桌面应用程序」平台（重定向 `http://localhost`）后自备，与 GitHub Gist 同模式。
-- **分块上传结论（评估后不做通用分块层）**：当前无 provider 需要自造分块——S3/R2/本地文件夹原生支持大对象、WebDAV 多数服务可大 PUT、Gist 1MB 是硬上限（分块无意义）；唯一需要"大文件上传机制"的 OneDrive 已用 Graph 原生 **resumable upload session**（上限 250GB ≫ 512MB 会话上限）覆盖。若未来接入坚果云类受限服务，再按服务商原生 multipart 实现，不引入跨 provider 分块抽象。
-- **UI 落点**：云同步设置页新增“上传方式说明”图例（`cloudSync.provider.howTo*` / `kind.*` 文案），每个服务卡带一句适用说明（`webdavDesc` / `s3Desc` / `githubDesc` / `localDesc` / `onedriveDesc`）；WebDAV 卡带「坚果云 / InfiniCloud」快捷模板；所有卡片在"已配置未连接"时提供「连接」重试按钮（`configureProvider` 现已自动连接，失败保留配置供重试）。
-- **能力差异**：仍由 `getCapabilities()` 表达（单文件上限、revision、条件写），provider 无关的合并逻辑据此降级（如 Gist 1MB 上限、WebDAV 无条件写、本地文件夹全能力、OneDrive 250MB + 条件写）。
+- **Google Drive 实现落点**：`main/cloudSync/adapters/GoogleDriveObjectStorage.ts`（`appDataFolder` 应用专属空间、base64url 文件名承载对象 key、eTag revision + If-Match 条件写、≤5MB 简单上传 / >5MB resumable upload session、token 过期自动刷新）；`CloudSyncManager.startGoogleOAuth/pollGoogleOAuth`（镜像 OneDrive 流程，`access_type=offline&prompt=consent` 保证 refresh token，clientSecret 可选）；clientId 由用户在 Google Cloud Console 创建「桌面应用」后自备（重定向 `http://localhost`）。
+- **分块上传结论（评估后不做通用分块层）**：当前无 provider 需要自造分块——S3/R2/本地文件夹原生支持大对象、WebDAV 多数服务可大 PUT、Gist 1MB 是硬上限（分块无意义）；需要"大文件上传机制"的 OneDrive（>4MB）与 Google Drive（>5MB）均已用各自原生 **resumable upload session** 覆盖（上限远超 512MB 会话上限）。若未来接入坚果云类受限服务，再按服务商原生 multipart 实现，不引入跨 provider 分块抽象。
+- **UI 落点**：云同步设置页新增“上传方式说明”图例（`cloudSync.provider.howTo*` / `kind.*` 文案），每个服务卡带一句适用说明（`webdavDesc` / `s3Desc` / `githubDesc` / `localDesc` / `onedriveDesc` / `googleDesc`）；WebDAV 卡带「坚果云 / InfiniCloud」快捷模板；所有卡片在"已配置未连接"时提供「连接」重试按钮（`configureProvider` 现已自动连接，失败保留配置供重试）。
+- **能力差异**：仍由 `getCapabilities()` 表达（单文件上限、revision、条件写），provider 无关的合并逻辑据此降级（如 Gist 1MB 上限、WebDAV 无条件写、本地文件夹全能力、OneDrive/Google 条件写 + resumable 大对象）。
 - **本地文件夹适配器与一键导入/导出**的完整调研与可用网盘对照见 `docs/cloud-sync-research.md`；导入导出已实现（见 §6.5）。
 
 ### 6.5 本地一键导入/导出（`.pideckbackup`，离线兜底）
@@ -514,6 +515,17 @@ interface PiDeckCloudObjectStorage {
   - 会话/资源走 `resolveSessionTarget` 路径重映射；本机无对应项目 → 落 `cloud-sync-pending` 待映射区（`pendingProjects` 上报）；设置白名单、密钥（本地优先）、包扩展自动安装与云端 pull 同语义。
 - **落点**：`main/cloudSync/exportImport.ts`（容器纯函数 + 流式读写）、`cloudSyncIpc.ts`（`cloud-sync:export` / `cloud-sync:import`，保存对话框在边界内）、preload `exportBackup/importBackup`、设置页「备份与恢复」Tab。
 - **测试**：`tests/cloudSyncExportImport.test.mjs`（容器格式/边界/流式往返/manifest 校验/导出/新机往返/三种导入模式/错误密码与损坏文件/待映射区）。
+
+### 6.6 DSH 会话同步（用户按会话勾选）
+
+> 状态：**已实现**（2026-08）。同步 `$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`，会话粒度 = 目录粒度；DSH 配置（settings.yaml / .credentials.yaml）同步稍后，飞书数据暂不做。
+
+- **扫描**：`CloudSyncScanner` 新增 `dshHomeDir` 选项（DSH_HOME 与 DshHost 同一套解析：设置覆盖 > ~/.dsh > 应用私有目录）；扫描生成合成节点 `__dsh__`（「DSH 会话」），每个会话一个候选（scope `"dsh"`，selectionId `session:dsh:__dsh__:<sessionId>`）；缺失 sessions 目录视为 0 个会话而非失败（避免缩水保护误拦截）。
+- **内容格式**：`.zstd` 会话在**上传前解压为文本**，走既有 `encryptObject`（gzip + AES-256-GCM）管线；恢复时按原扩展名写回（`.zstd` 用 `zstdCompressSync` 重新压缩后二进制原子写）。对象 key 独立前缀 `pideck-dsh-sessions/<sessionId>.jsonl.enc`。
+- **路径**：`CloudSyncSessionRef.scope` 新增 `"dsh"`；`resolveSessionTarget/sessionTargetRoot` 解析到 `$DSH_HOME/sessions/<relativePath>`（无 DSH_HOME 则跳过）；hash 比较基于**解压文本**（`contentHash` 与上传/恢复一致）。
+- **同步/导入导出共用**：云同步 push/pull、`.pideckbackup` 导出/导入均支持 DSH 会话（同一套 scope 分流）。
+- **校验**：`isPiDeckSyncIndexV1` 会话引用校验新增 `dsh` 分支（objectKey 前缀 + 相对路径安全）。
+- **测试**：`tests/cloudSyncDshSessions.test.mjs`（扫描发现 .zstd/.jsonl 会话、zstd 云同步端到端往返 + 幂等、备份导出/新机导入恢复）。
 
 ---
 

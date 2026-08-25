@@ -572,6 +572,91 @@ function OneDriveProviderCard(props: {
 	);
 }
 
+/** Google Drive 服务卡：PKCE 浏览器授权（镜像 OneDrive 卡片，额外可选 clientSecret）。 */
+function GoogleProviderCard(props: {
+	status: string;
+	configured: boolean;
+	clientId: string;
+	clientSecret: string;
+	onClientIdChange: (value: string) => void;
+	onClientSecretChange: (value: string) => void;
+	onStart: () => void;
+	onDisconnect: () => void;
+	onReconnect?: () => void;
+	flow: { verificationUrl: string } | null;
+	flowError?: string | null;
+}) {
+	const [editing, setEditing] = useState(false);
+	return (
+		<div className="overflow-hidden rounded-lg border border-border-subtle">
+			<div
+				className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 hover:bg-accent/40"
+				role="button"
+				tabIndex={0}
+				onClick={() => setEditing((prev) => !prev)}
+				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
+			>
+				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+					<Globe size={16} />
+				</span>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-medium">{t("cloudSync.provider.googleTitle")}</span>
+					<span className="block truncate text-caption text-text-tertiary">{t("cloudSync.provider.googleDesc")}</span>
+				</span>
+				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
+					<StatusDot status={props.status} />
+					{props.status === "connected"
+						? t("cloudSync.provider.connected")
+						: props.status === "disconnected" && props.configured
+							? t("cloudSync.provider.configured")
+							: t("cloudSync.provider.disconnected")}
+				</span>
+			</div>
+			{editing ? (
+				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
+					<Field label={t("cloudSync.provider.googleClientId")}>
+						<div className="space-y-1">
+							<Input placeholder="1234567890-xxxxxxxx.apps.googleusercontent.com" value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} />
+							<p className="text-caption text-text-tertiary">{t("cloudSync.provider.googleClientIdHint")}</p>
+						</div>
+					</Field>
+					<Field label={t("cloudSync.provider.googleClientSecret")}>
+						<SecretInput placeholder={t("cloudSync.provider.googleClientSecret")} value={props.clientSecret} onChange={props.onClientSecretChange} />
+					</Field>
+					<div className="flex flex-wrap items-center gap-2">
+						<Button size="sm" onClick={props.onStart} disabled={!props.clientId.trim()}>
+							{t("cloudSync.provider.googleConnect")}
+						</Button>
+						{props.configured && props.status === "disconnected" && props.onReconnect ? (
+							<Button size="sm" variant="outline" onClick={props.onReconnect}>
+								{t("cloudSync.provider.connect")}
+							</Button>
+						) : null}
+						{props.configured ? (
+							<Button size="sm" variant="outline" onClick={props.onDisconnect}>
+								{t("cloudSync.provider.remove")}
+							</Button>
+						) : null}
+					</div>
+					{props.flow ? (
+						<div className="space-y-1 rounded-md bg-accent/40 px-3 py-2 text-sm">
+							<div className="break-all">
+								{t("cloudSync.provider.googleOpenUrl")}{" "}
+								<a className="text-primary underline" href={props.flow.verificationUrl} target="_blank" rel="noreferrer">{props.flow.verificationUrl}</a>
+							</div>
+							<div className="text-caption text-text-tertiary">{t("cloudSync.provider.googleWaiting")}</div>
+						</div>
+					) : null}
+					{props.flowError ? (
+						<div className="text-sm text-destructive">{props.flowError}</div>
+					) : null}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 function SessionRow(props: {
 	title: string;
 	relativePath: string;
@@ -819,6 +904,8 @@ export function CloudSyncSettingsTab() {
 		connect,
 		oneDriveStart,
 		oneDrivePoll,
+		googleStart,
+		googlePoll,
 		setAutoSync,
 		setStrategy,
 		exportBackup,
@@ -1009,6 +1096,7 @@ export function CloudSyncSettingsTab() {
 	const githubSnapshot = providers?.github;
 	const localSnapshot = providers?.local;
 	const onedriveSnapshot = providers?.onedrive;
+	const googleSnapshot = providers?.google;
 
 	// GitHub Device Flow：token 只在主进程换取并配置，渲染层只展示验证 URL/code。
 	const [githubClientId, setGithubClientId] = useState("");
@@ -1058,8 +1146,38 @@ export function CloudSyncSettingsTab() {
 				window.clearInterval(onedrivePollTimer.current);
 				onedrivePollTimer.current = null;
 			}
+			if (googlePollTimer.current !== null) {
+				window.clearInterval(googlePollTimer.current);
+				googlePollTimer.current = null;
+			}
 		};
 	}, []);
+
+	// Google 浏览器授权：PKCE 流程（镜像 OneDrive，额外可选 clientSecret）。
+	const [googleClientId, setGoogleClientId] = useState("");
+	const [googleClientSecret, setGoogleClientSecret] = useState("");
+	const [googleFlow, setGoogleFlow] = useState<{ verificationUrl: string } | null>(null);
+	const [googleFlowError, setGoogleFlowError] = useState<string | null>(null);
+	const googlePollTimer = useRef<number | null>(null);
+	const startGoogleConnect = useCallback(async () => {
+		setGoogleFlowError(null);
+		const flow = await googleStart(googleClientId.trim(), googleClientSecret.trim() || undefined);
+		if (!flow) return;
+		setGoogleFlow({ verificationUrl: flow.verificationUrl });
+		if (googlePollTimer.current !== null) window.clearInterval(googlePollTimer.current);
+		googlePollTimer.current = window.setInterval(async () => {
+			const result = await googlePoll();
+			if (!result) return;
+			if (result.status !== "pending") {
+				if (googlePollTimer.current !== null) window.clearInterval(googlePollTimer.current);
+				googlePollTimer.current = null;
+				setGoogleFlow(null);
+				if (result.status === "error") {
+					setGoogleFlowError(result.error ?? "Google Drive authorization failed");
+				}
+			}
+		}, 5000);
+	}, [googleStart, googlePoll, googleClientId, googleClientSecret]);
 
 	const syncState = state?.syncState ?? "IDLE";
 	const syncStatusDot = syncState === "SYNCING"
@@ -1197,6 +1315,19 @@ export function CloudSyncSettingsTab() {
 										onReconnect={() => void connect("onedrive")}
 										flow={onedriveFlow}
 										flowError={onedriveFlowError}
+									/>
+									<GoogleProviderCard
+										status={googleSnapshot?.status ?? "disconnected"}
+										configured={Boolean(googleSnapshot?.configured)}
+										clientId={googleClientId}
+										clientSecret={googleClientSecret}
+										onClientIdChange={setGoogleClientId}
+										onClientSecretChange={setGoogleClientSecret}
+										onStart={() => void startGoogleConnect()}
+										onDisconnect={() => void disconnectProvider("google")}
+										onReconnect={() => void connect("google")}
+										flow={googleFlow}
+										flowError={googleFlowError}
 									/>
 								</div>
 							</SettingsSection>

@@ -16,9 +16,19 @@ import type {
 
 export const GLOBAL_SYNC_PROJECT_ID = "__global__";
 export const GLOBAL_SYNC_PROJECT_NAME = "Global";
+/** 合成项目根：DSH 会话（$DSH_HOME/sessions，scope "dsh"）。 */
+export const DSH_SYNC_PROJECT_ID = "__dsh__";
+export const DSH_SYNC_PROJECT_NAME = "DSH 会话";
+export const DSH_SESSION_OBJECT_KEY_PREFIX = "pideck-dsh-sessions";
 export const SESSION_OBJECT_KEY_PREFIX = "pideck-sessions";
 export const FILE_OBJECT_KEY_PREFIX = "pideck-files";
 export const DEFAULT_INLINE_FILE_BYTES = 256 * 1024;
+
+/** DSH 会话对象 key：内容始终以解压后的文本 JSONL 形式加密上传。 */
+export function dshSessionObjectKey(sessionId: string): string {
+	assertStableSessionId(sessionId);
+	return `${DSH_SESSION_OBJECT_KEY_PREFIX}/${sessionId}.jsonl.enc`;
+}
 
 /** Device-local runtime and path fields are intentionally absent from this list. */
 export const SYNCABLE_DESKTOP_SETTING_KEYS = [
@@ -207,7 +217,7 @@ export function createTextFileBundle(
 
 export interface SessionRefInput {
 	sessionId: string;
-	scope: "global" | "project";
+	scope: "global" | "project" | "dsh";
 	projectId?: string;
 	filePath: string;
 	rootPath: string;
@@ -238,7 +248,7 @@ export function createSessionRef(input: SessionRefInput): CloudSyncSessionRef {
 		size: input.size,
 		mtimeMs: input.mtimeMs,
 		contentHash: input.contentHash,
-		objectKey: sessionObjectKey(input.sessionId),
+		objectKey: input.scope === "dsh" ? dshSessionObjectKey(input.sessionId) : sessionObjectKey(input.sessionId),
 	};
 }
 
@@ -275,6 +285,18 @@ export function buildGlobalCloudSyncProject(options: CloudSyncProjectOptions = {
 	return {
 		projectId: GLOBAL_SYNC_PROJECT_ID,
 		name: GLOBAL_SYNC_PROJECT_NAME,
+		kind: "normal",
+		...(options.resources ? { resources: options.resources } : {}),
+		...(options.sessions ? { sessions: options.sessions } : {}),
+		...(options.catalogEntries ? { catalogEntries: options.catalogEntries } : {}),
+	};
+}
+
+/** 合成节点：DSH 会话（scope "dsh"，恢复目标 $DSH_HOME/sessions）。 */
+export function buildDshCloudSyncProject(options: CloudSyncProjectOptions = {}): CloudSyncProject {
+	return {
+		projectId: DSH_SYNC_PROJECT_ID,
+		name: DSH_SYNC_PROJECT_NAME,
 		kind: "normal",
 		...(options.resources ? { resources: options.resources } : {}),
 		...(options.sessions ? { sessions: options.sessions } : {}),

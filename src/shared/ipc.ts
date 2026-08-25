@@ -654,6 +654,10 @@ export const ipcChannels = {
 	cloudSyncOneDriveStart: "cloud-sync:onedrive-start",
 	/** OneDrive 授权轮询（成功即完成 provider 配置） */
 	cloudSyncOneDrivePoll: "cloud-sync:onedrive-poll",
+	/** Google Drive 浏览器授权启动（token 只在主进程流转） */
+	cloudSyncGoogleStart: "cloud-sync:google-start",
+	/** Google Drive 授权轮询（成功即完成 provider 配置） */
+	cloudSyncGooglePoll: "cloud-sync:google-poll",
 	/** M9：设置扫描排除规则（用户黑名单） */
 	cloudSyncSetExclusions: "cloud-sync:set-exclusions",
 	/** M9：添加自选同步路径（文件/文件夹） */

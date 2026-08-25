@@ -96,6 +96,9 @@ export function useCloudSync() {
 			run(() => desktopApi.cloudSync.importBackup(input)),
 		oneDriveStart: (clientId: string) => run(() => desktopApi.cloudSync.oneDriveStart(clientId)),
 		oneDrivePoll: () => run(() => desktopApi.cloudSync.oneDrivePoll()),
+		googleStart: (clientId: string, clientSecret?: string) =>
+			run(() => desktopApi.cloudSync.googleStart(clientId, clientSecret)),
+		googlePoll: () => run(() => desktopApi.cloudSync.googlePoll()),
 		setExclusions: (patterns: string[]) => run(() => desktopApi.cloudSync.setExclusions(patterns)),
 		addCustomPath: (input: {
 			filePath: string;

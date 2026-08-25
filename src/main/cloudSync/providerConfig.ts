@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import type { GithubGistConfig, LocalFolderConfig, OneDriveConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
+import type { GithubGistConfig, GoogleDriveConfig, LocalFolderConfig, OneDriveConfig, S3Config, WebDAVAuthType, WebDAVConfig } from "../../shared/types/cloudSync.ts";
 
 const MAX_ENDPOINT_LENGTH = 2048;
 const MAX_CREDENTIAL_LENGTH = 16_384;
@@ -186,6 +186,36 @@ export function normalizeOneDriveConfig(value: unknown): OneDriveConfig {
 	if (value.expiresAt !== undefined) {
 		if (typeof value.expiresAt !== "number" || !Number.isFinite(value.expiresAt)) {
 			throw new TypeError("OneDrive expiresAt is invalid");
+		}
+		config.expiresAt = value.expiresAt;
+	}
+	return config;
+}
+
+/**
+ * Validate the Google Drive config (BYO-credentials pattern, mirror OneDrive).
+ * clientId is user-supplied (Google Cloud Console → OAuth 客户端 → 桌面应用);
+ * clientSecret is optional (PKCE public client); tokens are sealed in main.
+ */
+export function normalizeGoogleDriveConfig(value: unknown): GoogleDriveConfig {
+	if (!isRecord(value)) throw new TypeError("Google Drive config is invalid");
+	const clientId = requiredString(value, "clientId", 128);
+	if (clientId.trim().length === 0 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+		throw new TypeError("Google Drive clientId is invalid");
+	}
+	const config: GoogleDriveConfig = { clientId };
+	if (value.clientSecret !== undefined) {
+		config.clientSecret = requiredString(value, "clientSecret", MAX_CREDENTIAL_LENGTH);
+	}
+	if (value.accessToken !== undefined) {
+		config.accessToken = requiredString(value, "accessToken", MAX_CREDENTIAL_LENGTH);
+	}
+	if (value.refreshToken !== undefined) {
+		config.refreshToken = requiredString(value, "refreshToken", MAX_CREDENTIAL_LENGTH);
+	}
+	if (value.expiresAt !== undefined) {
+		if (typeof value.expiresAt !== "number" || !Number.isFinite(value.expiresAt)) {
+			throw new TypeError("Google Drive expiresAt is invalid");
 		}
 		config.expiresAt = value.expiresAt;
 	}
