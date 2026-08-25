@@ -689,7 +689,8 @@ export function CloudSyncSettingsTab() {
 										account={webdavSnapshot?.account?.name}
 										onConnect={(raw) => {
 											const { provider, ...config } = raw as { provider: "webdav" | "s3"; [key: string]: unknown };
-											void configureProvider({ provider, config } as CloudSyncProviderConfigInput);
+											// 主进程 parseProviderConfigInput 会重新校验形状/字段，这里只做形状适配。
+											void configureProvider({ provider, config } as unknown as CloudSyncProviderConfigInput);
 										}}
 										onDisconnect={() => void disconnectProvider("webdav")}
 									/>
@@ -702,7 +703,8 @@ export function CloudSyncSettingsTab() {
 										account={s3Snapshot?.account?.name}
 										onConnect={(raw) => {
 											const { provider, ...config } = raw as { provider: "webdav" | "s3"; [key: string]: unknown };
-											void configureProvider({ provider, config } as CloudSyncProviderConfigInput);
+											// 主进程 parseProviderConfigInput 会重新校验形状/字段，这里只做形状适配。
+											void configureProvider({ provider, config } as unknown as CloudSyncProviderConfigInput);
 										}}
 										onDisconnect={() => void disconnectProvider("s3")}
 									/>
