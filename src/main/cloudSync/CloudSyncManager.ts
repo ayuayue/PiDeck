@@ -78,12 +78,11 @@ import { OAUTH_BUILTIN_CREDENTIALS, type OAuthBuiltinCredentials } from "./oauth
 import {
 	buildCatalogSyncEntry,
 	buildCloudSyncProject,
-	buildDshCloudSyncProject,
 	buildGlobalCloudSyncProject,
 	buildPiDeckSyncIndex,
+	buildSyntheticCloudSyncProject,
 	createSessionRef,
 	createTextFileBundle,
-	DSH_SYNC_PROJECT_ID,
 	dshSessionObjectKey,
 	extractExtensionSources,
 	filterSyncableDesktopSettings,
@@ -1534,11 +1533,10 @@ export class CloudSyncManager {
 		const content = this.state.selection.content;
 		const sessionsByProject = new Map<string, CloudSyncInternalSession[]>();
 		for (const item of selectedSessions) {
-			const group = item.candidate.scope === "project"
+			// DSH 会话按扫描器解析出的所属项目归组（cwd/catalog 匹配），不再单列 __dsh__ 合成节点。
+			const group = item.candidate.scope === "project" || item.candidate.scope === "dsh"
 				? item.candidate.projectId
-				: item.candidate.scope === "dsh"
-					? DSH_SYNC_PROJECT_ID
-					: GLOBAL_SYNC_PROJECT_ID;
+				: GLOBAL_SYNC_PROJECT_ID;
 			const list = sessionsByProject.get(group) ?? [];
 			list.push(item);
 			sessionsByProject.set(group, list);
@@ -1551,8 +1549,9 @@ export class CloudSyncManager {
 		}
 
 		const projects: PiDeckSyncIndexV1["projects"] = [];
-		const projectRecords = scan.recordsBySessionId;
+		const emittedProjectIds = new Set<string>([GLOBAL_SYNC_PROJECT_ID]);
 		for (const project of this.options.listProjects()) {
+			emittedProjectIds.add(project.id);
 			const sessions = sessionsByProject.get(project.id) ?? [];
 			const resources = resourcesByProject.get(project.id) ?? [];
 			const options: CloudSyncProjectOptions = {};
@@ -1587,11 +1586,12 @@ export class CloudSyncManager {
 			}
 		}
 		projects.unshift(buildGlobalCloudSyncProject(globalOptions));
-		// DSH 会话合成节点（scope "dsh"）：有选中会话时才入索引。
-		const dshSessions = sessionsByProject.get(DSH_SYNC_PROJECT_ID) ?? [];
-		if (dshSessions.length > 0) {
-			projects.unshift(buildDshCloudSyncProject({
-				sessions: await Promise.all(dshSessions.map((item) => this.buildSessionRef(item))),
+		// 本机未注册项目的会话（DSH 工作区合成节点等）：按扫描树里的节点名发出，保持「以项目组织」。
+		for (const [projectId, sessions] of sessionsByProject) {
+			if (emittedProjectIds.has(projectId) || sessions.length === 0) continue;
+			const nodeName = scan.tree.projects.find((node) => node.projectId === projectId)?.name ?? projectId;
+			projects.push(buildSyntheticCloudSyncProject(projectId, nodeName, {
+				sessions: await Promise.all(sessions.map((item) => this.buildSessionRef(item))),
 			}));
 		}
 

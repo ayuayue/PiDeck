@@ -392,7 +392,11 @@ export function mergeSyncIndexes(
 		return project;
 	};
 	for (const ref of mergedSessions.values()) {
-		const projectId = ref.scope === "project" && ref.projectId ? ref.projectId : GLOBAL_SYNC_PROJECT_ID;
+		// project/dsh 会话按各自 projectId 挂回项目节点（DSH 会话与侧栏一致按项目组织）；
+		// 无 projectId（global 或旧数据兜底）落全局节点。
+		const projectId = (ref.scope === "project" || ref.scope === "dsh") && ref.projectId
+			? ref.projectId
+			: GLOBAL_SYNC_PROJECT_ID;
 		ensureProject(projectId, projectId).sessions!.push(ref);
 	}
 	for (const entry of mergedResources.values()) {

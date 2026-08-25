@@ -12,7 +12,10 @@ import type {
 	CloudSyncSelectionTree,
 	CloudSyncSessionCandidate,
 } from "../../shared/types/cloudSync.ts";
-import { GLOBAL_SYNC_PROJECT_ID, DSH_SYNC_PROJECT_ID, DSH_SYNC_PROJECT_NAME } from "./payload.ts";
+import { scanDshSessionHeaders } from "../dsh/dshForeignSessionScan.ts";
+import { readSessionProjectionTitles } from "../dsh/dshProjectionCache.ts";
+import { workspaceDirFor } from "../dsh/dshSessionPath.ts";
+import { GLOBAL_SYNC_PROJECT_ID, DSH_SYNC_PROJECT_ID } from "./payload.ts";
 
 const SESSION_ROOT_RELATIVE = join(".pi", "agent", "sessions");
 const MAX_FILES_PER_ROOT = 5_000;
@@ -140,6 +143,70 @@ function safeRootRelativePath(rootPath: string, filePath: string): string {
 	return value;
 }
 
+// ── DSH 会话按项目归组 / 真实标题（对齐侧栏：cwd → 项目路径匹配，标题取 host 投影/日志） ──
+
+/** 规范化路径用于项目匹配：Windows 上 resolve 会折叠分隔符；WSL 路径保持原样（与 ProjectStore 同策略）。 */
+function normalizeDshMatchPath(value: string): string {
+	const trimmed = value.trim();
+	if (process.platform === "win32" && trimmed.startsWith("/")) {
+		return trimmed.replace(/[\\/]+$/, "");
+	}
+	return resolve(trimmed).replace(/[\\/]+$/, "");
+}
+
+/** 项目路径与 DSH 会话 cwd 是否同目录（Windows 忽略大小写；WSL 区分大小写）。 */
+function dshProjectPathMatches(projectPath: string, cwd: string): boolean {
+	const left = normalizeDshMatchPath(projectPath);
+	const right = normalizeDshMatchPath(cwd);
+	return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+/** cwd 的末段目录名（侧栏/合成节点可读名）。 */
+function dshCwdFolderName(cwd: string | undefined): string | undefined {
+	if (!cwd) return undefined;
+	const trimmed = cwd.replace(/[\\/]+$/, "").trim();
+	if (!trimmed) return undefined;
+	const last = trimmed.split(/[\\/]/).pop()?.trim();
+	return last || undefined;
+}
+
+/**
+ * 占位标题判定（与 dshForeignSync.isPlaceholderForeignTitle 对齐）：
+ * i18n 兑底（DSH 会话 / DSH Session）、cwd 末段目录名、会话目录名都算占位，
+ * 不作为「真实会话名」使用。
+ */
+function isPlaceholderDshTitle(title: string | undefined, cwd: string | undefined, sessionDir: string): boolean {
+	const normalized = typeof title === "string" ? title.trim() : "";
+	if (!normalized) return true;
+	if (normalized === "DSH 会话" || normalized === "DSH Session") return true;
+	const folder = dshCwdFolderName(cwd);
+	if (folder && normalized === folder) return true;
+	return normalized === sessionDir;
+}
+
+/**
+ * DSH 会话真实名解析顺序：
+ * host 投影缓存（session_projcache）→ 日志折叠标题（session/title last-wins，缺省首条真人提示回退）
+ * → catalog 记录标题（非占位）→ cwd 末段 → 工作区目录 → 会话目录。
+ * 与 dshForeignSessionScan.listForeignSessionsFromDisk 同源，保证侧栏与同步树名字一致。
+ */
+function resolveDshSessionTitle(
+	projectionTitle: string | undefined,
+	loggedTitle: string | undefined,
+	recordTitle: string | undefined,
+	cwd: string | undefined,
+	workspaceDir: string,
+	sessionDir: string,
+): string {
+	const projection = projectionTitle?.trim();
+	if (projection) return projection;
+	const logged = loggedTitle?.trim();
+	if (logged) return logged;
+	const record = recordTitle?.trim();
+	if (record && !isPlaceholderDshTitle(record, cwd, sessionDir)) return record;
+	return dshCwdFolderName(cwd) || workspaceDir || sessionDir;
+}
+
 /**
  * 把排除 pattern 编译为正则：双星斜杠 → 零层或多层目录，单星 → 段内任意字符，其余按字面量。
  * 仅用于匹配文件名/目录名与扫描相对路径，不做 shell 语义。
@@ -192,6 +259,11 @@ export class CloudSyncScanner {
 		const records = this.options.listSessionRecords();
 		const recordsByPath = recordByPath(records);
 		const recordsBySessionId = new Map(records.map((record) => [record.id, record]));
+		// DSH 会话 → catalog 记录（侧栏归属/真实标题的兜底来源）。
+		const recordsByDshSessionId = new Map<string, SessionRecord>();
+		for (const record of records) {
+			if (record.dshSessionId) recordsByDshSessionId.set(record.dshSessionId, record);
+		}
 		const sessions = new Map<string, CloudSyncInternalSession>();
 		const resources = new Map<string, CloudSyncInternalResource>();
 		const roots: CloudSyncScanRootStatus[] = [];
@@ -319,35 +391,35 @@ export class CloudSyncScanner {
 			resources.set(item.candidate.selectionId, item);
 		}
 
-		// DSH 会话（$DSH_HOME/sessions）：合成节点，用户按会话勾选（scope "dsh"）。
+		// DSH 会话（$DSH_HOME/sessions）：不单列「DSH 会话」标签，按会话 cwd/所属项目归入
+		// 对应项目节点（与 PiDeck 侧栏一致：PI/DSH 会话都以项目组织）；无匹配项目时按工作区
+		// 目录生成合成节点。标题取 host 投影缓存/日志折叠的真实会话名，不用目录名占位。
+		let dshWorkspaceNodeIds: string[] = [];
 		if (this.options.dshHomeDir) {
-			const dshNode: CloudSyncProjectSelectionNode = {
-				projectId: DSH_SYNC_PROJECT_ID,
-				name: DSH_SYNC_PROJECT_NAME,
-				kind: "normal",
-				environment: "windows",
-				sessions: [],
-				resources: [],
-			};
-			const dshResult = await this.scanDshSessions(this.options.dshHomeDir, preferences);
+			const dshResult = await this.scanDshSessions(
+				this.options.dshHomeDir,
+				preferences,
+				projectNodes,
+				recordsByDshSessionId,
+			);
 			roots.push(dshResult.status);
+			dshWorkspaceNodeIds = dshResult.workspaceNodeIds;
 			for (const item of dshResult.items) {
-				dshNode.sessions.push(item.candidate);
 				sessions.set(item.candidate.selectionId, item);
 			}
-			projectNodes.set(DSH_SYNC_PROJECT_ID, dshNode);
 		}
 
 		for (const node of projectNodes.values()) {
 			node.sessions.sort((left, right) => right.mtimeMs - left.mtimeMs);
 			node.resources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 		}
-		const dshNode = projectNodes.get(DSH_SYNC_PROJECT_ID);
 		const orderedProjects = [
 			globalNode,
-			...(dshNode ? [dshNode] : []),
 			...projects
 				.map((project) => projectNodes.get(project.id))
+				.filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+			...dshWorkspaceNodeIds
+				.map((id) => projectNodes.get(id))
 				.filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
 			...syntheticProjectIds
 				.map((id) => projectNodes.get(id))
@@ -441,15 +513,29 @@ export class CloudSyncScanner {
 	/**
 	 * 扫描 DSH 会话：`$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`。
 	 * 会话粒度 = 目录粒度（sessionId = 目录名）；内容统一按解压后文本同步（见 manager 上传路径）。
+	 *
+	 * 归组（与侧栏一致）：cwd 路径匹配已注册项目 → 该目录编码（workspaceDirFor）精确匹配 →
+	 * catalog 记录归属项目 → 按工作区目录生成合成节点（missing=false，恢复仍走 $DSH_HOME）。
+	 * 标题：host 投影缓存 → 日志折叠 → catalog 记录标题（非占位）→ cwd 末段 → 工作区目录。
 	 */
 	private async scanDshSessions(
 		dshHome: string,
 		preferences: CloudSyncSelectionPreferences,
-	): Promise<RootScanResult<CloudSyncInternalSession>> {
+		projectNodes: Map<string, CloudSyncProjectSelectionNode>,
+		recordsByDshSessionId: Map<string, SessionRecord>,
+	): Promise<RootScanResult<CloudSyncInternalSession> & { workspaceNodeIds: string[] }> {
 		const sessionsRoot = join(dshHome, "sessions");
 		const items: CloudSyncInternalSession[] = [];
+		const workspaceNodeIds: string[] = [];
 		let ok = true;
 		let error: string | undefined;
+		// 只读 host 数据源：投影缓存标题 + 磁盘 header（cwd / 日志折叠标题），不启动 host、不写缓存。
+		const projectionTitles = readSessionProjectionTitles(dshHome);
+		const headersById = new Map(scanDshSessionHeaders(dshHome).map((header) => [header.id, header]));
+		// 工作区目录 → 合成节点（同一 workspace 的未匹配会话归到同一节点）。
+		const workspaceNodes = new Map<string, CloudSyncProjectSelectionNode>();
+		// 工作区显示名：取该工作区内首个带 cwd 的会话的目录末段（readdir 顺序无关紧要，同 workspace 通常同一目录）。
+		const workspaceCwdFolders = new Map<string, string>();
 		try {
 			let workspaceDirs: string[];
 			try {
@@ -459,7 +545,7 @@ export class CloudSyncScanner {
 			} catch (caught) {
 				// 尚无 sessions 目录 = 0 个会话，不是失败（全新 $DSH_HOME 常见）。
 				if (isMissingError(caught)) {
-					return { items, status: { id: "dsh-sessions", label: DSH_SYNC_PROJECT_NAME, kind: "dsh-sessions", ok: true, count: 0 } };
+					return { items, status: { id: "dsh-sessions", label: "DSH sessions", kind: "dsh-sessions", ok: true, count: 0 }, workspaceNodeIds };
 				}
 				throw caught;
 			}
@@ -475,12 +561,28 @@ export class CloudSyncScanner {
 					const stat = await lstat(logFile);
 					if (!stat.isFile()) continue;
 					if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(sessionDir)) continue;
+					const header = headersById.get(sessionDir);
+					const cwd = header?.cwd;
+					if (cwd && !workspaceCwdFolders.has(workspaceDir)) {
+						const folder = dshCwdFolderName(cwd);
+						if (folder) workspaceCwdFolders.set(workspaceDir, folder);
+					}
+					const record = recordsByDshSessionId.get(sessionDir);
+					const projectId = this.resolveDshProjectId(cwd, workspaceDir, record, projectNodes, workspaceNodes, workspaceNodeIds);
 					const relativePath = `${workspaceDir}/${sessionDir}/${basename(logFile)}`;
+					const title = resolveDshSessionTitle(
+						projectionTitles.get(sessionDir),
+						header?.loggedTitle,
+						record?.title,
+						cwd,
+						workspaceDir,
+						sessionDir,
+					);
 					const candidate: CloudSyncSessionCandidate = {
 						selectionId: selectionId("dsh", DSH_SYNC_PROJECT_ID, sessionDir),
 						sessionId: sessionDir,
-						title: sessionDir,
-						projectId: DSH_SYNC_PROJECT_ID,
+						title,
+						projectId,
 						scope: "dsh",
 						relativePath,
 						size: stat.size,
@@ -498,17 +600,67 @@ export class CloudSyncScanner {
 			ok = false;
 			error = caught instanceof Error ? caught.message : String(caught);
 		}
+		// 把候选挂到各自项目节点（含工作区合成节点；归入真实项目的会话随项目节点一起展示）。
+		for (const item of items) {
+			const node = projectNodes.get(item.candidate.projectId);
+			if (node) node.sessions.push(item.candidate);
+		}
+		// 工作区合成节点显示名：优先用该工作区内真实目录末段，避免退化成 DSH 内部目录名。
+		for (const [workspaceDir, node] of workspaceNodes) {
+			const folder = workspaceCwdFolders.get(workspaceDir);
+			if (folder) node.name = folder;
+		}
 		return {
 			items,
 			status: {
 				id: "dsh-sessions",
-				label: DSH_SYNC_PROJECT_NAME,
+				label: "DSH sessions",
 				kind: "dsh-sessions",
 				ok,
 				count: items.length,
 				...(error ? { error } : {}),
 			},
+			workspaceNodeIds,
 		};
+	}
+
+	/** 决定 DSH 会话归属的项目 id（见 scanDshSessions 注释的匹配顺序）。 */
+	private resolveDshProjectId(
+		cwd: string | undefined,
+		workspaceDir: string,
+		record: SessionRecord | undefined,
+		projectNodes: Map<string, CloudSyncProjectSelectionNode>,
+		workspaceNodes: Map<string, CloudSyncProjectSelectionNode>,
+		workspaceNodeIds: string[],
+	): string {
+		if (cwd) {
+			const matched = this.options.listProjects().find((project) => dshProjectPathMatches(project.path, cwd));
+			if (matched) return matched.id;
+		}
+		// header 缺失/cwd 对不上时：会话目录名 = workspaceDirFor(项目路径) 精确匹配（编码一致才成立）。
+		const encodedMatch = this.options.listProjects().find((project) => workspaceDirFor(project.path) === workspaceDir);
+		if (encodedMatch) return encodedMatch.id;
+		// catalog 记录归属（侧栏同源；项目已删时落到既有合成「待映射」节点）。
+		if (record?.projectId && record.projectId !== GLOBAL_SYNC_PROJECT_ID) {
+			return record.projectId;
+		}
+		// 未匹配任何项目：按工作区目录生成合成节点（同 workspace 会话归到同一节点）。
+		const existing = workspaceNodes.get(workspaceDir);
+		if (existing) return existing.projectId;
+		const digest = createHash("sha256").update(`dsh-workspace\0${workspaceDir}`, "utf8").digest("hex").slice(0, 24);
+		const projectId = `dsh-ws-${digest}`;
+		const node: CloudSyncProjectSelectionNode = {
+			projectId,
+			name: dshCwdFolderName(cwd) ?? workspaceDir,
+			kind: "normal",
+			environment: "windows",
+			sessions: [],
+			resources: [],
+		};
+		workspaceNodes.set(workspaceDir, node);
+		projectNodes.set(projectId, node);
+		workspaceNodeIds.push(projectId);
+		return projectId;
 	}
 
 	/** 会话目录内的日志文件：优先 .zstd，回退 .jsonl。 */

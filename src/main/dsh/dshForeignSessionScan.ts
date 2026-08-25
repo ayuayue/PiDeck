@@ -1,13 +1,15 @@
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
-import type { DshForeignSessionItem } from "./dshForeignSync";
-import { readSessionProjectionTitles } from "./dshProjectionCache";
+// 相对导入统一带 .ts 后缀：本模块会被 cloudSync 的 CloudSyncScanner 直接 import
+// （Node type-stripping 下 ESM 相对导入必须带扩展名），与全仓 allowImportingTsExtensions 风格一致。
+import type { DshForeignSessionItem } from "./dshForeignSync.ts";
+import { readSessionProjectionTitles } from "./dshProjectionCache.ts";
 import {
 	consumeTitleEvent,
 	resolveFoldedTitle,
 	type LoggedTitleFold,
-} from "./dshSessionTitleFold";
+} from "./dshSessionTitleFold.ts";
 
 /**
  * 从 DSH_HOME 磁盘只读扫描外部根会话（不启动 host、不 attach、不写文件）。

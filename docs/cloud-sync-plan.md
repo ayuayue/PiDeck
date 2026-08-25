@@ -1,7 +1,7 @@
 # PiDeck 云同步计划（Cloud Sync Plan）
 
-> 状态：**实现中**。M1-M4、M5/M6/M8（主体）、M2（WebDAV/S3/GitHub）已在 `feat/cloud-sync` 分支落地并配套单测；
-> 剩余：Google Drive/OneDrive 适配器、自动同步 debounce 触发源、DSH 会话同步、飞书数据、分块上传。
+> 状态：**实现中**。M1-M4、M5/M6/M8（主体）、M2（WebDAV/S3/GitHub/Google Drive/OneDrive）、DSH 会话同步已在 `feat/cloud-sync` 分支落地并配套单测；
+> 剩余：自动同步 debounce 触发源、DSH settings/credentials、飞书数据、分块上传。
 > 参考实现：`F:\Netcatty`（Netcatty 的端到端加密云同步）。
 > 目标：把 Netcatty 的云同步能力按 PiDeck 的架构规则搬到本仓库，并加入“用户选择同步哪些会话”的产品能力。
 
@@ -34,7 +34,7 @@ PiDeck 的云同步采用与 Netcatty 相同的核心理念：
 | 会话 Catalog | `userData/session-catalog.json` | 是 | 是 | 同步索引/元数据 |
 | 全局 pi 会话文件 | `~/.pi/agent/sessions/**/*.jsonl` | 否 | **由用户逐个选择** | 用户选中的会话才同步全文 |
 | 项目级会话文件 | `<project>/.pi/sessions/**/*.jsonl` | 否 | **由用户按项目/会话选择** | 项目已扫描/存在时可选；没有本地项目时先落到全局同步区或等待重映射 |
-| DSH 会话文件 | `$DSH_HOME/sessions/**` | 否 | **是（按会话勾选）** | ✅ 已实现（2026-08）：`$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`，.zstd 解压为文本后走统一加密管线，恢复时按原格式写回（重新压缩）；合成节点 `__dsh__`（「DSH 会话」） |
+| DSH 会话文件 | `$DSH_HOME/sessions/**` | 否 | **是（按会话勾选）** | ✅ 已实现（2026-08）：`$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`，.zstd 解压为文本后走统一加密管线，恢复时按原格式写回（重新压缩）；**不单列「DSH 会话」标签**，按会话 cwd/所属项目归入对应项目节点（与侧栏一致，PI/DSH 都以项目组织），无匹配项目时按工作区目录生成合成节点；会话名取 host 投影缓存/日志折叠的真实标题 |
 | 用户 Prompt 模板 | `~/.pi/agent/prompts/` | 是 | 是 | 只同步用户创建内容，不内置模板 |
 | 用户 Skill | `~/.pi/agent/skills/`、`~/.agents/skills/` | 是 | 是 | 用户内容资产；可打包为文本 |
 | 扩展状态 | settings.json 中的 disabled/removed 字段 | 是 | 是 | 只同步状态，不同步扩展安装包本身 |
@@ -66,9 +66,14 @@ PiDeck 的云同步采用与 Netcatty 相同的核心理念：
     │   └── .pi/settings.json（packages、disabledExtensions 等）
     ├── 项目会话
     │   ├── <project>/.pi/sessions/**/*.jsonl
-    │   └── 全局 sessions 中 cwd 可归属该项目的会话
+    │   ├── 全局 sessions 中 cwd 可归属该项目的会话
+    │   └── DSH 会话：$DSH_HOME/sessions 中 cwd/记录归属该项目的会话（真实会话名）
     └── 会话 Catalog 中属于该项目的条目
 ```
+
+> DSH 会话与 PI 会话一样以项目组织（对齐侧栏）：cwd 命中项目路径 → 归入该项目；
+> catalog 记录有归属 → 按记录项目；都不匹配 → 按工作区目录生成合成节点。
+> 不设独立的「DSH 会话」标签节点。
 
 用户操作从“分别勾选项目、catalog、全局会话、项目会话”简化为“一棵树里选择”：
 
@@ -520,16 +525,22 @@ interface PiDeckCloudObjectStorage {
 - **落点**：`main/cloudSync/exportImport.ts`（容器纯函数 + 流式读写）、`cloudSyncIpc.ts`（`cloud-sync:export` / `cloud-sync:import`，保存对话框在边界内）、preload `exportBackup/importBackup`、设置页「备份与恢复」Tab。
 - **测试**：`tests/cloudSyncExportImport.test.mjs`（容器格式/边界/流式往返/manifest 校验/导出/新机往返/三种导入模式/错误密码与损坏文件/待映射区）。
 
-### 6.6 DSH 会话同步（用户按会话勾选）
+### 6.6 DSH 会话同步（用户按会话勾选，按项目归组）
 
 > 状态：**已实现**（2026-08）。同步 `$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl[.zstd]`，会话粒度 = 目录粒度；DSH 配置（settings.yaml / .credentials.yaml）同步稍后，飞书数据暂不做。
 
-- **扫描**：`CloudSyncScanner` 新增 `dshHomeDir` 选项（DSH_HOME 与 DshHost 同一套解析：设置覆盖 > ~/.dsh > 应用私有目录）；扫描生成合成节点 `__dsh__`（「DSH 会话」），每个会话一个候选（scope `"dsh"`，selectionId `session:dsh:__dsh__:<sessionId>`）；缺失 sessions 目录视为 0 个会话而非失败（避免缩水保护误拦截）。
+- **扫描**：`CloudSyncScanner` 新增 `dshHomeDir` 选项（DSH_HOME 与 DshHost 同一套解析：设置覆盖 > ~/.dsh > 应用私有目录）。**不单列「DSH 会话」标签**：每个会话一个候选（scope `"dsh"`，selectionId `session:dsh:__dsh__:<sessionId>` 保持兼容），按以下顺序归入项目节点（与侧栏一致，PI/DSH 都以项目组织）：
+  1. 会话 header 的 `cwd` 命中已注册项目路径（Windows 忽略大小写）→ 该项目；
+  2. `$DSH_HOME/sessions/<workspaceDir>` 目录名与 `workspaceDirFor(项目路径)` 精确一致（header 缺失兜底）→ 该项目；
+  3. catalog 记录（`dshSessionId` 匹配）的 `projectId` → 该项目（含本机未注册项目的合成「待映射」节点）；
+  4. 都不匹配 → 按工作区目录生成合成节点（`dsh-ws-*`，节点名取目录末段），恢复仍走 `$DSH_HOME`。
+  - **会话名**：host 投影缓存（`storages/session_projcache.json`）→ 日志折叠标题（`session/title` last-wins，缺省首条真人提示回退）→ catalog 记录标题（非占位）→ cwd 末段/工作区目录；不再用 sessionId 目录名占位。
+  - 缺失 sessions 目录视为 0 个会话而非失败（避免缩水保护误拦截）。
 - **内容格式**：`.zstd` 会话在**上传前解压为文本**，走既有 `encryptObject`（gzip + AES-256-GCM）管线；恢复时按原扩展名写回（`.zstd` 用 `zstdCompressSync` 重新压缩后二进制原子写）。对象 key 独立前缀 `pideck-dsh-sessions/<sessionId>.jsonl.enc`。
-- **路径**：`CloudSyncSessionRef.scope` 新增 `"dsh"`；`resolveSessionTarget/sessionTargetRoot` 解析到 `$DSH_HOME/sessions/<relativePath>`（无 DSH_HOME 则跳过）；hash 比较基于**解压文本**（`contentHash` 与上传/恢复一致）。
-- **同步/导入导出共用**：云同步 push/pull、`.pideckbackup` 导出/导入均支持 DSH 会话（同一套 scope 分流）。
+- **路径**：`CloudSyncSessionRef.scope` 新增 `"dsh"`；`resolveSessionTarget/sessionTargetRoot` 解析到 `$DSH_HOME/sessions/<relativePath>`（无 DSH_HOME 则跳过）；hash 比较基于**解压文本**（`contentHash` 与上传/恢复一致）。会话引用携带 `projectId`（归组维度），但恢复不依赖它——始终落 `$DSH_HOME`。
+- **同步/导入导出共用**：云同步 push/pull、`.pideckbackup` 导出/导入均支持 DSH 会话（同一套 scope 分流）；合并后按会话的 `projectId` 挂回项目节点，不再有 `__dsh__` 合成项目。
 - **校验**：`isPiDeckSyncIndexV1` 会话引用校验新增 `dsh` 分支（objectKey 前缀 + 相对路径安全）。
-- **测试**：`tests/cloudSyncDshSessions.test.mjs`（扫描发现 .zstd/.jsonl 会话、zstd 云同步端到端往返 + 幂等、备份导出/新机导入恢复）。
+- **测试**：`tests/cloudSyncDshSessions.test.mjs`（按 cwd/catalog 归组、投影缓存/日志真实标题、无 `__dsh__` 节点、zstd 云同步端到端往返 + 幂等、备份导出/新机导入恢复）。
 
 ---
 

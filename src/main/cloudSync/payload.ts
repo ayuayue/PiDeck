@@ -16,9 +16,8 @@ import type {
 
 export const GLOBAL_SYNC_PROJECT_ID = "__global__";
 export const GLOBAL_SYNC_PROJECT_NAME = "Global";
-/** 合成项目根：DSH 会话（$DSH_HOME/sessions，scope "dsh"）。 */
+/** DSH 会话 selectionId 的命名空间（会话本身按所属项目归组，不再单列 __dsh__ 项目节点）。 */
 export const DSH_SYNC_PROJECT_ID = "__dsh__";
-export const DSH_SYNC_PROJECT_NAME = "DSH 会话";
 export const DSH_SESSION_OBJECT_KEY_PREFIX = "pideck-dsh-sessions";
 export const SESSION_OBJECT_KEY_PREFIX = "pideck-sessions";
 export const FILE_OBJECT_KEY_PREFIX = "pideck-files";
@@ -292,11 +291,15 @@ export function buildGlobalCloudSyncProject(options: CloudSyncProjectOptions = {
 	};
 }
 
-/** 合成节点：DSH 会话（scope "dsh"，恢复目标 $DSH_HOME/sessions）。 */
-export function buildDshCloudSyncProject(options: CloudSyncProjectOptions = {}): CloudSyncProject {
+/** 合成项目节点：本机未注册的归属项目（DSH 工作区目录等），只作载荷组织维度。 */
+export function buildSyntheticCloudSyncProject(
+	projectId: string,
+	name: string,
+	options: CloudSyncProjectOptions = {},
+): CloudSyncProject {
 	return {
-		projectId: DSH_SYNC_PROJECT_ID,
-		name: DSH_SYNC_PROJECT_NAME,
+		projectId,
+		name,
 		kind: "normal",
 		...(options.resources ? { resources: options.resources } : {}),
 		...(options.sessions ? { sessions: options.sessions } : {}),
