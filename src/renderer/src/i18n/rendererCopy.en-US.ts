@@ -2655,7 +2655,7 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.security.lock": "Lock",
   "cloudSync.security.changePassword": "Change Password",
   "cloudSync.security.password": "Master password",
-  "cloudSync.tabs.providers": "Cloud providers",
+  "cloudSync.tabs.providers": "Cloud services",
   "cloudSync.tabs.content": "Sync content",
   "cloudSync.status.title": "Sync status",
   "cloudSync.status.pending": "Pending local changes",

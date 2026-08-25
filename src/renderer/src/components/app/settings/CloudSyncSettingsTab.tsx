@@ -485,7 +485,7 @@ export function CloudSyncSettingsTab() {
 				</TabsList>
 
 				<TabsContent value="providers" className="mt-0">
-					<SettingsSection title={t("cloudSync.security.title")} description={t("cloudSync.security.desc")}>
+					<SettingsSection title={t("cloudSync.security.title")} description={t("cloudSync.security.desc")} boxed={false}>
 						{securityState === "NO_KEY" ? (
 							<PasswordForm
 								description={t("cloudSync.security.noKeyDesc")}
@@ -518,7 +518,7 @@ export function CloudSyncSettingsTab() {
 
 					{unlocked ? (
 						<>
-							<SettingsSection title={t("cloudSync.provider.title")} description={t("cloudSync.provider.desc")} divided>
+							<SettingsSection title={t("cloudSync.provider.title")} description={t("cloudSync.provider.desc")} divided boxed={false}>
 								<div className="grid gap-3">
 									<ProviderCard
 										provider="webdav"
@@ -573,7 +573,7 @@ export function CloudSyncSettingsTab() {
 								</div>
 							</SettingsSection>
 
-							<SettingsSection title={t("cloudSync.status.title")} divided>
+							<SettingsSection title={t("cloudSync.status.title")} divided boxed={false}>
 								<SettingBox>
 									<div className="flex flex-wrap items-center justify-between gap-3">
 										<div className="flex items-center gap-3 text-sm">
@@ -602,7 +602,7 @@ export function CloudSyncSettingsTab() {
 
 				<TabsContent value="content" className="mt-0">
 					{unlocked ? (
-						<SettingsSection title={t("cloudSync.content.title")} description={t("cloudSync.content.desc")}>
+						<SettingsSection title={t("cloudSync.content.title")} description={t("cloudSync.content.desc")} boxed={false}>
 							<SettingBox>
 								<div className="flex flex-wrap items-center gap-3">
 									<div className="flex items-center gap-2">
