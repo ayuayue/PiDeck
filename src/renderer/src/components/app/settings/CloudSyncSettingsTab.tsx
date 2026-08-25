@@ -5,7 +5,6 @@ import {
 	Cloud,
 	FileText,
 	Folder,
-	FolderGit2,
 	Globe,
 	KeyRound,
 	Lock,
@@ -22,6 +21,7 @@ import { Button } from "../../ui-shadcn/button";
 import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui-shadcn/collapsible";
 import { Input } from "../../ui-shadcn/input";
+import { Label } from "../../ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import type {
@@ -33,6 +33,25 @@ import type {
 import { cn } from "../../../lib/utils";
 
 const GLOBAL_SYNC_PROJECT_ID = "__global__";
+
+/** GitHub 官方 mark（lucide 新版本移除了品牌图标，这里用内联 SVG）。 */
+function GithubMarkIcon(props: { className?: string }) {
+	return (
+		<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={props.className}>
+			<path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+		</svg>
+	);
+}
+
+/** 表单字段：Label 在上 + 示例 placeholder（对齐 Netcatty 提示风格）。 */
+function Field(props: { label: string; children: React.ReactNode }) {
+	return (
+		<div className="space-y-1.5">
+			<Label className="text-xs text-text-tertiary">{props.label}</Label>
+			{props.children}
+		</div>
+	);
+}
 
 /** 全局配置分类开关：密钥/模型/生图随加密载荷同步；DSH 未实现时禁用。 */
 const CONTENT_CATEGORIES: Array<{
@@ -136,32 +155,52 @@ function ProviderCard(props: {
 	const fields = props.provider === "webdav"
 		? (
 			<>
-				<Input placeholder={t("cloudSync.provider.endpoint")} value={(config.endpoint as string) ?? ""} onChange={(e) => set("endpoint", e.target.value)} />
-				<div className="flex flex-wrap gap-2">
-					<Select value={(config.authType as string) ?? "basic"} onValueChange={(value) => set("authType", value)}>
-						<SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-						<SelectContent>
-							<SelectItem value="basic">basic</SelectItem>
-							<SelectItem value="digest">digest</SelectItem>
-							<SelectItem value="token">token</SelectItem>
-						</SelectContent>
-					</Select>
-					<Input placeholder={t("cloudSync.provider.username")} value={(config.username as string) ?? ""} onChange={(e) => set("username", e.target.value)} className="flex-1" />
-					<Input type="password" placeholder={t("cloudSync.provider.password")} value={(config.password as string) ?? ""} onChange={(e) => set("password", e.target.value)} className="flex-1" />
+				<Field label={t("cloudSync.provider.field.endpoint")}>
+					<Input placeholder="https://dav.example.com/remote.php/webdav/" value={(config.endpoint as string) ?? ""} onChange={(e) => set("endpoint", e.target.value)} />
+				</Field>
+				<div className="grid gap-3 sm:grid-cols-3">
+					<Field label={t("cloudSync.provider.field.authType")}>
+						<Select value={(config.authType as string) ?? "basic"} onValueChange={(value) => set("authType", value)}>
+							<SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+							<SelectContent>
+								<SelectItem value="basic">basic</SelectItem>
+								<SelectItem value="digest">digest</SelectItem>
+								<SelectItem value="token">token</SelectItem>
+							</SelectContent>
+						</Select>
+					</Field>
+					<Field label={t("cloudSync.provider.field.username")}>
+						<Input autoComplete="username" placeholder={t("cloudSync.provider.field.username")} value={(config.username as string) ?? ""} onChange={(e) => set("username", e.target.value)} />
+					</Field>
+					<Field label={t("cloudSync.provider.field.password")}>
+						<Input type="password" autoComplete="current-password" placeholder={t("cloudSync.provider.field.password")} value={(config.password as string) ?? ""} onChange={(e) => set("password", e.target.value)} />
+					</Field>
 				</div>
 			</>
 		)
 		: (
 			<>
-				<div className="flex flex-wrap gap-2">
-					<Input placeholder={t("cloudSync.provider.endpoint")} value={(config.endpoint as string) ?? ""} onChange={(e) => set("endpoint", e.target.value)} className="flex-[2]" />
-					<Input placeholder={t("cloudSync.provider.region")} value={(config.region as string) ?? ""} onChange={(e) => set("region", e.target.value)} className="flex-1" />
-					<Input placeholder={t("cloudSync.provider.bucket")} value={(config.bucket as string) ?? ""} onChange={(e) => set("bucket", e.target.value)} className="flex-1" />
+				<Field label={t("cloudSync.provider.field.endpoint")}>
+					<Input placeholder="https://s3.example.com" value={(config.endpoint as string) ?? ""} onChange={(e) => set("endpoint", e.target.value)} />
+				</Field>
+				<div className="grid gap-3 sm:grid-cols-3">
+					<Field label={t("cloudSync.provider.field.region")}>
+						<Input placeholder="us-east-1" value={(config.region as string) ?? ""} onChange={(e) => set("region", e.target.value)} />
+					</Field>
+					<Field label={t("cloudSync.provider.field.bucket")}>
+						<Input placeholder="pideck-backups" value={(config.bucket as string) ?? ""} onChange={(e) => set("bucket", e.target.value)} />
+					</Field>
+					<Field label={t("cloudSync.provider.field.prefix")}>
+						<Input placeholder="backups/pideck" value={(config.prefix as string) ?? ""} onChange={(e) => set("prefix", e.target.value)} />
+					</Field>
 				</div>
-				<div className="flex flex-wrap gap-2">
-					<Input placeholder={t("cloudSync.provider.accessKeyId")} value={(config.accessKeyId as string) ?? ""} onChange={(e) => set("accessKeyId", e.target.value)} className="flex-1" />
-					<Input type="password" placeholder={t("cloudSync.provider.secretAccessKey")} value={(config.secretAccessKey as string) ?? ""} onChange={(e) => set("secretAccessKey", e.target.value)} className="flex-1" />
-					<Input placeholder={t("cloudSync.provider.prefix")} value={(config.prefix as string) ?? ""} onChange={(e) => set("prefix", e.target.value)} className="flex-1" />
+				<div className="grid gap-3 sm:grid-cols-2">
+					<Field label={t("cloudSync.provider.field.accessKeyId")}>
+						<Input autoComplete="off" placeholder={t("cloudSync.provider.field.accessKeyId")} value={(config.accessKeyId as string) ?? ""} onChange={(e) => set("accessKeyId", e.target.value)} />
+					</Field>
+					<Field label={t("cloudSync.provider.field.secretAccessKey")}>
+						<Input type="password" autoComplete="off" placeholder={t("cloudSync.provider.field.secretAccessKey")} value={(config.secretAccessKey as string) ?? ""} onChange={(e) => set("secretAccessKey", e.target.value)} />
+					</Field>
 				</div>
 			</>
 		);
@@ -169,14 +208,14 @@ function ProviderCard(props: {
 	return (
 		<div className="overflow-hidden rounded-lg border border-border-subtle">
 			<div
-				className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-accent/40"
+				className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 hover:bg-accent/40"
 				role="button"
 				tabIndex={0}
 				onClick={() => setEditing((prev) => !prev)}
 				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
 			>
-				{editing ? <ChevronDown size={15} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={15} className="shrink-0 text-text-tertiary" />}
-				{props.icon}
+				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">{props.icon}</span>
 				<span className="min-w-0 flex-1 truncate text-sm font-medium">{props.title}</span>
 				{props.account ? <span className="shrink-0 truncate text-caption text-text-tertiary">{props.account}</span> : null}
 				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
@@ -191,9 +230,9 @@ function ProviderCard(props: {
 				</span>
 			</div>
 			{editing ? (
-				<div className="space-y-2 border-t border-border-subtle px-3 py-3">
+				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
 					{fields}
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-2 pt-1">
 						<Button size="sm" onClick={() => props.onConnect({ ...config, provider: props.provider })}>
 							{t("cloudSync.provider.saveAndConnect")}
 						</Button>
@@ -223,14 +262,16 @@ function GithubProviderCard(props: {
 	return (
 		<div className="overflow-hidden rounded-lg border border-border-subtle">
 			<div
-				className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-accent/40"
+				className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 hover:bg-accent/40"
 				role="button"
 				tabIndex={0}
 				onClick={() => setEditing((prev) => !prev)}
 				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
 			>
-				{editing ? <ChevronDown size={15} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={15} className="shrink-0 text-text-tertiary" />}
-				<FolderGit2 size={16} className="shrink-0 text-primary" />
+				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[#24292e] text-white dark:bg-white dark:text-[#24292e]">
+					<GithubMarkIcon className="size-5" />
+				</span>
 				<span className="min-w-0 flex-1 truncate text-sm font-medium">{t("cloudSync.provider.githubTitle")}</span>
 				<span className="flex shrink-0 items-center gap-1.5 text-caption text-text-tertiary">
 					<StatusDot status={props.status} />
@@ -242,9 +283,14 @@ function GithubProviderCard(props: {
 				</span>
 			</div>
 			{editing ? (
-				<div className="space-y-2 border-t border-border-subtle px-3 py-3">
-					<div className="flex flex-wrap items-center gap-2">
-						<Input placeholder={t("cloudSync.provider.githubClientId")} value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} className="max-w-64" />
+				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
+					<Field label={t("cloudSync.provider.field.clientId")}>
+						<div className="space-y-1">
+							<Input placeholder="Iv23li…" value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} />
+							<p className="text-caption text-text-tertiary">{t("cloudSync.provider.field.clientIdHint")}</p>
+						</div>
+					</Field>
+					<div className="flex items-center gap-2">
 						<Button size="sm" onClick={props.onConnect} disabled={!props.clientId.trim()}>
 							{t("cloudSync.provider.githubConnect")}
 						</Button>
