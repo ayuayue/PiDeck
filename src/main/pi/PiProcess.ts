@@ -470,7 +470,10 @@ export class PiProcess extends EventEmitter {
         stdio: ["pipe", "pipe", "pipe"],
         shell: invocation.shell,
         // env 已在上方合并安全门环境变量（PIDECK_SECURITY_CONFIG / PIDECK_SESSION_ID）
+        // Windows：PiDeck 是无控制台的 GUI 进程，spawn 的 cmd.exe 若不带 windowsHide，
+        // 系统会为它新建控制台窗口（用户表现为"跑东西时弹出 CMD 窗口"）。
         env,
+        windowsHide: true,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
     } catch (error) {
