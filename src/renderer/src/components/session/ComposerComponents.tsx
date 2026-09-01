@@ -344,6 +344,7 @@ export function ComposerBottomBar(props: {
 	feishuIndicator?: ReactNode;
 	/** 安全等级选择器（自包含组件，注入到左下角工具组） */
 	securityControl?: ReactNode;
+	voiceControls: ReactNode;
 	sendControls: ReactNode;
 	onPickModel: () => void;
 	onPickPromptTemplate: () => void;
@@ -620,6 +621,7 @@ export function ComposerBottomBar(props: {
 							<span className="composer-bar-branch-name truncate">{props.gitInfo.current}</span>
 						</span>
 						) : null}
+					{props.voiceControls}
 					{props.sendControls}
 				</div>
 			</div>

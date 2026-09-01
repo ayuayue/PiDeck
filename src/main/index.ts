@@ -8,6 +8,7 @@ import {
 	nativeTheme,
 	net,
 	protocol,
+	safeStorage,
 	session,
 	shell,
 	Tray,
@@ -303,6 +304,9 @@ import { registerImageGenIpc } from "./ipc/imagegenIpc";
 import { ImageGenService } from "./imagegen/ImageGenService";
 import { ImageSessionStore } from "./imagegen/ImageSessionStore";
 import { ImageGenConfigStore } from "./imagegen/ImageGenConfigStore";
+import { registerVoiceTranscriptionIpc } from "./ipc/voiceTranscriptionIpc";
+import { VoiceTranscriptionConfigStore } from "./voice/VoiceTranscriptionConfigStore";
+import { VoiceTranscriptionService } from "./voice/VoiceTranscriptionService";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
@@ -2364,6 +2368,21 @@ function registerIpc() {
 	registerVisionIpc({
 		visionBridge: new VisionBridgeConfigManager(configManager),
 		log: (message, ...args) => appLogger.info("vision", message, ...args),
+	});
+
+	const voiceTranscriptionConfigStore = new VoiceTranscriptionConfigStore({
+		getConfigPath: () => join(app.getPath("userData"), "voice-transcription.json"),
+		isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+		protect: (plainText) => safeStorage.encryptString(plainText),
+		unprotect: (encrypted) => safeStorage.decryptString(Buffer.from(encrypted)),
+		log: (message, details) => void appLogger.info("voice-transcription", message, details),
+	});
+	registerVoiceTranscriptionIpc({
+		configStore: voiceTranscriptionConfigStore,
+		service: new VoiceTranscriptionService({
+			getCredentials: () => voiceTranscriptionConfigStore.getCredentials(),
+			log: (message, details) => void appLogger.info("voice-transcription", message, details),
+		}),
 	});
 
 	// 生图：凭据来自独立 userData/imagegen.json，不读 pi models.json

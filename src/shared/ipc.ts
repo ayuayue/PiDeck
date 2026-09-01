@@ -588,6 +588,12 @@ export const ipcChannels = {
 	/** 保存独立生图配置（白名单校验后落盘） */
 	imagegenSaveConfig: "imagegen:save-config",
 
+	// ===== Composer voice transcription =====
+	voiceTranscriptionGetConfig: "voice-transcription:get-config",
+	voiceTranscriptionSaveConfig: "voice-transcription:save-config",
+	voiceTranscriptionTranscribe: "voice-transcription:transcribe",
+	voiceTranscriptionCancel: "voice-transcription:cancel",
+
 	// ===== 系统剪贴板（必须走主进程；Electron 38 废弃渲染进程/preload 直连 clipboard） =====
 	clipboardReadText: "clipboard:read-text",
 	clipboardReadHtml: "clipboard:read-html",

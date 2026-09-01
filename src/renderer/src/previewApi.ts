@@ -1287,5 +1287,24 @@ export function createPreviewApi(): PiDesktopApi {
 			getConfig: async () => ({ providers: [], activeProviderId: "", activeModel: "" }),
 			saveConfig: async (config) => ({ ok: true, config }),
 		},
+		voiceTranscription: {
+			getConfig: async () => ({
+				baseUrl: "https://api.openai.com/v1",
+				model: "whisper-1",
+				language: "",
+				hasApiKey: false,
+			}),
+			saveConfig: async (config) => ({
+				ok: true,
+				config: {
+					baseUrl: config.baseUrl,
+					model: config.model,
+					language: config.language,
+					hasApiKey: false,
+				},
+			}),
+			transcribe: async () => ({ ok: false, error: "notConfigured" }),
+			cancel: async () => {},
+		},
 	};
 }

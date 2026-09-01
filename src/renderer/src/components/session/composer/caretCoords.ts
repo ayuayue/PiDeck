@@ -29,3 +29,14 @@ export function getComposerCaretOffset(root: HTMLElement): number {
 	if (!editor) return 0;
 	return posToPlainOffset(editor, editor.state.selection.from);
 }
+
+/** Current selection range in the same plain-text offsets as the draft. */
+export function getComposerSelectionRange(root: HTMLElement): { from: number; to: number } {
+	const editor = resolveComposerTipTapEditor(root);
+	if (!editor) return { from: 0, to: 0 };
+	const { from, to } = editor.state.selection;
+	return {
+		from: posToPlainOffset(editor, from),
+		to: posToPlainOffset(editor, to),
+	};
+}

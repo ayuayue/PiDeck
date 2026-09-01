@@ -102,6 +102,7 @@ import type { ComposerCaretRequest } from "../components/session/composer/types"
 import {
   getComposerCaretCoords,
   getComposerCaretOffset,
+  getComposerSelectionRange,
 } from "../components/session/composer/caretCoords";
 import { desktopApi } from "../desktopApi";
 import { formatBytes } from "../../../shared/formatBytes";
@@ -126,6 +127,11 @@ import {
 import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTimelineController";
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
 import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
+import { useVoiceTranscription } from "./useVoiceTranscription";
+import {
+  resolveVoiceTranscriptionInsertion,
+  type VoiceTranscriptionTarget,
+} from "../utils/voiceTranscriptionInsert";
 
 /** 统一压缩结果 → 用户可见文案；silent 不弹 toast。 */
 function compactNotice(kind: CompactNoticeKind, detail?: string): string | null {
@@ -1434,6 +1440,41 @@ export function useSessionComposerController(
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [cursor, draft, sessionId, setDraft]);
 
+  const captureVoiceTarget = useCallback((): VoiceTranscriptionTarget => {
+    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
+      ? liveDomDraftRef.current.value
+      : draft;
+    const selection = editorRef.current
+      ? getComposerSelectionRange(editorRef.current)
+      : { from: cursor, to: cursor };
+    return { sessionId, draft: liveDraft, ...selection };
+  }, [cursor, draft, sessionId]);
+
+  const applyVoiceText = useCallback((target: VoiceTranscriptionTarget, text: string) => {
+    const currentDraft = liveDomDraftRef.current.sessionId === sessionId
+      ? liveDomDraftRef.current.value
+      : store.get(sessionDraftByIdAtom)[sessionId] ?? "";
+    const result = resolveVoiceTranscriptionInsertion({
+      target,
+      currentSessionId: sessionId,
+      currentDraft,
+      text,
+    });
+    if (!result.ok) return false;
+    liveDomDraftRef.current = { sessionId, value: result.value };
+    setDraft(result.value);
+    setCursor(result.caret);
+    caretRef.current = { pos: result.caret, forValue: result.value };
+    requestAnimationFrame(() => editorRef.current?.focus());
+    return true;
+  }, [sessionId, setDraft, store]);
+
+  const voice = useVoiceTranscription({
+    scopeKey: sessionId,
+    captureTarget: captureVoiceTarget,
+    applyText: applyVoiceText,
+  });
+
   /**
    * 大段粘贴文本 → 落盘受管文件 + 附件栏 chip。
    * 触发条件：粘贴纯文本达到 PASTE_TO_FILE_MIN_CHARS（复制长日志/代码/文章是主要场景）。
@@ -1828,6 +1869,7 @@ export function useSessionComposerController(
     isStarting,
     hasContent,
     busyDraftLocked,
+    voice,
     editor: {
       ref: editorRef,
       caretRef,
