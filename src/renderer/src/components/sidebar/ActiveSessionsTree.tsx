@@ -9,6 +9,7 @@ import type { SidebarController } from "../../hooks/useSidebarController";
 import type { SidebarActions } from "./SidebarContent";
 import { Button } from "../ui-shadcn/button";
 import { SessionBackendMark } from "../session/SessionSourceBadge";
+import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { formatRelativeTime } from "../../utils/relativeTime";
 
@@ -102,7 +103,6 @@ export function ActiveSessionsTree(props: {
 								props.actions.sessions.beginDrag?.(sessionId);
 							}}
 							onDragEnd={() => props.actions.sessions.endDrag?.()}
-							title={displayTitle}
 						>
 							<span
 								className={cn(
@@ -113,7 +113,7 @@ export function ActiveSessionsTree(props: {
 							/>
 							<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 								<div className="conversation-title flex min-w-0 items-center gap-1.5">
-									<strong className="min-w-0 flex-1 truncate font-medium">{displayTitle}</strong>
+									<TitleScrollText text={displayTitle} className="font-medium" />
 									<SessionBackendMark backend={agent.backend} />
 									{/* 相对时间常显：hover 时被右侧「⋯」浮层盖住（与历史会话行同一策略） */}
 									<span className="shrink-0 text-caption tabular-nums text-muted-foreground group-hover/row:hidden">

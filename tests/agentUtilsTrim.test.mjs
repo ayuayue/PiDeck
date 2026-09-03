@@ -167,6 +167,11 @@ test("inferTitleFromMessages uses the first user prompt as the session title", (
   assert.equal(title, "帮我看看这个报错");
 });
 
+test("inferTitleFromMessages preserves long prompts for the visual sidebar clamp", () => {
+  const prompt = "修复侧栏标题：这是一个超过三十二字符的自动命名请求，末尾信息不能被截断";
+  assert.equal(inferTitleFromMessages([{ role: "user", text: prompt }]), prompt);
+});
+
 test("pi runtime title changes notify catalog the same way DSH does", () => {
   // 侧栏/Tab 读 SessionRecord.title。DSH 已有 onTitleChanged → catalog.update → catalog-refreshed；
   // pi 必须走同一条，否则 refreshAutoTitle 只改 AgentTab，回话后 UI 仍显示「新会话」。

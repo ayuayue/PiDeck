@@ -306,3 +306,35 @@
     }
   }
 }
+
+/* hover 滚动时收窄右端渐隐（legacy 的 28px mask 会吃掉滚出的尾端文字）；
+ * 仅在 animate-title-scroll 同用时生效，未滚动的行保持原渐隐截断观感。 */
+@utility title-scroll-mask-narrow {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 6px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 6px), transparent);
+}
+
+/* conversation-title 的 legacy 规则会把所有后代 span 设成 caption；滚动轨道需继承
+ * 外层 strong 的实际字号，否则运行中 Agent 标题会被意外缩小。 */
+@utility title-scroll-text {
+  font-size: inherit;
+}
+
+/* ── 侧栏标题 hover 滚动（TitleScrollText）────────────────────────────
+ * 标题被截断时，hover 让全文滚到末尾停住再回弹，离开回开头。
+ * 时长/距离由组件实测溢出后注入 --title-scroll-duration / --title-scroll-distance；
+ * 未溢出的行不加 animate-title-scroll，完全静止。 */
+@theme {
+  --animate-title-scroll: title-scroll-to-end var(--title-scroll-duration, 3s) cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+
+  @keyframes title-scroll-to-end {
+    0%,
+    10% {
+      transform: translateX(0);
+    }
+    88%,
+    100% {
+      transform: translateX(calc(-1 * var(--title-scroll-distance, 0px)));
+    }
+  }
+}

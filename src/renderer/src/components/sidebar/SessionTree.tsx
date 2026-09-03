@@ -9,6 +9,7 @@ import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarControl
 import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
 import { SessionBackendMark, SessionSourceBadge } from "../session/SessionSourceBadge";
+import { TitleScrollText } from "./TitleScrollText";
 import { cn } from "../../lib/utils";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 
@@ -188,7 +189,7 @@ export function SessionTree(props: {
       y: event.clientY,
     });
   };
-  const renderSubagent = (session: SessionSummary, label: ReactNode) => {
+  const renderSubagent = (session: SessionSummary, title: string, badge?: ReactNode) => {
     return (
       <div
         key={session.id}
@@ -206,7 +207,10 @@ export function SessionTree(props: {
           onDoubleClick={() => openSession(session.id, "permanent")}
           {...sessionDragProps(session.id)}
         >
-          <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">{label}</div></div>
+          <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
+            <TitleScrollText text={title} />
+            {badge}
+          </div></div>
         </button>
         <Button
           type="button"
@@ -233,8 +237,12 @@ export function SessionTree(props: {
     // worktree（nested）子树保留其自身布局规则
     return (
       <div className={cn("codex-subagent-sidebar-group", !props.nested && "ml-3")}>
-        {codex.map((session) => renderSubagent(session, <><strong>{formatCodexSubagentName(session)}</strong><SessionSourceBadge source="codex" label={t("app.codexSubagent")} /></>))}
-        {pi.map((session) => renderSubagent(session, <strong>{formatPiSubagentName(session)}</strong>))}
+        {codex.map((session) => renderSubagent(
+          session,
+          formatCodexSubagentName(session),
+          <SessionSourceBadge source="codex" label={t("app.codexSubagent")} />,
+        ))}
+        {pi.map((session) => renderSubagent(session, formatPiSubagentName(session)))}
       </div>
     );
   };
@@ -277,7 +285,7 @@ export function SessionTree(props: {
           >
             {renderRuntimeStatusDot(child.agent.status)}
             <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
-              <strong className="min-w-0 flex-1 truncate font-medium">{child.agent.title}</strong>
+              <TitleScrollText text={child.agent.title} className="font-medium" />
               <SessionBackendMark backend={child.agent.backend} />
               {child.agent.noSession && <span className="anonymous-indicator" title={t("app.anonymousChat")}><HatGlasses size={11} aria-hidden="true" /></span>}
               {renderToggle(groupKey, childCount)}
@@ -333,8 +341,12 @@ export function SessionTree(props: {
             />
           )}
           <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
-            {/* 历史会话（无运行态）文字降一级，与活跃 Agent/运行中会话形成层级差 */}
-            <strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{child.session.name || t("common.untitled")}</strong>
+            {/* 历史会话（无运行态）文字降一级，与活跃 Agent/运行中会话形成层级差；
+                标题被截断时 hover 滚动展示全文（TitleScrollText，未溢出则静止）。 */}
+            <TitleScrollText
+              text={child.session.name || t("common.untitled")}
+              className={cn(runtime ? "font-medium" : "font-normal text-muted-foreground/90")}
+            />
             {(child.session.backend === "dsh" || child.session.backend === "imagegen") && <SessionBackendMark backend={child.session.backend} />}
             {/* 生图角标：imagegen 后端会话的徽标已含生图标识，此处仅对遗留 pi 后端含生图消息的会话补图标 */}
             {child.session.backend !== "imagegen" && child.session.hasImageGen && (
@@ -399,7 +411,7 @@ export function SessionTree(props: {
           >
             <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
               {renderRuntimeStatusDot(runtime?.status)}
-              <strong className="min-w-0 flex-1 truncate font-medium">{session.title}</strong>
+              <TitleScrollText text={session.title} className="font-medium" />
               <SessionBackendMark backend={session.backend} />
             </div></div>
           </button>

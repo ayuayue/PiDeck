@@ -118,16 +118,19 @@ test("ensureRuntimeTarget registers a fork with the marker and keeps it across r
     await catalog.load();
     const target = await catalog.ensureRuntimeTarget({
       projectId: "project-1",
-      title: "Forked topic",
+      // fork 身份通过物理标题后缀表达；forked 只是 catalog 的辅助元数据。
+      title: "Forked topic (fork)",
       source: "pi",
       environment: "native",
       filePath: "C:/sessions/fork.jsonl",
       forked: true,
     });
     assert.equal(target.forked, true);
+    assert.equal(target.title, "Forked topic (fork)");
     const reloaded = new SessionCatalog(join(dir, "sessions.json"));
     await reloaded.load();
     assert.equal(reloaded.get(target.id)?.forked, true);
+    assert.equal(reloaded.get(target.id)?.title, "Forked topic (fork)");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -785,15 +785,34 @@ async function copyCatalogSession(sessionId: string) {
 		sessionPath?: string;
 	};
 	if (result.cancelled || !result.sessionPath) return { cancelled: true };
+	// 静止复制与运行中复制同语义（fork 身份）：(fork) 物理写进会话名。产物是静态文件
+	// （临时 pi 进程已停，无人并发写入），直接用 sessionScanner.rename 写 session_info，
+	// 扫描回读（session_info 命中）即与 catalog 一致；rename 失败不阻断复制。
+	let title = entry.title;
+	const forkedTitle = appendSessionForkSuffix(title, mainCopy("session.forkedSuffix"));
+	if (forkedTitle !== title) {
+		try {
+			await sessionScanner.rename(result.sessionPath, forkedTitle);
+			title = forkedTitle;
+		} catch (error) {
+			void appLogger.warn("session", "Copy session suffix rename failed", {
+				sessionId,
+				sessionPath: result.sessionPath,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
 	const copied = await sessionCatalog.ensureRuntimeTarget({
 		projectId: entry.projectId,
-		title: entry.title,
+		title,
 		source: entry.source,
 		environment: entry.environment,
 		filePath: result.sessionPath,
 		wslDistro: entry.wslDistro,
 		wslUser: entry.wslUser,
 		importedSourceId: entry.importedSourceId,
+		// 复制产物同为 fork 身份（文件头带 parentSession，与运行中 clone 同源标记）。
+		forked: true,
 	});
 	return { cancelled: false, targetSessionId: copied.id };
 }
@@ -2447,8 +2466,10 @@ function registerIpc() {
 			if (project && isDefaultAgentTitle(entry.title, project, mainCopy as never)) {
 				const firstLine = prompt.split(/\r?\n/, 1)[0]?.trim() ?? "";
 				if (firstLine) {
+					// 自动命名只取首行，不在存储层硬截断；标题展示由侧栏窗口负责钳制，
+					// hover 时滚动展示全文。否则 "(fork)" 或英文单词可能被写成残片。
 					await sessionCatalog.update(sessionId, {
-						title: firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine,
+						title: firstLine,
 					});
 					mainWindow?.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
 				}

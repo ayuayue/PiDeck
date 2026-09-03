@@ -133,8 +133,8 @@ test("inferSessionNameFromFile falls back to the first user text for a new pi se
 		]);
 		const scanner = new Scanner();
 		const name = await scanner.inferSessionNameFromFile(file);
-		// 优先级与 readSummary 一致：首条 user 文本，截断 32 字符。
-		assert.equal(name, "修复侧栏标题：未打开的会话要显示首条消息，而不是永远 Untit…");
+		// 优先级与 readSummary 一致：首条 user 文本，保留完整标题；侧栏只做视觉钳制。
+		assert.equal(name, "修复侧栏标题：未打开的会话要显示首条消息，而不是永远 Untitled");
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
@@ -153,6 +153,24 @@ test("inferSessionNameFromFile prefers session_info name over the first user tex
 		const scanner = new Scanner();
 		const name = await scanner.inferSessionNameFromFile(file);
 		assert.equal(name, "用户手动改名后的标题");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("inferSessionNameFromFile preserves a long physical fork title", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pi-scan-title-fork-"));
+	const { SessionScanner: Scanner } = loadSessionScanner(home);
+	try {
+		const file = join(home, ".pi", "agent", "sessions", "--C--Users-14012-pi-desktop-dev--", "2026-08-22T04-22-29-162Z_abc.jsonl");
+		const title = "复制后的长标题：这个名称超过三十二字符并且必须保留末尾身份标记 (fork)";
+		writeSession(file, [
+			makeHeader("abc"),
+			{ type: "session_info", id: "i1", parentId: "abc", timestamp: "2026-08-22T04:23:00.000Z", name: title },
+		]);
+		const scanner = new Scanner();
+		assert.equal(await scanner.inferSessionNameFromFile(file), title);
+		assert.equal((await scanner.inferSessionNameAndValidity(file)).name, title);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}

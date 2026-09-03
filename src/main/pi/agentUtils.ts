@@ -199,11 +199,11 @@ export function stripToolResultForDelivery(messages: ChatMessage[]): ChatMessage
 	return stripped ? out : messages;
 }
 
-/** 清洗会话标题文本。 */
+/** 清洗会话标题文本；存储层不截断，侧栏负责视觉宽度钳制与 hover 展示。 */
 export function cleanTitle(value?: string): string | undefined {
 	const text = value?.replace(/\s+/g, " ").trim();
 	if (!text || /^untitled$/i.test(text)) return undefined;
-	return text.length > 32 ? `${text.slice(0, 32)}…` : text;
+	return text;
 }
 
 /** 从消息列表推断会话标题（取首条 user 或 assistant 消息的清洗后文本）。 */

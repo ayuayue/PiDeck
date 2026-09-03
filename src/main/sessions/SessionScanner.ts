@@ -92,12 +92,13 @@ function isSessionScanLine(value: unknown): value is SessionScanLine {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-/** 清洗会话标题候选：时间戳文件名 / 纯 untitled 不算标题，截断到 32 字符。 */
+/** 清洗会话标题候选：时间戳文件名 / 纯 untitled 不算标题；标题本身不做存储截断。 */
 function cleanScanTitle(value?: string): string | undefined {
   const text = value?.replace(/\s+/g, " ").trim();
   // 时间戳文件名不是会话名：跳过才能回退到首条 user/assistant 文本。
   if (!text || /^untitled$/i.test(text) || looksLikePiSessionFileStem(text)) return undefined;
-  return text.length > 32 ? `${text.slice(0, 32)}…` : text;
+  // 侧栏负责视觉窗口与 hover 滚动；这里必须保留 session_info 的完整名称，尤其是末尾的 (fork)。
+  return text;
 }
 
 /**
