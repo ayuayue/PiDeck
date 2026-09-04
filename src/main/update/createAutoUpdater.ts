@@ -78,6 +78,11 @@ export function createRealAutoUpdater(options?: {
 			if (feedOverride) return;
 			if (url === currentFeedUrl) return;
 			currentFeedUrl = url;
+			// 用户在设置页显式切换更新源 = 想真实检查：dev 构建同样激活 updater，
+			// 否则 electron-updater 直接返回 null，用户只会看到「未激活」错误。
+			// 默认 github 源不会走到这里（currentFeedUrl 初始即 null，直接 early-return），
+			// 所以 dev 下不切源仍保持不检查，不打扰日常开发。
+			autoUpdater.forceDevUpdateConfig = true;
 			if (url) {
 				// 镜像源：generic provider 整体接管检查+下载（baseUrl 已含 releases/latest/download）。
 				autoUpdater.setFeedURL({ provider: "generic", url });
@@ -89,9 +94,13 @@ export function createRealAutoUpdater(options?: {
 		},
 		checkForUpdates: async () => {
 			const result = await autoUpdater.checkForUpdates();
-			// electron-updater 在未打包的应用中默认静默返回 null。把它提升为错误，
-			// 避免 UpdateService 把「根本未检查」误报成「已是最新」。
-			if (!result) throw new Error("electron-updater did not activate an update check.");
+			// electron-updater 在未激活（dev 未切镜像源）时默认静默返回 null。把它提升为错误，
+			// 避免 UpdateService 把「根本未检查」误报成「已是最新」；文案给出可操作指引。
+			if (!result) {
+				throw new Error(
+					"更新检查未激活：开发模式下默认不检查，请在设置中选择镜像更新源后重试",
+				);
+			}
 		},
 		downloadUpdate: () => autoUpdater.downloadUpdate().then(() => undefined),
 		quitAndInstall: () => autoUpdater.quitAndInstall(false, true),
