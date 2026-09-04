@@ -3,12 +3,15 @@
 ### 🚀 New Features
 - **Command Code usage query support** — A new commandcode-credits parser reads the /alpha/billing/credits endpoint and shows 5h / weekly / monthly windows; the monthly window reverse-looks-up the 5h/week cap combo from the official pricing table with a double check (cap matches the plan + remaining is under the cap), degrading to remaining-only on failure (fail-closed against fabricated denominators).
 - **Application update lifecycle hardening** — The update service is restructured into automatic (electron-updater downloads and installs) / manual (unsigned macOS builds only check and guide manual downloads) delivery modes; stale updater references removed, install-time exit preparation with timeout recovery, so the update flow is more reliable.
+- **Update source mirrors with auto health checks** — The update settings can switch between GitHub official / built-in mirrors (ghfast, ghproxy.net, ghproxy.cxkpro) / a custom mirror prefix, applied at runtime without a restart; opening the settings page auto-probes mirror availability and speed with ok / slow / broken markers, plus a manual re-check button.
 
 ### 🐛 Fixes
 - **Tool stopwatch no longer resets mid-stream** — Tool duration now starts from meta.startedAt (same baseline as the final durationMs), so long-running commands no longer flash back to near-zero while streaming output.
 - **Vision-bridge model picker fits extra-long model names** — Overlong provider/model tokens truncate inside the button with an ellipsis (full name on hover) instead of breaking the layout.
 - **Unified session turn counting** — Pi sessions count “N rounds” by speaking-turn cycles (consecutive user messages merge into one turn); DSH keeps the official sessionStats semantics with a dsh-web-aligned fallback; the usage page renames “turns” to “call counts” to avoid confusion with session turns.
 - **Fork titles persist and long sidebar names scroll** — Forked session titles survive restarts; extra-long sidebar titles scroll on hover.
+- **Git badge state survives tab switches** — Ahead/behind badges are cached per project + repo scope, so switching session tabs no longer blanks them (the cached value shows instantly and a background refresh corrects it shortly after).
+- **Calmer title scrolling** — Tab and sidebar title scrolling is slower and constant-speed with a doubled max duration, and the currently selected item no longer scrolls, so titles stay readable.
 
 ## v0.7.3 - 2026-09-03
 

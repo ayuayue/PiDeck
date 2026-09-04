@@ -84,6 +84,7 @@
 ### v0.7.4-beta Release Highlights
 - 🚀 **Command Code usage query support**
 - 🚀 **Application update lifecycle hardening**
+- 🚀 **Update source mirrors with auto health checks**
 - ✨ **Tool stopwatch no longer resets mid-stream**
 - ✨ **Vision-bridge model picker fits extra-long model names**
 - ✨ **Unified session turn counting**
