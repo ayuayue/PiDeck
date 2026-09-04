@@ -11,6 +11,7 @@ const {
   resolveModelProxyMode,
   resolveListedProxyMode,
   resolveEffectiveSessionProxyMode,
+  resolveDshHostProxyMode,
   applyPiProxyModeWithProvider,
   computeGenProxyKey,
 } = loadTsCommonJs("src/main/sessions/sessionProxyPolicy.ts");
@@ -44,7 +45,7 @@ test("aggregateDshProxyMode: 空/全 follow → follow；任一 off 一票否决
   assert.equal(aggregateDshProxyMode([{ mode: "on" }, undefined, { mode: "follow" }]), "on");
 });
 
-test("buildHostProxyEnvPatch: off → 剥离全部标准代理 env（含 NO_PROXY）", () => {
+test("buildHostProxyEnvPatch: off → 剥离全部标准代理 env（含 NO_PROXY）与 NODE_USE_ENV_PROXY", () => {
   const patch = buildHostProxyEnvPatch("off", { url: "http://127.0.0.1:7890", bypass: "localhost" });
   assert.ok(patch);
   assert.equal(Object.keys(patch.set).length, 0);
@@ -53,16 +54,19 @@ test("buildHostProxyEnvPatch: off → 剥离全部标准代理 env（含 NO_PROX
     [
       "ALL_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
       "all_proxy", "http_proxy", "https_proxy", "no_proxy",
+      "NODE_USE_ENV_PROXY",
     ].sort(),
   );
 });
 
-test("buildHostProxyEnvPatch: on → 注入大小写双份 + bypass；URL 为空返回 undefined", () => {
+test("buildHostProxyEnvPatch: on → 注入大小写双份 + bypass + NODE_USE_ENV_PROXY=1；URL 为空返回 undefined", () => {
   const patch = buildHostProxyEnvPatch("on", { url: "  http://127.0.0.1:7890  ", bypass: "localhost,127.0.0.1" });
   assert.ok(patch);
   for (const key of PROXY_ENV_KEYS) assert.equal(patch.set[key], "http://127.0.0.1:7890");
   assert.equal(patch.set.NO_PROXY, "localhost,127.0.0.1");
   assert.equal(patch.set.no_proxy, "localhost,127.0.0.1");
+  // NODE_USE_ENV_PROXY=1：undici fetch 的 env 代理开关（没有它注入的代理 env 不生效）
+  assert.equal(patch.set.NODE_USE_ENV_PROXY, "1");
   // 全局 URL 空：无法代理，返回 undefined 表示不动（等用户先配 URL）
   assert.equal(buildHostProxyEnvPatch("on", { url: "  ", bypass: "" }), undefined);
 });
@@ -156,6 +160,24 @@ test("computeGenProxyKey: 序列化实际生效的代理状态（含名单命中
 	assert.equal(computeGenProxyKey({ piProxyEnabled: false, piProxyUrl: "x", piProxyBypass: "b", piProxyModels: [] }, "openai", "gpt-4o"), "off");
 	// 全局开 → on（即使名单为空）；绕过列表参与指纹（改 bypass 需重建进程）
 	assert.equal(computeGenProxyKey({ piProxyEnabled: true, piProxyUrl: "http://127.0.0.1:7890", piProxyBypass: "localhost", piProxyModels: [] }, "openai", "gpt-4o"), "on|http://127.0.0.1:7890|localhost");
+});
+
+test("resolveDshHostProxyMode: 会话聚合非 follow 时直接返回（不兜底）", () => {
+  assert.equal(resolveDshHostProxyMode("on", { piProxyEnabled: false, hasList: false }), "on");
+  // off 一票否决优先于全局开关
+  assert.equal(resolveDshHostProxyMode("off", { piProxyEnabled: true, hasList: false }), "off");
+});
+
+test("resolveDshHostProxyMode: follow + 全局开且无名单 → on（与 pi 跟随全局一致）", () => {
+  assert.equal(resolveDshHostProxyMode("follow", { piProxyEnabled: true, hasList: false }), "on");
+  // 全局关 → follow（host 不动，保持现有行为）
+  assert.equal(resolveDshHostProxyMode("follow", { piProxyEnabled: false, hasList: false }), "follow");
+});
+
+test("resolveDshHostProxyMode: 名单启用时不 fallback（follow 保持直连语义）", () => {
+  // 名单非空时全局开关无法覆盖：follow 表示会话未被名单命中，应保持直连
+  // （与 pi 会话名单外强制直连一致），避免全局开关破坏名单语义
+  assert.equal(resolveDshHostProxyMode("follow", { piProxyEnabled: true, hasList: true }), "follow");
 });
 
 test("applyProxyEnvPatch: 先剥离后注入，顺序固定", () => {

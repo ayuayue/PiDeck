@@ -127,6 +127,9 @@ export class DshRuntimeStatusService {
 	 *   node_modules 里的 @deepseek-ai 是开发依赖，不能当作「随应用分发」的已安装
 	 *   runtime，否则 UI 会显示内置且不可卸载（用户诉求：默认不安装、可安装可卸、
 	 *   安装后显示版本号）。
+	 * @param isPackaged 是否打包态（app.isPackaged）：决定 installEnabled——
+	 *   dev 模式禁止「在线下载安装」入口，runtime 只在打包时随包分发，避免开发者
+	 *   误下载与本地代码不配套的产物。
 	 */
 	constructor(
 		private readonly getAppPath: () => string,
@@ -135,6 +138,7 @@ export class DshRuntimeStatusService {
 			| { nodeModules: string; runtimeVersion: string }
 			| undefined = () => undefined,
 		private readonly allowBundledFallback: () => boolean = () => true,
+		private readonly isPackaged: () => boolean = () => true,
 	) {}
 
 	/** 当前状态（首次调用探测并缓存；IPC 查询走这里）。 */
@@ -210,10 +214,12 @@ export class DshRuntimeStatusService {
 				// 外部 managed runtime 时给出落盘目录（runtimesRoot/<version>），UI 概览页展示/打开用；
 				// builtin 内置分发没有独立安装目录（在 app.asar 内），不填。
 				...(probe.source === "managed" && probe.installDir ? { installDir: probe.installDir } : {}),
+				// 仅打包态允许在线下载/重装；dev 由渲染层隐藏该入口。
+				installEnabled: this.isPackaged(),
 			};
 		}
 		// 两者都没有 = 未安装 runtime（阶段 2 依赖分区后的常态）。
 		this.log("dsh-runtime", "dsh runtime not available", { error: probe.error });
-		return { state: "notInstalled" };
+		return { state: "notInstalled", installEnabled: this.isPackaged() };
 	}
 }

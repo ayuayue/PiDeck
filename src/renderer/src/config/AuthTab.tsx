@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, ExternalLink, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import type { AuthFile, ModelsFile } from "./configTypes";
-import { ConfigComboboxInput, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
+import { ConfigSelect, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
 import { Input } from "../components/ui-shadcn/input";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
@@ -349,7 +349,7 @@ export function AuthTab(props: {
 								<div className="mx-4 my-3.5 grid gap-2.5 rounded-lg border border-border-subtle bg-bg-panel p-3.5">
 									<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
 										<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.type")}</Label>
-										<ConfigComboboxInput
+										<ConfigSelect
 											value={auth.type ?? "api_key"}
 											options={AUTH_TYPE_OPTIONS}
 											onChange={(v) =>

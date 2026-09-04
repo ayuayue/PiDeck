@@ -64,9 +64,11 @@ import {
 import { computeModelDisplay, formatModelRef, resolveComposerLiveModel, type ModelPending } from "../../utils/modelPendingDisplay";
 import { resolveComposerThinkingLevel } from "../../utils/thinkingDisplay";
 import {
+  WELCOME_MODEL_KEY,
+  isWelcomeModelLost,
   readWelcomeModelPreference,
-  readWelcomeThinkingPreference,
 } from "../../utils/chatSessionBootstrap";
+import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import { CommandPickerGroup, CommandPickerPanel } from "../ui-shadcn/command-picker";
 import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider } from "./sessionPickerOptions";
 import type {
@@ -337,6 +339,9 @@ export function ComposerBottomBar(props: {
 	 *  不写入记录（激活后 runtime state 覆盖）。 */
 	defaultModel?: { provider?: string; modelId?: string; modelName?: string };
 	defaultThinkingLevel?: string;
+	/** 主进程解析的默认模型是否来自用户显式配置（settings.defaultProvider+defaultModel）：
+	 *  为 true 时欢迎页偏好不再参与引导页回退（用户规则：默认模型 > 偏好 > 上次使用 > 空）。 */
+	defaultModelConfigured?: boolean;
 	/** 当前会话后端（pi 缺省）。 */
 	backend?: AgentBackend;
 	/** 切换后端：UI 层面先停 runtime 再写 catalog。 */
@@ -374,11 +379,38 @@ export function ComposerBottomBar(props: {
 	// 例外：无 record（引导页虚拟会话）时回退显示欢迎页偏好——picker 无 record
 	// 分支把选择写进 localStorage，回退后用户选中模型/思考级别立即在底部栏可见；
 	// 创建会话时这些偏好会作为启动参数带入（App.ensureSessionForSend）。
-	const welcomePreference = props.record ? undefined : {
-		model: readWelcomeModelPreference()?.model,
-		thinking: readWelcomeThinkingPreference()?.thinkingLevel,
-	};
+	// 该偏好可能指向已删除的模型（localStorage 残留，用户删除模型后底栏仍显示旧默认）：
+	// 引导页（无 record、pi 后端）常驻加载模型目录做存在性校验（与 ComposerPickerHost
+	// 同一判定 isWelcomeModelLost），失效则忽略偏好并清理缓存，显示回落到主进程解析的
+	// 启动默认 defaultModel（launchDefaults 已校验 models.json 存在性）。
+	// 目录命中主进程全局缓存（模型选择器同源），通常不会额外 fork pi。
 	const isDsh = props.backend === "dsh";
+	const needsWelcomeCatalog = !props.record && !isDsh;
+	const { models: welcomeCatalogModels } = useBackendModelCatalog({
+		sessionId: props.sessionId,
+		backend: isDsh ? "dsh" : "pi",
+		enabled: needsWelcomeCatalog,
+	});
+	const welcomeModel = needsWelcomeCatalog ? readWelcomeModelPreference()?.model : undefined;
+	const welcomeModelLost = isWelcomeModelLost(welcomeModel, welcomeCatalogModels);
+	useEffect(() => {
+		// 失效偏好只清一次：下次引导页不再默认已删除的模型（创建时主进程也会兜底丢弃）。
+		if (welcomeModelLost) {
+			try {
+				localStorage.removeItem(WELCOME_MODEL_KEY);
+			} catch {
+				// localStorage 不可用时静默；展示层已忽略该偏好。
+			}
+		}
+	}, [welcomeModelLost]);
+	const effectiveWelcomeModel = welcomeModelLost ? undefined : welcomeModel;
+	// 引导页（无 record、pi）默认模型决策，与主进程创建规则（launchDefaults）同源，
+	// 避免「底栏显示的默认」与「首次发送套用的默认」分叉：
+	// - 用户显式配置了默认模型（defaultModelConfigured）→ 一律用主进程解析的默认，
+	//   欢迎页偏好被覆盖（用户规则：默认模型 > 偏好 > 上次使用 > 空）；
+	// - 未配置显式默认 → 有效偏好优先，其次解析结果（此时 = 上次使用 / 空）。
+	const guideDefaultModel =
+		props.defaultModelConfigured || isDsh ? props.defaultModel : (effectiveWelcomeModel ?? props.defaultModel);
 	const runtimeLive = Boolean(props.runtimeLive);
 	// 用量查询链路随会话后端：DSH 会话走 dsh（$DSH_HOME 配置 + 凭据库），其余走 pi。
 	// 圆球面板必须与 DSH 卡片/选择器同一 backend，否则查的是另一条 usage-probes.json。
@@ -388,8 +420,9 @@ export function ComposerBottomBar(props: {
 	const currentThinkingLevel = resolveComposerThinkingLevel({
 		state: props.state?.thinkingLevel,
 		record: props.record?.thinkingLevel,
-		// pi 引导页：用户上次欢迎页选择 > 主进程解析的启动默认（经 defaultModel/defaultThinkingLevel 透传）。
-		fallback: isDsh ? props.defaultThinkingLevel : (welcomePreference?.thinking ?? props.defaultThinkingLevel),
+		// 思考级别一律走默认档位（用户规则：取 settings.defaultThinkingLevel；
+		// 欢迎页偏好级别不再参与——偏好只管模型，级别跟默认走）。
+		fallback: props.defaultThinkingLevel,
 		isLive: runtimeLive,
 	});
 	const thinkingLevelLabel = (level: string) => {
@@ -415,7 +448,7 @@ export function ComposerBottomBar(props: {
 	const liveModel = resolveComposerLiveModel({
 		state: props.state,
 		record: props.record?.model,
-		fallback: isDsh ? props.defaultModel : (welcomePreference?.model ?? props.defaultModel),
+		fallback: guideDefaultModel,
 		isLive: runtimeLive,
 	});
 	const modelDisplay = computeModelDisplay(

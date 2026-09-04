@@ -205,6 +205,9 @@ export type CreateSessionDraftInput = {
 	projectId: string;
 	title?: string;
 	model?: { provider: string; modelId: string };
+	/** 欢迎页（引导页）偏好模型：仅作回退来源（解析器优先级：显式默认 > 欢迎偏好 > 上次使用 > 空），
+	 *  显式默认模型存在时被忽略——与 model 字段（用户主动指名）语义不同。 */
+	welcomeModel?: { provider: string; modelId: string };
 	thinkingLevel?: string;
 	/** 运行时后端；缺省 "pi"（旧调用方无需改动）。 */
 	backend?: import("./agent").AgentBackend;
@@ -225,6 +228,10 @@ export type SessionLaunchPreferences = {
 export type ResolvedLaunchDefaults = {
 	model?: { provider: string; modelId: string };
 	thinkingLevel?: string;
+	/** 解析结果是否来自用户显式配置的默认模型（settings.defaultProvider+defaultModel 且有效）。
+	 *  渲染层据此决定欢迎页偏好是否参与展示回退：显式默认存在时偏好被覆盖
+	 *  （用户规则：默认模型 > 偏好 > 上次使用 > 空）。 */
+	defaultModelConfigured?: boolean;
 };
 
 /** sessions.resolve-launch-defaults 入参：只需声明后端；缺省按非 DSH 解析。 */

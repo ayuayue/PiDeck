@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { MouseEvent } from "react";
-import { Check, ChevronDown, Copy, Eye, EyeOff } from "lucide-react";
+import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { t } from "../i18n";
 import { writeClipboard } from "../utils/clipboard";
 import { PROVIDER_API_OPTIONS, API_TYPE_LABELS, getApiTypeDescription } from "./providerHeaders";
 import { Button } from "../components/ui-shadcn/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { Input } from "../components/ui-shadcn/input";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
+import { filterComboboxOptions, isKnownComboboxValue } from "./comboboxOptions";
 
 // ── 复制到剪贴板工具 ──────────────────────────────────
 
@@ -96,19 +98,35 @@ export function ConfigSelect(props: {
 	options: Array<{ value: string; label: string }>;
 	onChange: (value: string) => void;
 	placeholder?: string;
+	/** 外层 ClearableSettingsInput 的 ✕ 清除按钮位于 right-[38px]，
+	 *  给 trigger 加右内边距，避免已选文字被清除按钮盖住 */
+	clearSpace?: boolean;
 }) {
+	// 老 settings.json 可能残留枚举外的取值（如自定义传输协议）；此时补一条「自定义」
+	// item 兜底，否则 Radix Select 因 value 无匹配 item 而显示空白、且无法回选。
+	const hasCustom = props.value !== "" && !isKnownComboboxValue(props.options, props.value);
 	return (
 		<Select
 			value={props.value === "" ? SENTINEL : props.value}
 			onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}
 		>
-			<SelectTrigger className="config-select-trigger">
+			{/* trigger 必须带 w-full：shadcn 基础类自带 w-fit（utilities 层）会压过 legacy 的
+			    .config-select-trigger{width:100%}，不加则下拉收缩成内容宽度（值多的行长条很丑） */}
+			<SelectTrigger className={`config-select-trigger w-full${props.clearSpace ? " pr-[38px]" : ""}`}>
 				<SelectValue placeholder={props.placeholder ?? props.options.find((o) => o.value === props.value)?.label ?? props.value} />
 			</SelectTrigger>
 			<SelectContent>
 				{/* Radix Select 的 value 必须匹配某个 item 才能打开：空值走哨兵 value，
 				   补一个隐藏 item 保证下拉始终可展开（社区标准模式） */}
 				{props.value === "" && <SelectItem value={SENTINEL} className="hidden" aria-hidden="true" />}
+				{hasCustom && (
+					<SelectItem value={props.value}>
+						<span className="flex flex-col items-start gap-0.5">
+							<span className="text-control font-semibold">{t("config.apiTypeCustom")}: {props.value}</span>
+							<small className="text-[11px] leading-[1.4] text-text-tertiary">{props.value}</small>
+						</span>
+					</SelectItem>
+				)}
 				{props.options.map((option) => (
 					<SelectItem key={option.value || "none"} value={option.value === "" ? SENTINEL : option.value}>
 						{option.label}
@@ -120,10 +138,15 @@ export function ConfigSelect(props: {
 }
 
 /**
- * 通用 combobox 输入框：支持下拉选择 + 手动输入，选项支持文本过滤。
+ * 通用 combobox（shadcn Popover + Command）：下拉搜索选择 + 无匹配时按 Enter 提交自定义值。
  * 用于 settings 中 defaultProvider / defaultModel 等需要从已有配置选取但又允许自定义的场景。
- * 面板 portal 到 body 并 fixed 定位（--z-popover 层）：内容区 .config-content 是 overflow-y:auto
- * 滚动容器，绝对定位面板会被它裁剪/遮挡；跟随输入框的视口坐标则不受任何滚动容器影响。
+ *
+ * 为什么用 Radix Popover 而不是旧的手写 portal 面板：
+ * 1. 旧面板挂在 body 下，Radix Dialog 的滚动锁（react-remove-scroll）会把它当「锁外内容」
+ *    直接 preventDefault 掉滚轮事件，值多的时候下拉永远滚不动；
+ * 2. Radix Popover/Select 同层的 dismissable 机制保证点击面板选项不会关掉外层 SettingsDialog；
+ * 3. 交互/动画与全局 shadcn 下拉一致。
+ * 浮层滚动由 ui-shadcn/popover.tsx 内置的 floatingWheelGuard 兜底（见 lib/floatingWheelGuard）。
  */
 export function ConfigComboboxInput(props: {
 	value: string;
@@ -136,147 +159,76 @@ export function ConfigComboboxInput(props: {
 }) {
 	const [open, setOpen] = useState(false);
 	const [filter, setFilter] = useState("");
-	const containerRef = useRef<HTMLDivElement>(null);
-	const panelRef = useRef<HTMLDivElement>(null);
-	/** 面板锚点（视口坐标）与展开方向：null = 面板关闭。滚动/缩放时同步更新。 */
-	const [anchor, setAnchor] = useState<{ top: number; left: number; width: number; openUp: boolean } | null>(null);
-	/** 面板最大高度（向上展开时按此预留视口空间，保证不溢出） */
-	const PANEL_MAX_HEIGHT = 220;
+	const filtered = filterComboboxOptions(props.options, filter);
 
-	// 点击外部时立即关闭下拉，避免多个 combobox 同时展开重叠。
-	// 面板已 portal 到 body，需把面板自身也视为「容器内部」参与判断。
-	useEffect(() => {
-		if (!open) return;
-		const handlePointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (!containerRef.current?.contains(target) && !panelRef.current?.contains(target)) {
-				setOpen(false);
-			}
-		};
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setOpen(false);
-		};
-		document.addEventListener("pointerdown", handlePointerDown);
-		document.addEventListener("keydown", handleKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", handlePointerDown);
-			document.removeEventListener("keydown", handleKeyDown);
-		};
-	}, [open]);
-
-	// 打开时计算面板锚点：优先向下展开，视口底部放不下（且顶部空间足够）时向上翻转；
-	// scroll 用 capture 捕获任意滚动容器（.config-content 等）的滚动并同步位置。
-	useEffect(() => {
-		if (!open) {
-			setAnchor(null);
-			return;
-		}
-		const updateAnchor = () => {
-			const el = containerRef.current;
-			if (!el) return;
-			const rect = el.getBoundingClientRect();
-			const spaceBelow = window.innerHeight - rect.bottom - 8;
-			const spaceAbove = rect.top - 8;
-			const openUp = spaceBelow < PANEL_MAX_HEIGHT + 8 && spaceAbove >= PANEL_MAX_HEIGHT + 8;
-			setAnchor(openUp
-				? { top: rect.top - 4 - PANEL_MAX_HEIGHT, left: rect.left, width: rect.width, openUp: true }
-				: { top: rect.bottom + 4, left: rect.left, width: rect.width, openUp: false });
-		};
-		updateAnchor();
-		window.addEventListener("scroll", updateAnchor, true);
-		window.addEventListener("resize", updateAnchor);
-		return () => {
-			window.removeEventListener("scroll", updateAnchor, true);
-			window.removeEventListener("resize", updateAnchor);
-		};
-	}, [open]);
-
-	// 输入框获得焦点时打开下拉，并清空过滤文本以显示全部选项
-	const handleFocus = () => {
-		setFilter("");
-		setOpen(true);
+	// 提交即关闭：选中选项（鼠标/键盘回车命中选项）与无匹配时按 Enter 走同一条路。
+	const commit = (value: string) => {
+		props.onChange(value);
+		setOpen(false);
 	};
 
-	// 根据过滤文本筛选选项，支持 label 和 value 双向匹配
-	const filtered = filter
-		? props.options.filter(
-				(opt) =>
-					opt.value.toLowerCase().includes(filter.toLowerCase()) ||
-					(opt.label ?? opt.value).toLowerCase().includes(filter.toLowerCase()),
-			)
-		: props.options;
-
 	return (
-		<div ref={containerRef} className="relative min-w-0 flex-1">
-			<Input
-				value={open ? filter : props.value}
-				onFocus={handleFocus}
-				onChange={(e) => {
-					setFilter(e.target.value);
-					props.onChange(e.target.value);
-					setOpen(true);
-				}}
-				placeholder={props.placeholder}
-				className={`h-8 min-w-0 w-full flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]${props.clearSpace ? " pr-[62px]" : " pr-[38px]"}`}
-			/>
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon-sm"
-				className="absolute top-px right-px size-[34px] rounded-l-none border-l border-border-subtle text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-				onMouseDown={(e) => {
-					e.preventDefault();
-					if (open) {
-						setOpen(false);
-					} else {
-						setFilter("");
-						setOpen(true);
-					}
-				}}
-			>
-				<ChevronDown size={14} />
-			</Button>
-			{/* 面板 portal 到 body + fixed 锚定输入框：任何滚动容器（.config-content overflow-y:auto）
-			   都无法裁剪它；z-index 提到 --z-popover（960，与 Radix Select 同级）保证盖过后续兄弟节点。
-			   必须显式 pointerEvents: auto——Radix Dialog 模态（react-remove-scroll）会给 body 设内联
-			   pointer-events: none，面板作为 body 直接子元素会继承该值导致点击穿透、选项无法选中。 */}
-			{open && anchor && createPortal(
-				<div
-					ref={panelRef}
-					style={{
-						position: "fixed",
-						top: anchor.top,
-						left: anchor.left,
-						width: anchor.width,
-						zIndex: "var(--z-popover)",
-						maxHeight: PANEL_MAX_HEIGHT,
-						pointerEvents: "auto",
+		<Popover
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				// 每次打开都重置过滤词，避免上次搜索残留导致列表为空。
+				if (next) setFilter("");
+			}}
+		>
+			<PopoverTrigger asChild>
+				<Input
+					readOnly
+					value={props.value}
+					placeholder={props.placeholder}
+					className={`h-8 min-w-0 w-full flex-1 cursor-pointer rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]${props.clearSpace ? " pr-[62px]" : ""}`}
+					onKeyDown={(event) => {
+						// readOnly 的 input 不响应键盘激活（不会触发 click），补上 Enter/Space/
+						// ArrowDown 打开下拉，保持与原生 select/combobox 一致的键盘可达性。
+						if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+							event.preventDefault();
+							setOpen(true);
+						}
 					}}
-					className="overflow-y-auto rounded-lg border border-border-subtle bg-bg-panel p-[5px] shadow-[var(--shadow-popover)]"
-				>
-					{filtered.length === 0 && (
-						<div className="config-combobox-empty">{t("config.noMatchingOptions")}</div>
-					)}
-					{filtered.map((option) => (
-						<Button
-							key={option.value}
-							type="button"
-							variant="ghost"
-							size="sm"
-							className={`h-auto min-h-[30px] w-full justify-start rounded-sm px-[9px] py-1.5 text-xs${option.value === props.value ? " bg-bg-active text-[color:var(--color-accent)]" : ""}`}
-							onMouseDown={(e) => {
-								e.preventDefault();
-								props.onChange(option.value);
-								setOpen(false);
-							}}
-						>
-							{option.label ?? option.value}
-						</Button>
-					))}
-				</div>,
-				document.body,
-			)}
-		</div>
+				/>
+			</PopoverTrigger>
+			{/* 下拉面板：宽度跟随 trigger（--radix-popover-trigger-width），与旧面板同宽。 */}
+			<PopoverContent align="start" sideOffset={4} className="w-[var(--radix-popover-trigger-width)] max-w-[min(680px,calc(100vw-48px))] p-0">
+				<Command shouldFilter={false}>
+					<CommandInput
+						value={filter}
+						onValueChange={setFilter}
+						placeholder={t("config.comboboxSearchPlaceholder")}
+						autoFocus
+						onKeyDown={(event) => {
+							// 无匹配时 Enter 提交手输值（自定义 provider / model id）；
+							// 有匹配时交给 cmdk 的选中项提交，避免双重提交。
+							if (event.key === "Enter" && filtered.length === 0 && filter.trim()) {
+								event.preventDefault();
+								commit(filter.trim());
+							}
+						}}
+					/>
+					<CommandList>
+						{filtered.length === 0 && (
+							<CommandEmpty>{t("config.comboboxNoMatchCommitHint")}</CommandEmpty>
+						)}
+						{filtered.map((option) => (
+							<CommandItem
+								key={option.value}
+								value={option.value}
+								onSelect={() => commit(option.value)}
+							>
+								<span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+									<span className="truncate">{option.label ?? option.value}</span>
+								</span>
+								{option.value === props.value && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
+							</CommandItem>
+						))}
+					</CommandList>
+				</Command>
+			</PopoverContent>
+		</Popover>
 	);
 }
 
@@ -292,7 +244,7 @@ export function ApiTypeInput(props: {
 			value={props.value || SENTINEL}
 			onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}
 		>
-			<SelectTrigger className="config-select-trigger">
+			<SelectTrigger className="config-select-trigger w-full">
 				{/* 选中后只显示名称（title），描述仅在下拉选项里展示：
 				   不用 SelectValue 的自动文本（会连描述一起显示） */}
 				<span className="flex min-w-0 flex-1 items-center truncate">

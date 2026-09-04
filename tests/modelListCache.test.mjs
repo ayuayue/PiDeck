@@ -282,15 +282,16 @@ test("welcome page model/thinking selection persists; draft defaults come from p
     "src/renderer/src/utils/chatSessionBootstrap.ts",
     "utf8",
   );
-  // 欢迎页（无 record）选模型：仍持久化到 localStorage（显式选择保留）。
+  // 欢迎页（无 record）选模型：仍持久化到 localStorage（显式选择保留为「偏好」）。
   assert.match(picker, /localStorage\.setItem\(WELCOME_MODEL_KEY/);
-  assert.match(picker, /localStorage\.setItem\(WELCOME_THINKING_KEY/);
+  // 用户规则（2026-10）：思考级别一律走默认档位（settings.defaultThinkingLevel），
+  // 欢迎页偏好级别不再参与——无 record 时选择器不写偏好、直接关闭。
+  assert.doesNotMatch(picker, /setItem\(WELCOME_THINKING_KEY/);
   // createDraft 不再无条件 spread 欢迎页 localStorage 偏好：主进程已按 pi 配置
   // （defaultProvider/defaultModel/defaultThinkingLevel）自动填充默认模型/思考级别。
   assert.doesNotMatch(actions, /readWelcomeModelPreference\(\)|readWelcomeThinkingPreference\(\)/);
-  // 共享偏好读取器仅供 ComposerPickerHost 持久化显式选择，不影响 pi 默认值。
+  // 共享偏好读取器仅供偏好展示/校验使用，不影响 pi 默认值。
   assert.match(bootstrap, /readWelcomeModelPreference/);
-  assert.match(bootstrap, /readWelcomeThinkingPreference/);
 });
 
 test("classifyModelListFailure: pi not installed is the most actionable reason", () => {

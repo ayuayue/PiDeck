@@ -603,15 +603,24 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 							model = undefined;
 						}
 					}
-					// 缺省填充与引导页展示共用同一解析器（launchDefaults），
-					// 保证「预选的默认」与「创建时真正套用的默认」永远同源。
-					const defaults = resolveLaunchDefaultOptions({
-						backend: input.backend,
-						settings: settingsResult.parsed,
-						models: modelsResult.parsed,
-						// lastUsed 语义：用户最近一次实际发送所用模型优先于静态默认。
-						lastUsedModel: settingsStore.get().lastUsedModel,
-					});
+			// 缺省填充与引导页展示共用同一解析器（launchDefaults），
+			// 保证「预选的默认」与「创建时真正套用的默认」永远同源。
+			// 欢迎页偏好（renderer localStorage）同样经主进程校验存在性后按
+			// 「显式默认 > 偏好 > 上次使用 > 空」参与解析；explicit model（用户主动
+			// 指名）仍优先于一切（input.model，见上方校验）。
+			const defaults = resolveLaunchDefaultOptions({
+				backend: input.backend,
+				settings: settingsResult.parsed,
+				models: modelsResult.parsed,
+				// lastUsed 语义：用户最近一次实际发送所用模型；仅无显式默认与偏好时参与。
+				lastUsedModel: settingsStore.get().lastUsedModel,
+				welcomeModel:
+					input.welcomeModel &&
+					typeof input.welcomeModel.provider === "string" &&
+					typeof input.welcomeModel.modelId === "string"
+						? input.welcomeModel
+						: undefined,
+			});
 					if (input.backend !== "dsh" && !model) {
 						model = defaults.model;
 					}

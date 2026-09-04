@@ -22,18 +22,30 @@ const TITLE_SCROLL_MAX_DURATION_MS = 12_000;
  * - 离开 hover 回到开头；滚动速度随溢出长度自适应（约 20px/s，下限 1.8s）；
  * - hover 事件绑定在静态窗口而不是移动文字上，避免文字滚走后触发 mouseleave；
  * - 溢出距离经 CSS 变量注入 keyframes，使用实际像素而非不稳定的视口单位。
+ *
+ * 调用方可收敛触发（tab 栏高频交互场景需要，侧栏保持默认不收敛）：
+ * - disabled：完全禁用滚动（如激活 tab——内容已在右侧，hover 滚动纯属噪音）；
+ * - hoverDelayMs：hover 停留该时长后才开始滚动（如 500ms），鼠标快速扫过
+ *   时不触发，避免「每扫过一个 tab 就滚一次」的闪烁感。
  */
 export function TitleScrollText({
 	text,
 	className,
+	disabled = false,
+	hoverDelayMs = 0,
 }: {
 	text: string;
 	className?: string;
+	/** true 时完全不滚动（保持静态截断，原生 title 提示兜底） */
+	disabled?: boolean;
+	/** hover 后延迟多少 ms 进入滚动（默认 0 = 立即，侧栏现状） */
+	hoverDelayMs?: number;
 }) {
 	const containerRef = useRef<HTMLElement>(null);
 	const textRef = useRef<HTMLSpanElement>(null);
 	const [overflow, setOverflow] = useState(0);
 	const [hovering, setHovering] = useState(false);
+	const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -47,8 +59,11 @@ export function TitleScrollText({
 			setOverflow(Math.max(0, content.scrollWidth - container.clientWidth));
 		};
 		measure();
+		// disabled 时不测溢出：不滚动的 tab 无需维持 ResizeObserver（节省常驻监听）；
+		// 激活态变化时 effect 随 disabled 重跑，切回可滚动会重新测量。
+		if (disabled) return () => { active = false; };
 		// 字体加载和侧栏宽度变化都可能改变溢出量；两者统一由同一测量入口处理。
-		if (typeof ResizeObserver === "undefined") return;
+		if (typeof ResizeObserver === "undefined") return () => { active = false; };
 		const observer = new ResizeObserver(measure);
 		observer.observe(container);
 		observer.observe(content);
@@ -59,9 +74,34 @@ export function TitleScrollText({
 			active = false;
 			observer.disconnect();
 		};
-	}, [text]);
+	}, [text, disabled]);
 
-	const overflowing = overflow > 1;
+	// 卸载时清理悬停延迟定时器，避免组件卸载后 setState 触发告警。
+	useEffect(() => {
+		return () => {
+			if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+		};
+	}, []);
+
+	// hover 进入：disabled 直接忽略；有延迟则先清旧定时器再挂新定时器（防止重复 enter 叠加）。
+	const handleMouseEnter = () => {
+		if (disabled) return;
+		if (hoverDelayMs <= 0) {
+			setHovering(true);
+			return;
+		}
+		if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+		hoverTimerRef.current = setTimeout(() => setHovering(true), hoverDelayMs);
+	};
+	const handleMouseLeave = () => {
+		if (hoverTimerRef.current) {
+			clearTimeout(hoverTimerRef.current);
+			hoverTimerRef.current = null;
+		}
+		setHovering(false);
+	};
+
+	const overflowing = overflow > 1 && !disabled;
 	const scrollStyle: TitleScrollStyle | undefined = overflowing && hovering
 		? {
 				"--title-scroll-distance": `${overflow}px`,
@@ -83,8 +123,8 @@ export function TitleScrollText({
 				overflowing && hovering && "title-scroll-mask-narrow",
 				className,
 			)}
-			onMouseEnter={() => setHovering(true)}
-			onMouseLeave={() => setHovering(false)}
+			onMouseEnter={handleMouseEnter}
+			onMouseLeave={handleMouseLeave}
 		>
 			<span
 				ref={textRef}

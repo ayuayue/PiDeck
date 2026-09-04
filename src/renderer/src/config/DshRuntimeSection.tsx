@@ -122,10 +122,12 @@ export function DshRuntimeSection({
 						</div>
 					) : null}
 					<div className="flex flex-wrap items-center gap-2">
-						<Button size="sm" className="gap-1.5" disabled={busy} onClick={() => void run("online")}>
-							<Download className="size-3.5" />
-							{t("dsh.runtime.reinstall")}
-						</Button>
+						{status.installEnabled !== false ? (
+							<Button size="sm" className="gap-1.5" disabled={busy} onClick={() => void run("online")}>
+								<Download className="size-3.5" />
+								{t("dsh.runtime.reinstall")}
+							</Button>
+						) : null}
 						{/* 手动导入：镜像不可达 / 离线场景的兜底，对话框由主进程弹出。 */}
 						<Button size="sm" variant="outline" className="gap-1.5" disabled={busy} onClick={() => void run("local")}>
 							<FolderOpen className="size-3.5" />
@@ -197,15 +199,19 @@ export function DshRuntimeSection({
 					</div>
 				) : (
 					<div className="flex flex-wrap items-center gap-2">
-						<Button size="sm" className="gap-1.5" onClick={() => void run("online")}>
-							<Download className="size-3.5" />
-							{t(broken ? "dsh.runtime.reinstall" : "dsh.runtime.install")}
-						</Button>
-						{/* 手动导入：镜像不可达 / 离线场景的兜底，对话框由主进程弹出。 */}
-						<Button size="sm" variant="outline" className="gap-1.5" onClick={() => void run("local")}>
-							<FolderOpen className="size-3.5" />
-							{t("dsh.runtime.importLocal")}
-						</Button>
+						{status.installEnabled !== false ? (
+							<Button size="sm" className="gap-1.5" onClick={() => void run("online")}>
+								<Download className="size-3.5" />
+								{t(broken ? "dsh.runtime.reinstall" : "dsh.runtime.install")}
+							</Button>
+						) : null}
+						{/* 手动导入：镜像不可达 / 离线场景的兜底；dev 模式同样隐藏（不提供安装入口）。 */}
+						{status.installEnabled !== false ? (
+							<Button size="sm" variant="outline" className="gap-1.5" onClick={() => void run("local")}>
+								<FolderOpen className="size-3.5" />
+								{t("dsh.runtime.importLocal")}
+							</Button>
+						) : null}
 					</div>
 				)}
 				{error ? (
@@ -214,7 +220,11 @@ export function DshRuntimeSection({
 						<span>{t("dsh.runtime.installFailed", { error })}</span>
 					</div>
 				) : (
-					<p className="text-[12px] text-muted-foreground/80">{t("dsh.runtime.installHint")}</p>
+					<p className="text-[12px] text-muted-foreground/80">
+						{status.installEnabled === false
+							? t("dsh.runtime.devNoDownload")
+							: t("dsh.runtime.installHint")}
+					</p>
 				)}
 			</div>
 		</section>

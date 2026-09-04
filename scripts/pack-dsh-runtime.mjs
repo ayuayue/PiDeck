@@ -354,8 +354,18 @@ writeFileSync(indexPath, JSON.stringify(localIndex, null, 2));
 const bundleDir = join(outDir, DSH_BUNDLED_DIRNAME);
 mkdirSync(bundleDir, { recursive: true });
 if (lite) {
-	writeFileSync(join(bundleDir, ".gitkeep"), "");
-	console.log("[pack-dsh-runtime] --lite：随包目录留空，安装走在线/手动导入");
+	// --lite：随包目录留空，但必须清掉此前非 lite 打包残留的 tgz/manifest——
+	// 否则 electron-builder 的 extraResources 会把旧 runtime 打进安装包，
+	// “减小体积”的目标被过期产物悄悄破坏。
+	for (const name of readdirSync(bundleDir)) {
+		if (name !== ".gitkeep") rmSync(join(bundleDir, name), { recursive: true, force: true });
+	}
+	// 只在文件不存在时创建占位（首次检出/目录被删场景）；已在版本库里的 .gitkeep
+	// 带说明注释，绝不能被每次打包清空——否则 git 工作区永远显示它被修改（diff 噪声）。
+	if (!existsSync(join(bundleDir, ".gitkeep"))) {
+		writeFileSync(join(bundleDir, ".gitkeep"), "");
+	}
+	console.log("[pack-dsh-runtime] --lite：随包目录留空（已清理旧产物），安装走在线/手动导入");
 } else {
 	copyFileSync(archivePath, join(bundleDir, archiveName));
 	// 随包这份 manifest 必须带真实 sha256：应用端用它校验归档完整性。

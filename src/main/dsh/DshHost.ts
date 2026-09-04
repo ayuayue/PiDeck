@@ -762,7 +762,12 @@ export class DshHost {
 
 		// 会话级代理覆盖（DSH 降级方案）：DSH 是单一共享 host，无法按会话注入，
 		// 只能聚合所有 DSH 会话的开关应用到 host（off 优先于 on，见 sessionProxyPolicy）。
-		// patch 仅在 fork 时生效：运行中变更需 host 重启后才应用（dsh 读取与否属其内部实现）。
+		// patch 仅在 fork 时生效：运行中变更需 host 重启后才应用。
+		// 生效机制：patch 除标准代理 env（HTTP_PROXY/HTTPS_PROXY/NO_PROXY）外，还注入
+		// NODE_USE_ENV_PROXY=1 —— host 的 LLM 客户端用 globalThis.fetch（undici），
+		// 默认不读代理环境变量，没有该开关注入的 env 只是摆设（实测确认）。
+		// 注意：这会使 host 内所有 undici fetch 都走代理（含 dsh.internal 内网桥除外——
+		// 桥走主进程 fetch，不在 host 内发请求），需要绕过本机的场景请配置 bypass。
 		const forkEnv = buildDshHostForkEnv();
 		const proxyPatch = this.resolveHostProxyEnvPatch();
 		if (proxyPatch) applyProxyEnvPatch(forkEnv, proxyPatch);

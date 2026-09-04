@@ -259,7 +259,7 @@ import {
 	SessionCatalog,
 	canAttachRuntimeMetadata,
 } from "./sessions/SessionCatalog";
-import { aggregateDshProxyMode, buildHostProxyEnvPatch, resolveEffectiveSessionProxyMode } from "./sessions/sessionProxyPolicy";
+import { aggregateDshProxyMode, buildHostProxyEnvPatch, resolveDshHostProxyMode, resolveEffectiveSessionProxyMode } from "./sessions/sessionProxyPolicy";
 import {
 	SessionRuntimeCoordinator,
 	type SessionRuntimeBinding,
@@ -3216,10 +3216,12 @@ app.whenReady().then(async () => {
 		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
 	});
 	// DSH runtime 安装态服务先于 DshHost 装配（探测只依赖 appPath，不 fork host）。
-	// 探测顺序：外部已装 runtime 优先 → 回退 app 内置（仅打包态：依赖分区前的存量包仍内置），
+	// 探测顺序：外部已装 runtime 优先 → 回退 app 内置（dev 模式 = 项目 node_modules 的
+	// @deepseek-ai 开发依赖，已随 npm install 存在，直接可用无需安装/下载），
 	// 两边都没有才是 notInstalled。状态变更经 dsh-runtime:status-changed 广播给渲染层。
-	// allowBundledFallback 只在打包态开启：dev 模式下项目 node_modules 里的 @deepseek-ai
-	// 是开发依赖，若当作内置会污染状态（显示「随应用内置」且不可卸载）；dev 走外部安装流程。
+	// allowBundledFallback 只在开发态开启：**打包版不内置 runtime**（build 用 runtime:pack:lite，
+	// 随包目录留空）——减小安装体积，需要 DSH 的用户在打包版里按引导下载安装；
+	// 开发态则直接复用项目 node_modules（零下载、零安装，符合「dev 不需要装 runtime」的诉求）。
 	dshRuntimeStatus = new DshRuntimeStatusService(
 		() => app.getAppPath(),
 		(scope, message, detail) => void appLogger.info(scope, message, detail),
@@ -3229,6 +3231,7 @@ app.whenReady().then(async () => {
 				? { nodeModules: active.nodeModules, runtimeVersion: active.manifest.runtimeVersion }
 				: undefined;
 		},
+		() => !app.isPackaged,
 		() => app.isPackaged,
 	);
 	dshRuntimeStatus.subscribe((status) => {
@@ -3273,8 +3276,9 @@ app.whenReady().then(async () => {
 		// 会话级代理覆盖（DSH 降级方案，用户确认的取舍）：DSH 是单一共享 host、无 per-session
 		// 通道，只能聚合所有 DSH 会话（backend=dsh）的开关应用到共享 host 的 fork env。
 		// 冲突规则 off 优先于 on（直连是安全默认）；全 follow → 不动（保持 host 现有行为）。
-		// 注意：dsh host 内部是否读取这些标准代理 env 属 dsh 实现（@deepseek-ai/* 包内部），
-		// 此处仅 best-effort 注入，不保证生效。
+		// 生效机制：buildHostProxyEnvPatch 在 on 时会额外注入 NODE_USE_ENV_PROXY=1，让 host
+		// 内部 globalThis.fetch（undici）真正按注入的 HTTP_PROXY/NO_PROXY 走代理（Node 22.21+
+		// 行为，Electron 43 内置 Node 24.18.1 已实测）；off 时剥离该开关。
 		() => {
 			const settings = settingsStore.get();
 			// DSH 共享 host 的代理需按供应商过滤逐会话计算有效模式，再聚合（与 pi 会话链路一致的 provider 感知）。
@@ -3291,9 +3295,20 @@ app.whenReady().then(async () => {
 					return effectiveMode === "follow" ? undefined : { mode: effectiveMode } as import("../shared/types/session").SessionProxyOverride;
 				});
 			const mode = aggregateDshProxyMode(dshOverrides);
-			return buildHostProxyEnvPatch(mode, {
-				url: settings.piProxyUrl,
-				bypass: settings.piProxyBypass,
+			// 全局开关兜底：所有 DSH 会话都 follow（无显式覆盖、无名单命中）时，仍应让 host
+			// 跟随全局 pi 代理开关——否则用户在设置页只开全局开关，DSH 永远直连（与 pi 会话
+			// 「名单空时跟随全局」语义不一致）。名单非空时不做兜底（见 resolveDshHostProxyMode）。
+			const settingsSnapshot = settingsStore.get();
+			const hasProxyList =
+				(settingsSnapshot.piProxyModels?.length ?? 0) > 0 ||
+				(settingsSnapshot.piProxyProviders?.length ?? 0) > 0;
+			const finalMode = resolveDshHostProxyMode(mode, {
+				piProxyEnabled: settingsSnapshot.piProxyEnabled,
+				hasList: hasProxyList,
+			});
+			return buildHostProxyEnvPatch(finalMode, {
+				url: settingsSnapshot.piProxyUrl,
+				bypass: settingsSnapshot.piProxyBypass,
 			});
 		},
 		// 外部 runtime 根目录（未安装时返回 undefined，回退 app 内置 node_modules）。

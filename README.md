@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.3--beta-yellow)
+![Version](https://img.shields.io/badge/version-0.7.3-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -94,6 +94,9 @@
 
 ### v0.7.3 更新亮点
 - 🚀 **聊天系统归档**
+- 🚀 **当前 Tab 始终可见**
+- 🚀 **默认模型优先级精调**
+- 🚀 **DSH runtime：开发用项目依赖、打包保持精简**
 - 🚀 **Rewind 检查点**
 - 🚀 **DSH runtime 本地导入**
 - 🚀 **自动会话标题**
@@ -102,13 +105,10 @@
 - 🚀 **问题反馈带项目上下文**
 - 🚀 **Ask 通知直达会话**
 - 🚀 **配置管理深链**
-- 🚀 **beUI 全面启用**
-- 🚀 **子代理与会话分段卡**
-- 🚀 **pi-tui 重命名同步**
 - ✨ **刷新过期项目**
+- ✨ **选中态背景恢复**
+- ✨ **dev 不再提示下载 DSH runtime**
 - ✨ **DSH runtime 安装不再卡主进程**
-- ✨ **模型测试连接超时**
-- ✨ **上滑读历史不再跳到最新一轮**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

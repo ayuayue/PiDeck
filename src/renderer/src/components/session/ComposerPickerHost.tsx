@@ -37,7 +37,7 @@ import { useSessionPaneServices } from "./SessionPaneServices";
 import { usePendingModelApply } from "../../hooks/usePendingModelApply";
 import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import type { ComposerPickerKind } from "../../hooks/useSessionComposerController";
-import { WELCOME_MODEL_KEY, WELCOME_THINKING_KEY, readWelcomeModelPreference, readWelcomeThinkingPreference } from "../../utils/chatSessionBootstrap";
+import { WELCOME_MODEL_KEY, isWelcomeModelLost, readWelcomeModelPreference } from "../../utils/chatSessionBootstrap";
 import { resolveThinkingPickerLevels } from "./sessionPickerOptions";
 
 export type ComposerPickerHostProps = {
@@ -57,6 +57,8 @@ export type ComposerPickerHostProps = {
   /** DSH 部署默认模型/思考档位（settings.yaml agent-default-model）：草稿期高亮与过滤用。 */
   defaultModel?: { provider?: string; modelId?: string; modelName?: string };
   defaultThinkingLevel?: string;
+  /** 主进程解析的默认模型是否来自用户显式配置：True 时欢迎页偏好不参与引导页回退。 */
+  defaultModelConfigured?: boolean;
 };
 
 export function ComposerPickerHost(props: ComposerPickerHostProps) {
@@ -117,12 +119,9 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
   const welcomeModel = isDshSession ? undefined : readWelcomeModelPreference()?.model;
   // welcome 偏好可能指向已删除的供应商/模型（models.json 已更新而 localStorage 残留）：
   // 目录加载后校验存在性，失效则忽略该偏好，避免选择器/默认高亮落在幽灵模型上。
-  // 目录未加载（models 为空）时不判定，避免误清用户仍有效的偏好。
-  const welcomeModelLost = Boolean(
-    welcomeModel &&
-      models.length > 0 &&
-      !models.some((m) => m.provider === welcomeModel.provider && m.id === welcomeModel.modelId),
-  );
+  // 与 ComposerBottomBar 共用 isWelcomeModelLost 判定；目录未加载（models 为空）时不判定，
+  // 避免误清用户仍有效的偏好。
+  const welcomeModelLost = isWelcomeModelLost(welcomeModel, models);
   useEffect(() => {
     // 失效偏好只清一次：下次引导页不再默认已删除的模型（创建时主进程也会兜底丢弃）。
     if (welcomeModelLost) {
@@ -134,16 +133,22 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
     }
   }, [welcomeModelLost]);
   const effectiveWelcomeModel = welcomeModelLost ? undefined : welcomeModel;
+  // 引导页（无 record）模型高亮 = 底栏同款决策（与主进程创建规则同源）：
+  // 显式配置默认模型时偏好被覆盖；（用户规则：默认模型 > 偏好 > 上次使用 > 空）。
+  const guideDefaultModel =
+    props.defaultModelConfigured || isDshSession
+      ? props.defaultModel
+      : (effectiveWelcomeModel ?? props.defaultModel);
   // 非 live 残留 state 不能盖住 catalog：Agent 未启动时改模型，选择器高亮必须跟记录走。
   const runtimeLive = isLiveRuntimeStatus(runtime?.status);
   const resolvedLiveModel = resolveComposerLiveModel({
     state: runtime?.state,
     record: record?.model,
     fallback: {
-      // 无 record（引导页）时优先用户上次欢迎页选择（effectiveWelcomeModel），
-      // 其次主进程解析的启动默认（pi 时由 props.defaultModel 透传）。
-      provider: effectiveWelcomeModel?.provider ?? props.defaultModel?.provider,
-      modelId: effectiveWelcomeModel?.modelId ?? props.defaultModel?.modelId,
+      // 无 record（引导页）：按「显式默认 > 偏好 > 上次使用 > 空」取高亮；
+      // 优先展显示式默认（guideDefaultModel 已按规则折叠），避免高亮落在幽灵模型上。
+      provider: guideDefaultModel?.provider,
+      modelId: guideDefaultModel?.modelId,
       modelName: props.defaultModel?.modelName,
     },
     isLive: runtimeLive,
@@ -425,13 +430,10 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
   }
 
   async function pickThinking(level: string) {
-    // 欢迎页/未启动 Agent（无 record）：把选择存本地偏好，点「启动 Agent」创建会话时应用。
+    // 欢迎页/未启动 Agent（无 record）：思考级别一律走默认档位（用户规则：
+    // 级别只跟默认级别走，欢迎页偏好级别不参与回退），选择器直接关闭；
+    // 用户变更在真实会话（有 record）里仍即时生效（下方 runtime 链路）。
     if (!record) {
-      try {
-        localStorage.setItem(WELCOME_THINKING_KEY, level);
-      } catch {
-        // localStorage 不可用时静默
-      }
       props.onClose();
       return;
     }
@@ -570,18 +572,16 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
       cachedPiLevels: currentModel?.thinkingLevels,
       dshReasoningEfforts: currentModel?.reasoningEfforts,
     });
-    // DSH 的思考档位属于 host 的模型选择，草稿期优先部署默认档位；settings.yaml
-    // 没配 reasoningEffort 时回退到当前模型自己的 defaultEffort（DSH 官方语义），
-    // 不回退到 pi 的欢迎页偏好——否则底栏无值、选择器却勾选 pi 的 max。
-    const welcomeThinking = isDshSession ? undefined : readWelcomeThinkingPreference()?.thinkingLevel;
+    // 思考档位一律走默认档位（用户规则：取 settings.defaultThinkingLevel；
+    // 欢迎页偏好级别不再参与），未配置时回退模型自身 defaultEffort。
+    const current = props.defaultThinkingLevel ?? currentModel?.defaultEffort;
     return (
       <ThinkingPicker
         current={resolveComposerThinkingLevel({
           state: runtime?.state?.thinkingLevel,
           record: record?.thinkingLevel,
-          // 无 record（引导页）时：用户上次欢迎页选择 > 启动默认 > 模型自身 defaultEffort；
-          // DSH 下 welcomeThinking 为 undefined，仍保持部署默认优原语义。
-          fallback: welcomeThinking ?? props.defaultThinkingLevel ?? currentModel?.defaultEffort,
+          // 无 record（引导页）：默认档位 > 模型自身 defaultEffort（与底栏同规则）。
+          fallback: current,
           isLive: runtimeLive,
         })}
         levels={pickerLevels}

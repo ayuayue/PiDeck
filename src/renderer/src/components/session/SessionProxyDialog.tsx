@@ -10,7 +10,8 @@
  * 生效边界（与主进程链路一致，展示给用户避免误解）：
  * - pi 会话：设置应用于该会话的 pi 子进程 spawn env，改后需重启会话 runtime；
  * - DSH 会话：DSH 是单一共享 host（无 per-session 通道），设置聚合到 host fork env
- *   （off 优先于 on），需 host 重启后生效，且 dsh 是否读取代理 env 属其内部实现。
+ *   （off 优先于 on），需 host 重启后生效；host 的 LLM 请求经 globalThis.fetch（undici），
+ *   PiDeck 同时注入 NODE_USE_ENV_PROXY=1 使其真正读取代理环境变量（Node 22.21+ 行为）。
  */
 import { useEffect, useState } from "react";
 import { Check, Globe, PlugZap, Unplug } from "lucide-react";

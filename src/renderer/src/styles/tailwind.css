@@ -16,6 +16,11 @@
 @source "../../../../node_modules/@streamdown/code/dist/*.js";
 @source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
 @source "../../../../node_modules/@streamdown/math/dist/*.js";
+/* 项目中业务 class（bg-bg-active / bg-accent 等）明确注册源：
+   不声明时自动检测可因 .gitignore/目录启发式漏扫，曾导致
+   「Tab 激活背景 / 侧栏选中背景完全缺失」的回归（类未生成）。
+   路径相对本文件（styles/）指向 renderer 源码目录。 */
+@source "../../../../src/renderer/src/**/*.{ts,tsx,js,jsx}";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
@@ -36,7 +41,7 @@
  * （chatContentWidthStyle），不在这里做 padding——单栏 SessionView 是 display:contents，
  * 父级 padding 套不到时间线和 composer。 */
 
-@theme inline {
+@theme inline reference {
   /* 应用域 token（旧 CSS 继续用） */
   --color-bg-app: var(--color-bg-app);
   --color-bg-panel: var(--color-bg-panel);

@@ -67,7 +67,6 @@ import {
 import {
   GUIDE_BOOTSTRAP_SESSION_ID,
   readWelcomeModelPreference,
-  readWelcomeThinkingPreference,
   resolveChatSessionBootstrap,
 } from "./utils/chatSessionBootstrap";
 import { detectRendererPlatform } from "./lib/detectRendererPlatform";
@@ -1569,14 +1568,11 @@ export function App() {
         throw new Error(t("app.guideBootstrapUnavailable"));
       }
       const promotion = (async () => {
-        // 引导页 picker 无 record 分支把选择存进 localStorage；创建时作为启动
-        // 偏好带入，使新会话 record/runtime 直接带上用户选的模型与思考级别。
+        // 引导页 picker 无 record 分支把模型选择存进 localStorage；创建时作为
+        // 「偏好」交给主进程解析（优先级：显式默认 > 偏好 > 上次使用 > 空），
+        // 与底栏显示同源，避免显示/套用分叉。思考级别不随偏好传入——
+        // 一律走默认档位（settings.defaultThinkingLevel），由解析器决定。
         const welcomeModel = readWelcomeModelPreference()?.model;
-        const welcomeThinking = readWelcomeThinkingPreference()?.thinkingLevel;
-        const launchPreferences: SessionLaunchPreferences = {
-          ...(welcomeModel ? { model: welcomeModel } : {}),
-          ...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
-        };
         // 统一创建 draft 会话（Chat 项目也走普通会话、可保存）：创建不拉 pi，
         // selectSessionCommand 同步切页、立即进入会话页；匿名会话仅保留给侧栏
         // 「新建临时对话」入口（createAnonymousSessionWithTab）。
@@ -1586,7 +1582,7 @@ export function App() {
           projectId: project.id,
           title: effectiveAgentBackend === "dsh" ? `${project.name} DSH` : `${project.name} agent`,
           backend: effectiveAgentBackend,
-          ...launchPreferences,
+          ...(welcomeModel ? { welcomeModel } : {}),
         });
         upsertSession(session);
         // 引导页发送时 useSessionSend 已把 user 消息乐观写入虚拟会话 cache；

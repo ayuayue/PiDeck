@@ -39,6 +39,22 @@ test("UI 可见性矩阵：只有 installed 才渲染 DSH 表单与允许建会�
 	}
 });
 
+test("dev 模式（installEnabled=false）：不显示在线下载入口，仅保留安装引导说明", () => {
+	// 无论状态，dev 下都不提供在线下载/重装（runtime 只随打包分发）。
+	expectVisibility("notInstalled", {
+		canCreateDshSession: false,
+		showDshConfigForms: false,
+		showInstallGuide: true,
+		showRuntimeDownload: false,
+	}, false);
+	expectVisibility("installed", {
+		canCreateDshSession: true,
+		showDshConfigForms: true,
+		showInstallGuide: false,
+		showRuntimeDownload: false,
+	}, false);
+});
+
 test("checking 不显示安装引导：避免首帧闪一下「未安装」再切回正常表单", () => {
 	const visibility = dshUiVisibilityFor("checking");
 	assert.equal(visibility.showInstallGuide, false);

@@ -2,6 +2,7 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { floatingWheelGuardRef } from "@/lib/floatingWheelGuard"
 
 function Popover({
   ...props
@@ -24,6 +25,7 @@ function PopoverContent({
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
+        ref={floatingWheelGuardRef}
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}

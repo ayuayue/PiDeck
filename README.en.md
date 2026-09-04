@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.3--beta-yellow)
+![Version](https://img.shields.io/badge/version-0.7.3-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -83,6 +83,9 @@
 
 ### v0.7.3 Release Highlights
 - 🚀 **Chat session archives**
+- 🚀 **Active tab always in view**
+- 🚀 **Refined default-model priority**
+- 🚀 **DSH runtime: dev uses project deps, packs stay lean**
 - 🚀 **Rewind checkpoints**
 - 🚀 **Import DSH runtime from a folder**
 - 🚀 **Automatic session titles**
@@ -91,13 +94,10 @@
 - 🚀 **Feedback reports include project context**
 - 🚀 **Ask notifications jump to the session**
 - 🚀 **Deep links into config backends**
-- 🚀 **beUI rolled out across the app**
-- 🚀 **Subagents and session widget cards**
-- 🚀 **pi-tui rename sync**
 - ✨ **Refresh stale projects**
+- ✨ **Selected-state backgrounds restored**
+- ✨ **Dev no longer prompts to download DSH runtime**
 - ✨ **DSH runtime install no longer blocks the main process**
-- ✨ **Model connection-test timeouts**
-- ✨ **Reading history no longer jumps to the latest turn**
 
 [View Full Changelog →](CHANGELOG.md)
 

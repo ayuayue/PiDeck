@@ -2,6 +2,9 @@
 
 ### 🚀 New Features
 - **Chat session archives** — Sessions can be archived out of the workspace, with bulk delete on the archive screen so old chats stop crowding the sidebar.
+- **Active tab always in view** — When tabs overflow, the active session tab auto-scrolls to the visible center, so you always see which session you're on.
+- **Refined default-model priority** — Draft defaults now follow: explicit default > enabledModels > welcome preference > last used > none; the welcome preference is validated against the catalog before use, and thinking level always comes from the default setting.
+- **DSH runtime: dev uses project deps, packs stay lean** — Dev mode uses the repo's @deepseek-ai dependencies directly (no download); packaged builds ship without the runtime and offer on-demand install, so users who don't use DSH aren't charged the download.
 - **Rewind checkpoints** — Full checkpoint flow: dialog, drawer, timeline restore, auto snapshots, and session-fork restore; the checkpoint list is paginated so long sessions stay usable.
 - **Import DSH runtime from a folder** — Install a DSH runtime from an already-extracted directory instead of downloading it every time.
 - **Automatic session titles** — New sessions get an auto-generated title, including after an agent interrupt, so the sidebar is no longer a wall of “New session”.
@@ -26,6 +29,8 @@
 
 ### 🐛 Fixes
 - **Refresh stale projects** — Refresh handles vanished projects, and file-delete failures surface instead of failing silently.
+- **Selected-state backgrounds restored** — The @theme token self-reference was overriding foundation :root values, blanking bg-accent / bg-bg-active; switching to @theme inline reference fixes active tab, sidebar selection and related backgrounds across themes.
+- **Dev no longer prompts to download DSH runtime** — The install / reinstall buttons are hidden in dev mode; only packaged builds show the on-demand install flow.
 - **DSH runtime install no longer blocks the main process** — Install / uninstall use async fs, uninstall shows progress; multi_select allowlists and markdown layout are tightened along the way.
 - **Model connection-test timeouts** — Tests send stdin EOF and degrade on older pi, so the spinner no longer runs forever.
 - **Reading history no longer jumps to the latest turn** — Window-growth compensation uses restoreAt, keeping the viewport on the turn you were reading.

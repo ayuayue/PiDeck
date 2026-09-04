@@ -21,6 +21,7 @@ import {
   Fragment,
   useCallback,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -62,6 +63,7 @@ import {
 } from "../ui-shadcn/popover";
 import { cn } from "../../lib/utils";
 import { SessionBackendBadge } from "./SessionSourceBadge";
+import { TitleScrollText } from "../sidebar/TitleScrollText";
 
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { buildProjectTabGroups, type ProjectTabGroup } from "../../utils/sessionTabGroups";
@@ -111,8 +113,9 @@ const TAB_INDICATOR_INSTANT: Transition = { duration: 0 };
  * 操作入口（融合对方收敛方案）：
  * - 每个会话 Tab 的下拉按钮（或右键）打开操作菜单：切换到该会话、固定、
  *   停止 Agent（仅当前 Tab，保留会话与 Tab）、重启（仅当前 Tab）、关闭/关闭其他/关闭全部；
- * - 当前 Tab 识别：背景浮起（bg-accent/20 + shadow-sm + 强边框），
- *   与左侧 SessionTree 选中态同一套语义，不再画底部横条（曾因过粗被弃用）。
+ * - 当前 Tab 识别：灰色柔和实底（选中态背景 = --color-bg-active，与左侧 SessionTree 选中态
+ *   同一套语义），由共享 layoutId 的 motion.span 滑动呈现；不做浮起/阴影/底部横条
+ *   （曾因过粗被弃用）。
 
 /** “+” 下拉里的新建目标：聊天对话区或已打开项目 */
 export type NewSessionTarget = {
@@ -255,6 +258,65 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
   // —— 滚动容器 ref（拖拽排序与新建菜单共用）——
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // —— Tab 横向溢出检测 + 当前 Tab 自动滚动可见 ——
+  // Tab 多到横向溢出（会话恢复/新建/关组/分屏收起都会改变内容宽度）时，当前会话
+  // Tab 可能被挤到屏幕外。核心解决方式：**把当前 Tab 自动滚到可见**（而不是提示用户
+  // 怎么滚）—— 任何时刻用户都能看到自己在哪个会话。策略：
+  // 1) 检测溢出（供右侧渐变显示「还有更多」）：ResizeObserver（容器自身变化）+
+  //    依赖数组（Tab 内容变化时重建 effect 重检；这些只改 scrollWidth 不改容器自身尺寸，
+  //    单靠 ResizeObserver 永远不触发）。
+  // 2) 自动滚动：currentSessionId 变化时，若当前 Tab 不在滚动容器可视区内，
+  //    立即调整 scrollLeft 让当前 Tab 居中可见（仅移动容器横向滚动，不滚动页面）。
+  //    效果：切换/恢复会话后，当前 Tab 永远出现在可视区域，无需手动滚动。
+  const [tabsOverflow, setTabsOverflow] = useState(false);
+
+  // 确保当前会话 Tab 滚入容器可视区：仅当它被挤出视口（左/右侧不可见）才滚动。
+  // 不直接调 scrollIntoView（会滚动整页/干扰上下文），而是手动调 scrollLeft，
+  // 目标位置 = 当前 Tab 居中（容器宽度一半处），这样视觉上当前 Tab 在中央。
+  const ensureActiveTabVisible = useCallback(() => {
+    const container = scrollRef.current;
+    const tabEl = container?.querySelector<HTMLElement>(`[data-session-id="${currentSessionId}"]`);
+    if (!container || !tabEl) return;
+    const cRect = container.getBoundingClientRect();
+    const tRect = tabEl.getBoundingClientRect();
+    // 当前 Tab 完整在可视区内（左右 1px 容差），无需滚动
+    if (tRect.left >= cRect.left - 1 && tRect.right <= cRect.right + 1) return;
+    // 定位：当前 Tab 相对于滚动内容的位置（offsetLeft 相对容器内容流）
+    const left = tabEl.offsetLeft - (container.clientWidth - tabEl.offsetWidth) / 2;
+    container.scrollLeft = Math.max(0, left);
+  }, [currentSessionId]);
+
+  // 挂载时 + 当前会话变化时 + Tab 列表变化时：始终把当前 Tab 滚到可见。
+  // 注意依赖数组要把 props.tabs 也纳入：会话恢复是异步的（挂载后 sessionRecords
+  // 才补齐），仅依赖 currentSessionId 时「恢复完成、Tab 变多」这一时间点不会重跑，
+  // 当前 Tab 仍可能被新恢复的 Tab 挤到屏幕外。
+  useLayoutEffect(() => {
+    ensureActiveTabVisible();
+  }, [ensureActiveTabVisible, props.tabs]);
+
+  // —— 溢出检测（仅供右侧渐变判断）——
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const check = () => {
+      // +1 容差：亚像素误差（如 0.5px 溢出）不视为溢出，避免抖动。
+      const overflow = el.scrollWidth > el.clientWidth + 1;
+      setTabsOverflow(overflow);
+    };
+    check();
+    const resizeObserver = new ResizeObserver(check);
+    resizeObserver.observe(el);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [
+    props.tabs,
+    props.pinnedTabs,
+    props.splitGroupIds,
+    props.splitGroupCollapsed,
+    props.editorTabs,
+  ]);
+
   /** onDragOver 期间按鼠标位置相对目标 Tab 中点决定插入前后 */
   const handleDragOver = (event: React.DragEvent, targetId: string) => {
     if (!dragSourceRef.current || dragSourceRef.current === targetId) return;
@@ -311,7 +373,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
   // 下拉经 Portal 挂到 body；勿写 px-*（会盖掉自定义标题栏为窗口控件留的 padding-right）。
   // 抽屉开关始终在本栏最右侧；打开抽屉后靠 CSS 取消窗口控件让位，避免按钮被空出一截。
   return (
-    <div className="session-tabs-bar flex h-10 shrink-0 items-center gap-1 overflow-hidden border-b border-border/40 bg-background/80 pl-[max(0.5rem,var(--session-tabs-left-inset,0.5rem))]">
+    <div className="session-tabs-bar flex h-10 shrink-0 items-center gap-1 overflow-x-clip border-b border-border/40 bg-background/80 pl-[max(0.5rem,var(--session-tabs-left-inset,0.5rem))]">
       {props.listCollapsed && props.onToggleListCollapsed ? (
         <Button
           type="button"
@@ -325,11 +387,12 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
           <PanelLeft className="size-3.5" aria-hidden="true" />
         </Button>
       ) : null}
+      <div className="relative flex min-w-0 flex-1 items-center">
       <motion.div
         ref={scrollRef}
         layoutRoot
         onWheel={handleTabsWheel}
-        className="session-tabs-scroll relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
+        className="session-tabs-scroll relative flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
       >
         {(() => {
           // 分屏组：组内会话聚合渲染（组头胶囊 + 颜色标记）；收起时组内 Tab 隐藏
@@ -602,6 +665,15 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
           </>
         ) : null}
       </motion.div>
+      {/* 右缘渐变：溢出时提示「右侧还有 Tab」（纯装饰，不拦截鼠标）。
+          放在滚动容器外层（absolute 子元素放 overflow-x-auto 容器内会随内容滚走）。 */}
+      {tabsOverflow && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background/90 to-transparent"
+        />
+      )}
+      </div>
       {/* 右侧抽屉总开关：固定在会话 Tab 栏最右侧；面板切换图标在抽屉内活动栏。
           ⋯ 菜单收运行控制（当前会话）与工具开关两组（新建会话保留独立「+」按钮）；
           Tab 级操作（固定/关闭等）保留在 Tab 右键菜单。 */}
@@ -768,7 +840,8 @@ function EditorWorkbenchTab(props: {
       </button>
       </span>
       {/* 灰色选中背景：与会话 Tab 同一 layoutId（active 变化即 spring 滑动到本 Tab），
-          替代旧的底部细条；内容包装层已 z-10 抬升到背景之上 */}
+          替代旧的底部细条；内容包装层已 z-10 抬升到背景之上。
+          背景色用 inline 变量（var(--color-bg-active)）而非 bg-accent 类，同 SessionTab 一致。 */}
       {tab.active && (
         <motion.span
           aria-hidden="true"
@@ -964,7 +1037,24 @@ function SessionTab(props: {
             {t("app.composerModeGoal")}
           </span>
         )}
-        <span className={cn("min-w-0 flex-1 truncate", preview && "italic")}>{title}</span>
+        {/* 标题复用侧栏 TitleScrollText：溢出时 hover 滚动到尾、离开回开头（与左侧会话列表一致）。
+            strong 是块级元素（flex-1 占满剩余空间），需显式覆盖字重：非激活 400、激活 500，
+            否则 strong 的 UA 默认 bold(700) 会让所有 tab 标题变粗。truncate 补省略号
+            （组件自带 overflow-hidden 只截断不省略，侧栏靠 legacy .conversation-title strong 补）。
+            收敛触发（tab 是高频交互区，侧栏默认行为不适合）：
+            - disabled={active}：激活 tab 不滚动——内容已在右侧看全，且切换 tab 时鼠标恰好落在
+              新激活 tab 上，立即滚动体验很吵（原生 title 提示兜底）；
+            - hoverDelayMs=500：快速扫过 tab 栏不触发，停留半秒才滚。 */}
+        <TitleScrollText
+          text={title}
+          disabled={active}
+          hoverDelayMs={500}
+          className={cn(
+            "truncate",
+            active ? "font-medium" : "font-normal",
+            preview && "italic",
+          )}
+        />
         {!pinned && (
           <button
             type="button"
@@ -995,8 +1085,11 @@ function SessionTab(props: {
           />
         )}
         {/* 灰色选中背景按钮（beui Tabs 同款滑动；无底部条）：只有 active Tab 渲染，layoutId 全栏共享，
-            切换时 spring 滑到新位置并在目标 Tab 铺满整块 bg-accent 灰底——替代旧的底部细条/黑色实底；
-            拖拽插入线（props.indicator）是竖线且仅拖拽期存在，二者位置不重叠。 */}
+            切换时 spring 滑到新位置并在目标 Tab 铺满整块灰底——替代旧的底部细条/黑色实底；
+            拖拽插入线（props.indicator）是竖线且仅拖拽期存在，二者位置不重叠。
+            背景色用 inline 变量（var(--color-bg-active)）而非 bg-accent 类：类依赖 Tailwind
+            扫描生成，曾出现在部分环境下类未输出导致「激活 Tab 无背景」的回归。inline 变量
+            随主题实时切换，与 SessionTree 选中态同色。 */}
         {active && (
           <motion.span
             aria-hidden="true"
