@@ -6,8 +6,8 @@ const progress = readFileSync(
   "src/renderer/src/components/ui-shadcn/progress.tsx",
   "utf8",
 );
-const overlay = readFileSync(
-  "src/renderer/src/components/overlays/AppUpdateOverlay.tsx",
+const updateCard = readFileSync(
+  "src/renderer/src/components/app/settings/AppUpdateCard.tsx",
   "utf8",
 );
 const surfaces = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");
@@ -20,14 +20,17 @@ test("shadcn Progress exposes value through aria semantics", () => {
   assert.match(progress, /`translateX\(-\$\{100 - \(value \|\| 0\)\}%\)`/);
 });
 
-test("update overlay uses the shared Progress with an accessible label", () => {
-  assert.match(overlay, /<Progress value=\{percent\} aria-label=\{t\("update\.downloadProgress"\)\}/);
-  assert.doesNotMatch(overlay, /update-progress-bar/);
-  assert.doesNotMatch(overlay, /style=\{\{ width: `\$\{Math\.max\(0, Math\.min\(100, percent\)\)\}%` \}\}/);
+test("settings update card uses the shared Progress with an accessible label", () => {
+  assert.match(
+    updateCard,
+    /<Progress value=\{download\.percent \?\? 0\} aria-label=\{t\("settings\.updateDownloading", \{ version: "" \}\)\} \/>/,
+  );
+  assert.doesNotMatch(updateCard, /update-progress-bar/);
+  assert.doesNotMatch(updateCard, /style=\{\{ width:/);
 });
 
-test("legacy update progress track CSS is removed", () => {
-  assert.doesNotMatch(surfaces, /\.update-progress-track/);
-  assert.doesNotMatch(surfaces, /\.update-progress-bar/);
-  assert.match(surfaces, /\.update-progress-header,/);
+test("legacy update modal and progress CSS are removed", () => {
+  assert.doesNotMatch(surfaces, /\.update-modal\b/);
+  assert.doesNotMatch(surfaces, /\.update-download-progress\b/);
+  assert.doesNotMatch(surfaces, /\.update-progress-(?:track|bar|header|meta)\b/);
 });

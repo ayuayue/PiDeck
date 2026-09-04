@@ -145,55 +145,60 @@ export type FeedbackEnvironment = {
 	pi: PiInstallStatus;
 };
 
-export type AppUpdateAsset = {
-	name: string;
-	url: string;
-	size: number;
-};
+/** 应用更新生命周期阶段（由 electron-updater 事件映射）。 */
+export type AppUpdatePhase =
+	| "idle"
+	| "checking"
+	| "available"
+	| "downloading"
+	| "ready"
+	| "installing"
+	| "error";
 
-export type AppUpdateInfo = {
-	currentVersion: string;
-	latestVersion: string;
-	hasUpdate: boolean;
-	releaseName: string;
-	releaseNotes: string;
-	releaseUrl: string;
-	publishedAt?: string;
-	assets: AppUpdateAsset[];
-	recommendedAsset?: AppUpdateAsset;
-};
+/** 更新交付能力：automatic=应用内下载/安装；manual=仅检测并引导至 Release。 */
+export type AppUpdateDeliveryMode = "automatic" | "manual";
 
-export type AppUpdateDownloadProgress = {
-	assetName: string;
-	receivedBytes: number;
-	totalBytes?: number;
+/**
+ * 应用更新下载/安装状态（随 app:update-status-changed 快照推送）。
+ * 语义对齐 Netcatty/electron-updater：检测到新版本后 autoDownload 开启时
+ * 自动进入 checking→downloading→ready 全链路，UI 无需弹窗打断。
+ */
+export type AppUpdateDownloadState = {
+	/** 当前阶段。idle = 无活动（已最新 / 从未检查）；error 时 error 字段有值。
+	 * installing 表示已请求退出并等待安装器接管；ready + error 表示安装未启动，可重试。 */
+	phase: AppUpdatePhase;
+	/** 目标版本（available / downloading / ready 时存在）。 */
+	version?: string;
+	/** 下载进度 0-100（downloading 时存在）。 */
 	percent?: number;
 	bytesPerSecond?: number;
-	state: "downloading" | "completed" | "failed";
-	filePath?: string;
+	transferred?: number;
+	total?: number;
+	/** 失败原因（phase=error，或 phase=ready 但上次安装启动失败）。 */
 	error?: string;
 };
 
-export type AppUpdateDownloadResult = {
-	filePath: string;
-	assetName: string;
-};
-
 /**
- * 主进程后台更新检查推送给渲染层的状态快照（齿轮角标 / 首次弹窗判定用）。
+ * 主进程后台更新检查推送给渲染层的状态快照（齿轮角标 / toast / 设置页卡片用）。
  * 由主进程 UpdateService 定时检查后通过 app:update-status-changed 推送。
  */
 export type AppUpdateStatusSnapshot = {
 	/** 最后一次后台检查完成时间（毫秒时间戳）；缺省 = 尚未检查。 */
 	lastCheckAt?: number;
-	/** PiDeck 应用更新状态；null = 尚未成功检查过。 */
+	/** 当前平台的更新交付能力。macOS 无 Developer ID 签名时为 manual。 */
+	deliveryMode: AppUpdateDeliveryMode;
+	/** 自动下载偏好；manual 交付模式为 null（该开关不适用）。 */
+	autoDownload?: boolean | null;
+	/** PiDeck 应用更新状态；null = 尚未触发检查且无活动状态。 */
 	app: {
-		latestVersion: string;
+		latestVersion?: string;
 		hasUpdate: boolean;
 		/** 用户跳过的版本（该版本不再主动提示，手动检测仍可查看）。 */
 		skippedVersion?: string;
-		/** 最近一次已弹窗提示过的版本（“每版本只弹一次”判定）。 */
+		/** 最近一次已提示过的版本（“每版本只提示一次”判定）。 */
 		notifiedVersion?: string;
+		/** 下载/安装状态机（electron-updater 事件驱动）。 */
+		download: AppUpdateDownloadState;
 	} | null;
 	/** Pi CLI 更新状态；null = 尚未成功检查过。 */
 	piCli: {

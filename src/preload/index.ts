@@ -16,9 +16,6 @@ import type {
 	ProcessMetricsSnapshot,
 	DiagnosticsSnapshot,
 	AppSettings,
-	AppUpdateDownloadProgress,
-	AppUpdateDownloadResult,
-	AppUpdateInfo,
 	AppUpdateStatusSnapshot,
 	AvailableModel,
 	DshModelDiscoveryInput,
@@ -1205,18 +1202,16 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.appNetworkAddresses) as Promise<WebNetworkAddress[]>,
 		preferredSystemLanguages: () =>
 			ipcRenderer.invoke(ipcChannels.appPreferredSystemLanguages) as Promise<string[]>,
+		/** 手动触发一次更新检查（检测结果经 onUpdateStatus 快照推送；不弹窗）。 */
 		checkUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<AppUpdateInfo>,
-		downloadUpdate: (asset: { name: string; url: string }) =>
-			ipcRenderer.invoke(
-				ipcChannels.appDownloadUpdate,
-				asset,
-			) as Promise<AppUpdateDownloadResult>,
-		installUpdate: (filePath: string) =>
-			ipcRenderer.invoke(ipcChannels.appInstallUpdate, filePath) as Promise<void>,
-		onUpdateProgress: (callback: (progress: AppUpdateDownloadProgress) => void) =>
-			subscribe(ipcChannels.appUpdateProgress, callback),
-		/** 订阅后台更新检查快照（角标 + 每版本一次提示判定）。 */
+			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<void>,
+		/** 手动下载已检测到的新版本（自动下载关闭时用）。 */
+		downloadUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appDownloadUpdate) as Promise<void>,
+		/** 重启并安装已下载的更新（退出 → 静默替换 → 自动重启新版）。 */
+		installUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appInstallUpdate) as Promise<void>,
+		/** 订阅后台更新检查快照（角标 + toast + 设置页卡片）。 */
 		onUpdateStatus: (callback: (snapshot: AppUpdateStatusSnapshot) => void) =>
 			subscribe(ipcChannels.appUpdateStatusChanged, callback),
 		/** 获取当前更新状态快照（手动检测完成后刷新角标用）。 */

@@ -137,8 +137,11 @@ export type SidebarContentProps = {
 export function SidebarContent(props: SidebarContentProps) {
   const { controller, actions } = props;
   const menu = controller.menu;
-  // 更新角标：PiDeck 或 Pi CLI 有可提示更新时点亮设置按钮圆点（跨重启由主进程持久化状态恢复）。
-  const hasPendingUpdate = useAtomValue(pendingAppUpdateAtom) || useAtomValue(pendingPiUpdateAtom);
+  // 两个 atom 必须无条件读取：不能用 `useAtomValue(app) || useAtomValue(pi)`，
+  // 否则应用更新从 false 变 true 时会短路跳过第二个 Hook，破坏 Hook 调用顺序。
+  const hasPendingAppUpdate = useAtomValue(pendingAppUpdateAtom);
+  const hasPendingPiUpdate = useAtomValue(pendingPiUpdateAtom);
+  const hasPendingUpdate = hasPendingAppUpdate || hasPendingPiUpdate;
   const menuProject = menu?.kind === "project"
     ? controller.catalog.projects.find((project) => project.id === menu.projectId)
     : undefined;

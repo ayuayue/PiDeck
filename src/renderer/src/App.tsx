@@ -73,7 +73,7 @@ import { detectRendererPlatform } from "./lib/detectRendererPlatform";
 import { msUntilNextThemeBoundary } from "../../shared/themeSchedule";
 
 import { usePiUpdate } from "./hooks/usePiUpdate";
-import { useAppUpdateController } from "./hooks/useAppUpdateController";
+
 import { useBackgroundUpdateWatch } from "./hooks/useBackgroundUpdateWatch";
 import { useProjectSync } from "./hooks/useProjectSync";
 import {
@@ -162,7 +162,7 @@ import { WorkbenchStage } from "./components/workspace/WorkbenchStage";
 import { WorkbenchContent } from "./components/workspace/WorkbenchContent";
 import { RenameModals } from "./components/RenameModals";
 import { SessionActionOverlays } from "./components/overlays/SessionActionOverlays";
-import { AppUpdateOverlay } from "./components/overlays/AppUpdateOverlay";
+
 import { ImportOverlayHost } from "./components/overlays/ImportOverlayHost";
 import { EnvironmentOverlay } from "./components/overlays/EnvironmentOverlay";
 import {
@@ -574,31 +574,15 @@ export function App() {
     return getRuntimeTargetForSession(sessionId);
   };
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
-  // controller 的 api 对象必须 useMemo 稳定：内联字面量会让 useAppUpdateController 内部
-  // 依赖 api 的 useCallback/effect（含下载进度订阅）每次 App 重渲染都重建/重订。
-  const appUpdateApi = useMemo(
-    () => ({
-      checkUpdate: api.app.checkUpdate,
-      downloadUpdate: (asset: Parameters<typeof api.app.downloadUpdate>[0]) => api.app.downloadUpdate(asset),
-      installUpdate: (filePath: string) => api.app.installUpdate(filePath),
-      onUpdateProgress: (cb: Parameters<typeof api.app.onUpdateProgress>[0]) => api.app.onUpdateProgress(cb),
-      openExternal: (url: string) => api.app.openExternal(url),
-    }),
-    [api],
-  );
-  const appUpdate = useAppUpdateController(appUpdateApi, false);
 
-  // 后台更新状态订阅：主进程每 2h 自动检查（无配额方案），有更新且未跳过/未提示
-  // 时自动弹窗；Pi CLI 有更新时 toast 一次并引导去设置页。
-  // appUpdateCheck 直传稳定引用：内联箭头会作为 effect 依赖导致推送订阅每次渲染重订。
+  // 后台更新状态订阅（electron-updater 快照驱动）：自动下载开启时静默下载，
+  // 完成后再 toast「重启并安装」；关闭时发现新版本 toast 提示去设置页。
+  // 不再弹大窗打断用户（对齐 Netcatty 语义）。
   useBackgroundUpdateWatch({
     api,
-    appUpdateCheck: appUpdate.check,
-    showToast,
+    // 打开设置页并定位「开发设置」tab（toast「查看设置」动作目标）。
+    openSettings: () => store.set(openSettingsAtom, { tab: "dev" }),
   });
-
-  // upToDateVersion: hook does not expose this; used by AppUpdateOverlay for "up to date" toast.
-  const [upToDateVersion, setUpToDateVersion] = useState<string | null>(null);
 
   const PROJECT_EXPANDED_DIRS_KEY_PREFIX = "pid:project-expanded-dirs:";
 
@@ -701,7 +685,7 @@ export function App() {
     imageGenSize: "unset",
     imageGenWatermark: false,
     imageGenOutputFormat: "png",
-    disableUpdateCheck: false,
+    autoDownloadUpdates: true,
     // 与主进程 defaultSettings 保持一致：offline 默认关，让模型目录随启动刷新
     piRpcOffline: false,
     piRpcNoExtensions: false,
@@ -737,16 +721,6 @@ export function App() {
   useEffect(() => {
     setBusySendDelivery(settings.busySendDelivery);
   }, [settings.busySendDelivery, setBusySendDelivery]);
-
-  // 应用更新：主进程后台每 2h 自动检查（无配额方案），有更新且未跳过/未提示时
-  // 经 useBackgroundUpdateWatch 自动弹窗；设置页手动「检测更新」仍可用（checking 门控
-  // 已改为共享在途 promise，不再吞结果）。弹窗关闭/跳过时向主进程标记已提示/跳过，
-  // 保证「每版本只提示一次」。
-  const dismissAppUpdate = useCallback(() => {
-    const version = appUpdate.info?.latestVersion;
-    appUpdate.clear();
-    if (version) void api.app.notifyUpdateSeen("app", version);
-  }, [appUpdate.info?.latestVersion, appUpdate.clear]);
 
   // Guard: hide git drawer when git management is disabled.
   // Equivalent to: if (panel === "git" && !settings.enableGitManagement) return
@@ -2728,9 +2702,11 @@ export function App() {
         }
       }
       showToast(notice);
+      return true;
     } catch (error) {
       setSettings(await api.settings.get());
       showToast(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       if (changesWebService) setWebServiceChanging(false);
     }
@@ -4037,12 +4013,10 @@ export function App() {
     <SettingsFeatureRoot
       settings={settings}
       piUpdate={piUpdate}
-      appUpdate={appUpdate}
       webServiceChanging={webServiceChanging}
       onRestartWebService={restartWebService}
       appInfo={appInfo}
       onChange={updateSettings}
-      onCurrentVersion={setUpToDateVersion}
       projectPath={activeProject?.path}
     />
     {/*
@@ -4062,18 +4036,6 @@ export function App() {
             }
           : undefined
       }
-    />
-    <AppUpdateOverlay
-      controller={{ ...appUpdate, clear: dismissAppUpdate }}
-      releasesUrl={appInfo.releasesUrl}
-      openExternal={(url, forceSystem) => api.app.openExternal(url, forceSystem)}
-      upToDateVersion={upToDateVersion}
-      onDismissUpToDate={() => setUpToDateVersion(null)}
-      onSkipVersion={(version) => {
-        void api.app.skipUpdateVersion(version);
-        void api.app.notifyUpdateSeen("app", version);
-        appUpdate.clear();
-      }}
     />
     {previewImage && (
       <ImagePreviewModal

@@ -5,12 +5,12 @@
 
 import { app, ipcMain, shell } from "electron";
 import { ipcChannels } from "../../shared/ipc";
+import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import type {
 	AppLogLevel,
 	AppLogQuery,
 	AppSettings,
-	AppUpdateAsset,
 	AvailableModel,
 	ModelListReport,
 	CreatePiSkillInput,
@@ -28,7 +28,7 @@ import { resolveConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
 import type { SkillManager } from "../skills/SkillManager";
 import { fetchModelList, getCachedModelList, invalidateModelListCache, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
-import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/appUpdateCheck";
+
 import { probePiModel } from "../pi/PiModelProber";
 import type { PiModelCapabilityCache } from "../pi/PiModelCapabilityCache";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
@@ -114,12 +114,12 @@ export type SystemIpcDeps = {
 	logBundleExporter?: LogBundleExporter;
 	getMainWindow: () => Electron.BrowserWindow | null;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
-	/** Check for app update; defined in index.ts */
-	checkForAppUpdate: (installationType?: string) => Promise<import("../../shared/types").AppUpdateInfo | null>;
-	/** Download update asset */
-	downloadUpdateAsset: (asset: AppUpdateAsset) => Promise<import("../../shared/types").AppUpdateDownloadResult>;
-	/** Install downloaded update */
-	installDownloadedUpdate: (filePath: string) => Promise<void>;
+	/** Check for app update（index.ts 注入：直接触发 UpdateService.checkNow，结果经快照推送）。 */
+	checkForAppUpdate: () => Promise<void>;
+	/** 手动下载已检测到的更新（autoDownload 关闭时由设置页触发）。 */
+	downloadAppUpdate: () => Promise<void>;
+	/** 重启并安装已下载的更新（electron-updater quitAndInstall）。 */
+	installAppUpdate: () => void;
 	/** Open external URL */
 	openExternalUrl: (url: string, forceSystem?: boolean) => Promise<void>;
 	/**
@@ -184,12 +184,15 @@ export type SystemIpcDeps = {
 	RELEASES_URL?: string;
 	/** 开发态 git 分支名（多 worktree 并行区分窗口）；正式包/共享分支为空。 */
 	devBranch?: string;
-	/** 后台更新检查服务（定时检查快照推送 / 已提示 / 跳过版本）。 */
+	/** 后台更新检查服务（定时检查快照推送 / 已提示 / 跳过版本 / 立即检查 / 下载 / 安装）。 */
 	updateService?: {
 		getSnapshot: () => import("../../shared/types").AppUpdateStatusSnapshot;
 		notifySeen: (kind: "app" | "pi", version: string) => Promise<void>;
 		skipVersion: (version: string) => Promise<void>;
-		recordAppUpdateResult: (info: { latestVersion: string; hasUpdate: boolean }) => void;
+		checkNow: () => Promise<void>;
+		downloadNow: () => Promise<void>;
+		installNow: () => void;
+		applyAutoDownloadPreference: () => void;
 	};
 };
 
@@ -214,8 +217,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		getMainWindow,
 		mainCopy,
 		checkForAppUpdate,
-		downloadUpdateAsset,
-		installDownloadedUpdate,
+		downloadAppUpdate,
+		installAppUpdate,
 		openExternalUrl: doOpenExternalUrl,
 		resolveWslEnvironment,
 		reactToPetSettings,
@@ -641,20 +644,17 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		try { return app.getPreferredSystemLanguages(); } catch { return []; }
 	});
 
-	// ── 应用更新 ─────────────────────────────────────────────────────
+	// ── 应用更新（electron-updater 事件驱动；结果统一经 app:update-status-changed 快照推送）──
 
 	ipcMain.handle(ipcChannels.appCheckUpdate, async () => {
-		const info = await checkForAppUpdate(settingsStore.get().installationType);
-		// 手动结果同步进后台快照：角标/设置页高亮与手动检查保持一致。
-		if (info) updateService?.recordAppUpdateResult({ latestVersion: info.latestVersion, hasUpdate: info.hasUpdate });
-		return info;
+		await updateService?.checkNow();
 	});
-	ipcMain.handle(ipcChannels.appDownloadUpdate, async (_event, asset: AppUpdateAsset) =>
-		downloadUpdateAsset(asset),
-	);
-	ipcMain.handle(ipcChannels.appInstallUpdate, async (_event, filePath: string) =>
-		installDownloadedUpdate(filePath),
-	);
+	ipcMain.handle(ipcChannels.appDownloadUpdate, async () => {
+		await updateService?.downloadNow();
+	});
+	ipcMain.handle(ipcChannels.appInstallUpdate, async () => {
+		updateService?.installNow();
+	});
 	// 后台更新检查快照：主进程定时检查后主动推送（渲染层角标/每版本一次提示）；
 	// 渲染层也可主动拉取当前快照（如手动检测完成后刷新角标）。
 	ipcMain.handle(ipcChannels.appUpdateStatusChanged, () =>
@@ -992,6 +992,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.settingsUpdate, async (_event, patch: Partial<AppSettings>) => {
 		const prevSettings = settingsStore.get();
 		const settings = await settingsStore.update(patch);
+		// 自动下载更新开关：立即下发到 electron-updater（含检查期间的 autoDownload 切换）。
+		if ("autoDownloadUpdates" in patch) {
+			updateService?.applyAutoDownloadPreference();
+		}
 		if ("developerDiagnostics" in patch && diagnosticsMonitor) {
 			void diagnosticsMonitor.setEnabled(settings.developerDiagnostics).catch((error) => {
 				void appLogger.warn("diagnostics", "Failed to toggle developer diagnostics", {

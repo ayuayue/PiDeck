@@ -89,6 +89,7 @@
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
     "@larksuiteoapi/node-sdk": "^1.67.0",
+    "electron-updater": "^6.8.9",
     "node-pty": "^1.1.0",
     "sql.js": "^1.14.1",
     "tar": "^7.5.15",

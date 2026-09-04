@@ -324,9 +324,10 @@ export const ipcChannels = {
 	appNetworkAddresses: "app:network-addresses",
 	appPreferredSystemLanguages: "app:preferred-system-languages",
 	appCheckUpdate: "app:check-update",
+	/** 手动下载已检测到的新版本（autoDownload 关闭时使用）。 */
 	appDownloadUpdate: "app:download-update",
+	/** 重启并安装已下载的更新（quitAndInstall）。 */
 	appInstallUpdate: "app:install-update",
-	appUpdateProgress: "app:update-progress",
 	/** 主进程后台更新检查快照推送（角标 + 每版本一次提示判定）。 */
 	appUpdateStatusChanged: "app:update-status-changed",
 	/** 记录已提示过的版本（每版本只提示一次）。 */

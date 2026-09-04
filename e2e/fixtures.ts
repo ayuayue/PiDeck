@@ -1,10 +1,11 @@
 import { test as base, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
- * Electron 应用 fixture：启动打包产物（out/main/index.js），
+ * Electron 应用 fixture：默认启动构建产物（out/main/index.js）；设置
+ * PIDEK_E2E_EXECUTABLE_PATH 时改为启动已打包的 Electron 可执行文件。
  * 用临时数据目录隔离 userData（Windows 走 APPDATA，Linux 走 XDG_CONFIG_HOME，
  * macOS 走 HOME），避免 E2E 污染开发者本机的 PiDeck 数据。
  *
@@ -58,24 +59,40 @@ export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | und
 				JSON.stringify(seedSettings),
 			);
 		}
+		const profileDir = join(userDataRoot, "profile");
 		const env = {
 			...process.env,
+			// The Chromium switch can be consumed before main-process JavaScript sees
+			// it. Keep an E2E-only copy so packaged startup can set Electron storage
+			// paths before reading settings and acquiring its version lock.
+			PIDECK_E2E_USER_DATA_DIR: profileDir,
 			// 隔离 userData；同时清掉 dev 注入，防止指到 dev server
 			ELECTRON_RENDERER_URL: "",
 			...(process.platform === "win32"
-				? { APPDATA: userDataRoot }
+				? { APPDATA: userDataRoot, LOCALAPPDATA: userDataRoot }
 				: process.platform === "darwin"
 					? { HOME: userDataRoot }
 					: { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
-			// E2E 不探测真实 pi：customPiPath 留空，Agent 用例另走 e2e:real
+			// PIDECK_E2E enables both main-process profile isolation and the updater's
+			// temporary development configuration for the local generic feed.
+			PIDECK_E2E: "1",
 			CI: "1",
 		};
 		delete env.ELECTRON_RENDERER_URL;
+		const packagedExecutablePath = process.env.PIDEK_E2E_EXECUTABLE_PATH
+			? resolve(process.env.PIDEK_E2E_EXECUTABLE_PATH)
+			: undefined;
+		if (packagedExecutablePath && !existsSync(packagedExecutablePath)) {
+			throw new Error(`Packaged E2E executable does not exist: ${packagedExecutablePath}`);
+		}
 		const app = await electron.launch({
+			...(packagedExecutablePath ? { executablePath: packagedExecutablePath } : {}),
 			// 未打包运行时应用名解析为 "Electron"，userData 默认落到真实
 			// %APPDATA%/Electron-dev（跨 E2E 运行共享、污染本机）。必须显式
 			// --user-data-dir 指向临时目录（Electron 尊重该 Chromium 开关）。
-			args: [join(repoRoot, "out", "main", "index.js"), `--user-data-dir=${join(userDataRoot, "profile")}`],
+			args: packagedExecutablePath
+				? [`--user-data-dir=${profileDir}`]
+				: [join(repoRoot, "out", "main", "index.js"), `--user-data-dir=${profileDir}`],
 			env,
 		});
 		await use(app);

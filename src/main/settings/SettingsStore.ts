@@ -206,8 +206,8 @@ Gitmoji 对应关系：
   imageGenWatermark: DEFAULT_IMAGE_GEN_WATERMARK,
   imageGenOutputFormat: DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
 
-  // ── 更新检测：默认正常检测，用户可手动关闭忽略更新 ──
-  disableUpdateCheck: false,
+  // ── 更新检测：检查永远自动；自动下载默认开启（v0.7.4 起取代 disableUpdateCheck）──
+  autoDownloadUpdates: true,
 
   // ── Agent 后端：默认 pi（经典后端），用户可在设置中切换为 dsh ──
   defaultAgentBackend: "pi",

@@ -1,5 +1,6 @@
 import type { ProjectFileAccessScope } from "../../../../shared/types";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
 import { ArrowLeft, Maximize, Minimize2, Rows2, SquareSplitHorizontal, X, Eye, FileCode } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
@@ -18,6 +19,7 @@ const CodeDiffView = lazy(() =>
 import { formatFilePathRef } from "../session/composer/chips";
 
 import { isBinaryExtension, isImageFile, isPdfFile } from "../../utils/isTextFile";
+import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
 
 type ViewMode = "view" | "diff";
 
@@ -86,6 +88,8 @@ export function FileDiffViewer(props: {
 	chromeTabsExternal?: boolean;
 }) {
 	const maxFileSize = (props.maxFileSizeMB ?? 5) * 1024 * 1024;
+	const updateInstallPreflightId = useId();
+	const setUpdateInstallPreflightTasks = useSetAtom(updateInstallPreflightTasksAtom);
 	const [content, setContent] = useState("");
 	// 差异模式左侧展示的原始内容：优先使用会话缓存（originalContent），
 	// 没有则从 Git HEAD 读取。新增/未跟踪文件为空字符串。
@@ -282,36 +286,56 @@ export function FileDiffViewer(props: {
 		setSaving(false);
 	}, [props.activeTabId, props.filePath, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode]);
 
-	const saveNow = useCallback(async () => {
+	const saveNow = useCallback(async (): Promise<boolean> => {
 		if (saveTimerRef.current) {
 			clearTimeout(saveTimerRef.current);
 			saveTimerRef.current = null;
 		}
-		if (!props.saveContent) return;
+		if (isDiffMode || !props.saveContent) return true;
 		const latest = getLatestContent();
-		if (latest === lastSavedRef.current) return;
+		if (latest === lastSavedRef.current) return true;
 		const saveGeneration = saveGenerationRef.current;
 		const savePath = props.filePath;
 		setSaving(true);
 		try {
 			await props.saveContent(savePath, latest, props.fileAccessScope);
 			// Tab 已切换时，旧请求即使完成也不能改动新 Tab 的 dirty/content 状态。
-			if (saveGeneration !== saveGenerationRef.current) return;
+			if (saveGeneration !== saveGenerationRef.current) return true;
 			lastSavedRef.current = latest;
 			// 保存期间用户可能继续输入；只有没有更新过才可以清除 dirty，
 			// 绝不能把保存开始时的快照重新 set 回编辑器。
 			if (contentRef.current === latest) {
 				setDirty(false);
 			}
+			return true;
 		} catch (e) {
 			if (saveGeneration === saveGenerationRef.current) {
 				// 保存失败保留 dirty，用户可继续编辑后由下一次自动保存/Ctrl+S 重试
 				setError(e instanceof Error ? e.message : String(e));
 			}
+			return false;
 		} finally {
 			if (saveGeneration === saveGenerationRef.current) setSaving(false);
 		}
-	}, [getLatestContent, props.saveContent, props.filePath, props.fileAccessScope?.projectId]);
+	}, [getLatestContent, isDiffMode, props.saveContent, props.filePath, props.fileAccessScope?.projectId]);
+
+	// 更新安装会直接终止 Electron；把活跃文本编辑器的防抖保存提升为可等待的前置任务。
+	useEffect(() => {
+		if (isDiffMode || !props.saveContent) return;
+		setUpdateInstallPreflightTasks((current) => {
+			const next = new Map(current);
+			next.set(updateInstallPreflightId, saveNow);
+			return next;
+		});
+		return () => {
+			setUpdateInstallPreflightTasks((current) => {
+				if (!current.has(updateInstallPreflightId)) return current;
+				const next = new Map(current);
+				next.delete(updateInstallPreflightId);
+				return next;
+			});
+		};
+	}, [isDiffMode, props.saveContent, saveNow, setUpdateInstallPreflightTasks, updateInstallPreflightId]);
 
 	const scheduleAutoSave = useCallback(() => {
 		if (!props.saveContent) return;
