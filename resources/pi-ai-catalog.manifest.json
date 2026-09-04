@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "source": {
     "packageName": "@earendil-works/pi-ai",
-    "packageVersion": "0.82.1",
-    "dataSha256": "5b1f3bf530dd4ef9f8af4d8943447ab7c5dcf63b85d5ae27e226f7ecf98b8c76",
-    "fileCount": 37
+    "packageVersion": "0.84.4",
+    "dataSha256": "49b02faa86b516612c8500c4462498452912eb7cca9c6f732fb6f614d07808a2",
+    "fileCount": 39
   },
-  "catalogSha256": "a8e66321ee115fcd78aefd5d2db73859141f6dc69efe0c21e2e27e88e7f6ebc3",
-  "entryCount": 1109
+  "catalogSha256": "bca336743926c661d282a49c5ff55831cb199c1a79eb684a5f2a75d05908c34b",
+  "entryCount": 1290
 }
