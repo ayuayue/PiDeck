@@ -1799,6 +1799,8 @@ export const zhCN = {
     "配置后会写入 Pi 模型配置（含 DSH 模型目录），模型列表与用量查询即走既有链路；请求自带 X-App-URL 归因头。",
   "config.tokendance.advantageOne": "一个 API Key 即可调用市面上绝大多数模型平台，无需分别注册维护",
   "config.tokendance.advantageTwo": "大量模型有特价，常见模型价格明显低于官方直购",
+  "config.tokendance.advantageCredit": "新用户注册即送 1 元体验额度，可以先免费试用再决定是否充值",
+  "config.tokendance.expandDetails": "展开/收起详情",
   "config.tokendance.catalogError": "目录拉取失败",
   "config.tokendance.addToConfig": "一键配置",
   "config.tokendance.configuredBadge": "已配置",

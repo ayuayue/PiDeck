@@ -145,7 +145,15 @@ export function dshModelsFromPi(models: PiModelItem[] | undefined): DshProviderP
 		// expandNullEffortWireValues：pi 的 null 表恒等，DSH 除 off 外不允许空 wire 值。
 		const reasoningEfforts = asReasoningEfforts(model.thinkingLevelMap);
 		if (model.reasoning === true && reasoningEfforts) {
-			row.reasoningEfforts = expandNullEffortWireValues(reasoningEfforts);
+			const expanded = expandNullEffortWireValues(reasoningEfforts);
+			// DSH 校验除 off 外必须至少一档非空 wire 值；展开后只剩 off（如目录探测只报
+			// {off:null}）的模型按官网指引 set false 声明为非思考模型，否则 settings.update
+			// 直接 settings-rejected（用户迁移 tokendance 时实报：model "minimax-m2.5"
+			// reasoningEfforts offers no level beyond "off"）。
+			const hasNonOffLevel = Object.entries(expanded).some(
+				([level, wire]) => level !== "off" && wire !== null,
+			);
+			row.reasoningEfforts = hasNonOffLevel ? expanded : false;
 		} else if (model.reasoning === false) row.reasoningEfforts = false;
 		rows.push(row);
 	}

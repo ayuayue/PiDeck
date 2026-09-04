@@ -1813,6 +1813,8 @@ export const enUS: Record<TranslationKey, string> = {
     "Once configured it is written into the Pi model config (and the DSH model catalog); the model list and usage queries then use the existing pipeline. Requests carry the X-App-URL attribution header.",
   "config.tokendance.advantageOne": "One API Key reaches most major model providers — no separate sign-ups or maintenance",
   "config.tokendance.advantageTwo": "Many models are discounted, often well below official direct pricing",
+  "config.tokendance.advantageCredit": "New users get a ¥1 trial credit on sign-up — try models for free before topping up",
+  "config.tokendance.expandDetails": "Expand / collapse details",
   "config.tokendance.catalogError": "Failed to load catalog",
   "config.tokendance.addToConfig": "Configure now",
   "config.tokendance.configuredBadge": "Configured",

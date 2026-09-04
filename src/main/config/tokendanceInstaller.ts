@@ -18,6 +18,16 @@ import { credentialRefFor, dshModelsFromPi, mergePiProvider, type DshProviderSna
 import type { PiModelItem } from "./ConfigManager";
 import type { ProviderMigrationDeps } from "./providerMigrationService";
 import type { TokendanceCatalogStore } from "./tokendanceCatalog";
+import type { PiAiCatalogEntry } from "../pi/piAiBuiltinCatalog";
+
+/**
+ * 按模型 id 从 pi-ai 目录补能力字段（maxTokens/reasoning/input/thinkingLevelMap）。
+ * TokenDance /models 只下 id/name/context_length/supported_protocols，没有这些字段；
+ * 不补的话配置页表格「最大 Token/能力」大量空白，且 pi 侧无从得知思考档位映射。
+ * 供应商名字段未知（网关模型 id 与官方一致），用全局 id 精确匹配即可；
+ * 依赖注入便于单测（测试传 stub），主进程装配时接 getPiAiCatalogIndex+lookupPiAiCatalogEntry。
+ */
+export type TokendanceCatalogLookup = (modelId: string) => PiAiCatalogEntry | undefined;
 
 export type TokendanceInstallResult = {
 	ok: boolean;
@@ -29,11 +39,15 @@ export type TokendanceInstallResult = {
 	dshSaved: boolean;
 	/** DSH 写入是否走了 host 官方 API（false = 磁盘直写 settings.yaml/.credentials.yaml）。 */
 	dshWroteViaHost?: boolean;
+	/** DSH 写入失败原因（不含 Key；仅诊断用，UI 不直接展示）。 */
+	dshError?: string;
 	error?: string;
 };
 
 export type TokendanceInstallDeps = ProviderMigrationDeps & {
 	tokendanceCatalog: TokendanceCatalogStore;
+	/** 能力字段补全（可选）：未提供时只写目录实报字段。 */
+	catalogLookup?: TokendanceCatalogLookup;
 };
 
 /**
@@ -45,7 +59,14 @@ export async function installTokendanceProvider(
 	deps: TokendanceInstallDeps,
 	options: { apiKey?: string } = {},
 ): Promise<TokendanceInstallResult> {
-	const catalogResult = await deps.tokendanceCatalog.getModels();
+	// 安装前强制刷新目录：旧缓存可能含已废弃的行（如 2026-09 曾写入 context_length=0
+	// 的模型导致 pi 拒绝整个 provider）；刷新失败（断网/超时）降级用旧缓存，不让目录消失。
+	let catalogResult;
+	try {
+		catalogResult = await deps.tokendanceCatalog.refresh();
+	} catch {
+		catalogResult = await deps.tokendanceCatalog.getModels();
+	}
 	if (!catalogResult || catalogResult.models.length === 0) {
 		return {
 			ok: false,
@@ -59,10 +80,20 @@ export async function installTokendanceProvider(
 	const apiKey = typeof options.apiKey === "string" && options.apiKey.trim() ? options.apiKey.trim() : undefined;
 	const piModels: PiModelItem[] = catalogResult.models.map((model: AvailableModel) => {
 		const row: PiModelItem = { id: model.id };
-		// 目录条目是网络数据，逐字段收窄后落盘（name/contextWindow 缺失时省略）
+		// 目录条目是网络数据，逐字段收窄后落盘（name/contextWindow 缺失时省略）；
+		// contextWindow 必须正整数：pi 报 invalid contextWindow 会拒绝整个 provider。
 		if (typeof model.name === "string" && model.name.trim()) row.name = model.name.trim();
-		if (typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)) {
+		if (typeof model.contextWindow === "number" && Number.isInteger(model.contextWindow) && model.contextWindow > 0) {
 			row.contextWindow = model.contextWindow;
+		}
+		// 能力字段从 pi-ai 目录补：目录权威（contextWindow 以平台实报为准），
+		// 目录命中时补 maxTokens/reasoning/input/thinkingLevelMap；命中不在数据即省略（不猜默认值）。
+		const entry = deps.catalogLookup?.(model.id);
+		if (entry) {
+			if (typeof entry.maxTokens === "number" && Number.isFinite(entry.maxTokens)) row.maxTokens = entry.maxTokens;
+			if (typeof entry.reasoning === "boolean") row.reasoning = entry.reasoning;
+			if (Array.isArray(entry.input) && entry.input.length > 0) row.input = [...entry.input];
+			if (entry.thinkingLevelMap) row.thinkingLevelMap = { ...entry.thinkingLevelMap };
 		}
 		return row;
 	});
@@ -125,12 +156,18 @@ export async function installTokendanceProvider(
 			dshSaved: true,
 			dshWroteViaHost: wroteViaHost,
 		};
-	} catch {
+	} catch (error) {
+		// 跨 realm（测试 vm 加载）时 instanceof Error 不可靠，用结构提取 message
+		const dshError =
+			error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+				? (error as { message: string }).message
+				: String(error);
 		return {
 			ok: true,
 			modelCount: piModels.length,
 			piSaved: true,
 			dshSaved: false,
+			dshError,
 		};
 	}
 }

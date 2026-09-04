@@ -54,7 +54,10 @@ export function parseTokenDanceCatalog(data: unknown): AvailableModel[] {
 			provider: TOKENDANCE_PROVIDER,
 			name: typeof entry.name === "string" && entry.name.length > 0 ? entry.name : undefined,
 			contextWindow:
-				typeof entry.context_length === "number" && Number.isFinite(entry.context_length)
+				// pi 的 models 校验要求 contextWindow 为正整数：视频/语音/搜索/嵌入类模型
+				// context_length=0（无上下文概念），写入 0 会让 pi 报 “invalid contextWindow”
+				// 并拒绝加载整个 provider（2026-09 实测 seedream-5.0-lite 导致 tokendance 全列表丢失）。
+				typeof entry.context_length === "number" && Number.isInteger(entry.context_length) && entry.context_length > 0
 					? entry.context_length
 					: undefined,
 		});
@@ -78,8 +81,6 @@ export class TokendanceCatalogStore {
 	private now: NonNullable<TokendanceCatalogStoreDeps["now"]>;
 
 	constructor(private readonly deps: TokendanceCatalogStoreDeps) {
-		// 默认走 electron net.fetch：走 Chromium 网络栈（defaultSession 代理生效），
-		// 与 ConfigManager 的 provider 探测同一网络路径，避免 Node fetch 不读系统代理。
 		// 默认走 electron net.fetch：走 Chromium 网络栈（defaultSession 代理生效），
 		// 与 ConfigManager 的 provider 探测同一网络路径，避免 Node fetch 不读系统代理。
 		// Response 结构上满足最小接口（ok/status/json），无需强转。

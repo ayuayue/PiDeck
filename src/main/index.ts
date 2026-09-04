@@ -317,7 +317,7 @@ import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { registerCatalogIpc } from "./ipc/catalogIpc";
-import { setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
+import { getPiAiCatalogIndex, lookupPiAiCatalogEntry, setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
 import { PiAiCatalogUpdater } from "./pi/PiAiCatalogUpdater";
 import { fetchModelList, refreshModelCatalogIfStale, refreshModelList } from "./pi/modelListCache";
 import { registerFilesIpc } from "./ipc/filesIpc";
@@ -2799,6 +2799,11 @@ function registerIpc() {
 					configManager,
 					dshHost,
 					tokendanceCatalog: tokendanceCatalogStore,
+					// 能力字段补全：目录只下 id/name/context_length，maxTokens/reasoning/
+					// input/thinkingLevelMap 按模型 id 从 pi-ai 目录精确匹配（无模糊匹配，
+					// 命不中就留空不猜默认值）。
+					catalogLookup: (modelId) =>
+						lookupPiAiCatalogEntry(getPiAiCatalogIndex(), "tokendance", modelId),
 				},
 				{ apiKey },
 			),

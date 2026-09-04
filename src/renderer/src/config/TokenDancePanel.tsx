@@ -9,7 +9,7 @@
  * - 侵入性最低：只在配置页显示；不启动弹通知，用户不打开配置页则完全无感知。
  */
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, KeyRound, Loader2, PlugZap, ShieldCheck, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Loader2, PlugZap, ShieldCheck, Sparkles } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
@@ -112,11 +112,13 @@ function TokenDanceKeyDialog(props: {
 				<DialogHeader>
 					<DialogTitle>{t("config.tokendance.keyTitle")}</DialogTitle>
 				</DialogHeader>
-				<div className="flex flex-col gap-3 text-sm leading-relaxed text-text-secondary">
+				<div className="flex min-w-0 flex-col gap-3 text-sm leading-relaxed text-text-secondary">
 					<p className="text-muted-foreground">{t("config.tokendance.keyDesc")}</p>
 
 					{/* 路径 ②：已有 Key 直接粘贴（无需打开授权页） */}
-					<div className="flex items-start gap-2">
+					{/* min-w-0 必须在每一层（grid item → flex 行 → flex-1 列）：否则长内容
+					   的 min-content 会把 DialogContent 的 grid 单列轨道撑宽，输入框画出弹窗。 */}
+					<div className="flex min-w-0 items-start gap-2">
 						<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] font-mono text-[11px] font-semibold text-[var(--color-accent)]">1</span>
 						<div className="min-w-0 flex-1">
 							<p>{t("config.tokendance.keyOptionPaste")}</p>
@@ -141,7 +143,7 @@ function TokenDanceKeyDialog(props: {
 					</div>
 
 					{/* 路径 ①：OAuth 授权（应用归因随 app_url 写入新 Key） */}
-					<div className="flex items-start gap-2">
+					<div className="flex min-w-0 items-start gap-2">
 						<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] font-mono text-[11px] font-semibold text-[var(--color-accent)]">2</span>
 						<div className="min-w-0 flex-1">
 							<p>{t("config.tokendance.keyOptionOauth")}</p>
@@ -158,7 +160,7 @@ function TokenDanceKeyDialog(props: {
 								</>
 							)}
 							{state.phase === "started" && (
-								<p className="mt-1.5 truncate font-mono text-[11px] text-text-tertiary" title={state.authUrl}>
+								<p className="mt-1.5 w-full min-w-0 truncate font-mono text-[11px] text-text-tertiary" title={state.authUrl}>
 									{authUrlLabel(state.authUrl)}
 								</p>
 							)}
@@ -284,23 +286,39 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 		void desktopApi.app.openExternal("https://tokendance.space/models", true).catch(() => undefined);
 	};
 
+	/** 展开详情（优势/基址/模型数/提示）；默认收起：卡片头部+操作按钮常驻，
+	 * 详情折进头部，避免挤压下方模型列表。 */
+	const [expanded, setExpanded] = useState(false);
+
 	return (
 		<section className="config-builtin-provider-panel mb-2.5 rounded-lg border border-dashed border-border-subtle bg-bg-subtle/40 p-3.5">
-			<div className="flex items-center gap-2">
-				<span className="flex size-7 items-center justify-center rounded-md bg-[var(--color-accent-soft)]">
+			{/* 整行标题可点击展开/收起：折叠态下右侧图标小，用户可能注意不到，整行即开关 */}
+			<button
+				type="button"
+				className="flex w-full items-center gap-2 text-left"
+				onClick={() => setExpanded((v) => !v)}
+				aria-expanded={expanded}
+				aria-label={t("config.tokendance.expandDetails")}
+				title={t("config.tokendance.expandDetails")}
+			>
+				<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-soft)]">
 					<Sparkles className="size-3.5 text-[var(--color-accent)]" aria-hidden="true" />
 				</span>
-				<h3 className="font-mono text-sm font-semibold text-text-primary">{TOKENDANCE_PROVIDER}</h3>
+				<span className="font-mono text-sm font-semibold text-text-primary">{TOKENDANCE_PROVIDER}</span>
 				{props.configured && (
 					<span className="flex items-center gap-1 rounded-full border border-emerald-300/70 bg-emerald-500/10 px-1.5 py-px text-micro text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
 						<ShieldCheck className="size-3" aria-hidden="true" />
 						{t("config.tokendance.configuredBadge")}
 					</span>
 				)}
-				<span className="truncate text-micro text-text-tertiary">{t("config.tokendance.subtitle")}</span>
-			</div>
+				<span className="min-w-0 flex-1 truncate text-micro text-text-tertiary">{t("config.tokendance.subtitle")}</span>
+				<span className="shrink-0 text-text-tertiary">
+					{expanded ? <ChevronUp className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
+				</span>
+			</button>
 
-			{/* 平台优势（两条卖点：聚合 + 特价）；详情给官网链接，由用户自行核对 */}
+			{expanded && (<>
+			{/* 平台优势（聚合 + 特价 + 新用户体验额度）；详情给官网链接，由用户自行核对 */}
 			<ul className="mt-2 grid gap-1 text-xs text-text-secondary">
 				<li className="flex items-start gap-1.5">
 					<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
@@ -309,6 +327,11 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 				<li className="flex items-start gap-1.5">
 					<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
 					{t("config.tokendance.advantageTwo")}
+				</li>
+				{/* 新用户体验额度：注册即送，先试后充，降低首次使用门槛 */}
+				<li className="flex items-start gap-1.5">
+					<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+					{t("config.tokendance.advantageCredit")}
 				</li>
 			</ul>
 
@@ -337,6 +360,7 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 			</div>
 
 			<p className="mt-2 text-[11px] leading-relaxed text-text-tertiary">{t("config.tokendance.hint")}</p>
+			</>)}
 
 			<div className="mt-3 flex flex-wrap items-center gap-1.5">
 				<Button
@@ -388,6 +412,10 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 							<li className="flex items-start gap-1.5">
 								<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
 								{t("config.tokendance.advantageTwo")}
+							</li>
+							<li className="flex items-start gap-1.5">
+								<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+								{t("config.tokendance.advantageCredit")}
 							</li>
 						</ul>
 						<p className="rounded-sm border border-border-subtle bg-bg-subtle/60 px-2.5 py-2 text-[11px] text-muted-foreground">

@@ -5,10 +5,16 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 // 加载真实 TS 依赖图（installer 经动态 import 复用 providerMigrationService 的写盘策略）
 const installer = loadTsCommonJs("src/main/config/tokendanceInstaller.ts");
 
-/** 目录 store 替身：getModels 返回固定目录（免真实网络）。 */
+/** 目录 store 替身：getModels/refresh 返回固定目录（免真实网络）；refresh 默认成功。 */
 function makeCatalog(models = [{ id: "glm-4.7" }, { id: "deepseek-v4-flash", contextWindow: 128000 }]) {
+	let refreshCount = 0;
 	return {
 		getModels: async () => ({ models, fromCache: false, at: 1700000000000 }),
+		refresh: async () => {
+			refreshCount += 1;
+			return { models, fromCache: false, at: 1700000000000 };
+		},
+		_refreshCount: () => refreshCount,
 	};
 }
 
@@ -119,7 +125,7 @@ test("目录为空：返回 ok=false，不写任何配置", async () => {
 	assert.equal(dshHost._calls.updateSettings.length, 0);
 });
 
-test("DSH 写入失败：pi 侧仍成功（dshSaved=false，不阻断主路径）", async () => {
+test("DSH 写入失败：pi 侧仍成功（dshSaved=false 且 dshError 带回原因）", async () => {
 	const configManager = makeConfigManager();
 	const dshHost = makeDshHost({ ready: true });
 	dshHost.updateSettings = async () => {
@@ -132,5 +138,87 @@ test("DSH 写入失败：pi 侧仍成功（dshSaved=false，不阻断主路径�
 	assert.equal(result.ok, true);
 	assert.equal(result.piSaved, true);
 	assert.equal(result.dshSaved, false);
+	assert.equal(result.dshError, "settings rejected");
 	assert.equal(configManager._dump()["tokendance"].models.length, 2);
+});
+
+test("contextWindow 非正整数（0）不写入：pi 报 invalid contextWindow 会拒绝整个 provider", async () => {
+	const configManager = makeConfigManager();
+	const dshHost = makeDshHost({ ready: true });
+	const result = await installer.installTokendanceProvider(
+		{
+			configManager,
+			dshHost,
+			tokendanceCatalog: makeCatalog([
+				{ id: "seedream-5.0-lite", contextWindow: 0 },
+				{ id: "glm-4.7", contextWindow: 200000 },
+			]),
+		},
+		{},
+	);
+	assert.equal(result.ok, true);
+	const [bad, good] = configManager._dump()["tokendance"].models;
+	assert.equal(bad.contextWindow, undefined);
+	assert.equal(bad.id, "seedream-5.0-lite");
+	assert.equal(good.contextWindow, 200000);
+	// DSH 侧同步过滤：DSH schema contextWindow min(1) 拒绝 0，必须不写入
+	const dshPatch = dshHost._calls.updateSettings[0].patch;
+	const dshModels = dshPatch.providers.tokendance.models;
+	assert.equal(dshModels[0].contextWindow, undefined);
+	assert.equal(dshModels[0].id, "seedream-5.0-lite");
+	assert.equal(dshModels[1].contextWindow, 200000);
+});
+
+test("安装前强制 refresh 目录（旧缓存可能含坏数据；refresh 失败降级 getModels）", async () => {
+	const configManager = makeConfigManager();
+	const dshHost = makeDshHost({ ready: true });
+	const catalog = makeCatalog();
+	const result = await installer.installTokendanceProvider(
+		{ configManager, dshHost, tokendanceCatalog: catalog },
+		{},
+	);
+	assert.equal(result.ok, true);
+	assert.equal(catalog._refreshCount(), 1);
+});
+
+test("catalogLookup：目录命中时补 maxTokens/reasoning/input/thinkingLevelMap，未命中不写", async () => {
+	const configManager = makeConfigManager();
+	const dshHost = makeDshHost({ ready: true });
+	const result = await installer.installTokendanceProvider(
+		{
+			configManager,
+			dshHost,
+			tokendanceCatalog: makeCatalog([
+				{ id: "glm-4.7", name: "Z.ai: GLM 4.7", contextWindow: 200000 },
+				{ id: "qq-custom-model" },
+			]),
+			catalogLookup: (modelId) => {
+				if (modelId === "glm-4.7") {
+					return {
+						id: "glm-4.7",
+						provider: "zai",
+						maxTokens: 131072,
+						reasoning: true,
+						input: ["text"],
+						thinkingLevelMap: { off: "off", high: "high" },
+					};
+				}
+				return undefined;
+			},
+		},
+		{},
+	);
+	assert.equal(result.ok, true);
+	const [hit, miss] = configManager._dump()["tokendance"].models;
+	// 目录权威：contextWindow 用 TokenDance 实报值，即使 catalog 不同也以平台为准
+	assert.equal(hit.contextWindow, 200000);
+	assert.equal(hit.maxTokens, 131072);
+	assert.equal(hit.reasoning, true);
+	// vm 跨 realm 数组 prototype 不同，deepStrictEqual 会因引用不等误报，用快照比较
+	assert.equal(JSON.stringify(hit.input), JSON.stringify(["text"]));
+	assert.equal(JSON.stringify(hit.thinkingLevelMap), JSON.stringify({ off: "off", high: "high" }));
+	// 未命中目录的模型不写能力字段（不猜默认值，保持 omit）
+	assert.equal(miss.maxTokens, undefined);
+	assert.equal(miss.reasoning, undefined);
+	assert.equal(miss.thinkingLevelMap, undefined);
 });

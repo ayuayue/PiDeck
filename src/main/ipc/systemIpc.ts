@@ -1385,7 +1385,15 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				piSaved: result.piSaved,
 				dshSaved: result.dshSaved,
 				dshWroteViaHost: result.dshWroteViaHost,
+				// 失败原因仅诊断用（DSH schema 拒绝等），不含任何 Key 内容
+				dshError: result.dshError,
 			});
+			if (result.ok) {
+				// 写盘后立即失效 model capability 快照：watcher（250ms debounce）会接管刷新
+				// hydration；这里只清快照不 hydration，避免与 watcher 重复 spawn 临时 pi。
+				// 若 watcher 异常未触发，下次 ensure() 也会以新 generation 惰性 hydrate。
+				modelCapabilityCache.invalidate();
+			}
 			return result;
 		} catch (error) {
 			void appLogger.warn("config", "TokenDance install failed", {

@@ -88,7 +88,7 @@ test("pi null thinkingLevelMap entries expand to identity wire values for DSH", 
   });
 });
 
-test("off null stays null; off with wire value passes through", () => {
+test("off null stays null; off-only map becomes false (DSH rejects off-only efforts)", () => {
   const dsh = mapping.piToDshSnapshot({
     name: "tr",
     baseUrl: "https://x/v1",
@@ -96,6 +96,7 @@ test("off null stays null; off with wire value passes through", () => {
     models: [
       { id: "m1", reasoning: true, thinkingLevelMap: { off: null, xhigh: null, max: "max" } },
       { id: "m2", reasoning: true, thinkingLevelMap: { off: "none" } },
+      { id: "m3", reasoning: true, thinkingLevelMap: { off: null } },
     ],
   });
   assert.deepEqual(JSON.parse(JSON.stringify(dsh.profile.models?.[0]?.reasoningEfforts)), {
@@ -103,7 +104,10 @@ test("off null stays null; off with wire value passes through", () => {
     xhigh: "xhigh",
     max: "max",
   });
-  assert.deepEqual(JSON.parse(JSON.stringify(dsh.profile.models?.[1]?.reasoningEfforts)), { off: "none" });
+  // 只有 off 档（无思考级别）：按 DSH 官方指引 set false 声明为非思考模型，
+  // 否则 settings.update 报 settings-rejected("reasoningEfforts offers no level beyond off")。
+  assert.equal(dsh.profile.models?.[1]?.reasoningEfforts, false);
+  assert.equal(dsh.profile.models?.[2]?.reasoningEfforts, false);
 });
 
   assert.equal(dsh.profile.baseURL, "https://api.weishiair.de/v1");

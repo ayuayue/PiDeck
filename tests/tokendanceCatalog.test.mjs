@@ -94,6 +94,22 @@ test("parseTokenDanceCatalog 非对象/无 data 数组返回空", () => {
 	assert.deepEqual([...parseTokenDanceCatalog({ data: "not-array" })], []);
 });
 
+test("parseTokenDanceCatalog context_length 为 0/负数/非整数时省略 contextWindow（pi 会拒绝整个 provider）", () => {
+	const models = parseTokenDanceCatalog({
+		data: [
+			{ id: "seedream-5.0-lite", context_length: 0 },
+			{ id: "video-edit", context_length: -1 },
+			{ id: "fractional", context_length: 12.5 },
+			{ id: "ok-model", context_length: 200000 },
+		],
+	});
+	assert.equal(models.length, 4);
+	assert.equal(models[0].contextWindow, undefined);
+	assert.equal(models[1].contextWindow, undefined);
+	assert.equal(models[2].contextWindow, undefined);
+	assert.equal(models[3].contextWindow, 200000);
+});
+
 
 test("缓存新鲜时直接读缓存（TTL 内不再发请求）", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "tokendance-test-"));
