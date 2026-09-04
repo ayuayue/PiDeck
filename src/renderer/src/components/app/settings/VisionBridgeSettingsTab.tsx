@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronsUpDown, RefreshCw, Trash2 } from "lucide-react";
 import { t } from "../../../i18n";
+import { cn } from "../../../lib/utils";
 import { desktopApi } from "../../../desktopApi";
 import { showNotice } from "../../../utils/notice";
 import { Button } from "../../ui-shadcn/button";
@@ -196,12 +197,21 @@ export function VisionBridgeSettingsTab(props: {
 						type="button"
 						variant="outline"
 						className="w-full justify-between font-mono text-control"
+						/* provider/model 是不可断行 token（/ 与 - 都不产生换行机会），
+						   长模型名靠 min-w-0 truncate 收在按钮内省略号截断，
+						   悬停 title 显示完整引用；未选择时不挂 title，避免空 tooltip。 */
+						title={selectedModelLabel || undefined}
 						onClick={openPicker}
 					>
-						<span className={selectedModelLabel ? "" : "text-muted-foreground"}>
+						<span
+							className={cn(
+								"min-w-0 truncate",
+								!selectedModelLabel && "text-muted-foreground",
+							)}
+						>
 							{selectedModelLabel || t("settings.vision.modelPlaceholder")}
 						</span>
-						<ChevronsUpDown size={14} className="opacity-60" aria-hidden />
+						<ChevronsUpDown size={14} className="flex-none opacity-60" aria-hidden />
 					</Button>
 				</SettingRow>
 
