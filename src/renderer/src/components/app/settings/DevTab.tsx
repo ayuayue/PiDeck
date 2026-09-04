@@ -22,6 +22,7 @@ import {
 import { SettingsSection } from "./SettingsStorageTab";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
+import { UpdateSourceSetting } from "./UpdateSourceSetting";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { CatalogSection } from "./CatalogSection";
 
@@ -398,6 +399,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
             onChange={(checked) => updateDraft({ autoDownloadUpdates: checked })}
           />
         )}
+        <UpdateSourceSetting draft={draft} updateDraft={updateDraft} />
       </SettingsSection>
 
       {/* 模型目录：内置随版本发布，可从 GitHub 拉取最新覆盖 */}

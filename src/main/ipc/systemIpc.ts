@@ -6,6 +6,7 @@
 import { app, ipcMain, shell } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
+import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import type {
 	AppLogLevel,
@@ -193,6 +194,8 @@ export type SystemIpcDeps = {
 		downloadNow: () => Promise<void>;
 		installNow: () => void;
 		applyAutoDownloadPreference: () => void;
+		/** 更新源切换（设置保存后调用）：镜像/自定义 → generic feed URL，回 github → 原生通道。 */
+		applyUpdateSource: () => void;
 	};
 };
 
@@ -673,6 +676,12 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		await updateService.skipVersion(version);
 	});
 
+	// 内置更新镜像体检：并行探测各镜像 latest.yml + Range 分片（设置页「更新源」自动体检；
+	// 纯网络只读操作、无状态，不依赖 updateService，失败由镜像上报，不向外抛）。
+	ipcMain.handle(ipcChannels.appCheckUpdateMirrors, async (): Promise<MirrorHealthResult[]> => {
+		return probeAllMirrors();
+	});
+
 	// ── 应用日志 ─────────────────────────────────────────────────────
 
 	// 进程监控：Electron 各进程 + pi agent 子进程内存/CPU 快照（手动刷新，不做高频轮询）
@@ -995,6 +1004,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		// 自动下载更新开关：立即下发到 electron-updater（含检查期间的 autoDownload 切换）。
 		if ("autoDownloadUpdates" in patch) {
 			updateService?.applyAutoDownloadPreference();
+		}
+		// 更新源切换（预设镜像 / 自定义镜像前缀）：立即重建 feed URL，无需重启生效。
+		if ("updateSource" in patch || "customUpdateSourceUrl" in patch) {
+			updateService?.applyUpdateSource();
 		}
 		if ("developerDiagnostics" in patch && diagnosticsMonitor) {
 			void diagnosticsMonitor.setEnabled(settings.developerDiagnostics).catch((error) => {

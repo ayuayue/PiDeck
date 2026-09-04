@@ -187,6 +187,9 @@ let previewSettings: AppSettings = {
 	imageGenWatermark: false,
 	imageGenOutputFormat: "png",
 	autoDownloadUpdates: true,
+	// 与主进程 defaultSettings 保持一致：更新源默认 GitHub 官方，自定义镜像前缀留空
+	updateSource: "github",
+	customUpdateSourceUrl: "",
 	// 与主进程 defaultSettings 保持一致：offline 默认关，让模型目录随启动刷新
 	piRpcOffline: false,
 	piRpcNoExtensions: false,
@@ -847,6 +850,11 @@ export function createPreviewApi(): PiDesktopApi {
 			skipUpdateVersion: async () => undefined,
 			downloadUpdate: async () => undefined,
 			installUpdate: async () => undefined,
+			checkUpdateMirrors: async () => [
+				{ id: "ghfast", status: "ok", latencyMs: 1200, speedKBps: 1780, checkedAt: Date.now() },
+				{ id: "ghproxy-net", status: "slow", latencyMs: 2000, speedKBps: 262, checkedAt: Date.now() },
+				{ id: "ghproxy-cxkpro", status: "ok", latencyMs: 1100, speedKBps: 13800, checkedAt: Date.now() },
+			],
 			onOpenInBrowser: () => () => undefined,
 			feedbackEnvironment: async () => ({
 				appVersion: "preview",

@@ -17,6 +17,7 @@ import type {
 	DiagnosticsSnapshot,
 	AppSettings,
 	AppUpdateStatusSnapshot,
+	MirrorHealthResult,
 	AvailableModel,
 	DshModelDiscoveryInput,
 	ModelListFailReason,
@@ -1223,6 +1224,9 @@ const api = {
 		/** 跳过某版本（该版本不再主动提示）。 */
 		skipUpdateVersion: (version: string) =>
 			ipcRenderer.invoke(ipcChannels.appUpdateSkipVersion, version) as Promise<void>,
+		/** 探测内置更新镜像可用性与速度（设置页「更新源」）。 */
+		checkUpdateMirrors: () =>
+			ipcRenderer.invoke(ipcChannels.appCheckUpdateMirrors) as Promise<MirrorHealthResult[]>,
 		feedbackEnvironment: () =>
 			ipcRenderer.invoke(
 				ipcChannels.appFeedbackEnvironment,

@@ -16,6 +16,7 @@ import type {
 } from "../../shared/types/app";
 import type { PiUpdateCheckResult } from "../../shared/types";
 import type { SettingsStore } from "../settings/SettingsStore";
+import { normalizeUpdateSource, normalizeCustomMirrorHost, updateSourceFeedUrl, updateSourceLatestReleaseUrl } from "./updateSources";
 import type { AutoUpdaterLike } from "./autoUpdaterTypes";
 
 export type AppCheckResult = { latestVersion: string; hasUpdate: boolean };
@@ -45,8 +46,9 @@ export type UpdateServiceDeps = {
 	rollbackInstallPreparation?: () => void;
 	/** 等待 Electron 退出并交给安装器的超时；超时后恢复可重试状态。 */
 	installExitTimeoutMs?: number;
-	/** manual 模式的纯检查器（macOS 无签名发行物只检查，不下载/安装）。 */
-	checkManualAppUpdate?: () => Promise<AppCheckResult>;
+	/** manual 模式的纯检查器（macOS 无签名发行物只检查，不下载/安装）。
+	 * 参数 latestReleaseUrl 为镜像源 URL（null = 官方 GitHub），由 UpdateService 按设置传入。 */
+	checkManualAppUpdate?: (latestReleaseUrl?: string) => Promise<AppCheckResult>;
 };
 
 /** 默认检查周期：2h（静态 GitHub Release URL 与 updater 均适合低频轮询）。 */
@@ -96,6 +98,7 @@ export class UpdateService {
 	start(options?: { startDelayMs?: number; intervalMs?: number }): void {
 		if (this.disposed) return;
 		this.applyAutoDownloadPreference();
+		this.applyUpdateSource();
 		this.scheduleNext(
 			options?.startDelayMs ?? DEFAULT_START_DELAY_MS,
 			options?.intervalMs ?? DEFAULT_CHECK_INTERVAL_MS,
@@ -202,6 +205,23 @@ export class UpdateService {
 		if (this.deliveryMode !== "automatic") return;
 		const enabled = this.deps.settingsStore.get().autoDownloadUpdates !== false;
 		this.getAutoUpdater().setAutoDownload(enabled);
+	}
+
+	/**
+	 * 切换更新源（设置保存后立即调用）：镜像 → generic feed URL；
+	 * 回 GitHub → setFeedUrl(null) 恢复原生 provider。
+	 */
+	applyUpdateSource(): void {
+		if (this.deliveryMode !== "automatic") return;
+		const settings = this.deps.settingsStore.get();
+		const source = normalizeUpdateSource(settings.updateSource);
+		const feedUrl = updateSourceFeedUrl(
+			source,
+			source === "custom"
+				? normalizeCustomMirrorHost(settings.customUpdateSourceUrl ?? "")
+				: null,
+		);
+		this.getAutoUpdater().setFeedUrl(feedUrl);
 	}
 
 	/** 记录「已提示过该版本」（渲染层 toast 展示后调用，实现每版本只提示一次）。 */
@@ -371,7 +391,15 @@ export class UpdateService {
 
 	private async checkApp(): Promise<AppCheckResult> {
 		if (this.deliveryMode === "manual") {
-			const result = await this.getManualChecker()();
+			const settings = this.deps.settingsStore.get();
+			const source = normalizeUpdateSource(settings.updateSource);
+			const releaseUrl = updateSourceLatestReleaseUrl(
+				source,
+				source === "custom"
+					? normalizeCustomMirrorHost(settings.customUpdateSourceUrl ?? "")
+					: null,
+			);
+			const result = await this.getManualChecker()(releaseUrl ?? undefined);
 			this.lastApp = result;
 			this.download = result.hasUpdate
 				? { phase: "available", version: result.latestVersion }
@@ -403,7 +431,7 @@ export class UpdateService {
 		return this.deps.autoUpdater;
 	}
 
-	private getManualChecker(): () => Promise<AppCheckResult> {
+	private getManualChecker(): (latestReleaseUrl?: string) => Promise<AppCheckResult> {
 		if (!this.deps.checkManualAppUpdate) {
 			throw new Error("UpdateService manual delivery requires a checkManualAppUpdate function.");
 		}

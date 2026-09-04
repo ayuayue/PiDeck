@@ -686,6 +686,9 @@ export function App() {
     imageGenWatermark: false,
     imageGenOutputFormat: "png",
     autoDownloadUpdates: true,
+    // 与主进程 defaultSettings 保持一致：更新源默认 GitHub 官方，自定义镜像前缀留空
+    updateSource: "github",
+    customUpdateSourceUrl: "",
     // 与主进程 defaultSettings 保持一致：offline 默认关，让模型目录随启动刷新
     piRpcOffline: false,
     piRpcNoExtensions: false,

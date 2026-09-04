@@ -8,12 +8,56 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
 function loadUpdateService() {
+	// vm 沙箱依赖解析：UpdateService 现在依赖 updateSources（其依赖 shared/updateSources）。
+	// 递归 transpile 这两个模块，按路径缓存，注入到 UpdateService 的 require 里。
+	function loadTsInVm(filePath) {
+		const source = readFileSync(filePath, "utf8");
+		const output = ts.transpileModule(source, {
+			compilerOptions: {
+				module: ts.ModuleKind.CommonJS,
+				target: ts.ScriptTarget.ES2022,
+			},
+			fileName: filePath,
+		}).outputText;
+		const module = { exports: {} };
+		vm.runInNewContext(
+			output,
+			{
+				module,
+				exports: module.exports,
+				require: (name) => {
+					const resolved =
+						name === "../../shared/updateSources" ? "src/shared/updateSources.ts" : null;
+					const next = cache[resolved];
+					if (!next) {
+						if (!resolved || !existsSync(resolved)) {
+							throw new Error(`unexpected require in vm: ${name}`);
+						}
+						cache[resolved] = loadTsInVm(resolved);
+					}
+					return cache[resolved]?.exports;
+				},
+				console,
+				Date,
+				Error,
+				Math,
+				Promise,
+				String,
+				URL,
+				clearTimeout,
+				setTimeout,
+			},
+			{ filename: filePath },
+		);
+		return module;
+	}
+	const cache = {};
 	const filePath = "src/main/update/UpdateService.ts";
 	const source = readFileSync(filePath, "utf8");
 	const output = ts.transpileModule(source, {
@@ -29,12 +73,24 @@ function loadUpdateService() {
 		{
 			module,
 			exports: module.exports,
+			require: (name) => {
+				const resolved = name === "./updateSources" ? "src/main/update/updateSources.ts" : null;
+				const next = cache[resolved];
+				if (!next) {
+					if (!resolved || !existsSync(resolved)) {
+						throw new Error(`unexpected require in vm: ${name}`);
+					}
+					cache[resolved] = loadTsInVm(resolved);
+				}
+				return cache[resolved]?.exports;
+			},
 			console,
 			Date,
 			Error,
 			Math,
 			Promise,
 			String,
+			URL,
 			clearTimeout,
 			setTimeout,
 		},
@@ -58,6 +114,9 @@ function createFakeUpdater() {
 		installImpl: null,
 		setAutoDownload(enabled) {
 			updater.autoDownload = enabled;
+		},
+		setFeedUrl(url) {
+			updater.feedUrl = url;
 		},
 		isAutoDownload() {
 			return updater.autoDownload !== false;
@@ -373,4 +432,60 @@ test("stop unsubscribes updater events and clears pending work", (t) => {
 
 	updater.emitAvailable("9.9.9");
 	assert.equal(service.getSnapshot().app, null);
+});
+
+// --- update source ------------------------------------------------------
+
+test("start applies the configured update source feed URL (default github → no feed)", async (t) => {
+	const { service, updater } = createAutomaticService({ settings: { updateSource: "github" } });
+	stopAfter(t, service);
+	service.start({ startDelayMs: 0, intervalMs: 60_000 });
+	// github 官方源：不设置 feed URL（走 app-update.yml 原生通道）
+	assert.equal(updater.feedUrl, null);
+});
+
+test("switching update source rebuilds the generic feed URL immediately", async (t) => {
+	const { service, updater, settings } = createAutomaticService({ settings: { updateSource: "github" } });
+	stopAfter(t, service);
+	service.start({ startDelayMs: 0, intervalMs: 60_000 });
+	assert.equal(updater.feedUrl, null);
+
+	// 设置页切换到 ghfast 镜像：保存即生效（无需重启）
+	await settings.update({ updateSource: "ghfast" });
+	service.applyUpdateSource();
+	assert.equal(
+		updater.feedUrl,
+		"https://ghfast.top/https://github.com/ayuayue/PiDeck/releases/latest/download",
+	);
+
+	// 回到官方源：重置 feed，恢复原生 GitHub provider
+	await settings.update({ updateSource: "github" });
+	service.applyUpdateSource();
+	assert.equal(updater.feedUrl, null);
+});
+
+test("custom mirror prefix is normalized and applied as feed URL", async (t) => {
+	const { service, updater } = createAutomaticService({
+		settings: { updateSource: "custom", customUpdateSourceUrl: "  https://mirror.example.com/  " },
+	});
+	stopAfter(t, service);
+	service.start({ startDelayMs: 0, intervalMs: 60_000 });
+	// 前缀 trim + 去尾斜杠后拼接到 generic feed
+	assert.equal(
+		updater.feedUrl,
+		"https://mirror.example.com/https://github.com/ayuayue/PiDeck/releases/latest/download",
+	);
+});
+
+test("manual delivery uses latestReleaseUrl from the configured mirror per check", async (t) => {
+	let receivedUrl;
+	const { service, settings } = createManualService((latestReleaseUrl) => {
+		receivedUrl = latestReleaseUrl;
+		return Promise.resolve({ hasUpdate: false, latestVersion: null });
+	});
+	stopAfter(t, service);
+	await settings.update({ updateSource: "ghfast" });
+	await service.checkNow();
+	// macOS manual 检查：镜像源 URL 传进检查器（GitHub 源时为 undefined）
+	assert.equal(receivedUrl, "https://ghfast.top/https://github.com/ayuayue/PiDeck/releases/latest");
 });

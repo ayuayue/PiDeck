@@ -38,10 +38,13 @@ export function parseGitHubReleaseVersion(url: string): string | null {
  * 不调用 electron-updater：该路径在没有 Developer ID 签名/公证时无法承诺可靠
  * 的下载、替换和重启体验。这里只做 GitHub 静态重定向检测，随后由 UI 打开
  * Release 页面交给用户手动安装，避免 GitHub REST API 共享限流。
+ *
+ * 镜像源：latestReleaseUrl 传入镜像前缀 URL 时检查也走镜像（镜像同样支持
+ * /releases/latest 重定向跟随）；不传则走官方 GitHub。
  */
 export function createMacManualUpdateChecker(options?: {
 	fetchLatestRelease?: LatestReleaseFetcher;
-}): (currentVersion: string) => Promise<ManualReleaseCheckResult> {
+}): (currentVersion: string, latestReleaseUrl?: string) => Promise<ManualReleaseCheckResult> {
 	const fetchLatestRelease =
 		options?.fetchLatestRelease ??
 		(async (url: string): Promise<LatestReleaseResponse> => {
@@ -49,8 +52,8 @@ export function createMacManualUpdateChecker(options?: {
 			return { ok: response.ok, status: response.status, url: response.url };
 		});
 
-	return async (currentVersion: string): Promise<ManualReleaseCheckResult> => {
-		const response = await fetchLatestRelease(MAC_MANUAL_LATEST_RELEASE_URL);
+	return async (currentVersion: string, latestReleaseUrl?: string): Promise<ManualReleaseCheckResult> => {
+		const response = await fetchLatestRelease(latestReleaseUrl ?? MAC_MANUAL_LATEST_RELEASE_URL);
 		if (!response.ok) {
 			throw new Error(`GitHub latest release request failed (${response.status}).`);
 		}

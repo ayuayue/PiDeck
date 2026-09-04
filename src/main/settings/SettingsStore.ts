@@ -208,6 +208,10 @@ Gitmoji 对应关系：
 
   // ── 更新检测：检查永远自动；自动下载默认开启（v0.7.4 起取代 disableUpdateCheck）──
   autoDownloadUpdates: true,
+  // 更新源：默认 GitHub 官方；国内用户可切镜像前缀代理（见 updateSources.ts）
+  updateSource: "github",
+  // 自定义镜像前缀（updateSource=custom 时生效），空串 = 未填
+  customUpdateSourceUrl: "",
 
   // ── Agent 后端：默认 pi（经典后端），用户可在设置中切换为 dsh ──
   defaultAgentBackend: "pi",
@@ -345,6 +349,22 @@ export class SettingsStore {
     // IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
     if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
       delete safePatch.autoSessionTitle;
+    }
+    // 更新源 id 归一化（只允许已知枚举，防手改/脏值污染 feed URL）；自定义源地址仅接受字符串。
+    if ("updateSource" in safePatch) {
+      const candidate = safePatch.updateSource;
+      const known =
+        typeof candidate === "string" &&
+        (candidate === "github" ||
+          candidate === "ghfast" ||
+          candidate === "ghproxy-net" ||
+          candidate === "ghproxy-cxkpro" ||
+          candidate === "custom");
+      if (known) safePatch.updateSource = candidate;
+      else delete safePatch.updateSource;
+    }
+    if ("customUpdateSourceUrl" in safePatch && typeof safePatch.customUpdateSourceUrl !== "string") {
+      delete safePatch.customUpdateSourceUrl;
     }
     // lastUsedModel 只接受 { provider, modelId } 双字符串（渲染层发送时才写，入参不可信）。
     // 值相同（含非法被丢弃后无变更）直接早退：发送每条消息都会调用，避免高频无效写盘与审计刷屏。

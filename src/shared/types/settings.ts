@@ -39,6 +39,31 @@ export type WorkspaceContentOpenMode = "split" | "maximize";
 export type SessionTabOpenMode = "preview" | "permanent";
 export type AppFontSizeMode = "compact" | "default" | "medium" | "large" | "xlarge";
 
+/** 更新源：github = 官方 GitHub Release；其余为国内镜像前缀代理；custom = 用户自定义镜像前缀。 */
+export type UpdateSourceId =
+	| "github"
+	| "ghfast"
+	| "ghproxy-net"
+	| "ghproxy-cxkpro"
+	| "custom";
+
+/** 内置镜像体检状态：ok=检测+下载预检全通；slow=通但实测速度低于阈值；broken=失败/超时/响应异常。 */
+export type MirrorHealthStatus = "ok" | "slow" | "broken";
+
+/** 单镜像体检结果（主进程探测，经 IPC 透传给设置页「更新源」展示）。 */
+export type MirrorHealthResult = {
+	id: UpdateSourceId;
+	status: MirrorHealthStatus;
+	/** latest.yml 响应耗时（ms）。 */
+	latencyMs: number;
+	/** Range 分片实测速度（KB/s）；探测失败时为 0。 */
+	speedKBps: number;
+	/** broken 原因摘要（不含敏感信息）。 */
+	error?: string;
+	/** 探测完成时间戳（ms）。 */
+	checkedAt: number;
+};
+
 /** 宠物缩放默认值：0.3 = 设置滑块 30%。出厂 100% 太大，新用户/缺省回退都用此值。 */
 export const DEFAULT_PET_SCALE = 0.3;
 export type AppFontBaseMode = "system" | "sans" | "serif" | "custom";
@@ -290,6 +315,15 @@ export type AppSettings = {
 	 * 默认 true；关闭后仅提示有更新，手动点「立即下载」。
 	 */
 	autoDownloadUpdates: boolean;
+	/**
+	 * 更新源："github" 走 GitHub Release 官方源（app-update.yml 原生链路）；
+	 * 其余为国内镜像前缀代理（generic provider 拼 releases/latest/download）；
+	 * "custom" 用 customUpdateSourceUrl 的镜像前缀。
+	 * 默认 "github"；切换后下轮检查/下载全部走镜像。
+	 */
+	updateSource: UpdateSourceId;
+	/** updateSource="custom" 时的镜像前缀（如 https://mirror.example.com），拼接规则见 updateSources.ts。 */
+	customUpdateSourceUrl: string;
 	/** 上次后台检查完成时间（毫秒时间戳）；缺省 = 从未检查。 */
 	updateLastCheckAt?: number;
 	/** 最近一次“已提示过”的 PiDeck 版本（弹窗关闭后写入，用于“每版本只弹一次”）；缺省 = 未提示过任何版本。 */

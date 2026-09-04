@@ -2727,7 +2727,9 @@ function registerIpc() {
 		updateService = new UpdateService({
 			...updateServiceBase,
 			deliveryMode: "manual",
-			checkManualAppUpdate: () => checkMacManualUpdate(app.getVersion()),
+			// latestReleaseUrl（镜像源）由 UpdateService 按设置传入；null = 官方 GitHub。
+			checkManualAppUpdate: (latestReleaseUrl?: string) =>
+				checkMacManualUpdate(app.getVersion(), latestReleaseUrl),
 		});
 	} else {
 		updateService = new UpdateService({

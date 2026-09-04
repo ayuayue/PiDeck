@@ -15,6 +15,7 @@ import { app } from "electron";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AutoUpdaterLike, AutoUpdaterEventHandlers } from "./autoUpdaterTypes";
+import { UPDATE_REPO_OWNER, UPDATE_REPO } from "./releaseRepo";
 
 export type { AutoUpdaterLike, AutoUpdaterEventHandlers } from "./autoUpdaterTypes";
 
@@ -36,6 +37,9 @@ export function createRealAutoUpdater(options?: {
 		autoUpdater: import("electron-updater").AppUpdater;
 	};
 	const feedUrl = options?.feedUrl ?? process.env[UPDATE_FEED_URL_ENV];
+	// 显式传入（如 E2E/受控测试）与环境变量 feed 为最高优先级：
+	// 后续 settings.applyUpdateSource() 的运行时切换不得覆盖它（否则测试/调试会被设置项压掉）。
+	const feedOverride = feedUrl ?? null;
 	if (feedUrl) {
 		// generic provider 为本地 E2E / 受控镜像源：开发态默认禁用 updater，
 		// 必须显式开启 forceDevUpdateConfig 才会真的请求该 feed。
@@ -61,12 +65,28 @@ export function createRealAutoUpdater(options?: {
 	autoUpdater.autoInstallOnAppQuit = false;
 	// 日志走 PiDeck 自己的日志体系（UpdateService.log），关掉 electron-updater 默认 logger。
 	autoUpdater.logger = null;
+	// 当前生效的镜像 feed URL（null = 官方 GitHub）；setFeedUrl 在此之上往返切换。
+	let currentFeedUrl: string | null = feedOverride;
 
 	return {
 		setAutoDownload: (enabled: boolean) => {
 			autoUpdater.autoDownload = enabled;
 		},
 		isAutoDownload: () => autoUpdater.autoDownload !== false,
+		setFeedUrl: (url: string | null) => {
+			// 显式/env feed 覆盖优先：设置项切换只作用于默认链路，不受测试注入影响。
+			if (feedOverride) return;
+			if (url === currentFeedUrl) return;
+			currentFeedUrl = url;
+			if (url) {
+				// 镜像源：generic provider 整体接管检查+下载（baseUrl 已含 releases/latest/download）。
+				autoUpdater.setFeedURL({ provider: "generic", url });
+			} else {
+				// 官方源恢复：显式重建 GitHub provider，等价于 app-update.yml 原生配置。
+				// （electron-updater 的 setFeedURL 是运行时安全的：clientPromise 直接替换，无需重启。）
+				autoUpdater.setFeedURL({ provider: "github", owner: UPDATE_REPO_OWNER, repo: UPDATE_REPO });
+			}
+		},
 		checkForUpdates: async () => {
 			const result = await autoUpdater.checkForUpdates();
 			// electron-updater 在未打包的应用中默认静默返回 null。把它提升为错误，

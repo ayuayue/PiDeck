@@ -27,6 +27,11 @@ export type AutoUpdaterLike = {
 	/** 是否自动下载（设置页「自动下载更新」开关；需在 checkForUpdates 前设置）。 */
 	setAutoDownload: (enabled: boolean) => void;
 	isAutoDownload: () => boolean;
+	/**
+	 * 切换更新源：url 非空 → generic provider 指向镜像 feed（latest.yml/安装包全走镜像）；
+	 * null → 恢复 app-update.yml 原生 GitHub provider（官方源）。
+	 */
+	setFeedUrl: (url: string | null) => void;
 	/** 检查更新。autoDownload=true 时检测到新版本内部自动开始下载（事件驱动）。 */
 	checkForUpdates: () => Promise<void>;
 	/** 手动下载已检测到的新版本（autoDownload=false 时用）。 */

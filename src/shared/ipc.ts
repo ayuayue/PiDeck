@@ -334,6 +334,8 @@ export const ipcChannels = {
 	appUpdateNotifySeen: "app:update-notify-seen",
 	/** 跳过某版本（该版本不再主动提示）。 */
 	appUpdateSkipVersion: "app:update-skip-version",
+	/** 探测内置更新镜像的可用性与速度（设置页「更新源」自动体检用）。 */
+	appCheckUpdateMirrors: "app:check-update-mirrors",
 	appFeedbackEnvironment: "app:feedback-environment",
 	/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
 	appFeedbackProjectContext: "app:feedback-project-context",
