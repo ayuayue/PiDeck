@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.3-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -51,7 +51,7 @@
   - [📑 目录](#-目录)
   - [✨ 核心亮点](#-核心亮点)
   - [📋 更新日志](#-更新日志)
-    - [v0.7.3 更新亮点](#v073-更新亮点)
+    - [v0.7.4-beta 更新亮点](#v074-beta-更新亮点)
   - [🧩 功能总览](#-功能总览)
     - [工作区与项目](#工作区与项目)
     - [会话与对话](#会话与对话)
@@ -90,25 +90,15 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.7.3**（2026-09-03）
+> **最新版本 v0.7.4-beta**（2026-09-04）
 
-### v0.7.3 更新亮点
-- 🚀 **聊天系统归档**
-- 🚀 **当前 Tab 始终可见**
-- 🚀 **默认模型优先级精调**
-- 🚀 **DSH runtime：开发用项目依赖、打包保持精简**
-- 🚀 **Rewind 检查点**
-- 🚀 **DSH runtime 本地导入**
-- 🚀 **自动会话标题**
-- 🚀 **闲置 Agent 自动释放**
-- 🚀 **用量行常驻与模型卡片收紧**
-- 🚀 **问题反馈带项目上下文**
-- 🚀 **Ask 通知直达会话**
-- 🚀 **配置管理深链**
-- ✨ **刷新过期项目**
-- ✨ **选中态背景恢复**
-- ✨ **dev 不再提示下载 DSH runtime**
-- ✨ **DSH runtime 安装不再卡主进程**
+### v0.7.4-beta 更新亮点
+- 🚀 **Command Code 用量查询支持**
+- 🚀 **应用更新生命周期加固**
+- ✨ **工具耗时秒表不再反复归零**
+- ✨ **视觉桥模型选择按钮适配超长模型名**
+- ✨ **统一会话轮次口径**
+- ✨ **fork 标题持久化与侧栏长名滚动**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

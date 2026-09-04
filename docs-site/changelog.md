@@ -5,6 +5,17 @@
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.7.4-beta
+
+发布时间：2026-09-04
+
+- 🚀 **Command Code 用量查询支持**
+- 🚀 **应用更新生命周期加固**
+- ✨ **工具耗时秒表不再反复归零**
+- ✨ **视觉桥模型选择按钮适配超长模型名**
+- ✨ **统一会话轮次口径**
+- ✨ **fork 标题持久化与侧栏长名滚动**
+
 ## v0.7.3
 
 发布时间：2026-09-03

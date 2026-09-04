@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.3-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -40,7 +40,7 @@
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Highlights](#-highlights)
   - [📋 Changelog](#-changelog)
-    - [v0.7.3 Release Highlights](#v073-release-highlights)
+    - [v0.7.4-beta Release Highlights](#v074-beta-release-highlights)
   - [🧩 Features](#-features)
     - [Workspace & Projects](#workspace--projects)
     - [Sessions & Conversation](#sessions--conversation)
@@ -79,25 +79,15 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.7.3** (2026-09-03)
+> **Latest: v0.7.4-beta** (2026-09-04)
 
-### v0.7.3 Release Highlights
-- 🚀 **Chat session archives**
-- 🚀 **Active tab always in view**
-- 🚀 **Refined default-model priority**
-- 🚀 **DSH runtime: dev uses project deps, packs stay lean**
-- 🚀 **Rewind checkpoints**
-- 🚀 **Import DSH runtime from a folder**
-- 🚀 **Automatic session titles**
-- 🚀 **Idle agent auto-release**
-- 🚀 **Usage rows stay put, model cards get denser**
-- 🚀 **Feedback reports include project context**
-- 🚀 **Ask notifications jump to the session**
-- 🚀 **Deep links into config backends**
-- ✨ **Refresh stale projects**
-- ✨ **Selected-state backgrounds restored**
-- ✨ **Dev no longer prompts to download DSH runtime**
-- ✨ **DSH runtime install no longer blocks the main process**
+### v0.7.4-beta Release Highlights
+- 🚀 **Command Code usage query support**
+- 🚀 **Application update lifecycle hardening**
+- ✨ **Tool stopwatch no longer resets mid-stream**
+- ✨ **Vision-bridge model picker fits extra-long model names**
+- ✨ **Unified session turn counting**
+- ✨ **Fork titles persist and long sidebar names scroll**
 
 [View Full Changelog →](CHANGELOG.md)
 
