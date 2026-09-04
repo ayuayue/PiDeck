@@ -52,6 +52,7 @@ import {
 } from "./usageProbeTemplates";
 import { loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
 import type { UserUsageProbe } from "./userUsageProbes";
+import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
 import { loadDshUsageProviderProfile } from "./dshUsageEndpoint";
@@ -120,40 +121,7 @@ const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
 // （而非整体丢弃），防止恶意/异常网关用超大响应体拖垮内存，同时保留诊断信息。
 const MAX_USAGE_RESPONSE_BYTES = 64 * 1024;
 
-/** 流式读取响应体，最多读 maxBytes 字节后截断（多读的部分丢弃）。 */
-async function readBoundedResponseBody(
-	response: Response,
-	maxBytes: number,
-): Promise<string> {
-	if (!response.body) return "";
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			const remaining = maxBytes - total;
-			if (value.byteLength > remaining) {
-				if (remaining > 0) chunks.push(value.subarray(0, remaining));
-				total = maxBytes;
-				await reader.cancel();
-				break;
-			}
-			chunks.push(value);
-			total += value.byteLength;
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	const merged = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		merged.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return new TextDecoder().decode(merged);
-}
+
 
 // 模型 id 长度上限：过长 id 往往是误填，且可能撑爆某些网关/日志。
 const MODEL_ID_MAX_LENGTH = 256;
@@ -1269,35 +1237,24 @@ export class ConfigManager {
 				);
 				let captured: unknown;
 				for (const preflightUrl of preflightUrls) {
-					const preflightController = new AbortController();
-					const preflightTimeout = setTimeout(
-						() => preflightController.abort(),
+					const preflightResult = await usageProbeRequest(preflightUrl, {
+						method: "GET",
+						headers: this.withOpenAiSdkUserAgent(
+							buildProbeHeaders(candidate.preflight.headers, apiKey),
+						),
 						timeoutMs,
-					);
+						maxBytes: MAX_USAGE_RESPONSE_BYTES,
+					});
+					if ("error" in preflightResult) continue;
+					if (preflightResult.status < 200 || preflightResult.status >= 300) continue;
+					let preflightBody: unknown = null;
 					try {
-						const preflightRes = await net.fetch(preflightUrl, {
-							method: "GET",
-							headers: this.withOpenAiSdkUserAgent(
-								buildProbeHeaders(candidate.preflight.headers, apiKey),
-							),
-							redirect: "error",
-							signal: preflightController.signal,
-						});
-						if (!preflightRes.ok) continue;
-						const preflightRaw = await readBoundedResponseBody(preflightRes, MAX_USAGE_RESPONSE_BYTES);
-						let preflightBody: unknown = null;
-						try {
-							preflightBody = JSON.parse(preflightRaw);
-						} catch {
-							// 非 JSON：不是预期的预检端点，换下一个 URL。
-						}
-						captured = getByPath(preflightBody, candidate.preflight.capture.path);
-						if (typeof captured === "string" && captured.trim() !== "") break;
+						preflightBody = JSON.parse(preflightResult.raw);
 					} catch {
-						// 预检端点不可达/超时/重定向拒绝：换下一个 URL 尝试。
-					} finally {
-						clearTimeout(preflightTimeout);
+						// 非 JSON：不是预期的预检端点，换下一个 URL。
 					}
+					captured = getByPath(preflightBody, candidate.preflight.capture.path);
+					if (typeof captured === "string" && captured.trim() !== "") break;
 				}
 				if (typeof captured !== "string" || captured.trim() === "") continue;
 				preflightHeaders[candidate.preflight.capture.header] = captured.trim();
@@ -1307,78 +1264,65 @@ export class ConfigManager {
 				this.ensureVersionPath(url),
 			);
 			for (const requestUrl of urls) {
-				const controller = new AbortController();
-				const timeout = setTimeout(
-					() => controller.abort(),
-					timeoutMs,
-				);
-				try {
-					const res = await net.fetch(requestUrl, {
-						method: candidate.method ?? "GET",
-						headers: this.withOpenAiSdkUserAgent({
-							...buildProbeHeaders(candidate.headers, apiKey, {
-								// 候选自带 Cookie 等独立鉴权时不能自动补 Bearer（双凭证可能被服务端拒绝，
-								// 如 Token Rhythm 的 AMBIGUOUS_CREDENTIALS 400），由候选/用户探针显式声明。
-								noBearer: candidate.noBearer === true,
-							}),
-							...preflightHeaders,
-							...extraHeaders,
+				const result = await usageProbeRequest(requestUrl, {
+					method: candidate.method ?? "GET",
+					headers: this.withOpenAiSdkUserAgent({
+						...buildProbeHeaders(candidate.headers, apiKey, {
+							// 候选自带 Cookie 等独立鉴权时不能自动补 Bearer（双凭证可能被服务端拒绝，
+							// 如 Token Rhythm 的 AMBIGUOUS_CREDENTIALS 400），由候选/用户探针显式声明。
+							noBearer: candidate.noBearer === true,
 						}),
-						...(candidate.method === "POST" && candidate.body !== undefined
-							? { body: JSON.stringify(candidate.body) }
-							: {}),
-						// 拒绝重定向：带凭据的探针请求不允许被 3xx 带到第三方域（fail-closed），
-						// 与 pi-usage 对官方用量端点的处理一致；用量端点本身不应重定向。
-						redirect: "error",
-						signal: controller.signal,
-					});
-					const raw = await readBoundedResponseBody(res, MAX_USAGE_RESPONSE_BYTES);
-					const safeRaw = this.redactSecret(raw, apiKey);
-					if (!res.ok) {
-						// 非 2xx：可能是端点不存在，换下一个 URL/候选继续；记一笔尝试明细供失败时归因。
-						attempts.push({
-							url: requestUrl,
-							method: candidate.method ?? "GET",
-							status: res.status,
-							// 只留前 240 字符的脱敏响应摘要，足够定位「路径不对/非法请求」类问题。
-							...(safeRaw ? { body: safeRaw.slice(0, 240) } : {}),
-						});
-						continue;
-					}
-					let body: unknown;
-					try {
-						body = JSON.parse(raw);
-					} catch {
-						body = null;
-					}
-					const parsed = parseUsageResponseBody(body, safeRaw, candidate.parse);
-					if (parsed.matched) {
-						return {
-							success: true,
-							kind: parsed.kind,
-							periods: parsed.periods,
-							balance: parsed.balance,
-							credits: parsed.credits,
-							booster: parsed.booster,
-							at: startedAt,
-						};
-					}
-					// 2xx 但结构不匹配：不是预期的 usage 端点，继续探测；记一笔供失败归因（接口变更信号）。
-					attempts.push({ url: requestUrl, method: candidate.method ?? "GET", kind: "shape" });
-				} catch (error) {
+						...preflightHeaders,
+						...extraHeaders,
+					}),
+					...(candidate.method === "POST" && candidate.body !== undefined
+						? { body: JSON.stringify(candidate.body) }
+						: {}),
+					timeoutMs,
+					maxBytes: MAX_USAGE_RESPONSE_BYTES,
+				});
+				if ("error" in result) {
 					// 网络错误/超时/重定向拒绝：单个候选失败不阻断其它候选，记录后继续。
-					// （此前此循环无 catch，net.fetch 拒绝会直接冒泡到 IPC 层炸掉整次查询。）
-					const isTimeout =
-						error instanceof Error &&
-						(error.name === "AbortError" || error.name === "TimeoutError");
+					// usageProbeRequest 已按 AbortError/TimeoutError 归一为 timeout，其余为 network。
 					attempts.push({
 						url: requestUrl,
 						method: candidate.method ?? "GET",
-						error: isTimeout ? "timeout" : "network",
+						error: result.error,
 					});
-				} finally {
-					clearTimeout(timeout);
+					continue;
 				}
+				const safeRaw = this.redactSecret(result.raw, apiKey);
+				if (result.status < 200 || result.status >= 300) {
+					// 非 2xx：可能是端点不存在，换下一个 URL/候选继续；记一笔尝试明细供失败时归因。
+					attempts.push({
+						url: requestUrl,
+						method: candidate.method ?? "GET",
+						status: result.status,
+						// 只留前 240 字符的脱敏响应摘要，足够定位「路径不对/非法请求」类问题。
+						...(safeRaw ? { body: safeRaw.slice(0, 240) } : {}),
+					});
+					continue;
+				}
+				let body: unknown;
+				try {
+					body = JSON.parse(result.raw);
+				} catch {
+					body = null;
+				}
+				const parsed = parseUsageResponseBody(body, safeRaw, candidate.parse);
+				if (parsed.matched) {
+					return {
+						success: true,
+						kind: parsed.kind,
+						periods: parsed.periods,
+						balance: parsed.balance,
+						credits: parsed.credits,
+						booster: parsed.booster,
+						at: startedAt,
+					};
+				}
+				// 2xx 但结构不匹配：不是预期的 usage 端点，继续探测；记一笔供失败归因（接口变更信号）。
+				attempts.push({ url: requestUrl, method: candidate.method ?? "GET", kind: "shape" });
 			}
 		}
 
