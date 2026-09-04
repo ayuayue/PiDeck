@@ -186,6 +186,8 @@ const USAGE_WINDOW_LABEL_KEYS: Record<string, TranslationKey> = {
 	mcpMonthly: "sessionContext.usageWindowMcpMonthly",
 	included: "sessionContext.usageWindowIncluded",
 	onDemand: "sessionContext.usageWindowOnDemand",
+	// Command Code 月度额度池窗口复用 periods 的「本月/Monthly」叫法（i18n 两语言已存在）。
+	monthly: "sessionContext.usageMonthly",
 };
 
 /** 窗口 key → 标签：内置 key 给 i18n key，未知 key 原样文本（用户自定义窗口名）。 */

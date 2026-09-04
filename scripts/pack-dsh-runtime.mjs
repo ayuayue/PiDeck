@@ -22,10 +22,9 @@
  *    作用域全集更保守，代价是体积，由下面的文件级裁剪兜住。
  *
  * 2. **归档 sha256 不写进归档内的 manifest**。manifest 在归档里，把归档哈希写进
- *    归档内容会自相矛盾（填了哈希 → 内容变了 → 哈希失效）。校验用的哈希由
- *    下载源索引（dsh-runtime-releases.json）提供，manifest 里的 archiveSha256
- *    留空；打包完成后另外输出一份同名 manifest.json 副本（带真实 sha256），
- *    供生成索引条目使用。
+ *    归档内容会自相矛盾（填了哈希 → 内容变了 → 哈希失效）。校验用的真实哈希
+ *    写在归档外随包的 manifest.json（dist-runtime/dsh-runtime/manifest.json）里，
+ *    由应用端 `readBundledRuntime` 读取并校验；归档内的 archiveSha256 留空。
  *
  * 裁剪规则（只删运行时用不到的东西，不删任何可能被 require 的文件）：
  *   - *.pdb                调试符号，随包分发但运行时不加载
@@ -318,31 +317,6 @@ for await (const chunk of createReadStream(archivePath)) hash.update(chunk);
 const sha256 = hash.digest("hex");
 const finalSize = statSync(archivePath).size;
 
-// 归档外的 manifest 副本带真实 sha256，用于生成下载源索引条目。
-writeFileSync(
-	join(outDir, "manifest.json"),
-	JSON.stringify({ ...manifest, archiveSha256: sha256 }, null, 2),
-);
-
-// 顺手产出一份可直接用的索引：url 指本地归档，便于在上传到 Release 之前
-// 就把安装链路（选版本 → 校验 → 解压 → 落位）端到端跑通——把 settings 的
-// dshRuntimeIndexUrl 或 DSH_RUNTIME_INDEX_URL 指到这个文件即可。
-const localIndex = {
-	schemaVersion: 1,
-	releases: [
-		{
-			runtimeVersion: dshVersion,
-			minAppVersion: manifest.minAppVersion,
-			maxAppVersion: manifest.maxAppVersion,
-			url: `file:///${archivePath.split(sep).join("/")}`,
-			sha256,
-			size: finalSize,
-		},
-	],
-};
-const indexPath = join(outDir, "dsh-runtime-releases.json");
-writeFileSync(indexPath, JSON.stringify(localIndex, null, 2));
-
 /**
  * 随包资源目录：electron-builder 的 extraResources 会把它原样放进 resources/。
  * 应用内 `readBundledRuntime()` 从这里读，有就本地解压安装（零网络、零等待），
@@ -377,21 +351,5 @@ if (lite) {
 }
 
 console.log("[pack-dsh-runtime] 产出:", archivePath);
-console.log("[pack-dsh-runtime] 本地索引:", indexPath, "（可直接用于安装链路验证）");
 console.log("[pack-dsh-runtime] 压缩后:", mb(finalSize), `（压缩率 ${((1 - finalSize / totalBytes) * 100).toFixed(0)}%）`);
 console.log("[pack-dsh-runtime] sha256:", sha256);
-console.log("[pack-dsh-runtime] 上传后，把下面这条写进 dsh-runtime-releases.json 的 releases 数组：");
-console.log(
-	JSON.stringify(
-		{
-			runtimeVersion: dshVersion,
-			minAppVersion: manifest.minAppVersion,
-			maxAppVersion: manifest.maxAppVersion,
-			url: `<release asset url>/${archiveName}`,
-			sha256,
-			size: finalSize,
-		},
-		null,
-		2,
-	),
-);

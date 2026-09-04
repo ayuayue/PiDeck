@@ -130,7 +130,7 @@ dsh 仍随包分发，但把「runtime 是否可用」做成一等状态并据�
 | IPC | `dsh-runtime:install` / `install-local` / `uninstall` / `install-progress`（订阅式）；本地导入的**文件对话框在主进程弹**，渲染层不接触路径 |
 | UI | `DshRuntimeInstallGuide` 接真实下载器（进度条 + 阶段文案 + 手动导入 + 失败原因）；`CommonTab` 增加 runtime 状态行（版本 + 来源 + 卸载，内置不可卸）；`useDshRuntimeMigrationNotice` 给存量 dsh 用户一次直达提示 |
 | host 衔接 | `restartDshHostAfterRuntimeChange()`：装/导入 runtime 后重启已运行的 host（fork 时路径已固化，不重启会用旧 runtime）；未启动则不白起 |
-| 下载源 | `file://` 与裸绝对路径支持（索引 + 归档），另可用环境变量 `DSH_RUNTIME_INDEX_URL` 覆盖；打包脚本直接产出 `dsh-runtime-releases.json`，上传 Release 前即可端到端自测 |
+| 下载源 | 随包安装为主路径（runtime 直接打进安装包，零网络）。在线索引 `dsh-runtime-releases.json` 仅保留给可选的 `--lite` 场景（不随包、需手动维护 Release 资产）；打包脚本**不再产出** `dsh-runtime-releases.json` |
 | 打包 | `scripts/pack-dsh-runtime.mjs`：闭包收集 + 文件级裁剪 + **零复制打包**（用 tar 的 `onWriteEntry` 重命名条目，直接引用 node_modules 原文件）；`scripts/check-dsh-asar.mjs` 职责改为校验 runtime 归档（19 个基线包 + 6 个入口包） |
 | 依赖分区 | 24 个 dsh 包（22 个 `@deepseek-ai/*` + `dsh-bill` + `dsh-tool-pwsh-persistent`）已移入 devDependencies；production 依赖从 31 个降到 7 个 |
 
@@ -173,7 +173,7 @@ dsh 仍随包分发，但把「runtime 是否可用」做成一等状态并据�
 
 - **dev 模式不受影响**：`@deepseek-ai` 仍在项目 node_modules 里，内置探测仍成功 → 内置回退依旧可用，本地开发 DSH 照常。
 - **打包后不再内置**：electron-builder 只收集 production 依赖，`@deepseek-ai` 不会进 asar → 首次使用 DSH 必须下载 runtime（或手动导入 tgz）。
-- 因此**发布前必须先确定下载源**，否则打包产物里 DSH 完全不可用。自测可设 `DSH_RUNTIME_INDEX_URL` 指向打包脚本产出的 `dsh-runtime-releases.json`（url 是本地 `file://`）。
+- 因此标准发布**不再需要下载源**：runtime 已随包打进安装包，用户点击即用。仅当用 `--lite` 打不带 runtime 的安装包时，才需在 Release 上手工维护 `dsh-runtime-releases.json` 索引与其 tarball（自测可设 `DSH_RUNTIME_INDEX_URL` 指向该索引，url 用 `file://`）。
 
 **剩余一件事（在线更新源）**
 
