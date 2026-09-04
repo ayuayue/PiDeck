@@ -323,6 +323,9 @@ export class SessionRuntimeCoordinator {
 		if (!agentId) return undefined;
 		const tab = this.agents.list().find((candidate) => candidate.id === agentId);
 		if (tab && !isTerminalAgent(tab)) return agentId;
+		// pi may emit an interactive recovery request immediately before reporting
+		// an error. Keep that runtime addressable until the user answers the request.
+		if (tab?.status === "error" && this.hasPendingUiRequest(sessionId, agentId)) return agentId;
 		// A terminal process cannot safely receive a delayed prompt result. Remove
 		// the binding even if its dispatch lease has not unwound yet, which makes
 		// that result fail closed instead of reviving a dead runtime association.
@@ -2075,6 +2078,13 @@ export class SessionRuntimeCoordinator {
 
 	private uiRequestKey(sessionId: string, requestId: string): string {
 		return `${sessionId}\u0000${requestId}`;
+	}
+
+	private hasPendingUiRequest(sessionId: string, agentId: string): boolean {
+		for (const pending of this.pendingUiRequests.values()) {
+			if (pending.sessionId === sessionId && pending.agentId === agentId) return true;
+		}
+		return false;
 	}
 
 	private clearPendingUiRequests(sessionId: string, agentId?: string): void {

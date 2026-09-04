@@ -509,7 +509,6 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 		runtime &&
 		ui &&
 		runtime.status !== "detached" &&
-		runtime.status !== "error" &&
 		runtime.status !== "closed" &&
 		runtime.agentId === ui.agentId &&
 		runtime.runtimeGeneration === ui.runtimeGeneration,
