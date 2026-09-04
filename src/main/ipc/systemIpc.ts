@@ -29,6 +29,7 @@ import { resolveConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
 import type { SkillManager } from "../skills/SkillManager";
 import { fetchModelList, getCachedModelList, invalidateModelListCache, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
+import { mergeTokenDanceModels, type TokendanceCatalogStore } from "../config/tokendanceCatalog";
 
 import { probePiModel } from "../pi/PiModelProber";
 import type { PiModelCapabilityCache } from "../pi/PiModelCapabilityCache";
@@ -109,6 +110,8 @@ export type SystemIpcDeps = {
 	providerMigration?: ProviderMigrationDeps;
 	/** 全局 Pi 模型 capability snapshot（启动/配置变更时 hydration，picker 只读）。 */
 	modelCapabilityCache: PiModelCapabilityCache;
+	/** 内置 TokenDance 模型目录（live fetch + userData 缓存）；未装配 = 列表不注入。 */
+	tokendanceCatalog?: TokendanceCatalogStore;
 	/** 环境体检编排器（问题反馈页一键排障）。 */
 	environmentDoctor?: EnvironmentDoctor;
 	/** 诊断产物导出器（Markdown / zip 日志包）。 */
@@ -204,6 +207,24 @@ function asConfigProxyMode(raw: unknown): ConfigProxyMode {
 	return raw === "pi" || raw === "desktop" || raw === "off" ? raw : "follow";
 }
 
+/**
+ * 把内置 TokenDance 目录并入模型列表（读取缓存/拉取，失败静默保持原列表）。
+ * 注入是“展示层”行为：pi 运行时会话仍按 pi 自己的 models.json 解析 provider，
+ * 所以列表已含 tokendance 组（用户已保存到 pi 配置）时不会再塞一份。
+ */
+async function withTokenDanceModels(
+	models: AvailableModel[],
+	catalog?: TokendanceCatalogStore,
+): Promise<AvailableModel[]> {
+	if (!catalog) return models;
+	try {
+		const result = await catalog.getModels();
+		return result ? mergeTokenDanceModels(models, result.models) : models;
+	} catch {
+		return models;
+	}
+}
+
 export function registerSystemIpc(deps: SystemIpcDeps): void {
 	const {
 		piLocator,
@@ -254,6 +275,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		devBranch,
 		providerMigration,
 		modelCapabilityCache,
+		tokendanceCatalog,
 		diagnosticsMonitor,
 		environmentDoctor,
 		logBundleExporter,
@@ -317,7 +339,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				capabilitiesReady: snapshot !== null,
 				providers: [...new Set(models.map((m) => m.provider))].slice(0, 8),
 			});
-			return models;
+			// 内置 TokenDance 目录注入（未配置/拉取失败静默保持原列表）
+			return await withTokenDanceModels(models, tokendanceCatalog);
 		} catch (error) {
 			void appLogger.warn("pi", "Failed to resolve model list", {
 				error: error instanceof Error ? error.message : String(error),
@@ -361,6 +384,14 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 					configManager,
 					forceArg,
 				);
+			// 内置 TokenDance 目录注入（已含 tokendance 组 / 未装配 / 拉取失败都不改变报告）
+			const merged = await withTokenDanceModels(report.models, tokendanceCatalog);
+			if (merged.length !== report.models.length) {
+				void appLogger.info("pi", "TokenDance models injected into report", {
+					added: merged.length - report.models.length,
+				});
+			}
+			report.models = merged;
 			void appLogger.info("pi", "Model list report resolved", {
 				ok: report.ok,
 				reason: report.reason,
@@ -1306,6 +1337,22 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			modelCount: Array.isArray(result) ? result.length : undefined,
 		});
 		return result;
+	});
+	ipcMain.handle(ipcChannels.configGetTokendanceModels, async (_event, force: unknown) => {
+		// force 必须为布尔（渲染层入参不可信）；目录拉取/缓存错误统一兜底空结果。
+		const forceArg = force === true;
+		try {
+			if (!tokendanceCatalog) return { models: [], fromCache: false, at: 0 };
+			const result = forceArg
+				? await tokendanceCatalog.refresh()
+				: await tokendanceCatalog.getModels();
+			return result ?? { models: [], fromCache: false, at: 0 };
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance catalog load failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { models: [], fromCache: false, at: 0 };
+		}
 	});
 	ipcMain.handle(ipcChannels.configTestProvider, async (
 		_event,

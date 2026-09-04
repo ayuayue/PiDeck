@@ -23,7 +23,7 @@ test("默认供应商候选聚合 providers + auth + discovered 三处来源", (
 	);
 	assert.deepEqual(
 		Array.from(options).map((option) => option.value),
-		["tr", "opencode", "bailu", "shangtang"],
+		["tokendance", "tr", "opencode", "bailu", "shangtang"],
 	);
 });
 
@@ -39,9 +39,29 @@ test("复现：仅 discovered 存在的供应商必须在候选里（漏掉即�
 	);
 });
 
-test("三处来源为空/未加载时返回空数组", () => {
-	assert.equal(collectProviderOptions(undefined, undefined, undefined).length, 0);
-	assert.equal(collectProviderOptions({ providers: {} }, {}, {}).length, 0);
+test("三处来源为空/未加载时只返回内置 TokenDance 候选", () => {
+	// 展开成测试上下文数组再比较（vm 上下文数组原型不同，deepStrictEqual 会报“结构相同但非引用相等”）
+	assert.deepEqual([...collectProviderOptions(undefined, undefined, undefined).map((o) => o.value)], ["tokendance"]);
+	assert.deepEqual([...collectProviderOptions({ providers: {} }, {}, {}).map((o) => o.value)], ["tokendance"]);
+});
+
+test("内置 TokenDance 恒在候选最前（即使三源都没有它）", () => {
+	const options = collectProviderOptions(
+		{ providers: { opencode: {} } },
+		{ tr: {} },
+		{ shangtang: [{ id: "m1" }] },
+	);
+	assert.equal(options[0].value, "tokendance");
+});
+
+test("内置 TokenDance 幂等：三源已含时不出现在第二位", () => {
+	const options = collectProviderOptions(
+		{ providers: { tokendance: {} } },
+		{ tokendance: {} },
+		{ tokendance: [{ id: "glm-4.7" }] },
+	);
+	assert.equal(options.filter((o) => o.value === "tokendance").length, 1);
+	assert.equal(options[0].value, "tokendance");
 });
 
 test("同名供应商去重（三处来源都出现只保留一个候选）", () => {

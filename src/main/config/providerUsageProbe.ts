@@ -330,6 +330,24 @@ export const USAGE_PROBE_CANDIDATES: UsageProbeCandidate[] = [
 		templateId: "commandcode-credits",
 		parse: { kind: "custom", resolver: "commandcode-credits" },
 	},
+	// TokenDance（词元跳动，tokendance.space）：多协议模型网关，余额端点在 host 根
+	// /portal/api/v1/user/balance（与 OpenAI 兼容端点 /gateway/v1 不同 base），走 rootPath
+	// 只取 baseUrl origin。响应 { balance: { credits, credits_used, balance } }，三个字段
+	// 均为微元（1 元 = 1,000,000 微元），用 scale 统一换算成元：credits=总额、
+	// credits_used=已用、balance=剩余，三值齐全直接展示「总/已用/剩」三段。
+	{
+		path: "/portal/api/v1/user/balance",
+		rootPath: true,
+		baseUrlContains: ["tokendance.space"],
+		templateId: "tokendance-balance",
+		parse: {
+			kind: "credits",
+			totalPath: "balance.credits",
+			usedPath: "balance.credits_used",
+			remainingPath: "balance.balance",
+			scale: 1_000_000,
+		},
+	},
 	// 通用 OpenAI 兼容网关：多数 OpenAI 兼容中转站实现官方 /v1/usage 端点
 	// （{ balance, unit } 结构）。不限定 baseUrl，仅靠 apiTypes 收窄到 OpenAI 协议，
 	// 放在数组末尾——前面带 baseUrlContains 的专有候选优先命中，不会被此条抢走。

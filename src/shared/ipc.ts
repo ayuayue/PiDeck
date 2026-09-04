@@ -449,6 +449,8 @@ export const ipcChannels = {
 	configImport: "config:import",
 	/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表 */
 	configFetchModels: "config:fetch-models",
+	/** 取内置 TokenDance 模型目录（live fetch + userData 缓存；force=true 强制刷新） */
+	configGetTokendanceModels: "config:get-tokendance-models",
 	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
 	configTestProvider: "config:test-provider",
 	/** 查询 provider 用量/余额（主进程按 provider 名路由：门控 → 端点解析 → 模板探测） */

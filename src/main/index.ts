@@ -280,6 +280,7 @@ import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
 import { WorktreeService } from "./git/WorktreeService";
 import { ConfigManager } from "./config/ConfigManager";
+import { TokendanceCatalogStore } from "./config/tokendanceCatalog";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { PromptManager } from "./prompts/PromptManager";
@@ -2778,6 +2779,11 @@ function registerIpc() {
 			dshHost,
 		},
 		modelCapabilityCache: piModelCapabilityCache,
+		// 内置 TokenDance 模型目录（live fetch + userData 缓存；注入列表供渲染层置顶展示）
+		tokendanceCatalog: new TokendanceCatalogStore({
+			getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
+			log: (message, detail) => void appLogger.info("tokendance", message, detail),
+		}),
 		listDshMonitorSessions: () => dshAgentManager.list().map((tab) => ({ title: tab.title })),
 		stopDshHostFromMonitor,
 		getMainWindow: () => mainWindow,

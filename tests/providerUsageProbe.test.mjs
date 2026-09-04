@@ -825,3 +825,41 @@ test("Command Code 缺 monthlyCredits 时不匹配（关键字段缺失）", () 
   );
 });
 
+
+test("TokenDance 候选：host 根 /portal/api/v1/user/balance、scale 微元、模板登记", () => {
+  const td = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("tokendance.space"));
+  assert.ok(td, "候选表应包含 TokenDance 适配器");
+  assert.equal(td.path, "/portal/api/v1/user/balance");
+  assert.equal(td.rootPath, true);
+  assert.equal(td.templateId, "tokendance-balance");
+  assert.equal(td.parse.kind, "credits");
+  assert.equal(td.parse.totalPath, "balance.credits");
+  assert.equal(td.parse.usedPath, "balance.credits_used");
+  assert.equal(td.parse.remainingPath, "balance.balance");
+  assert.equal(td.parse.scale, 1_000_000);
+  assert.equal(probe.candidateApplies(td, "https://tokendance.space/gateway/v1", "openai-completions"), true);
+  assert.equal(probe.candidateApplies(td, "https://api.deepseek.com", ""), false);
+  // rootPath 生效：只取 origin 拼接，不拼 /gateway/v1 也不走版本化补齐
+  const urls = probe.usageProbeUrls(td, "https://tokendance.space/gateway/v1", ensureVersion);
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0], "https://tokendance.space/portal/api/v1/user/balance");
+});
+
+test("TokenDance 真实响应：微元换算成元，总/已用/剩三段齐全", () => {
+  const td = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("tokendance.space"));
+  // 文档示例：credits=58000000 微元=58 元、credits_used=57837189 微元=57.837189 元、balance=162811 微元=0.162811 元
+  const live = { balance: { credits: 58000000, credits_used: 57837189, balance: 162811 } };
+  const res = probe.parseUsageResponseBody(live, "{}", td.parse);
+  assert.equal(res.matched, true);
+  assert.equal(res.kind, "credits");
+  assert.equal(res.credits.total, 58);
+  assert.equal(res.credits.used, 57.837189);
+  assert.equal(res.credits.remaining, 0.162811);
+});
+
+test("TokenDance 缺 balance 结构时不匹配（字段缺失兜底 raw）", () => {
+  const td = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("tokendance.space"));
+  assert.equal(probe.parseUsageResponseBody({ foo: { bar: 1 } }, "{}", td.parse).matched, false);
+  // 三路径全空（结构完全不匹配）才不命中；只要任一命中即合法展示
+  assert.equal(probe.parseUsageResponseBody({ balance: {} }, "{}", td.parse).matched, false);
+});

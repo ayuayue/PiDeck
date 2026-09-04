@@ -1155,6 +1155,8 @@ export function createPreviewApi(): PiDesktopApi {
 					{ id: "gpt-4o-mini", name: "GPT-4o Mini" },
 				],
 			}),
+			// 设计预览：内置 TokenDance 目录返回空（不触真实网络）
+			getTokendanceModels: async () => ({ models: [], fromCache: false, at: 0 }),
 			testProvider: async () => ({
 				success: true,
 				model: "gpt-4o-mini",

@@ -1507,6 +1507,13 @@ const api = {
 				error?: string;
 				suggestedBaseUrl?: string;
 			}>,
+		/** 内置 TokenDance 模型目录：主进程 live fetch + userData 缓存；force=true 强制刷新（渲染层“刷新目录”按钮用） */
+		getTokendanceModels: (force?: boolean) =>
+			ipcRenderer.invoke(ipcChannels.configGetTokendanceModels, force) as Promise<{
+				models: AvailableModel[];
+				fromCache: boolean;
+				at: number;
+			}>,
 		/** 视觉桥：读取当前配置（模型列表由渲染层经 listModels 拉全量） */
 		visionGetConfig: () =>
 			ipcRenderer.invoke(ipcChannels.visionGetConfig) as Promise<{
