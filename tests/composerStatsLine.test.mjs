@@ -32,6 +32,7 @@ function loadStats() {
       t: (key, params = {}) => {
         const table = {
           "composerStats.counts": "{turns} 轮 · {steps} 步",
+          "composerStats.turns": "{turns} 轮",
           "composerStats.llm": "LLM {duration}",
           "composerStats.toolCall": "工具调用 {duration}",
           "composerStats.ttftAverage": "首 token 平均 {duration}",
@@ -69,6 +70,23 @@ test("dsh sessionStats fills counts, durations, speeds, then tokens", () => {
   assert.equal(groups[2], "首 token 平均 120ms · 42 tok/s");
   assert.equal(groups[3], "缓存命中 88%");
   assert.equal(groups[4], "输入 1200 tok · 输出 340 tok");
+});
+
+test("dsh stats line shows turns-only when the fallback has no assembled steps", () => {
+  // 兜底 fallback 的纯工具轮：turns>0 但 steps=0（投影丢弃了无正文的 assistant），
+  // 只显示「N 轮」，不出现「0 步」。
+  const { buildComposerStatsGroups } = loadStats();
+  const groups = buildComposerStatsGroups({
+    dshSessionStats: {
+      turns: 1,
+      steps: 0,
+      llmMs: 0,
+      toolMs: 0,
+      ttftAvgMs: undefined,
+      tokensPerSecond: undefined,
+    },
+  });
+  assert.equal(groups[0], "1 轮");
 });
 
 test("pi last-reply metrics fill the strip when sessionStats is absent", () => {
