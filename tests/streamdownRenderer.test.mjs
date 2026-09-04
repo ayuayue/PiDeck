@@ -165,16 +165,17 @@ test("Streamdown is the only markdown engine (switch, settings field, dependency
   assert.match(surface, /<MarkdownStream/);
 });
 
-test("static markdown scenes share the Streamdown engine", () => {
+test("markdown-bearing static scenes share the Streamdown engine", () => {
   const diffViewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
-  const updateOverlay = readFileSync("src/renderer/src/components/overlays/AppUpdateOverlay.tsx", "utf8");
   const scratchPad = readFileSync("src/renderer/src/components/scratchPad/ScratchPadPanel.tsx", "utf8");
   assert.doesNotMatch(diffViewer, /ReactMarkdown/);
-  assert.doesNotMatch(updateOverlay, /ReactMarkdown/);
   assert.doesNotMatch(scratchPad, /ReactMarkdown/);
   assert.match(diffViewer, /MarkdownStream/);
-  assert.match(updateOverlay, /MarkdownStream/);
   assert.match(scratchPad, /MarkdownStream/);
+  // 更新迁移为状态卡片，不再展示任意 Release Markdown；它仍不得引入第二个 markdown 引擎。
+  const updateCard = readFileSync("src/renderer/src/components/app/settings/AppUpdateCard.tsx", "utf8");
+  assert.doesNotMatch(updateCard, /(?:ReactMarkdown|MarkdownStream)/);
+  assert.match(updateCard, /<Progress/);
   // 静态场景保留各自插件（草稿本的高亮 mark 与 GFM task list 覆盖）
   assert.match(scratchPad, /rehypeHighlightMark/);
   assert.match(scratchPad, /remarkBreaks/);

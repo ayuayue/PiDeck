@@ -15,6 +15,10 @@ const runtimeBridge = readFileSync(
   "src/renderer/src/hooks/useSessionRuntimeBridge.ts",
   "utf8",
 );
+const updateWatch = readFileSync(
+  "src/renderer/src/hooks/useBackgroundUpdateWatch.ts",
+  "utf8",
+);
 
 test("project change events re-read presence-aware inventory before replacing atoms", () => {
   const changedBlock = source.match(/const offProjects = desktopApi\.projects\.onChanged\(\(\) => \{[\s\S]*?\n    \}\);/);
@@ -30,11 +34,16 @@ test("global listener owner handles non-runtime application events only", () => 
     "pet.onFocusTarget",
     "projects.onTrustRequest",
     "settings.onApplyWindow",
-    "app.onUpdateProgress",
     "app.onOpenInBrowser",
   ]) {
     assert.match(source, new RegExp(listener.replace(".", "\\.")), listener);
   }
+  // 更新状态由独立的快照订阅 hook 拥有，避免全局 agent listener 再持有旧进度流。
+  assert.doesNotMatch(source, /app\.on(?:UpdateProgress|UpdateStatus)/);
+  assert.match(updateWatch, /api\.app\.getUpdateStatus\(\)/);
+  assert.match(updateWatch, /api\.app\.onUpdateStatus\(/);
+  assert.match(updateWatch, /return \(\) => unsubscribe\(\)/);
+  assert.match(app, /useBackgroundUpdateWatch\(/);
   assert.doesNotMatch(source, /sessions\.(?:listRuntimes|onRuntimeEvent)/);
   assert.match(source, /return \(\) => \{[\s\S]*offProjects\(\)[\s\S]*offFocusTarget\(\)/);
   assert.match(source, /disposed = true/);
