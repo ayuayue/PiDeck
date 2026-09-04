@@ -208,7 +208,10 @@ export function SessionTree(props: {
           {...sessionDragProps(session.id)}
         >
           <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
-            <TitleScrollText text={title} />
+            <TitleScrollText
+              text={title}
+              disabled={session.id === props.currentSessionId}
+            />
             {badge}
           </div></div>
         </button>
@@ -285,7 +288,13 @@ export function SessionTree(props: {
           >
             {renderRuntimeStatusDot(child.agent.status)}
             <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
-              <TitleScrollText text={child.agent.title} className="font-medium" />
+              {/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题；
+                  当前选中会话（激活 tab 同款规则）不滚动，避免选中行 hover 也在动。 */}
+              <TitleScrollText
+                text={child.agent.title}
+                className="font-medium"
+                disabled={agentSession?.id === props.currentSessionId}
+              />
               <SessionBackendMark backend={child.agent.backend} />
               {child.agent.noSession && <span className="anonymous-indicator" title={t("app.anonymousChat")}><HatGlasses size={11} aria-hidden="true" /></span>}
               {renderToggle(groupKey, childCount)}
@@ -342,10 +351,12 @@ export function SessionTree(props: {
           )}
           <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
             {/* 历史会话（无运行态）文字降一级，与活跃 Agent/运行中会话形成层级差；
-                标题被截断时 hover 滚动展示全文（TitleScrollText，未溢出则静止）。 */}
+                标题被截断时 hover 滚动展示全文（TitleScrollText，未溢出则静止）；
+                当前选中会话不滚动（与激活 tab 一致，避免选中行 hover 也在动）。 */}
             <TitleScrollText
               text={child.session.name || t("common.untitled")}
               className={cn(runtime ? "font-medium" : "font-normal text-muted-foreground/90")}
+              disabled={child.session.id === props.currentSessionId}
             />
             {(child.session.backend === "dsh" || child.session.backend === "imagegen") && <SessionBackendMark backend={child.session.backend} />}
             {/* 生图角标：imagegen 后端会话的徽标已含生图标识，此处仅对遗留 pi 后端含生图消息的会话补图标 */}
@@ -411,7 +422,8 @@ export function SessionTree(props: {
           >
             <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
               {renderRuntimeStatusDot(runtime?.status)}
-              <TitleScrollText text={session.title} className="font-medium" />
+              {/* 草稿会话：当前选中不滚动（与激活 tab 一致） */}
+              <TitleScrollText text={session.title} className="font-medium" disabled={session.id === props.currentSessionId} />
               <SessionBackendMark backend={session.backend} />
             </div></div>
           </button>

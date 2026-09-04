@@ -347,6 +347,64 @@ function paneStateStorageKey(
   return `pideck:git-panel:${projectId}:${encodeURIComponent(repoScopeKey)}:pane-state:${suffix}`;
 }
 
+/**
+ * push/pull 角标（ahead/behind）持久化 key：按项目 + 仓库隔离。
+ *
+ * 为什么持久化：角标来自 git fetch 远程 + 对比，属于慢操作（网络往返）。
+ * 切会话 tab / 关抽屉再开会让 GitPanel 卸载重挂，若不缓存，每次回来角标都要
+ * 从 0 重新等一轮 fetch；缓存后重挂先秒显上次结果，再后台刷新校正。
+ */
+function aheadBehindStorageKey(projectId: string, repoScopeKey: string): string {
+  return `pideck:git-panel:${projectId}:${encodeURIComponent(repoScopeKey)}:ahead-behind:v1`;
+}
+
+/** 读取上次缓存的 ahead/behind 角标；无缓存或格式非法返回 null（视为无角标）。 */
+function readAheadBehindCache(
+  projectId: string,
+  repoScopeKey: string,
+): GitAheadBehind | null {
+  try {
+    const raw = localStorage.getItem(
+      aheadBehindStorageKey(projectId, repoScopeKey),
+    );
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<GitAheadBehind> | null;
+    // 只信任数字字段：缓存可能被旧版本/手改损坏，非法时按无缓存处理
+    if (
+      value &&
+      typeof value.ahead === "number" &&
+      Number.isFinite(value.ahead) &&
+      typeof value.behind === "number" &&
+      Number.isFinite(value.behind)
+    ) {
+      return { ahead: value.ahead, behind: value.behind };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写入 ahead/behind 角标缓存；存储不可用时静默跳过（本轮会话仍可用）。 */
+function writeAheadBehindCache(
+  projectId: string,
+  repoScopeKey: string,
+  value: GitAheadBehind | null,
+): void {
+  try {
+    if (value === null) {
+      localStorage.removeItem(aheadBehindStorageKey(projectId, repoScopeKey));
+      return;
+    }
+    localStorage.setItem(
+      aheadBehindStorageKey(projectId, repoScopeKey),
+      JSON.stringify(value),
+    );
+  } catch {
+    // 预览/无存储环境不持久化，不影响本轮会话内展示
+  }
+}
+
 function smartCommitStorageKey(projectId: string): string {
   return `pideck:git-panel:${projectId}:smart-commit:v1`;
 }
@@ -676,7 +734,9 @@ export function GitPanel(props: GitPanelProps) {
     setShowSmartCommitPrompt(false);
     setDiscardTarget(null);
     setDeleteTarget(null);
-    setAheadBehind(null);
+    // 切项目/仓库时先恢复该作用域的缓存角标（秒显），后续由 refresh 成功路径
+    // 后台 fetch 校正；不置 null 是避免重挂后角标长时间消失（见 aheadBehindStorageKey 注释）。
+    setAheadBehind(readAheadBehindCache(props.projectId, repoScopeKey));
     // 提交框草稿和 AI 生成态按仓库存在 atom 里：切项目只清本面板的 status，不能打断旧仓库还在飞的生成。
     setNotAGitRepo(false);
     setGitNotInstalled(false);
@@ -725,8 +785,11 @@ export function GitPanel(props: GitPanelProps) {
       if (
         projectId === projectIdRef.current &&
         currentRepoScopeKey === repoScopeKeyRef.current
-      )
+      ) {
         setAheadBehind(result);
+        // 成功后写缓存：重挂/切 tab 回来能秒显上次角标；null（无上游）时清缓存
+        writeAheadBehindCache(projectId, currentRepoScopeKey, result);
+      }
     } catch {
       // 静默失败：离线/无远程时角标保持上次已知值，不弹错误
     }

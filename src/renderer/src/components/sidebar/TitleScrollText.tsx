@@ -6,9 +6,9 @@ type TitleScrollStyle = CSSProperties & {
 	"--title-scroll-duration"?: string;
 };
 
-const TITLE_SCROLL_PIXELS_PER_SECOND = 20;
+const TITLE_SCROLL_PIXELS_PER_SECOND = 7;
 const TITLE_SCROLL_MIN_DURATION_MS = 1_800;
-const TITLE_SCROLL_MAX_DURATION_MS = 12_000;
+const TITLE_SCROLL_MAX_DURATION_MS = 24_000;
 
 /**
  * 侧栏会话标题的 hover 滚动展示。
@@ -19,7 +19,8 @@ const TITLE_SCROLL_MAX_DURATION_MS = 12_000;
  * 行为规则：
  * - 未溢出不滚动（scrollWidth <= clientWidth 时保持静止，避免所有行 hover 都动）；
  * - 默认静止显示开头（与现状渐隐截断一致）；hover 时滚动到末尾并停住；
- * - 离开 hover 回到开头；滚动速度随溢出长度自适应（约 20px/s，下限 1.8s）；
+ * - 离开 hover 回到开头；滚动为慢速匀速（线性 7px/s，下限 1.8s，上限 24s），
+ *   上限放宽是为了长标题不再被钳时长后“飞滚”，保证任意长度都可读；
  * - hover 事件绑定在静态窗口而不是移动文字上，避免文字滚走后触发 mouseleave；
  * - 溢出距离经 CSS 变量注入 keyframes，使用实际像素而非不稳定的视口单位。
  *
