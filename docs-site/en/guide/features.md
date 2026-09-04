@@ -70,15 +70,6 @@ Visual editors for all settings:
 - **Skills** — Enable, disable, and configure agent Skills.
 - **Extensions** — Manage pi extensions visually.
 
-## Slash Commands & Templates
-
-Quick access to common actions:
-
-- `/commit` — Generate a commit message from staged changes.
-- `/explain` — Explain the selected code.
-- `/test` — Generate tests for the selected code.
-- `/review` — Review changes before commit.
-
 ## Cross-Platform
 
 PiDeck runs on all major platforms:

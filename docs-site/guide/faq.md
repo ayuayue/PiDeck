@@ -44,7 +44,7 @@ pi --mode rpc
 - **内置终端 Dock**：Agent 绑定独立终端 tab，支持多标签、主题切换
 - **可视化配置管理**：图形化编辑 Models、Auth、Settings
 - **插件与 Skill 管理**：全局和项目级 Skills 与 Extension 管理
-- **上下文感知输入**：`@` 文件引用、`!` Shell 执行、`/` 斜线命令
+- **上下文感知输入**：`@` 文件引用、`&` 历史会话引用
 - **内置浏览器预览**：右侧抽屉浏览网页，支持多标签和视口预设
 
 ## PiDeck 是免费的吗？
@@ -80,5 +80,6 @@ PiDeck 默认发送匿名、低频的 `app_heartbeat` 使用统计，用于了�
 
 ## 遇到问题怎么办？
 
+- 先看 [问题排查指南](/guide/troubleshooting)，按症状分类的处理路径
 - 查看 [GitHub Issues](https://github.com/ayuayue/PiDeck/issues)
 - 加入 **QQ 群：1026218644** 进行交流

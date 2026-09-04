@@ -24,8 +24,6 @@ The composer at the bottom supports several input modes:
 | Text | Type your prompt | Normal chat |
 | `@` reference | `@file src/index.ts` | Reference project files |
 | `&` session | `&session-name` | Reference past session context |
-| `!` shell | `!npm test` | Execute shell command |
-| `/` slash | `/commit` | Quick actions |
 
 ### Message Queue
 
@@ -55,3 +53,10 @@ Each project gets its own pi RPC agent process. This means:
 - **Isolation** — Work on one project doesn't affect another.
 - **Parallel agents** — You can have multiple agents running simultaneously for different projects.
 - **Independent context** — Each session maintains its own conversation history.
+
+## Next Steps
+
+- [Feature Reference](/en/guide/feature-reference) — every button, menu, and shortcut, where it lives and how to use it
+- [Settings & Skills](/en/guide/settings) — deep dive into configuration
+- [Troubleshooting](/en/guide/troubleshooting) — symptom-based problem paths
+- [Changelog](/en/changelog) — what changed in each release
