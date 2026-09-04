@@ -281,6 +281,8 @@ import { GitService } from "./git/GitService";
 import { WorktreeService } from "./git/WorktreeService";
 import { ConfigManager } from "./config/ConfigManager";
 import { TokendanceCatalogStore } from "./config/tokendanceCatalog";
+import { installTokendanceProvider } from "./config/tokendanceInstaller";
+import { TokendanceAuthStore } from "./config/tokendanceAuth";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { PromptManager } from "./prompts/PromptManager";
@@ -2754,6 +2756,11 @@ function registerIpc() {
 	// 调用即锁定索引）；updater 在 ready 后构造，此时 app.getPath("userData") 才可靠。
 	setPiAiCatalogUserDataDir(app.getPath("userData"));
 	registerCatalogIpc(new PiAiCatalogUpdater({ userDataDir: app.getPath("userData") }));
+	// TokenDance 目录 store 是共享实例：渲染层目录展示与一键安装（写入配置）读同一份缓存。
+	const tokendanceCatalogStore = new TokendanceCatalogStore({
+		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
+		log: (message, detail) => void appLogger.info("tokendance", message, detail),
+	});
 	registerSystemIpc({
 		piLocator,
 		settingsStore,
@@ -2779,11 +2786,22 @@ function registerIpc() {
 			dshHost,
 		},
 		modelCapabilityCache: piModelCapabilityCache,
-		// 内置 TokenDance 模型目录（live fetch + userData 缓存；注入列表供渲染层置顶展示）
-		tokendanceCatalog: new TokendanceCatalogStore({
-			getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
-			log: (message, detail) => void appLogger.info("tokendance", message, detail),
-		}),
+		// 内置 TokenDance 模型目录（live fetch + userData 缓存；
+		// 作为一键配置的数据源：目录模型写入 models.json 后由 pi 运行时自行解析）
+		tokendanceCatalog: tokendanceCatalogStore,
+		// 内置 TokenDance OAuth 授权（PKCE S256 headless；verifier 内存持有，重启失效）
+		tokendanceAuth: new TokendanceAuthStore(),
+		// 一键安装：pi models.json + DSH llm-pi-ai 双落盘（复用迁移服务的写盘策略：
+		// host 就绪走官方 settings API，否则直写 settings.yaml/.credentials.yaml）
+		tokendanceInstall: (apiKey) =>
+			installTokendanceProvider(
+				{
+					configManager,
+					dshHost,
+					tokendanceCatalog: tokendanceCatalogStore,
+				},
+				{ apiKey },
+			),
 		listDshMonitorSessions: () => dshAgentManager.list().map((tab) => ({ title: tab.title })),
 		stopDshHostFromMonitor,
 		getMainWindow: () => mainWindow,

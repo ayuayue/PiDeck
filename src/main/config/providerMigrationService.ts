@@ -276,7 +276,7 @@ async function writePiProviderAuthOnly(deps: ProviderMigrationDeps, snapshot: Pi
 	await deps.configManager.saveAuthConfig(nextAuth as PiAuthFile);
 }
 
-async function writeDshSnapshot(deps: ProviderMigrationDeps, snapshot: DshProviderSnapshot): Promise<boolean> {
+export async function writeDshSnapshot(deps: ProviderMigrationDeps, snapshot: DshProviderSnapshot): Promise<boolean> {
 	const needsSettingsWrite = Object.keys(snapshot.profile).length > 0;
 	const hostReady = deps.dshHost.isHostReady();
 	if (hostReady) {

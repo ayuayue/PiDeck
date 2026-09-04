@@ -12,9 +12,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AvailableModel } from "../../shared/types";
+// 端点/供应商名等常量收敛到 shared 层，主进程与渲染层共用一套值（防归因漂移）。
+import { TOKENDANCE_BASE_URL, TOKENDANCE_PROVIDER } from "../../shared/tokendance";
 
-export const TOKENDANCE_BASE_URL = "https://tokendance.space/gateway/v1";
-export const TOKENDANCE_PROVIDER = "tokendance";
+// 兼容导出：既有调用方（systemIpc/main/index/tests）仍按原名 import。
+export { TOKENDANCE_BASE_URL, TOKENDANCE_PROVIDER };
 /** 目录缓存有效期：模型目录变化不频繁，6 小时足够；超过后下次读取重新拉取。 */
 export const TOKENDANCE_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
 /** 拉取超时：与 ConfigManager 模型探测一致用 10s，避免网络差时拖住列表加载。 */
@@ -58,21 +60,6 @@ export function parseTokenDanceCatalog(data: unknown): AvailableModel[] {
 		});
 	}
 	return models;
-}
-
-/**
- * 把注入的 TokenDance 模型并入模型列表（纯函数）：
- * - 列表已含 tokendance 组（用户已保存目录到 pi models.json）→ 原样返回，不重复；
- * - 否则在**末尾**追加注入组。置顶由渲染层 providerOrder 控制（与 pi 目录来源的
- *   tokendance 组同一排序规则），这里只管数据合并且保证不产生重复条目。
- */
-export function mergeTokenDanceModels(
-	models: AvailableModel[],
-	injected: AvailableModel[],
-): AvailableModel[] {
-	if (injected.length === 0) return models;
-	if (models.some((m) => m.provider === TOKENDANCE_PROVIDER)) return models;
-	return [...models, ...injected];
 }
 
 export type TokendanceCatalogStoreDeps = {

@@ -42,7 +42,6 @@ function loadModule() {
 
 const {
 	parseTokenDanceCatalog,
-	mergeTokenDanceModels,
 	TokendanceCatalogStore,
 	TOKENDANCE_CATALOG_TTL_MS,
 	TOKENDANCE_PROVIDER,
@@ -95,21 +94,6 @@ test("parseTokenDanceCatalog 非对象/无 data 数组返回空", () => {
 	assert.deepEqual([...parseTokenDanceCatalog({ data: "not-array" })], []);
 });
 
-test("mergeTokenDanceModels：已含 tokendance 组不重复注入，否则追加末尾", () => {
-	const td = parseTokenDanceCatalog(SAMPLE_PAYLOAD);
-	const base = [
-		{ id: "claude-sonnet-4-5", provider: "anthropic" },
-		{ id: "gpt-5.2", provider: "openai" },
-	];
-	const merged = mergeTokenDanceModels(base, td);
-	assert.equal(merged.length, base.length + td.length);
-	assert.equal(merged.at(-1).provider, TOKENDANCE_PROVIDER);
-	// 已含组（用户已把目录保存进 pi models.json）→ 原样返回
-	const withTd = [...base, { id: "glm-4.7", provider: TOKENDANCE_PROVIDER }];
-	assert.deepEqual(mergeTokenDanceModels(withTd, td), withTd);
-	// 空注入不改变原数组
-	assert.deepEqual(mergeTokenDanceModels(base, []), base);
-});
 
 test("缓存新鲜时直接读缓存（TTL 内不再发请求）", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "tokendance-test-"));

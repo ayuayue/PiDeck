@@ -451,6 +451,11 @@ export const ipcChannels = {
 	configFetchModels: "config:fetch-models",
 	/** 取内置 TokenDance 模型目录（live fetch + userData 缓存；force=true 强制刷新） */
 	configGetTokendanceModels: "config:get-tokendance-models",
+	configInstallTokendance: "config:install-tokendance",
+	/** 启动 TokenDance OAuth 授权流程（PKCE S256 headless；返回授权 URL + flowId） */
+	configTokendanceAuthStart: "config:tokendance-auth-start",
+	/** 提交一次性授权 code 交换 TokenDance API Key（成功返回完整 key） */
+	configTokendanceAuthExchange: "config:tokendance-auth-exchange",
 	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
 	configTestProvider: "config:test-provider",
 	/** 查询 provider 用量/余额（主进程按 provider 名路由：门控 → 端点解析 → 模板探测） */
