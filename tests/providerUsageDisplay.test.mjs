@@ -195,8 +195,45 @@ test("usageBadgePrimarySegment：多档取档位最严重的一段（选择器�
 
 test("usageWindowLabel：内置 key 走 i18n，未知 key 原样文本", () => {
   assert.equal(display.usageWindowLabel("mcpMonthly").key, "sessionContext.usageWindowMcpMonthly");
+  // Command Code 月度窗口复用 periods 的「本月/Monthly」叫法（i18n 两语言已有）。
+  assert.equal(display.usageWindowLabel("monthly").key, "sessionContext.usageMonthly");
   const custom = display.usageWindowLabel("myGateway");
   assert.equal("text" in custom ? custom.text : undefined, "myGateway");
+});
+
+test("Command Code 三窗口段：5小时/周/本月独立百分比，月度带剩余可推导", () => {
+  // 与 providerUsageProbe 的 commandcode-credits 解析输出对齐（GOAT 套餐实测数值）。
+  const res = creditsResult({
+    remaining: 63.451494087,
+    windows: [
+      { key: "fiveHour", total: 14, used: 0.0604245041 },
+      { key: "weekly", total: 35, used: 6.548505913 },
+      { key: "monthly", total: 70, used: 6.548505913, remaining: 63.451494087 },
+    ],
+  });
+  const t = (key) => `[${key}]`;
+  const segments = display.usageBadgeSegments(res, t);
+  assert.equal(segments.length, 3);
+  assert.equal("labelKey" in segments[0] ? segments[0].labelKey : "", "sessionContext.usageWindowFiveHour");
+  assert.equal(segments[0].text, "0%");
+  assert.equal("labelKey" in segments[1] ? segments[1].labelKey : "", "sessionContext.usageWindowWeekly");
+  assert.equal(segments[1].text, "19%");
+  assert.equal("labelKey" in segments[2] ? segments[2].labelKey : "", "sessionContext.usageMonthly");
+  assert.equal(segments[2].text, "9%");
+  assert.equal(display.usageTone(res), "ok");
+  // 月度不可信（无 total）→ 退化「窗口名 + 剩余」灰字，不臆造百分比
+  const degraded = creditsResult({
+    remaining: 63.45,
+    windows: [
+      { key: "fiveHour", total: 14, used: 0.06 },
+      { key: "weekly", total: 35, used: 6.55 },
+      { key: "monthly", remaining: 63.45 },
+    ],
+  });
+  const degradedSegments = display.usageBadgeSegments(degraded, t);
+  assert.equal(degradedSegments.length, 3);
+  assert.equal(degradedSegments[2].text, "63.45");
+  assert.equal(degradedSegments[2].tone, "neutral");
 });
 
 test("relativeTimeParts：刚刚/分钟/小时/天/过期 五档（cc-switch Clock 行语义）", () => {

@@ -92,9 +92,10 @@ export type UsageProbeParse =
 	  }
 	/**
 	 * 专用解析器：响应结构特殊（cent 包装、percent/count 混合、多端点链），
-	 * 声明式路径表达不了，注册专用函数解析。目前支持 xai-billing / codex-usage。
+	 * 声明式路径表达不了，注册专用函数解析。目前支持 xai-billing / codex-usage /
+	 * commandcode-credits。
 	 */
-	| { kind: "custom"; resolver: "xai-billing" | "codex-usage" };
+	| { kind: "custom"; resolver: "xai-billing" | "codex-usage" | "commandcode-credits" };
 
 /** 链式预检（如 xAI 需先查 identity 拿 userId 再查 billing）：
  *  先请求预检端点，把响应里 capture.path 的值注入主请求的 capture.header。 */
@@ -316,6 +317,18 @@ export const USAGE_PROBE_CANDIDATES: UsageProbeCandidate[] = [
 		},
 		templateId: "xai-billing",
 		parse: { kind: "custom", resolver: "xai-billing" },
+	},
+	// Command Code（commandcode.ai）：用量端点在 host 根 /alpha/…（与 OpenAI 兼容端点
+	// /provider/v1 不同 base），走 rootPath 只取 baseUrl 的 origin。鉴权即标准 Bearer apiKey
+	// （alpha 端点与 cmd CLI /usage 同源，实测可用）。响应是「月度剩余 + 5h/周滚动窗」混合
+	// 结构且月度上限不在接口里，用专用解析器 commandcode-credits：5h/周已用直接展示，
+	// 月度百分比按官方定价表双重校验（cap 反查套餐 + 剩余不超上限）推算，校验不过降级只显剩余。
+	{
+		path: "/alpha/billing/credits",
+		rootPath: true,
+		baseUrlContains: ["api.commandcode.ai"],
+		templateId: "commandcode-credits",
+		parse: { kind: "custom", resolver: "commandcode-credits" },
 	},
 	// 通用 OpenAI 兼容网关：多数 OpenAI 兼容中转站实现官方 /v1/usage 端点
 	// （{ balance, unit } 结构）。不限定 baseUrl，仅靠 apiTypes 收窄到 OpenAI 协议，
