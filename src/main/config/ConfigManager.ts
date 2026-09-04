@@ -51,7 +51,7 @@ import {
 	USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID,
 } from "./usageProbeTemplates";
 import { loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
-import type { UserUsageProbe } from "./userUsageProbes";
+import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
 import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
@@ -899,7 +899,8 @@ export class ConfigManager {
 	 * 2. 模板路由：配置了声明式模板（general/newapi）→ 用模板构建候选（覆盖字段生效）；
 	 *    未配置 → 内置候选表 + 旧 probes 数组按 baseUrl/apiType 自动匹配（内置默认开）；
 	 * 3. 超时：per-provider timeoutSecs（默认 10s，学 cc-switch）。
-	 * backend="dsh" 时配置/凭据走 DSH 链路（$DSH_HOME），与 pi 完全同构、互不干扰。
+	 * backend="dsh" 时配置/凭据走 DSH 链路（$DSH_HOME）：DSH 侧已配置则该配置为准；
+	 * 未配置时回退 Pi 侧同 provider 配置（display parity，见 loadUsageSettingsWithFallback）。
 	 * 全部失败时返回结构化错误，并对响应做密钥脱敏，避免把 token 回传给渲染层。
 	 */
 	async fetchProviderUsage(provider: string, backend: UsageProbeBackend = "pi"): Promise<ProviderUsageResult> {
@@ -908,7 +909,8 @@ export class ConfigManager {
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
 		const settingsDir = this.usageProbeSettingsDir(backend);
 		// 1) 门控：用户显式关闭（enabled=false）→ 快速返回，不发请求。
-		const settings = await loadUsageProbeSettings(settingsDir, provider);
+		// DSH 未单独配置时回退 Pi 同 provider 配置（display parity：Pi 已配置并显示 → DSH 卡片默认也显示）。
+		const { settings, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, settingsDir);
 		for (const error of settings.errors) {
 			console.warn("[ConfigManager] 用量探针配置被忽略：", error);
 		}
@@ -952,7 +954,7 @@ export class ConfigManager {
 			);
 		}
 
-		const userProbes = await loadUserUsageProbes(settingsDir);
+		const userProbes = await loadUserUsageProbes(effectiveDir);
 		for (const error of userProbes.errors) {
 			console.warn("[ConfigManager] 用户用量探针配置被忽略：", error);
 		}
@@ -983,9 +985,14 @@ export class ConfigManager {
 	): Promise<UsageProbeSettingsResult> {
 		// 同 fetchProviderUsage：DSH 组 id 别名先归一，才能读回以规范名保存的配置。
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
-		const loaded = await loadUsageProbeSettings(this.usageProbeSettingsDir(backend), provider);
+		const { settings: loaded, effectiveDir } = await this.loadUsageSettingsWithFallback(
+			backend,
+			provider,
+			this.usageProbeSettingsDir(backend),
+		);
 		// 旧版 probes 数组命中回显：手写/历史探针没有声明式配置，弹窗据此预填 Cookie 模板字段迁移。
-		const legacyProbes = await this.matchLegacyProbesForProvider(provider, backend);
+		// 回退语义下旧版 probes 也来自 effectiveDir（Pi 目录），弹窗看到的迁移源与实际查询一致。
+		const legacyProbes = await this.matchLegacyProbesForProvider(provider, backend, effectiveDir);
 		return {
 			...(loaded.config ? { config: loaded.config } : {}),
 			recognized: await this.recognizeUsageTemplate(provider, backend),
@@ -1003,11 +1010,12 @@ export class ConfigManager {
 	private async matchLegacyProbesForProvider(
 		provider: string,
 		backend: UsageProbeBackend = "pi",
+		dir = this.usageProbeSettingsDir(backend),
 	): Promise<UserUsageProbe[]> {
 		const resolved = await this.resolveUsageEndpoint(provider, backend);
 		if (!resolved.matched || !resolved.baseUrl) return [];
 		const api = this.normalizeApiType(resolved.apiType);
-		const loaded = await loadUserUsageProbesDetailed(this.usageProbeSettingsDir(backend));
+		const loaded = await loadUserUsageProbesDetailed(dir);
 		const hits: UserUsageProbe[] = [];
 		for (let index = 0; index < loaded.candidates.length; index += 1) {
 			const probe = loaded.probes[index];
@@ -1122,6 +1130,33 @@ export class ConfigManager {
 	/** 供 IPC 保存路径使用：backend 对应的用量查询配置目录。 */
 	getUsageProbeConfigDir(backend: UsageProbeBackend = "pi"): string {
 		return this.usageProbeSettingsDir(backend);
+	}
+
+	/**
+	 * 读单 provider 用量配置；backend="dsh" 且 DSH 侧未配置时回退 Pi 侧同名 provider 配置。
+	 *
+	 * 显示对齐（display parity）规则：Pi 里已配置并显示用量 → DSH 卡片同一 provider 默认也显示，
+	 * 无需在 DSH 侧重复配置；DSH 一旦显式保存过（含 enabled=false 关闭）即接管、不再回退。
+	 * 回退取「配置 + 旧版 probes 数组」（effectiveDir 指向 Pi 目录），端点与凭据仍走 DSH 链路
+	 * （DSH profile / 凭据库），不会拿 Pi 的 key 去查 DSH 端点。provider 名按两侧一致匹配
+	 * （deepseek 已由 normalizeDshDeepseekProvider 统一为规范名）。
+	 */
+	private async loadUsageSettingsWithFallback(
+		backend: UsageProbeBackend,
+		provider: string,
+		settingsDir: string,
+	): Promise<{ settings: UsageProbeSettingsLoadResult; effectiveDir: string }> {
+		const settings = await loadUsageProbeSettings(settingsDir, provider);
+		if (backend !== "dsh" || settings.config) {
+			return { settings, effectiveDir: settingsDir };
+		}
+		// DSH 无配置：尝试 Pi 侧同名 provider（仅配置级回退，凭据复用 DSH 链路解析）。
+		const piSettings = await loadUsageProbeSettings(this.configDir, provider);
+		if (!piSettings.config) return { settings, effectiveDir: settingsDir };
+		return {
+			settings: { config: piSettings.config, errors: [...settings.errors, ...piSettings.errors] },
+			effectiveDir: this.configDir,
+		};
 	}
 
 	/**

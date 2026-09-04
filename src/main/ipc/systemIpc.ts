@@ -29,7 +29,9 @@ import { resolveConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
 import type { SkillManager } from "../skills/SkillManager";
 import { fetchModelList, getCachedModelList, invalidateModelListCache, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
-import { mergeTokenDanceModels, type TokendanceCatalogStore } from "../config/tokendanceCatalog";
+import { TokendanceCatalogStore } from "../config/tokendanceCatalog";
+import type { TokendanceInstallResult } from "../config/tokendanceInstaller";
+import type { TokendanceAuthStore } from "../config/tokendanceAuth";
 
 import { probePiModel } from "../pi/PiModelProber";
 import type { PiModelCapabilityCache } from "../pi/PiModelCapabilityCache";
@@ -112,6 +114,10 @@ export type SystemIpcDeps = {
 	modelCapabilityCache: PiModelCapabilityCache;
 	/** 内置 TokenDance 模型目录（live fetch + userData 缓存）；未装配 = 列表不注入。 */
 	tokendanceCatalog?: TokendanceCatalogStore;
+		/** 内置 TokenDance OAuth 授权流程（PKCE verifier 内存持有）；未装配 = 授权入口不可用。 */
+	tokendanceAuth?: TokendanceAuthStore;
+	/** TokenDance 一键安装（写入 pi models.json + DSH llm-pi-ai）；未装配 = 配置入口不可用。 */
+	tokendanceInstall?: (apiKey?: string) => Promise<TokendanceInstallResult>;
 	/** 环境体检编排器（问题反馈页一键排障）。 */
 	environmentDoctor?: EnvironmentDoctor;
 	/** 诊断产物导出器（Markdown / zip 日志包）。 */
@@ -207,24 +213,6 @@ function asConfigProxyMode(raw: unknown): ConfigProxyMode {
 	return raw === "pi" || raw === "desktop" || raw === "off" ? raw : "follow";
 }
 
-/**
- * 把内置 TokenDance 目录并入模型列表（读取缓存/拉取，失败静默保持原列表）。
- * 注入是“展示层”行为：pi 运行时会话仍按 pi 自己的 models.json 解析 provider，
- * 所以列表已含 tokendance 组（用户已保存到 pi 配置）时不会再塞一份。
- */
-async function withTokenDanceModels(
-	models: AvailableModel[],
-	catalog?: TokendanceCatalogStore,
-): Promise<AvailableModel[]> {
-	if (!catalog) return models;
-	try {
-		const result = await catalog.getModels();
-		return result ? mergeTokenDanceModels(models, result.models) : models;
-	} catch {
-		return models;
-	}
-}
-
 export function registerSystemIpc(deps: SystemIpcDeps): void {
 	const {
 		piLocator,
@@ -276,6 +264,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		providerMigration,
 		modelCapabilityCache,
 		tokendanceCatalog,
+		tokendanceAuth,
+		tokendanceInstall,
 		diagnosticsMonitor,
 		environmentDoctor,
 		logBundleExporter,
@@ -339,8 +329,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				capabilitiesReady: snapshot !== null,
 				providers: [...new Set(models.map((m) => m.provider))].slice(0, 8),
 			});
-			// 内置 TokenDance 目录注入（未配置/拉取失败静默保持原列表）
-			return await withTokenDanceModels(models, tokendanceCatalog);
+			// 供应商只来自 pi 配置（models.json）/内置 catalog：TokenDance 需用户在配置
+			// 页确认后写入，这里不做任何展示层注入（列表 = 运行时可用模型）。
+			return models;
 		} catch (error) {
 			void appLogger.warn("pi", "Failed to resolve model list", {
 				error: error instanceof Error ? error.message : String(error),
@@ -384,14 +375,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 					configManager,
 					forceArg,
 				);
-			// 内置 TokenDance 目录注入（已含 tokendance 组 / 未装配 / 拉取失败都不改变报告）
-			const merged = await withTokenDanceModels(report.models, tokendanceCatalog);
-			if (merged.length !== report.models.length) {
-				void appLogger.info("pi", "TokenDance models injected into report", {
-					added: merged.length - report.models.length,
-				});
-			}
-			report.models = merged;
+			// 模型列表只反映 pi 运行时配置：TokenDance 目录由用户确认写入配置后自然出现。
 			void appLogger.info("pi", "Model list report resolved", {
 				ok: report.ok,
 				reason: report.reason,
@@ -1352,6 +1336,62 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			return { models: [], fromCache: false, at: 0 };
+		}
+	});
+	ipcMain.handle(ipcChannels.configTokendanceAuthStart, async (_event) => {
+		// 未装配 = 主进程没注册授权能力（预览/测试壳），返回失败不抛异常。
+		if (!tokendanceAuth) return { ok: false, error: "TokenDance auth unavailable" };
+		try {
+			return { ok: true, ...tokendanceAuth.start() } as const;
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance auth start failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { ok: false, error: "TokenDance auth start failed" };
+		}
+	});
+	ipcMain.handle(ipcChannels.configTokendanceAuthExchange, async (_event, payload: unknown) => {
+		// 边界校验：flowId/code 必须是非空字符串（渲染层入参不可信）；code 不写日志。
+		const flowId = typeof payload === "object" && payload ? (payload as { flowId?: unknown }).flowId : undefined;
+		const code = typeof payload === "object" && payload ? (payload as { code?: unknown }).code : undefined;
+		if (typeof flowId !== "string" || !flowId || typeof code !== "string" || !code) {
+			return { ok: false, error: "Invalid auth exchange input" };
+		}
+		if (!tokendanceAuth) return { ok: false, error: "TokenDance auth unavailable" };
+		const result = await tokendanceAuth.complete(flowId, code);
+		if (result.ok) {
+			void appLogger.info("config", "TokenDance API key exchanged");
+			return { ok: true, key: result.key } as const;
+		}
+		void appLogger.warn("config", "TokenDance auth exchange failed", { error: result.error });
+		return { ok: false, error: result.error } as const;
+	});
+	ipcMain.handle(ipcChannels.configInstallTokendance, async (_event, payload: unknown) => {
+		// 边界校验：apiKey 为可选字符串（渲染层入参不可信）；Key 不写日志。
+		if (!tokendanceInstall) {
+			return { ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "TokenDance install unavailable" };
+		}
+		const apiKey = payload && typeof payload === "object" ? (payload as { apiKey?: unknown }).apiKey : undefined;
+		if (typeof apiKey !== "undefined" && typeof apiKey !== "string") {
+			return { ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "Invalid install input" };
+		}
+		try {
+			const result = await tokendanceInstall(
+				typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : undefined,
+			);
+			void appLogger.info("config", "TokenDance provider installed", {
+				ok: result.ok,
+				modelCount: result.modelCount,
+				piSaved: result.piSaved,
+				dshSaved: result.dshSaved,
+				dshWroteViaHost: result.dshWroteViaHost,
+			});
+			return result;
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance install failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "TokenDance install failed" };
 		}
 	});
 	ipcMain.handle(ipcChannels.configTestProvider, async (

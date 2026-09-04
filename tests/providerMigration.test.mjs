@@ -62,6 +62,50 @@ test("dsh custom model round-trips input and reasoningEfforts into Pi metadata",
   }]);
 });
 
+// 回归：pi 的 thinkingLevelMap null 表恒等（发档位名本身），DSH 校验除 off 外每档必须
+// 给非空 wire 值（settings-rejected: "needs the wire value dispatch should send"）。
+// 迁移必须把非 off 档的 null 展开为档位名，否则 settings.update 被 DSH 拒。
+test("pi null thinkingLevelMap entries expand to identity wire values for DSH", () => {
+  const dsh = mapping.piToDshSnapshot({
+    name: "tr",
+    baseUrl: "https://x/v1",
+    apiKey: "sk-test",
+    models: [{
+      id: "deepseek-v4-flash",
+      name: "DeepSeek V4 Flash",
+      contextWindow: 1000000,
+      maxTokens: 384000,
+      reasoning: true,
+      input: ["text"],
+      thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high" },
+    }],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(dsh.profile.models?.[0]?.reasoningEfforts)), {
+    minimal: "minimal",
+    low: "low",
+    medium: "medium",
+    high: "high",
+  });
+});
+
+test("off null stays null; off with wire value passes through", () => {
+  const dsh = mapping.piToDshSnapshot({
+    name: "tr",
+    baseUrl: "https://x/v1",
+    apiKey: "sk-test",
+    models: [
+      { id: "m1", reasoning: true, thinkingLevelMap: { off: null, xhigh: null, max: "max" } },
+      { id: "m2", reasoning: true, thinkingLevelMap: { off: "none" } },
+    ],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(dsh.profile.models?.[0]?.reasoningEfforts)), {
+    off: null,
+    xhigh: "xhigh",
+    max: "max",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(dsh.profile.models?.[1]?.reasoningEfforts)), { off: "none" });
+});
+
   assert.equal(dsh.profile.baseURL, "https://api.weishiair.de/v1");
   assert.equal(dsh.profile.apiKeyEnv, "WEISHIAIR_API_KEY");
   assert.equal(dsh.profile.models?.length, 1);

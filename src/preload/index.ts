@@ -1514,6 +1514,26 @@ const api = {
 				fromCache: boolean;
 				at: number;
 			}>,
+		/** 启动 TokenDance OAuth 授权（PKCE S256 headless）：返回授权 URL + flowId（verifier 仅主进程持有）。 */
+		tokendanceAuthStart: () =>
+			ipcRenderer.invoke(ipcChannels.configTokendanceAuthStart) as Promise<
+				{ ok: true; flowId: string; authUrl: string } | { ok: false; error: string }
+			>,
+		/** 用一次性授权 code 交换 TokenDance API Key；成功后 key 只在本次响应出现，须立即写入配置。 */
+		tokendanceAuthExchange: (flowId: string, code: string) =>
+			ipcRenderer.invoke(ipcChannels.configTokendanceAuthExchange, { flowId, code }) as Promise<
+				{ ok: true; key: string } | { ok: false; error: string }
+			>,
+		/** 一键安装 TokenDance：供应商信息 + 目录模型写入 pi models.json 与 DSH llm-pi-ai；apiKey 可选（OAuth 后已持有）。 */
+		installTokendance: (apiKey?: string) =>
+			ipcRenderer.invoke(ipcChannels.configInstallTokendance, { apiKey }) as Promise<{
+				ok: boolean;
+				modelCount: number;
+				piSaved: boolean;
+				dshSaved: boolean;
+				dshWroteViaHost?: boolean;
+				error?: string;
+			}>,
 		/** 视觉桥：读取当前配置（模型列表由渲染层经 listModels 拉全量） */
 		visionGetConfig: () =>
 			ipcRenderer.invoke(ipcChannels.visionGetConfig) as Promise<{
