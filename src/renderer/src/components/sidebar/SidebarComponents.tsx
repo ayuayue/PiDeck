@@ -28,6 +28,9 @@ import {
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "../ui-shadcn/dropdown-menu";
 import { Button } from "../ui-shadcn/button";
@@ -682,24 +685,27 @@ export function ProjectContextMenu(props: {
 				{isWorktreeEnabled ? t("menu.disableWorktree") : t("menu.enableWorktree")}
 			</DropdownMenuItem>
 			<DropdownMenuSeparator />
-			{/* 导入：外部会话迁移入口（Codex/Claude/OpenCode/ZCode） */}
-			<DropdownMenuLabel>{t("menu.group.import")}</DropdownMenuLabel>
-			<DropdownMenuItem onSelect={props.onImportCodexSessions}>
-				<Download className="size-3.5" aria-hidden="true" />
-				{t("menu.importCodex")}
-			</DropdownMenuItem>
-			<DropdownMenuItem onSelect={props.onImportClaudeSessions}>
-				<Download className="size-3.5" aria-hidden="true" />
-				{t("menu.importClaude")}
-			</DropdownMenuItem>
-			<DropdownMenuItem onSelect={props.onImportOpenCodeSessions}>
-				<Download className="size-3.5" aria-hidden="true" />
-				{t("menu.importOpenCode")}
-			</DropdownMenuItem>
-			<DropdownMenuItem onSelect={props.onImportZCodeSessions}>
-				<Download className="size-3.5" aria-hidden="true" />
-				{t("menu.importZCode")}
-			</DropdownMenuItem>
+			{/* 导入：外部会话迁移入口（Codex/Claude/OpenCode/ZCode），二级菜单收拢，避免主菜单过长 */}
+			<DropdownMenuSub>
+				<DropdownMenuSubTrigger>
+					<Download className="size-3.5" aria-hidden="true" />
+					{t("menu.importSessions")}
+				</DropdownMenuSubTrigger>
+				<DropdownMenuSubContent>
+					<DropdownMenuItem onSelect={props.onImportCodexSessions}>
+						{t("menu.importCodex")}
+					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={props.onImportClaudeSessions}>
+						{t("menu.importClaude")}
+					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={props.onImportOpenCodeSessions}>
+						{t("menu.importOpenCode")}
+					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={props.onImportZCodeSessions}>
+						{t("menu.importZCode")}
+					</DropdownMenuItem>
+				</DropdownMenuSubContent>
+			</DropdownMenuSub>
 			<DropdownMenuSeparator />
 			{/* 危险区：worktree 子项目复用此菜单时，删除必须经 Git worktree 清理流程，
 			    以保留分支/目录删除确认与运行中 Agent 保护。 */}

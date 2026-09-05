@@ -2527,6 +2527,7 @@ export const zhCN = {
   "menu.importCodex": "导入 Codex 会话",
   "menu.importClaude": "导入 Claude 会话",
   "menu.importOpenCode": "导入 OpenCode 会话",
+  "menu.importSessions": "导入会话",
   "menu.importZCode": "导入 ZCode 会话",
   "menu.filterSessions": "过滤历史记录",
   "menu.manageSessions": "会话管理",
