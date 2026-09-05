@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { collectSessionFileChanges, collectRunFileChanges, fileChangeToDiffLines } from "../src/renderer/src/components/session/TimelineFormat.ts";
+import { collectLatestTurnFileChanges } from "../src/shared/fileChanges.ts";
 
 /**
  * 会话文件修改汇总收集逻辑测试：
@@ -109,6 +110,57 @@ test("collectRunFileChanges: gathers file changes from one run only", () => {
 	assert.equal(files.length, 1);
 	assert.equal(files[0].path, "src/a.ts");
 	assert.equal(files[0].count, 1);
+});
+
+function userMessage(text = "hi") {
+	return {
+		id: `u-${Math.random().toString(36).slice(2)}`,
+		agentId: "a",
+		role: "user",
+		text,
+		timestamp: Date.now(),
+	};
+}
+
+test("collectLatestTurnFileChanges: only aggregates files after the last user message", () => {
+	const messages = [
+		userMessage("第一轮提问"),
+		toolMessage({ path: "src/old.ts", args: { file_path: "src/old.ts", content: "old" } }),
+		userMessage("第二轮提问"),
+		toolMessage({ path: "src/new.ts", args: { file_path: "src/new.ts", content: "new" } }),
+	];
+	const files = collectLatestTurnFileChanges(messages);
+	assert.equal(files.length, 1);
+	assert.equal(files[0].path, "src/new.ts");
+	// 历史轮次（第一轮）的文件不出现
+	assert.ok(!files.some((f) => f.path === "src/old.ts"));
+});
+
+test("collectLatestTurnFileChanges: earlier-turn hits do not count into the latest turn", () => {
+	const messages = [
+		userMessage("提问1"),
+		toolMessage({ path: "src/a.ts", args: { file_path: "src/a.ts", content: "v1" } }),
+		userMessage("提问2"),
+		toolMessage({ path: "src/a.ts", args: { file_path: "src/a.ts", content: "v2" } }),
+	];
+	const files = collectLatestTurnFileChanges(messages);
+	assert.equal(files.length, 1);
+	assert.equal(files[0].count, 1); // 只统计最新一轮的一次命中
+	assert.equal(files[0].content, "v2");
+});
+
+test("collectLatestTurnFileChanges: no user message falls back to full aggregation", () => {
+	const messages = [
+		toolMessage({ path: "src/a.ts", args: { file_path: "src/a.ts", content: "a" } }),
+	];
+	const files = collectLatestTurnFileChanges(messages);
+	assert.equal(files.length, 1);
+	assert.equal(files[0].path, "src/a.ts");
+});
+
+test("collectLatestTurnFileChanges: no messages after the last user returns empty", () => {
+	const messages = [userMessage("刚提问，还没回答")];
+	assert.deepEqual(collectLatestTurnFileChanges(messages), []);
 });
 
 test("fileChangeToDiffLines: write yields all-added lines, edit yields removed+added", () => {

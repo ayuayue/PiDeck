@@ -30,7 +30,7 @@ import type {
 	SessionTodoSnapshot,
 } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
-import { collectSessionFileChanges } from "../../shared/fileChanges";
+import { collectLatestTurnFileChanges } from "../../shared/fileChanges";
 import { PiProcess } from "./PiProcess";
 import { createCompactRpcRequest } from "./compactRpc";
 import { mergeSubagentSources } from "./derivedSubagents";
@@ -897,11 +897,15 @@ export class AgentManager {
 
 
 	/**
-	 * 会话级文件修改汇总：从会话显示消息全量聚合 write/edit/create/patch。
-	 * 与渲染层 TimelineFormat 共用 shared/fileChanges 解析，历史/活会话通用。
+	 * 最新一轮文件修改汇总：从会话显示消息中取「最后一个 user 消息之后」的
+	 * 消息聚合 write/edit/create/patch（与渲染层 TimelineFormat 共用
+	 * shared/fileChanges 解析，历史/活会话通用）。
+	 *
+	 * 为什么只取最新一轮：composer 上方「修改的文件」横栏的语义是「这次
+	 * 提问后 agent 动了哪些文件」，累计全量会让历史轮次文件长期堆积。
 	 */
 	async readSessionFileChanges(sessionPath: string): Promise<SessionFileChange[]> {
-		return collectSessionFileChanges(await this.readSessionDisplayMessages(sessionPath, "_viewer"));
+		return collectLatestTurnFileChanges(await this.readSessionDisplayMessages(sessionPath, "_viewer"));
 	}
 
 	/**

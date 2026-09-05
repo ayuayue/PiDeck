@@ -135,7 +135,7 @@ function loadAgentManagerModule() {
 			// acp_delegate 推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
 			if (specifier === "./derivedSubagents") return { deriveToolSubagentEntries: () => [] };
 			// 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
-			if (specifier === "../../shared/fileChanges") return { collectSessionFileChanges: () => [] };
+			if (specifier === "../../shared/fileChanges") return { collectLatestTurnFileChanges: () => [] };
 			return nodeRequire(specifier);
 		},
 		Buffer,
@@ -190,7 +190,7 @@ function loadAgentManagerModule() {
 			return { SessionFileEditor: class {} };
 		}
 		// 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
-		if (specifier === "../../shared/fileChanges") return { collectSessionFileChanges: () => [] };
+		if (specifier === "../../shared/fileChanges") return { collectLatestTurnFileChanges: () => [] };
 		if (specifier === "./SessionHistoryReader") return historyReaderModule.exports;
       if (specifier === "./sessionEntryIds") {
         return {

@@ -91,7 +91,7 @@ function loadAgentManager() {
 			? { deriveToolSubagentEntries: () => [] }
 			// 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
 			: id === "../../shared/fileChanges"
-			? { collectSessionFileChanges: () => [] }
+			? { collectLatestTurnFileChanges: () => [] }
 			: require(id),
 	}, { filename: "SessionHistoryReader.ts" });
 	class SessionFileEditor {
@@ -205,7 +205,7 @@ function loadAgentManager() {
 				};
 			}
 			// 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
-			if (id === "../../shared/fileChanges") return { collectSessionFileChanges: () => [] };
+			if (id === "../../shared/fileChanges") return { collectLatestTurnFileChanges: () => [] };
 			// rewind checkpoint 纯 git 模块：WSL 路径测试不涉及回退，空桩满足依赖契约
 			// （桩返回空对象即可——命名导入在调用时才取属性，本测试不触发 rewind 方法）。
 			if (id === "../rewind/index.ts") return {};

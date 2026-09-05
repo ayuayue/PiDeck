@@ -15,13 +15,13 @@ import {
 } from "./ComposerWidgetLayout";
 
 /**
- * composer 上方的「修改的文件」常驻条（会话级文件汇总横栏）。
+ * composer 上方的「修改的文件」常驻条（最新一轮文件汇总横栏）。
  *
  * 形态：与输入框同宽同列的折叠卡（36px 高：图标 + 标题 + 文件数 + chevron），
- * 点击展开 diff 列表（会话级全量 + 限高滚动），顶部带「保存全部」。
- * 数据：useSessionFileChanges（主进程全量 + 当前 run 增量），跨轮次/会话切换不丢；
- * 「保存全部」清空快照跨组件共享（useSessionDismissedFiles）。
- * 无任何文件修改时整体不渲染（「有那个显示那个」）。
+ * 点击展开 diff 列表（最新一轮 + 限高滚动），顶部带「保存全部」。
+ * 数据：useSessionFileChanges（主进程最新一轮聚合 + 当前 run 增量），
+ * 新一轮开始自动刷新，不跨轮次堆积；“保存全部”清空快照跨组件共享
+ * （useSessionDismissedFiles）。无任何文件修改时整体不渲染（「有那个显示那个」）。
  */
 
 const FileEntry = (props: {

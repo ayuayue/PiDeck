@@ -49,7 +49,7 @@ function loadAgentManager() {
     exports: module.exports,
     require: (specifier) => {
       // 本测试不覆盖会话文件汇总；提供空实现满足 AgentManager 依赖契约
-      if (specifier === "../../shared/fileChanges") return { collectSessionFileChanges: () => [] };
+      if (specifier === "../../shared/fileChanges") return { collectLatestTurnFileChanges: () => [] };
       if (specifier === "electron") {
         return {
           app: { getName: () => "PiDeck", getPath: () => "C:/tmp" },
