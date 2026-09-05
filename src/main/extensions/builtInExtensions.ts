@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
  * 启动 RPC 时通过可重复的 `--extension/-e` 注入，避免污染用户全局 pi。
  */
 export const BUILT_IN_EXTENSIONS = [
+	"pi-deck-request-size-recovery.ts",
 	"pi-deck-ask-question.ts",
 	"pi-deck-goal-mode.ts",
 	"pi-deck-nul-redirect-fix.ts",
