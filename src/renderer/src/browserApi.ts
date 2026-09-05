@@ -167,6 +167,8 @@ async function sessionRuntimeCommand<T>(
 export function createBrowserApi(): PiDesktopApi {
 	return {
 		...base,
+		// Browser/Web builds cannot capture or upload audio through the desktop-only IPC domain.
+		voiceTranscription: base.voiceTranscription,
 		projects: {
 			...base.projects,
 			list: async () => {

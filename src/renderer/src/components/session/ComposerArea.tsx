@@ -33,6 +33,7 @@ import {
 import type { GitBranchInfo } from "../../../../shared/types";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { isLiveRuntimeStatus } from "../../utils/sessionCommands";
+import { VoiceTranscriptionControls } from "./VoiceTranscriptionControls";
 
 export type ComposerAreaProps = {
   sessionId: string;
@@ -287,6 +288,15 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
                         onWatermarkChange: composer.delivery.setImageGenWatermark,
                       }
                     : undefined
+                }
+                voiceControls={
+                  <VoiceTranscriptionControls
+                    state={composer.voice.state}
+                    disabled={composer.isStarting}
+                    onStart={() => void composer.voice.start()}
+                    onStop={composer.voice.stop}
+                    onCancel={composer.voice.cancel}
+                  />
                 }
                 sendControls={
                   <ComposerSendControls

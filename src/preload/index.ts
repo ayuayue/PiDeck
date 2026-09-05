@@ -5,6 +5,13 @@ import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/type
 import type { ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
 import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
 import type {
+	VoiceTranscriptionPublicConfig,
+	VoiceTranscriptionRequest,
+	VoiceTranscriptionResult,
+	VoiceTranscriptionSaveInput,
+	VoiceTranscriptionSaveResult,
+} from "../shared/types/voiceTranscription";
+import type {
 	YaoPromptListResult,
 	YaoPromptDetailResult,
 	AgentRuntimeState,
@@ -1823,6 +1830,16 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.imagegenSaveConfig, config) as Promise<ImageGenSaveResult>,
 	},
 
+	voiceTranscription: {
+		getConfig: () =>
+			ipcRenderer.invoke(ipcChannels.voiceTranscriptionGetConfig) as Promise<VoiceTranscriptionPublicConfig>,
+		saveConfig: (config: VoiceTranscriptionSaveInput) =>
+			ipcRenderer.invoke(ipcChannels.voiceTranscriptionSaveConfig, config) as Promise<VoiceTranscriptionSaveResult>,
+		transcribe: (request: VoiceTranscriptionRequest) =>
+			ipcRenderer.invoke(ipcChannels.voiceTranscriptionTranscribe, request) as Promise<VoiceTranscriptionResult>,
+		cancel: (requestId: string) =>
+			ipcRenderer.invoke(ipcChannels.voiceTranscriptionCancel, requestId) as Promise<void>,
+	},
 	// ── 模型目录（pi-ai-catalog）：查询状态 / 检查更新 / 从 GitHub 更新 / 还原 / 恢复备份 ──
 	catalog: {
 		status: () =>
