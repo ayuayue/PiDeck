@@ -34,6 +34,17 @@ function loadCoordinator() {
 const BackgroundScanCoordinator = loadCoordinator();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 轮询等待条件成立（代替固定 sleep）：CI 全量并行时宏任务队列可能被抢占，
+// 固定时长等待异步补跑会偶发 flaky（2026-09 实测 backgroundScan 并发用例在 CI 红）。
+const waitFor = async (fn, timeoutMs = 1000, intervalMs = 2) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fn()) return;
+    await sleep(intervalMs);
+  }
+  throw new Error("waitFor timeout");
+};
+
 test("concurrent triggers for the same project collapse into one running scan + one pending rerun", async () => {
   const coordinator = new BackgroundScanCoordinator(0);
   let runs = 0;
@@ -49,7 +60,7 @@ test("concurrent triggers for the same project collapse into one running scan + 
   assert.equal(coordinator.schedule("p1", task), false, "third trigger also merges (no queue growth)");
 
   resolveFirst();
-  await sleep(20); // 等第一次完成 + pending 补跑
+  await waitFor(() => runs >= 2); // 等第一次完成 + pending 补跑（不依赖固定时长）
   assert.equal(runs, 2, "pending reruns exactly once");
 
   coordinator.dispose();
@@ -61,7 +72,7 @@ test("different projects scan independently", async () => {
   const taskFor = (id) => async () => { ran.push(id); };
   coordinator.schedule("p1", taskFor("p1"));
   coordinator.schedule("p2", taskFor("p2"));
-  await sleep(20);
+  await waitFor(() => ran.length >= 2);
   assert.deepEqual(ran.sort(), ["p1", "p2"]);
   coordinator.dispose();
 });
@@ -72,14 +83,13 @@ test("cooldown delays a rescan that fires too soon after the previous completion
   const task = async () => { runs += 1; };
 
   coordinator.schedule("p1", task);
-  await sleep(20); // 第一次完成
+  await waitFor(() => runs >= 1); // 第一次完成
   assert.equal(runs, 1);
 
   coordinator.schedule("p1", task); // 立即再触发 → 应进入冷却延迟
   await sleep(20);
   assert.equal(runs, 1, "still within cooldown: must not have rescanned yet");
-  await sleep(80);
-  assert.equal(runs, 2, "rescan runs after cooldown elapses");
+  await waitFor(() => runs >= 2); // 冷却结束后补跑
 
   coordinator.dispose();
 });
