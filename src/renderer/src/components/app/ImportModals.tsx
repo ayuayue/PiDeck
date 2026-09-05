@@ -19,6 +19,8 @@ import type {
 	ClaudeImportReport,
 	OpenCodeSessionSummary,
 	OpenCodeImportReport,
+	ZCodeSessionSummary,
+	ZCodeImportReport,
 	Project,
 } from "../../../../shared/types";
 import { Checkbox } from "../ui-shadcn/checkbox";
@@ -80,6 +82,12 @@ function formatOpenCodeStatus(status: OpenCodeSessionSummary["status"]) {
 	if (status === "current") return t("opencode.status.current");
 	if (status === "outdated") return t("opencode.status.outdated");
 	return t("opencode.status.new");
+}
+
+function formatZCodeStatus(status: ZCodeSessionSummary["status"]) {
+	if (status === "current") return t("zcode.status.current");
+	if (status === "outdated") return t("zcode.status.outdated");
+	return t("zcode.status.new");
 }
 
 export function CodexImportModal(props: {
@@ -517,6 +525,131 @@ export function OpenCodeImportModal(props: {
 					</div>
 				)}
 			
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function ZCodeImportModal(props: {
+	project: Project;
+	sessions: ZCodeSessionSummary[];
+	selectedPaths: string[];
+	loading: boolean;
+	importing: boolean;
+	report: ZCodeImportReport | null;
+	onClose: () => void;
+	onRefresh: () => void;
+	onToggle: (sourcePath: string) => void;
+	onToggleAll: () => void;
+	onImport: () => void;
+}) {
+	const selected = new Set(props.selectedPaths);
+	const allSelected =
+		props.sessions.length > 0 &&
+		props.sessions.every((session) => selected.has(session.sourcePath));
+	return (
+		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
+			<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(800px,calc(100vw-48px))]", "codex-import-modal")}>
+				<DialogHeader className="flex-row items-center justify-between px-4 py-3">
+					<DialogTitle>{t("zcode.title")}</DialogTitle>
+					<DialogClose asChild>
+						<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
+							<X size={18} strokeWidth={2.2} aria-hidden="true" />
+						</Button>
+					</DialogClose>
+				</DialogHeader>
+				<div className="modal-header-sub">
+					<small>{props.project.name}</small>
+				</div>
+				<div className="codex-import-toolbar">
+					<div>
+						<strong>{t("zcode.importCount", { count: props.sessions.length })}</strong>
+						<span>{displayPath(props.project.path)}</span>
+					</div>
+					<div className="codex-import-actions">
+						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onRefresh} disabled={props.loading || props.importing}>
+							<RefreshCw size={14} />
+							{t("common.refresh")}
+						</Button>
+						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
+							<Check size={14} />
+							{allSelected ? t("zcode.selectNone") : t("common.selectAll")}
+						</Button>
+						<Button
+							variant="default" size="sm" className="primary-action h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5"
+							onClick={props.onImport}
+							disabled={props.importing || props.selectedPaths.length === 0}
+						>
+							<UploadCloud size={14} />
+							{props.importing
+								? t("zcode.importing")
+								: t("zcode.importSelected", {
+										count: props.selectedPaths.length,
+									})}
+						</Button>
+					</div>
+				</div>
+				<div className="codex-import-body">
+					{props.loading ? (
+						<div className="history-loading">
+							<div className="loader animate-pideck-spin" />
+							<span>{t("zcode.scanning")}</span>
+						</div>
+					) : props.sessions.length === 0 ? (
+						<div className="codex-import-empty">
+							<strong>{t("zcode.emptyTitle")}</strong>
+							<span>{t("zcode.emptyDesc")}</span>
+						</div>
+					) : (
+						<div className="codex-session-list">
+							{props.sessions.map((session) => (
+								<Label key={session.sourcePath} className="codex-session-row">
+									<Checkbox
+										checked={selected.has(session.sourcePath)}
+										onCheckedChange={() => props.onToggle(session.sourcePath)}
+									/>
+									<div className="codex-session-main">
+										<div className="codex-session-title">
+											<strong>{session.title}</strong>
+											<span className={`codex-status ${session.status}`}>
+												{formatZCodeStatus(session.status)}
+											</span>
+										</div>
+										<p>{session.preview}</p>
+										<small>
+											{new Date(session.updatedAt).toLocaleString()} ·{" "}
+											{t("drawer.sessionMessages", {
+												count: session.messageCount,
+											})}{" "}·{" "}
+											{formatBytes(session.sourceSize)}
+										</small>
+									</div>
+								</Label>
+							))}
+						</div>
+					)}
+				</div>
+				{props.report && (
+					<div className="codex-import-report">
+						<strong>
+							{t("zcode.importDone", {
+								imported: props.report.imported,
+								failed: props.report.failed,
+							})}
+						</strong>
+						<div>
+							{props.report.results.map((result) => (
+								<span
+									key={result.sourcePath}
+									className={result.success ? "success" : "error"}
+									title={result.error || result.targetPath}
+								>
+									{result.success ? "✓" : "✗"} {result.title || result.sourcePath}
+								</span>
+							))}
+						</div>
+					</div>
+				)}
 			</DialogContent>
 		</Dialog>
 	);

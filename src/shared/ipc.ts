@@ -226,6 +226,8 @@ export const ipcChannels = {
 	claudeSessionsImport: "claude-sessions:import",
 	openCodeSessionsScan: "opencode-sessions:scan",
 	openCodeSessionsImport: "opencode-sessions:import",
+	zcodeSessionsScan: "zcode-sessions:scan",
+	zcodeSessionsImport: "zcode-sessions:import",
 	settingsGet: "settings:get",
 	settingsUpdate: "settings:update",
 	/** 重启当前已启用的 Web 服务，不修改 Web 设置 */

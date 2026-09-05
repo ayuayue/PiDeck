@@ -1031,6 +1031,7 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionSource.codex": "Codex",
   "sessionSource.claude": "Claude",
   "sessionSource.opencode": "OpenCode",
+  "sessionSource.zcode": "ZCode",
   "sessionBackend.pi": "Pi",
   "sessionBackend.dsh": "DSH",
   "sessionBackend.imagegen": "ImageGen",

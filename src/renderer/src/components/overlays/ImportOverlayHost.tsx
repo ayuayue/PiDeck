@@ -3,6 +3,7 @@ import {
 	ClaudeImportModal,
 	CodexImportModal,
 	OpenCodeImportModal,
+	ZCodeImportModal,
 } from "../app/ImportModals";
 import type {
   CodexImportReport,
@@ -11,6 +12,8 @@ import type {
   ClaudeSessionSummary,
   OpenCodeImportReport,
   OpenCodeSessionSummary,
+  ZCodeImportReport,
+  ZCodeSessionSummary,
   Project,
 } from "../../../../shared/types";
 import type { ImportController } from "../../hooks/useImportFlow";
@@ -18,7 +21,8 @@ import type { ImportController } from "../../hooks/useImportFlow";
 export type ImportOverlayHostProps =
   | { kind: "codex"; project: Project; controller: ImportController<CodexSessionSummary, CodexImportReport>; onClose: () => void }
   | { kind: "claude"; project: Project; controller: ImportController<ClaudeSessionSummary, ClaudeImportReport>; onClose: () => void }
-  | { kind: "opencode"; project: Project; controller: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>; onClose: () => void };
+  | { kind: "opencode"; project: Project; controller: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>; onClose: () => void }
+  | { kind: "zcode"; project: Project; controller: ImportController<ZCodeSessionSummary, ZCodeImportReport>; onClose: () => void };
 
 export function renderImportError(error: string | null): ReactNode {
 	if (!error) return null;
@@ -52,11 +56,13 @@ export function renderImportError(error: string | null): ReactNode {
 export function ImportOverlayHost(props: ImportOverlayHostProps) {
 	if (props.kind === "codex") return <><CodexImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
 	if (props.kind === "claude") return <><ClaudeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
-	return <><OpenCodeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
+	if (props.kind === "opencode") return <><OpenCodeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
+	return <><ZCodeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
 }
 
 export type ImportOverlayData = {
 	codex: { sessions: CodexSessionSummary[]; report: CodexImportReport | null };
 	claude: { sessions: ClaudeSessionSummary[]; report: ClaudeImportReport | null };
 	opencode: { sessions: OpenCodeSessionSummary[]; report: OpenCodeImportReport | null };
+	zcode: { sessions: ZCodeSessionSummary[]; report: ZCodeImportReport | null };
 };

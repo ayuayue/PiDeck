@@ -35,7 +35,7 @@ export type ProjectChildItem =
 			agent: AgentTab;
 			sortAt: number;
 			/** 该 Agent 对应的会话来源（历史会话激活时从 SessionSummary 传递） */
-			source?: "pi" | "codex" | "claude" | "opencode";
+			source?: "pi" | "codex" | "claude" | "opencode" | "zcode";
 			/** Codex 导入的子会话 */
 			codexSubagents: SessionSummary[];
 			/** pi 原生子会话（pi-subagents 等扩展产生的，通过 parentSessionPath 关联） */
