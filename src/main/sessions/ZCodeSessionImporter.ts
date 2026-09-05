@@ -245,6 +245,12 @@ export class ZCodeSessionImporter {
 			}
 
 			if (role === "user") {
+				// 非真实用户输入：todo_reminder（TodoWrite 未使用的系统提醒）与
+				// background_notification（后台任务通知）由 agent 运行时注入，
+				// 导入后会产生一堆奇怪的「用户消息」气泡，跳过不转换。
+				const semantics = messageData.semantics as Record<string, unknown> | undefined;
+				const kind = semantics?.kind;
+				if (kind === "todo_reminder" || kind === "background_notification") continue;
 				pushMessage("user", content, {}, message.time_created);
 			} else if (role === "assistant") {
 				// semantics.origin === "system" 的消息（model_change 等 timeline 事件）

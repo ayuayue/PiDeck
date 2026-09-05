@@ -156,6 +156,30 @@ function seedTypicalSession(db, sessionId, projectPath) {
 		data: { type: "timeline", timelineType: "model_change" },
 	});
 
+	// TodoWrite 提醒 / 后台通知（agent_runtime 注入的 user 角色系统消息）：应被跳过
+	insertMessage(db, {
+		id: "m_todo",
+		sessionId,
+		sequence: 4,
+		created: T0 + 250,
+		data: { role: "user", semantics: { origin: "agent_runtime", kind: "todo_reminder" } },
+	});
+	insertPart(db, {
+		id: "p_todo_text", messageId: "m_todo", sessionId, sequence: 0,
+		data: { type: "text", text: "The TodoWrite tool hasn't been used recently. If you're working on tasks..." },
+	});
+	insertMessage(db, {
+		id: "m_bg",
+		sessionId,
+		sequence: 5,
+		created: T0 + 260,
+		data: { role: "user", semantics: { origin: "agent_runtime", kind: "background_notification" } },
+	});
+	insertPart(db, {
+		id: "p_bg_text", messageId: "m_bg", sessionId, sequence: 0,
+		data: { type: "text", text: "Background task completed." },
+	});
+
 	// 失败工具：输出应为 error 内容且 isError=true
 	insertMessage(db, {
 		id: "m_asst2",
