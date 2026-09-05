@@ -186,7 +186,7 @@ function TokenDanceKeyDialog(props: {
 											disabled={state.phase === "busy" || !code.trim()}
 										>
 											{state.phase === "busy" ? (
-												<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+												<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
 											) : (
 												<KeyRound className="size-3.5" aria-hidden="true" />
 											)}
@@ -343,7 +343,7 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 				<div className="flex items-center gap-1.5">
 					<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.tokendance.modelsCount")}</span>
 					{catalog.loading ? (
-						<Loader2 className="size-3 animate-spin text-text-tertiary" aria-hidden="true" />
+						<Loader2 className="size-3 animate-pideck-spin text-text-tertiary" aria-hidden="true" />
 					) : catalog.error ? (
 						<span className="text-danger">{t("config.tokendance.catalogError")}</span>
 					) : (
@@ -378,7 +378,7 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 					title={props.configured ? t("config.tokendance.alreadyConfiguredTitle") : undefined}
 				>
 					{installing ? (
-						<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+						<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
 					) : (
 						<PlugZap className="size-3.5" aria-hidden="true" />
 					)}
@@ -428,7 +428,7 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 						</Button>
 						<Button variant="default" size="sm" onClick={() => void handleInstall()} disabled={installing}>
 							{installing ? (
-								<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+								<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
 							) : (
 								<PlugZap className="size-3.5" aria-hidden="true" />
 							)}

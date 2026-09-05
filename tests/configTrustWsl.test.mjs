@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -52,6 +53,14 @@ function loadConfigManager() {
 			if (id === "./parseProviderModels") return { parseProviderModelsResponse: () => [] };
 			if (id === "./providerMigration") {
 				return { isSafeProviderName: () => true };
+			}
+			if (id === "./tokendanceAttribution") {
+				// saveModelsConfig 会调用归因兜底（仅依赖纯常量，无副作用），加载真实实现避免原生 require 找不到 .ts
+				return loadTsCommonJs("src/main/config/tokendanceAttribution.ts");
+			}
+			// 用量探针传输层抽取（6d9e2294）后新增的依赖；trust 测试不调用用量探测，空实现即可
+			if (id === "./usageProbeTransport") {
+				return { usageProbeRequest: async () => { throw new Error("stub"); } };
 			}
 			if (id === "./userUsageProbes") {
 				return {
