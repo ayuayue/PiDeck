@@ -1,3 +1,14 @@
+## v0.7.5-beta - 2026-09-05
+
+### 🚀 New Features
+- **Composer voice transcription** — Built-in microphone recording in the composer with requesting / recording / transcribing / cancel states; audio is transcribed through a configurable OpenAI-compatible `/audio/transcriptions` endpoint in the main process and inserted at the captured caret/selection without auto-sending. The microphone button stays hidden until base URL, model and API key are all configured. Credentials are encrypted with the OS keychain (`safeStorage`) and never leave the main process; audio stays in memory.
+- **Recovery from request body size limits** — When a gateway rejects the session with HTTP 413 / request-too-large errors, a confirmation offers to compact the session with a temporary model (auto-restored afterwards), breaking the deadlock where both the chat request and the compaction request exceed the same limit.
+- **Built-in TokenDance provider** — TokenDance (tokendance.space) ships as a built-in provider with a live model catalog, one-click OAuth key install, in-line balance display in the auth list and DSH migration support; manually added TokenDance providers automatically receive the `X-App-URL` attribution header so usage is credited to the app.
+- **pi v0.85.0 tracking** — The bundled model catalog is regenerated against pi-ai 0.85.0 (1336 entries) with updated model lists and capability fields.
+
+### 🐛 Fixes
+- **Calmer title scrolling** — Sidebar and tab title scrolling is unified to a constant 5px/s with no upper duration cap, so very long titles never turn into a fast flicker.
+
 ## v0.7.4-beta - 2026-09-04
 
 ### 🚀 New Features
