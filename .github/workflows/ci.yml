@@ -30,22 +30,10 @@ jobs:
         run: npm ci
 
       - name: Test
-        # 临时调试：逐文件串行 + 每文件 60s 超时，定位 Windows runner 上偶发挂起的文件；
-        # 定位后恢复为 npm test -- --test-timeout=120000 --test-force-exit
-        shell: bash
-        timeout-minutes: 10
-        run: |
-          total=0
-          for f in tests/*.test.mjs; do
-            total=$((total+1))
-            echo "=== [$total] RUN $f"
-            if timeout 60 node --test "$f" >/dev/null 2>&1; then
-              echo "PASS $f"
-            else
-              echo ">>> FAIL_OR_TIMEOUT $f"
-            fi
-          done
-          echo "ALL_DONE total=$total"
+        # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，
+        # Windows runner 偶发死锁挂起（二分定位：546 文件串行全过、并发偶发挂）；
+        # --test-timeout/--test-force-exit 兜底单测超时与 open handle。
+        run: npm run test:serial -- --test-timeout=120000 --test-force-exit
 
       - name: Generate app icon
         run: npm run make-icon
