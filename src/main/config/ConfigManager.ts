@@ -35,6 +35,7 @@ import { credentialRefFor } from "../../shared/dshCredentialRef";
 import { normalizeDshDeepseekProvider } from "../../shared/dshProviderNames";
 import { parseProviderModelsResponse } from "./parseProviderModels";
 import { isSafeProviderName, piBuiltinSnapshotFromCatalog, resolvePiApiKey } from "./providerMigration";
+import { ensureTokendanceAttribution } from "./tokendanceAttribution";
 import {
 	buildProbeFailureDetail,
 	buildProbeHeaders,
@@ -343,7 +344,9 @@ export class ConfigManager {
 		const validation = this.validateModels(data);
 		if (!validation.valid) return validation;
 		// 保存前统一迁移历史别名，确保写入 models.json 的 api 名称能被 pi 官方 registry 识别。
-		await this.writeJsonFile("models.json", this.normalizeModelsForPi(data));
+		// 随后做 TokenDance 归因兜底：用户手动添加的 tokendance provider 若没带 X-App-URL，
+		// 调用在平台上归因不到本应用（见 tokendanceAttribution.ts 头注释的官方归因规则）。
+		await this.writeJsonFile("models.json", ensureTokendanceAttribution(this.normalizeModelsForPi(data)));
 		return { valid: true };
 	}
 
