@@ -1083,7 +1083,7 @@ function applySessionRuntimeUiEvent(
     : current;
   if (
     (event.sourceChannel === "agents:state" || event.sourceChannel === "sessions:runtime") &&
-    (payload.status === "error" || payload.status === "closed")
+    payload.status === "closed"
   ) {
     return {
       agentId: event.agentId,
@@ -1525,8 +1525,7 @@ export const applySessionRuntimeEventAtom = atom(
       }
     }
 
-    const terminalEnvelope = !bindingChanged &&
-      (currentRuntime.status === "error" || currentRuntime.status === "closed");
+    const terminalEnvelope = !bindingChanged && currentRuntime.status === "closed";
     const nextUi = payload && !(terminalEnvelope && event.sourceChannel === "agents:ui-request")
       ? applySessionRuntimeUiEvent(
           get(sessionRuntimeUiByIdAtom)[event.sessionId],

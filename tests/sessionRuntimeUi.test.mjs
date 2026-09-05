@@ -171,10 +171,10 @@ test("renderer claim rejects stale generation and duplicate UI responses", () =>
   assert.equal(duplicate, false);
 });
 
-test("terminal runtime states clear all UI and reject same-generation UI revival", () => {
+test("closed runtime state clears all UI and rejects same-generation UI revival", () => {
   const atoms = loadAtoms();
 
-  for (const status of ["error", "closed"]) {
+  for (const status of ["closed"]) {
     const store = createStore();
     store.set(atoms.applySessionRuntimeEventAtom, event());
     store.set(atoms.claimSessionRuntimeUiResponseAtom, {
@@ -240,6 +240,29 @@ test("terminal runtime states clear all UI and reject same-generation UI revival
     assert.equal(ui.notification, undefined);
     assert.equal(ui.editorText, undefined);
   }
+});
+
+test("model error keeps same-generation UI requests available for recovery", () => {
+  const atoms = loadAtoms();
+  const store = createStore();
+  store.set(atoms.applySessionRuntimeEventAtom, event());
+  store.set(atoms.applySessionRuntimeEventAtom, event({
+    sourceChannel: "agents:state",
+    payload: { id: "agent-a", status: "error" },
+  }));
+  store.set(atoms.applySessionRuntimeEventAtom, event({
+    payload: {
+      agentId: "agent-a",
+      requestId: "recovery-request",
+      method: "confirm",
+      title: "Recover from the model error?",
+    },
+  }));
+
+  const ui = store.get(atoms.sessionRuntimeUiByIdAtom)["session-a"];
+  assert.equal(store.get(atoms.sessionRuntimeByIdAtom)["session-a"].status, "error");
+  assert.equal(ui.requests["request-a"].status, "pending");
+  assert.equal(ui.requests["recovery-request"].status, "pending");
 });
 
 test("renderer rollback restores only the current responding envelope", () => {

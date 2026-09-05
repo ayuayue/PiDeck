@@ -14,6 +14,7 @@ import {
 import { Input } from "../../ui-shadcn/input";
 import { SettingsSection } from "./SettingsStorageTab";
 import { DirtyMarker, SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
+import { VoiceTranscriptionSettingsSection } from "./VoiceTranscriptionSettingsSection";
 
 type CommonTabProps = {
   draft: AppSettings;
@@ -94,6 +95,8 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
           </Select>
         </SettingRow>
       </SettingBox>
+
+      <VoiceTranscriptionSettingsSection />
 
       {/* 会话 */}
       <SettingsSection title={t("settings.sectionSession")}>
