@@ -2546,6 +2546,7 @@ export const enUS: Record<TranslationKey, string> = {
   "menu.importCodex": "Import Codex Sessions",
   "menu.importClaude": "Import Claude Sessions",
   "menu.importOpenCode": "Import OpenCode Sessions",
+  "menu.importSessions": "Import Sessions",
   "menu.importZCode": "Import ZCode Sessions",
   "menu.filterSessions": "Filter Sessions",
   "menu.manageSessions": "Session Manager",

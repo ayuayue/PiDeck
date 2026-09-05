@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -281,6 +281,17 @@ test("zcode import: 生成可被 pi 读取的 JSONL（消息/工具/图片/标�
 
 		const targetPath = report.results[0].targetPath;
 		assert.ok(existsSync(targetPath), "导入产物应写入 pi 会话目录");
+		// 侧栏列表时间取文件 mtime：导入后必须回调为会话真实最后时间（session.time_updated），
+		// 否则所有导入会话显示为「刚刚」并排序置顶（时间失真）。
+		const fileMtime = statSync(targetPath).mtimeMs;
+		assert.ok(
+			Math.abs(fileMtime - (T0 + 1000)) < 2000,
+			`产物 mtime 应回调为会话最后时间 T0+1000，实际 ${fileMtime}`,
+		);
+		assert.ok(
+			Math.abs(fileMtime - Date.now()) > 60_000,
+			"产物 mtime 不应停留在导入时刻（当前时间）",
+		);
 		const lines = readFileSync(targetPath, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 
 		// 头部契约：session 头 + zcode_import 标记 + model_change + session_info 尾行

@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type {
 	ClaudeImportReport,
@@ -71,6 +71,12 @@ export class ClaudeSessionImporter {
 			const converted = this.convertToPiSession(projectPath, parsed);
 			await mkdir(this.getProjectSessionDir(projectPath), { recursive: true });
 			await writeFile(targetPath, converted.raw, "utf8");
+			// 侧栏列表时间取文件 mtime：写入后回调为会话真实最后时间，避免导入会话
+			// 全部显示为「刚刚导入」并排序置顶（与 ZCode/OpenCode 导入器同口径）。
+			if (parsed.meta.lastTimestamp > 0) {
+				const stamp = new Date(parsed.meta.lastTimestamp);
+				await utimes(targetPath, stamp, stamp);
+			}
 
 			return {
 				id: parsed.meta.sessionId,

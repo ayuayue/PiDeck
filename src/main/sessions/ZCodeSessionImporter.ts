@@ -1,7 +1,7 @@
 import { app } from "electron";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
@@ -73,6 +73,14 @@ export class ZCodeSessionImporter {
 			const converted = await this.convertToPiSession(projectPath, parsed);
 			await mkdir(this.getProjectSessionDir(projectPath), { recursive: true });
 			await writeFile(targetPath, converted.raw, "utf8");
+			// 侧栏列表时间取文件 mtime（SessionScanner.listPathSummary 用 stat.mtimeMs 作 updatedAt），
+			// 刚写入的产物 mtime = 导入时刻，会让所有导入会话显示为「刚刚」并排序置顶（时间失真）。
+			// 这里把产物 mtime 调回会话真实最后更新时间，与源数据时间一致。
+			const lastTimestamp = this.sessionLastTimestamp(parsed);
+			if (lastTimestamp > 0) {
+				const stamp = new Date(lastTimestamp);
+				await utimes(targetPath, stamp, stamp);
+			}
 			return {
 				id: String(parsed.meta.id),
 				sourcePath,
@@ -327,6 +335,15 @@ export class ZCodeSessionImporter {
 		} catch {
 			return undefined;
 		}
+	}
+
+	/** 会话真实最后更新时间：取 session.time_updated 与全部消息 time_updated 的最大值。 */
+	private sessionLastTimestamp(session: ParsedZCodeSession) {
+		let last = Number(session.meta.time_updated ?? 0);
+		for (const message of session.messages) {
+			if (message.time_updated > last) last = message.time_updated;
+		}
+		return last;
 	}
 
 	private async readZCodeSessions(projectPath: string): Promise<ParsedZCodeSession[]> {

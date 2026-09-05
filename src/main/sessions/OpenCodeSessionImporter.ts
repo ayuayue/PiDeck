@@ -1,7 +1,7 @@
 import { app } from "electron";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, stat, writeFile, readFile } from "node:fs/promises";
+import { mkdir, stat, utimes, writeFile, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
@@ -76,6 +76,13 @@ export class OpenCodeSessionImporter {
 			await mkdir(this.getProjectSessionDir(projectPath), { recursive: true });
 			// OpenCode 历史集中存放在 SQLite 中；导入时只生成 pi 可读副本，不修改原始数据库。
 			await writeFile(targetPath, converted.raw, "utf8");
+			// 侧栏列表时间取文件 mtime：写入后回调为会话真实最后时间，避免导入会话
+			// 全部显示为「刚刚导入」并排序置顶（与 ZCode/Claude 导入器同口径）。
+			const lastTimestamp = Number(parsed.meta.time_updated ?? 0);
+			if (lastTimestamp > 0) {
+				const stamp = new Date(lastTimestamp);
+				await utimes(targetPath, stamp, stamp);
+			}
 			return {
 				id: String(parsed.meta.id),
 				sourcePath,
