@@ -27,6 +27,7 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "proxy" },
 	{ id: "im", dividerBefore: true },
 	{ id: "pet" },
+	{ id: "sound" },
 	{ id: "vision" },
 	{ id: "imagegen" },
 	{ id: "web", dividerBefore: true },

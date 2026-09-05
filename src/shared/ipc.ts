@@ -579,6 +579,16 @@ export const ipcChannels = {
 	/** 宠物窗 → 主进程：请求显示右键上下文菜单 */
 	petContextMenu: "pet:context-menu",
 
+	// ===== 声音提醒 =====
+	/** 主进程 → 渲染层：推送声音提醒播放事件（完成/出错/等待输入） */
+	soundsPlay: "sounds:play",
+	/** 设置页 → 主进程：列出自定义音频（userData/sounds/） */
+	soundsListCustom: "sounds:list-custom",
+	/** 设置页 → 主进程：弹选择框导入自定义音频，返回 { ok, info | error } */
+	soundsImportCustom: "sounds:import-custom",
+	/** 设置页 → 主进程：删除自定义音频文件 */
+	soundsRemoveCustom: "sounds:remove-custom",
+
 	// ===== Scratch Pad（草稿本/多草稿） =====
 	scratchPadList: "scratch-pad:list",
 	scratchPadCreate: "scratch-pad:create",

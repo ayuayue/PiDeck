@@ -182,7 +182,7 @@ import {
 } from "./components/app/AppUtils";
 // ProjectResourcesModal 仅在打开资源弹层时加载
 const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
-import { createDefaultExternalEditorSettings, DEFAULT_PET_SCALE } from "../../shared/types";
+import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE } from "../../shared/types";
 import type {
   AgentRuntimeState,
   AgentTab,
@@ -520,12 +520,16 @@ export function App() {
     setClaudeImportProject,
     openCodeImportProject,
     setOpenCodeImportProject,
+    zcodeImportProject,
+    setZcodeImportProject,
     codexImportController,
     claudeImportController,
     openCodeImportController,
+    zcodeImportController,
     openCodexImport,
     openClaudeImport,
     openOpenCodeImport,
+    openZCodeImport,
   } = useImportFlow({
     setProjectMenu: () => undefined,
     refreshProjectSessions,
@@ -536,6 +540,8 @@ export function App() {
     importClaudeSessionsApi: api.claudeSessions.import,
     scanOpenCodeSessions: api.openCodeSessions.scan,
     importOpenCodeSessionsApi: api.openCodeSessions.import,
+    scanZCodeSessions: api.zcodeSessions.scan,
+    importZCodeSessionsApi: api.zcodeSessions.import,
     t,
   });
 
@@ -682,6 +688,8 @@ export function App() {
     fontFamilyMono: "system-mono",
     fontFamilyMonoCustom: "",
     removedBuiltInExtensions: [],
+    // 声音提醒：与主进程 defaultSettings 保持一致（完成/异常开、等待输入关）
+    soundAlert: createDefaultSoundAlertSettings(),
     imageGenSize: "unset",
     imageGenWatermark: false,
     imageGenOutputFormat: "png",
@@ -3018,6 +3026,7 @@ export function App() {
       importSessions: (project, source) => {
         if (source === "codex") return openCodexImport(project);
         if (source === "claude") return openClaudeImport(project);
+        if (source === "zcode") return openZCodeImport(project);
         return openOpenCodeImport(project);
       },
       manageResources: (project) => setProjectResourcesProject(project),
@@ -4049,6 +4058,7 @@ export function App() {
     {codexImportProject && <ImportOverlayHost kind="codex" project={codexImportProject} controller={codexImportController} onClose={() => setCodexImportProject(null)} />}
     {claudeImportProject && <ImportOverlayHost kind="claude" project={claudeImportProject} controller={claudeImportController} onClose={() => setClaudeImportProject(null)} />}
     {openCodeImportProject && <ImportOverlayHost kind="opencode" project={openCodeImportProject} controller={openCodeImportController} onClose={() => setOpenCodeImportProject(null)} />}
+    {zcodeImportProject && <ImportOverlayHost kind="zcode" project={zcodeImportProject} controller={zcodeImportController} onClose={() => setZcodeImportProject(null)} />}
 
     {/* Scratch Pad（草稿本）：根级渲染，避免受 chat-pane grid 影响定位 */}
     <ScratchPadOverlay controller={scratchPad} />

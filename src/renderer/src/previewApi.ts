@@ -2,6 +2,7 @@ import type { PiDesktopApi } from "../../preload";
 import {
 	createDefaultExternalEditorSettings,
 	createDefaultSecurityConfig,
+	createDefaultSoundAlertSettings,
 	DEFAULT_PET_SCALE,
 } from "../../shared/types";
 import type {
@@ -183,6 +184,8 @@ let previewSettings: AppSettings = {
 	fontFamilyMono: "system-mono",
 	fontFamilyMonoCustom: "",
 	removedBuiltInExtensions: [],
+	// 与主进程 defaultSettings 保持一致（预览壳不真实播放，仅保持设置项形状完整）
+	soundAlert: createDefaultSoundAlertSettings(),
 	imageGenSize: "unset",
 	imageGenWatermark: false,
 	imageGenOutputFormat: "png",
@@ -728,6 +731,10 @@ export function createPreviewApi(): PiDesktopApi {
 			scan: async () => [],
 			import: async () => ({ results: [], imported: 0, failed: 0 }),
 		},
+		zcodeSessions: {
+			scan: async () => [],
+			import: async () => ({ results: [], imported: 0, failed: 0 }),
+		},
 		git: {
 			listRepos: async () => [],
 			branches: async () => ({ current: "main", branches: ["main", "dev"] }),
@@ -1210,6 +1217,13 @@ export function createPreviewApi(): PiDesktopApi {
 			tease: async () => undefined,
 			setDragging: async () => undefined,
 			getCurrent: async () => ({ id: "clawd", displayName: "Clawd", source: "builtin", spritesheetUrl: "" }),
+		},
+		sounds: {
+			// 预览模式：不真实播放，事件订阅空操作（保持 PiDesktopApi 形状完整）
+			onPlay: noop,
+			listCustom: async () => [],
+			importCustom: async () => ({ ok: false, error: "canceled" as const }),
+			removeCustom: async () => false,
 		},
 		terminal: {
 			// 预览模式只按归属键过滤：agent 目标用 agentId，project 目标用项目 id

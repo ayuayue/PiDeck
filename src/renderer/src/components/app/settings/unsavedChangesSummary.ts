@@ -16,6 +16,7 @@ export type SettingsUnsavedTabId =
 	| "dev"
 	| "im"
 	| "pet"
+	| "sound"
 	| "storage"
 	| "usage"
 	| "process"
@@ -51,6 +52,7 @@ const TAB_LABEL_KEYS: Record<SettingsUnsavedTabId, TranslationKey> = {
 	dev: "settings.tabs.dev",
 	im: "settings.tabs.im",
 	pet: "settings.tabs.pet",
+	sound: "settings.tabs.sound",
 	storage: "settings.tabs.storage",
 	usage: "settings.tabs.usage",
 	process: "settings.tabs.process",
@@ -121,6 +123,9 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "petPatrolPauseMin", tab: "pet", itemKey: "settings.pet.patrolPause" },
 	{ field: "petScale", tab: "pet", itemKey: "settings.pet.scale" },
 	{ field: "petId", tab: "pet", itemKey: "settings.pet.choose" },
+
+	// 声音提醒：整块 soundAlert 归到「声音提醒」tab（目录顺序与 settingsTabLayout 一致）
+	{ field: "soundAlert", tab: "sound", itemKey: "settings.sound.title" },
 
 	{ field: "wslEnabled", tab: "dev", itemKey: "settings.piSource.label" },
 	{ field: "wslDistro", tab: "dev", itemKey: "settings.wsl.distro" },

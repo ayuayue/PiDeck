@@ -38,6 +38,8 @@ import type {
 	ClaudeSessionSummary,
 	OpenCodeImportReport,
 	OpenCodeSessionSummary,
+	ZCodeImportReport,
+	ZCodeSessionSummary,
 	ConfigFileDiagnostic,
 	DraftMeta,
 	CreateSessionDraftInput,
@@ -56,6 +58,9 @@ import type {
 	PetManifest,
 	PetNotification,
 	PetWindowCaps,
+	SoundAlertPlayEvent,
+	CustomSoundInfo,
+	SoundImportResult,
 	ExternalEditor,
 	ExternalEditorId,
 	ExternalEditorSetting,
@@ -868,6 +873,18 @@ const api = {
 				projectId,
 				sourcePaths,
 			) as Promise<OpenCodeImportReport>,
+	},
+	zcodeSessions: {
+		scan: (projectId: string) =>
+			ipcRenderer.invoke(ipcChannels.zcodeSessionsScan, projectId) as Promise<
+				ZCodeSessionSummary[]
+			>,
+		import: (projectId: string, sourcePaths: string[]) =>
+			ipcRenderer.invoke(
+				ipcChannels.zcodeSessionsImport,
+				projectId,
+				sourcePaths,
+			) as Promise<ZCodeImportReport>,
 	},
 	git: {
 		/** 扫描项目内独立仓库；单仓项目通常只返回根仓库 */
@@ -1699,6 +1716,20 @@ const api = {
 		ready: () => ipcRenderer.send(ipcChannels.petReady),
 		/** 右键上下文菜单 */
 		contextMenu: () => ipcRenderer.invoke(ipcChannels.petContextMenu) as Promise<void>,
+	},
+	sounds: {
+		/** 订阅主进程推送的声音提醒播放事件（完成/出错/等待输入） */
+		onPlay: (callback: (event: SoundAlertPlayEvent) => void) =>
+			subscribe(ipcChannels.soundsPlay, callback),
+		/** 列出自定义音频（userData/sounds/），设置页下拉选项用 */
+		listCustom: () =>
+			ipcRenderer.invoke(ipcChannels.soundsListCustom) as Promise<CustomSoundInfo[]>,
+		/** 弹选择框导入自定义音频；取消/非法/超限返回结构化错误 */
+		importCustom: () =>
+			ipcRenderer.invoke(ipcChannels.soundsImportCustom) as Promise<SoundImportResult>,
+		/** 删除自定义音频文件 */
+		removeCustom: (name: string) =>
+			ipcRenderer.invoke(ipcChannels.soundsRemoveCustom, name) as Promise<boolean>,
 	},
 	terminal: {
 		list: (target: TerminalTarget) =>

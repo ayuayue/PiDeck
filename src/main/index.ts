@@ -19,6 +19,9 @@ import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
+import { SoundAlertService } from "./sounds/SoundAlertService";
+import { registerSoundIpc } from "./ipc/soundIpc";
+import { registerSoundProtocol } from "./sounds/soundProtocol";
 import {
 	applyLinuxDisplayBackendWorkaround,
 	isUsingLinuxXWaylandWorkaround,
@@ -423,6 +426,8 @@ let projectResourceManager: ProjectResourceManager;
 let webServiceManager: WebServiceManager;
 let terminalManager: TerminalSessionManager;
 let petSystem: PetSystem | null = null;
+/** 声音提醒服务（完成/出错/等待输入提示音）；null = 未初始化 */
+let soundAlertService: SoundAlertService | null = null;
 let appLogger: AppLogger;
 let rpcLogger: RpcLogger;
 /** 内存采样句柄（PIDECK_MEMORY_PROFILE=1 时启用），quit 时停止 */
@@ -2974,10 +2979,11 @@ async function detectExternalEditorsOnFirstLaunch() {
 	void appLogger.info("editor", "External editors detected on first launch", { count: detected.length });
 }
 
-// 换肤背景图/宠物雪碧图协议：自定义 scheme 必须在 ready 前注册特权声明（secure 以便渲染层 CSS/图片引用）
+// 换肤背景图/宠物雪碧图/声音提醒协议：自定义 scheme 必须在 ready 前注册特权声明（secure 以便渲染层 CSS/图片/音频引用）
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "pideck-bg", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: false } },
 	{ scheme: "pideck-pet", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: false } },
+	{ scheme: "pideck-sound", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: true } },
 ]);
 
 app.whenReady().then(async () => {
@@ -3853,6 +3859,23 @@ app.whenReady().then(async () => {
 	});
 	void petSystem.start().catch((error) => {
 		void appLogger.warn("pet", "Pet system start failed", error);
+	});
+
+	// 声音提醒：纯主进程判定（settled/error 边沿/waiting 请求）+ 渲染层播放。
+	// 与宠物系统同构，独立开关，不依赖宠物是否启用。
+	registerSoundProtocol();
+	registerSoundIpc();
+	soundAlertService = new SoundAlertService({
+		agentManager,
+		settingsStore,
+		getMainWindow: () => mainWindow,
+		log: (domain, message, details) => void appLogger.info(domain, message, details),
+	});
+	soundAlertService.attach();
+	// 退出清理登记（before-quit 统一 runAll）
+	quitCleanup.register("sound-alert", () => {
+		soundAlertService?.detach();
+		soundAlertService = null;
 	});
 
 	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
