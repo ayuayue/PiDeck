@@ -74,4 +74,6 @@ jobs:
         run: npm run build
 
       - name: Pet window smoke test
-        run: xvfb-run -a npx electron scripts/pet-smoke.cjs
+        # CI 容器无法给 chrome-sandbox 设置 SUID 4755（需 root），Electron 直接拒绝启动；
+        # 加 --no-sandbox 仅作用于测试脚本，不影响产品沙箱设置（由 electronChromiumSandbox 控制）。
+        run: xvfb-run -a npx electron --no-sandbox scripts/pet-smoke.cjs
