@@ -12,6 +12,7 @@ import {
 	matchesSensitivePath,
 	resolveLevel,
 	resolveLevelId,
+	sanitizeLineList,
 	validateSecurityConfig,
 } from "../src/main/security/policy.ts";
 
@@ -164,6 +165,16 @@ test("buildSnapshot: exposes exactly the fields the extension reads", () => {
 		assert.ok(["allow", "ask", "deny"].includes(level.defaultAction));
 		assert.equal(typeof level.toolActions, "object");
 	}
+});
+
+test("sanitizeLineList: trims each line and drops empty lines", () => {
+	assert.deepEqual(sanitizeLineList(["  C:\foo  ", "", "   ", "D:\bar"]), ["C:\foo", "D:\bar"]);
+});
+
+test("sanitizeLineList: non-array input yields empty array", () => {
+	assert.deepEqual(sanitizeLineList(undefined), []);
+	// 类型擦除场景：配置被外部写坏时不能抛错、不能把整档策略炸掉
+	assert.deepEqual(sanitizeLineList("nope"), []);
 });
 
 test("built-in levels satisfy the strict->standard->off severity order", () => {

@@ -4,6 +4,7 @@ import { lstat, open, readlink, realpath, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { trashPath } from "../fs/trash";
+import { REF_BASE } from "../rewind/checkpointConstants";
 import { runGit } from "./gitProcess";
 import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff, GitAheadBehind } from "../../shared/types";
 import { GitStatus } from "../../shared/types";
@@ -423,7 +424,10 @@ export class GitService {
 		const useAll = options?.allBranches ?? true;
 
 		if (useAll && !options?.ref) {
-			args.push("--all");
+			// rewind checkpoint 是挂在 refs/pi-checkpoints 下的普通 commit，--all 会把它们
+			// 一并拉进图，占满 maxEntries 名额、刷屏成「一堆 pi-rewind」。--exclude 需与
+			// --all 配对（显式 ref 场景不涉及），故只在无 ref 的全图模式排除。
+			args.push(`--exclude=${REF_BASE}/*`, "--all");
 		}
 
 		if (options?.ref) {
@@ -449,6 +453,8 @@ export class GitService {
 	/**
 	 * 获取 Git 引用（分支 / 远程分支 / Tag），按 committerdate 倒序。
 	 * 复刻 VS Code 的 getRefs() + parseRefs()。
+	 * rewind checkpoint refs（refs/pi-checkpoints/*）是应用内部快照数据，
+	 * 不进用户可见的引用列表，先滤掉再解析。
 	 */
 	async getRefs(cwd: string): Promise<GitRef[]> {
 		const format = "%(refname)%00%(objectname)%00%(*objectname)";
@@ -458,7 +464,12 @@ export class GitService {
 				["for-each-ref", `--format=${format}`, "--sort=-committerdate"],
 				{ cwd, maxBuffer: 32 * 1024 * 1024 },
 			);
-			return parseRefs(stdout);
+			// for-each-ref 一行一 ref（字段间 NUL），先按行滤掉内部快照 ref 再解析，
+			// 避免 refs/pi-checkpoints/* 出现在用户可见的分支/标签引用列表里。
+			const rows = stdout.split(/\r?\n/).filter(
+				(line) => line.trim() && !line.startsWith(`${REF_BASE}/`),
+			);
+			return parseRefs(rows.join("\n"));
 		} catch {
 			return [];
 		}

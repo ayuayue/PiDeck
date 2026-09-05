@@ -15,7 +15,7 @@ const piSettings = readFileSync(
   "utf8",
 );
 const feedback = readFileSync(
-  "src/renderer/src/components/overlays/SessionActionOverlays.tsx",
+  "src/renderer/src/features/feedback/FeedbackDialog.tsx",
   "utf8",
 );
 
@@ -34,8 +34,9 @@ test("settings and Pi management sections use the shared heading", () => {
 });
 
 test("feedback uses one accessible dialog title and shared field headings", () => {
-  assert.match(feedback, /<DialogTitle className="sr-only">\{t\("feedback\.title"\)\}<\/DialogTitle>/);
-  assert.match(feedback, /<SectionHeading[\s\S]*title=\{t\("feedback\.title"\)\}/);
+  // DialogTitle 现随 FeedbackDialog 组件内嵌（不再由 SessionActionOverlays 提供），
+  // 标题可见（非 sr-only）且唯一。
+  assert.match(feedback, /<DialogTitle className="flex items-center gap-2 text-base">[\s\S]*?\{t\("feedback\.title"\)\}[\s\S]*?<\/DialogTitle>/);
   assert.equal((feedback.match(/<SectionHeading/g) ?? []).length, 4);
   assert.doesNotMatch(feedback, /modal-header feedback-header/);
 });

@@ -53,6 +53,30 @@ test("project file tree refresh and expand drop stale listings", () => {
   assert.match(app, /isFileTreeRequestCurrent\(generation, projectId\)/);
 });
 
+test("missing project directories clear stale files and refresh project presence", () => {
+  const sync = readFileSync("src/renderer/src/hooks/useProjectSync.ts", "utf8");
+  const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+  const i18n = [
+    readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"),
+    readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8"),
+  ].join("\n");
+
+  assert.match(sync, /message\.includes\("PROJECT_DIRECTORY_MISSING"\)/);
+  assert.match(sync, /setFiles\(\[\]\);/);
+  assert.match(sync, /void refreshProjects\(\)\.catch\(\(\) => undefined\);/);
+  assert.match(app, /projectDirectoryMissing[\s\S]*?refreshProjects\(\)\.catch/);
+  assert.match(i18n, /"app\.projectDirectoryMissing"/);
+});
+
+test("file deletion failures are shown to the user instead of only logged", () => {
+  const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+  const deleteBlock = app.match(/await api\.files\.delete\(node\.path, true\);[\s\S]*?\n\s*}\n\s*},/);
+  assert.ok(deleteBlock, "file drawer delete handler should be discoverable");
+  assert.match(deleteBlock[0], /showToast\(t\("app\.fileDeleteFailed"/);
+  assert.match(deleteBlock[0], /5000, "error"/);
+  assert.doesNotMatch(deleteBlock[0], /console\.error/);
+});
+
 test("project file tree effect does not retrigger on an unstable toast helper", () => {
   const app = readFileSync("src/renderer/src/App.tsx", "utf8");
   // 文件树 effect 只应跟当前项目走。showToast 若是每次 render 新建的函数
@@ -62,6 +86,6 @@ test("project file tree effect does not retrigger on an unstable toast helper", 
   assert.notEqual(effectStart, -1, "file-tree switch effect should still exist");
   const deps = app.slice(effectStart, effectStart + 2500).match(/\}, \[activeProjectId[^\]]*\]\)/);
   assert.ok(deps, "file-tree effect should keep an explicit dependency list");
-  assert.doesNotMatch(deps[0], /showToast/);
+  assert.doesNotMatch(deps[0], /showToast|refreshProjects/);
   assert.match(app, /const showToast = useCallback\(/);
 });

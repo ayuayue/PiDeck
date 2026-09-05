@@ -73,7 +73,8 @@ export type UsageProbeTemplateCategory =
 	| "plan"
 	| "subscription"
 	| "general"
-	| "newapi";
+	| "newapi"
+	| "cookie";
 
 /** 声明式模板元数据（渲染层 pills 数据源；纯数据、无密钥）。 */
 export type UsageProbeTemplateMeta = {
@@ -100,18 +101,26 @@ export type UsageProbeProviderConfig = {
 	/** 启动开关。不写 = 自动（内置命中即开、未命中即按未配置处理）。 */
 	enabled?: boolean;
 	/**
-	 * 模板 id："general" | "newapi"（声明式）；内置命中的 provider 可省略
+	 * 模板 id："general" | "newapi" | "cookie"（声明式）；内置命中的 provider 可省略
 	 * （自动识别），识别不到时用户必须显式选一个声明式模板。
 	 */
 	template?: string;
 	/** 通用模板可选覆盖：度量请求的 API Key；留空 = 自动使用供应商配置。 */
 	apiKey?: string;
-	/** 通用模板/NewAPI 可选覆盖：用量端点与推理端点不同域时的请求地址；留空 = 供应商地址。 */
+	/** 通用/New API/Cookie 模板可选覆盖：用量端点与推理端点不同域时的请求地址；留空 = 供应商地址。 */
 	baseUrl?: string;
 	/** NewAPI 模板：访问令牌（供应商「个人设置 → 安全」生成）。 */
 	accessToken?: string;
 	/** NewAPI 模板：用户 ID。 */
 	userId?: string;
+	/** Cookie 模板：网页登录态 Cookie 完整值（F12 → Network → 请求头 Cookie）。 */
+	cookie?: string;
+	/** Cookie 模板：余额/用量接口路径（以 / 开头，如 /api/wallet/summary）。 */
+	cookiePath?: string;
+	/** Cookie 模板：剩余额度字段路径（点号+方括号，如 data.availableBalanceCny）。 */
+	valuePath?: string;
+	/** Cookie 模板：币种字段路径（可选，如 data.currency）。 */
+	currencyPath?: string;
 	/** 超时（秒），默认 10。 */
 	timeoutSecs?: number;
 	/** 自动查询间隔（分钟），默认 5；0 = 不自动。 */
@@ -128,6 +137,11 @@ export type UsageProbeSettingsResult = {
 	templates: UsageProbeTemplateMeta[];
 	/** 配置文件读取/校验错误（不含密钥）。 */
 	errors: string[];
+	/**
+	 * 该 provider 命中的旧版 probes 数组条目（原样回显，含 cookie 等用户自有字段）：
+	 * 弹窗用于「检测到旧格式配置 → 预填 Cookie 模板」迁移提示。未命中/无旧探针 = 省略。
+	 */
+	legacyProbes?: UsageProbeConfig[];
 };
 
 /** save-usage-probes 入参：按 provider 合并写（保留文件里其它 providers 与旧 probes 数组）。 */
@@ -153,12 +167,16 @@ export type UsageProbeTestInput = {
 	provider: string;
 	/** 配置宿主（缺省 pi）；dsh = 端点走 pi-ai catalog 兜底、凭据从 $DSH_HOME/.credentials.yaml 读。 */
 	backend?: UsageProbeBackend;
-	/** "general" | "newapi" | 内置 templateId（省略 = 自动识别）。 */
+	/** "general" | "newapi" | "cookie" | 内置 templateId（省略 = 自动识别）。 */
 	template?: string;
 	apiKey?: string;
 	baseUrl?: string;
 	accessToken?: string;
 	userId?: string;
+	cookie?: string;
+	cookiePath?: string;
+	valuePath?: string;
+	currencyPath?: string;
 	/** 测试用超时（秒）；缺省 10。 */
 	timeoutSecs?: number;
 };
@@ -269,6 +287,11 @@ export type ProviderUsageResult = {
 	intervalMinutes?: number;
 	/** 失败原因（主进程本地文案或 HTTP 错误摘要）。 */
 	error?: string;
+	/**
+	 * 失败时的排查明细（尝试过的 URL + HTTP 状态/网络错误 + 响应摘要 + 归纳提示），
+	 * 多行文本、已脱敏；渲染层可折叠展示，帮用户定位「地址/鉴权/接口是否变更」。
+	 */
+	detail?: string;
 	/** 查询时刻（Date.now()），渲染层据此判断数据新旧。 */
 	at?: number;
 };

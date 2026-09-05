@@ -28,6 +28,14 @@ export class DshHostProcess {
 	private readonly maxRestarts = 3;
 	/** 主动停止中（kill/dispose）：exit 时不触发自动重启。 */
 	private stopping = false;
+	/** 最近一次 boot 失败的真实原因（host-error 消息详情，缺省退回 stderr 尾部）。
+	 *  启动成功（host-ready）时清零；渲染层经 getStatus().bootError 拿到它，
+	 *  否则用户只看到笼统的 "exited before ready (code=1)" 而不知道为何失败。 */
+	private lastBootError: string | null = null;
+	/** stderr 尾部环形缓冲（host 崩溃前未及发 host-error 消息时兜底取原因）。 */
+	private readonly stderrTail: string[] = [];
+	/** stderr 缓冲上限：超过则丢弃最早行，只保留最近几行即可定位失败原因。 */
+	private static readonly STDERR_TAIL_LIMIT = 12;
 	/** postMessage 在 host 已退出时只警告一次（abort 竞态可能连续触发）。 */
 	private warnedDisposed = false;
 	/** host 进程退出订阅（DshHost 借此中断悬挂的桥 pending）。 */
@@ -62,6 +70,14 @@ export class DshHostProcess {
 		return this.ready;
 	}
 
+	/** 最近一次 boot 失败的真实原因；启动成功或从未失败时返回 null。
+	 *  DshHost.getStatus() 把它透出给渲染层（配置页概览错误 banner）。 */
+	getLastBootError(): string | null {
+		if (this.lastBootError) return this.lastBootError;
+		// host 未发 host-error 就崩溃（原生崩溃/被 kill）：stderr 尾部兜底。
+		return this.stderrTail.length > 0 ? this.stderrTail.join("\n") : null;
+	}
+
 	/** fork hostEntry 并等待 host-ready（幂等；已 fork 未 ready 时复用等待）。
 	 *  resetCrashCounters=true 表示「用户显式触发」（首次启动/重启 host/切换 DSH_HOME），
 	 *  重置连续崩溃计数；自动重启路径传 false 保持计数，保证限次语义（E3）。 */
@@ -92,7 +108,13 @@ export class DshHostProcess {
 		// 否则 host 启动失败（exit before ready）只能看到 code，看不到原因。
 		child.stderr?.on("data", (chunk: Buffer) => {
 			const text = chunk.toString("utf8").trimEnd();
-			if (text) this.log("dsh-host-entry", text);
+			if (text) {
+				this.log("dsh-host-entry", text);
+				// 同时保留最近几行：host 崩溃得早、未发 host-error 消息时，
+				// 由 stderr 尾部兜底作为 getLastBootError() 的原因。
+				if (this.stderrTail.length >= DshHostProcess.STDERR_TAIL_LIMIT) this.stderrTail.shift();
+				this.stderrTail.push(text);
+			}
 		});
 		child.on("exit", (code) => {
 			const wasReady = this.ready;
@@ -108,10 +130,12 @@ export class DshHostProcess {
 				}
 			}
 			// 未 ready 的等待者：boot 失败（exit 早于 host-ready）。
+			// 错误信息带真实失败原因（host-error 详情/stderr 尾部），IPC 抛给渲染层时
+			// 用户能看到「为什么起不来」，而不是只有 exit code。
 			const rejecters = this.readyRejecters;
 			this.readyRejecters = [];
 			for (const reject of rejecters) {
-				reject(new Error(`DSH host process exited before ready (code=${code})`));
+				reject(new Error(formatBootExitError(code, this.getLastBootError())));
 			}
 			this.exitPromise = null;
 			// 崩溃/启动失败自动重启（限次）：boot 失败与运行期崩溃分开计数（E3），
@@ -174,6 +198,9 @@ export class DshHostProcess {
 		if (parsed?.type === "host-ready") {
 			if (!this.ready) {
 				this.ready = true;
+				// boot 成功：清除上次失败原因，避免旧错误残留误导诊断。
+				this.lastBootError = null;
+				this.stderrTail.length = 0;
 				this.bootFailures = 0;
 				const resolvers = this.readyResolvers;
 				this.readyResolvers = [];
@@ -192,8 +219,11 @@ export class DshHostProcess {
 		}
 		if (parsed?.type === "host-error") {
 			// hostEntry boot 失败：错误已通过 MessagePort 回传（stderr 不可靠），记入主进程日志
+			// 并缓存为 lastBootError，供 getStatus().bootError 展示真实失败原因。
 			const detail = (message as { message?: unknown }).message;
-			this.log("dsh-host-entry", `fatal: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+			const text = typeof detail === "string" ? detail : JSON.stringify(detail);
+			this.lastBootError = text;
+			this.log("dsh-host-entry", `fatal: ${text}`);
 			return;
 		}
 		if (parsed?.type === "host-exit") {
@@ -313,4 +343,14 @@ export function resolveHostEntryPath(appPath: string): string {
 	const standard = join(appPath, "out", "main", "hostEntry.js");
 	if (existsSync(standard)) return standard;
 	return join(appPath, "hostEntry.js");
+}
+
+/**
+ * 格式化 host boot 失败错误（纯函数，可单测）：exit 早于 host-ready 时，
+ * 把真实失败原因（host-error 详情/stderr 尾部）拼进错误信息，
+ * 让渲染层/IPC 错误不再是只有 exit code 的笼统消息。
+ */
+export function formatBootExitError(code: number | null, detail: string | null): string {
+	const base = `DSH host process exited before ready (code=${code})`;
+	return detail ? `${base}: ${detail}` : base;
 }

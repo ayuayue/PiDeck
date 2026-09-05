@@ -77,8 +77,18 @@ PiDeck uses `electron-builder` for packaging. The build configuration is in `pac
 Packaged files are written to the `release/` directory. The output includes:
 
 - Installer (`.exe`, `.dmg`, `.AppImage`, or `.deb`)
-- Portable version (`.zip`)
-- Latest.yml for auto-update
+- Portable/manual-download archives where applicable (`.zip`)
+- Platform update metadata and blockmaps for updater-supported targets
+
+## Application Update Releases
+
+Application update checks always run in the background. `autoDownloadUpdates` is the only app-update preference and defaults to enabled; installation is never automatic. After a download completes, the user explicitly chooses **Restart and install** in Settings. Pi CLI version checks remain independent of the desktop-app updater.
+
+- **Windows** uses `electron-updater` with the NSIS installer. Upload `latest.yml`, the NSIS `*-setup.exe` named by that manifest, and its matching `*.blockmap` to the same GitHub Release. The portable executable and ZIP are manual-download assets only.
+- **Linux** uses its platform channel metadata (normally `latest-linux.yml`) together with the artifact and blockmap named by that manifest. Keep those files in the same GitHub Release.
+- **macOS** currently checks the latest GitHub Release and opens it for manual installation. Without a Developer ID signature and notarization, PiDeck does not attempt silent replacement or claim a Gatekeeper-safe automatic update path. Upload the DMG/ZIP release assets for both architectures as applicable.
+
+Run `npm run dist:win` for the Windows release set. Its final output lists only current-version assets and warns when the NSIS updater trio is incomplete.
 
 ## Contributing
 

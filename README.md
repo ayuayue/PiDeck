@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.2--beta-yellow)
+![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -33,6 +33,17 @@
 
 ---
 
+<details open>
+<summary>❤️ 赞助商</summary>
+
+| Logo | 简介 |
+| --- | --- |
+| <a href="https://88api.ai/sign-up?aff=DAEe"><img src="docs/images/88vip.png" alt="88API" width="120"></a> | [**88API Token聚合站**](https://88api.ai/sign-up?aff=DAEe)<br>88API 是一站式多模型 API 聚合平台，平台由海外企业运营，稳定高效支持开票。平台提供 DeepSeek 官转和开源渠道，价格低至 5 折，完美适配PiDeck项目。一个 API Key 即可统一接入海内外多种模型，覆盖文本对话、图片、音频、音乐和视频生成接口，适用于 AI 编程、Agent 自动化、内容创作及应用开发。<br><br>[**立即注册 →**](https://88api.ai/sign-up?aff=DAEe) |
+
+</details>
+
+---
+
 ## 📑 目录
 
 - [PiDeck](#pideck)
@@ -40,7 +51,7 @@
   - [📑 目录](#-目录)
   - [✨ 核心亮点](#-核心亮点)
   - [📋 更新日志](#-更新日志)
-    - [v0.7.2 更新亮点](#v072-更新亮点)
+    - [v0.7.4-beta 更新亮点](#v074-beta-更新亮点)
   - [🧩 功能总览](#-功能总览)
     - [工作区与项目](#工作区与项目)
     - [会话与对话](#会话与对话)
@@ -79,25 +90,16 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.7.2**（2026-08-30）
+> **最新版本 v0.7.4-beta**（2026-09-04）
 
-### v0.7.2 更新亮点
-- 🚀 **用量查询重构（对齐 cc-switch）**
-- 🚀 **多段用量徽标**
-- 🚀 **DSH 用量查询链路**
-- 🚀 **用量查询 AI 辅助**
-- 🚀 **PiDeck 特有文件统一收拢**
-- 🚀 **主动更新提示（无配额方案）**
-- 🚀 **发布流程配套 latest.yml**
-- 🚀 **检查超时防护**
-- 🚀 **Pi CLI 后台检查**
-- 🚀 **修复手动检测被吞**
-- 🚀 **会话定位轴刻度完善**
-- 🚀 **定位轴分屏让位**
-- ✨ **更新检查降级路径**
-- ✨ **更新检查链路加固**
-- ✨ **DSH 用量查询 provider 名归一化**
-- ✨ **文件管理器打开与终端归属修复**
+### v0.7.4-beta 更新亮点
+- 🚀 **Command Code 用量查询支持**
+- 🚀 **应用更新生命周期加固**
+- 🚀 **更新源镜像选择与自动体检**
+- ✨ **工具耗时秒表不再反复归零**
+- ✨ **视觉桥模型选择按钮适配超长模型名**
+- ✨ **统一会话轮次口径**
+- ✨ **fork 标题持久化与侧栏长名滚动**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
@@ -169,7 +171,7 @@
 | **桌面宠物** | 把多 Agent 的运行状态化作桌面上的一只小精灵：状态聚合、置顶、缩放，支持 petdex 社区宠物。 |
 | **主题与外观** | 浅色 / 暗色 / 跟随系统一键循环切换（侧栏底栏），语义化设计 token，暗色模式自然适配。 |
 | **通知** | 全局通知升级为卡片 toast，Ask 并行问询有独立系统通知开关，后台问题可保持静默。 |
-| **主动更新提示** | 应用与 Pi CLI 每 2 小时后台检查更新，发现新版本时角标提醒 + 更新弹窗（每版本一次，可跳过），设置页显示当前 → 最新版本。 |
+| **主动更新** | 应用更新始终后台检查，`autoDownloadUpdates` 默认开启；下载完成后由用户在设置页确认「重启并安装」。Windows/Linux 使用包内 updater，macOS 打开 GitHub Release 手动安装；Pi CLI 检查独立运行。 |
 | **飞书机器人** | 会话可绑定飞书机器人，在飞书群里同步消息与状态。 |
 | **局域网 Web 服务** | 设置中启动本机 Web 服务，局域网设备通过 IP + 端口访问网页版，支持双后端会话浏览与 DSH 工具面板。 |
 | **进程监控 / 日志管理** | 设置页内置进程监控与缓存日志管理，排查问题不用翻目录。 |

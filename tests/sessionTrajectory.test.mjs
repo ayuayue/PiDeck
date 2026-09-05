@@ -324,3 +324,13 @@ test("inspector copy control is wired on the trajectory detail panel", () => {
 	assert.match(view, /session\.trajectory\.field\.payload/);
 	assert.match(view, /session\.trajectory\.field\.result/);
 });
+
+test("trajectory header turn count follows the unified round contract", () => {
+	// 对外「N 轮」：DSH 会话用 host sessionStats（官方，与 dsh-web 一致）；pi 会话用
+	// countUserTurns（发言权周期，与分页/缓存协议同口径）。账本分组仍按 user 开轮。
+	const view = readFileSync("src/renderer/src/components/session/trajectory/SessionTrajectoryView.tsx", "utf8");
+	assert.match(view, /countUserTurns/);
+	assert.match(view, /dshSessionStats\.turns/);
+	assert.doesNotMatch(view, /count: model\.turns\.length/);
+	assert.doesNotMatch(view, /countDialogueTurns/);
+});

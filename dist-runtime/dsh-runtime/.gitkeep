@@ -1,3 +1,6 @@
 # 随包 DSH runtime 资源目录（electron-builder extraResources 的源）。
 # 目录必须存在，否则打包时 extraResources 找不到源会失败。
-# 内容由 `npm run runtime:pack` 产出；本文件只是占位，保证空目录也能进版本库。
+# 内容由 `npm run runtime:pack` 产出（dsh-runtime-<platform>-<arch>.tgz + manifest.json）；
+# 本文件只是占位，保证空目录也能进版本库。
+# 打包版安装 DSH runtime 时优先从这里本地解压（离线可用，不走 GitHub）；
+# 仅个别需要极简体积的场景可改用 runtime:pack:lite（随包目录留空，按需在线安装）。

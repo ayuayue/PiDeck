@@ -1,5 +1,6 @@
 import { t } from "../i18n";
 import { isComposingKeyboardEvent } from "../composerBehavior";
+import type { RenameModalProps } from "../hooks/useRename";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,8 @@ import { Input } from "./ui-shadcn/input";
 /**
  * 重命名对话框（#115 U5）：统一为 shadcn Dialog + Input + Button。
  * 调用方按条件渲染（{x && <RenameModals/>}），组件挂载即打开；
- * ESC/遮罩关闭走 onClose（agent 保存中禁用关闭，防中途丢状态）。
+ * ESC/遮罩关闭走 onClose（保存中禁用关闭，防中途丢状态）。
+ * agent/session/project 三种目标共用同一弹窗，仅标题/占位/提示文案不同。
  */
 
 type FileRenameProps = {
@@ -26,21 +28,12 @@ type FileRenameProps = {
   onConfirm: (path: string, newName: string) => void;
 };
 
-type AgentRenameProps = {
-  isAgent: boolean;
-  value: string;
-  saving: boolean;
-  onValueChange: (value: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-};
-
 type Props = {
   fileRename?: FileRenameProps;
-  agentRename?: AgentRenameProps;
+  rename?: RenameModalProps;
 };
 
-export function RenameModals({ fileRename, agentRename }: Props) {
+export function RenameModals({ fileRename, rename }: Props) {
   // 文件重命名的确认语义：非空且与原名不同才提交，否则视为取消
   const submitFileRename = () => {
     if (!fileRename) return;
@@ -49,9 +42,15 @@ export function RenameModals({ fileRename, agentRename }: Props) {
     else fileRename.onClose();
   };
 
+  const isProjectRename = rename?.kind === "project";
+  const title = isProjectRename ? t("app.renameProjectTitle") : t("app.renameSessionTitle");
+  const placeholder = isProjectRename
+    ? t("app.renameProjectPlaceholder")
+    : t("app.renameSessionPlaceholder");
+
   return <>
-    {agentRename && (
-      <Dialog open onOpenChange={(open) => { if (!open && !agentRename.saving) agentRename.onClose(); }}>
+    {rename && (
+      <Dialog open onOpenChange={(open) => { if (!open && !rename.saving) rename.onClose(); }}>
         <DialogContent
           className="sm:max-w-sm"
           onOpenAutoFocus={(event) => {
@@ -62,28 +61,33 @@ export function RenameModals({ fileRename, agentRename }: Props) {
           }}
           onKeyDown={(e) => {
             // Enter 提交（与旧 form 语义一致）；IME 合成中（中文选词）与 saving 中不响应
-            if (e.key === "Enter" && !isComposingKeyboardEvent(e) && !agentRename.saving) {
+            if (e.key === "Enter" && !isComposingKeyboardEvent(e) && !rename.saving) {
               e.preventDefault();
-              agentRename.onSubmit();
+              rename.onSubmit();
             }
           }}
         >
           <DialogHeader>
-            <DialogTitle>{t("app.renameSessionTitle")}</DialogTitle>
-            <DialogDescription className="sr-only">{t("app.renameSessionPlaceholder")}</DialogDescription>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription className="sr-only">{placeholder}</DialogDescription>
           </DialogHeader>
           <Input
-            value={agentRename.value}
-            onChange={(e) => agentRename.onValueChange(e.target.value)}
-            placeholder={t("app.renameSessionPlaceholder")}
-            disabled={agentRename.saving}
+            value={rename.value}
+            onChange={(e) => rename.onValueChange(e.target.value)}
+            placeholder={placeholder}
+            disabled={rename.saving}
           />
+          {/* 项目重命名只改显示 label，不碰磁盘目录：给出一条可见说明，避免用户误以为
+              重命名会移动/改目录名（改目录会连带破坏会话路径、git、运行中 Agent）。 */}
+          {isProjectRename && (
+            <p className="text-caption text-muted-foreground">{t("app.renameProjectHint")}</p>
+          )}
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={agentRename.saving} onClick={agentRename.onClose}>
+            <Button type="button" variant="outline" disabled={rename.saving} onClick={rename.onClose}>
               {t("common.cancel")}
             </Button>
-            <Button type="button" disabled={agentRename.saving} onClick={agentRename.onSubmit}>
-              {agentRename.saving ? t("common.saving") : t("common.save")}
+            <Button type="button" disabled={rename.saving} onClick={rename.onSubmit}>
+              {rename.saving ? t("common.saving") : t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

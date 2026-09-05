@@ -675,7 +675,7 @@ export const AssistantText = memo(
 		images?: ImageContent[];
 		onPreviewImage: (image: ImageContent) => void;
 		onOpenExternal: (url: string) => void;
-		onOpenFile?: (path: string) => void;
+		onOpenFile?: (path: string, line?: number) => void;
 		/** 当前消息是否正在流式追加。为 true 时走轻量渲染路径，跳过 KaTeX 数学解析与
 		 *  mermaid 图渲染，避免每个 token 都对不断增长的全量正文调用重型插件导致主线程卡死。 */
 		isStreaming?: boolean;
@@ -714,14 +714,14 @@ export const AssistantText = memo(
 			</div>
 		);
 	},
-	// 自定义比较：文本、流式标记、图片一致时跳过重渲染。回调函数（onPreviewImage/onOpenExternal/
-	// onOpenFile）行为稳定（读 ref 或 setState），不参与比较，避免 App 每次渲染新建内联箭头
-	// 函数导致 memo 失效——历史消息在流式期间因此不再重复解析 Markdown，从根上消除卡顿。
+	// 自定义比较：正文文件回调绑定栏级 cwd/project，作用域变化时必须刷新；其余稳定回调仍忽略，
+	// 避免 App 常规渲染让历史消息反复解析 Markdown。
 	(prev, next) =>
 		prev.text === next.text &&
 		prev.isStreaming === next.isStreaming &&
 		prev.settle === next.settle &&
-		prev.images === next.images,
+		prev.images === next.images &&
+		prev.onOpenFile === next.onOpenFile,
 );
 
 /** 视觉桥「请求详情」展开面板：展示最近一次 input 转换的模型/耗时/token/提示词与每张图结果。

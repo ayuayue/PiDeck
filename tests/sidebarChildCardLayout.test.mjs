@@ -9,8 +9,20 @@ import { readRendererStyles } from "./helpers/rendererStyles.mjs";
  */
 
 const styles = readRendererStyles();
+const titleScrollText = readFileSync(
+  "src/renderer/src/components/sidebar/TitleScrollText.tsx",
+  "utf8",
+);
 const sessionTree = readFileSync(
   "src/renderer/src/components/sidebar/SessionTree.tsx",
+  "utf8",
+);
+const activeSessionsTree = readFileSync(
+  "src/renderer/src/components/sidebar/ActiveSessionsTree.tsx",
+  "utf8",
+);
+const dshSearchResults = readFileSync(
+  "src/renderer/src/components/sidebar/DshSearchResults.tsx",
   "utf8",
 );
 const projectTree = readFileSync(
@@ -64,9 +76,30 @@ test("sidebar workspace wrapper stays transparent", () => {
   assert.match(workspaceCard, /overflow:\s*visible;/);
 });
 
-test("sidebar child titles truncate via component classes", () => {
-  assert.match(sessionTree, /truncate font-medium/);
+test("sidebar child titles use the shared width clamp and hover-scroll component", () => {
+  assert.match(sessionTree, /import \{ TitleScrollText \} from "\.\/TitleScrollText"/);
+  assert.match(sessionTree, /<TitleScrollText\s+text=\{child\.agent\.title\}\s+className="font-medium"\s+disabled=\{agentSession\?\.id === props\.currentSessionId\}\s+\/>/);
+  assert.match(sessionTree, /标题被截断时 hover 滚动展示全文/);
+  assert.match(activeSessionsTree, /import \{ TitleScrollText \} from "\.\/TitleScrollText"/);
+  assert.match(activeSessionsTree, /<TitleScrollText text=\{displayTitle\} className="font-medium" disabled=\{selected\} \/>/);
+  assert.match(dshSearchResults, /import \{ TitleScrollText \} from "\.\/TitleScrollText"/);
+  assert.match(dshSearchResults, /text=\{record\.title\}/);
+  assert.doesNotMatch(titleScrollText, /title=\{overflowing \? text : undefined\}/);
+  // 速率规则：恒定 5px/s 匀速（仅 300ms 下限防 2px 级抖动，不设上限避免超长标题飞滚）
+  assert.match(titleScrollText, /TITLE_SCROLL_PIXELS_PER_SECOND = 5/);
+  assert.match(titleScrollText, /TITLE_SCROLL_MIN_DURATION_MS = 300/);
   assert.match(projectTree, /truncate font-medium/);
+});
+
+test("current session rows in the sidebar do not scroll on hover", () => {
+  // 与激活 tab 同款规则：当前选中的会话行 hover 不滚动（内容已在右侧看全）。
+  // 历史会话/草稿/运行中 Agent/活动页四个入口都要带 disabled={... === currentSessionId}。
+  const disabledUses = sessionTree.match(/disabled=\{[^}]*currentSessionId[^}]*\}/g) ?? [];
+  assert.ok(disabledUses.length >= 3, "SessionTree 的三类会话行都应禁用滚动");
+  assert.match(activeSessionsTree, /disabled=\{selected\}/);
+  assert.match(sessionTree, /disabled=\{session\.id === props\.currentSessionId\}/);
+  assert.match(sessionTree, /disabled=\{child\.session\.id === props\.currentSessionId\}/);
+  assert.match(sessionTree, /disabled=\{agentSession\?\.id === props\.currentSessionId\}/);
 });
 
 test("session status indicators stay on the concrete session row", () => {
@@ -113,7 +146,7 @@ test("sidebar omits the redundant projects heading and tabs shrink to their titl
   // 固定 Tab 与普通 Tab 同宽策略：不再用 w-20 固定宽度（Pin 图标挤占标题空间）
   assert.match(tabBar, /"w-fit max-w-32",/);
   assert.doesNotMatch(tabBar, /pinned \? "w-20"/);
-  assert.match(tabBar, /session-tabs-scroll (?:relative )?flex min-w-0 flex-1/);
+  assert.match(tabBar, /session-tabs-scroll (?:relative )?flex (?:h-full )?min-w-0 flex-1/);
   assert.match(tabBar, /session-tabs-actions flex shrink-0/);
   assert.match(sidebarContent, /sidebar-body flex min-h-0 flex-1 flex-col gap-2 px-2 pt-2 pb-1/);
   assert.match(sessionTree, /min-h-8 w-full/);

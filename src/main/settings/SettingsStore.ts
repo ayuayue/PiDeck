@@ -11,6 +11,7 @@ import {
   parseImageGenWatermark,
 } from "../../shared/imageGenParams";
 import { createDefaultExternalEditorSettings, DEFAULT_PET_SCALE, type AppSettings } from "../../shared/types";
+import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { getAppLogger } from "../logging/sharedLogger";
@@ -205,8 +206,12 @@ Gitmoji 对应关系：
   imageGenWatermark: DEFAULT_IMAGE_GEN_WATERMARK,
   imageGenOutputFormat: DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
 
-  // ── 更新检测：默认正常检测，用户可手动关闭忽略更新 ──
-  disableUpdateCheck: false,
+  // ── 更新检测：检查永远自动；自动下载默认开启（v0.7.4 起取代 disableUpdateCheck）──
+  autoDownloadUpdates: true,
+  // 更新源：默认 GitHub 官方；国内用户可切镜像前缀代理（见 updateSources.ts）
+  updateSource: "github",
+  // 自定义镜像前缀（updateSource=custom 时生效），空串 = 未填
+  customUpdateSourceUrl: "",
 
   // ── Agent 后端：默认 pi（经典后端），用户可在设置中切换为 dsh ──
   defaultAgentBackend: "pi",
@@ -286,6 +291,8 @@ export class SettingsStore {
       });
       this.settings.themeScheduleLightStart = schedule.lightStart;
       this.settings.themeScheduleDarkStart = schedule.darkStart;
+      // 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
+      this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
     } catch {
       this.settings = { ...defaultSettings };
     }
@@ -343,9 +350,50 @@ export class SettingsStore {
     if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
       delete safePatch.autoSessionTitle;
     }
+    // 更新源 id 归一化（只允许已知枚举，防手改/脏值污染 feed URL）；自定义源地址仅接受字符串。
+    if ("updateSource" in safePatch) {
+      const candidate = safePatch.updateSource;
+      const known =
+        typeof candidate === "string" &&
+        (candidate === "github" ||
+          candidate === "ghfast" ||
+          candidate === "ghproxy-net" ||
+          candidate === "ghproxy-cxkpro" ||
+          candidate === "custom");
+      if (known) safePatch.updateSource = candidate;
+      else delete safePatch.updateSource;
+    }
+    if ("customUpdateSourceUrl" in safePatch && typeof safePatch.customUpdateSourceUrl !== "string") {
+      delete safePatch.customUpdateSourceUrl;
+    }
+    // lastUsedModel 只接受 { provider, modelId } 双字符串（渲染层发送时才写，入参不可信）。
+    // 值相同（含非法被丢弃后无变更）直接早退：发送每条消息都会调用，避免高频无效写盘与审计刷屏。
+    if ("lastUsedModel" in safePatch) {
+      const candidate = safePatch.lastUsedModel;
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        typeof candidate.provider === "string" &&
+        candidate.provider.length > 0 &&
+        typeof candidate.modelId === "string" &&
+        candidate.modelId.length > 0
+      ) {
+        safePatch.lastUsedModel = { provider: candidate.provider, modelId: candidate.modelId };
+      } else {
+        delete safePatch.lastUsedModel;
+      }
+      const prev = this.settings.lastUsedModel;
+      const next = safePatch.lastUsedModel;
+      if (!next || (prev && prev.provider === next.provider && prev.modelId === next.modelId)) {
+        return this.get();
+      }
+    }
     // 忙碌时投递行为来自渲染层，非法值丢掉，避免发送链路带着坏语义。
     if ("busySendDelivery" in safePatch) {
       safePatch.busySendDelivery = parseBusySendDelivery(safePatch.busySendDelivery);
+    }
+    if ("pinnedSessionIds" in safePatch) {
+      safePatch.pinnedSessionIds = normalizePinnedSessionIds(safePatch.pinnedSessionIds);
     }
     // 闲置 agent 释放参数来自渲染层，钳制到合理范围避免非法值（0/负数/超大）写入磁盘
     if ("idleAgentKeepCount" in safePatch) {

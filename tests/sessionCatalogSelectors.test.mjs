@@ -40,9 +40,17 @@ function loadAtoms() {
     "../utils/liveTextHandoff": compileModule(
       "src/renderer/src/utils/liveTextHandoff.ts",
     ),
+    "./outlineRevision": compileModule(
+      "src/renderer/src/atoms/outlineRevision.ts",
+    ),
+    "./outlineProjectionCache": compileModule(
+      "src/renderer/src/atoms/outlineProjectionCache.ts",
+    ),
   });
   const selectors = compileModule("src/renderer/src/atoms/session-selectors.ts", {
     "./session-atoms": sessions,
+    // 展示名拼装与 fork 标记相关，测试不关心文案，直接透传即可。
+    "../utils/sessionDisplayName": { sessionDisplayName: (title) => title },
   });
   return { ...sessions, ...selectors };
 }

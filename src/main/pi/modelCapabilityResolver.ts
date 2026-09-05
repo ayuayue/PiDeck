@@ -88,9 +88,9 @@ function piRuntimeCandidates(
  * 配置阶段的自适应模板解析：运行中 pi 模型列表优先，PiDeck 自带 bundled catalog 兜底。
  * 不读 capability cache（那是输入框/思考强度的运行时快照，属于另一个消费面）。
  *
- * 修复「bundled 快照落后于运行中 pi」导致的匹配不到留空：新模型（如 qwen3.8-max）
- * 只在运行中 pi 的目录里，bundled 0.82.1 快照没有 → 旧逻辑匹配失败、字段留空，
- * pi 回退 128k 静默降级。现在先按运行中 pi 实报（pi-runtime，sourcePriority 更高）
+ * 修复「bundled 快照落后于运行中 pi」导致的匹配不到留空：当外部 Pi 已收录的新模型
+ * 尚未进入 PiDeck bundled catalog 时，旧逻辑会匹配失败、字段留空，Pi 回退 128k
+ * 静默降级。现在先按运行中 pi 实报（pi-runtime，sourcePriority 更高）
  * 匹配，bundled catalog 只负责补 thinkingLevelMap 等 pi 表格不带的字段。
  * endpoint /models 实报字段仍由渲染层在 mergeAdaptiveModelTemplate 中优先合并。
  */

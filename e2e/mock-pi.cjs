@@ -126,7 +126,15 @@ let streamIntervalMs = 80;
 let streaming = false;
 // steer/followUp 中途到达的 prompt 排队串行处理：真实 pi 也是单 run 语义，
 // 桌面端排队用例依赖「先到的先答、后到的接着答」的顺序性。
-const pendingPrompts = [];
+const pendingPrompts = []; // { text, streamingBehavior }
+// 真实 pi 的 steer 语义（pi-coding-agent dist/core/agent-session.js + bundle runLoop）：
+// 流式中 prompt 带 streamingBehavior=steer → _queueSteer 入 steeringQueue；当前 run 的
+// 工具循环结束后 runLoop 在同一 run 内 drain 队列：先 emit message_start(user)+
+// message_end(user)，再继续下一次 LLM 调用；整轮 _runAgentPrompt 完成才发一次
+// agent_end，其 finally 才发一次 agent_settled。因此 steer 队列非空时，run A 与 run B
+// 之间没有 agent_end/agent_settled 间隔（渲染层 isRuntimeBusy 全程 true）。
+// mock 旧行为是 pendingPrompts 串行排队（每轮独立 agent_end+settled），与真实语义
+// 差异即「steer 打断轮无 settled/无 run 边界」——steer 相关用例需要它。
 
 // ── Ask 模拟（E2E：ask-ui.spec.ts）──
 // prompt 含 ASK_* 标记时，先发 extension_ui_request（桌面端渲染提问卡片），
@@ -314,6 +322,11 @@ function startStream(userText, options = {}) {
 		: userText.includes("BURST")
 		? "Mock 回复：「BURST」" +
 		  "第一段缓慢吐字节奏稳定，然后密集输出段以极快速度连续推送多字符用于复现真实模型突发输出导致的蹦字现象，这段文本会在一两百毫秒内一次性灌入渲染层。"
+		: userText.includes("LONG")
+		? "Mock 回复：「LONG」" +
+		  Array.from({ length: 120 })
+			.map((_, i) => `第 ${i + 1} 行：长回答示例文本，用于撑高时间线高度（滚动/贴底类用例需要内容溢出视口）。`)
+			.join("\n")
 		: userText.includes("MDEMO")
 		? [			"以下是渲染元素巡检：",
 			"",
@@ -384,6 +397,24 @@ function startStream(userText, options = {}) {
 	// BURST 模式：模拟真实 LLM 突发输出——前 6 个 chunk 慢速（250ms），
 	// 之后 15ms 密集推送（复现「开头吐字、后面蹦字」）。
 	const chunkDelay = (step) => (burst ? (step < 6 ? 250 : 15) : streamIntervalMs);
+	// 真实 pi runLoop（bundle）：一轮 turn 结束后在**同一 run 内**检查 steeringQueue：
+	// 有 steer 则先 emit message_start(user)+message_end(user)，再继续下一轮 LLM 调用；
+	// 整轮 runPromptMessages 全部结束才发一次 agent_end，_runAgentPrompt 的 finally 才发
+	// agent_settled。因此 steer 插入时 run A 与 run B 之间**没有** agent_end/agent_settled。
+	const drainSteerMessagesIntoRun = () => {
+		const steerIndex = pendingPrompts.findIndex((p) => p.streamingBehavior === "steer");
+		if (steerIndex < 0) return false;
+		const [queued] = pendingPrompts.splice(steerIndex, 1);
+		const userContent = [{ type: "text", text: queued.text }];
+		emit({ type: "message_start", message: { role: "user", content: userContent } });
+		emit({ type: "message_end", message: { role: "user", content: userContent } });
+		conversationMessages.push({ role: "user", content: userContent });
+		// run B 继续流式（agent_start 是 mock 简化：真实 pi 同 run 内无 agent_start；
+		// 桌面端把 agent_start 当 running，此时已 running，无行为差异）
+		streaming = false;
+		startStream(queued.text);
+		return true;
+	};
 	const emitChunk = () => {
 		if (streamStep >= streamChunks.length) {
 			streamTimer = null;
@@ -392,20 +423,20 @@ function startStream(userText, options = {}) {
 				content: [{ type: "text", text: reply }],
 				stopReason: "stop",
 			};
-			// 落盘必须在 agent_settled 之前：桌面端 settled 后会重读 JSONL 重投影
-			// （绑定 entryId 供编辑/删除/重发定位），文件晚写会导致投影缺最后轮。
 			appendSessionMessages(userText, reply);
 			conversationMessages.push(
 				{ role: "user", content: [{ type: "text", text: userText }] },
 				{ role: "assistant", content: [{ type: "text", text: reply }] },
 			);
-			streaming = false;
 			emit({ type: "message_end", message: full });
+			// steer 队列非空：同 run 继续（无 agent_end/agent_settled 间隔）
+			if (drainSteerMessagesIntoRun()) return;
+			streaming = false;
 			emit({ type: "agent_end", messages: [full] });
 			emit({ type: "agent_settled" });
-			// 排队 prompt 串行开下一轮
+			// followUp/剩余排队：settled 之后的独立新 run（真实 followUp 语义）
 			const next = pendingPrompts.shift();
-			if (next !== undefined) startStream(next);
+			if (next !== undefined) startStream(next.text);
 			return;
 		}
 		const accumulated = streamChunks.slice(0, streamStep + 1).join("");
@@ -496,7 +527,9 @@ function handleCommand(cmd) {
 				return;
 			}
 			if (streaming) {
-				pendingPrompts.push(text);
+				// 真实 pi：流式中 prompt 带 streamingBehavior=steer 时入 steeringQueue，
+				// 由当前 run 的工具循环结束后 drain 并同 run 内投递；不带时按旧顺序排队。
+				pendingPrompts.push({ text, streamingBehavior: cmd.streamingBehavior });
 			} else {
 				startStream(text);
 			}

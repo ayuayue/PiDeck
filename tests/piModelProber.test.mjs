@@ -36,6 +36,14 @@ function compile(execFileImpl = () => {}) {
 		// execFile 可注入：parsePiProbeOutput 用不到，probePiModel 靠它捕获实参/模拟成败。
 		// type-only import（PiLocator/SettingsStore/shared）经 transpile 擦除。
 		if (specifier === "node:child_process") return { execFile: execFileImpl };
+		// PiModelProber 现在有运行时依赖 applyConfigProxyTarget（proxyTarget 未传时原样返回，
+		// 与真实实现的 follow 语义一致），提供等价 mock 即可。
+		if (specifier === "../sessions/sessionProxyPolicy") {
+			return {
+				applyConfigProxyTarget: (settings, target) =>
+					target === undefined ? settings : settings,
+			};
+		}
 		return {};
 	};
 	vm.runInNewContext(
@@ -234,14 +242,54 @@ test("老版本 pi 报 Unknown option 时自动降级为最小核心参数集重
 
 	assert.equal(result.success, true);
 	assert.equal(calls, 2, "Unknown option 应触发一次降级重试");
-	// 首次用全集（含较新 flag）；降级集只保留长期通用的核心 flag。
+	// 首次用全集（含较新 flag，且默认带扩展）；降级集只保留长期通用的核心 flag。
 	assert.ok(argSets[0].includes("--no-skills"), "首次探测应含全集优化 flag");
 	assert.ok(argSets[0].includes("--no-context-files"));
-	assert.ok(argSets[1].includes("--no-extensions"), "降级集应保留长期通用 flag");
 	assert.ok(argSets[1].includes("--offline"));
+	assert.ok(argSets[1].includes("--no-session"));
 	assert.ok(!argSets[1].includes("--no-skills"), "降级集不应含较新 flag --no-skills");
 	assert.ok(!argSets[1].includes("--no-context-files"), "降级集不应含 --no-context-files");
 	assert.ok(!argSets[1].includes("--no-themes"), "降级集不应含 --no-themes");
+	assert.ok(!argSets[1].includes("--no-extensions"), "降级集默认仍带扩展（#181）");
+});
+
+test("探针默认加载扩展（首次参数集不含 --no-extensions），保证扩展模型可测（#181）", async () => {
+	const argSets = [];
+	const { probePiModel, piLocator, settingsStore } = setupProbe((_cmd, args, _opts, cb) => {
+		argSets.push(args);
+		cb(null, agentEndLine({ role: "assistant", content: [{ type: "text", text: "Hi" }], model: "antigravity/gemini-3-flash", stopReason: "stop" }), "");
+	});
+
+	const result = await probePiModel(piLocator, settingsStore, "antigravity", "gemini-3-flash");
+
+	assert.equal(result.success, true);
+	assert.equal(result.model, "antigravity/gemini-3-flash");
+	// #181 回归护栏：扩展（pi.registerProvider）贡献的 provider 必须在探针里可解析。
+	assert.ok(!argSets[0].includes("--no-extensions"), "首次探测必须带扩展");
+});
+
+test("带扩展探测超时（疑似坏扩展工厂挂起）时降级为无扩展参数集重试", async () => {
+	const argSets = [];
+	let calls = 0;
+	const { probePiModel, piLocator, settingsStore } = setupProbe((_cmd, args, _opts, cb) => {
+		calls += 1;
+		argSets.push(args);
+		if (calls === 1) {
+			// 首次：扩展异步工厂挂起 → pi 启动卡死 → 探测超时。
+			const err = new Error("killed");
+			err.killed = true;
+			cb(err, "", "");
+			return;
+		}
+		cb(null, agentEndLine({ role: "assistant", content: [{ type: "text", text: "Hi" }], model: "p", stopReason: "stop" }), "");
+	});
+
+	const result = await probePiModel(piLocator, settingsStore, "deepseek", "v4-flash");
+
+	assert.equal(result.success, true);
+	assert.equal(calls, 2, "超时应触发一次无扩展降级重试");
+	assert.ok(argSets[1].includes("--no-extensions"), "降级集应禁用扩展");
+	assert.ok(!argSets[0].includes("--no-extensions"), "首次仍带扩展");
 });
 
 test("probePiModel 主动给子进程 stdin 发送 EOF，避免 pi 阻塞等待输入导致超时", async () => {

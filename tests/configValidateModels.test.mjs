@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const syncRequire = createRequire(import.meta.url);
 const MODULE_PATH = "src/main/config/ConfigManager.ts";
@@ -57,6 +58,10 @@ function compile() {
 					!/[\\/]/.test(name) &&
 					!name.includes(".."),
 			};
+		}
+		// saveModelsConfig 会调用归因兜底（仅依赖纯常量，无副作用），加载真实实现避免空对象 stub
+		if (specifier === "./tokendanceAttribution") {
+			return loadTsCommonJs("src/main/config/tokendanceAttribution.ts");
 		}
 		if (specifier.includes("mainProcessCopy")) {
 			return { mainProcessT: (_locale, key) => key };

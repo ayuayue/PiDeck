@@ -1,14 +1,15 @@
 import { Button } from "../components/ui-shadcn/button";
 import { useEffect, useState } from "react";
-import { BarChart3, ChevronDown, ChevronRight, Copy, ExternalLink, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, ExternalLink, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import type { AuthFile, ModelsFile } from "./configTypes";
-import { ConfigComboboxInput, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
+import { ConfigSelect, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
 import { Input } from "../components/ui-shadcn/input";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
-import { ProviderUsageRow } from "../components/app/ProviderUsageInline";
+import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
+import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 
 // 根据 pi 官方文档支持的供应商列表 (https://pi.dev/docs/latest/providers#auth-file)
 const PRESET_PROVIDERS = [
@@ -316,23 +317,20 @@ export function AuthTab(props: {
 										? `${auth.key.slice(0, 10)}••••••${auth.key.slice(-4)}`
 										: t("config.authKeyPreviewEmpty")}
 								</span>
+								{/* 用量/余额收进标题行（与模型页同布局）；拦截点击，刷新时不误触发卡片折叠/展开 */}
+								<span onClick={(event) => event.stopPropagation()}>
+									<ProviderUsageInline provider={name} variant="card" />
+								</span>
 								<div className="flex items-center gap-1">
 									<ProviderMigrationButton
 										direction="pi-to-dsh"
 										provider={name}
 									/>
-									{/* 用量查询配置（柱状图图标在行头图标组，与模型页/DSH 同款） */}
-									<Button variant="ghost" size="icon-sm" className="size-7"
-										onClick={(e) => {
-											e.stopPropagation();
-											props.onOpenUsageProbeDialog(name);
-										}}
-										title={t("config.usageProbe.entry")}
-										aria-label={t("config.usageProbe.entry")}
-										data-testid="provider-usage-configure-icon"
-									>
-										<BarChart3 size={14} />
-									</Button>
+									{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染） */}
+									<UsageQueryEntryButton
+										provider={name}
+										onOpen={() => props.onOpenUsageProbeDialog(name)}
+									/>
 									<Button variant="ghost" size="icon-sm" className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
 										onClick={(e) => {
 											e.stopPropagation();
@@ -355,7 +353,7 @@ export function AuthTab(props: {
 								<div className="mx-4 my-3.5 grid gap-2.5 rounded-lg border border-border-subtle bg-bg-panel p-3.5">
 									<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
 										<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.type")}</Label>
-										<ConfigComboboxInput
+										<ConfigSelect
 											value={auth.type ?? "api_key"}
 											options={AUTH_TYPE_OPTIONS}
 											onChange={(v) =>
@@ -372,8 +370,6 @@ export function AuthTab(props: {
 									</div>
 								</div>
 							)}
-							{/* 用量行（与模型页/DSH 同一版式：卡片右下角）= 金额/百分比 + 柱状图「用量查询」按钮 */}
-							<ProviderUsageRow provider={name} />
 						</div>
 					);
 				})}

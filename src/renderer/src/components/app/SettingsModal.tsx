@@ -56,6 +56,7 @@ import { computeDirtyFields } from "./settings/settingsDirtyFields.ts";
 import { SETTINGS_TAB_IDS, SETTINGS_TAB_LAYOUT } from "./settings/settingsTabLayout";
 import { useGitModels } from "./settings/gitModels.ts";
 import { formatSettingsUnsavedMessage, summarizeSettingsUnsavedChanges } from "./settings/unsavedChangesSummary.ts";
+import { UpdateInstallUnsavedDialog } from "./settings/UpdateInstallUnsavedDialog.tsx";
 import type { AppSettings, AppInfo, AvailableModel, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult } from "../../../../shared/types";
 
 // ── 各 tab 内容 lazy 加载：首开只下载壳 + 当前 tab 的 chunk（qrcode/表格/日志查看器等
@@ -140,6 +141,10 @@ type SettingsModalProps = {
 	onCheckPi: () => void;
 	onTestPiProxy: () => void;
 	onCheckUpdate: () => void;
+	/** 未自动下载时的手动下载（electron-updater downloadUpdate）。 */
+	onDownloadUpdate: () => void;
+	/** 重启并安装已下载的更新（electron-updater quitAndInstall）。 */
+	onInstallUpdate: () => void;
 	onCheckPiUpdate: () => void;
 	onUpdatePi: () => void;
 	onToggleDevTools: () => void;
@@ -147,7 +152,7 @@ type SettingsModalProps = {
 	onClearCheckFlag?: () => void;
 	onOpenWebService: (port: string) => void;
 	onClose: () => void;
-	onChange: (patch: Partial<AppSettings>) => void;
+	onChange: (patch: Partial<AppSettings>) => Promise<boolean>;
 	/** 当前项目路径：有值时配置管理分区合并项目 `.mcp.json` / `.pi/mcp.json`（只读）。 */
 	projectPath?: string;
 };
@@ -369,12 +374,15 @@ function SettingsModalContent(props: SettingsModalProps) {
 		for (const key of dirtyFields) {
 			(patch as Record<string, unknown>)[key] = (draftSettings as Record<string, unknown>)[key];
 		}
-		props.onChange(patch);
-		// 提交后把基准推进到当前草稿；脏字段由 useMemo 在下一渲染自动收敛为空。
-		baseSnapshotRef.current = deepClone(draftSettings);
-		// baseSnapshotRef 是 ref 不在 useMemo 依赖里：仅推进基准而不 bump token，
-		// dirtyFields 会停在保存前的非空集合（draftSettings 引用未变），关闭弹框误报未保存。
-		setBaselineToken((v) => v + 1);
+		// 需要等持久化结果再推进基准；更新安装会马上退出，不能让异步写入被进程终止。
+		const settingsOk = await props.onChange(patch).catch(() => false);
+		ok = ok && settingsOk;
+		if (settingsOk) {
+			baseSnapshotRef.current = deepClone(draftSettings);
+			// baseSnapshotRef 是 ref 不在 useMemo 依赖里：仅推进基准而不 bump token，
+			// dirtyFields 会停在保存前的非空集合（draftSettings 引用未变），关闭弹框误报未保存。
+			setBaselineToken((v) => v + 1);
+		}
 		if (visionDraft.dirty) {
 			// 视觉桥保存失败（如 API Key 缺失/接口不可达）时保留脏标记，头部按钮可重试
 			const visionOk = await visionDraft.save();
@@ -432,29 +440,60 @@ function SettingsModalContent(props: SettingsModalProps) {
 		}
 	};
 
-	/** 关闭确认弹框时选择保存并关闭：系统设置与配置管理的脏来源都保存成功才关闭；
-	 *  设置侧走 saveAll（视觉桥保存失败返回 false 留在窗口），配置侧走 ConfigPane.saveAllDirty。 */
-	const handleSaveAndClose = async () => {
-		setCloseConfirmOpen(false);
+	/** 保存关闭/安装前的全部脏来源；任一来源失败时保留弹窗和草稿供用户重试。 */
+	const savePendingChanges = async (): Promise<boolean> => {
 		const settingsDirty = dirtyFields.size > 0 || visionDraft.dirty || imageGenDirty;
 		const settingsOk = settingsDirty ? await saveAll() : true;
 		const configOk = configPaneState.hasDirty
 			? ((await configPaneRef.current?.saveAllDirty()) ?? false)
 			: true;
-		if (settingsOk && configOk) {
-			props.onClose();
-		}
+		return settingsOk && configOk;
 	};
 
-	/** 关闭确认弹框时选择放弃更改 */
+	/** 关闭确认弹框时选择保存并关闭：系统设置与配置管理的脏来源都保存成功才关闭。 */
+	const handleSaveAndClose = async () => {
+		setCloseConfirmOpen(false);
+		if (await savePendingChanges()) props.onClose();
+	};
+
+	/** 放弃修改时，外观实时预览已写入 <html>，需显式回滚为快照值。 */
+	const discardPendingChanges = () => {
+		restoreAppearanceFromSnapshot();
+	};
+
+	/** 关闭确认弹框时选择放弃更改。 */
 	const handleDiscardAndClose = () => {
 		setCloseConfirmOpen(false);
-		// 放弃修改：草稿被丢弃，但外观实时预览已写入 <html>，需显式回滚为快照值
-		restoreAppearanceFromSnapshot();
+		discardPendingChanges();
 		props.onClose();
 	};
 
 	const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+	const [installConfirmOpen, setInstallConfirmOpen] = useState(false);
+
+	/** 安装会终止进程；任何内存草稿都必须先由用户保存或明确放弃。 */
+	const handleInstallUpdate = () => {
+		const settingsDirty = dirtyFields.size > 0 || visionDraft.dirty || imageGenDirty;
+		if (settingsDirty || configPaneState.hasDirty) {
+			setInstallConfirmOpen(true);
+			return;
+		}
+		props.onInstallUpdate();
+	};
+
+	const handleSaveAndInstall = async () => {
+		setInstallConfirmOpen(false);
+		if (!(await savePendingChanges())) return;
+		props.onClose();
+		props.onInstallUpdate();
+	};
+
+	const handleDiscardAndInstall = () => {
+		setInstallConfirmOpen(false);
+		discardPendingChanges();
+		props.onClose();
+		props.onInstallUpdate();
+	};
 
 	const [perAreaFontSize, setPerAreaFontSize] = useState(
 		draftSettings.uiFontSize !== null ||
@@ -775,6 +814,8 @@ function SettingsModalContent(props: SettingsModalProps) {
 								piUpdateResult={props.piUpdateResult}
 								updateChecking={props.updateChecking}
 								onCheckUpdate={props.onCheckUpdate}
+								onDownloadUpdate={props.onDownloadUpdate}
+								onInstallUpdate={handleInstallUpdate}
 								onToggleDevTools={props.onToggleDevTools}
 								onRestartApp={props.onRestartApp}
 								resetKey={devTabResetKey}
@@ -896,6 +937,14 @@ function SettingsModalContent(props: SettingsModalProps) {
 					</AlertDialogContent>
 				</AlertDialog>
 			)}
+			<UpdateInstallUnsavedDialog
+				open={installConfirmOpen}
+				items={mergedUnsavedItems}
+				count={mergedUnsavedCount}
+				onCancel={() => setInstallConfirmOpen(false)}
+				onDiscardAndInstall={handleDiscardAndInstall}
+				onSaveAndInstall={handleSaveAndInstall}
+			/>
 			</DialogContent>
 		</Dialog>
 	);

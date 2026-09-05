@@ -42,8 +42,8 @@ export type SidebarSourceFilterMenu = {
 };
 export type SidebarMenuTarget =
   | { kind: "project"; projectId: string; x: number; y: number }
-  | { kind: "agent"; agentId: string; x: number; y: number }
-  | { kind: "session"; projectId: string; sessionId: string; x: number; y: number }
+  | { kind: "agent"; agentId: string; pinnable?: boolean; x: number; y: number }
+  | { kind: "session"; projectId: string; sessionId: string; pinnable: boolean; x: number; y: number }
   | { kind: "draft"; projectId: string; sessionId: string; x: number; y: number };
 
 export type SidebarRpcLog = {
@@ -85,6 +85,10 @@ export type SidebarController = {
   /** 侧栏 Chats/项目分段当前选中；记忆上次选择，双写到 localStorage 与 settings.json */
   navTab: SidebarNavTab;
   setNavTab: (tab: SidebarNavTab) => void;
+  /** Stable SessionRecord ids pinned within their owning project list. */
+  pinnedSessionIds: ReadonlySet<string>;
+  isSessionPinned: (sessionId: string) => boolean;
+  toggleSessionPin: (sessionId: string) => void;
   expandedProjectIds: ReadonlySet<string>;
   isProjectCollapsed: (projectId: string) => boolean;
   toggleProject: (projectId: string) => void;
@@ -218,6 +222,10 @@ export function useSidebarController(options: {
   persistNavTab?: (tab: SidebarNavTab) => void;
   /** settings.json 中的权威侧栏分段，首次拿到时覆盖本地缓存 */
   settingsNavTab?: SidebarNavTab;
+  /** 置顶会话 id 的权威 settings.json 值。 */
+  settingsPinnedSessionIds?: readonly string[];
+  /** 置顶集合变更时写入 settings.json。 */
+  persistPinnedSessionIds?: (sessionIds: string[]) => void;
   /** 初始 settings.get 已完成；旧 key 迁移必须等此时才允许落盘。 */
   settingsLoaded?: boolean;
   /** 权威 settings 已应用且旧 key 已完成迁移后通知 App 开始懒加载会话。 */
@@ -233,6 +241,7 @@ export function useSidebarController(options: {
   const [search, setSearch] = useState("");
   const [expandedProjectIds, setExpandedProjectIds] = useAtom(sidebarExpandedProjectIdsAtom);
   const [navTab, setNavTabState] = useAtom(sidebarNavTabAtom);
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const [sourceFilters, setSourceFilters] = useState<SidebarSourceFilters>(() =>
     readSidebarSourceFilters(options.storage ?? (typeof window === "undefined" ? undefined : window.localStorage)),
   );
@@ -256,6 +265,11 @@ export function useSidebarController(options: {
   const [worktreeCreateProjectId, setWorktreeCreateProjectId] = useState<string>();
   const [rpcLogAgentId, setRpcLogAgentId] = useState<string>();
   const requestGateRef = useRef(createSidebarRequestGate());
+  const pinnedSessionIdsRef = useRef(pinnedSessionIds);
+  pinnedSessionIdsRef.current = pinnedSessionIds;
+  const pinnedSessionIdsHydratedRef = useRef(false);
+  const persistPinnedSessionIdsRef = useRef(options.persistPinnedSessionIds);
+  persistPinnedSessionIdsRef.current = options.persistPinnedSessionIds;
 
   useEffect(() => {
     const storage = options.storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
@@ -266,6 +280,31 @@ export function useSidebarController(options: {
       // Local preferences are optional and must not make the Sidebar unusable.
     }
   }, [options.storage, sourceFilters]);
+
+  // 置顶状态只落 settings.json：首次 hydration 后由 controller 独占运行时状态，
+  // 避免迟到的 settings 响应覆盖用户刚完成的置顶操作。
+  useEffect(() => {
+    if (pinnedSessionIdsHydratedRef.current || !options.settingsLoaded) return;
+    pinnedSessionIdsHydratedRef.current = true;
+    const hydrated = new Set(
+      (options.settingsPinnedSessionIds ?? []).filter(
+        (id): id is string => typeof id === "string" && id.trim().length > 0,
+      ),
+    );
+    pinnedSessionIdsRef.current = hydrated;
+    setPinnedSessionIds(hydrated);
+  }, [options.settingsLoaded, options.settingsPinnedSessionIds]);
+
+  const toggleSessionPin = useCallback((sessionId: string) => {
+    if (!sessionId) return;
+    pinnedSessionIdsHydratedRef.current = true;
+    const next = new Set(pinnedSessionIdsRef.current);
+    if (next.has(sessionId)) next.delete(sessionId);
+    else next.add(sessionId);
+    pinnedSessionIdsRef.current = next;
+    setPinnedSessionIds(next);
+    persistPinnedSessionIdsRef.current?.([...next]);
+  }, []);
 
   // ── 侧栏 Chats/项目分段：localStorage 首屏缓存 + settings.json 可靠落盘（与展开集合同策略） ──
 
@@ -494,6 +533,9 @@ export function useSidebarController(options: {
     setSearch,
     navTab,
     setNavTab,
+    pinnedSessionIds,
+    isSessionPinned: (sessionId) => pinnedSessionIds.has(sessionId),
+    toggleSessionPin,
     expandedProjectIds,
     isProjectCollapsed: (projectId) => !expandedProjectIds.has(projectId),
     toggleProject,

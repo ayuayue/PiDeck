@@ -26,6 +26,20 @@ export const DEFAULT_OPEN_THINKING_MAP: ThinkingLevelMap = {
 };
 
 /**
+ * 视觉/多模态模型 ID 启发式：目录未收录时据此补图片能力。
+ *
+ * 只认独立 token（vision/vl/vlm/multimodal/4v），前后必须是边界字符，
+ * 避免 "revision"、"visual"、"vlx" 这类子串误判；不含 "image"——它同时是
+ * 图片生成模型的常见命名（gpt-image-*），输入能力并不相同。
+ * 典型命中：deepseek-v4-flash-vision-exp、qwen2.5-vl、glm-4v。
+ */
+export const VISION_MODEL_ID_PATTERN = /(^|[^a-z0-9])(vision|vl|vlm|multimodal|4v)($|[^a-z0-9])/i;
+
+export function isVisionModelId(modelId: string): boolean {
+	return VISION_MODEL_ID_PATTERN.test(modelId);
+}
+
+/**
  * 保存时的 provider compat 归一化：布尔值显式落盘（不依赖后端默认）。
  *
  * supportsReasoningEffort 联动：该 provider 任一模型存在非空档位映射且未显式
@@ -60,10 +74,19 @@ export function computeModelSpecPatches(
 		if (model.maxTokens == null && spec.maxTokens != null) {
 			updates.push(["maxTokens", spec.maxTokens]);
 		}
-		if (model.input == null && spec.input && spec.input.length > 0) {
+	}
+	// input（输入模态）：目录明确声明时优先；仅当模型 ID 明显是视觉变体且目录
+	// 未声明 input 时兜底补图片能力（否则 vision 模型会被当成 text-only 走视觉桥）。
+	// 已有 input（含手填）一律不动——覆盖由「重置为自适应」负责。
+	if (model.input == null) {
+		if (spec?.input && spec.input.length > 0) {
 			updates.push(["input", [...spec.input]]);
-		} else if (model.input == null && spec.images === true) {
+		} else if (spec?.images === true) {
 			// 兼容尚未返回完整 input 的旧目录。
+			updates.push(["input", ["text", "image"]]);
+		} else if (isVisionModelId(model.id)) {
+			// 目录未收录的视觉模型：ID 本身就是能力声明（如 -vision-exp/-vl），
+			// 补上图片能力而不是留空让 Pi 按 text-only 处理（图片会走视觉桥）。
 			updates.push(["input", ["text", "image"]]);
 		}
 	}
@@ -158,10 +181,13 @@ export type AdaptiveModelTemplate = {
  * 合并 endpoint listing 与 bundled catalog 模板。
  * 优先级：endpoint 实报字段 > catalog 模板 > 空。
  * 用户当前模型行已填的值不参与合并——它属于「当前有效配置」，由 applyAdaptiveTemplateReset 决定取舍。
+ * modelId 用于视觉模型 ID 兜底（目录未收录且 endpoint 未实报时）；
+ * 不传时保持旧行为（不猜 input）。
  */
 export function mergeAdaptiveModelTemplate(
 	listing: FetchedModel | undefined,
 	spec: ModelSpec | null | undefined,
+	modelId?: string,
 ): AdaptiveModelTemplate {
 	const template: AdaptiveModelTemplate = {};
 	// endpoint 实报优先
@@ -184,6 +210,9 @@ export function mergeAdaptiveModelTemplate(
 		template.input = [...spec.input];
 	} else if (!template.input && spec?.images === true) {
 		// 兼容尚未返回完整 input 的旧目录。
+		template.input = ["text", "image"];
+	} else if (!template.input && modelId && isVisionModelId(modelId)) {
+		// 目录未收录的视觉模型：ID 即能力声明，「重置为自适应」同样补图片能力。
 		template.input = ["text", "image"];
 	}
 	if (!template.thinkingLevelMap && spec?.thinkingLevelMap) {

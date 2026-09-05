@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, List, Plus, Settings2, UserPlus } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, List, Plus, RefreshCw, Settings2, UserPlus } from "lucide-react";
 import type { DragEvent } from "react";
 import type { Project, WorktreeEntry } from "../../../../shared/types";
 import type { SidebarController } from "../../hooks/useSidebarController";
@@ -8,6 +8,8 @@ import { ActiveSessionsTree } from "./ActiveSessionsTree";
 import { SessionTree } from "./SessionTree";
 import { WorktreeTree } from "./WorktreeTree";
 import { isLiveRuntimeStatus } from "../../utils/sessionCommands";
+import { sessionDisplayName } from "../../utils/sessionDisplayName";
+import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
 import { Button } from "../ui-shadcn/button";
 import {
 	DropdownMenu,
@@ -26,22 +28,15 @@ const treeRowClass =
 
 /** 项目行右侧操作按钮的虚化模式：absolute 浮层，不参与布局（不挤压项目名文字），
  * 默认隐藏（pointer-events 一并关闭防误触），行 hover / 行内聚焦时显现。
- * 窄侧栏（<256px）时按钮会盖住项目名：conversation-body 上
- * @max-[255px]:group-hover:pr-29 在 hover 时压出 116px 右侧留白（4 个按钮宽），
- * 文本截断让位但保持可见——2027-01 用户反馈：整行淡出到透明会导致标题不可读，
- * 必须点击激活才能看到文字；压缩+截断只损失尾部文字，不影响辨认。 */
+ * 按钮浮层会盖住项目名：conversation-body 上 group-hover:pr-16 在 hover 时压出
+ * 右侧留白——容器 right-1(4px) + pr-1(4px) + 两个 size-6 按钮(52px) + 4px 余量 = 64px，
+ * 文本截断让位但保持可见；启用来源筛选（sourceFilter）时共 3 个按钮，让位加宽到 88px。
+ * 与 SessionTree/WorktreeTree 同一策略：所有宽度统一让位，不能只依赖窄侧栏断点
+ * （中等宽度下长项目名同样会延伸到按钮下方，表现为 + / ⋯ 叠在项目名文字上）。
+ * 2027-01 用户反馈：整行淡出到透明会导致标题不可读，必须点击激活才能看到文字；
+ * 压缩+截断只损失尾部文字，不影响辨认。 */
 const dimmedActionsClass =
 	"pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100";
-
-function isChatProject(project: Project) {
-  return project.kind === "chat";
-}
-
-function displayProjectDirectoryName(project: Project) {
-  if (isChatProject(project)) return "Chat";
-  const normalizedPath = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
-  return normalizedPath.split("/").pop() || project.name || project.path;
-}
 
 function matchesProject(project: Project, search: string, controller: SidebarController) {
   if (!search) return true;
@@ -56,7 +51,7 @@ function matchesProject(project: Project, search: string, controller: SidebarCon
     if (controller.catalog.agents.some((agent) => agent.projectId === related.id &&
       `${agent.title}${agent.cwd}${agent.sessionId ?? ""}`.toLowerCase().includes(query))) return true;
     return (controller.catalog.sessionsByProject[related.id] ?? []).some((session) =>
-      `${session.title}${session.preview}${session.filePath ?? ""}`.toLowerCase().includes(query));
+      `${sessionDisplayName(session.title, session.forked) ?? session.title}${session.preview}${session.filePath ?? ""}`.toLowerCase().includes(query));
   });
 }
 
@@ -67,6 +62,8 @@ export function ProjectTree(props: {
   currentSessionId?: string;
   worktreesByProject: Readonly<Record<string, readonly WorktreeEntry[]>>;
   branchByProject?: Readonly<Record<string, string | null | undefined>>;
+  /** 正在删除的 worktree 路径集合（透传给 WorktreeTree 驱动淡出动画）。 */
+  removingWorktreePaths?: ReadonlySet<string>;
 }) {
   const rootProjects = props.controller.catalog.projects.filter((project) =>
     !project.worktreeParentId && matchesProject(project, props.controller.search.trim(), props.controller),
@@ -135,7 +132,12 @@ export function ProjectTree(props: {
             <span className="grid size-5 shrink-0 place-items-center text-muted-foreground" aria-hidden="true">
               {collapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
             </span>
-            <div className="conversation-body min-w-0 flex-1 transition-[padding-right] @max-[255px]:group-hover:pr-29 @max-[255px]:group-focus-within:pr-29">
+            <div className={cn(
+              "conversation-body min-w-0 flex-1 transition-[padding-right] group-hover:pr-16 group-focus-within:pr-16",
+              // 筛选按钮与 + / ⋯ 共 3 个按钮时让位 88px（24×3 + 8px 间隙 + 外层定位），
+              // 否则文本会短到筛按钮下方。twMerge 保证后者胜出（见 sidebarNarrowRowActions 契约测试）。
+              sourceFilter !== null && "group-hover:pr-[88px] group-focus-within:pr-[88px]",
+            )}>
               <div className="conversation-title flex min-w-0 items-center">
                 {/* 项目名 + 运行态点合成一个截断单元：点紧跟文本而不是被 space-between
                     推到最右——旧布局下点在行尾，鼠标移入时会被右侧浮层按钮盖住。 */}
@@ -220,6 +222,7 @@ export function ProjectTree(props: {
                 agents={props.controller.catalog.agents}
                 entries={props.worktreesByProject[project.id] ?? []}
                 branch={props.branchByProject?.[project.id]}
+                removingWorktreePaths={props.removingWorktreePaths}
               />
             ) : (
               <SessionTree
@@ -335,8 +338,8 @@ export function ProjectTree(props: {
     <>
       {workspaceProjects.length > 0 && (
         <section aria-label={t("app.sidebarProjects")} role="tree">
-        {/* 分组标题栏：左侧「项目」标题，右侧 = 「+ 添加项目」+ 全部折叠/展开（高频操作外露）。
-            不设空 ⋯ 菜单（无低频入口时纯装饰，易被误认成搜索残留）。 */}
+        {/* 分组标题栏：左侧「项目」标题，右侧 = 「+ 添加项目」+ 全部折叠/展开（高频操作外露）
+            + 「⋯ 更多操作」。目录存在性重扫属于低频维护动作，收进菜单避免挤占窄侧栏。 */}
           <div className="flex items-center justify-between px-1 pb-1">
             <span className="text-caption font-medium text-muted-foreground">{t("app.sidebarProjects")}</span>
             <div className="flex items-center gap-0.5">
@@ -364,6 +367,26 @@ export function ProjectTree(props: {
               >
                 <ChevronsDownUp size={14} aria-hidden="true" />
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label={t("sidebar.moreActions")}
+                    title={t("sidebar.moreActions")}
+                  >
+                    <Ellipsis size={14} aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={4} className="min-w-36">
+                  <DropdownMenuItem onSelect={() => void props.actions.projects.refreshAll()}>
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                    {t("app.projectRefreshAll")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
           {workspaceProjects.map(renderProject)}
@@ -373,8 +396,28 @@ export function ProjectTree(props: {
           此前该分组整体不渲染，用户不知道可以添加项目目录，误以为只能聊天（issue #149）。 */}
       {workspaceProjects.length === 0 && (
         <section aria-label={t("app.sidebarProjects")} className="mt-1">
-          <div className="px-1 pb-1 text-caption font-medium text-muted-foreground">
-            {t("app.sidebarProjects")}
+          <div className="flex items-center justify-between px-1 pb-1">
+            <span className="text-caption font-medium text-muted-foreground">{t("app.sidebarProjects")}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={t("sidebar.moreActions")}
+                  title={t("sidebar.moreActions")}
+                >
+                  <Ellipsis size={14} aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={4} className="min-w-36">
+                <DropdownMenuItem onSelect={() => void props.actions.projects.refreshAll()}>
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  {t("app.projectRefreshAll")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <div className="mx-1 rounded-lg border border-dashed border-border-subtle bg-muted/20 px-3 py-4 text-center">
             <FolderPlus className="mx-auto mb-2 size-5 text-muted-foreground" aria-hidden="true" />

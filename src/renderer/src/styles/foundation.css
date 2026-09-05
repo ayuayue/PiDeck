@@ -1974,8 +1974,9 @@ select:focus-visible {
   color: var(--color-text-primary);
   background: color-mix(in srgb, var(--color-accent-soft) 54%, transparent);
 }
-/* 删除 worktree 时的淡出动画 */
-.worktree-row.worktree-removing {
+/* 删除 worktree 时的淡出动画：行根节点命中（workspace-tree-row）时淡出并左移，
+   指针失效防止动画期间误点；由 removingWorktreePaths 状态驱动（WorktreeTree 接线）。 */
+.workspace-tree-row.worktree-removing {
   opacity: 0;
   transform: translateX(-12px);
   transition:

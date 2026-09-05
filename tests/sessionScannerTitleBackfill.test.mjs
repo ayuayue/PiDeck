@@ -133,8 +133,8 @@ test("inferSessionNameFromFile falls back to the first user text for a new pi se
 		]);
 		const scanner = new Scanner();
 		const name = await scanner.inferSessionNameFromFile(file);
-		// 优先级与 readSummary 一致：首条 user 文本，截断 32 字符。
-		assert.equal(name, "修复侧栏标题：未打开的会话要显示首条消息，而不是永远 Untit…");
+		// 优先级与 readSummary 一致：首条 user 文本，保留完整标题；侧栏只做视觉钳制。
+		assert.equal(name, "修复侧栏标题：未打开的会话要显示首条消息，而不是永远 Untitled");
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
@@ -153,6 +153,73 @@ test("inferSessionNameFromFile prefers session_info name over the first user tex
 		const scanner = new Scanner();
 		const name = await scanner.inferSessionNameFromFile(file);
 		assert.equal(name, "用户手动改名后的标题");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("inferSessionNameFromFile preserves a long physical fork title", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pi-scan-title-fork-"));
+	const { SessionScanner: Scanner } = loadSessionScanner(home);
+	try {
+		const file = join(home, ".pi", "agent", "sessions", "--C--Users-14012-pi-desktop-dev--", "2026-08-22T04-22-29-162Z_abc.jsonl");
+		const title = "复制后的长标题：这个名称超过三十二字符并且必须保留末尾身份标记 (fork)";
+		writeSession(file, [
+			makeHeader("abc"),
+			{ type: "session_info", id: "i1", parentId: "abc", timestamp: "2026-08-22T04:23:00.000Z", name: title },
+		]);
+		const scanner = new Scanner();
+		assert.equal(await scanner.inferSessionNameFromFile(file), title);
+		assert.equal((await scanner.inferSessionNameAndValidity(file)).name, title);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("inferSessionNameFromFile reads the latest session_info appended beyond the head window", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pi-scan-title-tail-"));
+	const { SessionScanner: Scanner } = loadSessionScanner(home);
+	try {
+		const file = join(home, ".pi", "agent", "sessions", "--C--Users-14012-pi-desktop-dev--", "2026-08-22T04-22-29-162Z_abc.jsonl");
+		const padding = "x".repeat(70 * 1024);
+		writeSession(file, [
+			makeHeader("abc"),
+			makeUser("u1", "文件头里的旧回退标题"),
+			makeAssistant("a1", padding),
+			{ type: "session_info", id: "i1", parentId: "a1", timestamp: "2026-08-22T04:23:00.000Z", name: "pi-tui 在文件末尾追加的新标题" },
+		]);
+		const scanner = new Scanner();
+		const name = await scanner.inferSessionNameFromFile(file);
+		assert.equal(name, "pi-tui 在文件末尾追加的新标题");
+		// 命中 session_info：权威来源，允许覆盖 catalog 已有真实标题。
+		const inferred = await scanner.inferSessionNameAndValidity(file);
+		assert.equal(inferred.name, "pi-tui 在文件末尾追加的新标题");
+		assert.equal(inferred.nameFromSessionInfo, true);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("inferSessionNameAndValidity marks first-message fallback as non-authoritative when session_info sits in the window gap", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pi-scan-title-gap-"));
+	const { SessionScanner: Scanner } = loadSessionScanner(home);
+	try {
+		const file = join(home, ".pi", "agent", "sessions", "--C--Users-14012-pi-desktop-dev--", "2026-08-22T04-22-29-162Z_abc.jsonl");
+		// 会话变大（用户第二轮）：session_info 被挤到头部/尾部窗口之外的中间盲区。
+		// 头部窗口读不到 session_info，名称只能回退到首条消息文本——弱信号，不得覆盖已有标题。
+		const padding = "x".repeat(70 * 1024);
+		writeSession(file, [
+			makeHeader("abc"),
+			makeUser("u1", "首条消息：可以当弱标题但不能覆盖真实标题"),
+			makeAssistant("a1", padding),
+			{ type: "session_info", id: "i1", parentId: "a1", timestamp: "2026-08-22T04:23:00.000Z", name: "自动生成的真实标题" },
+			makeAssistant("a2", padding),
+		]);
+		const scanner = new Scanner();
+		const inferred = await scanner.inferSessionNameAndValidity(file);
+		// 窗口盲区：只能回退到首条 user 文本，且必须标记为非权威。
+		assert.equal(inferred.name, "首条消息：可以当弱标题但不能覆盖真实标题");
+		assert.equal(inferred.nameFromSessionInfo, false);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}

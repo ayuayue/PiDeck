@@ -3,9 +3,12 @@ import type { Project, FileTreeNode, GitBranchInfo, WorktreeEntry, SessionSummar
 import type { SessionLoadState } from "../atoms/session-atoms";
 import { sessionRecordToSummary } from "../atoms/session-selectors";
 import { loadProjectFileTree } from "../utils/fileTreeLazy";
+import { createKeyedWatchdog } from "../utils/catalogLoadWatchdog";
 
 const SESSION_REFRESH_TIMEOUT_MS = 20_000;
 const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
+/** loading 兜底观察时长：超时后先静默重试一轮，再超时强制揭开（总共约 2× 本级）。 */
+const CATALOG_WATCHDOG_STAGE_MS = 15_000;
 
 function withTimeout<T>(
   promise: Promise<T>,
@@ -88,6 +91,10 @@ export function useProjectSync(input: UseProjectSyncInput) {
   const [gitInfo, setGitInfo] = useState<GitBranchInfo>({ current: null, branches: [] });
   const [sessionLoadingByProject, setSessionLoadingByProject] = useState<Record<string, boolean>>({});
   const [visibleProjectChildCountByProject, setVisibleProjectChildCountByProject] = useState<Record<string, number>>({});
+  // 项目目录 loading 兜底（2026-09）：序号守卫/静默拉取失败会让 loading 永挂，
+  // 用两级看门狗保证「重试一轮 → 强制 ready」。实例一次性创建，生命周期随 hook 存活。
+  const catalogLoadWatchdogRef = useRef(createKeyedWatchdog());
+  const catalogLoadWatchdog = catalogLoadWatchdogRef.current;
   const sessionRequestByProjectRef = useRef<Record<string, number>>({});
   const sessionRefreshRunningRef = useRef<Set<string>>(new Set());
   const sessionRefreshPendingRef = useRef<Set<string>>(new Set());
@@ -97,6 +104,19 @@ export function useProjectSync(input: UseProjectSyncInput) {
   const activeProjectIdRef = useRef(activeProjectId);
   activeProjectIdRef.current = activeProjectId;
 
+  /** 包一层：任何 loadState 变更（loading/ready/error）都取消该项目看门狗，
+   *  只有「一直没被揭开」的 loading 才继续享受超时兜底。 */
+  const setCatalogLoadStateGuarded = useCallback(
+    (input: { projectId: string; state: SessionLoadState }) => {
+      catalogLoadWatchdog.cancel(input.projectId);
+      setSessionCatalogLoadState?.(input);
+    },
+    [catalogLoadWatchdog, setSessionCatalogLoadState],
+  );
+
+  // 卸载时清掉全部看门狗定时器，防止回调引用已卸载组件状态
+  useEffect(() => () => { catalogLoadWatchdog.cancelAll(); }, [catalogLoadWatchdog]);
+
   /** 发起新的根树请求；旧代次的 listing 一律丢弃。 */
   const beginFileTreeRequest = useCallback(() => ++fileTreeGenerationRef.current, []);
 
@@ -104,11 +124,33 @@ export function useProjectSync(input: UseProjectSyncInput) {
     return fileTreeGenerationRef.current === generation && activeProjectIdRef.current === projectId;
   }, []);
 
-  async function refreshProjects() {
+  /**
+   * 重新读取项目目录存在性并替换侧栏清单。
+   * 缺失目录只标记 missing、不自动移除，避免网络盘/WSL 暂时不可达时丢失项目记录。
+   */
+  async function refreshProjects(): Promise<Project[]> {
     const next = await api.projects.list();
     setProjects(next);
     if (!activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
-    for (const p of next) { if (p.worktreeEnabled) void refreshWorktrees(p.id); }
+    // 失效目录不能继续触发 Git 扫描，否则手动刷新项目后仍会产生 ENOENT 噪音。
+    for (const p of next) { if (p.worktreeEnabled && !p.missing) void refreshWorktrees(p.id); }
+    return next;
+  }
+
+  /** 用户从项目分组菜单发起的全量刷新：重扫清单并给出统一反馈。 */
+  async function refreshAllProjects() {
+    try {
+      const next = await refreshProjects();
+      showToast(t("app.projectsRefreshed", { count: next.filter((project) => project.kind !== "chat").length }), 1800);
+    } catch (error) {
+      showToast(
+        t("app.projectsRefreshFailed", {
+          // Electron invoke 在部分环境会把 Error 跨 realm 包装，统一去掉可选的 `Error:` 前缀。
+          error: String(error instanceof Error ? error.message : error).replace(/^Error:\s*/, ""),
+        }),
+        4000,
+      );
+    }
   }
 
   async function refreshWorktrees(projectId: string) {
@@ -151,7 +193,10 @@ export function useProjectSync(input: UseProjectSyncInput) {
     try {
       if (!silent) {
         setSessionLoadingByProject((c) => ({ ...c, [projectId]: true }));
-        setSessionCatalogLoadState?.({ projectId, state: { status: "loading" } });
+        setCatalogLoadStateGuarded({ projectId, state: { status: "loading" } });
+        // loading 一旦置位就挂上兜底：正常链路（本次成功/推送静默拉取）会经
+        // guarded setter 取消；链路断裂时依次执行「静默重试 → 强制 ready」。
+        armCatalogLoadWatchdog(projectId);
         await new Promise<void>((r) => setTimeout(r, 0));
       }
       const records = await withTimeout(
@@ -166,7 +211,7 @@ export function useProjectSync(input: UseProjectSyncInput) {
         // 空缓存先回 []：保持 loading，等 catalog-refreshed 才揭开，避免侧栏闪空白。
         // 磁盘 catalog 已有记录则立刻 ready，后台扫描稍后静默补齐。
         if (records.length > 0) {
-          setSessionCatalogLoadState?.({ projectId, state: { status: "ready" } });
+          setCatalogLoadStateGuarded({ projectId, state: { status: "ready" } });
         }
         const sorted = records
           .map(sessionRecordToSummary)
@@ -180,7 +225,7 @@ export function useProjectSync(input: UseProjectSyncInput) {
       error = caughtError;
       if (sessionRequestByProjectRef.current[projectId] === request) {
         const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
-        setSessionCatalogLoadState?.({
+        setCatalogLoadStateGuarded({
           projectId,
           state: { status: "error", error: message },
         });
@@ -241,13 +286,18 @@ export function useProjectSync(input: UseProjectSyncInput) {
           // 不再清理 loading（也不 set ready），这里补上，否则侧栏「加载中」
           // （project-session-loading）永远转。典型触发：重命名 DSH 会话
           // （onTitleChanged → catalog 更新 → catalog-refreshed 推送）。
-          setSessionCatalogLoadState?.({ projectId, state: { status: "ready" } });
+          setCatalogLoadStateGuarded({ projectId, state: { status: "ready" } });
         })
-        .catch(() => undefined); // 静默路径失败不打断：下一次轮询/推送仍会纠正
+        .catch(() => {
+          // 静默拉取失败不能就此丢掉揭盖机会：触发一轮非静默重试，重新走
+          // 「loading → 扫描 → catalog-refreshed 推送」闭环。反复失败会落在
+          // runProjectSessionRefresh 的 error 分支上，不会无限循环。
+          void refreshProjectSessions(projectId).catch(() => undefined);
+        });
     });
     return unsubscribe;
     // replaceProjectSessions/api 由 App 以稳定引用提供（useCallback/useMemo），依赖安全
-  }, [api, replaceProjectSessions]);
+  }, [api, replaceProjectSessions, setCatalogLoadStateGuarded]);
 
   /**
    * DSH 会话在 $DSH_HOME，不在项目目录 JSONL。添加项目 / 右键刷新若只扫 pi，
@@ -264,6 +314,22 @@ export function useProjectSync(input: UseProjectSyncInput) {
     }
   }
 
+  /**
+   * loading 兜底两级看门狗：一级超时静默重试一轮（主进程目录缓存在扫描后已含记录，
+   * 重试即揭开）；二级仍超时则强制置 ready，不让侧栏永远转圈，数据靠后续推送/轮询补齐。
+   * 重试或揭开产生的任何状态变更都会经 guarded setter 取消本看门狗。
+   */
+  function armCatalogLoadWatchdog(projectId: string): void {
+    catalogLoadWatchdog.schedule(projectId, CATALOG_WATCHDOG_STAGE_MS, () => {
+      void refreshProjectSessions(projectId, true).catch(() => undefined);
+      catalogLoadWatchdog.schedule(projectId, CATALOG_WATCHDOG_STAGE_MS, () => {
+        // 二级兜底：强制揭开（置 ready 经 guarded setter 取消看门狗，此为终态）
+        setCatalogLoadStateGuarded({ projectId, state: { status: "ready" } });
+        void refreshProjectSessions(projectId, true).catch(() => undefined);
+      });
+    });
+  }
+
   function refreshProjectSessions(projectId: string, silent = false): ProjectSessionRefreshPromise {
     const current = sessionRefreshCompletionByProjectRef.current[projectId];
     if (current) {
@@ -278,13 +344,20 @@ export function useProjectSync(input: UseProjectSyncInput) {
 
   async function refreshProjectTree(project: Project) {
     await syncDshForeignSessionsIfEnabled();
-    await refreshProjects();
-    await refreshProjectSessions(project.id);
-    if (project.worktreeEnabled) {
-      await refreshWorktrees(project.id);
-      const latestProjects = await api.projects.list();
-      setProjects(latestProjects);
-      const childProjects = latestProjects.filter((p) => p.worktreeParentId === project.id);
+    const latestProjects = await refreshProjects();
+    const latestProject = latestProjects.find((candidate) => candidate.id === project.id);
+    // 项目可能在菜单打开后被外部删除。刷新存在性后立即停止后续会话/Git 扫描，
+    // 避免继续对旧路径执行 scandir 并把原始 ENOENT 暴露给用户。
+    if (!latestProject || latestProject.missing) {
+      showToast(t("app.projectDirectoryMissing"), 4000);
+      return;
+    }
+    await refreshProjectSessions(latestProject.id);
+    if (latestProject.worktreeEnabled) {
+      await refreshWorktrees(latestProject.id);
+      const projectsAfterWorktreeRefresh = await api.projects.list();
+      setProjects(projectsAfterWorktreeRefresh);
+      const childProjects = projectsAfterWorktreeRefresh.filter((p) => p.worktreeParentId === latestProject.id && !p.missing);
       await Promise.all(childProjects.map((child) => refreshProjectSessions(child.id).catch(() => undefined)));
     }
     showToast(t("app.projectRefreshed", {}), 1800);
@@ -312,14 +385,22 @@ export function useProjectSync(input: UseProjectSyncInput) {
       if (!isFileTreeRequestCurrent(generation, projectId)) return;
       const message = error instanceof Error ? error.message : String(error);
       const tooLarge = message.match(/FILE_TREE_DIRECTORY_TOO_LARGE:(\d+):(\d+)/);
+      const projectDirectoryMissing = message.includes("PROJECT_DIRECTORY_MISSING");
+      if (projectDirectoryMissing) {
+        // 目录被外部删除后先清掉陈旧文件树，再刷新项目 presence，让侧栏立即出现“目录不存在”。
+        setFiles([]);
+        void refreshProjects().catch(() => undefined);
+      }
       showToast(
         tooLarge
           ? t("app.filesDirectoryTooLarge", { count: tooLarge[1], max: tooLarge[2] })
-          : t("app.filesRefreshFailed", { error: message }),
+          : projectDirectoryMissing
+            ? t("app.projectDirectoryMissing")
+            : t("app.filesRefreshFailed", { error: message }),
         4000,
       );
     }
   }
 
-  return { worktreesByProject, branchByProject, files, setFiles, gitInfo, setGitInfo, sessionLoadingByProject, setSessionLoadingByProject, visibleProjectChildCountByProject, setVisibleProjectChildCountByProject, refreshProjects, refreshWorktrees, refreshSessions, refreshProjectSessions, refreshFiles, refreshProjectTree, syncDshForeignSessionsIfEnabled, beginFileTreeRequest, isFileTreeRequestCurrent };
+  return { worktreesByProject, branchByProject, files, setFiles, gitInfo, setGitInfo, sessionLoadingByProject, setSessionLoadingByProject, visibleProjectChildCountByProject, setVisibleProjectChildCountByProject, refreshProjects, refreshAllProjects, refreshWorktrees, refreshSessions, refreshProjectSessions, refreshFiles, refreshProjectTree, syncDshForeignSessionsIfEnabled, beginFileTreeRequest, isFileTreeRequestCurrent };
 }

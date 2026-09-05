@@ -23,6 +23,8 @@ const sessionAtoms = compile("src/renderer/src/atoms/session-atoms.ts", {
   "../utils/agentRuntimeState": compile("src/renderer/src/utils/agentRuntimeState.ts"),
   "../utils/sessionRecordIdentity": compile("src/renderer/src/utils/sessionRecordIdentity.ts"),
   "../utils/liveTextHandoff": compile("src/renderer/src/utils/liveTextHandoff.ts"),
+  "./outlineRevision": compile("src/renderer/src/atoms/outlineRevision.ts"),
+  "./outlineProjectionCache": compile("src/renderer/src/atoms/outlineProjectionCache.ts"),
 });
 const composerAtoms = compile("src/renderer/src/atoms/composer-atoms.ts", {
   "./session-atoms": sessionAtoms,
@@ -32,6 +34,12 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
     TIMELINE_SCROLLED_TURN_LIMIT: 3,
     TIMELINE_WINDOW_EXPAND_STEP: 3,
   },
+  // useSessionTimelineController 引入 jumpWindowPolicy（策略函数），loader 缺此 stub 时
+  // 回落到 nodeRequire 解析 .ts 失败。其自身依赖 ./turnRenderWindow，用同名 mock 即可。
+  "../components/session/timeline/jumpWindowPolicy": compile(
+    "src/renderer/src/components/session/timeline/jumpWindowPolicy.ts",
+    { "./turnRenderWindow": { TIMELINE_WINDOW_EXPAND_STEP: 3 } },
+  ),
 });
 
 test("session load and send selectors retain current references across background patches", () => {

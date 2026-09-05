@@ -94,3 +94,22 @@ test("project row routes new-session into the more-actions menu", () => {
   assert.doesNotMatch(projectTree, /<NewSessionMenu/);
   assert.match(projectTree, /<Ellipsis/);
 });
+
+test("worktree removal keeps a fade-out animation (removingWorktreePaths -> worktree-removing)", () => {
+  // 契约：删除 worktree 时先淡出再移除。removingWorktreePaths 必须沿
+  // App → AppSidebar → SidebarContent → ProjectTree → WorktreeTree 透传，
+  // 行在命中集合时挂 worktree-removing 类（foundation.css 提供淡出动画）。
+  // 历史回归：removingWorktreePaths 曾只在 useWorktreeActions 里维护却从不传入 UI，
+  // 导致行直接消失、动画永远不生效。
+  assert.match(worktreeTree, /removingWorktreePaths\?: ReadonlySet<string>/);
+  assert.match(worktreeTree, /removing=\{removingPaths\.has\(row\.key\)\}/);
+  assert.match(worktreeTree, /props\.removing && "worktree-removing"/);
+  assert.match(worktreeTree, /normalizeWorkspacePath/);
+  assert.match(projectTree, /removingWorktreePaths\?: ReadonlySet<string>/);
+  assert.match(projectTree, /removingWorktreePaths=\{props\.removingWorktreePaths\}/);
+  assert.match(sidebarContent, /removingWorktreePaths=\{props\.removingWorktreePaths\}/);
+  assert.match(
+    workspaceStyles + readFileSync("src/renderer/src/styles/foundation.css", "utf8"),
+    /\.workspace-tree-row\.worktree-removing\s*\{[\s\S]*?opacity: 0;/,
+  );
+});

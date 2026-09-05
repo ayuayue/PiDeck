@@ -71,3 +71,9 @@ PiDeck tries PowerShell, cmd, and sh in order. If none are available, the termin
 - Check the log file in the app's data directory.
 - Make sure no other instance is already running.
 - On Linux, ensure FUSE is installed for AppImage.
+
+### Still stuck?
+
+- Check the [Troubleshooting guide](/en/guide/troubleshooting) for symptom-based paths
+- Browse [GitHub Issues](https://github.com/ayuayue/PiDeck/issues)
+- Join the **QQ group: 1026218644**

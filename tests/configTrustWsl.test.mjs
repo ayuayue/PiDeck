@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -53,6 +54,14 @@ function loadConfigManager() {
 			if (id === "./providerMigration") {
 				return { isSafeProviderName: () => true };
 			}
+			if (id === "./tokendanceAttribution") {
+				// saveModelsConfig 会调用归因兜底（仅依赖纯常量，无副作用），加载真实实现避免原生 require 找不到 .ts
+				return loadTsCommonJs("src/main/config/tokendanceAttribution.ts");
+			}
+			// 用量探针传输层抽取（6d9e2294）后新增的依赖；trust 测试不调用用量探测，空实现即可
+			if (id === "./usageProbeTransport") {
+				return { usageProbeRequest: async () => { throw new Error("stub"); } };
+			}
 			if (id === "./userUsageProbes") {
 				return {
 					loadUserUsageProbes: async () => [],
@@ -92,6 +101,25 @@ function loadConfigManager() {
 			}
 			if (id === "../dsh/pideckDshHome") {
 				return { pideckUsageProbesDir: (value) => value };
+			}
+			// ConfigManager 依赖 ../../shared/dshProviderNames 的 normalizeDshDeepseekProvider；.ts 经 node 类型剥离可 require。
+			if (id === "../../shared/dshProviderNames") {
+				return require("../src/shared/dshProviderNames.ts");
+			}
+			// ConfigManager 依赖 ./dshUsageEndpoint；其依赖（dshCredentialRef/dshProviderNames/providerMigration）均已被上面 stub。
+			if (id === "./dshUsageEndpoint") {
+				const src = readFileSync("src/main/config/dshUsageEndpoint.ts", "utf8");
+				const out = ts.transpileModule(src, {
+					compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+				}).outputText;
+				const m = { exports: {} };
+				vm.runInNewContext(out, {
+					...sandbox,
+					module: m,
+					exports: m.exports,
+					require: sandbox.require,
+				}, { filename: "dshUsageEndpoint.ts" });
+				return m.exports;
 			}
 			return require(id);
 		},

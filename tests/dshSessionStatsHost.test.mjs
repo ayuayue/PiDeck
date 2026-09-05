@@ -13,11 +13,11 @@ import test from "node:test";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(repoRoot, "package.json"));
 
-test("package.json depends on dsh-session-stats so electron-builder packs it", () => {
+test("package.json keeps dsh-session-stats in devDependencies for the runtime archive", () => {
 	const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 	assert.ok(
-		pkg.dependencies["@deepseek-ai/dsh-session-stats"],
-		"@deepseek-ai/dsh-session-stats must be a production dependency",
+		pkg.devDependencies["@deepseek-ai/dsh-session-stats"],
+		"@deepseek-ai/dsh-session-stats must be a devDependency (deps partitioned into the dsh-runtime archive)",
 	);
 });
 

@@ -352,19 +352,34 @@ export function cacheHitPercentOf(usage: DshUsageTotals | undefined): number | u
 /**
  * 无 host sessionStats 投影时的 StatsLine 兜底（对齐 dsh-web deriveStats）。
  * 投影插件未挂载、冷缓存还没有该单元、或 mux 帧尚未到达时，用已投影消息估回合/步骤：
- * 每条 user = 一轮，每条 assistant = 一步。墙钟字段保持 0，UI 只渲染有数字的组。
- * 还没有 assistant 时返回 undefined（与 dsh-web `steps > 0` 才出「N 轮」一致）。
+ * 每条 user 开轮，轮内出现 assistant 或 tool 卡片才算完成（dsh-web 按 assistant 节点
+ * 计数；我们的投影会丢弃纯 tool-call 的 assistant 消息，故用 tool 卡片等价替代）；
+ * 每条 assistant = 一步（被取消而未组装消息的步在投影中不可见，保持 0）。
+ * 没有任何回合（无 user 也无产物）时返回 undefined。墙钟字段保持 0，UI 只渲染有数字的组。
  */
 export function deriveSessionStatsFallback(
 	messages: ReadonlyArray<{ role?: string }>,
 ): DshSessionStatsProjection | undefined {
 	let turns = 0;
 	let steps = 0;
+	let pending = false;
 	for (const message of messages) {
-		if (message.role === "user") turns += 1;
-		else if (message.role === "assistant") steps += 1;
+		if (message.role === "user") {
+			pending = true;
+		} else if (message.role === "assistant") {
+			steps += 1;
+			if (pending) {
+				turns += 1;
+				pending = false;
+			}
+		} else if (message.role === "tool") {
+			if (pending) {
+				turns += 1;
+				pending = false;
+			}
+		}
 	}
-	if (steps <= 0) return undefined;
+	if (steps <= 0 && turns <= 0) return undefined;
 	return {
 		turns,
 		steps,

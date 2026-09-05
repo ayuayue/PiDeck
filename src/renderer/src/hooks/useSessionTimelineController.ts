@@ -34,6 +34,7 @@ import {
 } from "./timeline/autoExpandThreshold";
 import {
   countUserTurns,
+  TIMELINE_MOUNTED_TURN_LIMIT,
   TIMELINE_SCROLLED_TURN_LIMIT,
   TIMELINE_WINDOW_EXPAND_STEP,
 } from "../components/session/timeline/turnRenderWindow";
@@ -79,6 +80,10 @@ const BOTTOM_THRESHOLD = 16;
 const LEGACY_OWNER_KEY = "legacy";
 /** runtime 窗口会话「加载更多对话」的单页轮数（与主进程 DEFAULT_TURN_PAGE_SIZE 对齐） */
 const RUNTIME_HISTORY_TURN_PAGE_SIZE = 3;
+/** 历史会话（disk 路径）首开加载的轮数：与运行时窗口 DISPLAY_WINDOW_TURNS(9) 对齐，
+ *  首次上滚 9 轮内零延迟；翻页与 runtime 同用 3 轮 cohort。
+ *  2026-09 统一轮次协议：废除旧的「按消息条数(100)」页大小，页大小只以轮次计。 */
+const DISK_INITIAL_TURN_PAGE_SIZE = 9;
 /** 最新轮自动收起后，把本轮起始消息放在视口约 30% 高度处（中上方，不贴顶不贴底）。 */
 const SETTLED_TURN_VIEWPORT_ANCHOR_RATIO = 0.3;
 /** 收起目标距底 ≤ 该值（与引擎 STICK_TO_BOTTOM_OFFSET_PX=70 同语义）时放弃「安静收起”：
@@ -270,8 +275,6 @@ export type SessionTimelineController = {
   showScrollToBottom: boolean;
   /** 由 MessageScroller 汇报用户是否仍在实时尾部，避免两套滚动监听互相抢占。 */
   setAutoScrollFromScroller: (following: boolean) => void;
-  /** 跳转导航进行中：时间线据此解除上滚窗口的条目预算（jumpNavigationActive）。 */
-  jumpNavigationActive: boolean;
   /**
    * 挂到 MessageScroller 的 stick-to-bottom 引擎 API（回底弹簧）。
    * 未挂上时 scrollToBottom 退化为原生 scrollTo。
@@ -280,8 +283,6 @@ export type SessionTimelineController = {
   /** 上滚查看历史时的渲染窗口轮数（贴底时渲染层用 TIMELINE_MOUNTED_TURN_LIMIT，忽略此值）。
    *  2026-08 黑屏治理：历史不再全量放开挂载，窗口随「显示更早」逐步扩大。 */
   scrolledWindowTurns: number;
-  /** 锚点恢复尚未完成时为 true；渲染层必须优先物化锚点而非施加历史条目预算。 */
-  isRestoringScrollAnchor: boolean;
   /** 扩大上滚渲染窗口（每次最多 +3 轮）；数据翻页与本地 DOM 扩展使用同一 cohort。 */
   expandWindow: () => void;
   /**
@@ -306,8 +307,6 @@ export type SessionTimelineController = {
 export function useSessionTimelineController(options: {
   sessionId?: string;
   messages?: ChatMessage[];
-  initialPageSize?: number;
-  pageSize?: number;
 }): SessionTimelineController {
   const ownerKey = options.sessionId ?? LEGACY_OWNER_KEY;
   const timelineRef = useRef<HTMLElement | null>(null);
@@ -344,7 +343,8 @@ export function useSessionTimelineController(options: {
    * 计算当前视口锚点（纯读取，不落盘）。
    * 规则：在底部跟流 → null（切回继续跟底）；查看历史 → 记录
    * 「视口顶部的第一条消息行 + 距视口顶偏移 + 分页窗口」。
-   * 锚点行用 data-message-id（run 或消息行都带），恢复时无需关心具体类型。
+   * 优先选 user-turn / turn-row 根节点：工具卡、思考步骤等嵌套 data-message-id
+   * 会在执行过程自动收起时卸载；把它们作为锚点会使切回只能降级到顶部。
    */
   const computeCurrentAnchor = useCallback((): SessionScrollAnchor | null => {
     const timeline = timelineRef.current;
@@ -353,10 +353,10 @@ export function useSessionTimelineController(options: {
       return null;
     }
     const viewportRect = timeline.getBoundingClientRect();
-    const rows = timeline.querySelectorAll<HTMLElement>("[data-message-id]");
-    for (const row of rows) {
-      const rect = row.getBoundingClientRect();
-      if (rect.bottom >= viewportRect.top + 1) {
+    const findAnchor = (rows: NodeListOf<HTMLElement>): SessionScrollAnchor | null => {
+      for (const row of rows) {
+        const rect = row.getBoundingClientRect();
+        if (rect.bottom < viewportRect.top + 1) continue;
         const messageId = row.dataset.messageId ?? "";
         if (!messageId) continue;
         return {
@@ -371,9 +371,16 @@ export function useSessionTimelineController(options: {
           savedAt: Date.now(),
         };
       }
-    }
-    // 无任何消息行（空会话/加载中）
-    return null;
+      return null;
+    };
+    const stableAnchor = findAnchor(
+      timeline.querySelectorAll<HTMLElement>(
+        "article.user-turn[data-message-id], .turn-row[data-message-id]",
+      ),
+    );
+    if (stableAnchor) return stableAnchor;
+    // 诊断卡等没有稳定轮根节点时仍可恢复，避免空会话/特殊事件完全失去锚点。
+    return findAnchor(timeline.querySelectorAll<HTMLElement>("[data-message-id]"));
   }, []);
 
   /** 把当前锚点写入 atom（节流）。内容未变化由 atom 侧跳过，引用保持稳定。 */
@@ -478,7 +485,7 @@ export function useSessionTimelineController(options: {
     setLoadState({ sessionId, state: { status: "loading" } });
 
 		void desktopApi.sessions
-			.readRecordMessagePage(sessionId, undefined, options.initialPageSize ?? 100)
+			.readRecordMessagePage(sessionId, undefined, DISK_INITIAL_TURN_PAGE_SIZE)
 			.then((page: { messages: ChatMessage[]; total: number; nextBefore: number | null }) => {
 				if (latestLoadBySession.get(sessionId) !== sequence) return;
 				cacheMessages({
@@ -512,7 +519,7 @@ export function useSessionTimelineController(options: {
       const page = await desktopApi.sessions.readRecordMessagePage(
         sessionId,
         undefined,
-        options.initialPageSize ?? 100,
+        DISK_INITIAL_TURN_PAGE_SIZE,
       );
       if (latestLoadBySession.get(sessionId) !== sequence) return;
       cacheMessages({
@@ -535,7 +542,7 @@ export function useSessionTimelineController(options: {
       });
       throw error;
     }
-  }, [cacheMessages, options.initialPageSize, options.sessionId, setLoadState]);
+  }, [cacheMessages, options.sessionId, setLoadState]);
 
 	const diskPage = controllerEnabled && cachedEntry?.source === "disk"
 		? cachedEntry.page
@@ -595,14 +602,6 @@ export function useSessionTimelineController(options: {
     Tagged<{ messageId: string; expandAttempts: number; loadAttempts: number; nonce: number }> | undefined
   >(undefined);
   const jumpNonceRef = useRef(0);
-  /**
-   * 跳转导航进行中：解除上滚窗口的条目预算（TIMELINE_SCROLLED_MAX_ITEMS）。
-   * 预算按条目数封顶渲染，轮数扩得再大也挂不出预算外的旧消息——跳转会因此
-   * 永远找不到目标行（表现即「点前面的刻度没反应」）。解除后扩窗才能真正
-   * 挂载目标；跳转完成后保持解除（避免预算恢复瞬间把刚定位到的内容裁掉），
-   * 回底（窗口重置 3 轮）或切换会话时恢复。
-   */
-  const [jumpNavigationActive, setJumpNavigationActive] = useState(false);
   const highlightTimersRef = useRef(new Map<number, number>());
   // ── 上滚渲染窗口（2026-08 黑屏治理）──
   // 贴底和上滚初始都只挂 3 轮；每次接近顶部最多扩一个 3 轮 cohort，
@@ -611,10 +610,16 @@ export function useSessionTimelineController(options: {
     () => initialRestoreState.scrolledWindowTurns,
   );
   const [viewStateOwnerKey, setViewStateOwnerKey] = useState(ownerKey);
-  const isRestoringScrollAnchor = restorePhase === "pending" && restoreAnchor !== undefined;
+  /**
+   * 锚点保存的窗口必须与当前 DOM 使用的窗口完全一致：跟随态始终是尾部 3 轮，
+   * 即使 scrolledWindowTurns 尚未被回底 effect 复位，也不能把过期的大窗口写进锚点。
+   */
+  const effectiveWindowTurns = autoScroll
+    ? TIMELINE_MOUNTED_TURN_LIMIT
+    : scrolledWindowTurns;
   /** 保存旧 owner 时不能读已经指向新会话的 render ref，故保留最后一次 layout 提交值。 */
   const ownerWindowTurnsRef = useRef(new Map<string, number>());
-  renderedWindowTurnsRef.current = scrolledWindowTurns;
+  renderedWindowTurnsRef.current = effectiveWindowTurns;
 
   // React re-renders this owner before committing children, so the target
   // session's follow mode and turn window reach MessageScroller atomically.
@@ -695,8 +700,6 @@ export function useSessionTimelineController(options: {
       }
       // 回底 = 新的浏览周期：冷却清零，避免「刚到底又立刻上滚」被上一次扩窗冷却吞掉。
       lastWindowExpandAtRef.current = 0;
-      // 跳转导航结束：条目预算随窗口重置一并恢复（见 jumpNavigationActive 注释）
-      setJumpNavigationActive(false);
       setScrolledWindowTurns(TIMELINE_SCROLLED_TURN_LIMIT);
     }
   }, [autoScroll]);
@@ -931,7 +934,7 @@ export function useSessionTimelineController(options: {
 			const expectedRevision = cachedEntry?.revision ?? 0;
 			setIsLoadingMessagePage(true);
 			void desktopApi.sessions
-				.readRecordMessagePage(sessionId, before, options.pageSize ?? 100)
+				.readRecordMessagePage(sessionId, before, RUNTIME_HISTORY_TURN_PAGE_SIZE)
 				.then((page: { messages: ChatMessage[]; total: number; nextBefore: number | null }) => {
 					if (latestLoadBySession.get(sessionId) !== sequence) return;
 					if (prependMessagePage({ sessionId, before, expectedRevision, page })) {
@@ -991,7 +994,7 @@ export function useSessionTimelineController(options: {
 				});
 			return;
 		}
-	}, [cachedEntry?.revision, diskPage, expandWindowBatched, historyHasMore, isLoadingMessagePage, messages, options.pageSize, options.sessionId, ownerKey, prependHistoryPage, prependMessagePage, runtimeHistory]);
+	}, [cachedEntry?.revision, diskPage, expandWindowBatched, historyHasMore, isLoadingMessagePage, messages, options.sessionId, ownerKey, prependHistoryPage, prependMessagePage, runtimeHistory]);
 
 	// ── 回底清理临时历史（2026-11 轮次模型）──
 	// 贴底稳定 1.5s 后清掉翻过的历史前缀（atom 只留运行时窗口段），渲染层内存回到最小；
@@ -1082,7 +1085,6 @@ export function useSessionTimelineController(options: {
     // 目标可能在贴底 turn 窗口外（先取消跟随以展开挂载），也可能在尚未加载的
     // 历史页里：挂起跳转，由 pendingJump effect 按策略补页/扩窗直到完成。
     setShowScrollToBottom(true);
-    setJumpNavigationActive(true);
     if (index >= 0) {
       // 一次到位：按目标轮次估算窗口需求并整批排入分帧扩窗（避免单帧全量渲染）。
       // 批次消费完前 pendingJump effect 挂起等待（见 effect 内 pendingExpandTurnsRef 守卫）。
@@ -1097,9 +1099,8 @@ export function useSessionTimelineController(options: {
 
   useEffect(() => {
     loadMoreAnchorRef.current = undefined;
-    // 切会话：跳转导航结束，条目预算恢复
+    // 切会话：取消旧会话遗留的挂起跳转与动画状态。
     setPendingJump(undefined);
-    setJumpNavigationActive(false);
     programmaticScrollRef.current = false;
     programmaticScrollUntilRef.current = 0;
     settleScrollCancelRef.current?.();
@@ -1111,8 +1112,8 @@ export function useSessionTimelineController(options: {
 
   useLayoutEffect(() => {
     if (ownerKey === LEGACY_OWNER_KEY) return;
-    ownerWindowTurnsRef.current.set(ownerKey, scrolledWindowTurns);
-  }, [ownerKey, scrolledWindowTurns]);
+    ownerWindowTurnsRef.current.set(ownerKey, effectiveWindowTurns);
+  }, [effectiveWindowTurns, ownerKey]);
 
   // 切走落盘：cleanup 把滚动时已算好的 ref 锚点写入 atom，不读 DOM
   // （会话切换复用同一组件实例，cleanup 时 timeline children 可能已是新会话）。
@@ -1193,7 +1194,8 @@ export function useSessionTimelineController(options: {
           timeline.scrollTop = targetTop;
         }
         // 恢复后的位置即当前锚点：即使恢复后用户未滚动就切走，cleanup
-        // 落盘的也是这份锚点（而不是误判为底部/空）。
+        // 落盘的也是这份锚点（而不是误判为底部/空）。恢复前后的渲染窗口都
+        // 由 anchor.windowTurns 决定，因此 complete 不会再收缩 DOM 并截断 targetTop。
         currentAnchorRef.current = anchor;
         setRestorePhase("complete");
         return;
@@ -1365,7 +1367,6 @@ lastHistoryLoadAtRef.current = now;
     });
     if (action.kind === "give-up") {
       setPendingJump(undefined);
-      setJumpNavigationActive(false);
       return;
     }
     if (action.kind === "wait") return;
@@ -1411,13 +1412,10 @@ lastHistoryLoadAtRef.current = now;
     setAutoScrollFromScroller,
     scrollerScrollApiRef,
     scrolledWindowTurns,
-    isRestoringScrollAnchor,
     expandWindow,
     windowExpandableRef,
     isSurfaceLoading,
     knownEmpty,
     reloadFromDisk,
-    /** 跳转导航进行中：时间线据此解除条目预算（见 jumpNavigationActive 注释） */
-    jumpNavigationActive,
   };
 }

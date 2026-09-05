@@ -21,6 +21,14 @@ export type Project = {
 	missing?: boolean;
 };
 
+/**
+ * 渲染层读取项目文件时携带的最小授权上下文。
+ * 主进程只信任 projectId，并从 ProjectStore 重新取得根目录；不接受渲染层直接声明可信根路径。
+ */
+export type ProjectFileAccessScope = {
+	projectId: string;
+};
+
 export const SUPPORTED_EXTERNAL_EDITORS = [
 	{ id: "vscode", name: "Visual Studio Code" },
 	{ id: "cursor", name: "Cursor" },

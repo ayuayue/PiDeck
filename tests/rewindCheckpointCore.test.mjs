@@ -279,6 +279,41 @@ test("按会话过滤 + deleteCheckpoint", async (t) => {
 	assert.deepEqual(all.map((c) => c.id), [cpA.id]);
 });
 
+test("800+ refs（远超 Windows 命令行上限）时 loadAllCheckpoints 仍全量读取（回归）", async (t) => {
+	// 回归背景：实现曾把全部 SHA 拼进 `git log --no-walk <shas>`——多会话共享仓库
+	// 时 refs 积累到数百/上千，Windows 32767 字符上限被超（Node spawn ENAMETOOLONG），
+	// 整批失败被 catch 吞成 []，任何会话的检查点列表都显示「暂无」。
+	// 修复：SHA 改经 stdin 传给 git cat-file --batch（无命令行长度限制）。
+	const { dir, git } = makeRepo();
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+	writeFileSync(join(dir, "a.txt"), "v1\n");
+	commitAll(git, "init");
+
+	const cp = await createCheckpoint({
+		root: dir,
+		id: cpId(UUID_A, 1),
+		sessionId: UUID_A,
+		trigger: "tool",
+		turnIndex: 1,
+		toolName: "bash",
+	});
+	const sha = String(git(["rev-parse", `refs/pi-checkpoints/${cp.id}`])).trim();
+	// 同一 commit 对象挂 800 个 ref（refs 可多对一，2 次 git 调用即完成注入）；
+	// 800×41 字符 ≈ 33KB，超过 Windows CreateProcess 32767 上限。
+	const lines = [];
+	for (let i = 0; i < 800; i++) {
+		lines.push(`create refs/pi-checkpoints/extra-${UUID_A}-1-${i} ${sha}`);
+	}
+	execFileSync("git", ["update-ref", "--stdin"], {
+		cwd: dir,
+		input: lines.join("\n") + "\n",
+	});
+
+	const all = await loadAllCheckpoints(dir, UUID_A);
+	assert.equal(all.length, 801, "800+ refs 时必须全量读取（回归：命令行超长时代码返回 []）");
+});
+
 test("prune：按时间裁最旧，before-restore 永不裁剪", async (t) => {
 	const { dir, git } = makeRepo();
 	t.after(() => rmSync(dir, { recursive: true, force: true }));

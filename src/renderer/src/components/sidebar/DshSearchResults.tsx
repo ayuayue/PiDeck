@@ -4,6 +4,7 @@ import type { SessionRecord } from "../../../../shared/types";
 import { sessionRecordsAtom } from "../../atoms";
 import { useDshSessionSearch } from "../../hooks/useDshSessionSearch";
 import { t } from "../../i18n";
+import { TitleScrollText } from "./TitleScrollText";
 
 /**
  * 侧栏 DSH 全文搜索结果（G9）：搜索词非空时展示匹配的 DSH 会话（标题 + 命中片段），
@@ -38,7 +39,10 @@ export function DshSearchResults(props: {
           className="flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/50"
           onClick={() => props.onOpen(record.projectId, record.id)}
         >
-          <span className="truncate text-control font-medium text-foreground">{record.title}</span>
+          <TitleScrollText
+            text={record.title}
+            className="w-full flex-none text-control font-medium text-foreground"
+          />
           <span className="truncate text-caption text-text-secondary">{snippet}</span>
         </button>
       ))}

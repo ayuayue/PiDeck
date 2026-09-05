@@ -64,7 +64,7 @@ test("unknown model resolves to null instead of guessing", () => {
 // ── 运行中 pi 模型列表（pi-runtime source）──────────────────────────────
 
 test("runtime model missing from bundled catalog resolves with pi-reported capacity", () => {
-  // bundled 0.82.1 快照没有 qwen3.8-max（只有 preview），运行中 pi 有 → 必须能匹配上
+  // 模拟 bundled 快照尚未收录 qwen3.8-max；运行中 pi 已有它 → 必须能匹配上
   const index = buildPiAiCatalogIndex([
     { provider: "opencode-go", id: "qwen3.8-max-preview", contextWindow: 1000000, maxTokens: 131072 },
   ]);

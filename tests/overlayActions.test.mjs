@@ -203,15 +203,14 @@ test("overlayProps.feedback structure with active project", () => {
   r.setFeedbackOpen(true);
   const r2 = harness.render(params);
   const f = r2.overlayProps.feedback;
+  // hook 已改为 { open, props } 嵌套结构（props 才是 FeedbackDialog 的实参）
   assert.equal(f.open, true);
-  assert.equal(f.project, project);
-  assert.notEqual(f.onClose, undefined);
-  assert.notEqual(f.onCopy, undefined);
-  assert.notEqual(f.loadEnvironment, undefined);
+  assert.equal(f.props.project, project);
+  assert.notEqual(f.props.onClose, undefined);
 });
 
-test("overlayProps.feedback onCopy calls showToast with app.feedbackCopied", () => {
-  const i18n = { t: (key) => key === "app.feedbackCopied" ? "Copied!" : key };
+test("overlayProps.feedback forwards onToast to showToast", () => {
+  const i18n = { t: (key) => key };
   let toastMessage;
   const harness = createOverlayActionsHarness(i18n);
 
@@ -227,8 +226,9 @@ test("overlayProps.feedback onCopy calls showToast with app.feedbackCopied", () 
     appInfo: mkAppInfo(),
     showToast: (msg) => { toastMessage = msg; },
   });
-  r2.overlayProps.feedback.onCopy();
-  assert.equal(toastMessage, "Copied!");
+  // FeedbackDialog 将具体复制行为及本地化留在组件内，hook 只负责把 toast port 透传。
+  r2.overlayProps.feedback.props.onToast("app.feedbackCopied");
+  assert.equal(toastMessage, "app.feedbackCopied");
 });
 
 test("overlayProps.confirm structure when confirmDialog is set", () => {
@@ -363,7 +363,7 @@ test("overlayProps combines all three overlays simultaneously", () => {
 
   const props = r2.overlayProps;
   assert.equal(props.feedback.open, true);
-  assert.equal(props.feedback.project, project);
+  assert.equal(props.feedback.props.project, project);
   assert.equal(props.confirm.open, true);
   assert.equal(props.confirm.props.title, "Delete?");
   assert.equal(props.trust.open, true);
@@ -400,7 +400,7 @@ test("overlayProps.feedback uses activeProject passed from params", () => {
     showToast: () => undefined,
   });
   // useMemo recomputes on dependency change, so project should be Beta
-  assert.equal(r2.overlayProps.feedback.project.name, "Beta");
+  assert.equal(r2.overlayProps.feedback.props.project.name, "Beta");
 });
 
 test("overlayProps.feedback is undefined when feedbackOpen is false", () => {
@@ -430,6 +430,6 @@ test("overlayProps carries correct appInfo", () => {
     appInfo: mkAppInfo({ version: "2.0.0", platform: "darwin" }),
     showToast: () => undefined,
   });
-  assert.equal(r2.overlayProps.feedback.appInfo.version, "2.0.0");
-  assert.equal(r2.overlayProps.feedback.appInfo.platform, "darwin");
+  assert.equal(r2.overlayProps.feedback.props.appInfo.version, "2.0.0");
+  assert.equal(r2.overlayProps.feedback.props.appInfo.platform, "darwin");
 });

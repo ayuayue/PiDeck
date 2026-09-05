@@ -474,7 +474,9 @@ export class PiProcess extends EventEmitter {
         stdio: ["pipe", "pipe", "pipe"],
         shell: invocation.shell,
         // env 已在上方合并安全门环境变量（PIDECK_SECURITY_CONFIG / PIDECK_SESSION_ID）
+        // Windows：PiDeck 是无控制台的 GUI 进程，隐藏子进程窗口以免 cmd.exe 弹出控制台。
         env,
+        windowsHide: true,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
     } catch (error) {
@@ -579,6 +581,8 @@ export class PiProcess extends EventEmitter {
         encoding: "utf8" as const,
         timeout: 5_000,
         shell: false,
+        // Windows：--version 检查同样经 cmd.exe 拉起，缺 windowsHide 会闪现控制台窗口。
+        windowsHide: true,
         env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix),
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       }, (error, stdout) => {

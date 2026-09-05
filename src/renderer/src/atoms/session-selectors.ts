@@ -1,6 +1,7 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { SessionRecord, SessionSummary } from "../../../shared/types";
+import { sessionDisplayName } from "../utils/sessionDisplayName";
 import {
   sessionHistoryMutationOverlayByIdAtom,
   sessionIdsByProjectAtom,
@@ -24,8 +25,9 @@ export function sessionRecordToSummary(
     // 会话归属项目 id：会话管理弹窗 worktree 家族聚合后按它打工作区标签。
     projectId: session.projectId,
     projectPath: session.projectPath,
-    name: session.title,
+    name: sessionDisplayName(session.title, session.forked),
     parentSessionPath: session.parentSessionPath,
+    forked: session.forked,
     preview: session.preview,
     updatedAt: session.updatedAt,
     messageCount: session.messageCount,

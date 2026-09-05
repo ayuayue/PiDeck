@@ -7,6 +7,10 @@ const sessionViewSource = readFileSync(
   "src/renderer/src/components/session/SessionView.tsx",
   "utf8",
 );
+const sessionSurfaceSource = readFileSync(
+  "src/renderer/src/components/session/SessionSurfaceStage.tsx",
+  "utf8",
+);
 const sessionActionsSource = readFileSync(
   "src/renderer/src/hooks/useSessionActions.ts",
   "utf8",
@@ -90,15 +94,18 @@ test("first Session send is request-addressed and restores rejected snapshots", 
 });
 
 test("the dev workspace toolbar persists for inactive agents and the empty state", () => {
-  // outline 悬浮条常驻：不再被 hasActiveConversation 条件挡住，引导页也有入口
-  assert.doesNotMatch(appSource, /outlineContent=\{hasActiveConversation/);
-  assert.match(appSource, /outlineContent=\{\s*\/\*/);
-  // 悬浮栏的终端入口绑定可用目标（agent 或项目），未激活 agent / 引导页同样可用
-  assert.match(appSource, /terminalAction=\{!isLanWeb && terminalTarget \? \{/);
-  // 悬浮栏不再暴露 files/git/browser（入口收进抽屉活动栏，files 由标题栏抽屉开关打开）
-  assert.match(appSource, /filesAction=\{undefined\}/);
-  assert.match(appSource, /gitAction=\{undefined\}/);
-  assert.match(appSource, /browserAction=\{undefined\}/);
+  // 轨迹浮层已下沉到每个会话表面，空会话与非聚焦会话都由同一挂载点承载。
+  assert.match(sessionSurfaceSource, /<ConversationOutline[\s\S]*items=\{outlineItems\}/);
+  assert.doesNotMatch(sessionSurfaceSource, /hasActiveConversation/);
+  // 工具开关统一由 SessionTabsBar 接收，终端目标可由 agent 或项目提供。
+  assert.match(appSource, /const sessionToolActions: SessionToolAction\[\] = \[/);
+  assert.match(appSource, /id: "terminal"/);
+  assert.match(appSource, /toolActions=\{sessionToolActions\}/);
+  // files/git/browser 由右侧抽屉活动栏统一承载；Git 仍受设置与项目上下文门控。
+  assert.match(
+    appSource,
+    /<WorkspaceDrawerRail[\s\S]*?id: "files"[\s\S]*?id: "git"[\s\S]*?id: "browser"/,
+  );
 });
 
 

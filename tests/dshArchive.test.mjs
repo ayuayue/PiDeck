@@ -269,3 +269,109 @@ test("DshHost.deleteArchivedSession：归档目录不存在时返回 false（幂
 		rmSync(home, { recursive: true, force: true });
 	}
 });
+
+// ── DshHost.deleteSession：活跃 DSH 会话删除到回收站（与 pi 会话删除同语义） ──
+
+test("DshHost.deleteSession：按 cwd 精确推导并移入回收站，返回 true", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-dsh-delsession-"));
+	const trashed = [];
+	const host = new DshHost(
+		() => join(home, "userData"),
+		() => home,
+		() => undefined,
+		() => home,
+		undefined,
+		undefined,
+		async (path) => { trashed.push(path); rmSync(path, { recursive: true, force: true }); },
+	);
+	try {
+		const cwd = "C:/work/project";
+		const sessionId = "session-active-1";
+		const sessionDir = makeSessionDir(home, cwd, sessionId);
+
+		const deleted = await host.deleteSession(sessionId, cwd);
+		assert.equal(deleted, true, "会话存在时应返回 true");
+		assert.equal(trashed.length, 1, "回收站回调应被调用一次");
+		assert.ok(trashed[0].endsWith(join("sessions", workspaceDirFor(cwd), sessionId)),
+			`回收站应收到会话目录: ${trashed[0]}`);
+		assert.ok(!existsSync(sessionDir), "sessions 树中的会话目录应已移走");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("DshHost.deleteSession：cwd 失配时按 sessionId 兜底扫描仍能删除", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-dsh-delsession-fallback-"));
+	const trashed = [];
+	const host = new DshHost(
+		() => join(home, "userData"),
+		() => home,
+		() => undefined,
+		() => home,
+		undefined,
+		undefined,
+		async (path) => { trashed.push(path); rmSync(path, { recursive: true, force: true }); },
+	);
+	try {
+		// 会话真实位于 A 目录（项目目录后来被移动/改名），catalog 记录的 project.path 已失配
+		const realCwd = "C:/work/project";
+		const staleCwd = "D:/moved/project";
+		const sessionId = "session-moved-1";
+		const sessionDir = makeSessionDir(home, realCwd, sessionId);
+
+		const deleted = await host.deleteSession(sessionId, staleCwd);
+		assert.equal(deleted, true, "cwd 失配时兜底扫描应命中并删除");
+		assert.equal(trashed.length, 1, "回收站回调应被调用一次");
+		assert.ok(!existsSync(sessionDir), "会话目录应已移走");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("DshHost.deleteSession：无会话日志的同名目录不误删（跳过非会话目录）", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-dsh-delsession-guard-"));
+	const trashed = [];
+	const host = new DshHost(
+		() => join(home, "userData"),
+		() => home,
+		() => undefined,
+		() => home,
+		undefined,
+		undefined,
+		async (path) => { trashed.push(path); rmSync(path, { recursive: true, force: true }); },
+	);
+	try {
+		// 同名目录但里面没有会话日志（不是 DSH 会话目录），不能当会话删
+		const decoy = join(home, "sessions", workspaceDirFor("C:/work/project"), "session-decoy");
+		mkdirSync(decoy, { recursive: true });
+		writeFileSync(join(decoy, "other.data"), "not a dsh session");
+
+		const deleted = await host.deleteSession("session-decoy", "C:/work/project");
+		assert.equal(deleted, false, "非会话目录不应被删除");
+		assert.equal(trashed.length, 0, "回收站回调不应被调用");
+		assert.ok(existsSync(decoy), "非会话目录应原样保留");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("DshHost.deleteSession：目录不存在时返回 false（幂等）", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-dsh-delsession-missing-"));
+	const trashed = [];
+	const host = new DshHost(
+		() => join(home, "userData"),
+		() => home,
+		() => undefined,
+		() => home,
+		undefined,
+		undefined,
+		async (path) => { trashed.push(path); rmSync(path, { recursive: true, force: true }); },
+	);
+	try {
+		const deleted = await host.deleteSession("session-never-existed", "C:/work/project");
+		assert.equal(deleted, false, "不存在时应返回 false");
+		assert.equal(trashed.length, 0, "回收站回调不应被调用");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});

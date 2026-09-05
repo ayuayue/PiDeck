@@ -23,6 +23,20 @@ export function ensureOpenAiVersionPath(baseUrl: string): string {
 }
 
 /**
+ * 去掉 baseUrl 末尾的 API 版本段（/v1、/v1beta、/api），用于计算与 OpenAI 兼容端点
+ * 不同根的「管理面」基址（如 New API 的 /api/user/self 挂在站点根，不在 /v1 之下）。
+ * 只剥末尾版本段，子路径前缀保留：
+ *   https://host/v1       → https://host
+ *   https://host/proxy/v1 → https://host/proxy
+ *   https://host（无版本段）→ 原样
+ * 判定正则与 hasApiVersionPath 保持一致，避免「剥了又补」来回跳。
+ */
+export function stripOpenAiVersionPath(baseUrl: string): string {
+	const u = baseUrl.replace(/\/+$/, "");
+	return u.replace(/(\/v\d+(?:alpha|beta)?|\/api)$/i, "");
+}
+
+/**
  * 从检测实际请求 URL 反推「应写入 models.json 的 baseUrl」。
  * 例：https://host/v1/chat/completions → https://host/v1
  *     https://host/proxy/v1/models → https://host/proxy/v1

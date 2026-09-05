@@ -255,6 +255,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
                 onSwitchBranch={props.onSwitchBranch}
                 record={composer.record}
                 defaultModel={composer.dshDefaultModel ?? composer.bootstrapDefaultModel}
+                defaultModelConfigured={composer.bootstrapDefaultModelConfigured}
                 defaultThinkingLevel={composer.dshDefaultThinkingLevel ?? composer.bootstrapDefaultThinkingLevel}
                 backend={composer.backend}
                 onChangeBackend={composer.changeBackend}
@@ -323,6 +324,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
             onInsertSkill={composer.pickers.insertSkillInvocation}
             onInsertSkillContent={composer.pickers.insertSkillContent}
             defaultModel={composer.dshDefaultModel ?? composer.bootstrapDefaultModel}
+            defaultModelConfigured={composer.bootstrapDefaultModelConfigured}
             defaultThinkingLevel={composer.dshDefaultThinkingLevel ?? composer.bootstrapDefaultThinkingLevel}
           />
           {composer.previewImage ? (

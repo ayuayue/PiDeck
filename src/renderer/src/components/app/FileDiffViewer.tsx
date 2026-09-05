@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import type { ProjectFileAccessScope } from "../../../../shared/types";
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
 import { ArrowLeft, Maximize, Minimize2, Rows2, SquareSplitHorizontal, X, Eye, FileCode } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
@@ -17,8 +19,22 @@ const CodeDiffView = lazy(() =>
 import { formatFilePathRef } from "../session/composer/chips";
 
 import { isBinaryExtension, isImageFile, isPdfFile } from "../../utils/isTextFile";
+import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
 
 type ViewMode = "view" | "diff";
+
+/** 把主进程的大文件错误码还原为用户可读文案，其它错误保留原始诊断。 */
+function fileLoadErrorMessage(error: unknown): string {
+	const raw = error instanceof Error ? error.message : String(error);
+	const match = /FILE_TOO_LARGE:(\d+):(\d+)/.exec(raw);
+	if (!match) return raw;
+	const size = Number(match[1]);
+	const limit = Number(match[2]);
+	return t("editor.fileTooLarge", {
+		size: (size / 1024 / 1024).toFixed(1),
+		max: (limit / 1024 / 1024).toFixed(0),
+	});
+}
 
 export function FileDiffViewer(props: {
 	filePath: string;
@@ -40,14 +56,24 @@ export function FileDiffViewer(props: {
 	onCloseTab?: (id: string) => void;
 	/** 双击预览 Tab → 常驻 */
 	onPromotePreviewTab?: (id: string) => void;
-	readContent: (path: string) => Promise<string>;
+	readContent: (
+		path: string,
+		maxBytes?: number,
+		scope?: ProjectFileAccessScope,
+	) => Promise<string>;
+	/** 项目文件读取授权；存在时 read/stat/base64 都由主进程限制到该项目根。 */
+	fileAccessScope?: ProjectFileAccessScope;
 	/** 从会话消息 meta 中提取的工具执行前原始内容，优先于 Git HEAD。 */
 	originalContent?: string;
 	/** Session-recorded modified content, preferred over disk read for historical sessions. */
 	modifiedContent?: string;
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
 	readOriginalContent?: (path: string) => Promise<string>;
-	saveContent?: (path: string, content: string) => Promise<void>;
+	saveContent?: (
+		path: string,
+		content: string,
+		scope?: ProjectFileAccessScope,
+	) => Promise<void>;
 	/** HTML 文件点击预览时，切换到内置浏览器面板预览。 */
 	onPreviewHtml?: (filePath: string) => void;
 	theme?: "light" | "dark";
@@ -62,6 +88,8 @@ export function FileDiffViewer(props: {
 	chromeTabsExternal?: boolean;
 }) {
 	const maxFileSize = (props.maxFileSizeMB ?? 5) * 1024 * 1024;
+	const updateInstallPreflightId = useId();
+	const setUpdateInstallPreflightTasks = useSetAtom(updateInstallPreflightTasksAtom);
 	const [content, setContent] = useState("");
 	// 差异模式左侧展示的原始内容：优先使用会话缓存（originalContent），
 	// 没有则从 Git HEAD 读取。新增/未跟踪文件为空字符串。
@@ -114,7 +142,7 @@ export function FileDiffViewer(props: {
 				// diff 模式无法展示二进制差异，维持「不支持编辑」提示。
 				if (isBinaryExtension(props.filePath)) {
 					if (!isDiffMode && (isImageFile(props.filePath) || isPdfFile(props.filePath))) {
-						await loadMediaPreview(cancelled);
+						await loadMediaPreview();
 						return;
 					}
 					setError(t("editor.binaryFileNotSupported", { ext }));
@@ -126,7 +154,7 @@ export function FileDiffViewer(props: {
 				// 修改后内容优先使用会话记录（modifiedContent），历史会话恢复时磁盘可能已变化。
 				const contentPromise = props.modifiedContent !== undefined
 					? Promise.resolve(props.modifiedContent)
-					: props.readContent(props.filePath);
+					: props.readContent(props.filePath, maxFileSize, props.fileAccessScope);
 				const originalPromise =
 					isDiffMode && props.originalContent !== undefined
 						? Promise.resolve(props.originalContent)
@@ -165,7 +193,10 @@ export function FileDiffViewer(props: {
 						/^([A-Za-z]:[\\/]|\/)/.test(props.filePath)
 					) {
 						try {
-							const [exists] = await window.piDesktop.files.pathsExist([props.filePath]);
+							const [exists] = await window.piDesktop.files.pathsExist(
+								[props.filePath],
+								props.fileAccessScope,
+							);
 							if (!exists && !cancelled) {
 								setError(t("editor.fileNotFound", { path: props.filePath }));
 							}
@@ -175,7 +206,7 @@ export function FileDiffViewer(props: {
 					}
 				}
 			} catch (e) {
-				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+				if (!cancelled) setError(fileLoadErrorMessage(e));
 			} finally {
 				if (!cancelled) setLoading(false);
 			}
@@ -184,16 +215,22 @@ export function FileDiffViewer(props: {
 		// 为什么不用 file:// 直链：dev 模式页面走 http:// 加载，Chromium webSecurity
 		// 会以 "Not allowed to load local resource" 拦截 file:// 子资源；
 		// blob: 与 CSP（img-src/frame-src 均允许 blob:）匹配且 dev/prod 行为一致。
-		async function loadMediaPreview(isCancelled: boolean) {
+		async function loadMediaPreview() {
 			const readBinary = window.piDesktop?.files?.readBase64;
 			if (!readBinary) {
-				if (!isCancelled) setError(t("editor.binaryFileNotSupported", { ext }));
+				if (!cancelled) setError(t("editor.binaryFileNotSupported", { ext }));
 				return;
 			}
 			try {
-				const base64 = await readBinary(props.filePath);
-				if (isCancelled || !base64) {
-					if (!isCancelled) setError(t("editor.binaryFileNotSupported", { ext }));
+				const base64 = await readBinary(
+					props.filePath,
+					undefined,
+					props.fileAccessScope,
+				);
+				// 读取完成后重新读取闭包里的取消标记；传入 boolean 会冻结为调用时的 false，
+				// 旧 tab 的结果就可能 revoke 并覆盖新 tab 刚创建的 Blob URL。
+				if (cancelled || !base64) {
+					if (!cancelled) setError(t("editor.binaryFileNotSupported", { ext }));
 					return;
 				}
 				const mime = isPdf ? "application/pdf" : mimeFromImageExt(ext);
@@ -203,7 +240,7 @@ export function FileDiffViewer(props: {
 				mediaUrlRef.current = url;
 				setMediaUrl(url);
 			} catch (e) {
-				if (!isCancelled) setError(e instanceof Error ? e.message : String(e));
+				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
 			}
 		}
 		void load();
@@ -211,7 +248,7 @@ export function FileDiffViewer(props: {
 	// readContent/readOriginalContent 是稳定的 API 回调（上层已 useCallback），
 	// 不参与 effect deps，避免父组件因其他状态变化重渲染时反复加载文件导致编辑器重置到顶部。
 	// 两侧缓存内容都需要监听：同一路径可在多个历史提交 Diff tab 之间切换。
-	}, [props.filePath, props.originalContent, props.modifiedContent, isDiffMode]);
+	}, [props.filePath, props.activeTabId, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode, maxFileSize]);
 
 	const handleClose = useCallback(() => {
 		props.onClose();
@@ -247,38 +284,58 @@ export function FileDiffViewer(props: {
 		contentRef.current = "";
 		lastSavedRef.current = "";
 		setSaving(false);
-	}, [props.activeTabId, props.filePath, props.originalContent, props.modifiedContent, isDiffMode]);
+	}, [props.activeTabId, props.filePath, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode]);
 
-	const saveNow = useCallback(async () => {
+	const saveNow = useCallback(async (): Promise<boolean> => {
 		if (saveTimerRef.current) {
 			clearTimeout(saveTimerRef.current);
 			saveTimerRef.current = null;
 		}
-		if (!props.saveContent) return;
+		if (isDiffMode || !props.saveContent) return true;
 		const latest = getLatestContent();
-		if (latest === lastSavedRef.current) return;
+		if (latest === lastSavedRef.current) return true;
 		const saveGeneration = saveGenerationRef.current;
 		const savePath = props.filePath;
 		setSaving(true);
 		try {
-			await props.saveContent(savePath, latest);
+			await props.saveContent(savePath, latest, props.fileAccessScope);
 			// Tab 已切换时，旧请求即使完成也不能改动新 Tab 的 dirty/content 状态。
-			if (saveGeneration !== saveGenerationRef.current) return;
+			if (saveGeneration !== saveGenerationRef.current) return true;
 			lastSavedRef.current = latest;
 			// 保存期间用户可能继续输入；只有没有更新过才可以清除 dirty，
 			// 绝不能把保存开始时的快照重新 set 回编辑器。
 			if (contentRef.current === latest) {
 				setDirty(false);
 			}
+			return true;
 		} catch (e) {
 			if (saveGeneration === saveGenerationRef.current) {
 				// 保存失败保留 dirty，用户可继续编辑后由下一次自动保存/Ctrl+S 重试
 				setError(e instanceof Error ? e.message : String(e));
 			}
+			return false;
 		} finally {
 			if (saveGeneration === saveGenerationRef.current) setSaving(false);
 		}
-	}, [getLatestContent, props.saveContent, props.filePath]);
+	}, [getLatestContent, isDiffMode, props.saveContent, props.filePath, props.fileAccessScope?.projectId]);
+
+	// 更新安装会直接终止 Electron；把活跃文本编辑器的防抖保存提升为可等待的前置任务。
+	useEffect(() => {
+		if (isDiffMode || !props.saveContent) return;
+		setUpdateInstallPreflightTasks((current) => {
+			const next = new Map(current);
+			next.set(updateInstallPreflightId, saveNow);
+			return next;
+		});
+		return () => {
+			setUpdateInstallPreflightTasks((current) => {
+				if (!current.has(updateInstallPreflightId)) return current;
+				const next = new Map(current);
+				next.delete(updateInstallPreflightId);
+				return next;
+			});
+		};
+	}, [isDiffMode, props.saveContent, saveNow, setUpdateInstallPreflightTasks, updateInstallPreflightId]);
 
 	const scheduleAutoSave = useCallback(() => {
 		if (!props.saveContent) return;

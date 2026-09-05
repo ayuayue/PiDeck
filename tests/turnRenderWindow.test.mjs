@@ -19,15 +19,6 @@ function runs(...ids) {
   return ids.map((id) => ({ kind: "agent-run", id, items: [] }));
 }
 
-/** 构造带内部条目的 run（items.length 决定 DOM 权重，用于条目预算测试）。 */
-function heavyRun(id, itemCount) {
-  return {
-    kind: "agent-run",
-    id,
-    items: Array.from({ length: itemCount }, (_, i) => ({ kind: "message", id: `${id}-${i}` })),
-  };
-}
-
 test("sliceLastAgentRuns keeps only the trailing maxTurns agent-runs", () => {
   const items = [
     { kind: "message", id: "sys" },
@@ -57,37 +48,13 @@ test("sliceLastAgentRuns returns same reference when under the limit", () => {
   assert.equal(windowing.sliceLastAgentRuns(items, 10), items);
 });
 
-test("sliceLastAgentRuns cuts by item budget without splitting a run", () => {
-  // 尾部两个大 run（各 150 条）+ 一个小 run：轮数上限 3 不够裁，
-  // 条目预算 200 把最老的大 run 完整排除（不切碎 run 边界）。
-  const items = [
-    heavyRun("r1", 150),
-    heavyRun("r2", 150),
-    runs("r3")[0],
-  ];
-  const sliced = windowing.sliceLastAgentRuns(items, 3, 200);
-  assert.deepEqual(
-    sliced.map((item) => item.id),
-    ["r2", "r3"],
-  );
-});
-
-test("sliceLastAgentRuns item budget keeps only trailing lightweight runs", () => {
-  // 10 个轻量 run（各 1 条）：预算 5 时只保留尾部 5 个 run
-  const items = runs("r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10");
-  const sliced = windowing.sliceLastAgentRuns(items, 100, 5);
-  assert.deepEqual(
-    sliced.map((item) => item.id),
-    ["r6", "r7", "r8", "r9", "r10"],
-  );
-});
-
 test("selectTimelineTurnWindow slices past the window turns regardless of following", () => {
   const items = runs("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k");
   assert.equal(windowing.countAgentRunItems(items), 11);
   assert.equal(windowing.shouldWindowTimelineTurns(11, 10), true);
   assert.equal(windowing.shouldWindowTimelineTurns(11, 15), false);
   // 2026-08 治理：非贴底（上滚看历史）同样裁剪，只是窗口更大
+
   const scrolled = windowing.selectTimelineTurnWindow(items, 10);
   assert.equal(scrolled.length, 10);
   assert.equal(scrolled[0].id, "b");
@@ -103,7 +70,11 @@ test("timeline wires the turn mount window helper", () => {
   const source = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
   assert.match(source, /selectTimelineTurnWindow/);
   assert.match(source, /TIMELINE_MOUNTED_TURN_LIMIT/);
-  assert.match(source, /TIMELINE_SCROLLED_MAX_ITEMS/);
+  assert.doesNotMatch(source, /TIMELINE_SCROLLED_MAX_ITEMS/, "item budget removed in turn-centric protocol");
+  // 跟随、恢复与普通历史浏览都必须走同一 tail-window 参数，不能在恢复时
+  // 临时全量挂载后再收缩，否则已恢复的 scrollTop 会因高度缩小被截断。
+  assert.match(source, /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/);
+  assert.doesNotMatch(source, /Number\.MAX_SAFE_INTEGER/);
   assert.match(source, /displayRuns\.map/);
 });
 
@@ -159,4 +130,28 @@ test("auto-expand wiring: controller exposes windowExpandableRef and listens nea
     "utf8",
   );
   assert.match(timelineSource, /windowExpandableRef\.current = turnWindowActive/);
+});
+
+test("countUserTurns merges consecutive user messages into one turn (speaker-hold semantics)", () => {
+  // 连发 3 条 user 无回复 = 1 轮；assistant 回复后下一条 user 才开新轮。
+  assert.equal(
+    windowing.countUserTurns([
+      { role: "user" }, { role: "user" }, { role: "user" },
+      { role: "assistant" },
+      { role: "user" }, { role: "assistant" },
+    ]),
+    2,
+  );
+  // system 诊断卡夹在连发 user 之间不拆轮。
+  assert.equal(
+    windowing.countUserTurns([
+      { role: "user" }, { role: "system" }, { role: "user" }, { role: "assistant" },
+    ]),
+    1,
+  );
+  // 纯连发无任何回复：整段 1 轮（发言权未交还）。
+  assert.equal(
+    windowing.countUserTurns([{ role: "user" }, { role: "user" }, { role: "user" }]),
+    1,
+  );
 });

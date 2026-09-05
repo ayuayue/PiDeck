@@ -2,10 +2,15 @@
  * pi --list-models 全局缓存模块。
  *
  * 数据源：优先 pi --list-models（pi 内部处理 auth.json/models.json/内置目录）。
- * 加速参数：--offline --no-extensions --no-skills --no-themes（新版 pi 实测更快）。
+ * 加速参数：--offline --no-skills --no-themes（新版 pi 实测更快）。
+ *
+ * 扩展策略（issue #181）：第一档【带扩展】优先——扩展通过 pi.registerProvider
+ * 贡献的模型必须出现在选择器里（与 CLI 一致）；但坏扩展/慢扩展可能让 CLI 失败或挂起，
+ * 所以失败后降级到【不带扩展】的加速档，进一步失败再降级到【兼容档】。
  * 老版本不认识这些旗标会直接 unknown option / 非 0 退出；会话页 IPC 再把失败
  * 吞成 []，表现为「设置页默认模型正常、会话选择器空」。因此：
- * - 未知参数时回退到只传 --list-models；
+ * - 第一档任何失败都降级（可能是扩展问题，不是配置问题）；
+ * - 后续档位仅 unknown-option 降级（保留配置损坏等真实错误，供失败分类用）；
  * - CLI 仍空/失败时回退读本地 models.json（与设置页同源）。
  *
  * 刷新策略：
@@ -71,7 +76,18 @@ let cachedListModelsPending: Promise<AvailableModel[]> | null = null;
  */
 let configInvalidated = false;
 
-/** pi --list-models 加速参数：offline 跳过网络目录刷新，no-ext/skills/themes 跳过发现加载。 */
+/** pi --list-models 第一档参数：带扩展（默认发现扩展，含扩展贡献的模型）。
+ * 与 CLI 默认行为一致；不使用 --no-extensions，让 pi.registerProvider 类插件
+ * （如 antigravity）的模型能进入选择器。 */
+export const MODEL_LIST_EXT_ARGS = [
+	"--list-models",
+	"--offline",
+	"--no-skills",
+	"--no-themes",
+];
+
+/** pi --list-models 加速参数（降级档）：offline 跳过网络目录刷新，no-ext/skills/themes 跳过发现加载。
+ * 若第一档因坏扩展/慢扩展失败，用本档再试一次。 */
 export const MODEL_LIST_FAST_ARGS = [
 	"--list-models",
 	"--offline",
@@ -361,14 +377,17 @@ async function execPiListModels(
 	return runPiCliCommand(piLocator, settingsStore, args);
 }
 
-/** fork pi --list-models 并解析。新旗标不被认时回退到只传 --list-models。 */
+/** fork pi --list-models 并解析。降级链：带扩展 → 无扩展加速 → 仅 --list-models。
+ * 第一档任何失败都降级（坏扩展/慢扩展不属于配置问题）；后续档位仅在
+ * unknown-option 时降级（老版本 pi），真实错误（配置损坏、命令不存在）立即上抛，
+ * 保留给 classifyModelListFailure 分类。 */
 export async function runPiListModels(
 	piLocator: PiLocator,
 	settingsStore: SettingsStore,
 ): Promise<AvailableModel[]> {
-	const argSets = [MODEL_LIST_FAST_ARGS, MODEL_LIST_COMPAT_ARGS];
+	const argSets = [MODEL_LIST_EXT_ARGS, MODEL_LIST_FAST_ARGS, MODEL_LIST_COMPAT_ARGS];
 	let lastError: Error | null = null;
-	for (const args of argSets) {
+	for (const [index, args] of argSets.entries()) {
 		try {
 			const stdout = await execPiListModels(piLocator, settingsStore, args);
 			if (isUnknownCliOption(stdout)) {
@@ -379,7 +398,9 @@ export async function runPiListModels(
 		} catch (error) {
 			const err = error instanceof Error ? error : new Error(String(error));
 			lastError = err;
-			if (!isUnknownCliOption(err.message)) throw err;
+			// 第一档失败可能源于扩展（加载失败/工厂挂起），无条件降级到无扩展档重试；
+			// 后续档位只认 unknown-option（老版本 pi），其余错误如实上抛。
+			if (index > 0 && !isUnknownCliOption(err.message)) throw err;
 		}
 	}
 	if (lastError) throw lastError;

@@ -222,13 +222,34 @@ export class DshRuntimeManager {
 
 		// 与 tarball 约定一致：目录内可能直接是 dsh-runtime/（解压产物）或套一层包装，
 		// 剥掉顶层后才是 node_modules + manifest。
-		const sourceRoot = existsSync(join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT))
+		let sourceRoot = existsSync(join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT))
 			? join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT)
 			: dirPath;
 
+		// 用户可能选中的是「安装目录的父级」（如 runtimesRoot 本身，卸载后仍残留在磁盘上）：
+		// 目录自身没有 manifest，但里面唯一子目录就是完整 runtime。此时一级探测会失败，
+		// 再尝试「唯一子目录下钻」——避免用户明明有 runtime 却被报 manifest missing。
+		// 只接受唯一候选：多子目录时无法断定意图，保留原错误不去猜。
+		let sourceManifest = this.verifyStagedRuntime(sourceRoot);
+		if (typeof sourceManifest === "string") {
+			const children = readdirSync(dirPath, { withFileTypes: true })
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => join(dirPath, entry.name))
+				.filter((child) => child !== sourceRoot);
+			const candidates = children
+				.map((child) => {
+					const nested = this.verifyStagedRuntime(child);
+					return typeof nested !== "string" ? { child, nested } : undefined;
+				})
+				.filter((entry): entry is { child: string; nested: DshRuntimeManifest } => entry !== undefined);
+			if (candidates.length === 1) {
+				sourceRoot = candidates[0].child;
+				sourceManifest = candidates[0].nested;
+			}
+		}
+
 		// 先在校验源目录上快速失败（manifest 不对就不复制，避免白拷几十 MB），
 		// 校验通过后再复制到暂存目录落位——落位的始终是校验过的那份内容。
-		const sourceManifest = this.verifyStagedRuntime(sourceRoot);
 		if (typeof sourceManifest === "string") return { ok: false, error: sourceManifest };
 
 		mkdirSync(this.deps.layout.tempRoot, { recursive: true });

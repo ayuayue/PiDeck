@@ -33,3 +33,12 @@ export type PiModelProbeResult = {
 	latencyMs?: number;
 	error?: string;
 };
+
+/**
+ * 配置页「拉取模型列表 / 测试连接」的代理选择（配置检测与真实会话共享同一套代理语义）：
+ * - follow：跟随全局（拉取列表走桌面代理全局开关；测试走 pi 代理全局开关，即现状行为）；
+ * - pi：强制走 PI 代理（复用设置里 piProxyUrl，即使全局开关关闭）；
+ * - desktop：强制走桌面代理（复用 desktopProxyUrl，主进程请求与 pi 子进程均注入）；
+ * - off：强制直连（绕过任何代理，含用户系统环境变量）。
+ */
+export type ConfigProxyMode = "follow" | "pi" | "desktop" | "off";

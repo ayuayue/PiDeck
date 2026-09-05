@@ -44,22 +44,32 @@ export function resolveNotificationSessionId(
 }
 
 /**
- * 按对话轮次截断历史消息：找到最后 maxTurns 个 user 提问，
+ * 按对话轮次截断历史消息：找到最后 maxTurns 个 turn 起点，
  * 保留对应轮次及之后的全部消息，避免大会话加载时一次性解析过多内容。
  * 返回保留段的起始下标（无 user 消息时与 slice(-50) 语义一致）。
+ *
+ * turn 起点与 findTurnPageStart 同一约定（发言权周期）：
+ * role==="user" 且跳过中间的杂项消息后前一条真实消息不是 user。
+ * 连发 user（无 assistant 回复）只算第一条为起点，其余并入同一轮。
  */
 export function turnTrimStartIndex<T>(rawMessages: T[], maxTurns = 12): number {
 	if (rawMessages.length === 0) return 0;
-	const userIndices: number[] = [];
-	for (let i = rawMessages.length - 1; i >= 0; i--) {
-		const msg = rawMessages[i] as { role?: unknown } | undefined;
-		if (msg?.role === "user") {
-			userIndices.unshift(i);
-			if (userIndices.length >= maxTurns) break;
+	// 预扫描 turn 起点（与 findTurnPageStart 同一规则，O(n)）
+	const turnStarts: number[] = [];
+	let prevUserOrAssistantRole: "user" | "assistant" | undefined;
+	for (let i = 0; i < rawMessages.length; i += 1) {
+		const role = (rawMessages[i] as { role?: unknown } | undefined)?.role;
+		if (role === "user") {
+			if (prevUserOrAssistantRole !== "user") turnStarts.push(i);
+			prevUserOrAssistantRole = "user";
+		} else if (role === "assistant") {
+			prevUserOrAssistantRole = "assistant";
 		}
+		// system/error/toolResult 等其他 role：不改变边界。
 	}
-	if (userIndices.length === 0) return Math.max(0, rawMessages.length - 50);
-	return userIndices[0];
+	if (turnStarts.length === 0) return Math.max(0, rawMessages.length - 50);
+	// 保留尾部 maxTurns 轮：起点 = 倒数第 maxTurns 个 turn 起点
+	return turnStarts[Math.max(0, turnStarts.length - maxTurns)];
 }
 
 export function trimHistoryMessages<T>(rawMessages: T[], maxTurns = 12): T[] {
@@ -189,11 +199,11 @@ export function stripToolResultForDelivery(messages: ChatMessage[]): ChatMessage
 	return stripped ? out : messages;
 }
 
-/** 清洗会话标题文本。 */
+/** 清洗会话标题文本；存储层不截断，侧栏负责视觉宽度钳制与 hover 展示。 */
 export function cleanTitle(value?: string): string | undefined {
 	const text = value?.replace(/\s+/g, " ").trim();
 	if (!text || /^untitled$/i.test(text)) return undefined;
-	return text.length > 32 ? `${text.slice(0, 32)}…` : text;
+	return text;
 }
 
 /** 从消息列表推断会话标题（取首条 user 或 assistant 消息的清洗后文本）。 */

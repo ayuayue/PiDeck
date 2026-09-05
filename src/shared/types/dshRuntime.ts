@@ -34,6 +34,9 @@ export type DshRuntimeStatus = {
 	reason?: string;
 	/** 已安装 runtime 的落盘目录（外部 managed 时 = runtimesRoot/<version>；内置/builtin 或未安装时缺省）。 */
 	installDir?: string;
+	/** 是否允许在线下载安装 runtime（app.isPackaged）：dev 模式禁止下载——runtime 随
+	 *  打包分发，开发环境不提供在线安装，避免用户误下 dev 不配套的产物。 */
+	installEnabled?: boolean;
 };
 
 /** 状态 → DSH UI 可见性矩阵（纯函数，单测覆盖见 tests/dshRuntimeStatus.test.mjs）。 */
@@ -44,14 +47,17 @@ export type DshUiVisibility = {
 	showDshConfigForms: boolean;
 	/** 显示「安装 DSH 后端」引导卡。 */
 	showInstallGuide: boolean;
+	/** 是否显示「在线下载安装/重装」按钮（dev 模式为 false：runtime 随打包分发，开发环境不下载）。 */
+	showRuntimeDownload: boolean;
 };
 
-export function dshUiVisibilityFor(state: DshRuntimeState): DshUiVisibility {
+export function dshUiVisibilityFor(state: DshRuntimeState, installEnabled = true): DshUiVisibility {
 	const installed = state === "installed";
 	return {
 		canCreateDshSession: installed,
 		showDshConfigForms: installed,
 		showInstallGuide: !installed && state !== "checking",
+		showRuntimeDownload: installEnabled,
 	};
 }
 

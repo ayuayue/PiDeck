@@ -39,6 +39,22 @@ test("UI 可见性矩阵：只有 installed 才渲染 DSH 表单与允许建会�
 	}
 });
 
+test("dev 模式（installEnabled=false）：不显示在线下载入口，仅保留安装引导说明", () => {
+	// 无论状态，dev 下都不提供在线下载/重装（runtime 只随打包分发）。
+	expectVisibility("notInstalled", {
+		canCreateDshSession: false,
+		showDshConfigForms: false,
+		showInstallGuide: true,
+		showRuntimeDownload: false,
+	}, false);
+	expectVisibility("installed", {
+		canCreateDshSession: true,
+		showDshConfigForms: true,
+		showInstallGuide: false,
+		showRuntimeDownload: false,
+	}, false);
+});
+
 test("checking 不显示安装引导：避免首帧闪一下「未安装」再切回正常表单", () => {
 	const visibility = dshUiVisibilityFor("checking");
 	assert.equal(visibility.showInstallGuide, false);
@@ -120,6 +136,18 @@ test("builtin 内置分发不带 installDir（在 app.asar 内无独立落盘目
 	}
 });
 
+test("builtin 内置分发携带版本号（UI 文案模板带 v 前缀，缺版本会渲染成悬空 v）", () => {
+	const service = makeService(process.cwd());
+	const status = service.getStatus();
+	if (status.state === "installed") {
+		// 版本号必须是形如 x.y.z 的语义版本，不能是空串——空串会导致配置页显示「随应用内置 v」。
+		assert.ok(
+			typeof status.runtimeVersion === "string" && status.runtimeVersion.length > 0,
+			"builtin runtimeVersion 应存在且非空",
+		);
+	}
+});
+
 test("subscribe 返回退订函数，退订后不再收到广播", () => {
 	const service = makeService("missing-dir");
 	const seen = [];
@@ -151,4 +179,17 @@ test("订阅者抛错不影响服务：refresh 仍能返回状态", () => {
 		throw new Error("listener boom");
 	});
 	assert.equal(service.refresh().state, "notInstalled");
+});
+
+test("allowBundledFallback=false 时内置探测被禁用（dev 模式强制外部安装）", () => {
+	// dev 模式：项目根 node_modules 里装着 @deepseek-ai 开发依赖，但状态服务
+	// 不应把「node_modules 有包」当作已安装 runtime——否则 UI 显示随应用内置且不可卸载。
+	const service = new DshRuntimeStatusService(
+		() => process.cwd(),
+		() => {},
+		() => undefined,
+		() => false,
+	);
+	const status = service.getStatus();
+	assert.equal(status.state, "notInstalled");
 });

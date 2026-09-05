@@ -199,22 +199,32 @@ test("turn-window expansion pins the viewport through restoreAt instead of nativ
   assert.match(controllerSource, /scrollerScrollApiRef\.current\?\.stopScroll\(\)/);
 });
 
-test("timeline releases the temporary unbudgeted window after anchor restoration", () => {
+test("timeline keeps the same turn window through anchor restoration", () => {
   const timelineSource = readFileSync(
     "src/renderer/src/components/session/SessionMessageTimeline.tsx",
     "utf8",
   );
-  // Restoring may temporarily render a wider historical window so the anchor
-  // exists in the DOM. That flag must also invalidate the memo once restoration
-  // finishes, otherwise the large window stays permanently exempt from its item budget.
-  assert.match(timelineSource, /const isRestoringScrollAnchor = controller\.isRestoringScrollAnchor;/);
-  assert.match(timelineSource, /followingForTurnWindow \|\| isRestoringScrollAnchor/);
-  // 依赖数组含 controller.jumpNavigationActive（2026-08 定位轴跳转加入 memo 后补齐），
-  // 恢复完成时该 flag 翻转必须使 memo 失效。
+  const controllerSource = readFileSync(
+    "src/renderer/src/hooks/useSessionTimelineController.ts",
+    "utf8",
+  );
+  // 保存、恢复和正常历史浏览必须都按同一个 tail-window 裁剪。恢复期若改成全量，
+  // restoreAt 后再收回小窗口会让浏览器把 scrollTop 截断到新的最大值。
   assert.match(
     timelineSource,
-    /\[followingForTurnWindow, isRestoringScrollAnchor, controller\.jumpNavigationActive, reconciledRuns, turnWindowTurns\]/,
+    /selectTimelineTurnWindow\(reconciledRuns, turnWindowTurns\)/,
   );
+  assert.doesNotMatch(timelineSource, /isRestoringScrollAnchor/);
+  assert.doesNotMatch(timelineSource, /jumpNavigationActive/);
+  assert.doesNotMatch(timelineSource, /Number\.MAX_SAFE_INTEGER/);
+  // 跟随态可能在回底 effect 复位 scrolledWindowTurns 前收到一次滚动；保存锚点时
+  // 仍必须记录实际的 3 轮 DOM 窗口，而不是那份过期的大窗口状态。
+  assert.match(
+    controllerSource,
+    /const effectiveWindowTurns = autoScroll\s*\? TIMELINE_MOUNTED_TURN_LIMIT\s*:\s*scrolledWindowTurns;/,
+  );
+  assert.match(controllerSource, /renderedWindowTurnsRef\.current = effectiveWindowTurns;/);
+  assert.match(controllerSource, /ownerWindowTurnsRef\.current\.set\(ownerKey, effectiveWindowTurns\)/);
 });
 
 // 中间回复「消失→回来」循环的根因修复：live 挂载点必须要求「活动正文流」。

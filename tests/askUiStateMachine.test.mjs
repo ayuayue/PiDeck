@@ -243,6 +243,12 @@ test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", ()
 	assert.ok(guards && guards.length >= 4);
 });
 
+test("SessionRuntimeUiOverlay keeps recovery prompts visible after model errors", () => {
+	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
+	assert.doesNotMatch(source, /runtime\.status !== "error"/);
+	assert.match(source, /runtime\.status !== "closed"/);
+});
+
 test("Timeline 已清理死代码，安全卡在选项点击前调 hasTextSelection", () => {
 	const timeline = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
 	const security = readFileSync("src/renderer/src/components/overlays/SecurityConfirmCard.tsx", "utf8");

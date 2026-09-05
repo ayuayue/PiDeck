@@ -121,6 +121,39 @@ test("computeModelSpecPatches: 规格完全未命中 → 默认开放思考档�
 	);
 });
 
+test("computeModelSpecPatches: 目录未收录的视觉 ID 补图片能力", () => {
+	// deepseek-v4-flash-vision-exp 未被目录收录时，ID 本身声明了视觉能力：
+	// 补 input [text,image]，避免模型被当成 text-only（图片会退化为视觉桥）。
+	const updates = computeModelSpecPatches({ id: "deepseek-v4-flash-vision-exp" }, null);
+	assert.equal(updates.find(([field]) => field === "input")?.[1][1], "image");
+	assertUpdates(computeModelSpecPatches({ id: "qwen2.5-vl-72b" }, null), [
+		["input", ["text", "image"]],
+		["reasoning", true],
+		["thinkingLevelMap", DEFAULT_MAP],
+	]);
+});
+
+test("computeModelSpecPatches: 非视觉 ID 不触发图片猜测，已有 input 不覆盖", () => {
+	// 普通 ID 未命中目录：不猜 input（保持旧行为）
+	assert.equal(computeModelSpecPatches({ id: "my-deepseek-r1" }, null).some(([field]) => field === "input"), false);
+	// 已手填 input 时目录声明 image 也不覆盖（填空语义；覆盖走「重置为自适应」）
+	const protectedUpdates = computeModelSpecPatches(
+		{ id: "gpt-4o-vision", input: ["text"] },
+		fullSpec({ input: ["text", "image"] }),
+	);
+	assert.equal(protectedUpdates.some(([field]) => field === "input"), false);
+});
+
+test("isVisionModelId: 只认独立视觉 token，避免子串误判", () => {
+	const { isVisionModelId } = mod;
+	assert.equal(isVisionModelId("deepseek-v4-flash-vision-exp"), true);
+	assert.equal(isVisionModelId("qwen2.5-vl"), true);
+	assert.equal(isVisionModelId("glm-4v"), true);
+	assert.equal(isVisionModelId("revision-extended"), false);
+	assert.equal(isVisionModelId("visual-qwen"), false);
+	assert.equal(isVisionModelId("deepseek-r1"), false);
+});
+
 test("computeModelSpecPatches: 纯文本规格不填 input", () => {
 	const updates = computeModelSpecPatches({ id: "deepseek-chat" }, fullSpec({ images: undefined }));
 	assertUpdates(updates, [

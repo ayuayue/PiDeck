@@ -35,6 +35,7 @@ import { projectByIdAtomFamily, sessionRecordByIdAtomFamily } from "../../atoms"
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { groupToolMessages } from "../app/AppUtils";
 import type { AgentRunItem } from "./timeline/types";
+import { countUserTurns } from "./timeline/turnRenderWindow";
 
 // terminal 程序化布局保护窗口（ms）：setLayout 后该窗口内的 terminal
 // onResize 一律视为程序化结果，不写 collapsed 状态。
@@ -346,7 +347,7 @@ export function SessionView({
               <ComposerArea
                 ref={composerRef}
                 sessionId={sessionId}
-                turnCount={sessionTimeline.messages.filter((message) => message.role === "user").length}
+                turnCount={countUserTurns(sessionTimeline.messages)}
                 gitInfo={gitInfo}
                 onSwitchBranch={onSwitchBranch}
                 enqueue={enqueueSessionPrompt}
@@ -358,6 +359,7 @@ export function SessionView({
                     <SessionFilesStrip
                       sessionId={sessionId}
                       run={latestAgentRun}
+                      onOpenFile={onOpenFile}
                       onDiffFile={onDiffFile}
                     />
                     <SessionSubagentsStrip

@@ -3,6 +3,7 @@ import { ipcChannels } from "../shared/ipc";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
 import type { ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
+import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
 import type {
 	VoiceTranscriptionPublicConfig,
 	VoiceTranscriptionRequest,
@@ -22,10 +23,8 @@ import type {
 	ProcessMetricsSnapshot,
 	DiagnosticsSnapshot,
 	AppSettings,
-	AppUpdateDownloadProgress,
-	AppUpdateDownloadResult,
-	AppUpdateInfo,
 	AppUpdateStatusSnapshot,
+	MirrorHealthResult,
 	AvailableModel,
 	DshModelDiscoveryInput,
 	ModelListFailReason,
@@ -104,6 +103,7 @@ import type {
 	PiSkillSummary,
 	SkillContentResult,
 	Project,
+	ProjectFileAccessScope,
 	PromptStoreSearchResult,
 	PromptStoreItem,
 	ScratchPadData,
@@ -189,6 +189,9 @@ const api = {
 				ipcChannels.projectsReorder,
 				projectIds,
 			) as Promise<Project[]>,
+		// 重命名项目显示名（仅改 label，不动磁盘目录）；返回更新后的项目列表
+		rename: (id: string, name: string) =>
+			ipcRenderer.invoke(ipcChannels.projectsRename, id, name) as Promise<Project[]>,
 		onChanged: (callback: (projects: Project[]) => void) =>
 			subscribe(ipcChannels.projectsChanged, callback),
 		// 仅返回顶级项目（不含 worktree 子项目）
@@ -269,16 +272,17 @@ const api = {
 		/** 在系统文件管理器中打开目录 */
 		openFileManager: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesOpenFileManager, path) as Promise<void>,
-		readContent: (path: string, maxBytes?: number) =>
-			ipcRenderer.invoke(ipcChannels.filesReadContent, path, maxBytes) as Promise<string>,
+		readContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) =>
+			ipcRenderer.invoke(ipcChannels.filesReadContent, path, maxBytes, scope) as Promise<string>,
 		/** 批量校验路径是否存在（返回与入参等长的 boolean[]；单路径失败按 false 计） */
-		pathsExist: (paths: string[]) =>
-			ipcRenderer.invoke(ipcChannels.filesPathsExist, paths) as Promise<boolean[]>,
-		/** 读取二进制文件为 data URL（粘贴资源管理器图片文件时用；maxBytes 可预检拦截超大文件） */
-		readBase64: (path: string, maxBytes?: number) =>
-			ipcRenderer.invoke(ipcChannels.filesReadBase64, path, maxBytes) as Promise<string>,
-		writeContent: (path: string, content: string) =>
-			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content) as Promise<void>,
+		pathsExist: (paths: string[], scope?: ProjectFileAccessScope) =>
+			ipcRenderer.invoke(ipcChannels.filesPathsExist, paths, scope) as Promise<boolean[]>,
+		/** 读取二进制文件为 base64；scope 存在时主进程限制到对应 ProjectStore 根目录。 */
+		readBase64: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) =>
+			ipcRenderer.invoke(ipcChannels.filesReadBase64, path, maxBytes, scope) as Promise<string>,
+		/** 保存项目来源文件时复用读取 scope，主进程据此校验真实写入路径。 */
+		writeContent: (path: string, content: string, scope?: ProjectFileAccessScope) =>
+			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content, scope) as Promise<void>,
 		delete: (path: string, recursive?: boolean) =>
 			ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void>,
 		/** 复制来源路径到目标目录（支持文件和目录递归），返回目标路径列表 */
@@ -393,11 +397,12 @@ const api = {
 				model: string;
 				reasoningEffort?: string;
 			} | undefined>,
-		/** DSH 配置管理页状态（host 启动状态 + DSH_HOME 目录）。 */
+		/** DSH 配置管理页状态（host 启动状态 + DSH_HOME 目录 + 最近 boot 失败原因）。 */
 		getDshStatus: () =>
 			ipcRenderer.invoke(ipcChannels.dshGetStatus) as Promise<{
 				started: boolean;
 				homeDir: string;
+				bootError?: string | null;
 			}>,
 		/**
 		 * DSH runtime 安装态（AgentRuntimeProvider 阶段 1）：notInstalled/broken 时
@@ -1205,18 +1210,16 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.appNetworkAddresses) as Promise<WebNetworkAddress[]>,
 		preferredSystemLanguages: () =>
 			ipcRenderer.invoke(ipcChannels.appPreferredSystemLanguages) as Promise<string[]>,
+		/** 手动触发一次更新检查（检测结果经 onUpdateStatus 快照推送；不弹窗）。 */
 		checkUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<AppUpdateInfo>,
-		downloadUpdate: (asset: { name: string; url: string }) =>
-			ipcRenderer.invoke(
-				ipcChannels.appDownloadUpdate,
-				asset,
-			) as Promise<AppUpdateDownloadResult>,
-		installUpdate: (filePath: string) =>
-			ipcRenderer.invoke(ipcChannels.appInstallUpdate, filePath) as Promise<void>,
-		onUpdateProgress: (callback: (progress: AppUpdateDownloadProgress) => void) =>
-			subscribe(ipcChannels.appUpdateProgress, callback),
-		/** 订阅后台更新检查快照（角标 + 每版本一次提示判定）。 */
+			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<void>,
+		/** 手动下载已检测到的新版本（自动下载关闭时用）。 */
+		downloadUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appDownloadUpdate) as Promise<void>,
+		/** 重启并安装已下载的更新（退出 → 静默替换 → 自动重启新版）。 */
+		installUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appInstallUpdate) as Promise<void>,
+		/** 订阅后台更新检查快照（角标 + toast + 设置页卡片）。 */
 		onUpdateStatus: (callback: (snapshot: AppUpdateStatusSnapshot) => void) =>
 			subscribe(ipcChannels.appUpdateStatusChanged, callback),
 		/** 获取当前更新状态快照（手动检测完成后刷新角标用）。 */
@@ -1228,6 +1231,9 @@ const api = {
 		/** 跳过某版本（该版本不再主动提示）。 */
 		skipUpdateVersion: (version: string) =>
 			ipcRenderer.invoke(ipcChannels.appUpdateSkipVersion, version) as Promise<void>,
+		/** 探测内置更新镜像可用性与速度（设置页「更新源」）。 */
+		checkUpdateMirrors: () =>
+			ipcRenderer.invoke(ipcChannels.appCheckUpdateMirrors) as Promise<MirrorHealthResult[]>,
 		feedbackEnvironment: () =>
 			ipcRenderer.invoke(
 				ipcChannels.appFeedbackEnvironment,
@@ -1491,21 +1497,49 @@ const api = {
 				ipcChannels.configImport,
 				packageJson,
 			) as Promise<{ valid: boolean; error?: string }>,
-		/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表；headers 允许 provider 自定义（含 User-Agent） */
+		/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表；headers 允许 provider 自定义（含 User-Agent）；proxyMode=follow 跟随全局 / pi 走 PI 代理 / desktop 走桌面代理 / off 强制直连 */
 		fetchModels: (
 			baseUrl: string,
 			apiKey: string,
 			apiType?: string,
 			headers?: Record<string, string>,
+			proxyMode?: "follow" | "pi" | "desktop" | "off",
 		) =>
 			ipcRenderer.invoke(
 				ipcChannels.configFetchModels,
-				{ baseUrl, apiKey, apiType, headers },
+				{ baseUrl, apiKey, apiType, headers, proxyMode },
 			) as Promise<{
 				success: boolean;
 				models?: FetchedModel[];
 				error?: string;
 				suggestedBaseUrl?: string;
+			}>,
+		/** 内置 TokenDance 模型目录：主进程 live fetch + userData 缓存；force=true 强制刷新（渲染层“刷新目录”按钮用） */
+		getTokendanceModels: (force?: boolean) =>
+			ipcRenderer.invoke(ipcChannels.configGetTokendanceModels, force) as Promise<{
+				models: AvailableModel[];
+				fromCache: boolean;
+				at: number;
+			}>,
+		/** 启动 TokenDance OAuth 授权（PKCE S256 headless）：返回授权 URL + flowId（verifier 仅主进程持有）。 */
+		tokendanceAuthStart: () =>
+			ipcRenderer.invoke(ipcChannels.configTokendanceAuthStart) as Promise<
+				{ ok: true; flowId: string; authUrl: string } | { ok: false; error: string }
+			>,
+		/** 用一次性授权 code 交换 TokenDance API Key；成功后 key 只在本次响应出现，须立即写入配置。 */
+		tokendanceAuthExchange: (flowId: string, code: string) =>
+			ipcRenderer.invoke(ipcChannels.configTokendanceAuthExchange, { flowId, code }) as Promise<
+				{ ok: true; key: string } | { ok: false; error: string }
+			>,
+		/** 一键安装 TokenDance：供应商信息 + 目录模型写入 pi models.json 与 DSH llm-pi-ai；apiKey 可选（OAuth 后已持有）。 */
+		installTokendance: (apiKey?: string) =>
+			ipcRenderer.invoke(ipcChannels.configInstallTokendance, { apiKey }) as Promise<{
+				ok: boolean;
+				modelCount: number;
+				piSaved: boolean;
+				dshSaved: boolean;
+				dshWroteViaHost?: boolean;
+				error?: string;
 			}>,
 		/** 视觉桥：读取当前配置（模型列表由渲染层经 listModels 拉全量） */
 		visionGetConfig: () =>
@@ -1558,15 +1592,16 @@ const api = {
 		/** 视觉桥：清空事件文件 */
 		visionClearEvents: () =>
 			ipcRenderer.invoke(ipcChannels.visionClearEvents) as Promise<{ ok: boolean }>,
-		/** 测试 provider 连接：先保存配置，再用真实 pi 做一次最小调用验证是否可用 */
+		/** 测试 provider 连接：先保存配置，再用真实 pi 做一次最小调用验证是否可用；proxyMode 控制探针进程代理（同 fetchModels 语义，pi 侧走 PI 代理配置） */
 		testProvider: (
 			providerName: string,
 			modelId: string,
 			models: unknown,
+			proxyMode?: "follow" | "pi" | "desktop" | "off",
 		) =>
 			ipcRenderer.invoke(
 				ipcChannels.configTestProvider,
-				{ providerName, modelId, models },
+				{ providerName, modelId, models, proxyMode },
 			) as Promise<import("../shared/types/fetchedModel").PiModelProbeResult>,
 		/** 查询 provider 用量/余额（主进程按 provider 名 + backend 路由；backend=dsh 走 $DSH_HOME 链路） */
 		fetchUsage: (provider: string, backend?: "pi" | "dsh") =>
@@ -1585,6 +1620,12 @@ const api = {
 				ipcChannels.configGetUsageProbes,
 				{ provider, backend },
 			) as Promise<UsageProbeSettingsResult>,
+		/** 轻量内置识别（渲染层隐藏「用量查询」按钮用）：命中内置候选返回 true，不读配置文件 */
+		usageRecognized: (provider: string, backend?: "pi" | "dsh") =>
+			ipcRenderer.invoke(
+				ipcChannels.configUsageRecognized,
+				{ provider, backend },
+			) as Promise<{ recognized: boolean }>,
 		/** 按 provider 合并保存用量查询配置（主进程校验后落盘，保留其它 providers 与旧 probes） */
 		saveUsageProbes: (payload: UsageProbeSaveInput) =>
 			ipcRenderer.invoke(
@@ -1798,6 +1839,21 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.voiceTranscriptionTranscribe, request) as Promise<VoiceTranscriptionResult>,
 		cancel: (requestId: string) =>
 			ipcRenderer.invoke(ipcChannels.voiceTranscriptionCancel, requestId) as Promise<void>,
+	},
+	// ── 模型目录（pi-ai-catalog）：查询状态 / 检查更新 / 从 GitHub 更新 / 还原 / 恢复备份 ──
+	catalog: {
+		status: () =>
+			ipcRenderer.invoke(ipcChannels.catalogUpdateStatus) as Promise<CatalogUpdateStatus>,
+		check: (branch: "main" | "dev") =>
+			ipcRenderer.invoke(ipcChannels.catalogUpdateCheck, branch) as Promise<CatalogCheckResult>,
+		updateFromGithub: (branch: "main" | "dev") =>
+			ipcRenderer.invoke(ipcChannels.catalogUpdateFromGithub, branch) as Promise<CatalogUpdateResult>,
+		restore: () =>
+			ipcRenderer.invoke(ipcChannels.catalogUpdateRestore) as Promise<CatalogUpdateResult>,
+		restorePrevious: () =>
+			ipcRenderer.invoke(ipcChannels.catalogUpdateRestorePrevious) as Promise<CatalogUpdateResult>,
+		/** 用系统默认程序打开当前生效的目录文件（覆盖层优先，否则内置） */
+		openFile: () => ipcRenderer.invoke(ipcChannels.catalogOpenFile) as Promise<void>,
 	},
 };
 

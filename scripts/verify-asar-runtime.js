@@ -24,13 +24,13 @@ if (!fs.existsSync(asarPath)) {
 }
 
 // 运行时必须保留：主进程 external 包 + 动态 import 目标 + hostEntry 动态加载树根 + 原生/asarUnpack 包
+// 注意：@deepseek-ai/* 与 dsh-bill/dsh-tool-pwsh-persistent 已依赖分区（仅 devDependencies），
+// 不进 app.asar——它们的加载锚点在外部 runtime（resources/dsh-runtime 归档 / userData 已装目录），
+// 归档完整性由 scripts/check-dsh-asar.mjs + check-dsh-boot.mjs 守护，这里不再断言。
 const MUST_KEEP = [
 	"node-pty",
 	"sql.js",
-	"@deepseek-ai/dsh-subprocess-local",
 	"@larksuiteoapi/node-sdk",
-	"dsh-bill",
-	"@earendil-works/pi-ai",
 	"@img/sharp-win32-x64",
 	"@vscode/ripgrep-win32-x64",
 	"openai",
@@ -40,7 +40,6 @@ const MUST_KEEP = [
 	"zod",
 	"undici",
 	"@electron-toolkit/utils",
-	"dsh-tool-pwsh-persistent",
 	"koffi",
 ];
 
@@ -57,6 +56,12 @@ const SHOULD_BE_GONE = [
 	"linkifyjs",
 ];
 
+// 主进程模型目录是 extraResources，不再依赖根 pi-ai SDK；DSH 自身的 pi-ai
+// 仍由 @deepseek-ai 闭包按需保留，不能把它当作 PiDeck 主进程的 MUST_KEEP 根。
+const REQUIRED_RESOURCE_FILES = ["pi-ai-catalog.json", "pi-ai-catalog.manifest.json"];
+const resourcesDir = path.join(unpackedDir, "resources");
+const missingResources = REQUIRED_RESOURCE_FILES.filter((name) => !fs.existsSync(path.join(resourcesDir, name)));
+
 const header = asar.getRawHeader(asarPath).header;
 const nmNode = header.files["node_modules"];
 
@@ -70,10 +75,57 @@ function has(pkgName) {
 	return true;
 }
 
+/** 读取 asar 内所有 pi-ai package.json，兼容 Windows 的反斜杠目录表。 */
+function piAiVersionsInAsar() {
+	return Array.from(new Set(
+		asar.listPackage(asarPath)
+			.filter((listedPath) => listedPath.replace(/[\\/]/g, "/").endsWith("/node_modules/@earendil-works/pi-ai/package.json"))
+			.map((listedPath) => {
+				try {
+					const relativePath = listedPath.replace(/^[\\/]+/, "");
+					const pkg = JSON.parse(asar.extractFile(asarPath, relativePath).toString("utf8"));
+					return typeof pkg.version === "string" ? pkg.version : undefined;
+				} catch {
+					return undefined;
+				}
+			})
+			.filter(Boolean),
+	));
+}
+
+function catalogSourceVersion() {
+	try {
+		const manifest = JSON.parse(fs.readFileSync(path.join(resourcesDir, "pi-ai-catalog.manifest.json"), "utf8"));
+		return typeof manifest?.source?.packageVersion === "string" ? manifest.source.packageVersion : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 const missing = MUST_KEEP.filter((n) => !has(n));
 const remain = SHOULD_BE_GONE.filter((n) => has(n));
 
 let failed = false;
+if (missingResources.length === 0) {
+	console.log(`OK 模型目录资源完整：${REQUIRED_RESOURCE_FILES.join(", ")}`);
+} else {
+	failed = true;
+	console.error(`FAIL 模型目录资源缺失：${missingResources.join(", ")}`);
+}
+
+// 主进程只需 artifact，catalog 的构建期 pi-ai 版本绝不能被 electron-builder
+// 一并带入 app.asar；DSH 自己保留的 0.82.x 则允许继续存在。
+const sourceVersion = catalogSourceVersion();
+const packedPiAiVersions = piAiVersionsInAsar();
+if (!sourceVersion) {
+	failed = true;
+	console.error("FAIL 无法读取 pi-ai catalog manifest 的来源版本");
+} else if (packedPiAiVersions.includes(sourceVersion)) {
+	failed = true;
+	console.error(`FAIL catalog 来源 pi-ai@${sourceVersion} 泄漏进 app.asar：${packedPiAiVersions.join(", ")}`);
+} else {
+	console.log(`OK catalog 来源 pi-ai@${sourceVersion} 未进入 app.asar（DSH 保留：${packedPiAiVersions.join(", ") || "无"}）`);
+}
 
 if (missing.length === 0) {
 	console.log(`OK 运行时依赖完整：${MUST_KEEP.length} 个关键包全部保留`);

@@ -144,7 +144,7 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	 * `path:line` 位置标记，打开后应滚动定位到该行）。
 	 */
 	onOpenFile?: (path: string, line?: number) => void;
-	/** 静态场景（FileDiffViewer/AppUpdateOverlay/ScratchPad）可覆盖默认插件 */
+	/** 静态 Markdown 场景（FileDiffViewer/ScratchPad）可覆盖默认插件 */
 	remarkPlugins?: Parameters<typeof Streamdown>[0]["remarkPlugins"];
 	rehypePlugins?: Parameters<typeof Streamdown>[0]["rehypePlugins"];
 	urlTransform?: (url: string) => string;

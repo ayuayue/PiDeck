@@ -13,16 +13,21 @@ import test from "node:test";
 const require = createRequire(import.meta.url);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("package.json depends on dsh-tool-pwsh-persistent so electron-builder packs it", () => {
+test("package.json keeps dsh-tool-pwsh-persistent in devDependencies and the runtime archive seeds it", () => {
 	const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 	assert.ok(
-		pkg.dependencies["dsh-tool-pwsh-persistent"],
-		"dsh-tool-pwsh-persistent must be a production dependency",
+		pkg.devDependencies["dsh-tool-pwsh-persistent"],
+		"dsh-tool-pwsh-persistent must be a devDependency (deps partitioned into the dsh-runtime archive)",
 	);
 	assert.match(
-		String(pkg.dependencies["dsh-tool-pwsh-persistent"]),
+		String(pkg.devDependencies["dsh-tool-pwsh-persistent"]),
 		/file:packages\/dsh-tool-pwsh-persistent/,
 	);
+	// 依赖分区（2026-09）：该包不进 app.asar，由 dsh-runtime 归档/SED 提供并守护。
+	const checkScript = readFileSync(join(repoRoot, "scripts/check-dsh-asar.mjs"), "utf8");
+	const packScript = readFileSync(join(repoRoot, "scripts/pack-dsh-runtime.mjs"), "utf8");
+	assert.match(checkScript, /"dsh-tool-pwsh-persistent"/);
+	assert.match(packScript, /EXTRA_SEED_NAMES = \["dsh-bill", "dsh-tool-pwsh-persistent"\]/);
 });
 
 test("asarUnpack includes nested node-pty of the pwsh plugin", () => {

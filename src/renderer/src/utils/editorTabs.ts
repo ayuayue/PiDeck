@@ -1,10 +1,14 @@
+import type { ProjectFileAccessScope } from "../../../shared/types";
+
 /**
  * 编辑器文件 Tab 的 VS Code 式预览/常驻策略（纯函数）。
  *
  * - preview：单击打开；至多一个预览 Tab，再点其它文件会替换它
  * - permanent：双击打开，或对预览 Tab 再双击晋升；不再被预览替换挤掉
  *
- * 与 sessionTabs 同语义；身份用 tabId（打开时由 hook 生成），path 用于「同一文件已在栏内」判断。
+ * 与 sessionTabs 同语义；身份用 tabId（打开时由 hook 生成）。「同一文件」同时包含
+ * path、tabKey 和项目授权：嵌套项目可指向同一宿主路径，但不能复用 Tab 后覆盖 scope，
+ * 否则 FileDiffViewer 会重新加载并丢失旧 Tab 尚未落盘的编辑状态。
  */
 
 export type EditorTabOpenMode = "preview" | "permanent";
@@ -13,10 +17,15 @@ export type EditorTabIdentity = {
   id: string;
   filePath: string;
   tabKey?: string;
+  fileAccessScope?: ProjectFileAccessScope;
 };
 
-function sameFile(a: EditorTabIdentity, path: string, tabKey?: string): boolean {
-  return a.filePath === path && a.tabKey === tabKey;
+function sameFile(a: EditorTabIdentity, b: EditorTabIdentity): boolean {
+  return (
+    a.filePath === b.filePath &&
+    a.tabKey === b.tabKey &&
+    a.fileAccessScope?.projectId === b.fileAccessScope?.projectId
+  );
 }
 
 /**
@@ -29,7 +38,7 @@ export function openPreviewEditorTab<T extends EditorTabIdentity>(
   nextTab: T,
 ): { tabs: T[]; previewId: string | null; activeId: string } {
   const resident = tabs.find(
-    (tab) => sameFile(tab, nextTab.filePath, nextTab.tabKey) && tab.id !== previewId,
+    (tab) => sameFile(tab, nextTab) && tab.id !== previewId,
   );
   if (resident) {
     return { tabs: [...tabs], previewId, activeId: resident.id };
@@ -39,15 +48,13 @@ export function openPreviewEditorTab<T extends EditorTabIdentity>(
     : undefined;
   if (
     existingPreview &&
-    sameFile(existingPreview, nextTab.filePath, nextTab.tabKey)
+    sameFile(existingPreview, nextTab)
   ) {
     return { tabs: [...tabs], previewId, activeId: existingPreview.id };
   }
 
   let next = tabs.filter((tab) => tab.id !== previewId);
-  const already = next.find((tab) =>
-    sameFile(tab, nextTab.filePath, nextTab.tabKey),
-  );
+  const already = next.find((tab) => sameFile(tab, nextTab));
   if (already) {
     return { tabs: next, previewId: already.id, activeId: already.id };
   }
@@ -64,9 +71,7 @@ export function openPermanentEditorTab<T extends EditorTabIdentity>(
   previewId: string | null,
   nextTab: T,
 ): { tabs: T[]; previewId: string | null; activeId: string } {
-  const existing = tabs.find((tab) =>
-    sameFile(tab, nextTab.filePath, nextTab.tabKey),
-  );
+  const existing = tabs.find((tab) => sameFile(tab, nextTab));
   if (existing) {
     return {
       tabs: [...tabs],

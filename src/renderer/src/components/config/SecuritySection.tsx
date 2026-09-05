@@ -369,6 +369,13 @@ function SecurityLevelCard(props: {
 					{/* bash 危险命令 */}
 					<div className="flex flex-col gap-1">
 						<label className="text-micro text-muted-foreground">{t("security.denyBashTitle")}</label>
+						{/*
+						 * 行列表输入框（危险命令/允许目录/禁止目录）转换时只 trim、不 filter 空行：
+						 * 若把尾部空行滤掉，受控 value 由数组 join("
+") 回填会吞掉刚敲的回车
+						 * （表现为「结尾没法回车，只能中间回车」）。空行由主进程
+						 * SecurityStore.normalizeConfig → sanitizeLineList 收敛，不落入策略。
+						 */}
 						<Textarea
 							rows={4}
 							className="font-mono text-micro"
@@ -379,7 +386,6 @@ function SecurityLevelCard(props: {
 									denyBashPatterns: e.target.value
 										.split("\n")
 										.map((line) => line.trim())
-										.filter(Boolean),
 								})
 							}
 						/>
@@ -436,7 +442,6 @@ function SecurityLevelCard(props: {
 										customAllowDirs: e.target.value
 											.split("\n")
 											.map((line) => line.trim())
-											.filter(Boolean),
 									})
 								}
 							/>
@@ -455,7 +460,6 @@ function SecurityLevelCard(props: {
 									denyDirs: e.target.value
 										.split("\n")
 										.map((line) => line.trim())
-										.filter(Boolean),
 								})
 							}
 						/>

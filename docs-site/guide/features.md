@@ -21,12 +21,9 @@ PiDeck 的核心目标是把多个本地 pi Agent 会话收拢到一个稳定的
 
 ## 输入增强
 
-- `/` 斜线命令建议，例如 `/compact`、`/session`。
 - `@` 文件引用建议。
-- `!command` 和 `!!command` 可在聊天输入框中执行 Shell 命令。
+- `&` 历史会话消息引用。
 - 方向键可在合适的光标位置复用历史输入。
-
-<img class="doc-screenshot" src="/images/slash-commands.png" alt="斜线命令和历史会话">
 
 ## 文件与 Git
 

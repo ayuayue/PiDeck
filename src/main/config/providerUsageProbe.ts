@@ -23,6 +23,7 @@ import type {
 	ProviderUsageKind,
 	ProviderUsagePeriod,
 } from "../../shared/types/providerUsage";
+import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { resolveCustomUsage } from "./providerUsageCustom";
 import { getByPath, toNumber } from "./providerUsagePath";
 export { getByPath, toNumber } from "./providerUsagePath";
@@ -91,9 +92,10 @@ export type UsageProbeParse =
 	  }
 	/**
 	 * 专用解析器：响应结构特殊（cent 包装、percent/count 混合、多端点链），
-	 * 声明式路径表达不了，注册专用函数解析。目前支持 xai-billing / codex-usage。
+	 * 声明式路径表达不了，注册专用函数解析。目前支持 xai-billing / codex-usage /
+	 * commandcode-credits。
 	 */
-	| { kind: "custom"; resolver: "xai-billing" | "codex-usage" };
+	| { kind: "custom"; resolver: "xai-billing" | "codex-usage" | "commandcode-credits" };
 
 /** 链式预检（如 xAI 需先查 identity 拿 userId 再查 billing）：
  *  先请求预检端点，把响应里 capture.path 的值注入主请求的 capture.header。 */
@@ -135,6 +137,17 @@ export type UsageProbeCandidate = {
 	 * 拼接 path，跳过版本化补齐与路径段拼接。
 	 */
 	rootPath?: boolean;
+	/**
+	 * 基础地址本身就是管理根（如 New API 模板已在构建时剥离 /v1）：true 时跳过版本化
+	 * 补齐，只尝试「原样 baseUrl + path」——补 /v1 只会多一次必 404 的尝试。
+	 */
+	noVersionPath?: boolean;
+	/**
+	 * 候选自带自定义鉴权（如 Cookie 登录态 / 非标准头）且与 apiKey 冲突（双凭证），
+	 * 或接口根本不接受 Bearer：true 时禁止 buildProbeHeaders 自动补 Authorization，
+	 * 避免「Cookie 与 Bearer 凭证不一致」类 400/401（Token Rhythm 实测 AMBIGUOUS_CREDENTIALS）。
+	 */
+	noBearer?: boolean;
 	/** 链式预检：先请求预检端点再请求主端点（如 xAI identity → billing）。 */
 	preflight?: UsageProbePreflight;
 	/** 响应解析规格；缺省走 periods（opencode-go 兼容）。 */
@@ -305,6 +318,36 @@ export const USAGE_PROBE_CANDIDATES: UsageProbeCandidate[] = [
 		templateId: "xai-billing",
 		parse: { kind: "custom", resolver: "xai-billing" },
 	},
+	// Command Code（commandcode.ai）：用量端点在 host 根 /alpha/…（与 OpenAI 兼容端点
+	// /provider/v1 不同 base），走 rootPath 只取 baseUrl 的 origin。鉴权即标准 Bearer apiKey
+	// （alpha 端点与 cmd CLI /usage 同源，实测可用）。响应是「月度剩余 + 5h/周滚动窗」混合
+	// 结构且月度上限不在接口里，用专用解析器 commandcode-credits：5h/周已用直接展示，
+	// 月度百分比按官方定价表双重校验（cap 反查套餐 + 剩余不超上限）推算，校验不过降级只显剩余。
+	{
+		path: "/alpha/billing/credits",
+		rootPath: true,
+		baseUrlContains: ["api.commandcode.ai"],
+		templateId: "commandcode-credits",
+		parse: { kind: "custom", resolver: "commandcode-credits" },
+	},
+	// TokenDance（词元跳动，tokendance.space）：多协议模型网关，余额端点在 host 根
+	// /portal/api/v1/user/balance（与 OpenAI 兼容端点 /gateway/v1 不同 base），走 rootPath
+	// 只取 baseUrl origin。响应 { balance: { credits, credits_used, balance } }，三个字段
+	// 均为微元（1 元 = 1,000,000 微元），用 scale 统一换算成元：credits=总额、
+	// credits_used=已用、balance=剩余，三值齐全直接展示「总/已用/剩」三段。
+	{
+		path: "/portal/api/v1/user/balance",
+		rootPath: true,
+		baseUrlContains: ["tokendance.space"],
+		templateId: "tokendance-balance",
+		parse: {
+			kind: "credits",
+			totalPath: "balance.credits",
+			usedPath: "balance.credits_used",
+			remainingPath: "balance.balance",
+			scale: 1_000_000,
+		},
+	},
 	// 通用 OpenAI 兼容网关：多数 OpenAI 兼容中转站实现官方 /v1/usage 端点
 	// （{ balance, unit } 结构）。不限定 baseUrl，仅靠 apiTypes 收窄到 OpenAI 协议，
 	// 放在数组末尾——前面带 baseUrlContains 的专有候选优先命中，不会被此条抢走。
@@ -338,7 +381,7 @@ export function candidateApplies(
 
 /** 候选适用 provider 的探测 URL 列表（含版本化 baseUrl 与原样 baseUrl 两条尝试路径）。 */
 export function usageProbeUrls(
-	candidate: Pick<UsageProbeCandidate, "path" | "absoluteUrl" | "rootPath">,
+	candidate: Pick<UsageProbeCandidate, "path" | "absoluteUrl" | "rootPath" | "noVersionPath">,
 	baseUrl: string,
 	ensureVersionPath: (url: string) => string,
 ): string[] {
@@ -357,6 +400,10 @@ export function usageProbeUrls(
 		}
 	}
 	const u = baseUrl.replace(/\/+$/, "");
+	// noVersionPath：baseUrl 已是管理根（如 New API 剥离 /v1 后），补 /v1 只会多一次必 404 的尝试。
+	if (candidate.noVersionPath) {
+		return [candidate.path.startsWith("/") ? `${u}${candidate.path}` : `${u}/${candidate.path}`];
+	}
 	const versioned = ensureVersionPath(baseUrl);
 	const primary = `${versioned.replace(/\/+$/, "")}${candidate.path}`;
 	const bare = `${u}${candidate.path}`;
@@ -364,16 +411,21 @@ export function usageProbeUrls(
 	return [...new Set(urls)];
 }
 
-/** 组装请求头：无自定义 Authorization 时自动补 Bearer；headers 里的 {{apiKey}} 替换成真实 key。 */
+/**
+ * 组装请求头：无自定义 Authorization 时自动补 Bearer；headers 里的 {{apiKey}} 替换成真实 key。
+ * opts.noBearer（候选 noBearer / 用户探针 skipBearer）＝接口自带独立鉴权（Cookie 等）且
+ * 与 apiKey 双凭证冲突时必须关闭自动补，否则服务端可能以「凭证不一致」拒绝请求。
+ */
 export function buildProbeHeaders(
 	candidateHeaders: Record<string, string> | undefined,
 	apiKey: string,
+	opts?: { noBearer?: boolean },
 ): Record<string, string> {
 	const out: Record<string, string> = {};
 	const entries = Object.entries(candidateHeaders ?? {});
 	const hasAuth = entries.some(([key]) => key.toLowerCase() === "authorization");
 	// 未显式提供鉴权头时按惯例补 Bearer；apiKey 为空则省略（无 key 会在上层快速失败）。
-	if (!hasAuth && apiKey) out.Authorization = `Bearer ${apiKey}`;
+	if (!hasAuth && apiKey && !opts?.noBearer) out.Authorization = `Bearer ${apiKey}`;
 	for (const [key, value] of entries) {
 		if (typeof value !== "string") continue;
 		out[key] = value.replace(/\{\{\s*apiKey\s*\}\}/gi, apiKey);
@@ -569,3 +621,70 @@ function parseBooster(body: unknown, spec: UsageProbeBooster): ProviderUsageBoos
 
 /** 专用解析器表：kind:"custom" 的 resolver 名称 → 解析函数。 */
 
+
+/**
+ * 单次探测失败明细（用于全部候选失败时生成可排查的错误提示）。
+ * 失败分类三种：HTTP 状态码已知（status）、响应 200 但结构不符（shape）、
+ * 网络层失败（超时/不可达，error 字段）。url/body 均已脱敏或截断后再写入。
+ */
+export type UsageProbeAttempt =
+	| { url: string; method: string; status: number; body?: string }
+	| { url: string; method: string; kind: "shape" }
+	| { url: string; method: string; error: "timeout" | "network" };
+
+/**
+ * 失败原因归纳 hint：按「最具解释力」的状态归类，返回 i18n key；无尝试记录返回空串。
+ * 优先级：结构不符（多数网关 404 才是常态，200+结构不符是最可疑的接口变更信号）
+ *       → 鉴权（401/403 全量）→ 404（全量，多是地址问题）→ 5xx → 超时/网络 → 混合。
+ */
+export function classifyUsageProbeFailureHint(
+	attempts: readonly UsageProbeAttempt[],
+): MainProcessTranslationKey | "" {
+	if (attempts.length === 0) return "";
+	// 全部为 200 但结构不匹配：端点存在，只是字段/格式对不上（接口变更或非预期响应）。
+	if (attempts.some((a) => "kind" in a && a.kind === "shape") && attempts.every((a) => "kind" in a && a.kind === "shape")) {
+		return "mainConfig.providerUsageHintShape";
+	}
+	const statuses = attempts.filter((a) => "status" in a).map((a) => a.status);
+	if (attempts.length > 0 && statuses.length === attempts.length) {
+		if (statuses.every((s) => s === 401 || s === 403)) return "mainConfig.providerUsageHintAuth";
+		if (statuses.every((s) => s === 404)) return "mainConfig.providerUsageHintNotFound";
+		if (statuses.some((s) => s >= 500)) return "mainConfig.providerUsageHintServer";
+	}
+	// 全部尝试都没拿到 HTTP 状态（超时 / 网络错误）。
+	if (statuses.length === 0 && attempts.every((a) => "error" in a)) {
+		return "mainConfig.providerUsageHintTimeout";
+	}
+	return "mainConfig.providerUsageHintMixed";
+}
+
+/** 拼接失败明细文本：尝试行（方法 + URL + 状态/错误 + 响应摘要）+ 归纳提示。 */
+export function buildProbeFailureDetail(
+	attempts: readonly UsageProbeAttempt[],
+	translate: (key: MainProcessTranslationKey) => string,
+): string {
+	if (attempts.length === 0) return "";
+	const lines: string[] = [translate("mainConfig.providerUsageAttemptsTitle")];
+	for (const a of attempts) {
+		if ("status" in a) {
+			lines.push(`${a.method} ${a.url} → HTTP ${a.status}`);
+			// 服务端错误摘要（已脱敏截断），保留前 240 字符足够定位是「路径不对」还是「非法请求」。
+			if (a.body) lines.push(`  ${a.body.slice(0, 240)}`);
+		} else if ("kind" in a && a.kind === "shape") {
+			lines.push(`${a.method} ${a.url} → HTTP 200（响应结构与预期不符）`);
+		} else {
+			lines.push(
+				`${a.method} ${a.url} → ${translate(
+					"error" in a && a.error === "timeout"
+						? "mainConfig.providerUsageAttemptTimeout"
+						: "mainConfig.providerUsageAttemptNetwork",
+				)}`,
+			);
+		}
+	}
+	const hintKey = classifyUsageProbeFailureHint(attempts);
+	if (hintKey) {
+		lines.push("", `${translate("mainConfig.providerUsageHintTitle")}${translate(hintKey)}`);
+	}
+	return lines.join("\n");
+}

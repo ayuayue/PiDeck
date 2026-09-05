@@ -22,7 +22,7 @@ test("v3 sidebar bottom actions render inside a full-width beUI Dock", () => {
 
 test("dock keeps the four actions, their labels and callbacks", () => {
   const dockBlock = sidebar.slice(sidebar.indexOf("<Dock size={32}"));
-  assert.match(dockBlock, /title=\{t\("settings.title"\)\}[\s\S]*?onClick=\{props\.onOpenSettings\}/);
+  assert.match(dockBlock, /title=\{hasPendingUpdate \? t\("settings.titleWithUpdate"\) : t\("settings.title"\)\}[\s\S]*?onClick=\{props\.onOpenSettings\}/);
   assert.match(dockBlock, /title=\{t\("feedback.title"\)\}[\s\S]*?onClick=\{props\.onOpenFeedback\}/);
   assert.match(dockBlock, /title=\{t\("app.homepage"\)\}[\s\S]*?onClick=\{props\.onOpenHomepage\}/);
   // 主题按钮：title/aria 用当前模式的完整文案，回调走 onToggleTheme

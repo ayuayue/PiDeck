@@ -4,6 +4,7 @@ import {
 	extractVersionedBaseFromRequestUrl,
 	hasApiVersionPath,
 	needsSessionBaseUrlVersionHint,
+	stripOpenAiVersionPath,
 	suggestNormalizedBaseUrl,
 } from "../src/main/config/baseUrlPath.ts";
 
@@ -83,4 +84,16 @@ test("google root base suggests v1beta when request used it", () => {
 		),
 		"https://generativelanguage.googleapis.com/v1beta",
 	);
+});
+
+test("stripOpenAiVersionPath removes trailing version segment and keeps sub-prefix", () => {
+	assert.equal(stripOpenAiVersionPath("https://88api.ai/v1"), "https://88api.ai");
+	assert.equal(stripOpenAiVersionPath("https://88api.ai/v1/"), "https://88api.ai");
+	assert.equal(stripOpenAiVersionPath("https://host.proxy.example/proxy/v1"), "https://host.proxy.example/proxy");
+	assert.equal(
+		stripOpenAiVersionPath("https://generativelanguage.googleapis.com/v1beta"),
+		"https://generativelanguage.googleapis.com",
+	);
+	assert.equal(stripOpenAiVersionPath("https://host.example/api"), "https://host.example");
+	assert.equal(stripOpenAiVersionPath("https://host.example"), "https://host.example");
 });

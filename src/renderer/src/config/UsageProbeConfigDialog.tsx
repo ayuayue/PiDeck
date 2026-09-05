@@ -44,6 +44,7 @@ const CATEGORY_LABEL_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	subscription: "config.usageProbe.category.subscription",
 	general: "config.usageProbe.category.general",
 	newapi: "config.usageProbe.category.newapi",
+	cookie: "config.usageProbe.category.cookie",
 };
 
 /** 类别 → 说明文案 i18n key（内置/套餐/订阅无字段，说明即全部）。 */
@@ -53,13 +54,18 @@ const CATEGORY_HINT_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	subscription: "config.usageProbe.subscriptionHint",
 	general: "config.usageProbe.generalHint",
 	newapi: "config.usageProbe.newapiHint",
+	cookie: "config.usageProbe.cookieHint",
 };
 
-/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式两个固定）。 */
+/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式三个固定）。 */
 const DECLARATIVE_TEMPLATE_CATEGORY: Record<string, UsageProbeTemplateCategory> = {
 	general: "general",
 	newapi: "newapi",
+	cookie: "cookie",
 };
+
+/** 「无模板」哨兵：供应商既不适用通用也不适用 New API 时，明确不选任何预设模板。 */
+const NONE_TEMPLATE = "none";
 
 /** cc-switch pill 同款样式：选中实心、未选描边灰字。 */
 function pillClass(selected: boolean): string {
@@ -147,27 +153,35 @@ export function UsageProbeConfigDialog(props: {
 	const [loaded, setLoaded] = useState(false);
 	const [loadErrors, setLoadErrors] = useState<string[]>([]);
 	const [recognized, setRecognized] = useState<{ templateId: string; category: UsageProbeTemplateCategory } | null>(null);
-	/** 选中的模板：内置 templateId（识别命中）或声明式 id（general/newapi）。 */
-	const [template, setTemplate] = useState<string>("general");
+	/** 选中的模板：内置 templateId（识别命中）或声明式 id（general/newapi）；NONE_TEMPLATE = 无模板。 */
+	const [template, setTemplate] = useState<string>(NONE_TEMPLATE);
 	const [enabled, setEnabled] = useState(false);
 	const [apiKey, setApiKey] = useState("");
 	const [baseUrl, setBaseUrl] = useState("");
 	const [accessToken, setAccessToken] = useState("");
 	const [userId, setUserId] = useState("");
+	const [cookie, setCookie] = useState("");
+	const [cookiePath, setCookiePath] = useState("");
+	const [valuePath, setValuePath] = useState("");
+	const [currencyPath, setCurrencyPath] = useState("");
 	const [showToken, setShowToken] = useState(false);
 	const [timeoutSecs, setTimeoutSecs] = useState(10);
 	const [intervalMinutes, setIntervalMinutes] = useState(5);
 	const [testState, setTestState] = useState<ButtonState>("idle");
 	const [testError, setTestError] = useState("");
+	const [testDetail, setTestDetail] = useState("");
 	const [testResult, setTestResult] = useState<ProviderUsageResult | null>(null);
 	const [saveState, setSaveState] = useState<ButtonState>("idle");
 	const [saveError, setSaveError] = useState("");
+	// 旧版 probes 数组命中提示（打开时检测；保存迁移后置空）
+	const [legacyNotice, setLegacyNotice] = useState("");
 
 	useEffect(() => {
 		if (!props.open || !props.provider) return;
 		let cancelled = false;
 		setLoaded(false);
 		setLoadErrors([]);
+		setLegacyNotice("");
 		// 主进程侧默认值：内置命中 → enabled 默认 true；未命中 → false（用户显式开启才保存）。
 		desktopApi.config
 			.getUsageProbes(props.provider, props.backend)
@@ -176,14 +190,41 @@ export function UsageProbeConfigDialog(props: {
 				const config = result.config;
 				setRecognized(result.recognized);
 				setEnabled(config?.enabled ?? result.recognized != null);
-				setTemplate(config?.template ?? result.recognized?.templateId ?? "general");
+				setTemplate(config?.template ?? result.recognized?.templateId ?? NONE_TEMPLATE);
 				setApiKey(config?.apiKey ?? "");
 				setBaseUrl(config?.baseUrl ?? "");
 				setAccessToken(config?.accessToken ?? "");
 				setUserId(config?.userId ?? "");
+				setCookie(config?.cookie ?? "");
+				setCookiePath(config?.cookiePath ?? "");
+				setValuePath(config?.valuePath ?? "");
+				setCurrencyPath(config?.currencyPath ?? "");
 				setTimeoutSecs(config?.timeoutSecs ?? 10);
 				setIntervalMinutes(config?.intervalMinutes ?? 5);
 				setLoadErrors(result.errors);
+				// 旧版 probes 数组命中回显：无声明式模板时预选 Cookie 模板并回填字段，
+				// 让手写/历史配置可见可迁（保存即转为声明式配置）。
+				const legacy = result.legacyProbes ?? [];
+				if (legacy.length > 0 && !config?.template) {
+					const first = legacy[0];
+					const cookieHeader = first.request?.headers?.["Cookie"] ?? first.request?.headers?.cookie ?? "";
+					if (cookieHeader) setCookie(cookieHeader);
+					if (first.request?.path) setCookiePath(first.request.path);
+					// parse 是判别联合：currencyPath 只在 kind "balance" 分支可取。
+					const parse = first.parse;
+					if (parse?.kind === "balance") {
+						if (parse.valuePath) setValuePath(parse.valuePath);
+						if (parse.currencyPath) setCurrencyPath(parse.currencyPath);
+					}
+					const firstNamed = legacy.find((item) => item.name)?.name;
+					setLegacyNotice(
+						t("config.usageProbe.legacyDetected", {
+							count: String(legacy.length),
+							name: firstNamed ?? t("config.usageProbe.legacyUnnamed"),
+						}),
+					);
+					setTemplate("cookie");
+				}
 				setLoaded(true);
 			})
 			.catch((error) => {
@@ -200,6 +241,7 @@ export function UsageProbeConfigDialog(props: {
 	const resetInstant = useCallback(() => {
 		setTestState("idle");
 		setTestError("");
+		setTestDetail("");
 		setTestResult(null);
 		setSaveState("idle");
 		setSaveError("");
@@ -210,9 +252,12 @@ export function UsageProbeConfigDialog(props: {
 		props.onClose();
 	}, [props.onClose, resetInstant]);
 
-	/** 兜底模板幂等校验：既没有内置识别也没有选中任何模板时提示保存失败。 */
+	/** 兜底模板幂等校验：既没有内置识别也没有选中任何模板时提示保存失败。
+	 * 「无模板」（NONE_TEMPLATE）返回 null——表示不配置任何预设模板，
+	 * 保存时只写开关/超时/间隔，查询走内置候选 + 旧探针自动匹配。 */
 	const currentTemplate = useMemo((): { id: string; category: UsageProbeTemplateCategory } | null => {
-		if (template === "general" || template === "newapi") {
+		if (template === NONE_TEMPLATE) return null;
+		if (template === "general" || template === "newapi" || template === "cookie") {
 			return { id: template, category: DECLARATIVE_TEMPLATE_CATEGORY[template] };
 		}
 		if (recognized && recognized.templateId === template) {
@@ -221,14 +266,16 @@ export function UsageProbeConfigDialog(props: {
 		return null;
 	}, [template, recognized]);
 
-	/** 测试：按当前选中模板 + 覆盖字段发请求（主进程解析端点与密钥）。 */
+	/** 测试：按当前选中模板 + 覆盖字段发请求（主进程解析端点与密钥）。无模板时不可测试。 */
 	const runTest = async () => {
 		setTestError("");
+		setTestDetail("");
 		setTestResult(null);
 		const current = currentTemplate;
 		if (!current) {
+			// 无模板：没有可探测的端点，提示而非报「测试失败」（用户主动选了无模板）。
 			setTestState("error");
-			setTestError(t("config.usageProbe.testFailed"));
+			setTestError(t("config.usageProbe.noneNoTest"));
 			return;
 		}
 		setTestState("loading");
@@ -241,6 +288,10 @@ export function UsageProbeConfigDialog(props: {
 				...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
 				...(accessToken.trim() ? { accessToken: accessToken.trim() } : {}),
 				...(userId.trim() ? { userId: userId.trim() } : {}),
+				...(cookie.trim() ? { cookie: cookie.trim() } : {}),
+				...(cookiePath.trim() ? { cookiePath: cookiePath.trim() } : {}),
+				...(valuePath.trim() ? { valuePath: valuePath.trim() } : {}),
+				...(currencyPath.trim() ? { currencyPath: currencyPath.trim() } : {}),
 				...(timeoutSecs !== 10 ? { timeoutSecs } : {}),
 			});
 			setTestResult(result);
@@ -259,6 +310,8 @@ export function UsageProbeConfigDialog(props: {
 				);
 			} else {
 				setTestError(result.error ?? t("config.usageProbe.testFailed"));
+				// 主进程带上的排查明细（尝试过的 URL + 状态 + 提示），多行展示方便定位问题。
+				setTestDetail(result.detail ?? "");
 			}
 		} catch (error) {
 			setTestState("error");
@@ -266,11 +319,13 @@ export function UsageProbeConfigDialog(props: {
 		}
 	};
 
-	/** 保存：按 provider 合并写（内置命中可只存开关与频率；声明式模板带覆盖字段）。 */
+	/** 保存：按 provider 合并写（内置命中可只存开关与频率；声明式模板带覆盖字段）。
+	 * 「无模板」= 只写 enabled/超时/间隔，不写 template（查询走内置 + 旧探针自动匹配）。 */
 	const runSave = async () => {
 		setSaveError("");
+		const isNone = template === NONE_TEMPLATE;
 		const current = currentTemplate;
-		if (!current) {
+		if (!isNone && !current) {
 			setSaveState("error");
 			setSaveError(t("config.usageProbe.saveFailed"));
 			return;
@@ -280,13 +335,13 @@ export function UsageProbeConfigDialog(props: {
 			timeoutSecs,
 			intervalMinutes,
 		};
-		// 内置识别命中：不写 template（自动路由）；声明式：写模板 id + 模板字段。
-		if (current.id === "general" || current.id === "newapi") {
+		// 内置识别命中 / 无模板：不写 template（自动路由）；声明式：写模板 id + 模板字段。
+		if (!isNone && current && (current.id === "general" || current.id === "newapi" || current.id === "cookie")) {
 			config.template = current.id;
 			if (current.id === "general") {
 				if (apiKey.trim()) config.apiKey = apiKey.trim();
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
-			} else {
+			} else if (current.id === "newapi") {
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
 				if (!accessToken.trim() || !userId.trim()) {
 					setSaveState("error");
@@ -299,6 +354,23 @@ export function UsageProbeConfigDialog(props: {
 				}
 				config.accessToken = accessToken.trim();
 				config.userId = userId.trim();
+			} else {
+				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
+				if (!cookie.trim() || !cookiePath.trim() || !valuePath.trim()) {
+					setSaveState("error");
+					setSaveError(
+						!cookie.trim()
+							? t("config.usageProbe.cookieRequired")
+							: !cookiePath.trim()
+								? t("config.usageProbe.cookiePathRequired")
+								: t("config.usageProbe.cookieValuePathRequired"),
+					);
+					return;
+				}
+				config.cookie = cookie.trim();
+				config.cookiePath = cookiePath.trim();
+				config.valuePath = valuePath.trim();
+				if (currencyPath.trim()) config.currencyPath = currencyPath.trim();
 			}
 		}
 		setSaveState("loading");
@@ -381,6 +453,14 @@ export function UsageProbeConfigDialog(props: {
 									{loadErrors.join("\n")}
 								</div>
 							)}
+							{legacyNotice && (
+								<div
+									className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-caption leading-relaxed text-sky-600 dark:text-sky-400"
+									data-testid="usage-probe-legacy-notice"
+								>
+									{legacyNotice}
+								</div>
+							)}
 
 							{/* 启用开关（cc-switch 同款：整行右侧 Switch） */}
 							<div className="flex items-center justify-between rounded-lg border border-border px-3.5 py-2.5">
@@ -392,6 +472,14 @@ export function UsageProbeConfigDialog(props: {
 							<section className="space-y-1.5">
 								<p className="text-sm font-medium text-foreground">{t("config.usageProbe.templatesTitle")}</p>
 								<div className="flex flex-wrap gap-1.5">
+									<button
+										type="button"
+										className={pillClass(template === NONE_TEMPLATE)}
+										onClick={() => setTemplate(NONE_TEMPLATE)}
+										data-testid="usage-probe-template-none"
+									>
+										{t("config.usageProbe.category.none")}
+									</button>
 									{recognized && (
 										<button
 											type="button"
@@ -418,7 +506,20 @@ export function UsageProbeConfigDialog(props: {
 									>
 										{t("config.usageProbe.category.newapi")}
 									</button>
+									<button
+										type="button"
+										className={pillClass(template === "cookie")}
+										onClick={() => setTemplate("cookie")}
+										data-testid="usage-probe-template-cookie"
+									>
+										{t("config.usageProbe.category.cookie")}
+									</button>
 								</div>
+								{template === NONE_TEMPLATE && (
+									<p className="px-0.5 text-caption text-text-tertiary" data-testid="usage-probe-none-hint">
+										{t("config.usageProbe.noneHint")}
+									</p>
+								)}
 								{hintKey && (
 									<div className="flex flex-col gap-2">
 										{recognized && template === recognized.templateId && (
@@ -498,6 +599,59 @@ export function UsageProbeConfigDialog(props: {
 								</section>
 							)}
 
+
+							{currentTemplate?.id === "cookie" && (
+								<section className="space-y-3">
+									<div className="grid grid-cols-2 gap-3">
+										<div className="space-y-1.5">
+											<div className="flex items-center justify-between">
+												<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.cookieLabel")}</Label>
+												<button
+													type="button"
+													className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground"
+													onClick={() => setShowToken((value) => !value)}
+												>
+													{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
+													{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
+												</button>
+											</div>
+											<Input
+												type={showToken ? "text" : "password"}
+												value={cookie}
+												onChange={(event) => setCookie(event.target.value)}
+												placeholder={t("config.usageProbe.cookiePlaceholder")}
+												className="h-9"
+											/>
+										</div>
+										<OptionalField
+											label={t("config.usageProbe.credentialBaseUrl")}
+											placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")}
+											value={baseUrl}
+											onChange={setBaseUrl}
+										/>
+									</div>
+									<OptionalField
+										label={t("config.usageProbe.cookiePathLabel")}
+										placeholder={t("config.usageProbe.cookiePathPlaceholder")}
+										value={cookiePath}
+										onChange={setCookiePath}
+									/>
+									<div className="grid grid-cols-2 gap-3">
+										<OptionalField
+											label={t("config.usageProbe.cookieValuePathLabel")}
+											placeholder={t("config.usageProbe.cookieValuePathPlaceholder")}
+											value={valuePath}
+											onChange={setValuePath}
+										/>
+										<OptionalField
+											label={t("config.usageProbe.cookieCurrencyPathLabel")}
+											placeholder={t("config.usageProbe.cookieCurrencyPathPlaceholder")}
+											value={currencyPath}
+											onChange={setCurrencyPath}
+										/>
+									</div>
+								</section>
+							)}
 							{/* 超时 / 自动查询间隔（cc-switch 同款两列） */}
 							<div className="grid grid-cols-2 gap-3">
 								<NumberField
@@ -542,6 +696,14 @@ export function UsageProbeConfigDialog(props: {
 										</span>
 									)}
 								</div>
+								{testState === "error" && testDetail && (
+									// 失败明细：URL/状态/提示多行列表（已脱敏），平铺展示便于排查地址与鉴权问题。
+									<div className="w-full overflow-hidden rounded-md border border-border/60 bg-background/60 px-2 py-1.5" data-testid="usage-probe-test-detail">
+										<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-micro leading-relaxed text-text-secondary">
+											{testDetail}
+										</pre>
+									</div>
+								)}
 							</section>
 						</>
 					)}

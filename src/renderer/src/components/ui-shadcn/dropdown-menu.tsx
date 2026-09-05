@@ -3,6 +3,7 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { floatingWheelGuardRef } from "@/lib/floatingWheelGuard"
 
 function DropdownMenu({
   ...props
@@ -37,6 +38,7 @@ function DropdownMenuContent({
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
+        ref={floatingWheelGuardRef}
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(

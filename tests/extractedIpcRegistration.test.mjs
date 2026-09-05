@@ -23,13 +23,21 @@ test("catalog session loading remains owned by the registered session IPC module
 
 const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
 
-test("system IPC still registers pi update channels when extensionManager is provided", () => {
+test("system IPC registers Pi CLI and snapshot-driven app update channels", () => {
   // 回归：Phase 3.7 拆分后若漏传 extensionManager，pi:update-check 会静默不注册。
   assert.match(systemIpc, /ipcChannels\.piUpdateCheck/);
   assert.match(systemIpc, /if \(extensionManager\)/);
+  // 应用更新不再走下载 URL/安装器 IPC，而是统一向 UpdateService 请求状态快照、下载和安装。
+  assert.match(systemIpc, /ipcChannels\.appCheckUpdate/);
+  assert.match(systemIpc, /ipcChannels\.appDownloadUpdate/);
+  assert.match(systemIpc, /ipcChannels\.appInstallUpdate/);
+  assert.match(systemIpc, /updateService\?\.getSnapshot\(\) \?\? null/);
+  assert.match(systemIpc, /updateService\?\.applyAutoDownloadPreference\(\)/);
   assert.match(
     entry,
-    /registerSystemIpc\(\{[\s\S]*extensionManager,[\s\S]*testPiProxy,[\s\S]*RELEASES_URL,[\s\S]*\}\)/,
+    /registerSystemIpc\(\{[\s\S]*?extensionManager,[\s\S]*?updateService: updateService \?\? undefined,[\s\S]*?\}\);/,
   );
+  assert.match(entry, /updateService = new UpdateService\(/);
+  assert.match(entry, /quitCleanup\.register\("update-check", \(\) => updateService\?\.stop\(\)\)/);
   assert.doesNotMatch(systemIpc, /from\s+["']\.\.\/index["']/);
 });

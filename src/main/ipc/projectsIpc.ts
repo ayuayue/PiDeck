@@ -133,6 +133,23 @@ export function registerProjectsIpc({
 		},
 	);
 
+	// 重命名项目显示名：仅改 label 不动磁盘目录。聊天项目 / worktree 子项目由
+	// ProjectStore.rename 拒绝（PROJECT_RENAME_NOT_ALLOWED）。广播 + 返回全量列表，
+	// 让其他渲染实例（LAN Web）与当前窗口都拿到最新 name。
+	ipcMain.handle(
+		ipcChannels.projectsRename,
+		async (_event, id: unknown, name: unknown) => {
+			if (typeof id !== "string" || !id) throw new Error("invalid projectId");
+			if (typeof name !== "string") throw new Error("invalid name");
+			const project = await projectStore.rename(id, name);
+			if (!project) throw new Error(`Project not found: ${id}`);
+			const visible = await getVisibleProjects();
+			getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
+			void appLogger.info("project", "Project renamed", { projectId: id, name: project.name });
+			return visible;
+		},
+	);
+
 	// ── Worktree 项目管理 ──
 
 	ipcMain.handle(ipcChannels.projectsListRoot, () => {

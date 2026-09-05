@@ -113,7 +113,7 @@ test("an existing Untitled entry is upgraded once the fetcher can infer a title"
   }
 });
 
-test("files with real titles never trigger the fetcher (no pointless reads)", async () => {
+test("unchanged files with real titles do not trigger pointless title reads", async () => {
   const { SessionCatalog } = loadCatalog();
   const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-title-no-call-"));
   try {
@@ -124,9 +124,47 @@ test("files with real titles never trigger the fetcher (no pointless reads)", as
     // summary 自带真实名称（readSummary 全量路径的场景）：不触发补名。
     await catalog.mergeScanned("project-1", [lightSummary({ name: "已有真实标题" })]);
     assert.equal(fetcherCalls, 0);
-    // 条目已有真实标题时，后续轻量扫描也不会触发补名。
+    // 文件版本未变化时保留 catalog 标题，不为周期扫描重复读盘。
     await catalog.mergeScanned("project-1", [lightSummary()]);
     assert.equal(fetcherCalls, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an externally appended pi session_info refreshes an existing real catalog title", async () => {
+  const { SessionCatalog } = loadCatalog();
+  const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-title-external-rename-"));
+  try {
+    let currentTitle = "pi-tui 重命名后的标题";
+    let fetcherCalls = 0;
+    const fetcher = async () => {
+      fetcherCalls += 1;
+      return { name: currentTitle, valid: true };
+    };
+    const catalog = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, fetcher);
+    await catalog.load();
+
+    const [initial] = await catalog.mergeScanned("project-1", [
+      lightSummary({ name: "PiDeck 旧标题", updatedAt: 1000 }),
+    ]);
+    assert.equal(initial.title, "PiDeck 旧标题");
+    assert.equal(fetcherCalls, 0);
+
+    // pi-tui /name 会在 JSONL 末尾追加 session_info，同时改变 mtime/size；轻量扫描
+    // 虽不带 name，也必须回读标题并覆盖 catalog 中已有的真实标题。
+    const [renamed] = await catalog.mergeScanned("project-1", [
+      lightSummary({ updatedAt: 2000 }),
+    ]);
+    assert.equal(renamed.title, "pi-tui 重命名后的标题");
+    assert.equal(fetcherCalls, 1);
+
+    currentTitle = "不应在未变化时重复读取";
+    const [unchanged] = await catalog.mergeScanned("project-1", [
+      lightSummary({ updatedAt: 2000 }),
+    ]);
+    assert.equal(unchanged.title, "pi-tui 重命名后的标题");
+    assert.equal(fetcherCalls, 1);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -146,7 +184,49 @@ test("without an injected fetcher the placeholder behavior stays intact", async 
   }
 });
 
-// 回归 #168：pi-subagents 的 transcript 转储首条记录用 recordType 而非 type（无 type 头），
+// 回归：第二轮对话把 session_info 挤出头/尾窗口盲区后，扫描器只能回退到首条消息文本；
+// 这种弱信号不得覆盖 catalog 已有真实标题（用户现场：自动生成标题变成消息原文）。
+test("a non-authoritative first-message fallback must not overwrite an existing real catalog title", async () => {
+  const { SessionCatalog } = loadCatalog();
+  const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-title-weak-fallback-"));
+  try {
+    let fetcherCalls = 0;
+    // 模拟窗口盲区：fetcher 命中首条消息回退（nameFromSessionInfo=false / 旧版 fetcher 不标记）。
+    const fetcher = async () => {
+      fetcherCalls += 1;
+      return { name: "{ \"providers\": { \"ai88\": { \"enab…", valid: true, nameFromSessionInfo: false };
+    };
+    const catalog = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, fetcher);
+    await catalog.load();
+
+    // 第一次合并：新条目带真实标题（自动生成，写盘）。
+    const [initial] = await catalog.mergeScanned("project-1", [
+      lightSummary({ name: "Add usage probe config", updatedAt: 1000 }),
+    ]);
+    assert.equal(initial.title, "Add usage probe config");
+    assert.equal(fetcherCalls, 0);
+
+    // 第二轮：文件版本变化触发补名回读，但回读结果是弱回退（没命中 session_info）。
+    const [afterSecondRound] = await catalog.mergeScanned("project-1", [
+      lightSummary({ updatedAt: 2000 }),
+    ]);
+    assert.equal(afterSecondRound.title, "Add usage probe config", "weak fallback must not clobber the real title");
+    assert.equal(fetcherCalls, 1);
+
+    // 权威来源（命中 session_info，pi-tui 外部改名）仍应覆盖。
+    let authoritative = true;
+    const authoritativeFetcher = async () => ({ name: "pi-tui 重命名后的标题", valid: true, nameFromSessionInfo: true });
+    void authoritative;
+    const catalog2 = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, authoritativeFetcher);
+    await catalog2.load();
+    const [renamed] = await catalog2.mergeScanned("project-1", [
+      lightSummary({ updatedAt: 3000 }),
+    ]);
+    assert.equal(renamed.title, "pi-tui 重命名后的标题");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 // 不是有效 Pi 会话。fetcher 校验会话头时返回 valid:false，mergeScanned 必须拒绝索引该文件。
 // 存量 subagent-artifacts 目录内的脏条目由路径清洗（已有「drops legacy subagent-artifacts
 // entries」测试覆盖）；此处覆盖更一般的情况——产物落在目录过滤够不到的位置时，

@@ -109,6 +109,23 @@ function asReasoningEfforts(value: unknown): Record<string, string | null> | und
 	return Object.keys(efforts).length > 0 ? efforts : undefined;
 }
 
+/**
+ * pi 的 thinkingLevelMap 与 DSH 的 reasoningEfforts 都是「规范档位 → wire 值」，但 null 语义不同：
+ * - pi：null = 恒等映射（实际发送档位名本身，见 pi buildParams `thinkingLevelMap?.[effort] ?? effort`）；
+ * - DSH：校验要求除 "off" 外每档必须给出非空 wire 值（only "off" may leave it empty），
+ *   否则 settings.update 直接 settings-rejected（用户迁移 tr/deepseek-v4-flash 时
+ *   报 reasoningEfforts.minimal 缺 wire 值）。
+ * 因此非 "off" 档的 null 需展开为档位名（恒等），与 pi 行为一致且能通过 DSH 校验；
+ * "off" 保留 null（DSH 允许空，pi 的 off:null 也是不发 reasoning 参数）。
+ */
+function expandNullEffortWireValues(efforts: Record<string, string | null>): Record<string, string | null> {
+	const out: Record<string, string | null> = {};
+	for (const [level, wireValue] of Object.entries(efforts)) {
+		out[level] = wireValue ?? (level === "off" ? null : level);
+	}
+	return out;
+}
+
 /** Pi 模型目录 → DSH 模型条目；保留 DSH 可消费的模态与思考档位映射。 */
 export function dshModelsFromPi(models: PiModelItem[] | undefined): DshProviderProfile["models"] {
 	if (!Array.isArray(models) || models.length === 0) return undefined;
@@ -124,10 +141,20 @@ export function dshModelsFromPi(models: PiModelItem[] | undefined): DshProviderP
 		const input = asStringList(model.input);
 		if (input) row.input = input;
 		// pi 的 thinkingLevelMap 与 DSH 的 reasoningEfforts 都是「规范档位 → wire 值」；
-		// 迁移时原样保留，不能只搬模型名后让 DSH 丢掉思考能力。
+		// 迁移时原样保留，不能只搬模型名后让 DSH 丢掉思考能力。null 语义差异见
+		// expandNullEffortWireValues：pi 的 null 表恒等，DSH 除 off 外不允许空 wire 值。
 		const reasoningEfforts = asReasoningEfforts(model.thinkingLevelMap);
-		if (model.reasoning === true && reasoningEfforts) row.reasoningEfforts = reasoningEfforts;
-		else if (model.reasoning === false) row.reasoningEfforts = false;
+		if (model.reasoning === true && reasoningEfforts) {
+			const expanded = expandNullEffortWireValues(reasoningEfforts);
+			// DSH 校验除 off 外必须至少一档非空 wire 值；展开后只剩 off（如目录探测只报
+			// {off:null}）的模型按官网指引 set false 声明为非思考模型，否则 settings.update
+			// 直接 settings-rejected（用户迁移 tokendance 时实报：model "minimax-m2.5"
+			// reasoningEfforts offers no level beyond "off"）。
+			const hasNonOffLevel = Object.entries(expanded).some(
+				([level, wire]) => level !== "off" && wire !== null,
+			);
+			row.reasoningEfforts = hasNonOffLevel ? expanded : false;
+		} else if (model.reasoning === false) row.reasoningEfforts = false;
 		rows.push(row);
 	}
 	return rows.length > 0 ? rows : undefined;

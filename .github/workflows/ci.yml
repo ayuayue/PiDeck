@@ -30,7 +30,10 @@ jobs:
         run: npm ci
 
       - name: Test
-        run: npm test
+        # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，
+        # Windows runner 偶发死锁挂起（二分定位：546 文件串行全过、并发偶发挂）；
+        # --test-timeout/--test-force-exit 兜底单测超时与 open handle。
+        run: npm run test:serial -- --test-timeout=120000 --test-force-exit
 
       - name: Generate app icon
         run: npm run make-icon
@@ -74,4 +77,6 @@ jobs:
         run: npm run build
 
       - name: Pet window smoke test
-        run: xvfb-run -a npx electron scripts/pet-smoke.cjs
+        # CI 容器无法给 chrome-sandbox 设置 SUID 4755（需 root），Electron 直接拒绝启动；
+        # 加 --no-sandbox 仅作用于测试脚本，不影响产品沙箱设置（由 electronChromiumSandbox 控制）。
+        run: xvfb-run -a npx electron --no-sandbox scripts/pet-smoke.cjs

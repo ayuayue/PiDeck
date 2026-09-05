@@ -152,7 +152,9 @@ test("publishes foreground loading before yielding and clears it in finally", ()
       "if (!silent)",
       "setSessionLoadingByProject(",
       "[projectId]: true",
-      'setSessionCatalogLoadState?.({ projectId, state: { status: "loading" } });',
+      // 2026-09 watchdog 改造后 loading/ready/error 统一经 guarded setter，
+      // 便于取消该项目的超时兜底看门狗。
+      'setCatalogLoadStateGuarded({ projectId, state: { status: "loading" } });',
       "await new Promise<void>((r) => setTimeout(r, 0));",
       "} finally {",
       "sessionRefreshRunningRef.current.delete(projectId);",
@@ -169,7 +171,8 @@ test("publishes canonical ready and request-scoped error states", () => {
   assertInOrder(
     block,
     [
-      'setSessionCatalogLoadState?.({ projectId, state: { status: "ready" } });',
+      // 2026-09 watchdog 改造：ready/error 均经 guarded setter（取消看门狗兜底）。
+      'setCatalogLoadStateGuarded({ projectId, state: { status: "ready" } });',
       "} catch (caughtError) {",
       "failed = true;",
       "error = caughtError;",
@@ -215,7 +218,7 @@ test("add project and right-click refresh sync DSH foreign sessions", () => {
     [
       "async function refreshProjectTree(project: Project) {",
       "await syncDshForeignSessionsIfEnabled()",
-      "await refreshProjectSessions(project.id)",
+      "await refreshProjectSessions(latestProject.id)",
     ],
     "right-click refresh must import DSH before catalog scan",
   );

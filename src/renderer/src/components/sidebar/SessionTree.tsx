@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
 import { sessionRecordToSummary } from "../../atoms";
@@ -9,6 +9,7 @@ import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarControl
 import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
 import { SessionBackendMark, SessionSourceBadge } from "../session/SessionSourceBadge";
+import { TitleScrollText } from "./TitleScrollText";
 import { cn } from "../../lib/utils";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 
@@ -23,9 +24,9 @@ const selectedRowClass = "active bg-bg-active text-foreground";
 /** 行右侧「更多操作（三个点）」按钮：absolute 浮层，不参与布局（不挤压标题文字），
  * 默认隐藏（pointer-events 一并关闭防误触），行 hover / 行内聚焦时显现——
  * 与 WorktreeTree 的 workspace-tree-actions 同一套虚化模式。
- * 窄侧栏（<256px）时按钮会盖住标题：conversation-body 上
- * @max-[255px]:group-hover/row:pr-7 在 hover 时压出 28px 留白（一个按钮宽），
- * 标题截断让位但保持可见（淡出到透明会让标题不可读，须点击激活才能看到，已弃用）。 */
+ * 按钮浮层会盖住标题：conversation-body 上 group-hover/row:pr-7 在 hover 时压出
+ * 28px 留白（一个按钮宽），标题截断让位但保持可见——所有宽度统一让位
+ * （淡出到透明会让标题不可读，须点击激活才能看到，已弃用）。 */
 const rowMoreActionsClass =
 	"row-more-actions pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100";
 
@@ -113,6 +114,7 @@ export function SessionTree(props: {
     agents: displayAgents,
     sessions: summaries,
     visibleChildCount: props.visibleChildCount ?? (props.nested ? Number.MAX_SAFE_INTEGER : props.controller.visibleChildCountFor(props.project.id)),
+    pinnedSessionIds: props.controller.pinnedSessionIds,
   });
   const displayedSessionIds = collectDisplayedSessionIds(
     display.visibleChildren,
@@ -158,12 +160,12 @@ export function SessionTree(props: {
     },
   });
 
-  const openContext = (event: React.MouseEvent, session: SessionSummary) => {
+  const openContext = (event: React.MouseEvent, session: SessionSummary, pinnable = true) => {
     event.preventDefault();
     const runtime = getBoundSidebarRuntimeAgent(props.controller.catalog, session.id);
     void props.controller.openMenu(runtime
-      ? { kind: "agent", agentId: runtime.id, x: event.clientX, y: event.clientY }
-      : { kind: "session", projectId: props.project.id, sessionId: session.id, x: event.clientX, y: event.clientY });
+      ? { kind: "agent", agentId: runtime.id, pinnable, x: event.clientX, y: event.clientY }
+      : { kind: "session", projectId: props.project.id, sessionId: session.id, pinnable, x: event.clientX, y: event.clientY });
   };
   const openDraftContext = (event: React.MouseEvent, session: SessionRecord) => {
     event.preventDefault();
@@ -173,6 +175,7 @@ export function SessionTree(props: {
       void props.controller.openMenu({
         kind: "agent",
         agentId: runtimeAgent.id,
+        pinnable: false,
         x: event.clientX,
         y: event.clientY,
       });
@@ -186,12 +189,12 @@ export function SessionTree(props: {
       y: event.clientY,
     });
   };
-  const renderSubagent = (session: SessionSummary, label: ReactNode) => {
+  const renderSubagent = (session: SessionSummary, title: string, badge?: ReactNode) => {
     return (
       <div
         key={session.id}
         className={rowContainerClass}
-        onContextMenu={(event) => openContext(event, session)}
+        onContextMenu={(event) => openContext(event, session, false)}
       >
         <button
           type="button"
@@ -204,7 +207,13 @@ export function SessionTree(props: {
           onDoubleClick={() => openSession(session.id, "permanent")}
           {...sessionDragProps(session.id)}
         >
-          <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">{label}</div></div>
+          <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
+            <TitleScrollText
+              text={title}
+              disabled={session.id === props.currentSessionId}
+            />
+            {badge}
+          </div></div>
         </button>
         <Button
           type="button"
@@ -217,7 +226,7 @@ export function SessionTree(props: {
           title={t("sidebar.moreActions")}
           onClick={(event) => {
             event.stopPropagation();
-            openContext(event, session);
+            openContext(event, session, false);
           }}
         >
           <Ellipsis size={14} aria-hidden="true" />
@@ -231,8 +240,12 @@ export function SessionTree(props: {
     // worktree（nested）子树保留其自身布局规则
     return (
       <div className={cn("codex-subagent-sidebar-group", !props.nested && "ml-3")}>
-        {codex.map((session) => renderSubagent(session, <><strong>{formatCodexSubagentName(session)}</strong><SessionSourceBadge source="codex" label={t("app.codexSubagent")} /></>))}
-        {pi.map((session) => renderSubagent(session, <strong>{formatPiSubagentName(session)}</strong>))}
+        {codex.map((session) => renderSubagent(
+          session,
+          formatCodexSubagentName(session),
+          <SessionSourceBadge source="codex" label={t("app.codexSubagent")} />,
+        ))}
+        {pi.map((session) => renderSubagent(session, formatPiSubagentName(session)))}
       </div>
     );
   };
@@ -275,7 +288,13 @@ export function SessionTree(props: {
           >
             {renderRuntimeStatusDot(child.agent.status)}
             <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
-              <strong className="min-w-0 flex-1 truncate font-medium">{child.agent.title}</strong>
+              {/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题；
+                  当前选中会话（激活 tab 同款规则）不滚动，避免选中行 hover 也在动。 */}
+              <TitleScrollText
+                text={child.agent.title}
+                className="font-medium"
+                disabled={agentSession?.id === props.currentSessionId}
+              />
               <SessionBackendMark backend={child.agent.backend} />
               {child.agent.noSession && <span className="anonymous-indicator" title={t("app.anonymousChat")}><HatGlasses size={11} aria-hidden="true" /></span>}
               {renderToggle(groupKey, childCount)}
@@ -304,6 +323,7 @@ export function SessionTree(props: {
     }
     const runtime = getBoundSidebarRuntimeAgent(props.controller.catalog, child.session.id);
     const runtimeSnapshot = props.controller.catalog.runtimeBySessionId[child.session.id];
+    const pinned = props.controller.isSessionPinned(child.session.id);
     return <Fragment key={child.session.id}>
       <div
         className={rowContainerClass}
@@ -323,9 +343,21 @@ export function SessionTree(props: {
           {...sessionDragProps(child.session.id)}
         >
           {renderRuntimeStatusDot(runtimeSnapshot?.status)}
+          {pinned && (
+            <Pin
+              className="size-3 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          )}
           <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
-            {/* 历史会话（无运行态）文字降一级，与活跃 Agent/运行中会话形成层级差 */}
-            <strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{child.session.name || t("common.untitled")}</strong>
+            {/* 历史会话（无运行态）文字降一级，与活跃 Agent/运行中会话形成层级差；
+                标题被截断时 hover 滚动展示全文（TitleScrollText，未溢出则静止）；
+                当前选中会话不滚动（与激活 tab 一致，避免选中行 hover 也在动）。 */}
+            <TitleScrollText
+              text={child.session.name || t("common.untitled")}
+              className={cn(runtime ? "font-medium" : "font-normal text-muted-foreground/90")}
+              disabled={child.session.id === props.currentSessionId}
+            />
             {(child.session.backend === "dsh" || child.session.backend === "imagegen") && <SessionBackendMark backend={child.session.backend} />}
             {/* 生图角标：imagegen 后端会话的徽标已含生图标识，此处仅对遗留 pi 后端含生图消息的会话补图标 */}
             {child.session.backend !== "imagegen" && child.session.hasImageGen && (
@@ -390,7 +422,8 @@ export function SessionTree(props: {
           >
             <div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
               {renderRuntimeStatusDot(runtime?.status)}
-              <strong className="min-w-0 flex-1 truncate font-medium">{session.title}</strong>
+              {/* 草稿会话：当前选中不滚动（与激活 tab 一致） */}
+              <TitleScrollText text={session.title} className="font-medium" disabled={session.id === props.currentSessionId} />
               <SessionBackendMark backend={session.backend} />
             </div></div>
           </button>

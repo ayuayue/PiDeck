@@ -36,7 +36,7 @@ import type {
 } from "../../shared/types";
 import { parseSessionProcessEvents } from "../sessions/sessionProcessEvents";
 import { downgradeStaleRunning } from "../pi/derivedSubagents";
-import { resolveLaunchDefaultOptions } from "../sessions/launchDefaults";
+import { resolveLaunchDefaultOptions, isModelInModelsConfig } from "../sessions/launchDefaults";
 import { BackgroundScanCoordinator } from "../sessions/BackgroundScanCoordinator";
 
 function isDshModelDiscoveryInput(input: unknown): input is DshModelDiscoveryInput {
@@ -73,6 +73,7 @@ import type { SessionScanner } from "../sessions/SessionScanner";
 import type { SessionCatalog } from "../sessions/SessionCatalog";
 import type { SessionRuntimeCoordinator } from "../sessions/SessionRuntimeCoordinator";
 import { SessionCommandIpcError } from "../sessions/SessionCommandIpcError";
+import { appendSessionForkSuffix } from "../sessions/sessionForkTitle";
 import type { AgentManager } from "../pi/AgentManager";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { TerminalSessionManager } from "../terminal/TerminalSessionManager";
@@ -118,6 +119,8 @@ export type DshBackendIpcDeps = {
 	getDshStatus?: () => Promise<{
 		started: boolean;
 		homeDir: string;
+		/** 最近一次 host boot 失败的真实原因；无失败/未启动为 null。 */
+		bootError?: string | null;
 	}>;
 	/**
 	 * DSH runtime 安装态（AgentRuntimeProvider 阶段 1）：installed/notInstalled/broken。
@@ -306,7 +309,11 @@ export type SessionIpcDeps = {
 		sessionId: string,
 	) => Promise<{ cancelled: boolean; targetSessionId?: string }>;
 	exportCatalogSessionHtml: (sessionId: string) => Promise<Record<string, unknown> & { path: string }>;
-	replaceAgentSession: (agentId: string, fn: () => Promise<any>) => Promise<any>;
+	replaceAgentSession: (
+		agentId: string,
+		fn: () => Promise<any>,
+		options?: { markForked?: boolean },
+	) => Promise<any>;
 	/** DSH 后端专用 IPC 依赖（C1 分组；未装配 = 无 DSH 后端）。 */
 	dshBackend?: DshBackendIpcDeps;
 };
@@ -581,13 +588,39 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 						configManager.getSettingsConfig(),
 						configManager.getModelsConfig(),
 					]);
-					// 缺省填充与引导页展示共用同一解析器（launchDefaults），
-					// 保证「预选的默认」与「创建时真正套用的默认」永远同源。
-					const defaults = resolveLaunchDefaultOptions({
-						backend: input.backend,
-						settings: settingsResult.parsed,
-						models: modelsResult.parsed,
-					});
+					// 引导页/渲染层显式传入的模型（如欢迎页偏好）也可能指向已删除的供应商/模型：
+					// 校验其仍存在于 models.json，不存在则丢弃交给解析器兜底（lastUsed → 显式默认 → 第一个可用），
+					// 避免新会话带着幽灵模型启动（用户反馈「删了供应商/模型新建会话还是它」）。
+					if (input.backend !== "dsh" && model) {
+						if (
+							typeof model.provider !== "string" ||
+							typeof model.modelId !== "string" ||
+							!isModelInModelsConfig(modelsResult.parsed, {
+								provider: model.provider,
+								modelId: model.modelId,
+							})
+						) {
+							model = undefined;
+						}
+					}
+			// 缺省填充与引导页展示共用同一解析器（launchDefaults），
+			// 保证「预选的默认」与「创建时真正套用的默认」永远同源。
+			// 欢迎页偏好（renderer localStorage）同样经主进程校验存在性后按
+			// 「显式默认 > 偏好 > 上次使用 > 空」参与解析；explicit model（用户主动
+			// 指名）仍优先于一切（input.model，见上方校验）。
+			const defaults = resolveLaunchDefaultOptions({
+				backend: input.backend,
+				settings: settingsResult.parsed,
+				models: modelsResult.parsed,
+				// lastUsed 语义：用户最近一次实际发送所用模型；仅无显式默认与偏好时参与。
+				lastUsedModel: settingsStore.get().lastUsedModel,
+				welcomeModel:
+					input.welcomeModel &&
+					typeof input.welcomeModel.provider === "string" &&
+					typeof input.welcomeModel.modelId === "string"
+						? input.welcomeModel
+						: undefined,
+			});
 					if (input.backend !== "dsh" && !model) {
 						model = defaults.model;
 					}
@@ -630,6 +663,8 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					backend,
 					settings: settingsResult.parsed,
 					models: modelsResult.parsed,
+					// lastUsed 语义：引导页预选默认 = 用户最后一次实际使用的模型。
+					lastUsedModel: settingsStore.get().lastUsedModel,
 				});
 			} catch {
 				// 配置读取失败返回空默认：引导页退回「无预选」形态，不阻塞 UI；
@@ -1463,6 +1498,26 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					const tab = agentManager.list().find((candidate) => candidate.id === result.agentId);
 					if (tab) emitSessionRuntimeEvent(tab.id, ipcChannels.agentsState, tab);
 				}
+				// 消息被接受才记「最后一次使用」（选而未发不算）：写入 desktop settings.lastUsedModel，
+				// 新会话默认解析（launchDefaults）以它优先。fire-and-forget，不阻塞发送响应。
+				// DSH 会话跳过：其模型归属 host 设置，不在 models.json 中，记录会污染 pi 侧解析。
+				if (result.accepted) {
+					const record = sessionCatalog.get(input.sessionId);
+					if (record?.backend !== "dsh" && record?.model?.provider && record?.model?.modelId) {
+						void settingsStore
+							.update({
+								lastUsedModel: {
+									provider: record.model.provider,
+									modelId: record.model.modelId,
+								},
+							})
+							.catch((error) => {
+								void appLogger.warn("settings", "Failed to record lastUsedModel", {
+									error: error instanceof Error ? error.message : String(error),
+								});
+							});
+					}
+				}
 				void appLogger.info("session", "Session prompt IPC completed", {
 					sessionId: input.sessionId,
 					requestId: input.requestId,
@@ -1549,7 +1604,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		ipcChannels.dshGetStatus,
 		async () => (getDshStatus
 			? getDshStatus()
-			: { started: false, homeDir: "" }),
+			: { started: false, homeDir: "", bootError: null }),
 	);
 	// DSH runtime 安装态查询：未装配 dshBackend = 无 DSH 后端，按 notInstalled 返回
 	//（渲染层据此隐藏 DSH UI、显示安装引导，不会出现裸报错）。
@@ -1777,12 +1832,53 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				"restoreRewindCheckpoint",
 				target,
 				{ checkpointId, scope },
-				() =>
-					sessionRuntimeCoordinator.restoreRewindCheckpoint(
+				async () => {
+					const result = await sessionRuntimeCoordinator.restoreRewindCheckpoint(
 						target,
 						checkpointId,
 						scope,
-					),
+					);
+					// conversation/all 会在检查点 fork 出新会话（runtime 已换绑新文件）：
+					// 趁运行态拿到新 sessionPath，同步给 catalog 打 fork 标记（列表 (fork) 后缀），
+					// 不依赖后续扫描才识别。fork 锚点解析失败时不会走到这一步。
+					if (result.ok && scope !== "files") {
+						const tab = agentManager.list().find((candidate) => candidate.id === target.agentId);
+						if (tab?.sessionPath) {
+							const environment = tab.sessionEnvironment ?? "native";
+							const entry = sessionCatalog.findByFilePath(tab.sessionPath, environment);
+							if (entry) {
+								await sessionCatalog.update(entry.id, { forked: true });
+								// (fork) 物理写进会话名（与 fork/clone 一致，见 appendSessionForkSuffix）：
+								// 走 pi set_session_name RPC。注意 rewind 恢复不重建 runtime 绑定
+								// （绑定仍指向原会话），rename 触发的标题回写会落到原条目标题上，
+								// 因此记录原条目标题并在完成后恢复，避免「原会话被改名成 xxx (fork)」。
+								const forkedTitle = appendSessionForkSuffix(entry.title, mainCopy("session.forkedSuffix"));
+								if (forkedTitle !== entry.title) {
+									const originBinding = sessionRuntimeCoordinator.getRuntimeBinding(target.agentId);
+									const originSessionId = originBinding?.sessionId;
+									const originTitle = originSessionId && originSessionId !== entry.id
+										? sessionCatalog.get(originSessionId)?.title
+										: undefined;
+									try {
+										await agentManager.rename(target.agentId, forkedTitle);
+										await sessionCatalog.update(entry.id, { title: forkedTitle });
+										if (originSessionId && originTitle !== undefined) {
+											await sessionCatalog.update(originSessionId, { title: originTitle });
+										}
+									} catch (error) {
+										void appLogger.warn("session", "Rewind fork suffix rename failed", {
+											sessionId: entry.id,
+											agentId: target.agentId,
+											title: entry.title,
+											error: error instanceof Error ? error.message : String(error),
+										});
+									}
+								}
+							}
+						}
+					}
+					return result;
+				},
 			);
 		},
 	);
@@ -1854,6 +1950,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				const value = await replaceAgentSession(
 					target.agentId,
 					() => agentManager.cloneSession(target.agentId),
+					{ markForked: true },
 				);
 				void appLogger.info("session", "Session cloned", { sessionId: target.sessionId });
 				return {
@@ -1906,6 +2003,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				const value = await replaceAgentSession(
 					target.agentId,
 					() => agentManager.forkSession(target.agentId, entryId),
+					{ markForked: true },
 				);
 				void appLogger.info("session", "Session forked", { sessionId: target.sessionId, entryId });
 				return {

@@ -30,7 +30,7 @@ import {
   isLanWeb,
   missingElectronPreload,
 } from "./desktopApi";
-import { turnFlowSettingsAtom, defaultAgentBackendAtom, effectiveAgentBackendAtom, busySendDeliveryAtom, imageGenConfigAtom, dshRuntimeStatusAtom, openSettingsAtom, sessionRecordsAtom } from "./atoms";
+import { turnFlowSettingsAtom, defaultAgentBackendAtom, effectiveAgentBackendAtom, busySendDeliveryAtom, imageGenConfigAtom, dshRuntimeStatusAtom, openSettingsAtom, sessionRecordsAtom, bumpNewTurnCollapseTickAtom } from "./atoms";
 import { resolveBusySendDelivery } from "../../shared/busySendDelivery";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
 // 文件链接路由：图片类型走弹窗预览
@@ -46,6 +46,7 @@ import { useAgentLoadNotice } from "./hooks/useAgentLoadNotice";
 import { useSessionLayout } from "./hooks/useSessionLayout";
 import { useFileEditor } from "./hooks/useFileEditor";
 import { resolveFileLinkPath } from "./utils/filePathLinks";
+import { imageMimeTypeFromPath } from "./utils/composerImages";
 import { useOverlayActions } from "./hooks/useOverlayActions";
 import { useWorkspacePanels, type WorkspaceDrawerPanel, type WorkspaceExternalEditorAdapter } from "./hooks/useWorkspacePanels";
 import { useDrawerPorts } from "./hooks/useDrawerPorts";
@@ -66,14 +67,13 @@ import {
 import {
   GUIDE_BOOTSTRAP_SESSION_ID,
   readWelcomeModelPreference,
-  readWelcomeThinkingPreference,
   resolveChatSessionBootstrap,
 } from "./utils/chatSessionBootstrap";
 import { detectRendererPlatform } from "./lib/detectRendererPlatform";
 import { msUntilNextThemeBoundary } from "../../shared/themeSchedule";
 
 import { usePiUpdate } from "./hooks/usePiUpdate";
-import { useAppUpdateController } from "./hooks/useAppUpdateController";
+
 import { useBackgroundUpdateWatch } from "./hooks/useBackgroundUpdateWatch";
 import { useProjectSync } from "./hooks/useProjectSync";
 import {
@@ -144,7 +144,10 @@ import { SessionSplitStage } from "./components/session/SessionSplitStage";
 import { splitLayoutSessionIds } from "./utils/sessionSplitEdge";
 import { findLoadedDirectory, loadProjectFileTree, mergeFileTreeChildren } from "./utils/fileTreeLazy";
 import { SessionTabsBar, type SessionToolAction } from "./components/session/SessionTabsBar";
-import { SessionPaneServicesProvider } from "./components/session/SessionPaneServices";
+import {
+  SessionPaneServicesProvider,
+  type SessionFileOpenContext,
+} from "./components/session/SessionPaneServices";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
 import { FileLinkBaseProvider } from "./components/session/FileLinkBase";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
@@ -159,7 +162,7 @@ import { WorkbenchStage } from "./components/workspace/WorkbenchStage";
 import { WorkbenchContent } from "./components/workspace/WorkbenchContent";
 import { RenameModals } from "./components/RenameModals";
 import { SessionActionOverlays } from "./components/overlays/SessionActionOverlays";
-import { AppUpdateOverlay } from "./components/overlays/AppUpdateOverlay";
+
 import { ImportOverlayHost } from "./components/overlays/ImportOverlayHost";
 import { EnvironmentOverlay } from "./components/overlays/EnvironmentOverlay";
 import {
@@ -464,6 +467,7 @@ export function App() {
     setSessionLoadingByProject,
     setVisibleProjectChildCountByProject,
     refreshProjects,
+    refreshAllProjects,
     refreshWorktrees,
     refreshProjectSessions,
     refreshFiles,
@@ -545,6 +549,8 @@ export function App() {
       return { ...agent, title: updated.title };
     },
     renameSession: (id, name) => api.sessions.updateRecord(id, { title: name }),
+    renameProject: (id, name) => api.projects.rename(id, name),
+    applyRenamedProjects: setProjects,
     showToast,
     refreshProjectSessions,
     closeAgentMenu: () => undefined,
@@ -568,31 +574,15 @@ export function App() {
     return getRuntimeTargetForSession(sessionId);
   };
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
-  // controller 的 api 对象必须 useMemo 稳定：内联字面量会让 useAppUpdateController 内部
-  // 依赖 api 的 useCallback/effect（含下载进度订阅）每次 App 重渲染都重建/重订。
-  const appUpdateApi = useMemo(
-    () => ({
-      checkUpdate: api.app.checkUpdate,
-      downloadUpdate: (asset: Parameters<typeof api.app.downloadUpdate>[0]) => api.app.downloadUpdate(asset),
-      installUpdate: (filePath: string) => api.app.installUpdate(filePath),
-      onUpdateProgress: (cb: Parameters<typeof api.app.onUpdateProgress>[0]) => api.app.onUpdateProgress(cb),
-      openExternal: (url: string) => api.app.openExternal(url),
-    }),
-    [api],
-  );
-  const appUpdate = useAppUpdateController(appUpdateApi, false);
 
-  // 后台更新状态订阅：主进程每 2h 自动检查（无配额方案），有更新且未跳过/未提示
-  // 时自动弹窗；Pi CLI 有更新时 toast 一次并引导去设置页。
-  // appUpdateCheck 直传稳定引用：内联箭头会作为 effect 依赖导致推送订阅每次渲染重订。
+  // 后台更新状态订阅（electron-updater 快照驱动）：自动下载开启时静默下载，
+  // 完成后再 toast「重启并安装」；关闭时发现新版本 toast 提示去设置页。
+  // 不再弹大窗打断用户（对齐 Netcatty 语义）。
   useBackgroundUpdateWatch({
     api,
-    appUpdateCheck: appUpdate.check,
-    showToast,
+    // 打开设置页并定位「开发设置」tab（toast「查看设置」动作目标）。
+    openSettings: () => store.set(openSettingsAtom, { tab: "dev" }),
   });
-
-  // upToDateVersion: hook does not expose this; used by AppUpdateOverlay for "up to date" toast.
-  const [upToDateVersion, setUpToDateVersion] = useState<string | null>(null);
 
   const PROJECT_EXPANDED_DIRS_KEY_PREFIX = "pid:project-expanded-dirs:";
 
@@ -695,7 +685,10 @@ export function App() {
     imageGenSize: "unset",
     imageGenWatermark: false,
     imageGenOutputFormat: "png",
-    disableUpdateCheck: false,
+    autoDownloadUpdates: true,
+    // 与主进程 defaultSettings 保持一致：更新源默认 GitHub 官方，自定义镜像前缀留空
+    updateSource: "github",
+    customUpdateSourceUrl: "",
     // 与主进程 defaultSettings 保持一致：offline 默认关，让模型目录随启动刷新
     piRpcOffline: false,
     piRpcNoExtensions: false,
@@ -731,16 +724,6 @@ export function App() {
   useEffect(() => {
     setBusySendDelivery(settings.busySendDelivery);
   }, [settings.busySendDelivery, setBusySendDelivery]);
-
-  // 应用更新：主进程后台每 2h 自动检查（无配额方案），有更新且未跳过/未提示时
-  // 经 useBackgroundUpdateWatch 自动弹窗；设置页手动「检测更新」仍可用（checking 门控
-  // 已改为共享在途 promise，不再吞结果）。弹窗关闭/跳过时向主进程标记已提示/跳过，
-  // 保证「每版本只提示一次」。
-  const dismissAppUpdate = useCallback(() => {
-    const version = appUpdate.info?.latestVersion;
-    appUpdate.clear();
-    if (version) void api.app.notifyUpdateSeen("app", version);
-  }, [appUpdate.info?.latestVersion, appUpdate.clear]);
 
   // Guard: hide git drawer when git management is disabled.
   // Equivalent to: if (panel === "git" && !settings.enableGitManagement) return
@@ -1338,6 +1321,7 @@ export function App() {
     openWorkspaceFileDiff,
     openCommitFileDiff,
     closeGitDiff,
+    dismissGitDiff,
     gitDiffDisplayMode,
     gitDrawerDiff,
     toggleGitDiffDisplayMode,
@@ -1368,33 +1352,50 @@ export function App() {
   // 替代原先的"系统默认应用打开"（.md 会被浏览器接管、体验割裂）
   // line 为可选 `path:line` 位置标记：编辑器打开后滚动定位到该行。
   const handleOpenLinkedFile = useCallback(
-    (path: string, line?: number) => {
-      const resolved = resolveFileLinkPath(
-        path,
-        activeAgent?.cwd ?? activeProject?.path,
-      );
-      // 相对路径且无基准目录（无 agent cwd / 无项目）时解析器返回 null：
-      // 直接提示，而不是把原样相对路径丢给主进程按进程 cwd 乱猜 → 静默空白文件。
+    (path: string, line?: number, context?: SessionFileOpenContext) => {
+      // 有栏级上下文时绝不回退 App 当前焦点：分屏左栏的点击不能借用右栏 cwd/project。
+      const baseDir = context
+        ? context.baseDir
+        : activeAgent?.cwd ?? activeProject?.path;
+      const projectRoot = context ? context.projectRoot : activeProject?.path;
+      const projectId = context ? context.projectId : activeProject?.id;
+      // 会话内入口必须携带稳定 projectId；缺失时不能降级成通用读取绕开主进程项目边界。
+      if (context && !projectId) {
+        showToast(t("app.fileLinkCannotResolve", { path }));
+        return;
+      }
+      const resolved = resolveFileLinkPath(path, baseDir, projectRoot);
+      // 相对路径无基准目录、`..` 逃逸或绝对路径落在项目外都会返回 null。
+      // 主进程读取时还会按 projectId 对真实路径做第二次边界校验。
       if (!resolved) {
         showToast(t("app.fileLinkCannotResolve", { path }));
         return;
       }
+      const fileAccessScope = projectId ? { projectId } : undefined;
       const ext = resolved.split(".").pop()?.toLowerCase() ?? "";
       if (IMAGE_EXTENSIONS.has(ext)) {
-        // 图片：读取二进制 → 弹窗预览
+        // readBase64 返回原始 base64，不是 data URL；直接构造 ImageContent 供预览弹层使用。
         void api.files
-          .readBase64(resolved)
-          .then((dataUrl) => {
-            const m = dataUrl.match(/^data:(.*?);base64,(.*)$/s);
-            if (m) setPreviewImage({ type: "image", mimeType: m[1], data: m[2] });
+          .readBase64(resolved, undefined, fileAccessScope)
+          .then((data) => {
+            if (!data) throw new Error("FILE_NOT_FOUND");
+            setPreviewImage({
+              type: "image",
+              mimeType: imageMimeTypeFromPath(resolved),
+              data,
+            });
           })
-          .catch(() => showToast(t("app.openFileFailed", { error: ext })));
+          .catch((error) =>
+            showToast(t("app.openFileFailed", {
+              error: error instanceof Error ? error.message : String(error),
+            })),
+          );
         return;
       }
-      // markdown / html / 其他文本文件：统一抽屉查看；带行号链接打开后滚动定位
-      viewFilePath(resolved, undefined, line);
+      // markdown / html / 其他文本文件：统一抽屉查看；scope 固化进 tab，切焦点后仍按原项目读取。
+      viewFilePath(resolved, undefined, line, fileAccessScope);
     },
-    [activeAgent?.cwd, activeProject?.path, viewFilePath, showToast],
+    [activeAgent?.cwd, activeProject?.id, activeProject?.path, viewFilePath, showToast],
   );
 
   // 工具抽屉（files/git/browser）的统一切换语义：当前面板已展开 → 关闭；
@@ -1544,14 +1545,11 @@ export function App() {
         throw new Error(t("app.guideBootstrapUnavailable"));
       }
       const promotion = (async () => {
-        // 引导页 picker 无 record 分支把选择存进 localStorage；创建时作为启动
-        // 偏好带入，使新会话 record/runtime 直接带上用户选的模型与思考级别。
+        // 引导页 picker 无 record 分支把模型选择存进 localStorage；创建时作为
+        // 「偏好」交给主进程解析（优先级：显式默认 > 偏好 > 上次使用 > 空），
+        // 与底栏显示同源，避免显示/套用分叉。思考级别不随偏好传入——
+        // 一律走默认档位（settings.defaultThinkingLevel），由解析器决定。
         const welcomeModel = readWelcomeModelPreference()?.model;
-        const welcomeThinking = readWelcomeThinkingPreference()?.thinkingLevel;
-        const launchPreferences: SessionLaunchPreferences = {
-          ...(welcomeModel ? { model: welcomeModel } : {}),
-          ...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
-        };
         // 统一创建 draft 会话（Chat 项目也走普通会话、可保存）：创建不拉 pi，
         // selectSessionCommand 同步切页、立即进入会话页；匿名会话仅保留给侧栏
         // 「新建临时对话」入口（createAnonymousSessionWithTab）。
@@ -1561,7 +1559,7 @@ export function App() {
           projectId: project.id,
           title: effectiveAgentBackend === "dsh" ? `${project.name} DSH` : `${project.name} agent`,
           backend: effectiveAgentBackend,
-          ...launchPreferences,
+          ...(welcomeModel ? { welcomeModel } : {}),
         });
         upsertSession(session);
         // 引导页发送时 useSessionSend 已把 user 消息乐观写入虚拟会话 cache；
@@ -1991,10 +1989,17 @@ export function App() {
         console.error("[Files] refresh failed", error);
         const message = error instanceof Error ? error.message : String(error);
         const tooLarge = message.match(/FILE_TREE_DIRECTORY_TOO_LARGE:(\d+):(\d+)/);
+        const projectDirectoryMissing = message.includes("PROJECT_DIRECTORY_MISSING");
+        if (projectDirectoryMissing) {
+          // 项目在启动/切换期间被外部删除：清空树后重扫项目 presence，侧栏马上标出失效目录。
+          void refreshProjects().catch(() => undefined);
+        }
         showToast(
           tooLarge
             ? t("app.filesDirectoryTooLarge", { count: tooLarge[1], max: tooLarge[2] })
-            : t("app.filesRefreshFailed", { error: message }),
+            : projectDirectoryMissing
+              ? t("app.projectDirectoryMissing")
+              : t("app.filesRefreshFailed", { error: message }),
           4000,
         );
       }
@@ -2010,6 +2015,8 @@ export function App() {
     return () => {
       cancelled = true;
     };
+  // 该 effect 只应由项目身份切换触发；refreshProjects 是 hook 每次渲染返回的命令，
+  // 放入依赖会让 setFiles 后再次触发扫描，形成文件树刷新循环。
   }, [activeProjectId, beginFileTreeRequest, isFileTreeRequestCurrent, loadExpandedDirs]);
 
   useEffect(() => {
@@ -2505,6 +2512,11 @@ export function App() {
       }
       throw new Error(localizedError);
     }
+    // 排队投递（steer「插入当前回合」/ followUp 排队）同样构成「新一轮」：
+    // bump 会话 tick，timeline 侧非最新轮据此收起（设置② collapsePrevRunsOnNewTurn）。
+    // 普通发送由 useSessionSend 的 sendPrompt 返回值自己 bump；这里是队列 drain 的
+    // 唯一出口，漏掉会导致中断轮（无最终回答）在新一轮开始后仍保持展开。
+    store.set(bumpNewTurnCollapseTickAtom, sessionId);
   }
 
   async function submitPromptSnapshot(
@@ -2693,9 +2705,11 @@ export function App() {
         }
       }
       showToast(notice);
+      return true;
     } catch (error) {
       setSettings(await api.settings.get());
       showToast(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       if (changesWebService) setWebServiceChanging(false);
     }
@@ -2995,6 +3009,7 @@ export function App() {
         const project = projects.find((candidate) => candidate.id === projectId);
         if (project) await refreshProjectTree(project);
       },
+      refreshAll: refreshAllProjects,
       reorder: reorderProjects,
       reveal: (project) => api.files.showInFolder(project.path),
       openWithEditor: (project) => {
@@ -3012,6 +3027,7 @@ export function App() {
         showToast(t("common.copied"));
       },
       remove: removeSidebarProject,
+      rename: rename.openProjectRename,
       changeChatPath,
     },
     sessions: {
@@ -3138,6 +3154,7 @@ export function App() {
       worktreesByProject={worktreesByProject}
       branchByProject={branchByProject}
       creatingWorktree={worktreeCreating}
+      removingWorktreePaths={removingWorktreePaths}
       isLanWeb={isLanWeb}
       // 「新建会话」：清空当前会话并选中活动项目 → 落到初始引导页（居中输入框 + 项目下拉切换），
       // 用户选择项目后可直接输入对话（首次发送才创建真实会话）。无项目时保持引导页「添加项目」空态。
@@ -3145,6 +3162,7 @@ export function App() {
       onOpenFeedback={() => overlays.setFeedbackOpen(true)}
       settingsExpandedProjectIds={settings.sidebarExpandedProjectIds}
       settingsNavTab={settings.sidebarNavTab}
+      settingsPinnedSessionIds={settings.pinnedSessionIds}
       settingsLoaded={settingsLoaded}
       onExpandedProjectsReady={() => setExpandedProjectsReady(true)}
       // 官网主页是品牌入口，强制系统浏览器打开：不受「链接打开方式=内置浏览器」设置影响
@@ -3628,7 +3646,7 @@ export function App() {
     enableGitManagement: settings.enableGitManagement, activeProjectId,
     gitDrawerDiff, gitDiffDisplayMode,
     openCommitFileDiff, openWorkspaceFileDiff,
-    toggleGitDiffDisplayMode, closeGitDiff,
+    toggleGitDiffDisplayMode, closeGitDiff, dismissGitDiff,
     gitApi: api.git, gitInfo,
     switchBranch, createBranch,
     openDrawer: workspace.openDrawer,
@@ -3712,9 +3730,12 @@ export function App() {
 
 
   return (
-    // 文件链接存在性校验的 baseDir 与 handleOpenLinkedFile 同口径
-    // （activeAgent cwd 优先，回退项目路径），让 markdown 内链接按同一基准解析。
-    <FileLinkBaseProvider baseDir={activeAgent?.cwd ?? activeProject?.path}>
+    // 非会话静态区域使用当前焦点作为兜底；每个 SessionRuntimeInjector 会用本栏 cwd/project 覆盖。
+    <FileLinkBaseProvider
+      baseDir={activeAgent?.cwd ?? activeProject?.path}
+      projectId={activeProject?.id}
+      projectRoot={activeProject?.path}
+    >
     <>
       <AppBootstrap {...bootstrapProps} />
     <AppShell
@@ -3873,8 +3894,12 @@ export function App() {
                 await api.files.delete(node.path, true);
                 void refreshVisibleFiles();
                 showToast(t("app.fileDeleted"), 2000);
-              } catch (e) {
-                console.error("[File] 删除失败:", e);
+              } catch (error) {
+                // 回收站不可用、权限不足或文件已被外部移走时，必须把主进程错误呈现给用户；
+                // 仅写控制台会让确认框关闭后看起来像“点击无效”。
+                showToast(t("app.fileDeleteFailed", {
+                  error: String(error instanceof Error ? error.message : error).replace(/^Error:\s*/, ""),
+                }), 5000, "error");
               }
             },
           });
@@ -3891,7 +3916,7 @@ export function App() {
       </Suspense>
     )}
     <RenameModals
-      agentRename={rename.renameModalsProps.agentRename}
+      rename={rename.renameModalsProps.rename}
       fileRename={renamingFile ? {
         path: renamingFile.path,
         name: renamingFile.name,
@@ -3991,12 +4016,10 @@ export function App() {
     <SettingsFeatureRoot
       settings={settings}
       piUpdate={piUpdate}
-      appUpdate={appUpdate}
       webServiceChanging={webServiceChanging}
       onRestartWebService={restartWebService}
       appInfo={appInfo}
       onChange={updateSettings}
-      onCurrentVersion={setUpToDateVersion}
       projectPath={activeProject?.path}
     />
     {/*
@@ -4016,18 +4039,6 @@ export function App() {
             }
           : undefined
       }
-    />
-    <AppUpdateOverlay
-      controller={{ ...appUpdate, clear: dismissAppUpdate }}
-      releasesUrl={appInfo.releasesUrl}
-      openExternal={(url, forceSystem) => api.app.openExternal(url, forceSystem)}
-      upToDateVersion={upToDateVersion}
-      onDismissUpToDate={() => setUpToDateVersion(null)}
-      onSkipVersion={(version) => {
-        void api.app.skipUpdateVersion(version);
-        void api.app.notifyUpdateSeen("app", version);
-        appUpdate.clear();
-      }}
     />
     {previewImage && (
       <ImagePreviewModal

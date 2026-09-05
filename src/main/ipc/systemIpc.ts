@@ -5,12 +5,13 @@
 
 import { app, ipcMain, shell } from "electron";
 import { ipcChannels } from "../../shared/ipc";
+import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
+import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import type {
 	AppLogLevel,
 	AppLogQuery,
 	AppSettings,
-	AppUpdateAsset,
 	AvailableModel,
 	ModelListReport,
 	CreatePiSkillInput,
@@ -24,9 +25,14 @@ import type { AgentManager } from "../pi/AgentManager";
 import type { AppLogger } from "../logging/AppLogger";
 import type { RpcLogger } from "../logging/RpcLogger";
 import type { SessionRuntimeCoordinator } from "../sessions/SessionRuntimeCoordinator";
+import { resolveConfigProxyTarget } from "../sessions/sessionProxyPolicy";
+import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
 import type { SkillManager } from "../skills/SkillManager";
 import { fetchModelList, getCachedModelList, invalidateModelListCache, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
-import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/appUpdateCheck";
+import { TokendanceCatalogStore } from "../config/tokendanceCatalog";
+import type { TokendanceInstallResult } from "../config/tokendanceInstaller";
+import type { TokendanceAuthStore } from "../config/tokendanceAuth";
+
 import { probePiModel } from "../pi/PiModelProber";
 import type { PiModelCapabilityCache } from "../pi/PiModelCapabilityCache";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
@@ -106,18 +112,24 @@ export type SystemIpcDeps = {
 	providerMigration?: ProviderMigrationDeps;
 	/** 全局 Pi 模型 capability snapshot（启动/配置变更时 hydration，picker 只读）。 */
 	modelCapabilityCache: PiModelCapabilityCache;
+	/** 内置 TokenDance 模型目录（live fetch + userData 缓存）；未装配 = 列表不注入。 */
+	tokendanceCatalog?: TokendanceCatalogStore;
+		/** 内置 TokenDance OAuth 授权流程（PKCE verifier 内存持有）；未装配 = 授权入口不可用。 */
+	tokendanceAuth?: TokendanceAuthStore;
+	/** TokenDance 一键安装（写入 pi models.json + DSH llm-pi-ai）；未装配 = 配置入口不可用。 */
+	tokendanceInstall?: (apiKey?: string) => Promise<TokendanceInstallResult>;
 	/** 环境体检编排器（问题反馈页一键排障）。 */
 	environmentDoctor?: EnvironmentDoctor;
 	/** 诊断产物导出器（Markdown / zip 日志包）。 */
 	logBundleExporter?: LogBundleExporter;
 	getMainWindow: () => Electron.BrowserWindow | null;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
-	/** Check for app update; defined in index.ts */
-	checkForAppUpdate: (installationType?: string) => Promise<import("../../shared/types").AppUpdateInfo | null>;
-	/** Download update asset */
-	downloadUpdateAsset: (asset: AppUpdateAsset) => Promise<import("../../shared/types").AppUpdateDownloadResult>;
-	/** Install downloaded update */
-	installDownloadedUpdate: (filePath: string) => Promise<void>;
+	/** Check for app update（index.ts 注入：直接触发 UpdateService.checkNow，结果经快照推送）。 */
+	checkForAppUpdate: () => Promise<void>;
+	/** 手动下载已检测到的更新（autoDownload 关闭时由设置页触发）。 */
+	downloadAppUpdate: () => Promise<void>;
+	/** 重启并安装已下载的更新（electron-updater quitAndInstall）。 */
+	installAppUpdate: () => void;
 	/** Open external URL */
 	openExternalUrl: (url: string, forceSystem?: boolean) => Promise<void>;
 	/**
@@ -182,14 +194,24 @@ export type SystemIpcDeps = {
 	RELEASES_URL?: string;
 	/** 开发态 git 分支名（多 worktree 并行区分窗口）；正式包/共享分支为空。 */
 	devBranch?: string;
-	/** 后台更新检查服务（定时检查快照推送 / 已提示 / 跳过版本）。 */
+	/** 后台更新检查服务（定时检查快照推送 / 已提示 / 跳过版本 / 立即检查 / 下载 / 安装）。 */
 	updateService?: {
 		getSnapshot: () => import("../../shared/types").AppUpdateStatusSnapshot;
 		notifySeen: (kind: "app" | "pi", version: string) => Promise<void>;
 		skipVersion: (version: string) => Promise<void>;
-		recordAppUpdateResult: (info: { latestVersion: string; hasUpdate: boolean }) => void;
+		checkNow: () => Promise<void>;
+		downloadNow: () => Promise<void>;
+		installNow: () => void;
+		applyAutoDownloadPreference: () => void;
+		/** 更新源切换（设置保存后调用）：镜像/自定义 → generic feed URL，回 github → 原生通道。 */
+		applyUpdateSource: () => void;
 	};
 };
+
+// 渲染层传入的代理模式收窄：非白名单一律回退 follow（跟随全局），保证 IPC 边界不信任任意字符串。
+function asConfigProxyMode(raw: unknown): ConfigProxyMode {
+	return raw === "pi" || raw === "desktop" || raw === "off" ? raw : "follow";
+}
 
 export function registerSystemIpc(deps: SystemIpcDeps): void {
 	const {
@@ -207,8 +229,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		getMainWindow,
 		mainCopy,
 		checkForAppUpdate,
-		downloadUpdateAsset,
-		installDownloadedUpdate,
+		downloadAppUpdate,
+		installAppUpdate,
 		openExternalUrl: doOpenExternalUrl,
 		resolveWslEnvironment,
 		reactToPetSettings,
@@ -241,6 +263,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		devBranch,
 		providerMigration,
 		modelCapabilityCache,
+		tokendanceCatalog,
+		tokendanceAuth,
+		tokendanceInstall,
 		diagnosticsMonitor,
 		environmentDoctor,
 		logBundleExporter,
@@ -304,6 +329,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				capabilitiesReady: snapshot !== null,
 				providers: [...new Set(models.map((m) => m.provider))].slice(0, 8),
 			});
+			// 供应商只来自 pi 配置（models.json）/内置 catalog：TokenDance 需用户在配置
+			// 页确认后写入，这里不做任何展示层注入（列表 = 运行时可用模型）。
 			return models;
 		} catch (error) {
 			void appLogger.warn("pi", "Failed to resolve model list", {
@@ -348,6 +375,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 					configManager,
 					forceArg,
 				);
+			// 模型列表只反映 pi 运行时配置：TokenDance 目录由用户确认写入配置后自然出现。
 			void appLogger.info("pi", "Model list report resolved", {
 				ok: report.ok,
 				reason: report.reason,
@@ -634,20 +662,17 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		try { return app.getPreferredSystemLanguages(); } catch { return []; }
 	});
 
-	// ── 应用更新 ─────────────────────────────────────────────────────
+	// ── 应用更新（electron-updater 事件驱动；结果统一经 app:update-status-changed 快照推送）──
 
 	ipcMain.handle(ipcChannels.appCheckUpdate, async () => {
-		const info = await checkForAppUpdate(settingsStore.get().installationType);
-		// 手动结果同步进后台快照：角标/设置页高亮与手动检查保持一致。
-		if (info) updateService?.recordAppUpdateResult({ latestVersion: info.latestVersion, hasUpdate: info.hasUpdate });
-		return info;
+		await updateService?.checkNow();
 	});
-	ipcMain.handle(ipcChannels.appDownloadUpdate, async (_event, asset: AppUpdateAsset) =>
-		downloadUpdateAsset(asset),
-	);
-	ipcMain.handle(ipcChannels.appInstallUpdate, async (_event, filePath: string) =>
-		installDownloadedUpdate(filePath),
-	);
+	ipcMain.handle(ipcChannels.appDownloadUpdate, async () => {
+		await updateService?.downloadNow();
+	});
+	ipcMain.handle(ipcChannels.appInstallUpdate, async () => {
+		updateService?.installNow();
+	});
 	// 后台更新检查快照：主进程定时检查后主动推送（渲染层角标/每版本一次提示）；
 	// 渲染层也可主动拉取当前快照（如手动检测完成后刷新角标）。
 	ipcMain.handle(ipcChannels.appUpdateStatusChanged, () =>
@@ -664,6 +689,12 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		if (!updateService) return;
 		if (typeof version !== "string" || !version) return;
 		await updateService.skipVersion(version);
+	});
+
+	// 内置更新镜像体检：并行探测各镜像 latest.yml + Range 分片（设置页「更新源」自动体检；
+	// 纯网络只读操作、无状态，不依赖 updateService，失败由镜像上报，不向外抛）。
+	ipcMain.handle(ipcChannels.appCheckUpdateMirrors, async (): Promise<MirrorHealthResult[]> => {
+		return probeAllMirrors();
 	});
 
 	// ── 应用日志 ─────────────────────────────────────────────────────
@@ -985,6 +1016,14 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.settingsUpdate, async (_event, patch: Partial<AppSettings>) => {
 		const prevSettings = settingsStore.get();
 		const settings = await settingsStore.update(patch);
+		// 自动下载更新开关：立即下发到 electron-updater（含检查期间的 autoDownload 切换）。
+		if ("autoDownloadUpdates" in patch) {
+			updateService?.applyAutoDownloadPreference();
+		}
+		// 更新源切换（预设镜像 / 自定义镜像前缀）：立即重建 feed URL，无需重启生效。
+		if ("updateSource" in patch || "customUpdateSourceUrl" in patch) {
+			updateService?.applyUpdateSource();
+		}
 		if ("developerDiagnostics" in patch && diagnosticsMonitor) {
 			void diagnosticsMonitor.setEnabled(settings.developerDiagnostics).catch((error) => {
 				void appLogger.warn("diagnostics", "Failed to toggle developer diagnostics", {
@@ -1271,9 +1310,11 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	});
 	ipcMain.handle(ipcChannels.configFetchModels, async (
 		_event,
-		payload: { baseUrl: string; apiKey: string; apiType?: string; headers?: Record<string, string> },
+		payload: { baseUrl: string; apiKey: string; apiType?: string; headers?: Record<string, string>; proxyMode?: string },
 	) => {
-		const result = await configManager.fetchProviderModels(payload.baseUrl, payload.apiKey, payload.apiType, payload.headers);
+		// proxyMode 白名单收窄（渲染层不可信），再解析成主进程代理策略。
+		const proxyTarget = resolveConfigProxyTarget(settingsStore.get(), asConfigProxyMode(payload?.proxyMode));
+		const result = await configManager.fetchProviderModels(payload.baseUrl, payload.apiKey, payload.apiType, payload.headers, proxyTarget);
 		void appLogger.info("config", "Provider models fetched", {
 			baseUrl: payload.baseUrl,
 			apiType: payload.apiType,
@@ -1281,9 +1322,89 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		});
 		return result;
 	});
+	ipcMain.handle(ipcChannels.configGetTokendanceModels, async (_event, force: unknown) => {
+		// force 必须为布尔（渲染层入参不可信）；目录拉取/缓存错误统一兜底空结果。
+		const forceArg = force === true;
+		try {
+			if (!tokendanceCatalog) return { models: [], fromCache: false, at: 0 };
+			const result = forceArg
+				? await tokendanceCatalog.refresh()
+				: await tokendanceCatalog.getModels();
+			return result ?? { models: [], fromCache: false, at: 0 };
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance catalog load failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { models: [], fromCache: false, at: 0 };
+		}
+	});
+	ipcMain.handle(ipcChannels.configTokendanceAuthStart, async (_event) => {
+		// 未装配 = 主进程没注册授权能力（预览/测试壳），返回失败不抛异常。
+		if (!tokendanceAuth) return { ok: false, error: "TokenDance auth unavailable" };
+		try {
+			return { ok: true, ...tokendanceAuth.start() } as const;
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance auth start failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { ok: false, error: "TokenDance auth start failed" };
+		}
+	});
+	ipcMain.handle(ipcChannels.configTokendanceAuthExchange, async (_event, payload: unknown) => {
+		// 边界校验：flowId/code 必须是非空字符串（渲染层入参不可信）；code 不写日志。
+		const flowId = typeof payload === "object" && payload ? (payload as { flowId?: unknown }).flowId : undefined;
+		const code = typeof payload === "object" && payload ? (payload as { code?: unknown }).code : undefined;
+		if (typeof flowId !== "string" || !flowId || typeof code !== "string" || !code) {
+			return { ok: false, error: "Invalid auth exchange input" };
+		}
+		if (!tokendanceAuth) return { ok: false, error: "TokenDance auth unavailable" };
+		const result = await tokendanceAuth.complete(flowId, code);
+		if (result.ok) {
+			void appLogger.info("config", "TokenDance API key exchanged");
+			return { ok: true, key: result.key } as const;
+		}
+		void appLogger.warn("config", "TokenDance auth exchange failed", { error: result.error });
+		return { ok: false, error: result.error } as const;
+	});
+	ipcMain.handle(ipcChannels.configInstallTokendance, async (_event, payload: unknown) => {
+		// 边界校验：apiKey 为可选字符串（渲染层入参不可信）；Key 不写日志。
+		if (!tokendanceInstall) {
+			return { ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "TokenDance install unavailable" };
+		}
+		const apiKey = payload && typeof payload === "object" ? (payload as { apiKey?: unknown }).apiKey : undefined;
+		if (typeof apiKey !== "undefined" && typeof apiKey !== "string") {
+			return { ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "Invalid install input" };
+		}
+		try {
+			const result = await tokendanceInstall(
+				typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : undefined,
+			);
+			void appLogger.info("config", "TokenDance provider installed", {
+				ok: result.ok,
+				modelCount: result.modelCount,
+				piSaved: result.piSaved,
+				dshSaved: result.dshSaved,
+				dshWroteViaHost: result.dshWroteViaHost,
+				// 失败原因仅诊断用（DSH schema 拒绝等），不含任何 Key 内容
+				dshError: result.dshError,
+			});
+			if (result.ok) {
+				// 写盘后立即失效 model capability 快照：watcher（250ms debounce）会接管刷新
+				// hydration；这里只清快照不 hydration，避免与 watcher 重复 spawn 临时 pi。
+				// 若 watcher 异常未触发，下次 ensure() 也会以新 generation 惰性 hydrate。
+				modelCapabilityCache.invalidate();
+			}
+			return result;
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance install failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "TokenDance install failed" };
+		}
+	});
 	ipcMain.handle(ipcChannels.configTestProvider, async (
 		_event,
-		payload: { providerName: string; modelId: string; models: PiModelsFile },
+		payload: { providerName: string; modelId: string; models: PiModelsFile; proxyMode?: string },
 	) => {
 		// 1) 边界校验：provider/model 名必须是有限的非空字符串；models 交由 saveModelsConfig 做结构校验。
 		const providerName = typeof payload?.providerName === "string" ? payload.providerName.trim() : "";
@@ -1304,7 +1425,14 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		void refreshModelList(piLocator, settingsStore, configManager).catch(() => undefined);
 
 		// 3) 用真实 pi 做一次最小调用（走 pi 的 provider 解析 + SDK，与真实会话同路径）。
-		const result = await probePiModel(piLocator, settingsStore, providerName, modelId);
+		//    测试连接显式选了代理时，把它覆盖到探针进程的代理环境（pi 侧只认 piProxy* 配置）。
+		const result = await probePiModel(
+			piLocator,
+			settingsStore,
+			providerName,
+			modelId,
+			resolveConfigProxyTarget(settingsStore.get(), asConfigProxyMode(payload?.proxyMode)),
+		);
 		void appLogger.info("config", "Provider connection tested via pi", {
 			providerName,
 			modelId,
@@ -1345,6 +1473,18 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		const backend = raw.backend === "dsh" ? "dsh" : "pi";
 		return configManager.getUsageProbeSettings(provider, backend);
 	});
+	// 轻量内置识别（渲染层隐藏「用量查询」配置按钮用）：命中内置候选（零配置自动生效）返回 true。
+	// 与 getUsageProbes 的区别：不读 usage-probes.json，只按端点解析 + 内置候选表判断，开销更小。
+	ipcMain.handle(ipcChannels.configUsageRecognized, async (_event, payload: unknown) => {
+		const raw = payload && typeof payload === "object" ? (payload as { provider?: unknown; backend?: unknown }) : {};
+		const provider = typeof raw.provider === "string" ? raw.provider.trim() : "";
+		if (!provider || provider.length > 128) {
+			return { recognized: false };
+		}
+		const backend = raw.backend === "dsh" ? "dsh" : "pi";
+		const recognized = await configManager.recognizeUsageTemplate(provider, backend);
+		return { recognized: recognized != null };
+	});
 	// 按 provider 合并保存：入口校验与落盘同一套规则，零错误才写（保留文件里其它 providers 与旧 probes）。
 	ipcMain.handle(ipcChannels.configSaveUsageProbes, async (_event, payload: unknown) => {
 		const input =
@@ -1380,7 +1520,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			return { success: false, error: "Invalid provider name" };
 		}
 		const template = typeof input.template === "string" ? input.template.trim() : undefined;
-		if (template && template !== "general" && template !== "newapi") {
+		if (template && template !== "general" && template !== "newapi" && template !== "cookie") {
 			// 内置模板 id 也接受（识别命中后的「测试」按钮走这条路径）。
 			const knownBuiltin = USAGE_PROBE_CANDIDATES.some((c) => c.templateId === template);
 			if (!knownBuiltin) {
@@ -1395,6 +1535,11 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			...(typeof input.baseUrl === "string" ? { baseUrl: input.baseUrl } : {}),
 			...(typeof input.accessToken === "string" ? { accessToken: input.accessToken } : {}),
 			...(typeof input.userId === "string" ? { userId: input.userId } : {}),
+			// Cookie 模板字段：弹窗测试必须透传，否则构建候选时校验失败（必填三件套）。
+			...(typeof input.cookie === "string" ? { cookie: input.cookie } : {}),
+			...(typeof input.cookiePath === "string" ? { cookiePath: input.cookiePath } : {}),
+			...(typeof input.valuePath === "string" ? { valuePath: input.valuePath } : {}),
+			...(typeof input.currencyPath === "string" ? { currencyPath: input.currencyPath } : {}),
 			...(typeof input.timeoutSecs === "number" ? { timeoutSecs: input.timeoutSecs } : {}),
 		});
 		void appLogger.info("config", "Usage probe tested", {

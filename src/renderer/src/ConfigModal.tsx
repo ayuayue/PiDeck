@@ -40,7 +40,7 @@ import { cn } from "./lib/utils";
 import { deepClone } from "./utils/deepEqual";
 import { showNotice } from "./utils/notice";
 import { applyAdaptiveTemplateReset, collectModelSpecPatches, deriveProviderCompat, mergeAdaptiveModelTemplate } from "./utils/modelSpecAutoFill";
-import type { FetchedModel } from "../../shared/types/fetchedModel";
+import type { FetchedModel, ConfigProxyMode } from "../../shared/types/fetchedModel";
 import {
 	Component,
 	forwardRef,
@@ -56,6 +56,7 @@ import {
 import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
 import { ModelsTab } from "./config/ModelsTab";
+import { TokenDancePanel, type TokendanceInstallOutcome } from "./config/TokenDancePanel";
 import { UsageProbeConfigDialog } from "./config/UsageProbeConfigDialog";
 import { removeSelectedModelIndexes } from "./config/modelBatchSelection";
 import { openDocsInSystemBrowser } from "./config/ConfigShared";
@@ -81,6 +82,7 @@ import type {
 } from "./config/configTypes";
 import type { ConfigFileDiagnostic, CreatePiPromptTemplateInput, PiExtensionListResult, PiExtensionSummary, PiPromptTemplateListResult, PiPromptTemplateSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
 import { getProviderHeaders, KNOWN_PROVIDER_ENDPOINTS } from "./config/providerHeaders";
+import { TOKENDANCE_PROVIDER } from "../../shared/tokendance";
 import { ALL_CONFIG_DIRTY_KEYS, dirtyKeysClearedByReload, dirtyKeysPreservedOnReload, reconcileConfigDirty } from "./config/configDirtyMarks";
 import { formatConfigUnsavedMessage, summarizeConfigUnsavedChanges, type ConfigUnsavedItem } from "./config/configUnsavedChangesSummary";
 import { DirtyMarker } from "./components/app/settings/SettingRows";
@@ -667,6 +669,27 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const [testModelIdByProvider, setTestModelIdByProvider] = useState<
 		Record<string, string>
 	>({});
+	// 每个 provider 的测试/拉取模型代理模式：follow 跟随全局，pi/desktop 强制走对应代理，off 强制直连。
+	// 独立于全局代理开关：有些供应商（如海外网关）只在代理下才通，而全局开关会影响所有会话。
+	const [testProxyModeByProvider, setTestProxyModeByProvider] = useState<
+		Record<string, ConfigProxyMode>
+	>({});
+	// 代理配置快照（用于下拉里展示实际 URL，给用户明确反馈走的是哪个代理）。
+	const [proxySettings, setProxySettings] = useState<{
+		piProxyUrl: string;
+		desktopProxyUrl: string;
+	} | null>(null);
+	useEffect(() => {
+		api.settings
+			.get()
+			.then((s) =>
+				setProxySettings({
+					piProxyUrl: s.piProxyUrl ?? "",
+					desktopProxyUrl: s.desktopProxyUrl ?? "",
+				}),
+			)
+			.catch(() => setProxySettings(null));
+	}, []);
 	// 删除确认对话框
 	const [deleteConfirm, setDeleteConfirm] = useState<{
 		type: "provider" | "model" | "auth" | "batch";
@@ -676,8 +699,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	} | null>(null);
 
 	const loadConfig = useCallback(
-		async (target: ConfigTab, options?: { force?: boolean }) => {
-			setLoading(true);
+		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
+			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
+			// `!loading && ...` 条件下被卸载重建、滚动容器内容塔缩后 scrollTop 归零。
+			if (!options?.silent) setLoading(true);
 			setError(null);
 			setConfigDiagnostic(null);
 			try {
@@ -944,6 +969,16 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	// ── Models 操作 ──────────────────────────────────────
 
+	/** TokenDance 一键安装成功：刷新 Pi 模型数据 + DSH 配置页（主进程已直写两侧配置文件）。 */
+	const handleTokendanceInstalled = useCallback((outcome: TokendanceInstallOutcome) => {
+		// 主进程已直接落盘 models.json：以磁盘为准整页重载（force 清空草稿保留集——
+		// 安装是明确的落盘动作，与保存/导入同语义）；DSH 侧若写入成功同步刷新配置页。
+		void loadConfig("models", { force: true }).catch(() => undefined);
+		if (outcome.dshSaved) {
+			void dshConfigRef.current?.reload().catch(() => undefined);
+		}
+	}, [loadConfig]);
+
 	const handleAddProvider = () => {
 		const providerName = newProviderName.trim();
 		// 空：静默返回（用户尚未输入）；非法字符：提示规则，避免 DSH credentialRefFor
@@ -1114,6 +1149,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				provider.apiKey,
 				provider.api as string | undefined,
 				getProviderHeaders(provider.headers),
+				// 拉取列表与测试同用 per-provider 代理选择（海外网关需代理时不用改全局开关）。
+				testProxyModeByProvider[providerName] ?? "follow",
 			);
 			if (result.success && result.models) {
 				setFetchedModels((prev) => ({
@@ -1181,12 +1218,15 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				providerName,
 				modelId,
 				modelsData,
+				testProxyModeByProvider[providerName] ?? "follow",
 			);
 			setTestResult({ providerName, ...result });
 			if (result.success) {
 				// 测试即保存：清除脏标记并回读磁盘，保持表单与磁盘、baseline 一致。
+				// silent 回读：不卸载 ModelsTab（loading 会塔缩滚动容器、滚动位置丢失），
+				// 用户停留在测试结果卡片处。
 				clearDirty("config:models");
-				await loadConfig("models", { force: true });
+				await loadConfig("models", { force: true, silent: true });
 				onSaved();
 			}
 		} catch (e) {
@@ -1268,7 +1308,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			const spec = await api.projects
 				.getModelSpec(providerName, model.id, model.name)
 				.catch(() => null);
-			const template = mergeAdaptiveModelTemplate(listing, spec);
+			const template = mergeAdaptiveModelTemplate(listing, spec, model.id);
 			const nextModel = applyAdaptiveTemplateReset(model, template);
 			const models = [...provider.models];
 			models[index] = nextModel;
@@ -2296,6 +2336,12 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					{statusBlock}
 					{configDiagnosticBlock}
 					{!loading && (
+						<>
+						{/* TokenDance：确认后一键写入配置（pi models.json + DSH 模型目录），不内置注入 */}
+						<TokenDancePanel
+							configured={!!modelsData.providers[TOKENDANCE_PROVIDER]}
+							onInstalled={handleTokendanceInstalled}
+						/>
 						<ModelsTab
 							data={modelsData}
 							expandedProvider={expandedProvider}
@@ -2311,6 +2357,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							testingProvider={testingProvider}
 							testResult={testResult}
 							testModelIdByProvider={testModelIdByProvider}
+							testProxyModeByProvider={testProxyModeByProvider}
+							proxySettings={proxySettings}
 							saving={saving}
 							onToggleProvider={(name) =>
 								setExpandedProvider(expandedProvider === name ? null : name)
@@ -2344,6 +2392,12 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									[providerName]: modelId,
 								}))
 							}
+							onChangeTestProxyMode={(providerName, mode) =>
+								setTestProxyModeByProvider((current) => ({
+									...current,
+									[providerName]: mode,
+								}))
+							}
 							onClearTestResult={() => setTestResult(null)}
 							onSave={handleSaveModels}
 							onChangeProvider={(name, field, value) => {
@@ -2359,6 +2413,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								markDirty("config:models");
 							}}
 						/>
+						</>
 					)}
 						</div>
 					</TabsContent>

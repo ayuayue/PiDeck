@@ -13,9 +13,14 @@ import test from "node:test";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(repoRoot, "package.json"));
 
-test("package.json depends on dsh-bill so electron-builder packs it", () => {
+test("package.json keeps dsh-bill in devDependencies and the runtime archive seeds it", () => {
   const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-  assert.ok(pkg.dependencies["dsh-bill"], "dsh-bill must be a production dependency");
+  assert.ok(pkg.devDependencies["dsh-bill"], "dsh-bill must be a devDependency (deps partitioned into the dsh-runtime archive)");
+  // 依赖分区（2026-09）：hostEntry 从 dsh-runtime 目录 require.resolve，归档由脚本守护。
+  const checkScript = readFileSync(join(repoRoot, "scripts/check-dsh-asar.mjs"), "utf8");
+  const packScript = readFileSync(join(repoRoot, "scripts/pack-dsh-runtime.mjs"), "utf8");
+  assert.match(checkScript, /"dsh-bill"/);
+  assert.match(packScript, /EXTRA_SEED_NAMES = \["dsh-bill", "dsh-tool-pwsh-persistent"\]/);
 });
 
 test("dsh-bill is resolvable from the app root (hostEntry require.resolve)", () => {

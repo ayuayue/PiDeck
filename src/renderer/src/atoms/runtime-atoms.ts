@@ -3,6 +3,7 @@ import { atomFamily, selectAtom } from "jotai/utils";
 import type { AgentRuntimeState, AgentStatus, AgentTab } from "../../../shared/types";
 import { sessionRecordsAtom, sessionRuntimeByIdAtom } from "./session-atoms";
 import { sessionIdByRuntimeAgentIdAtomFamily } from "./session-selectors";
+import { sessionDisplayName } from "../utils/sessionDisplayName";
 
 function areAgentTabsEqual(left: AgentTab[], right: AgentTab[]): boolean {
   if (left === right) return true;
@@ -52,7 +53,7 @@ const agentInventorySourceAtom = atom((get) => {
         id: runtime.agentId,
         projectId: runtime.projectId,
         cwd: runtime.cwd,
-        title: record?.title ?? runtime.title ?? "Session",
+        title: record ? (sessionDisplayName(record.title, record.forked) ?? record.title) : (runtime.title ?? "Session"),
         status: runtime.status,
         sessionId: runtime.piSessionId,
         sessionPath: runtime.sessionPath,

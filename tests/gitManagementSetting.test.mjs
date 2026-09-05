@@ -43,8 +43,9 @@ describe("optional Git management entry", () => {
 
   test("Git entry lives in the drawer rail, not the floating conversation tools", () => {
     // 悬浮栏（outline）不再暴露 git 入口；git 收进抽屉活动栏，受同一开关门控
-    assert.match(appParts, /filesAction\?: EntryAction;\s*gitAction\?: EntryAction;/);
-    assert.match(app, /gitAction=\{undefined\}/);
+    // 悬浮栏已移除 files/git/browser action props；这些入口由抽屉活动栏统一承载
+    assert.doesNotMatch(appParts, /\b(?:filesAction|gitAction|browserAction)\b/);
+    assert.doesNotMatch(app, /(?:filesAction|gitAction|browserAction)=/);
     assert.match(app, /\.\.\.\(settings\.enableGitManagement && activeProjectId \? \[\{[\s\S]*?id: "git"[\s\S]*?icon: <GitBranch\s+size=\{16\}/);
     // 抽屉活动栏按钮与 outline 共用同一套切换语义（handleToolDrawerAction）
     assert.match(app, /onClick: \(\) => handleToolDrawerAction\("git"\)/);

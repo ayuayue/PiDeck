@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { WorkspaceDrawerPanel } from "./useWorkspacePanels";
 import type { SessionFilterPill } from "../sessionFilterPills";
+import { openGitFileInEditor } from "../utils/gitFileOpen";
 import type {
   DrawerGitPort,
   DrawerChromePort,
@@ -18,6 +19,8 @@ interface UseDrawerPortsInput {
   openWorkspaceFileDiff: any;
   toggleGitDiffDisplayMode: () => void;
   closeGitDiff: () => void;
+  /** 仅关掉 Git Diff、保留文件 tab；Git 行内“打开文件”要先清 Diff 再开 tab。 */
+  dismissGitDiff: () => void;
   gitApi: any;
   gitInfo: any;
   switchBranch: any;
@@ -123,9 +126,10 @@ export function useDrawerPorts(input: UseDrawerPortsInput) {
       runDeleteHistorySession: input.runDeleteHistorySession,
       viewFilePath: input.viewFilePath,
       openFilePath: input.openFilePath,
-      // 包装为单参：以可编辑模式在中间栏打开文件（Git 行内“打开文件”按钮）
+      // 包装为单参：以可编辑模式在中间栏打开文件（Git 行内“打开文件”按钮）。
+      // 先清 Git Diff 再开 Tab 的顺序契约见 utils/gitFileOpen.ts。
       openEditorTab: (path: string) =>
-        input.openEditorTab(path, "view", undefined, undefined, true, undefined, undefined, undefined, "permanent"),
+        openGitFileInEditor(input.dismissGitDiff, input.openEditorTab, path),
       api: input.api,
       t: input.t,
       projectRoot: input.projectRoot,
@@ -139,7 +143,7 @@ export function useDrawerPorts(input: UseDrawerPortsInput) {
     input.enableGitManagement, input.activeProjectId,
     input.gitDrawerDiff, input.gitDiffDisplayMode,
     input.openCommitFileDiff, input.openWorkspaceFileDiff,
-    input.toggleGitDiffDisplayMode, input.closeGitDiff,
+    input.toggleGitDiffDisplayMode, input.closeGitDiff, input.dismissGitDiff,
     input.gitApi, input.gitInfo, input.switchBranch, input.createBranch,
     input.openDrawer, input.closeDrawer, input.collapseDrawer,
     input.closeBrowser, input.minimizeBrowser, input.enterBrowserFullscreen,

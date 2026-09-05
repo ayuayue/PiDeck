@@ -1,3 +1,5 @@
+import type { AvailableModel } from "../../../shared/types";
+
 export type ChatSessionBootstrapAction =
   | { kind: "none" }
   | { kind: "load" }
@@ -13,7 +15,9 @@ export const GUIDE_BOOTSTRAP_SESSION_ID = "renderer:guide-bootstrap";
 
 /** 欢迎页（未启动 Agent）选择的模型偏好存储 key。 */
 export const WELCOME_MODEL_KEY = "pideck:welcome-model";
-/** 欢迎页（未启动 Agent）选择的思考级别偏好存储 key。 */
+/** 欢迎页（未启动 Agent）选择的思考级别偏好存储 key。
+ *  注意（2026-10 用户规则）：思考级别一律走默认档位（settings.defaultThinkingLevel），
+ *  偏好级别不再参与回退；此 key 仅保留读取函数供旧数据兼容，不写入新值。 */
 export const WELCOME_THINKING_KEY = "pideck:welcome-thinking";
 
 /** 读取欢迎页最后选择的模型偏好（无则 undefined）。 */
@@ -42,6 +46,24 @@ export function readWelcomeThinkingPreference(): { thinkingLevel: string } | und
     // 读取失败视为无偏好
   }
   return undefined;
+}
+
+/**
+ * welcome 偏好（localStorage 残留）中的模型是否已从模型目录消失。
+ * 供应商/模型被删除后偏好仍会指向旧模型（用户反馈「模型都删了新建会话还是它」）；
+ * 调用方（引导页底栏展示 / 模型选择器）应忽略该偏好并清理 localStorage，
+ * 让显示回落到主进程解析的启动默认（launchDefaults 已校验 models.json 存在性）。
+ * 目录未就绪（models 为空）时不判定——避免误清仍有效的偏好（目录加载失败场景）。
+ */
+export function isWelcomeModelLost(
+  welcomeModel: { provider: string; modelId: string } | undefined,
+  models: AvailableModel[],
+): boolean {
+  if (!welcomeModel) return false;
+  if (models.length === 0) return false;
+  return !models.some(
+    (model) => model.provider === welcomeModel.provider && model.id === welcomeModel.modelId,
+  );
 }
 
 /**

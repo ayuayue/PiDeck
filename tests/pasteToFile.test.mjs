@@ -59,7 +59,11 @@ test("右键粘贴：大段文本同样转文件并返回 true（不再交给编
 
 test("pasteTextToFile：项目内写 .pideck-paste、chip 元数据含 inProject", () => {
   assert.match(controller, /desktopApi\.pasteFiles\.write\(/);
-  assert.match(controller, /projectPath: record\?\.projectPath \?\? ""/);
+  // 项目根经 projectId 反查项目清单，不依赖可能缺失的 record.projectPath
+  // （catalog 会话 record 的 projectPath 字段经常缺省，旧逻辑会把有项目会话
+  // 误当匿名会话，导致粘贴大文本发送后被展开成普通文本）。
+  assert.match(controller, /projectPath: composerProject\?\.path \?\? ""/);
+  assert.match(controller, /projectByIdAtomFamily/);
   assert.match(controller, /inProject: result\.inProject/);
   assert.match(controller, /formatBytes\(result\.bytes\)/, "chip 应展示可读文件大小");
   // 写盘失败回退原样插入，粘贴内容不丢

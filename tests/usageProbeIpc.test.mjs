@@ -19,6 +19,8 @@ test("三条探针管理通道集中定义在 shared/ipc.ts", () => {
   assert.match(ipc, /configGetUsageProbes: "config:get-usage-probes"/);
   assert.match(ipc, /configSaveUsageProbes: "config:save-usage-probes"/);
   assert.match(ipc, /configTestUsageProbe: "config:test-usage-probe"/);
+  // 轻量内置识别通道（渲染层隐藏「用量查询」按钮用）。
+  assert.match(ipc, /configUsageRecognized: "config:usage-recognized"/);
 });
 
 test("主进程三个 handler 都注册且先校验后动作", () => {
@@ -26,6 +28,7 @@ test("主进程三个 handler 都注册且先校验后动作", () => {
     "configGetUsageProbes",
     "configSaveUsageProbes",
     "configTestUsageProbe",
+    "configUsageRecognized",
   ]) {
     assert.match(systemIpc, new RegExp(`ipcChannels\\.${channel}`));
   }
@@ -81,9 +84,11 @@ test("preload 暴露与 previewApi stub 三处同步", () => {
   assert.match(preload, /fetchUsage: \(provider: string, backend\?/);
   assert.match(preload, /saveUsageProbes: \(payload: UsageProbeSaveInput\)/);
   assert.match(preload, /testUsageProbe: \(payload: UsageProbeTestInput\)/);
+  assert.match(preload, /usageRecognized: \(provider: string, backend\?/);
   assert.match(previewApi, /getUsageProbes: async \(\) => \(\{ recognized: null/);
   assert.match(previewApi, /saveUsageProbes: async \(\) => \(\{ ok: false/);
   assert.match(previewApi, /testUsageProbe: async \(\) => \(\{ success: false/);
+  assert.match(previewApi, /usageRecognized: async \(\) => \(\{ recognized: false/);
 });
 
 test("backend 维度贯通：DSH 链路 = $DSH_HOME/.pideck 配置 + DSH 凭据库", () => {
@@ -97,6 +102,11 @@ test("backend 维度贯通：DSH 链路 = $DSH_HOME/.pideck 配置 + DSH 凭据�
   // route 改写，只靠 pi/catalog 兜底会「时而查得对、时而判不支持」；凭据 ref 由 profile 给出。
   assert.match(configManager, /loadDshUsageProviderProfile/);
   assert.match(configManager, /profile\.credentialRef/);
+  // DSH 未单独配置时回退 Pi 侧同 provider 配置（display parity）：Pi 已配置并显示 →
+  // DSH 卡片默认也显示；DSH 一旦显式保存（含 enabled=false）即接管不回退。
+  assert.match(configManager, /loadUsageSettingsWithFallback/);
+  assert.match(configManager, /effectiveDir/);
+  assert.match(configManager, /backend !== "dsh" \|\| settings\.config/);
   // 装配层（index.ts）注入：DSH_HOME 与 DshHost 同一解析 + .credentials.yaml 环境层优先。
   const mainIndex = readFileSync("src/main/index.ts", "utf8");
   assert.match(mainIndex, /new ConfigManager\(undefined, mainCopy, \{/);

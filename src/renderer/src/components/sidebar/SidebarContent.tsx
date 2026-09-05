@@ -22,6 +22,7 @@ import { cn } from "../../lib/utils";
 import { showNotice } from "../../utils/notice";
 import { isLiveRuntimeStatus } from "../../utils/sessionCommands";
 import { getBoundSidebarRuntimeAgent, getBoundSidebarRuntimeAgentByAgentId, type SidebarController, type SidebarRpcLog } from "../../hooks/useSidebarController";
+import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { DshSearchResults } from "./DshSearchResults";
 import { ProjectTree } from "./ProjectTree";
 import { Button } from "../ui-shadcn/button";
@@ -36,6 +37,8 @@ export type SidebarActions = {
     add: () => Promise<void>;
     select: (projectId: string) => void;
     refresh: (projectId: string) => Promise<void>;
+    /** 重扫所有项目目录的存在性并刷新侧栏清单。 */
+    refreshAll: () => Promise<void>;
     reorder: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
     reveal: (project: Project) => Promise<void>;
     openWithEditor: (project: Project) => void;
@@ -43,6 +46,8 @@ export type SidebarActions = {
     manageResources: (project: Project) => void;
     toggleWorktree: (project: Project) => Promise<void>;
     copyPath: (project: Project) => Promise<void>;
+    /** 重命名项目显示名（仅改 label，不动磁盘目录）；打开重命名对话框。 */
+    rename: (project: Project) => void;
     remove: (project: Project) => Promise<void>;
     changeChatPath?: (project: Project) => Promise<void>;
   };
@@ -115,6 +120,8 @@ export type SidebarContentProps = {
   worktreesByProject: Readonly<Record<string, readonly WorktreeEntry[]>>;
   branchByProject?: Readonly<Record<string, string | null | undefined>>;
   creatingWorktree?: boolean;
+  /** 正在删除的 worktree 路径集合（透传给 WorktreeTree 驱动淡出动画）。 */
+  removingWorktreePaths?: ReadonlySet<string>;
   isLanWeb?: boolean;
   chrome?: ReactNode;
   /** 「新建会话」：打开初始引导页（居中输入框 + 项目下拉切换），由 App 提供。 */
@@ -130,8 +137,11 @@ export type SidebarContentProps = {
 export function SidebarContent(props: SidebarContentProps) {
   const { controller, actions } = props;
   const menu = controller.menu;
-  // 更新角标：PiDeck 或 Pi CLI 有可提示更新时点亮设置按钮圆点（跨重启由主进程持久化状态恢复）。
-  const hasPendingUpdate = useAtomValue(pendingAppUpdateAtom) || useAtomValue(pendingPiUpdateAtom);
+  // 两个 atom 必须无条件读取：不能用 `useAtomValue(app) || useAtomValue(pi)`，
+  // 否则应用更新从 false 变 true 时会短路跳过第二个 Hook，破坏 Hook 调用顺序。
+  const hasPendingAppUpdate = useAtomValue(pendingAppUpdateAtom);
+  const hasPendingPiUpdate = useAtomValue(pendingPiUpdateAtom);
+  const hasPendingUpdate = hasPendingAppUpdate || hasPendingPiUpdate;
   const menuProject = menu?.kind === "project"
     ? controller.catalog.projects.find((project) => project.id === menu.projectId)
     : undefined;
@@ -141,6 +151,16 @@ export function SidebarContent(props: SidebarContentProps) {
     : undefined;
   const menuAgent = menu?.kind === "agent"
     ? controller.catalog.agents.find((agent) => agent.id === menu.agentId)
+    : undefined;
+  const menuAgentSessionId = menuAgent
+    ? Object.entries(controller.catalog.runtimeBySessionId).find(
+      ([, runtime]) => runtime?.agentId === menuAgent.id,
+    )?.[0]
+    : undefined;
+  const menuAgentSessionRecord = menuAgentSessionId && menuAgent
+    ? controller.catalog.sessionsByProject[menuAgent.projectId]?.find(
+      (session) => session.id === menuAgentSessionId,
+    )
     : undefined;
 
   // 底栏主题按钮：图标与文案反映当前主题模式；点击翻转浅/暗（规则见 themeAppearance.toggleThemeMode）
@@ -234,7 +254,7 @@ export function SidebarContent(props: SidebarContentProps) {
     for (const session of controller.catalog.sessionsByProject[project.id] ?? []) {
       searchItems.push({
         id: `session:${session.id}`,
-        title: session.title,
+        title: sessionDisplayName(session.title, session.forked) ?? session.title,
         description: session.preview,
         icon: MessageSquare,
         onSelect: () => { void actions.sessions.open(project.id, session.id); },
@@ -244,10 +264,10 @@ export function SidebarContent(props: SidebarContentProps) {
 
   return (
     <aside
-      // @container：侧栏宽度容器查询基准——行操作按钮（绝对浮层）按侧栏实际宽度
-      // 决定 hover 时文本是否压缩让位（pr 留出按钮空间 + 截断，见各树的 @max-[255px] 变体），
-      // 不用把宽度穿进树组件
-      className="chat-list-pane v3-braun @container flex h-full min-w-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
+      // 行操作按钮是 absolute 浮层：hover 时行文本通过 padding-right 压缩让位
+      // （pr 留出按钮空间 + 截断，三棵树统一策略，不再按侧栏宽度分断点），
+      // 宽度不用穿透到树组件
+      className="chat-list-pane v3-braun flex h-full min-w-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
       aria-label={t("app.search")}
     >
       {/* 品牌区提到 body 外：贴侧栏顶边，不被 sidebar-body 的 px/py 顶开（logo 怼左上）。 */}
@@ -365,6 +385,7 @@ export function SidebarContent(props: SidebarContentProps) {
             currentSessionId={props.currentSessionId}
             worktreesByProject={props.worktreesByProject}
             branchByProject={props.branchByProject}
+            removingWorktreePaths={props.removingWorktreePaths}
           />
         </section>
       </div>
@@ -423,6 +444,7 @@ export function SidebarContent(props: SidebarContentProps) {
           onToggleWorktree={() => { void actions.projects.toggleWorktree(menuProject); controller.closeMenu(); }}
           onRefreshProject={() => { void actions.projects.refresh(menuProject.id); controller.closeMenu(); }}
           onCopyProjectPath={() => { void actions.projects.copyPath(menuProject); controller.closeMenu(); }}
+          onRenameProject={() => { actions.projects.rename(menuProject); controller.closeMenu(); }}
           onRemoveWorktree={menuProjectWorktreeParent ? () => {
             void actions.worktrees.remove(menuProjectWorktreeParent.id, {
               path: menuProject.path,
@@ -438,6 +460,11 @@ export function SidebarContent(props: SidebarContentProps) {
           menu={{ x: menu.x, y: menu.y, agent: menuAgent }}
           onClose={controller.closeMenu}
           onRename={() => { actions.agents.rename(menuAgent); controller.closeMenu(); }}
+          isPinned={menuAgentSessionRecord ? controller.isSessionPinned(menuAgentSessionRecord.id) : false}
+          onTogglePinned={menuAgentSessionRecord && menu.pinnable !== false ? () => {
+            controller.toggleSessionPin(menuAgentSessionRecord.id);
+            controller.closeMenu();
+          } : undefined}
           onExport={() => { void actions.agents.export(menuAgent); controller.closeMenu(); }}
           onCopySession={() => { void actions.agents.copySession(menuAgent); controller.closeMenu(); }}
           onCopySessionFilePath={() => { void actions.agents.copyPath(menuAgent); controller.closeMenu(); }}
@@ -506,6 +533,11 @@ export function SidebarContent(props: SidebarContentProps) {
           menu={{ x: menu.x, y: menu.y, session: menuSession }}
           onClose={controller.closeMenu}
           onRename={() => { actions.sessions.rename(menu.projectId, menuSession); controller.closeMenu(); }}
+          isPinned={controller.isSessionPinned(menuSession.id)}
+          onTogglePinned={menu.pinnable ? () => {
+            controller.toggleSessionPin(menuSession.id);
+            controller.closeMenu();
+          } : undefined}
           onOpenProxySetting={() => { controller.closeMenu(); setProxyDialogSessionId(menuSession.id); }}
           // 重启会话（未启动的历史会话走 activateRuntime 启动；有绑定则走 restartRuntime）
           onRestartSession={() => { controller.closeMenu(); void actions.sessions.restart(menu.projectId, menuSession); }}

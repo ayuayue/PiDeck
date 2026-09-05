@@ -284,7 +284,9 @@ async function findInProgramsByPrefix(
 	const exeName = candidate.programsExeName;
 	if (prefixes.length === 0 || !exeName) return null;
 	for (const root of WINDOWS_PROGRAM_FILES) {
-		for (const dir of [root, join(root, "JetBrains")]) {
+		// 扫描点：安装根自身、Programs 子目录（$LOCALAPPDATA\Programs 等，用户不带 JetBrains 父目录时）、
+		// 以及 JetBrains 子目录。覆盖「Programs 根下 {prefix}*」与「JetBrains/{prefix}*」两种版本目录。
+		for (const dir of [root, join(root, "Programs"), join(root, "JetBrains")]) {
 			let entries: string[];
 			try {
 				entries = await readdir(dir);

@@ -20,7 +20,11 @@ import {
 	type SecurityPolicySnapshot,
 } from "../../shared/types/security";
 import type { SettingsStore } from "../settings/SettingsStore";
-import { buildSnapshot, validateSecurityConfig } from "./policy";
+import {
+	buildSnapshot,
+	sanitizeLineList,
+	validateSecurityConfig,
+} from "./policy";
 
 /** 快照文件名：扩展经 PIDECK_SECURITY_CONFIG 环境变量读取 */
 const SNAPSHOT_FILE = "security-policy.json";
@@ -68,8 +72,16 @@ export class SecurityStore {
 			for (const level of raw.levels) {
 				if (!level || typeof level.id !== "string") continue;
 				const idx = mergedLevels.findIndex((m) => m.id === level.id);
-				if (idx >= 0) mergedLevels[idx] = level;
-				else mergedLevels.push(level);
+				// 行列表字段（含用户输入框保留的空行/空白）在此收敛：空串进入策略会
+				// 误伤（空 denyDirs 匹配一切路径、空 bash 正则匹配一切命令），必须清洗。
+				const cleaned = {
+					...level,
+					denyBashPatterns: sanitizeLineList(level.denyBashPatterns),
+					denyDirs: sanitizeLineList(level.denyDirs),
+					customAllowDirs: sanitizeLineList(level.customAllowDirs),
+				};
+				if (idx >= 0) mergedLevels[idx] = cleaned;
+				else mergedLevels.push(cleaned);
 			}
 		}
 

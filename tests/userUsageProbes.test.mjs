@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { loadUserUsageProbes, normalizeUserUsageProbes, loadUsageProbeSettings, saveUsageProbeForProvider, normalizeProviderConfig } = loadTsCommonJs("src/main/config/userUsageProbes.ts");
+const { loadUserUsageProbes, loadUserUsageProbesDetailed, normalizeUserUsageProbes, loadUsageProbeSettings, saveUsageProbeForProvider, normalizeProviderConfig } = loadTsCommonJs("src/main/config/userUsageProbes.ts");
 const { buildDeclarativeUsageProbeTemplate, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } = loadTsCommonJs("src/main/config/usageProbeTemplates.ts");
 const { USAGE_PROBE_CANDIDATES } = loadTsCommonJs("src/main/config/providerUsageProbe.ts");
 
@@ -172,6 +172,25 @@ test("rootPath 标记透传到候选（host 根端点场景）", () => {
   ]);
   assert.equal(result.errors.length, 0);
   assert.equal(result.candidates[0].rootPath, true);
+});
+
+test("skipBearer 透传到候选 noBearer（Cookie 登录态接口场景）", () => {
+  const result = normalizeUserUsageProbes([
+    {
+      match: { baseUrlContains: ["tokenrhythm.studio"] },
+      request: {
+        path: "/api/wallet/summary",
+        rootPath: true,
+        skipBearer: true,
+        headers: { Cookie: "tr_session=sess_x" },
+      },
+      parse: { kind: "balance", valuePath: "data.availableBalanceCny" },
+    },
+  ]);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.candidates[0].noBearer, true);
+  // 规范化后的 probe 不再需要 skipBearer 字段（只影响候选请求头组装）
+  assert.equal(result.probes[0].request.skipBearer, undefined);
 });
 
 test("windows 的 listPath/where 形态被校验保留，eq 非基本类型的条件被丢弃", () => {
@@ -354,6 +373,48 @@ test("providers-only 文件：弹窗读取零错误（DSH「缺少 probes 数组
   }
 });
 
+test("loadUserUsageProbesDetailed：文档形态返回原样探针与对应候选（Cookie 回显用）", async () => {
+  const content = JSON.stringify({
+    providers: { "thetoken-copy": { enabled: true } },
+    probes: [
+      {
+        name: "Token Rhythm 钱包余额",
+        match: { baseUrlContains: ["tokenrhythm.studio"] },
+        request: { path: "/api/wallet/summary", rootPath: true, skipBearer: true, headers: { Cookie: "_c_abc=1; tr_session=sess_x" } },
+        parse: { kind: "balance", valuePath: "data.availableBalanceCny", currencyPath: "data.currency" },
+      },
+    ],
+  });
+  await withProbesFile(content, async (dir) => {
+    const result = await loadUserUsageProbesDetailed(dir);
+    assert.equal(result.errors.length, 0);
+    assert.equal(result.probes.length, 1);
+    assert.equal(result.candidates.length, 1);
+    // 原始探测形态保留（弹窗回显迁移源），含 Cookie 头与 balance 分支字段
+    assert.equal(result.probes[0].name, "Token Rhythm 钱包余额");
+    assert.equal(result.probes[0].request?.headers?.Cookie, "_c_abc=1; tr_session=sess_x");
+    assert.equal(result.probes[0].parse?.kind, "balance");
+    assert.equal(result.candidates[0].path, "/api/wallet/summary");
+  });
+});
+
+test("loadUserUsageProbesDetailed：skipBearer 进候选（noBearer），仅提示用原样不含该字段", async () => {
+  const content = JSON.stringify({
+    probes: [
+      {
+        match: { baseUrlContains: ["tokenrhythm.studio"] },
+        request: { path: "/api/wallet/summary", skipBearer: true, headers: { Cookie: "x=1" } },
+        parse: { kind: "balance", valuePath: "data.balance" },
+      },
+    ],
+  });
+  await withProbesFile(content, async (dir) => {
+    const result = await loadUserUsageProbesDetailed(dir);
+    assert.equal(result.candidates[0].noBearer, true);
+    assert.equal(result.probes[0].request?.skipBearer, undefined);
+  });
+});
+
 test("配置损坏 / 非法条目返回错误而非抛异常", async () => {
   const dir = await mkdtemp(join(tmpdir(), "usage-probes-bad-"));
   try {
@@ -465,4 +526,24 @@ test("credits 的 scale 仅接受正有限数（New API 积分换算场景）", 
   ]);
   assert.equal(invalid.errors.length, 0);
   assert.equal(invalid.candidates[0].parse.scale, undefined, "非法 scale 丢弃，不缩放");
+});
+test("normalizeProviderConfig：cookie 模板字段合法时完整回填", () => {
+  const res = normalizeProviderConfig({
+    template: "cookie",
+    cookie: "_c=1; tr_session=sess_abc",
+    cookiePath: "/api/wallet/summary",
+    valuePath: "data.availableBalanceCny",
+    currencyPath: "data.currency",
+  });
+  assert.equal(res.error, undefined);
+  assert.equal(res.config.template, "cookie");
+  assert.equal(res.config.cookie, "_c=1; tr_session=sess_abc");
+  assert.equal(res.config.cookiePath, "/api/wallet/summary");
+  assert.equal(res.config.valuePath, "data.availableBalanceCny");
+  assert.equal(res.config.currencyPath, "data.currency");
+});
+
+test("normalizeProviderConfig：cookiePath 非 / 开头报错", () => {
+  const res = normalizeProviderConfig({ template: "cookie", cookiePath: "api/wallet/summary" });
+  assert.match(res.error, /以 \/ 开头/);
 });

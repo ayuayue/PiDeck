@@ -31,6 +31,20 @@ export function normalizePathForCompare(p: string): string {
 	return p.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+/**
+ * 清洗等级内的行列表配置（denyBashPatterns / denyDirs / customAllowDirs）：
+ * 逐行去首尾空白、丢弃空串。空串必须拦在持久化前——空 denyDirs 会被
+ * isPathInsideRoot 当作「根为 /」从而匹配一切路径（全部 deny），
+ * 空 denyBashPatterns 的 RegExp("") 匹配一切命令（全部 deny）。
+ * 渲染层输入框允许保留空行（否则尾随回车被受控回填吞掉），空行在此收敛。
+ */
+export function sanitizeLineList(value: string[] | undefined): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map((line) => (typeof line === "string" ? line.trim() : ""))
+		.filter((line) => line !== "");
+}
+
 /** 判断 target 是否位于 root 目录之内（含等于）。Windows 忽略盘符大小写。 */
 export function isPathInsideRoot(target: string, root: string): boolean {
 	const t = normalizePathForCompare(target).toLowerCase();

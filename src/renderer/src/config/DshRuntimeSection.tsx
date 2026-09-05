@@ -122,10 +122,12 @@ export function DshRuntimeSection({
 						</div>
 					) : null}
 					<div className="flex flex-wrap items-center gap-2">
-						<Button size="sm" className="gap-1.5" disabled={busy} onClick={() => void run("online")}>
-							<Download className="size-3.5" />
-							{t("dsh.runtime.reinstall")}
-						</Button>
+						{status.installEnabled !== false ? (
+							<Button size="sm" className="gap-1.5" disabled={busy} onClick={() => void run("online")}>
+								<Download className="size-3.5" />
+								{t("dsh.runtime.reinstall")}
+							</Button>
+						) : null}
 						{/* 手动导入：镜像不可达 / 离线场景的兜底，对话框由主进程弹出。 */}
 						<Button size="sm" variant="outline" className="gap-1.5" disabled={busy} onClick={() => void run("local")}>
 							<FolderOpen className="size-3.5" />
@@ -141,7 +143,7 @@ export function DshRuntimeSection({
 					{busy ? (
 						<div className="mt-1 flex w-full flex-col items-center gap-2">
 							<div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-								<LoaderCircle className="size-3.5 animate-spin" />
+								<LoaderCircle className="size-3.5 animate-pideck-spin" />
 								{uninstalling ? t("dsh.runtime.phase.uninstalling") : phaseLabel}
 							</div>
 							{/* 卸载没有可换算的百分比，只显示不确定进度条。 */}
@@ -188,7 +190,7 @@ export function DshRuntimeSection({
 				{busy ? (
 					<div className="flex w-full flex-col items-center gap-2">
 						<div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-							<LoaderCircle className="size-3.5 animate-spin" />
+							<LoaderCircle className="size-3.5 animate-pideck-spin" />
 							{uninstalling ? t("dsh.runtime.phase.uninstalling") : phaseLabel}
 						</div>
 						<div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={uninstalling ? undefined : percent} aria-valuemin={0} aria-valuemax={100}>
@@ -197,15 +199,19 @@ export function DshRuntimeSection({
 					</div>
 				) : (
 					<div className="flex flex-wrap items-center gap-2">
-						<Button size="sm" className="gap-1.5" onClick={() => void run("online")}>
-							<Download className="size-3.5" />
-							{t(broken ? "dsh.runtime.reinstall" : "dsh.runtime.install")}
-						</Button>
-						{/* 手动导入：镜像不可达 / 离线场景的兜底，对话框由主进程弹出。 */}
-						<Button size="sm" variant="outline" className="gap-1.5" onClick={() => void run("local")}>
-							<FolderOpen className="size-3.5" />
-							{t("dsh.runtime.importLocal")}
-						</Button>
+						{status.installEnabled !== false ? (
+							<Button size="sm" className="gap-1.5" onClick={() => void run("online")}>
+								<Download className="size-3.5" />
+								{t(broken ? "dsh.runtime.reinstall" : "dsh.runtime.install")}
+							</Button>
+						) : null}
+						{/* 手动导入：镜像不可达 / 离线场景的兜底；dev 模式同样隐藏（不提供安装入口）。 */}
+						{status.installEnabled !== false ? (
+							<Button size="sm" variant="outline" className="gap-1.5" onClick={() => void run("local")}>
+								<FolderOpen className="size-3.5" />
+								{t("dsh.runtime.importLocal")}
+							</Button>
+						) : null}
 					</div>
 				)}
 				{error ? (
@@ -214,7 +220,11 @@ export function DshRuntimeSection({
 						<span>{t("dsh.runtime.installFailed", { error })}</span>
 					</div>
 				) : (
-					<p className="text-[12px] text-muted-foreground/80">{t("dsh.runtime.installHint")}</p>
+					<p className="text-[12px] text-muted-foreground/80">
+						{status.installEnabled === false
+							? t("dsh.runtime.devNoDownload")
+							: t("dsh.runtime.installHint")}
+					</p>
 				)}
 			</div>
 		</section>

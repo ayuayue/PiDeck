@@ -17,6 +17,10 @@ import {
 	toWindowsHostPath,
 	toWslLinuxPath,
 } from "../wsl/WslPaths";
+import {
+	applyPiProxyModeWithProvider,
+	computeGenProxyKey,
+} from "../sessions/sessionProxyPolicy";
 
 export type GitIpcDeps = {
 	appLogger: Pick<AppLogger, "warn" | "info" | "error">;
@@ -35,6 +39,8 @@ let genProcess: ChildProcess | null = null;
 let genRpcClient: PiRpcClient | null = null;
 let genProcessCwd = "";
 let genModelKey = "";
+/** 当前生成进程的代理指纹：代理设置/名单命中变化且模型未变时也要重建（env 在 spawn 时定格）。 */
+let genProxyKey = "";
 let genIdleTimer: NodeJS.Timeout | null = null;
 /** 生成互斥锁：同一时刻只允许一个摘要请求，避免并发打到复用进程触发 pi 的 busy 拒绝 */
 let genBusy = false;
@@ -53,6 +59,7 @@ function stopGenProcess() {
 	genProcess = null;
 	genProcessCwd = "";
 	genModelKey = "";
+	genProxyKey = "";
 }
 
 /** 重置空闲定时器：30 分钟无请求自动杀掉进程释放内存 */
@@ -73,9 +80,12 @@ async function ensureGenProcess(
 	appLogger: Pick<AppLogger, "warn">,
 ): Promise<PiRpcClient> {
 	// provider/model 变化时必须重启轻量进程，避免旧进程继续持有上一组选中的模型。
+	// 代理指纹同理：HTTP_PROXY 等环境变量在 spawn 时定格，设置页改代理/名单后不重建
+	// 旧进程会一直直连（或沿用旧代理），表现为「配置了代理但生成摘要没走代理」。
 	const modelKey = `${model.provider}\0${model.modelId}`;
+	const proxyKey = computeGenProxyKey(settingsStore.get(), model.provider, model.modelId);
 	if (genProcess && genRpcClient && genProcess.exitCode === null) {
-		if (genModelKey === modelKey) {
+		if (genModelKey === modelKey && genProxyKey === proxyKey) {
 			genProcessCwd = projectPath;
 			resetGenIdleTimer();
 			return genRpcClient;
@@ -86,29 +96,76 @@ async function ensureGenProcess(
 	// 清理已死的旧进程
 	if (genProcess) stopGenProcess();
 
-	const settings = settingsStore.get();
-	// WSL pi 需要 Linux cwd（--cd）；Windows spawn 本身仍必须落在主机路径上。
-	const wslCwd = settings.wslEnabled && settings.wslDistro && command.startsWith("wsl://")
-		? toWslLinuxPath(projectPath, { distro: settings.wslDistro })
-		: undefined;
-	const invocation = piLocator.createInvocation(command, [
+	try {
+		// 首次默认带扩展启动：提交信息模型选择器允许扩展 provider（如 antigravity 插件）
+		// 贡献的模型（issue #181），进程必须能解析它们，与运行时会话保持一致。
+		// 用户开启「禁用扩展启动」诊断开关（piRpcNoExtensions）时首次也直接不带扩展。
+		const firstWithExtensions = !settingsStore.get().piRpcNoExtensions;
+		return await trySpawnGenProcess(
+			firstWithExtensions,
+			projectPath, command, piLocator, settingsStore, model, appLogger,
+		);
+	} catch {
+		// 带扩展启动失败（坏扩展导致崩溃/启动挂起/RPC 未就绪）：
+		// 降级为无扩展重试一次；仍失败则抛出第二轮错误（无扩展基线，更能反映真实状态）。
+		return await trySpawnGenProcess(
+			false,
+			projectPath, command, piLocator, settingsStore, model, appLogger,
+		);
+	}
+}
+
+/** 生成进程基础参数：默认【加载扩展】（issue #181）；withExtensions=false 时追加
+ * --no-extensions 作为坏扩展场景的降级集。 */
+function buildGenArgs(withExtensions: boolean): string[] {
+	return [
 		"--mode", "rpc",
 		"--no-session",
 		"--no-tools",
-		"--no-extensions",
+		...(withExtensions ? [] : ["--no-extensions"]),
 		"--no-skills",
 		"--no-prompt-templates",
 		"--no-context-files",
 		"--no-themes",
 		"--thinking", "off",
-	], wslCwd ? { wslCwd } : {});
+	];
+}
+
+/** 启动轻量 pi RPC 生成进程并完成 set_model；withExtensions 决定是否加载扩展。
+ * 失败时清理进程与全局状态并抛错，由 ensureGenProcess 决定是否降级重试。 */
+async function trySpawnGenProcess(
+	withExtensions: boolean,
+	projectPath: string,
+	command: string,
+	piLocator: PiLocator,
+	settingsStore: SettingsStore,
+	model: { provider: string; modelId: string },
+	appLogger: Pick<AppLogger, "warn">,
+): Promise<PiRpcClient> {
+	const modelKey = `${model.provider}\0${model.modelId}`;
+	const settings = settingsStore.get();
+	// WSL pi 需要 Linux cwd（--cd）；Windows spawn 本身仍必须落在主机路径上。
+	const wslCwd = settings.wslEnabled && settings.wslDistro && command.startsWith("wsl://")
+		? toWslLinuxPath(projectPath, { distro: settings.wslDistro })
+		: undefined;
+	const invocation = piLocator.createInvocation(
+		command,
+		buildGenArgs(withExtensions),
+		wslCwd ? { wslCwd } : {},
+	);
 	const spawnCwd = wslCwd && settings.wslDistro
 		? toWindowsHostPath(projectPath, { distro: settings.wslDistro })
 		: projectPath;
 
 	const childProcess = spawn(invocation.command, invocation.args, {
 		cwd: spawnCwd,
-		env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+		// 与运行时会话同策略：会话 on/off 覆盖 > 模型名单命中强制走代理 > 跟随全局。
+		// 之前只按 piProxyEnabled 全局开关注入，名单内模型（全局关）生成摘要会直连失败。
+		env: piLocator.createProcessEnv(
+			applyPiProxyModeWithProvider(settings, undefined, model.provider, model.modelId),
+			invocation.pathPrefix,
+			invocation.wsl,
+		),
 		stdio: ["pipe", "pipe", "pipe"],
 		shell: invocation.shell,
 		windowsHide: true,
@@ -116,6 +173,7 @@ async function ensureGenProcess(
 	});
 	genProcess = childProcess;
 	genProcessCwd = spawnCwd;
+	genProxyKey = computeGenProxyKey(settings, model.provider, model.modelId);
 
 	genRpcClient = new PiRpcClient(childProcess.stdin!, childProcess.stdout!);
 

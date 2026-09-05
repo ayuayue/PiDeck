@@ -118,6 +118,20 @@ test("buildProbeHeaders 缺省补 Bearer，自定义 Authorization 覆盖，{{ap
   assert.equal(j(probe.buildProbeHeaders(undefined, "")), j({}));
 });
 
+test("buildProbeHeaders noBearer 时不自动补 Bearer，显式 Authorization 仍保留", () => {
+  const j = (v) => JSON.stringify(v);
+  // 用户探针 skipBearer（如 Cookie 登录态接口，自动补 Bearer 会触发双凭证冲突）
+  assert.equal(j(probe.buildProbeHeaders({ Cookie: "sid=1; tok=2" }, "sk-1", { noBearer: true })),
+    j({ Cookie: "sid=1; tok=2" }));
+  // noBearer 不影响显式 Authorization（调用方显式声明时以显式为准）
+  assert.equal(j(probe.buildProbeHeaders({ Authorization: "Bearer custom" }, "sk-1", { noBearer: true })),
+    j({ Authorization: "Bearer custom" }));
+  // 不带 noBearer 保持历史行为（无 Authorization 时仍补）
+  const withBearer = probe.buildProbeHeaders({ Cookie: "sid=1" }, "sk-1");
+  assert.equal(withBearer.Cookie, "sid=1");
+  assert.equal(withBearer.Authorization, "Bearer sk-1");
+});
+
 test("parseUsageResponseBody 解析 balance 形态", () => {
   const res = probe.parseUsageResponseBody(
     { balance_infos: [{ currency: "CNY", total_balance: "110.00" }] },
@@ -653,4 +667,199 @@ test("credits parse 无 scale 或非法 scale 不缩放（行为不变）", () =
   assert.equal(res.credits.total, 100);
   assert.equal(res.credits.used, 30);
   assert.equal(res.credits.remaining, 70);
+});
+
+test("usageProbeUrls noVersionPath 只尝试管理根单 URL（不补 /v1）", () => {
+  const cand = { path: "/api/user/self", noVersionPath: true };
+  const urls = probe.usageProbeUrls(cand, "https://88api.ai", ensureVersion);
+  // vm realm 数组不能 deepStrictEqual，逐项断言
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0], "https://88api.ai/api/user/self");
+});
+
+test("usageProbeUrls noVersionPath 保留子路径前缀", () => {
+  const cand = { path: "/api/user/self", noVersionPath: true };
+  const urls = probe.usageProbeUrls(cand, "https://host.example/newapi", ensureVersion);
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0], "https://host.example/newapi/api/user/self");
+});
+
+const TR = (k) => `[${k}]`;
+
+test("buildProbeFailureDetail 全量 404 归纳「地址不对」提示并带响应摘要", () => {
+  const attempts = [
+    { url: "https://88api.ai/v1/api/user/self", method: "GET", status: 404 },
+    { url: "https://88api.ai/api/user/self", method: "GET", status: 404, body: '{"error":{"message":"Invalid URL"}}' },
+  ];
+  const detail = probe.buildProbeFailureDetail(attempts, TR);
+  assert.match(detail, /GET https:\/\/88api\.ai\/api\/user\/self → HTTP 404/);
+  assert.match(detail, /Invalid URL/);
+  assert.match(detail, /\[mainConfig\.providerUsageHintNotFound\]/);
+});
+
+test("buildProbeFailureDetail 全量 401/403 归纳「鉴权」提示", () => {
+  const attempts = [
+    { url: "https://88api.ai/api/user/self", method: "GET", status: 401, body: '{"code":"AUTH_UNAUTHORIZED"}' },
+  ];
+  const detail = probe.buildProbeFailureDetail(attempts, TR);
+  assert.match(detail, /\[mainConfig\.providerUsageHintAuth\]/);
+});
+
+test("buildProbeFailureDetail 全部超时/网络错误归纳「超时/网络」提示", () => {
+  const attempts = [
+    { url: "https://88api.ai/api/user/self", method: "GET", error: "timeout" },
+    { url: "https://88api.ai/api/user/self", method: "GET", error: "network" },
+  ];
+  const detail = probe.buildProbeFailureDetail(attempts, TR);
+  assert.match(detail, /\[mainConfig\.providerUsageAttemptTimeout\]/);
+  assert.match(detail, /\[mainConfig\.providerUsageAttemptNetwork\]/);
+  assert.match(detail, /\[mainConfig\.providerUsageHintTimeout\]/);
+});
+
+test("buildProbeFailureDetail 200 结构不符归纳「接口变更」提示", () => {
+  const attempts = [{ url: "https://host/api/user/self", method: "GET", kind: "shape" }];
+  const detail = probe.buildProbeFailureDetail(attempts, TR);
+  assert.match(detail, /响应结构与预期不符/);
+  assert.match(detail, /\[mainConfig\.providerUsageHintShape\]/);
+});
+
+test("buildProbeFailureDetail 混合失败归纳「混合」提示，无尝试记录返回空串", () => {
+  const detail = probe.buildProbeFailureDetail(
+    [
+      { url: "https://a.example/x", method: "GET", status: 404 },
+      { url: "https://a.example/y", method: "GET", status: 401 },
+    ],
+    TR,
+  );
+  assert.match(detail, /\[mainConfig\.providerUsageHintMixed\]/);
+  assert.equal(probe.buildProbeFailureDetail([], TR), "");
+});
+
+test("Command Code 候选：host 根 /alpha/billing/credits、专用解析器、模板登记", () => {
+  const cc = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("api.commandcode.ai"));
+  assert.ok(cc, "候选表应包含 Command Code 适配器");
+  assert.equal(cc.path, "/alpha/billing/credits");
+  assert.equal(cc.rootPath, true);
+  assert.equal(cc.templateId, "commandcode-credits");
+  assert.equal(cc.parse.kind, "custom");
+  assert.equal(cc.parse.resolver, "commandcode-credits");
+  assert.equal(probe.candidateApplies(cc, "https://api.commandcode.ai/provider/v1", ""), true);
+  assert.equal(probe.candidateApplies(cc, "https://api.deepseek.com", ""), false);
+  // rootPath 生效：只取 origin 拼接，不拼 /provider/v1 也不走版本化补齐
+  const urls = probe.usageProbeUrls(cc, "https://api.commandcode.ai/provider/v1", ensureVersion);
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0], "https://api.commandcode.ai/alpha/billing/credits");
+});
+
+test("Command Code 真实响应：5h/周/月三窗口同时展示，月度按套餐表校验", () => {
+  const cc = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("api.commandcode.ai"));
+  // 真实实测响应（GOAT 套餐）：weekly used 6.548505913 恰好等于 70 - 63.451494087
+  const live = {
+    credits: { belowThreshold: false, creditThreshold: 0, monthlyCredits: 63.451494087, purchasedCredits: 0, freeCredits: 0 },
+    windowLimits: {
+      limited: true,
+      exceeded: null,
+      fiveHour: { used: 0.0604245041, cap: 14, exceeded: false, resetAt: 1788503106394 },
+      weekly: { used: 6.548505913, cap: 35, exceeded: false, resetAt: 1788939961631 },
+    },
+  };
+  const res = probe.parseUsageResponseBody(live, "{}", cc.parse);
+  assert.equal(res.matched, true);
+  assert.equal(res.kind, "credits");
+  assert.equal(res.credits.remaining, 63.451494087);
+  const byKey = Object.fromEntries(res.credits.windows.map((w) => [w.key, w]));
+  assert.equal(byKey.fiveHour.used, 0.0604245041);
+  assert.equal(byKey.fiveHour.total, 14);
+  assert.equal(byKey.weekly.used, 6.548505913);
+  assert.equal(byKey.weekly.total, 35);
+  // cap 14/35 恰好命中 GOAT（70/月）→ 月度百分比可得
+  assert.equal(byKey.monthly.total, 70);
+  assert.equal(byKey.monthly.used, 6.548505913);
+  assert.equal(byKey.monthly.remaining, 63.451494087);
+  assert.equal(res.credits.windows.length, 3);
+});
+
+test("Command Code 月度不可信：cap 对不上套餐表时降级只显剩余（不臆造百分比）", () => {
+  const cc = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("api.commandcode.ai"));
+  const body = {
+    credits: { monthlyCredits: 63.45 },
+    windowLimits: {
+      fiveHour: { used: 0.06, cap: 999 },
+      weekly: { used: 6.54, cap: 35 },
+    },
+  };
+  const res = probe.parseUsageResponseBody(body, "{}", cc.parse);
+  assert.equal(res.matched, true);
+  const byKey = Object.fromEntries(res.credits.windows.map((w) => [w.key, w]));
+  assert.equal(byKey.monthly.total, undefined);
+  assert.equal(byKey.monthly.used, undefined);
+  assert.equal(byKey.monthly.remaining, 63.45);
+  assert.equal(byKey.fiveHour.total, 999); // 5h/周窗口照常展示（wire 值不经套餐表）
+});
+
+test("Command Code 形态兼容：snake_case 字段与 credits 内嵌 windowLimits 都能解析", () => {
+  const cc = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("api.commandcode.ai"));
+  const body = {
+    credits: {
+      monthly_credits: "10",
+      window_limits: {
+        five_hour: { used: 2, cap: 3 },
+        weekly: { used: 4, cap: 6 },
+      },
+    },
+  };
+  const res = probe.parseUsageResponseBody(body, "{}", cc.parse);
+  assert.equal(res.matched, true);
+  const byKey = Object.fromEntries(res.credits.windows.map((w) => [w.key, w]));
+  assert.equal(byKey.monthly.total, 10); // Go 套餐（3/6 cap 命中）
+  assert.equal(byKey.monthly.used, 0);
+  assert.equal(byKey.fiveHour.total, 3);
+  assert.equal(byKey.weekly.used, 4);
+});
+
+test("Command Code 缺 monthlyCredits 时不匹配（关键字段缺失）", () => {
+  const cc = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("api.commandcode.ai"));
+  assert.equal(
+    probe.parseUsageResponseBody({ windowLimits: { fiveHour: { used: 1, cap: 2 } } }, "{}", cc.parse).matched,
+    false,
+  );
+});
+
+
+test("TokenDance 候选：host 根 /portal/api/v1/user/balance、scale 微元、模板登记", () => {
+  const td = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("tokendance.space"));
+  assert.ok(td, "候选表应包含 TokenDance 适配器");
+  assert.equal(td.path, "/portal/api/v1/user/balance");
+  assert.equal(td.rootPath, true);
+  assert.equal(td.templateId, "tokendance-balance");
+  assert.equal(td.parse.kind, "credits");
+  assert.equal(td.parse.totalPath, "balance.credits");
+  assert.equal(td.parse.usedPath, "balance.credits_used");
+  assert.equal(td.parse.remainingPath, "balance.balance");
+  assert.equal(td.parse.scale, 1_000_000);
+  assert.equal(probe.candidateApplies(td, "https://tokendance.space/gateway/v1", "openai-completions"), true);
+  assert.equal(probe.candidateApplies(td, "https://api.deepseek.com", ""), false);
+  // rootPath 生效：只取 origin 拼接，不拼 /gateway/v1 也不走版本化补齐
+  const urls = probe.usageProbeUrls(td, "https://tokendance.space/gateway/v1", ensureVersion);
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0], "https://tokendance.space/portal/api/v1/user/balance");
+});
+
+test("TokenDance 真实响应：微元换算成元，总/已用/剩三段齐全", () => {
+  const td = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("tokendance.space"));
+  // 文档示例：credits=58000000 微元=58 元、credits_used=57837189 微元=57.837189 元、balance=162811 微元=0.162811 元
+  const live = { balance: { credits: 58000000, credits_used: 57837189, balance: 162811 } };
+  const res = probe.parseUsageResponseBody(live, "{}", td.parse);
+  assert.equal(res.matched, true);
+  assert.equal(res.kind, "credits");
+  assert.equal(res.credits.total, 58);
+  assert.equal(res.credits.used, 57.837189);
+  assert.equal(res.credits.remaining, 0.162811);
+});
+
+test("TokenDance 缺 balance 结构时不匹配（字段缺失兜底 raw）", () => {
+  const td = probe.USAGE_PROBE_CANDIDATES.find((c) => c.baseUrlContains?.includes("tokendance.space"));
+  assert.equal(probe.parseUsageResponseBody({ foo: { bar: 1 } }, "{}", td.parse).matched, false);
+  // 三路径全空（结构完全不匹配）才不命中；只要任一命中即合法展示
+  assert.equal(probe.parseUsageResponseBody({ balance: {} }, "{}", td.parse).matched, false);
 });

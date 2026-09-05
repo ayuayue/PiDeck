@@ -1,6 +1,7 @@
 import { readdir, rename as fsRename, mkdir, writeFile, stat } from "node:fs/promises";
 import { join, relative, dirname, resolve, sep } from "node:path";
 import { trashPath } from "./trash";
+import { parseWslUncPath } from "../wsl/WslPaths";
 import type { FileTreeNode } from "../../shared/types";
 import {
   DEFAULT_FILE_TREE_MAX_DEPTH,
@@ -16,9 +17,24 @@ const ignoredNames = new Set([
 
 /** 路径必须落在项目根内（resolve 后比较，防 ../ 逃逸）。 */
 export function isPathInsideProject(root: string, target: string): boolean {
-  const rootResolved = resolve(root);
-  const resolved = resolve(target);
-  return resolved === rootResolved || resolved.startsWith(rootResolved + sep);
+  const rootWsl = parseWslUncPath(root);
+  const targetWsl = parseWslUncPath(target);
+  if (rootWsl || targetWsl) {
+    if (!rootWsl || !targetWsl) return false;
+    if (rootWsl.distro.toLowerCase() !== targetWsl.distro.toLowerCase()) return false;
+    // UNC host/distro 属于 Windows 命名，Linux 文件段仍区分大小写，不能整体 lower-case。
+    return targetWsl.linuxPath === rootWsl.linuxPath
+      || targetWsl.linuxPath.startsWith(`${rootWsl.linuxPath.replace(/\/$/, "")}/`);
+  }
+  const normalizeForCompare = (value: string) => {
+    const resolved = resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  const rootResolved = normalizeForCompare(root);
+  const targetResolved = normalizeForCompare(target);
+  if (targetResolved === rootResolved) return true;
+  const rootPrefix = rootResolved.endsWith(sep) ? rootResolved : rootResolved + sep;
+  return targetResolved.startsWith(rootPrefix);
 }
 
 export class FileSystemService {

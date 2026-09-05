@@ -18,6 +18,8 @@ interface AppSidebarProps {
   worktreesByProject: Record<string, WorktreeEntry[]>;
   branchByProject: Record<string, string | null>;
   creatingWorktree: boolean;
+  /** 正在删除的 worktree 路径集合（useWorktreeActions 维护，驱动行淡出动画）。 */
+  removingWorktreePaths: ReadonlySet<string>;
   isLanWeb: boolean;
   /** 「新建会话」：打开初始引导页（居中输入框 + 项目下拉切换），由 App 提供。 */
   onOpenNewSession: () => void;
@@ -33,6 +35,8 @@ interface AppSidebarProps {
   settingsExpandedProjectIds?: readonly string[];
   /** settings.json 中已保存的侧栏分段（Chats/项目），权威来源 */
   settingsNavTab?: SidebarNavTab;
+  /** settings.json 中已保存的稳定 SessionRecord 置顶 id。 */
+  settingsPinnedSessionIds?: readonly string[];
   /** 首次 settings.get 已完成，controller 可安全处理旧 key 迁移。 */
   settingsLoaded: boolean;
   /** 展开集合完成权威 hydration 后，允许 App 按它懒加载会话。 */
@@ -43,10 +47,12 @@ export function AppSidebar(props: AppSidebarProps) {
   const setSettingsOpen = useSetAtom(settingsOpenAtom);  // 快速连续点击展开/折叠会触发多次 IPC；按顺序写入可避免旧请求最后完成后覆盖新集合。
   const expandedProjectsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const navTabSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pinnedSessionIdsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const controller = useSidebarController({
     getRpcLogging: props.actions.rpc.getLogging,
     settingsExpandedProjectIds: props.settingsExpandedProjectIds,
     settingsNavTab: props.settingsNavTab,
+    settingsPinnedSessionIds: props.settingsPinnedSessionIds,
     settingsLoaded: props.settingsLoaded,
     onExpandedProjectsReady: props.onExpandedProjectsReady,
     persistExpandedProjectIds: (projectIds) => {
@@ -62,6 +68,13 @@ export function AppSidebar(props: AppSidebarProps) {
         .then(() => desktopApi.settings.update({ sidebarNavTab: tab }))
         .catch(() => undefined);
     },
+    persistPinnedSessionIds: (sessionIds) => {
+      // 快速连续置顶/取消置顶必须按触发顺序落盘，避免较慢的旧请求覆盖新集合。
+      pinnedSessionIdsSaveQueueRef.current = pinnedSessionIdsSaveQueueRef.current
+        .catch(() => undefined)
+        .then(() => desktopApi.settings.update({ pinnedSessionIds: sessionIds }))
+        .catch(() => undefined);
+    },
   });
 
   return (
@@ -74,6 +87,7 @@ export function AppSidebar(props: AppSidebarProps) {
       worktreesByProject={props.worktreesByProject}
       branchByProject={props.branchByProject}
       creatingWorktree={props.creatingWorktree}
+      removingWorktreePaths={props.removingWorktreePaths}
       isLanWeb={props.isLanWeb}
       onOpenNewSession={props.onOpenNewSession}
       chrome={<>

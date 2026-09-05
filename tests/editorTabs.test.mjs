@@ -24,10 +24,13 @@ function loadEditorTabs() {
 
 const json = (value) => JSON.stringify(value);
 
-function tab(id, filePath, tabKey) {
-	return tabKey === undefined
+function tab(id, filePath, tabKey, projectId) {
+	const value = tabKey === undefined
 		? { id, filePath }
 		: { id, filePath, tabKey };
+	return projectId === undefined
+		? value
+		: { ...value, fileAccessScope: { projectId } };
 }
 
 test("openPreviewEditorTab: 单击替换预览，不降级常驻 Tab", () => {
@@ -99,4 +102,26 @@ test("openPreviewEditorTab: 同 path+tabKey 才视为同一文件", () => {
 	);
 	assert.equal(json(next.tabs.map((t) => t.id)), json(["a", "b"]));
 	assert.equal(next.previewId, "b");
+});
+
+test("editor tab identity keeps project-scoped buffers separate", () => {
+	const { openPermanentEditorTab } = loadEditorTabs();
+	const differentProject = openPermanentEditorTab(
+		[tab("a", "/shared/file.ts", undefined, "project-a")],
+		null,
+		tab("b", "/shared/file.ts", undefined, "project-b"),
+	);
+	assert.equal(
+		json(differentProject.tabs.map((t) => t.id)),
+		json(["a", "b"]),
+		"the same host path under another project authorization must get its own buffer",
+	);
+
+	const sameProject = openPermanentEditorTab(
+		[tab("a", "/shared/file.ts", undefined, "project-a")],
+		null,
+		tab("b", "/shared/file.ts", undefined, "project-a"),
+	);
+	assert.equal(json(sameProject.tabs.map((t) => t.id)), json(["a"]));
+	assert.equal(sameProject.activeId, "a");
 });

@@ -20,6 +20,7 @@ const {
   isUnknownCliOption,
   classifyModelListFailure,
   MODEL_LIST_FAST_ARGS,
+  MODEL_LIST_EXT_ARGS,
   MODEL_LIST_COMPAT_ARGS,
 } = loadTsCommonJs("src/main/pi/modelListCache.ts");
 const preload = readFileSync("src/preload/index.ts", "utf8");
@@ -130,9 +131,15 @@ test("parseTokenSize handles M/K/plain and rejects garbage", () => {
   assert.equal(parseTokenSize("-"), undefined);
 });
 
-test("MODEL_LIST_FAST_ARGS includes speed flags", () => {
-  assert.ok(MODEL_LIST_FAST_ARGS.includes("--list-models"));
-  assert.ok(MODEL_LIST_FAST_ARGS.includes("--offline"));
+test("MODEL_LIST_EXT_ARGS 走带扩展优先（#181），FAST_ARGS 仅作降级", () => {
+  // 第一档（带扩展）必须不带 --no-extensions：扩展 registerProvider 贡献的模型
+  // 要能进入选择器（与 CLI 一致）；--no-extensions 只保留在降级档 FAST_ARGS。
+  assert.ok(MODEL_LIST_EXT_ARGS.includes("--list-models"));
+  assert.ok(MODEL_LIST_EXT_ARGS.includes("--offline"));
+  assert.ok(!MODEL_LIST_EXT_ARGS.includes("--no-extensions"));
+  assert.ok(MODEL_LIST_EXT_ARGS.includes("--no-skills"));
+  assert.ok(MODEL_LIST_EXT_ARGS.includes("--no-themes"));
+  // 降级档：第一档因坏扩展失败时的无扩展重试集。
   assert.ok(MODEL_LIST_FAST_ARGS.includes("--no-extensions"));
   assert.ok(MODEL_LIST_FAST_ARGS.includes("--no-skills"));
   assert.ok(MODEL_LIST_FAST_ARGS.includes("--no-themes"));
@@ -275,15 +282,16 @@ test("welcome page model/thinking selection persists; draft defaults come from p
     "src/renderer/src/utils/chatSessionBootstrap.ts",
     "utf8",
   );
-  // 欢迎页（无 record）选模型：仍持久化到 localStorage（显式选择保留）。
+  // 欢迎页（无 record）选模型：仍持久化到 localStorage（显式选择保留为「偏好」）。
   assert.match(picker, /localStorage\.setItem\(WELCOME_MODEL_KEY/);
-  assert.match(picker, /localStorage\.setItem\(WELCOME_THINKING_KEY/);
+  // 用户规则（2026-10）：思考级别一律走默认档位（settings.defaultThinkingLevel），
+  // 欢迎页偏好级别不再参与——无 record 时选择器不写偏好、直接关闭。
+  assert.doesNotMatch(picker, /setItem\(WELCOME_THINKING_KEY/);
   // createDraft 不再无条件 spread 欢迎页 localStorage 偏好：主进程已按 pi 配置
   // （defaultProvider/defaultModel/defaultThinkingLevel）自动填充默认模型/思考级别。
   assert.doesNotMatch(actions, /readWelcomeModelPreference\(\)|readWelcomeThinkingPreference\(\)/);
-  // 共享偏好读取器仅供 ComposerPickerHost 持久化显式选择，不影响 pi 默认值。
+  // 共享偏好读取器仅供偏好展示/校验使用，不影响 pi 默认值。
   assert.match(bootstrap, /readWelcomeModelPreference/);
-  assert.match(bootstrap, /readWelcomeThinkingPreference/);
 });
 
 test("classifyModelListFailure: pi not installed is the most actionable reason", () => {

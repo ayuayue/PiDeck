@@ -1,11 +1,12 @@
 import {
   messageEntryId,
 } from "../../../utils/sessionCommands";
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronUp, Clock, Share, SquarePen, Trash } from "lucide-react";
-import { atom, useAtomValue } from "jotai";
+import { atom, useAtomValue, useSetAtom } from "jotai";
+import { selectAtom } from "jotai/utils";
 import type { AgentBackend, ImageContent } from "../../../../../shared/types";
-import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily } from "../../../atoms/session-atoms";
+import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily, runStepsVisibleMemoryBySessionIdAtomFamily, type RunStepsVisibleMemoryEntry } from "../../../atoms/session-atoms";
 import { turnFlowSettingsAtom } from "../../../atoms/app-ui-atoms";
 import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
@@ -34,6 +35,8 @@ import type { DiffFileHandler } from "../ToolCallComponents";
 const NO_LIVE_TEXT_ATOM = atom(false);
 /** sessionId 为空时的占位 atom：恒 0（无会话不订阅新一轮信号）。 */
 const NO_TURN_TICK_ATOM = atom(0);
+/** sessionId 为空时的占位 atom：恒 undefined（无会话不订阅展开记忆）。 */
+const NO_STEPS_MEMORY_ATOM = atom<RunStepsVisibleMemoryEntry | undefined>(undefined);
 
 /**
  * 一轮 AI 回答的扁平容器：左侧竖线聚合，内含思考/工具/回答。
@@ -63,7 +66,7 @@ export type TurnRowProps = {
 	/** 当前 live 思考段稳定 id（msg-thinking-*），交给 buildTurnDisplay 同身份挂载 */
 	liveThinkingId?: string;
 	onOpenExternal: (url: string) => void;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (path: string, line?: number) => void;
 	onDiffFile?: DiffFileHandler;
 	onResendUserMessage?: (message: never) => void;
 	onEditMessage?: (messageId: string, newText: string, entryId?: string) => void;
@@ -193,6 +196,35 @@ export const TurnRow = memo(
 			? newTurnCollapseTickBySessionIdAtomFamily(props.sessionId)
 			: NO_TURN_TICK_ATOM,
 	);
+	// 执行过程展开状态跨挂载记忆（run 级）：切会话再切回时恢复手动/流式展开的
+	// 轮次；selectAtom 按 run.id 取值，同会话其它 run 变化不重渲染本行。
+	const stepsVisibleMemoryAtom = useMemo(
+		() => props.sessionId
+			? selectAtom(
+					runStepsVisibleMemoryBySessionIdAtomFamily(props.sessionId),
+					(map) => map[run.id] ?? undefined,
+					Object.is,
+				)
+			: NO_STEPS_MEMORY_ATOM,
+		[props.sessionId, run.id],
+	);
+	const stepsVisibleMemory = useAtomValue(stepsVisibleMemoryAtom);
+	const setRunStepsMemoryAtom = useSetAtom(
+		runStepsVisibleMemoryBySessionIdAtomFamily(props.sessionId ?? ""),
+	);
+	const onStepsVisibleMemoryChange = useCallback(
+		(visible: boolean | undefined, atTick: number) => {
+			const runId = run.id;
+			if (!props.sessionId || !runId) return;
+			setRunStepsMemoryAtom((prev) => {
+				const next = { ...prev };
+				if (visible === undefined) delete next[runId];
+				else next[runId] = { visible, atTick };
+				return next;
+			});
+		},
+		[props.sessionId, run.id, setRunStepsMemoryAtom],
+	);
 	const { stepsVisible, setStepsVisibleFromUser, toggleSteps } =
 		useTurnExecution({
 			runId: run.id,
@@ -205,6 +237,8 @@ export const TurnRow = memo(
 			newTurnCollapseTick,
 			autoCollapseTick: props.autoCollapseTick,
 			onAutoCollapsed: props.onAutoCollapsed,
+			stepsVisibleMemory,
+			onStepsVisibleMemoryChange,
 		});
 
 	// 中间内容（思考/工具/中间回答）与最终回答分组：
@@ -288,7 +322,14 @@ export const TurnRow = memo(
 							onToggle={toggleSteps}
 						/>
 						<CollapsibleContent className="execution-summary-details">
-							{foldableItems.map((item) => {
+							{/* 折叠挂载策略（2026-09 主流实践，按轮状态分场景）：
+							    1. 非流式轮（agentRunning=false，含历史已结束轮）折叠时**完全卸载**内容——
+							       历史默认折叠，滚动经过几十轮只携带折叠头 + 最终回答，
+							       单轮 500 条工具调用时省下海量 DOM；展开时全量挂载。
+							    2. live 流式轮（agentRunning=true）折叠时仍保持挂载（display:none）——
+							       卸载会重置打字机动画状态，恢复展开时思考/工具重播。
+							    代价：Radix 高度渐变动画在历史轮退化为瞬时展开/收起。 */}
+							{(stepsVisible || props.agentRunning === true) && foldableItems.map((item) => {
 								let content: ReactNode;
 								let itemKey: string;
 								if (item.kind === "process-entry") {
@@ -310,6 +351,7 @@ export const TurnRow = memo(
 												hidden={!stepsVisible}
 												stopped={props.agentRunning !== true}
 												sessionId={props.sessionId}
+												onOpenFile={props.onOpenFile}
 											/>
 										);
 									}
@@ -468,7 +510,8 @@ turnRowPropsEqual,
  * 比较项：
  * - run：深度比较内容（sameAgentRunForRender），未变化的 run 不重渲染；
  * - 标量 props（backend/fresh/showThinking/isStreaming/liveThinkingId/agentRunning/isRuntimeBusy）：=== 比较；
- * - 回调函数（onPreviewImage/onOpenExternal/onOpenFile/onDiffFile/onEditMessage/onDeleteMessage/
+ * - onOpenFile：栏级 cwd/project 变化时引用会更新，必须参与比较，否则历史工具按钮会继续调用旧栏上下文；
+ * - 其余回调函数（onPreviewImage/onOpenExternal/onDiffFile/onEditMessage/onDeleteMessage/
  *   onEnterMultiSelect）：行为稳定（读 ref/setState），引用变化不影响渲染结果，忽略（同 FinalAnswer 惯例）。
  */
 function turnRowPropsEqual(prev: TurnRowProps, next: TurnRowProps): boolean {
@@ -486,6 +529,7 @@ function turnRowPropsEqual(prev: TurnRowProps, next: TurnRowProps): boolean {
 		prev.isRuntimeBusy === next.isRuntimeBusy &&
 		prev.isLatestRun === next.isLatestRun &&
 		prev.isLastAgentRun === next.isLastAgentRun &&
-		prev.autoCollapseTick === next.autoCollapseTick
+		prev.autoCollapseTick === next.autoCollapseTick &&
+		prev.onOpenFile === next.onOpenFile
 	);
 }

@@ -18,6 +18,10 @@ const summaryToggleSource = readFileSync(
   "src/renderer/src/components/session/turn/ProcessSummaryToggle.tsx",
   "utf8",
 );
+const timelineEventCardsSource = readFileSync(
+  "src/renderer/src/components/session/TimelineEventCards.tsx",
+  "utf8",
+);
 
 test("renders the run as order-preserving flat display without pulling the last answer to the bottom", () => {
   assert.ok(
@@ -116,6 +120,11 @@ test("TurnRow uses custom memo compare so unchanged runs skip re-render", () => 
   assert.match(turnRowSource, /prev\.liveThinkingId === next\.liveThinkingId/);
   // 行头 Pi/DSH 署名随 backend 变化必须重渲染，不能被 memo 吞掉
   assert.match(turnRowSource, /prev\.backend === next\.backend/);
+  // 打开文件回调绑定栏级 cwd/project；作用域变化时历史工具卡必须刷新回调。
+  assert.match(turnRowSource, /prev\.onOpenFile === next\.onOpenFile/);
+  // 思考卡片还有一层自定义 memo；展开后的 Markdown 也必须换到新栏授权上下文。
+  assert.match(timelineEventCardsSource, /prev\.onOpenExternal === next\.onOpenExternal/);
+  assert.match(timelineEventCardsSource, /prev\.onOpenFile === next\.onOpenFile/);
   // 深度比较入口来自 AppUtils
   assert.match(
     readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8"),

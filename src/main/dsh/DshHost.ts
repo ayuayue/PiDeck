@@ -10,7 +10,7 @@ import { DshApiClient, type DshFetchTransport } from "./DshApiClient";
 import { toDshAvailableModels, toDshFetchedModels } from "./dshModels";
 import { parseAgentDefaultModel } from "./dshDefaultModel";
 import { credentialValueFromDocument, isValidCredentialRef } from "./dshCredentials";
-import { workspaceDirFor } from "./dshSessionPath";
+import { workspaceDirFor, findDshSessionDir } from "./dshSessionPath";
 import {
 	migrateLegacyPideckDshFiles,
 	pideckArchivePath,
@@ -293,15 +293,22 @@ export class DshHost {
 		return this.dshHome || resolveDshHomeDir(override, this.getUserDataDir());
 	}
 
-	/** DSH 配置管理页数据：host 启动状态 + DSH_HOME 目录（配置/会话/凭证同目录）。 */
+	/** DSH 配置管理页数据：host 启动状态 + DSH_HOME 目录 + 最近一次 boot 失败原因。 */
 	async getStatus(): Promise<{
 		started: boolean;
 		homeDir: string;
+		/** 最近一次 host boot 失败的真实原因（host-error 详情/stderr 尾部）；成功或从未失败为 null。 */
+		bootError?: string | null;
 	}> {
 		// E14：started 语义 = host 进程存活且 boot 完成（client 非 null 可能在崩溃重启
 		// 超限放弃后仍是陈旧引用，UI 会误显示「已启动」）。
 		const started = this.client !== null && this.isHostProcessRunning() && this.isHostReady();
-		return { started, homeDir: this.getHomeDir() };
+		return {
+			started,
+			homeDir: this.getHomeDir(),
+			// boot 失败详情透给渲染层：即使 describe 抛错，概览页也能拿到真实原因。
+			bootError: this.hostProcess?.getLastBootError() ?? null,
+		};
 	}
 
 	/**
@@ -409,6 +416,22 @@ export class DshHost {
 		const manifestPath = join(archivedDir, "pideck-manifest.json");
 		if (!existsSync(manifestPath)) return false;
 		await this.trashPath(archivedDir);
+		return true;
+	}
+
+	/**
+	 * 删除活跃 DSH 会话（与 pi 会话删除同语义）：把 host 会话目录移入系统回收站
+	 * （经注入的 trashPath，可恢复；回收站不可用时抛错，拒绝静默硬删）。
+	 * DSH 官方没有 session.delete 协议，定位/搬移与 archiveSession 同构（移出 sessions 树），
+	 * host 重启后 session.list 不再包含该会话。
+	 * 幂等：目录不存在（已删/已回收）返回 false。
+	 * @param cwd 会话所属 workspace（catalog 记录的 project.path），用于精确推导；
+	 *            失配时按 sessionId 兜底扫描（项目目录移动后仍可删除）。
+	 */
+	async deleteSession(dshSessionId: string, cwd: string): Promise<boolean> {
+		const target = findDshSessionDir(this.getHomeDir(), cwd, dshSessionId);
+		if (!target) return false;
+		await this.trashPath(target);
 		return true;
 	}
 
@@ -739,7 +762,12 @@ export class DshHost {
 
 		// 会话级代理覆盖（DSH 降级方案）：DSH 是单一共享 host，无法按会话注入，
 		// 只能聚合所有 DSH 会话的开关应用到 host（off 优先于 on，见 sessionProxyPolicy）。
-		// patch 仅在 fork 时生效：运行中变更需 host 重启后才应用（dsh 读取与否属其内部实现）。
+		// patch 仅在 fork 时生效：运行中变更需 host 重启后才应用。
+		// 生效机制：patch 除标准代理 env（HTTP_PROXY/HTTPS_PROXY/NO_PROXY）外，还注入
+		// NODE_USE_ENV_PROXY=1 —— host 的 LLM 客户端用 globalThis.fetch（undici），
+		// 默认不读代理环境变量，没有该开关注入的 env 只是摆设（实测确认）。
+		// 注意：这会使 host 内所有 undici fetch 都走代理（含 dsh.internal 内网桥除外——
+		// 桥走主进程 fetch，不在 host 内发请求），需要绕过本机的场景请配置 bypass。
 		const forkEnv = buildDshHostForkEnv();
 		const proxyPatch = this.resolveHostProxyEnvPatch();
 		if (proxyPatch) applyProxyEnvPatch(forkEnv, proxyPatch);

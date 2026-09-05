@@ -9,7 +9,7 @@ import type {
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { useAtomValue } from "jotai";
-import { pendingAppUpdateAtom, updateStatusAtom } from "../../../atoms/update-atoms";
+import { updateStatusAtom } from "../../../atoms/update-atoms";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import {
@@ -20,8 +20,11 @@ import {
   SelectValue,
 } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
+import { AppUpdateCard } from "./AppUpdateCard";
 import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
+import { UpdateSourceSetting } from "./UpdateSourceSetting";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { CatalogSection } from "./CatalogSection";
 
 type DevTabProps = {
   draft: AppSettings;
@@ -46,6 +49,10 @@ type DevTabProps = {
   piUpdateResult: PiCliUpdateResult | null;
   updateChecking: boolean;
   onCheckUpdate: () => void;
+  /** 手动下载（自动下载关闭时显示「立即下载」）。 */
+  onDownloadUpdate: () => void;
+  /** 重启并安装（下载完成后显示）。 */
+  onInstallUpdate: () => void;
   onToggleDevTools: () => void;
   onRestartApp: () => void;
   /** 壳层「取消」递增；本 tab 借此重置 WSL / Web 端口等局部状态 */
@@ -64,8 +71,8 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
   const { draft, updateDraft, isDirty } = props;
   const piPath = props.customPiPath || props.piStatus?.command || "";
   // 后台检查发现可提示的 PiDeck 新版本（未跳过）时高亮设置页更新分区。
-  const pendingAppUpdate = useAtomValue(pendingAppUpdateAtom);
-  const piCliStatus = useAtomValue(updateStatusAtom)?.piCli ?? null;
+  const updateStatus = useAtomValue(updateStatusAtom);
+  const piCliStatus = updateStatus?.piCli ?? null;
   // 手动检查的结果比定时后台快照更新，统一决定提示内容和更新按钮是否可用。
   const piUpdateStatus = props.piUpdateCheck ?? piCliStatus;
   const piUpdateAvailable = Boolean(piUpdateStatus?.hasUpdate);
@@ -131,7 +138,6 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
     setWslUserInput(draft.wslUser);
   }, [props.resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const disableUpdateCheck = draft.disableUpdateCheck;
 
   const piSourceOptions: SelectOption[] = [
     { value: "windows", label: t("settings.piSource.windows") },
@@ -189,14 +195,13 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
             <Button variant="secondary"
               onClick={props.onCheckPiUpdate}
               loading={props.piUpdateChecking}
-              disabled={disableUpdateCheck}
             >
               {t("settings.checkPiUpdate")}
             </Button>
             <Button variant="secondary"
               onClick={props.onUpdatePi}
               loading={props.piUpdating}
-              disabled={disableUpdateCheck || !piUpdateAvailable}
+              disabled={!piUpdateAvailable}
             >
               {t("settings.updatePi")}
             </Button>
@@ -371,42 +376,34 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
         </div>
       </SettingsSection>
 
-      {/* 版本与更新 */}
+      {/* 版本与更新（electron-updater 快照驱动：检测/下载/安装状态一览，语义对齐 Netcatty 设置卡片） */}
       <SettingsSection title={t("settings.sectionUpdates")}>
-        {/* 后台检查发现新版本时的高亮提示（未跳过版本）；点检测更新可立即拉详情。 */}
-        {pendingAppUpdate && (
-          <div className="mb-2 rounded-md border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2 text-caption text-text-primary">
-            {t("update.availableInSettings")}
-          </div>
-        )}
-        <SettingRow
-          title={
-            <>
-              <span>PiDeck</span>
-              <span className="text-caption font-normal text-muted-foreground">v{props.appInfo.version}</span>
-            </>
-          }
-        >
-          <Button variant="secondary"
-            onClick={disableUpdateCheck ? undefined : props.onCheckUpdate}
-            // 禁用时不再显示 loading：检查可能已被禁用拦下，但状态未及落定时仍会转圈
-            loading={props.updateChecking && !disableUpdateCheck}
-            disabled={disableUpdateCheck}
-          >
-            {disableUpdateCheck
-              ? t("settings.updateCheckDisabled")
-              : t("settings.checkUpdate")}
-          </Button>
-        </SettingRow>
-        <SettingSwitchRow
-          title={t("settings.disableUpdateCheck")}
-          description={t("settings.disableUpdateCheckDesc")}
-          checked={draft.disableUpdateCheck}
-          onChange={(checked) =>
-            updateDraft({ disableUpdateCheck: checked })
-          }
+        <AppUpdateCard
+          appVersion={props.appInfo.version}
+          platform={props.appInfo.platform}
+          releasesUrl={props.appInfo.releasesUrl}
+          checking={props.updateChecking}
+          onCheckUpdate={props.onCheckUpdate}
+          onDownloadUpdate={props.onDownloadUpdate}
+          onInstallUpdate={props.onInstallUpdate}
         />
+        {props.appInfo.platform === "darwin" ? (
+          <p className="px-0.5 text-caption text-muted-foreground">
+            {t("settings.macManualUpdateDesc")}
+          </p>
+        ) : (
+          <SettingSwitchRow
+            title={t("settings.autoDownloadUpdates")}
+            description={t("settings.autoDownloadUpdatesDesc")}
+            checked={draft.autoDownloadUpdates !== false}
+            onChange={(checked) => updateDraft({ autoDownloadUpdates: checked })}
+          />
+        )}
+        <UpdateSourceSetting draft={draft} updateDraft={updateDraft} />
       </SettingsSection>
+
+      {/* 模型目录：内置随版本发布，可从 GitHub 拉取最新覆盖 */}
+      <CatalogSection />
 
       {/* 运行 */}
       <SettingsSection title={t("settings.sectionRuntime")}>

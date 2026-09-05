@@ -259,9 +259,7 @@ test("main-process user surfaces use stable copy and keep caught details in logs
     "tray.quit",
     "dialog.chooseChatHistoryFolder",
     "dialog.chooseProjectFolder",
-    "update.checkFailed",
-    "update.invalidDownloadUrl",
-    "update.downloadFailed",
+    // 应用更新由 UpdateService 将底层错误映射为状态快照，设置页用 renderer copy 呈现。
     "wsl.windowsOnly",
     "wsl.piNotInstalled",
     "wsl.connectionFailed",
@@ -290,6 +288,19 @@ test("main-process user surfaces use stable copy and keep caught details in logs
   assert.match(source, /"webService\.startFailed"/);
   assert.match(source, /throw sessionCommandIpcError\(/);
   assert.doesNotMatch(source, /throw new Error\([^\n]*debugDetails \|\|[^\n]*code/);
+
+  // electron-updater 的失败不通过旧的 mainCopy/URL 下载链路泄露到 IPC；
+  // UpdateService 推送 error 快照，设置页使用受控本地化文案并保留 Release 兜底入口。
+  const updateService = readFileSync("src/main/update/UpdateService.ts", "utf8");
+  const appUpdateCard = readFileSync(
+    "src/renderer/src/components/app/settings/AppUpdateCard.tsx",
+    "utf8",
+  );
+  assert.match(updateService, /private setDownloadError/);
+  assert.match(updateService, /this\.download = \{ \.\.\.this\.download, phase: "error", error \}/);
+  assert.match(updateService, /"App update check failed"/);
+  assert.match(appUpdateCard, /t\("settings\.updateErrorDetail"/);
+  assert.match(appUpdateCard, /desktopApi\.app\.openExternal\(releaseUrl, true\)/);
 
   const projectStore = readFileSync("src/main/projects/ProjectStore.ts", "utf8");
   assert.match(projectStore, /title: this\.chooseProjectTitle\(\)/);

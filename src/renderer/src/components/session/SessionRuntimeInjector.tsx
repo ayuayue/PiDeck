@@ -24,6 +24,7 @@ import {
 import type { QueuedPrompt } from "../../hooks/useQueuedPrompt";
 import type { SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { QueuedPromptPanel } from "./ComposerPanels";
+import { FileLinkBaseProvider } from "./FileLinkBase";
 import { SessionView } from "./SessionView";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { desktopApi } from "../../desktopApi";
@@ -87,18 +88,32 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 
   // 本栏终端归属：从本会话自身的 runtime/record 解析（分屏各栏独立，不再跟随 App 聚焦态）；
   // owner 解析失败或目标不可落地时该栏不挂 dock。
+  const paneProjectId = currentSessionRuntime?.projectId ?? sessionRecord?.projectId ?? "";
   const paneProject = useAtomValue(
-    projectByIdAtomFamily(sessionRecord?.projectId ?? ""),
+    projectByIdAtomFamily(paneProjectId),
+  );
+  const paneFileContext = React.useMemo(
+    () => ({
+      // runtime cwd 是该会话真正执行工具的目录；未启动时回退 catalog 项目根。
+      baseDir: currentSessionRuntime?.cwd ?? paneProject?.path,
+      projectId: paneProjectId || undefined,
+      projectRoot: paneProject?.path,
+    }),
+    [currentSessionRuntime?.cwd, paneProject?.path, paneProjectId],
+  );
+  const openPaneFile = React.useCallback(
+    (path: string, line?: number) => services.onOpenFile(path, line, paneFileContext),
+    [paneFileContext, services.onOpenFile],
   );
   const paneTerminal = React.useMemo(
     () =>
       resolvePaneTerminal({
         sessionId: currentSessionId,
         runtime: currentSessionRuntime,
-        projectId: sessionRecord?.projectId,
+        projectId: paneProjectId || undefined,
         project: paneProject,
       }),
-    [currentSessionId, currentSessionRuntime, sessionRecord?.projectId, paneProject],
+    [currentSessionId, currentSessionRuntime, paneProjectId, paneProject],
   );
   const paneOwnerKey = paneTerminal ? terminalOwnerKey(paneTerminal.owner) : undefined;
   const paneTerminalState = paneOwnerKey
@@ -247,6 +262,11 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
   }, [currentSessionId, currentSessionRuntime, rewindConfirm, services]);
 
   return (
+    <FileLinkBaseProvider
+      baseDir={paneFileContext.baseDir}
+      projectId={paneFileContext.projectId}
+      projectRoot={paneFileContext.projectRoot}
+    >
     <>
     <SessionView
       sessionId={currentSessionId}
@@ -270,7 +290,7 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
       validCommandNames={services.validCommandNames}
       validFilePaths={services.validFilePaths}
       onPreviewImage={services.onPreviewImage}
-      onOpenFile={services.onOpenFile}
+      onOpenFile={openPaneFile}
       onDiffFile={services.onDiffFile}
       onResendUserMessage={canResend ? services.resendUserMessage : undefined}
       onEditMessage={canEditOrDeleteMessages ? services.editMessage : undefined}
@@ -347,5 +367,6 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
       />
     )}
   </>
+    </FileLinkBaseProvider>
   );
 });

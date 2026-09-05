@@ -36,7 +36,7 @@ import { createCompactRpcRequest } from "./compactRpc";
 import { mergeSubagentSources } from "./derivedSubagents";
 import { parseAvailableThinkingLevelsResponse } from "./thinkingLevels";
 import { listActiveBuiltInExtensionPaths } from "../extensions/builtInExtensions";
-import { resolveEnabledExtensionPaths } from "../extensions/enabledExtensionResolver";
+import { createPiProcessExtensionResolvers } from "../extensions/piProcessExtensionResolvers";
 import {
 	formatExtensionFallbackDebug,
 	shouldRetryWithoutExtensions,
@@ -531,29 +531,9 @@ export class AgentManager {
 			void this.securityStore.ensureSnapshotWritten();
 		}
 		return new PiProcess(cwd, settings, undefined, {
-			resolveBuiltInExtensionPaths: (processSettings) =>
-				listActiveBuiltInExtensionPaths(
-					{
-						appPath: app.getAppPath(),
-						resourcesPath: process.resourcesPath,
-						isDev: !app.isPackaged,
-					},
-					processSettings?.removedBuiltInExtensions ?? settings.removedBuiltInExtensions ?? [],
-				),
-			// 扩展白名单模式：存在禁用扩展（settings.disabledExtensions 非空）时，
-			// 枚举 user/project packages + 本地扩展 + 内置扩展，剔除禁用项后作为 -e 白名单注入。
-			resolveEnabledExtensionPaths: (processSettings) =>
-				resolveEnabledExtensionPaths({
-					cwd,
-					disabled: processSettings?.disabledExtensions ?? settings.disabledExtensions ?? [],
-					removedBuiltInExtensions:
-						processSettings?.removedBuiltInExtensions ?? settings.removedBuiltInExtensions ?? [],
-					builtInRoots: {
-						appPath: app.getAppPath(),
-						resourcesPath: process.resourcesPath,
-						isDev: !app.isPackaged,
-					},
-				}),
+			// 扩展解析器与模型能力缓存共用（piProcessExtensionResolvers）：
+			// 保证「选择器能看到扩展贡献的模型」与「运行时实际加载的扩展」同源。
+			...createPiProcessExtensionResolvers(cwd, settings),
 			// 会话身份 = PiDeck 会话 key（SessionRecord.id，UUID 或旧版文件路径），扩展按它解析等级覆盖；
 			// 匿名会话（noSession）无 key，扩展仅用全局默认等级。
 			securitySessionId: securitySessionKey ?? sessionPath,
@@ -999,7 +979,7 @@ export class AgentManager {
 			SessionHistoryReader.maxTurnPageSize(),
 		);
 		const roles = list.map((m) => ({ role: m.role, byteLength: 0 }));
-		const start = findTurnPageStart(roles, pos, turnCount, Number.MAX_SAFE_INTEGER);
+		const start = findTurnPageStart(roles, pos, turnCount);
 		if (start >= pos) return null;
 		const page = list.slice(start, pos);
 		const oldest = page[0] ?? list[0];
@@ -1237,14 +1217,13 @@ export class AgentManager {
 		this.rebindInFlightMessages(agentId, nextMessages, messages);
 		this.messages.set(agentId, nextMessages);
 		// 显示窗口 = 尾部 9 轮（DOM 3 / atom 9 / main 12 模型；轮次起点对齐 user 消息，
-		// 与 disk 轮次分页同一约定；字节预算不参与窗口计算——单轮再大也整轮显示，折叠完整性优先）
+		// 与 disk 轮次分页同一约定；单轮再大也整轮显示，折叠完整性优先）
 		this.displayWindowStartByAgent.set(
 			agentId,
 			findTurnPageStart(
 				nextMessages.map((m) => ({ role: m.role, byteLength: 0 })),
 				nextMessages.length,
 				AgentManager.DISPLAY_WINDOW_TURNS,
-				Number.MAX_SAFE_INTEGER,
 			),
 		);
 		// 文件版本随本次加载快照：压缩/外部改写会改变 mtime:size，渲染层据此丢弃 disk 前缀
@@ -1472,6 +1451,13 @@ export class AgentManager {
 					? this.translate("session.historyTitle", { project: project.name })
 					: `${project.name} agent`);
 			tab.status = "idle";
+			// 打开即同步权威标题（2026-09 现场）：catalog 可能被扫描器弱回退（首条消息文本）
+			// 覆盖过（session_info 落在头/尾窗口盲区），而 input.title 优先会造成打开后
+			// 侧栏一直停在污染值；pi get_state 的 sessionName 是 JSONL 末尾 session_info 的
+			// 权威值，两者不一致时以 pi 为准回写 catalog，顺带覆盖 pi-tui 外部改名漏同步的场景。
+			if (piSessionName && piSessionName !== input.title && piSessionName !== tab.title) {
+				this.onTitleChanged?.(id, piSessionName);
+			}
 			// 历史一律从 JSONL 尾部读最近 N 轮，禁止 get_messages：
 			// pi 会把整段历史打成单行 JSON，主进程 JSON.parse 会冻住窗口按钮。
 			// Agent 可用只依赖 get_state；历史后台加载，加载期间新消息由 preserveMessagesAfter 保护。
@@ -2143,7 +2129,9 @@ export class AgentManager {
 				project.path,
 				runtime.tab.sessionEnvironment ?? "native",
 			);
-			this.applyRuntimeTitle(agentId, data?.sessionName ?? runtime.tab.title, false);
+			// 重启后 get_state 的 sessionName 来自磁盘最新 session_info；tab 可能先沿用 catalog 旧标题，
+			// 因此需要强制通知 catalog，确保 pi-tui 外部改名在“重启 Session”路径也能同步。
+			this.applyRuntimeTitle(agentId, data?.sessionName ?? runtime.tab.title, false, true);
 			runtime.tab.status = "idle";
 			// 进程退出型压缩可能来不及发 compaction_end；重连成功即表示 Pi 已可继续接收消息。
 			this.rpcCompactingAgents.delete(agentId);
@@ -3215,7 +3203,7 @@ export class AgentManager {
 				runtime.tab.sessionEnvironment ?? "native",
 			) ?? runtime.tab.sessionPath;
 		}
-		if (state?.sessionName) this.applyRuntimeTitle(agentId, state.sessionName, false);
+		if (state?.sessionName) this.applyRuntimeTitle(agentId, state.sessionName, false, true);
 		// 重新附加后恢复：保留附加期间用户发送/流式中的消息，避免投影替换吞掉乐观消息
 		await this.loadMessages(agentId, false, undefined, { preserveMessagesAfter: Date.now() }).catch(() => undefined);
 		this.emitState();
@@ -3515,18 +3503,26 @@ export class AgentManager {
 		this.onTitleChanged = handler;
 	}
 
-	/** 更新 tab.title；有变化才 emit 并通知 catalog，避免无意义刷新。 */
-	private applyRuntimeTitle(agentId: string, title: string, emit = true): boolean {
+	/**
+	 * 更新 tab.title；常规路径只在变化时 emit/通知，重启或会话替换可强制把 get_state 的
+	 * 磁盘权威标题写回 catalog，修复 tab 已沿用旧 catalog 标题时被相等判断吞掉的问题。
+	 */
+	private applyRuntimeTitle(agentId: string, title: string, emit = true, forceCatalogSync = false): boolean {
 		const runtime = this.agents.get(agentId);
 		const next = title.replace(/\s+/g, " ").trim();
-		if (!runtime || !next || next === runtime.tab.title) return false;
+		if (!runtime || !next) return false;
 		// pi 未改名时 sessionName = JSONL 文件名（时间戳）。写进 tab/catalog 会：
 		// 1) 侧栏标题变成时间；2) 不再是占位名，refreshAutoTitle 再也不会用首条消息改名。
 		if (looksLikePiSessionFileStem(next)) return false;
-		runtime.tab.title = next;
-		if (emit) this.emitState();
-		this.onTitleChanged?.(agentId, next);
-		return true;
+		const changed = next !== runtime.tab.title;
+		if (changed) {
+			runtime.tab.title = next;
+			if (emit) this.emitState();
+		}
+		// restart/session replacement 的 tab 可能已经是该标题，但 catalog 仍旧；
+		// forceCatalogSync 允许 get_state 的权威值穿过相等判断写回 catalog。
+		if (changed || forceCatalogSync) this.onTitleChanged?.(agentId, next);
+		return changed;
 	}
 
 	private notifyAgentSettled(agentId: string, title: string) {
@@ -5943,7 +5939,6 @@ export class AgentManager {
 				all.map((message) => ({ role: message.role, byteLength: 0 })),
 				all.length,
 				AgentManager.DISPLAY_WINDOW_TURNS,
-				Number.MAX_SAFE_INTEGER,
 			);
 			this.displayWindowComputedLengthByAgent.set(agentId, all.length);
 		}
@@ -6035,7 +6030,6 @@ export class AgentManager {
 			list.map((m) => ({ role: m.role, byteLength: 0 })),
 			list.length,
 			AgentManager.DISPLAY_WINDOW_TURNS,
-			Number.MAX_SAFE_INTEGER,
 		);
 		// 不超过 12 轮时也要校准尾部 9 轮窗口。通常 settled 前的 flush 已经做过这步，
 		// 这里保留独立调用时的兜底，避免新会话在 12 轮以内把全部消息留在 atom。
@@ -6073,7 +6067,6 @@ export class AgentManager {
 				next.map((m) => ({ role: m.role, byteLength: 0 })),
 				next.length,
 				AgentManager.DISPLAY_WINDOW_TURNS,
-				Number.MAX_SAFE_INTEGER,
 			),
 		);
 		this.markMessagesDirtyFrom(agentId, 0);

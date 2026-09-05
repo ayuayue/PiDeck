@@ -61,6 +61,29 @@ export type ProjectAgentSessionDisplay = {
 };
 
 /**
+ * Resolve the durable session identity carried by a project child row.
+ * Transient agents without a catalog Session deliberately return undefined and
+ * cannot be pinned because agentId is not stable across restarts.
+ */
+export function getProjectChildSessionId(child: ProjectChildItem): string | undefined {
+	return child.type === "session" ? child.session.id : undefined;
+}
+
+/** Pinned rows lead their project while each partition keeps the existing time order. */
+export function compareProjectChildren(
+	left: ProjectChildItem,
+	right: ProjectChildItem,
+	pinnedSessionIds: ReadonlySet<string>,
+): number {
+	const leftId = getProjectChildSessionId(left);
+	const rightId = getProjectChildSessionId(right);
+	const leftPinned = leftId !== undefined && pinnedSessionIds.has(leftId);
+	const rightPinned = rightId !== undefined && pinnedSessionIds.has(rightId);
+	if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+	return right.sortAt - left.sortAt;
+}
+
+/**
  * 统一列表（Agent/历史会话行）已占用的 catalog Session ID。
  * draft 区块必须排除这些 ID，否则启动后会出现「draft 标题行 + Agent 行」重复入口。
  */
@@ -211,10 +234,13 @@ export function getProjectAgentSessionDisplay({
 	agents,
 	sessions,
 	visibleChildCount,
+	pinnedSessionIds = new Set<string>(),
 }: {
 	agents: AgentTab[];
 	sessions: SessionSummary[];
 	visibleChildCount?: number;
+	/** Stable SessionRecord ids pinned inside this project's list. Unknown ids are ignored. */
+	pinnedSessionIds?: ReadonlySet<string>;
 }): ProjectAgentSessionDisplay {
 	const sessionByKey = new Map<string, SessionSummary>();
 	const unkeyedSessions: SessionSummary[] = [];
@@ -439,7 +465,7 @@ export function getProjectAgentSessionDisplay({
 		}
 	}
 
-	children.sort((left, right) => right.sortAt - left.sortAt);
+	children.sort((left, right) => compareProjectChildren(left, right, pinnedSessionIds));
 
 	const limit = visibleChildCount ?? DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT;
 	const visibleChildren = children.slice(0, limit);

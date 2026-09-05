@@ -549,9 +549,6 @@ export async function loadAllCheckpoints(
 	sessionId?: string,
 ): Promise<CheckpointData[]> {
 	try {
-		// 批量读取：一次 for-each-ref 拿 ref→sha，一次 git log --no-walk 解析全部
-		// commit message。弹层打开可能面对几十个 checkpoint，逐 ref spawn 2 次 git
-		// 会明显拖慢主进程（Windows spawn 开销大），批量后固定 2 次进程调用。
 		const prefix = `${REF_BASE}/`;
 		const refOut = await gitOp(root, [
 			"for-each-ref",
@@ -569,24 +566,39 @@ export async function loadAllCheckpoints(
 				};
 			});
 		if (pairs.length === 0) return [];
-		// %H%x00%B%x00 每条输出 <sha>\0<body>\0。不带 -z 时 git 会在每条记录后
-		// 追加 \n（body 尾部也是 \n），导致 \0 切分后出现 "\n<sha>" 粘连项；
-		// 加 -z 后记录之间改用 \0 分隔，切分产物为 [sha, body, "", sha, body,
-		// "", ...]。配合下面的扫描式配对（40 位 hex + 紧邻可解析 body）即可稳定
-		// 还原全部记录。commit message 不可能含 \0 与纯 40 位 hex 行，不会误配。
-		const batch = await gitOp(root, [
-			"log",
-			"-z",
-			"--no-walk",
-			"--format=%H%x00%B%x00",
-			...pairs.map((p) => p.sha),
-		]);
+
+		// 批量读 commit 内容改为一次 git cat-file --batch：SHA 经 stdin 传入，
+		// 不拼命令行参数。原实现把所有 SHA 拼进 `git log --no-walk <shas>` 一次调用——
+		// 多会话共享同一仓库时 refs 积累到数百/上千（本仓库实测 1500+），参数串超过
+		// Windows 32767 字符上限后 Node spawn 抛 ENAMETOOLONG，整批失败被外层 catch
+		// 吞成 []；而 sessionId 过滤是在全量读取之后做的，任何会话都读不到自己的
+		// 检查点，表现为「检查点列表永远暂无」。stdin 无这个限制，仍保持单次进程调用
+		// 与批量解析的效率。
+		const { stdout: catOut } = await runGit(
+			["cat-file", "--batch"],
+			{ cwd: root, input: `${pairs.map((p) => p.sha).join("\n")}\n` },
+		);
 		const bySha = new Map<string, Omit<CheckpointData, "id">>();
-		const parts = batch.split("\0");
-		for (let i = 0; i + 1 < parts.length; i++) {
-			if (!/^[0-9a-f]{40}$/.test(parts[i])) continue;
-			const parsed = parseCheckpointCommit(parts[i + 1] ?? "");
-			if (parsed) bySha.set(parts[i], parsed);
+		// cat-file --batch 输出记录流：`<sha> commit <size>\n<contents>\n`。
+		// contents 是 commit 对象全文（tree/author/committer 头 + 空行 + message），
+		// message 取首个空行之后的内容，正好还原 parseCheckpointCommit 的输入。
+		let pos = 0;
+		while (pos < catOut.length) {
+			const nl = catOut.indexOf("\n", pos);
+			if (nl < 0) break;
+			const header = catOut.slice(pos, nl);
+			const m = /^([0-9a-f]{40}) commit (\d+)$/.exec(header);
+			if (!m) {
+				// 对象被并发删除时输出 `<sha> missing`；跳过即可（宽松容忍）。
+				pos = nl + 1;
+				continue;
+			}
+			const size = Number(m[2]);
+			const content = catOut.slice(nl + 1, nl + 1 + size);
+			const message = content.slice(content.indexOf("\n\n") + 2);
+			const parsed = parseCheckpointCommit(message);
+			if (parsed) bySha.set(m[1], parsed);
+			pos = nl + 1 + size + 1;
 		}
 		const all = pairs
 			.map(({ ref, sha }) => {

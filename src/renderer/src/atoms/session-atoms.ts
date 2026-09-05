@@ -238,9 +238,9 @@ export type SessionScrollAnchor = {
 	/** 锚点行顶边相对视口顶部的偏移（px），恢复时按此对齐 */
 	offsetTop: number;
 	/**
-	 * 切走时已挂载的 agent-run 窗口轮数。恢复前必须先重建至少这个窗口，
-	 * 否则锚点行虽然仍在缓存里，却不在 DOM 中，无法按 offsetTop 对齐。
-	 * undefined 兼容热更新期间仍在内存中的旧锚点，恢复时退回基础窗口。
+	 * 切走时实际用于裁剪 DOM 的尾部 agent-run 窗口轮数。恢复必须先采用相同窗口，
+	 * 否则锚点行上方的文档高度会变化，按 offsetTop 恢复的位置会被截断或漂移。
+	 * undefined 兼容热更新期间仍在内存中的旧锚点，恢复时退回基础窗口并按需扩窗。
 	 */
 	windowTurns?: number;
 	/** 保存时间戳，防止乱序事件用陈旧状态覆盖新状态 */
@@ -425,6 +425,37 @@ export const newTurnCollapseTickBySessionIdAtomFamily = atomFamily((sessionId: s
     (map) => map[sessionId] ?? 0,
     Object.is,
   ),
+);
+
+/**
+ * run 级「执行过程展开状态」的跨挂载记忆条目。
+ * atTick 记录写入时的 newTurnCollapseTick：新一轮只压过早于它的旧记忆，
+ * 从新一轮之后再次写入的记忆必须在下一次重挂载时恢复（用户明确的最新意愿）。
+ */
+export type RunStepsVisibleMemoryEntry = {
+  /** 展开意愿：true = 展开，false = 明确折叠。 */
+  visible: boolean;
+  /** 写入时的新一轮 tick（session 级单调递增）。 */
+  atTick: number;
+};
+
+/**
+ * run 级「执行过程展开状态」的跨挂载记忆（内存级，重启清零）。
+ *
+ * 背景（2026 用户反馈）：stepsVisible 原本是 TurnRow 组件局部 state，
+ * 切会话再切回时 TurnRow 以 run.id 重挂载、状态归零——「正在看 / 手动打开的
+ * 中间过程」被初始态折叠规则收掉。此 family 按 runId 记住最近一次明确的
+ * 展开意愿：手动开合 / 流式展开写 { visible, atTick }，
+ * 新一轮强制折叠 / 1.5s 自动收起后清除（delete）。
+ *
+ * 语义边界：
+ * - 只看历史的会话从未展开过任何轮 → 无记忆 → 走初始态折叠（规则①不变）；
+ * - 新一轮已发生且本轮非最新 → 挂载时直接折叠，早于此轮的记忆作废（规则④优先）；
+ *   新一轮之后用户再次手动展开写下的记忆（atTick >= 当前 tick）必须恢复；
+ * - 重启后 atom 清零 → 全部回到折叠（内存级，不持久化）。
+ */
+export const runStepsVisibleMemoryBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) => atom<Record<string, RunStepsVisibleMemoryEntry>>({}),
 );
 
 export const sessionMessageLruAtom = atom<string[]>([]);
@@ -1052,7 +1083,7 @@ function applySessionRuntimeUiEvent(
     : current;
   if (
     (event.sourceChannel === "agents:state" || event.sourceChannel === "sessions:runtime") &&
-    (payload.status === "error" || payload.status === "closed")
+    payload.status === "closed"
   ) {
     return {
       agentId: event.agentId,
@@ -1494,8 +1525,7 @@ export const applySessionRuntimeEventAtom = atom(
       }
     }
 
-    const terminalEnvelope = !bindingChanged &&
-      (currentRuntime.status === "error" || currentRuntime.status === "closed");
+    const terminalEnvelope = !bindingChanged && currentRuntime.status === "closed";
     const nextUi = payload && !(terminalEnvelope && event.sourceChannel === "agents:ui-request")
       ? applySessionRuntimeUiEvent(
           get(sessionRuntimeUiByIdAtom)[event.sessionId],
@@ -1676,6 +1706,7 @@ export const removeSessionStateAtom = atom(null, (get, set, sessionId: string) =
   // atomFamily 无自动 GC：会话删除时必须同步 remove 各 family 实例，否则长期泄漏（2026-10）。
   liveThinkingIdBySessionIdAtomFamily.remove(sessionId);
   newTurnCollapseTickBySessionIdAtomFamily.remove(sessionId);
+  runStepsVisibleMemoryBySessionIdAtomFamily.remove(sessionId);
   streamingTextBySessionIdAtomFamily.remove(sessionId);
   sessionMessageCacheBySessionIdAtomFamily.remove(sessionId);
   set(streamingTextByIdAtom, (prevMap) => {

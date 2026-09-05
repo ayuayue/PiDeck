@@ -49,6 +49,21 @@ app.whenReady().then(async () => {
 				if (id === "../settings/SettingsStore") {
 					return { readElectronChromiumSandboxPreference: () => false };
 				}
+				// PetWindow 新增依赖（shared 纯几何常量，node 24 type stripping 直接加载；
+				// 后两者仅取常量/无副作用，stub 避免拖入 electron 协议注册与日志实现）
+				if (id === "../../shared/petNotificationLayout") {
+				// Electron 内置 Node 不支持 .ts type stripping（普通 node 24 可以），
+				// 与 PetWindow 同样用 transpile+vm 加载纯常量模块（仅 type-only import，无运行时依赖）
+				const layoutSrc = fs.readFileSync(path.join(__dirname, "../src/shared/petNotificationLayout.ts"), "utf8");
+				const { outputText: layoutOut } = ts.transpileModule(layoutSrc, {
+					compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+				});
+				const layoutModule = { exports: {} };
+				vm.runInNewContext(layoutOut, { module: layoutModule, exports: layoutModule.exports, require: (i) => { throw new Error("unexpected layout require " + i); } }, { filename: "petNotificationLayout.ts" });
+				return layoutModule.exports;
+			}
+				if (id === "../logging/sharedLogger") return { getAppLogger: () => undefined };
+				if (id === "./petSpriteProtocol") return { PET_WINDOW_PARTITION: "persist:pet" };
 				throw new Error(`pet-smoke: unexpected require(${id})`);
 			},
 		};

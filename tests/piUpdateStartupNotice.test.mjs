@@ -46,7 +46,7 @@ test("Pi CLI update notice is anchored to its controls", () => {
   // 手动检查结果比定时后台快照新，且后台已发现更新时“更新 Pi”应可直接操作。
   assert.match(devTab, /const piUpdateStatus = props\.piUpdateCheck \?\? piCliStatus;/);
   assert.match(devTab, /const piUpdateAvailable = Boolean\(piUpdateStatus\?\.hasUpdate\);/);
-  assert.match(devTab, /disabled=\{\s*disableUpdateCheck \|\| !piUpdateAvailable\s*\}/);
+  assert.match(devTab, /disabled=\{\s*!piUpdateAvailable\s*\}/);
   assert.match(zh, /可使用上方的「更新 Pi」操作更新/);
   assert.match(en, /Use Update Pi above to install it/);
 });

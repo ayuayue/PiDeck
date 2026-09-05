@@ -94,21 +94,161 @@ export function extractFileLinkLocation(path: string): FileLinkLocation {
 }
 
 export function isAbsoluteFilePath(path: string): boolean {
-	return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("/") || isTildePath(path);
+	return /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]/.test(path) || path.startsWith("/") || isTildePath(path);
+}
+
+function usesWindowsPathSyntax(path: string): boolean {
+	return /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]/.test(path);
 }
 
 /**
- * 相对路径 → 绝对路径（base 检测分隔符选 \ 或 /）。
- * - 绝对路径（含盘符/根/~）原样直通：~ 不随项目 base 拼——它永远指用户家目录，
- *   主进程 stat 展不开会得到 false，链接自然降级为纯文本，这里只负责不改写。
- * - 无 base 的相对路径无从解析，返回 null——调用方按「未知」处理，不做存在性校验。
- * 与 App.handleOpenLinkedFile 点击链路同源，保证「校验的路径」=「点击打开的路径」。
+ * 浏览器侧不能依赖 node:path；这里按路径自身语法做词法规范化。
+ * `.`/`..` 会在发 IPC 前折叠，但最终授权仍由主进程基于真实项目根和 realpath 判定。
  */
-export function resolveFileLinkPath(path: string, basePath?: string): string | null {
+function normalizeLexicalFilePath(path: string, windowsStyle = usesWindowsPathSyntax(path)): string {
+	if (!path) return path;
+	const separator = windowsStyle ? "\\" : "/";
+	let prefix = "";
+	let rest = path;
+	let protectedSegments = 0;
+
+	const drive = /^([A-Za-z]:)[\\/]/.exec(path);
+	if (drive) {
+		prefix = `${drive[1]}${separator}`;
+		rest = path.slice(drive[0].length);
+	} else if (windowsStyle && /^[\\/]{2}/.test(path)) {
+		// UNC 的 server/share 是根的一部分，`..` 不能越过 share。
+		prefix = separator.repeat(2);
+		rest = path.replace(/^[\\/]+/, "");
+		protectedSegments = 2;
+	} else if (path.startsWith("/")) {
+		prefix = separator;
+		rest = path.replace(/^[\\/]+/, "");
+	} else if (isTildePath(path)) {
+		prefix = "~";
+		rest = path.slice(1).replace(/^[\\/]+/, "");
+	}
+
+	const segments: string[] = [];
+	for (const segment of rest.split(/[\\/]+/)) {
+		if (!segment || segment === ".") continue;
+		if (segment === "..") {
+			if (segments.length > protectedSegments && segments.at(-1) !== "..") {
+				segments.pop();
+			} else if (!prefix) {
+				segments.push(segment);
+			}
+			continue;
+		}
+		segments.push(segment);
+	}
+
+	const joined = segments.join(separator);
+	if (!prefix) return joined;
+	if (!joined) return prefix;
+	return prefix.endsWith(separator) ? `${prefix}${joined}` : `${prefix}${separator}${joined}`;
+}
+
+type ParsedWslUncPath = {
+	distro: string;
+	linuxPath: string;
+};
+
+/** 解析 WSL 的 `\\wsl$` / `\\wsl.localhost`（含正斜杠形式），保留 Linux 路径大小写。 */
+function parseWslUncPath(path: string): ParsedWslUncPath | null {
+	const match = path.match(/^[\\/]{2}(?:wsl\$|wsl\.localhost)[\\/]([^\\/]+)(?:[\\/](.*))?$/i);
+	if (!match) return null;
+	const suffix = match[2]?.replace(/[\\/]+/g, "/") ?? "";
+	return {
+		distro: match[1],
+		linuxPath: normalizeLexicalFilePath(`/${suffix}`, false),
+	};
+}
+
+/** 把 runtime 的 Linux cwd 对齐到 ProjectStore 使用的 WSL UNC 表示。 */
+function alignPathToProjectRoot(path: string, projectRoot: string): string | null {
+	const rootWsl = parseWslUncPath(projectRoot);
+	if (!rootWsl) return path;
+	const pathWsl = parseWslUncPath(path);
+	let linuxPath: string;
+	if (pathWsl) {
+		// 不同发行版是不同文件系统，即使 Linux 路径文本相同也不能互相授权。
+		if (pathWsl.distro.toLowerCase() !== rootWsl.distro.toLowerCase()) return null;
+		linuxPath = pathWsl.linuxPath;
+	} else if (path.startsWith("/")) {
+		linuxPath = normalizeLexicalFilePath(path, false);
+	} else {
+		return path;
+	}
+	const suffix = linuxPath === "/" ? "" : linuxPath.slice(1).replace(/\//g, "\\");
+	return `\\\\wsl.localhost\\${rootWsl.distro}${suffix ? `\\${suffix}` : ""}`;
+}
+
+/** 判断 target 是否位于 root 内（含 root 本身），并遵循各文件系统的大小写语义。 */
+export function isFilePathInsideRoot(target: string, root: string): boolean {
+	if (!target || !root) return false;
+	const alignedTarget = alignPathToProjectRoot(target, root);
+	const alignedRoot = alignPathToProjectRoot(root, root);
+	if (!alignedTarget || !alignedRoot) return false;
+	const rootWsl = parseWslUncPath(alignedRoot);
+	const targetWsl = parseWslUncPath(alignedTarget);
+	if (rootWsl || targetWsl) {
+		if (!rootWsl || !targetWsl) return false;
+		if (rootWsl.distro.toLowerCase() !== targetWsl.distro.toLowerCase()) return false;
+		// WSL 的 host/distro 是 Windows 名称；其后的 Linux 路径必须保留大小写。
+		return targetWsl.linuxPath === rootWsl.linuxPath
+			|| targetWsl.linuxPath.startsWith(`${rootWsl.linuxPath.replace(/\/$/, "")}/`);
+	}
+
+	const rootIsWindows = usesWindowsPathSyntax(alignedRoot);
+	if (usesWindowsPathSyntax(alignedTarget) !== rootIsWindows) return false;
+	const normalizeForCompare = (value: string) => {
+		let normalized = normalizeLexicalFilePath(value, rootIsWindows).replace(/\\/g, "/");
+		if (normalized.length > 1 && !/^[A-Za-z]:\/$/.test(normalized)) {
+			normalized = normalized.replace(/\/+$/, "");
+		}
+		return rootIsWindows ? normalized.toLowerCase() : normalized;
+	};
+	const normalizedTarget = normalizeForCompare(alignedTarget);
+	const normalizedRoot = normalizeForCompare(alignedRoot);
+	if (normalizedTarget === normalizedRoot) return true;
+	const prefix = normalizedRoot.endsWith("/") ? normalizedRoot : `${normalizedRoot}/`;
+	return normalizedTarget.startsWith(prefix);
+}
+
+/**
+ * 相对路径按 basePath 解析，并可选收敛到 projectRoot。
+ *
+ * - `.`/`..` 在渲染层先做词法规范化，避免同一文件产生多个缓存键；
+ * - 指定 projectRoot 时，绝对路径和相对路径都必须落在项目内，否则返回 null；
+ * - 主进程仍会按 ProjectStore 根目录 + realpath 再校验，渲染层判断只负责尽早拒绝和改善提示；
+ * - `~` 保持用户家目录语义；在有 projectRoot 的会话入口中通常会因越界而被拒绝。
+ */
+export function resolveFileLinkPath(
+	path: string,
+	basePath?: string,
+	projectRoot?: string,
+): string | null {
 	const normalized = normalizeFileLinkPath(path);
 	if (!normalized) return null;
-	if (isAbsoluteFilePath(normalized)) return normalized;
-	if (!basePath) return null;
-	const separator = basePath.includes("\\") ? "\\" : "/";
-	return `${basePath.replace(/[\\/]+$/, "")}${separator}${normalized.replace(/^[\\/]+/, "")}`;
+
+	let resolved: string;
+	if (isAbsoluteFilePath(normalized)) {
+		resolved = normalizeLexicalFilePath(normalized);
+	} else {
+		if (!basePath) return null;
+		const windowsStyle = usesWindowsPathSyntax(basePath);
+		const separator = windowsStyle ? "\\" : "/";
+		resolved = normalizeLexicalFilePath(
+			`${basePath.replace(/[\\/]+$/, "")}${separator}${normalized.replace(/^[\\/]+/, "")}`,
+			windowsStyle,
+		);
+	}
+
+	if (projectRoot) {
+		const aligned = alignPathToProjectRoot(resolved, projectRoot);
+		if (!aligned || !isFilePathInsideRoot(aligned, projectRoot)) return null;
+		return aligned;
+	}
+	return resolved;
 }

@@ -1,3 +1,90 @@
+## v0.7.4-beta - 2026-09-04
+
+### 🚀 New Features
+- **Command Code usage query support** — A new commandcode-credits parser reads the /alpha/billing/credits endpoint and shows 5h / weekly / monthly windows; the monthly window reverse-looks-up the 5h/week cap combo from the official pricing table with a double check (cap matches the plan + remaining is under the cap), degrading to remaining-only on failure (fail-closed against fabricated denominators).
+- **Application update lifecycle hardening** — The update service is restructured into automatic (electron-updater downloads and installs) / manual (unsigned macOS builds only check and guide manual downloads) delivery modes; stale updater references removed, install-time exit preparation with timeout recovery, so the update flow is more reliable.
+- **Update source mirrors with auto health checks** — The update settings can switch between GitHub official / built-in mirrors (ghfast, ghproxy.net, ghproxy.cxkpro) / a custom mirror prefix, applied at runtime without a restart; opening the settings page auto-probes mirror availability and speed with ok / slow / broken markers, plus a manual re-check button.
+
+### 🐛 Fixes
+- **Tool stopwatch no longer resets mid-stream** — Tool duration now starts from meta.startedAt (same baseline as the final durationMs), so long-running commands no longer flash back to near-zero while streaming output.
+- **Vision-bridge model picker fits extra-long model names** — Overlong provider/model tokens truncate inside the button with an ellipsis (full name on hover) instead of breaking the layout.
+- **Unified session turn counting** — Pi sessions count “N rounds” by speaking-turn cycles (consecutive user messages merge into one turn); DSH keeps the official sessionStats semantics with a dsh-web-aligned fallback; the usage page renames “turns” to “call counts” to avoid confusion with session turns.
+- **Fork titles persist and long sidebar names scroll** — Forked session titles survive restarts; extra-long sidebar titles scroll on hover.
+- **Git badge state survives tab switches** — Ahead/behind badges are cached per project + repo scope, so switching session tabs no longer blanks them (the cached value shows instantly and a background refresh corrects it shortly after).
+- **Calmer title scrolling** — Tab and sidebar title scrolling is slower and constant-speed with a doubled max duration, and the currently selected item no longer scrolls, so titles stay readable.
+
+## v0.7.3 - 2026-09-03
+
+### 🚀 New Features
+- **Chat session archives** — Sessions can be archived out of the workspace, with bulk delete on the archive screen so old chats stop crowding the sidebar.
+- **Active tab always in view** — When tabs overflow, the active session tab auto-scrolls to the visible center, so you always see which session you're on.
+- **Refined default-model priority** — Draft defaults now follow: explicit default > enabledModels > welcome preference > last used > none; the welcome preference is validated against the catalog before use, and thinking level always comes from the default setting.
+- **DSH runtime: dev uses project deps, packs stay lean** — Dev mode uses the repo's @deepseek-ai dependencies directly (no download); packaged builds ship without the runtime and offer on-demand install, so users who don't use DSH aren't charged the download.
+- **Rewind checkpoints** — Full checkpoint flow: dialog, drawer, timeline restore, auto snapshots, and session-fork restore; the checkpoint list is paginated so long sessions stay usable.
+- **Import DSH runtime from a folder** — Install a DSH runtime from an already-extracted directory instead of downloading it every time.
+- **Automatic session titles** — New sessions get an auto-generated title, including after an agent interrupt, so the sidebar is no longer a wall of “New session”.
+- **Idle agent auto-release** — Background sweep reclaims idle runtimes to cut memory use when many sessions stay open; checkpoint loading is faster too.
+- **Usage rows stay put, model cards get denser** — Built-in usage templates hide the config entry once recognized and keep the usage row visible; the Pi Models tab now puts model count and usage on the card header instead of an extra footer strip.
+- **Feedback reports include project context** — The feedback page attaches project environment and log stats, so diagnosis no longer needs a hand-assembled dump.
+- **Ask notifications jump to the session** — Background Ask completion toasts can “Go to session” in one click.
+- **Deep links into config backends** — Deep links open the Pi or DSH page inside Config Management directly.
+- **beUI rolled out across the app** — UI switches over to beUI components; the sidebar marks sessions that are currently running.
+- **Subagents and session widget cards** — Built-in pi-subagents extension reads child-agent records and detects failures; todos, subagents, and file changes share one segmented card, and historical sessions can still show todo snapshots.
+- **pi-tui rename sync** — Renaming a session in pi-tui now shows up in the PiDeck sidebar after a project refresh or session restart, instead of sticking to the old title.
+- **ask_question multi-select** — Question cards support multi-select with a single submit.
+- **On-demand fast packing** — `dist:fast` can target portable / zip / nsis so local installers are quicker to verify.
+- **DSH runtime version detection & worktree fade-out** — Built-in DSH runtimes show the detected version; deleting a worktree fades out instead of vanishing abruptly.
+- **Model catalog updater** — The settings page can pull the latest model catalog from GitHub to override the bundled copy, with one-click restore and graceful fallback; probes skip auto-attaching a Bearer when a custom auth header is configured.
+- **Turn-based memory management for long sessions** — History browsing now uses a unified turn protocol: turns are counted per speaking turn (consecutive user messages merge into one), with disk pagination prefetch, execution details unloaded when a historical turn folds, and the timeline compact-summary card retired; context usage is no longer capped at 100%, matching the pi CLI semantics. Long sessions browse more smoothly.
+- **Session tabs regrouped by project** — New sessions land at the tail of their project's group (instead of the global end), with separators between project groups.
+- **Project display-name rename** — Projects can have a display name (label only, disk directory untouched) for a more readable sidebar.
+- **Fork session marker** — Forked sessions carry a `(fork)` marker physically written into the session name, so it no longer reappears after rename/delete; the old session is confirmed to have no leftover runtime state after a fork.
+- **Open-file action in the session files list** — The session's modified-files list gains an “open file” action entry.
+- **Explicit proxy-policy override for model fetching & connection tests** — Model listing and connection tests can explicitly pick a proxy policy instead of being bound to the global config.
+
+### 🐛 Fixes
+- **Refresh stale projects** — Refresh handles vanished projects, and file-delete failures surface instead of failing silently.
+- **Selected-state backgrounds restored** — The @theme token self-reference was overriding foundation :root values, blanking bg-accent / bg-bg-active; switching to @theme inline reference fixes active tab, sidebar selection and related backgrounds across themes.
+- **Dev no longer prompts to download DSH runtime** — The install / reinstall buttons are hidden in dev mode; only packaged builds show the on-demand install flow.
+- **DSH runtime install no longer blocks the main process** — Install / uninstall use async fs, uninstall shows progress; multi_select allowlists and markdown layout are tightened along the way.
+- **Model connection-test timeouts** — Tests send stdin EOF and degrade on older pi, so the spinner no longer runs forever.
+- **Reading history no longer jumps to the latest turn** — Window-growth compensation uses restoreAt, keeping the viewport on the turn you were reading.
+- **Shared DSH tool-card details** — Expanded DSH tool cards reuse the same cleaned-up detail copy as PI.
+- **Composer no longer squashes the todo bar** — The input column uses intrinsic height so the todo bar stays readable after window resize.
+- **API key action buttons aligned** — Auth-page key actions line up instead of sitting askew.
+- **Generic transient-error retries** — The built-in extension covers empty-body / transient errors that pi’s retry list missed, so fewer sessions die on a blip.
+- **Session outline rail keeps up** — Cheaper updates, scroll following, and per-pane isolation, without hitching during streaming.
+- **Stable proxy model selection** — Picking a model through a proxy no longer snaps to the wrong item.
+- **Model probes and DSH runtime errors** — Probe timeouts are looser; DSH runtime install progress and failures are spelled out.
+- **Git push / pull no longer freeze** — Push and pull buttons recover instead of sticking in a busy state.
+- **History-session indicator height** — The sidebar history indicator no longer crowds the title.
+- **Sidebar worktree title overlap** — Worktree titles and action buttons no longer stack on top of each other.
+- **Pi CLI update notice anchored** — The update notice sits on the controls instead of floating elsewhere.
+- **DSH default model catalog restored** — `settings.describe` `base` is forwarded across layers so default models list again via base → schema default.
+- **Linux packages keep DSH sharp** — Linux builds no longer strip sharp / libvips, so DSH-related features can start.
+- **Spinner animation unified** — Loading states share one animation utility so spinners don’t freeze.
+- **Subagent records survive restart and fork** — Start anchors persist (killed-by-restart agents are marked stopped); a full entry-table scan keeps fork side-branch records.
+- **Tool results can open files** — Tool output is tighter, and results can open the matching file in the workspace.
+- **Extension-provided models selectable in pickers** — The model selector, connection test, and Git commit-message generation load extensions by default (falling back to no-extension mode on failure), so models registered by extensions in the CLI are also selectable in PiDeck.
+- **Checkpoint lists no longer show "No checkpoints yet" forever** — Reading switched to a single `git cat-file --batch` (SHAs via stdin, no command-line length limit), fixing the list coming back empty once a repository accumulated hundreds of refs; the checkpoints panel also gained a manual refresh button.
+- **No more flashing CMD windows** — Pi child processes are spawned hidden on Windows, so launching a session no longer pops a console window.
+- **Usage probe failures are diagnosable** — Every failed attempt (URL/method/status/redacted response summary) is recorded and shown when all probes miss; New API-style management endpoints no longer get a redundant `/v1` attempt, and failures are grouped into actionable hints.
+- **Open-file inside Git diff fixed** — Clicking the inline “open file” button on a diff line no longer does nothing after the diff updates; it opens the snapshot path in the scoped preview.
+- **Auto session titles no longer hard-truncated** — Title generation avoids cutting words in the middle; weak fallback no longer overwrites a real existing title.
+- **Vision models mis-flagged as text-only fixed** — Some vision models are no longer treated as text-only; the page scroll position no longer jumps after a connection test.
+- **Git summary generation honors the model proxy list** — The commit-summary subprocess follows the model proxy list and rebuilds when proxy config changes.
+- **Git history graph excludes rewind checkpoints** — Checkpoints no longer show up as commits; image-generation mode hides security-level and context controls.
+- **DSH session delete moves to recycle bin** — Deleting a DSH session also moves its `~/.dsh/sessions` directory into the system recycle bin.
+- **Project-row action overlap fixed** — Hover action buttons no longer cover the project name at medium sidebar widths.
+- **Timeline state kept across session switches** — Execution expand/collapse state survives switching sessions; interrupted turns fold automatically when reading history, and a new turn unfolds on start.
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** for providing the Grok model service used in our
+community testing environment 🎉
+
+Thanks to all group members who submitted suggestions and bug reports! 🙏
+
 ## v0.7.2 - 2026-08-30
 
 ### 🚀 New Features

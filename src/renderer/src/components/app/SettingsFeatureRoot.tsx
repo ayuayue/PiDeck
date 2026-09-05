@@ -1,10 +1,13 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { AppInfo, AppSettings } from "../../../../shared/types";
 import { settingsFocusAtom, settingsOpenAtom } from "../../atoms";
 import { updateStatusAtom } from "../../atoms/update-atoms";
+import {
+  flushUpdateInstallPreflight,
+  updateInstallPreflightTasksAtom,
+} from "../../atoms/update-install-preflight";
 import { desktopApi as api } from "../../desktopApi";
-import type { AppUpdateControllerState } from "../../hooks/useAppUpdateController";
 import type { PiUpdateController } from "../../hooks/usePiUpdate";
 import { t } from "../../i18n";
 import { showNotice } from "../../utils/notice";
@@ -16,12 +19,10 @@ const SettingsModal = lazy(() =>
 type SettingsFeatureRootProps = {
   settings: AppSettings;
   piUpdate: PiUpdateController;
-  appUpdate: Pick<AppUpdateControllerState, "checking" | "error" | "check">;
   webServiceChanging: boolean;
   onRestartWebService: () => void;
   appInfo: AppInfo;
-  onChange: (patch: Partial<AppSettings>) => void | Promise<void>;
-  onCurrentVersion: (version: string) => void;
+  onChange: (patch: Partial<AppSettings>) => Promise<boolean>;
   /** 当前项目路径：有值时配置管理分区合并项目 `.mcp.json` / `.pi/mcp.json`（只读）。 */
   projectPath?: string;
 };
@@ -32,6 +33,41 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
   const setOpen = useSetAtom(settingsOpenAtom);
   const setFocus = useSetAtom(settingsFocusAtom);
   const setUpdateStatus = useSetAtom(updateStatusAtom);
+  const updateInstallPreflightTasks = useAtomValue(updateInstallPreflightTasksAtom);
+  const updateInstallInFlightRef = useRef(false);
+
+  /**
+   * File editors debounce writes during normal typing. Before an updater-triggered process
+   * exit, explicitly flush every registered editor and keep the user in the app on failure.
+   */
+  const installAppUpdate = useCallback(async () => {
+    if (updateInstallInFlightRef.current) return;
+    updateInstallInFlightRef.current = true;
+    try {
+      const allSaved = await flushUpdateInstallPreflight(updateInstallPreflightTasks.values());
+      if (!allSaved) {
+        showNotice(
+          t("update.saveBeforeInstallDetail"),
+          0,
+          "error",
+          t("update.saveBeforeInstallTitle"),
+        );
+        return;
+      }
+      await api.app.installUpdate();
+    } catch (error) {
+      showNotice(
+        t("update.installFailedDetail", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        0,
+        "error",
+        t("update.installFailedTitle"),
+      );
+    } finally {
+      updateInstallInFlightRef.current = false;
+    }
+  }, [updateInstallPreflightTasks]);
 
   // 按字段级 useMemo 稳定弹窗 props：App 根组件重渲染（低频）不会连带
   // 重渲染 SettingsModal（memo）。piUpdate 内部函数均为 useCallback，
@@ -49,7 +85,7 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
       customPiPath: props.piUpdate.customPiPath,
       customPathValidating: props.piUpdate.customPathValidating,
       customPathResult: props.piUpdate.customPathResult,
-      updateChecking: props.appUpdate.checking,
+      updateChecking: false,
       piUpdating: props.piUpdate.piUpdating,
       piUpdateChecking: props.piUpdate.piUpdateChecking,
       piUpdateCheck: props.piUpdate.piUpdateCheck,
@@ -63,19 +99,14 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
       onCheckPi: props.piUpdate.checkPiInstallInline,
       onTestPiProxy: props.piUpdate.testPiProxy,
       onCheckUpdate: () => {
-        void props.appUpdate.check("manual").then((info) => {
-          if (info && !info.hasUpdate) {
-            props.onCurrentVersion(info.currentVersion);
-            showNotice(t("app.latestVersionNotice", { version: info.currentVersion }));
-          } else if (!info && props.appUpdate.error) {
-            showNotice(t("app.updateFailedNotice", { error: props.appUpdate.error }));
-          }
-          // 手动检测后刷新后台快照（角标/设置页高亮与最新结果一致）。
-          void api.app.getUpdateStatus().then((snapshot) => {
-            if (snapshot) setUpdateStatus(snapshot);
-          });
+        // 手动检测：直接触发主进程检查（结果经快照推送，设置页状态卡片响应）。
+        void api.app.checkUpdate();
+        void api.app.getUpdateStatus().then((snapshot) => {
+          if (snapshot) setUpdateStatus(snapshot);
         });
       },
+      onInstallUpdate: () => void installAppUpdate(),
+      onDownloadUpdate: () => void api.app.downloadUpdate(),
       onCheckPiUpdate: props.piUpdate.checkPiCliUpdate,
       onUpdatePi: props.piUpdate.updatePiCli,
       onToggleDevTools: () => {
@@ -112,8 +143,6 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
       props.piUpdate.customPiPath,
       props.piUpdate.customPathValidating,
       props.piUpdate.customPathResult,
-      props.appUpdate.checking,
-      props.piUpdate.piUpdating,
       props.piUpdate.piUpdateChecking,
       props.piUpdate.piUpdateCheck,
       props.piUpdate.piUpdateResult,
@@ -123,14 +152,13 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
       props.piUpdate.clearCustomPiPath,
       props.piUpdate.checkPiInstallInline,
       props.piUpdate.testPiProxy,
-      props.appUpdate.check,
-      props.appUpdate.error,
-      props.onCurrentVersion,
       props.piUpdate.checkPiCliUpdate,
       props.piUpdate.updatePiCli,
+      props.piUpdate.piUpdating,
       props.onRestartWebService,
       props.onChange,
       props.projectPath,
+      installAppUpdate,
       setFocus,
       setOpen,
     ],

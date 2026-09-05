@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileDiff, Undo2 } from "lucide-react";
+import { FileDiff, RefreshCw, Undo2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import { t, type TranslationKey } from "../../i18n";
 import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
@@ -242,6 +242,29 @@ export function RewindCheckpointList(props: { sessionId: string }) {
 
 	return (
 		<>
+			{/* 手动刷新：checkpoint 由主进程在写文件工具事件后异步创建，
+			    面板开着期间新打的点不会自动出现；空态/错误态尤其需要刷新重试。
+			    加载中显示旋转态，防止重复点击。 */}
+			<div className="flex justify-end pb-1">
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<button
+							type="button"
+							className="grid size-6 place-items-center rounded-md text-text-tertiary transition-colors hover:bg-muted/60 disabled:opacity-50"
+							disabled={loading || restoring}
+							aria-label={t("common.refresh")}
+							onClick={() => void reload()}
+						>
+							{loading ? (
+								<span className="size-3 animate-pideck-spin rounded-full border border-text-tertiary border-t-transparent" aria-hidden="true" />
+							) : (
+								<RefreshCw size={13} strokeWidth={1.8} aria-hidden="true" />
+							)}
+						</button>
+					</TooltipTrigger>
+					<TooltipContent>{t("common.refresh")}</TooltipContent>
+				</Tooltip>
+			</div>
 			{loading && checkpoints.length === 0 ? (
 				<p className="px-1 py-2 text-xs text-text-tertiary">{t("common.loading")}</p>
 			) : loadError ? (
@@ -274,7 +297,7 @@ export function RewindCheckpointList(props: { sessionId: string }) {
 							onClick={() => void loadMore()}
 						>
 							{loadingMore && (
-								<span className="size-3 animate-spin rounded-full border border-text-tertiary border-t-transparent" aria-hidden="true" />
+								<span className="size-3 animate-pideck-spin rounded-full border border-text-tertiary border-t-transparent" aria-hidden="true" />
 							)}
 							{t("rewind.loadMore")}
 						</button>
@@ -410,7 +433,7 @@ function CheckpointRow(props: {
 								aria-label={t("rewind.restoreTitle")}
 							>
 								{props.restoring ? (
-									<span className="size-3 animate-spin rounded-full border border-text-tertiary border-t-transparent" aria-hidden="true" />
+									<span className="size-3 animate-pideck-spin rounded-full border border-text-tertiary border-t-transparent" aria-hidden="true" />
 								) : (
 									<Undo2 size={13} strokeWidth={1.8} aria-hidden="true" />
 								)}

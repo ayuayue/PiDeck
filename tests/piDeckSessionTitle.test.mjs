@@ -238,7 +238,15 @@ test("cleans model formatting, removes emoji, and enforces the short title contr
 	assert.equal(cleanTitle("sk-abcdefghijklmnop"), undefined);
 	assert.doesNotMatch(redactSensitiveText('password="my secret phrase"'), /my secret phrase/);
 	assert.equal(cleanTitle("x"), undefined);
-	assert.ok(Array.from(cleanTitle("一个非常非常非常非常非常非常长的标题") ?? "").length <= 32);
+	// 不再硬截断：模型输出由提示词约束长度，超长时不切碎词、原样保留（2026 现场："issue" → "issu"）。
+	assert.equal(
+		cleanTitle("一个非常非常非常非常非常非常长的标题"),
+		"一个非常非常非常非常非常非常长的标题",
+	);
+	assert.equal(
+		cleanTitle("Fix: DSH session files not removed from the workspace"),
+		"Fix: DSH session files not removed from the workspace",
+	);
 });
 
 test("names an interrupted first run from the user request", async () => {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
-import { Archive, Boxes, Check, CircleAlert, CircleDot, Code2, Copy, Download, FileDown, FileText, Filter, Folder, FolderSearch, GitBranch, Link2, List, LoaderCircle, MessageCircle, Pencil, Plus, Power, Radio, RefreshCw, RotateCw, ScrollText, Settings2, SquarePen, Trash2, UserPlus, XCircle } from "lucide-react";
+import { Archive, Boxes, Check, CircleAlert, CircleDot, Code2, Copy, Download, FileDown, FileText, Filter, Folder, FolderSearch, GitBranch, Link2, List, LoaderCircle, MessageCircle, Pencil, Pin, PinOff, Plus, Power, Radio, RefreshCw, RotateCw, ScrollText, Settings2, SquarePen, Trash2, UserPlus, XCircle } from "lucide-react";
 import { t } from "../../i18n";
 import {
 	AlertDialog,
@@ -613,6 +613,8 @@ export function ProjectContextMenu(props: {
 	onRefreshProject: () => void;
 	onCopyProjectPath: () => void;
 	onRemoveProject: () => void;
+	/** 重命名项目显示名（仅改 label，不动磁盘目录）；Chat / worktree 子项目不展示。 */
+	onRenameProject: () => void;
 	/** worktree 子项目删除必须走 Git worktree 清理流程，不能只移除目录记录。 */
 	onRemoveWorktree?: () => void;
 }) {
@@ -647,6 +649,13 @@ export function ProjectContextMenu(props: {
 			<DropdownMenuSeparator />
 			{/* 项目管理：会话/资源/过滤/工作区/刷新集中一组，删除式操作不混入 */}
 			<DropdownMenuLabel>{t("menu.group.manage")}</DropdownMenuLabel>
+			{/* 重命名仅对普通顶级项目开放：聊天项目名固定、worktree 子项目 name 承载 git 分支名 */}
+			{!props.menu.project.kind && !props.menu.project.worktreeParentId && (
+				<DropdownMenuItem onSelect={props.onRenameProject}>
+					<Pencil className="size-3.5" aria-hidden="true" />
+					{t("menu.renameProject")}
+				</DropdownMenuItem>
+			)}
 			<DropdownMenuItem onSelect={props.onManageSessions}>
 				<List className="size-3.5" aria-hidden="true" />
 				{t("menu.manageSessions")}
@@ -702,6 +711,8 @@ export function AgentContextMenu(props: {
 	actionLoading?: "copy" | "export" | null;
 	onClose: () => void;
 	onRename: () => void;
+	isPinned?: boolean;
+	onTogglePinned?: () => void;
 	onExport: () => void;
 	onCopySession: () => void;
 	onCopySessionFilePath: () => void;
@@ -730,6 +741,14 @@ export function AgentContextMenu(props: {
 				<Pencil className="size-3.5" aria-hidden="true" />
 				{t("common.rename")}
 			</DropdownMenuItem>
+			{props.onTogglePinned && (
+				<DropdownMenuItem disabled={busy} onSelect={props.onTogglePinned}>
+					{props.isPinned
+						? <PinOff className="size-3.5" aria-hidden="true" />
+						: <Pin className="size-3.5" aria-hidden="true" />}
+					{t(props.isPinned ? "menu.unpinSession" : "menu.pinSession")}
+				</DropdownMenuItem>
+			)}
 			{/* DSH 运行中会话的复制走 clone 分流（fork 无锚点完整副本），保留入口；
 			    导出 HTML 无 DSH 实现（G10 待决策），对 dsh agent 隐藏 */}
 			<DropdownMenuItem disabled={busy} onSelect={props.onCopySession}>
@@ -828,6 +847,8 @@ export function SessionContextMenu(props: {
 	actionLoading?: "copy" | "export" | null;
 	onClose: () => void;
 	onRename: () => void;
+	isPinned?: boolean;
+	onTogglePinned?: () => void;
 	onExport: () => void;
 	onCopySession: () => void;
 	onCopySessionFilePath: () => void;
@@ -861,6 +882,14 @@ export function SessionContextMenu(props: {
 				<Pencil className="size-3.5" aria-hidden="true" />
 				{t("common.rename")}
 			</DropdownMenuItem>
+			{props.onTogglePinned && (
+				<DropdownMenuItem disabled={busy} onSelect={props.onTogglePinned}>
+					{props.isPinned
+						? <PinOff className="size-3.5" aria-hidden="true" />
+						: <Pin className="size-3.5" aria-hidden="true" />}
+					{t(props.isPinned ? "menu.unpinSession" : "menu.pinSession")}
+				</DropdownMenuItem>
+			)}
 			{props.onRestartSession && (
 				<DropdownMenuItem disabled={busy} onSelect={props.onRestartSession}>
 					<span className="inline-flex items-center gap-2">

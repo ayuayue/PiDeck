@@ -44,6 +44,14 @@ test("model row uses TableRow/TableCell with edit controls", () => {
   assert.match(source, /onDeleteModel\(name, i\)/);
 });
 
+test("collapsed provider card keeps model count and usage in the header", () => {
+  // 折叠态不再另开 h-9 底栏：模型数徽章贴在名称后，用量走卡头 inline（有数据才渲染）。
+  assert.match(source, /config\.count\.models/);
+  assert.match(source, /ProviderUsageInline\s+provider=\{name\}\s+variant="card"/);
+  assert.doesNotMatch(source, /ProviderUsageRow/);
+  assert.doesNotMatch(source, /leading=/);
+});
+
 test("model batch mode uses a tri-state select column and one confirmation callback", () => {
   assert.match(source, /onDeleteModels: \(providerName: string, indexes: number\[\]\) => void;/);
   assert.match(source, /t\("common\.deleteBatch"\)/);

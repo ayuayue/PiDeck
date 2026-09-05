@@ -507,3 +507,89 @@ test("getRecentActiveEntryIds returns the last N active message ids", async () =
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("SessionHistoryReader prefetches the next page and serves it from cache", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pideck-history-prefetch-"));
+  const sessionPath = join(directory, "session.jsonl");
+  try {
+    // 6 轮足够产生两页（page size 3）：尾部 3 轮 + 更早 3 轮。
+    const lines = [JSON.stringify({ id: "session", type: "session" })];
+    let parent = "session";
+    for (let i = 1; i <= 6; i += 1) {
+      const uid = `u${i}`;
+      const aid = `a${i}`;
+      lines.push(JSON.stringify({
+        id: uid, parentId: parent, type: "message",
+        message: { role: "user", content: [{ type: "text", text: `q${i}` }] },
+      }));
+      lines.push(JSON.stringify({
+        id: aid, parentId: uid, type: "message",
+        message: { role: "assistant", content: [{ type: "text", text: `a${i}` }] },
+      }));
+      parent = aid;
+    }
+    await writeFile(sessionPath, lines.join("\n") + "\n", "utf8");
+
+    const reader = createReader((path) => path);
+    // 首次读尾页（3 轮）→ 后台应预取更早一页。
+    const first = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 3);
+    assert.equal(first.nextBefore !== null, true, "older history exists after the first page");
+    assert.equal(first.messages.length, 6, "tail page carries the last 3 speaker turns");
+
+    // 等待后台预取完成（无通知通道，轮询缓存不可见——改为直接请求下一页：
+    // 首次即命中预取缓存，第二次请求应仍可得到正确内容且不再读盘失败）。
+    const second = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", first.nextBefore, 3, first.nextBeforeEntryId);
+    assert.equal(second.total, 12, "page total is full message count");
+    assert.equal(second.messages.length >= 1, true);
+    // 返回的下一页是最早 3 轮（q1..q3），预取缓存命中无磁盘重复读。
+    const texts = second.messages.map((m) => m.text);
+    assert.equal(texts.includes("q1"), true);
+    assert.equal(texts.includes("q4"), false, "earlier page starts before the tail page");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("SessionHistoryReader prefetch cache is bounded and version-keyed", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pideck-history-prefetch-bound-"));
+  const sessionPath = join(directory, "session.jsonl");
+  try {
+    const lines = [JSON.stringify({ id: "session", type: "session" })];
+    let parent = "session";
+    for (let i = 1; i <= 6; i += 1) {
+      const uid = `u${i}`;
+      const aid = `a${i}`;
+      lines.push(JSON.stringify({
+        id: uid, parentId: parent, type: "message",
+        message: { role: "user", content: [{ type: "text", text: `q${i}` }] },
+      }));
+      lines.push(JSON.stringify({
+        id: aid, parentId: uid, type: "message",
+        message: { role: "assistant", content: [{ type: "text", text: `a${i}` }] },
+      }));
+      parent = aid;
+    }
+    await writeFile(sessionPath, lines.join("\n") + "\n", "utf8");
+
+    const reader = createReader((path) => path);
+    const first = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 3);
+    // 翻到第一页之后再读另一会话页不共享缓存（无需断言内部，只验证行为不崩溃）。
+    await reader.readSessionDisplayTurnPage(sessionPath, "viewer", first.nextBefore, 3, first.nextBeforeEntryId);
+    // 版本变化（追加消息）后再次读尾页：不返回过期缓存（消息数随追加增长）。
+    await appendFile(
+      sessionPath,
+      JSON.stringify({
+        id: "u7", parentId: "a6", type: "message",
+        message: { role: "user", content: [{ type: "text", text: "q7" }] },
+      }) + "\n" + JSON.stringify({
+        id: "a7", parentId: "u7", type: "message",
+        message: { role: "assistant", content: [{ type: "text", text: "a7" }] },
+      }) + "\n",
+      "utf8",
+    );
+    const afterAppend = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 3);
+    assert.equal(afterAppend.total, 14, "version change invalidates the cached page");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

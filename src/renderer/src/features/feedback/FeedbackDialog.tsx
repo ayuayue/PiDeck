@@ -201,7 +201,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 									onClick={() => void feedback.runCheck()}
 								>
 									{feedback.state === "running" ? (
-										<RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+										<RefreshCw size={15} className="animate-pideck-spin" aria-hidden="true" />
 									) : (
 										<MonitorCheck size={15} aria-hidden="true" />
 									)}

@@ -12,18 +12,19 @@
  * 维护提示：新增主进程运行时依赖（尤其动态 require.resolve / import 的包）时，
  * 需同步更新下方 roots，否则该包会被误判为冗余而被 files 排除，导致运行时 MODULE_NOT_FOUND。
  */
-const fs = require("node:fs");
 const path = require("node:path");
 const asar = require("@electron/asar");
 
 const NM = "node_modules";
 const ASAR = process.argv[2] || "release/win-unpacked/resources/app.asar";
 
+// 必须读取 asar 内实际打入的 package.json，而不是开发工作区 node_modules：
+// catalog 来源 pi-ai@0.84.4 是 devDependency，但 DSH 在 app.asar 中保留的是 0.82.1，
+// 从工作区读取会把 0.84.4 的依赖图错误地当成生产闭包。
 function readPkg(name) {
-	const p = path.join(NM, name, "package.json");
-	if (!fs.existsSync(p)) return null;
 	try {
-		return JSON.parse(fs.readFileSync(p, "utf8"));
+		const p = path.join(NM, name, "package.json");
+		return JSON.parse(asar.extractFile(ASAR, p).toString("utf8"));
 	} catch {
 		return null;
 	}
@@ -54,7 +55,7 @@ const roots = [...inAsar]
 		"node-addon-require-builtin-win32-x64-msvc",
 		"dsh-tool-pwsh-persistent",
 		"dsh-bill",
-		"@earendil-works/pi-ai",
+		// PiDeck 主进程改读 extraResources catalog；DSH 的 pi-ai 由 @deepseek-ai 闭包追踪。
 		"undici",
 	]);
 
@@ -102,7 +103,7 @@ console.log("=== 保留闭包包数:", closure.size, "===");
 
 // 输出可直接粘进 package.json build.files 的排除模式（每行 4 个，便于 diff 阅读）
 // 需要落地文件时：node scripts/analyze-asar-waste.js | tail -n +<起始行> > list.txt
-const wasteList = waste.map(([n]) => n).sort();
+const wasteList = waste.slice().sort();
 const groups = [];
 for (let i = 0; i < wasteList.length; i += 4) {
 	groups.push("\t\t\t" + wasteList.slice(i, i + 4).map((w) => JSON.stringify("!node_modules/" + w)).join(", "));

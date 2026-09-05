@@ -25,6 +25,24 @@ export function getToolStatus(
   return "done";
 }
 
+/**
+ * 工具运行中秒表的起点：优先取 meta.startedAt，异常/缺失回退消息 timestamp。
+ *
+ * 主进程契约（AgentManager.upsertToolMessage）：tool_execution_start 时写入
+ * meta.startedAt 后不再变化，它是工具耗时的唯一稳定基准（结束时 durationMs
+ * 也由它推导）；而 message.timestamp 会在每次 tool_execution_update / end 时
+ * 被刷新（existing.timestamp = Date.now()）。若用消息时间戳做起点，长命令
+ * （如 npm test 流式输出）期间秒表会被反复重置——显示老是几毫秒/零点几秒，
+ * 工具结束才突然跳到总时长。DSH 投影等无 startedAt 的消息回退 timestamp
+ * （其 timestamp 本身随事件固定，不会中途刷新）。
+ */
+export function getToolLiveStartTimestamp(message: ChatMessage): number {
+  const startedAt = message.meta?.startedAt;
+  return typeof startedAt === "number" && startedAt > 0
+    ? startedAt
+    : message.timestamp;
+}
+
 /** 从工具参数中提取文件路径（write/edit/create/patch 等文件工具） */
 export function getToolArgFilePath(args: Record<string, unknown> | undefined): string | undefined {
 	return getToolFilePath(args);

@@ -1,13 +1,40 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, utimesSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 // FileSystemService 直接依赖 node:fs/promises；node:test 环境可真实读临时目录，
 // 这里验证 listTree 是否附加排序所需的 stat 元数据（mtimeMs/ctimeMs/size）。
-const { FileSystemService } = loadTsCommonJs("src/main/fs/FileSystemService.ts");
+const { FileSystemService, isPathInsideProject } = loadTsCommonJs("src/main/fs/FileSystemService.ts");
+
+test("WSL project containment preserves Linux path case", () => {
+  const root = "\\\\wsl.localhost\\Ubuntu-24.04\\root\\Repo";
+  assert.equal(
+    isPathInsideProject(root, "//wsl$/ubuntu-24.04/root/Repo/src/a.ts"),
+    true,
+  );
+  assert.equal(
+    isPathInsideProject(root, "//wsl$/ubuntu-24.04/root/repo/src/a.ts"),
+    false,
+  );
+  assert.equal(
+    isPathInsideProject(root, "//wsl$/Debian/root/Repo/src/a.ts"),
+    false,
+  );
+});
+
+test("native filesystem roots contain their descendants without doubling separators", () => {
+  const nativeRoot = parse(tmpdir()).root;
+  assert.equal(isPathInsideProject(nativeRoot, join(nativeRoot, "pideck-root-child")), true);
+  if (process.platform === "win32") {
+    assert.equal(
+      isPathInsideProject("\\\\server\\share\\", "\\\\server\\share\\dir\\file.txt"),
+      true,
+    );
+  }
+});
 
 test("file tree nodes carry stat metadata for sorting", async () => {
   // 构造真实临时目录：两个文件（不同大小/时间）+ 一个子目录

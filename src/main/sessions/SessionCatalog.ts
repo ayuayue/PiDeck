@@ -47,6 +47,12 @@ export type SessionCatalogEntry = {
 	status: "draft" | "active";
 	/** 子会话标记：扫描时从 SessionSummary 继承，持久化供 getRecord/listEntries 重建（不丢树形） */
 	parentSessionPath?: string;
+	/**
+	 * fork 会话标记（pi fork/clone 产物，文件头带 parentSession）：
+	 * 与 parentSessionPath 独立（后者=子代理折叠关系），仅作 fork 身份元数据——
+	 * (fork) 标题后缀由 fork 完成时物理写入会话名（sessionForkTitle.ts），不靠该标记拼装。
+	 */
+	forked?: boolean;
 	model?: { provider: string; modelId: string };
 	thinkingLevel?: string;
 	piSessionId?: string;
@@ -86,15 +92,21 @@ export type SessionFilePathResolver = (
 	environment: SessionEnvironment,
 ) => string;
 
-/** 占位标题回填与有效性校验的合并结果：name 缺省时保留占位标题；valid:false 表示
+/** 会话标题读取与有效性校验的合并结果：name 缺省时保留 catalog 标题；valid:false 表示
  *  文件非有效 Pi 会话（如 pi-subagents transcript 转储，首条记录用 recordType 而无 type 头），
  *  mergeScanned 应拒绝索引该文件（#168）；parentSessionPath 仅供平铺子代理形态
  * （@tintinweb/pi-subagents：parentSession header + 会话名 <agent>#<8hex>）回填父关系，
- *  用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。 */
-export type SessionTitleFetchResult = { name?: string; valid?: boolean; parentSessionPath?: string };
+ *  用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。
+ *  forked 为 pi fork/branch 探测结果（parentSession header + 非 tintinweb 形态）：
+ *  只做列表 (fork) 标记，不影响 parentSessionPath 的折叠语义。
+ *  nameFromSessionInfo 标记 name 是否直接取自 session_info（权威）：
+ *  - true/缺省 = 权威来源，允许覆盖 catalog 已有真实标题（pi-tui /name 外部改名同步）；
+ *  - false = 首条消息回退的弱信号（session_info 落在头/尾窗口盲区），只用于占位标题补名，
+ *    不得覆盖已有真实标题（2026-09 自动命名被第二轮消息挤出窗口后被回退覆盖的现场）。 */
+export type SessionTitleFetchResult = { name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean };
 
-/** 占位标题回填 + 会话头有效性校验：装配层注入（实现为 SessionScanner.inferSessionNameAndValidity，
- *  见 main/index.ts）。合并到一次有界读头部，避免补名与校验分别读盘。 */
+/** 标题刷新 + 会话头有效性校验：装配层注入（实现为 SessionScanner.inferSessionNameAndValidity，
+ *  见 main/index.ts）。文件版本变化时有界读取头尾，既补占位标题，也同步 pi-tui 外部改名。 */
 export type SessionTitleFetcher = (filePath: string) => Promise<SessionTitleFetchResult>;
 
 /** 扫描未读正文时没有 session_info。pi JSONL 文件名是时间戳，不能当标题，否则侧栏全是日期。 */
@@ -423,6 +435,8 @@ export class SessionCatalog {
 		wslUser?: string;
 		importedSourceId?: string;
 		piSessionId?: string;
+		/** fork/clone 产物注册时直接标记（parentSession 链接已由 pi 写入文件头，此处同源标记）。 */
+		forked?: boolean;
 	}): Promise<SessionCatalogEntry> {
 		this.assertLoaded();
 		// 与 attachRuntime 同口径：进入 catalog 前归一化为绝对路径，保证 originKey 去重一致。
@@ -464,6 +478,7 @@ export class SessionCatalog {
 					wslUser: input.wslUser,
 					importedSourceId: input.importedSourceId,
 					piSessionId: input.piSessionId,
+					forked: input.forked,
 					status: "active",
 					createdAt: now,
 					updatedAt: now,
@@ -480,6 +495,8 @@ export class SessionCatalog {
 				entry.wslUser = input.wslUser;
 				entry.importedSourceId = input.importedSourceId;
 				entry.piSessionId = input.piSessionId;
+				// fork 标记只增补不清空：同一文件可能先以普通扫描注册、后经 fork 注册逻辑走到这里。
+				if (input.forked) entry.forked = true;
 				entry.status = "active";
 				entry.updatedAt = now;
 			}
@@ -602,6 +619,8 @@ export class SessionCatalog {
 			/** 切到生图后端时甩开 pi 会话文件引用（null = 清空）。 */
 			filePath?: string | null;
 			piSessionId?: string | null;
+			/** fork 标记：仅显式 true 时置位（fork 身份元数据；(fork) 后缀已物理写入标题）。 */
+			forked?: boolean | null;
 		},
 	): Promise<SessionRecord> {
 		this.assertLoaded();
@@ -616,6 +635,7 @@ export class SessionCatalog {
 			// 切到生图后端时需甩开 pi 会话文件（filePath/piSessionId 置空），否则残留文件引用
 			if (patch.filePath !== undefined) transient.filePath = patch.filePath ?? undefined;
 			if (patch.piSessionId !== undefined) transient.piSessionId = patch.piSessionId ?? undefined;
+			if (patch.forked === true) transient.forked = true;
 			// null = 清除覆盖恢复跟随全局
 			if (patch.proxy !== undefined) transient.proxy = patch.proxy ?? undefined;
 			transient.updatedAt = patch.updatedAt ?? Date.now();
@@ -631,6 +651,7 @@ export class SessionCatalog {
 			if (patch.backend !== undefined) nextEntry.backend = patch.backend;
 			if (patch.filePath !== undefined) nextEntry.filePath = patch.filePath ?? undefined;
 			if (patch.piSessionId !== undefined) nextEntry.piSessionId = patch.piSessionId ?? undefined;
+			if (patch.forked === true) nextEntry.forked = true;
 			// null = 清除覆盖恢复跟随全局
 			if (patch.proxy !== undefined) nextEntry.proxy = patch.proxy ?? undefined;
 			nextEntry.updatedAt = patch.updatedAt ?? Date.now();
@@ -831,11 +852,11 @@ export class SessionCatalog {
 	): Promise<SessionRecord[]> {
 		this.assertLoaded();
 		// 轻量列表扫描的 summary 不带 name（listPathSummary 只 stat，见 SessionScanner）；
-		// 对标题将落成占位符的文件做有界读头部补名，让未打开过的 pi 会话也能在侧栏
-		// 显示首条消息标题，而不是永远 Untitled（不再依赖打开/重命名时才补名）。
+		// 新文件/占位标题需要补名，已有标题的文件若 mtime 变化也需有界回读——pi-tui `/name`
+		// 会在 JSONL 末尾追加 session_info，否则项目刷新和重启 Session 都只会继续使用旧 catalog 标题。
 		// 同一次读头部顺带校验会话头有效性：invalidOrigins 收集被判定为非有效会话
 		// 的 originKey（transcript 等无 type 头的产物，#168），下面据此清洗与拒绝。
-		const { names: fetchedNames, invalid: invalidOrigins, parents: fetchedParents } =
+		const { names: fetchedNames, authoritative: fetchedAuthoritativeByOrigin, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } =
 			await this.collectScannedTitles(summaries, context);
 		return this.enqueueMutation((entries) => {
 			let changed = false;
@@ -895,10 +916,17 @@ export class SessionCatalog {
 			for (const summary of acceptedSummaries) {
 				const originKey = buildSummaryOriginKey(summary, context);
 				const fetchedTitle = fetchedNames.get(originKey);
+				// 权威性：命中 session_info（或显式 name 行）才允许覆盖 catalog 已有真实标题。
+				// 首条消息回退（nameFromSessionInfo === false）是弱信号——会话文件变大后
+				// session_info 可能落在扫描器头/尾窗口的盲区，弱回退不得把用户/自动命名冲掉。
+				const fetchedAuthoritative = fetchedAuthoritativeByOrigin.get(originKey) ?? true;
 				// 平铺子代理（tintinweb 形态）父关系回补：轻量扫描不带 parentSessionPath，
 				// 标题回读时若探测到父（<agent>#<8hex> + parentSession header）则用拾取值；
 				// 普通会话/用户 fork 不探测到该值，保持 summary/旧值原样。
 				const fetchedParent = fetchedParents.get(originKey);
+				// fork 标记回填：仅头部探测确认（parentSession + 非 tintinweb 形态）时置 true；
+				// 有父关系（子代理折叠）的会话不标记——fork 与子代理是两种形态。
+				const fetchedForkedFlag = fetchedForked.get(originKey);
 				const importedSourceId = getImportedSessionSourceId(summary);
 				let entry = byOrigin.get(originKey);
 				if (!entry) {
@@ -920,6 +948,7 @@ export class SessionCatalog {
 						importedSourceId,
 						status: "active",
 						parentSessionPath: summary.parentSessionPath ?? fetchedParent,
+						forked: (summary.parentSessionPath ?? fetchedParent) ? undefined : fetchedForkedFlag,
 						createdAt: now,
 						updatedAt: now,
 					};
@@ -929,12 +958,19 @@ export class SessionCatalog {
 				} else {
 					// 旧 catalog 可能已经保存了时间戳文件名；不能在清洗失败时用 entry.title 回退，
 					// 否则每次扫描都会把这个错误标题原样保留下来，重启后仍显示时间戳。
+					// 已存在真实标题时，弱回退（首条消息文本）不得覆盖（2026-09 现场：
+					// 自动命名 session_info 被第二轮消息挤出窗口盲区后被消息文本冲掉）；
+					// 权威回读（session_info 命中）与占位标题升级不受此限。
 					const nextTitle = catalogDisplayTitle(summary.name)
-						|| catalogDisplayTitle(fetchedTitle)
+						|| (fetchedAuthoritative || isPlaceholderCatalogTitle(entry.title)
+							? catalogDisplayTitle(fetchedTitle)
+							: undefined)
 						|| catalogDisplayTitle(entry.title)
 						|| scannedFileStemTitle(summary.filePath);
 					// 父关系最终值：新探测值优先，缺失时保留旧值（轻量扫描恒缺省，不能清掉已持久化的父）。
 					const nextParent = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
+					// fork 标记同样只增补、不清空：未探测到（轻量扫描/普通会话）保留持久化值。
+					const nextForked = nextParent ? entry.forked : (fetchedForkedFlag || entry.forked);
 					if (
 						entry.projectId !== projectId ||
 						entry.filePath !== summary.filePath ||
@@ -946,6 +982,7 @@ export class SessionCatalog {
 						entry.importedSourceId !== importedSourceId ||
 						entry.status !== "active" ||
 						entry.parentSessionPath !== nextParent ||
+						entry.forked !== nextForked ||
 						entry.updatedAt !== summary.updatedAt
 					) {
 						entry.projectId = projectId;
@@ -964,6 +1001,7 @@ export class SessionCatalog {
 						// 直接用缺省值覆盖会清掉上轮探测/持久化的父关系（重启后孤儿平铺）；
 						// 故此处只增补、不清空——新值优先，其次保留旧值。
 						entry.parentSessionPath = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
+						entry.forked = nextForked;
 						entry.updatedAt = summary.updatedAt;
 						changed = true;
 					}
@@ -1001,8 +1039,9 @@ export class SessionCatalog {
 		].sort((left, right) => right.updatedAt - left.updatedAt));
 	}
 
-	/** 只对「该会话当前标题是占位符」的文件读头部补名：已有真实标题的条目不读盘。
-	 *  同一次读头部顺带校验会话头有效性（#168）：transcript 等无 type 头的产物
+	/** 对新文件/占位标题，或文件版本相对 catalog 发生变化的条目读取标题。
+	 *  unchanged 的真实标题不读盘，避免周期扫描重复 I/O；mtime 变化则回读头尾以同步
+	 *  pi-tui `/name` 追加的 session_info。同一次读取顺带校验会话头有效性（#168）：transcript 等无 type 头的产物
 	 *  被标记 invalid，mergeScanned 据此拒绝索引并清洗存量条目。
 	 *  tintinweb 平铺子代理（@tintinweb/pi-subagents）会话名固定 <agent>#<8hex>：
 	 *  一旦标题回填该形态而条目仍无父关系，说明它是历史扫描遗留的孤儿（旧版 catalog
@@ -1011,33 +1050,34 @@ export class SessionCatalog {
 	private async collectScannedTitles(
 		summaries: SessionSummary[],
 		context: SessionCatalogContext,
-	): Promise<{ names: Map<string, string>; invalid: Set<string>; parents: Map<string, string> }> {
+	): Promise<{ names: Map<string, string>; authoritative: Map<string, boolean>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
 		const names = new Map<string, string>();
+		const authoritative = new Map<string, boolean>();
 		const invalid = new Set<string>();
 		const parents = new Map<string, string>();
-		if (!this.fetchTitle) return { names, invalid, parents };
+		const forked = new Map<string, boolean>();
+		if (!this.fetchTitle) return { names, authoritative, invalid, parents, forked };
 		const byOrigin = new Map(
 			this.entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]),
 		);
 		const wanted: Array<{ originKey: string; filePath: string }> = [];
 		for (const summary of summaries) {
 			const originKey = buildSummaryOriginKey(summary, context);
-			// summary 自带真实名称（readSummary 全量路径）或条目已有真实标题时无需补名。
+			// readSummary 全量路径已携带权威标题，无需再次读盘。
 			if (catalogDisplayTitle(summary.name)) continue;
 			const existing = byOrigin.get(originKey);
 			if (existing) {
-				// 已有真实标题的条目默认不读盘；但 tintinweb 嫌疑名 + 无父关系的孤儿例外：
-				// 需回读头部补 parentSessionPath（见上方 JSDoc），否则永远在历史列表顶层平铺。
-				if (!isPlaceholderCatalogTitle(existing.title)) {
-					const tintinwebOrphan = existing.source === "pi"
-						&& !existing.parentSessionPath
-						&& /^[^#]+#[0-9a-f]{8}$/i.test(existing.title);
-					if (!tintinwebOrphan) continue;
-				}
+				const tintinwebOrphan = existing.source === "pi"
+					&& !existing.parentSessionPath
+					&& /^[^#]+#[0-9a-f]{8}$/i.test(existing.title);
+				const fileVersionChanged = existing.updatedAt !== summary.updatedAt;
+				// 已有真实标题且文件版本未变时跳过；变化通常意味着 pi 追加消息/改名，
+				// 头尾窗口读取会用最后一条 session_info 更新标题，成本仍受 128KB 上限约束。
+				if (!isPlaceholderCatalogTitle(existing.title) && !tintinwebOrphan && !fileVersionChanged) continue;
 			}
 			wanted.push({ originKey, filePath: summary.filePath });
 		}
-		if (wanted.length === 0) return { names, invalid, parents };
+		if (wanted.length === 0) return { names, authoritative, invalid, parents, forked };
 		// 有界并行读头部；限制并发避免 WSL 环境一次拉起过多 wsl.exe。
 		// 单个失败降级为无标题/不拒绝，不影响扫描结果。
 		const CONCURRENCY = 8;
@@ -1047,16 +1087,22 @@ export class SessionCatalog {
 				const item = wanted[cursor++];
 				const result = await this.fetchTitle!(item.filePath).catch(() => undefined);
 				if (!result) continue;
-				if (result.name) names.set(item.originKey, result.name);
+				if (result.name) {
+					names.set(item.originKey, result.name);
+					authoritative.set(item.originKey, result.nameFromSessionInfo !== false);
+				}
 				// valid 显式为 false 才拒绝；缺省（读不到/未校验）保留原行为
 				if (result.valid === false) invalid.add(item.originKey);
 				// 平铺子代理（tintinweb 形态）回补父关系：来源只推断自 filename，
 				// 不以 summary 的 source 过滤，避免引用文件与扫描来源不一致时漏补。
 				if (result.parentSessionPath) parents.set(item.originKey, result.parentSessionPath);
+				// pi fork/branch 会话标记（parentSession header + 非 tintinweb 形态）：只在探测到
+				// 才写 true，不写 false——普通会话/子代理不该反向清掉已持久化的标记。
+				if (result.forked === true) forked.set(item.originKey, true);
 			}
 		});
 		await Promise.all(workers);
-		return { names, invalid, parents };
+		return { names, authoritative, invalid, parents, forked };
 	}
 
 	private recordFromEntry(
@@ -1078,6 +1124,7 @@ export class SessionCatalog {
 				? getImportedSessionSourceId(summary)
 				: entry.importedSourceId,
 			parentSessionPath: summary?.parentSessionPath ?? entry.parentSessionPath,
+			forked: entry.forked,
 			projectPath: summary?.projectPath,
 			preview: summary?.preview ?? "",
 			messageCount: summary?.messageCount ?? 0,

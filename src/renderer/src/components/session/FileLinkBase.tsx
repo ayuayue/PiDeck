@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
+import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
+import type { ProjectFileAccessScope } from "../../../../shared/types";
 import {
 	getFilePathVerdict,
 	requestFilePathVerdicts,
@@ -7,30 +8,43 @@ import {
 } from "../../utils/filePathVerdictStore";
 import { resolveFileLinkPath } from "../../utils/filePathLinks";
 
+type FileLinkBase = {
+	baseDir?: string;
+	projectRoot?: string;
+	scope?: ProjectFileAccessScope;
+};
+
 /**
- * 文件路径链接的「解析基准目录」上下文。
+ * 文件路径链接的解析与授权上下文。
  *
- * remarkLinkifyPaths 渲染出的链接是回复原文里的路径字符串（相对/绝对皆有），
- * 校验与点击打开都必须相对同一基准目录解析——App 层用与 handleOpenLinkedFile
- * 完全相同的口径（activeAgent?.cwd ?? activeProject?.path）提供，保证
- * 「校验存在的路径」=「点击能打开的路径」。未挂载 Provider 的场景
- * （独立静态渲染等）值为 undefined：绝对路径仍可校验，相对路径保持链接现状。
+ * 分屏时每个 SessionRuntimeInjector 都提供本栏自己的 cwd/project；App 层 Provider
+ * 只作为非会话静态区域的兜底。存在性校验和点击打开因此始终使用同一栏的基准。
  */
-const FileLinkBaseContext = createContext<string | undefined>(undefined);
+const FileLinkBaseContext = createContext<FileLinkBase>({});
 
 export function FileLinkBaseProvider(props: {
 	baseDir: string | undefined;
+	projectRoot?: string;
+	projectId?: string;
 	children: ReactNode;
 }) {
+	const value = useMemo<FileLinkBase>(
+		() => ({
+			baseDir: props.baseDir,
+			projectRoot: props.projectRoot,
+			scope: props.projectId ? { projectId: props.projectId } : undefined,
+		}),
+		[props.baseDir, props.projectId, props.projectRoot],
+	);
 	return (
-		<FileLinkBaseContext.Provider value={props.baseDir}>
+		<FileLinkBaseContext.Provider value={value}>
 			{props.children}
 		</FileLinkBaseContext.Provider>
 	);
 }
 
 export function useFileLinkBaseDir(): string | undefined {
-	return useContext(FileLinkBaseContext);
+	return useContext(FileLinkBaseContext).baseDir;
 }
 
 /**
@@ -39,17 +53,19 @@ export function useFileLinkBaseDir(): string | undefined {
  * 每个文件锚点独立订阅自己的键，避免一条长回复整体重渲染。
  */
 export function useFilePathExists(rawPath: string | undefined): boolean | undefined {
-	const baseDir = useFileLinkBaseDir();
-	// resolveFileLinkPath 返回 null = 无法解析（空路径/无基准目录的相对路径）：
-	// 与 undefined 同义处理——不发校验、不判不存在，避免拿主进程 cwd 乱猜误判。
-	const absPath = rawPath === undefined ? undefined : resolveFileLinkPath(rawPath, baseDir);
+	const { baseDir, projectRoot, scope } = useContext(FileLinkBaseContext);
+	// resolveFileLinkPath 返回 null = 无法解析或越出本栏项目边界：
+	// 不发 stat，更不能让主进程按进程 cwd 猜测相对路径。
+	const absPath = rawPath === undefined
+		? undefined
+		: resolveFileLinkPath(rawPath, baseDir, projectRoot);
 	const resolvable = typeof absPath === "string";
 	useEffect(() => {
 		if (!rawPath || !resolvable || absPath === undefined) return;
-		requestFilePathVerdicts([absPath]);
-	}, [absPath, rawPath, resolvable]);
+		requestFilePathVerdicts([absPath], scope);
+	}, [absPath, rawPath, resolvable, scope]);
 	return useSyncExternalStore(
 		subscribeFilePathVerdicts,
-		() => (resolvable ? getFilePathVerdict(absPath) : undefined),
+		() => (resolvable ? getFilePathVerdict(absPath, scope) : undefined),
 	);
 }

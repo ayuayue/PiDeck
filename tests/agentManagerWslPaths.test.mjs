@@ -195,6 +195,15 @@ function loadAgentManager() {
 			if (id === "../extensions/enabledExtensionResolver") {
 				return { resolveEnabledExtensionPaths: () => null };
 			}
+			// 共享扩展 resolver（issue #181）：本测试不涉及扩展加载，透传空实现即可
+			if (id === "../extensions/piProcessExtensionResolvers") {
+				return {
+					createPiProcessExtensionResolvers: () => ({
+						resolveBuiltInExtensionPaths: () => [],
+						resolveEnabledExtensionPaths: () => null,
+					}),
+				};
+			}
 			// 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
 			if (id === "../../shared/fileChanges") return { collectSessionFileChanges: () => [] };
 			// rewind checkpoint 纯 git 模块：WSL 路径测试不涉及回退，空桩满足依赖契约

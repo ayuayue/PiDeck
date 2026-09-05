@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef } from "react";
  * 实时变化，已打开的悬浮层会停留在旧锚点位置，松手后才跳回（甚至不跳回）。
  *
  * 机制：
- * - document 级 pointerdown 命中分割线（.splitter/.v-splitter/.session-split-sash）
+ * - document 级 pointerdown 命中分割线（.splitter/.v-splitter/.session-split-sash/.session-terminal-splitter）
  *   时启动 rAF 循环，拖拽期间每帧向 window 派发 resize——floating-ui 的
  *   autoUpdate 监听 window resize，据此重新测量锚点并重定位浮层；
  * - 不用 react-resizable-panels v4 的 onLayoutChange（已标记 deprecated，
@@ -50,7 +50,7 @@ function ensureRegistered() {
 
 	const isSplitter = (target: EventTarget | null): boolean => {
 		// 命中分割线本体或其子元素（withHandle 手柄里的图标/手柄框）
-		return target instanceof HTMLElement && Boolean(target.closest(".splitter, .v-splitter, .session-split-sash"));
+		return target instanceof HTMLElement && Boolean(target.closest(".splitter, .v-splitter, .session-split-sash, .session-terminal-splitter"));
 	};
 
 	const onPointerDown = (event: PointerEvent) => {

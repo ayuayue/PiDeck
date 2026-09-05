@@ -3,8 +3,15 @@ import { useAtomValue } from "jotai";
 import { ChevronLeft, ChevronRight, CornerUpLeft, GitFork } from "lucide-react";
 import { sessionRecordsAtom } from "../../atoms/session-atoms";
 import { t } from "../../i18n";
+import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
 import { deriveBranchFamily } from "./branchFamily";
+import type { SessionRecord } from "../../../../shared/types";
+
+/** 分支行的展示名：fork 会话的 (fork) 后缀直接拼进会话名，与侧栏/Tab 一致。 */
+function displayName(record: SessionRecord): string {
+	return sessionDisplayName(record.title, record.forked) ?? record.title;
+}
 
 /**
  * 会话分支导航条（借鉴 AI Elements MessageBranch 的 ◀ i/N ▶ 分页器）。
@@ -34,7 +41,7 @@ export function SessionBranchBar(props: {
 				<button
 					type="button"
 					className="inline-flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
-					title={parent.title}
+					title={displayName(parent)}
 					onClick={() => open(parent.id)}
 				>
 					<CornerUpLeft size={12} className="shrink-0" aria-hidden="true" />
@@ -89,7 +96,7 @@ export function SessionBranchBar(props: {
 								title={child.title}
 								onClick={() => open(child.id)}
 							>
-								<span className="truncate">{child.title || child.preview}</span>
+								<span className="truncate">{displayName(child)}</span>
 							</button>
 						))}
 					</PopoverContent>

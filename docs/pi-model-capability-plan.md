@@ -2,7 +2,7 @@
 
 > 本文回答四个问题：模型配置中的 `reasoning` / `thinkingLevelMap` 是否需要手配；草稿态和正式 Agent 态分别显示什么；“关闭”是否会写入配置；以及 `input: ["text", "image"]` 多模态能力到底怎样生效。
 >
-> 核对基线：Pi `0.84.3`、PiDeck 当前工作区代码。Pi 上游源码以本机安装包 `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai` 为准。
+> 核对基线：Pi `0.85.0`（2026-09 跟进）、PiDeck 当前工作区代码。Pi 上游源码以本机安装包 `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai` 为准。文中标注「已用真实 Pi 0.84.3 RPC 验证」的实测结论为当时记录，行为语义未在本版变更。
 
 ## 结论先行
 
@@ -356,9 +356,9 @@ DSH 的图片链路与 Pi 不同：`DshAgentManager` 会把图片转成 host 的
 
 因此本轮建立两条配套链路：配置阶段识别模型本体、按来源补空字段；使用阶段由 Pi 的只读能力 cache 和 runtime RPC 过滤真实 thinking levels。能力模板写入仅发生在用户编辑/保存模型配置时，不能反向改变会话偏好或 DSH 配置。
 
-### Phase A：完整保留官方 catalog 的只读能力数据
+### Phase A：构建期提取官方 catalog 的只读能力数据
 
-PiDeck 已有一份本地规格匹配库：早期的 `resources/model-specs.db` 已被 `@earendil-works/pi-ai/dist/providers/data/*.json` 官方 JSON catalog 替代。
+PiDeck 已有一份本地规格匹配库：早期的 `resources/model-specs.db` 先被官方 `@earendil-works/pi-ai/dist/providers/data/*.json` 替代；当前再由构建脚本裁剪为随应用分发的 `resources/pi-ai-catalog.json` artifact，运行时不加载完整 pi-ai SDK。
 
 这份原始 catalog 已包含：
 
@@ -367,7 +367,7 @@ PiDeck 已有一份本地规格匹配库：早期的 `resources/model-specs.db` 
 - `reasoning`；
 - `input`（含图片）；
 - **`thinkingLevelMap`**；
-- provider API/compat 元数据。
+- 模型级 `api` / `baseUrl` 元数据（条目提供时）。
 
 `piAiBuiltinCatalog.ts` 现已保留 `thinkingLevelMap`，`ModelSpec` 现暴露完整 `input`、map、来源和匹配方式。配置阶段将当前 Pi 目录与内置目录合并为能力候选：精确 ID 可自动补空；唯一的名称别名可作为受控模板；不唯一或不安全的名称不自动写入。
 
@@ -435,7 +435,7 @@ Pi 上游从 **0.81.0** 开始提供 `get_available_thinking_levels`，但它只
 
 ## 已落地实现（2026-08 收敛）
 
-> 经评审收敛为最小职责边界：**配置阶段只读 PiDeck 自带 bundled `pi-ai` catalog；capability cache 只服务输入框/思考强度；endpoint `/models` 实报字段参与自适应模板。** 外部 Pi 安装目录的 catalog、models-store.json、PiDeck 自身的 capability cache 都不再参与配置模板计算。
+> 经评审收敛为最小职责边界：**配置阶段只读 PiDeck 自带、由 pi-ai 构建期提取的 catalog artifact；capability cache 只服务输入框/思考强度；endpoint `/models` 实报字段参与自适应模板。** 外部 Pi 安装目录的 catalog、models-store.json、PiDeck 自身的 capability cache 都不再参与配置模板计算。
 
 ### 数据源边界（最终）
 
@@ -443,8 +443,8 @@ Pi 上游从 **0.81.0** 开始提供 `get_available_thinking_levels`，但它只
 |---|---|---|
 | 欢迎页/草稿态模型与思考强度选择 | `PiModelCapabilityCache`（启动/配置变更时 hydration） | `listModelsReport` 优先返回 cache snapshot；无 runtime 时 `ThinkingPicker` 直接读 cache 的 `thinkingLevels` |
 | 运行态 Agent 思考强度 | 同一份 `PiModelCapabilityCache` snapshot（统一展示源）；runtime RPC `get_available_thinking_levels` 仅作 idle + cache-miss 的后台兜底 | session-scoped，旧 runtime 迟到结果丢弃；运行中不为此发 RPC，绝不阻塞菜单 |
-| 配置页自适应模板（新增/失焦/保存补空） | bundled `pi-ai` catalog（`getPiAiCatalogIndex`） | `projects:get-model-spec` 只从 bundled catalog 匹配；不读 cache、不读外部 Pi 目录 |
-| 配置页自适应模板（重置/拉取） | endpoint `/models` 实报字段 > bundled catalog 模板 | `mergeAdaptiveModelTemplate`：endpoint 实报优先，catalog 补空 |
+| 配置页自适应模板（新增/失焦/保存补空） | 构建期 `pi-ai` catalog artifact（`getPiAiCatalogIndex`） | `projects:get-model-spec` 只从 artifact 匹配；不读 cache、不读外部 Pi 目录 |
+| 配置页自适应模板（重置/拉取） | endpoint `/models` 实报字段 > catalog artifact 模板 | `mergeAdaptiveModelTemplate`：endpoint 实报优先，catalog 补空 |
 | DSH | DSH host catalog `reasoningEfforts` | 独立，不接 Pi probe |
 
 ### 关键改动
@@ -460,7 +460,7 @@ Pi 上游从 **0.81.0** 开始提供 `get_available_thinking_levels`，但它只
 
 ### 已知取舍
 
-- bundled `pi-ai` 为 PiDeck 自身依赖版本（当前 `0.82.1`），新于它的外部 Pi 新增模型（如 MiMo）不会出现在 bundled catalog 中；未配置/未匹配的模型保持空字段，由 endpoint 实报或用户手填，不猜容量默认值。
+- catalog artifact 的构建期来源固定为 `@earendil-works/pi-ai@0.85.0`；未来新于该版本的外部 Pi 模型仍可能不在 artifact 中。未配置/未匹配的模型保持空字段，由 endpoint 实报或用户手填，不猜容量默认值。
 - **自适应未匹配时的思考兜底（2026-08 决策）**：目录/端点都没声明推理时，自适应模板与保存补全默认写 `reasoning: true` 并开放全部档位（`DEFAULT_OPEN_THINKING_MAP = {xhigh, max}`，`utils/modelSpecAutoFill.ts`），否则 Pi 按 `!reasoning → ["off"]` 只给 off，用户没有思考强度可选。端点/catalog 显式声明的 `reasoning: false` 或档位映射（含 null 禁用语义，如 MiniMax-M2.7）始终优先，不被默认值覆盖。
 - 端点 `/models` 实报的 `reasoning / input / thinkingLevelMap` 在 `parseProviderModelsResponse` 完整保留（`parseProviderModels.ts`），参与自适应模板合并，不再被丢弃。
 - **provider compat 联动（2026-08 决策）**：保存时 `deriveProviderCompat`（`utils/modelSpecAutoFill.ts`）检测该 provider 任一模型存在非空档位映射且 `reasoning !== false` → 自动写 `compat.supportsReasoningEffort: true`，否则 false。否则 pi 用 provider 级 compat 覆盖模型定义，用户选了思考强度也不发 `reasoning_effort`；旧版本无条件写 false，因此自动判定优先于已存在的 false（陈旧值非用户意图），显式 true 保留。UI 上的 supportsReasoningEffort 开关为显示/手动覆盖，下次保存仍按联动归一。

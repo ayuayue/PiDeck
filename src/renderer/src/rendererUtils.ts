@@ -135,7 +135,11 @@ export const ASK_STEP_PX = 8;
 export function displayProjectDirectoryName(project: Project) {
   if (isChatProject(project)) return "Chat";
   const normalizedPath = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
-  return normalizedPath.split("/").pop() || project.name || project.path;
+  const dirName = normalizedPath.split("/").pop() || "";
+  // 用户重命名过（name 与目录名不同）时优先展示自定义名，否则回退目录名：
+  // 未重命名的项目 name 就是目录 basename，展示行为与旧版完全一致。
+  if (!dirName) return project.name || project.path;
+  return project.name && project.name !== dirName ? project.name : dirName;
 }
 
 export function isChatProject(project?: Project) {

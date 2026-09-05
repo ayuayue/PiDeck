@@ -293,9 +293,11 @@ test("deriveDshSessionStats computes averages and keeps sample-less fields undef
 	assert.equal(empty.tokensPerSecond, undefined);
 });
 
-test("deriveSessionStatsFallback counts user turns and assistant steps", () => {
+test("deriveSessionStatsFallback counts turns with model product, mirroring dsh-web", () => {
 	assert.equal(deriveSessionStatsFallback([]), undefined);
 	assert.equal(deriveSessionStatsFallback([{ role: "user" }]), undefined);
+	// 未回复的连发 user：无模型产物，兜底不出数字（与完成轮口径一致）。
+	assert.equal(deriveSessionStatsFallback([{ role: "user" }, { role: "user" }]), undefined);
 	const one = deriveSessionStatsFallback([
 		{ role: "user" },
 		{ role: "assistant" },
@@ -313,6 +315,10 @@ test("deriveSessionStatsFallback counts user turns and assistant steps", () => {
 	]);
 	assert.equal(two.turns, 2);
 	assert.equal(two.steps, 3);
+	// 纯工具执行轮（投影无 assistant 气泡但已有 tool 卡片）：算完成轮、step 保持 0。
+	const toolOnly = deriveSessionStatsFallback([{ role: "user" }, { role: "tool" }]);
+	assert.equal(toolOnly?.turns, 1);
+	assert.equal(toolOnly?.steps, 0);
 });
 
 test("cacheHitPercentOf uses the dsh-web/pi shared formula", () => {

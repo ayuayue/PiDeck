@@ -320,8 +320,10 @@ test("Chat section keeps an independent collapse control after the parent projec
   assert.match(chatSection, /!collapsed && \([\s\S]*?<SessionTree/);
 });
 
-test("Projects section header provides batch collapse wired to the controller", () => {
+test("Projects section header provides batch collapse and refresh-all actions", () => {
   const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
+  const sidebarContent = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
+  const app = readFileSync("src/renderer/src/App.tsx", "utf8");
   const controller = readFileSync("src/renderer/src/hooks/useSidebarController.ts", "utf8");
 
   // 标题栏全部折叠/展开按钮外露，调用 controller 的批量切换，并给出折叠/展开文案。
@@ -332,6 +334,15 @@ test("Projects section header provides batch collapse wired to the controller", 
   // 显式「+ 添加项目」按钮外露（最常用入口）
   assert.match(projectTree, /aria-label=\{t\("app\.addProject"\)\}/);
   assert.match(projectTree, /void props\.actions\.projects\.add\(\)/);
+  // 目录存在性重扫是低频维护动作：放入 ⋯ 菜单，并经窄 action port 回到 App/hook。
+  assert.match(projectTree, /<DropdownMenuItem onSelect=\{\(\) => void props\.actions\.projects\.refreshAll\(\)\}>/);
+  assert.match(projectTree, /t\("app\.projectRefreshAll"\)/);
+  assert.match(projectTree, /<RefreshCw className="size-3\.5" aria-hidden="true" \/>/);
+  assert.match(sidebarContent, /refreshAll: \(\) => Promise<void>;/);
+  assert.match(app, /refreshAll: refreshAllProjects/);
+  // 搜索无结果/清单为空时仍保留刷新入口，不能因 workspaceProjects.length === 0 隐藏维护动作。
+  const emptySection = projectTree.slice(projectTree.indexOf("{workspaceProjects.length === 0"));
+  assert.match(emptySection, /props\.actions\.projects\.refreshAll\(\)/);
   // controller 批量切换只作用于根工作区项目（排除 chat 与 worktree 子项目）。
   assert.match(controller, /toggleCollapseAllProjects/);
   assert.match(controller, /project\.kind !== "chat" && !project\.worktreeParentId/);
@@ -350,9 +361,13 @@ test("narrow project tree keeps root names from losing avoidable width", () => {
 
 test("ProjectTree shows the project directory name like the dev reference", () => {
   const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
-  assert.match(projectTree, /function displayProjectDirectoryName\(project: Project\)/);
-  assert.match(projectTree, /project\.path\.replace\(/);
+  const rendererUtils = readFileSync("src/renderer/src/rendererUtils.ts", "utf8");
+  // 显示名解析已收敛到 rendererUtils 单一来源（含重命名别名逻辑，见 projectDisplayName.test.mjs）；
+  // ProjectTree 直接复用，保证侧栏/面包屑/搜索处处一致。
+  assert.match(projectTree, /import \{ displayProjectDirectoryName, isChatProject \} from "\.\.\/\.\.\/rendererUtils"/);
   assert.match(projectTree, /const projectDirectoryName = displayProjectDirectoryName\(project\)/);
+  assert.match(rendererUtils, /export function displayProjectDirectoryName\(project: Project\)/);
+  assert.match(rendererUtils, /project\.path\.replace\(/);
   // 悬浮路径气泡已移除（仅能展示不能复制，且 bug 多）；项目行直接渲染目录名。
   assert.doesNotMatch(projectTree, /<PathTooltip/);
   assert.doesNotMatch(projectTree, /PathTooltip/);

@@ -1,6 +1,6 @@
 import { Button } from "../components/ui-shadcn/button";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { BarChart3, Brain, Check, ChevronDown, ChevronRight, Coins, Copy, ExternalLink, Plus, RotateCcw, SquarePen, Trash2, X } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Coins, Copy, ExternalLink, Plus, RotateCcw, SquarePen, Trash2, X } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import type { ModelItem, ModelsFile } from "./configTypes";
@@ -28,11 +28,32 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 import { showNotice } from "../utils/notice";
 import { applyModelPatches, computeModelSpecPatches } from "../utils/modelSpecAutoFill";
-import type { FetchedModel } from "../../../shared/types/fetchedModel";
+import type { FetchedModel, ConfigProxyMode } from "../../../shared/types/fetchedModel";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
-import { ProviderUsageRow } from "../components/app/ProviderUsageInline";
+import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
+import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
 import { ProviderUsageDetails } from "../components/app/ProviderUsageDetails";
 import { isValidProviderName } from "../../../shared/providerName";
+
+/**
+ * 代理下拉右侧的提示文案：直接显示将流向的代理 URL（未配置则提示），
+ * 让用户对「测试/拉取走了哪个代理」有确定感，而不是黑盒。
+ */
+function proxyModeHint(
+	mode: ConfigProxyMode,
+	settings: { piProxyUrl: string; desktopProxyUrl: string } | null,
+): string {
+	if (mode === "pi") {
+		return settings?.piProxyUrl ? settings.piProxyUrl : t("config.proxyUrlUnset");
+	}
+	if (mode === "desktop") {
+		return settings?.desktopProxyUrl ? settings.desktopProxyUrl : t("config.proxyUrlUnset");
+	}
+	if (mode === "off") {
+		return t("config.proxyOffHint");
+	}
+	return t("config.proxyFollowHint");
+}
 
 const KNOWN_PROVIDER_FIELDS = new Set([
 	"baseUrl",
@@ -87,6 +108,10 @@ export function ModelsTab(props: {
 		requestBody?: string;
 	} | null;
 	testModelIdByProvider: Record<string, string>;
+	/** 每个 provider 的测试/拉取代理选择：follow=跟随全局，pi/desktop=强制走对应代理，off=强制直连。 */
+	testProxyModeByProvider: Record<string, ConfigProxyMode>;
+	/** 代理配置快照（下拉里显示实际代理 URL，让用户知道会把流量送到哪）。 */
+	proxySettings: { piProxyUrl: string; desktopProxyUrl: string } | null;
 	saving: boolean;
 	onToggleProvider: (name: string) => void;
 	onStartAddProvider: () => void;
@@ -122,6 +147,7 @@ export function ModelsTab(props: {
 	onFetchModels: (providerName: string) => void;
 	onTestProvider: (providerName: string) => void;
 	onChangeTestModelId: (providerName: string, modelId: string) => void;
+	onChangeTestProxyMode: (providerName: string, mode: ConfigProxyMode) => void;
 	onClearTestResult: () => void;
 	onSave: () => void;
 	onChangeProvider: (name: string, field: string, value: unknown) => void;
@@ -484,15 +510,18 @@ export function ModelsTab(props: {
 											autoFocus
 										/>
 									) : (
-										<span className="text-control font-semibold text-text-primary">{name}</span>
+										<span className="min-w-0 truncate text-control font-semibold text-text-primary">{name}</span>
 									)}
-									{/* 模型数量：低调文本跟在名称右侧（替代旧胶囊），用量在最右侧 */}
-									<span className="flex-none text-caption text-text-tertiary">
+									{/* 折叠态把「N 模型」和用量收进标题行，避免底部再占一条 h-9 空行。用量拦截点击，避免点刷新时误折叠卡片。 */}
+									<span className="shrink-0 rounded-full border border-border-subtle px-1.5 py-px font-mono text-micro tabular-nums text-muted-foreground">
 										{t("config.count.models", { count: provider.models.length })}
+									</span>
+									<span onClick={(event) => event.stopPropagation()}>
+										<ProviderUsageInline provider={name} variant="card" />
 									</span>
 								</div>
 
-								<div className="flex items-center gap-1">
+								<div className="flex shrink-0 items-center gap-1">
 									{props.renamingProvider === name ? (
 										<>
 											<Button variant="ghost" size="icon-sm" className="size-7"
@@ -529,18 +558,11 @@ export function ModelsTab(props: {
 										direction="pi-to-dsh"
 										provider={name}
 									/>
-									{/* 用量查询配置（cc-switch 同款：柱状图图标放在卡片头部图标组，不在用量行里单列） */}
-									<Button variant="ghost" size="icon-sm" className="size-7"
-										onClick={(e) => {
-											e.stopPropagation();
-											props.onOpenUsageProbeDialog(name);
-										}}
-										title={t("config.usageProbe.entry")}
-										aria-label={t("config.usageProbe.entry")}
-										data-testid="provider-usage-configure-icon"
-									>
-										<BarChart3 size={14} />
-									</Button>
+									{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；其余可配通用/New API 模板） */}
+									<UsageQueryEntryButton
+										provider={name}
+										onOpen={() => props.onOpenUsageProbeDialog(name)}
+									/>
 									<Button variant="ghost" size="icon-sm" className="size-7"
 										onClick={(e) => {
 											e.stopPropagation();
@@ -677,6 +699,29 @@ export function ModelsTab(props: {
 														? t("config.testingConnection")
 														: t("config.testConnection")}
 												</Button>
+											</div>
+										</div>
+
+										{/* 测试/拉取模型的代理选择：需要代理才能访问的供应商（海外网关等）不用改全局代理开关。 */}
+										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
+											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testProxy")}</Label>
+											<div className="flex min-w-0 items-center gap-2.5">
+												<ConfigSelect
+													value={props.testProxyModeByProvider[name] ?? "follow"}
+													onChange={(value) => props.onChangeTestProxyMode(name, (value || "follow") as ConfigProxyMode)}
+													options={[
+														{ value: "follow", label: t("config.proxyFollow") },
+														{ value: "pi", label: t("config.proxyPi") },
+														{ value: "desktop", label: t("config.proxyDesktop") },
+														{ value: "off", label: t("config.proxyOff") },
+													]}
+												/>
+												<span className="min-w-0 truncate font-mono text-[11px] text-text-tertiary">
+													{proxyModeHint(
+														props.testProxyModeByProvider[name] ?? "follow",
+														props.proxySettings,
+													)}
+												</span>
 											</div>
 										</div>
 
@@ -1280,8 +1325,6 @@ export function ModelsTab(props: {
 									</div>
 								</div>
 							)}
-							{/* 用量行（cc-switch 卡片右下角）：有成功结果时显示用量 + 刷新按钮；没有成功配对结果时不渲染整行 */}
-							<ProviderUsageRow provider={name} />
 						</div>
 					);
 				})}

@@ -9,7 +9,7 @@ import {
   WslPathError,
   type WslEnvironment,
 } from "../wsl/WslPaths";
-import { isEphemeralProjectPath, projectPathKey } from "./projectPathPolicy";
+import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
 
 const CHAT_PROJECT_ID = "builtin-chat";
 const CHAT_PROJECT_NAME = "Chat";
@@ -217,6 +217,25 @@ export class ProjectStore {
     }
     await this.save();
     await this.saveDismissedPaths();
+  }
+
+  /**
+   * 重命名项目显示名（仅改侧栏/标题等展示 label，不修改磁盘目录）。
+   * 拒绝两类项目：
+   * - 内置聊天项目：name 由 ensureChatProject 固定为 "Chat"，重命名会被下次加载覆盖；
+   * - worktree 子项目：其 name 承载 git 分支名（WorktreeTree 展示 / 删除 worktree 时按 name 定位分支），
+   *   改名会导致分支关联错乱。
+   * 返回更新后的项目；id 不存在返回 null。
+   */
+  async rename(id: string, name: string): Promise<Project | null> {
+    const project = this.get(id);
+    if (!project) return null;
+    if (this.isChatProject(project) || project.worktreeParentId) {
+      throw new Error("PROJECT_RENAME_NOT_ALLOWED");
+    }
+    project.name = sanitizeProjectDisplayName(name);
+    await this.save();
+    return project;
   }
 
   /** 用户已从侧栏移除的目录（供启动自动导入判断是否按 cwd 重建项目）。 */

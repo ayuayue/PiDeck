@@ -6,6 +6,23 @@
  * 连同会话一起加回侧栏。
  */
 
+/** 项目显示名最大长度：超出拒绝，避免恶意/误输入撑爆侧栏。 */
+export const PROJECT_DISPLAY_NAME_MAX_LENGTH = 120;
+
+/**
+ * 规范化项目显示名（纯函数）：折叠内部空白后 trim。
+ * 空名或超长抛错（带稳定错误码，主进程边界校验与渲染层提示共用同一定义）。
+ * 重命名只改显示 label，不触碰磁盘目录。
+ */
+export function sanitizeProjectDisplayName(name: string): string {
+	const clean = name.replace(/\s+/g, " ").trim();
+	if (!clean) throw new Error("PROJECT_NAME_REQUIRED");
+	if (clean.length > PROJECT_DISPLAY_NAME_MAX_LENGTH) {
+		throw new Error(`PROJECT_NAME_TOO_LONG:${PROJECT_DISPLAY_NAME_MAX_LENGTH}`);
+	}
+	return clean;
+}
+
 /** 比较用路径键：去尾部分隔符、统一斜杠；Windows 忽略大小写。 */
 export function projectPathKey(path: string): string {
 	const trimmed = path.replace(/[\\/]+$/, "").replace(/\\/g, "/");

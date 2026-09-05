@@ -40,6 +40,7 @@ import {
   cacheSessionMessagesAtom,
   effectiveAgentBackendAtom,
   imageGenConfigAtom,
+  projectByIdAtomFamily,
   sessionAttachmentsByIdAtom,
   sessionComposerModeByIdAtom,
   sessionDraftByIdAtom,
@@ -312,6 +313,13 @@ export function useSessionComposerController(
   // 引导页虚拟会话没有 record：文件树/@ 引用回退到引导页选中的项目，
   // 否则 files 恒为空、@ 输入永远匹配不到任何文件。
   const effectiveProjectId = record?.projectId ?? options.bootstrapProjectId;
+  // 粘贴转文件/@ 引用的项目路径来源：catalog 会话 record 不一定携带 projectPath
+  // （主进程扫描只在会话文件位于项目内时才推断，旧数据/独立目录会话恒缺省），
+  // 统一经 projectId 反查项目清单，拿到已登记的项目根路径，避免把有项目会话
+  // 误当成匿名会话（用户反馈：粘贴大文本发送后消息里被展开成普通文本）。
+  const composerProject = useAtomValue(
+    projectByIdAtomFamily(effectiveProjectId ?? ""),
+  );
   const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
   const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId));
   const projectSessions = useAtomValue(
@@ -1485,7 +1493,10 @@ export function useSessionComposerController(
   const pasteTextToFile = useCallback(async (text: string) => {
     try {
       const result = await desktopApi.pasteFiles.write({
-        projectPath: record?.projectPath ?? "",
+        // 项目根经 projectId 反查项目清单（不依赖可能缺失的 record.projectPath）；
+        // 有项目（含引导页选中项目）→ 写 <project>/.pideck-paste/ 并在发送时折叠为
+        // @"path" 引用（消息端渲染文件 chip）；无项目 → userData 兜底、折叠原样文本内联。
+        projectPath: composerProject?.path ?? "",
         content: text,
       });
       setPasteFiles((current) => [
@@ -1506,7 +1517,7 @@ export function useSessionComposerController(
       showNotice(t("app.pasteConvertFailed"), 3000);
       insertPlainTextAtCursor(text);
     }
-  }, [insertPlainTextAtCursor, record?.projectPath, setPasteFiles]);
+  }, [composerProject?.path, insertPlainTextAtCursor, setPasteFiles]);
 
   /** 从 File 列表解析本地路径（Electron 32+ 必须走 webUtils，不能用已移除的 File.path） */
   const resolveLocalPathsFromFiles = useCallback((files: File[]) => {
@@ -1850,9 +1861,11 @@ export function useSessionComposerController(
     dshDefaultThinkingLevel: isDshBackend
       ? (dshDefault?.reasoningEffort ?? dshDefault?.defaultEffort)
       : undefined,
-    /** 引导页（无 record）启动默认：pi 配置/模型目录解析出的第一个可用项，展示用。 */
+    /** 引导页（无 record）启动默认：主进程按 pi 配置/模型目录解析（显式默认 > 偏好 > 上次使用 > 空），展示用。 */
     bootstrapDefaultModel: bootstrapDefaults?.model,
     bootstrapDefaultThinkingLevel: bootstrapDefaults?.thinkingLevel,
+    /** 解析结果是否来自用户显式配置的默认模型：True 时欢迎页偏好不参与展示回退（与创建同规则）。 */
+    bootstrapDefaultModelConfigured: bootstrapDefaults?.defaultModelConfigured === true,
     draft,
     attachments,
     mode,

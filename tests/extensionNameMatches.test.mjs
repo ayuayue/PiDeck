@@ -37,6 +37,10 @@ function loadExtensionConflictHelpers() {
 			if (id === "./extensionVersionGate") {
 				return require("../src/main/extensions/extensionVersionGate.ts");
 			}
+			// ExtensionManager 依赖 ../utils/versionCompare 的 compareVersions；.ts 经 node 类型剥离可 require。
+			if (id === "../utils/versionCompare") {
+				return require("../src/main/utils/versionCompare.ts");
+			}
 			return require(id);
 		},
 	};

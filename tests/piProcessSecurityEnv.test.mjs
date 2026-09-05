@@ -29,10 +29,10 @@ function loadWslPaths() {
  */
 function loadPiProcess() {
 	const wslPaths = loadWslPaths();
-	/** spawn 收到的 env/args；mockSpawn 被调用时写入 */
+	/** spawn 收到的 env/args/windowsHide；mockSpawn 被调用时写入 */
 	let captured = null;
 	const mockSpawn = (_command, args, opts) => {
-		captured = { env: opts?.env ?? null, args: args ?? null };
+		captured = { env: opts?.env ?? null, args: args ?? null, windowsHide: opts?.windowsHide };
 		// 返回一个最小 ChildProcess 形状：PiProcess 后续会 new PiRpcClient(proc.stdin/stdout)
 		// 并注册 stderr/error/exit 监听，全部用 stream + noop 满足。
 		return {
@@ -103,6 +103,19 @@ function loadPiProcess() {
 	vm.runInNewContext(transpile("src/main/pi/PiProcess.ts"), sandbox, { filename: "PiProcess.ts" });
 	return { PiProcess: sandbox.exports.PiProcess, mockLocator, getCaptured: () => captured };
 }
+
+test("Windows 下启动 pi 进程时隐藏 cmd.exe 控制台窗口", async () => {
+	const { PiProcess, mockLocator, getCaptured } = loadPiProcess();
+	const proc = new PiProcess(
+		"C:\\proj",
+		{ wslEnabled: true, wslDistro: "Ubuntu-24.04", wslUser: "root" },
+		mockLocator,
+	);
+
+	await proc.start(undefined, undefined, true);
+
+	assert.equal(getCaptured()?.windowsHide, true);
+});
 
 test("WSL 模式下 PIDECK_SESSION_ID（UUID 身份 key）原样注入，不经 Linux 路径转换", async () => {
 	// 回归：临时会话 deckSessionId 是新生成的 UUID（无 sessionPath 兜底），

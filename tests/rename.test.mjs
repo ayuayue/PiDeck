@@ -22,6 +22,10 @@ function compileHook(reactStub, i18nStub) {
     require: (specifier) => {
       if (specifier === "react") return reactStub;
       if (specifier === "../i18n") return i18nStub;
+      if (specifier === "../rendererUtils") {
+        // 项目重命名预填当前展示名；测试里直接用 name 即可
+        return { displayProjectDirectoryName: (project) => project.name };
+      }
       return {};
     },
   }, { filename: "src/renderer/src/hooks/useRename.ts" });
@@ -53,6 +57,7 @@ function createDefaultApi(overrides = {}) {
   return {
     renameAgent: async () => ({ id: "agent-1", projectId: "proj-a", title: "Renamed", createdAt: Date.now(), cwd: "/tmp", status: "idle" }),
     renameSession: async () => undefined,
+    renameProject: async (id, name) => [{ id, name, path: "/tmp", lastOpenedAt: Date.now() }],
     showToast: () => undefined,
     upsertAgent: () => undefined,
     refreshProjectSessions: async () => undefined,
@@ -196,7 +201,7 @@ test("submitAgentRename trims whitespace and normalises internal spaces", async 
   r.openAgentRename(agentTab({ title: "old" }));
   // Re-render, then use renameModalsProps to simulate typing whitespace
   const r2 = harness.render(api);
-  r2.renameModalsProps.agentRename?.onValueChange("   new   name   ");
+  r2.renameModalsProps.rename?.onValueChange("   new   name   ");
 
   // Re-render again so submitAgentRename closure sees the new agentRenameValue
   const r3 = harness.render(api);
@@ -217,7 +222,7 @@ test("submitAgentRename shows validation toast when empty name", async () => {
   const r = harness.render(api);
   r.openAgentRename(agentTab({ title: "ok" }));
   const r2 = harness.render(api);
-  r2.renameModalsProps.agentRename?.onValueChange("");
+  r2.renameModalsProps.rename?.onValueChange("");
 
   // Re-render so submit see the empty value
   const r3 = harness.render(api);
@@ -286,7 +291,7 @@ test("submitSessionRename shows validation toast when empty name", async () => {
   const r = harness.render(api);
   r.openSessionRename("proj-a", sessionSummary({ name: "ok" }));
   const r2 = harness.render(api);
-  r2.renameModalsProps.agentRename?.onValueChange("");
+  r2.renameModalsProps.rename?.onValueChange("");
 
   const r3 = harness.render(api);
   await r3.submitSessionRename();
@@ -361,19 +366,19 @@ test("submitAgentRename returns early when agentRenameTarget is null", async () 
   assert.equal(renameCallCount, 1); // no additional call
 });
 
-test("renameModalsProps.agentRename is present when renaming agent", () => {
+test("renameModalsProps.rename is present when renaming agent", () => {
   const i18n = { t: (key) => key };
   const harness = createRenameHarness(i18n);
 
   // No rename target -> no modal props
   const r = harness.render(createDefaultApi());
-  assert.equal(r.renameModalsProps.agentRename, undefined);
+  assert.equal(r.renameModalsProps.rename, undefined);
 
   // Agent rename target -> modal props with isAgent: true
   r.openAgentRename(agentTab({ title: "Agent" }));
   const r2 = harness.render(createDefaultApi());
-  const agentProps = r2.renameModalsProps.agentRename;
-  assert.equal(agentProps.isAgent, true);
+  const agentProps = r2.renameModalsProps.rename;
+  assert.equal(agentProps.kind, "agent");
   assert.equal(agentProps.value, "Agent");
   assert.equal(agentProps.saving, false);
   assert.equal(typeof agentProps.onValueChange, "function");
@@ -381,20 +386,20 @@ test("renameModalsProps.agentRename is present when renaming agent", () => {
   assert.equal(typeof agentProps.onSubmit, "function");
 });
 
-test("renameModalsProps.agentRename is present when renaming session with isAgent: false", () => {
+test("renameModalsProps.rename is present when renaming session", () => {
   const i18n = { t: (key) => key };
   const harness = createRenameHarness(i18n);
 
   const r = harness.render(createDefaultApi());
   r.openSessionRename("proj-a", sessionSummary({ name: "Session" }));
   const r2 = harness.render(createDefaultApi());
-  const props = r2.renameModalsProps.agentRename;
-  assert.equal(props.isAgent, false);
+  const props = r2.renameModalsProps.rename;
+  assert.equal(props.kind, "session");
   assert.equal(props.value, "Session");
   assert.equal(props.saving, false);
 });
 
-test("renameModalsProps.agentRename.onSubmit dispatches to correct submitter", async () => {
+test("renameModalsProps.rename.onSubmit dispatches to correct submitter", async () => {
   const i18n = { t: (key) => key === "app.sessionRenamed" ? "Renamed!" : key };
   let agentRenameCalled = false;
   let sessionRenameCalled = false;
@@ -408,7 +413,7 @@ test("renameModalsProps.agentRename.onSubmit dispatches to correct submitter", a
   const r1 = harness.render(api);
   r1.openAgentRename(agentTab({ title: "Agent" }));
   const r1b = harness.render(api);
-  await r1b.renameModalsProps.agentRename?.onSubmit();
+  await r1b.renameModalsProps.rename?.onSubmit();
   assert.equal(agentRenameCalled, true);
   assert.equal(sessionRenameCalled, false);
 
@@ -417,12 +422,12 @@ test("renameModalsProps.agentRename.onSubmit dispatches to correct submitter", a
   const r2 = harness.render(api);
   r2.openSessionRename("proj-a", sessionSummary({ name: "Session" }));
   const r2b = harness.render(api);
-  await r2b.renameModalsProps.agentRename?.onSubmit();
+  await r2b.renameModalsProps.rename?.onSubmit();
   assert.equal(agentRenameCalled, false);
   assert.equal(sessionRenameCalled, true);
 });
 
-test("renameModalsProps.agentRename.onClose clears both targets", () => {
+test("renameModalsProps.rename.onClose clears both targets", () => {
   const i18n = { t: (key) => key };
   const harness = createRenameHarness(i18n);
 
@@ -430,14 +435,14 @@ test("renameModalsProps.agentRename.onClose clears both targets", () => {
   r.openAgentRename(agentTab());
   r.openSessionRename("proj-a", sessionSummary()); // second call replaces first
   const r2 = harness.render(createDefaultApi());
-  r2.renameModalsProps.agentRename?.onClose();
+  r2.renameModalsProps.rename?.onClose();
 
   const r3 = harness.render(createDefaultApi());
   assert.equal(r3.agentRenameTarget, null);
   assert.equal(r3.sessionRenameTarget, null);
 });
 
-test("renameModalsProps.agentRename.saving reflects agentRenaming state", async () => {
+test("renameModalsProps.rename.saving reflects agentRenaming state", async () => {
   const i18n = { t: (key) => key };
   let resolveRename;
   const api = createDefaultApi({
@@ -448,15 +453,116 @@ test("renameModalsProps.agentRename.saving reflects agentRenaming state", async 
   const r = harness.render(api);
   r.openAgentRename(agentTab({ title: "ok" }));
   const rBefore = harness.render(api);
-  assert.equal(rBefore.renameModalsProps.agentRename?.saving, false);
+  assert.equal(rBefore.renameModalsProps.rename?.saving, false);
 
   const submitPromise = rBefore.submitAgentRename();
   const rDuring = harness.render(api);
-  assert.equal(rDuring.renameModalsProps.agentRename?.saving, true);
+  assert.equal(rDuring.renameModalsProps.rename?.saving, true);
 
   resolveRename(agentTab({ title: "ok" }));
   await submitPromise;
 
   const rAfter = harness.render(api);
-  assert.equal(rAfter.renameModalsProps.agentRename, undefined); // cleared after success
+  assert.equal(rAfter.renameModalsProps.rename, undefined); // cleared after success
+});
+
+// ── 项目重命名（显示名别名，不动磁盘目录）──
+
+function projectRow(overrides = {}) {
+  return {
+    id: "proj-a",
+    name: "alpha",
+    path: "C:\\work\\alpha",
+    lastOpenedAt: Date.now(),
+    environment: "windows",
+    ...overrides,
+  };
+}
+
+test("openProjectRename 预填当前展示名并清空其他重命名目标", () => {
+  const i18n = { t: (key) => key };
+  const harness = createRenameHarness(i18n);
+
+  const r = harness.render(createDefaultApi());
+  r.openAgentRename(agentTab());
+  r.openProjectRename(projectRow({ name: "内部平台" }));
+
+  const r2 = harness.render(createDefaultApi());
+  assert.equal(r2.projectRenameTarget?.id, "proj-a");
+  assert.equal(r2.agentRenameTarget, null);
+  assert.equal(r2.sessionRenameTarget, null);
+  assert.equal(r2.agentRenameValue, "内部平台");
+  // 弹窗槽位为 project kind
+  assert.equal(r2.renameModalsProps.rename?.kind, "project");
+});
+
+test("submitProjectRename 调用 renameProject、回写列表并 toast", async () => {
+  const i18n = { t: (key) => key === "app.projectRenamed" ? "Renamed!" : key };
+  const calls = [];
+  const api = createDefaultApi({
+    renameProject: async (id, name) => { calls.push(`renameProject:${id}:${name}`); return [{ id, name, path: "/tmp", lastOpenedAt: Date.now() }]; },
+    applyRenamedProjects: (projects) => { calls.push(`applied:${projects[0].name}`); },
+    showToast: (msg) => { calls.push(`toast:${msg}`); },
+  });
+  const harness = createRenameHarness(i18n);
+
+  const r = harness.render(api);
+  r.openProjectRename(projectRow({ name: "alpha" }));
+  const rBefore = harness.render(api);
+  rBefore.renameModalsProps.rename?.onValueChange("  内部 平台  ");
+  const rSubmit = harness.render(api);
+  await rSubmit.submitProjectRename();
+
+  const r2 = harness.render(api);
+  assert.equal(r2.projectRenameTarget, null);
+  assert.equal(r2.agentRenameValue, "");
+  // 空白折叠后提交
+  assert.deepEqual(calls, [
+    "renameProject:proj-a:内部 平台",
+    "applied:内部 平台",
+    "toast:Renamed!",
+  ]);
+});
+
+test("submitProjectRename 空名提示且不调用 API", async () => {
+  const i18n = { t: (key) => key === "app.projectNameRequired" ? "Required!" : key };
+  let toastMessage;
+  let apiCalls = 0;
+  const api = createDefaultApi({
+    renameProject: async () => { apiCalls += 1; return []; },
+    showToast: (msg) => { toastMessage = msg; },
+  });
+  const harness = createRenameHarness(i18n);
+
+  const r = harness.render(api);
+  r.openProjectRename(projectRow());
+  const r2 = harness.render(api);
+  r2.renameModalsProps.rename?.onValueChange("   ");
+  const r3 = harness.render(api);
+  await r3.submitProjectRename();
+
+  assert.equal(toastMessage, "Required!");
+  assert.equal(apiCalls, 0);
+  // 校验失败不清目标，用户还能改完再提交
+  const r4 = harness.render(api);
+  assert.notEqual(r4.projectRenameTarget, null);
+});
+
+test("submitProjectRename 失败 toast 带错误信息", async () => {
+  const i18n = { t: (key, params) => key === "app.projectRenameFailed" ? `Failed(${params.error})` : key };
+  let toastMessage;
+  const api = createDefaultApi({
+    renameProject: async () => { throw new Error("PROJECT_RENAME_NOT_ALLOWED"); },
+    showToast: (msg) => { toastMessage = msg; },
+  });
+  const harness = createRenameHarness(i18n);
+
+  const r = harness.render(api);
+  r.openProjectRename(projectRow());
+  const rBefore = harness.render(api);
+  await rBefore.submitProjectRename();
+
+  assert.ok(toastMessage.includes("PROJECT_RENAME_NOT_ALLOWED"), `got: ${toastMessage}`);
+  const r2 = harness.render(api);
+  assert.equal(r2.agentRenaming, false);
 });

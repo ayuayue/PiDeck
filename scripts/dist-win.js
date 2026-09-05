@@ -30,24 +30,39 @@ execSync(`npx electron-builder --win ${formats}`, {
   shell: true,
 });
 
-// 发布提示：electron-builder 已配置 publish(provider: github)，打包会在 release/ 生成
-// 平台 channel 元数据（Windows: latest.yml / macOS: latest-mac.yml / Linux: latest-linux.yml），
-// 客户端无配额更新检查按平台读取对应文件。发布 GitHub Release 时，除安装包外必须
-// 一并上传 channel 文件（每个平台自己的那个），否则该平台客户端自动更新会降级为
-// atom/API 兑底路径。
+// Windows 自动更新由 electron-updater 的 NSIS provider 执行。每次发布必须让同一
+// GitHub Release 同时包含 `latest.yml`、当前版本 setup.exe 和对应 .blockmap；后两
+// 项缺失时客户端无法安全下载或进行差分更新。portable / zip 仅供用户手动下载。
 console.log(`\n✅ 打包完成！产物在 release/ 目录下`);
 const releaseDir = path.join(root, "release");
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const productName = packageJson.build?.productName ?? packageJson.name;
+const artifactPrefix = `${productName}-${packageJson.version}-`;
+const setupAsset = `${artifactPrefix}setup.exe`;
+const setupBlockmap = `${setupAsset}.blockmap`;
+const requiredUpdaterAssets = ["latest.yml", setupAsset, setupBlockmap];
+const expectedReleaseAssets = [
+  ...requiredUpdaterAssets,
+  `${artifactPrefix}portable.exe`,
+  `${artifactPrefix}win.zip`,
+];
+
 if (fs.existsSync(releaseDir)) {
-  const files = fs.readdirSync(releaseDir)
-    .filter((name) => /latest(-\w+)?\.yml$/.test(name) || !/\.(blockmap|yml)$/.test(name))
-    .filter((name) => !name.startsWith("."));
-  console.log(`\n发布 GitHub Release 时需上传以下文件（assets）：`);
-  for (const name of files) console.log(`  - ${name}`);
-  const ymlFiles = fs.readdirSync(releaseDir).filter((name) => /latest(-\w+)?\.yml$/.test(name));
-  if (ymlFiles.length === 0) {
-    console.warn(`\n⚠ 未找到 latest*.yml：请确认 build.publish 配置存在（provider: github）`);
+  // release/ can contain stale artifacts from earlier manual builds. Listing only exact
+  // configured names prevents accidentally attaching a prior or prerelease installer.
+  const releaseAssets = expectedReleaseAssets.filter((name) => fs.existsSync(path.join(releaseDir, name)));
+  console.log(`\n发布 GitHub Release 时需上传以下当前版本 assets：`);
+  for (const name of releaseAssets) console.log(`  - ${name}`);
+
+  const missingUpdaterAssets = requiredUpdaterAssets.filter(
+    (name) => !fs.existsSync(path.join(releaseDir, name)),
+  );
+  if (missingUpdaterAssets.length > 0) {
+    console.warn(`\n⚠ Windows 自动更新缺少：${missingUpdaterAssets.join("、")}`);
+    console.warn("  请至少打包 nsis 目标，并将该三项上传到同一个 GitHub Release。");
   } else {
-    console.log(`\n⚠ 不要漏掉 latest.yml：它是客户端无配额自动更新检查的版本元数据。`);
+    console.log(`\n✓ Windows 自动更新 assets 齐全：latest.yml + ${setupAsset} + .blockmap`);
+    console.log("  portable / zip 是手动下载资产，不会被 electron-updater 作为更新包安装。");
   }
 }
 

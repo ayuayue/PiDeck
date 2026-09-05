@@ -32,6 +32,10 @@ test("imageMimeTypeFromPath 按扩展名推导 MIME", () => {
   assert.equal(imageMimeTypeFromPath("a.JPEG"), "image/jpeg");
   assert.equal(imageMimeTypeFromPath("a.gif"), "image/gif");
   assert.equal(imageMimeTypeFromPath("a.webp"), "image/webp");
+  assert.equal(imageMimeTypeFromPath("a.svg"), "image/svg+xml");
+  assert.equal(imageMimeTypeFromPath("a.avif"), "image/avif");
+  assert.equal(imageMimeTypeFromPath("a.bmp"), "image/bmp");
+  assert.equal(imageMimeTypeFromPath("a.ico"), "image/x-icon");
   assert.equal(imageMimeTypeFromPath("a.unknown"), "image/png");
 });
 
@@ -66,9 +70,15 @@ test("附件选择器默认仅选文件，includeDirectories 才同时选目录"
 });
 
 test("readBase64 支持 maxBytes 预检，粘贴图片超大时主进程拦截", () => {
-  assert.match(filesIpc, /filesReadBase64, async \(_event, path: string, maxBytes\?: number\)/);
+  assert.match(
+    filesIpc,
+    /filesReadBase64,[\s\S]*?async \(_event, path: unknown, maxBytes\?: number, scope\?: unknown\)/,
+  );
   assert.match(filesIpc, /FILE_TOO_LARGE/);
-  assert.match(preload, /readBase64: \(path: string, maxBytes\?: number\)/);
+  assert.match(
+    preload,
+    /readBase64: \(path: string, maxBytes\?: number, scope\?: ProjectFileAccessScope\)/,
+  );
 });
 
 test("onPaste 图片文件走预览分支，失败回退 @path 引用", () => {

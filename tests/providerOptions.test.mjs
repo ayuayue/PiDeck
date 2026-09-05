@@ -27,6 +27,17 @@ test("默认供应商候选聚合 providers + auth + discovered 三处来源", (
 	);
 });
 
+// 注：TokenDance 不再是内置候选——它由用户在配置页确认后写入 models.json，
+// 写入后经 providers 来源自然出现（对应测试见「providers 含 tokendance 时正常聚合」）。
+test("providers 含 tokendance 时正常聚合（写入配置后经既有链路出现）", () => {
+	const options = collectProviderOptions(
+		{ providers: { tokendance: {} } },
+		undefined,
+		undefined,
+	);
+	assert.deepEqual([...options.map((o) => o.value)], ["tokendance"]);
+});
+
 test("复现：仅 discovered 存在的供应商必须在候选里（漏掉即「无匹配选项」）", () => {
 	const options = collectProviderOptions(
 		{ providers: { tr: {} } },
@@ -39,9 +50,10 @@ test("复现：仅 discovered 存在的供应商必须在候选里（漏掉即�
 	);
 });
 
-test("三处来源为空/未加载时返回空数组", () => {
-	assert.equal(collectProviderOptions(undefined, undefined, undefined).length, 0);
-	assert.equal(collectProviderOptions({ providers: {} }, {}, {}).length, 0);
+test("三处来源为空/未加载时返回空候选（无内置注入）", () => {
+	// 展开成测试上下文数组再比较（vm 上下文数组原型不同，deepStrictEqual 会报“结构相同但非引用相等”）
+	assert.deepEqual([...collectProviderOptions(undefined, undefined, undefined).map((o) => o.value)], []);
+	assert.deepEqual([...collectProviderOptions({ providers: {} }, {}, {}).map((o) => o.value)], []);
 });
 
 test("同名供应商去重（三处来源都出现只保留一个候选）", () => {

@@ -135,6 +135,17 @@ const MODEL_VARIANT_TOKENS = new Set([
   "latest",
 ]);
 
+/** 视觉/多模态变体 token：base 模型（多数为 text-only）不能当它们的别名模板，
+ *  否则会把 text-only 的 input 声明错写进视觉模型（如 deepseek-v4-flash-vision-exp
+ *  被错配到 deepseek-v4-flash 后图片能力被锁死为纯文本）。 */
+const VISION_VARIANT_TOKENS = new Set([
+  "vision",
+  "vl",
+  "vlm",
+  "multimodal",
+  "image",
+]);
+
 function hasDelimitedIdentity(target: string, candidate: string): boolean {
   if (!candidate || candidate.length < 5 || !/\d/.test(candidate)) return false;
   const targetTokens = target.split("-");
@@ -144,7 +155,14 @@ function hasDelimitedIdentity(target: string, candidate: string): boolean {
     const suffix = targetTokens[start + candidateTokens.length];
     // `gpt-5` is not a safe template for `gpt-5.6`, nor is a base model a
     // safe stand-in for a known distinct variant such as `gpt-4o-mini`.
-    if (suffix && (/^\d+$/.test(suffix) || MODEL_VARIANT_TOKENS.has(suffix))) continue;
+    // 视觉变体同理：base（text-only）→ vision/vl 变体的能力声明完全不同，
+    // 但同族视觉变体之间（如 -vision-exp → -vision）仍允许继续匹配。
+    if (
+      suffix &&
+      (/^\d+$/.test(suffix) || MODEL_VARIANT_TOKENS.has(suffix) || VISION_VARIANT_TOKENS.has(suffix))
+    ) {
+      continue;
+    }
     return true;
   }
   return false;

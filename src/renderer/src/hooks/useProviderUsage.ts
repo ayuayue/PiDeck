@@ -10,7 +10,7 @@
  *
  * 查询只写 atoms（组件卸载后写入也无害：缓存本就是跨组件共享的），无 cancelled 需求。
  */
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { ProviderUsageResult, UsageProbeBackend } from "../../../shared/types/providerUsage";
 import { normalizeDshDeepseekProvider } from "../../../shared/dshProviderNames";
@@ -82,6 +82,45 @@ export function providerUsageEntryStale(
 	if (!entry || entry.fetchedAt == null) return true;
 	if (intervalMinutes <= 0) return false;
 	return now - entry.fetchedAt >= intervalMinutes * 60_000;
+}
+
+/** provider → 内置识别结果的模块级缓存（跨组件共享，避免重复 IPC）；识别结果跟随 provider 名/backend。 */
+const usageRecognizedCache = new Map<string, boolean>();
+const usageRecognizedInFlight = new Map<string, Promise<boolean>>();
+
+/**
+ * provider 是否命中内置用量模板（零配置自动生效）：渲染层据此隐藏「用量查询」配置按钮。
+ * 缓存 key 与 usageCacheKey 同规则（DSH 链路 dsh: 前缀隔离）；首次查询后在模块级缓存，
+ * 多次卡片挂载共享同一结果、不重复发 IPC。识别结果可能随 baseUrl 编辑过期——卡片重挂载时
+ * 若已有缓存仍沿用（用量本身也按缓存展示，行为一致；重开应用即刷新）。
+ */
+export function useProviderUsageRecognized(
+	provider: string | undefined,
+	backend: UsageProbeBackend = "pi",
+): boolean {
+	const cacheKey = provider ? usageCacheKey(provider, backend) : undefined;
+	const [recognized, setRecognized] = useState<boolean>(() =>
+		cacheKey ? (usageRecognizedCache.get(cacheKey) ?? false) : false,
+	);
+	useEffect(() => {
+		if (!provider || !cacheKey) return;
+		if (usageRecognizedCache.has(cacheKey)) {
+			setRecognized(usageRecognizedCache.get(cacheKey)!);
+			return;
+		}
+		// in-flight 去重：并发挂载的多个卡片共享同一次 IPC，避免重复请求。
+		if (usageRecognizedInFlight.has(cacheKey)) {
+			void usageRecognizedInFlight.get(cacheKey)!.then(setRecognized);
+			return;
+		}
+		const promise = desktopApi.config.usageRecognized(provider, backend).then((res) => res.recognized);
+		usageRecognizedInFlight.set(cacheKey, promise);
+		promise.then((value) => {
+			usageRecognizedCache.set(cacheKey, value);
+			setRecognized(value);
+		});
+	}, [provider, cacheKey, backend]);
+	return recognized;
 }
 
 /** 订阅并自动取数：provider 未指定时不查（三处调用方各自兜底 provider 来源）。

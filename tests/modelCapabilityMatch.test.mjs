@@ -97,3 +97,34 @@ test("name matching rejects embedded, ambiguous, and lower-version candidates", 
 		undefined,
 	);
 });
+
+test("vision variants are not aliased from text-only base models", () => {
+	// 视觉模型 ID 带 vision/vl/vlm 变体 token 时，不能拿 base（多为 text-only）当模板，
+	// 否则会把 text-only 的 input 声明错写进视觉模型，图片能力被锁死。
+	const base = candidate({ id: "deepseek-v4-flash", input: ["text"] });
+	assert.equal(
+		findModelCapabilityMatch(
+			{ providerName: "relay", modelId: "deepseek-v4-flash-vision-exp" },
+			[base],
+		),
+		undefined,
+	);
+	assert.equal(
+		findModelCapabilityMatch(
+			{ providerName: "relay", modelId: "qwen2.5-vl-72b" },
+			[candidate({ id: "qwen2.5", input: ["text"] })],
+		),
+		undefined,
+	);
+});
+
+test("same-family vision variants may still alias each other", () => {
+	// -vision-exp → -vision 是同类视觉变体，能力声明一致，允许匹配。
+	const match = findModelCapabilityMatch(
+		{ providerName: "relay", modelId: "deepseek-v4-flash-vision-exp" },
+		[candidate({ id: "deepseek-v4-flash-vision", input: ["text", "image"] })],
+	);
+	assert.equal(match?.matchKind, "name-alias");
+	assert.equal(match?.candidate.id, "deepseek-v4-flash-vision");
+	assert.deepEqual(JSON.parse(JSON.stringify(modelCapabilityMatchToSpec(match).input)), ["text", "image"]);
+});

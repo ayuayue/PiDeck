@@ -60,7 +60,6 @@ import {
   selectTimelineTurnWindow,
   shouldWindowTimelineTurns,
   TIMELINE_MOUNTED_TURN_LIMIT,
-  TIMELINE_SCROLLED_MAX_ITEMS,
   countAgentRunItems,
 } from "./timeline/turnRenderWindow";
 
@@ -418,24 +417,19 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
   }, [renderedRuns]);
   // 渲染窗口（2026-08 黑屏治理）：贴底只挂尾部 3 轮；上滚查看历史也裁剪
   // （controller.scrolledWindowTurns，初始 3 轮，接近顶部按 3 轮 cohort 自动扩大）——
-  // 历史全量放开挂载是大会话渲染进程内存峰值/黑屏的来源。数据仍在 atoms；
-  // 但切换恢复期间必须暂时取消条目预算，先物化已保存锚点再恢复正常窗口治理。
-  // 跳转导航（刻度/消息定位）同理：条目预算按条目数封顶，轮数扩得再大也挂不出
-  // 预算外的旧消息，跳转会永远找不到目标行——挂起期间解除预算，回底/切会话恢复。
+  // 历史全量放开挂载是大会话渲染进程内存峰值/黑屏的来源。数据仍在 atoms。
+  //
+  // 关键不变量：锚点保存和恢复必须使用同一轮次窗口。恢复期若临时全量物化、
+  // restoreAt 后又收回尾部窗口，文档高度收缩会把已恢复的 scrollTop 截断，造成
+  // 切回位置漂移。锚点不在已保存窗口时，controller 会逐步扩窗后重试；跳转也走
+  // 同一扩窗策略，而不是绕过窗口约束。
   const followingForTurnWindow = controller.autoScroll;
-  const isRestoringScrollAnchor = controller.isRestoringScrollAnchor;
   const turnWindowTurns = followingForTurnWindow
     ? TIMELINE_MOUNTED_TURN_LIMIT
     : controller.scrolledWindowTurns;
   const displayRuns = useMemo(
-    () => selectTimelineTurnWindow(
-      reconciledRuns,
-      turnWindowTurns,
-      followingForTurnWindow || isRestoringScrollAnchor || controller.jumpNavigationActive
-        ? undefined
-        : TIMELINE_SCROLLED_MAX_ITEMS,
-    ),
-    [followingForTurnWindow, isRestoringScrollAnchor, controller.jumpNavigationActive, reconciledRuns, turnWindowTurns],
+    () => selectTimelineTurnWindow(reconciledRuns, turnWindowTurns),
+    [reconciledRuns, turnWindowTurns],
   );
   // 身份判定（2026-08 perf）：位置判定（index / displayRuns.length）随滚动窗口切片
   // 变化会让窗口内所有 TurnRow 的位置相关 props 一起翻转 → memo 全部失效 →

@@ -16,7 +16,6 @@ import type {
 
 const MAX_USER_INPUT_CHARS = 1600;
 const MAX_ASSISTANT_INPUT_CHARS = 600;
-const MAX_TITLE_CHARS = 32;
 const TITLE_TIMEOUT_MS = 30_000;
 const MAX_TITLE_ATTEMPTS = 2;
 
@@ -257,7 +256,9 @@ export function cleanTitle(raw: string): string | undefined {
 	if (safeTitle !== title) return undefined;
 	title = safeTitle;
 
-	title = truncateText(title, MAX_TITLE_CHARS);
+	// 标题长度由模型提示约束（TITLE_SYSTEM_PROMPT 要求 32 字符内），这里不再硬截断：
+	// 按字符硬切会把英文单词切成碎词（2026 现场："issue" → "issu"、"remove" → "remov"），
+	// 模型偶尔超长时保留完整标题更可读（侧栏/树节点由 CSS 窗口钳制，hover 可滚动查看全文）。
 	if (Array.from(title).length < 2) return undefined;
 	if (GENERIC_TITLES.has(title.toLocaleLowerCase())) return undefined;
 	if (/^(?:title|session|conversation|untitled|new)\s*(?:title|session)?$/i.test(title)) return undefined;

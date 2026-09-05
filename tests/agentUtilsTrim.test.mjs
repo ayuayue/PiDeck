@@ -91,6 +91,36 @@ test("trim keeps a leading system summary card + last turns (compaction retentio
   assert.equal(input[start].text, "q2");
 });
 
+test("consecutive user messages merge into a single turn for trim", () => {
+  // 连发 3 条 user 无回复（同一发言权）→ 与后续 assistant 算 1 轮。
+  const input = [
+    { role: "user", text: "q1" },
+    { role: "user", text: "q2" },
+    { role: "user", text: "q3" },
+    { role: "assistant", text: "a1" },
+    { role: "user", text: "q4" },
+    { role: "assistant", text: "a2" },
+  ];
+  // 整段 2 轮：trim 到 1 轮只保留 q4 起；q1-q3+a1 是同一轮，整段丢弃。
+  const start = turnTrimStartIndex(input, 1);
+  assert.equal(start, 4);
+  assert.equal(input[start].text, "q4");
+  // 4 轮上限：全段保留（起点 0）
+  assert.equal(turnTrimStartIndex(input, 4), 0);
+});
+
+test("consecutive users with misc entries still merge (no split by system card)", () => {
+  const input = [
+    { role: "user", text: "q1" },
+    { role: "system", text: "diag card" },
+    { role: "user", text: "q2" },
+    { role: "assistant", text: "a1" },
+  ];
+  // 一张轮：system 卡不打断发言权，q1+q2 合并为一个 turn。
+  assert.equal(turnTrimStartIndex(input, 1), 0);
+  assert.equal(turnTrimStartIndex(input, 2), 0);
+});
+
 const translateTitle = (key, params = {}) => {
   if (key === "session.newTitle") return params.locale === "en" ? "New session" : "新会话";
   if (key === "session.historyTitle") return `${params.project} 历史会话`;
@@ -137,6 +167,11 @@ test("inferTitleFromMessages uses the first user prompt as the session title", (
   assert.equal(title, "帮我看看这个报错");
 });
 
+test("inferTitleFromMessages preserves long prompts for the visual sidebar clamp", () => {
+  const prompt = "修复侧栏标题：这是一个超过三十二字符的自动命名请求，末尾信息不能被截断";
+  assert.equal(inferTitleFromMessages([{ role: "user", text: prompt }]), prompt);
+});
+
 test("pi runtime title changes notify catalog the same way DSH does", () => {
   // 侧栏/Tab 读 SessionRecord.title。DSH 已有 onTitleChanged → catalog.update → catalog-refreshed；
   // pi 必须走同一条，否则 refreshAutoTitle 只改 AgentTab，回话后 UI 仍显示「新会话」。
@@ -146,7 +181,8 @@ test("pi runtime title changes notify catalog the same way DSH does", () => {
   assert.match(utils, /session\.newTitle/);
   assert.match(utils, /session\.dshUntitled/);
   assert.match(agentManager, /setTitleChangedHandler\(/);
-  assert.match(agentManager, /this\.onTitleChanged\?\.\(agentId, next\)/);
+  assert.match(agentManager, /if \(changed \|\| forceCatalogSync\) this\.onTitleChanged\?\.\(agentId, next\)/);
+  assert.match(agentManager, /applyRuntimeTitle\(agentId, data\?\.sessionName \?\? runtime\.tab\.title, false, true\)/);
   assert.match(agentManager, /looksLikePiSessionFileStem\(next\)/);
   assert.match(agentManager, /piSessionName/);
   assert.match(agentManager, /return this\.applyRuntimeTitle\(agentId, nextTitle\)/);

@@ -238,7 +238,7 @@ test("uses only the canonical project refresh port", () => {
   const copy = functionBlock("copySession", "exportHistorySession");
   const remove = functionBlock("deleteHistorySession", "archiveHistorySession");
   const archive = functionBlock("archiveHistorySession", "unarchiveHistorySession");
-  const unarchive = functionBlock("unarchiveHistorySession", "openSidebarSession");
+  const unarchive = functionBlock("unarchiveHistorySession", "listArchivedSessions");
   // 每个会话操作（复制/删除/归档/恢复）都只经 canonical 刷新端口触发一次列表刷新
   assert.equal(copy.match(/refreshProjectSessions\(/g)?.length, 1);
   assert.equal(remove.match(/refreshProjectSessions\(/g)?.length, 1);

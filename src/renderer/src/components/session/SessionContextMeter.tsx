@@ -94,7 +94,8 @@ function formatBalance(balance: { value: number; currency?: string }): string {
 }
 
 /** 由 runtime 状态计算占用（dsh contextOccupancy 同款语义）：
- *  缺任一字段视为无 capacity（null）；percent 保留原始精度（封顶 100）。
+ *  缺任一字段视为无 capacity（null）；percent 保留原始精度、不封顶 100
+ *  （pi/dsh 可上报 >100%，如缓存超窗；pi CLI footer 同口径显示原始值）。
  *  当上报 percent ≤ 0 而 tokens 非 0（pi/dsh 取整成 0 或尚未随 tokens 刷新）时，
  *  按 tokens/window 重算，避免「占用 0% 但 ~408 / 1M」这类自相矛盾的展示。 */
 export function contextOccupancy(

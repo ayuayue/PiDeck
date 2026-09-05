@@ -5,7 +5,10 @@ import test from "node:test";
 const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
 const hook = readFileSync("src/renderer/src/hooks/useNotifyLayoutResized.ts", "utf8");
 const appShell = readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8");
-const sessionView = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
+const terminalDock = readFileSync(
+  "src/renderer/src/components/terminal/TerminalDockPanel.tsx",
+  "utf8",
+);
 const splitStage = readFileSync("src/renderer/src/components/session/SessionSplitStage.tsx", "utf8");
 
 /**
@@ -31,9 +34,14 @@ test("layout drag dispatches window resize for floating-layer recalc", () => {
   // hook 必须派发 resize（floating-ui autoUpdate 的唯一重算信号之一）
   assert.match(hook, /dispatchEvent\(new Event\("resize"\)\)/, "hook must dispatch resize");
   // 拖拽跟踪覆盖三类分割线（左右栏 / 终端 / 分屏 sash）
-  assert.match(hook, /\.splitter,\s*\.v-splitter,\s*\.session-split-sash/, "track all splitter classes");
-  // 三个分割线宿主都接入 hook（卸载清理 + 布局落定兜底通知）
+  assert.match(
+    hook,
+    /\.splitter,\s*\.v-splitter,\s*\.session-split-sash,\s*\.session-terminal-splitter/,
+    "track all splitter classes",
+  );
+  // 终端分隔条有独立视觉样式，使用专用命中类，避免复用透明的 .v-splitter。
+  assert.match(terminalDock, /session-terminal-splitter/);
+  // 外层与分屏宿主调用 hook，触发全局拖拽监听注册。
   assert.match(appShell, /useNotifyLayoutResized/, "AppShell must wire the hook");
-  assert.match(sessionView, /useNotifyLayoutResized/, "SessionView must wire the hook");
   assert.match(splitStage, /useNotifyLayoutResized/, "SessionSplitStage must wire the hook");
 });

@@ -108,4 +108,7 @@ export const KNOWN_PROVIDER_ENDPOINTS: Record<
 	"opencode-go": { baseUrl: "https://opencode.ai/zen/go/v1", apiType: "openai-completions" },
 	"minimax": { baseUrl: "https://api.minimax.io/v1", apiType: "openai-completions" },
 	"minimax-cn": { baseUrl: "https://api.minimaxi.com/v1", apiType: "openai-completions" },
+	// TokenDance（词元跳动）：多模型/多供应商网关，OpenAI 兼容 base URL；模型拉取
+	// 走其公开 /gateway/v1/models（无需鉴权），余额查询由 providerUsageProbe 专属候选覆盖。
+	"tokendance": { baseUrl: "https://tokendance.space/gateway/v1", apiType: "openai-completions" },
 };

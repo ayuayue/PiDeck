@@ -35,6 +35,7 @@ function loadTimelineHelpers() {
     "jotai/utils": {},
     "../atoms": {}, "../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
     "../desktopApi": {},    "./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },    "../components/session/timeline/turnRenderWindow": {
+      TIMELINE_MOUNTED_TURN_LIMIT: 3,
       TIMELINE_SCROLLED_TURN_LIMIT: 3,
       TIMELINE_WINDOW_EXPAND_STEP: 3,
     },
@@ -59,6 +60,12 @@ function loadSessionAtoms() {
     // session-atoms 编译后 require 失败（Cannot find module '../utils/liveTextHandoff'）
     "../utils/liveTextHandoff": compileModule(
       "src/renderer/src/utils/liveTextHandoff.ts",
+    ),
+    "./outlineRevision": compileModule(
+      "src/renderer/src/atoms/outlineRevision.ts",
+    ),
+    "./outlineProjectionCache": compileModule(
+      "src/renderer/src/atoms/outlineProjectionCache.ts",
     ),
   });
 }
@@ -116,8 +123,15 @@ test("timeline owns paging, delegated scroll follow, and outline jump lifecycle"
   assert.match(source, /restoreTimelineAnchor\(/);
 });
 
-test("anchor restoration expands the turn window before it falls back", () => {
+test("anchor restoration preserves its effective tail window and expands only when needed", () => {
   assert.match(source, /windowTurns: renderedWindowTurnsRef\.current/);
+  // 跟随态的 DOM 固定为 3 轮，即使回底 effect 尚未来得及重置 scrolledWindowTurns；
+  // 保存必须使用实际窗口，避免切回时恢复到不同高度的文档。
+  assert.match(
+    source,
+    /const effectiveWindowTurns = autoScroll\s*\? TIMELINE_MOUNTED_TURN_LIMIT\s*:\s*scrolledWindowTurns;/,
+  );
+  assert.match(source, /renderedWindowTurnsRef\.current = effectiveWindowTurns;/);
   assert.match(
     source,
     /if \(windowExpandableRef\.current\) \{\s*setScrolledWindowTurns\(\(turns\) => turns \+ TIMELINE_WINDOW_EXPAND_STEP\);/,
@@ -134,6 +148,17 @@ test("scroll events synchronously retain an anchor before a same-task session sw
     source,
     /currentAnchorRef\.current = computeCurrentAnchor\(\);\s*if \(scrollAnchorFrameRef\.current != null\) return;\s*scrollAnchorFrameRef\.current = requestAnimationFrame/,
   );
+});
+
+test("scroll anchors prefer stable turn roots over collapsible execution children", () => {
+  // 工具卡/思考步骤会随执行过程自动收起卸载；优先 user / run 根节点才能在
+  // 切回时仍找到同一 messageId，而非退化到顶部。
+  assert.match(
+    source,
+    /"article\.user-turn\[data-message-id\], \.turn-row\[data-message-id\]"/,
+  );
+  assert.match(source, /if \(stableAnchor\) return stableAnchor;/);
+  assert.match(source, /return findAnchor\(timeline\.querySelectorAll<HTMLElement>\("\[data-message-id\]"\)\);/);
 });
 
 test("background Session cache changes retain the selected timeline slice", () => {

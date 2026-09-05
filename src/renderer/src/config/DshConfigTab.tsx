@@ -43,8 +43,10 @@ import { managerArchivedDshLabel } from "../sessionManagerModel";
 import type { ArchivedDshSession } from "../../../shared/types";
 
 type DshStatus = {
-started: boolean;
-homeDir: string;
+	started: boolean;
+	homeDir: string;
+	/** 最近一次 host boot 失败的真实原因（host-error 详情/stderr 尾部）；无失败为 null。 */
+	bootError?: string | null;
 };
 type CredentialState = {
 	configured: boolean;
@@ -58,6 +60,12 @@ const MODEL_NS = new Set(["llm-deepseek", "llm-pi-ai"]);
 /** 配置目录 + 文件名 → 平台路径（F9：统一拼接，避免散落的 replace 兜底）。 */
 function joinConfigPath(homeDir: string, fileName: string): string {
 	return `${homeDir.replace(/[\\/]+$/, "")}/${fileName}`;
+}
+
+/** 剥离 Electron IPC 包装前缀（"Error invoking remote method 'x': "），只保留主进程真实错误。
+ *  与 GitPanel/useSessionActions 等处的清洗同一语义，这里收敛成本页局部 helper。 */
+function stripIpcErrorPrefix(message: string): string {
+	return message.replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, "");
 }
 
 const NAV_ITEMS: Array<{ id: string; labelKey: TranslationKey; icon: ReactNode }> = [
@@ -96,6 +104,8 @@ function loadDshLastPluginPane(): "config" | "list" {
 export type DshConfigTabHandle = {
 	/** 保存全部未保存修改；返回是否全部成功。 */
 	save: () => Promise<boolean>;
+	/** 重新拉取 DSH 配置（外部直写 settings 后刷新，如 TokenDance 一键安装）。 */
+	reload: () => Promise<void>;
 };
 
 /**
@@ -203,8 +213,6 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 		return ok;
 	}, [props.onDirtyChange, registrySaveAll]);
 
-	useImperativeHandle(ref, () => ({ save: saveAll }), [saveAll]);
-
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
@@ -264,11 +272,26 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 			return settingsResult.namespaces;
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
+			// describe 失败说明 host boot 刚失败：同步刷新一次状态，让 bootError 详情
+			// （getStatus().bootError）尽早到位，错误 banner 能展示真实原因而不是只有笼统 IPC 消息。
+			void loadStatus();
 			return undefined;
 		} finally {
 			setLoading(false);
 		}
 	}, [runtimeInstalled]);
+
+	// 句柄依赖 load（声明在其后）：reload 供外部直写 settings 后刷新（如 TokenDance 一键安装）。
+	useImperativeHandle(
+		ref,
+		() => ({
+			save: saveAll,
+			reload: async () => {
+				await load();
+			},
+		}),
+		[saveAll, load],
+	);
 
 	/** 状态（host 是否启动/目录）独立加载：不依赖 settings.describe，
 	 * host boot 失败时概览页仍能显示当前目录与重启入口，而不是整页空白。 */
@@ -280,6 +303,25 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 			// 状态查询失败不阻塞页面（无 host 时部分字段为空即可）
 		}
 	}, []);
+
+	/**
+	 * 错误 banner 的一键恢复：走与概览区「重启 host」相同的完整重启链路
+	 * （主进程先停掉活跃 DSH 会话再重新 fork），成功后刷新配置与状态。
+	 */
+	const restartHostFromBanner = useCallback(async () => {
+		try {
+			const restarted = await desktopApi.sessions.restartDshHost();
+			showNotice(
+				restarted ? t("config.dsh.hostRestarted") : t("config.dsh.hostRestartFailed"),
+				restarted ? 4000 : 6000,
+			);
+		} catch (err) {
+			showNotice(err instanceof Error ? err.message : String(err), 4000);
+		} finally {
+			void load();
+			void loadStatus();
+		}
+	}, [load, loadStatus]);
 
 	/** 写密钥（credentials.set）+ 刷新认证状态；供模型页/认证页共用。 */
 	const setDshKey = useCallback(async (ref: string, value: string) => {
@@ -300,9 +342,10 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 
 	// runtime 未安装时配置分区（models/presets/plugins 等）没有内容，
 	// 把导航钳制到概览页，保证用户一进来看到的就是安装引导。
+	// describe 失败（host boot 失败）时同理：配置分区无数据可渲染，留在概览页看错误原因。
 	useEffect(() => {
-		if (!runtimeInstalled && activeTab !== "overview") selectTab("overview");
-	}, [runtimeInstalled, activeTab, selectTab]);
+		if ((!runtimeInstalled || error) && activeTab !== "overview") selectTab("overview");
+	}, [runtimeInstalled, error, activeTab, selectTab]);
 
 	useEffect(() => {
 		const onMigrated = () => {
@@ -386,22 +429,38 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 					</div>
 				)}
 				{!loading && error && (
-					<div className="m-4 rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-control leading-relaxed text-danger whitespace-pre-line">
-						{error}
+					<div className="m-4 rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5">
+						<p className="text-control font-medium text-danger">{t("config.dsh.bootFailedTitle")}</p>
+						<p className="mt-1 text-caption leading-relaxed text-danger/90">{t("config.dsh.bootFailedHint")}</p>
+						{/* 真实失败原因：优先 host boot 详情（getStatus().bootError），退回 IPC 错误原文；
+						    失败是确定性的（runtime 损坏/依赖缺失等），重试前先让用户看到原因。 */}
+						{(status?.bootError || error) && (
+							<pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-sm border border-danger/20 bg-bg-panel/60 px-2.5 py-2 text-micro leading-relaxed text-danger/90">
+								{status?.bootError || stripIpcErrorPrefix(error)}
+							</pre>
+						)}
 						<div className="mt-2.5 flex gap-2">
 							<Button type="button" variant="secondary" size="sm" className="h-7" onClick={() => void load()}>
 								{t("config.dsh.retry")}
 							</Button>
+							{/* 一键恢复入口：重启 host 常能解决瞬时失败；下方概览区也有同款按钮 */}
+							<Button type="button" variant="secondary" size="sm" className="h-7" onClick={() => void restartHostFromBanner()}>
+								<RefreshCw className="size-3.5" aria-hidden="true" />
+								{t("config.dsh.restartHost")}
+							</Button>
 						</div>
 					</div>
 				)}
-				{!loading && !error && (
+				{!loading && (
 					<>
 						{/* tab 切换用 hidden 而非卸载：子分区草稿跨 tab 保留（统一保存语义） */}
 						<div hidden={activeTab !== "overview"}>
 							<Overview status={status} hasDocument={hasDocument} onOpenFolder={openFolder} onOpenDocument={openDocument} onChanged={() => { void load(); void loadStatus(); }} />
 						</div>
-						<div hidden={activeTab !== "models"}>
+						{/* 配置分区依赖 namespaces：describe 失败时无数据可渲染，留在概览页即可（错误 banner 已解释原因） */}
+						{!error && (
+							<>
+							<div hidden={activeTab !== "models"}>
 							<div className="p-4">
 								<p className="mb-3 text-micro text-muted-foreground">{t("config.dsh.modelsHint")}</p>
 								{modelNamespaces.length === 0 ? (
@@ -516,6 +575,8 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 								<RawTab homeDir={status?.homeDir ?? ""} sectionApi={sectionApi} instanceKey="dsh:raw" />
 							</div>
 						</div>
+							</>
+						)}
 					</>
 				)}
 			</div>

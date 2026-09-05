@@ -41,11 +41,14 @@ export type CompactUsageInput = {
 };
 
 /**
- * 把 runtime 上报收成「压缩门槛用」的占用百分比。
+ * 把 runtime 上报收成「圆环/压缩门槛用」的占用百分比。
  * pi/dsh 偶发 percent=0 但 tokens 非 0（取整或尚未随 tokens 刷新）；
  * 圆环会按 tokens/window 重算，斜杠 /compact 必须用同一数字，否则会出现
  * 「圆环显示 40%、按钮可点，/compact 却提示太小」的分叉。
  * percent 缺失返回 null：草稿刚启动尚未上报，不在客户端拦截。
+ * 不封顶 100：pi 按 tokens/contextWindow 直接计算（缓存超窗等场景可 >100%），
+ * 其 CLI footer 也显示原始值；封顶会让「真实 112%」显示成 100%，与
+ * ~used/window 原始数字及会话头部明细（用原始值）互相矛盾。
  */
 export function resolveCompactUsagePercent(
 	state?: CompactUsageInput | null,
@@ -57,7 +60,7 @@ export function resolveCompactUsagePercent(
 	if (percent <= 0 && used != null && used > 0 && contextWindow != null && contextWindow > 0) {
 		percent = (used / contextWindow) * 100;
 	}
-	return Math.min(100, percent);
+	return percent;
 }
 
 /** 圆环压缩按钮的可见交互态：压缩中禁用；未达标也禁用（避免打空 RPC）。 */

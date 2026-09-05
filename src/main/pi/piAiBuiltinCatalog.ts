@@ -1,13 +1,15 @@
 /**
  * pi-ai 内置模型目录索引（替代 resources/model-specs.db）。
  *
- * 只读 `@earendil-works/pi-ai` 生成的 JSON catalog，不实例化 Provider /
- * 不拉 AWS/OpenAI SDK。匹配规则对齐 dsh-web 的「catalog 有就用」，
+ * 构建期由 scripts/generate-pi-ai-catalog.mjs 从 pi-ai provider JSON 提取 artifact；
+ * 运行时只读 resources/pi-ai-catalog*.json，不实例化 Provider、不拉 AWS/OpenAI SDK，
+ * 也不依赖 node_modules 中的 pi-ai 版本。匹配规则对齐 dsh-web 的「catalog 有就用」，
  * 并对中转站做跨 provider 的 id 精确匹配（含大小写、路径尾段），
  * 不做 contains 模糊匹配——命不中就空着，避免短前缀误填。
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { FetchedModel } from "../../shared/types/fetchedModel";
 import { parseThinkingLevelMap } from "./modelCapabilityMatch";
@@ -123,38 +125,122 @@ export function lookupPiAiCatalogEntry(
 	return undefined;
 }
 
-type CatalogJsonModel = {
-	id?: unknown;
-	name?: unknown;
-	provider?: unknown;
-	contextWindow?: unknown;
-	maxTokens?: unknown;
-	reasoning?: unknown;
-	input?: unknown;
-	thinkingLevelMap?: unknown;
-	/** 模型级 API 协议与默认端点（某些 provider 的模型条目内联提供）。 */
-	api?: unknown;
-	baseUrl?: unknown;
+export const PI_AI_CATALOG_SCHEMA_VERSION = 1;
+export const PI_AI_CATALOG_FILE_NAME = "pi-ai-catalog.json";
+export const PI_AI_CATALOG_MANIFEST_FILE_NAME = "pi-ai-catalog.manifest.json";
+
+export type PiAiCatalogArtifactPaths = {
+	catalogPath: string;
+	manifestPath: string;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+// 与旧 runtime loader 一致：只规范化模型 ID；provider/name/baseUrl 保留上游原值，
+// 避免在 artifact 边界将精确匹配悄然放宽。
+function normalizedModelId(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/** artifact 中一条原始模型记录 → 主进程可信条目；防御损坏资源或手工编辑。 */
+function catalogEntryFromArtifact(model: Record<string, unknown>): PiAiCatalogEntry | undefined {
+	const id = normalizedModelId(model.id);
+	if (!id) return undefined;
+	const name = nonEmptyString(model.name);
+	const provider = nonEmptyString(model.provider);
+	const contextWindow = positiveInt(model.contextWindow);
+	const maxTokens = positiveInt(model.maxTokens);
+	const reasoning = typeof model.reasoning === "boolean" ? model.reasoning : undefined;
+	const input = Array.isArray(model.input)
+		? model.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
+		: undefined;
+	const thinkingLevelMap = parseThinkingLevelMap(model.thinkingLevelMap);
+	const api = nonEmptyString(model.api);
+	const baseUrl = nonEmptyString(model.baseUrl);
+	return {
+		id,
+		...(name ? { name } : {}),
+		...(provider ? { provider } : {}),
+		...(contextWindow != null ? { contextWindow } : {}),
+		...(maxTokens != null ? { maxTokens } : {}),
+		...(reasoning !== undefined ? { reasoning } : {}),
+		...(input && input.length > 0 ? { input } : {}),
+		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+		...(api ? { api } : {}),
+		...(baseUrl ? { baseUrl } : {}),
+	};
+}
+
+function catalogSha256(content: string): string {
+	return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function isValidCatalogManifest(manifest: unknown, catalogRaw: string, entryCount: number): boolean {
+	if (!isRecord(manifest) || manifest.schemaVersion !== PI_AI_CATALOG_SCHEMA_VERSION) return false;
+	if (manifest.catalogSha256 !== catalogSha256(catalogRaw) || manifest.entryCount !== entryCount) return false;
+	const source = manifest.source;
+	if (!isRecord(source)) return false;
+	return source.packageName === "@earendil-works/pi-ai"
+		&& typeof source.packageVersion === "string"
+		&& source.packageVersion.length > 0
+		&& typeof source.dataSha256 === "string"
+		&& /^[a-f0-9]{64}$/.test(source.dataSha256)
+		&& typeof source.fileCount === "number"
+		&& Number.isInteger(source.fileCount)
+		&& source.fileCount > 0;
+}
+
 /**
- * 定位 pi-ai 生成目录 JSON。
- * 主进程是 CJS，而 `@earendil-works/pi-ai` 的 exports 只有 `import` 条件，
- * `require.resolve("@earendil-works/pi-ai/providers/all")` 会 ERR_PACKAGE_PATH_NOT_EXPORTED。
- * 从 __dirname / cwd 向上找 node_modules 物理路径，不实例化 SDK。
+ * 解析并验证构建期 artifact。manifest 与 catalog 任一不匹配均返回空，避免损坏
+ * 资源静默写入错误模型规格；上层会回退 endpoint /models 或用户手填。
  */
-export function resolvePiAiCatalogDataDir(): string | undefined {
-	const roots = [
-		typeof __dirname === "string" ? __dirname : "",
-		process.cwd(),
-		// 打包后主进程在 app.asar/out/main；asar 内 node_modules 与 resources 旁路都试一次
-		typeof process.resourcesPath === "string" ? process.resourcesPath : "",
-	].filter(Boolean);
+export function parsePiAiCatalogArtifact(catalogRaw: string, manifestRaw: string): PiAiCatalogEntry[] {
+	try {
+		const artifact: unknown = JSON.parse(catalogRaw);
+		if (!isRecord(artifact) || artifact.schemaVersion !== PI_AI_CATALOG_SCHEMA_VERSION || !Array.isArray(artifact.entries)) {
+			return [];
+		}
+		const entries = artifact.entries.flatMap((value) => {
+			if (!isRecord(value)) return [];
+			const entry = catalogEntryFromArtifact(value);
+			return entry ? [entry] : [];
+		});
+		const manifest: unknown = JSON.parse(manifestRaw);
+		return isValidCatalogManifest(manifest, catalogRaw, entries.length) ? entries : [];
+	} catch {
+		return [];
+	}
+}
+
+function artifactPathsIn(resourceDir: string): PiAiCatalogArtifactPaths | undefined {
+	const catalogPath = join(resourceDir, PI_AI_CATALOG_FILE_NAME);
+	const manifestPath = join(resourceDir, PI_AI_CATALOG_MANIFEST_FILE_NAME);
+	return existsSync(catalogPath) && existsSync(manifestPath) ? { catalogPath, manifestPath } : undefined;
+}
+
+/**
+ * 解析内置（打包 resources / 项目 resources）artifact 路径；不含覆盖层。
+ * 打包态直接读 process.resourcesPath；开发态从 out/main 或 cwd 向上定位项目 resources。
+ * 不再扫描 node_modules，保证主进程 catalog 与 DSH 的 pi-ai runtime 依赖完全隔离。
+ */
+export function resolveBuiltinPiAiCatalogArtifactPaths(): PiAiCatalogArtifactPaths | undefined {
+	const packagedResources = typeof process.resourcesPath === "string" ? process.resourcesPath : "";
+	if (packagedResources) {
+		const direct = artifactPathsIn(packagedResources);
+		if (direct) return direct;
+	}
+	const roots = [typeof __dirname === "string" ? __dirname : "", process.cwd(), packagedResources].filter(Boolean);
 	for (const root of roots) {
 		let dir = root;
-		for (let i = 0; i < 12; i++) {
-			const nested = join(dir, "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "data");
-			if (existsSync(nested)) return nested;
+		for (let index = 0; index < 12; index += 1) {
+			const found = artifactPathsIn(join(dir, "resources"));
+			if (found) return found;
 			const parent = dirname(dir);
 			if (parent === dir) break;
 			dir = parent;
@@ -163,66 +249,73 @@ export function resolvePiAiCatalogDataDir(): string | undefined {
 	return undefined;
 }
 
-export function loadPiAiCatalogEntries(): PiAiCatalogEntry[] {
-	try {
-		const dataDir = resolvePiAiCatalogDataDir();
-		if (!dataDir) {
-			console.error("[pi-ai-catalog] builtin data dir not found");
-			return [];
-		}
-		const files = readdirSync(dataDir).filter(
-			(name) => name.endsWith(".json") && !name.startsWith("."),
-		);
-		const entries: PiAiCatalogEntry[] = [];
-		for (const file of files) {
-			const raw = JSON.parse(readFileSync(join(dataDir, file), "utf8")) as Record<
-				string,
-				Record<string, CatalogJsonModel>
-			>;
-			for (const group of Object.values(raw)) {
-				if (!group || typeof group !== "object") continue;
-				for (const model of Object.values(group)) {
-					const id = typeof model.id === "string" ? model.id.trim() : "";
-					if (!id) continue;
-					const name = typeof model.name === "string" && model.name.length > 0 ? model.name : undefined;
-					const provider =
-						typeof model.provider === "string" && model.provider.length > 0
-							? model.provider
-							: undefined;
-					const contextWindow = positiveInt(model.contextWindow);
-					const maxTokens = positiveInt(model.maxTokens);
-					const reasoning = typeof model.reasoning === "boolean" ? model.reasoning : undefined;
-					const input = Array.isArray(model.input)
-						? model.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
-						: undefined;
-					const thinkingLevelMap = parseThinkingLevelMap(model.thinkingLevelMap);
-					const api =
-						typeof model.api === "string" && model.api.length > 0 ? model.api : undefined;
-					const baseUrl =
-						typeof model.baseUrl === "string" && model.baseUrl.length > 0 ? model.baseUrl : undefined;
-					entries.push({
-						id,
-						...(name ? { name } : {}),
-						...(provider ? { provider } : {}),
-						...(contextWindow != null ? { contextWindow } : {}),
-						...(maxTokens != null ? { maxTokens } : {}),
-						...(reasoning !== undefined ? { reasoning } : {}),
-						...(input && input.length > 0 ? { input } : {}),
-						...(thinkingLevelMap ? { thinkingLevelMap } : {}),
-						...(api ? { api } : {}),
-						...(baseUrl ? { baseUrl } : {}),
-					});
-				}
-			}
-		}
-		return entries;
-	} catch (error) {
-		console.error("[pi-ai-catalog] failed to load builtin models", error);
+/**
+ * 解析全部候选路径（优先级从高到低）：userData 覆盖层 → 打包/项目内置。
+ * 覆盖层文件存在性决定是否入列；有效性由 loadPiAiCatalogEntries 逐一校验，
+ * 损坏的覆盖层会自动落回内置（覆盖层坏数据不会遮蔽内置目录）。
+ */
+export function resolvePiAiCatalogArtifactCandidates(): PiAiCatalogArtifactPaths[] {
+	const candidates: PiAiCatalogArtifactPaths[] = [];
+	const overlay = overlayArtifactPaths();
+	if (overlay) candidates.push(overlay);
+	const builtin = resolveBuiltinPiAiCatalogArtifactPaths();
+	if (builtin) candidates.push(builtin);
+	return candidates;
+}
+
+/** 兼容旧调用：返回优先级最高的候选（无则 undefined）。 */
+export function resolvePiAiCatalogArtifactPaths(): PiAiCatalogArtifactPaths | undefined {
+	return resolvePiAiCatalogArtifactCandidates()[0];
+}
+
+export function loadPiAiCatalogEntries(
+	paths: PiAiCatalogArtifactPaths | undefined | readonly PiAiCatalogArtifactPaths[] = resolvePiAiCatalogArtifactCandidates(),
+): PiAiCatalogEntry[] {
+	const list = paths ? (Array.isArray(paths) ? paths : [paths]) : [];
+	if (list.length === 0) {
+		console.error("[pi-ai-catalog] generated artifact not found");
 		return [];
 	}
+	for (let index = 0; index < list.length; index += 1) {
+		const artifact = list[index];
+		try {
+			const entries = parsePiAiCatalogArtifact(
+				readFileSync(artifact.catalogPath, "utf8"),
+				readFileSync(artifact.manifestPath, "utf8"),
+			);
+			if (entries.length > 0) return entries;
+			if (index === 0) console.warn("[pi-ai-catalog] artifact candidate invalid, trying next", artifact.catalogPath);
+		} catch (error) {
+			// 候选文件损坏/读取失败：继续下一层，全部失败才降级为空
+			if (index === 0) console.warn("[pi-ai-catalog] artifact candidate failed to load, trying next", artifact.catalogPath, error);
+		}
+	}
+	console.error("[pi-ai-catalog] generated artifact is invalid or empty");
+	return [];
 }
 
 let cachedIndex: PiAiCatalogIndex | undefined;
+/** 设置页更新功能写入的 userData 覆盖层目录；主进程装配后注入（app ready 后 userData 可用）。 */
+let userDataOverrideDir: string | undefined;
+
+/**
+ * 注入 userData 目录，使覆盖层目录参与 artifact 解析（覆盖层优先、内置兑底）。
+ * 目录切换意味着覆盖层内容可能变化，因此同时使索引缓存失效，下次读取重新加载。
+ */
+export function setPiAiCatalogUserDataDir(dir: string | undefined): void {
+	userDataOverrideDir = dir;
+	cachedIndex = undefined;
+}
+
+/** 使进程内索引缓存失效（目录更新/还原后调用），下次 getPiAiCatalogIndex() 重新读取。 */
+export function invalidatePiAiCatalogIndex(): void {
+	cachedIndex = undefined;
+}
+
+function overlayArtifactPaths(): PiAiCatalogArtifactPaths | undefined {
+	if (!userDataOverrideDir) return undefined;
+	return artifactPathsIn(userDataOverrideDir);
+}
 
 /** 进程内单例索引；测试可 resetPiAiCatalogIndexForTests() */
 export function getPiAiCatalogIndex(): PiAiCatalogIndex {

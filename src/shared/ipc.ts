@@ -3,6 +3,8 @@ export const ipcChannels = {
 	projectsAdd: "projects:add",
 	projectsRemove: "projects:remove",
 	projectsReorder: "projects:reorder",
+	// 重命名项目显示名（仅改侧栏/标题 label，不改磁盘目录；聊天项目与 worktree 子项目拒绝）
+	projectsRename: "projects:rename",
 	projectsChanged: "projects:changed",
 	projectResourcesList: "project-resources:list",
 	projectResourcesCreateSkill: "project-resources:create-skill",
@@ -49,6 +51,18 @@ export const ipcChannels = {
 	pasteFilesDelete: "paste-files:delete",
 	/** 启动清理：删除超过保留期的粘贴文件（默认 7 天） */
 	pasteFilesCleanup: "paste-files:cleanup",
+	/** 模型目录（pi-ai-catalog）更新：查询内置/覆盖层状态 */
+	catalogUpdateStatus: "catalog:update-status",
+	/** 模型目录更新：检查远端（GitHub main 分支 manifest）是否有新版本 */
+	catalogUpdateCheck: "catalog:update-check",
+	/** 模型目录更新：从 GitHub（默认 main 分支）拉取并写入 userData 覆盖层 */
+	catalogUpdateFromGithub: "catalog:update-from-github",
+	/** 模型目录还原：删除覆盖层文件，回退到内置目录 */
+	catalogUpdateRestore: "catalog:update-restore",
+	/** 模型目录恢复：从 .bak 备份恢复上一个覆盖版 */
+	catalogUpdateRestorePrevious: "catalog:update-restore-previous",
+	/** 模型目录打开文件：用系统默认程序打开当前生效目录文件（覆盖层优先，否则内置） */
+	catalogOpenFile: "catalog:open-file",
 	sessionsList: "sessions:list",
 	/** Session-first catalog APIs. */
 	sessionsCatalogList: "sessions:catalog-list",
@@ -310,15 +324,18 @@ export const ipcChannels = {
 	appNetworkAddresses: "app:network-addresses",
 	appPreferredSystemLanguages: "app:preferred-system-languages",
 	appCheckUpdate: "app:check-update",
+	/** 手动下载已检测到的新版本（autoDownload 关闭时使用）。 */
 	appDownloadUpdate: "app:download-update",
+	/** 重启并安装已下载的更新（quitAndInstall）。 */
 	appInstallUpdate: "app:install-update",
-	appUpdateProgress: "app:update-progress",
 	/** 主进程后台更新检查快照推送（角标 + 每版本一次提示判定）。 */
 	appUpdateStatusChanged: "app:update-status-changed",
 	/** 记录已提示过的版本（每版本只提示一次）。 */
 	appUpdateNotifySeen: "app:update-notify-seen",
 	/** 跳过某版本（该版本不再主动提示）。 */
 	appUpdateSkipVersion: "app:update-skip-version",
+	/** 探测内置更新镜像的可用性与速度（设置页「更新源」自动体检用）。 */
+	appCheckUpdateMirrors: "app:check-update-mirrors",
 	appFeedbackEnvironment: "app:feedback-environment",
 	/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
 	appFeedbackProjectContext: "app:feedback-project-context",
@@ -432,12 +449,21 @@ export const ipcChannels = {
 	configImport: "config:import",
 	/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表 */
 	configFetchModels: "config:fetch-models",
+	/** 取内置 TokenDance 模型目录（live fetch + userData 缓存；force=true 强制刷新） */
+	configGetTokendanceModels: "config:get-tokendance-models",
+	configInstallTokendance: "config:install-tokendance",
+	/** 启动 TokenDance OAuth 授权流程（PKCE S256 headless；返回授权 URL + flowId） */
+	configTokendanceAuthStart: "config:tokendance-auth-start",
+	/** 提交一次性授权 code 交换 TokenDance API Key（成功返回完整 key） */
+	configTokendanceAuthExchange: "config:tokendance-auth-exchange",
 	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
 	configTestProvider: "config:test-provider",
 	/** 查询 provider 用量/余额（主进程按 provider 名路由：门控 → 端点解析 → 模板探测） */
 	configFetchUsage: "config:fetch-usage",
 	/** 读取单个 provider 的用量查询配置（usage-probes.json）+ 内置模板自动识别 */
 	configGetUsageProbes: "config:get-usage-probes",
+	/** 轻量判断 provider 是否命中内置用量模板（零配置自动生效；渲染层据此隐藏「用量查询」配置按钮） */
+	configUsageRecognized: "config:usage-recognized",
 	/** 按 provider 合并保存用量查询配置（校验后落盘，保留其它 providers 与旧 probes） */
 	configSaveUsageProbes: "config:save-usage-probes",
 	/** 单条模板测试（模板 id + 覆盖字段；配置弹窗「测试」按钮，key 不出主进程） */

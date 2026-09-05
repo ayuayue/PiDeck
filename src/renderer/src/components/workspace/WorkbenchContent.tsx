@@ -1,4 +1,4 @@
-import type { WorkspaceContentOpenMode } from "../../../../shared/types";
+import type { ProjectFileAccessScope, WorkspaceContentOpenMode } from "../../../../shared/types";
 import { FileDiffViewer } from "../app/FileDiffViewer";
 
 type EditorTabLike = {
@@ -10,6 +10,8 @@ type EditorTabLike = {
 	allowSave: boolean;
 	label?: string;
 	preserveDrawer?: boolean;
+	/** 工具/消息文件入口的项目读取授权，随 tab 固化。 */
+	fileAccessScope?: ProjectFileAccessScope;
 	/** 打开文件后滚动定位的目标行（来自 `path:line` 链接）。 */
 	initialLine?: number;
 };
@@ -33,9 +35,17 @@ export type WorkbenchContentProps = {
 	editorMode: WorkspaceContentOpenMode;
 	onToggleEditorMode?: () => void;
 	onCloseEditor: () => void;
-	readContent: (path: string) => Promise<string>;
+	readContent: (
+		path: string,
+		maxBytes?: number,
+		scope?: ProjectFileAccessScope,
+	) => Promise<string>;
 	readOriginalContent: (path: string) => Promise<string>;
-	saveContent: (path: string, content: string) => Promise<void>;
+	saveContent: (
+		path: string,
+		content: string,
+		scope?: ProjectFileAccessScope,
+	) => Promise<void>;
 };
 
 /**
@@ -72,6 +82,8 @@ export function WorkbenchContent(props: WorkbenchContentProps) {
 		<FileDiffViewer
 			displayMode={props.editorMode}
 			filePath={props.activeTab.filePath}
+			activeTabId={props.activeTab.id}
+			fileAccessScope={props.activeTab.fileAccessScope}
 			mode={props.activeTab.mode}
 			onToggleMode={
 				props.activeTab.preserveDrawer ? undefined : props.onToggleEditorMode

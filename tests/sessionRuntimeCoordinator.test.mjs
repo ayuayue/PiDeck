@@ -876,6 +876,48 @@ test("Session UI response requires the current binding, generation, and pending 
   assert.equal(harness.calls.uiResponse, 1);
 });
 
+test("error runtime keeps its binding until the pending Session UI request is answered", async () => {
+  const { SessionRuntimeCoordinator } = loadCoordinator();
+  const harness = createHarness({
+    tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }],
+  });
+  const coordinator = new SessionRuntimeCoordinator(
+    harness.catalog,
+    harness.agents,
+    harness.sender,
+  );
+  const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+  coordinator.observeRuntimeEvent({
+    sessionId: "session-1",
+    agentId: "agent-a",
+    runtimeGeneration,
+    sourceChannel: "agents:ui-request",
+    payload: {
+      agentId: "agent-a",
+      requestId: "request-ui",
+      method: "confirm",
+      title: "Continue?",
+    },
+  });
+  harness.tabs[0].status = "error";
+
+  assert.deepEqual(JSON.parse(JSON.stringify(coordinator.getTarget("session-1"))), {
+    sessionId: "session-1",
+    agentId: "agent-a",
+    runtimeGeneration,
+  });
+  await coordinator.respondToUi({
+    sessionId: "session-1",
+    requestId: "request-ui",
+    agentId: "agent-a",
+    runtimeGeneration,
+    response: { confirmed: true },
+  });
+
+  assert.equal(harness.calls.uiResponse, 1);
+  assert.equal(coordinator.getTarget("session-1"), undefined);
+});
+
 test("batch Ask Question is accepted by the Session UI response gate", async () => {
   const { SessionRuntimeCoordinator } = loadCoordinator();
   const harness = createHarness({

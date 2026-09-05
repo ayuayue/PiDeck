@@ -87,6 +87,7 @@ export function TerminalDockPanel(props: TerminalDockPanelProps) {
         className={[
           "relative h-1 w-full shrink-0 cursor-row-resize rounded-none",
           "bg-border/60 transition-colors hover:bg-ring data-[separator=active]:bg-ring",
+          "session-terminal-splitter",
           // 命中区向消息区/空态延伸，实际可拖范围远大于可见线条
           "after:absolute after:inset-x-0 after:-top-2 after:h-4 after:content-['']",
         ].join(" ")}

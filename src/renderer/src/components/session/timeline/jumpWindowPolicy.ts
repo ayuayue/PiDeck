@@ -47,10 +47,10 @@ export function resolveJumpPendingAction(input: {
  * 替代旧版指数多轮收敛——每轮收敛都要一次完整渲染，表现为「点了要等好几拍」）。
  *
  * 轮次窗口从尾部保留 W 个 run：目标在第 k 轮（1-based，共 T 轮）时需要
- * W ≥ T-k+1，即目标（含）之后还有多少条用户消息。轮次以 user 消息为起点
- * （与补页协议 countUserTurns 同一口径）；+1 轮冗余吸收 system/compaction 等
- * 非 run 条目。估算偏大会整段挂载（jumpNavigationActive 已解除条目预算），无害；
- * 估算不足由 effect 的指数兜底补齐。
+ * W ≥ T-k+1，即目标（含）之后还有多少条 turn。轮次以 turn 起点为计数
+ * （与主进程 findTurnPageStart 的发言权周期口径一致：连发 user 只算一轮）；
+ * +1 轮冗余吸收 system/compaction 等非 run 条目。估算偏大会多挂少量尾部轮次，
+ * 不会改变窗口模型；估算不足由 effect 的指数兜底补齐。
  */
 export function estimateJumpExpandTurns(
   messages: ReadonlyArray<{ role?: string }>,
@@ -58,8 +58,15 @@ export function estimateJumpExpandTurns(
 ): number {
   if (targetIndex < 0 || targetIndex >= messages.length) return TIMELINE_WINDOW_EXPAND_STEP;
   let turnsFromTargetToEnd = 0;
+  let prevUserOrAssistantRole: "user" | "assistant" | undefined;
   for (let index = targetIndex; index < messages.length; index += 1) {
-    if (messages[index]?.role === "user") turnsFromTargetToEnd += 1;
+    const role = messages[index]?.role;
+    if (role === "user") {
+      if (prevUserOrAssistantRole !== "user") turnsFromTargetToEnd += 1;
+      prevUserOrAssistantRole = "user";
+    } else if (role === "assistant") {
+      prevUserOrAssistantRole = "assistant";
+    }
   }
   return turnsFromTargetToEnd + 1;
 }

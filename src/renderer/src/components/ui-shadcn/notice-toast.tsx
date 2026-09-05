@@ -1,4 +1,4 @@
-import { Bell, Check, CircleAlert, Copy, Info, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, Bell, Check, CircleAlert, Copy, Info, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { t } from "../../i18n";
@@ -121,9 +121,11 @@ export function NoticeToastCard({
 							<button
 								type="button"
 								onClick={() => runAction(actions.action?.onClick)}
-								className="inline-flex h-7 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
+								className="inline-flex h-7 items-center gap-1 rounded-md bg-primary pl-2.5 pr-2 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
 							>
 								{actions.action.label}
+								{/* 箭头强化「前往/跳转」语义，让长标题 toast 里的操作一眼可识别 */}
+								<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
 							</button>
 						) : null}
 					</div>

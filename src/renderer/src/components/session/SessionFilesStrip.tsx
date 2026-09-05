@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, FileEdit, Save } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, FileEdit, FileInput, Save } from "lucide-react";
 import type { AgentRunItem } from "./timeline/types";
 import type { DiffFileHandler } from "./ToolCallComponents";
 import { FileDiff } from "../agents/file-diff";
@@ -27,6 +27,8 @@ import {
 const FileEntry = (props: {
 	sessionId: string;
 	entry: SessionFileChange;
+	/** 打开文件本体（App 级路由：图片预览 / md·html 中间栏查看 / 其他进内置编辑器） */
+	onOpenFile?: (path: string) => void;
 	onDiffFile?: DiffFileHandler;
 }) => {
 		// 行级折叠走 composer 通道（本组件在 ComposerWidgetLayoutProvider 内），
@@ -52,11 +54,22 @@ const FileEntry = (props: {
 				// 折叠卡内展开高度变化传导给 ComposerMeasuredExtras 驱动面板增高，无需瞬时动画
 				animateHeight={false}
 			/>
-			{props.onDiffFile && (
+			{(props.onOpenFile || props.onDiffFile) && (
 				<div className="flex h-9 shrink-0 items-center">
-					<Button variant="ghost" size="icon-xs" className="size-6 rounded" title={t("sessionFiles.openInDiffViewer")} onClick={() => props.onDiffFile?.(props.entry.path)}>
-						<ExternalLink size={12} />
-					</Button>
+					{/* "打开文件" 与 "diff 查看器" 分列两个入口：前者打开文件本体，
+					    后者只看本轮修改的差异；两者横向并列、相邻且等宽，视觉上归为一组操作 */}
+					<div className="flex items-center gap-0.5">
+						{props.onOpenFile && (
+							<Button variant="ghost" size="icon-xs" className="size-6 rounded" title={t("sessionFiles.openFile")} onClick={() => props.onOpenFile?.(props.entry.path)}>
+								<FileInput size={12} />
+							</Button>
+						)}
+						{props.onDiffFile && (
+							<Button variant="ghost" size="icon-xs" className="size-6 rounded" title={t("sessionFiles.openInDiffViewer")} onClick={() => props.onDiffFile?.(props.entry.path)}>
+								<ExternalLink size={12} />
+							</Button>
+						)}
+					</div>
 				</div>
 			)}
 		</div>
@@ -66,6 +79,8 @@ const FileEntry = (props: {
 export function SessionFilesStrip(props: {
 	sessionId: string;
 	run?: AgentRunItem;
+	/** 打开文件本体（App 级路由），不传则条目只保留 diff 查看器入口 */
+	onOpenFile?: (path: string) => void;
 	onDiffFile?: DiffFileHandler;
 }) {
 	const { collapsed, toggleCollapsed } = useComposerWidgetCollapsed(
@@ -134,6 +149,7 @@ export function SessionFilesStrip(props: {
 								<FileEntry
 									sessionId={props.sessionId}
 									entry={entry}
+									onOpenFile={props.onOpenFile}
 									onDiffFile={props.onDiffFile}
 								/>
 							</li>

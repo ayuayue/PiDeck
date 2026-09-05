@@ -34,8 +34,9 @@ execSync("npm run build:packages", { cwd: root, stdio: "inherit", shell: true })
 console.log(`\n[2/4] 准备 DSH runtime 随包资源（--if-missing）…`);
 execSync("node scripts/pack-dsh-runtime.mjs --if-missing", { cwd: root, stdio: "inherit", shell: true });
 
-console.log(`\n[3/4] electron-vite build（跳过 tsc 全量类型检查）…`);
-execSync("npx electron-vite build", { cwd: root, stdio: "inherit", shell: true });
+// build:fast 同步生成 pi-ai catalog，避免快速包带上升级前的静态模型目录。
+console.log(`\n[3/4] 生成 catalog + electron-vite build（跳过 tsc 全量类型检查）…`);
+execSync("npm run build:fast", { cwd: root, stdio: "inherit", shell: true });
 
 console.log(`\n[4/4] electron-builder --win ${formats}（compression=store + 跳过 asar 重打包）…`);
 execSync(`npx electron-builder --win ${formats} --config.compression=store`, {

@@ -18,6 +18,15 @@ const toolResult = readFileSync(
   "src/renderer/src/components/agents/tool-result.tsx",
   "utf8",
 );
+const runtimeInjector = readFileSync(
+  "src/renderer/src/components/session/SessionRuntimeInjector.tsx",
+  "utf8",
+);
+const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+const fileEditor = readFileSync(
+  "src/renderer/src/hooks/useFileEditor.ts",
+  "utf8",
+);
 
 test("tool-call rendering stays isolated behind the SurfaceComponents facade", () => {
   assert.match(toolCalls, /export const ToolCard = memo/);
@@ -91,6 +100,47 @@ test("tool rows share thinking's borderless process-row chrome", () => {
   const skillRule = css.match(/\.tool-card--skill \{[\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(skillRule, /background:\s*transparent/);
   assert.doesNotMatch(skillRule, /border-color/);
+});
+
+test("edit/write diff cards expose an accessible open-file action", () => {
+  // The action lives beside FileDiff rather than inside its disclosure trigger, avoiding nested buttons.
+  assert.match(toolCalls, /onOpenFile\?: \(path: string\) => void/);
+  assert.match(toolCalls, /className="mb-1\.5 flex min-w-0 items-start gap-1"/);
+  assert.match(toolCalls, /aria-label=\{t\("tool\.openFile"\)\}/);
+  assert.match(toolCalls, /title=\{t\("tool\.openFile"\)\}/);
+  assert.match(toolCalls, /onClick=\{\(\) => props\.onOpenFile\?\.\(diffTarget\.path\)\}/);
+  assert.match(toolCalls, /onOpenFile=\{props\.onOpenFile\}/);
+  assert.match(
+    readFileSync("src/renderer/src/components/session/turn/ToolStep.tsx", "utf8"),
+    /onOpenFile=\{props\.onOpenFile\}/,
+  );
+  assert.match(
+    readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8"),
+    /<ToolStep[\s\S]*?onOpenFile=\{props\.onOpenFile\}/,
+  );
+  assert.match(
+    readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"),
+    /"tool\.openFile": "打开文件"/,
+  );
+  assert.match(
+    readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8"),
+    /"tool\.openFile": "Open file"/,
+  );
+  // 每个分屏栏在 injector 绑定自己的 runtime cwd/project；App 只消费这份上下文。
+  assert.match(runtimeInjector, /paneProjectId = currentSessionRuntime\?\.projectId \?\? sessionRecord\?\.projectId/);
+  assert.match(runtimeInjector, /baseDir: currentSessionRuntime\?\.cwd \?\? paneProject\?\.path/);
+  assert.match(runtimeInjector, /projectId: paneProjectId \|\| undefined/);
+  assert.match(runtimeInjector, /services\.onOpenFile\(path, line, paneFileContext\)/);
+  assert.match(app, /if \(context && !projectId\)/);
+  assert.match(app, /resolveFileLinkPath\(path, baseDir, projectRoot\)/);
+  assert.match(app, /viewFilePath\(resolved, undefined, line, fileAccessScope\)/);
+  assert.match(app, /readBase64\(resolved, undefined, fileAccessScope\)/);
+  assert.match(app, /mimeType: imageMimeTypeFromPath\(resolved\)/);
+  assert.doesNotMatch(app, /dataUrl\.match\(\/\^data:/);
+  // 授权随 editor tab 固化，异步加载不能改用后来聚焦的项目。
+  assert.match(fileEditor, /fileAccessScope\?: ProjectFileAccessScope/);
+  assert.match(fileEditor, /readFileContent\(path, maxBytes, scope\)/);
+  assert.match(fileEditor, /writeFileContent\(path, content, scope\)/);
 });
 
 test("thinking and tool logos keep a distinct color even on the default zinc theme", () => {

@@ -195,13 +195,16 @@ export const ThinkingBlock = memo(
 		</TimelineMarker>
 	);
 	},
-	// 回调函数（onOpenExternal/onOpenFile）行为稳定（读 ref），不参与比较
+	// 外部链接回调通常稳定；文件回调会随分屏栏的 cwd/project 变化，必须参与比较，
+	// 否则展开后的 Markdown 会继续使用旧栏的文件授权上下文。
 	(prev, next) =>
 		prev.text === next.text &&
 		prev.startedAt === next.startedAt &&
 		prev.endedAt === next.endedAt &&
 		prev.showThinking === next.showThinking &&
-		prev.isStreaming === next.isStreaming,
+		prev.isStreaming === next.isStreaming &&
+		prev.onOpenExternal === next.onOpenExternal &&
+		prev.onOpenFile === next.onOpenFile,
 );
 
 /**

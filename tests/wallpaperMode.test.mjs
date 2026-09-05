@@ -23,7 +23,10 @@ test("wallpaper mode: background image reveals through translucent panels", () =
   assert.match(css, /body::before\s*\{[\s\S]*?background-image: var\(--app-bg-mask, none\), var\(--app-bg-image, none\);/);
   assert.match(css, /--color-bg-popover: #ffffff;/);
   assert.match(css, /--color-bg-popover: #171717;/);
-  assert.match(css, /\[data-slot="dialog-content"\]\.config-modal[\s\S]*?\.settings-modal[\s\S]*?\.project-resources-dialog[\s\S]*?\.feedback-modal-shell[\s\S]*?--wallpaper-dialog-alpha: var\(--wallpaper-panel-alpha, 30%\);/);
+  assert.match(
+    css,
+    /:root\[data-bg-image="on"\] \.config-modal \.config-model-table,[\s\S]*?\.feedback-modal-shell \.feedback-actions[\s\S]*?\{\s*background:\s*transparent;/,
+  );
   assert.match(css, /background: var\(--color-chat-muted-bg\);/);
   assert.match(css, /background: var\(--color-chat-table-bg, var\(--color-bg-panel\)\);/);
 });
@@ -62,13 +65,19 @@ test("large settings dialogs inherit page wallpaper transparency", () => {
 test("Pi management and feedback dialogs inherit page wallpaper transparency", () => {
   const piSource = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
   const environmentSource = readFileSync("src/renderer/src/components/overlays/OverlayComponents.tsx", "utf8");
-  const feedbackSource = readFileSync("src/renderer/src/components/overlays/SessionActionOverlays.tsx", "utf8");
+  const feedbackSource = readFileSync("src/renderer/src/features/feedback/FeedbackDialog.tsx", "utf8");
 
   // Pi 环境管理和问题反馈都是完整业务面板，应与设置/项目资源管理使用同一透明度，
   // 其内部卡片和 textarea 才能继承主题 token，而不是被通用 Dialog 的 90% 基线锁住。
   assert.match(piSource, /config-modal[^\n]*\[--wallpaper-dialog-alpha:var\(--wallpaper-panel-alpha,30%\)\]/);
   assert.match(environmentSource, /environment-dialog[^\n]*\[--wallpaper-dialog-alpha:var\(--wallpaper-panel-alpha,30%\)\]/);
-  assert.match(feedbackSource, /feedback-modal-shell[^\n]*\[--wallpaper-dialog-alpha:var\(--wallpaper-panel-alpha,30%\)\]/);
+  // FeedbackDialog 现在直接使用通用 dialog-content；壁纸透明度由 foundation.css 的
+  // 通用规则提供，业务组件不再在 overlay host 上注入旧的内联 alpha。
+  assert.match(feedbackSource, /<DialogContent[\s\S]*?className=\{cn\(/);
+  assert.match(
+    css,
+    /:root\[data-bg-image="on"\] \[data-slot="dialog-content"\][\s\S]*?--wallpaper-dialog-alpha: max\(90%, calc\(var\(--wallpaper-panel-alpha, 30%\) \+ 35%\)\);/,
+  );
 });
 
 test("App.tsx toggles wallpaper mode marker with background image setting", () => {

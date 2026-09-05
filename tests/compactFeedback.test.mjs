@@ -39,7 +39,8 @@ test("resolveCompactUsagePercent matches ring occupancy, including zero-percent 
 	assert.equal(resolveCompactUsagePercent(undefined), null);
 	assert.equal(resolveCompactUsagePercent({}), null);
 	assert.equal(resolveCompactUsagePercent({ contextPercent: 45.3 }), 45.3);
-	assert.equal(resolveCompactUsagePercent({ contextPercent: 112 }), 100);
+	// 不封顶：pi 按 tokens/window 直接计算，缓存超窗等场景可 >100%（CLI footer 同口径）
+	assert.equal(resolveCompactUsagePercent({ contextPercent: 112 }), 112);
 	assert.equal(
 		resolveCompactUsagePercent({ contextPercent: 0, contextTokens: 0, contextWindow: 1000 }),
 		0,

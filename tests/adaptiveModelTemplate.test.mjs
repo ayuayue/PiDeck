@@ -182,3 +182,17 @@ test("reset: 纯文本模板显式清掉图片输入与 reasoning", () => {
 	assert.equal(next.reasoning, false);
 	assert.equal(next.thinkingLevelMap, undefined);
 });
+
+test("reset: 目录未收录的视觉 ID 模板兜底补图片能力", () => {
+	// deepseek-v4-flash-vision-exp 未被目录收录时，「重置为自适应」也应补 input [text,image]，
+	// 否则模型保持旧值（如被 text-only 别名误写入的 [text]），图片能力无法恢复。
+	const template = mergeAdaptiveModelTemplate(undefined, null, "deepseek-v4-flash-vision-exp");
+	assert.deepEqual(JSON.parse(JSON.stringify(template.input)), ["text", "image"]);
+	const next = applyAdaptiveTemplateReset(
+		{ id: "deepseek-v4-flash-vision-exp", input: ["text"] },
+		template,
+	);
+	assert.deepEqual(JSON.parse(JSON.stringify(next.input)), ["text", "image"]);
+	// 非视觉 ID 且目录未收录：仍不猜 input（旧行为）
+	assert.equal(mergeAdaptiveModelTemplate(undefined, null, "my-custom-model").input, undefined);
+});

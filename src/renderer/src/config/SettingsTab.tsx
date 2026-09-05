@@ -3,12 +3,14 @@ import { useState, useRef, useCallback, useEffect, type ReactNode } from "react"
 import { X, Plus, Check } from "lucide-react";
 import type { AuthFile, SettingsFile, ModelsFile } from "./configTypes";
 import { collectProviderOptions } from "./providerOptions";
-import { ConfigComboboxInput } from "./ConfigShared";
+import { ConfigComboboxInput, ConfigSelect } from "./ConfigShared";
 import { t } from "../i18n";
 import { Input } from "../components/ui-shadcn/input";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
 import { SectionHeading } from "../components/ui-shadcn/section-heading";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
 
 // ── 可用模型列表聚合（含供应商信息，供 enabledModels 多选用） ──
 
@@ -307,7 +309,7 @@ export function SettingsTab(props: {
 							empty={typeof data.defaultThinkingLevel !== "string" || !data.defaultThinkingLevel}
 							onClear={() => props.onChange({ ...data, defaultThinkingLevel: "" })}
 						>
-							<ConfigComboboxInput
+							<ConfigSelect
 								value={typeof data.defaultThinkingLevel === "string" ? data.defaultThinkingLevel : ""}
 								options={THINKING_LEVELS}
 								onChange={(v) => props.onChange({ ...data, defaultThinkingLevel: v })}
@@ -347,7 +349,7 @@ export function SettingsTab(props: {
 							empty={typeof data.steeringMode !== "string" || !data.steeringMode}
 							onClear={() => props.onChange({ ...data, steeringMode: "" })}
 						>
-							<ConfigComboboxInput
+							<ConfigSelect
 								value={typeof data.steeringMode === "string" ? data.steeringMode : ""}
 								options={SEND_MODE_OPTIONS}
 								onChange={(v) => props.onChange({ ...data, steeringMode: v })}
@@ -362,7 +364,7 @@ export function SettingsTab(props: {
 							empty={typeof data.followUpMode !== "string" || !data.followUpMode}
 							onClear={() => props.onChange({ ...data, followUpMode: "" })}
 						>
-							<ConfigComboboxInput
+							<ConfigSelect
 								value={typeof data.followUpMode === "string" ? data.followUpMode : ""}
 								options={SEND_MODE_OPTIONS}
 								onChange={(v) => props.onChange({ ...data, followUpMode: v })}
@@ -379,7 +381,7 @@ export function SettingsTab(props: {
 							empty={typeof data.defaultProjectTrust !== "string" || !data.defaultProjectTrust}
 							onClear={() => props.onChange({ ...data, defaultProjectTrust: "" })}
 						>
-							<ConfigComboboxInput
+							<ConfigSelect
 								value={typeof data.defaultProjectTrust === "string" ? data.defaultProjectTrust : ""}
 								options={PROJECT_TRUST_OPTIONS}
 								onChange={(v) => props.onChange({ ...data, defaultProjectTrust: v })}
@@ -396,7 +398,7 @@ export function SettingsTab(props: {
 							empty={typeof data.transport !== "string" || !data.transport}
 							onClear={() => props.onChange({ ...data, transport: "" })}
 						>
-							<ConfigComboboxInput
+							<ConfigSelect
 								value={typeof data.transport === "string" ? data.transport : ""}
 								options={TRANSPORT_OPTIONS}
 								onChange={(v) => props.onChange({ ...data, transport: v })}
@@ -565,20 +567,7 @@ function EnabledModelsInput(props: {
 	const [open, setOpen] = useState(false);
 	const [filter, setFilter] = useState("");
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-	const containerRef = useRef<HTMLDivElement>(null);
 	const selected = new Set(props.value ?? []);
-
-	// 点击外部关闭下拉
-	useEffect(() => {
-		if (!open) return;
-		const handlePointerDown = (event: PointerEvent) => {
-			if (!containerRef.current?.contains(event.target as Node)) {
-				setOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", handlePointerDown);
-		return () => document.removeEventListener("pointerdown", handlePointerDown);
-	}, [open]);
 
 	const toggleModel = (id: string) => {
 		const next = new Set(selected);
@@ -627,65 +616,68 @@ function EnabledModelsInput(props: {
 	const hasResults = providerNames.length > 0 || isGlob;
 
 	return (
-		<div ref={containerRef} className="relative min-w-0 flex-1">
-			<div className="flex min-h-[38px] cursor-pointer flex-wrap items-center gap-1.5 rounded-sm border border-border-subtle bg-popover px-2.5 py-[5px] transition-colors duration-150 hover:border-border-strong" onClick={() => setOpen(true)}>
-				{[...selected].map((fullKey) => (
-					<span key={fullKey} className="inline-flex h-6 items-center gap-[3px] rounded-full border border-[color-mix(in_srgb,var(--color-accent)_24%,var(--color-border-subtle))] bg-[color:color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg-panel))] pl-[9px] pr-[5px] font-mono text-xs leading-[18px] whitespace-nowrap text-text-primary">
-						<span>{fullKey}</span>
-						<Button type="button"
-							variant="ghost"
-							size="icon-xs"
-							className="rounded-full border-0 bg-transparent text-text-tertiary hover:bg-[color:color-mix(in_srgb,var(--color-danger)_16%,transparent)] hover:text-[color:var(--color-danger)]"
-							onClick={(e) => {
-								e.stopPropagation();
-								removeSelected(fullKey);
-							}}
-						>
-							<X size={12} />
-						</Button>
+		<Popover
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				// 每次打开都重置过滤词，避免上次搜索残留导致列表为空。
+				if (next) setFilter("");
+			}}
+		>
+			<PopoverTrigger asChild>
+				<div className="flex min-h-[38px] min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-1.5 rounded-sm border border-border-subtle bg-popover px-2.5 py-[5px] transition-colors duration-150 hover:border-border-strong">
+					{[...selected].map((fullKey) => (
+						<span key={fullKey} className="inline-flex h-6 items-center gap-[3px] rounded-full border border-[color-mix(in_srgb,var(--color-accent)_24%,var(--color-border-subtle))] bg-[color:color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg-panel))] pl-[9px] pr-[5px] font-mono text-xs leading-[18px] whitespace-nowrap text-text-primary">
+							<span>{fullKey}</span>
+							<Button type="button"
+								variant="ghost"
+								size="icon-xs"
+								className="rounded-full border-0 bg-transparent text-text-tertiary hover:bg-[color:color-mix(in_srgb,var(--color-danger)_16%,transparent)] hover:text-[color:var(--color-danger)]"
+								onClick={(e) => {
+									e.stopPropagation();
+									removeSelected(fullKey);
+								}}
+							>
+								<X size={12} />
+							</Button>
+						</span>
+					))}
+					<span className="text-xs leading-[18px] text-text-tertiary">
+						{selected.size === 0
+							? t("config.settings.enabledModelsPlaceholder")
+							: `${selected.size} ${t("config.settings.enabledModelsSelected")}`}
 					</span>
-				))}
-				<span className="text-xs leading-[18px] text-text-tertiary">
-					{selected.size === 0
-						? t("config.settings.enabledModelsPlaceholder")
-						: `${selected.size} ${t("config.settings.enabledModelsSelected")}`}
-				</span>
-			</div>
-
-			{open && (
-				<div className="absolute top-[calc(100%+2px)] right-0 left-0 z-[100] overflow-hidden rounded-md border border-border-subtle bg-popover text-popover-foreground shadow-[var(--shadow-popover)]">
-					<div className="border-b border-border-subtle p-2">
-						<Input
-							autoFocus
-							value={filter}
-							onChange={(e) => setFilter(e.target.value)}
-							placeholder={t("config.settings.enabledModelsSearchPlaceholder")}
-							className="h-8 w-full rounded-sm border border-border-subtle bg-popover px-2.5 text-control text-text-primary outline-none placeholder:text-text-tertiary focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-						/>
-					</div>
-					<div className="max-h-[240px] overflow-y-auto">
+				</div>
+			</PopoverTrigger>
+			<PopoverContent align="start" sideOffset={4} className="w-[var(--radix-popover-trigger-width)] max-w-[min(680px,calc(100vw-48px))] p-0">
+				<Command shouldFilter={false}>
+					<CommandInput
+						value={filter}
+						onValueChange={setFilter}
+						placeholder={t("config.settings.enabledModelsSearchPlaceholder")}
+						autoFocus
+					/>
+					<CommandList className="max-h-[min(320px,45vh)]">
 						{/* glob 模式行：输入含 * 或 ? 时显示，可勾选为自定义模式 */}
 						{filter && isGlob && (
-							<div className="px-2 py-0.5">
-								<button
-									type="button"
-									className={`flex w-full cursor-pointer items-center gap-2 rounded-sm border border-dashed border-[var(--color-accent)] bg-[color:color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-popover))] px-2 py-[7px] text-control text-text-primary transition-colors duration-100 hover:bg-[color:color-mix(in_srgb,var(--color-accent)_12%,transparent)]${selected.has(filter) ? " border-[var(--color-danger)] bg-[color:color-mix(in_srgb,var(--color-danger)_6%,var(--color-bg-popover))]" : ""}`}
-									onClick={() => toggleModel(filter)}
-								>
-									<span className="flex size-[18px] shrink-0 items-center justify-center rounded-[4px] border-[1.5px] border-border-strong text-[color:var(--color-accent)] transition-[border-color,background-color] duration-100 group-hover:border-[var(--color-accent)]">
-										{selected.has(filter) && <Check size={12} />}
-									</span>
-									<span className="font-mono text-xs">{filter}</span>
-									<span className="ml-auto font-mono text-[11px] text-text-tertiary">{t("config.settings.enabledModelsGlobHint")}</span>
-								</button>
-							</div>
+							<CommandItem
+								key="__glob__"
+								value={filter}
+								onSelect={() => toggleModel(filter)}
+								className={`border border-dashed border-[var(--color-accent)] bg-[color:color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-popover))] text-control text-text-primary hover:bg-[color:color-mix(in_srgb,var(--color-accent)_12%,transparent)]${selected.has(filter) ? " border-[var(--color-danger)] bg-[color:color-mix(in_srgb,var(--color-danger)_6%,var(--color-bg-popover))]" : ""}`}
+							>
+								<span className="flex size-[18px] shrink-0 items-center justify-center rounded-[4px] border-[1.5px] border-border-strong text-[color:var(--color-accent)]">
+									{selected.has(filter) && <Check size={12} />}
+								</span>
+								<span className="font-mono text-xs">{filter}</span>
+								<span className="ml-auto font-mono text-[11px] text-text-tertiary">{t("config.settings.enabledModelsGlobHint")}</span>
+							</CommandItem>
 						)}
 						{hasResults && providerNames.map((provider) => (
-							<div key={provider} className="border-b border-border-subtle last:border-none">
-								{/* 供应商分组头：点击折叠/展开 */}
+							<CommandGroup key={provider} heading={
 								<button
 									type="button"
-									className={`flex w-full cursor-pointer items-center gap-2 border-0 bg-bg-hover px-3 py-2 text-left text-control font-medium text-text-primary transition-colors duration-100 before:mr-1 before:text-[9px] before:text-text-tertiary before:transition-transform before:duration-150 before:content-['▾'] hover:bg-bg-active${collapsed.has(provider) ? " before:rotate-[-90deg]" : ""}`}
+									className="flex w-full cursor-pointer items-center gap-2 border-0 bg-bg-hover px-3 py-2 text-left text-control font-medium text-text-primary transition-colors duration-100 before:mr-1 before:text-[9px] before:text-text-tertiary before:transition-transform before:duration-150 before:content-['▾'] hover:bg-bg-active"
 									onClick={() => {
 										setCollapsed((prev) => {
 											const next = new Set(prev);
@@ -698,28 +690,30 @@ function EnabledModelsInput(props: {
 									<span className="flex-1">{provider}</span>
 									<span className="font-mono text-[11px] text-text-tertiary">{grouped[provider].length}</span>
 								</button>
+							}>
 								{!collapsed.has(provider) && grouped[provider].map((m) => (
-									<Label
+									<CommandItem
 										key={m.fullKey}
-										className={`group flex cursor-pointer items-center gap-2 py-[7px] pr-3 pl-7 transition-colors duration-100 hover:bg-bg-hover${selected.has(m.fullKey) ? " bg-[color:color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-panel))]" : ""}`}
-										onClick={() => toggleModel(m.fullKey)}
+										value={m.fullKey}
+										onSelect={() => toggleModel(m.fullKey)}
+										className={`cursor-pointer gap-2 py-[7px] pr-3 pl-7 text-control text-text-primary ${selected.has(m.fullKey) ? "bg-[color:color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-panel))]" : ""}`}
 									>
-										<span className={`flex size-[18px] shrink-0 items-center justify-center rounded-[4px] border-[1.5px] border-border-strong text-[color:var(--color-accent)] transition-[border-color,background-color] duration-100 group-hover:border-[var(--color-accent)]${selected.has(m.fullKey) ? " border-[var(--color-accent)] bg-[var(--color-accent)] text-white" : ""}`}>
+										<span className={`flex size-[18px] shrink-0 items-center justify-center rounded-[4px] border-[1.5px] border-border-strong text-[color:var(--color-accent)] transition-[border-color,background-color] duration-100${selected.has(m.fullKey) ? " border-[var(--color-accent)] bg-[var(--color-accent)] text-white" : ""}`}>
 											{selected.has(m.fullKey) && <Check size={12} />}
 										</span>
 										<span className="text-control text-text-primary">{m.name ?? m.id}</span>
 										<span className="ml-auto font-mono text-xs text-text-tertiary">{m.provider}/{m.id}</span>
-									</Label>
+									</CommandItem>
 								))}
-							</div>
+							</CommandGroup>
 						))}
 						{!hasResults && (
 							<div className="p-4 text-center text-xs text-text-tertiary">{t("app.modelPickerEmpty")}</div>
 						)}
-					</div>
-				</div>
-			)}
-		</div>
+					</CommandList>
+				</Command>
+			</PopoverContent>
+		</Popover>
 	);
 }
 

@@ -6,6 +6,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
@@ -15,6 +16,7 @@ const {
 	buildPiAiCatalogIndex,
 	lookupPiAiCatalogEntry,
 	getPiAiCatalogIndex,
+	parsePiAiCatalogArtifact,
 	positiveInt,
 } = catalog;
 
@@ -183,7 +185,45 @@ test("parseProviderModelsResponse: Gemini models/ 前缀与 inputTokenLimit", ()
 	]);
 });
 
-test("真实 pi-ai catalog：gpt-4o 有 contextWindow", () => {
+test("artifact manifest 校验失败时拒绝使用模型目录", () => {
+	const catalogRaw = `${JSON.stringify({
+		schemaVersion: 1,
+		entries: [
+			{
+				id: "artifact-model",
+				provider: "demo",
+				contextWindow: 128000,
+				input: ["text", "image", "video"],
+				thinkingLevelMap: { off: null, high: "high", future: "drop" },
+			},
+		],
+	}, null, 2)}\n`;
+	const manifest = {
+		schemaVersion: 1,
+		source: {
+			packageName: "@earendil-works/pi-ai",
+			packageVersion: "0.85.0",
+			dataSha256: "a".repeat(64),
+			fileCount: 1,
+		},
+		catalogSha256: createHash("sha256").update(catalogRaw, "utf8").digest("hex"),
+		entryCount: 1,
+	};
+	const manifestRaw = `${JSON.stringify(manifest, null, 2)}\n`;
+	assert.deepEqual(JSON.parse(JSON.stringify(parsePiAiCatalogArtifact(catalogRaw, manifestRaw))), [
+		{
+			id: "artifact-model",
+			provider: "demo",
+			contextWindow: 128000,
+			input: ["text", "image"],
+			thinkingLevelMap: { off: null, high: "high" },
+		},
+	]);
+	manifest.catalogSha256 = "0".repeat(64);
+	assert.equal(parsePiAiCatalogArtifact(catalogRaw, `${JSON.stringify(manifest)}\n`).length, 0);
+});
+
+test("真实生成 catalog：gpt-4o 有 contextWindow", () => {
 	const entry = lookupPiAiCatalogEntry(getPiAiCatalogIndex(), "openai", "gpt-4o");
 	assert.ok(entry, "gpt-4o 应命中 pi-ai 目录");
 	assert.ok(entry.contextWindow != null && entry.contextWindow > 0, "gpt-4o 应有 contextWindow");
@@ -191,4 +231,11 @@ test("真实 pi-ai catalog：gpt-4o 有 contextWindow", () => {
 		lookupPiAiCatalogEntry(getPiAiCatalogIndex(), "myrelay", "definitely-not-a-model-xyz"),
 		undefined,
 	);
+});
+
+test("真实生成 catalog：0.85.0 的 qwen3.8-max 可供主进程读取", () => {
+	const entry = lookupPiAiCatalogEntry(getPiAiCatalogIndex(), "opencode-go", "qwen3.8-max");
+	assert.ok(entry, "qwen3.8-max 应命中 PiDeck 0.85.0 artifact");
+	assert.equal(entry.contextWindow, 1000000);
+	assert.equal(entry.maxTokens, 131072);
 });

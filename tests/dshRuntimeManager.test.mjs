@@ -262,6 +262,55 @@ test("installFromDirectory：manifest 缺失时拒绝，且不落位不残留", 
 	rmSync(root, { recursive: true, force: true });
 });
 
+test("installFromDirectory：选中父目录且仅一个有效 runtime 子目录时自动下钻", async () => {
+	// 用户报告场景：卸载后 re-import 时选中了 runtimesRoot 父级（里面残留旧版本
+	// runtime + 若干无 manifest 的目录），此时目录自身校验失败。只要子目录里恰好
+	// 只有一个完整 runtime，就自动下钻采用它，而不是报误导性的 manifest missing。
+	const { manager, layout, root } = makeManager();
+	const staleVersion = join(layout.runtimesRoot, "0.1.1-rc.1");
+	stageRuntime(staleVersion, { over: { runtimeVersion: "0.1.1-rc.1" } });
+	mkdirSync(join(layout.runtimesRoot, "old-backup"), { recursive: true });
+	const result = await manager.installFromDirectory(layout.runtimesRoot);
+	assert.equal(result.ok, true);
+	assert.equal(result.dirName, "0.1.1-rc.1");
+	assert.equal(
+		existsSync(join(layout.runtimesRoot, "0.1.1-rc.1", "manifest.json")),
+		true,
+		"下钻后仍应落到正式版本目录",
+	);
+	rmSync(root, { recursive: true, force: true });
+});
+
+test("installFromDirectory：父目录有多个候选子目录时不猜，保持原错误", async () => {
+	// 两义场景：多个子目录都含 manifest 时无法断定用户意图，必须拒绝而非误装。
+	const { manager, layout, root } = makeManager();
+	stageRuntime(join(layout.runtimesRoot, "0.1.1-rc.1"), { over: { runtimeVersion: "0.1.1-rc.1" } });
+	stageRuntime(join(layout.runtimesRoot, "0.1.1-rc.2"));
+	const result = await manager.installFromDirectory(layout.runtimesRoot);
+	assert.equal(result.ok, false);
+	assert.equal(result.error, "manifest missing");
+	rmSync(root, { recursive: true, force: true });
+});
+
+test("installFromDirectory：同源目录卸载后重导成功（复制不破坏来源）", async () => {
+	// 用户报告的完整环：目录导入 → 卸载 → 再次导入同一源目录。installFromDirectory
+	// 是复制而非移动，源目录的 manifest 必须始终完好。
+	const { manager, layout, root } = makeManager();
+	const source = join(root, "user-runtime");
+	stageRuntime(source);
+	assert.equal((await manager.installFromDirectory(source)).ok, true);
+	await manager.uninstall("0.1.1-rc.2");
+	assert.equal(
+		existsSync(join(source, "manifest.json")),
+		true,
+		"卸载后源目录的 manifest 不能被顺带删除",
+	);
+	const again = await manager.installFromDirectory(source);
+	assert.equal(again.ok, true);
+	assert.equal(existsSync(join(layout.runtimesRoot, "0.1.1-rc.2", "manifest.json")), true);
+	rmSync(root, { recursive: true, force: true });
+});
+
 test("installFromDirectory：app 版本不兼容时拒绝（防止装了用不了的 runtime）", async () => {
 	const { manager, root } = makeManager();
 	const source = join(root, "extracted");

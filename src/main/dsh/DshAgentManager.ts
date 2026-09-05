@@ -887,9 +887,11 @@ export class DshAgentManager implements SessionAgentGateway {
 		const fallbackTokens = estimatedTokens > 0 ? estimatedTokens : undefined;
 		const contextTokens = pressure?.projectedTokens ?? pressure?.pressureTokens ?? fallbackTokens;
 		const contextMessageTokens = breakdown?.messageTokens ?? fallbackTokens;
+		// 不封顶 100：投影/估算可能超过窗口（缓存超窗、估算偏大），封顶会
+		// 让显示卡在 100% 而 ~used/window 与头部明细继续增长，口径不一致。
 		const contextPercent =
 			typeof contextTokens === "number" && typeof contextWindow === "number" && contextWindow > 0
-				? Math.min(100, Math.round((contextTokens / contextWindow) * 100))
+				? Math.round((contextTokens / contextWindow) * 100)
 				: undefined;
 		// 用量：优先 host tokenUsage 投影（整段日志累计，dsh-web StatsLine 同源），
 		// 缺失（token-meter 未挂载/未推送）时回退最近一步 usage（G16）。

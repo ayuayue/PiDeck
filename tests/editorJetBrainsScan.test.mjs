@@ -33,9 +33,15 @@ function loadEditorDetector(fsStub, platform = "win32") {
 			if (name === "node:path") return require("node:path");
 			if (name === "node:child_process") {
 				return {
+					// 假 reg 进程：spawn 后立刻模拟进程结束（无输出），
+					// 否则 runRegQuery 里 child.once("close") 永不触发，Promise 永不 settle，
+					// 会让 detectExternalEditors 一直 await 导致测试挂死、拖垮全量套件。
 					spawn: () => ({
 						stdout: { setEncoding: () => {}, on: () => {}, once: () => {} },
-						once: () => {},
+						once: (event, cb) => {
+							if (event === "close") queueMicrotask(() => cb && cb(0));
+							if (event === "spawn") queueMicrotask(() => cb && cb());
+						},
 						unref: () => {},
 					}),
 				};

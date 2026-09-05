@@ -317,3 +317,37 @@ test("terminal status (error/closed) drops runtime state and rejects late runtim
     "late runtime-state must not revive state after terminal status",
   );
 });
+
+test("fork replacement detaches the origin session and binds the fork record to the same agent", () => {
+  const store = createStore();
+  store.set(atoms.replaceProjectSessionsAtom, {
+    projectId: "project-a",
+    sessions: [
+      session("session-origin", "project-a", "Origin"),
+      session("session-fork", "project-a", "Fork"),
+    ],
+  });
+  store.set(atoms.replaceSessionRuntimesAtom, [
+    runtime("session-origin", "agent-a", "project-a", 1, "running"),
+  ]);
+  // 主进程 fork 广播顺序：detach 旧绑定 → attach 新绑定（runtimeGeneration 递增）
+  store.set(atoms.applySessionRuntimeEventAtom, runtimeEvent(
+    "session-origin", "agent-a", 1, "sessions:runtime-detach", null, "detach",
+  ));
+  store.set(atoms.applySessionRuntimeEventAtom, runtimeEvent(
+    "session-fork", "agent-a", 2, "agents:state",
+    { id: "agent-a", projectId: "project-a", cwd: "C:/project-a", title: "Fork", status: "idle", createdAt: 2 },
+  ));
+  // 旧会话不再持有 live runtime（侧栏按历史行展示，不再显示运行中）；
+  // detached 条目按设计丢弃 agentId（不保留可反查的活 agent 身份）
+  const origin = store.get(atoms.sessionRuntimeByIdAtom)["session-origin"];
+  assert.equal(origin.status, "detached");
+  assert.equal(origin.agentId, undefined);
+  // 同一 agent 换绑到 fork 记录
+  assert.equal(store.get(atoms.sessionRuntimeByIdAtom)["session-fork"].agentId, "agent-a");
+  assert.equal(store.get(atoms.sessionRuntimeByIdAtom)["session-fork"].status, "idle");
+  // agent 清单只保留 fork 记录，且不会把旧会话视为 live
+  const agents = store.get(atoms.agentInventoryAtom);
+  assert.equal(agents.some((agent) => agent.id === "agent-a" && agent.sessionId === "session-origin"), false);
+  assert.equal(agents.some((agent) => agent.id === "agent-a"), true);
+});
