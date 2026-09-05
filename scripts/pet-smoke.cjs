@@ -49,6 +49,11 @@ app.whenReady().then(async () => {
 				if (id === "../settings/SettingsStore") {
 					return { readElectronChromiumSandboxPreference: () => false };
 				}
+				// PetWindow 新增依赖（shared 纯几何常量，node 24 type stripping 直接加载；
+				// 后两者仅取常量/无副作用，stub 避免拖入 electron 协议注册与日志实现）
+				if (id === "../../shared/petNotificationLayout") return require("../../shared/petNotificationLayout.ts");
+				if (id === "../logging/sharedLogger") return { getAppLogger: () => undefined };
+				if (id === "./petSpriteProtocol") return { PET_WINDOW_PARTITION: "persist:pet" };
 				throw new Error(`pet-smoke: unexpected require(${id})`);
 			},
 		};
