@@ -32,6 +32,7 @@ jobs:
       - name: Test
         # 临时调试：逐文件串行 + 每文件 60s 超时，定位 Windows runner 上偶发挂起的文件；
         # 定位后恢复为 npm test -- --test-timeout=120000 --test-force-exit
+        shell: bash
         timeout-minutes: 10
         run: |
           total=0
