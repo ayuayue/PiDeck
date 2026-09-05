@@ -2,6 +2,7 @@ import type { AgentBackend } from "./agent";
 import type { BusySendDelivery } from "../busySendDelivery";
 import type { ExternalEditorSettings } from "./project";
 import type { SecurityConfig } from "./security";
+import type { SoundAlertSettings } from "./soundAlert";
 
 export type SendShortcutMode =
 	| "enter-send"
@@ -144,6 +145,12 @@ export type AppSettings = {
 	singleInstance: boolean;
 	/** 会话结束时发送系统通知 */
 	enableNotifications: boolean;
+	/**
+	 * 声音提醒（会话完成/异常/等待输入时播放提示音）。
+	 * 独立于系统通知 enableNotifications：通知关闭仍可只听声音，反之亦然。
+	 * 缺省用 DEFAULT_SOUND_ALERT_SETTINGS（见 shared/types/soundAlert.ts）。
+	 */
+	soundAlert: SoundAlertSettings;
 	/**
 	 * 非聚焦会话收到 Ask 提问（select/confirm/input/editor/batch_ask）时发送系统通知。
 	 * 默认关闭：与通用 enableNotifications 解耦，用户可单独控制提问提醒，避免打扰。

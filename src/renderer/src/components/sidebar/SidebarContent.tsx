@@ -42,7 +42,7 @@ export type SidebarActions = {
     reorder: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
     reveal: (project: Project) => Promise<void>;
     openWithEditor: (project: Project) => void;
-    importSessions: (project: Project, source: "codex" | "claude" | "opencode") => void;
+    importSessions: (project: Project, source: "codex" | "claude" | "opencode" | "zcode") => void;
     manageResources: (project: Project) => void;
     toggleWorktree: (project: Project) => Promise<void>;
     copyPath: (project: Project) => Promise<void>;
@@ -438,6 +438,7 @@ export function SidebarContent(props: SidebarContentProps) {
           onImportCodexSessions={() => { actions.projects.importSessions(menuProject, "codex"); controller.closeMenu(); }}
           onImportClaudeSessions={() => { actions.projects.importSessions(menuProject, "claude"); controller.closeMenu(); }}
           onImportOpenCodeSessions={() => { actions.projects.importSessions(menuProject, "opencode"); controller.closeMenu(); }}
+          onImportZCodeSessions={() => { actions.projects.importSessions(menuProject, "zcode"); controller.closeMenu(); }}
           onManageProjectResources={() => { actions.projects.manageResources(menuProject); controller.closeMenu(); }}
           onManageSessions={() => { controller.openSessionManager(menuProject.id); controller.closeMenu(); }}
           onFilterSessions={() => { controller.openSourceFilter(menuProject.id, menu.x, menu.y + 20); controller.closeMenu(); }}

@@ -6,6 +6,8 @@ import type {
   ClaudeSessionSummary,
   OpenCodeImportReport,
   OpenCodeSessionSummary,
+  ZCodeImportReport,
+  ZCodeSessionSummary,
   Project,
 } from "../../../shared/types";
 
@@ -44,6 +46,10 @@ export interface UseImportFlowInput {
   scanOpenCodeSessions: (projectId: string) => Promise<OpenCodeSessionSummary[]>;
   /** API: import OpenCode sessions */
   importOpenCodeSessionsApi: (projectId: string, sourcePaths: string[]) => Promise<OpenCodeImportReport>;
+  /** API: scan ZCode sessions */
+  scanZCodeSessions: (projectId: string) => Promise<ZCodeSessionSummary[]>;
+  /** API: import ZCode sessions */
+  importZCodeSessionsApi: (projectId: string, sourcePaths: string[]) => Promise<ZCodeImportReport>;
   /** Translation function */
   t: (...args: any[]) => string;
 }
@@ -55,12 +61,16 @@ export interface UseImportFlowOutput {
   setClaudeImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
   openCodeImportProject: Project | null;
   setOpenCodeImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
+  zcodeImportProject: Project | null;
+  setZcodeImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
   codexImportController: ImportController<CodexSessionSummary, CodexImportReport>;
   claudeImportController: ImportController<ClaudeSessionSummary, ClaudeImportReport>;
   openCodeImportController: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>;
+  zcodeImportController: ImportController<ZCodeSessionSummary, ZCodeImportReport>;
   openCodexImport: (project: Project) => Promise<void>;
   openClaudeImport: (project: Project) => Promise<void>;
   openOpenCodeImport: (project: Project) => Promise<void>;
+  openZCodeImport: (project: Project) => Promise<void>;
 }
 
 export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
@@ -74,6 +84,8 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
     importClaudeSessionsApi,
     scanOpenCodeSessions: scanOpenCodeApi,
     importOpenCodeSessionsApi,
+    scanZCodeSessions: scanZCodeApi,
+    importZCodeSessionsApi,
     t,
   } = input;
 
@@ -100,6 +112,14 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
   const [openCodeImportLoading, setOpenCodeImportLoading] = useState(false);
   const [openCodeImportRunning, setOpenCodeImportRunning] = useState(false);
   const [openCodeImportReport, setOpenCodeImportReport] = useState<OpenCodeImportReport | null>(null);
+
+  // ── ZCode import state ──
+  const [zcodeImportProject, setZcodeImportProject] = useState<Project | null>(null);
+  const [zcodeImportSessions, setZcodeImportSessions] = useState<ZCodeSessionSummary[]>([]);
+  const [zcodeImportSelected, setZcodeImportSelected] = useState<string[]>([]);
+  const [zcodeImportLoading, setZcodeImportLoading] = useState(false);
+  const [zcodeImportRunning, setZcodeImportRunning] = useState(false);
+  const [zcodeImportReport, setZcodeImportReport] = useState<ZCodeImportReport | null>(null);
 
   // ── Codex functions ──
   const scanCodexSessionsFn = useCallback(
@@ -281,6 +301,66 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
     await scanOpenCodeSessionsFn(project);
   }, [setProjectMenu, scanOpenCodeSessionsFn]);
 
+  // ── ZCode functions ──
+  const scanZCodeSessionsFn = useCallback(
+    async (project = zcodeImportProject, clearReport = true) => {
+      if (!project) return;
+      setZcodeImportLoading(true);
+      if (clearReport) setZcodeImportReport(null);
+      try {
+        const next = await scanZCodeApi(project.id);
+        setZcodeImportSessions(next);
+        setZcodeImportSelected([]);
+      } catch (error) {
+        showToast(t("zcode.scanFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+      } finally {
+        setZcodeImportLoading(false);
+      }
+    },
+    [zcodeImportProject, scanZCodeApi, showToast, t],
+  );
+
+  const toggleZCodeSession = useCallback((sourcePath: string) => {
+    setZcodeImportSelected((current) =>
+      current.includes(sourcePath) ? current.filter((item) => item !== sourcePath) : [...current, sourcePath],
+    );
+  }, []);
+
+  const toggleAllZCodeSessions = useCallback(() => {
+    const allPaths = zcodeImportSessions.map((session) => session.sourcePath);
+    setZcodeImportSelected((current) =>
+      allPaths.length > 0 && allPaths.every((path) => current.includes(path)) ? [] : allPaths,
+    );
+  }, [zcodeImportSessions]);
+
+  const importZCodeSessionsFn = useCallback(async () => {
+    if (!zcodeImportProject || zcodeImportSelected.length === 0) return null;
+    setZcodeImportRunning(true);
+    setZcodeImportReport(null);
+    try {
+      const report = await importZCodeSessionsApi(zcodeImportProject.id, zcodeImportSelected);
+      setZcodeImportReport(report);
+      await scanZCodeSessionsFn(zcodeImportProject, false);
+      await refreshProjectSessions(zcodeImportProject.id);
+      showToast(t("zcode.importDone", { imported: report.imported, failed: report.failed }));
+      return report;
+    } catch (error) {
+      showToast(t("zcode.importFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+      return null;
+    } finally {
+      setZcodeImportRunning(false);
+    }
+  }, [zcodeImportProject, zcodeImportSelected, importZCodeSessionsApi, scanZCodeSessionsFn, refreshProjectSessions, showToast, t]);
+
+  const openZCodeImport = useCallback(async (project: Project) => {
+    setProjectMenu(null);
+    setZcodeImportProject(project);
+    setZcodeImportReport(null);
+    setZcodeImportSessions([]);
+    setZcodeImportSelected([]);
+    await scanZCodeSessionsFn(project);
+  }, [setProjectMenu, scanZCodeSessionsFn]);
+
   // ── Controllers ──
   const codexImportController = useMemo(() => ({
     sessions: codexImportSessions,
@@ -321,6 +401,19 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
     importSelected: importOpenCodeSessionsFn,
   }), [openCodeImportSessions, openCodeImportSelected, openCodeImportLoading, openCodeImportRunning, openCodeImportReport, scanOpenCodeSessionsFn, toggleOpenCodeSession, toggleAllOpenCodeSessions, importOpenCodeSessionsFn]);
 
+  const zcodeImportController = useMemo(() => ({
+    sessions: zcodeImportSessions,
+    selectedPaths: zcodeImportSelected,
+    loading: zcodeImportLoading,
+    importing: zcodeImportRunning,
+    report: zcodeImportReport,
+    error: null as string | null,
+    refresh: () => scanZCodeSessionsFn(),
+    toggle: toggleZCodeSession,
+    toggleAll: toggleAllZCodeSessions,
+    importSelected: importZCodeSessionsFn,
+  }), [zcodeImportSessions, zcodeImportSelected, zcodeImportLoading, zcodeImportRunning, zcodeImportReport, scanZCodeSessionsFn, toggleZCodeSession, toggleAllZCodeSessions, importZCodeSessionsFn]);
+
   return {
     codexImportProject,
     setCodexImportProject,
@@ -328,11 +421,15 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
     setClaudeImportProject,
     openCodeImportProject,
     setOpenCodeImportProject,
+    zcodeImportProject,
+    setZcodeImportProject,
     codexImportController,
     claudeImportController,
     openCodeImportController,
+    zcodeImportController,
     openCodexImport,
     openClaudeImport,
     openOpenCodeImport,
+    openZCodeImport,
   };
 }

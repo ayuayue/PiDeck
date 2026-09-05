@@ -10,6 +10,7 @@ const SOURCE_LABELS: Record<SessionSource, string> = {
   codex: t("sessionSource.codex"),
   claude: t("sessionSource.claude"),
   opencode: t("sessionSource.opencode"),
+  zcode: t("sessionSource.zcode"),
 };
 
 const SOURCE_TONES: Record<SessionSource, string> = {
@@ -18,6 +19,8 @@ const SOURCE_TONES: Record<SessionSource, string> = {
   claude: "border-amber-300/70 text-amber-700 dark:border-amber-700/70 dark:text-amber-300",
   // opencode 官方品牌为黑白单色，不用品牌色（避免绿色观感）；中性灰随主题自适应
   opencode: "border-muted-foreground/40 text-muted-foreground",
+  // zcode（z.ai CLI）无公开品牌图形资源，用中性色 + 自绘 Z 标记，避免错误品牌色
+  zcode: "border-muted-foreground/40 text-muted-foreground",
 };
 
 function SourceLogo(props: { source: SessionSource }) {
@@ -48,6 +51,16 @@ function SourceLogo(props: { source: SessionSource }) {
     return (
       <svg viewBox="0 0 24 24" className="size-3.5" aria-hidden="true" focusable="false">
         <path fill="currentColor" d="M22 24H2V0h20zM17 4.8H7v14.4h10z" />
+      </svg>
+    );
+  }
+
+  if (props.source === "zcode") {
+    // z.ai ZCode 无公开品牌 SVG，用等宽「Z」字形作为可辨识标记；
+    // 与 opencode 一样走中性色，名称经 title/aria-label 保留。
+    return (
+      <svg viewBox="0 0 24 24" className="size-3.5" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M4 3h16v3.2L10.8 16H20v5H4v-3.2L13.2 8H4z" />
       </svg>
     );
   }

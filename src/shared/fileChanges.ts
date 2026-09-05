@@ -179,3 +179,24 @@ export function collectSessionFileChanges(messages: readonly ChatMessage[]): Ses
 	}
 	return [...map.values()];
 }
+
+/**
+ * 只聚合「最新一轮」修改的文件：以最后一个 user 消息为轮次边界，
+ * 取其后的消息（该轮 assistant/tool 消息）做 write/edit/create/patch 汇总。
+ *
+ * 业务规则（为什么这样做）：composer 上方「修改的文件」横栏展示的是
+ * 用户最近一次提问后 agent 改动过的文件，而不是会话累计全部文件——
+ * 累计展示会让历史轮次文件长期堆积，用户难以看出当前这轮动了什么。
+ *
+ * 边界条件：
+ * - 无任何 user 消息（异常/老数据）→ 回退聚合全部，与 collectSessionFileChanges 一致；
+ * - 最后一个 user 消息之后尚无消息（刚提问未响应）→ 空数组，横栏不渲染。
+ */
+export function collectLatestTurnFileChanges(messages: readonly ChatMessage[]): SessionFileChange[] {
+	let lastUserIndex = -1;
+	for (let i = 0; i < messages.length; i += 1) {
+		if (messages[i].role === "user") lastUserIndex = i;
+	}
+	if (lastUserIndex < 0) return collectSessionFileChanges(messages);
+	return collectSessionFileChanges(messages.slice(lastUserIndex + 1));
+}

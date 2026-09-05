@@ -80,6 +80,7 @@ import type { TerminalSessionManager } from "../terminal/TerminalSessionManager"
 import type { CodexSessionImporter } from "../sessions/CodexSessionImporter";
 import type { ClaudeSessionImporter } from "../sessions/ClaudeSessionImporter";
 import type { OpenCodeSessionImporter } from "../sessions/OpenCodeSessionImporter";
+import type { ZCodeSessionImporter } from "../sessions/ZCodeSessionImporter";
 import type { AppLogger } from "../logging/AppLogger";
 
 /**
@@ -288,6 +289,7 @@ export type SessionIpcDeps = {
 	codexSessionImporter: CodexSessionImporter;
 	claudeSessionImporter: ClaudeSessionImporter;
 	openCodeSessionImporter: OpenCodeSessionImporter;
+	zcodeSessionImporter: ZCodeSessionImporter;
 	appLogger: AppLogger;
 	terminalManager: TerminalSessionManager;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
@@ -376,6 +378,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		codexSessionImporter,
 		claudeSessionImporter,
 		openCodeSessionImporter,
+		zcodeSessionImporter,
 		appLogger,
 		terminalManager,
 		mainCopy,
@@ -2084,6 +2087,29 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			if (!project) throw new Error(`Project not found: ${projectId}`);
 			const result = await openCodeSessionImporter.import(project.path, sourcePaths);
 			void appLogger.info("session", "OpenCode sessions imported", {
+				projectId,
+				sourceCount: sourcePaths.length,
+			});
+			return result;
+		},
+	);
+	ipcMain.handle(
+		ipcChannels.zcodeSessionsScan,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			const result = await zcodeSessionImporter.scan(project.path);
+			void appLogger.debug("session", "ZCode sessions scanned", { projectId });
+			return result;
+		},
+	);
+	ipcMain.handle(
+		ipcChannels.zcodeSessionsImport,
+		async (_event, projectId: string, sourcePaths: string[]) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			const result = await zcodeSessionImporter.import(project.path, sourcePaths);
+			void appLogger.info("session", "ZCode sessions imported", {
 				projectId,
 				sourceCount: sourcePaths.length,
 			});

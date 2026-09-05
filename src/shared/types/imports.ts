@@ -109,3 +109,40 @@ export type OpenCodeImportReport = {
 	imported: number;
 	failed: number;
 };
+
+// ── ZCode Session Import Types ────────────────────────────────────────
+
+/** zcode 会话导入状态：未导入 / 已是最新 / 源更新后可覆盖。 */
+export type ZCodeImportStatus = "new" | "current" | "outdated";
+
+export type ZCodeSessionSummary = {
+	id: string;
+	sourcePath: string;
+	targetPath: string;
+	cwd: string;
+	title: string;
+	preview: string;
+	createdAt: number;
+	updatedAt: number;
+	messageCount: number;
+	status: ZCodeImportStatus;
+	sourceSize: number;
+	importedSourceMtime?: number;
+};
+
+export type ZCodeImportResult = {
+	id: string;
+	sourcePath: string;
+	targetPath?: string;
+	title?: string;
+	success: boolean;
+	overwritten?: boolean;
+	messageCount?: number;
+	error?: string;
+};
+
+export type ZCodeImportReport = {
+	results: ZCodeImportResult[];
+	imported: number;
+	failed: number;
+};

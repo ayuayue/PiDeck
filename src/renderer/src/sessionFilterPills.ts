@@ -2,7 +2,7 @@ import type { AgentBackend, SessionSource } from "../../shared/types";
 
 /**
  * 会话过滤类别模型（侧栏来源过滤菜单与会话管理弹窗共用）：
- * 来源（pi/codex/claude/opencode）+ DSH 后端。
+ * 来源（pi/codex/claude/opencode/zcode）+ DSH 后端。
  *
  * 背景：DSH 会话没有 pi 会话文件（数据在 $DSH_HOME，catalog 只存映射），
  * 其 source 恒为 "pi"、backend 为 "dsh"。因此过滤不能只按来源维度，
@@ -19,6 +19,7 @@ export const SESSION_FILTER_PILLS: readonly SessionFilterPill[] = [
   "codex",
   "claude",
   "opencode",
+  "zcode",
   "dsh",
   "imagegen",
 ];
@@ -65,6 +66,8 @@ export function pillsPresentIn<T extends { source?: SessionSource; backend?: Age
  *
  * v2：{ v: 2, filters: { [projectId]: string[] | null } }，数组为 5 个类别。
  * v3：{ v: 3, filters: { [projectId]: string[] | null } }，数组为 6 个类别（追加 imagegen）。
+ * zcode 类别于 v3 后追加，不升版本号：v3 解析路径按 isSessionFilterPill 动态校验，
+ * 新类别写入的存量数据读回时天然兼容，无需迁移。
  * v1（旧版）：{ [projectId]: string[] | null }，数组只有 4 个来源，DSH 会话按
  *   source=pi 显示。读取时迁移：集合含 "pi" 则补 "dsh"——旧用户此前能看到
  *   DSH 会话，升级后必须保持可见，不能静默隐藏；不含 "pi" 说明用户主动

@@ -606,6 +606,7 @@ export function ProjectContextMenu(props: {
 	onImportCodexSessions: () => void;
 	onImportClaudeSessions: () => void;
 	onImportOpenCodeSessions: () => void;
+	onImportZCodeSessions: () => void;
 	onManageProjectResources: () => void;
 	onManageSessions: () => void;
 	onFilterSessions: () => void;
@@ -681,7 +682,7 @@ export function ProjectContextMenu(props: {
 				{isWorktreeEnabled ? t("menu.disableWorktree") : t("menu.enableWorktree")}
 			</DropdownMenuItem>
 			<DropdownMenuSeparator />
-			{/* 导入：外部会话迁移入口（Codex/Claude/OpenCode） */}
+			{/* 导入：外部会话迁移入口（Codex/Claude/OpenCode/ZCode） */}
 			<DropdownMenuLabel>{t("menu.group.import")}</DropdownMenuLabel>
 			<DropdownMenuItem onSelect={props.onImportCodexSessions}>
 				<Download className="size-3.5" aria-hidden="true" />
@@ -694,6 +695,10 @@ export function ProjectContextMenu(props: {
 			<DropdownMenuItem onSelect={props.onImportOpenCodeSessions}>
 				<Download className="size-3.5" aria-hidden="true" />
 				{t("menu.importOpenCode")}
+			</DropdownMenuItem>
+			<DropdownMenuItem onSelect={props.onImportZCodeSessions}>
+				<Download className="size-3.5" aria-hidden="true" />
+				{t("menu.importZCode")}
 			</DropdownMenuItem>
 			<DropdownMenuSeparator />
 			{/* 危险区：worktree 子项目复用此菜单时，删除必须经 Git worktree 清理流程，
