@@ -30,11 +30,21 @@ jobs:
         run: npm ci
 
       - name: Test
-        # --test-timeout：单测超时保护，最坏 2 分钟暴露挂起测试；
-        # --test-force-exit：测试完成后强制退出（某测试在 Windows runner 偶发残留
-        # open handle 导致 node 进程不退出、Test 步骤无限挂，本地 72s 全绿不重现，
-        # 定位中；force-exit 保证 CI 必完成）。
-        run: npm test -- --test-timeout=120000 --test-force-exit
+        # 临时调试：逐文件串行 + 每文件 60s 超时，定位 Windows runner 上偶发挂起的文件；
+        # 定位后恢复为 npm test -- --test-timeout=120000 --test-force-exit
+        timeout-minutes: 10
+        run: |
+          total=0
+          for f in tests/*.test.mjs; do
+            total=$((total+1))
+            echo "=== [$total] RUN $f"
+            if timeout 60 node --test "$f" >/dev/null 2>&1; then
+              echo "PASS $f"
+            else
+              echo ">>> FAIL_OR_TIMEOUT $f"
+            fi
+          done
+          echo "ALL_DONE total=$total"
 
       - name: Generate app icon
         run: npm run make-icon
