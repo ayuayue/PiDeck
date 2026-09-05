@@ -30,10 +30,11 @@ jobs:
         run: npm ci
 
       - name: Test
-        # --test-timeout：Windows runner 上全量测试偶发整体挂起（本地 72s 全绿，
-        # CI 曾卡 30 分钟无日志），单测超时保证最坏 2 分钟暴露并给出测试名，
-        # 避免 CI 无限挂起；日常不触发（全量正常 ~3 分钟）。
-        run: npm test -- --test-timeout=120000
+        # --test-timeout：单测超时保护，最坏 2 分钟暴露挂起测试；
+        # --test-force-exit：测试完成后强制退出（某测试在 Windows runner 偶发残留
+        # open handle 导致 node 进程不退出、Test 步骤无限挂，本地 72s 全绿不重现，
+        # 定位中；force-exit 保证 CI 必完成）。
+        run: npm test -- --test-timeout=120000 --test-force-exit
 
       - name: Generate app icon
         run: npm run make-icon
