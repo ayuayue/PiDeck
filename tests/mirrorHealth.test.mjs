@@ -138,10 +138,21 @@ test("fetch 网络错误 → broken，原因「连接失败」（不向外抛）
 });
 
 test("probeAllMirrors：并行探测全部内置镜像，失败互不影响", async () => {
+	// 真实延迟 + 默认 Date.now：同步 fake fetch 会让测速在 0/1ms 间随机
+	// （dlMs=0 → speed=0 → slow），偶发 flaky（2026-09 CI 实测）；
+	// 注入共享 fake clock 也会被 Promise.all 并行交错污染，同样不可靠。
+	const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 	// 按 URL 中的镜像 host 分发：ghproxy-net 返回 500（broken），其余正常
 	const fetchImpl = async (url, _opts) => {
-		if (url.includes("ghproxy.net/")) return new Response("boom", { status: 500 });
-		if (url.endsWith("/latest.yml")) return new Response("version: 0.7.3\n", { status: 200 });
+		if (url.includes("ghproxy.net/")) {
+			await sleep(5);
+			return new Response("boom", { status: 500 });
+		}
+		if (url.endsWith("/latest.yml")) {
+			await sleep(10);
+			return new Response("version: 0.7.3\n", { status: 200 });
+		}
+		await sleep(200); // 256KB/200ms = 1310KB/s，稳定高于 300 阈值
 		return new Response(new Uint8Array(PROBE_RANGE_BYTES), { status: 206 });
 	};
 	const results = await probeAllMirrors(fetchImpl);
