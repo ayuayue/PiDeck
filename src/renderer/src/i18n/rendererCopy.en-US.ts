@@ -2677,6 +2677,7 @@ export const enUS: Record<TranslationKey, string> = {
   "cloudSync.provider.githubOpenUrl": "Open this URL and enter the code: ",
   "cloudSync.provider.githubUserCode": "Device code: ",
   "cloudSync.provider.githubWaiting": "Waiting for authorization…",
+  "cloudSync.provider.githubFlowFailed": "GitHub authorization failed. Please try again.",
   "cloudSync.provider.endpoint": "Endpoint",
   "cloudSync.provider.region": "Region",
   "cloudSync.provider.bucket": "Bucket",

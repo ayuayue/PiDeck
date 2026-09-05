@@ -348,6 +348,8 @@ function GithubProviderCard(props: {
 	onDisconnect: () => void;
 	onReconnect?: () => void;
 	flow: { userCode: string; verificationUrl: string; interval: number } | null;
+	/** 设备流轮询失败的可展示错误（IPC 失败或主进程返回 error 时给出）。 */
+	flowError?: string | null;
 }) {
 	const [editing, setEditing] = useState(false);
 	return (
@@ -381,7 +383,7 @@ function GithubProviderCard(props: {
 					{!props.builtin ? (
 						<Field label={t("cloudSync.provider.field.clientId")}>
 							<div className="space-y-1">
-								<Input placeholder="Iv23li…" value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} />
+								<Input placeholder="Iv1xxxxxxxxxxxxxxxxxx" value={props.clientId} onChange={(event) => props.onClientIdChange(event.target.value)} />
 								<p className="text-caption text-text-tertiary">{t("cloudSync.provider.field.clientIdHint")}</p>
 							</div>
 						</Field>
@@ -407,6 +409,9 @@ function GithubProviderCard(props: {
 							<div>{t("cloudSync.provider.githubUserCode")} <code className="rounded bg-accent px-1.5 py-0.5 font-mono">{props.flow.userCode}</code></div>
 							<div className="text-caption text-text-tertiary">{t("cloudSync.provider.githubWaiting")}</div>
 						</div>
+					) : null}
+					{props.flowError ? (
+						<div className="text-sm text-destructive">{props.flowError}</div>
 					) : null}
 				</div>
 			) : null}
@@ -1142,21 +1147,66 @@ export function CloudSyncSettingsTab() {
 	const googleSnapshot = providers?.google;
 
 	// GitHub Device Flow：token 只在主进程换取并配置，渲染层只展示验证 URL/code。
+	// 轮询为串行 setTimeout 链（RFC 8628）：每轮结果决定下一跳等待时长（retryAfterMs），
+	// 同一时刻至多一个定时器，避免固定 setInterval 造成的重复/叠加轮询与 slow_down 后被拒。
 	const [githubClientId, setGithubClientId] = useState("");
 	const [githubFlow, setGithubFlow] = useState<{ userCode: string; verificationUrl: string; interval: number } | null>(null);
+	const [githubFlowError, setGithubFlowError] = useState<string | null>(null);
+	const githubPollTimer = useRef<number | null>(null);
+	/** 流程代数：每次发起连接 +1，使 in-flight 的 start/poll 迟到结果与旧定时器整体失效（防止双击/重启叠加）。 */
+	const githubPollGeneration = useRef(0);
+
+	const runGithubPoll = useCallback(async () => {
+		// 记录发起本轮的代数；等待期间若启动了新流程或组件卸载，代数已变，迟到结果一律丢弃。
+		const generation = githubPollGeneration.current;
+		const result = await githubDevicePoll();
+		if (generation !== githubPollGeneration.current) return;
+		if (!result) {
+			// IPC 调用失败：hook 已写入全局 error；这里给出可见的流程失败提示并结束轮询。
+			setGithubFlow(null);
+			setGithubFlowError(t("cloudSync.provider.githubFlowFailed"));
+			return;
+		}
+		if (result.status === "ok") {
+			setGithubFlow(null);
+			setGithubFlowError(null);
+			return;
+		}
+		if (result.status === "error") {
+			setGithubFlow(null);
+			setGithubFlowError(result.error ?? t("cloudSync.provider.githubFlowFailed"));
+			return;
+		}
+		// pending：按主进程返回的 retryAfterMs 安排下一跳（slow_down 累加已由主进程完成）。
+		githubPollTimer.current = window.setTimeout(() => {
+			githubPollTimer.current = null;
+			if (generation !== githubPollGeneration.current) return;
+			void runGithubPoll();
+		}, Math.max(0, result.retryAfterMs ?? 5000));
+	}, [githubDevicePoll, t]);
+
 	const startGithubConnect = useCallback(async () => {
+		// 推进代数并清掉旧定时器：上一轮 in-flight 的 start/poll 响应即使稍后 resolve，
+		// 也会因代数不符被丢弃，无法再调度新定时器或改写状态。
+		githubPollGeneration.current += 1;
+		const generation = githubPollGeneration.current;
+		setGithubFlowError(null);
+		if (githubPollTimer.current !== null) {
+			window.clearTimeout(githubPollTimer.current);
+			githubPollTimer.current = null;
+		}
 		const flow = await githubDeviceStart(githubClientId.trim());
+		// 等待期间用户再次连接（双击）或组件已卸载：这次响应已过期，直接丢弃。
+		if (generation !== githubPollGeneration.current) return;
 		if (!flow) return;
 		setGithubFlow({ userCode: flow.userCode, verificationUrl: flow.verificationUrl, interval: Math.max(5, flow.interval) });
-		const timer = window.setInterval(async () => {
-			const result = await githubDevicePoll();
-			if (!result) return;
-			if (result.status !== "pending") {
-				window.clearInterval(timer);
-				setGithubFlow(null);
-			}
-		}, 5000);
-	}, [githubDeviceStart, githubDevicePoll, githubClientId]);
+		// 首次轮询前先等一个服务端建议的间隔（RFC 8628：interval 内不应轮询）。
+		githubPollTimer.current = window.setTimeout(() => {
+			githubPollTimer.current = null;
+			if (generation !== githubPollGeneration.current) return;
+			void runGithubPoll();
+		}, Math.max(5, flow.interval) * 1000);
+	}, [githubDeviceStart, githubClientId, runGithubPoll]);
 
 	// OneDrive 浏览器授权：PKCE 流程在设置页内轮询，token 永不进渲染层。
 	const [onedriveClientId, setOnedriveClientId] = useState("");
@@ -1185,6 +1235,12 @@ export function CloudSyncSettingsTab() {
 	// 卸载时清理轮询定时器（生命周期配对）。
 	useEffect(() => {
 		return () => {
+			// 推进代数：in-flight 的 githubDeviceStart/githubDevicePoll 即使稍后 resolve，也会因代数不符被丢弃。
+			githubPollGeneration.current += 1;
+			if (githubPollTimer.current !== null) {
+				window.clearTimeout(githubPollTimer.current);
+				githubPollTimer.current = null;
+			}
 			if (onedrivePollTimer.current !== null) {
 				window.clearInterval(onedrivePollTimer.current);
 				onedrivePollTimer.current = null;
@@ -1338,6 +1394,7 @@ export function CloudSyncSettingsTab() {
 										onDisconnect={() => void disconnectProvider("github")}
 										onReconnect={() => void connect("github")}
 										flow={githubFlow}
+										flowError={githubFlowError}
 									/>
 									<LocalFolderProviderCard
 										status={localSnapshot?.status ?? "disconnected"}

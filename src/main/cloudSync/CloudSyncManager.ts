@@ -23,6 +23,7 @@ import type {
 	CloudSyncMissingExtension,
 	CloudSyncOneDriveFlowStart,
 	CloudSyncGoogleFlowStart,
+	CloudSyncGithubPollResult,
 	CloudSyncProviderConfigInput,
 	CloudSyncProviderSnapshot,
 	CloudSyncSelectionPreferences,
@@ -61,6 +62,7 @@ import {
 	pollGithubDeviceFlow,
 	startGithubDeviceFlow,
 	type GithubDeviceFlowStart,
+	type GithubDeviceFlowToken,
 } from "./adapters/GithubGistObjectStorage.ts";
 import {
 	CloudSyncScanner,
@@ -299,6 +301,8 @@ export interface CloudSyncManagerOptions {
 	}) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
 	/** GitHub Device Flow 测试注入点：缺省走真实 GitHub 端点（全局 fetch）。 */
 	startGithubDeviceFlowImpl?: (clientId: string) => Promise<GithubDeviceFlowStart>;
+	/** GitHub Device Flow 轮询测试注入点：缺省走真实 GitHub 端点（全局 fetch）。 */
+	pollGithubDeviceFlowImpl?: (clientId: string, deviceCode: string) => Promise<GithubDeviceFlowToken>;
 	/** 内置 OAuth 凭据（对齐 Netcatty：构建期 env 注入，缺省读 VITE_SYNC_* 环境变量）。 */
 	oauthBuiltins?: OAuthBuiltinCredentials;
 	onStateChanged?: (snapshot: CloudSyncStateSnapshot) => void;
@@ -336,8 +340,9 @@ export class CloudSyncManager {
 	} | null = null;
 	private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 	private disposed = false;
-	/** GitHub Device Flow 进行中的上下文（主进程持有，token 永不进 renderer）。 */
-	private githubDeviceFlow: (GithubDeviceFlowStart & { clientId: string }) | null = null;
+	/** GitHub Device Flow 进行中的上下文（主进程持有，token 永不进 renderer）。
+	 *  retryIntervalMs：当前轮询间隔（毫秒），slow_down 时累加 5s，服务端 interval 为基准。 */
+	private githubDeviceFlow: (GithubDeviceFlowStart & { clientId: string; retryIntervalMs: number }) | null = null;
 	/** OneDrive 浏览器授权进行中的上下文（PKCE codeVerifier 单次有效，回环服务随 dispose 清理）。 */
 	private oneDriveFlow: {
 		clientId: string;
@@ -590,26 +595,43 @@ export class CloudSyncManager {
 		const resolvedClientId = clientId.trim() || this.oauthBuiltins.githubClientId;
 		if (resolvedClientId.length === 0 || resolvedClientId.length > 128) throw new TypeError("GitHub client id is invalid");
 		const flow = await (this.options.startGithubDeviceFlowImpl ?? startGithubDeviceFlow)(resolvedClientId);
-		this.githubDeviceFlow = { ...flow, clientId: resolvedClientId };
+		// retryIntervalMs 以服务端 device authorization 响应里的 interval 为基准（秒 → 毫秒），下限 5s；
+		// 之后 slow_down 在此基准上每次累加 5s，渲染层据 retryAfterMs 安排下一跳轮询。
+		this.githubDeviceFlow = {
+			...flow,
+			clientId: resolvedClientId,
+			retryIntervalMs: Math.max(5_000, Number.isFinite(flow.interval) ? flow.interval * 1000 : 5_000),
+		};
 		return flow;
 	}
 
-	/** 轮询设备授权；成功后直接用 token 配置 github provider（token 不进 renderer）。 */
-	async pollGithubDeviceFlow(): Promise<{ status: "ok" | "pending" | "error"; error?: string }> {
+	/**
+	 * 轮询设备授权（RFC 8628）：
+	 * - authorization_pending → pending，带当前 retryAfterMs；
+	 * - slow_down → 间隔累加 5s，并返回增大后的 retryAfterMs；
+	 * - access token 到手 → 用 token 直接配置 github provider（token 只在主进程，永不进 renderer）；
+	 * - 终态错误（access_denied/expired_token 等）→ 清空 flow 并返回可展示的 error。
+	 */
+	async pollGithubDeviceFlow(): Promise<CloudSyncGithubPollResult> {
 		const flow = this.githubDeviceFlow;
 		if (!flow) return { status: "error", error: "No active device flow" };
 		try {
-			const result = await pollGithubDeviceFlow(flow.clientId, flow.deviceCode);
+			const poll = this.options.pollGithubDeviceFlowImpl ?? pollGithubDeviceFlow;
+			const result = await poll(flow.clientId, flow.deviceCode);
 			if (result.accessToken) {
 				this.githubDeviceFlow = null;
 				await this.configureProvider({ provider: "github", config: { token: result.accessToken, clientId: flow.clientId } });
 				return { status: "ok" };
 			}
-			if (result.error === "authorization_pending" || result.error === "slow_down") {
-				return { status: "pending" };
+			if (result.error === "slow_down") {
+				flow.retryIntervalMs += 5_000;
+				return { status: "pending", retryAfterMs: flow.retryIntervalMs };
+			}
+			if (result.error === "authorization_pending") {
+				return { status: "pending", retryAfterMs: flow.retryIntervalMs };
 			}
 			this.githubDeviceFlow = null;
-			return { status: "error", error: result.errorDescription ?? result.error };
+			return { status: "error", error: result.errorDescription ?? result.error ?? "GitHub device flow failed" };
 		} catch (error) {
 			this.githubDeviceFlow = null;
 			return { status: "error", error: error instanceof Error ? error.message : String(error) };

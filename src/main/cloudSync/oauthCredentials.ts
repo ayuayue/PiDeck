@@ -7,8 +7,9 @@
  * - VITE_SYNC_GOOGLE_CLIENT_ID   ：Google Cloud「桌面应用」OAuth Client ID
  * - VITE_SYNC_GOOGLE_CLIENT_SECRET ：Google 桌面应用 Client Secret（PKCE 可省略）
  *
- * 注入后设置页隐藏凭据输入、用户点「通过浏览器连接」直接授权（零配置）；
- * 未注入时回退到「用户自备」模式（BYO，当前设置页输入框）。
+ * GitHub 是 Device Flow 公共客户端（无密钥），内置公开默认值 DEFAULT_GITHUB_CLIENT_ID：
+ * 未注入 VITE_SYNC_GITHUB_CLIENT_ID 时直接生效（零配置），注入时以注入值为准；
+ * 其余 provider 未注入时回退到「用户自备」模式（BYO，当前设置页输入框）。
  */
 
 export interface OAuthBuiltinCredentials {
@@ -18,11 +19,14 @@ export interface OAuthBuiltinCredentials {
 	googleClientSecret: string;
 }
 
+/** GitHub OAuth App 公开 Client ID（Device Flow 公共客户端，无密钥；应用方注册的默认值）。 */
+export const DEFAULT_GITHUB_CLIENT_ID = "Ov23liDM74yxq3HOLCRS";
+
 export function resolveOauthBuiltinCredentials(
 	env: Record<string, string | undefined> = process.env,
 ): OAuthBuiltinCredentials {
 	return {
-		githubClientId: (env.VITE_SYNC_GITHUB_CLIENT_ID ?? "").trim(),
+		githubClientId: (env.VITE_SYNC_GITHUB_CLIENT_ID ?? "").trim() || DEFAULT_GITHUB_CLIENT_ID,
 		onedriveClientId: (env.VITE_SYNC_ONEDRIVE_CLIENT_ID ?? "").trim(),
 		googleClientId: (env.VITE_SYNC_GOOGLE_CLIENT_ID ?? "").trim(),
 		googleClientSecret: (env.VITE_SYNC_GOOGLE_CLIENT_SECRET ?? "").trim(),

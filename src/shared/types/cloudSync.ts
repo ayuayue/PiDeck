@@ -153,6 +153,19 @@ export interface CloudSyncGoogleFlowStart {
 	port: number;
 }
 
+/**
+ * GitHub Device Flow 轮询结果（主进程 → 渲染层）。
+ * pending 时 retryAfterMs 为下一次轮询的等待时长（已含 slow_down 累加），
+ * 渲染层据此安排 setTimeout，避免固定间隔的重复/叠加轮询。
+ */
+export interface CloudSyncGithubPollResult {
+	status: "ok" | "pending" | "error";
+	/** 下次轮询前应等待的毫秒数（pending 时提供）。 */
+	retryAfterMs?: number;
+	/** 轮询失败时的可展示错误信息（error 时提供）。 */
+	error?: string;
+}
+
 
 export interface ProviderAccount {
 	id: string;

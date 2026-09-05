@@ -2652,6 +2652,7 @@ export const zhCN = {
   "cloudSync.provider.githubOpenUrl": "打开以下链接并输入设备码：",
   "cloudSync.provider.githubUserCode": "设备码：",
   "cloudSync.provider.githubWaiting": "等待授权完成…",
+  "cloudSync.provider.githubFlowFailed": "GitHub 授权失败，请重试。",
   "cloudSync.provider.endpoint": "Endpoint",
   "cloudSync.provider.region": "Region",
   "cloudSync.provider.bucket": "Bucket",

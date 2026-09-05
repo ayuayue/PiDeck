@@ -51,6 +51,8 @@ export interface GithubDeviceFlowToken {
 	accessToken: string;
 	error?: string;
 	errorDescription?: string;
+	/** 服务端最新建议的轮询间隔（秒）；RFC 8628 允许在 token 响应中下发。 */
+	interval?: number;
 }
 
 /** 发起 GitHub Device Flow：返回用户需访问的验证 URL 与一次性 code。 */
@@ -101,6 +103,7 @@ export async function pollGithubDeviceFlow(
 		accessToken: "",
 		error: typeof data.error === "string" ? data.error : "unknown_error",
 		errorDescription: typeof data.error_description === "string" ? data.error_description : undefined,
+		interval: typeof data.interval === "number" && data.interval > 0 ? data.interval : undefined,
 	};
 }
 

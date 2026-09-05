@@ -128,6 +128,7 @@ import type {
 	CloudSyncMissingExtension,
 	CloudSyncOneDriveFlowStart,
 	CloudSyncGoogleFlowStart,
+	CloudSyncGithubPollResult,
 	CloudSyncSelectionTree,
 	CloudSyncSelectionUpdate,
 	CloudSyncProviderConfigInput,
@@ -1879,10 +1880,7 @@ const api = {
 				interval: number;
 			}>,
 		githubDevicePoll: () =>
-			ipcRenderer.invoke(ipcChannels.cloudSyncGithubDevicePoll) as Promise<{
-				status: "ok" | "pending" | "error";
-				error?: string;
-			}>,
+			ipcRenderer.invoke(ipcChannels.cloudSyncGithubDevicePoll) as Promise<CloudSyncGithubPollResult>,
 		scan: () =>
 			ipcRenderer.invoke(ipcChannels.cloudSyncScan) as Promise<CloudSyncSelectionTree>,
 		updateSelection: (update: CloudSyncSelectionUpdate) =>
