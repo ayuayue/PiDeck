@@ -30,8 +30,9 @@ jobs:
         run: npm ci
 
       - name: Test
-        # --test-timeout：全量测试偶发在 Windows runner 上挂起（本地 72s 全绿），
-        # 定位用——挂起测试 120s 后强制失败并在日志暴露测试名；定位后移除。
+        # --test-timeout：Windows runner 上全量测试偶发整体挂起（本地 72s 全绿，
+        # CI 曾卡 30 分钟无日志），单测超时保证最坏 2 分钟暴露并给出测试名，
+        # 避免 CI 无限挂起；日常不触发（全量正常 ~3 分钟）。
         run: npm test -- --test-timeout=120000
 
       - name: Generate app icon
