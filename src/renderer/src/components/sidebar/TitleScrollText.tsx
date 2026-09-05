@@ -6,9 +6,10 @@ type TitleScrollStyle = CSSProperties & {
 	"--title-scroll-duration"?: string;
 };
 
-const TITLE_SCROLL_PIXELS_PER_SECOND = 12;
-const TITLE_SCROLL_MIN_DURATION_MS = 2_800;
-const TITLE_SCROLL_MAX_DURATION_MS = 30_000;
+const TITLE_SCROLL_PIXELS_PER_SECOND = 5;
+// 仅保留下限防抖：2px 最小溢出 → 400ms；不设上限（历史上 24s/300s 上限都会把
+// 超长标题（数百～数千 px）钦成 10px/s 以上的“飞滚”，违背 5px/s 恒定速度的初衷）。
+const TITLE_SCROLL_MIN_DURATION_MS = 300;
 
 /**
  * 侧栏会话标题的 hover 滚动展示。
@@ -19,10 +20,9 @@ const TITLE_SCROLL_MAX_DURATION_MS = 30_000;
  * 行为规则：
  * - 未溢出不滚动（scrollWidth <= clientWidth 时保持静止，避免所有行 hover 都动）；
  * - 默认静止显示开头（与现状渐隐截断一致）；hover 时滚动到末尾并停住；
- * - 离开 hover 回到开头；滚动速度随溢出长度自适应（约 12px/s，下限 2.8s、上限 30s；
- *   曾为 20px/s/1.8s/12s，用户反馈短标题被 1.8s 下限压得“瞬移”、长标题收尾仓促——
- *   慢速长读更符合“看完整标题”的目的，1.8s 只能勉强扫视；上限放宽到 30s 让超长
- *   标题也保持匀速（否则会被上限截断成“快滚”，同样仓促））；
+ * - 离开 hover 回到开头；滚动为慢速匀速（线性 5px/s，不设时长上限：
+ *   历史上 24s/300s 上限会把超长标题钳成 10px/s+ 的“飞滚”，与用户
+ *   “长短都改 5px/s” 的诉求冲突；下限仅 300ms 防 2px 级抖动）；
  * - hover 事件绑定在静态窗口而不是移动文字上，避免文字滚走后触发 mouseleave；
  * - 溢出距离经 CSS 变量注入 keyframes，使用实际像素而非不稳定的视口单位。
  *
@@ -105,15 +105,14 @@ export function TitleScrollText({
 	};
 
 	const overflowing = overflow > 1 && !disabled;
-	const scrollStyle: TitleScrollStyle | undefined = overflowing && hovering
+	// 变量总是注入（无论是否 hovering）：数值随测量常驻，便于调试与避免 hover 瞬间的样式跳变；
+	// 动画 class（animate-title-scroll）仍只在 hovering 时挂载，行为不变。
+	const scrollStyle: TitleScrollStyle | undefined = overflowing
 		? {
 				"--title-scroll-distance": `${overflow}px`,
-				"--title-scroll-duration": `${Math.min(
-					TITLE_SCROLL_MAX_DURATION_MS,
-					Math.max(
-						TITLE_SCROLL_MIN_DURATION_MS,
-						Math.round((overflow / TITLE_SCROLL_PIXELS_PER_SECOND) * 1000),
-					),
+				"--title-scroll-duration": `${Math.max(
+					TITLE_SCROLL_MIN_DURATION_MS,
+					Math.round((overflow / TITLE_SCROLL_PIXELS_PER_SECOND) * 1000),
 				)}ms`,
 			}
 		: undefined;

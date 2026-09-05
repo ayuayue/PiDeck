@@ -104,6 +104,8 @@ function loadDshLastPluginPane(): "config" | "list" {
 export type DshConfigTabHandle = {
 	/** 保存全部未保存修改；返回是否全部成功。 */
 	save: () => Promise<boolean>;
+	/** 重新拉取 DSH 配置（外部直写 settings 后刷新，如 TokenDance 一键安装）。 */
+	reload: () => Promise<void>;
 };
 
 /**
@@ -211,8 +213,6 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 		return ok;
 	}, [props.onDirtyChange, registrySaveAll]);
 
-	useImperativeHandle(ref, () => ({ save: saveAll }), [saveAll]);
-
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
@@ -280,6 +280,18 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 			setLoading(false);
 		}
 	}, [runtimeInstalled]);
+
+	// 句柄依赖 load（声明在其后）：reload 供外部直写 settings 后刷新（如 TokenDance 一键安装）。
+	useImperativeHandle(
+		ref,
+		() => ({
+			save: saveAll,
+			reload: async () => {
+				await load();
+			},
+		}),
+		[saveAll, load],
+	);
 
 	/** 状态（host 是否启动/目录）独立加载：不依赖 settings.describe，
 	 * host boot 失败时概览页仍能显示当前目录与重启入口，而不是整页空白。 */

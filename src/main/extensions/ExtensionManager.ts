@@ -18,7 +18,7 @@ import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCop
 import { BUILT_IN_EXTENSIONS } from "./builtInExtensions";
 import { MIN_PI_MINOR_VERSION_FOR_EXTENSION_WHITELIST, parsePiMinorVersion } from "./extensionVersionGate";
 // 版本比较与应用更新检查共用同一实现（含预发布语义：beta < 同号正式版）。
-import { compareVersions } from "../update/githubFeed";
+import { compareVersions } from "../utils/versionCompare";
 
 export { BUILT_IN_EXTENSIONS } from "./builtInExtensions";
 

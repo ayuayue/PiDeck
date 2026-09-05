@@ -78,18 +78,28 @@ test("sidebar workspace wrapper stays transparent", () => {
 
 test("sidebar child titles use the shared width clamp and hover-scroll component", () => {
   assert.match(sessionTree, /import \{ TitleScrollText \} from "\.\/TitleScrollText"/);
-  assert.match(sessionTree, /<TitleScrollText text=\{child\.agent\.title\} className="font-medium" \/>/);
+  assert.match(sessionTree, /<TitleScrollText\s+text=\{child\.agent\.title\}\s+className="font-medium"\s+disabled=\{agentSession\?\.id === props\.currentSessionId\}\s+\/>/);
   assert.match(sessionTree, /标题被截断时 hover 滚动展示全文/);
   assert.match(activeSessionsTree, /import \{ TitleScrollText \} from "\.\/TitleScrollText"/);
-  assert.match(activeSessionsTree, /<TitleScrollText text=\{displayTitle\} className="font-medium" \/>/);
+  assert.match(activeSessionsTree, /<TitleScrollText text=\{displayTitle\} className="font-medium" disabled=\{selected\} \/>/);
   assert.match(dshSearchResults, /import \{ TitleScrollText \} from "\.\/TitleScrollText"/);
   assert.match(dshSearchResults, /text=\{record\.title\}/);
   assert.doesNotMatch(titleScrollText, /title=\{overflowing \? text : undefined\}/);
-  // 速率规则：用户反馈 20px/s 过快后调慢为 12px/s（短标题下限放宽到 2.8s 避免“瞬移”，长标题上限放到 30s 保持匀速）
-  assert.match(titleScrollText, /TITLE_SCROLL_PIXELS_PER_SECOND = 12/);
-  assert.match(titleScrollText, /TITLE_SCROLL_MIN_DURATION_MS = 2_800/);
-  assert.match(titleScrollText, /TITLE_SCROLL_MAX_DURATION_MS = 30_000/);
+  // 速率规则：恒定 5px/s 匀速（仅 300ms 下限防 2px 级抖动，不设上限避免超长标题飞滚）
+  assert.match(titleScrollText, /TITLE_SCROLL_PIXELS_PER_SECOND = 5/);
+  assert.match(titleScrollText, /TITLE_SCROLL_MIN_DURATION_MS = 300/);
   assert.match(projectTree, /truncate font-medium/);
+});
+
+test("current session rows in the sidebar do not scroll on hover", () => {
+  // 与激活 tab 同款规则：当前选中的会话行 hover 不滚动（内容已在右侧看全）。
+  // 历史会话/草稿/运行中 Agent/活动页四个入口都要带 disabled={... === currentSessionId}。
+  const disabledUses = sessionTree.match(/disabled=\{[^}]*currentSessionId[^}]*\}/g) ?? [];
+  assert.ok(disabledUses.length >= 3, "SessionTree 的三类会话行都应禁用滚动");
+  assert.match(activeSessionsTree, /disabled=\{selected\}/);
+  assert.match(sessionTree, /disabled=\{session\.id === props\.currentSessionId\}/);
+  assert.match(sessionTree, /disabled=\{child\.session\.id === props\.currentSessionId\}/);
+  assert.match(sessionTree, /disabled=\{agentSession\?\.id === props\.currentSessionId\}/);
 });
 
 test("session status indicators stay on the concrete session row", () => {

@@ -113,7 +113,8 @@ export function ActiveSessionsTree(props: {
 							/>
 							<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 								<div className="conversation-title flex min-w-0 items-center gap-1.5">
-									<TitleScrollText text={displayTitle} className="font-medium" />
+									{/* 当前选中会话不滚动（与激活 tab 一致），避免选中行 hover 也在动 */}
+									<TitleScrollText text={displayTitle} className="font-medium" disabled={selected} />
 									<SessionBackendMark backend={agent.backend} />
 									{/* 相对时间常显：hover 时被右侧「⋯」浮层盖住（与历史会话行同一策略） */}
 									<span className="shrink-0 text-caption tabular-nums text-muted-foreground group-hover/row:hidden">

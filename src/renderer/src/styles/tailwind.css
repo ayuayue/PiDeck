@@ -140,13 +140,44 @@
   --text-heading: var(--font-size-heading);
 }
 
-/* shadcn CSS variables 兼容层（裸变量名）：beUI/shadcn 官方组件在样式与
-   inline style 里直接 var() 引用 --muted-foreground / --foreground 这类
-   无前缀变量（不经 Tailwind class），本项目此前只有 --color-* 主题变量。
-   值映射到语义 token：亮/暗/主题色自动跟随，官方组件源码保持原样。 */
+/* shadcn CSS variables 兼容层：beUI/shadcn 官方组件在样式与 inline style 里直接
+   var() 引用 --muted-foreground / --foreground 这类无前缀变量（不经 Tailwind class）。
+   同时必须在这里补全 --color-* 语义别名——@theme inline reference 模式不会把主题变量
+   输出到 :root（仅构建期内联进 utility），而 base layer（*,::before,::after 的
+   border-color）、legacy CSS 与 inline style 都在运行时引用 var(--color-border) /
+   var(--color-ring) / var(--color-background) 等；缺失会让弹框边框回退 currentColor
+   （明显黑线）、搜索框圆环描边整条失效（与背景融为一体）。
+   值映射到 foundation 语义 token：亮/暗/主题色自动跟随，官方组件源码保持原样。
+   注意：不重复定义 foundation 已拥有的变量（--color-accent / --color-accent-strong /
+   --color-bg-* / --color-text-* / --color-border-* 等）；--color-background / --color-card
+   在 foundation 仅存在于壁纸模式的 dialog-content 专属块（特异性更高），裸 :root 定义
+   不会压掉壁纸覆盖，且能让 base layer 的 body 背景正常解析。 */
 :root {
+  /* 裸变量名（beUI/shadcn inline 引用） */
   --muted-foreground: var(--color-text-secondary);
   --foreground: var(--color-text-primary);
+  /* --color-* 语义别名（@theme inline reference 不输出到 :root 的运行时兜底） */
+  --color-border: var(--color-border-default);
+  --color-ring: var(--color-accent-strong);
+  --color-background: var(--color-bg-app);
+  --color-foreground: var(--color-text-primary);
+  --color-card: var(--color-bg-panel);
+  --color-card-foreground: var(--color-text-primary);
+  --color-popover: var(--color-bg-popover);
+  --color-popover-foreground: var(--color-text-primary);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-text-inverse);
+  --color-secondary: var(--color-bg-muted);
+  --color-secondary-foreground: var(--color-text-primary);
+  --color-muted: var(--color-bg-muted);
+  --color-muted-foreground: var(--color-text-secondary);
+  --color-accent-foreground: var(--color-text-primary);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #fafafa;
+  --color-input: var(--color-border-default);
+  --color-sidebar: var(--color-bg-sidebar);
+  --color-sidebar-foreground: var(--color-text-primary);
+  --color-bg-subtle: var(--color-bg-muted);
 }
 
 /* 动效时长 utility（唯一真源，对应 AGENTS.md 三档时长）：
@@ -328,17 +359,17 @@
 /* ── 侧栏标题 hover 滚动（TitleScrollText）────────────────────────────
  * 标题被截断时，hover 让全文滚到末尾停住再回弹，离开回开头。
  * 时长/距离由组件实测溢出后注入 --title-scroll-duration / --title-scroll-distance；
- * 未溢出的行不加 animate-title-scroll，完全静止。 */
+ * 未溢出的行不加 animate-title-scroll，完全静止。
+ * 匀速（linear）：组件按 5px/s 线性折算时长，这里不再叠加缓动曲线，
+ * 避免中段瞬时加速导致长标题看不清。 */
 @theme {
-  --animate-title-scroll: title-scroll-to-end var(--title-scroll-duration, 3s) cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+  --animate-title-scroll: title-scroll-to-end var(--title-scroll-duration, 3s) linear forwards;
 
   @keyframes title-scroll-to-end {
-    0%,
-    10% {
+    from {
       transform: translateX(0);
     }
-    88%,
-    100% {
+    to {
       transform: translateX(calc(-1 * var(--title-scroll-distance, 0px)));
     }
   }

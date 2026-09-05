@@ -186,7 +186,10 @@ let previewSettings: AppSettings = {
 	imageGenSize: "unset",
 	imageGenWatermark: false,
 	imageGenOutputFormat: "png",
-	disableUpdateCheck: false,
+	autoDownloadUpdates: true,
+	// 与主进程 defaultSettings 保持一致：更新源默认 GitHub 官方，自定义镜像前缀留空
+	updateSource: "github",
+	customUpdateSourceUrl: "",
 	// 与主进程 defaultSettings 保持一致：offline 默认关，让模型目录随启动刷新
 	piRpcOffline: false,
 	piRpcNoExtensions: false,
@@ -840,25 +843,18 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
 			networkAddresses: async () => [{ address: "192.168.1.100", interfaceName: "Wi-Fi", cidr: "192.168.1.100/24", isPrivate: true }],
-			checkUpdate: async () => ({
-				currentVersion: "preview",
-				latestVersion: "preview",
-				hasUpdate: false,
-				releaseName: "preview",
-				releaseNotes: "",
-				releaseUrl: "https://github.com/ayuayue/PiDeck/releases",
-				assets: [],
-			}),
+			checkUpdate: async () => undefined,
 			onUpdateStatus: () => () => undefined,
 			getUpdateStatus: async () => null,
 			notifyUpdateSeen: async () => undefined,
 			skipUpdateVersion: async () => undefined,
-			downloadUpdate: async (asset) => ({
-				filePath: asset.name,
-				assetName: asset.name,
-			}),
+			downloadUpdate: async () => undefined,
 			installUpdate: async () => undefined,
-			onUpdateProgress: () => () => undefined,
+			checkUpdateMirrors: async () => [
+				{ id: "ghfast", status: "ok", latencyMs: 1200, speedKBps: 1780, checkedAt: Date.now() },
+				{ id: "ghproxy-net", status: "slow", latencyMs: 2000, speedKBps: 262, checkedAt: Date.now() },
+				{ id: "ghproxy-cxkpro", status: "ok", latencyMs: 1100, speedKBps: 13800, checkedAt: Date.now() },
+			],
 			onOpenInBrowser: () => () => undefined,
 			feedbackEnvironment: async () => ({
 				appVersion: "preview",
@@ -1159,6 +1155,11 @@ export function createPreviewApi(): PiDesktopApi {
 					{ id: "gpt-4o-mini", name: "GPT-4o Mini" },
 				],
 			}),
+			// 设计预览：内置 TokenDance 目录返回空（不触真实网络）
+			getTokendanceModels: async () => ({ models: [], fromCache: false, at: 0 }),
+			tokendanceAuthStart: async () => ({ ok: false, error: "preview" }),
+			tokendanceAuthExchange: async () => ({ ok: false, error: "preview" }),
+			installTokendance: async () => ({ ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "preview" }),
 			testProvider: async () => ({
 				success: true,
 				model: "gpt-4o-mini",

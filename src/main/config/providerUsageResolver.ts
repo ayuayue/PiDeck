@@ -11,6 +11,7 @@
  * "opencode-go"），因此解析顺序固定为：先 models.json 精确命中，再无 catalog
  * 兜底。apiKey 只用于主进程发请求，绝不回传渲染层（fetchProviderUsage 内部
  * 对响应做脱敏）。
+ * TokenDance 等外部供应商由用户确认写入 models.json 后走第一段命中，无需特判。
  */
 import type { PiAuthFile, PiModelsFile, PiProviderConfig } from "./ConfigManager";
 import { resolvePiApiKey } from "./providerMigration";

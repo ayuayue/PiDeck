@@ -3,7 +3,7 @@ import type { AppUpdateStatusSnapshot } from "../../../shared/types";
 
 /**
  * 主进程后台更新检查快照（app:update-status-changed 推送）。
- * 角标/首次弹窗判定都从这里派生；null = 尚未收到任何快照。
+ * 角标/首次 toast 判定都从这里派生；null = 尚未收到任何快照。
  */
 export const updateStatusAtom = atom<AppUpdateStatusSnapshot | null>(null);
 
@@ -12,7 +12,7 @@ export const pendingAppUpdateAtom = atom<boolean>((get) => {
 	const snapshot = get(updateStatusAtom);
 	if (!snapshot?.app) return false;
 	const { hasUpdate, latestVersion, skippedVersion } = snapshot.app;
-	return hasUpdate && latestVersion !== skippedVersion;
+	return hasUpdate && Boolean(latestVersion) && latestVersion !== skippedVersion;
 });
 
 /** 是否有「可提示」的 Pi CLI 更新（设置页高亮依据）。 */

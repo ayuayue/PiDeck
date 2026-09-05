@@ -16,7 +16,7 @@ test("PiDeck 将主进程 pi-ai catalog 作为构建期资源分发", () => {
 	);
 	assert.equal(
 		pkg.devDependencies?.["@earendil-works/pi-ai"],
-		"0.84.4",
+		"0.85.0",
 		"构建期输入必须精确锁定，避免 catalog 静默漂移",
 	);
 	assert.match(pkg.scripts?.build ?? "", /generate:pi-ai-catalog/);

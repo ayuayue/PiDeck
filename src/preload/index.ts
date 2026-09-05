@@ -16,10 +16,8 @@ import type {
 	ProcessMetricsSnapshot,
 	DiagnosticsSnapshot,
 	AppSettings,
-	AppUpdateDownloadProgress,
-	AppUpdateDownloadResult,
-	AppUpdateInfo,
 	AppUpdateStatusSnapshot,
+	MirrorHealthResult,
 	AvailableModel,
 	DshModelDiscoveryInput,
 	ModelListFailReason,
@@ -1205,18 +1203,16 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.appNetworkAddresses) as Promise<WebNetworkAddress[]>,
 		preferredSystemLanguages: () =>
 			ipcRenderer.invoke(ipcChannels.appPreferredSystemLanguages) as Promise<string[]>,
+		/** 手动触发一次更新检查（检测结果经 onUpdateStatus 快照推送；不弹窗）。 */
 		checkUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<AppUpdateInfo>,
-		downloadUpdate: (asset: { name: string; url: string }) =>
-			ipcRenderer.invoke(
-				ipcChannels.appDownloadUpdate,
-				asset,
-			) as Promise<AppUpdateDownloadResult>,
-		installUpdate: (filePath: string) =>
-			ipcRenderer.invoke(ipcChannels.appInstallUpdate, filePath) as Promise<void>,
-		onUpdateProgress: (callback: (progress: AppUpdateDownloadProgress) => void) =>
-			subscribe(ipcChannels.appUpdateProgress, callback),
-		/** 订阅后台更新检查快照（角标 + 每版本一次提示判定）。 */
+			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<void>,
+		/** 手动下载已检测到的新版本（自动下载关闭时用）。 */
+		downloadUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appDownloadUpdate) as Promise<void>,
+		/** 重启并安装已下载的更新（退出 → 静默替换 → 自动重启新版）。 */
+		installUpdate: () =>
+			ipcRenderer.invoke(ipcChannels.appInstallUpdate) as Promise<void>,
+		/** 订阅后台更新检查快照（角标 + toast + 设置页卡片）。 */
 		onUpdateStatus: (callback: (snapshot: AppUpdateStatusSnapshot) => void) =>
 			subscribe(ipcChannels.appUpdateStatusChanged, callback),
 		/** 获取当前更新状态快照（手动检测完成后刷新角标用）。 */
@@ -1228,6 +1224,9 @@ const api = {
 		/** 跳过某版本（该版本不再主动提示）。 */
 		skipUpdateVersion: (version: string) =>
 			ipcRenderer.invoke(ipcChannels.appUpdateSkipVersion, version) as Promise<void>,
+		/** 探测内置更新镜像可用性与速度（设置页「更新源」）。 */
+		checkUpdateMirrors: () =>
+			ipcRenderer.invoke(ipcChannels.appCheckUpdateMirrors) as Promise<MirrorHealthResult[]>,
 		feedbackEnvironment: () =>
 			ipcRenderer.invoke(
 				ipcChannels.appFeedbackEnvironment,
@@ -1507,6 +1506,33 @@ const api = {
 				models?: FetchedModel[];
 				error?: string;
 				suggestedBaseUrl?: string;
+			}>,
+		/** 内置 TokenDance 模型目录：主进程 live fetch + userData 缓存；force=true 强制刷新（渲染层“刷新目录”按钮用） */
+		getTokendanceModels: (force?: boolean) =>
+			ipcRenderer.invoke(ipcChannels.configGetTokendanceModels, force) as Promise<{
+				models: AvailableModel[];
+				fromCache: boolean;
+				at: number;
+			}>,
+		/** 启动 TokenDance OAuth 授权（PKCE S256 headless）：返回授权 URL + flowId（verifier 仅主进程持有）。 */
+		tokendanceAuthStart: () =>
+			ipcRenderer.invoke(ipcChannels.configTokendanceAuthStart) as Promise<
+				{ ok: true; flowId: string; authUrl: string } | { ok: false; error: string }
+			>,
+		/** 用一次性授权 code 交换 TokenDance API Key；成功后 key 只在本次响应出现，须立即写入配置。 */
+		tokendanceAuthExchange: (flowId: string, code: string) =>
+			ipcRenderer.invoke(ipcChannels.configTokendanceAuthExchange, { flowId, code }) as Promise<
+				{ ok: true; key: string } | { ok: false; error: string }
+			>,
+		/** 一键安装 TokenDance：供应商信息 + 目录模型写入 pi models.json 与 DSH llm-pi-ai；apiKey 可选（OAuth 后已持有）。 */
+		installTokendance: (apiKey?: string) =>
+			ipcRenderer.invoke(ipcChannels.configInstallTokendance, { apiKey }) as Promise<{
+				ok: boolean;
+				modelCount: number;
+				piSaved: boolean;
+				dshSaved: boolean;
+				dshWroteViaHost?: boolean;
+				error?: string;
 			}>,
 		/** 视觉桥：读取当前配置（模型列表由渲染层经 listModels 拉全量） */
 		visionGetConfig: () =>

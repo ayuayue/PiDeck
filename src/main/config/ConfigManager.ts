@@ -35,6 +35,7 @@ import { credentialRefFor } from "../../shared/dshCredentialRef";
 import { normalizeDshDeepseekProvider } from "../../shared/dshProviderNames";
 import { parseProviderModelsResponse } from "./parseProviderModels";
 import { isSafeProviderName, piBuiltinSnapshotFromCatalog, resolvePiApiKey } from "./providerMigration";
+import { ensureTokendanceAttribution } from "./tokendanceAttribution";
 import {
 	buildProbeFailureDetail,
 	buildProbeHeaders,
@@ -51,7 +52,8 @@ import {
 	USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID,
 } from "./usageProbeTemplates";
 import { loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
-import type { UserUsageProbe } from "./userUsageProbes";
+import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
+import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
 import { loadDshUsageProviderProfile } from "./dshUsageEndpoint";
@@ -120,40 +122,7 @@ const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
 // （而非整体丢弃），防止恶意/异常网关用超大响应体拖垮内存，同时保留诊断信息。
 const MAX_USAGE_RESPONSE_BYTES = 64 * 1024;
 
-/** 流式读取响应体，最多读 maxBytes 字节后截断（多读的部分丢弃）。 */
-async function readBoundedResponseBody(
-	response: Response,
-	maxBytes: number,
-): Promise<string> {
-	if (!response.body) return "";
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			const remaining = maxBytes - total;
-			if (value.byteLength > remaining) {
-				if (remaining > 0) chunks.push(value.subarray(0, remaining));
-				total = maxBytes;
-				await reader.cancel();
-				break;
-			}
-			chunks.push(value);
-			total += value.byteLength;
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	const merged = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		merged.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return new TextDecoder().decode(merged);
-}
+
 
 // 模型 id 长度上限：过长 id 往往是误填，且可能撑爆某些网关/日志。
 const MODEL_ID_MAX_LENGTH = 256;
@@ -375,7 +344,9 @@ export class ConfigManager {
 		const validation = this.validateModels(data);
 		if (!validation.valid) return validation;
 		// 保存前统一迁移历史别名，确保写入 models.json 的 api 名称能被 pi 官方 registry 识别。
-		await this.writeJsonFile("models.json", this.normalizeModelsForPi(data));
+		// 随后做 TokenDance 归因兜底：用户手动添加的 tokendance provider 若没带 X-App-URL，
+		// 调用在平台上归因不到本应用（见 tokendanceAttribution.ts 头注释的官方归因规则）。
+		await this.writeJsonFile("models.json", ensureTokendanceAttribution(this.normalizeModelsForPi(data)));
 		return { valid: true };
 	}
 
@@ -931,7 +902,8 @@ export class ConfigManager {
 	 * 2. 模板路由：配置了声明式模板（general/newapi）→ 用模板构建候选（覆盖字段生效）；
 	 *    未配置 → 内置候选表 + 旧 probes 数组按 baseUrl/apiType 自动匹配（内置默认开）；
 	 * 3. 超时：per-provider timeoutSecs（默认 10s，学 cc-switch）。
-	 * backend="dsh" 时配置/凭据走 DSH 链路（$DSH_HOME），与 pi 完全同构、互不干扰。
+	 * backend="dsh" 时配置/凭据走 DSH 链路（$DSH_HOME）：DSH 侧已配置则该配置为准；
+	 * 未配置时回退 Pi 侧同 provider 配置（display parity，见 loadUsageSettingsWithFallback）。
 	 * 全部失败时返回结构化错误，并对响应做密钥脱敏，避免把 token 回传给渲染层。
 	 */
 	async fetchProviderUsage(provider: string, backend: UsageProbeBackend = "pi"): Promise<ProviderUsageResult> {
@@ -940,7 +912,8 @@ export class ConfigManager {
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
 		const settingsDir = this.usageProbeSettingsDir(backend);
 		// 1) 门控：用户显式关闭（enabled=false）→ 快速返回，不发请求。
-		const settings = await loadUsageProbeSettings(settingsDir, provider);
+		// DSH 未单独配置时回退 Pi 同 provider 配置（display parity：Pi 已配置并显示 → DSH 卡片默认也显示）。
+		const { settings, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, settingsDir);
 		for (const error of settings.errors) {
 			console.warn("[ConfigManager] 用量探针配置被忽略：", error);
 		}
@@ -984,7 +957,7 @@ export class ConfigManager {
 			);
 		}
 
-		const userProbes = await loadUserUsageProbes(settingsDir);
+		const userProbes = await loadUserUsageProbes(effectiveDir);
 		for (const error of userProbes.errors) {
 			console.warn("[ConfigManager] 用户用量探针配置被忽略：", error);
 		}
@@ -1015,9 +988,14 @@ export class ConfigManager {
 	): Promise<UsageProbeSettingsResult> {
 		// 同 fetchProviderUsage：DSH 组 id 别名先归一，才能读回以规范名保存的配置。
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
-		const loaded = await loadUsageProbeSettings(this.usageProbeSettingsDir(backend), provider);
+		const { settings: loaded, effectiveDir } = await this.loadUsageSettingsWithFallback(
+			backend,
+			provider,
+			this.usageProbeSettingsDir(backend),
+		);
 		// 旧版 probes 数组命中回显：手写/历史探针没有声明式配置，弹窗据此预填 Cookie 模板字段迁移。
-		const legacyProbes = await this.matchLegacyProbesForProvider(provider, backend);
+		// 回退语义下旧版 probes 也来自 effectiveDir（Pi 目录），弹窗看到的迁移源与实际查询一致。
+		const legacyProbes = await this.matchLegacyProbesForProvider(provider, backend, effectiveDir);
 		return {
 			...(loaded.config ? { config: loaded.config } : {}),
 			recognized: await this.recognizeUsageTemplate(provider, backend),
@@ -1035,11 +1013,12 @@ export class ConfigManager {
 	private async matchLegacyProbesForProvider(
 		provider: string,
 		backend: UsageProbeBackend = "pi",
+		dir = this.usageProbeSettingsDir(backend),
 	): Promise<UserUsageProbe[]> {
 		const resolved = await this.resolveUsageEndpoint(provider, backend);
 		if (!resolved.matched || !resolved.baseUrl) return [];
 		const api = this.normalizeApiType(resolved.apiType);
-		const loaded = await loadUserUsageProbesDetailed(this.usageProbeSettingsDir(backend));
+		const loaded = await loadUserUsageProbesDetailed(dir);
 		const hits: UserUsageProbe[] = [];
 		for (let index = 0; index < loaded.candidates.length; index += 1) {
 			const probe = loaded.probes[index];
@@ -1157,6 +1136,33 @@ export class ConfigManager {
 	}
 
 	/**
+	 * 读单 provider 用量配置；backend="dsh" 且 DSH 侧未配置时回退 Pi 侧同名 provider 配置。
+	 *
+	 * 显示对齐（display parity）规则：Pi 里已配置并显示用量 → DSH 卡片同一 provider 默认也显示，
+	 * 无需在 DSH 侧重复配置；DSH 一旦显式保存过（含 enabled=false 关闭）即接管、不再回退。
+	 * 回退取「配置 + 旧版 probes 数组」（effectiveDir 指向 Pi 目录），端点与凭据仍走 DSH 链路
+	 * （DSH profile / 凭据库），不会拿 Pi 的 key 去查 DSH 端点。provider 名按两侧一致匹配
+	 * （deepseek 已由 normalizeDshDeepseekProvider 统一为规范名）。
+	 */
+	private async loadUsageSettingsWithFallback(
+		backend: UsageProbeBackend,
+		provider: string,
+		settingsDir: string,
+	): Promise<{ settings: UsageProbeSettingsLoadResult; effectiveDir: string }> {
+		const settings = await loadUsageProbeSettings(settingsDir, provider);
+		if (backend !== "dsh" || settings.config) {
+			return { settings, effectiveDir: settingsDir };
+		}
+		// DSH 无配置：尝试 Pi 侧同名 provider（仅配置级回退，凭据复用 DSH 链路解析）。
+		const piSettings = await loadUsageProbeSettings(this.configDir, provider);
+		if (!piSettings.config) return { settings, effectiveDir: settingsDir };
+		return {
+			settings: { config: piSettings.config, errors: [...settings.errors, ...piSettings.errors] },
+			effectiveDir: this.configDir,
+		};
+	}
+
+	/**
 	 * 解析 provider 端点（models.json 精确命中 → pi-ai catalog 兜底；API key 不出主进程）。
 	 * backend="dsh" 时以 DSH 自身 profile（settings.yaml 的 llm-pi-ai.providers / llm-deepseek）
 	 * 为准——自定义 route 的 baseURL/api/headers 与 pi 侧或 catalog 默认可能不同，只靠兜底
@@ -1269,35 +1275,24 @@ export class ConfigManager {
 				);
 				let captured: unknown;
 				for (const preflightUrl of preflightUrls) {
-					const preflightController = new AbortController();
-					const preflightTimeout = setTimeout(
-						() => preflightController.abort(),
+					const preflightResult = await usageProbeRequest(preflightUrl, {
+						method: "GET",
+						headers: this.withOpenAiSdkUserAgent(
+							buildProbeHeaders(candidate.preflight.headers, apiKey),
+						),
 						timeoutMs,
-					);
+						maxBytes: MAX_USAGE_RESPONSE_BYTES,
+					});
+					if ("error" in preflightResult) continue;
+					if (preflightResult.status < 200 || preflightResult.status >= 300) continue;
+					let preflightBody: unknown = null;
 					try {
-						const preflightRes = await net.fetch(preflightUrl, {
-							method: "GET",
-							headers: this.withOpenAiSdkUserAgent(
-								buildProbeHeaders(candidate.preflight.headers, apiKey),
-							),
-							redirect: "error",
-							signal: preflightController.signal,
-						});
-						if (!preflightRes.ok) continue;
-						const preflightRaw = await readBoundedResponseBody(preflightRes, MAX_USAGE_RESPONSE_BYTES);
-						let preflightBody: unknown = null;
-						try {
-							preflightBody = JSON.parse(preflightRaw);
-						} catch {
-							// 非 JSON：不是预期的预检端点，换下一个 URL。
-						}
-						captured = getByPath(preflightBody, candidate.preflight.capture.path);
-						if (typeof captured === "string" && captured.trim() !== "") break;
+						preflightBody = JSON.parse(preflightResult.raw);
 					} catch {
-						// 预检端点不可达/超时/重定向拒绝：换下一个 URL 尝试。
-					} finally {
-						clearTimeout(preflightTimeout);
+						// 非 JSON：不是预期的预检端点，换下一个 URL。
 					}
+					captured = getByPath(preflightBody, candidate.preflight.capture.path);
+					if (typeof captured === "string" && captured.trim() !== "") break;
 				}
 				if (typeof captured !== "string" || captured.trim() === "") continue;
 				preflightHeaders[candidate.preflight.capture.header] = captured.trim();
@@ -1307,78 +1302,65 @@ export class ConfigManager {
 				this.ensureVersionPath(url),
 			);
 			for (const requestUrl of urls) {
-				const controller = new AbortController();
-				const timeout = setTimeout(
-					() => controller.abort(),
-					timeoutMs,
-				);
-				try {
-					const res = await net.fetch(requestUrl, {
-						method: candidate.method ?? "GET",
-						headers: this.withOpenAiSdkUserAgent({
-							...buildProbeHeaders(candidate.headers, apiKey, {
-								// 候选自带 Cookie 等独立鉴权时不能自动补 Bearer（双凭证可能被服务端拒绝，
-								// 如 Token Rhythm 的 AMBIGUOUS_CREDENTIALS 400），由候选/用户探针显式声明。
-								noBearer: candidate.noBearer === true,
-							}),
-							...preflightHeaders,
-							...extraHeaders,
+				const result = await usageProbeRequest(requestUrl, {
+					method: candidate.method ?? "GET",
+					headers: this.withOpenAiSdkUserAgent({
+						...buildProbeHeaders(candidate.headers, apiKey, {
+							// 候选自带 Cookie 等独立鉴权时不能自动补 Bearer（双凭证可能被服务端拒绝，
+							// 如 Token Rhythm 的 AMBIGUOUS_CREDENTIALS 400），由候选/用户探针显式声明。
+							noBearer: candidate.noBearer === true,
 						}),
-						...(candidate.method === "POST" && candidate.body !== undefined
-							? { body: JSON.stringify(candidate.body) }
-							: {}),
-						// 拒绝重定向：带凭据的探针请求不允许被 3xx 带到第三方域（fail-closed），
-						// 与 pi-usage 对官方用量端点的处理一致；用量端点本身不应重定向。
-						redirect: "error",
-						signal: controller.signal,
-					});
-					const raw = await readBoundedResponseBody(res, MAX_USAGE_RESPONSE_BYTES);
-					const safeRaw = this.redactSecret(raw, apiKey);
-					if (!res.ok) {
-						// 非 2xx：可能是端点不存在，换下一个 URL/候选继续；记一笔尝试明细供失败时归因。
-						attempts.push({
-							url: requestUrl,
-							method: candidate.method ?? "GET",
-							status: res.status,
-							// 只留前 240 字符的脱敏响应摘要，足够定位「路径不对/非法请求」类问题。
-							...(safeRaw ? { body: safeRaw.slice(0, 240) } : {}),
-						});
-						continue;
-					}
-					let body: unknown;
-					try {
-						body = JSON.parse(raw);
-					} catch {
-						body = null;
-					}
-					const parsed = parseUsageResponseBody(body, safeRaw, candidate.parse);
-					if (parsed.matched) {
-						return {
-							success: true,
-							kind: parsed.kind,
-							periods: parsed.periods,
-							balance: parsed.balance,
-							credits: parsed.credits,
-							booster: parsed.booster,
-							at: startedAt,
-						};
-					}
-					// 2xx 但结构不匹配：不是预期的 usage 端点，继续探测；记一笔供失败归因（接口变更信号）。
-					attempts.push({ url: requestUrl, method: candidate.method ?? "GET", kind: "shape" });
-				} catch (error) {
+						...preflightHeaders,
+						...extraHeaders,
+					}),
+					...(candidate.method === "POST" && candidate.body !== undefined
+						? { body: JSON.stringify(candidate.body) }
+						: {}),
+					timeoutMs,
+					maxBytes: MAX_USAGE_RESPONSE_BYTES,
+				});
+				if ("error" in result) {
 					// 网络错误/超时/重定向拒绝：单个候选失败不阻断其它候选，记录后继续。
-					// （此前此循环无 catch，net.fetch 拒绝会直接冒泡到 IPC 层炸掉整次查询。）
-					const isTimeout =
-						error instanceof Error &&
-						(error.name === "AbortError" || error.name === "TimeoutError");
+					// usageProbeRequest 已按 AbortError/TimeoutError 归一为 timeout，其余为 network。
 					attempts.push({
 						url: requestUrl,
 						method: candidate.method ?? "GET",
-						error: isTimeout ? "timeout" : "network",
+						error: result.error,
 					});
-				} finally {
-					clearTimeout(timeout);
+					continue;
 				}
+				const safeRaw = this.redactSecret(result.raw, apiKey);
+				if (result.status < 200 || result.status >= 300) {
+					// 非 2xx：可能是端点不存在，换下一个 URL/候选继续；记一笔尝试明细供失败时归因。
+					attempts.push({
+						url: requestUrl,
+						method: candidate.method ?? "GET",
+						status: result.status,
+						// 只留前 240 字符的脱敏响应摘要，足够定位「路径不对/非法请求」类问题。
+						...(safeRaw ? { body: safeRaw.slice(0, 240) } : {}),
+					});
+					continue;
+				}
+				let body: unknown;
+				try {
+					body = JSON.parse(result.raw);
+				} catch {
+					body = null;
+				}
+				const parsed = parseUsageResponseBody(body, safeRaw, candidate.parse);
+				if (parsed.matched) {
+					return {
+						success: true,
+						kind: parsed.kind,
+						periods: parsed.periods,
+						balance: parsed.balance,
+						credits: parsed.credits,
+						booster: parsed.booster,
+						at: startedAt,
+					};
+				}
+				// 2xx 但结构不匹配：不是预期的 usage 端点，继续探测；记一笔供失败归因（接口变更信号）。
+				attempts.push({ url: requestUrl, method: candidate.method ?? "GET", kind: "shape" });
 			}
 		}
 

@@ -14,7 +14,7 @@
  * 颜色规则与三处详情面板共用 providerUsageDisplay 的 tone：≥90% 红 / ≥70% 橙 /
  * 其余绿；余额不足 10% 橙、≤0 红。无数据一律返回 null——保持「查不到就不显示」。
  */
-import { Fragment, type ReactNode } from "react";
+import { Fragment } from "react";
 import { Clock, RefreshCw } from "lucide-react";
 import type { ProviderUsageResult, UsageProbeBackend } from "../../../../shared/types/providerUsage";
 import {
@@ -121,58 +121,4 @@ export function ProviderUsageInline(props: {
 	);
 }
 
-/**
- * 供应商卡片底部统一用量行（学 cc-switch：所有卡片同一位置、右对齐、行高一致）。
- *
- * - 其余（未开启/加载/失败/不支持）：不渲染用量行——「查不到就不显示」。
- *   未开启不给「用量查询未开启 → 去配置」广告位（未开启的功能不应占位）；
- *   配置入口统一在卡片头部柱状图按钮，生效意图由用户主动发起。
- */
-export function ProviderUsageFooter(props: {
-	provider: string;
-	backend?: UsageProbeBackend;
-}) {
-	const entry = useProviderUsageEntry(props.provider, props.backend);
-	if (!props.provider || !hasUsableUsage(entry.result)) return null;
-	return <ProviderUsageInline provider={props.provider} variant="card" backend={props.backend} />;
-}
 
-/**
- * 供应商卡片底部统一用量行（cc-switch 版式：卡片右下角只放金额/百分比）。
- *
- * 认证页 / DSH 页共用：成功且有可展示数值时才渲染右对齐一行 = 用量显示（时间+数值+刷新）。
- * Pi 模型页已把用量收进卡片标题行（ProviderUsageInline variant=card），不再走本底栏。
- * 没有成功配对结果时整个行容器也不渲染，避免卡片底部留下空白占位。
- * 未开启不显示引导（配置入口在卡片头部柱状图按钮）。
- * 「用量查询」柱状图按钮在各自卡片**头部图标组**（不占用量行，见各卡片实现）。
- * 行高固定（h-9）+ border-t 分隔，所有卡片水平对齐。
- *
- * leading：可选的左侧内容。提供后行始终渲染（左 leading、右用量有则显示）；
- * 不提供时维持「查不到就不渲染」的旧行为。
- */
-export function ProviderUsageRow(props: {
-	provider: string;
-	/** 查询/缓存链路：pi（缺省）或 dsh（$DSH_HOME 配置 + DSH 凭据库）。 */
-	backend?: UsageProbeBackend;
-	className?: string;
-	/** 左侧固定内容（如模型数量）；提供后行始终渲染。 */
-	leading?: ReactNode;
-}) {
-	const entry = useProviderUsageEntry(props.provider, props.backend);
-	if (!props.provider) return null;
-	const hasUsable = hasUsableUsage(entry.result);
-	// leading 提供时行必然渲染（模型数量常驻）；否则仅在有可用用量时渲染（旧行为）。
-	if (!props.leading && !hasUsable) return null;
-	return (
-		<div
-			className={`flex h-9 items-center justify-end gap-1.5 border-t border-border/60 px-3.5 ${props.className ?? ""}`}
-			data-testid="provider-usage-row"
-			data-provider={props.provider}
-		>
-			{props.leading ? (
-				<span className="mr-auto min-w-0 truncate text-caption text-text-tertiary">{props.leading}</span>
-			) : null}
-			{hasUsable ? <ProviderUsageFooter provider={props.provider} backend={props.backend} /> : null}
-		</div>
-	);
-}

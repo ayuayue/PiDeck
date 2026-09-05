@@ -29,12 +29,18 @@ export function buildComposerStatsGroups(
 	if (!state) return [];
 	const groups: string[] = [];
 	const sessionStats = state.dshSessionStats;
-	if (sessionStats && sessionStats.steps > 0) {
+	// 门控用 turns（完成对话轮）而非 steps：纯工具执行轮没有投影出的 assistant 消息，
+	// steps 会为 0，但模型已执行、官方 sessionStats 也会计入（对齐 dsh-web 的显示时机）。
+	if (sessionStats && sessionStats.turns > 0) {
+		// 步数只在 >0 时拼接（官方投影 steps≥1 恒有值；兜底 fallback 的纯工具轮
+		// steps=0，此时只显示轮数，避免「1 轮 · 0 步」）。
 		groups.push(
-			t("composerStats.counts", {
-				turns: sessionStats.turns,
-				steps: sessionStats.steps,
-			}),
+			sessionStats.steps > 0
+				? t("composerStats.counts", {
+					turns: sessionStats.turns,
+					steps: sessionStats.steps,
+				})
+				: t("composerStats.turns", { turns: sessionStats.turns }),
 		);
 		const durations: string[] = [];
 		if (sessionStats.llmMs > 0) {
@@ -53,7 +59,8 @@ export function buildComposerStatsGroups(
 		}
 		if (speeds.length > 0) groups.push(speeds.join(" · "));
 	} else {
-		// pi 没有 DSH 的 sessionStats，轮次按用户消息计算，保证历史和实时会话口径一致。
+		// pi 没有 DSH 的 sessionStats：轮次由 SessionView 用 countUserTurns 传入
+		// （发言权周期，与内部分页/缓存协议同口径），保证历史/实时一致。
 		if (turnCount > 0) groups.push(t("composerStats.turns", { turns: turnCount }));
 		// pi 无整段 sessionStats：用最近一条回复的性能组填同一条带，语义在文案里标清。
 		const lastReply: string[] = [];

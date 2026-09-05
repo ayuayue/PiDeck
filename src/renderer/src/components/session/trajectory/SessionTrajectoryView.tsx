@@ -15,6 +15,7 @@ import {
 	type TrajectoryTimeRange,
 	type TrajectoryTurn,
 } from "./buildTrajectory";
+import { countUserTurns } from "../timeline/turnRenderWindow";
 
 const LANE_ORDER: TrajectoryLane[] = ["input", "model", "tools", "process"];
 const MIN_DRAG_PX = 4;
@@ -107,6 +108,15 @@ export function SessionTrajectoryView(props: {
 	variant?: "page" | "drawer";
 }) {
 	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(props.sessionId));
+	// 对外「N 轮」口径（统一轮次契约）：DSH 会话用 host sessionStats（官方，与
+	// dsh-web 一致，含 goal 自动续跑轮）；pi 会话（及 DSH 投影未到时的兜底）按
+	// 发言权周期计（countUserTurns，与分页/缓存协议同口径，开口即算一轮）。
+	// 账本分组结构仍按 user 开轮（buildTrajectory），连发 user 时组数可能略多于
+	// 发言权轮数——账本是结构展示，对外计数统一走 countUserTurns。
+	const dialogueTurns =
+		props.isDsh === true && runtime?.state?.dshSessionStats
+			? runtime.state.dshSessionStats.turns
+			: countUserTurns(props.messages);
 	const [now, setNow] = useState(() => Date.now());
 	const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
 	const [range, setRange] = useState<TrajectoryTimeRange | undefined>(undefined);
@@ -157,7 +167,7 @@ export function SessionTrajectoryView(props: {
 			<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
 				<div className="flex min-w-0 items-center gap-2 text-caption text-muted-foreground">
 					<Activity size={14} aria-hidden="true" />
-					<span>{t("session.trajectory.turns", { count: model.turns.length })}</span>
+					<span>{t("session.trajectory.turns", { count: dialogueTurns })}</span>
 					<span aria-hidden="true">·</span>
 					<span>{t("session.trajectory.records", { count: visible.length })}</span>
 					{range ? (

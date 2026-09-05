@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.3-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -40,7 +40,7 @@
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Highlights](#-highlights)
   - [📋 Changelog](#-changelog)
-    - [v0.7.3 Release Highlights](#v073-release-highlights)
+    - [v0.7.4-beta Release Highlights](#v074-beta-release-highlights)
   - [🧩 Features](#-features)
     - [Workspace & Projects](#workspace--projects)
     - [Sessions & Conversation](#sessions--conversation)
@@ -79,25 +79,16 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.7.3** (2026-09-03)
+> **Latest: v0.7.4-beta** (2026-09-04)
 
-### v0.7.3 Release Highlights
-- 🚀 **Chat session archives**
-- 🚀 **Active tab always in view**
-- 🚀 **Refined default-model priority**
-- 🚀 **DSH runtime: dev uses project deps, packs stay lean**
-- 🚀 **Rewind checkpoints**
-- 🚀 **Import DSH runtime from a folder**
-- 🚀 **Automatic session titles**
-- 🚀 **Idle agent auto-release**
-- 🚀 **Usage rows stay put, model cards get denser**
-- 🚀 **Feedback reports include project context**
-- 🚀 **Ask notifications jump to the session**
-- 🚀 **Deep links into config backends**
-- ✨ **Refresh stale projects**
-- ✨ **Selected-state backgrounds restored**
-- ✨ **Dev no longer prompts to download DSH runtime**
-- ✨ **DSH runtime install no longer blocks the main process**
+### v0.7.4-beta Release Highlights
+- 🚀 **Command Code usage query support**
+- 🚀 **Application update lifecycle hardening**
+- 🚀 **Update source mirrors with auto health checks**
+- ✨ **Tool stopwatch no longer resets mid-stream**
+- ✨ **Vision-bridge model picker fits extra-long model names**
+- ✨ **Unified session turn counting**
+- ✨ **Fork titles persist and long sidebar names scroll**
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -169,7 +160,7 @@
 | **Desktop Pet** | Turn multi-agent status into a little companion on your desktop: aggregated states, always-on-top, scaling, petdex community pets. |
 | **Themes & Appearance** | One-click cycle through light / dark / follow-system (sidebar footer); semantic design tokens with natural dark-mode support. |
 | **Notifications** | Global notifications as card toasts; a dedicated Ask system-notification toggle keeps background queries silent. |
-| **Proactive Update Prompt** | The app and Pi CLI check for updates every 2 hours in the background; new versions show a badge dot + update dialog (once per version, skippable), with current → latest shown in Settings. |
+| **Application Updates** | App-update checks always run in the background and `autoDownloadUpdates` defaults to enabled; after download, the user confirms **Restart and install** in Settings. Windows/Linux use the bundled updater, while macOS opens the GitHub Release for manual installation; Pi CLI checks run independently. |
 | **Feishu Bot** | Bind a session to a Feishu bot to sync messages and status into a Feishu group. |
 | **LAN Web Service** | Start a local web service from Settings and open the web edition from any device on the LAN, with dual-backend session browsing and the DSH tool panel. |
 | **Process Monitor / Log Management** | Built-in process monitoring and cache/log management in Settings — no more digging through directories. |

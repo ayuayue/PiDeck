@@ -2,7 +2,7 @@
 
 > 本文回答四个问题：模型配置中的 `reasoning` / `thinkingLevelMap` 是否需要手配；草稿态和正式 Agent 态分别显示什么；“关闭”是否会写入配置；以及 `input: ["text", "image"]` 多模态能力到底怎样生效。
 >
-> 核对基线：Pi `0.84.3`、PiDeck 当前工作区代码。Pi 上游源码以本机安装包 `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai` 为准。
+> 核对基线：Pi `0.85.0`（2026-09 跟进）、PiDeck 当前工作区代码。Pi 上游源码以本机安装包 `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai` 为准。文中标注「已用真实 Pi 0.84.3 RPC 验证」的实测结论为当时记录，行为语义未在本版变更。
 
 ## 结论先行
 
@@ -460,7 +460,7 @@ Pi 上游从 **0.81.0** 开始提供 `get_available_thinking_levels`，但它只
 
 ### 已知取舍
 
-- catalog artifact 的构建期来源固定为 `@earendil-works/pi-ai@0.84.4`；未来新于该版本的外部 Pi 模型仍可能不在 artifact 中。未配置/未匹配的模型保持空字段，由 endpoint 实报或用户手填，不猜容量默认值。
+- catalog artifact 的构建期来源固定为 `@earendil-works/pi-ai@0.85.0`；未来新于该版本的外部 Pi 模型仍可能不在 artifact 中。未配置/未匹配的模型保持空字段，由 endpoint 实报或用户手填，不猜容量默认值。
 - **自适应未匹配时的思考兜底（2026-08 决策）**：目录/端点都没声明推理时，自适应模板与保存补全默认写 `reasoning: true` 并开放全部档位（`DEFAULT_OPEN_THINKING_MAP = {xhigh, max}`，`utils/modelSpecAutoFill.ts`），否则 Pi 按 `!reasoning → ["off"]` 只给 off，用户没有思考强度可选。端点/catalog 显式声明的 `reasoning: false` 或档位映射（含 null 禁用语义，如 MiniMax-M2.7）始终优先，不被默认值覆盖。
 - 端点 `/models` 实报的 `reasoning / input / thinkingLevelMap` 在 `parseProviderModelsResponse` 完整保留（`parseProviderModels.ts`），参与自适应模板合并，不再被丢弃。
 - **provider compat 联动（2026-08 决策）**：保存时 `deriveProviderCompat`（`utils/modelSpecAutoFill.ts`）检测该 provider 任一模型存在非空档位映射且 `reasoning !== false` → 自动写 `compat.supportsReasoningEffort: true`，否则 false。否则 pi 用 provider 级 compat 覆盖模型定义，用户选了思考强度也不发 `reasoning_effort`；旧版本无条件写 false，因此自动判定优先于已存在的 false（陈旧值非用户意图），显式 true 保留。UI 上的 supportsReasoningEffort 开关为显示/手动覆盖，下次保存仍按联动归一。

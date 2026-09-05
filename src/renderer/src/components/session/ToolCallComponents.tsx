@@ -43,6 +43,7 @@ import {
   getToolDetailText,
   getToolDiffTarget,
   getToolExitCode,
+  getToolLiveStartTimestamp,
   getToolName,
   getToolStatus,
   fileChangeToDiffLines,
@@ -361,8 +362,10 @@ export const ToolCard = memo(function ToolCard(props: {
 								// 提示。用户回答后 tool_execution_end 落地的 durationMs 已由主进程扣除等待时长。
 								t("ask.waitingForAnswer")
 							) : status === "running" ? (
-								// 工具执行中：从消息时间戳起实时计时（LiveDuration 每秒刷新）
-								<LiveDuration startedAt={props.message.timestamp} isStreaming />
+								// 工具执行中：以 meta.startedAt 为秒表起点实时计时。消息 timestamp 会被主进程
+								// 在每次 update/end 时刷新（见 getToolLiveStartTimestamp），直接用会让长命令的
+								// 耗时显示反复归零，结束才突然跳到总时长。
+								<LiveDuration startedAt={getToolLiveStartTimestamp(props.message)} isStreaming />
 							) : (
 								formatDuration(durationMs ?? 0)
 							)}

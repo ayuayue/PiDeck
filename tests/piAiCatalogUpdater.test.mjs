@@ -235,7 +235,7 @@ test("catalog:restorePrevious 从 .bak 恢复；无备份返回 no-backup", asyn
 test("catalog:checkRemote 版本不同 = hasUpdate；相同 = 最新；网络失败 = network", async () => {
 	const dir = tempDir();
 	try {
-		// 远端 2.0.0，本地（真实内置 0.84.4 或覆盖）不同 → hasUpdate
+		// 远端 2.0.0，本地（真实内置 0.85.0 或覆盖）不同 → hasUpdate
 		const updater = new PiAiCatalogUpdater({ userDataDir: dir, fetchImpl: makeFetch(makeArtifact("2.0.0-remote")), timeoutMs: 200 });
 		const checked = await updater.checkRemote("main");
 		assert.equal(checked.ok, true);

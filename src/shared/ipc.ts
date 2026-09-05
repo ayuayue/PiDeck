@@ -324,15 +324,18 @@ export const ipcChannels = {
 	appNetworkAddresses: "app:network-addresses",
 	appPreferredSystemLanguages: "app:preferred-system-languages",
 	appCheckUpdate: "app:check-update",
+	/** 手动下载已检测到的新版本（autoDownload 关闭时使用）。 */
 	appDownloadUpdate: "app:download-update",
+	/** 重启并安装已下载的更新（quitAndInstall）。 */
 	appInstallUpdate: "app:install-update",
-	appUpdateProgress: "app:update-progress",
 	/** 主进程后台更新检查快照推送（角标 + 每版本一次提示判定）。 */
 	appUpdateStatusChanged: "app:update-status-changed",
 	/** 记录已提示过的版本（每版本只提示一次）。 */
 	appUpdateNotifySeen: "app:update-notify-seen",
 	/** 跳过某版本（该版本不再主动提示）。 */
 	appUpdateSkipVersion: "app:update-skip-version",
+	/** 探测内置更新镜像的可用性与速度（设置页「更新源」自动体检用）。 */
+	appCheckUpdateMirrors: "app:check-update-mirrors",
 	appFeedbackEnvironment: "app:feedback-environment",
 	/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
 	appFeedbackProjectContext: "app:feedback-project-context",
@@ -446,6 +449,13 @@ export const ipcChannels = {
 	configImport: "config:import",
 	/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表 */
 	configFetchModels: "config:fetch-models",
+	/** 取内置 TokenDance 模型目录（live fetch + userData 缓存；force=true 强制刷新） */
+	configGetTokendanceModels: "config:get-tokendance-models",
+	configInstallTokendance: "config:install-tokendance",
+	/** 启动 TokenDance OAuth 授权流程（PKCE S256 headless；返回授权 URL + flowId） */
+	configTokendanceAuthStart: "config:tokendance-auth-start",
+	/** 提交一次性授权 code 交换 TokenDance API Key（成功返回完整 key） */
+	configTokendanceAuthExchange: "config:tokendance-auth-exchange",
 	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
 	configTestProvider: "config:test-provider",
 	/** 查询 provider 用量/余额（主进程按 provider 名路由：门控 → 端点解析 → 模板探测） */

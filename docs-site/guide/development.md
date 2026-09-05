@@ -29,6 +29,16 @@
 
 因此 `docs-site/`、`docs/`、README 和 GitHub Pages 配置不会进入最终桌面安装包，也不会增加桌面端包体大小。
 
+## 应用更新发布
+
+应用更新检查始终在后台运行。`autoDownloadUpdates` 是唯一的应用更新偏好，默认开启；下载完成后不会自动退出，必须由用户在设置页主动点击「重启并安装」。Pi CLI 的版本检查独立于桌面应用更新链路。
+
+- **Windows** 使用 `electron-updater` 和 NSIS 安装包。同一个 GitHub Release 必须上传 `latest.yml`、该清单指向的 `*-setup.exe` 与对应的 `*.blockmap`；portable `.exe` 和 `.zip` 仅供用户手动下载，不会被 updater 作为更新包安装。
+- **Linux** 使用平台 channel 元数据（通常是 `latest-linux.yml`）及其清单所指向的安装包和 `.blockmap`，三者必须在同一个 GitHub Release 中。
+- **macOS** 当前只检测 GitHub 的最新 Release 并打开下载页手动安装。没有 Developer ID 签名和 notarization 时，不承诺静默替换或可绕过 Gatekeeper 的自动更新；应按架构上传 DMG/ZIP 手动安装包。
+
+Windows 发布使用 `npm run dist:win`。脚本末尾只列出当前版本资产，并在 NSIS 更新必需的三项不全时警告。
+
 ## 官网与文档
 
 本站点使用 VitePress，源码位于 `docs-site/`。GitHub Pages workflow 会在推送到 `main` 后构建 `docs-site/.vitepress/dist` 并发布。

@@ -65,13 +65,17 @@ const devGitBranch = isolateDevByGitBranch ? readDevGitBranch() : undefined;
 const devUserDataDirName = isolateDevByGitBranch
 	? resolveDevUserDataDirName(devGitBranch)
 	: DEFAULT_DEV_USER_DATA_NAME;
+const explicitUserDataDir =
+	(isE2E ? process.env.PIDECK_E2E_USER_DATA_DIR?.trim() : undefined) ||
+	app.commandLine.getSwitchValue("user-data-dir") ||
+	process.argv
+		.find((arg) => arg.startsWith("--user-data-dir="))
+		?.slice("--user-data-dir=".length);
 if (isDevBuild) {
 	// 显式固定目录名：dev 构建的 productName 是 phidsDev，
 	// 默认 userData 会落在 %APPDATA%\PiDeckDev，必须指回 dev 配置目录以复用现有配置。
 	// 例外：命令行显式传入 --user-data-dir（e2e 隔离、多实例调试）时尊重该路径，
 	// 否则 e2e 会读到本机真实开发数据（settings/projects 全部污染测试断言）。
-	const explicitUserDataDirArg = process.argv.find((arg) => arg.startsWith("--user-data-dir="));
-	const explicitUserDataDir = explicitUserDataDirArg?.slice("--user-data-dir=".length);
 	if (explicitUserDataDir) {
 		// Chromium accepts this switch independently, but Electron's app storage
 		// APIs need the same path before settings and single-instance state load.
@@ -79,6 +83,10 @@ if (isDevBuild) {
 	} else {
 		app.setPath("userData", join(app.getPath("appData"), devUserDataDirName));
 	}
+} else if (isE2E && explicitUserDataDir) {
+	// 打包 E2E 必须在真实 app.isPackaged 分支运行，却不能抢占用户同版本实例锁。
+	// 仅测试标记下尊重显式临时 profile；生产发行物仍固定使用历史 pi-desktop 数据目录。
+	app.setPath("userData", explicitUserDataDir);
 } else {
 	// 正式版：安装包仍用历史 %APPDATA%/pi-desktop；Windows 便携 exe 改落到
 	// PORTABLE_EXECUTABLE_DIR/data，避免与安装版抢同一把版本单实例锁
@@ -185,16 +193,12 @@ import type {
 	AgentTab,
 	AgentUiRequest,
 	AppSettings,
-	AppUpdateAsset,
-	AppUpdateDownloadProgress,
 	AppLogLevel,
 	AppLogQuery,
-	AppUpdateDownloadResult,
 	AvailableModel,
 	ExternalEditor,
 	ExternalEditorId,
 	ExternalEditorSetting,
-	AppUpdateInfo,
 	CreateSessionDraftInput,
 	CreateAnonymousSessionInput,
 	CreateAnonymousSessionResult,
@@ -276,6 +280,9 @@ import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
 import { WorktreeService } from "./git/WorktreeService";
 import { ConfigManager } from "./config/ConfigManager";
+import { TokendanceCatalogStore } from "./config/tokendanceCatalog";
+import { installTokendanceProvider } from "./config/tokendanceInstaller";
+import { TokendanceAuthStore } from "./config/tokendanceAuth";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { PromptManager } from "./prompts/PromptManager";
@@ -310,7 +317,7 @@ import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { registerCatalogIpc } from "./ipc/catalogIpc";
-import { setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
+import { getPiAiCatalogIndex, lookupPiAiCatalogEntry, setPiAiCatalogUserDataDir } from "./pi/piAiBuiltinCatalog";
 import { PiAiCatalogUpdater } from "./pi/PiAiCatalogUpdater";
 import { fetchModelList, refreshModelCatalogIfStale, refreshModelList } from "./pi/modelListCache";
 import { registerFilesIpc } from "./ipc/filesIpc";
@@ -360,7 +367,9 @@ import { EnvironmentDoctor } from "./health/EnvironmentDoctor";
 import { LogBundleExporter } from "./health/LogBundleExporter";
 import { QuitCleanupRegistry } from "./lifecycle/QuitCleanupRegistry";
 import type { FeishuChatBinding } from "../shared/types";
-import { checkAppUpdate as checkForAppUpdate, UPDATE_REPO, UPDATE_REPO_OWNER } from "./update/appUpdateCheck";
+import { createRealAutoUpdater } from "./update/createAutoUpdater";
+import { createMacManualUpdateChecker } from "./update/macManualUpdate";
+import { UPDATE_REPO, UPDATE_REPO_OWNER } from "./update/releaseRepo";
 import { UpdateService } from "./update/UpdateService";
 
 let mainWindow: BrowserWindow | null = null;
@@ -1130,117 +1139,10 @@ function applyNativeThemeSource(settings: AppSettings) {
 	}
 }
 
-const RELEASES_URL = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO}/releases`;
 const POSTHOG_PROJECT_KEY =
 	process.env.POSTHOG_PROJECT_KEY ??
 	"phc_xgJ8gFUMgExZEEPzZ7VRa7698ENcaDRquWZVGYb2dCFK";
 const POSTHOG_HOST = process.env.POSTHOG_HOST ?? "https://us.i.posthog.com";
-
-
-function emitUpdateProgress(progress: AppUpdateDownloadProgress) {
-	if (!mainWindow || mainWindow.isDestroyed()) return;
-	mainWindow.webContents.send(ipcChannels.appUpdateProgress, progress);
-}
-
-async function downloadUpdateAsset(asset: AppUpdateAsset): Promise<AppUpdateDownloadResult> {
-	if (!asset.url || !/^https:\/\//i.test(asset.url)) {
-		void appLogger.warn("update", "Rejected invalid update download URL", {
-			assetName: asset.name,
-			url: asset.url,
-		});
-		throw new Error(mainCopy("update.invalidDownloadUrl"));
-	}
-
-	const safeName = basename(asset.name).replace(/[<>:"/\\|?*]+/g, "-");
-	const downloadDir = join(app.getPath("userData"), "updates");
-	await mkdir(downloadDir, { recursive: true });
-	const filePath = join(downloadDir, safeName);
-	const startedAt = Date.now();
-	let receivedBytes = 0;
-	let totalBytes = asset.size > 0 ? asset.size : undefined;
-
-	// 使用 Electron net 下载可继承 Chromium 的 TLS/代理能力；进度通过 IPC 推送给 renderer。
-	return new Promise((resolve, reject) => {
-			void appLogger.info("update", "Download update asset started", { assetName: asset.name, url: asset.url });
-		const request = net.request({ method: "GET", url: asset.url });
-		request.setHeader("User-Agent", `pi-desktop/${app.getVersion()}`);
-		request.on("redirect", (_statusCode, _method, redirectUrl) => {
-			// GitHub browser_download_url 通常会 302 到对象存储,必须显式跟随重定向。
-			request.followRedirect();
-			void appLogger.debug("update", "Follow update download redirect", { redirectUrl });
-		});
-		request.on("response", (response) => {
-			if (response.statusCode < 200 || response.statusCode >= 300) {
-				const publicError = new Error(mainCopy("update.downloadFailed"));
-				void appLogger.warn("update", "Update download returned an error status", {
-					assetName: asset.name,
-					statusCode: response.statusCode,
-				});
-				emitUpdateProgress({ assetName: asset.name, receivedBytes, totalBytes, state: "failed", error: publicError.message });
-				reject(publicError);
-				return;
-			}
-
-			const contentLength = Number(response.headers["content-length"]);
-			if (Number.isFinite(contentLength) && contentLength > 0) totalBytes = contentLength;
-			const output = createWriteStream(filePath);
-			response.on("data", (chunk: Buffer) => {
-				receivedBytes += chunk.length;
-				output.write(chunk);
-				const elapsedSeconds = Math.max(0.001, (Date.now() - startedAt) / 1000);
-				emitUpdateProgress({
-					assetName: asset.name,
-					receivedBytes,
-					totalBytes,
-					percent: totalBytes ? Math.min(100, (receivedBytes / totalBytes) * 100) : undefined,
-					bytesPerSecond: receivedBytes / elapsedSeconds,
-					state: "downloading",
-				});
-			});
-			response.on("end", () => output.end());
-			output.on("finish", () => {
-				output.close(() => {
-					emitUpdateProgress({ assetName: asset.name, receivedBytes, totalBytes, percent: 100, state: "completed", filePath });
-					void appLogger.info("update", "Download update asset completed", { assetName: asset.name, filePath, receivedBytes });
-					resolve({ filePath, assetName: asset.name });
-				});
-			});
-			output.on("error", (error) => {
-				void appLogger.warn("update", "Failed to write update package", {
-					assetName: asset.name,
-					error: error.message,
-				});
-				const publicError = new Error(mainCopy("update.downloadFailed"));
-				emitUpdateProgress({ assetName: asset.name, receivedBytes, totalBytes, state: "failed", error: publicError.message });
-				reject(publicError);
-			});
-		});
-		request.on("error", (error) => {
-			void appLogger.warn("update", "Update download request failed", {
-				assetName: asset.name,
-				error: error.message,
-			});
-			const publicError = new Error(mainCopy("update.downloadFailed"));
-			emitUpdateProgress({ assetName: asset.name, receivedBytes, totalBytes, state: "failed", error: publicError.message });
-			reject(publicError);
-		});
-		request.end();
-	});
-}
-
-async function installDownloadedUpdate(filePath: string) {
-	// Windows/Linux 不同包类型的真正静默自更新风险较高；这里交给系统打开安装包或文件位置。
-	// 便携版用户通常下载 zip/AppImage/tar.gz 后需要替换当前目录,避免在运行中覆盖自身可执行文件。
-	await appLogger.info("update", "Open downloaded update package", { filePath });
-	const openError = await shell.openPath(filePath);
-	if (openError) {
-		await appLogger.warn("update", "Failed to open downloaded update package", {
-			filePath,
-			error: openError,
-		});
-		throw new Error(mainCopy("update.openFailed"));
-	}
-}
 
 /**
  * 重启应用：先同步退出标志并停掉常驻服务，再 relaunch + quit。
@@ -2804,28 +2706,61 @@ function registerIpc() {
 	// Phase 3.7 拆出 systemIpc 后这些可选依赖必须显式注入；
 	// 漏传 extensionManager 会导致 pi:update-check / pi:update 根本不注册。
 	if (!piModelCapabilityCache) throw new Error("Pi model capability cache is unavailable after settings load");
-	// 后台更新检查：启动延迟 + 每 2h 自动检测 PiDeck 与 Pi CLI（无配额方案，无需认证）。
-	// 快照经 app:update-status-changed 推送渲染层（齿轮角标 + 每版本一次提示判定）。
-	updateService = new UpdateService({
+	// 后台更新检查：Windows / 支持自动升级的发行物走 electron-updater；
+	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
+	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
+	const updateServiceBase = {
 		settingsStore,
 		checkPiUpdate: () => extensionManager.checkPiUpdate(),
-		sendToRenderer: (snapshot) => {
+		sendToRenderer: (snapshot: import("../shared/types").AppUpdateStatusSnapshot) => {
 			if (mainWindow && !mainWindow.isDestroyed()) {
 				mainWindow.webContents.send(ipcChannels.appUpdateStatusChanged, snapshot);
 			}
 		},
-		log: (level, message, details) => {
+		log: (level: "info" | "warn", message: string, details?: Record<string, unknown>) => {
 			if (level === "warn") void appLogger.warn("update", message, details ?? {});
 			else void appLogger.info("update", message, details ?? {});
 		},
 		getCurrentVersion: () => app.getVersion(),
-		getInstallationType: () => settingsStore.get().installationType ?? "installed",
-	});
+	};
+	// quitAndInstall 会调用 app.quit；该标记让 closeToTray 放行真正的退出。
+	let updateInstallSetQuitting = false;
+	if (process.platform === "darwin") {
+		const checkMacManualUpdate = createMacManualUpdateChecker();
+		updateService = new UpdateService({
+			...updateServiceBase,
+			deliveryMode: "manual",
+			// latestReleaseUrl（镜像源）由 UpdateService 按设置传入；null = 官方 GitHub。
+			checkManualAppUpdate: (latestReleaseUrl?: string) =>
+				checkMacManualUpdate(app.getVersion(), latestReleaseUrl),
+		});
+	} else {
+		updateService = new UpdateService({
+			...updateServiceBase,
+			deliveryMode: "automatic",
+			autoUpdater: createRealAutoUpdater(),
+			// closeToTray 会吞掉普通窗口关闭；安装器必须等待真实主进程退出。
+			prepareForInstall: () => {
+				updateInstallSetQuitting = !isQuitting;
+				isQuitting = true;
+			},
+			// 同步失败或 watchdog 超时才会走这里；正常 quitAndInstall 会直接结束进程。
+			rollbackInstallPreparation: () => {
+				if (updateInstallSetQuitting) isQuitting = false;
+				updateInstallSetQuitting = false;
+			},
+		});
+	}
 	updateService.start();
 	// 模型目录更新：覆盖层目录须在 catalog 初次读取前登记（getPiAiCatalogIndex 首次
 	// 调用即锁定索引）；updater 在 ready 后构造，此时 app.getPath("userData") 才可靠。
 	setPiAiCatalogUserDataDir(app.getPath("userData"));
 	registerCatalogIpc(new PiAiCatalogUpdater({ userDataDir: app.getPath("userData") }));
+	// TokenDance 目录 store 是共享实例：渲染层目录展示与一键安装（写入配置）读同一份缓存。
+	const tokendanceCatalogStore = new TokendanceCatalogStore({
+		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
+		log: (message, detail) => void appLogger.info("tokendance", message, detail),
+	});
 	registerSystemIpc({
 		piLocator,
 		settingsStore,
@@ -2851,21 +2786,36 @@ function registerIpc() {
 			dshHost,
 		},
 		modelCapabilityCache: piModelCapabilityCache,
+		// 内置 TokenDance 模型目录（live fetch + userData 缓存；
+		// 作为一键配置的数据源：目录模型写入 models.json 后由 pi 运行时自行解析）
+		tokendanceCatalog: tokendanceCatalogStore,
+		// 内置 TokenDance OAuth 授权（PKCE S256 headless；verifier 内存持有，重启失效）
+		tokendanceAuth: new TokendanceAuthStore(),
+		// 一键安装：pi models.json + DSH llm-pi-ai 双落盘（复用迁移服务的写盘策略：
+		// host 就绪走官方 settings API，否则直写 settings.yaml/.credentials.yaml）
+		tokendanceInstall: (apiKey) =>
+			installTokendanceProvider(
+				{
+					configManager,
+					dshHost,
+					tokendanceCatalog: tokendanceCatalogStore,
+					// 能力字段补全：目录只下 id/name/context_length，maxTokens/reasoning/
+					// input/thinkingLevelMap 按模型 id 从 pi-ai 目录精确匹配（无模糊匹配，
+					// 命不中就留空不猜默认值）。
+					catalogLookup: (modelId) =>
+						lookupPiAiCatalogEntry(getPiAiCatalogIndex(), "tokendance", modelId),
+				},
+				{ apiKey },
+			),
 		listDshMonitorSessions: () => dshAgentManager.list().map((tab) => ({ title: tab.title })),
 		stopDshHostFromMonitor,
 		getMainWindow: () => mainWindow,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
-		// 适配层：registerSystemIpc 的旧签名 (installationType?) → 新无配额检查 (options)。
-		checkForAppUpdate: (installationType?: string) =>
-			checkForAppUpdate({
-				owner: UPDATE_REPO_OWNER,
-				repo: UPDATE_REPO,
-				currentVersion: app.getVersion(),
-				installationType:
-					installationType === "portable" ? "portable" : installationType === "installed" ? "installed" : undefined,
-			}),
-		downloadUpdateAsset,
-		installDownloadedUpdate,
+		// 适配层：checkForAppUpdate 直接触发 UpdateService 检查（结果经快照推送）；
+		// download/install 同样转发给 UpdateService（electron-updater 驱动）。
+		checkForAppUpdate: () => updateService?.checkNow() ?? Promise.resolve(),
+		downloadAppUpdate: () => updateService?.downloadNow() ?? Promise.resolve(),
+		installAppUpdate: () => updateService?.installNow(),
 		openExternalUrl,
 		extensionManager,
 		// 设置变更副作用（代理 / 主题 / 飞书语言 / WSL / 宠物 / Web 服务）
@@ -2933,7 +2883,6 @@ function registerIpc() {
 				isQuitting = next;
 			},
 		},
-		RELEASES_URL,
 		devBranch: isolateDevByGitBranch && !isSharedDevBranch(devGitBranch) ? devGitBranch : undefined,
 		updateService: updateService ?? undefined,
 	});

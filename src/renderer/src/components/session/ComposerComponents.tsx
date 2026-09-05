@@ -922,7 +922,9 @@ export function ModelPicker(props: {
 	// 全量模型按供应商分组（收藏模型也保留在原分组）；
 	// 搜索交给 cmdk（item 的 value/keywords 同时覆盖 name/id/provider）
 	const groupedModels = groupModelsByProvider(props.models);
-	const providerOrder = ['anthropic', 'openai', 'google', 'deepseek', 'other'];
+	// 内置 TokenDance 置顶：PiDeck 内置供应商优先展示（未配置时列表里没有该组，自然不占位；
+	// 配置/拉取目录后该组恒在第一）。'other' 是白名单外供应商的兜底组，顺序保持最后。
+	const providerOrder = ['tokendance', 'anthropic', 'openai', 'google', 'deepseek', 'other'];
 	const sortedProviders = Object.keys(groupedModels).sort((a, b) => {
 		const aIndex = providerOrder.indexOf(a);
 		const bIndex = providerOrder.indexOf(b);

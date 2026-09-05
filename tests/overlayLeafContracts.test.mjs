@@ -61,16 +61,18 @@ test("dialog onOpenChange handlers invoke onClose instead of returning the callb
   }
 });
 
-test("async leaf controllers contain cancellation and stale-result guards", () => {
+test("async leaf controllers protect deferred results and update subscriptions clean up", () => {
   const imports = read("hooks/useImportController.ts");
-  const updates = read("hooks/useAppUpdateController.ts");
+  const updateWatch = read("hooks/useBackgroundUpdateWatch.ts");
   assert.match(imports, /mounted\.current = true/);
   assert.match(imports, /mounted\.current = false/);
   assert.match(imports, /requestSequence/);
   assert.match(imports, /sequence\.current \+= 1/);
-  assert.match(updates, /downloadGate/);
-  assert.match(updates, /acceptsProgress/);
-  assert.match(updates, /downloadGate\.current\.settle/);
+  // 更新状态来自主进程单一快照流；卸载时必须退订，避免重复 toast 和 atom 更新。
+  assert.match(updateWatch, /api\.app\.getUpdateStatus\(\)/);
+  assert.match(updateWatch, /const unsubscribe = api\.app\.onUpdateStatus\(/);
+  assert.match(updateWatch, /return \(\) => unsubscribe\(\)/);
+  assert.match(updateWatch, /notifiedRef/);
 });
 
 test("ScratchPad root preserves shortcut, closing, and timer cleanup", () => {
@@ -220,90 +222,21 @@ test("import controller effect replay restores mounted state and rejects a defer
   assert.equal(harness.render(options(null)).result.sessions.length, 0);
 });
 
-test("update gate blocks B after A clear and rejects A progress until A settles", () => {
-  const { createAppUpdateDownloadGate } = compile("hooks/useAppUpdateController.ts", { react: {} });
-  const gate = createAppUpdateDownloadGate();
-  const a = gate.begin();
-  assert.equal(gate.acceptsProgress(), true);
-  gate.invalidate();
-  assert.equal(gate.acceptsProgress(), false);
-  assert.equal(gate.begin(), null);
-  gate.settle(a);
-  const b = gate.begin();
-  assert.notEqual(b, null);
-  assert.equal(gate.acceptsProgress(), true);
-  gate.settle(b);
-  assert.equal(gate.isInFlight(), false);
-});
-
-function createUpdateHookHarness() {
-  const refs = [];
-  const states = [];
-  let cursor = 0;
-  let effects = [];
-  const react = {
-    useRef(initial) {
-      const index = cursor++;
-      refs[index] ??= { current: initial };
-      return refs[index];
-    },
-    useState(initial) {
-      const index = cursor++;
-      states[index] ??= typeof initial === "function" ? initial() : initial;
-      return [states[index], (next) => { states[index] = typeof next === "function" ? next(states[index]) : next; }];
-    },
-    useCallback(fn) { cursor++; return fn; },
-    useEffect(fn) { cursor++; effects.push(fn); },
-  };
-  const hooks = compile("hooks/useAppUpdateController.ts", { react });
-  return {
-    render(api) {
-      cursor = 0;
-      effects = [];
-      const result = hooks.useAppUpdateController(api, false);
-      return { result, effects };
-    },
-  };
-}
-
-test("update check and download resolve into completed progress and a downloaded path", async () => {
-  let onProgress;
-  let resolveDownload;
-  const updateInfo = {
-    currentVersion: "1.0.0",
-    latestVersion: "1.1.0",
-    hasUpdate: true,
-    releaseName: "1.1.0",
-    releaseNotes: "notes",
-    releaseUrl: "https://example.test/release",
-    assets: [{ name: "PiDeck.exe", url: "https://example.test/PiDeck.exe", size: 10 }],
-    recommendedAsset: { name: "PiDeck.exe", url: "https://example.test/PiDeck.exe", size: 10 },
-  };
-  const api = {
-    checkUpdate: async () => updateInfo,
-    downloadUpdate: async () => new Promise((resolve) => { resolveDownload = resolve; }),
-    installUpdate: async () => undefined,
-    onUpdateProgress: (callback) => { onProgress = callback; return () => { onProgress = undefined; }; },
-  };
-  const harness = createUpdateHookHarness();
-  const initial = harness.render(api);
-  initial.effects.map((setup) => setup()).filter(Boolean);
-  assert.equal(await initial.result.check("manual"), updateInfo);
-  const afterCheck = harness.render(api).result;
-  assert.equal(afterCheck.info.recommendedAsset.name, "PiDeck.exe");
-
-  const downloadPromise = afterCheck.download();
-  onProgress({ assetName: "PiDeck.exe", receivedBytes: 5, totalBytes: 10, percent: 50, state: "downloading" });
-  assert.equal(harness.render(api).result.progress.percent, 50);
-  resolveDownload({ filePath: "C:/tmp/PiDeck.exe", assetName: "PiDeck.exe" });
-  assert.equal(await downloadPromise, "C:/tmp/PiDeck.exe");
-
-  const completed = harness.render(api).result;
-  assert.equal(completed.downloadedPath, "C:/tmp/PiDeck.exe");
-  assert.equal(completed.progress.state, "completed");
-  assert.equal(completed.progress.percent, 100);
-  assert.equal(completed.progress.filePath, "C:/tmp/PiDeck.exe");
-  assert.equal(completed.downloading, false);
+test("background updater UI is snapshot-driven and installation remains user-confirmed", () => {
+  const updateWatch = read("hooks/useBackgroundUpdateWatch.ts");
+  const updateCard = read("components/app/settings/AppUpdateCard.tsx");
+  assert.match(updateWatch, /api\.app\.onUpdateStatus\(/);
+  assert.match(updateWatch, /api\.app\.notifyUpdateSeen\("app", version\)/);
+  // 下载完成后只引导至设置页；设置页统一执行草稿保护和用户确认，订阅回调不得直接结束应用。
+  assert.doesNotMatch(updateWatch, /api\.app\.installUpdate\(\)/);
+  assert.match(updateWatch, /const settingsAction: NoticeActions/);
+  assert.doesNotMatch(updateWatch, /api\.app\.downloadUpdate/);
+  assert.match(updateCard, /const updateStatus = useAtomValue\(updateStatusAtom\)/);
+  assert.match(updateCard, /download && download\.phase === "downloading"/);
+  assert.match(updateCard, /download && download\.phase === "ready"/);
+  assert.match(updateCard, /onClick=\{props\.onInstallUpdate\}/);
+  assert.match(updateCard, /download && download\.phase === "available" && !isManualDelivery && !autoDownload/);
+  assert.match(updateCard, /desktopApi\.app\.openExternal\(releaseUrl, true\)/);
 });
 
 test("Import error renders as a fixed high-z-index alert and disappears when cleared", () => {
@@ -326,15 +259,14 @@ test("Import error renders as a fixed high-z-index alert and disappears when cle
   assert.equal(renderImportError(null), null);
 });
 
-test("overlay roots keep controller/import/runtime error visible", () => {
-  const update = read("components/overlays/AppUpdateOverlay.tsx");
+test("settings update card and import root keep error paths visible", () => {
+  const updateCard = read("components/app/settings/AppUpdateCard.tsx");
   const imports = read("components/overlays/ImportOverlayHost.tsx");
-  assert.match(update, /props\.error/);
-  assert.match(update, /role="alert"/);
-  assert.match(update, /controller\.error/);
-  // 发布说明和浏览器下载必须绕过内置浏览器，避免 webview 拦截安装包跳转。
-  assert.match(update, /onBrowserDownload=\{\(\) => void openExternal\([^)]*, true\)\}/);
-  assert.match(update, /onOpenRelease=\{\(\) => void openExternal\(info\.releaseUrl, true\)\}/);
+  assert.match(updateCard, /download && download\.phase === "error"/);
+  assert.match(updateCard, /t\("settings\.updateErrorDetail"/);
+  assert.match(updateCard, /onClick=\{props\.onCheckUpdate\}/);
+  // Release 页面必须交给系统浏览器，不能让 webview 截获安装引导。
+  assert.match(updateCard, /desktopApi\.app\.openExternal\(releaseUrl, true\)/);
   assert.match(imports, /controller\.error/);
   assert.match(imports, /renderImportError/);
 });

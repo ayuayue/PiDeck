@@ -9,7 +9,7 @@ import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
-import { ProviderUsageRow } from "../components/app/ProviderUsageInline";
+import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 
 // 根据 pi 官方文档支持的供应商列表 (https://pi.dev/docs/latest/providers#auth-file)
 const PRESET_PROVIDERS = [
@@ -317,6 +317,10 @@ export function AuthTab(props: {
 										? `${auth.key.slice(0, 10)}••••••${auth.key.slice(-4)}`
 										: t("config.authKeyPreviewEmpty")}
 								</span>
+								{/* 用量/余额收进标题行（与模型页同布局）；拦截点击，刷新时不误触发卡片折叠/展开 */}
+								<span onClick={(event) => event.stopPropagation()}>
+									<ProviderUsageInline provider={name} variant="card" />
+								</span>
 								<div className="flex items-center gap-1">
 									<ProviderMigrationButton
 										direction="pi-to-dsh"
@@ -366,8 +370,6 @@ export function AuthTab(props: {
 									</div>
 								</div>
 							)}
-							{/* 用量行（与模型页/DSH 同一版式：卡片右下角）= 金额/百分比 + 柱状图「用量查询」按钮 */}
-							<ProviderUsageRow provider={name} />
 						</div>
 					);
 				})}

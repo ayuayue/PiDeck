@@ -26,7 +26,11 @@ export function countAgentRunItems(items: ReadonlyArray<{ kind: string }>): numb
 /** 统计消息序列中的 turn 数；分页协议与主进程都以 turn 起点（发言权周期）计数。
  * 与主进程 findTurnPageStart/turnTrimStartIndex 同一约定：
  * turn 起点 = role==="user" 且跳过中间杂项后前一条真实消息不是 user——
- * 连发 user（无 assistant 回复）只算第一条为起点，其余并入同一轮。 */
+ * 连发 user（无 assistant 回复）只算第一条为起点，其余并入同一轮。
+ *
+ * 同时也是 pi 会话的对外「N 轮」展示口径（统一轮次契约：pi 与内部协议一致，
+ * 一开口即算一轮，未回复也算；DSH 会话则用 host sessionStats 官方口径）。
+ */
 export function countUserTurns(messages: ReadonlyArray<{ role?: string }>): number {
 	let count = 0;
 	let prevUserOrAssistantRole: "user" | "assistant" | undefined;

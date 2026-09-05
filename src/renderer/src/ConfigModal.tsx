@@ -56,6 +56,7 @@ import {
 import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
 import { ModelsTab } from "./config/ModelsTab";
+import { TokenDancePanel, type TokendanceInstallOutcome } from "./config/TokenDancePanel";
 import { UsageProbeConfigDialog } from "./config/UsageProbeConfigDialog";
 import { removeSelectedModelIndexes } from "./config/modelBatchSelection";
 import { openDocsInSystemBrowser } from "./config/ConfigShared";
@@ -81,6 +82,7 @@ import type {
 } from "./config/configTypes";
 import type { ConfigFileDiagnostic, CreatePiPromptTemplateInput, PiExtensionListResult, PiExtensionSummary, PiPromptTemplateListResult, PiPromptTemplateSummary, PiSkillListResult, PiSkillLocation, PiSkillSummary } from "../../shared/types";
 import { getProviderHeaders, KNOWN_PROVIDER_ENDPOINTS } from "./config/providerHeaders";
+import { TOKENDANCE_PROVIDER } from "../../shared/tokendance";
 import { ALL_CONFIG_DIRTY_KEYS, dirtyKeysClearedByReload, dirtyKeysPreservedOnReload, reconcileConfigDirty } from "./config/configDirtyMarks";
 import { formatConfigUnsavedMessage, summarizeConfigUnsavedChanges, type ConfigUnsavedItem } from "./config/configUnsavedChangesSummary";
 import { DirtyMarker } from "./components/app/settings/SettingRows";
@@ -966,6 +968,16 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	};
 
 	// ── Models 操作 ──────────────────────────────────────
+
+	/** TokenDance 一键安装成功：刷新 Pi 模型数据 + DSH 配置页（主进程已直写两侧配置文件）。 */
+	const handleTokendanceInstalled = useCallback((outcome: TokendanceInstallOutcome) => {
+		// 主进程已直接落盘 models.json：以磁盘为准整页重载（force 清空草稿保留集——
+		// 安装是明确的落盘动作，与保存/导入同语义）；DSH 侧若写入成功同步刷新配置页。
+		void loadConfig("models", { force: true }).catch(() => undefined);
+		if (outcome.dshSaved) {
+			void dshConfigRef.current?.reload().catch(() => undefined);
+		}
+	}, [loadConfig]);
 
 	const handleAddProvider = () => {
 		const providerName = newProviderName.trim();
@@ -2324,6 +2336,12 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					{statusBlock}
 					{configDiagnosticBlock}
 					{!loading && (
+						<>
+						{/* TokenDance：确认后一键写入配置（pi models.json + DSH 模型目录），不内置注入 */}
+						<TokenDancePanel
+							configured={!!modelsData.providers[TOKENDANCE_PROVIDER]}
+							onInstalled={handleTokendanceInstalled}
+						/>
 						<ModelsTab
 							data={modelsData}
 							expandedProvider={expandedProvider}
@@ -2395,6 +2413,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								markDirty("config:models");
 							}}
 						/>
+						</>
 					)}
 						</div>
 					</TabsContent>

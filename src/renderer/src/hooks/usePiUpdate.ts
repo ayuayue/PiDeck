@@ -229,7 +229,6 @@ export function usePiUpdate(options: UsePiUpdateOptions) {
   // ---- Pi CLI 更新 ----
   // 启动不再自动检查 pi 更新（toast 打扰启动流程）；仅设置页手动检查。
   const checkPiCliUpdate = useCallback(async () => {
-    if (settings.disableUpdateCheck) return;
     setPiUpdateChecking(true);
     try {
       const result = await api.pi.checkUpdate();
@@ -244,7 +243,7 @@ export function usePiUpdate(options: UsePiUpdateOptions) {
     } finally {
       setPiUpdateChecking(false);
     }
-  }, [settings.disableUpdateCheck, api]);
+  }, [api]);
 
   const updatePiCli = useCallback(async () => {
     setPiUpdating(true);
