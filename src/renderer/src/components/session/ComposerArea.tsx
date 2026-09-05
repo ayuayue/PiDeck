@@ -290,13 +290,16 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
                     : undefined
                 }
                 voiceControls={
-                  <VoiceTranscriptionControls
-                    state={composer.voice.state}
-                    disabled={composer.isStarting}
-                    onStart={() => void composer.voice.start()}
-                    onStop={composer.voice.stop}
-                    onCancel={composer.voice.cancel}
-                  />
+                  // 未配置必需参数（baseUrl+model+apiKey）时整个录音入口隐藏
+                  composer.voice.configured ? (
+                    <VoiceTranscriptionControls
+                      state={composer.voice.state}
+                      disabled={composer.isStarting}
+                      onStart={() => void composer.voice.start()}
+                      onStop={composer.voice.stop}
+                      onCancel={composer.voice.cancel}
+                    />
+                  ) : undefined
                 }
                 sendControls={
                   <ComposerSendControls

@@ -14,6 +14,7 @@ vm.runInNewContext(ts.transpileModule(
 const {
 	canCancelVoiceRecording,
 	canStartVoiceRecording,
+	isVoiceTranscriptionConfigured,
 	releaseVoiceRecordingResources,
 	shouldRequestVoiceMicrophone,
 } = module.exports;
@@ -29,11 +30,19 @@ test("only idle can start and only recording can cancel", () => {
 });
 
 test("microphone permission is gated by the redacted hasApiKey preflight", () => {
-	assert.equal(shouldRequestVoiceMicrophone({ hasApiKey: false }), false);
-	assert.equal(shouldRequestVoiceMicrophone({ hasApiKey: true }), true);
+	// 必需参数三件套：apiKey + baseUrl + model，缺一不可（未配置时按钮隐藏）
+	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: true, baseUrl: "https://api.openai.com/v1", model: "whisper-1" }), true);
+	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: false, baseUrl: "https://api.openai.com/v1", model: "whisper-1" }), false);
+	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: true, baseUrl: "  ", model: "whisper-1" }), false);
+	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: true, baseUrl: "https://api.openai.com/v1", model: "" }), false);
+	assert.equal(shouldRequestVoiceMicrophone({ hasApiKey: false, baseUrl: "", model: "" }), false);
+	assert.equal(shouldRequestVoiceMicrophone({ hasApiKey: true, baseUrl: "https://api.openai.com/v1", model: "whisper-1" }), true);
 	const hookSource = readFileSync("src/renderer/src/hooks/useVoiceTranscription.ts", "utf8");
 	assert.ok(hookSource.indexOf("voiceTranscription.getConfig()") < hookSource.indexOf("getUserMedia({ audio: true })"));
 	assert.ok(hookSource.indexOf("streamRef.current = stream") < hookSource.indexOf("new MediaRecorder(stream"));
+	// 渲染层入口由配置完整性控制：ComposerArea 在未配置时不渲染录音控件
+	const composerSource = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
+	assert.match(composerSource, /composer\.voice\.configured \? \(/);
 });
 
 test("cleanup detaches recorder handlers and stops every microphone track", () => {

@@ -8,6 +8,7 @@ import type { VoiceTranscriptionTarget } from "../utils/voiceTranscriptionInsert
 import {
 	canCancelVoiceRecording,
 	canStartVoiceRecording,
+	isVoiceTranscriptionConfigured,
 	releaseVoiceRecordingResources,
 	shouldRequestVoiceMicrophone,
 	type VoiceTranscriptionState,
@@ -29,6 +30,9 @@ export function useVoiceTranscription(input: {
 	applyText: (target: VoiceTranscriptionTarget, text: string) => boolean;
 }) {
 	const [state, setState] = useState<VoiceTranscriptionState>("idle");
+	// 配置完整性（baseUrl+model+apiKey 齐备）决定录音按钮是否显示：
+	// 未配置时整个入口隐藏，而不是点了才提示 notConfigured。
+	const [configured, setConfigured] = useState(false);
 	const stateRef = useRef<VoiceTranscriptionState>("idle");
 	const recorderRef = useRef<MediaRecorder | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
@@ -225,7 +229,20 @@ export function useVoiceTranscription(input: {
 		updateState("idle");
 	}, [cancelInFlight, releaseMedia, scopeKey, updateState]);
 
-	return { state, start, stop, cancel };
+	// 配置在 scope（会话/面板）切换时重新探测；getConfig 只返回脱敏字段，无泄漏风险。
+	useEffect(() => {
+		let active = true;
+		void desktopApi.voiceTranscription.getConfig().then((config) => {
+			if (active) setConfigured(isVoiceTranscriptionConfigured(config));
+		}).catch(() => {
+			if (active) setConfigured(false);
+		});
+		return () => {
+			active = false;
+		};
+	}, [scopeKey]);
+
+	return { state, start, stop, cancel, configured };
 }
 
 function voiceErrorMessage(error: VoiceTranscriptionErrorCode): string {
