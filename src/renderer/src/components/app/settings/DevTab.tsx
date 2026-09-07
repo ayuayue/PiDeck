@@ -5,6 +5,7 @@ import type {
   PiCliUpdateResult,
   PiInstallStatus,
   PiUpdateCheckResult,
+  WslConnectionValidation,
 } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
@@ -87,12 +88,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
   const [wslDistrosLoading, setWslDistrosLoading] = useState(false);
   const [wslDistrosAttempted, setWslDistrosAttempted] = useState(false);
   const [wslValidating, setWslValidating] = useState(false);
-  const [wslValidation, setWslValidation] = useState<{
-    ok: boolean;
-    whoami: string;
-    piVersion: string;
-    error: string;
-  } | null>(null);
+  const [wslValidation, setWslValidation] = useState<WslConnectionValidation | null>(null);
   // WSL 发行版列表懒加载（仅 Windows + WSL 开启时拉取，无论成败只拉一次）
   useEffect(() => {
     const isWin = props.appInfo.platform === "win32";
@@ -112,7 +108,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 
   const handleValidateWslUser = async () => {
     if (!window.piDesktop.wsl) {
-      setWslValidation({ ok: false, whoami: "", piVersion: "", error: t("settings.wsl.apiUnavailable") });
+      setWslValidation({ ok: false, whoami: "", piVersion: "", piPath: "", error: t("settings.wsl.apiUnavailable") });
       return;
     }
     setWslValidating(true);
@@ -126,7 +122,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
       }
     } catch (err) {
       console.error("[Settings] WSL validation failed", err);
-      setWslValidation({ ok: false, whoami: "", piVersion: "", error: t("settings.wsl.validationFailed") });
+      setWslValidation({ ok: false, whoami: "", piVersion: "", piPath: "", error: t("settings.wsl.validationFailed") });
     } finally {
       setWslValidating(false);
     }
@@ -308,9 +304,17 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
                           })}
                         </small>
                         {wslValidation.piVersion ? (
-                          <small className="setting-status success">
-                            {t("settings.wsl.piDetected", { version: wslValidation.piVersion })}
-                          </small>
+                          <>
+                            <small className="setting-status success">
+                              {t("settings.wsl.piDetected", { version: wslValidation.piVersion })}
+                            </small>
+                            {/* 展示解析到的 Linux 绝对路径：nvm/fnm 场景下用户需要能核对版本目录 */}
+                            {wslValidation.piPath && (
+                              <small className="setting-status info">
+                                {t("settings.wsl.piPath", { path: wslValidation.piPath })}
+                              </small>
+                            )}
+                          </>
                         ) : (
                           <small className="setting-status warning">
                             {wslValidation.error || t("settings.wsl.piNotInstalled")}

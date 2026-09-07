@@ -14,6 +14,23 @@ export type PiInstallStatus = {
 	version?: string;
 	searchedDirs: string[];
 	error?: string;
+	/**
+	 * WSL 模式下解析出的 Linux 绝对路径（如 /home/dev/.nvm/versions/node/v22/bin/pi）。
+	 * `command` 是给人看的 `wsl -d … -u … <path>` 形式，本字段留给设置页做可复制的诊断信息。
+	 */
+	piPath?: string;
+};
+
+/**
+ * 设置页「验证并保存」的 WSL 连接结果。
+ * piVersion / piPath 由与 agent 启动同一条探测链路产出，避免「验证通过但启动失败」。
+ */
+export type WslConnectionValidation = {
+	ok: boolean;
+	whoami: string;
+	piVersion: string;
+	piPath: string;
+	error: string;
 };
 
 /** 安装命令执行结果 */

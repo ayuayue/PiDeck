@@ -118,6 +118,8 @@ export class EnvironmentDoctor {
 						...pi,
 						// pi 命令/搜索目录可能含 home 路径，统一脱敏；version 是版本号，不含隐私但同样过长时截断
 						command: pi.command ? maskPath(pi.command) : pi.command,
+						// WSL 解析出的 Linux 绝对路径带用户名，与 command 同级处理
+						piPath: pi.piPath ? maskPath(pi.piPath) : pi.piPath,
 						version: pi.version ? truncateText(pi.version, 80) : pi.version,
 						error: pi.error ? redactSecrets(maskPath(pi.error)) : pi.error,
 						searchedDirs: pi.searchedDirs.map((dir) => maskPath(dir)),

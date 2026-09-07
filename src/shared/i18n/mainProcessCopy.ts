@@ -42,7 +42,8 @@ export const mainProcessZhCN = {
 	"update.downloadFailed": "更新包下载失败，请稍后重试。",
 	"update.openFailed": "无法打开更新包，请手动打开下载目录。",
 	"wsl.windowsOnly": "WSL 仅在 Windows 上可用。",
-	"wsl.piNotInstalled": "未检测到 pi CLI。请在 WSL 中运行 npm i -g @earendil-works/pi-coding-agent。",
+	"wsl.piNotInstalled":
+		"未检测到 pi CLI。若用 nvm/fnm/volta 等版本管理器安装，请在「自定义 pi 路径」填写 WSL 内的绝对路径（如 /home/user/.nvm/versions/node/v22/bin/pi）；或在 WSL 中运行 npm i -g @earendil-works/pi-coding-agent。",
 	"wsl.connectionFailed": "无法连接到所选 WSL 发行版和用户，请检查配置后重试。",
 	"webService.invalidPort": "Web 服务端口必须是 1 到 65535 之间的整数。",
 	"webService.startFailed": "Web 服务启动失败，请检查主机和端口设置后重试。",
@@ -261,7 +262,8 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"update.downloadFailed": "Failed to download the update package. Try again later.",
 	"update.openFailed": "Could not open the update package. Open the download folder manually.",
 	"wsl.windowsOnly": "WSL is available only on Windows.",
-	"wsl.piNotInstalled": "pi CLI was not detected. Run npm i -g @earendil-works/pi-coding-agent in WSL.",
+	"wsl.piNotInstalled":
+		"pi CLI was not detected. If it was installed by nvm/fnm/volta or another version manager, set the absolute Linux path in \"Custom pi path\" (e.g. /home/user/.nvm/versions/node/v22/bin/pi); otherwise run npm i -g @earendil-works/pi-coding-agent inside WSL.",
 	"wsl.connectionFailed": "Could not connect to the selected WSL distribution and user. Check the settings and try again.",
 	"webService.invalidPort": "The web service port must be an integer from 1 to 65535.",
 	"webService.startFailed": "Failed to start the web service. Check the host and port settings and try again.",

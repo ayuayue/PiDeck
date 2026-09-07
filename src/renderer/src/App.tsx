@@ -2706,7 +2706,8 @@ export function App() {
       }
       // WSL/Windows pi 源切换：重新检测 pi 环境、刷新项目和会话列表
       if ("wslEnabled" in patch || "wslDistro" in patch || "wslUser" in patch) {
-        void api.pi.check().then((next) => setPiStatus(next)).catch(() => undefined);
+        // WSL 配置变更后强制重探：否则切换 distro/用户名仍会命中旧的 wsl:// 绝对路径缓存
+        void api.pi.check(true).then((next) => setPiStatus(next)).catch(() => undefined);
         void api.projects.list().then(setProjects).catch(() => undefined);
         if (activeProjectId) {
           void refreshProjectSessions(activeProjectId, true).catch(() => undefined);

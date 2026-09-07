@@ -41,7 +41,7 @@ import { getProcessSnapshot } from "../process/ProcessMonitor";
 import { buildDshHostMonitorRow, isDshHostMonitorId } from "../process/dshHostMonitor";
 import type { AgentProcessMetric, DiagnosticsSnapshot, ProcessMetricsSnapshot } from "../../shared/types";
 import type { DiagnosticsMonitor } from "../diagnostics/DiagnosticsMonitor";
-import { getWslExe } from "../wsl/wslExe";
+import { getWslExe, decodeWslOutput, parseWslDistroList } from "../wsl/wslExe";
 import { listWebNetworkAddresses } from "../web/WebNetwork";
 import { toggleMainWindowDevTools } from "../devTools";
 import {
@@ -213,6 +213,14 @@ function asConfigProxyMode(raw: unknown): ConfigProxyMode {
 	return raw === "pi" || raw === "desktop" || raw === "off" ? raw : "follow";
 }
 
+/**
+ * WSL 发行版名 / 用户名的边界校验：只允许安全字符、限长，且不得以 `-` 开头。
+ * 两者会以数组形式传给 wsl.exe 的 `-d` / `-u`，以 `-` 开头的值会被当成额外选项解析。
+ */
+function isWslName(value: string): boolean {
+	return /^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+
 export function registerSystemIpc(deps: SystemIpcDeps): void {
 	const {
 		piLocator,
@@ -285,14 +293,23 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 
 	// ── Pi 检测 ──────────────────────────────────────────────────────
 
-	ipcMain.handle(ipcChannels.piCheck, async () => {
+	ipcMain.handle(ipcChannels.piCheck, async (_event, force?: unknown) => {
 		const settings = settingsStore.get();
-		const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
+		// 渲染层输入不可信：只认布尔 true，其他一律当非强制重检
+		const forceWslProbe = force === true;
+		const status = await piLocator.check(
+			settings.customPiPath,
+			settings.wslEnabled,
+			settings.wslDistro,
+			settings.wslUser,
+			{ forceWslProbe },
+		);
 		void appLogger.info("pi", "Pi check completed", {
 			installed: status.installed,
 			version: status.version,
 			command: status.command,
 			error: status.error,
+			forceWslProbe,
 		});
 		return status;
 	});
@@ -451,49 +468,49 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		if (process.platform !== "win32") return [] as string[];
 		try {
 			const { execFile } = await import("node:child_process");
-			return new Promise<string[]>((resolve) => {
-				execFile(wslExePath, ["-l", "-q"], { encoding: "utf8", timeout: 10_000, windowsHide: true, shell: wslShell },
+			return await new Promise<string[]>((resolve) => {
+				// wsl.exe 在 Windows 10 1903+ 以 UTF-16LE 输出；按 utf8 解码会得到字符夹 NUL 的乱码，
+				// 旧实现的 `!includes("\x00")` 过滤会把全部行丢掉，表现为发行版下拉框永远为空。
+				execFile(wslExePath, ["-l", "-q"], { encoding: "buffer", timeout: 10_000, windowsHide: true, shell: wslShell },
 					(err, stdout) => {
 						if (err) { resolve([]); return; }
-						const distros = stdout.split(/\r?\n/)
-							.map((s) => s.trim())
-							.filter((s) => s.length > 0 && !s.includes("\\") && !s.includes("\x00"));
-						resolve(distros);
+						resolve(parseWslDistroList(stdout));
 					});
 			});
 		} catch { return [] as string[]; }
 	});
 
-	ipcMain.handle(ipcChannels.wslValidateConnection, async (_event, distro: string, user: string) => {
+	ipcMain.handle(ipcChannels.wslValidateConnection, async (_event, distro: unknown, user: unknown) => {
+		// 边界校验：渲染层输入不可信，distro/user 只允许安全字符且限长（会拼进子进程参数数组）。
+		if (
+			typeof distro !== "string" ||
+			typeof user !== "string" ||
+			!isWslName(distro) ||
+			!isWslName(user)
+		) {
+			return { ok: false, whoami: "", piVersion: "", piPath: "", error: mainCopy("wsl.connectionFailed") };
+		}
 		if (process.platform !== "win32") {
-			return { ok: false, whoami: "", piVersion: "", error: mainCopy("wsl.windowsOnly") };
+			return { ok: false, whoami: "", piVersion: "", piPath: "", error: mainCopy("wsl.windowsOnly") };
 		}
 		try {
 			const { execFile } = await import("node:child_process");
 			const whoami = await new Promise<string>((resolve, reject) => {
 				execFile(wslExePath, ["-d", distro, "-u", user, "whoami"],
-					{ encoding: "utf8", timeout: 10_000, windowsHide: true, shell: wslShell },
+					{ encoding: "buffer", timeout: 10_000, windowsHide: true, shell: wslShell },
 					(err, stdout) => {
 						if (err) { reject(err); return; }
-						resolve(stdout.trim());
+						resolve(decodeWslOutput(stdout).trim());
 					});
 			});
-			let piVersion = "";
-			try {
-				piVersion = await new Promise<string>((resolve, reject) => {
-					execFile(wslExePath, ["-d", distro, "-u", user, "pi", "--version"],
-						{ encoding: "utf8", timeout: 10_000, windowsHide: true, shell: wslShell },
-						(err, stdout) => {
-							if (err) { reject(err); return; }
-							resolve(stdout.trim());
-						});
-				});
-			} catch { /* pi 未安装，piVersion 保持空 */ }
+			// 与 agent 启动共用同一探测结果（强制重探）：用户可能刚在 WSL 里装完 pi 就来点验证。
+			const pi = await piLocator.checkWslInstallation(distro, user, { force: true });
 			return {
 				ok: true,
 				whoami,
-				piVersion,
-				error: piVersion ? "" : mainCopy("wsl.piNotInstalled"),
+				piVersion: pi.installed ? (pi.version ?? "") : "",
+				piPath: pi.installed ? (pi.piPath ?? "") : "",
+				error: pi.installed ? "" : mainCopy("wsl.piNotInstalled"),
 			};
 		} catch (err) {
 			void appLogger.warn("wsl", "WSL connection validation failed", {
@@ -505,6 +522,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				ok: false,
 				whoami: "",
 				piVersion: "",
+				piPath: "",
 				error: mainCopy("wsl.connectionFailed"),
 			};
 		}

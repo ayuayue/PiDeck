@@ -96,6 +96,7 @@ import type {
 	PiExtensionListResult,
 	PiInstallStatus,
 	PiInstallExecResult,
+	WslConnectionValidation,
 	NpmAvailabilityResult,
 	PasteFileWriteInput,
 	PasteFileWriteResult,
@@ -1136,8 +1137,12 @@ const api = {
 			) as Promise<void>,
 	},
 	pi: {
-		check: () =>
-			ipcRenderer.invoke(ipcChannels.piCheck) as Promise<PiInstallStatus>,
+		/**
+		 * 检测 pi 环境。`force` = 忽略 WSL 探测缓存重新扫描，
+		 * 用于用户显式点「检测环境」或刚改过 WSL 配置（否则负缓存 TTL 内看不到新装好的 pi）。
+		 */
+		check: (force?: boolean) =>
+			ipcRenderer.invoke(ipcChannels.piCheck, force === true) as Promise<PiInstallStatus>,
 		/** 验证用户手动输入的 pi 路径，通过后主进程会自动保存到 settings.customPiPath */
 		checkCustom: (customPath: string) =>
 			ipcRenderer.invoke(
@@ -1162,12 +1167,7 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.wslListDistros) as Promise<string[]>,
 		/** 验证 WSL 连接：检查 distro + user 是否可达，以及 pi 是否已安装 */
 		validateConnection: (distro: string, user: string) =>
-			ipcRenderer.invoke(ipcChannels.wslValidateConnection, distro, user) as Promise<{
-				ok: boolean;
-				whoami: string;
-				piVersion: string;
-				error: string;
-			}>,
+			ipcRenderer.invoke(ipcChannels.wslValidateConnection, distro, user) as Promise<WslConnectionValidation>,
 	},
 	system: {
 		/** 进程监控：拉取 Electron 各进程 + pi agent 子进程内存/CPU 快照 */

@@ -97,7 +97,8 @@ export function usePiUpdate(options: UsePiUpdateOptions) {
       setPiChecking(true);
       setEnvironmentDialog(true);
       try {
-        const next = await api.pi.check();
+        // manual = 用户点「检测环境」，忽略 WSL 探测缓存重新扫描；startup 沿用启动预热结果
+        const next = await api.pi.check(source === "manual");
         setPiStatus(next);
         // 检测结果缓存（含未检测到的清除）；startup 额外标记 piEnvironmentChecked
         const saved = await persistPiInstall(next);
@@ -120,7 +121,8 @@ export function usePiUpdate(options: UsePiUpdateOptions) {
     setPiChecking(true);
     setCustomPathResult(null);
     try {
-      const next = await api.pi.check();
+      // 设置页的显式重检：强制重探 WSL，否则刚装完 pi 的用户要等负缓存过期
+      const next = await api.pi.check(true);
       setPiStatus(next);
       if (next.installed) {
         const saved = await api.settings.update({
@@ -193,7 +195,8 @@ export function usePiUpdate(options: UsePiUpdateOptions) {
     setCustomPiPath("");
     setCustomPathResult(null);
     showToast(t("app.piPathCleared"));
-    const status = await api.pi.check();
+    // 路径已变：清掉 WSL 探测缓存重新解析
+    const status = await api.pi.check(true);
     setPiStatus(status);
   }, [api, setPiStatus, setSettings]);
 

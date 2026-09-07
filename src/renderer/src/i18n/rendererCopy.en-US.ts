@@ -3086,7 +3086,7 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.customPiPath": "Custom pi path",
   "settings.customPiPathValid": "Validation passed: {version}",
   "settings.customPiPathHint":
-    "Supports quoted paths, double backslashes, and extensionless paths. The path is normalized and validated before saving.",
+    "Supports quoted paths, double backslashes, and extensionless paths. The path is normalized and validated before saving. In WSL mode, enter an absolute Linux path (e.g. /home/user/.nvm/versions/node/v22/bin/pi).",
   "settings.debug": "Debug",
   "settings.desktopProxy": "Desktop proxy",
   "settings.desktopProxyDesc":
@@ -3183,7 +3183,9 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.wsl.detectingDistros": "Detecting installed distros…",
   "settings.wsl.validationOk": "User {user} is reachable in {distro}",
   "settings.wsl.piDetected": "pi CLI installed: {version}",
-  "settings.wsl.piNotInstalled": "pi CLI not installed, run npm i -g @earendil-works/pi-coding-agent in WSL",
+  "settings.wsl.piNotInstalled":
+    "pi CLI was not detected. If it came from nvm/fnm/volta or another version manager, set the absolute Linux path in \"Custom pi path\" below (e.g. /home/user/.nvm/versions/node/v22/bin/pi); otherwise run npm i -g @earendil-works/pi-coding-agent inside WSL",
+  "settings.wsl.piPath": "Resolved path: {path}",
   "settings.wsl.apiUnavailable": "The WSL API is not ready. Restart PiDeck and try again.",
   "settings.wsl.validationFailed": "Failed to validate the WSL connection. Try again later.",
   "settings.piUpdateSection": "Pi CLI Update",

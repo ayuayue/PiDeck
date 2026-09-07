@@ -3061,7 +3061,7 @@ export const zhCN = {
   "settings.customPiPath": "自定义 pi 路径",
   "settings.customPiPathValid": "校验通过：{version}",
   "settings.customPiPathHint":
-    "支持带引号、双反斜杠和无扩展名路径；保存前会自动归一化并校验。",
+    "支持带引号、双反斜杠和无扩展名路径；保存前会自动归一化并校验。WSL 模式下请填 Linux 绝对路径（如 /home/user/.nvm/versions/node/v22/bin/pi）。",
   "settings.debug": "调试",
   "settings.desktopProxy": "桌面端代理",
   "settings.desktopProxyDesc": "用于模型拉取、模型测试等桌面自身请求",
@@ -3154,7 +3154,9 @@ export const zhCN = {
   "settings.wsl.detectingDistros": "正在检测已安装的发行版…",
   "settings.wsl.validationOk": "用户 {user} 在 {distro} 中可用",
   "settings.wsl.piDetected": "pi CLI 已安装：{version}",
-  "settings.wsl.piNotInstalled": "pi CLI 未安装，请在 WSL 中运行 npm i -g @earendil-works/pi-coding-agent",
+  "settings.wsl.piNotInstalled":
+    "pi CLI 未安装。若用 nvm/fnm/volta 等版本管理器安装，请在下方「自定义 pi 路径」填写 WSL 内的绝对路径（如 /home/user/.nvm/versions/node/v22/bin/pi）；或在 WSL 中运行 npm i -g @earendil-works/pi-coding-agent",
+  "settings.wsl.piPath": "解析路径：{path}",
   "settings.wsl.apiUnavailable": "WSL API 未就绪，请重启应用后再试",
   "settings.wsl.validationFailed": "WSL 连接验证失败，请稍后重试",
   "settings.piUpdateSection": "Pi CLI 更新",

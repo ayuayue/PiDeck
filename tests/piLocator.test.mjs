@@ -1,17 +1,58 @@
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+/** vm 沙箱与宿主不同 realm，strict deepEqual 会比原型；统一转成宿主纯值再比。 */
+function eqDeep(actual, expected) {
+	assert.deepEqual(JSON.parse(JSON.stringify(actual)), JSON.parse(JSON.stringify(expected)));
+}
+
 const require = createRequire(import.meta.url);
 
-function loadPiLocatorModule(platform = process.platform, envOverrides = {}, homePath = tmpdir(), moduleOverrides = {}) {
-	const source = readFileSync("src/main/pi/PiLocator.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
+const PI_LOCATOR_DIR = "src/main/pi";
+
+/**
+ * 在沙箱里加载一个项目内 TS 模块。
+ * PiLocator 现在依赖 ../wsl/wslPiProbe 与 ../wsl/wslExe，相对导入必须一并解析，
+ * 否则测试里 require 直接抛 MODULE_NOT_FOUND。
+ */
+function loadTsFile(filePath, sandboxExtra = {}) {
+	const { outputText } = ts.transpileModule(readFileSync(filePath, "utf8"), {
+		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+	});
+	const sandbox = {
+		exports: {},
+		require: (id) => {
+			if (id.startsWith(".")) {
+				return loadTsFile(join(dirname(filePath), id + ".ts"), sandboxExtra);
+			}
+			return require(id);
+		},
+		Buffer,
+		TextDecoder,
+		process,
+		console,
+		...sandboxExtra,
+	};
+	sandbox.global = sandbox;
+	vm.runInNewContext(outputText, sandbox, { filename: filePath });
+	return sandbox.exports;
+}
+
+function loadPiLocatorModule(
+	platform = process.platform,
+	envOverrides = {},
+	homePath = tmpdir(),
+	moduleOverrides = {},
+	sandboxExtra = {},
+) {
+	const filePath = join(PI_LOCATOR_DIR, "PiLocator.ts");
+	const { outputText } = ts.transpileModule(readFileSync(filePath, "utf8"), {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
 			target: ts.ScriptTarget.ES2022,
@@ -31,8 +72,16 @@ function loadPiLocatorModule(platform = process.platform, envOverrides = {}, hom
 			if (id === "electron") {
 				return { app: { getPath: () => homePath } };
 			}
+			// 相对依赖（../wsl/wslPiProbe、../wsl/wslExe）用同一套沙箱环境加载
+			if (id.startsWith(".")) {
+				return loadTsFile(join(PI_LOCATOR_DIR, id + ".ts"), {
+					process: sandbox.process,
+					require: (nested) => (nested in moduleOverrides ? moduleOverrides[nested] : require(nested)),
+				});
+			}
 			return require(id);
 		},
+		...sandboxExtra,
 	};
 	sandbox.global = sandbox;
 	// 宿主开发机可能已设置 MISE_DATA_DIR 等变量（如 D:\mise-data），
@@ -268,6 +317,47 @@ test("createProcessEnv prepends search dirs to PATH/Path without pathPrefix (npm
 	}
 });
 
+// ── WSL 探测（nvm/fnm 等非登录 shell 场景）──────────────────────
+
+const FNM_PI = "/home/dev/.local/share/fnm/node-versions/v24.20.0/installation/bin/pi";
+const FNM_NODE_BIN = FNM_PI.slice(0, FNM_PI.lastIndexOf("/"));
+const FNM_PROBE_OUTPUT = `PIDECK_PI=${FNM_PI}\nPIDECK_NODE_BIN=${FNM_NODE_BIN}\n`;
+
+/** 探测调用的特征：-e <shell> -lic <script>，脚本里带 PIDECK_PI= 输出键。 */
+function isWslProbeArgs(args) {
+	return (
+		Array.isArray(args) &&
+		args.includes("-lic") &&
+		typeof args[args.length - 1] === "string" &&
+		args[args.length - 1].includes("PIDECK_PI=")
+	);
+}
+
+/** 统计探测次数的 mock：TTL 用例要区分「命中缓存」与「真的又打了一次」。 */
+function countingProbe(onProbe, probeOutput, version = "0.85.1") {
+	const base = mockWslProbe({ probeOutput, version });
+	return {
+		execFile: (command, args, options, callback) => {
+			if (isWslProbeArgs(args)) onProbe();
+			base.execFile(command, args, options, callback);
+		},
+		execFileSync: () => "",
+	};
+}
+
+function mockWslProbe({ probeOutput, version = "0.85.1" }) {
+	return {
+		execFile: (_command, args, _options, callback) => {
+			if (isWslProbeArgs(args)) {
+				callback(null, probeOutput, "");
+				return;
+			}
+			callback(null, `${version}\n`, "");
+		},
+		execFileSync: () => "",
+	};
+}
+
 test("places an explicit WSL cwd before the pi command", () => {
 	const { PiLocator } = loadPiLocatorModule("win32");
 	const invocation = new PiLocator().createInvocation(
@@ -400,13 +490,13 @@ test("resolveCommand never calls execFileSync to probe WSL which pi", () => {
 	resetWslCommandCache();
 	const resolved = new PiLocator().resolveCommand(undefined, true, "Ubuntu-24.04", "dev");
 	assert.equal(syncCalls, 0);
-	// 缓存未预热时不得同步 which；也不得再走 wsl.exe。本地扫描结果随 PATH 变化，不能是 wsl://。
-	assert.equal(resolved.startsWith("wsl://"), false);
+	// 缓存未预热时不得同步 which，但仍必须保持 WSL 边界，不能回退到宿主机 pi。
+	assert.equal(resolved, "wsl://Ubuntu-24.04/dev/pi");
 });
 
-test("warmWslCommand caches wsl:// so later resolveCommand stays off the sync path", async () => {
+test("warmWslCommand caches the absolute linux pi path reported by the probe", async () => {
 	let syncCalls = 0;
-	let whichCalls = 0;
+	let probeCalls = 0;
 	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
 		"win32",
 		{},
@@ -414,9 +504,9 @@ test("warmWslCommand caches wsl:// so later resolveCommand stays off the sync pa
 		{
 			"node:child_process": {
 				execFile: (_command, args, _options, callback) => {
-					if (Array.isArray(args) && args.includes("which")) {
-						whichCalls += 1;
-						callback(null, "/usr/bin/pi\n", "");
+					if (isWslProbeArgs(args)) {
+						probeCalls += 1;
+						callback(null, FNM_PROBE_OUTPUT, "");
 						return;
 					}
 					callback(null, "0.80.0\n", "");
@@ -431,12 +521,206 @@ test("warmWslCommand caches wsl:// so later resolveCommand stays off the sync pa
 	resetWslCommandCache();
 	const locator = new PiLocator();
 	const warmed = await locator.warmWslCommand("Ubuntu-24.04", "dev");
-	assert.equal(warmed, "wsl://Ubuntu-24.04/dev/pi");
-	assert.equal(
-		locator.resolveCommand(undefined, true, "Ubuntu-24.04", "dev"),
-		"wsl://Ubuntu-24.04/dev/pi",
-	);
+	// 缓存的必须是探测到的绝对路径，而不是裸 `pi`：启动时同样不依赖 PATH
+	assert.equal(warmed, `wsl://Ubuntu-24.04/dev/${FNM_PI}`);
+	assert.equal(locator.resolveCommand(undefined, true, "Ubuntu-24.04", "dev"), warmed);
 	await locator.warmWslCommand("Ubuntu-24.04", "dev");
-	assert.equal(whichCalls, 1);
-	assert.equal(syncCalls, 0);
+	assert.equal(probeCalls, 1, "第二次 warm 应命中缓存");
+	assert.equal(syncCalls, 0, "探测不得走同步子进程");
+});
+
+test("wsl invocation execs the absolute pi path with node bin injected into PATH", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{ "node:child_process": mockWslProbe({ probeOutput: FNM_PROBE_OUTPUT }) },
+	);
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const command = await locator.warmWslCommand("Ubuntu-24.04", "dev");
+	const invocation = locator.createInvocation(command, ["--mode", "rpc"], { wslCwd: "/home/dev/my project" });
+
+	// wsl.exe 由 resolveWslExe 定位（System32 / Sysnative / PATH 回退），这里只断言落在 wsl.exe 上
+	assert.match(invocation.command, /wsl(\.exe)?$/i);
+	// -e：不让 wsl.exe 把参数拼成命令行交给默认 shell 二次解析（空格/引号安全）
+	const execIndex = invocation.args.indexOf("-e");
+	assert.ok(execIndex > 0, "缺少 -e exec 分隔符");
+	eqDeep(invocation.args.slice(execIndex, execIndex + 2), ["-e", "/usr/bin/env"]);
+	assert.ok(
+		invocation.args[execIndex + 2].startsWith(`PATH=${FNM_NODE_BIN}:`),
+		`PATH 注入缺失：${invocation.args[execIndex + 2]}`,
+	);
+	eqDeep(invocation.args.slice(-3), [FNM_PI, "--mode", "rpc"]);
+	eqDeep(invocation.args.slice(0, 7), [
+		"-d",
+		"Ubuntu-24.04",
+		"-u",
+		"dev",
+		"--cd",
+		"/home/dev/my project",
+		"-e",
+	]);
+});
+
+test("wsl pi check uses exactly the same exec args as the launch path", async () => {
+	const captured = [];
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{
+			"node:child_process": {
+				execFile: (command, args, _options, callback) => {
+					captured.push(args);
+					if (isWslProbeArgs(args)) {
+						callback(null, FNM_PROBE_OUTPUT, "");
+						return;
+					}
+					callback(null, "0.85.1\n", "");
+				},
+				execFileSync: () => "",
+			},
+		},
+	);
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const status = await locator.check(undefined, true, "Ubuntu-24.04", "dev");
+
+	assert.equal(status.installed, true);
+	assert.equal(status.version, "0.85.1");
+	// 探测后紧跟的那次 --version 校验，参数结构必须与 createInvocation 一致
+	const checkArgs = captured[captured.length - 1];
+	eqDeep(checkArgs, [
+		"-d",
+		"Ubuntu-24.04",
+		"-u",
+		"dev",
+		"-e",
+		"/usr/bin/env",
+		`PATH=${FNM_NODE_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+		FNM_PI,
+		"--version",
+	]);
+	// 同一份参数也能由 createInvocation 产出：探测通过 == 可启动
+	eqDeep(locator.createInvocation(`wsl://Ubuntu-24.04/dev/${FNM_PI}`, ["--version"]).args, checkArgs);
+	// 诊断展示用 command 带上绝对路径，用户能直接复制到 WSL 终端验证
+	assert.equal(status.command, `wsl -d Ubuntu-24.04 -u dev ${FNM_PI}`);
+});
+
+test("a windows interop probe hit is not treated as a wsl installation", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{ "node:child_process": mockWslProbe({ probeOutput: "PIDECK_PI=/mnt/c/Users/dev/AppData/Roaming/npm/pi\n" }) },
+	);
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const warmed = await locator.warmWslCommand("Ubuntu-24.04", "dev");
+	// /mnt/* 是 appendWindowsPath 带进来的宿主机 shim，不能当 WSL pi 用
+	assert.equal(warmed, undefined);
+	assert.equal(locator.resolveCommand(undefined, true, "Ubuntu-24.04", "dev"), "wsl://Ubuntu-24.04/dev/pi");
+});
+
+test("negative wsl probe is cached until the ttl expires", async () => {
+	let probeCalls = 0;
+	let now = 1_000;
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{ "node:child_process": countingProbe(() => (probeCalls += 1), "PIDECK_MISS=1\n") },
+		{ Date: { now: () => now } },
+	);
+	resetWslCommandCache();
+	const locator = new PiLocator();
+
+	assert.equal(await locator.warmWslCommand("Ubuntu-24.04", "dev"), undefined);
+	assert.equal(probeCalls, 1);
+	// TTL 内重复 warm：命中负缓存，不再打 wsl.exe
+	assert.equal(await locator.warmWslCommand("Ubuntu-24.04", "dev"), undefined);
+	assert.equal(probeCalls, 1, "负缓存 TTL 内不得重复探测");
+
+	// 超过负缓存 TTL：用户可能刚在 WSL 里装完 pi，必须能自动恢复
+	now += 61_000;
+	assert.equal(await locator.warmWslCommand("Ubuntu-24.04", "dev"), undefined);
+	assert.equal(probeCalls, 2, "负缓存过期后应重新探测");
+});
+
+test("force re-probes wsl even when a positive result is cached", async () => {
+	let probeCalls = 0;
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{
+			"node:child_process": {
+				execFile: (_command, args, _options, callback) => {
+					if (isWslProbeArgs(args)) {
+						probeCalls += 1;
+						callback(null, FNM_PROBE_OUTPUT, "");
+						return;
+					}
+					callback(null, "0.85.1\n", "");
+				},
+				execFileSync: () => "",
+			},
+		},
+	);
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	await locator.warmWslCommand("Ubuntu-24.04", "dev");
+	await locator.warmWslCommand("Ubuntu-24.04", "dev");
+	assert.equal(probeCalls, 1);
+
+	// 设置页显式重检 / 切换 distro 后保存：忽略正缓存重新探测
+	await locator.warmWslCommand("Ubuntu-24.04", "dev", { force: true });
+	assert.equal(probeCalls, 2);
+});
+
+test("a custom wsl pi path derives its own node bin dir instead of inheriting the probe cache", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{ "node:child_process": mockWslProbe({ probeOutput: FNM_PROBE_OUTPUT }) },
+	);
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	await locator.warmWslCommand("Ubuntu-24.04", "dev");
+
+	// 用户手动指定了另一个 node 版本下的 pi：不得把探测缓存的 node 目录前置到 PATH
+	const invocation = locator.createInvocation("wsl://Ubuntu-24.04/dev//opt/other-node/bin/pi", [
+		"--version",
+	]);
+	const execIndex = invocation.args.indexOf("-e");
+	assert.ok(invocation.args[execIndex + 2].startsWith("PATH=/opt/other-node/bin:"), invocation.args[execIndex + 2]);
+});
+
+test("checkWslInstallation reports the resolved linux path for the settings page", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{ "node:child_process": mockWslProbe({ probeOutput: FNM_PROBE_OUTPUT }) },
+	);
+	resetWslCommandCache();
+	const status = await new PiLocator().checkWslInstallation("Ubuntu-24.04", "dev", { force: true });
+	assert.equal(status.installed, true);
+	assert.equal(status.piPath, FNM_PI);
+	assert.equal(status.version, "0.85.1");
+});
+
+test("checkWslInstallation reports not-installed when the probe finds nothing", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule(
+		"win32",
+		{},
+		tmpdir(),
+		{ "node:child_process": mockWslProbe({ probeOutput: "PIDECK_MISS=1\n" }) },
+	);
+	resetWslCommandCache();
+	const status = await new PiLocator().checkWslInstallation("Ubuntu-24.04", "dev");
+	assert.equal(status.installed, false);
+	assert.equal(status.piPath, undefined);
 });
