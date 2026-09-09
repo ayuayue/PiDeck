@@ -236,6 +236,8 @@ export const ipcChannels = {
 	openCodeSessionsImport: "opencode-sessions:import",
 	zcodeSessionsScan: "zcode-sessions:scan",
 	zcodeSessionsImport: "zcode-sessions:import",
+	workbuddySessionsScan: "workbuddy-sessions:scan",
+	workbuddySessionsImport: "workbuddy-sessions:import",
 	settingsGet: "settings:get",
 	settingsUpdate: "settings:update",
 	/** 重启当前已启用的 Web 服务，不修改 Web 设置 */
@@ -320,6 +322,13 @@ export const ipcChannels = {
 	gitAheadBehind: "git:ahead-behind",
 	/** 从磁盘删除变更文件（移入回收站，可恢复） */
 	gitDeleteFiles: "git:delete-files",
+	/**
+	 * 探测 git 可执行文件：返回当前实际生效的路径/版本/来源，
+	 * 以及系统自动探测结果（供设置页展示「已识别到」与一键填入）。
+	 */
+	gitDetectExecutable: "git:detect-executable",
+	/** 打开文件选择框挑一个 git 可执行文件，返回绝对路径；取消返回 null */
+	gitChooseExecutable: "git:choose-executable",
 	piCheck: "pi:check",
 	piCheckCustom: "pi:check-custom",
 	/** 获取已安装的 WSL 发行版列表（仅 Windows） */
@@ -473,16 +482,16 @@ export const ipcChannels = {
 	configTokendanceAuthCancel: "config:tokendance-auth-cancel",
 	/** 提交一次性授权 code 交换 TokenDance API Key（成功返回完整 key） */
 	configTokendanceAuthExchange: "config:tokendance-auth-exchange",
-	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
+	/** 测试 provider 连接（隔离探针）：临时 agent 目录 + PI_CODING_AGENT_DIR 跑真实 pi，测当前表单值且不落盘正式配置 */
 	configTestProvider: "config:test-provider",
 	/** 查询 provider 用量/余额（主进程按 provider 名路由：门控 → 端点解析 → 模板探测） */
 	configFetchUsage: "config:fetch-usage",
 	/** 读取单个 provider 的用量查询配置（usage-probes.json）+ 内置模板自动识别 */
 	configGetUsageProbes: "config:get-usage-probes",
-	/** 轻量判断 provider 是否命中内置用量模板（零配置自动生效；渲染层据此隐藏「用量查询」配置按钮） */
-	configUsageRecognized: "config:usage-recognized",
 	/** 按 provider 合并保存用量查询配置（校验后落盘，保留其它 providers 与旧 probes） */
 	configSaveUsageProbes: "config:save-usage-probes",
+	/** 批量读取各 provider 用量查询状态（徽章开关/启动预热选源；不读密钥、不回传密钥） */
+	configListUsageProbeStates: "config:list-usage-probe-states",
 	/** 单条模板测试（模板 id + 覆盖字段；配置弹窗「测试」按钮，key 不出主进程） */
 	configTestUsageProbe: "config:test-usage-probe",
 	/** 安装内置「用量查询自定义」技能模板到 ~/.pi/agent/skills/usage-probe */

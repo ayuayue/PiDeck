@@ -1,9 +1,10 @@
-import { ipcMain } from "electron";
+import { dialog, ipcMain } from "electron";
 import { resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ipcChannels } from "../../shared/ipc";
 import type { GitDiscardResource, GitGenerateCommitMessageResult, GitWorkspaceDiffGroup } from "../../shared/types";
 import type { GitService } from "../git/GitService";
+import { currentGitExecutable, detectGitExecutable } from "../git/gitExecutable";
 import { listGitRepos, resolveGitCwd } from "../git/gitRepoScope";
 import type { AppLogger } from "../logging/AppLogger";
 import type { PiLocator } from "../pi/PiLocator";
@@ -729,7 +730,7 @@ export function registerGitIpc({
 			const project = projectStore.get(projectId);
 			if (!project) throw new Error(`Project not found: ${projectId}`);
 			const { execFile } = await import("node:child_process");
-			await execFile("git", ["init"], { cwd: projectHostPath(project) });
+			await execFile(currentGitExecutable(), ["init"], { cwd: projectHostPath(project) });
 			void appLogger.info("git", "Repository initialized", { projectId, path: project.path });
 		},
 	);
@@ -767,5 +768,27 @@ export function registerGitIpc({
 			void appLogger.warn("git", "Files deleted (recycle bin)", { projectId, count: paths.length, paths, repoPath: cwd });
 		},
 	);
+
+	ipcMain.handle(ipcChannels.gitDetectExecutable, async (_event, configuredPath?: unknown) => {
+		// 入参不可信：非字符串（含 undefined）一律回落到设置里已持久化的值；
+		// 渲染层传草稿值进来即可在保存前预览「这样配置能不能用」。
+		const configured =
+			typeof configuredPath === "string" ? configuredPath : settingsStore.get().gitExecutablePath;
+		return detectGitExecutable(configured);
+	});
+
+	ipcMain.handle(ipcChannels.gitChooseExecutable, async () => {
+		const options = {
+			properties: ["openFile"],
+			filters: process.platform === "win32"
+				? [
+						{ name: "Executables", extensions: ["exe", "cmd", "bat"] },
+						{ name: "All Files", extensions: ["*"] },
+					]
+				: [{ name: "All Files", extensions: ["*"] }],
+		} satisfies Electron.OpenDialogOptions;
+		const result = await dialog.showOpenDialog(options);
+		return result.canceled ? null : result.filePaths[0] ?? null;
+	});
 
 }

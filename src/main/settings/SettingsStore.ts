@@ -15,6 +15,7 @@ import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { getAppLogger } from "../logging/sharedLogger";
+import { setConfiguredGitPath } from "../git/gitExecutable";
 
 /** 桌面端 settings.json（userData），与 pi agent settings 分离 */
 function desktopSettingsPath() {
@@ -106,9 +107,6 @@ const defaultSettings: AppSettings = {
   sessionTabOpenMode: "preview",
   // 默认开启：标题请求由内置扩展在首轮结束后独立异步执行，不进入主 agent 上下文。
   autoSessionTitle: true,
-  // 默认关闭：打开模型选择器/配置页会对每个 provider 扇出 HTTP 用量探测，
-  // 多个 provider 共用同一本地 OpenAI 兼容网关时会把网关打熔断。关闭后仍可手动刷新。
-  providerUsageAutoQueryEnabled: false,
   // 忙碌时发送默认「插入当前回合」（对齐 pi 历史行为）；dsh 会话此前默认排队，
   // 统一后由本设置项决定，用户可在常用设置→会话中改回。
   busySendDelivery: "steer",
@@ -135,6 +133,8 @@ Gitmoji 对应关系：
   // 默认不指定模型，避免升级后在用户尚未配置 provider 时隐式调用错误模型。
   gitCommitMessageProvider: "",
   gitCommitMessageModel: "",
+  // 空串 = 自动解析（PATH 中的 git → 各平台已知安装位置）；用户可在 Git 设置页显式指定。
+  gitExecutablePath: "",
   closeToTray: true,
   // 默认单实例：托盘隐藏后再次点击快捷方式会唤起原窗口，而不是再开一个进程
   singleInstance: true,
@@ -276,11 +276,6 @@ export class SettingsStore {
       if (typeof this.settings.autoSessionTitle !== "boolean") {
         this.settings.autoSessionTitle = defaultSettings.autoSessionTitle;
       }
-      // 用量自动查询：旧配置缺字段/脏数据回落 false（保守，避免升级后把本地网关打熔断）。
-      if (typeof this.settings.providerUsageAutoQueryEnabled !== "boolean") {
-        this.settings.providerUsageAutoQueryEnabled =
-          defaultSettings.providerUsageAutoQueryEnabled;
-      }
       // 公告通知开关同理：旧配置缺字段回落 true（默认开启），脏数据（字符串等）也回落。
       if (typeof this.settings.announcementNotificationEnabled !== "boolean") {
         this.settings.announcementNotificationEnabled =
@@ -299,6 +294,8 @@ export class SettingsStore {
       // 语义从「最大宽度 px」变为「占面板百分比」，无法精确换算（面板宽度可变），
       // 用线性映射保留旧值感觉：800→60%、1400→84%、1800(不限)→100%。
       this.migrateContentWidth();
+      // 兼容迁移：全局用量自动查询开关已删除（改为每个 provider 徽章/弹窗里的开关）。
+      this.migrateRemovedUsageAutoQuerySwitch();
       // 兼容迁移：按供应商/模型过滤的代理白名单，旧数据缺省为 []（不按名单过滤，保持全局行为）。
       this.normalizePiProxyProviders();
       this.normalizePiProxyModels();
@@ -322,6 +319,10 @@ export class SettingsStore {
       this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
       // 声音提醒来自旧 JSON 时可能缺字段/非法；统一归一化（旧数据自动获得默认配置）。
       this.settings.soundAlert = normalizeSoundAlertSettings(parsed.soundAlert);
+      // git 可执行文件路径来自旧 JSON 时可能是脏值（非字符串）；回落空串（自动解析），
+      // 避免 spawn 拿到非字符串路径把整个 Git 面板打挂。
+      this.settings.gitExecutablePath =
+        typeof parsed.gitExecutablePath === "string" ? parsed.gitExecutablePath.trim() : "";
     } catch {
       this.settings = { ...defaultSettings };
     }
@@ -331,6 +332,9 @@ export class SettingsStore {
     if (computedShowThinking !== undefined) {
       this.settings.showThinking = computedShowThinking;
     }
+    // git 可执行文件：每次 load 都把持久化值灌进子进程解析器，
+    // 覆盖冷启动、备份恢复等所有 reload 路径（保存路径由 settings:update 同步）。
+    setConfiguredGitPath(this.settings.gitExecutablePath);
     // 每次启动都校准安装类型：Windows 便携版由 electron-builder 注入运行时环境变量,
     // 该信号比旧 settings 更可信,可修正用户从安装版/旧版本迁移后残留的 installed 记录。
     await this.detectAndSaveInstallationType();
@@ -356,6 +360,20 @@ export class SettingsStore {
     void this.save().catch(() => undefined);
   }
 
+  /**
+   * 兼容迁移：全局「自动查询供应商用量」开关已删除。
+   *
+   * 为什么必须删：设置对象是整体持久化的——旧字段留在内存里，下一次任意保存都会把它
+   * 写回磁盘，用户永远看不到它被清掉；而它已不再被任何代码读取。删除后立即落盘一次。
+   * 磁盘 JSON 无类型，旧值先按 unknown 收窄再删。
+   */
+  private migrateRemovedUsageAutoQuerySwitch() {
+    const legacy = this.settings as unknown as Record<string, unknown>;
+    if (!("providerUsageAutoQueryEnabled" in legacy)) return;
+    delete legacy.providerUsageAutoQueryEnabled;
+    void this.save().catch(() => undefined);
+  }
+
   get() {
     // showThinking 由 pi agent 的 hideThinkingBlock 动态决定，每次 get() 都重新读取
     const computed = readPiAgentShowThinking();
@@ -378,13 +396,6 @@ export class SettingsStore {
     // IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
     if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
       delete safePatch.autoSessionTitle;
-    }
-    // IPC 入参不可信：用量自动查询开关只接受布尔值，非法值保持原有设置。
-    if (
-      "providerUsageAutoQueryEnabled" in safePatch &&
-      typeof safePatch.providerUsageAutoQueryEnabled !== "boolean"
-    ) {
-      delete safePatch.providerUsageAutoQueryEnabled;
     }
     // 更新源 id 归一化（只允许已知枚举，防手改/脏值污染 feed URL）；自定义源地址仅接受字符串。
     if ("updateSource" in safePatch) {

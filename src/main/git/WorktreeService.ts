@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { trashPath } from "../fs/trash";
+import { currentGitExecutable } from "./gitExecutable";
 import { worktreeSlugify } from "../../shared/worktreeSlug";
 import type { WorktreeEntry } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
@@ -78,7 +79,7 @@ export class WorktreeService {
 		}
 
 		try {
-			await execFileAsync("git", ["reset", "--hard"], { cwd: worktreeDir });
+			await execFileAsync(currentGitExecutable(), ["reset", "--hard"], { cwd: worktreeDir });
 		} catch (error) {
 			// reset 失败时清理刚创建的 worktree，避免残留半初始化目录。
 			await this.remove(worktreeDir, projectPath).catch(() => false);
@@ -116,7 +117,7 @@ export class WorktreeService {
 		}
 
 		try {
-			await execFileAsync("git", ["worktree", "remove", "--force", worktreePath], { cwd: projectPath });
+			await execFileAsync(currentGitExecutable(), ["worktree", "remove", "--force", worktreePath], { cwd: projectPath });
 		} catch {
 			// git 拒绝移除：目录仍存在 → 拒绝物理删除（安全优先，删不掉也比删错强）；
 			// 目录已不存在 → 残留记录清理场景，无需回收站（无内容可删），继续视为成功。
@@ -133,7 +134,7 @@ export class WorktreeService {
 		// 对外部 worktree 尽量保守，只在“分支名等于目录名”时认为是 PiDeck 创建的同名工作区。
 		const worktreeDirName = basename(worktreePath);
 		if (entry.branch?.startsWith("pideck/") || entry.branch === worktreeDirName) {
-			await execFileAsync("git", ["branch", "-D", entry.branch], { cwd: projectPath }).catch(() => undefined);
+			await execFileAsync(currentGitExecutable(), ["branch", "-D", entry.branch], { cwd: projectPath }).catch(() => undefined);
 		}
 
 		return true;
@@ -151,7 +152,7 @@ export class WorktreeService {
 		if (existsSync(worktreeDir)) {
 			throw new Error(this.translate("mainWorktree.folderExists"));
 		}
-		const ref = await execFileAsync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: projectPath })
+		const ref = await execFileAsync(currentGitExecutable(), ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: projectPath })
 			.then(() => true)
 			.catch(() => false);
 		if (ref) {

@@ -122,12 +122,6 @@ export type AppSettings = {
 	 */
 	autoSessionTitle: boolean;
 	/**
-	 * 是否自动探查供应商用量/余额。默认关闭：打开模型选择器/配置页会对每个
-	 * provider 扇出 HTTP，多个 provider 共用同一本地 OpenAI 兼容网关时会把网关打熔断。
-	 * 关闭后仍可在用量卡片里手动刷新/测试。
-	 */
-	providerUsageAutoQueryEnabled: boolean;
-	/**
 	 * Agent 忙碌时发送消息的默认投递行为。
 	 * "steer"=插入当前回合（模型在本次回合内尽快看到）；"followUp"=排队，当前回合结束后自动发送。
 	 * 仅决定渲染层入队后的默认投递语义；pi/dsh 主进程各自映射到 wire 协议
@@ -142,6 +136,12 @@ export type AppSettings = {
 	gitCommitMessageProvider: string;
 	/** Git 提交摘要使用的模型 ID；为空时生成前提示用户配置 */
 	gitCommitMessageModel: string;
+	/**
+	 * Git 可执行文件绝对路径（如 C:\Program Files\Git\cmd\git.exe）。
+	 * 为空表示自动解析：优先 PATH 中的 git，回退到各平台已知安装位置。
+	 * 用户显式配置后，所有 git 子进程（含 worktree）都使用该路径。
+	 */
+	gitExecutablePath: string;
 	/** 关闭窗口时隐藏到系统托盘而不是退出 */
 	closeToTray: boolean;
 	/**

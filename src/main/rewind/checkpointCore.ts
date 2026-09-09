@@ -26,6 +26,7 @@ import { join } from "node:path";
 
 import type { RewindCheckpointSummary } from "../../shared/types/rewind.ts";
 import { runGit } from "../git/gitProcess.ts";
+import { currentGitExecutable } from "../git/gitExecutable.ts";
 import {
 	DEFAULT_MAX_CHECKPOINTS,
 	MAX_UNTRACKED_DIR_FILES,
@@ -79,7 +80,7 @@ async function gitOp(
 	args: string[],
 	env?: NodeJS.ProcessEnv,
 ): Promise<string> {
-	const { stdout } = await runGit(args, { cwd: root, env });
+	const { stdout } = await runGit(args, { cwd: root, env }, currentGitExecutable());
 	return stdout.trim();
 }
 
@@ -328,11 +329,15 @@ export async function createCheckpoint(
 
 		// commit-tree 的 message 走 stdin（runGit 的 input 通道；不给消息且不开 stdin
 		// 时 commit-tree 会挂起等输入，所以必须带 input）。
-		const { stdout: commitSha } = await runGit(["commit-tree", worktreeTreeSha], {
-			cwd: root,
-			env: { ...tmpEnv, ...commitEnv },
-			input: msg,
-		});
+		const { stdout: commitSha } = await runGit(
+			["commit-tree", worktreeTreeSha],
+			{
+				cwd: root,
+				env: { ...tmpEnv, ...commitEnv },
+				input: msg,
+			},
+			currentGitExecutable(),
+		);
 
 		await gitOp(root, ["update-ref", `${REF_BASE}/${id}`, commitSha.trim()]);
 
@@ -577,6 +582,7 @@ export async function loadAllCheckpoints(
 		const { stdout: catOut } = await runGit(
 			["cat-file", "--batch"],
 			{ cwd: root, input: `${pairs.map((p) => p.sha).join("\n")}\n` },
+			currentGitExecutable(),
 		);
 		const bySha = new Map<string, Omit<CheckpointData, "id">>();
 		// cat-file --batch 输出记录流：`<sha> commit <size>\n<contents>\n`。

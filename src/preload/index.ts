@@ -4,6 +4,7 @@ import type { TokendanceAuthMode } from "../shared/tokendance";
 import type { AnnouncementState } from "../shared/types/announcement";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
+import type { GitExecutableInfo } from "../shared/types/git";
 import type { ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
 import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
 import type {
@@ -42,6 +43,8 @@ import type {
 	OpenCodeSessionSummary,
 	ZCodeImportReport,
 	ZCodeSessionSummary,
+	WorkBuddyImportReport,
+	WorkBuddySessionSummary,
 	ConfigFileDiagnostic,
 	DraftMeta,
 	CreateSessionDraftInput,
@@ -145,6 +148,7 @@ import type {
 	UsageProbeSaveInput,
 	UsageProbeSaveResult,
 	UsageProbeSettingsResult,
+	UsageProbeStatesResult,
 	UsageProbeTestInput,
 } from "../shared/types/providerUsage";
 
@@ -917,6 +921,18 @@ const api = {
 				sourcePaths,
 			) as Promise<ZCodeImportReport>,
 	},
+	workbuddySessions: {
+		scan: (projectId: string) =>
+			ipcRenderer.invoke(ipcChannels.workbuddySessionsScan, projectId) as Promise<
+				WorkBuddySessionSummary[]
+			>,
+		import: (projectId: string, sourcePaths: string[]) =>
+			ipcRenderer.invoke(
+				ipcChannels.workbuddySessionsImport,
+				projectId,
+				sourcePaths,
+			) as Promise<WorkBuddyImportReport>,
+	},
 	git: {
 		/** 扫描项目内独立仓库；单仓项目通常只返回根仓库 */
 		listRepos: (projectId: string) =>
@@ -1165,6 +1181,18 @@ const api = {
 				paths,
 				repoPath,
 			) as Promise<void>,
+		/**
+		 * 探测 git 可执行文件。传 configuredPath 可在保存前预览「这样配置能不能用」；
+		 * 不传则用设置里已持久化的值，返回当前实际生效的路径与版本。
+		 */
+		detectExecutable: (configuredPath?: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitDetectExecutable,
+				configuredPath,
+			) as Promise<GitExecutableInfo>,
+		/** 打开文件选择框挑一个 git 可执行文件；取消返回 null */
+		chooseExecutable: () =>
+			ipcRenderer.invoke(ipcChannels.gitChooseExecutable) as Promise<string | null>,
 	},
 	pi: {
 		/**
@@ -1668,16 +1696,17 @@ const api = {
 		/** 视觉桥：清空事件文件 */
 		visionClearEvents: () =>
 			ipcRenderer.invoke(ipcChannels.visionClearEvents) as Promise<{ ok: boolean }>,
-		/** 测试 provider 连接：先保存配置，再用真实 pi 做一次最小调用验证是否可用；proxyMode 控制探针进程代理（同 fetchModels 语义，pi 侧走 PI 代理配置） */
+		/** 测试 provider 连接（隔离探针）：临时 agent 目录 + PI_CODING_AGENT_DIR 跑真实 pi，测当前表单值且不落盘；proxyMode 控制探针进程代理（同 fetchModels 语义，pi 侧走 PI 代理配置） */
 		testProvider: (
 			providerName: string,
 			modelId: string,
-			models: unknown,
+			provider: unknown,
+			apiKey: string,
 			proxyMode?: "follow" | "pi" | "desktop" | "off",
 		) =>
 			ipcRenderer.invoke(
 				ipcChannels.configTestProvider,
-				{ providerName, modelId, models, proxyMode },
+				{ providerName, modelId, provider, apiKey, proxyMode },
 			) as Promise<import("../shared/types/fetchedModel").PiModelProbeResult>,
 		/** 查询 provider 用量/余额（主进程按 provider 名 + backend 路由；backend=dsh 走 $DSH_HOME 链路） */
 		fetchUsage: (provider: string, backend?: "pi" | "dsh") =>
@@ -1696,18 +1725,18 @@ const api = {
 				ipcChannels.configGetUsageProbes,
 				{ provider, backend },
 			) as Promise<UsageProbeSettingsResult>,
-		/** 轻量内置识别（渲染层隐藏「用量查询」按钮用）：命中内置候选返回 true，不读配置文件 */
-		usageRecognized: (provider: string, backend?: "pi" | "dsh") =>
-			ipcRenderer.invoke(
-				ipcChannels.configUsageRecognized,
-				{ provider, backend },
-			) as Promise<{ recognized: boolean }>,
 		/** 按 provider 合并保存用量查询配置（主进程校验后落盘，保留其它 providers 与旧 probes） */
 		saveUsageProbes: (payload: UsageProbeSaveInput) =>
 			ipcRenderer.invoke(
 				ipcChannels.configSaveUsageProbes,
 				payload,
 			) as Promise<UsageProbeSaveResult>,
+		/** 批量读取各 provider 用量查询状态（徽章开关 / 启动预热选源；只回开关/模板/间隔，不含密钥） */
+		listUsageProbeStates: (payload: { providers?: string[]; backend?: "pi" | "dsh" } = {}) =>
+			ipcRenderer.invoke(
+				ipcChannels.configListUsageProbeStates,
+				payload,
+			) as Promise<UsageProbeStatesResult>,
 		/** 单条模板测试（模板 id + 覆盖字段；provider 端点与密钥由主进程解析，不回传渲染层） */
 		testUsageProbe: (payload: UsageProbeTestInput) =>
 			ipcRenderer.invoke(

@@ -124,13 +124,12 @@ let previewSettings: AppSettings = {
 	gitCommitMessagePrompt: "",
 	gitCommitMessageProvider: "",
 	gitCommitMessageModel: "",
+	gitExecutablePath: "",
 	closeToTray: true,
 	singleInstance: true,
 	enableNotifications: true,
 	// 与主进程 SettingsStore 默认一致：首轮完成后由内置扩展异步生成标题
 	autoSessionTitle: true,
-	// 默认关闭自动用量查询：与主进程 SettingsStore 默认一致，避免预览 mock 漏字段
-	providerUsageAutoQueryEnabled: false,
 	// Ask 提问系统通知默认关闭：与主进程 SettingsStore 默认一致
 	askNotificationEnabled: false,
 	// 人文关怀提醒开关：与主进程 SettingsStore 默认值保持一致（预览 mock 需覆盖 AppSettings 全部必填字段）
@@ -759,6 +758,10 @@ export function createPreviewApi(): PiDesktopApi {
 			scan: async () => [],
 			import: async () => ({ results: [], imported: 0, failed: 0 }),
 		},
+		workbuddySessions: {
+			scan: async () => [],
+			import: async () => ({ results: [], imported: 0, failed: 0 }),
+		},
 		git: {
 			listRepos: async () => [],
 			branches: async () => ({ current: "main", branches: ["main", "dev"] }),
@@ -804,6 +807,17 @@ export function createPreviewApi(): PiDesktopApi {
 			// 预览环境无真实远程：恒返回 null（不显示 push/pull 角标）
 			aheadBehind: async () => null,
 			deleteFiles: async () => {},
+			// 预览环境无真实子进程：恒报告「PATH 中的 git 可用」
+			detectExecutable: async () => ({
+				source: "path",
+				executable: "git",
+				resolvedPath: "/usr/bin/git",
+				version: "2.53.0",
+				error: null,
+				system: { resolvedPath: "/usr/bin/git", version: "2.53.0", source: "path" },
+			}),
+			// 预览环境无文件对话框：恒取消
+			chooseExecutable: async () => null,
 		},
 		logs: {
 			list: async () => [],
@@ -1233,8 +1247,8 @@ export function createPreviewApi(): PiDesktopApi {
 				error: "preview",
 			}),
 			getUsageProbes: async () => ({ recognized: null, templates: [], errors: [] }),
-			usageRecognized: async () => ({ recognized: false }),
 			saveUsageProbes: async () => ({ ok: false, error: "preview" }),
+			listUsageProbeStates: async () => ({ providers: {}, errors: [] }),
 			testUsageProbe: async () => ({ success: false, error: "preview" }),
 			installUsageSkill: async () => ({ success: false, error: "preview" }),
 			installImageGenSkill: async () => ({ success: false, error: "preview" }),

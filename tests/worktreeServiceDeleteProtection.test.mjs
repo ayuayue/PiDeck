@@ -76,6 +76,9 @@ function loadService(execFileImpl, trashImpl) {
 		"node:util": { promisify },
 		"../fs/trash": { trashPath: trashImpl },
 		"../logging/sharedLogger": { getAppLogger: () => null },
+		// gitExecutable 是新引入的运行时依赖（提供 currentGitExecutable）。
+		// 未配置时返回字面量 "git"，与测试内 fake execFile 只认 file==="git" 的假设一致。
+		"./gitExecutable": { currentGitExecutable: () => "git" },
 	};
 	return new (compile(servicePath, stubs).WorktreeService)();
 }

@@ -170,3 +170,35 @@ export type BranchDiffResult = {
 	ahead: number;   // target 比 base 多几个 commit
 	behind: number;  // target 比 base 少几个 commit（等于 0 时 base 是 target 的子集）
 };
+
+// ── Git 可执行文件探测（设置页「Git 可执行文件」行契约）────────────────
+
+/** 探测结果的来源，决定设置页展示文案与是否提示用户干预。 */
+export type GitExecutableSource = "configured" | "path" | "known-location" | "not-found";
+
+/** 一次成功探测的结论：绝对路径 + 版本号。 */
+export type GitExecutableProbe = {
+	resolvedPath: string;
+	version: string;
+};
+
+/** 系统自动探测结论（忽略用户配置），带来源以便区分「PATH 命中」与「按安装位置找到」。 */
+export type GitSystemProbe = GitExecutableProbe & {
+	source: Exclude<GitExecutableSource, "configured" | "not-found">;
+};
+
+/** git:detect-executable 的返回值。 */
+export type GitExecutableInfo = {
+	/** 当前实际会生效的来源 */
+	source: GitExecutableSource;
+	/** 实际会 spawn 的命令：用户配置路径，或字面量 "git"（走 PATH） */
+	executable: string;
+	/** 解析出的绝对路径；PATH 模式下由 where/which 得出，失败为空 */
+	resolvedPath: string;
+	/** 形如 "2.53.0"；探测失败为空 */
+	version: string;
+	/** 失败原因，成功时为 null */
+	error: string | null;
+	/** 系统自动探测结果：配置为空时展示占位，配置无效时提供一键填入的备选 */
+	system: GitSystemProbe | null;
+};

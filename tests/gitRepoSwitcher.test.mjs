@@ -88,6 +88,7 @@ test("git IPC and preload accept an optional repoPath without changing init/work
   assert.match(preload, /branches: \(projectId: string, repoPath\?: string\)/);
   assert.match(gitIpc, /resolveGitCwd/);
   assert.match(gitIpc, /listGitRepos\(projectHostPath\(project\)\)/);
-  assert.match(gitIpc, /await execFile\("git", \["init"\], \{ cwd: projectHostPath\(project\) \}\)/);
+  // git init 走 currentGitExecutable()（用户可在设置页指定路径），root 仍是项目宿主路径、不随 repoPath 变
+  assert.match(gitIpc, /currentGitExecutable\(\), \["init"\], \{ cwd: projectHostPath\(project\) \}\)/);
   assert.match(gitIpc, /worktreeService\.list\(projectHostPath\(project\)\)/);
 });
