@@ -1,16 +1,11 @@
 import { Button } from "../components/ui-shadcn/button";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Copy, Eye, EyeOff, ExternalLink, SquarePen, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, ExternalLink, SquarePen, Trash2, X } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import type { ModelItem, ModelsFile, ProviderConfig } from "./configTypes";
-import { ApiTypeInput, ConfigSelect, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
-import {
-	CUSTOM_USER_AGENT_VALUE,
-	getUserAgentOptions,
-	getHeaderValue,
-	setHeaderValue,
-} from "./providerHeaders";
+import { openDocsInSystemBrowser } from "./ConfigShared";
+import { getHeaderValue, setHeaderValue } from "./providerHeaders";
 import { buildModelsFromFetchedSelection } from "./modelsUtils";
 // 排序键收敛到 shared：与模型下拉列表 / 主进程写入保持同一顺序。
 import { compareModelRows } from "../../../shared/modelOrder";
@@ -21,7 +16,6 @@ import {
 } from "./modelBatchSelection";
 import { FetchedModelCombobox } from "./FetchedModelCombobox";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
-import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { showNotice } from "../utils/notice";
 import { applyModelPatches, computeModelSpecPatches } from "../utils/modelSpecAutoFill";
@@ -29,7 +23,7 @@ import type { FetchedModel, ConfigProxyMode } from "../../../shared/types/fetche
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
-import { ProviderUsageDetails } from "../components/app/ProviderUsageDetails";
+import { ProviderConnectionForm } from "./ProviderConnectionForm";
 import { AddProviderDialog } from "./AddProviderDialog";
 import type { ProviderDialogInitial } from "./AddProviderDialog";
 import type { AddProviderDraft } from "./addProviderDraft";
@@ -53,26 +47,6 @@ function providerDialogInitial(
 	};
 }
 
-/**
- * 代理下拉右侧的提示文案：直接显示将流向的代理 URL（未配置则提示），
- * 让用户对「测试/拉取走了哪个代理」有确定感，而不是黑盒。
- */
-function proxyModeHint(
-	mode: ConfigProxyMode,
-	settings: { piProxyUrl: string; desktopProxyUrl: string } | null,
-): string {
-	if (mode === "pi") {
-		return settings?.piProxyUrl ? settings.piProxyUrl : t("config.proxyUrlUnset");
-	}
-	if (mode === "desktop") {
-		return settings?.desktopProxyUrl ? settings.desktopProxyUrl : t("config.proxyUrlUnset");
-	}
-	if (mode === "off") {
-		return t("config.proxyOffHint");
-	}
-	return t("config.proxyFollowHint");
-}
-
 const KNOWN_PROVIDER_FIELDS = new Set([
 	"baseUrl",
 	"api",
@@ -90,7 +64,7 @@ export function ModelsTab(props: {
 	expandedProvider: string | null;
 	/** 深链聚焦的供应商：展开由父级处理，这里负责滚动到卡片并短暂高亮。 */
 	focusProvider?: string;
-	/** 打开用量探针配置弹窗（配置唯一入口在模型页）。 */
+	/** 打开用量探针配置弹窗（卡头用量查询入口按钮 / 展开区明细失败态跳转用）。 */
 	onOpenUsageProbeDialog: (providerName: string) => void;
 	/** 新增供应商弹窗开关（由父级持有，确认/取消回调走 props）。 */
 	addingProvider: boolean;
@@ -100,9 +74,6 @@ export function ModelsTab(props: {
 	hiddenProviders: string[];
 	/** 切换供应商隐藏状态（父级持久化到 AppSettings.hiddenProviders）。 */
 	onToggleHiddenProvider: (name: string) => void;
-	/** 行内重命名 provider（历史入口保留；修改名称按钮现已改为打开编辑页，见 onStartEditProvider）。 */
-	renamingProvider: string | null;
-	renameValue: string;
 	fetchingProvider: string | null;
 	fetchedModels: Record<string, FetchedModel[]>;
 	fetchModelsErrorByProvider: Record<string, string | undefined>;
@@ -121,18 +92,12 @@ export function ModelsTab(props: {
 	testModelIdByProvider: Record<string, string>;
 	/** 每个 provider 的测试/拉取代理选择：follow=跟随全局，pi/desktop=强制走对应代理，off=强制直连。 */
 	testProxyModeByProvider: Record<string, ConfigProxyMode>;
-	/** 代理配置快照（下拉里显示实际代理 URL，让用户知道会把流量送到哪）。 */
-	proxySettings: { piProxyUrl: string; desktopProxyUrl: string } | null;
 	saving: boolean;
 	onToggleProvider: (name: string) => void;
 	onStartAddProvider: () => void;
 	onCancelAddProvider: () => void;
 	/** 弹窗确认：携带完整草稿（名字 + 服务商字段），父级一步写入 modelsData。 */
 	onConfirmAddProvider: (draft: AddProviderDraft) => void;
-	onStartRename: (name: string) => void;
-	onChangeRenameValue: (name: string) => void;
-	onConfirmRename: (oldName: string) => void;
-	onCancelRename: () => void;
 	onStartEditProvider: (name: string) => void;
 	onCancelEditProvider: () => void;
 	/** 编辑弹窗确认：旧名 + 完整草稿（名字可改，走 rename 语义），父级写回 modelsData。 */
@@ -411,13 +376,7 @@ export function ModelsTab(props: {
 					const providerComplexFields = ["headers", "authHeader", "compat", "modelOverrides", "oauth"].filter(
 						(key) => provider[key] !== undefined,
 					);
-					const userAgentOptions = getUserAgentOptions();
-					const userAgentSelectValue = userAgentOptions.some(
-						(option) => option.value === userAgentValue,
-					)
-						? userAgentValue
-						: CUSTOM_USER_AGENT_VALUE;
-						return (
+					return (
 							<div
 								key={name}
 								ref={(element) => {
@@ -425,8 +384,10 @@ export function ModelsTab(props: {
 								}}
 								className={`config-provider-card overflow-hidden rounded-lg border border-border-subtle bg-bg-panel transition-[border-color,box-shadow,background-color] duration-150${isExpanded ? " border-[color-mix(in_srgb,var(--color-accent)_32%,var(--color-border-subtle))] shadow-[var(--shadow-border)] overflow-visible" : ""}${highlightProvider === name ? " ring-2 ring-[color:var(--color-accent)]" : ""}`}
 							>
+							{/* 整行点击展开/收起；右侧操作区 stopPropagation，避免点复制/删除/用量配置时误折叠。 */}
 							<div
-								className="flex items-center justify-between px-3.5 py-2 transition-colors duration-150"
+								className="flex cursor-pointer items-center justify-between px-3.5 py-2 transition-colors duration-150 hover:bg-bg-hover"
+								onClick={() => props.onToggleProvider(name)}
 							>
 								{batchMode && (
 								<Label className="mr-2.5 inline-flex size-4 shrink-0 items-center justify-center" onClick={(e) => e.stopPropagation()}>
@@ -445,21 +406,7 @@ export function ModelsTab(props: {
 								</Label>
 							)}
 								<div className="flex min-w-0 flex-1 items-center gap-2.5">
-									{props.renamingProvider === name ? (
-										<Input
-											className="h-[30px] min-w-[120px] rounded-sm border border-border-subtle bg-bg-panel px-2.5 text-sm font-semibold text-text-primary outline-none transition-colors duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-											value={props.renameValue}
-											onChange={(e) => props.onChangeRenameValue(e.target.value)}
-											onKeyDown={(e) => {
-												if (e.key === "Enter") props.onConfirmRename(name);
-												if (e.key === "Escape") props.onCancelRename();
-											}}
-											onClick={(e) => e.stopPropagation()}
-											autoFocus
-										/>
-									) : (
 										<span className="min-w-0 truncate text-control font-semibold text-text-primary">{name}</span>
-									)}
 									{/* 折叠态把「N 模型」和用量收进标题行，避免底部再占一条 h-9 空行。用量拦截点击，避免点刷新时误折叠卡片。 */}
 									<span className="shrink-0 rounded-full border border-border-subtle px-1.5 py-px font-mono text-micro tabular-nums text-muted-foreground">
 										{t("config.count.models", { count: provider.models.length })}
@@ -469,39 +416,16 @@ export function ModelsTab(props: {
 									</span>
 								</div>
 
-								<div className="flex shrink-0 items-center gap-1">
-									{props.renamingProvider === name ? (
-										<>
-											<Button variant="ghost" size="icon-sm" className="size-7"
-												onClick={(e) => {
-													e.stopPropagation();
-													props.onConfirmRename(name);
-												}}
-												title={t("config.renameConfirm")}
-											>
-												<Check size={14} />
-											</Button>
-											<Button variant="ghost" size="icon-sm" className="size-7"
-												onClick={(e) => {
-													e.stopPropagation();
-													props.onCancelRename();
-												}}
-												title={t("config.renameCancel")}
-											>
-												<X size={14} />
-											</Button>
-										</>
-									) : (
-										<Button variant="ghost" size="icon-sm" className="size-7"
-											onClick={(e) => {
-												e.stopPropagation();
-												props.onStartEditProvider(name);
-											}}
-											title={t("config.editProvider")}
-										>
-											<SquarePen size={14} />
-										</Button>
-									)}
+								<div className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
+									<Button variant="ghost" size="icon-sm" className="size-7"
+										onClick={(e) => {
+											e.stopPropagation();
+											props.onStartEditProvider(name);
+										}}
+										title={t("config.editProvider")}
+									>
+										<SquarePen size={14} />
+									</Button>
 									{/* 隐藏开关：眼睛按钮切换隐藏，隐藏后卡片移入底部「已隐藏」折叠区（模型选择器同步不显示） */}
 									<Button variant="ghost" size="icon-sm" className="size-7"
 										onClick={(e) => {
@@ -539,7 +463,7 @@ export function ModelsTab(props: {
 									>
 										<Trash2 size={14} />
 									</Button>
-									{/* 显式展开按钮：卡片不再整卡点击展开，高级配置（模型表格/测试连接等）由 Chevron 打开 */}
+									{/* 显式展开按钮：与整行点击共用 onToggleProvider；按钮自身 stopPropagation 避免冒泡双触发 */}
 									<Button variant="ghost" size="icon-sm" className="size-7"
 										onClick={(e) => {
 											e.stopPropagation();
@@ -555,264 +479,40 @@ export function ModelsTab(props: {
 							{isExpanded && (
 								<div className="config-provider-body border-t border-border-subtle bg-bg-muted pt-3">
 									<div className="config-provider-form mx-4 my-3.5 grid gap-2.5 rounded-lg border border-border-subtle bg-bg-panel p-3.5">
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.baseUrl")}</Label>
-											<div className="config-base-url-field">
-												<Input
-													value={provider.baseUrl ?? ""} className="h-8 min-w-0 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-													onChange={(e) =>
-														props.onChangeProvider(
-															name,
-															"baseUrl",
-															e.target.value,
-														)
-													}
-													placeholder="https://api.openai.com/v1"
-												/>
-												{/* 说明检测兼容补路径 vs 会话原样使用 baseUrl 的差异 */}
-												<span className="mt-1 block text-[11px] leading-relaxed text-text-tertiary">{t("config.baseUrlHint")}</span>
-											</div>
-										</div>
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.apiType")}</Label>
-											<ApiTypeInput
-												value={provider.api ?? ""}
-												onChange={(value) =>
-													props.onChangeProvider(name, "api", value)
-												}
-											/>
-										</div>
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.apiKey")}</Label>
-											<SecretInput
-												value={provider.apiKey ?? ""}
-												onChange={(v) =>
-													props.onChangeProvider(name, "apiKey", v)
-												}
-											/>
-										</div>
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.userAgent")}</Label>
-											<div className="config-header-field">
-												<ConfigSelect
-													value={userAgentSelectValue}
-													options={[
-														...userAgentOptions,
-														{ value: CUSTOM_USER_AGENT_VALUE, label: t("config.custom") },
-													]}
-													onChange={(value) => {
-														if (value === CUSTOM_USER_AGENT_VALUE) return;
-														props.onChangeProvider(
-															name,
-															"headers",
-															setHeaderValue(
-																provider.headers,
-																"User-Agent",
-																value,
-															),
-														);
-													}}
-												/>
-												<Input
-													value={userAgentValue}
-													onChange={(e) =>
-														props.onChangeProvider(
-															name,
-															"headers",
-															setHeaderValue(
-																provider.headers,
-																"User-Agent",
-																e.target.value,
-															),
-														)
-													}
-													placeholder={t("common.notConfigured")}
-												/>
-												<span>{t("config.headerEmptyHint")}</span>
-											</div>
-										</div>
-
-
-										{/* 用量/余额明细（与圆球面板/选择器徽标同一数据源）；失败态按钮打开探针配置弹窗 */}
-										<ProviderUsageDetails
-											provider={name}
-											onConfigureUsage={() => props.onOpenUsageProbeDialog(name)}
-										/>
-
-										{/* 快速测试连接 */}
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testModel")}</Label>
-											<div className="config-test-controls">
-												<Input
-													value={props.testModelIdByProvider[name] ?? ""} className="h-8 min-w-0 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-													onChange={(e) =>
-														props.onChangeTestModelId(name, e.target.value)
-													}
-													placeholder={
-														provider.models[0]?.id ?? t("config.testModelPlaceholder")
-													}
-												/>
-												<Button size="sm" variant="default"
-													onClick={() => props.onTestProvider(name)}
-													disabled={props.testingProvider === name}
-												>
-													{props.testingProvider === name
-														? t("config.testingConnection")
-														: t("config.testConnection")}
-												</Button>
-											</div>
-										</div>
-
-										{/* 测试/拉取模型的代理选择：需要代理才能访问的供应商（海外网关等）不用改全局代理开关。 */}
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testProxy")}</Label>
-											<div className="flex min-w-0 items-center gap-2.5">
-												<ConfigSelect
-													value={props.testProxyModeByProvider[name] ?? "follow"}
-													onChange={(value) => props.onChangeTestProxyMode(name, (value || "follow") as ConfigProxyMode)}
-													options={[
-														{ value: "follow", label: t("config.proxyFollow") },
-														{ value: "pi", label: t("config.proxyPi") },
-														{ value: "desktop", label: t("config.proxyDesktop") },
-														{ value: "off", label: t("config.proxyOff") },
-													]}
-												/>
-												<span className="min-w-0 truncate font-mono text-[11px] text-text-tertiary">
-													{proxyModeHint(
-														props.testProxyModeByProvider[name] ?? "follow",
-														props.proxySettings,
-													)}
-												</span>
-											</div>
-										</div>
-
-										{/* 测试结果 */}
-										{props.testResult &&
-											props.testResult.providerName === name && (
-												<div
-													className={`config-test-result ${props.testResult.success ? "success" : "fail"}`}
-												>
-													<div className="config-test-result-header">
-														<span>
-															{props.testResult.success
-																? `✅ ${t("config.connectionOk")}`
-																: `❌ ${t("config.connectionFailed")}`}
-														</span>
-														<Button variant="ghost" size="icon-sm" className="size-7"
-															onClick={props.onClearTestResult}
-															title={t("config.clearResult")}
-														>
-															<X size={14} />
-														</Button>
-													</div>
-													{props.testResult.success ? (
-														<div className="config-test-result-body">
-															<div className="flex items-baseline gap-4 text-control">
-																<span className="basis-12 shrink-0 text-xs text-text-secondary">{t("config.model")}</span>
-																<strong className="break-all text-text-primary">{props.testResult.model}</strong>
-															</div>
-															<div className="flex items-baseline gap-4 text-control">
-																<span className="basis-12 shrink-0 text-xs text-text-secondary">{t("config.response")}</span>
-																<span className="break-all text-text-primary">{props.testResult.snippet}</span>
-															</div>
-															{props.testResult.tokens &&
-																(props.testResult.tokens.input != null ||
-																	props.testResult.tokens.output != null) && (
-																<div className="flex items-baseline gap-4 text-control">
-																	<span className="basis-12 shrink-0 text-xs text-text-secondary">{t("config.tokens")}</span>
-																	<span className="break-all text-text-primary">
-																		{t("config.testInputTokens", {
-																			count: props.testResult.tokens.input ?? "-",
-																		})}
-																		，
-																		{t("config.testOutputTokens", {
-																			count: props.testResult.tokens.output ?? "-",
-																		})}
-																	</span>
-																</div>
-															)}
-															{props.testResult.latencyMs != null && (
-																<div className="flex items-baseline gap-4 text-control">
-																	<span className="basis-12 shrink-0 text-xs text-text-secondary">{t("config.testLatency")}</span>
-																	<span className="break-all text-text-primary">
-																		{props.testResult.latencyMs < 1000
-																			? `${props.testResult.latencyMs} ms`
-																			: `${(props.testResult.latencyMs / 1000).toFixed(1)} s`}
-																	</span>
-																</div>
-															)}
-														</div>
-													) : (
-														<div className="config-test-result-body">
-															{/* 失败原因放在详情第一行，保证用户从折叠卡片展开后立刻看到核心错误，
-															   不会只看到请求/Body 等排障信息而误判测试结果。 */}
-															<div className="flex items-start gap-4 text-control">
-																<span className="basis-12 shrink-0 text-xs text-text-secondary">{t("config.reason")}</span>
-																<strong className="break-all leading-relaxed text-danger">{props.testResult.error}</strong>
-															</div>
-															{props.testResult.latencyMs != null && (
-																<div className="flex items-baseline gap-4 text-control">
-																	<span className="basis-12 shrink-0 text-xs text-text-secondary">{t("config.testElapsed")}</span>
-																	<span className="break-all text-text-primary">
-																		{props.testResult.latencyMs < 1000
-																			? `${props.testResult.latencyMs} ms`
-																			: `${(props.testResult.latencyMs / 1000).toFixed(1)} s`}
-																	</span>
-																</div>
-															)}
-														</div>
-													)}
-												</div>
+										<ProviderConnectionForm
+											baseUrl={provider.baseUrl ?? ""}
+											api={provider.api ?? ""}
+											apiKey={provider.apiKey ?? ""}
+											userAgent={userAgentValue}
+											onChangeBaseUrl={(value) => props.onChangeProvider(name, "baseUrl", value)}
+											onChangeApi={(value) => props.onChangeProvider(name, "api", value)}
+											onChangeApiKey={(value) => props.onChangeProvider(name, "apiKey", value)}
+											onChangeUserAgent={(value) =>
+												props.onChangeProvider(name, "headers", setHeaderValue(provider.headers, "User-Agent", value))
+											}
+											compat={getCompat(name)}
+											onChangeCompat={(next) => props.onChangeProvider(name, "compat", next)}
+											testModelId={props.testModelIdByProvider[name] ?? ""}
+											onChangeTestModelId={(value) => props.onChangeTestModelId(name, value)}
+											testing={props.testingProvider === name}
+											firstModelId={provider.models[0]?.id}
+											onTest={() => props.onTestProvider(name)}
+											onClearTestResult={props.onClearTestResult}
+											testProxyMode={props.testProxyModeByProvider[name] ?? "follow"}
+											onChangeTestProxyMode={(mode) => props.onChangeTestProxyMode(name, mode)}
+											testResult={
+												props.testResult && props.testResult.providerName === name
+													? props.testResult
+													: null
+											}
+											testHint={t(
+												(props.fetchedModels[name]?.length ?? 0) > 0
+													? "config.testFailedButModelsFetched"
+													: "config.testConnectionHint",
 											)}
-
-								{(props.testResult && !props.testResult.success && props.testResult.providerName === name) && (
-									<div className="config-test-hint">
-										{/* 测试现在走真实 pi 调用（与会话同路径）：获取模型列表成功但真实调用失败，
-										    通常是模型 ID 不匹配，给出更精确的排查引导。 */}
-										💡 {t((props.fetchedModels[name]?.length ?? 0) > 0 ? "config.testFailedButModelsFetched" : "config.testConnectionHint")}
-									</div>
-								)}
-
-										<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-											<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.compatibility")}</Label>
-											<div className="config-compat-group">
-												<div className="config-compat-item">
-													<Label className="config-checkbox-label">
-														<Checkbox
-															checked={getCompat(name).supportsDeveloperRole === true}
-															onCheckedChange={(checked) => {
-																const compat = { ...getCompat(name) };
-																compat.supportsDeveloperRole = checked === true;
-																// 确保两个兼容性字段都显式写入，避免序列化后 JSON 为空导致 pi 后端无法正确判断
-																compat.supportsReasoningEffort ??= false;
-																props.onChangeProvider(name, "compat", compat);
-															}}
-														/>
-														<span>{t("config.developerRole")}</span>
-													</Label>
-													<small className="config-compat-item-desc">{t("config.developerRoleDesc")}</small>
-												</div>
-												<div className="config-compat-item">
-													<Label className="config-checkbox-label">
-														<Checkbox
-															checked={getCompat(name).supportsReasoningEffort === true}
-															onCheckedChange={(checked) => {
-																const compat = { ...getCompat(name) };
-																compat.supportsReasoningEffort = checked === true;
-																// 确保两个兼容性字段都显式写入，避免序列化后 JSON 为空导致 pi 后端无法正确判断
-																compat.supportsDeveloperRole ??= false;
-																props.onChangeProvider(name, "compat", compat);
-															}}
-														/>
-														<span>{t("config.reasoningEffort")}</span>
-													</Label>
-													<small className="config-compat-item-desc">{t("config.reasoningEffortDesc")}</small>
-												</div>
-											</div>
-										</div>
-
-										{(providerComplexFields.length > 0 || providerAdvancedFields.length > 0) && (
-											<div className="mt-1.5 mb-2.5 flex items-start gap-2.5 rounded-md border border-border-subtle bg-bg-muted px-3 py-2 text-text-secondary">
+											advancedHint={
+												(providerComplexFields.length > 0 || providerAdvancedFields.length > 0) && (
+<div className="mt-1.5 mb-2.5 flex items-start gap-2.5 rounded-md border border-border-subtle bg-bg-muted px-3 py-2 text-text-secondary">
 												<strong className="min-w-[100px] shrink-0 whitespace-nowrap text-[11px] font-semibold text-text-primary">{t("config.advancedPreservedTitle")}</strong>
 												<span>
 													{t("config.advancedPreservedProvider", {
@@ -837,6 +537,7 @@ export function ModelsTab(props: {
 												</span>
 											</div>
 										)}
+									/>
 									</div>
 
 									<div className="config-models-section">

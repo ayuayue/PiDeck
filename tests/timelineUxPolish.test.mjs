@@ -90,3 +90,42 @@ test("followOutput re-lock uses spring when far from bottom", () => {
     /reduce \|\| distance <= followThreshold \? "instant" : "smooth"/,
   );
 });
+
+test("settled positioning is state-driven, inputs never cancel it", () => {
+  // 2026-09 对抗审查收敛：鼠标移动/键盘/滚轮/触摸等输入事件不参与「最终回答
+  // 安静定位」的取消——只有「已结束且仍跟随」才触发，只有状态边界（真实上滚/回底/
+  // 切会话/新一轮）才取消。
+  assert.doesNotMatch(timeline, /addEventListener\("pointermove"/);
+  assert.doesNotMatch(timeline, /addEventListener\("pointerdown"/);
+  assert.doesNotMatch(timeline, /addEventListener\("wheel"/);
+  assert.doesNotMatch(timeline, /addEventListener\("keydown"/);
+  assert.doesNotMatch(timeline, /addEventListener\("touchstart"/);
+  assert.doesNotMatch(controller, /addEventListener\("wheel", interrupt/);
+  assert.doesNotMatch(controller, /addEventListener\("pointerdown", interrupt/);
+  // 状态驱动取消仍然保留：
+  // - 引擎真实输入（wheel/touch）带 source="input" → 终止在途定位动画；
+  // - 历史浏览失效事务（回底/重锁/切会话）→ invalidateHistoryBrowsing 取消。
+  assert.match(controller, /source === "input"/);
+  assert.match(controller, /settleScrollCancelRef\.current\?\.\(\);/);
+  // 对抗审查补修：
+  // - F1：新一轮开始（busy 边沿）取消在途 settle 动画并恢复跟随贴底；
+  // - P2-①：动画期间用户接管（拖动滚动条等）经几何检测中断，不再逐帧覆盖；
+  // - P2-②：切回补挂 arm 幂等，已消费过 tick 的 run 不再重复 arm（记忆优先）。
+  assert.match(controller, /cancelSettledRepositionForNewRun/);
+  assert.match(timeline, /controller\.cancelSettledRepositionForNewRun\(\)/);
+  // 滚动条拖动取消用「命中滚动条区域」的事件判定；不用几何分叉启发式——
+  // 内容收缩 clamp 也会改变 scrollTop，几何启发式会误判并取消定位动画。
+  assert.match(controller, /onScrollbarPointerDown/);
+  assert.match(controller, /event\.clientX >= rect\.left \+ timeline\.clientWidth/);
+  const pinScrollSource = readFileSync(
+    "src/renderer/src/lib/pinTurnScroll.ts",
+    "utf8",
+  );
+  assert.doesNotMatch(pinScrollSource, /TAKEOVER_TOLERANCE_PX/);
+  assert.match(timeline, /settleTickConsumedRunRef/);
+  // 触发时序不变：1.5s 阅读停顿 + 320ms 布局稳定窗口。
+  assert.match(timeline, /TURN_SETTLE_IDLE_COLLAPSE_MS = 1500/);
+  assert.match(timeline, /TURN_SETTLE_SCROLL_DELAY_MS/);
+  // TurnRow 保留 onAutoCollapsed 通道（契约不依赖折叠回调驱动定位，但可扩展）。
+  assert.match(turnRow, /onAutoCollapsed/);
+});

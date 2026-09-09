@@ -70,8 +70,9 @@ test("AgentManager notification target uses record id resolver", () => {
 // 冷启动时序：加载期目标必须进 pending 队列，且 renderer 挂载后主动拉取
 test("cold start focus target goes through pending queue", () => {
   const indexSource = readFileSync("src/main/index.ts", "utf8");
-  assert.match(indexSource, /function queueFocusTarget\(sessionId: string\)/);
-  assert.match(indexSource, /pendingFocusTarget = \{ sessionId \};/);
+  // 焦点目标为 FocusTargetPayload 联合（sessionId/projectId/projectPath 三形态）
+  assert.match(indexSource, /function queueFocusTarget\(target: \{ sessionId: string \} \| \{ projectId: string \} \| \{ projectPath: string \}\)/);
+  assert.match(indexSource, /pendingFocusTarget = target;/);
   assert.match(indexSource, /flushPendingFocusTargetOnLoad\(\);/);
   // 拉取通道必须注册（renderer 挂载后取走即清空）
   assert.match(indexSource, /ipcMain\.handle\(ipcChannels\.petGetFocusTargetPending/);

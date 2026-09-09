@@ -15,9 +15,7 @@ export const GUIDE_BOOTSTRAP_SESSION_ID = "renderer:guide-bootstrap";
 
 /** 欢迎页（未启动 Agent）选择的模型偏好存储 key。 */
 export const WELCOME_MODEL_KEY = "pideck:welcome-model";
-/** 欢迎页（未启动 Agent）选择的思考级别偏好存储 key。
- *  注意（2026-10 用户规则）：思考级别一律走默认档位（settings.defaultThinkingLevel），
- *  偏好级别不再参与回退；此 key 仅保留读取函数供旧数据兼容，不写入新值。 */
+/** 欢迎页（未启动 Agent）显式选择的思考级别存储 key；首次发送时提升到真实会话。 */
 export const WELCOME_THINKING_KEY = "pideck:welcome-thinking";
 
 /** 读取欢迎页最后选择的模型偏好（无则 undefined）。 */

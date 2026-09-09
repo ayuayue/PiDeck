@@ -262,8 +262,8 @@ export function RespondingIndicator(props: {
 	return (
 		<div className="responding-indicator" data-kind={kind}>
 			{/* key=kind：状态切换时从该组短语第一条重新轮播，避免旧组下标错位；
-			   指示器用 Loader bars（四条竖条错峰伸缩，bg-current 跟随状态色），
-			   紧凑的行内动画，不占额外横向空间 */}
+			   指示器用 Loader dots（三点跳动，bg-current 跟随状态色），
+			   不用官方默认的 ascii 终端字符；文字放大到 text-base */}
 			<ReasoningText
 				key={kind}
 				phrases={RESPONDING_PHRASES[kind]}
@@ -271,8 +271,8 @@ export function RespondingIndicator(props: {
 				interval={1800}
 				indicator={
 					<Loader
-						variant="bars"
-						size={16}
+						variant="dot-matrix"
+						size={18}
 						speed={1.1}
 						label={t("agent.loading.aria")}
 					/>

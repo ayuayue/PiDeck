@@ -11,6 +11,7 @@ const SOURCE_LABELS: Record<SessionSource, string> = {
   claude: t("sessionSource.claude"),
   opencode: t("sessionSource.opencode"),
   zcode: t("sessionSource.zcode"),
+  workbuddy: t("sessionSource.workbuddy"),
 };
 
 const SOURCE_TONES: Record<SessionSource, string> = {
@@ -21,6 +22,8 @@ const SOURCE_TONES: Record<SessionSource, string> = {
   opencode: "border-muted-foreground/40 text-muted-foreground",
   // zcode（z.ai CLI）无公开品牌图形资源，用中性色 + 自绘 Z 标记，避免错误品牌色
   zcode: "border-muted-foreground/40 text-muted-foreground",
+  // WorkBuddy 同无公开品牌 SVG，沿用中性色 + 自绘 W 字形标记（与 zcode 惯例一致）
+  workbuddy: "border-muted-foreground/40 text-muted-foreground",
 };
 
 function SourceLogo(props: { source: SessionSource }) {
@@ -61,6 +64,15 @@ function SourceLogo(props: { source: SessionSource }) {
     return (
       <svg viewBox="0 0 24 24" className="size-3.5" aria-hidden="true" focusable="false">
         <path fill="currentColor" d="M4 3h16v3.2L10.8 16H20v5H4v-3.2L13.2 8H4z" />
+      </svg>
+    );
+  }
+
+  if (props.source === "workbuddy") {
+    // WorkBuddy 无公开品牌 SVG，用等宽「W」字形作为可辨识标记（与 zcode 的 Z 同一惯例）。
+    return (
+      <svg viewBox="0 0 24 24" className="size-3.5" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M1.6 4h3.3l2.5 12.2L10 4h4l2.6 12.2L19.1 4h3.3l-3.9 16h-3.7l-2.8-12-2.8 12H5.5z" />
       </svg>
     );
   }

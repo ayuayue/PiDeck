@@ -27,7 +27,7 @@ import { invalidateAllProviderUsageAtom, resolveProviderUsageAtom } from "../ato
 import { currentSessionIdAtom } from "../atoms/session-atoms";
 import { setSessionDraftAtom } from "../atoms/composer-atoms";
 import { appendContentToDraft } from "../composerBehavior";
-import { usageCacheKey } from "../hooks/useProviderUsage";
+import { usageCacheKey, useRefreshProviderUsageState } from "../hooks/useProviderUsage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui-shadcn/dialog";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
@@ -141,6 +141,8 @@ export function UsageProbeConfigDialog(props: {
 	onCloseHost?: () => void;
 }) {
 	const invalidateAll = useSetAtom(invalidateAllProviderUsageAtom);
+	// 保存后回读状态表（徽章开关态/间隔的唯一来源），避免徽章停在「未启用」。
+	const refreshProviderState = useRefreshProviderUsageState();
 	const resolveUsage = useSetAtom(resolveProviderUsageAtom);
 	// 「让 AI 帮我查」：把提示词写进当前会话的 composer 草稿（无活动会话则回退剪贴板）。
 	const currentSessionId = useAtomValue(currentSessionIdAtom);
@@ -182,14 +184,15 @@ export function UsageProbeConfigDialog(props: {
 		setLoaded(false);
 		setLoadErrors([]);
 		setLegacyNotice("");
-		// 主进程侧默认值：内置命中 → enabled 默认 true；未命中 → false（用户显式开启才保存）。
+		// 默认关闭（与主进程一致）：内置识别/已配模板只表示「有可查询路径」，
+		// 真正查询必须用户在本弹窗（或卡片徽章）里显式打开。
 		desktopApi.config
 			.getUsageProbes(props.provider, props.backend)
 			.then((result) => {
 				if (cancelled) return;
 				const config = result.config;
 				setRecognized(result.recognized);
-				setEnabled(config?.enabled ?? result.recognized != null);
+				setEnabled(config?.enabled ?? false);
 				setTemplate(config?.template ?? result.recognized?.templateId ?? NONE_TEMPLATE);
 				setApiKey(config?.apiKey ?? "");
 				setBaseUrl(config?.baseUrl ?? "");
@@ -382,8 +385,10 @@ export function UsageProbeConfigDialog(props: {
 			});
 			if (result.ok) {
 				setSaveState("success");
-				// 保存成功 → 清全部用量缓存，三处随即重查出新配置的效果。
+				// 保存成功 → 清全部用量缓存 + 回读该 provider 状态表（徽章的开关态/间隔来自状态表，
+				// 不回读会停在「未启用」直到重开应用）；三处消费随即重查出新配置的效果。
 				invalidateAll();
+				void refreshProviderState(props.provider, props.backend);
 				window.setTimeout(handleClose, 600);
 			} else {
 				setSaveState("error");
@@ -521,18 +526,20 @@ export function UsageProbeConfigDialog(props: {
 									</p>
 								)}
 								{hintKey && (
-									<div className="flex flex-col gap-2">
+									/* 徽标与说明同行：父容器若用 flex-col，徽标会被 cross-axis stretch 拉成整行宽（表现为一条大灰杠），
+									   因此用水平 flex + shrink-0，徽标保持内容宽，说明文字在剩余空间内换行 */
+									<div className="flex items-center gap-2 px-0.5">
 										{recognized && template === recognized.templateId && (
 											/* 已识别供应商徽标（学 cc-switch DeepSeek 蓝标）：明确「预制的是你」，
 											   让「内置模板」与「需要填字段的模板」一眼区分开 */
 											<span
-												className="inline-flex flex-none items-center rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 font-mono text-micro leading-none tracking-wide text-[var(--color-accent)]"
+												className="inline-flex shrink-0 items-center rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 font-mono text-micro leading-none tracking-wide text-[var(--color-accent)]"
 												data-testid="usage-probe-recognized-badge"
 											>
 												{props.provider}
 											</span>
 										)}
-										<p className="px-0.5 text-caption text-text-tertiary">
+										<p className="min-w-0 flex-1 text-caption text-text-tertiary">
 											{recognized && template === recognized.templateId
 												? t("config.usageProbe.builtinHint")
 												: t(hintKey)}

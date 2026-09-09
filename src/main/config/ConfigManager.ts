@@ -29,6 +29,8 @@ import type {
 	UsageProbeProviderConfig,
 	UsageProbeRecognition,
 	UsageProbeSettingsResult,
+	UsageProbeProviderState,
+	UsageProbeStatesResult,
 	UsageProbeTestInput,
 } from "../../shared/types/providerUsage";
 import { credentialRefFor } from "../../shared/dshCredentialRef";
@@ -51,7 +53,7 @@ import {
 	buildDeclarativeUsageProbeTemplate,
 	USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID,
 } from "./usageProbeTemplates";
-import { loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
+import { loadUsageProbeProviderConfigs, loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
 import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
 import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
@@ -911,13 +913,14 @@ export class ConfigManager {
 		// 配置面规范名（deepseek）不一致，不归一就读不到 DSH 卡片保存的探针配置/端点。
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
 		const settingsDir = this.usageProbeSettingsDir(backend);
-		// 1) 门控：用户显式关闭（enabled=false）→ 快速返回，不发请求。
+		// 1) 门控：未显式开启（enabled !== true）→ 快速返回，不发请求。
+		// 「默认关」是刻意设计：内置识别/已配模板只表示有可查询路径，自动查询必须用户显式开启；
 		// DSH 未单独配置时回退 Pi 同 provider 配置（display parity：Pi 已配置并显示 → DSH 卡片默认也显示）。
 		const { settings, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, settingsDir);
 		for (const error of settings.errors) {
 			console.warn("[ConfigManager] 用量探针配置被忽略：", error);
 		}
-		if (settings.config?.enabled === false) {
+		if (settings.config?.enabled !== true) {
 			return {
 				success: false,
 				disabled: true,
@@ -1037,15 +1040,96 @@ export class ConfigManager {
 	): Promise<UsageProbeRecognition | null> {
 		const resolved = await this.resolveUsageEndpoint(provider, backend);
 		if (!resolved.matched || !resolved.baseUrl) return null;
-		const api = this.normalizeApiType(resolved.apiType);
+		return this.matchBuiltinRecognition(resolved.baseUrl, resolved.apiType);
+	}
+
+	/**
+	 * 由已解析的端点判定内置候选命中（recognizeUsageTemplate 与批量状态表共用同一规则，
+	 * 避免两处各自维护一份「哪些算内置」而漂移）。
+	 */
+	private matchBuiltinRecognition(
+		baseUrl: string,
+		apiType: string | undefined,
+	): UsageProbeRecognition | null {
+		const api = this.normalizeApiType(apiType);
 		for (const candidate of USAGE_PROBE_CANDIDATES) {
 			if (!candidate.templateId) continue;
-			if (candidateApplies(candidate, resolved.baseUrl, api)) {
+			if (candidateApplies(candidate, baseUrl, api)) {
 				const category = USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID[candidate.templateId];
 				return { templateId: candidate.templateId, category: category ?? "balance" };
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * 批量读取用量查询状态表（徽章开关 + 启动预热选源）：
+	 * 每个 provider 给出「生效开关 / 是否已配置 / 是否内置识别 / 生效模板 / 生效间隔」。
+	 *
+	 * 生效开关 = 显式 enabled ?? false（默认关，显式开启才真正查询）：
+	 * - 内置识别/已配模板只说明「有可查询路径」，不代表自动开；
+	 * - 只有用户自己打开（徽章里的开关或用量查询弹窗的「是否启用」）才写 enabled=true；
+	 * - 好处：升级后不会因为内置识别命中而默默对一批网关扇出请求。
+	 * 只回状态，绝不回传 apiKey/accessToken/cookie。
+	 */
+	async listUsageProbeStates(
+		backend: UsageProbeBackend = "pi",
+		providers: string[] = [],
+	): Promise<UsageProbeStatesResult> {
+		const settingsDir = this.usageProbeSettingsDir(backend);
+		const [saved, modelsRes, authRes] = await Promise.all([
+			loadUsageProbeProviderConfigs(settingsDir),
+			this.getModelsConfig(),
+			this.getAuthConfig(),
+		]);
+		// DSH 未单独配置时回退 Pi 侧同 provider 配置（与 loadUsageSettingsWithFallback 同语义，
+		// 否则 DSH 卡片会显示「未配置/关闭」而实际查询走 Pi 配置——两处不一致）。
+		const piSaved =
+			backend === "dsh" ? (await loadUsageProbeProviderConfigs(this.configDir)).providers : undefined;
+
+		const names = new Set<string>();
+		if (backend === "pi") {
+			// 卡片来源 = 模型页（models.json）+ 认证页（auth.json）并集，两边都要有徽章状态。
+			for (const name of Object.keys(modelsRes.parsed?.providers ?? {})) names.add(name);
+			for (const name of Object.keys(authRes.parsed ?? {})) names.add(name);
+		}
+		for (const name of Object.keys(saved.providers)) names.add(name);
+		for (const name of providers) {
+			const trimmed = name.trim();
+			if (trimmed) names.add(trimmed);
+		}
+
+		// pi 侧一次读盘喂给全部 provider 的端点解析，避免逐条重复读 models/auth。
+		const catalog = getPiAiCatalogIndex();
+		const lookup = {
+			getModelsConfig: async () => modelsRes,
+			getAuthConfig: async () => authRes,
+			catalogProvider: (name: string) => piBuiltinSnapshotFromCatalog(name, undefined, catalog),
+		};
+
+		const states: Record<string, UsageProbeProviderState> = {};
+		for (const name of names) {
+			const config = saved.providers[name] ?? piSaved?.[name];
+			let recognized: UsageProbeRecognition | null;
+			if (backend === "pi") {
+				const resolved = await resolveProviderUsageEndpoint(lookup, name);
+				recognized =
+					resolved.matched && resolved.baseUrl
+						? this.matchBuiltinRecognition(resolved.baseUrl, resolved.apiType)
+						: null;
+			} else {
+				recognized = await this.recognizeUsageTemplate(name, backend);
+			}
+			const template = config?.template ?? recognized?.templateId;
+			states[name] = {
+				enabled: config?.enabled ?? false,
+				configured: config != null,
+				recognized: recognized != null,
+				...(template ? { template } : {}),
+				intervalMinutes: config?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES,
+			};
+		}
+		return { providers: states, errors: saved.errors };
 	}
 
 	/**

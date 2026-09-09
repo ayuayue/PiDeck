@@ -5,6 +5,7 @@ import { Button } from "../ui-shadcn/button";
 import { X } from "lucide-react";
 import { Check, RefreshCw, UploadCloud } from "lucide-react";
 import { t } from "../../i18n";
+import type { TranslationKey } from "../../i18n";
 import {
 	Dialog,
 	DialogClose,
@@ -21,6 +22,8 @@ import type {
 	OpenCodeImportReport,
 	ZCodeSessionSummary,
 	ZCodeImportReport,
+	WorkBuddySessionSummary,
+	WorkBuddyImportReport,
 	Project,
 } from "../../../../shared/types";
 import { Checkbox } from "../ui-shadcn/checkbox";
@@ -287,116 +290,12 @@ export function ClaudeImportModal(props: {
 	onToggleAll: () => void;
 	onImport: () => void;
 }) {
-	const selected = new Set(props.selectedPaths);
-	const allSelected =
-		props.sessions.length > 0 &&
-		props.sessions.every((session) => selected.has(session.sourcePath));
 	return (
-		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
-			<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(800px,calc(100vw-48px))]", "codex-import-modal")}>
-				<DialogHeader className="flex-row items-center justify-between px-4 py-3">
-					<DialogTitle>{t("claude.title")}</DialogTitle>
-					<DialogClose asChild>
-						<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
-							<X size={18} strokeWidth={2.2} aria-hidden="true" />
-						</Button>
-					</DialogClose>
-				</DialogHeader>
-				<div className="modal-header-sub">
-					<small>{props.project.name}</small>
-				</div>
-				<div className="codex-import-toolbar">
-					<div>
-						<strong>{t("claude.importCount", { count: props.sessions.length })}</strong>
-						<span>{displayPath(props.project.path)}</span>
-					</div>
-					<div className="codex-import-actions">
-						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onRefresh} disabled={props.loading || props.importing}>
-							<RefreshCw size={14} />
-							{t("common.refresh")}
-						</Button>
-						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
-							<Check size={14} />
-							{allSelected ? t("claude.selectNone") : t("common.selectAll")}
-						</Button>
-						<Button
-							variant="default" size="sm" className="primary-action h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5"
-							onClick={props.onImport}
-							disabled={props.importing || props.selectedPaths.length === 0}
-						>
-							<UploadCloud size={14} />
-							{props.importing
-								? t("claude.importing")
-								: t("claude.importSelected", {
-										count: props.selectedPaths.length,
-									})}
-						</Button>
-					</div>
-				</div>
-				<div className="codex-import-body">
-					{props.loading ? (
-						<div className="history-loading">
-							<div className="loader animate-pideck-spin" />
-							<span>{t("claude.scanning")}</span>
-						</div>
-					) : props.sessions.length === 0 ? (
-						<div className="codex-import-empty">
-							<strong>{t("claude.emptyTitle")}</strong>
-							<span>{t("claude.emptyDesc")}</span>
-						</div>
-					) : (
-						<div className="codex-session-list">
-							{props.sessions.map((session) => (
-								<Label key={session.sourcePath} className="codex-session-row">
-									<Checkbox
-										checked={selected.has(session.sourcePath)}
-										onCheckedChange={() => props.onToggle(session.sourcePath)}
-									/>
-									<div className="codex-session-main">
-										<div className="codex-session-title">
-											<strong>{session.title}</strong>
-											<span className={`codex-status ${session.status}`}>
-												{formatClaudeStatus(session.status)}
-											</span>
-										</div>
-										<p>{session.preview}</p>
-										<small>
-											{new Date(session.updatedAt).toLocaleString()} ·{" "}
-											{t("drawer.sessionMessages", {
-												count: session.messageCount,
-											})} ·{" "}
-											{formatBytes(session.sourceSize)}
-										</small>
-									</div>
-								</Label>
-							))}
-						</div>
-					)}
-				</div>
-				{props.report && (
-					<div className="codex-import-report">
-						<strong>
-							{t("claude.importDone", {
-								imported: props.report.imported,
-								failed: props.report.failed,
-							})}
-						</strong>
-						<div>
-							{props.report.results.map((result) => (
-								<span
-									key={result.sourcePath}
-									className={result.success ? "success" : "error"}
-									title={result.error || result.targetPath}
-								>
-									{result.success ? "✓" : "✗"} {result.title || result.sourcePath}
-								</span>
-							))}
-						</div>
-					</div>
-				)}
-		
-			</DialogContent>
-		</Dialog>
+		<SessionImportModal
+			copyPrefix="claude"
+			formatStatus={formatClaudeStatus}
+			{...props}
+		/>
 	);
 }
 
@@ -413,120 +312,12 @@ export function OpenCodeImportModal(props: {
 	onToggleAll: () => void;
 	onImport: () => void;
 }) {
-	const selected = new Set(props.selectedPaths);
-	const allSelected =
-		props.sessions.length > 0 &&
-		props.sessions.every((session) => selected.has(session.sourcePath));
 	return (
-		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
-			<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(800px,calc(100vw-48px))]", "codex-import-modal")}>
-				<DialogHeader className="flex-row items-center justify-between px-4 py-3">
-					<DialogTitle>{t("opencode.title")}</DialogTitle>
-					<DialogClose asChild>
-						<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
-							<X size={18} strokeWidth={2.2} aria-hidden="true" />
-						</Button>
-					</DialogClose>
-				</DialogHeader>
-				<div className="modal-header-sub">
-					<small>{props.project.name}</small>
-				</div>
-				<div className="codex-import-toolbar">
-					<div>
-						<strong>
-							{t("opencode.importCount", {
-								count: props.sessions.length,
-							})}
-						</strong>
-						<span>{displayPath(props.project.path)}</span>
-					</div>
-					<div className="codex-import-actions">
-						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onRefresh} disabled={props.loading || props.importing}>
-							<RefreshCw size={14} />
-							{t("common.refresh")}
-						</Button>
-						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
-							<Check size={14} />
-							{allSelected ? t("opencode.selectNone") : t("common.selectAll")}
-						</Button>
-						<Button
-							variant="default" size="sm" className="primary-action h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5"
-							onClick={props.onImport}
-							disabled={props.importing || props.selectedPaths.length === 0}
-						>
-							<UploadCloud size={14} />
-							{props.importing
-								? t("opencode.importing")
-								: t("opencode.importSelected", {
-										count: props.selectedPaths.length,
-									})}
-						</Button>
-					</div>
-				</div>
-				<div className="codex-import-body">
-					{props.loading ? (
-						<div className="history-loading">
-							<div className="loader animate-pideck-spin" />
-							<span>{t("opencode.scanning")}</span>
-						</div>
-					) : props.sessions.length === 0 ? (
-						<div className="codex-import-empty">
-							<strong>{t("opencode.emptyTitle")}</strong>
-							<span>{t("opencode.emptyDesc")}</span>
-						</div>
-					) : (
-						<div className="codex-session-list">
-							{props.sessions.map((session) => (
-								<Label key={session.sourcePath} className="codex-session-row">
-									<Checkbox
-										checked={selected.has(session.sourcePath)}
-										onCheckedChange={() => props.onToggle(session.sourcePath)}
-									/>
-									<div className="codex-session-main">
-										<div className="codex-session-title">
-											<strong>{session.title}</strong>
-											<span className={`codex-status ${session.status}`}>
-												{formatOpenCodeStatus(session.status)}
-											</span>
-										</div>
-										<p>{session.preview}</p>
-										<small>
-											{new Date(session.updatedAt).toLocaleString()} ·{" "}
-											{t("drawer.sessionMessages", {
-												count: session.messageCount,
-											})} ·{" "}
-											{formatBytes(session.sourceSize)}
-										</small>
-									</div>
-								</Label>
-							))}
-						</div>
-					)}
-				</div>
-				{props.report && (
-					<div className="codex-import-report">
-						<strong>
-							{t("opencode.importDone", {
-								imported: props.report.imported,
-								failed: props.report.failed,
-							})}
-						</strong>
-						<div>
-							{props.report.results.map((result) => (
-								<span
-									key={result.sourcePath}
-									className={result.success ? "success" : "error"}
-									title={result.error || result.targetPath}
-								>
-									{result.success ? "✓" : "✗"} {result.title || result.sourcePath}
-								</span>
-							))}
-						</div>
-					</div>
-				)}
-			
-			</DialogContent>
-		</Dialog>
+		<SessionImportModal
+			copyPrefix="opencode"
+			formatStatus={formatOpenCodeStatus}
+			{...props}
+		/>
 	);
 }
 
@@ -543,15 +334,65 @@ export function ZCodeImportModal(props: {
 	onToggleAll: () => void;
 	onImport: () => void;
 }) {
+	return (
+		<SessionImportModal
+			copyPrefix="zcode"
+			formatStatus={formatZCodeStatus}
+			{...props}
+		/>
+	);
+}
+type ImportStatusValue = "new" | "current" | "outdated";
+
+/** 会话列表项的最小公共形状：Claude / OpenCode / ZCode / WorkBuddy 汇总结构一致。 */
+type ImportSessionLike = {
+	sourcePath: string;
+	title: string;
+	preview: string;
+	updatedAt: number;
+	messageCount: number;
+	sourceSize: number;
+	status: ImportStatusValue;
+};
+
+type ImportResultLike = {
+	sourcePath: string;
+	success: boolean;
+	title?: string;
+	error?: string;
+	targetPath?: string;
+};
+
+/**
+ * 通用会话导入弹窗：除 Codex（需子代理分组）外的导入源 UI 完全一致，
+ * 只有文案前缀与状态文案不同，收敛成一个泛型组件避免逐源复制。
+ */
+function SessionImportModal<T extends ImportSessionLike>(props: {
+	copyPrefix: string;
+	formatStatus: (status: ImportStatusValue) => string;
+	project: Project;
+	sessions: T[];
+	selectedPaths: string[];
+	loading: boolean;
+	importing: boolean;
+	report: { results: ImportResultLike[]; imported: number; failed: number } | null;
+	onClose: () => void;
+	onRefresh: () => void;
+	onToggle: (sourcePath: string) => void;
+	onToggleAll: () => void;
+	onImport: () => void;
+}) {
 	const selected = new Set(props.selectedPaths);
 	const allSelected =
 		props.sessions.length > 0 &&
 		props.sessions.every((session) => selected.has(session.sourcePath));
+	const copy = (key: string, params?: Record<string, string | number>) =>
+		t(`${props.copyPrefix}.${key}` as TranslationKey, params);
 	return (
 		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
 			<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(800px,calc(100vw-48px))]", "codex-import-modal")}>
 				<DialogHeader className="flex-row items-center justify-between px-4 py-3">
-					<DialogTitle>{t("zcode.title")}</DialogTitle>
+					<DialogTitle>{copy("title")}</DialogTitle>
 					<DialogClose asChild>
 						<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
 							<X size={18} strokeWidth={2.2} aria-hidden="true" />
@@ -563,7 +404,7 @@ export function ZCodeImportModal(props: {
 				</div>
 				<div className="codex-import-toolbar">
 					<div>
-						<strong>{t("zcode.importCount", { count: props.sessions.length })}</strong>
+						<strong>{copy("importCount", { count: props.sessions.length })}</strong>
 						<span>{displayPath(props.project.path)}</span>
 					</div>
 					<div className="codex-import-actions">
@@ -573,7 +414,7 @@ export function ZCodeImportModal(props: {
 						</Button>
 						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
 							<Check size={14} />
-							{allSelected ? t("zcode.selectNone") : t("common.selectAll")}
+							{allSelected ? copy("selectNone") : t("common.selectAll")}
 						</Button>
 						<Button
 							variant="default" size="sm" className="primary-action h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5"
@@ -582,10 +423,8 @@ export function ZCodeImportModal(props: {
 						>
 							<UploadCloud size={14} />
 							{props.importing
-								? t("zcode.importing")
-								: t("zcode.importSelected", {
-										count: props.selectedPaths.length,
-									})}
+								? copy("importing")
+								: copy("importSelected", { count: props.selectedPaths.length })}
 						</Button>
 					</div>
 				</div>
@@ -593,12 +432,12 @@ export function ZCodeImportModal(props: {
 					{props.loading ? (
 						<div className="history-loading">
 							<div className="loader animate-pideck-spin" />
-							<span>{t("zcode.scanning")}</span>
+							<span>{copy("scanning")}</span>
 						</div>
 					) : props.sessions.length === 0 ? (
 						<div className="codex-import-empty">
-							<strong>{t("zcode.emptyTitle")}</strong>
-							<span>{t("zcode.emptyDesc")}</span>
+							<strong>{copy("emptyTitle")}</strong>
+							<span>{copy("emptyDesc")}</span>
 						</div>
 					) : (
 						<div className="codex-session-list">
@@ -612,15 +451,13 @@ export function ZCodeImportModal(props: {
 										<div className="codex-session-title">
 											<strong>{session.title}</strong>
 											<span className={`codex-status ${session.status}`}>
-												{formatZCodeStatus(session.status)}
+												{props.formatStatus(session.status)}
 											</span>
 										</div>
 										<p>{session.preview}</p>
 										<small>
 											{new Date(session.updatedAt).toLocaleString()} ·{" "}
-											{t("drawer.sessionMessages", {
-												count: session.messageCount,
-											})}{" "}·{" "}
+											{t("drawer.sessionMessages", { count: session.messageCount })} ·{" "}
 											{formatBytes(session.sourceSize)}
 										</small>
 									</div>
@@ -632,7 +469,7 @@ export function ZCodeImportModal(props: {
 				{props.report && (
 					<div className="codex-import-report">
 						<strong>
-							{t("zcode.importDone", {
+							{copy("importDone", {
 								imported: props.report.imported,
 								failed: props.report.failed,
 							})}
@@ -652,5 +489,33 @@ export function ZCodeImportModal(props: {
 				)}
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function formatWorkBuddyStatus(status: WorkBuddySessionSummary["status"]) {
+	if (status === "current") return t("workbuddy.status.current");
+	if (status === "outdated") return t("workbuddy.status.outdated");
+	return t("workbuddy.status.new");
+}
+
+export function WorkBuddyImportModal(props: {
+	project: Project;
+	sessions: WorkBuddySessionSummary[];
+	selectedPaths: string[];
+	loading: boolean;
+	importing: boolean;
+	report: WorkBuddyImportReport | null;
+	onClose: () => void;
+	onRefresh: () => void;
+	onToggle: (sourcePath: string) => void;
+	onToggleAll: () => void;
+	onImport: () => void;
+}) {
+	return (
+		<SessionImportModal
+			copyPrefix="workbuddy"
+			formatStatus={formatWorkBuddyStatus}
+			{...props}
+		/>
 	);
 }

@@ -1,15 +1,14 @@
 /**
- * 「用量查询」配置入口按钮（柱状图图标，模型页/认证页/DSH 页卡片头部图标组共用）。
+ * 「用量查询」入口按钮（柱状图图标，模型页/认证页/DSH 卡片头部图标组共用）。
  *
- * 行为：provider 命中内置用量模板（零配置自动生效）时不渲染——内置支持的供应商
- * 不需要配置入口，避免「没开启也能加载出来」的冗余按钮；未命中（或识别未返回）
- * 时保留按钮，让用户配置通用 / New API 模板。识别结果经 useProviderUsageRecognized
- * 模块级缓存，多卡片共享一次 IPC。
+ * 行为：**常驻**。这里既是探针配置入口（通用 / New API / Cookie 模板），也是
+ * provider 级「是否启用用量查询」开关的唯一位置（弹窗里的开关，默认关）——
+ * 之前命中内置模板就隐藏按钮，导致认证页/部分模型卡片看不到这个图标、也找不到开关，
+ * 已改为无条件渲染。
  */
 import { BarChart3 } from "lucide-react";
 import type { UsageProbeBackend } from "../../../../shared/types/providerUsage";
 import { t } from "../../i18n";
-import { useProviderUsageRecognized } from "../../hooks/useProviderUsage";
 import { Button } from "../ui-shadcn/button";
 
 export function UsageQueryEntryButton(props: {
@@ -19,9 +18,6 @@ export function UsageQueryEntryButton(props: {
 	className?: string;
 	iconClassName?: string;
 }) {
-	const recognized = useProviderUsageRecognized(props.provider, props.backend);
-	// 内置命中 → 零配置自动生效，隐藏配置入口。
-	if (recognized) return null;
 	return (
 		<Button
 			variant="ghost"

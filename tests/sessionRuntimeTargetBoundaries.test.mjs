@@ -64,7 +64,8 @@ test("pet focus crosses into the renderer as a stable Session ID", () => {
 	assert.match(pet, /resolveSessionId: \(agentId: string\) => string \| undefined/);
 	assert.match(pet, /petFocusAgentTarget, \{ sessionId \}/);
 	assert.doesNotMatch(pet, /petFocusAgentTarget, \{ agentId \}/);
-	assert.match(app, /onFocusTarget: \(target: \{ sessionId: string \}\)/);
+	// 焦点目标已扩展为 FocusTargetPayload 联合（sessionId/projectId/projectPath）
+	assert.match(app, /onFocusTarget: \(target: FocusTargetPayload\)/);
 	assert.match(app, /sessionRecordByIdAtomFamily\(target\.sessionId\)/);
 });
 

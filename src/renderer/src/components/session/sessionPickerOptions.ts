@@ -1,4 +1,4 @@
-import type { AvailableModel } from "../../../../shared/types";
+import type { AvailableModel, ModelListReport } from "../../../../shared/types";
 // 下拉列表排序键与配置页 / 落盘顺序共用 shared 比较器（避免两边秩不一致）。
 import { compareModelRows } from "../../../../shared/modelOrder";
 import type { TranslationKey } from "../../i18n";
@@ -150,6 +150,29 @@ export function modelPickerSearchFilter(
 	const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "");
 	const haystack = normalize(`${value} ${(keywords ?? []).join(" ")}`);
 	return haystack.includes(normalize(query)) ? 1 : 0;
+}
+
+/**
+ * 模型选择器主体状态判定（纯函数，可单测）：loading / guide / list。
+ *
+ * 背景：首屏加载期间 models=[] 且 report=null，旧实现两个分支都不命中，面板渲染空白，
+ * 用户看到「选择器是空的」而不知道在加载。这里把「还没拿到任何报告」明确判成 loading。
+ *
+ * - 有模型 → list（即便仍在刷新，也先展示旧列表，避免闪空）；
+ * - 无模型且已有报告 → guide（失败原因引导 / 空态引导，调用方据 report 渲染文案）；
+ * - 无模型且未接入 report（调用方不传，如设置页视觉模型选择器）→ list，保持旧行为；
+ * - 无模型、report 为 null 且正在加载 → loading。
+ */
+export function resolveModelPickerBody(input: {
+	modelCount: number;
+	report?: ModelListReport | null;
+	loading?: boolean;
+}): "loading" | "guide" | "list" {
+	if (input.modelCount > 0) return "list";
+	if (input.report) return "guide";
+	// report 为 undefined = 调用方未接入报告通道，不能把永久空态伪装成加载中。
+	if (input.report === undefined) return "list";
+	return input.loading ? "loading" : "list";
 }
 
 /**

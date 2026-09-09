@@ -20,6 +20,7 @@ export const SESSION_FILTER_PILLS: readonly SessionFilterPill[] = [
   "claude",
   "opencode",
   "zcode",
+  "workbuddy",
   "dsh",
   "imagegen",
 ];

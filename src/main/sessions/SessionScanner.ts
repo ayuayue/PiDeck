@@ -1512,6 +1512,7 @@ export class SessionScanner {
     if (base.startsWith("claude_")) return "claude";
     if (base.startsWith("opencode_")) return "opencode";
     if (base.startsWith("zcode_")) return "zcode";
+    if (base.startsWith("workbuddy_")) return "workbuddy";
     return "pi";
   }
 
@@ -1607,6 +1608,7 @@ export class SessionScanner {
         else if (entry.type === "claude_import") source = "claude";
         else if (entry.type === "opencode_import") source = "opencode";
         else if (entry.type === "zcode_import") source = "zcode";
+        else if (entry.type === "workbuddy_import") source = "workbuddy";
       }
 
       projectPath ||= entry.cwd || entry.projectPath || entry.header?.cwd || entry.data?.cwd || entry.session?.cwd || entry.data?.session?.cwd;

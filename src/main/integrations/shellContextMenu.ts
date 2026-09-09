@@ -60,8 +60,12 @@ export async function registerShellContextMenu(
 			key,
 			...(valueName ? ["/v", valueName] : ["/ve"]),
 			"/d",
-			// 命令值内嵌引号必须反斜杠转义，reg.exe 才会原样写入注册表
-			value.replaceAll("\"", "\\\""),
+			// 直接传原样字符串，禁止手动把 " 预转义成 \"：
+			// execFile 经 libuv 拼命令行时，含空格的参数会被外层引号包裹、反斜杠加倍（" → \\"），
+			// reg.exe 解析命令行只还原一层，最终写进注册表的会变成字面 \"——Explorer 触发时把 \"
+			// 当作路径一部分解析，报“Windows 无法访问指定设备、路径或文件”。实测不预转义时
+			// reg.exe 能正确存入嵌套引号（如 "D:\path\PiDeck.exe" --open-project "%1"）。
+			value,
 			"/f",
 		]);
 	await Promise.all([

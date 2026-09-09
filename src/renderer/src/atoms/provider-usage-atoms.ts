@@ -1,13 +1,13 @@
 /**
  * Provider 用量/余额查询结果缓存（Jotai 单一 owner）。
  *
- * 三处消费（composer 圆球面板 / 设置模型卡片 / 模型选择器分组徽标）共享同一份
- * record：任意一处刷新成功，其余两处立即拿到同一 entry，数字滚动动画自然联动。
+ * composer 圆球面板与模型选择器展开区共享同一份 record：任意一处刷新成功，
+ * 其他已挂载消费端立即拿到同一 entry，数字滚动动画自然联动。
  * entry 状态机：null（未查过）→ loading → ready | error；fetchedAt 供 TTL 判断。
  */
 import { atom } from "jotai";
 import { atomFamily, selectAtom } from "jotai/utils";
-import type { ProviderUsageResult } from "../../../shared/types/providerUsage";
+import type { ProviderUsageResult, UsageProbeProviderState } from "../../../shared/types/providerUsage";
 
 export type ProviderUsageEntry = {
 	/**
@@ -23,13 +23,6 @@ export type ProviderUsageEntry = {
 };
 
 const EMPTY_ENTRY: ProviderUsageEntry = { status: "idle", result: null, fetchedAt: null };
-
-/**
- * 全局「自动查询供应商用量」开关快照。默认关闭：打开模型选择器/配置页会对每个
- * provider 扇出 HTTP，多个 provider 共用同一本地 OpenAI 兼容网关时会打熔断。
- * App.tsx 从 settings 同步；用量 hook 读取本 atom，不直接订 settings 以免跨树重渲染。
- */
-export const providerUsageAutoQueryEnabledAtom = atom(false);
 
 /** provider → entry 的 record 原子：所有写动作都落在这里。 */
 const providerUsageRecordsAtom = atom<Record<string, ProviderUsageEntry>>({});
@@ -89,3 +82,43 @@ export const invalidateProviderUsageAtom = atom(null, (_get, set, provider: stri
 		return next;
 	});
 });
+
+/**
+ * provider(cacheKey) → 用量查询状态（生效开关/是否已配置/是否内置识别/模板/间隔）。
+ *
+ * key 与用量缓存同规则：pi 链路就是 provider 名，dsh 链路是 `dsh:<provider>`
+ * （usageCacheKey），因此 pi/dsh 同名供应商互不覆盖。缺失 = 尚未加载（徽章按「开」处理，
+ * 与历史行为一致：无状态信息时不主动阻塞查询）。
+ */
+const providerUsageStatesAtom = atom<Record<string, UsageProbeProviderState>>({});
+
+/** 按 provider 的只读选择器：某条状态更新只重渲染订阅它的卡片。 */
+export const providerUsageStateAtomFamily = atomFamily((cacheKey: string) =>
+	selectAtom(providerUsageStatesAtom, (states) => states[cacheKey], Object.is),
+);
+
+/** 状态表只读视图（启动预热选源用：一次性读全表）。 */
+export const providerUsageStatesReadAtom = atom((get) => get(providerUsageStatesAtom));
+
+/** 批量写入状态（状态表 IPC 回来后一次合并；只覆盖本次带回的 key）。 */
+export const mergeProviderUsageStatesAtom = atom(
+	null,
+	(_get, set, entries: Record<string, UsageProbeProviderState>) => {
+		set(providerUsageStatesAtom, (states) => ({ ...states, ...entries }));
+	},
+);
+
+/**
+ * 状态表加载阶段（按 backend）：idle = 从未请求（无消费方加载器）、loading = 请求中、
+ * ready = 已回过一次。自动查询据此决定「状态未知时要不要等」：
+ * loading 期间不抢发（否则关掉的供应商会在状态表回来前白打一轮 HTTP）；
+ * idle/ready 时未知 provider 按开处理（圆球面板/选择器可能查表外 provider）。
+ */
+export const providerUsageStatesStatusAtom = atom<Record<string, "idle" | "loading" | "ready">>({});
+
+export const markProviderUsageStatesStatusAtom = atom(
+	null,
+	(_get, set, backend: string, status: "idle" | "loading" | "ready") => {
+		set(providerUsageStatesStatusAtom, (current) => ({ ...current, [backend]: status }));
+	},
+);

@@ -102,7 +102,7 @@ import { ALL_CONFIG_DIRTY_KEYS, dirtyKeysClearedByReload, dirtyKeysPreservedOnRe
 import { formatConfigUnsavedMessage, summarizeConfigUnsavedChanges, type ConfigUnsavedItem } from "./config/configUnsavedChangesSummary";
 import { DirtyMarker } from "./components/app/settings/SettingRows";
 import { isValidProviderName } from "../../shared/providerName";
-import { buildProviderConfigFromDraft, type AddProviderDraft } from "./config/addProviderDraft";
+import { mergeProviderDraft, type AddProviderDraft } from "./config/addProviderDraft";
 import { useAtomValue } from "jotai";
 import { dshRuntimeStatusAtom } from "./atoms";
 import { dshUiVisibilityFor } from "../../shared/types/dshRuntime";
@@ -698,9 +698,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			cancelled = true;
 		};
 	}, []);
-	// 重命名 provider
-	const [renamingProvider, setRenamingProvider] = useState<string | null>(null);
-	const [renameValue, setRenameValue] = useState("");
 	// 新增 auth
 	const [addingAuth, setAddingAuth] = useState(false);
 	const [newAuthName, setNewAuthName] = useState("");
@@ -757,22 +754,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const [testProxyModeByProvider, setTestProxyModeByProvider] = useState<
 		Record<string, ConfigProxyMode>
 	>({});
-	// 代理配置快照（用于下拉里展示实际 URL，给用户明确反馈走的是哪个代理）。
-	const [proxySettings, setProxySettings] = useState<{
-		piProxyUrl: string;
-		desktopProxyUrl: string;
-	} | null>(null);
-	useEffect(() => {
-		api.settings
-			.get()
-			.then((s) =>
-				setProxySettings({
-					piProxyUrl: s.piProxyUrl ?? "",
-					desktopProxyUrl: s.desktopProxyUrl ?? "",
-				}),
-			)
-			.catch(() => setProxySettings(null));
-	}, []);
 	// 删除确认对话框
 	const [deleteConfirm, setDeleteConfirm] = useState<{
 		type: "provider" | "model" | "auth" | "batch";
@@ -1076,7 +1057,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			showNotice(t("config.providerNameRule"));
 			return;
 		}
-		const provider = buildProviderConfigFromDraft(draft);
+		const provider = mergeProviderDraft(undefined, draft);
 		const updated = {
 			...modelsData,
 			providers: {
@@ -1104,7 +1085,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			showNotice(t("config.providerNameDuplicate"));
 			return;
 		}
-		const provider = buildProviderConfigFromDraft(draft);
+		// 编辑页保存以原 provider 为基底合并：保留表单不拥有的高级字段
+		// （oauth / authHeader / modelOverrides / 自定义字段与自定义 headers），
+		// 避免「编辑页重建 provider」把未知字段静默丢掉（与卡片内联编辑行为对齐）。
+		const provider = mergeProviderDraft(modelsData.providers[oldName], draft);
 		const providers = { ...modelsData.providers };
 		if (newName !== oldName) {
 			// 改名：新 key 承接旧 provider，删旧 key；auth.json 同步（pi 按新名称查认证）。
@@ -1124,49 +1108,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		setModelsData({ ...modelsData, providers });
 		markDirty("config:models");
 		setEditingProvider(null);
-	};
-
-	// 重命名 provider：保留所有配置和模型，仅修改 key 名称
-	const handleStartRename = (name: string) => {
-		setRenamingProvider(name);
-		setRenameValue(name);
-	};
-
-	const handleConfirmRename = (oldName: string) => {
-		const newName = renameValue.trim();
-		if (!newName || newName === oldName || modelsData.providers[newName]) {
-			// 名称未变、为空或已存在则不操作
-			setRenamingProvider(null);
-			setRenameValue("");
-			return;
-		}
-		// 重命名同样走严格白名单（新名字会经 credentialRefFor / 配置 key）。
-		if (!isValidProviderName(newName)) {
-			showNotice(t("config.providerNameRule"));
-			return;
-		}
-		const providers = { ...modelsData.providers };
-		providers[newName] = providers[oldName];
-		delete providers[oldName];
-		setModelsData({ ...modelsData, providers });
-		markDirty("config:models");
-		// 重命名 provider 时同步 auth.json 里的同名 key，否则 pi 按新名称
-		// 查不到认证 → 模型列表加载为空（用户反馈的“改名称后模型空”根因）。
-		if (authData[oldName]) {
-			const updatedAuth = { ...authData };
-			updatedAuth[newName] = updatedAuth[oldName];
-			delete updatedAuth[oldName];
-			setAuthData(updatedAuth);
-			markDirty("config:auth");
-		}
-		if (expandedProvider === oldName) setExpandedProvider(newName);
-		setRenamingProvider(null);
-		setRenameValue("");
-	};
-
-	const handleCancelRename = () => {
-		setRenamingProvider(null);
-		setRenameValue("");
 	};
 
 	const handleDeleteProvider = (name: string) => {
@@ -1337,21 +1278,16 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		setTestResult(null);
 		setError(null);
 		try {
+			// 统一隔离探针：测「当前表单值」（含未保存修改），不落盘正式配置。
+			// 测试 ≠ 保存：成功后仍需用户显式点保存按钮（与添加/编辑供应商页同一语义）。
 			const result = await api.config.testProvider(
 				providerName,
 				modelId,
-				modelsData,
+				provider,
+				provider.apiKey ?? "",
 				testProxyModeByProvider[providerName] ?? "follow",
 			);
 			setTestResult({ providerName, ...result });
-			if (result.success) {
-				// 测试即保存：清除脏标记并回读磁盘，保持表单与磁盘、baseline 一致。
-				// silent 回读：不卸载 ModelsTab（loading 会塔缩滚动容器、滚动位置丢失），
-				// 用户停留在测试结果卡片处。
-				clearDirty("config:models");
-				await loadConfig("models", { force: true, silent: true });
-				onSaved();
-			}
 		} catch (e) {
 			setTestResult({
 				providerName,
@@ -2649,8 +2585,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							addingProvider={addingProvider}
 							hiddenProviders={hiddenProviders}
 							onToggleHiddenProvider={handleToggleHiddenProvider}
-							renamingProvider={renamingProvider}
-							renameValue={renameValue}
 							fetchingProvider={fetchingProvider}
 							fetchedModels={fetchedModels}
 							fetchModelsErrorByProvider={fetchModelsErrorByProvider}
@@ -2658,7 +2592,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							testResult={testResult}
 							testModelIdByProvider={testModelIdByProvider}
 							testProxyModeByProvider={testProxyModeByProvider}
-							proxySettings={proxySettings}
 							saving={saving}
 							onToggleProvider={(name) =>
 								setExpandedProvider(expandedProvider === name ? null : name)
@@ -2672,10 +2605,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							onStartEditProvider={(name) => setEditingProvider(name)}
 							onCancelEditProvider={() => setEditingProvider(null)}
 							onConfirmEditProvider={handleEditProvider}
-							onStartRename={handleStartRename}
-							onChangeRenameValue={setRenameValue}
-							onConfirmRename={handleConfirmRename}
-							onCancelRename={handleCancelRename}
 							onDeleteProvider={handleDeleteProvider}
 							onDuplicateProvider={handleDuplicateProvider}
 							onDeleteProviders={handleDeleteProviders}

@@ -494,7 +494,7 @@ export function AnnouncementCenter() {
 						onClick={refresh}
 						disabled={refreshing}
 					>
-						<RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
+						<RefreshCw className={cn("size-3.5", refreshing && "animate-pideck-spin")} />
 						{t("announcements.refresh")}
 					</Button>
 					{unreadCount > 0 && (

@@ -170,13 +170,6 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
           dirty={isDirty("autoSessionTitle")}
           onChange={(checked) => updateDraft({ autoSessionTitle: checked })}
         />
-        <SettingSwitchRow
-          title={t("settings.providerUsageAutoQuery")}
-          description={t("settings.providerUsageAutoQueryDesc")}
-          checked={draft.providerUsageAutoQueryEnabled ?? false}
-          dirty={isDirty("providerUsageAutoQueryEnabled")}
-          onChange={(checked) => updateDraft({ providerUsageAutoQueryEnabled: checked })}
-        />
         <SettingRow
           title={
             <>

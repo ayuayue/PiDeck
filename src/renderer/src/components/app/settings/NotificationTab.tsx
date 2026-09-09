@@ -25,7 +25,7 @@ import {
 	SelectValue,
 } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
-import { DirtyMarker, SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
+import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
 
 type NotificationTabProps = {
 	draft: AppSettings;
@@ -259,19 +259,18 @@ export const NotificationTab = memo(function NotificationTab(props: Notification
 				</SettingRow>
 			</SettingsSection>
 
+			{/* 三个事件行直接铺在 SettingsSection 外框里，不再套 SettingBox 内框。 */}
 			<SettingsSection title={t("settings.sound.eventsTitle")} description={t("settings.sound.eventsDesc")}>
-				<SettingBox>
-					{(["done", "error", "waiting"] as const).map((kind) => (
-						<SoundEventRow
-							key={kind}
-							kind={kind}
-							settings={settings}
-							customSounds={customSounds}
-							isDirty={isDirty}
-							onChange={(config) => updateEvent(kind, config)}
-						/>
-					))}
-				</SettingBox>
+				{(["done", "error", "waiting"] as const).map((kind) => (
+					<SoundEventRow
+						key={kind}
+						kind={kind}
+						settings={settings}
+						customSounds={customSounds}
+						isDirty={isDirty}
+						onChange={(config) => updateEvent(kind, config)}
+					/>
+				))}
 			</SettingsSection>
 
 			<SettingsSection title={t("settings.sound.customTitle")} description={t("settings.sound.customDesc")}>

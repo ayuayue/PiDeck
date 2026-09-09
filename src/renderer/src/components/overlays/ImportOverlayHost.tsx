@@ -3,6 +3,7 @@ import {
 	ClaudeImportModal,
 	CodexImportModal,
 	OpenCodeImportModal,
+	WorkBuddyImportModal,
 	ZCodeImportModal,
 } from "../app/ImportModals";
 import type {
@@ -14,6 +15,8 @@ import type {
   OpenCodeSessionSummary,
   ZCodeImportReport,
   ZCodeSessionSummary,
+  WorkBuddyImportReport,
+  WorkBuddySessionSummary,
   Project,
 } from "../../../../shared/types";
 import type { ImportController } from "../../hooks/useImportFlow";
@@ -22,7 +25,8 @@ export type ImportOverlayHostProps =
   | { kind: "codex"; project: Project; controller: ImportController<CodexSessionSummary, CodexImportReport>; onClose: () => void }
   | { kind: "claude"; project: Project; controller: ImportController<ClaudeSessionSummary, ClaudeImportReport>; onClose: () => void }
   | { kind: "opencode"; project: Project; controller: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>; onClose: () => void }
-  | { kind: "zcode"; project: Project; controller: ImportController<ZCodeSessionSummary, ZCodeImportReport>; onClose: () => void };
+  | { kind: "zcode"; project: Project; controller: ImportController<ZCodeSessionSummary, ZCodeImportReport>; onClose: () => void }
+  | { kind: "workbuddy"; project: Project; controller: ImportController<WorkBuddySessionSummary, WorkBuddyImportReport>; onClose: () => void };
 
 export function renderImportError(error: string | null): ReactNode {
 	if (!error) return null;
@@ -54,10 +58,12 @@ export function renderImportError(error: string | null): ReactNode {
 
 /** A provider switch lives here so Sidebar only chooses a provider/project. */
 export function ImportOverlayHost(props: ImportOverlayHostProps) {
-	if (props.kind === "codex") return <><CodexImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
 	if (props.kind === "claude") return <><ClaudeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
 	if (props.kind === "opencode") return <><OpenCodeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
-	return <><ZCodeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
+	if (props.kind === "zcode") return <><ZCodeImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
+	if (props.kind === "workbuddy") return <><WorkBuddyImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
+	// codex 走兜底分支：放在末尾可让 props 正确收窄（放前面会被其余分支收成 never）。
+	return <><CodexImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />{renderImportError(props.controller.error)}</>;
 }
 
 export type ImportOverlayData = {
@@ -65,4 +71,5 @@ export type ImportOverlayData = {
 	claude: { sessions: ClaudeSessionSummary[]; report: ClaudeImportReport | null };
 	opencode: { sessions: OpenCodeSessionSummary[]; report: OpenCodeImportReport | null };
 	zcode: { sessions: ZCodeSessionSummary[]; report: ZCodeImportReport | null };
+	workbuddy: { sessions: WorkBuddySessionSummary[]; report: WorkBuddyImportReport | null };
 };

@@ -21,10 +21,12 @@ test("escape tolerance band keeps near-bottom scrolls attached", () => {
     /const AT_BOTTOM_TOLERANCE_PX = 25;/,
   );
   // 上滚逃逸必须带距离守卫：只有距底 > 25px 且越过增长守卫带才解锁锁底
-  // （2026-08 追加守卫带，见 growth-guard-band 用例）
+  // （2026-08 追加守卫带，见 growth-guard-band 用例）。
+  // 2026-09：用户上滚意图（reportUserIntent）与逃逸同点触发——真正进入历史浏览
+  // 才上报，容差带内/守卫带内的轻微上滚不算浏览（防与内容收缩 clamp 叠加误扩窗）。
   assert.match(
     engineSource,
-    /if \(\s*distanceFromBottom > AT_BOTTOM_TOLERANCE_PX &&[\s\S]*?!isWithinGrowthGuardBand\(distanceFromBottom, state\)\s*\) \{\s*setEscapedFromLock\(true\);\s*setIsAtBottom\(false\);/,
+    /if \(\s*distanceFromBottom > AT_BOTTOM_TOLERANCE_PX &&[\s\S]*?!isWithinGrowthGuardBand\(distanceFromBottom, state\)\s*\) \{\s*reportUserIntent\("up", "scroll"\);\s*setEscapedFromLock\(true\);\s*setIsAtBottom\(false\);/,
   );
   // wheel 逃逸同样带距离守卫（贴底时向上滚轮无位移，不算逃逸意图）
   assert.match(

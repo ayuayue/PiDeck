@@ -82,7 +82,7 @@ export const StoreSearchBar = forwardRef<HTMLInputElement, StoreSearchBarProps>(
 							title={t("common.search")}
 						>
 							{searching ? (
-								<Loader2 size={14} className="animate-spin" />
+								<Loader2 size={14} className="animate-pideck-spin" />
 							) : (
 								<Search size={14} strokeWidth={1.8} />
 							)}

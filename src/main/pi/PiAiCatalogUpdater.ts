@@ -240,6 +240,9 @@ export class PiAiCatalogUpdater {
 		if (branchResult.ok) return branchResult;
 		const npmResult = await this.tryUpdateFromNpmLatest();
 		if (npmResult) return npmResult;
+		// 两个源都失败时，分支源的校验失败（数据被篡改/损坏）比 network 更有诊断价值：
+		// 用户需要知道是数据坏了而不是网络不通（UI 有 catalogFailValidation 文案分支）。
+		if (branchResult.code === "validation") return branchResult;
 		return {
 			ok: false,
 			code: "network",

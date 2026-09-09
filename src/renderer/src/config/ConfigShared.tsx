@@ -98,9 +98,6 @@ export function ConfigSelect(props: {
 	options: Array<{ value: string; label: string }>;
 	onChange: (value: string) => void;
 	placeholder?: string;
-	/** 外层 ClearableSettingsInput 的 ✕ 清除按钮位于 right-[38px]，
-	 *  给 trigger 加右内边距，避免已选文字被清除按钮盖住 */
-	clearSpace?: boolean;
 }) {
 	// 老 settings.json 可能残留枚举外的取值（如自定义传输协议）；此时补一条「自定义」
 	// item 兜底，否则 Radix Select 因 value 无匹配 item 而显示空白、且无法回选。
@@ -112,7 +109,7 @@ export function ConfigSelect(props: {
 		>
 			{/* trigger 必须带 w-full：shadcn 基础类自带 w-fit（utilities 层）会压过 legacy 的
 			    .config-select-trigger{width:100%}，不加则下拉收缩成内容宽度（值多的行长条很丑） */}
-			<SelectTrigger className={`config-select-trigger w-full${props.clearSpace ? " pr-[38px]" : ""}`}>
+			<SelectTrigger className="config-select-trigger w-full">
 				<SelectValue placeholder={props.placeholder ?? props.options.find((o) => o.value === props.value)?.label ?? props.value} />
 			</SelectTrigger>
 			<SelectContent>
@@ -153,9 +150,6 @@ export function ConfigComboboxInput(props: {
 	options: Array<{ value: string; label?: string }>;
 	onChange: (value: string) => void;
 	placeholder?: string;
-	/** 右侧额外预留清除按钮空间（defaultProvider/defaultModel 清空场景），
-	 *  避免输入文字被清除按钮盖住 */
-	clearSpace?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const [filter, setFilter] = useState("");
@@ -181,7 +175,7 @@ export function ConfigComboboxInput(props: {
 					readOnly
 					value={props.value}
 					placeholder={props.placeholder}
-					className={`h-8 min-w-0 w-full flex-1 cursor-pointer rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]${props.clearSpace ? " pr-[62px]" : ""}`}
+					className="h-8 min-w-0 w-full flex-1 cursor-pointer rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 					onKeyDown={(event) => {
 						// readOnly 的 input 不响应键盘激活（不会触发 click），补上 Enter/Space/
 						// ArrowDown 打开下拉，保持与原生 select/combobox 一致的键盘可达性。

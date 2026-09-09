@@ -26,17 +26,32 @@ test("shared SectionHeading defines one title and description hierarchy", () => 
 });
 
 test("settings and Pi management sections use the shared heading", () => {
-  assert.match(storage, /import \{ SectionHeading \} from "\.\.\/\.\.\/ui-shadcn\/section-heading"/);
+  assert.match(
+    storage,
+    /import \{ SectionHeading \} from "\.\.\/\.\.\/ui-shadcn\/section-heading"/,
+  );
   assert.match(storage, /className="settings-section-header pb-2"/);
-  assert.match(piSettings, /import \{ SectionHeading \} from "\.\.\/components\/ui-shadcn\/section-heading"/);
-  assert.equal((piSettings.match(/<SectionHeading/g) ?? []).length, 5);
+  // Pi 设置页已改为复用「常用设置」同源的共享 SettingsSection / SettingRow / SettingBox 分区布局
+  // （标题层级由 SettingsStorageTab 内的 SectionHeading 统一约束），不再直接使用 SectionHeading。
+  assert.match(
+    piSettings,
+    /import \{ SettingBox, SettingRow, SettingSwitchRow \} from "\.\.\/components\/app\/settings\/SettingRows"/,
+  );
+  assert.match(
+    piSettings,
+    /import \{ SettingsSection \} from "\.\.\/components\/app\/settings\/SettingsStorageTab"/,
+  );
+  assert.doesNotMatch(piSettings, /<SectionHeading/);
   assert.doesNotMatch(piSettings, /config-settings-section-title/);
 });
 
 test("feedback uses one accessible dialog title and shared field headings", () => {
   // DialogTitle 现随 FeedbackDialog 组件内嵌（不再由 SessionActionOverlays 提供），
   // 标题可见（非 sr-only）且唯一。
-  assert.match(feedback, /<DialogTitle className="flex items-center gap-2 text-base">[\s\S]*?\{t\("feedback\.title"\)\}[\s\S]*?<\/DialogTitle>/);
+  assert.match(
+    feedback,
+    /<DialogTitle className="flex items-center gap-2 text-base">[\s\S]*?\{t\("feedback\.title"\)\}[\s\S]*?<\/DialogTitle>/,
+  );
   assert.equal((feedback.match(/<SectionHeading/g) ?? []).length, 4);
   assert.doesNotMatch(feedback, /modal-header feedback-header/);
 });

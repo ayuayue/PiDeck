@@ -108,9 +108,10 @@ test("parseProviderModelsResponse: 读 listing 容量字段，缺则省略", () 
 		],
 	});
 	assert.deepEqual(JSON.parse(JSON.stringify(models)), [
-		{ id: "foo", name: "Foo Display", contextWindow: 64000, maxTokens: 4096 },
+		// 按展示名正序（shared/modelOrder 与下拉列表/配置页同一套排序）：bar < bare < foo display
 		{ id: "bar", contextWindow: 128000, maxTokens: 8192 },
 		{ id: "bare" },
+		{ id: "foo", name: "Foo Display", contextWindow: 64000, maxTokens: 4096 },
 	]);
 });
 

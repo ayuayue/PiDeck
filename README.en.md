@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -79,25 +79,25 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.7.4-beta** (2026-09-04)
+> **Latest: v0.7.4** (2026-09-08)
 
-### v0.7.4-beta Release Highlights
+### v0.7.4 Release Highlights
+- 🚀 **App update & portable build optimizations**
+- 🚀 **WorkBuddy session import**
+- 🚀 **Enhanced project and directory context menus**
+- 🚀 **About dialog displays runtime component versions**
+- 🚀 **Config backup & announcement system advancements**
+- 🚀 **DSH version fallback & auto-usage query toggle**
+- 🚀 **Unified settings multi-level tabs & store search UI**
 - 🚀 **Command Code usage query support**
 - 🚀 **Application update lifecycle hardening**
 - 🚀 **Update source mirrors with auto health checks**
 - 🚀 **Composer voice transcription**
 - 🚀 **Recovery from request body size limits**
-- 🚀 **Built-in TokenDance provider**
-- 🚀 **pi v0.85.0 tracking**
-- 🚀 **ZCode session import**
-- 🚀 **pi.dev extension store**
-- 🚀 **Provider groups sorted by recent use**
-- 🚀 **Serverless announcement system**
-- 🚀 **TokenDance one-click setup now grabs the API key too**
-- ✨ **Tool stopwatch no longer resets mid-stream**
-- ✨ **Vision-bridge model picker fits extra-long model names**
-- ✨ **Unified session turn counting**
-- ✨ **Fork titles persist and long sidebar names scroll**
+- ✨ **WSL environment Node/pi detection**
+- ✨ **Split-pane independent Git branch display**
+- ✨ **Session timeline stick-to-bottom smoothing**
+- ✨ **Adaptive inference for ask_question type**
 
 [View Full Changelog →](CHANGELOG.md)
 

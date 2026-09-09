@@ -117,6 +117,9 @@ export function registerProjectsIpc({
 		}
 		const project = await projectStore.add(path.trim());
 		void appLogger.info("project", "Project added via explorer context menu", { projectId: project.id, path: project.path });
+		// 与重命名/删除一致：入库后广播可见项目清单，侧栏（含 LAN Web 端）立即刷新，否则新增项目不显示。
+		const visible = await getVisibleProjects();
+		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
 		return project;
 	});
 	ipcMain.handle(ipcChannels.projectsRemove, async (_event, id: string) => {

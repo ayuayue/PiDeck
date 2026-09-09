@@ -1,6 +1,13 @@
-## v0.7.4-beta - 2026-09-04
+## v0.7.4 - 2026-09-08
 
 ### 🚀 New Features
+- **App update & portable build optimizations** — The update card now explicitly informs Windows portable users that the in-app update runs the setup installer, with a direct link to download the portable executable manually from GitHub Releases; Linux AppImage auto-updates now preserve a fixed artifact name to cleanly overwrite the running binary in place without breaking desktop shortcuts; update mirror health check dynamically resolves the real setup asset filename from `latest.yml` with path traversal sanitization, eliminating hardcoded version numbers; failing GitHub direct updates now suggest switching to a mirror.
+- **WorkBuddy session import** — Import WorkBuddy sessions automatically from `~/.workbuddy/projects` matching the current project: the project context menu gains an "Import WorkBuddy Sessions" action, listing sessions by recency with new / current / outdated badges. Injected system-reminder contexts and user_query wrappers are cleanly stripped to preserve original prompts, reasoning thoughts and tool call executions are merged into standard assistant turns, and file rollback snapshot noise is filtered out; imported sessions display a dedicated WorkBuddy source badge with sidebar filtering support.
+- **Enhanced project and directory context menus** — Sidebar chat projects now open the full project context menu; directories now support an "Open in PiDeck" context menu action.
+- **About dialog displays runtime component versions** — The About modal now shows not only the PiDeck app version, but also detected versions of the pi CLI, DeepSeek DSH, bundled pi-ai model catalog, and the package build timestamp.
+- **Config backup & announcement system advancements** — Config backups now support manual export, single-file and full restore, and batch deletion; announcements have migrated to the `announcements-md` build pipeline with full Markdown rendering, detail modals, and community discussion links.
+- **DSH version fallback & auto-usage query toggle** — Enhanced fallback version detection for the DSH runtime, along with an auto-usage query toggle for model providers.
+- **Unified settings multi-level tabs & store search UI** — Restyled multi-level navigation tabs in Config Management and unified the store search bar appearance; sidebar branding area upgraded with a two-line beUI wordmark layout.
 - **Command Code usage query support** — A new commandcode-credits parser reads the /alpha/billing/credits endpoint and shows 5h / weekly / monthly windows; the monthly window reverse-looks-up the 5h/week cap combo from the official pricing table with a double check (cap matches the plan + remaining is under the cap), degrading to remaining-only on failure (fail-closed against fabricated denominators).
 - **Application update lifecycle hardening** — The update service is restructured into automatic (electron-updater downloads and installs) / manual (unsigned macOS builds only check and guide manual downloads) delivery modes; stale updater references removed, install-time exit preparation with timeout recovery, so the update flow is more reliable.
 - **Update source mirrors with auto health checks** — The update settings can switch between GitHub official / built-in mirrors (ghfast, ghproxy.net, ghproxy.cxkpro) / a custom mirror prefix, applied at runtime without a restart; opening the settings page auto-probes mirror availability and speed with ok / slow / broken markers, plus a manual re-check button.
@@ -20,6 +27,13 @@
 - **Announcement center entry hides when reminders are off** — Turning off announcement reminders also hides the sidebar announcement entry.
 
 ### 🐛 Fixes
+- **WSL environment Node/pi detection** — Fixes an issue where desktop PiDeck could not detect pi in WSL environments using version managers like nvm or fnm (#191).
+- **Split-pane independent Git branch display** — Split panes now show and switch Git branches independently based on the active session's project scope.
+- **Session timeline stick-to-bottom smoothing** — Fixed race conditions during streaming and scrolling so auto-scrolling to the bottom is much smoother.
+- **Adaptive inference for ask_question type** — The `type` field in extension tool questions is now optional and automatically inferred based on the question shape.
+- **Update dot popover overflow protection** — Fixed the first-time update dot explanatory bubble overflowing off the left edge of the screen and getting clipped by the sidebar.
+- **Thinking/generating indicator restored** — Restored the dot-matrix Loader animation for clearer response generation states.
+- **Provider usage UI refinements** — Polished layout details and formatting for provider credit and usage cards.
 - **Tool stopwatch no longer resets mid-stream** — Tool duration now starts from meta.startedAt (same baseline as the final durationMs), so long-running commands no longer flash back to near-zero while streaming output.
 - **Vision-bridge model picker fits extra-long model names** — Overlong provider/model tokens truncate inside the button with an ellipsis (full name on hover) instead of breaking the layout.
 - **Unified session turn counting** — Pi sessions count “N rounds” by speaking-turn cycles (consecutive user messages merge into one turn); DSH keeps the official sessionStats semantics with a dsh-web-aligned fallback; the usage page renames “turns” to “call counts” to avoid confusion with session turns.

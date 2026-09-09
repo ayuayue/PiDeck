@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { loadUserUsageProbes, loadUserUsageProbesDetailed, normalizeUserUsageProbes, loadUsageProbeSettings, saveUsageProbeForProvider, normalizeProviderConfig } = loadTsCommonJs("src/main/config/userUsageProbes.ts");
+const { loadUserUsageProbes, loadUserUsageProbesDetailed, normalizeUserUsageProbes, loadUsageProbeSettings, saveUsageProbeForProvider, normalizeProviderConfig, loadUsageProbeProviderConfigs } = loadTsCommonJs("src/main/config/userUsageProbes.ts");
 const { buildDeclarativeUsageProbeTemplate, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } = loadTsCommonJs("src/main/config/usageProbeTemplates.ts");
 const { USAGE_PROBE_CANDIDATES } = loadTsCommonJs("src/main/config/providerUsageProbe.ts");
 
@@ -546,4 +546,24 @@ test("normalizeProviderConfig：cookie 模板字段合法时完整回填", () =>
 test("normalizeProviderConfig：cookiePath 非 / 开头报错", () => {
   const res = normalizeProviderConfig({ template: "cookie", cookiePath: "api/wallet/summary" });
   assert.match(res.error, /以 \/ 开头/);
+});
+
+// ── 批量状态读取（徽章常驻展示/启动预热选源） ──────────────────────────
+
+test("loadUsageProbeProviderConfigs：一次读盘返回整表并保留非法条目错误", async () => {
+  await withProbesFile(
+    JSON.stringify({
+      providers: {
+        ok: { enabled: true, intervalMinutes: 15 },
+        bad: { intervalMinutes: "soon" },
+      },
+    }),
+    async (dir) => {
+      const result = await loadUsageProbeProviderConfigs(dir);
+      assert.equal(result.providers.ok.enabled, true);
+      assert.equal(result.providers.ok.intervalMinutes, 15);
+      assert.equal(result.providers.bad, undefined);
+      assert.equal(result.errors.length, 1);
+    },
+  );
 });

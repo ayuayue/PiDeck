@@ -610,6 +610,7 @@ export function ProjectContextMenu(props: {
 	onImportClaudeSessions: () => void;
 	onImportOpenCodeSessions: () => void;
 	onImportZCodeSessions: () => void;
+	onImportWorkBuddySessions: () => void;
 	onManageProjectResources: () => void;
 	onManageSessions: () => void;
 	onFilterSessions: () => void;
@@ -718,6 +719,9 @@ export function ProjectContextMenu(props: {
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportZCodeSessions}>
 								{t("menu.importZCode")}
+							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={props.onImportWorkBuddySessions}>
+								{t("menu.importWorkBuddy")}
 							</DropdownMenuItem>
 						</DropdownMenuSubContent>
 					</DropdownMenuSub>

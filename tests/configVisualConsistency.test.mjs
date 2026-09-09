@@ -72,9 +72,12 @@ test("project resource menu reuses the settings resource views with a fixed proj
 });
 
 test("skills and prompts use compact tab rails aligned with the extensions page", () => {
-  // 用户要求技能/提示词页的两个 table（本地/商店）外框与扩展页一致：紧凑、仅包裹 tab 本身
-  assert.match(skills, /<TabsList className="w-fit self-start"/);
-  assert.match(prompts, /<TabsList className="w-fit self-start"/);
+  // 用户要求技能/提示词页的两个 table（本地/商店）外框与扩展页一致：紧凑、仅包裹 tab 本身。
+  // 三处现已收敛到共享 ContentTabs（beui underline），TabsList 紧凑类定义在 ContentTabs 内。
+  assert.match(skills, /<ContentTabs/);
+  assert.match(prompts, /<ContentTabs/);
+  const contentTabs = readFileSync("src/renderer/src/config/ContentTabs.tsx", "utf8");
+  assert.match(contentTabs, /<TabsList className=\{cn\("w-full justify-start gap-0"/);
   const tabs = readFileSync("src/renderer/src/components/ui-shadcn/tabs.tsx", "utf8");
   assert.match(tabs, /w-full items-center/);
   assert.match(tabs, /data-\[state=active\]:shadow-sm/);

@@ -29,8 +29,40 @@ export const PROBE_TIMEOUT_MS = 10_000;
  */
 export const SLOW_THRESHOLD_KBPS = 300;
 
-/** 探测用的安装包文件名——只取头部字节测速，不关心真实内容（latest.yml 里才有真名）。 */
-const PROBE_FILE = "PiDeck-0.7.3-setup.exe";
+/** latest.yml `url:` 里允许作为探测文件名的字符（basename，禁止路径穿越）。 */
+const PROBE_FILE_NAME_RE = /^[A-Za-z0-9._+-]+$/;
+/** 写死版本会在发版后立刻 404；yml 解析失败时仍按 NSIS 命名约定回退。 */
+const PROBE_FILE_FALLBACK_PREFIX = "PiDeck-";
+const PROBE_FILE_FALLBACK_SUFFIX = "-setup.exe";
+const PROBE_FILE_LAST_RESORT = "PiDeck-setup.exe";
+
+/**
+ * 从 generic provider 的 latest.yml 取出探测用的安装包文件名。
+ * 优先 files[].url 里以 `-setup.exe` 结尾的条目（应用内更新只认 NSIS）；
+ * 非法路径/查询串一律丢弃，避免探测请求被 yml 内容带出镜像目录。
+ */
+export function resolveProbeFileName(ymlText: string): string {
+  const versionMatch = ymlText.match(/^version:\s*(\S+)/m);
+  const rawVersion = versionMatch?.[1]?.replace(/^v/i, "") ?? "";
+  const fallback = rawVersion
+    ? `${PROBE_FILE_FALLBACK_PREFIX}${rawVersion}${PROBE_FILE_FALLBACK_SUFFIX}`
+    : PROBE_FILE_LAST_RESORT;
+
+  const urls: string[] = [];
+  const urlRe = /^\s+url:\s*(\S+)/gm;
+  let urlMatch: RegExpExecArray | null;
+  while ((urlMatch = urlRe.exec(ymlText)) !== null) {
+    urls.push(urlMatch[1] ?? "");
+  }
+  const preferred =
+    urls.find((url) => /-setup\.exe(?:\?|$)/i.test(url)) ?? urls[0] ?? "";
+  if (!preferred) return fallback;
+
+  const withoutQuery = preferred.split("?")[0] ?? preferred;
+  const slash = Math.max(withoutQuery.lastIndexOf("/"), withoutQuery.lastIndexOf("\\"));
+  const basename = (slash >= 0 ? withoutQuery.slice(slash + 1) : withoutQuery).trim();
+  return PROBE_FILE_NAME_RE.test(basename) ? basename : fallback;
+}
 
 /** 单个镜像探测；fetchImpl 注入便于测试。超时/非预期响应一律收成 broken，不向外抛。 */
 export async function probeMirrorHealth(
@@ -58,9 +90,10 @@ export async function probeMirrorHealth(
       };
     }
 
-    // ── 2. 下载预检：Range 分片（206 + 测速）──
+    // ── 2. 下载预检：Range 分片（206 + 测速）；文件名跟 latest.yml，避免写死旧版 setup。──
+    const probeFile = resolveProbeFileName(ymlText);
     const dlStart = now();
-    const dlRes = await fetchImpl(`${base}/${PROBE_FILE}`, {
+    const dlRes = await fetchImpl(`${base}/${probeFile}`, {
       signal: timeout,
       headers: { Range: `bytes=0-${PROBE_RANGE_BYTES - 1}` },
     });

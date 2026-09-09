@@ -146,3 +146,40 @@ export type ZCodeImportReport = {
 	imported: number;
 	failed: number;
 };
+
+// ── WorkBuddy Session Import Types ─────────────────────────────────────
+
+/** WorkBuddy 会话导入状态：未导入 / 已是最新 / 源更新后可覆盖。 */
+export type WorkBuddyImportStatus = "new" | "current" | "outdated";
+
+export type WorkBuddySessionSummary = {
+	id: string;
+	sourcePath: string;
+	targetPath: string;
+	cwd: string;
+	title: string;
+	preview: string;
+	createdAt: number;
+	updatedAt: number;
+	messageCount: number;
+	status: WorkBuddyImportStatus;
+	sourceSize: number;
+	importedSourceMtime?: number;
+};
+
+export type WorkBuddyImportResult = {
+	id: string;
+	sourcePath: string;
+	targetPath?: string;
+	title?: string;
+	success: boolean;
+	overwritten?: boolean;
+	messageCount?: number;
+	error?: string;
+};
+
+export type WorkBuddyImportReport = {
+	results: WorkBuddyImportResult[];
+	imported: number;
+	failed: number;
+};

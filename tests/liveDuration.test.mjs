@@ -75,8 +75,9 @@ test("three duration call sites reuse LiveDuration", () => {
   const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
   const toolCard = readFileSync("src/renderer/src/components/session/ToolCallComponents.tsx", "utf8");
   const thinking = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
-  // TurnRow run 耗时：流式中实时（agentRunning 驱动，不依赖 endedAt）、结束截止
-  assert.match(turnRow, /<LiveDuration[\s\S]*?startedAt=\{run\.startedAt\}/);
+  // TurnRow run 耗时：流式中实时（agentRunning 驱动，不依赖 endedAt）、结束截止。
+  // 起点为 effectiveStart（run.startedAt + askWaitMs，询问等待不计数）。
+  assert.match(turnRow, /<LiveDuration[\s\S]*?startedAt=\{effectiveStart\}/);
   assert.match(turnRow, /isRunLive \?/);
   // ThinkingBlock 思考耗时（新架构在 TimelineEventCards.tsx）
   assert.match(thinking, /<LiveDuration[\s\S]*?startedAt=\{props\.startedAt\}/);

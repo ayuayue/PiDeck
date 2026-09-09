@@ -113,8 +113,12 @@ test("DSH missing reasoning metadata falls back to selectable full levels", () =
   assert.match(pickerSource, /runtime\?\.status !== "idle"/);
   assert.match(pickerSource, /cachedModel\?\.thinkingLevels !== undefined/);
   assert.match(pickerSource, /resolveThinkingPickerLevels\(/);
-  assert.doesNotMatch(pickerSource, /loading=\{/);
-  assert.doesNotMatch(componentsSource, /props\.loading/);
+  // 弹窗 loading 现在只反映「模型目录首屏加载」（catalogLoading → ModelPicker.loading），
+  // 与思考档位探测解耦：探测仍只在 idle 且无缓存时后台进行，不会把面板卡成 loading。
+  assert.match(pickerSource, /loading=\{catalogLoading\}/);
+  assert.match(componentsSource, /loading\?: boolean/);
+  assert.match(componentsSource, /resolveModelPickerBody\(\{/);
+  assert.match(componentsSource, /loading: props\.loading,/);
 });
 
 test("DSH thinking/model failures surface the real host reason", () => {

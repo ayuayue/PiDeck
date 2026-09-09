@@ -1,9 +1,9 @@
 /**
- * Provider 用量展示纯函数（无 React）：三处（圆球面板 / 模型卡片 / 模型选择器行）
- * 共用的格式化、状态档位与相对时间。视觉规则学自 cc-switch UsageFooter/TierBadge：
+ * Provider 用量展示纯函数（无 React）：圆球面板与模型选择器展开区共用的
+ * 格式化、状态档位与相对时间。视觉规则学自 cc-switch UsageFooter/TierBadge：
  * - 百分比档位：≥90% 红、≥70% 橙、其余绿（utilizationColor 同款阈值）；
  * - 余额/剩余量：≤0 红、不足总额 10% 橙、其余绿；
- * - 查询失败/无可用数值 → null（三处统一「不渲染」，避免报错噪音）。
+ * - 查询失败/无可用数值 → null（所有消费端统一「不渲染」，避免报错噪音）。
  */
 import type { TranslationKey } from "../i18n";
 import type { I18nParams } from "../../../shared/types";

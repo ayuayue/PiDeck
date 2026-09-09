@@ -127,6 +127,29 @@ export type UsageProbeProviderConfig = {
 	intervalMinutes?: number;
 };
 
+/**
+ * 单 provider 的用量查询状态（渲染层徽章开关 + 启动预热选源用）。
+ * 生效开关语义：显式 enabled ?? 内置识别命中（未配置且未识别 = false）。
+ */
+export type UsageProbeProviderState = {
+	/** 生效开关：徽章里的开关就是它的 UI。 */
+	enabled: boolean;
+	/** 是否已显式保存过配置（含只写 enabled 字段的条目）。 */
+	configured: boolean;
+	/** 内置候选自动识别命中（零配置生效路径）。 */
+	recognized: boolean;
+	/** 生效模板 id（声明式 general/newapi/cookie 或内置 templateId）；无则省略。 */
+	template?: string;
+	/** 生效自动查询间隔（分钟；0 = 不轮询）。 */
+	intervalMinutes: number;
+};
+
+/** list-usage-probe-states 返回：按 provider 的状态表（含配置文件校验错误，不含密钥）。 */
+export type UsageProbeStatesResult = {
+	providers: Record<string, UsageProbeProviderState>;
+	errors: string[];
+};
+
 /** get-usage-probes 返回（按 provider 查询，弹窗打开时拉取）。 */
 export type UsageProbeSettingsResult = {
 	/** 该 provider 已保存的配置；未配置过 = 省略。 */

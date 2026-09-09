@@ -249,10 +249,16 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
   const lastSessionIdRef = useRef(sessionId);
   const prevDisplayRunsIdsRef = useRef<string[] | undefined>(undefined);
   const topFreshTimersRef = useRef<Map<string, number>>(new Map());
+  // 最新轮结束后的「阅读停顿 → 布局稳定 → 最终回答定位」流水线：
+  // 定时器只由状态边界取消（会话切换/新一轮/离开跟随），不监听任何输入事件。
   const turnSettleIdleTimerRef = useRef<number | undefined>(undefined);
   const turnSettleScrollTimerRef = useRef<number | undefined>(undefined);
-  const turnSettleScrollCancelRef = useRef<(() => void) | undefined>(undefined);
-  const idleActivityCleanupRef = useRef<(() => void) | undefined>(undefined);
+  /** 已排定流水线的 run id：同 run 重复 arm 直接复用，避免双调度。 */
+  const turnSettleIdleLastRunRef = useRef<string | undefined>(undefined);
+  /** 已发出过 autoCollapseTick 的 run id（跨切走保留）：切回补挂 arm 的幂等标记——
+   *  用户手动重新展开的最新轮（memory 恢复）不应被切回后的新一轮 tick 再收起
+   *  （对抗审查 P2-②「记忆优先」）。 */
+  const settleTickConsumedRunRef = useRef<string | undefined>(undefined);
   const latestRunIdRef = useRef<string | undefined>(undefined);
   // 会话内容就绪淡入：isConversationLoading true→false（切会话历史加载完成）时，
   // 给 MessageScroller 挂一次 160ms 淡入动画类，与骨架屏消失衔接，避免整块瞬间出现。
@@ -292,7 +298,11 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
       window.clearTimeout(turnSettleIdleTimerRef.current);
       turnSettleIdleTimerRef.current = undefined;
     }
-    turnSettleScrollCancelRef.current?.();
+    if (turnSettleScrollTimerRef.current !== undefined) {
+      window.clearTimeout(turnSettleScrollTimerRef.current);
+      turnSettleScrollTimerRef.current = undefined;
+    }
+    turnSettleIdleLastRunRef.current = undefined;
     latestRunIdRef.current = undefined;
     setLatestTurnAutoCollapseTick(0);
   }, [sessionId]);
@@ -519,42 +529,49 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
   }, [displayRuns, lastAgentRunIndex]);
 
   const scrollFinalAnswerToUpperMiddle = controller.scrollFinalAnswerToUpperMiddle;
-  const handleLatestTurnAutoCollapsed = useCallback(() => {
-    turnSettleScrollCancelRef.current?.();
-    const runId = latestRunIdRef.current;
-    if (!runId) return;
-
-    let cancelled = false;
-    const cleanupActivity = () => {
-      window.removeEventListener("pointerdown", cancel, true);
-      window.removeEventListener("wheel", cancel, true);
-      window.removeEventListener("touchstart", cancel, true);
-      window.removeEventListener("keydown", cancel, true);
-    };
-    const cancel = () => {
-      if (cancelled) return;
-      cancelled = true;
+  // 布局稳定窗口：折叠动画（Collapsible 高度变化）基本结束后再读取最终位置。
+  // 定时器不需要被输入事件取消——scrollFinalAnswerToUpperMiddle 会按触发时的
+  // autoScroll/ownerKey/几何守卫决定跳过，输入不参与取消（2026-09 状态驱动）。
+  const scheduleFinalAnswerSettle = useCallback(
+    (runId: string) => {
       if (turnSettleScrollTimerRef.current !== undefined) {
         window.clearTimeout(turnSettleScrollTimerRef.current);
         turnSettleScrollTimerRef.current = undefined;
       }
-      cleanupActivity();
-      turnSettleScrollCancelRef.current = undefined;
-    };
-    window.addEventListener("pointerdown", cancel, { capture: true });
-    window.addEventListener("wheel", cancel, { passive: true, capture: true });
-    window.addEventListener("touchstart", cancel, { passive: true, capture: true });
-    window.addEventListener("keydown", cancel, { capture: true });
-    turnSettleScrollCancelRef.current = cancel;
-
-    // 等 Collapsible 高度动画基本结束再测目标位置；期间任何用户操作都会取消。
-    turnSettleScrollTimerRef.current = window.setTimeout(() => {
-      turnSettleScrollTimerRef.current = undefined;
-      cleanupActivity();
-      turnSettleScrollCancelRef.current = undefined;
-      scrollFinalAnswerToUpperMiddle(runId);
-    }, TURN_SETTLE_SCROLL_DELAY_MS);
-  }, [scrollFinalAnswerToUpperMiddle]);
+      turnSettleScrollTimerRef.current = window.setTimeout(() => {
+        turnSettleScrollTimerRef.current = undefined;
+        scrollFinalAnswerToUpperMiddle(runId);
+      }, TURN_SETTLE_SCROLL_DELAY_MS);
+    },
+    [scrollFinalAnswerToUpperMiddle],
+  );
+  // 统一流水线：1.5s 阅读停顿 → 折叠执行过程（若仍展开）→ 布局稳定后定位。
+  // 定位不依赖「是否真的发生折叠」；同 run 已在途时复用，避免双调度。
+  const armSettledReposition = useCallback(
+    (runId: string | undefined) => {
+      if (!runId) return;
+      if (
+        turnSettleIdleTimerRef.current !== undefined &&
+        turnSettleIdleLastRunRef.current === runId
+      ) {
+        return;
+      }
+      turnSettleIdleLastRunRef.current = runId;
+      if (turnSettleIdleTimerRef.current !== undefined) {
+        window.clearTimeout(turnSettleIdleTimerRef.current);
+        turnSettleIdleTimerRef.current = undefined;
+      }
+      turnSettleIdleTimerRef.current = window.setTimeout(() => {
+        turnSettleIdleTimerRef.current = undefined;
+        // tick 已发出：该 run 的自动收起/定位已完成一次；切回时不再重复 arm
+        //（否则用户手动重新展开的轮次会被再次收起并清 memory）。
+        settleTickConsumedRunRef.current = runId;
+        setLatestTurnAutoCollapseTick((tick) => tick + 1);
+        scheduleFinalAnswerSettle(runId);
+      }, TURN_SETTLE_IDLE_COLLAPSE_MS);
+    },
+    [scheduleFinalAnswerSettle],
+  );
 
   useEffect(() => {
     const wasBusy = wasRuntimeBusyRef.current;
@@ -565,40 +582,67 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
         window.clearTimeout(turnSettleIdleTimerRef.current);
         turnSettleIdleTimerRef.current = undefined;
       }
-      turnSettleScrollCancelRef.current?.();
-      idleActivityCleanupRef.current?.();
-      idleActivityCleanupRef.current = undefined;
+      if (turnSettleScrollTimerRef.current !== undefined) {
+        window.clearTimeout(turnSettleScrollTimerRef.current);
+        turnSettleScrollTimerRef.current = undefined;
+      }
+      turnSettleIdleLastRunRef.current = undefined;
     };
 
-    if (isRuntimeBusy || !controller.autoScroll) {
+    if (isRuntimeBusy) {
+      // 新一轮开始（busy 边沿）：若在途 settle 定位动画（系统态移动视口），
+      // 取消并恢复跟随贴底——否则动画飞行中发送新消息，视口永久停在旧 run 的
+      // 30% 锚点，新 run 不跟随且自身 settle 也不 arm（对抗审查 F1）。
+      // 用户正在读历史（无在途动画）则不打扰。
+      controller.cancelSettledRepositionForNewRun();
       clearIdle();
       return;
     }
-    // 只处理「运行中 → 停转」边沿；历史会话挂载/普通渲染不安排自动收起。
+    if (!controller.autoScroll) {
+      clearIdle();
+      return;
+    }
+    // 只处理「运行中 → 停转」边沿；历史会话挂载/切回由下方补齐 effect 处理。
     if (!wasBusy) return;
 
-    const cancelIdle = () => clearIdle();
-    window.addEventListener("pointermove", cancelIdle, { passive: true, capture: true });
-    window.addEventListener("pointerdown", cancelIdle, { capture: true });
-    window.addEventListener("wheel", cancelIdle, { passive: true, capture: true });
-    window.addEventListener("touchstart", cancelIdle, { passive: true, capture: true });
-    window.addEventListener("keydown", cancelIdle, { capture: true });
-    idleActivityCleanupRef.current = () => {
-      window.removeEventListener("pointermove", cancelIdle, true);
-      window.removeEventListener("pointerdown", cancelIdle, true);
-      window.removeEventListener("wheel", cancelIdle, true);
-      window.removeEventListener("touchstart", cancelIdle, true);
-      window.removeEventListener("keydown", cancelIdle, true);
-    };
-    turnSettleIdleTimerRef.current = window.setTimeout(() => {
-      turnSettleIdleTimerRef.current = undefined;
-      idleActivityCleanupRef.current?.();
-      idleActivityCleanupRef.current = undefined;
-      setLatestTurnAutoCollapseTick((tick) => tick + 1);
-    }, TURN_SETTLE_IDLE_COLLAPSE_MS);
+    // 最新轮结束且仍在跟随：arm 1.5s 阅读停顿流水线。
+    // 不再监听任何全局输入事件——鼠标移动/键盘/其他面板滚动与本轮是否结束无关,
+    // 不得参与取消（2026-09 收敛为状态驱动）。
+    armSettledReposition(latestRunIdRef.current);
 
     return clearIdle;
-  }, [controller.autoScroll, isRuntimeBusy, sessionId]);
+  }, [
+    controller.autoScroll,
+    controller.cancelSettledRepositionForNewRun,
+    isRuntimeBusy,
+    sessionId,
+    armSettledReposition,
+  ]);
+
+  // 跟随状态变化（回底/下滚重锁）会作废在途的 settle 布局定时：不能让刚回底的
+  // 视口在 320ms 后又被定位拉到 30% 高度。定位动画开始后 autoScroll 恒为 false，
+  // 不会误清自身已触发的定时器；挂载首帧的 autoScroll true 不会清掉尚未排定的定时器。
+  useEffect(() => {
+    if (turnSettleScrollTimerRef.current !== undefined) {
+      window.clearTimeout(turnSettleScrollTimerRef.current);
+      turnSettleScrollTimerRef.current = undefined;
+    }
+  }, [controller.autoScroll]);
+
+  // 最新轮已结束但重新出现在视口（切会话切回 / 历史会话打开）：不经过 busy 边沿，
+  // 若该会话仍停在最新尾部（跟随），按同一流水线补齐定位。effect 依赖不含
+  // controller.autoScroll：回底（autoScroll false→true）不重跑本 effect，避免
+  // 「刚点回底又被拉去 30%」；守卫只在触发瞬间读一次快照，过期由函数内最新
+  // autoScrollRef 再拦截一次。
+  const latestSettledRunId =
+    latestAgentRunId !== undefined && !isRuntimeBusy ? latestAgentRunId : undefined;
+  useEffect(() => {
+    if (!latestSettledRunId || !controller.autoScroll) return;
+    // 幂等：该 run 的 tick 已消费过（自动收起/定位已完成）不再重复 arm——
+    // 否则切回时会把用户手动重新展开的最新轮再收起并清 memory（P2-②）。
+    if (settleTickConsumedRunRef.current === latestSettledRunId) return;
+    armSettledReposition(latestSettledRunId);
+  }, [latestSettledRunId, armSettledReposition, sessionId]);
   const turnWindowActive = shouldWindowTimelineTurns(
     countAgentRunItems(reconciledRuns),
     turnWindowTurns,
@@ -815,6 +859,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
       // 由 MessageScroller 的 resize + 28px 阈值决定，不再整段忙碌硬贴底。
       busy={isRuntimeBusy || isAwaitingAssistant}
       onFollowChange={controller.setAutoScrollFromScroller}
+      onUserScrollIntent={controller.setUserScrollIntent}
       viewportProps={{
         // 会话切换滚动位置保持：滚动时维护 per-session 锚点（rAF 合并，不触发渲染）
         onScroll: controller.handleTimelineScroll,
@@ -974,7 +1019,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
                     isLatestRun={item.id === lastDisplayedItemId}
                     isLastAgentRun={item.id === latestAgentRunId}
                     autoCollapseTick={item.id === latestAgentRunId ? latestTurnAutoCollapseTick : 0}
-                    onAutoCollapsed={item.id === latestAgentRunId ? handleLatestTurnAutoCollapsed : undefined}
                     onOpenExternal={props.onOpenExternal}
                     onOpenFile={props.onOpenFile}
                     onDiffFile={props.onDiffFile}

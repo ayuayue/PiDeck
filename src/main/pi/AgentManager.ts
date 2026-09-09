@@ -1645,6 +1645,11 @@ export class AgentManager {
 		runtime.tab.status = "running";
 		this.emitState();
 
+		// 用户未回答挂起的 Ask 提问却直接发送新消息：先取消所有挂起 UI 请求（见
+		// cancelPendingUIRequests）。否则 pi 事件循环仍阻塞在 extension_ui_response 上，
+		// 新 prompt 进入 steer 队列也永远不会被消费，悬浮 Ask 卡片也不会消失。
+		this.cancelPendingUIRequests(input.agentId);
+
 		// 乐观更新：在等待 RPC 返回前先把用户消息写入会话，让用户立即看到自己的消息。
 		// 只展示用户原文；agentMessage 里的宿主指令不进 UI 气泡。
 		// 如果后续 RPC 失败，再追加错误消息；用户消息本身仍保留在聊天中（用户确已发送）。
@@ -1890,35 +1895,53 @@ export class AgentManager {
 		}
 	}
 
+	/**
+	 * 取消该 agent 所有挂起的 UI 请求（ask_question 等）。
+	 *
+	 * 两个触发路径共享此实现：
+	 * 1. abort()：用户点击停止；
+	 * 2. sendPrompt()：用户未回答提问直接发送新消息——pi 的事件循环正阻塞在
+	 *    extension_ui_response 上等待回答，不先解除阻塞则新 prompt 永远不会被消费，
+	 *    且渲染层收不到 completed 事件，Ask 卡片会一直悬浮在界面上。
+	 *
+	 * 语义与完整 abort 不同：不终止回合、不清流式状态，只解除提问阻塞。
+	 * 发 value: null（不带 cancelled 标记），select parser 返回 null，
+	 * 工具 result 的 answer = null、answered = false → 历史卡片显示"已取消"；
+	 * 同时广播 completed+cancelled 让渲染层立即移除纯运行时交互。
+	 */
+	private cancelPendingUIRequests(agentId: string): void {
+		const pending = this.pendingUIRequests.get(agentId);
+		if (!pending || pending.size === 0) return;
+		const runtime = this.requireRuntime(agentId);
+		this.abortedDuringAsk.add(agentId);
+		for (const [requestId] of pending) {
+			// 视作用户在此刻结束等待：结算等待时长，供该 ask 工具耗时扣除
+			this.settleAskWait(agentId, requestId);
+			runtime.process.client.sendRaw({
+				type: "extension_ui_response",
+				id: requestId,
+				value: null,
+			});
+			// extension 收到 null 保持其取消语义；渲染层必须立即移除纯运行时交互
+			this.emit(ipcChannels.agentsUiRequest, {
+				agentId,
+				requestId,
+				completed: true,
+				cancelled: true,
+			});
+		}
+		// pending dialogs 是纯运行时状态，清空请求表即可
+		this.pendingUIRequests.delete(agentId);
+	}
+
 	async abort(agentId: string) {
 		const runtime = this.requireRuntime(agentId);
 
 		// pi 在等待 extension_ui_response 时（如 ask_question），不发 abort 也能处理，
 		// 但必须解除 pending 请求的阻塞，否则 pi 不会继续读取 stdin 中的后续命令。
-		// 发 cancelled: true 会导致 pi 返回 undefined，ask_question 工具默认选第一个；
-		// 改发 value: null（不带 cancelled 标记），select parser 返回 null，
-		// 工具 result 的 answer = null，answered 为 false → 卡片显示"已取消"。
-		const pending = this.pendingUIRequests.get(agentId);
-		if (pending && pending.size > 0) {
-			this.abortedDuringAsk.add(agentId);
-			for (const [requestId] of pending) {
-				// abort 视作用户在此刻结束等待：结算等待时长，供该 ask 工具耗时扣除
-				this.settleAskWait(agentId, requestId);
-				runtime.process.client.sendRaw({
-					type: "extension_ui_response",
-					id: requestId,
-					value: null,
-				});
-				// The extension receives null to preserve its cancellation semantics, while
-				// the renderer must immediately remove the runtime-only interaction.
-				this.emit(ipcChannels.agentsUiRequest, {
-					agentId,
-					requestId,
-					completed: true,
-					cancelled: true,
-				});
-			}
-		}
+		// 取消语义（value:null 解阻塞 + 广播 completed）见 cancelPendingUIRequests，
+		// abort 与「未作答直接发送新消息」两条路径共用同一实现。
+		this.cancelPendingUIRequests(agentId);
 
 		// 标记最近中止的 agent，用于抑制 auto-retry/compaction 把状态重新标为 running。
 		// 必须在发送 abort RPC 之前加入集合，避免事件处理函数在 RPC 发出后、
@@ -1941,10 +1964,8 @@ export class AgentManager {
 				});
 			});
 
-		// Pending dialogs are runtime-only, so clearing their request map is enough.
-		if (pending && pending.size > 0) {
-			this.pendingUIRequests.delete(agentId);
-		}
+		// Pending dialogs are runtime-only, so clearing their request map is enough
+		// （cancelPendingUIRequests 内部已清除）。abort 后续的清流式状态不受影响。
 		// abort 时必须清除所有流式状态，防止后续 pi 的延迟事件（text_delta、thinking_delta、tool_execution_* 等）
 		// 修改上次会话的旧消息，导致新会话消息混入被中止的旧输出。
 		// 先把已累积思考落入当前 assistant 骨架（保留中断轮的推理），再清 live 通道。

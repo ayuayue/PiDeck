@@ -40,10 +40,11 @@ test("fetched entry is stale only after the interval elapses", () => {
 	assert.equal(providerUsageEntryStale(readyEntry(NOW - 5 * MINUTE), 5, NOW), true);
 });
 
-test("manual refresh always fetches, even when auto query is off", () => {
+// 全局开关已删除：是否查询由每个 provider 徽章里的开关决定（门控在 hook 层），
+// 本纯函数只负责时序——手动永远发、轮询看间隔、挂载/批量看新鲜期。
+test("manual refresh always fetches, regardless of interval or freshness", () => {
 	assert.equal(
 		shouldAutoFetchProviderUsage({
-			autoQueryEnabled: false,
 			reason: "manual",
 			entry: idleEntry(),
 			intervalMinutes: 0,
@@ -51,28 +52,20 @@ test("manual refresh always fetches, even when auto query is off", () => {
 		}),
 		true,
 	);
-});
-
-test("auto query off blocks mount, poll, and batch", () => {
-	for (const reason of ["mount", "poll", "batch"]) {
-		assert.equal(
-			shouldAutoFetchProviderUsage({
-				autoQueryEnabled: false,
-				reason,
-				entry: idleEntry(),
-				intervalMinutes: 5,
-				now: NOW,
-			}),
-			false,
-			`${reason} must not fire when auto query is off`,
-		);
-	}
-});
-
-test("auto query on mounts and batches only when the entry is stale", () => {
 	assert.equal(
 		shouldAutoFetchProviderUsage({
-			autoQueryEnabled: true,
+			reason: "manual",
+			entry: readyEntry(NOW),
+			intervalMinutes: 5,
+			now: NOW,
+		}),
+		true,
+	);
+});
+
+test("mount and batch fire only when the entry is stale", () => {
+	assert.equal(
+		shouldAutoFetchProviderUsage({
 			reason: "mount",
 			entry: idleEntry(),
 			intervalMinutes: 0,
@@ -82,7 +75,6 @@ test("auto query on mounts and batches only when the entry is stale", () => {
 	);
 	assert.equal(
 		shouldAutoFetchProviderUsage({
-			autoQueryEnabled: true,
 			reason: "batch",
 			entry: readyEntry(NOW - MINUTE),
 			intervalMinutes: 0,
@@ -92,7 +84,6 @@ test("auto query on mounts and batches only when the entry is stale", () => {
 	);
 	assert.equal(
 		shouldAutoFetchProviderUsage({
-			autoQueryEnabled: true,
 			reason: "mount",
 			entry: readyEntry(NOW - 6 * MINUTE),
 			intervalMinutes: 5,
@@ -102,10 +93,9 @@ test("auto query on mounts and batches only when the entry is stale", () => {
 	);
 });
 
-test("poll only fires when auto query is on and interval is positive", () => {
+test("poll only fires when the interval is positive", () => {
 	assert.equal(
 		shouldAutoFetchProviderUsage({
-			autoQueryEnabled: true,
 			reason: "poll",
 			entry: idleEntry(),
 			intervalMinutes: 0,
@@ -115,7 +105,6 @@ test("poll only fires when auto query is on and interval is positive", () => {
 	);
 	assert.equal(
 		shouldAutoFetchProviderUsage({
-			autoQueryEnabled: true,
 			reason: "poll",
 			entry: readyEntry(NOW),
 			intervalMinutes: 5,

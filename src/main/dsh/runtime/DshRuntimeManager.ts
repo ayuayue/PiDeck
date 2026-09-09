@@ -170,17 +170,39 @@ export function readBundledRuntime(
  * 这是「版本依赖的 dsh 运行时」：与用户是否安装 runtime 无关；dev（仓库根）与打包态
  * （asar 内 package.json 可读）均可用，作为「关于」面板没有安装/随包资源时的兜底展示。
  */
-export function readDeclaredDshVersion(appPath: string | undefined): string | undefined {
-	if (!appPath) return undefined;
+function tryReadDshVersion(dir: string): string | undefined {
 	try {
-		const parsed = JSON.parse(readFileSync(join(appPath, "package.json"), "utf8")) as {
+		const parsed = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
 			dependencies?: Record<string, unknown>;
+			devDependencies?: Record<string, unknown>;
 		};
-		const version = parsed.dependencies?.["@deepseek-ai/dsh"];
+		// dsh 不是直接 require 的运行时依赖（打包进 dist-runtime），声明在 devDependencies；两处都查
+		const version =
+			parsed.dependencies?.["@deepseek-ai/dsh"] ?? parsed.devDependencies?.["@deepseek-ai/dsh"];
 		return typeof version === "string" ? version : undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * 读取「本版本配套」的 dsh 版本 = package.json 声明的 @deepseek-ai/dsh 版本。
+ * 候选目录依次尝试：electron-vite dev 下 app.getAppPath() 可能指向 out/
+ * （未复制 package.json），而编译产物在 out/main —— 因此再向上找 out/ 与项目根。
+ * 打包态 app.asar 根含 package.json，同样命中。任何一层读不到就返回 undefined。
+ */
+export function readDeclaredDshVersion(appPath: string | undefined): string | undefined {
+	const here = typeof __dirname === "string" ? __dirname : "";
+	const candidates = [
+		appPath ?? "",
+		here ? join(here, "..") : "",
+		here ? join(here, "..", "..") : "",
+	].filter((dir): dir is string => Boolean(dir));
+	for (const dir of candidates) {
+		const version = tryReadDshVersion(dir);
+		if (version) return version;
+	}
+	return undefined;
 }
 
 export class DshRuntimeManager {

@@ -9,7 +9,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -90,25 +90,25 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.7.4-beta**（2026-09-04）
+> **最新版本 v0.7.4**（2026-09-08）
 
-### v0.7.4-beta 更新亮点
+### v0.7.4 更新亮点
+- 🚀 **应用更新与便携版优化**
+- 🚀 **WorkBuddy 会话导入**
+- 🚀 **项目与文件夹右键菜单增强**
+- 🚀 **关于弹框展示环境组件版本**
+- 🚀 **配置备份与公告系统进阶**
+- 🚀 **DSH 版本兜底与用量自动查询**
+- 🚀 **配置区多级 Tab 与商店搜索栏统一 UI**
 - 🚀 **Command Code 用量查询支持**
 - 🚀 **应用更新生命周期加固**
 - 🚀 **更新源镜像选择与自动体检**
 - 🚀 **Composer 语音转写**
 - 🚀 **请求体超限后的会话恢复**
-- 🚀 **内置 TokenDance（词元跳动）供应商**
-- 🚀 **跟进 pi v0.85.0**
-- 🚀 **ZCode 会话导入**
-- 🚀 **pi.dev 扩展商店**
-- 🚀 **模型选择器供应商按最近使用排序**
-- 🚀 **无服务器公告系统**
-- 🚀 **TokenDance 一键配置合并授权取 Key**
-- ✨ **工具耗时秒表不再反复归零**
-- ✨ **视觉桥模型选择按钮适配超长模型名**
-- ✨ **统一会话轮次口径**
-- ✨ **fork 标题持久化与侧栏长名滚动**
+- ✨ **WSL 环境 Node/pi 检测支持**
+- ✨ **分屏 Git 分支独立展示**
+- ✨ **会话时间线吸底体验优化**
+- ✨ **ask_question 参数自适应推断**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

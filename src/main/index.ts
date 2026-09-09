@@ -279,6 +279,7 @@ import { CodexSessionImporter } from "./sessions/CodexSessionImporter";
 import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { ZCodeSessionImporter } from "./sessions/ZCodeSessionImporter";
+import { WorkBuddySessionImporter } from "./sessions/WorkBuddySessionImporter";
 import { SettingsStore } from "./settings/SettingsStore";
 import { SecurityStore } from "./security/SecurityStore";
 import { applyDesktopProxy } from "./settings/DesktopProxy";
@@ -403,6 +404,7 @@ let codexSessionImporter: CodexSessionImporter;
 let claudeSessionImporter: ClaudeSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
 let zcodeSessionImporter: ZCodeSessionImporter;
+let workbuddySessionImporter: WorkBuddySessionImporter;
 let settingsStore: SettingsStore;
 let securityStore: SecurityStore;
 let worktreeService: WorktreeService;
@@ -1234,6 +1236,10 @@ function focusMainWindow() {
  * 2. renderer 挂载后经 pet:get-focus-target-pending 主动拉取（取走即清空，保证送达）。
  * 三种目标：sessionId 跳会话；projectId 跳已有项目（右键打开已收录目录）；projectPath 引导新增项目。
  */
+/** 项目表加载完成的 Promise（whenReady 内赋值）。冷启动跳转目标 / 单实例焦点请求
+ * 解析目录是否已收录前必须先等它，否则 findByPath 命中空项目表，已注册目录也会弹「添加为项目」。 */
+let projectStoreReady: Promise<unknown> | null = null;
+
 let pendingFocusTarget: { sessionId: string } | { projectId: string } | { projectPath: string } | null = null;
 
 /** 窗口就绪（存在且未在加载）直接推送；否则入 pending 队列。 */
@@ -1260,11 +1266,13 @@ function flushPendingFocusTargetOnLoad() {
  */
 function handleVersionFocusRequest(payload?: FocusPayload) {
 	const target = extractFocusTargetFromArgv(payload?.argv);
-	const activateSession = () => {
+	const activateSession = async () => {
 		if (!target) return;
 		// 文件夹右键打开：已收录目录直接跳项目（渲染层 selectProjectCommand）；
 		// 未收录目录推 projectPath，渲染层弹确认框走新增项目流程。
 		if (target.projectPath) {
+			// 主实例可能在启动早期就收到 .focus 信号（项目表尚未 load 完），先等就绪再判定。
+			if (projectStoreReady) await projectStoreReady;
 			const existing = projectStore?.findByPath(target.projectPath);
 			if (existing) {
 				queueFocusTarget({ projectId: existing.id });
@@ -1281,19 +1289,19 @@ function handleVersionFocusRequest(payload?: FocusPayload) {
 	};
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		focusMainWindow();
-		activateSession();
+		void activateSession();
 		return;
 	}
 	void app.whenReady().then(() => {
 		if (mainWindow && !mainWindow.isDestroyed()) {
 			focusMainWindow();
-			activateSession();
+			void activateSession();
 			return;
 		}
 		if (settingsStore) {
 			void createWindow()
 				.then(() => {
-					activateSession();
+					void activateSession();
 				})
 				.catch((error) => {
 					void appLogger?.error("app", "Failed to recreate window on version focus request", error);
@@ -2509,6 +2517,7 @@ function registerIpc() {
 		claudeSessionImporter,
 		openCodeSessionImporter,
 		zcodeSessionImporter,
+		workbuddySessionImporter,
 		appLogger,
 		terminalManager,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
@@ -3069,6 +3078,7 @@ app.whenReady().then(async () => {
 	claudeSessionImporter = new ClaudeSessionImporter(mainCopy);
 	openCodeSessionImporter = new OpenCodeSessionImporter(mainCopy);
 	zcodeSessionImporter = new ZCodeSessionImporter(mainCopy);
+	workbuddySessionImporter = new WorkBuddySessionImporter(mainCopy);
 	settingsStore = new SettingsStore();
 	// 安全管理：配置 owner + 策略快照写入（供 pi-deck-security-gate 扩展消费）
 	securityStore = new SecurityStore({
@@ -3936,6 +3946,29 @@ app.whenReady().then(async () => {
 		});
 	}
 
+	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
+	// 必须在冷启动跳转目标解析之前开始（并等它完成）：否则 findByPath 命中空项目表，
+	// 已收录目录也会被当成新目录弹「添加为项目」（实测右键打开两次都走了 add 链路）。
+	const projectStoreLoadPromise = projectStore.load();
+	projectStoreReady = projectStoreLoadPromise.catch(() => undefined);
+	void projectStoreLoadPromise
+		.then(async () => {
+			// load() 已丢掉 e2e 临时项目；对应 catalog 映射一并清掉，侧栏会话不会再挂回来。
+			const knownProjectIds = new Set(projectStore.list().map((project) => project.id));
+			const orphanProjectIds = new Set(
+				sessionCatalog.listEntries()
+					.map((entry) => entry.projectId)
+					.filter((projectId) => !knownProjectIds.has(projectId)),
+			);
+			for (const projectId of orphanProjectIds) {
+				await sessionCatalog.removeByProjectId(projectId).catch(() => 0);
+			}
+			broadcastVisibleProjects();
+			// 项目表就绪后再扫 DSH_HOME：cwd 才能匹配已注册项目；不启动 host。
+			await scheduleDshForeignAutoImport();
+		})
+		.catch(() => undefined);
+
 	// 冷启动通知/右键唤起：应用未运行时点击系统通知或右键菜单，本进程即为唯一实例（无次实例 .focus
 	// 流转），argv 携带 pideck:// URL 或 --open-project 参数，窗口就绪后跳转对应会话/项目。
 	// 页面仍在加载时直接 send 会丢（preload/React 监听未注册），故走 pending 队列：
@@ -3944,6 +3977,8 @@ app.whenReady().then(async () => {
 	const coldStartTarget = extractFocusTargetFromArgv(process.argv);
 	if (coldStartTarget) {
 		if (coldStartTarget.projectPath) {
+			// 项目表就绪后再判定是否已收录：否则已注册目录也会弹「添加为项目」。
+			await projectStoreReady;
 			const existing = projectStore?.findByPath(coldStartTarget.projectPath);
 			if (existing) {
 				queueFocusTarget({ projectId: existing.id });
@@ -4021,26 +4056,6 @@ app.whenReady().then(async () => {
 		announcementService?.stop();
 		announcementService = null;
 	});
-
-	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
-	void projectStore
-		.load()
-		.then(async () => {
-			// load() 已丢掉 e2e 临时项目；对应 catalog 映射一并清掉，侧栏会话不会再挂回来。
-			const knownProjectIds = new Set(projectStore.list().map((project) => project.id));
-			const orphanProjectIds = new Set(
-				sessionCatalog.listEntries()
-					.map((entry) => entry.projectId)
-					.filter((projectId) => !knownProjectIds.has(projectId)),
-			);
-			for (const projectId of orphanProjectIds) {
-				await sessionCatalog.removeByProjectId(projectId).catch(() => 0);
-			}
-			broadcastVisibleProjects();
-			// 项目表就绪后再扫 DSH_HOME：cwd 才能匹配已注册项目；不启动 host。
-			await scheduleDshForeignAutoImport();
-		})
-		.catch(() => undefined);
 
 	// 启动后异步检查 RPC 超时时间，如果小于 600 秒则自动修正为 600 秒
 	// 避免用户配置的过小超时（如 30 秒）导致启动或命令执行频繁超时

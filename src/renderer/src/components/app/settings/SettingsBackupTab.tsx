@@ -178,6 +178,17 @@ export function BackupTab() {
 	};
 
 	const isLoading = backups === null;
+	/** 当前列表是否全部勾选（空列表视为未全选，避免全选态误导）。 */
+	const allSelected =
+		backups !== null &&
+		backups.length > 0 &&
+		backups.every((backup) => selected.has(backup.id));
+
+	/** 全选/取消全选：整表切换，不动列表外的失效 id（refresh 已负责清理）。 */
+	const toggleSelectAll = () => {
+		if (!backups) return;
+		setSelected(allSelected ? new Set() : new Set(backups.map((backup) => backup.id)));
+	};
 
 	return (
 		<>
@@ -236,7 +247,29 @@ export function BackupTab() {
 			</SettingsSection>
 
 			<SettingsSection title={t("settings.backup.listTitle")}>
-				<div className="flex items-center justify-end pb-1">
+				<div className="flex items-center justify-between gap-2 pb-1">
+					{backups && backups.length > 0 ? (
+						<label className="flex cursor-pointer select-none items-center gap-2 px-0.5 text-caption text-muted-foreground">
+							<Checkbox
+								checked={
+									allSelected
+										? true
+										: selected.size > 0
+											? "indeterminate"
+											: false
+								}
+								disabled={busy !== null}
+								onCheckedChange={toggleSelectAll}
+							/>
+							<span>
+								{allSelected
+									? t("common.deselectAll")
+									: t("common.selectAll")}
+							</span>
+						</label>
+					) : (
+						<span />
+					)}
 					<Button
 						variant="ghost"
 						size="sm"

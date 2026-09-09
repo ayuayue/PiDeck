@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -130,6 +131,8 @@ function loadAgentManagerModule() {
 		module: historyReaderModule,
 		exports: historyReaderModule.exports,
 		require: (specifier) => {
+			// 停止身份缓存（72fe93da 起 SessionHistoryReader 依赖）：真实加载保持身份核对行为
+			if (specifier === "./stoppedMessageIdentity") return loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts");
 			// todo 快照解析纯函数：本测试不覆盖，空实现满足依赖契约
 			if (specifier === "../../shared/sessionTodo") return { parseTodoSnapshotData: () => undefined };
 			// acp_delegate 推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
@@ -166,6 +169,8 @@ function loadAgentManagerModule() {
     module,
     exports: module.exports,
     require: (specifier) => {
+      // 停止身份缓存（72fe93da 起 AgentManager 依赖）：真实加载保持身份核对行为
+      if (specifier === "./stoppedMessageIdentity") return loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts");
       if (specifier === "electron") {
         return { app: { getName: () => "PiDeck" }, Notification: { isSupported: () => false } };
       }

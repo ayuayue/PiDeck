@@ -96,7 +96,7 @@ export function AppSidebar(props: AppSidebarProps) {
         <div className="list-toolbar flex h-10 shrink-0 items-center gap-1 border-b border-border/40 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]">
           <AboutPopover appInfo={props.appInfo}>
             <div
-              className="app-badge flex min-w-0 flex-1 cursor-pointer items-center"
+              className="app-badge flex min-w-0 flex-1 cursor-pointer items-center justify-center pl-5"
               role="button"
               tabIndex={0}
               aria-label={t("about.title")}

@@ -33,6 +33,10 @@ import {
   resolveAutoExpandThreshold,
 } from "./timeline/autoExpandThreshold";
 import {
+  shouldAutoExpandRenderWindow,
+  shouldApplyDelayedHistoryResult,
+} from "./timeline/scrollHistoryPolicy";
+import {
   countUserTurns,
   TIMELINE_MOUNTED_TURN_LIMIT,
   TIMELINE_SCROLLED_TURN_LIMIT,
@@ -104,6 +108,8 @@ type Tagged<T> = { ownerKey: string; value: T };
 type TimelineAnchor = {
   height: number;
   top: number;
+  /** 发起请求时的历史浏览代数：回底/切会话后到达的响应不得恢复旧锚点。 */
+  generation: number;
   /** 保持旧视口：即使原视口在顶部也只让新历史出现在上方。 */
   preserveAtTop?: boolean;
 };
@@ -255,7 +261,7 @@ export type SessionTimelineController = {
   isLoadingMoreMessages: boolean;
   /** 补页后保持当前视口（新历史只出现在上方）。所有入口统一，不再有「新页直接出现」的跳动。 */
   loadMoreMessages: (source?: "scroll" | "button") => void;
-  /** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制自动加载监听。
+  /** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制历史意图消费。
    *  durationMs > 0 时按时间窗口抑制（连续 smooth scroll 会派发多个 scroll 事件）。 */
   markProgrammaticScroll: (durationMs?: number) => void;
   /**
@@ -275,6 +281,18 @@ export type SessionTimelineController = {
   showScrollToBottom: boolean;
   /** 由 MessageScroller 汇报用户是否仍在实时尾部，避免两套滚动监听互相抢占。 */
   setAutoScrollFromScroller: (following: boolean) => void;
+  /**
+   * 引擎上报的用户滚动意图（wheel/触摸/滚动条真实输入）：
+   * 近顶部自动扩窗/预取只消费该意图，布局 resize/clamp 不算用户上滑。
+   * source 区分真实输入与 scroll 派生：只有真实输入才终止在途定位动画。
+   */
+  setUserScrollIntent: (intent: "up" | "down", source?: "scroll" | "input") => void;
+  /**
+   * 新 run 开始（busy 边沿）：若在途 settle 定位动画（系统态移动视口），
+   * 取消并恢复跟随贴底，让新 run 流式从底部继续；无在途动画（用户正读历史）
+   * 则不动，保持不抢用户操作。
+   */
+  cancelSettledRepositionForNewRun: () => void;
   /**
    * 挂到 MessageScroller 的 stick-to-bottom 引擎 API（回底弹簧）。
    * 未挂上时 scrollToBottom 退化为原生 scrollTo。
@@ -589,6 +607,17 @@ export function useSessionTimelineController(options: {
   const autoScrollRef = useRef(autoScroll);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollUntilRef = useRef(0);
+  /**
+   * 历史浏览代数：回底/切会话时递增。在途历史分页与扩窗任务捕获发起时代数，
+   * 返回时若已过期只允许写缓存，不得再驱动 DOM 扩窗/锚点恢复（迟到结果
+   * 把刚回底的视口重新拉回历史模式的根因防护）。
+   */
+  const historyBrowseGenerationRef = useRef(0);
+  /**
+   * 已确认的向上输入在下一帧消费：wheel 回调早于浏览器默认滚动，而
+   * scrollbar/touch 的回调晚于 scroll；统一到一帧后读取位置，避免事件顺序竞态。
+   */
+  const userScrollIntentFrameRef = useRef<number | undefined>(undefined);
   const settleScrollCancelRef = useRef<(() => void) | undefined>(undefined);
   const scrollerScrollApiRef = useRef<MessageScrollerScrollApi | null>(null);
   const loadMoreAnchorRef = useRef<Tagged<TimelineAnchor> | undefined>(undefined);
@@ -625,6 +654,10 @@ export function useSessionTimelineController(options: {
   // session's follow mode and turn window reach MessageScroller atomically.
   if (viewStateOwnerKey !== ownerKey) {
     const nextRestoreState = resolveSessionTimelineRestoreState(sessionAnchorSnapshot);
+    // 被复用的 pane 在 passive effect 前就可能收到旧分页结果；generation 必须
+    // 与目标会话的 follow 快照一起在 render 阶段切换，旧 owner 只能继续写缓存。
+    historyBrowseGenerationRef.current += 1;
+    loadMoreAnchorRef.current = undefined;
     setViewStateOwnerKey(ownerKey);
     setRestoreAnchor(sessionAnchorSnapshot);
     setRestorePhase("pending");
@@ -637,6 +670,8 @@ export function useSessionTimelineController(options: {
   const windowExpandableRef = useRef(false);
   /** 自动扩窗口冷却时间戳（防惯性滚动接近顶部时连扩多轮）。 */
   const lastWindowExpandAtRef = useRef(0);
+  /** 自动翻页冷却时间戳；回底开始新浏览事务时同步清零。 */
+  const lastHistoryLoadAtRef = useRef(0);
   /** 分批扩展（2026-12 层次 1）：滚动触发的扩展拆成多帧小批挂载，避免 3 轮 cohort 同步渲染掉帧。
    *  pendingTurns = 待消费的扩展轮数；rAF 每帧消费一小批直到归零；
    *  新请求到来时累加（不丢、不重复计数）。滚动监听与刻度跳转共用：
@@ -647,6 +682,13 @@ export function useSessionTimelineController(options: {
   const consumeExpandBatch = useCallback(() => {
     expandBatchFrameRef.current = undefined;
     if (pendingExpandTurnsRef.current <= 0) return;
+    // 已回底（回底按钮/手动滚回底部）：批次作废。回底会触发窗口 6→3 轮收回，
+    // 是一次大幅内容收缩；若此时继续消费批次，会把刚收回的窗口又扩回去
+    // （回底后按钮反复出现、滚到底跟着就掉开的根因之一）。
+    if (autoScrollRef.current) {
+      pendingExpandTurnsRef.current = 0;
+      return;
+    }
     const batch = Math.min(TURN_WINDOW_EXPAND_BATCH_TURNS, pendingExpandTurnsRef.current);
     pendingExpandTurnsRef.current -= batch;
     setScrolledWindowTurns((prev) => prev + batch);
@@ -655,10 +697,38 @@ export function useSessionTimelineController(options: {
       expandBatchFrameRef.current = window.requestAnimationFrame(consumeExpandBatch);
     }
   }, []);
+  /**
+   * 结束当前历史浏览事务。回底按钮和手动下滚重锁共用这条同步路径，确保
+   * 在 React effect 前便作废迟到分页、锚点、扩窗 rAF 与待处理的上滚意图。
+   */
+  const invalidateHistoryBrowsing = useCallback(() => {
+    historyBrowseGenerationRef.current += 1;
+    // 历史浏览事务结束（回底/重锁）同样作废在途的「最终回答安静定位」动画：
+    // 回底后视口应停在底部，不能让动画把刚回底的位置再拉到 30% 高度。
+    settleScrollCancelRef.current?.();
+    settleScrollCancelRef.current = undefined;
+    pendingExpandTurnsRef.current = 0;
+    if (expandBatchFrameRef.current !== undefined) {
+      window.cancelAnimationFrame(expandBatchFrameRef.current);
+      expandBatchFrameRef.current = undefined;
+    }
+    if (userScrollIntentFrameRef.current !== undefined) {
+      window.cancelAnimationFrame(userScrollIntentFrameRef.current);
+      userScrollIntentFrameRef.current = undefined;
+    }
+    loadMoreAnchorRef.current = undefined;
+    setPendingJump(undefined);
+    lastWindowExpandAtRef.current = 0;
+    lastHistoryLoadAtRef.current = 0;
+  }, []);
   const escapeAutoScroll = useCallback(() => {
     // 先解引擎：只改 React autoScroll 会留下 isAtBottom=true，扩窗增高时 RO 钉底。
     // autoScroll 已是 false 也要 stopScroll——两套状态可能已经分叉。
     scrollerScrollApiRef.current?.stopScroll();
+    // 进入历史浏览（用户上滚/点「显示更早」）：在途的定位动画立即作废，
+    // 程序化滚动不得继续覆盖用户正在做的滚动。
+    settleScrollCancelRef.current?.();
+    settleScrollCancelRef.current = undefined;
     if (!autoScrollRef.current) return;
     autoScrollRef.current = false;
     setAutoScroll(false);
@@ -701,11 +771,19 @@ export function useSessionTimelineController(options: {
       // 回底 = 新的浏览周期：冷却清零，避免「刚到底又立刻上滚」被上一次扩窗冷却吞掉。
       lastWindowExpandAtRef.current = 0;
       setScrolledWindowTurns(TIMELINE_SCROLLED_TURN_LIMIT);
+      loadMoreAnchorRef.current = undefined;
+      if (userScrollIntentFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(userScrollIntentFrameRef.current);
+        userScrollIntentFrameRef.current = undefined;
+      }
     }
   }, [autoScroll]);
   useEffect(() => () => {
     if (expandBatchFrameRef.current !== undefined) {
       window.cancelAnimationFrame(expandBatchFrameRef.current);
+    }
+    if (userScrollIntentFrameRef.current !== undefined) {
+      window.cancelAnimationFrame(userScrollIntentFrameRef.current);
     }
   }, []);
 
@@ -733,6 +811,14 @@ export function useSessionTimelineController(options: {
   const scrollToBottom = useCallback(() => {
     const requestOwnerKey = ownerKey;
     if (ownerKeyRef.current !== requestOwnerKey) return;
+    // 原子回底事务：旧历史浏览周期的扩窗批次、锚点与迟到分页的呈现动作全部作废。
+    // 必须同步完成，不能依赖下一帧的 state effect——回底收回 6→3 轮窗口会立刻
+    // 触发一次大幅 scrollTop clamp 并派发 scroll；若此刻仍有在途 rAF 扩窗或
+    // 待消费批次，会把刚收回的窗口又扩回去（「回底按钮连点无效」的直接根因）。
+    invalidateHistoryBrowsing();
+    settleScrollCancelRef.current?.();
+    settleScrollCancelRef.current = undefined;
+    programmaticScrollUntilRef.current = 0;
     programmaticScrollRef.current = true;
     window.requestAnimationFrame(() => {
       if (programmaticScrollUntilRef.current === 0) {
@@ -757,7 +843,7 @@ export function useSessionTimelineController(options: {
       top: timeline.scrollHeight,
       behavior: reduceMotion ? "instant" : "smooth",
     });
-  }, [ownerKey]);
+  }, [invalidateHistoryBrowsing, ownerKey]);
 
   /**
    * The outline rail is a sibling of the scroll viewport, so its wheel event
@@ -779,9 +865,9 @@ export function useSessionTimelineController(options: {
     if (!timeline) return;
     timeline.scrollBy({ top: deltaY });
   }, [ownerKey]);
-  /** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制自动加载监听。
+  /** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制用户意图消费。
    *  durationMs > 0 时按时间窗口抑制：连续 smooth scroll 会派发多个 scroll 事件，
-   *  单次 boolean 会在第一个事件就被消费掉，后续事件可能误触发历史加载。 */
+   *  单次 boolean 在下一帧自动清除，避免吞掉后续真实输入。 */
   const markProgrammaticScroll = useCallback((durationMs = 0) => {
     programmaticScrollRef.current = true;
     programmaticScrollUntilRef.current =
@@ -825,6 +911,18 @@ export function useSessionTimelineController(options: {
     if (!autoScrollRef.current) return;
     const timeline = timelineRef.current;
     if (!timeline) return;
+    // 几何兜底（最终防线）：即使 autoScroll 状态因竞态尚未刷新（引擎逃逸识别/
+    // onFollowChange 传播延迟，或输入设备未被引擎识别为真实滚动），视口已物理
+    // 离开实时尾部（距底 > 70px 近底带）就视为用户正在读历史——定位只对
+    // 「确实还在底部」的会话生效，不得把用户手动位置拉回 30%。
+    // 这是状态驱动的真正含义：以物理几何为准，不依赖瞬时状态传播。
+    if (
+      timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight >
+      SETTLED_TURN_KEEP_BOTTOM_EPSILON_PX
+    ) {
+      settleScrollCancelRef.current?.();
+      return;
+    }
     // 只认最终回答容器（data-final-answer=runId）：手动停止/异常中断的 run 只有思考与
     // 工具调用、没有回答 → 该属性不存在 → 直接放弃收起（保持现状跟随）。
     // 若回退到 data-message-id=runId 把 run 行当锚，会误把视口拽离底部并弹出回底按钮，
@@ -868,25 +966,29 @@ export function useSessionTimelineController(options: {
 
     let cancelled = false;
     let cancelAnimation: () => void = () => undefined;
+    // 不再监听全局输入事件（鼠标/键盘/滚轮/触摸）——用户输入本身不参与取消。
+    // 定位动画只由状态边界终止：
+    // - 引擎确认的真实 wheel/touch 输入（setUserScrollIntent source="input"）；
+    // - 滚动条拖动（下方 pointerdown 命中滚动条区域）；
+    // - 进入历史浏览（escapeAutoScroll）；
+    // - 回底/下滚重锁/切会话/新一轮（invalidateHistoryBrowsing / cancelSettledRepositionForNewRun）。
+    const onScrollbarPointerDown = (event: PointerEvent) => {
+      // clientWidth 不含滚动条；落在 clientWidth 右侧即命中滚动条 gutter。
+      const rect = timeline.getBoundingClientRect();
+      if (event.clientX >= rect.left + timeline.clientWidth) interrupt();
+    };
     const interrupt = () => {
       if (cancelled) return;
       cancelled = true;
+      timeline.removeEventListener("pointerdown", onScrollbarPointerDown, true);
       programmaticScrollUntilRef.current = 0;
       programmaticScrollRef.current = false;
       cancelAnimation();
-      cleanupListeners();
       settleScrollCancelRef.current = undefined;
     };
-    const cleanupListeners = () => {
-      window.removeEventListener("wheel", interrupt, true);
-      window.removeEventListener("touchstart", interrupt, true);
-      window.removeEventListener("pointerdown", interrupt, true);
-      window.removeEventListener("keydown", interrupt, true);
-    };
-    window.addEventListener("wheel", interrupt, { passive: true, capture: true });
-    window.addEventListener("touchstart", interrupt, { passive: true, capture: true });
-    window.addEventListener("pointerdown", interrupt, { capture: true });
-    window.addEventListener("keydown", interrupt, { capture: true });
+    // 滚动条拖动取消：用命中区域判定而不是几何分叉——内容收缩 clamp 也会改变
+    // scrollTop，几何启发式会把 clamp 误判为用户接管而取消定位动画（2026-09 修正）。
+    timeline.addEventListener("pointerdown", onScrollbarPointerDown, true);
 
     let completed = false;
     markProgrammaticScroll(duration + 120);
@@ -895,7 +997,7 @@ export function useSessionTimelineController(options: {
       isCancelled: () => cancelled,
       onComplete: () => {
         completed = true;
-        cleanupListeners();
+        timeline.removeEventListener("pointerdown", onScrollbarPointerDown, true);
         programmaticScrollUntilRef.current = 0;
         programmaticScrollRef.current = false;
         settleScrollCancelRef.current = undefined;
@@ -905,9 +1007,36 @@ export function useSessionTimelineController(options: {
   }, [markProgrammaticScroll, ownerKey]);
 
   const setAutoScrollFromScroller = useCallback((following: boolean) => {
+    // 从历史浏览回到跟随时，先同步关闭旧浏览事务；不能等 autoScroll effect，
+    // 否则同一帧内的扩窗 rAF 或迟到分页仍可覆盖这次重锁。
+    if (following && !autoScrollRef.current) invalidateHistoryBrowsing();
     autoScrollRef.current = following;
     setAutoScroll(following);
     setShowScrollToBottom(!following);
+  }, [invalidateHistoryBrowsing]);
+
+  /**
+   * 新 run 开始（busy 边沿）时调用：若在途 settle 定位动画（系统态移动视口），
+   * 取消动画并恢复跟随贴底——否则动画飞行中发送新一轮，视口会永久停在旧 run
+   * 的 30% 锚点：新 run 流式在视口外展开且不跟随，结束后自身 settle 也不 arm
+   * （F1，2026-09 对抗审查）。无在途动画（用户正在读历史）则不打扰。
+   */
+  const cancelSettledRepositionForNewRun = useCallback(() => {
+    if (!settleScrollCancelRef.current) return;
+    settleScrollCancelRef.current?.();
+    settleScrollCancelRef.current = undefined;
+    // 恢复跟随贴底（系统态取消，区别于用户态取消——用户读历史不恢复）。
+    scrollerScrollApiRef.current?.stopScroll();
+    autoScrollRef.current = true;
+    setAutoScroll(true);
+    setShowScrollToBottom(false);
+    const api = scrollerScrollApiRef.current;
+    if (api) {
+      void api.scrollToBottom({ animation: "instant" });
+      return;
+    }
+    const timeline = timelineRef.current;
+    if (timeline) timeline.scrollTop = timeline.scrollHeight;
   }, []);
 
   /** 计算垫片高度：让「用户消息顶 + 视口高 == 内容总高」，滚到底时用户消息正好钉在顶部。 */
@@ -921,6 +1050,7 @@ export function useSessionTimelineController(options: {
         value: {
           height: timeline.scrollHeight,
           top: timeline.scrollTop,
+          generation: historyBrowseGenerationRef.current,
           ...(source === "scroll" ? { preserveAtTop: true } : {}),
         },
       };
@@ -929,6 +1059,7 @@ export function useSessionTimelineController(options: {
 			const sessionId = options.sessionId;
 			const before = diskPage.nextBefore;
 			if (!sessionId || before === null || isLoadingMessagePage) return;
+			const browseGeneration = historyBrowseGenerationRef.current;
 			const sequence = ++nextLoadSequence;
 			trackLatestLoad(sessionId, sequence);
 			const expectedRevision = cachedEntry?.revision ?? 0;
@@ -940,8 +1071,16 @@ export function useSessionTimelineController(options: {
 					if (prependMessagePage({ sessionId, before, expectedRevision, page })) {
 						// 历史消息页最多只开放一个 3 轮 cohort；数据页可能按消息数返回很多轮，
 						// 不能再固定 +10 把 DOM 一次性解锁，剩余已加载数据交给本地扩窗。
-						const growth = resolvePageWindowGrowth(page.messages);
-						if (growth > 0) expandWindowBatched(growth);
+						// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗——否则
+						// 迟到分页会把刚回底的视口重新拉进历史模式。
+						if (shouldApplyDelayedHistoryResult({
+							following: autoScrollRef.current,
+							generationAtRequest: browseGeneration,
+							currentGeneration: historyBrowseGenerationRef.current,
+						})) {
+							const growth = resolvePageWindowGrowth(page.messages);
+							if (growth > 0) expandWindowBatched(growth);
+						}
 					}
 				})
 				.finally(() => {
@@ -972,6 +1111,7 @@ export function useSessionTimelineController(options: {
 					: undefined)
 				: undefined;
 			if (!runtimeHistory && !anchorEntryId && anchorFilePos === undefined) return;
+			const browseGeneration = historyBrowseGenerationRef.current;
 			const sequence = ++nextLoadSequence;
 			trackLatestLoad(sessionId, sequence);
 			const expectedRevision = cachedEntry?.revision ?? 0;
@@ -985,8 +1125,15 @@ export function useSessionTimelineController(options: {
 					if (prependHistoryPage({ sessionId, expectedRevision, before, page })) {
 						// runtime history 页与 DOM 使用同一 3 轮 cohort；缓存命中和文件回退
 						// 都只开放实际带回的轮数，避免数据 +3、窗口却 +10。
-						const growth = resolvePageWindowGrowth(page.messages);
-						if (growth > 0) expandWindowBatched(growth);
+						// 回底/切会话后到达（跟随或代数过期）只写缓存，不得扩窗。
+						if (shouldApplyDelayedHistoryResult({
+							following: autoScrollRef.current,
+							generationAtRequest: browseGeneration,
+							currentGeneration: historyBrowseGenerationRef.current,
+						})) {
+							const growth = resolvePageWindowGrowth(page.messages);
+							if (growth > 0) expandWindowBatched(growth);
+						}
 					}
 				})
 				.finally(() => {
@@ -1054,7 +1201,7 @@ export function useSessionTimelineController(options: {
       element.getBoundingClientRect().top -
       timeline.getBoundingClientRect().top +
       timeline.scrollTop;
-    programmaticScrollRef.current = true;
+    markProgrammaticScroll();
     const api = scrollerScrollApiRef.current;
     if (api?.restoreAt) {
       api.restoreAt(Math.max(0, elementTop));
@@ -1062,7 +1209,7 @@ export function useSessionTimelineController(options: {
       // 引擎尚未挂上（会话切换首帧等）时回退原生定位
       timeline.scrollTop = Math.max(0, elementTop);
     }
-  }, []);
+  }, [markProgrammaticScroll]);
 
   const jumpToMessage = useCallback((messageId: string) => {
     const requestOwnerKey = ownerKey;
@@ -1107,6 +1254,11 @@ export function useSessionTimelineController(options: {
     settleScrollCancelRef.current = undefined;
     // 会话切换：清掉上一会话的置顶垫片与动画标记
     clearHighlightTimers();
+    // owner 的 generation 已在 render 快照切换时递增；这里仅清理上一会话的帧。
+    if (userScrollIntentFrameRef.current !== undefined) {
+      window.cancelAnimationFrame(userScrollIntentFrameRef.current);
+      userScrollIntentFrameRef.current = undefined;
+    }
     return clearHighlightTimers;
   }, [clearHighlightTimers, ownerKey]);
 
@@ -1157,7 +1309,7 @@ export function useSessionTimelineController(options: {
       const frame = requestAnimationFrame(() => {
         const timeline = timelineRef.current;
         if (!timeline || ownerKeyRef.current !== requestOwnerKey) return;
-        programmaticScrollRef.current = true;
+        markProgrammaticScroll();
         timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
       });
       return () => cancelAnimationFrame(frame);
@@ -1182,7 +1334,7 @@ export function useSessionTimelineController(options: {
           el.getBoundingClientRect().top -
           timeline.getBoundingClientRect().top +
           timeline.scrollTop;
-        programmaticScrollRef.current = true;
+        markProgrammaticScroll();
         // 原子恢复：定位 + 解锁锁底 + 取消在途动画一次完成。
         // busy 会话的 ResizeObserver（instant 贴底）看到 isAtBottom=false 不再拽回。
         const api = scrollerScrollApiRef.current;
@@ -1210,7 +1362,7 @@ export function useSessionTimelineController(options: {
 
       // 锚点确实不可再物化（压缩/删除等）：保留历史阅读语义并通过引擎解锁，
       // 不能只写原生 scrollTop，否则 ResizeObserver 会重新把视口钉到底部。
-      programmaticScrollRef.current = true;
+      markProgrammaticScroll();
       const api = scrollerScrollApiRef.current;
       if (api?.restoreAt) {
         api.restoreAt(0);
@@ -1223,6 +1375,7 @@ export function useSessionTimelineController(options: {
   }, [
     controllerEnabled,
     isSurfaceLoading,
+    markProgrammaticScroll,
     ownerKey,
     restoreAnchor,
     restorePhase,
@@ -1230,56 +1383,61 @@ export function useSessionTimelineController(options: {
   ]);
 
 
-  // ── 滚动接近顶部自动加载历史（2026-11 轮次模型）──
-  // 监听器原挂在 SessionMessageTimeline，迁移到 controller（滚动策略单一 owner）：
-  // 程序化滚动（prepend 补偿/贴底/恢复锚点/跳转）同样会派发 scroll 事件，
-  // 若补偿后 scrollTop ≤ 阈值会连锁加载下一页；programmaticScrollRef 抑制此类事件，
-  // 只响应用户真实滚动（滚到顶才翻一页，停在顶部不动不连翻）。
-  const lastHistoryLoadAtRef = useRef(0);
-  useEffect(() => {
-    if (!controllerEnabled) return;
-    const timeline = timelineRef.current;
-    if (!timeline) return;
-    const hasMore = diskPage ? diskPage.nextBefore !== null : historyHasMore;
-    let lastScrollTop = timeline.scrollTop;
-    const onScroll = () => {
-      if (performance.now() < programmaticScrollUntilRef.current) {
-        lastScrollTop = timeline.scrollTop;
-        return;
-      }
-      if (programmaticScrollRef.current) {
-        programmaticScrollRef.current = false;
-        lastScrollTop = timeline.scrollTop;
-        return;
-      }
-      const now = Date.now();
-      // 只在真实上滚时扩窗/预取：触顶后「下滑一下」不应把上方已加载历史突然插进视口。
-      const scrollingUp = timeline.scrollTop < lastScrollTop;
-      lastScrollTop = timeline.scrollTop;
-      if (!scrollingUp) return;
-      // 触发阈值随视口高度动态计算（大视口提前更多），下限 120px 兜底。
-      const expandThreshold = resolveAutoExpandThreshold(timeline.clientHeight);
-      // 方案 C（2026-12）渐进扩展：只要进入「接近顶部」区间且窗口仍可扩展，就先扩
-      // 渲染窗口（挂载已加载但未显示的轮次，纯本地 DOM 操作，无 IPC）。
-      // 触顶时同样先消费 atom 隐藏数据：用户把滚动条一把拉到顶时不应跳过本地 cohort
-      // 直接翻 IPC 页；此时浏览器本来就会显示前插内容，与「触顶加载更早」观感一致。
+  // ── 用户上滚接近顶部时自动加载历史（2026-11 轮次模型）──
+  // 历史扩窗只消费 stick 引擎确认的用户意图。普通 scroll 事件仍由
+  // handleTimelineScroll 保存锚点，但不再拥有跟随/浏览状态的切换权限：内容收缩、
+  // ResizeObserver、动画和程序化定位因此不能借 scrollTop 变化触发历史呈现。
+  const setUserScrollIntent = useCallback((intent: "up" | "down", source?: "scroll" | "input") => {
+    if (userScrollIntentFrameRef.current !== undefined) {
+      window.cancelAnimationFrame(userScrollIntentFrameRef.current);
+      userScrollIntentFrameRef.current = undefined;
+    }
+    // 引擎确认的真实 wheel/touch 输入（source="input"）：立即终止在途的
+    // 「最终回答安静定位」动画——动画自激发的 scroll 派生意图带 source="scroll"，
+    // 且被 programmaticScroll 窗口抑制，不会把自己取消掉（状态驱动取消）。
+    if (source === "input") {
+      settleScrollCancelRef.current?.();
+      settleScrollCancelRef.current = undefined;
+    }
+    // down 只取消同帧尚未消费的 up；实际重锁由 stick 引擎决定，并经
+    // setAutoScrollFromScroller 进入 invalidateHistoryBrowsing。
+    if (intent !== "up") return;
+
+    const requestOwnerKey = ownerKey;
+    userScrollIntentFrameRef.current = window.requestAnimationFrame(() => {
+      userScrollIntentFrameRef.current = undefined;
+      if (!controllerEnabled || ownerKeyRef.current !== requestOwnerKey) return;
       if (
-        timeline.scrollTop <= expandThreshold &&
-        windowExpandableRef.current &&
-        pendingExpandTurnsRef.current === 0 &&
-        expandBatchFrameRef.current === undefined
+        performance.now() < programmaticScrollUntilRef.current ||
+        programmaticScrollRef.current
+      ) return;
+      const timeline = timelineRef.current;
+      if (!timeline) return;
+
+      const now = Date.now();
+      const hasMore = diskPage ? diskPage.nextBefore !== null : historyHasMore;
+      // wheel 意图在浏览器默认滚动前上报，scrollbar/touch 意图在 scroll 后上报；
+      // 下一帧读取统一后的最终位置，因此不再依赖监听器注册顺序或 sticky 方向标记。
+      const expandThreshold = resolveAutoExpandThreshold(timeline.clientHeight);
+      if (
+        shouldAutoExpandRenderWindow({
+          intent,
+          scrollTop: timeline.scrollTop,
+          expandThreshold,
+          windowExpandable: windowExpandableRef.current,
+          hasPendingExpand:
+            pendingExpandTurnsRef.current > 0 || expandBatchFrameRef.current !== undefined,
+          cooldownElapsed:
+            now - lastWindowExpandAtRef.current >= TURN_WINDOW_AUTO_EXPAND_COOLDOWN_MS,
+        })
       ) {
-        if (now - lastWindowExpandAtRef.current < TURN_WINDOW_AUTO_EXPAND_COOLDOWN_MS) return;
         lastWindowExpandAtRef.current = now;
-        // 滚动触发的扩展走分批（每帧小批挂载，摊平渲染压力）；
-        // 按钮点击 / 跳转定位仍用原子 expandWindow（低频，需立即挂载）。
         expandWindowBatched();
         return;
       }
-      // 窗口已覆盖全部已加载数据：在接近顶部区间预取下一页。数据到达时 scrollTop > 8
-      // 会做锚点补偿，用户无感；真正触顶时数据通常已在本地，翻页不再「等一下」。
+
+      // 本地 cohort 已耗尽后，在近顶部预取一页；真正触顶同样只翻一页。
       if (
-        timeline.scrollTop > HISTORY_AUTO_LOAD_THRESHOLD &&
         timeline.scrollTop <= expandThreshold &&
         hasMore &&
         !isLoadingMessagePage
@@ -1287,32 +1445,28 @@ export function useSessionTimelineController(options: {
         if (now - lastHistoryLoadAtRef.current < HISTORY_AUTO_LOAD_COOLDOWN_MS) return;
         lastHistoryLoadAtRef.current = now;
         escapeAutoScroll();
-lastHistoryLoadAtRef.current = now;
         loadMoreMessages("scroll");
-        return;
       }
-      // 触顶且没有本地 cohort 可扩时才补页；isLoading 中不做重复请求。
-      if (!hasMore || isLoadingMessagePage) return;
-      if (timeline.scrollTop > HISTORY_AUTO_LOAD_THRESHOLD) return;
-      // 冷却：prepend 补偿会推高 scrollTop，但惯性滚动仍可能停在顶部连续触发——
-      // 300ms 内只翻一页，保证「滑到顶 → 翻一页 → 看完再滑」的节奏。
-      if (now - lastHistoryLoadAtRef.current < HISTORY_AUTO_LOAD_COOLDOWN_MS) return;
-      lastHistoryLoadAtRef.current = now;
-      escapeAutoScroll();
-lastHistoryLoadAtRef.current = now;
-      loadMoreMessages("scroll");
-    };
-    timeline.addEventListener("scroll", onScroll, { passive: true });
-    return () => timeline.removeEventListener("scroll", onScroll);
-  }, [controllerEnabled, diskPage, escapeAutoScroll, expandWindowBatched, historyHasMore, isLoadingMessagePage, loadMoreMessages, timelineRef]);
+    });
+  }, [
+    controllerEnabled,
+    diskPage,
+    escapeAutoScroll,
+    expandWindowBatched,
+    historyHasMore,
+    isLoadingMessagePage,
+    loadMoreMessages,
+    ownerKey,
+  ]);
 
   useLayoutEffect(() => {
     if (!controllerEnabled) return;
     const anchor = loadMoreAnchorRef.current;
     const timeline = timelineRef.current;
     if (!anchor || !timeline || !matchesTimelineOwner(anchor.ownerKey, ownerKey)) return;
-    // 跟底中（autoScrollRef=true）：贴底引擎负责生长补偿，这里恢复会把用户拽回旧位置
-    if (autoScrollRef.current) {
+    // 跟底中 / 浏览代数已过期（回底、切会话）：恢复会把用户拽回旧位置或把刚收回的
+    // 窗口重新插页——迟到分页只允许写缓存，不恢复锚点。
+    if (autoScrollRef.current || anchor.value.generation !== historyBrowseGenerationRef.current) {
       loadMoreAnchorRef.current = undefined;
       return;
     }
@@ -1332,7 +1486,7 @@ lastHistoryLoadAtRef.current = now;
       return () => cancelAnimationFrame(topFrame);
     }
     // restoreAt：定位 + 解锁锁底 + ignoreScrollToTop，补偿造成的 scrollTop 增大
-    // 不会被引擎当成用户下滚重锁。markProgrammaticScroll 抑制 controller 自己的扩窗监听。
+    // 不会被引擎当成用户下滚重锁。markProgrammaticScroll 也会抑制上层意图消费。
     pinViewportAfterPrepend(nextScrollTop);
     loadMoreAnchorRef.current = undefined;
   }, [controllerEnabled, ownerKey, pinViewportAfterPrepend, visibleMessages.length]);
@@ -1405,11 +1559,14 @@ lastHistoryLoadAtRef.current = now;
     scrollToBottom,
     scrollTimelineBy,
     scrollFinalAnswerToUpperMiddle,
+    /** 新 run 开始（busy 边沿）：取消在途 settle 定位动画并恢复跟随贴底。 */
+    cancelSettledRepositionForNewRun,
     /** 滚动回调：维护会话切换用的滚动锚点（rAF 合并，不触发渲染） */
     handleTimelineScroll,
     autoScroll,
     showScrollToBottom,
     setAutoScrollFromScroller,
+    setUserScrollIntent,
     scrollerScrollApiRef,
     scrolledWindowTurns,
     expandWindow,

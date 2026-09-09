@@ -37,7 +37,14 @@ import { useSessionPaneServices } from "./SessionPaneServices";
 import { usePendingModelApply } from "../../hooks/usePendingModelApply";
 import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import type { ComposerPickerKind } from "../../hooks/useSessionComposerController";
-import { WELCOME_MODEL_KEY, isWelcomeModelLost, readWelcomeModelPreference, shouldClearWelcomePreference } from "../../utils/chatSessionBootstrap";
+import {
+  WELCOME_MODEL_KEY,
+  WELCOME_THINKING_KEY,
+  isWelcomeModelLost,
+  readWelcomeModelPreference,
+  readWelcomeThinkingPreference,
+  shouldClearWelcomePreference,
+} from "../../utils/chatSessionBootstrap";
 import { resolveThinkingPickerLevels } from "./sessionPickerOptions";
 
 export type ComposerPickerHostProps = {
@@ -114,7 +121,7 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
   const pickerNeedsModels = props.picker === "model" || props.picker === "thinking";
   // 模型目录数据源统一走 capability cache。思考选择器同样加载它，运行中也能直接
   // 复用已水合的模型档位，不必等待 Agent RPC。
-  const { models, report, refreshing, reload } = useBackendModelCatalog({
+  const { models, report, loading: catalogLoading, refreshing, reload } = useBackendModelCatalog({
     sessionId,
     backend: isDshSession ? "dsh" : "pi",
     projectId: record?.projectId,
@@ -444,10 +451,14 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
   }
 
   async function pickThinking(level: string) {
-    // 欢迎页/未启动 Agent（无 record）：思考级别一律走默认档位（用户规则：
-    // 级别只跟默认级别走，欢迎页偏好级别不参与回退），选择器直接关闭；
-    // 用户变更在真实会话（有 record）里仍即时生效（下方 runtime 链路）。
+    // 引导页只有 renderer-only 虚拟会话，尚无 catalog record 可更新。先保存本次
+    // 显式选择，底栏关闭选择器后立即从同一偏好重绘；首次发送创建真实会话时再带入。
     if (!record) {
+      try {
+        localStorage.setItem(WELCOME_THINKING_KEY, level);
+      } catch {
+        // localStorage 不可用时静默；首次创建会话会回退到配置默认档位。
+      }
       props.onClose();
       return;
     }
@@ -541,6 +552,7 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
       <ModelPicker
         models={models}
         report={report}
+        loading={catalogLoading}
         refreshing={refreshing}
         onRefresh={() => reload(true)}
         current={resolvedLiveModel}
@@ -588,15 +600,18 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
       cachedPiLevels: currentModel?.thinkingLevels,
       dshReasoningEfforts: currentModel?.reasoningEfforts,
     });
-    // 思考档位一律走默认档位（用户规则：取 settings.defaultThinkingLevel；
-    // 欢迎页偏好级别不再参与），未配置时回退模型自身 defaultEffort。
-    const current = props.defaultThinkingLevel ?? currentModel?.defaultEffort;
+    // 无 record 的引导页以用户刚点选的档位为最高优先级；只有尚未点选时，
+    // 才依次回退 settings.defaultThinkingLevel 与模型自身 defaultEffort。
+    const welcomeThinking = !record
+      ? readWelcomeThinkingPreference()?.thinkingLevel
+      : undefined;
+    const current = welcomeThinking ?? props.defaultThinkingLevel ?? currentModel?.defaultEffort;
     return (
       <ThinkingPicker
         current={resolveComposerThinkingLevel({
           state: runtime?.state?.thinkingLevel,
           record: record?.thinkingLevel,
-          // 无 record（引导页）：默认档位 > 模型自身 defaultEffort（与底栏同规则）。
+          // 无 record（引导页）：显式点选 > 配置默认 > 模型默认（与底栏同规则）。
           fallback: current,
           isLive: runtimeLive,
         })}

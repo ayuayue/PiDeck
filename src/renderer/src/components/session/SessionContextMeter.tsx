@@ -193,7 +193,7 @@ export function SessionContextMeter(props: {
 	);
 
 	// ── 面板内 provider 用量/余额区块 ─────────────────────────────
-	// 数据源与展示统一收敛到 ProviderUsageDetails（模型卡片/选择器徽标同一份
+	// 数据源与展示统一收敛到 ProviderUsageDetails（与模型选择器展开区共享同一份
 	// provider-usage-atoms 缓存，本组件只决定「是否渲染」与「失败跳转」）。
 	// 用量查询不依赖 agent 运行：未激活/未启动会话用会话记录/默认 model 推导的
 	// provider 兜底（ComposerComponents 已按 liveState → record → defaultModel 顺序解析）。
@@ -515,7 +515,7 @@ export function SessionContextMeter(props: {
 						</div>
 					)}
 					{provider && showUsage && (
-						// 用量区块：与模型卡片/选择器徽标共享 ProviderUsageDetails（同数据源同视觉）；
+						// 用量区块：与模型选择器展开区共享 ProviderUsageDetails（同数据源同视觉）；
 						// backend 按会话后端透传（DSH 会话走 dsh 链路，pi 会话走 pi 链路）；
 						// 失败态「配置用量查询」按钮跳设置模型页并定位供应商。
 						<div className="mt-2.5" data-testid="session-context-usage">

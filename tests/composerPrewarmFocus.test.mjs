@@ -26,7 +26,7 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	jotai: { atom: (value) => ({ _mockInit: value }) },
 	"jotai/utils": {},
 	"../atoms": {}, "../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
-	"../desktopApi": {},	"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },	"../components/session/timeline/turnRenderWindow": {
+	"../desktopApi": {},	"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) }, "./timeline/scrollHistoryPolicy": {},	"../components/session/timeline/turnRenderWindow": {
 		TIMELINE_SCROLLED_TURN_LIMIT: 3,
 		TIMELINE_WINDOW_EXPAND_STEP: 3,
 	},

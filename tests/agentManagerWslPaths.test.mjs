@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -83,7 +84,11 @@ function loadAgentManager(existsPredicate = () => false) {
 		exports: historyReaderModule.exports,
 		module: historyReaderModule,
 		Promise,
-		require: (id) => id === "node:fs/promises" ? fsPromises : id === "../../shared/sessionTodo"
+		require: (id) => id === "node:fs/promises" ? fsPromises
+			// 停止身份缓存（72fe93da 起 SessionHistoryReader 依赖）：真实加载保持身份核对行为
+			: id === "./stoppedMessageIdentity"
+			? loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts")
+			: id === "../../shared/sessionTodo"
 			// todo 快照解析纯函数：本测试不覆盖，空实现满足依赖契约
 			? { parseTodoSnapshotData: () => undefined }
 			// 工具推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
@@ -113,6 +118,8 @@ function loadAgentManager(existsPredicate = () => false) {
 		process: { ...process, platform: "win32" },
 		setTimeout,
 		require: (id) => {
+			// 停止身份缓存（72fe93da 起 AgentManager 依赖）：真实加载保持身份核对行为
+			if (id === "./stoppedMessageIdentity") return loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts");
 			if (id === "electron") return { app: {}, Notification: class {} };
 			if (id === "node:fs/promises") return fsPromises;
 			if (id === "node:fs") {

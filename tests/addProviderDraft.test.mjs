@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { buildProviderConfigFromDraft } = loadTsCommonJs(
+const { buildProviderConfigFromDraft, mergeProviderDraft } = loadTsCommonJs(
   "src/renderer/src/config/addProviderDraft.ts",
 );
 
@@ -103,4 +103,100 @@ test("models 字段未提供时兜底为空数组（兼容旧调用方）", () =
   delete draft.models;
   const provider = buildProviderConfigFromDraft(draft);
   assert.equal(json(provider.models), json([]));
+});
+
+// ── mergeProviderDraft（编辑页保存：保留表单不拥有的字段）────────────────
+
+/** 带高级字段的原 provider（模拟手写 models.json / 其他工具写入）。 */
+function originalWithAdvanced() {
+  return {
+    models: [{ id: "m1" }],
+    baseUrl: "https://old.example.com/v1",
+    api: "openai-completions",
+    apiKey: "sk-old",
+    headers: { "User-Agent": "old-ua", "X-App-URL": "https://pideck.app" },
+    compat: { supportsDeveloperRole: true, supportsReasoningEffort: false, customFlag: true },
+    oauth: { refreshToken: "r1" },
+    authHeader: "X-Api-Key",
+    modelOverrides: { m1: { maxTokens: 4096 } },
+    customUnknown: { keep: 1 },
+  };
+}
+
+test("mergeProviderDraft: 新增模式（无原 provider）等价于 buildProviderConfigFromDraft", () => {
+  const draft = {
+    ...emptyDraft(),
+    baseUrl: "https://new.example.com/v1",
+    api: "openai",
+    apiKey: "sk-new",
+    userAgent: "ua",
+  };
+  assert.equal(
+    json(mergeProviderDraft(undefined, draft)),
+    json(buildProviderConfigFromDraft(draft)),
+  );
+});
+
+test("mergeProviderDraft: 保留 oauth/authHeader/modelOverrides/自定义字段（不静默丢字段）", () => {
+  const merged = mergeProviderDraft(originalWithAdvanced(), {
+    ...emptyDraft(),
+    models: [{ id: "m2" }],
+  });
+  assert.equal(json(merged.oauth), json({ refreshToken: "r1" }));
+  assert.equal(merged.authHeader, "X-Api-Key");
+  assert.equal(json(merged.modelOverrides), json({ m1: { maxTokens: 4096 } }));
+  assert.equal(json(merged.customUnknown), json({ keep: 1 }));
+  assert.equal(json(merged.models), json([{ id: "m2" }]));
+});
+
+test("mergeProviderDraft: 表单字段以草稿为准，空值删除字段", () => {
+  const merged = mergeProviderDraft(originalWithAdvanced(), { ...emptyDraft(), models: [] });
+  assert.ok(!("baseUrl" in merged));
+  assert.ok(!("api" in merged));
+  assert.ok(!("apiKey" in merged));
+  assert.equal(json(merged.models), json([]));
+  // 未知字段不因表单空值而被删
+  assert.equal(json(merged.oauth), json({ refreshToken: "r1" }));
+});
+
+test("mergeProviderDraft: headers 逐键合并，只覆盖 User-Agent 并保留自定义头", () => {
+  const changed = mergeProviderDraft(originalWithAdvanced(), {
+    ...emptyDraft(),
+    userAgent: "new-ua",
+  });
+  // 键顺序会因 setHeaderValue 先删后加而变化，按字段断言而非 JSON 字符串
+  assert.equal(changed.headers["User-Agent"], "new-ua");
+  assert.equal(changed.headers["X-App-URL"], "https://pideck.app");
+  assert.equal(Object.keys(changed.headers).length, 2);
+  // 清空 User-Agent：只移除它，自定义头保留
+  const clearedUa = mergeProviderDraft(originalWithAdvanced(), { ...emptyDraft(), userAgent: "" });
+  assert.ok(!("User-Agent" in clearedUa.headers));
+  assert.equal(clearedUa.headers["X-App-URL"], "https://pideck.app");
+  // 原本没有 headers 且草稿为空：不写入空对象
+  const none = mergeProviderDraft({ models: [] }, { ...emptyDraft(), userAgent: "" });
+  assert.ok(!("headers" in none));
+});
+
+test("mergeProviderDraft: compat 合并保留未知子键；原无 compat 且全 false 不创建", () => {
+  const merged = mergeProviderDraft(originalWithAdvanced(), {
+    ...emptyDraft(),
+    compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+  });
+  assert.equal(
+    json(merged.compat),
+    json({ supportsDeveloperRole: false, supportsReasoningEffort: true, customFlag: true }),
+  );
+  const noCompat = mergeProviderDraft({ models: [] }, emptyDraft());
+  assert.ok(!("compat" in noCompat));
+});
+
+test("mergeProviderDraft: 改名场景（调用方迁移 key）内容不丢", () => {
+  const merged = mergeProviderDraft(originalWithAdvanced(), {
+    ...emptyDraft(),
+    name: "renamed",
+    baseUrl: "https://renamed.example.com/v1",
+  });
+  assert.equal(merged.baseUrl, "https://renamed.example.com/v1");
+  assert.equal(json(merged.oauth), json({ refreshToken: "r1" }));
+  assert.equal(merged.authHeader, "X-Api-Key");
 });

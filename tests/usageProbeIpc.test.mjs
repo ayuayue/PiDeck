@@ -19,8 +19,8 @@ test("三条探针管理通道集中定义在 shared/ipc.ts", () => {
   assert.match(ipc, /configGetUsageProbes: "config:get-usage-probes"/);
   assert.match(ipc, /configSaveUsageProbes: "config:save-usage-probes"/);
   assert.match(ipc, /configTestUsageProbe: "config:test-usage-probe"/);
-  // 轻量内置识别通道（渲染层隐藏「用量查询」按钮用）。
-  assert.match(ipc, /configUsageRecognized: "config:usage-recognized"/);
+  // 旧的「轻量内置识别」通道已删除：内置命中不再隐藏「用量查询」按钮（认证页/模型页都要能点）。
+  assert.doesNotMatch(ipc, /configUsageRecognized/);
 });
 
 test("主进程三个 handler 都注册且先校验后动作", () => {
@@ -28,7 +28,6 @@ test("主进程三个 handler 都注册且先校验后动作", () => {
     "configGetUsageProbes",
     "configSaveUsageProbes",
     "configTestUsageProbe",
-    "configUsageRecognized",
   ]) {
     assert.match(systemIpc, new RegExp(`ipcChannels\\.${channel}`));
   }
@@ -84,11 +83,11 @@ test("preload 暴露与 previewApi stub 三处同步", () => {
   assert.match(preload, /fetchUsage: \(provider: string, backend\?/);
   assert.match(preload, /saveUsageProbes: \(payload: UsageProbeSaveInput\)/);
   assert.match(preload, /testUsageProbe: \(payload: UsageProbeTestInput\)/);
-  assert.match(preload, /usageRecognized: \(provider: string, backend\?/);
+  assert.doesNotMatch(preload, /usageRecognized/);
   assert.match(previewApi, /getUsageProbes: async \(\) => \(\{ recognized: null/);
   assert.match(previewApi, /saveUsageProbes: async \(\) => \(\{ ok: false/);
   assert.match(previewApi, /testUsageProbe: async \(\) => \(\{ success: false/);
-  assert.match(previewApi, /usageRecognized: async \(\) => \(\{ recognized: false/);
+  assert.doesNotMatch(previewApi, /usageRecognized/);
 });
 
 test("backend 维度贯通：DSH 链路 = $DSH_HOME/.pideck 配置 + DSH 凭据库", () => {
@@ -116,7 +115,10 @@ test("backend 维度贯通：DSH 链路 = $DSH_HOME/.pideck 配置 + DSH 凭据�
   const dshCards = readFileSync("src/renderer/src/config/DshProviderCards.tsx", "utf8");
   assert.match(dshCards, /backend="dsh"/);
   const inlineSource = readFileSync("src/renderer/src/components/app/ProviderUsageInline.tsx", "utf8");
-  assert.match(inlineSource, /useProviderUsageEntry\(props\.provider, props\.backend\)/);
+  // 徽章把 props.backend 归一为局部 backend 后透传（默认 pi），三处消费（entry/state/toggle）同一值。
+  assert.match(inlineSource, /const backend = props\.backend \?\? "pi";/);
+  assert.match(inlineSource, /useProviderUsageEntry\(props\.provider, backend\)/);
+  assert.match(inlineSource, /useProviderUsageState\(props\.provider, backend\)/);
   // 缓存 key 只在渲染层 atom 内使用；**发送给主进程的必须是原始 provider 名**——
   // 曾把 `dsh:deepseek` 整体当 provider 寄回主进程，DSH 卡片永远解析不出、用量为空。
   const usageHook = readFileSync("src/renderer/src/hooks/useProviderUsage.ts", "utf8");

@@ -177,6 +177,7 @@ function runProbeOnce(
 	piLocator: PiLocator,
 	settings: ReturnType<SettingsStore["get"]>,
 	invocation: ReturnType<PiLocator["createInvocation"]>,
+	envOverrides?: NodeJS.ProcessEnv,
 ): Promise<
 	| { ok: true; stdout: string }
 	| { ok: false; errorMessage: string; unknownOption: boolean; timedOut: boolean }
@@ -186,7 +187,10 @@ function runProbeOnce(
 			invocation.command,
 			invocation.args,
 			{
-				env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+				env: {
+					...piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+					...(envOverrides ?? {}),
+				},
 				shell: invocation.shell,
 				windowsHide: true,
 				timeout: PROBE_TIMEOUT_MS,
@@ -243,6 +247,7 @@ export async function probePiModel(
 	providerName: string,
 	modelId: string,
 	proxyTarget?: ConfigProxyTarget,
+	envOverrides?: NodeJS.ProcessEnv,
 ): Promise<PiModelProbeResult> {
 	const startedAt = Date.now();
 	const settings = settingsStore.get();
@@ -270,7 +275,7 @@ export async function probePiModel(
 			"--model", modelId,
 			"Hi",
 		]);
-		const outcome = await runProbeOnce(piLocator, probeSettings, invocation);
+		const outcome = await runProbeOnce(piLocator, probeSettings, invocation, envOverrides);
 		if (outcome.ok) {
 			const parsed = parsePiProbeOutput(outcome.stdout);
 			// 有 agent_end（无论成功/模型报错）都是模型级结果，直接返回；
@@ -298,7 +303,7 @@ export async function probePiModel(
 			"--model", modelId,
 			"Hi",
 		]);
-		const outcome = await runProbeOnce(piLocator, probeSettings, invocation);
+		const outcome = await runProbeOnce(piLocator, probeSettings, invocation, envOverrides);
 		if (outcome.ok) {
 			const parsed = parsePiProbeOutput(outcome.stdout);
 			return { ...parsed, latencyMs: Date.now() - startedAt };

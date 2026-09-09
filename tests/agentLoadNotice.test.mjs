@@ -100,15 +100,15 @@ test("reminder toggles are default-enabled and wired through App + SettingsStore
 	const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-	const commonTab = readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8");
+	const notificationTab = readFileSync("src/renderer/src/components/app/settings/NotificationTab.tsx", "utf8");
 	// 类型、主进程默认值、渲染层首屏默认值三处同步为开启
 	assert.match(settingsType, /agentCountReminderEnabled: boolean/);
 	assert.match(store, /agentCountReminderEnabled: true/);
 	assert.match(app, /agentCountReminderEnabled: true/);
 	// 渲染层 hook 读取开关：开启才提醒
 	assert.match(app, /useAgentLoadNotice\(settings\.agentCountReminderEnabled\)/);
-	// 设置面板提供开关（更新草稿对应字段）；开关位于常用设置 tab（CommonTab）
-	assert.match(commonTab, /updateDraft\(\{ agentCountReminderEnabled: checked \}\)/);
+	// 设置面板提供开关（更新草稿对应字段）；开关位于通知设置 tab（NotificationTab）
+	assert.match(notificationTab, /updateDraft\(\{ agentCountReminderEnabled: checked \}\)/);
 });
 
 test("i18n copy covers zh-CN and en-US with count placeholder", () => {

@@ -52,6 +52,33 @@ const GROWTH_ESCAPE_GUARD_PX = 200;
 const SIXTY_FPS_INTERVAL_MS = 1000 / 60;
 const RETAIN_ANIMATION_DURATION_MS = 350;
 
+/** 用户真实滚动意图：向上浏览历史 / 向下回到尾部。
+ *  与 layout 滚动（resize/动画/程序化定位）严格区分：意图只由用户
+ *  wheel/触摸/滚动条等真实输入产生；内容收缩导致的 scrollTop clamp 不上报。
+ *  时间线 controller 的历史扩窗只消费该意图，修复「clamp 被误判为用户上滑」，
+ *  导致运行中脱离吸底、回底按钮连点无效的问题（见 scrollHistoryPolicy）。 */
+export type ScrollUserIntent = "up" | "down";
+
+/**
+ * 用户意图的来源：
+ * - "input"：真实 wheel/touch 输入（浏览器默认滚动尚未发生），unambiguous；
+ * - "scroll"：scroll 事件派生的方向判断（可能是本组件程序化滚动/动画自激发的
+ *   scrollTop 变化，必须由 programmaticScroll 窗口抑制，不能当作真实用户输入）。
+ */
+export type ScrollIntentSource = "scroll" | "input";
+
+/** 下滚输入是否可直接重锁（纯函数，可单测）：物理距底 <= 容差带即重锁。
+ *  贴底/近底状态下用户继续下滚不会产生位移，浏览器不派发 scroll 事件，
+ *  handleScroll 的重锁路径（isScrollingDown）收不到信号——「已物理到底但逻辑
+ *  逃逸，下滑也没反应、回底按钮点多次无效」的卡死根因。在真实下滚输入
+ *  （wheel deltaY>0）到达时直接判定，不依赖异步 scroll 事件。 */
+export function shouldRelockFromDownInput(
+	distanceFromBottom: number,
+	tolerancePx = AT_BOTTOM_TOLERANCE_PX,
+): boolean {
+	return distanceFromBottom <= tolerancePx;
+}
+
 /**
  * 是否处于「增长守卫带」：距底 <= GROWTH_ESCAPE_GUARD_PX 且最后一次正增长在
  * POSITIVE_RESIZE_ESCAPE_LOCKOUT_MS 内。守卫带内的上滚不视为逃逸意图——
@@ -90,6 +117,13 @@ export interface StickToBottomOptions extends SpringAnimation {
    * @default 28
    */
   instantResizeThreshold?: number;
+  /**
+   * 用户滚动意图回调（上滚/下滚）。每个符合逃逸/重锁语义的输入事件都会上报；
+   * resize、引擎动画和通过原子 API 的程序化定位不会上报。
+   * 时间线 controller 据此把「用户浏览历史」与「布局滚动」分开，
+   * 修复 clamp scrollTop 被误判为上滑导致运行中脱离吸底的问题。
+   */
+  onUserIntent?: (intent: ScrollUserIntent, source: ScrollIntentSource) => void;
 }
 
 export type ScrollToBottomOptions =
@@ -233,6 +267,14 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
     },
     [],
   );
+
+  /**
+   * 每次已确认的用户滚动都独立上报。方向不是可去重的状态：
+   * 「上滚 → 回底 → 再上滚」是两个不同浏览周期，第二次 up 仍必须通知 controller。
+   */
+  const reportUserIntent = useCallback((intent: ScrollUserIntent, source: ScrollIntentSource) => {
+    optionsRef.current?.onUserIntent?.(intent, source);
+  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: state intentionally created once
   const state = useMemo<StickToBottomState>(() => {
@@ -457,6 +499,7 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
         if (isSelecting()) {
           setEscapedFromLock(true);
           setIsAtBottom(false);
+          reportUserIntent("up", "scroll");
           return;
         }
         const isScrollingDown = scrollTop > lastScrollTop;
@@ -473,17 +516,21 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
             (scrollRef.current?.scrollHeight ?? 0) -
             scrollTop -
             (scrollRef.current?.clientHeight ?? 0);
+          // 真正进入历史浏览才上报意图（与逃逸同点触发）：容差带内/守卫带内的
+          // 轻微上滚不算浏览——避免与后续内容收缩 clamp 叠加出误扩窗。
           if (
             distanceFromBottom > AT_BOTTOM_TOLERANCE_PX &&
             // 增长活跃窗口 + 守卫带：弹簧追底滞后中（距底常 >25px）的轻微上滚
             // 不视为逃逸——「推着推着就不动了」的根因（详见常量注释）。
             !isWithinGrowthGuardBand(distanceFromBottom, state)
           ) {
+            reportUserIntent("up", "scroll");
             setEscapedFromLock(true);
             setIsAtBottom(false);
           }
         }
         if (isScrollingDown) {
+          reportUserIntent("down", "scroll");
           setEscapedFromLock(false);
         }
         if (!state.escapedFromLock && state.isNearBottom) {
@@ -491,7 +538,7 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
         }
       }, 1);
     },
-    [setEscapedFromLock, setIsAtBottom, isSelecting, state],
+    [isSelecting, reportUserIntent, setEscapedFromLock, setIsAtBottom, state],
   );
 
   const applyWheelEscape = useCallback(
@@ -504,36 +551,54 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
         }
         element = element.parentElement;
       }
+      if (element !== scrollRef.current) return;
       /**
        * The browser may cancel the scrolling from the mouse wheel
        * if we update it from the animation in meantime.
        * To prevent this, always escape when the wheel is scrolled up.
        */
-      if (
-        element === scrollRef.current &&
-        deltaY < 0 &&
-        scrollRef.current.scrollHeight > scrollRef.current.clientHeight &&
-        // dsh-web 式回笼带：距底 <= 25px 时向上滚轮不逃逸。
-        // 贴底时滚轮上滚不会产生任何位移（scrollTop 已到 floor），旧逻辑无条件逃逸，
-        // 流式回复中滚轮误触/惯性会让底部按钮闪现；距底足够远的上滚才有逃逸意图。
-        scrollRef.current.scrollHeight -
-          scrollRef.current.scrollTop -
-          scrollRef.current.clientHeight >
-          AT_BOTTOM_TOLERANCE_PX &&
-        // 增长活跃窗口 + 守卫带：弹簧追底滞后中的轻微上滚不逃逸（同上）。
-        !isWithinGrowthGuardBand(
+      if (deltaY < 0) {
+        // 真正进入历史浏览才上报意图（与逃逸同点触发）：容差带内/守卫带内的
+        // 轻微上滚不算浏览——避免与后续内容收缩 clamp 叠加出误扩窗。
+        if (
+          scrollRef.current.scrollHeight > scrollRef.current.clientHeight &&
+          // dsh-web 式回笼带：距底 <= 25px 时向上滚轮不逃逸。
+          // 贴底时滚轮上滚不会产生任何位移（scrollTop 已到 floor），旧逻辑无条件逃逸，
+          // 流式回复中滚轮误触/惯性会让底部按钮闪现；距底足够远的上滚才有逃逸意图。
           scrollRef.current.scrollHeight -
             scrollRef.current.scrollTop -
-            scrollRef.current.clientHeight,
-          state,
-        ) &&
-        !state.animation?.ignoreEscapes
-      ) {
-        setEscapedFromLock(true);
-        setIsAtBottom(false);
+            scrollRef.current.clientHeight >
+            AT_BOTTOM_TOLERANCE_PX &&
+          // 增长活跃窗口 + 守卫带：弹簧追底滞后中的轻微上滚不逃逸（同上）。
+          !isWithinGrowthGuardBand(
+            scrollRef.current.scrollHeight -
+              scrollRef.current.scrollTop -
+              scrollRef.current.clientHeight,
+            state,
+          ) &&
+          !state.animation?.ignoreEscapes
+        ) {
+          reportUserIntent("up", "input");
+          setEscapedFromLock(true);
+          setIsAtBottom(false);
+        }
+        return;
+      }
+      if (deltaY > 0) {
+        // 下滚是真实用户意图；物理近底时直接重锁（无位移的下滚没有 scroll 事件，
+        // handleScroll 的重锁路径收不到信号——已到底但逻辑逃逸的卡死根因）。
+        reportUserIntent("down", "input");
+        const distanceFromBottom =
+          scrollRef.current.scrollHeight -
+          scrollRef.current.scrollTop -
+          scrollRef.current.clientHeight;
+        if (shouldRelockFromDownInput(distanceFromBottom)) {
+          setEscapedFromLock(false);
+          setIsAtBottom(true);
+        }
       }
     },
-    [setEscapedFromLock, setIsAtBottom, state],
+    [reportUserIntent, setEscapedFromLock, setIsAtBottom, state],
   );
 
   const handleWheel = useCallback(

@@ -13,8 +13,8 @@ import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
 import { writeClipboard } from "../utils/clipboard";
-import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
+import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
 import { isDshDeepseekProfileVisibleField, isDshPiAiCustomRoute, isDshPiAiProfileVisibleField } from "./dshFieldLabels";
@@ -58,8 +58,6 @@ function ProviderRowHead(props: {
 	keyRef?: string;
 	keyDot?: ReactNode;
 	badges?: ReactNode[];
-	/** 用量/余额条（标题行右侧常驻，渲染在折叠按钮与操作按钮之间）。 */
-	usage?: ReactNode;
 	isOpen: boolean;
 	onToggle: () => void;
 	onRemove?: () => void;
@@ -91,8 +89,6 @@ function ProviderRowHead(props: {
 				</span>
 			)}
 			{props.keyDot}
-			{/* 用量/余额（标题行常驻）；位于折叠按钮外，点击不误触展开/收起 */}
-			{props.usage}
 			{props.extraActions}
 			{props.onRemove && (
 				<Button
@@ -672,9 +668,12 @@ export function PiAiProvidersCard(props: {
 								title={entry.key}
 								badges={[t("config.dsh.modelsCount", { count: modelCount })]}
 								keyDot={<KeyStatusDot state={ops.credentials[keyRef]} />}
-								usage={<ProviderUsageInline provider={entry.key} backend="dsh" variant="card" />}
 								extraActions={
 									<>
+										{/* 用量徽章常驻（DSH 链路 backend=dsh）：与模型/认证页同款，开关即「是否启用用量查询」 */}
+										<span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+											<ProviderUsageInline provider={entry.key} variant="card" backend="dsh" />
+										</span>
 										{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；DSH 链路 backend=dsh） */}
 										<UsageQueryEntryButton
 											provider={entry.key}
@@ -960,9 +959,12 @@ export function DeepseekRouteCard(props: {
 						title={namespace.ns === "llm-deepseek" ? t("config.dsh.deepseekOfficial") : namespace.ns}
 						badges={[t("config.dsh.modelsCount", { count: modelOverride ? models.length : directCatalog.length })]}
 						keyDot={<KeyStatusDot state={ops.credentials[keyRef]} />}
-						usage={<ProviderUsageInline provider="deepseek" backend="dsh" variant="card" />}
 						extraActions={
 							<>
+								{/* 用量徽章常驻（DSH 官方 DeepSeek）：provider 名归一为 deepseek，与卡片/选择器同缓存 key */}
+								<span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+									<ProviderUsageInline provider="deepseek" variant="card" backend="dsh" />
+								</span>
 								{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；DSH 官方 DeepSeek） */}
 								<UsageQueryEntryButton
 									provider="deepseek"

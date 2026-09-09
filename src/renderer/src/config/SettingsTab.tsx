@@ -8,7 +8,8 @@ import { t } from "../i18n";
 import { Input } from "../components/ui-shadcn/input";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
-import { SectionHeading } from "../components/ui-shadcn/section-heading";
+import { SettingBox, SettingRow, SettingSwitchRow } from "../components/app/settings/SettingRows";
+import { SettingsSection } from "../components/app/settings/SettingsStorageTab";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
 
@@ -83,6 +84,15 @@ export function SettingsTab(props: {
 	const entries = Object.entries(data);
 	// enabledModels 已配置时合并到 entries 前端展示，未配置时通过「添加」按钮单独显示
 	const hasEnabledModels = "enabledModels" in data;
+
+	/**
+	 * 未在常驻区块占用的配置项（原始 key 名展示），作为最后一个「其他设置项」分区。
+	 * （sessionDir / retry / enabledModels / defaultProvider / defaultModel 及通用行为区块已占用，避免列表里重复一行）
+	 */
+	const filteredEntries = entries.filter(
+		([key]) =>
+			key !== "enabledModels" && key !== "retry" && key !== "sessionDir" && key !== "defaultProvider" && key !== "defaultModel" && key !== "defaultThinkingLevel" && key !== "hideThinkingBlock" && key !== "quietStartup" && key !== "steeringMode" && key !== "followUpMode" && key !== "defaultProjectTrust" && key !== "transport",
+	);
 
 	/**
 	 * 设置页只暴露外层重试次数和基础延迟。
@@ -242,303 +252,23 @@ export function SettingsTab(props: {
 					{t("config.count.configItems", { count: entries.length })}
 				</span>
 			</div>
-			<div className="flex flex-col gap-2">
-				{/* enabledModels 始终显示在最前面 */}
-				<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-					<span className="min-w-[180px] text-control font-medium text-text-primary">{configLabel("enabledModels")}</span>
+
+			{/* ── 模型切换列表（enabledModels）：单行分区，行标题即一级标题（同「常用设置」语言分区） ── */}
+			<SettingBox>
+				<SettingRow
+					level={1}
+					title={<span>{configLabel("enabledModels")}</span>}
+					description={t("config.settings.enabledModelsHint")}
+					stacked
+				>
 					<EnabledModelsInput
-						value={
-							Array.isArray(data.enabledModels) ? data.enabledModels : undefined
-						}
+						value={Array.isArray(data.enabledModels) ? data.enabledModels : undefined}
 						models={collectModels(props.modelsData, props.discoveredModels)}
 						onChange={(v) => props.onChange({ ...data, enabledModels: v })}
 					/>
-				</div>
-
-				{/* ── 默认供应商 / 默认模型：始终显示，不依赖 settings.json 中是否已存在这两个 key ── */}
-				<div className="config-retry-group">
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong flex flex-col items-start gap-0.5 rounded-none border-none px-4 pb-1 pt-2.5 hover:border-transparent">
-						<SectionHeading
-							className="config-settings-section-heading"
-							title={t("config.defaults.title")}
-							description={t("config.defaults.hint")}
-						/>
-					</div>
-					{/* defaultProvider / defaultModel 未配置时 value 为 undefined，SettingsValueInput 按空串处理
-					    （combobox 空态 + 隐藏清除按钮）；选中后写入 key 本身；清空则保留 key 值为 ""，消费方按默认行为兜底 */}
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary">{configLabel("defaultProvider")}</span>
-						<SettingsValueInput
-							value={data.defaultProvider}
-							fieldKey="defaultProvider"
-							modelsData={props.modelsData}
-							authData={props.authData}
-							discoveredModels={props.discoveredModels}
-							allSettings={data}
-							onChange={(v) => props.onChange({ ...data, defaultProvider: typeof v === "string" ? v : "" })}
-						/>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary">{configLabel("defaultModel")}</span>
-						<SettingsValueInput
-							value={data.defaultModel}
-							fieldKey="defaultModel"
-							modelsData={props.modelsData}
-							authData={props.authData}
-							discoveredModels={props.discoveredModels}
-							allSettings={data}
-							onChange={(v) => props.onChange({ ...data, defaultModel: typeof v === "string" ? v : "" })}
-						/>
-					</div>
-				</div>
-
-				{/* ── 通用行为：高频 pi 配置常驻显示，未写入时也可见可编辑 ── */}
-				<div className="config-retry-group">
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong flex flex-col items-start gap-0.5 rounded-none border-none px-4 pb-1 pt-2.5 hover:border-transparent">
-						<SectionHeading
-							className="config-settings-section-heading"
-							title={t("config.general.title")}
-							description={t("config.general.hint")}
-						/>
-					</div>
-
-					{/* 默认思考档位：枚举下拉，空值表示不设置（pi 按模型/上下文自行决定） */}
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.thinkingLevelHint")}>{configLabel("defaultThinkingLevel")}</span>
-						<ClearableSettingsInput
-							empty={typeof data.defaultThinkingLevel !== "string" || !data.defaultThinkingLevel}
-							onClear={() => props.onChange({ ...data, defaultThinkingLevel: "" })}
-						>
-							<ConfigSelect
-								value={typeof data.defaultThinkingLevel === "string" ? data.defaultThinkingLevel : ""}
-								options={THINKING_LEVELS}
-								onChange={(v) => props.onChange({ ...data, defaultThinkingLevel: v })}
-								placeholder={t("config.general.thinkingLevelPlaceholder")}
-								clearSpace
-							/>
-						</ClearableSettingsInput>
-					</div>
-
-					{/* 布尔开关行：hideThinkingBlock / quietStartup，直接写 true/false */}
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.hideThinkingBlockHint")}>{configLabel("hideThinkingBlock")}</span>
-						<Label className="config-checkbox-label">
-							<Checkbox
-								checked={data.hideThinkingBlock === true}
-								onCheckedChange={(checked) => props.onChange({ ...data, hideThinkingBlock: checked === true })}
-							/>
-							<span>{data.hideThinkingBlock === true ? t("common.true") : t("common.false")}</span>
-						</Label>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.quietStartupHint")}>{configLabel("quietStartup")}</span>
-						<Label className="config-checkbox-label">
-							<Checkbox
-								checked={data.quietStartup === true}
-								onCheckedChange={(checked) => props.onChange({ ...data, quietStartup: checked === true })}
-							/>
-							<span>{data.quietStartup === true ? t("common.true") : t("common.false")}</span>
-						</Label>
-					</div>
-
-					{/* steeringMode / followUpMode：steering 与 follow-up 消息的发送模式，
-					    all 一次全部发送，one-at-a-time 逐条（pi 默认），RPC 场景下影响 API 调用方式 */}
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.steeringModeHint")}>{configLabel("steeringMode")}</span>
-						<ClearableSettingsInput
-							empty={typeof data.steeringMode !== "string" || !data.steeringMode}
-							onClear={() => props.onChange({ ...data, steeringMode: "" })}
-						>
-							<ConfigSelect
-								value={typeof data.steeringMode === "string" ? data.steeringMode : ""}
-								options={SEND_MODE_OPTIONS}
-								onChange={(v) => props.onChange({ ...data, steeringMode: v })}
-								placeholder={t("config.general.steeringModePlaceholder")}
-								clearSpace
-							/>
-						</ClearableSettingsInput>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.followUpModeHint")}>{configLabel("followUpMode")}</span>
-						<ClearableSettingsInput
-							empty={typeof data.followUpMode !== "string" || !data.followUpMode}
-							onClear={() => props.onChange({ ...data, followUpMode: "" })}
-						>
-							<ConfigSelect
-								value={typeof data.followUpMode === "string" ? data.followUpMode : ""}
-								options={SEND_MODE_OPTIONS}
-								onChange={(v) => props.onChange({ ...data, followUpMode: v })}
-								placeholder={t("config.general.followUpModePlaceholder")}
-								clearSpace
-							/>
-						</ClearableSettingsInput>
-					</div>
-
-					{/* defaultProjectTrust：RPC 模式不弹信任询问，靠它在加载项目的 .pi/settings.json 等资源时兜底 */}
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.projectTrustHint")}>{configLabel("defaultProjectTrust")}</span>
-						<ClearableSettingsInput
-							empty={typeof data.defaultProjectTrust !== "string" || !data.defaultProjectTrust}
-							onClear={() => props.onChange({ ...data, defaultProjectTrust: "" })}
-						>
-							<ConfigSelect
-								value={typeof data.defaultProjectTrust === "string" ? data.defaultProjectTrust : ""}
-								options={PROJECT_TRUST_OPTIONS}
-								onChange={(v) => props.onChange({ ...data, defaultProjectTrust: v })}
-								placeholder={t("config.general.projectTrustPlaceholder")}
-								clearSpace
-							/>
-						</ClearableSettingsInput>
-					</div>
-
-					{/* 传输协议：多协议供应商选 sse/websocket/websocket-cached，默认 auto 自动选择 */}
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.general.transportHint")}>{configLabel("transport")}</span>
-						<ClearableSettingsInput
-							empty={typeof data.transport !== "string" || !data.transport}
-							onClear={() => props.onChange({ ...data, transport: "" })}
-						>
-							<ConfigSelect
-								value={typeof data.transport === "string" ? data.transport : ""}
-								options={TRANSPORT_OPTIONS}
-								onChange={(v) => props.onChange({ ...data, transport: v })}
-								placeholder={t("config.general.transportPlaceholder")}
-								clearSpace
-							/>
-						</ClearableSettingsInput>
-					</div>
-				</div>
-
-				{/* ── 全局会话目录（仅编辑 ~/.pi/agent/settings.json 的 sessionDir） ── */}
-				<div className="config-retry-group">
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong flex flex-col items-start gap-0.5 rounded-none border-none px-4 pb-1 pt-2.5 hover:border-transparent">
-						<SectionHeading
-						className="config-settings-section-heading"
-						title={t("config.sessionDir.title")}
-						description={t("config.sessionDir.hint")}
-					/>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary">{t("config.label.sessionDir")}</span>
-						<Input
-							className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-							type="text"
-							value={sessionDirValue}
-							placeholder={t("config.sessionDir.placeholder")}
-							onChange={(e) => updateSessionDir(e.target.value)}
-						/>
-					</div>
-				</div>
-
-				{/* ── 重试配置 ── */}
-				<div className="config-retry-group">
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong flex flex-col items-start gap-0.5 rounded-none border-none px-4 pb-1 pt-2.5 hover:border-transparent">
-					<SectionHeading
-						className="config-settings-section-heading"
-						title={t("config.retry.title")}
-						description={t("config.retry.hint")}
-					/>
-				</div>
-				<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-					<span className="min-w-[180px] text-control font-medium text-text-primary">{t("config.retry.maxRetries")}</span>
-					<Input className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]" type="number" min={0} max={50} value={retryConfig.maxRetries} onChange={(e) => updateRetry({ maxRetries: Number(e.target.value) })} />
-				</div>
-				<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-					<span className="min-w-[180px] text-control font-medium text-text-primary">{t("config.retry.baseDelayMs")}</span>
-					<Input className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]" type="number" min={100} step={100} value={retryConfig.baseDelayMs} onChange={(e) => updateRetry({ baseDelayMs: Number(e.target.value) })} />
-				</div>
-				</div>
-
-				{/* ── 会话压缩：拆成开关 + 两个 token 数，避免用户直接改 JSON 对象 ── */}
-				<div className="config-retry-group">
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong flex flex-col items-start gap-0.5 rounded-none border-none px-4 pb-1 pt-2.5 hover:border-transparent">
-						<SectionHeading
-						className="config-settings-section-heading"
-						title={t("config.compaction.title")}
-						description={t("config.compaction.hint")}
-					/>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary">{t("config.compaction.enabled")}</span>
-						<Label className="config-checkbox-label">
-							<Checkbox
-								checked={compactionConfig.enabled}
-								onCheckedChange={(checked) => updateCompaction({ enabled: checked === true })}
-							/>
-							<span>
-								{compactionConfig.enabled
-									? t("config.compaction.enabledOn")
-									: t("config.compaction.enabledOff")}
-							</span>
-						</Label>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.compaction.reserveTokensHint")}>
-							{t("config.compaction.reserveTokens")}
-						</span>
-						<Input
-							className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-							type="number"
-							min={0}
-							step={1024}
-							value={compactionConfig.reserveTokens}
-							onChange={(e) =>
-								updateCompaction({
-									reserveTokens: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-								})
-							}
-						/>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary" title={t("config.compaction.keepRecentTokensHint")}>
-							{t("config.compaction.keepRecentTokens")}
-						</span>
-						<Input
-							className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-							type="number"
-							min={0}
-							step={1024}
-							value={compactionConfig.keepRecentTokens}
-							onChange={(e) =>
-								updateCompaction({
-									keepRecentTokens: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-								})
-							}
-						/>
-					</div>
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong flex flex-col items-start gap-0.5 rounded-none border-none px-4 pb-1 pt-2.5 hover:border-transparent">
-						<span className="config-settings-section-hint">{t("config.compaction.manualHint")}</span>
-					</div>
-				</div>
-
-				{entries
-					// sessionDir / retry / enabledModels / defaultProvider / defaultModel 及通用行为区块已占用，避免列表里重复一行
-					.filter(([key]) => key !== "enabledModels" && key !== "retry" && key !== "sessionDir" && key !== "defaultProvider" && key !== "defaultModel" && key !== "defaultThinkingLevel" && key !== "hideThinkingBlock" && key !== "quietStartup" && key !== "steeringMode" && key !== "followUpMode" && key !== "defaultProjectTrust" && key !== "transport")
-					.map(([key, value]) => (
-					<div key={key} className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong">
-						<span className="min-w-[180px] text-control font-medium text-text-primary">{configLabel(key)}</span>
-						<SettingsValueInput
-							value={value}
-							fieldKey={key}
-							modelsData={props.modelsData}
-							authData={props.authData}
-							discoveredModels={props.discoveredModels}
-							allSettings={data}
-							onChange={(v) => {
-								// 防御性兜底：当前清空路径统一走空字符串（保留 key，值为 ""，
-								// 消费方按 falsy 回到默认行为），不删除设置项本身
-								if (v === undefined) {
-									const { [key]: _removed, ...rest } = data;
-									props.onChange(rest);
-									return;
-								}
-								props.onChange({ ...data, [key]: v });
-							}}
-						/>
-					</div>
-				))}
+				</SettingRow>
 				{!hasEnabledModels && (
-					<div className="flex items-center gap-3.5 rounded-sm border border-border-subtle px-4 py-2 transition-colors hover:border-border-strong justify-center border-dashed opacity-70 hover:opacity-100">
+					<div className="flex justify-start px-1 pb-2">
 						<Button size="sm" variant="outline"
 							onClick={() => props.onChange({ ...data, enabledModels: [] })}
 						>
@@ -547,8 +277,247 @@ export function SettingsTab(props: {
 						</Button>
 					</div>
 				)}
-				{/* 页面恒有 enabledModels / 默认供应商 / 默认模型常驻区块，不再需要空态提示 */}
-			</div>
+			</SettingBox>
+
+			{/* ── 默认供应商 / 默认模型：始终显示，不依赖 settings.json 中是否已存在这两个 key ── */}
+			<SettingsSection title={t("config.defaults.title")} description={t("config.defaults.hint")}>
+				{/* defaultProvider / defaultModel 未配置时 value 为 undefined，SettingsValueInput 按空串处理
+				    （combobox 空态 + 隐藏清除按钮）；选中后写入 key 本身；清空则保留 key 值为 ""，消费方按默认行为兜底 */}
+				<SettingRow title={<span>{configLabel("defaultProvider")}</span>} alignEnd={false}>
+					<SettingsValueInput
+						value={data.defaultProvider}
+						fieldKey="defaultProvider"
+						modelsData={props.modelsData}
+						authData={props.authData}
+						discoveredModels={props.discoveredModels}
+						allSettings={data}
+						onChange={(v) => props.onChange({ ...data, defaultProvider: typeof v === "string" ? v : "" })}
+					/>
+				</SettingRow>
+				<SettingRow title={<span>{configLabel("defaultModel")}</span>} alignEnd={false}>
+					<SettingsValueInput
+						value={data.defaultModel}
+						fieldKey="defaultModel"
+						modelsData={props.modelsData}
+						authData={props.authData}
+						discoveredModels={props.discoveredModels}
+						allSettings={data}
+						onChange={(v) => props.onChange({ ...data, defaultModel: typeof v === "string" ? v : "" })}
+					/>
+				</SettingRow>
+			</SettingsSection>
+
+			{/* ── 通用行为：高频 pi 配置常驻显示，未写入时也可见可编辑 ── */}
+			<SettingsSection title={t("config.general.title")} description={t("config.general.hint")}>
+				{/* 默认思考档位：枚举下拉，空值表示不设置（pi 按模型/上下文自行决定） */}
+				<SettingRow
+					title={<span>{configLabel("defaultThinkingLevel")}</span>}
+					description={t("config.general.thinkingLevelHint")}
+					alignEnd={false}
+				>
+					<ClearableSettingsInput
+						empty={typeof data.defaultThinkingLevel !== "string" || !data.defaultThinkingLevel}
+						onClear={() => props.onChange({ ...data, defaultThinkingLevel: "" })}
+					>
+						<ConfigSelect
+							value={typeof data.defaultThinkingLevel === "string" ? data.defaultThinkingLevel : ""}
+							options={THINKING_LEVELS}
+							onChange={(v) => props.onChange({ ...data, defaultThinkingLevel: v })}
+							placeholder={t("config.general.thinkingLevelPlaceholder")}
+						/>
+					</ClearableSettingsInput>
+				</SettingRow>
+
+				{/* 布尔开关行：hideThinkingBlock / quietStartup，直接写 true/false */}
+				<SettingSwitchRow
+					title={configLabel("hideThinkingBlock")}
+					description={t("config.general.hideThinkingBlockHint")}
+					checked={data.hideThinkingBlock === true}
+					onChange={(checked) => props.onChange({ ...data, hideThinkingBlock: checked })}
+				/>
+				<SettingSwitchRow
+					title={configLabel("quietStartup")}
+					description={t("config.general.quietStartupHint")}
+					checked={data.quietStartup === true}
+					onChange={(checked) => props.onChange({ ...data, quietStartup: checked })}
+				/>
+
+				{/* steeringMode / followUpMode：steering 与 follow-up 消息的发送模式，
+				    all 一次全部发送，one-at-a-time 逐条（pi 默认），RPC 场景下影响 API 调用方式 */}
+				<SettingRow
+					title={<span>{configLabel("steeringMode")}</span>}
+					description={t("config.general.steeringModeHint")}
+					alignEnd={false}
+				>
+					<ClearableSettingsInput
+						empty={typeof data.steeringMode !== "string" || !data.steeringMode}
+						onClear={() => props.onChange({ ...data, steeringMode: "" })}
+					>
+						<ConfigSelect
+							value={typeof data.steeringMode === "string" ? data.steeringMode : ""}
+							options={SEND_MODE_OPTIONS}
+							onChange={(v) => props.onChange({ ...data, steeringMode: v })}
+							placeholder={t("config.general.steeringModePlaceholder")}
+						/>
+					</ClearableSettingsInput>
+				</SettingRow>
+				<SettingRow
+					title={<span>{configLabel("followUpMode")}</span>}
+					description={t("config.general.followUpModeHint")}
+					alignEnd={false}
+				>
+					<ClearableSettingsInput
+						empty={typeof data.followUpMode !== "string" || !data.followUpMode}
+						onClear={() => props.onChange({ ...data, followUpMode: "" })}
+					>
+						<ConfigSelect
+							value={typeof data.followUpMode === "string" ? data.followUpMode : ""}
+							options={SEND_MODE_OPTIONS}
+							onChange={(v) => props.onChange({ ...data, followUpMode: v })}
+							placeholder={t("config.general.followUpModePlaceholder")}
+						/>
+					</ClearableSettingsInput>
+				</SettingRow>
+
+				{/* defaultProjectTrust：RPC 模式不弹信任询问，靠它在加载项目的 .pi/settings.json 等资源时兜底 */}
+				<SettingRow
+					title={<span>{configLabel("defaultProjectTrust")}</span>}
+					description={t("config.general.projectTrustHint")}
+					alignEnd={false}
+				>
+					<ClearableSettingsInput
+						empty={typeof data.defaultProjectTrust !== "string" || !data.defaultProjectTrust}
+						onClear={() => props.onChange({ ...data, defaultProjectTrust: "" })}
+					>
+						<ConfigSelect
+							value={typeof data.defaultProjectTrust === "string" ? data.defaultProjectTrust : ""}
+							options={PROJECT_TRUST_OPTIONS}
+							onChange={(v) => props.onChange({ ...data, defaultProjectTrust: v })}
+							placeholder={t("config.general.projectTrustPlaceholder")}
+						/>
+					</ClearableSettingsInput>
+				</SettingRow>
+
+				{/* 传输协议：多协议供应商选 sse/websocket/websocket-cached，默认 auto 自动选择 */}
+				<SettingRow
+					title={<span>{configLabel("transport")}</span>}
+					description={t("config.general.transportHint")}
+					alignEnd={false}
+				>
+					<ClearableSettingsInput
+						empty={typeof data.transport !== "string" || !data.transport}
+						onClear={() => props.onChange({ ...data, transport: "" })}
+					>
+						<ConfigSelect
+							value={typeof data.transport === "string" ? data.transport : ""}
+							options={TRANSPORT_OPTIONS}
+							onChange={(v) => props.onChange({ ...data, transport: v })}
+							placeholder={t("config.general.transportPlaceholder")}
+						/>
+					</ClearableSettingsInput>
+				</SettingRow>
+			</SettingsSection>
+
+			{/* ── 全局会话目录（仅编辑 ~/.pi/agent/settings.json 的 sessionDir） ── */}
+			<SettingsSection title={t("config.sessionDir.title")} description={t("config.sessionDir.hint")}>
+				<SettingRow title={<span>{t("config.label.sessionDir")}</span>} stacked>
+					<Input
+						className="h-8 w-full rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+						type="text"
+						value={sessionDirValue}
+						placeholder={t("config.sessionDir.placeholder")}
+						onChange={(e) => updateSessionDir(e.target.value)}
+					/>
+				</SettingRow>
+			</SettingsSection>
+
+			{/* ── 重试配置 ── */}
+			<SettingsSection title={t("config.retry.title")} description={t("config.retry.hint")}>
+				<SettingRow title={<span>{t("config.retry.maxRetries")}</span>}>
+					<Input className="h-8 w-24 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]" type="number" min={0} max={50} value={retryConfig.maxRetries} onChange={(e) => updateRetry({ maxRetries: Number(e.target.value) })} />
+				</SettingRow>
+				<SettingRow title={<span>{t("config.retry.baseDelayMs")}</span>}>
+					<Input className="h-8 w-24 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]" type="number" min={100} step={100} value={retryConfig.baseDelayMs} onChange={(e) => updateRetry({ baseDelayMs: Number(e.target.value) })} />
+				</SettingRow>
+			</SettingsSection>
+
+			{/* ── 会话压缩：拆成开关 + 两个 token 数，避免用户直接改 JSON 对象 ── */}
+			<SettingsSection title={t("config.compaction.title")} description={t("config.compaction.hint")}>
+				<SettingSwitchRow
+					title={t("config.compaction.enabled")}
+					checked={compactionConfig.enabled}
+					onChange={(checked) => updateCompaction({ enabled: checked })}
+				/>
+				<SettingRow
+					title={<span>{t("config.compaction.reserveTokens")}</span>}
+					description={t("config.compaction.reserveTokensHint")}
+				>
+					<Input
+						className="h-8 w-24 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+						type="number"
+						min={0}
+						step={1024}
+						value={compactionConfig.reserveTokens}
+						onChange={(e) =>
+							updateCompaction({
+								reserveTokens: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+							})
+						}
+					/>
+				</SettingRow>
+				<SettingRow
+					title={<span>{t("config.compaction.keepRecentTokens")}</span>}
+					description={t("config.compaction.keepRecentTokensHint")}
+				>
+					<Input
+						className="h-8 w-24 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+						type="number"
+						min={0}
+						step={1024}
+						value={compactionConfig.keepRecentTokens}
+						onChange={(e) =>
+							updateCompaction({
+								keepRecentTokens: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+							})
+						}
+					/>
+				</SettingRow>
+				<div className="px-1 pb-2 pt-1.5">
+					<small className="text-caption leading-relaxed text-muted-foreground">{t("config.compaction.manualHint")}</small>
+				</div>
+			</SettingsSection>
+
+			{/* ── 其他设置项：未在常驻区块占用的原始 key，保留原文展示可编辑 ── */}
+			{filteredEntries.length > 0 && (
+				<SettingsSection title={t("config.others.title")}>
+					{filteredEntries.map(([key, value]) => (
+						<SettingRow
+							key={key}
+							title={<span>{configLabel(key)}</span>}
+							alignEnd={typeof value === "boolean"}
+						>
+							<SettingsValueInput
+								value={value}
+								fieldKey={key}
+								modelsData={props.modelsData}
+								authData={props.authData}
+								discoveredModels={props.discoveredModels}
+								allSettings={data}
+								onChange={(v) => {
+									// 防御性兜底：当前清空路径统一走空字符串（保留 key，值为 ""，
+									// 消费方按 falsy 回到默认行为），不删除设置项本身
+									if (v === undefined) {
+										const { [key]: _removed, ...rest } = data;
+										props.onChange(rest);
+										return;
+									}
+									props.onChange({ ...data, [key]: v });
+								}}
+							/>
+						</SettingRow>
+					))}
+				</SettingsSection>
+			)}
 		</div>
 	);
 }
@@ -625,7 +594,7 @@ function EnabledModelsInput(props: {
 			}}
 		>
 			<PopoverTrigger asChild>
-				<div className="flex min-h-[38px] min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-1.5 rounded-sm border border-border-subtle bg-popover px-2.5 py-[5px] transition-colors duration-150 hover:border-border-strong">
+				<div className="flex min-h-[38px] w-full min-w-0 cursor-pointer flex-wrap items-center gap-1.5 rounded-sm border border-border-subtle bg-popover px-2.5 py-[5px] transition-colors duration-150 hover:border-border-strong">
 					{[...selected].map((fullKey) => (
 						<span key={fullKey} className="inline-flex h-6 items-center gap-[3px] rounded-full border border-[color-mix(in_srgb,var(--color-accent)_24%,var(--color-border-subtle))] bg-[color:color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg-panel))] pl-[9px] pr-[5px] font-mono text-xs leading-[18px] whitespace-nowrap text-text-primary">
 							<span>{fullKey}</span>
@@ -717,19 +686,20 @@ function EnabledModelsInput(props: {
 	);
 }
 
-/** 带清空按钮的输入包装器：值非空时常显清空按钮，点击即清除选中值。
+/** 带清空按钮的输入包装器：值非空时在控件右侧并排显示 ✕ 清除按钮，点击即清除选中值。
  *  清除只置空值（onChange("")），保留设置项 key，避免设置页整行消失。
- *  按钮定位在右侧下拉触发按钮左侧（right-[38px]），避免与箭头按钮互相遮挡。 */
+ *  ✕ 置于控件外右侧（flex 并排，不悬浮在控件上）——不会遮挡输入文字、下拉箭头，
+ *  也不会与控件内部图标（如 Select 的 chevron）发生重叠。 */
 function ClearableSettingsInput(props: { empty: boolean; onClear: () => void; children: ReactNode }) {
 	return (
-		<div className="relative min-w-0 flex-1">
-			{props.children}
+		<div className="flex w-full items-center gap-1.5">
+			<div className="min-w-0 flex-1">{props.children}</div>
 			{!props.empty && (
 				<Button
 					type="button"
 					variant="ghost"
 					size="icon-xs"
-					className="absolute top-1/2 -translate-y-1/2 right-[38px] size-6 rounded-sm hover:bg-bg-hover"
+					className="size-6 shrink-0 rounded-sm text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
 					onMouseDown={(e) => {
 						// 用 mousedown 而非 click：避免触发 combobox 的 onFocus/onChange 连锁反应
 						e.preventDefault();
@@ -738,7 +708,7 @@ function ClearableSettingsInput(props: { empty: boolean; onClear: () => void; ch
 					}}
 					title={t("common.clear")}
 				>
-					<X size={12} className="text-text-tertiary" />
+					<X size={12} />
 				</Button>
 			)}
 		</div>
@@ -770,7 +740,6 @@ function SettingsValueInput(props: {
 					options={providerOptions}
 					onChange={(v) => props.onChange(v)}
 					placeholder={t("config.settings.selectProvider")}
-					clearSpace
 				/>
 			</ClearableSettingsInput>
 		);
@@ -882,7 +851,6 @@ function SettingsValueInput(props: {
 					placeholder={selectedProviderName
 						? t("config.settings.selectModelFor", { provider: selectedProviderName })
 						: t("config.settings.selectModelFirst")}
-					clearSpace
 				/>
 			</ClearableSettingsInput>
 		);
@@ -905,7 +873,7 @@ function SettingsValueInput(props: {
 				type="number"
 				value={value}
 				onChange={(e) => props.onChange(Number(e.target.value))}
-				className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+				className="h-8 w-full rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 			/>
 		);
 	}
@@ -914,7 +882,7 @@ function SettingsValueInput(props: {
 			<Input
 				value={value}
 				onChange={(e) => props.onChange(e.target.value)}
-				className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+				className="h-8 w-full rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 			/>
 		);
 	}
@@ -928,7 +896,7 @@ function SettingsValueInput(props: {
 					/* 输入过程中 JSON 不合法时暂不更新 */
 				}
 			}}
-			className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+			className="h-8 w-full rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 		/>
 	);
 }

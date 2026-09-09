@@ -72,17 +72,18 @@ test("注册时对文件夹与空白处各写 3 条 reg add（默认名/command/
 test("文件夹右键 command 使用 %1，空白处 command 使用 %V（Explorer 展开）", async () => {
   regCalls = [];
   await registerShellContextMenu(EXE);
-  assert.match(commandArgOf(FOLDER_COMMAND), /--open-project \\"%1\\"/);
-  assert.match(commandArgOf(BACKGROUND_COMMAND), /--open-project \\"%V\\"/);
+  assert.match(commandArgOf(FOLDER_COMMAND), /--open-project "%1"/);
+  assert.match(commandArgOf(BACKGROUND_COMMAND), /--open-project "%V"/);
 });
 
-test("command 值内嵌引号被 \\\\\" 转义，Icon 原样写入（非命令不转义）", async () => {
+test("command 值带普通引号传给 reg.exe（不手动预转义），Icon 原样写入", async () => {
   regCalls = [];
   await registerShellContextMenu(EXE);
-  // 转义后：\"C:\Program Files\PiDeck\PiDeck.exe\" --open-project \"%1\"
+  // execFile 直接把含引号的 argv 交给 reg.exe：libuv 拼命令行时会包外层引号并把反斜杠加倍，
+  // reg.exe 解析还原一层后嵌套引号原样入库；手动预转义会残留字面 \" 导致 Explorer 解析失败。
   assert.equal(
     commandArgOf(FOLDER_COMMAND),
-    '\\"C:\\Program Files\\PiDeck\\PiDeck.exe\\" --open-project \\"%1\\"',
+    '"C:\\Program Files\\PiDeck\\PiDeck.exe" --open-project "%1"',
   );
   const iconCall = regCalls.find(
     (c) => c.cmd === "reg" && c.args[1] === FOLDER_KEY && c.args.includes("/v") && c.args.includes("Icon"),
@@ -96,7 +97,7 @@ test("dev 模式（带 app 路径）命令含 electron 与 app 目录两段参�
   await registerShellContextMenu("C:\\electron\\electron.exe", "C:\\dev\\pi-desktop");
   assert.equal(
     commandArgOf(FOLDER_COMMAND),
-    '\\"C:\\electron\\electron.exe\\" \\"C:\\dev\\pi-desktop\\" --open-project \\"%1\\"',
+    '"C:\\electron\\electron.exe" "C:\\dev\\pi-desktop" --open-project "%1"',
   );
 });
 

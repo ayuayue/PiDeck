@@ -498,6 +498,17 @@ export async function loadUsageProbeSettings(
 }
 
 /**
+ * 批量读取全部 provider 的用量查询配置（徽章状态表 / 启动预热选源用）。
+ * 与 loadUsageProbeSettings 的区别：一次读盘返回整表，避免 N 张卡片各读一次文件。
+ */
+export async function loadUsageProbeProviderConfigs(configDir: string): Promise<{
+	providers: Record<string, UsageProbeProviderConfig>;
+	errors: string[];
+}> {
+	return readUsageProbeProviders(configDir);
+}
+
+/**
  * 按 provider 合并保存用量查询配置：保留文件里其它 providers 与旧 probes 数组，
  * 写入前重新校验（渲染层数据不可信），零错误才落盘。
  * 保存 enabled=false 的条目同样落盘——「用户显式关闭」必须持久化。

@@ -12,6 +12,7 @@ import {
 	GitBranch,
 	ImageIcon,
 	ListChecks,
+	Loader2,
 	Paperclip,
 	Plus,
 	RefreshCw,
@@ -67,11 +68,12 @@ import {
   WELCOME_MODEL_KEY,
   isWelcomeModelLost,
   readWelcomeModelPreference,
+  readWelcomeThinkingPreference,
   shouldClearWelcomePreference,
 } from "../../utils/chatSessionBootstrap";
 import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import { CommandPickerGroup, CommandPickerPanel, type CommandPickerFilter } from "../ui-shadcn/command-picker";
-import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, orderProviderGroups } from "./sessionPickerOptions";
+import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, orderProviderGroups, resolveModelPickerBody } from "./sessionPickerOptions";
 import type {
 	AgentBackend,
 	AgentRuntimeState,
@@ -373,11 +375,9 @@ export function ComposerBottomBar(props: {
 		onWatermarkChange: (watermark: boolean) => void;
 	};
 }) {
-	// 默认模型/思考级别来自主进程按 pi 配置自动填充进会话记录的默认值（props.record），
-	// 不读取渲染层 welcome localStorage 偏好，避免用户偏好覆盖 pi 配置。
-	// 例外：无 record（引导页虚拟会话）时回退显示欢迎页偏好——picker 无 record
-	// 分支把选择写进 localStorage，回退后用户选中模型/思考级别立即在底部栏可见；
-	// 创建会话时这些偏好会作为启动参数带入（App.ensureSessionForSend）。
+	// 真实会话以 runtime / catalog record 为准；只有无 record 的引导页虚拟会话
+	// 才读取 welcome localStorage。这样用户点选模型/思考档位后能立即看到结果，
+	// 首次发送再由 App.ensureSessionForSend 把同一显式选择带入真实会话。
 	// 该偏好可能指向已删除的模型（localStorage 残留，用户删除模型后底栏仍显示旧默认）：
 	// 引导页（无 record、pi 后端）常驻加载模型目录做存在性校验（与 ComposerPickerHost
 	// 同一判定 isWelcomeModelLost），失效则忽略偏好并清理缓存，显示回落到主进程解析的
@@ -391,6 +391,10 @@ export function ComposerBottomBar(props: {
 		enabled: needsWelcomeCatalog,
 	});
 	const welcomeModel = needsWelcomeCatalog ? readWelcomeModelPreference()?.model : undefined;
+	// 思考档位不依赖模型目录；无 record 时直接读取 picker 写入的显式选择。
+	const welcomeThinking = !props.record
+		? readWelcomeThinkingPreference()?.thinkingLevel
+		: undefined;
 	const welcomeModelLost = isWelcomeModelLost(welcomeModel, welcomeCatalogModels);
 	// 删除不可逆，走保守判定：只有「一次成功的完整加载」才具备判死资格。
 	// 本组件不传 projectId → 目录恒为全局范围，与全局偏好的作用域一致。
@@ -427,9 +431,8 @@ export function ComposerBottomBar(props: {
 	const currentThinkingLevel = resolveComposerThinkingLevel({
 		state: props.state?.thinkingLevel,
 		record: props.record?.thinkingLevel,
-		// 思考级别一律走默认档位（用户规则：取 settings.defaultThinkingLevel；
-		// 欢迎页偏好级别不再参与——偏好只管模型，级别跟默认走）。
-		fallback: props.defaultThinkingLevel,
+		// 引导页显式点选优先；未选择时才回退主进程解析的配置默认档位。
+		fallback: welcomeThinking ?? props.defaultThinkingLevel,
 		isLive: runtimeLive,
 	});
 	const thinkingLevelLabel = (level: string) => {
@@ -896,6 +899,20 @@ function ModelListStatusGuide(props: {
 	);
 }
 
+/**
+ * 首次加载态：模型目录还没返回任何报告时的占位。
+ * 旧实现在此状态下面板完全空白（models=[] 且 report=null 两个分支都不命中），
+ * 用户以为「选择器里没有模型」；改为明确的加载提示。
+ */
+function ModelListLoadingState() {
+	return (
+		<div className="flex items-center gap-2.5 px-4 py-5 text-caption text-muted-foreground" role="status" aria-live="polite">
+			<Loader2 size={15} className="animate-pideck-spin" aria-hidden="true" />
+			{t("app.modelListLoading")}
+		</div>
+	);
+}
+
 export function ModelPicker(props: {
 	models: AvailableModel[];
 	current?: { provider?: string; modelId?: string; modelName?: string };
@@ -907,6 +924,8 @@ export function ModelPicker(props: {
 	onToggleFavorite?: (provider: string, modelId: string) => void;
 	/** 模型列表加载报告：为空时（加载失败/无模型）展示原因引导（版本过低/配置损坏/pi 未安装等）。 */
 	report?: ModelListReport | null;
+	/** 首次加载在途：列表为空时展示加载态（与 report=null 配对使用） */
+	loading?: boolean;
 	/** 手动刷新进行中（重新调用 pi --list-models） */
 	refreshing?: boolean;
 	/** 手动刷新：绕过缓存重新拉取模型列表 */
@@ -957,9 +976,15 @@ export function ModelPicker(props: {
 		current: props.current,
 		providers: sortedProviders,
 	}));
+	// 主体状态：加载中 / 失败或空态引导 / 模型列表（纯函数，见 sessionPickerOptions）。
+	const bodyState = resolveModelPickerBody({
+		modelCount: props.models.length,
+		report: props.report,
+		loading: props.loading,
+	});
 
-	// 供应商用量行（cc-switch inline）：打开选择器时批量触发 TTL 去重查询，行尾显示
-	// 彩色剩余/百分比；查不到（不支持/失败/查询中）的分组保持干净不渲染。
+	// 供应商用量行（cc-switch inline）：打开选择器时批量 TTL 去重查询，供应商标题行右侧
+	// 显示彩色剩余/百分比；查不到（未启用/不支持/失败/查询中）的分组保持干净不渲染。
 	// backend 按会话后端透传（DSH 目录的 provider 是 route 名，配置/凭据在 dsh 链路）。
 	const batchRefreshUsage = useProviderUsageBatchRefresh();
 	const providerKey = sortedProviders.join("\n");
@@ -1037,7 +1062,9 @@ export function ModelPicker(props: {
 				) : undefined
 			}
 		>
-			{props.models.length === 0 && props.report ? (
+			{bodyState === "loading" ? (
+				<ModelListLoadingState />
+			) : bodyState === "guide" && props.report ? (
 				<ModelListStatusGuide
 					report={props.report}
 					refreshing={props.refreshing}

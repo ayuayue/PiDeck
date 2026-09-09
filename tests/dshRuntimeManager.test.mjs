@@ -423,6 +423,23 @@ test("readDeclaredDshVersion：读 package.json 声明的 @deepseek-ai/dsh 版�
 	}
 });
 
+test("readDeclaredDshVersion：dsh 可能声明在 devDependencies，也需命中", () => {
+	const dir = mkdtempSync(join(tmpdir(), "pideck-declared-"));
+	try {
+		writeFileSync(
+			join(dir, "package.json"),
+			JSON.stringify({
+				dependencies: {},
+				devDependencies: { "@deepseek-ai/dsh": "0.1.1-rc.2" },
+			}),
+			"utf8",
+		);
+		assert.equal(readDeclaredDshVersion(dir), "0.1.1-rc.2", "devDependencies 兜底");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("readDeclaredDshVersion：无 dsh 依赖 / 目录缺失时返回 undefined", () => {
 	const dir = mkdtempSync(join(tmpdir(), "pideck-declared-"));
 	try {

@@ -168,7 +168,7 @@ test("reachable renderer surfaces use i18n without changing their UI structure",
 	assert.match(skillStore, /className="prompt-store-tab"[\s\S]*?t\("config\.skillStoreSearchPlaceholder"\)/);
 	assert.match(yaoStore, /className="store-sub-tab"[\s\S]*?t\("config\.yaoSearchPlaceholder"\)/);
 	assert.match(skillHub, /className="skillhub-installed-badge"[\s\S]*?t\("config\.installed"\)/);
-	assert.match(promptStore, /<TabsTrigger value="yao"[\s\S]*?t\("config\.promptStoreChinesePicks"\)/);
+  assert.match(promptStore, /value: "yao", label: t\("config\.promptStoreChinesePicks"\)/);
 	assert.match(extensions, /className="extensions-recommended-desc">[\s\S]*?t\(pkg\.descriptionKey\)/);
 	assert.match(configShared, /getApiTypeDescription\(option\)/);
 	assert.match(providerHeaders, /label: t\("config\.userAgentBrowser"\)/);

@@ -1,4 +1,6 @@
+import { ExternalLink } from "lucide-react";
 import type { AppInfo } from "../../../../../shared/types";
+import type { UpdateSourceId } from "../../../../../shared/types/settings";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { useAtomValue } from "jotai";
@@ -13,6 +15,13 @@ type AppUpdateCardProps = {
 	platform: AppInfo["platform"];
 	/** 由主进程统一提供的受信任 Release 页面地址。 */
 	releasesUrl: string;
+	/**
+	 * 启动时检测的安装类型。Win 便携版应用内更新仍走 NSIS setup
+	 * （会装成安装版），需在 UI 说清区别；不改 deliveryMode。
+	 */
+	installationType?: "portable" | "installed";
+	/** 当前更新源；官方 GitHub 直连失败时提示切镜像，不做自动回退。 */
+	updateSource?: UpdateSourceId;
 	/** 检查中（主进程快照 phase=checking 的渲染层派生，按钮 loading 用）。 */
 	checking: boolean;
 	onCheckUpdate: () => void;
@@ -58,8 +67,10 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 	};
 
 	return (
-		<div className="mb-3 rounded-md border border-border-subtle bg-panel px-3 py-2">
-			<div className="flex items-center justify-between">
+		/* 内容直接铺在 SettingsSection 的淡色外框里，不再自套边框（避免内外双框）。 */
+		<div className="mb-3">
+			{/* 首行固定最小行高 + 垂直居中：与「自动下载更新」等 SettingRow 同行高观感，按钮不致偏上。 */}
+			<div className="flex min-h-10 items-center justify-between gap-2">
 				<span className="text-body">
 					{t("app.updateCardVersion", { version: props.appVersion })}
 				</span>
@@ -72,6 +83,17 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 					{t("settings.checkUpdate")}
 				</Button>
 			</div>
+
+			{/* Win 便携版仍走 NSIS setup：会变成安装版；想保持便携只能去 GitHub 手动下 portable。 */}
+			{props.installationType === "portable" && props.platform === "win32" && (
+				<div className="mt-2 space-y-1">
+					<p className="text-caption text-muted-foreground">{t("settings.portableUpdateNotice")}</p>
+					<Button variant="ghost" size="sm" onClick={openRelease}>
+						<ExternalLink size={12} aria-hidden="true" />
+						{t("settings.portableUpdateOpenRelease")}
+					</Button>
+				</div>
+			)}
 
 			{/* downloading：进度条 + 速度 */}
 			{download && download.phase === "downloading" && (
@@ -112,12 +134,15 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 				</div>
 			)}
 
-			{/* error：失败可重试 */}
+			{/* error：失败可重试；官方 GitHub 直连失败只提示切镜像，不自动回退。 */}
 			{download && download.phase === "error" && (
 				<div className="mt-2 flex flex-col gap-1">
 					<p className="text-caption text-destructive">
 						{t("settings.updateErrorDetail", { error: download.error ?? t("common.unknown") })}
 					</p>
+					{props.updateSource === "github" && (
+						<p className="text-caption text-muted-foreground">{t("settings.updateGithubFailHint")}</p>
+					)}
 					<div className="flex gap-2">
 						<Button variant="ghost" size="sm" onClick={props.onCheckUpdate}>
 							{t("settings.checkUpdateRetry")}

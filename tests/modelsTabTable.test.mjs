@@ -53,12 +53,51 @@ test("ModelsTab and AddProviderDialog both reuse the shared ModelsTable", () => 
   assert.match(dialogSource, /<ModelsTable/);
 });
 
-test("collapsed provider card keeps model count and usage in the header", () => {
-  // 折叠态不再另开 h-9 底栏：模型数徽章贴在名称后，用量走卡头 inline（有数据才渲染）。
+test("provider card keeps model count + inline usage in the header, drops the usage details block, and expands on whole-row click", () => {
+  // 折叠态不再另开 h-9 底栏：模型数徽章 + 卡头用量徽标（时间+数值+刷新）都收进标题行；
+  // 展开体里的「用量」明细块（ProviderUsageDetails）按要求移除——卡头徽标已覆盖展示。
   assert.match(tabSource, /config\.count\.models/);
   assert.match(tabSource, /ProviderUsageInline\s+provider=\{name\}\s+variant="card"/);
+  // 卡头用量查询配置入口保留（内置支持的供应商零配置自动生效，不渲染）。
+  assert.match(tabSource, /UsageQueryEntryButton/);
+  // 上游新增：整行点击展开/收起（右侧操作区 stopPropagation）。
+  assert.match(tabSource, /cursor-pointer/);
+  assert.match(tabSource, /onClick=\{\(\) => props\.onToggleProvider\(name\)\}/);
+  assert.doesNotMatch(tabSource, /ProviderUsageDetails/);
   assert.doesNotMatch(tabSource, /ProviderUsageRow/);
   assert.doesNotMatch(tabSource, /leading=/);
+});
+
+test("both provider entries share ProviderConnectionForm (no per-entry divergence)", () => {
+  const formSource = readFileSync("src/renderer/src/config/ProviderConnectionForm.tsx", "utf8");
+  // 连接字段 + 测试连接 + 兼容性：两处入口都复用同一组件，不再各写一套
+  assert.match(tabSource, /<ProviderConnectionForm/);
+  assert.match(dialogSource, /<ProviderConnectionForm/);
+  assert.match(formSource, /config\.field\.baseUrl/);
+  assert.match(formSource, /config\.field\.apiType/);
+  assert.match(formSource, /config\.field\.apiKey/);
+  assert.match(formSource, /config\.field\.userAgent/);
+  assert.match(formSource, /config\.compatibility/);
+  assert.match(formSource, /config\.testModel/);
+  assert.match(formSource, /config\.testProxy/);
+  // 代理选择右侧的说明小字按要求去掉（保存界面干净），组件内不得再渲染代理 URL 提示
+  assert.doesNotMatch(formSource, /proxyModeHint/);
+  assert.doesNotMatch(formSource, /proxyUrlUnset/);
+  assert.doesNotMatch(tabSource, /proxyModeHint/);
+});
+
+test("edit-provider page reaches feature parity with the expanded card", () => {
+  // 添加/编辑供应商页与展开卡片共用同一套模型表格能力（重置自适应 / 失焦补全 / 批量删除 / 手动添加）
+  assert.match(dialogSource, /onResetModel=\{handleResetModelToAdaptive\}/);
+  assert.match(dialogSource, /onBlurAutoFill=\{applyModelSpecAutoFill\}/);
+  assert.match(dialogSource, /batchMode=\{modelBatchMode\}/);
+  assert.match(dialogSource, /removeSelectedModelIndexes\(prev, selectedModelIndexes\)/);
+  assert.match(dialogSource, /t\("common\.deleteSelected"\)/);
+  assert.match(dialogSource, /t\("config\.addModelManual"\)/);
+  assert.match(dialogSource, /focusModelKey=\{pendingModelFocusKey\}/);
+  // 保存勾选的获取结果时同样按 pi-ai 目录补全（与卡片流程一致）
+  assert.match(dialogSource, /computeModelSpecPatches\(m, results\[i\]\)/);
+  assert.match(dialogSource, /config\.modelsSavedWithSpecs/);
 });
 
 test("model batch mode uses a tri-state select column and one confirmation callback", () => {

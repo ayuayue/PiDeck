@@ -34,7 +34,7 @@ function loadTimelineHelpers() {
     jotai: { atom: (value) => ({ _mockInit: value }) },
     "jotai/utils": {},
     "../atoms": {}, "../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
-    "../desktopApi": {},    "./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },    "../components/session/timeline/turnRenderWindow": {
+    "../desktopApi": {},    "./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) }, "./timeline/scrollHistoryPolicy": {},    "../components/session/timeline/turnRenderWindow": {
       TIMELINE_MOUNTED_TURN_LIMIT: 3,
       TIMELINE_SCROLLED_TURN_LIMIT: 3,
       TIMELINE_WINDOW_EXPAND_STEP: 3,
@@ -194,9 +194,13 @@ test("bottom-settle history clear invalidates in-flight runtime history pages", 
 });
 
 test("prepend scroll compensation is skipped while following bottom and pins via restoreAt", () => {
-  // 跟底中（autoScrollRef=true）不恢复旧锚点：贴底引擎负责生长补偿，避免把用户拽回顶部；
+  // 跟底中/浏览代数过期（autoScrollRef=true 或 generation 不匹配）不恢复旧锚点：
+  // 贴底引擎负责生长补偿，迟到分页也不得把刚回底的视口重新插页；
   // 非跟底时走 pinViewportAfterPrepend（restoreAt），禁止原生 scrollTop 补偿。
-  assert.match(source, /if \(autoScrollRef\.current\) \{\n\s*loadMoreAnchorRef\.current = undefined;\n\s*return;\n\s*\}/);
+  assert.match(
+    source,
+    /if \(autoScrollRef\.current \|\| anchor\.value\.generation !== historyBrowseGenerationRef\.current\) \{\n\s*loadMoreAnchorRef\.current = undefined;\n\s*return;\n\s*\}/,
+  );
   assert.match(source, /pinViewportAfterPrepend\(nextScrollTop\)/);
   assert.doesNotMatch(source, /timeline\.scrollTop = nextScrollTop/);
   assert.match(source, /requestAnimationFrame\(\(\) => \{\n\s*programmaticScrollRef\.current = false;/);
@@ -232,11 +236,13 @@ test("load-more compensation is skipped at the very top so prepended content sta
   assert.equal(resolveTimelineTopCompensation(240, 0), 240);
 });
 
-test("auto history load ignores programmatic scrolls and only fires on real user scroll", () => {
-  // 监听器迁移到 controller：程序化滚动事件先消费 programmaticScrollRef 抑制标记；
-  // 只有 scrollTop 真实变小（上滚）才扩窗/预取，触顶后下滑不会把新历史突然插进视口。
-  assert.match(source, /if \(programmaticScrollRef\.current\) \{[\s\S]*?return;\s*\}/);
-  assert.match(source, /const scrollingUp = timeline\.scrollTop < lastScrollTop/);
+test("auto history load consumes engine intent without a competing scroll listener", () => {
+  // stick 引擎逐次上报真实用户输入；controller 下一帧读取最终位置后直接决策。
+  // 普通 scroll 仅保存锚点，resize/clamp/动画不能凭 scrollTop 变化取得扩窗权限。
+  assert.match(source, /const setUserScrollIntent = useCallback/);
+  assert.match(source, /if \(intent !== "up"\) return;/);
+  assert.match(source, /userScrollIntentFrameRef\.current = window\.requestAnimationFrame/);
+  assert.match(source, /if \([\s\S]*?programmaticScrollRef\.current[\s\S]*?\) return;/);
   assert.match(source, /HISTORY_AUTO_LOAD_THRESHOLD/);
-  assert.match(source, /timeline\.addEventListener\("scroll", onScroll, \{ passive: true \}\)/);
+  assert.doesNotMatch(source, /timeline\.addEventListener\("scroll", onScroll/);
 });

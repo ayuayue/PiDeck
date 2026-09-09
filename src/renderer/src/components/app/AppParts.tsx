@@ -29,6 +29,7 @@ export type { WorkspaceDrawerPanel as DrawerPanel } from "../../hooks/useWorkspa
 
 // Re-exports from leaf modules (A12 migration in progress)
 import { PiLogoCanvas } from "./PiLogoCanvas";
+import { TextShimmer } from "../motion/text-shimmer";
 import { Label } from "../../components/ui-shadcn/label";
 export { WorktreeCreateDialog } from "../sidebar/SidebarComponents";
 export { ComposerBottomBar, ModelPicker, PromptTemplatePicker, ThinkingPicker, ExtensionWidgetCard } from "../session/ComposerComponents";
@@ -474,8 +475,9 @@ function loadDevBranch(): Promise<string | undefined> {
 }
 
 /**
- * Brand lockup：官方 pi 风格 canvas logo + PiDeck 字标。
- * 分支名不上视觉（并行 worktree 窗口区分改由 title/aria-label 承载，避免视觉噪声）。
+ * Brand lockup：官方 pi 风格 canvas logo + 两行字标（beUI Animated Sidebar 头部风格的文字排布）。
+ * 分支名下探为副标题行（仅开发分支时显示，避免视觉噪声）；视觉变形只作用于字标，
+ * 品牌语义仍由外层 aria-label 承载。字标用 beUI TextShimmer（纯 CSS 动画、无平台分支）。
  */
 export function BrandLockup(props: { replayToken?: number } = {}) {
 	const [branch, setBranch] = useState<string | undefined>(undefined);
@@ -489,8 +491,15 @@ export function BrandLockup(props: { replayToken?: number } = {}) {
 	return (
 		<div className="brand-lockup flex h-full min-w-0 items-center gap-2" aria-label={brandTitle} title={branch ? brandTitle : undefined}>
 			{showLogo && <PiLogoCanvas size={18} autoPlay playOnClick replayToken={props.replayToken} />}
-			{/* 视觉变形只作用于字标本身，品牌语义仍由外层 aria-label 保留。 */}
-			<span className="brand-wordmark translate-x-0.5 truncate text-[18px] font-[PiDeckDepartureMono] font-normal uppercase leading-none text-zinc-950 dark:text-white" aria-hidden="true">PiDeck</span>
+			<span className="flex min-w-0 flex-col justify-center gap-1">
+				<TextShimmer
+					as="span"
+					className="brand-wordmark truncate text-[18px] font-[PiDeckDepartureMono] font-bold uppercase leading-none"
+				>
+					PiDeck
+				</TextShimmer>
+				{branch && <span className="truncate text-[13px] font-medium leading-none text-muted-foreground">{branch}</span>}
+			</span>
 		</div>
 	);
 }

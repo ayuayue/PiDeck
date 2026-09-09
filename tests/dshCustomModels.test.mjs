@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 function asJson(value) {
 	return JSON.parse(JSON.stringify(value));
@@ -44,6 +45,8 @@ function loadDshModelsModule() {
 					},
 				};
 			}
+			// 模型展示顺序统一比较器（shared/modelOrder）：纯函数，真实加载保持与生产一致的排序。
+			if (id === "../../../shared/modelOrder") return loadTsCommonJs("src/shared/modelOrder.ts");
 			throw new Error(`Unexpected require: ${id}`);
 		},
 	};
