@@ -100,7 +100,23 @@ function createMockDeps(store) {
 	};
 }
 
-/** 建任务 + 启动 coordinator + 排队并等待 dispatch 完成，返回常用句柄 */
+/**
+ * 建任务 + 启动 coordinator + 排队并等待 dispatch 完成，返回常用句柄。
+ *
+ * 等待方式：轮询直到 prompt 真正发出（sentPrompts 非空），而不是固定 setTimeout(20)。
+ * 固定等待在多测试文件并发/CI 负载高时会偶发不达标（dispatch 含 createDraft await、
+ * lease 获取等异步步骤），表现为「sentPrompts.length 0 !== 1」的随机失败。
+ * 轮询是确定性的：只要 dispatch 最终发生就会通过，且不会白等。
+ */
+async function waitFor(condition, { timeoutMs = 2_000, stepMs = 5 } = {}) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (condition()) return true;
+		await new Promise((r) => setTimeout(r, stepMs));
+	}
+	return condition();
+}
+
 async function createStartedCoordinator(store, taskOverrides = {}) {
 	const task = await store.createTask({
 		name: "Nightly Health Check",
@@ -113,7 +129,7 @@ async function createStartedCoordinator(store, taskOverrides = {}) {
 	const deps = createMockDeps(store);
 	const coordinator = new AutomationRunCoordinator(deps);
 	const run = await coordinator.enqueueRun(task, undefined, "manual", 1_050);
-	await new Promise((r) => setTimeout(r, 20));
+	await waitFor(() => deps.sentPrompts.length > 0);
 	return { task, deps, coordinator, run, sessionId: deps.createdSessions[0].id };
 }
 
@@ -381,6 +397,112 @@ test("AutomationRunCoordinator supports manual abortRun", async () => {
 		assert.equal(abortedRun.error, "User requested cancellation");
 
 		coordinator.dispose();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * 回归：定时任务必须把用户配置的 prompt 真正送进 pi。
+ *
+ * 曾现 bug：dispatch 时 agentMessage 被硬编码成「[Automation: 名称] + 请自主完成」，
+ * 而 AgentManager.sendPrompt 里 agentMessage 非空会**整体替换** message —— 于是
+ * task.prompt 被整个丢掉，AI 只看到任务名和一句系统话术，只能反问用户「要做什么」。
+ * （用户可见症状：任务叫「时间」、提示词「输出当前时间」，但 AI 回「我看不到具体任务」。）
+ *
+ * 契约：agentMessage 必须包含 task.prompt 原文；message 仍保留用户可见原文。
+ */
+test("dispatch carries the task prompt into agentMessage (not just the automation banner)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-coord-prompt-"));
+	const storePath = join(dir, "automation.json");
+	try {
+		const store = new AutomationStore(storePath);
+		await store.load(1_000);
+		const { deps, coordinator } = await createStartedCoordinator(store, {
+			name: "时间",
+			prompt: "输出当前时间",
+			schedule: { type: "cron", expression: "*/1 * * * *" },
+		});
+
+		assert.equal(deps.sentPrompts.length, 1);
+		const sent = deps.sentPrompts[0];
+		// message 是用户可见原文（会话气泡）
+		assert.equal(sent.message, "输出当前时间");
+		// 关键：prompt 必须出现在实际发给 pi 的载荷里，否则 AI 收不到指令
+		assert.ok(
+			sent.agentMessage.includes("输出当前时间"),
+			`agentMessage 必须包含 prompt 原文，实际为: ${JSON.stringify(sent.agentMessage)}`,
+		);
+		// 宿主上下文（任务名与自主完成约定）仍要保留
+		assert.ok(sent.agentMessage.includes("时间"));
+		assert.match(sent.agentMessage, /autonomously/);
+
+		coordinator.dispose();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * 工作模式回归：定时任务可以配置普通/计划/目标，dispatch 时把模式标记带进 agentMessage。
+ *
+ * 契约：
+ * - 普通模式（含旧任务未设置 mode）不得出现任何隐藏标记，行为与改动前逐字节一致；
+ * - 计划/目标模式必须复用 composer 的标记常量（__PI_DECK_PLAN_MODE__ / __PI_DECK_GOAL_MODE__），
+ *   否则 pi 内置扩展识别不到，任务会退化成普通模式静默跑错；
+ * - 无论哪种模式，任务提示词原文与宿主指令都必须保留（上一个 bug 的回归防线）。
+ */
+test("dispatch applies the task working mode marker and always keeps the prompt", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-coord-mode-"));
+	const storePath = join(dir, "automation.json");
+	try {
+		const store = new AutomationStore(storePath);
+		await store.load(1_000);
+
+		// 普通模式：不应出现任何模式标记
+		const { deps: normalDeps, coordinator: normalCoordinator } =
+			await createStartedCoordinator(store, {
+				name: "普通任务",
+				prompt: "检查仓库状态",
+			});
+		const normalSent = normalDeps.sentPrompts[0];
+		assert.equal(normalSent.message, "检查仓库状态");
+		assert.doesNotMatch(normalSent.agentMessage, /__PI_DECK_/);
+		assert.ok(normalSent.agentMessage.includes("检查仓库状态"));
+		normalCoordinator.dispose();
+
+		// 计划模式：带计划标记，且提示词与指令都在
+		const { deps: planDeps, coordinator: planCoordinator } =
+			await createStartedCoordinator(store, {
+				name: "计划任务",
+				prompt: "重构订单模块",
+				mode: "plan",
+			});
+		const planSent = planDeps.sentPrompts[0];
+		assert.equal(planSent.message, "重构订单模块");
+		assert.ok(
+			planSent.agentMessage.includes("__PI_DECK_PLAN_MODE__"),
+			`plan 模式必须带计划标记，实际为: ${JSON.stringify(planSent.agentMessage)}`,
+		);
+		assert.ok(planSent.agentMessage.includes("重构订单模块"));
+		assert.match(planSent.agentMessage, /autonomously/);
+		planCoordinator.dispose();
+
+		// 目标模式：带目标标记
+		const { deps: goalDeps, coordinator: goalCoordinator } =
+			await createStartedCoordinator(store, {
+				name: "目标任务",
+				prompt: "把这个功能做到测试全绿",
+				mode: "goal",
+			});
+		const goalSent = goalDeps.sentPrompts[0];
+		assert.equal(goalSent.message, "把这个功能做到测试全绿");
+		assert.ok(
+			goalSent.agentMessage.includes("__PI_DECK_GOAL_MODE__"),
+			`goal 模式必须带目标标记，实际为: ${JSON.stringify(goalSent.agentMessage)}`,
+		);
+		assert.ok(goalSent.agentMessage.includes("把这个功能做到测试全绿"));
+		goalCoordinator.dispose();
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

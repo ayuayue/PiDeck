@@ -23,6 +23,7 @@ import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import { CronScheduleBuilder } from "./CronScheduleBuilder";
 import type {
 	AutomationTask,
+	AutomationTaskMode,
 	CreateAutomationTaskInput,
 	UpdateAutomationTaskInput,
 } from "../../../../shared/types";
@@ -35,6 +36,21 @@ interface AutomationTaskEditorProps {
 
 /** Radix Select 禁止 value=""；空档位表示跟随项目/全局，用哨兵值落盘时再清掉。 */
 const THINKING_INHERIT = "inherit";
+
+/**
+ * 定时任务可选的「工作模式」档位（顺序即展示顺序）。
+ * 与输入框「+」菜单里的 composer 模式同义：普通=直接执行，计划=只读分析出计划，
+ * 目标=围绕提示词自动连续推进。这里不含生图后端：AutomationTask.backend 已排除它。
+ */
+const TASK_MODE_OPTIONS: Array<{
+	value: AutomationTaskMode;
+	/** 直接复用 composer 模式文案，定时任务与输入框「+」菜单的说法保持一致。 */
+	labelKey: "app.composerModeNormal" | "app.composerModePlan" | "app.composerModeGoal";
+}> = [
+	{ value: "normal", labelKey: "app.composerModeNormal" },
+	{ value: "plan", labelKey: "app.composerModePlan" },
+	{ value: "goal", labelKey: "app.composerModeGoal" },
+];
 
 /**
  * 定时任务新建与编辑表单。
@@ -59,6 +75,9 @@ export function AutomationTaskEditor({
 		{ provider: string; modelId: string } | undefined
 	>(task?.model);
 	const [thinkingLevel, setThinkingLevel] = useState(task?.thinkingLevel ?? "");
+	// 缺省（含旧任务）不在下拉里显示普通模式，而显示「跟随项目/全局」——
+	// 普通模式本就是默认行为，说「跟随」比说「普通」更贴近实际语义。
+	const [mode, setMode] = useState<AutomationTaskMode | "">(task?.mode ?? "");
 	const [enabled, setEnabled] = useState(task?.enabled ?? true);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
@@ -200,6 +219,9 @@ export function AutomationTaskEditor({
 					prompt: prompt.trim(),
 					model: selectedModel ?? { provider: "", modelId: "" },
 					thinkingLevel: thinkingLevel.trim(),
+					// 与 model/thinkingLevel 同理：用空串表示「恢复默认（普通模式）」，
+					// 而不是省略键——省略会被主进程当成「保持原值」。
+					mode: (mode || "normal") as AutomationTaskMode,
 					enabled,
 					budget,
 				};
@@ -217,6 +239,8 @@ export function AutomationTaskEditor({
 					budget,
 					...(selectedModel ? { model: selectedModel } : {}),
 					...(thinkingLevel.trim() ? { thinkingLevel: thinkingLevel.trim() } : {}),
+					// 普通模式是缺省，不必写进创建入参；store 侧也只持久化非 normal。
+					...(mode && mode !== "normal" ? { mode } : {}),
 				};
 				await desktopApi.automation.createTask(input);
 			}
@@ -345,6 +369,35 @@ export function AutomationTaskEditor({
 						</SelectContent>
 					</Select>
 				</div>
+			</div>
+
+			<div className="flex flex-col gap-1.5">
+				<Label htmlFor="task-mode" className="text-xs font-medium">
+					{t("automation.mode")}
+				</Label>
+				<Select
+					value={mode || THINKING_INHERIT}
+					onValueChange={(value) => {
+						setMode(value === THINKING_INHERIT ? "" : (value as AutomationTaskMode));
+					}}
+				>
+					<SelectTrigger id="task-mode" className="h-8 text-xs">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value={THINKING_INHERIT} className="text-xs">
+							{t("automation.modeInherit")}
+						</SelectItem>
+						{TASK_MODE_OPTIONS.map((option) => (
+							<SelectItem key={option.value} value={option.value} className="text-xs">
+								{t(option.labelKey)}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<p className="text-[11px] leading-snug text-muted-foreground">
+					{t("automation.modeHint")}
+				</p>
 			</div>
 
 			<div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-bg-panel/40 p-3">

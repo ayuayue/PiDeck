@@ -182,6 +182,20 @@ export function AutomationTaskList({
 												{task.schedule.expression}
 											</span>
 										)}
+										{/* 非普通工作模式才打标：普通是缺省，标出来只会加噪音 */}
+										{task.mode === "plan" && (
+											<Badge
+												variant="outline"
+												className="h-5 px-1.5 text-[11px] font-normal"
+											>
+												{t("app.composerModePlan")}
+											</Badge>
+										)}
+										{task.mode === "goal" && (
+											<Badge className="h-5 border-amber-500/30 bg-amber-500/15 px-1.5 text-[11px] font-normal text-amber-600">
+												{t("app.composerModeGoal")}
+											</Badge>
+										)}
 										{isRunning && (
 											<Badge className="h-5 bg-sky-500/15 text-sky-500 border-sky-500/30 px-1.5 text-[11px] font-normal animate-pulse">
 												{t("automation.running")}
