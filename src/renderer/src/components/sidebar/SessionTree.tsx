@@ -1,13 +1,17 @@
 import { Fragment, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
+import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
 import { sessionRecordToSummary } from "../../atoms";
+import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { t } from "../../i18n";
 import { formatRelativeTime } from "../../utils/relativeTime";
+import { hasPendingAskForSession } from "../../utils/askUi";
 import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarController } from "../../hooks/useSidebarController";
 import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
+import { PendingAskBadge } from "./PendingAskBadge";
 import { SessionBackendMark, SessionSourceBadge } from "../session/SessionSourceBadge";
 import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
@@ -98,6 +102,9 @@ export function SessionTree(props: {
 }) {
   const filter = props.controller.sourceFilterFor(props.project.id);
   const search = props.controller.search.trim();
+  // 待确认 ask 以**会话**为粒度展示：同一项目下可能多个会话各自在等回答，
+  // 只挂项目/标题栏徽章会分不清是哪一个会话（用户反馈）。
+  const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
   const allSummaries = props.sessions.flatMap((session) => {
     const summary = sessionRecordToSummary(session);
     return summary ? [summary] : [];
@@ -314,6 +321,8 @@ export function SessionTree(props: {
                   className="font-medium"
                 />
                 <SessionBackendMark backend={child.agent.backend} />
+                {/* 待确认 ask：运行中 Agent 行同样按会话粒度标记，避免多会话同时等待时分不清。 */}
+                {hasPendingAskForSession(agentSession?.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
                 {child.agent.noSession && <span className="anonymous-indicator" title={t("app.anonymousChat")}><HatGlasses size={11} aria-hidden="true" /></span>}
                 {renderToggle(groupKey, childCount)}
               </div></div>
@@ -384,6 +393,10 @@ export function SessionTree(props: {
                 className={cn(runtime ? "font-medium" : "font-normal text-muted-foreground/90")}
               />
               {(child.session.backend === "dsh" || child.session.backend === "imagegen") && <SessionBackendMark backend={child.session.backend} />}
+              {/* 待确认 ask：挂在会话行本身，用户一眼看出是哪个会话在等回答
+                  （项目/标题栏徽章只给汇总数，多会话同时等待时分不清）。
+                  与 ActiveSessionsTree、项目行共用 PendingAskBadge，语义与视觉一致。 */}
+              {hasPendingAskForSession(child.session.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
               {/* 生图角标：imagegen 后端会话的徽标已含生图标识，此处仅对遗留 pi 后端含生图消息的会话补图标 */}
               {child.session.backend !== "imagegen" && child.session.hasImageGen && (
                 <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -458,6 +471,8 @@ export function SessionTree(props: {
                   {/* 草稿会话：选中背景仍保留，聚焦行也允许 hover 查看完整标题 */}
                   <TitleScrollText text={session.title} className="font-medium" />
                   <SessionBackendMark backend={session.backend} />
+                  {/* 草稿会话同样按会话粒度标记待确认 ask。 */}
+                  {hasPendingAskForSession(session.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
                 </div></div>
               </button>
             </SessionHoverCard>
