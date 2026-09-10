@@ -38,11 +38,12 @@ jobs:
           ATOMGIT_REPO: ayuayue/PiDeck
         run: |
           set -euo pipefail
-          # access_token 走 Authorization 头，避免出现在 URL/日志中
+          # AtomGit v5 接口认证走 access_token query 参数（官方文档要求）；
+          # Authorization: Bearer 头不被解析，会导致 404 "Project not found:null"。
+          # GitHub Actions 会自动在日志中掩码 secrets 值，token 不会明文泄漏。
           body=$(mktemp)
           code=$(curl -sS -o "$body" -w '%{http_code}' -X PUT \
-            "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/sync_repo" \
-            -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
+            "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/sync_repo?access_token=${ATOMGIT_TOKEN}" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
             -d '{}')
@@ -64,6 +65,5 @@ jobs:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
           ATOMGIT_REPO: ayuayue/PiDeck
         run: |
-          curl -sS "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/repo_remote_mirror" \
-            -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
+          curl -sS "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/repo_remote_mirror?access_token=${ATOMGIT_TOKEN}" \
             -H "Accept: application/json"
