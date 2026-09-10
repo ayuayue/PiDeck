@@ -19,6 +19,15 @@ export interface DrawerProps {
   ariaLabel?: string;
   /** Close when the backdrop is clicked. Default true. */
   dismissable?: boolean;
+  /**
+   * PiDeck 扩展（beui 官方无此 prop）：透传到背板与面板的共同包装层。
+   *
+   * 背板与面板是同级的两个 fixed 兄弟节点，调用方需要一个能把「整张抽屉」
+   * 一次性标记出来的挂载点 —— 例如公告详情抽屉要挂 data-* 属性，让外层
+   * Radix Dialog 在 closest() 判定中识别「这次外部交互来自抽屉」，从而只关
+   * 抽屉、不连带关掉列表弹窗。缺省不渲染包装层，保持官方 DOM 结构不变。
+   */
+  rootAttributes?: Record<string, string>;
 }
 
 export function Drawer({
@@ -30,6 +39,7 @@ export function Drawer({
   backdropClassName,
   ariaLabel,
   dismissable = true,
+  rootAttributes,
 }: DrawerProps) {
   const reduce = useReducedMotion();
 
@@ -54,6 +64,11 @@ export function Drawer({
   // surface, so neither is a transparent edge-spanning layer. Both hang off
   // `PresenceGate`, so interaction releases in the same commit that starts the
   // exit rather than when it ends. See tests/fixed-overlay-edge-sampling.test.tsx.
+  //
+  // `rootAttributes` goes on both siblings rather than on a shared wrapper: a
+  // wrapper would itself be an edge-spanning transparent layer (exactly what
+  // this structure avoids) and would break the AnimatePresence direct-child
+  // contract each layer relies on.
   return (
     <AnimatePresence>
       {open ? (
@@ -68,6 +83,7 @@ export function Drawer({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25, ease: EASE_OUT }}
+              {...rootAttributes}
               {...gate}
               className={cn(
                 "fixed inset-0 z-50 h-full w-full cursor-default bg-black/40 backdrop-blur-sm",
@@ -90,6 +106,7 @@ export function Drawer({
               transition={
                 reduce ? { duration: 0.2, ease: EASE_OUT } : SPRING_PANEL
               }
+              {...rootAttributes}
               {...gate}
               className={cn(
                 "fixed inset-y-0 z-50 flex w-80 max-w-[85vw] flex-col bg-background shadow-2xl",

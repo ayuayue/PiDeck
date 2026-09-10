@@ -19,7 +19,7 @@
  *   弹出浏览器面板打断浏览；
  * - 手动刷新失败静默提示（showNotice），不打断浏览。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -49,6 +49,31 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { Drawer } from "../motion/drawer";
 import type { AnnouncementItem } from "../../../../shared/types/announcement";
+
+/**
+ * 详情抽屉根节点标记：抽屉 portal 到 body，与列表 Dialog 的 Radix portal 是兄弟节点，
+ * 因此抽屉内（含背板）的任何指针交互在 Radix 眼里都属于「Dialog 外部」。
+ * 用 DOM 标记而非「抽屉是否打开」的 React 状态来识别这些交互，是因为 Radix modal
+ * 把 POINTER_DOWN_OUTSIDE 延迟到 click 才派发：点抽屉 X 时先跑 React onClick（关抽屉）
+ * → state 已提交 → 延迟的 click 才到达 Dialog，此刻任何基于 state/ref 的守卫都读到
+ * 「已关闭」，弹窗被连带关闭。DOM 属性在抽屉退场动画期间仍挂着，识别稳定。
+ */
+const DETAIL_DRAWER_ATTR = "data-announcement-detail-drawer";
+
+/**
+ * 判定外部交互是否来自公告详情抽屉（含背板）。命中后调用方应 preventDefault，
+ * 让这次 dismiss 只作用于抽屉，列表弹窗保持打开。
+ */
+function isOutsideInteractionFromDetailDrawer(event: {
+	target: EventTarget | null;
+	detail?: { originalEvent?: Event };
+}): boolean {
+	const target = event.detail?.originalEvent?.target ?? event.target;
+	return (
+		target instanceof Element &&
+		Boolean(target.closest(`[${DETAIL_DRAWER_ATTR}]`))
+	);
+}
 
 /** 未读通知 + 使用指南的默认展示上限；超出走「展示更多公告」，不全量展开。 */
 const VISIBLE_LIMIT = 5;
@@ -164,6 +189,10 @@ function AnnouncementDetailDrawer(props: {
 			}}
 			side="right"
 			ariaLabel={t("announcements.title")}
+			// 抽屉 DOM 标记：列表 Dialog 靠它识别「这次外部交互来自详情抽屉」并拦截
+			// dismiss（详见 DETAIL_DRAWER_ATTR 注释）；背板与面板是两个固定兄弟节点，
+			// 标记挂到两者的共同祖先，closest() 才能同时命中
+			rootAttributes={{ [DETAIL_DRAWER_ATTR]: "" }}
 			// 用与 Dialog 同一体系的 --z-drawer(980) 覆盖 beui 默认 z-50（twMerge 同组去重）；
 			// 宽度同样覆盖默认 w-80
 			backdropClassName="z-[var(--z-drawer)]"
@@ -242,12 +271,8 @@ export function AnnouncementCenter() {
 	const [showAllActive, setShowAllActive] = useState(false);
 	// 已读通知区默认折叠成一行计数，只看一眼就用不着撑开长列表
 	const [showRead, setShowRead] = useState(false);
-	// 详情弹窗受控状态：null = 关闭；打开时与列表弹窗并存（列表在上层 Dialog）
+	// 详情抽屉受控状态：null = 关闭；打开时与列表弹窗并存（抽屉 z 层更高，压在弹窗上）
 	const [detailItem, setDetailItem] = useState<AnnouncementItem | null>(null);
-	// 抽屉生命周期的同步镜像：Radix modal 弹窗把外部点击的关闭延迟到 click 事件才派发
-	//（deferPointerDownOutside，见 dialog 源码），彼时抽屉已被关、state 已更新，靠
-	// state 守卫必输；必须用 ref，且解锁要延后到提交完成后（见下方 useEffect）
-	const detailOpenRef = useRef(false);
 	// 弹窗开关提升为 atom：toast「查看」按钮需要远程打开公告中心（单一 owner，见 announcement-atoms）
 	const open = useAtomValue(announcementCenterOpenAtom);
 	const setOpen = useSetAtom(announcementCenterOpenAtom);
@@ -276,19 +301,14 @@ export function AnnouncementCenter() {
 	// 打开详情视为已浏览（与打开列表弹窗语义一致，markAllRead 幂等可重复调用）
 	const viewDetail = useCallback(
 		(item: AnnouncementItem) => {
-			detailOpenRef.current = true; // 先上锁再开抽屉，避免状态提交前出现空窗
 			setDetailItem(item);
 			markAllRead();
 		},
 		[markAllRead],
 	);
-	// 关闭抽屉只改 state；ref 解锁必须晚于（提交后）——同一 click 事件里事件冒泡到
-	// Radix 的延迟派发点时需仍能拦到（见 DialogContent 的 onPointerDownOutside）
+	// 关闭抽屉只复位本抽屉状态；列表弹窗的存亡由 Dialog 自己管，
+	// 抽屉上的外部交互已在 DialogContent 的 outside 守卫里被识别并放行（见 DETAIL_DRAWER_ATTR）
 	const closeDetail = useCallback(() => setDetailItem(null), []);
-	// 提交完成后抽屉已进入退出动画（面板尚未销毁），此时放行弹窗的关闭路径才安全
-	useEffect(() => {
-		if (detailItem === null) detailOpenRef.current = false;
-	}, [detailItem]);
 
 	const items = state?.items ?? [];
 	const readSet = new Set(state?.readIds ?? []);
@@ -310,9 +330,6 @@ export function AnnouncementCenter() {
 		<Dialog
 			open={open}
 			onOpenChange={(next) => {
-				// 抽屉打开/退出期间，弹窗的所有关闭请求先由抽屉消化（Escape 先关抽屉，
-				// 外部点击落在抽屉背板上）；ref 同步可读，不依赖 state 提交时序
-				if (!next && detailOpenRef.current) return;
 				setOpen(next);
 				// 关闭时复位展开状态，下次打开回到默认折叠视图
 				if (!next) {
@@ -357,13 +374,18 @@ export function AnnouncementCenter() {
 			</Tooltip>
 			<DialogContent
 				onPointerDownOutside={(event) => {
-					// 源头拦截：抽屉打开期间的外部点击不应关弹窗。Radix modal 把 POINTER_DOWN_OUTSIDE
-					// 延迟到 click 派发（deferPointerDownOutside），此刻抽屉已先被关、onOpenChange 守卫
-					// 会读到过期状态；直接 preventDefault 从根上取消这次 dismiss
-					if (detailOpenRef.current) {
+					// 源头拦截：详情抽屉（含背板）上的交互只关抽屉，不关列表弹窗。
+					// 必须按 DOM 判定而非「抽屉是否打开」：Radix modal 把 POINTER_DOWN_OUTSIDE
+					// 延迟到 click 派发，点抽屉 X 时 React onClick 已先把抽屉关掉，此刻
+					// 任何 state/ref 守卫都读到「已关闭」，弹窗会被连带关掉。
+					if (isOutsideInteractionFromDetailDrawer(event)) {
 						event.preventDefault();
 						return;
 					}
+				}}
+				onInteractOutside={(event) => {
+					// Escape / 焦点移出等非指针交互走同一判定（Radix 两条路径都需拦）
+					if (isOutsideInteractionFromDetailDrawer(event)) event.preventDefault();
 				}}
 				className="flex max-h-[80vh] flex-col sm:max-w-2xl"
 			>

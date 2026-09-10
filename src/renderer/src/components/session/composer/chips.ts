@@ -25,20 +25,18 @@ export const CHIP_PREFIX: Record<ComposerChip["kind"], string> = {
 };
 
 /**
- * chip 的展示文本 —— 必须等于「用户发出去的那段原文」。
+ * chip 的展示文本。
  *
- * 展示层不允许派生/缩写：file 带 `@`、skill 带 `/`（wire token 就是 `/skill:名称`）、
- * session 带 `&`。之前对齐 Proma 时把前缀去掉、把路径缩成 basename，结果「看到的字」与
- * 「发出去的字」不一致（`/skill:cv-writer`→`cv-writer`、`@src/a.ts`→`@a.ts`），用户实测
- * 就是错误渲染。长度用 CSS 省略号 + title 兜，不靠改字符实现。
- * 唯一例外是 quote：raw 是 `#q<id>` 快照指针，展示用快照预览 label。
+ * 对齐 Proma：只有文件引用保留 `@`（用户敲进去的引用语法），`/`、`&`、`❝` 一律交给图标
+ * 表达，避免图标与字符双前缀；pi 的 `/skill:名称` 是 wire 细节，展示层只留技能名。
  */
 export function formatChipDisplayLabel(
 	kind: ComposerChip["kind"],
 	label: string,
 ): string {
-	if (kind === "quote") return label;
-	return `${CHIP_PREFIX[kind]}${label}`;
+	if (kind === "file") return `@${label}`;
+	if (kind === "skill") return label.replace(/^skill:/, "");
+	return label;
 }
 
 /**
@@ -55,6 +53,16 @@ export function stripChipDisplayPrefix(
 	if (kind === "file") return text.replace(/^@/, "");
 	if (kind === "skill") return text.replace(/^\/(?:skill:)?/, "");
 	return text;
+}
+
+/**
+ * 文件 chip 的展示文本：只显示文件名（对齐 Proma FilePathChip 的 `truncate max-w-[240px]`
+ * + tooltip 全路径），完整路径仍保留在 raw 里用于打开文件与悬浮查看。
+ */
+export function formatFileChipLabel(path: string): string {
+	const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+	const segments = normalized.split("/").filter(Boolean);
+	return segments.at(-1) ?? normalized;
 }
 
 /** raw 是否为目录引用（`@src/` 或 `@"my docs/"`）：据此换成文件夹图标。 */
@@ -248,9 +256,8 @@ export function parseRichInputChips(
 			const fullLabel = isDirectoryRef
 				? `${baseLabel.replace(/[/\\]+$/, "")}/`
 				: baseLabel;
-			// 展示即原文：label 与 raw 一致（仅规范化引号/目录尾斜杠），长路径靠 CSS
-			// 省略号 + title 兜，不靠截字符（截字符会让「看到的字」不等于「发出的字」）。
-			const label = fullLabel;
+			// 只展示文件名（Proma 同款），全路径仍在 raw 里，不影响偏移、打开或发送内容。
+			const label = formatFileChipLabel(fullLabel);
 			// 保留用户实际输入的 raw，不在解析阶段改写成 @"…"：原始 token 的
 			// 字符区间必须与 ProseMirror 的纯文本偏移一致，否则 atom 节点长度
 			// 与 caret 映射不一致，后续输入可能落到 chip 内部或把文字插入错误位置。
@@ -268,16 +275,19 @@ export function parseRichInputChips(
 		const start = m.index;
 		const captured = text.slice(start + 1);
 		let name = "";
-		// 会话引用一律白名单制：未传白名单（气泡/时间线展示）时不成 chip。
-		// 曾经的「回退首词」把散文里的 `&` 也当引用：用户实测 `AT&T 的季度财报`
-		// 被渲染成 `AT⟦T⟧ 的季度财报`。真实会话引用在发送时已由 resolveSessionReferences
-		// 展开为 <referenced_session> 块，展示走块折叠。
-		if (validSessionRefs === undefined) continue;
-		// Composer：传入 Set（可为 empty）= 严格白名单，未命中不成 chip。
-		for (const ref of validSessionRefs) {
-			if (captured === ref || captured.startsWith(`${ref} `) || captured.startsWith(`${ref}\n`)) {
-				if (ref.length > name.length) name = ref;
+		if (validSessionRefs !== undefined) {
+			// Composer：传入 Set（可为 empty）= 严格白名单，未命中不成 chip。
+			for (const ref of validSessionRefs) {
+				if (captured === ref || captured.startsWith(`${ref} `) || captured.startsWith(`${ref}\n`)) {
+					if (ref.length > name.length) name = ref;
+				}
 			}
+			if (!name) {
+				continue;
+			}
+		} else {
+			// 时间线等未传白名单：回退首词（仅展示）
+			name = captured.split(/\s/)[0] ?? "";
 		}
 		if (!name) continue;
 		const raw = `&${name}`;

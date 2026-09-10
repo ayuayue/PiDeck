@@ -16,54 +16,20 @@ const {
 	parseRichInputChips,
 	formatFilePathRef,
 	unwrapFileChipPath,
+	formatFileChipLabel,
 	isDirectoryFileChip,
 	formatChipDisplayLabel,
 	stripChipDisplayPrefix,
 	extractPastedPath,
 } = loadChips();
 
-test("formatChipDisplayLabel reproduces the original text (prefixes kept)", () => {
-	// 展示即原文：file/skill/session 都要把用户输入的前缀拼回去，
-	// 否则气泡里看到的字与发出去的字不一致（用户实测「错误渲染」）。
-	assert.equal(formatChipDisplayLabel("file", "src/a.ts"), "@src/a.ts");
-	assert.equal(formatChipDisplayLabel("skill", "skill:review"), "/skill:review");
-	assert.equal(formatChipDisplayLabel("session", "会话A"), "&会话A");
-	// quote 例外：raw 是 #q<id> 快照指针，展示用快照预览
+test("formatChipDisplayLabel keeps only the @ prefix and strips the pi skill wire prefix", () => {
+	assert.equal(formatChipDisplayLabel("file", "a.ts"), "@a.ts");
+	// 对齐 Proma：/ 与 & 由图标表达，不再拼字符前缀；skill 的 skill: 是 wire 细节
+	assert.equal(formatChipDisplayLabel("skill", "skill:review"), "review");
+	assert.equal(formatChipDisplayLabel("skill", "review"), "review");
+	assert.equal(formatChipDisplayLabel("session", "会话A"), "会话A");
 	assert.equal(formatChipDisplayLabel("quote", "号已更新为 0.15.11…"), "号已更新为 0.15.11…");
-});
-
-/**
- * 展示即原文（回归）：chip 只允许「加壳」，不得改写字符。
- * 用户实测的五类错误渲染都在这里锁住：`/skill:` 与 `/` 前缀被吞、路径缩成 basename、
- * 散文里的 `&` 被当成会话引用（`AT&T 的季度财报` → `AT⟦T⟧ 的季度财报`）。
- */
-test("rendered chip text reproduces the original message verbatim", () => {
-	const samples = [
-		"请用 /skill:cv-writer 写一份项目经历",
-		"执行 /permit 然后继续",
-		"A & B 的关系是什么",
-		"AT&T 的季度财报",
-		"读取 &skill 的内容",
-		"看下 @src/a.ts 和 @unknown.txt",
-		"1/2 + 3/4 等于多少",
-		"/usr/bin/node 找不到",
-		"C# 与 F# 的区别",
-		"profit & loss",
-	];
-	const files = new Set(["src/a.ts"]);
-	const cmds = new Set(["compact", "permit"]);
-	for (const sample of samples) {
-		const chips = parseRichInputChips(sample, cmds, files);
-		const parts = [];
-		let cursor = 0;
-		for (const chip of chips) {
-			if (chip.start > cursor) parts.push(sample.slice(cursor, chip.start));
-			parts.push(formatChipDisplayLabel(chip.kind, chip.label));
-			cursor = chip.end;
-		}
-		if (cursor < sample.length) parts.push(sample.slice(cursor));
-		assert.equal(parts.join(""), sample, `渲染结果必须等于发送文本：${sample}`);
-	}
 });
 
 test("stripChipDisplayPrefix is kind-aware and never eats label-leading / & ❝", () => {
@@ -77,6 +43,12 @@ test("stripChipDisplayPrefix is kind-aware and never eats label-leading / & ❝"
 	assert.equal(stripChipDisplayPrefix("quote", "❝ 开头的内容"), "❝ 开头的内容");
 	assert.equal(stripChipDisplayPrefix("session", "&alpha"), "&alpha");
 	assert.equal(stripChipDisplayPrefix("file", "no-prefix.ts"), "no-prefix.ts");
+});
+
+test("formatFileChipLabel shows the file name only, full path stays in raw/title", () => {
+	assert.equal(formatFileChipLabel("src/session/SurfaceComponents.tsx"), "SurfaceComponents.tsx");
+	assert.equal(formatFileChipLabel("C:\\Users\\me\\a.png"), "a.png");
+	assert.equal(formatFileChipLabel("C:/Program Files/"), "Program Files");
 });
 
 test("isDirectoryFileChip distinguishes @dir/ and @\"dir with space/\"", () => {
@@ -144,17 +116,10 @@ test("session chip with empty whitelist creates no session chips", () => {
 	assert.equal(chips.filter((c) => c.kind === "session").length, 0);
 });
 
-test("session chips require a whitelist; prose & is never chipped", () => {
-	// 回归（用户实测）：气泡侧不传 validSessionRefs，曾经的「回退首词」把散文里的 &
-	// 当成会话引用 —— `AT&T 的季度财报` 被渲染成 `AT⟦T⟧ 的季度财报`。
-	assertJsonEqual(parseRichInputChips("see &alpha next"), []);
+test("session chip without whitelist falls back to first word for timeline display", () => {
+	const chips = parseRichInputChips("see &alpha next");
 	assertJsonEqual(
-		parseRichInputChips("AT&T 的季度财报").map((c) => c.raw),
-		[],
-	);
-	// 白名单命中仍要成 chip（composer 侧行为不变）
-	assertJsonEqual(
-		parseRichInputChips("see &alpha next", undefined, undefined, new Set(["alpha"])).map((c) => c.raw),
+		chips.filter((c) => c.kind === "session").map((c) => c.raw),
 		["&alpha"],
 	);
 });
@@ -176,22 +141,22 @@ test("unquoted absolute path with spaces is extended into one file chip", () => 
 	const chips = parseRichInputChips(`@${path}`);
 	assert.equal(chips.length, 1);
 	assert.equal(chips[0].kind, "file");
-	// raw 是原始发送/打开路径，不能因视觉截断而改变；label 是同一路径（展示时拼回 @）
+	// raw 是原始发送/打开路径，不能因视觉截断而改变；展示只给文件名（Proma 同款）
 	assert.equal(chips[0].raw, `@${path}`);
-	assert.equal(chips[0].label, path);
+	assert.equal(chips[0].label, "455f949b57b937a5491cbb0a6f7bd07a.png");
 });
 
 test("unquoted spaced absolute path stops before following text and URLs", () => {
 	const withText = parseRichInputChips("@C:/Program Files/nodejs 帮我看看");
 	assertJsonEqual(
 		withText.map((c) => ({ raw: c.raw, label: c.label })),
-		[{ raw: "@C:/Program Files/nodejs", label: "C:/Program Files/nodejs" }],
+		[{ raw: "@C:/Program Files/nodejs", label: "nodejs" }],
 	);
 	// 延伸不跨过 URL：https:// 是正文，不是路径的一部分
 	const withUrl = parseRichInputChips("@C:/foo https://x.com/a");
 	assertJsonEqual(
 		withUrl.map((c) => ({ raw: c.raw, label: c.label })),
-		[{ raw: "@C:/foo", label: "C:/foo" }],
+		[{ raw: "@C:/foo", label: "foo" }],
 	);
 });
 
@@ -202,14 +167,14 @@ test("unquoted spaced absolute path supports backslashes and dir suffix", () => 
 		[
 			{
 				raw: "@C:\\Users\\Tencent Files\\a.png",
-				label: "C:/Users/Tencent Files/a.png",
+				label: "a.png",
 			},
 		],
 	);
 	const dir = parseRichInputChips("@C:/Program Files/");
 	assertJsonEqual(
 		dir.map((c) => ({ raw: c.raw, label: c.label })),
-		[{ raw: "@C:/Program Files/", label: "C:/Program Files/" }],
+		[{ raw: "@C:/Program Files/", label: "Program Files" }],
 	);
 });
 
@@ -217,7 +182,7 @@ test("POSIX absolute path with spaces is extended", () => {
 	const chips = parseRichInputChips("@/Users/me/My Documents/a.txt");
 	assertJsonEqual(
 		chips.map((c) => ({ raw: c.raw, label: c.label })),
-		[{ raw: "@/Users/me/My Documents/a.txt", label: "/Users/me/My Documents/a.txt" }],
+		[{ raw: "@/Users/me/My Documents/a.txt", label: "a.txt" }],
 	);
 });
 
@@ -232,7 +197,7 @@ test("space-free absolute path keeps raw unquoted", () => {
 	const chips = parseRichInputChips("@C:/foo/bar.txt");
 	assertJsonEqual(
 		chips.map((c) => ({ raw: c.raw, label: c.label })),
-		[{ raw: "@C:/foo/bar.txt", label: "C:/foo/bar.txt" }],
+		[{ raw: "@C:/foo/bar.txt", label: "bar.txt" }],
 	);
 });
 
