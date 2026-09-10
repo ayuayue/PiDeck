@@ -1,12 +1,16 @@
-name: Sync AtomGit Mirror
+name: Sync AtomGit Repo
 
-# AtomGit 拉取镜像默认一天自动同步一次；本 workflow 在每次 push 后即时触发镜像同步，
-# 并保留每小时兜底（对不常提交的时期保底同步频率）。
+# 将 GitHub 仓库的分支与 Tag 直推到 AtomGit（push 直推方案）。
 #
-# 原理：调用 AtomGit OpenAPI 触发镜像仓库立即从源仓库拉取（等价于镜像设置页的"更新"操作）：
-#   PUT /api/v5/repos/:owner/:repo/sync_repo      —— 触发同步（不传 branch 则更新所有分支）
-#   GET /api/v5/repos/:owner/:repo/repo_remote_mirror —— 查询镜像状态（上次成功时间/失败次数）
-# 文档：https://docs.atomgit.com/docs/apis/put-api-v-5-repos-owner-repo-sync-repo/
+# 背景：曾尝试调用 AtomGit OpenAPI 触发镜像仓拉取同步（PUT sync_repo），
+# 但该接口是 Fork 仓同步专用，对拉取镜像仓返回 404 "Project not found:null"，
+# 且 AtomGit 没有公开的「触发拉取镜像立即同步」API，故改为 git push 直推。
+#
+# 触发：每次 push 后即时同步，并保留每小时整点兜底（覆盖 GitHub 定时任务
+# 高峰期延迟，以及 AtomGit 侧被手工改动后的强制回正）。
+#
+# 注意：要求 AtomGit 侧 ayuayue/PiDeck 仓库可写。若之前在 AtomGit 配置过
+# 「拉取镜像」，需先在镜像设置中关闭/删除镜像配置，否则 push 会被只读策略拒绝。
 
 on:
   push:
@@ -22,48 +26,36 @@ permissions:
 
 # push 高频提交时只保留最新一次同步，避免排队堆积
 concurrency:
-  group: sync-atomgit-mirror
+  group: sync-atomgit-repo
   cancel-in-progress: true
 
 jobs:
-  trigger-mirror-sync:
-    name: Trigger AtomGit mirror sync
+  push-to-atomgit:
+    name: Push branches and tags to AtomGit
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
-      - name: Trigger mirror sync (sync_repo)
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch all tags
+        run: git fetch --force --tags origin
+
+      - name: Push branches and tags to AtomGit
         env:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
           ATOMGIT_REPO: ayuayue/PiDeck
         run: |
           set -euo pipefail
-          # AtomGit v5 接口认证走 access_token query 参数（官方文档要求）；
-          # Authorization: Bearer 头不被解析，会导致 404 "Project not found:null"。
-          # GitHub Actions 会自动在日志中掩码 secrets 值，token 不会明文泄漏。
-          body=$(mktemp)
-          code=$(curl -sS -o "$body" -w '%{http_code}' -X PUT \
-            "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/sync_repo?access_token=${ATOMGIT_TOKEN}" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json" \
-            -d '{}')
-          echo "HTTP ${code}"
-          cat "$body"; echo
-          if [ "$code" != "200" ]; then
-            echo "::error::sync_repo 调用失败（HTTP ${code}）。若提示接口对镜像仓不生效，需改用 push 直推方案"
-            exit 1
-          fi
-          # 响应体为 {"repo_sync_result":bool,"repo_sync_message":str}，结果为 false 视为失败
-          if grep -q '"repo_sync_result":false' "$body"; then
-            echo "::error::镜像同步未成功：$(cat "$body")（常见原因：源/目标分支已分叉，可在镜像设置中开启 pull-f 或清理分叉提交）"
-            exit 1
-          fi
-
-      - name: Check mirror status (repo_remote_mirror)
-        # 打印镜像最近同步状态，便于在 Actions 日志里直接核对
-        env:
-          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
-          ATOMGIT_REPO: ayuayue/PiDeck
-        run: |
-          curl -sS "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/repo_remote_mirror?access_token=${ATOMGIT_TOKEN}" \
-            -H "Accept: application/json"
+          # AtomGit git-over-https 认证：用户名 + token 作为密码。
+          # GitHub Actions 会自动掩码 secrets 值，token 不会明文出现在日志中。
+          git remote add atomgit "https://ayuayue:${ATOMGIT_TOKEN}@atomgit.com/${ATOMGIT_REPO}.git"
+          # --force：GitHub 是唯一事实源，AtomGit 侧任何本地改动都被覆盖；
+          # --prune：GitHub 上已删除的分支/Tag 同步从 AtomGit 删除。
+          git push --force --prune atomgit "refs/remotes/origin/*:refs/heads/*"
+          git push --force atomgit "refs/tags/*:refs/tags/*"
+          echo "✅ 分支与 Tag 已直推到 AtomGit"
