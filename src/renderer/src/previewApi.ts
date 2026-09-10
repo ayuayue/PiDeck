@@ -923,6 +923,16 @@ export function createPreviewApi(): PiDesktopApi {
 				skills: [],
 			}),
 			openExternal: async () => undefined,
+			// 浏览器预览态无主进程：直接返回失败载荷，UI 自动走「在浏览器打开」降级。
+			getChangelog: async () => ({
+				markdown: null,
+				source: null,
+				versionCount: 0,
+				pageUrl: "https://atomgit.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md",
+				fetchedAt: null,
+				fromCache: false,
+				stale: false,
+			}),
 			restart: async () => undefined,
 			quit: async () => undefined,
 			openDataDir: async () => ({ ok: true }),

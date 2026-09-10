@@ -23,6 +23,16 @@ export const RELEASES_LATEST_DOWNLOAD_PATH = "/releases/latest/download";
 /** AtomGit 托管根域名。 */
 export const ATOMGIT_HOST = "https://atomgit.com";
 
+/**
+ * AtomGit OpenAPI 根域名（注意与托管域名不同：api.atomgit.com）。
+ *
+ * 匿名 `/raw/` 路径已被 GitCode 前端应用接管（返回 SPA HTML 壳 + 易盾验证码 SDK），
+ * 程序化取文件内容必须走官方开放接口：
+ * `GET {ATOMGIT_API_HOST}/api/v5/repos/:owner/:repo/contents/:path?ref=<branch>`
+ * 返回 JSON（content 为 base64），匿名可读公开仓库（实测 5 连发均 ~0.4s 无限速）。
+ */
+export const ATOMGIT_API_HOST = "https://api.atomgit.com";
+
 /** AtomGit Release 仓库根路径，例如 `https://atomgit.com/ayuayue/PiDeck`。 */
 export function atomGitReleasesBase(): string {
   return `${ATOMGIT_HOST}/${UPDATE_REPO_OWNER}/${UPDATE_REPO}`;

@@ -374,6 +374,8 @@ export const ipcChannels = {
 	/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
 	appFeedbackProjectContext: "app:feedback-project-context",
 	appOpenExternal: "app:open-external",
+	/** 拉取 CHANGELOG 正文（atomgit 优先，GitHub 回退；失败时 markdown=null 由 UI 降级打开浏览器）。 */
+	appGetChangelog: "app:get-changelog",
 	appOpenInBrowser: "app:open-in-browser",
 	appRestart: "app:restart",
 	/** 真正退出应用（置 isQuitting 后 app.quit）。异常页不能走 window-close：closeToTray 会把关窗吞成隐藏。 */

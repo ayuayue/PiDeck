@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui-shadcn/button"
+import { POPOVER_DISMISS_EXEMPT_ATTR } from "@/components/motion/popover-morph"
 import { isOutsideInteractionFromToast } from "./toastOutsideGuard"
 
 function Dialog({
@@ -56,6 +57,13 @@ function DialogContent({
   size = "default",
   /** 内容 stagger：大弹框（设置/项目管理等）开启，子元素按序轻微级联入场 */
   stagger = false,
+  /**
+   * 豁免外层浮层的外部点击关闭：在 portal 根上挂 data-popover-dismiss-exempt，
+   * 供 MorphPopover 一类「按 root/contentRef 判内外」的浮层跳过这次外点判定。
+   * 用于「浮层内入口打开的弹窗」——弹窗 portal 到 body，与浮层是兄弟节点，
+   * 不标记就会被误判成点了浮层外部。见 motion/popover-morph.tsx 同名常量。
+   */
+  dismissExemptOnOutside = false,
   onPointerDownOutside,
   onInteractOutside,
   ...props
@@ -64,9 +72,15 @@ function DialogContent({
   /** 尺寸变体：xl 用于全尺寸工作台弹窗（如设置/项目管理，1300×850） */
   size?: "default" | "xl"
   stagger?: boolean
+  dismissExemptOnOutside?: boolean
 }) {
   return (
-    <DialogPortal data-slot="dialog-portal">
+    <DialogPortal
+      data-slot="dialog-portal"
+      {...(dismissExemptOnOutside
+        ? { [POPOVER_DISMISS_EXEMPT_ATTR]: "" }
+        : {})}
+    >
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"

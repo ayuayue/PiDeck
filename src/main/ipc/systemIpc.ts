@@ -7,6 +7,8 @@ import { app, ipcMain, shell } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
 import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
+import { ChangelogService, type ChangelogLanguage } from "../update/ChangelogService";
+import { normalizeUpdateSource } from "../update/updateSources";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import { DSH_BUNDLED_RUNTIME_DIRNAME, readBundledRuntime, readDeclaredDshVersion } from "../dsh/runtime/DshRuntimeManager";
 import { resolveAppTimes } from "../utils/appInfoTimes";
@@ -19,6 +21,7 @@ import type {
 	AppLogQuery,
 	AppSettings,
 	AvailableModel,
+	ChangelogPayload,
 	ModelListReport,
 	SessionCommandResult,
 	SessionRuntimeTarget,
@@ -1037,6 +1040,68 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.appOpenExternal, async (_event, url: string, forceSystem?: boolean) => {
 		await doOpenExternalUrl(url, forceSystem);
 	});
+
+	/**
+	 * 拉取更新日志正文（「关于」弹框与更新卡片两处共用）。
+	 *
+	 * 入参 language 只做白名单收窄：渲染层来的数据一律不可信，非法值按中文处理。
+	 * 失败（全部源挂掉/内容校验不过）不抛错，返回 markdown=null + pageUrl，由 UI
+	 * 降级为「在浏览器打开」——更新日志拿不到不该打断用户，更不该弹错误。
+	 */
+	ipcMain.handle(
+		ipcChannels.appGetChangelog,
+		async (_event, language?: unknown, forceRefresh?: unknown): Promise<ChangelogPayload> => {
+			const lang: ChangelogLanguage = language === "en" ? "en" : "zh";
+			const refresh = forceRefresh === true;
+			// 每次调用读最新更新源：用户可在设置里随时切换，服务实例需随之重建源顺序。
+			// 缓存目录挂 userData：TTL 内秒开零网络，网络失败时也能拿旧缓存兜底。
+			const service = new ChangelogService({
+				source: () => normalizeUpdateSource(settingsStore.get().updateSource),
+				cacheDir: join(app.getPath("userData"), "changelog-cache"),
+			});
+			// pageUrl 先算好：无论拉取成功与否，降级入口都要有地址可用。
+			const pageUrl = service.changelogPageUrl(lang);
+			try {
+				const result = await service.getChangelog(lang, { forceRefresh: refresh });
+				if (!result) {
+					void appLogger.info("changelog", "All sources failed and no cached copy exists", { lang });
+					return {
+						markdown: null,
+						source: null,
+						versionCount: 0,
+						pageUrl,
+						fetchedAt: null,
+						fromCache: false,
+						stale: false,
+					};
+				}
+				return {
+					markdown: result.markdown,
+					source: result.source,
+					versionCount: result.versionCount,
+					pageUrl,
+					fetchedAt: result.fetchedAt,
+					fromCache: result.fromCache,
+					stale: result.stale,
+				};
+			} catch (error) {
+				// getChangelog 内部已吞掉单源错误，走到这里属意外异常：只记日志，仍降级返回。
+				void appLogger.warn("changelog", "Failed to fetch changelog", {
+					lang,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return {
+					markdown: null,
+					source: null,
+					versionCount: 0,
+					pageUrl,
+					fetchedAt: null,
+					fromCache: false,
+					stale: false,
+				};
+			}
+		},
+	);
 
 	ipcMain.handle(ipcChannels.appRestart, async () => {
 		if (isQuitting) isQuitting.value = true;

@@ -1,4 +1,5 @@
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, ScrollText } from "lucide-react";
+import { useState } from "react";
 import type { AppInfo } from "../../../../../shared/types";
 import type { UpdateSourceId } from "../../../../../shared/types/settings";
 import { t } from "../../../i18n";
@@ -7,6 +8,7 @@ import { useAtomValue } from "jotai";
 import { updateStatusAtom } from "../../../atoms/update-atoms";
 import { Button } from "../../ui-shadcn/button";
 import { Progress } from "../../ui-shadcn/progress";
+import { ChangelogDialog } from "./ChangelogDialog";
 
 type AppUpdateCardProps = {
 	/** 当前 PiDeck 版本（设置里显示 vX.Y.Z）。 */
@@ -56,6 +58,9 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 	const phase = download?.phase ?? "idle";
 	const autoDownload = updateStatus?.autoDownload !== false;
 	const isManualDelivery = updateStatus?.deliveryMode === "manual" || props.platform === "darwin";
+	// 「查看更新日志」弹窗受控状态：发现新版本时最需要知道「这版改了什么」，
+	// 这是用户的决策点，所以入口放在这里有更新提示的分支里，而不是只留在关于弹框。
+	const [changelogOpen, setChangelogOpen] = useState(false);
 
 	const openRelease = () => {
 		const releaseBaseUrl = props.releasesUrl.replace(/\/$/, "");
@@ -178,6 +183,10 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 						<Button variant="secondary" size="sm" onClick={props.onDownloadUpdate}>
 							{t("settings.updateDownloadNow")}
 						</Button>
+						<Button variant="ghost" size="sm" onClick={() => setChangelogOpen(true)}>
+							<ScrollText size={12} aria-hidden="true" />
+							{t("about.changelog")}
+						</Button>
 						<Button variant="ghost" size="sm" onClick={openRelease}>
 							{t("update.openRelease")}
 						</Button>
@@ -191,9 +200,15 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 					<p className="text-caption text-primary">
 						{t("settings.updateAvailable", { version: app.latestVersion ?? "" })}
 					</p>
-					<Button variant="ghost" size="sm" onClick={openRelease}>
-						{t("update.openRelease")}
-					</Button>
+					<div className="flex gap-2">
+						<Button variant="ghost" size="sm" onClick={() => setChangelogOpen(true)}>
+							<ScrollText size={12} aria-hidden="true" />
+							{t("about.changelog")}
+						</Button>
+						<Button variant="ghost" size="sm" onClick={openRelease}>
+							{t("update.openRelease")}
+						</Button>
+					</div>
 				</div>
 			)}
 
@@ -203,6 +218,8 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 					{t("settings.updateUpToDate")}
 				</p>
 			)}
+
+			<ChangelogDialog open={changelogOpen} onOpenChange={setChangelogOpen} />
 		</div>
 	);
 }

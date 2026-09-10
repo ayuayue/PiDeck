@@ -1338,6 +1338,14 @@ const api = {
 			) as Promise<FeedbackProjectContext>,
 		openExternal: (url: string, forceSystem?: boolean) =>
 			ipcRenderer.invoke(ipcChannels.appOpenExternal, url, forceSystem) as Promise<void>,
+		/** 拉取更新日志正文（带本地缓存）；markdown=null 时用 pageUrl 降级为浏览器打开。
+		 *  forceRefresh=true 跳过缓存 TTL 强制拉最新（「刷新」按钮）。 */
+		getChangelog: (language?: "zh" | "en", forceRefresh?: boolean) =>
+			ipcRenderer.invoke(
+				ipcChannels.appGetChangelog,
+				language,
+				forceRefresh,
+			) as Promise<import("../shared/types").ChangelogPayload>,
 		onOpenInBrowser: (callback: (url: string) => void) =>
 			subscribe(ipcChannels.appOpenInBrowser, callback),
 		restart: () => ipcRenderer.invoke(ipcChannels.appRestart) as Promise<void>,
