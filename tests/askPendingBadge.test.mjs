@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isPendingAskRequest, countPendingAsksForSessions } from "../src/renderer/src/utils/askUi.ts";
+import { isPendingAskRequest, countPendingAsksForSessions, hasPendingAskForSession } from "../src/renderer/src/utils/askUi.ts";
 
 test("isPendingAskRequest correctly identifies pending asks vs non-ask / completed requests", () => {
   // pending select
@@ -105,4 +105,26 @@ test("countPendingAsksForSessions counts total pending asks for given session ID
   // empty or no match
   assert.equal(countPendingAsksForSessions(["session-empty"], runtimeMap), 0);
   assert.equal(countPendingAsksForSessions([], runtimeMap), 0);
+});
+
+test("hasPendingAskForSession is the per-session counterpart used by the active-sessions list", () => {
+  const runtimeMap = {
+    "session-1": {
+      requests: {
+        "req-1": { status: "pending", request: { id: "req-1", method: "select", question: "Pick" } },
+      },
+    },
+    "session-2": {
+      requests: {
+        "req-2": { status: "completed", request: { id: "req-2", method: "confirm", question: "Done?" } },
+      },
+    },
+  };
+
+  assert.equal(hasPendingAskForSession("session-1", runtimeMap), true);
+  assert.equal(hasPendingAskForSession("session-2", runtimeMap), false);
+  // 未加载 runtime / 无往返记录 / 未绑定会话：一律不标记，避免活动页整列误点亮
+  assert.equal(hasPendingAskForSession("session-unknown", runtimeMap), false);
+  assert.equal(hasPendingAskForSession(undefined, runtimeMap), false);
+  assert.equal(hasPendingAskForSession("session-1", undefined), false);
 });

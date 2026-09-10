@@ -54,7 +54,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "npm run build:packages && npm run generate:pi-ai-catalog && npm run runtime:pack && npm run runtime:check && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
+    "build": "npm run build:packages && npm run generate:pi-ai-catalog && npm run runtime:pack && npm run runtime:check && npm run check:xueprompts && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
     "build:packages": "node scripts/build-local-packages.js",
     "build:fast": "npm run generate:pi-ai-catalog && electron-vite build",
     "runtime:pack": "node scripts/pack-dsh-runtime.mjs",
@@ -65,6 +65,7 @@
     "check:pi-ai-catalog": "node scripts/generate-pi-ai-catalog.mjs --check",
     "build:announcements": "node scripts/build-announcements.js",
     "check:announcements": "node scripts/build-announcements.js --check",
+    "check:xueprompts": "node scripts/check-xueprompts.mjs",
     "pack:dev": "node scripts/pack-dev.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",

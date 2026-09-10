@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, HelpCircle, Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Plus, RefreshCw } from "lucide-react";
 import type { DragEvent } from "react";
 import { useAtomValue } from "jotai";
 import type { Project, WorktreeEntry } from "../../../../shared/types";
@@ -13,7 +13,8 @@ import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { countPendingAsksForSessions } from "../../utils/askUi";
-import { Badge } from "../ui-shadcn/badge";
+import type { AskRequestEntry } from "../../utils/askUi";
+import { PendingAskBadge } from "./PendingAskBadge";
 import { Button } from "../ui-shadcn/button";
 import {
 	DropdownMenu,
@@ -58,6 +59,29 @@ function matchesProject(project: Project, search: string, controller: SidebarCon
   });
 }
 
+/**
+ * 统计某个项目（含其直属 worktree）下所有会话中待确认的 Ask 数量。
+ *
+ * 会话集合只能来自 catalog.sessionsByProject（懒加载，未加载的会话不参与统计），
+ * 所以项目行与 Chat 标题栏共用这一处汇总逻辑，避免两处各写一份导致口径漂移。
+ */
+function countProjectPendingAsks(
+  projectId: string,
+  controller: SidebarController,
+  sessionRuntimeUiById: Readonly<Record<string, { requests?: Record<string, AskRequestEntry> }>>,
+): number {
+  const relatedProjectIds = [
+    projectId,
+    ...controller.catalog.projects
+      .filter((candidate) => candidate.worktreeParentId === projectId)
+      .map((candidate) => candidate.id),
+  ];
+  const sessionIds = relatedProjectIds.flatMap(
+    (pid) => (controller.catalog.sessionsByProject[pid] ?? []).map((session) => session.id),
+  );
+  return countPendingAsksForSessions(sessionIds, sessionRuntimeUiById);
+}
+
 export function ProjectTree(props: {
   controller: SidebarController;
   actions: SidebarActions;
@@ -98,16 +122,7 @@ export function ProjectTree(props: {
         (agent) => agent.projectId === project.id && isLiveRuntimeStatus(agent.status),
       );
       // 统计该项目（及直属 worktree）所有会话中处于等待用户确认/回答的 Ask 数量
-      const relatedProjectIds = [
-        project.id,
-        ...props.controller.catalog.projects
-          .filter((candidate) => candidate.worktreeParentId === project.id)
-          .map((candidate) => candidate.id),
-      ];
-      const allProjectSessionIds = relatedProjectIds.flatMap(
-        (pid) => (props.controller.catalog.sessionsByProject[pid] ?? []).map((s) => s.id),
-      );
-      const pendingAskCount = countPendingAsksForSessions(allProjectSessionIds, sessionRuntimeUiById);
+      const pendingAskCount = countProjectPendingAsks(project.id, props.controller, sessionRuntimeUiById);
       // 运行态属于具体会话，而不是项目容器；项目行只负责导航，避免多个 Agent 同时运行时
       // 项目头像出现无法指向目标会话的聚合动画。
       return <div key={project.id} className={cn("project-group mb-1.5", project.worktreeEnabled && "worktree-enabled")}>
@@ -159,16 +174,7 @@ export function ProjectTree(props: {
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   <strong className={`min-w-0 truncate font-medium${project.missing ? " text-muted-foreground" : ""}`}>{projectDirectoryName}</strong>
                   {/* 待确认徽章：当项目下有会话等待用户输入/确认时醒目展示 */}
-                  {pendingAskCount > 0 && (
-                    <Badge
-                      variant="outline"
-                      className="h-4 shrink-0 gap-0.5 border-amber-500/40 bg-amber-500/15 px-1 py-0 text-[10px] font-medium leading-none text-amber-600 dark:text-amber-400"
-                      title={t("sidebar.pendingConfirmationHint", { count: String(pendingAskCount) })}
-                    >
-                      <HelpCircle className="size-2.5 shrink-0 animate-pulse" aria-hidden="true" />
-                      <span>{pendingAskCount > 1 ? t("sidebar.pendingConfirmationCount", { count: String(pendingAskCount) }) : t("sidebar.pendingConfirmation")}</span>
-                    </Badge>
-                  )}
+                  <PendingAskBadge count={pendingAskCount} />
                   {/* 折叠时项目行只剩名称，用黄色状态点提示该工作区仍有 Agent 进程在跑；
                       展开后子行自带状态点，不再重复提示。颜色与语义对齐 agent 行的 running 状态点（bg-warning）。 */}
                   {collapsed && hasLiveAgent && (
@@ -278,6 +284,9 @@ export function ProjectTree(props: {
   const chatSection = chatProjects.map((project) => {
     const collapsed = props.controller.isProjectCollapsed(project.id);
     const sessions = props.controller.catalog.sessionsByProject[project.id] ?? [];
+    // Chat 无独立的项目行，标题栏就是该项目的唯一身份入口，
+    // 因此待确认徽章必须挂在这里，否则 Chat 项目内的 ask 提问在侧栏完全不可见。
+    const pendingAskCount = countProjectPendingAsks(project.id, props.controller, sessionRuntimeUiById);
     return (
       <section key={project.id} className="mb-4" aria-label={t("app.chatProject")} role="treeitem" aria-expanded={!collapsed}>
         {/* 聊天标题栏：左侧「聊天」标题，右侧 = 「+ 新建会话」+ 折叠（高频操作外露）
@@ -291,7 +300,10 @@ export function ProjectTree(props: {
             void props.controller.openMenu({ kind: "project", projectId: project.id, x: event.clientX, y: event.clientY });
           }}
         >
-          <span className="text-caption font-medium text-muted-foreground">{t("app.sidebarChats")}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="text-caption font-medium text-muted-foreground">{t("app.sidebarChats")}</span>
+            <PendingAskBadge count={pendingAskCount} />
+          </span>
           <div className="flex items-center gap-0.5">
             <Button
               type="button"

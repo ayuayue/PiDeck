@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -90,6 +90,14 @@ test("全局 prompt 文件 symlink 不能越过 prompts 目录边界", async (t)
 				return;
 			}
 			throw error;
+		}
+		// Windows 上 symlinkSync 可能"报告成功"却不落盘（lstat 直接 ENOENT，常见于
+		// Temp 目录的 reparse point 受限或被安全软件拦截）。此时 linked 是一个普通的不存在
+		// 路径，边界用例失去意义：readContent 报 ENOENT（而非越界），writeContent 按"新建文件"
+		// 正常落盘。必须显式跳过，否则会得到与边界检查无关的假失败。
+		if (!existsSync(linked)) {
+			t.skip("symlinkSync did not materialize the link on this filesystem");
+			return;
 		}
 		const listed = await manager.list();
 		assert.equal(listed.templates.some((template) => template.name === "linked"), false);
