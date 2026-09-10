@@ -59,8 +59,8 @@ test("目录节点引用带尾斜杠（raw）且可解析为 file chip", () => {
   );
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0].kind, "file");
-  // 展示只给目录名（文件夹图标承担「目录」语义，对齐 Proma）
-  assert.equal(parsed[0].label, ".tmp");
+  // 展示即原文：label 保留目录尾斜杠（目录语义由文件夹图标 + 斜杠共同表达）
+  assert.equal(parsed[0].label, ".tmp/");
 });
 
 test("含空格的目录引用加引号、raw 保留尾斜杠", () => {
@@ -74,5 +74,5 @@ test("含空格的目录引用加引号、raw 保留尾斜杠", () => {
   const parsed = chips.parseRichInputChips(ref, undefined, new Set(["my docs"]));
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0].kind, "file");
-  assert.equal(parsed[0].label, "my docs");
+  assert.equal(parsed[0].label, "my docs/");
 });

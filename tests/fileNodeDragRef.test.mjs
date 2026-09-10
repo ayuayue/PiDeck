@@ -164,16 +164,16 @@ test("生成的引用文本可解析为 file chip", () => {
   const fileChips = parseRichInputChips("看下 @src/utils/a.ts", undefined, validFilePaths);
   assert.equal(fileChips.length, 1);
   assert.equal(fileChips[0].kind, "file");
-  // 展示只给文件名（对齐 Proma），完整路径留在 raw
+  // 展示即原文：label = 路径（raw 去掉 @），渲染时拼回 @ → 与发送文本一致
   assert.equal(fileChips[0].raw, "@src/utils/a.ts");
-  assert.equal(fileChips[0].label, "a.ts");
+  assert.equal(fileChips[0].label, "src/utils/a.ts");
 
   const dirChips = parseRichInputChips("@src/components/ 这个目录", undefined, validFilePaths);
   assert.equal(dirChips.length, 1);
   assert.equal(dirChips[0].kind, "file");
-  // raw 保留尾斜杠（目录语义/发送形态），label 只给目录名（对齐 Proma，目录靠文件夹图标区分）
+  // raw 与 label 都保留目录尾斜杠（目录语义/发送形态），目录另靠文件夹图标区分
   assert.equal(dirChips[0].raw, "@src/components/");
-  assert.equal(dirChips[0].label, "components");
+  assert.equal(dirChips[0].label, "src/components/");
 
   // 绝对路径绕过白名单（白名单为空也能识别）
   const absChips = parseRichInputChips("@C:\\proj\\x.ts", undefined, new Set());
@@ -185,5 +185,5 @@ test("生成的引用文本可解析为 file chip", () => {
   assert.equal(spacedChips.length, 1);
   assert.equal(spacedChips[0].kind, "file");
   assert.equal(spacedChips[0].raw, '@"my docs/"');
-  assert.equal(spacedChips[0].label, "my docs");
+  assert.equal(spacedChips[0].label, "my docs/");
 });
