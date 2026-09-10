@@ -134,9 +134,16 @@ export function SessionTree(props: {
     .sort((left, right) => right.updatedAt - left.updatedAt);
   const catalogLoading = props.controller.catalog.catalogLoadStateByProject[props.project.id]?.status === "loading";
   const canCollapseChildren = props.controller.hasExpandedChildren(props.project.id);
+  /** 完整文案（含数字），用于 aria-label / title 的无障碍与悬停提示。 */
   const showMoreLabel = props.nested
     ? t("app.worktreeShowMoreSessions", { count: display.hiddenChildCount })
     : t("app.projectShowMoreChildren", { count: display.hiddenChildCount });
+  /** 按钮内可见文字：非嵌套文案是「查看更多 {count}」，数字在句尾，
+   *  拆出来单独右对齐（与上方会话行的时间列对齐）；嵌套文案数字在句中，
+   *  拆开会出现「还有 个会话…」这种断句，故整体渲染。 */
+  const showMoreText = props.nested
+    ? showMoreLabel
+    : t("app.projectShowMoreChildren", { count: "" }).replace(/\s+$/, "");
   const collapseLabel = t("app.projectCollapseChildren");
   const hasRows = catalogLoading || draftSessions.length > 0 || display.visibleChildren.length > 0 || display.hiddenChildCount > 0;
   if (!hasRows) return null;
@@ -472,13 +479,17 @@ export function SessionTree(props: {
           {display.hiddenChildCount > 0 && (
             <Button
               variant="ghost" size="sm"
-              className={`h-auto min-w-0 w-auto flex-1 justify-start px-2 text-micro opacity-80 transition-opacity hover:opacity-100 ${props.nested ? "worktree-sessions-more" : "session-more-row"}`}
+              className={`session-more-btn h-auto min-w-0 w-auto flex-1 justify-start px-2 text-micro opacity-80 transition-opacity hover:opacity-100 ${props.nested ? "worktree-sessions-more" : "session-more-row"}`}
               aria-label={showMoreLabel}
               title={showMoreLabel}
               onClick={props.onShowMore ?? (() => props.controller.showMoreChildren(props.project.id))}
             >
               <ChevronDown size={12} aria-hidden="true" />
-              <span className="truncate">{showMoreLabel}</span>
+              <span className="truncate">{showMoreText}</span>
+              {/* 数字与上方会话行的相对时间同列右对齐（嵌套文案数字在句中，不拆）。 */}
+              {!props.nested && (
+                <span className="ml-auto shrink-0 pl-1.5 tabular-nums">{display.hiddenChildCount}</span>
+              )}
             </Button>
           )}
           {canCollapseChildren && (

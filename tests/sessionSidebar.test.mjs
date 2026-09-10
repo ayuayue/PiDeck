@@ -467,6 +467,26 @@ test("expanded children can be collapsed back via sidebar controller", () => {
   assert.match(en, /"app\.projectCollapseChildren": "Collapse"/);
 });
 
+test("show-more row renders the count separately and drops the trailing unit", () => {
+  const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+  const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
+  const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
+
+  // 文案不再带「个子项 / items」量词，数字单独成列右对齐，避免与行内时间列错位。
+  assert.match(zh, /"app\.projectShowMoreChildren": "查看更多 \{count\}"/);
+  assert.doesNotMatch(zh, /"app\.projectShowMoreChildren": "[^"]*个子项/);
+  assert.match(en, /"app\.projectShowMoreChildren": "Show \{count\} more"/);
+  assert.doesNotMatch(en, /"app\.projectShowMoreChildren": "[^"]*items/);
+
+  // 数字从文案中拆出，作为独立元素右对齐（ml-auto 需父级 flex，由 .session-more-btn 保证）。
+  assert.match(sessionTree, /className="ml-auto shrink-0 pl-1\.5 tabular-nums"/);
+  assert.match(sessionTree, /const showMoreText = props\.nested[\s\S]*?app\.projectShowMoreChildren/);
+  assert.match(sessionTree, /session-more-btn/);
+
+  // 嵌套文案（数字在句中）不拆数字，否则会出现「还有 个会话…」这种断句。
+  assert.match(sessionTree, /\{!props\.nested && \(/);
+});
+
 test("activity page keeps failed/stopped agents visible (error/closed)", () => {
   const activeTree = readFileSync(
     "src/renderer/src/components/sidebar/ActiveSessionsTree.tsx",
