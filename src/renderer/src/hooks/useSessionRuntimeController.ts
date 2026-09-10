@@ -14,6 +14,11 @@ import {
   sessionRuntimeUiBySessionIdAtomFamily,
 } from "../atoms/session-selectors";
 import { sessionSendStateByIdAtom } from "../atoms/composer-atoms";
+import {
+  resolveSessionRunState,
+  sessionRunCapabilities,
+  type SessionRunCapabilities,
+} from "../utils/sessionCommands";
 import { isUserFacingSessionStart } from "./useSessionTimelineController";
 import type { QueuedPrompt } from "./useQueuedPrompt";
 import { t } from "../i18n";
@@ -56,8 +61,8 @@ export interface SessionRuntimeController {
   isAgentBusy: boolean;
   currentSessionLiveAgentId: string | undefined;
   canMutateActiveMessages: boolean;
-  canStopSession: boolean;
-  canRestartSession: boolean;
+  /** 全状态运行控制能力（与 Tab 下拉/侧栏菜单同源） */
+  runCapabilities: SessionRunCapabilities;
   sessionDuration: number | undefined;
   isRestartingThisAgent: boolean;
   sessionHasProject: boolean;
@@ -184,23 +189,19 @@ export function useSessionRuntimeController(
 
   // ── SessionView shortcuts ──
 
-  // 停止对已启动的 Agent 始终可用：running=执行中 / idle=空闲待命（进程仍在，
-  // 停止可释放资源）；starting（启动中）、error、closed 不可停止；
-  // pending（重启中）由 App.abortAgent 内部的 isPendingAgentId 防护忽略。
-  const canStopSession =
-    activeAgent?.status === "running" || activeAgent?.status === "idle";
-
-  const canRestartSession = Boolean(
-    currentSessionId &&
-    activeAgentId &&
-    activeAgent &&
-    activeAgent.status !== "starting" &&
-    restartingAgentId !== activeAgentId &&
-    !queueFlushBySessionRef.current.has(currentSessionId) &&
-    !activeQueuedPrompts.some(
+  /**
+   * 会话运行控制能力（全状态）：与 Tab 下拉 / 侧栏菜单共用同一套策略函数，
+   * 保证「同一会话在任何入口看到的可用性一致」。旧的 canStopSession /
+   * canRestartSession 布尔已由 capabilities + canRunSessionAction 取代。
+   */
+  const runCapabilities = sessionRunCapabilities({
+    state: resolveSessionRunState(currentSessionRuntime, Boolean(runtimeTarget)),
+    hasBinding: Boolean(runtimeTarget),
+    busy: Boolean(restartingAgentId && restartingAgentId === activeAgentId),
+    hasInFlightQueuedPrompt: activeQueuedPrompts.some(
       (qp: QueuedPrompt) => qp.status === "sending" || qp.status === "unknown",
     ),
-  );
+  });
 
   const isRestartingThisAgent = restartingAgentId === activeAgentId;
   const sessionDuration = activeAgentId
@@ -287,8 +288,7 @@ export function useSessionRuntimeController(
     isAgentBusy,
     currentSessionLiveAgentId,
     canMutateActiveMessages,
-    canStopSession,
-    canRestartSession,
+    runCapabilities,
     sessionDuration,
     isRestartingThisAgent,
     sessionHasProject,

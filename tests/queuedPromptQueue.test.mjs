@@ -177,13 +177,20 @@ test("composer keeps native typing inside the Session feature root", () => {
 
 test("queue drain is serialized and waits for an ordered canonical Session capability event", () => {
   assert.match(appSource, /queueFlushBySessionRef = useRef<Set<string>>/);
+  // 队列 flush 中 / 有排队中的消息时不允许重启：判定已收敛到策略函数，
+  // 由 sessionRunCapabilities 的 busy 与 hasInFlightQueuedPrompt 表达
+  //（见 tests/sessionRunControl.test.mjs 的能力矩阵断言）。
   assert.match(
     sessionRuntimeControllerSource,
-    /queueFlushBySessionRef\.current\.has\(currentSessionId\)/,
+    /hasInFlightQueuedPrompt: activeQueuedPrompts\.some\(/,
   );
   assert.match(
     sessionRuntimeControllerSource,
-    /activeQueuedPrompts\.some\(/,
+    /sessionRunCapabilities\(\{/,
+  );
+  assert.match(
+    appSource,
+    /queueFlushBySessionRef\.current\.has\(sessionId\)/,
   );
   assert.doesNotMatch(
     sessionRuntimeControllerSource,

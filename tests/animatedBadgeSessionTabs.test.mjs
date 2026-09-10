@@ -87,24 +87,28 @@ test("tab dropdown menu: no switch-to item, state-based disable with visible gra
 	// “切换到此会话”已移除（点击 Tab 本体即切换，菜单项冗余）
 	assert.doesNotMatch(source, /tabs\.switchTo/);
 	assert.doesNotMatch(source, /MousePointerClick/);
-	// 运行控制已上收右上角 ⋯ 更多操作菜单（当前会话分组）：仅 running/idle 可点，
-	// 其余状态（starting/error 等）disabled + 内联置灰（内联样式特异性最高，置灰可见）
-	assert.match(source, /disabled=\{!props\.canStopCurrent \|\| props\.isStoppingCurrent\}/);
-	assert.match(source, /style=\{!props\.canStopCurrent \|\| props\.isStoppingCurrent \? \{ opacity: 0\.4 \} : undefined\}/);
-	// 重启：无 agent 或正在重启时 disabled + 置灰
-	assert.match(source, /disabled=\{!props\.canRestartCurrent \|\| props\.isRestartingCurrent\}/);
-	assert.match(source, /style=\{!props\.canRestartCurrent \|\| props\.isRestartingCurrent \? \{ opacity: 0\.4 \} : undefined\}/);
-	// 重新加载同样上收 ⋯ 菜单
-	assert.match(source, /disabled=\{!props\.canReloadCurrent \|\| props\.isReloadingCurrent\}/);
+	// 运行控制已上收右上角 ⋯ 更多操作菜单（当前会话分组）：
+	// 全状态可用——菜单项不再按 live/终态分两套渲染，能力统一走策略函数，
+	// 置灰用内联 style（特异性最高，置灰可见）。
+	assert.match(source, /function RunControlItems\(/);
+	assert.match(source, /canRunSessionAction\(capabilities, "start"\)/);
+	assert.match(source, /canRunSessionAction\(capabilities, "stop"\)/);
+	assert.match(source, /canRunSessionAction\(capabilities, "reload"\)/);
+	assert.match(source, /\? \{ opacity: 0\.4 \} : undefined/);
+	// 主控项按状态切换文案：未启动/失败/已关闭 → 启动 Agent；live → 重启
+	assert.match(source, /capabilities\.primaryAction === "start"/);
+	assert.match(source, /t\("tabs\.startAgent"\)/);
 	// ⋯ 菜单按功能分组：当前会话 / 工具（分组只做标签显示）
 	assert.match(source, /DropdownMenuLabel>\{t\("tabs\.currentSessionGroup"\)\}/);
 	assert.match(source, /DropdownMenuLabel>\{t\("tabs\.toolsGroup"\)\}/);
 	// Tab 级菜单为右键 ContextMenu（固定/关闭等），下拉触发按钮已移除
 	assert.match(source, /ContextMenuTrigger asChild/);
 	assert.doesNotMatch(source, /role="tab-menu"/);
-	// 无绑定 agent 时“关闭会话”隐藏（App 条件传 onStopCurrent，关闭走“关闭标签页”）
+	// App 侧不再用 isLiveRuntimeStatus 挡状态：能力和动作都收敛到 runControl 对象
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-	assert.match(app, /onStopCurrent: activeAgentId\n\s*\? \(\) => \{/);
+	assert.match(app, /runControl: currentSessionId\n\s*\? \{/);
+	assert.match(app, /getSessionRunCapabilities\(currentSessionId\)/);
+	assert.match(app, /onAction: \(action: SessionRunAction\) => void runSessionControl\(currentSessionId, action\)/);
 	// i18n key 同步删除
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");

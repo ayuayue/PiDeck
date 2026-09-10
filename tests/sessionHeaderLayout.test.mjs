@@ -45,11 +45,17 @@ test("session status and new-session controls use the shared medium radius", () 
 });
 
 test("restart is offered for the current session, including an unbound session", () => {
-  // 重启会话对所有状态开放：有绑定运行实例或未绑定会话都可由 App 分派。
+  // 运行控制全状态开放：能力由 getSessionRunCapabilities 纯函数策略算出，
+  // 不再由 `Boolean(currentSessionId)` 这类粗粒度布尔决定，未启动/失败/
+  // 已关闭的会话同样能拿到「启动 Agent」入口。
   assert.match(
     app,
-    /canRestartCurrent: Boolean\(currentSessionId\)/,
+    /runControl: currentSessionId\n\s*\? \{/,
   );
+  assert.match(app, /capabilities: getSessionRunCapabilities\(currentSessionId\)/);
+  // 终止态 / 未启动会话的主控项在 App 分派层走 activateRuntime 或 restartRuntime。
+  assert.match(app, /async function restartSessionAnyState\(sessionId: string\)/);
+  assert.match(app, /await api\.sessions\.activateRuntime\(sessionId\)/);
 });
 
 test("model-picker restart must light the SessionView overlay via restartActiveAgent", () => {
