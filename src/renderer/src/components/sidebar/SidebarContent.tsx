@@ -408,9 +408,11 @@ export function SidebarContent(props: SidebarContentProps) {
           />
         </section>
       </div>
-      {/* 底栏 dock（beUI Dock）：设置/反馈/官网/主题切换收进浮动卡片，铺满底栏宽度
+      {/* 底栏 dock（beUI Dock）：设置/公告/反馈/主题切换收进浮动卡片，铺满底栏宽度
           （w-full + justify-between 让四个动作均匀分布，侧栏最小宽 208px 时也不溢出）。
-          DockItem 只提供尺寸与居中容器，按钮本体仍是 shadcn ghost（title/aria 不丢）。
+          DockItem 只提供尺寸与居中容器，按钮本体仍是 shadcn ghost；四入口 hover 提示
+          统一走 styled Tooltip（side="right"/delay 300），不用原生 title——原生 title
+          会与 Tooltip 双弹且样式割裂（回归见 sidebarBottomButtons.test.mjs）。
           行容器带 relative：首次解释气泡挂在整行上（左缘铺满行宽），不能寄生在 32px
           的 DockItem 内——否则 224px 气泡会溢出侧栏左缘被裁剪（回归见 updateDotHintAnchor）。 */}
       {!props.isLanWeb && (
@@ -451,10 +453,22 @@ export function SidebarContent(props: SidebarContentProps) {
               <AnnouncementCenter />
             </DockItem>
             <DockItem>
-              <Button type="button" variant="ghost" className="size-full rounded-full text-muted-foreground hover:bg-muted hover:text-foreground" title={t("feedback.title")} aria-label={t("feedback.title")} onClick={props.onOpenFeedback}><MessageSquare className="size-4" /></Button>
+              {/* 反馈入口：与设置/公告统一 styled Tooltip（原生 title 移除，防双弹）；aria-label 保留读屏契约 */}
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" className="size-full rounded-full text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t("feedback.title")} onClick={props.onOpenFeedback}><MessageSquare className="size-4" /></Button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={6}>{t("feedback.title")}</TooltipContent>
+              </Tooltip>
             </DockItem>
             <DockItem>
-              <Button type="button" variant="ghost" className="size-full rounded-full text-muted-foreground hover:bg-muted hover:text-foreground" title={themeToggleTitle} aria-label={themeToggleTitle} onClick={props.onToggleTheme}><ThemeModeIcon className="size-4" /></Button>
+              {/* 主题切换：Tooltip 文案随当前模式变化（主题：X（点击切换）），与其它入口同一观感 */}
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" className="size-full rounded-full text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={themeToggleTitle} onClick={props.onToggleTheme}><ThemeModeIcon className="size-4" /></Button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={6}>{themeToggleTitle}</TooltipContent>
+              </Tooltip>
             </DockItem>
           </Dock>
         </div>

@@ -331,7 +331,6 @@ export function AnnouncementCenter() {
 								type="button"
 								variant="ghost"
 								className="size-full rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-								title={t("announcements.title")}
 								aria-label={
 									unreadCount > 0
 										? t("announcements.unreadAria", { count: String(unreadCount) })
