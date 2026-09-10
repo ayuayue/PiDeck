@@ -224,7 +224,7 @@
       "maintainer": "ayuayue <ayuayue@users.noreply.github.com>"
     },
     "appImage": {
-      "artifactName": "${productName}.${ext}"
+      "artifactName": "${productName}-${arch}.${ext}"
     },
     "publish": {
       "provider": "github",

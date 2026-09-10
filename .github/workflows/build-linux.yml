@@ -10,11 +10,17 @@ permissions:
 jobs:
   build-linux:
     name: Linux ${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, x64]
+        include:
+          - arch: x64
+            os: ubuntu-latest
+          # arm64 用原生 ARM runner：让 npm ci 直接装对架构的 sharp / node-pty
+          # 原生依赖，避免在 x64 上交叉编译时拉到构建机架构的二进制。
+          - arch: arm64
+            os: ubuntu-24.04-arm
 
     steps:
       - name: Checkout repository (main)
