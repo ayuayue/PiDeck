@@ -23,6 +23,7 @@ import type {
 	AvailableModel,
 	ChangelogPayload,
 	ModelListReport,
+	ModelsVerifyResult,
 	SessionCommandResult,
 	SessionRuntimeTarget,
 } from "../../shared/types";
@@ -37,7 +38,7 @@ import { resolveConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import { setConfiguredGitPath } from "../git/gitExecutable";
 import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
 import type { SkillManager } from "../skills/SkillManager";
-import { fetchModelList, getCachedModelList, invalidateModelListCache, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
+import { fetchModelList, getCachedModelList, invalidateModelListCache, modelsFromPiConfig, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
 import { TokendanceCatalogStore } from "../config/tokendanceCatalog";
 import type { TokendanceInstallResult } from "../config/tokendanceInstaller";
 import type { TokendanceAuthMode, TokendanceAuthStore } from "../config/tokendanceAuth";
@@ -357,6 +358,54 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		if (snapshot) return;
 		// 旧 Pi 没有 capability RPC 时，仍预热原有的兼容模型列表。
 		await refreshModelList(piLocator, settingsStore, configManager).catch(() => undefined);
+	};
+
+	/**
+	 * 保存 models 后的后台完整验证：fork 真实 pi（本机实测 ~17-21s）确认配置能被加载，
+	 * 完成后经 config:models-verify-result 推送渲染层——仅失败时提示，成功静默
+	 * （保存动作的即时反馈已由 handler 返回，这里补的是「pi 真实可加载」这一层）。
+	 * retryOnEmpty:false：刚保存完环境是热的，CLI 空表是真实信号，重试只会多 fork 一次。
+	 */
+	const verifyModelsAfterSave = async (savedAt: number): Promise<void> => {
+		let payload: ModelsVerifyResult;
+		try {
+			const report = await resolveModelListReport(piLocator, settingsStore, configManager, true, { retryOnEmpty: false });
+			// 只有 pi 自己成功列出非空模型列表才算「已加载」。source 为 config-fallback
+			// 说明 pi 实际没能列出模型（CLI 空 → 回退读本地 models.json 兑底，且兑底会把空
+			// name 自动补成 ${provider}/${id}），此时报“已加载”是假绿灯。
+			const ok = report.ok && report.models.length > 0 && report.source !== "config-fallback";
+			// config-fallback 时 report.reason 为 null，补充一个可诊断原因，避免日志/UI 拿到空 reason。
+			const reason = report.source === "config-fallback" ? "config-fallback" : report.reason;
+			payload = {
+				ok,
+				modelCount: report.models.length,
+				reason,
+				detail: report.detail ?? "",
+				savedAt,
+			};
+			void appLogger.info("config", "Models config background verify", {
+				ok,
+				modelCount: payload.modelCount,
+				reason,
+			});
+		} catch (error) {
+			payload = {
+				ok: false,
+				modelCount: 0,
+				reason: "cli-failed",
+				detail: error instanceof Error ? error.message : String(error),
+				savedAt,
+			};
+			void appLogger.warn("config", "Models config background verify failed", {
+				detail: payload.detail,
+			});
+		}
+		// 失败先告知用户，再刷新 capability 快照（模型能力自适应模板依赖，
+		// 旧 Pi 无 capability RPC 时回退列表）；刷新失败不影响已推送的验证结果。
+		if (!payload.ok) {
+			getMainWindow()?.webContents.send(ipcChannels.configModelsVerifyResult, payload);
+		}
+		void refreshPiModelCatalogs().catch(() => undefined);
 	};
 
 	// ── Pi 检测 ──────────────────────────────────────────────────────
@@ -1436,36 +1485,22 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		const result = await configManager.saveModelsConfig(data);
 		if (!result.valid) return result;
 		invalidateModelListCache();
-		// 保存后同步验证：用真实 pi 重新列出模型，确认配置能被 pi 正常加载。
-		// 只有拿到非空模型列表才算“保存且可用”；空/失败时把原因带回渲染层提示用户检查配置。
-		let modelLoadOk = false;
-		let modelCount = 0;
-		let modelLoadReason: string | null = null;
-		let modelLoadDetail = "";
-		try {
-			const report = await resolveModelListReport(piLocator, settingsStore, configManager, true);
-			// 只有 pi 自己成功列出非空模型列表才算“保存且可用”。source 为 config-fallback
-			// 说明 pi 实际没能列出模型（CLI 空 → 回退读本地 models.json 兑底，且兑底会把空
-			// name 自动补成 ${provider}/${id}），此时报“已加载”是假绿灯。
-			modelLoadOk = report.ok && report.models.length > 0 && report.source !== "config-fallback";
-			modelCount = report.models.length;
-			modelLoadReason = report.reason;
-			// config-fallback 时 report.reason 为 null，补充一个可诊断原因，避免日志/UI 拿到空 reason。
-			if (report.source === "config-fallback") modelLoadReason = "config-fallback";
-			modelLoadDetail = report.detail ?? "";
-		} catch (error) {
-			modelLoadReason = "cli-failed";
-			modelLoadDetail = error instanceof Error ? error.message : String(error);
-		}
-		// 同时刷新 capability 快照（模型能力自适应模板依赖），旧 Pi 无 capability RPC 时回退列表。
-		void refreshPiModelCatalogs().catch(() => undefined);
+		// 即时验证：直接解析刚写入的配置（modelsFromPiConfig 纯函数，0 fork），保存按钮立即返回。
+		// fork 真实 pi 的完整验证（本机实测 ~17-21s）放后台跑完再推送 config:models-verify-result，
+		// 不再阻塞保存动作——旧实现同步等 CLI 列表报告，用户盯着保存按钮转圈十几秒。
+		const localModels = modelsFromPiConfig(data);
 		void appLogger.info("config", "Models config saved", {
 			providerCount: Object.keys(data?.providers ?? {}).length,
-			modelLoadOk,
-			modelCount,
-			modelLoadReason,
+			modelCount: localModels.length,
 		});
-		return { valid: true, modelLoadOk, modelCount, modelLoadReason, modelLoadDetail };
+		void verifyModelsAfterSave(Date.now());
+		return {
+			valid: true,
+			modelLoadOk: localModels.length > 0,
+			modelCount: localModels.length,
+			modelLoadReason: localModels.length > 0 ? null : "empty",
+			modelLoadDetail: localModels.length > 0 ? "" : "no models in saved models.json",
+		};
 	});
 	ipcMain.handle(ipcChannels.configSaveAuth, async (_event, data) => {
 		const result = await configManager.saveAuthConfig(data);

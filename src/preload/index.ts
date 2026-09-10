@@ -32,6 +32,7 @@ import type {
 	DshModelDiscoveryInput,
 	ModelListFailReason,
 	ModelListReport,
+	ModelsVerifyResult,
 	ChatMessage,
 	FetchedModel,
 	ModelSpec,
@@ -1575,12 +1576,15 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.configSaveModels, data) as Promise<{
 				valid: boolean;
 				error?: string;
-				/** 保存后用真实 pi 验证：配置是否能正常加载出模型 */
+				/** 即时验证：刚写入的 models.json 解析出的模型数（不含 pi fork 验证） */
 				modelLoadOk?: boolean;
 				modelCount?: number;
 				modelLoadReason?: string | null;
 				modelLoadDetail?: string;
 			}>,
+		// 保存 models 后的后台 pi 验证结果（fork 真实 pi ~17s，仅失败时推送）。
+		onModelsVerifyResult: (callback: (payload: ModelsVerifyResult) => void) =>
+			subscribe<ModelsVerifyResult>(ipcChannels.configModelsVerifyResult, callback),
 		saveAuth: (data: unknown) =>
 			ipcRenderer.invoke(ipcChannels.configSaveAuth, data) as Promise<{
 				valid: boolean;

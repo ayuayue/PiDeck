@@ -478,6 +478,9 @@ export const ipcChannels = {
 	/** 只读返回 pi 全局配置目录（渲染层展示源文件实际编辑位置）。 */
 	configGetDir: "config:get-dir",
 	configSaveModels: "config:save-models",
+	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成后推送；
+	 *  保存动作本身即时返回（解析刚写入的配置），渲染层仅在该事件失败时提示。 */
+	configModelsVerifyResult: "config:models-verify-result",
 	configSaveAuth: "config:save-auth",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",

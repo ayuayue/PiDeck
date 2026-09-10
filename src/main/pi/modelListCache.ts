@@ -417,11 +417,20 @@ type ModelListResolveDetail = {
 	configDiagnostic: ModelListConfigDiagnostic | null;
 };
 
+/** resolveModelsDetailed 的可调行为：保存后的验证传 retryOnEmpty:false 跳过空表重试。 */
+type ResolveModelsOptions = {
+	/** CLI 成功执行但列表为空时是否重试一次（默认 true：启动早期 pi 冷启动可能返回空表头）。
+	 *  保存后的验证场景环境是热的，空表是真实信号，重试只会白白多 fork 一次（~17s）。 */
+	retryOnEmpty?: boolean;
+};
+
 async function resolveModelsDetailed(
 	piLocator: PiLocator,
 	settingsStore: SettingsStore,
 	configSource?: ModelListConfigSource,
+	options?: ResolveModelsOptions,
 ): Promise<ModelListResolveDetail> {
+	const retryOnEmpty = options?.retryOnEmpty !== false;
 	let cliError: Error | null = null;
 	// 第一次尝试（内部含未知参数自动降级为仅 --list-models）
 	try {
@@ -433,6 +442,16 @@ async function resolveModelsDetailed(
 		cliError = error instanceof Error ? error : new Error(String(error));
 	}
 	// 空结果重试一次：启动早期 pi 冷启动/环境未就绪时可能返回空表头。
+	// retryOnEmpty=false（保存后验证）时跳过：刚保存完环境是热的，空表就是真实结果。
+	if (!retryOnEmpty) {
+		const fallback = await loadModelsFromLocalConfigDetailed(configSource);
+		return {
+			models: fallback.models,
+			cliError,
+			fellBackToConfig: fallback.models.length > 0,
+			configDiagnostic: fallback.diagnostic,
+		};
+	}
 	await new Promise((resolve) => setTimeout(resolve, 500));
 	try {
 		const models = await runPiListModels(piLocator, settingsStore);
@@ -618,6 +637,7 @@ export async function resolveModelListReport(
 	settingsStore: SettingsStore,
 	configSource?: ModelListConfigSource,
 	force = false,
+	options?: { retryOnEmpty?: boolean },
 ): Promise<ModelListReport> {
 	const now = Date.now();
 	// 非手动刷新且缓存有数据：直接返回，避免与启动预取并发 fork。
@@ -647,7 +667,7 @@ export async function resolveModelListReport(
 			};
 		}
 	}
-	const detail = await resolveModelsDetailed(piLocator, settingsStore, configSource);
+	const detail = await resolveModelsDetailed(piLocator, settingsStore, configSource, options);
 	if (detail.models.length > 0) {
 		// 与 fetchModelList 相同：空结果不写缓存；配置失效期间也不写（避免旧结果覆盖新配置）。
 		if (!configInvalidated) cachedListModels = detail.models;

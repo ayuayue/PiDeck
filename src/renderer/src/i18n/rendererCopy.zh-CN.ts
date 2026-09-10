@@ -1776,8 +1776,11 @@ export const zhCN = {
   "config.modelsSavedRestartHint": "模型配置已保存，请重启激活的 Agent 会话以应用新配置",
   "config.modelsSaved": "模型配置已保存",
   "config.modelsSavedWithSpecs": "已保存，并为 {count} 个模型按能力目录补全规格",
-  "config.modelsSavedVerified": "模型配置已保存，pi 可正常加载 {count} 个模型",
-  "config.modelsSavedButLoadFailed": "配置已保存，但 pi 加载模型为空或失败。请检查供应商名称/Base URL/API Key 是否正确，或到「模型」页用「获取模型」重新拉取。",
+  "config.modelsSavedVerified": "模型配置已保存，共 {count} 个模型",
+  "config.modelsSavedButEmpty": "配置已保存，但里面没有模型。请到「模型」页添加供应商或用「获取模型」拉取。",
+  // 保存后的后台 pi 验证（fork 真实 pi 确认配置可加载）失败提示；成功静默不弹。
+  "config.modelsVerifyFailedTitle": "模型配置验证失败",
+  "config.modelsVerifyFailed": "pi 加载模型列表未通过，新配置可能不生效：{detail}",
   "config.modelsRefreshed": "已刷新 {count} 个 Agent 的模型配置",
   "config.modelsRefreshedPartial": "已刷新 {refreshed} 个 Agent，{failed} 个刷新失败",
   "config.usage.refresh": "刷新用量",

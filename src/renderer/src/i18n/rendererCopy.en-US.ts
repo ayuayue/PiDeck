@@ -1783,8 +1783,11 @@ export const enUS: Record<TranslationKey, string> = {
   "config.modelsSavedRestartHint": "Model configuration saved. Please restart active Agent sessions to apply the new configuration.",
   "config.modelsSaved": "Model configuration saved",
   "config.modelsSavedWithSpecs": "Saved. Auto-filled specs for {count} models from the capability catalog",
-  "config.modelsSavedVerified": "Model configuration saved. pi loaded {count} models successfully",
-  "config.modelsSavedButLoadFailed": "Configuration saved, but pi loaded no models or failed to load them. Check the provider name, base URL and API key, or use \"Fetch models\" on the Models page.",
+  "config.modelsSavedVerified": "Model configuration saved with {count} models",
+  "config.modelsSavedButEmpty": "Configuration saved, but it contains no models. Add providers on the Models page or use \"Fetch models\".",
+  // Background pi verification (forks real pi to confirm the config loads) failure notice; success stays silent.
+  "config.modelsVerifyFailedTitle": "Model config verification failed",
+  "config.modelsVerifyFailed": "Pi failed to load the model list; the new config may not take effect: {detail}",
   "config.modelsRefreshed": "Refreshed model config for {count} Agent(s)",
   "config.modelsRefreshedPartial": "Refreshed {refreshed} Agent(s), {failed} failed",
   "config.usage.refresh": "Refresh usage",

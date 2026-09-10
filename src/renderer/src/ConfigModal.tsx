@@ -1532,12 +1532,13 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			if (filledCount > 0) {
 				setModelsData(base);
 			}
-			// 保存后用真实 pi 验证配置能否正常加载模型：加载为空/失败时给醒目警告，
-			// 避免用户以为“保存成功=一切正常”，实际模型列表却是空的。
+			// 即时反馈：主进程已解析刚写入的 models.json（0 fork），count 是本地配置的模型数。
+			// fork 真实 pi 的完整验证在主进程后台进行（~17-21s），失败时由全局
+			// useModelsVerifyNotifier 弹 toast——保存动作本身不再被验证阻塞。
 			if (result.modelLoadOk) {
 				showToast(t("config.modelsSavedVerified", { count: result.modelCount ?? 0 }));
 			} else {
-				showNotice(t("config.modelsSavedButLoadFailed"), 6000, "warning");
+				showNotice(t("config.modelsSavedButEmpty"), 6000, "warning");
 			}
 			await loadConfig("models", { force: true });
 			return true;
