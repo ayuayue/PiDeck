@@ -45,6 +45,7 @@ import { useProjectRuntimeCapabilities } from "./hooks/useRuntimeCapabilities";
 import { useSessionRuntimeBridge } from "./hooks/useSessionRuntimeBridge";
 import { useAgentLoadNotice } from "./hooks/useAgentLoadNotice";
 import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
+import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
 import {
   announcementCenterOpenAtom,
   announcementNotificationEnabledAtom,
@@ -175,6 +176,7 @@ import { WorkbenchStage } from "./components/workspace/WorkbenchStage";
 import { WorkbenchContent } from "./components/workspace/WorkbenchContent";
 import { RenameModals } from "./components/RenameModals";
 import { SessionActionOverlays } from "./components/overlays/SessionActionOverlays";
+import { SessionProxyDialog } from "./components/session/SessionProxyDialog";
 
 import { ImportOverlayHost } from "./components/overlays/ImportOverlayHost";
 import { EnvironmentOverlay } from "./components/overlays/EnvironmentOverlay";
@@ -321,6 +323,11 @@ export function App() {
   /** 当前正在从磁盘重载消息的会话：Tab 栏「重载」时给对应会话 tab 徽章显示 loading。 */
   const [reloadingSessionId, setReloadingSessionId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
+  /**
+   * 会话代理设置弹框目标会话。侧栏会话菜单与 Tab 栏 ⋯ 菜单共用同一个宿主，
+   * 保证两处入口打开的是同一套 UI（弹窗自身读 atom 并负责保存后自动重启）。
+   */
+  const [proxyDialogSessionId, setProxyDialogSessionId] = useState<string | null>(null);
 
   // composerAgentModes legacy mirror removed — mode restore uses Session atom in useQueuedPrompt.
   /** 客户端队列按 agent 记录 flush 锁，避免 tool-end 与 idle 并发投递。 */
@@ -1029,6 +1036,8 @@ export function App() {
 
   // 公告通知调度（读镜像 atom）：输入/Agent 运行中/模态打开/窗口不活跃时自动延后弹出（不打扰操作，见 hook 注释）
   useAnnouncementNotifier();
+  // 模型保存后台验证结果（fork 真实 pi ~17s）失败时全局 toast；成功静默，见 hook 注释
+  useModelsVerifyNotifier();
   const activeQueuedPrompts = currentSessionId
     ? (queue.queuedPrompts[currentSessionId] ?? [])
     : [];
@@ -3221,6 +3230,8 @@ export function App() {
       runControl: async (sessionId, action) => {
         await runSessionControl(sessionId, action);
       },
+      // 会话代理设置：宿主弹窗在 App 层统一挂载，这里只登记目标会话
+      openProxySetting: (sessionId) => setProxyDialogSessionId(sessionId),
       archive: async (projectId, session) => {
         await archiveSidebarSession(projectId, session);
       },
@@ -3420,6 +3431,11 @@ export function App() {
           isReloading: reloadingSessionId === currentSessionId,
           onAction: (action: SessionRunAction) => void runSessionControl(currentSessionId, action),
         }
+      : undefined,
+    // 会话代理（网络代理）入口：与侧栏会话菜单同源，打开同一个弹框。
+    // 仅在有当前会话时给出；弹框内自行判断 DSH 等宿主差异并给出「下次启动生效」提示。
+    onOpenProxySetting: currentSessionId
+      ? () => setProxyDialogSessionId(currentSessionId)
       : undefined,
     onToggleDrawer: toggleRightDrawer,
     drawerOpen: Boolean(drawer && !drawerCollapsed),
@@ -4198,6 +4214,13 @@ export function App() {
       <ImagePreviewModal
         image={previewImage}
         onClose={() => setPreviewImage(null)}
+      />
+    )}
+    {/* 会话代理设置：侧栏菜单与 Tab 栏 ⋯ 菜单共用的宿主（同一弹框实例） */}
+    {proxyDialogSessionId && (
+      <SessionProxyDialog
+        sessionId={proxyDialogSessionId}
+        onClose={() => setProxyDialogSessionId(null)}
       />
     )}
     {codexImportProject && <ImportOverlayHost kind="codex" project={codexImportProject} controller={codexImportController} onClose={() => setCodexImportProject(null)} />}

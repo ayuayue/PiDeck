@@ -6,6 +6,7 @@ import {
   CircleStop,
   CircleX,
   Folder,
+  Globe,
   MessagesSquare,
   MoreHorizontal,
   PanelLeft,
@@ -210,6 +211,12 @@ export type SessionTabsBarProps = {
     isReloading?: boolean;
     onAction: (action: SessionRunAction) => void;
   };
+  /**
+   * 打开当前会话的代理设置弹框（网络代理）。
+   * 与侧栏「会话代理」同源：改完保存即自动重启 runtime 生效，不需要手动「停止 → 启动」。
+   * undefined = 无当前会话或宿主不支持（如 DSH 共享 host）。
+   */
+  onOpenProxySetting?: () => void;
 };
 
 export function SessionTabsBar(props: SessionTabsBarProps) {
@@ -712,8 +719,23 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
                   <DropdownMenuSeparator />
                 </>
               )}
+              {/* 会话代理（网络代理）：与侧栏同名入口一致；保存后自动重启 runtime 生效。
+                  放在工具开关组之前，语义上属于「会话级配置」而非「面板开关」。
+                  无运行控制能力时（如极端降级场景）补一个组标签，避免菜单项裸奔。 */}
+              {props.onOpenProxySetting && (
+                <>
+                  {!props.runControl?.capabilities && (
+                    <DropdownMenuLabel>{t("tabs.currentSessionGroup")}</DropdownMenuLabel>
+                  )}
+                  <DropdownMenuItem onSelect={() => props.onOpenProxySetting?.()}>
+                    <Globe className="size-3.5" aria-hidden="true" />
+                    <span>{t("menu.sessionProxy")}</span>
+                  </DropdownMenuItem>
+                </>
+              )}
               {props.toolActions && props.toolActions.length > 0 && (
                 <>
+                  <DropdownMenuSeparator />
                   <DropdownMenuLabel>{t("tabs.toolsGroup")}</DropdownMenuLabel>
                   {props.toolActions.map((action) => (
                     <DropdownMenuItem key={action.id} onClick={action.onClick}>

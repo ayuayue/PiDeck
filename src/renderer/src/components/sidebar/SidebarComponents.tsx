@@ -836,6 +836,8 @@ export function AgentContextMenu(props: {
 	onOpenSessionFile?: () => void;
 	/** 运行控制（全状态：启动/停止/重启/重载，能力由调用方按状态算好）。 */
 	runControl?: SidebarRunControl;
+	/** 打开当前 agent 对应会话的代理设置弹框（网络代理）；宿主在 App 层。 */
+	onOpenProxySetting?: () => void;
 	onCloseAgent: () => void;
 	/** 运行中也可删：主进程先停后删，不必先关 Agent。 */
 	onDeleteSession?: () => void;
@@ -886,6 +888,13 @@ export function AgentContextMenu(props: {
 			)}
 			{/* 会话运行控制：全状态可用（启动/停止/重载三项按策略置灰） */}
 			{props.runControl && <SidebarRunControlItems runControl={props.runControl} />}
+			{/* 会话代理：与 Session 菜单同源（同一弹框宿主），agent 入口此前缺失导致「Chat 里找不到代理」 */}
+			{props.onOpenProxySetting && (
+				<DropdownMenuItem disabled={busy} onSelect={props.onOpenProxySetting}>
+					<Settings2 className="size-3.5" aria-hidden="true" />
+					{t("menu.sessionProxy")}
+				</DropdownMenuItem>
+			)}
 			<DropdownMenuSeparator />
 			<DropdownMenuItem
 				disabled={busy || props.rpcToggleDisabled}

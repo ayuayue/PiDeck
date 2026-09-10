@@ -12,7 +12,6 @@ import {
   RpcLogOpenedDialog,
 } from "./SidebarParts";
 import { RpcLogViewer } from "./RpcLogViewer";
-import { SessionProxyDialog } from "../session/SessionProxyDialog";
 import { sessionRecordToSummary } from "../../atoms";
 import { hasPendingUpdateAtom, pendingAppUpdateAtom, pendingCatalogUpdateAtom, pendingPiUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
 import { useAtomValue } from "jotai";
@@ -81,6 +80,11 @@ export type SidebarActions = {
     delete: (projectId: string, session: SessionSummary) => Promise<void>;
     /** 运行控制（全状态）：启动/停止/重启/重载，语义由 App 侧策略分派 */
     runControl: (sessionId: string, action: SessionRunAction) => Promise<void>;
+    /**
+     * 打开会话代理设置弹框。弹窗宿主挂在 App 层（与 Tab 栏 ⋯ 菜单共用同一实例），
+     * 侧栏只负责上抛「为哪个会话打开」，避免两侧各挂一份 UI。
+     */
+    openProxySetting: (sessionId: string) => void;
     /** 归档会话（可恢复） */
     archive: (projectId: string, session: SessionSummary) => Promise<void>;
     /** 恢复归档会话 */
@@ -231,8 +235,6 @@ export function SidebarContent(props: SidebarContentProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [props.onOpenNewSession]);
-  // 会话代理设置弹框的打开目标会话 id（null = 关闭）
-  const [proxyDialogSessionId, setProxyDialogSessionId] = useState<string | null>(null);
   const menuSessionRecord = menu?.kind === "session"
     ? controller.catalog.sessionsByProject[menu.projectId]?.find((session) => session.id === menu.sessionId)
     : undefined;
@@ -549,6 +551,10 @@ export function SidebarContent(props: SidebarContentProps) {
           onOpenSessionFile={() => { void actions.agents.openSessionFile(menuAgent); controller.closeMenu(); }}
           // 运行控制全状态（启动/停止/重启/重载）：按 runtime 快照算能力，不再分 live/非 live 两套入口
           runControl={menuAgentSessionId ? buildSidebarRunControl(menuAgentSessionId) : undefined}
+          // 会话代理：与 Tab 菜单/Session 菜单共用 App 层弹窗宿主；agent 维度此前缺失该入口
+          onOpenProxySetting={menuAgentSessionId
+            ? () => { controller.closeMenu(); actions.sessions.openProxySetting(menuAgentSessionId); }
+            : undefined}
           onToggleRpcLogging={() => {
             // 兜底：置灰的菜单项点击不触发 onSelect，这里防御 agent 状态在菜单打开期间变化的情况
             if (!menuAgentCanRpcLog) {
@@ -617,7 +623,7 @@ export function SidebarContent(props: SidebarContentProps) {
             controller.toggleSessionPin(menuSession.id);
             controller.closeMenu();
           } : undefined}
-          onOpenProxySetting={() => { controller.closeMenu(); setProxyDialogSessionId(menuSession.id); }}
+          onOpenProxySetting={() => { controller.closeMenu(); actions.sessions.openProxySetting(menuSession.id); }}
           // 运行控制全状态：未启动的历史会话主控项即「启动 Agent」
           runControl={buildSidebarRunControl(menuSession.id)}
           onExport={() => { void actions.sessions.export(menu.projectId, menuSession); controller.closeMenu(); }}
@@ -660,13 +666,6 @@ export function SidebarContent(props: SidebarContentProps) {
           }}
           onArchiveSession={() => { void actions.sessions.archive(menu.projectId, menuSession); controller.closeMenu(); }}
           onDeleteSession={() => { void actions.sessions.delete(menu.projectId, menuSession); controller.closeMenu(); }}
-        />
-      )}
-      {/* 会话代理设置弹框（菜单项「会话代理」打开；会话 id 为 null 时关闭） */}
-      {proxyDialogSessionId && (
-        <SessionProxyDialog
-          sessionId={proxyDialogSessionId}
-          onClose={() => setProxyDialogSessionId(null)}
         />
       )}
       {managerProject && (
