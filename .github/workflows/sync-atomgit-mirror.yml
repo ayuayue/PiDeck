@@ -1,0 +1,69 @@
+name: Sync AtomGit Mirror
+
+# AtomGit 拉取镜像默认一天自动同步一次；本 workflow 在每次 push 后即时触发镜像同步，
+# 并保留每小时兜底（对不常提交的时期保底同步频率）。
+#
+# 原理：调用 AtomGit OpenAPI 触发镜像仓库立即从源仓库拉取（等价于镜像设置页的"更新"操作）：
+#   PUT /api/v5/repos/:owner/:repo/sync_repo      —— 触发同步（不传 branch 则更新所有分支）
+#   GET /api/v5/repos/:owner/:repo/repo_remote_mirror —— 查询镜像状态（上次成功时间/失败次数）
+# 文档：https://docs.atomgit.com/docs/apis/put-api-v-5-repos-owner-repo-sync-repo/
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  # 注意：schedule 仅当本文件位于默认分支（main）时生效；且 GitHub 定时任务高峰期可能延迟 5-30 分钟
+  schedule:
+    - cron: '0 */1 * * *' # 每小时整点兜底
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# push 高频提交时只保留最新一次同步，避免排队堆积
+concurrency:
+  group: sync-atomgit-mirror
+  cancel-in-progress: true
+
+jobs:
+  trigger-mirror-sync:
+    name: Trigger AtomGit mirror sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger mirror sync (sync_repo)
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          ATOMGIT_REPO: ayuayue/PiDeck
+        run: |
+          set -euo pipefail
+          # access_token 走 Authorization 头，避免出现在 URL/日志中
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' -X PUT \
+            "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/sync_repo" \
+            -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "HTTP ${code}"
+          cat "$body"; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::sync_repo 调用失败（HTTP ${code}）。若提示接口对镜像仓不生效，需改用 push 直推方案"
+            exit 1
+          fi
+          # 响应体为 {"repo_sync_result":bool,"repo_sync_message":str}，结果为 false 视为失败
+          if grep -q '"repo_sync_result":false' "$body"; then
+            echo "::error::镜像同步未成功：$(cat "$body")（常见原因：源/目标分支已分叉，可在镜像设置中开启 pull-f 或清理分叉提交）"
+            exit 1
+          fi
+
+      - name: Check mirror status (repo_remote_mirror)
+        # 打印镜像最近同步状态，便于在 Actions 日志里直接核对
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          ATOMGIT_REPO: ayuayue/PiDeck
+        run: |
+          curl -sS "https://api.atomgit.com/api/v5/repos/${ATOMGIT_REPO}/repo_remote_mirror" \
+            -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
+            -H "Accept: application/json"
