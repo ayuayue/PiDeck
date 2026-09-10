@@ -44,6 +44,20 @@ export function countPendingAsksForSessions(
 	return count;
 }
 
+/**
+ * 判断单个会话是否有待确认的 Ask 请求。
+ * 供侧栏「活动会话」行等以会话为粒度展示待确认标记的入口使用。
+ */
+export function hasPendingAskForSession(
+	sessionId: string | undefined,
+	sessionRuntimeUiById: Readonly<Record<string, { requests?: Record<string, AskRequestEntry> }>> | undefined,
+): boolean {
+	if (!sessionId || !sessionRuntimeUiById) return false;
+	const runtimeUi = sessionRuntimeUiById[sessionId];
+	if (!runtimeUi?.requests) return false;
+	return Object.values(runtimeUi.requests).some((request) => isPendingAskRequest(request));
+}
+
 export function pickActiveAskRequest(
 	entries: Readonly<Record<string, AskRequestEntry>> | undefined,
 ): AgentUiRequest | undefined {

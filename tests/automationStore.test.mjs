@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,50 @@ test("AutomationStore lifecycle: CRUD, recovery of interrupted runs, and snapsho
 		const deleted = await reloadedStore.deleteTask(task.id);
 		assert.equal(deleted, true);
 		assert.equal(reloadedStore.listTasks().length, 0);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("AutomationStore normalizes the working mode and keeps legacy tasks compatible", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-automation-mode-"));
+	const storePath = join(dir, "automation.json");
+	try {
+		const store = new AutomationStore(storePath);
+		await store.load(1_000);
+
+		const base = {
+			projectId: "project-1",
+			prompt: "noop",
+			schedule: { type: "cron", expression: "0 2 * * *" },
+		};
+
+		// 普通模式是缺省语义：不落盘 mode 键，避免 automation.json 里堆冗余 "normal"
+		const normal = await store.createTask({ ...base, name: "Normal" }, 1_000);
+		assert.equal(normal.mode, undefined);
+		const goal = await store.createTask({ ...base, name: "Goal", mode: "goal" }, 1_100);
+		assert.equal(goal.mode, "goal");
+		const plan = await store.createTask({ ...base, name: "Plan", mode: "plan" }, 1_200);
+		assert.equal(plan.mode, "plan");
+
+		// 编辑器「恢复默认」会把 mode 显式传成 normal：必须清掉该键，而不是留旧值
+		const reset = await store.updateTask(goal.id, { mode: "normal" }, 1_300);
+		assert.equal(reset.mode, undefined);
+
+		const persistedText = await readFile(storePath, "utf8");
+		assert.ok(!persistedText.includes('"mode": "normal"'));
+		assert.ok(persistedText.includes('"mode": "plan"'));
+
+		// 手工编辑 automation.json 注入非法模式（imagegen 不是定时任务合法档位）必须降级为未设置，
+		// 否则 dispatch 时会产出 pi 无法识别的隐藏标记，任务静默跑错。
+		const raw = JSON.parse(persistedText);
+		raw.tasks = raw.tasks.map((task) =>
+			task.name === "Plan" ? { ...task, mode: "imagegen" } : task,
+		);
+		await writeFile(storePath, JSON.stringify(raw), "utf8");
+		const reloaded = new AutomationStore(storePath);
+		await reloaded.load(2_000);
+		assert.equal(reloaded.listTasks().find((task) => task.name === "Plan").mode, undefined);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

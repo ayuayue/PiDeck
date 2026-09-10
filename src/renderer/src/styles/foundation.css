@@ -2441,6 +2441,15 @@ select:focus-visible {
   margin-left: 8px;
   margin-bottom: 6px;
 }
+/* 「查看更多」按钮：数字需靠右对齐到会话行的时间列，故按钮本体必须是
+   fill-available 宽的 flex 容器（ml-auto 依赖父级 flex）。
+   仅作用于更多按钮，同排的「收起」按钮（共用 session-more-row 类但 shrink-0）不受影响。 */
+.session-more-btn {
+  display: flex;
+  align-items: center;
+  width: -webkit-fill-available;
+  width: stretch;
+}
 /* 水平 Group 的竖线分隔条（AppShell 左右栏）。
    v4：Separator aria-orientation=vertical；拖拽中 data-separator="active"。
    旧 grid-column / body.is-resizing 已废弃，不再依赖。 */

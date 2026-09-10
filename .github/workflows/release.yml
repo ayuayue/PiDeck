@@ -124,8 +124,18 @@ jobs:
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: linux
+            name: Linux x64
             os: ubuntu-latest
-            command: npm run build && npx electron-builder --linux AppImage deb tar.gz --publish never
+            command: npm run build && npx electron-builder --linux AppImage deb tar.gz --x64 --publish never
+            electron_mirror: https://npmmirror.com/mirrors/electron/
+            electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+          # arm64 走原生 ARM runner（而非在 x64 上交叉编译）：
+          # sharp / node-pty 等原生依赖在交叉场景下会拉到构建机架构的二进制，
+          # 需要额外的重装/替换步骤；原生 runner 让 npm ci 直接装对架构，最省事。
+          - platform: linux
+            name: Linux arm64
+            os: ubuntu-24.04-arm
+            command: npm run build && npx electron-builder --linux AppImage deb tar.gz --arm64 --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
 

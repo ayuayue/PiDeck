@@ -12,9 +12,11 @@
 ![Version](https://img.shields.io/badge/version-0.7.5--beta-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
-<!-- <p>
-  <a href="您的AtomGit项目链接"><img alt="AtomGit G-Star" src="https://atomgit.com/ayuayue/PiDeck/star/new_badge.svg"></a>
-</p> -->
+<!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
+<p>
+  <a href="https://atomgit.com/ayuayue/PiDeck"><img alt="AtomGit G-Star" src="https://atomgit.com/ayuayue/PiDeck/star/new_badge.svg"></a>
+</p>
+-->
 
 
 <!-- star-history:start -->

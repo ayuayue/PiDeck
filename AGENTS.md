@@ -63,6 +63,13 @@ src/
 - md 格式：front matter 必填 `id` / `title` / `level`(info|warn|critical) / `publishedAt` / `effectiveUntil`（ISO 8601），可选 `minVersion`（仅向更低版本客户端展示）；`id` 必须稳定唯一（渲染层已读去重 key）且不含空白；下线公告 = 删除对应 md 文件重新生成，或等 `effectiveUntil` 自然过期。
 - 渲染安全边界：公告是外部数据。**列表卡片只展示 `announcementExcerpt()` 清洗后的短摘要（不渲染 md）**；「查看详情」弹窗复用 `MarkdownStream`（light 模式）渲染完整正文——与会话消息同一套 streamdown sanitize 管线。禁止在列表卡片直接渲染 md 或引入第二条公告渲染链。
 
+### 商店提示词库维护（resources/xueprompts.db）
+
+- 数据文件 `resources/xueprompts.db` 通过 `extraResources` 直接打进安装包（dev 读 `app.getAppPath()/resources`，打包版读 `process.resourcesPath`）。**改了 db 必须重新打包**，否则用户升级后仍看到旧数据。
+- 内置模板写入入口是 `scripts/add-builtin-prompts.mjs`（源文件 `docs/pi-prompt-templates/*.md`，跳过 README），归入分类 `编程提示词`，可重复执行（`INSERT OR REPLACE` + 分类 count 全量重算）。
+- `npm run check:xueprompts`（`scripts/check-xueprompts.mjs`）断言分类 count 与实际分组一致、内置模板全部落库且正文可解压，已挂进 `npm run build`，用于挡住「产物带旧库」这类问题。
+- **查询边界**：`content` / `description` 都是 gzip BLOB，**SQL 的 `LIKE` 对 BLOB 只做字节比较，中文关键词恒不命中**。所有涉及这两个字段的文本搜索必须在应用层 `gunzipSync` 解压后匹配（见 `XuePromptManager.list` 的 search 分支）；`title` 是明文 TEXT，可以走 SQL。
+
 ## 架构规则（硬性）
 
 1. **session-first**：会话是一等公民。新功能优先挂在 session/runtime 链路上，不要退回“围绕 agent tab 堆全局 state”。

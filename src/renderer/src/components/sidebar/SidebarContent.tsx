@@ -20,8 +20,13 @@ import { isManagerSessionSummary, worktreeFamilyProjects } from "../../sessionMa
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { showNotice } from "../../utils/notice";
-import { isLiveRuntimeStatus } from "../../utils/sessionCommands";
+import {
+  resolveSessionRunState,
+  sessionRunCapabilities,
+  type SessionRunAction,
+} from "../../utils/sessionCommands";
 import { getBoundSidebarRuntimeAgent, getBoundSidebarRuntimeAgentByAgentId, type SidebarController, type SidebarRpcLog } from "../../hooks/useSidebarController";
+import type { SidebarRunControl } from "./SidebarComponents";
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { DshSearchResults } from "./DshSearchResults";
 import { ProjectTree } from "./ProjectTree";
@@ -74,10 +79,8 @@ export type SidebarActions = {
     copyPath: (session: SessionSummary) => Promise<void>;
     openFile: (session: SessionSummary) => Promise<void>;
     delete: (projectId: string, session: SessionSummary) => Promise<void>;
-    /** 重新加载会话消息文件（未启动/异常的历史会话，从磁盘刷新） */
-    reload: (projectId: string, session: SessionSummary) => Promise<void>;
-    /** 重启会话（全状态：失败/未启动/空闲/运行中，按绑定状态分派 restart/activate） */
-    restart: (projectId: string, session: SessionSummary) => Promise<void>;
+    /** 运行控制（全状态）：启动/停止/重启/重载，语义由 App 侧策略分派 */
+    runControl: (sessionId: string, action: SessionRunAction) => Promise<void>;
     /** 归档会话（可恢复） */
     archive: (projectId: string, session: SessionSummary) => Promise<void>;
     /** 恢复归档会话 */
@@ -100,10 +103,8 @@ export type SidebarActions = {
     copyPath: (agent: AgentTab) => Promise<void>;
     openSessionFile: (agent: AgentTab) => Promise<void>;
     close: (agent: AgentTab) => Promise<void>;
-    /** 重启会话（全状态：live/error/closed/未启动，按绑定状态分派） */
-    restart: (agent: AgentTab) => void;
-    /** 重新加载会话消息文件（无 live 运行时） */
-    reload: (agent: AgentTab) => Promise<void>;
+    /** 运行控制（全状态）：启动/停止/重启/重载，语义由 App 侧策略分派 */
+    runControl: (sessionId: string, action: SessionRunAction) => Promise<void>;
   };
   worktrees: {
     create: (projectId: string, branchName: string) => Promise<void>;
@@ -200,8 +201,6 @@ export function SidebarContent(props: SidebarContentProps) {
   // 是 pi 自身会话 id，而 runtimeBySessionId 的 key 是会话记录 id，必须按 agentId 反查。
   const menuAgentCanRpcLog = menuAgent !== undefined
     && getBoundSidebarRuntimeAgentByAgentId(controller.catalog, menuAgent.id) !== undefined;
-  // 会话运行控制：live（starting/idle/running）显示重启，否则（未启动/error/closed）显示重新加载。
-  const menuAgentLive = menuAgent !== undefined && isLiveRuntimeStatus(menuAgent.status);
   // “RPC 日志已打开”提醒弹框的打开目标 agent id（null = 关闭）
   const [rpcLogOpenedAgentId, setRpcLogOpenedAgentId] = useState<string | null>(null);
   // 顶部「搜索」菜单项控制 MorphingSearch 命令面板的展开状态。
@@ -244,6 +243,24 @@ export function SidebarContent(props: SidebarContentProps) {
   const menuSessionRuntimeAgent = menuSessionRecord
     ? getBoundSidebarRuntimeAgent(controller.catalog, menuSessionRecord.id)
     : undefined;
+
+  /**
+   * 侧栏菜单的全状态运行控制（任意会话/agent 都有）。
+   * 侧栏只拿得到快照（SidebarRuntimeSummary 无 runtimeGeneration），
+   * 因此「有绑定」按 agentId 判定，与 Tab 下拉共用同一套策略函数避免判定漂移。
+   * 过渡态（starting）由策略函数自身识别，侧栏不额外维护 busy。
+   */
+  const buildSidebarRunControl = (sessionId: string): SidebarRunControl => {
+    const runtime = controller.catalog.runtimeBySessionId[sessionId];
+    const hasBinding = Boolean(runtime?.agentId);
+    return {
+      capabilities: sessionRunCapabilities({
+        state: resolveSessionRunState(runtime, hasBinding),
+        hasBinding,
+      }),
+      onAction: (action) => void actions.sessions.runControl(sessionId, action),
+    };
+  };
   const managerProject = controller.sessionManagerProjectId
     ? controller.catalog.projects.find((project) => project.id === controller.sessionManagerProjectId)
     : undefined;
@@ -530,9 +547,8 @@ export function SidebarContent(props: SidebarContentProps) {
           onCopySession={() => { void actions.agents.copySession(menuAgent); controller.closeMenu(); }}
           onCopySessionFilePath={() => { void actions.agents.copyPath(menuAgent); controller.closeMenu(); }}
           onOpenSessionFile={() => { void actions.agents.openSessionFile(menuAgent); controller.closeMenu(); }}
-          // 重启会话对所有状态开放（actions.agents.restart 内部按绑定状态分派）；重新加载保留给无 live 运行时
-          onRestartSession={() => { actions.agents.restart(menuAgent); controller.closeMenu(); }}
-          onReloadSession={!menuAgentLive ? () => { controller.closeMenu(); void actions.agents.reload(menuAgent); } : undefined}
+          // 运行控制全状态（启动/停止/重启/重载）：按 runtime 快照算能力，不再分 live/非 live 两套入口
+          runControl={menuAgentSessionId ? buildSidebarRunControl(menuAgentSessionId) : undefined}
           onToggleRpcLogging={() => {
             // 兜底：置灰的菜单项点击不触发 onSelect，这里防御 agent 状态在菜单打开期间变化的情况
             if (!menuAgentCanRpcLog) {
@@ -586,6 +602,8 @@ export function SidebarContent(props: SidebarContentProps) {
         <DraftSessionContextMenu
           menu={{ x: menu.x, y: menu.y }}
           onClose={controller.closeMenu}
+          // 草稿会话同样给运行控制：不必先打开会话发消息就能启动 Agent
+          runControl={buildSidebarRunControl(menuDraft.id)}
           onDelete={() => { void actions.sessions.deleteDraft(menuDraft); controller.closeMenu(); }}
         />
       )}
@@ -600,10 +618,8 @@ export function SidebarContent(props: SidebarContentProps) {
             controller.closeMenu();
           } : undefined}
           onOpenProxySetting={() => { controller.closeMenu(); setProxyDialogSessionId(menuSession.id); }}
-          // 重启会话（未启动的历史会话走 activateRuntime 启动；有绑定则走 restartRuntime）
-          onRestartSession={() => { controller.closeMenu(); void actions.sessions.restart(menu.projectId, menuSession); }}
-          // 未启动的历史会话：从磁盘重新加载会话消息文件（外部修改后刷新）
-          onReloadSession={() => { controller.closeMenu(); void actions.sessions.reload(menu.projectId, menuSession); }}
+          // 运行控制全状态：未启动的历史会话主控项即「启动 Agent」
+          runControl={buildSidebarRunControl(menuSession.id)}
           onExport={() => { void actions.sessions.export(menu.projectId, menuSession); controller.closeMenu(); }}
           onCopySession={() => { void actions.sessions.copy(menu.projectId, menuSession); controller.closeMenu(); }}
           onCopySessionFilePath={() => { void actions.sessions.copyPath(menuSession); controller.closeMenu(); }}

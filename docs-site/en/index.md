@@ -13,11 +13,12 @@ hero:
       text: Get Started
       link: /en/guide/getting-started
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/ayuayue/PiDeck
-    - theme: alt
-      text: AtomGit Mirror
-      link: https://atomgit.com/ayuayue/PiDeck
+      text: Source Code
+      items:
+        - text: GitHub (Global)
+          link: https://github.com/ayuayue/PiDeck
+        - text: AtomGit (China mirror)
+          link: https://atomgit.com/ayuayue/PiDeck
 
 features:
   - title: Multi-Project Workspace

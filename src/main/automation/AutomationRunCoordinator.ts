@@ -7,6 +7,14 @@ import type {
 	SessionRuntimeTarget,
 } from "../../shared/types";
 import { isAutomationRunTerminal } from "../../shared/types";
+/**
+ * 复用渲染层发送链路的模式标记构造函数，让「普通/计划/目标」的隐藏标记格式只有一份
+ * 定义，避免主进程与渲染进程各写一套后悄悄漂移。
+ *
+ * 允许从 renderer 深层路径 import 的原因：该模块唯一的本地依赖已下沉到
+ * `shared/expandedRefBlocks`（主进程本就可用），所以它不依赖任何 renderer 运行时。
+ */
+import { buildComposerPromptSubmission } from "../../renderer/src/composerBehavior";
 import type { GitService } from "../git/GitService";
 import type { AppLogger } from "../logging/AppLogger";
 import type { ProjectStore } from "../projects/ProjectStore";
@@ -273,12 +281,27 @@ export class AutomationRunCoordinator {
 
 		const requestId = randomUUID();
 		try {
+			// message 是用户可见原文（会话气泡），agentMessage 是实际发给 pi 的载荷。
+			// AgentManager.sendPrompt 里 agentMessage 非空时会**整体替换** message，
+			// 所以宿主指令必须与任务提示词拼接，不能只放指令——否则定时任务的提示词
+			// 会被整个丢掉，AI 只看到任务名和一句「请自主完成」而无从下手。
+			// 与飞书（FeishuBridge）和 index.ts 的 agentInstruction 拼接写法保持一致。
+			const agentInstruction = `[Automation: ${task.name}] Please complete this task autonomously without waiting for follow-up inputs.`;
+
+			// 工作模式复用渲染层发送链路的同一个纯函数，产出 plan/goal 的隐藏标记，
+			// 不在主进程复刻第二套标记格式（标记由 pi-deck-plan-mode / pi-deck-goal-mode
+			// 内置扩展在 pi 的 input 事件里识别）。normal 时该函数原样返回 message。
+			const mode = task.mode ?? "normal";
+			const submission = buildComposerPromptSubmission(task.prompt, mode);
+
 			const result = await this.sessionRuntimeCoordinator.send({
 				sessionId,
 				requestId,
 				message: task.prompt,
 				description: `Automation: ${task.name}`,
-				agentMessage: `[Automation: ${task.name}] Please complete this task autonomously without waiting for follow-up inputs.`,
+				// 顺序即优先级：宿主指令置顶（模式标记不能在首行，否则被指令挡住），
+				// 其次是对应模式的隐藏载荷，最后是任务提示词原文。
+				agentMessage: `${agentInstruction}\n\n${submission.agentMessage ?? submission.message}`,
 			});
 
 			if (!result.accepted) {

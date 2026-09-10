@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -114,6 +114,84 @@ test("package.json unpacks sharp native packages for every dependency depth", ()
 		unpack.includes("node_modules/**/@img/sharp-*/**"),
 		"asarUnpack must cover nested sharp libvips packages; versioned .so files need a real disk path on Linux",
 	);
+});
+
+/**
+ * 交叉打包回归（issue #201）：在 x64 构建机上打 arm64 包时，
+ * 必须按 electron-builder 传的 context.arch 过滤 prebuild，
+ * 而不是按构建机的 process.arch —— 否则会保留 x64 二进制、
+ * 删掉 arm64，产物的终端在目标机上直接不可用。
+ */
+test("afterPack cleanup keeps the target arch node-pty prebuild when cross-building", async () => {
+	const appOutDir = await mkdtemp(join(tmpdir(), "pideck-after-pack-crossarch-"));
+	try {
+		const sourceDir = join(appOutDir, "fixture");
+		const archive = join(appOutDir, "resources", "app.asar");
+		const prebuildsDir = join(
+			appOutDir,
+			"resources",
+			"app.asar.unpacked",
+			"node_modules",
+			"node-pty",
+			"prebuilds",
+		);
+
+		await put(join(sourceDir, "node_modules", "node-pty", "README.md"), "fixture documentation\n");
+		await mkdir(dirname(archive), { recursive: true });
+		await createAsarPackage(sourceDir, archive);
+
+		for (const archName of ["linux-x64", "linux-arm64", "darwin-x64", "win32-x64"]) {
+			await put(join(prebuildsDir, archName, "pty.node"), "NATIVE");
+		}
+
+		// electronPlatformName + arch(3=arm64) 是 electron-builder AfterPackContext 的形状
+		await afterPackCleanup({ appOutDir, electronPlatformName: "linux", arch: 3 });
+
+		const remaining = (await readdir(prebuildsDir)).sort();
+		assert.deepEqual(
+			remaining,
+			["linux-arm64"],
+			"cross-building linux arm64 must keep only the arm64 prebuild; keeping the build host arch breaks the terminal",
+		);
+	} finally {
+		await rm(appOutDir, { recursive: true, force: true });
+	}
+});
+
+test("afterPack cleanup falls back to host arch when context arch is absent", async () => {
+	const appOutDir = await mkdtemp(join(tmpdir(), "pideck-after-pack-hostarch-"));
+	try {
+		const sourceDir = join(appOutDir, "fixture");
+		const archive = join(appOutDir, "resources", "app.asar");
+		const prebuildsDir = join(
+			appOutDir,
+			"resources",
+			"app.asar.unpacked",
+			"node_modules",
+			"node-pty",
+			"prebuilds",
+		);
+
+		await put(join(sourceDir, "node_modules", "node-pty", "README.md"), "fixture documentation\n");
+		await mkdir(dirname(archive), { recursive: true });
+		await createAsarPackage(sourceDir, archive);
+
+		for (const archName of ["linux-x64", "win32-x64"]) {
+			await put(join(prebuildsDir, archName, "pty.node"), "NATIVE");
+		}
+
+		// 不传 arch/electronPlatformName：退化为构建机平台，保持旧行为不崩
+		await afterPackCleanup({ appOutDir });
+
+		const remaining = await readdir(prebuildsDir);
+		assert.equal(
+			remaining.length,
+			1,
+			"without an explicit target arch the cleanup must still keep exactly one prebuild",
+		);
+	} finally {
+		await rm(appOutDir, { recursive: true, force: true });
+	}
 });
 
 test("afterPack cleanup keeps versioned libvips shared objects unpacked", async () => {

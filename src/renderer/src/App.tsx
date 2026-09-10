@@ -67,9 +67,13 @@ import { PromptDeliveryUnknownError } from "./utils/promptErrors";
 import {
   isLiveRuntimeStatus,
   requireSessionCommand,
+  resolveSessionRunState,
+  sessionRunCapabilities,
   SessionCommandFailure,
   sessionCommandFailureToast,
   toSessionRuntimeTarget,
+  type SessionRunCapabilities,
+  type SessionRunAction,
 } from "./utils/sessionCommands";
 import {
   GUIDE_BOOTSTRAP_SESSION_ID,
@@ -2515,6 +2519,80 @@ export function App() {
     }
   }
 
+  /**
+   * 会话运行控制能力（全状态）：读当前 runtime 快照 → 纯函数策略 → 四项能力。
+   * UI（Tab 下拉 / 侧栏右键菜单）只消费这里的结果，不再各自写 isLiveRuntimeStatus 分叉，
+   * 根治「某些状态没有入口」和「两处判定不一致」。
+   */
+  function getSessionRunCapabilities(sessionId: string | undefined): SessionRunCapabilities | undefined {
+    if (!sessionId) return undefined;
+    const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
+    const target = toSessionRuntimeTarget(sessionId, runtime);
+    const busy =
+      activatingSessionId === sessionId ||
+      reloadingSessionId === sessionId ||
+      (Boolean(target?.agentId) && restartingAgentId === target?.agentId) ||
+      queueFlushBySessionRef.current.has(sessionId);
+    const activeQueued = queue.queuedPromptsRef.current[sessionId] ?? [];
+    return sessionRunCapabilities({
+      state: resolveSessionRunState(runtime, Boolean(target)),
+      hasBinding: Boolean(target),
+      busy,
+      hasInFlightQueuedPrompt: activeQueued.some(
+        (qp) => qp.status === "sending" || qp.status === "unknown",
+      ),
+    });
+  }
+
+  /**
+   * 会话运行控制统一入口：任意状态、任意入口（Tab 下拉 / 侧栏菜单 / 快捷键）都走这里。
+   * - start：未启动/已解绑/error/closed → 有绑定走 restartRuntime 重建进程，无绑定走 activateRuntime。
+   * - stop：仅 live 有效，停掉绑定的 pi/DSH 进程（保留会话记录与 Tab）。
+   * - restart：与 start 同路径（对 live 语义即重启）；running 时先弹确认，避免误杀正在输出的回答。
+   * - reload：无进程时从磁盘刷新消息文件。
+   */
+  async function runSessionControl(sessionId: string, action: SessionRunAction): Promise<void> {
+    if (!sessionId) return;
+    const capabilities = getSessionRunCapabilities(sessionId);
+    if (!capabilities) return;
+
+    if (action === "reload") {
+      await reloadSessionMessages(sessionId);
+      return;
+    }
+
+    if (action === "stop") {
+      const target = getRuntimeTargetForSession(sessionId);
+      if (!target) {
+        // 进程已经不存在（终态被主进程惰性解绑）：没有可停的东西，直接刷成最新状态即可。
+        showToast(t("sessionCommand.runtimeUnavailable"), 3000);
+        return;
+      }
+      try {
+        await closeAgent(target.agentId);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error), 5000);
+      }
+      return;
+    }
+
+    // action === "start" | "restart"
+    // live 态下这是「杀掉正在跑的进程重建」：会中断当前回答，必须先确认。
+    if (capabilities.requiresConfirm) {
+      overlays.showConfirm({
+        title: t("runControl.restartRunningTitle"),
+        message: t("runControl.restartRunningBody"),
+        confirmLabel: t("app.restart"),
+        onConfirm: () => {
+          overlays.clearConfirm();
+          void restartSessionAnyState(sessionId);
+        },
+      });
+      return;
+    }
+    await restartSessionAnyState(sessionId);
+  }
+
   // isAgentBusy: synchronous store read (steer logic is callback-only, not render-time).
   function isAgentCurrentlyBusy(): boolean {
     if (!currentSessionId) return false;
@@ -3139,12 +3217,9 @@ export function App() {
       delete: async (projectId, session) => {
         requestDeleteSidebarSession(projectId, session);
       },
-      reload: async (_projectId, session) => {
-        await reloadSessionMessages(session.id);
-      },
-      // 重启会话（全状态：失败/未启动/空闲/运行中，按绑定状态分派 restart/activate）
-      restart: async (_projectId, session) => {
-        await restartSessionAnyState(session.id);
+      // 运行控制（全状态统一入口）：启动/停止/重启/重载都走 runSessionControl 分派
+      runControl: async (sessionId, action) => {
+        await runSessionControl(sessionId, action);
       },
       archive: async (projectId, session) => {
         await archiveSidebarSession(projectId, session);
@@ -3179,17 +3254,9 @@ export function App() {
         })
         : Promise.resolve(),
       close: requestCloseAgent,
-      // 重启会话（全状态）：反查绑定会话走统一分派（live/error/closed 重启，未启动激活）；
-      // 反查不到会话（罕见：已 detach 且无绑定）退回 restartActiveAgent 兜底。
-      restart: (agent) => {
-        const sessionId = store.get(sessionIdByRuntimeAgentIdAtomFamily(agent.id));
-        if (sessionId) void restartSessionAnyState(sessionId);
-        else restartActiveAgent(agent.id);
-      },
-      // 重新加载会话消息：按 agentId 反查绑定的会话记录 id（error/closed 仍保留绑定）
-      reload: async (agent) => {
-        const sessionId = store.get(sessionIdByRuntimeAgentIdAtomFamily(agent.id));
-        if (sessionId) await reloadSessionMessages(sessionId);
+      // 运行控制（全状态统一入口）：agent 菜单同样收敛到 runSessionControl
+      runControl: async (sessionId, action) => {
+        await runSessionControl(sessionId, action);
       },
     },
     worktrees: {
@@ -3341,33 +3408,18 @@ export function App() {
     onSplitGroupColorChange: (color: string) =>
       workspaceChrome.setSplitGroupConfig((config) => ({ ...config, color })),
     onExitAllSplit: workspaceChrome.exitAllSplit,
-    // Tab 下拉运行控制：只对当前会话 Tab 生效。
-    // 停止 Agent = 停掉当前会话绑定的 pi/DSH 进程（保留会话与 Tab，可随时重启/重载），
-    // 与「关闭标签页」仅移除 Tab 不同；无绑定或已终态（error/closed）的会话隐藏停止入口。
-    canStopCurrent: isLiveRuntimeStatus(activeAgent?.status),
-    isStoppingCurrent: stoppingAgentId === activeAgentId,
-    onStopCurrent: activeAgentId
-      ? () => {
-          void closeAgent(activeAgentId).catch((error) => {
-            showToast(error instanceof Error ? error.message : String(error), 5000);
-          });
+    // Tab 下拉运行控制：全状态统一入口（能力由 getSessionRunCapabilities 纯函数策略决定）。
+    // 停止 Agent = 停掉当前会话绑定的 pi/DSH 进程（保留会话与 Tab，可随时重启/重载）；
+    // 未启动/失败/已关闭的会话同样能看到菜单项，主控按钮文案切成「启动 Agent」。
+    runControl: currentSessionId
+      ? {
+          capabilities: getSessionRunCapabilities(currentSessionId),
+          isStopping: stoppingAgentId === activeAgentId,
+          isRestarting:
+            restartingAgentId === activeAgentId || activatingSessionId === currentSessionId,
+          isReloading: reloadingSessionId === currentSessionId,
+          onAction: (action: SessionRunAction) => void runSessionControl(currentSessionId, action),
         }
-      : undefined,
-    // 重启会话对所有状态开放：有绑定运行实例（starting/idle/running/error/closed）走
-    // restartRuntime（主进程幂等 stop+重建）；未绑定（未启动/detached）走 activateRuntime。
-    // 分派逻辑统一收敛在 restartSessionAnyState（不再用 isLiveRuntimeStatus 挡 error/closed）。
-    canRestartCurrent: Boolean(currentSessionId),
-    isRestartingCurrent:
-      restartingAgentId === activeAgentId || activatingSessionId === currentSessionId,
-    onRestartCurrent: currentSessionId
-      ? () => void restartSessionAnyState(currentSessionId)
-      : undefined,
-    // 重新加载会话：无 live 运行时（未启动/error/closed）时可用，从磁盘刷新消息文件；
-    // live 会话刷新走重启即可，不做磁盘强刷以免覆盖内存中的流式消息。
-    canReloadCurrent: Boolean(currentSessionId) && !isLiveRuntimeStatus(activeAgent?.status),
-    isReloadingCurrent: reloadingSessionId === currentSessionId,
-    onReloadCurrent: currentSessionId
-      ? () => void reloadSessionMessages(currentSessionId)
       : undefined,
     onToggleDrawer: toggleRightDrawer,
     drawerOpen: Boolean(drawer && !drawerCollapsed),

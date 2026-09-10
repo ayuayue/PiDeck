@@ -28,6 +28,13 @@ export default defineConfig({
           { text: "产品对比", link: "/guide/comparison" },
           { text: "更新日志", link: "/changelog" },
           { text: "下载", link: "https://github.com/ayuayue/PiDeck/releases" },
+          {
+            text: "源码",
+            items: [
+              { text: "GitHub 仓库（海外）", link: "https://github.com/ayuayue/PiDeck" },
+              { text: "AtomGit 仓库（国内镜像）", link: "https://atomgit.com/ayuayue/PiDeck" },
+            ],
+          },
         ],
         sidebar: {
           "/guide/": [
@@ -81,6 +88,13 @@ export default defineConfig({
           { text: "Comparison", link: "/en/guide/comparison" },
           { text: "Changelog", link: "/en/changelog" },
           { text: "Download", link: "https://github.com/ayuayue/PiDeck/releases" },
+          {
+            text: "Source",
+            items: [
+              { text: "GitHub (Global)", link: "https://github.com/ayuayue/PiDeck" },
+              { text: "AtomGit (China mirror)", link: "https://atomgit.com/ayuayue/PiDeck" },
+            ],
+          },
         ],
         sidebar: {
           "/en/guide/": [
@@ -123,7 +137,11 @@ export default defineConfig({
   themeConfig: {
     logo: "/icon.svg",
     siteTitle: "PiDeck",
-    socialLinks: [{ icon: "github", link: "https://github.com/ayuayue/PiDeck" }],
+    // 只保留内置图标（github）；AtomGit 无内置图标，作为「源码」下拉项出现在导航中，
+    // 避免 socialLinks 里出现 no-icon 空白图标位。
+    socialLinks: [
+      { icon: "github", link: "https://github.com/ayuayue/PiDeck", ariaLabel: "GitHub 仓库" },
+    ],
     search: {
       provider: "local",
       options: {
@@ -184,6 +202,10 @@ export default defineConfig({
         "url": siteOrigin,
         "downloadUrl": "https://github.com/ayuayue/PiDeck/releases",
         "sourceCodeRepository": "https://github.com/ayuayue/PiDeck",
+        "sameAs": [
+          "https://github.com/ayuayue/PiDeck",
+          "https://atomgit.com/ayuayue/PiDeck"
+        ],
         "license": "https://opensource.org/licenses/MIT",
         "author": {
           "@type": "Organization",
