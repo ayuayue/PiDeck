@@ -1,8 +1,22 @@
 name: Build Linux
 
-# 仅手动触发，从最新的 main 分支构建 Linux arm64 和 x64 安装包
+# 手动触发：可选构建分支/tag（默认 main）与目标架构（默认 both = x64 + arm64）
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 要构建的分支或 tag（如 dev、main、v0.7.0）
+        required: false
+        default: main
+      arch:
+        description: 目标架构
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - x64
+          - arm64
 
 permissions:
   contents: read
@@ -14,19 +28,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x64
-            os: ubuntu-latest
-          # arm64 用原生 ARM runner：让 npm ci 直接装对架构的 sharp / node-pty
-          # 原生依赖，避免在 x64 上交叉编译时拉到构建机架构的二进制。
-          - arch: arm64
-            os: ubuntu-24.04-arm
+        # arch 与 runner 必须配对（arm64 走原生 ARM runner），
+        # 所以按 inputs.arch 直接选出目标条目，避免 matrix 里拼 JSON 字符串。
+        include: ${{ inputs.arch == 'x64'   && fromJSON('[{"arch":"x64","os":"ubuntu-latest"}]')
+                 || inputs.arch == 'arm64' && fromJSON('[{"arch":"arm64","os":"ubuntu-24.04-arm"}]')
+                 ||                           fromJSON('[{"arch":"x64","os":"ubuntu-latest"},{"arch":"arm64","os":"ubuntu-24.04-arm"}]') }}
 
     steps:
-      - name: Checkout repository (main)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.ref || 'main' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

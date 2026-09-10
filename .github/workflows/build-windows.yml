@@ -1,8 +1,22 @@
 name: Build Windows
 
-# 仅手动触发，从最新的 main 分支构建 Windows 安装包
+# 手动触发：可选构建分支/tag（默认 main）与目标架构（默认 both = x64 + arm64）
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 要构建的分支或 tag（如 dev、main、v0.7.0）
+        required: false
+        default: main
+      arch:
+        description: 目标架构
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - x64
+          - arm64
 
 permissions:
   contents: read
@@ -14,13 +28,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        arch: ${{ fromJSON(inputs.arch == 'both' && '["x64", "arm64"]' || format('["{0}"]', inputs.arch)) }}
 
     steps:
-      - name: Checkout repository (main)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ inputs.ref || 'main' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
