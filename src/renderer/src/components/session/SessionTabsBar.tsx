@@ -1032,7 +1032,7 @@ function SessionTab(props: {
         )}
         {runtime?.state?.goal && runtime.state.goal.phase !== "complete" && (
           <span
-            className="shrink-0 rounded bg-accent/15 px-1 text-[10px] font-medium leading-4 text-accent"
+            className="shrink-0 rounded bg-accent/15 px-1 text-[10px] font-medium leading-4 text-primary"
             title={t("app.composerModeGoal")}
           >
             {t("app.composerModeGoal")}

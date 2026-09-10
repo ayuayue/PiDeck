@@ -238,6 +238,7 @@ src/
 5. **`!important` 会反转层优先级**：旧规则里的 `!important` 仍可能压住 utility；碰到时删掉 `!important` 或收窄旧规则，不要给 utility 堆 `!`。
 6. **半吊子 utility 比没写更糟**：组件上写了 `min-h-11`/`rounded-xl`/Button 默认 `h-9`，分层后会真生效并冲掉旧观感。改 UI 时 utility 必须「新学旧」对齐原视觉，再删掉同属性的冗余 legacy 声明。
 7. **排障**：utility「看不见」时用 DevTools 看胜出规则来自哪一层——unlayered / `!important` / 同属性旧选择器；先处理冲突源，再改 class。
+8. **`accent` 是「面」不是「字」**：Tailwind 主题里 `--color-accent` = `--color-bg-active`（悬停浅面色，对齐 shadcn 官方 accent 语义），所以 `text-accent` 与 `hover:bg-accent` 解析成同一个值——亮色（#dfe3e8 字 / #dfe3e8 底）、暗色（#333 字 / #333 底）都是「悬停后变色块、文字消失」。面上的正文一律 `text-accent-foreground`；要主题强调色的文字用 `text-primary`（= foundation 的 `--color-accent`）；legacy CSS 里的 `var(--color-accent)` 仍是强调色，不受此影响。回归守卫：`tests/storeSuggestionChipContrast.test.mjs`（扫全渲染层 `text-<面色 token>`）。
 
 ### beUI 组件迁移（硬性）
 

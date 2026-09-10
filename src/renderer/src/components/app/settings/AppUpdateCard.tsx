@@ -157,7 +157,9 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 			{/* available：macOS 无签名发行物只能跳转 Release 手动安装 */}
 			{download && download.phase === "available" && isManualDelivery && (
 				<div className="mt-2 flex items-center justify-between gap-2">
-					<p className="text-caption text-accent">
+					{/* text-accent 在本项目 Tailwind 主题里指向 --color-bg-active（面色），
+					    当正文色用会与底色同值；强调正文统一用 text-primary（= --color-accent）。 */}
+					<p className="text-caption text-primary">
 						{t("settings.updateManualAvailable", { version: download.version ?? "" })}
 					</p>
 					<Button variant="secondary" size="sm" onClick={openRelease}>
@@ -169,7 +171,7 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 			{/* available：自动下载关闭时手动下载 */}
 			{download && download.phase === "available" && !isManualDelivery && !autoDownload && (
 				<div className="mt-2 flex items-center justify-between gap-2">
-					<p className="text-caption text-accent">
+					<p className="text-caption text-primary">
 						{t("settings.updateAvailable", { version: download.version ?? "" })}
 					</p>
 					<div className="flex gap-2">
@@ -186,7 +188,7 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 			{/* idle + hasUpdate（已提示过/已跳过版本时仅展示信息） */}
 			{phase === "idle" && app?.hasUpdate && (
 				<div className="mt-2 flex items-center justify-between gap-2">
-					<p className="text-caption text-accent">
+					<p className="text-caption text-primary">
 						{t("settings.updateAvailable", { version: app.latestVersion ?? "" })}
 					</p>
 					<Button variant="ghost" size="sm" onClick={openRelease}>

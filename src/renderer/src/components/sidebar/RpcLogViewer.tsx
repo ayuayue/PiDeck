@@ -257,7 +257,7 @@ export function RpcLogViewer(props: RpcLogViewerProps) {
 									following ? "text-text-secondary" : "text-text-tertiary",
 								)}
 							>
-								<Radio size={11} strokeWidth={2.2} className={following ? "animate-pulse text-accent" : ""} aria-hidden="true" />
+								<Radio size={11} strokeWidth={2.2} className={following ? "animate-pulse text-primary" : ""} aria-hidden="true" />
 								{t("rpc.live")}
 							</span>
 						)}
