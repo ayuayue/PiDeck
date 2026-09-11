@@ -138,6 +138,67 @@ function textFromBlocks(blocks: unknown): string {
 	return splitBlocks(blocks).text;
 }
 
+/**
+ * 任意内容块 → 纯文本（递归处理 0.1.5 的 tool-result 包装）。
+ *
+ * 0.1.5 工具结果的消息体是 `[{ type: "tool-result", toolCallId, content, isError }]`
+ * （见 dsh-llm createToolResultMessage），真正的文本嵌在 content 里，可能是字符串
+ * 或再一层内容块数组。splitBlocks 只认 text/reasoning，直接用它提取会得到空串——
+ * 工具卡因此「只有调用没有结果」。
+ */
+function toolResultBlocksToText(value: unknown, depth = 0): string {
+	if (depth > 4) return "";
+	if (typeof value === "string") return value;
+	if (!Array.isArray(value)) return "";
+	let text = "";
+	for (const block of value) {
+		if (!isRecord(block)) continue;
+		if (block.type === "tool-result") {
+			text += toolResultBlocksToText(block.content, depth + 1);
+			continue;
+		}
+		if (block.type === "text" && typeof block.text === "string") {
+			text += block.text;
+			continue;
+		}
+		// 其他块（image/file 等）不进文本；其存在由渲染层/附件链路单独处理。
+	}
+	return text;
+}
+
+/** 工具结果事件的文本（结果消息体的 content 内层）。 */
+function toolResultTextFromBlocks(blocks: unknown): string {
+	return toolResultBlocksToText(blocks);
+}
+
+/**
+ * 应用一次助手增量：累积到流式骨架（pendingAssistant*）。
+ *
+ * 三条来路共用同一套累积，避免形态漂移：
+ *  - 会话日志的 `assistant/chunk`（chunk.type = text-delta / reasoning-delta）；
+ *  - 打包行 `text-chunks` / `reasoning-chunks`（data.texts 是 token 增量数组）；
+ *  - 0.1.5 opt-in 的实时 `assistant-stream` 帧（适配为 `assistant/live-chunk`）：
+ *    增量不落会话日志（durable 只有 assistant/message 终态），骨架 id 由 attemptId
+ *    派生，终态到达时按 pendingAssistantId 原地更新，Live→History 不 remount。
+ */
+function applyAssistantDelta(
+	next: DshProjection,
+	base: DshProjection,
+	delta: { id: string; kind?: "text" | "reasoning"; text?: string },
+): void {
+	if (!delta.kind || typeof delta.text !== "string" || delta.text === "") return;
+	next.pendingAssistantId ??= delta.id;
+	if (delta.kind === "text") {
+		next.pendingAssistantText = base.pendingAssistantText + delta.text;
+		next.deltaText = delta.text;
+	} else {
+		next.pendingAssistantThinking = base.pendingAssistantThinking + delta.text;
+		next.deltaReasoning = delta.text;
+	}
+	next.isStreaming = true;
+	next.stateChanged = true;
+}
+
 /** DSH 持久化图片引用：host 把用户提交的图片字节提升为 attachment 服务里的 durable ref。 */
 export type DshImageRef = {
 	attachmentId: string;
@@ -249,19 +310,24 @@ export function projectDshEvent(
 		}
 		case "assistant/chunk": {
 			const chunk = (data.chunk ?? {}) as { type?: string; text?: unknown };
-			if (chunk.type === "text-delta" && typeof chunk.text === "string") {
-				next.pendingAssistantId ??= `dsh:${seq0}`;
-				next.pendingAssistantText = base.pendingAssistantText + chunk.text;
-				next.deltaText = chunk.text;
-				next.isStreaming = true;
-				next.stateChanged = true;
-			} else if (chunk.type === "reasoning-delta" && typeof chunk.text === "string") {
-				next.pendingAssistantId ??= `dsh:${seq0}`;
-				next.pendingAssistantThinking = base.pendingAssistantThinking + chunk.text;
-				next.deltaReasoning = chunk.text;
-				next.isStreaming = true;
-				next.stateChanged = true;
-			}
+			applyAssistantDelta(next, base, {
+				id: `dsh:${seq0}`,
+				kind: chunk.type === "text-delta" ? "text" : chunk.type === "reasoning-delta" ? "reasoning" : undefined,
+				text: typeof chunk.text === "string" ? chunk.text : undefined,
+			});
+			break;
+		}
+		case "assistant/live-chunk": {
+			// 0.1.5 实时助手流（session/follow 的 assistant-stream 帧，需 opt-in）：
+			// 适配层把帧翻成这个事件；data.liveId 由 attemptId 派生（同一次尝试稳定），
+			// 使同一回合的 delta 落在同一骨架消息上。
+			const chunk = (data.chunk ?? {}) as { type?: string; text?: unknown };
+			const liveId = typeof data.liveId === "string" && data.liveId !== "" ? data.liveId : `dsh:live:${seq0}`;
+			applyAssistantDelta(next, base, {
+				id: liveId,
+				kind: chunk.type === "text-delta" ? "text" : chunk.type === "reasoning-delta" ? "reasoning" : undefined,
+				text: typeof chunk.text === "string" ? chunk.text : undefined,
+			});
 			break;
 		}
 		case "text-chunks":
@@ -273,18 +339,11 @@ export function projectDshEvent(
 			const texts = Array.isArray(data.texts)
 				? data.texts.filter((entry): entry is string => typeof entry === "string")
 				: [];
-			if (texts.length === 0) break;
-			const joined = texts.join("");
-			next.pendingAssistantId ??= `dsh:${seq0}`;
-			if (type === "text-chunks") {
-				next.pendingAssistantText = base.pendingAssistantText + joined;
-				next.deltaText = joined;
-			} else {
-				next.pendingAssistantThinking = base.pendingAssistantThinking + joined;
-				next.deltaReasoning = joined;
-			}
-			next.isStreaming = true;
-			next.stateChanged = true;
+			applyAssistantDelta(next, base, {
+				id: `dsh:${seq0}`,
+				kind: type === "text-chunks" ? "text" : "reasoning",
+				text: texts.length > 0 ? texts.join("") : undefined,
+			});
 			break;
 		}
 		case "assistant/message": {
@@ -468,7 +527,8 @@ export function projectDshEvent(
 		}
 		case "tool/result": {
 			const message = (data.message ?? {}) as { source?: unknown; content?: unknown };
-			const fullText = textFromBlocks(message.content);
+			// 0.1.5 的结果文本嵌在 tool-result 块内（见 toolResultBlocksToText）。
+			const fullText = toolResultTextFromBlocks(message.content);
 			// 工具结果截断展示（渲染层工具卡展开区 2000 字符内），完整文本保留在
 			// meta.fullText 供「查看完整输出」按需读取（A3：DSH 会话没有 pi 会话
 			// 文件可定位，全文只能随投影消息走内存）。

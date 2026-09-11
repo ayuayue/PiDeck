@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DshApiClient, type DshRpcResult } from "./DshApiClient";
 
 /** 旧 AbstractApiClient 的返回信封（调用方沿用的解包形状 x.result.ok / x.result.value）。
@@ -89,7 +90,8 @@ export class DshRemoteClient {
 	// ── 会话域 ────────────────────────────────────────────────────────────────
 
 	async sessionsList(): Promise<DshEnvelope> {
-		return envelope(this.rpc.call("session/list", {}));
+		// 描述符要求 _request 键（wire 名，非可选）：空对象表示不带游标。
+		return envelope(this.rpc.call("session/list", { _request: {} }));
 	}
 
 	/**
@@ -102,10 +104,12 @@ export class DshRemoteClient {
 		beforeSeq?: number;
 	}): Promise<DshEnvelope<DshHistoryPage>> {
 		const result = await this.rpc.call("session/page", {
-			address: addressOf(input.sessionId),
-			throughSeq: Number.MAX_SAFE_INTEGER,
-			...(input.maxMessages !== undefined ? { maxMessages: input.maxMessages } : {}),
-			...(input.beforeSeq !== undefined ? { beforeSeq: input.beforeSeq } : {}),
+			request: {
+				address: addressOf(input.sessionId),
+				throughSeq: Number.MAX_SAFE_INTEGER,
+				...(input.maxMessages !== undefined ? { maxMessages: input.maxMessages } : {}),
+				...(input.beforeSeq !== undefined ? { beforeSeq: input.beforeSeq } : {}),
+			},
 		});
 		if (!result.ok) return { result };
 		const value = result.value as {
@@ -131,6 +135,9 @@ export class DshRemoteClient {
 		const { sessionId, mode, content, clientTimeZone } = input;
 		return envelope(this.rpc.call("session/prompt", {
 			request: {
+				// requestId 是 host 的幂等键（重复发送同 id 直接返回 accepted）并用于绑定
+				// 附件收据；描述符里为必填，缺失会被 gateway 边界校验拒绝。
+				requestId: randomUUID(),
 				sessionId,
 				mode,
 				content,
@@ -215,7 +222,16 @@ export class DshRemoteClient {
 		const sessionId = input.sessionId;
 		const items = this.rpc.openStream(
 			"session/follow",
-			{ request: { address: addressOf(sessionId) } },
+			{
+				request: {
+					address: addressOf(sessionId),
+					// 0.1.5：助手增量（正文/思考 delta）不在会话日志里，只有显式 opt-in 才会
+					// 经 assistant-stream 帧实时下发（见 session-controller follow 的
+					// request.assistantStream !== true 分支）。不开启则只剩终态 assistant/message，
+					// 表现为「看不到思考过程、正文只能等整段出现」。
+					assistantStream: true,
+				},
+			},
 			signal,
 		);
 		for await (const item of items) {
@@ -224,7 +240,32 @@ export class DshRemoteClient {
 				event?: Record<string, unknown>;
 				projections?: unknown;
 				records?: Array<{ event?: Record<string, unknown> }>;
+				// assistant-stream 帧（opt-in）：{ frame: {type:'start'|'chunk'|'end', attemptId, chunk, time}, ordinal }
+				frame?: { type?: string; attemptId?: string; chunk?: unknown; time?: number };
 			};
+			// 实时助手增量：翻成投影器认识的 assistant/live-chunk 事件（liveId 由 attemptId
+			// 派生，保证同一 attempt 的 delta 累积到同一骨架消息，终态原地更新不 remount）。
+			if (frame?.type === "assistant-stream") {
+				const live = frame.frame;
+				if (live?.type === "chunk" && live.chunk !== undefined) {
+					yield {
+						payload: {
+							sessionId,
+							type: "session/event",
+							event: {
+								type: "assistant/live-chunk",
+								time: typeof live.time === "number" ? live.time : Date.now(),
+								data: {
+									chunk: live.chunk,
+									attemptId: live.attemptId,
+									liveId: `dsh:live:${live.attemptId ?? "attempt"}`,
+								},
+							},
+						},
+					};
+				}
+				continue;
+			}
 			if (frame?.type === "event" && frame.event) {
 				const event = frame.event;
 				yield { payload: { sessionId, type: "session/event", event, view: event.surfaceOp } };
@@ -374,15 +415,17 @@ export class DshRemoteClient {
 		maxMessages?: number;
 	}): Promise<DshEnvelope<DshHistoryPage>> {
 		const result = await this.rpc.call("session/page", {
-			address: {
-				kind: "subagent",
-				parentSessionId: input.parentSessionId,
-				childSessionId: input.childSessionId,
-				mode: input.mode ?? "one-shot",
+			request: {
+				address: {
+					kind: "subagent",
+					parentSessionId: input.parentSessionId,
+					childSessionId: input.childSessionId,
+					mode: input.mode ?? "one-shot",
+				},
+				throughSeq: Number.MAX_SAFE_INTEGER,
+				...(input.beforeSeq !== undefined ? { beforeSeq: input.beforeSeq } : {}),
+				...(input.maxMessages !== undefined ? { maxMessages: input.maxMessages } : {}),
 			},
-			throughSeq: Number.MAX_SAFE_INTEGER,
-			...(input.beforeSeq !== undefined ? { beforeSeq: input.beforeSeq } : {}),
-			...(input.maxMessages !== undefined ? { maxMessages: input.maxMessages } : {}),
 		});
 		if (!result.ok) return { result };
 		const value = result.value as { records?: Array<{ event?: Record<string, unknown> }>; hasMore?: boolean };

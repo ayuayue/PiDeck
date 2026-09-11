@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { installHiddenConsolePatch, installHostHiddenConsole } from "./hideChildConsoles";
-import { agentPresetsRow, dshWebAgentPlaneDisableRows, hostCompositionPath } from "./dshPresetComposition";
+import { agentPresetsRow, dshSubagentModelSelectionSettingsRow, dshWebAgentPlaneDisableRows, hostCompositionPath } from "./dshPresetComposition";
 import {
 	PIDECK_PLUGIN_BRIDGE_PATH,
 	handlePluginBridgeFetch,
@@ -157,6 +157,10 @@ async function main(): Promise<void> {
 			// （includeShippedRoot 默认），行内只声明默认预设。不声明该行时
 			// agentPreset.list 返回空名单，配置页「预设设置」无模式可选。
 			agentPresetsRow(),
+			// subagent 模型选择开关（Host 作用域服务）：standard/code 预设的 tool-subagent
+			// 行带 modelSelectionSettings: true，Host 缺该服务时整棵 preset 挂载失败
+			// （agent-preset/invalid），见 dshSubagentModelSelectionSettingsRow 注释。
+			dshSubagentModelSelectionSettingsRow(),
 			// 动态 Cordis 插件管理（G13 深化）：运行器（define/run/stop/undefine，
 			// 进程内临时扩展、按会话归属）+ 只读静态 Loader 清单 + PiDeck 管理桥。
 			// 与 dsh-web-app 的 cordis.patch.yml 同一挂载形态（无 config 的普通行）。

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
-const { agentPresetsRow, shippedPresetRoot, dshWebAgentPlaneDisableRows, hostCompositionPath } = loadTsCommonJs("src/main/dsh/dshPresetComposition.ts");
+const { agentPresetsRow, shippedPresetRoot, dshWebAgentPlaneDisableRows, hostCompositionPath, dshSubagentModelSelectionSettingsRow } = loadTsCommonJs("src/main/dsh/dshPresetComposition.ts");
 
 /** 真实安装的 dsh-agent-presets 包目录（0.1.5 起随包预设随该包分发）。 */
 const agentPresetsPackageDir = dirname(nodeRequire.resolve("@deepseek-ai/dsh-agent-presets/package.json"));
@@ -65,7 +65,31 @@ test("dshWebAgentPlaneDisableRows: 对齐 dsh-web-app 的 agent-plan 禁用清�
 	assert.ok(rows.every((row) => row.disabled === true));
 });
 
-// ── host 组合文件位置：必须在 appRoot 子树内 ──
+test("dshSubagentModelSelectionSettingsRow: 与 dsh-web-app host 行同源，且确为当前预设所需", () => {
+	const row = dshSubagentModelSelectionSettingsRow();
+	assert.equal(row.id, "subagent-model-selection-settings");
+	assert.equal(row.name, "@deepseek-ai/dsh-tool-subagent/model-selection-settings");
+	// 与官方 web 部署的 host 插入行逐字一致（防两端漂移：漏挂或改名都会先红在这里）。
+	const patchPath = nodeRequire.resolve("@deepseek-ai/dsh-web-app/cordis.patch.yml");
+	const patch = readFileSync(patchPath, "utf8");
+	const officialRow = patch.match(
+		/\n\s+- id: (subagent-model-selection-settings)\n\s+name: '([^']+)'/,
+	);
+	assert.ok(officialRow, `dsh-web-app/cordis.patch.yml 缺少 subagent-model-selection-settings 行`);
+	assert.equal(row.id, officialRow[1]);
+	assert.equal(row.name, officialRow[2]);
+	// 行不是死配置：随包预设里确有 tool-subagent 行要求 modelSelectionSettings
+	// （缺失时 preset 整棵挂载失败：agent-preset/invalid "requires … in the Host scope"）。
+	const root = shippedPresetRoot(agentPresetsPackageDir);
+	const usingRow = readdirSync(root, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.some((entry) => {
+			const composition = join(root, entry.name, "agent.cordis.yml");
+			return existsSync(composition) && /modelSelectionSettings:\s*true/.test(readFileSync(composition, "utf8"));
+		});
+	assert.ok(usingRow, "没有任何随包预设使用 modelSelectionSettings，Host 行已成死配置，应移除");
+});
+
 // 回归背景：组合文件曾写在 userData 的 configDir，dsh-agent-presets 以 ctx.baseUrl
 // （= 组合文件目录，由 dsh-app-boot 的 Include 重置）为基准向上找 node_modules，
 // configDir 走不到 runtime → 随包预设的 24 个插件行全被判 "cannot be resolved"。

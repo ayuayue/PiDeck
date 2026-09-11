@@ -80,6 +80,24 @@ export function agentPresetsRow(): {
 }
 
 /**
+ * subagent 模型选择开关的 Host 行：standard/code 预设的 tool-subagent 行带
+ * `modelSelectionSettings: true`，运行时要求 Host 作用域提供 subagentModelSelection
+ * 服务（dsh-tool-subagent/lib/index.js 校验，缺失抛
+ * "`modelSelectionSettings` requires …/model-selection-settings in the Host scope"）。
+ * 与 dsh-web-app/cordis.patch.yml 的 host 行同源（id/name 逐字一致），
+ * 不挂该行时 standard 预设整棵挂载失败（agent-preset/invalid）。
+ */
+export function dshSubagentModelSelectionSettingsRow(): {
+	id: string;
+	name: string;
+} {
+	return {
+		id: "subagent-model-selection-settings",
+		name: "@deepseek-ai/dsh-tool-subagent/model-selection-settings",
+	};
+}
+
+/**
  * host 组合文件（cordis.yml）的落盘目录 = appRoot/pideck-host（appRoot 即
  * `--dsh-node-modules` 指向的、含 node_modules 的目录）。
  *

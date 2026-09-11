@@ -253,7 +253,10 @@ export function resolveBridgeAgent(
 /** 桥服务方法签名（结构类型；host 侧由 DynamicCordisRunnerService 提供）。 */
 export type PluginBridgeService = {
 	inventory(): PluginBridgeResult<unknown>;
-	staticInventory(): PluginBridgeResult<unknown>;
+	/** 静态清单读取是异步的：dsh-host-plugin-inventory 的 list() 为 async（还要聚合
+	 *  各 preset 的 compositionInventory），漏 await 会让快照变成 Promise，
+	 *  entries 取不到 → UI 显示「暂无静态条目」（0 条）而不是报错。 */
+	staticInventory(): PluginBridgeResult<unknown> | Promise<PluginBridgeResult<unknown>>;
 	install(input: unknown): PluginBridgeResult<unknown>;
 	run(input: unknown): PluginBridgeResult<unknown> | Promise<PluginBridgeResult<unknown>>;
 	stop(input: unknown): PluginBridgeResult<unknown> | Promise<PluginBridgeResult<unknown>>;
@@ -336,10 +339,11 @@ export function apply(ctx: PluginBridgeCtx): void {
 				: [];
 			return { ok: true, value: views };
 		},
-		staticInventory() {
-			const inventory = ctx.get?.("pluginInventory") as { list?(): { entries?: unknown } } | undefined;
+		async staticInventory() {
+			const inventory = ctx.get?.("pluginInventory") as { list?(): Promise<{ entries?: unknown }> | { entries?: unknown } } | undefined;
 			if (!inventory?.list) return { ok: false, error: "pluginInventory is not mounted" };
-			const snapshot = inventory.list();
+			// 必须 await：该服务的 list() 是 async（见 runtime dsh-host-plugin-inventory）。
+			const snapshot = await inventory.list();
 			const entries = snapshot?.entries;
 			const views = Array.isArray(entries)
 				? entries.map(toStaticPluginView).filter((view): view is StaticPluginView => Boolean(view))
