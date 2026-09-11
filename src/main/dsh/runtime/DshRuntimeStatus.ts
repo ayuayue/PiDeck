@@ -17,6 +17,7 @@ import type {
 	DshRuntimeState,
 	DshRuntimeStatus,
 } from "../../../shared/types/dshRuntime";
+import { isDshRuntimeVersionMismatch } from "../../../shared/types/dshRuntime";
 
 /** 探测结果：ok 时给出 runtime node_modules 锚点（appRoot，与 DshHost 的 appRoot 同源）。 */
 export type DshRuntimeProbeResult =
@@ -130,6 +131,10 @@ export class DshRuntimeStatusService {
 	 * @param isPackaged 是否打包态（app.isPackaged）：决定 installEnabled——
 	 *   dev 模式禁止「在线下载安装」入口，runtime 只在打包时随包分发，避免开发者
 	 *   误下载与本地代码不配套的产物。
+	 * @param resolveDeclaredVersion 当前 app 声明的配套 dsh 版本（package.json 的
+	 *   @deepseek-ai/dsh）。与已装 runtime 比对得出 updateAvailable——runtime 的
+	 *   maxAppVersion 为空意味着旧版永远「兼容」，没有这个比对用户升级 app 后会
+	 *   静默跑在旧 runtime 上（manifest 只挡「不兼容」，挡不住「过旧但兼容」）。
 	 */
 	constructor(
 		private readonly getAppPath: () => string,
@@ -139,6 +144,7 @@ export class DshRuntimeStatusService {
 			| undefined = () => undefined,
 		private readonly allowBundledFallback: () => boolean = () => true,
 		private readonly isPackaged: () => boolean = () => true,
+		private readonly resolveDeclaredVersion: () => string | undefined = () => undefined,
 	) {}
 
 	/** 当前状态（首次调用探测并缓存；IPC 查询走这里）。 */
@@ -150,10 +156,14 @@ export class DshRuntimeStatusService {
 	/**
 	 * 供 DshHost 取 runtime 锚点（appRoot，即包含 node_modules 的目录）。
 	 * 与 getStatus 共用同一份探测结果，避免「状态说装了、host 却找不到路径」的分叉。
+	 * outdated（版本不一致）时返回 undefined：host 不得用不配套的 runtime 启动。
 	 */
 	resolveAppRoot(): string | undefined {
-		const probe = this.probeOnceFresh();
-		return probe.ok ? probe.appRoot : undefined;
+		const { status, probe } = this.probeFull();
+		// 只有 installed 才交付锚点；outdated 的探测虽然「可解析」，但桥协议/插件表
+		// 不保证配套——这里的 undefined 会让 DshHost.start 直接失败，而不是起一个
+		// 随时可能崩的 host。
+		return status.state === "installed" && probe.ok ? probe.appRoot : undefined;
 	}
 
 	/** 是否允许新建 DSH 会话（门控判定的唯一入口，避免调用方各自比对状态枚举）。 */
@@ -193,7 +203,7 @@ export class DshRuntimeStatusService {
 		return next;
 	}
 
-	/** 探测一次并返回状态快照（不写缓存，供 resolveAppRoot 这类旁路查询用）。 */
+	/** 原始探测（不写缓存、不做 outdated 判定；判定在 probeFull 里做）。 */
 	private probeOnceFresh(): DshRuntimeProbe {
 		return probeDshRuntime({
 			managed: this.resolveManaged(),
@@ -205,21 +215,61 @@ export class DshRuntimeStatusService {
 	}
 
 	private probeOnce(): DshRuntimeStatus {
+		return this.probeFull().status;
+	}
+
+	/**
+	 * 探测一次，同时返回状态快照与原始探测（resolveAppRoot 需要原始 appRoot）。
+	 * 声明的配套 dsh 版本（package.json）在此与实装版本比对：不一致 → outdated。
+	 */
+	private probeFull(): { status: DshRuntimeStatus; probe: DshRuntimeProbe } {
 		const probe = this.probeOnceFresh();
+		// 声明的配套 dsh 版本（package.json），dev 与打包态均可读；读不到只是退回
+		// 旧的兼容区间判定，不能因此误杀（宁缺毋滥：判定不了就不判）。
+		const declaredVersion = this.resolveDeclaredVersion();
 		if (probe.ok) {
-			return {
-				state: "installed",
-				source: probe.source,
-				...(probe.runtimeVersion ? { runtimeVersion: probe.runtimeVersion } : {}),
-				// 外部 managed runtime 时给出落盘目录（runtimesRoot/<version>），UI 概览页展示/打开用；
-				// builtin 内置分发没有独立安装目录（在 app.asar 内），不填。
-				...(probe.source === "managed" && probe.installDir ? { installDir: probe.installDir } : {}),
-				// 仅打包态允许在线下载/重装；dev 由渲染层隐藏该入口。
-				installEnabled: this.isPackaged(),
-			};
+			// 版本不一致 → outdated（硬门控）：manifest 兼容区间只挡「不兼容」，
+			// 挡不住「过旧但兼容」；跨版本混用桥协议不可信，直接禁止启动。
+			const mismatched = isDshRuntimeVersionMismatch(declaredVersion, probe.runtimeVersion);
+			if (mismatched) {
+				this.log("dsh-runtime", "runtime version mismatch with declared version", {
+					installed: probe.runtimeVersion,
+					declared: declaredVersion,
+					action: "host start blocked, reinstall required",
+				});
+			}
+			const status: DshRuntimeStatus = mismatched
+				? {
+						state: "outdated",
+						source: probe.source,
+						...(probe.runtimeVersion ? { runtimeVersion: probe.runtimeVersion } : {}),
+						...(probe.source === "managed" && probe.installDir ? { installDir: probe.installDir } : {}),
+						installEnabled: this.isPackaged(),
+						...(declaredVersion ? { declaredRuntimeVersion: declaredVersion } : {}),
+					}
+				: {
+						state: "installed",
+						source: probe.source,
+						...(probe.runtimeVersion ? { runtimeVersion: probe.runtimeVersion } : {}),
+						// 外部 managed runtime 时给出落盘目录（runtimesRoot/<version>），UI 概览页展示/打开用；
+						// builtin 内置分发没有独立安装目录（在 app.asar 内），不填。
+						...(probe.source === "managed" && probe.installDir ? { installDir: probe.installDir } : {}),
+						// 仅打包态允许在线下载/重装；dev 由渲染层隐藏该入口。
+						installEnabled: this.isPackaged(),
+						...(declaredVersion ? { declaredRuntimeVersion: declaredVersion } : {}),
+					};
+			return { status, probe };
 		}
 		// 两者都没有 = 未安装 runtime（阶段 2 依赖分区后的常态）。
 		this.log("dsh-runtime", "dsh runtime not available", { error: probe.error });
-		return { state: "notInstalled", installEnabled: this.isPackaged() };
+		return {
+			status: {
+				state: "notInstalled",
+				installEnabled: this.isPackaged(),
+				// 未安装无所谓「不一致」，但声明版本仍可带给 UI（安装引导可展示目标版本）。
+				...(declaredVersion ? { declaredRuntimeVersion: declaredVersion } : {}),
+			},
+			probe,
+		};
 	}
 }

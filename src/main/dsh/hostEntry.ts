@@ -318,10 +318,11 @@ async function main(): Promise<void> {
 	);
 	// 0.1.5：fetch handler 来自 Connection（载体无关 /api 通道），语义与旧
 	// toFetchHandler(ctx.apiProxy) 等价——接受标准 Request，返回 Response。
-	const apiHandler = (
-		ctx as import("@deepseek-ai/cordis").Context &
-			import("@deepseek-ai/dsh-client-connection").HostConnectionHandle
-	).createSharedFetchHandler("/api");
+	// 注意取用路径：HostConnectionHandle 挂在 ctx.connection（cordis Context 增广，
+	// 见 dsh-client-connection rpc-host.d.ts 的 declare module），不是混在 ctx 根上——
+	// 直接 ctx.createSharedFetchHandler 运行时必然 undefined（曾用
+	// `ctx as Context & HostConnectionHandle` 的交叉断言掩盖了这一点）。
+	const apiHandler = ctx.connection.createSharedFetchHandler("/api");
 	// Gateway 流派发器：与官方 RemoteStreamMuxServer 使用的 open 等价——
 	// wireStream.open 处理普通 Remote 流端点与内部 $events 转发事件流（含瀑布）。
 	// typertGateway 由 dsh-base 补丁的 typert-gateway 行提供（Context 增广见

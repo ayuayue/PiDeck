@@ -257,7 +257,8 @@ export class DshRemoteClient {
 	 * ready 帧的 clientId 缓存供 respond() 回传。
 	 */
 	async *openEvents(signal: AbortSignal): AsyncGenerator<DshMuxFrame> {
-		const items = this.rpc.openStream("$events", { args: {} }, signal);
+		// openStream 内部统一做 { args } 包装（见 DshApiClient.wrapRemoteArgs），传裸 {}。
+		const items = this.rpc.openStream("$events", {}, signal);
 		for await (const item of items) {
 			const frame = item as RemoteEventDownlink;
 			if (!frame || typeof frame !== "object") continue;

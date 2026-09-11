@@ -283,10 +283,13 @@ test("respondRemoteEvent：POST /api/$events/result 载带 clientId/eventId/outc
 	assert.equal(mainToHost[0].path, "/api/$events/result");
 	const envelope = JSON.parse(mainToHost[0].body);
 	assert.equal(envelope.method, "$events/result");
+	// 载荷统一 { args } 包装（gateway remoteRequest 强校验），领域字段在 args 内。
 	assert.deepEqual(envelope.payload, {
-		clientId: "client-1",
-		eventId: "event-9",
-		outcome: { kind: "result", value: "allowed-once" },
+		args: {
+			clientId: "client-1",
+			eventId: "event-9",
+			outcome: { kind: "result", value: "allowed-once" },
+		},
 	});
 	hostPush({
 		type: "fetch-response",
@@ -297,5 +300,53 @@ test("respondRemoteEvent：POST /api/$events/result 载带 clientId/eventId/outc
 	});
 	const result = await promise;
 	assert.equal(result.ok, true);
+	client.dispose();
+});
+
+test("call：领域载荷统一包装为 { args }（gateway remoteRequest 强校验契约）", async () => {
+	const { transport, mainToHost, hostPush } = makeMemoryTransport();
+	const client = new DshApiClient({ transport });
+	const promise = client.call("settings/describe", { refs: ["a"] });
+	await waitForOutbound(mainToHost, 1);
+	const envelope = JSON.parse(mainToHost[0].body);
+	// 裸领域对象在出口被包成 { args }，handler 侧拿到解包后的 args。
+	assert.deepEqual(envelope.payload, { args: { refs: ["a"] } });
+	hostPush({
+		type: "fetch-response",
+		id: mainToHost[0].id,
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ type: "server-response", rpcId: envelope.rpcId, result: { ok: true, value: {} } }),
+	});
+	const result = await promise;
+	assert.equal(result.ok, true);
+	client.dispose();
+});
+
+test("openStream：stream-open 帧载荷同样包装为 { args }", async () => {
+	const { transport, mainToHost, hostPush } = makeMemoryTransport();
+	const client = new DshApiClient({ transport });
+	const iterator = client.openStream("session/follow", { request: { address: { kind: "session", sessionId: "s1" } } });
+	const done = (async () => {
+		for await (const item of iterator) void item;
+	})();
+	await waitForOutbound(mainToHost, 1);
+	assert.equal(mainToHost[0].type, "stream-open");
+	// vm 沙箱 realm 的对象原型不同，deepEqual 会误报；JSON 序列化比较结构。
+	assert.deepEqual(JSON.parse(JSON.stringify(mainToHost[0].payload)), {
+		args: { request: { address: { kind: "session", sessionId: "s1" } } },
+	});
+	hostPush({ type: "stream-end", id: mainToHost[0].id });
+	await done;
+	client.dispose();
+});
+
+test("call：传入已 args 包装的载荷直接抛错（防二次包装静默损坏协议）", async () => {
+	const { transport } = makeMemoryTransport();
+	const client = new DshApiClient({ transport });
+	await assert.rejects(
+		client.call("settings/describe", { args: {} }),
+		/already args-wrapped/,
+	);
 	client.dispose();
 });

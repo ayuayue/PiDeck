@@ -2490,6 +2490,10 @@ export function App() {
           () => store.set(openSettingsAtom, DSH_INSTALL_SETTINGS_TARGET),
           dshStatus.state,
           dshStatus.reason,
+          {
+            installed: dshStatus.runtimeVersion,
+            declared: dshStatus.declaredRuntimeVersion,
+          },
         );
         return;
       }

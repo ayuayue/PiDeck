@@ -582,6 +582,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// dsh 会话——渲染层已按安装态隐藏入口，这里是边界防御（设置残留 dsh /
 			// 渲染层旧版本）。既有 dsh 会话不受影响（打开/发送走运行时链路，不在此处）。
 			if (input.backend === "dsh" && canCreateDshSession?.() !== true) {
+				// outdated（版本不一致）单独给文案：不是「没装」，是装了但不配套，
+				// 用户需要的是重装而不是困惑于「明明装了却说未安装」。
+				if (getDshRuntimeStatus?.().state === "outdated") {
+					throw new Error(mainCopy("session.dshRuntimeOutdated"));
+				}
 				throw new Error(mainCopy("session.dshRuntimeNotInstalled"));
 			}
 			// Auto-fill model / thinkingLevel from pi config when the caller hasn't
@@ -687,6 +692,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		async (_event, input: CreateAnonymousSessionInput) => {
 			// 与 createDraft 同一 DSH runtime 门控：匿名会话同样不能落在不可用后端上。
 			if (input.backend === "dsh" && canCreateDshSession?.() !== true) {
+				if (getDshRuntimeStatus?.().state === "outdated") {
+					throw new Error(mainCopy("session.dshRuntimeOutdated"));
+				}
 				throw new Error(mainCopy("session.dshRuntimeNotInstalled"));
 			}
 			const result = await createAnonymousSession(input);

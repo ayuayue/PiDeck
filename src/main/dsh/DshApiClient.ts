@@ -103,6 +103,11 @@ export class DshApiClient {
 	 * 调用一个 Connection RPC 端点（如 `session/list`）。
 	 * 返回端点自己的 success/error 结果；传输失败按 `{ok:false, error:'internal'}` 收敛
 	 * （与官方 transportError 契约一致，调用方不必同时处理 throw 与 error 结果）。
+	 *
+	 * payload 在这里统一包装为 typert Gateway 的 wire 形状 `{ args }`（gateway 侧
+	 * remoteRequest 强校验「恰好一个 plain-object args 字段」，收到裸载荷直接
+	 * gateway/internal 拒绝），handler 侧拿到的是解包后的 args——调用点因此保持
+	 * 「直接传领域参数对象」的写法，不需要各自记得包一层。
 	 */
 	async call(
 		endpoint: string,
@@ -114,7 +119,7 @@ export class DshApiClient {
 			type: "client-request",
 			rpcId,
 			method: endpoint,
-			payload,
+			payload: wrapRemoteArgs(endpoint, payload),
 		};
 		try {
 			const response = await this.rawFetch(new URL(`${RPC_CHANNEL}/${endpoint}`, INTERNAL_ORIGIN), {
@@ -170,7 +175,7 @@ export class DshApiClient {
 			const pump = new DshStreamPump(id, signal, self);
 			self.streams.set(id, pump);
 			try {
-				self.transport.send(marshalStreamOpen(id, endpoint, payload));
+				self.transport.send(marshalStreamOpen(id, endpoint, wrapRemoteArgs(endpoint, payload)));
 				while (true) {
 					const next = await pump.next();
 					if (next.done) return;
@@ -458,6 +463,28 @@ function parseServerResponse(value: unknown, rpcId: string, endpoint: string): D
 
 function failureResult(message: string): DshRpcResult {
 	return { ok: false, error: { code: "internal", message, details: {} } };
+}
+
+/**
+ * 把领域参数包装为 typert Gateway 的 wire 载荷 `{ args }`。
+ *
+ * Gateway 的 remoteRequest 强校验：payload 必须是恰好一个 `args` 键的 plain object
+ * （见 dsh-api-gateway remoteRequest —— 收到裸载荷抛 gateway/internal「Remote payload
+ * must contain exactly one plain-object args field」），handler 收到的是解包后的 args。
+ * 包装收口在 call/openStream 两个出口，调用点永远传「handler 期望的 args 对象」本身；
+ * 非对象载荷（undefined/原始值）是调用点 bug，包成 `{args: value}` 让 host 侧 zod
+ * 校验报出可读错误，而不是在这里静默吞掉。
+ */
+function wrapRemoteArgs(endpoint: string, payload: unknown): Record<string, unknown> {
+	if (
+		isRecord(payload) &&
+		Object.hasOwn(payload, "args") &&
+		Reflect.ownKeys(payload).length === 1
+	) {
+		// 防御已包装的载荷被二次包装（{args:{args:...}} host 侧 zod 很难读出原因）。
+		throw new Error(`dsh rpc: payload for ${endpoint} is already args-wrapped; pass bare domain args`);
+	}
+	return { args: payload };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

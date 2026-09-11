@@ -252,6 +252,7 @@ import {
 	DshRuntimeManager,
 	DSH_BUNDLED_RUNTIME_DIRNAME,
 	readBundledRuntime,
+	readDeclaredDshVersion,
 } from "./dsh/runtime/DshRuntimeManager";
 import { DshRuntimeInstaller } from "./dsh/runtime/DshRuntimeInstaller";
 import { createNetDownloader, createTarExtractor, fetchDshRuntimeIndex } from "./dsh/runtime/dshRuntimeIo";
@@ -3342,6 +3343,9 @@ app.whenReady().then(async () => {
 		},
 		() => !app.isPackaged,
 		() => app.isPackaged,
+		// 声明的配套 dsh 版本（package.json）：与已装 runtime 比对得出 updateAvailable，
+		// 升级 PiDeck 后旧 runtime 仍「兼容」会被一直选用，UI 需要这个信号提示更新。
+		() => readDeclaredDshVersion(app.getAppPath()),
 	);
 	dshRuntimeStatus.subscribe((status) => {
 		if (mainWindow && !mainWindow.isDestroyed()) {
