@@ -16,6 +16,7 @@ export const BUILT_IN_EXTENSIONS = [
 	"pi-deck-session-title.ts",
 	"pi-deck-subagents.ts",
 	"pi-deck-todo.ts",
+	"pi-deck-trash-guard.ts",
 	"pi-deck-vision.ts",
 ] as const;
 
