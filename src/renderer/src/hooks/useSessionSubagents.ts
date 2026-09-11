@@ -148,8 +148,9 @@ const SNAPSHOT_STATE_TO_STATUS: Record<string, PiSubagentStatus> = {
 /**
  * 解析 subagent-async widget 行（首行 PI_SUBAGENT_ASYNC_JSON:{...}，rpc 模式由
  * nicobailon pi-subagents 插件推送）为子代理条目。快照无 task 文本（label 为
- * agent 名），description 留空；id 为插件 asyncId，与 record/推导条目 id 空间
- * 不相交。损坏载荷返回 []（fail-soft，不影响其他源）。
+ * agent 名），description 留空，由 applyAsyncSnapshotEntries 从同 id 的推导条目
+ * 补充；id 为插件 asyncId，与主进程派发回执推导的条目 id 同源。损坏载荷返回
+ * []（fail-soft，不影响其他源）。
  */
 export function parseSubagentAsyncSnapshot(
 	lines: readonly string[] | undefined,
@@ -186,6 +187,27 @@ export function parseSubagentAsyncSnapshot(
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * 将 subagent-async widget 快照条目叠加进合并结果：快照是运行态唯一实时真源，
+ * 同 id 时以快照为准（状态更新）；快照条目无 task 文本（description 为空），
+ * 已存在同 id 条目时保留其 description（主进程从派发 args.task 推导）。
+ */
+export function applyAsyncSnapshotEntries(
+	existing: PiSubagentEntry[],
+	asyncEntries: PiSubagentEntry[],
+): PiSubagentEntry[] {
+	if (asyncEntries.length === 0) return existing;
+	const byId = new Map(existing.map((entry) => [entry.id, entry]));
+	for (const entry of asyncEntries) {
+		const prev = byId.get(entry.id);
+		byId.set(
+			entry.id,
+			!entry.description && prev?.description ? { ...entry, description: prev.description } : entry,
+		);
+	}
+	return [...byId.values()];
 }
 
 /* ------------------------------------------------------------------ */
@@ -241,16 +263,10 @@ export function useSessionSubagents(
 		() => mergeSubagentEntries(records, bridgeLines),
 		[records, bridgeLines],
 	);
-	const entries = useMemo(() => {
-		const asyncEntries = parseSubagentAsyncSnapshot(subagentAsyncLines);
-		if (asyncEntries.length === 0) return merged;
-		const byId = new Map(merged.map((entry) => [entry.id, entry]));
-		for (const entry of asyncEntries) {
-			// async 快照是运行态唯一实时真源；已存在同 id 时以快照为准（状态更新）
-			byId.set(entry.id, entry);
-		}
-		return [...byId.values()];
-	}, [merged, subagentAsyncLines]);
+	const entries = useMemo(
+		() => applyAsyncSnapshotEntries(merged, parseSubagentAsyncSnapshot(subagentAsyncLines)),
+		[merged, subagentAsyncLines],
+	);
 
 	return { entries, pluginActive, loading };
 }
