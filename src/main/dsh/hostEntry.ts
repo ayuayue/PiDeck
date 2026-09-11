@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { installHiddenConsolePatch, installHostHiddenConsole } from "./hideChildConsoles";
-import { agentPresetsRow, dshWebAgentPlaneDisableRows } from "./dshPresetComposition";
+import { agentPresetsRow, dshWebAgentPlaneDisableRows, hostCompositionPath } from "./dshPresetComposition";
 import {
 	PIDECK_PLUGIN_BRIDGE_PATH,
 	handlePluginBridgeFetch,
@@ -141,8 +141,8 @@ async function main(): Promise<void> {
 			{ id: "session-controller", name: "@deepseek-ai/dsh-api-session-controller" },
 			{ id: "settings-controller", name: "@deepseek-ai/dsh-api-settings-controller" },
 			{ id: "workspace-controller", name: "@deepseek-ai/dsh-api-workspace-controller" },
-			{ id: "pideck-directory-picker", name: "./pideck-directory-picker.js" },
-			{ id: "pideck-slash-bridge", name: "./pideck-slash-bridge.js" },
+			{ id: "pideck-directory-picker", name: pathToFileURL(join(configDir, "pideck-directory-picker.js")).href },
+			{ id: "pideck-slash-bridge", name: pathToFileURL(join(configDir, "pideck-slash-bridge.js")).href },
 			// 持久 pwsh 工具：继续用本地 dsh-tool-pwsh-persistent，不要换成官方
 			// `@deepseek-ai/dsh-tool-pwsh-persistent`。官方工具名是 `pwsh`，会和
 			// 一次性沙箱 pwsh 抢名字，且依赖 ctx.terminals + terminal-bash
@@ -178,7 +178,8 @@ async function main(): Promise<void> {
 			// 保持与官方 minimal（Windows 为 pwsh + str_replace_editor）一致。
 			{
 				id: "pideck-minimal-tool-filter",
-				name: "./pideck-minimal-tool-filter.js",
+				// 文件本体在下方 writeFileSync 落盘（boot 前必已存在），这里只内联绝对路径。
+				name: pathToFileURL(join(configDir, "pideck-minimal-tool-filter.js")).href,
 			},
 		],
 	});
@@ -207,7 +208,12 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const configPath = join(configDir, "cordis.yml");
+	// 组合文件的落盘位置有硬约束，见 hostCompositionPath 的说明：必须落在 appRoot
+	// 子树内，否则 dsh-agent-presets 的包名行解析基准（ctx.baseUrl）走不到 runtime 的
+	// node_modules，随包预设的插件行会被整体判为不可解析。
+	const hostRoot = fileURLToPath(nodeModulesUrl);
+	const configPath = hostCompositionPath(hostRoot);
+	mkdirSync(dirname(configPath), { recursive: true });
 	if (!existsSync(configPath)) writeFileSync(configPath, "[]\n");
 	const pickerPath = join(configDir, "pideck-directory-picker.js");
 	if (!existsSync(pickerPath)) {

@@ -78,3 +78,21 @@ export function agentPresetsRow(): {
 		},
 	};
 }
+
+/**
+ * host 组合文件（cordis.yml）的落盘目录 = appRoot/pideck-host（appRoot 即
+ * `--dsh-node-modules` 指向的、含 node_modules 的目录）。
+ *
+ * **为什么不能放 userData/configDir**：dsh-app-boot 的 Include 构造函数会无条件把
+ * 上下文的 `baseUrl` 重置为组合文件所在目录，而 dsh-agent-presets 用 `ctx.baseUrl`
+ * 作为基准向上逐级找 `node_modules` 判定组合里的包名行（packageInstalled）。configDir
+ * 在 userData 下，向上永远走不到 runtime 的 node_modules —— 随包预设的全部插件行会被
+ * 判成 "cannot be resolved"（实测 24 行全灭，配置页选不了模式）。放到 appRoot 子目录后，
+ * 向上走一级即 `<appRoot>/node_modules`，解析恢复正常。
+ *
+ * @param appRoot `--dsh-node-modules` 的 file URL（DshHost 传的是带尾斜杠的目录 URL）。
+ * @returns 组合文件绝对路径。
+ */
+export function hostCompositionPath(appRootPath: string): string {
+	return join(appRootPath, "pideck-host", "cordis.yml");
+}

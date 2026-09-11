@@ -6,7 +6,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
-const { agentPresetsRow, shippedPresetRoot, dshWebAgentPlaneDisableRows } = loadTsCommonJs("src/main/dsh/dshPresetComposition.ts");
+const { agentPresetsRow, shippedPresetRoot, dshWebAgentPlaneDisableRows, hostCompositionPath } = loadTsCommonJs("src/main/dsh/dshPresetComposition.ts");
 
 /** 真实安装的 dsh-agent-presets 包目录（0.1.5 起随包预设随该包分发）。 */
 const agentPresetsPackageDir = dirname(nodeRequire.resolve("@deepseek-ai/dsh-agent-presets/package.json"));
@@ -63,4 +63,27 @@ test("dshWebAgentPlaneDisableRows: 对齐 dsh-web-app 的 agent-plan 禁用清�
 		assert.ok(ids.has(id), `缺少基础层禁用行: ${id}`);
 	}
 	assert.ok(rows.every((row) => row.disabled === true));
+});
+
+// ── host 组合文件位置：必须在 appRoot 子树内 ──
+// 回归背景：组合文件曾写在 userData 的 configDir，dsh-agent-presets 以 ctx.baseUrl
+// （= 组合文件目录，由 dsh-app-boot 的 Include 重置）为基准向上找 node_modules，
+// configDir 走不到 runtime → 随包预设的 24 个插件行全被判 "cannot be resolved"。
+
+test("hostCompositionPath：落在 appRoot 子目录，且与 node_modules 同级可达", () => {
+	const appRoot = "D:\data\runtimes\dsh\0.1.5-rc.1";
+	const path = hostCompositionPath(appRoot);
+	// 必须位于 appRoot 下（其父目录的 node_modules 才是包名行解析基准）。
+	assert.ok(path.startsWith(appRoot), `组合文件应在 appRoot 内: ${path}`);
+	// 向上走一级即 appRoot，正是 packageInstalled 命中 <appRoot>/node_modules 的位置。
+	assert.equal(join(dirname(dirname(path))), appRoot);
+	// 文件名保持 cordis.yml（loader include 的扩展名判定）。
+	assert.ok(path.endsWith(".yml"));
+});
+
+test("hostCompositionPath：绝不落在 configDir（回归断言）", () => {
+	const appRoot = "/home/u/.config/pi-desktop/runtimes/dsh/0.1.5-rc.1";
+	const configDir = "/home/u/.config/pi-desktop/dsh-config";
+	const path = hostCompositionPath(appRoot);
+	assert.equal(path.startsWith(configDir), false);
 });

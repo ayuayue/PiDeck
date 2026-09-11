@@ -89,3 +89,6 @@ scratch-edit-samples/
 scripts/tmp-*
 # beUI 官方源码提取的临时对比目录（不应提交）
 .beui-official/
+
+# DSH host 组合文件（dev 回退到项目 node_modules 时的落盘目录）
+pideck-host/
