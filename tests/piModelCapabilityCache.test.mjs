@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
@@ -161,6 +162,58 @@ test("unsupported thinking RPC discards the exact snapshot instead of inventing 
     fake.commands.filter((command) => command.type === "get_available_models").length,
     1,
     "a failed generation must not respawn Pi for every picker open",
+  );
+});
+
+test("默认 hydration 走快速档（--no-extensions），只有手动刷新才带扩展", async () => {
+  // 背景：扩展加载是 hydration 冷启动的大头（本机实测 418 模型：带扩展 ~2.4s vs
+  // --no-extensions ~0.37s），而扩展贡献的模型（pi.registerProvider，issue #181）
+  // 只有装了此类插件的用户才有。因此默认档必须不加载扩展，手动刷新是唯一慢速入口。
+  const models = [{ provider: "openai", id: "gpt-5", reasoning: true }];
+  const levels = new Map([["openai\u0000gpt-5", ["off", "high"]]]);
+  const spawnModes = [];
+  const cache = new PiModelCapabilityCache({
+    createProcess: (options) => {
+      spawnModes.push(options.loadExtensions);
+      return createProcess(models, levels).process;
+    },
+  });
+
+  const fast = await cache.ensure();
+  assert.deepEqual(spawnModes, [false], "首次 hydration 必须用 --no-extensions 快速档");
+  assert.equal(fast.loadExtensions, false, "快照要标明自己没带扩展");
+
+  // 已发布快照直接复用，不再 spawn。
+  await cache.ensure();
+  assert.deepEqual(spawnModes, [false]);
+
+  const full = await cache.refresh({ loadExtensions: true });
+  assert.deepEqual(spawnModes, [false, true], "手动刷新必须回到带扩展档");
+  assert.equal(full.loadExtensions, true);
+
+  // 无参 refresh = 配置保存/watcher 等自动失效重建：回到快速档。
+  await cache.refresh();
+  assert.deepEqual(spawnModes, [false, true, false]);
+});
+
+test("装配口径：快速档传 piRpcNoExtensions，只有刷新按钮透传 loadExtensions", () => {
+  const indexSource = readFileSync("src/main/index.ts", "utf8");
+  // 快速档：settings 上强制 piRpcNoExtensions（含内置扩展 -e 注入一并跳过）。
+  assert.match(indexSource, /createProcess: \(\{ loadExtensions \}\) =>/);
+  assert.match(indexSource, /\.\.\.\(loadExtensions \? \{\} : \{ piRpcNoExtensions: true \}\)/);
+
+  const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+  const manualReloadStart = systemIpc.indexOf("// 手动刷新（force）");
+  assert.ok(manualReloadStart >= 0, "手动刷新分支必须保留注释锚点");
+  assert.match(
+    systemIpc.slice(manualReloadStart, manualReloadStart + 2000),
+    /modelCapabilityCache\.refresh\(\{ loadExtensions: true \}\)/,
+    "刷新按钮必须带 loadExtensions:true（扩展贡献模型的唯一入口）",
+  );
+  // 自动失效重建（配置保存 / watcher / 备份恢复）保持快速档，不得带 loadExtensions。
+  assert.match(
+    systemIpc,
+    /const refreshPiModelCatalogs = async \(\): Promise<void> => \{[\s\S]*?modelCapabilityCache\.refresh\(\)/,
   );
 });
 
