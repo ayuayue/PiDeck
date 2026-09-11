@@ -208,6 +208,46 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 			},
 		},
 	};
+	// 0.1.5 适配层形状（DshRemoteClient）：manager 调扁平方法；事件走
+	// openEvents（审批/提问瀑布 + 测试注入帧）与 sessionsFollow（空流，
+	// 测试帧统一经 openEvents 派发，dispatchMuxFrame 按 payload.type 分发）。
+	Object.assign(client, {
+		// 动态委托：测试用例可在 create 后覆写 sessions.selectModel 等方法，
+		// 扁平方法每次调用时重新查 nested 槽位（bind 直接引用会让覆写失效）。
+		sessionsList(...args) { return client.sessions.list(...args); },
+		sessionsCreate(...args) { return client.sessions.create(...args); },
+		sessionsHistory(...args) { return client.sessions.history(...args); },
+		sessionsAttachment(...args) { return client.sessions.attachment(...args); },
+		sessionsPrompt(...args) { return client.sessions.prompt(...args); },
+		sessionsCancel(...args) { return client.sessions.cancel(...args); },
+		sessionsRename(...args) { return client.sessions.rename(...args); },
+		sessionsModelCatalog(...args) { return client.sessions.models(...args); },
+		sessionsSelectModel(...args) { return client.sessions.selectModel(...args); },
+		sessionsFork(...args) { return client.sessions.fork(...args); },
+		async *openEvents(signal) {
+			muxCalls.push(Date.now());
+			streamDone = false;
+			while (!streamDone) {
+				while (frameQueue.length > 0) yield frameQueue.shift();
+				if (signal?.aborted) return;
+				await new Promise((resolve) => {
+					nextBatchResolve = resolve;
+					signal?.addEventListener("abort", resolve, { once: true });
+				});
+				if (signal?.aborted) return;
+			}
+		},
+		async *sessionsFollow(_input, signal) {
+			while (!signal?.aborted) {
+				// unref：pump 的等待定时器不能阻止测试进程正常退出。
+				await new Promise((resolve) => {
+					const timer = setTimeout(resolve, 50);
+					if (typeof timer.unref === "function") timer.unref();
+					signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+			}
+		},
+	});
 	const host = {
 		async ensureStarted() {},
 		getClient() {

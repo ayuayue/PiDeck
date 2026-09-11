@@ -31,10 +31,8 @@ import {
 
 // utilityProcess 的 parentPort：electron 包类型里有（Electron.ParentPort）。
 import type { ParentPort } from "electron";
-
-type DshFetchMessage =
-	| { type: "fetch-request"; id: string; method: string; path: string; headers?: Record<string, string>; body?: string }
-	| { type: "fetch-abort"; id: string };
+// 桥协议消息校验/收窄（fetch-* 与 stream-* 统一入口）。
+import { parseDshFetchMessage } from "./dshHostBridge";
 
 /** 解析 argv：支持 `--key value` 与 `--key=value` 两种形式。 */
 function parseArgv(argv: string[]): Record<string, string> {
@@ -92,18 +90,20 @@ async function main(): Promise<void> {
 	installHostHiddenConsole();
 	installHiddenConsolePatch();
 
-	// ── 组合：base 补丁 + 覆盖层（ApiProxy/workspace/storage + picker stub + 遥测关）──
+	// ── 组合：base 补丁 + 覆盖层（Connection/Gateway/remotes + storage + picker stub + 遥测关）──
 	// require base 用宿主 node_modules 目录（DshHost 传 --dsh-node-modules 的 file URL）：
 	// 打包后是 app.asar/node_modules（Electron asar patch 生效）；不能用 DSH_HOME（数据目录无包）。
 	// 注意：CJS 产物里的裸 import("@deepseek-ai/...") 会走 Node 默认解析（out/main 向上找
 	// node_modules），找不到 app 根 node_modules → ERR_MODULE_NOT_FOUND → exit(1)。
 	// 必须先用 createRequire 解析出真实文件路径，再按 file URL 动态 import。
+	// 0.1.5 迁移（docs/dsh-0.1.5-typert-migration.md）：dsh-host-apiproxy 已被官方移除
+	// （Typert Remote 架构），fetch handler 改由 dsh-client-connection 的
+	// HostConnectionHandle.createSharedFetchHandler('/api') 提供（见下方 apiHandler）。
 	const require = createRequire(join(fileURLToPath(nodeModulesUrl), "package.json"));
 	const importFromApp = (specifier: string) =>
 		import(pathToFileURL(require.resolve(specifier)).href);
-	const [{ boot, loadOverlayPatches }, { toFetchHandler }, { provideCmdline }] = await Promise.all([
+	const [{ boot, loadOverlayPatches, loadOptionalPatches, PROFILE_PATCH_FILENAME }, { provideCmdline }] = await Promise.all([
 		importFromApp("@deepseek-ai/dsh-app-boot"),
-		importFromApp("@deepseek-ai/dsh-host-apiproxy"),
 		importFromApp("@deepseek-ai/dsh-cmdline"),
 	]);
 
@@ -119,27 +119,28 @@ async function main(): Promise<void> {
 	}
 	patches.push({
 		insert: [
-			{ id: "storage", name: "@deepseek-ai/dsh-storage" },
-			{
-				id: "storage-json",
-				name: "@deepseek-ai/dsh-storage-json",
-				config: { root: { __jsExpr: "dshHomePath('storages')" } },
-			},
-			{ id: "storage-domain", name: "@deepseek-ai/dsh-storage-domain", config: { backend: "json" } },
-			// 官方投影缓存：与 dsh-web-app 同配置。dsh-web 冷列表只读
-			// session_projcache 的 title 行，不 fold 日志；不挂这个插件，
-			// PiDeck 会话在 dsh-web 侧栏就会只显示 workspace / 目录名。
-			// 写点仍是官方 turn/end + dispose + coldSnapshot 回写，不手写 JSON。
-			{
-				id: "session-projection-cache",
-				name: "@deepseek-ai/dsh-session-projection-cache",
-				config: { writeEveryEvents: 200, writeIntervalMs: 5000 },
-			},
+			// 0.1.5：storage / storage-json / storage-domain / session-projection-cache
+			// 已由 dsh-base 补丁自带（配置与本处原注入完全一致），重复 insert 会报
+			// duplicate loader entry id——只保留 base 之外的行。
 			// 整段日志回合/步骤计数（sessionStats 投影）：dsh-web StatsLine 同源。
 			// 不挂这行，host 不会产出 sessionStats，输入框底下就没有「N 轮 · M 步」。
 			{ id: "session-stats", name: "@deepseek-ai/dsh-session-stats" },
 			{ id: "workspace", name: "@deepseek-ai/dsh-workspace" },
-			{ id: "api-gateway", name: "@deepseek-ai/dsh-host-apiproxy" },
+			// 0.1.5 Typert Remote 传输层（替代旧 dsh-host-apiproxy / api-gateway 行，
+			// typert/typert-loader/typert-gateway 由 dsh-base 补丁自带）：
+			// - connection：载体无关 RPC 注册表，提供 ctx.connection 与
+			//   createSharedFetchHandler('/api')（主进程 fetch 桥的 host 半）。
+			// - api-remotes：把 Host 能力装配为 Remote（转发事件源注册到 gateway）。
+			// - session-controller：session/approval/subagent 域 Remote 端点。
+			// - settings/workspace 控制器：settings.* 与 workspace.* 端点。
+			{ id: "connection", name: "@deepseek-ai/dsh-client-connection" },
+			// fileUploads 服务（session-controller 的附件上传依赖；尽管叫 client-*，
+			// 这个包提供的是 host 侧服务）。
+			{ id: "file-upload", name: "@deepseek-ai/dsh-client-file-upload" },
+			{ id: "api-remotes", name: "@deepseek-ai/dsh-api-remotes" },
+			{ id: "session-controller", name: "@deepseek-ai/dsh-api-session-controller" },
+			{ id: "settings-controller", name: "@deepseek-ai/dsh-api-settings-controller" },
+			{ id: "workspace-controller", name: "@deepseek-ai/dsh-api-workspace-controller" },
 			{ id: "pideck-directory-picker", name: "./pideck-directory-picker.js" },
 			{ id: "pideck-slash-bridge", name: "./pideck-slash-bridge.js" },
 			// 持久 pwsh 工具：继续用本地 dsh-tool-pwsh-persistent，不要换成官方
@@ -152,10 +153,10 @@ async function main(): Promise<void> {
 				name: require.resolve("dsh-tool-pwsh-persistent"),
 			},
 			// Agent preset 名单（standard/code/minimal/cordis 等组合预设）：与 dsh-web
-			// 同一部署形态——随包 system 根 + $DSH_HOME/.agent-presets 用户根（插件
-			// includeUserRoot 默认追加），默认 standard（标准模式）。不声明该行时
+			// 同一部署形态——0.1.5 起随包 system 根由 dsh-agent-presets 自带
+			// （includeShippedRoot 默认），行内只声明默认预设。不声明该行时
 			// agentPreset.list 返回空名单，配置页「预设设置」无模式可选。
-			agentPresetsRow(dirname(require.resolve("@deepseek-ai/dsh/package.json"))),
+			agentPresetsRow(),
 			// 动态 Cordis 插件管理（G13 深化）：运行器（define/run/stop/undefine，
 			// 进程内临时扩展、按会话归属）+ 只读静态 Loader 清单 + PiDeck 管理桥。
 			// 与 dsh-web-app 的 cordis.patch.yml 同一挂载形态（无 config 的普通行）。
@@ -181,6 +182,30 @@ async function main(): Promise<void> {
 			},
 		],
 	});
+
+	// 官方 home 级用户补丁层（$DSH_HOME/cordis.patch.yml）：dsh CLI / dsh-web 的
+	// 用户自装插件与机器本地配置覆盖都写在这一层（官方语义：作用于每个 profile，
+	// 优先级高于 profile 自身层）。PiDeck 之前不加载它，dsh-web 侧安装的插件在
+	// PiDeck host 里既不显示也不生效；这里追加在 PiDeck 自有行之后（官方层级顺序：
+	// bundle < profile < home < overlay），让两侧部署一致。
+	// 容错：文件缺失 = 无层（loadOptionalPatches 语义）；文件存在但读取/解析失败
+	// 仅告警跳过——不让用户补丁写坏阻断 PiDeck host 启动（对官方 fail-loud 的放宽）。
+	// 注意：补丁里 insert 的裸包名按 --dsh-node-modules 锚点解析，dsh-web 安装到
+	// 其自身目录的包在 PiDeck runtime 里可能解析不到，boot 会 fail-loud 并把原因
+	// 透到配置页错误 banner（可从补丁文件移除该行后重启 host 恢复）。
+	try {
+		const homeUserPatches =
+			loadOptionalPatches("pideck-dsh", join(dshHome, PROFILE_PATCH_FILENAME)) ?? [];
+		if (homeUserPatches.length > 0) {
+			patches.push(...homeUserPatches);
+			console.log(`[dsh-host-entry] home user patch layer loaded: ${homeUserPatches.length} patch(es)`);
+		}
+	} catch (error) {
+		console.warn(
+			"[dsh-host-entry] home user patch layer ignored:",
+			error instanceof Error ? error.message : String(error),
+		);
+	}
 
 	const configPath = join(configDir, "cordis.yml");
 	if (!existsSync(configPath)) writeFileSync(configPath, "[]\n");
@@ -291,9 +316,19 @@ async function main(): Promise<void> {
 		},
 		nodeModulesUrl,
 	);
-	const apiHandler = toFetchHandler(ctx.apiProxy as never);
+	// 0.1.5：fetch handler 来自 Connection（载体无关 /api 通道），语义与旧
+	// toFetchHandler(ctx.apiProxy) 等价——接受标准 Request，返回 Response。
+	const apiHandler = (
+		ctx as import("@deepseek-ai/cordis").Context &
+			import("@deepseek-ai/dsh-client-connection").HostConnectionHandle
+	).createSharedFetchHandler("/api");
+	// Gateway 流派发器：与官方 RemoteStreamMuxServer 使用的 open 等价——
+	// wireStream.open 处理普通 Remote 流端点与内部 $events 转发事件流（含瀑布）。
+	// typertGateway 由 dsh-base 补丁的 typert-gateway 行提供（Context 增广见
+	// dsh-api-gateway/types）。
+	const wireStream = ctx.typertGateway.wireStream;
 	// PiDeck 插件管理桥（G13 深化）：/pideck-plugin/rpc 走桥插件服务（动态插件
-	// 生命周期 + 静态 Loader 清单），其余路径原样交给 ApiProxy RPC handler。
+	// 生命周期 + 静态 Loader 清单），其余路径原样交给 Connection RPC handler。
 	const handler = (url: URL, init?: RequestInit): Promise<Response> => {
 		if (url.pathname === PIDECK_PLUGIN_BRIDGE_PATH) {
 			return handlePluginBridgeFetch(ctx, {
@@ -311,20 +346,34 @@ async function main(): Promise<void> {
 				body: typeof init?.body === "string" ? init.body : undefined,
 			});
 		}
-		return apiHandler.fetch(url, init);
+		// ConnectionFetchHandler.fetch 只收 Request（0.1.5 契约）；init 里的
+		// method/headers/body/signal 原样进构造器，abort 语义由 Request 继承。
+		return apiHandler.fetch(new Request(url, init));
 	};
 	console.log(`[dsh-host-entry] boot OK in ${Date.now() - startedAt}ms`);
 	port.postMessage({ type: "host-ready" });
 
 	// ── fetch 桥循环：每请求一个 Response，SSE 流逐帧回传 ──
+	// 逻辑流注册表（stream-open → AbortController），stream-cancel 时 abort。
+	const openStreams = new Map<string, AbortController>();
 	port.on("message", (message: unknown) => {
 		void (async () => {
 			// utilityProcess 的 parentPort 消息是 MessageEvent 风格：载荷在 data 字段
 			// （{ data: {...}, ports: [...] }）。兼容直接对象两种形状。
 			const raw = (message as { data?: unknown } | null)?.data ?? message;
-			const msg = raw as Partial<DshFetchMessage>;
-			if (msg?.type !== "fetch-request") return;
-			const id = msg.id ?? "";
+			const msg = parseDshFetchMessage(raw);
+			if (!msg) return;
+			if (msg.type === "stream-open") {
+				openGatewayStream(port, wireStream, openStreams, msg.id, msg.endpoint, msg.payload);
+				return;
+			}
+			if (msg.type === "stream-cancel") {
+				openStreams.get(msg.id)?.abort();
+				openStreams.delete(msg.id);
+				return;
+			}
+			if (msg.type !== "fetch-request") return;
+			const id = msg.id;
 			if (!id) return;
 			const url = new URL(msg.path ?? "/", "http://dsh.internal");
 			const init: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal } = {
@@ -339,7 +388,7 @@ async function main(): Promise<void> {
 			// handler.fetch 的同步段，先到的 abort 会丢失 → unary 请求无取消路径。
 			const onAbortMessage = (abortMessage: unknown) => {
 				const abortRaw = (abortMessage as { data?: unknown } | null)?.data ?? abortMessage;
-				const parsed = abortRaw as Partial<DshFetchMessage>;
+				const parsed = parseDshFetchMessage(abortRaw);
 				if (parsed?.type === "fetch-abort" && parsed.id === id) controller.abort();
 			};
 			port.on("message", onAbortMessage);
@@ -395,3 +444,38 @@ main().catch((error) => {
 	}
 	process.exit(1);
 });
+
+/**
+ * 打开一条 Gateway 逻辑流并把宿主值泵回主进程（stream-item/end/error 帧）。
+ * 帧形状与官方 RemoteStreamMuxServer 的 WebSocket 协议一致，主进程侧
+ * DshApiClient.openStream 按同一协议消费。
+ */
+function openGatewayStream(
+	port: ParentPort,
+	wireStream: import("@deepseek-ai/dsh-api-gateway/types").TypertGatewayWireStream,
+	openStreams: Map<string, AbortController>,
+	id: string,
+	endpoint: string,
+	payload: unknown,
+): void {
+	if (!id || !endpoint) return;
+	const controller = new AbortController();
+	openStreams.set(id, controller);
+	void (async () => {
+		try {
+			const items = await wireStream.open(endpoint, payload, controller.signal);
+			for await (const value of items) {
+				if (controller.signal.aborted) return;
+				port.postMessage({ type: "stream-item", id, value });
+			}
+			port.postMessage({ type: "stream-end", id });
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			// wireStream.failure 把任意失败收敛为稳定的 {code,message,details} 三元组。
+			const failure = wireStream.failure(error);
+			port.postMessage({ type: "stream-error", id, code: failure.code, message: failure.message, details: failure.details });
+		} finally {
+			openStreams.delete(id);
+		}
+	})();
+}

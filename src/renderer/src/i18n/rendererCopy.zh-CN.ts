@@ -1366,6 +1366,8 @@ export const zhCN = {
   "config.dsh.presetPending": "设为默认（待保存）",
   "config.dsh.presetDefaultSaved": "默认预设已更新，对此后新建的会话生效",
   "config.dsh.presetSetDefaultFailed": "设置默认预设失败",
+  "config.dsh.presetRemove": "删除预设",
+  "config.dsh.presetRemoved": "预设已删除",
   "config.dsh.presetNotWritable": "settings 文档不可写，无法修改默认预设",
   "config.dsh.presetStandardName": "标准模式",
   "config.dsh.presetStandardDesc": "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",

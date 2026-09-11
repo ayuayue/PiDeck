@@ -1372,6 +1372,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.presetPending": "Set as default (unsaved)",
   "config.dsh.presetDefaultSaved": "Default preset updated; applies to sessions started from now on",
   "config.dsh.presetSetDefaultFailed": "Failed to set the default preset",
+  "config.dsh.presetRemove": "Delete preset",
+  "config.dsh.presetRemoved": "Preset deleted",
   "config.dsh.presetNotWritable": "The settings document is not writable; the default preset cannot be changed",
   "config.dsh.presetStandardName": "Standard mode",
   "config.dsh.presetStandardDesc": "Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.",

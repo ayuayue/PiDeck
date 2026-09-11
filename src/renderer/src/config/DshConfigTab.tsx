@@ -28,6 +28,7 @@ SelectValue,
 } from "../components/ui-shadcn/select";
 import { AgentPresetLogo, DshLogo } from "../components/session/SessionSourceBadge";
 import { DSH_PERMISSION_PRESETS } from "../components/session/DshPermissionMenu";
+import { ConfirmDialog } from "../components/ui-shadcn/ConfirmDialog";
 import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { useSaveRegistry } from "../hooks/useSaveRegistry";
 import { DshSchemaForm, type DshNamespaceView } from "./DshSchemaForm";
@@ -929,6 +930,9 @@ function PresetsTab(props: {
 	/** 暂存的新默认预设 id（未保存；顶部统一保存时提交）。 */
 	const [pendingDefault, setPendingDefault] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
+	/** 正在等待确认删除的 user 预设（null = 无弹窗；确认后调 agentPreset.remove）。 */
+	const [removingPreset, setRemovingPreset] = useState<DshAgentPreset | null>(null);
+	const [deleting, setDeleting] = useState(false);
 
 	const reload = useCallback(async () => {
 		try {
@@ -958,6 +962,27 @@ function PresetsTab(props: {
 	/** 当前默认预设 id：点选「当前默认」不算修改（与改回原值同语义）。 */
 	const currentDefaultId = presets.find((preset) => preset.isDefault)?.id;
 	const dirty = pendingDefault !== null;
+
+	/**
+	 * 删除本地（user）预设：立即调 agentPreset.remove（host 拒绝 system 预设），
+	 * 成功后重拉名单。与「设为默认」的暂存语义不同——删除是独立破坏性操作，
+	 * 走 ConfirmDialog 确认后即时生效，不并入顶部统一保存。
+	 */
+	const deletePreset = async (preset: DshAgentPreset) => {
+		setDeleting(true);
+		try {
+			await desktopApi.sessions.removeDshAgentPreset(preset.id);
+			// 被删的是暂存的新默认时清掉待保存选择，避免保存一个已不存在的预设 id
+			setPendingDefault((prev) => (prev === preset.id ? null : prev));
+			setRemovingPreset(null);
+			showNotice(t("config.dsh.presetRemoved"), 3000);
+			await reload();
+		} catch (error) {
+			showNotice(error instanceof Error ? error.message : String(error), 4000);
+		} finally {
+			setDeleting(false);
+		}
+	};
 	useEffect(() => {
 		props.sectionApi?.onDirtyChange(instanceId, dirty);
 		// 卸载时清掉本实例的脏来源，避免收起/切换后残留黄点
@@ -1034,6 +1059,22 @@ function PresetsTab(props: {
 										{isPending ? t("config.dsh.presetPending") : t("config.dsh.presetSetDefault")}
 									</Button>
 								)}
+								{/* 删除入口仅 user 预设（本地目录的组合行，含 broken 预设——host 契约
+								    要求必须可删）；system 预设是部署自带组合行，host 侧拒绝删除。 */}
+								{props.writable && preset.trust === "user" && (
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										className="h-7 text-muted-foreground hover:text-danger"
+										disabled={deleting}
+										title={t("config.dsh.presetRemove")}
+										aria-label={t("config.dsh.presetRemove")}
+										onClick={() => setRemovingPreset(preset)}
+									>
+										<Trash2 className="size-3.5" aria-hidden="true" />
+									</Button>
+								)}
 							</div>
 							{description && <p className="mt-1 text-micro text-muted-foreground">{description}</p>}
 							{preset.broken && <p className="mt-1 text-micro text-danger">{t("config.dsh.presetBroken", { reason: preset.broken })}</p>}
@@ -1043,6 +1084,16 @@ function PresetsTab(props: {
 						</section>
 					);
 				})
+			)}
+			{removingPreset && (
+				<ConfirmDialog
+					title={t("common.deleteConfirm")}
+					message={t("common.deleteConfirmMsg", { name: presetDisplayName(removingPreset, t) })}
+					confirmLabel={t("common.delete")}
+					danger
+					onConfirm={() => void deletePreset(removingPreset)}
+					onCancel={() => setRemovingPreset(null)}
+				/>
 			)}
 		</div>
 	);

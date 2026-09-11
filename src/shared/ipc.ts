@@ -226,6 +226,8 @@ export const ipcChannels = {
 	dshCredentialRead: "dsh:credential-read",
 	/** DSH agent 预设目录（agentPreset.list：id/trust/isDefault/名称/描述）。 */
 	dshAgentPresets: "dsh:agent-presets",
+	/** DSH 删除本地（user）预设（agentPreset.remove；host 拒绝 system 预设）。 */
+	dshAgentPresetRemove: "dsh:agent-preset-remove",
 	/** DSH 部署默认模型选择（settings.yaml agent-default-model：provider/model/reasoningEffort）。 */
 	dshDefaultModel: "dsh:default-model",
 	/** DSH runtime 安装态查询（AgentRuntimeProvider 阶段 1：installed/notInstalled/broken 门控 UI）。 */

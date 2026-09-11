@@ -8,31 +8,30 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const nodeRequire = createRequire(import.meta.url);
 const { agentPresetsRow, shippedPresetRoot, dshWebAgentPlaneDisableRows } = loadTsCommonJs("src/main/dsh/dshPresetComposition.ts");
 
-/** 真实安装的 dsh 包目录（与 hostEntry 运行时解析同一来源）。 */
-const dshPackageDir = dirname(nodeRequire.resolve("@deepseek-ai/dsh/package.json"));
+/** 真实安装的 dsh-agent-presets 包目录（0.1.5 起随包预设随该包分发）。 */
+const agentPresetsPackageDir = dirname(nodeRequire.resolve("@deepseek-ai/dsh-agent-presets/package.json"));
 
-test("agentPresetsRow: 默认 standard + 随包 system 根（对齐 dsh-web 部署形态）", () => {
-	const row = agentPresetsRow(dshPackageDir);
+test("agentPresetsRow: 默认 standard，roots 交给插件 includeShippedRoot（对齐 dsh-web 0.1.5 形态）", () => {
+	const row = agentPresetsRow();
 	assert.equal(row.id, "agent-presets");
 	assert.equal(row.name, "@deepseek-ai/dsh-agent-presets");
 	assert.equal(row.config.default, "standard");
-	assert.equal(row.config.roots.length, 1);
-	assert.equal(row.config.roots[0].path, shippedPresetRoot(dshPackageDir));
-	assert.equal(row.config.roots[0].trust, "system");
+	assert.equal(row.config.roots, undefined);
 });
 
-test("shippedPresetRoot: 指向 <dsh 包>/config/agent-presets", () => {
-	assert.equal(shippedPresetRoot(dshPackageDir), join(dshPackageDir, "config", "agent-presets"));
+test("shippedPresetRoot: 指向 <dsh-agent-presets 包>/presets", () => {
+	assert.equal(shippedPresetRoot(agentPresetsPackageDir), join(agentPresetsPackageDir, "presets"));
 });
 
-test("随包预设根真实存在且含 dsh-web 的 4 种模式", () => {
-	const root = shippedPresetRoot(dshPackageDir);
+test("随包预设根真实存在且含官方模式", () => {
+	const root = shippedPresetRoot(agentPresetsPackageDir);
 	assert.ok(existsSync(root), `随包预设根缺失: ${root}`);
 	const dirs = readdirSync(root, { withFileTypes: true })
 		.filter((entry) => entry.isDirectory())
 		.map((entry) => entry.name)
 		.sort();
-	assert.deepEqual(dirs, ["code", "cordis", "minimal", "standard"]);
+	assert.ok(dirs.includes("standard"), `缺少 standard 预设: ${dirs.join(",")}`);
+	assert.ok(dirs.includes("minimal"), `缺少 minimal 预设: ${dirs.join(",")}`);
 	// 每个模式目录必须带组合文件与显示元数据（缺一就不是可用的预设槽位）
 	for (const id of dirs) {
 		const composition = join(root, id, "agent.cordis.yml");

@@ -463,6 +463,7 @@ export function createPreviewApi(): PiDesktopApi {
 			list: async () => getSessions(),
 			// 预览模式无 DSH host：空预设目录满足接口契约
 			listDshAgentPresets: async () => [],
+			removeDshAgentPreset: async () => {},
 			getDshDefaultModel: async () => undefined,
 			// 预览模式无主进程配置可解析：无启动默认（底栏不预选，不影响其它功能）
 			resolveLaunchDefaults: async () => ({}),

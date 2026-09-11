@@ -1,17 +1,18 @@
 import { randomUUID } from "node:crypto";
 import {
 	marshalFetchRequest,
+	marshalStreamOpen,
 	parseDshFetchMessage,
 	type DshFetchMessage,
+	type DshStreamFailure,
 } from "./dshHostBridge";
 
 /**
  * DSH v2 传输（utilityProcess 桥）的 fetch 抽象：
- * `doFetch` 的承运人。主进程实现走 UtilityProcess.postMessage；
- * 测试用内存实现模拟 host 侧响应。
+ * 主进程实现走 UtilityProcess.postMessage；测试用内存实现模拟 host 侧响应。
  */
 export interface DshFetchTransport {
-	/** 发送一条桥消息（fetch-request / fetch-abort）。 */
+	/** 发送一条桥消息（fetch-request / stream-open 等）。 */
 	send(message: DshFetchMessage): void;
 	/** 订阅 host → main 的桥消息。返回退订函数。 */
 	onMessage(listener: (message: DshFetchMessage) => void): () => void;
@@ -37,11 +38,29 @@ type PendingFetch = {
 	};
 };
 
+/** Connection RPC 统一结果（对齐官方 ConnectionRpcResult 形状）。 */
+export type DshRpcResult<T = unknown> =
+	| { ok: true; value: T }
+	| { ok: false; error: { code: string; message: string; details: object } };
+
+/** Connection RPC 线上信封（对齐官方 ClientRequest/ServerResponse）。 */
+type ClientRequestEnvelope = {
+	type: "client-request";
+	rpcId: string;
+	method: string;
+	payload: unknown;
+};
+
+/** 0.1.5 Connection 的共享 RPC 通道（hostEntry 用 createSharedFetchHandler 挂载）。 */
+const RPC_CHANNEL = "/api";
+/** Connection 的内部 origin（桥只承载它；见 marshalFetchRequest 的 origin 断言）。 */
+const INTERNAL_ORIGIN = "http://dsh.internal";
+/** Gateway 内部事件瀑布结果端点（RemoteEventResult 的 unary 载体）。 */
+const REMOTE_EVENT_RESULT_ENDPOINT = "$events/result";
+
 export type DshApiClientOptions = {
 	/** 桥传输（utilityProcess / 内存测试实现）。 */
 	transport: DshFetchTransport;
-	/** 懒加载 @deepseek-ai/dsh-host-apiproxy 模块（ESM-only 动态 import）。 */
-	loadModule: () => Promise<typeof import("@deepseek-ai/dsh-host-apiproxy")>;
 	/** 日志（可选；默认静默）。 */
 	log?: (message: string, detail?: unknown) => void;
 	/** 请求超时（毫秒；默认 30s）。流式请求在 fetch-stream-start 到达后不再受此限制。 */
@@ -49,29 +68,27 @@ export type DshApiClientOptions = {
 };
 
 /**
- * AbstractApiClient 的桥接实现：把官方客户端实例的 `doFetch` 覆写为桥接实现，
- * fetch 请求经 DshFetchTransport（MessagePort）送到 utilityProcess 里的 DSH host，
- * 响应/SSE 流按 dshHostBridge 协议回传并组装成标准 Response。
- *
- * 形态对应 docs/dsh-agent-backend-plan.md §3.2 形态 b；PiDeck 侧
- * DshAgentManager 面对同一 ApiProxy 契约，传输替换不感知。
+ * 0.1.5 Typert Remote 桥客户端（替代旧 AbstractApiClient 桥接形态）：
+ * - unary：官方 Connection wire 协议——POST /api/<endpoint>，body 为
+ *   ClientRequest JSON 信封，响应为 ServerResponse 信封。经既有 fetch-* 帧。
+ * - 流式：Gateway Remote stream 协议（stream-open/cancel ↑，item/end/error ↓），
+ *   帧形状与官方 RemoteStreamMuxClient 一致；host 半在 hostEntry 驱动
+ *   ctx.typertGateway.wireStream.open。
+ * - 事件瀑布应答：POST /api/$events/result（RemoteEventResult 载荷）。
  */
 export class DshApiClient {
-	private client: import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient | null = null;
-	/** 懒加载初始化中的 promise（E16：并发 getClient 只建一个客户端；dispose 时清空）。 */
-	private clientPromise: Promise<import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient> | null = null;
 	private readonly pending = new Map<string, PendingFetch>();
 	private readonly unsubscribe: () => void;
 	private readonly transport: DshFetchTransport;
-	private readonly loadModule: () => Promise<typeof import("@deepseek-ai/dsh-host-apiproxy")>;
 	private readonly log: (message: string, detail?: unknown) => void;
 	/** dispose 后置位：拒绝新请求、abort/流取消回调不再向已死 transport 发消息。 */
 	private disposed = false;
 	private readonly timeoutMs: number;
+	/** 打开中的逻辑流：id → 泵（end/error/取消后删除）。 */
+	private readonly streams = new Map<string, DshStreamPump>();
 
 	constructor(options: DshApiClientOptions) {
 		this.transport = options.transport;
-		this.loadModule = options.loadModule;
 		this.log = options.log ?? (() => undefined);
 		this.timeoutMs = options.timeoutMs ?? 30_000;
 		this.unsubscribe = this.transport.onMessage((message) => {
@@ -80,37 +97,101 @@ export class DshApiClient {
 		});
 	}
 
-	/** 懒加载官方客户端并覆写 doFetch 为桥接实现（抽象类动态继承，避免实例化抽象基类）。
-	 *  E16：初始化 promise 缓存，并发调用共享同一个客户端。 */
-	async getClient(): Promise<import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient> {
-		if (this.client) return this.client;
-		this.clientPromise ??= this.loadModule().then((module) => {
-			// AbstractApiClient 是抽象类（doFetch 抽象）：动态建一个具体子类，
-			// 只覆写 doFetch，其余（postJson/readSse/领域方法）全部继承。
-			const Base = module.AbstractApiClient as unknown as new () => import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient;
-			class BridgedClient extends Base {
-				override doFetch(
-					input: URL,
-					init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
-				): Promise<Response> {
-					return this.owner.bridgedFetch(input, init);
-				}
-				owner!: DshApiClient;
+	// ── Connection unary RPC ──────────────────────────────────────────────────
+
+	/**
+	 * 调用一个 Connection RPC 端点（如 `session/list`）。
+	 * 返回端点自己的 success/error 结果；传输失败按 `{ok:false, error:'internal'}` 收敛
+	 * （与官方 transportError 契约一致，调用方不必同时处理 throw 与 error 结果）。
+	 */
+	async call(
+		endpoint: string,
+		payload: unknown,
+		signal?: AbortSignal,
+	): Promise<DshRpcResult> {
+		const rpcId = randomUUID();
+		const envelope: ClientRequestEnvelope = {
+			type: "client-request",
+			rpcId,
+			method: endpoint,
+			payload,
+		};
+		try {
+			const response = await this.rawFetch(new URL(`${RPC_CHANNEL}/${endpoint}`, INTERNAL_ORIGIN), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(envelope),
+				...(signal ? { signal } : {}),
+			});
+			if (!response.ok) {
+				return {
+					ok: false,
+					error: { code: "internal", message: `transport failure for ${endpoint}: HTTP ${response.status}`, details: {} },
+				};
 			}
-			const client = new BridgedClient();
-			client.owner = this;
-			this.client = client;
-			return client;
-		});
-		return this.clientPromise;
+			return parseServerResponse(await response.json(), rpcId, endpoint);
+		} catch (error) {
+			return {
+				ok: false,
+				error: {
+					code: "internal",
+					message: error instanceof Error ? error.message : String(error),
+					details: {},
+				},
+			};
+		}
 	}
 
-	/** 桥接原始 fetch（插件管理桥等非 ApiProxy 路径用）：任意 dsh.internal URL。 */
+	/**
+	 * 应答一个 Gateway 事件瀑布（approval/request、user-questions/request）。
+	 * value 为领域应答（ApprovalOutcome 字符串或 AskUserQuestionAnswer）。
+	 */
+	respondRemoteEvent(
+		clientId: string,
+		eventId: string,
+		outcome: { kind: "next" } | { kind: "result"; value?: unknown } | { kind: "rejected"; error: { name: string; message: string } },
+		signal?: AbortSignal,
+	): Promise<DshRpcResult> {
+		return this.call(REMOTE_EVENT_RESULT_ENDPOINT, { clientId, eventId, outcome }, signal);
+	}
+
+	// ── Gateway Remote 流 ─────────────────────────────────────────────────────
+
+	/**
+	 * 打开一条 Gateway 逻辑流（如 `session/follow`、内部 `$events`）。
+	 * 返回宿主推送值的异步迭代器；宿主错误以 Error("code: message") reject。
+	 * 外部 signal abort / dispose / host 退出都会终止迭代。
+	 */
+	openStream(endpoint: string, payload: unknown, signal?: AbortSignal): AsyncIterable<unknown> {
+		const self = this;
+		async function* generate(): AsyncGenerator<unknown> {
+			if (self.disposed) throw new Error("DSH host transport disposed");
+			const id = randomUUID();
+			const pump = new DshStreamPump(id, signal, self);
+			self.streams.set(id, pump);
+			try {
+				self.transport.send(marshalStreamOpen(id, endpoint, payload));
+				while (true) {
+					const next = await pump.next();
+					if (next.done) return;
+					yield next.value;
+				}
+			} finally {
+				self.streams.delete(id);
+				pump.dispose();
+			}
+		}
+		return generate();
+	}
+
+	// ── 原始 fetch（插件管理桥等非 Connection 路径用）───────────────────────────
+
+	/** 桥接原始 fetch（任意 dsh.internal URL，unary SSE 流式通用）。 */
 	rawFetch(
 		input: URL | string,
 		init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
 	): Promise<Response> {
-		const url = input instanceof URL ? input : new URL(input, "http://dsh.internal");
+		const url = input instanceof URL ? input : new URL(input, INTERNAL_ORIGIN);
 		return this.bridgedFetch(url, init);
 	}
 
@@ -118,7 +199,8 @@ export class DshApiClient {
 	private bridgedFetch(
 		input: URL,
 		init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
-	): Promise<Response> {		// host 已 dispose：不再向桥发消息（transport.send 已静默丢弃，这里直接拒绝
+	): Promise<Response> {
+		// host 已 dispose：不再向桥发消息（transport.send 已静默丢弃，这里直接拒绝
 		// 更快暴露问题，且不产生悬挂的 pending）。
 		if (this.disposed) {
 			return Promise.reject(new Error("DSH host transport disposed"));
@@ -146,8 +228,7 @@ export class DshApiClient {
 			const pending: PendingFetch = { resolve, reject, timer };
 			this.pending.set(id, pending);
 			this.transport.send(request);
-			// abort 转发：host 侧 req.signal 联动取消（SSE 流 / 超时）；
-			// 同时本地 promise 也要 reject（与 InProcessApiClient.doFetch 的 abort 契约一致）。
+			// abort 转发：host 侧 req.signal 联动取消（SSE 流 / 超时）。
 			// E8：结算时（settlePending）必须 removeEventListener，否则长生命周期 signal
 			// （会话级 controller，mux 重连多次复用）下监听器随请求数累积。
 			const abortHandler = () => {
@@ -201,11 +282,11 @@ export class DshApiClient {
 	}
 
 	private handleMessage(message: DshFetchMessage): void {
-		const pending = this.pending.get(message.id);
-		if (!pending) return;
 		switch (message.type) {
 			case "fetch-response": {
 				// unary：一次性 body，直接组装 Response 并结算。
+				const pending = this.pending.get(message.id);
+				if (!pending) return;
 				this.pending.delete(message.id);
 				this.cleanupPending(pending);
 				const headers = new Headers(message.headers);
@@ -213,12 +294,11 @@ export class DshApiClient {
 					status: message.status,
 					headers,
 				}));
-				break;
+				return;
 			}
 			case "fetch-stream-start": {
-				// 流式：先 resolve（Response 立即返回，readSse 开始读 body），
-				// pending 保留到 fetch-end 以持续接收 chunk。
-				if (pending.stream) return;
+				const pending = this.pending.get(message.id);
+				if (!pending || pending.stream) return;
 				const headers = new Headers(message.headers);
 				let streamState: PendingFetch["stream"];
 				const stream = new ReadableStream<Uint8Array>({
@@ -237,22 +317,24 @@ export class DshApiClient {
 					},
 				});
 				pending.resolve(new Response(stream, { status: message.status, headers }));
-				break;
+				return;
 			}
 			case "fetch-chunk": {
-				const stream = pending.stream;
+				const pending = this.pending.get(message.id);
+				const stream = pending?.stream;
 				if (!stream || stream.closed) return;
 				try {
 					stream.controller.enqueue(new TextEncoder().encode(message.data));
 				} catch (error) {
 					this.log("dsh-bridge", `chunk enqueue failed: ${String(error)}`);
 				}
-				break;
+				return;
 			}
 			case "fetch-end": {
-				const stream = pending.stream;
+				const pending = this.pending.get(message.id);
+				const stream = pending?.stream;
 				this.pending.delete(message.id);
-				this.cleanupPending(pending);
+				if (pending) this.cleanupPending(pending);
 				if (stream && !stream.closed) {
 					stream.closed = true;
 					try {
@@ -261,12 +343,13 @@ export class DshApiClient {
 						// 已关闭（cancel 竞态）忽略
 					}
 				}
-				break;
+				return;
 			}
 			case "fetch-error": {
-				const stream = pending.stream;
+				const pending = this.pending.get(message.id);
+				const stream = pending?.stream;
 				this.pending.delete(message.id);
-				this.cleanupPending(pending);
+				if (pending) this.cleanupPending(pending);
 				if (stream && !stream.closed) {
 					stream.closed = true;
 					try {
@@ -275,16 +358,32 @@ export class DshApiClient {
 						// 已关闭忽略
 					}
 				}
-				pending.reject(new Error(message.message));
-				break;
+				pending?.reject(new Error(message.message));
+				return;
+			}
+			case "stream-item": {
+				this.streams.get(message.id)?.push({ value: message.value });
+				return;
+			}
+			case "stream-end": {
+				this.streams.get(message.id)?.close();
+				return;
+			}
+			case "stream-error": {
+				this.streams.get(message.id)?.fail({
+					code: message.code,
+					message: message.message,
+					details: message.details ?? {},
+				});
+				return;
 			}
 			default:
-				break;
+				return;
 		}
 	}
 
 	/**
-	 * host 进程退出时调用：中断全部在途 fetch（含 mux 长连接）。
+	 * host 进程退出时调用：中断全部在途 fetch（含 mux 长连接）与逻辑流。
 	 * host 崩溃后桥消息永久中断，悬挂的 pending 若不主动 error，
 	 * pump 的 for await 会永远等不到结束——这是「会话静默断开」的根因。
 	 */
@@ -303,6 +402,10 @@ export class DshApiClient {
 			pending.reject(new Error("DSH host process exited"));
 		}
 		this.pending.clear();
+		for (const pump of this.streams.values()) {
+			pump.fail({ code: "internal", message: "DSH host process exited" });
+		}
+		this.streams.clear();
 	}
 
 	/** 释放：清空 pending（拒绝在途请求），退订桥消息，置 disposed 阻止后续 send。 */
@@ -314,7 +417,139 @@ export class DshApiClient {
 			pending.reject(new Error("DSH host transport disposed"));
 		}
 		this.pending.clear();
-		this.client = null;
-		this.clientPromise = null;
+		for (const pump of this.streams.values()) {
+			pump.fail({ code: "internal", message: "DSH host transport disposed" });
+		}
+		this.streams.clear();
+	}
+
+	// ── DshStreamPump 回调（同模块内协作方法）──────────────────────────────────
+	/** dispose 是否已触发（pump 决定是否还向 transport 发取消帧）。 */
+	isDisposed(): boolean {
+		return this.disposed;
+	}
+
+	/** 向 host 发送一条逻辑流的取消帧。 */
+	sendStreamCancel(id: string): void {
+		this.transport.send({ type: "stream-cancel", id });
+	}
+}
+
+/** 解析 ServerResponse 信封（对齐官方 parseConnectionResponse 的校验语义）。 */
+function parseServerResponse(value: unknown, rpcId: string, endpoint: string): DshRpcResult {
+	if (!isRecord(value) || value.type !== "server-response" || typeof value.rpcId !== "string") {
+		return failureResult(`connection: invalid server-response envelope for ${endpoint}`);
+	}
+	if (value.rpcId !== rpcId) {
+		return failureResult(`rpcId mismatch for ${endpoint}: sent ${rpcId}, got ${String(value.rpcId)}`);
+	}
+	const result = value.result;
+	if (!isRecord(result)) return failureResult(`connection: invalid server-response result for ${endpoint}`);
+	if (result.ok === true) return { ok: true, value: result.value };
+	if (result.ok !== false || !isRecord(result.error)) {
+		return failureResult(`connection: invalid server-response result for ${endpoint}`);
+	}
+	const error = result.error;
+	if (typeof error.code !== "string" || typeof error.message !== "string" || !isRecord(error.details)) {
+		return failureResult(`connection: invalid server-response failure for ${endpoint}`);
+	}
+	return { ok: false, error: { code: error.code, message: error.message, details: error.details } };
+}
+
+function failureResult(message: string): DshRpcResult {
+	return { ok: false, error: { code: "internal", message, details: {} } };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 一条逻辑流的宿主推送缓冲：item 值排队、end/error 终结。
+ * next() 在队列空时等待，保证 openStream 的 for await 消费顺序与推送顺序一致。
+ */
+class DshStreamPump {
+	private readonly queue: Array<{ value: unknown }> = [];
+	private terminal?: { error?: DshStreamFailure };
+	private waiter?: {
+		resolve: (next: IteratorResult<unknown>) => void;
+		reject: (error: Error) => void;
+	};
+	private readonly onAbort: (() => void) | undefined;
+	private readonly abortSignal: AbortSignal | undefined;
+
+	constructor(
+		private readonly id: string,
+		signal: AbortSignal | undefined,
+		private readonly owner: DshApiClient,
+	) {
+		if (signal) {
+			this.abortSignal = signal;
+			const handler = () => {
+				// 外部取消：通知 host 停止推送并终结本地迭代（幂等：settle 只生效一次）。
+				if (!this.owner.isDisposed()) {
+					this.owner.sendStreamCancel(id);
+				}
+				this.fail({ code: "cancelled", message: "stream cancelled" });
+			};
+			this.onAbort = handler;
+			signal.addEventListener("abort", handler, { once: true });
+		}
+	}
+
+	/** 下一个宿主值；流终结时返回 done。 */
+	next(): Promise<IteratorResult<unknown>> {
+		const item = this.queue.shift();
+		if (item) return Promise.resolve({ value: item.value, done: false });
+		if (this.terminal) {
+			const error = this.terminal.error;
+			if (error) return Promise.reject(new Error(`${error.code}: ${error.message}`));
+			return Promise.resolve({ value: undefined, done: true });
+		}
+		return new Promise((resolve, reject) => {
+			this.waiter = { resolve, reject };
+		});
+	}
+
+	/** 宿主推送一个值；有等待者直接交付，否则入队。 */
+	push(item: { value: unknown }): void {
+		if (this.terminal) return;
+		const waiter = this.waiter;
+		if (waiter) {
+			this.waiter = undefined;
+			waiter.resolve({ value: item.value, done: false });
+			return;
+		}
+		this.queue.push(item);
+	}
+
+	/** 流正常结束。 */
+	close(): void {
+		this.settle(undefined);
+	}
+
+	/** 流失败（宿主错误 / 本地取消 / host 退出）。 */
+	fail(error: DshStreamFailure): void {
+		this.settle(error);
+	}
+
+	/** 迭代器 finally 清理：移除外部 abort 监听。 */
+	dispose(): void {
+		if (this.abortSignal && this.onAbort) {
+			this.abortSignal.removeEventListener("abort", this.onAbort);
+		}
+	}
+
+	private settle(error?: DshStreamFailure): void {
+		if (this.terminal) return;
+		this.terminal = { error };
+		const waiter = this.waiter;
+		this.waiter = undefined;
+		if (waiter) {
+			if (error) waiter.reject(new Error(`${error.code}: ${error.message}`));
+			else waiter.resolve({ value: undefined, done: true });
+		}
+		// 注意：不清空 queue——end/error 之前推送的 item 仍要按序交付，
+		// next() 先排空 queue 再上报终结（否则宿主同步连发的最后一批值会丢）。
 	}
 }

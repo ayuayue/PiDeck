@@ -440,6 +440,9 @@ const api = {
 				description?: string;
 				broken?: string;
 			}>>,
+		/** DSH 删除本地（user）预设（agentPreset.remove）；system 预设由 host 拒绝。 */
+		removeDshAgentPreset: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.dshAgentPresetRemove, id) as Promise<void>,
 		/** DSH 部署默认模型选择（settings.yaml agent-default-model），未装配/不可读时 undefined。 */
 		getDshDefaultModel: () =>
 			ipcRenderer.invoke(ipcChannels.dshDefaultModel) as Promise<{

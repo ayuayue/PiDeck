@@ -254,21 +254,24 @@ export function PluginInventoryView() {
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	/** 静态 Loader 清单当前页（1 基；数据/搜索变化导致页数收缩时展示层负责收敛）。 */
 	const [page, setPage] = useState(1);
+	/** 首次加载态（仅控制列表文案；刷新按钮可随时重拉）。 */
+	const [loading, setLoading] = useState(true);
+
+	/** 拉取静态 Loader 清单：挂载与手动刷新共用；失败保持现值不清空。 */
+	const load = useCallback(async () => {
+		try {
+			const list = await desktopApi.sessions.listDshStaticPlugins();
+			setEntries(list);
+		} catch {
+			// host 未装配/未启动：保持空
+		} finally {
+			setLoading(false);
+		}
+	}, []);
 
 	useEffect(() => {
-		let current = true;
-		desktopApi.sessions
-			.listDshStaticPlugins()
-			.then((list) => {
-				if (current) setEntries(list);
-			})
-			.catch(() => {
-				// host 未装配/未启动：保持空
-			});
-		return () => {
-			current = false;
-		};
-	}, []);
+		void load();
+	}, [load]);
 
 	const normalizedQuery = query.trim().toLocaleLowerCase();
 	const filtered = useMemo(
@@ -305,8 +308,21 @@ export function PluginInventoryView() {
 			<div className="flex items-baseline gap-2 px-0.5">
 				<h3 className="text-caption font-semibold text-foreground">{t("config.dsh.tab.pluginList")}</h3>
 				<span className="text-micro tabular-nums text-muted-foreground">{filtered.length}</span>
+				{/* 手动刷新：dsh-web 等外部安装/启停插件后（host 重启生效）无需重开配置页即可重拉清单 */}
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					className="ml-auto h-6 gap-1 px-2 text-muted-foreground"
+					onClick={() => void load()}
+				>
+					<RefreshCw className="size-3" aria-hidden="true" />
+					{t("common.refresh")}
+				</Button>
 			</div>
-			{entries.length === 0 ? (
+			{loading ? (
+				<p className="text-micro text-muted-foreground">{t("common.loading")}</p>
+			) : entries.length === 0 ? (
 				<p className="text-micro text-muted-foreground">{t("config.dsh.staticPluginsEmpty")}</p>
 			) : filtered.length === 0 ? (
 				<p className="text-micro text-muted-foreground">{t("config.dsh.pluginNoMatch")}</p>

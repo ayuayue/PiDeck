@@ -2564,6 +2564,7 @@ function registerIpc() {
 			discoverDshModels: (input) => dshHost.discoverModels(input),
 			listDshProviders: () => dshHost.listProviders(),
 			listDshAgentPresets: () => dshHost.listAgentPresets(),
+			removeDshAgentPreset: (id: string) => dshHost.removeAgentPreset(id),
 			getDshDefaultModel: () => Promise.resolve(dshHost.getDefaultModelSelection()),
 			getDshStatus: () => dshHost.getStatus(),
 			// AgentRuntimeProvider 阶段 1：runtime 安装态门控（未安装时 UI 走安装引导、

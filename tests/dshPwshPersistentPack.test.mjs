@@ -58,8 +58,10 @@ test("standalone package peers pin the host rc line, not wildcard", () => {
 	const pkg = JSON.parse(
 		readFileSync(join(repoRoot, "packages/dsh-tool-pwsh-persistent/package.json"), "utf8"),
 	);
-	assert.equal(pkg.peerDependencies["@deepseek-ai/dsh-tools"], "^0.1.0-rc.8");
-	assert.equal(pkg.peerDependencies["@deepseek-ai/dsh-timeout"], "^0.1.0-rc.8");
+	// 0.1.5 迁移：host rc 线从 0.1.0-rc.8 升到 0.1.5-rc.1（docs/dsh-0.1.5-typert-migration.md）。
+	assert.equal(pkg.peerDependencies["@deepseek-ai/dsh-tools"], "^0.1.5-rc.1");
+	assert.equal(pkg.peerDependencies["@deepseek-ai/dsh-timeout"], "^0.1.5-rc.1");
+	assert.equal(pkg.peerDependencies["@deepseek-ai/dsh-pwsh-local"], "^0.1.5-rc.1");
 	assert.notEqual(pkg.peerDependencies["@deepseek-ai/dsh-tools"], "*");
 });
 
