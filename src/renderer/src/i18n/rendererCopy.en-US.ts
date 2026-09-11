@@ -924,6 +924,8 @@ export const enUS: Record<TranslationKey, string> = {
   "common.copyAll": "Copy All",
   "common.copyJson": "Copy JSON",
   "common.copyVisible": "Copy Visible",
+  "notice.viewDetails": "View details",
+  "notice.detailsTitle": "Notification details",
   "common.delete": "Delete",
   "common.paste": "Paste",
   "common.deleteConfirm": "Confirm Delete",

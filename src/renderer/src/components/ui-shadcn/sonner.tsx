@@ -1,7 +1,8 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Toaster as SonnerToaster } from "sonner";
 import { setToasterReady } from "../../utils/notice";
+import { NoticeDetailsDialog, setNoticeDetailsOpener, type NoticeDetailsPayload } from "./notice-toast";
 
 /**
  * 全局 Toaster（#115）：sonner 官方组件，只承担堆叠/定位/时长/主题跟随，
@@ -35,6 +36,13 @@ export function Toaster() {
 		setToasterReady(true);
 		return () => setToasterReady(false);
 	}, []);
+	// 长文本「查看详情」弹窗宿主：挂在 Toaster 层（常驻），不随单条 toast 卸载；
+	// 卡片点「查看详情」会先 dismiss toast，弹窗必须独立存活。
+	const [details, setDetails] = useState<NoticeDetailsPayload | null>(null);
+	useEffect(() => {
+		setNoticeDetailsOpener(setDetails);
+		return () => setNoticeDetailsOpener(null);
+	}, []);
 	// 禁掉 sonner 的拖动取消手势：桌面端用鼠标拖选 toast 文本复制时，
 	// 快速拖动会被判定为 swipe（velocity > 0.11 / 位移超阈值即取消），
 	// 表现为“想复制却把 toast 拖没了”，且 setPointerCapture 会干扰选区。
@@ -55,19 +63,27 @@ export function Toaster() {
 		return () => document.removeEventListener("pointerdown", blockToastSwipe, true);
 	}, []);
 	return createPortal(
-		<SonnerToaster
-			theme={theme}
-			position="top-right"
-			gap={10}
-			visibleToasts={4}
-			offset={{
-				// 让开自定义标题栏拖拽区（--window-drag-height：frameless 下 32px，否则 0px）。
-				// 首个 toast 若贴顶，左上角关闭按钮会落在 -webkit-app-region: drag 层里，
-				// 点击被拖拽命中测试吞掉，表现为“点叉没反应”。
-				top: "calc(var(--window-drag-height, 0px) + 12px)",
-				right: "16px",
-			}}
-		/>,
+		<>
+			<SonnerToaster
+				theme={theme}
+				position="top-right"
+				gap={10}
+				visibleToasts={4}
+				offset={{
+					// 让开自定义标题栏拖拽区（--window-drag-height：frameless 下 32px，否则 0px）。
+					// 首个 toast 若贴顶，左上角关闭按钮会落在 -webkit-app-region: drag 层里，
+					// 点击被拖拽命中测试吞掉，表现为“点叉没反应”。
+					top: "calc(var(--window-drag-height, 0px) + 12px)",
+					right: "16px",
+				}}
+			/>
+			<NoticeDetailsDialog
+				payload={details}
+				onOpenChange={(open) => {
+					if (!open) setDetails(null);
+				}}
+			/>
+		</>,
 		document.body,
 	);
 }

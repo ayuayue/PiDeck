@@ -917,6 +917,8 @@ export const zhCN = {
   "common.copyAll": "复制全部",
   "common.copyJson": "复制 JSON",
   "common.copyVisible": "复制可见",
+  "notice.viewDetails": "查看详情",
+  "notice.detailsTitle": "通知详情",
   "common.delete": "删除",
   "common.paste": "粘贴",
   "common.deleteConfirm": "确认删除",
