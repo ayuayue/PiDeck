@@ -507,3 +507,87 @@ test("dispatch applies the task working mode marker and always keeps the prompt"
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+/**
+ * DSH 后端 dispatch：DSH 任务与 pi 任务共享 send 链路，但载荷不同。
+ *
+ * 契约：DshAgentManager.sendPrompt 显式拒绝 agentMessage
+ * （session.sendDshUnsupportedPayload），且宿主指令/模式标记都是 pi 侧扩展——
+ * DSH 任务只能发任务提示词原文，不得携带 agentMessage 键。
+ */
+test("DSH dispatch sends the raw prompt without agentMessage (no pi-only host instruction)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-coord-dsh-dispatch-"));
+	const storePath = join(dir, "automation.json");
+	try {
+		const store = new AutomationStore(storePath);
+		await store.load(1_000);
+		const { deps, coordinator } = await createStartedCoordinator(store, {
+			name: "DSH 日报",
+			prompt: "生成今日开发日报",
+			backend: "dsh",
+		});
+
+		assert.equal(deps.sentPrompts.length, 1);
+		const sent = deps.sentPrompts[0];
+		// message 保持用户可见原文（会话气泡）
+		assert.equal(sent.message, "生成今日开发日报");
+		// 关键：DSH 不允许 agentMessage，整体载荷就是提示词原文
+		assert.ok(
+			!("agentMessage" in sent),
+			`DSH 任务不得携带 agentMessage，实际为: ${JSON.stringify(sent)}`,
+		);
+
+		coordinator.dispose();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * DSH 回合完成判定回归：DSH 没有 pi 的 isTurnActive/工具边沿，纯对话回合里
+ * dispatch 后唯一能证明「回合开始过」的是 agents:state 的 running 快照。
+ *
+ * 契约：
+ * - 收到 running 快照前残留的 idle 快照不得判成功（与 pi 侧同一守卫）；
+ * - 收到 running 快照后 idle 即成功，即使全程没有 runtime-state 的 isTurnActive；
+ * - DSH runtime-state 只有 idle/running 两值，绝不携带 error/closed 之外的终态。
+ */
+test("DSH run succeeds via agents:state running then idle without isTurnActive", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pideck-coord-dsh-turn-"));
+	const storePath = join(dir, "automation.json");
+	try {
+		const store = new AutomationStore(storePath);
+		await store.load(1_000);
+		const { deps, coordinator, run, sessionId } = await createStartedCoordinator(store, {
+			name: "DSH 巡检",
+			prompt: "检查服务健康",
+			backend: "dsh",
+		});
+
+		// dispatch 后、任何事件前的 idle 快照（模拟触发前残留快照）不得判成功
+		coordinator.observeRuntimeEvent(tabStateEvent(sessionId, "idle"));
+		await new Promise((r) => setTimeout(r, 20));
+		assert.equal(store.getRun(run.id).status, "running");
+
+		// DSH 回合开始：applyControl turn/start → 状态切 running 并必发 agents:state
+		coordinator.observeRuntimeEvent(tabStateEvent(sessionId, "running"));
+		await new Promise((r) => setTimeout(r, 20));
+		assert.equal(store.getRun(run.id).status, "running");
+
+		// 回合结束：DSH runtime-state 无 isTurnActive（状态里根本没有这个字段）
+		coordinator.observeRuntimeEvent(runtimeStateEvent(sessionId, { status: "idle" }));
+		coordinator.observeRuntimeEvent(tabStateEvent(sessionId, "idle"));
+		await new Promise((r) => setTimeout(r, 20));
+
+		const finished = await waitFor(() => {
+			const status = store.getRun(run.id).status;
+			return status === "succeeded" || status === "failed";
+		});
+		assert.ok(finished, "DSH 回合在 running→idle 后必须收尾");
+		assert.equal(store.getRun(run.id).status, "succeeded");
+
+		coordinator.dispose();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

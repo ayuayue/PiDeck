@@ -196,6 +196,12 @@ export function AutomationTaskList({
 												{t("app.composerModeGoal")}
 											</Badge>
 										)}
+										{/* DSH 后端任务打标（pi 是缺省，标出来只会加噪音） */}
+										{task.backend === "dsh" && (
+											<Badge className="h-5 border-violet-500/30 bg-violet-500/15 px-1.5 text-[11px] font-normal text-violet-500">
+												{t("automation.backendDsh")}
+											</Badge>
+										)}
 										{isRunning && (
 											<Badge className="h-5 bg-sky-500/15 text-sky-500 border-sky-500/30 px-1.5 text-[11px] font-normal animate-pulse">
 												{t("automation.running")}

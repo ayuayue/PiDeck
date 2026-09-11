@@ -293,6 +293,10 @@ export class AutomationRunCoordinator {
 			// 内置扩展在 pi 的 input 事件里识别）。normal 时该函数原样返回 message。
 			const mode = task.mode ?? "normal";
 			const submission = buildComposerPromptSubmission(task.prompt, mode);
+			// DSH 显式拒绝 agentMessage（DshAgentManager.sendPrompt →
+			// session.sendDshUnsupportedPayload），且宿主指令/模式标记都是 pi 扩展，
+			// DSH 无等价物——DSH 任务直接发任务提示词原文（时间线即所见）。
+			const isDsh = task.backend === "dsh";
 
 			const result = await this.sessionRuntimeCoordinator.send({
 				sessionId,
@@ -301,7 +305,9 @@ export class AutomationRunCoordinator {
 				description: `Automation: ${task.name}`,
 				// 顺序即优先级：宿主指令置顶（模式标记不能在首行，否则被指令挡住），
 				// 其次是对应模式的隐藏载荷，最后是任务提示词原文。
-				agentMessage: `${agentInstruction}\n\n${submission.agentMessage ?? submission.message}`,
+				...(isDsh ? {} : {
+					agentMessage: `${agentInstruction}\n\n${submission.agentMessage ?? submission.message}`,
+				}),
 			});
 
 			if (!result.accepted) {
@@ -352,6 +358,12 @@ export class AutomationRunCoordinator {
 	 *   idle    → 回合真正完成（settled 是 pi 的最终稳定点，无重试/压缩排队）→ succeeded
 	 *   error   → 回合出错（agent_end 带 error 时 tab.status 置 error）→ failed
 	 *   closed  → pi 进程在回合结束前退出 → failed（防止 run 挂到 timeoutMs）
+	 *   running → 回合开始证据（turnStarted）。DSH 控制态只有 idle/running 两值
+	 *             （dshRuntimeControl：turn/start → running），applyControl 在状态变化时
+	 *             必发 agents:state 快照；pi 只在 agent_settled/error/退出时发快照，
+	 *             收到 running 快照同样说明回合已开始。DSH 纯对话回合没有工具边沿、
+	 *             runtime-state 也没有 isTurnActive，只能靠 running 快照确认「回合开始过」
+	 *             ——否则 dispatch 后残留的 idle 快照会把 run 误判成完成。
 	 * runtime-state 只用于 turnStarted 记账、工具步数、预算校验与指标采集。
 	 */
 	private handleTrackerEvent(runId: string, tracker: ActiveRunTracker, event: SessionRuntimeEvent): void {
@@ -372,6 +384,13 @@ export class AutomationRunCoordinator {
 			}
 			if (status === "closed") {
 				void this.completeRun(runId, "failed", "Runtime process exited before the run finished");
+				return;
+			}
+			if (status === "running") {
+				// DSH 回合开始证据：applyControl 在 idle→running 状态变化时必发快照
+				// （turn/start 触发）；pi 侧若发出 running 快照同样说明回合已开始（无害）。
+				// 不能放在 idle 分支兜底——DSH 没有其他 turnStarted 来源。
+				tracker.turnStarted = true;
 				return;
 			}
 			if (status === "idle" && tracker.turnStarted) {
