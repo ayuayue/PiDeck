@@ -25,14 +25,31 @@ export type PiCapabilityProcess = {
   stop(): void;
 };
 
+/**
+ * 临时 probe 进程的启动口径。
+ *
+ * 为什么不默认加载扩展：扩展能通过 `pi.registerProvider` 贡献 provider（issue #181，
+ * 如 antigravity 插件），但加载扩展是 hydration 冷启动的绝对大头——本机实测
+ * 418 模型下「带扩展」2.4s vs「--no-extensions」0.37s，而 418 次档位探测只有 0.1s。
+ * 且绝大多数用户（含未装此类插件的用户）拿不到任何模型收益。因此：
+ * - 默认档 = 不加载扩展（快速档），选择器打开只等 ~0.4s；
+ * - 扩展贡献的模型靠用户手动刷新（模型选择器右上角刷新按钮）显式补回。
+ */
+export type PiCapabilityProcessOptions = {
+  /** true = 加载扩展（慢速档，覆盖 pi.registerProvider 贡献的模型）；false = --no-extensions。 */
+  loadExtensions: boolean;
+};
+
 export type PiModelCapabilitySnapshot = {
   generation: number;
   createdAt: number;
+  /** 本次 hydration 是否加载了扩展：false 表示这是快速档快照，可能缺扩展贡献的模型。 */
+  loadExtensions: boolean;
   models: AvailableModel[];
 };
 
 export type PiModelCapabilityCacheDeps = {
-  createProcess: () => PiCapabilityProcess;
+  createProcess: (options: PiCapabilityProcessOptions) => PiCapabilityProcess;
   getConfigDirectory?: () => string;
   watchDirectory?: (
     directory: string,
@@ -150,6 +167,9 @@ function isRelevantConfigFile(fileName: string | Buffer | null): boolean {
 /**
  * Builds one in-memory, Pi-authoritative model capability snapshot per config
  * generation. It never sends a prompt and tears down its process after hydration.
+ *
+ * 启动/失效重建走快速档（不加载扩展）；只有显式 refresh({ loadExtensions: true })
+ * 才付扩展加载成本补回扩展贡献的模型（模型选择器手动刷新按钮）。
  */
 export class PiModelCapabilityCache {
   private generation = 0;
@@ -167,20 +187,30 @@ export class PiModelCapabilityCache {
     return this.snapshot ? cloneSnapshot(this.snapshot) : null;
   }
 
-  /** Reuse an already published or active hydration instead of spawning per picker. */
+  /**
+   * Reuse an already published or active hydration instead of spawning per picker.
+   * 首次 hydration 固定走快速档（不加载扩展），见 PiCapabilityProcessOptions。
+   */
   ensure(): Promise<PiModelCapabilitySnapshot | null> {
     if (this.disposed) return Promise.resolve(null);
     if (this.snapshot) return Promise.resolve(cloneSnapshot(this.snapshot));
     if (this.failedGeneration === this.generation) return Promise.resolve(null);
     if (this.inFlight?.generation === this.generation) return this.inFlight.promise;
-    return this.startRefresh(this.generation);
+    return this.startRefresh(this.generation, false);
   }
 
-  /** Explicit refresh creates a new generation so late old probe results are discarded. */
-  refresh(): Promise<PiModelCapabilitySnapshot | null> {
+  /**
+   * Explicit refresh creates a new generation so late old probe results are discarded.
+   *
+   * loadExtensions 默认 false：配置保存、目录 watcher 等自动失效重建走快速档
+   * （这些路径用户没有为「补回扩展模型」等 2s 的预期）。只有模型选择器的手动刷新
+   * 按钮传 true——它是扩展贡献模型（issue #181）的唯一入口，也是坏扩展风险
+   * （异步工厂挂起会让单个 RPC 请求等到 30s 超时）的显式触发点。
+   */
+  refresh(options: { loadExtensions?: boolean } = {}): Promise<PiModelCapabilitySnapshot | null> {
     if (this.disposed) return Promise.resolve(null);
     const generation = this.invalidateInternal();
-    return this.startRefresh(generation);
+    return this.startRefresh(generation, options.loadExtensions === true);
   }
 
   /** Clear exact results without forcing an immediate spawn. */
@@ -226,8 +256,11 @@ export class PiModelCapabilityCache {
     return this.generation;
   }
 
-  private startRefresh(generation: number): Promise<PiModelCapabilitySnapshot | null> {
-    const task = this.hydrate(generation)
+  private startRefresh(
+    generation: number,
+    loadExtensions: boolean,
+  ): Promise<PiModelCapabilitySnapshot | null> {
+    const task = this.hydrate(generation, loadExtensions)
       .catch((error) => {
         if (!this.disposed && generation === this.generation) {
           this.failedGeneration = generation;
@@ -245,8 +278,11 @@ export class PiModelCapabilityCache {
     return task;
   }
 
-  private async hydrate(generation: number): Promise<PiModelCapabilitySnapshot | null> {
-    const process = this.deps.createProcess();
+  private async hydrate(
+    generation: number,
+    loadExtensions: boolean,
+  ): Promise<PiModelCapabilitySnapshot | null> {
+    const process = this.deps.createProcess({ loadExtensions });
     this.activeProcess = process;
     try {
       const client = await process.start(undefined, undefined, true);
@@ -266,6 +302,7 @@ export class PiModelCapabilityCache {
       const snapshot: PiModelCapabilitySnapshot = {
         generation,
         createdAt: (this.deps.now ?? Date.now)(),
+        loadExtensions,
         models: hydrated,
       };
       this.snapshot = snapshot;

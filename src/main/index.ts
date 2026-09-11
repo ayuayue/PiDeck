@@ -3719,16 +3719,25 @@ app.whenReady().then(async () => {
 
 	await settingsStore.load();
 	piModelCapabilityCache = new PiModelCapabilityCache({
-		createProcess: () => new PiProcess(
+		// 模型能力水合分两档（详见 docs/pi-model-capability-plan.md）：
+		// - 快速档（默认，loadExtensions=false）：--no-extensions。实测 418 模型下
+		//   冷启动从 ~2.4s 降到 ~0.37s（扩展加载就是 hydration 的绝对大头）。
+		// - 慢速档（loadExtensions=true）：仅模型选择器的手动刷新按钮触发，付扩展
+		//   加载成本把 pi.registerProvider 贡献的模型（issue #181，如 antigravity
+		//   插件）补回选择器——这是扩展模型的唯一入口。
+		// 用户全局勾了 piRpcNoExtensions（开发设置诊断开关）时慢速档仍不加载扩展：
+		// 显式设置优先，诊断路径不能被刷新按钮绕过。
+		// 慢速档下用户禁用的扩展仍经 createPiProcessExtensionResolvers 白名单过滤，
+		// 泄漏不进来。
+		createProcess: ({ loadExtensions }) => new PiProcess(
 			process.cwd(),
 			{
 				...settingsStore.get(),
-				// 全局 picker 用离线目录范围：不跑技能或网络刷新；但不能一刀切禁用扩展——
-				// 扩展通过 pi.registerProvider 贡献的模型（如 antigravity 插件）必须显示在
-				// 选择器中（issue #181），与 CLI 默认行为一致。用户禁用的扩展仍经
-				// createPiProcessExtensionResolvers 白名单过滤，泄漏不进来。
+				// 全局 picker 用离线目录范围：不跑技能或网络刷新。
 				piRpcOffline: true,
 				piRpcNoSkills: true,
+				// 快速档还跳过内置扩展的 -e 注入（内置扩展不贡献 provider，纯属白花时间）。
+				...(loadExtensions ? {} : { piRpcNoExtensions: true }),
 			},
 			piLocator,
 			// 与 AgentManager 同一套扩展/技能解析（内置注入 + 禁用白名单），

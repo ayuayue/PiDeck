@@ -138,12 +138,15 @@ test("manual picker reload (force) refreshes catalog before re-hydration", () =>
   assert.match(systemIpc, /refreshModelCatalogStore\(piLocator, settingsStore\)/);
   assert.match(systemIpc, /Model catalog force refresh on manual reload/);
   // 刷新失败不阻塞：目录刷新在 hydration 之前，失败仅记日志，列表仍走读盘刷新。
-  const refreshCall = systemIpc.slice(
-    systemIpc.indexOf("// 手动刷新（force）"),
-    systemIpc.indexOf("modelCapabilityCache.refresh()", systemIpc.indexOf("// 手动刷新（force）")),
-  );
+  const manualReloadStart = systemIpc.indexOf("// 手动刷新（force）");
+  // 定长窗口（不依赖具体行尾）：覆盖 refreshModelCatalogStore + refresh 调用本身。
+  const refreshCall = systemIpc.slice(manualReloadStart, manualReloadStart + 1400);
   assert.match(refreshCall, /if \(forceArg\)/);
   assert.match(refreshCall, /await refreshModelCatalogStore/);
+  // 同一个 force 分支还是「带扩展」慢速档的唯一入口（扩展贡献模型的回补口子，
+  // 默认 hydration 走 --no-extensions 快速档）：两件事必须留在同一次调用里，
+  // 否则按钮会先刷新目录再用快速档重建，扩展模型永远补不回来。
+  assert.match(refreshCall, /modelCapabilityCache\.refresh\(\{ loadExtensions: true \}\)/);
   // 渲染层已有 refreshing 转圈状态（失败也不打断选择器使用）。
   const hook = readFileSync("src/renderer/src/hooks/useBackendModelCatalog.ts", "utf8");
   assert.match(hook, /if \(force\) setRefreshing\(true\)/);

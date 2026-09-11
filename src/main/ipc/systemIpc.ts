@@ -351,6 +351,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	/**
 	 * Models/auth 的任何写入都必须同时失效 CLI fallback 与 Pi-authoritative
 	 * capability snapshot。cache 自己按 generation 丢弃旧 probe 的迟到结果。
+	 *
+	 * 走默认快速档（不加载扩展）：配置保存/watcher/备份恢复都是用户动作的副作用，
+	 * 不应附带 ~2s 的扩展加载；要补回扩展贡献的模型请用模型选择器的手动刷新按钮。
 	 */
 	const refreshPiModelCatalogs = async (): Promise<void> => {
 		invalidateModelListCache();
@@ -484,6 +487,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// force 绕过 4h 磁盘节流——官方 provider 新模型立刻可见），成功后再重新
 			// hydration。目录刷新失败（无网络/超时）不阻塞：退回读盘 hydration，
 			// 旧目录也能刷新列表，刷新按钮不因网络问题报错。
+			// 同时这是模型选择器里唯一付「带扩展」成本的入口（loadExtensions: true）：
+			// 启动/失效重建默认走 --no-extensions 快速档，扩展通过 pi.registerProvider
+			// 贡献的模型（issue #181）只在这里补回，见 docs/pi-model-capability-plan.md。
 			if (forceArg) {
 				const catalogRefreshed = await refreshModelCatalogStore(piLocator, settingsStore);
 				void appLogger.info("pi", "Model catalog force refresh on manual reload", {
@@ -491,7 +497,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				});
 			}
 			const snapshot = forceArg
-				? await modelCapabilityCache.refresh()
+				? await modelCapabilityCache.refresh({ loadExtensions: true })
 				: await modelCapabilityCache.ensure();
 			const report: ModelListReport = snapshot && snapshot.models.length > 0
 				? {
@@ -516,6 +522,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				count: report.models.length,
 				source: report.source,
 				forced: forceArg,
+				// 记录本次快照是否带扩展：带扩展快照可能比快速档多出插件贡献的模型，
+				// 排查「刷新后多/少模型」时先看这个字段。
+				loadExtensions: snapshot?.loadExtensions ?? null,
 			});
 			return report;
 		} catch (error) {
