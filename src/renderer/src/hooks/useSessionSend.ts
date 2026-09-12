@@ -217,7 +217,12 @@ export function useSessionSend(options: UseSessionSendOptions) {
         const blockMessage =
           dshStatusAtEntry.state === "broken"
             ? t("dsh.runtime.sendBroken", { reason: dshStatusAtEntry.reason ?? "" })
-            : t("dsh.runtime.sendNotInstalled");
+            : dshStatusAtEntry.state === "outdated"
+              ? t("dsh.runtime.sendOutdated", {
+                  installed: dshStatusAtEntry.runtimeVersion ?? "",
+                  declared: dshStatusAtEntry.declaredRuntimeVersion ?? "",
+                })
+              : t("dsh.runtime.sendNotInstalled");
         setSendState({
           sessionId: sourceSessionId,
           state: { status: "error", error: blockMessage },
@@ -226,6 +231,10 @@ export function useSessionSend(options: UseSessionSendOptions) {
           () => store.set(openSettingsAtom, DSH_INSTALL_SETTINGS_TARGET),
           dshStatusAtEntry.state,
           dshStatusAtEntry.reason,
+          {
+            installed: dshStatusAtEntry.runtimeVersion,
+            declared: dshStatusAtEntry.declaredRuntimeVersion,
+          },
         );
         return;
       }

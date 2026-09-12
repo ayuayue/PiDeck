@@ -49,6 +49,7 @@ function makeInstaller({ index = { schemaVersion: 1, releases: [release()] }, ur
 			manager.uninstall?.(dirName);
 		},
 		resolveActive: () => manager.resolveActive ?? undefined,
+		isVersionInstalled: (version) => (manager.isVersionInstalled ? manager.isVersionInstalled(version) : false),
 	};
 	const installer = new DshRuntimeInstaller({
 		manager: fakeManager,
@@ -82,8 +83,36 @@ test("installFromIndex：下载字节进度映射到 0-70%，阶段进度随后�
 	assert.ok(progress.some((p) => p.phase === "extracting" && p.percent === 85));
 });
 
-test("installFromIndex：索引里没有兼容版本时不下载，避免下完才发现装不上", async () => {
+test("installFromIndex：目标版本已装且校验通过时短路，不下载不解压", async () => {
+	let checked;
 	const { installer, calls, progress } = makeInstaller({
+		manager: {
+			isVersionInstalled: (version) => {
+				checked = version;
+				return true;
+			},
+		},
+	});
+	const result = await installer.installFromIndex();
+	assert.equal(result.ok, true);
+	assert.equal(checked, "0.1.1-rc.2");
+	assert.equal(calls.installFromUrl.length, 0, "已装版本不得再触发下载");
+	// 短路也必须推送 done：UI 在发起时就进入了进度态，没有终止事件会一直转圈。
+	assert.equal(progress.at(-1).phase, "done");
+	assert.equal(progress.at(-1).percent, 100);
+	assert.equal(progress.at(-1).runtimeVersion, "0.1.1-rc.2");
+});
+
+test("installFromIndex：isVersionInstalled 为 false（半残/损坏）时正常走重装", async () => {
+	const { installer, calls } = makeInstaller({
+		manager: { isVersionInstalled: () => false },
+	});
+	const result = await installer.installFromIndex();
+	assert.equal(result.ok, true);
+	assert.equal(calls.installFromUrl.length, 1);
+});
+
+test("installFromIndex：索引里没有兼容版本时不下载，避免下完才发现装不上", async () => {	const { installer, calls, progress } = makeInstaller({
 		index: { schemaVersion: 1, releases: [release({ minAppVersion: "9.0.0" })] },
 	});
 	const result = await installer.installFromIndex();

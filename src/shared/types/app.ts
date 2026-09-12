@@ -339,3 +339,27 @@ export type PiRuntimeEvent = {
 	agentId: string;
 	event: unknown;
 };
+
+/**
+ * 更新日志拉取结果。
+ *
+ * markdown 为 null 表示所有源都失败、内容校验不通过且**没有本地缓存可兜底**——
+ * 此时 UI 应降级为「在浏览器打开」，不要向用户报网络错。
+ * pageUrl 始终有值，正是给这个降级路径用的。
+ */
+export type ChangelogPayload = {
+	/** markdown 正文；失败为 null。 */
+	markdown: string | null;
+	/** 实际取到内容的源；失败为 null。 */
+	source: "atomgit" | "github" | null;
+	/** 正文解析出的版本条目数（诊断用）。 */
+	versionCount: number;
+	/** CHANGELOG 网页地址，供降级「在浏览器打开」。 */
+	pageUrl: string;
+	/** 内容抓取时间（ISO）。缓存命中=当时；网络直取=本次；无内容=null。 */
+	fetchedAt: string | null;
+	/** 本次内容来自本地缓存（TTL 内复用，或网络失败兜底），未发生成功的网络请求。 */
+	fromCache: boolean;
+	/** 网络失败退回旧缓存：内容可能不是最新，UI 应提示「刷新」取最新。 */
+	stale: boolean;
+};

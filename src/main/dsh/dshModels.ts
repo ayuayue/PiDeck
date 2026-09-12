@@ -71,3 +71,26 @@ export function toDshFetchedModels(models: DshDiscoveredModel[]): FetchedModel[]
 	}
 	return result;
 }
+
+/**
+ * llm/discoverModels RPC 结果解包（纯函数，可单测）。
+ *
+ * 0.1.5 typert 的线上结果 schema 是**纯数组**（`z.array(z.object({ id, ... }))`，
+ * 见 dsh-llm typert.remote-client），但历史上 `DshHost.discoverModels` 曾写成
+ * `value.models ?? []`——对数组取 `.models` 恒为 undefined → 配置页「获取模型列表」
+ * 永远提示「已获取 0 个模型」。这里按两种可能形态防御性解包：数组本体，或
+ * `{ models: [...] }` 包装（宿主若改为对象包装仍兼容）。
+ */
+export function unwrapDshDiscoveryModels(
+	value: unknown,
+): DshDiscoveredModel[] {
+	if (Array.isArray(value)) return value as DshDiscoveredModel[];
+	if (
+		typeof value === "object" &&
+		value !== null &&
+		Array.isArray((value as { models?: unknown }).models)
+	) {
+		return (value as { models: DshDiscoveredModel[] }).models;
+	}
+	return [];
+}

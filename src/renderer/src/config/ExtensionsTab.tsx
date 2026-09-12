@@ -12,6 +12,7 @@ import type { ResourceScope } from "./ResourceScopeSelector";
 import { isProjectDiscoverySource } from "./resourceScopeModel";
 import { DiscoveredExtensionRow, ExtensionTableRow } from "./extensionsTableRows";
 import { RecommendedPackagesPanel } from "./extensionsRecommendedPackages";
+import { BuiltInExtensionsUpdatePanel } from "./BuiltInExtensionsUpdatePanel";
 
 type ExtensionsApi = {
 	list: () => Promise<PiExtensionListResult>;
@@ -344,7 +345,9 @@ export function ExtensionsTab(props: {
 							{t("config.extensionRestartHint")}
 						</small>
 					</div>
-					<div className="skills-toolbar-actions flex shrink-0 items-center gap-1.5">
+					{/* 窄窗口下按钮换行而不是被裁掉：shrink-0 保证按钮不被压缩，
+				    flex-wrap + justify-end 让溢出部分落到第二行右对齐 */}
+				<div className="skills-toolbar-actions flex shrink-0 flex-wrap items-center justify-end gap-1.5">
 						{props.scope === "global" ? (
 							<>
 								{/* 白名单总开关：开启后 -e 白名单失效，pi 默认加载全部扩展（防御个别扩展导致启动失败） */}
@@ -371,6 +374,9 @@ export function ExtensionsTab(props: {
 						</Button>
 					</div>
 				</div>
+				{/* 内置扩展版本 + 热更新：包级版本号（不跟应用版本走），检测走 AtomGit 清单。
+				    只放全局作用域——内置扩展是全局资源，项目视图里给「更新」入口会误导。 */}
+				{props.scope === "global" && <BuiltInExtensionsUpdatePanel onApplied={props.onRefresh} />}
 				<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
 					{props.loading ? (
 						<div className="py-12 text-center text-control text-muted-foreground">{t("config.loadingExtensions")}</div>

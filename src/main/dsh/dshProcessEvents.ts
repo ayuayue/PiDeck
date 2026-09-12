@@ -196,6 +196,11 @@ export function pushDshProcessEvent(
 	next: SessionProcessEvent | undefined,
 ): SessionProcessEvent[] {
 	if (!next) return current;
+	// id 级去重：id 含 journal seq，会话内唯一。follow 泵打开时的首帧 journal 尾部
+	// snapshot（0.1.5 "complete opening snapshot"）会把 attach 阶段已收集的事件重放，
+	// collectDshProcessEvent 的内容幂等只比对「最后一条」，挡不住与末位不同的乱序重放
+	// ——曾致轨迹列表 duplicate key（process:dsh-process:permission/preset:0 等成对）。
+	if (current.some((existing) => existing.id === next.id)) return current;
 	const result = [...current, next];
 	if (result.length > DSH_PROCESS_EVENTS_LIMIT) {
 		return result.slice(result.length - DSH_PROCESS_EVENTS_LIMIT);

@@ -27,17 +27,19 @@ test("sidebar host needs no container query anchor", () => {
 
 test("project row text yields to the hover action buttons at any width", () => {
 	const src = read("src/renderer/src/components/sidebar/ProjectTree.tsx");
-	// 项目名 conversation-body：hover 压出 64px 留白——浮层 right-1(4) + pr-1(4) +
-	// 两个 size-6 按钮(52) + 4px 余量，刚好比 + / ⋯ 宽一点，不浪费文字空间；
-	// 聚焦态（键盘导航）同样让位；transition 只动画 padding-right。
-	// 所有宽度统一让位，不能只依赖窄侧栏断点，否则中等宽度下 + / ⋯ 会叠在长项目名上。
+	// 项目名 conversation-body：hover 压出 88px 留白——浮层 right-1(4) + pr-1(4) +
+	// 三个 size-6 按钮（筛选 / + / ⋯，76px）+ 8px 余量；聚焦态（键盘导航）同样让位；
+	// transition 只动画 padding-right。
+	// 所有宽度统一让位，不能只依赖窄侧栏断点，否则中等宽度下按钮会叠在长项目名上。
 	assert.match(
 		src,
-		/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover:pr-16 group-focus-within:pr-16/,
+		/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover:pr-\[88px\] group-focus-within:pr-\[88px\]/,
 	);
-	// 筛选按钮存在时（sourceFilter）共 3 个按钮，让位加宽到 88px
-	assert.match(src, /sourceFilter !== null && "group-hover:pr-\[88px\] group-focus-within:pr-\[88px\]"/);
-	// 旧的 116px/窄侧栏断点不得回退
+	// 过滤历史记录按钮 hover 常驻（不再只在筛选激活时出现），筛选激活时高亮
+	assert.match(src, /openSourceFilter\(project\.id, event\.clientX, event\.clientY\)/);
+	assert.match(src, /sourceFilter !== null\s*\?\s*"text-primary"/);
+	// 旧的 64px（两按钮时代）与 116px/窄侧栏断点不得回退
+	assert.doesNotMatch(src, /group-hover:pr-16/);
 	assert.doesNotMatch(src, /pr-29/);
 	assert.doesNotMatch(src, prVariant);
 	// 新建 DSH 会话入口已收敛到会话内的后端选择器，项目行不再提供独立机器人按钮

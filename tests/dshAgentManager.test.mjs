@@ -208,6 +208,46 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 			},
 		},
 	};
+	// 0.1.5 适配层形状（DshRemoteClient）：manager 调扁平方法；事件走
+	// openEvents（审批/提问瀑布 + 测试注入帧）与 sessionsFollow（空流，
+	// 测试帧统一经 openEvents 派发，dispatchMuxFrame 按 payload.type 分发）。
+	Object.assign(client, {
+		// 动态委托：测试用例可在 create 后覆写 sessions.selectModel 等方法，
+		// 扁平方法每次调用时重新查 nested 槽位（bind 直接引用会让覆写失效）。
+		sessionsList(...args) { return client.sessions.list(...args); },
+		sessionsCreate(...args) { return client.sessions.create(...args); },
+		sessionsHistory(...args) { return client.sessions.history(...args); },
+		sessionsAttachment(...args) { return client.sessions.attachment(...args); },
+		sessionsPrompt(...args) { return client.sessions.prompt(...args); },
+		sessionsCancel(...args) { return client.sessions.cancel(...args); },
+		sessionsRename(...args) { return client.sessions.rename(...args); },
+		sessionsModelCatalog(...args) { return client.sessions.models(...args); },
+		sessionsSelectModel(...args) { return client.sessions.selectModel(...args); },
+		sessionsFork(...args) { return client.sessions.fork(...args); },
+		async *openEvents(signal) {
+			muxCalls.push(Date.now());
+			streamDone = false;
+			while (!streamDone) {
+				while (frameQueue.length > 0) yield frameQueue.shift();
+				if (signal?.aborted) return;
+				await new Promise((resolve) => {
+					nextBatchResolve = resolve;
+					signal?.addEventListener("abort", resolve, { once: true });
+				});
+				if (signal?.aborted) return;
+			}
+		},
+		async *sessionsFollow(_input, signal) {
+			while (!signal?.aborted) {
+				// unref：pump 的等待定时器不能阻止测试进程正常退出。
+				await new Promise((resolve) => {
+					const timer = setTimeout(resolve, 50);
+					if (typeof timer.unref === "function") timer.unref();
+					signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+			}
+		},
+	});
 	const host = {
 		async ensureStarted() {},
 		getClient() {
@@ -231,6 +271,11 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 		},
 		getHomeDir() {
 			return "C:\\fake-dsh-home";
+		},
+		/** 冷读会话 cursor（0.1.5 session/page 的 throughSeq 来源）：夹具按日志长度模拟。 */
+		async readSessionCursor(sessionId) {
+			const log = historyBySession.get(sessionId) ?? [];
+			return log.length - 1;
 		},
 		/** 模拟 host 进程退出（崩溃）：置位 + 中断在途 mux，同 DshHost 的 exit → abortAllPending 联动。 */
 		triggerExit() {
@@ -278,6 +323,11 @@ function makeColdStartHost() {
 			await this.ensureStarted();
 			return inner.host.resolveWorkspaceId(cwd);
 		},
+		/** 冷读 cursor 与桥同步：真实 DshHost.bridgeRpc 先 ensureStarted，冷启动下同样要等。 */
+		async readSessionCursor(sessionId) {
+			await this.ensureStarted();
+			return inner.host.readSessionCursor(sessionId);
+		},
 	};
 	// 冷启动 host 必须最后展开：inner 里也带 host 键（fake host，getClient 恒返回 client），
 	// 若先展开 host 会被 inner 覆盖 → 测试拿到的是「温 host」，冷启动回归永远测不到。
@@ -301,6 +351,25 @@ const PROJECT = { id: "project-1", path: "C:\\work" };
 
 /** 构造与 DSH 实测一致的 SessionEvent。 */
 const event = (type, seq, data = {}) => ({ type, seq, time: 1700000000000 + seq, data });
+
+test("第二个 runtime 的 follow 泵也必须创建（共享 mux 已在跑不得提前 return）", async () => {
+	// 回归（2026-09-12）：startMux 的 ensureFollowPump 曾放在共享 mux 启动路径里，
+	// 第二个会话 startMux 时 mux 已在跑、提前 return 把 follow 泵整个吞掉——
+	// 0.1.5 会话 journal 事件只走 follow 泵，于是新会话发送后 host 正常跑完回合
+	// 但 PiDeck 收不到任何事件（无流式、无收口、无报错，页面空白）。
+	const { host, client } = makeFakeHost();
+	let followOpens = 0;
+	const innerFollow = client.sessionsFollow.bind(client);
+	client.sessionsFollow = (...args) => {
+		followOpens += 1;
+		return innerFollow(...args);
+	};
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const first = await manager.create({ projectId: "project-1", backend: "dsh" });
+	const second = await manager.create({ projectId: "project-1", backend: "dsh" });
+	assert.notEqual(first.id, second.id);
+	assert.equal(followOpens, 2, "每个 runtime 各开一条 session/follow 泵");
+});
 
 test("create 新建 DSH 会话并注册 runtime（无 dshSessionId 时）", async () => {
 	const { host, calls, createPayloads } = makeFakeHost();

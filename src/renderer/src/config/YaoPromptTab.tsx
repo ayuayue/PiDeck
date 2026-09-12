@@ -58,9 +58,10 @@ export function YaoPromptTab(props: {
 			]);
 			setData(result);
 			setInstalledNames(installed);
-			if (result.categories.length > 0 && !activeCategory) {
-				setActiveCategory(result.categories[0].slug);
-			}
+			// 默认停留「全部」而不是 categories[0]：分类按 count DESC 排序，
+			// categories[0] 恒为「绘画提示词」（1000+ 条），用户一进中文精选就被锁在
+			// 单一分类里，看不到自己关心的编程/办公等提示词，也完全感知不到分类入口。
+			// 保持 null 让它走「全部」，分类 chip 由用户主动选择。
 			setInitialLoading(false);
 		} catch (err) {
 			// 原始错误可能含路径/堆栈，只进日志；用户侧展示稳定的本地化文案。

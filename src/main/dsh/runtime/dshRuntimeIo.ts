@@ -4,9 +4,12 @@
  * 与 DshRuntimeManager 分离：管理器只管编排与校验规则，IO 是可替换的实现细节
  * （测试注入替身，不碰网络与 tar）。两处都遵守 PiDeck 既有约定：
  * - 下载走 Electron `net`（尊重应用代理设置，与 app update 同源），不走 node fetch；
- * - 解压走 npm `tar`（唯一新增运行时依赖，纯 JS、无原生模块，见方案文档 §5）。
+ * - 解压优先走系统自带 tar（Windows/macOS/Linux 均有，原生实现快约 5 倍），
+ *   npm `tar`（纯 JS、无原生模块）作为兜底，保证安全语义一致（见方案文档 §5）。
  */
 import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
@@ -18,10 +21,34 @@ import { isSafeArchiveEntry, type DshRuntimeDownloader, type DshRuntimeExtractor
 /** 重定向跟随上限：GitHub Release 资产会 302 到对象存储，正常 1~2 跳。 */
 const MAX_REDIRECTS = 5;
 
+/** 各平台的系统 tar 路径：Windows 自带 bsdtar（Win10 1803+），macOS 自带 bsdtar，Linux 探测常见安装位置（GNU tar 或 bsdtar）。 */
+function resolveSystemTar(): string | null {
+	if (process.platform === "win32") {
+		const windowsTar = `${process.env.SystemRoot ?? "C:\\Windows"}\\System32\\tar.exe`;
+		return existsSync(windowsTar) ? windowsTar : null;
+	}
+	if (process.platform === "darwin") {
+		// macOS 一直自带 /usr/bin/tar（bsdtar）。
+		return existsSync("/usr/bin/tar") ? "/usr/bin/tar" : null;
+	}
+	// Linux：GUI 启动的 PATH 不保证完整，直接探测常见位置（/bin 多为 /usr/bin 的符号链接）。
+	for (const candidate of ["/usr/bin/tar", "/bin/tar"]) {
+		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+const execFileAsync = promisify(execFile);
+
 /**
  * 解压 tar/tar.gz 到目标目录。
  * 只接受安全条目（拒绝绝对路径与 `..` 逃逸），越界的条目直接丢弃——tar slip 会让
  * 归档写穿数据目录，宁可装不上也不能装出洞。
+ *
+ * 性能：runtime 归档约 4.4 万个小文件，纯 JS 的 npm tar 解压实测 ~80s；系统自带 tar
+ * （Windows System32\tar.exe / macOS /usr/bin\tar / Linux /usr/bin\tar）原生实现实测
+ * ~16s（快约 5 倍）。三个平台都优先走系统 tar 两遍式（先 `-tf` 列出全部条目做安全校验，
+ * 任一条目越界就整体回退 npm tar 逐条过滤，保持与旧实现相同的安全语义），系统 tar
+ * 不可用或执行失败也回退 npm tar。
  */
 export function createTarExtractor(
 	log?: (scope: string, message: string, detail?: unknown) => void,
@@ -29,6 +56,19 @@ export function createTarExtractor(
 ): DshRuntimeExtractor {
 	return async (archivePath, destDir) => {
 		mkdirSync(destDir, { recursive: true });
+		const systemTar = resolveSystemTar();
+		if (systemTar) {
+			try {
+				await extractWithSystemTar(systemTar, archivePath, destDir, log, reject);
+				return;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				log?.("dsh-runtime", "system tar extraction failed, falling back to npm tar", {
+					tar: systemTar,
+					error: message,
+				});
+			}
+		}
 		await tar.x({
 			file: archivePath,
 			cwd: destDir,
@@ -42,6 +82,33 @@ export function createTarExtractor(
 			},
 		});
 	};
+}
+
+/** 系统 tar 两遍式解压：先全量列条目做安全校验（任一越界即抛错回退），再解压。
+ *  `-tf` / `-xf archive -C dir` 在 bsdtar（Windows、macOS）与 GNU tar（Linux）上语义一致。
+ */
+async function extractWithSystemTar(
+	tarBin: string,
+	archivePath: string,
+	destDir: string,
+	log: ((scope: string, message: string, detail?: unknown) => void) | undefined,
+	reject: ((path: string) => boolean) | undefined,
+): Promise<void> {
+	// -tf 只是流式读归档头部目录（4.4 万条目实测 ~1s），不解落磁盘。
+	const { stdout } = await execFileAsync(tarBin, ["-tf", archivePath], {
+		windowsHide: true,
+		maxBuffer: 1 << 26,
+	});
+	for (const entry of stdout.split(/\r?\n/)) {
+		if (!entry) continue;
+		if (reject?.(entry) || !isSafeArchiveEntry(destDir, entry)) {
+			log?.("dsh-runtime", "rejected unsafe archive entry", { path: entry });
+			throw new Error(`unsafe archive entry: ${entry}`);
+		}
+	}
+	await execFileAsync(tarBin, ["-xf", archivePath, "-C", destDir], {
+		windowsHide: true,
+	});
 }
 
 /**

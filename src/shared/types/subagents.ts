@@ -17,7 +17,7 @@ export type PiSubagentStatus =
 
 /** 子代理条目：从 subagents:record / 桥接事件 / 工具调用推导合成。 */
 export interface PiSubagentEntry {
-  /** 插件内部 agentId（record 或事件携带）；无桥接兜底时用工具调用 entryId 合成。 */
+  /** 插件内部 agentId（record 或事件携带）；异步派发为回执 asyncId（与 subagent-async widget 同源）；无桥接兜底时用工具调用 entryId 合成。 */
   id: string;
   /** 子代理类型（如 "Explore"），对应 AgentRecord.type。 */
   type: string;

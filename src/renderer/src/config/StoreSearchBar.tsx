@@ -96,7 +96,12 @@ export const StoreSearchBar = forwardRef<HTMLInputElement, StoreSearchBarProps>(
 								key={s}
 								variant="ghost"
 								size="sm"
-								className="h-7 rounded-full border border-border-subtle bg-bg-muted px-2.5 text-caption font-normal text-text-secondary hover:border-accent hover:bg-accent-soft hover:text-accent"
+								// 悬停只改「面」和「面上的前景」两组 token（bg-accent = 悬停浅面，
+								// text-accent-foreground = 该面上的正文色），与 ghost Button 变体同语义。
+								// 禁止写 hover:text-accent：Tailwind 主题里 --color-accent 指向 --color-bg-active
+								// （背景色），当文字色用会与悬停底色同值，亮/暗两种模式下都表现为
+								// 「悬停后变色块、文字消失」。
+								className="h-7 rounded-full border border-border-subtle bg-bg-muted px-2.5 text-caption font-normal text-text-secondary hover:border-accent hover:bg-accent hover:text-accent-foreground"
 								onClick={() => onSuggestionClick?.(s)}
 							>
 								{s}

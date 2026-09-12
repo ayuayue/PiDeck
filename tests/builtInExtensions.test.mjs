@@ -3,23 +3,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { createRequire } from "node:module";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const require = createRequire(import.meta.url);
+let builtInExtensionsModule = null;
 
+/**
+ * 统一走 loadTsCommonJs：builtInExtensions.ts 现已依赖 ./builtInExtensionsManifest
+ * （覆盖层清单校验），裸 require 解析不了无扩展名的 .ts 相对导入。
+ * 模块级缓存保证多次调用共享同一实例（覆盖层可用性缓存住在模块内）。
+ */
 function loadBuiltInExtensionsModule() {
-	const source = readFileSync("src/main/extensions/builtInExtensions.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	});
-	const sandbox = { exports: {}, require, console };
-	vm.runInNewContext(outputText, sandbox, { filename: "builtInExtensions.ts" });
-	return sandbox.exports;
+	if (!builtInExtensionsModule) {
+		builtInExtensionsModule = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
+	}
+	return builtInExtensionsModule;
 }
 
 function sameArgs(actual, expected) {
@@ -68,10 +65,11 @@ test("listActiveBuiltInExtensionPaths respects removedBuiltIn and missing files"
 		assert.equal(paths.length, 1);
 		assert.ok(String(paths[0]).endsWith("pi-deck-ask-question.ts"));
 		// 内置扩展清单随版本增长：ask/goal/nul-redirect/plan-mode/retry-no-body/security-gate/session-title/subagents/todo/vision
-		// 内置扩展清单随版本增长：ask/goal/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/vision
-		assert.equal(BUILT_IN_EXTENSIONS.length, 11);
+		// 内置扩展清单随版本增长：ask/goal/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
+		assert.equal(BUILT_IN_EXTENSIONS.length, 12);
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-goal-mode.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-session-title.ts"));
+		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-trash-guard.ts"));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

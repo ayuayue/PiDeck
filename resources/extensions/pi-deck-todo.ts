@@ -23,11 +23,20 @@
  * PiDeck's own todo-widget parser. It therefore participates in the renderer's
  * dismiss fingerprint even if two plans have identical visible task text.
  *
- * `context` is the per-model-call alignment point: our reminder is refreshed
- * from the in-memory plan (so replace/update/restore appear on the very next
- * context), deduplicated to a single copy, and removed after clear or when a
- * third-party extension takes over the `todo` tool. No extra session entries
- * are appended by the reminder path.
+ * `context` 不再注入任何每轮提醒。历史上提醒曾以「删旧追新」浮动尾注入（冻结
+ * 中转站缓存于 36,480 / 19,200），后改为固定早位，但计划每次变更仍会使槽位之后
+ * 的前缀失效一次（实测跌落到 17,024 = developer 块边界）。当前为**零失效**设计：
+ *
+ * - 模型对计划的最新视图由**最近一次变更的 toolResult** 携带（execute 在真实
+ *   变更后附加计划全文）。toolResult 是 append-only 历史的一部分，天然不打断
+ *   提示前缀缓存（与 pi 官方示例 todo.ts 的「状态活在工具结果里」同一模式）。
+ * - 唯一会冲掉计划可见性的是压缩/分支摘要（firstKeptEntryId 之前的历史被摘要
+ *   替换），而它们本身已使缓存全部失效。`before_agent_start` 用
+ *   `todoBriefNeededAfterCompaction` 检测「压缩比最后一次计划可见点更新」，
+ *   此时才持久追加一条计划简报（`{message}` 返回值 = 写入会话历史，goal-mode
+ *   同款机制），对缓存零额外成本，且补注幂等、下次压缩后自愈。
+ *
+ * 私有快照/标记条目（appendEntry）不发给模型，只用于状态重建与补注判定。
  *
  * This is intentionally independent from `pi-deck-plan-mode.ts`: plan mode has
  * a separate lifecycle and continues to publish the `pi-deck-plan-todos` widget.
@@ -45,17 +54,23 @@ import {
 	formatTodoPlanModelText,
 	formatTodoWidgetLine,
 	reduceTodoState,
+	TODO_BRIEF_ENTRY_TYPE,
+	TODO_SNAPSHOT_ENTRY_TYPE,
 	TODO_STATUSES,
+	todoBriefNeededAfterCompaction,
 	VALID_TODO_ACTIONS,
 	type TodoPlan,
 	type TodoState,
 	type TodoUpdateFields,
 } from "./pi-deck-todo-state";
 
-// Widget key and custom entry type remain stable so existing clients keep working.
+// Widget key stays stable so existing clients keep working; entry types come from
+// the pure state module so the visibility scan and the writer cannot drift apart.
 const WIDGET_KEY = "pi-deck-todo";
-const ENTRY_TYPE = "pi-deck-todo";
+const ENTRY_TYPE = TODO_SNAPSHOT_ENTRY_TYPE;
 const OWN_EXTENSION_FILE = "pi-deck-todo.ts";
+// 旧版「每轮临时提醒」的类型。已停止生产；context 保留防御性剥离，防止降级/
+// 历史进程混入的同类消息进入出站请求。
 const TODO_CONTEXT_ENTRY_TYPE = "pi-deck-todo-context";
 // This is a private PiDeck widget-line contract, not user-facing text. Keep it first in the array.
 const PLAN_METADATA_PREFIX = "[[pid:todo-plan:";
@@ -191,21 +206,14 @@ export default function piDeckTodoExtension(pi: ExtensionAPI): void {
 		updateWidget(ctx);
 	}
 
-	function todoContextMessage(plan: TodoPlan): {
-		customType: string;
-		content: string;
-		display: boolean;
-	} {
-		return {
-			customType: TODO_CONTEXT_ENTRY_TYPE,
-			content: [
-				`[CURRENT TODO PLAN #${plan.id}]`,
-				"This is the current plan, not a history-based task boundary. Continue it with add/update while it still applies. Remove one obsolete item with action=delete and its id. For a new or materially re-scoped request, call action=replace with the complete new plan even if old items are unfinished. Do not clear because items are complete or because a new user message arrived. Use action=restore after an accidental replacement. If an id is uncertain, call action=list first.",
-				"",
-				formatTodoPlanModelText(plan),
-			].join("\n"),
-			display: false,
-		};
+	/** 压缩后补注的简报正文（与旧提醒同款指引；不再每轮注入）。 */
+	function planBriefContent(plan: TodoPlan): string {
+		return [
+			`[CURRENT TODO PLAN #${plan.id}]`,
+			"This is the current plan, not a history-based task boundary. Continue it with add/update while it still applies. Remove one obsolete item with action=delete and its id. For a new or materially re-scoped request, call action=replace with the complete new plan even if old items are unfinished. Do not clear because items are complete or because a new user message arrived. Use action=restore after an accidental replacement. If an id is uncertain, call action=list first.",
+			"",
+			formatTodoPlanModelText(plan),
+		].join("\n");
 	}
 
 	function todoCountSuffix(count: number): string {
@@ -230,7 +238,7 @@ export default function piDeckTodoExtension(pi: ExtensionAPI): void {
 				return `Updated todo #${item?.id} ${changes.join(", ")}${todoCountSuffix(result.todoCount)}`;
 			}
 			case "replace":
-				return `Replaced the current plan with ${result.todoCount} todos\n${formatTodoPlanModelText(state.activePlan)}`;
+				return `Replaced the current plan with ${result.todoCount} todos`;
 			case "delete":
 				return `Deleted todo #${result.deletedItem?.id}: ${result.deletedItem?.text}${todoCountSuffix(result.todoCount)}`;
 			case "restore":
@@ -272,8 +280,14 @@ export default function piDeckTodoExtension(pi: ExtensionAPI): void {
 				persistState();
 			}
 			updateWidget(ctx);
+			// 模型可见的计划视图由最近一次变更的 toolResult 携带（append-only，
+			// 前缀缓存零影响）：每次真实变更后附加计划全文，替代旧版每轮注入提醒。
+			let text = todoResultText(params.action, result);
+			if (result.changed && state.activePlan) {
+				text += `\n\n${formatTodoPlanModelText(state.activePlan)}`;
+			}
 			return {
-				content: [{ type: "text" as const, text: todoResultText(params.action, result) }],
+				content: [{ type: "text" as const, text }],
 			};
 		},
 	});
@@ -329,8 +343,11 @@ export default function piDeckTodoExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("context", async (event, ctx) => {
+		// 本扩展不再通过 context 注入任何内容（零失效设计，见文件头）。保留两件事：
+		// 1) 防御性剥离旧版「每轮临时提醒」类型的消息（已停止生产，防降级混入）；
+		// 2) 第三方扩展接管 `todo` 工具时的让位状态维护。
 		const messages = event.messages.filter((message) => !isTodoPlanContextMessage(message));
-		const removedOldReminder = messages.length !== event.messages.length;
+		const removedLegacy = messages.length !== event.messages.length;
 
 		if (!isOwnTodo()) {
 			if (!yielded) {
@@ -338,7 +355,7 @@ export default function piDeckTodoExtension(pi: ExtensionAPI): void {
 				resetState();
 				ctx.ui.setWidget(WIDGET_KEY, undefined);
 			}
-			return removedOldReminder ? { messages } : undefined;
+			return removedLegacy ? { messages } : undefined;
 		}
 
 		if (yielded) {
@@ -346,22 +363,24 @@ export default function piDeckTodoExtension(pi: ExtensionAPI): void {
 			reconstructState(ctx);
 			updateWidget(ctx);
 		}
-		const activePlan = state.activePlan;
-		if (!activePlan) return removedOldReminder ? { messages } : undefined;
+		return removedLegacy ? { messages } : undefined;
+	});
 
-		// context 是每次模型调用前的临时视图；只追加 fresh 提醒，不写入会话历史。
-		const fresh = todoContextMessage(activePlan);
+	pi.on("before_agent_start", async (_event, ctx) => {
+		// 压缩/分支摘要会冲掉历史里的计划视图（toolResult 被摘要替换），而该事件
+		// 本身已使提示缓存全部失效——此刻持久追加一条简报是零缓存成本的。
+		// 返回值 {message} 会写入会话历史（goal-mode 同款持久机制），配合
+		// appendEntry 的可见性标记，保证每轮判定幂等、不会重复追加。
+		if (!isOwnTodo()) return;
+		if (!state.activePlan) return;
+		if (!todoBriefNeededAfterCompaction(ctx.sessionManager.getBranch())) return;
+		pi.appendEntry(TODO_BRIEF_ENTRY_TYPE, { reason: "post-compaction" });
 		return {
-			messages: [
-				...messages,
-				{
-					role: "custom" as const,
-					customType: fresh.customType,
-					content: fresh.content,
-					display: fresh.display,
-					timestamp: Date.now(),
-				},
-			],
+			message: {
+				customType: TODO_BRIEF_ENTRY_TYPE,
+				content: planBriefContent(state.activePlan),
+				display: false,
+			},
 		};
 	});
 

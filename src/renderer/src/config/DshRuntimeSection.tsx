@@ -174,18 +174,29 @@ export function DshRuntimeSection({
 		);
 	}
 
-	// 未安装 / 不可用形态：安装引导（入口即安装，装上后本区块自动切已安装形态）。
+	// 未安装 / 不可用 / 版本不配套形态：安装引导（入口即安装，装上后本区块自动切已安装形态）。
 	return (
 		<section className="grid gap-2">
 			<h3 className="text-caption font-semibold text-muted-foreground">{t("settings.dshRuntime")}</h3>
 			<div className="grid gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3.5 py-3">
 				<div className="text-control font-medium text-foreground">
-					{t(broken ? "dsh.runtime.brokenTitle" : "dsh.runtime.notInstalledTitle")}
+					{t(
+						status.state === "outdated"
+							? "dsh.runtime.outdatedTitle"
+							: broken
+								? "dsh.runtime.brokenTitle"
+								: "dsh.runtime.notInstalledTitle",
+					)}
 				</div>
 				<p className="text-micro leading-relaxed text-muted-foreground">
-					{broken
-						? t("dsh.runtime.brokenDesc", { version: status.runtimeVersion ?? "" })
-						: t("dsh.runtime.notInstalledDesc")}
+					{status.state === "outdated"
+						? t("dsh.runtime.outdatedDesc", {
+								installed: status.runtimeVersion ?? "",
+								declared: status.declaredRuntimeVersion ?? "",
+							})
+						: broken
+							? t("dsh.runtime.brokenDesc", { version: status.runtimeVersion ?? "" })
+							: t("dsh.runtime.notInstalledDesc")}
 				</p>
 				{busy ? (
 					<div className="flex w-full flex-col items-center gap-2">
@@ -202,7 +213,7 @@ export function DshRuntimeSection({
 						{status.installEnabled !== false ? (
 							<Button size="sm" className="gap-1.5" onClick={() => void run("online")}>
 								<Download className="size-3.5" />
-								{t(broken ? "dsh.runtime.reinstall" : "dsh.runtime.install")}
+								{t(broken || status.state === "outdated" ? "dsh.runtime.reinstall" : "dsh.runtime.install")}
 							</Button>
 						) : null}
 						{/* 手动导入：镜像不可达 / 离线场景的兜底；dev 模式同样隐藏（不提供安装入口）。 */}

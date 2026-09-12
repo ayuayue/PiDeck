@@ -204,6 +204,20 @@ export type ModelListReport = {
 	at: number;
 };
 
+/** 保存 models 后的后台 pi 验证结果（config:models-verify-result）。
+ *  保存 handler 为即时反馈（解析刚写入的 models.json，不 fork），fork 真实 pi 的完整
+ *  验证在后台完成后经本事件推送；渲染层仅失败时提示，成功静默（避免每次保存都弹）。 */
+export type ModelsVerifyResult = {
+	/** pi 成功加载出非空模型列表（config-fallback 兜底不算「已加载」） */
+	ok: boolean;
+	modelCount: number;
+	reason: ModelListFailReason | "config-fallback" | null;
+	/** 失败详情（CLI stderr / 配置诊断），已截断，可直接展示 */
+	detail: string;
+	/** 触发验证的保存时刻（主进程时间戳）；渲染层可据此忽略过期结果 */
+	savedAt: number;
+};
+
 export type CreateAgentInput = {
 	projectId: string;
 	title?: string;

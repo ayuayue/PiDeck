@@ -6,12 +6,14 @@ import {
   CircleStop,
   CircleX,
   Folder,
+  Globe,
   MessagesSquare,
   MoreHorizontal,
   PanelLeft,
   PanelRight,
   Pin,
   PinOff,
+  Play,
   Plus,
   RefreshCw,
   RotateCw,
@@ -38,6 +40,11 @@ import {
 import { t } from "../../i18n";
 import { AnimatedBadge } from "../motion/animated-badge";
 import { sessionStatusBadge } from "../../utils/sessionStatusBadge";
+import {
+  canRunSessionAction,
+  type SessionRunAction,
+  type SessionRunCapabilities,
+} from "../../utils/sessionCommands";
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { Button } from "../ui-shadcn/button";
 import {
@@ -193,18 +200,23 @@ export type SessionTabsBarProps = {
   onSelectEditorTab?: (tabId: string) => void;
   onCloseEditorTab?: (tabId: string) => void;
   onPromoteEditorPreview?: (tabId: string) => void;
-  /** 当前会话的停止 Agent 能力（停掉绑定的 pi/DSH 进程，保留会话与 Tab）：只对当前会话 Tab 生效。 */
-  canStopCurrent?: boolean;
-  isStoppingCurrent?: boolean;
-  onStopCurrent?: () => void;
-  /** 当前会话的重启能力：只对当前会话 Tab 生效。 */
-  canRestartCurrent?: boolean;
-  isRestartingCurrent?: boolean;
-  onRestartCurrent?: () => void;
-  /** 当前会话的重新加载能力（无 live 运行时）：从磁盘刷新消息文件，只对当前会话 Tab 生效。 */
-  canReloadCurrent?: boolean;
-  isReloadingCurrent?: boolean;
-  onReloadCurrent?: () => void;
+  /**
+   * 当前会话的运行控制（全状态）：能力由 renderer 侧策略纯函数给出，
+   * 本组件只按结论渲染与置灰，不做状态分叉。undefined = 无当前会话。
+   */
+  runControl?: {
+    capabilities: SessionRunCapabilities | undefined;
+    isStopping?: boolean;
+    isRestarting?: boolean;
+    isReloading?: boolean;
+    onAction: (action: SessionRunAction) => void;
+  };
+  /**
+   * 打开当前会话的代理设置弹框（网络代理）。
+   * 与侧栏「会话代理」同源：改完保存即自动重启 runtime 生效，不需要手动「停止 → 启动」。
+   * undefined = 无当前会话或宿主不支持（如 DSH 共享 host）。
+   */
+  onOpenProxySetting?: () => void;
 };
 
 export function SessionTabsBar(props: SessionTabsBarProps) {
@@ -416,11 +428,11 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
               }
               // 运行中反馈徽章只对当前会话有意义（作用于其绑定的 Agent 运行时），非当前 Tab 不显示；
               // 运行控制菜单项已上收右上角 ⋯ 菜单，Tab 只保留转动态展示
-              isStopping={sessionId === currentSessionId ? props.isStoppingCurrent : undefined}
+              isStopping={sessionId === currentSessionId ? props.runControl?.isStopping : undefined}
               isRestarting={
-                sessionId === currentSessionId ? props.isRestartingCurrent : undefined
+                sessionId === currentSessionId ? props.runControl?.isRestarting : undefined
               }
-              isReloading={sessionId === currentSessionId ? props.isReloadingCurrent : undefined}
+              isReloading={sessionId === currentSessionId ? props.runControl?.isReloading : undefined}
               indicatorId={activeIndicatorId}
               indicatorTransition={indicatorTransition}
               onSelect={props.onSelect}
@@ -680,9 +692,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
       {props.onToggleDrawer ||
       props.actions != null ||
       (props.toolActions && props.toolActions.length > 0) ||
-      props.onStopCurrent ||
-      props.onRestartCurrent ||
-      props.onReloadCurrent ? (
+      props.runControl ? (
         <div className="session-tabs-actions flex shrink-0 items-center gap-1 border-l border-border/30 pl-1">
           {props.actions}
           <DropdownMenu>
@@ -699,53 +709,33 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
-              {/* 运行控制只作用于当前会话；无当前会话（onStop 等为空）时整组不显示。
+              {/* 运行控制只作用于当前会话；全状态可用——「停止」仅在进程存活时可点，
+                  「启动/重启」在未启动/失败/已关闭时也保留入口（只是主控文案切换）。
                   置灰用内联 style 而非 className——特异性最高，任何 CSS 都覆盖不了。 */}
-              {(props.onStopCurrent || props.onRestartCurrent || props.onReloadCurrent) && (
+              {props.runControl?.capabilities && (
                 <>
                   <DropdownMenuLabel>{t("tabs.currentSessionGroup")}</DropdownMenuLabel>
-                  {props.onStopCurrent && (
-                    <DropdownMenuItem
-                      variant="destructive"
-                      disabled={!props.canStopCurrent || props.isStoppingCurrent}
-                      style={!props.canStopCurrent || props.isStoppingCurrent ? { opacity: 0.4 } : undefined}
-                      onSelect={props.onStopCurrent}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <CircleStop className={cn("size-3.5", props.isStoppingCurrent && "animate-pulse")} aria-hidden="true" />
-                        {props.isStoppingCurrent ? t("app.stopping") : t("tabs.stopAgent")}
-                      </span>
-                    </DropdownMenuItem>
-                  )}
-                  {props.onRestartCurrent && (
-                    <DropdownMenuItem
-                      disabled={!props.canRestartCurrent || props.isRestartingCurrent}
-                      style={!props.canRestartCurrent || props.isRestartingCurrent ? { opacity: 0.4 } : undefined}
-                      onSelect={props.onRestartCurrent}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <RotateCw className={cn("size-3.5", props.isRestartingCurrent && "animate-pideck-spin")} aria-hidden="true" />
-                        {props.isRestartingCurrent ? t("app.restarting") : t("app.restart")}
-                      </span>
-                    </DropdownMenuItem>
-                  )}
-                  {props.onReloadCurrent && (
-                    <DropdownMenuItem
-                      disabled={!props.canReloadCurrent || props.isReloadingCurrent}
-                      style={!props.canReloadCurrent || props.isReloadingCurrent ? { opacity: 0.4 } : undefined}
-                      onSelect={props.onReloadCurrent}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <RefreshCw className={cn("size-3.5", props.isReloadingCurrent && "animate-pideck-spin")} aria-hidden="true" />
-                        {props.isReloadingCurrent ? t("app.reloading") : t("menu.reloadSession")}
-                      </span>
-                    </DropdownMenuItem>
-                  )}
+                  <RunControlItems control={props.runControl} />
                   <DropdownMenuSeparator />
+                </>
+              )}
+              {/* 会话代理（网络代理）：与侧栏同名入口一致；保存后自动重启 runtime 生效。
+                  放在工具开关组之前，语义上属于「会话级配置」而非「面板开关」。
+                  无运行控制能力时（如极端降级场景）补一个组标签，避免菜单项裸奔。 */}
+              {props.onOpenProxySetting && (
+                <>
+                  {!props.runControl?.capabilities && (
+                    <DropdownMenuLabel>{t("tabs.currentSessionGroup")}</DropdownMenuLabel>
+                  )}
+                  <DropdownMenuItem onSelect={() => props.onOpenProxySetting?.()}>
+                    <Globe className="size-3.5" aria-hidden="true" />
+                    <span>{t("menu.sessionProxy")}</span>
+                  </DropdownMenuItem>
                 </>
               )}
               {props.toolActions && props.toolActions.length > 0 && (
                 <>
+                  <DropdownMenuSeparator />
                   <DropdownMenuLabel>{t("tabs.toolsGroup")}</DropdownMenuLabel>
                   {props.toolActions.map((action) => (
                     <DropdownMenuItem key={action.id} onClick={action.onClick}>
@@ -1032,7 +1022,7 @@ function SessionTab(props: {
         )}
         {runtime?.state?.goal && runtime.state.goal.phase !== "complete" && (
           <span
-            className="shrink-0 rounded bg-accent/15 px-1 text-[10px] font-medium leading-4 text-accent"
+            className="shrink-0 rounded bg-accent/15 px-1 text-[10px] font-medium leading-4 text-primary"
             title={t("app.composerModeGoal")}
           >
             {t("app.composerModeGoal")}
@@ -1184,5 +1174,72 @@ function NewSessionMenu(props: {
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * 当前会话运行控制菜单项（全状态）。
+ *
+ * 四项语义固定，只按策略结论置灰，不做状态 if/else：
+ * - 主控项：未启动/失败/已关闭显示「启动 Agent」，live 显示「重启」；
+ * - 停止：仅进程存活时可点（终态无可停进程，用主控项重建）；
+ * - 重新加载：仅无进程时可用（live 强刷磁盘会覆盖流式消息）。
+ */
+function RunControlItems(props: {
+  control: NonNullable<SessionTabsBarProps["runControl"]>;
+}) {
+  const { control } = props;
+  const capabilities = control.capabilities;
+  if (!capabilities) return null;
+
+  const startOrRestartDisabled = !canRunSessionAction(capabilities, "start") || Boolean(control.isRestarting);
+  const stopDisabled = !canRunSessionAction(capabilities, "stop") || Boolean(control.isStopping);
+  const reloadDisabled = !canRunSessionAction(capabilities, "reload") || Boolean(control.isReloading);
+
+  // 主控文案：未启动/失败/已关闭 → 「启动 Agent」；live → 「重启」。
+  const primaryLabel = control.isRestarting
+    ? t("app.restarting")
+    : capabilities.primaryAction === "start"
+      ? t("tabs.startAgent")
+      : t("app.restart");
+
+  return (
+    <>
+      <DropdownMenuItem
+        disabled={startOrRestartDisabled}
+        style={startOrRestartDisabled ? { opacity: 0.4 } : undefined}
+        onSelect={() => control.onAction(capabilities.primaryAction)}
+      >
+        <span className="inline-flex items-center gap-2">
+          {capabilities.primaryAction === "start" ? (
+            <Play className={cn("size-3.5", control.isRestarting && "animate-pulse")} aria-hidden="true" />
+          ) : (
+            <RotateCw className={cn("size-3.5", control.isRestarting && "animate-pideck-spin")} aria-hidden="true" />
+          )}
+          {primaryLabel}
+        </span>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        variant="destructive"
+        disabled={stopDisabled}
+        style={stopDisabled ? { opacity: 0.4 } : undefined}
+        onSelect={() => control.onAction("stop")}
+      >
+        <span className="inline-flex items-center gap-2">
+          <CircleStop className={cn("size-3.5", control.isStopping && "animate-pulse")} aria-hidden="true" />
+          {control.isStopping ? t("app.stopping") : t("tabs.stopAgent")}
+        </span>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={reloadDisabled}
+        style={reloadDisabled ? { opacity: 0.4 } : undefined}
+        onSelect={() => control.onAction("reload")}
+      >
+        <span className="inline-flex items-center gap-2">
+          <RefreshCw className={cn("size-3.5", control.isReloading && "animate-pideck-spin")} aria-hidden="true" />
+          {control.isReloading ? t("app.reloading") : t("menu.reloadSession")}
+        </span>
+      </DropdownMenuItem>
+    </>
   );
 }

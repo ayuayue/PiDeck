@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -7,7 +7,8 @@ import { getAppLogger } from "../logging/sharedLogger";
 import { applyProxyEnvPatch, type HostProxyEnvPatch } from "../sessions/sessionProxyPolicy";
 import { DshHostProcess, resolveHostEntryPath } from "./DshHostProcess";
 import { DshApiClient, type DshFetchTransport } from "./DshApiClient";
-import { toDshAvailableModels, toDshFetchedModels } from "./dshModels";
+import { DshRemoteClient } from "./dshRemoteClient";
+import { toDshAvailableModels, toDshFetchedModels, unwrapDshDiscoveryModels } from "./dshModels";
 import { parseAgentDefaultModel } from "./dshDefaultModel";
 import { credentialValueFromDocument, isValidCredentialRef } from "./dshCredentials";
 import { workspaceDirFor, findDshSessionDir } from "./dshSessionPath";
@@ -19,7 +20,9 @@ import {
 } from "./pideckDshHome";
 import { foldSessionTitleFromDir, listForeignSessionsFromDisk, scanDshSessionHeaders } from "./dshForeignSessionScan";
 import { PIDECK_PLUGIN_BRIDGE_PATH } from "./pideckPluginBridge";
+import { classifyStaticPlugins, isUserPluginEntry, nearestPackageDir, readUserPatchRows, removeUserPatchRow, resolveManagedPluginDir, USER_PATCH_FILENAME } from "./dshUserPlugins";
 import { PIDECK_COMMANDS_BRIDGE_PATH } from "./pideckCommandsBridge";
+import { PIDECK_SESSION_BRIDGE_PATH } from "./pideckSessionBridge";
 import type { DshFetchMessage } from "./dshHostBridge";
 import type {
 	DshCommandView,
@@ -28,6 +31,8 @@ import type {
 	DshPluginLifecycleInput,
 	DshPluginView,
 	DshStaticPluginView,
+	DshUserPluginUninstallInput,
+	DshUserPluginUninstallResult,
 } from "../../shared/types";
 
 // 注意：主进程产物为 CJS，而 @deepseek-ai/* 是 ESM-only 包。
@@ -54,7 +59,8 @@ import type {
 export class DshHost {
 	private hostProcess: DshHostProcess | null = null;
 	private apiClient: DshApiClient | null = null;
-	private client: import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient | null = null;
+	/** 0.1.5 领域客户端（Typert Remote 适配层；见 dshRemoteClient.ts）。 */
+	private client: DshRemoteClient | null = null;
 	private startPromise: Promise<void> | null = null;
 	private dshHome = "";
 	private configDir = "";
@@ -130,7 +136,7 @@ export class DshHost {
 	}
 
 	/** 已启动时返回领域客户端（未启动返回 null）。 */
-	getClient(): import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient | null {
+	getClient(): DshRemoteClient | null {
 		return this.client;
 	}
 
@@ -157,21 +163,21 @@ export class DshHost {
 		if (!client) {
 			return { writable: false, hasDocument: false, namespaces: [] };
 		}
-		const described = await client.settings.describe({});
+		const described = await client.settingsDescribe();
 		if (!described.result.ok) {
 			throw new Error(`dsh settings.describe failed: ${JSON.stringify(described.result.error)}`);
 		}
 		return {
 			writable: described.result.value.writable,
 			hasDocument: described.result.value.hasDocument,
-			namespaces: (described.result.value.namespaces ?? []).map((ns) => ({
+			namespaces: (described.result.value.namespaces ?? []).map((ns: any) => ({
 				ns: ns.ns,
 				applies: ns.applies,
 				revision: ns.revision,
 				value: ns.value,
 				base: ns.base,
 				user: ns.user,
-				secrets: (ns.secrets ?? []).map((secret) => ({ path: secret.path, set: secret.set })),
+				secrets: (ns.secrets ?? []).map((secret: any) => ({ path: secret.path, set: secret.set })),
 				schema: ns.schema,
 			})),
 		};
@@ -186,11 +192,8 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const updated = await client.settings.update({ ns, patch, expectedRevision });
-		if (!updated.result.ok) {
-			throw new Error(`dsh settings.update failed: ${JSON.stringify(updated.result.error)}`);
-		}
-		return updated.result.value;
+		return this.writeDshNamespace(client, ns, "update", expectedRevision, (revision) =>
+			client.settingsUpdate({ ns, patch, expectedRevision: revision }));
 	}
 
 	/**
@@ -210,11 +213,63 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const updated = await client.settings.mutate({ ns, ops, expectedRevision });
-		if (!updated.result.ok) {
-			throw new Error(`dsh settings.mutate failed: ${JSON.stringify(updated.result.error)}`);
+		return this.writeDshNamespace(client, ns, "mutate", expectedRevision, (revision) =>
+			client.settingsMutate({ ns, ops, expectedRevision: revision }));
+	}
+
+	/**
+	 * DSH settings 写入统一入口（update/mutate 共用）：settings-conflict 冲突重试。
+	 *
+	 * 背景：渲染层保存时持有的 revision 来自页面加载时的 settings.describe。
+	 * 同一保存动作里的多次写入（如批量删除 provider 时每个 unset 各一次 mutate）
+	 * 共用同一个过期 revision——第一次写入成功后 revision 已递增，后续全部被拒；
+	 * dsh-web / host 热加载等外部并发写也会让本页 revision 过期。渲染层 update
+	 * 链路自带「重 describe 再试一次」，但 mutate 直调链路没有——统一收口在主进程：
+	 * 命中冲突时重读该 namespace 的最新 revision 再试（最多 3 次尝试）。
+	 * 重试安全性：update 是部分合并、mutate unset/set 是幂等路径操作，
+	 * 对「读到的最新值」重放不会放大副作用。
+	 */
+	private async writeDshNamespace(
+		client: NonNullable<DshHost["client"]>,
+		ns: string,
+		label: "update" | "mutate",
+		expectedRevision: number | undefined,
+		write: (revision: number | undefined) => Promise<{
+			result: { ok: true; value: unknown } | { ok: false; error: unknown };
+		}>,
+	): Promise<unknown> {
+		let revision = expectedRevision;
+		const MAX_ATTEMPTS = 3;
+		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+			const result = await write(revision);
+			if (result.result.ok) return result.result.value;
+			const error = result.result.error;
+			// 非冲突错误（schema 拒绝等）与重试耗尽：原样上抛，保留 code/message
+			// 供渲染层既有的冲突匹配（"changed since it was read"）与错误展示使用。
+			if (!isDshSettingsConflict(error) || attempt === MAX_ATTEMPTS) {
+				throw new Error(`dsh settings.${label} failed: ${JSON.stringify(error)}`);
+			}
+			// 冲突：重读 namespace 拿最新 revision 再试；describe 失败时退化为
+			// 不带乐观校验（undefined）的最后一次重试。
+			revision = await this.readNamespaceRevision(client, ns);
 		}
-		return updated.result.value;
+		// 循环内必然 return/throw，这里仅满足 TS 控制流分析。
+		throw new Error(`dsh settings.${label} failed: exhausted retries`);
+	}
+
+	/** settings.describe 的单 namespace revision 读取（冲突重试用）；describe 失败返回 undefined。 */
+	private async readNamespaceRevision(
+		client: NonNullable<DshHost["client"]>,
+		ns: string,
+	): Promise<number | undefined> {
+		try {
+			const described = await client.settingsDescribe();
+			if (!described.result.ok) return undefined;
+			const found = (described.result.value.namespaces ?? []).find((item: any) => item.ns === ns);
+			return typeof found?.revision === "number" ? found.revision : undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** credentials.describe：refs 必须匹配 env 名格式（^[A-Za-z_][A-Za-z0-9_]*$）。 */
@@ -226,7 +281,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return {};
-		const described = await client.credentials.describe({ refs });
+		const described = await client.credentialsDescribe({ refs });
 		if (!described.result.ok) return {};
 		return described.result.value.credentials ?? {};
 	}
@@ -236,7 +291,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const result = await client.credentials.set({ ref, value });
+		const result = await client.credentialsSet({ ref, value });
 		if (!result.result.ok) {
 			throw new Error(`dsh credentials.set failed: ${JSON.stringify(result.result.error)}`);
 		}
@@ -247,7 +302,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const result = await client.credentials.unset({ ref });
+		const result = await client.credentialsUnset({ ref });
 		if (!result.result.ok) {
 			throw new Error(`dsh credentials.unset failed: ${JSON.stringify(result.result.error)}`);
 		}
@@ -281,7 +336,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const result = await client.settings.openDocument({}, new AbortController().signal);
+		const result = await client.settingsOpenDocument(new AbortController().signal);
 		if (!result.result.ok) {
 			throw new Error(`dsh settings.openDocument failed: ${JSON.stringify(result.result.error)}`);
 		}
@@ -321,7 +376,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const listed = await client.llm.models({});
+		const listed = await client.sessionsModelCatalog();
 		if (!listed.result.ok) return [];
 		return toDshAvailableModels(listed.result.value.groups ?? []);
 	}
@@ -339,7 +394,7 @@ export class DshHost {
 		if (!client) throw new Error("DSH host is not started");
 		const settingsNs = input.settingsNs.trim();
 		if (!settingsNs) throw new Error("DSH model discovery requires settingsNs");
-		const discovered = await client.llm.discoverModels({
+		const discovered = await client.llmDiscoverModels({
 			settingsNs,
 			...(input.provider?.trim() ? { provider: input.provider.trim() } : {}),
 			...(input.baseURL?.trim() ? { baseURL: input.baseURL.trim() } : {}),
@@ -349,7 +404,10 @@ export class DshHost {
 		if (!discovered.result.ok) {
 			throw new Error(`dsh llm.discoverModels failed: ${discovered.result.error.code}: ${discovered.result.error.message}`);
 		}
-		return toDshFetchedModels(discovered.result.value.models ?? []);
+		// 线上结果 schema 是纯数组（dsh-llm typert：z.array(z.object({ id, ... }))）；
+		// 之前写成 value.models ?? []，对数组取 .models 恒 undefined → 配置页永远
+		// 「已获取 0 个模型」。unwrapDshDiscoveryModels 做数组/包装双形态解包。
+		return toDshFetchedModels(unwrapDshDiscoveryModels(discovered.result.value));
 	}
 
 	/**
@@ -510,10 +568,85 @@ export class DshHost {
 		return Array.isArray(value) ? (value as DshPluginView[]) : [];
 	}
 
-	/** 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+	/** 静态 Loader 条目清单（origin 标注来源：user = 用户补丁层 / builtin = 官方与 PiDeck 组合）。 */
 	async listStaticPlugins(): Promise<DshStaticPluginView[]> {
 		const value = await this.pluginRpc("staticInventory", undefined);
-		return Array.isArray(value) ? (value as DshStaticPluginView[]) : [];
+		const views = Array.isArray(value) ? (value as DshStaticPluginView[]) : [];
+		try {
+			const patchPath = join(this.getHomeDir(), USER_PATCH_FILENAME);
+			const { rows } = readUserPatchRows(patchPath);
+			return classifyStaticPlugins(views, rows);
+		} catch (error) {
+			// 分类是纯增强：读不到用户补丁层时按 builtin 呈现，不让列表失败
+			this.log("dsh-host", "plugin origin classification skipped", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return views;
+		}
+	}
+
+	/**
+	 * 卸载用户自装的静态插件：从 $DSH_HOME/cordis.patch.yml 移除对应行（下个 host
+	 * 重启生效），可选把插件目录移入回收站（仅限 userData/dsh-plugins 内的 PiDeck
+	 * 管理目录）。内置条目一律拒绝——它们属于 base/预设/PiDeck 组合，不归用户卸载。
+	 */
+	async uninstallUserPlugin(
+		input: DshUserPluginUninstallInput,
+	): Promise<DshUserPluginUninstallResult> {
+		const patchPath = join(this.getHomeDir(), USER_PATCH_FILENAME);
+		const { rows, exists } = readUserPatchRows(patchPath);
+		if (!exists) {
+			return { rowRemoved: false, reason: "no user patch layer found (nothing user-installed)" };
+		}
+		const probe = { entryId: input.entryId, moduleName: input.moduleName };
+		if (!isUserPluginEntry(probe, rows)) {
+			return {
+				rowRemoved: false,
+				reason: "entry is not declared in the user patch layer (builtin plugins cannot be uninstalled here)",
+			};
+		}
+
+		// 先备份再改写：补丁文件是用户自管文件，误删行可从 .bak 恢复
+		const backupPath = `${patchPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+		copyFileSync(patchPath, backupPath);
+		const current = readFileSync(patchPath, "utf8");
+		const removed = removeUserPatchRow(current, { entryId: input.entryId, moduleName: input.moduleName });
+		if (!removed.removed) {
+			return { rowRemoved: false, reason: removed.reason, backupPath };
+		}
+		writeFileSync(patchPath, removed.text, "utf8");
+		this.log("dsh-host", "user plugin uninstalled from patch layer", {
+			entryId: input.entryId,
+			moduleName: input.moduleName,
+			backupPath,
+		});
+
+		const result: DshUserPluginUninstallResult = { rowRemoved: true, backupPath };
+		if (input.deleteFiles === true) {
+			const matchedRow = rows.find((row) => isUserPluginEntry(probe, [row]));
+			const pluginDir =
+				matchedRow?.name !== undefined
+					? resolveManagedPluginDir(matchedRow.name, join(this.getUserDataDir(), "dsh-plugins"))
+					: undefined;
+			if (pluginDir === undefined) {
+				// 管理目录之外不代删，但把插件实际位置告诉用户（常见于换实例卸载：
+				// 插件装在另一个 userData 的 dsh-plugins 下）
+				const hintDir =
+					matchedRow?.name !== undefined ? nearestPackageDir(matchedRow.name) : undefined;
+				result.reason = hintDir
+					? `plugin files are outside this install's managed folder: ${hintDir}`
+					: "plugin directory is outside PiDeck's managed folder; remove it manually if needed";
+				result.keptPluginDir = hintDir;
+			} else {
+				try {
+					await this.trashPath(pluginDir);
+					result.removedPluginDir = pluginDir;
+				} catch (error) {
+					result.fileError = error instanceof Error ? error.message : String(error);
+				}
+			}
+		}
+		return result;
 	}
 
 	/** 安装动态插件（define：定义源码包，不运行；按会话归属）。 */
@@ -548,6 +681,24 @@ export class DshHost {
 	}
 
 	/**
+	 * 冷读会话日志 cursor（0.1.5 `session/page` 的 throughSeq 上界）。
+	 *
+	 * 契约见 pideckSessionBridge：cursor 来自 host 内 sessionQuery 的
+	 * observation（与 page 内部 sourceFor 同一数据源），不激活会话、不写投影缓存；
+	 * 取 cursor 与后续 page 之间日志只可能增长，旧 cursor 仍是合法切点。
+	 * 空日志返回 -1（page 拿到 -1 会返回空页）。
+	 * 返回非合法数字（桥未挂载/返回异常）时抛错，由调用方（historyPage）回退。
+	 */
+	async readSessionCursor(sessionId: string): Promise<number> {
+		const value = await this.bridgeRpc(PIDECK_SESSION_BRIDGE_PATH, "cursor", { sessionId });
+		const cursor = (value as { cursor?: unknown } | undefined)?.cursor;
+		if (typeof cursor !== "number" || !Number.isSafeInteger(cursor)) {
+			throw new Error("session bridge returned an invalid cursor");
+		}
+		return cursor;
+	}
+
+	/**
 	 * DSH 会话内容搜索（G9）：wire `session.search` 搜索 user/assistant/steering 消息面，
 	 * 结果最多 20 个会话（无游标，hasMore 提示收窄查询）。返回 { sessionId, snippet }，
 	 * 由渲染层按 dshSessionId 映射回 catalog 记录。
@@ -558,9 +709,9 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const searched = await client.sessions.search({ query: trimmed }, new AbortController().signal);
+		const searched = await client.sessionsSearch({ query: trimmed }, new AbortController().signal);
 		if (!searched.result.ok) return [];
-		return (searched.result.value.items ?? []).map((item) => ({
+		return (searched.result.value.items ?? []).map((item: any) => ({
 			sessionId: String(item.sessionId),
 			snippet: item.snippet,
 		}));
@@ -594,12 +745,12 @@ export class DshHost {
 	 * 只传 cwd 会永远留在 dsh-web「未分组」。失败返回 undefined，由创建方失败，
 	 * 不再静默降级成 cwd-only。
 	 */
-	async resolveWorkspaceId(cwd: string): Promise<import("@deepseek-ai/dsh-host-apiproxy").WorkspaceId | undefined> {
+	async resolveWorkspaceId(cwd: string): Promise<import("@deepseek-ai/dsh-workspace/types").WorkspaceId | undefined> {
 		try {
 			await this.ensureStarted();
 			const client = this.client;
 			if (!client) return undefined;
-			const resolved = await client.workspace.create({ path: cwd });
+			const resolved = await client.workspaceCreate({ path: cwd });
 			if (!resolved.result.ok) return undefined;
 			return resolved.result.value.workspace.workspaceId;
 		} catch {
@@ -621,9 +772,9 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const listed = await client.llm.providers({});
+		const listed = await client.llmProviders();
 		if (!listed.result.ok) return [];
-		return (listed.result.value.providers ?? []).map((entry) => ({
+		return (listed.result.value.providers ?? []).map((entry: any) => ({
 			provider: entry.provider,
 			displayName: entry.displayName,
 			active: entry.active,
@@ -646,7 +797,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const listed = await client.agentPresets.list({});
+		const listed = await client.agentPresetsList();
 		if (!listed.result.ok) {
 			// 目录拉取失败/为空时记日志：会话头模式胶囊与配置页「预设设置」都依赖这份名单，
 			// 空名单 = 部署未装配 agent-presets 组合行（此时胶囊按设计隐藏）。
@@ -676,6 +827,21 @@ export class DshHost {
 			...(typeof preset.description === "string" && preset.description ? { description: preset.description } : {}),
 			...(typeof preset.broken === "string" && preset.broken ? { broken: preset.broken } : {}),
 		}));
+	}
+
+	/**
+	 * 删除本地（user）预设（agentPreset.remove）。host 拒绝删除 system 预设
+	 * （随部署安装的组合行，不是用户的删除对象）；user 预设来自
+	 * $DSH_HOME/.agent-presets 用户根（dsh-web「复制预设」与 PiDeck 同一目录）。
+	 */
+	async removeAgentPreset(id: string): Promise<void> {
+		await this.ensureStarted();
+		const client = this.client;
+		if (!client) throw new Error("DSH host is not started");
+		const removed = await client.agentPresetsRemove({ agentPreset: id });
+		if (!removed.result.ok) {
+			throw new Error(`dsh agentPreset.remove failed: ${JSON.stringify(removed.result.error)}`);
+		}
 	}
 
 	/**
@@ -816,30 +982,10 @@ export class DshHost {
 		};
 		this.apiClient = new DshApiClient({
 			transport,
-			// 与 hostEntry 一致：CJS 产物里裸 import() 会走默认解析（打包后找不到 app node_modules），
-			// 必须按 file URL 动态导入（createRequire 解析真实路径）。
-			loadModule: () => import(pathToFileURL(require.resolve("@deepseek-ai/dsh-host-apiproxy")).href),
 			log: (message, detail) => this.log("dsh-bridge", message, detail),
 		});
-		try {
-			// 覆写后的客户端即领域客户端（doFetch 走桥）。
-			const client = await this.apiClient.getClient();
-			this.client = client;
-		} catch (error) {
-			// E10：启动失败路径必须清理已 fork 的 host 进程与 apiClient——否则下次
-			// ensureStarted 会再 fork 一个新 host，双 host 进程并存。
-			this.log("dsh-host", "host client init failed; cleaning up forked host", {
-				error: error instanceof Error ? error.message : String(error),
-			});
-			this.apiClient.dispose();
-			this.apiClient = null;
-			this.unsubscribeHostExit?.();
-			this.unsubscribeHostExit = null;
-			await hostProcess.dispose().catch(() => undefined);
-			this.hostProcess = null;
-			this.releaseHostLock();
-			throw error;
-		}
+		// 0.1.5：领域客户端是 Typert Remote 适配层（旧 AbstractApiClient 已废）。
+		this.client = new DshRemoteClient(this.apiClient);
 		this.log("dsh-host", "host ready（utilityProcess）");
 	}
 
@@ -875,6 +1021,19 @@ export class DshHost {
 		await this.dispose();
 		this.log("dsh-host", "host 已重置，下次启动将重新 fork");
 	}
+}
+
+/**
+ * 判定 DSH settings 写入错误是否为乐观并发冲突（revision 过期）。
+ * host 的结构化错误 code 是 "settings-conflict"（连字符小写），消息含
+ * "changed since it was read"；两者任一命中即视为冲突（容错 host 文案演进）。
+ * 纯函数（可单测）：输入为 settings.update/mutate result.error 的 unknown 形状。
+ */
+export function isDshSettingsConflict(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const record = error as { code?: unknown; message?: unknown };
+	if (typeof record.code === "string" && /settings[-_]conflict/i.test(record.code)) return true;
+	return typeof record.message === "string" && record.message.includes("changed since it was read");
 }
 
 /**

@@ -12,9 +12,10 @@
  */
 import { join } from "node:path";
 
-/** 随包发布的 agent preset 根目录：<dsh 包目录>/config/agent-presets。 */
-export function shippedPresetRoot(dshPackageDir: string): string {
-	return join(dshPackageDir, "config", "agent-presets");
+/** 随包发布的 agent preset 根目录：0.1.5 起随 <dsh-agent-presets 包目录>/presets 分发
+ *  （此前是 <dsh 包>/config/agent-presets，见 docs/dsh-0.1.5-typert-migration.md）。 */
+export function shippedPresetRoot(agentPresetsPackageDir: string): string {
+	return join(agentPresetsPackageDir, "presets");
 }
 
 /**
@@ -58,21 +59,58 @@ export function dshWebAgentPlaneDisableRows(): Array<{ id: string; disabled: tru
 }
 
 /**
- * agent-presets 组合行：默认 standard（标准模式）+ 随包 system 根。
- * 用户根（$DSH_HOME/.agent-presets）由插件 `includeUserRoot` 默认自动追加，
- * 与 dsh-web 的部署形态（web-app cordis.patch.yml）一致。
+ * agent-presets 组合行：默认 standard（标准模式），与 dsh-web 的部署形态
+ * （web-app cordis.patch.yml）一致。0.1.5 起随包预设由 dsh-agent-presets 插件
+ * 自带（includeShippedRoot 默认 prepend 只读 system 根），行内不再显式配 roots
+ * （重复声明同一根会被 loader 判重/多余）。
+ * 用户级默认值覆盖仍走 settings 文档（$DSH_HOME/settings.yaml 的 agent-presets.default）。
  */
-export function agentPresetsRow(dshPackageDir: string): {
+export function agentPresetsRow(): {
 	id: string;
 	name: string;
-	config: { default: string; roots: Array<{ path: string; trust: "system" }> };
+	config: { default: string };
 } {
 	return {
 		id: "agent-presets",
 		name: "@deepseek-ai/dsh-agent-presets",
 		config: {
 			default: "standard",
-			roots: [{ path: shippedPresetRoot(dshPackageDir), trust: "system" }],
 		},
 	};
+}
+
+/**
+ * subagent 模型选择开关的 Host 行：standard/code 预设的 tool-subagent 行带
+ * `modelSelectionSettings: true`，运行时要求 Host 作用域提供 subagentModelSelection
+ * 服务（dsh-tool-subagent/lib/index.js 校验，缺失抛
+ * "`modelSelectionSettings` requires …/model-selection-settings in the Host scope"）。
+ * 与 dsh-web-app/cordis.patch.yml 的 host 行同源（id/name 逐字一致），
+ * 不挂该行时 standard 预设整棵挂载失败（agent-preset/invalid）。
+ */
+export function dshSubagentModelSelectionSettingsRow(): {
+	id: string;
+	name: string;
+} {
+	return {
+		id: "subagent-model-selection-settings",
+		name: "@deepseek-ai/dsh-tool-subagent/model-selection-settings",
+	};
+}
+
+/**
+ * host 组合文件（cordis.yml）的落盘目录 = appRoot/pideck-host（appRoot 即
+ * `--dsh-node-modules` 指向的、含 node_modules 的目录）。
+ *
+ * **为什么不能放 userData/configDir**：dsh-app-boot 的 Include 构造函数会无条件把
+ * 上下文的 `baseUrl` 重置为组合文件所在目录，而 dsh-agent-presets 用 `ctx.baseUrl`
+ * 作为基准向上逐级找 `node_modules` 判定组合里的包名行（packageInstalled）。configDir
+ * 在 userData 下，向上永远走不到 runtime 的 node_modules —— 随包预设的全部插件行会被
+ * 判成 "cannot be resolved"（实测 24 行全灭，配置页选不了模式）。放到 appRoot 子目录后，
+ * 向上走一级即 `<appRoot>/node_modules`，解析恢复正常。
+ *
+ * @param appRoot `--dsh-node-modules` 的 file URL（DshHost 传的是带尾斜杠的目录 URL）。
+ * @returns 组合文件绝对路径。
+ */
+export function hostCompositionPath(appRootPath: string): string {
+	return join(appRootPath, "pideck-host", "cordis.yml");
 }

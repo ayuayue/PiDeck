@@ -20,8 +20,13 @@ Thanks to everyone who has contributed to PiDeck!
 - **c834292137** ([@c834292137](https://github.com/c834292137)) — Unified session component card (todos/subagents/file changes) with a shared aggregation layer (#171)
 - **r0y1z2** ([@r0y1z2](https://github.com/r0y1z2)) — Project session pinning, secure composer voice transcription (#177, #176)
 - **sgafxh** ([@sgafxh](https://github.com/sgafxh)) — Recovery from request-body-size-limit rejections, Windows pi console-window fix (#188, #180)
+- **lerrorgk** ([@lerrorgk](https://github.com/lerrorgk)) — Fixed nicobailon pi-subagents async dispatch being mis-marked complete; panel entries now include the full task description (#206)
 
 And everyone who filed issues, shared feedback, and helped spread the word.
+
+## 💖 Special Support
+
+- **微时佬友** ([@weishiair](https://github.com/weishiair)) — Provides the Grok model service used for PiDeck development 🎉
 
 ---
 

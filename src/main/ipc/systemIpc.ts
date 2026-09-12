@@ -7,6 +7,8 @@ import { app, ipcMain, shell } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
 import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
+import { ChangelogService, type ChangelogLanguage } from "../update/ChangelogService";
+import { normalizeUpdateSource } from "../update/updateSources";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import { DSH_BUNDLED_RUNTIME_DIRNAME, readBundledRuntime, readDeclaredDshVersion } from "../dsh/runtime/DshRuntimeManager";
 import { resolveAppTimes } from "../utils/appInfoTimes";
@@ -19,7 +21,9 @@ import type {
 	AppLogQuery,
 	AppSettings,
 	AvailableModel,
+	ChangelogPayload,
 	ModelListReport,
+	ModelsVerifyResult,
 	SessionCommandResult,
 	SessionRuntimeTarget,
 } from "../../shared/types";
@@ -34,7 +38,7 @@ import { resolveConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import { setConfiguredGitPath } from "../git/gitExecutable";
 import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
 import type { SkillManager } from "../skills/SkillManager";
-import { fetchModelList, getCachedModelList, invalidateModelListCache, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
+import { fetchModelList, getCachedModelList, invalidateModelListCache, modelsFromPiConfig, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
 import { TokendanceCatalogStore } from "../config/tokendanceCatalog";
 import type { TokendanceInstallResult } from "../config/tokendanceInstaller";
 import type { TokendanceAuthMode, TokendanceAuthStore } from "../config/tokendanceAuth";
@@ -347,6 +351,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	/**
 	 * Models/auth 的任何写入都必须同时失效 CLI fallback 与 Pi-authoritative
 	 * capability snapshot。cache 自己按 generation 丢弃旧 probe 的迟到结果。
+	 *
+	 * 走默认快速档（不加载扩展）：配置保存/watcher/备份恢复都是用户动作的副作用，
+	 * 不应附带 ~2s 的扩展加载；要补回扩展贡献的模型请用模型选择器的手动刷新按钮。
 	 */
 	const refreshPiModelCatalogs = async (): Promise<void> => {
 		invalidateModelListCache();
@@ -354,6 +361,54 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		if (snapshot) return;
 		// 旧 Pi 没有 capability RPC 时，仍预热原有的兼容模型列表。
 		await refreshModelList(piLocator, settingsStore, configManager).catch(() => undefined);
+	};
+
+	/**
+	 * 保存 models 后的后台完整验证：fork 真实 pi（本机实测 ~17-21s）确认配置能被加载，
+	 * 完成后经 config:models-verify-result 推送渲染层——仅失败时提示，成功静默
+	 * （保存动作的即时反馈已由 handler 返回，这里补的是「pi 真实可加载」这一层）。
+	 * retryOnEmpty:false：刚保存完环境是热的，CLI 空表是真实信号，重试只会多 fork 一次。
+	 */
+	const verifyModelsAfterSave = async (savedAt: number): Promise<void> => {
+		let payload: ModelsVerifyResult;
+		try {
+			const report = await resolveModelListReport(piLocator, settingsStore, configManager, true, { retryOnEmpty: false });
+			// 只有 pi 自己成功列出非空模型列表才算「已加载」。source 为 config-fallback
+			// 说明 pi 实际没能列出模型（CLI 空 → 回退读本地 models.json 兑底，且兑底会把空
+			// name 自动补成 ${provider}/${id}），此时报“已加载”是假绿灯。
+			const ok = report.ok && report.models.length > 0 && report.source !== "config-fallback";
+			// config-fallback 时 report.reason 为 null，补充一个可诊断原因，避免日志/UI 拿到空 reason。
+			const reason = report.source === "config-fallback" ? "config-fallback" : report.reason;
+			payload = {
+				ok,
+				modelCount: report.models.length,
+				reason,
+				detail: report.detail ?? "",
+				savedAt,
+			};
+			void appLogger.info("config", "Models config background verify", {
+				ok,
+				modelCount: payload.modelCount,
+				reason,
+			});
+		} catch (error) {
+			payload = {
+				ok: false,
+				modelCount: 0,
+				reason: "cli-failed",
+				detail: error instanceof Error ? error.message : String(error),
+				savedAt,
+			};
+			void appLogger.warn("config", "Models config background verify failed", {
+				detail: payload.detail,
+			});
+		}
+		// 失败先告知用户，再刷新 capability 快照（模型能力自适应模板依赖，
+		// 旧 Pi 无 capability RPC 时回退列表）；刷新失败不影响已推送的验证结果。
+		if (!payload.ok) {
+			getMainWindow()?.webContents.send(ipcChannels.configModelsVerifyResult, payload);
+		}
+		void refreshPiModelCatalogs().catch(() => undefined);
 	};
 
 	// ── Pi 检测 ──────────────────────────────────────────────────────
@@ -432,6 +487,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// force 绕过 4h 磁盘节流——官方 provider 新模型立刻可见），成功后再重新
 			// hydration。目录刷新失败（无网络/超时）不阻塞：退回读盘 hydration，
 			// 旧目录也能刷新列表，刷新按钮不因网络问题报错。
+			// 同时这是模型选择器里唯一付「带扩展」成本的入口（loadExtensions: true）：
+			// 启动/失效重建默认走 --no-extensions 快速档，扩展通过 pi.registerProvider
+			// 贡献的模型（issue #181）只在这里补回，见 docs/pi-model-capability-plan.md。
 			if (forceArg) {
 				const catalogRefreshed = await refreshModelCatalogStore(piLocator, settingsStore);
 				void appLogger.info("pi", "Model catalog force refresh on manual reload", {
@@ -439,7 +497,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				});
 			}
 			const snapshot = forceArg
-				? await modelCapabilityCache.refresh()
+				? await modelCapabilityCache.refresh({ loadExtensions: true })
 				: await modelCapabilityCache.ensure();
 			const report: ModelListReport = snapshot && snapshot.models.length > 0
 				? {
@@ -464,6 +522,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				count: report.models.length,
 				source: report.source,
 				forced: forceArg,
+				// 记录本次快照是否带扩展：带扩展快照可能比快速档多出插件贡献的模型，
+				// 排查「刷新后多/少模型」时先看这个字段。
+				loadExtensions: snapshot?.loadExtensions ?? null,
 			});
 			return report;
 		} catch (error) {
@@ -1038,6 +1099,68 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		await doOpenExternalUrl(url, forceSystem);
 	});
 
+	/**
+	 * 拉取更新日志正文（「关于」弹框与更新卡片两处共用）。
+	 *
+	 * 入参 language 只做白名单收窄：渲染层来的数据一律不可信，非法值按中文处理。
+	 * 失败（全部源挂掉/内容校验不过）不抛错，返回 markdown=null + pageUrl，由 UI
+	 * 降级为「在浏览器打开」——更新日志拿不到不该打断用户，更不该弹错误。
+	 */
+	ipcMain.handle(
+		ipcChannels.appGetChangelog,
+		async (_event, language?: unknown, forceRefresh?: unknown): Promise<ChangelogPayload> => {
+			const lang: ChangelogLanguage = language === "en" ? "en" : "zh";
+			const refresh = forceRefresh === true;
+			// 每次调用读最新更新源：用户可在设置里随时切换，服务实例需随之重建源顺序。
+			// 缓存目录挂 userData：TTL 内秒开零网络，网络失败时也能拿旧缓存兜底。
+			const service = new ChangelogService({
+				source: () => normalizeUpdateSource(settingsStore.get().updateSource),
+				cacheDir: join(app.getPath("userData"), "changelog-cache"),
+			});
+			// pageUrl 先算好：无论拉取成功与否，降级入口都要有地址可用。
+			const pageUrl = service.changelogPageUrl(lang);
+			try {
+				const result = await service.getChangelog(lang, { forceRefresh: refresh });
+				if (!result) {
+					void appLogger.info("changelog", "All sources failed and no cached copy exists", { lang });
+					return {
+						markdown: null,
+						source: null,
+						versionCount: 0,
+						pageUrl,
+						fetchedAt: null,
+						fromCache: false,
+						stale: false,
+					};
+				}
+				return {
+					markdown: result.markdown,
+					source: result.source,
+					versionCount: result.versionCount,
+					pageUrl,
+					fetchedAt: result.fetchedAt,
+					fromCache: result.fromCache,
+					stale: result.stale,
+				};
+			} catch (error) {
+				// getChangelog 内部已吞掉单源错误，走到这里属意外异常：只记日志，仍降级返回。
+				void appLogger.warn("changelog", "Failed to fetch changelog", {
+					lang,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return {
+					markdown: null,
+					source: null,
+					versionCount: 0,
+					pageUrl,
+					fetchedAt: null,
+					fromCache: false,
+					stale: false,
+				};
+			}
+		},
+	);
+
 	ipcMain.handle(ipcChannels.appRestart, async () => {
 		if (isQuitting) isQuitting.value = true;
 		await webServiceManager?.stop();
@@ -1371,36 +1494,22 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		const result = await configManager.saveModelsConfig(data);
 		if (!result.valid) return result;
 		invalidateModelListCache();
-		// 保存后同步验证：用真实 pi 重新列出模型，确认配置能被 pi 正常加载。
-		// 只有拿到非空模型列表才算“保存且可用”；空/失败时把原因带回渲染层提示用户检查配置。
-		let modelLoadOk = false;
-		let modelCount = 0;
-		let modelLoadReason: string | null = null;
-		let modelLoadDetail = "";
-		try {
-			const report = await resolveModelListReport(piLocator, settingsStore, configManager, true);
-			// 只有 pi 自己成功列出非空模型列表才算“保存且可用”。source 为 config-fallback
-			// 说明 pi 实际没能列出模型（CLI 空 → 回退读本地 models.json 兑底，且兑底会把空
-			// name 自动补成 ${provider}/${id}），此时报“已加载”是假绿灯。
-			modelLoadOk = report.ok && report.models.length > 0 && report.source !== "config-fallback";
-			modelCount = report.models.length;
-			modelLoadReason = report.reason;
-			// config-fallback 时 report.reason 为 null，补充一个可诊断原因，避免日志/UI 拿到空 reason。
-			if (report.source === "config-fallback") modelLoadReason = "config-fallback";
-			modelLoadDetail = report.detail ?? "";
-		} catch (error) {
-			modelLoadReason = "cli-failed";
-			modelLoadDetail = error instanceof Error ? error.message : String(error);
-		}
-		// 同时刷新 capability 快照（模型能力自适应模板依赖），旧 Pi 无 capability RPC 时回退列表。
-		void refreshPiModelCatalogs().catch(() => undefined);
+		// 即时验证：直接解析刚写入的配置（modelsFromPiConfig 纯函数，0 fork），保存按钮立即返回。
+		// fork 真实 pi 的完整验证（本机实测 ~17-21s）放后台跑完再推送 config:models-verify-result，
+		// 不再阻塞保存动作——旧实现同步等 CLI 列表报告，用户盯着保存按钮转圈十几秒。
+		const localModels = modelsFromPiConfig(data);
 		void appLogger.info("config", "Models config saved", {
 			providerCount: Object.keys(data?.providers ?? {}).length,
-			modelLoadOk,
-			modelCount,
-			modelLoadReason,
+			modelCount: localModels.length,
 		});
-		return { valid: true, modelLoadOk, modelCount, modelLoadReason, modelLoadDetail };
+		void verifyModelsAfterSave(Date.now());
+		return {
+			valid: true,
+			modelLoadOk: localModels.length > 0,
+			modelCount: localModels.length,
+			modelLoadReason: localModels.length > 0 ? null : "empty",
+			modelLoadDetail: localModels.length > 0 ? "" : "no models in saved models.json",
+		};
 	});
 	ipcMain.handle(ipcChannels.configSaveAuth, async (_event, data) => {
 		const result = await configManager.saveAuthConfig(data);

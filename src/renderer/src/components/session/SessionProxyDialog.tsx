@@ -8,20 +8,25 @@
  * 持久化到 SessionRecord.proxy（catalog 可选字段，重启保留；旧数据缺省 follow）。
  *
  * 生效边界（与主进程链路一致，展示给用户避免误解）：
- * - pi 会话：设置应用于该会话的 pi 子进程 spawn env，改后需重启会话 runtime；
+ * - pi 会话：代理注入在子进程 spawn env 里，**只有新建进程才会重新读取**。因此本弹框
+ *   保存后若该会话正在运行，会**自动重启其 pi 进程**让代理立即生效——用户不必再手动
+ *   「停止 → 启动」两步（本弹框存在的核心价值之一）。
  * - DSH 会话：DSH 是单一共享 host（无 per-session 通道），设置聚合到 host fork env
  *   （off 优先于 on），需 host 重启后生效；host 的 LLM 请求经 globalThis.fetch（undici），
  *   PiDeck 同时注入 NODE_USE_ENV_PROXY=1 使其真正读取代理环境变量（Node 22.21+ 行为）。
+ *   **不能按会话重启 host**——那会杀掉所有 DSH 会话，所以这里只提示、不自动重启。
  */
 import { useEffect, useState } from "react";
 import { Check, Globe, PlugZap, Unplug } from "lucide-react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, useStore } from "jotai";
 import { sessionRecordByIdAtomFamily, upsertSessionAtom } from "../../atoms";
+import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { Button } from "../ui-shadcn/button";
 import { Dialog, DialogContent } from "../ui-shadcn/dialog";
 import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
 import { showNotice } from "../../utils/notice";
+import { isLiveRuntimeStatus, resolveProxyApplyStrategy, toSessionRuntimeTarget } from "../../utils/sessionCommands";
 import type { SessionProxyMode } from "../../../../shared/types/session";
 
 const PROXY_OPTIONS: Array<{
@@ -38,6 +43,9 @@ const PROXY_OPTIONS: Array<{
 export function SessionProxyDialog(props: { sessionId: string; onClose: () => void }) {
   const record = useAtomValue(sessionRecordByIdAtomFamily(props.sessionId));
   const upsertSession = useSetAtom(upsertSessionAtom);
+  const store = useStore();
+  // 订阅本会话 runtime：用于展示「保存即重启生效」提示（保存动作本身读 store 快照）。
+  const liveRuntime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(props.sessionId));
   const [saving, setSaving] = useState(false);
   const [globalProxy, setGlobalProxy] = useState<{ enabled: boolean; url: string; providers: string[] } | null>(null);
 
@@ -45,6 +53,8 @@ export function SessionProxyDialog(props: { sessionId: string; onClose: () => vo
   const currentMode: SessionProxyMode = record?.proxy?.mode ?? "follow";
   const isDsh = record?.backend === "dsh";
   const provider = record?.model?.provider;
+  /** 该会话当前是否有存活进程：决定「保存即生效」还是「下次启动生效」。 */
+  const isSessionLive = isLiveRuntimeStatus(liveRuntime?.status);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +74,38 @@ export function SessionProxyDialog(props: { sessionId: string; onClose: () => vo
     try {
       const updated = await desktopApi.sessions.updateRecord(props.sessionId, { proxy: { mode } });
       upsertSession(updated);
-      showNotice(isDsh ? t("sessionProxy.dshSavedNotice") : t("sessionProxy.savedNotice"), 3000);
+
+      // 代理写在 spawn env 上：进程不重建就不会重新读。因此保存后若该会话仍在运行，
+      // 直接在这里重启其进程，把「改设置 + 停止 + 启动」三步压成一步。
+      // 判定收敛在纯函数里（含 DSH 共享 host 不能按会话重启的规则），见 sessionCommands。
+      // 读的是 store 快照而非 React state，避免与本组件渲染时机耦合。
+      const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(props.sessionId));
+      const target = toSessionRuntimeTarget(props.sessionId, runtime);
+      const strategy = resolveProxyApplyStrategy({
+        backend: record?.backend,
+        hasBinding: Boolean(target),
+        isLive: isLiveRuntimeStatus(runtime?.status),
+      });
+
+      if (strategy === "restart-now" && target) {
+        showNotice(t("sessionProxy.restartingForApply"), 3000);
+        const result = await desktopApi.sessions.restartRuntime(target);
+        if (!result.ok) {
+          // 重启失败不回滚已保存的设置：设置本身是用户意图，下次启动仍会生效；
+          // 只是「立即生效」这一步没成功，明确告知避免用户以为代理已生效。
+          showNotice(t("sessionProxy.savedRestartFailed"), 5000);
+          setSaving(false);
+          return;
+        }
+        showNotice(t("sessionProxy.savedApplied"), 3000);
+      } else {
+        showNotice(
+          strategy === "dsh-host-restart"
+            ? t("sessionProxy.dshSavedNotice")
+            : t("sessionProxy.savedNotice"),
+          3000,
+        );
+      }
       props.onClose();
     } catch (error) {
       showNotice(error instanceof Error ? error.message : String(error), 4000);
@@ -137,6 +178,10 @@ export function SessionProxyDialog(props: { sessionId: string; onClose: () => vo
             <p className="text-muted-foreground/60">{t("sessionProxy.providerFilterHint")}</p>
           )}
           {isDsh && <p className="text-muted-foreground/70">{t("sessionProxy.dshShareHint")}</p>}
+          {/* pi 会话运行中：保存即自动重启进程让代理生效，提前告知避免用户以为要手动重启 */}
+          {!isDsh && isSessionLive && (
+            <p className="text-primary/80">{t("sessionProxy.autoRestartHint")}</p>
+          )}
         </div>
       </DialogContent>
     </Dialog>

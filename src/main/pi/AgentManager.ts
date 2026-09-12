@@ -47,7 +47,11 @@ import { formatExtensionErrorReason } from "./extensionError";
 import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
-import { mergeHistoryWithPreservedMessages, stabilizeReloadedMessageIds } from "./historyMessages";
+import {
+	mergeHistoryWithPreservedMessages,
+	stabilizeProjectedIdsFromIdentities,
+	stabilizeReloadedMessageIds,
+} from "./historyMessages";
 import {
 	buildAgentSessionKey,
 	toAbsoluteSessionPath,
@@ -540,7 +544,14 @@ export class AgentManager {
 			// 保证「选择器能看到扩展贡献的模型」与「运行时实际加载的扩展」同源。
 			// 技能/模板解析器同源：禁用的技能与提示词模板在 RPC 启动时以白名单剔除。
 			...createPiProcessExtensionResolvers(cwd, settings),
-			...createPiProcessSkillResolvers(cwd, settings),
+			// WSL 场景把 distro 家目录并入技能白名单扫描（issue #203）：WSL 里的 pi 以
+			// distro 内 HOME 运行，Linux 家目录的全局技能必须与 Windows 侧取并集注入；
+			// UNC 路径由 PiProcess 在 spawn 前转换为 distro 内 Linux 路径。
+			...createPiProcessSkillResolvers(
+				cwd,
+				settings,
+				this.wslEnvironment ? [this.wslEnvironment.windowsHome] : undefined,
+			),
 			...createPiProcessPromptResolvers(cwd, settings),
 			// 会话身份 = PiDeck 会话 key（SessionRecord.id，UUID 或旧版文件路径），扩展按它解析等级覆盖；
 			// 匿名会话（noSession）无 key，扩展仅用全局默认等级。
@@ -723,6 +734,31 @@ export class AgentManager {
 			i18nKey: "diagnostic.extensionsDisabledFallback",
 			fallbackText: "扩展加载失败，已禁用扩展运行。可在本会话把下面的错误信息发给 AI，协助排查扩展问题。",
 			options: { debugDetails },
+		});
+	}
+
+	/**
+	 * 技能白名单因超出启动参数预算被跳过：告知用户本次「禁用技能」不生效。
+	 * 跳过本身不影响启动，但用户看到「禁用的技能又被加载了」会当成 bug，必须显式说明。
+	 * 与扩展回退同一条启动期诊断链路（首个 run 时落到时间线），理由见 queueStartupDiagnostic。
+	 */
+	private notifySkillWhitelistSkipped(
+		agentId: string,
+		info: { skills: number; chars: number; budget: number },
+	): void {
+		void this.appLogger?.warn("agent", "Skill whitelist skipped: too many skills for launch args", {
+			agentId,
+			skills: info.skills,
+			estimatedChars: info.chars,
+			budget: info.budget,
+		});
+		this.queueStartupDiagnostic(agentId, {
+			role: "system",
+			i18nKey: "diagnostic.skillWhitelistSkipped",
+			fallbackText:
+				`技能数量过多（${info.skills} 个，约 ${info.chars} 字符，超出启动参数预算 ${info.budget}），` +
+				"已跳过「禁用技能」设置：本次启动由 pi 自动加载全部技能。",
+			options: { params: { count: info.skills, budget: info.budget } },
 		});
 	}
 
@@ -1215,12 +1251,20 @@ export class AgentManager {
 		});
 		// abort 时 ask_question 的 answer 已被覆写为 null，不再需要跟踪
 		this.abortedDuringAsk.delete(agentId);
-		const nextMessages = stabilizeReloadedMessageIds(
-			this.messages.get(agentId) ?? [],
-			mergeHistoryWithPreservedMessages(
-				messages,
+		const nextMessages = stabilizeProjectedIdsFromIdentities(
+			// 会话级身份延续：新 agent 首次投影时本地缓存为空，把 id 还原成 UI 手里的旧 id
+			//（restart/崩溃重连后窗口重下发必须复用旧 key，否则渲染层整窗 remount、动画重放）。
+			// list 是捕获先后的完整快照，这里只读不消费——同一会话后续 runtime 仍可继续对齐。
+			this.stoppedMessageIdentities.list(
+				runtime.tab.sessionPath ? this.toSessionHostPath(runtime.tab.sessionPath) : "",
+			),
+			stabilizeReloadedMessageIds(
 				this.messages.get(agentId) ?? [],
-				options?.preserveMessagesAfter,
+				mergeHistoryWithPreservedMessages(
+					messages,
+					this.messages.get(agentId) ?? [],
+					options?.preserveMessagesAfter,
+				),
 			),
 		);
 		// 重载后把进行中的消息身份（activeAssistantMessageIds/toolMessageIds）从
@@ -1433,6 +1477,10 @@ export class AgentManager {
 			cwd: diag?.cwd,
 			fallbackFromExtensions,
 		});
+		// 技能白名单因技能太多被跳过：本次 pi 会加载全部技能（禁用不生效），需显式告知用户。
+		if (diag?.skillWhitelistSkipped) {
+			this.notifySkillWhitelistSkipped(id, diag.skillWhitelistSkipped);
+		}
 
 		try {
 			void this.appLogger?.info("agent", "Agent get_state request completed", { agentId: id });
@@ -3059,6 +3107,23 @@ export class AgentManager {
 		this.toolFullTextByMessageId.clear();
 	}
 
+	/**
+	 * runtime 消息缓存即将释放（stop / restart）时留存身份摘要。
+	 *
+	 * 编辑确认框与重发入口可能捕获了投影前的 live ID；缓存一旦清空，主进程就只剩
+	 * 「按 ID 找文件条目」这一条路，而 live 随机 ID 在 JSONL 里不存在。摘要交给
+	 * SessionHistoryReader 在活动分支上按角色 + 时间窗 + 内容指纹唯一定位，
+	 * 不能凭 UI 的过期 ID 盲改正文（歧义/未落盘一律拒绝）。
+	 */
+	private captureRuntimeMessageIdentities(agentId: string): void {
+		const sessionPath = this.agents.get(agentId)?.tab.sessionPath;
+		if (!sessionPath) return;
+		this.stoppedMessageIdentities.capture(
+			this.toSessionHostPath(sessionPath),
+			this.messages.get(agentId) ?? [],
+		);
+	}
+
 	async restart(agentId: string): Promise<AgentTab> {
 		const runtime = this.requireRuntime(agentId);
 		void this.appLogger?.info("agent", "Agent restart requested", {
@@ -3096,7 +3161,11 @@ export class AgentManager {
 			}
 		}
 
-		// 停止旧进程并清理状态
+		// 停止旧进程并清理状态。
+		// restart 与 stop 同属「runtime 消息缓存被释放」：UI 手中的 live ID 此时只存于文件，
+		// 清缓存前必须留存身份摘要，否则重启后编辑/删除/重发会报 Message not found
+		// （2026-09 用户反馈：开启代理重启会话后重发失败）。
+		this.captureRuntimeMessageIdentities(agentId);
 		runtime.process.stop();
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
@@ -3487,14 +3556,7 @@ export class AgentManager {
 		// 标记用户主动停止，退出处理器将跳过自动重连
 		this.userInitiatedStop.add(agentId);
 		const process = runtime.process;
-		if (runtime.tab.sessionPath) {
-			// 编辑确认框可能捕获了投影前的 live ID；清缓存前留存锚点/摘要，
-			// 文件读者仍会校验活动分支与唯一性，不能凭 UI 的过期 ID 盲改正文。
-			this.stoppedMessageIdentities.capture(
-				this.toSessionHostPath(runtime.tab.sessionPath),
-				this.messages.get(agentId) ?? [],
-			);
-		}
+		this.captureRuntimeMessageIdentities(agentId);
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
 		this.messageDirtyFromByAgent.delete(agentId);
@@ -3938,6 +4000,14 @@ export class AgentManager {
 		if (diag.blockedExtensions && diag.blockedExtensions.length > 0) {
 			// 桌面端已自动隔离的扩展（如 codeisland），方便用户对照「为何 RPC 没加载该扩展」。
 			lines.push(`已自动隔离扩展: ${diag.blockedExtensions.join(", ")}`);
+		}
+		if (diag.skillWhitelistSkipped) {
+			// 技能数超命令行预算 → 本次未注入 --no-skills/--skill，pi 加载了全部技能。
+			// 排查「禁用技能为何无效」时这条是关键上下文。
+			lines.push(
+				`技能白名单: 已跳过（${diag.skillWhitelistSkipped.skills} 个技能 ≈ ${diag.skillWhitelistSkipped.chars} 字符，` +
+					`超出预算 ${diag.skillWhitelistSkipped.budget}）→ 本次「禁用技能」不生效`,
+			);
 		}
 		lines.push("");
 		lines.push("━━━ 排查步骤 ━━━");

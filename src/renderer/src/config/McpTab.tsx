@@ -375,7 +375,7 @@ export const McpTab = forwardRef<McpTabHandle, {
 					<p className="mt-1 text-micro text-muted-foreground">{t("config.restartHint")}</p>
 					<a
 						href={MCP_DOCS}
-						className="mt-1 inline-block text-micro text-accent hover:underline"
+						className="mt-1 inline-block text-micro text-primary hover:underline"
 						onClick={openDocsInSystemBrowser(MCP_DOCS)}
 					>
 						{t("config.mcp.docs")}

@@ -8,17 +8,21 @@
  * 本文件保持纯类型 + 纯函数（无任何运行时层依赖），主/渲染两侧与 node 单测共享。
  */
 import type { AgentBackend } from "./agent";
+import { compareSemver } from "./dshRuntimeManifest";
 
 /** DSH runtime 安装态。 */
 export type DshRuntimeState =
-	/** runtime 可用（内置 node_modules 可解析 / 外部 runtime manifest 兼容）。 */
+	/** runtime 可用（内置 node_modules 可解析 / 外部 runtime manifest 兼容且版本匹配）。 */
 	| "installed"
 	/** runtime 未安装（阶段 2 的 lite 分发形态；引导下载/手动导入）。 */
 	| "notInstalled"
 	/** 初值：渲染层尚未拿到主进程探测结果。 */
 	| "checking"
 	/** 已安装但不可用（manifest 版本区间不兼容 / payload 校验失败）。 */
-	| "broken";
+	| "broken"
+	/** 版本不一致（已装 runtime ≠ 本版本 app 声明的配套版本）。硬门控：桥协议/插件
+	 *  表可能已变，旧 runtime「能启动」不代表「能工作」，禁止启动 host 并强制重装。 */
+	| "outdated";
 
 /** runtime 来源：内置（随包分发，阶段 1 形态）还是外部安装（阶段 2 形态）。 */
 export type DshRuntimeSource = "builtin" | "managed";
@@ -37,7 +41,30 @@ export type DshRuntimeStatus = {
 	/** 是否允许在线下载安装 runtime（app.isPackaged）：dev 模式禁止下载——runtime 随
 	 *  打包分发，开发环境不提供在线安装，避免用户误下 dev 不配套的产物。 */
 	installEnabled?: boolean;
+	/** 当前 app 声明的配套 dsh 版本（package.json → @deepseek-ai/dsh）；读不到时缺省。 */
+	declaredRuntimeVersion?: string;
 };
+
+/**
+ * 已装 runtime 与声明版本是否不一致（纯函数，单测覆盖）。
+ *
+ * 为什么是硬门控而不是提示：runtime manifest 的 maxAppVersion 为空 = 对任何 app
+ * 版本都「兼容」，resolveActive 会一直选旧版——旧 runtime「能启动」不代表「能工作」
+ * （真实事故：0.1.1-rc.1 runtime 配 0.1.5-rc.1 声明 → cordis loader entries failed，
+ * plugin tree 加载即崩）。桥协议/插件表随版本演进，跨版本混用不可信，所以版本
+ * 不一致直接判 outdated：不启动 host、新建会话被拒、发送被拦截，强制重装配套版本。
+ * 用 semver 不等而不是字符串不等：0.1.5-rc.1 与 0.1.5-rc.1+build 元数据视为一致，
+ * 而 0.1.5-rc.1 与 0.1.5-rc.2 是真不一致。
+ * 任一版本缺失（未装 / 声明读不到）返回 false：没有可比对象不能判定不一致，
+ * 宁可放行（保持旧行为）也不误杀。
+ */
+export function isDshRuntimeVersionMismatch(
+	declaredVersion: string | undefined,
+	installedVersion: string | undefined,
+): boolean {
+	if (!declaredVersion || !installedVersion) return false;
+	return compareSemver(declaredVersion, installedVersion) !== 0;
+}
 
 /** 状态 → DSH UI 可见性矩阵（纯函数，单测覆盖见 tests/dshRuntimeStatus.test.mjs）。 */
 export type DshUiVisibility = {
@@ -52,11 +79,14 @@ export type DshUiVisibility = {
 };
 
 export function dshUiVisibilityFor(state: DshRuntimeState, installEnabled = true): DshUiVisibility {
+	// outdated 与 notInstalled/broken 同走安装引导：版本不一致时不启动 host，唯一
+	// 出口是重装配套版本——保留表单只会让用户在坏 runtime 上继续操作。
+	const needsGuide = state !== "installed" && state !== "checking";
 	const installed = state === "installed";
 	return {
 		canCreateDshSession: installed,
 		showDshConfigForms: installed,
-		showInstallGuide: !installed && state !== "checking",
+		showInstallGuide: needsGuide,
 		showRuntimeDownload: installEnabled,
 	};
 }
@@ -89,13 +119,15 @@ export type DshRuntimeInstallProgress = {
  * 拦截并给出「去安装」友好提示，而不是把底层错误直接甩给用户。
  * checking（状态未定）不算拦截：避免启动首帧把正常发送误拦。
  */
-export type DshSendBlockReason = "notInstalled" | "broken";
+export type DshSendBlockReason = "notInstalled" | "broken" | "outdated";
 
 export function dshSendBlockReason(
 	state: DshRuntimeState,
 ): DshSendBlockReason | null {
 	if (state === "notInstalled") return "notInstalled";
 	if (state === "broken") return "broken";
+	// 版本不一致 = 旧 runtime 不保证能工作，发送同样拦截（强制先重装）。
+	if (state === "outdated") return "outdated";
 	return null;
 }
 

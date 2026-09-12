@@ -8,6 +8,11 @@ import type { GitExecutableInfo } from "../shared/types/git";
 import type { ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
 import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
 import type {
+	BuiltInExtensionsCheckResult,
+	BuiltInExtensionsUpdateResult,
+	BuiltInExtensionsUpdateStatus,
+} from "../shared/types/extensionsUpdate";
+import type {
 	VoiceTranscriptionPublicConfig,
 	VoiceTranscriptionRequest,
 	VoiceTranscriptionResult,
@@ -32,6 +37,7 @@ import type {
 	DshModelDiscoveryInput,
 	ModelListFailReason,
 	ModelListReport,
+	ModelsVerifyResult,
 	ChatMessage,
 	FetchedModel,
 	ModelSpec,
@@ -439,6 +445,9 @@ const api = {
 				description?: string;
 				broken?: string;
 			}>>,
+		/** DSH 删除本地（user）预设（agentPreset.remove）；system 预设由 host 拒绝。 */
+		removeDshAgentPreset: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.dshAgentPresetRemove, id) as Promise<void>,
 		/** DSH 部署默认模型选择（settings.yaml agent-default-model），未装配/不可读时 undefined。 */
 		getDshDefaultModel: () =>
 			ipcRenderer.invoke(ipcChannels.dshDefaultModel) as Promise<{
@@ -713,9 +722,12 @@ const api = {
 		/** DSH 动态插件清单（G13 深化：进程内临时扩展，重启即失；按会话归属）。 */
 		listDshDynamicPlugins: () =>
 			ipcRenderer.invoke(ipcChannels.dshPluginList) as Promise<import("../shared/types").DshPluginView[]>,
-		/** DSH 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+		/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）。 */
 		listDshStaticPlugins: () =>
 			ipcRenderer.invoke(ipcChannels.dshPluginStaticList) as Promise<import("../shared/types").DshStaticPluginView[]>,
+		/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录；host 重启后生效）。 */
+		uninstallDshUserPlugin: (input: import("../shared/types").DshUserPluginUninstallInput) =>
+			ipcRenderer.invoke(ipcChannels.dshPluginUserUninstall, input) as Promise<import("../shared/types").DshUserPluginUninstallResult>,
 		/** DSH 动态插件安装（define：定义源码包，不运行）。 */
 		installDshPlugin: (input: import("../shared/types").DshPluginInstallInput) =>
 			ipcRenderer.invoke(ipcChannels.dshPluginInstall, input) as Promise<unknown>,
@@ -1338,6 +1350,14 @@ const api = {
 			) as Promise<FeedbackProjectContext>,
 		openExternal: (url: string, forceSystem?: boolean) =>
 			ipcRenderer.invoke(ipcChannels.appOpenExternal, url, forceSystem) as Promise<void>,
+		/** 拉取更新日志正文（带本地缓存）；markdown=null 时用 pageUrl 降级为浏览器打开。
+		 *  forceRefresh=true 跳过缓存 TTL 强制拉最新（「刷新」按钮）。 */
+		getChangelog: (language?: "zh" | "en", forceRefresh?: boolean) =>
+			ipcRenderer.invoke(
+				ipcChannels.appGetChangelog,
+				language,
+				forceRefresh,
+			) as Promise<import("../shared/types").ChangelogPayload>,
 		onOpenInBrowser: (callback: (url: string) => void) =>
 			subscribe(ipcChannels.appOpenInBrowser, callback),
 		restart: () => ipcRenderer.invoke(ipcChannels.appRestart) as Promise<void>,
@@ -1478,6 +1498,20 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.extensionsUpdateOne, source) as Promise<PiCliUpdateResult>,
 		catalog: (query: import("../shared/types").PiPackageCatalogQuery) =>
 			ipcRenderer.invoke(ipcChannels.extensionsCatalog, query) as Promise<import("../shared/types").PiPackageCatalog>,
+		// ── 内置扩展热更新（版本号不跟应用版本走；检测走 AtomGit，更新写 userData 覆盖层）──
+		builtInStatus: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateStatus) as Promise<BuiltInExtensionsUpdateStatus>,
+		builtInCheck: (branch?: "main" | "dev") =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateCheck, branch) as Promise<BuiltInExtensionsCheckResult>,
+		builtInUpdate: (branch?: "main" | "dev") =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateApply, branch) as Promise<BuiltInExtensionsUpdateResult>,
+		builtInRestore: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateRestore) as Promise<BuiltInExtensionsUpdateResult>,
+		builtInRestorePrevious: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateRestorePrevious) as Promise<BuiltInExtensionsUpdateResult>,
+		/** 用系统默认程序打开当前生效的内置扩展目录（覆盖层优先，否则随包目录） */
+		builtInOpenDir: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInOpenDir) as Promise<void>,
 	},
 	settings: {
 		get: () =>
@@ -1567,12 +1601,15 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.configSaveModels, data) as Promise<{
 				valid: boolean;
 				error?: string;
-				/** 保存后用真实 pi 验证：配置是否能正常加载出模型 */
+				/** 即时验证：刚写入的 models.json 解析出的模型数（不含 pi fork 验证） */
 				modelLoadOk?: boolean;
 				modelCount?: number;
 				modelLoadReason?: string | null;
 				modelLoadDetail?: string;
 			}>,
+		// 保存 models 后的后台 pi 验证结果（fork 真实 pi ~17s，仅失败时推送）。
+		onModelsVerifyResult: (callback: (payload: ModelsVerifyResult) => void) =>
+			subscribe<ModelsVerifyResult>(ipcChannels.configModelsVerifyResult, callback),
 		saveAuth: (data: unknown) =>
 			ipcRenderer.invoke(ipcChannels.configSaveAuth, data) as Promise<{
 				valid: boolean;

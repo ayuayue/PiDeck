@@ -101,13 +101,20 @@ try {
 	for (const id of DSH_WEB_AGENT_PLANE_DISABLED) patches.push({ id, disabled: true });
 	patches.push({
 		insert: [
-			{ id: "storage", name: "@deepseek-ai/dsh-storage" },
-			{ id: "storage-json", name: "@deepseek-ai/dsh-storage-json", config: { root: { __jsExpr: "dshHomePath('storages')" } } },
-			{ id: "storage-domain", name: "@deepseek-ai/dsh-storage-domain", config: { backend: "json" } },
-			{ id: "session-projection-cache", name: "@deepseek-ai/dsh-session-projection-cache", config: { writeEveryEvents: 200, writeIntervalMs: 5000 } },
+			// 0.1.5：storage/storage-json/storage-domain/session-projection-cache 由
+			// dsh-base 补丁自带（配置一致），重复 insert 报 duplicate loader entry id。
+			// api-gateway 行已废（dsh-host-apiproxy 停发），传输/端点改为
+			// connection + api-remotes + api-session-controller 等 Typert Remote 组合
+			// （镜像 src/main/dsh/hostEntry.ts，见 docs/dsh-0.1.5-typert-migration.md）。
 			{ id: "session-stats", name: "@deepseek-ai/dsh-session-stats" },
 			{ id: "workspace", name: "@deepseek-ai/dsh-workspace" },
-			{ id: "api-gateway", name: "@deepseek-ai/dsh-host-apiproxy" },
+			{ id: "connection", name: "@deepseek-ai/dsh-client-connection" },
+			// fileUploads 服务（session-controller 的附件上传依赖）。
+			{ id: "file-upload", name: "@deepseek-ai/dsh-client-file-upload" },
+			{ id: "api-remotes", name: "@deepseek-ai/dsh-api-remotes" },
+			{ id: "session-controller", name: "@deepseek-ai/dsh-api-session-controller" },
+			{ id: "settings-controller", name: "@deepseek-ai/dsh-api-settings-controller" },
+			{ id: "workspace-controller", name: "@deepseek-ai/dsh-api-workspace-controller" },
 			{ id: "pideck-directory-picker", name: "./pideck-directory-picker.js" },
 			{ id: "pideck-slash-bridge", name: "./pideck-slash-bridge.js" },
 			{ id: "pideck-minimal-tool-filter", name: "./pideck-minimal-tool-filter.js" },
@@ -115,9 +122,9 @@ try {
 			{
 				id: "agent-presets",
 				name: "@deepseek-ai/dsh-agent-presets",
+				// 0.1.5：随包 system 根由插件自带（includeShippedRoot 默认），只声明默认。
 				config: {
 					default: "standard",
-					roots: [{ path: join(dirname(requireRt.resolve("@deepseek-ai/dsh/package.json")), "config", "agent-presets"), trust: "system" }],
 				},
 			},
 			{ id: "plugin-inventory", name: "@deepseek-ai/dsh-host-plugin-inventory" },

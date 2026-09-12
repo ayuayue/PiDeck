@@ -463,6 +463,7 @@ export function createPreviewApi(): PiDesktopApi {
 			list: async () => getSessions(),
 			// 预览模式无 DSH host：空预设目录满足接口契约
 			listDshAgentPresets: async () => [],
+			removeDshAgentPreset: async () => {},
 			getDshDefaultModel: async () => undefined,
 			// 预览模式无主进程配置可解析：无启动默认（底栏不预选，不影响其它功能）
 			resolveLaunchDefaults: async () => ({}),
@@ -487,6 +488,7 @@ export function createPreviewApi(): PiDesktopApi {
 			deleteArchivedDshSession: async () => true,
 			listDshDynamicPlugins: async () => [],
 			listDshStaticPlugins: async () => [],
+			uninstallDshUserPlugin: async () => ({ rowRemoved: false, reason: "preview mode" }),
 			installDshPlugin: async () => undefined,
 			runDshPlugin: async () => undefined,
 			stopDshPlugin: async () => undefined,
@@ -923,6 +925,16 @@ export function createPreviewApi(): PiDesktopApi {
 				skills: [],
 			}),
 			openExternal: async () => undefined,
+			// 浏览器预览态无主进程：直接返回失败载荷，UI 自动走「在浏览器打开」降级。
+			getChangelog: async () => ({
+				markdown: null,
+				source: null,
+				versionCount: 0,
+				pageUrl: "https://atomgit.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md",
+				fetchedAt: null,
+				fromCache: false,
+				stale: false,
+			}),
 			restart: async () => undefined,
 			quit: async () => undefined,
 			openDataDir: async () => ({ ok: true }),
@@ -1054,6 +1066,31 @@ export function createPreviewApi(): PiDesktopApi {
 				total: 1,
 				lastPage: 1,
 			}),
+			// 内置扩展热更新（预览/Web 模式不联网、无覆盖层）
+			builtInStatus: async () => ({
+				builtin: { version: "1.0.0", fileCount: 13 },
+				overlay: null,
+				hasOverlayFiles: false,
+				hasBackup: false,
+				effectiveVersion: "1.0.0",
+				overlayDir: null,
+			}),
+			builtInCheck: async () => ({
+				ok: true,
+				remoteVersion: "1.0.0",
+				localVersion: "1.0.0",
+				hasUpdate: false,
+				changedFiles: [],
+			}),
+			builtInUpdate: async () => ({ ok: true, updated: false, version: "1.0.0" }),
+			builtInRestore: async () => ({ ok: true, updated: false }),
+			builtInRestorePrevious: async () => ({
+				ok: false,
+				code: "validation" as const,
+				message: "Preview mode: no previous overlay",
+				updated: false,
+			}),
+			builtInOpenDir: async () => undefined,
 		},
 		prompts: {
 			list: async () => ({ templates: [], globalDir: "C:/Users/preview/.pi/agent/prompts" }),
@@ -1200,6 +1237,8 @@ export function createPreviewApi(): PiDesktopApi {
 			// 预览模式无真实 pi 配置目录，返回占位（源文件页不显示路径行）。
 			getConfigDir: async () => "",
 			saveModels: async () => ({ valid: true, modelLoadOk: true, modelCount: 2, modelLoadReason: null, modelLoadDetail: "" }),
+			// 预览模式无主进程验证链路：返回空订阅函数保持 API 形状一致。
+			onModelsVerifyResult: () => () => {},
 			saveAuth: async () => ({ valid: true }),
 			saveSettings: async () => ({ valid: true }),
 			saveRaw: async () => ({ valid: true }),

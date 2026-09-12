@@ -117,8 +117,29 @@ async function packAsarPreservingUnpacked(srcDir, destAsar, unpacked) {
   });
 }
 
-/** 运行时当前平台标识，如 win32-x64 */
-const CURRENT_PLATFORM = `${process.platform}-${process.arch}`;
+/**
+ * 打包**目标**平台标识，如 win32-x64 / linux-arm64。
+ *
+ * 必须从 electron-builder 的 context 推导，不能用 `process.platform/arch`：
+ * 交叉打包（如在 x64 runner 上 `electron-builder --linux --arm64`）时，
+ * process.arch 反映的是**构建机**架构，会误判成 linux-x64，
+ * 导致把 arm64 的 node-pty prebuild 删掉、留下 x64 的，产物终端直接不可用。
+ */
+function resolveTargetPlatform(context) {
+  const platform = context?.electronPlatformName || process.platform;
+  const arch = context?.arch ?? process.arch;
+  const archName = typeof arch === "number" ? ARCH_NAMES[arch] ?? process.arch : arch;
+  return `${platform}-${archName}`;
+}
+
+/** electron-builder Arch 枚举值 → 目录名（node-pty prebuild 用 arm64/x64 命名）。 */
+const ARCH_NAMES = {
+  0: "ia32",
+  1: "x64",
+  2: "armv7l",
+  3: "arm64",
+  4: "universal",
+};
 
 /** 递归删除目录 */
 async function rmDir(dir) {
@@ -157,6 +178,9 @@ exports.unpackGlobFromFiles = unpackGlobFromFiles;
 
 exports.default = async function (context) {
   const { appOutDir } = context;
+
+  // 本次打包的目标平台（交叉打包下与构建机不同），供 node-pty prebuild 过滤使用。
+  const CURRENT_PLATFORM = resolveTargetPlatform(context);
 
   // ====================================
   // 1. Locale 精简

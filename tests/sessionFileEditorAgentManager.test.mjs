@@ -64,7 +64,15 @@ function loadAgentManager() {
       if (specifier === "./PiProcess") return { PiProcess: class {} };
       if (specifier === "./bashResult") return { formatBashToolMessage: () => "" };
       if (specifier === "./messageContent") return { extractMessageText: () => "" };
-      if (specifier === "./historyMessages") return { mergeHistoryWithPreservedMessages: (messages) => messages };
+      if (specifier === "./historyMessages") {
+        return {
+          mergeHistoryWithPreservedMessages: (messages) => messages,
+          // 本测试通过被覆写的 loadMessages / 直接调用 mutate* 路径执行，不触发真实投影稳定化；
+          // 提供透传实现避免 harness 加载后调用真实 loadMessages 时崩在未定义的导入。
+          stabilizeReloadedMessageIds: (_previous, messages) => messages,
+          stabilizeProjectedIdsFromIdentities: (_identities, messages) => messages,
+        };
+      }
       if (specifier === "./agentSessionIdentity") return { buildAgentSessionKey: () => undefined };
       if (specifier === "./extensionStartupFallback") {
         return {
@@ -412,8 +420,11 @@ test("mutatePersistedSessionMessage writes the file without switch_session when 
   assert.equal(commands.filter((command) => command.type === "switch_session").length, 0);
 });
 
-/** 重放编辑确认框捕获 live ID → 停止 runtime → catalog 改文件，文件读写均使用真实实现。 */
-async function withStoppedLiveMessage(operation) {
+/**
+ * 真实文件 + 真实 SessionHistoryReader / SessionFileEditor 的 live 消息夹具。
+ * 会话文件里已落盘 entry-user，而 runtime 缓存里那条消息仍是 live 身份（随机 UUID、无 entryId）。
+ */
+async function withLiveMessageSession(run) {
   const directory = await mkdtemp(join(tmpdir(), "pideck-stop-edit-"));
   const sessionPath = join(directory, "session.jsonl");
   const liveMessage = chatMessage({
@@ -435,11 +446,18 @@ async function withStoppedLiveMessage(operation) {
       trimMessages: (messages) => messages,
       translate: (key) => key,
     });
-    await manager.stop("agent-1");
-    await operation(manager, sessionPath, liveMessage);
+    await run({ manager, runtime, sessionPath, liveMessage });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** 重放编辑确认框捕获 live ID → 停止 runtime → catalog 改文件，文件读写均使用真实实现。 */
+async function withStoppedLiveMessage(operation) {
+  await withLiveMessageSession(async ({ manager, sessionPath, liveMessage }) => {
+    await manager.stop("agent-1");
+    await operation(manager, sessionPath, liveMessage);
+  });
 }
 
 test("editing a live message after stopping resolves its persisted entry without restarting", async () => {
@@ -472,6 +490,55 @@ test("resending a live message after stopping returns the persisted prompt witho
     assert.match(content, /"reason":"resend-truncate"/);
     assert.match(content, /"id":"entry-user"/);
   });
+});
+
+/**
+ * 2026-09 用户反馈（开启代理 → 重启会话 → 重发报「消息未找到」）：
+ * restart 与 stop 一样会释放 runtime 消息缓存，但旧实现只在 stop 留存身份摘要，
+ * 且 capture 是覆盖式写入 —— UI 手中的 live ID 被「新 runtime 的身份」挤掉后，
+ * 主进程只剩「按 ID 找文件条目」一条路，live 随机 ID 在 JSONL 里必然落空。
+ */
+test("restart releases the runtime cache but keeps live identities resolvable", async () => {
+  await withLiveMessageSession(async ({ manager, runtime, sessionPath, liveMessage }) => {
+    // 真实 create（spawn + 握手）超出本测试范围，用替身承接「同一会话文件的新 runtime」
+    manager.create = async () => ({ ...runtime.tab, id: "agent-2", status: "idle" });
+    await manager.restart("agent-1");
+
+    // 重启后新 runtime 从文件投影出带 entryId 的消息，但渲染层窗口未重下发，
+    // UI 仍持有 live id；重发前渲染层会先停 Agent，于是新身份再次 capture。
+    manager.agents.set("agent-2", { ...runtime, tab: { ...runtime.tab, id: "agent-2" } });
+    manager.messages.set("agent-2", [chatMessage({
+      id: "agent-2-history-entry-user", role: "user",
+      text: liveMessage.text, timestamp: liveMessage.timestamp,
+      meta: { entryId: "entry-user" },
+    })]);
+    await manager.stop("agent-2");
+
+    const result = await manager.mutatePersistedSessionMessage(sessionPath, liveMessage.id, "resend");
+    assert.equal(result.text, "original question", "重启前的 live id 必须仍能落到文件条目");
+  });
+});
+
+test("identity cache merges repeated captures for the same session and stays bounded", () => {
+  const { StoppedMessageIdentityCache } = loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts");
+  const cache = new StoppedMessageIdentityCache();
+  const session = "C:/sessions/session.jsonl";
+  cache.capture(session, [
+    chatMessage({ id: "live-1", role: "user", text: "q", timestamp: 1, meta: {} }),
+  ]);
+  cache.capture(session, [
+    chatMessage({ id: "agent-2-history-e1", role: "user", text: "q", timestamp: 1, meta: { entryId: "e1" } }),
+  ]);
+  // 覆盖式写入会把 live-1 挤掉，导致重启后按 live id 定位落空
+  assert.ok(cache.get(session, "live-1"), "重启前留存的 live 身份必须仍在");
+  assert.equal(cache.get(session, "agent-2-history-e1").entryId, "e1", "新身份照常写入");
+
+  // 容量上限：超限淘汰最早插入者，最近的仍可定位
+  cache.capture(session, Array.from({ length: 300 }, (_, index) => chatMessage({
+    id: `m-${index}`, role: "user", text: `t${index}`, timestamp: index, meta: {},
+  })));
+  assert.equal(cache.get(session, "m-299").timestamp, 299);
+  assert.equal(cache.get(session, "m-0"), undefined, "超出上限的旧身份应被淘汰");
 });
 
 test("mutatePersistedSessionMessage refuses a live runtime", async () => {

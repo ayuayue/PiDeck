@@ -724,3 +724,192 @@ test("checkWslInstallation reports not-installed when the probe finds nothing", 
 	assert.equal(status.installed, false);
 	assert.equal(status.piPath, undefined);
 });
+
+// ── Windows .cmd 垫片：还原成 node + JS 入口直启 ──────────────────────────
+//
+// 经 cmd.exe /c 启动 npm 垫片有三个硬伤（实测确认）：
+//   1) 命令行上限 8191 字符（CreateProcess 的 1/4），技能白名单逐条 --skill 注入时超长起不来；
+//   2) 参数里的 %VAR% 会被 cmd 展开，路径被静默改写（加双引号也挡不住）；
+//   3) 子进程树多一层 cmd.exe，kill() 只杀 cmd，真正的 pi(node) 变孤儿继续跑。
+// 还原 entry 后 spawn 直接按 CreateProcess 规则传参，三点同时消除。
+
+/** 真实 npm 生成的 pi.cmd 形态（取自 @earendil-works/pi-coding-agent 的全局安装）。 */
+const NPM_PI_CMD = [
+	"@ECHO off",
+	"GOTO start",
+	":find_dp0",
+	"SET dp0=%~dp0",
+	"EXIT /b",
+	":start",
+	"SETLOCAL",
+	"CALL :find_dp0",
+	"",
+	'IF EXIST "%dp0%\\node.exe" (',
+	'  SET "_prog=%dp0%\\node.exe"',
+	") ELSE (",
+	'  SET "_prog=node"',
+	"  SET PATHEXT=%PATHEXT:;.JS;=;%",
+	")",
+	"",
+	// eslint-disable-next-line no-useless-concat
+	'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js" %*',
+	"",
+].join("\r\n");
+
+/** 造一个「垫片 + 同目录 node.exe + node_modules 入口」的完整假安装。 */
+function makeNpmShimInstall(shimBody = NPM_PI_CMD, entryRel = "node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js") {
+	const root = join(tmpdir(), `pi-desktop-locator-shim-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+	const binDir = join(root, "npm");
+	mkdirSync(join(binDir, dirname(entryRel)), { recursive: true });
+	const piCmd = join(binDir, "pi.cmd");
+	writeFileSync(piCmd, shimBody, "utf8");
+	writeFileSync(join(binDir, "node.exe"), "", "utf8");
+	writeFileSync(join(binDir, entryRel), "console.log('pi')", "utf8");
+	return { root, binDir, piCmd, entry: join(binDir, entryRel), nodeExe: join(binDir, "node.exe") };
+}
+
+test("Windows npm .cmd shim is launched via node + entry instead of cmd.exe", () => {
+	const { root, binDir, piCmd, entry, nodeExe } = makeNpmShimInstall();
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		const invocation = new PiLocator().createInvocation(piCmd, ["--mode", "rpc"]);
+
+		// 关键：不再经过 cmd.exe，proc.kill() 直接命中 pi 本体
+		assert.ok(!/cmd\.exe$/i.test(invocation.command), `仍走了 cmd：${invocation.command}`);
+		assert.equal(invocation.command, nodeExe, "应优先用与 pi 同目录的 node.exe");
+		eqDeep(invocation.args, [entry, "--mode", "rpc"]);
+		assert.equal(invocation.shell, false);
+		// cmd 专属的引号包装必须整体消失：参数由 spawn 按 CreateProcess 规则转义
+		assert.equal(invocation.windowsVerbatimArguments, undefined);
+		assert.equal(invocation.pathPrefix, binDir);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("Windows shim falls back to bare node.exe when no sibling node exists", () => {
+	const { root, binDir, piCmd, entry } = makeNpmShimInstall();
+	rmSync(join(binDir, "node.exe"), { force: true });
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		const invocation = new PiLocator().createInvocation(piCmd, ["--version"]);
+		// 与垫片自身的 ELSE 分支一致：同目录无 node.exe 时回退到 PATH 上的 node
+		assert.equal(invocation.command, "node.exe");
+		eqDeep(invocation.args, [entry, "--version"]);
+		assert.equal(invocation.pathPrefix, undefined);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("Windows shim falls back to cmd.exe when the referenced entry is missing", () => {
+	const { root, piCmd, entry } = makeNpmShimInstall();
+	rmSync(entry, { force: true });
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		const invocation = new PiLocator().createInvocation(piCmd, ["--version"]);
+		// 入口不存在说明垫片形态与预期不符：必须原样回到改动前的 cmd 行为，不能盲启
+		assert.match(invocation.command.toLowerCase(), /cmd\.exe$/);
+		assert.equal(invocation.windowsVerbatimArguments, true);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("Windows shim falls back to cmd.exe for a hand-written wrapper", () => {
+	const body = "@echo off\r\npowershell -File \"%~dp0\\pi.ps1\" %*\r\n";
+	const { root, piCmd } = makeNpmShimInstall(body);
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		const invocation = new PiLocator().createInvocation(piCmd, ["--version"]);
+		assert.match(invocation.command.toLowerCase(), /cmd\.exe$/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("Windows shim rejects an entry pointing outside the shim directory", () => {
+	// 垫片来自用户磁盘，属于不可信输入：node_modules 之外的路径必须拒绝。
+	const body = '@echo off\r\nnode "%dp0%\\node_modules\\..\\..\\evil.js" %*\r\n';
+	const { root, binDir, piCmd } = makeNpmShimInstall(body);
+	writeFileSync(join(binDir, "..", "evil.js"), "console.log('nope')", "utf8");
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		const invocation = new PiLocator().createInvocation(piCmd, ["--version"]);
+		assert.match(invocation.command.toLowerCase(), /cmd\.exe$/, "逃逸路径不得被接管");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a 30k-char skill whitelist no longer rides on a cmd command line", () => {
+	const { root, piCmd } = makeNpmShimInstall();
+	try {
+		const { PiLocator } = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		// 复刻技能白名单注入：--no-skills + 逐条 --skill <路径>
+		const args = ["--no-skills"];
+		for (let i = 0; i < 300; i += 1) args.push("--skill", `C:\\skills\\skill-${i}\\SKILL.md`);
+		const invocation = new PiLocator().createInvocation(piCmd, args);
+		const total = invocation.args.reduce((n, a) => n + a.length + 1, 0);
+
+		assert.ok(total > 8191, `构造的场景应超过 cmd 上限，实际 ${total}`);
+		// 走 node 直启：8191 上限不再适用，且没有 windowsVerbatimArguments 的手工引号路径
+		assert.equal(invocation.windowsVerbatimArguments, undefined);
+		assert.equal(invocation.shell, false);
+		assert.equal(invocation.args.length, args.length + 1, "JS 入口 + 原参数应完整保留");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("resolveArgCharBudget follows the actual launch channel instead of a worst-case constant", () => {
+	// 各通道的命令行上限差 4 倍，预算必须跟随实际通道。一刀切取最坏值（cmd.exe 8191）
+	// 会在技能数刚过百时就关掉「禁用技能」，而 npm/pnpm 用户实际走的是 node 直启（32767）。
+	const { root, binDir, piCmd, entry } = makeNpmShimInstall();
+	try {
+		const win = loadPiLocatorModule("win32", { APPDATA: join(root, "Roaming") }, root);
+		const locator = new win.PiLocator();
+
+		// npm .cmd 垫片会被还原成 node 直启 → 按 CreateProcess 上限给预算
+		assert.equal(locator.resolveArgCharBudget(piCmd), win.CREATE_PROCESS_ARG_CHAR_BUDGET);
+		assert.ok(
+			win.CREATE_PROCESS_ARG_CHAR_BUDGET >= 20000,
+			`node 直启预算应能容纳几百个技能，实际 ${win.CREATE_PROCESS_ARG_CHAR_BUDGET}`,
+		);
+		// 回归防线：预算若被改回「统一按 cmd.exe 取」，这条会失败
+		assert.ok(
+			win.CREATE_PROCESS_ARG_CHAR_BUDGET > win.CMD_EXE_ARG_CHAR_BUDGET * 3,
+			"node 直启预算必须显著高于 cmd.exe，否则又回到一刀切误拦",
+		);
+
+		// 手写包装（垫片形态不符预期）→ 回退 cmd.exe，预算同步坍缩
+		const wrapper = join(binDir, "pi-wrapper.cmd");
+		writeFileSync(wrapper, "@echo off\r\npowershell -File \"%~dp0\\pi.ps1\" %*\r\n", "utf8");
+		assert.equal(locator.resolveArgCharBudget(wrapper), win.CMD_EXE_ARG_CHAR_BUDGET);
+
+		// 裸命令名（PATH 解析而非文件路径）同样落到 cmd.exe
+		assert.equal(locator.resolveArgCharBudget("pi"), win.CMD_EXE_ARG_CHAR_BUDGET);
+
+		// 直接跑 JS 源文件：由 node 启动，走 CreateProcess
+		assert.equal(locator.resolveArgCharBudget(entry), win.CREATE_PROCESS_ARG_CHAR_BUDGET);
+
+		// WSL：wsl.exe 同样由 CreateProcess 拉起，受同一上限约束
+		assert.equal(
+			locator.resolveArgCharBudget("wsl://Ubuntu-24.04/root/pi"),
+			win.CREATE_PROCESS_ARG_CHAR_BUDGET,
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+
+	// 非 Windows 走 execve，上限是系统 ARG_MAX（Linux ≥2MB / macOS ≥1MB），实际不限制
+	for (const platform of ["linux", "darwin"]) {
+		const mod = loadPiLocatorModule(platform);
+		assert.equal(
+			new mod.PiLocator().resolveArgCharBudget("/usr/local/bin/pi"),
+			mod.UNLIMITED_ARG_CHAR_BUDGET,
+			`${platform} 不应受 Windows 命令行上限约束`,
+		);
+	}
+});
+

@@ -30,6 +30,7 @@ function loadModule() {
 
 const {
 	collectDshProcessEvent,
+	collectDshProcessEvents,
 	pushDshProcessEvent,
 	estimateContextTokens,
 	parseContextPressureProjection,
@@ -160,6 +161,36 @@ test("pushDshProcessEvent appends and caps at the limit", () => {
 test("pushDshProcessEvent ignores undefined records", () => {
 	const events = pushDshProcessEvent([{ id: "a", kind: "custom", timestamp: 1, summary: "a" }], undefined);
 	assert.equal(events.length, 1);
+});
+
+test("pushDshProcessEvent dedupes by id (follow snapshot replay)", () => {
+	// 回归：follow 泵打开时的首帧 journal 尾部 snapshot 会重放 attach 已收集的事件，
+	// 同 id 再投递必须跳过——曾致轨迹列表 duplicate key
+	// （process:dsh-process:permission/preset:0、process:dsh-process:request/context:13）。
+	const permission = collectDshProcessEvent([], event("permission/preset", { preset: "workspace-write" }, 0, 1000));
+	const modelChange = collectDshProcessEvent([], event("request/context", { provider: "tokendance", model: "glm-5.2" }, 13, 2000));
+	let events = pushDshProcessEvent([], permission);
+	events = pushDshProcessEvent(events, modelChange);
+	// 模拟 snapshot 重放：乱序再投一遍（重放不保证与末位相邻，内容幂等挡不住）
+	events = pushDshProcessEvent(events, modelChange);
+	events = pushDshProcessEvent(events, permission);
+	assert.equal(events.length, 2);
+	// vm 跨 realm 数组不能 deepStrictEqual，逐字段断言
+	assert.equal(events[0].id, "dsh-process:permission/preset:0");
+	assert.equal(events[1].id, "dsh-process:request/context:13");
+});
+
+test("collectDshProcessEvents replaying the same journal tail is a no-op", () => {
+	const journal = [
+		event("permission/preset", { preset: "workspace-write" }, 0, 1000),
+		event("request/context", { provider: "tokendance", model: "glm-5.2" }, 13, 2000),
+		event("request/context", { provider: "tokendance", model: "kimi-k2.5" }, 40, 3000),
+	];
+	const firstPass = collectDshProcessEvents([], journal);
+	assert.equal(firstPass.length, 3);
+	const secondPass = collectDshProcessEvents(firstPass, journal);
+	// 幂等：重放后不新增任何条目
+	assert.equal(secondPass.length, 3);
 });
 
 test("parseContextPressureProjection reads host projection values", () => {

@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
-import { Archive, Boxes, Check, CircleAlert, CircleDot, Code2, Copy, Download, FileDown, FileText, Filter, Folder, FolderSearch, GitBranch, Link2, List, LoaderCircle, MessageCircle, Pencil, Pin, PinOff, Plus, Power, Radio, RefreshCw, RotateCw, ScrollText, Settings2, SquarePen, Trash2, UserPlus, XCircle } from "lucide-react";
+import { Archive, Boxes, Check, CircleAlert, CircleDot, CircleStop, Code2, Copy, Download, FileDown, FileText, Filter, Folder, FolderSearch, GitBranch, Link2, List, LoaderCircle, MessageCircle, Pencil, Pin, PinOff, Play, Plus, Power, Radio, RefreshCw, RotateCw, ScrollText, Settings2, SquarePen, Trash2, UserPlus, XCircle } from "lucide-react";
 import { t } from "../../i18n";
+import {
+	canRunSessionAction,
+	type SessionRunAction,
+	type SessionRunCapabilities,
+} from "../../utils/sessionCommands";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -567,6 +572,18 @@ export function SessionSourceFilterMenu(props: {
 	// 过滤类别 = 来源 + DSH 后端（DSH 会话 source 恒为 pi，必须按 backend 独立归类，
 	// 否则「只选 Pi」会继续显示 DSH 会话，用户无法单独过滤）。
 	const sources = SESSION_FILTER_PILLS;
+	// 品牌名与图标并列展示：纯图标列用户分不清哪个徽标对应哪个来源（用户反馈）。
+	// 模块级求值与 SessionSourceBadge 的 SOURCE_LABELS 同一惯例。
+	const pillLabels: Record<SessionFilterPill, string> = {
+		pi: t("sessionSource.pi"),
+		codex: t("sessionSource.codex"),
+		claude: t("sessionSource.claude"),
+		opencode: t("sessionSource.opencode"),
+		zcode: t("sessionSource.zcode"),
+		workbuddy: t("sessionSource.workbuddy"),
+		dsh: t("sessionBackend.dsh"),
+		imagegen: t("sessionBackend.imagegen"),
+	};
 	// 过滤菜单需要连续勾选，onSelect preventDefault 保持菜单打开
 	return (
 		<MenuShell x={props.menu.x} y={props.menu.y} onClose={props.onClose} className="min-w-44">
@@ -593,6 +610,7 @@ export function SessionSourceFilterMenu(props: {
 					) : (
 						<SessionSourceBadge source={pill} />
 					)}
+					<span className="text-body">{pillLabels[pill]}</span>
 				</DropdownMenuCheckboxItem>
 			))}
 		</MenuShell>
@@ -738,6 +756,77 @@ export function ProjectContextMenu(props: {
 	);
 }
 
+/** 侧栏菜单的运行控制项：与 Tab 下拉共用同一套策略结论（全状态可用）。 */
+export type SidebarRunControl = {
+	capabilities: SessionRunCapabilities;
+	busy?: boolean;
+	isStopping?: boolean;
+	isRestarting?: boolean;
+	isReloading?: boolean;
+	onAction: (action: SessionRunAction) => void;
+};
+
+/**
+ * 运行控制菜单组（侧栏通用）：任意状态都渲染，按策略置灰。
+ * 主控项在未启动/失败/已关闭时显示「启动 Agent」，live 时显示「重启会话」。
+ */
+function SidebarRunControlItems(props: { runControl: SidebarRunControl }) {
+	const { runControl } = props;
+	const capabilities = runControl.capabilities;
+	const disabled = Boolean(runControl.busy) || capabilities.pending;
+
+	const primaryDisabled = disabled || !canRunSessionAction(capabilities, "start");
+	const stopDisabled = disabled || !canRunSessionAction(capabilities, "stop");
+	const reloadDisabled = disabled || !canRunSessionAction(capabilities, "reload");
+
+	const primaryLabel = runControl.isRestarting
+		? t("app.restarting")
+		: capabilities.primaryAction === "start"
+			? t("menu.startAgent")
+			: t("menu.restartSession");
+
+	return (
+		<>
+			<DropdownMenuSeparator />
+			<DropdownMenuItem
+				disabled={primaryDisabled}
+				style={primaryDisabled ? { opacity: 0.4 } : undefined}
+				onSelect={() => runControl.onAction(capabilities.primaryAction)}
+			>
+				<span className="inline-flex items-center gap-2">
+					{capabilities.primaryAction === "start" ? (
+						<Play className="size-3.5" aria-hidden="true" />
+					) : (
+						<RotateCw className="size-3.5" aria-hidden="true" />
+					)}
+					{primaryLabel}
+				</span>
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				variant="destructive"
+				disabled={stopDisabled}
+				style={stopDisabled ? { opacity: 0.4 } : undefined}
+				onSelect={() => runControl.onAction("stop")}
+			>
+				<span className="inline-flex items-center gap-2">
+					<CircleStop className="size-3.5" aria-hidden="true" />
+					{t("tabs.stopAgent")}
+				</span>
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				disabled={reloadDisabled}
+				style={reloadDisabled ? { opacity: 0.4 } : undefined}
+				onSelect={() => runControl.onAction("reload")}
+			>
+				<span className="inline-flex items-center gap-2">
+					<RefreshCw className="size-3.5" aria-hidden="true" />
+					{t("menu.reloadSession")}
+				</span>
+			</DropdownMenuItem>
+		</>
+	);
+}
+
 export function AgentContextMenu(props: {
 	menu: { x: number; y: number; agent: AgentTab };
 	actionLoading?: "copy" | "export" | null;
@@ -758,10 +847,10 @@ export function AgentContextMenu(props: {
 	/** 打开实时日志查看弹窗（仅开启记录后可用） */
 	onOpenLogs?: () => void;
 	onOpenSessionFile?: () => void;
-	/** 重启会话（全状态：starting/idle/running/error/closed/未启动，调用方按绑定状态分派）。 */
-	onRestartSession?: () => void;
-	/** 重新加载会话（仅无 live 运行时：未启动/error/closed 传入），从磁盘刷新消息文件。 */
-	onReloadSession?: () => void;
+	/** 运行控制（全状态：启动/停止/重启/重载，能力由调用方按状态算好）。 */
+	runControl?: SidebarRunControl;
+	/** 打开当前 agent 对应会话的代理设置弹框（网络代理）；宿主在 App 层。 */
+	onOpenProxySetting?: () => void;
 	onCloseAgent: () => void;
 	/** 运行中也可删：主进程先停后删，不必先关 Agent。 */
 	onDeleteSession?: () => void;
@@ -810,22 +899,13 @@ export function AgentContextMenu(props: {
 					)}
 				</>
 			)}
-			{/* 会话运行控制：重启全状态可用；重新加载仅无 live 运行时提供（轻量磁盘刷新，不启动进程） */}
-			{(props.onRestartSession || props.onReloadSession) && <DropdownMenuSeparator />}
-			{props.onRestartSession && (
-				<DropdownMenuItem disabled={busy} onSelect={props.onRestartSession}>
-					<span className="inline-flex items-center gap-2">
-						<RotateCw className="size-3.5" aria-hidden="true" />
-						{t("menu.restartSession")}
-					</span>
-				</DropdownMenuItem>
-			)}
-			{props.onReloadSession && (
-				<DropdownMenuItem disabled={busy} onSelect={props.onReloadSession}>
-					<span className="inline-flex items-center gap-2">
-						<RefreshCw className="size-3.5" aria-hidden="true" />
-						{t("menu.reloadSession")}
-					</span>
+			{/* 会话运行控制：全状态可用（启动/停止/重载三项按策略置灰） */}
+			{props.runControl && <SidebarRunControlItems runControl={props.runControl} />}
+			{/* 会话代理：与 Session 菜单同源（同一弹框宿主），agent 入口此前缺失导致「Chat 里找不到代理」 */}
+			{props.onOpenProxySetting && (
+				<DropdownMenuItem disabled={busy} onSelect={props.onOpenProxySetting}>
+					<Settings2 className="size-3.5" aria-hidden="true" />
+					{t("menu.sessionProxy")}
 				</DropdownMenuItem>
 			)}
 			<DropdownMenuSeparator />
@@ -862,10 +942,18 @@ export function AgentContextMenu(props: {
 export function DraftSessionContextMenu(props: {
 	menu: { x: number; y: number };
 	onClose: () => void;
+	/** 草稿会话也能直接启动 Agent（不必先打开会话发消息）——全状态可操作的补齐点。 */
+	runControl?: SidebarRunControl;
 	onDelete: () => void;
 }) {
 	return (
 		<MenuShell x={props.menu.x} y={props.menu.y} onClose={props.onClose}>
+			{props.runControl && (
+				<>
+					<SidebarRunControlItems runControl={props.runControl} />
+					<DropdownMenuSeparator />
+				</>
+			)}
 			<DropdownMenuItem variant="destructive" onSelect={props.onDelete}>
 				<Trash2 className="size-3.5" aria-hidden="true" />
 				{t("common.delete")}
@@ -885,10 +973,8 @@ export function SessionContextMenu(props: {
 	onCopySession: () => void;
 	onCopySessionFilePath: () => void;
 	onOpenSessionFile?: () => void;
-	/** 重启会话（未启动的历史会话走激活启动；有绑定则走重启）。 */
-	onRestartSession?: () => void;
-	/** 重新加载会话（未启动的历史会话）：从磁盘刷新消息文件。 */
-	onReloadSession?: () => void;
+	/** 运行控制（全状态：启动/停止/重启/重载，能力由调用方按状态算好）。 */
+	runControl?: SidebarRunControl;
 	/** 打开会话代理设置弹框（菜单项「会话代理」） */
 	onOpenProxySetting?: () => void;
 	/** 会话是否有文件路径（DSH 会话无 pi 会话文件：隐藏「复制路径/打开文件」） */
@@ -922,22 +1008,8 @@ export function SessionContextMenu(props: {
 					{t(props.isPinned ? "menu.unpinSession" : "menu.pinSession")}
 				</DropdownMenuItem>
 			)}
-			{props.onRestartSession && (
-				<DropdownMenuItem disabled={busy} onSelect={props.onRestartSession}>
-					<span className="inline-flex items-center gap-2">
-						<RotateCw className="size-3.5" aria-hidden="true" />
-						{t("menu.restartSession")}
-					</span>
-				</DropdownMenuItem>
-			)}
-			{props.onReloadSession && (
-				<DropdownMenuItem disabled={busy} onSelect={props.onReloadSession}>
-					<span className="inline-flex items-center gap-2">
-						<RefreshCw className="size-3.5" aria-hidden="true" />
-						{t("menu.reloadSession")}
-					</span>
-				</DropdownMenuItem>
-			)}
+			{/* 运行控制：全状态可用（历史会话未启动时主控项即「启动 Agent」） */}
+			{props.runControl && <SidebarRunControlItems runControl={props.runControl} />}
 			{/* DSH 历史会话无宿主文件可复制/导出（主进程显式拒绝，A8/A9）：隐藏入口 */}
 			<DropdownMenuItem disabled={busy} onSelect={props.onOpenProxySetting}>
 				<Settings2 className="size-3.5" aria-hidden="true" />

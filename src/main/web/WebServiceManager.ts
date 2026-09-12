@@ -167,8 +167,12 @@ type WebServiceDependencies = {
 	listDshSkills?: (agentId: string) => Promise<import("../../shared/types").DshSkillView[]>;
 	/** DSH 动态插件清单（S6.5：进程内临时扩展；未装配 DSH 时缺省）。 */
 	listDshDynamicPlugins?: () => Promise<import("../../shared/types").DshPluginView[]>;
-	/** DSH 静态 Loader 条目清单（S6.5：只读）。 */
+	/** DSH 静态 Loader 条目清单（S6.5：origin 标注 user/builtin 来源）。 */
 	listDshStaticPlugins?: () => Promise<import("../../shared/types").DshStaticPluginView[]>;
+	/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录）。 */
+	uninstallDshUserPlugin?: (
+		input: import("../../shared/types").DshUserPluginUninstallInput,
+	) => Promise<import("../../shared/types").DshUserPluginUninstallResult>;
 	/** DSH 动态插件安装（define：定义源码包，不运行；按会话归属）。 */
 	installDshPlugin?: (input: import("../../shared/types").DshPluginInstallInput) => Promise<unknown>;
 	/** DSH 动态插件生命周期（run/stop/uninstall；面板手势无需审批）。 */
@@ -630,6 +634,8 @@ export class WebServiceManager {
 				const body = await this.readJson<{
 					id?: string;
 					messages?: Array<{ role?: string; content?: unknown; parts?: Array<{ type?: string; text?: string }> }>;
+					/** 本轮提交的 user 消息 id（AI SDK submit-message 必然携带）。 */
+					messageId?: string;
 				}>(request);
 				const sessionId = body.id?.trim();
 				if (!sessionId) {
@@ -651,11 +657,19 @@ export class WebServiceManager {
 					return;
 				}
 
+				// 幂等键必须「每轮唯一」：body.id 是 useChat 的 chatId（== sessionId），每轮
+				// 提交都相同。直接拿它当 requestId 会被 SessionRuntimeCoordinator 的投递缓存
+				// （按 sessionId+requestId 去重，TTL 10 分钟）误判为同一请求的重试，第二轮起
+				// 只返回上一轮缓存的 accepted 结果而不再派发给 pi —— Web 端没有任何响应，
+				// 桌面端也不会落盘。messageId 是本轮 user 消息 id：同一轮重试保持不变（天然
+				// 幂等），不同轮必然不同，正好是投递缓存需要的键；缺失时退化为一次性 UUID。
+				const requestId = body.messageId?.trim() || crypto.randomUUID();
+
 				// 先开流（事件可能在 prompt 预检返回前就到达），再发 prompt。
 				this.handleStream(sessionId, request, response);
 				const result = await this.deps.sendSessionPrompt({
 					sessionId,
-					requestId: String(body.id ?? crypto.randomUUID()),
+					requestId,
 					message,
 				}).catch((error: unknown) => ({
 					accepted: false as const,

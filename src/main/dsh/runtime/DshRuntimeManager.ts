@@ -166,16 +166,27 @@ export function readBundledRuntime(
 }
 
 /**
- * 读取应用当前声明的 dsh 依赖版本（package.json → dependencies["@deepseek-ai/dsh"]）。
- * 这是「版本依赖的 dsh 运行时」：与用户是否安装 runtime 无关；dev（仓库根）与打包态
- * （asar 内 package.json 可读）均可用，作为「关于」面板没有安装/随包资源时的兜底展示。
+ * 读取应用当前声明的 dsh 依赖版本。优先级：
+ * 1. 根字段 `dshRuntimeVersion` —— 打包态唯一可靠来源：electron-builder 会把
+ *    devDependencies 从 app.asar 内 package.json 删掉（fileTransformer cleanupPackageJson
+ *    isMain 强制删除），自定义根字段则原样保留；由 scripts/sync-dsh-declared-version.mjs
+ *    在每次打包前从 devDependencies 同步，单一事实源不漂移。
+ * 2. dependencies/devDependencies 里的 @deepseek-ai/dsh —— dev 模式兜底（仓库根
+ *    package.json 完整可读）。
+ * 与用户是否安装 runtime 无关；dev（仓库根）与打包态（asar 内 package.json 可读）
+ * 均可用，作为「关于」面板没有安装/随包资源时的兜底展示。
  */
 function tryReadDshVersion(dir: string): string | undefined {
 	try {
 		const parsed = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+			dshRuntimeVersion?: unknown;
 			dependencies?: Record<string, unknown>;
 			devDependencies?: Record<string, unknown>;
 		};
+		// 根字段优先：打包态 devDependencies 已被剥掉，依赖声明读不到。
+		if (typeof parsed.dshRuntimeVersion === "string" && parsed.dshRuntimeVersion) {
+			return parsed.dshRuntimeVersion;
+		}
 		// dsh 不是直接 require 的运行时依赖（打包进 dist-runtime），声明在 devDependencies；两处都查
 		const version =
 			parsed.dependencies?.["@deepseek-ai/dsh"] ?? parsed.devDependencies?.["@deepseek-ai/dsh"];
@@ -302,7 +313,8 @@ export class DshRuntimeManager {
 			options.onPhase?.("finalizing");
 			const target = this.versionDir(sourceManifest.runtimeVersion);
 			// 同版本已存在：先清掉再 rename（rename 到非空目录在 Windows 会失败）。
-			await rm(target, { recursive: true, force: true });
+			// 与 installFromArchive 同款重试：占用多为瞬时锁（杀软/资源管理器）。
+			await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 			mkdirSync(this.deps.layout.runtimesRoot, { recursive: true });
 			await rename(staging, target);
 			log("dsh-runtime", "runtime installed from directory", {
@@ -356,7 +368,9 @@ export class DshRuntimeManager {
 			options.onPhase?.("finalizing");
 			const target = this.versionDir(manifest.runtimeVersion);
 			// 同版本已存在：先清掉再 rename（rename 到非空目录在 Windows 会失败）。
-			await rm(target, { recursive: true, force: true });
+			// 目标目录可能被占用（host 未停时的 .node DLL 句柄、杀软扫描）：与 uninstall
+			// 同款线性退避重试吸收瞬时锁；持续锁由调用方在安装前停 host 释放。
+			await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 			mkdirSync(this.deps.layout.runtimesRoot, { recursive: true });
 			await rename(root, target);
 			log("dsh-runtime", "runtime installed", { version: manifest.runtimeVersion });
@@ -411,6 +425,16 @@ export class DshRuntimeManager {
 			// 抛带上下文的可读错误（含失败版本），不让裸 EPERM 跨 IPC 变成「未处理异常」。
 			throw new Error(`failed to remove runtime directory "${dirName}": ${message}`);
 		}
+	}
+
+	/**
+	 * 指定版本是否已安装且完整可用（manifest 可读 / schema 兼容 / app 版本兼容 /
+	 * node_modules 与关键包齐全）。供编排层短路「重复安装同一版本」——重装一次要
+	 * 下载几十 MB 并解压数万个小文件，已装且校验通过时是纯浪费；损坏或半残的
+	 * 目录过不了校验，会正常走重装路径。
+	 */
+	isVersionInstalled(version: string): boolean {
+		return typeof this.verifyStagedRuntime(this.versionDir(version)) !== "string";
 	}
 
 	/**

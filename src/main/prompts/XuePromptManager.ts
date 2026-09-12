@@ -84,6 +84,22 @@ export class XuePromptManager {
 	}
 
 	/**
+	 * 把 SELECT slug, url, title, category, content, description 的一行映射为商店条目。
+	 * 全量查询与分页/搜索查询共用同一映射，避免列顺序在两处漂移。
+	 */
+	private rowToYaoPromptItem(row: any[]): YaoPromptItem {
+		return {
+			slug: String(row[0] ?? ""),
+			title: String(row[2] ?? ""),
+			category: String(row[3] ?? ""),
+			subcategory: "",
+			tags: [],
+			description: row[5] ? this.blobToString(row[5]) : "",
+			path: String(row[0] ?? ""),
+		};
+	}
+
+	/**
 	 * 延迟初始化 sql.js（WASM 只需加载一次）
 	 */
 	private async getDb(): Promise<import("sql.js").Database> {
@@ -128,21 +144,13 @@ export class XuePromptManager {
 				const promptRows = db.exec(
 					"SELECT slug, url, title, category, content, description FROM xueprompts ORDER BY category, title"
 				);
-				const prompts: YaoPromptItem[] = (
-					promptRows[0]?.values ?? []
-				).map((row: any[]) => ({
-					slug: String(row[0] ?? ""),
-					title: String(row[2] ?? ""),
-					category: String(row[3] ?? ""),
-					subcategory: "",
-					tags: [],
-					description: row[5] ? this.blobToString(row[5]) : "",
-					path: String(row[0] ?? ""),
-				}));
+				const prompts: YaoPromptItem[] = (promptRows[0]?.values ?? []).map((row: any[]) => this.rowToYaoPromptItem(row));
 				return { categories, prompts, repoPath: this.dbPath };
 			}
 
-			// 分页查询：构建 WHERE 条件
+			// title 是明文 TEXT，可直接进 SQL；content / description 都是 gzip BLOB，
+			// SQL 的 LIKE 对 BLOB 只做字节比较，中文关键词永远匹配不到（实测 description
+			// LIKE 命中数恒为 0），所以带 search 时必须走应用层解压匹配。
 			const conditions: string[] = [];
 			const params: any[] = [];
 
@@ -153,10 +161,32 @@ export class XuePromptManager {
 				conditions.push("(category = ? OR category = (SELECT name FROM xueprompt_categories WHERE slug = ?))");
 				params.push(opts.category, opts.category);
 			}
-			if (opts.search) {
-				conditions.push("(title LIKE ? OR description LIKE ?)");
-				const like = `%${opts.search}%`;
-				params.push(like, like);
+
+			const page = Math.max(1, opts.page ?? 1);
+			const pageSize = Math.max(1, Math.min(100, opts.pageSize ?? 20));
+
+			const keyword = opts.search?.trim();
+			if (keyword) {
+				// 先按 category 粗筛（不含 text 条件），再在应用层解压匹配 title/description/content。
+				// 数据量约 4000 条、全量解压约 4MB，仅搜索时触发一次，开销可接受；
+				// 换来的是「正文里的词也能搜到」这个正确语义。
+				const categoryClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+				const rows = db.exec(
+					`SELECT slug, url, title, category, content, description FROM xueprompts ${categoryClause} ORDER BY category, title`,
+					params
+				);
+				const needle = keyword.toLowerCase();
+				const matched = (rows[0]?.values ?? []).filter((row: any[]) => {
+					const title = String(row[2] ?? "");
+					if (title.toLowerCase().includes(needle)) return true;
+					// content / description 为 gzip BLOB，解压后按明文匹配
+					if (row[5] && this.blobToString(row[5]).toLowerCase().includes(needle)) return true;
+					if (row[4] && this.blobToString(row[4]).toLowerCase().includes(needle)) return true;
+					return false;
+				});
+				const offset = (page - 1) * pageSize;
+				const prompts = matched.slice(offset, offset + pageSize).map((row: any[]) => this.rowToYaoPromptItem(row));
+				return { categories, prompts, repoPath: this.dbPath, total: matched.length, page, pageSize };
 			}
 
 			const whereClause = conditions.length > 0
@@ -170,26 +200,13 @@ export class XuePromptManager {
 			);
 			const total = Number(countResult[0]?.values?.[0]?.[0] ?? 0);
 
-			// 分页
-			const page = Math.max(1, opts.page ?? 1);
-			const pageSize = Math.max(1, Math.min(100, opts.pageSize ?? 20));
 			const offset = (page - 1) * pageSize;
 
 			const promptRows = db.exec(
 				`SELECT slug, url, title, category, content, description FROM xueprompts ${whereClause} ORDER BY category, title LIMIT ? OFFSET ?`,
 				[...params, pageSize, offset]
 			);
-			const prompts: YaoPromptItem[] = (
-				promptRows[0]?.values ?? []
-			).map((row: any[]) => ({
-				slug: String(row[0] ?? ""),
-				title: String(row[2] ?? ""),
-				category: String(row[3] ?? ""),
-				subcategory: "",
-				tags: [],
-				description: row[5] ? this.blobToString(row[5]) : "",
-				path: String(row[0] ?? ""),
-			}));
+			const prompts: YaoPromptItem[] = (promptRows[0]?.values ?? []).map((row: any[]) => this.rowToYaoPromptItem(row));
 
 			return { categories, prompts, repoPath: this.dbPath, total, page, pageSize };
 		} finally {

@@ -13,10 +13,30 @@
  */
 const { execSync } = require("node:child_process");
 const { existsSync, readdirSync, readFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { join, delimiter } = require("node:path");
 
 const root = join(__dirname, "..");
 const packagesRoot = join(root, "packages");
+
+/**
+ * 组装子包构建用的 PATH：把子包与仓库根的 node_modules/.bin 前置。
+ *
+ * 为什么不直接依赖外部 PATH：npm run 会注入 .bin 的前提是「npm 本身工作正常」，
+ * 但在部分终端/沙箱环境（如 WorkBuddy 托管终端）里 PATH 注入链会断——表现是
+ * `npm run build` 能跑起来、脚本里的 `tsc`/`electron-vite` 却报
+ * 「不是内部或外部命令」。前置 .bin 后，无论外部环境如何垫片都可达。
+ */
+function buildEnv(pkgDir) {
+	const binDirs = [
+		join(pkgDir, "node_modules", ".bin"),
+		join(root, "node_modules", ".bin"),
+	];
+	const existingPath = process.env.PATH || process.env.Path || "";
+	return {
+		...process.env,
+		PATH: [...binDirs, existingPath].filter(Boolean).join(delimiter),
+	};
+}
 
 function buildPackages() {
 	if (!existsSync(packagesRoot)) {
@@ -34,7 +54,7 @@ function buildPackages() {
 			continue;
 		}
 		console.log(`[build-local-packages] 构建 ${entry.name} …`);
-		execSync("npm run build", { cwd: pkgDir, stdio: "inherit", shell: true });
+		execSync("npm run build", { cwd: pkgDir, stdio: "inherit", shell: true, env: buildEnv(pkgDir) });
 	}
 }
 

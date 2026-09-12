@@ -1,12 +1,16 @@
 import { Ellipsis } from "lucide-react";
+import { useAtomValue } from "jotai";
 import type { AgentTab, SessionRecord } from "../../../../shared/types";
 import { sessionStatusDotClass } from "../../agentListDisplay";
 import { sessionRecordToSummary } from "../../atoms";
+import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { hasPendingAskForSession } from "../../utils/askUi";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { SidebarController } from "../../hooks/useSidebarController";
 import type { SidebarActions } from "./SidebarContent";
 import { Button } from "../ui-shadcn/button";
+import { PendingAskBadge } from "./PendingAskBadge";
 import { SessionBackendMark } from "../session/SessionSourceBadge";
 import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
@@ -36,6 +40,9 @@ export function ActiveSessionsTree(props: {
 	currentSessionId?: string;
 }) {
 	const { controller } = props;
+	// 活动页以会话为粒度，待确认标记直接按本行 sessionId 判定，
+	// 避免订阅项目级聚合值导致一个会话的 ask 点亮整页。
+	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
 	// 收集所有项目下已绑定 runtime 的 agent，并解析其绑定会话记录（sessionId → record）。
 	// catalog.agents 只含 runtime 绑定（detached 已被 agentInventoryAtom 排除），
 	// 因此不再按 isLiveRuntimeStatus 过滤——否则 error/closed 的失败会话会从活动页消失。
@@ -80,6 +87,7 @@ export function ActiveSessionsTree(props: {
 				const summary = record ? sessionRecordToSummary(record) : undefined;
 				const displayTitle = summary?.name || agent.title;
 				const project = controller.catalog.projects.find((p) => p.id === projectId);
+				const pendingAsk = hasPendingAskForSession(sessionId, sessionRuntimeUiById);
 				// 单击默认 preview；双击显式常驻（与 SessionTree 同一入口语义）。
 				const openSession = (tabMode?: "preview" | "permanent") => {
 					if (sessionId) void props.actions.sessions.open(projectId, sessionId, tabMode);
@@ -127,6 +135,8 @@ export function ActiveSessionsTree(props: {
 										{/* 选中背景仍保留，聚焦行也允许 hover 查看完整标题 */}
 										<TitleScrollText text={displayTitle} className="font-medium" />
 										<SessionBackendMark backend={agent.backend} />
+										{/* 待确认标记：该会话正在等用户回答 ask，与项目行徽章共用同一组件 */}
+										{pendingAsk && <PendingAskBadge count={1} />}
 										{/* 相对时间常显：hover 时被右侧「⋯」浮层盖住（与历史会话行同一策略） */}
 										<span className="shrink-0 text-caption tabular-nums text-muted-foreground group-hover/row:hidden">
 											{formatRelativeTime(sortAt)}

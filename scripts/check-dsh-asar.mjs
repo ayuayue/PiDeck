@@ -63,12 +63,18 @@ const REQUIRED = [
 	"dsh-workflow",
 ];
 
-/** hostEntry 动态 resolve 的入口，外加两个作用域外的种子包。 */
+/** hostEntry 动态 resolve 的入口，外加两个作用域外的种子包。
+ *  0.1.5：dsh-host-apiproxy 已废，传输半在 dsh-client-connection，
+ *  网关/端点在 dsh-api-gateway / dsh-api-session-controller（见
+ *  docs/dsh-0.1.5-typert-migration.md）。 */
 const ENTRY_PACKAGES = [
 	"@deepseek-ai/dsh-base",
 	"@deepseek-ai/dsh-app-boot",
-	"@deepseek-ai/dsh-host-apiproxy",
 	"@deepseek-ai/dsh-cmdline",
+	"@deepseek-ai/dsh-client-connection",
+	"@deepseek-ai/dsh-api-gateway",
+	"@deepseek-ai/dsh-api-remotes",
+	"@deepseek-ai/dsh-api-session-controller",
 	"dsh-bill",
 	"dsh-tool-pwsh-persistent",
 ];

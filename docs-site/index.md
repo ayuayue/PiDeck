@@ -13,11 +13,12 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 查看 GitHub
-      link: https://github.com/ayuayue/PiDeck
-    - theme: alt
-      text: AtomGit 镜像
-      link: https://atomgit.com/ayuayue/PiDeck
+      text: 源码仓库
+      items:
+        - text: GitHub 仓库（海外）
+          link: https://github.com/ayuayue/PiDeck
+        - text: AtomGit 仓库（国内镜像）
+          link: https://atomgit.com/ayuayue/PiDeck
 
 features:
   - title: 多项目工作区

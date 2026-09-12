@@ -8,13 +8,13 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
 
-const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole } = loadTsCommonJs(
+const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv, getHiddenConsoleMode } = loadTsCommonJs(
 	"src/main/dsh/hideChildConsoles.ts",
 );
 
 /** 构造假 koffi：getResults 依次返回 GetConsoleWindow 结果（单元素则恒定返回）。 */
-function makeFfi({ getResults = [0], allocResult = 1 } = {}) {
-	const calls = { load: [], getConsoleWindow: [], allocConsole: 0, showWindow: [] };
+function makeFfi({ getResults = [0], allocResult = 1, lastErrorResult } = {}) {
+	const calls = { load: [], getConsoleWindow: [], allocConsole: 0, showWindow: [], lastError: 0 };
 	const koffi = {
 		load(name) {
 			calls.load.push(name);
@@ -31,6 +31,12 @@ function makeFfi({ getResults = [0], allocResult = 1 } = {}) {
 						return () => {
 							calls.allocConsole += 1;
 							return allocResult;
+						};
+					}
+					if (signature.includes("GetLastError")) {
+						return () => {
+							calls.lastError += 1;
+							return lastErrorResult ?? 0;
 						};
 					}
 					if (signature.includes("ShowWindow")) {
@@ -61,6 +67,7 @@ test("hiddenConsoleOptions：未指定 windowsHide 时注入 true，已指定则
 test("installHostHiddenConsole：非 win32 不分配、不触碰 ffi", () => {
 	const { koffi, calls } = makeFfi();
 	assert.equal(installHostHiddenConsole("linux", koffi), false);
+	assert.equal(getHiddenConsoleMode(), "off");
 	assert.equal(calls.load.length, 0);
 	assert.equal(calls.allocConsole, 0);
 });
@@ -68,6 +75,7 @@ test("installHostHiddenConsole：非 win32 不分配、不触碰 ffi", () => {
 test("installHostHiddenConsole：win32 无控制台时 AllocConsole + ShowWindow(SW_HIDE)", () => {
 	const { koffi, calls } = makeFfi({ getResults: [0, 0xabc], allocResult: 1 });
 	assert.equal(installHostHiddenConsole("win32", koffi), true);
+	assert.equal(getHiddenConsoleMode(), "allocated");
 	assert.deepEqual(calls.load, ["kernel32.dll", "user32.dll"]);
 	assert.equal(calls.allocConsole, 1);
 	assert.deepEqual(calls.showWindow, [[0xabc, 0]], "SW_HIDE = 0");
@@ -76,6 +84,7 @@ test("installHostHiddenConsole：win32 无控制台时 AllocConsole + ShowWindow
 test("installHostHiddenConsole：已有控制台时不再分配（视为成功）", () => {
 	const { koffi, calls } = makeFfi({ getResults: [0xabc], allocResult: 1 });
 	assert.equal(installHostHiddenConsole("win32", koffi), true);
+	assert.equal(getHiddenConsoleMode(), "inherited-windowed");
 	assert.equal(calls.allocConsole, 0);
 	assert.equal(calls.showWindow.length, 0);
 });
@@ -108,9 +117,40 @@ test("installHostHiddenConsole：AllocConsole 后句柄尚未就绪仍轮询隐�
 });
 
 test("installHostHiddenConsole：AllocConsole 失败返回 false（触发 windowsHide 兜底）", () => {
-	const { koffi, calls } = makeFfi({ getResults: [0], allocResult: 0 });
+	const { koffi, calls } = makeFfi({ getResults: [0], allocResult: 0, lastErrorResult: 6 });
 	assert.equal(installHostHiddenConsole("win32", koffi), false);
+	assert.equal(getHiddenConsoleMode(), "failed");
 	assert.equal(calls.allocConsole, 1);
+});
+
+test("installHostHiddenConsole：AllocConsole 失败但 GetLastError=5（ConPTY/已附带控制台）→ 视为成功", () => {
+	// 2026-09 实测：Windows Terminal/VS Code 等 ConPTY 终端起到的进程，GetConsoleWindow
+	// 为 NULL 但已附带控制台（GetConsoleCP 非 0），AllocConsole 以 ERROR_ACCESS_DENIED(5)
+	// 失败。误判成「分配失败」会退回 windowsHide 注入，孙进程反而弹出可见黑窗口。
+	const { koffi, calls } = makeFfi({ getResults: [0], allocResult: 0, lastErrorResult: 5 });
+	assert.equal(installHostHiddenConsole("win32", koffi), true);
+	assert.equal(getHiddenConsoleMode(), "inherited-windowless");
+	assert.equal(calls.allocConsole, 1);
+	assert.equal(calls.showWindow.length, 0, "无窗口可隐藏，继承即可");
+	assert.equal(calls.lastError, 1, "GetLastError 必须在紧跟的语句取到");
+});
+
+test("installHostHiddenConsole：GetLastError 不可用（老 ffi 替身）时维持旧兜底", () => {
+	// 假 koffi 未提供 GetLastError：func() 抛异常 → lastError=undefined → 按旧行为返回 false。
+	const koffiWithNoLastError = {
+		load() {
+			return {
+				func(signature) {
+					if (signature.includes("GetConsoleWindow")) return () => 0;
+					if (signature.includes("AllocConsole")) return () => 0;
+					if (signature.includes("ShowWindow")) return () => 1;
+					throw new Error(`unexpected func signature: ${signature}`);
+				},
+			};
+		},
+	};
+	assert.equal(installHostHiddenConsole("win32", koffiWithNoLastError), false);
+	assert.equal(getHiddenConsoleMode(), "failed");
 });
 
 test("installHostHiddenConsole：ffi 加载异常静默返回 false", () => {
@@ -120,6 +160,111 @@ test("installHostHiddenConsole：ffi 加载异常静默返回 false", () => {
 		},
 	};
 	assert.equal(installHostHiddenConsole("win32", throwing), false);
+});
+
+test("installRunnerNodeModeEnv：win32 置 ELECTRON_RUN_AS_NODE=1（可还原），非 win32 不动", () => {
+	// 沙箱第二级 runner（windows-acl）的 env 由 dsh-subprocess-local 从 host 进程环境派生，
+	// spawn 补丁够不着；缺这个变量它会以 GUI electron.exe 跑、事件循环永不退出 → 每条
+	// 沙箱命令挂满 120s 工具超时。
+	const env = { PATH: "x" };
+	const restore = installRunnerNodeModeEnv(env, "win32");
+	assert.equal(env.ELECTRON_RUN_AS_NODE, "1");
+	assert.equal(env.PATH, "x", "其余 env 不动");
+	restore();
+	assert.equal("ELECTRON_RUN_AS_NODE" in env, false, "还原时删除原本不存在的键");
+	const withExisting = { ELECTRON_RUN_AS_NODE: "0" };
+	const restore2 = installRunnerNodeModeEnv(withExisting, "win32");
+	assert.equal(withExisting.ELECTRON_RUN_AS_NODE, "1");
+	restore2();
+	assert.equal(withExisting.ELECTRON_RUN_AS_NODE, "0", "还原为原值");
+
+	const linuxEnv = {};
+	const restoreLinux = installRunnerNodeModeEnv(linuxEnv, "linux");
+	assert.equal("ELECTRON_RUN_AS_NODE" in linuxEnv, false, "非 win32 不置位");
+	restoreLinux();
+});
+
+test("installRunnerNodeModeEnv：host 环境标记能穿过 dsh-subprocess 的 scrubbedParentEnv 下发到沙箱 runner", async () => {
+	// 这是本修复成立的**前提假设**，DSH 侧一旦改动 scrubbedParentEnv 的过滤规则
+	// （例如开始抹除 ELECTRON_*），沙箱挂起就会复发——用真实实现把它钉住。
+	// 契约来源：dsh-subprocess-local 的 targetEnvironment() = scrubbedParentEnv() + spec.env，
+	// 只过滤 /KEY|PASSWORD|SECRET|TOKEN/i 与 DSH_* 前缀。
+	let scrubbedParentEnv;
+	try {
+		({ scrubbedParentEnv } = await import("@deepseek-ai/dsh-subprocess"));
+	} catch (error) {
+		// DSH 运行时是可选依赖（可外置下载），缺失时跳过（不掩盖：上面的 install 断言仍在跑）
+		console.log(`# skip: @deepseek-ai/dsh-subprocess 不可用 (${error?.code ?? error})`);
+		return;
+	}
+	const previous = process.env.ELECTRON_RUN_AS_NODE;
+	installRunnerNodeModeEnv(process.env, "win32");
+	try {
+		assert.equal(
+			scrubbedParentEnv().ELECTRON_RUN_AS_NODE,
+			"1",
+			"host 环境标记必须原样穿过 scrub（否则沙箱 runner 退回 GUI 模式）",
+		);
+	} finally {
+		if (previous === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+		else process.env.ELECTRON_RUN_AS_NODE = previous;
+	}
+});
+
+test("installRunnerPreloadEnv：win32 把 preload 写进 NODE_OPTIONS（append + 幂等 + 可还原），非 win32 不动", () => {
+	// 黑窗口根治：第二级 ACL runner 的 env 来自 host 进程环境（经 scrubbedParentEnv
+	// → IPC request.env），spawn 补丁的 preload 注入够不着它——必须由 host env 携带。
+	const preloadPath = "C:\\app\\out\\main\\runnerConsolePreload.js";
+	const env = { PATH: "x" };
+	const restore = installRunnerPreloadEnv(env, "win32", preloadPath);
+	assert.equal(
+		env.NODE_OPTIONS,
+		`--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`,
+		"写入 preload（Windows NODE_OPTIONS 反斜杠必须翻倍）",
+	);
+	assert.equal(env.PATH, "x", "其余 env 不动");
+	// 幂等：已含同一 preload 时不重复 append（第一级 runner 的 options.env 由 host env
+	// 派生，withRunnerPreload 也不能叠第二份，否则 Node 加载两遍）。
+	const restore2 = installRunnerPreloadEnv(env, "win32", preloadPath);
+	assert.equal(env.NODE_OPTIONS, `--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`, "重复安装不叠加");
+	restore2();
+	// append 语义：已有 NODE_OPTIONS 时拼接。
+	const withExisting = { NODE_OPTIONS: "--no-warnings" };
+	const restore3 = installRunnerPreloadEnv(withExisting, "win32", preloadPath);
+	assert.equal(withExisting.NODE_OPTIONS, `--no-warnings --require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`);
+	restore3();
+	assert.equal(withExisting.NODE_OPTIONS, "--no-warnings", "还原为原值");
+	restore();
+	assert.equal("NODE_OPTIONS" in env, false, "还原时删除原本不存在的键");
+
+	const linuxEnv = {};
+	const restoreLinux = installRunnerPreloadEnv(linuxEnv, "linux", preloadPath);
+	assert.equal("NODE_OPTIONS" in linuxEnv, false, "非 win32 不置位");
+	restoreLinux();
+});
+
+test("installRunnerPreloadEnv：host env 的 preload 能穿过 dsh-subprocess 的 scrubbedParentEnv 下发到沙箱 runner", async () => {
+	// 与 ELECTRON_RUN_AS_NODE 同一前提假设：scrub 只过滤 KEY/PASSWORD/SECRET/TOKEN 与
+	// DSH_*，NODE_OPTIONS 原样穿透。DSH 若开始抹除 NODE_OPTIONS，黑窗口会复发——钉住。
+	let scrubbedParentEnv;
+	try {
+		({ scrubbedParentEnv } = await import("@deepseek-ai/dsh-subprocess"));
+	} catch (error) {
+		console.log(`# skip: @deepseek-ai/dsh-subprocess 不可用 (${error?.code ?? error})`);
+		return;
+	}
+	const previous = process.env.NODE_OPTIONS;
+	installRunnerPreloadEnv(process.env, "win32", "C:\\app\\out\\main\\runnerConsolePreload.js");
+	try {
+		const scrubbed = scrubbedParentEnv().NODE_OPTIONS ?? "";
+		assert.ok(
+			scrubbed.includes("--require=") && scrubbed.includes("runnerConsolePreload"),
+			"preload 必须原样穿过 scrub（否则第二级 runner 无控制台、pwsh 弹黑窗口）",
+		);
+	} finally {
+		if (previous === undefined) delete process.env.NODE_OPTIONS;
+		else process.env.NODE_OPTIONS = previous;
+	}
 });
 
 test("installHiddenConsolePatch：非 win32 不安装，win32 安装且可还原", () => {
@@ -231,6 +376,38 @@ test("沙箱 runner spawn：注入 NODE_OPTIONS preload（append 语义），普
 		"已有 NODE_OPTIONS 时 append",
 	);
 	assert.equal("NODE_OPTIONS" in calls[2][2].env, false, "普通 spawn 不注入 preload");
+});
+
+test("runner spawn：host env 已带 preload 时不叠加第二份（installRunnerPreloadEnv × withRunnerPreload 幂等）", () => {
+	// 端到端去重：installRunnerPreloadEnv 写进 host env 后，第一级 runner 的
+	// options.env（由 host env 派生）已含 preload，withRunnerPreload 必须跳过 append。
+	installHostHiddenConsole("win32", makeFfi({ getResults: [0, 0xabc] }).koffi);
+	const originalSpawn = childProcess.spawn;
+	const calls = [];
+	childProcess.spawn = (...args) => {
+		calls.push(args);
+		return {};
+	};
+	const preloadPath = "C:\\app\\out\\main\\runnerConsolePreload.js";
+	const hostEnv = { PATH: "x", NODE_OPTIONS: `--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"` };
+	const restoreEnv = installRunnerPreloadEnv(hostEnv, "win32", preloadPath);
+	const restore = installHiddenConsolePatch("win32", preloadPath);
+	try {
+		childProcess.spawn(
+			"C:\\app\\electron.exe",
+			["C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js"],
+			{ env: { ...hostEnv } },
+		);
+	} finally {
+		restore();
+		restoreEnv();
+		childProcess.spawn = originalSpawn;
+	}
+	assert.equal(
+		calls[0][2].env.NODE_OPTIONS,
+		`--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`,
+		"preload 恰好一份：不能叠成 --require×2（Node 会加载两遍）",
+	);
 });
 
 test("兜底模式下 runner spawn：windowsHide 注入与 preload 同时生效", () => {
@@ -368,6 +545,59 @@ test("runner spawn：强制注入 ELECTRON_RUN_AS_NODE=1（挂起根治：缺它
 	assert.equal(calls[0][2].env.NODE_OPTIONS, '--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"', "preload 注入不受影响");
 	assert.equal(calls[1][2].env.ELECTRON_RUN_AS_NODE, undefined, "非 runner 不注入");
 	assert.equal(calls[2][2].env.ELECTRON_RUN_AS_NODE, "1", "env 已有值时保持 1（幂等）");
+});
+
+test("runner spawn：-- 尾部 pwsh -Command 追加 exit（沙箱内 pwsh 不退出止血），stdio 不动", () => {
+	// 2026-09-12 automation 实测：沙箱内 pwsh（runner 用 CreateProcessAsUserW 拉起，
+	// 补丁够不着子进程）输出完成后不退出，4/4 挂满 120s 工具超时——在 runner spawn
+	// 边界改写 -- 尾部的 -Command 参数追加 exit。stdio 不能动：runner 可能用 stdin
+	// pipe 向受限命令传数据。
+	installHostHiddenConsole("win32", makeFfi({ getResults: [0, 0xabc] }).koffi);
+	const originalSpawn = childProcess.spawn;
+	const calls = [];
+	childProcess.spawn = (...args) => {
+		calls.push(args);
+		return {};
+	};
+	const restore = installHiddenConsolePatch("win32", "C:\\app\\out\\main\\runnerConsolePreload.js");
+	try {
+		childProcess.spawn(
+			"C:\\app\\electron.exe",
+			[
+				"C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js",
+				"--workspace", "C:\\work",
+				"--", "pwsh.exe", "-NoLogo", "-NonInteractive", "-Command", "Write-Output hi",
+			],
+			{ env: { PATH: "x" }, stdio: ["ignore", "pipe", "pipe"] },
+		);
+		// 尾部非 pwsh -Command（git）：argv 原样透传
+		childProcess.spawn(
+			"C:\\app\\electron.exe",
+			[
+				"C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js",
+				"--workspace", "C:\\work",
+				"--", "git.exe", "status",
+			],
+			{ env: { PATH: "x" } },
+		);
+	} finally {
+		restore();
+		childProcess.spawn = originalSpawn;
+	}
+	assert.equal(calls[0][1][8], "Write-Output hi\nexit $LASTEXITCODE", "沙箱 pwsh 命令末尾追加 exit");
+	assert.equal(calls[0][2].stdio[0], "ignore", "runner spawn 的 stdio 不被 pwsh 守卫改动");
+	assert.equal(calls[0][2].stdio[1], "pipe");
+	assert.equal(calls[0][2].env.ELECTRON_RUN_AS_NODE, "1", "ELECTRON_RUN_AS_NODE 注入不受影响");
+	assert.equal(calls[0][2].env.NODE_OPTIONS, '--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"');
+	assert.deepEqual(
+		calls[1][1],
+		[
+			"C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js",
+			"--workspace", "C:\\work",
+			"--", "git.exe", "status",
+		],
+		"尾部非 pwsh -Command 时 argv 原样透传",
+	);
 });
 
 test("win32 补丁：execFile（带 callback）与 exec 在兜底模式注入、生效模式不动", () => {

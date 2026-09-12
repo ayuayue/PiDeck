@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { toDshAvailableModels, toDshFetchedModels } = loadTsCommonJs("src/main/dsh/dshModels.ts");
+const { toDshAvailableModels, toDshFetchedModels, unwrapDshDiscoveryModels } = loadTsCommonJs("src/main/dsh/dshModels.ts");
 
 /** 与 DSH host llm.models / session.models 实测一致的组形状。 */
 const group = (id, models) => ({ id, name: id, models });
@@ -78,4 +78,28 @@ test("toDshAvailableModels 空目录 / 空组返回空列表", () => {
 
 test("toDshAvailableModels 组缺 models 字段时安全跳过", () => {
 	assert.equal(toDshAvailableModels([{ id: "no-models" }]).length, 0);
+});
+
+test("unwrapDshDiscoveryModels：0.1.5 线上结果是纯数组，直接透传", () => {
+	// dsh-llm typert：z.array(z.object({ id, ... })) —— 曾误写成 value.models ?? []
+	// 对数组取 .models 恒 undefined，配置页「获取模型列表」永远「已获取 0 个模型」。
+	const wire = [
+		{ id: "glm-5.2", name: "GLM-5.2", contextWindow: 200000 },
+		{ id: "kimi-k2.5" },
+	];
+	const models = unwrapDshDiscoveryModels(wire);
+	assert.equal(models.length, 2);
+	assert.equal(models[0].id, "glm-5.2");
+	assert.equal(models[1].id, "kimi-k2.5");
+});
+
+test("unwrapDshDiscoveryModels：{ models: [...] } 包装形态仍兼容", () => {
+	const models = unwrapDshDiscoveryModels({ models: [{ id: "a" }, { id: "b" }] });
+	assert.equal(models.length, 2);
+});
+
+test("unwrapDshDiscoveryModels：null / 无 models 字段的对象安全返回空", () => {
+	assert.equal(unwrapDshDiscoveryModels(null).length, 0);
+	assert.equal(unwrapDshDiscoveryModels(undefined).length, 0);
+	assert.equal(unwrapDshDiscoveryModels({}).length, 0);
 });

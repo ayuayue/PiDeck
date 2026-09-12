@@ -283,6 +283,8 @@ export type WebDshStaticPlugin = {
 	moduleName: string;
 	enabled: boolean;
 	fiberPhase: string | null;
+	/** 来源：user = $DSH_HOME/cordis.patch.yml 用户补丁层；缺省视为 builtin（旧 host 兼容）。 */
+	origin?: "builtin" | "user";
 };
 
 /** 动态 + 静态插件清单（全局；install 需按会话归属）。 */

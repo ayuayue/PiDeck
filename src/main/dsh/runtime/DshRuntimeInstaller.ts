@@ -66,6 +66,14 @@ export class DshRuntimeInstaller {
 		const { deps } = this;
 		const bundled = deps.bundledRuntime?.();
 		if (bundled) {
+			// 已装且校验通过的同版本重装是纯浪费（下载几十 MB + 解压数万文件约两分钟）：
+			// 直接成功返回。目录损坏/半残时 isVersionInstalled 为 false，正常走重装。
+			if (deps.manager.isVersionInstalled?.(bundled.manifest.runtimeVersion)) {
+				deps.log?.("dsh-runtime", "runtime already installed, skipping bundled install", {
+					version: bundled.manifest.runtimeVersion,
+				});
+				return this.finish({ ok: true, dirName: bundled.manifest.runtimeVersion }, bundled.manifest.runtimeVersion);
+			}
 			deps.log?.("dsh-runtime", "installing from bundled runtime", {
 				version: bundled.manifest.runtimeVersion,
 			});
@@ -89,6 +97,13 @@ export class DshRuntimeInstaller {
 			deps.log?.("dsh-runtime", "no compatible runtime release", { appVersion: deps.appVersion() });
 			// 必须推送 error：UI 在发起安装时就切到了「下载中」，没有终止事件会一直转圈。
 			return this.fail("no compatible runtime release");
+		}
+		// 与随包路径同一短路：目标版本已装且完整可用就不下载不落位。
+		if (deps.manager.isVersionInstalled?.(release.runtimeVersion)) {
+			deps.log?.("dsh-runtime", "runtime already installed, skipping download", {
+				version: release.runtimeVersion,
+			});
+			return this.finish({ ok: true, dirName: release.runtimeVersion }, release.runtimeVersion);
 		}
 
 		deps.onProgress({ phase: "downloading", percent: 0, runtimeVersion: release.runtimeVersion });

@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../../shared/types";
+import { stoppedMessageFingerprint, type RetainedMessageIdentity } from "./stoppedMessageIdentity";
 
 /**
  * 消息内容指纹：跨「运行期事件身份（randomUUID）」与「文件投影身份
@@ -123,6 +124,60 @@ export function mergeHistoryWithPreservedMessages(
 	return preservedMessages.length > 0
 		? [...historyMessages, ...preservedMessages]
 		: historyMessages;
+}
+
+/**
+ * 身份摘要表 → 投影消息 id 还原（runtime 换绑场景）。
+ *
+ * 与 stabilizeReloadedMessageIds 的分工：那个函数用「同一 agent 上一次的本地消息列表」
+ * 做指纹对齐；本函数用会话级身份摘要（stop/restart 时留存，见 StoppedMessageIdentityCache）
+ * 对齐，覆盖「新 agent 首次投影、旧 id 只存在于身份摘要里」的场景（重启/崩溃后重连）。
+ * 重启后若把带全新 id 的窗口下发，渲染层 React key 全变 → 已渲染消息全部 remount →
+ * 入场/settle 动画重放（与压缩重载同一问题，2026-09 重启后窗口重下发的配套修复）。
+ *
+ * 匹配优先级：
+ * 1. entryId（文件条目身份，最可靠：正文随流式/压缩变化时也必须沿用同一 key）；
+ * 2. 内容指纹 + 时间容差（live 消息没有 entryId，只能按正文核对，与摘要同口径）。
+ * 同一身份只消耗一次，时间超容差视为不同消息——宁可换 key（个别消息重挂载）也不能张冠李戴。
+ */
+export function stabilizeProjectedIdsFromIdentities(
+	identities: readonly RetainedMessageIdentity[],
+	projectedMessages: ChatMessage[],
+): ChatMessage[] {
+	if (identities.length === 0 || projectedMessages.length === 0) return projectedMessages;
+	// entryId → 身份：后捕获的覆盖先捕获的（同一文件条目多次重启后可能留下多条身份，
+	// 最新一次捕获才是 UI 当前展示的 id）。
+	const byEntryId = new Map<string, RetainedMessageIdentity>();
+	// 指纹 → 身份队列：保持捕获先后顺序，同文本高频消息（连发「继续」）一一消耗不串位。
+	const byFingerprint = new Map<string, RetainedMessageIdentity[]>();
+	for (const identity of identities) {
+		if (identity.entryId) byEntryId.set(identity.entryId, identity);
+		const list = byFingerprint.get(identity.fingerprint);
+		if (list) list.push(identity);
+		else byFingerprint.set(identity.fingerprint, [identity]);
+	}
+	const consumed = new Set<string>();
+	return projectedMessages.map((message) => {
+		const entryId = message.meta?.entryId;
+		if (typeof entryId === "string" && entryId) {
+			const preferred = byEntryId.get(entryId);
+			// entryId 匹配不再做指纹二次校验：entryId 就是文件条目的稳定身份，
+			// 正文改写/流式补全后指纹变了但同一逻辑消息仍应沿用同一 key。
+			if (preferred && !consumed.has(preferred.id)) {
+				consumed.add(preferred.id);
+				return { ...message, id: preferred.id };
+			}
+		}
+		const candidates = byFingerprint.get(stoppedMessageFingerprint(message));
+		if (!candidates) return message;
+		for (const candidate of candidates) {
+			if (consumed.has(candidate.id)) continue;
+			if (Math.abs(candidate.timestamp - (message.timestamp ?? 0)) > FINGERPRINT_MATCH_TIME_TOLERANCE_MS) continue;
+			consumed.add(candidate.id);
+			return { ...message, id: candidate.id };
+		}
+		return message;
+	});
 }
 
 /**

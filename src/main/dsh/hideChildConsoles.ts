@@ -41,6 +41,13 @@ type SpawnOptions = childProcessModule.SpawnOptions;
  *    子进程至少不弹窗）；并对沙箱 runner 的 spawn 注入
  *    NODE_OPTIONS=--require=<runnerConsolePreload>：runner 不继承 host 控制台，
  *    由 preload 在 runner 进程内自建隐藏控制台。
+ *
+ * 误判边界（2026-09 实测）：`GetConsoleWindow() == NULL` 并不等于「无控制台”——
+ * MSDN 明确 NULL = 没有控制台或**不是窗口式控制台**（ConPTY 终端即属后者）。
+ * 此时 `AllocConsole()` 会以 ERROR_ACCESS_DENIED(5) 失败；原实现把它当「分配
+ * 失败」退回 windowsHide，反而让子进程失去可继承控制台、孙进程（如 pwsh 里再
+ * 跑 git/npm/cmd）新建可见控制台。现按错误码 5 判为 inherited-windowless
+ * （继承即可，ConPTY 无窗口），并暴露 getHiddenConsoleMode() 供启动日志诊断。
  */
 
 /** koffi 运行时 FFI 接口子集（测试注入假实现，避免依赖真实原生模块）。 */
@@ -52,6 +59,33 @@ export interface Win32Ffi {
 
 /** host 是否已持有隐藏控制台（installHostHiddenConsole 置位；补丁据此决定是否注入 windowsHide）。 */
 let hostHiddenConsoleActive = false;
+
+/** runner spawn 策略日志只打一次（避免沙箱每次调用都刷日志）。 */
+let runnerPolicyLogged = false;
+
+/** ERROR_ACCESS_DENIED：AllocConsole 失败码 5 = 进程已附带控制台（见下）。 */
+const ERROR_ACCESS_DENIED = 5;
+
+/**
+ * host 控制台治理模式（诊断：hostEntry 启动时打印一次，排查黑窗口用）。
+ * - inherited-windowless：AllocConsole 失败且错误码 5——已附带控制台但
+ *   GetConsoleWindow 为 NULL（ConPTY / 无窗口控制台）。子进程继承即可，
+ *   不存在可见窗口需要隐藏；这是 2026-09 实测出的误判分支（原代码把该
+ *   情形当「分配失败」退回 windowsHide，反而切断继承、孙进程弹黑窗口）。
+ */
+export type HiddenConsoleMode =
+	| "off" // 非 win32：不治理
+	| "inherited-windowed" // GetConsoleWindow 非空：已有控制台，子进程继承
+	| "inherited-windowless" // 已附带控制台但无窗口（ConPTY）：继承即可，无需隐藏
+	| "allocated" // AllocConsole 成功：host 自建隐藏控制台
+	| "failed"; // 分配失败：退回 windowsHide 注入兜底
+
+let hiddenConsoleMode: HiddenConsoleMode = "off";
+
+/** 当前控制台治理模式（hostEntry 诊断日志用）。 */
+export function getHiddenConsoleMode(): HiddenConsoleMode {
+	return hiddenConsoleMode;
+}
 
 /**
  * 给当前进程分配隐藏控制台（win32 only；platform/ffi 可注入以便测试）。
@@ -66,7 +100,10 @@ export function installHostHiddenConsole(
 	ffi?: Win32Ffi,
 ): boolean {
 	hostHiddenConsoleActive = false;
-	if (platform !== "win32") return false;
+	if (platform !== "win32") {
+		hiddenConsoleMode = "off";
+		return false;
+	}
 	try {
 		const koffi = ffi ?? (createRequire(__filename)("koffi") as Win32Ffi);
 		const kernel32 = koffi.load("kernel32.dll");
@@ -80,9 +117,30 @@ export function installHostHiddenConsole(
 		if (getConsoleWindow()) {
 			// 已有控制台：子进程本就继承它，无需再分配（utilityProcess 不应出现，防御）。
 			hostHiddenConsoleActive = true;
+			hiddenConsoleMode = "inherited-windowed";
 			return true;
 		}
-		if (allocConsole() === 0) return false;
+		if (allocConsole() === 0) {
+			// GetConsoleWindow 为 NULL ≠ 无控制台（MSDN：NULL = 没有控制台或不是窗口式控制台）。
+			// AllocConsole 失败且错误码 5（ERROR_ACCESS_DENIED）说明进程已附带控制台
+			//（ConPTY 终端/Windows Terminal/VS Code 起到的进程都这样）。此时按「已持有」处理：
+			// 子进程继承该控制台即可，不存在可见窗口需要隐藏；若误判为失败退回 windowsHide
+			// 注入，反而让子进程失去可继承控制台、孙进程新建可见控制台（黑窗口）。
+			let lastError: number | undefined;
+			try {
+				// GetLastError 必须在紧跟的语句取（期间不能插其它 Win32 调用）。
+				lastError = (kernel32.func("uint32 GetLastError(void)") as () => number)();
+			} catch {
+				lastError = undefined; // ffi 未提供（老测试替身）：按旧行为兜底
+			}
+			if (lastError === ERROR_ACCESS_DENIED) {
+				hostHiddenConsoleActive = true;
+				hiddenConsoleMode = "inherited-windowless";
+				return true;
+			}
+			hiddenConsoleMode = "failed";
+			return false;
+		}
 		// conhost 窗口创建是异步的：AllocConsole 返回时 GetConsoleWindow 经常仍是 0，
 		// 只在已有句柄时 setInterval 会漏掉随后弹出的窗口（DSH 加载「一闪而过」的框）。
 		// 无论首帧有没有句柄都轮询隐藏，覆盖整段创建窗口期。
@@ -95,8 +153,10 @@ export function installHostHiddenConsole(
 		setTimeout(() => clearInterval(hideTimer), 1000);
 		hideTimer.unref?.();
 		hostHiddenConsoleActive = true;
+		hiddenConsoleMode = "allocated";
 		return true;
 	} catch {
+		hiddenConsoleMode = "failed";
 		return false; // koffi 缺失/调用失败：退回 windowsHide 注入兜底
 	}
 }
@@ -138,25 +198,119 @@ function isPwshCommand(command: string): boolean {
 }
 
 /**
- * pwsh 挂起兜底（实测：host 内普通 pwsh 调用约 8% 概率「命令执行完不退出」，
+ * -Command 命令末尾追加换行 + exit 的纯 args 改写（不含 stdio 调整）。
+ * 换行拼接：命令以 # 注释结尾时 exit 也不会被注释吞掉；命令内已有 exit 时
+ * 追加项不生效，无害。
+ */
+function withPwshExitAppend(args: readonly string[]): readonly string[] {
+	const cmdIndex = args.findIndex((arg) => arg === "-Command");
+	if (cmdIndex < 0 || cmdIndex + 1 >= args.length) return args;
+	const nextArgs = [...args];
+	nextArgs[cmdIndex + 1] = `${args[cmdIndex + 1]}\nexit $LASTEXITCODE`;
+	return nextArgs;
+}
+
+/**
+ * 让沙箱 runner 以 Node 模式启动（win32）。
+ *
+ * 为什么必须改 host 自己的 `process.env`，而不是只在 spawn 边界注入：
+ * 「runner 以 electron.exe 形态运行」在沙箱链路上有两层，spawn 补丁只够得着第一层——
+ *   1) host --spawn()--> @deepseek-ai/dsh-subprocess-local/lib/runner  → 补丁能改 options.env ✅
+ *   2) 该 runner --CreateProcessAsUserW--> @deepseek-ai/dsh-sandbox-windows-acl/lib/runner
+ *      第二层的命令行/环境由第一层按 IPC 传来的 request.env 设置，补丁完全够不着 ❌
+ * 而第二层的 env 源自 dsh-subprocess-local 的 targetEnvironment() → scrubbedParentEnv()，
+ * 读的就是 **host 进程的 process.env**（只过滤 /KEY|PASSWORD|SECRET|TOKEN/ 与 DSH_*，
+ * ELECTRON_RUN_AS_NODE 会原样带下去）。因此唯一能从外部影响第二层的杠杆是 host 的
+ * process.env：在这里置 ELECTRON_RUN_AS_NODE=1，第二层 runner 才会以 Node 模式启动。
+ *
+ * 2026-09-12 进程树实证（沙箱 pwsh 调用恒挂满 120s 工具超时、run 恒「运行中」）：
+ *   electron.exe …/dsh-subprocess-local/lib/runner.js -- electron.exe …/dsh-sandbox-windows-acl/lib/runner.js
+ *     --workspace … --mode workspace-write … -- pwsh.exe -NoLogo -NoProfile -NonInteractive -Command "…\nexit $LASTEXITCODE"
+ * 两个观察点：
+ * - ACL runner 进程下挂着 Chromium 子进程（`--type=gpu-process`、
+ *   `--type=utility --utility-sub-type=network.mojom.NetworkService`、
+ *   `--user-data-dir=…\AppData\Roaming\Electron`）——即它以 GUI 模式运行：
+ *   runner.js 业务逻辑照跑（受限命令正常执行、输出正常），但 Electron GUI 主进程
+ *   事件循环永不退出，于是「直连子进程」= 外层 runner 永远等不到 ACL runner 退出。
+ * - pwsh 命令行里 `exit $LASTEXITCODE` 已送达，且挂起瞬间进程表里**没有 pwsh**——
+ *   可证前一轮「沙箱内 pwsh 不退出」的诊断不是主因（见 withPwshExitAppend 注释）。
+ *
+ * 副作用（已知、可接受）：沙箱内命令的 env 也会带上该变量，即模型在沙箱里直接跑
+ * electron.exe（GUI 应用）会退化成 Node 模式。沙箱的用途是跑命令行工具，
+ * 相较「每条命令挂满 120s、定时任务回合跑满数分钟」的代价，这个副作用可以接受。
+ *
+ * @returns 还原函数（测试用；生产调用方不还原）。
+ */
+export function installRunnerNodeModeEnv(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): () => void {
+	if (platform !== "win32") return () => undefined;
+	const previous = env.ELECTRON_RUN_AS_NODE;
+	env.ELECTRON_RUN_AS_NODE = "1";
+	return () => {
+		if (previous === undefined) Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+		else env.ELECTRON_RUN_AS_NODE = previous;
+	};
+}
+
+/**
+ * 把 runner preload 的 NODE_OPTIONS 写进 host 自己的 `process.env`（黑窗口根治）。
+ *
+ * 两级论证与 installRunnerNodeModeEnv 完全同构：spawn 补丁的 withRunnerPreload
+ * 只够得着 host 直接 spawn 的【第一级】runner（options.env）；第二级 ACL runner
+ * 的 env 来自 host 进程环境经 scrubbedParentEnv → IPC request.env 下发，补丁够不着。
+ * 第二级 runner 拿不到 preload 就没有可继承的控制台，而它拉起 pwsh 用的是 koffi
+ * CreateProcessAsUserW（dsh-win32-process spawnInheritedJobProcess，
+ * dwCreationFlags=4 仅 CREATE_SUSPENDED，无 CREATE_NO_WINDOW；受限 token 下
+ * CREATE_NO_WINDOW 会 STATUS_DLL_INIT_FAILED，不能加）——父进程无控制台时
+ * Windows 为 pwsh 新建【可见】控制台窗口。2026-09-12 用户实测：ELECTRON_RUN_AS_NODE
+ * 修复后命令秒回，但每条命令弹一个 pwsh 黑窗口，即此缺口。
+ *
+ * 写进 host env 后：第二级 runner 启动时由 preload 自建隐藏控制台（runnerConsole
+ * Preload），pwsh 继承之，不再弹窗。
+ *
+ * 合并语义：与已有 NODE_OPTIONS append；已含同一 preload（路径归一化后比较）则
+ * 幂等跳过——host env 带 preload 后，第一级 runner 的 options.env（由 host env
+ * 派生）也会带上它，不能在 withRunnerPreload 里再叠一份。
+ *
+ * 副作用（已知、可接受）：沙箱内命令的 env 也带 NODE_OPTIONS——pwsh/cmd 等非
+ * Node 程序忽略它；模型在沙箱里跑的 node 进程会加载 preload（自建隐藏控制台，
+ * 行为与 runner 一致，无可见窗口）。preload 文件缺失时 node 子进程会启动失败，
+ * 与第一级 runner 的既有注入共享同一前提（preload 随 out/main 分发）。
+ *
+ * @returns 还原函数（测试用；生产调用方不还原）。
+ */
+export function installRunnerPreloadEnv(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+	runnerPreloadPath: string = join(__dirname, "runnerConsolePreload.js"),
+): () => void {
+	if (platform !== "win32") return () => undefined;
+	const previous = env.NODE_OPTIONS;
+	if (!includesRunnerPreload(previous, runnerPreloadPath)) {
+		const preload = runnerPreloadFlag(runnerPreloadPath);
+		env.NODE_OPTIONS = previous ? `${previous} ${preload}` : preload;
+	}
+	return () => {
+		if (previous === undefined) Reflect.deleteProperty(env, "NODE_OPTIONS");
+		else env.NODE_OPTIONS = previous;
+	};
+}
+
+/**
+ * pwsh 挂起兜底（本地实测：host 内普通 pwsh 调用约 8% 概率「命令执行完不退出」，
  * 直到工具超时被回收——用户可见为每次调用慢/超时）：
  * 1. stdin 从 pipe 改 ignore：pwsh 不会等待管道 EOF（已知的挂起形态之一）；
  *    工具命令本就没有 stdin 输入通道，无行为差异。
  * 2. `-Command` 命令末尾追加换行 + `exit $LASTEXITCODE`：无论挂起原因，
- *    命令执行完都强制退出（命令内已有 exit 时先执行它，追加项不生效，无害）。
+ *    命令执行完都强制退出。
  */
 function withPwshHangGuard(
 	args: readonly string[],
 	options: childProcessModule.SpawnOptions | undefined,
 ): { args: readonly string[]; options: childProcessModule.SpawnOptions | undefined } {
-	let nextArgs: string[] | undefined;
-	const cmdIndex = args.findIndex((arg) => arg === "-Command");
-	if (cmdIndex >= 0 && cmdIndex + 1 < args.length) {
-		const cmd = args[cmdIndex + 1];
-		// 换行拼接：命令以 # 注释结尾时 exit 也不会被注释吞掉
-		nextArgs = [...args];
-		nextArgs[cmdIndex + 1] = `${cmd}\nexit $LASTEXITCODE`;
-	}
+	const nextArgs = withPwshExitAppend(args);
 	let nextOptions = options;
 	if (options !== undefined && Array.isArray(options.stdio) && options.stdio[0] === "pipe") {
 		const stdio = options.stdio.map((entry) => entry);
@@ -175,11 +329,24 @@ function withPwshStartupEnv(
 	return { ...options, env: { ...options.env, ...PWSH_STARTUP_ENV } };
 }
 
+/** NODE_OPTIONS 的 --require preload 片段（反斜杠翻倍，Windows 分词语义见下）。 */
+function runnerPreloadFlag(runnerPreloadPath: string): string {
+	return `--require="${runnerPreloadPath.replace(/\\/g, "\\\\")}"`;
+}
+
+/** existing NODE_OPTIONS 是否已含该 preload（把翻倍的反斜杠还原后做子串比较）。 */
+function includesRunnerPreload(existing: string | undefined, runnerPreloadPath: string): boolean {
+	if (!existing) return false;
+	return existing.replace(/\\\\/g, "\\").includes(runnerPreloadPath);
+}
+
 /**
  * 沙箱 runner 的 spawn 需要注入 NODE_OPTIONS=--require=<preload>：
  * runner 由 GUI 二进制（electron.exe）拉起、不继承 host 控制台，由 preload
  * （runnerConsolePreload）在 runner 进程内自建隐藏控制台，CreateProcessAsUserW
  * 的子进程继承后不再弹窗。env 缺失时跳过（真实链路 spawnSubprocess 恒带 env）。
+ * 幂等：env 里已有同一 preload（如 installRunnerPreloadEnv 写进 host env 后，
+ * options.env 由 host env 派生）则不重复 append，避免 Node 加载两遍。
  */
 function withRunnerPreload(
 	options: childProcessModule.SpawnOptions | undefined,
@@ -187,15 +354,15 @@ function withRunnerPreload(
 ): childProcessModule.SpawnOptions | undefined {
 	if (options === undefined || options.env === undefined) return options;
 	const existing = options.env.NODE_OPTIONS;
+	if (includesRunnerPreload(existing, runnerPreloadPath)) return options;
 	// Windows 上 Node 解析 NODE_OPTIONS 时按命令行分词、反斜杠当转义符：
 	// `--require="C:\path\a.js"` 会被解析成 `C:patha.js`（MODULE_NOT_FOUND）。
 	// 必须把反斜杠翻倍（`\\` → `\`），否则 runner preload 加载失败、沙箱调用全挂。
-	const preload = `--require="${runnerPreloadPath.replace(/\\/g, "\\\\")}"`;
 	return {
 		...options,
 		env: {
 			...options.env,
-			NODE_OPTIONS: existing ? `${existing} ${preload}` : preload,
+			NODE_OPTIONS: existing ? `${existing} ${runnerPreloadFlag(runnerPreloadPath)}` : runnerPreloadFlag(runnerPreloadPath),
 		},
 	};
 }
@@ -280,6 +447,17 @@ export function installHiddenConsolePatch(
 		options: childProcessModule.SpawnOptions | undefined,
 	): childProcessModule.SpawnOptions | undefined {
 		if (isRunnerSpawn(command, args)) {
+			// 诊断（一次性）：确认沙箱 runner spawn 确实被注入 preload 与
+			// ELECTRON_RUN_AS_NODE。这是「沙箱命令不弹黑窗口」的关键：runner 是 GUI
+			// 进程、不继承 host 控制台，若注入失效（argv 形态变化 / preload 文件缺失），
+			// 沙箱内命令（pwsh/git 等）会新建可见控制台。走 stderr 落主进程日志。
+			if (!runnerPolicyLogged) {
+				runnerPolicyLogged = true;
+				console.error(
+					`[dsh-host-entry] runner spawn policy: hostHiddenConsoleActive=${String(hostHiddenConsoleActive)} ` +
+						`preload=${runnerPreloadPath}`,
+				);
+			}
 			return withRunnerPreload(
 				withRunnerRunAsNode(
 					withPwshStartupEnv(hostHiddenConsoleActive ? options : withHiddenOptions(options), true),
@@ -296,10 +474,19 @@ export function installHiddenConsolePatch(
 	// spawn(command[, args][, options])：options 在第 2 位（无 args）或第 3 位。
 	replaceExport("spawn", ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
 		if (Array.isArray(argsOrOptions)) {
-			// pwsh 挂起兜底：改写 args（追加 exit）与 options（stdin ignore）
+			// pwsh 挂起兜底：改写 args（追加 exit）与 options（stdin ignore）。
+			// 沙箱 runner：-- 尾部的 pwsh -Command 也追加 exit——沙箱内 pwsh 由 ACL
+			// runner 用 CreateProcessAsUserW 直接拉起（绕过 child_process，补丁够不着
+			// 子进程本身），只能在 runner spawn 边界改写 argv，属尽力而为的兜底。
+			// 2026-09-12 进程树复核：沙箱命令挂满 120s 的**主因不是 pwsh**（挂起瞬间
+			// 进程表里没有 pwsh，命令行里的 exit 也已送达），而是 ACL runner 以 GUI
+			// electron.exe 形态运行、事件循环永不退出——见 installRunnerNodeModeEnv。
+			// 注意 stdio 不动：runner 可能用 stdin pipe 向受限命令传数据。
 			const guarded = isPwshCommand(command)
 				? withPwshHangGuard(argsOrOptions, maybeOptions)
-				: { args: argsOrOptions, options: maybeOptions };
+				: isRunnerSpawn(command, argsOrOptions)
+					? { args: withPwshExitAppend(argsOrOptions), options: maybeOptions }
+					: { args: argsOrOptions, options: maybeOptions };
 			const next = resolveSpawnOptions(command, guarded.args, guarded.options);
 			return next === undefined
 				? originals.spawn(command, guarded.args)
@@ -309,12 +496,14 @@ export function installHiddenConsolePatch(
 		return next === undefined ? originals.spawn(command) : originals.spawn(command, next);
 	}) as typeof childProcess.spawn);
 
-	// spawnSync 与 spawn 同形态。
+	// spawnSync 与 spawn 同形态（沙箱探测 spawnSync 也走 runner 分支，argv 改写无害）。
 	replaceExport("spawnSync", ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
 		if (Array.isArray(argsOrOptions)) {
 			const guarded = isPwshCommand(command)
 				? withPwshHangGuard(argsOrOptions, maybeOptions)
-				: { args: argsOrOptions, options: maybeOptions };
+				: isRunnerSpawn(command, argsOrOptions)
+					? { args: withPwshExitAppend(argsOrOptions), options: maybeOptions }
+					: { args: argsOrOptions, options: maybeOptions };
 			const next = resolveSpawnOptions(command, guarded.args, guarded.options);
 			return next === undefined
 				? originals.spawnSync(command, guarded.args)

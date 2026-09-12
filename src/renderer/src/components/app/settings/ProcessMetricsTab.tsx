@@ -1,4 +1,4 @@
-import { Activity, CircleStop, RefreshCw } from "lucide-react";
+import { Activity, CircleStop, Info, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { AgentProcessMetric, ProcessMetricsSnapshot } from "../../../../../shared/types";
 import { DSH_HOST_MONITOR_ID } from "../../../../../shared/types/processMetrics";
@@ -105,6 +105,12 @@ export function ProcessMetricsTab() {
               <div className="text-micro text-muted-foreground">{t("config.process.agentTotal")}</div>
               <div className="mt-1 text-base font-semibold text-foreground">{formatMb(agentTotal)}</div>
             </div>
+          </div>
+
+          {/* 内存口径提示（常驻可见，不靠悬停）：node 直启后监控的是 pi 本体真实内存 */}
+          <div className="flex items-start gap-1.5 text-micro text-muted-foreground">
+            <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
+            <span>{t("config.process.memoryHint")}</span>
           </div>
 
           <div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">

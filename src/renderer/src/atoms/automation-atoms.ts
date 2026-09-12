@@ -28,12 +28,19 @@ export const automationSelectedTaskIdAtom = atom<string | null>(null);
 export const automationIsCreatingTaskAtom = atom<boolean>(false);
 
 /**
- * 所有定义的自动化任务（按更新时间降序）。
+ * 所有定义的自动化任务（按创建时间降序，新建的排在最前）。
+ *
+ * 排序键必须是**创建后不再变化**的字段：早先用 updatedAt 降序，导致任何一次
+ * 开关/编辑（updateTask 会 bump updatedAt）都把该卡片顶到列表首位，用户刚点的
+ * 那张卡换位、另一张卡占回原位，观感就是「我点了一个，结果另一个被点了」。
+ * 定时任务列表是长期停留的看板，顺序稳定比「最近改动优先」重要。
  */
 export const automationTasksAtom = atom<AutomationTaskSummary[]>((get) => {
 	const snapshot = get(automationSnapshotAtom);
 	if (!snapshot) return [];
-	return [...snapshot.tasks].sort((a, b) => b.updatedAt - a.updatedAt);
+	return [...snapshot.tasks].sort(
+		(a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id),
+	);
 });
 
 /**

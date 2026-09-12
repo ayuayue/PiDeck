@@ -292,14 +292,22 @@ export function getProjectAgentSessionDisplay({
 	// DSH agent ↔ DSH 会话配对：pi 按 sessionPath 关联（agent 行替换会话行），
 	// DSH 会话没有文件路径，只能按 dshSessionId 配对——否则激活后侧栏出现
 	// 「agent 行 + 会话行」两个相同标题的重复条目。
+	// 配对键有两把：dshSessionId（主键，attach 回写 catalog 后可用）与
+	// deckSessionId（兜底，agent tab 自带 PiDeck 会话身份）——automation 链路
+	// attach 回写是 fire-and-forget，渲染层快照可能先于 attach 到达，此时
+	// session.dshSessionId 还没落盘，只按 dshSessionId 配对会漏配产生重复条目。
 	const dshAgentBySessionId = new Map<string, AgentTab>();
 	for (const agent of agents) {
 		if (agent.backend === "dsh" && typeof agent.sessionId === "string" && agent.sessionId) {
 			const linked = parentCandidateSessions.find(
-				(session) => session.dshSessionId === agent.sessionId,
+				(session) =>
+					session.dshSessionId === agent.sessionId ||
+					(typeof agent.deckSessionId === "string" && session.id === agent.deckSessionId),
 			);
 			if (linked) {
 				dshAgentBySessionId.set(agent.sessionId, agent);
+				// 同时登记 catalog 会话 id 键，覆盖 dshSessionId 尚未回写的窗口期
+				if (linked.id !== agent.sessionId) dshAgentBySessionId.set(linked.id, agent);
 				continue; // 会话行已存在（unkeyedSessions），不再产生独立 agent 行
 			}
 		}
@@ -405,10 +413,12 @@ export function getProjectAgentSessionDisplay({
 				),
 			})),
 		...unkeyedSessions.map<ProjectChildItem>((session) => {
-			// DSH 会话行带上配对 agent 装饰（状态点/右键菜单走 runtime 查找，这里提供 title 权重等）
-			const pairedAgent = typeof session.dshSessionId === "string"
-				? dshAgentBySessionId.get(session.dshSessionId)
-				: undefined;
+			// DSH 会话行带上配对 agent 装饰（状态点/右键菜单走 runtime 查找，这里提供 title 权重等）；
+			// 双键查询：dshSessionId（attach 已回写）或 catalog 会话 id（dshSessionId 尚未回写窗口期）
+			const pairedAgent =
+				(typeof session.dshSessionId === "string"
+					? dshAgentBySessionId.get(session.dshSessionId)
+					: undefined) ?? dshAgentBySessionId.get(session.id);
 			return {
 				type: "session",
 				key: getSessionRowKey(session),

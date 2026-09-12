@@ -21,11 +21,17 @@ export function showDshRuntimeBlockHint(
 	openSettings: (target: SettingsFocusTarget) => void,
 	state: DshRuntimeState,
 	reason?: string,
+	versions?: { installed?: string; declared?: string },
 ): void {
 	const message =
 		state === "broken"
 			? t("dsh.runtime.sendBroken", { reason: reason ?? "" })
-			: t("dsh.runtime.sendNotInstalled");
+			: state === "outdated"
+				? t("dsh.runtime.sendOutdated", {
+						installed: versions?.installed ?? "",
+						declared: versions?.declared ?? "",
+					})
+				: t("dsh.runtime.sendNotInstalled");
 	showNotice(message, 8000, "info", undefined, {
 		action: {
 			label: t("dsh.runtime.installAction"),

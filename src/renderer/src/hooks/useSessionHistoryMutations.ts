@@ -185,7 +185,11 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
     }
     confirmStopIfRunning(sessionId, {
       title: t("message.historyStopToEditTitle"),
-      message: t("message.historyStopToEditBody"),
+      // 状态相关文案：running（含流式/工具执行）才说「会话正在运行」；
+      // starting/idle（如刚重启完的空闲进程）只说操作本身，避免用户误以为还在处理中。
+      message: latest.isAgentCurrentlyBusy()
+        ? t("message.historyStopToEditBody")
+        : t("message.historyStopToEditBodyIdle"),
       confirmLabel: t("app.stop"),
     }, async () => {
       try {
@@ -223,7 +227,11 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
     const live = latest.isSessionRuntimeLive(sessionId);
     latest.showConfirm({
       title: t("message.deleteTitle"),
-      message: live ? t("message.historyStopToDeleteBody") : t("message.deleteReloadPrompt"),
+      message: live
+        ? (latest.isAgentCurrentlyBusy()
+            ? t("message.historyStopToDeleteBody")
+            : t("message.historyStopToDeleteBodyIdle"))
+        : t("message.deleteReloadPrompt"),
       danger: true,
       confirmLabel: live ? t("app.stop") : t("common.delete"),
       onConfirm: async () => {
@@ -298,7 +306,10 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
     };
     confirmStopIfRunning(sessionId, {
       title: t("message.historyStopToResendTitle"),
-      message: t("message.historyStopToResendBody"),
+      // 同上：仅 running 才报「会话正在运行」，空闲进程用无状态陈述。
+      message: latest.isAgentCurrentlyBusy()
+        ? t("message.historyStopToResendBody")
+        : t("message.historyStopToResendBodyIdle"),
       confirmLabel: t("app.stop"),
     }, run);
   }, [confirmStopIfRunning, failToast, hideOverlay, runFileMutation, showOverlay]);

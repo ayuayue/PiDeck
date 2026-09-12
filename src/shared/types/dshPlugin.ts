@@ -23,12 +23,43 @@ export type DshPluginView = {
 	error?: string;
 };
 
-/** 静态 Loader 条目视图（pluginInventory 的安全 JSON 视图，只读）。 */
+/** 静态 Loader 条目视图（pluginInventory 的安全 JSON 视图）。 */
 export type DshStaticPluginView = {
 	entryId: string;
 	moduleName: string;
 	enabled: boolean;
 	fiberPhase: string | null;
+	/**
+	 * 条目来源：user = $DSH_HOME/cordis.patch.yml 用户补丁层声明（用户自装插件）；
+	 * builtin = dsh base / 随包预设 / PiDeck 自有组合。缺省视为 builtin
+	 * （旧 host 未带该字段时的兼容语义）。
+	 */
+	origin?: "builtin" | "user";
+};
+
+/** 卸载用户自装静态插件的入参（IPC dsh:plugin-user-uninstall）。 */
+export type DshUserPluginUninstallInput = {
+	/** 目标条目（与插件列表行一致）。 */
+	entryId: string;
+	moduleName: string;
+	/** 同时把插件目录移入回收站；仅当目录位于 userData/dsh-plugins 下才生效。 */
+	deleteFiles?: boolean;
+};
+
+/** 卸载用户自装静态插件的结果。 */
+export type DshUserPluginUninstallResult = {
+	/** 是否从 $DSH_HOME/cordis.patch.yml 移除了对应行（卸载的主体动作）。 */
+	rowRemoved: boolean;
+	/** 移除成功时的补丁文件备份路径（同目录 .bak-<时间戳>）。 */
+	backupPath?: string;
+	/** 同时移入回收站的插件目录（deleteFiles 且位于 PiDeck 管理目录时给出）。 */
+	removedPluginDir?: string;
+	/** rowRemoved=false / 删除文件失败时的原因。 */
+	reason?: string;
+	/** 文件删除失败但行已移除时的原因（不影响卸载主体动作）。 */
+	fileError?: string;
+	/** 保留了文件的插件目录（位于管理目录之外时给出，供用户手动删除）。 */
+	keptPluginDir?: string;
 };
 
 /** 安装（define）入参。 */

@@ -111,6 +111,8 @@ export type DshBackendIpcDeps = {
 		description?: string;
 		broken?: string;
 	}>>;
+	/** DSH 删除本地（user）预设（agentPreset.remove）；system 预设由 host 拒绝。 */
+	removeDshAgentPreset?: (id: string) => Promise<void>;
 	/** DSH 部署默认模型选择（settings.yaml agent-default-model）；未装配/不可读时 undefined。 */
 	getDshDefaultModel?: () => Promise<{
 		provider: string;
@@ -256,8 +258,12 @@ export type DshBackendIpcDeps = {
 	deleteArchivedDshSession?: (dshSessionId: string) => Promise<boolean>;
 	/** DSH 动态插件清单（G13 深化）；未装配时返回空列表。 */
 	listDshDynamicPlugins?: () => Promise<import("../../shared/types").DshPluginView[]>;
-	/** DSH 静态 Loader 条目清单（只读）；未装配时返回空列表。 */
+	/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）；未装配时返回空列表。 */
 	listDshStaticPlugins?: () => Promise<import("../../shared/types").DshStaticPluginView[]>;
+	/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录）；未装配时抛错。 */
+	uninstallDshUserPlugin?: (
+		input: import("../../shared/types").DshUserPluginUninstallInput,
+	) => Promise<import("../../shared/types").DshUserPluginUninstallResult>;
 	/** DSH 动态插件安装（define）；未装配时抛错。 */
 	installDshPlugin?: (input: import("../../shared/types").DshPluginInstallInput) => Promise<unknown>;
 	/** DSH 动态插件运行（面板手势）；未装配时抛错。 */
@@ -405,6 +411,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		discoverDshModels,
 		listDshProviders,
 		listDshAgentPresets,
+		removeDshAgentPreset,
 		getDshDefaultModel,
 		getDshStatus,
 		getDshRuntimeStatus,
@@ -442,6 +449,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		deleteArchivedDshSession,
 		listDshDynamicPlugins,
 		listDshStaticPlugins,
+		uninstallDshUserPlugin,
 		installDshPlugin,
 		runDshPlugin,
 		stopDshPlugin,
@@ -579,6 +587,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// dsh 会话——渲染层已按安装态隐藏入口，这里是边界防御（设置残留 dsh /
 			// 渲染层旧版本）。既有 dsh 会话不受影响（打开/发送走运行时链路，不在此处）。
 			if (input.backend === "dsh" && canCreateDshSession?.() !== true) {
+				// outdated（版本不一致）单独给文案：不是「没装」，是装了但不配套，
+				// 用户需要的是重装而不是困惑于「明明装了却说未安装」。
+				if (getDshRuntimeStatus?.().state === "outdated") {
+					throw new Error(mainCopy("session.dshRuntimeOutdated"));
+				}
 				throw new Error(mainCopy("session.dshRuntimeNotInstalled"));
 			}
 			// Auto-fill model / thinkingLevel from pi config when the caller hasn't
@@ -684,6 +697,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		async (_event, input: CreateAnonymousSessionInput) => {
 			// 与 createDraft 同一 DSH runtime 门控：匿名会话同样不能落在不可用后端上。
 			if (input.backend === "dsh" && canCreateDshSession?.() !== true) {
+				if (getDshRuntimeStatus?.().state === "outdated") {
+					throw new Error(mainCopy("session.dshRuntimeOutdated"));
+				}
 				throw new Error(mainCopy("session.dshRuntimeNotInstalled"));
 			}
 			const result = await createAnonymousSession(input);
@@ -1326,6 +1342,32 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			return listDshStaticPlugins();
 		},
 	);
+	// DSH 用户自装静态插件卸载：从 $DSH_HOME/cordis.patch.yml 移除行（+可选回收插件目录）。
+	// 目标校验在 DshHost 侧（行必须真的来自用户补丁层，内置条目拒绝）；这里只做形状检查。
+	ipcMain.handle(
+		ipcChannels.dshPluginUserUninstall,
+		async (
+			_event,
+			input: unknown,
+		): Promise<import("../../shared/types").DshUserPluginUninstallResult> => {
+			if (typeof input !== "object" || input === null) {
+				throw new Error("invalid user plugin uninstall payload");
+			}
+			const record = input as Record<string, unknown>;
+			if (
+				typeof record.entryId !== "string" || !record.entryId ||
+				typeof record.moduleName !== "string" || !record.moduleName
+			) {
+				throw new Error("invalid user plugin uninstall payload");
+			}
+			if (!uninstallDshUserPlugin) throw new Error("DSH user plugin uninstall is not available");
+			return uninstallDshUserPlugin({
+				entryId: record.entryId,
+				moduleName: record.moduleName,
+				deleteFiles: record.deleteFiles === true,
+			});
+		},
+	);
 	ipcMain.handle(
 		ipcChannels.dshPluginInstall,
 		async (_event, input: unknown): Promise<unknown> => {
@@ -1608,6 +1650,16 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		ipcChannels.dshAgentPresets,
 		async () => (listDshAgentPresets ? listDshAgentPresets() : []),
 	);
+	// 预设删除：边界校验 id（非空字符串、去首尾空白）；system 预设由 host 侧拒绝并回传结构化错误。
+	ipcMain.handle(
+		ipcChannels.dshAgentPresetRemove,
+		async (_event, id: string) => {
+			const presetId = typeof id === "string" ? id.trim() : "";
+			if (!presetId) throw new Error("Invalid DSH agent preset id");
+			if (!removeDshAgentPreset) throw new Error("DSH agent presets are not available");
+			await removeDshAgentPreset(presetId);
+		},
+	);
 	ipcMain.handle(
 		ipcChannels.dshDefaultModel,
 		async () => (getDshDefaultModel ? getDshDefaultModel() : undefined),
@@ -1744,7 +1796,13 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				// higher generation state event clears old runtime UI without deleting
 				// the transient SessionRecord from the renderer.
 				if (!result.value.session.noSession) emitSessionRuntimeDetach(target);
-				emitReplacementState(result.value.runtime, false);
+				// 必须重下发消息窗口（含状态）：新 runtime 加载历史后的首次 flush 发生在
+				// 绑定提交之前，emitSessionRuntimeEvent 的 getRuntimeBinding 会把它静默丢弃——
+				// 若这里只补状态，渲染层会一直保留旧 runtime 的窗口/live 身份，
+				// 重启后编辑/删除/重发会定位失败（MESSAGE_NOT_FOUND，2026-09 用户反馈）。
+				// id 稳定性由 loadMessages 的会话级身份延续保证（stabilizeProjectedIdsFromIdentities），
+				// 重下发不会触发整窗 remount/动画重放。
+				emitReplacementState(result.value.runtime, true);
 			}
 			return result;
 		},

@@ -38,6 +38,16 @@ type MorphContextValue = {
 
 const MorphContext = createContext<MorphContextValue | null>(null);
 
+/**
+ * 外部点击豁免标记：面板内的入口若打开自己的 portal 浮层（如「关于」→ 更新日志弹窗，
+ * 它 portal 到 body，与 popover 的 root/contentRef 是兄弟节点），把该标记加到那个
+ * portal 根的容器上，外部点击判定就会跳过这次 pointerdown，popover 保持打开。
+ *
+ * 用 DOM 标记而非「浮层是否打开」的 React 状态：Radix 的 pointerdown-outside 判定
+ * 与 React 状态提交存在时序交错，标记在退场动画期间仍挂着，识别更稳定。
+ */
+export const POPOVER_DISMISS_EXEMPT_ATTR = "data-popover-dismiss-exempt";
+
 function useMorphContext(component: string) {
   const ctx = useContext(MorphContext);
   if (!ctx) throw new Error(`${component} must be used within <MorphPopover>`);
@@ -117,12 +127,18 @@ export function MorphPopover({
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
     const onPointer = (e: PointerEvent) => {
       const target = e.target as Node;
-      if (
-        root &&
-        !root.contains(target) &&
-        !contentRef.current?.contains(target)
-      )
+      if (root && !root.contains(target) && !contentRef.current?.contains(target)) {
+        // 面板内的入口可以打开自己的浮层（如「关于」里的更新日志弹窗），那类浮层
+        // portal 到 body，与 root/contentRef 都是兄弟节点，于是点它会被误判成
+        // 「点了弹框外部」。用 portal 根的 DOM 标记豁免：标记在退场动画期间仍在，
+        // 比「浮层是否打开」的状态更可靠（pointerdown 早于状态提交）。
+        if (
+          target instanceof Element &&
+          target.closest(`[${POPOVER_DISMISS_EXEMPT_ATTR}]`)
+        )
+          return;
         close();
+      }
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onPointer);

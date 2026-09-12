@@ -15,7 +15,12 @@ import type {
 import type { PiLocator } from "../pi/PiLocator";
 import { toWslLinuxPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
-import { BUILT_IN_EXTENSIONS, resolveBuiltInExtensionPath, type BuiltInExtensionPathRoots } from "./builtInExtensions";
+import {
+	BUILT_IN_EXTENSIONS,
+	readEffectiveBuiltInExtensionsVersion,
+	resolveBuiltInExtensionPath,
+	type BuiltInExtensionPathRoots,
+} from "./builtInExtensions";
 import { MIN_PI_MINOR_VERSION_FOR_EXTENSION_WHITELIST, parsePiMinorVersion } from "./extensionVersionGate";
 // 版本比较与应用更新检查共用同一实现（含预发布语义：beta < 同号正式版）。
 import { compareVersions } from "../utils/versionCompare";
@@ -197,9 +202,16 @@ export class ExtensionManager {
 				(entry) => `${entry.scope}:${entry.source}`,
 			),
 		);
+		// 内置扩展版本：包级版本号（extensions-manifest.json，不跟 PiDeck 应用版本走），
+		// 覆盖层（热更新）优先。逐行写入而非只在补齐分支赋值——内置条目可能来自
+		// pi list、本地目录扫描、兜底补齐三条路径，版本只认「当前生效的那一份」。
+		const builtInVersion = this.builtInRoots
+			? readEffectiveBuiltInExtensionsVersion(this.builtInRoots)
+			: null;
 		for (const ext of merged) {
 			if (ext.builtIn) {
 				ext.enabled = !removedBuiltIn.has(ext.source);
+				if (builtInVersion) ext.currentVersion = builtInVersion;
 			} else {
 				ext.enabled = !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
 			}

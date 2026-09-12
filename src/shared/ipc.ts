@@ -188,8 +188,10 @@ export const ipcChannels = {
 	automationChanged: "automation:changed",
 	/** DSH 动态插件清单（G13 深化：进程内临时扩展，重启即失；按会话归属）。 */
 	dshPluginList: "dsh:plugin-list",
-	/** DSH 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+	/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）。 */
 	dshPluginStaticList: "dsh:plugin-static-list",
+	/** DSH 用户自装静态插件卸载（从 $DSH_HOME/cordis.patch.yml 移除行，可选回收插件目录）。 */
+	dshPluginUserUninstall: "dsh:plugin-user-uninstall",
 	/** DSH 动态插件安装（define：定义源码包，不运行）。 */
 	dshPluginInstall: "dsh:plugin-install",
 	/** DSH 动态插件运行（面板手势，requestId=null 无需审批）。 */
@@ -226,6 +228,8 @@ export const ipcChannels = {
 	dshCredentialRead: "dsh:credential-read",
 	/** DSH agent 预设目录（agentPreset.list：id/trust/isDefault/名称/描述）。 */
 	dshAgentPresets: "dsh:agent-presets",
+	/** DSH 删除本地（user）预设（agentPreset.remove；host 拒绝 system 预设）。 */
+	dshAgentPresetRemove: "dsh:agent-preset-remove",
 	/** DSH 部署默认模型选择（settings.yaml agent-default-model：provider/model/reasoningEffort）。 */
 	dshDefaultModel: "dsh:default-model",
 	/** DSH runtime 安装态查询（AgentRuntimeProvider 阶段 1：installed/notInstalled/broken 门控 UI）。 */
@@ -296,6 +300,18 @@ export const ipcChannels = {
 	extensionsUpdate: "extensions:update",
 	extensionsUpdateOne: "extensions:update-one",
 	extensionsCatalog: "extensions:catalog",
+	/** 内置扩展热更新：查询内置/覆盖层版本状态（不联网） */
+	extensionsBuiltInUpdateStatus: "extensions:builtin-update-status",
+	/** 内置扩展热更新：检查 AtomGit/GitHub 远端清单是否有更新（联网，逐文件 sha256 比对） */
+	extensionsBuiltInUpdateCheck: "extensions:builtin-update-check",
+	/** 内置扩展热更新：拉取远端最新版写入 userData 覆盖层（重启会话生效） */
+	extensionsBuiltInUpdateApply: "extensions:builtin-update-apply",
+	/** 内置扩展热更新：还原为随包分发的内置版本（当前覆盖层转 .bak） */
+	extensionsBuiltInUpdateRestore: "extensions:builtin-update-restore",
+	/** 内置扩展热更新：恢复上一个覆盖版（.bak 校验通过才写回） */
+	extensionsBuiltInUpdateRestorePrevious: "extensions:builtin-update-restore-previous",
+	/** 内置扩展热更新：打开当前生效的扩展目录 */
+	extensionsBuiltInOpenDir: "extensions:builtin-open-dir",
 	/** 扫描项目目录内的独立 Git 仓库（根 + 嵌套），供侧栏切换 */
 	gitListRepos: "git:list-repos",
 	gitBranches: "git:branches",
@@ -374,6 +390,8 @@ export const ipcChannels = {
 	/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
 	appFeedbackProjectContext: "app:feedback-project-context",
 	appOpenExternal: "app:open-external",
+	/** 拉取 CHANGELOG 正文（atomgit 优先，GitHub 回退；失败时 markdown=null 由 UI 降级打开浏览器）。 */
+	appGetChangelog: "app:get-changelog",
 	appOpenInBrowser: "app:open-in-browser",
 	appRestart: "app:restart",
 	/** 真正退出应用（置 isQuitting 后 app.quit）。异常页不能走 window-close：closeToTray 会把关窗吞成隐藏。 */
@@ -476,6 +494,9 @@ export const ipcChannels = {
 	/** 只读返回 pi 全局配置目录（渲染层展示源文件实际编辑位置）。 */
 	configGetDir: "config:get-dir",
 	configSaveModels: "config:save-models",
+	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成后推送；
+	 *  保存动作本身即时返回（解析刚写入的配置），渲染层仅在该事件失败时提示。 */
+	configModelsVerifyResult: "config:models-verify-result",
 	configSaveAuth: "config:save-auth",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",

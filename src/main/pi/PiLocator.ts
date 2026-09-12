@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { delimiter, dirname, extname, join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { app } from "electron";
 import type { AppSettings, PiInstallStatus } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
@@ -31,6 +31,20 @@ type WslCommandCacheEntry = {
 
 const wslCommandCache = new Map<string, WslCommandCacheEntry>();
 const wslCommandInflight = new Map<string, Promise<string | null>>();
+
+/**
+ * 各启动通道下单条命令行的安全字符预算，供技能/提示词白名单这类 O(N) 参数注入做兜底。
+ *
+ * 按通道分别取值而不是统一取最坏值：Windows 上 npm/pnpm 装的 `.cmd` 垫片已被
+ * resolveWindowsCmdShim 还原成 node 直启，绝大多数用户走的是 32767 那条通道；
+ * 用 8191 的预算去卡他们，会在技能数刚过百时就无谓地关掉「禁用技能」功能。
+ */
+/** CreateProcess lpCommandLine 上限 32767；扣除 pi 启动 base 参数（最坏 2k~3k）后取 26000。 */
+export const CREATE_PROCESS_ARG_CHAR_BUDGET = 26000;
+/** cmd.exe /d /s /c 命令行上限 8191；扣除 base 与引号膨胀余量后取 5000。 */
+export const CMD_EXE_ARG_CHAR_BUDGET = 5000;
+/** 非 Windows 走 execve，受系统 ARG_MAX 限制（Linux ≥2MB / macOS ≥1MB），实际等同于不限制。 */
+export const UNLIMITED_ARG_CHAR_BUDGET = 1_000_000;
 
 function wslCommandCacheKey(distro: string, user: string): string {
   return `${distro}\0${user}`;
@@ -335,6 +349,28 @@ export class PiLocator {
       return { command, args, shell: false, pathPrefix: this.getCommandBinDir(command) };
     }
 
+    // Windows：npm/pnpm 的 pi 是 .cmd 垫片，内容只是把参数转发给
+    // "<垫片目录>\node_modules\...\<entry>.js"。经 cmd.exe /c 启动有三个硬伤：
+    //   1) cmd 命令行上限 8191 字符（CreateProcess 是 32767）——技能白名单逐条 --skill
+    //      注入时，技能多的用户命令行直接超长，pi 根本起不来；
+    //   2) cmd 会在参数里展开 %VAR%，路径含 %XX% 会被静默改写，加双引号也挡不住；
+    //   3) 进程树多一层 cmd.exe，stop()/kill() 只终止 cmd，真正的 pi(node) 变成孤儿
+    //      继续跑（占内存、锁会话文件），进程监控取到的 pid 也是 cmd 而非 pi。
+    // 还原出 node + JS 入口即可同时消除这三点：参数由 spawn 按 CreateProcess 规则转义，
+    // 不再需要手工维护 cmd 引号。垫片形态不符预期时返回 null，回退下面的 cmd 路径。
+    const shimEntry = this.resolveWindowsCmdShim(command);
+    if (shimEntry) {
+      const siblingNode = join(dirname(command), "node.exe");
+      return {
+        // 与垫片自身的 `IF EXIST "%dp0%\node.exe"` 分支等价：优先用与 pi 同目录的 node，
+        // 避免 PATH 里另一个 node 版本被误用。
+        command: existsSync(siblingNode) ? siblingNode : "node.exe",
+        args: [shimEntry, ...args],
+        shell: false,
+        pathPrefix: this.getCommandBinDir(command),
+      };
+    }
+
     // Windows 仅支持 .cmd/.exe/裸命令，不再走 PowerShell .ps1。
     // npm/yarn/pnpm 生成的 pi.ps1 与 pi.cmd 指向同一个包入口，但 PowerShell 的执行策略、编码和引号规则更复杂；
     // 对桌面端来说，统一使用 cmd shim 能减少检测与 agent 启动路径差异。
@@ -354,6 +390,31 @@ export class PiLocator {
       // 若让 Node 再转义一次，`D:\\foo bar\\pi.cmd` 会变成 cmd 无法识别的路径。
       windowsVerbatimArguments: true,
     };
+  }
+
+  /**
+   * 估算以 command 启动 pi 时，单条命令行可用的参数字符预算。
+   *
+   * 调用方（PiProcess 的技能/提示词白名单注入）据此判断 O(N) 参数是否会撑爆命令行——
+   * 各通道上限差 4 倍，必须按实际启动方式取，不能用统一的最坏值：
+   * - 非 Windows：execve 启动，上限是系统 ARG_MAX（Linux ≥2MB / macOS ≥1MB），实际不限制。
+   * - Windows 且不走 cmd.exe（wsl.exe / node 直启 / 直接跑 .js）：CreateProcess，上限 32767。
+   * - Windows 且走 cmd.exe（原生 exe / 裸命令名 / 垫片形态不符预期）：命令行被塞进
+   *   `cmd.exe /d /s /c "<整条命令行>"`，上限坍缩到 8191。
+   *
+   * 判定分支与 createInvocation 严格对齐；不一致会让预算与实际通道脱节，
+   * 要么误拦（预算偏小）要么撑爆（预算偏大）。
+   */
+  resolveArgCharBudget(command: string): number {
+    if (process.platform !== "win32") return UNLIMITED_ARG_CHAR_BUDGET;
+    // wsl.exe 与 node.exe 同样由 CreateProcess 拉起，受同一 32767 约束。
+    if (command.startsWith("wsl://")) return CREATE_PROCESS_ARG_CHAR_BUDGET;
+    if (/\.(?:m?js|cjs)$/i.test(command) && existsSync(command)) {
+      return CREATE_PROCESS_ARG_CHAR_BUDGET;
+    }
+    return this.resolveWindowsCmdShim(command)
+      ? CREATE_PROCESS_ARG_CHAR_BUDGET
+      : CMD_EXE_ARG_CHAR_BUDGET;
   }
 
   private applyPiProxyEnv(
@@ -803,6 +864,38 @@ export class PiLocator {
       return cleaned.slice(0, 100) + '…';
     }
     return cleaned;
+  }
+
+  /**
+   * 解析 Windows npm/pnpm 生成的 .cmd 垫片，取出真实 JS 入口路径（配合 node 直启）。
+   *
+   * npm 垫片最后一行形如：
+   *   endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\<pkg>\...\cli.js" %*
+   * pnpm 及部分工具的垫片用 `%~dp0`。两种前缀都识别，但只接受落在
+   * `<垫片目录>\node_modules\` 内、且真实存在的 .js/.mjs/.cjs 入口：
+   * 垫片来自用户磁盘，属于不可信输入，路径被改写时必须拒绝而非盲从。
+   * 形态不符（自建包装脚本、非 node 入口、入口文件缺失）返回 null，由调用方回退 cmd 路径。
+   */
+  private resolveWindowsCmdShim(shimPath: string): string | null {
+    if (!/\.cmd$/i.test(shimPath) || !existsSync(shimPath)) return null;
+    let content: string;
+    try {
+      content = readFileSync(shimPath, "utf8");
+    } catch {
+      return null;
+    }
+    // %dp0% / %~dp0% 之后紧跟 `\<node_modules 相对路径>`；`\\(` 中的反斜杠是字面量，
+    // 其后的 `(` 即捕获组起点，整段相对路径由该组取回。
+    const match = content.match(/%~?dp0%?\\(node_modules[\\/][^"%\r\n]+\.(?:m?js|cjs))/i);
+    if (!match) return null;
+    // 垫片内一律是 Windows 反斜杠；归一成 `/` 使 path.resolve 在 POSIX 宿主上也能正确拼接
+    // （测试会以 Linux/macOS 宿主模拟 win32 跑这条分支）。
+    const baseDir = dirname(shimPath);
+    const entry = resolve(baseDir, match[1].replace(/\\/g, "/"));
+    // 逃逸检查：解析结果必须仍在垫片目录内，挡住 `..\..\` 形态的路径改写。
+    const rel = relative(baseDir, entry);
+    if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
+    return existsSync(entry) ? entry : null;
   }
 
   private quoteCmdArgument(value: string) {

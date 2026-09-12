@@ -396,13 +396,50 @@ test("model list report channel: manual refresh reruns list models with failure 
 test("save models verification excludes config-fallback (empty name proven via local read)", () => {
 	// 保存后验证不能把 config-fallback 当成“pi 已加载模型”：CLI 空时回退本地 models.json
 	// 会把空 name 自动补成 `${provider}/${id}`，看似列表非空实则是假绿灯。
+	// （2026-09 保存链路重构：fork pi 的验证移到后台 verifyModelsAfterSave，即时反馈
+	// 改为解析刚写入的 models.json；config-fallback 排除规则不变，只是搬了位置。）
 	assert.match(systemIpc, /report\.source !== "config-fallback"/);
-	assert.match(systemIpc, /modelLoadReason = "config-fallback"/);
+	assert.match(
+		systemIpc,
+		/report\.source === "config-fallback" \? "config-fallback" : report\.reason/,
+	);
 	// 归一化侧同步根治：空 name 在写盘前被剥离，不再产出非法 models.json。
 	assert.match(
 		readFileSync("src/main/config/ConfigManager.ts", "utf8"),
 		/normalized\.name\.length === 0/,
 	);
+});
+
+test("save models returns instantly (no pi fork on the save path) and verifies in background", () => {
+	// 保存 handler 必须即时返回：fork 真实 pi 的验证（本机实测 ~17-21s）不允许
+	// 阻塞保存动作。即时反馈 = modelsFromPiConfig 解析刚写入的配置（纯函数，0 fork）；
+	// 完整验证在 verifyModelsAfterSave 里后台跑完，经 config:models-verify-result 推送。
+	const handlerStart = systemIpc.indexOf("ipcChannels.configSaveModels");
+	const handlerEnd = systemIpc.indexOf("ipcChannels.configSaveAuth", handlerStart);
+	assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, "save handlers must exist");
+	const handler = systemIpc.slice(handlerStart, handlerEnd);
+	assert.match(handler, /modelsFromPiConfig\(data\)/);
+	assert.doesNotMatch(handler, /resolveModelListReport/);
+	// 后台验证单独成函数：走 force 报告 + retryOnEmpty:false（刚保存完环境是热的，
+	// CLI 空表是真实信号，重试只会多 fork 一次），失败才推送渲染层。
+	const verifyStart = systemIpc.indexOf("const verifyModelsAfterSave");
+	assert.ok(verifyStart >= 0, "background verify function must exist");
+	// 函数体内有多个 `};`，截到下一个 ipcMain.handle 注册处保证覆盖整个函数体。
+	const handleAfterVerify = systemIpc.indexOf("ipcMain.handle(", verifyStart);
+	assert.ok(handleAfterVerify > verifyStart);
+	const verify = systemIpc.slice(verifyStart, handleAfterVerify);
+	assert.match(verify, /resolveModelListReport\(piLocator, settingsStore, configManager, true, \{ retryOnEmpty: false \}\)/);
+	assert.match(verify, /configModelsVerifyResult/);
+	// 成功静默：只有失败才发事件，避免每次保存都弹 toast。
+	assert.match(verify, /if \(!payload\.ok\)/);
+	// 通道集中定义 + preload 暴露订阅（返回 unsubscribe）。
+	assert.match(
+		readFileSync("src/shared/ipc.ts", "utf8"),
+		/configModelsVerifyResult: "config:models-verify-result"/,
+	);
+	const preloadSource = preload;
+	assert.match(preloadSource, /onModelsVerifyResult: \(callback: \(payload: ModelsVerifyResult\) => void\) =>/);
+	assert.match(preloadSource, /subscribe<ModelsVerifyResult>\(ipcChannels\.configModelsVerifyResult, callback\)/);
 });
 
 test("model picker wires manual refresh + failure guide", () => {
