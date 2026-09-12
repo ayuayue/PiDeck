@@ -272,6 +272,11 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 		getHomeDir() {
 			return "C:\\fake-dsh-home";
 		},
+		/** 冷读会话 cursor（0.1.5 session/page 的 throughSeq 来源）：夹具按日志长度模拟。 */
+		async readSessionCursor(sessionId) {
+			const log = historyBySession.get(sessionId) ?? [];
+			return log.length - 1;
+		},
 		/** 模拟 host 进程退出（崩溃）：置位 + 中断在途 mux，同 DshHost 的 exit → abortAllPending 联动。 */
 		triggerExit() {
 			hostState.running = false;
@@ -317,6 +322,11 @@ function makeColdStartHost() {
 		async resolveWorkspaceId(cwd) {
 			await this.ensureStarted();
 			return inner.host.resolveWorkspaceId(cwd);
+		},
+		/** 冷读 cursor 与桥同步：真实 DshHost.bridgeRpc 先 ensureStarted，冷启动下同样要等。 */
+		async readSessionCursor(sessionId) {
+			await this.ensureStarted();
+			return inner.host.readSessionCursor(sessionId);
 		},
 	};
 	// 冷启动 host 必须最后展开：inner 里也带 host 键（fake host，getClient 恒返回 client），

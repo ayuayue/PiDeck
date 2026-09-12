@@ -38,10 +38,9 @@ type LoadState =
  *
  * ## 与外层 MorphPopover 的关系（「关于」入口）
  *
- * 「关于」弹框的外点判定（popover-morph 的 window pointerdown）按 root/contentRef
- * 判内外，而本弹窗 portal 到 body，两者是兄弟节点。为了不让「点开更新日志」被
- * 误判成「点了关于弹框外部」，「关于」那处给本组件传 dismissExemptOnOutside，
- * 由 DialogContent 把豁免标记挂到 portal 根上，popover-morph 侧据此跳过这次外点判定。
+ * 「关于」面板内的「更新日志」入口打开本弹窗时会同时收起面板（AboutPopover 受控
+ * MorphPopover），二者不同时存活，因此该入口不再需要 dismissExemptOnOutside。
+ * 本 prop 仍保留：仅当入口本身位于另一个自带外点关闭、且保持打开的浮层内部时开启。
  */
 export function ChangelogDialog(props: {
 	open: boolean;

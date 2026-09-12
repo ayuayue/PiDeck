@@ -62,6 +62,8 @@ export type AutomationRunCoordinatorDeps = {
 	gitService?: GitService;
 	logger?: AppLogger;
 	notifyRunFinished?: (run: AutomationRun, task: AutomationTask) => void;
+	/** catalog 变更后向渲染层广播（sessionsCatalogRefreshed），让侧栏静默重拉新会话。 */
+	notifySessionCatalogChanged?: (projectId: string) => void;
 };
 
 /**
@@ -76,6 +78,7 @@ export class AutomationRunCoordinator {
 	private readonly gitService?: GitService;
 	private readonly logger?: AppLogger;
 	private readonly notifyRunFinished?: (run: AutomationRun, task: AutomationTask) => void;
+	private readonly notifySessionCatalogChanged?: (projectId: string) => void;
 
 	private activeTrackers = new Map<string, ActiveRunTracker>();
 	/**
@@ -93,6 +96,7 @@ export class AutomationRunCoordinator {
 		this.gitService = deps.gitService;
 		this.logger = deps.logger;
 		this.notifyRunFinished = deps.notifyRunFinished;
+		this.notifySessionCatalogChanged = deps.notifySessionCatalogChanged;
 	}
 
 	async enqueueRun(
@@ -266,6 +270,9 @@ export class AutomationRunCoordinator {
 		}
 
 		const sessionId = sessionDraft.id;
+		// 新 draft 已落 catalog：广播刷新让侧栏立即出现会话行（catalog 无内部广播机制，
+		// 不广播的话渲染层要等下一次交互才会拉到，且期间 DSH agent 行会先落成孤儿条目）。
+		this.notifySessionCatalogChanged?.(project.id);
 		await this.store.updateRun(runId, {
 			sessionId,
 			updatedAt: Date.now(),
@@ -321,6 +328,9 @@ export class AutomationRunCoordinator {
 					agentId: result.agentId,
 					runtimeGeneration: result.runtimeGeneration,
 				};
+				// dispatch 已接受、attachRuntime 在 sendOnce 内异步回写 dshSessionId：
+				// 再广播一次，让渲染层重拉到 promoteToActive 后的会话状态。
+				this.notifySessionCatalogChanged?.(project.id);
 				await this.store.updateRun(runId, {
 					status: "running",
 					agentId: result.agentId,
@@ -332,6 +342,7 @@ export class AutomationRunCoordinator {
 				const target = this.sessionRuntimeCoordinator.getTarget(sessionId);
 				if (target) {
 					tracker.target = target;
+					this.notifySessionCatalogChanged?.(project.id);
 					await this.store.updateRun(runId, {
 						status: "running",
 						agentId: target.agentId,

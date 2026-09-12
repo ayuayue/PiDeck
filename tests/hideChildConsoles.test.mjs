@@ -8,13 +8,13 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
 
-const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole } = loadTsCommonJs(
+const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole, getHiddenConsoleMode } = loadTsCommonJs(
 	"src/main/dsh/hideChildConsoles.ts",
 );
 
 /** 构造假 koffi：getResults 依次返回 GetConsoleWindow 结果（单元素则恒定返回）。 */
-function makeFfi({ getResults = [0], allocResult = 1 } = {}) {
-	const calls = { load: [], getConsoleWindow: [], allocConsole: 0, showWindow: [] };
+function makeFfi({ getResults = [0], allocResult = 1, lastErrorResult } = {}) {
+	const calls = { load: [], getConsoleWindow: [], allocConsole: 0, showWindow: [], lastError: 0 };
 	const koffi = {
 		load(name) {
 			calls.load.push(name);
@@ -31,6 +31,12 @@ function makeFfi({ getResults = [0], allocResult = 1 } = {}) {
 						return () => {
 							calls.allocConsole += 1;
 							return allocResult;
+						};
+					}
+					if (signature.includes("GetLastError")) {
+						return () => {
+							calls.lastError += 1;
+							return lastErrorResult ?? 0;
 						};
 					}
 					if (signature.includes("ShowWindow")) {
@@ -61,6 +67,7 @@ test("hiddenConsoleOptions：未指定 windowsHide 时注入 true，已指定则
 test("installHostHiddenConsole：非 win32 不分配、不触碰 ffi", () => {
 	const { koffi, calls } = makeFfi();
 	assert.equal(installHostHiddenConsole("linux", koffi), false);
+	assert.equal(getHiddenConsoleMode(), "off");
 	assert.equal(calls.load.length, 0);
 	assert.equal(calls.allocConsole, 0);
 });
@@ -68,6 +75,7 @@ test("installHostHiddenConsole：非 win32 不分配、不触碰 ffi", () => {
 test("installHostHiddenConsole：win32 无控制台时 AllocConsole + ShowWindow(SW_HIDE)", () => {
 	const { koffi, calls } = makeFfi({ getResults: [0, 0xabc], allocResult: 1 });
 	assert.equal(installHostHiddenConsole("win32", koffi), true);
+	assert.equal(getHiddenConsoleMode(), "allocated");
 	assert.deepEqual(calls.load, ["kernel32.dll", "user32.dll"]);
 	assert.equal(calls.allocConsole, 1);
 	assert.deepEqual(calls.showWindow, [[0xabc, 0]], "SW_HIDE = 0");
@@ -76,6 +84,7 @@ test("installHostHiddenConsole：win32 无控制台时 AllocConsole + ShowWindow
 test("installHostHiddenConsole：已有控制台时不再分配（视为成功）", () => {
 	const { koffi, calls } = makeFfi({ getResults: [0xabc], allocResult: 1 });
 	assert.equal(installHostHiddenConsole("win32", koffi), true);
+	assert.equal(getHiddenConsoleMode(), "inherited-windowed");
 	assert.equal(calls.allocConsole, 0);
 	assert.equal(calls.showWindow.length, 0);
 });
@@ -108,9 +117,40 @@ test("installHostHiddenConsole：AllocConsole 后句柄尚未就绪仍轮询隐�
 });
 
 test("installHostHiddenConsole：AllocConsole 失败返回 false（触发 windowsHide 兜底）", () => {
-	const { koffi, calls } = makeFfi({ getResults: [0], allocResult: 0 });
+	const { koffi, calls } = makeFfi({ getResults: [0], allocResult: 0, lastErrorResult: 6 });
 	assert.equal(installHostHiddenConsole("win32", koffi), false);
+	assert.equal(getHiddenConsoleMode(), "failed");
 	assert.equal(calls.allocConsole, 1);
+});
+
+test("installHostHiddenConsole：AllocConsole 失败但 GetLastError=5（ConPTY/已附带控制台）→ 视为成功", () => {
+	// 2026-09 实测：Windows Terminal/VS Code 等 ConPTY 终端起到的进程，GetConsoleWindow
+	// 为 NULL 但已附带控制台（GetConsoleCP 非 0），AllocConsole 以 ERROR_ACCESS_DENIED(5)
+	// 失败。误判成「分配失败」会退回 windowsHide 注入，孙进程反而弹出可见黑窗口。
+	const { koffi, calls } = makeFfi({ getResults: [0], allocResult: 0, lastErrorResult: 5 });
+	assert.equal(installHostHiddenConsole("win32", koffi), true);
+	assert.equal(getHiddenConsoleMode(), "inherited-windowless");
+	assert.equal(calls.allocConsole, 1);
+	assert.equal(calls.showWindow.length, 0, "无窗口可隐藏，继承即可");
+	assert.equal(calls.lastError, 1, "GetLastError 必须在紧跟的语句取到");
+});
+
+test("installHostHiddenConsole：GetLastError 不可用（老 ffi 替身）时维持旧兜底", () => {
+	// 假 koffi 未提供 GetLastError：func() 抛异常 → lastError=undefined → 按旧行为返回 false。
+	const koffiWithNoLastError = {
+		load() {
+			return {
+				func(signature) {
+					if (signature.includes("GetConsoleWindow")) return () => 0;
+					if (signature.includes("AllocConsole")) return () => 0;
+					if (signature.includes("ShowWindow")) return () => 1;
+					throw new Error(`unexpected func signature: ${signature}`);
+				},
+			};
+		},
+	};
+	assert.equal(installHostHiddenConsole("win32", koffiWithNoLastError), false);
+	assert.equal(getHiddenConsoleMode(), "failed");
 });
 
 test("installHostHiddenConsole：ffi 加载异常静默返回 false", () => {
@@ -368,6 +408,59 @@ test("runner spawn：强制注入 ELECTRON_RUN_AS_NODE=1（挂起根治：缺它
 	assert.equal(calls[0][2].env.NODE_OPTIONS, '--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"', "preload 注入不受影响");
 	assert.equal(calls[1][2].env.ELECTRON_RUN_AS_NODE, undefined, "非 runner 不注入");
 	assert.equal(calls[2][2].env.ELECTRON_RUN_AS_NODE, "1", "env 已有值时保持 1（幂等）");
+});
+
+test("runner spawn：-- 尾部 pwsh -Command 追加 exit（沙箱内 pwsh 不退出止血），stdio 不动", () => {
+	// 2026-09-12 automation 实测：沙箱内 pwsh（runner 用 CreateProcessAsUserW 拉起，
+	// 补丁够不着子进程）输出完成后不退出，4/4 挂满 120s 工具超时——在 runner spawn
+	// 边界改写 -- 尾部的 -Command 参数追加 exit。stdio 不能动：runner 可能用 stdin
+	// pipe 向受限命令传数据。
+	installHostHiddenConsole("win32", makeFfi({ getResults: [0, 0xabc] }).koffi);
+	const originalSpawn = childProcess.spawn;
+	const calls = [];
+	childProcess.spawn = (...args) => {
+		calls.push(args);
+		return {};
+	};
+	const restore = installHiddenConsolePatch("win32", "C:\\app\\out\\main\\runnerConsolePreload.js");
+	try {
+		childProcess.spawn(
+			"C:\\app\\electron.exe",
+			[
+				"C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js",
+				"--workspace", "C:\\work",
+				"--", "pwsh.exe", "-NoLogo", "-NonInteractive", "-Command", "Write-Output hi",
+			],
+			{ env: { PATH: "x" }, stdio: ["ignore", "pipe", "pipe"] },
+		);
+		// 尾部非 pwsh -Command（git）：argv 原样透传
+		childProcess.spawn(
+			"C:\\app\\electron.exe",
+			[
+				"C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js",
+				"--workspace", "C:\\work",
+				"--", "git.exe", "status",
+			],
+			{ env: { PATH: "x" } },
+		);
+	} finally {
+		restore();
+		childProcess.spawn = originalSpawn;
+	}
+	assert.equal(calls[0][1][8], "Write-Output hi\nexit $LASTEXITCODE", "沙箱 pwsh 命令末尾追加 exit");
+	assert.equal(calls[0][2].stdio[0], "ignore", "runner spawn 的 stdio 不被 pwsh 守卫改动");
+	assert.equal(calls[0][2].stdio[1], "pipe");
+	assert.equal(calls[0][2].env.ELECTRON_RUN_AS_NODE, "1", "ELECTRON_RUN_AS_NODE 注入不受影响");
+	assert.equal(calls[0][2].env.NODE_OPTIONS, '--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"');
+	assert.deepEqual(
+		calls[1][1],
+		[
+			"C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js",
+			"--workspace", "C:\\work",
+			"--", "git.exe", "status",
+		],
+		"尾部非 pwsh -Command 时 argv 原样透传",
+	);
 });
 
 test("win32 补丁：execFile（带 callback）与 exec 在兜底模式注入、生效模式不动", () => {

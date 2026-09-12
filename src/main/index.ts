@@ -255,6 +255,7 @@ import {
 	readDeclaredDshVersion,
 } from "./dsh/runtime/DshRuntimeManager";
 import { DshRuntimeInstaller } from "./dsh/runtime/DshRuntimeInstaller";
+import { autoUpdateDshRuntimeIfOutdated } from "./dsh/runtime/dshRuntimeAutoUpdate";
 import { createNetDownloader, createTarExtractor, fetchDshRuntimeIndex } from "./dsh/runtime/dshRuntimeIo";
 import { credentialValueFromDocument } from "./dsh/dshCredentials";
 import { DshAgentManager } from "./dsh/DshAgentManager";
@@ -2704,6 +2705,7 @@ function registerIpc() {
 			// G13 深化：动态 Cordis 插件管理（进程内临时扩展，define/run/stop/undefine）
 			listDshDynamicPlugins: () => dshHost.listDynamicPlugins(),
 			listDshStaticPlugins: () => dshHost.listStaticPlugins(),
+			uninstallDshUserPlugin: (input) => dshHost.uninstallUserPlugin(input),
 			installDshPlugin: (input) => dshHost.installDynamicPlugin(input),
 			runDshPlugin: (input) => dshHost.runDynamicPlugin(input),
 			stopDshPlugin: (input) => dshHost.stopDynamicPlugin(input),
@@ -3633,6 +3635,7 @@ app.whenReady().then(async () => {
 		// S6.5：Web 端 DSH 插件管理（动态 Cordis 插件，与桌面配置页同源）
 		listDshDynamicPlugins: () => dshHost.listDynamicPlugins(),
 		listDshStaticPlugins: () => dshHost.listStaticPlugins(),
+		uninstallDshUserPlugin: (input) => dshHost.uninstallUserPlugin(input),
 		installDshPlugin: (input) => dshHost.installDynamicPlugin(input),
 		runDshPlugin: (input) => dshHost.runDynamicPlugin(input),
 		stopDshPlugin: (input) => dshHost.stopDynamicPlugin(input),
@@ -3836,6 +3839,9 @@ app.whenReady().then(async () => {
 			});
 			notification.show();
 		},
+		// catalog 变更广播：automation createDraft / dispatch 接受后让侧栏静默重拉，
+		// 避免新会话行延迟出现、DSH agent 行先落成孤儿条目（复用 DSH 刷新同一条 IPC 通道）。
+		notifySessionCatalogChanged: (projectId) => notifyDshCatalogRefreshed([projectId]),
 	});
 	automationScheduler = new AutomationScheduler(automationStore);
 	automationScheduler.setTriggerHandler(async (task, scheduledFor, trigger) => {
@@ -3953,6 +3959,36 @@ app.whenReady().then(async () => {
 	void cleanupPasteFiles?.().catch((error: unknown) => {
 		void appLogger.warn("app", "Paste file cleanup failed during startup", error);
 	});
+	// DSH runtime 自动更新（打包态）：升级 PiDeck 后若已装 runtime 与声明版本不一致
+	// （outdated，被硬门控挡住无法启动 host），启动期后台自动重装配套版本并回收旧
+	// 版本目录——与其让用户手动点「重新安装」，不如升级后首次启动自动完成。
+	// notInstalled 不自动装（用户未选择使用 DSH，保持安装引导）；dev 跳过（项目
+	// node_modules 即声明版本，且 dev 禁止在线下载）。fire-and-forget，不挡首帧。
+	void autoUpdateDshRuntimeIfOutdated({
+		getStatus: () => dshRuntimeStatus.getStatus(),
+		refresh: () => dshRuntimeStatus.refresh(),
+		install: () => dshRuntimeInstaller.installFromIndex(),
+		listInstalled: () => dshRuntimeManager.listInstalled(),
+		resolveActiveDirName: () => dshRuntimeManager.resolveActive()?.dirName,
+		uninstall: async (dirName) => {
+			await dshRuntimeManager.uninstall(dirName);
+		},
+		appVersion: () => app.getVersion(),
+		isPackaged: () => app.isPackaged,
+		// 自动更新完成前 warmup 因 outdated 被跳过：装好且默认后端是 dsh 时补一次预热。
+		onRuntimeReady: () => {
+			startDshHostInBackground(dshHost, appLogger, {
+				enabled:
+					settingsStore.get().defaultAgentBackend === "dsh" && dshRuntimeStatus.canCreateDshSession(),
+			});
+		},
+		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
+	}).catch((error: unknown) => {
+		void appLogger.warn("dsh-runtime", "DSH runtime auto-update crashed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	});
+
 	// 窗口已可用后再按需预热 DSH：默认后端是 dsh 且 runtime 可用才后台 boot，
 	// 避免纯 pi 用户空转 utilityProcess（约 200MB），也避免 runtime 不在时 boot 必然失败。
 	// 发送/历史/配置路径仍由 ensureStarted 兜底。

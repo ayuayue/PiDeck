@@ -41,6 +41,13 @@ type SpawnOptions = childProcessModule.SpawnOptions;
  *    子进程至少不弹窗）；并对沙箱 runner 的 spawn 注入
  *    NODE_OPTIONS=--require=<runnerConsolePreload>：runner 不继承 host 控制台，
  *    由 preload 在 runner 进程内自建隐藏控制台。
+ *
+ * 误判边界（2026-09 实测）：`GetConsoleWindow() == NULL` 并不等于「无控制台”——
+ * MSDN 明确 NULL = 没有控制台或**不是窗口式控制台**（ConPTY 终端即属后者）。
+ * 此时 `AllocConsole()` 会以 ERROR_ACCESS_DENIED(5) 失败；原实现把它当「分配
+ * 失败」退回 windowsHide，反而让子进程失去可继承控制台、孙进程（如 pwsh 里再
+ * 跑 git/npm/cmd）新建可见控制台。现按错误码 5 判为 inherited-windowless
+ * （继承即可，ConPTY 无窗口），并暴露 getHiddenConsoleMode() 供启动日志诊断。
  */
 
 /** koffi 运行时 FFI 接口子集（测试注入假实现，避免依赖真实原生模块）。 */
@@ -52,6 +59,33 @@ export interface Win32Ffi {
 
 /** host 是否已持有隐藏控制台（installHostHiddenConsole 置位；补丁据此决定是否注入 windowsHide）。 */
 let hostHiddenConsoleActive = false;
+
+/** runner spawn 策略日志只打一次（避免沙箱每次调用都刷日志）。 */
+let runnerPolicyLogged = false;
+
+/** ERROR_ACCESS_DENIED：AllocConsole 失败码 5 = 进程已附带控制台（见下）。 */
+const ERROR_ACCESS_DENIED = 5;
+
+/**
+ * host 控制台治理模式（诊断：hostEntry 启动时打印一次，排查黑窗口用）。
+ * - inherited-windowless：AllocConsole 失败且错误码 5——已附带控制台但
+ *   GetConsoleWindow 为 NULL（ConPTY / 无窗口控制台）。子进程继承即可，
+ *   不存在可见窗口需要隐藏；这是 2026-09 实测出的误判分支（原代码把该
+ *   情形当「分配失败」退回 windowsHide，反而切断继承、孙进程弹黑窗口）。
+ */
+export type HiddenConsoleMode =
+	| "off" // 非 win32：不治理
+	| "inherited-windowed" // GetConsoleWindow 非空：已有控制台，子进程继承
+	| "inherited-windowless" // 已附带控制台但无窗口（ConPTY）：继承即可，无需隐藏
+	| "allocated" // AllocConsole 成功：host 自建隐藏控制台
+	| "failed"; // 分配失败：退回 windowsHide 注入兜底
+
+let hiddenConsoleMode: HiddenConsoleMode = "off";
+
+/** 当前控制台治理模式（hostEntry 诊断日志用）。 */
+export function getHiddenConsoleMode(): HiddenConsoleMode {
+	return hiddenConsoleMode;
+}
 
 /**
  * 给当前进程分配隐藏控制台（win32 only；platform/ffi 可注入以便测试）。
@@ -66,7 +100,10 @@ export function installHostHiddenConsole(
 	ffi?: Win32Ffi,
 ): boolean {
 	hostHiddenConsoleActive = false;
-	if (platform !== "win32") return false;
+	if (platform !== "win32") {
+		hiddenConsoleMode = "off";
+		return false;
+	}
 	try {
 		const koffi = ffi ?? (createRequire(__filename)("koffi") as Win32Ffi);
 		const kernel32 = koffi.load("kernel32.dll");
@@ -80,9 +117,30 @@ export function installHostHiddenConsole(
 		if (getConsoleWindow()) {
 			// 已有控制台：子进程本就继承它，无需再分配（utilityProcess 不应出现，防御）。
 			hostHiddenConsoleActive = true;
+			hiddenConsoleMode = "inherited-windowed";
 			return true;
 		}
-		if (allocConsole() === 0) return false;
+		if (allocConsole() === 0) {
+			// GetConsoleWindow 为 NULL ≠ 无控制台（MSDN：NULL = 没有控制台或不是窗口式控制台）。
+			// AllocConsole 失败且错误码 5（ERROR_ACCESS_DENIED）说明进程已附带控制台
+			//（ConPTY 终端/Windows Terminal/VS Code 起到的进程都这样）。此时按「已持有」处理：
+			// 子进程继承该控制台即可，不存在可见窗口需要隐藏；若误判为失败退回 windowsHide
+			// 注入，反而让子进程失去可继承控制台、孙进程新建可见控制台（黑窗口）。
+			let lastError: number | undefined;
+			try {
+				// GetLastError 必须在紧跟的语句取（期间不能插其它 Win32 调用）。
+				lastError = (kernel32.func("uint32 GetLastError(void)") as () => number)();
+			} catch {
+				lastError = undefined; // ffi 未提供（老测试替身）：按旧行为兜底
+			}
+			if (lastError === ERROR_ACCESS_DENIED) {
+				hostHiddenConsoleActive = true;
+				hiddenConsoleMode = "inherited-windowless";
+				return true;
+			}
+			hiddenConsoleMode = "failed";
+			return false;
+		}
 		// conhost 窗口创建是异步的：AllocConsole 返回时 GetConsoleWindow 经常仍是 0，
 		// 只在已有句柄时 setInterval 会漏掉随后弹出的窗口（DSH 加载「一闪而过」的框）。
 		// 无论首帧有没有句柄都轮询隐藏，覆盖整段创建窗口期。
@@ -95,8 +153,10 @@ export function installHostHiddenConsole(
 		setTimeout(() => clearInterval(hideTimer), 1000);
 		hideTimer.unref?.();
 		hostHiddenConsoleActive = true;
+		hiddenConsoleMode = "allocated";
 		return true;
 	} catch {
+		hiddenConsoleMode = "failed";
 		return false; // koffi 缺失/调用失败：退回 windowsHide 注入兜底
 	}
 }
@@ -138,25 +198,31 @@ function isPwshCommand(command: string): boolean {
 }
 
 /**
+ * -Command 命令末尾追加换行 + exit 的纯 args 改写（不含 stdio 调整）。
+ * 换行拼接：命令以 # 注释结尾时 exit 也不会被注释吞掉；命令内已有 exit 时
+ * 追加项不生效，无害。
+ */
+function withPwshExitAppend(args: readonly string[]): readonly string[] {
+	const cmdIndex = args.findIndex((arg) => arg === "-Command");
+	if (cmdIndex < 0 || cmdIndex + 1 >= args.length) return args;
+	const nextArgs = [...args];
+	nextArgs[cmdIndex + 1] = `${args[cmdIndex + 1]}\nexit $LASTEXITCODE`;
+	return nextArgs;
+}
+
+/**
  * pwsh 挂起兜底（实测：host 内普通 pwsh 调用约 8% 概率「命令执行完不退出」，
  * 直到工具超时被回收——用户可见为每次调用慢/超时）：
  * 1. stdin 从 pipe 改 ignore：pwsh 不会等待管道 EOF（已知的挂起形态之一）；
  *    工具命令本就没有 stdin 输入通道，无行为差异。
  * 2. `-Command` 命令末尾追加换行 + `exit $LASTEXITCODE`：无论挂起原因，
- *    命令执行完都强制退出（命令内已有 exit 时先执行它，追加项不生效，无害）。
+ *    命令执行完都强制退出。
  */
 function withPwshHangGuard(
 	args: readonly string[],
 	options: childProcessModule.SpawnOptions | undefined,
 ): { args: readonly string[]; options: childProcessModule.SpawnOptions | undefined } {
-	let nextArgs: string[] | undefined;
-	const cmdIndex = args.findIndex((arg) => arg === "-Command");
-	if (cmdIndex >= 0 && cmdIndex + 1 < args.length) {
-		const cmd = args[cmdIndex + 1];
-		// 换行拼接：命令以 # 注释结尾时 exit 也不会被注释吞掉
-		nextArgs = [...args];
-		nextArgs[cmdIndex + 1] = `${cmd}\nexit $LASTEXITCODE`;
-	}
+	const nextArgs = withPwshExitAppend(args);
 	let nextOptions = options;
 	if (options !== undefined && Array.isArray(options.stdio) && options.stdio[0] === "pipe") {
 		const stdio = options.stdio.map((entry) => entry);
@@ -280,6 +346,17 @@ export function installHiddenConsolePatch(
 		options: childProcessModule.SpawnOptions | undefined,
 	): childProcessModule.SpawnOptions | undefined {
 		if (isRunnerSpawn(command, args)) {
+			// 诊断（一次性）：确认沙箱 runner spawn 确实被注入 preload 与
+			// ELECTRON_RUN_AS_NODE。这是「沙箱命令不弹黑窗口」的关键：runner 是 GUI
+			// 进程、不继承 host 控制台，若注入失效（argv 形态变化 / preload 文件缺失），
+			// 沙箱内命令（pwsh/git 等）会新建可见控制台。走 stderr 落主进程日志。
+			if (!runnerPolicyLogged) {
+				runnerPolicyLogged = true;
+				console.error(
+					`[dsh-host-entry] runner spawn policy: hostHiddenConsoleActive=${String(hostHiddenConsoleActive)} ` +
+						`preload=${runnerPreloadPath}`,
+				);
+			}
 			return withRunnerPreload(
 				withRunnerRunAsNode(
 					withPwshStartupEnv(hostHiddenConsoleActive ? options : withHiddenOptions(options), true),
@@ -296,10 +373,19 @@ export function installHiddenConsolePatch(
 	// spawn(command[, args][, options])：options 在第 2 位（无 args）或第 3 位。
 	replaceExport("spawn", ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
 		if (Array.isArray(argsOrOptions)) {
-			// pwsh 挂起兜底：改写 args（追加 exit）与 options（stdin ignore）
+			// pwsh 挂起兜底：改写 args（追加 exit）与 options（stdin ignore）。
+			// 沙箱 runner：-- 尾部的 pwsh -Command 同样追加 exit——沙箱内 pwsh 由
+			// runner 用 CreateProcessAsUserW 直接拉起（绕过 child_process，补丁够
+			// 不着子进程本身），只能在 runner spawn 边界改写 argv。2026-09-12 实测：
+			// 沙箱内 pwsh 输出完成后不退出（4/4 挂满 120s 工具超时，定时任务回合
+			// 因此跑满 9 分钟、run 状态一直「运行中」），与 host 本地挂起同根因——
+			// 沙箱里 pwsh 的 stdin 是 runner 持有的捕获管道，挂起从偶发变确定性。
+			// 注意 stdio 不动：runner 可能用 stdin pipe 向受限命令传数据。
 			const guarded = isPwshCommand(command)
 				? withPwshHangGuard(argsOrOptions, maybeOptions)
-				: { args: argsOrOptions, options: maybeOptions };
+				: isRunnerSpawn(command, argsOrOptions)
+					? { args: withPwshExitAppend(argsOrOptions), options: maybeOptions }
+					: { args: argsOrOptions, options: maybeOptions };
 			const next = resolveSpawnOptions(command, guarded.args, guarded.options);
 			return next === undefined
 				? originals.spawn(command, guarded.args)
@@ -309,12 +395,14 @@ export function installHiddenConsolePatch(
 		return next === undefined ? originals.spawn(command) : originals.spawn(command, next);
 	}) as typeof childProcess.spawn);
 
-	// spawnSync 与 spawn 同形态。
+	// spawnSync 与 spawn 同形态（沙箱探测 spawnSync 也走 runner 分支，argv 改写无害）。
 	replaceExport("spawnSync", ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
 		if (Array.isArray(argsOrOptions)) {
 			const guarded = isPwshCommand(command)
 				? withPwshHangGuard(argsOrOptions, maybeOptions)
-				: { args: argsOrOptions, options: maybeOptions };
+				: isRunnerSpawn(command, argsOrOptions)
+					? { args: withPwshExitAppend(argsOrOptions), options: maybeOptions }
+					: { args: argsOrOptions, options: maybeOptions };
 			const next = resolveSpawnOptions(command, guarded.args, guarded.options);
 			return next === undefined
 				? originals.spawnSync(command, guarded.args)

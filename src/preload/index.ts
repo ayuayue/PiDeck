@@ -717,9 +717,12 @@ const api = {
 		/** DSH 动态插件清单（G13 深化：进程内临时扩展，重启即失；按会话归属）。 */
 		listDshDynamicPlugins: () =>
 			ipcRenderer.invoke(ipcChannels.dshPluginList) as Promise<import("../shared/types").DshPluginView[]>,
-		/** DSH 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+		/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）。 */
 		listDshStaticPlugins: () =>
 			ipcRenderer.invoke(ipcChannels.dshPluginStaticList) as Promise<import("../shared/types").DshStaticPluginView[]>,
+		/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录；host 重启后生效）。 */
+		uninstallDshUserPlugin: (input: import("../shared/types").DshUserPluginUninstallInput) =>
+			ipcRenderer.invoke(ipcChannels.dshPluginUserUninstall, input) as Promise<import("../shared/types").DshUserPluginUninstallResult>,
 		/** DSH 动态插件安装（define：定义源码包，不运行）。 */
 		installDshPlugin: (input: import("../shared/types").DshPluginInstallInput) =>
 			ipcRenderer.invoke(ipcChannels.dshPluginInstall, input) as Promise<unknown>,

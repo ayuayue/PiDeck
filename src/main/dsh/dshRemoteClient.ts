@@ -25,8 +25,10 @@ function envelope<T>(promise: Promise<DshRpcResult<T>>): Promise<DshEnvelope<T>>
  * 旧载荷里的未知字段在这里剥掉。
  *
  * 语义差异（与旧 apiproxy 对比）：
- * - sessions.history → session/page 分页：适配层以 throughSeq=MAX 拉尾部窗口，
- *   重排为旧 {events:[{event,view}], projections} 形状（view 取 event.surfaceOp）。
+ * - sessions.history → session/page 分页：0.1.5 的 throughSeq 是「包含式日志
+ *   切点」，必须 ≤ 会话当前 cursor（超大值被 host 拒为 gateway/bad-request），
+ *   由调用方经冷读 observation 提供（DshAgentManager.historyPage）；
+ *   结果重排为旧 {events:[{event,view}], projections} 形状（view 取 event.surfaceOp）。
  * - events.mux（全会话聚合流）已不存在：审批/提问走 $events 事件瀑布，
  *   会话日志事件走每会话 session/follow 流（manager 侧各自泵）。
  * - respond(client-response) → $events/result 瀑布应答（ApprovalOutcome 字符串 /
@@ -96,17 +98,22 @@ export class DshRemoteClient {
 
 	/**
 	 * 旧 sessions.history({sessionId, maxMessages}) 的分页适配：
-	 * throughSeq 取安全上限拉尾部窗口；记录重排为旧 {events, projections} 形状。
+	 * throughSeq 是 0.1.5 的「包含式日志切点」，必须 ≤ 会话当前 cursor（超出 host
+	 * 直接回 gateway/bad-request）；调用方从 host 冷读 observation 取 cursor
+	 * （DshAgentManager.historyPage / DshHost.readSessionCursor）。记录重排为旧
+	 * {events, projections} 形状。
 	 */
-	async 	sessionsHistory(input: {
+	async sessionsHistory(input: {
 		sessionId: string;
+		/** 包含式日志切点（0.1.5 必填）：来自冷读 observation 的 cursor，不得用固定大值。 */
+		throughSeq: number;
 		maxMessages?: number;
 		beforeSeq?: number;
 	}): Promise<DshEnvelope<DshHistoryPage>> {
 		const result = await this.rpc.call("session/page", {
 			request: {
 				address: addressOf(input.sessionId),
-				throughSeq: Number.MAX_SAFE_INTEGER,
+				throughSeq: input.throughSeq,
 				...(input.maxMessages !== undefined ? { maxMessages: input.maxMessages } : {}),
 				...(input.beforeSeq !== undefined ? { beforeSeq: input.beforeSeq } : {}),
 			},
@@ -406,10 +413,13 @@ export class DshRemoteClient {
 	/**
 	 * 旧 subagents.history → session/page 的 subagent 地址形态。
 	 * maxMessages/beforeSeq 透传；mode 缺省 one-shot（与旧 direct-child 语义一致）。
+	 * throughSeq 同样是 0.1.5 的包含式切点约束（≤ 子会话 cursor），由调用方提供。
 	 */
 	async subagentsHistory(input: {
 		parentSessionId: string;
 		childSessionId: string;
+		/** 包含式日志切点（0.1.5 必填）：来自冷读 observation 的 cursor。 */
+		throughSeq: number;
 		mode?: "one-shot" | "continuable";
 		beforeSeq?: number;
 		maxMessages?: number;
@@ -422,7 +432,7 @@ export class DshRemoteClient {
 					childSessionId: input.childSessionId,
 					mode: input.mode ?? "one-shot",
 				},
-				throughSeq: Number.MAX_SAFE_INTEGER,
+				throughSeq: input.throughSeq,
 				...(input.beforeSeq !== undefined ? { beforeSeq: input.beforeSeq } : {}),
 				...(input.maxMessages !== undefined ? { maxMessages: input.maxMessages } : {}),
 			},

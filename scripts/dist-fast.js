@@ -31,7 +31,10 @@ execSync("npm run build:packages", { cwd: root, stdio: "inherit", shell: true })
 // DSH runtime 随包资源：electron-builder 的 extraResources 会去 dist-runtime/dsh-runtime
 // 取，目录为空（只有 .gitkeep）时打出来的包 DSH 不可用。--if-missing 让后续快速打包
 // 跳过重打（依赖没变的话产物是一样的），只有首次或手动删除后才花那 20 秒。
-console.log(`\n[2/4] 准备 DSH runtime 随包资源（--if-missing）…`);
+// 前置同步声明版本根字段（devDependencies 会被 electron-builder 从 asar 剥掉，
+// 打包版靠根字段做 runtime 版本一致性门控——见 scripts/sync-dsh-declared-version.mjs）。
+console.log(`\n[2/4] 同步 DSH 声明版本 + 准备随包资源（--if-missing）…`);
+execSync("node scripts/sync-dsh-declared-version.mjs", { cwd: root, stdio: "inherit", shell: true });
 execSync("node scripts/pack-dsh-runtime.mjs --if-missing", { cwd: root, stdio: "inherit", shell: true });
 
 // build:fast 同步生成 pi-ai catalog，避免快速包带上升级前的静态模型目录。

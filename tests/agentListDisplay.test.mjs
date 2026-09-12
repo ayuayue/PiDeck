@@ -138,6 +138,35 @@ test("DSH agent 无配对会话时仍平铺为 agent 行（孤儿不消失）", 
 	assert.equal(display.children[0].type, "agent");
 });
 
+test("DSH attach 回写窗口期：按 deckSessionId 兜底配对，不产生重复条目", () => {
+	// 2026-09-12 automation 实测：attachRuntime 回写 dshSessionId 是 fire-and-forget，
+	// 渲染层 agent 快照先于 catalog attach 到达时 session.dshSessionId 还没落盘，
+	// 只按 dshSessionId 配对会出现「agent 行 + 会话行」两个相同标题的条目。
+	const { getProjectAgentSessionDisplay } = loadModule();
+	const dshSession = session({
+		id: "catalog-dsh-1",
+		filePath: "",
+		backend: "dsh",
+		// dshSessionId 尚未回写（attach 窗口期）
+		source: "pi",
+		updatedAt: 5,
+	});
+	const display = getProjectAgentSessionDisplay({
+		agents: [{
+			id: "dsh:session-xyz",
+			backend: "dsh",
+			sessionId: "session-xyz",
+			deckSessionId: "catalog-dsh-1",
+			createdAt: 2,
+			status: "running",
+		}],
+		sessions: [dshSession],
+	});
+	assert.equal(display.children.length, 1, "deckSessionId 兜底配对后只保留一个行");
+	assert.equal(display.children[0].type, "session");
+	assert.equal(display.children[0].agent?.id, "dsh:session-xyz", "会话行携带配对 agent 装饰");
+});
+
 test("filters runtime rows by their canonical Session origin before falling back to agent source", () => {
 	const { filterAgentsForSidebarDisplay } = loadModule();
 	const piSession = session({ id: "pi-session", filePath: "C:/sessions/pi.jsonl", source: "pi" });

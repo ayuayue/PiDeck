@@ -440,6 +440,42 @@ test("readDeclaredDshVersion：dsh 可能声明在 devDependencies，也需命�
 	}
 });
 
+test("readDeclaredDshVersion：根字段 dshRuntimeVersion 优先（打包态 devDependencies 已被剥掉）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "pideck-declared-"));
+	try {
+		// 模拟 electron-builder 打包后的 package.json：无 devDependencies，仅根字段。
+		writeFileSync(
+			join(dir, "package.json"),
+			JSON.stringify({
+				version: "0.7.5-beta",
+				dshRuntimeVersion: "0.1.5-rc.1",
+				dependencies: { "node-pty": "^1.1.0" },
+			}),
+			"utf8",
+		);
+		assert.equal(readDeclaredDshVersion(dir), "0.1.5-rc.1", "根字段是打包态唯一可靠来源");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("readDeclaredDshVersion：根字段优先于依赖声明（避免打包/dev 双源分歧）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "pideck-declared-"));
+	try {
+		writeFileSync(
+			join(dir, "package.json"),
+			JSON.stringify({
+				dshRuntimeVersion: "0.1.5-rc.1",
+				devDependencies: { "@deepseek-ai/dsh": "0.1.1-rc.2" },
+			}),
+			"utf8",
+		);
+		assert.equal(readDeclaredDshVersion(dir), "0.1.5-rc.1");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("readDeclaredDshVersion：无 dsh 依赖 / 目录缺失时返回 undefined", () => {
 	const dir = mkdtempSync(join(tmpdir(), "pideck-declared-"));
 	try {

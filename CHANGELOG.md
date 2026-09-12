@@ -1,10 +1,20 @@
-## v0.7.5-beta - 2026-09-09
+## v0.7.5-beta - 2026-09-12
 
 ### 🚀 New Features
 - **Inline reference chips aligned with Proma and self-contained persistence** — Composer and bubble reference chips now share the Proma skeleton (tinted background, same-hue text and icon, no border, baseline aligned); file chips show only the file name, directory references use a folder icon, and only the `@` prefix remains since the icon conveys the type. Bubble reference chips render back at their original position so multiple references are no longer reordered. Reference / session / skill / prompt-template blocks persist self-containedly: switching sessions or restarting still restores chips, and edit-resend or fork replay no longer leaks raw XML. The file-tree context menu “add to conversation reference” now supports directories (`@dir/`, the trailing slash distinguishing a directory from a mention) and reuses the same reference format as drag-and-drop and the editor context menu.
 - **Sidebar session hover preview card** — Hovering a sidebar session row for 1.5s opens a preview card (debounced against races), so you can confirm a session's content without opening it first.
 - **Configurable Git executable path with detection** — A new `gitExecutablePath` setting: empty means auto-resolve (PATH → common install locations), and a configured value applies to every Git operation (GitService / WorktreeService / checkpoint / git init). The Git tab gains a path input with detect / browse / reset buttons showing source, version and path; saving applies immediately without a restart.
 - **Built-in prompt templates restored and AtomGit mirror added** — Built-in prompt templates are back in the prompt store; the README and docs-site link to the AtomGit mirror.
+- **DSH runtime upgraded to 0.1.5 (Typert Remote)** — The embedded DeepSeek Harness runtime moves from 0.1.1-rc.2 to 0.1.5-rc.1: the HTTP ApiProxy is replaced by the carrier-neutral Typert Remote / Connection RPC (generated endpoint descriptors, agent-scoped `agentId` parameters, an 84-endpoint surface), bundled agent presets now resolve against the shipped runtime, and migration leftovers in the session link are fixed.
+- **Scheduled tasks and automation** — New Automation support: scheduled and scheduled-mode runs with visual Cron editing, work modes (normal / plan / goal), run history, and rewritten completion detection; DSH-backend sessions can also run scheduled tasks.
+- **AtomGit-first update source** — Update checks prefer AtomGit with GitHub official as fallback; existing users have `updateSource` migrated to `atomgit` in one pass; AtomGit Release auto / manual sync is supported.
+- **In-app update changelog** — The update dialog shows the changelog fetched from the AtomGit OpenAPI with local caching, reachable from two entries.
+- **pi-deck-trash-guard built-in extension** — New built-in extension that backs files up to the system recycle bin before deletion.
+- **Notice toast truncation with details dialog** — Long notice messages are truncated inline and open a full-text details dialog.
+- **Session proxies save-in-effect with full run-state control** — Proxy edits apply immediately; session run control is fully state-driven; proxy entry points are added to the Tab bar and the Agent menu with the dialog host centralized in the App layer.
+- **Faster model list and save feedback** — Extension-backed models no longer hydrate by default (restore via the refresh button); saving a model gives instant feedback with pi verification moved to the background.
+- **Linux arm64 release artifacts** — The release pipeline now builds deb / AppImage / tar.gz for arm64.
+- **Sidebar “show more” counts right-aligned** — The “show more” row splits its counts into right-aligned columns and drops the per-item quantifier.
 
 ### 🐛 Fixes
 - **Kimi Coding multi-window quotas and booster wallet** — Usage queries support Kimi Coding's 5h / weekly / monthly windows plus the booster wallet.
@@ -14,6 +24,15 @@
 - **Usage dialog built-in badge no longer stretched** — Fixed the flex-col stretch turning the “built-in” badge into a full-width grey bar; it now sits inline with its label.
 - **Context menu failing to open and project-open flow** — Stopped pre-escaping the registry command value (which caused the Windows “cannot access the specified device” error); cold start / second instance now waits for projectStore before resolving the project directory; adding a project from the context menu broadcasts a sidebar refresh.
 - **Problem-feedback copy no longer mentions email** — Removed the leftover half-sentence about sending email (#194).
+- **Resend after session restart no longer reports “message not found”** — Restarting a session and resending now works without the stale-message error.
+- **WSL global skills honor the Linux home whitelist** — WSL mode now merges global skills from the Linux home directory into the whitelist (issue #203).
+- **Bubbles render special symbols correctly** — Fixed broken rendering of messages starting with `/skill:`, `/permit`, `@` or containing `&` after sending.
+- **Pending-ask badges reach every surface** — The pending-ask badge moves down into the session row so multiple waiting sessions stay locatable; missing badges on the Chat / Activity pages, store search misses, and the locked default category are fixed too.
+- **Store hot-word chip hover text stays visible** — Fix for hot-word chips in the store losing their text on hover (accent background color was used as text color).
+- **Danger-menu icon colors and hover-card summary fallback** — Fixed icon color in the danger action menu; sidebar session hover cards fall back to a summary gracefully.
+- **Dock entries share unified hover tooltips** — All four dock entries now use the same styled Tooltip on hover.
+- **skill-hub installs on Node 24 Windows** — Fixed skill-hub install failure (direct `.cmd` spawn raised EINVAL on Windows); win32 now wraps through `cmd.exe /d /s /c`.
+- **nicobailon subagent async dispatch no longer mis-marks completion** — Async pi-subagents dispatch no longer marks tasks complete before they finish, and panel entries show the task description.
 
 ## v0.7.4 - 2026-09-08
 

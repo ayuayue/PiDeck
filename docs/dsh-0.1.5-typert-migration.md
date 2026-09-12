@@ -131,3 +131,12 @@ channel 统一用 `/api`；payload 为描述符里的命名参数（见各包 ty
   移入 presets 的行集，与 hostEntry 的 `dshWebAgentPlaneDisableRows()` 对齐检查）。
 - dsh-bill 0.13→0.14 的 records.jsonl 落盘格式对用量页解析（dshBillLogParser）
   的影响待验证。
+- **老日志迁移：0.1.1-rc.1 及更早写出的 `subagent/descriptor` v2 事件无法迁移**
+  （0.1.5 的 v0→v1 迁移要求 descriptor v3，拒绝时抛出
+  `SessionFormatUnsupportedError: subagent/descriptor N uses unsupported
+  descriptor version 2`，原始日志保持不变）。受影响会话的 `session/list` 仍能
+  列出（只读 header/投影缓存），但 `session/page` 读不到——PiDeck 侧会显示明确
+  错误（readHistoryPage 不再静默返回空）。修复得等上游 deepseek-harness 补
+  v2 descriptor 的迁移（或对旧生成降级读取）；如需用户侧兜底，可在扫描层标注
+  「旧版本写入、无法迁移」并把日志归档保留。2026-09 实测：79 个会话中 7 个命中
+  （全部是 08-15/08-16 的 0.1.1-rc.1 时代会话）。

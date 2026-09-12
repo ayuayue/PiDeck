@@ -30,13 +30,17 @@ export function AboutPopover(props: AboutPopoverProps) {
   }, []);
   // 「更新日志」用应用内弹窗（而非外链）展示，与设置页更新卡片共用 ChangelogDialog。
   const [changelogOpen, setChangelogOpen] = useState(false);
+  // MorphPopover 改为受控：打开更新日志弹窗时需要主动关闭关于面板——
+  // 两层浮层叠放时更新日志弹窗（portal 到 body、带遮罩）会盖在面板上，
+  // 面板残留在遮罩下既挡视线又会被误认为还在交互，应随弹窗打开一并收起。
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   // releasesUrl 形如 https://github.com/ayuayue/PiDeck/releases，去掉 /releases 即仓库主页
   const githubUrl = props.appInfo.releasesUrl.replace(/\/releases\/?$/, "") || WEBSITE_URL;
   const info = props.appInfo;
 
   return (
-    <MorphPopover>
+    <MorphPopover open={aboutOpen} onOpenChange={setAboutOpen}>
       <MorphPopoverTrigger>{props.children}</MorphPopoverTrigger>
       <MorphPopoverContent side="bottom" align="start" sideOffset={10} radius={16} className="w-72 overflow-hidden">
         <div className="flex flex-col gap-3 p-4">
@@ -91,20 +95,23 @@ export function AboutPopover(props: AboutPopoverProps) {
             <AboutActionRow
               icon={ScrollText}
               label={t("about.changelog")}
-              onClick={() => setChangelogOpen(true)}
+              onClick={() => {
+                setChangelogOpen(true);
+                // 打开更新日志弹窗的同时收起关于面板（见 aboutOpen 注释）；
+                // 弹窗挂在 MorphPopover root 下而非面板内，面板退场不会卸载它。
+                setAboutOpen(false);
+              }}
             />
             <AboutLinkRow icon={Tag} label={t("about.releases")} url={info.releasesUrl} onOpen={openExternal} />
           </div>
         </div>
       </MorphPopoverContent>
-      {/* 弹窗挂在 Popover 内容之外（Radix Dialog 自身 portal 到 body）。
-          dismissExemptOnOutside：本弹窗是 Popover 内部入口打开的，而 Popover 的外点
-          判定按 root/contentRef 判内外、看不见 portal 出去的本弹窗——不豁免的话，
-          点「更新日志」的瞬间 Popover 会先把自己关掉。 */}
+      {/* 弹窗挂在 Popover 内容之外（Radix Dialog 自身 portal 到 body），因此面板退场
+          动画不会卸载弹窗。打开弹窗时面板主动关闭（见 aboutOpen 注释），二者不再同时
+          存活，无需再像旧实现那样用 dismissExemptOnOutside 豁免外点判定。 */}
       <ChangelogDialog
         open={changelogOpen}
         onOpenChange={setChangelogOpen}
-        dismissExemptOnOutside
       />
     </MorphPopover>
   );

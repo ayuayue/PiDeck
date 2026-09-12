@@ -488,6 +488,7 @@ export function createPreviewApi(): PiDesktopApi {
 			deleteArchivedDshSession: async () => true,
 			listDshDynamicPlugins: async () => [],
 			listDshStaticPlugins: async () => [],
+			uninstallDshUserPlugin: async () => ({ rowRemoved: false, reason: "preview mode" }),
 			installDshPlugin: async () => undefined,
 			runDshPlugin: async () => undefined,
 			stopDshPlugin: async () => undefined,

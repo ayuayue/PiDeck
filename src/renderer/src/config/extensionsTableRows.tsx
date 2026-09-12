@@ -2,7 +2,27 @@ import { Button } from "../components/ui-shadcn/button";
 import { TableCell, TableRow } from "../components/ui-shadcn/table";
 import { Copy, FolderOpen, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import type { PiExtensionSummary } from "../../../shared/types";
-import { t } from "../i18n";
+import { t, type TranslationKey } from "../i18n";
+
+/**
+ * 内置扩展 source → 简介 key（i18n 双语，见 rendererCopy 的 builtInExtDesc.*）。
+ * 内置扩展集合是静态白名单（builtInExtensions.ts），在渲染层直接映射即可，
+ * 无需为描述字段扩展 IPC/共享类型；映射缺失时不渲染描述行（未知内置扩展兜底）。
+ */
+const BUILT_IN_EXTENSION_DESC: Record<string, TranslationKey> = {
+	"pi-deck-request-size-recovery.ts": "config.builtInExtDesc.pi-deck-request-size-recovery",
+	"pi-deck-ask-question.ts": "config.builtInExtDesc.pi-deck-ask-question",
+	"pi-deck-goal-mode.ts": "config.builtInExtDesc.pi-deck-goal-mode",
+	"pi-deck-nul-redirect-fix.ts": "config.builtInExtDesc.pi-deck-nul-redirect-fix",
+	"pi-deck-plan-mode.ts": "config.builtInExtDesc.pi-deck-plan-mode",
+	"pi-deck-retry-no-body.ts": "config.builtInExtDesc.pi-deck-retry-no-body",
+	"pi-deck-security-gate.ts": "config.builtInExtDesc.pi-deck-security-gate",
+	"pi-deck-session-title.ts": "config.builtInExtDesc.pi-deck-session-title",
+	"pi-deck-subagents.ts": "config.builtInExtDesc.pi-deck-subagents",
+	"pi-deck-todo.ts": "config.builtInExtDesc.pi-deck-todo",
+	"pi-deck-trash-guard.ts": "config.builtInExtDesc.pi-deck-trash-guard",
+	"pi-deck-vision.ts": "config.builtInExtDesc.pi-deck-vision",
+};
 
 /** 运行时发现（package/settings）扩展条目的只读描述。 */
 export type DiscoveredExtensionItem = {
@@ -53,6 +73,12 @@ export function ExtensionTableRow(props: {
 						)}
 					</div>
 					<span className="truncate font-mono text-caption text-muted-foreground">{extension.source}</span>
+					{/* 内置扩展简介：只有名称和路径时用户不知道扩展干什么（用户反馈） */}
+					{extension.builtIn && BUILT_IN_EXTENSION_DESC[extension.source] && (
+						<span className="text-caption leading-4 text-muted-foreground">
+							{t(BUILT_IN_EXTENSION_DESC[extension.source])}
+						</span>
+					)}
 				</div>
 			</TableCell>
 			<TableCell className="whitespace-nowrap text-caption text-muted-foreground">

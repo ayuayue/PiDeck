@@ -67,6 +67,10 @@ function loadPiProcess(
 			windowsVerbatimArguments: false,
 		}),
 		createProcessEnv: () => ({}),
+		// 模拟 Windows 上 .cmd 垫片被还原成 node 直启后的通道预算
+		// （对应 PiLocator.CREATE_PROCESS_ARG_CHAR_BUDGET）。各通道真实取值由
+		// piLocator.test.mjs 覆盖，这里只用于驱动 PiProcess 的「超预算时跳过注入」分支。
+		resolveArgCharBudget: () => 26000,
 	};
 	const sandbox = {
 		Buffer,
@@ -256,6 +260,72 @@ test("存在禁用技能时注入 --no-skills + 逐条 --skill 白名单", async
 	assert.equal(captured.args[idx + 2], "/mnt/c/Users/tester/skills/a/SKILL.md");
 	assert.equal(captured.args[idx + 3], "--skill");
 	assert.equal(captured.args[idx + 4], "/mnt/c/Users/tester/skills/b/SKILL.md");
+	// 预算内的少量注入不记录跳过信息（UI 不该打扰用户）
+	assert.equal(proc.getDiagnostics()?.skillWhitelistSkipped, undefined);
+});
+
+test("技能数量超出启动通道的命令行预算时整体跳过白名单注入，并在诊断中记录", async () => {
+	// 回归：白名单逐条 --skill 注入，命令行长度 O(技能数)。Windows 上即便走了 node 直启
+	// （CreateProcess 32767），千级技能仍会撑爆；超预算必须整体放弃注入（pi 走默认发现，
+	// 禁用不生效但能启动）。500 个 Windows 绝对路径 ≈ 29.5k 字符 > 26000 预算。
+	const { PiProcess, mockLocator, getCaptured } = loadPiProcess();
+	const manySkills = Array.from({ length: 500 }, (_, i) =>
+		`C:\\Users\\tester\\.pi\\agent\\skills\\skill-${String(i).padStart(3, "0")}\\SKILL.md`);
+	assert.ok(manySkills[0].length > 40, "构造的技能路径应接近真实 Windows 长度");
+
+	const proc = new PiProcess(
+		"C:\\proj",
+		{ wslEnabled: true, wslDistro: "Ubuntu-24.04", wslUser: "root" },
+		mockLocator,
+		{
+			resolveEnabledSkillPaths: () => manySkills,
+			securitySnapshotPath: "C:\\Users\\tester\\AppData\\Roaming\\PiDeck-dev\\security-policy.json",
+		},
+	);
+	await proc.start(undefined, undefined, true);
+	const captured = getCaptured();
+	assert.ok(captured?.args, "spawn 应被调用");
+	assert.ok(!captured.args.includes("--no-skills"), "超预算时不应注入 --no-skills");
+	assert.ok(!captured.args.includes("--skill"), "超预算时不应注入 --skill");
+
+	const skipped = proc.getDiagnostics()?.skillWhitelistSkipped;
+	assert.ok(skipped, "应记录 skillWhitelistSkipped 供启动诊断提示用户");
+	assert.equal(skipped.skills, 500);
+	assert.equal(skipped.budget, 26000, "诊断应带上本次通道的实际预算");
+	assert.ok(skipped.chars > skipped.budget, "估算字符数应超过预算");
+});
+
+test("数百个技能在 node 直启通道下不再被误拦（旧的一刀切 5000 预算会跳过）", async () => {
+	// 用户场景：300 个技能全是启用状态，但残留的禁用项让白名单开启；旧实现用最坏通道
+	// （cmd.exe 8191 → 预算 5000）一刀切，≈17.7k 字符直接越过 5000 被误判为「超预算」。
+	// 按实际通道（node 直启 26000）判定后应照常注入，禁用功能继续生效。
+	const { PiProcess, mockLocator, getCaptured } = loadPiProcess();
+	const manySkills = Array.from({ length: 300 }, (_, i) =>
+		`C:\\Users\\tester\\.pi\\agent\\skills\\skill-${String(i).padStart(3, "0")}\\SKILL.md`);
+
+	const proc = new PiProcess(
+		"C:\\proj",
+		{ wslEnabled: true, wslDistro: "Ubuntu-24.04", wslUser: "root" },
+		mockLocator,
+		{
+			resolveEnabledSkillPaths: () => manySkills,
+			securitySnapshotPath: "C:\\Users\\tester\\AppData\\Roaming\\PiDeck-dev\\security-policy.json",
+		},
+	);
+	await proc.start(undefined, undefined, true);
+	const captured = getCaptured();
+	assert.ok(captured?.args, "spawn 应被调用");
+	assert.ok(captured.args.includes("--no-skills"), "预算内应照常注入 --no-skills");
+	assert.equal(
+		captured.args.filter((a) => a === "--skill").length,
+		300,
+		"300 个技能应逐条注入（禁用功能保持生效）",
+	);
+	assert.equal(
+		proc.getDiagnostics()?.skillWhitelistSkipped,
+		undefined,
+		"预算内不得记录跳过信息（否则会误报给用户）",
+	);
 });
 
 test("WSL 家目录的 --skill 白名单路径（UNC）转换为 distro 内 Linux 路径", async () => {

@@ -258,8 +258,12 @@ export type DshBackendIpcDeps = {
 	deleteArchivedDshSession?: (dshSessionId: string) => Promise<boolean>;
 	/** DSH 动态插件清单（G13 深化）；未装配时返回空列表。 */
 	listDshDynamicPlugins?: () => Promise<import("../../shared/types").DshPluginView[]>;
-	/** DSH 静态 Loader 条目清单（只读）；未装配时返回空列表。 */
+	/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）；未装配时返回空列表。 */
 	listDshStaticPlugins?: () => Promise<import("../../shared/types").DshStaticPluginView[]>;
+	/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录）；未装配时抛错。 */
+	uninstallDshUserPlugin?: (
+		input: import("../../shared/types").DshUserPluginUninstallInput,
+	) => Promise<import("../../shared/types").DshUserPluginUninstallResult>;
 	/** DSH 动态插件安装（define）；未装配时抛错。 */
 	installDshPlugin?: (input: import("../../shared/types").DshPluginInstallInput) => Promise<unknown>;
 	/** DSH 动态插件运行（面板手势）；未装配时抛错。 */
@@ -445,6 +449,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		deleteArchivedDshSession,
 		listDshDynamicPlugins,
 		listDshStaticPlugins,
+		uninstallDshUserPlugin,
 		installDshPlugin,
 		runDshPlugin,
 		stopDshPlugin,
@@ -1335,6 +1340,32 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		async (): Promise<import("../../shared/types").DshStaticPluginView[]> => {
 			if (!listDshStaticPlugins) return [];
 			return listDshStaticPlugins();
+		},
+	);
+	// DSH 用户自装静态插件卸载：从 $DSH_HOME/cordis.patch.yml 移除行（+可选回收插件目录）。
+	// 目标校验在 DshHost 侧（行必须真的来自用户补丁层，内置条目拒绝）；这里只做形状检查。
+	ipcMain.handle(
+		ipcChannels.dshPluginUserUninstall,
+		async (
+			_event,
+			input: unknown,
+		): Promise<import("../../shared/types").DshUserPluginUninstallResult> => {
+			if (typeof input !== "object" || input === null) {
+				throw new Error("invalid user plugin uninstall payload");
+			}
+			const record = input as Record<string, unknown>;
+			if (
+				typeof record.entryId !== "string" || !record.entryId ||
+				typeof record.moduleName !== "string" || !record.moduleName
+			) {
+				throw new Error("invalid user plugin uninstall payload");
+			}
+			if (!uninstallDshUserPlugin) throw new Error("DSH user plugin uninstall is not available");
+			return uninstallDshUserPlugin({
+				entryId: record.entryId,
+				moduleName: record.moduleName,
+				deleteFiles: record.deleteFiles === true,
+			});
 		},
 	);
 	ipcMain.handle(

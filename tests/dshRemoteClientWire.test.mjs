@@ -88,22 +88,27 @@ test("session/prompt：每次调用生成新的 requestId（幂等键不能复�
 });
 
 test("session/page：载荷包在 request 内（描述符 wire），且地址/区间字段齐全", async () => {
-	const { endpoint, args } = await captureArgs((remote) => remote.sessionsHistory({ sessionId: "s1", maxMessages: 10 }));
+	const { endpoint, args } = await captureArgs((remote) =>
+		remote.sessionsHistory({ sessionId: "s1", throughSeq: 42, maxMessages: 10 }),
+	);
 	assert.equal(endpoint, "session/page");
 	assert.deepEqual(args.request.address, { kind: "session", sessionId: "s1" });
 	assert.equal(args.request.maxMessages, 10);
-	assert.equal(typeof args.request.throughSeq, "number");
+	// 0.1.5 契约：throughSeq 是必填的「包含式日志切点」（≤ 会话 cursor，来自冷读
+	// observation）；适配层必须原样透传调用方给的合法 cursor，禁止再送 MAX_SAFE_INTEGER。
+	assert.equal(args.request.throughSeq, 42);
 	assert.equal(args.address, undefined, "不得把 request 字段平铺到 args 顶层");
 });
 
 test("subagentsHistory：同 session/page，地址为 subagent 形态", async () => {
 	const { args } = await captureArgs((remote) =>
-		remote.subagentsHistory({ parentSessionId: "p1", childSessionId: "c1" }),
+		remote.subagentsHistory({ parentSessionId: "p1", childSessionId: "c1", throughSeq: 7 }),
 	);
 	assert.equal(args.request.address.kind, "subagent");
 	assert.equal(args.request.address.parentSessionId, "p1");
 	assert.equal(args.request.address.childSessionId, "c1");
 	assert.equal(args.request.address.mode, "one-shot");
+	assert.equal(args.request.throughSeq, 7);
 });
 
 test("session/list：wire 名为 _request（非可选），空对象表示不带游标", async () => {

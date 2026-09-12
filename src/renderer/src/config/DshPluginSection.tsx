@@ -22,6 +22,9 @@ import { Textarea } from "../components/ui-shadcn/textarea";
 /** 静态 Loader 清单每页行数（合并后一模块一行；分页避免只读长列表刷屏）。 */
 const STATIC_PAGE_SIZE = 20;
 
+/** 来源筛选值（all = 不过滤）。 */
+type OriginFilter = "all" | "user" | "builtin";
+
 /**
  * 动态 Cordis 插件管理区（G13 深化）。
  *
@@ -185,7 +188,8 @@ export function DshPluginSection() {
 									type="button"
 									variant={confirmUninstallId === plugin.pluginId ? "destructive" : "ghost"}
 									size="sm"
-									className="h-6 text-muted-foreground"
+									// 确认态走 destructive 白字；ghost 态才用弱化的 muted 前景
+									className={confirmUninstallId === plugin.pluginId ? "h-6" : "h-6 text-muted-foreground"}
 									disabled={busy}
 									onClick={() => void uninstallPlugin(plugin)}
 								>
@@ -243,10 +247,27 @@ function matchesEntry(entry: DshStaticPluginView, normalizedQuery: string): bool
 	return [entry.moduleName, entry.entryId].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
 }
 
+/** 来源徽标：user = 用户安装（强调色），builtin = 自带（中性色）。 */
+function OriginBadge(props: { origin: "builtin" | "user" | undefined }) {
+	if (props.origin === "user") {
+		return (
+			<Badge variant="outline" className="shrink-0 border-sky-300/70 bg-sky-500/10 font-medium text-sky-700 dark:border-sky-700/70 dark:text-sky-300">
+				{t("config.dsh.pluginOriginUser")}
+			</Badge>
+		);
+	}
+	return (
+		<Badge variant="outline" className="shrink-0 border-border-subtle text-muted-foreground">
+			{t("config.dsh.pluginOriginBuiltin")}
+		</Badge>
+	);
+}
+
 /**
  * 插件列表视图（对齐 dsh-web 的 plugin-inventory tab）：静态 Loader 清单以 2 列卡片网格展示
- * （模块短名 + 启用标签 + fiberPhase 状态点），顶部搜索框按 moduleName/entryId 过滤；
- * 点击卡片展开查看完整 entryId、配置状态与 Cordis 状态。保留分页避免只读长列表刷屏。
+ * （模块短名 + 来源徽标 + 启用标签 + fiberPhase 状态点），顶部搜索框按 moduleName/entryId 过滤、
+ * 来源筛选（全部/用户安装/自带）；用户安装的条目可就地卸载（从 $DSH_HOME/cordis.patch.yml
+ * 移除行 + 可选回收插件目录，host 重启后生效）。保留分页避免长列表刷屏。
  */
 export function PluginInventoryView() {
 	const [entries, setEntries] = useState<DshStaticPluginView[]>([]);
@@ -256,6 +277,11 @@ export function PluginInventoryView() {
 	const [page, setPage] = useState(1);
 	/** 首次加载态（仅控制列表文案；刷新按钮可随时重拉）。 */
 	const [loading, setLoading] = useState(true);
+	/** 来源筛选（all = 不过滤）。 */
+	const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
+	/** 两步确认卸载：第一次点击进入确认态，第二次执行。 */
+	const [confirmUninstallId, setConfirmUninstallId] = useState<string | null>(null);
+	const [uninstalling, setUninstalling] = useState(false);
 
 	/** 拉取静态 Loader 清单：挂载与手动刷新共用；失败保持现值不清空。 */
 	const load = useCallback(async () => {
@@ -275,16 +301,70 @@ export function PluginInventoryView() {
 
 	const normalizedQuery = query.trim().toLocaleLowerCase();
 	const filtered = useMemo(
-		() => entries.filter((entry) => matchesEntry(entry, normalizedQuery)),
-		[entries, normalizedQuery],
+		() =>
+			entries.filter(
+				(entry) =>
+					matchesEntry(entry, normalizedQuery) &&
+					(originFilter === "all" || (entry.origin ?? "builtin") === originFilter),
+			),
+		[entries, normalizedQuery, originFilter],
 	);
 
-	// 展开项被搜索过滤掉时自动收起（对齐 dsh-web）
+	// 展开项被搜索过滤掉时自动收起（对齐 dsh-web）；两步确认态一并复位
 	useEffect(() => {
 		if (expandedId !== null && !filtered.some((entry) => entry.entryId === expandedId)) {
 			setExpandedId(null);
+			setConfirmUninstallId(null);
 		}
 	}, [expandedId, filtered]);
+
+	/**
+	 * 卸载用户自装插件（两步确认后的第二步）：
+	 * 主进程从 $DSH_HOME/cordis.patch.yml 移除对应行（先备份），PiDeck 管理目录内的
+	 * 插件文件一并移入回收站；成功后重启 DSH host 让移除立即生效。
+	 */
+	const uninstallUserPlugin = async (entry: DshStaticPluginView) => {
+		if (confirmUninstallId !== entry.entryId) {
+			setConfirmUninstallId(entry.entryId);
+			return;
+		}
+		setConfirmUninstallId(null);
+		setUninstalling(true);
+		try {
+			const result = await desktopApi.sessions.uninstallDshUserPlugin({
+				entryId: entry.entryId,
+				moduleName: entry.moduleName,
+				deleteFiles: true,
+			});
+			if (!result.rowRemoved) {
+				showNotice(result.reason ?? t("config.dsh.pluginUserUninstallFailed"), 5000);
+				return;
+			}
+			if (result.fileError) {
+				showNotice(`${t("config.dsh.pluginUserUninstalled")}（${result.fileError}）`, 6000);
+			} else if (result.removedPluginDir) {
+				showNotice(t("config.dsh.pluginUserUninstalled"), 5000);
+			} else {
+				// 文件保留（管理目录之外）：提示语带上插件实际位置，手动删除可直达
+				showNotice(
+					result.keptPluginDir
+						? `${t("config.dsh.pluginFilesKeepHint")}：${result.keptPluginDir}`
+						: t("config.dsh.pluginFilesKeepHint"),
+					8000,
+				);
+			}
+			try {
+				await desktopApi.sessions.restartDshHost();
+			} catch {
+				showNotice(t("config.dsh.pluginHostRestartFailed"), 5000);
+			}
+			await load();
+		} catch (error) {
+			showNotice(error instanceof Error ? error.message : String(error), 5000);
+		} finally {
+			setUninstalling(false);
+		}
+	};
 
 	const totalPages = Math.max(1, Math.ceil(filtered.length / STATIC_PAGE_SIZE));
 	const pageClamped = Math.min(page, totalPages);
@@ -305,9 +385,21 @@ export function PluginInventoryView() {
 					className="h-9 pl-8"
 				/>
 			</label>
-			<div className="flex items-baseline gap-2 px-0.5">
-				<h3 className="text-caption font-semibold text-foreground">{t("config.dsh.tab.pluginList")}</h3>
-				<span className="text-micro tabular-nums text-muted-foreground">{filtered.length}</span>
+			<div className="flex items-center gap-2">
+				<Select value={originFilter} onValueChange={(value) => { setOriginFilter(value as OriginFilter); setPage(1); }}>
+					<SelectTrigger className="h-8 w-40">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">{t("config.dsh.pluginFilterAll")}</SelectItem>
+						<SelectItem value="user">{t("config.dsh.pluginFilterUser")}</SelectItem>
+						<SelectItem value="builtin">{t("config.dsh.pluginFilterBuiltin")}</SelectItem>
+					</SelectContent>
+				</Select>
+				<div className="flex items-baseline gap-2">
+					<h3 className="text-caption font-semibold text-foreground">{t("config.dsh.tab.pluginList")}</h3>
+					<span className="text-micro tabular-nums text-muted-foreground">{filtered.length}</span>
+				</div>
 				{/* 手动刷新：dsh-web 等外部安装/启停插件后（host 重启生效）无需重开配置页即可重拉清单 */}
 				<Button
 					type="button"
@@ -341,10 +433,11 @@ export function PluginInventoryView() {
 									aria-controls={detailId}
 									onClick={() => setExpandedId(open ? null : entry.entryId)}
 								>
-									<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground" title={entry.moduleName}>
-										{title}
-									</span>
-									{entry.enabled ? (
+								<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground" title={entry.moduleName}>
+									{title}
+								</span>
+								<OriginBadge origin={entry.origin} />
+								{entry.enabled ? (
 										<Badge variant="outline" className="shrink-0 border-emerald-300/70 bg-emerald-500/10 font-medium text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
 											{t("config.dsh.pluginEnabled")}
 										</Badge>
@@ -372,6 +465,10 @@ export function PluginInventoryView() {
 										</code>
 										<dl className="mt-2 grid gap-1 text-micro">
 											<div className="flex gap-2">
+												<dt className="shrink-0 text-muted-foreground">{t("config.dsh.pluginOriginLabel")}</dt>
+												<dd>{entry.origin === "user" ? t("config.dsh.pluginOriginUser") : t("config.dsh.pluginOriginBuiltin")}</dd>
+											</div>
+											<div className="flex gap-2">
 												<dt className="shrink-0 text-muted-foreground">{t("config.dsh.pluginConfigStatus")}</dt>
 												<dd>{entry.enabled ? t("config.dsh.pluginEnabled") : t("config.dsh.pluginDisabled")}</dd>
 											</div>
@@ -382,6 +479,22 @@ export function PluginInventoryView() {
 												</div>
 											)}
 										</dl>
+										{entry.origin === "user" && (
+											<div className="mt-2 flex items-center justify-end gap-1.5">
+										<Button
+												type="button"
+												variant={confirmUninstallId === entry.entryId ? "destructive" : "ghost"}
+												size="sm"
+												// 确认态走 destructive 白字；ghost 态才用弱化的 muted 前景
+												className={confirmUninstallId === entry.entryId ? "h-6" : "h-6 text-muted-foreground"}
+												disabled={uninstalling}
+												onClick={() => void uninstallUserPlugin(entry)}
+											>
+													<Trash2 className="size-3" aria-hidden="true" />
+													{t(confirmUninstallId === entry.entryId ? "config.dsh.pluginUserConfirmUninstall" : "config.dsh.pluginUserUninstall")}
+												</Button>
+											</div>
+										)}
 									</div>
 								)}
 							</li>

@@ -167,8 +167,12 @@ type WebServiceDependencies = {
 	listDshSkills?: (agentId: string) => Promise<import("../../shared/types").DshSkillView[]>;
 	/** DSH 动态插件清单（S6.5：进程内临时扩展；未装配 DSH 时缺省）。 */
 	listDshDynamicPlugins?: () => Promise<import("../../shared/types").DshPluginView[]>;
-	/** DSH 静态 Loader 条目清单（S6.5：只读）。 */
+	/** DSH 静态 Loader 条目清单（S6.5：origin 标注 user/builtin 来源）。 */
 	listDshStaticPlugins?: () => Promise<import("../../shared/types").DshStaticPluginView[]>;
+	/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录）。 */
+	uninstallDshUserPlugin?: (
+		input: import("../../shared/types").DshUserPluginUninstallInput,
+	) => Promise<import("../../shared/types").DshUserPluginUninstallResult>;
 	/** DSH 动态插件安装（define：定义源码包，不运行；按会话归属）。 */
 	installDshPlugin?: (input: import("../../shared/types").DshPluginInstallInput) => Promise<unknown>;
 	/** DSH 动态插件生命周期（run/stop/uninstall；面板手势无需审批）。 */

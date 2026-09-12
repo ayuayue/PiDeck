@@ -1,6 +1,7 @@
 {
   "name": "pi-desktop",
   "version": "0.7.5-beta",
+  "dshRuntimeVersion": "0.1.5-rc.1",
   "description": "PiDeck is an open-source desktop workbench to manage multiple pi AI coding agents across local project folders with session history, Git integration, terminal, and config management.",
   "private": true,
   "license": "MIT",
@@ -54,10 +55,11 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "npm run build:packages && npm run generate:pi-ai-catalog && npm run runtime:pack && npm run runtime:check && npm run check:xueprompts && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
+    "build": "npm run sync:dsh-version && npm run build:packages && npm run generate:pi-ai-catalog && npm run runtime:pack && npm run runtime:check && npm run check:xueprompts && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
     "build:packages": "node scripts/build-local-packages.js",
     "build:fast": "npm run generate:pi-ai-catalog && electron-vite build",
     "runtime:pack": "node scripts/pack-dsh-runtime.mjs",
+    "sync:dsh-version": "node scripts/sync-dsh-declared-version.mjs",
     "runtime:pack:lite": "node scripts/pack-dsh-runtime.mjs --lite",
     "runtime:check": "node scripts/check-dsh-asar.mjs",
     "runtime:check:boot": "node scripts/check-dsh-boot.mjs",

@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -20,7 +20,9 @@ import {
 } from "./pideckDshHome";
 import { foldSessionTitleFromDir, listForeignSessionsFromDisk, scanDshSessionHeaders } from "./dshForeignSessionScan";
 import { PIDECK_PLUGIN_BRIDGE_PATH } from "./pideckPluginBridge";
+import { classifyStaticPlugins, isUserPluginEntry, nearestPackageDir, readUserPatchRows, removeUserPatchRow, resolveManagedPluginDir, USER_PATCH_FILENAME } from "./dshUserPlugins";
 import { PIDECK_COMMANDS_BRIDGE_PATH } from "./pideckCommandsBridge";
+import { PIDECK_SESSION_BRIDGE_PATH } from "./pideckSessionBridge";
 import type { DshFetchMessage } from "./dshHostBridge";
 import type {
 	DshCommandView,
@@ -29,6 +31,8 @@ import type {
 	DshPluginLifecycleInput,
 	DshPluginView,
 	DshStaticPluginView,
+	DshUserPluginUninstallInput,
+	DshUserPluginUninstallResult,
 } from "../../shared/types";
 
 // 注意：主进程产物为 CJS，而 @deepseek-ai/* 是 ESM-only 包。
@@ -561,10 +565,85 @@ export class DshHost {
 		return Array.isArray(value) ? (value as DshPluginView[]) : [];
 	}
 
-	/** 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+	/** 静态 Loader 条目清单（origin 标注来源：user = 用户补丁层 / builtin = 官方与 PiDeck 组合）。 */
 	async listStaticPlugins(): Promise<DshStaticPluginView[]> {
 		const value = await this.pluginRpc("staticInventory", undefined);
-		return Array.isArray(value) ? (value as DshStaticPluginView[]) : [];
+		const views = Array.isArray(value) ? (value as DshStaticPluginView[]) : [];
+		try {
+			const patchPath = join(this.getHomeDir(), USER_PATCH_FILENAME);
+			const { rows } = readUserPatchRows(patchPath);
+			return classifyStaticPlugins(views, rows);
+		} catch (error) {
+			// 分类是纯增强：读不到用户补丁层时按 builtin 呈现，不让列表失败
+			this.log("dsh-host", "plugin origin classification skipped", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return views;
+		}
+	}
+
+	/**
+	 * 卸载用户自装的静态插件：从 $DSH_HOME/cordis.patch.yml 移除对应行（下个 host
+	 * 重启生效），可选把插件目录移入回收站（仅限 userData/dsh-plugins 内的 PiDeck
+	 * 管理目录）。内置条目一律拒绝——它们属于 base/预设/PiDeck 组合，不归用户卸载。
+	 */
+	async uninstallUserPlugin(
+		input: DshUserPluginUninstallInput,
+	): Promise<DshUserPluginUninstallResult> {
+		const patchPath = join(this.getHomeDir(), USER_PATCH_FILENAME);
+		const { rows, exists } = readUserPatchRows(patchPath);
+		if (!exists) {
+			return { rowRemoved: false, reason: "no user patch layer found (nothing user-installed)" };
+		}
+		const probe = { entryId: input.entryId, moduleName: input.moduleName };
+		if (!isUserPluginEntry(probe, rows)) {
+			return {
+				rowRemoved: false,
+				reason: "entry is not declared in the user patch layer (builtin plugins cannot be uninstalled here)",
+			};
+		}
+
+		// 先备份再改写：补丁文件是用户自管文件，误删行可从 .bak 恢复
+		const backupPath = `${patchPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+		copyFileSync(patchPath, backupPath);
+		const current = readFileSync(patchPath, "utf8");
+		const removed = removeUserPatchRow(current, { entryId: input.entryId, moduleName: input.moduleName });
+		if (!removed.removed) {
+			return { rowRemoved: false, reason: removed.reason, backupPath };
+		}
+		writeFileSync(patchPath, removed.text, "utf8");
+		this.log("dsh-host", "user plugin uninstalled from patch layer", {
+			entryId: input.entryId,
+			moduleName: input.moduleName,
+			backupPath,
+		});
+
+		const result: DshUserPluginUninstallResult = { rowRemoved: true, backupPath };
+		if (input.deleteFiles === true) {
+			const matchedRow = rows.find((row) => isUserPluginEntry(probe, [row]));
+			const pluginDir =
+				matchedRow?.name !== undefined
+					? resolveManagedPluginDir(matchedRow.name, join(this.getUserDataDir(), "dsh-plugins"))
+					: undefined;
+			if (pluginDir === undefined) {
+				// 管理目录之外不代删，但把插件实际位置告诉用户（常见于换实例卸载：
+				// 插件装在另一个 userData 的 dsh-plugins 下）
+				const hintDir =
+					matchedRow?.name !== undefined ? nearestPackageDir(matchedRow.name) : undefined;
+				result.reason = hintDir
+					? `plugin files are outside this install's managed folder: ${hintDir}`
+					: "plugin directory is outside PiDeck's managed folder; remove it manually if needed";
+				result.keptPluginDir = hintDir;
+			} else {
+				try {
+					await this.trashPath(pluginDir);
+					result.removedPluginDir = pluginDir;
+				} catch (error) {
+					result.fileError = error instanceof Error ? error.message : String(error);
+				}
+			}
+		}
+		return result;
 	}
 
 	/** 安装动态插件（define：定义源码包，不运行；按会话归属）。 */
@@ -596,6 +675,24 @@ export class DshHost {
 	async listCommands(sessionId: string): Promise<DshCommandView[]> {
 		const value = await this.bridgeRpc(PIDECK_COMMANDS_BRIDGE_PATH, "list", { sessionId });
 		return Array.isArray(value) ? (value as DshCommandView[]) : [];
+	}
+
+	/**
+	 * 冷读会话日志 cursor（0.1.5 `session/page` 的 throughSeq 上界）。
+	 *
+	 * 契约见 pideckSessionBridge：cursor 来自 host 内 sessionQuery 的
+	 * observation（与 page 内部 sourceFor 同一数据源），不激活会话、不写投影缓存；
+	 * 取 cursor 与后续 page 之间日志只可能增长，旧 cursor 仍是合法切点。
+	 * 空日志返回 -1（page 拿到 -1 会返回空页）。
+	 * 返回非合法数字（桥未挂载/返回异常）时抛错，由调用方（historyPage）回退。
+	 */
+	async readSessionCursor(sessionId: string): Promise<number> {
+		const value = await this.bridgeRpc(PIDECK_SESSION_BRIDGE_PATH, "cursor", { sessionId });
+		const cursor = (value as { cursor?: unknown } | undefined)?.cursor;
+		if (typeof cursor !== "number" || !Number.isSafeInteger(cursor)) {
+			throw new Error("session bridge returned an invalid cursor");
+		}
+		return cursor;
 	}
 
 	/**

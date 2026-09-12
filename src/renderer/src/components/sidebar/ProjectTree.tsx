@@ -32,9 +32,9 @@ const treeRowClass =
 
 /** 项目行右侧操作按钮的虚化模式：absolute 浮层，不参与布局（不挤压项目名文字），
  * 默认隐藏（pointer-events 一并关闭防误触），行 hover / 行内聚焦时显现。
- * 按钮浮层会盖住项目名：conversation-body 上 group-hover:pr-16 在 hover 时压出
- * 右侧留白——容器 right-1(4px) + pr-1(4px) + 两个 size-6 按钮(52px) + 4px 余量 = 64px，
- * 文本截断让位但保持可见；启用来源筛选（sourceFilter）时共 3 个按钮，让位加宽到 88px。
+ * 按钮浮层会盖住项目名：conversation-body 上 group-hover:pr-* 在 hover 时压出
+ * 右侧留白——容器 right-1(4px) + pr-1(4px) + 三个 size-6 按钮(76px) + 8px 余量 = 92px，
+ * 取 88px 让文本截断让位但保持可见（筛选 / + / ⋯ 共 3 个按钮常驻浮层）。
  * 与 SessionTree/WorktreeTree 同一策略：所有宽度统一让位，不能只依赖窄侧栏断点
  * （中等宽度下长项目名同样会延伸到按钮下方，表现为 + / ⋯ 叠在项目名文字上）。
  * 2027-01 用户反馈：整行淡出到透明会导致标题不可读，必须点击激活才能看到文字；
@@ -162,12 +162,11 @@ export function ProjectTree(props: {
             <span className="grid size-5 shrink-0 place-items-center text-muted-foreground" aria-hidden="true">
               {collapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
             </span>
-            <div className={cn(
-              "conversation-body min-w-0 flex-1 transition-[padding-right] group-hover:pr-16 group-focus-within:pr-16",
-              // 筛选按钮与 + / ⋯ 共 3 个按钮时让位 88px（24×3 + 8px 间隙 + 外层定位），
-              // 否则文本会短到筛按钮下方。twMerge 保证后者胜出（见 sidebarNarrowRowActions 契约测试）。
-              sourceFilter !== null && "group-hover:pr-[88px] group-focus-within:pr-[88px]",
-            )}>
+            <div
+              className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover:pr-[88px] group-focus-within:pr-[88px]"
+            >
+              {/* 筛选 / + / ⋯ 共 3 个按钮常驻浮层，hover 时统一让位 88px。
+                  twMerge 语义见 tests/sidebarNarrowRowActions.test.mjs 契约测试。 */}
               <div className="conversation-title flex min-w-0 items-center">
                 {/* 项目名 + 运行态点合成一个截断单元：点紧跟文本而不是被 space-between
                     推到最右——旧布局下点在行尾，鼠标移入时会被右侧浮层按钮盖住。 */}
@@ -199,17 +198,21 @@ export function ProjectTree(props: {
             </div>
           </button>
           <div className={cn(dimmedActionsClass, "pr-1", props.controller.menu?.kind === "project" && props.controller.menu.projectId === project.id && "pointer-events-auto opacity-100")}>
-            {sourceFilter !== null && (
-              <button
-                type="button"
-                className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
-                title={t("menu.filterSessions")}
-                aria-label={t("menu.filterSessions")}
-                onClick={(event) => props.controller.openSourceFilter(project.id, event.clientX, event.clientY)}
-              >
-                <Filter size={12} />
-              </button>
-            )}
+            {/* 过滤历史记录入口：hover 常驻（右键菜单同款功能），筛选生效时高亮提示 */}
+            <button
+              type="button"
+              className={cn(
+                "grid size-6 place-items-center rounded-md hover:bg-background/80",
+                sourceFilter !== null
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              title={t("menu.filterSessions")}
+              aria-label={t("menu.filterSessions")}
+              onClick={(event) => props.controller.openSourceFilter(project.id, event.clientX, event.clientY)}
+            >
+              <Filter size={12} />
+            </button>
             {/* 新建会话入口外露为 + 号（hover 项目行可见），匿名会话保留在 ⋯ 菜单 */}
             <Button
               type="button"
@@ -283,13 +286,14 @@ export function ProjectTree(props: {
   // Tab 已承担「聊天/项目」文案，下面不再重复标题父块；两个区只保留各自必需的操作入口。
   const chatSection = chatProjects.map((project) => {
     const collapsed = props.controller.isProjectCollapsed(project.id);
+    const sourceFilter = props.controller.sourceFilterFor(project.id);
     const sessions = props.controller.catalog.sessionsByProject[project.id] ?? [];
     // Chat 无独立的项目行，标题栏就是该项目的唯一身份入口，
     // 因此待确认徽章必须挂在这里，否则 Chat 项目内的 ask 提问在侧栏完全不可见。
     const pendingAskCount = countProjectPendingAsks(project.id, props.controller, sessionRuntimeUiById);
     return (
       <section key={project.id} className="mb-4" aria-label={t("app.chatProject")} role="treeitem" aria-expanded={!collapsed}>
-        {/* 聊天标题栏：左侧「聊天」标题，右侧 = 「+ 新建会话」+ 折叠（高频操作外露）
+        {/* 聊天标题栏：左侧「聊天」标题，右侧 = 「过滤历史记录」+「+ 新建会话」+ 折叠（高频操作外露）
             + 「⋯ 更多操作」（完整项目菜单，新建/定位/会话管理/目录设置）。
             新建与折叠都是最常用入口，直接外露；其余操作收进完整菜单。 */}
         <div
@@ -305,6 +309,21 @@ export function ProjectTree(props: {
             <PendingAskBadge count={pendingAskCount} />
           </span>
           <div className="flex items-center gap-0.5">
+            {/* 过滤历史记录：与工作区项目行 hover 按钮同款功能，聊天区标题栏常驻（用户反馈补齐） */}
+            <button
+              type="button"
+              className={cn(
+                "grid size-6 place-items-center rounded-md hover:bg-muted",
+                sourceFilter !== null
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              title={t("menu.filterSessions")}
+              aria-label={t("menu.filterSessions")}
+              onClick={(event) => props.controller.openSourceFilter(project.id, event.clientX, event.clientY)}
+            >
+              <Filter size={14} />
+            </button>
             <Button
               type="button"
               variant="ghost"

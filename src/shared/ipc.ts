@@ -188,8 +188,10 @@ export const ipcChannels = {
 	automationChanged: "automation:changed",
 	/** DSH 动态插件清单（G13 深化：进程内临时扩展，重启即失；按会话归属）。 */
 	dshPluginList: "dsh:plugin-list",
-	/** DSH 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+	/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）。 */
 	dshPluginStaticList: "dsh:plugin-static-list",
+	/** DSH 用户自装静态插件卸载（从 $DSH_HOME/cordis.patch.yml 移除行，可选回收插件目录）。 */
+	dshPluginUserUninstall: "dsh:plugin-user-uninstall",
 	/** DSH 动态插件安装（define：定义源码包，不运行）。 */
 	dshPluginInstall: "dsh:plugin-install",
 	/** DSH 动态插件运行（面板手势，requestId=null 无需审批）。 */

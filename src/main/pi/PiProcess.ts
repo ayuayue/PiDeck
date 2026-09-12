@@ -39,7 +39,7 @@ type PiProcessSettings = Pick<
 
 type PiProcessLocator = Pick<
   PiLocator,
-  "resolveCommand" | "createInvocation" | "createProcessEnv"
+  "resolveCommand" | "createInvocation" | "createProcessEnv" | "resolveArgCharBudget"
 > & Partial<Pick<PiLocator, "warmWslCommand">>;
 
 
@@ -115,6 +115,28 @@ type PiProcessOptions = {
   repairSessionFileBeforeStart?: (sessionPath: string) => Promise<boolean>;
 };
 
+/**
+ * 估算 --skill 注入占用的命令行字符数（含选项名、分隔符与可能的引号）。
+ *
+ * 为什么需要：技能白名单（--no-skills + 逐条 --skill）必须由 PiDeck 自己枚举
+ * 「pi 本来会加载的全部技能」，命令行长度因此 O(技能数)，技能多的用户会直接撑爆命令行。
+ * 该估算与 locator.resolveArgCharBudget() 给出的通道预算比较（各通道上限差 4 倍，
+ * 见 PiLocator 中的常量注释），超限就整体放弃注入——pi 走默认发现，本次「禁用技能」
+ * 不生效但启动不会失败；跳过的事实记入 diagnostics 供 UI 提示用户。
+ */
+
+/** 估算 --skill 注入占用的命令行字符数（含选项名、分隔符与可能的引号），用于预算判断。 */
+function estimateSkillWhitelistArgChars(paths: readonly string[]): number {
+  let total = "--no-skills".length;
+  for (const path of paths) {
+    const trimmed = path.trim();
+    if (!trimmed) continue;
+    // "--skill " + 路径；路径含空格时 spawn 会补一对引号，这里一并算上留余量。
+    total += "--skill ".length + trimmed.length + (trimmed.includes(" ") ? 2 : 0);
+  }
+  return total;
+}
+
 type VersionCacheEntry =
   | { status: "pending"; promise: Promise<boolean> }
   | { status: "done"; ok: boolean; minorVersion: number | null };
@@ -175,6 +197,11 @@ export class PiProcess extends EventEmitter {
     versionCheck: boolean;
     /** 被桌面端 RPC 启动路径自动隔离的扩展名（如 codeisland） */
     blockedExtensions?: string[];
+    /**
+     * 因超出命令行注入预算而被跳过的技能白名单信息。
+     * 跳过不影响启动（pi 走默认技能发现），只意味着本次「禁用技能」不生效，需要告知用户。
+     */
+    skillWhitelistSkipped?: { skills: number; chars: number; budget: number };
   } | null = null;
 
   constructor(
@@ -207,6 +234,7 @@ export class PiProcess extends EventEmitter {
     customPiPath: string | undefined;
     versionCheck: boolean;
     blockedExtensions?: string[];
+    skillWhitelistSkipped?: { skills: number; chars: number; budget: number };
   }> | null {
     return this.diagnostics;
   }
@@ -423,16 +451,53 @@ export class PiProcess extends EventEmitter {
     // pi 的 frontmatter disable-model-invocation 只阻止模型自动调用、不阻止加载（用户仍可
     // /skill:name 手动触发）；「不加载」唯一可靠手段就是白名单（与扩展白名单同构）。
     // 解析器返回 null = 无禁用项，不启用（pi 默认发现全部技能，兼容 PiDeck 未跟踪的安装）。
-    // piRpcNoSkills（诊断总开关）优先：已传 --no-skills 时不再注入，保证诊断路径干净。
     const skillWhitelistPaths = this.options.resolveEnabledSkillPaths?.(
       this.settings,
       this.cwd,
       includeProjectResources,
     ) ?? null;
-    const useSkillWhitelist =
-      skillWhitelistPaths !== null &&
-      skillWhitelistPaths !== undefined &&
-      !this.settings?.piRpcNoSkills;
+    // piRpcNoSkills（诊断总开关）优先：已传 --no-skills 时不再注入，保证诊断路径干净。
+    const requestedSkillPaths: string[] | null =
+      skillWhitelistPaths !== null && !this.settings?.piRpcNoSkills ? skillWhitelistPaths : null;
+    // 注入预算兜底：白名单逐条 --skill 注入使命令行长度 O(技能数)，技能多的用户会超长
+    // （见 estimateSkillWhitelistArgChars 注释）。预算按实际启动通道取（node 直启 26000 /
+    // cmd.exe 5000 / 非 Windows 不限制），超预算就整体放弃注入，pi 走默认发现——「禁用技能」
+    // 本次不生效，但启动不会失败；跳过的事实记入 diagnostics 供 UI 提示用户。
+    // 仅在确有白名单需要注入时才解析通道：非白名单模式零额外开销（不必读 .cmd 垫片）。
+    const skillWhitelistArgChars = requestedSkillPaths
+      ? estimateSkillWhitelistArgChars(requestedSkillPaths)
+      : 0;
+    const skillWhitelistArgCharBudget = requestedSkillPaths
+      ? this.locator.resolveArgCharBudget(command)
+      : 0;
+    const skillWhitelistOverBudget =
+      requestedSkillPaths !== null && skillWhitelistArgChars > skillWhitelistArgCharBudget;
+    const skillWhitelistSkipped =
+      requestedSkillPaths !== null && skillWhitelistOverBudget
+        ? {
+            skills: requestedSkillPaths.length,
+            chars: skillWhitelistArgChars,
+            budget: skillWhitelistArgCharBudget,
+          }
+        : undefined;
+    if (skillWhitelistSkipped) {
+      void getAppLogger()?.warn(
+        "pi-process",
+        "Skill whitelist skipped: injection exceeds command line budget",
+        {
+          skills: skillWhitelistSkipped.skills,
+          estimatedChars: skillWhitelistSkipped.chars,
+          budget: skillWhitelistSkipped.budget,
+          cwd: this.cwd,
+        },
+      );
+      console.warn(
+        `[PiProcess] Skill whitelist skipped: ${skillWhitelistSkipped.skills} skills ` +
+          `(~${skillWhitelistSkipped.chars} chars) exceed budget ${skillWhitelistSkipped.budget}; ` +
+          "falling back to default skill discovery (disabled skills will still load)",
+      );
+    }
+    const useSkillWhitelist = requestedSkillPaths !== null && !skillWhitelistOverBudget;
     if (useSkillWhitelist) {
       if (!trustOverride) await this.ensureVersionCheck(command);
       const cachedSkillGate = PiProcess.versionCache.get(command);
@@ -453,18 +518,18 @@ export class PiProcess extends EventEmitter {
         );
       } else {
         // 白名单模式即使列表为空也要加 --no-skills：空列表表示「全部禁用」，不是「不启用」。
-        // useSkillWhitelist 已排除 piRpcNoSkills，此处不会与诊断开关重复加参数。
+        // requestedSkillPaths 已排除 piRpcNoSkills，此处不会与诊断开关重复加参数。
         finalPiArgs.push("--no-skills");
-        for (const skillPath of skillWhitelistPaths) {
+        for (const skillPath of requestedSkillPaths) {
           const trimmed = skillPath.trim();
           if (!trimmed) continue;
           finalPiArgs.push("--skill", trimmed);
         }
         void getAppLogger()?.info("pi-process", "Skill whitelist mode enabled", {
-          skills: skillWhitelistPaths.length,
+          skills: requestedSkillPaths.length,
           cwd: this.cwd,
         });
-        console.log(`[PiProcess] Skill whitelist mode: ${skillWhitelistPaths.length} skills via --skill`);
+        console.log(`[PiProcess] Skill whitelist mode: ${requestedSkillPaths.length} skills via --skill`);
       }
     }
 
@@ -557,6 +622,7 @@ export class PiProcess extends EventEmitter {
       customPiPath: this.settings?.customPiPath,
       versionCheck: cachedVersion?.status === "done" ? cachedVersion.ok : false,
       blockedExtensions: blockedNames.length > 0 ? blockedNames : undefined,
+      skillWhitelistSkipped,
     };
     if (!trustOverride) {
       void this.ensureVersionCheck(command);

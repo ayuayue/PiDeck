@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
-import { installHiddenConsolePatch, installHostHiddenConsole } from "./hideChildConsoles";
+import { installHiddenConsolePatch, installHostHiddenConsole, getHiddenConsoleMode } from "./hideChildConsoles";
 import { agentPresetsRow, dshSubagentModelSelectionSettingsRow, dshWebAgentPlaneDisableRows, hostCompositionPath } from "./dshPresetComposition";
 import {
 	PIDECK_PLUGIN_BRIDGE_PATH,
@@ -28,6 +28,10 @@ import {
 	PIDECK_COMMANDS_BRIDGE_PATH,
 	handleCommandsBridgeFetch,
 } from "./pideckCommandsBridge";
+import {
+	PIDECK_SESSION_BRIDGE_PATH,
+	handleSessionBridgeFetch,
+} from "./pideckSessionBridge";
 
 // utilityProcess 的 parentPort：electron 包类型里有（Electron.ParentPort）。
 import type { ParentPort } from "electron";
@@ -89,6 +93,11 @@ async function main(): Promise<void> {
 	//    不继承 host 控制台，需在 runner 进程内自建隐藏控制台——见 runnerConsolePreload.ts）。
 	installHostHiddenConsole();
 	installHiddenConsolePatch();
+	// 诊断（黑窗口排查入口）：host 的 stdout 不被 DshHostProcess 转发（只接 stderr），
+	// 因此这条也用 console.error 落主进程日志。mode 见 hideChildConsoles 的
+	// HiddenConsoleMode——inherited-windowless 是 ConPTY 场景（正常）；failed 表示
+	// 退回 windowsHide 兜底，若此时仍弹窗，下一步看 runner spawn policy 日志。
+	console.error(`[dsh-host-entry] windows console policy: mode=${getHiddenConsoleMode()}`);
 
 	// ── 组合：base 补丁 + 覆盖层（Connection/Gateway/remotes + storage + picker stub + 遥测关）──
 	// require base 用宿主 node_modules 目录（DshHost 传 --dsh-node-modules 的 file URL）：
@@ -171,6 +180,10 @@ async function main(): Promise<void> {
 			// /pideck-command/rpc 暴露给主进程，Composer `/` 补全拿到 live 命令
 			// （含用户/插件注册的命令），执行仍走 pideck-slash-bridge。
 			{ id: "pideck-command-bridge", name: join(__dirname, "pideckCommandsBridge.js") },
+			// 会话冷读元数据桥（0.1.5 历史分页 cursor）：/pideck-session/rpc 暴露
+			// sessionQuery observation cursor（不激活会话），供历史浏览/补帧等
+			// 冷读路径计算 session/page 的合法 throughSeq。
+			{ id: "pideck-session-bridge", name: join(__dirname, "pideckSessionBridge.js") },
 			// 用量采集（G16）：成熟第三方 dsh-bill。无 web 硬依赖，钩 llm/stream
 			// 落盘 $DSH_HOME/dsh-bill/records.jsonl；PiDeck 费用页只读该日志。
 			// inject 为空：headless host 没有 webServer 也能继续记账。
@@ -352,6 +365,15 @@ async function main(): Promise<void> {
 		}
 		if (url.pathname === PIDECK_COMMANDS_BRIDGE_PATH) {
 			return handleCommandsBridgeFetch(ctx, {
+				method: init?.method,
+				headers: init?.headers as Record<string, string> | undefined,
+				body: typeof init?.body === "string" ? init.body : undefined,
+			});
+		}
+		// 会话冷读元数据桥（0.1.5 历史分页 throughSeq cursor 的来源；不激活会话）：
+		// 读 cursor 走 observeSession（与 session/page 内部同一数据源），冷读不 promote。
+		if (url.pathname === PIDECK_SESSION_BRIDGE_PATH) {
+			return handleSessionBridgeFetch(ctx, {
 				method: init?.method,
 				headers: init?.headers as Record<string, string> | undefined,
 				body: typeof init?.body === "string" ? init.body : undefined,

@@ -166,16 +166,27 @@ export function readBundledRuntime(
 }
 
 /**
- * 读取应用当前声明的 dsh 依赖版本（package.json → dependencies["@deepseek-ai/dsh"]）。
- * 这是「版本依赖的 dsh 运行时」：与用户是否安装 runtime 无关；dev（仓库根）与打包态
- * （asar 内 package.json 可读）均可用，作为「关于」面板没有安装/随包资源时的兜底展示。
+ * 读取应用当前声明的 dsh 依赖版本。优先级：
+ * 1. 根字段 `dshRuntimeVersion` —— 打包态唯一可靠来源：electron-builder 会把
+ *    devDependencies 从 app.asar 内 package.json 删掉（fileTransformer cleanupPackageJson
+ *    isMain 强制删除），自定义根字段则原样保留；由 scripts/sync-dsh-declared-version.mjs
+ *    在每次打包前从 devDependencies 同步，单一事实源不漂移。
+ * 2. dependencies/devDependencies 里的 @deepseek-ai/dsh —— dev 模式兜底（仓库根
+ *    package.json 完整可读）。
+ * 与用户是否安装 runtime 无关；dev（仓库根）与打包态（asar 内 package.json 可读）
+ * 均可用，作为「关于」面板没有安装/随包资源时的兜底展示。
  */
 function tryReadDshVersion(dir: string): string | undefined {
 	try {
 		const parsed = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+			dshRuntimeVersion?: unknown;
 			dependencies?: Record<string, unknown>;
 			devDependencies?: Record<string, unknown>;
 		};
+		// 根字段优先：打包态 devDependencies 已被剥掉，依赖声明读不到。
+		if (typeof parsed.dshRuntimeVersion === "string" && parsed.dshRuntimeVersion) {
+			return parsed.dshRuntimeVersion;
+		}
 		// dsh 不是直接 require 的运行时依赖（打包进 dist-runtime），声明在 devDependencies；两处都查
 		const version =
 			parsed.dependencies?.["@deepseek-ai/dsh"] ?? parsed.devDependencies?.["@deepseek-ai/dsh"];

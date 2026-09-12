@@ -59,6 +59,10 @@ export default defineConfig({
           runnerConsolePreload: resolve(__dirname, "src/main/dsh/runnerConsolePreload.ts"),
           pideckPluginBridge: resolve(__dirname, "src/main/dsh/pideckPluginBridge.ts"),
           pideckCommandsBridge: resolve(__dirname, "src/main/dsh/pideckCommandsBridge.ts"),
+          // hostEntry 的 Loader 行按 join(__dirname, "pideckSessionBridge.js") 引用本文件；
+          // 只作为静态 import 时 rollup 会打成带 hash 的共享 chunk，Loader 行找不到文件
+          // （out/main 被清空重建后必然复现），必须保持独立入口产出稳定文件名。
+          pideckSessionBridge: resolve(__dirname, "src/main/dsh/pideckSessionBridge.ts"),
         },
         formats: ["cjs"],
       },
