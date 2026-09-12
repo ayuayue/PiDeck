@@ -3645,7 +3645,9 @@ app.whenReady().then(async () => {
 			const result = await sessionRuntimeCoordinator.restartRuntime(target);
 			if (result.ok) {
 				if (!result.value.session.noSession) emitSessionRuntimeDetach(target);
-				emitReplacementState(result.value.runtime, false);
+				// 与桌面 IPC 同规约：新 runtime 的消息窗口在绑定前 flush 会被丢弃，
+				// 重启后必须重下发（id 已由会话级身份延续保持稳定，不触发整窗 remount）。
+				emitReplacementState(result.value.runtime, true);
 			}
 			return result;
 		},

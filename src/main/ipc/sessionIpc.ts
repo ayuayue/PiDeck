@@ -1765,7 +1765,13 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				// higher generation state event clears old runtime UI without deleting
 				// the transient SessionRecord from the renderer.
 				if (!result.value.session.noSession) emitSessionRuntimeDetach(target);
-				emitReplacementState(result.value.runtime, false);
+				// 必须重下发消息窗口（含状态）：新 runtime 加载历史后的首次 flush 发生在
+				// 绑定提交之前，emitSessionRuntimeEvent 的 getRuntimeBinding 会把它静默丢弃——
+				// 若这里只补状态，渲染层会一直保留旧 runtime 的窗口/live 身份，
+				// 重启后编辑/删除/重发会定位失败（MESSAGE_NOT_FOUND，2026-09 用户反馈）。
+				// id 稳定性由 loadMessages 的会话级身份延续保证（stabilizeProjectedIdsFromIdentities），
+				// 重下发不会触发整窗 remount/动画重放。
+				emitReplacementState(result.value.runtime, true);
 			}
 			return result;
 		},

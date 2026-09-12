@@ -47,7 +47,11 @@ import { formatExtensionErrorReason } from "./extensionError";
 import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
-import { mergeHistoryWithPreservedMessages, stabilizeReloadedMessageIds } from "./historyMessages";
+import {
+	mergeHistoryWithPreservedMessages,
+	stabilizeProjectedIdsFromIdentities,
+	stabilizeReloadedMessageIds,
+} from "./historyMessages";
 import {
 	buildAgentSessionKey,
 	toAbsoluteSessionPath,
@@ -1222,12 +1226,20 @@ export class AgentManager {
 		});
 		// abort 时 ask_question 的 answer 已被覆写为 null，不再需要跟踪
 		this.abortedDuringAsk.delete(agentId);
-		const nextMessages = stabilizeReloadedMessageIds(
-			this.messages.get(agentId) ?? [],
-			mergeHistoryWithPreservedMessages(
-				messages,
+		const nextMessages = stabilizeProjectedIdsFromIdentities(
+			// 会话级身份延续：新 agent 首次投影时本地缓存为空，把 id 还原成 UI 手里的旧 id
+			//（restart/崩溃重连后窗口重下发必须复用旧 key，否则渲染层整窗 remount、动画重放）。
+			// list 是捕获先后的完整快照，这里只读不消费——同一会话后续 runtime 仍可继续对齐。
+			this.stoppedMessageIdentities.list(
+				runtime.tab.sessionPath ? this.toSessionHostPath(runtime.tab.sessionPath) : "",
+			),
+			stabilizeReloadedMessageIds(
 				this.messages.get(agentId) ?? [],
-				options?.preserveMessagesAfter,
+				mergeHistoryWithPreservedMessages(
+					messages,
+					this.messages.get(agentId) ?? [],
+					options?.preserveMessagesAfter,
+				),
 			),
 		);
 		// 重载后把进行中的消息身份（activeAssistantMessageIds/toolMessageIds）从
@@ -3066,6 +3078,23 @@ export class AgentManager {
 		this.toolFullTextByMessageId.clear();
 	}
 
+	/**
+	 * runtime 消息缓存即将释放（stop / restart）时留存身份摘要。
+	 *
+	 * 编辑确认框与重发入口可能捕获了投影前的 live ID；缓存一旦清空，主进程就只剩
+	 * 「按 ID 找文件条目」这一条路，而 live 随机 ID 在 JSONL 里不存在。摘要交给
+	 * SessionHistoryReader 在活动分支上按角色 + 时间窗 + 内容指纹唯一定位，
+	 * 不能凭 UI 的过期 ID 盲改正文（歧义/未落盘一律拒绝）。
+	 */
+	private captureRuntimeMessageIdentities(agentId: string): void {
+		const sessionPath = this.agents.get(agentId)?.tab.sessionPath;
+		if (!sessionPath) return;
+		this.stoppedMessageIdentities.capture(
+			this.toSessionHostPath(sessionPath),
+			this.messages.get(agentId) ?? [],
+		);
+	}
+
 	async restart(agentId: string): Promise<AgentTab> {
 		const runtime = this.requireRuntime(agentId);
 		void this.appLogger?.info("agent", "Agent restart requested", {
@@ -3103,7 +3132,11 @@ export class AgentManager {
 			}
 		}
 
-		// 停止旧进程并清理状态
+		// 停止旧进程并清理状态。
+		// restart 与 stop 同属「runtime 消息缓存被释放」：UI 手中的 live ID 此时只存于文件，
+		// 清缓存前必须留存身份摘要，否则重启后编辑/删除/重发会报 Message not found
+		// （2026-09 用户反馈：开启代理重启会话后重发失败）。
+		this.captureRuntimeMessageIdentities(agentId);
 		runtime.process.stop();
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
@@ -3494,14 +3527,7 @@ export class AgentManager {
 		// 标记用户主动停止，退出处理器将跳过自动重连
 		this.userInitiatedStop.add(agentId);
 		const process = runtime.process;
-		if (runtime.tab.sessionPath) {
-			// 编辑确认框可能捕获了投影前的 live ID；清缓存前留存锚点/摘要，
-			// 文件读者仍会校验活动分支与唯一性，不能凭 UI 的过期 ID 盲改正文。
-			this.stoppedMessageIdentities.capture(
-				this.toSessionHostPath(runtime.tab.sessionPath),
-				this.messages.get(agentId) ?? [],
-			);
-		}
+		this.captureRuntimeMessageIdentities(agentId);
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
 		this.messageDirtyFromByAgent.delete(agentId);
