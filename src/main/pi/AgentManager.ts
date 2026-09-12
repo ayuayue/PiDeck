@@ -540,7 +540,14 @@ export class AgentManager {
 			// 保证「选择器能看到扩展贡献的模型」与「运行时实际加载的扩展」同源。
 			// 技能/模板解析器同源：禁用的技能与提示词模板在 RPC 启动时以白名单剔除。
 			...createPiProcessExtensionResolvers(cwd, settings),
-			...createPiProcessSkillResolvers(cwd, settings),
+			// WSL 场景把 distro 家目录并入技能白名单扫描（issue #203）：WSL 里的 pi 以
+			// distro 内 HOME 运行，Linux 家目录的全局技能必须与 Windows 侧取并集注入；
+			// UNC 路径由 PiProcess 在 spawn 前转换为 distro 内 Linux 路径。
+			...createPiProcessSkillResolvers(
+				cwd,
+				settings,
+				this.wslEnvironment ? [this.wslEnvironment.windowsHome] : undefined,
+			),
 			...createPiProcessPromptResolvers(cwd, settings),
 			// 会话身份 = PiDeck 会话 key（SessionRecord.id，UUID 或旧版文件路径），扩展按它解析等级覆盖；
 			// 匿名会话（noSession）无 key，扩展仅用全局默认等级。

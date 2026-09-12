@@ -56,7 +56,14 @@ export function resolveEnabledSkillPaths(
 	const projectBaseDir = join(cwd, ".pi");
 	const includeProjectResources = options.includeProjectResources !== false;
 
-	const userSettings = readSettingsObject(join(agentDir, "settings.json"));
+	// 附加 agent home（WSL 场景）：WSL 里的 pi 以 distro 内 HOME 运行，其 ~/.pi/agent/skills、
+	// ~/.agents/skills 及 settings.json 的全局技能必须与 Windows 侧 home 取并集，否则 --no-skills
+	// 会把 Linux 家目录技能全部关在白名单外（issue #203）。UNC（\\wsl.localhost\...）可在宿主侧
+	// 直接扫描，路径随后由 PiProcess 的 WSL 参数转换还原为 distro 内 Linux 路径。
+	const additionalHomes = (options.additionalAgentHomeDirs ?? [])
+		.map((dir) => dir.trim())
+		.filter((dir) => dir && resolve(dir) !== resolve(home));
+
 	const projectSettings = includeProjectResources
 		? readSettingsObject(join(projectBaseDir, "settings.json"))
 		: {};
@@ -101,40 +108,50 @@ export function resolveEnabledSkillPaths(
 		paths.push(path);
 	};
 
-	// settings.skills 数组的 plain 条目 = 显式路径；patterns 条目 = 该作用域自动发现过滤
-	const { plain: userPlain, patterns: userOverrides } = splitResourceEntries(
-		Array.isArray(userSettings.skills) ? userSettings.skills : [],
-	);
+	// 全局 home 的发现源（~/.pi/agent/skills、~/.agents/skills、settings.json 显式路径）。
+	// 主 home 与附加 home（WSL）共用同一套全局禁用判定；每个 home 的 settings.json 只约束
+	// 自己作用域内的发现（patterns 不跨 home 生效，与 pi 在对应环境内运行时一致）。
+	// 包资源（npm/git 安装）仍只解析主 home：UNC 逐包扫描成本高且 WSL 侧包安装罕见，
+	// 待有真实需求再扩展。
+	const globalAgentsSkillDirs = new Set<string>();
+	const collectGlobalHomeSkills = (homeDir: string): void => {
+		const homeAgentDir = join(homeDir, ".pi", "agent");
+		const homeSettings = readSettingsObject(join(homeAgentDir, "settings.json"));
+		const { plain, patterns } = splitResourceEntries(
+			Array.isArray(homeSettings.skills) ? homeSettings.skills : [],
+		);
+		collectSkillDir(join(homeAgentDir, "skills"), "pi", isGlobalPiEnabled, addPath, homeAgentDir, patterns);
+		const globalAgentsSkillsDir = join(homeDir, ".agents", "skills");
+		// 登记 resolved 路径供祖先目录去重：同一物理 ~/.agents/skills 是全局源，即使 cwd
+		//（如 WSL 内项目）沿祖先链再次碰到它，也不能按项目作用域重复枚举。
+		globalAgentsSkillDirs.add(resolve(globalAgentsSkillsDir));
+		collectSkillDir(
+			globalAgentsSkillsDir,
+			"agents",
+			isGlobalAgentsEnabled,
+			addPath,
+			dirname(globalAgentsSkillsDir),
+			patterns,
+		);
+		collectSettingsSkills(homeAgentDir, plain, patterns, isGlobalPiEnabled, addPath);
+	};
+	collectGlobalHomeSkills(home);
+	for (const extraHome of additionalHomes) {
+		collectGlobalHomeSkills(extraHome);
+	}
+
+	// 2) 项目资源只在 trust 放行后枚举；拒绝 trust 时白名单仅注入全局资源。
 	const { plain: projectPlain, patterns: projectOverrides } = splitResourceEntries(
 		Array.isArray(projectSettings.skills) ? projectSettings.skills : [],
 	);
-
-	// 1) 全局技能目录：~/.pi/agent/skills（pi 模式）+ ~/.agents/skills（agents 模式）
-	collectSkillDir(join(agentDir, "skills"), "pi", isGlobalPiEnabled, addPath, agentDir, userOverrides);
-	const globalAgentsSkillsDir = join(home, ".agents", "skills");
-	collectSkillDir(
-		globalAgentsSkillsDir,
-		"agents",
-		isGlobalAgentsEnabled,
-		addPath,
-		dirname(globalAgentsSkillsDir),
-		userOverrides,
-	);
-
-	// 2) 项目资源只在 trust 放行后枚举；拒绝 trust 时白名单仅注入全局资源。
 	if (includeProjectResources) {
 		collectSkillDir(join(projectBaseDir, "skills"), "pi", isProjectEnabled, addPath, projectBaseDir, projectOverrides);
-		const resolvedGlobalAgentsSkillsDir = resolve(globalAgentsSkillsDir);
 		for (const dir of collectAncestorAgentsSkillDirs(cwd)) {
-			// The same physical ~/.agents/skills root is global even when HOME is inside the repo.
-			if (resolve(dir) === resolvedGlobalAgentsSkillsDir) continue;
+			// 同一物理 ~/.agents/skills（任一 home 的全局源）即使出现在 cwd 祖先链上也保持全局语义。
+			if (globalAgentsSkillDirs.has(resolve(dir))) continue;
 			collectSkillDir(dir, "agents", isProjectEnabled, addPath, dirname(dir), projectOverrides);
 		}
-	}
-
-	// 3) settings.json skills 数组的显式路径（user + project；plain 条目经 patterns 过滤）
-	collectSettingsSkills(agentDir, userPlain, userOverrides, isGlobalPiEnabled, addPath);
-	if (includeProjectResources) {
+		// 项目 settings.json skills 数组的显式路径（plain 条目经 patterns 过滤）
 		collectSettingsSkills(projectBaseDir, projectPlain, projectOverrides, isProjectEnabled, addPath);
 	}
 
@@ -173,6 +190,12 @@ export function resolveEnabledSkillPaths(
 export type SkillWhitelistResolverOptions = {
 	/** WSL 场景传入 Windows 侧 home；缺省 homedir()（与 PiProcessOptions.agentHomeDir 语义一致）。 */
 	agentHomeDir?: string;
+	/**
+	 * 附加 agent home 根目录（WSL 场景为 distro 家目录的 UNC 路径 \\wsl.localhost\<distro>\...）。
+	 * 每个 home 的 ~/.pi/agent/skills、~/.agents/skills 与 settings.json skills 显式路径
+	 * 都并入全局白名单（与 Windows 侧 home 取并集，issue #203）；与主 home 相同的目录忽略。
+	 */
+	additionalAgentHomeDirs?: string[];
 	/** 会话项目根（pi 的 cwd），决定项目级 .pi/skills 与祖先 .agents/skills。 */
 	cwd: string;
 	/** False when the trust decision rejects project resources. */

@@ -258,6 +258,34 @@ test("存在禁用技能时注入 --no-skills + 逐条 --skill 白名单", async
 	assert.equal(captured.args[idx + 4], "/mnt/c/Users/tester/skills/b/SKILL.md");
 });
 
+test("WSL 家目录的 --skill 白名单路径（UNC）转换为 distro 内 Linux 路径", async () => {
+	const { PiProcess, mockLocator, getCaptured } = loadPiProcess();
+	const proc = new PiProcess(
+		"C:\\proj",
+		{ wslEnabled: true, wslDistro: "Ubuntu-24.04", wslUser: "root" },
+		mockLocator,
+		{
+			// 模拟 WSL 场景：解析器经 \\wsl.localhost 扫到 Linux 家目录技能（issue #203）
+			resolveEnabledSkillPaths: () => [
+				"\\\\wsl.localhost\\Ubuntu-24.04\\root\\.agents\\skills\\wsl-skill\\SKILL.md",
+				"\\\\wsl.localhost\\Ubuntu-24.04\\root\\.pi\\agent\\skills\\wsl-pi-skill\\SKILL.md",
+			],
+			securitySnapshotPath: "C:\\Users\\tester\\AppData\\Roaming\\PiDeck-dev\\security-policy.json",
+		},
+	);
+	await proc.start(undefined, undefined, true);
+	const captured = getCaptured();
+	assert.ok(captured?.args, "spawn 应被调用");
+	const idx = captured.args.indexOf("--no-skills");
+	assert.ok(idx >= 0, "技能白名单模式应注入 --no-skills");
+	assert.equal(captured.args[idx + 1], "--skill");
+	// UNC（\\wsl.localhost\<distro>\...）必须转成 distro 内原生 Linux 路径，
+	// 否则 WSL 里的 pi 打不开 Windows UNC 形式的技能文件
+	assert.equal(captured.args[idx + 2], "/root/.agents/skills/wsl-skill/SKILL.md");
+	assert.equal(captured.args[idx + 3], "--skill");
+	assert.equal(captured.args[idx + 4], "/root/.pi/agent/skills/wsl-pi-skill/SKILL.md");
+});
+
 test("无禁用技能（resolver 返回 null）时不注入 --no-skills/--skill", async () => {
 	const { PiProcess, mockLocator, getCaptured } = loadPiProcess();
 	const proc = new PiProcess(
