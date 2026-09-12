@@ -313,7 +313,8 @@ export class DshRuntimeManager {
 			options.onPhase?.("finalizing");
 			const target = this.versionDir(sourceManifest.runtimeVersion);
 			// 同版本已存在：先清掉再 rename（rename 到非空目录在 Windows 会失败）。
-			await rm(target, { recursive: true, force: true });
+			// 与 installFromArchive 同款重试：占用多为瞬时锁（杀软/资源管理器）。
+			await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 			mkdirSync(this.deps.layout.runtimesRoot, { recursive: true });
 			await rename(staging, target);
 			log("dsh-runtime", "runtime installed from directory", {
@@ -367,7 +368,9 @@ export class DshRuntimeManager {
 			options.onPhase?.("finalizing");
 			const target = this.versionDir(manifest.runtimeVersion);
 			// 同版本已存在：先清掉再 rename（rename 到非空目录在 Windows 会失败）。
-			await rm(target, { recursive: true, force: true });
+			// 目标目录可能被占用（host 未停时的 .node DLL 句柄、杀软扫描）：与 uninstall
+			// 同款线性退避重试吸收瞬时锁；持续锁由调用方在安装前停 host 释放。
+			await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 			mkdirSync(this.deps.layout.runtimesRoot, { recursive: true });
 			await rename(root, target);
 			log("dsh-runtime", "runtime installed", { version: manifest.runtimeVersion });
@@ -422,6 +425,16 @@ export class DshRuntimeManager {
 			// 抛带上下文的可读错误（含失败版本），不让裸 EPERM 跨 IPC 变成「未处理异常」。
 			throw new Error(`failed to remove runtime directory "${dirName}": ${message}`);
 		}
+	}
+
+	/**
+	 * 指定版本是否已安装且完整可用（manifest 可读 / schema 兼容 / app 版本兼容 /
+	 * node_modules 与关键包齐全）。供编排层短路「重复安装同一版本」——重装一次要
+	 * 下载几十 MB 并解压数万个小文件，已装且校验通过时是纯浪费；损坏或半残的
+	 * 目录过不了校验，会正常走重装路径。
+	 */
+	isVersionInstalled(version: string): boolean {
+		return typeof this.verifyStagedRuntime(this.versionDir(version)) !== "string";
 	}
 
 	/**

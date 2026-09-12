@@ -1865,16 +1865,40 @@ function currentMainProcessLocale(): MainProcessLocale {
  *   utilityProcess（约 200MB）。下次要用 DSH 时 ensureStarted 会自动用新 runtime fork。
  * - host 本来在跑说明用户在用 DSH，重启后要重新拉起，否则活跃会话静默失效。
  */
-async function restartDshHostAfterRuntimeChange(): Promise<void> {
-	if (!dshHost.isStarted()) return;
+/**
+ * 磁盘操作（runtime 安装/导入/卸载）前释放 DSH host 的文件锁。Windows 上 host 进程把
+ * runtime 里的 .node 原生模块（如 koffi.node）映射成 DLL 句柄，进程存活时替换/删除
+ * 同版本 runtime 目录必报 EPERM（文件被占用）。停活跃会话 + dispose host 释放锁。
+ * 返回 host 原本是否在跑：操作结束后用 startDshHostAfterRuntimeDiskOperation 拉回。
+ */
+async function stopDshHostForRuntimeDiskOperation(): Promise<boolean> {
+	const wasRunning = dshHost.isStarted() || dshHost.isHostProcessRunning();
+	if (!wasRunning) return false;
 	try {
-		// 与 restartDshHost IPC 同一顺序：先停活跃会话（host 侧会话仍持久化，
-		// 重开时 attach 恢复），避免旧 mux 悬挂在已 dispose 的 transport 上。
-		await dshAgentManager.stopAll();
+		// 会话只在 boot 完成后才存在（isStarted 为真时停）；进程存活就 dispose。
+		if (dshHost.isStarted()) await dshAgentManager.stopAll();
 		await dshHost.restart();
+	} catch (error) {
+		// 停 host 失败不阻塞磁盘操作：rm 自带退避重试，锁仍在则返回结构化错误。
+		void appLogger?.warn("dsh-runtime", "stop host before runtime disk operation failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+	return wasRunning;
+}
+
+/**
+ * 磁盘操作后按需把 host 拉回来（仅当操作前 host 在跑）。
+ * 为什么必须重启而不是继续用旧 host：host 的 runtime 路径在 fork 时经
+ * `--dsh-node-modules` 固化，替换 runtime 后旧进程仍指向旧路径；ensureStarted
+ * 会用新 runtime 重新 fork。host 没在跑就不白起（下次用时自动 fork）。
+ */
+async function startDshHostAfterRuntimeDiskOperation(wasRunning: boolean): Promise<void> {
+	if (!wasRunning) return;
+	try {
 		await dshHost.ensureStarted();
 	} catch (error) {
-		void appLogger?.warn("dsh-runtime", "restart host after runtime change failed", {
+		void appLogger?.warn("dsh-runtime", "restart host after runtime disk operation failed", {
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
@@ -2599,15 +2623,19 @@ function registerIpc() {
 			// 安装/导入/卸载后必须重探测并广播：否则 UI 还停在旧状态，
 			// 用户会看到「刚装完但仍提示未安装」。
 			installDshRuntime: async () => {
+				// 同版本重装时 host 可能仍持有 runtime 内 .node 原生模块的 DLL 句柄，
+				// 落位 rm 必报 EPERM：与卸载同一套路，先停会话 + dispose host 释放锁。
+				const wasRunning = await stopDshHostForRuntimeDiskOperation();
 				const result = await dshRuntimeInstaller.installFromIndex();
 				dshRuntimeStatus.refresh();
-				if (result.ok) await restartDshHostAfterRuntimeChange();
+				if (result.ok) await startDshHostAfterRuntimeDiskOperation(wasRunning);
 				return result;
 			},
 			importDshRuntime: async (filePath: string) => {
+				const wasRunning = await stopDshHostForRuntimeDiskOperation();
 				const result = await dshRuntimeInstaller.installFromLocalFile(filePath);
 				dshRuntimeStatus.refresh();
-				if (result.ok) await restartDshHostAfterRuntimeChange();
+				if (result.ok) await startDshHostAfterRuntimeDiskOperation(wasRunning);
 				// 失败时把内部错误码映射为用户可读文案（配置页直接展示 error 字段）。
 				// 只映射已知校验码；未知错误（如磁盘满、权限）保留原始信息以便排查。
 				if (!result.ok) return { ok: false, error: dshRuntimeErrorCopy(result.error) };
@@ -2618,30 +2646,10 @@ function registerIpc() {
 				// 已映射成 DLL 句柄，进程存活时删目录必报 EPERM（文件被占用）。所以先停
 				// 活跃会话、杀掉 host 释放文件锁，再删；删完若原本在用 DSH 就把 host 拉回
 				// 来（删失败时旧目录还在，重启 fork 仍走旧 runtime，用户可稍后重试卸载）。
-				const wasRunning = dshHost.isStarted() || dshHost.isHostProcessRunning();
-				if (wasRunning) {
-					try {
-						// 会话只在 boot 完成后才存在（isStarted 为真时停）；进程存活就杀。
-						if (dshHost.isStarted()) await dshAgentManager.stopAll();
-						await dshHost.restart();
-					} catch (error) {
-						// 停 host 失败不阻塞卸载：rmSync 自带重试，锁仍在则返回结构化错误。
-						void appLogger?.warn("dsh-runtime", "stop host before uninstall failed", {
-							error: error instanceof Error ? error.message : String(error),
-						});
-					}
-				}
+				const wasRunning = await stopDshHostForRuntimeDiskOperation();
 				const result = await dshRuntimeInstaller.uninstall();
 				dshRuntimeStatus.refresh();
-				if (wasRunning) {
-					try {
-						await dshHost.ensureStarted();
-					} catch (error) {
-						void appLogger?.warn("dsh-runtime", "restart host after runtime uninstall failed", {
-							error: error instanceof Error ? error.message : String(error),
-						});
-					}
-				}
+				await startDshHostAfterRuntimeDiskOperation(wasRunning);
 				return result;
 			},
 			describeDshSettings: () => dshHost.describeSettings(),
