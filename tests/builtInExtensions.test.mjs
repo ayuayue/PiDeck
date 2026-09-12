@@ -3,23 +3,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { createRequire } from "node:module";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const require = createRequire(import.meta.url);
+let builtInExtensionsModule = null;
 
+/**
+ * 统一走 loadTsCommonJs：builtInExtensions.ts 现已依赖 ./builtInExtensionsManifest
+ * （覆盖层清单校验），裸 require 解析不了无扩展名的 .ts 相对导入。
+ * 模块级缓存保证多次调用共享同一实例（覆盖层可用性缓存住在模块内）。
+ */
 function loadBuiltInExtensionsModule() {
-	const source = readFileSync("src/main/extensions/builtInExtensions.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	});
-	const sandbox = { exports: {}, require, console };
-	vm.runInNewContext(outputText, sandbox, { filename: "builtInExtensions.ts" });
-	return sandbox.exports;
+	if (!builtInExtensionsModule) {
+		builtInExtensionsModule = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
+	}
+	return builtInExtensionsModule;
 }
 
 function sameArgs(actual, expected) {

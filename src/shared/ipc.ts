@@ -300,6 +300,18 @@ export const ipcChannels = {
 	extensionsUpdate: "extensions:update",
 	extensionsUpdateOne: "extensions:update-one",
 	extensionsCatalog: "extensions:catalog",
+	/** 内置扩展热更新：查询内置/覆盖层版本状态（不联网） */
+	extensionsBuiltInUpdateStatus: "extensions:builtin-update-status",
+	/** 内置扩展热更新：检查 AtomGit/GitHub 远端清单是否有更新（联网，逐文件 sha256 比对） */
+	extensionsBuiltInUpdateCheck: "extensions:builtin-update-check",
+	/** 内置扩展热更新：拉取远端最新版写入 userData 覆盖层（重启会话生效） */
+	extensionsBuiltInUpdateApply: "extensions:builtin-update-apply",
+	/** 内置扩展热更新：还原为随包分发的内置版本（当前覆盖层转 .bak） */
+	extensionsBuiltInUpdateRestore: "extensions:builtin-update-restore",
+	/** 内置扩展热更新：恢复上一个覆盖版（.bak 校验通过才写回） */
+	extensionsBuiltInUpdateRestorePrevious: "extensions:builtin-update-restore-previous",
+	/** 内置扩展热更新：打开当前生效的扩展目录 */
+	extensionsBuiltInOpenDir: "extensions:builtin-open-dir",
 	/** 扫描项目目录内的独立 Git 仓库（根 + 嵌套），供侧栏切换 */
 	gitListRepos: "git:list-repos",
 	gitBranches: "git:branches",

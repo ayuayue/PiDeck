@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
-import { installHiddenConsolePatch, installHostHiddenConsole, getHiddenConsoleMode } from "./hideChildConsoles";
+import { installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv, getHiddenConsoleMode } from "./hideChildConsoles";
 import { agentPresetsRow, dshSubagentModelSelectionSettingsRow, dshWebAgentPlaneDisableRows, hostCompositionPath } from "./dshPresetComposition";
 import {
 	PIDECK_PLUGIN_BRIDGE_PATH,
@@ -91,13 +91,29 @@ async function main(): Promise<void> {
 	// 2) installHiddenConsolePatch：隐藏控制台分配失败时退回 windowsHide 注入兜底；
 	//    并对沙箱 runner 的 spawn 注入 NODE_OPTIONS preload（runner 是 GUI 进程、
 	//    不继承 host 控制台，需在 runner 进程内自建隐藏控制台——见 runnerConsolePreload.ts）。
+	// 3) installRunnerNodeModeEnv：把 ELECTRON_RUN_AS_NODE=1 写进 host 自己的
+	//    process.env。沙箱链路是 host → subprocess-local runner → windows-acl runner
+	//    的两级 electron.exe，第二级（ACL runner）的 env 由 dsh-subprocess-local 从
+	//    **host 进程环境**经 IPC 下发，spawn 补丁够不着；不置该变量它就以 GUI 模式跑
+	//    → 事件循环永不退出 → 每条沙箱命令挂满 120s 工具超时（2026-09-12 进程树实证，
+	//    详见 hideChildConsoles.installRunnerNodeModeEnv）。
+	// 4) installRunnerPreloadEnv：把 runner preload 的 NODE_OPTIONS 同样写进 host
+	//    process.env（与 3) 同一缺口）：第二级 ACL runner 拿不到 preload 就没有
+	//    可继承的控制台，它用 CreateProcessAsUserW（无 CREATE_NO_WINDOW）拉起 pwsh
+	//    时 Windows 会新建【可见】控制台——命令秒回但每条弹黑窗口（2026-09-12 实测）。
 	installHostHiddenConsole();
 	installHiddenConsolePatch();
+	installRunnerNodeModeEnv();
+	installRunnerPreloadEnv();
 	// 诊断（黑窗口排查入口）：host 的 stdout 不被 DshHostProcess 转发（只接 stderr），
 	// 因此这条也用 console.error 落主进程日志。mode 见 hideChildConsoles 的
 	// HiddenConsoleMode——inherited-windowless 是 ConPTY 场景（正常）；failed 表示
 	// 退回 windowsHide 兜底，若此时仍弹窗，下一步看 runner spawn policy 日志。
-	console.error(`[dsh-host-entry] windows console policy: mode=${getHiddenConsoleMode()}`);
+	console.error(
+		`[dsh-host-entry] windows console policy: mode=${getHiddenConsoleMode()} ` +
+			`runnerNodeMode=${process.env.ELECTRON_RUN_AS_NODE === "1"} ` +
+			`runnerPreloadEnv=${String(process.env.NODE_OPTIONS?.includes("runnerConsolePreload") === true)}`,
+	);
 
 	// ── 组合：base 补丁 + 覆盖层（Connection/Gateway/remotes + storage + picker stub + 遥测关）──
 	// require base 用宿主 node_modules 目录（DshHost 传 --dsh-node-modules 的 file URL）：

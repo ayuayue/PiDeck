@@ -1066,6 +1066,31 @@ export function createPreviewApi(): PiDesktopApi {
 				total: 1,
 				lastPage: 1,
 			}),
+			// 内置扩展热更新（预览/Web 模式不联网、无覆盖层）
+			builtInStatus: async () => ({
+				builtin: { version: "1.0.0", fileCount: 13 },
+				overlay: null,
+				hasOverlayFiles: false,
+				hasBackup: false,
+				effectiveVersion: "1.0.0",
+				overlayDir: null,
+			}),
+			builtInCheck: async () => ({
+				ok: true,
+				remoteVersion: "1.0.0",
+				localVersion: "1.0.0",
+				hasUpdate: false,
+				changedFiles: [],
+			}),
+			builtInUpdate: async () => ({ ok: true, updated: false, version: "1.0.0" }),
+			builtInRestore: async () => ({ ok: true, updated: false }),
+			builtInRestorePrevious: async () => ({
+				ok: false,
+				code: "validation" as const,
+				message: "Preview mode: no previous overlay",
+				updated: false,
+			}),
+			builtInOpenDir: async () => undefined,
 		},
 		prompts: {
 			list: async () => ({ templates: [], globalDir: "C:/Users/preview/.pi/agent/prompts" }),

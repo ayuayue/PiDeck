@@ -8,7 +8,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
 
-const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole, getHiddenConsoleMode } = loadTsCommonJs(
+const { hiddenConsoleOptions, installHiddenConsolePatch, installHostHiddenConsole, installRunnerNodeModeEnv, installRunnerPreloadEnv, getHiddenConsoleMode } = loadTsCommonJs(
 	"src/main/dsh/hideChildConsoles.ts",
 );
 
@@ -162,6 +162,111 @@ test("installHostHiddenConsole：ffi 加载异常静默返回 false", () => {
 	assert.equal(installHostHiddenConsole("win32", throwing), false);
 });
 
+test("installRunnerNodeModeEnv：win32 置 ELECTRON_RUN_AS_NODE=1（可还原），非 win32 不动", () => {
+	// 沙箱第二级 runner（windows-acl）的 env 由 dsh-subprocess-local 从 host 进程环境派生，
+	// spawn 补丁够不着；缺这个变量它会以 GUI electron.exe 跑、事件循环永不退出 → 每条
+	// 沙箱命令挂满 120s 工具超时。
+	const env = { PATH: "x" };
+	const restore = installRunnerNodeModeEnv(env, "win32");
+	assert.equal(env.ELECTRON_RUN_AS_NODE, "1");
+	assert.equal(env.PATH, "x", "其余 env 不动");
+	restore();
+	assert.equal("ELECTRON_RUN_AS_NODE" in env, false, "还原时删除原本不存在的键");
+	const withExisting = { ELECTRON_RUN_AS_NODE: "0" };
+	const restore2 = installRunnerNodeModeEnv(withExisting, "win32");
+	assert.equal(withExisting.ELECTRON_RUN_AS_NODE, "1");
+	restore2();
+	assert.equal(withExisting.ELECTRON_RUN_AS_NODE, "0", "还原为原值");
+
+	const linuxEnv = {};
+	const restoreLinux = installRunnerNodeModeEnv(linuxEnv, "linux");
+	assert.equal("ELECTRON_RUN_AS_NODE" in linuxEnv, false, "非 win32 不置位");
+	restoreLinux();
+});
+
+test("installRunnerNodeModeEnv：host 环境标记能穿过 dsh-subprocess 的 scrubbedParentEnv 下发到沙箱 runner", async () => {
+	// 这是本修复成立的**前提假设**，DSH 侧一旦改动 scrubbedParentEnv 的过滤规则
+	// （例如开始抹除 ELECTRON_*），沙箱挂起就会复发——用真实实现把它钉住。
+	// 契约来源：dsh-subprocess-local 的 targetEnvironment() = scrubbedParentEnv() + spec.env，
+	// 只过滤 /KEY|PASSWORD|SECRET|TOKEN/i 与 DSH_* 前缀。
+	let scrubbedParentEnv;
+	try {
+		({ scrubbedParentEnv } = await import("@deepseek-ai/dsh-subprocess"));
+	} catch (error) {
+		// DSH 运行时是可选依赖（可外置下载），缺失时跳过（不掩盖：上面的 install 断言仍在跑）
+		console.log(`# skip: @deepseek-ai/dsh-subprocess 不可用 (${error?.code ?? error})`);
+		return;
+	}
+	const previous = process.env.ELECTRON_RUN_AS_NODE;
+	installRunnerNodeModeEnv(process.env, "win32");
+	try {
+		assert.equal(
+			scrubbedParentEnv().ELECTRON_RUN_AS_NODE,
+			"1",
+			"host 环境标记必须原样穿过 scrub（否则沙箱 runner 退回 GUI 模式）",
+		);
+	} finally {
+		if (previous === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+		else process.env.ELECTRON_RUN_AS_NODE = previous;
+	}
+});
+
+test("installRunnerPreloadEnv：win32 把 preload 写进 NODE_OPTIONS（append + 幂等 + 可还原），非 win32 不动", () => {
+	// 黑窗口根治：第二级 ACL runner 的 env 来自 host 进程环境（经 scrubbedParentEnv
+	// → IPC request.env），spawn 补丁的 preload 注入够不着它——必须由 host env 携带。
+	const preloadPath = "C:\\app\\out\\main\\runnerConsolePreload.js";
+	const env = { PATH: "x" };
+	const restore = installRunnerPreloadEnv(env, "win32", preloadPath);
+	assert.equal(
+		env.NODE_OPTIONS,
+		`--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`,
+		"写入 preload（Windows NODE_OPTIONS 反斜杠必须翻倍）",
+	);
+	assert.equal(env.PATH, "x", "其余 env 不动");
+	// 幂等：已含同一 preload 时不重复 append（第一级 runner 的 options.env 由 host env
+	// 派生，withRunnerPreload 也不能叠第二份，否则 Node 加载两遍）。
+	const restore2 = installRunnerPreloadEnv(env, "win32", preloadPath);
+	assert.equal(env.NODE_OPTIONS, `--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`, "重复安装不叠加");
+	restore2();
+	// append 语义：已有 NODE_OPTIONS 时拼接。
+	const withExisting = { NODE_OPTIONS: "--no-warnings" };
+	const restore3 = installRunnerPreloadEnv(withExisting, "win32", preloadPath);
+	assert.equal(withExisting.NODE_OPTIONS, `--no-warnings --require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`);
+	restore3();
+	assert.equal(withExisting.NODE_OPTIONS, "--no-warnings", "还原为原值");
+	restore();
+	assert.equal("NODE_OPTIONS" in env, false, "还原时删除原本不存在的键");
+
+	const linuxEnv = {};
+	const restoreLinux = installRunnerPreloadEnv(linuxEnv, "linux", preloadPath);
+	assert.equal("NODE_OPTIONS" in linuxEnv, false, "非 win32 不置位");
+	restoreLinux();
+});
+
+test("installRunnerPreloadEnv：host env 的 preload 能穿过 dsh-subprocess 的 scrubbedParentEnv 下发到沙箱 runner", async () => {
+	// 与 ELECTRON_RUN_AS_NODE 同一前提假设：scrub 只过滤 KEY/PASSWORD/SECRET/TOKEN 与
+	// DSH_*，NODE_OPTIONS 原样穿透。DSH 若开始抹除 NODE_OPTIONS，黑窗口会复发——钉住。
+	let scrubbedParentEnv;
+	try {
+		({ scrubbedParentEnv } = await import("@deepseek-ai/dsh-subprocess"));
+	} catch (error) {
+		console.log(`# skip: @deepseek-ai/dsh-subprocess 不可用 (${error?.code ?? error})`);
+		return;
+	}
+	const previous = process.env.NODE_OPTIONS;
+	installRunnerPreloadEnv(process.env, "win32", "C:\\app\\out\\main\\runnerConsolePreload.js");
+	try {
+		const scrubbed = scrubbedParentEnv().NODE_OPTIONS ?? "";
+		assert.ok(
+			scrubbed.includes("--require=") && scrubbed.includes("runnerConsolePreload"),
+			"preload 必须原样穿过 scrub（否则第二级 runner 无控制台、pwsh 弹黑窗口）",
+		);
+	} finally {
+		if (previous === undefined) delete process.env.NODE_OPTIONS;
+		else process.env.NODE_OPTIONS = previous;
+	}
+});
+
 test("installHiddenConsolePatch：非 win32 不安装，win32 安装且可还原", () => {
 	const originalSpawn = childProcess.spawn;
 
@@ -271,6 +376,38 @@ test("沙箱 runner spawn：注入 NODE_OPTIONS preload（append 语义），普
 		"已有 NODE_OPTIONS 时 append",
 	);
 	assert.equal("NODE_OPTIONS" in calls[2][2].env, false, "普通 spawn 不注入 preload");
+});
+
+test("runner spawn：host env 已带 preload 时不叠加第二份（installRunnerPreloadEnv × withRunnerPreload 幂等）", () => {
+	// 端到端去重：installRunnerPreloadEnv 写进 host env 后，第一级 runner 的
+	// options.env（由 host env 派生）已含 preload，withRunnerPreload 必须跳过 append。
+	installHostHiddenConsole("win32", makeFfi({ getResults: [0, 0xabc] }).koffi);
+	const originalSpawn = childProcess.spawn;
+	const calls = [];
+	childProcess.spawn = (...args) => {
+		calls.push(args);
+		return {};
+	};
+	const preloadPath = "C:\\app\\out\\main\\runnerConsolePreload.js";
+	const hostEnv = { PATH: "x", NODE_OPTIONS: `--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"` };
+	const restoreEnv = installRunnerPreloadEnv(hostEnv, "win32", preloadPath);
+	const restore = installHiddenConsolePatch("win32", preloadPath);
+	try {
+		childProcess.spawn(
+			"C:\\app\\electron.exe",
+			["C:\\app\\node_modules\\@deepseek-ai\\dsh-sandbox-windows-acl\\lib\\runner.js"],
+			{ env: { ...hostEnv } },
+		);
+	} finally {
+		restore();
+		restoreEnv();
+		childProcess.spawn = originalSpawn;
+	}
+	assert.equal(
+		calls[0][2].env.NODE_OPTIONS,
+		`--require="C:\\\\app\\\\out\\\\main\\\\runnerConsolePreload.js"`,
+		"preload 恰好一份：不能叠成 --require×2（Node 会加载两遍）",
+	);
 });
 
 test("兜底模式下 runner spawn：windowsHide 注入与 preload 同时生效", () => {

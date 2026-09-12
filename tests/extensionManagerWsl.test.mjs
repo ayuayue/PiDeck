@@ -7,8 +7,23 @@ import { join } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const require = createRequire(import.meta.url);
+
+let builtInExtensionsModule = null;
+
+/**
+ * builtInExtensions.ts 依赖 ./builtInExtensionsManifest（覆盖层清单校验），
+ * 裸 require 解析不了无扩展名的 .ts 相对导入，统一交给 loadTsCommonJs；
+ * 模块级缓存保证实例唯一（覆盖层可用性缓存住在模块内部）。
+ */
+function loadBuiltInExtensionsModule() {
+	if (!builtInExtensionsModule) {
+		builtInExtensionsModule = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
+	}
+	return builtInExtensionsModule;
+}
 
 function transpile(filePath) {
 	return ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -39,7 +54,7 @@ function loadExtensionManager(fsOverrides = {}) {
 				return require("../src/main/extensions/extensionDiscovery.ts");
 			}
 			if (id === "./builtInExtensions") {
-				return require("../src/main/extensions/builtInExtensions.ts");
+				return loadBuiltInExtensionsModule();
 			}
 			// 删除走系统回收站统一入口；本测试不触达删除路径，提供 noop stub 即可。
 			if (id === "../fs/trash") return { trashPath: async () => {} };

@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import type { AppSettings } from "../../shared/types";
 import {
 	listActiveBuiltInExtensionPaths,
+	resolveBuiltInExtensionsOverlayDir,
 	type BuiltInExtensionPathRoots,
 } from "./builtInExtensions";
 import { resolveEnabledExtensionPaths } from "./enabledExtensionResolver";
@@ -35,6 +36,8 @@ export function createPiProcessExtensionResolvers(
 		appPath: app.getAppPath(),
 		resourcesPath: process.resourcesPath,
 		isDev: !app.isPackaged,
+		// 热更新覆盖层：有热补丁时优先注入它，重启会话即生效（无覆盖层时该字段无影响）
+		overlayDir: resolveBuiltInExtensionsOverlayDir(app.getPath("userData")),
 	};
 	return {
 		resolveBuiltInExtensionPaths: (processSettings, includeProjectResources = true) => {

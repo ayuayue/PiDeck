@@ -634,6 +634,8 @@ export class WebServiceManager {
 				const body = await this.readJson<{
 					id?: string;
 					messages?: Array<{ role?: string; content?: unknown; parts?: Array<{ type?: string; text?: string }> }>;
+					/** 本轮提交的 user 消息 id（AI SDK submit-message 必然携带）。 */
+					messageId?: string;
 				}>(request);
 				const sessionId = body.id?.trim();
 				if (!sessionId) {
@@ -655,11 +657,19 @@ export class WebServiceManager {
 					return;
 				}
 
+				// 幂等键必须「每轮唯一」：body.id 是 useChat 的 chatId（== sessionId），每轮
+				// 提交都相同。直接拿它当 requestId 会被 SessionRuntimeCoordinator 的投递缓存
+				// （按 sessionId+requestId 去重，TTL 10 分钟）误判为同一请求的重试，第二轮起
+				// 只返回上一轮缓存的 accepted 结果而不再派发给 pi —— Web 端没有任何响应，
+				// 桌面端也不会落盘。messageId 是本轮 user 消息 id：同一轮重试保持不变（天然
+				// 幂等），不同轮必然不同，正好是投递缓存需要的键；缺失时退化为一次性 UUID。
+				const requestId = body.messageId?.trim() || crypto.randomUUID();
+
 				// 先开流（事件可能在 prompt 预检返回前就到达），再发 prompt。
 				this.handleStream(sessionId, request, response);
 				const result = await this.deps.sendSessionPrompt({
 					sessionId,
-					requestId: String(body.id ?? crypto.randomUUID()),
+					requestId,
 					message,
 				}).catch((error: unknown) => ({
 					accepted: false as const,

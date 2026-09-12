@@ -126,7 +126,10 @@ export function ProcessMetricsTab() {
                     <TableHead>{t("config.process.column.agentId")}</TableHead>
                     <TableHead>{t("config.process.column.session")}</TableHead>
                     <TableHead>PID</TableHead>
-                    <TableHead>{t("config.process.column.memory")}</TableHead>
+                    {/* 内存口径提示：node 直启后监控的是 pi 本体（此前 cmd 垫片时代只统计到几 MB 的壳进程） */}
+                    <TableHead title={t("config.process.memoryHint")}>
+                      {t("config.process.column.memory")}
+                    </TableHead>
                     <TableHead className="text-center">{t("config.process.column.action")}</TableHead>
                   </TableRow>
                 </TableHeader>

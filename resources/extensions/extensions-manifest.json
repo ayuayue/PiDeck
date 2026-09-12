@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "bundleSha256": "361d5f825be01b75d78fed100af5c6a39ed6aefe2170a28bf4639ba992f53fd7",
+  "fileCount": 13,
+  "files": [
+    {
+      "name": "pi-deck-ask-question.ts",
+      "sha256": "f9f04c1255c2b89b3ca243b66cc7affc073f9c7282d71e8b404a1a4b21c9c4d2",
+      "bytes": 20623
+    },
+    {
+      "name": "pi-deck-goal-mode.ts",
+      "sha256": "9150096ae8fea01d026040ae839585dffae245ecb555d1a706275b78ae2389cc",
+      "bytes": 11623
+    },
+    {
+      "name": "pi-deck-nul-redirect-fix.ts",
+      "sha256": "d450aa00781a5cedccad426e91aa49d494702398974ec31ef4b3e43ffd97a45d",
+      "bytes": 5734
+    },
+    {
+      "name": "pi-deck-plan-mode.ts",
+      "sha256": "5ce48c4d3d509b63e3cfe540db1f1b06b59ba2c62ee75288550067955c041a9b",
+      "bytes": 16422
+    },
+    {
+      "name": "pi-deck-request-size-recovery.ts",
+      "sha256": "71c0215a8d090a65da3f01b7da9fecf6265a1e7b32a396b20b7b9d5d2627e58f",
+      "bytes": 14456
+    },
+    {
+      "name": "pi-deck-retry-no-body.ts",
+      "sha256": "fba2809a17f1aaf296547703b9197befe03fb35738e222843e2b466d55c63808",
+      "bytes": 14579
+    },
+    {
+      "name": "pi-deck-security-gate.ts",
+      "sha256": "be21617750228608e60e7da818a25469a3c71838fa2b86fa9b1fb5177e1e6dc4",
+      "bytes": 13649
+    },
+    {
+      "name": "pi-deck-session-title.ts",
+      "sha256": "24acdf7783e45ee4f485eb9e884e72937f17e37f68d7dc7bb3104b4c27c2cd23",
+      "bytes": 17196
+    },
+    {
+      "name": "pi-deck-subagents.ts",
+      "sha256": "d847b76d090a3fd92be86ee7624d2245cbd99e900328a3101e4bb149a1a5c3da",
+      "bytes": 21595
+    },
+    {
+      "name": "pi-deck-todo-state.ts",
+      "sha256": "2b2c30b84cf07257a2277ef2c34883a06f56c6003951ba44d8390ccb25455b44",
+      "bytes": 20037
+    },
+    {
+      "name": "pi-deck-todo.ts",
+      "sha256": "7434ebaf3e2ccf3a12a6997e620c0745c389d1871e19c2f609fb5abee62cd7dd",
+      "bytes": 16400
+    },
+    {
+      "name": "pi-deck-trash-guard.ts",
+      "sha256": "db1753e697824cd0de37bf48c5eba56f7d822089c060398561f6cbf108a5b600",
+      "bytes": 19539
+    },
+    {
+      "name": "pi-deck-vision.ts",
+      "sha256": "a3369bc9b6ddebe2fff4cad7c7cdae93a16b9b403e13ffa37b069148d0a7e577",
+      "bytes": 50332
+    }
+  ]
+}

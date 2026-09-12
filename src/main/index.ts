@@ -304,7 +304,14 @@ import { XuePromptManager } from "./prompts/XuePromptManager";
 import { SkillManager } from "./skills/SkillManager";
 import { readSkillContent } from "./skills/readSkillContent";
 import { ExtensionManager } from "./extensions/ExtensionManager";
+import { BuiltInExtensionsUpdater } from "./extensions/builtInExtensionsUpdater";
+import {
+	resolveBuiltInExtensionsDir,
+	resolveBuiltInExtensionsOverlayDir,
+	type BuiltInExtensionPathRoots,
+} from "./extensions/builtInExtensions";
 import { createPiProcessExtensionResolvers } from "./extensions/piProcessExtensionResolvers";
+import { registerBuiltInExtensionIpc } from "./ipc/builtInExtensionIpc";
 import { createPiProcessSkillResolvers } from "./skills/piProcessSkillResolvers";
 import { createPiProcessPromptResolvers } from "./prompts/piProcessPromptResolvers";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
@@ -2327,6 +2334,22 @@ async function sendAgentPromptWithIntegrations(
 	return result;
 }
 
+/**
+ * 内置扩展磁盘根：随包分发目录 + userData 覆盖层（热更新落点）。
+ *
+ * 三处调用点必须同源（ExtensionManager 列表/版本、热更新器写盘、-e 注入路径解析），
+ * 各拼一次路径迟早会漂移成「更新成功但会话仍加载旧扩展」，故统一走这里。
+ * 须在 app ready 后调用（app.getPath("userData") 此时才反映 dev 隔离目录）。
+ */
+function resolveBuiltInExtensionRoots(): BuiltInExtensionPathRoots {
+	return {
+		appPath: app.getAppPath(),
+		resourcesPath: process.resourcesPath,
+		isDev: !app.isPackaged,
+		overlayDir: resolveBuiltInExtensionsOverlayDir(app.getPath("userData")),
+	};
+}
+
 function registerIpc() {
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);
@@ -2802,6 +2825,15 @@ function registerIpc() {
 		source: () => settingsStore.get().updateSource,
 		customHost: () => settingsStore.get().customUpdateSourceUrl,
 	});
+	// 内置扩展热更新：版本号不跟 PiDeck 应用版本走（见 resources/extensions/extensions-manifest.json），
+	// 打包态 resources 只读，更新写进 userData 覆盖层，路径解析侧覆盖层优先 → 重启会话即生效。
+	const builtInExtensionRoots = resolveBuiltInExtensionRoots();
+	const builtInExtensionsUpdater = new BuiltInExtensionsUpdater({
+		userDataDir: app.getPath("userData"),
+		builtinExtensionsDir: resolveBuiltInExtensionsDir(builtInExtensionRoots),
+		// 与模型目录/应用更新共用 settings.updateSource：默认 AtomGit，切 GitHub 后 raw 直连优先。
+		source: () => settingsStore.get().updateSource,
+	});
 	// 后台更新检查：Windows / 支持自动升级的发行物走 electron-updater；
 	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
 	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
@@ -2851,6 +2883,7 @@ function registerIpc() {
 	}
 	updateService.start();
 	registerCatalogIpc(catalogUpdater);
+	registerBuiltInExtensionIpc(builtInExtensionsUpdater);
 	// TokenDance 目录 store 是共享实例：渲染层目录展示与一键安装（写入配置）读同一份缓存。
 	const tokendanceCatalogStore = new TokendanceCatalogStore({
 		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
@@ -3212,11 +3245,9 @@ app.whenReady().then(async () => {
 		() => settingsStore.get(),
 		(patch) => settingsStore.update(patch),
 		mainCopy,
-		{
-			appPath: app.getAppPath(),
-			resourcesPath: process.resourcesPath,
-			isDev: !app.isPackaged,
-		},
+		// 与热更新器/-e 注入共用同一套根（含 overlayDir），列表里的内置扩展路径与版本
+		// 才能反映「当前真正生效」的那一份。
+		resolveBuiltInExtensionRoots(),
 	);
 	projectResourceManager = new ProjectResourceManager(
 		(projectId) => projectStore.get(projectId),

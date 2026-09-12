@@ -6,9 +6,13 @@ import test from "node:test";
 import { createRequire } from "node:module";
 import ts from "typescript";
 import vm from "node:vm";
-import { BUILT_IN_EXTENSIONS } from "../src/main/extensions/builtInExtensions.ts";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
+
+// builtInExtensions.ts 现已依赖 ./builtInExtensionsManifest（覆盖层清单校验），
+// 原生 ESM 导入 .ts 解析不了无扩展名的相对导入，统一交给 loadTsCommonJs。
+const { BUILT_IN_EXTENSIONS } = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
 
 /**
  * pi-deck-trash-guard 内置扩展测试：

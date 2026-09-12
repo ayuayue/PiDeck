@@ -8,6 +8,11 @@ import type { GitExecutableInfo } from "../shared/types/git";
 import type { ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
 import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
 import type {
+	BuiltInExtensionsCheckResult,
+	BuiltInExtensionsUpdateResult,
+	BuiltInExtensionsUpdateStatus,
+} from "../shared/types/extensionsUpdate";
+import type {
 	VoiceTranscriptionPublicConfig,
 	VoiceTranscriptionRequest,
 	VoiceTranscriptionResult,
@@ -1493,6 +1498,20 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.extensionsUpdateOne, source) as Promise<PiCliUpdateResult>,
 		catalog: (query: import("../shared/types").PiPackageCatalogQuery) =>
 			ipcRenderer.invoke(ipcChannels.extensionsCatalog, query) as Promise<import("../shared/types").PiPackageCatalog>,
+		// ── 内置扩展热更新（版本号不跟应用版本走；检测走 AtomGit，更新写 userData 覆盖层）──
+		builtInStatus: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateStatus) as Promise<BuiltInExtensionsUpdateStatus>,
+		builtInCheck: (branch?: "main" | "dev") =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateCheck, branch) as Promise<BuiltInExtensionsCheckResult>,
+		builtInUpdate: (branch?: "main" | "dev") =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateApply, branch) as Promise<BuiltInExtensionsUpdateResult>,
+		builtInRestore: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateRestore) as Promise<BuiltInExtensionsUpdateResult>,
+		builtInRestorePrevious: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateRestorePrevious) as Promise<BuiltInExtensionsUpdateResult>,
+		/** 用系统默认程序打开当前生效的内置扩展目录（覆盖层优先，否则随包目录） */
+		builtInOpenDir: () =>
+			ipcRenderer.invoke(ipcChannels.extensionsBuiltInOpenDir) as Promise<void>,
 	},
 	settings: {
 		get: () =>

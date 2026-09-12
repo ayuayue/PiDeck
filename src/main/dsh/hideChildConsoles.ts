@@ -211,7 +211,95 @@ function withPwshExitAppend(args: readonly string[]): readonly string[] {
 }
 
 /**
- * pwsh 挂起兜底（实测：host 内普通 pwsh 调用约 8% 概率「命令执行完不退出」，
+ * 让沙箱 runner 以 Node 模式启动（win32）。
+ *
+ * 为什么必须改 host 自己的 `process.env`，而不是只在 spawn 边界注入：
+ * 「runner 以 electron.exe 形态运行」在沙箱链路上有两层，spawn 补丁只够得着第一层——
+ *   1) host --spawn()--> @deepseek-ai/dsh-subprocess-local/lib/runner  → 补丁能改 options.env ✅
+ *   2) 该 runner --CreateProcessAsUserW--> @deepseek-ai/dsh-sandbox-windows-acl/lib/runner
+ *      第二层的命令行/环境由第一层按 IPC 传来的 request.env 设置，补丁完全够不着 ❌
+ * 而第二层的 env 源自 dsh-subprocess-local 的 targetEnvironment() → scrubbedParentEnv()，
+ * 读的就是 **host 进程的 process.env**（只过滤 /KEY|PASSWORD|SECRET|TOKEN/ 与 DSH_*，
+ * ELECTRON_RUN_AS_NODE 会原样带下去）。因此唯一能从外部影响第二层的杠杆是 host 的
+ * process.env：在这里置 ELECTRON_RUN_AS_NODE=1，第二层 runner 才会以 Node 模式启动。
+ *
+ * 2026-09-12 进程树实证（沙箱 pwsh 调用恒挂满 120s 工具超时、run 恒「运行中」）：
+ *   electron.exe …/dsh-subprocess-local/lib/runner.js -- electron.exe …/dsh-sandbox-windows-acl/lib/runner.js
+ *     --workspace … --mode workspace-write … -- pwsh.exe -NoLogo -NoProfile -NonInteractive -Command "…\nexit $LASTEXITCODE"
+ * 两个观察点：
+ * - ACL runner 进程下挂着 Chromium 子进程（`--type=gpu-process`、
+ *   `--type=utility --utility-sub-type=network.mojom.NetworkService`、
+ *   `--user-data-dir=…\AppData\Roaming\Electron`）——即它以 GUI 模式运行：
+ *   runner.js 业务逻辑照跑（受限命令正常执行、输出正常），但 Electron GUI 主进程
+ *   事件循环永不退出，于是「直连子进程」= 外层 runner 永远等不到 ACL runner 退出。
+ * - pwsh 命令行里 `exit $LASTEXITCODE` 已送达，且挂起瞬间进程表里**没有 pwsh**——
+ *   可证前一轮「沙箱内 pwsh 不退出」的诊断不是主因（见 withPwshExitAppend 注释）。
+ *
+ * 副作用（已知、可接受）：沙箱内命令的 env 也会带上该变量，即模型在沙箱里直接跑
+ * electron.exe（GUI 应用）会退化成 Node 模式。沙箱的用途是跑命令行工具，
+ * 相较「每条命令挂满 120s、定时任务回合跑满数分钟」的代价，这个副作用可以接受。
+ *
+ * @returns 还原函数（测试用；生产调用方不还原）。
+ */
+export function installRunnerNodeModeEnv(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): () => void {
+	if (platform !== "win32") return () => undefined;
+	const previous = env.ELECTRON_RUN_AS_NODE;
+	env.ELECTRON_RUN_AS_NODE = "1";
+	return () => {
+		if (previous === undefined) Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+		else env.ELECTRON_RUN_AS_NODE = previous;
+	};
+}
+
+/**
+ * 把 runner preload 的 NODE_OPTIONS 写进 host 自己的 `process.env`（黑窗口根治）。
+ *
+ * 两级论证与 installRunnerNodeModeEnv 完全同构：spawn 补丁的 withRunnerPreload
+ * 只够得着 host 直接 spawn 的【第一级】runner（options.env）；第二级 ACL runner
+ * 的 env 来自 host 进程环境经 scrubbedParentEnv → IPC request.env 下发，补丁够不着。
+ * 第二级 runner 拿不到 preload 就没有可继承的控制台，而它拉起 pwsh 用的是 koffi
+ * CreateProcessAsUserW（dsh-win32-process spawnInheritedJobProcess，
+ * dwCreationFlags=4 仅 CREATE_SUSPENDED，无 CREATE_NO_WINDOW；受限 token 下
+ * CREATE_NO_WINDOW 会 STATUS_DLL_INIT_FAILED，不能加）——父进程无控制台时
+ * Windows 为 pwsh 新建【可见】控制台窗口。2026-09-12 用户实测：ELECTRON_RUN_AS_NODE
+ * 修复后命令秒回，但每条命令弹一个 pwsh 黑窗口，即此缺口。
+ *
+ * 写进 host env 后：第二级 runner 启动时由 preload 自建隐藏控制台（runnerConsole
+ * Preload），pwsh 继承之，不再弹窗。
+ *
+ * 合并语义：与已有 NODE_OPTIONS append；已含同一 preload（路径归一化后比较）则
+ * 幂等跳过——host env 带 preload 后，第一级 runner 的 options.env（由 host env
+ * 派生）也会带上它，不能在 withRunnerPreload 里再叠一份。
+ *
+ * 副作用（已知、可接受）：沙箱内命令的 env 也带 NODE_OPTIONS——pwsh/cmd 等非
+ * Node 程序忽略它；模型在沙箱里跑的 node 进程会加载 preload（自建隐藏控制台，
+ * 行为与 runner 一致，无可见窗口）。preload 文件缺失时 node 子进程会启动失败，
+ * 与第一级 runner 的既有注入共享同一前提（preload 随 out/main 分发）。
+ *
+ * @returns 还原函数（测试用；生产调用方不还原）。
+ */
+export function installRunnerPreloadEnv(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+	runnerPreloadPath: string = join(__dirname, "runnerConsolePreload.js"),
+): () => void {
+	if (platform !== "win32") return () => undefined;
+	const previous = env.NODE_OPTIONS;
+	if (!includesRunnerPreload(previous, runnerPreloadPath)) {
+		const preload = runnerPreloadFlag(runnerPreloadPath);
+		env.NODE_OPTIONS = previous ? `${previous} ${preload}` : preload;
+	}
+	return () => {
+		if (previous === undefined) Reflect.deleteProperty(env, "NODE_OPTIONS");
+		else env.NODE_OPTIONS = previous;
+	};
+}
+
+/**
+ * pwsh 挂起兜底（本地实测：host 内普通 pwsh 调用约 8% 概率「命令执行完不退出」，
  * 直到工具超时被回收——用户可见为每次调用慢/超时）：
  * 1. stdin 从 pipe 改 ignore：pwsh 不会等待管道 EOF（已知的挂起形态之一）；
  *    工具命令本就没有 stdin 输入通道，无行为差异。
@@ -241,11 +329,24 @@ function withPwshStartupEnv(
 	return { ...options, env: { ...options.env, ...PWSH_STARTUP_ENV } };
 }
 
+/** NODE_OPTIONS 的 --require preload 片段（反斜杠翻倍，Windows 分词语义见下）。 */
+function runnerPreloadFlag(runnerPreloadPath: string): string {
+	return `--require="${runnerPreloadPath.replace(/\\/g, "\\\\")}"`;
+}
+
+/** existing NODE_OPTIONS 是否已含该 preload（把翻倍的反斜杠还原后做子串比较）。 */
+function includesRunnerPreload(existing: string | undefined, runnerPreloadPath: string): boolean {
+	if (!existing) return false;
+	return existing.replace(/\\\\/g, "\\").includes(runnerPreloadPath);
+}
+
 /**
  * 沙箱 runner 的 spawn 需要注入 NODE_OPTIONS=--require=<preload>：
  * runner 由 GUI 二进制（electron.exe）拉起、不继承 host 控制台，由 preload
  * （runnerConsolePreload）在 runner 进程内自建隐藏控制台，CreateProcessAsUserW
  * 的子进程继承后不再弹窗。env 缺失时跳过（真实链路 spawnSubprocess 恒带 env）。
+ * 幂等：env 里已有同一 preload（如 installRunnerPreloadEnv 写进 host env 后，
+ * options.env 由 host env 派生）则不重复 append，避免 Node 加载两遍。
  */
 function withRunnerPreload(
 	options: childProcessModule.SpawnOptions | undefined,
@@ -253,15 +354,15 @@ function withRunnerPreload(
 ): childProcessModule.SpawnOptions | undefined {
 	if (options === undefined || options.env === undefined) return options;
 	const existing = options.env.NODE_OPTIONS;
+	if (includesRunnerPreload(existing, runnerPreloadPath)) return options;
 	// Windows 上 Node 解析 NODE_OPTIONS 时按命令行分词、反斜杠当转义符：
 	// `--require="C:\path\a.js"` 会被解析成 `C:patha.js`（MODULE_NOT_FOUND）。
 	// 必须把反斜杠翻倍（`\\` → `\`），否则 runner preload 加载失败、沙箱调用全挂。
-	const preload = `--require="${runnerPreloadPath.replace(/\\/g, "\\\\")}"`;
 	return {
 		...options,
 		env: {
 			...options.env,
-			NODE_OPTIONS: existing ? `${existing} ${preload}` : preload,
+			NODE_OPTIONS: existing ? `${existing} ${runnerPreloadFlag(runnerPreloadPath)}` : runnerPreloadFlag(runnerPreloadPath),
 		},
 	};
 }
@@ -374,12 +475,12 @@ export function installHiddenConsolePatch(
 	replaceExport("spawn", ((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
 		if (Array.isArray(argsOrOptions)) {
 			// pwsh 挂起兜底：改写 args（追加 exit）与 options（stdin ignore）。
-			// 沙箱 runner：-- 尾部的 pwsh -Command 同样追加 exit——沙箱内 pwsh 由
-			// runner 用 CreateProcessAsUserW 直接拉起（绕过 child_process，补丁够
-			// 不着子进程本身），只能在 runner spawn 边界改写 argv。2026-09-12 实测：
-			// 沙箱内 pwsh 输出完成后不退出（4/4 挂满 120s 工具超时，定时任务回合
-			// 因此跑满 9 分钟、run 状态一直「运行中」），与 host 本地挂起同根因——
-			// 沙箱里 pwsh 的 stdin 是 runner 持有的捕获管道，挂起从偶发变确定性。
+			// 沙箱 runner：-- 尾部的 pwsh -Command 也追加 exit——沙箱内 pwsh 由 ACL
+			// runner 用 CreateProcessAsUserW 直接拉起（绕过 child_process，补丁够不着
+			// 子进程本身），只能在 runner spawn 边界改写 argv，属尽力而为的兜底。
+			// 2026-09-12 进程树复核：沙箱命令挂满 120s 的**主因不是 pwsh**（挂起瞬间
+			// 进程表里没有 pwsh，命令行里的 exit 也已送达），而是 ACL runner 以 GUI
+			// electron.exe 形态运行、事件循环永不退出——见 installRunnerNodeModeEnv。
 			// 注意 stdio 不动：runner 可能用 stdin pipe 向受限命令传数据。
 			const guarded = isPwshCommand(command)
 				? withPwshHangGuard(argsOrOptions, maybeOptions)

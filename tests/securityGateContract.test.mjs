@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { createRequire } from "node:module";
-import ts from "typescript";
-import vm from "node:vm";
-
-const require = createRequire(import.meta.url);
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * 安全门集成契约测试：
@@ -15,14 +11,14 @@ const require = createRequire(import.meta.url);
  * - PIDECK_* 环境变量在 PiProcess 启动路径中注入
  */
 
+let builtInExtensionsModule = null;
+
+/** 统一走 loadTsCommonJs：模块已拆出 ./builtInExtensionsManifest，裸 require 解析不了无扩展名的 .ts。 */
 function loadBuiltInExtensionsModule() {
-	const source = readFileSync("src/main/extensions/builtInExtensions.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	});
-	const sandbox = { exports: {}, require, console };
-	vm.runInNewContext(outputText, sandbox, { filename: "builtInExtensions.ts" });
-	return sandbox.exports;
+	if (!builtInExtensionsModule) {
+		builtInExtensionsModule = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
+	}
+	return builtInExtensionsModule;
 }
 
 test("BUILT_IN_EXTENSIONS includes pi-deck-security-gate.ts", () => {

@@ -59,7 +59,11 @@ export function ExtensionTableRow(props: {
 	const disabled = extension.enabled === false;
 	return (
 		<TableRow aria-busy={props.uninstalling}>
-			<TableCell className="min-w-0">
+			{/* whitespace-normal 必须显式加回来：TableCell 基类默认 nowrap，而这里会渲染
+			    最长 90 字的中文简介，nowrap 会让本列的 min-content = 整行文字宽度（≈1000px），
+			    表格宽度被顶穿 → 版本列截断、操作列整个被挤出可视区（用户反馈的显示错乱）。
+			    允许换行后本列 min-content 由 truncate/line-clamp 收敛到接近 0，表格才能缩进容器。 */}
+			<TableCell className="min-w-0 whitespace-normal">
 				<div className="flex min-w-0 flex-col gap-0.5">
 					<div className="flex min-w-0 items-center gap-2">
 						{/* 禁用态弱化名称，避免与启用扩展抢视觉层级 */}
@@ -73,21 +77,29 @@ export function ExtensionTableRow(props: {
 						)}
 					</div>
 					<span className="truncate font-mono text-caption text-muted-foreground">{extension.source}</span>
-					{/* 内置扩展简介：只有名称和路径时用户不知道扩展干什么（用户反馈） */}
+					{/* 内置扩展简介：只有名称和路径时用户不知道扩展干什么（用户反馈）。
+					    限 2 行 + title 兜底：完整文案悬停可见，同时不让长简介把列撑宽。 */}
 					{extension.builtIn && BUILT_IN_EXTENSION_DESC[extension.source] && (
-						<span className="text-caption leading-4 text-muted-foreground">
+						<span
+							className="line-clamp-2 text-caption leading-4 text-muted-foreground"
+							title={t(BUILT_IN_EXTENSION_DESC[extension.source])}
+						>
 							{t(BUILT_IN_EXTENSION_DESC[extension.source])}
 						</span>
 					)}
 				</div>
 			</TableCell>
 			<TableCell className="whitespace-nowrap text-caption text-muted-foreground">
-				{extension.builtIn ? "-" : t("config.extensionVersions", {
-					current: extension.currentVersion ?? "-",
-					latest: extension.latestVersion ?? "-",
-				})}
+				{extension.builtIn
+					// 内置扩展是**包级**版本号（extensions-manifest.json，不跟 PiDeck 应用版本走）：
+					// 只显示当前生效版本（覆盖层优先），「最新」与更新入口由上方内置扩展面板统一负责。
+					? t("config.builtInExt.rowVersion", { version: extension.currentVersion ?? "-" })
+					: t("config.extensionVersions", {
+						current: extension.currentVersion ?? "-",
+						latest: extension.latestVersion ?? "-",
+					})}
 				{extension.hasUpdate && <span className="ml-1 text-text-primary">{t("config.extensionUpdateAvailable")}</span>}
-				{/* 有更新时提供单扩展更新与复制更新指令（npm 包专属；内置扩展无版本概念） */}
+				{/* 有更新时提供单扩展更新与复制更新指令（npm 包专属；内置扩展走包级热更新面板） */}
 				{extension.hasUpdate && !extension.builtIn && (
 					<div className="mt-1.5 flex items-center gap-1.5">
 						<Button
@@ -165,7 +177,8 @@ export function DiscoveredExtensionRow(props: { item: DiscoveredExtensionItem })
 		.replace(/\.ts$/i, "");
 	return (
 		<TableRow>
-			<TableCell className="min-w-0">
+			{/* 同 ExtensionTableRow：基类 nowrap 会把这一列顶宽，需显式恢复换行 */}
+			<TableCell className="min-w-0 whitespace-normal">
 				<div className="flex min-w-0 flex-col gap-0.5">
 					<div className="flex min-w-0 items-center gap-2">
 						<strong className="truncate text-control font-medium text-foreground">{name}</strong>

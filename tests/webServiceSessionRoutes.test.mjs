@@ -715,6 +715,57 @@ test("SSE /stream endpoint forwards pi agent events as AI SDK UI message frames"
 	});
 });
 
+/**
+ * 回归：/api/chat 必须为每一轮提交生成独立的幂等键。
+ *
+ * AI SDK 的 DefaultChatTransport 把 useChat 的 chatId 放在 body.id，而 Web 端把
+ * chatId 直接设成了 sessionId（每轮都不变）。若服务端直接拿 body.id 当 requestId，
+ * SessionRuntimeCoordinator.deliveryByRequest（TTL 10 分钟）会把第二轮起的提交
+ * 当成「同一请求的重试」，直接返回上一轮缓存的 accepted 结果 —— pi 永远收不到新
+ * prompt，Web 端没有任何响应，桌面端也不落盘（用户现场：一个会话只能发第一条）。
+ */
+test("chat endpoint mints a per-turn request idempotency key instead of reusing the chat id", async () => {
+	const submit = (baseUrl, messageId, text) =>
+		fetch(`${baseUrl}/api/chat`, {
+			method: "POST",
+			headers: { "content-type": "application/json", accept: "text/event-stream" },
+			body: JSON.stringify({
+				// DefaultChatTransport 的真实报文：id = chatId = sessionId
+				id: "session-1",
+				messages: [{ id: messageId, role: "user", parts: [{ type: "text", text }] }],
+				trigger: "submit-message",
+				messageId,
+			}),
+		});
+	// SSE 响应不会自行结束（测试里没有 pi 事件源），只断言请求侧行为后立即断开。
+	const waitFor = async (predicate) => {
+		for (let attempt = 0; attempt < 200; attempt += 1) {
+			if (predicate()) return;
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		throw new Error("condition was not met before the timeout");
+	};
+
+	await withServer(async ({ baseUrl, calls }) => {
+		const first = await submit(baseUrl, "turn-1", "first");
+		assert.equal(first.status, 200);
+		void first.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 1);
+
+		const second = await submit(baseUrl, "turn-2", "second");
+		assert.equal(second.status, 200);
+		void second.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 2);
+
+		const [firstTurn, secondTurn] = calls.send;
+		assert.equal(firstTurn.message, "first");
+		assert.equal(secondTurn.message, "second");
+		// 幂等键不能复用上一轮的值，也不能退化成每轮相同的 chatId。
+		assert.notEqual(firstTurn.requestId, secondTurn.requestId);
+		assert.notEqual(firstTurn.requestId, "session-1");
+	});
+});
+
 // ── dev 模式静态资源代理：外部 Web 端必须加载重构后的 React 版（A2） ──
 
 /** 起一个 mock vite dev server，记录请求路径并返回固定资源内容。 */
