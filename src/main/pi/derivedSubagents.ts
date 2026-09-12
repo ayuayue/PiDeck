@@ -14,12 +14,17 @@
  *
  * 2. subagent 工具（nicobailon 的 pi-subagents 插件，npm 无 scope 包）：工具名为
  *    "subagent"（注意 @tintinweb 版的工具名是 "Agent"，其历史由 record/锚点覆盖）。
- *    单任务前台派发（args 有 agent+task、无 action/workflow 字段、async!==true）的
- *    toolResult 携带最终报告全文，可直接推导终态；后台派发（async===true）工具立即
- *    返回转后台确认，历史侧不推导（id 空间与 subagent-async widget 的 asyncId 不同，
- *    同时推导会出现双行），运行中状态由渲染层消费 subagent-async widget 实时呈现。
+ *    单任务派发（args 有 agent+task、无 action/workflow 字段）按配对 toolResult 分流：
+ *    前台结果携带最终报告全文，直接推导终态；异步回执（含 "The async run is
+ *    detached" 引导文，覆盖 asyncByDefault/forceTopLevelAsync 运行时强制后台、模型
+ *    args 不带 async:true 的场景）不足终态——把条目重键为回执中的 asyncId 并保持
+ *    running。asyncId 与 subagent-async widget 的 run.id 同源，渲染层按 id 合并去重
+ *    （旧设计因派发用 toolCallId、widget 用 asyncId 导致双行而放弃推导，重键后解决），
+ *    且派发 args.task 的描述文本可补充给无 task 文本的 widget 条目。
  *
- * 推导条目 source 为 "toolcall"（live 降级逻辑见 downgradeStaleRunning）；
+ * 推导条目 source 为 "toolcall"（live 降级逻辑见 downgradeStaleRunning；异步条目
+ * 的终态只能降到 stopped——完成通知是 custom_message/subagent-notify 且单任务不带
+ * runId，无法可靠关联回 asyncId，历史会话只能识别到「已不在运行」）。
  * acp 条目 id 固定用派发 toolCallId（acp_delegate_xxx），与桥接扩展落盘的
  * record/锚点 id 对齐；runId 只用于把终态通知/取消关联回派发条目。
  *
@@ -51,6 +56,25 @@ export function extractEntryText(content: unknown): string {
 		}
 	}
 	return out;
+}
+
+/**
+ * nicobailon pi-subagents 异步派发回执特征：派发立即返回、运行转后台。交互/非交互
+ * 两种引导文都以 "The async run is detached" 开头，作为回执判定标记。
+ */
+const ASYNC_RECEIPT_MARKER = "The async run is detached";
+
+/** 回执首段中携带 asyncId 的行："Async: worker [uuid]" / "Async workflow [id]" 等。 */
+const ASYNC_ID_LINE_RE = /^Async[^\n]*\s\[([^\]\s]+)\]$/m;
+
+/** 判断 subagent 工具结果是否为异步派发回执（非最终报告）。 */
+export function isAsyncDispatchReceipt(text: string): boolean {
+	return text.includes(ASYNC_RECEIPT_MARKER);
+}
+
+/** 从回执文本提取 asyncId（与 subagent-async widget 的 run.id 同源）；提取失败返回 undefined。 */
+export function extractAsyncRunId(text: string): string | undefined {
+	return ASYNC_ID_LINE_RE.exec(text)?.[1];
 }
 
 /** 派发确认 / 系统通知文本中的 runId（形如 runId `del_xxx`）。 */
@@ -150,15 +174,21 @@ export function deriveAcpDelegateEntries(
 /**
  * 从会话文件原始条目推导 subagent 工具（nicobailon pi-subagents）的子代理条目。
  *
- * 只推导单任务前台派发：args 有 agent、无 action/workflow 字段且 async !== true，
- * 其配对 toolResult 携带最终报告全文，可直接落终态。action 管理查询（list/status 等）、
- * 工作流脚本派发和后台派发（async === true）都不在此推导——后台/工作流运行由渲染层
- * 消费 subagent-async widget 实时呈现，历史侧重复推导会出现 id 空间不同的双行。
+ * 推导单任务派发：args 有 agent、无 action/workflow 字段。前台派发的 toolResult
+ * 携带最终报告全文，直接落终态；异步派发回执（含运行时强制后台的派发）把条目
+ * 重键为回执中的 asyncId 并保持 running——与 subagent-async widget 的 run.id
+ * 同源后，渲染层按 id 合并去重，且派发 args.task 的描述文本可供无 task 文本的
+ * widget 条目补充（widget 快照只有 agent 名）。action 管理查询（list/status 等）
+ * 与工作流脚本派发不是单次运行，不推导。
  */
 export function deriveSubagentToolEntries(
 	rawEntries: readonly unknown[],
 ): PiSubagentEntry[] {
 	const byId = new Map<string, PiSubagentEntry>();
+	// toolCallId → 条目：派发初始以 toolCallId 为键；异步回执到达后重键为 asyncId。
+	// 两张表共享同一 entry 对象，重键时同步增删 byId，byToolCallId 保留原键供后续
+	// 同 callId 结果幂等。
+	const byToolCallId = new Map<string, PiSubagentEntry>();
 
 	for (const raw of rawEntries) {
 		if (!isRecord(raw) || raw.type !== "message" || !isRecord(raw.message)) continue;
@@ -170,14 +200,13 @@ export function deriveSubagentToolEntries(
 			for (const item of message.content) {
 				if (!isRecord(item) || item.type !== "toolCall" || item.name !== SUBAGENT_TOOL) continue;
 				const toolCallId = typeof item.id === "string" ? item.id : "";
-				if (!toolCallId || byId.has(toolCallId)) continue;
+				if (!toolCallId || byToolCallId.has(toolCallId)) continue;
 				const args = isRecord(item.arguments) ? item.arguments : {};
 				// 派发形态：agent 必带；action（管理查询）与 workflowScript*（工作流）不是单次运行
 				if (typeof args.agent !== "string" || !args.agent) continue;
 				if (args.action != null || args.workflowScript != null || args.workflowScriptPath != null) continue;
-				// 后台派发交给 subagent-async widget，见函数头注释
-				if (args.async === true) continue;
-				byId.set(toolCallId, {
+				// async:true 显式后台派发也推导：回执到达后重键为 asyncId（见下方 toolResult 分支）
+				const entry: PiSubagentEntry = {
 					id: toolCallId,
 					type: args.agent,
 					description: typeof args.task === "string" ? args.task : "",
@@ -185,18 +214,33 @@ export function deriveSubagentToolEntries(
 					startedAt: Number.isFinite(timestampMs) ? timestampMs : undefined,
 					source: "toolcall",
 					via: "pi-subagents-tool",
-				});
+				};
+				byToolCallId.set(toolCallId, entry);
+				byId.set(toolCallId, entry);
 			}
 			continue;
 		}
 
 		if (role === "toolResult" && message.toolName === SUBAGENT_TOOL
 			&& typeof message.toolCallId === "string") {
-			// 前台派发的结果即最终报告（与 acp 的「派发确认」语义不同）
-			const entry = byId.get(message.toolCallId);
+			const entry = byToolCallId.get(message.toolCallId);
 			if (!entry || TERMINAL_STATUSES.has(entry.status)) continue;
-			entry.status = message.isError === true ? "error" : "completed";
 			const text = extractEntryText(message.content);
+			// 异步派发回执：运行转后台，非最终报告。重键为回执中的 asyncId（与
+			// subagent-async widget 的 run.id 同源，渲染层按 id 合并去重），保持
+			// running；提取不到 asyncId 的罕见回执（如 external-job follow-up）
+			// 保持 toolCallId 键，状态不变，由运行时 widget / 活性降级覆盖。
+			if (isAsyncDispatchReceipt(text)) {
+				const asyncId = extractAsyncRunId(text);
+				if (asyncId && asyncId !== entry.id) {
+					byId.delete(entry.id);
+					entry.id = asyncId;
+					byId.set(asyncId, entry);
+				}
+				continue;
+			}
+			// 前台派发的结果即最终报告（与异步回执的「派发确认」语义不同）
+			entry.status = message.isError === true ? "error" : "completed";
 			if (text) entry.result = text;
 			if (Number.isFinite(timestampMs)) entry.completedAt = timestampMs;
 		}
