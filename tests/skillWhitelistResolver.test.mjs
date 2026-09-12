@@ -512,3 +512,158 @@ test("project package replaces a same-identity user package", () => {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+/* ------------------------------------------------------------------ */
+/* 附加 agent home（WSL 场景）：Linux 家目录技能并入白名单（issue #203） */
+/* ------------------------------------------------------------------ */
+
+/** 构造模拟 WSL 家目录：独立的 home 根，含 ~/.pi/agent 与 ~/.agents 骨架。 */
+function setupWslHome(root, name) {
+	const home = join(root, name);
+	const agentDir = join(home, ".pi", "agent");
+	mkdirSync(join(agentDir, "skills"), { recursive: true });
+	mkdirSync(join(home, ".agents", "skills"), { recursive: true });
+	return { home, agentDir };
+}
+
+test("additionalAgentHomeDirs：WSL 家目录的 ~/.pi/agent/skills 与 ~/.agents/skills 并入白名单", () => {
+	const { resolveEnabledSkillPaths } = loadResolverModule();
+	const { root, home, agentDir, cwd } = setupFixtures();
+	const wsl = setupWslHome(root, "wsl-home");
+	try {
+		// Windows 家目录（主 home）技能：保持原有行为
+		skillMd(join(agentDir, "skills", "win-skill"), "win-skill");
+		// WSL 家目录技能：pi 模式顶层 md 算、agents 模式嵌套算
+		skillMd(join(wsl.agentDir, "skills", "wsl-pi-skill"), "wsl-pi-skill");
+		writeFileSync(
+			join(wsl.agentDir, "skills", "wsl-root.md"),
+			"---\nname: wsl-root\ndescription: pi mode root\n---\n",
+			"utf8",
+		);
+		skillMd(join(wsl.home, ".agents", "skills", "wsl-agents-skill"), "wsl-agents-skill");
+		writeFileSync(
+			join(wsl.home, ".agents", "skills", "wsl-agents-root.md"),
+			"---\nname: wsl-agents-root\ndescription: agents mode root ignored\n---\n",
+			"utf8",
+		);
+
+		const result = resolveEnabledSkillPaths({
+			agentHomeDir: home,
+			cwd,
+			disabledNames: ["missing"],
+			additionalAgentHomeDirs: [wsl.home],
+		});
+		assert.ok(result, "存在禁用项时必须启用白名单");
+		same(result, [
+			join(agentDir, "skills", "win-skill", "SKILL.md"),
+			// WSL 侧：pi 模式目录技能 + 顶层 md；agents 模式只认嵌套目录
+			join(wsl.agentDir, "skills", "wsl-pi-skill", "SKILL.md"),
+			join(wsl.agentDir, "skills", "wsl-root.md"),
+			join(wsl.home, ".agents", "skills", "wsl-agents-skill", "SKILL.md"),
+		]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("additionalAgentHomeDirs：PiDeck 禁用名与 frontmatter 禁用对 WSL 家目录技能同样生效", () => {
+	const { resolveEnabledSkillPaths } = loadResolverModule();
+	const { root, home, cwd } = setupFixtures();
+	const wsl = setupWslHome(root, "wsl-home");
+	try {
+		skillMd(join(wsl.home, ".agents", "skills", "wsl-disabled"), "wsl-disabled");
+		skillMd(
+			join(wsl.home, ".agents", "skills", "wsl-frontmatter-off"),
+			"wsl-frontmatter-off",
+			"disable-model-invocation: true\n",
+		);
+		skillMd(join(wsl.home, ".agents", "skills", "wsl-kept"), "wsl-kept");
+
+		const result = resolveEnabledSkillPaths({
+			agentHomeDir: home,
+			cwd,
+			disabledNames: ["wsl-disabled"],
+			additionalAgentHomeDirs: [wsl.home],
+		});
+		assert.ok(result);
+		same(result, [join(wsl.home, ".agents", "skills", "wsl-kept", "SKILL.md")]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("additionalAgentHomeDirs：WSL 家目录 settings.json 的 skills 显式路径参与枚举", () => {
+	const { resolveEnabledSkillPaths } = loadResolverModule();
+	const { root, home, cwd } = setupFixtures();
+	const wsl = setupWslHome(root, "wsl-home");
+	try {
+		const explicitDir = join(wsl.home, "custom-skills");
+		skillMd(explicitDir, "wsl-explicit");
+		writeFileSync(
+			join(wsl.agentDir, "settings.json"),
+			JSON.stringify({ skills: [explicitDir] }),
+			"utf8",
+		);
+
+		const result = resolveEnabledSkillPaths({
+			agentHomeDir: home,
+			cwd,
+			disabledNames: ["missing"],
+			additionalAgentHomeDirs: [wsl.home],
+		});
+		assert.ok(result);
+		same(result, [join(explicitDir, "SKILL.md")]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("additionalAgentHomeDirs：拒绝项目 trust 时 WSL 家目录全局技能仍注入", () => {
+	const { resolveEnabledSkillPaths } = loadResolverModule();
+	const { root, home, agentDir, cwd } = setupFixtures();
+	const wsl = setupWslHome(root, "wsl-home");
+	try {
+		skillMd(join(agentDir, "skills", "win-global"), "win-global");
+		skillMd(join(wsl.agentDir, "skills", "wsl-global"), "wsl-global");
+		skillMd(join(cwd, ".pi", "skills", "project-skill"), "project-skill");
+
+		const result = resolveEnabledSkillPaths({
+			agentHomeDir: home,
+			cwd,
+			disabledNames: [],
+			additionalAgentHomeDirs: [wsl.home],
+			includeProjectResources: false,
+		});
+		assert.ok(result);
+		same(result, [
+			join(agentDir, "skills", "win-global", "SKILL.md"),
+			join(wsl.agentDir, "skills", "wsl-global", "SKILL.md"),
+		]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("additionalAgentHomeDirs：与主 home 相同的目录不重复枚举；不存在的目录跳过", () => {
+	const { resolveEnabledSkillPaths } = loadResolverModule();
+	const { root, home, agentDir, cwd } = setupFixtures();
+	try {
+		skillMd(join(agentDir, "skills", "win-skill"), "win-skill");
+
+		const withDup = resolveEnabledSkillPaths({
+			agentHomeDir: home,
+			cwd,
+			disabledNames: ["missing"],
+			additionalAgentHomeDirs: [home, join(root, "wsl-not-exist")],
+		});
+		const baseline = resolveEnabledSkillPaths({
+			agentHomeDir: home,
+			cwd,
+			disabledNames: ["missing"],
+		});
+		assert.ok(withDup && baseline);
+		same(withDup, baseline);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
