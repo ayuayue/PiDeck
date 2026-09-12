@@ -23,6 +23,28 @@ test("user/message 投影为 user 消息（内容块 text 提取）", () => {
 	assert.equal(p.turnEnded, false);
 });
 
+test("journal 尾部重放（follow snapshot）：同 seq 事件二次投影不产生重复消息", () => {
+	// 回归（2026-09-12）：attach/fork 已投影过历史，follow 流打开时 host 又推一份
+	// journal 尾部 snapshot；append 位点不去重会产出同 id 消息，渲染层按 message.id
+	// 作 React key → duplicate-key 告警、user 气泡显示两遍（实测 dsh:9/91/100 成对）。
+	const e1 = event("user/message", 9, { content: [{ type: "text", text: "第一条" }] });
+	const e2 = event("user/message", 91, { content: [{ type: "text", text: "第二条" }] });
+	// 首轮：attach 历史重放
+	let p = projectDshEvent(undefined, e1, AGENT);
+	p = projectDshEvent(p, e2, AGENT);
+	assert.equal(p.messages.length, 2);
+	// 二轮：follow snapshot 重放同一段 journal
+	p = projectDshEvent(p, e1, AGENT);
+	p = projectDshEvent(p, e2, AGENT);
+	assert.equal(p.messages.length, 2, "同 id 不得重复入列");
+	assert.equal(p.messages[0].id, "dsh:9");
+	assert.equal(p.messages[1].id, "dsh:91");
+	// tool/call 同理（重放不叠加第二张工具卡）
+	let q = projectDshEvent(undefined, event("tool/call", 12, { toolName: "pwsh", callId: "c1", arguments: "{}" }), AGENT);
+	q = projectDshEvent(q, event("tool/call", 12, { toolName: "pwsh", callId: "c1", arguments: "{}" }), AGENT);
+	assert.equal(q.messages.length, 1, "tool 卡片同 id 只入列一次");
+});
+
 test("user/message source.kind=user（带 rpcId）正常投影", () => {
 	const p = projectDshEvent(undefined, event("user/message", 2, {
 		content: [{ type: "text", text: "真实消息" }],

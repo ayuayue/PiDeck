@@ -8,7 +8,7 @@ import { applyProxyEnvPatch, type HostProxyEnvPatch } from "../sessions/sessionP
 import { DshHostProcess, resolveHostEntryPath } from "./DshHostProcess";
 import { DshApiClient, type DshFetchTransport } from "./DshApiClient";
 import { DshRemoteClient } from "./dshRemoteClient";
-import { toDshAvailableModels, toDshFetchedModels } from "./dshModels";
+import { toDshAvailableModels, toDshFetchedModels, unwrapDshDiscoveryModels } from "./dshModels";
 import { parseAgentDefaultModel } from "./dshDefaultModel";
 import { credentialValueFromDocument, isValidCredentialRef } from "./dshCredentials";
 import { workspaceDirFor, findDshSessionDir } from "./dshSessionPath";
@@ -404,7 +404,10 @@ export class DshHost {
 		if (!discovered.result.ok) {
 			throw new Error(`dsh llm.discoverModels failed: ${discovered.result.error.code}: ${discovered.result.error.message}`);
 		}
-		return toDshFetchedModels(discovered.result.value.models ?? []);
+		// 线上结果 schema 是纯数组（dsh-llm typert：z.array(z.object({ id, ... }))）；
+		// 之前写成 value.models ?? []，对数组取 .models 恒 undefined → 配置页永远
+		// 「已获取 0 个模型」。unwrapDshDiscoveryModels 做数组/包装双形态解包。
+		return toDshFetchedModels(unwrapDshDiscoveryModels(discovered.result.value));
 	}
 
 	/**

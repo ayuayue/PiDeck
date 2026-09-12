@@ -352,6 +352,25 @@ const PROJECT = { id: "project-1", path: "C:\\work" };
 /** 构造与 DSH 实测一致的 SessionEvent。 */
 const event = (type, seq, data = {}) => ({ type, seq, time: 1700000000000 + seq, data });
 
+test("第二个 runtime 的 follow 泵也必须创建（共享 mux 已在跑不得提前 return）", async () => {
+	// 回归（2026-09-12）：startMux 的 ensureFollowPump 曾放在共享 mux 启动路径里，
+	// 第二个会话 startMux 时 mux 已在跑、提前 return 把 follow 泵整个吞掉——
+	// 0.1.5 会话 journal 事件只走 follow 泵，于是新会话发送后 host 正常跑完回合
+	// 但 PiDeck 收不到任何事件（无流式、无收口、无报错，页面空白）。
+	const { host, client } = makeFakeHost();
+	let followOpens = 0;
+	const innerFollow = client.sessionsFollow.bind(client);
+	client.sessionsFollow = (...args) => {
+		followOpens += 1;
+		return innerFollow(...args);
+	};
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const first = await manager.create({ projectId: "project-1", backend: "dsh" });
+	const second = await manager.create({ projectId: "project-1", backend: "dsh" });
+	assert.notEqual(first.id, second.id);
+	assert.equal(followOpens, 2, "每个 runtime 各开一条 session/follow 泵");
+});
+
 test("create 新建 DSH 会话并注册 runtime（无 dshSessionId 时）", async () => {
 	const { host, calls, createPayloads } = makeFakeHost();
 	const manager = new DshAgentManager(host, () => PROJECT);

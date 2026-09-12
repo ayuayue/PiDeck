@@ -2125,10 +2125,16 @@ export class DshAgentManager implements SessionAgentGateway {
 	 * 断连自愈仍按指数退避重连；重连后给每个仍活着的 runtime 补帧。
 	 */
 	private startMux(_runtime: DshAgentRuntime): void {
+		// 0.1.5：会话 journal 事件走每会话 follow 泵（this.followPumps），共享 mux
+		// （$events）只剩审批/提问瀑布。ensureFollowPump 必须对每个 runtime 都执行：
+		// 之前放在共享 mux 的启动路径里，第二个会话 startMux 时 mux 已在跑、提前
+		// return 把 follow 泵整个吞掉——表现为新会话发送后 host 正常执行完整回合
+		// （journal 有 turn/end），但 PiDeck 收不到任何事件（无流式、无收口、无报错）。
+		// ensureFollowPump 按 agentId 幂等，重复调用无害。
+		this.ensureFollowPump(_runtime);
 		if (this.muxPump && this.muxAbort && !this.muxAbort.signal.aborted) return;
 		const controller = new AbortController();
 		this.muxAbort = controller;
-		this.ensureFollowPump(_runtime);
 		this.muxPump = (async () => {
 			let backoffMs = 250;
 			while (!controller.signal.aborted) {

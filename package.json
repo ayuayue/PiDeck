@@ -58,6 +58,7 @@
     "build": "npm run sync:dsh-version && npm run build:packages && npm run generate:pi-ai-catalog && npm run generate:extensions-manifest && npm run runtime:pack && npm run runtime:check && npm run check:xueprompts && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
     "build:packages": "node scripts/build-local-packages.js",
     "build:fast": "npm run generate:pi-ai-catalog && npm run generate:extensions-manifest && electron-vite build",
+    "build:main": "electron-vite build --config electron.vite.main.mjs",
     "runtime:pack": "node scripts/pack-dsh-runtime.mjs",
     "sync:dsh-version": "node scripts/sync-dsh-declared-version.mjs",
     "runtime:pack:lite": "node scripts/pack-dsh-runtime.mjs --lite",

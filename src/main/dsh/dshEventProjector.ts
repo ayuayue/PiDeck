@@ -240,6 +240,21 @@ function modelFromEvent(event: { data?: unknown }): { provider: string; model: s
 	return undefined;
 }
 
+/**
+ * 幂等 append：同一消息 id 只入列一次。
+ *
+ * 为什么需要：0.1.5 的 session/follow 流打开时 host 先推一份 journal 尾部
+ * snapshot（"complete opening snapshot"，paginate 取尾页），而 attach/fork
+ * 路径已把同一段历史投影过一遍（messages 由投影器全程 append）。不去重会
+ * 产出同 id 消息——渲染层时间线按 message.id 作 React key，重复 id 触发
+ * duplicate-key 告警且条目重复（2026-09-12 实测 `dsh:9/91/100` 成对告警，
+ * user 气泡显示两遍）。assistant 增量/终态本身按 id 原地更新（幂等），
+ * 只有 append 位点需要挡重。
+ */
+function appendMessageOnce(base: ChatMessage[], message: ChatMessage): ChatMessage[] {
+	return base.some((existing) => existing.id === message.id) ? base : [...base, message];
+}
+
 export function projectDshEvent(
 	prev: DshProjection | undefined,
 	event: { type?: string; seq?: number; seq0?: number; data?: unknown; time?: unknown; time0?: unknown } | undefined,
@@ -293,9 +308,7 @@ export function projectDshEvent(
 			// 由 DshAgentManager 异步拉取字节后回填 images（避免把投影器变成 async）。
 			const { images, refs } = imagePartsFromContent(data.content);
 			const imageMeta = refs.length > 0 ? { dshImageRefs: refs } : undefined;
-			next.messages = [
-				...base.messages,
-				{
+			next.messages = appendMessageOnce(base.messages, {
 					id: `dsh:${seq}`,
 					agentId,
 					role: "user",
@@ -303,8 +316,7 @@ export function projectDshEvent(
 					timestamp: eventTime(event.time),
 					...(images.length > 0 ? { images } : {}),
 					...(imageMeta ? { meta: imageMeta } : {}),
-				},
-			];
+			});
 			next.messagesChanged = true;
 			break;
 		}
@@ -434,26 +446,7 @@ export function projectDshEvent(
 					next.messages = messages;
 				} else {
 					// 骨架丢失（异常路径）：按终态正常 push，避免消息丢失
-					next.messages = [
-						...messages,
-						{
-							id: `dsh:${seq}`,
-							agentId,
-							role: "assistant",
-							text: finalText,
-							thinking: finalThinking.trim() ? finalThinking : undefined,
-							timestamp: eventTime(event.time),
-							stopReason: "stop",
-							...(assistantImages.length > 0 ? { images: assistantImages } : {}),
-							...(assistantImageMeta || usageForMessage ? { meta: { ...(assistantImageMeta ?? {}), ...(usageForMessage ? { usage: usageForMessage } : {}) } } : {}),
-						},
-					];
-				}
-				next.messagesChanged = true;
-			} else {
-				next.messages = [
-					...base.messages,
-					{
+					next.messages = appendMessageOnce(messages, {
 						id: `dsh:${seq}`,
 						agentId,
 						role: "assistant",
@@ -463,8 +456,21 @@ export function projectDshEvent(
 						stopReason: "stop",
 						...(assistantImages.length > 0 ? { images: assistantImages } : {}),
 						...(assistantImageMeta || usageForMessage ? { meta: { ...(assistantImageMeta ?? {}), ...(usageForMessage ? { usage: usageForMessage } : {}) } } : {}),
-					},
-				];
+					});
+				}
+				next.messagesChanged = true;
+			} else {
+				next.messages = appendMessageOnce(base.messages, {
+					id: `dsh:${seq}`,
+					agentId,
+					role: "assistant",
+					text: finalText,
+					thinking: finalThinking.trim() ? finalThinking : undefined,
+					timestamp: eventTime(event.time),
+					stopReason: "stop",
+					...(assistantImages.length > 0 ? { images: assistantImages } : {}),
+					...(assistantImageMeta || usageForMessage ? { meta: { ...(assistantImageMeta ?? {}), ...(usageForMessage ? { usage: usageForMessage } : {}) } } : {}),
+				});
 				next.messagesChanged = true;
 			}
 			next.pendingAssistantId = undefined;
@@ -502,9 +508,7 @@ export function projectDshEvent(
 			const toolId = callId ?? `dsh-tool-${seq}`;
 			activeToolCalls.set(toolId, toolName);
 			next.activeToolCalls = activeToolCalls;
-			next.messages = [
-				...base.messages,
-				{
+			next.messages = appendMessageOnce(base.messages, {
 					id: `dsh:${seq}`,
 					agentId,
 					role: "tool",
@@ -518,8 +522,7 @@ export function projectDshEvent(
 						...(args !== undefined ? { args } : {}),
 						...(view !== undefined ? { view } : {}),
 					},
-				},
-			];
+			});
 			next.executingTool = toolName;
 			next.messagesChanged = true;
 			next.stateChanged = true;
@@ -635,16 +638,13 @@ export function projectDshEvent(
 			// D8：用户主动停止（cancelled）后的迟到 turn/end 若报 error，不追加错误气泡——
 			// 停止被显示为「回合失败」是误导；正常回合的错误仍照常投影。
 			if (reason.kind === "error" && reason.error?.message && !opts?.skipErrorTurnEnd) {
-				next.messages = [
-					...base.messages,
-					{
-						id: `dsh:${seq}`,
-						agentId,
-						role: "error",
-						text: reason.error.message,
-						timestamp: eventTime(event.time),
-					},
-				];
+				next.messages = appendMessageOnce(base.messages, {
+					id: `dsh:${seq}`,
+					agentId,
+					role: "error",
+					text: reason.error.message,
+					timestamp: eventTime(event.time),
+				});
 				next.messagesChanged = true;
 			}
 			// 中断/异常收口：无 assistant/message 终态时（如被停止/出错），把流式累积
