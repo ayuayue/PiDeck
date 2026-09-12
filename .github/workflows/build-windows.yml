@@ -1,0 +1,51 @@
+name: Build Windows
+
+# 仅手动触发，从最新的 main 分支构建 Windows 安装包
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - name: Checkout repository (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate app icon
+        run: npm run make-icon
+
+      - name: Build Windows ${{ matrix.arch }} package
+        run: npm run build && npx electron-builder --win nsis portable zip --${{ matrix.arch }} --publish never
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Upload Windows ${{ matrix.arch }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-desktop-windows-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.zip
+            release/*.blockmap
+            release/latest-win.yml
