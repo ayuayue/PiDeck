@@ -20,8 +20,13 @@
 - **c834292137** ([@c834292137](https://github.com/c834292137)) — 统一会话组件卡（待办/子代理/文件修改）并聚合共享层 (#171)
 - **r0y1z2** ([@r0y1z2](https://github.com/r0y1z2)) — 项目会话置顶、输入框安全语音转写 (#177, #176)
 - **sgafxh** ([@sgafxh](https://github.com/sgafxh)) — 请求体超限后的会话恢复、修复 Windows 启动 pi 闪 CMD 窗口 (#188, #180)
+- **lerrorgk** ([@lerrorgk](https://github.com/lerrorgk)) — 修复 nicobailon pi-subagents 异步派发误标完成，面板条目补齐全任务描述 (#206)
 
 以及所有提交 Issue、反馈建议和帮助推广的用户。
+
+## 💖 特别支持
+
+- **微时佬友** ([@weishiair](https://github.com/weishiair)) — 提供 Grok 模型服务，用于 PiDeck 的软件开发 🎉
 
 ---
 
