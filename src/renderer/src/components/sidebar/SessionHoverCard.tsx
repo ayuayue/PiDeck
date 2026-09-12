@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode, type PointerEvent } from "react";
 import { Calendar, Folder, Laptop, MessageSquare } from "lucide-react";
 import type { SessionRecord, SessionSummary } from "../../../../shared/types";
 import { looksLikePiSessionFileStem } from "../../../../shared/sessionIdentity";
@@ -45,6 +45,10 @@ let lastRowPointerDownAt = 0;
  * 3. 丰富信息：展示会话标题与首轮提问/摘要预览文本、本地任务/来源后端标记、所属项目空间、精准更新时间。
  *    当轻量扫描未载入正文 preview 时，自动回退展示已推断出的会话标题，避免有标题却显示「暂无内容摘要」。
  * 4. 状态互斥：支持 disabled 属性，在右键上下文菜单激活或拖拽时禁止浮层激活。
+ * 5. 关闭安全网：会话列表按 updatedAt 持续重排，触发行可能在卡片打开期间被重挂载/移除，
+ *    此时 pointerleave 不会派发给已卸载的节点，Radix 收不到关闭事件 → 卡片残留。
+ *    open 期间全局捕获 pointermove，指针离开「触发行 + 卡片」超过 closeDelay 即强制关闭；
+ *    同时不阻止外部 pointerdown（否则点击别处也无法关掉，卡片一直占屏）。
  */
 export function SessionHoverCard({
 	children,
@@ -58,7 +62,49 @@ export function SessionHoverCard({
 }: SessionHoverCardProps) {
 	const [open, setOpen] = useState(false);
 	const suppressUntilRef = useRef(0);
+	// 关闭安全网引用：trigger 经 asChild 合并到行按钮（Radix Trigger 类型声明为
+	// HTMLAnchorElement，实际 ref 收到的是 asChild 的行 DOM，contains() 按 Node 判定即可）
+	const triggerRef = useRef<HTMLAnchorElement | null>(null);
+	const contentRef = useRef<HTMLDivElement | null>(null);
+	const closeTimerRef = useRef<number | null>(null);
 	const suppressWindowMs = openDelay + closeDelay + HOVER_SUPPRESS_EXTRA_MS;
+
+	/**
+	 * 关闭安全网：触发行在卡片打开期间被列表重排重挂载时，光标下的 pointerleave
+	 * 不会派发给已卸载的节点，Radix 永远收不到关闭事件 → 卡片一直残留占屏。
+	 * open 期间全局捕获 pointermove：指针不在触发行也不在卡片内，按 closeDelay
+	 * 宽限后强制关闭。宽限期复刻 Radix 语义，允许鼠标从行平滑移入卡片复制文字。
+	 */
+	useEffect(() => {
+		if (!open) return;
+		const clearCloseTimer = () => {
+			if (closeTimerRef.current != null) {
+				window.clearTimeout(closeTimerRef.current);
+				closeTimerRef.current = null;
+			}
+		};
+		const isInside = (target: EventTarget | null): boolean => {
+			if (!(target instanceof Node)) return false;
+			return Boolean(triggerRef.current?.contains(target) || contentRef.current?.contains(target));
+		};
+		const onGlobalPointerMove = (event: globalThis.PointerEvent) => {
+			if (isInside(event.target)) {
+				clearCloseTimer();
+				return;
+			}
+			if (closeTimerRef.current == null) {
+				closeTimerRef.current = window.setTimeout(() => {
+					closeTimerRef.current = null;
+					setOpen(false);
+				}, closeDelay);
+			}
+		};
+		window.addEventListener("pointermove", onGlobalPointerMove, true);
+		return () => {
+			window.removeEventListener("pointermove", onGlobalPointerMove, true);
+			clearCloseTimer();
+		};
+	}, [open, closeDelay]);
 
 	// 实例自身的时间戳（覆盖本实例刚被点过）与模块级时间戳（覆盖重挂载后的新实例）
 	// 取较大者判断；点击后的窗口期内任何 hover 打开一律吞掉。
@@ -121,18 +167,15 @@ export function SessionHoverCard({
 
 	return (
 		<HoverCard open={open} onOpenChange={handleOpenChange} openDelay={openDelay} closeDelay={closeDelay}>
-			<HoverCardTrigger asChild onPointerDown={handleTriggerPointerDown}>
+			<HoverCardTrigger asChild ref={triggerRef} onPointerDown={handleTriggerPointerDown}>
 				{children}
 			</HoverCardTrigger>
 			<HoverCardContent
+				ref={contentRef}
 				side="right"
 				align="start"
 				sideOffset={10}
 				className="w-84 max-w-[calc(100vw-320px)] p-3.5 shadow-xl select-text"
-				onPointerDownOutside={(e) => {
-					// 避免外部点击事件被误吞
-					e.preventDefault();
-				}}
 			>
 				{/* 1. 会话正文预览区：有明确标题和独立摘要时分层展示，否则展示主体内容；两者皆空才显示占位 */}
 				<div className="max-h-48 overflow-y-auto select-text">

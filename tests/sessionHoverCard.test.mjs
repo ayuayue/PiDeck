@@ -81,3 +81,17 @@ test("SessionHoverCard cancels hover-open on row click and suppresses post-click
 	// 压制窗口按 openDelay + closeDelay + 额外余量计算，与默认 1500ms 对齐。
 	assert.match(source, /const suppressWindowMs = openDelay \+ closeDelay \+ HOVER_SUPPRESS_EXTRA_MS/);
 });
+
+test("SessionHoverCard closes reliably when the pointer leaves trigger and content", () => {
+	const source = readFileSync("src/renderer/src/components/sidebar/SessionHoverCard.tsx", "utf8");
+	// 关闭安全网：列表重排会让触发行在光标下重挂载，pointerleave 不派发 → Radix 收不到
+	// 关闭事件，卡片残留。open 期间全局捕获 pointermove，离开触发行+卡片即兜底关闭。
+	assert.match(source, /addEventListener\("pointermove"/);
+	assert.match(source, /triggerRef\.current\?\.contains\(target\)/);
+	assert.match(source, /contentRef\.current\?\.contains\(target\)/);
+	// 宽限期复刻 Radix closeDelay 语义：允许鼠标从行平滑移入卡片复制文字。
+	assert.match(source, /clearTimeout/);
+	// 外部 pointerdown 恢复默认关闭：preventDefault 会阻止 Radix dismissal，
+	// 导致「点击别处也关不掉，卡片一直占屏」。
+	assert.doesNotMatch(source, /onPointerDownOutside/);
+});
