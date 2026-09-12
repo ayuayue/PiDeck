@@ -1,4 +1,4 @@
-import { Activity, CircleStop, RefreshCw } from "lucide-react";
+import { Activity, CircleStop, Info, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { AgentProcessMetric, ProcessMetricsSnapshot } from "../../../../../shared/types";
 import { DSH_HOST_MONITOR_ID } from "../../../../../shared/types/processMetrics";
@@ -107,6 +107,12 @@ export function ProcessMetricsTab() {
             </div>
           </div>
 
+          {/* 内存口径提示（常驻可见，不靠悬停）：node 直启后监控的是 pi 本体真实内存 */}
+          <div className="flex items-start gap-1.5 text-micro text-muted-foreground">
+            <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
+            <span>{t("config.process.memoryHint")}</span>
+          </div>
+
           <div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
             <div className="flex items-center gap-1.5 border-b border-border-subtle px-3 py-2">
               <Activity className="size-3.5 text-muted-foreground" aria-hidden="true" />
@@ -126,10 +132,7 @@ export function ProcessMetricsTab() {
                     <TableHead>{t("config.process.column.agentId")}</TableHead>
                     <TableHead>{t("config.process.column.session")}</TableHead>
                     <TableHead>PID</TableHead>
-                    {/* 内存口径提示：node 直启后监控的是 pi 本体（此前 cmd 垫片时代只统计到几 MB 的壳进程） */}
-                    <TableHead title={t("config.process.memoryHint")}>
-                      {t("config.process.column.memory")}
-                    </TableHead>
+                    <TableHead>{t("config.process.column.memory")}</TableHead>
                     <TableHead className="text-center">{t("config.process.column.action")}</TableHead>
                   </TableRow>
                 </TableHeader>
