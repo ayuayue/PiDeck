@@ -2,7 +2,7 @@
  * PiDeck Todo 三态状态纯模块（v3 快照）。
  *
  * 本模块不 import 任何 pi API、不注册工具、不持久化：只做 v3 快照解码、
- * 操作 reducer、预算与输出格式化。pi-deck-todo.ts 扩展在真实变更时把
+ * 操作 reducer、预算与输出格式化、压缩后补注判定。pi-deck-todo.ts 扩展在真实变更时把
  * v3 快照 appendEntry 到会话文件；读取时只接受 version===3 且全量合法的快照，
  * 其余（legacy `{todos,nextId}`、v2 `done`、未知版本、坏项）一律视为无计划：
  * 不迁移、不写回、不静默截断。
@@ -505,4 +505,49 @@ export function formatTodoPlanModelText(plan: TodoPlan | undefined): string {
 		lines.push(`… ${plan.todos.length - visible.length} more items (output truncated)`);
 	}
 	return `${header}\n${lines.join("\n")}`;
+}
+
+// ---------------------------------------------------------------------------
+// 会话条目类型与压缩后补注判定（前缀缓存零失效设计）
+// ---------------------------------------------------------------------------
+
+/** 扩展私有的 v3 状态快照条目（appendEntry，不发给模型）。 */
+export const TODO_SNAPSHOT_ENTRY_TYPE = "pi-deck-todo";
+/**
+ * 压缩后补注的可见性标记：既是 appendEntry 私有条目类型，也是 before_agent_start
+ * 返回的持久 custom_message 的 customType。后者会进入模型上下文（goal-mode 同款机制）。
+ */
+export const TODO_BRIEF_ENTRY_TYPE = "pi-deck-todo-brief";
+
+/**
+ * 判断是否需要在压缩后补注计划简报。
+ *
+ * 设计目标：正常对话期间对模型上下文**零注入**——计划的最新视图永远由最近一次
+ * todo 变更的 toolResult 携带（append-only 历史，天然不打断前缀缓存）。唯一会
+ * 冲掉计划可见性的是压缩（firstKeptEntryId 之前的历史被摘要替换）与分支摘要，
+ * 而这两者本身就会使缓存全部失效——此刻补注一条持久简报是零缓存成本的。
+ *
+ * 判定规则：扫描当前分支条目，取最后一次压缩/分支摘要的下标与最后一次
+ * 「计划可见性标记」（v3 快照条目或已补注的简报条目）的下标；仅当压缩比
+ * 标记更新时才需要补注。补注自身会写入新标记，因此每轮 before_agent_start
+ * 幂等（不会重复追加），且下次压缩后自愈。
+ */
+export function todoBriefNeededAfterCompaction(branch: readonly unknown[]): boolean {
+	let lastInvalidating = -1;
+	let lastVisible = -1;
+	for (let index = 0; index < branch.length; index += 1) {
+		const entry = branch[index];
+		if (!isRecord(entry)) continue;
+		if (entry.type === "compaction" || entry.type === "branch_summary") {
+			lastInvalidating = index;
+			continue;
+		}
+		if (
+			entry.type === "custom" &&
+			(entry.customType === TODO_SNAPSHOT_ENTRY_TYPE || entry.customType === TODO_BRIEF_ENTRY_TYPE)
+		) {
+			lastVisible = index;
+		}
+	}
+	return lastInvalidating >= 0 && lastInvalidating > lastVisible;
 }
