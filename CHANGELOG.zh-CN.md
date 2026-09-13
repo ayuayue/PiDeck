@@ -18,6 +18,7 @@
 - **侧栏「查看更多」数字右对齐** — 查看更多行数字拆列右对齐并去掉子项量词。
 
 ### 🐛 修复
+- **修复 AtomGit 镜像源更新检查 404** — AtomGit/GitCode 的 `releases/download` 路由拒绝任何 query 参数，而 electron-updater 检查更新时必然附加 `?noCache=` 缓存穿透参数，导致镜像源永远拉不到 `latest.yml`、更新检查恒 404。更新请求现已在应用内剥除该参数后再发出；GitHub 官方更新源不受影响。
 - **DSH 沙箱命令挂起与黑窗口修复** — 沙箱两级 runner 的运行环境此前只覆盖到第一级：第二级 ACL runner 缺 `ELECTRON_RUN_AS_NODE` 以 GUI 模式加载、事件循环永不退出（命令输出正常却每条耗满 120 秒超时），且其拉起 pwsh 时新建可见控制台窗口；现随 host 启动把 Node 运行模式与 runner preload 写入宿主进程环境并逐级下发，第二级 runner 继承隐藏控制台，挂起与黑窗口一并消失。
 - **第二个及后续 DSH 会话恢复响应** — 共享事件泵启动路径上的提前返回把新会话的 journal 跟随泵一并吞掉（0.1.5 中每会话 `session/follow` 是会话事件唯一来源），表现为第二个会话发送后无流式、无收口、也无任何报错；现对每个 runtime 都确保创建跟随泵（幂等，重复调用无害）。
 - **DSH 会话重放不再产生重复消息与轨迹** — journal 快照重放（跟随泵打开时的尾部快照）期间，消息与过程事件按 id 幂等去重，消除时间线与轨迹列表的 React duplicate key 告警（`dsh:*` / `process:dsh-process:*`）。

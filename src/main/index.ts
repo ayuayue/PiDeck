@@ -396,6 +396,7 @@ import { LogBundleExporter } from "./health/LogBundleExporter";
 import { QuitCleanupRegistry } from "./lifecycle/QuitCleanupRegistry";
 import type { FeishuChatBinding } from "../shared/types";
 import { createRealAutoUpdater } from "./update/createAutoUpdater";
+import { installAtomgitNoCacheBypass } from "./update/atomgitNoCacheBypass";
 import { createMacManualUpdateChecker } from "./update/macManualUpdate";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "./update/releaseRepo";
 import { UpdateService } from "./update/UpdateService";
@@ -2845,6 +2846,9 @@ function registerIpc() {
 	// 后台更新检查：Windows / 支持自动升级的发行物走 electron-updater；
 	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
 	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
+	// AtomGit 镜像源对 query string 返回 404，而 electron-updater 检查必带 noCache 参数：
+	// 在 updater 首次发起请求前注册 webRequest 剥除器（幂等），否则镜像源永远检查失败。
+	installAtomgitNoCacheBypass(() => session.defaultSession);
 	const updateServiceBase = {
 		settingsStore,
 		checkPiUpdate: () => extensionManager.checkPiUpdate(),
