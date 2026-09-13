@@ -396,7 +396,7 @@ import { LogBundleExporter } from "./health/LogBundleExporter";
 import { QuitCleanupRegistry } from "./lifecycle/QuitCleanupRegistry";
 import type { FeishuChatBinding } from "../shared/types";
 import { createRealAutoUpdater } from "./update/createAutoUpdater";
-import { installAtomgitNoCacheBypass } from "./update/atomgitNoCacheBypass";
+import { installAtomgitNoCacheBypass, UPDATER_PARTITION_NAME } from "./update/atomgitNoCacheBypass";
 import { createMacManualUpdateChecker } from "./update/macManualUpdate";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "./update/releaseRepo";
 import { UpdateService } from "./update/UpdateService";
@@ -2847,8 +2847,11 @@ function registerIpc() {
 	// macOS 当前未签 Developer ID，不能承诺稳定的替换/重启，因此只检测 Release 并交给用户手动安装。
 	// 两条路径都由同一个 UpdateService 快照推送渲染层，设置页能明确表达能力边界。
 	// AtomGit 镜像源对 query string 返回 404，而 electron-updater 检查必带 noCache 参数：
-	// 在 updater 首次发起请求前注册 webRequest 剥除器（幂等），否则镜像源永远检查失败。
-	installAtomgitNoCacheBypass(() => session.defaultSession);
+	// 在 updater 首次发起请求前注册 webRequest 剥除器（幂等）。注意必须挂在
+	// electron-updater 的独立 partition session（"electron-updater"）上，而不是 defaultSession
+	// —— updater 的 ElectronHttpExecutor 用 session.fromPartition("electron-updater") 发请求，
+	// 挂在 defaultSession 会拦不到（0.7.5 曾因此漏修）。
+	installAtomgitNoCacheBypass(() => session.fromPartition(UPDATER_PARTITION_NAME, { cache: false }));
 	const updateServiceBase = {
 		settingsStore,
 		checkPiUpdate: () => extensionManager.checkPiUpdate(),

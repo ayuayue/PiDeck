@@ -10,8 +10,14 @@
  *
  * 修复方式：不能改 electron-updater（无开关），改走 Electron session 级
  * `webRequest` 拦截 —— 把镜像下载路径请求中的 noCache 参数剥掉后重定向。
- * electron-updater 的 net.request 走默认 session，可被 defaultSession 的
- * webRequest 拦到；api.atomgit.com（公告/扩展/探针）不在拦截前缀内，不受影响。
+ *
+ * ⚠️ 关键：electron-updater 的请求**不走 defaultSession**。它的
+ * ElectronHttpExecutor.createRequest（electron-updater/out/electronHttpExecutor.js）
+ * 显式 `net.request({ ..., session: session.fromPartition("electron-updater", { cache: false }) })`
+ * 用独立 partition 发请求，因此拦截器必须注册在同一个 partition session 上，
+ * 注册到 defaultSession 会永远拦不到（0.7.5 曾因此漏修）。
+ * `fromPartition` 同名幂等，此处拿到的与 updater 内部缓存的是同一实例。
+ * api.atomgit.com（公告/扩展/探针）不在拦截前缀内，不受影响。
  *
  * 注意：webRequest 监听注册后不可移除，本模块使用幂等注册（与 PetWindow CSP
  * 安装同一模式），防止重复调用累积监听。
@@ -19,6 +25,13 @@
 
 // 仅类型导入，运行时无 electron 依赖（node --test 可直接加载本模块测纯函数）
 import type { Session } from "electron";
+
+/**
+ * electron-updater 发起请求所用的 partition 名，与 electron-updater 源码中的
+ * NET_SESSION_NAME（"electron-updater"）保持一致；`fromPartition` 同名幂等，
+ * 注册 webRequest 必然命中 updater 的真实请求 session。
+ */
+export const UPDATER_PARTITION_NAME = "electron-updater";
 
 /**
  * 需要剥除 noCache 的下载路径前缀。
@@ -63,13 +76,15 @@ let bypassInstalled = false;
 /**
  * 安装 AtomGit 镜像下载请求的 noCache 剥除器（幂等）。
  * 必须在 electron-updater 首次发起请求前调用（index.ts 装配 updateService 时）。
- * @param getDefaultSession 惰性取默认 session，避免模块加载期访问 electron。
+ * @param getUpdaterSession 惰性取 electron-updater 的请求 session
+ *   （`session.fromPartition(UPDATER_PARTITION_NAME, { cache: false })`），
+ *   避免模块加载期访问 electron；不得传 defaultSession（updater 不用它）。
  */
-export function installAtomgitNoCacheBypass(getDefaultSession: () => Session): void {
+export function installAtomgitNoCacheBypass(getUpdaterSession: () => Session): void {
   if (bypassInstalled) return;
   bypassInstalled = true;
-  const defaultSession = getDefaultSession();
-  defaultSession.webRequest.onBeforeRequest(
+  const updaterSession = getUpdaterSession();
+  updaterSession.webRequest.onBeforeRequest(
     { urls: [...ATOMGIT_DOWNLOAD_URL_PATTERNS] },
     (details, callback) => {
       if (!shouldStripNoCache(details.url)) {
