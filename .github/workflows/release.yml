@@ -164,6 +164,10 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          # 用 PAT 而非默认 GITHUB_TOKEN 发布：GITHUB_TOKEN 创建的 Release 不会广播
+          # `release: published` 事件（GitHub 防递归机制），导致 sync-atomgit 等
+          # 监听 release 事件的 workflow 永远不触发。PAT 发布的事件可正常触发。
+          token: ${{ secrets.RELEASE_PAT }}
           # 始终正式发布：手动留空 tag 时已解析为 v${package.json.version}
           tag_name: ${{ needs.resolve-version.outputs.tag }}
           # 仅「留空 tag」模式有值，把 tag 指到本次构建的分支 HEAD；其它模式留空不覆盖
