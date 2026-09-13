@@ -9,6 +9,11 @@ on:
         description: "要同步到 AtomGit 的 Release Tag，逗号分隔（如 v0.7.2,v0.7.3,v0.7.4；留空则只同步最新 Release）"
         required: false
         default: ""
+      force_resync:
+        description: "强制全量重传：先删除 AtomGit 上已存在的同名 Release 再重建（同版本号重新构建产物重发版时使用）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -70,7 +75,11 @@ jobs:
 
       - name: Run sync script
         run: |
-          node scripts/sync-release-to-atomgit.mjs --tags "${{ steps.resolve-tags.outputs.tags }}" --gh-repo "${{ github.repository }}"
+          EXTRA_ARGS=""
+          if [ "${{ github.event.inputs.force_resync }}" = "true" ]; then
+            EXTRA_ARGS="--force-resync"
+          fi
+          node scripts/sync-release-to-atomgit.mjs --tags "${{ steps.resolve-tags.outputs.tags }}" --gh-repo "${{ github.repository }}" $EXTRA_ARGS
         env:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

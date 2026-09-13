@@ -10,6 +10,14 @@
  * 2. 避免将带有敏感 Token 的文件提交至代码仓库；
  * 3. 支持断点续传/跳过已上传附件，避免重复上传上百 MB 的安装包。
  *
+ * 去重协议（v0.7.5 事故修复）：
+ * 旧版只按附件名去重，同名但内容已变（同版本号重新构建后重发版）的附件会
+ * 被静默跳过，导致 AtomGit 上永久保留旧构建。现在改为「按名 + 远端实际大小」
+ * 的双重校验：同名且远端大小与 GitHub 一致 → 跳过；同名但大小不一致 → 冲突
+ * （显式报错并按失败处理，提示 --force-resync）；远端大小无法校验（HEAD 失败）
+ * → 按旧语义跳过并警告。--force-resync 时先删除 AtomGit 上同名 Release 再重建，
+ * 用于同版本号重建产物重发版。
+ *
  * latest 标记约定（v0.7.4 抢占事故修复）：
  * 旧版脚本在创建/更新 release 时硬编码 release_status:'latest'，导致「谁后同步谁就是
  * 最新版」——先同步 v0.7.4 再同步 v0.7.3 后，AtomGit 上 latest 指向 v0.7.3，更新 feed
@@ -59,6 +67,8 @@ const ghRepo = getArg('--gh-repo', 'ayuayue/PiDeck');
 const atomgitRepo = getArg('--atomgit-repo', 'ayuayue/PiDeck');
 const atomgitApiBase = getArg('--api-base', 'https://api.atomgit.com/api/v5');
 const token = process.env.ATOMGIT_TOKEN || getArg('--token', '');
+// 强制重建开关：同名 Release 在 AtomGit 已存在时先删除再全量重传（同版本号重建产物重发版场景）
+const forceResync = args.includes('--force-resync');
 
 /** 带超时的 fetch 包装：所有网络请求必须经过这里，防止挂起拖死 CI job。 */
 function fetchWithTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
@@ -93,6 +103,42 @@ export function planLatestCorrection(AtomgitReleases, githubLatestTag) {
  */
 export function pickReleaseStatus(isTargetLatest) {
   return isTargetLatest ? 'latest' : undefined;
+}
+
+/**
+ * 附件增量计划（纯函数，可单测）：内容感知去重。
+ * @param {Array<{name:string,size:number}>} githubAssets GitHub 侧资产（name+size 必填）
+ * @param {Array<{name:string,size:number|null}>} remoteAssets 远端已有附件（size 为
+ *   HEAD 探测到的 Content-Length；探测失败为 null，表示无法校验）
+ * @returns {{uploads:Array<{name:string,reason:string}>, skips:Array<{name:string,reason:string}>, conflicts:Array<{name:string,githubSize:number,remoteSize:number}>}}
+ *   uploads=需要新传；skips=可安全跳过（含远端大小未知的保守跳过）；
+ *   conflicts=同名但内容大小不一致，禁止静默跳过，调用方须按失败处理并提示强制重建。
+ */
+export function planAssetActions(githubAssets, remoteAssets) {
+  const remoteByName = new Map(remoteAssets.map((a) => [a.name, a]));
+  const uploads = [];
+  const skips = [];
+  const conflicts = [];
+  for (const ga of githubAssets) {
+    const ra = remoteByName.get(ga.name);
+    if (!ra) {
+      uploads.push({ name: ga.name, reason: 'new' });
+      continue;
+    }
+    if (ra.size == null) {
+      // 远端大小探测失败（下载 URL 需鉴权/HEAD 不支持）：无法证明内容一致，
+      // 但也不应阻断断点续传，保守跳过并留痕
+      skips.push({ name: ga.name, reason: 'remote-size-unknown' });
+      continue;
+    }
+    if (ra.size === ga.size) {
+      skips.push({ name: ga.name, reason: 'same-size' });
+      continue;
+    }
+    // 同名不同大小：同版本号重建产物重发版的典型信号，必须强制重建，禁止静默跳过
+    conflicts.push({ name: ga.name, githubSize: ga.size, remoteSize: ra.size });
+  }
+  return { uploads, skips, conflicts };
 }
 
 // 仅 CLI 直跑时执行主流程；被测试 import 时不触发副作用（进程退出/目录创建/网络请求）
@@ -172,7 +218,8 @@ async function syncOneRelease(targetTag, githubLatestTag, failedAssets) {
   let atomgitRelease = null;
 
   const checkRes = await fetchWithTimeout(releaseUrl);
-  if (checkRes.ok) {
+  if (checkRes.ok && !forceResync) {
+    // 常规增量路径：只更新 name/body；release_status 不在此处触碰——避免同步旧 tag 时抢占 latest
     atomgitRelease = await checkRes.json();
     console.log(`ℹ️ AtomGit 上已存在 Release [${targetTag}]，增量同步附件。`);
     // 只更新 name/body；release_status 不在此处触碰——避免同步旧 tag 时抢占 latest
@@ -192,7 +239,13 @@ async function syncOneRelease(targetTag, githubLatestTag, failedAssets) {
       // PATCH 失败不阻塞附件上传，但要留痕（latest 校正步骤会再兜底一次）
       console.error(`⚠️ 更新 Release 元数据失败: HTTP ${patchRes.status} ${errText}`);
     }
-  } else if (checkRes.status === 404) {
+  } else if (checkRes.status === 404 || forceResync) {
+    if (forceResync) {
+      // 同版本号重建产物重发版：远端同名 Release 的附件内容已是旧构建，
+      // 先整个删除再走创建流程全量重传（附件按名 PUT 幂等，无法原地覆盖）
+      console.log(`♻️ --force-resync: 删除 AtomGit Release [${targetTag}] 后全量重建...`);
+      await deleteAtomgitRelease(targetTag);
+    }
     console.log(`✨ AtomGit 上尚无 Release [${targetTag}]，创建中...`);
     const createBody = {
       tag_name: targetTag,
@@ -219,33 +272,50 @@ async function syncOneRelease(targetTag, githubLatestTag, failedAssets) {
     throw new Error(`检查 AtomGit Release 状态异常: HTTP ${checkRes.status} ${errText}`);
   }
 
-  // 重新获取最新的 AtomGit 附件列表以判断哪些已上传（断点续传：按附件名去重）
+  // 重新获取最新的 AtomGit 附件列表以判断哪些已上传（断点续传）
   const freshRes = await fetchWithTimeout(releaseUrl);
   const currentRelease = await freshRes.json();
-  const existingAttachNames = new Set(
-    (currentRelease.assets || [])
-      .filter(a => a.type === 'attach')
-      .map(a => a.name)
+  const remoteAssets = [];
+  for (const a of currentRelease.assets || []) {
+    if (a.type !== 'attach') continue;
+    // 探测远端文件实际大小；失败时 size=null → 计划函数按「无法校验」保守跳过
+    const size = a.browser_download_url ? await fetchRemoteAssetSize(a.browser_download_url) : null;
+    if (size == null) {
+      console.log(`⚠️ 无法校验远端附件 [${a.name}] 的大小（HEAD 失败），按同名跳过处理。`);
+    }
+    remoteAssets.push({ name: a.name, size });
+  }
+  console.log(`📦 当前 AtomGit 已有附件数: ${remoteAssets.length}`);
+
+  // 3. 内容感知去重计划：同名同大小 → 跳过；同名异大小 → 冲突（不静默）
+  const plan = planAssetActions(
+    ghRelease.assets.map((a) => ({ name: a.name, size: a.size })),
+    remoteAssets,
   );
 
-  console.log(`📦 当前 AtomGit 已有附件数: ${existingAttachNames.size}`);
+  if (plan.conflicts.length > 0) {
+    // 冲突即失败：输出明确指引后整体按失败处理（failedAssets 非空 → 非 0 退出，workflow 标红）
+    for (const c of plan.conflicts) {
+      console.error(`🚨 附件 [${c.name}] 内容与 GitHub 不一致（GitHub ${c.githubSize} vs AtomGit ${c.remoteSize} 字节）！`);
+      failedAssets.push({ tag: targetTag, name: c.name, error: `size mismatch (github ${c.githubSize} vs remote ${c.remoteSize})` });
+    }
+    console.error(`💡 请使用 --force-resync 强制重建，或在 AtomGit 删除冲突附件后重跑本脚本。`);
+  }
+  for (const s of plan.skips) {
+    console.log(`⏩ 附件 [${s.name}] ${s.reason === 'same-size' ? '在 AtomGit 已存在（大小一致），跳过。' : '远端大小未知，保守跳过。'}`);
+  }
 
-  // 3. 逐个下载并上传资产
-  const assetsToSync = ghRelease.assets;
+  const assetsToSync = plan.uploads;
   let successCount = 0;
-  let skipCount = 0;
+  let skipCount = plan.skips.length;
 
   for (let i = 0; i < assetsToSync.length; i++) {
     const asset = assetsToSync[i];
     const fileName = asset.name;
-    const fileSizeMb = (asset.size / (1024 * 1024)).toFixed(2);
+    const ghAsset = ghRelease.assets.find((a) => a.name === fileName);
+    if (!ghAsset) continue;
+    const fileSizeMb = (ghAsset.size / (1024 * 1024)).toFixed(2);
     console.log(`\n[${i + 1}/${assetsToSync.length}] 处理: ${fileName} (${fileSizeMb} MB)`);
-
-    if (existingAttachNames.has(fileName)) {
-      console.log(`⏩ 附件 [${fileName}] 在 AtomGit 已存在，跳过。`);
-      skipCount++;
-      continue;
-    }
 
     const cacheDir = path.resolve(REPO_ROOT, '.cache', 'release-sync', targetTag);
     if (!fs.existsSync(cacheDir)) {
@@ -255,7 +325,7 @@ async function syncOneRelease(targetTag, githubLatestTag, failedAssets) {
     let needDownload = true;
     if (fs.existsSync(localFilePath)) {
       const stat = fs.statSync(localFilePath);
-      if (stat.size === asset.size) {
+      if (stat.size === ghAsset.size) {
         console.log(`💾 使用本地缓存文件: ${localFilePath}`);
         needDownload = false;
       }
@@ -367,6 +437,40 @@ async function uploadOneAsset(targetTag, fileName, localFilePath) {
     return `PUT 失败: HTTP ${putRes.status} ${putErr.slice(0, 200)}`;
   }
   return '';
+}
+
+/**
+ * 探测远端附件真实大小（HEAD Content-Length）。
+ * AtomGit 的 Release API 不返回附件大小字段（仅 name/type/id），
+ * 只能靠下载 URL 的 HEAD 获取；失败返回 null 表示「无法校验」。
+ * 下载 URL 需要鉴权，带 token 探测后立即释放连接。
+ */
+async function fetchRemoteAssetSize(downloadUrl) {
+  try {
+    const sep = downloadUrl.includes('?') ? '&' : '?';
+    const url = `${downloadUrl}${sep}access_token=${encodeURIComponent(token)}`;
+    const res = await fetchWithTimeout(url, { method: 'HEAD' }, API_TIMEOUT_MS);
+    if (!res.ok) return null;
+    const len = res.headers.get('content-length');
+    return len ? Number(len) : null;
+  } catch {
+    // 探测失败不阻塞流程：计划函数会按「无法校验」保守跳过
+    return null;
+  }
+}
+
+/**
+ * 删除 AtomGit 上指定 tag 的 Release（--force-resync 用）。
+ * 删除后该 tag 的附件与 latest 标记一并移除，重建时按 GitHub latest 状态重新写入。
+ */
+async function deleteAtomgitRelease(targetTag) {
+  const delUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(targetTag)}?access_token=${encodeURIComponent(token)}`;
+  const res = await fetchWithTimeout(delUrl, { method: 'DELETE' });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`删除 AtomGit Release [${targetTag}] 失败: HTTP ${res.status} ${errText}`);
+  }
+  console.log(`✅ 已删除 AtomGit Release [${targetTag}]。`);
 }
 
 /**
