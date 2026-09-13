@@ -218,34 +218,7 @@ async function syncOneRelease(targetTag, githubLatestTag, failedAssets) {
   let atomgitRelease = null;
 
   const checkRes = await fetchWithTimeout(releaseUrl);
-  if (checkRes.ok && !forceResync) {
-    // 常规增量路径：只更新 name/body；release_status 不在此处触碰——避免同步旧 tag 时抢占 latest
-    atomgitRelease = await checkRes.json();
-    console.log(`ℹ️ AtomGit 上已存在 Release [${targetTag}]，增量同步附件。`);
-    // 只更新 name/body；release_status 不在此处触碰——避免同步旧 tag 时抢占 latest
-    const patchBody = {
-      name: ghRelease.name || targetTag,
-      body: ghRelease.body || '',
-    };
-    if (isTargetLatest) patchBody.release_status = 'latest';
-    const patchUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(targetTag)}?access_token=${encodeURIComponent(token)}`;
-    const patchRes = await fetchWithTimeout(patchUrl, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patchBody),
-    });
-    if (!patchRes.ok) {
-      const errText = await patchRes.text().catch(() => '');
-      // PATCH 失败不阻塞附件上传，但要留痕（latest 校正步骤会再兜底一次）
-      console.error(`⚠️ 更新 Release 元数据失败: HTTP ${patchRes.status} ${errText}`);
-    }
-  } else if (checkRes.status === 404 || forceResync) {
-    if (forceResync) {
-      // 同版本号重建产物重发版：远端同名 Release 的附件内容已是旧构建，
-      // 先整个删除再走创建流程全量重传（附件按名 PUT 幂等，无法原地覆盖）
-      console.log(`♻️ --force-resync: 删除 AtomGit Release [${targetTag}] 后全量重建...`);
-      await deleteAtomgitRelease(targetTag);
-    }
+  if (checkRes.status === 404) {
     console.log(`✨ AtomGit 上尚无 Release [${targetTag}]，创建中...`);
     const createBody = {
       tag_name: targetTag,
@@ -267,9 +240,36 @@ async function syncOneRelease(targetTag, githubLatestTag, failedAssets) {
     }
     atomgitRelease = await createRes.json();
     console.log(`✅ 创建 AtomGit Release 成功!`);
-  } else {
+  } else if (!checkRes.ok) {
     const errText = await checkRes.text();
     throw new Error(`检查 AtomGit Release 状态异常: HTTP ${checkRes.status} ${errText}`);
+  } else {
+    // 常规增量路径：只更新 name/body；release_status 不在此处触碰——避免同步旧 tag 时抢占 latest
+    atomgitRelease = await checkRes.json();
+    const attachAssets = (atomgitRelease?.assets || []).filter((a) => a.type === 'attach');
+    if (forceResync) {
+      // AtomGit 不提供删除整个 release 的 API（9 个 release 端点中仅附件可删）：
+      // --force-resync = 删光该 tag 全部附件后全量重传，用于同版本号重建产物重发版
+      console.log(`♻️ --force-resync: 删除 [${targetTag}] 的全部 ${attachAssets.length} 个附件后重传...`);
+      await deleteReleaseAttachments(targetTag, attachAssets);
+    }
+    console.log(`ℹ️ AtomGit 上已存在 Release [${targetTag}]，${forceResync ? '附件已清空，' : ''}增量同步附件。`);
+    const patchBody = {
+      name: ghRelease.name || targetTag,
+      body: ghRelease.body || '',
+    };
+    if (isTargetLatest) patchBody.release_status = 'latest';
+    const patchUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(targetTag)}?access_token=${encodeURIComponent(token)}`;
+    const patchRes = await fetchWithTimeout(patchUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patchBody),
+    });
+    if (!patchRes.ok) {
+      const errText = await patchRes.text().catch(() => '');
+      // PATCH 失败不阻塞附件上传，但要留痕（latest 校正步骤会再兜底一次）
+      console.error(`⚠️ 更新 Release 元数据失败: HTTP ${patchRes.status} ${errText}`);
+    }
   }
 
   // 重新获取最新的 AtomGit 附件列表以判断哪些已上传（断点续传）
@@ -460,30 +460,28 @@ async function fetchRemoteAssetSize(downloadUrl) {
 }
 
 /**
- * 删除 AtomGit 上指定 tag 的 Release（--force-resync 用）。
- * 删除后该 tag 的附件与 latest 标记一并移除，重建时按 GitHub latest 状态重新写入。
+ * 删除 AtomGit 上指定 tag 的 Release 的全部附件（--force-resync 用）。
+ * AtomGit 不提供删除整个 Release 的 API（release 对象无 id，端点只有
+ * DELETE /releases/{tag}/attach_files/{attachFileId}），因此只能逐个删除附件，
+ * 删光后走增量路径全量重传（同名附件不再被 409/去重拦截）。
  */
-async function deleteAtomgitRelease(targetTag) {
-  // AtomGit releases 接口的 DELETE 只支持按 release id（/releases/{id}），
-  // 不支持按 tag 路径（405）；先 GET 拿到 id 再删
-  const getUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/tags/${encodeURIComponent(targetTag)}?access_token=${encodeURIComponent(token)}`;
-  const getRes = await fetchWithTimeout(getUrl);
-  if (!getRes.ok) {
-    const errText = await getRes.text().catch(() => '');
-    throw new Error(`获取 AtomGit Release [${targetTag}] 元数据失败: HTTP ${getRes.status} ${errText}`);
+async function deleteReleaseAttachments(targetTag, attachments) {
+  let deleted = 0;
+  for (const a of attachments) {
+    if (!a.id) {
+      // 无 id 无法定位删除（正常响应均携带 id，如 200904）；留到上传阶段按同名处理
+      console.error(`⚠️ 附件 [${a.name}] 缺少 id，无法删除，将在上传阶段按同名跳过/409 处理。`);
+      continue;
+    }
+    const delUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(targetTag)}/attach_files/${encodeURIComponent(a.id)}?access_token=${encodeURIComponent(token)}`;
+    const res = await fetchWithTimeout(delUrl, { method: 'DELETE' });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`删除附件 [${a.name}] (id=${a.id}) 失败: HTTP ${res.status} ${errText}`);
+    }
+    deleted++;
   }
-  const rel = await getRes.json();
-  const releaseId = rel?.id;
-  if (releaseId == null) {
-    throw new Error(`AtomGit Release [${targetTag}] 响应缺少 id 字段，无法按 id 删除（响应: ${JSON.stringify(rel).slice(0, 200)}）`);
-  }
-  const delUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(releaseId)}?access_token=${encodeURIComponent(token)}`;
-  const res = await fetchWithTimeout(delUrl, { method: 'DELETE' });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`删除 AtomGit Release [${targetTag}] 失败: HTTP ${res.status} ${errText}`);
-  }
-  console.log(`✅ 已删除 AtomGit Release [${targetTag}] (id=${releaseId})。`);
+  console.log(`🗑️ 已删除 ${deleted} 个附件。`);
 }
 
 /**
