@@ -464,13 +464,26 @@ async function fetchRemoteAssetSize(downloadUrl) {
  * 删除后该 tag 的附件与 latest 标记一并移除，重建时按 GitHub latest 状态重新写入。
  */
 async function deleteAtomgitRelease(targetTag) {
-  const delUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(targetTag)}?access_token=${encodeURIComponent(token)}`;
+  // AtomGit releases 接口的 DELETE 只支持按 release id（/releases/{id}），
+  // 不支持按 tag 路径（405）；先 GET 拿到 id 再删
+  const getUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/tags/${encodeURIComponent(targetTag)}?access_token=${encodeURIComponent(token)}`;
+  const getRes = await fetchWithTimeout(getUrl);
+  if (!getRes.ok) {
+    const errText = await getRes.text().catch(() => '');
+    throw new Error(`获取 AtomGit Release [${targetTag}] 元数据失败: HTTP ${getRes.status} ${errText}`);
+  }
+  const rel = await getRes.json();
+  const releaseId = rel?.id;
+  if (releaseId == null) {
+    throw new Error(`AtomGit Release [${targetTag}] 响应缺少 id 字段，无法按 id 删除（响应: ${JSON.stringify(rel).slice(0, 200)}）`);
+  }
+  const delUrl = `${atomgitApiBase}/repos/${atomgitRepo}/releases/${encodeURIComponent(releaseId)}?access_token=${encodeURIComponent(token)}`;
   const res = await fetchWithTimeout(delUrl, { method: 'DELETE' });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     throw new Error(`删除 AtomGit Release [${targetTag}] 失败: HTTP ${res.status} ${errText}`);
   }
-  console.log(`✅ 已删除 AtomGit Release [${targetTag}]。`);
+  console.log(`✅ 已删除 AtomGit Release [${targetTag}] (id=${releaseId})。`);
 }
 
 /**
