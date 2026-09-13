@@ -12,6 +12,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 import { createRequire } from "node:module";
+import { Buffer } from "node:buffer";
 
 const require = createRequire(import.meta.url);
 
@@ -42,6 +43,7 @@ function loadTsModule(filePath, deps) {
 			TextDecoder,
 			TextEncoder,
 			AbortController,
+			Buffer, // unwrapAtomgitContents 的 base64 解码依赖
 			Date,
 			JSON,
 			Error,
@@ -102,6 +104,22 @@ function fetchStub(routes) {
 		});
 	};
 }
+
+// ── AtomGit v5 解包 ──
+
+test("unwrapAtomgitContents：合法 base64 包裹解出原文", () => {
+	const raw = feedJson([item({ id: "x" })]);
+	const text = JSON.stringify({ encoding: "base64", content: Buffer.from(raw).toString("base64") });
+	assert.equal(announcementSourcesMod.unwrapAtomgitContents(text), raw);
+});
+
+test("unwrapAtomgitContents：非包裹结构 / 编码异常 / JSON 损坏 → null", () => {
+	assert.equal(announcementSourcesMod.unwrapAtomgitContents(JSON.stringify({ foo: "bar" })), null);
+	assert.equal(announcementSourcesMod.unwrapAtomgitContents(JSON.stringify({ encoding: "utf8", content: "abc" })), null);
+	assert.equal(announcementSourcesMod.unwrapAtomgitContents(JSON.stringify({ encoding: "base64", content: 42 })), null);
+	assert.equal(announcementSourcesMod.unwrapAtomgitContents("not json at all"), null);
+	assert.equal(announcementSourcesMod.unwrapAtomgitContents(JSON.stringify([1, 2, 3])), null);
+});
 
 // ── feed 解析 ──
 
@@ -184,7 +202,7 @@ test("shouldShowForVersion：minVersion 门控（引导升级语义，升级后�
 
 // ── 服务：多源 fallback / 全源失败 / 缓存 ──
 
-test("refresh：主源失败 → 内置镜像源兜底成功，state=remote 且缓存落盘", async () => {
+test("refresh：主源失败 → GitHub raw 兜底成功，state=remote 且缓存落盘", async () => {
 	const dir = makeTempDir();
 	try {
 		const snapshots = [];
@@ -192,8 +210,8 @@ test("refresh：主源失败 → 内置镜像源兜底成功，state=remote 且�
 			userDataDir: dir,
 			appVersion: "0.6.6",
 			fetchImpl: fetchStub([
-				{ match: "jsdelivr", status: 500 },
-				{ match: "raw.githubusercontent", body: feedJson([item({ id: "via-mirror" })]) },
+				{ match: "api.atomgit.com", status: 500 },
+				{ match: "raw.githubusercontent", body: feedJson([item({ id: "via-raw" })]) },
 			]),
 			now: () => 1_000,
 			onSnapshot: (state) => snapshots.push(state),
@@ -202,9 +220,61 @@ test("refresh：主源失败 → 内置镜像源兜底成功，state=remote 且�
 		assert.equal(state.source, "remote");
 		assert.equal(state.fetchedAt, 1_000);
 		assert.equal(state.items.length, 1);
-		assert.equal(state.items[0].id, "via-mirror");
+		assert.equal(state.items[0].id, "via-raw");
 		assert.equal(snapshots.length, 1); // 拉取成功推送一次快照
 		assert.ok(existsSync(join(dir, svcMod.ANNOUNCEMENT_CACHE_FILE)), "缓存应已落盘");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("refresh：AtomGit 主源返回 v5 base64 包裹 → 解包成功且命中", async () => {
+	const dir = makeTempDir();
+	try {
+		const svc = new svcMod.AnnouncementService({
+			userDataDir: dir,
+			appVersion: "0.6.6",
+			fetchImpl: fetchStub([
+				{
+					match: "api.atomgit.com",
+					body: JSON.stringify({
+						type: "file",
+						encoding: "base64",
+						size: 42,
+						name: "announcements.json",
+						path: "announcements.json",
+						content: Buffer.from(feedJson([item({ id: "via-atomgit" })])).toString("base64"),
+					}),
+				},
+			]),
+			now: () => 1_000,
+		});
+		const state = await svc.refresh("manual");
+		assert.equal(state.source, "remote");
+		assert.equal(state.items.length, 1);
+		assert.equal(state.items[0].id, "via-atomgit");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("refresh：AtomGit 包裹异常（非 v5 结构）→ 自动 fallback raw", async () => {
+	const dir = makeTempDir();
+	try {
+		const svc = new svcMod.AnnouncementService({
+			userDataDir: dir,
+			appVersion: "0.6.6",
+			// AtomGit 返回了非包裹结构（如被代理劫持成别的 JSON）——与解包失败同等处理
+			fetchImpl: fetchStub([
+				{ match: "api.atomgit.com", body: JSON.stringify({ foo: "bar" }) },
+				{ match: "raw.githubusercontent", body: feedJson([item({ id: "via-raw" })]) },
+			]),
+			now: () => 1_000,
+		});
+		const state = await svc.refresh("manual");
+		assert.equal(state.source, "remote");
+		assert.equal(state.items.length, 1);
+		assert.equal(state.items[0].id, "via-raw");
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -240,11 +310,16 @@ test("缓存重载：重启后 source=cache，过期条目在加载时被再过�
 			appVersion: "0.6.6",
 			fetchImpl: fetchStub([
 				{
-					match: "jsdelivr",
-					body: feedJson([
-						item({ id: "fresh", effectiveUntil: "2099-01-01T00:00:00Z" }),
-						item({ id: "stale", effectiveUntil: "2026-01-01T00:00:00Z" }),
-					]),
+					match: "api.atomgit.com",
+					body: JSON.stringify({
+						encoding: "base64",
+						content: Buffer.from(
+							feedJson([
+								item({ id: "fresh", effectiveUntil: "2099-01-01T00:00:00Z" }),
+								item({ id: "stale", effectiveUntil: "2026-01-01T00:00:00Z" }),
+							]),
+						).toString("base64"),
+					}),
 				},
 			]),
 			now: () => Date.parse("2026-09-07T00:00:00Z"),
@@ -303,7 +378,13 @@ test("markRead：幂等追加；markAllRead 覆盖当前可见条目；readIds �
 			userDataDir: dir,
 			appVersion: "0.6.6",
 			fetchImpl: fetchStub([
-				{ match: "jsdelivr", body: feedJson([item({ id: "a1" }), item({ id: "a2" })]) },
+				{
+					match: "api.atomgit.com",
+					body: JSON.stringify({
+						encoding: "base64",
+						content: Buffer.from(feedJson([item({ id: "a1" }), item({ id: "a2" })])).toString("base64"),
+					}),
+				},
 			]),
 			now: () => 1_000,
 		});

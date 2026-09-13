@@ -2,7 +2,7 @@
  * AnnouncementService —— 无服务器公告拉取服务（纯 Node，无 electron 依赖，可被 node --test 直接加载）。
  *
  * 职责：
- * - 多源 fallback 拉取 announcements.json（jsDelivr → 内置镜像代理 → raw，见 shared/announcementSources.ts）；
+ * - 多源 fallback 拉取 announcements.json（AtomGit → raw，见 shared/announcementSources.ts）；
  * - 解析 + schema 校验（渲染层与缓存只接受校验后的干净数据）；
  * - TTL 过滤（effectiveUntil）+ 版本门控（minVersion，仅向旧版本客户端展示）；
  * - userData 缓存（原子写 tmp+rename，损坏忽略走空态）；
@@ -15,7 +15,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ANNOUNCEMENT_SOURCE_URLS } from "../../shared/announcementSources";
+import { ANNOUNCEMENT_SOURCES, unwrapAtomgitContents } from "../../shared/announcementSources";
 import type {
 	AnnouncementItem,
 	AnnouncementLevel,
@@ -257,9 +257,16 @@ export class AnnouncementService {
 	/** 从源列表按序拉取；全部失败抛最后一个错误（refresh 统一 catch 归类）。 */
 	private async fetchFromAnySource(): Promise<AnnouncementItem[]> {
 		let lastError: unknown;
-		for (const url of ANNOUNCEMENT_SOURCE_URLS) {
+		for (const source of ANNOUNCEMENT_SOURCES) {
 			try {
-				const text = await this.downloadText(url);
+				let text = await this.downloadText(source.url);
+				if (source.kind === "atomgit-contents") {
+					// AtomGit v5 contents 返回 base64 包裹；解包失败（结构异常/被劫持）
+					// 与 feed 解析失败同等对待——fallback 到下一源
+					const unwrapped = unwrapAtomgitContents(text);
+					if (unwrapped == null) throw new Error("invalid atomgit contents envelope");
+					text = unwrapped;
+				}
 				const items = parseAnnouncementFeed(text);
 				// 返回了合法 JSON 但结构不对（schema 演进/被劫持成别的文件）：换下一个源
 				if (!items) throw new Error("invalid announcement feed");
@@ -273,8 +280,8 @@ export class AnnouncementService {
 
 	/**
 	 * 单源下载：超时中止 + 大小上限。注意主进程 globalThis.fetch 走 Node undici、
-	 * 不受 session 代理影响——这是有意的：公告源按「国内可达」排序（jsDelivr/镜像
-	 * 前缀代理），无代理环境也可达；raw 直连兜底海外/代理环境。
+	 * 不受 session 代理影响——这是有意的：公告源按「国内可达」排序（AtomGit 首选，
+	 * raw 直连兜底海外/代理环境），无代理环境也可达。
 	 */
 	private async downloadText(url: string): Promise<string> {
 		const controller = new AbortController();
