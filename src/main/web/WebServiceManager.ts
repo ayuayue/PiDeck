@@ -61,6 +61,19 @@ type WebServiceSettings = Pick<
  */
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
+/** /api JSON 请求体逻辑上限：超出后丢弃剩余数据并回 413（合法 payload 都是短 JSON，见 memo H3） */
+const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
+/** 硬上限：超过即断开连接，阻断无界上传占带宽/触发内存峰值 */
+const HARD_BODY_ABORT_BYTES = 16 * 1024 * 1024;
+
+/** readJson 超限的哨兵错误：由 createServer 的统一 catch 映射为 413 */
+class WebBodyTooLargeError extends Error {
+	constructor() {
+		super("WEB_SERVICE_BODY_TOO_LARGE");
+		this.name = "WebBodyTooLargeError";
+	}
+}
+
 type WebServiceDependencies = {
 	/**
 	 * dev 模式渲染层 dev server 基址（如 http://127.0.0.1:5181）。
@@ -354,6 +367,15 @@ export class WebServiceManager {
 			try {
 				await this.handleRequest(request, response, host, port, server);
 			} catch (error) {
+				if (error instanceof WebBodyTooLargeError) {
+					this.sendError(
+						response,
+						413,
+						"webError.bodyTooLarge",
+						"Request body exceeds the size limit",
+					);
+					return;
+				}
 				console.error("[WebService] Request failed", error);
 				this.sendError(
 					response,
@@ -2008,9 +2030,23 @@ export class WebServiceManager {
 
 	private async readJson<T>(request: IncomingMessage) {
 		const chunks: Buffer[] = [];
+		let totalBytes = 0;
+		let oversized = false;
 		for await (const chunk of request) {
+			totalBytes += chunk.length;
+			if (totalBytes > HARD_BODY_ABORT_BYTES) {
+				// 硬上限：直接断连（此分支下 413 可能来不及送达，属预期）
+				request.destroy();
+				throw new WebBodyTooLargeError();
+			}
+			if (totalBytes > MAX_JSON_BODY_BYTES) {
+				// 逻辑上限：丢弃超限 chunk 但继续排空连接，保证 413 响应能送达客户端
+				oversized = true;
+				continue;
+			}
 			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 		}
+		if (oversized) throw new WebBodyTooLargeError();
 		if (chunks.length === 0) return {} as T;
 		return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
 	}

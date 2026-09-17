@@ -51,6 +51,7 @@ export const webZhCN = {
 	"webError.apiNotFound": "API 不存在",
 	"webError.internal": "Web 服务发生内部错误",
 	"webError.unauthorized": "缺少或错误的 Web 服务访问令牌",
+	"webError.bodyTooLarge": "请求体超过大小限制",
 } as const;
 
 export type WebTranslationKey = keyof typeof webZhCN;
@@ -104,6 +105,7 @@ export const webEnUS: Record<WebTranslationKey, string> = {
 	"webError.apiNotFound": "API not found",
 	"webError.internal": "The web service encountered an internal error",
 	"webError.unauthorized": "Missing or invalid web service token",
+	"webError.bodyTooLarge": "Request body exceeds the size limit",
 };
 
 export const webClientDictionaries = {
