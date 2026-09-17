@@ -355,7 +355,7 @@ test("narrow project tree keeps root names from losing avoidable width", () => {
 
   // 工作区根节点需要保留折叠层级，但不应把标题栏和名称再向右推一档；
   // 展开后的 SessionTree 不在这里断言，避免改变会话层级的视觉语义。
-  assert.match(projectTree, /treeRowClass =\n  "[^"]*items-center[^\"]*px-1 /);
+  assert.match(projectTree, /treeRowClass =\n {2}"[^"]*items-center[^"]*px-1 /);
   assert.match(projectTree, /className="flex min-w-0 flex-1 items-center gap-1 py-0 pr-1 text-left"/);
   // 无标题父块：工具行保持 px-1 pb-1 布局，不把名称向右推一档
   assert.match(projectTree, /className="flex items-center justify-between px-1 pb-1"/);
@@ -409,8 +409,8 @@ test("sidebar uses one persisted project accordion without duplicating current p
   assert.doesNotMatch(sessionTree, /app\.sidebarHistory/);
   // 易碎点：未启动的 catalog Agent/无 runtime 的会话行不得渲染状态点；
   // 已启动的会话行复用 Tab 栏蓝/黄/红状态点，而不是回退到项目头像。
-  assert.doesNotMatch(sessionTree, /\?\? \"bg-muted-foreground\/50\"/);
-  assert.doesNotMatch(sessionTree, /\?\? \"bg-border\"/);
+  assert.doesNotMatch(sessionTree, /\?\? "bg-muted-foreground\/50"/);
+  assert.doesNotMatch(sessionTree, /\?\? "bg-border"/);
   assert.match(sessionTree, /function renderRuntimeStatusDot/);
   assert.match(sessionTree, /if \(!dotClass\) return null/);
   assert.match(sessionTree, /sessionStatusDotClass\(status\)/);

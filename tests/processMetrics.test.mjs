@@ -104,8 +104,8 @@ test("ProcessMonitor uses array-form system commands with timeout", () => {
 	assert.match(source, /spawn\(args\[0\], args\.slice\(1\)/);
 	// Windows 用 PowerShell PrivateMemorySize64（专用内存口径，同任务管理器），
 	// Linux/macOS 用 ps -o rss；固定参数数组
-	assert.match(source, /\"powershell\"[\s\S]*PrivateMemorySize64/);
-	assert.match(source, /\[\"ps\", \"-o\", \"rss=\", \"-p\", String\(pid\)\]/);
+	assert.match(source, /"powershell"[\s\S]*PrivateMemorySize64/);
+	assert.match(source, /\["ps", "-o", "rss=", "-p", String\(pid\)\]/);
 	// 超时兜底：采样挂死不阻塞 IPC（超时常量作为 runCollect 第二参数传入）
 	assert.match(source, /timeout: timeoutMs/);
 	assert.match(source, /TASKLIST_TIMEOUT_MS,/);
