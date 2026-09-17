@@ -1501,6 +1501,18 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		void appLogger.info("skill", "Skill deleted", { path });
 		return result;
 	});
+	ipcMain.handle(ipcChannels.skillsRename, async (_event, skillPath: unknown, newName: unknown) => {
+		// 渲染层入参不可信：先校验再进 SkillManager（与 projectResourceIpc 的边界校验同一纪律）。
+		if (typeof skillPath !== "string" || skillPath.trim().length === 0 || skillPath.length > 4096) {
+			throw new Error("Invalid skill path for rename.");
+		}
+		if (typeof newName !== "string" || newName.trim().length === 0 || newName.length > 256) {
+			throw new Error("Invalid skill name for rename.");
+		}
+		const result = await skillManager.rename(skillPath, newName);
+		void appLogger.info("skill", "Skill renamed", { skillPath, newName });
+		return result;
+	});
 	ipcMain.handle(ipcChannels.skillsOpenFolder, (_event, path?: string) =>
 		skillManager.openFolder(path),
 	);
