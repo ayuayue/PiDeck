@@ -428,7 +428,7 @@ test("save models returns instantly (no pi fork on the save path) and verifies i
 	const handleAfterVerify = systemIpc.indexOf("ipcMain.handle(", verifyStart);
 	assert.ok(handleAfterVerify > verifyStart);
 	const verify = systemIpc.slice(verifyStart, handleAfterVerify);
-	assert.match(verify, /resolveModelListReport\(piLocator, settingsStore, configManager, true, \{ retryOnEmpty: false \}\)/);
+	assert.match(verify, /resolveModelListReport\(\s*piLocator,\s*settingsStore,\s*configManager,\s*true,\s*\{ retryOnEmpty: false \},\s*\)/);
 	assert.match(verify, /configModelsVerifyResult/);
 	// 成功静默：只有失败才发事件，避免每次保存都弹 toast。
 	assert.match(verify, /if \(!payload\.ok\)/);
@@ -439,7 +439,7 @@ test("save models returns instantly (no pi fork on the save path) and verifies i
 	);
 	const preloadSource = preload;
 	assert.match(preloadSource, /onModelsVerifyResult: \(callback: \(payload: ModelsVerifyResult\) => void\) =>/);
-	assert.match(preloadSource, /subscribe<ModelsVerifyResult>\(ipcChannels\.configModelsVerifyResult, callback\)/);
+	assert.match(preloadSource, /subscribe<ModelsVerifyResult>\(\s*ipcChannels\.configModelsVerifyResult,\s*callback,?\s*\)/);
 });
 
 test("model picker wires manual refresh + failure guide", () => {

@@ -108,7 +108,7 @@ test("tab dropdown menu: no switch-to item, state-based disable with visible gra
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
 	assert.match(app, /runControl: currentSessionId\n\s*\? \{/);
 	assert.match(app, /getSessionRunCapabilities\(currentSessionId\)/);
-	assert.match(app, /onAction: \(action: SessionRunAction\) => void runSessionControl\(currentSessionId, action\)/);
+	assert.match(app, /onAction: \(action: SessionRunAction\) =>\s*void runSessionControl\(currentSessionId, action\)/);
 	// i18n key 同步删除
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");

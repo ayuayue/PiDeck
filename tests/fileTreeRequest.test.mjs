@@ -72,8 +72,8 @@ test("file deletion failures are shown to the user instead of only logged", () =
   const app = readFileSync("src/renderer/src/App.tsx", "utf8");
   const deleteBlock = app.match(/await api\.files\.delete\(node\.path, true\);[\s\S]*?\n\s*}\n\s*},/);
   assert.ok(deleteBlock, "file drawer delete handler should be discoverable");
-  assert.match(deleteBlock[0], /showToast\(t\("app\.fileDeleteFailed"/);
-  assert.match(deleteBlock[0], /5000, "error"/);
+  assert.match(deleteBlock[0], /showToast\(\s*t\("app\.fileDeleteFailed"/);
+  assert.match(deleteBlock[0], /5000,\s*"error"/);
   assert.doesNotMatch(deleteBlock[0], /console\.error/);
 });
 
@@ -84,7 +84,7 @@ test("project file tree effect does not retrigger on an unstable toast helper", 
   // 设置/关窗点不动，正是 applog 里 Maximum update depth 的根因。
   const effectStart = app.indexOf("先立刻清空旧树");
   assert.notEqual(effectStart, -1, "file-tree switch effect should still exist");
-  const deps = app.slice(effectStart, effectStart + 2500).match(/\}, \[activeProjectId[^\]]*\]\)/);
+  const deps = app.slice(effectStart, effectStart + 6000).match(/\}, \[activeProjectId[^\]]*\]\)/);
   assert.ok(deps, "file-tree effect should keep an explicit dependency list");
   assert.doesNotMatch(deps[0], /showToast|refreshProjects/);
   assert.match(app, /const showToast = useCallback\(/);

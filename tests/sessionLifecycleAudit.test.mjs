@@ -52,7 +52,7 @@ test("agent process exit disposition decisions are logged", () => {
 });
 
 test("settings changes are logged once, key names only, never values", () => {
-  assert.match(settingsStore, /getAppLogger\(\)\?\.info\("settings", "Settings updated", \{ keys: Object\.keys\(safePatch\) \}\)/);
+  assert.match(settingsStore, /getAppLogger\(\)\?\.info\("settings", "Settings updated", \{\s*keys: Object\.keys\(safePatch\),?\s*\}\)/);
   // IPC 层不得重复记录（统一下沉到 SettingsStore.update，防双写噪音）
   assert.doesNotMatch(systemIpc, /"Settings updated"/);
 });

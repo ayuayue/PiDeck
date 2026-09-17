@@ -191,7 +191,7 @@ test("session context menu exposes archive and restores refresh the manager proj
   assert.match(components, /onSelect=\{props\.onArchiveSession\}/);
   assert.match(content, /actions\.sessions\.archive\(menu\.projectId, menuSession\)/);
   assert.match(content, /actions\.sessions\.unarchive\(archived, managerProject\.id\)/);
-  assert.match(app, /unarchiveSidebarSession\(archivedPath: string, projectId = activeProjectId\)/);
+  assert.match(app, /unarchiveSidebarSession\(\s*archivedPath: string,\s*projectId = activeProjectId,?\s*\)/);
   assert.match(app, /unarchiveSidebarSession\(archived\.filePath, projectId\)/);
   assert.match(app, /archivedSessionToastMessage\(session\)/);
   assert.match(app, /ARCHIVED_SESSION_TOAST_MS/);

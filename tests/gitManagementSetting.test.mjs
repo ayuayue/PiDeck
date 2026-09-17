@@ -46,7 +46,7 @@ describe("optional Git management entry", () => {
     // 悬浮栏已移除 files/git/browser action props；这些入口由抽屉活动栏统一承载
     assert.doesNotMatch(appParts, /\b(?:filesAction|gitAction|browserAction)\b/);
     assert.doesNotMatch(app, /(?:filesAction|gitAction|browserAction)=/);
-    assert.match(app, /\.\.\.\(settings\.enableGitManagement && activeProjectId \? \[\{[\s\S]*?id: "git"[\s\S]*?icon: <GitBranch\s+size=\{16\}/);
+    assert.match(app, /\.\.\.\(settings\.enableGitManagement && activeProjectId\s*\?\s*\[\s*\{[\s\S]*?id: "git"[\s\S]*?icon: <GitBranch\s+size=\{16\}/);
     // 抽屉活动栏按钮与 outline 共用同一套切换语义（handleToolDrawerAction）
     assert.match(app, /onClick: \(\) => handleToolDrawerAction\("git"\)/);
   });

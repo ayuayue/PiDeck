@@ -32,20 +32,20 @@ test("主进程三个 handler 都注册且先校验后动作", () => {
     assert.match(systemIpc, new RegExp(`ipcChannels\\.${channel}`));
   }
   // 读取：按 provider 名请求（弹窗作用域），走 ConfigManager 的 per-provider 设置读取。
-  const getHandler = systemIpc.match(
-    /ipcMain\.handle\(ipcChannels\.configGetUsageProbes,[\s\S]*?\n\t\}\);/,
-  )?.[0] ?? "";
+  const getStart = systemIpc.indexOf("ipcChannels.configGetUsageProbes");
+  assert.ok(getStart >= 0, "getUsageProbes handler must exist");
+  const getHandler = systemIpc.slice(getStart, systemIpc.indexOf("ipcMain.handle(", getStart));
   assert.match(getHandler, /getUsageProbeSettings/);
   // 保存：入口 provider 校验 + 主进程校验后按 provider 合并落盘（保留其它条目）。
-  const saveHandler = systemIpc.match(
-    /ipcMain\.handle\(ipcChannels\.configSaveUsageProbes,[\s\S]*?\n\t\}\);/,
-  )?.[0] ?? "";
+  const saveStart = systemIpc.indexOf("ipcChannels.configSaveUsageProbes");
+  assert.ok(saveStart >= 0, "saveUsageProbes handler must exist");
+  const saveHandler = systemIpc.slice(saveStart, systemIpc.indexOf("ipcMain.handle(", saveStart));
   assert.match(saveHandler, /saveUsageProbeForProvider/);
   assert.match(saveHandler, /Invalid provider name/);
   // 测试：模板 id 白名单校验（声明式 + 内置），复用 provider 端点解析。
-  const testHandler = systemIpc.match(
-    /ipcMain\.handle\(ipcChannels\.configTestUsageProbe,[\s\S]*?\n\t\}\);/,
-  )?.[0] ?? "";
+  const testStart = systemIpc.indexOf("ipcChannels.configTestUsageProbe");
+  assert.ok(testStart >= 0, "testUsageProbe handler must exist");
+  const testHandler = systemIpc.slice(testStart, systemIpc.indexOf("ipcMain.handle(", testStart));
   assert.match(testHandler, /configManager\.testUsageProbe/);
   assert.match(testHandler, /Unknown template/);
 });
@@ -57,9 +57,9 @@ test("主进程写入路径固定在 configDir（禁止拼接渲染层传入路�
   assert.match(systemIpc, /getUsageProbeConfigDir\(backend\)/);
   // 探针载荷（apiKey/accessToken 等）绝不整体落日志：
   // 日志字段只允许 provider/template/success 这类非敏感摘要。
-  const saveHandler = systemIpc.match(
-    /ipcMain\.handle\(ipcChannels\.configSaveUsageProbes,[\s\S]*?\n\t\}\);/,
-  )?.[0] ?? "";
+  const saveStart = systemIpc.indexOf("ipcChannels.configSaveUsageProbes");
+  assert.ok(saveStart >= 0, "saveUsageProbes handler must exist");
+  const saveHandler = systemIpc.slice(saveStart, systemIpc.indexOf("ipcMain.handle(", saveStart));
   assert.doesNotMatch(saveHandler, /apiKey\s*:/);
   assert.doesNotMatch(saveHandler, /accessToken\s*:/);
   assert.doesNotMatch(saveHandler, /userId\s*:/);
@@ -84,7 +84,7 @@ test("preload 暴露与 previewApi stub 三处同步", () => {
   assert.match(preload, /saveUsageProbes: \(payload: UsageProbeSaveInput\)/);
   assert.match(preload, /testUsageProbe: \(payload: UsageProbeTestInput\)/);
   assert.doesNotMatch(preload, /usageRecognized/);
-  assert.match(previewApi, /getUsageProbes: async \(\) => \(\{ recognized: null/);
+  assert.match(previewApi, /getUsageProbes: async \(\) => \(\{\s*recognized: null/);
   assert.match(previewApi, /saveUsageProbes: async \(\) => \(\{ ok: false/);
   assert.match(previewApi, /testUsageProbe: async \(\) => \(\{ success: false/);
   assert.doesNotMatch(previewApi, /usageRecognized/);

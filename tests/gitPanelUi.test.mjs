@@ -342,14 +342,14 @@ assert.doesNotMatch(twistie, /ChevronDown|ChevronRight|GitBranch|GitCommit|GitCo
     assert.match(app, /const dismissGitDiffOnly = useCallback\(\(\) => \{[\s\S]*?gitDiffRequestSequenceRef\.current \+= 1;[\s\S]*?setGitDrawerDiff\(null\)/);
     // Git 面板再次点击时优先关闭 diff 详情：该语义现收拢在共享的
     // handleToolDrawerAction 中（outline 与抽屉活动栏共用，见 workspaceDrawer 测试）。
-    const toolDrawerAction = app.match(/handleToolDrawerAction = useCallback[\s\S]*?\}, \[workspace, gitDrawerDiff/)?.[0] ?? "";
+    const toolDrawerAction = app.match(/handleToolDrawerAction = useCallback[\s\S]*?\},\s*\[[\s\S]*?workspace,[\s\S]*?gitDrawerDiff/)?.[0] ?? "";
     assert.match(toolDrawerAction, /if \(panel === "git" && gitDrawerDiff\) \{\s*closeGitDiff\(\);\s*return;/);
     // git 入口收进抽屉活动栏（rail，与 outline 一致走共享 handler，受同一开关门控）
-    assert.match(app, /\.\.\.\(settings\.enableGitManagement && activeProjectId \? \[\{[\s\S]*?id: "git"[\s\S]*?onClick: \(\) => handleToolDrawerAction\("git"\)/);
+    assert.match(app, /\.\.\.\(settings\.enableGitManagement && activeProjectId\s*\?\s*\[\s*\{[\s\S]*?id: "git"[\s\S]*?onClick: \(\) => handleToolDrawerAction\("git"\)/);
   });
 
   test("discard flows through literal-pathspec restore and trash for untracked files", () => {
-    assert.match(preload, /discard: \(projectId: string, group: "workingTree" \| "untracked", filePath: string, repoPath\?: string\)/);
+    assert.match(preload, /discard: \(\s*projectId: string,\s*group: "workingTree" \| "untracked",\s*filePath: string,\s*repoPath\?: string,?\s*\)/);
     assert.match(gitIpc, /ipcChannels\.gitDiscard/);
     assert.match(gitService, /async discardFile/);
     assert.match(gitService, /"--literal-pathspecs", "add"/);

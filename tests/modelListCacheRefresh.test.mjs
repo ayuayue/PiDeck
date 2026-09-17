@@ -135,7 +135,7 @@ test("manual picker reload (force) refreshes catalog before re-hydration", () =>
   // 选择器“手动刷新”按钮 = listModelsReport(force=true)：先 pi update --models
   // （force 绕过 4h 节流，官方 provider 新模型立刻可见），成功后重新 hydration。
   const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
-  assert.match(systemIpc, /refreshModelCatalogStore\(piLocator, settingsStore\)/);
+  assert.match(systemIpc, /refreshModelCatalogStore\(\s*piLocator,\s*settingsStore,?\s*\)/);
   assert.match(systemIpc, /Model catalog force refresh on manual reload/);
   // 刷新失败不阻塞：目录刷新在 hydration 之前，失败仅记日志，列表仍走读盘刷新。
   const manualReloadStart = systemIpc.indexOf("// 手动刷新（force）");

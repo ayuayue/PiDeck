@@ -33,7 +33,7 @@ test("Agent 右键菜单提供会话代理入口（此前缺失，用户报障�
 test("App 层是代理弹窗的唯一宿主（Tab 栏与侧栏共用）", () => {
 	const app = readFileSync(APP, "utf8");
 	// 单一 state + 单一挂载点
-	assert.match(app, /const \[proxyDialogSessionId, setProxyDialogSessionId\] = useState<string \| null>\(null\)/);
+	assert.match(app, /const \[proxyDialogSessionId, setProxyDialogSessionId\] = useState<\s*string \| null\s*>\s*\(null\)/);
 	assert.match(app, /<SessionProxyDialog[\s\S]*?sessionId=\{proxyDialogSessionId\}[\s\S]*?onClose=\{\(\) => setProxyDialogSessionId\(null\)\}/);
 	// Tab 栏拿到的是「打开当前会话代理」回调
 	assert.match(app, /onOpenProxySetting: currentSessionId[\s\S]*?setProxyDialogSessionId\(currentSessionId\)/);

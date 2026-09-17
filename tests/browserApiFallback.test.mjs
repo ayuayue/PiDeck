@@ -15,6 +15,8 @@ function loadBrowserApiModule() {
 	const previewProjects = [{ id: "preview-project", name: "Preview" }];
 	const sandbox = {
 		exports: {},
+		// 模块加载即读令牌并持久化（browserApi.ts 顶部），沙箱需提供对应浏览器全局。
+		URLSearchParams,
 		require: (specifier) => {
 			if (specifier === "./i18n") {
 				return {
@@ -41,6 +43,11 @@ function loadBrowserApiModule() {
 		window: {
 			setInterval: () => 1,
 			clearInterval: () => undefined,
+			location: { search: "" },
+			localStorage: {
+				getItem: () => null,
+				setItem: () => undefined,
+			},
 		},
 	};
 	vm.runInNewContext(outputText, sandbox, {

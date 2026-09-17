@@ -124,8 +124,9 @@ test("通道只在 shared/ipc.ts、主进程 handler、preload 三处同步（�
 	assert.doesNotMatch(systemIpc, /configSetUsageProbeEnabled/);
 	assert.doesNotMatch(preload, /setUsageProbeEnabled/);
 	// 状态表 handler 只透传 backend + provider 名数组（路径/目录不接受渲染层输入）。
-	const listHandler =
-		systemIpc.match(/ipcMain\.handle\(ipcChannels\.configListUsageProbeStates,[\s\S]*?\n\t\}\);/)?.[0] ?? "";
+	const listStart = systemIpc.indexOf("ipcChannels.configListUsageProbeStates");
+	assert.ok(listStart >= 0, "listUsageProbeStates handler must exist");
+	const listHandler = systemIpc.slice(listStart, systemIpc.indexOf("ipcMain.handle(", listStart));
 	assert.match(listHandler, /configManager\.listUsageProbeStates\(backend, providers\)/);
 	// 共享契约：状态表类型在 shared/types/providerUsage.ts。
 	assert.match(sharedTypes, /export type UsageProbeProviderState = \{/);

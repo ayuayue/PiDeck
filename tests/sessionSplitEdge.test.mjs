@@ -925,7 +925,7 @@ describe("session split edge resolution", () => {
     // 视图投影表达式本身（不只是注释）：焦点在布局才渲染分屏
     assert.match(
       app,
-      /splitLayoutSessionIds\(workspaceChrome\.splitLayout\)\.includes\(currentSessionId\)/,
+      /splitLayoutSessionIds\(workspaceChrome\.splitLayout\)\.includes\(\s*currentSessionId,?\s*\)/,
     );
     // 分屏组胶囊接线：props、i18n、持久化 key
     assert.match(app, /splitGroupIds:/);

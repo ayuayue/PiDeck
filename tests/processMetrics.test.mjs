@@ -151,7 +151,7 @@ test("IPC channel + systemIpc handler + preload exposure", () => {
 	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
 	const preload = readFileSync("src/preload/index.ts", "utf8");
 	assert.match(ipc, /processMetrics: "system:process-metrics"/);
-	assert.match(systemIpc, /ipcMain\.handle\(ipcChannels\.processMetrics/);
+	assert.match(systemIpc, /ipcMain\.handle\(\s*ipcChannels\.processMetrics/);
 	// handler 先按 agentId 反查会话身份（进程监控表要显示是哪个会话），
 	// 再交给 getProcessSnapshot 采样内存
 	assert.match(systemIpc, /getSessionInfoForAgent\(\s*agent\.agentId,\s*\)/);
@@ -161,7 +161,7 @@ test("IPC channel + systemIpc handler + preload exposure", () => {
 	assert.match(systemIpc, /buildDshHostMonitorRow/);
 	assert.doesNotMatch(systemIpc, /getProcessSnapshot\(deps\.agentManager\.listAgentPids\(\)\)/);
 	assert.match(preload, /getProcessMetrics: \(\) =>/);
-	assert.match(preload, /ipcRenderer\.invoke\(ipcChannels\.processMetrics\)/);
+	assert.match(preload, /ipcRenderer\.invoke\(\s*ipcChannels\.processMetrics,?\s*\)/);
 });
 
 test("stop-agent: full session stop chain (coordinator + detach)", () => {
