@@ -21,16 +21,40 @@ import type {
 import type { AgentUiResponse } from "../../../shared/types";
 import type { WebState } from "./webTypes";
 
+// Web 服务令牌：与 browserApi 同型（同一 localStorage key），从二维码/分享链接的 ?token= 读取一次并持久化。
+// 之后所有请求统一带 Authorization: Bearer；环回绑定服务端不校验，无令牌时照常工作。
+export const WEB_TOKEN_STORAGE_KEY = "pideck-web-token";
+// Node 测试（loadTsCommonJs 无 window）不执行捕获；浏览器加载时从 ?token= 读取一次并持久化。
+let webToken: string | null = null;
+if (typeof window !== "undefined") {
+	const tokenFromUrl = new URLSearchParams(window.location.search).get("token");
+	if (tokenFromUrl) window.localStorage.setItem(WEB_TOKEN_STORAGE_KEY, tokenFromUrl);
+	webToken = window.localStorage.getItem(WEB_TOKEN_STORAGE_KEY);
+}
+
+/** 请求注入用的鉴权头；无令牌时返回空对象（环回绑定不校验，省略即可）。 */
+export function getWebAuthHeaders(): Record<string, string> {
+	return webToken ? { authorization: `Bearer ${webToken}` } : {};
+}
+
+/** 统一出口：合并鉴权头后转发给 fetch；调用方原有 headers 优先。 */
+function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+	return fetch(input, {
+		...init,
+		headers: { ...getWebAuthHeaders(), ...init?.headers },
+	});
+}
+
 /** 轮询 /api/state 拿项目/会话/运行态（低频兜底，主数据流走 useChat）。 */
 export async function fetchState(): Promise<WebState> {
-	const res = await fetch("/api/state");
+	const res = await apiFetch("/api/state");
 	if (!res.ok) throw new Error(`state ${res.status}`);
 	return res.json();
 }
 
 /** 从 Web 端注册一个本地项目路径，返回项目记录。 */
 export async function createProject(path: string): Promise<WebState["projects"][number]> {
-	const res = await fetch("/api/projects", {
+	const res = await apiFetch("/api/projects", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ path }),
@@ -43,14 +67,14 @@ export async function createProject(path: string): Promise<WebState["projects"][
 
 /** 删除项目登记记录；不会删除项目目录或工作区文件。 */
 export async function deleteProject(projectId: string): Promise<void> {
-	const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/delete`, { method: "POST" });
+	const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/delete`, { method: "POST" });
 	if (!res.ok) throw new Error(`delete project ${res.status}`);
 }
 
 /** 读取 pi 当前可用模型，草稿会话也可以先选模型再发送第一条消息。
  * force：绕过服务端模型列表缓存（对应选择器刷新按钮）。 */
 export async function fetchModels(force = false): Promise<AvailableModel[]> {
-	const res = await fetch(force ? "/api/models?force=1" : "/api/models");
+	const res = await apiFetch(force ? "/api/models?force=1" : "/api/models");
 	if (!res.ok) throw new Error(`models ${res.status}`);
 	const result = (await res.json()) as { models?: AvailableModel[] };
 	return result.models ?? [];
@@ -65,7 +89,7 @@ export async function createSession(
 	projectId: string,
 	preferences?: SessionLaunchPreferences,
 ): Promise<string> {
-	const res = await fetch("/api/sessions", {
+	const res = await apiFetch("/api/sessions", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ projectId, ...preferences }),
@@ -83,7 +107,7 @@ export async function updateSessionRecord(
 	sessionId: string,
 	patch: UpdateSessionRecordInput,
 ): Promise<void> {
-	const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/update`, {
+	const res = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/update`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(patch),
@@ -97,7 +121,7 @@ async function callRuntimeCommand<T>(
 	action: string,
 	body: Record<string, unknown> = {},
 ): Promise<T> {
-	const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/runtime/${action}`, {
+	const res = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/runtime/${action}`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ target, ...body }),
@@ -144,7 +168,7 @@ export async function respondToUi(input: {
 	runtimeGeneration: number;
 	response: AgentUiResponse;
 }): Promise<void> {
-	const res = await fetch("/api/ui-response", {
+	const res = await apiFetch("/api/ui-response", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(input),
@@ -161,7 +185,7 @@ export async function fetchMessagePage(
 	if (before != null) params.set("before", String(before));
 	if (pageSize != null) params.set("pageSize", String(pageSize));
 	const qs = params.toString();
-	const res = await fetch(
+	const res = await apiFetch(
 		`/api/sessions/${encodeURIComponent(sessionId)}/messages/page${qs ? `?${qs}` : ""}`,
 	);
 	if (!res.ok) throw new Error(`messages ${res.status}`);
@@ -225,7 +249,7 @@ export type WebDshGoal = {
 };
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {
-	const res = await fetch(path);
+	const res = await apiFetch(path);
 	if (!res.ok) return fallback;
 	return (await res.json()) as T;
 }
@@ -300,7 +324,7 @@ export async function installDshPlugin(input: {
 	purpose: string;
 	hostCode: string;
 }): Promise<unknown> {
-	const res = await fetch("/api/dsh/plugins/install", {
+	const res = await apiFetch("/api/dsh/plugins/install", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(input),
@@ -318,7 +342,7 @@ export async function dshPluginAction(
 	action: "run" | "stop" | "uninstall",
 	input: { sessionId: string; packageId?: string },
 ): Promise<unknown> {
-	const res = await fetch(`/api/dsh/plugins/${encodeURIComponent(pluginId)}/${action}`, {
+	const res = await apiFetch(`/api/dsh/plugins/${encodeURIComponent(pluginId)}/${action}`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(input),

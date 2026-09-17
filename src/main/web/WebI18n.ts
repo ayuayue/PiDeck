@@ -1,4 +1,7 @@
-import { mainProcessEnUS, mainProcessZhCN } from "../../shared/i18n/mainProcessCopy";
+import {
+	mainProcessEnUS,
+	mainProcessZhCN,
+} from "../../shared/i18n/mainProcessCopy";
 
 export const webZhCN = {
 	...mainProcessZhCN,
@@ -47,6 +50,7 @@ export const webZhCN = {
 	"webError.runtimeTargetRequired": "需要匹配当前会话的运行目标",
 	"webError.apiNotFound": "API 不存在",
 	"webError.internal": "Web 服务发生内部错误",
+	"webError.unauthorized": "缺少或错误的 Web 服务访问令牌",
 } as const;
 
 export type WebTranslationKey = keyof typeof webZhCN;
@@ -65,7 +69,8 @@ export const webEnUS: Record<WebTranslationKey, string> = {
 	"web.connected": "Connected",
 	"web.closeSession": "Close session runtime",
 	"web.stopResponse": "Stop response",
-	"web.emptySelection": "Select a project to create a session, or select an existing session.",
+	"web.emptySelection":
+		"Select a project to create a session, or select an existing session.",
 	"web.promptPlaceholder": "Send a message to the current session",
 	"web.send": "Send",
 	"web.composerHint": "Enter to send, Shift/Ctrl + Enter for a new line",
@@ -94,9 +99,11 @@ export const webEnUS: Record<WebTranslationKey, string> = {
 	"webError.chatProjectProtected": "The built-in chat project cannot be deleted",
 	"webError.requestIdRequired": "requestId is required",
 	"webError.messageRequired": "message or images is required",
-	"webError.runtimeTargetRequired": "A matching Session runtime target is required",
+	"webError.runtimeTargetRequired":
+		"A matching Session runtime target is required",
 	"webError.apiNotFound": "API not found",
 	"webError.internal": "The web service encountered an internal error",
+	"webError.unauthorized": "Missing or invalid web service token",
 };
 
 export const webClientDictionaries = {

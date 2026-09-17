@@ -10,7 +10,13 @@ import {
   parseImageGenSize,
   parseImageGenWatermark,
 } from "../../shared/imageGenParams";
-import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, normalizeSoundAlertSettings, type AppSettings } from "../../shared/types";
+import {
+  createDefaultExternalEditorSettings,
+  createDefaultSoundAlertSettings,
+  DEFAULT_PET_SCALE,
+  normalizeSoundAlertSettings,
+  type AppSettings,
+} from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
@@ -20,22 +26,22 @@ import { setConfiguredGitPath } from "../git/gitExecutable";
 
 /** 桌面端 settings.json（userData），与 pi agent settings 分离 */
 function desktopSettingsPath() {
-	return join(app.getPath("userData"), "settings.json");
+  return join(app.getPath("userData"), "settings.json");
 }
 
 /** pi agent 的 settings.json 路径（~/.pi/agent/settings.json） */
 function piAgentSettingsPath() {
-	return join(app.getPath("home"), ".pi", "agent", "settings.json");
+  return join(app.getPath("home"), ".pi", "agent", "settings.json");
 }
 
 /** 同步读取桌面 settings.json（app.ready 前可用）。文件缺失时返回空对象。 */
 function readDesktopSettingsSync(): Partial<AppSettings> {
-	try {
-		const raw = readFileSync(desktopSettingsPath(), "utf8");
-		return JSON.parse(raw) as Partial<AppSettings>;
-	} catch {
-		return {};
-	}
+  try {
+    const raw = readFileSync(desktopSettingsPath(), "utf8");
+    return JSON.parse(raw) as Partial<AppSettings>;
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -44,7 +50,7 @@ function readDesktopSettingsSync(): Partial<AppSettings> {
  * 缺省 false：保持历史兼容（Windows 安全软件/旧驱动）。
  */
 export function readElectronChromiumSandboxPreference(): boolean {
-	return readDesktopSettingsSync().electronChromiumSandbox === true;
+  return readDesktopSettingsSync().electronChromiumSandbox === true;
 }
 
 /**
@@ -53,9 +59,9 @@ export function readElectronChromiumSandboxPreference(): boolean {
  * 缺省 true：同一版本再次打开时复用窗口；不同版本始终可并行。
  */
 export function readSingleInstancePreference(): boolean {
-	const value = readDesktopSettingsSync().singleInstance;
-	// 未配置时默认开启单实例；只有显式 false 才允许同版本多开。
-	return value !== false;
+  const value = readDesktopSettingsSync().singleInstance;
+  // 未配置时默认开启单实例；只有显式 false 才允许同版本多开。
+  return value !== false;
 }
 
 /**
@@ -65,7 +71,7 @@ export function readSingleInstancePreference(): boolean {
  * 缺省 false：未启用宠物的 Linux 用户走原生显示后端，主窗口不受兼容层影响。
  */
 export function readPetEnabledPreference(): boolean {
-	return readDesktopSettingsSync().petEnabled === true;
+  return readDesktopSettingsSync().petEnabled === true;
 }
 
 /**
@@ -76,16 +82,16 @@ export function readPetEnabledPreference(): boolean {
  * 若 pi agent 文件不存在或 hideThinkingBlock 未设置，返回 undefined。
  */
 function readPiAgentShowThinking(): boolean | undefined {
-	try {
-		const agentRaw = readFileSync(piAgentSettingsPath(), "utf8");
-		const agentSettings = JSON.parse(agentRaw) as Record<string, unknown>;
-		if (typeof agentSettings.hideThinkingBlock === "boolean") {
-			return !agentSettings.hideThinkingBlock;
-		}
-	} catch {
-		// 文件不存在或解析失败，静默忽略
-	}
-	return undefined;
+  try {
+    const agentRaw = readFileSync(piAgentSettingsPath(), "utf8");
+    const agentSettings = JSON.parse(agentRaw) as Record<string, unknown>;
+    if (typeof agentSettings.hideThinkingBlock === "boolean") {
+      return !agentSettings.hideThinkingBlock;
+    }
+  } catch {
+    // 文件不存在或解析失败，静默忽略
+  }
+  return undefined;
 }
 
 const defaultSettings: AppSettings = {
@@ -98,10 +104,10 @@ const defaultSettings: AppSettings = {
   themeScheduleLightStart: "07:00",
   themeScheduleDarkStart: "19:00",
   accent: "default",
-	themeSkin: "classic-green",
-	customThemeOverrides: {},
-	backgroundImage: "",
-	backgroundImageOpacity: 0.8,
+  themeSkin: "classic-green",
+  customThemeOverrides: {},
+  backgroundImage: "",
+  backgroundImageOpacity: 0.8,
   language: "system",
   // 默认最大化：与历史 createWindow 在 ready-to-show 后 maximize() 的行为一致
   // （1480×960 只是最大化前的兜底尺寸，不是最终展示态）
@@ -174,7 +180,7 @@ Gitmoji 对应关系：
   wslUser: "root",
   telemetryEnabled: true,
   webServiceEnabled: false,
-  webServiceHost: "0.0.0.0",
+  webServiceHost: "127.0.0.1",
   webServicePort: 8765,
   rpcTimeout: 600_000,
   linkOpenMode: "external",
@@ -324,7 +330,9 @@ export class SettingsStore {
         void this.save().catch(() => undefined);
       }
       // 忙碌时投递行为来自旧 JSON 时可能是任意值；回落默认，避免发送链路带着坏语义。
-      this.settings.busySendDelivery = parseBusySendDelivery(this.settings.busySendDelivery);
+      this.settings.busySendDelivery = parseBusySendDelivery(
+        this.settings.busySendDelivery,
+      );
       // 兼容迁移：旧版 contentMaxWidth(px) → chatContentWidthPct(%)。
       // 语义从「最大宽度 px」变为「占面板百分比」，无法精确换算（面板宽度可变），
       // 用线性映射保留旧值感觉：800→60%、1400→84%、1800(不限)→100%。
@@ -342,7 +350,8 @@ export class SettingsStore {
         DEFAULT_IMAGE_GEN_WATERMARK,
       );
       this.settings.imageGenOutputFormat =
-        parseImageGenOutputFormat(this.settings.imageGenOutputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT;
+        parseImageGenOutputFormat(this.settings.imageGenOutputFormat) ??
+        DEFAULT_IMAGE_GEN_OUTPUT_FORMAT;
       this.settings.theme = this.normalizeThemeMode(this.settings.theme);
       const schedule = normalizeThemeSchedule({
         lightStart: this.settings.themeScheduleLightStart,
@@ -351,18 +360,27 @@ export class SettingsStore {
       this.settings.themeScheduleLightStart = schedule.lightStart;
       this.settings.themeScheduleDarkStart = schedule.darkStart;
       // 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
-      this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
+      this.settings.pinnedSessionIds = normalizePinnedSessionIds(
+        parsed.pinnedSessionIds,
+      );
       // 声音提醒来自旧 JSON 时可能缺字段/非法；统一归一化（旧数据自动获得默认配置）。
       this.settings.soundAlert = normalizeSoundAlertSettings(parsed.soundAlert);
       // git 可执行文件路径来自旧 JSON 时可能是脏值（非字符串）；回落空串（自动解析），
       // 避免 spawn 拿到非字符串路径把整个 Git 面板打挂。
       this.settings.gitExecutablePath =
-        typeof parsed.gitExecutablePath === "string" ? parsed.gitExecutablePath.trim() : "";
+        typeof parsed.gitExecutablePath === "string"
+          ? parsed.gitExecutablePath.trim()
+          : "";
       this.settings.dshRunnerNodePath =
-        typeof parsed.dshRunnerNodePath === "string" ? parsed.dshRunnerNodePath.trim() : "";
+        typeof parsed.dshRunnerNodePath === "string"
+          ? parsed.dshRunnerNodePath.trim()
+          : "";
       // 快捷键覆盖来自旧 settings.json 时可能是脏值（未知 id / 非法 accelerator）；
       // 统一清洗，坏条目回落平台默认，避免主进程匹配读到无效键。
-      this.settings.shortcuts = sanitizeShortcutOverrides(parsed.shortcuts, process.platform);
+      this.settings.shortcuts = sanitizeShortcutOverrides(
+        parsed.shortcuts,
+        process.platform,
+      );
     } catch {
       this.settings = { ...defaultSettings };
     }
@@ -394,7 +412,10 @@ export class SettingsStore {
     let mapped = 100;
     if (typeof legacyPx === "number" && legacyPx > 0 && legacyPx < 1800) {
       // 线性映射：px∈[800,1800) → pct∈[60,100)，其余（≤0 或 ≥1800=不限）→ 100
-      mapped = Math.min(100, Math.max(60, Math.round(((legacyPx - 800) / 1000) * 40 + 60)));
+      mapped = Math.min(
+        100,
+        Math.max(60, Math.round(((legacyPx - 800) / 1000) * 40 + 60)),
+      );
     }
     this.settings.chatContentWidthPct = mapped;
     void this.save().catch(() => undefined);
@@ -428,18 +449,26 @@ export class SettingsStore {
     const { showThinking: _, ...safePatch } = patch;
     // 按供应商/模型代理白名单变更时做规范化（去重去空白），避免非法值写入磁盘。
     if ("piProxyProviders" in safePatch) {
-      safePatch.piProxyProviders = normalizeProxyList(safePatch.piProxyProviders);
+      safePatch.piProxyProviders = normalizeProxyList(
+        safePatch.piProxyProviders,
+      );
     }
     if ("piProxyModels" in safePatch) {
       safePatch.piProxyModels = normalizeProxyList(safePatch.piProxyModels);
     }
     // IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
-    if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
+    if (
+      "autoSessionTitle" in safePatch &&
+      typeof safePatch.autoSessionTitle !== "boolean"
+    ) {
       delete safePatch.autoSessionTitle;
     }
     // 全局快捷键覆盖来自渲染层，入参不可信：只保留已知 id + 合法 accelerator 的条目。
     if ("shortcuts" in safePatch) {
-      safePatch.shortcuts = sanitizeShortcutOverrides(safePatch.shortcuts, process.platform);
+      safePatch.shortcuts = sanitizeShortcutOverrides(
+        safePatch.shortcuts,
+        process.platform,
+      );
     }
     // 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
     if ("updateSource" in safePatch) {
@@ -450,7 +479,10 @@ export class SettingsStore {
       if (known) safePatch.updateSource = candidate;
       else delete safePatch.updateSource;
     }
-    if ("customUpdateSourceUrl" in safePatch && typeof safePatch.customUpdateSourceUrl !== "string") {
+    if (
+      "customUpdateSourceUrl" in safePatch &&
+      typeof safePatch.customUpdateSourceUrl !== "string"
+    ) {
       delete safePatch.customUpdateSourceUrl;
     }
     // lastUsedModel 只接受 { provider, modelId } 双字符串（渲染层发送时才写，入参不可信）。
@@ -465,13 +497,21 @@ export class SettingsStore {
         typeof candidate.modelId === "string" &&
         candidate.modelId.length > 0
       ) {
-        safePatch.lastUsedModel = { provider: candidate.provider, modelId: candidate.modelId };
+        safePatch.lastUsedModel = {
+          provider: candidate.provider,
+          modelId: candidate.modelId,
+        };
       } else {
         delete safePatch.lastUsedModel;
       }
       const prev = this.settings.lastUsedModel;
       const next = safePatch.lastUsedModel;
-      if (!next || (prev && prev.provider === next.provider && prev.modelId === next.modelId)) {
+      if (
+        !next ||
+        (prev &&
+          prev.provider === next.provider &&
+          prev.modelId === next.modelId)
+      ) {
         // 值相同（含非法被丢弃）则从本次 patch 中剔除，避免无意义写盘与审计刷屏；
         // 不能直接 return：同一次 update 可能还携带 recentProviders 等需要落盘的字段。
         delete safePatch.lastUsedModel;
@@ -495,7 +535,8 @@ export class SettingsStore {
       }
       const prev = this.settings.recentProviders ?? [];
       const unchanged =
-        cleaned.length === prev.length && cleaned.every((item, index) => item === prev[index]);
+        cleaned.length === prev.length &&
+        cleaned.every((item, index) => item === prev[index]);
       if (unchanged) delete safePatch.recentProviders;
       else safePatch.recentProviders = cleaned;
     }
@@ -505,10 +546,14 @@ export class SettingsStore {
     }
     // 忙碌时投递行为来自渲染层，非法值丢掉，避免发送链路带着坏语义。
     if ("busySendDelivery" in safePatch) {
-      safePatch.busySendDelivery = parseBusySendDelivery(safePatch.busySendDelivery);
+      safePatch.busySendDelivery = parseBusySendDelivery(
+        safePatch.busySendDelivery,
+      );
     }
     if ("pinnedSessionIds" in safePatch) {
-      safePatch.pinnedSessionIds = normalizePinnedSessionIds(safePatch.pinnedSessionIds);
+      safePatch.pinnedSessionIds = normalizePinnedSessionIds(
+        safePatch.pinnedSessionIds,
+      );
     }
     // 声音提醒来自渲染层，入参不可信：缺字段/非法引用/越界音量一律回落默认。
     if ("soundAlert" in safePatch) {
@@ -517,11 +562,15 @@ export class SettingsStore {
     // 闲置 agent 释放参数来自渲染层，钳制到合理范围避免非法值（0/负数/超大）写入磁盘
     if ("idleAgentKeepCount" in safePatch) {
       const n = Math.floor(Number(safePatch.idleAgentKeepCount));
-      safePatch.idleAgentKeepCount = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 5;
+      safePatch.idleAgentKeepCount = Number.isFinite(n)
+        ? Math.min(20, Math.max(1, n))
+        : 5;
     }
     if ("idleAgentTimeoutMin" in safePatch) {
       const n = Math.floor(Number(safePatch.idleAgentTimeoutMin));
-      safePatch.idleAgentTimeoutMin = Number.isFinite(n) ? Math.min(24 * 60, Math.max(1, n)) : 60;
+      safePatch.idleAgentTimeoutMin = Number.isFinite(n)
+        ? Math.min(24 * 60, Math.max(1, n))
+        : 60;
     }
     this.settings = { ...this.settings, ...safePatch };
     // 生图字段来自渲染层，非法值丢掉，避免下次请求带坏 size/watermark。
@@ -537,15 +586,16 @@ export class SettingsStore {
     }
     if ("imageGenOutputFormat" in safePatch) {
       this.settings.imageGenOutputFormat =
-        parseImageGenOutputFormat(this.settings.imageGenOutputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT;
+        parseImageGenOutputFormat(this.settings.imageGenOutputFormat) ??
+        DEFAULT_IMAGE_GEN_OUTPUT_FORMAT;
     }
     if ("theme" in safePatch) {
       this.settings.theme = this.normalizeThemeMode(this.settings.theme);
     }
     if (
-      "theme" in safePatch
-      || "themeScheduleLightStart" in safePatch
-      || "themeScheduleDarkStart" in safePatch
+      "theme" in safePatch ||
+      "themeScheduleLightStart" in safePatch ||
+      "themeScheduleDarkStart" in safePatch
     ) {
       const schedule = normalizeThemeSchedule({
         lightStart: this.settings.themeScheduleLightStart,
@@ -558,23 +608,36 @@ export class SettingsStore {
     this.applyMenu();
     // 配置变更审计（统一在此留痕，覆盖 IPC 与 pet/extension/editors 等所有直写路径）：
     // 只记变更的 key 列表，不记值——避免 proxyUrl 等敏感内容落盘；值变更回查用 save 前的内存态
-    void getAppLogger()?.info("settings", "Settings updated", { keys: Object.keys(safePatch) });
+    void getAppLogger()?.info("settings", "Settings updated", {
+      keys: Object.keys(safePatch),
+    });
     return this.get();
   }
 
   /** 规范化按供应商代理白名单：去重、去空白、过滤非字符串。 */
   private normalizePiProxyProviders() {
-    this.settings.piProxyProviders = normalizeProxyList(this.settings.piProxyProviders);
+    this.settings.piProxyProviders = normalizeProxyList(
+      this.settings.piProxyProviders,
+    );
   }
 
   /** 规范化按模型代理白名单：去重、去空白、过滤非字符串（旧数据缺省为 []）。 */
   private normalizePiProxyModels() {
-    this.settings.piProxyModels = normalizeProxyList(this.settings.piProxyModels);
+    this.settings.piProxyModels = normalizeProxyList(
+      this.settings.piProxyModels,
+    );
   }
 
   /** 旧磁盘可能没有 schedule；非法值回落到 system，避免 data-theme 写成未知值。 */
-  private normalizeThemeMode(theme: AppSettings["theme"]): AppSettings["theme"] {
-    if (theme === "light" || theme === "dark" || theme === "system" || theme === "schedule") {
+  private normalizeThemeMode(
+    theme: AppSettings["theme"],
+  ): AppSettings["theme"] {
+    if (
+      theme === "light" ||
+      theme === "dark" ||
+      theme === "system" ||
+      theme === "schedule"
+    ) {
       return theme;
     }
     return "system";
@@ -591,12 +654,14 @@ export class SettingsStore {
     return {
       frame: useNative,
       titleBarStyle: useNative
-        ? "default" as const
+        ? ("default" as const)
         : isMac
-          ? "hiddenInset" as const
-          : "hidden" as const,
+          ? ("hiddenInset" as const)
+          : ("hidden" as const),
       // 系统标题栏模式下红绿灯由 macOS 控制，不设置避免与侧栏 logo 重叠。
-      ...(!useNative && isMac ? { trafficLightPosition: { x: 14, y: 14 } as const } : {}),
+      ...(!useNative && isMac
+        ? { trafficLightPosition: { x: 14, y: 14 } as const }
+        : {}),
     };
   }
 
@@ -620,21 +685,25 @@ export class SettingsStore {
     await mkdir(app.getPath("userData"), { recursive: true });
     // showThinking 由 pi agent 的 hideThinkingBlock 决定，不持久化到桌面 settings.json
     const { showThinking: _unused, ...persistable } = this.settings;
-    await writeFile(this.filePath, JSON.stringify(persistable, null, 2), "utf8");
+    await writeFile(
+      this.filePath,
+      JSON.stringify(persistable, null, 2),
+      "utf8",
+    );
   }
 
   /**
    * 检测并保存安装类型。
-   * 
+   *
    * Windows:
    *   - PORTABLE_EXECUTABLE_DIR 存在 → portable（便携版 .exe）
    *   - 否则 → installed（NSIS 安装版或其他）
-   * 
+   *
    * macOS/Linux:
    *   - 由于 electron-builder 不为 dmg/AppImage 等设置特殊环境变量，
    *     且解压后的应用无法判断原始分发格式，统一标记为 installed。
    *   - 用户从 ZIP 手动解压的情况无法区分，视为已安装。
-   * 
+   *
    * Windows 便携版的环境变量是运行时事实,必须允许覆盖旧的持久化值；
    * 否则用户曾经被记录为 installed 后,便携版会一直推荐安装版更新包。
    */

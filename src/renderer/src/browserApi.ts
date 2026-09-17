@@ -18,6 +18,15 @@ type WebState = {
 };
 
 const base = createPreviewApi();
+
+// Web 服务令牌：从二维码/分享链接的 ?token= 读取一次并持久化到 localStorage，
+// 之后所有 /api 请求统一带 Authorization: Bearer。环回绑定服务端不校验，无令牌时照常工作。
+const WEB_TOKEN_STORAGE_KEY = "pideck-web-token";
+const tokenFromUrl = new URLSearchParams(window.location.search).get("token");
+if (tokenFromUrl)
+	window.localStorage.setItem(WEB_TOKEN_STORAGE_KEY, tokenFromUrl);
+const webToken = window.localStorage.getItem(WEB_TOKEN_STORAGE_KEY);
+
 let state: WebState = {
 	projects: [],
 	sessions: [],
@@ -48,7 +57,10 @@ function isWebState(value: unknown): value is WebState {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(path, {
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			...(webToken ? { authorization: `Bearer ${webToken}` } : {}),
+		},
 		...init,
 	});
 	let data: unknown;
@@ -63,7 +75,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		);
 	}
 	if (!response.ok || (isRecord(data) && data.ok === false)) {
-		throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : response.statusText);
+		throw new Error(
+			isRecord(data) && typeof data.error === "string"
+				? data.error
+				: response.statusText,
+		);
 	}
 	return data as T;
 }
@@ -133,15 +149,15 @@ function ensurePolling() {
 	}, 600);
 }
 
-function subscribe<T>(set: Set<(payload: T) => void>, callback: (payload: T) => void) {
+function subscribe<T>(
+	set: Set<(payload: T) => void>,
+	callback: (payload: T) => void,
+) {
 	ensurePolling();
 	set.add(callback);
 	return () => {
 		set.delete(callback);
-		if (
-			runtimeListeners.size === 0 &&
-			pollTimer
-		) {
+		if (runtimeListeners.size === 0 && pollTimer) {
 			window.clearInterval(pollTimer);
 			pollTimer = undefined;
 			polling = false;
@@ -183,9 +199,9 @@ export function createBrowserApi(): PiDesktopApi {
 			...base.sessions,
 			list: async (projectId) => {
 				if (!projectId) return [];
-				const result = await request<{ sessions: Awaited<ReturnType<PiDesktopApi["sessions"]["list"]>> }>(
-					`/api/projects/${encodeURIComponent(projectId)}/sessions`,
-				);
+				const result = await request<{
+					sessions: Awaited<ReturnType<PiDesktopApi["sessions"]["list"]>>;
+				}>(`/api/projects/${encodeURIComponent(projectId)}/sessions`);
 				return result.sessions;
 			},
 			listCatalog: async (projectId) => {
@@ -259,27 +275,38 @@ export function createBrowserApi(): PiDesktopApi {
 				if (before !== undefined) params.set("before", String(before));
 				if (pageSize !== undefined) params.set("pageSize", String(pageSize));
 				const suffix = params.size ? `?${params}` : "";
-				return request<Awaited<ReturnType<PiDesktopApi["sessions"]["readRecordMessagePage"]>>>(
-					`/api/sessions/${encodeURIComponent(sessionId)}/messages/page${suffix}`,
-				);
+				return request<
+					Awaited<ReturnType<PiDesktopApi["sessions"]["readRecordMessagePage"]>>
+				>(`/api/sessions/${encodeURIComponent(sessionId)}/messages/page${suffix}`);
 			},
 			// Web 端没有 catalog 文件改写通道；编辑/删除/重发仍走 runtime 命令。
 			editCatalogMessage: async () => ({
 				ok: false as const,
-				error: { code: "SESSION_COMMAND_FAILED" as const, debugDetails: "catalog message mutation is desktop-only" },
+				error: {
+					code: "SESSION_COMMAND_FAILED" as const,
+					debugDetails: "catalog message mutation is desktop-only",
+				},
 			}),
 			deleteCatalogMessage: async () => ({
 				ok: false as const,
-				error: { code: "SESSION_COMMAND_FAILED" as const, debugDetails: "catalog message mutation is desktop-only" },
+				error: {
+					code: "SESSION_COMMAND_FAILED" as const,
+					debugDetails: "catalog message mutation is desktop-only",
+				},
 			}),
 			prepareCatalogResend: async () => ({
 				ok: false as const,
-				error: { code: "SESSION_COMMAND_FAILED" as const, debugDetails: "catalog message mutation is desktop-only" },
+				error: {
+					code: "SESSION_COMMAND_FAILED" as const,
+					debugDetails: "catalog message mutation is desktop-only",
+				},
 			}),
 			readProcessEvents: async () => [],
 			readReferenceMessages: async (sessionId) => {
 				const result = await request<{
-					messages: Awaited<ReturnType<PiDesktopApi["sessions"]["readReferenceMessages"]>>;
+					messages: Awaited<
+						ReturnType<PiDesktopApi["sessions"]["readReferenceMessages"]>
+					>;
 				}>(`/api/sessions/${encodeURIComponent(sessionId)}/reference-messages`);
 				return result.messages;
 			},
@@ -303,17 +330,25 @@ export function createBrowserApi(): PiDesktopApi {
 			activateRuntime: async (sessionId) => {
 				// The web API intentionally keeps runtime activation lazy; desktop warm-up
 				// must never turn a browser session switch into an implicit server spawn.
-				return { ok: false, error: { code: "SESSION_NOT_FOUND", debugDetails: sessionId } };
+				return {
+					ok: false,
+					error: { code: "SESSION_NOT_FOUND", debugDetails: sessionId },
+				};
 			},
 			stopRuntime: async (target) => {
-				const result = await sessionRuntimeCommand<SessionRuntimeTarget>(target, "stop");
+				const result = await sessionRuntimeCommand<SessionRuntimeTarget>(
+					target,
+					"stop",
+				);
 				void refreshState().catch(() => undefined);
 				return result;
 			},
 			abortRuntime: (target) => sessionRuntimeCommand(target, "abort"),
 			restartRuntime: async (target) => {
 				const result = await sessionRuntimeCommand<
-					Awaited<ReturnType<PiDesktopApi["sessions"]["restartRuntime"]>> extends SessionCommandResult<infer T>
+					Awaited<
+						ReturnType<PiDesktopApi["sessions"]["restartRuntime"]>
+					> extends SessionCommandResult<infer T>
 						? T
 						: never
 				>(target, "restart");
@@ -369,15 +404,31 @@ export function createBrowserApi(): PiDesktopApi {
 				system: null,
 			}),
 			chooseDshRunnerNode: async () => null,
-			installDshRunnerNode: async () => ({ ok: false, error: "unavailable in browser" }),
+			installDshRunnerNode: async () => ({
+				ok: false,
+				error: "unavailable in browser",
+			}),
 			// 浏览器/预览环境无 DSH 后端：按未安装处理（UI 走安装引导，不裸报错）。
 			getDshRuntimeStatus: async () => ({ state: "notInstalled" as const }),
 			onDshRuntimeStatusChanged: () => () => {},
-			installDshRuntime: async () => ({ ok: false, error: "unavailable in browser" }),
-			importDshRuntimeFile: async () => ({ ok: false, error: "unavailable in browser" }),
-			uninstallDshRuntime: async () => ({ ok: false, error: "unavailable in browser" }),
+			installDshRuntime: async () => ({
+				ok: false,
+				error: "unavailable in browser",
+			}),
+			importDshRuntimeFile: async () => ({
+				ok: false,
+				error: "unavailable in browser",
+			}),
+			uninstallDshRuntime: async () => ({
+				ok: false,
+				error: "unavailable in browser",
+			}),
 			onDshRuntimeInstallProgress: () => () => {},
-			describeDshSettings: async () => ({ writable: false, hasDocument: false, namespaces: [] }),
+			describeDshSettings: async () => ({
+				writable: false,
+				hasDocument: false,
+				namespaces: [],
+			}),
 			updateDshSettings: async () => undefined,
 			mutateDshSettings: async () => undefined,
 			describeDshCredentials: async () => ({}),

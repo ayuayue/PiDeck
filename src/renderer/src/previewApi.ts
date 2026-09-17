@@ -159,7 +159,7 @@ let previewSettings: AppSettings = {
 	wslUser: "root",
 	telemetryEnabled: true,
 	webServiceEnabled: false,
-	webServiceHost: "0.0.0.0",
+	webServiceHost: "127.0.0.1",
 	webServicePort: 8765,
 	rpcTimeout: 600_000,
 	linkOpenMode: "external",
@@ -220,9 +220,20 @@ export function createPreviewApi(): PiDesktopApi {
 		writeImage: async () => false,
 		writeText: async () => false,
 	};
-	const createTerminalTab = async (agentId: string, shell?: string, cwd?: string) => {
+	const createTerminalTab = async (
+		agentId: string,
+		shell?: string,
+		cwd?: string,
+	) => {
 		const shellName = shell ?? "powershell";
-		const displayName = shellName === "git-bash" ? "Git Bash" : shellName === "bash" ? "bash" : shellName === "cmd" ? "cmd" : "PowerShell";
+		const displayName =
+			shellName === "git-bash"
+				? "Git Bash"
+				: shellName === "bash"
+					? "bash"
+					: shellName === "cmd"
+						? "cmd"
+						: "PowerShell";
 		const tab: TerminalTab = {
 			id: `preview-terminal-${terminalTabs.length + 1}`,
 			agentId,
@@ -310,11 +321,26 @@ export function createPreviewApi(): PiDesktopApi {
 					pi: { installed: false, searchedDirs: [] },
 				},
 				checks: [],
-				logSummary: { total: 0, error: 0, warn: 0, todayError: 0, todayWarn: 0, recent: [] },
+				logSummary: {
+					total: 0,
+					error: 0,
+					warn: 0,
+					todayError: 0,
+					todayWarn: 0,
+					recent: [],
+				},
 				logFiles: [],
 			}),
-			healthExportReport: async () => ({ ok: true, canceled: false, path: "preview" }),
-			healthExportBundle: async () => ({ ok: true, canceled: false, path: "preview" }),
+			healthExportReport: async () => ({
+				ok: true,
+				canceled: false,
+				path: "preview",
+			}),
+			healthExportBundle: async () => ({
+				ok: true,
+				canceled: false,
+				path: "preview",
+			}),
 		},
 		editors: {
 			list: async () => [],
@@ -342,7 +368,9 @@ export function createPreviewApi(): PiDesktopApi {
 			addByPath: async () => projects[0],
 			remove: async () => projects,
 			reorder: async (projectIds) => {
-				projects.sort((a, b) => projectIds.indexOf(a.id) - projectIds.indexOf(b.id));
+				projects.sort(
+					(a, b) => projectIds.indexOf(a.id) - projectIds.indexOf(b.id),
+				);
 				return projects;
 			},
 			rename: async () => projects,
@@ -404,7 +432,7 @@ export function createPreviewApi(): PiDesktopApi {
 				valid: true,
 				warnings: [],
 			}),
-		toggleSkill: async (_projectId, _skillPath, enabled) => ({
+			toggleSkill: async (_projectId, _skillPath, enabled) => ({
 				id: "project-pi:preview-toggle",
 				name: "preview-skill",
 				description: "",
@@ -417,7 +445,7 @@ export function createPreviewApi(): PiDesktopApi {
 				valid: true,
 				warnings: [],
 			}),
-		discovery: async () => ({ skills: [], prompts: [], extensions: [] }),
+			discovery: async () => ({ skills: [], prompts: [], extensions: [] }),
 		},
 		files: {
 			list: async (_projectId, options) => {
@@ -491,27 +519,34 @@ export function createPreviewApi(): PiDesktopApi {
 			deleteArchivedDshSession: async () => true,
 			listDshDynamicPlugins: async () => [],
 			listDshStaticPlugins: async () => [],
-			uninstallDshUserPlugin: async () => ({ rowRemoved: false, reason: "preview mode" }),
+			uninstallDshUserPlugin: async () => ({
+				rowRemoved: false,
+				reason: "preview mode",
+			}),
 			installDshPlugin: async () => undefined,
 			runDshPlugin: async () => undefined,
 			stopDshPlugin: async () => undefined,
 			uninstallDshPlugin: async () => undefined,
-			listCatalog: async (projectId, _options?: { scan?: boolean }): Promise<SessionRecord[]> => getSessions().map((session) => ({
-				id: `preview-record:${session.id}`,
+			listCatalog: async (
 				projectId,
-				title: session.name || "Preview session",
-				source: session.source || "pi",
-				environment: session.wsl ? "wsl" : "native",
-				filePath: session.filePath,
-				parentSessionPath: session.parentSessionPath,
-				projectPath: session.projectPath,
-				preview: session.preview,
-				messageCount: session.messageCount,
-				status: "active",
-				createdAt: session.updatedAt,
-				updatedAt: session.updatedAt,
-				wsl: session.wsl,
-			})),
+				_options?: { scan?: boolean },
+			): Promise<SessionRecord[]> =>
+				getSessions().map((session) => ({
+					id: `preview-record:${session.id}`,
+					projectId,
+					title: session.name || "Preview session",
+					source: session.source || "pi",
+					environment: session.wsl ? "wsl" : "native",
+					filePath: session.filePath,
+					parentSessionPath: session.parentSessionPath,
+					projectPath: session.projectPath,
+					preview: session.preview,
+					messageCount: session.messageCount,
+					status: "active",
+					createdAt: session.updatedAt,
+					updatedAt: session.updatedAt,
+					wsl: session.wsl,
+				})),
 			// 预览模式无后台扫描推送：返回空退订函数满足接口契约
 			onCatalogRefreshed: () => () => undefined,
 			createDraft: async (input): Promise<SessionRecord> => ({
@@ -547,7 +582,8 @@ export function createPreviewApi(): PiDesktopApi {
 					agentId: "preview-anonymous-agent",
 					runtimeGeneration: 1,
 					projectId: input.projectId,
-					cwd: projects.find((project) => project.id === input.projectId)?.path || "",
+					cwd:
+						projects.find((project) => project.id === input.projectId)?.path || "",
 					status: "idle",
 					createdAt: now,
 					noSession: true,
@@ -578,16 +614,31 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			exportRecordHtml: async () => ({ path: "preview-session.html" }),
 			readRecordMessages: async () => [],
-			readRecordMessagePage: async () => ({ messages: [], total: 0, nextBefore: null }),
+			readRecordMessagePage: async () => ({
+				messages: [],
+				total: 0,
+				nextBefore: null,
+			}),
 			editCatalogMessage: async () => ({ ok: true as const, value: undefined }),
 			deleteCatalogMessage: async () => ({ ok: true as const, value: undefined }),
-			prepareCatalogResend: async () => ({ ok: true as const, value: { text: "" } }),
+			prepareCatalogResend: async () => ({
+				ok: true as const,
+				value: { text: "" },
+			}),
 			readProcessEvents: async () => [],
 			readDshSystemPrompt: async () => undefined,
 			readMessageFullText: async () => ({ text: "" }),
 			readReferenceMessages: async () => [
-				{ role: "user", content: "Preview user message", timestamp: Date.now() - 60000 },
-				{ role: "assistant", content: "Preview assistant response", timestamp: Date.now() - 30000 },
+				{
+					role: "user",
+					content: "Preview user message",
+					timestamp: Date.now() - 60000,
+				},
+				{
+					role: "assistant",
+					content: "Preview assistant response",
+					timestamp: Date.now() - 30000,
+				},
 			],
 			sendPrompt: async (input) => ({
 				accepted: true,
@@ -602,7 +653,10 @@ export function createPreviewApi(): PiDesktopApi {
 			listRuntimes: async () => [],
 			activateRuntime: async () => ({
 				ok: false,
-				error: { code: "SESSION_NOT_FOUND", debugDetails: "preview runtime activation is disabled" },
+				error: {
+					code: "SESSION_NOT_FOUND",
+					debugDetails: "preview runtime activation is disabled",
+				},
 			}),
 			stopRuntime: async (target) => ({ ok: true, value: target }),
 			abortRuntime: async (target) => ({
@@ -644,7 +698,11 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			forkRuntimeSession: async (target) => ({
 				ok: true,
-				value: { cancelled: false, text: "", targetSessionId: `${target.sessionId}:fork` },
+				value: {
+					cancelled: false,
+					text: "",
+					targetSessionId: `${target.sessionId}:fork`,
+				},
 			}),
 			listDshModels: async () => [],
 			discoverDshModels: async () => [],
@@ -664,15 +722,31 @@ export function createPreviewApi(): PiDesktopApi {
 				system: null,
 			}),
 			chooseDshRunnerNode: async () => null,
-			installDshRunnerNode: async () => ({ ok: false, error: "unavailable in preview" }),
+			installDshRunnerNode: async () => ({
+				ok: false,
+				error: "unavailable in preview",
+			}),
 			// 预览环境无 DSH 后端：按未安装处理（UI 走安装引导，不裸报错）。
 			getDshRuntimeStatus: async () => ({ state: "notInstalled" as const }),
 			onDshRuntimeStatusChanged: () => () => {},
-			installDshRuntime: async () => ({ ok: false, error: "unavailable in preview" }),
-			importDshRuntimeFile: async () => ({ ok: false, error: "unavailable in preview" }),
-			uninstallDshRuntime: async () => ({ ok: false, error: "unavailable in preview" }),
+			installDshRuntime: async () => ({
+				ok: false,
+				error: "unavailable in preview",
+			}),
+			importDshRuntimeFile: async () => ({
+				ok: false,
+				error: "unavailable in preview",
+			}),
+			uninstallDshRuntime: async () => ({
+				ok: false,
+				error: "unavailable in preview",
+			}),
 			onDshRuntimeInstallProgress: () => () => {},
-			describeDshSettings: async () => ({ writable: false, hasDocument: false, namespaces: [] }),
+			describeDshSettings: async () => ({
+				writable: false,
+				hasDocument: false,
+				namespaces: [],
+			}),
 			updateDshSettings: async () => undefined,
 			mutateDshSettings: async () => undefined,
 			describeDshCredentials: async () => ({}),
@@ -756,7 +830,8 @@ export function createPreviewApi(): PiDesktopApi {
 				parsedRecords: 0,
 				skippedLines: 0,
 			}),
-			get: async () => null as unknown as import("../../shared/types").UsageAggregated,
+			get: async () =>
+				null as unknown as import("../../shared/types").UsageAggregated,
 		},
 		codexSessions: {
 			scan: async () => [],
@@ -801,26 +876,31 @@ export function createPreviewApi(): PiDesktopApi {
 				branch: branchName,
 			}),
 			worktreeRemove: async () => true,
-				commitLog: async () => [],
-				commitCount: async () => 0,
-				refs: async () => [],
-				branchCompare: async () => ({ files: [], ahead: 0, behind: 0 }),
-				commitDetail: async () => null,
-				commitFileDiff: async () => null,
-				diffFileBetween: async () => "",
-				status: async () => ({ merge: [], index: [], workingTree: [], untracked: [] }),
-				workspaceFileDiff: async () => null,
-				stage: async () => {},
-				unstage: async () => {},
-				discard: async () => {},
-				discardFiles: async () => {},
-				commit: async () => {},
-				cherryPick: async () => {},
-				revert: async () => {},
-				reset: async () => {},
-				dropCommit: async () => {},
-				generateCommitMessage: async () => ({ ok: true, message: "" }),
-				init: async () => {},
+			commitLog: async () => [],
+			commitCount: async () => 0,
+			refs: async () => [],
+			branchCompare: async () => ({ files: [], ahead: 0, behind: 0 }),
+			commitDetail: async () => null,
+			commitFileDiff: async () => null,
+			diffFileBetween: async () => "",
+			status: async () => ({
+				merge: [],
+				index: [],
+				workingTree: [],
+				untracked: [],
+			}),
+			workspaceFileDiff: async () => null,
+			stage: async () => {},
+			unstage: async () => {},
+			discard: async () => {},
+			discardFiles: async () => {},
+			commit: async () => {},
+			cherryPick: async () => {},
+			revert: async () => {},
+			reset: async () => {},
+			dropCommit: async () => {},
+			generateCommitMessage: async () => ({ ok: true, message: "" }),
+			init: async () => {},
 			pull: async () => {},
 			push: async () => {},
 			fetch: async () => undefined,
@@ -841,7 +921,13 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		logs: {
 			list: async () => [],
-			listPage: async () => ({ entries: [], total: 0, page: 0, pageSize: 50, hasMore: false }),
+			listPage: async () => ({
+				entries: [],
+				total: 0,
+				page: 0,
+				pageSize: 50,
+				hasMore: false,
+			}),
 			clear: async () => undefined,
 			openFolder: async () => undefined,
 			getSize: async () => 0,
@@ -908,8 +994,18 @@ export function createPreviewApi(): PiDesktopApi {
 				homeDir: "C:/Users/preview",
 				userDataDir: "C:/Users/preview/AppData/Roaming/pi-desktop",
 			}),
-			preferredSystemLanguages: async () => navigator.languages?.length ? [...navigator.languages] : [navigator.language],
-			networkAddresses: async () => [{ address: "192.168.1.100", interfaceName: "Wi-Fi", cidr: "192.168.1.100/24", isPrivate: true }],
+			preferredSystemLanguages: async () =>
+				navigator.languages?.length
+					? [...navigator.languages]
+					: [navigator.language],
+			networkAddresses: async () => [
+				{
+					address: "192.168.1.100",
+					interfaceName: "Wi-Fi",
+					cidr: "192.168.1.100/24",
+					isPrivate: true,
+				},
+			],
 			checkUpdate: async () => undefined,
 			onUpdateStatus: () => () => undefined,
 			onOpenSettings: () => () => undefined,
@@ -921,7 +1017,13 @@ export function createPreviewApi(): PiDesktopApi {
 			downloadUpdate: async () => undefined,
 			installUpdate: async () => undefined,
 			checkUpdateMirrors: async () => [
-				{ id: "atomgit", status: "ok", latencyMs: 320, speedKBps: 2560, checkedAt: Date.now() },
+				{
+					id: "atomgit",
+					status: "ok",
+					latencyMs: 320,
+					speedKBps: 2560,
+					checkedAt: Date.now(),
+				},
 			],
 			onOpenInBrowser: () => () => undefined,
 			feedbackEnvironment: async () => ({
@@ -1007,7 +1109,8 @@ export function createPreviewApi(): PiDesktopApi {
 				],
 			}),
 			readContent: async (_path) => ({
-				content: "# preview-skill\n\nPreview skill body used by the browser preview layout.",
+				content:
+					"# preview-skill\n\nPreview skill body used by the browser preview layout.",
 			}),
 			toggle: async (path, enabled) => ({
 				id: `pi-global:${path}`,
@@ -1165,7 +1268,10 @@ export function createPreviewApi(): PiDesktopApi {
 			skillsOpenDir: async () => undefined,
 		},
 		prompts: {
-			list: async () => ({ templates: [], globalDir: "C:/Users/preview/.pi/agent/prompts" }),
+			list: async () => ({
+				templates: [],
+				globalDir: "C:/Users/preview/.pi/agent/prompts",
+			}),
 			create: async (input) => ({
 				name: input.name,
 				path: `C:/Users/preview/.pi/agent/prompts/${input.name}.md`,
@@ -1175,7 +1281,8 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			delete: async () => undefined,
 			openFolder: async () => undefined,
-			edit: async (_filePath, _content?) => "---\ndescription: Preview\n---\n\nPreview content",
+			edit: async (_filePath, _content?) =>
+				"---\ndescription: Preview\n---\n\nPreview content",
 			listByProject: async () => ({ templates: [], globalDir: "" }),
 			deleteFromProject: async () => undefined,
 			rename: async (_oldName, newName) => ({
@@ -1212,8 +1319,23 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 		},
 		promptStore: {
-			search: async (_query, _opts) => ({ query: _query ?? "", count: 0, prompts: [] }),
-			get: async (_id) => ({ id: _id, title: "", description: "", content: "", type: "TEXT", author: "", category: "", tags: [], votes: 0, createdAt: "" }),
+			search: async (_query, _opts) => ({
+				query: _query ?? "",
+				count: 0,
+				prompts: [],
+			}),
+			get: async (_id) => ({
+				id: _id,
+				title: "",
+				description: "",
+				content: "",
+				type: "TEXT",
+				author: "",
+				category: "",
+				tags: [],
+				votes: 0,
+				createdAt: "",
+			}),
 			import: async (data) => ({
 				name: data.title.toLowerCase().replace(/[^\w-]+/g, "-"),
 				path: `C:/Users/preview/.pi/agent/prompts/${data.title.toLowerCase().replace(/[^\w-]+/g, "-")}.md`,
@@ -1224,7 +1346,12 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		yaoPrompts: {
 			list: async () => ({ categories: [], prompts: [], repoPath: "" }),
-			detail: async () => ({ title: "", description: "", promptContent: "", fullContent: "" }),
+			detail: async () => ({
+				title: "",
+				description: "",
+				promptContent: "",
+				fullContent: "",
+			}),
 			import: async (_slug, _category) => ({
 				name: _slug,
 				path: `C:/Users/preview/.pi/agent/prompts/${_slug}.md`,
@@ -1252,7 +1379,12 @@ export function createPreviewApi(): PiDesktopApi {
 		skillHub: {
 			search: async () => ({ query: "", total: 0, items: [] }),
 			detail: async () => null,
-			install: async (slug) => ({ success: true, slug, installDir: "", message: "Preview install" }),
+			install: async (slug) => ({
+				success: true,
+				slug,
+				installDir: "",
+				message: "Preview install",
+			}),
 		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({ ...previewSettings }),
@@ -1261,6 +1393,13 @@ export function createPreviewApi(): PiDesktopApi {
 				return { ...previewSettings };
 			},
 			restartWebService: async () => undefined,
+			webServiceStatus: async () => ({
+				running: false,
+				host: "",
+				port: 0,
+				token: "",
+				requiresAuth: false,
+			}),
 			testPiProxy: async () => ({
 				success: true,
 				url: "https://api.openai.com/v1/models",
@@ -1282,7 +1421,10 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 		},
 		config: {
-			previewProviderMigration: async () => ({ direction: "pi-to-dsh" as const, providers: [] }),
+			previewProviderMigration: async () => ({
+				direction: "pi-to-dsh" as const,
+				providers: [],
+			}),
 			applyProviderMigration: async (direction, provider) => ({
 				ok: true,
 				provider,
@@ -1300,15 +1442,25 @@ export function createPreviewApi(): PiDesktopApi {
 			getMcp: async () => ({
 				writablePath: "",
 				writableFile: { mcpServers: {} },
-				writableRaw: "{\n  \"mcpServers\": {}\n}\n",
+				writableRaw: '{\n  "mcpServers": {}\n}\n',
 				layers: [],
 				servers: [],
 			}),
 			saveMcp: async () => ({ valid: true }),
-			probeMcp: async () => ({ ok: true, transport: "stdio" as const, detail: "preview" }),
+			probeMcp: async () => ({
+				ok: true,
+				transport: "stdio" as const,
+				detail: "preview",
+			}),
 			// 预览模式无真实 pi 配置目录，返回占位（源文件页不显示路径行）。
 			getConfigDir: async () => "",
-			saveModels: async () => ({ valid: true, modelLoadOk: true, modelCount: 2, modelLoadReason: null, modelLoadDetail: "" }),
+			saveModels: async () => ({
+				valid: true,
+				modelLoadOk: true,
+				modelCount: 2,
+				modelLoadReason: null,
+				modelLoadDetail: "",
+			}),
 			// 预览模式无主进程验证链路：返回空订阅函数保持 API 形状一致。
 			onModelsVerifyResult: () => () => {},
 			saveAuth: async () => ({ valid: true }),
@@ -1318,7 +1470,12 @@ export function createPreviewApi(): PiDesktopApi {
 				JSON.stringify({
 					version: 1,
 					exportedAt: new Date().toISOString(),
-					files: { "models.json": {}, "auth.json": {}, "settings.json": {}, "mcp.json": { mcpServers: {} } },
+					files: {
+						"models.json": {},
+						"auth.json": {},
+						"settings.json": {},
+						"mcp.json": { mcpServers: {} },
+					},
 				}),
 			import: async () => ({ valid: true }),
 			fetchModels: async () => ({
@@ -1334,7 +1491,13 @@ export function createPreviewApi(): PiDesktopApi {
 			tokendanceAuthAwait: async () => ({ ok: false, error: "preview" }),
 			tokendanceAuthCancel: async () => ({ ok: true }),
 			tokendanceAuthExchange: async () => ({ ok: false, error: "preview" }),
-			installTokendance: async () => ({ ok: false, modelCount: 0, piSaved: false, dshSaved: false, error: "preview" }),
+			installTokendance: async () => ({
+				ok: false,
+				modelCount: 0,
+				piSaved: false,
+				dshSaved: false,
+				error: "preview",
+			}),
 			testProvider: async () => ({
 				success: true,
 				model: "gpt-4o-mini",
@@ -1347,15 +1510,29 @@ export function createPreviewApi(): PiDesktopApi {
 				configDir: "/tmp/preview/.pi/agent",
 			}),
 			visionSaveConfig: async () => ({ ok: true }),
-			visionGetLog: async () => ({ exists: false, size: 0, content: "", truncated: false }),
+			visionGetLog: async () => ({
+				exists: false,
+				size: 0,
+				content: "",
+				truncated: false,
+			}),
 			visionClearLog: async () => ({ ok: true }),
-			visionGetEvents: async () => ({ exists: false, size: 0, events: [], truncated: false }),
+			visionGetEvents: async () => ({
+				exists: false,
+				size: 0,
+				events: [],
+				truncated: false,
+			}),
 			visionClearEvents: async () => ({ ok: true }),
 			fetchUsage: async () => ({
 				success: false,
 				error: "preview",
 			}),
-			getUsageProbes: async () => ({ recognized: null, templates: [], errors: [] }),
+			getUsageProbes: async () => ({
+				recognized: null,
+				templates: [],
+				errors: [],
+			}),
 			saveUsageProbes: async () => ({ ok: false, error: "preview" }),
 			listUsageProbeStates: async () => ({ providers: {}, errors: [] }),
 			testUsageProbe: async () => ({ success: false, error: "preview" }),
@@ -1374,8 +1551,13 @@ export function createPreviewApi(): PiDesktopApi {
 		pet: {
 			onState: noop,
 			list: async () => [
-			{ id: "clawd", displayName: "Clawd", source: "builtin", spritesheetUrl: "" },
-		],
+				{
+					id: "clawd",
+					displayName: "Clawd",
+					source: "builtin",
+					spritesheetUrl: "",
+				},
+			],
 			setEnabled: async () => undefined,
 			setId: async () => undefined,
 			moveWindow: async () => undefined,
@@ -1393,7 +1575,12 @@ export function createPreviewApi(): PiDesktopApi {
 			testNotify: async () => undefined,
 			tease: async () => undefined,
 			setDragging: async () => undefined,
-			getCurrent: async () => ({ id: "clawd", displayName: "Clawd", source: "builtin", spritesheetUrl: "" }),
+			getCurrent: async () => ({
+				id: "clawd",
+				displayName: "Clawd",
+				source: "builtin",
+				spritesheetUrl: "",
+			}),
 		},
 		sounds: {
 			// 预览模式：不真实播放，事件订阅空操作（保持 PiDesktopApi 形状完整）
@@ -1404,8 +1591,18 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		announcements: {
 			// 预览模式：无公告数据，返回空快照保持 PiDesktopApi 形状完整（订阅空操作）
-			list: async () => ({ items: [], fetchedAt: null, source: "cache" as const, readIds: [] }),
-			refresh: async () => ({ items: [], fetchedAt: null, source: "cache" as const, readIds: [] }),
+			list: async () => ({
+				items: [],
+				fetchedAt: null,
+				source: "cache" as const,
+				readIds: [],
+			}),
+			refresh: async () => ({
+				items: [],
+				fetchedAt: null,
+				source: "cache" as const,
+				readIds: [],
+			}),
 			markRead: async () => true,
 			markAllRead: async () => true,
 			onChanged: () => () => {},
@@ -1413,14 +1610,21 @@ export function createPreviewApi(): PiDesktopApi {
 		terminal: {
 			// 预览模式只按归属键过滤：agent 目标用 agentId，project 目标用项目 id
 			list: async (target) =>
-				terminalTabs.filter((tab) => tab.agentId === (target.kind === "agent" ? target.agentId : target.projectId)),
+				terminalTabs.filter(
+					(tab) =>
+						tab.agentId ===
+						(target.kind === "agent" ? target.agentId : target.projectId),
+				),
 			ensure: async (target) => {
 				const key = target.kind === "agent" ? target.agentId : target.projectId;
 				const existing = terminalTabs.filter((tab) => tab.agentId === key);
 				if (existing.length > 0) return existing;
 				return [await createTerminalTab(key)];
 			},
-			create: (target) => createTerminalTab(target.kind === "agent" ? target.agentId : target.projectId),
+			create: (target) =>
+				createTerminalTab(
+					target.kind === "agent" ? target.agentId : target.projectId,
+				),
 			input: async (tabId, data) => {
 				for (const listener of terminalDataListeners) {
 					listener({ tabId, data });
@@ -1454,7 +1658,10 @@ export function createPreviewApi(): PiDesktopApi {
 			connectTemp: async () => ({ success: false, message: "预览模式不支持" }),
 			disconnect: async () => ({ success: true }),
 			connectByBot: async () => ({ success: false, message: "预览模式不支持" }),
-			statusRequest: async () => ({ status: "disconnected" as const, activeBindings: 0 }),
+			statusRequest: async () => ({
+				status: "disconnected" as const,
+				activeBindings: 0,
+			}),
 			onStatus: () => () => {},
 			botsList: async () => [],
 			botAdd: async () => ({ success: false, error: "预览模式不支持" }),
@@ -1477,7 +1684,13 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		scratchPad: {
 			list: async () => [],
-			create: async () => ({ id: "", name: "", path: "", createdAt: 0, updatedAt: 0 }),
+			create: async () => ({
+				id: "",
+				name: "",
+				path: "",
+				createdAt: 0,
+				updatedAt: 0,
+			}),
 			delete: async () => {},
 			load: async () => ({ content: "", lastEditedAt: 0, cursorPosition: 0 }),
 			save: async () => {},
@@ -1487,7 +1700,11 @@ export function createPreviewApi(): PiDesktopApi {
 		// 生图预览桩：预览模式不联网、无落盘图片，直接返回未配置 / 空图
 		imagegen: {
 			generate: async (_request) => ({ ok: false, error: "notConfigured" }),
-			getConfig: async () => ({ providers: [], activeProviderId: "", activeModel: "" }),
+			getConfig: async () => ({
+				providers: [],
+				activeProviderId: "",
+				activeModel: "",
+			}),
 			saveConfig: async (config) => ({ ok: true, config }),
 			readImageBlob: async () => null,
 		},
@@ -1512,11 +1729,24 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		// 模型目录预览桩：无内置目录可读，返回「不可用」空态，仅供预览不崩溃
 		catalog: {
-			status: async () => ({ builtin: null, overlay: null, hasOverlayFiles: false, hasBackup: false }),
+			status: async () => ({
+				builtin: null,
+				overlay: null,
+				hasOverlayFiles: false,
+				hasBackup: false,
+			}),
 			check: async () => ({ ok: false, code: "network", message: "preview stub" }),
-			updateFromGithub: async () => ({ ok: false, code: "network", message: "preview stub" }),
+			updateFromGithub: async () => ({
+				ok: false,
+				code: "network",
+				message: "preview stub",
+			}),
 			restore: async () => ({ ok: true, updated: false }),
-			restorePrevious: async () => ({ ok: false, code: "no-backup", message: "preview stub" }),
+			restorePrevious: async () => ({
+				ok: false,
+				code: "no-backup",
+				message: "preview stub",
+			}),
 			openFile: async () => undefined,
 		},
 		automation: {
@@ -1536,10 +1766,18 @@ export function createPreviewApi(): PiDesktopApi {
 				budget: {
 					// 预览桩模拟主进程 normalizeBudget 的落盘形态：null/缺省键不输出（=不限），
 					// 既不在预览里伪造默认值，也保持与 AutomationTask.budget（无 null）同型。
-					...(input.budget?.timeoutMs == null ? {} : { timeoutMs: input.budget.timeoutMs }),
-					...(input.budget?.maxTokens == null ? {} : { maxTokens: input.budget.maxTokens }),
-					...(input.budget?.maxCostUsd == null ? {} : { maxCostUsd: input.budget.maxCostUsd }),
-					...(input.budget?.maxSteps == null ? {} : { maxSteps: input.budget.maxSteps }),
+					...(input.budget?.timeoutMs == null
+						? {}
+						: { timeoutMs: input.budget.timeoutMs }),
+					...(input.budget?.maxTokens == null
+						? {}
+						: { maxTokens: input.budget.maxTokens }),
+					...(input.budget?.maxCostUsd == null
+						? {}
+						: { maxCostUsd: input.budget.maxCostUsd }),
+					...(input.budget?.maxSteps == null
+						? {}
+						: { maxSteps: input.budget.maxSteps }),
 				},
 				createdAt: Date.now(),
 				updatedAt: Date.now(),

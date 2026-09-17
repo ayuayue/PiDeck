@@ -1,7 +1,7 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { RotateCw } from "lucide-react";
-import type { AppSettings, WebNetworkAddress } from "../../../../../shared/types";
+import type { AppSettings, WebNetworkAddress, WebServiceStatusInfo } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { Button } from "../../ui-shadcn/button";
@@ -42,6 +42,7 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
   const [selectedWebAddress, setSelectedWebAddress] = useState("");
   const [webQrDataUrl, setWebQrDataUrl] = useState("");
   const [webNetworkLoading, setWebNetworkLoading] = useState(false);
+  const [webStatus, setWebStatus] = useState<WebServiceStatusInfo | null>(null);
 
   const applyWebPortDraft = () => {
     const port = Number(webPortDraft);
@@ -79,8 +80,31 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
     };
   }, []);
 
+  // 服务开启时读取运行状态（含本次启动的令牌）；关闭/失败时清空，二维码回落为不带令牌。
+  // 重启会重生成令牌（任务 2/3），故把 webServiceChanging 纳入刷新依赖：重启的 finally 置 false
+  // 只发生在重启 IPC 成功之后，此刻重拉状态即拿到新令牌，避免二维码带过期令牌（裁决 C2）。
+  const refreshWebStatus = useCallback(() => {
+    if (!draft.webServiceEnabled) {
+      setWebStatus(null);
+      return;
+    }
+    void desktopApi.settings
+      .webServiceStatus()
+      .then((status) => setWebStatus(status))
+      .catch(() => setWebStatus(null));
+  }, [draft.webServiceEnabled]);
+
+  useEffect(() => {
+    refreshWebStatus();
+  }, [refreshWebStatus, webPortDraft, selectedWebAddress, props.webServiceChanging]);
+
+  // 局域网绑定时二维码附带启动时随机生成的访问令牌；环回绑定不需要令牌。
+  const tokenSuffix =
+    webStatus?.running && webStatus.requiresAuth && webStatus.token
+      ? `?token=${encodeURIComponent(webStatus.token)}`
+      : "";
   const webAccessUrl = selectedWebAddress
-    ? `http://${selectedWebAddress}:${webPortDraft || draft.webServicePort}`
+    ? `http://${selectedWebAddress}:${webPortDraft || draft.webServicePort}${tokenSuffix}`
     : "";
 
   // URL 或开关变化时重新编码，二维码只保存 data URL，不把主进程能力暴露给页面。
@@ -231,6 +255,9 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
               <div className="min-w-0 flex-1">
                 <code className="block break-all text-caption text-text-primary">{webAccessUrl}</code>
                 <small className="mt-1 block text-micro text-text-tertiary">{t("settings.webQrScanHint")}</small>
+                {webStatus?.running && webStatus.requiresAuth ? (
+                  <small className="mt-1 block text-micro text-text-tertiary">{t("settings.webQrTokenHint")}</small>
+                ) : null}
               </div>
             </div>
           ) : (

@@ -11,7 +11,13 @@ export type SendShortcutMode =
 
 export type AppThemeMode = "system" | "light" | "dark" | "schedule";
 /** 主题色预设：data-accent 属性驱动 foundation.css 的 accent/logo 变量 */
-export type AppAccentMode = "default" | "green" | "blue" | "purple" | "amber" | "rose";
+export type AppAccentMode =
+	| "default"
+	| "green"
+	| "blue"
+	| "purple"
+	| "amber"
+	| "rose";
 /**
  * 外观主题（皮肤）：覆盖表面/边框/文字色板 + 自带推荐主色，明暗自适应。
  * 内置主题在 themePresets.ts SKIN_PRESETS 定义；custom 由 customThemeOverrides 驱动。
@@ -38,12 +44,15 @@ export type WebNetworkAddress = {
 export type WorkspaceContentOpenMode = "split" | "maximize";
 /** 会话 Tab 打开模式：preview=单击为临时预览（发消息后自动晋升常驻），permanent=单击即常驻共存 */
 export type SessionTabOpenMode = "preview" | "permanent";
-export type AppFontSizeMode = "compact" | "default" | "medium" | "large" | "xlarge";
+export type AppFontSizeMode =
+	| "compact"
+	| "default"
+	| "medium"
+	| "large"
+	| "xlarge";
 
 /** 更新源：atomgit = 国内 AtomGit 源（默认首选）；github = 官方 GitHub Release。 */
-export type UpdateSourceId =
-	| "atomgit"
-	| "github";
+export type UpdateSourceId = "atomgit" | "github";
 
 /** 内置镜像体检状态：ok=检测+下载预检全通；slow=通但实测速度低于阈值；broken=失败/超时/响应异常。 */
 export type MirrorHealthStatus = "ok" | "slow" | "broken";
@@ -75,7 +84,7 @@ export type StartupWindowMode =
 	| "normal-medium"
 	| "normal-compact";
 
-	/**
+/**
  * 一条扩展禁用记录：作用域区分 user/project 同名 source 的独立状态。
  * scope 与 PiExtensionSummary.scope 对齐（user=全局 pi，project=项目 .pi）。
  */
@@ -239,7 +248,7 @@ export type AppSettings = {
 	telemetryEnabled: boolean;
 	/** 是否开启局域网 Web 服务 */
 	webServiceEnabled: boolean;
-	/** Web 服务监听地址，默认 0.0.0.0 允许局域网访问 */
+	/** Web 服务监听地址；默认 127.0.0.1 仅本机访问，需要局域网访问时在设置页显式选择网卡地址 */
 	webServiceHost: string;
 	/** Web 服务监听端口 */
 	webServicePort: number;
@@ -535,7 +544,18 @@ export type AppSettings = {
 	 * 关闭后不再把外部会话写入侧栏（无手动导入入口）。
 	 */
 	dshAutoImportSessions?: boolean;
+};
 
+/**
+ * Web 服务运行时状态；token 每次 start 随机重生成，requiresAuth 仅在非环回绑定时为 true。
+ * 渲染层设置页二维码/令牌提示据此附上访问令牌。
+ */
+export type WebServiceStatusInfo = {
+	running: boolean;
+	host: string;
+	port: number;
+	token: string;
+	requiresAuth: boolean;
 };
 
 // ── 桌面宠物类型 ──
@@ -578,7 +598,6 @@ export type PetManifest = {
 	/** 渲染层可加载的 spritesheet URL（pideck-pet:// 协议，主进程按需读文件，非 base64 大字符串） */
 	spritesheetUrl: string;
 };
-
 
 /** 三端宠物窗能力探测结果（设计文档第 5.2 节降级形态） */
 export type PetWindowCaps = {

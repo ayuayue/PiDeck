@@ -161,6 +161,7 @@ import type {
 	TerminalTab,
 	TerminalTarget,
 	WebNetworkAddress,
+	WebServiceStatusInfo,
 	HealthExportResult,
 	HealthReport,
 	HealthReportContext,
@@ -1592,6 +1593,8 @@ const api = {
 			) as Promise<AppSettings>,
 		restartWebService: () =>
 			ipcRenderer.invoke(ipcChannels.settingsRestartWebService) as Promise<void>,
+		webServiceStatus: () =>
+			ipcRenderer.invoke(ipcChannels.webServiceStatus) as Promise<WebServiceStatusInfo>,
 		testPiProxy: () =>
 			ipcRenderer.invoke(
 				ipcChannels.settingsTestPiProxy,

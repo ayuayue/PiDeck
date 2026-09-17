@@ -34,6 +34,11 @@ function loadBrowserApi(fetchImpl) {
 		window: {
 			setInterval: () => 1,
 			clearInterval: () => undefined,
+			location: { search: "" },
+			localStorage: {
+				getItem: () => null,
+				setItem: () => undefined,
+			},
 		},
 		require: (specifier) => {
 			if (specifier === "./i18n") return { t: (key) => key };
@@ -83,13 +88,28 @@ function fixture(overrides = {}) {
 		status: "idle",
 		createdAt: 2,
 	};
-	const calls = { createDraft: 0, createAnonymous: 0, createAgent: 0, createProject: [], deleteProject: [], send: [], stateTargets: [], modelTargets: [], messageSessions: [], rewindTargets: [], rewindParams: [], rewindRestores: [] };
+	const calls = {
+		createDraft: 0,
+		createAnonymous: 0,
+		createAgent: 0,
+		createProject: [],
+		deleteProject: [],
+		send: [],
+		stateTargets: [],
+		modelTargets: [],
+		messageSessions: [],
+		rewindTargets: [],
+		rewindParams: [],
+		rewindRestores: [],
+	};
 	const targeted = (target, value) => ({ ok: true, value: { target, value } });
 	const deps = {
 		// SSE 流式依赖：测试环境不订阅真实 pi 事件，但必须提供可调用实现满足契约。
 		subscribePiEvents: () => () => undefined,
 		getSessionIdForAgent: () => "session-1",
-		listProjects: () => [{ id: "project-1", name: "Project", path: "C:/project" }],
+		listProjects: () => [
+			{ id: "project-1", name: "Project", path: "C:/project" },
+		],
 		createProject: async (path) => {
 			calls.createProject.push(path);
 			return { id: "project-2", name: "New Project", path, lastOpenedAt: 2 };
@@ -98,17 +118,26 @@ function fixture(overrides = {}) {
 			calls.deleteProject.push(projectId);
 			return true;
 		},
-		listModels: async () => [{ provider: "openai", id: "gpt-test", name: "GPT Test" }],
+		listModels: async () => [
+			{ provider: "openai", id: "gpt-test", name: "GPT Test" },
+		],
 		listAgents: () => [agent],
 		listSessions: async () => [],
 		getSessionRuntimeMessages: (sessionId) => {
 			calls.messageSessions.push(sessionId);
-			return { target: runtime, value: [{ id: "m1", role: "assistant", text: "ready", timestamp: 1 }] };
+			return {
+				target: runtime,
+				value: [{ id: "m1", role: "assistant", text: "ready", timestamp: 1 }],
+			};
 		},
 		listCatalogSessions: async () => [session],
 		createSessionDraft: async (input) => {
 			calls.createDraft += 1;
-			return { ...session, projectId: input.projectId, title: input.title || session.title };
+			return {
+				...session,
+				projectId: input.projectId,
+				title: input.title || session.title,
+			};
 		},
 		createAnonymousSession: async (input) => {
 			calls.createAnonymous += 1;
@@ -132,7 +161,10 @@ function fixture(overrides = {}) {
 		},
 		updateSessionRecord: async (_sessionId, patch) => ({ ...session, ...patch }),
 		deleteSessionRecord: async () => true,
-		copySessionRecord: async () => ({ cancelled: false, targetSessionId: "session-2" }),
+		copySessionRecord: async () => ({
+			cancelled: false,
+			targetSessionId: "session-2",
+		}),
 		exportSessionRecordHtml: async () => ({ path: "session.html" }),
 		readSessionReferenceMessages: async () => [
 			{ role: "user", content: "reference", timestamp: 1 },
@@ -143,7 +175,11 @@ function fixture(overrides = {}) {
 			windowStart: 30,
 			truncated: true,
 		}),
-		readSessionMessagePage: async () => ({ messages: [], total: 0, nextBefore: null }),
+		readSessionMessagePage: async () => ({
+			messages: [],
+			total: 0,
+			nextBefore: null,
+		}),
 		sendSessionPrompt: async (input) => {
 			calls.send.push(input);
 			return {
@@ -157,32 +193,41 @@ function fixture(overrides = {}) {
 		listSessionRuntimes: () => [runtime],
 		listSessionRuntimeModels: async (target) => {
 			calls.modelTargets.push(target);
-			return targeted(target, [{ provider: "openai", id: "gpt-test", name: "GPT Test" }]);
+			return targeted(target, [
+				{ provider: "openai", id: "gpt-test", name: "GPT Test" },
+			]);
 		},
 		stopSessionRuntime: async (target) => ({ ok: true, value: target }),
 		abortSessionRuntime: async (target) => targeted(target, undefined),
-		restartSessionRuntime: async () => ({ ok: false, error: { code: "SESSION_RUNTIME_CHANGED" } }),
-		compactSessionRuntime: async (target) => targeted(target, { isStreaming: false }),
+		restartSessionRuntime: async () => ({
+			ok: false,
+			error: { code: "SESSION_RUNTIME_CHANGED" },
+		}),
+		compactSessionRuntime: async (target) =>
+			targeted(target, { isStreaming: false }),
 		getSessionRuntimeState: async (target) => {
 			calls.stateTargets.push(target);
 			return targeted(target, { isStreaming: false });
 		},
 		listSessionRuntimeCommands: async (target) => targeted(target, []),
-		exportSessionRuntimeHtml: async (target) => targeted(target, { path: "export.html" }),
+		exportSessionRuntimeHtml: async (target) =>
+			targeted(target, { path: "export.html" }),
 		editSessionRuntimeMessage: async (target) => targeted(target, undefined),
 		deleteSessionRuntimeMessage: async (target) => targeted(target, undefined),
 		listRewindCheckpoints: async (target, params) => {
 			calls.rewindTargets.push(target);
 			calls.rewindParams.push(params ?? null);
 			return targeted(target, {
-				items: [{
-					id: "turn-1-1-1234",
-					sessionId: session.id,
-					trigger: "turn",
-					turnIndex: 1,
-					branch: "main",
-					timestamp: 1234,
-				}],
+				items: [
+					{
+						id: "turn-1-1-1234",
+						sessionId: session.id,
+						trigger: "turn",
+						turnIndex: 1,
+						branch: "main",
+						timestamp: 1234,
+					},
+				],
 				hasMore: false,
 			});
 		},
@@ -191,10 +236,16 @@ function fixture(overrides = {}) {
 			calls.rewindRestores.push({ target, checkpointId, scope });
 			return targeted(target, undefined);
 		},
-		prepareSessionRuntimeResend: async (target) => targeted(target, { text: "hello" }),
-		setSessionRuntimeModel: async (target) => targeted(target, { isStreaming: false }),
-		setSessionRuntimeThinking: async (target) => targeted(target, { isStreaming: false }),
-		cloneSessionRuntime: async () => ({ ok: true, value: { targetSessionId: "session-2" } }),
+		prepareSessionRuntimeResend: async (target) =>
+			targeted(target, { text: "hello" }),
+		setSessionRuntimeModel: async (target) =>
+			targeted(target, { isStreaming: false }),
+		setSessionRuntimeThinking: async (target) =>
+			targeted(target, { isStreaming: false }),
+		cloneSessionRuntime: async () => ({
+			ok: true,
+			value: { targetSessionId: "session-2" },
+		}),
 		listPendingUiRequests: () => [],
 		respondToUi: async () => undefined,
 		createAgent: async () => {
@@ -235,7 +286,11 @@ test("Web service restart rebinds the configured listener", async () => {
 	await manager.start("127.0.0.1", 0);
 	const port = manager.current.port;
 	try {
-		await manager.restart({ webServiceEnabled: true, webServiceHost: "127.0.0.1", webServicePort: port });
+		await manager.restart({
+			webServiceEnabled: true,
+			webServiceHost: "127.0.0.1",
+			webServicePort: port,
+		});
 		const response = await fetch(`http://127.0.0.1:${port}/api/health`);
 		assert.equal(response.status, 200);
 		assert.equal((await response.json()).ok, true);
@@ -255,13 +310,20 @@ test("native Session HTTP routes create drafts and send by stable Session identi
 		assert.equal(created.session.id, "session-1");
 		assert.equal(created.session.title, "From web");
 		assert.equal(calls.createDraft, 1);
-		assert.equal(calls.createAgent, 0, "native Session creation must not use the legacy Agent facade");
+		assert.equal(
+			calls.createAgent,
+			0,
+			"native Session creation must not use the legacy Agent facade",
+		);
 
-		const promptResponse = await fetch(`${baseUrl}/api/sessions/session-1/prompt`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ requestId: "request-1", message: " hello " }),
-		});
+		const promptResponse = await fetch(
+			`${baseUrl}/api/sessions/session-1/prompt`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ requestId: "request-1", message: " hello " }),
+			},
+		);
 		const prompted = await promptResponse.json();
 		assert.equal(prompted.result.accepted, true);
 		assert.equal(prompted.result.sessionId, "session-1");
@@ -288,53 +350,65 @@ test("web core routes create a project and expose the configured model list", as
 });
 
 test("web state exposes pending UI requests and ui-response writes them back", async () => {
-	const pending = [{
-		sessionId: "session-1",
-		agentId: "agent-1",
-		runtimeGeneration: 3,
-		requestId: "ask-1",
-		method: "confirm",
-		title: "Continue?",
-	}];
-	const responses = [];
-	await withServer(async ({ baseUrl }) => {
-		const stateResponse = await fetch(`${baseUrl}/api/state`);
-		const state = await stateResponse.json();
-		assert.equal(state.pendingUiRequests[0].requestId, "ask-1");
-
-		const write = await fetch(`${baseUrl}/api/ui-response`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				sessionId: "session-1",
-				agentId: "agent-1",
-				runtimeGeneration: 3,
-				requestId: "ask-1",
-				response: { confirmed: true },
-			}),
-		});
-		assert.equal(write.status, 200);
-		assert.equal(responses[0].requestId, "ask-1");
-		assert.equal(responses[0].response.confirmed, true);
-	}, {
-		listPendingUiRequests: () => pending,
-		respondToUi: async (input) => {
-			responses.push(input);
+	const pending = [
+		{
+			sessionId: "session-1",
+			agentId: "agent-1",
+			runtimeGeneration: 3,
+			requestId: "ask-1",
+			method: "confirm",
+			title: "Continue?",
 		},
-	});
+	];
+	const responses = [];
+	await withServer(
+		async ({ baseUrl }) => {
+			const stateResponse = await fetch(`${baseUrl}/api/state`);
+			const state = await stateResponse.json();
+			assert.equal(state.pendingUiRequests[0].requestId, "ask-1");
+
+			const write = await fetch(`${baseUrl}/api/ui-response`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					sessionId: "session-1",
+					agentId: "agent-1",
+					runtimeGeneration: 3,
+					requestId: "ask-1",
+					response: { confirmed: true },
+				}),
+			});
+			assert.equal(write.status, 200);
+			assert.equal(responses[0].requestId, "ask-1");
+			assert.equal(responses[0].response.confirmed, true);
+		},
+		{
+			listPendingUiRequests: () => pending,
+			respondToUi: async (input) => {
+				responses.push(input);
+			},
+		},
+	);
 });
 
 test("Web project route deletes a registered project but protects the built-in chat project", async () => {
 	await withServer(async ({ baseUrl, calls }) => {
-		const deleteResponse = await fetch(`${baseUrl}/api/projects/project-1/delete`, { method: "POST" });
+		const deleteResponse = await fetch(
+			`${baseUrl}/api/projects/project-1/delete`,
+			{ method: "POST" },
+		);
 		const deleted = await deleteResponse.json();
 		assert.equal(deleted.deleted, true);
 		assert.deepEqual(calls.deleteProject, ["project-1"]);
 	});
 
 	await withServer(async ({ baseUrl, deps }) => {
-		deps.listProjects = () => [{ id: "builtin-chat", name: "Chat", path: "C:/chat", kind: "chat" }];
-		const response = await fetch(`${baseUrl}/api/projects/builtin-chat/delete`, { method: "POST" });
+		deps.listProjects = () => [
+			{ id: "builtin-chat", name: "Chat", path: "C:/chat", kind: "chat" },
+		];
+		const response = await fetch(`${baseUrl}/api/projects/builtin-chat/delete`, {
+			method: "POST",
+		});
 		assert.equal(response.status, 400);
 		const body = await response.json();
 		assert.match(body.error, /built-in chat project cannot be deleted/i);
@@ -348,11 +422,14 @@ test("runtime model listing preserves the generation-validated Session target", 
 			agentId: runtime.agentId,
 			runtimeGeneration: runtime.runtimeGeneration,
 		};
-		const response = await fetch(`${baseUrl}/api/sessions/session-1/runtime/models`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ target }),
-		});
+		const response = await fetch(
+			`${baseUrl}/api/sessions/session-1/runtime/models`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ target }),
+			},
+		);
 		const body = await response.json();
 		assert.equal(body.result.ok, true);
 		assert.equal(JSON.stringify(calls.modelTargets), JSON.stringify([target]));
@@ -382,11 +459,14 @@ test("runtime HTTP commands preserve the full generation-validated target", asyn
 			agentId: runtime.agentId,
 			runtimeGeneration: runtime.runtimeGeneration,
 		};
-		const response = await fetch(`${baseUrl}/api/sessions/session-1/runtime/state`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ target }),
-		});
+		const response = await fetch(
+			`${baseUrl}/api/sessions/session-1/runtime/state`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ target }),
+			},
+		);
 		const body = await response.json();
 		assert.equal(body.result.ok, true);
 		assert.equal(JSON.stringify(calls.stateTargets), JSON.stringify([target]));
@@ -417,7 +497,10 @@ test("runtime rewind routes forward checkpointId/scope and keep the validated ta
 		assert.equal(listed.result.ok, true);
 		assert.equal(JSON.stringify(calls.rewindTargets), JSON.stringify([target]));
 		// 分页参数（limit/beforeTimestamp）应原样透传给后端。
-		assert.equal(JSON.stringify(calls.rewindParams), JSON.stringify([{ limit: 20, beforeTimestamp: 500 }]));
+		assert.equal(
+			JSON.stringify(calls.rewindParams),
+			JSON.stringify([{ limit: 20, beforeTimestamp: 500 }]),
+		);
 		assert.equal(listed.result.value.value.items[0].trigger, "turn");
 
 		const diffed = await (
@@ -433,35 +516,47 @@ test("runtime rewind routes forward checkpointId/scope and keep the validated ta
 			await fetch(`${baseUrl}/api/sessions/session-1/runtime/rewind-restore`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ target, checkpointId: "turn-1-1-1234", scope: "files" }),
+				body: JSON.stringify({
+					target,
+					checkpointId: "turn-1-1-1234",
+					scope: "files",
+				}),
 			})
 		).json();
 		assert.equal(restored.result.ok, true);
-		assert.equal(JSON.stringify(calls.rewindRestores), JSON.stringify([
-			{ target, checkpointId: "turn-1-1-1234", scope: "files" },
-		]));
+		assert.equal(
+			JSON.stringify(calls.rewindRestores),
+			JSON.stringify([{ target, checkpointId: "turn-1-1-1234", scope: "files" }]),
+		);
 
-		const mismatch = await fetch(`${baseUrl}/api/sessions/other/runtime/rewind-list`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ target }),
-		});
+		const mismatch = await fetch(
+			`${baseUrl}/api/sessions/other/runtime/rewind-list`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ target }),
+			},
+		);
 		assert.equal(mismatch.status, 400);
 	});
 });
 
 test("catalog Session file operations are addressed only by stable Session ID", async () => {
 	await withServer(async ({ baseUrl }) => {
-		const copied = await (await fetch(`${baseUrl}/api/sessions/session-1/copy`, {
-			method: "POST",
-			body: "{}",
-		})).json();
+		const copied = await (
+			await fetch(`${baseUrl}/api/sessions/session-1/copy`, {
+				method: "POST",
+				body: "{}",
+			})
+		).json();
 		assert.equal(copied.result.targetSessionId, "session-2");
 
-		const exported = await (await fetch(`${baseUrl}/api/sessions/session-1/export-html`, {
-			method: "POST",
-			body: "{}",
-		})).json();
+		const exported = await (
+			await fetch(`${baseUrl}/api/sessions/session-1/export-html`, {
+				method: "POST",
+				body: "{}",
+			})
+		).json();
 		assert.equal(exported.result.path, "session.html");
 
 		const references = await (
@@ -472,24 +567,35 @@ test("catalog Session file operations are addressed only by stable Session ID", 
 });
 
 test("historical message pages stay Session-addressed and bounded", async () => {
-	await withServer(async ({ baseUrl }) => {
-		const page = await (await fetch(`${baseUrl}/api/sessions/session-1/messages/page?before=3&pageSize=2`)).json();
-		assert.equal(page.total, 3);
-		assert.equal(page.nextBefore, 1);
-	}, {
-		readSessionMessagePage: async (sessionId, before, pageSize) => ({
-			messages: [{ id: sessionId, role: "assistant", text: String(pageSize), timestamp: 1 }],
-			total: 3,
-			nextBefore: before === 3 ? 1 : null,
-		}),
-	});
+	await withServer(
+		async ({ baseUrl }) => {
+			const page = await (
+				await fetch(
+					`${baseUrl}/api/sessions/session-1/messages/page?before=3&pageSize=2`,
+				)
+			).json();
+			assert.equal(page.total, 3);
+			assert.equal(page.nextBefore, 1);
+		},
+		{
+			readSessionMessagePage: async (sessionId, before, pageSize) => ({
+				messages: [
+					{ id: sessionId, role: "assistant", text: String(pageSize), timestamp: 1 },
+				],
+				total: 3,
+				nextBefore: before === 3 ? 1 : null,
+			}),
+		},
+	);
 });
 
 test("whole-history read endpoint returns a bounded window with truncation metadata", async () => {
 	// 大会话整量读会同时顶爆主进程与渲染层（#213）：/messages 必须是「加载窗口」，
 	// 并显式告诉客户端被截断、窗口起点在哪，翻更早历史走 /messages/page。
 	await withServer(async ({ baseUrl }) => {
-		const body = await (await fetch(`${baseUrl}/api/sessions/session-1/messages`)).json();
+		const body = await (
+			await fetch(`${baseUrl}/api/sessions/session-1/messages`)
+		).json();
 		assert.equal(body.messages[0].text, "window");
 		assert.equal(body.total, 42);
 		assert.equal(body.windowStart, 30);
@@ -515,16 +621,22 @@ test("the browser client accepts the real Session-first web-state contract", asy
 		);
 		const api = createBrowserApi();
 		const events = [];
-		const unsubscribe = api.sessions.onRuntimeEvent((event) => events.push(event));
+		const unsubscribe = api.sessions.onRuntimeEvent((event) =>
+			events.push(event),
+		);
 		try {
 			const projects = await api.projects.list();
 			assert.equal(projects[0].id, "project-1");
 			await new Promise((resolve) => setImmediate(resolve));
 
-			const runtimeEvent = events.find((event) => event.sourceChannel === "sessions:runtime");
+			const runtimeEvent = events.find(
+				(event) => event.sourceChannel === "sessions:runtime",
+			);
 			assert.equal(runtimeEvent?.sessionId, "session-1");
 			assert.equal(runtimeEvent?.payload.status, "idle");
-			const messageEvent = events.find((event) => event.sourceChannel === "sessions:messages");
+			const messageEvent = events.find(
+				(event) => event.sourceChannel === "sessions:messages",
+			);
 			assert.equal(messageEvent?.payload.messages[0].text, "ready");
 		} finally {
 			unsubscribe();
@@ -533,17 +645,24 @@ test("the browser client accepts the real Session-first web-state contract", asy
 });
 
 test("web polling omits a message snapshot whose runtime target no longer matches", async () => {
-	await withServer(async ({ baseUrl }) => {
-		const response = await fetch(`${baseUrl}/api/state`);
-		const state = await response.json();
-		assert.equal(state.runtimes[0].agentId, "agent-1");
-		assert.equal("session-1" in state.messagesBySession, false);
-	}, {
-		getSessionRuntimeMessages: () => ({
-			target: { sessionId: "session-1", agentId: "agent-2", runtimeGeneration: 4 },
-			value: [{ id: "stale", role: "assistant", text: "stale", timestamp: 1 }],
-		}),
-	});
+	await withServer(
+		async ({ baseUrl }) => {
+			const response = await fetch(`${baseUrl}/api/state`);
+			const state = await response.json();
+			assert.equal(state.runtimes[0].agentId, "agent-1");
+			assert.equal("session-1" in state.messagesBySession, false);
+		},
+		{
+			getSessionRuntimeMessages: () => ({
+				target: {
+					sessionId: "session-1",
+					agentId: "agent-2",
+					runtimeGeneration: 4,
+				},
+				value: [{ id: "stale", role: "assistant", text: "stale", timestamp: 1 }],
+			}),
+		},
+	);
 });
 
 test("web polling cannot read runtime messages directly by Agent ID", () => {
@@ -586,150 +705,180 @@ test("web errors expose stable codes without leaking unknown server exceptions",
 		assert.equal("debugDetails" in body, false);
 	});
 
-	await withServer(async ({ baseUrl }) => {
-		const response = await fetch(`${baseUrl}/api/state`);
-		const body = await response.json();
-		assert.equal(response.status, 500);
-		assert.equal(body.code, "webError.internal");
-		assert.equal(body.error, "The web service encountered an internal error");
-		assert.equal("debugDetails" in body, false);
-		assert.doesNotMatch(JSON.stringify(body), /SECRET_STACK_DETAIL/);
-	}, {
-		listProjects: () => {
-			throw new Error("SECRET_STACK_DETAIL");
+	await withServer(
+		async ({ baseUrl }) => {
+			const response = await fetch(`${baseUrl}/api/state`);
+			const body = await response.json();
+			assert.equal(response.status, 500);
+			assert.equal(body.code, "webError.internal");
+			assert.equal(body.error, "The web service encountered an internal error");
+			assert.equal("debugDetails" in body, false);
+			assert.doesNotMatch(JSON.stringify(body), /SECRET_STACK_DETAIL/);
 		},
-	});
+		{
+			listProjects: () => {
+				throw new Error("SECRET_STACK_DETAIL");
+			},
+		},
+	);
 });
 
 test("web responses strip desktop diagnostics and raw prompt errors recursively", async () => {
-	await withServer(async ({ baseUrl, runtime }) => {
-		const state = await (await fetch(`${baseUrl}/api/state`)).json();
-		const serializedState = JSON.stringify(state);
-		assert.doesNotMatch(serializedState, /SECRET_MESSAGE_DIAGNOSTIC/);
-		assert.equal(
-			"debugDetails" in state.messagesBySession["session-1"][0].meta,
-			false,
-		);
+	await withServer(
+		async ({ baseUrl, runtime }) => {
+			const state = await (await fetch(`${baseUrl}/api/state`)).json();
+			const serializedState = JSON.stringify(state);
+			assert.doesNotMatch(serializedState, /SECRET_MESSAGE_DIAGNOSTIC/);
+			assert.equal(
+				"debugDetails" in state.messagesBySession["session-1"][0].meta,
+				false,
+			);
 
-		const prompt = await (await fetch(`${baseUrl}/api/sessions/session-1/prompt`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ requestId: "request-raw-error", message: "hello" }),
-		})).json();
-		assert.equal(prompt.result.error, "Failed to send the message.");
-		assert.equal("debugDetails" in prompt.result, false);
-		assert.doesNotMatch(JSON.stringify(prompt), /SECRET_PROMPT_ERROR/);
+			const prompt = await (
+				await fetch(`${baseUrl}/api/sessions/session-1/prompt`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ requestId: "request-raw-error", message: "hello" }),
+				})
+			).json();
+			assert.equal(prompt.result.error, "Failed to send the message.");
+			assert.equal("debugDetails" in prompt.result, false);
+			assert.doesNotMatch(JSON.stringify(prompt), /SECRET_PROMPT_ERROR/);
 
-		const command = await (await fetch(`${baseUrl}/api/sessions/session-1/runtime/state`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ target: runtime }),
-		})).json();
-		assert.equal(command.result.error.code, "SESSION_COMMAND_FAILED");
-		assert.equal("debugDetails" in command.result.error, false);
-		assert.doesNotMatch(JSON.stringify(command), /SECRET_COMMAND_STACK/);
-	}, {
-		getSessionRuntimeMessages: (_sessionId) => ({
-			target: {
-				sessionId: "session-1",
-				agentId: "agent-1",
-				runtimeGeneration: 3,
-			},
-			value: [{
-				id: "m-secret",
-				agentId: "agent-1",
-				role: "error",
-				text: "Request failed.",
-				timestamp: 1,
-				meta: {
-					i18nKey: "diagnostic.requestFailedUnknown",
-					debugDetails: "SECRET_MESSAGE_DIAGNOSTIC",
+			const command = await (
+				await fetch(`${baseUrl}/api/sessions/session-1/runtime/state`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ target: runtime }),
+				})
+			).json();
+			assert.equal(command.result.error.code, "SESSION_COMMAND_FAILED");
+			assert.equal("debugDetails" in command.result.error, false);
+			assert.doesNotMatch(JSON.stringify(command), /SECRET_COMMAND_STACK/);
+		},
+		{
+			getSessionRuntimeMessages: (_sessionId) => ({
+				target: {
+					sessionId: "session-1",
+					agentId: "agent-1",
+					runtimeGeneration: 3,
 				},
-			}],
-		}),
-		sendSessionPrompt: async (input) => ({
-			accepted: false,
-			sessionId: input.sessionId,
-			requestId: input.requestId,
-			error: "SECRET_PROMPT_ERROR",
-			i18nKey: "diagnostic.promptRejected",
-			debugDetails: "SECRET_PROMPT_STACK",
-		}),
-		getSessionRuntimeState: async () => ({
-			ok: false,
-			error: {
-				code: "SESSION_COMMAND_FAILED",
-				debugDetails: "SECRET_COMMAND_STACK",
-			},
-		}),
-	});
+				value: [
+					{
+						id: "m-secret",
+						agentId: "agent-1",
+						role: "error",
+						text: "Request failed.",
+						timestamp: 1,
+						meta: {
+							i18nKey: "diagnostic.requestFailedUnknown",
+							debugDetails: "SECRET_MESSAGE_DIAGNOSTIC",
+						},
+					},
+				],
+			}),
+			sendSessionPrompt: async (input) => ({
+				accepted: false,
+				sessionId: input.sessionId,
+				requestId: input.requestId,
+				error: "SECRET_PROMPT_ERROR",
+				i18nKey: "diagnostic.promptRejected",
+				debugDetails: "SECRET_PROMPT_STACK",
+			}),
+			getSessionRuntimeState: async () => ({
+				ok: false,
+				error: {
+					code: "SESSION_COMMAND_FAILED",
+					debugDetails: "SECRET_COMMAND_STACK",
+				},
+			}),
+		},
+	);
 });
 
 test("SSE /stream endpoint forwards pi agent events as AI SDK UI message frames", async () => {
 	// 捕获 subscribe 的 handler，模拟主进程 pi 事件派发
 	let emitPiEvent = null;
-	await withServer(async ({ baseUrl }) => {
-		const controller = new AbortController();
-		const response = await fetch(`${baseUrl}/api/sessions/session-1/stream`, {
-			signal: controller.signal,
-			headers: { accept: "text/event-stream" },
-		});
-		assert.equal(response.status, 200);
-		assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
-		assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
+	await withServer(
+		async ({ baseUrl }) => {
+			const controller = new AbortController();
+			const response = await fetch(`${baseUrl}/api/sessions/session-1/stream`, {
+				signal: controller.signal,
+				headers: { accept: "text/event-stream" },
+			});
+			assert.equal(response.status, 200);
+			assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
+			assert.match(
+				response.headers.get("content-type") ?? "",
+				/text\/event-stream/,
+			);
 
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-		const readUntil = async (marker) => {
-			for (;;) {
-				const at = buffer.indexOf(marker);
-				if (at !== -1) return buffer.slice(0, at + marker.length);
-				const { done, value } = await reader.read();
-				if (done) return buffer;
-				buffer += decoder.decode(value, { stream: true });
-			}
-		};
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			const readUntil = async (marker) => {
+				for (;;) {
+					const at = buffer.indexOf(marker);
+					if (at !== -1) return buffer.slice(0, at + marker.length);
+					const { done, value } = await reader.read();
+					if (done) return buffer;
+					buffer += decoder.decode(value, { stream: true });
+				}
+			};
 
-		// 派发：消息开始 → 文本增量 → agent_settled（中间 agent_end 不再关流）
-		emitPiEvent("agent-1", { type: "message_start", message: { role: "assistant", id: "m1" } });
-		emitPiEvent("agent-1", {
-			type: "message_update",
-			assistantMessageEvent: { type: "text_delta", delta: "Hello" },
-		});
-		emitPiEvent("agent-1", {
-			type: "message_update",
-			assistantMessageEvent: { type: "text_delta", delta: " world" },
-		});
-		emitPiEvent("agent-1", { type: "agent_end", stopReason: "done" });
-		emitPiEvent("agent-1", { type: "agent_settled" });
+			// 派发：消息开始 → 文本增量 → agent_settled（中间 agent_end 不再关流）
+			emitPiEvent("agent-1", {
+				type: "message_start",
+				message: { role: "assistant", id: "m1" },
+			});
+			emitPiEvent("agent-1", {
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "Hello" },
+			});
+			emitPiEvent("agent-1", {
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: " world" },
+			});
+			emitPiEvent("agent-1", { type: "agent_end", stopReason: "done" });
+			emitPiEvent("agent-1", { type: "agent_settled" });
 
-		const wire = await readUntil("data: [DONE]");
-		const afterDone = await reader.read();
-		assert.equal(afterDone.done, true, "the SSE response must close after [DONE]");
-		const frames = wire.split("\n\n")
-			.filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
-			.map((line) => JSON.parse(line.slice(6)));
-		assert.equal(frames[0].type, "start");
-		assert.equal(frames[0].messageId, "m1");
-		assert.equal(frames[1].type, "text-start");
-		assert.equal(frames[2].type, "text-delta");
-		assert.equal(frames[2].delta, "Hello");
-		assert.equal(frames[3].type, "text-delta");
-		assert.equal(frames[3].delta, " world");
-		// 同一文本块：text-delta 复用 text-start 的 id
-		assert.equal(frames[2].id, frames[1].id);
-		assert.equal(frames[3].id, frames[1].id);
-		assert.equal(frames[4].type, "text-end");
-		assert.equal(frames[5].type, "finish");
-		controller.abort();
-	}, {
-		// 用可捕获的 subscribe 覆盖默认的 no-op
-		subscribePiEvents: (handler) => {
-			emitPiEvent = handler;
-			return () => { emitPiEvent = null; };
+			const wire = await readUntil("data: [DONE]");
+			const afterDone = await reader.read();
+			assert.equal(
+				afterDone.done,
+				true,
+				"the SSE response must close after [DONE]",
+			);
+			const frames = wire
+				.split("\n\n")
+				.filter(
+					(line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]",
+				)
+				.map((line) => JSON.parse(line.slice(6)));
+			assert.equal(frames[0].type, "start");
+			assert.equal(frames[0].messageId, "m1");
+			assert.equal(frames[1].type, "text-start");
+			assert.equal(frames[2].type, "text-delta");
+			assert.equal(frames[2].delta, "Hello");
+			assert.equal(frames[3].type, "text-delta");
+			assert.equal(frames[3].delta, " world");
+			// 同一文本块：text-delta 复用 text-start 的 id
+			assert.equal(frames[2].id, frames[1].id);
+			assert.equal(frames[3].id, frames[1].id);
+			assert.equal(frames[4].type, "text-end");
+			assert.equal(frames[5].type, "finish");
+			controller.abort();
 		},
-	});
+		{
+			// 用可捕获的 subscribe 覆盖默认的 no-op
+			subscribePiEvents: (handler) => {
+				emitPiEvent = handler;
+				return () => {
+					emitPiEvent = null;
+				};
+			},
+		},
+	);
 });
 
 /**
@@ -749,7 +898,9 @@ test("chat endpoint mints a per-turn request idempotency key instead of reusing 
 			body: JSON.stringify({
 				// DefaultChatTransport 的真实报文：id = chatId = sessionId
 				id: "session-1",
-				messages: [{ id: messageId, role: "user", parts: [{ type: "text", text }] }],
+				messages: [
+					{ id: messageId, role: "user", parts: [{ type: "text", text }] },
+				],
 				trigger: "submit-message",
 				messageId,
 			}),
@@ -792,15 +943,21 @@ async function startMockDevServer() {
 		hits.push(request.url ?? "");
 		if (request.url === "/web.html") {
 			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-			response.end("<div id=\"dev-web\">A2 React page</div>");
+			response.end('<div id="dev-web">A2 React page</div>');
 		} else if (request.url === "/assets/web.js") {
-			response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-			response.end("console.log(\"dev asset\");");
+			response.writeHead(200, {
+				"content-type": "text/javascript; charset=utf-8",
+			});
+			response.end('console.log("dev asset");');
 		} else if (request.url === "/@vite/client") {
-			response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-			response.end("console.log(\"vite client\");");
+			response.writeHead(200, {
+				"content-type": "text/javascript; charset=utf-8",
+			});
+			response.end('console.log("vite client");');
 		} else if (request.url?.startsWith("/src/web-main.tsx")) {
-			response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+			response.writeHead(200, {
+				"content-type": "text/javascript; charset=utf-8",
+			});
 			response.end(`console.log("entry with query: ${request.url}");`);
 		} else {
 			response.writeHead(404, { "content-type": "text/plain" });
@@ -820,33 +977,42 @@ async function startMockDevServer() {
 test("web service dev mode proxies static assets to the renderer dev server", async () => {
 	const devServer = await startMockDevServer();
 	try {
-		await withServer(async ({ baseUrl }) => {
-			// 根路径 → 代理到 /web.html（外部端入口，而非桌面端 index.html）
-			const page = await fetch(baseUrl + "/");
-			assert.equal(page.status, 200);
-			assert.match(page.headers.get("content-type") ?? "", /text\/html/);
-			assert.match(await page.text(), /A2 React page/);
-			// 带扩展名资源 → 原样转发
-			const asset = await fetch(baseUrl + "/assets/web.js");
-			assert.equal(asset.status, 200);
-			assert.match(asset.headers.get("content-type") ?? "", /text\/javascript/);
-			assert.equal(await asset.text(), 'console.log("dev asset");');
-			// vite 内部模块（无扩展名）必须原样转发，不能被映射成 /web.html 的 HTML
-			const viteClient = await fetch(baseUrl + "/@vite/client");
-			assert.equal(viteClient.status, 200);
-			assert.match(viteClient.headers.get("content-type") ?? "", /text\/javascript/);
-			assert.equal(await viteClient.text(), 'console.log("vite client");');
-			// query 参数必须保留（vite 依赖预构建/HMR 依赖 ?v= ?t= ?import）
-			const withQuery = await fetch(baseUrl + "/src/web-main.tsx?v=abc&import");
-			assert.equal(withQuery.status, 200);
-			assert.match(await withQuery.text(), /entry with query: \/src\/web-main\.tsx\?v=abc&import/);
-			assert.deepEqual(devServer.hits, [
-				"/web.html",
-				"/assets/web.js",
-				"/@vite/client",
-				"/src/web-main.tsx?v=abc&import",
-			]);
-		}, { devRendererUrl: devServer.baseUrl });
+		await withServer(
+			async ({ baseUrl }) => {
+				// 根路径 → 代理到 /web.html（外部端入口，而非桌面端 index.html）
+				const page = await fetch(baseUrl + "/");
+				assert.equal(page.status, 200);
+				assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+				assert.match(await page.text(), /A2 React page/);
+				// 带扩展名资源 → 原样转发
+				const asset = await fetch(baseUrl + "/assets/web.js");
+				assert.equal(asset.status, 200);
+				assert.match(asset.headers.get("content-type") ?? "", /text\/javascript/);
+				assert.equal(await asset.text(), 'console.log("dev asset");');
+				// vite 内部模块（无扩展名）必须原样转发，不能被映射成 /web.html 的 HTML
+				const viteClient = await fetch(baseUrl + "/@vite/client");
+				assert.equal(viteClient.status, 200);
+				assert.match(
+					viteClient.headers.get("content-type") ?? "",
+					/text\/javascript/,
+				);
+				assert.equal(await viteClient.text(), 'console.log("vite client");');
+				// query 参数必须保留（vite 依赖预构建/HMR 依赖 ?v= ?t= ?import）
+				const withQuery = await fetch(baseUrl + "/src/web-main.tsx?v=abc&import");
+				assert.equal(withQuery.status, 200);
+				assert.match(
+					await withQuery.text(),
+					/entry with query: \/src\/web-main\.tsx\?v=abc&import/,
+				);
+				assert.deepEqual(devServer.hits, [
+					"/web.html",
+					"/assets/web.js",
+					"/@vite/client",
+					"/src/web-main.tsx?v=abc&import",
+				]);
+			},
+			{ devRendererUrl: devServer.baseUrl },
+		);
 	} finally {
 		await devServer.close();
 	}
@@ -855,9 +1021,12 @@ test("web service dev mode proxies static assets to the renderer dev server", as
 /** dev server 不可用（如只启动了主进程）时，回退 A1 内嵌页保证服务不白屏。 */
 test("web service dev mode falls back to the legacy page when dev server is down", async () => {
 	// 端口 1 通常无服务监听；fetch 连接拒绝后应回退内嵌页而非 500。
-	await withServer(async ({ baseUrl }) => {
-		const page = await fetch(baseUrl + "/");
-		assert.equal(page.status, 200);
-		assert.match(await page.text(), /PiDeck Web Service/);
-	}, { devRendererUrl: "http://127.0.0.1:1" });
+	await withServer(
+		async ({ baseUrl }) => {
+			const page = await fetch(baseUrl + "/");
+			assert.equal(page.status, 200);
+			assert.match(await page.text(), /PiDeck Web Service/);
+		},
+		{ devRendererUrl: "http://127.0.0.1:1" },
+	);
 });

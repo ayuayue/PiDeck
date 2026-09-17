@@ -30,6 +30,7 @@ import {
 	fetchMessagePage,
 	fetchModels,
 	fetchState,
+	getWebAuthHeaders,
 	respondToUi,
 	setRuntimeModel,
 	setRuntimeThinking,
@@ -88,7 +89,7 @@ export function WebChatApp() {
 	// useChat：sessionId 作为 chat id；切会话时 id 变化重建 Chat 实例
 	const { messages, sendMessage, status, stop, setMessages, error } = useChat({
 		id: activeSessionId,
-		transport: new DefaultChatTransport({ api: "/api/chat" }),
+		transport: new DefaultChatTransport({ api: "/api/chat", headers: getWebAuthHeaders() }),
 	});
 
 	const streaming = status === "submitted" || status === "streaming";

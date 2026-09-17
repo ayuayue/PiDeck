@@ -3658,6 +3658,7 @@ export const zhCN = {
   "settings.webNoNetworkAddress": "未检测到可用的局域网地址",
   "settings.webQrAlt": "PiDeck Web 服务二维码",
   "settings.webQrScanHint": "手机和电脑需要连接到同一个局域网",
+  "settings.webQrTokenHint": "局域网访问需要令牌，二维码链接已自动附带",
   "settings.webQrUnavailable": "当前无法生成二维码，请检查服务端口",
   "settings.webQrEnableHint": "开启 Web 服务后生成二维码",
   "settings.webRestartService": "重启 Web 服务",
