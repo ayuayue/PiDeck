@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu } from "electron";
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
@@ -23,6 +23,7 @@ import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { getAppLogger } from "../logging/sharedLogger";
 import { setConfiguredGitPath } from "../git/gitExecutable";
+import { renameWithRetry } from "../utils/fsRetry";
 
 /** 桌面端 settings.json（userData），与 pi agent settings 分离 */
 function desktopSettingsPath() {
@@ -296,10 +297,18 @@ export class SettingsStore {
   private readonly filePath = desktopSettingsPath();
   private settings: AppSettings = { ...defaultSettings };
 
+  /** 保存串行链：迁移钩子与 IPC 快速连续 update 不得交叉写同一文件（撕裂/乱序）。 */
+  private saveChain: Promise<void> = Promise.resolve();
+
   async load() {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    // 主文件解析失败（撕裂写/外部改坏）时回退上一次原子保存留下的 .bak：
+    // 直接重置默认值会静默丢掉用户的全部设置（代理/编辑器/快捷键/置顶等）。
+    // .bak 也不可用（全新安装/首次保存前）才用默认值。
+    const persisted = await this.readPersistedSettings();
+    if (persisted === null) {
+      this.settings = { ...defaultSettings };
+    } else {
+      const parsed = persisted;
       this.settings = {
         ...defaultSettings,
         ...parsed,
@@ -381,8 +390,6 @@ export class SettingsStore {
         parsed.shortcuts,
         process.platform,
       );
-    } catch {
-      this.settings = { ...defaultSettings };
     }
     // showThinking 不再作为可持久化的独立配置项，完全跟随 pi agent 的 hideThinkingBlock。
     // 启动时重新读取以确保每次启动都使用最新值，而非缓存的 defaultSettings。
@@ -398,6 +405,22 @@ export class SettingsStore {
     await this.detectAndSaveInstallationType();
     this.applyMenu();
     return this.get();
+  }
+
+  /**
+   * 读主 settings.json；解析失败（撕裂写/外部改坏）时回退 .bak，两者都不可用返回 null。
+   * 只负责读与解析，不做任何规范化——normalize 逻辑保持在 load() 单一位置。
+   */
+  private async readPersistedSettings(): Promise<Partial<AppSettings> | null> {
+    try {
+      return JSON.parse(await readFile(this.filePath, "utf8")) as Partial<AppSettings>;
+    } catch {
+      try {
+        return JSON.parse(await readFile(`${this.filePath}.bak`, "utf8")) as Partial<AppSettings>;
+      } catch {
+        return null;
+      }
+    }
   }
 
   /**
@@ -681,15 +704,28 @@ export class SettingsStore {
     }
   }
 
-  private async save() {
+  private save(): Promise<void> {
+    // 串行化：把每次写盘接到上一次之后，避免并发 update 的 writeFile 交叉撕裂
+    //（迁移钩子的 fire-and-forget save 与 IPC 快速连续 update 会并发触发）。
+    const run = this.saveChain.catch(() => undefined).then(() => this.writeAtomic());
+    this.saveChain = run;
+    return run;
+  }
+
+  /**
+   * 原子写 settings.json：写 tmp 后 renameWithRetry 替换（Windows 杀软/索引器
+   * 瞬态 EPERM/EBUSY 退避重试，见 utils/fsRetry）。
+   * 替换前把当前版本复制为 .bak——load() 遇到主文件损坏时优先回退 .bak，
+   * 避免全部用户设置静默回默认。首启无旧文件时复制失败静默忽略（无备份可做）。
+   */
+  private async writeAtomic(): Promise<void> {
     await mkdir(app.getPath("userData"), { recursive: true });
     // showThinking 由 pi agent 的 hideThinkingBlock 决定，不持久化到桌面 settings.json
     const { showThinking: _unused, ...persistable } = this.settings;
-    await writeFile(
-      this.filePath,
-      JSON.stringify(persistable, null, 2),
-      "utf8",
-    );
+    const tmpPath = `${this.filePath}.tmp`;
+    await writeFile(tmpPath, JSON.stringify(persistable, null, 2), "utf8");
+    await copyFile(this.filePath, `${this.filePath}.bak`).catch(() => undefined);
+    await renameWithRetry(tmpPath, this.filePath);
   }
 
   /**
