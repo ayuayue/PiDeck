@@ -38,7 +38,7 @@ let polling = false;
 let pollTimer: number | undefined;
 const runtimeListeners = new Set<(event: SessionRuntimeEvent) => void>();
 let lastRuntimeBySession = new Map<string, SessionRuntimeInfo>();
-let lastSessionMessages = new Map<string, string>();
+const lastSessionMessages = new Map<string, string>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
