@@ -302,7 +302,17 @@ export class ImageSessionStore {
 			(image) => typeof image?.data === "string" && image.data.length > 0,
 		);
 		if (!hasInline) return trimmed;
-		return JSON.stringify(await this.toStoredMessage(parsed));
+		const stored = await this.toStoredMessage(parsed);
+		// 迁移不丢图（M5）：原图数 ≠ 落库后图数说明有图片没能换成 ref
+		//（base64 非法 / 超 IMAGE_BLOB_MAX_BYTES / blob 写盘失败），该行原样保留——
+		// 与损坏行同策略。迁移的 writeFileAtomic 会覆盖原文件，旧 base64 一旦被
+		// 无图行替换就永久丢失；宁可保留旧行也不静默删掉用户唯一的图片副本。
+		// 注意计数口径是「原始 images 总数（含已带合法 ref 的图）」：toStoredMessage
+		// 对既无 ref 又无 data 的畸形图同样丢弃，按总数比较可一并兜住。
+		const before = images?.length ?? 0;
+		const after = stored.images?.length ?? 0;
+		if (before !== after) return trimmed;
+		return JSON.stringify(stored);
 	}
 
 	/** 超过字节水位时压缩：保留尾部预算内的行，重写一次文件并回收孤儿图片。 */
