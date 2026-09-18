@@ -30,21 +30,28 @@ function loadAgentIdentity() {
     fileName: filePath,
   }).outputText;
   const module = { exports: {} };
-  vm.runInNewContext(output, {
-    module,
-    exports: module.exports,
-    require: (specifier) => {
-      if (specifier === "../../shared/sessionIdentity") return identity;
-      throw new Error(`Unexpected import: ${specifier}`);
+  vm.runInNewContext(
+    output,
+    {
+      module,
+      exports: module.exports,
+      require: (specifier) => {
+        if (specifier === "../../shared/sessionIdentity") return identity;
+        throw new Error(`Unexpected import: ${specifier}`);
+      },
     },
-  }, { filename: filePath });
+    { filename: filePath },
+  );
   return module.exports;
 }
 
 test("treats pi JSONL file-stem timestamps as placeholders, not session titles", () => {
   const { looksLikePiSessionFileStem } = loadModule();
   // 文件名把 ISO 的 `:` / `.` 换成 `-`：`19-239Z` 不是 `.239Z`。
-  assert.equal(looksLikePiSessionFileStem("2026-08-08T10-47-19-239Z_abc"), true);
+  assert.equal(
+    looksLikePiSessionFileStem("2026-08-08T10-47-19-239Z_abc"),
+    true,
+  );
   assert.equal(looksLikePiSessionFileStem("2026-08-08T10:47:19.239Z"), true);
   assert.equal(looksLikePiSessionFileStem("2026-08-08T10-47-19Z"), true);
   assert.equal(looksLikePiSessionFileStem("帮我看看这个报错"), false);
@@ -54,7 +61,10 @@ test("treats pi JSONL file-stem timestamps as placeholders, not session titles",
 test("canonicalizes native session paths without collapsing WSL case", () => {
   const { canonicalizeSessionPath } = loadModule();
   assert.equal(
-    canonicalizeSessionPath("C:\\Users\\Dev\\.pi\\sessions\\A.jsonl/", "native"),
+    canonicalizeSessionPath(
+      "C:\\Users\\Dev\\.pi\\sessions\\A.jsonl/",
+      "native",
+    ),
     "c:/users/dev/.pi/sessions/a.jsonl",
   );
   assert.equal(
@@ -102,7 +112,9 @@ test("isValidPiSessionFileHead accepts real pi session headers", () => {
   assert.equal(isValidPiSessionFileHead(real), true);
   // session_info 作为首条（带 type）亦接受，兼容历史格式与导入会话。
   assert.equal(
-    isValidPiSessionFileHead(`${JSON.stringify({ type: "session_info", name: "x", cwd: "C:/repo" })}\n`),
+    isValidPiSessionFileHead(
+      `${JSON.stringify({ type: "session_info", name: "x", cwd: "C:/repo" })}\n`,
+    ),
     true,
   );
 });
@@ -119,19 +131,28 @@ test("isValidPiSessionFileHead rejects pi-subagents transcript dumps without a t
     cwd: "C:/repo",
     sourceEventType: "initial_prompt",
     role: "user",
-    message: { role: "user", content: [{ type: "text", text: "review prompt" }] },
+    message: {
+      role: "user",
+      content: [{ type: "text", text: "review prompt" }],
+    },
   })}\n`;
-  assert.equal(isValidPiSessionFileHead(transcript), false, "transcript without type header must be rejected");
+  assert.equal(
+    isValidPiSessionFileHead(transcript),
+    false,
+    "transcript without type header must be rejected",
+  );
 });
 
 test("isValidPiSessionFileHead skips legacy sessionName heads before judging the first real record", () => {
   const { isValidPiSessionFileHead } = loadModule();
   // 旧版 PiDeck 私有 sessionName 头行（#114 存量损坏）：跳过后首条真实记录带 type → 接受。
-  const legacyHead = `${JSON.stringify({ sessionName: "老版私有头", ts: 1 })}\n${JSON.stringify({
-    type: "session_info",
-    name: "老版私有头",
-    cwd: "C:/repo",
-  })}\n`;
+  const legacyHead = `${JSON.stringify({ sessionName: "老版私有头", ts: 1 })}\n${JSON.stringify(
+    {
+      type: "session_info",
+      name: "老版私有头",
+      cwd: "C:/repo",
+    },
+  )}\n`;
   assert.equal(isValidPiSessionFileHead(legacyHead), true);
   // 空/损坏内容不接受。
   assert.equal(isValidPiSessionFileHead(""), false);
@@ -145,23 +166,35 @@ test("AgentManager keys preserve WSL case and identity at the process boundary",
     wslDistro: "Ubuntu",
     wslUser: "dev",
   };
-  const upper = buildAgentSessionKey({
-    projectId: "project-1",
-    sessionPath: "/home/dev/Case.jsonl",
-  }, defaults);
-  const lower = buildAgentSessionKey({
-    projectId: "project-1",
-    sessionPath: "/home/dev/case.jsonl",
-  }, defaults);
-  const otherDistro = buildAgentSessionKey({
-    projectId: "project-1",
-    sessionPath: "/home/dev/Case.jsonl",
-    wslDistro: "Debian",
-  }, defaults);
+  const upper = buildAgentSessionKey(
+    {
+      projectId: "project-1",
+      sessionPath: "/home/dev/Case.jsonl",
+    },
+    defaults,
+  );
+  const lower = buildAgentSessionKey(
+    {
+      projectId: "project-1",
+      sessionPath: "/home/dev/case.jsonl",
+    },
+    defaults,
+  );
+  const otherDistro = buildAgentSessionKey(
+    {
+      projectId: "project-1",
+      sessionPath: "/home/dev/Case.jsonl",
+      wslDistro: "Debian",
+    },
+    defaults,
+  );
   assert.notEqual(upper, lower);
   assert.notEqual(upper, otherDistro);
 
-  const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+  const agentManagerSource = readFileSync(
+    "src/main/pi/AgentManager.ts",
+    "utf8",
+  );
   assert.match(agentManagerSource, /buildAgentSessionKey\(\s*input/);
   assert.doesNotMatch(agentManagerSource, /normalizeSessionPathForCompare/);
 });
@@ -174,7 +207,11 @@ test("AgentManager keys preserve WSL case and identity at the process boundary",
 test("resolves a native relative sessionFile against the project path", () => {
   const { toAbsoluteSessionPath } = loadModule();
   assert.equal(
-    toAbsoluteSessionPath(".pi\\sessions\\2026-08-08T10-47-19-239Z_abc.jsonl", "D:\\Project\\PiDeck", "native"),
+    toAbsoluteSessionPath(
+      ".pi\\sessions\\2026-08-08T10-47-19-239Z_abc.jsonl",
+      "D:\\Project\\PiDeck",
+      "native",
+    ),
     "D:\\Project\\PiDeck\\.pi\\sessions\\2026-08-08T10-47-19-239Z_abc.jsonl",
   );
 });
@@ -182,7 +219,11 @@ test("resolves a native relative sessionFile against the project path", () => {
 test("resolves native relative paths with forward slashes and normalizes output to backslashes", () => {
   const { toAbsoluteSessionPath } = loadModule();
   assert.equal(
-    toAbsoluteSessionPath(".pi/sessions/session.jsonl", "D:/Project/PiDeck", "native"),
+    toAbsoluteSessionPath(
+      ".pi/sessions/session.jsonl",
+      "D:/Project/PiDeck",
+      "native",
+    ),
     "D:\\Project\\PiDeck\\.pi\\sessions\\session.jsonl",
   );
 });
@@ -190,11 +231,19 @@ test("resolves native relative paths with forward slashes and normalizes output 
 test("passes through already-absolute native and WSL paths", () => {
   const { toAbsoluteSessionPath } = loadModule();
   assert.equal(
-    toAbsoluteSessionPath("C:\\Users\\dev\\.pi\\sessions\\a.jsonl", "D:\\Project", "native"),
+    toAbsoluteSessionPath(
+      "C:\\Users\\dev\\.pi\\sessions\\a.jsonl",
+      "D:\\Project",
+      "native",
+    ),
     "C:\\Users\\dev\\.pi\\sessions\\a.jsonl",
   );
   assert.equal(
-    toAbsoluteSessionPath("/mnt/d/Project/.pi/sessions/a.jsonl", "D:\\Project", "wsl"),
+    toAbsoluteSessionPath(
+      "/mnt/d/Project/.pi/sessions/a.jsonl",
+      "D:\\Project",
+      "wsl",
+    ),
     "/mnt/d/Project/.pi/sessions/a.jsonl",
   );
 });
@@ -202,7 +251,11 @@ test("passes through already-absolute native and WSL paths", () => {
 test("resolves a WSL relative sessionFile against the /mnt/<drive> project base", () => {
   const { toAbsoluteSessionPath } = loadModule();
   assert.equal(
-    toAbsoluteSessionPath(".pi/sessions/session.jsonl", "D:\\Project\\PiDeck", "wsl"),
+    toAbsoluteSessionPath(
+      ".pi/sessions/session.jsonl",
+      "D:\\Project\\PiDeck",
+      "wsl",
+    ),
     "/mnt/d/Project/PiDeck/.pi/sessions/session.jsonl",
   );
 });
@@ -212,7 +265,11 @@ test("relative and absolute forms canonicalize to the same origin key", () => {
   const relative = buildSessionOriginKey({
     source: "pi",
     environment: "native",
-    filePath: toAbsoluteSessionPath(".pi/sessions/session.jsonl", "D:\\Project\\PiDeck", "native"),
+    filePath: toAbsoluteSessionPath(
+      ".pi/sessions/session.jsonl",
+      "D:\\Project\\PiDeck",
+      "native",
+    ),
   });
   const absolute = buildSessionOriginKey({
     source: "pi",

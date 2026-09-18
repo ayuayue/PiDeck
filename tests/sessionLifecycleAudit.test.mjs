@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+const read = (p) =>
+  readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
 const coordinator = read("main/sessions/SessionRuntimeCoordinator.ts");
 const agentManager = read("main/pi/AgentManager.ts");
 const settingsStore = read("main/settings/SettingsStore.ts");
@@ -22,22 +23,43 @@ const securityStore = read("main/security/SecurityStore.ts");
 
 test("SessionRuntimeCoordinator exposes a full lifecycle logger interface", () => {
   assert.match(coordinator, /export interface SessionRuntimeLogger \{/);
-  assert.match(coordinator, /info\(scope: string, message: string, detail\?: unknown\): unknown;/);
-  assert.match(coordinator, /warn\(scope: string, message: string, detail\?: unknown\): unknown;/);
-  assert.match(coordinator, /error\(scope: string, message: string, detail\?: unknown\): unknown;/);
+  assert.match(
+    coordinator,
+    /info\(scope: string, message: string, detail\?: unknown\): unknown;/,
+  );
+  assert.match(
+    coordinator,
+    /warn\(scope: string, message: string, detail\?: unknown\): unknown;/,
+  );
+  assert.match(
+    coordinator,
+    /error\(scope: string, message: string, detail\?: unknown\): unknown;/,
+  );
   // 构造器第 4 参必须是 logger（不能再叫 perfLogger）
   assert.match(coordinator, /private readonly logger\?: SessionRuntimeLogger,/);
 });
 
 test("session runtime lifecycle events are logged", () => {
-  assert.match(coordinator, /"Runtime activated", \{\s*sessionId,\s*agentId: tab\.id,\s*status: tab\.status,/);
+  assert.match(
+    coordinator,
+    /"Runtime activated", \{\s*sessionId,\s*agentId: tab\.id,\s*status: tab\.status,/,
+  );
   // stopTarget：stopTarget 与日志解耦重命名（原始渲染层目标单独入日志），覆盖语义不变
-  assert.match(coordinator, /"Runtime stopped", \{\s*sessionId: stopTarget\.sessionId,\s*agentId: stopTarget\.agentId,\s*runtimeGeneration: stopTarget\.runtimeGeneration,/);
+  assert.match(
+    coordinator,
+    /"Runtime stopped", \{\s*sessionId: stopTarget\.sessionId,\s*agentId: stopTarget\.agentId,\s*runtimeGeneration: stopTarget\.runtimeGeneration,/,
+  );
   assert.match(coordinator, /"Runtime restarted"/);
   assert.match(coordinator, /"Runtime renamed"/);
-  assert.match(coordinator, /"Runtime model changed", \{\s*sessionId: target\.sessionId,\s*agentId,\s*provider,\s*modelId,/);
+  assert.match(
+    coordinator,
+    /"Runtime model changed", \{\s*sessionId: target\.sessionId,\s*agentId,\s*provider,\s*modelId,/,
+  );
   assert.match(coordinator, /"Runtime thinking changed"/);
-  assert.match(coordinator, /"Anonymous runtime bound", \{\s*sessionId,\s*agentId,\s*runtimeGeneration,/);
+  assert.match(
+    coordinator,
+    /"Anonymous runtime bound", \{\s*sessionId,\s*agentId,\s*runtimeGeneration,/,
+  );
   assert.match(coordinator, /"Focused session changed", \{ sessionId \}\)/);
   assert.match(coordinator, /"Agent stopped \(unbound\)", \{ agentId \}\)/);
 });
@@ -45,23 +67,41 @@ test("session runtime lifecycle events are logged", () => {
 test("agent process exit disposition decisions are logged", () => {
   assert.match(agentManager, /"Agent restart requested"/);
   assert.match(agentManager, /"Agent stopped \(user initiated\)"/);
-  assert.match(agentManager, /"Agent process exit handled: user-initiated stop"/);
-  assert.match(agentManager, /"Agent process exit handled: compaction in progress"/);
+  assert.match(
+    agentManager,
+    /"Agent process exit handled: user-initiated stop"/,
+  );
+  assert.match(
+    agentManager,
+    /"Agent process exit handled: compaction in progress"/,
+  );
   assert.match(agentManager, /"Agent process exited cleanly; auto-restarting"/);
   assert.match(agentManager, /"Agent auto-restart failed"/);
 });
 
 test("settings changes are logged once, key names only, never values", () => {
-  assert.match(settingsStore, /getAppLogger\(\)\?\.info\("settings", "Settings updated", \{\s*keys: Object\.keys\(safePatch\),?\s*\}\)/);
+  assert.match(
+    settingsStore,
+    /getAppLogger\(\)\?\.info\("settings", "Settings updated", \{\s*keys: Object\.keys\(safePatch\),?\s*\}\)/,
+  );
   // IPC 层不得重复记录（统一下沉到 SettingsStore.update，防双写噪音）
   assert.doesNotMatch(systemIpc, /"Settings updated"/);
 });
 
 test("session write operations are logged", () => {
-  assert.match(sessionIpc, /"Session draft created", \{\s*sessionId: draft\.id,/);
-  assert.match(sessionIpc, /"Anonymous session created", \{\s*sessionId: result\.session\.id,/);
+  assert.match(
+    sessionIpc,
+    /"Session draft created", \{\s*sessionId: draft\.id,/,
+  );
+  assert.match(
+    sessionIpc,
+    /"Anonymous session created", \{\s*sessionId: result\.session\.id,/,
+  );
   assert.match(sessionIpc, /"Session renamed \(file\)"/);
-  assert.match(sessionIpc, /"Session copied", \{\s*sessionId,\s*targetSessionId:/);
+  assert.match(
+    sessionIpc,
+    /"Session copied", \{\s*sessionId,\s*targetSessionId:/,
+  );
   assert.match(sessionIpc, /"Session exported \(catalog HTML\)"/);
   assert.match(sessionIpc, /"Session exported \(runtime HTML\)"/);
   assert.match(sessionIpc, /"Codex sessions imported"/);
@@ -74,12 +114,24 @@ test("sensitive operations leave audit traces", () => {
   // 清日志留痕带清除前文件数
   assert.match(appLogger, /"Logs cleared", \{ files: before\.length \}\)/);
   // spawn 失败双写日志文件（pre-listener sink）
-  assert.match(piProcess, /getAppLogger\(\)\?\.error\("pi-process", "Spawn error \(pre-listener sink\)"/);
-  assert.match(piProcess, /getAppLogger\(\)\?\.debug\("pi-process", "Pi process spawn"/);
+  assert.match(
+    piProcess,
+    /getAppLogger\(\)\?\.error\("pi-process", "Spawn error \(pre-listener sink\)"/,
+  );
+  assert.match(
+    piProcess,
+    /getAppLogger\(\)\?\.debug\("pi-process", "Pi process spawn"/,
+  );
   // 背景图删除留痕
-  assert.match(backgroundsIpc, /getAppLogger\(\)\?\.info\("backgrounds", "Background image removed", \{ name \}\)/);
+  assert.match(
+    backgroundsIpc,
+    /getAppLogger\(\)\?\.info\("backgrounds", "Background image removed", \{ name \}\)/,
+  );
   // 会话级安全级别变更留痕（含 from/to）
-  assert.match(securityStore, /"Session security level changed", \{\s*sessionId,\s*from: prev,\s*to:/);
+  assert.match(
+    securityStore,
+    /"Session security level changed", \{\s*sessionId,\s*from: prev,\s*to:/,
+  );
 });
 
 test("second-wave audit: proxy, single-instance, catalog, clone/fork", () => {
@@ -91,24 +143,42 @@ test("second-wave audit: proxy, single-instance, catalog, clone/fork", () => {
   const gitIpc = read("main/ipc/gitIpc.ts");
   const index = read("main/index.ts");
   // 桌面代理：只记 mode 不记 proxyRules（URL 可能内嵌凭据）
-  assert.match(desktopProxy, /"Desktop proxy applied", \{ mode: config\.mode \}\)/);
+  assert.match(
+    desktopProxy,
+    /"Desktop proxy applied", \{ mode: config\.mode \}\)/,
+  );
   assert.match(desktopProxy, /"Desktop proxy apply failed"/);
   // 单实例生命周期
-  assert.match(singleInstance, /"Primary instance lock acquired", \{\s*version,\s*pid: process\.pid,/);
+  assert.match(
+    singleInstance,
+    /"Primary instance lock acquired", \{\s*version,\s*pid: process\.pid,/,
+  );
   assert.match(singleInstance, /"Secondary instance exiting; focus requested"/);
-  assert.match(singleInstance, /"Focus request received from secondary instance"/);
+  assert.match(
+    singleInstance,
+    /"Focus request received from secondary instance"/,
+  );
   // catalog 主文件+备份双损坏必须 error 级留痕
   assert.match(sessionCatalog, /"Catalog and backup both failed to load"/);
   assert.match(sessionCatalog, /getAppLogger\(\)\?\.error\("session-catalog"/);
   // 损坏 catalog 不得阻断打包启动（否则窗口永不出现）
   assert.match(sessionCatalog, /this\.entries = \[\];/);
-  assert.doesNotMatch(sessionCatalog, /Failed to load Session catalog or backup/);
+  assert.doesNotMatch(
+    sessionCatalog,
+    /Failed to load Session catalog or backup/,
+  );
   // SessionScanner JSONL 解析失败双写日志
-  assert.match(sessionScanner, /"Skipped unparseable JSONL line", \{ filePath \}\)/);
+  assert.match(
+    sessionScanner,
+    /"Skipped unparseable JSONL line", \{ filePath \}\)/,
+  );
   // 视觉桥配置写盘：只记 provider/hasApiKey，不记 key 值
   assert.match(visionConfig, /"Vision config saved", \{\s*provider:/);
   assert.match(visionConfig, /hasApiKey: Boolean/);
   // git init / web 服务回退留痕
-  assert.match(gitIpc, /"Repository initialized", \{\s*projectId,\s*path: project\.path,\s*\}\)/);
+  assert.match(
+    gitIpc,
+    /"Repository initialized", \{\s*projectId,\s*path: project\.path,\s*\}\)/,
+  );
   assert.match(index, /"Web service disabled after apply failure"/);
 });

@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+const read = (p) =>
+  readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
 const trash = read("main/fs/trash.ts");
 const gitIpc = read("main/ipc/gitIpc.ts");
 const skillManager = read("main/skills/SkillManager.ts");
@@ -35,7 +36,10 @@ const TRASH_CALLERS = [
 
 test("trashPath records success (warn) and failure (error) audit entries with path+source", () => {
   assert.match(trash, /getAppLogger\(\)\?\.warn\("fs:trash", "文件移入回收站"/);
-  assert.match(trash, /getAppLogger\(\)\?\.error\("fs:trash", "移入回收站失败"/);
+  assert.match(
+    trash,
+    /getAppLogger\(\)\?\.error\("fs:trash", "移入回收站失败"/,
+  );
   assert.match(trash, /path: targetPath/);
   assert.match(trash, /source: context\.source/);
   // 失败必须继续抛错：删除失败比永久丢失安全
@@ -46,27 +50,64 @@ test("every delete entry point passes a source context", () => {
   for (const [file, source] of TRASH_CALLERS) {
     const content = read(file);
     // 只断言 source 存在（trashPath 带嵌套括号的参数匹配脆弱，可能误报）
-    assert.match(content, new RegExp(`source: "${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`), `${file} must use source "${source}"`);
+    assert.match(
+      content,
+      new RegExp(`source: "${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${file} must use source "${source}"`,
+    );
   }
 });
 
 test("SkillManager.delete goes to recycle bin, no rm force on user skills", () => {
-  assert.match(skillManager, /trashPath\(skill\.type === "directory" \? skill\.dir : skill\.path, \{ source: "skills:delete" \}\)/);
-  const deleteBlock = skillManager.slice(skillManager.indexOf("async delete(skillPath"), skillManager.indexOf("async openFolder"));
+  assert.match(
+    skillManager,
+    /trashPath\(skill\.type === "directory" \? skill\.dir : skill\.path, \{ source: "skills:delete" \}\)/,
+  );
+  const deleteBlock = skillManager.slice(
+    skillManager.indexOf("async delete(skillPath"),
+    skillManager.indexOf("async openFolder"),
+  );
   assert.doesNotMatch(deleteBlock, /\brm\(/);
 });
 
 test("destructive git operations leave audit traces", () => {
   // git 审计日志带 repoPath: cwd（多仓库支持后统一补字段）
-  assert.match(gitIpc, /appLogger\.warn\("git", "Files deleted \(recycle bin\)", \{\s*projectId,\s*count: paths\.length,\s*paths,\s*repoPath: cwd,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.warn\("git", "Reset to commit", \{\s*projectId,\s*hash,\s*mode,\s*repoPath: cwd,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.warn\("git", "Commit dropped", \{\s*projectId,\s*hash,\s*repoPath: cwd,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.warn\("git", "Branch checked out", \{\s*projectId,\s*branch,\s*repoPath: cwd,\s*changed: result,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Commit created", \{\s*projectId,\s*message,\s*repoPath: cwd,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Commit cherry-picked", \{\s*projectId,\s*hash,\s*repoPath: cwd,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Commit reverted", \{\s*projectId,\s*hash,\s*repoPath: cwd,\s*\}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Pushed", \{ projectId, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Pulled", \{ projectId, repoPath: cwd \}\)/);
+  assert.match(
+    gitIpc,
+    /appLogger\.warn\("git", "Files deleted \(recycle bin\)", \{\s*projectId,\s*count: paths\.length,\s*paths,\s*repoPath: cwd,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.warn\("git", "Reset to commit", \{\s*projectId,\s*hash,\s*mode,\s*repoPath: cwd,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.warn\("git", "Commit dropped", \{\s*projectId,\s*hash,\s*repoPath: cwd,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.warn\("git", "Branch checked out", \{\s*projectId,\s*branch,\s*repoPath: cwd,\s*changed: result,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.info\("git", "Commit created", \{\s*projectId,\s*message,\s*repoPath: cwd,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.info\("git", "Commit cherry-picked", \{\s*projectId,\s*hash,\s*repoPath: cwd,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.info\("git", "Commit reverted", \{\s*projectId,\s*hash,\s*repoPath: cwd,\s*\}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.info\("git", "Pushed", \{ projectId, repoPath: cwd \}\)/,
+  );
+  assert.match(
+    gitIpc,
+    /appLogger\.info\("git", "Pulled", \{ projectId, repoPath: cwd \}\)/,
+  );
 });
 
 test("LogViewer uses paginated listPage with table and pagination components", () => {

@@ -41,13 +41,19 @@ test("timeline tool rendering and message rows share formatting helpers", () => 
   assert.match(toolCalls, /from "\.\/TimelineFormat"/);
   assert.match(surface, /from "\.\/TimelineFormat"/);
   // 文件修改/工具名解析已迁往 shared/fileChanges（main/renderer 共用），TimelineFormat re-export 保持兼容
-  assert.match(timelineFormat, /export \{ collectSessionFileChanges, getToolDiffTarget, getToolName, stripAnsi \};/);
+  assert.match(
+    timelineFormat,
+    /export \{ collectSessionFileChanges, getToolDiffTarget, getToolName, stripAnsi \};/,
+  );
   assert.match(timelineFormat, /export function formatDuration/);
   assert.match(timelineFormat, /export function getToolStatus/);
 });
 
 test("tool and thinking disclosure icons use right-for-collapsed down-for-expanded semantics", () => {
-  assert.match(toolCalls, /\{expanded \? \([\s\S]*<ChevronDown[\s\S]*\) : \([\s\S]*<ChevronRight/);
+  assert.match(
+    toolCalls,
+    /\{expanded \? \([\s\S]*<ChevronDown[\s\S]*\) : \([\s\S]*<ChevronRight/,
+  );
 });
 
 test("embedded tool result keeps formatted beUI output while the trigger remains manual", () => {
@@ -62,7 +68,10 @@ test("embedded tool result keeps formatted beUI output while the trigger remains
   // ToolCard's own disclosure stays opt-in even while a tool is streaming.
   assert.match(toolCalls, /useState\(props\.defaultOpen \?\? false\)/);
   // The official header's icon gutter is only used when that header is rendered.
-  assert.match(toolResult, /className=\{cn\("pt-1\.5", showHeader && "pl-6"\)\}/);
+  assert.match(
+    toolResult,
+    /className=\{cn\("pt-1\.5", showHeader && "pl-6"\)\}/,
+  );
   // Embedded ToolCard results stay in the timeline instead of gaining a second rounded surface.
   assert.match(
     toolResult,
@@ -74,13 +83,22 @@ test("embedded tool result keeps formatted beUI output while the trigger remains
   assert.match(toolResult, /text-\[length:var\(--font-size-caption\)\]/);
   assert.match(toolResult, /leading-\[1\.625\]/);
   assert.match(toolResult, /text-\[color:var\(--color-text-secondary\)\]/);
-  assert.match(toolResult, /\[&_span\]:text-\[color:var\(--color-text-secondary\)\]/);
+  assert.match(
+    toolResult,
+    /\[&_span\]:text-\[color:var\(--color-text-secondary\)\]/,
+  );
   // Standalone beUI ToolResult states use PiDeck semantics rather than fixed Tailwind hues.
   assert.match(toolResult, /if \(status === "running"\) return "text-info";/);
-  assert.match(toolResult, /if \(status === "success"\) return "text-success";/);
+  assert.match(
+    toolResult,
+    /if \(status === "success"\) return "text-success";/,
+  );
   assert.match(toolResult, /if \(status === "error"\) return "text-danger";/);
   assert.match(toolResult, /return "text-text-tertiary";/);
-  assert.doesNotMatch(toolResult, /text-blue-600|text-emerald-600|text-rose-600/);
+  assert.doesNotMatch(
+    toolResult,
+    /text-blue-600|text-emerald-600|text-rose-600/,
+  );
   assert.match(toolResult, /if \(!showHeader\) return;/);
 });
 
@@ -108,14 +126,23 @@ test("edit/write diff cards expose an accessible open-file action", () => {
   assert.match(toolCalls, /className="mb-1\.5 flex min-w-0 items-start gap-1"/);
   assert.match(toolCalls, /aria-label=\{t\("tool\.openFile"\)\}/);
   assert.match(toolCalls, /title=\{t\("tool\.openFile"\)\}/);
-  assert.match(toolCalls, /onClick=\{\(\) => props\.onOpenFile\?\.\(diffTarget\.path\)\}/);
+  assert.match(
+    toolCalls,
+    /onClick=\{\(\) => props\.onOpenFile\?\.\(diffTarget\.path\)\}/,
+  );
   assert.match(toolCalls, /onOpenFile=\{props\.onOpenFile\}/);
   assert.match(
-    readFileSync("src/renderer/src/components/session/turn/ToolStep.tsx", "utf8"),
+    readFileSync(
+      "src/renderer/src/components/session/turn/ToolStep.tsx",
+      "utf8",
+    ),
     /onOpenFile=\{props\.onOpenFile\}/,
   );
   assert.match(
-    readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8"),
+    readFileSync(
+      "src/renderer/src/components/session/turn/TurnRow.tsx",
+      "utf8",
+    ),
     /<ToolStep[\s\S]*?onOpenFile=\{props\.onOpenFile\}/,
   );
   assert.match(
@@ -127,13 +154,25 @@ test("edit/write diff cards expose an accessible open-file action", () => {
     /"tool\.openFile": "Open file"/,
   );
   // 每个分屏栏在 injector 绑定自己的 runtime cwd/project；App 只消费这份上下文。
-  assert.match(runtimeInjector, /paneProjectId =\s*currentSessionRuntime\?\.projectId \?\?\s*sessionRecord\?\.projectId/);
-  assert.match(runtimeInjector, /baseDir: currentSessionRuntime\?\.cwd \?\? paneProject\?\.path/);
+  assert.match(
+    runtimeInjector,
+    /paneProjectId =\s*currentSessionRuntime\?\.projectId \?\?\s*sessionRecord\?\.projectId/,
+  );
+  assert.match(
+    runtimeInjector,
+    /baseDir: currentSessionRuntime\?\.cwd \?\? paneProject\?\.path/,
+  );
   assert.match(runtimeInjector, /projectId: paneProjectId \|\| undefined/);
-  assert.match(runtimeInjector, /services\.onOpenFile\(path, line, paneFileContext\)/);
+  assert.match(
+    runtimeInjector,
+    /services\.onOpenFile\(path, line, paneFileContext\)/,
+  );
   assert.match(app, /if \(context && !projectId\)/);
   assert.match(app, /resolveFileLinkPath\(path, baseDir, projectRoot\)/);
-  assert.match(app, /viewFilePath\(resolved, undefined, line, fileAccessScope\)/);
+  assert.match(
+    app,
+    /viewFilePath\(resolved, undefined, line, fileAccessScope\)/,
+  );
   assert.match(app, /readBase64\(resolved, undefined, fileAccessScope\)/);
   assert.match(app, /mimeType: imageMimeTypeFromPath\(resolved\)/);
   assert.doesNotMatch(app, /dataUrl\.match\(\/\^data:/);
@@ -146,20 +185,36 @@ test("edit/write diff cards expose an accessible open-file action", () => {
 test("thinking and tool logos keep a distinct color even on the default zinc theme", () => {
   // 默认主题会把 brand-purple 洗成灰；过程行 logo 必须用独立 token，否则和 tertiary 糊在一起。
   const css = readFileSync("src/renderer/src/styles/timeline.css", "utf8");
-  const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
-  const cards = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
+  const foundation = readFileSync(
+    "src/renderer/src/styles/foundation.css",
+    "utf8",
+  );
+  const cards = readFileSync(
+    "src/renderer/src/components/session/TimelineEventCards.tsx",
+    "utf8",
+  );
   const web = readFileSync("src/renderer/src/web/WebTimeline.tsx", "utf8");
   assert.match(foundation, /--color-thinking:\s*#6366f1/);
   assert.match(foundation, /--color-thinking:\s*#818cf8/);
-  assert.match(css, /\.thinking-row-icon \{[\s\S]*?color:\s*var\(--color-thinking\)/);
+  assert.match(
+    css,
+    /\.thinking-row-icon \{[\s\S]*?color:\s*var\(--color-thinking\)/,
+  );
   assert.match(css, /\.tool-card-icon \{[\s\S]*?color:\s*var\(--color-info\)/);
-  const skillIcon = css.match(/\.tool-card--skill \.tool-card-icon \{[\s\S]*?\n\}/)?.[0] ?? "";
+  const skillIcon =
+    css.match(/\.tool-card--skill \.tool-card-icon \{[\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(skillIcon, /color:\s*var\(--color-thinking\)/);
   assert.doesNotMatch(skillIcon, /--color-brand-purple/);
   assert.match(cards, /className="thinking-row-icon shrink-0"/);
   assert.match(web, /className="thinking-row-icon"/);
-  assert.match(toolCalls, /className="tool-card-icon inline-flex shrink-0 items-center justify-center"/);
-  assert.doesNotMatch(toolCalls, /className="tool-card-icon[^"\n]*text-text-tertiary/);
+  assert.match(
+    toolCalls,
+    /className="tool-card-icon inline-flex shrink-0 items-center justify-center"/,
+  );
+  assert.doesNotMatch(
+    toolCalls,
+    /className="tool-card-icon[^"\n]*text-text-tertiary/,
+  );
 });
 
 // 状态徽章（借鉴 AI Elements Tool 的 getStatusBadge）：running/error/done 三态
@@ -168,16 +223,28 @@ test("tool card renders tri-state status badges with icons and i18n labels", () 
   // 三态共用 shadcn Badge 组件
   assert.match(toolCalls, /import \{ Badge \} from "\.\.\/ui-shadcn\/badge"/);
   // running：outline + 琥珀色警示位 + spinner（随 trigger 行紧凑化收紧内边距）
-  assert.match(toolCalls, /variant="outline" className="gap-1 border-warning\/40 px-1 py-0 text-micro text-warning"/);
+  assert.match(
+    toolCalls,
+    /variant="outline" className="gap-1 border-warning\/40 px-1 py-0 text-micro text-warning"/,
+  );
   assert.match(toolCalls, /t\("tool\.statusRunning"\)/);
   // error：soft 红 outline（danger-soft 底 + danger 字 + 描边，与 running 琥珀同构）
-  assert.match(toolCalls, /variant="outline" className="gap-1 border-danger\/40 bg-danger-soft px-1 py-0 text-micro text-danger"/);
+  assert.match(
+    toolCalls,
+    /variant="outline" className="gap-1 border-danger\/40 bg-danger-soft px-1 py-0 text-micro text-danger"/,
+  );
   assert.match(toolCalls, /<CircleX size=\{9\}/);
   assert.match(toolCalls, /t\("tool\.statusError"\)/);
   // done：secondary 低强调 + CircleCheck 图标；ask_question 已回答时文案替换为「已回答」
-  assert.match(toolCalls, /variant="secondary" className="gap-1 px-1 py-0 text-micro"/);
+  assert.match(
+    toolCalls,
+    /variant="secondary" className="gap-1 px-1 py-0 text-micro"/,
+  );
   assert.match(toolCalls, /<CircleCheck size=\{9\}/);
-  assert.match(toolCalls, /askCard\?\.answered \? t\("ask\.answered"\) : t\("tool\.statusDone"\)/);
+  assert.match(
+    toolCalls,
+    /askCard\?\.answered \? t\("ask\.answered"\) : t\("tool\.statusDone"\)/,
+  );
   // 旧实现「完成后不显示状态」的空文案分支已移除
   assert.doesNotMatch(toolCalls, /statusLabel/);
 });

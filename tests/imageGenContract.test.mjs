@@ -12,10 +12,22 @@ const preload = readFileSync("src/preload/index.ts", "utf8");
 const mainIndex = readFileSync("src/main/index.ts", "utf8");
 const imagegenIpc = readFileSync("src/main/ipc/imagegenIpc.ts", "utf8");
 const agentTypes = readFileSync("src/shared/types/agent.ts", "utf8");
-const composerComponents = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-const composerModeSelect = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
-const composerPanels = readFileSync("src/renderer/src/components/session/ComposerPanels.tsx", "utf8");
+const composerComponents = readFileSync(
+	"src/renderer/src/components/session/ComposerComponents.tsx",
+	"utf8",
+);
+const composerModeSelect = readFileSync(
+	"src/renderer/src/components/session/ComposerComponents.tsx",
+	"utf8",
+);
+const controller = readFileSync(
+	"src/renderer/src/hooks/useSessionComposerController.ts",
+	"utf8",
+);
+const composerPanels = readFileSync(
+	"src/renderer/src/components/session/ComposerPanels.tsx",
+	"utf8",
+);
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 // 设置页 tab 的标题 i18n key 已收敛到这份布局模块（命令面板 Ctrl+P 搜设置项复用同一份）
@@ -49,16 +61,25 @@ test("IPC 通道三处同步：read-image-blob（按需取回落盘图片）", (
 });
 
 test("生图图片落盘：blob 存储 + pideck-img 协议 + CSP 允许", () => {
-	const protocol = readFileSync("src/main/imagegen/ImageGenImageProtocol.ts", "utf8");
+	const protocol = readFileSync(
+		"src/main/imagegen/ImageGenImageProtocol.ts",
+		"utf8",
+	);
 	const blobStore = readFileSync("src/main/imagegen/ImageBlobStore.ts", "utf8");
-	const sessionStore = readFileSync("src/main/imagegen/ImageSessionStore.ts", "utf8");
+	const sessionStore = readFileSync(
+		"src/main/imagegen/ImageSessionStore.ts",
+		"utf8",
+	);
 	const html = readFileSync("src/renderer/index.html", "utf8");
 	// 装配：两个磁盘根同源解析 + 协议注册 + 按需读取回灌
 	assert.match(mainIndex, /new ImageBlobStore\(/);
 	assert.match(mainIndex, /resolveImageGenStorageRoots\(\)/);
 	assert.match(mainIndex, /registerImageGenImageProtocol\(imageBlobStore\)/);
 	assert.match(mainIndex, /scheme: "pideck-img"/);
-	assert.match(mainIndex, /readImageBlob: \(ref\) => imageBlobStore\.readPayload\(ref\)/);
+	assert.match(
+		mainIndex,
+		/readImageBlob: \(ref\) => imageBlobStore\.readPayload\(ref\)/,
+	);
 	// 协议：白名单解析 + 只允许 blobs 目录内的引用名
 	assert.match(protocol, /protocol\.handle\(IMAGE_BLOB_PROTOCOL/);
 	assert.match(protocol, /blobs\.resolvePath\(ref\)/);
@@ -70,14 +91,20 @@ test("生图图片落盘：blob 存储 + pideck-img 协议 + CSP 允许", () => 
 	assert.match(sessionStore, /readTailLines/);
 	// 回归守卫：每轮「全量读 + 全量重写」是 246 MB 事故的直接成因，必须只追加
 	assert.match(sessionStore, /appendFile\(file/);
-	assert.doesNotMatch(sessionStore, /import \{[^}]*readFile[^}]*\} from "node:fs\/promises"/);
+	assert.doesNotMatch(
+		sessionStore,
+		/import \{[^}]*readFile[^}]*\} from "node:fs\/promises"/,
+	);
 	// CSP：渲染层 <img> 必须被允许加载 pideck-img:
 	assert.match(html, /img-src[^"]*pideck-img:/);
 });
 
 test("主进程装配：ImageGenConfigStore + 独立 userData/imagegen.json", () => {
 	assert.match(mainIndex, /new ImageGenConfigStore\(/);
-	assert.match(mainIndex, /join\(app\.getPath\("userData"\), "imagegen\.json"\)/);
+	assert.match(
+		mainIndex,
+		/join\(app\.getPath\("userData"\), "imagegen\.json"\)/,
+	);
 	assert.match(mainIndex, /registerImageGenIpc\(\{/);
 	assert.match(mainIndex, /imageGenConfig: imageGenConfigStore/);
 	assert.match(mainIndex, /extraParams: creds\.extraParams/);
@@ -94,21 +121,42 @@ test("IPC 入参校验：model/prompt 非空，prompt ≤ 4000，provider 可空
 	assert.match(imagegenIpc, /if \(!model \|\| !prompt/);
 	assert.match(imagegenIpc, /parseImageGenSize\(candidate\?\.size\)/);
 	assert.match(imagegenIpc, /parseImageGenWatermark\(candidate\?\.watermark/);
-	assert.match(imagegenIpc, /parseImageGenOutputFormat\(candidate\?\.outputFormat/);
-	assert.match(imagegenIpc, /imageGen\.generate\(\{ provider, model, prompt, size, watermark, outputFormat, referenceImages \}/);
+	assert.match(
+		imagegenIpc,
+		/parseImageGenOutputFormat\(candidate\?\.outputFormat/,
+	);
+	assert.match(
+		imagegenIpc,
+		/imageGen\.generate\(\{ provider, model, prompt, size, watermark, outputFormat, referenceImages \}/,
+	);
 	// 参考图入参在 IPC 边界整体校验，非法 all-or-null
 	assert.match(imagegenIpc, /parseImageGenReferenceImages/);
 });
 
 test("ComposerAgentMode 含 imagegen 与 goal", () => {
-	assert.match(agentTypes, /ComposerAgentMode = "normal" \| "plan" \| "imagegen" \| "goal"/);
+	assert.match(
+		agentTypes,
+		/ComposerAgentMode = "normal" \| "plan" \| "imagegen" \| "goal"/,
+	);
 });
 
 test("composer 生图底栏用独立配置，不读会话 LLM", () => {
-	const options = readFileSync("src/renderer/src/components/session/ComposerImageGenOptions.tsx", "utf8");
-	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
-	const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
-	const configUi = readFileSync("src/renderer/src/components/config/ImageGenSection.tsx", "utf8");
+	const options = readFileSync(
+		"src/renderer/src/components/session/ComposerImageGenOptions.tsx",
+		"utf8",
+	);
+	const area = readFileSync(
+		"src/renderer/src/components/session/ComposerArea.tsx",
+		"utf8",
+	);
+	const settingsModal = readFileSync(
+		"src/renderer/src/components/app/SettingsModal.tsx",
+		"utf8",
+	);
+	const configUi = readFileSync(
+		"src/renderer/src/components/config/ImageGenSection.tsx",
+		"utf8",
+	);
 	assert.match(composerComponents, /imageGenOptions\?:/);
 	assert.match(composerComponents, /ComposerImageGenOptions/);
 	assert.match(composerComponents, /isImageGenMode \? null/);
@@ -142,20 +190,35 @@ test("composer 模式选择器与底栏三态（含生图图标）", () => {
 	assert.match(composerModeSelect, /"app\.composerModeImagegen"/);
 	assert.match(composerModeSelect, /<Select/);
 	assert.match(composerModeSelect, /<ImageIcon size=\{14\}/);
-	assert.match(composerComponents, /ComposerPickerHost|composerModeLabel|modeOptions/);
-	assert.match(composerComponents, /const isImageGenMode = props\.composerAgentMode === "imagegen"/);
-	assert.doesNotMatch(composerComponents, /ComposerModePicker|onOpenComposerModePicker|composer-mode-picker/);
+	assert.match(
+		composerComponents,
+		/ComposerPickerHost|composerModeLabel|modeOptions/,
+	);
+	assert.match(
+		composerComponents,
+		/const isImageGenMode = props\.composerAgentMode === "imagegen"/,
+	);
+	assert.doesNotMatch(
+		composerComponents,
+		/ComposerModePicker|onOpenComposerModePicker|composer-mode-picker/,
+	);
 	assert.doesNotMatch(composerComponents, /onGenerateImage/);
 });
 
 test("controller：生图分支不 send、生图占位消息三态上屏（不进附件栏）、错误码映射", () => {
-	assert.match(controller, /if \(mode === "imagegen"\) \{\s*void generateImage\(\);\s*return;\s*\}/);
+	assert.match(
+		controller,
+		/if \(mode === "imagegen"\) \{\s*void generateImage\(\);\s*return;\s*\}/,
+	);
 	assert.match(controller, /desktopApi\.imagegen\.generate\(\{/);
 	assert.match(controller, /size: imageGenSize/);
 	assert.match(controller, /watermark: imageGenWatermark/);
 	assert.match(controller, /outputFormat: imageGenOutputFormat/);
 	assert.match(controller, /appendTimelineMessage/);
-	assert.match(controller, /setCacheMessages\(\{\s*sessionId,\s*messages: \[\.\.\.previous, message\],\s*source: "runtime",?\s*\}\)/);
+	assert.match(
+		controller,
+		/setCacheMessages\(\{\s*sessionId,\s*messages: \[\.\.\.previous, message\],\s*source: "runtime",?\s*\}\)/,
+	);
 	assert.match(controller, /role: "user"/);
 	assert.match(controller, /role: "assistant"/);
 	assert.match(controller, /stopReason: "stop"/);
@@ -165,10 +228,19 @@ test("controller：生图分支不 send、生图占位消息三态上屏（不�
 	assert.match(controller, /imageGen: \{\s*status: "complete",\s*prompt/);
 	assert.match(controller, /images: \[result\.image\]/);
 	assert.match(controller, /status: "error"/);
-	assert.match(controller, /errorDetail: mapImageGenError\(result\.error, result\.detail\)/);
-	assert.doesNotMatch(controller, /setAttachments\(\(current\) => \[\.\.\.current, result\.image\]\)/);
+	assert.match(
+		controller,
+		/errorDetail: mapImageGenError\(result\.error, result\.detail\)/,
+	);
+	assert.doesNotMatch(
+		controller,
+		/setAttachments\(\(current\) => \[\.\.\.current, result\.image\]\)/,
+	);
 	assert.doesNotMatch(controller, /role: "error"/);
-	assert.match(controller, /function mapImageGenError\(error: string, detail\?: string\)/);
+	assert.match(
+		controller,
+		/function mapImageGenError\(error: string, detail\?: string\)/,
+	);
 	assert.match(controller, /case "notConfigured"/);
 	assert.match(controller, /case "invalidKey"/);
 	assert.match(controller, /imagegen\.error\.invalidKeyDetail/);
@@ -181,15 +253,27 @@ test("controller：生图分支不 send、生图占位消息三态上屏（不�
 test("发送控件：生图进行中显示转圈并禁用", () => {
 	assert.match(composerPanels, /isGeneratingImage\?: boolean/);
 	assert.match(composerPanels, /isGeneratingImage \? \(/);
-	assert.match(composerPanels, /props\.isAgentStarting \|\| props\.isGeneratingImage \|\| !props\.canSend/);
+	assert.match(
+		composerPanels,
+		/props\.isAgentStarting \|\| props\.isGeneratingImage \|\| !props\.canSend/,
+	);
 });
 
 test("生图结果提供原图复制与按 mime 保存", () => {
-	const finalAnswer = readFileSync("src/renderer/src/components/session/turn/FinalAnswer.tsx", "utf8");
+	const finalAnswer = readFileSync(
+		"src/renderer/src/components/session/turn/FinalAnswer.tsx",
+		"utf8",
+	);
 	assert.match(finalAnswer, /writeClipboardImage/);
 	assert.doesNotMatch(finalAnswer, /fetch\(imageDataUrl\)/);
-	assert.doesNotMatch(finalAnswer, /navigator\.clipboard\.write\(\[new ClipboardItem/);
-	assert.match(finalAnswer, /image\.mimeType === "image\/jpeg" \? "jpg" : "png"/);
+	assert.doesNotMatch(
+		finalAnswer,
+		/navigator\.clipboard\.write\(\[new ClipboardItem/,
+	);
+	assert.match(
+		finalAnswer,
+		/image\.mimeType === "image\/jpeg" \? "jpg" : "png"/,
+	);
 	assert.match(finalAnswer, /imagegen\.copy/);
 	assert.match(finalAnswer, /imagegen\.save/);
 	assert.match(finalAnswer, /whitespace-pre-wrap/);
@@ -197,8 +281,14 @@ test("生图结果提供原图复制与按 mime 保存", () => {
 });
 
 test("i18n：zh/en 生图模式与错误文案 key 一致", () => {
-	const extract = (src) => [...src.matchAll(/"(app\.composerModeImagegen|app\.composerModeImagegenDesc|imagegen\.[^"]+|config\.nav\.imagegen|config\.imagegen\.[^"]+)"/g)]
-		.map((m) => m[0].slice(1, -1)).sort();
+	const extract = (src) =>
+		[
+			...src.matchAll(
+				/"(app\.composerModeImagegen|app\.composerModeImagegenDesc|imagegen\.[^"]+|config\.nav\.imagegen|config\.imagegen\.[^"]+)"/g,
+			),
+		]
+			.map((m) => m[0].slice(1, -1))
+			.sort();
 	const zhKeys = extract(zh);
 	const enKeys = extract(en);
 	assert.ok(zhKeys.length >= 8, `zh imagegen keys: ${zhKeys.length}`);
@@ -210,7 +300,10 @@ test("i18n：zh/en 生图模式与错误文案 key 一致", () => {
 	assert.match(zh, /config\.nav\.imagegen/);
 	assert.match(zh, /config\.imagegen\.paramWatermark/);
 	assert.match(zh, /"imagegen\.error\.http": "生图服务返回错误（\{detail\}）"/);
-	assert.match(en, /"imagegen\.error\.http": "Image service returned an error \(\{detail\}\)"/);
+	assert.match(
+		en,
+		/"imagegen\.error\.http": "Image service returned an error \(\{detail\}\)"/,
+	);
 	assert.match(zh, /imagegen\.error\.invalidKeyDetail/);
 	assert.match(zh, /imagegen\.error\.badBaseUrlDetail/);
 });
