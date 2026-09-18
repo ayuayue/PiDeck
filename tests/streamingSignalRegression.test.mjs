@@ -27,7 +27,7 @@ test("streaming signal: text_delta sets isStreaming locally, flush pushes lightw
 	// 3) message_end / done / error 清除（回答结束不再误报流式中）
 	assert.match(
 		agentManager,
-		/eventType === "message_end" \|\| eventType === "done" \|\| eventType === "error"/,
+		/eventType === "message_end" \|\|\s*eventType === "done" \|\|\s*eventType === "error"/,
 	);
 	assert.match(agentManager, /this\.streamingAgents\.delete\(agentId\)/);
 

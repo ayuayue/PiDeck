@@ -22,7 +22,7 @@ test("tab switch does not refresh the project file tree or git branches", () => 
   );
   // 文件抽屉走 loadProjectFileTree（根层 maxDepth 0）；切会话不得把 currentSessionId 绑进扫盘。
   assert.match(appSource, /loadProjectFileTree\(/);
-  assert.match(appSource, /api\.files\.list\(projectId, \{ maxDepth: 0 \}\)/);
+  assert.match(appSource, /api\.files\s*\.list\(\s*projectId,\s*\{\s*maxDepth: 0\s*\}\s*\)/);
   assert.match(appSource, /api\.git\.branches\(activeProjectId\)/);
   assert.match(appSource, /\}, \[activeProjectId\]\);/);
   assert.doesNotMatch(
@@ -50,7 +50,7 @@ test("file tree list is shallow by default in the drawer and accepts a scoped di
   // composer @ 引用跟文件抽屉同一套懒加载，只跟项目（effectiveProjectId），不跟 sessionId
   // （@ 引用取数已从 ComposerArea 迁入 useSessionComposerController）
   assert.match(composerSource, /maxDepth:\s*0/);
-  assert.match(composerSource, /desktopApi\.files\.list\(effectiveProjectId, \{ maxDepth: 0 \}\)/);
+  assert.match(composerSource, /desktopApi\.files\s*\.list\(\s*effectiveProjectId,\s*\{\s*maxDepth: 0\s*\}\s*\)/);
   assert.match(composerSource, /\}, \[effectiveProjectId\]\);/);
 });
 

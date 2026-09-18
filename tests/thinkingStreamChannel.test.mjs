@@ -87,9 +87,9 @@ test("main process: live thinking id equals History msg-thinking-* id", () => {
 test("main process: thinking_delta does not upsert; thinking_end does not write messages", () => {
   const thinkingDeltaIdx = agentManager.indexOf('if (eventType === "thinking_delta")');
   const thinkingEndIdx = agentManager.indexOf('if (eventType === "thinking_end")');
-  const messageEndIdx = agentManager.indexOf(
-    'if (eventType === "message_end" || eventType === "done" || eventType === "error")',
-    thinkingEndIdx,
+  // biome 归一后 message_end 条件被折成多行，改用格式无关正则定位：
+  const messageEndIdx = agentManager.search(
+    /eventType === "message_end" \|\|\s*eventType === "done"/,
   );
   assert.ok(thinkingDeltaIdx >= 0 && thinkingEndIdx > thinkingDeltaIdx);
   assert.ok(messageEndIdx > thinkingEndIdx);

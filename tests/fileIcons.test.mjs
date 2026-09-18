@@ -22,9 +22,10 @@ const gitResourceTree = readFileSync(
 );
 
 function iconFor(fileName) {
-  const details = definitions.files[fileName]
-    ?? definitions.extensions[fileName.slice(fileName.lastIndexOf("."))]
-    ?? definitions.default;
+  const details =
+    definitions.files[fileName] ??
+    definitions.extensions[fileName.slice(fileName.lastIndexOf("."))] ??
+    definitions.default;
   return { svg: icons[details[0]], color: details[1] };
 }
 
@@ -47,14 +48,26 @@ describe("Seti file icon integration", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
     assert.match(source, /from "\.\/vendor\/seti-icons"/);
     assert.equal(packageJson.dependencies["seti-icons"], undefined);
-    assert.match(readFileSync("src/renderer/src/vendor/seti-icons/NOTICE.md", "utf8"), /Seti-UI/);
-    assert.match(readFileSync("src/renderer/src/vendor/seti-icons/LICENSE.md", "utf8"), /Copyright \(c\) 2014 Jesse Weed/);
+    assert.match(
+      readFileSync("src/renderer/src/vendor/seti-icons/NOTICE.md", "utf8"),
+      /Seti-UI/,
+    );
+    assert.match(
+      readFileSync("src/renderer/src/vendor/seti-icons/LICENSE.md", "utf8"),
+      /Copyright \(c\) 2014 Jesse Weed/,
+    );
   });
 
   test("renderer loads file icons via styles.css vendor layer", () => {
     const stylesEntry = readFileSync("src/renderer/src/styles.css", "utf8");
-    assert.match(stylesEntry, /@import\s+"\.\/file-icons\.css"\s+layer\(vendor\)/);
-    assert.doesNotMatch(readFileSync("src/renderer/src/main.tsx", "utf8"), /import "\.\/file-icons\.css"/);
+    assert.match(
+      stylesEntry,
+      /@import\s+"\.\/file-icons\.css"\s+layer\(vendor\)/,
+    );
+    assert.doesNotMatch(
+      readFileSync("src/renderer/src/main.tsx", "utf8"),
+      /import "\.\/file-icons\.css"/,
+    );
   });
 
   test("file tree renders trusted Seti SVG and file type labels", () => {
@@ -72,7 +85,10 @@ describe("Seti file icon integration", () => {
     const gitPanel = gitResourceTree;
     const sharedLookup = readFileSync("src/renderer/src/fileIcons.ts", "utf8");
 
-    assert.match(fileTree, /import \{ getFileIconSeti, getFileIconColor, getFileTypeLabel \} from "\.\.\/\.\.\/fileIcons"/);
+    assert.match(
+      fileTree,
+      /import \{ getFileIconSeti, getFileIconColor, getFileTypeLabel \} from "\.\.\/\.\.\/fileIcons"/,
+    );
     assert.match(gitPanel, /from "\.\.\/\.\.\/\.\.\/fileIcons"/);
     assert.match(fileTree, /getFileIconSeti\(name\)/);
     assert.match(gitPanel, /getFileIconSeti\(name\)/);
@@ -90,9 +106,18 @@ describe("Seti file icon integration", () => {
   test("Git status and history parsers preserve rename paths", () => {
     const source = readFileSync("src/main/git/GitService.ts", "utf8");
     assert.match(source, /"--name-status", "-z"/);
-    assert.match(source, /statusChar === "R" \|\| statusChar === "C" \? "renamed"/);
-    assert.match(source, /const currentPath = isRenameOrCopy \? fields\[index\+\+\]/);
-    assert.match(source, /porcelain -z 的 rename\/copy 顺序是“当前路径\\0原路径\\0”/);
+    assert.match(
+      source,
+      /statusChar === "R" \|\| statusChar === "C"\s*\?\s*"renamed"/,
+    );
+    assert.match(
+      source,
+      /const currentPath = isRenameOrCopy\s*\?\s*\(?fields\[index\+\+\]/,
+    );
+    assert.match(
+      source,
+      /porcelain -z 的 rename\/copy 顺序是“当前路径\\0原路径\\0”/,
+    );
     assert.match(source, /includeOldPath && oldPath/);
   });
 

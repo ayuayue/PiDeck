@@ -25,10 +25,11 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const require = createRequire(import.meta.url);
 const { PiRpcClient } = loadTsCommonJs("src/main/pi/PiRpcClient.ts");
-const { describeSpawnFailure } = loadTsCommonJs("src/main/pi/piSpawnFailure.ts");
-const { decideExtensionFallback, describeExtensionFallbackSkip } = loadTsCommonJs(
-	"src/main/pi/extensionStartupFallback.ts",
+const { describeSpawnFailure } = loadTsCommonJs(
+	"src/main/pi/piSpawnFailure.ts",
 );
+const { decideExtensionFallback, describeExtensionFallbackSkip } =
+	loadTsCommonJs("src/main/pi/extensionStartupFallback.ts");
 
 function transpile(filePath) {
 	return ts.transpileModule(readFileSync(filePath, "utf8"), {
@@ -53,7 +54,9 @@ function createFailedSpawnChild() {
 function loadPiProcess(child) {
 	const counters = { unpark: 0 };
 	const wslPathsSandbox = { exports: {}, require };
-	vm.runInNewContext(transpile("src/main/wsl/WslPaths.ts"), wslPathsSandbox, { filename: "WslPaths.ts" });
+	vm.runInNewContext(transpile("src/main/wsl/WslPaths.ts"), wslPathsSandbox, {
+		filename: "WslPaths.ts",
+	});
 
 	const sandbox = {
 		Buffer,
@@ -74,11 +77,14 @@ function loadPiProcess(child) {
 			// fake client 会把这条链路测成空转。
 			if (id === "./PiRpcClient") return { PiRpcClient };
 			if (id === "./PiLocator") return { PiLocator: class {} };
-			if (id === "./piSpawnFailure") return require("../src/main/pi/piSpawnFailure.ts");
+			if (id === "./piSpawnFailure")
+				return require("../src/main/pi/piSpawnFailure.ts");
 			if (id === "../wsl/WslPaths") return wslPathsSandbox.exports;
 			if (id === "./piExtensionFilter") {
 				return {
-					parkBlockedExtensionsInDir: () => [{ name: "codeisland", from: "a", to: "b" }],
+					parkBlockedExtensionsInDir: () => [
+						{ name: "codeisland", from: "a", to: "b" },
+					],
 					unparkBlockedExtensions: () => {
 						counters.unpark += 1;
 					},
@@ -91,25 +97,38 @@ function loadPiProcess(child) {
 				return require("../src/main/extensions/extensionVersionGate.ts");
 			}
 			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
-			if (id === "../sessions/sessionProxyPolicy") return { applyPiProxyMode: (env) => env };
-			if (id === "../git/gitProcess") return require("../src/main/git/gitProcess.ts");
+			if (id === "../sessions/sessionProxyPolicy")
+				return { applyPiProxyMode: (env) => env };
+			if (id === "../git/gitProcess")
+				return require("../src/main/git/gitProcess.ts");
 			return require(id);
 		},
 	};
-	vm.runInNewContext(transpile("src/main/pi/PiProcess.ts"), sandbox, { filename: "PiProcess.ts" });
+	vm.runInNewContext(transpile("src/main/pi/PiProcess.ts"), sandbox, {
+		filename: "PiProcess.ts",
+	});
 	return { PiProcess: sandbox.exports.PiProcess, counters };
 }
 
 function createLocator(command = "/missing/pi", windowsLaunch) {
 	return {
 		resolveCommand: () => command,
-		createInvocation: (_command, args) => ({ command, args: [...args], shell: false, windowsLaunch }),
+		createInvocation: (_command, args) => ({
+			command,
+			args: [...args],
+			shell: false,
+			windowsLaunch,
+		}),
 		createProcessEnv: () => ({}),
 	};
 }
 
 /** 真实不存在的目录：describeSpawnFailure 的 cwd 判据要落到真实 fs 结果上。 */
-const MISSING_CWD = join(process.cwd(), "__pideck_missing_cwd__", String(Date.now()));
+const MISSING_CWD = join(
+	process.cwd(),
+	"__pideck_missing_cwd__",
+	String(Date.now()),
+);
 
 test("spawn 失败立即终结挂起的 get_state（不再等满 rpcTimeout）", async () => {
 	const child = createFailedSpawnChild();
@@ -121,7 +140,12 @@ test("spawn 失败立即终结挂起的 get_state（不再等满 rpcTimeout）",
 	const pending = pi.client.request({ type: "get_state" }, 600_000);
 	const startedAt = Date.now();
 	// Node 对 spawn 失败只发 error（没有 exit）：这一刻必须由 PiProcess 收尾。
-	child.emit("error", Object.assign(new Error("spawn C:\\WINDOWS\\system32\\cmd.exe ENOENT"), { code: "ENOENT" }));
+	child.emit(
+		"error",
+		Object.assign(new Error("spawn C:\\WINDOWS\\system32\\cmd.exe ENOENT"), {
+			code: "ENOENT",
+		}),
+	);
 
 	const error = await pending.then(
 		() => null,
@@ -132,7 +156,11 @@ test("spawn 失败立即终结挂起的 get_state（不再等满 rpcTimeout）",
 	assert.ok(error, "spawn 失败后挂起的 get_state 必须 reject");
 	assert.ok(elapsedMs < 500, `必须立即失败，实测 ${elapsedMs}ms`);
 	assert.doesNotMatch(error.message, /timed out after/);
-	assert.match(error.message, /项目工作目录不存在/, "错误必须还原成真实原因，而不是甩 ENOENT");
+	assert.match(
+		error.message,
+		/项目工作目录不存在/,
+		"错误必须还原成真实原因，而不是甩 ENOENT",
+	);
 	assert.match(error.message, /ENOENT/, "原始 errno 文本要保留，方便日志检索");
 
 	// 进程从未起来：isRunning() 必须如实为 false，否则扩展回退会误判「进程还活着」而放弃重试。
@@ -155,8 +183,14 @@ test("spawn 失败且 cwd/pi 路径都正常时，报「找不到可执行文件
 		await pi.start();
 
 		const pending = pi.client.request({ type: "get_state" }, 600_000);
-		child.emit("error", Object.assign(new Error("spawn something.exe ENOENT"), { code: "ENOENT" }));
-		const error = await pending.then(() => null, (reason) => reason);
+		child.emit(
+			"error",
+			Object.assign(new Error("spawn something.exe ENOENT"), { code: "ENOENT" }),
+		);
+		const error = await pending.then(
+			() => null,
+			(reason) => reason,
+		);
 
 		assert.match(error.message, /找不到可执行文件/);
 		assert.equal(pi.getDiagnostics()?.cwdMissing, false);
@@ -168,13 +202,25 @@ test("spawn 失败且 cwd/pi 路径都正常时，报「找不到可执行文件
 test("spawn 失败且 pi 路径失效时，直接指出路径而不是「找不到 cmd.exe」", async () => {
 	const child = createFailedSpawnChild();
 	const { PiProcess } = loadPiProcess(child);
-	const missingPi = join(tmpdir(), `pideck-missing-${process.pid}-${Date.now()}`, "pi.cmd");
+	const missingPi = join(
+		tmpdir(),
+		`pideck-missing-${process.pid}-${Date.now()}`,
+		"pi.cmd",
+	);
 	const pi = new PiProcess(process.cwd(), {}, createLocator(missingPi));
 	await pi.start();
 
 	const pending = pi.client.request({ type: "get_state" }, 600_000);
-	child.emit("error", Object.assign(new Error("spawn C:\\Windows\\system32\\cmd.exe ENOENT"), { code: "ENOENT" }));
-	const error = await pending.then(() => null, (reason) => reason);
+	child.emit(
+		"error",
+		Object.assign(new Error("spawn C:\\Windows\\system32\\cmd.exe ENOENT"), {
+			code: "ENOENT",
+		}),
+	);
+	const error = await pending.then(
+		() => null,
+		(reason) => reason,
+	);
 
 	assert.match(error.message, /pi 路径不存在/);
 	assert.doesNotMatch(error.message, /找不到可执行文件/);
@@ -182,7 +228,10 @@ test("spawn 失败且 pi 路径失效时，直接指出路径而不是「找不�
 
 test("describeSpawnFailure 只对可归因的 errno 给结论", () => {
 	const base = {
-		error: { code: "ENOENT", message: "spawn C:\\Windows\\system32\\cmd.exe ENOENT" },
+		error: {
+			code: "ENOENT",
+			message: "spawn C:\\Windows\\system32\\cmd.exe ENOENT",
+		},
 		spawnedCommand: "C:\\Windows\\system32\\cmd.exe",
 		piCommand: "C:\\nvm4w\\nodejs\\pi.cmd",
 		cwd: "C:\\kaifa\\uts开发项目\\小说",
@@ -197,7 +246,10 @@ test("describeSpawnFailure 只对可归因的 errno 给结论", () => {
 		describeSpawnFailure({ ...base, cwdExists: false, cwdIsDirectory: false }),
 		/项目工作目录不存在/,
 	);
-	assert.match(describeSpawnFailure({ ...base, cwdExists: false, cwdIsDirectory: false }), /误报成 spawn <cmd\.exe> ENOENT/);
+	assert.match(
+		describeSpawnFailure({ ...base, cwdExists: false, cwdIsDirectory: false }),
+		/误报成 spawn <cmd\.exe> ENOENT/,
+	);
 
 	// cwd 正常但 pi 路径丢了（nvm 切版本后典型）：必须指出 pi 路径，而不是「找不到 cmd.exe」
 	const missingPi = describeSpawnFailure({ ...base, piCommandExists: false });
@@ -237,7 +289,11 @@ test("spawn 失败不触发扩展回退，并给出原因（扩展尚未加载�
 
 	// 回归保护：错误文本被改写成人话后，仍要靠 spawnFailed 判据认出「与扩展无关」。
 	assert.equal(
-		decideExtensionFallback({ ...input, stderr: "", errorMessage: "项目工作目录不存在" }).retry,
+		decideExtensionFallback({
+			...input,
+			stderr: "",
+			errorMessage: "项目工作目录不存在",
+		}).retry,
 		false,
 	);
 });
@@ -245,7 +301,8 @@ test("spawn 失败不触发扩展回退，并给出原因（扩展尚未加载�
 test("扩展加载失败仍然回退（原有能力不受影响）", () => {
 	const decision = decideExtensionFallback({
 		alreadyNoExtensions: false,
-		stderr: 'Error: Failed to load extension "x.ts": Cannot find module "@earendil-works/pi-ai"',
+		stderr:
+			'Error: Failed to load extension "x.ts": Cannot find module "@earendil-works/pi-ai"',
 		errorMessage: "pi exited: code=1, signal=null",
 		exitCode: 1,
 	});
@@ -290,7 +347,10 @@ test("PiProcess 诊断里带上 Windows 启动通道与 cmd.exe 回退原因", a
 test("AgentManager 把 spawn 失败判据和启动握手超时接进启动链路", () => {
 	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 	// 启动握手不吃用户给长任务的 rpcTimeout（默认 600s），否则「进程活着但不就绪」静默等 10 分钟。
-	assert.match(source, /client\.request\(\{ type: "get_state" \}, this\.startupHandshakeTimeoutMs\)/);
+	assert.match(
+		source,
+		/client\.request\(\s*\{ type: "get_state" \},\s*this\.startupHandshakeTimeoutMs,\s*\)/,
+	);
 	assert.match(source, /STARTUP_HANDSHAKE_TIMEOUT_MS = 90_000/);
 	assert.match(source, /spawnFailed: diag\?\.spawnFailed === true/);
 	// 不回退也要说明原因，否则用户以为「自动禁用扩展」失效。

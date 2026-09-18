@@ -45,7 +45,9 @@ function loadClipboardUtils(options = {}) {
 	const clipboardWrite =
 		options.clipboardWrite ??
 		(async () => {
-			throw new Error("ClipboardItem write should not run when native writeImage works");
+			throw new Error(
+				"ClipboardItem write should not run when native writeImage works",
+			);
 		});
 	const logs = [];
 	const module = { exports: {} };
@@ -102,7 +104,9 @@ describe("parseClipboardImageDataUrl", () => {
 		const png = parseClipboardImageDataUrl("data:image/png;base64,abc");
 		assert.equal(png?.mimeType, "image/png");
 		assert.equal(png?.base64, "abc");
-		const jpeg = parseClipboardImageDataUrl("data:image/jpeg;charset=utf-8;base64,Zm9v");
+		const jpeg = parseClipboardImageDataUrl(
+			"data:image/jpeg;charset=utf-8;base64,Zm9v",
+		);
 		assert.equal(jpeg?.mimeType, "image/jpeg");
 		assert.equal(jpeg?.base64, "Zm9v");
 		assert.equal(parseClipboardImageDataUrl("data:text/plain;base64,abc"), null);
@@ -144,7 +148,9 @@ describe("writeClipboardImage", () => {
 
 	test("encodes a Blob then writes via native clipboard", async () => {
 		const { writeClipboardImage, written, BlobStub } = loadClipboardUtils();
-		const ok = await writeClipboardImage(new BlobStub(["blob"], { type: "image/png" }));
+		const ok = await writeClipboardImage(
+			new BlobStub(["blob"], { type: "image/png" }),
+		);
 		assert.equal(ok, true);
 		assert.equal(written.length, 1);
 		assert.match(written[0], /^data:image\/png;base64,/);
@@ -159,31 +165,51 @@ describe("writeClipboardImage", () => {
 		});
 		const ok = await writeClipboardImage("data:image/png;base64,abc");
 		assert.equal(ok, false);
-		assert.equal(logs.some((entry) => entry.scope === "clipboard"), true);
+		assert.equal(
+			logs.some((entry) => entry.scope === "clipboard"),
+			true,
+		);
 	});
 });
 
 test("copy-as-image paths use writeClipboardImage instead of ClipboardItem", () => {
-	const surface = read("src/renderer/src/components/session/SurfaceComponents.tsx");
-	const timeline = read("src/renderer/src/components/session/SessionMessageTimeline.tsx");
-	const finalAnswer = read("src/renderer/src/components/session/turn/FinalAnswer.tsx");
+	const surface = read(
+		"src/renderer/src/components/session/SurfaceComponents.tsx",
+	);
+	const timeline = read(
+		"src/renderer/src/components/session/SessionMessageTimeline.tsx",
+	);
+	const finalAnswer = read(
+		"src/renderer/src/components/session/turn/FinalAnswer.tsx",
+	);
 
 	assert.match(surface, /writeClipboardImage/);
 	assert.match(surface, /if \(!blob\) throw/);
-	assert.doesNotMatch(surface, /navigator\.clipboard\.write\(\[new ClipboardItem/);
+	assert.doesNotMatch(
+		surface,
+		/navigator\.clipboard\.write\(\[new ClipboardItem/,
+	);
 
 	assert.match(timeline, /writeClipboardImage/);
-	assert.doesNotMatch(timeline, /navigator\.clipboard\.write\(\[\s*new ClipboardItem/);
+	assert.doesNotMatch(
+		timeline,
+		/navigator\.clipboard\.write\(\[\s*new ClipboardItem/,
+	);
 
 	assert.match(finalAnswer, /writeClipboardImage/);
-	assert.doesNotMatch(finalAnswer, /if \(!imageDataUrl \|\| !navigator\.clipboard\?\.write\) return/);
+	assert.doesNotMatch(
+		finalAnswer,
+		/if \(!imageDataUrl \|\| !navigator\.clipboard\?\.write\) return/,
+	);
 });
 
 test("copy-as-image clone hides via .multi-select-image-export, not off-viewport offsets", () => {
 	// html-to-image 会把 clone 的 computed style 复制进 SVG foreignObject 再渲染。
 	// 若用 left:-100000px / position:fixed 隐藏 clone，内容会整体渲染到 viewBox 外 → 截图空白。
 	// 必须复用 .multi-select-image-export（absolute + left/top 归零 + z-index:-1），与多选分享一致。
-	const surface = read("src/renderer/src/components/session/SurfaceComponents.tsx");
+	const surface = read(
+		"src/renderer/src/components/session/SurfaceComponents.tsx",
+	);
 
 	// 根因守卫：单条「复制为图片」的 clone 不得再用负偏移或 fixed 定位隐藏
 	assert.doesNotMatch(surface, /style\.left\s*=\s*"-100000px"/);
@@ -202,8 +228,14 @@ test("native clipboard image write lives in main and preload only invokes IPC", 
 	assert.match(ipc, /ipcMain\.handle\(ipcChannels\.clipboardWriteImage/);
 	assert.match(native, /parseClipboardImageDataUrl/);
 	assert.match(native, /nativeImage\.createFromBuffer/);
-	assert.match(preload, /ipcRenderer\.invoke\(ipcChannels\.clipboardWriteImage/);
-	assert.match(preload, /import \{ contextBridge, ipcRenderer, webUtils \} from "electron"/);
+	assert.match(
+		preload,
+		/ipcRenderer\.invoke\(\s*ipcChannels\.clipboardWriteImage/,
+	);
+	assert.match(
+		preload,
+		/import \{ contextBridge, ipcRenderer, webUtils \} from "electron"/,
+	);
 	assert.doesNotMatch(preload, /nativeImage\.createFromBuffer/);
 	assert.doesNotMatch(preload, /clipboard\.readBuffer/);
 });

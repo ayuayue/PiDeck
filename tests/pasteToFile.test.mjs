@@ -19,11 +19,26 @@ const controller = readFileSync(
 const pasteFilesIpc = readFileSync("src/main/ipc/pasteFilesIpc.ts", "utf8");
 const preload = readFileSync("src/preload/index.ts", "utf8");
 const atoms = readFileSync("src/renderer/src/atoms/composer-atoms.ts", "utf8");
-const panels = readFileSync("src/renderer/src/components/session/ComposerPanels.tsx", "utf8");
-const composerArea = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
-const settingsStorageTab = readFileSync("src/renderer/src/components/app/settings/SettingsStorageTab.tsx", "utf8");
-const zhCN = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
-const enUS = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
+const panels = readFileSync(
+  "src/renderer/src/components/session/ComposerPanels.tsx",
+  "utf8",
+);
+const composerArea = readFileSync(
+  "src/renderer/src/components/session/ComposerArea.tsx",
+  "utf8",
+);
+const settingsStorageTab = readFileSync(
+  "src/renderer/src/components/app/settings/SettingsStorageTab.tsx",
+  "utf8",
+);
+const zhCN = readFileSync(
+  "src/renderer/src/i18n/rendererCopy.zh-CN.ts",
+  "utf8",
+);
+const enUS = readFileSync(
+  "src/renderer/src/i18n/rendererCopy.en-US.ts",
+  "utf8",
+);
 
 test("粘贴转文件阈值存在且为 5000 字符（仅超大文本触发）", () => {
   assert.match(rendererUtils, /PASTE_TO_FILE_MIN_CHARS = 5000/);
@@ -31,12 +46,18 @@ test("粘贴转文件阈值存在且为 5000 字符（仅超大文本触发）",
 
 test("onPaste：大段纯文本（≥阈值）preventDefault 并转文件，不进编辑器", () => {
   // 分支顺序：位图检查（步骤 3）之后、普通文本放行（步骤 5）之前
-  const imageBranch = controller.indexOf("getClipboardImageFiles(event.clipboardData)");
+  const imageBranch = controller.indexOf(
+    "getClipboardImageFiles(event.clipboardData)",
+  );
   const plainTextBranch = controller.indexOf(
     'event.clipboardData.getData("text/plain")',
   );
-  const thresholdBranch = controller.indexOf("plainText.length >= PASTE_TO_FILE_MIN_CHARS");
-  const pasteTextToFileBranch = controller.indexOf("void pasteTextToFile(plainText)");
+  const thresholdBranch = controller.indexOf(
+    "plainText.length >= PASTE_TO_FILE_MIN_CHARS",
+  );
+  const pasteTextToFileBranch = controller.indexOf(
+    "void pasteTextToFile(plainText)",
+  );
   assert.ok(imageBranch >= 0, "位图分支应存在");
   assert.ok(
     plainTextBranch >= 0 && thresholdBranch >= 0 && pasteTextToFileBranch >= 0,
@@ -66,7 +87,11 @@ test("pasteTextToFile：落盘 userData/paste-files、chip 元数据含 inProjec
   assert.match(controller, /projectPath: composerProject\?\.path \?\? ""/);
   assert.match(controller, /projectByIdAtomFamily/);
   assert.match(controller, /inProject: result\.inProject/);
-  assert.match(controller, /formatBytes\(result\.bytes\)/, "chip 应展示可读文件大小");
+  assert.match(
+    controller,
+    /formatBytes\(result\.bytes\)/,
+    "chip 应展示可读文件大小",
+  );
   // 写盘失败回退原样插入，粘贴内容不丢
   assert.match(controller, /insertPlainTextAtCursor\(text\)/);
 });
@@ -74,22 +99,41 @@ test("pasteTextToFile：落盘 userData/paste-files、chip 元数据含 inProjec
 test("发送折叠：项目内文件 → @path 引用；匿名会话 → 原样文本内联", () => {
   assert.match(controller, /file\.inProject/);
   assert.match(controller, /refs\.push\(formatFilePathRef\(file\.path\)\)/);
-  assert.match(controller, /desktopApi\.files\.readContent\(file\.path\)/);
+  assert.match(
+    controller,
+    /desktopApi\.files\s*\.readContent\(\s*file\.path\s*\)/,
+  );
   assert.match(controller, /setPasteFiles\(\[\]\)/, "折叠后应移除 chip");
 });
 
 test("主进程：粘贴文件只写/删受管根（userData/paste-files，另管遗留 .pideck-paste）", () => {
-  assert.match(pasteFilesIpc, /PROJECT_PASTE_DIR = "\.pideck-paste"/, "遗留项目目录仍受管，可统计/清理");
+  assert.match(
+    pasteFilesIpc,
+    /PROJECT_PASTE_DIR = "\.pideck-paste"/,
+    "遗留项目目录仍受管，可统计/清理",
+  );
   assert.match(pasteFilesIpc, /USER_PASTE_DIR = "paste-files"/);
   assert.match(pasteFilesIpc, /isInsideManagedPasteRoot/);
   assert.match(pasteFilesIpc, /projectStore\.list\(\)\.some/);
   assert.match(pasteFilesIpc, /PASTE_FILE_RETENTION_MS/, "应有过期清理保留期");
-  assert.match(pasteFilesIpc, /generatePasteFileName/, "文件名应带时间戳防冲突");
+  assert.match(
+    pasteFilesIpc,
+    /generatePasteFileName/,
+    "文件名应带时间戳防冲突",
+  );
   // 2026-09 起新写入一律落 userData，不再散落各项目目录
   assert.match(pasteFilesIpc, /inProject: false/);
   assert.match(pasteFilesIpc, /userPasteRoot/);
-  assert.match(pasteFilesIpc, /ipcChannels\.pasteFilesGetSize/, "设置页占用统计");
-  assert.match(pasteFilesIpc, /ipcChannels\.pasteFilesClearAll/, "设置页一键清空");
+  assert.match(
+    pasteFilesIpc,
+    /ipcChannels\.pasteFilesGetSize/,
+    "设置页占用统计",
+  );
+  assert.match(
+    pasteFilesIpc,
+    /ipcChannels\.pasteFilesClearAll/,
+    "设置页一键清空",
+  );
 });
 
 test("preload 暴露 pasteFiles 域（write/delete/cleanup/getSize/clearAll）", () => {
@@ -102,10 +146,21 @@ test("preload 暴露 pasteFiles 域（write/delete/cleanup/getSize/clearAll）",
 });
 
 test("atoms：sessionPasteFilesByIdAtom + setSessionPasteFilesAtom 与附件同生命周期", () => {
-  assert.match(atoms, /sessionPasteFilesByIdAtom = atom<Record<string, PastedTextFile\[\]>>/);
+  assert.match(
+    atoms,
+    /sessionPasteFilesByIdAtom = atom<Record<string, PastedTextFile\[\]>>/,
+  );
   assert.match(atoms, /setSessionPasteFilesAtom/);
-  assert.match(atoms, /promoteSessionComposerStateAtom/, "promote 应搬迁粘贴文件");
-  assert.match(atoms, /removeSessionComposerStateAtom/, "remove 应清理粘贴文件");
+  assert.match(
+    atoms,
+    /promoteSessionComposerStateAtom/,
+    "promote 应搬迁粘贴文件",
+  );
+  assert.match(
+    atoms,
+    /removeSessionComposerStateAtom/,
+    "remove 应清理粘贴文件",
+  );
 });
 
 test("UI：附件栏渲染粘贴文件 chip（文件名 + 大小 + 移除），与图片同栏", () => {
@@ -114,13 +169,28 @@ test("UI：附件栏渲染粘贴文件 chip（文件名 + 大小 + 移除），�
   assert.match(panels, /formatBytes\(file\.bytes\)/);
   assert.match(panels, /onRemovePasteFile\?\.\(index\)/);
   assert.match(composerArea, /composer\.pasteFiles\.files/);
-  assert.match(composerArea, /onRemovePasteFile=\{composer\.pasteFiles\.remove\}/);
+  assert.match(
+    composerArea,
+    /onRemovePasteFile=\{composer\.pasteFiles\.remove\}/,
+  );
 });
 
 test("设置页：粘贴文件可统计/单独清理，参与「清理全部」，i18n 双语齐全", () => {
-  assert.match(settingsStorageTab, /pasteFiles\.getSize\(\)/, "设置页应轮询粘贴文件占用");
-  assert.match(settingsStorageTab, /pasteFiles\.clearAll\(\)/, "设置页应能一键清空粘贴文件");
-  assert.match(settingsStorageTab, /target === "paste"/, "单个清空目标应为 paste");
+  assert.match(
+    settingsStorageTab,
+    /pasteFiles\.getSize\(\)/,
+    "设置页应轮询粘贴文件占用",
+  );
+  assert.match(
+    settingsStorageTab,
+    /pasteFiles\.clearAll\(\)/,
+    "设置页应能一键清空粘贴文件",
+  );
+  assert.match(
+    settingsStorageTab,
+    /target === "paste"/,
+    "单个清空目标应为 paste",
+  );
   assert.match(zhCN, /"settings\.storage\.pasteFiles"/);
   assert.match(zhCN, /"settings\.storage\.pasteFilesSize"/);
   assert.match(zhCN, /"settings\.storage\.pasteFilesDesc"/);

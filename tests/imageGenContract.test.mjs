@@ -155,14 +155,14 @@ test("controller：生图分支不 send、生图占位消息三态上屏（不�
 	assert.match(controller, /watermark: imageGenWatermark/);
 	assert.match(controller, /outputFormat: imageGenOutputFormat/);
 	assert.match(controller, /appendTimelineMessage/);
-	assert.match(controller, /setCacheMessages\(\{ sessionId, messages: \[\.\.\.previous, message\], source: "runtime" \}\)/);
+	assert.match(controller, /setCacheMessages\(\{\s*sessionId,\s*messages: \[\.\.\.previous, message\],\s*source: "runtime",?\s*\}\)/);
 	assert.match(controller, /role: "user"/);
 	assert.match(controller, /role: "assistant"/);
 	assert.match(controller, /stopReason: "stop"/);
 	assert.match(controller, /updateTimelineMessage/);
 	assert.match(controller, /const imageMessageId = crypto\.randomUUID\(\)/);
-	assert.match(controller, /imageGen: \{ status: "generating", prompt/);
-	assert.match(controller, /imageGen: \{ status: "complete", prompt/);
+	assert.match(controller, /imageGen: \{\s*status: "generating",\s*prompt/);
+	assert.match(controller, /imageGen: \{\s*status: "complete",\s*prompt/);
 	assert.match(controller, /images: \[result\.image\]/);
 	assert.match(controller, /status: "error"/);
 	assert.match(controller, /errorDetail: mapImageGenError\(result\.error, result\.detail\)/);

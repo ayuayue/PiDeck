@@ -46,7 +46,7 @@ test("delivery strips redundant meta.result from tool messages", () => {
   // 全部下发出口统一剥离：flush 两个分支 + getMessageWindow + disk 分页 facade
   assert.match(agentUtils, /stripToolResultForDelivery\(all\.slice\(dirtyFrom\)\)/);
   assert.match(agentUtils, /stripToolResultForDelivery\(all\.slice\(boundedWindow\)\)/);
-  assert.match(agentManager, /stripToolResultForDelivery\(\[\.\.\.summaryCards, \.\.\.all\.slice\(windowStart\)\]\)/);
+  assert.match(agentManager, /stripToolResultForDelivery\(\[\s*\.\.\.summaryCards,\s*\.\.\.all\.slice\(windowStart\),?\s*\]\)/);
   assert.match(agentManager, /stripToolResultForDelivery\(page\.messages\)/);
 });
 
@@ -54,7 +54,7 @@ test("full text read falls back to session file with LRU cache", () => {
   // 主进程：内存缓存优先，回退会话文件定位读取（不整文件转换）
   assert.match(agentManager, /async readMessageFullText\(/);
   assert.match(agentManager, /this\.toolFullTextByMessageId\.get\(messageId\)/);
-  assert.match(agentManager, /this\.sessionHistoryReader\.readMessageFullText\(sessionPath, messageId, entryId\)/);
+  assert.match(agentManager, /this\.sessionHistoryReader\.readMessageFullText\(\s*sessionPath,\s*messageId,\s*entryId,?\s*\)/);
   // 文件读取：显示索引 + offset 读单行（禁止整文件 split），LRU 200
   assert.match(reader, /async readMessageFullText\(/);
   assert.match(reader, /getSessionDisplayIndex/);

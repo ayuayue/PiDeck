@@ -109,6 +109,6 @@ test("second-wave audit: proxy, single-instance, catalog, clone/fork", () => {
   assert.match(visionConfig, /"Vision config saved", \{\s*provider:/);
   assert.match(visionConfig, /hasApiKey: Boolean/);
   // git init / web 服务回退留痕
-  assert.match(gitIpc, /"Repository initialized", \{ projectId, path: project\.path \}\)/);
+  assert.match(gitIpc, /"Repository initialized", \{\s*projectId,\s*path: project\.path,\s*\}\)/);
   assert.match(index, /"Web service disabled after apply failure"/);
 });

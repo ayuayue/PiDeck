@@ -14,13 +14,18 @@ const read = (p) => readFileSync(p, "utf8");
 
 const builtInNames = (() => {
 	const src = read("src/main/extensions/builtInExtensions.ts");
-	const block = src.match(/export const BUILT_IN_EXTENSIONS = \[([\s\S]*?)\] as const/);
+	const block = src.match(
+		/export const BUILT_IN_EXTENSIONS = \[([\s\S]*?)\] as const/,
+	);
 	assert.ok(block, "BUILT_IN_EXTENSIONS list not found");
 	return [...block[1].matchAll(/"(pi-deck-[^"]+\.ts)"/g)].map((m) => m[1]);
 })();
 
 test("every built-in extension has a description key in both locales", () => {
-	assert.ok(builtInNames.length >= 12, `unexpected built-in list: ${builtInNames.join(",")}`);
+	assert.ok(
+		builtInNames.length >= 12,
+		`unexpected built-in list: ${builtInNames.join(",")}`,
+	);
 	const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 	const en = read("src/renderer/src/i18n/rendererCopy.en-US.ts");
 	for (const name of builtInNames) {
@@ -33,16 +38,23 @@ test("every built-in extension has a description key in both locales", () => {
 test("extension table row renders built-in descriptions", () => {
 	const src = read("src/renderer/src/config/extensionsTableRows.tsx");
 	assert.match(src, /BUILT_IN_EXTENSION_DESC/);
-	assert.match(src, /extension\.builtIn && BUILT_IN_EXTENSION_DESC\[extension\.source\]/);
+	assert.match(
+		src,
+		/extension\.builtIn && BUILT_IN_EXTENSION_DESC\[extension\.source\]/,
+	);
 	// 每个白名单文件名都在映射表里
 	for (const name of builtInNames) {
-		assert.match(src, new RegExp(`"${name}":`), `${name} missing in BUILT_IN_EXTENSION_DESC`);
+		assert.match(
+			src,
+			new RegExp(`"${name}":`),
+			`${name} missing in BUILT_IN_EXTENSION_DESC`,
+		);
 	}
 });
 
 test("subagents description states bridging semantics, not dispatching", () => {
 	const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
-	const m = zh.match(/"config\.builtInExtDesc\.pi-deck-subagents": "([^"]+)"/);
+	const m = zh.match(/"config\.builtInExtDesc\.pi-deck-subagents":\s*"([^"]+)"/);
 	assert.ok(m, "subagents description missing");
 	assert.match(m[1], /桥接/);
 	assert.match(m[1], /不派发子代理/);

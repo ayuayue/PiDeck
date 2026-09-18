@@ -15,7 +15,10 @@ import vm from "node:vm";
 function loadAskUi(sandboxExtras = {}) {
 	const source = readFileSync("src/renderer/src/utils/askUi.ts", "utf8");
 	const output = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+		compilerOptions: {
+			module: ts.ModuleKind.CommonJS,
+			target: ts.ScriptTarget.ES2022,
+		},
 		fileName: "askUi.ts",
 	}).outputText;
 	const sandbox = { exports: {}, require: () => ({}), ...sandboxExtras };
@@ -37,20 +40,33 @@ test("pickActiveAskRequest: 无请求返回 undefined", () => {
 	const { pickActiveAskRequest } = loadAskUi();
 	assert.equal(pickActiveAskRequest(undefined), undefined);
 	assert.equal(pickActiveAskRequest({}), undefined);
-	assert.equal(pickActiveAskRequest({ a: { status: "completed", request: request() } }), undefined);
+	assert.equal(
+		pickActiveAskRequest({ a: { status: "completed", request: request() } }),
+		undefined,
+	);
 });
 
 test("pickActiveAskRequest: 单个 pending 返回该请求", () => {
 	const { pickActiveAskRequest } = loadAskUi();
 	const req = request({ requestId: "req-1", method: "select" });
-	const picked = pickActiveAskRequest({ a: { status: "pending", request: req } });
+	const picked = pickActiveAskRequest({
+		a: { status: "pending", request: req },
+	});
 	assert.equal(picked, req);
 });
 
 test("pickActiveAskRequest: 多 pending 返回最新到达的（不被旧请求遮蔽）", () => {
 	const { pickActiveAskRequest } = loadAskUi();
-	const oldReq = request({ requestId: "req-old", method: "select", title: "旧问题" });
-	const newReq = request({ requestId: "req-new", method: "input", title: "新问题" });
+	const oldReq = request({
+		requestId: "req-old",
+		method: "select",
+		title: "旧问题",
+	});
+	const newReq = request({
+		requestId: "req-new",
+		method: "input",
+		title: "新问题",
+	});
 	const picked = pickActiveAskRequest({
 		old: { status: "pending", request: oldReq },
 		new: { status: "pending", request: newReq },
@@ -93,50 +109,83 @@ const json = (value) => JSON.stringify(value);
 
 test("buildAskResponse: select/input/editor 回传 value", () => {
 	const { buildAskResponse } = loadAskUi();
-	assert.equal(json(buildAskResponse("select", "选项A")), json({ value: "选项A" }));
+	assert.equal(
+		json(buildAskResponse("select", "选项A")),
+		json({ value: "选项A" }),
+	);
 	assert.equal(json(buildAskResponse("input", "文本")), json({ value: "文本" }));
-	assert.equal(json(buildAskResponse("editor", "多行\n内容")), json({ value: "多行\n内容" }));
+	assert.equal(
+		json(buildAskResponse("editor", "多行\n内容")),
+		json({ value: "多行\n内容" }),
+	);
 });
 
 test("buildAskResponse: confirm 回传 confirmed + value", () => {
 	const { buildAskResponse } = loadAskUi();
-	assert.equal(json(buildAskResponse("confirm", true, { confirmed: true })), json({ confirmed: true, value: true }));
-	assert.equal(json(buildAskResponse("confirm", false, { confirmed: false })), json({ confirmed: false, value: false }));
+	assert.equal(
+		json(buildAskResponse("confirm", true, { confirmed: true })),
+		json({ confirmed: true, value: true }),
+	);
+	assert.equal(
+		json(buildAskResponse("confirm", false, { confirmed: false })),
+		json({ confirmed: false, value: false }),
+	);
 });
 
 test("buildAskResponse: 取消回传 cancelled", () => {
 	const { buildAskResponse } = loadAskUi();
-	assert.equal(json(buildAskResponse("input", undefined, { cancelled: true })), json({ cancelled: true }));
+	assert.equal(
+		json(buildAskResponse("input", undefined, { cancelled: true })),
+		json({ cancelled: true }),
+	);
 });
 
 test("splitAskOption: 保留普通选项并拆分标题与说明", () => {
 	const { splitAskOption, formatAskTitle } = loadAskUi();
-	assert.equal(JSON.stringify(splitAskOption("开始执行|恢复写权限，按步骤改代码并勾进度")), JSON.stringify({
-		label: "开始执行",
-		description: "恢复写权限，按步骤改代码并勾进度",
-	}));
-	assert.equal(JSON.stringify(splitAskOption("包含 | 竖线的普通文案")), JSON.stringify({
-		label: "包含",
-		description: "竖线的普通文案",
-	}));
-	assert.equal(JSON.stringify(splitAskOption("普通选项")), JSON.stringify({ label: "普通选项" }));
-	assert.equal(JSON.stringify(splitAskOption("模型 A — 适合长上下文任务")), JSON.stringify({
-		label: "模型 A",
-		description: "适合长上下文任务",
-	}));
-	assert.equal(formatAskTitle("[PI_DECK_PLAN_NEXT] 计划草案已就绪\n\n1. 读取代码"), "计划草案已就绪\n\n1. 读取代码");
+	assert.equal(
+		JSON.stringify(splitAskOption("开始执行|恢复写权限，按步骤改代码并勾进度")),
+		JSON.stringify({
+			label: "开始执行",
+			description: "恢复写权限，按步骤改代码并勾进度",
+		}),
+	);
+	assert.equal(
+		JSON.stringify(splitAskOption("包含 | 竖线的普通文案")),
+		JSON.stringify({
+			label: "包含",
+			description: "竖线的普通文案",
+		}),
+	);
+	assert.equal(
+		JSON.stringify(splitAskOption("普通选项")),
+		JSON.stringify({ label: "普通选项" }),
+	);
+	assert.equal(
+		JSON.stringify(splitAskOption("模型 A — 适合长上下文任务")),
+		JSON.stringify({
+			label: "模型 A",
+			description: "适合长上下文任务",
+		}),
+	);
+	assert.equal(
+		formatAskTitle("[PI_DECK_PLAN_NEXT] 计划草案已就绪\n\n1. 读取代码"),
+		"计划草案已就绪\n\n1. 读取代码",
+	);
 });
 
 test("parseSecurityConfirmTitle: 解析安全确认 JSON 负载，非安全标题返回 null", () => {
 	const { parseSecurityConfirmTitle } = loadAskUi();
 	const parsed = parseSecurityConfirmTitle(
-		"[PI_DECK_SECURITY_CONFIRM]{\"tool\":\"bash\",\"level\":\"standard\",\"detail\":\"rm -rf node_modules\"}",
+		'[PI_DECK_SECURITY_CONFIRM]{"tool":"bash","level":"standard","detail":"rm -rf node_modules"}',
 	);
-	assert.equal(JSON.stringify(parsed), JSON.stringify({
-		tool: "bash",
-		level: "standard",
-		detail: "rm -rf node_modules",
-	}));
+	assert.equal(
+		JSON.stringify(parsed),
+		JSON.stringify({
+			tool: "bash",
+			level: "standard",
+			detail: "rm -rf node_modules",
+		}),
+	);
 	// 非安全确认标题不误判
 	assert.equal(parseSecurityConfirmTitle("普通提问"), null);
 	assert.equal(parseSecurityConfirmTitle("[PI_DECK_PLAN_NEXT] 计划草案"), null);
@@ -153,10 +202,15 @@ test("parseSecurityConfirmTitle: JSON 损坏兑底返回原始负载，不丢确
 test("formatAskTitle: 安全确认标记兑换底为可读摘要，不泄露 JSON", () => {
 	const { formatAskTitle, formatSecurityConfirmSummary } = loadAskUi();
 	assert.equal(
-		formatAskTitle("[PI_DECK_SECURITY_CONFIRM]{\"tool\":\"bash\",\"level\":\"strict\",\"detail\":\"sudo rm\"}"),
+		formatAskTitle(
+			'[PI_DECK_SECURITY_CONFIRM]{"tool":"bash","level":"strict","detail":"sudo rm"}',
+		),
 		"安全确认：bash",
 	);
-	assert.equal(formatSecurityConfirmSummary({ tool: "", level: "", detail: "" }), "安全确认");
+	assert.equal(
+		formatSecurityConfirmSummary({ tool: "", level: "", detail: "" }),
+		"安全确认",
+	);
 });
 
 test("serializeBatchAnswers: 混合题型序列化并保留 label/wasCustom", () => {
@@ -177,9 +231,27 @@ test("serializeBatchAnswers: 混合题型序列化并保留 label/wasCustom", ()
 	};
 	const parsed = JSON.parse(serializeBatchAnswers(questions, answers, meta));
 	assert.equal(parsed.answers.length, 3);
-	assert.deepEqual(parsed.answers[0], { id: "b1", type: "select", value: "React", label: "React", wasCustom: false });
-	assert.deepEqual(parsed.answers[1], { id: "b2", type: "confirm", value: true, label: "true", wasCustom: false });
-	assert.deepEqual(parsed.answers[2], { id: "b3", type: "input", value: null, label: "自定", wasCustom: true });
+	assert.deepEqual(parsed.answers[0], {
+		id: "b1",
+		type: "select",
+		value: "React",
+		label: "React",
+		wasCustom: false,
+	});
+	assert.deepEqual(parsed.answers[1], {
+		id: "b2",
+		type: "confirm",
+		value: true,
+		label: "true",
+		wasCustom: false,
+	});
+	assert.deepEqual(parsed.answers[2], {
+		id: "b3",
+		type: "input",
+		value: null,
+		label: "自定",
+		wasCustom: true,
+	});
 	// 无 meta 时 label 回退 batchAnswerLabel
 	assert.equal(batchAnswerLabel(true), "true");
 	assert.equal(batchAnswerLabel("x"), "x");
@@ -188,12 +260,16 @@ test("serializeBatchAnswers: 混合题型序列化并保留 label/wasCustom", ()
 
 test("serializeBatchAnswers: multi_select 数组 value 序列化与 label 拼接", () => {
 	const { serializeBatchAnswers, batchAnswerLabel } = loadAskUi();
-	const questions = [
-		{ id: "m1", type: "multi_select" },
-	];
+	const questions = [{ id: "m1", type: "multi_select" }];
 	const answers = { m1: ["A", "C"] };
 	const parsed = JSON.parse(serializeBatchAnswers(questions, answers));
-	assert.deepEqual(parsed.answers[0], { id: "m1", type: "multi_select", value: ["A", "C"], label: "A、C", wasCustom: false });
+	assert.deepEqual(parsed.answers[0], {
+		id: "m1",
+		type: "multi_select",
+		value: ["A", "C"],
+		label: "A、C",
+		wasCustom: false,
+	});
 	// 空数组视为未作答（label 回退为空）
 	assert.equal(batchAnswerLabel([]), "");
 	assert.equal(batchAnswerLabel(["A"]), "A");
@@ -222,7 +298,10 @@ test("shouldSuppressAskClickSnapshot: click 时无有效选区 → 放行（任�
 
 test("shouldSuppressAskClickSnapshot: 选区与按压快照一致（旧选区残留）→ 放行 —— 修复点", () => {
 	const { shouldSuppressAskClickSnapshot } = loadAskUi("问题标题文本");
-	assert.equal(shouldSuppressAskClickSnapshot("问题标题文本", "问题标题文本"), false);
+	assert.equal(
+		shouldSuppressAskClickSnapshot("问题标题文本", "问题标题文本"),
+		false,
+	);
 });
 
 test("shouldSuppressAskClickSnapshot: 选区与快照不一致（本次按压新拖出）→ 吞掉", () => {
@@ -230,7 +309,10 @@ test("shouldSuppressAskClickSnapshot: 选区与快照不一致（本次按压新
 	// 按压开始时无选区，click 时出现选区 = 划选恰好结束在按钮上的冒充 click
 	assert.equal(shouldSuppressAskClickSnapshot("", "拖出来的新选区"), true);
 	// 按压期间选区被改变同样视为冒充
-	assert.equal(shouldSuppressAskClickSnapshot("按压前的旧选区", "改变后选区"), true);
+	assert.equal(
+		shouldSuppressAskClickSnapshot("按压前的旧选区", "改变后选区"),
+		true,
+	);
 });
 
 test("shouldSuppressAskClickSnapshot: 无按压快照且有选区 → 保守吞掉（兜底旧守卫语义）", () => {
@@ -247,11 +329,26 @@ test("shouldSuppressAskClick: 无 window 视为不吞（SSR 兜底）", () => {
 // ── 静态契约 ──
 
 test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", () => {
-	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
-	assert.match(source, /import \{[^}]*pickActiveAskRequest[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	assert.match(source, /import \{[^}]*buildAskResponse[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	assert.match(source, /import \{[^}]*serializeBatchAnswers[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	assert.match(source, /import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
+	const source = readFileSync(
+		"src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx",
+		"utf8",
+	);
+	assert.match(
+		source,
+		/import \{[^}]*pickActiveAskRequest[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/,
+	);
+	assert.match(
+		source,
+		/import \{[^}]*buildAskResponse[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/,
+	);
+	assert.match(
+		source,
+		/import \{[^}]*serializeBatchAnswers[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/,
+	);
+	assert.match(
+		source,
+		/import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/,
+	);
 	assert.doesNotMatch(source, /hasTextSelection/);
 	// 不再直接构造应答 payload（统一走 askUi.buildAskResponse）
 	assert.doesNotMatch(source, /void answer\(\{ value/);
@@ -267,18 +364,35 @@ test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", ()
 });
 
 test("SessionRuntimeUiOverlay keeps recovery prompts visible after model errors", () => {
-	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
+	const source = readFileSync(
+		"src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx",
+		"utf8",
+	);
 	assert.doesNotMatch(source, /runtime\.status !== "error"/);
 	assert.match(source, /runtime\.status !== "closed"/);
 });
 
 test("Timeline 已清理死代码，安全卡在选项点击前调按压感知守卫", () => {
-	const timeline = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
-	const security = readFileSync("src/renderer/src/components/overlays/SecurityConfirmCard.tsx", "utf8");
+	const timeline = readFileSync(
+		"src/renderer/src/components/session/TimelineEventCards.tsx",
+		"utf8",
+	);
+	const security = readFileSync(
+		"src/renderer/src/components/overlays/SecurityConfirmCard.tsx",
+		"utf8",
+	);
 	// AskQuestionCard 死代码已删除：Timeline 不再有可交互 ask 卡片，守卫职责由 SessionRuntimeUiOverlay 承担
-	assert.doesNotMatch(timeline, /import \{[^}]*hasTextSelection[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	assert.match(security, /import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	const securityGuards = security.match(/if \(shouldSuppressAskClick\(\)\) return;/g);
+	assert.doesNotMatch(
+		timeline,
+		/import \{[^}]*hasTextSelection[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/,
+	);
+	assert.match(
+		security,
+		/import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/,
+	);
+	const securityGuards = security.match(
+		/if \(shouldSuppressAskClick\(\)\) return;/g,
+	);
 	assert.ok(securityGuards && securityGuards.length >= 2);
 });
 
@@ -288,8 +402,12 @@ test("AgentManager/飞书 envelope 白名单接受 multi_select 批量问题", (
 	const askCard = readFileSync("src/main/feishu/AskCard.ts", "utf8");
 	// 渲染端 toAgentUiRequest 白名单也必须同构放行，否则 multi_select 选项不渲染
 	// （2026-09 回归：主进程放行、渲染端过滤导致选项组件整体消失）。
-	const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
-	const whiteList = /\["select", "multi_select", "confirm", "input", "editor"\]\.includes\(String\(typed\.type\)\)/;
+	const sessionAtoms = readFileSync(
+		"src/renderer/src/atoms/session-atoms.ts",
+		"utf8",
+	);
+	const whiteList =
+		/\["select", "multi_select", "confirm", "input", "editor"\]\.includes\(\s*String\(typed\.type\),?\s*\)/;
 	assert.match(agentManager, whiteList);
 	assert.match(askCard, whiteList);
 	assert.match(sessionAtoms, whiteList);
@@ -303,18 +421,29 @@ test("AgentManager select 无选项降级为 input（不静默取消）", () => 
 });
 
 test("ask_question 扩展 schema 支持 multi_select 且强制走批量 envelope", () => {
-	const ext = readFileSync("resources/extensions/pi-deck-ask-question.ts", "utf8");
+	const ext = readFileSync(
+		"resources/extensions/pi-deck-ask-question.ts",
+		"utf8",
+	);
 	// 批量与单问题两处类型枚举都含 multi_select
-	const enumOccurrences = ext.match(/StringEnum\(\["select", "multi_select", "confirm", "input", "editor"\]/g);
+	const enumOccurrences = ext.match(
+		/StringEnum\(\["select", "multi_select", "confirm", "input", "editor"\]/g,
+	);
 	assert.ok(enumOccurrences && enumOccurrences.length >= 2);
 	// 单问题 multi_select 也强制走批量 envelope（RPC 单选无法表达多选）
-	assert.match(ext, /needsBatchEnvelope = isBatch \|\| questions\.some\(\(q\) => q\.type === "multi_select"\)/);
+	assert.match(
+		ext,
+		/needsBatchEnvelope = isBatch \|\| questions\.some\(\(q\) => q\.type === "multi_select"\)/,
+	);
 	// multi_select 空数组视为未作答
 	assert.match(ext, /!Array\.isArray\(value\) \|\| value\.length > 0/);
 });
 
 test("渲染层不再用 find 取第一个 pending 请求", () => {
-	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
+	const source = readFileSync(
+		"src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx",
+		"utf8",
+	);
 	assert.doesNotMatch(source, /Object\.values\(ui\.requests\)\.find/);
 	assert.match(source, /pickActiveAskRequest\(ui\.requests\)/);
 });

@@ -25,7 +25,10 @@ test("autoSessionTitle 四处默认关闭且设置说明提示额外 token 消�
 	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
 	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
-	const commonTab = readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8");
+	const commonTab = readFileSync(
+		"src/renderer/src/components/app/settings/CommonTab.tsx",
+		"utf8",
+	);
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	assert.match(settingsType, /autoSessionTitle: boolean/);
@@ -42,7 +45,10 @@ test("AgentManager 的 Ask 通知改由独立开关门控，与通用通知解�
 	// 门控条件必须读新开关，而不是 enableNotifications
 	assert.match(source, /if \(!settings\.askNotificationEnabled\) return;/);
 	// 且不再引用通用开关作为 Ask 通知的条件
-	assert.doesNotMatch(source, /notifyAskPending[\s\S]{0,400}enableNotifications/);
+	assert.doesNotMatch(
+		source,
+		/notifyAskPending[\s\S]{0,400}enableNotifications/,
+	);
 });
 
 test("设置面板与未保存摘要均提供该开关", () => {
@@ -54,15 +60,21 @@ test("设置面板与未保存摘要均提供该开关", () => {
 		"src/renderer/src/components/app/settings/unsavedChangesSummary.ts",
 		"utf8",
 	);
-	assert.match(notificationTab, /updateDraft\(\{ askNotificationEnabled: checked \}\)/);
-	assert.match(summary, /\{ field: "askNotificationEnabled", tab: "notification", itemKey: "settings\.askNotification" \}/);
+	assert.match(
+		notificationTab,
+		/updateDraft\(\{ askNotificationEnabled: checked \}\)/,
+	);
+	assert.match(
+		summary,
+		/\{ field: "askNotificationEnabled", tab: "notification", itemKey: "settings\.askNotification" \}/,
+	);
 });
 
 test("i18n 双语文案齐全且通用通知描述不再混入提问场景", () => {
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	assert.match(zh, /"settings\.askNotification": "Ask 提问系统通知"/);
-	assert.match(zh, /"settings\.askNotificationDesc": "Agent 向你提问/);
+	assert.match(zh, /"settings\.askNotificationDesc":\s*"Agent 向你提问/);
 	assert.match(en, /"settings\.askNotification": "Ask question notifications"/);
-	assert.match(en, /"settings\.askNotificationDesc": "When an agent asks/);
+	assert.match(en, /"settings\.askNotificationDesc":\s*"When an agent asks/);
 });

@@ -127,7 +127,7 @@ test("edit/write diff cards expose an accessible open-file action", () => {
     /"tool\.openFile": "Open file"/,
   );
   // 每个分屏栏在 injector 绑定自己的 runtime cwd/project；App 只消费这份上下文。
-  assert.match(runtimeInjector, /paneProjectId = currentSessionRuntime\?\.projectId \?\? sessionRecord\?\.projectId/);
+  assert.match(runtimeInjector, /paneProjectId =\s*currentSessionRuntime\?\.projectId \?\?\s*sessionRecord\?\.projectId/);
   assert.match(runtimeInjector, /baseDir: currentSessionRuntime\?\.cwd \?\? paneProject\?\.path/);
   assert.match(runtimeInjector, /projectId: paneProjectId \|\| undefined/);
   assert.match(runtimeInjector, /services\.onOpenFile\(path, line, paneFileContext\)/);

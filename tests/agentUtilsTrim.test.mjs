@@ -34,12 +34,18 @@ test("trimHistoryMessages keeps the tail intact and aligns to turn boundary", ()
     { role: "assistant", text: "a2" },
   ];
   const trimmed = trimHistoryMessages(input, 1);
-  assert.deepEqual(trimmed.map((m) => m.role), ["user", "assistant"]);
+  assert.deepEqual(
+    trimmed.map((m) => m.role),
+    ["user", "assistant"],
+  );
   assert.equal(trimmed[0].text, "q2");
 });
 
 test("trimHistoryMessages keeps the last message batch when no user turn exists", () => {
-  const input = Array.from({ length: 80 }, (_, i) => ({ role: "assistant", text: `a${i}` }));
+  const input = Array.from({ length: 80 }, (_, i) => ({
+    role: "assistant",
+    text: `a${i}`,
+  }));
   const trimmed = trimHistoryMessages(input, 12);
   assert.equal(trimmed.length, 50);
 });
@@ -122,7 +128,8 @@ test("consecutive users with misc entries still merge (no split by system card)"
 });
 
 const translateTitle = (key, params = {}) => {
-  if (key === "session.newTitle") return params.locale === "en" ? "New session" : "新会话";
+  if (key === "session.newTitle")
+    return params.locale === "en" ? "New session" : "新会话";
   if (key === "session.historyTitle") return `${params.project} 历史会话`;
   if (key === "session.historyFallbackTitle") return "历史会话";
   return key;
@@ -136,27 +143,51 @@ test("isDefaultAgentTitle treats draft placeholder titles as default so first pr
   // 侧栏/Tab 一直停在占位名。
   assert.equal(isDefaultAgentTitle("新会话", project, translateTitle), true);
   assert.equal(
-    isDefaultAgentTitle("New session", project, (key) => (
-      key === "session.newTitle" ? "New session" : translateTitle(key)
-    )),
+    isDefaultAgentTitle("New session", project, (key) =>
+      key === "session.newTitle" ? "New session" : translateTitle(key),
+    ),
     true,
   );
-  assert.equal(isDefaultAgentTitle(`${project.name} agent`, project, translateTitle), true);
-  assert.equal(isDefaultAgentTitle(`${project.name} DSH`, project, translateTitle), true);
-  assert.equal(isDefaultAgentTitle("帮我看看这个报错", project, translateTitle), false);
+  assert.equal(
+    isDefaultAgentTitle(`${project.name} agent`, project, translateTitle),
+    true,
+  );
+  assert.equal(
+    isDefaultAgentTitle(`${project.name} DSH`, project, translateTitle),
+    true,
+  );
+  assert.equal(
+    isDefaultAgentTitle("帮我看看这个报错", project, translateTitle),
+    false,
+  );
   // pi 未 set_session_name 时 sessionName 是 JSONL 文件名：必须当占位，才能用首条消息自动改名。
-  assert.equal(looksLikePiSessionFileStem("2026-08-08T10-47-19-239Z_abc"), true);
+  assert.equal(
+    looksLikePiSessionFileStem("2026-08-08T10-47-19-239Z_abc"),
+    true,
+  );
   // Pi 新会话通常使用带连字符的 UUID 后缀，必须继续识别为文件名而非用户标题。
-  assert.equal(looksLikePiSessionFileStem("2026-08-21T03-13-27-517Z_01a01e4a-ea07-4f21-9c9a-2a4c4bbd7e91"), true);
+  assert.equal(
+    looksLikePiSessionFileStem(
+      "2026-08-21T03-13-27-517Z_01a01e4a-ea07-4f21-9c9a-2a4c4bbd7e91",
+    ),
+    true,
+  );
   assert.equal(looksLikePiSessionFileStem("2026-08-08T10:47:19.239Z"), true);
   assert.equal(looksLikePiSessionFileStem("帮我看看这个报错"), false);
   assert.equal(
-    isDefaultAgentTitle("2026-08-08T10-47-19-239Z_abc", project, translateTitle),
+    isDefaultAgentTitle(
+      "2026-08-08T10-47-19-239Z_abc",
+      project,
+      translateTitle,
+    ),
     true,
   );
   // catalog 把时间戳清成 Untitled 后仍要能自动改名，否则历史会话打开后永远叫 Untitled。
   assert.equal(isDefaultAgentTitle("Untitled", project, translateTitle), true);
-  assert.equal(isDefaultAgentTitle("Untitled session", project, translateTitle), true);
+  assert.equal(
+    isDefaultAgentTitle("Untitled session", project, translateTitle),
+    true,
+  );
 });
 
 test("inferTitleFromMessages uses the first user prompt as the session title", () => {
@@ -168,8 +199,12 @@ test("inferTitleFromMessages uses the first user prompt as the session title", (
 });
 
 test("inferTitleFromMessages preserves long prompts for the visual sidebar clamp", () => {
-  const prompt = "修复侧栏标题：这是一个超过三十二字符的自动命名请求，末尾信息不能被截断";
-  assert.equal(inferTitleFromMessages([{ role: "user", text: prompt }]), prompt);
+  const prompt =
+    "修复侧栏标题：这是一个超过三十二字符的自动命名请求，末尾信息不能被截断";
+  assert.equal(
+    inferTitleFromMessages([{ role: "user", text: prompt }]),
+    prompt,
+  );
 });
 
 test("pi runtime title changes notify catalog the same way DSH does", () => {
@@ -181,11 +216,20 @@ test("pi runtime title changes notify catalog the same way DSH does", () => {
   assert.match(utils, /session\.newTitle/);
   assert.match(utils, /session\.dshUntitled/);
   assert.match(agentManager, /setTitleChangedHandler\(/);
-  assert.match(agentManager, /if \(changed \|\| forceCatalogSync\) this\.onTitleChanged\?\.\(agentId, next\)/);
-  assert.match(agentManager, /applyRuntimeTitle\(agentId, data\?\.sessionName \?\? runtime\.tab\.title, false, true\)/);
+  assert.match(
+    agentManager,
+    /if \(changed \|\| forceCatalogSync\) this\.onTitleChanged\?\.\(agentId, next\)/,
+  );
+  assert.match(
+    agentManager,
+    /applyRuntimeTitle\(\s*agentId,\s*data\?\.sessionName \?\? runtime\.tab\.title,\s*false,\s*true,?\s*\)/,
+  );
   assert.match(agentManager, /looksLikePiSessionFileStem\(next\)/);
   assert.match(agentManager, /piSessionName/);
-  assert.match(agentManager, /return this\.applyRuntimeTitle\(agentId, nextTitle\)/);
+  assert.match(
+    agentManager,
+    /return this\.applyRuntimeTitle\(agentId, nextTitle\)/,
+  );
   assert.match(index, /agentManager\.setTitleChangedHandler\(/);
   assert.match(index, /sessionCatalog\.update\(sessionId, \{ title \}\)/);
   assert.match(index, /sessionsCatalogRefreshed/);

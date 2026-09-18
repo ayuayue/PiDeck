@@ -41,11 +41,18 @@ test("imageMimeTypeFromPath 按扩展名推导 MIME", () => {
 
 test("dataUrlToFile 解码 base64 字节、MIME 与文件名正确", async () => {
   // base64("ABC") = QUJD
-  const file = dataUrlToFile("data:image/png;base64,QUJD", "image/png", "shot.png");
+  const file = dataUrlToFile(
+    "data:image/png;base64,QUJD",
+    "image/png",
+    "shot.png",
+  );
   assert.equal(file.name, "shot.png");
   assert.equal(file.type, "image/png");
   assert.equal(file.size, 3);
-  assert.deepEqual(Array.from(new Uint8Array(await file.arrayBuffer())), [65, 66, 67]);
+  assert.deepEqual(
+    Array.from(new Uint8Array(await file.arrayBuffer())),
+    [65, 66, 67],
+  );
 });
 
 // ── 源码级接线断言：对话框 properties 与粘贴分支 ──
@@ -77,14 +84,20 @@ test("readBase64 支持 maxBytes 预检，粘贴图片超大时主进程拦截",
   assert.match(filesIpc, /FILE_TOO_LARGE/);
   assert.match(
     preload,
-    /readBase64: \(path: string, maxBytes\?: number, scope\?: ProjectFileAccessScope\)/,
+    /readBase64: \(\s*path: string,\s*maxBytes\?: number,\s*scope\?: ProjectFileAccessScope,?\s*\)/,
   );
 });
 
 test("onPaste 图片文件走预览分支，失败回退 @path 引用", () => {
   assert.match(controller, /clipboardPaths\.every\(isImageFilePath\)/);
-  assert.match(controller, /pasteClipboardImages\(clipboardPaths, event\.clipboardData\)/);
-  assert.match(controller, /readBase64\(path, COMPOSER_IMAGE_MAX_BYTES\)/);
+  assert.match(
+    controller,
+    /pasteClipboardImages\(clipboardPaths, event\.clipboardData\)/,
+  );
+  assert.match(
+    controller,
+    /readBase64\(\s*path,\s*COMPOSER_IMAGE_MAX_BYTES,\s*\)/,
+  );
   assert.match(controller, /insertFilePathRefs\(paths\)/);
 });
 
@@ -99,9 +112,15 @@ test("位图分支仍优先；纯文本不再自动提取为 @ 路径引用", ()
   // 微信等复制图片：剪贴板=位图+text 槽缓存路径（无 CF_HDROP）。位图分支存在即可。
   // 用户反馈：粘贴 /foo/bar 等含斜杠文本不应被自动转成引用 chip（无法编辑光标），
   // 故纯文本路径提取分支已移除，普通粘贴一律按纯文本插入。
-  const imageBranch = controller.indexOf("getClipboardImageFiles(event.clipboardData)");
+  const imageBranch = controller.indexOf(
+    "getClipboardImageFiles(event.clipboardData)",
+  );
   assert.ok(imageBranch >= 0, "位图分支应存在");
-  assert.doesNotMatch(controller, /extractPastedPath\(/, "不应再自动提取纯文本路径");
+  assert.doesNotMatch(
+    controller,
+    /extractPastedPath\(/,
+    "不应再自动提取纯文本路径",
+  );
   assert.match(controller, /paths\.every\(isImageFilePath\)/);
   assert.match(controller, /位图才是用户要的内容/);
 });
@@ -110,13 +129,22 @@ test("右键粘贴：图片/文件路径走 controller，纯文本返回 false �
   assert.match(controller, /pasteFromClipboard/);
   assert.match(controller, /onPasteClipboard: pasteFromClipboard/);
   assert.match(controller, /Promise<boolean>/);
-  const tipTap = readFileSync("src/renderer/src/components/session/composer/TipTapComposer.tsx", "utf8");
-  assert.match(tipTap, /const handled = await props\.onPasteClipboard\?\.\(\);/);
+  const tipTap = readFileSync(
+    "src/renderer/src/components/session/composer/TipTapComposer.tsx",
+    "utf8",
+  );
+  assert.match(
+    tipTap,
+    /const handled = await props\.onPasteClipboard\?\.\(\);/,
+  );
   assert.match(tipTap, /if \(!handled\) insertClipboard\(editor\);/);
 });
 
 test("preload 暴露剪贴板位图读取（readImage，空图返回空串）", () => {
   // Electron 38：preload 不得直连 clipboard，读取走主进程 sendSync。
-  assert.match(preload, /readImage: \(\) => clipboardSync\(ipcChannels\.clipboardReadImage, ""\)/);
+  assert.match(
+    preload,
+    /readImage: \(\) => clipboardSync\(ipcChannels\.clipboardReadImage, ""\)/,
+  );
   assert.doesNotMatch(preload, /clipboard\.readImage\(\)/);
 });

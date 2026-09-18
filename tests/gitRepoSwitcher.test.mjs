@@ -2,15 +2,30 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const host = readFileSync("src/renderer/src/components/workspace/GitDrawerHost.tsx", "utf8");
+const host = readFileSync(
+  "src/renderer/src/components/workspace/GitDrawerHost.tsx",
+  "utf8",
+);
 const scope = readFileSync("src/renderer/src/hooks/useGitRepoScope.ts", "utf8");
-const drawer = readFileSync("src/renderer/src/components/workspace/DrawerSurface.tsx", "utf8");
+const drawer = readFileSync(
+  "src/renderer/src/components/workspace/DrawerSurface.tsx",
+  "utf8",
+);
 const ipc = readFileSync("src/shared/ipc.ts", "utf8");
 const preload = readFileSync("src/preload/index.ts", "utf8");
 const gitIpc = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
-const panel = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf8");
-const graph = readFileSync("src/renderer/src/components/app/git/GitGraph.tsx", "utf8");
-const resourceTree = readFileSync("src/renderer/src/components/app/git/GitResourceTree.tsx", "utf8");
+const panel = readFileSync(
+  "src/renderer/src/components/app/GitPanel.tsx",
+  "utf8",
+);
+const graph = readFileSync(
+  "src/renderer/src/components/app/git/GitGraph.tsx",
+  "utf8",
+);
+const resourceTree = readFileSync(
+  "src/renderer/src/components/app/git/GitResourceTree.tsx",
+  "utf8",
+);
 const gitService = readFileSync("src/main/git/GitService.ts", "utf8");
 
 // 文件名保留，确保从旧切换器实现迁移时仍会运行这组多仓契约测试。
@@ -72,13 +87,22 @@ test("directory actions stage and discard only their grouped resource paths", ()
   assert.match(resourceTree, /stageDir\?: \(paths: string\[\]\) => void/);
   assert.match(resourceTree, /discardDir\?: \(resources: Array/);
   assert.match(resourceTree, /props\.stageDir\?\.\(stageable\.map/);
-  assert.match(resourceTree, /props\.discardDir\?\.\(discardable, dir \|\| "\/"\)/);
+  assert.match(
+    resourceTree,
+    /props\.discardDir\?\.\(discardable, dir \|\| "\/"\)/,
+  );
   assert.match(panel, /setDirectoryDiscardTarget\(\{ resources, label \}\)/);
-  assert.match(panel, /props\.discardFiles\(props\.projectId, target\.resources\)/);
+  assert.match(
+    panel,
+    /props\.discardFiles\(props\.projectId, target\.resources\)/,
+  );
   assert.match(ipc, /gitDiscardFiles: "git:discard-files"/);
-  assert.match(preload, /discardFiles: \(projectId: string, resources: GitDiscardResource\[\]/);
+  assert.match(
+    preload,
+    /discardFiles: \(\s*projectId: string,\s*resources: GitDiscardResource\[\]/,
+  );
   assert.match(gitIpc, /ipcChannels\.gitDiscardFiles/);
-  assert.match(gitService, /async discardFiles\(cwd: string, resources:/);
+  assert.match(gitService, /async discardFiles\(\s*cwd: string,\s*resources:/);
   assert.match(gitService, /"git:discard-files"/);
 });
 
@@ -89,6 +113,9 @@ test("git IPC and preload accept an optional repoPath without changing init/work
   assert.match(gitIpc, /resolveGitCwd/);
   assert.match(gitIpc, /listGitRepos\(projectHostPath\(project\)\)/);
   // git init 走 currentGitExecutable()（用户可在设置页指定路径），root 仍是项目宿主路径、不随 repoPath 变
-  assert.match(gitIpc, /currentGitExecutable\(\), \["init"\], \{ cwd: projectHostPath\(project\) \}\)/);
+  assert.match(
+    gitIpc,
+    /currentGitExecutable\(\), \["init"\], \{\s*cwd: projectHostPath\(project\)\s*,\s*\}\)/,
+  );
   assert.match(gitIpc, /worktreeService\.list\(projectHostPath\(project\)\)/);
 });

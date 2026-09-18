@@ -162,7 +162,7 @@ test("AgentManager keys preserve WSL case and identity at the process boundary",
   assert.notEqual(upper, otherDistro);
 
   const agentManagerSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-  assert.match(agentManagerSource, /buildAgentSessionKey\(input/);
+  assert.match(agentManagerSource, /buildAgentSessionKey\(\s*input/);
   assert.doesNotMatch(agentManagerSource, /normalizeSessionPathForCompare/);
 });
 

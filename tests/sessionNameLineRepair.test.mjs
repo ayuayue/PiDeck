@@ -195,7 +195,7 @@ test("PiProcess 在 spawn 前调用修复回调，失败不阻塞启动", () => 
 
 test("AgentManager 与 index.ts 完成修复回调装配", () => {
   const agentSource = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-  assert.match(agentSource, /repairSessionFile\?: \(sessionPath: string\) => Promise<boolean>/);
+  assert.match(agentSource, /repairSessionFile\?: \(\s*sessionPath: string,\s*\) => Promise<boolean>/);
   assert.match(agentSource, /repairSessionFileBeforeStart: this\.repairSessionFile/);
   const indexSource = readFileSync("src/main/index.ts", "utf8");
   assert.match(indexSource, /repairCorruptSessionHeader/);
