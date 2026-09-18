@@ -20,6 +20,10 @@ type PendingRequest = {
 /** 超过该长度的 JSONL 行延后到 setImmediate 再 JSON.parse，避免 stdout data 回调堵住主进程。 */
 export const LARGE_RPC_LINE_PARSE_CHARS = 256 * 1024;
 
+/** 单行缓冲硬上限：无 LF 的失控输出（启动脚本打印二进制/死循环刷屏）会让行缓冲无界增长。
+ *  上限取大行解析阈值的 32 倍——正常 get_entries 响应远小于此，超限即视为 stdout 已被污染。 */
+export const MAX_RPC_LINE_BYTES = 8 * 1024 * 1024;
+
 export class PiRpcClient extends EventEmitter {
   private buffer = "";
   private readonly decoder = new StringDecoder("utf8");
@@ -104,6 +108,15 @@ export class PiRpcClient extends EventEmitter {
 
   private consumeChunk(chunk: Buffer | string) {
     this.buffer += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
+    // 行缓冲硬上限：超限说明 stdout 已被无换行的失控输出污染，继续累积只会 OOM。
+    // 丢弃整段缓冲并按协议错误上报（AgentManager 会转 agentsLog + appLogger），
+    // 进程随后由启动失败/退出路径回收。
+    if (this.buffer.length > MAX_RPC_LINE_BYTES) {
+      const droppedBytes = this.buffer.length;
+      this.buffer = "";
+      this.emit("protocol-error", `rpc line buffer overflow: dropped ${droppedBytes} bytes without newline`);
+      return;
+    }
     this.drainLines();
   }
 
