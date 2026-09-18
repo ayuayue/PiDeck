@@ -3506,6 +3506,7 @@ export const enUS: Record<TranslationKey, string> = {
   "imagegen.error.network":
     "Image request failed (check network/proxy or retry later)",
   "imagegen.error.http": "Image service returned an error ({detail})",
+  "imagegen.error.responseTooLarge": "Image response exceeded the 32MB limit and was aborted (check whether the API returned unexpected content)",
   "imagegen.error.empty": "Image service returned no image data",
   "imagegen.size": "Size",
   "imagegen.sizeAuto": "Default",

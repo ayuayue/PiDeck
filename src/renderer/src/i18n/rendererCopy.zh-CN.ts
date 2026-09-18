@@ -3315,6 +3315,7 @@ export const zhCN = {
   "imagegen.error.badBaseUrlDetail": "生图接口地址不对。{detail}",
   "imagegen.error.network": "生图网络请求失败（检查网络/代理或稍后重试）",
   "imagegen.error.http": "生图服务返回错误（{detail}）",
+  "imagegen.error.responseTooLarge": "生图响应体积超过 32MB 上限，已中止下载（请检查接口是否返回了异常内容）",
   "imagegen.error.empty": "生图服务没有返回图片数据",
   "imagegen.size": "尺寸",
   "imagegen.sizeAuto": "不设置",

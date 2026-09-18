@@ -2558,6 +2558,8 @@ function mapImageGenError(error: string, detail?: string): string {
       return extra
         ? t("imagegen.error.http", { detail: extra })
         : t("imagegen.status.error");
+    case "responseTooLarge":
+      return t("imagegen.error.responseTooLarge");
     default:
       return t("imagegen.error.network");
   }

@@ -43,6 +43,8 @@ export type ImageGenErrorCode =
 	| "network"
 	/** 服务端返回其他错误（detail 携带状态码 + 厂商错误正文） */
 	| "http"
+	/** 响应体超过 32MB 上限（主进程流式读取提前中止，防内存放大） */
+	| "responseTooLarge"
 	/** 响应里没有图片数据 */
 	| "empty"
 	/** 供应商声明为不支持参考图（referenceMode=none）却附了参考图 */

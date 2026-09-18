@@ -547,3 +547,57 @@ test("referenceMode=edits：走 /images/edits multipart 接口", async () => {
 	assert.ok(captured.init.body instanceof FormData);
 	restore();
 });
+
+test("JSON 响应体超限 → responseTooLarge（流式读取提前中止）", async () => {
+	let cancelled = false;
+	const response = {
+		ok: true,
+		status: 200,
+		body: {
+			getReader: () => ({
+				async read() {
+					return { done: false, value: new Uint8Array(33 * 1024 * 1024) };
+				},
+				async cancel() {
+					cancelled = true;
+				},
+			}),
+		},
+	};
+	const { service, restore } = createService({ credentials: CREDENTIALS, fetchStub: () => response });
+	const result = await service.generate({ provider: "p", model: "m", prompt: "x" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error, "responseTooLarge");
+	assert.ok(cancelled, "超限后必须 cancel reader 断开连接");
+	restore();
+});
+
+test("图片下载超限 → responseTooLarge", async () => {
+	let call = 0;
+	const { service, restore } = createService({
+		credentials: CREDENTIALS,
+		fetchStub: () => {
+			call += 1;
+			if (call === 1) {
+				return fakeResponse({ ok: true, json: async () => ({ data: [{ url: "https://img.example.com/x.png" }] }) });
+			}
+			return {
+				ok: true,
+				status: 200,
+				headers: { get: () => "image/png" },
+				body: {
+					getReader: () => ({
+						async read() {
+							return { done: false, value: new Uint8Array(33 * 1024 * 1024) };
+						},
+						cancel: async () => {},
+					}),
+				},
+			};
+		},
+	});
+	const result = await service.generate({ provider: "p", model: "m", prompt: "x" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error, "responseTooLarge");
+	restore();
+});

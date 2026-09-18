@@ -129,11 +129,15 @@ export class ImageGenService {
 					detail,
 				};
 			}
-			const payload = (await response.json()) as {
+			const payload = (await this.readJsonCapped(response)) as {
 				data?: Array<{ b64_json?: string; url?: string }>;
 				// SiliconFlow 方言：响应是 images[].url（无 data 数组、无 b64_json）
 				images?: Array<{ url?: string }>;
-			};
+			} | null;
+			if (payload === null) {
+				this.deps.log("imagegen", "json response exceeds cap", {});
+				return { ok: false, error: "responseTooLarge" };
+			}
 			// 通用兜底：OpenAI/方舟读 data[0]，硅基读 images[0]，不依赖方言判断
 			const item: { b64_json?: string; url?: string } | undefined =
 				payload.data?.[0] ?? payload.images?.[0];
@@ -153,9 +157,13 @@ export class ImageGenService {
 				if (!imageResponse.ok) {
 					return { ok: false, error: "network", detail: `image download ${imageResponse.status}` };
 				}
-				const buffer = Buffer.from(await imageResponse.arrayBuffer());
+				const imageBuffer = await this.readBodyCapped(imageResponse);
+				if (!imageBuffer) {
+					this.deps.log("imagegen", "image download aborted: response exceeds cap", { url: item.url });
+					return { ok: false, error: "responseTooLarge" };
+				}
 				const mimeType = imageResponse.headers.get("content-type") ?? "image/png";
-				return { ok: true, image: { type: "image", data: buffer.toString("base64"), mimeType } };
+				return { ok: true, image: { type: "image", data: imageBuffer.toString("base64"), mimeType } };
 			}
 			return { ok: false, error: "empty" };
 		} catch (error) {
@@ -165,12 +173,76 @@ export class ImageGenService {
 			return { ok: false, error: "network" };
 		}
 	}
+
+	/** 流式读取响应体，超过 IMAGE_GEN_MAX_RESPONSE_BYTES 时 cancel reader 并返回 null。
+	 *  用 getReader().read() 循环而非 for-await：本模块在测试经 vm 沙箱加载，
+	 *  沙箱与宿主的 Symbol.asyncIterator 分属不同 realm，for-await 跨 realm 不可靠。 */
+	private async readBodyCapped(response: CappedResponseLike): Promise<Buffer | null> {
+		const body = response.body;
+		if (body && typeof body.getReader === "function") {
+			const reader = body.getReader();
+			const chunks: Buffer[] = [];
+			let total = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (!value || typeof value.byteLength !== "number" || value.byteLength === 0) continue;
+				total += value.byteLength;
+				if (total > IMAGE_GEN_MAX_RESPONSE_BYTES) {
+					try {
+						await reader.cancel();
+					} catch {
+						// 连接已随取消关闭
+					}
+					return null;
+				}
+				chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+			}
+			return Buffer.concat(chunks);
+		}
+		// 无流式 body 的替身/受限运行时：整体读取后校验（生产 fetch 必有 body）
+		if (typeof response.arrayBuffer !== "function") return null;
+		const buffer = Buffer.from(await response.arrayBuffer());
+		return buffer.byteLength > IMAGE_GEN_MAX_RESPONSE_BYTES ? null : buffer;
+	}
+
+	/** 读取 JSON 响应并施加体积上限；超限返回 null。
+	 *  无 body 的替身走 response.json()（原行为）；空 body 的 JSON.parse 异常由
+	 *  generate 外层 catch 归并为 network——与 response.json() 抛错路径一致。 */
+	private async readJsonCapped(
+		response: CappedResponseLike & { json?(): Promise<unknown> },
+	): Promise<unknown | null> {
+		const body = response.body;
+		if (body && typeof body.getReader === "function") {
+			const buffer = await this.readBodyCapped(response);
+			if (!buffer) return null;
+			return JSON.parse(buffer.toString("utf8"));
+		}
+		if (typeof response.json !== "function") return null;
+		return response.json();
+	}
 }
 
 /** 读取失败响应体上限：避免把超大 HTML 错误页塞进 IPC。 */
 const IMAGE_GEN_ERROR_BODY_LIMIT = 4000;
 /** 回传渲染层的 detail 上限（状态码 + 厂商文案）。 */
 const IMAGE_GEN_ERROR_DETAIL_LIMIT = 800;
+
+/** 响应体硬上限：与 ImageBlobStore.IMAGE_BLOB_MAX_BYTES（32MB）对齐——下游 blob put
+ *  同样拒收超限数据，这里提前流式中止，避免先把超大响应整个拉进主进程内存。
+ *  （不直接 import ImageBlobStore：测试沙箱 require 白名单仅含 shared 两个模块。） */
+const IMAGE_GEN_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+/** 最小响应形状：支持流式 body（Node/undici fetch 必有）或整体读取（测试替身）。 */
+type CappedResponseLike = {
+	body?: {
+		getReader(): {
+			read(): Promise<{ done?: boolean; value?: Uint8Array }>;
+			cancel(): Promise<void>;
+		};
+	} | null;
+	arrayBuffer?(): Promise<ArrayBuffer>;
+};
 
 /**
  * 从厂商非 2xx 响应里抽出可读 detail。
