@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { app } from "electron";
@@ -31,6 +31,13 @@ type WslCommandCacheEntry = {
 
 const wslCommandCache = new Map<string, WslCommandCacheEntry>();
 const wslCommandInflight = new Map<string, Promise<string | null>>();
+
+// 登录 shell PATH 的进程级缓存（含负缓存 ""）。readLoginShellPath 曾同步
+// execFileSync：每次定位 pi 都在主进程事件循环里跑 /bin/sh -lc，nvm/慢 shell
+// 初始化数百毫秒起步，期间所有窗口输入与 IPC 整体冻结——与下方 WSL 探测
+// 「禁止回到 execFileSync」注释（:815-825）同一教训，改为异步预热 + 只读缓存。
+let cachedLoginShellPath: string | undefined;
+let loginShellPathInflight: Promise<string> | undefined;
 
 /**
  * 各启动通道下单条命令行的安全字符预算，供技能/提示词白名单这类 O(N) 参数注入做兜底。
@@ -567,6 +574,9 @@ export class PiLocator {
     if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
       await this.warmWslCommand(wslDistro, wslUser, { force: options?.forceWslProbe });
     }
+    // 状态检测是异步入口：先预热登录 shell PATH（macOS/Linux GUI 启动拿不到
+    // 终端 PATH 时靠它找到 brew/nvm 里的 pi），再读 getSearchDirs 快照。
+    await this.warmLoginShellPath();
     const command = this.resolveCommand(customPath, wslEnabled, wslDistro, wslUser);
     const searchedDirs = this.getSearchDirs();
 
@@ -1106,21 +1116,37 @@ export class PiLocator {
 
   private pathDirs() {
     const fromEnv = process.env.PATH ?? process.env.Path ?? "";
-    const fromShell = this.readLoginShellPath();
+    // 只读缓存；未预热时本次仅用 env PATH（不阻塞），同时后台补热，
+    // 下次 spawn / 状态检测即拿到登录 shell 目录。绝不允许回到同步 execFileSync。
+    if (cachedLoginShellPath === undefined) void this.warmLoginShellPath();
+    const fromShell = cachedLoginShellPath ?? "";
     return [...fromEnv.split(delimiter), ...fromShell.split(delimiter)].filter(Boolean);
   }
 
-  private readLoginShellPath() {
-    try {
-      if (process.platform === "win32") {
-        // Windows 检测链路不再依赖 PowerShell；Explorer 启动的 Electron 通常已经拿到系统合并 PATH，
-        // 其他包管理器特殊路径由 getSearchDirs 和用户手动输入兜底。
-        return "";
-      }
-      return execFileSync("/bin/sh", ["-lc", "printf %s \"$PATH\""], { encoding: "utf8", timeout: 3000 }).trim();
-    } catch {
+  /** 异步预热登录 shell PATH（win32 恒空）。结果（含失败负缓存 ""）进程级缓存。 */
+  async warmLoginShellPath(): Promise<string> {
+    if (process.platform === "win32") {
+      // Windows 检测链路不依赖 PowerShell/登录 shell：Explorer 启动的 Electron
+      // 已拿到系统合并 PATH，其他包管理器路径由 getSearchDirs 与手动输入兜底。
       return "";
     }
+    if (cachedLoginShellPath !== undefined) return cachedLoginShellPath;
+    if (loginShellPathInflight) return loginShellPathInflight;
+    const task = new Promise<string>((resolve) => {
+      execFile(
+        "/bin/sh",
+        ["-lc", "printf %s \"$PATH\""],
+        { encoding: "utf8", timeout: 3000 },
+        (error, stdout) => {
+          // 失败（超时/无 sh）负缓存 ""：与旧 catch 行为一致，仅退化到 env PATH。
+          cachedLoginShellPath = error ? "" : String(stdout).trim();
+          loginShellPathInflight = undefined;
+          resolve(cachedLoginShellPath);
+        },
+      );
+    });
+    loginShellPathInflight = task;
+    return task;
   }
 
   private listChildDirs(parent: string) {
