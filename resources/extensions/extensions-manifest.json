@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "ab9c9110e5b9cb7fa660fa1149ddbef96c9e2b4a21db57080043bc898cdd4872",
+  "bundleSha256": "0f5b641452f1cbeddf6953d2563cfdab221341a0e8cada77cdc0ebadcf1c9249",
   "fileCount": 13,
   "files": [
     {
@@ -16,8 +16,8 @@
     },
     {
       "name": "pi-deck-nul-redirect-fix.ts",
-      "sha256": "d450aa00781a5cedccad426e91aa49d494702398974ec31ef4b3e43ffd97a45d",
-      "bytes": 5734
+      "sha256": "55e9af8264369c4160966ce9a3a9f868a550785b13f4f3a0c6452a5ffce831a5",
+      "bytes": 5737
     },
     {
       "name": "pi-deck-plan-mode.ts",
