@@ -43,7 +43,7 @@ test("AgentManager starts the perf timer on message_start (idempotent)", () => {
 	// 顶层 message_start（mock/pi 均走此路径）与 message_update start 都接入计时
 	assert.match(
 		source,
-		/typed\.type === "message_start" && typed\.message\?\.role === "assistant"/,
+		/typed\.type === "message_start" && startMessage\?\.role === "assistant"/,
 	);
 	assert.match(
 		source,
@@ -51,7 +51,7 @@ test("AgentManager starts the perf timer on message_start (idempotent)", () => {
 	);
 	const startBranch = source.slice(
 		source.indexOf(
-			'typed.type === "message_start" && typed.message?.role === "assistant"',
+			'typed.type === "message_start" && startMessage?.role === "assistant"',
 		),
 		source.indexOf('typed.type === "auto_retry_start"'),
 	);
@@ -82,7 +82,7 @@ test("message_end/done/error settles perf and pushes a runtime-state patch", () 
 	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 	// 顶层 message_end（pi 实际走此路径，不经 message_update）也结算
 	assert.match(source, /typed\.type === "message_end" &&/);
-	assert.match(source, /this\.settleMessagePerf\(agentId, typed\.message\);/);
+	assert.match(source, /this\.settleMessagePerf\(agentId, messageEnd\);/);
 	// message_update 终态（done/error）结算
 	assert.match(
 		source,
