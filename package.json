@@ -87,7 +87,7 @@
     "dist:linux": "npm run build && electron-builder --linux AppImage deb tar.gz",
     "dist:linux:arm64": "npm run build && electron-builder --linux AppImage deb tar.gz --arm64",
     "preview": "electron-vite preview",
-    "test": "node --test --test-concurrency=4 \"tests/*.test.mjs\"",
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
     "test:serial": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
     "docs:dev": "vitepress dev docs-site",
     "docs:build": "vitepress build docs-site",

@@ -45,3 +45,16 @@ test("ci.yml 接入全部 check:* 守卫，且位于 npm ci 之后、Build 之�
   "守卫步骤必须在 Build 之前（build 链会静默再生成清单，mask 已提交漂移）",
  );
 });
+
+test("npm test 默认串行执行，规避 Windows 并发死锁", () => {
+ assert.equal(
+  pkg.scripts.test,
+  'node --test --test-concurrency=1 "tests/*.test.mjs"',
+  "本地 npm test 必须与 CI（ci.yml Test 步骤）同为串行：并发模式下测试文件共享进程全局状态，Windows 偶发死锁挂起（二分定位：串行全过、并发偶发挂）",
+ );
+ assert.equal(
+  pkg.scripts["test:serial"],
+  'node --test --test-concurrency=1 "tests/*.test.mjs"',
+  "test:serial 保留：ci.yml 与 AGENTS.md 验证命令表均引用它，删除是另一处破坏面",
+ );
+});
