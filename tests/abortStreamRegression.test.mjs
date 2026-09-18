@@ -78,9 +78,9 @@ test("abort failures surface to the user and escalate when pi keeps running", ()
 
 	// 3) 渲染层 abort 失败必须可见：try/catch + toast，禁止未处理 rejection 静默吞错
 	assert.match(composer, /catch \(error\)/);
-	assert.match(composer, /showNotice\(error instanceof Error \? error\.message : String\(error\)/);
+	assert.match(composer, /showNotice\(\s*error instanceof Error \? error\.message : String\(error\)/);
 	assert.match(app, /catch \(error\)/);
-	assert.match(app, /showToast\(error instanceof Error \? error\.message : String\(error\)/);
+	assert.match(app, /showToast\(\s*error instanceof Error \? error\.message : String\(error\)/);
 
 	// 4) 无运行时目标时也不得静默：给出 runtimeUnavailable 提示
 	assert.match(composer, /sessionCommand\.runtimeUnavailable/);
