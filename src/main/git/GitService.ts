@@ -78,7 +78,7 @@ export class GitService {
 	private async resolveCommitHash(cwd: string, ref: string): Promise<string | null> {
 		try {
 			const { stdout } = await execFileAsync(
-				"git",
+				currentGitExecutable(),
 				["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
 				{ cwd },
 			);
@@ -171,7 +171,7 @@ export class GitService {
 		try {
 			const dir = dirname(filePath);
 			const { stdout: rootRaw } = await execFileAsync(
-				"git",
+				currentGitExecutable(),
 				["rev-parse", "--show-toplevel"],
 				{ cwd: dir },
 			);
@@ -185,7 +185,7 @@ export class GitService {
 			const blobRef = `HEAD:${relPath}`;
 			const limit = Math.max(1, Math.floor(maxBytes));
 			const { stdout } = await execFileAsync(
-				"git",
+				currentGitExecutable(),
 				["-C", repoRoot, "show", blobRef],
 				{ maxBuffer: limit + 1 },
 			);
@@ -204,7 +204,7 @@ export class GitService {
 		// `-- .` 将 monorepo 中的状态限定到当前项目目录，避免 sibling 资源进入抽屉。
 		const [{ stdout: statusRaw }, { stdout: rootRaw }] = await Promise.all([
 			execFileAsync(
-				"git", ["status", "--porcelain", "-z", "--untracked-files=all", "--", "."],
+				currentGitExecutable(), ["status", "--porcelain", "-z", "--untracked-files=all", "--", "."],
 				{ cwd, maxBuffer: 16 * 1024 * 1024, timeout: GIT_MUTATION_TIMEOUT_MS },
 			),
 			execFileAsync(currentGitExecutable(), ["rev-parse", "--show-toplevel"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS }),
@@ -505,7 +505,7 @@ export class GitService {
 		const format = "%(refname)%00%(objectname)%00%(*objectname)";
 		try {
 			const { stdout } = await execFileAsync(
-				"git",
+				currentGitExecutable(),
 				["for-each-ref", `--format=${format}`, "--sort=-committerdate"],
 				{ cwd, maxBuffer: 32 * 1024 * 1024 },
 			);
@@ -538,12 +538,12 @@ export class GitService {
 			const range = `${baseHash}...${targetHash}`;
 			const [{ stdout: diffOut }, { stdout: countOut }] = await Promise.all([
 				execFileAsync(
-					"git",
+					currentGitExecutable(),
 					["diff", "--name-status", "-z", "--diff-filter=ADMR", range],
 					{ cwd, maxBuffer: 32 * 1024 * 1024 },
 				),
 				execFileAsync(
-					"git",
+					currentGitExecutable(),
 					["rev-list", "--left-right", "--count", range],
 					{ cwd },
 				).catch(() => ({ stdout: "0\t0" })),
@@ -578,7 +578,7 @@ export class GitService {
 			if (!leftHash || !rightHash) return "";
 			const range = `${leftHash}...${rightHash}`;
 			const { stdout } = await execFileAsync(
-				"git",
+				currentGitExecutable(),
 				["diff", range, "--", filePath],
 				{ cwd, maxBuffer: 32 * 1024 * 1024 },
 			);
@@ -608,7 +608,7 @@ export class GitService {
 			const cached = this.readCommitDetailCache(cacheKey);
 			if (cached) return cached;
 			const { stdout } = await execFileAsync(
-				"git",
+				currentGitExecutable(),
 				["show", "-s", "--shortstat", `--format=${COMMIT_FORMAT}`, "-z", commitHash, "--"],
 				{ cwd, maxBuffer: 32 * 1024 * 1024 },
 			);
@@ -920,14 +920,14 @@ export class GitService {
 		try {
 			// 无上游时该命令失败（exit 128），直接视为无角标
 			const { stdout: upstreamRaw } = await execFileAsync(
-				"git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+				currentGitExecutable(), ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
 				{ cwd, timeout: GIT_MUTATION_TIMEOUT_MS },
 			);
 			const upstream = upstreamRaw.trim();
 			if (!upstream) return null;
 			// --left-right --count 输出 "<left> <right>"：左=HEAD 独有（ahead），右=上游独有（behind）
 			const { stdout: countRaw } = await execFileAsync(
-				"git", ["rev-list", "--left-right", "--count", `HEAD...${upstream}`],
+				currentGitExecutable(), ["rev-list", "--left-right", "--count", `HEAD...${upstream}`],
 				{ cwd, timeout: GIT_MUTATION_TIMEOUT_MS },
 			);
 			const [left, right] = countRaw.trim().split(/\s+/);
