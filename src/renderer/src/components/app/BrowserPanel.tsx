@@ -135,7 +135,7 @@ export function BrowserPanel(props: {
 }) {
 	const { onClose, onMinimize, onToggleFullscreen } = props;
 	const [initialTab] = useState(() => getInitialActiveTab());
-	const webviewRef = useRef<any>(null);
+	const webviewRef = useRef<WebviewElement | null>(null);
 	const defaultUARef = useRef<string | null>(null);
 	const [tabs, setTabs] = useState<TabEntry[]>(() => [...moduleState.tabs]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(
@@ -158,7 +158,8 @@ export function BrowserPanel(props: {
 		setActiveTabId(nextActiveId);
 	}, []);
 
-	const applyDeviceUserAgent = useCallback((wv: any, nextDevice: DeviceType) => {
+	const applyDeviceUserAgent = useCallback((wv: WebviewElement | null, nextDevice: DeviceType) => {
+		if (!wv) return;
 		const preset = DEVICE_PRESETS.find((item) => item.id === nextDevice);
 		if (preset?.userAgent) {
 			wv.setUserAgent(preset.userAgent);
@@ -526,7 +527,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="flex min-h-0 flex-1 justify-center overflow-hidden bg-bg-subtle">
-				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={initialTab.url} allowpopups={"true" as any} />
+				<webview ref={(el) => { webviewRef.current = el; }} className="browser-webview" src={initialTab.url} />
 			</div>
 		</div>
 	);

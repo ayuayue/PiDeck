@@ -25,10 +25,14 @@ test("BrowserPanel uses a fixed persistent partition without popup or file acces
 	assert.match(browserSecurity, /export function isAllowedBrowserPanelUrl/);
 	assert.match(main, /from "\.\/browser\/browserSecurity"/);
 	assert.match(main, /session\.fromPartition\(BROWSER_PANEL_PARTITION\)/);
-	// The renderer-driven webview sets allowfileaccess and allowpopups via attributes.
-	assert.match(browserPanel, /setAttribute\("allowfileaccess", "true"\)/);
-	assert.match(browserPanel, /allowpopups=\{"true" as any\}/);
-	assert.match(rendererTypes, /partition\?: string/);
+	// 2026-09 第五批 M8：渲染层不再设置 allowfileaccess/allowpopups——主进程
+	// will-attach-webview 兜底本来就会剥离这两个属性（index.ts configureBrowserPanelWebviewHost），
+	// 渲染层设置只会制造第二事实来源与虚假的安全感。
+	assert.doesNotMatch(browserPanel, /allowfileaccess/);
+	assert.doesNotMatch(browserPanel, /allowpopups/);
+	assert.doesNotMatch(browserPanel, /webviewRef = useRef<any>/);
+	assert.doesNotMatch(browserPanel, /MutableRefObject<any>/);
+	assert.doesNotMatch(rendererTypes, /WebviewElement[\s\S]*allowpopups/);
 	assert.doesNotMatch(rendererTypes, /allowpopups/i);
 });
 
