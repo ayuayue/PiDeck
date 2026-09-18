@@ -4,7 +4,8 @@ import type { TranslationKey } from "./rendererCopy.zh-CN";
 export const enUS: Record<TranslationKey, string> = {
   "sidebar.pendingConfirmation": "Pending",
   "sidebar.pendingConfirmationCount": "Pending ({count})",
-  "sidebar.pendingConfirmationHint": "{count} pending confirmation(s) in this project",
+  "sidebar.pendingConfirmationHint":
+    "{count} pending confirmation(s) in this project",
   "app.chatProject": "Chat",
   "pagination.label": "Pagination",
   "pagination.page": "Page {page}",
@@ -22,8 +23,10 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionManager.archivedCount": "{count} archived",
   "sessionManager.workspaceTag": "Session belongs to workspace {name}",
   "sessionManager.deleteArchivedTitle": "Delete archived session",
-  "sessionManager.deleteArchivedBody": "Permanently delete the archived session \"{name}\"? It will be moved to the system trash and removed from the archive list.",
-  "sessionManager.deleteArchivedBodyMany": "Permanently delete the {count} selected archived sessions? They will be moved to the system trash and removed from the archive list.",
+  "sessionManager.deleteArchivedBody":
+    'Permanently delete the archived session "{name}"? It will be moved to the system trash and removed from the archive list.',
+  "sessionManager.deleteArchivedBodyMany":
+    "Permanently delete the {count} selected archived sessions? They will be moved to the system trash and removed from the archive list.",
   "app.sidebarChats": "Chats",
   "app.sidebarProjects": "Projects",
   "app.sidebarWorkspaces": "Workspaces",
@@ -36,14 +39,16 @@ export const enUS: Record<TranslationKey, string> = {
   "app.createAgent": "Start Agent",
   "app.renderErrorTitle": "Render Error",
   "app.renderErrorUnknown": "Unknown render error",
-  "app.renderErrorHelp": "Retry, reload, or quit the app. If the issue persists, report it with the console logs.",
+  "app.renderErrorHelp":
+    "Retry, reload, or quit the app. If the issue persists, report it with the console logs.",
   "app.renderErrorRetry": "Retry",
   "app.renderErrorReload": "Reload",
   "app.renderErrorToast": "Render error",
   "app.renderErrorStack": "Error details",
   "app.renderErrorAutoReload": "Reloading app automatically in {seconds}s…",
   "app.renderErrorAutoReloadCancel": "Cancel auto reload",
-  "app.renderErrorAutoReloadExhausted": "Automatic reload was tried repeatedly but didn't recover. Please reload or quit manually.",
+  "app.renderErrorAutoReloadExhausted":
+    "Automatic reload was tried repeatedly but didn't recover. Please reload or quit manually.",
   "app.runtimeErrorToast": "Runtime error",
   "app.unhandledRejectionToast": "Unhandled exception",
   "app.worktreeCreate": "New Workspace",
@@ -53,13 +58,18 @@ export const enUS: Record<TranslationKey, string> = {
   "app.worktreeCreated": "Workspace created: ",
   "app.worktreeCreateFailed": "Failed to create workspace: ",
   "app.worktreeRemoveFailed": "Failed to remove workspace: ",
-  "app.worktreeRemoveNotFound": "Git worktree not found. It may have been removed outside PiDeck.",
+  "app.worktreeRemoveNotFound":
+    "Git worktree not found. It may have been removed outside PiDeck.",
   "app.worktreeRemoved": "Workspace removed",
   "app.worktreeRemoveConfirmTitle": "Remove workspace",
-  "app.worktreeRemoveConfirmMessage": "Remove this workspace? Its branch and directory will be deleted. This cannot be undone.",
-  "app.worktreeRemoveBlockedByAgents": "There are running agents in this workspace. Close them before removing.",
-  "app.worktreeNotGitRepo": "This project is not a Git repository, cannot enable workspaces",
-  "app.worktreeBranchPreview": "Will create sibling directory and branch {name}",
+  "app.worktreeRemoveConfirmMessage":
+    "Remove this workspace? Its branch and directory will be deleted. This cannot be undone.",
+  "app.worktreeRemoveBlockedByAgents":
+    "There are running agents in this workspace. Close them before removing.",
+  "app.worktreeNotGitRepo":
+    "This project is not a Git repository, cannot enable workspaces",
+  "app.worktreeBranchPreview":
+    "Will create sibling directory and branch {name}",
   "app.worktreeMainWorkspace": "Main workspace",
   "app.worktreeOtherWorkspaces": "Other workspaces",
   "app.worktreeBranchLoading": "…",
@@ -71,7 +81,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.projectRefreshed": "Project refreshed",
   "app.projectsRefreshed": "Refreshed {count} projects",
   "app.projectsRefreshFailed": "Failed to refresh project list: {error}",
-  "app.projectDirectoryMissing": "The project directory is missing. The project list has been refreshed. Restore the directory or remove the project from its menu.",
+  "app.projectDirectoryMissing":
+    "The project directory is missing. The project list has been refreshed. Restore the directory or remove the project from its menu.",
   "app.files": "Files",
   "app.model": "Model",
   "app.new": "New Session",
@@ -87,7 +98,8 @@ export const enUS: Record<TranslationKey, string> = {
   "sidebar.hoverCard.localTask": "Local session",
   "sidebar.hoverCard.messageCount": "{count} messages",
   "sidebar.emptyProjectsTitle": "Add your project directory",
-  "sidebar.emptyProjectsDesc": "pi reads and writes files and runs commands inside your project directory. Add one to manage multiple projects from the sidebar.",
+  "sidebar.emptyProjectsDesc":
+    "pi reads and writes files and runs commands inside your project directory. Add one to manage multiple projects from the sidebar.",
   "app.anonymousChatTitle": "Anonymous Chat - {name}",
   "app.guideBootstrapUnavailable": "No project is available to start a session",
   "app.guideProjectPicker": "Choose a project for this session",
@@ -105,13 +117,17 @@ export const enUS: Record<TranslationKey, string> = {
   "askPanel.copyAnswer": "Copy answer",
   "askPanel.copyAnswerDone": "Answer copied",
   "askPanel.insertToComposer": "Insert answer into main session composer",
-  "askPanel.insertToComposerUnavailable": "Insert is only available when the ask was sent from a session queue",
+  "askPanel.insertToComposerUnavailable":
+    "Insert is only available when the ask was sent from a session queue",
   "askPanel.insertToComposerDone": "Inserted into main session composer",
   "askPanel.followUpPlaceholder": "Ask a follow-up…",
   "askPanel.sendFollowUp": "Send follow-up",
-  "app.anonymousChatCloseTitle": "Close anonymous chat?",  "app.anonymousChatCloseBody": "Anonymous chat records are not saved. Messages will be lost after closing. Confirm close?",
+  "app.anonymousChatCloseTitle": "Close anonymous chat?",
+  "app.anonymousChatCloseBody":
+    "Anonymous chat records are not saved. Messages will be lost after closing. Confirm close?",
   "app.openFolderConfirmTitle": "Add as project?",
-  "app.openFolderConfirmMessage": "The folder from Explorer's context menu\n{{path}}\nis not in the project list yet. Add it as a project and open?",
+  "app.openFolderConfirmMessage":
+    "The folder from Explorer's context menu\n{{path}}\nis not in the project list yet. Add it as a project and open?",
   "app.openFolderConfirmAdd": "Add & open",
   "app.openFolderAdded": "Project added: {{name}}",
   "app.sessionOpened": "Session opened",
@@ -175,12 +191,14 @@ export const enUS: Record<TranslationKey, string> = {
   "app.emptyProjectTitleAccent": "session",
   "app.emptyProjectTitlePunct": ".",
   "app.emptyNoProjectTitle": "Add a project",
-  "app.emptyHasProject": "Create an Agent for this project to analyze, write, or modify code.",
+  "app.emptyHasProject":
+    "Create an Agent for this project to analyze, write, or modify code.",
   "app.emptyCreateAgentHint": "Save the session for ongoing work",
   "app.anonymousChatShort": "Quick chat",
   "app.anonymousChatHint": "Nothing is saved",
   "app.emptyCurrentSetup": "Current: {model} · Thinking {thinking}",
-  "app.emptyNoProject": "Choose a local project folder to create and manage sessions.",
+  "app.emptyNoProject":
+    "Choose a local project folder to create and manage sessions.",
   "app.terminal": "Terminal",
   "scratchPad.title": "Scratch Pad",
   "scratchPad.placeholder": "Jot down ideas…",
@@ -224,7 +242,8 @@ export const enUS: Record<TranslationKey, string> = {
   "ctx.detail.llmDuration": "LLM time",
   "ctx.detail.toolDuration": "Tool time",
   "ctx.detail.ttftAverage": "Avg first token",
-  "ctx.detail.hitAverageTitle": "Average cache hit rate across this session's state snapshots",
+  "ctx.detail.hitAverageTitle":
+    "Average cache hit rate across this session's state snapshots",
   "ctx.detail.snapshots": "snapshots",
   "ctx.detail.cost": "Total cost",
   "ctx.detail.costCny": "≈ CNY",
@@ -238,22 +257,31 @@ export const enUS: Record<TranslationKey, string> = {
   "app.attachFile": "Attach file reference",
   "app.quoteAddToPrompt": "Quote and ask",
   "app.quoteNeedsQuestion": "Type your question before sending the quote",
-  "app.startupWindowModeSaved": "Startup window setting saved; applies on next launch",
+  "app.startupWindowModeSaved":
+    "Startup window setting saved; applies on next launch",
   "app.singleInstanceSaved": "Single-instance setting saved; restart to apply",
-  "app.electronSandboxSaved": "Chromium sandbox setting saved; restart to apply",
+  "app.electronSandboxSaved":
+    "Chromium sandbox setting saved; restart to apply",
   "terminal.shellNotAvailable": "Shell not available",
   "terminal.shellEmpty": "No shells detected",
   "terminal.selectShell": "Select shell",
   "config.restoreBuiltIn": "Restore built-in",
-  "config.extensionConflict": "Extension conflict detected; built-in disabled: {builtIn} (conflicts with {thirdParty})",
+  "config.extensionConflict":
+    "Extension conflict detected; built-in disabled: {builtIn} (conflicts with {thirdParty})",
   "config.extensionWhitelistOff": "Disable -e flag",
   "config.extensionWhitelistOn": "-e flag disabled",
-  "config.extensionWhitelistHint": "When extensions are disabled, PiDeck starts RPC with -e flags that load only enabled extensions. If an extension breaks startup, turn off the -e flag to let pi load all extensions by default.",
-  "config.extensionWhitelistOnToast": "-e whitelist turned off; pi will load all extensions by default",
-  "config.extensionWhitelistOffToast": "-e whitelist restored; disabled list takes effect again",
-  "config.extensionWhitelistToggleFailed": "Failed to toggle -e whitelist: {error}",
-  "config.compaction.manualHint": "You can also compact manually from the session toolbar",
-  "config.compaction.keepRecentTokensHint": "Recent dialogue tokens kept after compaction",
+  "config.extensionWhitelistHint":
+    "When extensions are disabled, PiDeck starts RPC with -e flags that load only enabled extensions. If an extension breaks startup, turn off the -e flag to let pi load all extensions by default.",
+  "config.extensionWhitelistOnToast":
+    "-e whitelist turned off; pi will load all extensions by default",
+  "config.extensionWhitelistOffToast":
+    "-e whitelist restored; disabled list takes effect again",
+  "config.extensionWhitelistToggleFailed":
+    "Failed to toggle -e whitelist: {error}",
+  "config.compaction.manualHint":
+    "You can also compact manually from the session toolbar",
+  "config.compaction.keepRecentTokensHint":
+    "Recent dialogue tokens kept after compaction",
   "config.compaction.keepRecentTokens": "Keep recent tokens",
   "config.compaction.reserveTokensHint": "Tokens reserved for the model reply",
   "config.compaction.reserveTokens": "Reserve reply tokens",
@@ -269,24 +297,30 @@ export const enUS: Record<TranslationKey, string> = {
   "app.compactCancelled": "Compaction cancelled",
   "app.compactCancelledByOwner":
     "Compaction was cancelled by an extension in this session that owns context management (e.g. a context-compression plugin), so PiDeck's compact action cannot take effect",
-  "app.compactCancelledByOwnerWithReason": "Compaction is owned by an extension: {reason}",
-  "app.compactRoutedToOwner": "Used {command} instead — an extension owns this session's context window",
+  "app.compactCancelledByOwnerWithReason":
+    "Compaction is owned by an extension: {reason}",
+  "app.compactRoutedToOwner":
+    "Used {command} instead — an extension owns this session's context window",
   "app.compactInterrupted": "Compaction interrupted",
   "rewind.title": "Checkpoints",
   "rewind.panelHint": "File snapshots of the current session",
   "rewind.loadMore": "Load more",
   "rewind.changedFiles": "{files} files changed",
-  "rewind.diffVsCurrentHint": "Diff between this checkpoint and the current worktree",
+  "rewind.diffVsCurrentHint":
+    "Diff between this checkpoint and the current worktree",
   "rewind.noSession": "No session open",
   "rewind.noSessionHint": "Open a pi session to see its checkpoints here",
   "rewind.empty": "No checkpoints yet",
-  "rewind.emptyHint": "Checkpoints are created automatically after write/edit/bash; this session has none yet",
-  "rewind.unavailable": "No live runtime for this session — cannot read checkpoints",
+  "rewind.emptyHint":
+    "Checkpoints are created automatically after write/edit/bash; this session has none yet",
+  "rewind.unavailable":
+    "No live runtime for this session — cannot read checkpoints",
   "rewind.loadFailed": "Failed to load checkpoints: {error}",
   "rewind.restore": "Restore to here",
   "rewind.restoreTitle": "Restore workspace files to this checkpoint",
   "rewind.restoreConfirmTitle": "Confirm file restore",
-  "rewind.restoreConfirmMessage": "Workspace files will be restored to checkpoint {id} ({time}): untracked new files are cleaned up; ignored directories such as node_modules are untouched. This overwrites current file changes and cannot be undone.",
+  "rewind.restoreConfirmMessage":
+    "Workspace files will be restored to checkpoint {id} ({time}): untracked new files are cleaned up; ignored directories such as node_modules are untouched. This overwrites current file changes and cannot be undone.",
   "rewind.restoreConfirmRestore": "Restore files",
   "rewind.restoring": "Restoring…",
   "rewind.restoreDone": "Files restored to checkpoint {id}",
@@ -299,40 +333,52 @@ export const enUS: Record<TranslationKey, string> = {
   "rewind.trigger.tool": "Tool",
   "rewind.trigger.resume": "Resume",
   "rewind.trigger.beforeRestore": "Pre-restore",
-  "rewind.triggerBeforeRestoreHint": "Automatic backup taken before each restore",
+  "rewind.triggerBeforeRestoreHint":
+    "Automatic backup taken before each restore",
   "rewind.turnLabel": "Turn {turn}",
   "rewind.unsupportedBackend": "This backend does not support checkpoints",
   "rewind.scope.files": "Files only",
   "rewind.scope.conversation": "Conversation only",
   "rewind.scope.all": "Files + conversation",
   "rewind.scopeFilesHint": "Restore workspace files",
-  "rewind.scopeConversationHint": "Fork a new session at the checkpoint moment (original kept)",
+  "rewind.scopeConversationHint":
+    "Fork a new session at the checkpoint moment (original kept)",
   "rewind.scopeAllHint": "Files restore + conversation fork",
   "rewind.restoreConfirmConversation": "Restore conversation",
   "rewind.restoreConfirmAll": "Restore all",
-  "rewind.restoreConfirmMessageConversation": "The conversation will be forked at checkpoint {id} ({time}); the original session is kept. Workspace files are not modified.",
-  "rewind.restoreConfirmMessageAll": "Workspace files will be restored to checkpoint {id} ({time}) and the conversation forked at that moment. Untracked new files are cleaned up; ignored directories such as node_modules are untouched. The original session is kept. This overwrites current file changes and cannot be undone.",
-  "rewind.restoreDoneForked": "Restored to checkpoint {id}; forked session {forked}",
-  "rewind.conversationForked": "Conversation forked at checkpoint {id}: session {forked}",
-  "rewind.health.failed": "Automatic checkpoint backup failed ({time}): {error}. No new checkpoints will be created while failing; file rewind may have no usable restore point.",
-  "rewind.health.noGit": "This project directory is not a git repository, so checkpoints are unavailable. Run git init in the project directory and make an initial commit to enable them.",
+  "rewind.restoreConfirmMessageConversation":
+    "The conversation will be forked at checkpoint {id} ({time}); the original session is kept. Workspace files are not modified.",
+  "rewind.restoreConfirmMessageAll":
+    "Workspace files will be restored to checkpoint {id} ({time}) and the conversation forked at that moment. Untracked new files are cleaned up; ignored directories such as node_modules are untouched. The original session is kept. This overwrites current file changes and cannot be undone.",
+  "rewind.restoreDoneForked":
+    "Restored to checkpoint {id}; forked session {forked}",
+  "rewind.conversationForked":
+    "Conversation forked at checkpoint {id}: session {forked}",
+  "rewind.health.failed":
+    "Automatic checkpoint backup failed ({time}): {error}. No new checkpoints will be created while failing; file rewind may have no usable restore point.",
+  "rewind.health.noGit":
+    "This project directory is not a git repository, so checkpoints are unavailable. Run git init in the project directory and make an initial commit to enable them.",
   "app.forkFromMessage": "Fork",
-  "app.forkFromMessageTitle": "Fork a new session from this message (edit then resend)",
+  "app.forkFromMessageTitle":
+    "Fork a new session from this message (edit then resend)",
   "app.forkBusyTitle": "Fork becomes available once the reply finishes",
   "app.forkDone": "Forked into a new session; prompt filled in the composer",
   "app.forkCancelled": "Fork cancelled",
-  "app.forkMissingEntryId": "Cannot fork this message (missing session entryId)",
+  "app.forkMissingEntryId":
+    "Cannot fork this message (missing session entryId)",
   "app.forkFailed": "Fork failed: {error}",
   "app.agentStarting": "Starting Agent...",
   "app.agentStartingPlaceholder": "Agent is starting...",
   "app.historyLoading": "Loading history...",
   "app.abortRequested": "Stop requested",
-  "app.abortSlow": "Stop is slow; if it still won't stop, try restarting the session",
+  "app.abortSlow":
+    "Stop is slow; if it still won't stop, try restarting the session",
   "app.branchCurrent": "Current branch: {branch}; {count} branches total",
   "app.branchOnlyOne": "Only one branch",
   "app.branchNone": "No branch",
   "git.branchSwitcherConfirmTitle": "Switch branch?",
-  "git.branchSwitcherConfirmMessage": "Switch to branch \"{branch}\"? Uncommitted changes will travel with the switch; if the target branch has conflicting changes to the same files, git will refuse (current branch stays untouched).",
+  "git.branchSwitcherConfirmMessage":
+    'Switch to branch "{branch}"? Uncommitted changes will travel with the switch; if the target branch has conflicting changes to the same files, git will refuse (current branch stays untouched).',
   "git.branchSwitcherConfirmLabel": "Switch",
   "app.branchSwitchFailed": "Branch switch failed: {error}",
   "app.branchSwitching": "Switching...",
@@ -342,7 +388,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.branchCreateFailed": "Branch creation failed: {error}",
   "app.clearImages": "Clear",
   "app.clearImagesTitle": "Clear all images",
-  "app.pasteConvertedToFile": "Converted to file {name} ({size}); it will be referenced on send",
+  "app.pasteConvertedToFile":
+    "Converted to file {name} ({size}); it will be referenced on send",
   "app.pasteConvertFailed": "Failed to convert to file; pasted as text",
   "app.pasteFileRemove": "Remove file",
   "app.collapseList": "Collapse list",
@@ -358,18 +405,23 @@ export const enUS: Record<TranslationKey, string> = {
   "app.composerSilentStatus":
     "Silent command: run directly without adding context",
   "app.composerPlanPlaceholder": "Plan mode: enter a task to make a plan",
-  "app.composerPlanStatus": "Plan mode: read-only analysis; confirm before execution",
-  "app.composerGoalPlaceholder": "Goal mode: enter an objective; the agent keeps working until it is done",
+  "app.composerPlanStatus":
+    "Plan mode: read-only analysis; confirm before execution",
+  "app.composerGoalPlaceholder":
+    "Goal mode: enter an objective; the agent keeps working until it is done",
   "app.composerModeTitle": "Choose the work mode for this message",
   "app.composerModeLabel": "Mode",
   "app.composerModeNormal": "Normal Mode",
   "app.composerModeNormalDesc": "Direct execution for normal tasks and edits",
   "app.composerModePlan": "Plan Mode",
-  "app.composerModePlanDesc": "Read-only first, then generate a plan for confirmation",
+  "app.composerModePlanDesc":
+    "Read-only first, then generate a plan for confirmation",
   "app.composerModeGoal": "Goal Mode",
-  "app.composerModeGoalDesc": "Keep working toward one objective until it is complete, blocked, or paused",
+  "app.composerModeGoalDesc":
+    "Keep working toward one objective until it is complete, blocked, or paused",
   "app.composerModeImagegen": "Image Mode",
-  "app.composerModeImagegenDesc": "Type a prompt to generate an image; the result lands in the attachment bar",
+  "app.composerModeImagegenDesc":
+    "Type a prompt to generate an image; the result lands in the attachment bar",
   "app.composerModeCancelImagegen": "Exit image mode",
   "app.composerModeCancelPlan": "Cancel Plan",
   "app.composerModeCancelGoal": "Pause Goal",
@@ -382,18 +434,21 @@ export const enUS: Record<TranslationKey, string> = {
   "app.feedbackCopied": "Feedback copied",
   "app.filesRefreshed": "File list refreshed",
   "app.filesRefreshFailed": "Failed to refresh file list: {error}",
-  "app.filesDirectoryTooLarge": "This folder has {count} items, over the {max} limit, so it was not loaded",
+  "app.filesDirectoryTooLarge":
+    "This folder has {count} items, over the {max} limit, so it was not loaded",
   "app.openEditorFailed": "Failed to open editor: {error}",
   "app.noExternalEditors": "No external editors detected",
   "app.openFileFailed": "Failed to open file: {error}",
-  "app.fileLinkCannotResolve": "Cannot open file link: the path has no session base directory or is outside the current project: {path}",
+  "app.fileLinkCannotResolve":
+    "Cannot open file link: the path has no session base directory or is outside the current project: {path}",
   "app.fileLinkNotFound": "Path does not exist or is no longer valid: {path}",
   "fileLink.openInExplorer": "Open in Explorer",
   "fileLink.copyRelativePath": "Copy Relative Path",
   "fileLink.copyAbsolutePath": "Copy Absolute Path",
   "app.openProjectInEditor": "Open project in editor",
   "app.openWithEditor": "Open with",
-  "app.openWithEditorNoProject": "No project directory: editors unavailable, file manager opens home",
+  "app.openWithEditorNoProject":
+    "No project directory: editors unavailable, file manager opens home",
   "app.fileManager": "File Manager",
   "app.fileManager.windowsExplorer": "File Explorer",
   "app.openInFileManager": "Open project in file manager",
@@ -416,12 +471,15 @@ export const enUS: Record<TranslationKey, string> = {
   "git.compareChanges": "Compare Changes",
   "git.commit": "Commit",
   "git.smartCommitTitle": "Commit Changes",
-  "git.smartCommitPrompt": "There are no staged changes to commit. Would you like to stage all your changes and commit them directly?",
+  "git.smartCommitPrompt":
+    "There are no staged changes to commit. Would you like to stage all your changes and commit them directly?",
   "git.smartCommitYes": "Yes",
   "git.smartCommitAlways": "Always",
   "git.smartCommitNever": "Never",
-  "git.stageBeforeCommit": "Stage files first with the + beside a file or the + in the Changes header, then commit.",
-  "git.resolveConflictsBeforeCommit": "Resolve merge conflicts before committing.",
+  "git.stageBeforeCommit":
+    "Stage files first with the + beside a file or the + in the Changes header, then commit.",
+  "git.resolveConflictsBeforeCommit":
+    "Resolve merge conflicts before committing.",
   "git.committing": "Committing…",
   "git.commitPlaceholder": "Message (Ctrl+Enter to commit on '{branch}')",
   "git.noPendingChanges": "There are no pending changes.",
@@ -434,12 +492,15 @@ export const enUS: Record<TranslationKey, string> = {
   "git.discardChanges": "Discard Changes",
   "git.discardDirectory": "Discard Directory Changes",
   "git.discardDirectoryConfirmTitle": "Discard directory changes?",
-  "git.discardDirectoryConfirmMessage": "Discard {count} unstaged files under “{path}”? Staged content will be kept; untracked files will be moved to the recycle bin.",
+  "git.discardDirectoryConfirmMessage":
+    "Discard {count} unstaged files under “{path}”? Staged content will be kept; untracked files will be moved to the recycle bin.",
   "git.discardUntracked": "Delete Untracked File",
   "git.discardConfirmTitle": "Discard file changes?",
-  "git.discardConfirmMessage": "Discard unstaged changes in “{path}”? Staged content will be kept. This cannot be undone.",
+  "git.discardConfirmMessage":
+    "Discard unstaged changes in “{path}”? Staged content will be kept. This cannot be undone.",
   "git.discardUntrackedConfirmTitle": "Delete untracked file?",
-  "git.discardUntrackedConfirmMessage": "Permanently delete the untracked file “{path}”? This cannot be undone.",
+  "git.discardUntrackedConfirmMessage":
+    "Permanently delete the untracked file “{path}”? This cannot be undone.",
   "git.resizePanes": "Resize Source Control panes",
   "git.filterReference": "Filter reference",
   "git.showCurrentBranch": "Show Current Branch",
@@ -453,14 +514,17 @@ export const enUS: Record<TranslationKey, string> = {
   "git.renamedFrom": "Renamed from {path}",
   "git.openFileDiff": "View commit diff for {path}",
   "git.openWorkspaceDiff": "View Git diff for {path}",
-  "git.fileDiffUnavailable": "Unable to read the diff content for this committed file",
-  "git.workspaceDiffUnavailable": "Unable to read this workspace diff; the file may have changed or exceeded the size limit",
+  "git.fileDiffUnavailable":
+    "Unable to read the diff content for this committed file",
+  "git.workspaceDiffUnavailable":
+    "Unable to read this workspace diff; the file may have changed or exceeded the size limit",
   "git.filesChanged": "{count} files changed",
   "git.base": "Base",
   "git.compare": "Compare",
   "git.selectBase": "Select base branch",
   "git.selectCompare": "Select comparison branch",
-  "git.compareSummary": "{ahead} ahead · {behind} behind · {count} changed files",
+  "git.compareSummary":
+    "{ahead} ahead · {behind} behind · {count} changed files",
   "git.compareHint": "Select two branches to compare their changes.",
   "git.relativeSeconds": "{count}s ago",
   "git.relativeMinutes": "{count}m ago",
@@ -482,20 +546,24 @@ export const enUS: Record<TranslationKey, string> = {
   "git.resetMixed": "Mixed reset (keep working tree)",
   "git.resetHard": "Hard reset (discard all changes)",
   "git.resetHardConfirmTitle": "Hard reset commit?",
-  "git.resetHardConfirmMessage": "All uncommitted changes after {hash} will be discarded. This cannot be undone.",
+  "git.resetHardConfirmMessage":
+    "All uncommitted changes after {hash} will be discarded. This cannot be undone.",
   "git.dropCommit": "Drop commit",
   "git.dropCommitConfirmTitle": "Drop commit?",
-  "git.dropCommitConfirmMessage": "Commit {hash} will be removed from the current branch. This rewrites history.",
+  "git.dropCommitConfirmMessage":
+    "Commit {hash} will be removed from the current branch. This rewrites history.",
   "git.contextMenuSuccess": "Operation completed",
   "git.contextMenuFailed": "Operation failed: {error}",
   "git.loadMore": "Load more",
   "git.loadingMore": "Loading…",
   "git.generateCommitMessage": "Generate commit message with AI",
-  "git.stageBeforeGenerateCommitMessage": "Stage your changes first before generating a commit message.",
+  "git.stageBeforeGenerateCommitMessage":
+    "Stage your changes first before generating a commit message.",
   "git.generateCommitMessageFailed": "Failed to generate commit message",
   "git.generateCommitMessageProgress": "Generating commit message…",
   "git.generateCommitMessageDone": "Commit message generated",
-  "git.generateCommitMessageEmpty": "The model returned an empty commit message. Retry or check the Git summary model in Settings.",
+  "git.generateCommitMessageEmpty":
+    "The model returned an empty commit message. Retry or check the Git summary model in Settings.",
   "git.retryGenerate": "Retry",
   "git.goSettings": "Open Settings",
   "git.notAGitRepo": "This project is not a Git repository",
@@ -511,12 +579,15 @@ export const enUS: Record<TranslationKey, string> = {
   "git.operationFailed": "Git operation failed",
   "git.compareFailed": "Branch comparison failed",
   "git.pushNoUpstreamTitle": "Push failed: no upstream branch",
-  "git.pushNoUpstreamDesc": "Branch {branch} has no upstream. Run the command below in your terminal to set one, then push again:\n{command}",
+  "git.pushNoUpstreamDesc":
+    "Branch {branch} has no upstream. Run the command below in your terminal to set one, then push again:\n{command}",
   "git.deleteFile": "Delete File",
   "git.deleteFileConfirmTitle": "Delete File",
-  "git.deleteFileConfirmMessage": "Delete {path}? It will be moved to the recycle bin.",
+  "git.deleteFileConfirmMessage":
+    "Delete {path}? It will be moved to the recycle bin.",
   "git.gitNotInstalled": "Git is not installed on this system",
-  "git.gitNotInstalledDesc": "Source control management requires Git. Please install Git from https://git-scm.com and restart PiDeck.",
+  "git.gitNotInstalledDesc":
+    "Source control management requires Git. Please install Git from https://git-scm.com and restart PiDeck.",
   "browser.devicePC": "PC",
   "browser.deviceMobile": "Mobile",
   "browser.deviceTablet": "Tablet",
@@ -538,13 +609,16 @@ export const enUS: Record<TranslationKey, string> = {
   "app.restoreSplit": "Restore split",
   "app.imageAlt": "Image {index}",
   "app.visionBridgeSeen": "Vision bridge applied",
-  "app.visionBridgeSeenDesc": "This image was converted to text by a vision model (the chat model cannot see images)",
+  "app.visionBridgeSeenDesc":
+    "This image was converted to text by a vision model (the chat model cannot see images)",
   "app.visionBridgeFailed": "Vision bridge failed",
-  "app.visionBridgeFailedDesc": "The image could not be converted; check model / endpoint / API key in Settings → Vision Bridge",
+  "app.visionBridgeFailedDesc":
+    "The image could not be converted; check model / endpoint / API key in Settings → Vision Bridge",
   "app.visionBridgeImageLabel": "Image #{index}",
   "app.visionConverting": "Vision bridge converting…",
   "app.visionDetail": "Details",
-  "app.visionNoEvents": "No vision bridge records yet (event file missing or cleared)",
+  "app.visionNoEvents":
+    "No vision bridge records yet (event file missing or cleared)",
   "app.visionRequestPrompt": "Prompt",
   "app.visionCacheHit": "cache hit",
   "app.visionOutputTokens": "{count} tokens",
@@ -561,7 +635,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.homepage": "Website",
   "about.title": "About PiDeck",
   "about.clickHint": "Click for version & links",
-  "about.description": "A desktop client for managing pi coding agents across local projects",
+  "about.description":
+    "A desktop client for managing pi coding agents across local projects",
   "about.website": "Website",
   "about.github": "GitHub",
   "about.releases": "Releases",
@@ -570,7 +645,8 @@ export const enUS: Record<TranslationKey, string> = {
   "changelog.subtitle": "See what changed in each release",
   "changelog.subtitleVersions": "{count} version entries",
   "changelog.loading": "Fetching changelog…",
-  "changelog.unavailable": "Could not fetch the changelog. You can view it in your browser.",
+  "changelog.unavailable":
+    "Could not fetch the changelog. You can view it in your browser.",
   "changelog.openInBrowser": "Open in browser",
   "changelog.reload": "Refresh",
   "changelog.updatedAt": "updated {time}",
@@ -580,7 +656,8 @@ export const enUS: Record<TranslationKey, string> = {
   "about.runtimeInfo": "Runtime",
   "about.dshVersion": "DSH runtime",
   "about.piAiVersion": "pi-ai model catalog",
-  "about.runtimeStack": "Electron {electron} · Chromium {chromium} · Node {node}",
+  "about.runtimeStack":
+    "Electron {electron} · Chromium {chromium} · Node {node}",
   "about.timestamps": "Timestamps",
   "about.buildTime": "Build time",
   "about.installedAt": "Installed at",
@@ -596,12 +673,18 @@ export const enUS: Record<TranslationKey, string> = {
   "app.modelListLoading": "Loading model list…",
   "app.modelListLoadFailed": "Failed to load model list",
   "app.modelListEmptyTitle": "Model list is empty",
-  "app.modelListEmptyGuide": "No available models. Add a provider and models in the Models settings page, then refresh.",
-  "app.modelListFailPiNotFound": "pi runtime not detected — the model list is provided by pi. Install/configure the pi path under Settings → pi, then refresh.",
-  "app.modelListFailVersionTooOld": "The installed pi is too old to list models (needs a version that supports pi --list-models). Upgrade pi, then refresh.",
-  "app.modelListFailConfigInvalid": "Model config files (models.json / auth.json) are malformed, so pi cannot read models. Fix the config in the Models settings page (or rebuild a damaged file), then refresh.",
-  "app.modelListFailCliFailed": "pi --list-models failed, so no model list is available. Refresh to retry; if it keeps failing, check pi health in the settings page.",
-  "app.modelListFailEmpty": "No available models: neither the pi catalog nor the local models.json has models. Add a provider and models in the Models settings page.",
+  "app.modelListEmptyGuide":
+    "No available models. Add a provider and models in the Models settings page, then refresh.",
+  "app.modelListFailPiNotFound":
+    "pi runtime not detected — the model list is provided by pi. Install/configure the pi path under Settings → pi, then refresh.",
+  "app.modelListFailVersionTooOld":
+    "The installed pi is too old to list models (needs a version that supports pi --list-models). Upgrade pi, then refresh.",
+  "app.modelListFailConfigInvalid":
+    "Model config files (models.json / auth.json) are malformed, so pi cannot read models. Fix the config in the Models settings page (or rebuild a damaged file), then refresh.",
+  "app.modelListFailCliFailed":
+    "pi --list-models failed, so no model list is available. Refresh to retry; if it keeps failing, check pi health in the settings page.",
+  "app.modelListFailEmpty":
+    "No available models: neither the pi catalog nor the local models.json has models. Add a provider and models in the Models settings page.",
   "app.modelCollapseAllProviders": "Collapse all providers",
   "app.modelExpandAllProviders": "Expand all providers",
   "app.modelScrollToTop": "Scroll to top",
@@ -612,7 +695,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.moreAgents": "{count} more Agents",
   "app.agentCreateTimeout":
     "Agent startup timed out. Check whether pi can start normally, then try again.",
-  "app.sessionRefreshTimeout": "Session list refresh timed out. Try again shortly.",
+  "app.sessionRefreshTimeout":
+    "Session list refresh timed out. Try again shortly.",
   "app.openTerminalTitle": "Show or hide this Agent terminal",
   "app.piCheckFailed": "pi check failed: {error}",
   "app.piCheckPassed": "pi check passed: {value}",
@@ -621,7 +705,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.piPathSaved": "pi path saved: {path}",
   "app.piPathValidateFailed": "pi path validation failed: {error}",
   "app.preloadMissing": "Desktop preload API is not available. Restart PiDeck.",
-  "app.projectChatGuide": "Built-in chat area. Click settings to change the chat directory.",
+  "app.projectChatGuide":
+    "Built-in chat area. Click settings to change the chat directory.",
   "app.openSessionFile": "Click to open this session file in system editor",
   "app.messageExpand": "Show full message",
   "app.messageCollapse": "Collapse",
@@ -633,18 +718,24 @@ export const enUS: Record<TranslationKey, string> = {
     "Projects show running Agents and recent sessions by default. Right-click a project to import Codex sessions or remove the record.",
   "app.projectNewAgent": "New Agent",
   "app.projectMissing": "Directory missing",
-  "app.projectMissingHint": "The project directory was deleted, moved, or is temporarily unreachable (e.g. unmounted disk or stopped WSL). Restore the directory, or remove the project from its context menu.",
-  "app.projectRunningHint": "A session is running in this workspace (agent process is still alive).",
+  "app.projectMissingHint":
+    "The project directory was deleted, moved, or is temporarily unreachable (e.g. unmounted disk or stopped WSL). Restore the directory, or remove the project from its context menu.",
+  "app.projectRunningHint":
+    "A session is running in this workspace (agent process is still alive).",
   "app.chatProjectSettings": "Change chat save directory",
   "app.modelRestartTitle": "Restart agent to apply",
-  "app.modelRestartBody": "Model {model} is configured in local models.json but the running agent has not loaded it yet. Restart the agent to use it. Restart now?",
+  "app.modelRestartBody":
+    "Model {model} is configured in local models.json but the running agent has not loaded it yet. Restart the agent to use it. Restart now?",
   "app.modelRestartDone": "Agent restarted, new model applied",
-  "app.modelPendingTitle": "Model switches after this generation: {from} → {to}",
+  "app.modelPendingTitle":
+    "Model switches after this generation: {from} → {to}",
   "app.chatProjectPathUpdated": "Chat directory updated",
-  "app.chatPathOverlapsProject": "This folder is already registered as a project and cannot be used as the chat directory (a shared path would shadow the project area). Please pick another folder.",
+  "app.chatPathOverlapsProject":
+    "This folder is already registered as a project and cannot be used as the chat directory (a shared path would shadow the project area). Please pick another folder.",
   "app.projectRemoveTitle": "Remove project record",
   "app.projectRemoveBlockedTitle": "Cannot remove project",
-  "app.projectRemoveBlockedByAgent": "This project still has running agents. Please stop or close them before removing.",
+  "app.projectRemoveBlockedByAgent":
+    "This project still has running agents. Please stop or close them before removing.",
   "app.projectRemoveBlockedAck": "Got it",
   "app.projectAvatarTitle": "{name} project folder",
   "app.projectSessionsLoading": "Loading history sessions...",
@@ -665,11 +756,15 @@ export const enUS: Record<TranslationKey, string> = {
   "app.renameSessionTitle": "Rename Session",
   "app.renameProjectPlaceholder": "Enter a new project name",
   "app.renameProjectTitle": "Rename Project",
-  "app.renameProjectHint": "Only changes the label shown in the sidebar; the folder on disk is not modified",
-  "app.emptyGuide": "Select an Agent from the left sidebar to start chatting, or click below to create a new one.\nYou can create and switch between different project agents.",
+  "app.renameProjectHint":
+    "Only changes the label shown in the sidebar; the folder on disk is not modified",
+  "app.emptyGuide":
+    "Select an Agent from the left sidebar to start chatting, or click below to create a new one.\nYou can create and switch between different project agents.",
   "app.newChatPlaceholder": "Type a message to start a new conversation…",
-  "app.newChatCreateFailed": "Failed to create the conversation, please try again",
-  "app.newChatRuntimeTimeout": "Conversation startup timed out, please try again later",
+  "app.newChatCreateFailed":
+    "Failed to create the conversation, please try again",
+  "app.newChatRuntimeTimeout":
+    "Conversation startup timed out, please try again later",
   "app.resend": "Resend",
   "app.resendTitle": "Send the same user message to AI again",
   "app.editAndResend": "Edit in input",
@@ -686,14 +781,17 @@ export const enUS: Record<TranslationKey, string> = {
   "app.queuedSending": "Sending",
   "app.queuedFailed": "Failed",
   "app.queuedUnknownShort": "Unknown",
-  "app.queuedUnknown": "The message may have been submitted without confirmation. Retract is disabled to prevent duplicate delivery.",
+  "app.queuedUnknown":
+    "The message may have been submitted without confirmation. Retract is disabled to prevent duplicate delivery.",
   "app.queuedDeliveryUnknown": "The message may not have been delivered",
   "app.queuedMore": "+{count} more",
-  "app.queuedFull": "Queue is full ({count} max). Clear some before sending more.",
+  "app.queuedFull":
+    "Queue is full ({count} max). Clear some before sending more.",
   "app.retractToInput": "Retract to edit",
   "app.retractDiscard": "Discard",
   "app.queuedRetractDisabledSending": "Cannot retract while sending",
-  "app.queuedRetractDisabledUnknown": "Result unknown — retract disabled to avoid duplicate delivery",
+  "app.queuedRetractDisabledUnknown":
+    "Result unknown — retract disabled to avoid duplicate delivery",
   "app.queuedDiscardDisabledSending": "Cannot discard while sending",
   "app.queuedOrder": "Item {n}",
   "app.sendFollowUpDesc": "followUp · send after the agent stops",
@@ -703,19 +801,25 @@ export const enUS: Record<TranslationKey, string> = {
   "app.sendShortcutSaved": "Send shortcut saved.",
   "app.sendSteerDesc": "steer · applies before the next LLM call",
   "app.sendSteerTitle": "Add to current turn",
-  "app.queuedSteerUnavailable": "Steering is available only while the agent is running",
-  "app.queuedBehaviorLocked": "Cannot change delivery while sending or when the result is unknown",
+  "app.queuedSteerUnavailable":
+    "Steering is available only while the agent is running",
+  "app.queuedBehaviorLocked":
+    "Cannot change delivery while sending or when the result is unknown",
   "app.queuedBehaviorSteerShort": "Steer",
   "app.queuedBehaviorFollowUpShort": "Queue",
-  "app.queuedAskUnsupported": "Parallel send does not support image attachments yet",
+  "app.queuedAskUnsupported":
+    "Parallel send does not support image attachments yet",
   "app.sessionCopied": "Session copied through pi RPC",
   "app.sessionCopyCancelled": "Session copy cancelled",
   "app.sessionDeleted": "Session deleted",
   "app.sessionDeletedFromArchive": "Deleted from archive",
   "app.sessionDeleteFailed": "Failed to delete session",
-  "session.deletedDshKeepData": "Session record deleted (DSH host data remains in DSH_HOME; clean it up manually)",
-  "app.sessionArchived": "Session archived. Open the project's Session Manager → Archived to view and restore it.",
-  "app.sessionArchivedDsh": "Session archived. Open Configuration → DSH → Archive to view and restore it.",
+  "session.deletedDshKeepData":
+    "Session record deleted (DSH host data remains in DSH_HOME; clean it up manually)",
+  "app.sessionArchived":
+    "Session archived. Open the project's Session Manager → Archived to view and restore it.",
+  "app.sessionArchivedDsh":
+    "Session archived. Open Configuration → DSH → Archive to view and restore it.",
   "app.sessionRestored": "Session restored",
   "app.sessionDuration": "This session duration",
   "app.sessionNameRequired": "Session name is required",
@@ -740,7 +844,8 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionContext.compact": "Compact context",
   "sessionContext.compacting": "Compacting…",
   "sessionContext.compactNotReady": "Unavailable",
-  "sessionContext.compactNotReadyHint": "No context data yet — compaction unavailable",
+  "sessionContext.compactNotReadyHint":
+    "No context data yet — compaction unavailable",
   // Provider usage / balance section in the context panel
   "sessionContext.usageHeader": "Usage",
   "sessionContext.usageRolling": "Rolling",
@@ -793,8 +898,10 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionSubagents.detailStartedAt": "Started {time}",
   "sessionSubagents.detailCompletedAt": "Completed {time}",
   "sessionSubagents.openChildSession": "Open child session",
-  "sessionSubagents.acpDelegateHint": "Entries marked acp_delegate come from billion-context delegates: no child session file or full result text; see in-chat notifications and the result file for output.",
-  "sessionSubagents.fullResultPending": "Full result not persisted yet; showing the live preview (may be truncated). Reopen shortly for the full text.",
+  "sessionSubagents.acpDelegateHint":
+    "Entries marked acp_delegate come from billion-context delegates: no child session file or full result text; see in-chat notifications and the result file for output.",
+  "sessionSubagents.fullResultPending":
+    "Full result not persisted yet; showing the live preview (may be truncated). Reopen shortly for the full text.",
   "sessionSubagents.viewFullResult": "View full result",
   "sessionSubagents.dialogTitle": "Subagent {type} details",
   "sessionSubagents.status.completed": "Completed",
@@ -806,7 +913,8 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionSubagents.status.steered": "Steered",
   "sessionSubagents.status.unknown": "Unknown",
   "sessionSubagents.status.lost": "Stopped (lost)",
-  "sessionSubagents.lostHint": "No final status received for a long time; the run process likely exited. Shown as stopped — check the child session for the real outcome.",
+  "sessionSubagents.lostHint":
+    "No final status received for a long time; the run process likely exited. Shown as stopped — check the child session for the real outcome.",
   // Extension notice card (pi custom_message): background subagent completion wakes the parent session
   "notify.customTitle": "Extension notice",
   "notify.subagent.completed": "Subagent finished",
@@ -824,7 +932,8 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionFiles.openFile": "Open file",
   "sessionFiles.count": "{count} files",
   "sessionFiles.saveAll": "Save all",
-  "sessionFiles.saveAllTitle": "Mark the current round as handled and clear the list (files were already written to disk by the agent; this is just a summary; new changes reappear)",
+  "sessionFiles.saveAllTitle":
+    "Mark the current round as handled and clear the list (files were already written to disk by the agent; this is just a summary; new changes reappear)",
   // Composer-side goal strip (ported from dsh-web GoalBar): hidden when absent/complete
   "sessionGoal.aria": "Current goal",
   // Composer-side queue card (dsh QueueDock as a standalone card): collapsed header copy
@@ -853,12 +962,16 @@ export const enUS: Record<TranslationKey, string> = {
   "app.statusRunning": "Running",
   "app.statusStarting": "Starting",
   "app.statusError": "Failed",
-  "app.highAgentCountTitle": "Quite a few agents are running — let's lighten the load",
-  "app.highAgentCountBody": "There are currently {count} active agents, and memory usage rises noticeably with each one. If some are not needed right now, right-click a session with a blue (idle) dot in the left sidebar and choose \"Close Agent\" to free up memory. Don't worry — closing never loses your session history, and you can reopen it anytime. Keeping things tidy keeps things fast.",
+  "app.highAgentCountTitle":
+    "Quite a few agents are running — let's lighten the load",
+  "app.highAgentCountBody":
+    'There are currently {count} active agents, and memory usage rises noticeably with each one. If some are not needed right now, right-click a session with a blue (idle) dot in the left sidebar and choose "Close Agent" to free up memory. Don\'t worry — closing never loses your session history, and you can reopen it anytime. Keeping things tidy keeps things fast.',
   "app.highAgentCountSnooze": "Don't remind again this session",
   "app.thinkingPickerTitle": "Select thinking level",
-  "app.thinkingPickerHint": "Some models may not support all levels. The system will automatically adjust to the closest supported level",
-  "app.thinkingPickerUnsupported": "The current model did not provide any available thinking levels and cannot be changed.",
+  "app.thinkingPickerHint":
+    "Some models may not support all levels. The system will automatically adjust to the closest supported level",
+  "app.thinkingPickerUnsupported":
+    "The current model did not provide any available thinking levels and cannot be changed.",
   "app.thinkingSwitchFailed": "Failed to change thinking level: {error}",
   "app.thinkingUnsupported":
     "Current model does not support {level}; fell back to {fallback}",
@@ -899,12 +1012,15 @@ export const enUS: Record<TranslationKey, string> = {
   "ask.question": "Question",
   "ask.answer": "Answer",
   "ask.cancelHint": "Cancel: defaults to first option",
-  "ask.backgroundPending": "Session \u201c{title}\u201d is waiting for your answer",
-  "ask.backgroundPendingDetail": "Session \u201c{title}\u201d is waiting for your answer: {question}",
+  "ask.backgroundPending":
+    "Session \u201c{title}\u201d is waiting for your answer",
+  "ask.backgroundPendingDetail":
+    "Session \u201c{title}\u201d is waiting for your answer: {question}",
   "ask.jumpToSession": "Go to session",
   "ask.summary": "Question: {question}",
   "ask.waitingForAnswer": "Waiting for answer…",
-  "ask.waitingHint": "Waiting for the user's answer; waiting time is not counted toward processing duration.",
+  "ask.waitingHint":
+    "Waiting for the user's answer; waiting time is not counted toward processing duration.",
   "ask.unanswered": "Unanswered",
   "ask.waiting": "Waiting for answer",
   "ask.batchTitle": "Questionnaire ({count})",
@@ -937,24 +1053,32 @@ export const enUS: Record<TranslationKey, string> = {
   "command.actionNewSession": "New session",
   "command.actionOpenSettings": "Open settings",
   "command.actionRestartAgent": "Restart current agent",
-  "command.actionRestartAgentDesc": "Restarts the process and reloads extensions; an in-flight answer is interrupted",
+  "command.actionRestartAgentDesc":
+    "Restarts the process and reloads extensions; an in-flight answer is interrupted",
   "command.actionStopAgent": "Stop current agent",
-  "command.actionStopAgentDesc": "Stops the process but keeps the session and tab, so it can be started again",
+  "command.actionStopAgentDesc":
+    "Stops the process but keeps the session and tab, so it can be started again",
   "command.actionReloadSession": "Reload session",
-  "command.actionReloadSessionDesc": "Re-reads the session from disk (available only while no process is running)",
+  "command.actionReloadSessionDesc":
+    "Re-reads the session from disk (available only while no process is running)",
   "command.actionCopyAgentId": "Copy current agent ID",
   "command.copyAgentId": "Copy agent ID",
   // ── First-run onboarding: make the command palette discoverable (shown once) ──
   "command.onboarding.title": "Jump to any setting from the command palette",
-  "command.onboarding.desc": "Press {shortcut} to open the command palette. Type a few characters to fuzzy-search settings, configuration pages and common actions — then jump straight there or run it.",
+  "command.onboarding.desc":
+    "Press {shortcut} to open the command palette. Type a few characters to fuzzy-search settings, configuration pages and common actions — then jump straight there or run it.",
   "command.onboarding.whatCanSearch": "What you can search",
   "command.onboarding.exampleSettings": "Settings",
-  "command.onboarding.exampleSettingsDesc": "“sandbox”, “RPC timeout”, “tray” — jumps to that row and highlights it",
+  "command.onboarding.exampleSettingsDesc":
+    "“sandbox”, “RPC timeout”, “tray” — jumps to that row and highlights it",
   "command.onboarding.exampleActions": "Actions",
-  "command.onboarding.exampleActionsDesc": "restart / stop the current agent, copy agent ID, new session",
+  "command.onboarding.exampleActionsDesc":
+    "restart / stop the current agent, copy agent ID, new session",
   "command.onboarding.exampleConfig": "Configuration",
-  "command.onboarding.exampleConfigDesc": "models, auth, MCP servers, raw config file",
-  "command.onboarding.hint": "Every shortcut can be rebound in Settings → Shortcuts",
+  "command.onboarding.exampleConfigDesc":
+    "models, auth, MCP servers, raw config file",
+  "command.onboarding.hint":
+    "Every shortcut can be rebound in Settings → Shortcuts",
   "command.onboarding.later": "Later",
   "command.onboarding.tryNow": "Try it now",
   "common.add": "Add",
@@ -987,15 +1111,19 @@ export const enUS: Record<TranslationKey, string> = {
   "notice.viewDetails": "View details",
   "notice.detailsTitle": "Notification details",
   // Toast for sessions started without extensions: the settings switch is persistent, the auto-fallback lasts this run only.
-  "notice.extensionsDisabledBySetting": "\"Disable extensions on start\" is on: this session loaded no extensions, so todo/plan/ask are unavailable. Turn the switch off in settings unless you are debugging extensions.",
-  "notice.extensionsDisabledFallback": "Extensions failed to load, so this run temporarily disables them (nothing was written to settings). Send this session's error details to the AI to troubleshoot.",
+  "notice.extensionsDisabledBySetting":
+    '"Disable extensions on start" is on: this session loaded no extensions, so todo/plan/ask are unavailable. Turn the switch off in settings unless you are debugging extensions.',
+  "notice.extensionsDisabledFallback":
+    "Extensions failed to load, so this run temporarily disables them (nothing was written to settings). Send this session's error details to the AI to troubleshoot.",
   "notice.openDevExtensionsSettings": "Open settings",
   "common.delete": "Delete",
   "common.paste": "Paste",
   "common.deleteConfirm": "Confirm Delete",
-  "common.deleteConfirmMsg": "Are you sure you want to delete '{name}'? This cannot be undone.",
+  "common.deleteConfirmMsg":
+    "Are you sure you want to delete '{name}'? This cannot be undone.",
   "common.deleteBatch": "Batch Delete",
-  "common.deleteBatchConfirm": "Are you sure you want to delete the selected {count} item(s)? This cannot be undone.",
+  "common.deleteBatchConfirm":
+    "Are you sure you want to delete the selected {count} item(s)? This cannot be undone.",
   "common.deleteSelected": "Delete Selected",
   "common.deleting": "Deleting...",
   "common.deselectAll": "Deselect All",
@@ -1045,7 +1173,8 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionRef.loadError": "Load failed",
   "app.shareAsImage": "Share as Image",
   "app.promptTemplatePickerTitle": "Prompt Templates",
-  "app.pickerInsertSendHint": "Click to insert the command into the input; press Enter to send",
+  "app.pickerInsertSendHint":
+    "Click to insert the command into the input; press Enter to send",
   "app.promptTemplatePreviewTitle": "Preview {name}",
   "app.promptTemplateBackToPicker": "Back to list",
   "app.promptTemplateSearchPlaceholder": "Search templates...",
@@ -1053,7 +1182,8 @@ export const enUS: Record<TranslationKey, string> = {
   "app.promptTemplateEmpty": "No templates yet. Add some in Settings first",
   "app.promptTemplateScopeGlobal": "Global",
   "app.promptTemplateScopeProject": "Project",
-  "app.promptTemplateEmptyBody": "Prompt template /{name} has no content. Edit the template to add content first.",
+  "app.promptTemplateEmptyBody":
+    "Prompt template /{name} has no content. Edit the template to add content first.",
   // ── Plus menu (attach/skill/prompt) ──
   "app.composerAddTitle": "Add an attachment, skill, prompt, or mode",
   "app.composerAddAttach": "Upload attachment",
@@ -1067,19 +1197,25 @@ export const enUS: Record<TranslationKey, string> = {
 
   // ── Skill picker panel ──
   "app.skillPickerTitle": "Pick a skill",
-  "app.skillPickerHint": "Click a skill to insert its invocation command (pi: /skill:name, DSH: /name), then press Enter to run it",
+  "app.skillPickerHint":
+    "Click a skill to insert its invocation command (pi: /skill:name, DSH: /name), then press Enter to run it",
   "app.skillPickerSearchPlaceholder": "Search skills by name or description...",
   "app.skillPickerSearchEmpty": "No matching skills",
   "app.skillBadgeGlobal": "Global",
   "app.skillBadgeProject": "Project",
-  "app.skillPickerEmpty": "No skills available. Add them in the global skill folder (~/.pi/agent/skills) or the project resources panel",
+  "app.skillPickerEmpty":
+    "No skills available. Add them in the global skill folder (~/.pi/agent/skills) or the project resources panel",
   "app.skillPickerLoading": "Loading skills...",
-  "app.skillPickerNoProject": "This session has no project: only global skills are shown. Add more under ~/.pi/agent/skills",
-  "app.skillPickerChatProject": "The Chat project has no project-level skills: only global skills are shown. Add more under ~/.pi/agent/skills",
+  "app.skillPickerNoProject":
+    "This session has no project: only global skills are shown. Add more under ~/.pi/agent/skills",
+  "app.skillPickerChatProject":
+    "The Chat project has no project-level skills: only global skills are shown. Add more under ~/.pi/agent/skills",
 
-  "app.skillPickerNoAgent": "The skill catalog is available after the session starts",
+  "app.skillPickerNoAgent":
+    "The skill catalog is available after the session starts",
   "app.skillPickerLoadFailed": "Failed to load skills",
-  "app.skillPickerLoadFailedNote": "Failed to read the skill catalog; check whether a skill file is broken or the backend state, then retry (failure details below)",
+  "app.skillPickerLoadFailedNote":
+    "Failed to read the skill catalog; check whether a skill file is broken or the backend state, then retry (failure details below)",
   "common.details": "Details",
   "common.disabled": "Disabled",
   "common.error": "Error",
@@ -1098,7 +1234,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.skillHubSearchPlaceholder": "Search SkillHub skills…",
   "config.skillHubSearchError": "Failed to search SkillHub. Try again later.",
   "config.skillHubInstallError": "Failed to install the skill: {error}",
-  "config.skillHubDetailNotAvailable": "Details are unavailable here. View this skill on skills.sh.",
+  "config.skillHubDetailNotAvailable":
+    "Details are unavailable here. View this skill on skills.sh.",
   "config.skillHubInstallCount": "{count} installs",
   "config.skillHubCopyInstallCommand": "Copy install command",
   "config.noSearchResults": "No results found",
@@ -1145,12 +1282,18 @@ export const enUS: Record<TranslationKey, string> = {
   "sessionBackend.imagegen": "ImageGen",
   "sidebar.dshSearchResults": "DSH session search results",
   "session.backendPickerHint": "Choose backend (pi / dsh)",
-  "session.backendLockedHint": "Backend locked (cannot switch after the session is created)",
-  "session.backendLockedNotice": "The agent has started and the backend is locked; pi / dsh can no longer be switched. Create a new session to change the backend.",
-  "session.sendDshImagesUnsupported": "Image attachments are not supported by DSH yet",
-  "session.sendDshModelRouteUnavailable": "The selected DSH provider route is unavailable. Select another model or restore the provider configuration.",
-  "session.sendDshUnsupportedPayload": "Host instructions are not supported by DSH",
-  "dshCommand.permission": "Switch permission preset (read-only / workspace-write / danger-full-access)",
+  "session.backendLockedHint":
+    "Backend locked (cannot switch after the session is created)",
+  "session.backendLockedNotice":
+    "The agent has started and the backend is locked; pi / dsh can no longer be switched. Create a new session to change the backend.",
+  "session.sendDshImagesUnsupported":
+    "Image attachments are not supported by DSH yet",
+  "session.sendDshModelRouteUnavailable":
+    "The selected DSH provider route is unavailable. Select another model or restore the provider configuration.",
+  "session.sendDshUnsupportedPayload":
+    "Host instructions are not supported by DSH",
+  "dshCommand.permission":
+    "Switch permission preset (read-only / workspace-write / danger-full-access)",
   "dshCommand.plan": "Enable plan mode",
   "dshCommand.planOff": "Disable plan mode",
   "dshCommand.compact": "Compact session context",
@@ -1170,9 +1313,11 @@ export const enUS: Record<TranslationKey, string> = {
   "dshTools.goalComplete": "Complete",
   "dshTools.goalClear": "Clear",
   "dshTools.goalClearConfirmTitle": "Clear current goal?",
-  "dshTools.goalClearConfirmMessage": "This clears the current goal and stops auto-continuation. This cannot be undone.",
+  "dshTools.goalClearConfirmMessage":
+    "This clears the current goal and stops auto-continuation. This cannot be undone.",
   "dshTools.goalProgressAria": "{rounds}/{cap} rounds started",
-  "dshTools.goalEmpty": "No goal yet. Enter an objective to create one (DSH auto-continues goals).",
+  "dshTools.goalEmpty":
+    "No goal yet. Enter an objective to create one (DSH auto-continues goals).",
   "dshTools.goalPlaceholder": "Enter an objective…",
   "dshTools.goalCreate": "Create goal",
   "dshTools.loading": "Loading…",
@@ -1229,7 +1374,8 @@ export const enUS: Record<TranslationKey, string> = {
     "Only scans sessions in `~/.workbuddy/projects` where cwd matches the current project.",
   "workbuddy.emptyTitle": "No WorkBuddy sessions found for this project",
   "workbuddy.importCount": "{count} importable sessions",
-  "workbuddy.importDone": "Import complete: {imported} succeeded, {failed} failed",
+  "workbuddy.importDone":
+    "Import complete: {imported} succeeded, {failed} failed",
   "workbuddy.importFailed": "Failed to import WorkBuddy sessions: {error}",
   "workbuddy.importSelected": "Import {count}",
   "workbuddy.importing": "Importing...",
@@ -1259,7 +1405,8 @@ export const enUS: Record<TranslationKey, string> = {
     "Only sessions whose worktree matches this project are scanned from `~/.local/share/opencode/opencode.db`.",
   "opencode.emptyTitle": "No OpenCode sessions found for this project",
   "opencode.importCount": "{count} importable sessions",
-  "opencode.importDone": "Import complete: {imported} succeeded, {failed} failed",
+  "opencode.importDone":
+    "Import complete: {imported} succeeded, {failed} failed",
   "opencode.importFailed": "Failed to import OpenCode sessions: {error}",
   "opencode.importSelected": "Import {count}",
   "opencode.importing": "Importing...",
@@ -1292,30 +1439,40 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.title": "DSH Configuration",
   "config.dsh.started": "Running",
   "config.dsh.restartHost": "Restart host",
-  "config.dsh.hostRestarted": "DSH host restarted. Active DSH sessions were stopped; reopen them to continue.",
-  "config.dsh.hostRestartFailed": "Failed to restart the DSH host; retry or restart the app.",
+  "config.dsh.hostRestarted":
+    "DSH host restarted. Active DSH sessions were stopped; reopen them to continue.",
+  "config.dsh.hostRestartFailed":
+    "Failed to restart the DSH host; retry or restart the app.",
   "config.dsh.autoImportForeign": "Auto-import foreign sessions on startup",
-  "config.dsh.autoImportForeignHint": "When enabled, sessions created in DSH_HOME by other tools are mapped into the sidebar at launch (read-only scan, host not started). When disabled, those sessions stay out of the sidebar.",
+  "config.dsh.autoImportForeignHint":
+    "When enabled, sessions created in DSH_HOME by other tools are mapped into the sidebar at launch (read-only scan, host not started). When disabled, those sessions stay out of the sidebar.",
   "config.dsh.autoImportOn": "Auto-import foreign sessions on startup enabled",
-  "config.dsh.autoImportOff": "Auto-import foreign sessions on startup disabled",
+  "config.dsh.autoImportOff":
+    "Auto-import foreign sessions on startup disabled",
   "config.dsh.archived": "Archive",
-  "config.dsh.archivedHint": "Archived DSH sessions (host data moved to DSH_HOME/.pideck-archive; restorable at any time, never deleted).",
+  "config.dsh.archivedHint":
+    "Archived DSH sessions (host data moved to DSH_HOME/.pideck-archive; restorable at any time, never deleted).",
   "config.dsh.archivedEmpty": "No archived sessions.",
   "config.dsh.restore": "Restore",
   "config.dsh.restored": "DSH session restored; reopen to continue.",
   "config.dsh.dynamicPlugins": "Dynamic Cordis Plugins",
-  "config.dsh.dynamicPluginsHint": "Process-local temporary extensions: definitions are never persisted, lost on restart, and owned per session; run/stop/uninstall are panel gestures (no approval). Host code executes inside the DSH host process — only install code you wrote yourself.",
+  "config.dsh.dynamicPluginsHint":
+    "Process-local temporary extensions: definitions are never persisted, lost on restart, and owned per session; run/stop/uninstall are panel gestures (no approval). Host code executes inside the DSH host process — only install code you wrote yourself.",
   "config.dsh.installPlugin": "Install plugin",
-  "config.dsh.dynamicPluginsEmpty": "No dynamic plugins (click \"Install plugin\" to define a source package).",
+  "config.dsh.dynamicPluginsEmpty":
+    'No dynamic plugins (click "Install plugin" to define a source package).',
   "config.dsh.pluginSession": "Owning session",
   "config.dsh.pluginIdPrefix": "ID prefix",
-  "config.dsh.pluginIdPrefixHint": "ID prefix must be 3-6 lowercase English letters",
+  "config.dsh.pluginIdPrefixHint":
+    "ID prefix must be 3-6 lowercase English letters",
   "config.dsh.pluginName": "Name",
   "config.dsh.pluginPurpose": "Purpose",
   "config.dsh.pluginHostCode": "Host source (apply(ctx) plugin)",
-  "config.dsh.pluginClientCodeHint": "The Client half needs a dsh-web browser page, which PiDeck desktop does not render — fill in the Host half only.",
+  "config.dsh.pluginClientCodeHint":
+    "The Client half needs a dsh-web browser page, which PiDeck desktop does not render — fill in the Host half only.",
   "config.dsh.pluginFormIncomplete": "Fill in name, purpose and Host source",
-  "config.dsh.pluginInstalled": "Plugin defined (not running; click \"Run\" to start)",
+  "config.dsh.pluginInstalled":
+    'Plugin defined (not running; click "Run" to start)',
   "config.dsh.pluginRun": "Run",
   "config.dsh.pluginStop": "Stop",
   "config.dsh.pluginUninstall": "Uninstall",
@@ -1326,9 +1483,11 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.pluginStoppedToast": "Plugin stopped",
   "config.dsh.pluginUninstalled": "Plugin uninstalled",
   "config.dsh.pluginNoPackage": "This plugin has no runnable package version",
-  "config.dsh.pluginNoSession": "No DSH session available (create a DSH session before installing a plugin).",
+  "config.dsh.pluginNoSession":
+    "No DSH session available (create a DSH session before installing a plugin).",
   "config.dsh.staticPlugins": "Static Loader entries (read-only)",
-  "config.dsh.staticPluginsHint": "Loader entries in the current deployment cordis composition (multiple Loader entries of the same module are merged into one row). The origin badge distinguishes \"Built-in\" (dsh base / shipped presets / PiDeck composition) from \"User installed\" (the $DSH_HOME/cordis.patch.yml user patch layer). User-installed entries can be uninstalled in place (the patch file is backed up before the row is removed; plugin folders inside PiDeck's managed directory are moved to the recycle bin as well) and take effect after a DSH host restart.",
+  "config.dsh.staticPluginsHint":
+    'Loader entries in the current deployment cordis composition (multiple Loader entries of the same module are merged into one row). The origin badge distinguishes "Built-in" (dsh base / shipped presets / PiDeck composition) from "User installed" (the $DSH_HOME/cordis.patch.yml user patch layer). User-installed entries can be uninstalled in place (the patch file is backed up before the row is removed; plugin folders inside PiDeck\'s managed directory are moved to the recycle bin as well) and take effect after a DSH host restart.',
   "config.dsh.staticPluginsEmpty": "No static entries.",
   "config.dsh.staticPluginsCount": "{count} modules",
   "config.dsh.staticPluginsColumnModule": "Module",
@@ -1342,18 +1501,23 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.pluginFilterBuiltin": "Origin: built-in",
   "config.dsh.pluginUserUninstall": "Uninstall",
   "config.dsh.pluginUserConfirmUninstall": "Confirm uninstall",
-  "config.dsh.pluginUserUninstalled": "Removed from the user patch layer; takes effect after restarting the DSH host",
+  "config.dsh.pluginUserUninstalled":
+    "Removed from the user patch layer; takes effect after restarting the DSH host",
   "config.dsh.pluginUserUninstallFailed": "Uninstall failed",
-  "config.dsh.pluginFilesKeepHint": "Removed from the user patch layer; plugin files live outside PiDeck's managed folder — delete them manually if needed",
-  "config.dsh.pluginHostRestartFailed": "Failed to restart the DSH host; restart it manually from the overview page",
+  "config.dsh.pluginFilesKeepHint":
+    "Removed from the user patch layer; plugin files live outside PiDeck's managed folder — delete them manually if needed",
+  "config.dsh.pluginHostRestartFailed":
+    "Failed to restart the DSH host; restart it manually from the overview page",
   "config.dsh.pluginEnabled": "Enabled",
   "config.dsh.pluginDisabled": "Disabled",
   "config.dsh.notStarted": "DSH host is not running.",
   "config.dsh.directories": "Directories",
   "config.dsh.homeDir": "DSH_HOME",
   "config.dsh.openFolder": "Open folder",
-  "config.dsh.overviewHint": "Provider routes and model config live in the Models tab (llm-deepseek / llm-pi-ai).",
-  "config.dsh.modelsHint": "Each provider is one row showing its key state (green = configured, red = missing); expand it to enter the key, customize settings, and edit the model catalog.",
+  "config.dsh.overviewHint":
+    "Provider routes and model config live in the Models tab (llm-deepseek / llm-pi-ai).",
+  "config.dsh.modelsHint":
+    "Each provider is one row showing its key state (green = configured, red = missing); expand it to enter the key, customize settings, and edit the model catalog.",
   "config.dsh.providersCount": "{count} providers",
   "config.dsh.providerKeyPlaceholder": "Provider key (e.g. my-gateway)",
   "config.dsh.addProvider": "Add provider",
@@ -1365,7 +1529,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.modelsInherited": "Using adapter default models",
   "config.dsh.modelsCustomized": "{count} custom models",
   "config.dsh.resetModels": "Reset to adapter defaults",
-  "config.dsh.modelsEmptyHint": "Leave empty to use the adapter's default catalog; model IDs outside it can still be sent.",
+  "config.dsh.modelsEmptyHint":
+    "Leave empty to use the adapter's default catalog; model IDs outside it can still be sent.",
   "config.dsh.defaultImageInput": "New models support image input by default",
   "config.dsh.addModel": "Add model",
   "config.dsh.removeModel": "Remove this model",
@@ -1375,9 +1540,12 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.modelMaxTokens": "Max output tokens",
   "config.dsh.modelError.idRequired": "Model {index}: an ID is required.",
   "config.dsh.modelError.idDuplicate": "Model {index}: the ID must be unique.",
-  "config.dsh.modelError.nameInvalid": "Model {index}: the display name cannot be empty.",
-  "config.dsh.modelError.contextInvalid": "Model {index}: the context window must be a positive integer.",
-  "config.dsh.modelError.maxTokensInvalid": "Model {index}: max output tokens must be a positive integer.",
+  "config.dsh.modelError.nameInvalid":
+    "Model {index}: the display name cannot be empty.",
+  "config.dsh.modelError.contextInvalid":
+    "Model {index}: the context window must be a positive integer.",
+  "config.dsh.modelError.maxTokensInvalid":
+    "Model {index}: max output tokens must be a positive integer.",
   "config.dsh.apiKey": "API key",
   "config.dsh.keyConfigured": "API key configured",
   "config.dsh.keyMissing": "API key missing",
@@ -1394,27 +1562,36 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.keyEnvRef": "API key env var",
   "config.dsh.keyRefHint": "The key is stored under credential {ref}",
   "config.dsh.customSettings": "Custom settings",
-  "config.dsh.customSettingsHint": "Configure only the endpoint and route identity here. API keys are managed in the field above; advanced adapter settings stay in the source file.",
+  "config.dsh.customSettingsHint":
+    "Configure only the endpoint and route identity here. API keys are managed in the field above; advanced adapter settings stay in the source file.",
   "config.dsh.field.baseURL": "Base URL",
-  "config.dsh.field.baseURLHint": "The provider API root, usually ending in /v1. Official DeepSeek can stay empty.",
+  "config.dsh.field.baseURLHint":
+    "The provider API root, usually ending in /v1. Official DeepSeek can stay empty.",
   "config.dsh.field.baseURLPlaceholder": "https://api.example.com/v1",
   "config.dsh.deepseekBaseUrlPlaceholder": "https://api.deepseek.com",
   "config.dsh.field.api": "API protocol",
-  "config.dsh.field.apiHint": "Most gateways use openai-completions; pick Anthropic / Gemini only when the provider docs say so.",
+  "config.dsh.field.apiHint":
+    "Most gateways use openai-completions; pick Anthropic / Gemini only when the provider docs say so.",
   "config.dsh.field.apiKeyEnv": "API key env var name",
-  "config.dsh.field.apiKeyEnvHint": "This is the credential slot name (e.g. OPENAI_API_KEY), not the secret itself. Enter the key in the field above.",
+  "config.dsh.field.apiKeyEnvHint":
+    "This is the credential slot name (e.g. OPENAI_API_KEY), not the secret itself. Enter the key in the field above.",
   "config.dsh.field.apiKeyEnvPlaceholder": "OPENAI_API_KEY",
   "config.dsh.field.displayName": "Display name",
-  "config.dsh.field.displayNameHint": "Shown in the sidebar and config page; can differ from the internal id.",
+  "config.dsh.field.displayNameHint":
+    "Shown in the sidebar and config page; can differ from the internal id.",
   "config.dsh.field.displayNamePlaceholder": "e.g. My gateway",
   "config.dsh.field.headers": "Extra headers",
-  "config.dsh.field.headersHint": "Only some gateways need custom headers. Leave empty unless required.",
+  "config.dsh.field.headersHint":
+    "Only some gateways need custom headers. Leave empty unless required.",
   "config.dsh.field.retryPolicy": "Request retry",
   "config.dsh.field.maxRetries": "Max retries",
-  "config.dsh.field.maxRetriesHint": "Retries after a provider request failure (default 5). Only transient errors; 0 means do not retry. This is per provider — DSH has no global retry setting.",
-  "config.dsh.field.maxRetriesAlways": "Currently unbounded. Enter a number to switch to a finite budget.",
+  "config.dsh.field.maxRetriesHint":
+    "Retries after a provider request failure (default 5). Only transient errors; 0 means do not retry. This is per provider — DSH has no global retry setting.",
+  "config.dsh.field.maxRetriesAlways":
+    "Currently unbounded. Enter a number to switch to a finite budget.",
   "config.dsh.field.reasoningEffort": "Reasoning effort",
-  "config.dsh.field.reasoningEffortHint": "Supported tiers depend on the provider/model: DeepSeek official accepts off / low / high / max; OpenAI-compatible gateways typically accept off / minimal / low / medium / high / xhigh / max (per the model declared tiers). Leave empty to use the model default.",
+  "config.dsh.field.reasoningEffortHint":
+    "Supported tiers depend on the provider/model: DeepSeek official accepts off / low / high / max; OpenAI-compatible gateways typically accept off / minimal / low / medium / high / xhigh / max (per the model declared tiers). Leave empty to use the model default.",
   "config.dsh.deepseekOfficial": "DeepSeek Official",
   "config.dsh.tab.overview": "Overview",
   "config.dsh.tab.models": "Models",
@@ -1435,23 +1612,31 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.secretConfigured": "Configured (leave empty to keep)",
   "config.dsh.secretEmpty": "Enter a new value",
   "config.dsh.credentialRefHint": "Credential env: {env}",
-  "config.dsh.namespacesEmpty": "No namespaces (host not started or nothing registered).",
-  "config.dsh.credentialsEmpty": "No credential refs (no credential-ref fields in schemas).",
-  "config.dsh.authHint": "Providers reference credentials by env-var name; enter a new value to save, or delete to unset.",
-  "config.dsh.settingsHint": "DSH host-wide settings (agent-loop / shell / permission / web-search namespaces).",
+  "config.dsh.namespacesEmpty":
+    "No namespaces (host not started or nothing registered).",
+  "config.dsh.credentialsEmpty":
+    "No credential refs (no credential-ref fields in schemas).",
+  "config.dsh.authHint":
+    "Providers reference credentials by env-var name; enter a new value to save, or delete to unset.",
+  "config.dsh.settingsHint":
+    "DSH host-wide settings (agent-loop / shell / permission / web-search namespaces).",
   "config.dsh.credentialConfigured": "Configured ({source})",
   "config.dsh.credentialUnset": "Unset",
   "config.dsh.credentialPendingUnset": "Pending clear",
-  "config.dsh.unsavedHint": "You have unsaved changes; use Save in the top-right corner to commit",
+  "config.dsh.unsavedHint":
+    "You have unsaved changes; use Save in the top-right corner to commit",
   "config.dsh.credentialValuePlaceholder": "Enter credential value…",
   "config.dsh.rawEditingAt": "Editing directly:",
-  "config.dsh.rawHostReads": "Saved changes are picked up by the DSH host (scope follows the official docs).",
+  "config.dsh.rawHostReads":
+    "Saved changes are picked up by the DSH host (scope follows the official docs).",
   "config.dsh.pickHomeTitle": "Choose DSH config directory (DSH_HOME)",
   "config.dsh.changeHome": "Switch config directory",
   "config.dsh.resetHome": "Reset to default (~/.dsh)",
-  "config.dsh.homeHint": "Defaults to your local ~/.dsh (shared config/credentials/sessions with the dsh CLI); you can switch to another directory — the host restarts immediately.",
+  "config.dsh.homeHint":
+    "Defaults to your local ~/.dsh (shared config/credentials/sessions with the dsh CLI); you can switch to another directory — the host restarts immediately.",
   "config.dsh.approvals": "Approvals",
-  "config.dsh.autoAllowApprovalHint": "When enabled, DSH tool/command approval requests are auto-allowed without confirmation (applies immediately to DSH sessions in this app).",
+  "config.dsh.autoAllowApprovalHint":
+    "When enabled, DSH tool/command approval requests are auto-allowed without confirmation (applies immediately to DSH sessions in this app).",
   "config.dsh.autoAllowOn": "Auto-allow approvals enabled",
   "config.dsh.autoAllowOff": "Auto-allow approvals disabled",
   "config.dsh.tab.presets": "Agent Presets",
@@ -1459,28 +1644,37 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.tab.pluginConfig": "Plugin config",
   "config.dsh.tab.pluginList": "Plugin list",
   "config.dsh.tab.security": "Security",
-  "config.dsh.presetsHint": "Agent presets decide a session's plugin composition (tools/skills/plan mode). The default preset (Standard mode) applies to new DSH sessions; running sessions keep the preset they started with. Click \"Set as default\" to switch.",
-  "config.dsh.presetsEmpty": "This deployment mounts no agent presets (sessions use the shared host composition). To enable the preset roster like dsh-web, configure agent-presets in the Raw settings file and restart the host.",
+  "config.dsh.presetsHint":
+    'Agent presets decide a session\'s plugin composition (tools/skills/plan mode). The default preset (Standard mode) applies to new DSH sessions; running sessions keep the preset they started with. Click "Set as default" to switch.',
+  "config.dsh.presetsEmpty":
+    "This deployment mounts no agent presets (sessions use the shared host composition). To enable the preset roster like dsh-web, configure agent-presets in the Raw settings file and restart the host.",
   "config.dsh.presetDefault": "Default",
   "config.dsh.presetSetDefault": "Set as default",
   "config.dsh.presetPending": "Set as default (unsaved)",
-  "config.dsh.presetDefaultSaved": "Default preset updated; applies to sessions started from now on",
+  "config.dsh.presetDefaultSaved":
+    "Default preset updated; applies to sessions started from now on",
   "config.dsh.presetSetDefaultFailed": "Failed to set the default preset",
   "config.dsh.presetRemove": "Delete preset",
   "config.dsh.presetRemoved": "Preset deleted",
-  "config.dsh.presetNotWritable": "The settings document is not writable; the default preset cannot be changed",
+  "config.dsh.presetNotWritable":
+    "The settings document is not writable; the default preset cannot be changed",
   "config.dsh.presetStandardName": "Standard mode",
-  "config.dsh.presetStandardDesc": "Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.",
+  "config.dsh.presetStandardDesc":
+    "Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.",
   "config.dsh.presetCodeName": "PTC mode",
-  "config.dsh.presetCodeDesc": "All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program.",
+  "config.dsh.presetCodeDesc":
+    "All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program.",
   "config.dsh.presetMinimalName": "Minimal mode",
-  "config.dsh.presetMinimalDesc": "Two-tool coding agent with persistent bash and str_replace_editor.",
+  "config.dsh.presetMinimalDesc":
+    "Two-tool coding agent with persistent bash and str_replace_editor.",
   "config.dsh.presetCordisName": "Creator mode",
-  "config.dsh.presetCordisDesc": "Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.",
+  "config.dsh.presetCordisDesc":
+    "Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.",
   "config.dsh.presetSystem": "Built-in",
   "config.dsh.presetUser": "Local",
   "config.dsh.presetBroken": "Cannot compose a session: {reason}",
-  "config.dsh.pluginsHint": "DSH host plugin configuration (same namespaces as the dsh-web plugin page):",
+  "config.dsh.pluginsHint":
+    "DSH host plugin configuration (same namespaces as the dsh-web plugin page):",
   "config.dsh.pluginTitle": "Plugin: {name}",
   "config.dsh.pluginAgentLoop": "Agent loop",
   "config.dsh.pluginAgentLoopDesc": "How the agent dispatches tool calls.",
@@ -1498,70 +1692,103 @@ export const enUS: Record<TranslationKey, string> = {
   "config.dsh.pluginPhaseActive": "Mounted",
   "config.dsh.pluginPhaseFailed": "Mount failed",
   "config.dsh.pluginPhaseUnloading": "Unloading",
-  "config.dsh.securityHint": "Permission presets for DSH sessions (sandbox mode + approval policy bundle, same as dsh-web). The default applies to new sessions; per-session switching goes through the shield button in the composer bar (/permission command).",
-  "config.dsh.securityDefaultPreset": "Default permission preset for new sessions",
+  "config.dsh.securityHint":
+    "Permission presets for DSH sessions (sandbox mode + approval policy bundle, same as dsh-web). The default applies to new sessions; per-session switching goes through the shield button in the composer bar (/permission command).",
+  "config.dsh.securityDefaultPreset":
+    "Default permission preset for new sessions",
   "dshPermission.menuTitle": "Permission preset",
-  "dshPermission.menuHint": "Switch this DSH session's permission (sandbox + approval bundle); full access requires confirmation.",
+  "dshPermission.menuHint":
+    "Switch this DSH session's permission (sandbox + approval bundle); full access requires confirmation.",
   "dshPermission.readOnly": "Read Only",
   "dshPermission.readOnlyDesc": "Read-only sandbox + ask each time",
   "dshPermission.workspaceWrite": "Workspace Write",
-  "dshPermission.workspaceWriteDesc": "Workspace-write sandbox + ask each time (default)",
+  "dshPermission.workspaceWriteDesc":
+    "Workspace-write sandbox + ask each time (default)",
   "dshPermission.fullAccess": "Full access",
   "dshPermission.fullAccessDesc": "Full access + no approvals",
   "dshPermission.custom": "Custom",
   "dshPermission.unknown": "—",
   "dshPermission.switchNotice": "Permission preset switched: {name}",
-  "dshPermission.switchFailed": "The DSH host did not confirm the requested permission preset.",
-  "dshPermission.presetPendingNotice": "Permission preset {name} saved; it will take effect when the session starts (send a message to start).",
-  "dshPermission.presetNeedsSession": "No real session exists yet on this start page: send a message to create one, then set the permission preset.",
+  "dshPermission.switchFailed":
+    "The DSH host did not confirm the requested permission preset.",
+  "dshPermission.presetPendingNotice":
+    "Permission preset {name} saved; it will take effect when the session starts (send a message to start).",
+  "dshPermission.presetNeedsSession":
+    "No real session exists yet on this start page: send a message to create one, then set the permission preset.",
   "dshPermission.fullAccessConfirmTitle": "Switch to full access?",
-  "dshPermission.fullAccessConfirmBody": "Full access (danger-full-access) runs tool calls without per-call approval and can execute arbitrary commands and write anywhere. Switch to this preset?",
+  "dshPermission.fullAccessConfirmBody":
+    "Full access (danger-full-access) runs tool calls without per-call approval and can execute arbitrary commands and write anywhere. Switch to this preset?",
   "dshPermission.fullAccessConfirmLabel": "Switch anyway",
   "dshPermission.needRuntimeTitle": "Session not started",
-  "dshPermission.needRuntimeBody": "Permission presets apply to a DSH session. Send a message to start it, or change the default for new sessions under DSH config → Security.",
+  "dshPermission.needRuntimeBody":
+    "Permission presets apply to a DSH session. Send a message to start it, or change the default for new sessions under DSH config → Security.",
   "dshPreset.menuTitle": "Agent mode",
-  "dshPreset.menuHint": "Choose the agent preset this session is composed from. The mode is fixed when the session starts and cannot be changed later.",
-  "dshPreset.presetPendingNotice": "Agent mode {name} staged; it will be applied when the session starts (send a message to start).",
+  "dshPreset.menuHint":
+    "Choose the agent preset this session is composed from. The mode is fixed when the session starts and cannot be changed later.",
+  "dshPreset.presetPendingNotice":
+    "Agent mode {name} staged; it will be applied when the session starts (send a message to start).",
   "dshPreset.unset": "Follow default",
   "sessionProxy.title": "Session proxy settings",
-  "sessionProxy.manageHint": "Set a proxy for this session only; other sessions are unaffected.",
+  "sessionProxy.manageHint":
+    "Set a proxy for this session only; other sessions are unaffected.",
   "sessionProxy.follow": "Follow global",
   "sessionProxy.followDesc": "Use the global proxy settings (default)",
   "sessionProxy.on": "Enable proxy",
-  "sessionProxy.onDesc": "Use the global proxy URL even if the global proxy is off",
+  "sessionProxy.onDesc":
+    "Use the global proxy URL even if the global proxy is off",
   "sessionProxy.off": "Direct (proxy off)",
-  "sessionProxy.offDesc": "This session bypasses all proxies even if the global proxy is on",
+  "sessionProxy.offDesc":
+    "This session bypasses all proxies even if the global proxy is on",
   "sessionProxy.globalStatus": "Global proxy: {status}",
   "sessionProxy.globalOn": "enabled {url}",
   "sessionProxy.globalOff": "disabled",
-  "sessionProxy.globalEmptyWarn": "The global proxy URL is empty; configure it in Settings → Proxy before enabling.",
-  "sessionProxy.providerFilterMatched": "Provider allowlist: current provider {provider} is listed, traffic will go through the proxy (even if global is off)",
-  "sessionProxy.providerFilterNotMatched": "Provider allowlist: current provider {provider} is not listed, traffic will be direct (even if global is on)",
-  "sessionProxy.providerFilterHint": "Adjust the allowlist under Settings → Proxy → Proxy by provider; an explicit per-session \u201CEnable / Direct\u201D still wins",
+  "sessionProxy.globalEmptyWarn":
+    "The global proxy URL is empty; configure it in Settings → Proxy before enabling.",
+  "sessionProxy.providerFilterMatched":
+    "Provider allowlist: current provider {provider} is listed, traffic will go through the proxy (even if global is off)",
+  "sessionProxy.providerFilterNotMatched":
+    "Provider allowlist: current provider {provider} is not listed, traffic will be direct (even if global is on)",
+  "sessionProxy.providerFilterHint":
+    "Adjust the allowlist under Settings → Proxy → Proxy by provider; an explicit per-session \u201CEnable / Direct\u201D still wins",
   "sessionProxy.savedNotice": "Saved; takes effect after this session restarts",
-  "sessionProxy.restartingForApply": "Restarting the session to apply the proxy setting...",
-  "sessionProxy.savedApplied": "Saved and restarted — the proxy setting is now active",
-  "sessionProxy.savedRestartFailed": "Proxy setting saved, but the automatic restart failed. Restart this session manually to apply it.",
-  "sessionProxy.autoRestartHint": "This session is running: saving will automatically restart the process so the proxy takes effect immediately.",
-  "sessionProxy.dshSavedNotice": "Saved; applies to the shared DSH host and takes effect after the host restarts",
-  "sessionProxy.dshShareHint": "DSH sessions share one host process: this setting applies to all DSH sessions; when sessions conflict, Direct wins over Enable proxy.",
+  "sessionProxy.restartingForApply":
+    "Restarting the session to apply the proxy setting...",
+  "sessionProxy.savedApplied":
+    "Saved and restarted — the proxy setting is now active",
+  "sessionProxy.savedRestartFailed":
+    "Proxy setting saved, but the automatic restart failed. Restart this session manually to apply it.",
+  "sessionProxy.autoRestartHint":
+    "This session is running: saving will automatically restart the process so the proxy takes effect immediately.",
+  "sessionProxy.dshSavedNotice":
+    "Saved; applies to the shared DSH host and takes effect after the host restarts",
+  "sessionProxy.dshShareHint":
+    "DSH sessions share one host process: this setting applies to all DSH sessions; when sessions conflict, Direct wins over Enable proxy.",
   "dshPlan.pendingNotice": "Plan mode will apply from the next message",
   "dshPlan.switchFailed": "Plan mode switch failed",
-  "dshGoal.pendingNotice": "The next message will start the goal and keep working toward it",
+  "dshGoal.pendingNotice":
+    "The next message will start the goal and keep working toward it",
   "dshGoal.switchFailed": "Goal mode switch failed",
-  "config.dsh.homeChangeNextBoot": "DSH config directory switched; takes effect on the next DSH session.",
-  "config.dsh.homeChangeApplied": "DSH config directory switched; DSH host restarted and applied (active DSH sessions were stopped — reopen them).",
-  "config.dsh.homeChangeFailed": "Failed to restart the DSH host; retry or restart the app.",
+  "config.dsh.homeChangeNextBoot":
+    "DSH config directory switched; takes effect on the next DSH session.",
+  "config.dsh.homeChangeApplied":
+    "DSH config directory switched; DSH host restarted and applied (active DSH sessions were stopped — reopen them).",
+  "config.dsh.homeChangeFailed":
+    "Failed to restart the DSH host; retry or restart the app.",
   "config.dsh.homeReset": "Restored the default DSH config directory (~/.dsh).",
-  "config.dsh.homeResetApplied": "Restored the default DSH config directory (~/.dsh) and restarted the DSH host.",
+  "config.dsh.homeResetApplied":
+    "Restored the default DSH config directory (~/.dsh) and restarted the DSH host.",
   "config.dsh.bootFailedTitle": "DSH host failed to start",
-  "config.dsh.bootFailedHint": "The DSH host could not start. Try \"Retry\" or \"Restart host\" first; if it keeps failing, reinstall the DSH backend, or check the DSH config directory and restart the app. Details below.",
+  "config.dsh.bootFailedHint":
+    'The DSH host could not start. Try "Retry" or "Restart host" first; if it keeps failing, reinstall the DSH backend, or check the DSH config directory and restart the app. Details below.',
   "config.dsh.retry": "Retry",
   "dsh.runtime.notInstalledTitle": "DSH backend is not installed",
-  "dsh.runtime.notInstalledDesc": "The DSH backend runtime is not installed. Install it to use DSH sessions and their configuration; skipping it leaves the pi backend fully working.",
-  "dsh.runtime.devNoDownload": "Development mode uses the same Release download as packaged builds; import a runtime archive for offline debugging.",
+  "dsh.runtime.notInstalledDesc":
+    "The DSH backend runtime is not installed. Install it to use DSH sessions and their configuration; skipping it leaves the pi backend fully working.",
+  "dsh.runtime.devNoDownload":
+    "Development mode uses the same Release download as packaged builds; import a runtime archive for offline debugging.",
   "dsh.runtime.brokenTitle": "DSH backend is unavailable",
-  "dsh.runtime.brokenDesc": "The installed DSH runtime ({version}) is incompatible with this app version. Reinstall a matching runtime.",
+  "dsh.runtime.brokenDesc":
+    "The installed DSH runtime ({version}) is incompatible with this app version. Reinstall a matching runtime.",
   "dsh.runtime.install": "Install DSH backend",
   "dsh.runtime.reinstall": "Reinstall DSH backend",
   "dsh.runtime.importLocal": "Import from local (.tgz or extracted directory)",
@@ -1571,19 +1798,27 @@ export const enUS: Record<TranslationKey, string> = {
   "dsh.runtime.phase.extracting": "Extracting…",
   "dsh.runtime.phase.finalizing": "Finalizing…",
   "dsh.runtime.phase.uninstalling": "Uninstalling runtime…",
-  "dsh.runtime.installHint": "The runtime is downloaded once, the first time you use DSH. Skipping it leaves the pi backend fully working.",
+  "dsh.runtime.installHint":
+    "The runtime is downloaded once, the first time you use DSH. Skipping it leaves the pi backend fully working.",
   "dsh.runtime.installDir": "Install directory",
-  "dsh.runtime.notInstalledCreate": "DSH backend is not installed; the session was created with the pi backend instead.",
-  "dsh.runtime.managedHint": "Downloaded on demand into the app data directory; can be uninstalled. Upgrading DSH does not require reinstalling PiDeck.",
+  "dsh.runtime.notInstalledCreate":
+    "DSH backend is not installed; the session was created with the pi backend instead.",
+  "dsh.runtime.managedHint":
+    "Downloaded on demand into the app data directory; can be uninstalled. Upgrading DSH does not require reinstalling PiDeck.",
   "dsh.runtime.builtinHint": "Shipped with the app and cannot be uninstalled.",
   "dsh.runtime.outdatedTitle": "DSH runtime version mismatch",
-  "dsh.runtime.outdatedDesc": "The installed runtime is v{installed}, but this PiDeck version pairs with v{declared}. To avoid protocol incompatibilities, DSH has been disabled. Please reinstall the matching runtime.",
-  "dsh.runtime.sendOutdated": "The DSH backend runtime (v{installed}) does not match this PiDeck version (pairs with v{declared}) and has been disabled. Reinstall it from the configuration page before sending.",
-  "dsh.runtime.migrationNotice": "You have DSH sessions, but the DSH backend runtime is not installed. Install it to continue; pi sessions are unaffected.",
+  "dsh.runtime.outdatedDesc":
+    "The installed runtime is v{installed}, but this PiDeck version pairs with v{declared}. To avoid protocol incompatibilities, DSH has been disabled. Please reinstall the matching runtime.",
+  "dsh.runtime.sendOutdated":
+    "The DSH backend runtime (v{installed}) does not match this PiDeck version (pairs with v{declared}) and has been disabled. Reinstall it from the configuration page before sending.",
+  "dsh.runtime.migrationNotice":
+    "You have DSH sessions, but the DSH backend runtime is not installed. Install it to continue; pi sessions are unaffected.",
   "dsh.runtime.migrationAction": "Install now",
   "dsh.runtime.installed": "DSH backend installed",
-  "dsh.runtime.sendNotInstalled": "This is a DSH session, but the DSH backend runtime is not installed. Install it to keep sending.",
-  "dsh.runtime.sendBroken": "The DSH backend runtime is unavailable ({reason}). Reinstall it before sending.",
+  "dsh.runtime.sendNotInstalled":
+    "This is a DSH session, but the DSH backend runtime is not installed. Install it to keep sending.",
+  "dsh.runtime.sendBroken":
+    "The DSH backend runtime is unavailable ({reason}). Reinstall it before sending.",
   "dsh.runtime.installAction": "Install now",
   "config.nav.config": "Configuration",
   "config.nav.models": "Models",
@@ -1591,24 +1826,30 @@ export const enUS: Record<TranslationKey, string> = {
   "config.nav.settings": "Settings",
   "config.nav.trust": "Trust",
   "config.nav.mcp": "MCP",
-  "config.mcp.hint": "Inspect and edit MCP servers that pi-mcp-adapter reads. Saves go to ~/.pi/agent/mcp.json; other layers are read-only. Requires the official npm:pi-mcp-adapter extension.",
+  "config.mcp.hint":
+    "Inspect and edit MCP servers that pi-mcp-adapter reads. Saves go to ~/.pi/agent/mcp.json; other layers are read-only. Requires the official npm:pi-mcp-adapter extension.",
   "config.mcp.docs": "Adapter configuration docs",
-  "config.mcp.notInstalled.desc": "MCP servers only work when the pi-mcp-adapter extension loads mcp.json inside the pi process, and it was not detected. Install it to manage your MCP servers here.",
+  "config.mcp.notInstalled.desc":
+    "MCP servers only work when the pi-mcp-adapter extension loads mcp.json inside the pi process, and it was not detected. Install it to manage your MCP servers here.",
   "config.mcp.notInstalled.install": "Install extension",
   "config.mcp.notInstalled.installing": "Installing…",
-  "config.mcp.notInstalled.installFailed": "Install failed. Try again later, or run the command above in a terminal.",
+  "config.mcp.notInstalled.installFailed":
+    "Install failed. Try again later, or run the command above in a terminal.",
   "config.mcp.notInstalled.copyCmd": "Copy command",
   "config.mcp.notInstalled.copied": "Copied",
-  "config.mcp.notInstalled.restartHint": "Restart the agent session after installing so pi loads the extension; or run the command above in a terminal and hit Refresh.",
+  "config.mcp.notInstalled.restartHint":
+    "Restart the agent session after installing so pi loads the extension; or run the command above in a terminal and hit Refresh.",
   "config.mcp.add": "Add server",
-  "config.mcp.empty": "No MCP servers yet. Add a stdio, HTTP, or socket server, or place an existing mcp.json on a path the adapter reads.",
+  "config.mcp.empty":
+    "No MCP servers yet. Add a stdio, HTTP, or socket server, or place an existing mcp.json on a path the adapter reads.",
   "config.mcp.selectHint": "Select a server on the left, or add a new one.",
   "config.mcp.newServer": "New server",
   "config.mcp.writable": "writable",
   "config.mcp.missing": "missing",
   "config.mcp.writingTo": "Saving to",
   "config.mcp.origin": "Source",
-  "config.mcp.overlayHint": "Defined in a read-only layer; edits write a Pi overlay",
+  "config.mcp.overlayHint":
+    "Defined in a read-only layer; edits write a Pi overlay",
   "config.mcp.disableInstead": "Disable",
   "config.mcp.probe": "Probe",
   "config.mcp.probing": "Probing…",
@@ -1616,8 +1857,10 @@ export const enUS: Record<TranslationKey, string> = {
   "config.mcp.probeFail": "Unreachable",
   "config.mcp.nameRequired": "Enter a server name",
   "config.mcp.nameDuplicate": "An MCP server with this name already exists",
-  "config.mcp.nameInvalid": "Use letters, numbers, underscores, and hyphens only",
-  "config.mcp.writableBroken": "~/.pi/agent/mcp.json is not valid JSON. Fix it in Raw Files before saving so the original file is not overwritten.",
+  "config.mcp.nameInvalid":
+    "Use letters, numbers, underscores, and hyphens only",
+  "config.mcp.writableBroken":
+    "~/.pi/agent/mcp.json is not valid JSON. Fix it in Raw Files before saving so the original file is not overwritten.",
   "config.mcp.field.name": "Name",
   "config.mcp.field.transport": "Transport",
   "config.mcp.field.command": "Command",
@@ -1626,12 +1869,15 @@ export const enUS: Record<TranslationKey, string> = {
   "config.mcp.field.url": "URL",
   "config.mcp.field.socket": "Socket",
   "config.mcp.field.env": "Environment",
-  "config.mcp.field.envPlaceholder": "One KEY=value per line, e.g. API_KEY=sk-...",
+  "config.mcp.field.envPlaceholder":
+    "One KEY=value per line, e.g. API_KEY=sk-...",
   "config.mcp.field.headers": "HTTP headers",
-  "config.mcp.field.headersPlaceholder": "One KEY=value per line, e.g. Authorization=Bearer ...",
+  "config.mcp.field.headersPlaceholder":
+    "One KEY=value per line, e.g. Authorization=Bearer ...",
   "config.mcp.field.lifecycle": "Lifecycle",
   "config.mcp.field.enabled": "Enabled",
-  "config.mcp.field.enabledHint": "When off, the adapter will not connect. The config is kept.",
+  "config.mcp.field.enabledHint":
+    "When off, the adapter will not connect. The config is kept.",
   "config.mcp.transport.stdio": "stdio command",
   "config.mcp.transport.http": "HTTP",
   "config.mcp.transport.socket": "Unix socket",
@@ -1645,15 +1891,19 @@ export const enUS: Record<TranslationKey, string> = {
   "config.mcp.layer.piAgent": "~/.pi/agent",
   "config.mcp.layer.project": "Project .mcp.json",
   "config.mcp.layer.projectPi": "Project .pi/mcp.json",
-  "config.trust.hint": "Trusted directories. Project-local files (AGENTS.md, extensions, etc.) will be loaded automatically.",
+  "config.trust.hint":
+    "Trusted directories. Project-local files (AGENTS.md, extensions, etc.) will be loaded automatically.",
   "config.trust.emptyTitle": "No trusted directories",
-  "config.trust.emptyDesc": "Add a directory path to trust its project-local files.",
-  "config.trust.addPlaceholder": "Enter directory path, e.g. C:\\Users\\myproject",
+  "config.trust.emptyDesc":
+    "Add a directory path to trust its project-local files.",
+  "config.trust.addPlaceholder":
+    "Enter directory path, e.g. C:\\Users\\myproject",
   "config.trust.add": "Add directory",
   "config.trust.statusTrusted": "Trusted",
   "config.trust.statusIgnored": "Ignored",
   "agent.trust.title": "Project Trust Confirmation",
-  "agent.trust.message": "This project contains pi configuration resources (extensions, skills, settings, etc.). Once trusted, pi will load and execute these project-local resources. Make sure you trust this project's source.",
+  "agent.trust.message":
+    "This project contains pi configuration resources (extensions, skills, settings, etc.). Once trusted, pi will load and execute these project-local resources. Make sure you trust this project's source.",
   "agent.trust.project": "Project path",
   "agent.trust.trustRemember": "Trust and remember",
   "agent.trust.trustSession": "Trust this session",
@@ -1664,10 +1914,13 @@ export const enUS: Record<TranslationKey, string> = {
   "config.resourceScope.global": "Global",
   "config.resourceScope.project": "Current project",
   "config.resourceScope.projectFallback": "Currently loaded project",
-  "config.resourceScope.saveMcpFirst": "Save the MCP changes before switching resource scope.",
-  "config.resourceScope.inheritedReadOnly": "Inherited global resources cannot be changed from project scope.",
+  "config.resourceScope.saveMcpFirst":
+    "Save the MCP changes before switching resource scope.",
+  "config.resourceScope.inheritedReadOnly":
+    "Inherited global resources cannot be changed from project scope.",
   "config.resourceManaged": "Managed",
-  "config.resourceManagedHint": "Loaded from a package or settings entry; managed read-only here.",
+  "config.resourceManagedHint":
+    "Loaded from a package or settings entry; managed read-only here.",
   "config.resourceGroup.project": "Project resources",
   "config.resourceGroup.global": "Global resources",
   "config.source.global": "Global",
@@ -1685,13 +1938,16 @@ export const enUS: Record<TranslationKey, string> = {
   "config.process.loadFailed": "Failed to fetch process snapshot",
   "config.process.column.pid": "PID",
   "config.process.column.memory": "Memory",
-  "config.process.memoryHint": "Private memory (aligned with the OS Task Manager). With node direct launch, this reflects the real pi process memory (full Node runtime + pi bundle; 100\u2013300MB is normal).",
+  "config.process.memoryHint":
+    "Private memory (aligned with the OS Task Manager). With node direct launch, this reflects the real pi process memory (full Node runtime + pi bundle; 100\u2013300MB is normal).",
   "config.process.column.agentId": "Process",
   "config.process.column.session": "Session",
   "config.process.column.action": "Actions",
   "config.process.stop": "Stop",
-  "config.process.stopConfirm": "Stop agent {agent}? Its process will be terminated.",
-  "config.process.stopHostConfirm": "Stop the DSH host? This ends all DSH sessions and closes the shared host process. Session files are kept and can be reopened.",
+  "config.process.stopConfirm":
+    "Stop agent {agent}? Its process will be terminated.",
+  "config.process.stopHostConfirm":
+    "Stop the DSH host? This ends all DSH sessions and closes the shared host process. Session files are kept and can be reopened.",
   "config.process.stopped": "{agent} stopped",
   "config.process.stopFailed": "Failed to stop {agent}",
   "config.nav.skills": "Skills",
@@ -1699,8 +1955,10 @@ export const enUS: Record<TranslationKey, string> = {
   "config.nav.imagegen": "Image Gen",
   "config.group.agent": "Agent Capabilities",
   "config.imagegen.section": "Image generation",
-  "config.imagegen.sectionDesc": "Independent from pi/dsh — managed under Settings. Requests always use the OpenAI-compatible /images/generations API; Volcengine only needs a different base URL. Enable the official fields this provider actually supports — only then do they appear in the composer.",
-  "config.imagegen.empty": "No image providers yet. Add one to use image-generation mode in a session.",
+  "config.imagegen.sectionDesc":
+    "Independent from pi/dsh — managed under Settings. Requests always use the OpenAI-compatible /images/generations API; Volcengine only needs a different base URL. Enable the official fields this provider actually supports — only then do they appear in the composer.",
+  "config.imagegen.empty":
+    "No image providers yet. Add one to use image-generation mode in a session.",
   "config.imagegen.providerName": "Name",
   "config.imagegen.providerNamePlaceholder": "e.g. OpenAI or Ark",
   "config.imagegen.baseUrl": "Base URL",
@@ -1716,36 +1974,48 @@ export const enUS: Record<TranslationKey, string> = {
   "config.imagegen.expandAll": "Expand all",
   "config.imagegen.collapseAll": "Collapse all",
   "config.imagegen.extraParams": "Supported parameters",
-  "config.imagegen.extraParamsHint": "Enable fields from the official docs. Unchecked fields stay out of the composer and are not sent (avoids unknown-field 400s).",
+  "config.imagegen.extraParamsHint":
+    "Enable fields from the official docs. Unchecked fields stay out of the composer and are not sent (avoids unknown-field 400s).",
   "config.imagegen.referenceMode": "Reference image mode",
-  "config.imagegen.referenceModeHint": "Declare whether this provider can use uploaded images as reference. Unsupported blocks attachments; edits uses the /images/edits multipart API; image-field merges images into the JSON body.",
+  "config.imagegen.referenceModeHint":
+    "Declare whether this provider can use uploaded images as reference. Unsupported blocks attachments; edits uses the /images/edits multipart API; image-field merges images into the JSON body.",
   "config.imagegen.referenceNone": "Not supported",
   "config.imagegen.referenceEdits": "Supported (/images/edits)",
   "config.imagegen.referenceImageField": "Supported (image field)",
   "config.imagegen.apiStyle": "API dialect",
-  "config.imagegen.apiStyleHint": "Providers use different field names for the same images/generations endpoint: OpenAI/Ark use size and return data[].b64_json; SiliconFlow uses image_size and returns images[].url (reference image is a single string).",
-  "config.imagegen.apiStyleOpenai": "OpenAI-compatible (size / data[].b64_json)",
-  "config.imagegen.apiStyleSiliconflow": "SiliconFlow (image_size / images[].url)",
+  "config.imagegen.apiStyleHint":
+    "Providers use different field names for the same images/generations endpoint: OpenAI/Ark use size and return data[].b64_json; SiliconFlow uses image_size and returns images[].url (reference image is a single string).",
+  "config.imagegen.apiStyleOpenai":
+    "OpenAI-compatible (size / data[].b64_json)",
+  "config.imagegen.apiStyleSiliconflow":
+    "SiliconFlow (image_size / images[].url)",
   "config.imagegen.paramSize": "size",
-  "config.imagegen.paramSizeHint": "Official size. OpenAI uses 1024x1024 etc.; Ark also accepts 1K / 2K / 4K.",
+  "config.imagegen.paramSizeHint":
+    "Official size. OpenAI uses 1024x1024 etc.; Ark also accepts 1K / 2K / 4K.",
   "config.imagegen.paramOutputFormat": "output_format",
-  "config.imagegen.paramOutputFormatHint": "Official output_format: png / jpeg. Seedream 5.0 supports this; do not enable for official OpenAI.",
+  "config.imagegen.paramOutputFormatHint":
+    "Official output_format: png / jpeg. Seedream 5.0 supports this; do not enable for official OpenAI.",
   "config.imagegen.paramWatermark": "watermark",
-  "config.imagegen.paramWatermarkHint": "Official watermark. Ark supports this; do not enable for official OpenAI.",
-  "config.imagegen.fetchNeedKey": "Fill in base URL and API key before fetching models",
+  "config.imagegen.paramWatermarkHint":
+    "Official watermark. Ark supports this; do not enable for official OpenAI.",
+  "config.imagegen.fetchNeedKey":
+    "Fill in base URL and API key before fetching models",
   "config.imagegen.saved": "Image generation settings saved",
   "config.imagegen.saveFailed": "Failed to save image generation settings",
   "security.enabledTitle": "Enable security management",
-  "security.enabledHint": "When enabled, pi agent tool calls are gated or require confirmation per level rules; when disabled everything passes through (default, zero interference). Rule changes apply within ~2 seconds.",
+  "security.enabledHint":
+    "When enabled, pi agent tool calls are gated or require confirmation per level rules; when disabled everything passes through (default, zero interference). Rule changes apply within ~2 seconds.",
   "security.defaultLevelTitle": "Global default level",
   "security.selectLevel": "Select level",
-  "security.levelsTitle": "Levels (each level independently controls tool actions and path boundaries)",
+  "security.levelsTitle":
+    "Levels (each level independently controls tool actions and path boundaries)",
   "security.reset": "Reset to defaults",
   "security.addLevel": "Add level",
   "security.builtinBadge": "built-in",
   "security.levelName": "Name",
   "security.levelDescription": "Description",
-  "security.toolActionsTitle": "Tool actions (tools not listed fall back to the default action)",
+  "security.toolActionsTitle":
+    "Tool actions (tools not listed fall back to the default action)",
   "security.tool.read": "Read file",
   "security.tool.write": "Write file",
   "security.tool.edit": "Edit file",
@@ -1754,7 +2024,8 @@ export const enUS: Record<TranslationKey, string> = {
   "security.tool.find": "Find files",
   "security.tool.ls": "List directory",
   "security.tool.ask_question": "Ask user",
-  "security.toolActionsHint": "When a bash command matches a deny pattern below: explicit allow passes; strict level denies; otherwise a confirmation dialog is shown.",
+  "security.toolActionsHint":
+    "When a bash command matches a deny pattern below: explicit allow passes; strict level denies; otherwise a confirmation dialog is shown.",
   "security.denyBashTitle": "Dangerous bash patterns (one regex per line)",
   "security.denyBashPlaceholder": "e.g. \\brm\\s+-[a-z]*[rf]\n\\bsudo\\b",
   "security.pathPolicyTitle": "File access boundary",
@@ -1762,18 +2033,23 @@ export const enUS: Record<TranslationKey, string> = {
   "security.pathPolicy.workspace": "Workspace only",
   "security.pathPolicy.custom": "Workspace + custom dirs",
   "security.defaultActionTitle": "Default action",
-  "security.customAllowDirsTitle": "Additional allowed dirs (one per line; relative paths resolve against the workspace)",
-  "security.denyDirsTitle": "Always denied dirs (one per line; highest priority)",
+  "security.customAllowDirsTitle":
+    "Additional allowed dirs (one per line; relative paths resolve against the workspace)",
+  "security.denyDirsTitle":
+    "Always denied dirs (one per line; highest priority)",
   "security.dirsPlaceholder": "One absolute path per line",
-  "security.protectSensitiveTitle": "Protect sensitive files (.env / .git / keys)",
+  "security.protectSensitiveTitle":
+    "Protect sensitive files (.env / .git / keys)",
   "security.customLevelName": "Custom level",
   "security.levelUnknown": "Unknown level",
   "security.menuTitle": "Security level",
-  "security.menuHint": "Choose the level for this session; rule changes apply within ~2 seconds",
+  "security.menuHint":
+    "Choose the level for this session; rule changes apply within ~2 seconds",
   "security.pickerEmpty": "No matching level",
   "security.disabled": "disabled",
   "security.followDefault": "Follow global default",
-  "security.menuDisabledHint": "Security management is off. Enable it in Pi Manager → Security to gate tool calls.",
+  "security.menuDisabledHint":
+    "Security management is off. Enable it in Pi Manager → Security to gate tool calls.",
   "security.confirmTitle": "Security Check",
   "security.confirmQuestion": "Allow this tool call?",
   "security.confirmToolLabel": "Tool",
@@ -1788,36 +2064,56 @@ export const enUS: Record<TranslationKey, string> = {
   "config.addAuth": "+ Add Auth",
   "config.addProvider": "+ Add Provider",
   "config.providerGuide": "Configuration Guide",
-  "config.providerGuideApiDesc1": "Chat Completions API — Most compatible, works with third-party services, proxies, and local models",
+  "config.providerGuideApiDesc1":
+    "Chat Completions API — Most compatible, works with third-party services, proxies, and local models",
   "config.providerGuideApiDesc2": "Messages API — For Claude models",
-  "config.providerGuideApiDesc3": "Responses API — Newer OpenAI API, recommended",
+  "config.providerGuideApiDesc3":
+    "Responses API — Newer OpenAI API, recommended",
   "config.providerGuideApiDesc4": "Generative AI API — For Gemini models",
-  "config.providerGuideApiDesc5": "Codex Responses — For ChatGPT Plus/Pro subscriptions. Switch to openai-responses + User-Agent if issues",
-  "config.providerGuideApiDesc6": "Conversations API — Native Mistral interface, recommended over openai-completions",
-  "config.apiType.openai-completions": "OpenAI Chat Completions API — Most compatible, works with most third-party services and local models",
-  "config.apiType.openai-responses": "OpenAI Responses API — Newer API, recommended",
-  "config.apiType.openai-codex-responses": "OpenAI Codex Responses — ChatGPT Plus/Pro. Try openai-responses + custom User-Agent if issues occur",
-  "config.apiType.anthropic-messages": "Anthropic Messages API — For Claude models",
-  "config.apiType.google-generative-ai": "Google Generative AI API — For Gemini models",
-  "config.apiType.mistral-conversations": "Mistral Conversations API — Native Mistral interface",
+  "config.providerGuideApiDesc5":
+    "Codex Responses — For ChatGPT Plus/Pro subscriptions. Switch to openai-responses + User-Agent if issues",
+  "config.providerGuideApiDesc6":
+    "Conversations API — Native Mistral interface, recommended over openai-completions",
+  "config.apiType.openai-completions":
+    "OpenAI Chat Completions API — Most compatible, works with most third-party services and local models",
+  "config.apiType.openai-responses":
+    "OpenAI Responses API — Newer API, recommended",
+  "config.apiType.openai-codex-responses":
+    "OpenAI Codex Responses — ChatGPT Plus/Pro. Try openai-responses + custom User-Agent if issues occur",
+  "config.apiType.anthropic-messages":
+    "Anthropic Messages API — For Claude models",
+  "config.apiType.google-generative-ai":
+    "Google Generative AI API — For Gemini models",
+  "config.apiType.mistral-conversations":
+    "Mistral Conversations API — Native Mistral interface",
   "config.providerGuideApis": "API Types",
   "config.providerGuideCompat": "Compatibility Settings",
-  "config.providerGuideCompatDevRole": "Set to false when the server does not support developer role; pi will use system role instead",
-  "config.providerGuideCompatReasoningContent": "Enable when a DeepSeek-family gateway rejects tool-call turns without reasoning_content; keep it off for non-DeepSeek backends",
-  "config.providerGuideCompatReasoning": "Set to false when the server does not support reasoning_effort",
-  "config.providerGuideIntro": "Provider config connects custom model services (Ollama, vLLM, LM Studio, API proxies, etc.). Here are common scenarios:",
-  "config.providerGuideNote": "For full parameter details and examples, see pi official docs",
-  "config.providerGuideTip1": "After fetching model list, test the connection first. A passing test does not guarantee the model works correctly in session (tool calling, streaming, etc.)",
-  "config.providerGuideTip2": "If connection test passes but session fails, check compat settings (developer role, reasoning_effort support, etc.)",
-  "config.providerGuideTip3": "For local models (Ollama/LM Studio), turn off reasoning and developer role support",
-  "config.providerGuideTip4": "For OpenAI-compatible services, prefer openai-completions API; most third-party services support this interface",
+  "config.providerGuideCompatDevRole":
+    "Set to false when the server does not support developer role; pi will use system role instead",
+  "config.providerGuideCompatReasoningContent":
+    "Enable when a DeepSeek-family gateway rejects tool-call turns without reasoning_content; keep it off for non-DeepSeek backends",
+  "config.providerGuideCompatReasoning":
+    "Set to false when the server does not support reasoning_effort",
+  "config.providerGuideIntro":
+    "Provider config connects custom model services (Ollama, vLLM, LM Studio, API proxies, etc.). Here are common scenarios:",
+  "config.providerGuideNote":
+    "For full parameter details and examples, see pi official docs",
+  "config.providerGuideTip1":
+    "After fetching model list, test the connection first. A passing test does not guarantee the model works correctly in session (tool calling, streaming, etc.)",
+  "config.providerGuideTip2":
+    "If connection test passes but session fails, check compat settings (developer role, reasoning_effort support, etc.)",
+  "config.providerGuideTip3":
+    "For local models (Ollama/LM Studio), turn off reasoning and developer role support",
+  "config.providerGuideTip4":
+    "For OpenAI-compatible services, prefer openai-completions API; most third-party services support this interface",
   "config.providerGuideTips": "Troubleshooting",
   "config.providerGuideTitle": "Provider Configuration Guide",
   "config.providerGuideTroubleshoot": "Troubleshooting",
   "config.addModelFromList": "+ Pick from list",
   "config.addModelManual": "+ Add manually",
   "config.modelSearchPlaceholder": "Search model ID or name",
-  "config.modelFetchSelectionSummary": "{selected} / {total} fetched models selected",
+  "config.modelFetchSelectionSummary":
+    "{selected} / {total} fetched models selected",
   "config.saveSelectedModels": "Save selected models",
   "config.advancedPreservedTitle": "Advanced fields preserved",
   "config.advancedPreservedProvider":
@@ -1834,11 +2130,16 @@ export const enUS: Record<TranslationKey, string> = {
   "config.authEnvVar": "Environment variable",
   "config.authGetKey": "Get API Key",
   "config.authGuide": "Guide",
-  "config.authGuideDesc": "Auth config stores API keys. pi loads them automatically from ~/.pi/agent/auth.json.",
-  "config.authGuideNote": "For the full list of supported providers and environment variables, see",
-  "config.authGuideStep1": "Add Auth → Select your provider (e.g. Anthropic, OpenAI)",
-  "config.authGuideStep2": "Enter API Key → Use environment variable name or paste the key directly",
-  "config.authGuideStep3": "Save → pi loads auth.json credentials automatically on startup",
+  "config.authGuideDesc":
+    "Auth config stores API keys. pi loads them automatically from ~/.pi/agent/auth.json.",
+  "config.authGuideNote":
+    "For the full list of supported providers and environment variables, see",
+  "config.authGuideStep1":
+    "Add Auth → Select your provider (e.g. Anthropic, OpenAI)",
+  "config.authGuideStep2":
+    "Enter API Key → Use environment variable name or paste the key directly",
+  "config.authGuideStep3":
+    "Save → pi loads auth.json credentials automatically on startup",
   "config.authGuideTitle": "Auth Configuration Guide",
   "config.authKeyPreviewEmpty": "Not configured",
   "config.authSelectProvider": "Select Provider",
@@ -1848,18 +2149,28 @@ export const enUS: Record<TranslationKey, string> = {
   "config.contextWindow": "Context",
   "config.connectionFailed": "Connection failed",
   "config.connectionOk": "Connection OK",
-  "config.baseUrlAutoNormalized": "Base URL normalized to include version path: {url}",
+  "config.baseUrlAutoNormalized":
+    "Base URL normalized to include version path: {url}",
   "config.exported": "Configuration exported",
   "config.fetchModelsFailed": "Failed to fetch model list",
-  "config.fetchModelsHint": "Fetch failure may be caused by the server restricting /models endpoint. The actual available models should be checked via /model command after starting the agent.",
-  "config.fetchModelsHintOpenai": "Failed to fetch models. Both /v1/models and /models endpoints have been tried, neither returned a valid model list. The OpenAI / Responses API gateway may restrict the models endpoint. Consider manually adding known model IDs (e.g. gpt-4o, gpt-4o-mini) in 'Extra Models', then use /model command after starting the session to confirm available models.",
-  "config.fetchModelsHintAnthropic": "Anthropic Messages API does not support the /models endpoint. Please manually add Claude model IDs (e.g. claude-sonnet-4-20250514, claude-3.5-haiku), or check the pi documentation for the full model list.",
-  "config.fetchModelsHintOpenaiCodex": "Codex Responses does not support a generic /models endpoint. Manually add available model IDs via 'Extra Models', or check your session history/docs for model names.",
-  "config.fetchModelsHintGoogle": "Google Generative AI API may return a limited model list via /models. Actual available models depend on the Gemini official list. It is recommended to manually add the required model IDs.",
-  "config.fetchModelsHintMistral": "Mistral API may not expose the /models endpoint. Manually add Mistral model IDs (e.g. mistral-large-latest), or check the Mistral official documentation for the complete list.",
-  "config.fetchModelsHintOpenaiCompletions": "Failed to fetch models. Both /v1/models and /models endpoints returned no valid data for OpenAI Chat Completions API. If using a proxy or third-party service, verify it supports model listing. If not supported, manually add known model IDs via 'Extra Models'.",
-  "config.testConnectionHint": "The test runs through a real pi call, the same path as sessions. A failure usually means this model won't work in sessions either. Check the base URL, API key, and model ID.",
-  "config.testFailedButModelsFetched": "The model list was fetched successfully, so the network and auth are fine, but the real call failed — usually a model ID mismatch. Confirm the test model ID or pick one from the list.",
+  "config.fetchModelsHint":
+    "Fetch failure may be caused by the server restricting /models endpoint. The actual available models should be checked via /model command after starting the agent.",
+  "config.fetchModelsHintOpenai":
+    "Failed to fetch models. Both /v1/models and /models endpoints have been tried, neither returned a valid model list. The OpenAI / Responses API gateway may restrict the models endpoint. Consider manually adding known model IDs (e.g. gpt-4o, gpt-4o-mini) in 'Extra Models', then use /model command after starting the session to confirm available models.",
+  "config.fetchModelsHintAnthropic":
+    "Anthropic Messages API does not support the /models endpoint. Please manually add Claude model IDs (e.g. claude-sonnet-4-20250514, claude-3.5-haiku), or check the pi documentation for the full model list.",
+  "config.fetchModelsHintOpenaiCodex":
+    "Codex Responses does not support a generic /models endpoint. Manually add available model IDs via 'Extra Models', or check your session history/docs for model names.",
+  "config.fetchModelsHintGoogle":
+    "Google Generative AI API may return a limited model list via /models. Actual available models depend on the Gemini official list. It is recommended to manually add the required model IDs.",
+  "config.fetchModelsHintMistral":
+    "Mistral API may not expose the /models endpoint. Manually add Mistral model IDs (e.g. mistral-large-latest), or check the Mistral official documentation for the complete list.",
+  "config.fetchModelsHintOpenaiCompletions":
+    "Failed to fetch models. Both /v1/models and /models endpoints returned no valid data for OpenAI Chat Completions API. If using a proxy or third-party service, verify it supports model listing. If not supported, manually add known model IDs via 'Extra Models'.",
+  "config.testConnectionHint":
+    "The test runs through a real pi call, the same path as sessions. A failure usually means this model won't work in sessions either. Check the base URL, API key, and model ID.",
+  "config.testFailedButModelsFetched":
+    "The model list was fetched successfully, so the network and auth are fine, but the real call failed — usually a model ID mismatch. Confirm the test model ID or pick one from the list.",
   "config.fetchedModels": "Fetched {count} models",
   "config.imported": "Configuration imported",
   "config.importFailed": "Import failed",
@@ -1877,21 +2188,28 @@ export const enUS: Record<TranslationKey, string> = {
   "config.saveFailed": "Save failed",
   "config.saved": "Configuration saved",
   "config.unsavedTitle": "Unsaved Changes",
-  "config.unsavedMessage": "You have unsaved changes. Do you want to save before closing?",
-  "config.unsavedListIntro": "The following {count} items have unsaved changes:",
+  "config.unsavedMessage":
+    "You have unsaved changes. Do you want to save before closing?",
+  "config.unsavedListIntro":
+    "The following {count} items have unsaved changes:",
   "config.saveAndClose": "Save and Close",
   "config.discardChanges": "Discard Changes",
   "config.dirtyTooltip": "Has unsaved changes",
-  "config.modelsSavedRestartHint": "Model configuration saved. Please restart active Agent sessions to apply the new configuration.",
+  "config.modelsSavedRestartHint":
+    "Model configuration saved. Please restart active Agent sessions to apply the new configuration.",
   "config.modelsSaved": "Model configuration saved",
-  "config.modelsSavedWithSpecs": "Saved. Auto-filled specs for {count} models from the capability catalog",
+  "config.modelsSavedWithSpecs":
+    "Saved. Auto-filled specs for {count} models from the capability catalog",
   "config.modelsSavedVerified": "Model configuration saved with {count} models",
-  "config.modelsSavedButEmpty": "Configuration saved, but it contains no models. Add providers on the Models page or use \"Fetch models\".",
+  "config.modelsSavedButEmpty":
+    'Configuration saved, but it contains no models. Add providers on the Models page or use "Fetch models".',
   // Background pi verification (forks real pi to confirm the config loads) failure notice; success stays silent.
   "config.modelsVerifyFailedTitle": "Model config verification failed",
-  "config.modelsVerifyFailed": "Pi failed to load the model list; the new config may not take effect: {detail}",
+  "config.modelsVerifyFailed":
+    "Pi failed to load the model list; the new config may not take effect: {detail}",
   "config.modelsRefreshed": "Refreshed model config for {count} Agent(s)",
-  "config.modelsRefreshedPartial": "Refreshed {refreshed} Agent(s), {failed} failed",
+  "config.modelsRefreshedPartial":
+    "Refreshed {refreshed} Agent(s), {failed} failed",
   "config.usage.refresh": "Refresh usage",
   "config.usage.remainingShort": "Left",
   "config.usage.usedShort": "Used",
@@ -1912,7 +2230,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.usageProbe.enable": "Enable usage query",
   "config.usageProbe.templatesTitle": "Preset templates",
   "config.usageProbe.builtin": "Built in: {label}",
-  "config.usageProbe.builtinHint": "Built-in template ready: nothing to fill in; turn on \"Enable usage query\" above to activate it",
+  "config.usageProbe.builtinHint":
+    'Built-in template ready: nothing to fill in; turn on "Enable usage query" above to activate it',
   "config.usageProbe.category.balance": "Official balance",
   "config.usageProbe.category.plan": "Plan quota",
   "config.usageProbe.category.subscription": "Official subscription",
@@ -1920,22 +2239,32 @@ export const enUS: Record<TranslationKey, string> = {
   "config.usageProbe.category.newapi": "New API",
   "config.usageProbe.category.cookie": "Cookie login state",
   "config.usageProbe.category.none": "No template",
-  "config.usageProbe.noneHint": "No preset template: relies on built-in candidates and existing probes only (for providers that fit neither General nor New API)",
+  "config.usageProbe.noneHint":
+    "No preset template: relies on built-in candidates and existing probes only (for providers that fit neither General nor New API)",
   "config.usageProbe.noneNoTest": "No endpoint to probe without a template",
   "config.usageProbe.generalHint": "Generic OpenAI-compatible /usage endpoint",
-  "config.usageProbe.balanceHint": "Queries the account balance with the provider's API Key automatically",
-  "config.usageProbe.planHint": "Queries the plan quota with the provider's API Key and Base URL automatically",
-  "config.usageProbe.subscriptionHint": "Reads login credentials (OAuth) and queries the official subscription quota; only requested after enabling and saving",
-  "config.usageProbe.newapiHint": "New API / OneAPI relay balance (credits converted automatically)",
-  "config.usageProbe.cookieHint": "Self-hosted gateway web-admin API (e.g. /api/wallet/summary): needs the login Cookie and must NOT use the API Key (dual credentials conflict)",
-  "config.usageProbe.legacyDetected": "Legacy probe detected ({name}, {count} total): Cookie template fields pre-filled — just save to migrate to the new format",
+  "config.usageProbe.balanceHint":
+    "Queries the account balance with the provider's API Key automatically",
+  "config.usageProbe.planHint":
+    "Queries the plan quota with the provider's API Key and Base URL automatically",
+  "config.usageProbe.subscriptionHint":
+    "Reads login credentials (OAuth) and queries the official subscription quota; only requested after enabling and saving",
+  "config.usageProbe.newapiHint":
+    "New API / OneAPI relay balance (credits converted automatically)",
+  "config.usageProbe.cookieHint":
+    "Self-hosted gateway web-admin API (e.g. /api/wallet/summary): needs the login Cookie and must NOT use the API Key (dual credentials conflict)",
+  "config.usageProbe.legacyDetected":
+    "Legacy probe detected ({name}, {count} total): Cookie template fields pre-filled — just save to migrate to the new format",
   "config.usageProbe.legacyUnnamed": "unnamed probe",
   "config.usageProbe.credentialApiKey": "API Key (optional)",
-  "config.usageProbe.credentialApiKeyPlaceholder": "Leave empty to use the provider's API Key",
+  "config.usageProbe.credentialApiKeyPlaceholder":
+    "Leave empty to use the provider's API Key",
   "config.usageProbe.credentialBaseUrl": "Request URL (optional)",
-  "config.usageProbe.credentialBaseUrlPlaceholder": "Leave empty to use the provider's request URL",
+  "config.usageProbe.credentialBaseUrlPlaceholder":
+    "Leave empty to use the provider's request URL",
   "config.usageProbe.timeout": "Timeout (seconds)",
-  "config.usageProbe.interval": "Auto query interval (minutes, 0 disables auto query)",
+  "config.usageProbe.interval":
+    "Auto query interval (minutes, 0 disables auto query)",
   "config.usageProbe.test": "Test",
   "config.usageProbe.testing": "Testing…",
   "config.usageProbe.testSuccess": "Test passed",
@@ -1947,25 +2276,38 @@ export const enUS: Record<TranslationKey, string> = {
   "config.usageProbe.saveFailed": "Save failed",
   "config.usageProbe.saveError": "Save failed: {error}",
   "config.usageProbe.aiAssist": "Let AI look up the API docs",
-  "config.usageProbe.aiAssistTitle": "Puts the prompt into the main session composer and closes settings — just send it",
-  "config.usageProbe.aiAssistInserted": "Prompt inserted into the main session composer — send it to let the AI look things up",
-  "config.usageProbe.aiAssistCopiedOnly": "No active session to fill in — the prompt was copied to the clipboard; paste it to pi and send",
-  "config.usageProbe.aiPrompt": "Please help me show usage/balance for the provider \"{provider}\". The usage-probe skill is installed — follow its workflow:\n1. First check whether this provider is already built in — if so, just tell me, no config needed;\n2. Otherwise, based on the API shape tell me whether to pick the General template, New API, or Cookie login state in the Usage query dialog, and which fields to fill;\n3. If neither covers it, write the probes array in {configPath} for me (never put an apiKey in the config).\n\nProvider name: {provider}\nBase URL:\nUsage/balance API docs link (optional):",
+  "config.usageProbe.aiAssistTitle":
+    "Puts the prompt into the main session composer and closes settings — just send it",
+  "config.usageProbe.aiAssistInserted":
+    "Prompt inserted into the main session composer — send it to let the AI look things up",
+  "config.usageProbe.aiAssistCopiedOnly":
+    "No active session to fill in — the prompt was copied to the clipboard; paste it to pi and send",
+  "config.usageProbe.aiPrompt":
+    'Please help me show usage/balance for the provider "{provider}". The usage-probe skill is installed — follow its workflow:\n1. First check whether this provider is already built in — if so, just tell me, no config needed;\n2. Otherwise, based on the API shape tell me whether to pick the General template, New API, or Cookie login state in the Usage query dialog, and which fields to fill;\n3. If neither covers it, write the probes array in {configPath} for me (never put an apiKey in the config).\n\nProvider name: {provider}\nBase URL:\nUsage/balance API docs link (optional):',
   "config.usageProbe.newApiToken": "Access token",
-  "config.usageProbe.newApiTokenPlaceholder": "Generate it on the New API site under Personal settings → Security",
-  "config.usageProbe.newApiTokenRequired": "Enter the access token (generate it on the New API site under Personal settings → Security)",
+  "config.usageProbe.newApiTokenPlaceholder":
+    "Generate it on the New API site under Personal settings → Security",
+  "config.usageProbe.newApiTokenRequired":
+    "Enter the access token (generate it on the New API site under Personal settings → Security)",
   "config.usageProbe.newApiUserId": "User ID",
   "config.usageProbe.newApiUserIdPlaceholder": "e.g. 114514",
-  "config.usageProbe.newApiUserIdRequired": "Enter the user ID (visible on your New API profile page)",
+  "config.usageProbe.newApiUserIdRequired":
+    "Enter the user ID (visible on your New API profile page)",
   "config.usageProbe.cookieLabel": "Login cookie",
-  "config.usageProbe.cookiePlaceholder": "Full Cookie value from the request headers in DevTools → Network, e.g. _c_xxx=...; tr_session=sess_...",
-  "config.usageProbe.cookieRequired": "Enter the login cookie (DevTools → Network → Cookie request header)",
+  "config.usageProbe.cookiePlaceholder":
+    "Full Cookie value from the request headers in DevTools → Network, e.g. _c_xxx=...; tr_session=sess_...",
+  "config.usageProbe.cookieRequired":
+    "Enter the login cookie (DevTools → Network → Cookie request header)",
   "config.usageProbe.cookiePathLabel": "API path",
-  "config.usageProbe.cookiePathPlaceholder": "Must start with /, e.g. /api/wallet/summary",
-  "config.usageProbe.cookiePathRequired": "Enter the API path (balance endpoint starting with /)",
+  "config.usageProbe.cookiePathPlaceholder":
+    "Must start with /, e.g. /api/wallet/summary",
+  "config.usageProbe.cookiePathRequired":
+    "Enter the API path (balance endpoint starting with /)",
   "config.usageProbe.cookieValuePathLabel": "Balance field path",
-  "config.usageProbe.cookieValuePathPlaceholder": "Path to the balance in the response JSON, e.g. data.availableBalanceCny",
-  "config.usageProbe.cookieValuePathRequired": "Enter the balance field path (where the balance lives in the response JSON, e.g. data.availableBalanceCny)",
+  "config.usageProbe.cookieValuePathPlaceholder":
+    "Path to the balance in the response JSON, e.g. data.availableBalanceCny",
+  "config.usageProbe.cookieValuePathRequired":
+    "Enter the balance field path (where the balance lives in the response JSON, e.g. data.availableBalanceCny)",
   "config.usageProbe.cookieCurrencyPathLabel": "Currency field path (optional)",
   "config.usageProbe.cookieCurrencyPathPlaceholder": "e.g. data.currency",
   "config.usageProbe.loadFailed": "Failed to load probe config: {error}",
@@ -1994,28 +2336,34 @@ export const enUS: Record<TranslationKey, string> = {
   "config.count.configItems": "{count} settings",
   "config.count.auth": "{count} auth(s)",
   "config.retry.title": "Auto Retry",
-  "config.retry.hint": "Only configures pi Agent-level retry count and base delay with exponential backoff for provider request failures. Restart the Agent for changes to take effect.",
+  "config.retry.hint":
+    "Only configures pi Agent-level retry count and base delay with exponential backoff for provider request failures. Restart the Agent for changes to take effect.",
   "config.retry.maxRetries": "Max Retries",
   "config.retry.baseDelayMs": "Base Delay (ms)",
   "config.count.extensions": "{count} extensions",
   "config.count.models": "{count} models",
   "config.count.providers": "{count} providers",
   // ── Built-in providers (TokenDance) ──
-  "config.tokendance.subtitle": "TokenDance · one Key for many models via an OpenAI-compatible gateway",
+  "config.tokendance.subtitle":
+    "TokenDance · one Key for many models via an OpenAI-compatible gateway",
   "config.tokendance.modelsCount": "Model catalog",
   "config.tokendance.fromCache": "cached",
   "config.tokendance.appUrlLabel": "App URL",
   "config.tokendance.hint":
     "Once configured it is written into the Pi model config (and the DSH model catalog); the model list and usage queries then use the existing pipeline. Requests carry the X-App-URL attribution header.",
-  "config.tokendance.advantageOne": "One API Key reaches most major model providers — no separate sign-ups or maintenance",
-  "config.tokendance.advantageTwo": "Many models are discounted, often well below official direct pricing, with regular free models available",
-  "config.tokendance.advantageCredit": "New users get a ¥1 trial credit on sign-up — try models for free before topping up",
+  "config.tokendance.advantageOne":
+    "One API Key reaches most major model providers — no separate sign-ups or maintenance",
+  "config.tokendance.advantageTwo":
+    "Many models are discounted, often well below official direct pricing, with regular free models available",
+  "config.tokendance.advantageCredit":
+    "New users get a ¥1 trial credit on sign-up — try models for free before topping up",
   "config.tokendance.expandDetails": "Expand / collapse details",
   "config.tokendance.catalogError": "Failed to load catalog",
   "config.tokendance.addToConfig": "Configure now",
   "config.tokendance.configuredBadge": "Configured",
   "config.tokendance.alreadyConfigured": "Configured",
-  "config.tokendance.alreadyConfiguredTitle": "Already written to config — edit it in the provider card below",
+  "config.tokendance.alreadyConfiguredTitle":
+    "Already written to config — edit it in the provider card below",
   "config.tokendance.oauthButton": "Get / update API Key",
   "config.tokendance.installTitle": "Configure TokenDance?",
   "config.tokendance.installDesc":
@@ -2032,26 +2380,33 @@ export const enUS: Record<TranslationKey, string> = {
   "config.tokendance.keyOptionPaste": "I already have an API Key — paste it",
   "config.tokendance.keyPastePlaceholder": "Paste API Key…",
   "config.tokendance.keyApply": "Save Key",
-  "config.tokendance.keyOptionOauth": "Authorize on TokenDance (auto-creates a Key)",
+  "config.tokendance.keyOptionOauth":
+    "Authorize on TokenDance (auto-creates a Key)",
   "config.tokendance.keyLater": "Later",
   "config.tokendance.oauthAppUrl": "Attribution App URL: {appUrl}",
-  "config.tokendance.oauthStepCode": "After authorizing, copy the one-time code shown on the page (valid 10 minutes) and paste it below:",
+  "config.tokendance.oauthStepCode":
+    "After authorizing, copy the one-time code shown on the page (valid 10 minutes) and paste it below:",
   "config.tokendance.oauthCodePlaceholder": "Paste the one-time code…",
   "config.tokendance.oauthOpenPage": "Open authorization page",
   "config.tokendance.oauthReopen": "Reopen authorization page",
   "config.tokendance.oauthExchange": "Exchange & write Key",
-  "config.tokendance.oauthOpened": "Authorization page opened — finish authorizing and copy the code",
+  "config.tokendance.oauthOpened":
+    "Authorization page opened — finish authorizing and copy the code",
   // Single-operation dialog: authorize + auto-capture Key + write config in one click
   "config.tokendance.setupPrimary": "Authorize & configure in one step",
   "config.tokendance.setupPrimaryUpdate": "Authorize & update API Key",
-  "config.tokendance.waitingBrowser": "Opened the authorization page in your browser: once you sign in, PiDeck captures the API Key automatically and writes the config — nothing to copy.",
+  "config.tokendance.waitingBrowser":
+    "Opened the authorization page in your browser: once you sign in, PiDeck captures the API Key automatically and writes the config — nothing to copy.",
   "config.tokendance.writingConfig": "Writing configuration…",
-  "config.tokendance.headlessFallback": "The local callback port is unavailable — switched to manual: copy the one-time code from the authorization page and paste it below.",
-  "config.tokendance.manualHint": "Automatic capture didn't finish? Paste the one-time code from the authorization page into option 1, or paste an API Key you created in the TokenDance dashboard into option 2.",
+  "config.tokendance.headlessFallback":
+    "The local callback port is unavailable — switched to manual: copy the one-time code from the authorization page and paste it below.",
+  "config.tokendance.manualHint":
+    "Automatic capture didn't finish? Paste the one-time code from the authorization page into option 1, or paste an API Key you created in the TokenDance dashboard into option 2.",
   "config.count.skills": "{count} skills",
   "config.custom": "Custom",
   "config.deleteModel": "Delete model",
-  "config.deleteModelsBatchConfirm": "Delete the selected {count} model(s) under provider \"{provider}\"? This cannot be undone.",
+  "config.deleteModelsBatchConfirm":
+    'Delete the selected {count} model(s) under provider "{provider}"? This cannot be undone.',
   "config.modelBatchSelected": "{selected} / {total} selected",
   "config.selectAllModels": "Select all models",
   "config.selectModel": "Select model {model}",
@@ -2059,37 +2414,45 @@ export const enUS: Record<TranslationKey, string> = {
   "config.duplicateProvider": "Duplicate provider",
   "config.migrate.toDsh": "Copy to DSH",
   "config.migrate.toPi": "Copy to pi",
-  "config.migrate.overwriteConfirm": "Provider \"{name}\" already exists on the other side. Overwrite its URL, models, and key?",
+  "config.migrate.overwriteConfirm":
+    'Provider "{name}" already exists on the other side. Overwrite its URL, models, and key?',
   "config.migrate.overwriteTitle": "Overwrite existing provider",
   "config.migrate.overwriteAction": "Overwrite",
-  "config.migrate.okWithKey": "Copied \"{name}\" (including API key)",
-  "config.migrate.okNoKey": "Copied \"{name}\" (no key found; add it on the other side)",
+  "config.migrate.okWithKey": 'Copied "{name}" (including API key)',
+  "config.migrate.okNoKey":
+    'Copied "{name}" (no key found; add it on the other side)',
   "config.migrate.failed": "Provider migration failed",
   "config.deleteSkillConfirmTitle": "Delete Skill",
   "config.deleteSkillConfirmBody":
     'Delete "{name}"? This removes the local skill files and cannot be undone.',
   "config.deletePromptConfirmTitle": "Delete Prompt",
-  "config.deletePromptConfirmBody":
-    'Delete "{name}"? This cannot be undone.',
+  "config.deletePromptConfirmBody": 'Delete "{name}"? This cannot be undone.',
   "config.label.enabledModels": "Model Switch List",
   "config.label.defaultProvider": "Default Provider",
   "config.label.defaultModel": "Default Model",
   "config.defaults.title": "Default Provider & Model",
-  "config.defaults.hint": "Always visible even if these keys are absent from settings.json (empty = not set). When empty, pi auto-selects: the first provider with credentials, and its first model.",
+  "config.defaults.hint":
+    "Always visible even if these keys are absent from settings.json (empty = not set). When empty, pi auto-selects: the first provider with credentials, and its first model.",
   "config.general.title": "General Behavior",
-  "config.general.hint": "Always-visible entries for high-frequency pi settings. Empty values are not written; they only take effect after saving.",
+  "config.general.hint":
+    "Always-visible entries for high-frequency pi settings. Empty values are not written; they only take effect after saving.",
   "config.general.thinkingLevelPlaceholder": "Not set (default)",
-  "config.general.thinkingLevelHint": "Default thinking level: off/low/medium/high/xhigh/max; empty lets pi decide per model and context",
+  "config.general.thinkingLevelHint":
+    "Default thinking level: off/low/medium/high/xhigh/max; empty lets pi decide per model and context",
   "config.general.hideThinkingBlockHint": "Hide thinking blocks in output",
   "config.general.quietStartupHint": "Hide the version banner on startup",
   "config.general.steeringModePlaceholder": "Not set (default one-at-a-time)",
-  "config.general.steeringModeHint": "How steering messages are sent: all at once, or one-at-a-time",
+  "config.general.steeringModeHint":
+    "How steering messages are sent: all at once, or one-at-a-time",
   "config.general.followUpModePlaceholder": "Not set (default one-at-a-time)",
-  "config.general.followUpModeHint": "How follow-up messages are sent: all / one-at-a-time",
+  "config.general.followUpModeHint":
+    "How follow-up messages are sent: all / one-at-a-time",
   "config.general.projectTrustPlaceholder": "Not set (default ask)",
-  "config.general.projectTrustHint": "Fallback project-trust policy for RPC mode (no prompt shown): ask = ignore (default), always = trust, never = never",
+  "config.general.projectTrustHint":
+    "Fallback project-trust policy for RPC mode (no prompt shown): ask = ignore (default), always = trust, never = never",
   "config.general.transportPlaceholder": "auto (auto-select)",
-  "config.general.transportHint": "Transport for multi-protocol providers: sse / websocket / websocket-cached / auto",
+  "config.general.transportHint":
+    "Transport for multi-protocol providers: sse / websocket / websocket-cached / auto",
   "config.label.lastChangelogVersion": "Last Changelog Version",
   "config.label.customPrompt": "Custom Prompt",
   "config.label.promptGuidelines": "Prompt Guidelines",
@@ -2120,49 +2483,60 @@ export const enUS: Record<TranslationKey, string> = {
   "config.openOfficialDocs": "Open official docs",
   "config.description": "Description",
   "config.developerRole": "Developer role",
-  "config.developerRoleDesc": "Disable when the API does not support developer role; pi will use system role instead.",
+  "config.developerRoleDesc":
+    "Disable when the API does not support developer role; pi will use system role instead.",
   "config.reasoningContentReplay": "Replay reasoning content",
-  "config.reasoningContentReplayDesc": "DeepSeek-family endpoints require reasoning_content on tool-call turns; a missing field returns 400. Enable it when using DeepSeek models through a relay (on save it is also auto-enabled from provider name/URL/model id).",
+  "config.reasoningContentReplayDesc":
+    "DeepSeek-family endpoints require reasoning_content on tool-call turns; a missing field returns 400. Enable it when using DeepSeek models through a relay (on save it is also auto-enabled from provider name/URL/model id).",
   "config.docsCustomProvider": "custom provider docs",
   "config.docsModels": "models docs",
   "config.docsSettings": "settings docs",
   "config.editRawFiles": "Raw Files",
   "config.rawEditingAt": "Editing directly:",
-  "config.rawHostReads": "Saved changes are picked up by pi (scope follows the official docs).",
+  "config.rawHostReads":
+    "Saved changes are picked up by pi (scope follows the official docs).",
   "config.emptyConfig": "No config yet",
   "config.noMatchingOptions": "No matching options",
   "config.comboboxSearchPlaceholder": "Search…",
-  "config.comboboxNoMatchCommitHint": "No match — press Enter to use the typed value",
+  "config.comboboxNoMatchCommitHint":
+    "No match — press Enter to use the typed value",
   "config.settings.selectProvider": "Select or enter provider",
   "config.settings.selectModel": "Select or enter model",
   "config.settings.selectModelFor": "Select or enter model for {provider}",
   "config.settings.selectModelFirst": "Select a provider first",
   "config.settings.addEnabledModels": "Add model cycle list (enabledModels)",
-  "config.settings.enabledModelsHint": "Restrict models available for switching in sessions (provider/id or glob pattern); no restriction when unset.",
-  "config.settings.enabledModelsPlaceholder": "Click to select models for cycling",
+  "config.settings.enabledModelsHint":
+    "Restrict models available for switching in sessions (provider/id or glob pattern); no restriction when unset.",
+  "config.settings.enabledModelsPlaceholder":
+    "Click to select models for cycling",
   "config.settings.enabledModelsSelected": " models selected",
-  "config.settings.enabledModelsSearchPlaceholder": "Search model ID… Enter glob pattern with * or ?",
+  "config.settings.enabledModelsSearchPlaceholder":
+    "Search model ID… Enter glob pattern with * or ?",
   "config.settings.enabledModelsGlobHint": "glob pattern",
   "config.loadingExtensions": "Loading extensions…",
-"config.emptyExtensions": "No installed extensions.",
+  "config.emptyExtensions": "No installed extensions.",
   "config.emptyModels": "No models yet. Click + Model to add one.",
   "config.emptyProviders": "No provider config yet",
   "config.others.title": "Other settings",
-  "editor.binaryFileNotSupported": "{ext} is a binary file and cannot be edited",
+  "editor.binaryFileNotSupported":
+    "{ext} is a binary file and cannot be edited",
   "editor.fileNotFound": "File not found or has been moved: {path}",
-  "editor.fileTooLarge": "File size {size}MB exceeds {max}MB limit, cannot open editor",
+  "editor.fileTooLarge":
+    "File size {size}MB exceeds {max}MB limit, cannot open editor",
   "editor.preview": "Preview",
   "editor.source": "Source",
   "editor.attachSelectionRange": "Attach selection (line {range})",
   "editor.diffTooLarge": "File too large to render diff",
-  "editor.diffTooLargeDetail": "{old} old lines, {new} new lines \u2014 use git diff instead",
+  "editor.diffTooLargeDetail":
+    "{old} old lines, {new} new lines \u2014 use git diff instead",
   "editor.pdfPreview": "PDF preview",
   "editors.clear": "Clear",
   "editors.browse": "Browse",
   "editors.detectedFrom": "Source: {source}",
   "editors.detecting": "Detecting...",
   "editors.enabled": "Enabled",
-  "editors.hint": "Manage external editors shown in the project menu. PiDeck detects them asynchronously on first launch, and paths can be edited manually.",
+  "editors.hint":
+    "Manage external editors shown in the project menu. PiDeck detects them asynchronously on first launch, and paths can be edited manually.",
   "editors.notConfigured": "Not configured",
   "editors.pathPlaceholder": "Editor executable path",
   "editors.redetect": "Redetect",
@@ -2171,8 +2545,10 @@ export const enUS: Record<TranslationKey, string> = {
   "config.extensionDisable": "Disable (takes effect on new/restarted agents)",
   "config.extensionEnable": "Enable (takes effect on new/restarted agents)",
   "config.extensionDisabledBadge": "Disabled",
-  "config.extensionDisabledToast": "{name} disabled — takes effect on new/restarted agents",
-  "config.extensionEnabledToast": "{name} enabled — takes effect on new/restarted agents",
+  "config.extensionDisabledToast":
+    "{name} disabled — takes effect on new/restarted agents",
+  "config.extensionEnabledToast":
+    "{name} enabled — takes effect on new/restarted agents",
   "config.extensionToggling": "Toggling…",
   "config.extensionVersions": "Current: {current} · Latest: {latest}",
   "config.extensionUpdateAvailable": "Update available",
@@ -2186,8 +2562,10 @@ export const enUS: Record<TranslationKey, string> = {
   "config.builtInExt.versionUnknown": "Version unknown",
   "config.builtInExt.rowVersion": "v{version}",
   "config.builtInExt.overlayActive": "Hot update applied",
-  "config.builtInExt.description": "Built-in extensions ship with the app; sync the latest remote version here so urgent patches don't need an app release.",
-  "config.builtInExt.restartHint": "Hot updates take effect after creating or restarting an agent (running sessions keep the old extensions).",
+  "config.builtInExt.description":
+    "Built-in extensions ship with the app; sync the latest remote version here so urgent patches don't need an app release.",
+  "config.builtInExt.restartHint":
+    "Hot updates take effect after creating or restarting an agent (running sessions keep the old extensions).",
   "config.builtInExt.check": "Check for updates",
   "config.builtInExt.checking": "Checking…",
   "config.builtInExt.update": "Update to latest",
@@ -2197,15 +2575,23 @@ export const enUS: Record<TranslationKey, string> = {
   "config.builtInExt.openDir": "Open extensions folder",
   "config.builtInExt.upToDate": "Up to date (remote v{version})",
   "config.builtInExt.hasUpdate": "Remote v{remote} · {count} file(s) changed",
-  "config.builtInExt.upToDateToast": "Built-in extensions are up to date (v{version})",
-  "config.builtInExt.hasUpdateToast": "Built-in extension update found: remote v{remote}, {count} file(s) differ",
-  "config.builtInExt.updatedToast": "Built-in extensions updated to v{version} ({count} files); create or restart an agent to apply",
-  "config.builtInExt.alreadyLatestToast": "Built-in extensions are already up to date; nothing changed",
-  "config.builtInExt.restoredToast": "Restored the built-in extensions shipped with the app; create or restart an agent to apply",
-  "config.builtInExt.restoredPreviousToast": "Restored the previous hot-updated version; create or restart an agent to apply",
+  "config.builtInExt.upToDateToast":
+    "Built-in extensions are up to date (v{version})",
+  "config.builtInExt.hasUpdateToast":
+    "Built-in extension update found: remote v{remote}, {count} file(s) differ",
+  "config.builtInExt.updatedToast":
+    "Built-in extensions updated to v{version} ({count} files); create or restart an agent to apply",
+  "config.builtInExt.alreadyLatestToast":
+    "Built-in extensions are already up to date; nothing changed",
+  "config.builtInExt.restoredToast":
+    "Restored the built-in extensions shipped with the app; create or restart an agent to apply",
+  "config.builtInExt.restoredPreviousToast":
+    "Restored the previous hot-updated version; create or restart an agent to apply",
   "config.builtInExt.nothingToRestoreToast": "No overlay to restore",
-  "config.builtInExt.checkFailed": "Failed to check built-in extension updates: {error}",
-  "config.builtInExt.operationFailed": "Built-in extension operation failed: {error}",
+  "config.builtInExt.checkFailed":
+    "Failed to check built-in extension updates: {error}",
+  "config.builtInExt.operationFailed":
+    "Built-in extension operation failed: {error}",
   // Built-in content packs (official prompt templates / built-in skills) hot-update: shared action copy + per-domain titles
   "config.contentStore.check": "Check for updates",
   "config.contentStore.checking": "Checking…",
@@ -2217,11 +2603,14 @@ export const enUS: Record<TranslationKey, string> = {
   "config.contentStore.upToDate": "Up to date (remote v{version})",
   "config.contentStore.hasUpdate": "Remote v{remote} · {count} files changed",
   "config.contentStore.upToDateToast": "Already up to date (v{version})",
-  "config.contentStore.hasUpdateToast": "Update available: remote v{remote}, {count} files differ",
+  "config.contentStore.hasUpdateToast":
+    "Update available: remote v{remote}, {count} files differ",
   "config.contentStore.updatedToast": "Updated to v{version} ({count} files)",
   "config.contentStore.alreadyLatestToast": "Already latest, nothing changed",
-  "config.contentStore.restoredToast": "Restored to the built-in version shipped with the app",
-  "config.contentStore.restoredPreviousToast": "Restored the previous hot-update version",
+  "config.contentStore.restoredToast":
+    "Restored to the built-in version shipped with the app",
+  "config.contentStore.restoredPreviousToast":
+    "Restored the previous hot-update version",
   "config.contentStore.nothingToRestoreToast": "No overlay to restore",
   "config.contentStore.checkFailed": "Failed to check for updates: {error}",
   "config.contentStore.operationFailed": "Operation failed: {error}",
@@ -2229,11 +2618,15 @@ export const enUS: Record<TranslationKey, string> = {
   "config.contentStore.versionUnknown": "Version unknown",
   "config.contentStore.overlayActive": "Hot-update applied",
   "config.contentStore.prompts.title": "Official Templates Update",
-  "config.contentStore.prompts.description": "Built-in templates shipped with the app; sync the latest versions directly here, no need to wait for an app release. The overlay takes precedence over the bundled version.",
-  "config.contentStore.prompts.restartHint": "The hot-update is written to the overlay and takes effect immediately; re-enter this page to see the new templates.",
+  "config.contentStore.prompts.description":
+    "Built-in templates shipped with the app; sync the latest versions directly here, no need to wait for an app release. The overlay takes precedence over the bundled version.",
+  "config.contentStore.prompts.restartHint":
+    "The hot-update is written to the overlay and takes effect immediately; re-enter this page to see the new templates.",
   "config.contentStore.skills.title": "Built-in Skills Update",
-  "config.contentStore.skills.description": "Built-in skills (SKILL.md) shipped with the app; sync the latest versions directly here, no need to wait for an app release. The overlay takes precedence over the bundled version.",
-  "config.contentStore.skills.restartHint": "The hot-update is written to the overlay and takes effect immediately; re-enter the skills list to see the new skills.",
+  "config.contentStore.skills.description":
+    "Built-in skills (SKILL.md) shipped with the app; sync the latest versions directly here, no need to wait for an app release. The overlay takes precedence over the bundled version.",
+  "config.contentStore.skills.restartHint":
+    "The hot-update is written to the overlay and takes effect immediately; re-enter the skills list to see the new skills.",
   "config.extensionUpdatedToast": "{name} updated",
   "config.extensionUpdateCommandCopied": "Update command copied: {command}",
   "config.installedExtensions": "Installed Extensions",
@@ -2264,62 +2657,99 @@ export const enUS: Record<TranslationKey, string> = {
   "goal.statusPaused": "Paused",
   "goal.statusComplete": "Complete",
   "goal.replaceTitle": "Replace Goal",
-  "goal.replaceConfirm": "A goal is already in progress: 「{goal}」\nReplace with new goal?",
+  "goal.replaceConfirm":
+    "A goal is already in progress: 「{goal}」\nReplace with new goal?",
   "config.openPackageDetail": "View package details",
   "config.recommendedPackages": "Recommended Packages",
-  "config.recommendedPackagesHint": "These extensions are compatible with PiDeck. Some CLI-specific features (e.g. TUI) may not apply in the desktop version.",
-  "config.recommendedPackage.contextMode": "An MCP plugin that can save 98% of the context window. Supports Claude Code, Gemini CLI, VS Code Copilot, sandboxed execution, an FTS5 knowledge base, and intent-driven search.",
-  "config.recommendedPackage.webAccess": "Web search, URL fetching, GitHub repository cloning, PDF extraction, YouTube understanding, and local video analysis.",
-  "config.recommendedPackage.mcpAdapter": "A Model Context Protocol adapter that lets Pi connect to any MCP server.",
-  "config.recommendedPackage.memory": "Long-term memory for saving and retrieving preferences, project facts, and lessons across Pi sessions.",
-  "config.recommendedPackage.subagents": "Task delegation with chained and parallel execution plus TUI clarification for coordinating multiple subagents.",
+  "config.recommendedPackagesHint":
+    "These extensions are compatible with PiDeck. Some CLI-specific features (e.g. TUI) may not apply in the desktop version.",
+  "config.recommendedPackage.contextMode":
+    "An MCP plugin that can save 98% of the context window. Supports Claude Code, Gemini CLI, VS Code Copilot, sandboxed execution, an FTS5 knowledge base, and intent-driven search.",
+  "config.recommendedPackage.webAccess":
+    "Web search, URL fetching, GitHub repository cloning, PDF extraction, YouTube understanding, and local video analysis.",
+  "config.recommendedPackage.mcpAdapter":
+    "A Model Context Protocol adapter that lets Pi connect to any MCP server.",
+  "config.recommendedPackage.memory":
+    "Long-term memory for saving and retrieving preferences, project facts, and lessons across Pi sessions.",
+  "config.recommendedPackage.subagents":
+    "Task delegation with chained and parallel execution plus TUI clarification for coordinating multiple subagents.",
   "config.noDescription": "No description",
   "projectResources.title": "Project Skills && Extensions && Prompts",
   "projectResources.skillsTab": "Skills ({count})",
   "projectResources.extensionsTab": "Extensions ({count})",
   "projectResources.promptsTab": "Prompts ({count})",
-  "projectResources.emptyPrompts": "No project-level prompts yet. .md files in .pi/prompts/ will appear here.",
-  "projectResources.emptySkills": "No project skills yet. Enter a name and description above to add one.",
-  "projectResources.emptyExtensions": "No project extensions yet. Place files under .pi/extensions/.",
-  "projectResources.deleteSkillConfirm": 'Delete skill "{name}"? This removes the local skill files.',
-  "projectResources.deleteExtensionConfirm": 'Delete extension "{name}"? This removes the local extension files.',
-  "projectResources.extensionsHint": "Project extensions live under .pi/extensions/ (.ts/.js files, index.ts/index.js directories, or package.json pi.extensions entries).",
+  "projectResources.emptyPrompts":
+    "No project-level prompts yet. .md files in .pi/prompts/ will appear here.",
+  "projectResources.emptySkills":
+    "No project skills yet. Enter a name and description above to add one.",
+  "projectResources.emptyExtensions":
+    "No project extensions yet. Place files under .pi/extensions/.",
+  "projectResources.deleteSkillConfirm":
+    'Delete skill "{name}"? This removes the local skill files.',
+  "projectResources.deleteExtensionConfirm":
+    'Delete extension "{name}"? This removes the local extension files.',
+  "projectResources.extensionsHint":
+    "Project extensions live under .pi/extensions/ (.ts/.js files, index.ts/index.js directories, or package.json pi.extensions entries).",
   "projectResources.editFile": "Open SKILL.md in default editor",
   "projectResources.editorSaved": "Saved",
   "projectResources.projectScope": "Project",
   "projectResources.refreshed": "Refreshed",
-  "projectResources.deletePromptConfirm": "Delete prompt「{name}」? This will remove the local .md file.",
-  "projectResources.chatUnsupported": "The Chat project has no project-level resource directories (.pi/.agents); only global skills and prompts are available.",
+  "projectResources.deletePromptConfirm":
+    "Delete prompt「{name}」? This will remove the local .md file.",
+  "projectResources.chatUnsupported":
+    "The Chat project has no project-level resource directories (.pi/.agents); only global skills and prompts are available.",
   "config.install": "Install",
   "config.installed": "Installed",
   // Extension manager: the "(filtered)" marker from pi list (object-form entry in settings, loads resources selectively)
   "config.extensionFiltered": "Filtered install",
   // Localized descriptions for the recommended extension list (ExtensionsTab renders via descriptionKey)
-  "config.extRecommended.piDeckTodo": "Built into PiDeck: a current-plan TODO extension with explicit replace and restore actions, branch-scoped persistence, and task-progress tracking.",
-  "config.extRecommended.piDeckPlanMode": "Built into PiDeck: a plan-mode extension that makes the AI produce an execution plan before replying, keeping complex tasks clear.",
-  "config.extRecommended.piDeckGoalMode": "Built into PiDeck: a goal-mode extension that keeps working toward one objective until it is complete, blocked, or paused.",
-  "config.extRecommended.piDeckAskQuestion": "Built into PiDeck: inserts carefully designed question cards into conversations to guide the AI toward more precise answers.",
-  "config.extRecommended.piDeckNulRedirectFix": "Built into PiDeck: fixes leftover file issues when pi redirects to the NUL device on Windows.",
-  "config.extRecommended.contextMode": "An MCP plugin that saves up to 98% of the context window. Sandboxed code execution, an FTS5 knowledge base, and intent-driven search.",
-  "config.extRecommended.piWebAccess": "Web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis.",
-  "config.extRecommended.piMcpAdapter": "An MCP (Model Context Protocol) adapter extension that lets Pi connect to any MCP server.",
-  "config.extRecommended.piSubagents": "A task delegation extension with chained and parallel execution plus TUI clarification. Breaks complex tasks down across multiple sub-agents.",
+  "config.extRecommended.piDeckTodo":
+    "Built into PiDeck: a current-plan TODO extension with explicit replace and restore actions, branch-scoped persistence, and task-progress tracking.",
+  "config.extRecommended.piDeckPlanMode":
+    "Built into PiDeck: a plan-mode extension that makes the AI produce an execution plan before replying, keeping complex tasks clear.",
+  "config.extRecommended.piDeckGoalMode":
+    "Built into PiDeck: a goal-mode extension that keeps working toward one objective until it is complete, blocked, or paused.",
+  "config.extRecommended.piDeckAskQuestion":
+    "Built into PiDeck: inserts carefully designed question cards into conversations to guide the AI toward more precise answers.",
+  "config.extRecommended.piDeckNulRedirectFix":
+    "Built into PiDeck: fixes leftover file issues when pi redirects to the NUL device on Windows.",
+  "config.extRecommended.contextMode":
+    "An MCP plugin that saves up to 98% of the context window. Sandboxed code execution, an FTS5 knowledge base, and intent-driven search.",
+  "config.extRecommended.piWebAccess":
+    "Web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis.",
+  "config.extRecommended.piMcpAdapter":
+    "An MCP (Model Context Protocol) adapter extension that lets Pi connect to any MCP server.",
+  "config.extRecommended.piSubagents":
+    "A task delegation extension with chained and parallel execution plus TUI clarification. Breaks complex tasks down across multiple sub-agents.",
   // Installed list: one-line description per built-in extension (ExtensionTableRow maps source -> builtInExtDesc.*)
-  "config.builtInExtDesc.pi-deck-request-size-recovery": "Request-size recovery: detects gateway 413/request-too-large errors and, with your consent, temporarily switches to a higher-limit model to compact the session, then switches back to unblock sending.",
-  "config.builtInExtDesc.pi-deck-ask-question": "Registers the ask_question tool: the model can ask you questions through the desktop UI (select/input/confirm/batched question tabs) and receives your answers.",
-  "config.builtInExtDesc.pi-deck-goal-mode": "Goal mode: keeps working toward one objective round after round until it is complete, blocked, paused, or the round limit is hit; state survives restarts.",
-  "config.builtInExtDesc.pi-deck-nul-redirect-fix": "NUL redirect fix: rewrites Windows-style redirects like `> nul` to /dev/null before bash runs, preventing Git Bash from creating undeletable nul files.",
-  "config.builtInExtDesc.pi-deck-plan-mode": "Plan mode: produces a numbered plan with a read-only toolset first; after you choose execute/stay/revise, write tools are restored and [DONE:n] markers drive the progress widget.",
-  "config.builtInExtDesc.pi-deck-retry-no-body": "Transient-error retry enhancement: recognizes gateway empty responses, Chinese \"service unavailable\" notices, stream_read_error and other transient faults outside pi's retry list, rewriting them so pi retries automatically.",
-  "config.builtInExtDesc.pi-deck-security-gate": "Security gate: enforces the per-session security policy on tool calls — dangerous bash commands prompt for confirmation or are rejected; policy snapshots hot-reload without restart.",
-  "config.builtInExtDesc.pi-deck-session-title": "Session title generation: after the first round settles, generates a short title asynchronously with a minimal standalone context, without touching the main conversation or transcript.",
-  "config.builtInExtDesc.pi-deck-subagents": "Subagent status bridge: subscribes to pi-subagents / acp_delegate lifecycle events and pushes each subagent's status and result snapshots to the desktop subagent panel (it does not dispatch subagents itself).",
-  "config.builtInExtDesc.pi-deck-todo": "Todo plan management: a branch-scoped, persisted current work plan changed only via explicit list/add/update/delete/replace/restore/clear tools; switching branches restores that branch's plan.",
-  "config.builtInExtDesc.pi-deck-trash-guard": "Trash guard: intercepts rm/Remove-Item style delete commands and copies each target to the system trash before the command runs, so deletion still happens but with a safety copy.",
-  "config.builtInExtDesc.pi-deck-vision": "Vision bridge: gives vision-less models like DeepSeek \"eyes\" by turning pasted/uploaded images and images in tool results into text descriptions for the model.",
+  "config.builtInExtDesc.pi-deck-request-size-recovery":
+    "Request-size recovery: detects gateway 413/request-too-large errors and, with your consent, temporarily switches to a higher-limit model to compact the session, then switches back to unblock sending.",
+  "config.builtInExtDesc.pi-deck-ask-question":
+    "Registers the ask_question tool: the model can ask you questions through the desktop UI (select/input/confirm/batched question tabs) and receives your answers.",
+  "config.builtInExtDesc.pi-deck-goal-mode":
+    "Goal mode: keeps working toward one objective round after round until it is complete, blocked, paused, or the round limit is hit; state survives restarts.",
+  "config.builtInExtDesc.pi-deck-nul-redirect-fix":
+    "NUL redirect fix: rewrites Windows-style redirects like `> nul` to /dev/null before bash runs, preventing Git Bash from creating undeletable nul files.",
+  "config.builtInExtDesc.pi-deck-plan-mode":
+    "Plan mode: produces a numbered plan with a read-only toolset first; after you choose execute/stay/revise, write tools are restored and [DONE:n] markers drive the progress widget.",
+  "config.builtInExtDesc.pi-deck-retry-no-body":
+    'Transient-error retry enhancement: recognizes gateway empty responses, Chinese "service unavailable" notices, stream_read_error and other transient faults outside pi\'s retry list, rewriting them so pi retries automatically.',
+  "config.builtInExtDesc.pi-deck-security-gate":
+    "Security gate: enforces the per-session security policy on tool calls — dangerous bash commands prompt for confirmation or are rejected; policy snapshots hot-reload without restart.",
+  "config.builtInExtDesc.pi-deck-session-title":
+    "Session title generation: after the first round settles, generates a short title asynchronously with a minimal standalone context, without touching the main conversation or transcript.",
+  "config.builtInExtDesc.pi-deck-subagents":
+    "Subagent status bridge: subscribes to pi-subagents / acp_delegate lifecycle events and pushes each subagent's status and result snapshots to the desktop subagent panel (it does not dispatch subagents itself).",
+  "config.builtInExtDesc.pi-deck-todo":
+    "Todo plan management: a branch-scoped, persisted current work plan changed only via explicit list/add/update/delete/replace/restore/clear tools; switching branches restores that branch's plan.",
+  "config.builtInExtDesc.pi-deck-trash-guard":
+    "Trash guard: intercepts rm/Remove-Item style delete commands and copies each target to the system trash before the command runs, so deletion still happens but with a safety copy.",
+  "config.builtInExtDesc.pi-deck-vision":
+    'Vision bridge: gives vision-less models like DeepSeek "eyes" by turning pasted/uploaded images and images in tool results into text descriptions for the model.',
   "config.installing": "Installing...",
   "config.installFailed": "Install failed",
-  "config.extensionToggleFailed": "Failed to change the extension state. Try again later.",
+  "config.extensionToggleFailed":
+    "Failed to change the extension state. Try again later.",
   "config.fetchModels": "Fetch model list",
   "config.fetchingModels": "Fetching...",
   "config.field.apiKey": "API Key",
@@ -2336,10 +2766,13 @@ export const enUS: Record<TranslationKey, string> = {
   "config.modelDisplayName": "Name",
   "config.modelId": "ID",
   "config.modelList": "Model list",
-  "config.modelSpecAutoFilled": "Auto-filled specs for {model} from the model capability catalog",
+  "config.modelSpecAutoFilled":
+    "Auto-filled specs for {model} from the model capability catalog",
   "config.modelResetAdaptive": "Reset to adaptive",
-  "config.modelResetAdaptiveDone": "Reset capability fields to the adaptive template for {model}",
-  "config.modelResetAdaptiveKept": "No adaptive template matched; kept manually set capacity fields",
+  "config.modelResetAdaptiveDone":
+    "Reset capability fields to the adaptive template for {model}",
+  "config.modelResetAdaptiveKept":
+    "No adaptive template matched; kept manually set capacity fields",
   "config.modelOptionExpand": "Show model options",
   "config.modelSelectPlaceholder": "Choose a model",
   "config.modelSelectedCount": "{count} selected",
@@ -2351,7 +2784,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.needsFix": "Needs fix",
   "config.openFolder": "Open folder",
   "config.providerNamePlaceholder": "Provider name, for example openai",
-  "config.providerNameRule": "Must start with a letter; only letters, digits, underscore and hyphen (for DSH env-var compatibility)",
+  "config.providerNameRule":
+    "Must start with a letter; only letters, digits, underscore and hyphen (for DSH env-var compatibility)",
   "config.providerNameDuplicate": "This provider already exists",
   "config.addProviderDialogTitle": "Add Provider",
   "config.editProviderDialogTitle": "Edit Provider",
@@ -2360,30 +2794,37 @@ export const enUS: Record<TranslationKey, string> = {
   "config.providerCollapse": "Collapse advanced settings",
   "config.addProviderName": "Provider Name",
   "config.addProviderConfirm": "Add",
-  "config.providerDialogModelsHint": "Configured models are saved with the provider; you can also fill in Base URL and API Key to fetch /models and select models.",
+  "config.providerDialogModelsHint":
+    "Configured models are saved with the provider; you can also fill in Base URL and API Key to fetch /models and select models.",
   "config.modelsSavedFromFetch": "{count} model(s) added",
-  "config.modelsAlreadyConfigured": "All selected models are already configured",
+  "config.modelsAlreadyConfigured":
+    "All selected models are already configured",
   "config.hideProvider": "Hide this provider",
   "config.showProvider": "Show this provider",
   "config.hiddenProviders": "Hidden ({count})",
-  "config.hiddenProvidersHint": "Hidden providers won't show in the models page list or the model picker; click the eye button to restore.",
+  "config.hiddenProvidersHint":
+    "Hidden providers won't show in the models page list or the model picker; click the eye button to restore.",
   "config.reason": "Reason",
   "config.reasoning": "Reasoning",
   "config.capabilities": "Capabilities",
   "config.reasoningEffort": "Reasoning effort",
-  "config.reasoningEffortDesc": "Disable when the API does not support the reasoning_effort parameter.",
+  "config.reasoningEffortDesc":
+    "Disable when the API does not support the reasoning_effort parameter.",
   "config.xhigh": "xhigh",
   "config.xhighOff": "Off",
-  "config.xhighDesc": "Declare that this model supports pi's xhigh level and choose the reasoning_effort value sent upstream. Selecting a value also enables reasoning and provider reasoning_effort.",
+  "config.xhighDesc":
+    "Declare that this model supports pi's xhigh level and choose the reasoning_effort value sent upstream. Selecting a value also enables reasoning and provider reasoning_effort.",
   "config.thinkingLevels": "Thinking Levels",
-  "config.thinkingLevelsDesc": "Map pi thinking levels (xhigh / max) to provider values independently. Each level can be mapped to xhigh or max.",
+  "config.thinkingLevelsDesc":
+    "Map pi thinking levels (xhigh / max) to provider values independently. Each level can be mapped to xhigh or max.",
   "config.modelCost": "Pricing (USD / 1M tokens)",
   "config.costInput": "Input",
   "config.costOutput": "Output",
   "config.costCacheRead": "Cache read",
   "config.costCacheWrite": "Cache write",
   "config.costTiersTitle": "Tiered pricing",
-  "config.costTiersHint": "When input tokens (incl. cache) exceed the threshold, the whole request is billed at that tier's rates; the highest qualifying tier wins.",
+  "config.costTiersHint":
+    "When input tokens (incl. cache) exceed the threshold, the whole request is billed at that tier's rates; the highest qualifying tier wins.",
   "config.costTiersAdd": "Add tier",
   "config.costTierThreshold": "Input threshold",
   "config.costTiersEmpty": "No tiers — base rates above always apply.",
@@ -2399,7 +2840,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.copyAndEdit": "Copy && Edit",
   "config.nav.prompts": "Prompt Templates",
   "config.count.prompts": "{count} templates",
-  "config.noPrompts": "No prompt templates. After creation, type /<name> in pi to use them.",
+  "config.noPrompts":
+    "No prompt templates. After creation, type /<name> in pi to use them.",
   "config.promptDeletedToast": "Prompt template deleted",
   "config.promptSavedToast": "Prompt template saved",
   "config.promptSaveHint": "Save (Ctrl+S)",
@@ -2418,12 +2860,14 @@ export const enUS: Record<TranslationKey, string> = {
   "config.promptStoreFrom": "from",
   "config.promptStoreVotes": "{count} votes",
   "config.promptStoreError": "Failed to connect to store. Check your network.",
-  "config.promptStoreImportError": "Failed to import the prompt. Try again later.",
+  "config.promptStoreImportError":
+    "Failed to import the prompt. Try again later.",
   "config.promptStoreBy": "By",
   "config.skillStoreTab": "Skill Store",
   "config.skillStoreSearchPlaceholder": "Search prompt.chat skills…",
   "config.skillStoreSearchError": "Failed to search the skill store",
-  "config.skillStoreImportError": "Failed to import the skill. Try again later.",
+  "config.skillStoreImportError":
+    "Failed to import the skill. Try again later.",
   "config.skillStoreImported": "Imported to local Skills",
   "config.skillStoreImportAs": "Import as Skill",
   "config.skillStoreAuthor": "Author",
@@ -2433,9 +2877,11 @@ export const enUS: Record<TranslationKey, string> = {
   // Extension store (pi.dev Package Catalog): data parsed from the catalog page fetched by the main process
   "config.extensionStoreTab": "Extension Store",
   "config.extensionStoreSearchPlaceholder": "Search pi.dev packages…",
-  "config.extensionStoreLoadError": "Failed to load the extension store. Check your network.",
+  "config.extensionStoreLoadError":
+    "Failed to load the extension store. Check your network.",
   "config.extensionStoreInstalled": "Installed {name}",
-  "config.extensionStoreInstallError": "Failed to install {name}. Try again later.",
+  "config.extensionStoreInstallError":
+    "Failed to install {name}. Try again later.",
   "config.extensionStoreNoResults": "No matching packages",
   "config.extensionStoreResultCount": "{count} packages",
   "config.extensionStoreType": "Type",
@@ -2455,7 +2901,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.yaoLoadError": "Failed to load Chinese prompts. Try again later.",
   "config.yaoPreviewError": "Failed to load prompt details. Try again later.",
   "config.yaoImportError": "Failed to import the prompt. Try again later.",
-  "config.baseUrlHint": "Fetch/test may try both / and /v1; sessions use this URL as-is. Prefer a versioned path such as /v1 (or /v1beta).",
+  "config.baseUrlHint":
+    "Fetch/test may try both / and /v1; sessions use this URL as-is. Prefer a versioned path such as /v1 (or /v1beta).",
   "config.promptStoreInstallName": "Installs as",
   "config.label.compaction": "Compaction",
   "config.label.sessionDir": "Session Directory",
@@ -2471,7 +2918,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.label.doubleEscapeAction": "Double-Escape Action",
   "config.label.treeFilterMode": "Tree Filter Mode",
   "config.sessionDir.title": "Session Storage Directory",
-  "config.sessionDir.hint": "Edits only the global sessionDir in ~/.pi/agent/settings.json. Relative paths resolve against the project cwd (e.g. .pi/sessions). Leave empty for the default ~/.pi/agent/sessions/. For a single project, set .pi/settings.json in that project instead.",
+  "config.sessionDir.hint":
+    "Edits only the global sessionDir in ~/.pi/agent/settings.json. Relative paths resolve against the project cwd (e.g. .pi/sessions). Leave empty for the default ~/.pi/agent/sessions/. For a single project, set .pi/settings.json in that project instead.",
   "config.sessionDir.placeholder": "e.g. .pi/sessions or ~/my-sessions",
   "config.testConnection": "Test connection",
   "config.testElapsed": "Elapsed",
@@ -2479,14 +2927,14 @@ export const enUS: Record<TranslationKey, string> = {
   "config.testLatency": "Latency",
   "config.testModel": "Test model",
   "config.testModelPlaceholder": "Enter a model ID to test",
-"config.testProxy": "Proxy",
-"config.proxyFollow": "Follow global",
-"config.proxyFollowHint": "Follow global proxy settings",
-"config.proxyPi": "PI proxy",
-"config.proxyDesktop": "Desktop proxy",
-"config.proxyOff": "Direct",
-"config.proxyOffHint": "Direct (bypass all proxies)",
-"config.proxyUrlUnset": "No proxy URL configured",
+  "config.testProxy": "Proxy",
+  "config.proxyFollow": "Follow global",
+  "config.proxyFollowHint": "Follow global proxy settings",
+  "config.proxyPi": "PI proxy",
+  "config.proxyDesktop": "Desktop proxy",
+  "config.proxyOff": "Direct",
+  "config.proxyOffHint": "Direct (bypass all proxies)",
+  "config.proxyUrlUnset": "No proxy URL configured",
   "config.testOutputTokens": "Output {count}",
   "config.testingConnection": "Testing...",
   "config.tokens": "Token",
@@ -2496,15 +2944,22 @@ export const enUS: Record<TranslationKey, string> = {
   "config.uninstallExtensionBody":
     'Uninstall "{source}"? This runs pi remove and removes the extension from pi config.',
   "config.deleteExtensionTitle": "Delete Extension",
-  "config.deleteExtensionBody": 'Delete "{source}" from the current scope? Create or restart agents for the change to take effect.',
+  "config.deleteExtensionBody":
+    'Delete "{source}" from the current scope? Create or restart agents for the change to take effect.',
   "config.userAgentRuntimeDefault": "Omit (use runtime default)",
   "config.userAgentBrowser": "Mozilla/5.0 (browser)",
-  "config.apiTypeDescription.openaiCompletions": "OpenAI Chat Completions API — Most compatible, works with most third-party services and local models",
-  "config.apiTypeDescription.openaiResponses": "OpenAI Responses API — Newer API with more features",
-  "config.apiTypeDescription.openaiCodexResponses": "OpenAI Codex Responses — For ChatGPT Plus/Pro. Try openai-responses with a custom User-Agent if issues occur",
-  "config.apiTypeDescription.anthropicMessages": "Anthropic Messages API — For Claude models",
-  "config.apiTypeDescription.googleGenerativeAi": "Google Generative AI API — For Gemini models",
-  "config.apiTypeDescription.mistralConversations": "Mistral Conversations API — Native Mistral interface",
+  "config.apiTypeDescription.openaiCompletions":
+    "OpenAI Chat Completions API — Most compatible, works with most third-party services and local models",
+  "config.apiTypeDescription.openaiResponses":
+    "OpenAI Responses API — Newer API with more features",
+  "config.apiTypeDescription.openaiCodexResponses":
+    "OpenAI Codex Responses — For ChatGPT Plus/Pro. Try openai-responses with a custom User-Agent if issues occur",
+  "config.apiTypeDescription.anthropicMessages":
+    "Anthropic Messages API — For Claude models",
+  "config.apiTypeDescription.googleGenerativeAi":
+    "Google Generative AI API — For Gemini models",
+  "config.apiTypeDescription.mistralConversations":
+    "Mistral Conversations API — Native Mistral interface",
   "config.im.botDefaultName": "Feishu Bot",
   "config.im.addFailed": "Add failed",
   "config.im.loadFailed": "Failed to load Feishu configuration",
@@ -2512,7 +2967,8 @@ export const enUS: Record<TranslationKey, string> = {
   "config.im.disconnected": "Disconnected",
   "config.im.connectFailed": "Connect failed",
   "config.im.confirmDeleteBot": "Delete Bot Config",
-  "config.im.deleteBotMessage": "Are you sure you want to delete this Bot configuration? This cannot be undone.",
+  "config.im.deleteBotMessage":
+    "Are you sure you want to delete this Bot configuration? This cannot be undone.",
   "config.im.status.connected": "Connected",
   "config.im.status.connecting": "Connecting",
   "config.im.status.disconnected": "Disconnected",
@@ -2538,34 +2994,52 @@ export const enUS: Record<TranslationKey, string> = {
   "config.im.testConnection": "Test Connection",
   "config.im.saving": "Saving…",
   "config.im.saveBot": "Save Bot",
-  "config.im.feishuGuideHint": "Create a Feishu AI Agent or an enterprise self-built app, then fill in the App ID and App Secret above. See 'Configuration Guide' below for details.",
-  "config.im.singleConnectionHint": "Note: Only one Bot can be connected at a time. You can switch the connected Bot in the session area.",
+  "config.im.feishuGuideHint":
+    "Create a Feishu AI Agent or an enterprise self-built app, then fill in the App ID and App Secret above. See 'Configuration Guide' below for details.",
+  "config.im.singleConnectionHint":
+    "Note: Only one Bot can be connected at a time. You can switch the connected Bot in the session area.",
   "config.im.feishuOpenPlatform": "Feishu Open Platform",
   "config.im.guideMethodTitle": "Configuration Methods",
   "config.im.guideMethodA": "Method 1: Feishu AI Agent (Recommended)",
-  "config.im.guideMethodADesc": "Feishu AI Agent comes with pre-configured bot capabilities, permissions and event subscriptions. Ready to use after creation.",
+  "config.im.guideMethodADesc":
+    "Feishu AI Agent comes with pre-configured bot capabilities, permissions and event subscriptions. Ready to use after creation.",
   "config.im.guideMethodAStep1a": "Open the Feishu Open Platform",
-  "config.im.guideMethodAStep1b": "Click 'Create AI Agent', fill in name and description",
-  "config.im.guideMethodAStep2": "App ID and App Secret will be shown after creation",
-  "config.im.guideMethodAStep3": "Fill in the credentials in PiDeck and connect",
-  "config.im.guideMethodAStep4": "Send /whoami to the Bot in Feishu to get your open_id. Fill it in the Bot's 'Your Open ID' field for auto-group-creation when creating new sessions",
+  "config.im.guideMethodAStep1b":
+    "Click 'Create AI Agent', fill in name and description",
+  "config.im.guideMethodAStep2":
+    "App ID and App Secret will be shown after creation",
+  "config.im.guideMethodAStep3":
+    "Fill in the credentials in PiDeck and connect",
+  "config.im.guideMethodAStep4":
+    "Send /whoami to the Bot in Feishu to get your open_id. Fill it in the Bot's 'Your Open ID' field for auto-group-creation when creating new sessions",
   "config.im.guideMethodB": "Method 2: Feishu Open Platform (Manual)",
-  "config.im.guideMethodBDesc": "Create an enterprise self-built app on the Open Platform. Requires manual permission and event configuration.",
-  "config.im.guideMethodBStep1": "Open Feishu Open Platform → create 'Enterprise Self-built App'",
+  "config.im.guideMethodBDesc":
+    "Create an enterprise self-built app on the Open Platform. Requires manual permission and event configuration.",
+  "config.im.guideMethodBStep1":
+    "Open Feishu Open Platform → create 'Enterprise Self-built App'",
   "config.im.guideMethodBStep1a": "Open the Feishu Open Platform",
   "config.im.guideMethodBStep1b": "Create 'Enterprise Self-built App'",
-  "config.im.guideMethodBStep2": "Enable 'Bot' capability in 'App Features' → 'Bot'",
-  "config.im.guideMethodBStep3": "Enable the following permissions in 'Permission Management' (refer to AI Agent default scope):",
-  "config.im.guideMethodBStep4": "Configure im.message.receive_v1 event in 'Event Subscription' (WebSocket long-connection mode)",
-  "config.im.guideMethodBStep5": "Create version → set availability → submit for review → publish",
-  "config.im.guideMethodBStep6": "Get App ID and App Secret from 'Credentials & Basic Info', fill in PiDeck",
-  "config.im.guideGroupChat": "📌 In group chats, you need to @ the bot to trigger a reply",
+  "config.im.guideMethodBStep2":
+    "Enable 'Bot' capability in 'App Features' → 'Bot'",
+  "config.im.guideMethodBStep3":
+    "Enable the following permissions in 'Permission Management' (refer to AI Agent default scope):",
+  "config.im.guideMethodBStep4":
+    "Configure im.message.receive_v1 event in 'Event Subscription' (WebSocket long-connection mode)",
+  "config.im.guideMethodBStep5":
+    "Create version → set availability → submit for review → publish",
+  "config.im.guideMethodBStep6":
+    "Get App ID and App Secret from 'Credentials & Basic Info', fill in PiDeck",
+  "config.im.guideGroupChat":
+    "📌 In group chats, you need to @ the bot to trigger a reply",
   "config.im.guideScopeTitle": "Permissions & Scopes (copyable for import)",
-  "config.im.guideScopeDesc": "Paste this JSON in the Open Platform 'Permission Management' page to batch-add permissions",
+  "config.im.guideScopeDesc":
+    "Paste this JSON in the Open Platform 'Permission Management' page to batch-add permissions",
   "config.im.guideEventsTitle": "Event Subscriptions (copyable for import)",
-  "config.im.guideEventsDesc": "Add these events in the Open Platform 'Event Subscription' page or subscribe via API",
+  "config.im.guideEventsDesc":
+    "Add these events in the Open Platform 'Event Subscription' page or subscribe via API",
   "config.im.guideCallbacksTitle": "Callbacks (copyable for import)",
-  "config.im.guideCallbacksDesc": "Add this under 'Event Subscription' → 'Callback Subscription' to receive model-switch button clicks",
+  "config.im.guideCallbacksDesc":
+    "Add this under 'Event Subscription' → 'Callback Subscription' to receive model-switch button clicks",
   "config.im.guideOpenPlatform": "Feishu Open Platform",
   "config.im.openId": "Your Open ID",
   "config.im.openIdRequired": "Get your Open ID first",
@@ -2589,12 +3063,14 @@ export const enUS: Record<TranslationKey, string> = {
   "config.im.hideSecret": "Hide",
   "config.im.editOpenId": "Edit Open ID",
   "config.im.expandHint": "Click to expand config and linked agents",
-  "config.im.openIdHint": "Send /whoami to your Bot in Feishu to get your open_id for auto-group-creation",
+  "config.im.openIdHint":
+    "Send /whoami to your Bot in Feishu to get your open_id for auto-group-creation",
   "config.im.noBindings": "No active bindings",
   "config.im.session": "Session",
   "config.im.guide": "Configuration Guide",
   "config.im.onlineGuide": "Online Docs",
-  "config.im.docUrl": "https://xid01i1952l.feishu.cn/wiki/Yf8Gw5QW3is7xdkuG98cvRVen5d?from=from_copylink",
+  "config.im.docUrl":
+    "https://xid01i1952l.feishu.cn/wiki/Yf8Gw5QW3is7xdkuG98cvRVen5d?from=from_copylink",
   "config.im.permGetMessageP2P": "Read user's p2p chat messages sent to bot",
   "config.im.permGetMessageGroup": "Receive group chat messages that @ the bot",
   "config.im.permSendMessage": "Send messages as bot",
@@ -2629,8 +3105,10 @@ export const enUS: Record<TranslationKey, string> = {
   "environment.searchedDirsDesc": "The desktop app scanned these directories:",
   "environment.recheck": "Check again",
   "environment.clearCheckFlag": "Reset check flag",
-  "environment.clearCheckFlagHint": "Reset pi environment check flag to re-trigger detection on next startup",
-  "environment.checkFlagCleared": "Pi check flag cleared. Detection will run again on restart.",
+  "environment.clearCheckFlagHint":
+    "Reset pi environment check flag to re-trigger detection on next startup",
+  "environment.checkFlagCleared":
+    "Pi check flag cleared. Detection will run again on restart.",
   "environment.stepCli": "Check CLI",
   "environment.stepInstall": "Install Pi",
   "environment.stepPath": "Confirm path",
@@ -2644,7 +3122,8 @@ export const enUS: Record<TranslationKey, string> = {
   "environment.installRemoveMirror": "Remove mirror",
   "environment.installExec": "Install",
   "environment.installExecuting": "Installing…",
-  "environment.installSuccess": "pi CLI installed successfully! Please restart the app.",
+  "environment.installSuccess":
+    "pi CLI installed successfully! Please restart the app.",
   "environment.installFailed": "Installation failed",
   "environment.installCompleted": "Install command has completed",
   "environment.installExitCode": "Exit code",
@@ -2654,7 +3133,8 @@ export const enUS: Record<TranslationKey, string> = {
     "npm was not found on your system. Please install Node.js first (npm is bundled with Node.js).",
   "environment.openNodejsOrg": "Open Node.js website",
   "environment.restartApp": "Restart app",
-  "environment.installRestartHint": "After restart, the pi environment check will run again.",
+  "environment.installRestartHint":
+    "After restart, the pi environment check will run again.",
   "errors.nonJsonResponse":
     "Service returned a non-JSON response: {status} {statusText}",
   "feedback.title": "Feedback",
@@ -2673,7 +3153,8 @@ export const enUS: Record<TranslationKey, string> = {
   "feedback.stepsPlaceholder":
     "1. Open the app\n2. Click Feedback in Pi Management\n3. ...",
   "feedback.environmentTitle": "Environment Information",
-  "feedback.environmentHint": "Will be attached automatically, you can edit after copying",
+  "feedback.environmentHint":
+    "Will be attached automatically, you can edit after copying",
   "feedback.reportTitle": "Environment information to include",
   "feedback.reportLoading": "Reading environment information...",
   "feedback.reportReady": "Generated. You can edit it after copying.",
@@ -2717,31 +3198,42 @@ export const enUS: Record<TranslationKey, string> = {
   "feedback.health.score": "Health",
   "feedback.health.errors": "{count} issues",
   "feedback.health.warns": "{count} warnings",
-  "feedback.health.idleHint": "Click the button above to collect sanitized environment info, health checks, and recent error logs. The report contains no keys, tokens, emails, or full paths.",
-  "feedback.health.runningHint": "Collecting environment info and running checks…",
+  "feedback.health.idleHint":
+    "Click the button above to collect sanitized environment info, health checks, and recent error logs. The report contains no keys, tokens, emails, or full paths.",
+  "feedback.health.runningHint":
+    "Collecting environment info and running checks…",
   "feedback.health.errorDetail": "Diagnosis failed",
   "feedback.health.empty": "No checks available.",
   "feedback.ai.title": "Let AI analyze the problem",
-  "feedback.ai.hint": "Generate a prompt with the diagnostic report and project context. Copy it to any AI, or create a new session with the prompt pre-filled (pi loads the project AGENTS.md and skills automatically).",
-  "feedback.ai.notReady": "Please generate the report in the Diagnose tab first, then come back to generate the AI prompt.",
+  "feedback.ai.hint":
+    "Generate a prompt with the diagnostic report and project context. Copy it to any AI, or create a new session with the prompt pre-filled (pi loads the project AGENTS.md and skills automatically).",
+  "feedback.ai.notReady":
+    "Please generate the report in the Diagnose tab first, then come back to generate the AI prompt.",
   "feedback.ai.createSession": "Analyze in new session",
-  "feedback.ai.createSessionHint": "Create a new session with the prompt (diagnostic report + project AGENTS.md/skills) pre-filled in the composer, then press Enter to let pi analyze",
+  "feedback.ai.createSessionHint":
+    "Create a new session with the prompt (diagnostic report + project AGENTS.md/skills) pre-filled in the composer, then press Enter to let pi analyze",
   "feedback.ai.sessionCreated": "Session created, prompt pasted to composer",
   "feedback.ai.sessionCreateFailed": "Failed to create session",
   "feedback.ai.noProject": "No active project — cannot create a session",
-  "feedback.openIssueHint": "Open the pre-filled GitHub Issue page in your system browser (requires GitHub sign-in)",
+  "feedback.openIssueHint":
+    "Open the pre-filled GitHub Issue page in your system browser (requires GitHub sign-in)",
   "feedback.share.title": "Export & Share",
-  "feedback.share.hint": "Copy or export the diagnosis to GitHub Issue, email, or user group for faster triage.",
+  "feedback.share.hint":
+    "Copy or export the diagnosis to GitHub Issue, email, or user group for faster triage.",
   "feedback.share.copyMarkdown": "Copy Markdown report",
-  "feedback.share.copyMarkdownDesc": "Full diagnostic report, good for GitHub Issue or email.",
+  "feedback.share.copyMarkdownDesc":
+    "Full diagnostic report, good for GitHub Issue or email.",
   "feedback.share.copyPrompt": "Copy AI prompt",
-  "feedback.share.copyPromptDesc": "Includes role setup and triage requirements; paste to any AI to analyze.",
+  "feedback.share.copyPromptDesc":
+    "Includes role setup and triage requirements; paste to any AI to analyze.",
   "feedback.share.copyPromptAction": "Copy prompt",
   "feedback.share.exportMarkdown": "Export as .md file",
-  "feedback.share.exportMarkdownDesc": "Save Markdown report locally to share or archive.",
+  "feedback.share.exportMarkdownDesc":
+    "Save Markdown report locally to share or archive.",
   "feedback.share.exportAction": "Export report",
   "feedback.share.exportZip": "Export full log bundle (.zip)",
-  "feedback.share.exportZipDesc": "Contains sanitized logs + report + environment JSON for deeper triage.",
+  "feedback.share.exportZipDesc":
+    "Contains sanitized logs + report + environment JSON for deeper triage.",
   "feedback.share.exportZipAction": "Export bundle",
   "drawer.changed": "Changed",
   "drawer.changedLines": "{count} lines",
@@ -2762,11 +3254,13 @@ export const enUS: Record<TranslationKey, string> = {
   "drawer.fileSort.size": "By size",
   "drawer.fileSortAsc": "Ascending",
   "drawer.fileSortDesc": "Descending",
-  "drawer.compactPackages": "Compact middle packages (merge single-child chains)",
+  "drawer.compactPackages":
+    "Compact middle packages (merge single-child chains)",
   "drawer.deleteFileTitle": "Delete File",
   "drawer.deleteFileConfirm": "Delete '{name}'? This cannot be undone.",
   "drawer.deleteFolderTitle": "Delete Directory",
-  "drawer.deleteFolderConfirm": "Delete '{name}' and all its contents? This cannot be undone.",
+  "drawer.deleteFolderConfirm":
+    "Delete '{name}' and all its contents? This cannot be undone.",
   "drawer.renameTitle": "Rename",
   "drawer.files": "Files",
   "drawer.pasteFiles": "Paste files here",
@@ -2777,7 +3271,8 @@ export const enUS: Record<TranslationKey, string> = {
   "drawer.modifiedFilesAria": "Files changed in this turn",
   "drawer.modifiedThisSession": "Changed in this session",
   "drawer.gitChangedFiles": "Git Working Tree Changes",
-  "drawer.gitChangedFilesDesc": "Shows uncommitted Git working tree changes for this project; clears after commit.",
+  "drawer.gitChangedFilesDesc":
+    "Shows uncommitted Git working tree changes for this project; clears after commit.",
   "drawer.gitChangesNone": "Working tree clean, no uncommitted changes",
   "drawer.moreFiles": "{count} more",
   "drawer.projectSessions": "{name} · History Sessions",
@@ -2808,9 +3303,11 @@ export const enUS: Record<TranslationKey, string> = {
   "menu.reloadSession": "Reload Session",
   "menu.startAgent": "Start Agent",
   "menu.sectionRunControl": "Run control",
-  "menu.runControlHint": "This session is not running — click to start the agent",
+  "menu.runControlHint":
+    "This session is not running — click to start the agent",
   "runControl.restartRunningTitle": "Restart session process",
-  "runControl.restartRunningBody": "This session's agent is running. Restarting interrupts the current reply and launches a new process. The session record and message history are preserved.",
+  "runControl.restartRunningBody":
+    "This session's agent is running. Restarting interrupts the current reply and launches a new process. The session record and message history are preserved.",
   "runControl.startFailedTitle": "Failed to start agent",
   "menu.pinSession": "Pin Session",
   "menu.unpinSession": "Unpin Session",
@@ -2850,7 +3347,8 @@ export const enUS: Record<TranslationKey, string> = {
   "menu.copySessionFilePathUnavailable": "Unable to resolve session file path",
   "menu.rpcLogView": "View RPC Logs",
   "rpc.logOpenedTitle": "RPC logging is now enabled",
-  "rpc.logOpenedDescription": "This agent's RPC communication is being recorded; you can view it in the log viewer.",
+  "rpc.logOpenedDescription":
+    "This agent's RPC communication is being recorded; you can view it in the log viewer.",
   "rpc.logViewNow": "View now",
   "menu.rpcLogging": "Open RPC Log",
   "menu.rpcLoggingOn": "Disable RPC Logging",
@@ -2915,7 +3413,8 @@ export const enUS: Record<TranslationKey, string> = {
   "rpc.loggingDisabled": "RPC logging disabled",
   "rpc.loggingDisableFailed": "Failed to disable RPC logging",
   "rpc.disableLogging": "Stop Logging",
-  "rpc.windowHint": "Showing the latest {count} entries; search or filter to view all",
+  "rpc.windowHint":
+    "Showing the latest {count} entries; search or filter to view all",
   "rpc.noLogging": "RPC logging is off for this agent; enable it to view live",
   "rpc.enableLogging": "Enable Logging",
   "rpc.live": "Live",
@@ -2947,28 +3446,38 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.tabs.vision": "Vision Bridge",
   "settings.tabs.visionDesc": "Give vision to non-vision models",
   "settings.tabs.imagegen": "Image Gen",
-  "settings.tabs.imagegenDesc": "Independent image providers (OpenAI/Ark/SiliconFlow)",
-  "settings.shortcuts.intro": "Customize global shortcuts: click \"Change\" then press the new combination to record it (Esc cancels, Delete restores the default). Changes apply immediately without restart.",
+  "settings.tabs.imagegenDesc":
+    "Independent image providers (OpenAI/Ark/SiliconFlow)",
+  "settings.shortcuts.intro":
+    'Customize global shortcuts: click "Change" then press the new combination to record it (Esc cancels, Delete restores the default). Changes apply immediately without restart.',
   "settings.shortcuts.groupGeneral": "General",
   "settings.shortcuts.groupDev": "Development",
   "settings.shortcuts.openSettingsLabel": "Open Settings",
-  "settings.shortcuts.openSettingsDesc": "Opens the settings window. Defaults: ⌘, on macOS (system convention), Ctrl+Alt+S on Windows/Linux.",
+  "settings.shortcuts.openSettingsDesc":
+    "Opens the settings window. Defaults: ⌘, on macOS (system convention), Ctrl+Alt+S on Windows/Linux.",
   "settings.shortcuts.openNewSessionLabel": "New Session",
-  "settings.shortcuts.openNewSessionDesc": "Opens the new-session onboarding. Default Ctrl/Cmd+N; ignored while an input is focused.",
+  "settings.shortcuts.openNewSessionDesc":
+    "Opens the new-session onboarding. Default Ctrl/Cmd+N; ignored while an input is focused.",
   "settings.shortcuts.openSearchLabel": "Search Sessions",
-  "settings.shortcuts.openSearchDesc": "Opens the session-search command palette. Default Ctrl/Cmd+F; ignored while an input is focused.",
+  "settings.shortcuts.openSearchDesc":
+    "Opens the session-search command palette. Default Ctrl/Cmd+F; ignored while an input is focused.",
   "settings.shortcuts.openCommandPaletteLabel": "Command Palette",
-  "settings.shortcuts.openCommandPaletteDesc": "Opens the command palette to fuzzy-search settings and run actions such as restarting the agent. Default Ctrl/Cmd+P; ignored while an input is focused.",
+  "settings.shortcuts.openCommandPaletteDesc":
+    "Opens the command palette to fuzzy-search settings and run actions such as restarting the agent. Default Ctrl/Cmd+P; ignored while an input is focused.",
   "settings.shortcuts.toggleDevToolsLabel": "Developer Tools",
-  "settings.shortcuts.toggleDevToolsDesc": "Toggles the developer tools. Default F12; while it stays at the default, Ctrl+Shift+I / Ctrl+Shift+J (⌘⌥I / J on macOS) also work.",
+  "settings.shortcuts.toggleDevToolsDesc":
+    "Toggles the developer tools. Default F12; while it stays at the default, Ctrl+Shift+I / Ctrl+Shift+J (⌘⌥I / J on macOS) also work.",
   "settings.shortcuts.change": "Change",
   "settings.shortcuts.recording": "Recording…",
-  "settings.shortcuts.recordingHint": "Press Esc to cancel, Delete to restore the default",
+  "settings.shortcuts.recordingHint":
+    "Press Esc to cancel, Delete to restore the default",
   "settings.shortcuts.reset": "Restore default",
   "settings.shortcuts.resetAll": "Restore all defaults",
-  "settings.shortcuts.conflictWith": "Conflicts with \"{label}\"",
-  "settings.shortcuts.needModifier": "Add a modifier such as Ctrl/⌘ (function keys like F12 are fine alone)",
-  "settings.shortcuts.saveBlocked": "Shortcuts conflict with each other — resolve them before saving",
+  "settings.shortcuts.conflictWith": 'Conflicts with "{label}"',
+  "settings.shortcuts.needModifier":
+    "Add a modifier such as Ctrl/⌘ (function keys like F12 are fine alone)",
+  "settings.shortcuts.saveBlocked":
+    "Shortcuts conflict with each other — resolve them before saving",
   "settings.panes.system": "System Settings",
   "settings.panes.config": "Configuration",
   "imagegen.done": "Image generated",
@@ -2978,74 +3487,103 @@ export const enUS: Record<TranslationKey, string> = {
   "imagegen.copy": "Copy image",
   "imagegen.save": "Save image",
   "imagegen.copyFailed": "Failed to copy image",
-  "imagegen.referenceUnavailable": "Reference image is no longer available; only the prompt was restored",
-  "imagegen.error.notConfigured": "No image provider is configured. Open Settings → Image Gen and add a base URL, API key, and model.",
-  "imagegen.error.referenceUnsupported": "The current image provider does not declare reference-image support; attachments will not affect generation. Pick a reference mode for it in Image Gen settings.",
-  "imagegen.transientHint": "This is an anonymous session; generated images will be lost after restart. Create a regular session to keep them.",
-  "imagegen.error.invalidKey": "Image service rejected the request: invalid API key (check key or quota)",
-  "imagegen.error.invalidKeyDetail": "Image service rejected the request: invalid API key (check key or quota). {detail}",
-  "imagegen.error.badBaseUrl": "Image service endpoint not found (404) — check this model's base URL",
-  "imagegen.error.badBaseUrlDetail": "Image service endpoint not found. {detail}",
-  "imagegen.error.network": "Image request failed (check network/proxy or retry later)",
+  "imagegen.referenceUnavailable":
+    "Reference image is no longer available; only the prompt was restored",
+  "imagegen.error.notConfigured":
+    "No image provider is configured. Open Settings → Image Gen and add a base URL, API key, and model.",
+  "imagegen.error.referenceUnsupported":
+    "The current image provider does not declare reference-image support; attachments will not affect generation. Pick a reference mode for it in Image Gen settings.",
+  "imagegen.transientHint":
+    "This is an anonymous session; generated images will be lost after restart. Create a regular session to keep them.",
+  "imagegen.error.invalidKey":
+    "Image service rejected the request: invalid API key (check key or quota)",
+  "imagegen.error.invalidKeyDetail":
+    "Image service rejected the request: invalid API key (check key or quota). {detail}",
+  "imagegen.error.badBaseUrl":
+    "Image service endpoint not found (404) — check this model's base URL",
+  "imagegen.error.badBaseUrlDetail":
+    "Image service endpoint not found. {detail}",
+  "imagegen.error.network":
+    "Image request failed (check network/proxy or retry later)",
   "imagegen.error.http": "Image service returned an error ({detail})",
   "imagegen.error.empty": "Image service returned no image data",
   "imagegen.size": "Size",
   "imagegen.sizeAuto": "Default",
-  "imagegen.sizeHint": "Leave unset to omit size. Or pick a preset, or type width×height / 1K",
+  "imagegen.sizeHint":
+    "Leave unset to omit size. Or pick a preset, or type width×height / 1K",
   "imagegen.sizeCustomPlaceholder": "Search or type 1280x720",
   "imagegen.sizeCustomUse": "Use {size}",
   "imagegen.sizeCustomInvalid": "Use 1280x720 or 2K",
   "imagegen.watermark": "Watermark",
-  "imagegen.watermarkHint": "Official watermark. Sent only if this provider enabled the field",
+  "imagegen.watermarkHint":
+    "Official watermark. Sent only if this provider enabled the field",
   "imagegen.outputFormat": "Format",
   "imagegen.outputFormatHint": "Official output_format: png / jpeg",
   "imagegen.providerModel": "Image model",
   "imagegen.notConfiguredHint": "Add a provider under Settings → Image Gen",
   "settings.vision.section": "Vision Bridge",
-  "settings.vision.sectionDesc": "When a non-vision model (e.g. DeepSeek) receives an image, pi only warns \"the image will be omitted\". When enabled, images are sent to the vision model below before each request and replaced in place with \"[Image #1 (described via vision bridge)] + description\"; on failure they become \"[Image #N conversion failed, content not visible]\". Vision requests reuse pi's configured provider credentials — no duplicate keys.",
+  "settings.vision.sectionDesc":
+    'When a non-vision model (e.g. DeepSeek) receives an image, pi only warns "the image will be omitted". When enabled, images are sent to the vision model below before each request and replaced in place with "[Image #1 (described via vision bridge)] + description"; on failure they become "[Image #N conversion failed, content not visible]". Vision requests reuse pi\'s configured provider credentials — no duplicate keys.',
   "settings.vision.enabled": "Enable Vision Bridge",
-  "settings.vision.enabledDesc": "When off, images pass through unchanged (non-vision models only see a placeholder note)",
+  "settings.vision.enabledDesc":
+    "When off, images pass through unchanged (non-vision models only see a placeholder note)",
   "settings.vision.provider": "Vision provider",
-  "settings.vision.providerDesc": "Reuse a provider already configured in pi (models.json / auth.json)",
+  "settings.vision.providerDesc":
+    "Reuse a provider already configured in pi (models.json / auth.json)",
   "settings.vision.model": "Vision model",
-  "settings.vision.modelDesc": "Pick a model that can describe images — whether it supports vision is up to you",
-  "settings.vision.modelSelectedHint": "Selected: images will be converted by this model",
-  "settings.vision.noImagesWarning": "⚠ This model does not accept image input — the vision bridge will fail. Pick a vision-capable model (e.g. glm-4v-flash / qwen-vl-plus)",
+  "settings.vision.modelDesc":
+    "Pick a model that can describe images — whether it supports vision is up to you",
+  "settings.vision.modelSelectedHint":
+    "Selected: images will be converted by this model",
+  "settings.vision.noImagesWarning":
+    "⚠ This model does not accept image input — the vision bridge will fail. Pick a vision-capable model (e.g. glm-4v-flash / qwen-vl-plus)",
   "settings.vision.supportsImages": "Supports image input",
   "settings.vision.unsupportedImages": "No image input",
-  "settings.vision.capabilityUnknown": "Capabilities unknown (pi reports no metadata for this model; still worth a try)",
+  "settings.vision.capabilityUnknown":
+    "Capabilities unknown (pi reports no metadata for this model; still worth a try)",
   "settings.vision.contextWindow": "Context {{size}}",
   "settings.vision.outputCap": "Max output {{size}}",
   "settings.vision.thinking": "Reasoning supported",
   "settings.vision.api": "API format",
-  "settings.vision.apiDesc": "Usually inferred from the provider; only needed for custom gateways",
+  "settings.vision.apiDesc":
+    "Usually inferred from the provider; only needed for custom gateways",
   "settings.vision.apiAuto": "Auto (inferred from provider)",
   "settings.vision.apiOpenai": "OpenAI compatible (/chat/completions)",
   "settings.vision.apiAnthropic": "Anthropic Messages (/v1/messages)",
   "settings.vision.apiGoogle": "Google Generative AI (generateContent)",
   "settings.vision.baseUrl": "Base URL (optional)",
-  "settings.vision.baseUrlDesc": "Leave empty to use the provider default endpoint; domestic providers (GLM/Qwen etc.) need e.g. https://open.bigmodel.cn/api/paas/v4",
+  "settings.vision.baseUrlDesc":
+    "Leave empty to use the provider default endpoint; domestic providers (GLM/Qwen etc.) need e.g. https://open.bigmodel.cn/api/paas/v4",
   "settings.vision.apiKey": "API Key (optional)",
-  "settings.vision.apiKeyDesc": "Leave empty to reuse the provider key already configured in pi; only needed for a separate credential",
+  "settings.vision.apiKeyDesc":
+    "Leave empty to reuse the provider key already configured in pi; only needed for a separate credential",
   "settings.vision.maxTokens": "Max description tokens",
-  "settings.vision.maxTokensDesc": "Unlimited: field omitted, output length decided by the model (more complete, more tokens). Limited: cap per-call output. Anthropic requires this field — falls back to 1024 when unlimited",
+  "settings.vision.maxTokensDesc":
+    "Unlimited: field omitted, output length decided by the model (more complete, more tokens). Limited: cap per-call output. Anthropic requires this field — falls back to 1024 when unlimited",
   "settings.vision.maxTokensUnlimited": "Unlimited",
   "settings.vision.maxTokensCustom": "Custom",
   "settings.vision.concurrency": "Concurrent descriptions",
   "settings.vision.timeout": "Timeout (seconds)",
-  "settings.vision.timeoutDesc": "Per-image conversion request timeout; the request is aborted and the reason logged on timeout (default 120s)",
+  "settings.vision.timeoutDesc":
+    "Per-image conversion request timeout; the request is aborted and the reason logged on timeout (default 120s)",
   "settings.vision.promptTemplate": "Description prompt template",
-  "settings.vision.promptTemplateDesc": "{{instruction}} is replaced with the user's instruction. The default prompt asks for visual content, text and UI structure — suitable for code screenshots.",
+  "settings.vision.promptTemplateDesc":
+    "{{instruction}} is replaced with the user's instruction. The default prompt asks for visual content, text and UI structure — suitable for code screenshots.",
   "settings.vision.promptDefault": "Restore default",
   "settings.vision.save": "Save Vision Bridge config",
-  "settings.vision.saved": "Saved: takes effect on new sessions or the next message",
+  "settings.vision.saved":
+    "Saved: takes effect on new sessions or the next message",
   "settings.vision.saveFailed": "Save failed",
-  "settings.vision.modelRequired": "Enabling the Vision Bridge requires selecting a vision model first",
+  "settings.vision.modelRequired":
+    "Enabling the Vision Bridge requires selecting a vision model first",
   "settings.vision.configFile": "Config file location",
-  "settings.vision.configFileDesc": "The extension and PiDeck share this file: it also works when editing manually with pi outside PiDeck.",
+  "settings.vision.configFileDesc":
+    "The extension and PiDeck share this file: it also works when editing manually with pi outside PiDeck.",
   "settings.vision.logSection": "Run log (diagnostics)",
-  "settings.vision.logSectionDesc": "Every image conversion is logged. Send an image in a session, then come back and hit refresh to confirm the bridge actually works; the log never contains secrets.",
-  "settings.vision.logEmpty": "No entries yet — no image has passed through the vision bridge (or the log was just cleared)",
+  "settings.vision.logSectionDesc":
+    "Every image conversion is logged. Send an image in a session, then come back and hit refresh to confirm the bridge actually works; the log never contains secrets.",
+  "settings.vision.logEmpty":
+    "No entries yet — no image has passed through the vision bridge (or the log was just cleared)",
   "settings.vision.logRefresh": "Refresh",
   "settings.vision.logClear": "Clear",
   "settings.vision.logTruncated": "(log too long, showing tail only)",
@@ -3066,28 +3604,35 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.pet.alwaysOnTopDesc": "Keep the pet window above other windows",
   "settings.pet.choose": "Choose pet",
   "settings.pet.preview": "Animation Preview",
-  "settings.pet.previewDesc": "Temporarily switch to preview a sprite row; select \"Auto\" to restore aggregate state",
+  "settings.pet.previewDesc":
+    'Temporarily switch to preview a sprite row; select "Auto" to restore aggregate state',
   "settings.pet.previewMode": "Preview mode",
   "settings.pet.previewAuto": "Auto (aggregate state)",
-  "settings.pet.petdexHint": "Run npx petdex install <name> to add community pets, then restart",
+  "settings.pet.petdexHint":
+    "Run npx petdex install <name> to add community pets, then restart",
   "settings.pet.petdexSite": "Visit petdex.dev to browse more pets",
   "settings.pet.noPets": "No pets available",
   "settings.pet.scale": "Pet size",
-  "settings.pet.scaleDesc": "Drag the slider to adjust the pet's display size on desktop",
+  "settings.pet.scaleDesc":
+    "Drag the slider to adjust the pet's display size on desktop",
   "settings.pet.patrol": "Idle Patrol",
-  "settings.pet.patrolDesc": "Pet walks along screen bottom when idle (auto-pauses during tasks)",
+  "settings.pet.patrolDesc":
+    "Pet walks along screen bottom when idle (auto-pauses during tasks)",
   "settings.pet.patrolPause": "Patrol pause",
-  "settings.pet.patrolPauseDesc": "Idle duration after reaching screen edge (minutes)",
+  "settings.pet.patrolPauseDesc":
+    "Idle duration after reaching screen edge (minutes)",
   "settings.pet.testError": "Test Error Notification",
   "settings.pet.testDone": "Test Done Notification",
   "settings.sound.title": "Sound Alerts",
-  "settings.sound.sectionDesc": "Play a sound when a session completes, errors, or asks for input (works even when hidden to tray)",
+  "settings.sound.sectionDesc":
+    "Play a sound when a session completes, errors, or asks for input (works even when hidden to tray)",
   "settings.sound.enabled": "Enable sound alerts",
   "settings.sound.enabledDesc": "Master switch; disables all sounds when off",
   "settings.sound.volume": "Volume",
   "settings.sound.volumeDesc": "Drag the slider to adjust alert volume",
   "settings.sound.eventsTitle": "Alert Events",
-  "settings.sound.eventsDesc": "Pick a sound per event; mute an event by toggling it off",
+  "settings.sound.eventsDesc":
+    "Pick a sound per event; mute an event by toggling it off",
   "settings.sound.done": "Session complete",
   "settings.sound.doneDesc": "Plays when an Agent finishes a turn successfully",
   "settings.sound.doneEnable": "Enable completion alert",
@@ -3095,7 +3640,8 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.sound.errorDesc": "Plays when an Agent enters an error state",
   "settings.sound.errorEnable": "Enable error alert",
   "settings.sound.waiting": "Waiting for input",
-  "settings.sound.waitingDesc": "Plays when an Agent asks for selection/confirmation/input (off by default)",
+  "settings.sound.waitingDesc":
+    "Plays when an Agent asks for selection/confirmation/input (off by default)",
   "settings.sound.waitingEnable": "Enable waiting alert",
   "settings.sound.choose": "Choose a sound",
   "settings.sound.presetGroup": "Presets",
@@ -3103,10 +3649,12 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.sound.customOption": "Custom: {name}",
   "settings.sound.preview": "Preview",
   "settings.sound.customTitle": "Custom Audio",
-  "settings.sound.customDesc": "Import a local audio file (wav/mp3/ogg/m4a/flac, max 5MB); it becomes selectable in the event dropdowns above",
+  "settings.sound.customDesc":
+    "Import a local audio file (wav/mp3/ogg/m4a/flac, max 5MB); it becomes selectable in the event dropdowns above",
   "settings.sound.import": "Import audio file",
   "settings.sound.importing": "Importing…",
-  "settings.sound.importDesc": "Pick a local audio file; it becomes selectable in the event dropdowns above",
+  "settings.sound.importDesc":
+    "Pick a local audio file; it becomes selectable in the event dropdowns above",
   "settings.sound.importError.canceled": "Cancelled",
   "settings.sound.importError.invalidType": "Unsupported audio format",
   "settings.sound.importError.tooLarge": "File exceeds 5MB limit",
@@ -3122,53 +3670,67 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.sound.preset.waitingPing": "Ping (crisp)",
   "settings.sound.preset.waitingKnock": "Knock",
   "settings.storage.title": "Logs & Cache",
-  "settings.storage.desc": "View and manage app logs, RPC logs, and pasted text files",
+  "settings.storage.desc":
+    "View and manage app logs, RPC logs, and pasted text files",
   "settings.storage.appLogsSize": "App logs size",
   "settings.storage.rpcLogsSize": "RPC logs size",
   "settings.storage.pasteFiles": "Pasted Files",
   "settings.storage.pasteFilesSize": "Pasted files size",
-  "settings.storage.pasteFilesDesc": "Long composer pastes are saved under the app data directory; leftover project .pideck-paste folders are cleared too",
+  "settings.storage.pasteFilesDesc":
+    "Long composer pastes are saved under the app data directory; leftover project .pideck-paste folders are cleared too",
   "settings.storage.clearSuccess": "Cleanup completed",
   "settings.storage.appLogs": "App Logs",
   "settings.storage.rpcLogs": "RPC Logs",
   "settings.storage.clearDone": "Cleanup completed",
-  "settings.storage.clearConfirm": "Are you sure you want to delete {label}? This cannot be undone.",
+  "settings.storage.clearConfirm":
+    "Are you sure you want to delete {label}? This cannot be undone.",
   "settings.storage.actions": "Actions",
   "settings.storage.clearAll": "Clear All",
-  "settings.storage.clearAllDesc": "Clear app logs, RPC logs, and pasted text files at once",
+  "settings.storage.clearAllDesc":
+    "Clear app logs, RPC logs, and pasted text files at once",
   "settings.storage.clearAllButton": "Clear All",
   "settings.storage.clearLocalStorage": "Clear UI Local Cache",
-  "settings.storage.clearLocalStorageDesc": "Clear renderer UI cache such as filters and file sort; sidebar/drawer width is restored from app settings. Settings, sessions, and logs are not affected.",
+  "settings.storage.clearLocalStorageDesc":
+    "Clear renderer UI cache such as filters and file sort; sidebar/drawer width is restored from app settings. Settings, sessions, and logs are not affected.",
   "settings.storage.clearLocalStorageButton": "Clear UI Cache",
-  "settings.storage.clearLocalStorageConfirm": "Clear UI local cache? Filters and sort preferences will reset; sidebar/drawer width will be restored from app settings. The page will reload. Settings and session data are unaffected.",
+  "settings.storage.clearLocalStorageConfirm":
+    "Clear UI local cache? Filters and sort preferences will reset; sidebar/drawer width will be restored from app settings. The page will reload. Settings and session data are unaffected.",
   "settings.storage.openFolder": "Open Log Folder",
   "settings.storage.openFolderDesc": "View log files in file manager",
   // ===== Config backup (config-backup) =====
   "settings.backup.title": "Config Backup",
-  "settings.backup.desc": "Snapshot model config, pi settings and PiDeck settings. One initial backup is created automatically on first use; after that backups are manual only. Back up or restore anytime to recover from misconfiguration or loss.",
+  "settings.backup.desc":
+    "Snapshot model config, pi settings and PiDeck settings. One initial backup is created automatically on first use; after that backups are manual only. Back up or restore anytime to recover from misconfiguration or loss.",
   "settings.backup.createButton": "Back Up Now",
-  "settings.backup.createDesc": "Save current model config, pi settings and PiDeck settings as one snapshot",
+  "settings.backup.createDesc":
+    "Save current model config, pi settings and PiDeck settings as one snapshot",
   "settings.backup.createSuccess": "Backup created",
-  "settings.backup.hint": "Backups are stored locally in the app data directory; secrets are redacted when viewing. The initial backup is kept long-term and manual backups are never auto-deleted; a protective backup (last 5 kept) is created before each restore.",
+  "settings.backup.hint":
+    "Backups are stored locally in the app data directory; secrets are redacted when viewing. The initial backup is kept long-term and manual backups are never auto-deleted; a protective backup (last 5 kept) is created before each restore.",
   "settings.backup.listTitle": "Backup List",
-  "settings.backup.empty": "No backups yet. Click \"Back Up Now\" to create one",
+  "settings.backup.empty": 'No backups yet. Click "Back Up Now" to create one',
   "settings.backup.view": "View",
   "settings.backup.restore": "Restore",
   "settings.backup.restoreTitle": "Restore Backup",
-  "settings.backup.restoreSelectDesc": "Choose files to restore (all by default). A protective backup of the current config is created first; restart the app afterward to fully apply the settings.",
+  "settings.backup.restoreSelectDesc":
+    "Choose files to restore (all by default). A protective backup of the current config is created first; restart the app afterward to fully apply the settings.",
   "settings.backup.restoreSelected": "Restore Selected ({count})",
-  "settings.backup.restoreSuccess": "Restore complete. Restart the app to fully apply settings",
+  "settings.backup.restoreSuccess":
+    "Restore complete. Restart the app to fully apply settings",
   "settings.backup.deleteTitle": "Delete Backup",
-  "settings.backup.deleteConfirm": "Delete the backup from {time}? This cannot be undone.",
+  "settings.backup.deleteConfirm":
+    "Delete the backup from {time}? This cannot be undone.",
   "settings.backup.deleteSuccess": "Backup deleted",
   "settings.backup.bulkDelete": "Delete Selected",
   "settings.backup.bulkDeleteSelected": "Delete Selected ({count})",
   "settings.backup.bulkDeleteTitle": "Delete Backups",
-  "settings.backup.bulkDeleteConfirm": "Delete the {count} selected backups? This cannot be undone.",
+  "settings.backup.bulkDeleteConfirm":
+    "Delete the {count} selected backups? This cannot be undone.",
   "settings.backup.bulkDeleteSuccess": "Deleted {count} backups",
   "settings.backup.readFailed": "Failed to read backup",
   "settings.backup.detailTitle": "View Backup",
-  "settings.backup.redactedNotice": "Secrets are hidden (shown as ***). View the local backup file for full content.",
+  "settings.backup.redactedNotice":
+    "Secrets are hidden (shown as ***). View the local backup file for full content.",
   "settings.backup.reason.firstRun": "First use",
   "settings.backup.reason.upgrade": "Upgrade",
   "settings.backup.reason.onSave": "Config saved",
@@ -3176,23 +3738,30 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.backup.reason.manual": "Manual",
   // ===== Usage stats (usage-stats) =====
   "usageStats.notInstalled.title": "Usage stats plugin not installed",
-  "usageStats.notInstalled.desc": "Pi usage stats rely on the pi-tracker extension to record token consumption of every conversation inside the pi process. After installing, restart the agent session so the extension loads, then start a conversation — data is only written to disk once conversations happen.\nDSH sessions already ship dsh-bill: start a DSH conversation and spend is recorded automatically, no extra plugin to install.",
+  "usageStats.notInstalled.desc":
+    "Pi usage stats rely on the pi-tracker extension to record token consumption of every conversation inside the pi process. After installing, restart the agent session so the extension loads, then start a conversation — data is only written to disk once conversations happen.\nDSH sessions already ship dsh-bill: start a DSH conversation and spend is recorded automatically, no extra plugin to install.",
   "usageStats.notInstalled.install": "Install pi-tracker",
   "usageStats.notInstalled.installing": "Installing…",
-  "usageStats.notInstalled.installDone": "Installed! Restart the agent session (or the app), then start a conversation — data will be recorded automatically.",
-  "usageStats.notInstalled.restartHint": "Restart the agent session after installing for the extension to be loaded by pi",
-  "usageStats.notInstalled.installHint": "Or in a terminal run: pi install npm:pi-tracker, then restart the pi session",
+  "usageStats.notInstalled.installDone":
+    "Installed! Restart the agent session (or the app), then start a conversation — data will be recorded automatically.",
+  "usageStats.notInstalled.restartHint":
+    "Restart the agent session after installing for the extension to be loaded by pi",
+  "usageStats.notInstalled.installHint":
+    "Or in a terminal run: pi install npm:pi-tracker, then restart the pi session",
   "usageStats.notInstalled.copyCmd": "Copy command",
   "usageStats.notInstalled.copied": "Copied",
-  "usageStats.notInstalled.backfill": "The plugin only records conversations after installation. To backfill historical usage, run /analytics import in a pi terminal or in an agent started by PiDeck",
+  "usageStats.notInstalled.backfill":
+    "The plugin only records conversations after installation. To backfill historical usage, run /analytics import in a pi terminal or in an agent started by PiDeck",
   "usageStats.refresh": "Refresh",
   "usageStats.refreshing": "Refreshing…",
   "usageStats.loading": "Loading stats…",
   "usageStats.error": "Failed to load usage stats, please retry later",
   "usageStats.errorHint": "Error: {message}",
   "usageStats.empty.title": "No usage data yet",
-  "usageStats.empty.desc": "No usage has been recorded yet. Pi sessions need pi-tracker installed and a conversation started; DSH sessions already ship dsh-bill and will appear after you chat.",
-  "usageStats.empty.backfill": "Backfill Pi history with /analytics import. DSH history is backfilled by dsh-bill from session logs when the host starts.",
+  "usageStats.empty.desc":
+    "No usage has been recorded yet. Pi sessions need pi-tracker installed and a conversation started; DSH sessions already ship dsh-bill and will appear after you chat.",
+  "usageStats.empty.backfill":
+    "Backfill Pi history with /analytics import. DSH history is backfilled by dsh-bill from session logs when the host starts.",
   "usageStats.window": "Data covers {since} to now · {days} days",
   "usageStats.cards.totalTokens": "Total tokens",
   "usageStats.cards.totalCost": "Total cost",
@@ -3236,14 +3805,18 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.interface": "Interface",
   "settings.git": "Git",
   "settings.gitManagement": "Git Source Control",
-  "settings.gitManagementDesc": "Show Git management beside the conversation for staging, committing, viewing history, and comparing branches.",
+  "settings.gitManagementDesc":
+    "Show Git management beside the conversation for staging, committing, viewing history, and comparing branches.",
   "settings.gitCommitMessagePrompt": "Git Commit Message Prompt",
-  "settings.gitCommitMessagePromptDesc": "Template used by AI to generate git commit messages. {diff} is replaced with the actual diff content.",
+  "settings.gitCommitMessagePromptDesc":
+    "Template used by AI to generate git commit messages. {diff} is replaced with the actual diff content.",
   "settings.gitCommitMessageModel": "Git Summary Model",
-  "settings.gitCommitMessageModelDesc": "Uses the same full model list as the Command model picker. Choose the provider/model for commit-message generation.",
+  "settings.gitCommitMessageModelDesc":
+    "Uses the same full model list as the Command model picker. Choose the provider/model for commit-message generation.",
   "settings.gitCommitMessageModelUnset": "Choose Git summary model",
   "settings.gitExecutable": "Git executable",
-  "settings.gitExecutableDesc": "Absolute path to the git binary. Leave empty for auto-detect: PATH git first, then common install locations. All Git operations (worktrees and checkpoints included) use this path.",
+  "settings.gitExecutableDesc":
+    "Absolute path to the git binary. Leave empty for auto-detect: PATH git first, then common install locations. All Git operations (worktrees and checkpoints included) use this path.",
   "settings.gitExecutablePlaceholder": "Leave empty to auto-detect",
   "settings.gitExecutableSourcePath": "from PATH",
   "settings.gitExecutableSourceConfigured": "manually configured",
@@ -3255,7 +3828,8 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.gitExecutableClear": "Reset to auto",
   "settings.gitExecutableVersion": "v{version}",
   "settings.gitExecutableUseSystem": "Use system git",
-  "settings.gitExecutableInvalid": "Cannot run this path. Use “Use system git” to fall back to the detected executable.",
+  "settings.gitExecutableInvalid":
+    "Cannot run this path. Use “Use system git” to fall back to the detected executable.",
   "settings.sectionSession": "Session",
   "settings.sectionWindow": "Window",
   "settings.sectionThemeBackground": "Theme & Background",
@@ -3266,12 +3840,14 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.sectionRuntime": "Runtime",
   "settings.sectionEditors": "External Editors",
   "settings.contentWidthPct": "Chat Content Width",
-  "settings.contentWidthPctDesc": "Messages, composer and queued prompts share the same width. 100% is nearly full pane (12px minimum inset).",
+  "settings.contentWidthPctDesc":
+    "Messages, composer and queued prompts share the same width. 100% is nearly full pane (12px minimum inset).",
   "settings.theme": "Theme",
   "settings.themeSystem": "System",
   "settings.themeSchedule": "Follow time",
   "settings.themeScheduleRange": "Light hours",
-  "settings.themeScheduleRangeDesc": "Use light theme from the left time until the right time, then switch to dark. Overnight ranges work (for example 22:00 → 06:00).",
+  "settings.themeScheduleRangeDesc":
+    "Use light theme from the left time until the right time, then switch to dark. Overnight ranges work (for example 22:00 → 06:00).",
   "settings.themeScheduleLightStart": "Light starts",
   "settings.themeScheduleDarkStart": "Dark starts",
   "settings.accent": "Appearance theme",
@@ -3281,19 +3857,27 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.skin.seaBlue": "Sea Blue",
   "settings.skin.warmBeige": "Warm Beige",
   "settings.skin.custom": "Custom",
-  "settings.skinDesc": "Skins adjust the background/border palette and combine freely with the accent color.",
+  "settings.skinDesc":
+    "Skins adjust the background/border palette and combine freely with the accent color.",
   "settings.backgroundImage": "Background image",
-  "settings.backgroundImageDesc": "Pick a local image as the app background; opacity = image visibility (100% shows it fully, 0% pure panel color; white mask in light, black in dark; translucent panels reveal it).",
+  "settings.backgroundImageDesc":
+    "Pick a local image as the app background; opacity = image visibility (100% shows it fully, 0% pure panel color; white mask in light, black in dark; translucent panels reveal it).",
   "settings.backgroundImageChoose": "Choose image…",
   "settings.backgroundImageClear": "Clear",
   "settings.backgroundImageOpacity": "Background opacity",
-  "settings.accentDesc": "An appearance theme controls the whole look — surfaces, borders, hover/selection states and the accent color — and adapts to light/dark automatically. Classic (neutral black/white/gray) is the factory default.",
-  "settings.skin.classicGreenDesc": "Neutral white/gray surfaces with a black/white/gray accent; factory default.",
+  "settings.accentDesc":
+    "An appearance theme controls the whole look — surfaces, borders, hover/selection states and the accent color — and adapts to light/dark automatically. Classic (neutral black/white/gray) is the factory default.",
+  "settings.skin.classicGreenDesc":
+    "Neutral white/gray surfaces with a black/white/gray accent; factory default.",
   "settings.skin.freshGreen": "Forest green",
-  "settings.skin.freshGreenDesc": "Paper-like sage surfaces with a low-saturation forest green accent; calm and easy on the eyes.",
-  "settings.skin.graphiteDesc": "Cool graphite surfaces with a neutral accent; quiet and understated.",
-  "settings.skin.seaBlueDesc": "Cool sea-blue surfaces with a blue accent; crisp and airy.",
-  "settings.skin.warmBeigeDesc": "Warm paper-beige surfaces with an amber accent; soft and easy on the eyes.",
+  "settings.skin.freshGreenDesc":
+    "Paper-like sage surfaces with a low-saturation forest green accent; calm and easy on the eyes.",
+  "settings.skin.graphiteDesc":
+    "Cool graphite surfaces with a neutral accent; quiet and understated.",
+  "settings.skin.seaBlueDesc":
+    "Cool sea-blue surfaces with a blue accent; crisp and airy.",
+  "settings.skin.warmBeigeDesc":
+    "Warm paper-beige surfaces with an amber accent; soft and easy on the eyes.",
   "settings.accent.default": "Neutral (default)",
   "settings.accent.green": "Fresh green",
   "settings.accent.blue": "Sky blue",
@@ -3309,25 +3893,29 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.fontSizeLarge": "Large",
   "settings.fontSizeXlarge": "Extra Large",
   "settings.fontSizePerArea": "Customize per-area font sizes",
-  "settings.fontSizePerAreaDesc": "Set font sizes for sidebar, chat content, and input box separately",
+  "settings.fontSizePerAreaDesc":
+    "Set font sizes for sidebar, chat content, and input box separately",
   "settings.fontSizeExpand": "Expand per-area font size settings",
   "settings.fontSizeCollapse": "Collapse per-area font size settings",
-  "settings.zoomFactorHint": "Scales the whole window (icons and spacing included). Use the font size settings below to change text size only.",
+  "settings.zoomFactorHint":
+    "Scales the whole window (icons and spacing included). Use the font size settings below to change text size only.",
   "settings.uiFontSize": "UI Font Size",
   "settings.chatFontSize": "Chat Font Size",
   "settings.inputFontSize": "Input Font Size",
   "settings.fontFamilyBase": "Interface Font",
-  "settings.fontFamilyBaseDesc": "Main font for UI body, buttons, lists, inputs.",
+  "settings.fontFamilyBaseDesc":
+    "Main font for UI body, buttons, lists, inputs.",
   "settings.fontFamilyBaseSystem": "System Default",
   "settings.fontFamilyBaseSans": "Sans",
   "settings.fontFamilyBaseSerif": "Serif",
   "settings.fontFamilyBaseCustomField": "Custom Interface Font",
-  "settings.fontFamilyBaseCustomPlaceholder": "e.g. \"Microsoft YaHei\"",
+  "settings.fontFamilyBaseCustomPlaceholder": 'e.g. "Microsoft YaHei"',
   "settings.fontFamilyMono": "Code Font",
-  "settings.fontFamilyMonoDesc": "Monospace font for code blocks, message editor, tool cards (excluding terminal).",
+  "settings.fontFamilyMonoDesc":
+    "Monospace font for code blocks, message editor, tool cards (excluding terminal).",
   "settings.fontFamilyMonoSystemMono": "System Mono",
   "settings.fontFamilyMonoCustomField": "Custom Code Font",
-  "settings.fontFamilyMonoCustomPlaceholder": "e.g. \"JetBrains Mono\"",
+  "settings.fontFamilyMonoCustomPlaceholder": 'e.g. "JetBrains Mono"',
   "settings.fontCustomOption": "Custom",
   "settings.language": "Language",
   "settings.languageSystem": "System",
@@ -3335,7 +3923,8 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.languageEn": "English",
   "settings.sessionTabOpenMode": "Session tab open mode",
   "settings.autoSessionTitle": "Generate session titles automatically",
-  "settings.autoSessionTitleDesc": "After the first Agent run succeeds, use the current pi model to generate a title asynchronously. This makes one extra model call and consumes a small amount of tokens, without changing the main prompt or messages. Restart or create an Agent after changing this setting.",
+  "settings.autoSessionTitleDesc":
+    "After the first Agent run succeeds, use the current pi model to generate a title asynchronously. This makes one extra model call and consumes a small amount of tokens, without changing the main prompt or messages. Restart or create an Agent after changing this setting.",
   "settings.sessionTabOpenModePreview": "Preview (auto-pin after sending)",
   "settings.sessionTabOpenModePermanent": "Permanent (pin on open)",
   "settings.languagePseudo": "Pseudo",
@@ -3345,17 +3934,23 @@ export const enUS: Record<TranslationKey, string> = {
   "app.collapseDrawer": "Close right drawer",
   "app.openDrawer": "Open right drawer",
   "app.closeDrawer": "Close right drawer",
-  "settings.piRpcNoSkillsDesc": "Do not discover/load skills. Use for debugging or speed; skill commands will be unavailable.",
+  "settings.piRpcNoSkillsDesc":
+    "Do not discover/load skills. Use for debugging or speed; skill commands will be unavailable.",
   "settings.piRpcNoSkills": "Disable skills on start (--no-skills)",
   "settings.useStreamdownRenderer": "Streamdown renderer",
-  "settings.useStreamdownRendererDesc": "Assistant messages use Streamdown by default: better incomplete-markdown handling while streaming and per-block caching. Switch back if anything looks off.",
-  "settings.piRpcNoExtensionsDesc": "Do not load any extensions. Use this to debug broken extensions blocking RPC; todo/plan/ask will be unavailable.",
+  "settings.useStreamdownRendererDesc":
+    "Assistant messages use Streamdown by default: better incomplete-markdown handling while streaming and per-block caching. Switch back if anything looks off.",
+  "settings.piRpcNoExtensionsDesc":
+    "Do not load any extensions. Use this to debug broken extensions blocking RPC; todo/plan/ask will be unavailable.",
   "settings.piRpcNoExtensions": "Disable extensions on start (--no-extensions)",
-  "settings.piRpcOfflineDesc": "Launch pi with --offline, skipping model-catalog network refresh. Off by default: enabling it keeps newly installed/updated models from appearing in real time; enable only for faster cold start.",
+  "settings.piRpcOfflineDesc":
+    "Launch pi with --offline, skipping model-catalog network refresh. Off by default: enabling it keeps newly installed/updated models from appearing in real time; enable only for faster cold start.",
   "settings.piRpcOffline": "RPC offline startup (--offline)",
-  "settings.piRpcStartupDesc": "Affects pi --mode rpc launch flags. Restart the Agent after changing these.",
+  "settings.piRpcStartupDesc":
+    "Affects pi --mode rpc launch flags. Restart the Agent after changing these.",
   "settings.piRpcStartup": "Agent startup diagnostics",
-  "settings.electronSandboxDesc": "Controls Electron renderer sandbox (unrelated to pi Agent). Off by default for Windows AV/GPU compatibility. Requires restarting PiDeck. Turn it back off if the app fails to start.",
+  "settings.electronSandboxDesc":
+    "Controls Electron renderer sandbox (unrelated to pi Agent). Off by default for Windows AV/GPU compatibility. Requires restarting PiDeck. Turn it back off if the app fails to start.",
   "settings.electronSandbox": "Enable Chromium sandbox",
   "settings.startupWindow.last": "Last window size",
   "settings.startupWindow.compact": "Window · Compact (1100×720)",
@@ -3363,31 +3958,39 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.startupWindow.large": "Window · Large (1480×960)",
   "settings.startupWindow.maximized": "Maximized",
   "settings.startupWindow.fullscreen": "Fullscreen",
-  "settings.startupWindowModeDesc": "Applied on next launch. Default is maximized (historical behavior; keeps the taskbar visible).",
+  "settings.startupWindowModeDesc":
+    "Applied on next launch. Default is maximized (historical behavior; keeps the taskbar visible).",
   "settings.startupWindowMode": "Startup window size",
-  "settings.singleInstanceDesc": "When enabled, reopening the same version focuses the existing window (including tray-hidden). Different versions (e.g. 0.6.7 and 0.6.8) can run side by side. Dev mode uses a separate data directory from the packaged app. Disable to allow multiple instances of the same version. Restart required.",
+  "settings.singleInstanceDesc":
+    "When enabled, reopening the same version focuses the existing window (including tray-hidden). Different versions (e.g. 0.6.7 and 0.6.8) can run side by side. Dev mode uses a separate data directory from the packaged app. Disable to allow multiple instances of the same version. Restart required.",
   "settings.singleInstance": "Single instance (reuse window)",
   "settings.shellContextMenuSection": "File Explorer integration",
-  "settings.shellContextMenuSectionDesc": "Adds an \"Open with PiDeck\" entry to the Windows folder context menu for the current user (writes to the user registry; works with the portable build too).",
+  "settings.shellContextMenuSectionDesc":
+    'Adds an "Open with PiDeck" entry to the Windows folder context menu for the current user (writes to the user registry; works with the portable build too).',
   "settings.shellContextMenu": "Open a project from the folder context menu",
-  "settings.shellContextMenuDesc": "Adds \"Open with PiDeck\" to the context menu of folders (and Explorer background): known directories jump straight to their project; unknown ones first ask to be added as a project.",
-  "settings.shellContextMenuUnsupported": "This feature is only available on Windows.",
+  "settings.shellContextMenuDesc":
+    'Adds "Open with PiDeck" to the context menu of folders (and Explorer background): known directories jump straight to their project; unknown ones first ask to be added as a project.',
+  "settings.shellContextMenuUnsupported":
+    "This feature is only available on Windows.",
   "settings.checkUpdate": "Check updates",
   "settings.piUpdate": "Pi CLI Update",
-  "settings.piUpdateDesc": "Check current/latest versions first, then update only when a newer version exists.",
+  "settings.piUpdateDesc":
+    "Check current/latest versions first, then update only when a newer version exists.",
   "settings.checkPiUpdate": "Check Pi Update",
   "settings.piUpdateVersions": "Current: {current} · Latest: {latest}",
   "settings.updatePi": "Update Pi",
   "settings.piUpdateDone": "Pi update command completed",
   "settings.piUpdateChecked": "Pi is already up to date",
   "settings.catalogSectionTitle": "Model Catalog",
-  "settings.catalogSectionDesc": "The built-in model catalog ships with each release (packaged resource). When new models land, pull the pre-generated catalog from the GitHub main branch to overlay locally (reuses the app update GitHub mirror config for better reachability); the overlay lives only in the app data directory and can be reverted anytime.",
+  "settings.catalogSectionDesc":
+    "The built-in model catalog ships with each release (packaged resource). When new models land, pull the pre-generated catalog from the GitHub main branch to overlay locally (reuses the app update GitHub mirror config for better reachability); the overlay lives only in the app data directory and can be reverted anytime.",
   "settings.catalogUpdateSource": "Catalog update source (same as app update)",
   "settings.catalogBuiltin": "Built-in",
   "settings.catalogOverlay": "Overlay (latest pi-ai)",
   "settings.catalogModelCount": "models",
   "settings.catalogUnavailable": "Unavailable",
-  "settings.catalogInvalidOverlay": "Invalid overlay files found, consider reverting",
+  "settings.catalogInvalidOverlay":
+    "Invalid overlay files found, consider reverting",
   "settings.catalogNone": "None",
   "settings.catalogBackup": "Backup",
   "settings.catalogHasBackup": "Yes (previous overlay)",
@@ -3397,30 +4000,39 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.catalogRestorePrev": "Restore Previous Overlay",
   "settings.catalogOpenFile": "Open File",
   "settings.catalogCheckLatest": "Already up to date: remote {remote}",
-  "settings.catalogCheckAvailable": "New version {remote} available (current {local}); click \"Update to Latest\"",
-  "settings.catalogUpdated": "Updated successfully; it takes effect on next use",
+  "settings.catalogCheckAvailable":
+    'New version {remote} available (current {local}); click "Update to Latest"',
+  "settings.catalogUpdated":
+    "Updated successfully; it takes effect on next use",
   "settings.catalogAlreadyLatest": "Already up to date; nothing to update",
   "settings.catalogRestored": "Reverted to built-in catalog",
   "settings.catalogRestorePrevOk": "Restored previous overlay",
-  "settings.catalogFailNetwork": "Network unavailable or download failed; check network/proxy and retry",
-  "settings.catalogFailValidation": "Downloaded content failed validation; not applied (repo files may be broken)",
+  "settings.catalogFailNetwork":
+    "Network unavailable or download failed; check network/proxy and retry",
+  "settings.catalogFailValidation":
+    "Downloaded content failed validation; not applied (repo files may be broken)",
   "settings.catalogFailWrite": "Write failed; current catalog is unaffected",
   "settings.catalogFailNoBackup": "No backup to restore",
   "settings.catalogFailUnexpected": "Operation failed, please retry",
   "settings.catalogUpdateAvailable": "Update available: {local} → {remote}",
   "settings.piUpdateAvailable": "New Pi version available",
-  "settings.piUpdateAvailableDetail": "Pi CLI has a new version: {current} → {latest}. Use Update Pi above to install it.",
+  "settings.piUpdateAvailableDetail":
+    "Pi CLI has a new version: {current} → {latest}. Use Update Pi above to install it.",
   "settings.piUpdateFailed": "Pi update failed: {error}",
   "settings.autoDownloadUpdates": "Auto-download Updates",
-  "settings.autoDownloadUpdatesDesc": "Automatically download the installer when a new version is found, then prompt to restart & install. When off, only notify and require manual download.",
+  "settings.autoDownloadUpdatesDesc":
+    "Automatically download the installer when a new version is found, then prompt to restart & install. When off, only notify and require manual download.",
   "settings.updateSource": "Update Source",
-  "settings.updateSourceDesc": "Choose the network channel for checking and downloading updates. AtomGit is recommended for domestic acceleration, or you can switch to GitHub official channel.",
+  "settings.updateSourceDesc":
+    "Choose the network channel for checking and downloading updates. AtomGit is recommended for domestic acceleration, or you can switch to GitHub official channel.",
   "settings.updateSourceAtomGit": "AtomGit (Recommended)",
   "settings.updateSourceGithub": "GitHub Official",
   "settings.updateSourceCustom": "Custom mirror…",
-  "settings.updateSourceCustomHint": "Enter the mirror provider's URL prefix, e.g. https://ghfast.top",
+  "settings.updateSourceCustomHint":
+    "Enter the mirror provider's URL prefix, e.g. https://ghfast.top",
   "settings.updateSourceCustomInvalid": "URL must start with http(s)://",
-  "settings.updateSourceFeedOfficial": "Using the built-in GitHub official channel",
+  "settings.updateSourceFeedOfficial":
+    "Using the built-in GitHub official channel",
   "settings.updateSourceFeedPreview": "Current update source URL: {url}",
   "settings.updateMirrorChecking": "Checking mirror availability...",
   "settings.updateMirrorOk": "OK · {speed} KB/s · {latency} ms",
@@ -3429,36 +4041,47 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.updateMirrorRetest": "Re-check",
   "settings.updateDownloading": "Downloading v{version}...",
   "settings.updateInstalling": "Closing PiDeck to install v{version}...",
-  "settings.updateReadyToInstall": "v{version} downloaded. Ready to restart & install.",
+  "settings.updateReadyToInstall":
+    "v{version} downloaded. Ready to restart & install.",
   "settings.updateInstallFailed": "The installer did not start: {error}",
   "settings.updateInstallNow": "Restart & Install",
   "settings.updateDownloadNow": "Download Now",
   "settings.updateAvailable": "New version v{version} available",
-  "settings.updateManualAvailable": "New version v{version} available. Install it manually from the Release page.",
-  "settings.macManualUpdateDesc": "This macOS build is not signed with an Apple Developer ID, so PiDeck checks for updates and opens the Release page for manual installation.",
-  "settings.portableUpdateNotice": "In-app update for the portable build runs the NSIS setup and becomes an installed copy (Start Menu/desktop shortcuts; the data directory may change). To stay portable, download the portable build from GitHub Releases.",
+  "settings.updateManualAvailable":
+    "New version v{version} available. Install it manually from the Release page.",
+  "settings.macManualUpdateDesc":
+    "This macOS build is not signed with an Apple Developer ID, so PiDeck checks for updates and opens the Release page for manual installation.",
+  "settings.portableUpdateNotice":
+    "In-app update for the portable build runs the NSIS setup and becomes an installed copy (Start Menu/desktop shortcuts; the data directory may change). To stay portable, download the portable build from GitHub Releases.",
   "settings.portableUpdateOpenRelease": "Open GitHub for portable build",
-  "settings.updateGithubFailHint": "If GitHub is unreachable, switch Update source below to a mirror.",
+  "settings.updateGithubFailHint":
+    "If GitHub is unreachable, switch Update source below to a mirror.",
   "settings.updateUpToDate": "Up to date",
   "settings.updateErrorDetail": "Update failed: {error}",
   "settings.checkUpdateRetry": "Retry Check",
   "app.updateCardVersion": "PiDeck v{version}",
   "settings.updating": "Updating...",
   "settings.extensionsUpdate": "Extensions Update",
-  "settings.extensionsUpdateDesc": "Manage each extension's current/latest version and update individually in Extension Management.",
+  "settings.extensionsUpdateDesc":
+    "Manage each extension's current/latest version and update individually in Extension Management.",
   "settings.updateExtensions": "Update",
   "settings.updateExtensionsAll": "Update All Extensions",
   "settings.extensionsUpdateDone": "Extensions update command completed",
-  "settings.extensionsUpdating": "Running pi update --extensions --no-approve...",
-  "settings.extensionsUpdatingDesc": "Keep this window open during update. Full output appears here after completion.",
-  "settings.extensionsUpdateResultHint": "Full pi CLI output is preserved. If it only says Updated packages, the CLI did not return per-package details; close and refresh to confirm.",
+  "settings.extensionsUpdating":
+    "Running pi update --extensions --no-approve...",
+  "settings.extensionsUpdatingDesc":
+    "Keep this window open during update. Full output appears here after completion.",
+  "settings.extensionsUpdateResultHint":
+    "Full pi CLI output is preserved. If it only says Updated packages, the CLI did not return per-package details; close and refresh to confirm.",
   "settings.extensionsUpdateChecked": "Extensions update check completed",
   "settings.extensionsUpdateFailed": "Extensions update failed: {error}",
-  "settings.extensionsUpdateFailedGeneric": "Failed to update extensions. Try again later.",
+  "settings.extensionsUpdateFailedGeneric":
+    "Failed to update extensions. Try again later.",
   "settings.currentPath": "Current path: {path}",
   "settings.currentVersion": "Current version",
   "settings.dshRunnerNode": "DSH sandbox Node",
-  "settings.dshRunnerNodeDesc": "On Windows, the DSH sandbox needs Node 24 node.exe (console subsystem) so electron.exe does not flash a black window. You do not have to change PATH: keep Node 22/25 for other work. PiDeck looks in nvm / fnm / mise / Scoop, or can download a private copy from the app update source (AtomGit by default). It is not bundled in the installer.",
+  "settings.dshRunnerNodeDesc":
+    "On Windows, the DSH sandbox needs Node 24 node.exe (console subsystem) so electron.exe does not flash a black window. You do not have to change PATH: keep Node 22/25 for other work. PiDeck looks in nvm / fnm / mise / Scoop, or can download a private copy from the app update source (AtomGit by default). It is not bundled in the installer.",
   "settings.dshRunnerNodePlaceholder": "Leave empty to auto-detect Node 24",
   "settings.dshRunnerNodeSourcePath": "from PATH",
   "settings.dshRunnerNodeSourceConfigured": "manually configured",
@@ -3473,12 +4096,16 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.dshRunnerNodeVersion": "v{version}",
   "settings.dshRunnerNodeUseDetected": "Use detected Node 24",
   "settings.dshRunnerNodeInstall": "Download Node 24",
-  "settings.dshRunnerNodeInstalling": "Downloading Node 24 from the update source…",
-  "settings.dshRunnerNodeInstallOk": "Saved in the app data folder; system PATH is unchanged",
+  "settings.dshRunnerNodeInstalling":
+    "Downloading Node 24 from the update source…",
+  "settings.dshRunnerNodeInstallOk":
+    "Saved in the app data folder; system PATH is unchanged",
   "settings.dshRunnerNodeInstallFailed": "Download failed: {error}",
   "settings.dshRunnerNodeOpenDownload": "Open update-source asset page",
-  "settings.dshRunnerNodeCoexistHint": "PATH can stay on another Node. nvm/fnm users should pick node.exe inside a v24.x folder, not the current shim. One-click download uses the app update source (AtomGit/GitHub) and writes only to PiDeck’s data directory.",
-  "settings.dshRunnerNodeMissingHint": "Node 24 was not found. Download a private copy from the update source in Developer settings (PATH unchanged), or point to a local node.exe. Otherwise DSH sandbox commands may flash a black console.",
+  "settings.dshRunnerNodeCoexistHint":
+    "PATH can stay on another Node. nvm/fnm users should pick node.exe inside a v24.x folder, not the current shim. One-click download uses the app update source (AtomGit/GitHub) and writes only to PiDeck’s data directory.",
+  "settings.dshRunnerNodeMissingHint":
+    "Node 24 was not found. Download a private copy from the update source in Developer settings (PATH unchanged), or point to a local node.exe. Otherwise DSH sandbox commands may flash a black console.",
   "settings.dshRunnerNodeOpenSettings": "Open settings",
   "settings.customPiPath": "Custom pi path",
   "settings.customPiPathValid": "Validation passed: {version}",
@@ -3492,12 +4119,14 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.devToolsDesc":
     "Open DevTools to inspect console logs and debug issues",
   "settings.developerDiagnostics": "Performance diagnostics",
-  "settings.developerDiagnosticsDesc": "Record main-process memory, event-loop lag, and timings for session start / history load. Files go to the diagnostics folder in app data so you can trace freezes and memory growth. Off by default.",
+  "settings.developerDiagnosticsDesc":
+    "Record main-process memory, event-loop lag, and timings for session start / history load. Files go to the diagnostics folder in app data so you can trace freezes and memory growth. Off by default.",
   "settings.developerDiagnosticsOpenFolder": "Open diagnostics folder",
   "settings.developerDiagnosticsRefresh": "Refresh snapshot",
   "settings.developerDiagnosticsLag": "Event-loop lag {lag} ms (peak {max} ms)",
   "settings.developerDiagnosticsMemory": "Main RSS {rss} · heap {heap}",
-  "settings.developerDiagnosticsEmpty": "Turn this on, then refresh to see recent critical-path timings.",
+  "settings.developerDiagnosticsEmpty":
+    "Turn this on, then refresh to see recent critical-path timings.",
   "settings.detectFailed": "Check failed: {error}",
   "settings.detecting": "Checking...",
   "settings.detectEnvironment": "Check environment",
@@ -3505,55 +4134,78 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.enableNotifications":
     "Send system notifications when agents finish responding",
   "settings.askNotification": "Ask question notifications",
-  "settings.askNotificationDesc": "When an agent asks you a question, also send a system notification (default off; the in-app toast always shows)",
+  "settings.askNotificationDesc":
+    "When an agent asks you a question, also send a system notification (default off; the in-app toast always shows)",
   "settings.agentCountReminder": "Active agent count reminder",
-  "settings.agentCountReminderDesc": "When 15+ agents are active, remind at launch to close idle sessions and free memory",
+  "settings.agentCountReminderDesc":
+    "When 15+ agents are active, remind at launch to close idle sessions and free memory",
   "settings.announcementNotification": "Announcement notifications",
-  "settings.announcementNotificationDesc": "Show a toast when new announcements arrive (default on; auto-deferred while typing or a session is running). Turning off also hides the sidebar megaphone entry",
+  "settings.announcementNotificationDesc":
+    "Show a toast when new announcements arrive (default on; auto-deferred while typing or a session is running). Turning off also hides the sidebar megaphone entry",
   "settings.enablePiProxy": "Enable pi agent proxy",
-  "settings.enablePiProxyDesc": "When on, all pi sessions use the address below by default (takes effect after restarting the session). Save the address without enabling it to apply it per-session via the \u201CSession proxy\u201D context menu or the provider allowlist below",
+  "settings.enablePiProxyDesc":
+    "When on, all pi sessions use the address below by default (takes effect after restarting the session). Save the address without enabling it to apply it per-session via the \u201CSession proxy\u201D context menu or the provider allowlist below",
   "settings.piProxyModels": "Proxy by model",
-  "settings.piProxyModelsDesc": "Finer granularity than providers: when the allowlist is non-empty, only listed models are forced through the proxy (reusing the address above even if the global switch is off) and others are forced direct. Entries use provider/modelId. Leave empty to disable model filtering (fall back to provider allowlist / global settings).",
-  "settings.piProxyModelsHint": "Coexists with the provider allowlist: model list matches first, provider list is the fallback. New sessions match by model on their first request automatically.",
-  "settings.piProxyModelsEmpty": "No models available (configure models in Models or refresh)",
+  "settings.piProxyModelsDesc":
+    "Finer granularity than providers: when the allowlist is non-empty, only listed models are forced through the proxy (reusing the address above even if the global switch is off) and others are forced direct. Entries use provider/modelId. Leave empty to disable model filtering (fall back to provider allowlist / global settings).",
+  "settings.piProxyModelsHint":
+    "Coexists with the provider allowlist: model list matches first, provider list is the fallback. New sessions match by model on their first request automatically.",
+  "settings.piProxyModelsEmpty":
+    "No models available (configure models in Models or refresh)",
   "settings.piProxyModelsLoading": "Loading models…",
   "settings.piProxyModelsSelected": "{count} model(s) selected for proxy",
   "settings.piProxyModelsGroupSelected": "{count} selected in group",
-  "settings.piProxyModelsAllFollow": "No allowlist: all follow global / per-session settings",
+  "settings.piProxyModelsAllFollow":
+    "No allowlist: all follow global / per-session settings",
   "settings.piProxyModelsClear": "Clear",
   "settings.proxyProvider": "Provider",
   "settings.piProxyModelsSearch": "Search models (provider/ID or name)",
-  "settings.piProxyModelsSearchHint": "Search only filters the display; saved selection is unaffected. Checked models not matching still remain.",
-  "settings.piProxyModelsExtras": "Selected but not in the current list (model may have been removed/renamed)",
-"settings.piProxyModelsNoModelProviders": "Providers configured without models",
-"settings.piProxyModelsNoModelHint": "Add models via Pi Manager → Models to configure proxy for them",
+  "settings.piProxyModelsSearchHint":
+    "Search only filters the display; saved selection is unaffected. Checked models not matching still remain.",
+  "settings.piProxyModelsExtras":
+    "Selected but not in the current list (model may have been removed/renamed)",
+  "settings.piProxyModelsNoModelProviders":
+    "Providers configured without models",
+  "settings.piProxyModelsNoModelHint":
+    "Add models via Pi Manager → Models to configure proxy for them",
   "settings.enableWebService": "Enable Web service",
   "settings.environment": "Environment",
   "settings.foundPi": "Found {version}",
-  "settings.linkOpenModeDesc": "Use the system browser by default. The in-app window is useful for quick docs and web previews. When opening in-app, Ctrl+click (Cmd+click on macOS) a link to temporarily use the system browser.",
+  "settings.linkOpenModeDesc":
+    "Use the system browser by default. The in-app window is useful for quick docs and web previews. When opening in-app, Ctrl+click (Cmd+click on macOS) a link to temporarily use the system browser.",
   "settings.linkOpenMode": "Link open mode",
   "settings.linkOpenMode.external": "Default browser",
   "settings.linkOpenMode.internal": "In-app window",
   "settings.workspaceContentOpenMode": "File / Diff open mode",
-  "settings.expandInterimDuringStream": "Expand interim process while streaming",
-  "settings.expandInterimDuringStreamDesc": "On (default): thinking and tool details auto-expand while the latest turn streams. Off: keep them collapsed to save rendering resources; manually expanded turns are unaffected.",
-  "settings.collapsePrevRunsOnNewTurn": "Collapse previous turns on new message",
-  "settings.collapsePrevRunsOnNewTurnDesc": "Automatically collapses thinking/tool details of previous turns (including manually expanded ones) after sending a new message, reducing what is rendered at once.",
+  "settings.expandInterimDuringStream":
+    "Expand interim process while streaming",
+  "settings.expandInterimDuringStreamDesc":
+    "On (default): thinking and tool details auto-expand while the latest turn streams. Off: keep them collapsed to save rendering resources; manually expanded turns are unaffected.",
+  "settings.collapsePrevRunsOnNewTurn":
+    "Collapse previous turns on new message",
+  "settings.collapsePrevRunsOnNewTurnDesc":
+    "Automatically collapses thinking/tool details of previous turns (including manually expanded ones) after sending a new message, reducing what is rendered at once.",
   "settings.idleAgentSection": "Idle agent memory optimization",
-  "settings.idleAgentSectionDesc": "Idle agent processes still hold memory. When on, long-idle agents are released automatically and restart on next use.",
+  "settings.idleAgentSectionDesc":
+    "Idle agent processes still hold memory. When on, long-idle agents are released automatically and restart on next use.",
   "settings.idleAgentAutoRelease": "Auto-release idle agents",
-  "settings.idleAgentAutoReleaseDesc": "When off, idle agents stay resident in memory (keep on if you work with many sessions)",
+  "settings.idleAgentAutoReleaseDesc":
+    "When off, idle agents stay resident in memory (keep on if you work with many sessions)",
   "settings.idleAgentKeepCount": "Keep idle agents",
-  "settings.idleAgentKeepCountDesc": "Agents beyond this count that also meet the idle threshold are released, oldest-idle first (1-20)",
+  "settings.idleAgentKeepCountDesc":
+    "Agents beyond this count that also meet the idle threshold are released, oldest-idle first (1-20)",
   "settings.idleAgentCountUnit": "agents",
   "settings.idleAgentTimeoutMin": "Idle threshold",
-  "settings.idleAgentTimeoutMinDesc": "An agent is releasable only after being continuously idle for longer than this. The session you are currently viewing is never released even when idle (1-1440 min)",
+  "settings.idleAgentTimeoutMinDesc":
+    "An agent is releasable only after being continuously idle for longer than this. The session you are currently viewing is never released even when idle (1-1440 min)",
   "settings.idleAgentTimeoutUnit": "min",
-  "settings.workspaceContentOpenModeDesc": "When opening from the file tree or Git, default to a middle-pane split or fill the middle pane.",
+  "settings.workspaceContentOpenModeDesc":
+    "When opening from the file tree or Git, default to a middle-pane split or fill the middle pane.",
   "settings.workspaceContentOpenMode.split": "Split by default",
   "settings.workspaceContentOpenMode.maximize": "Fill middle pane by default",
   "settings.maxEditorFileSize": "Max editor file size (MB)",
-  "settings.maxEditorFileSizeDesc": "Files larger than this won't load the editor. Default 5MB",
+  "settings.maxEditorFileSizeDesc":
+    "Files larger than this won't load the editor. Default 5MB",
   "settings.localWebHint":
     "Local preview address. Replace with this computer's IP for LAN access.",
   "settings.nativeMenu": "Show native menu",
@@ -3567,13 +4219,16 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.openDataDirButton": "Open Folder",
   "settings.piCliAvailable": "Check whether pi CLI is available",
   "settings.piSection": "pi Environment",
-  "settings.piSectionDesc": "Check whether pi CLI is available and configure custom path",
+  "settings.piSectionDesc":
+    "Check whether pi CLI is available and configure custom path",
   "settings.piVersion": "pi Version",
   "settings.notDetected": "pi CLI not found",
   "settings.checkPi": "Check pi",
-  "settings.customPiPathDesc": "Supports quoted paths, double backslashes, and extensionless paths. The path is normalized and validated before saving.",
+  "settings.customPiPathDesc":
+    "Supports quoted paths, double backslashes, and extensionless paths. The path is normalized and validated before saving.",
   "settings.piSource.label": "Pi source",
-  "settings.piSource.desc": "Choose to use pi from Windows or from a WSL distribution.",
+  "settings.piSource.desc":
+    "Choose to use pi from Windows or from a WSL distribution.",
   "settings.piSource.windows": "Windows — use local pi",
   "settings.piSource.wsl": "WSL — use pi from WSL distro",
   "settings.wsl.distro": "WSL distro",
@@ -3583,18 +4238,22 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.wsl.validationOk": "User {user} is reachable in {distro}",
   "settings.wsl.piDetected": "pi CLI installed: {version}",
   "settings.wsl.piNotInstalled":
-    "pi CLI was not detected. If it came from nvm/fnm/volta or another version manager, set the absolute Linux path in \"Custom pi path\" below (e.g. /home/user/.nvm/versions/node/v22/bin/pi); otherwise run npm i -g @earendil-works/pi-coding-agent inside WSL",
+    'pi CLI was not detected. If it came from nvm/fnm/volta or another version manager, set the absolute Linux path in "Custom pi path" below (e.g. /home/user/.nvm/versions/node/v22/bin/pi); otherwise run npm i -g @earendil-works/pi-coding-agent inside WSL',
   "settings.wsl.piPath": "Resolved path: {path}",
-  "settings.wsl.apiUnavailable": "The WSL API is not ready. Restart PiDeck and try again.",
-  "settings.wsl.validationFailed": "Failed to validate the WSL connection. Try again later.",
+  "settings.wsl.apiUnavailable":
+    "The WSL API is not ready. Restart PiDeck and try again.",
+  "settings.wsl.validationFailed":
+    "Failed to validate the WSL connection. Try again later.",
   "settings.piUpdateSection": "Pi CLI Update",
-  "settings.piUpdateSectionDesc": "Check current/latest versions first, then update only when a newer version exists.",
+  "settings.piUpdateSectionDesc":
+    "Check current/latest versions first, then update only when a newer version exists.",
   "settings.piUpdateStatus": "Current: {current} · Latest: {latest}",
   "settings.piUpdateSuccess": "Pi updated successfully",
   "settings.devToolsSection": "Developer Tools",
   "settings.toggleDevTools": "Open/Close Developer Console",
   "settings.appUpdateSection": "App Update",
-  "settings.appUpdateSectionDesc": "Check if there is a new version of the desktop app",
+  "settings.appUpdateSectionDesc":
+    "Check if there is a new version of the desktop app",
   "settings.checkAppUpdate": "Check App Update",
   "settings.restartSection": "Restart App",
   "settings.piEnvironment": "pi environment",
@@ -3622,23 +4281,30 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.restartNotice":
     "Title bar changes take effect after restarting PiDeck.",
   "settings.rpcTimeout": "RPC timeout (seconds)",
-  "settings.rpcTimeoutDesc": "Maximum wait time for agent command execution. Default is 600 seconds (10 minutes), minimum is 600 seconds.",
+  "settings.rpcTimeoutDesc":
+    "Maximum wait time for agent command execution. Default is 600 seconds (10 minutes), minimum is 600 seconds.",
   "settings.unsavedTitle": "Unsaved Changes",
   "settings.updateInstallUnsavedTitle": "Unsaved Changes Before Installing",
-  "settings.updateInstallUnsavedMessage": "Restarting to install the update will close PiDeck. Save your changes first, or explicitly discard them.",
+  "settings.updateInstallUnsavedMessage":
+    "Restarting to install the update will close PiDeck. Save your changes first, or explicitly discard them.",
   "settings.saveAndInstall": "Save & Restart to Install",
   "settings.discardAndInstall": "Discard Changes & Install",
-  "settings.unsavedMessage": "You have unsaved changes. Do you want to save before closing?",
-  "settings.unsavedMessageDetail": "\"{item}\" in {tab} is unsaved. Save before closing?",
-  "settings.unsavedMessageMore": "\"{item}\" in {tab} and {count} unsaved changes in total. Save before closing?",
-  "settings.unsavedListIntro": "The following {count} items have unsaved changes:",
+  "settings.unsavedMessage":
+    "You have unsaved changes. Do you want to save before closing?",
+  "settings.unsavedMessageDetail":
+    '"{item}" in {tab} is unsaved. Save before closing?',
+  "settings.unsavedMessageMore":
+    '"{item}" in {tab} and {count} unsaved changes in total. Save before closing?',
+  "settings.unsavedListIntro":
+    "The following {count} items have unsaved changes:",
   "settings.unsavedUnknownItem": "Other options",
   "settings.saveAndClose": "Save & Close",
   "settings.discardChanges": "Discard Changes",
   "settings.dirtyTooltip": "This field has been modified, not saved yet",
   "settings.loadFailed": "Settings failed to load",
   "settings.renderCrashed": "Settings page render error",
-  "settings.renderCrashedHelp": "You can close this dialog and continue. Please share the console error so we can fix it.",
+  "settings.renderCrashedHelp":
+    "You can close this dialog and continue. Please share the console error so we can fix it.",
   "settings.sendShortcut.ctrl": "Ctrl/⌘ + Enter sends, Enter inserts a newline",
   "settings.inputShortcut": "Send shortcut",
   "settings.sendShortcut.enter":
@@ -3646,7 +4312,7 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.sendShortcut.shift": "Shift + Enter sends, Enter inserts a newline",
   "settings.defaultAgentBackend": "Default Agent Backend",
   "settings.defaultAgentBackendDesc":
-    "Backend used for new sessions (sidebar \"+\", home surface, parallel ask); existing sessions are unaffected.",
+    'Backend used for new sessions (sidebar "+", home surface, parallel ask); existing sessions are unaffected.',
   "settings.defaultAgentBackendPi": "pi (classic backend)",
   "settings.defaultAgentBackendDsh": "dsh (DeepSeek Harness)",
   "settings.defaultAgentBackendDshUnavailable": "dsh (backend not installed)",
@@ -3655,13 +4321,15 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.dshRuntimeBuiltin": "Bundled with the app (v{version})",
   "settings.dshRuntimeUnknown": "Ready",
   "settings.dshRuntimeUninstall": "Uninstall runtime",
-  "settings.dshRuntimeUninstallConfirm": "Uninstall the DSH runtime? DSH sessions will stop working until you download it again. The pi backend is unaffected.",
+  "settings.dshRuntimeUninstallConfirm":
+    "Uninstall the DSH runtime? DSH sessions will stop working until you download it again. The pi backend is unaffected.",
   "settings.dshRuntimeUninstalled": "DSH runtime uninstalled",
   "settings.busySendDelivery": "Send While Busy",
   "settings.busySendDeliveryDesc":
     "How messages are delivered when the agent is still responding; each queued item can still be switched individually from the queue panel above the composer.",
   "settings.busySendDeliverySteer": "Insert into current turn (deliver now)",
-  "settings.busySendDeliveryFollowUp": "Queue for next turn (send when the reply finishes)",
+  "settings.busySendDeliveryFollowUp":
+    "Queue for next turn (send when the reply finishes)",
   "settings.settingTakesEffectAfterRestart":
     "Changes take effect for newly created or restarted agents",
   "settings.showNativeMenu": "Show native menu",
@@ -3680,7 +4348,8 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.webServiceSectionDesc": "LAN access entry",
   "settings.webServiceHost": "Service host",
   "settings.webServicePort": "Service port",
-  "settings.enableWebServiceDesc": "Starts an HTTP service on this computer so devices on the LAN can access it by IP and port",
+  "settings.enableWebServiceDesc":
+    "Starts an HTTP service on this computer so devices on the LAN can access it by IP and port",
   "settings.openWebService": "Open Web Service",
   "settings.webLocalService": "LAN Web Service",
   "settings.webLocalServiceDesc":
@@ -3692,9 +4361,12 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.webNetworkLoading": "Detecting network adapters...",
   "settings.webNoNetworkAddress": "No usable local network address detected",
   "settings.webQrAlt": "PiDeck Web service QR code",
-  "settings.webQrScanHint": "Your phone and computer must be on the same local network",
-  "settings.webQrTokenHint": "LAN access requires a token; the QR link includes it automatically",
-  "settings.webQrUnavailable": "Unable to generate a QR code. Check the service port",
+  "settings.webQrScanHint":
+    "Your phone and computer must be on the same local network",
+  "settings.webQrTokenHint":
+    "LAN access requires a token; the QR link includes it automatically",
+  "settings.webQrUnavailable":
+    "Unable to generate a QR code. Check the service port",
   "settings.webQrEnableHint": "Enable Web Service to generate a QR code",
   "settings.webRestartService": "Restart Web Service",
   "settings.webRestarting": "Restarting Web Service...",
@@ -3765,22 +4437,32 @@ export const enUS: Record<TranslationKey, string> = {
   "agent.loading.compacting": "Compacting context",
   "agent.loading.waiting": "Processing",
   "agent.loading.aria": "Agent is working",
-  "message.editReloadPrompt": "The edit will be written to the session record and take effect immediately. Continue?",
+  "message.editReloadPrompt":
+    "The edit will be written to the session record and take effect immediately. Continue?",
   "message.editFailed": "Edit failed",
   "message.deleteTitle": "Delete Message",
-  "message.deleteReloadPrompt": "Deleting will remove this message from the session (following messages are kept). This cannot be undone. Continue?",
+  "message.deleteReloadPrompt":
+    "Deleting will remove this message from the session (following messages are kept). This cannot be undone. Continue?",
   "message.deleteFailed": "Delete failed",
   "message.resendFailed": "Resend failed",
-  "message.anonymousEditUnsupported": "Anonymous sessions don't persist records, so messages cannot be edited",
-  "message.anonymousDeleteUnsupported": "Anonymous sessions don't persist records, so messages cannot be deleted",
+  "message.anonymousEditUnsupported":
+    "Anonymous sessions don't persist records, so messages cannot be edited",
+  "message.anonymousDeleteUnsupported":
+    "Anonymous sessions don't persist records, so messages cannot be deleted",
   "message.historyStopToEditTitle": "Stop to edit",
-  "message.historyStopToEditBody": "This session is running. Editing will stop the agent, update the session file, and start again the next time you send a message.",
-  "message.historyStopToEditBodyIdle": "Editing will stop the agent, update the session file, and start again the next time you send a message.",
-  "message.historyStopToDeleteBody": "This session is running. Deleting will stop the agent, update the session file, and start again the next time you send a message.",
-  "message.historyStopToDeleteBodyIdle": "Deleting will stop the agent, update the session file, and start again the next time you send a message.",
+  "message.historyStopToEditBody":
+    "This session is running. Editing will stop the agent, update the session file, and start again the next time you send a message.",
+  "message.historyStopToEditBodyIdle":
+    "Editing will stop the agent, update the session file, and start again the next time you send a message.",
+  "message.historyStopToDeleteBody":
+    "This session is running. Deleting will stop the agent, update the session file, and start again the next time you send a message.",
+  "message.historyStopToDeleteBodyIdle":
+    "Deleting will stop the agent, update the session file, and start again the next time you send a message.",
   "message.historyStopToResendTitle": "Stop to resend",
-  "message.historyStopToResendBody": "This session is running. Resending will stop the agent, truncate later messages, then send this one again.",
-  "message.historyStopToResendBodyIdle": "Resending will stop the agent, truncate later messages, then send this one again.",
+  "message.historyStopToResendBody":
+    "This session is running. Resending will stop the agent, truncate later messages, then send this one again.",
+  "message.historyStopToResendBodyIdle":
+    "Resending will stop the agent, truncate later messages, then send this one again.",
   "message.historyOverlay.stopping": "Stopping agent…",
   "message.historyOverlay.mutating": "Updating session file…",
   "message.historyOverlay.reloading": "Reloading session…",
@@ -3822,7 +4504,8 @@ export const enUS: Record<TranslationKey, string> = {
   "tool.viewDiff": "View this diff",
   "editor.unsavedMarker": " · Unsaved",
   "timeline.loadFailed": "Session history failed to load",
-  "timeline.loadFailedHint": "Cannot read the session file; it may have been deleted or its path is stale. Retry, or check the session files under the project directory.",
+  "timeline.loadFailedHint":
+    "Cannot read the session file; it may have been deleted or its path is stale. Retry, or check the session files under the project directory.",
   "common.retry": "Retry",
   "timeline.loadingMore": "Loading...",
   "timeline.loadEarlierTurns": "Show {count} earlier turns",
@@ -3836,42 +4519,55 @@ export const enUS: Record<TranslationKey, string> = {
   "diagnostic.extensionErrorToastTitle": "Extension error",
   "diagnostic.retryToastTitle": "Auto retry",
   "health.check.pi.installed": "pi installation status",
-  "health.check.pi.installed.hint": "Checks whether pi is installed and reports a version. Sessions cannot start if pi is missing or the version cannot be read.",
+  "health.check.pi.installed.hint":
+    "Checks whether pi is installed and reports a version. Sessions cannot start if pi is missing or the version cannot be read.",
   "health.check.config.parsable": "pi config files parse",
-  "health.check.config.parsable.hint": "Checks whether models.json / auth.json / settings.json parse correctly. Corrupt config leads to an empty model list or sessions that fail to start.",
+  "health.check.config.parsable.hint":
+    "Checks whether models.json / auth.json / settings.json parse correctly. Corrupt config leads to an empty model list or sessions that fail to start.",
   "health.check.logs.errors": "Recent error density",
-  "health.check.logs.errors.hint": "Counts error/warn entries in the last 7 days to detect systematic failures.",
+  "health.check.logs.errors.hint":
+    "Counts error/warn entries in the last 7 days to detect systematic failures.",
   "health.check.disk.space": "Data disk free space",
-  "health.check.disk.space.hint": "Free space on the data directory disk. Low space causes session/log write failures and crashes.",
+  "health.check.disk.space.hint":
+    "Free space on the data directory disk. Low space causes session/log write failures and crashes.",
   "health.check.memory.rss": "Main process RSS",
-  "health.check.memory.rss.hint": "Main process RSS memory. High values usually indicate a leak or oversized session.",
+  "health.check.memory.rss.hint":
+    "Main process RSS memory. High values usually indicate a leak or oversized session.",
   "health.check.proxy.consistency": "Proxy config consistency",
-  "health.check.proxy.consistency.hint": "Enabling a proxy without an address makes all network requests fail.",
+  "health.check.proxy.consistency.hint":
+    "Enabling a proxy without an address makes all network requests fail.",
   "health.check.wsl.config": "WSL fallback config",
-  "health.check.wsl.config.hint": "On Windows, enabling WSL fallback without a distro means the fallback never takes effect.",
+  "health.check.wsl.config.hint":
+    "On Windows, enabling WSL fallback without a distro means the fallback never takes effect.",
   "health.check.instance.locks": "Instance lock state",
-  "health.check.instance.locks.hint": "Checks for leftover instance lock files. An interrupted upgrade in older versions left locks behind, making the app appear unresponsive on launch until the files under ~/.config/pi-desktop/instance-locks were removed.",
+  "health.check.instance.locks.hint":
+    "Checks for leftover instance lock files. An interrupted upgrade in older versions left locks behind, making the app appear unresponsive on launch until the files under ~/.config/pi-desktop/instance-locks were removed.",
   ...mainProcessEnUS,
   "update.openRelease": "Open Release",
   "update.viewInSettings": "View in Settings",
   "update.readyToInstallTitle": "Update Ready",
-  "update.readyToInstall": "PiDeck v{version} has been downloaded. Restart to install.",
+  "update.readyToInstall":
+    "PiDeck v{version} has been downloaded. Restart to install.",
   "update.installFailedTitle": "Update Installation Did Not Start",
   "update.installFailedDetail": "The installation did not start: {error}",
   "update.saveBeforeInstallTitle": "Save File Changes Before Installing",
-  "update.saveBeforeInstallDetail": "PiDeck could not save every open file change. Resolve the editor error, then try again.",
+  "update.saveBeforeInstallDetail":
+    "PiDeck could not save every open file change. Resolve the editor error, then try again.",
   "update.restartNow": "Restart & Install",
   "update.downloadFailedTitle": "Update Download Failed",
   "update.downloadFailedDetail": "Download failed: {error}",
   "update.availableToastTitle": "New Version Available",
-  "update.availableToast": "PiDeck v{version} is available. Download it in Settings.",
-  "update.availableManualToast": "PiDeck v{version} is available. Download and install it manually from the Release page.",
+  "update.availableToast":
+    "PiDeck v{version} is available. Download it in Settings.",
+  "update.availableManualToast":
+    "PiDeck v{version} is available. Download and install it manually from the Release page.",
   "update.dotMenuTitle": "Updates available",
   "update.dotMenuApp": "PiDeck v{version}",
   "update.dotMenuPi": "pi CLI v{version}",
   "update.dotMenuCatalog": "Model catalog v{version}",
   "update.dotHintTitle": "Updates available",
-  "update.dotHintBody": "The dot on the Settings button means updates are available (PiDeck app / pi CLI / model catalog).",
+  "update.dotHintBody":
+    "The dot on the Settings button means updates are available (PiDeck app / pi CLI / model catalog).",
   "update.dotHintAction": "View updates",
   "update.dotHintDismiss": "Got it",
   "feishu.link.connectedWithName": "Feishu: {name}",
@@ -3883,11 +4579,13 @@ export const enUS: Record<TranslationKey, string> = {
   "feishu.link.sessionNotConnected": "Not linked to this session",
   "feishu.link.globalOnline": "Online globally",
   "feishu.link.triggerConnectedTitle": "Session Feishu: {name}",
-  "feishu.link.triggerDisconnectedTitle": "This session is not linked to Feishu",
+  "feishu.link.triggerDisconnectedTitle":
+    "This session is not linked to Feishu",
   "feishu.link.ariaLabel": "Feishu link status",
   "feishu.link.popoverTitle": "Feishu bots",
   "feishu.link.disconnectSession": "Unlink",
-  "feishu.link.selectHint": "Choose a bot to create a chat and sync this session",
+  "feishu.link.selectHint":
+    "Choose a bot to create a chat and sync this session",
   "feishu.link.connectFailed": "Failed to connect Feishu bot",
   "feishu.link.bindFailed": "Failed to link this session to Feishu",
   "feishu.link.noActiveSession": "Open a session before linking Feishu",
@@ -3899,7 +4597,8 @@ export const enUS: Record<TranslationKey, string> = {
   "web.openProjects": "Open projects",
   "web.closeProjects": "Close projects",
   "web.deleteProject": "Remove project",
-  "web.deleteProjectConfirm": "This removes the project from the list without deleting files. Continue?",
+  "web.deleteProjectConfirm":
+    "This removes the project from the list without deleting files. Continue?",
   "web.projectPathPlaceholder": "Enter a project directory path",
   "web.createProject": "Add project",
   "web.model": "Model",
@@ -3911,13 +4610,16 @@ export const enUS: Record<TranslationKey, string> = {
   "web.connecting": "Connecting...",
   "web.promptPlaceholder": "Send a message to the current session",
   "web.composerHint": "Enter to send, Shift+Enter for a new line",
-  "web.emptySelection": "Type a message to start a new session automatically, or pick a project or an existing session from the sidebar.",
-  "web.sendNoProject": "No project available. Add a project directory from the sidebar first.",
+  "web.emptySelection":
+    "Type a message to start a new session automatically, or pick a project or an existing session from the sidebar.",
+  "web.sendNoProject":
+    "No project available. Add a project directory from the sidebar first.",
   "web.noMessages": "No messages",
   "web.noSessions": "No sessions in this project yet, tap + to create one",
   "web.moreSessions": "More sessions ({count})",
   "web.ungrouped": "Ungrouped",
-  "web.ungroupedHint": "Sessions that don't match any project (the project may have been removed, or the session has no project)",
+  "web.ungroupedHint":
+    "Sessions that don't match any project (the project may have been removed, or the session has no project)",
   "web.scrollToBottom": "Scroll to bottom",
   "web.streamFailed": "Stream failed",
   "session.view.chat": "Chat",
@@ -3926,8 +4628,10 @@ export const enUS: Record<TranslationKey, string> = {
   "session.trajectory.records": "{count} records",
   "session.trajectory.turn": "Turn {index}",
   "session.trajectory.empty": "No records in this range",
-  "session.trajectory.noSession": "Open a session to inspect its thinking trajectory",
-  "session.trajectory.inspectHint": "Select a record to inspect input, output, and timing",
+  "session.trajectory.noSession":
+    "Open a session to inspect its thinking trajectory",
+  "session.trajectory.inspectHint":
+    "Select a record to inspect input, output, and timing",
   "session.trajectory.inFlight": "In flight",
   "session.trajectory.durationUnknown": "—",
   "session.trajectory.clearRange": "Clear range",
@@ -3955,8 +4659,10 @@ export const enUS: Record<TranslationKey, string> = {
   "session.trajectory.kind.import": "Import",
   "session.trajectory.kind.retry": "Retry",
   "session.trajectory.kind.error": "Error",
-  "session.trajectory.systemPromptHint": "Pi does not persist the live system prompt in the session file. This shows the built-in pi-system reference for identity, tools, and guidelines.",
-  "session.trajectory.systemPromptHintDsh": "DSH assembles the system prompt at request time (persona + sections). This shows the real prompt of the latest request (same source as dsh-web).",
+  "session.trajectory.systemPromptHint":
+    "Pi does not persist the live system prompt in the session file. This shows the built-in pi-system reference for identity, tools, and guidelines.",
+  "session.trajectory.systemPromptHintDsh":
+    "DSH assembles the system prompt at request time (persona + sections). This shows the real prompt of the latest request (same source as dsh-web).",
   "session.trajectory.field.time": "Time",
   "session.trajectory.field.duration": "Duration",
   "session.trajectory.field.status": "Status",
@@ -3980,11 +4686,15 @@ export const enUS: Record<TranslationKey, string> = {
   "voice.stopAndTranscribe": "Stop and transcribe",
   "voice.cancel": "Cancel recording",
   "voice.transcribing": "Transcribing",
-  "voice.error.unsupported": "Voice recording is not supported in this environment",
-  "voice.error.permission": "Microphone access failed. Check system permissions.",
+  "voice.error.unsupported":
+    "Voice recording is not supported in this environment",
+  "voice.error.permission":
+    "Microphone access failed. Check system permissions.",
   "voice.error.recording": "Recording failed. Try again.",
-  "voice.error.invalidRequest": "The recording is empty, unsupported, or too large",
-  "voice.error.notConfigured": "Configure voice transcription in Common settings first",
+  "voice.error.invalidRequest":
+    "The recording is empty, unsupported, or too large",
+  "voice.error.notConfigured":
+    "Configure voice transcription in Common settings first",
   "voice.error.invalidKey": "The voice transcription API key is invalid",
   "voice.error.badBaseUrl": "The voice transcription service URL is incorrect",
   "voice.error.network": "Could not connect to the voice transcription service",
@@ -3992,16 +4702,19 @@ export const enUS: Record<TranslationKey, string> = {
   "voice.error.cancelled": "Voice transcription was cancelled",
   "voice.error.http": "The voice transcription service returned an error",
   "voice.error.empty": "The voice transcription service returned no text",
-  "voice.error.staleTarget": "The input changed, so the transcription was not inserted",
+  "voice.error.staleTarget":
+    "The input changed, so the transcription was not inserted",
   "voice.settings.title": "Voice input",
-  "voice.settings.description": "Configure an OpenAI-compatible /audio/transcriptions service. The API key is encrypted and remains in the main process.",
+  "voice.settings.description":
+    "Configure an OpenAI-compatible /audio/transcriptions service. The API key is encrypted and remains in the main process.",
   "voice.settings.baseUrl": "Base URL",
   "voice.settings.apiKey": "API key",
   "voice.settings.apiKeyConfigured": "Configured; leave blank to keep it",
   "voice.settings.apiKeyMissing": "Not configured",
   "voice.settings.model": "Model",
   "voice.settings.language": "Language",
-  "voice.settings.languageDescription": "Optional ISO-639-1 language code. Leave blank for automatic detection.",
+  "voice.settings.languageDescription":
+    "Optional ISO-639-1 language code. Leave blank for automatic detection.",
   "voice.settings.languagePlaceholder": "For example, zh or en",
   "voice.settings.actions": "Configuration actions",
   "voice.settings.save": "Save voice settings",
@@ -4009,12 +4722,15 @@ export const enUS: Record<TranslationKey, string> = {
   "voice.settings.saved": "Voice settings saved",
   "voice.settings.keyCleared": "Voice transcription API key cleared",
   "voice.settings.loadFailed": "Failed to load voice settings",
-  "voice.settings.error.invalidConfig": "Voice settings are invalid. Check the URL, model, and language.",
-  "voice.settings.error.secureStorageUnavailable": "Secure storage is unavailable, so a new API key cannot be saved",
+  "voice.settings.error.invalidConfig":
+    "Voice settings are invalid. Check the URL, model, and language.",
+  "voice.settings.error.secureStorageUnavailable":
+    "Secure storage is unavailable, so a new API key cannot be saved",
   "voice.settings.error.saveFailed": "Failed to save voice settings",
   "announcements.title": "Announcements",
   "announcements.empty": "No announcements",
-  "announcements.notFetched": "Announcements not fetched yet; they load automatically after startup",
+  "announcements.notFetched":
+    "Announcements not fetched yet; they load automatically after startup",
   "announcements.fetchedAt": "Last checked: {time}",
   "announcements.unreadBadge": "{count} unread announcements",
   "announcements.unreadAria": "Announcements, {count} unread",
@@ -4022,7 +4738,8 @@ export const enUS: Record<TranslationKey, string> = {
   "announcements.publishedAt": "Published: {time}",
   "announcements.toast.view": "View",
   "announcements.refresh": "Refresh",
-  "announcements.refreshFailed": "Failed to refresh announcements, please try again later",
+  "announcements.refreshFailed":
+    "Failed to refresh announcements, please try again later",
   "announcements.markAllRead": "Mark all read",
   "announcements.section.flash": "Quick notices",
   "announcements.section.notice": "Announcements",
@@ -4035,14 +4752,17 @@ export const enUS: Record<TranslationKey, string> = {
   "automation.allProjectsTitle": "Scheduled Tasks Across Projects",
   "automation.projectTitle": "Scheduled Tasks for {project}",
   "automation.subtitle": "Manage automated scheduled tasks and run history",
-  "automation.projectSubtitle": "Only this project's tasks and run history are shown",
+  "automation.projectSubtitle":
+    "Only this project's tasks and run history are shown",
   "automation.emptyTasks": "No scheduled tasks",
   "automation.emptyProjectTasks": "No scheduled tasks for this project",
-  "automation.emptyTasksDesc": "Create a task to automatically run prompts, tests, or inspections on a cron schedule",
+  "automation.emptyTasksDesc":
+    "Create a task to automatically run prompts, tests, or inspections on a cron schedule",
   "automation.createTask": "New Task",
   "automation.editTask": "Edit Task",
   "automation.deleteTask": "Delete Task",
-  "automation.deleteConfirm": "Are you sure you want to delete task \u201c{name}\u201d?",
+  "automation.deleteConfirm":
+    "Are you sure you want to delete task \u201c{name}\u201d?",
   "automation.name": "Task Name",
   "automation.namePlaceholder": "e.g., Daily Code Health Check",
   "automation.description": "Description (Optional)",
@@ -4050,7 +4770,8 @@ export const enUS: Record<TranslationKey, string> = {
   "automation.projectSelect": "Select project",
   "automation.scheduleType": "Schedule",
   "automation.cronExpression": "Cron Expression",
-  "automation.cronHelp": "Pick a frequency visually; custom mode accepts a 5-field cron (min hour day month dow)",
+  "automation.cronHelp":
+    "Pick a frequency visually; custom mode accepts a 5-field cron (min hour day month dow)",
   "automation.cronPreview": "Next Trigger",
   "automation.cronInvalid": "Invalid Cron expression",
   "automation.cronGenerated": "Generated expression",
@@ -4079,20 +4800,25 @@ export const enUS: Record<TranslationKey, string> = {
   "automation.cronPreset.every30m": "Every 30 minutes",
   "automation.cronPreset.midnight": "Every midnight",
   "automation.prompt": "Prompt",
-  "automation.promptPlaceholder": "Enter instructions or prompt to execute when triggered...",
+  "automation.promptPlaceholder":
+    "Enter instructions or prompt to execute when triggered...",
   "automation.model": "Model (Optional, defaults to project/global settings)",
   "automation.modelUnset": "Use project/global default model",
   "automation.thinkingLevel": "Thinking Level (Optional)",
   "automation.thinkingInherit": "Follow project/global",
   "automation.mode": "Working Mode",
   "automation.modeInherit": "Follow project/global",
-  "automation.modeHint": "Plan and goal modes require the built-in pi plan/goal extensions to be enabled. Goal mode keeps going unattended, so pair it with a budget cap.",
-  "automation.dshModeHint": "DSH only supports normal mode: plan/goal modes and thinking levels are pi built-in extensions and fall back to defaults under DSH.",
+  "automation.modeHint":
+    "Plan and goal modes require the built-in pi plan/goal extensions to be enabled. Goal mode keeps going unattended, so pair it with a budget cap.",
+  "automation.dshModeHint":
+    "DSH only supports normal mode: plan/goal modes and thinking levels are pi built-in extensions and fall back to defaults under DSH.",
   "automation.backend": "Runtime backend",
   "automation.backendPi": "pi (local coding assistant)",
   "automation.backendDsh": "DSH",
-  "automation.backendHint": "DSH tasks run in a DSH host process. Both backends share the project workspace and model config; each task record keeps its own session timeline.",
-  "automation.backendDshUnavailable": "DSH runtime is not ready. Install or repair it in Settings before saving.",
+  "automation.backendHint":
+    "DSH tasks run in a DSH host process. Both backends share the project workspace and model config; each task record keeps its own session timeline.",
+  "automation.backendDshUnavailable":
+    "DSH runtime is not ready. Install or repair it in Settings before saving.",
   "automation.enabled": "Enabled",
   "automation.disabled": "Paused",
   "automation.runNow": "Run Now",
@@ -4101,7 +4827,8 @@ export const enUS: Record<TranslationKey, string> = {
   "automation.historyTab": "Run History",
   "automation.historyEmpty": "No run history yet",
   "automation.clearHistory": "Clear history",
-  "automation.clearHistoryConfirm": "Clear all finished run records? In-progress runs will be kept. This cannot be undone.",
+  "automation.clearHistoryConfirm":
+    "Clear all finished run records? In-progress runs will be kept. This cannot be undone.",
   "automation.historyDeleted": "Deleted {count} history records",
   "automation.historyCleared": "Cleared {count} history records",
   "automation.tasksTab": "Tasks",
@@ -4149,4 +4876,3 @@ export const enUS: Record<TranslationKey, string> = {
   "automation.neverRun": "Never run",
   "automation.manualTrigger": "Manual trigger only",
 };
-
