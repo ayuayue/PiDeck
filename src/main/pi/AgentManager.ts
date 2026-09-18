@@ -8015,12 +8015,20 @@ export class AgentManager {
 	}
 
 	private emit(channel: string, payload: unknown) {
+		// 白名单外只通知主进程内部订阅（index.ts 桥、FeishuBridge、WebEventStream 等）
 		for (const listener of this.outputListeners) listener(channel, payload);
+		if (!DIRECT_EMIT_CHANNELS.has(channel)) return;
 		const window = this.getWindow();
 		if (!window || window.isDestroyed()) return;
 		window.webContents.send(channel, payload);
 	}
 }
+
+/** 直发渲染层（webContents.send）的通道白名单：preload 只订阅 agentsRpcLog
+ *  （src/preload/index.ts），其余 agents:* 通道渲染层经 sessions:runtime-envelope
+ *  （index.ts 桥）消费，直发只是无人接收的死流量（每 token 级事件 × 跨进程序列化）。
+ *  preload 新增订阅时必须同步此白名单（tests/agentManagerDirectEmitChannels.test.mjs 锁死一致性）。 */
+export const DIRECT_EMIT_CHANNELS: ReadonlySet<string> = new Set([ipcChannels.agentsRpcLog]);
 
 /** unknown → Record 收窄谓词（与 AnnouncementService.ts 同型）：
  *  RPC 事件负载形状不可信，统一经此谓词后再逐字段判型。 */
