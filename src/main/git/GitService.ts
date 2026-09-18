@@ -399,7 +399,7 @@ export class GitService {
 	async getStagedDiff(cwd: string, maxBytes = 100 * 1024): Promise<string> {
 		try {
 			// 先试暂存区 diff
-			let { stdout } = await execFileAsync(currentGitExecutable(), ["diff", "--staged", "--unified=3"], {
+			const { stdout } = await execFileAsync(currentGitExecutable(), ["diff", "--staged", "--unified=3"], {
 				cwd,
 				encoding: "utf8",
 				timeout: GIT_MUTATION_TIMEOUT_MS,
@@ -563,12 +563,14 @@ export class GitService {
 	/**
 	 * 获取任意两个 ref 之间单个文件的 diff 文本。
 	 * 复刻 VS Code 的 diffBetween(ref1, ref2, path)。
+	 * @param maxBytes 最大返回字符数（默认 5MB），超出截断并追加内联标记。
 	 */
 	async diffFileBetweenRefs(
 		cwd: string,
 		ref1: string,
 		ref2: string,
 		filePath: string,
+		maxBytes = 5 * 1024 * 1024,
 	): Promise<string> {
 		try {
 			const [leftHash, rightHash] = await Promise.all([
@@ -580,9 +582,14 @@ export class GitService {
 			const { stdout } = await execFileAsync(
 				currentGitExecutable(),
 				["diff", range, "--", filePath],
+				// maxBuffer 必须大于 maxBytes（同 getStagedDiff 惯例）：git 先完整输出，
+				// 截断在进程内做，防止大文件 diff（锁文件/打包产物，可达数十 MB）直达渲染层。
 				{ cwd, maxBuffer: 32 * 1024 * 1024 },
 			);
-			return stdout;
+			const limit = Math.max(1, Math.floor(maxBytes));
+			return stdout.length > limit
+				? stdout.slice(0, limit) + "\n\n... (diff truncated)"
+				: stdout;
 		} catch {
 			return "";
 		}

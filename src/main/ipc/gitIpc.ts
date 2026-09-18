@@ -520,7 +520,9 @@ export function registerGitIpc({
 		async (_event, projectId: string, ref1: string, ref2: string, filePath: string, repoPath?: string) => {
 			const cwd = findGitCwd(projectId, repoPath);
 			if (!cwd) return "";
-			return gitService.diffFileBetweenRefs(cwd, ref1, ref2, hostPath(filePath));
+			// 与 gitCommitFileDiff 同源上限：分支对比 diff 受 maxEditorFileSizeMB 约束
+			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+			return gitService.diffFileBetweenRefs(cwd, ref1, ref2, hostPath(filePath), maxBytes);
 		},
 	);
 
