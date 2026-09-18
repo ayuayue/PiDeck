@@ -464,3 +464,41 @@ test("vendorNodeModulesDir 缺省时跳过 vendored 复制（旧调用方兼容�
 		assert.ok(readVerifiedArtifact(overlayDir));
 	});
 });
+
+test("远端文件超限时流式中止并报 response too large（不整读进内存）", async () => {
+	await withFixture(async (fixture) => {
+		// 远端 pi-deck-todo.ts 内容变化 → 进入下载路径（否则 diff 为空不会拉取任何文件）
+		const base = makeNetwork(repoFilesOf(fixture, { "pi-deck-todo.ts": "export const todo = 2;\n" }));
+		let cancelCount = 0;
+		const fetchImpl = async (url, init) => {
+			// 扩展本体走流式 body：首块 3MB 即超 maxFileBytes(2MB)
+			if (url.includes("pi-deck-todo.ts") && !url.includes(EXTENSIONS_MANIFEST_FILE_NAME)) {
+				return {
+					ok: true,
+					status: 200,
+					body: {
+						getReader: () => ({
+							async read() {
+								return { done: false, value: Buffer.alloc(3 * 1024 * 1024) };
+							},
+							async cancel() {
+								cancelCount += 1;
+							},
+						}),
+					},
+				};
+			}
+			return base.fetchImpl(url, init);
+		};
+		const updater = new BuiltInExtensionsUpdater({
+			userDataDir: fixture.userDataDir,
+			builtinExtensionsDir: fixture.builtinDir,
+			fetchImpl,
+			branch: BRANCH,
+		});
+		const result = await updater.update();
+		assert.equal(result.ok, false);
+		assert.match(String(result.message ?? ""), /response too large/);
+		assert.ok(cancelCount >= 1, "超限后必须 cancel reader 断开连接");
+	});
+});

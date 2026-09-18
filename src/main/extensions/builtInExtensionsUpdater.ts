@@ -80,6 +80,18 @@ export const VENDOR_DEP_PACKAGE_NAMES = ["undici"] as const;
 
 type SourceEntry = { id: "atomgit" | "github"; url: string };
 
+/** 最小响应形状：支持流式 body（undici/Node fetch 必有）或整体 arrayBuffer（测试替身）。 */
+type ResponseBodyLike = {
+	getReader(): {
+		read(): Promise<{ done?: boolean; value?: Uint8Array }>;
+		cancel(): Promise<void>;
+	};
+};
+type ResponseLike = {
+	body?: ResponseBodyLike | null;
+	arrayBuffer?(): Promise<ArrayBuffer>;
+};
+
 /**
  * 解析 AtomGit OpenAPI contents 响应的 content 字段为原始字节。
  *
@@ -525,13 +537,56 @@ export class BuiltInExtensionsUpdater {
 				headers: { "user-agent": "PiDeck-extensions-updater" },
 			});
 			if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-			const buffer = Buffer.from(await response.arrayBuffer());
-			if (buffer.byteLength > maxBytes) {
-				throw new Error(`response too large (${buffer.byteLength} bytes) for ${url}`);
-			}
-			return buffer;
+			return await this.readBodyWithCap(response, maxBytes, controller, url);
 		} finally {
 			clearTimeout(timer);
 		}
+	}
+
+	/**
+	 * 流式读取响应体并按 maxBytes 提前中止：
+	 * - 有 body（undici ReadableStream）：增量累计，超限立刻 controller.abort() 断开连接 + reader.cancel()。
+	 * - 无 body（测试替身 / 受限运行时）：回落 arrayBuffer() 整读 + 事后校验（原行为）。
+	 * 用 getReader().read() 循环而非 for-await：本模块在测试经 vm 沙箱加载时，
+	 * 沙箱与宿主的 Symbol.asyncIterator 分属不同 realm，for-await 跨 realm 会静默失败。
+	 */
+	private async readBodyWithCap(
+		response: ResponseLike,
+		maxBytes: number,
+		controller: AbortController,
+		url: string,
+	): Promise<Buffer> {
+		const body = response.body;
+		if (body && typeof body.getReader === "function") {
+			const reader = body.getReader();
+			const chunks: Buffer[] = [];
+			let total = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (!value || typeof value.byteLength !== "number" || value.byteLength === 0) continue;
+				total += value.byteLength;
+				if (total > maxBytes) {
+					// 先 abort 断网再 cancel reader：宁可连接复位，也不把剩余字节拉进内存
+					controller.abort();
+					try {
+						await reader.cancel();
+					} catch {
+						// 连接已随 abort 关闭
+					}
+					throw new Error(`response too large (over ${maxBytes} bytes) for ${url}`);
+				}
+				chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+			}
+			return Buffer.concat(chunks);
+		}
+		if (typeof response.arrayBuffer !== "function") {
+			throw new Error(`response without readable body for ${url}`);
+		}
+		const buffer = Buffer.from(await response.arrayBuffer());
+		if (buffer.byteLength > maxBytes) {
+			throw new Error(`response too large (${buffer.byteLength} bytes) for ${url}`);
+		}
+		return buffer;
 	}
 }
