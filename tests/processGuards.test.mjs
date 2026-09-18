@@ -35,7 +35,10 @@ test("ci.yml 接入全部 check:* 守卫，且位于 npm ci 之后、Build 之�
  const guardStepIndex = ciYml.indexOf("Check generated artifacts drift");
  const npmCiIndex = ciYml.indexOf("run: npm ci");
  const buildIndex = ciYml.indexOf("run: npm run build");
- assert.ok(guardStepIndex >= 0, "ci.yml 缺少守卫步骤 Check generated artifacts drift");
+ assert.ok(
+  guardStepIndex >= 0,
+  "ci.yml 缺少守卫步骤 Check generated artifacts drift",
+ );
  assert.ok(
   guardStepIndex > npmCiIndex,
   "守卫步骤必须在 npm ci 之后（check 脚本可能依赖 node_modules）",

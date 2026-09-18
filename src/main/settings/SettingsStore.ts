@@ -413,10 +413,14 @@ export class SettingsStore {
    */
   private async readPersistedSettings(): Promise<Partial<AppSettings> | null> {
     try {
-      return JSON.parse(await readFile(this.filePath, "utf8")) as Partial<AppSettings>;
+      return JSON.parse(
+        await readFile(this.filePath, "utf8"),
+      ) as Partial<AppSettings>;
     } catch {
       try {
-        return JSON.parse(await readFile(`${this.filePath}.bak`, "utf8")) as Partial<AppSettings>;
+        return JSON.parse(
+          await readFile(`${this.filePath}.bak`, "utf8"),
+        ) as Partial<AppSettings>;
       } catch {
         return null;
       }
@@ -707,7 +711,9 @@ export class SettingsStore {
   private save(): Promise<void> {
     // 串行化：把每次写盘接到上一次之后，避免并发 update 的 writeFile 交叉撕裂
     //（迁移钩子的 fire-and-forget save 与 IPC 快速连续 update 会并发触发）。
-    const run = this.saveChain.catch(() => undefined).then(() => this.writeAtomic());
+    const run = this.saveChain
+      .catch(() => undefined)
+      .then(() => this.writeAtomic());
     this.saveChain = run;
     return run;
   }
@@ -724,7 +730,9 @@ export class SettingsStore {
     const { showThinking: _unused, ...persistable } = this.settings;
     const tmpPath = `${this.filePath}.tmp`;
     await writeFile(tmpPath, JSON.stringify(persistable, null, 2), "utf8");
-    await copyFile(this.filePath, `${this.filePath}.bak`).catch(() => undefined);
+    await copyFile(this.filePath, `${this.filePath}.bak`).catch(
+      () => undefined,
+    );
     await renameWithRetry(tmpPath, this.filePath);
   }
 

@@ -26,7 +26,8 @@ export function normalizeLocalFilePath(value: string): string | null {
 	if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1);
 
 	const withoutLocation = stripFileLocation(path);
-	const isWindowsPath = WINDOWS_DRIVE_PATH_RE.test(path) || WINDOWS_UNC_PATH_RE.test(path);
+	const isWindowsPath =
+		WINDOWS_DRIVE_PATH_RE.test(path) || WINDOWS_UNC_PATH_RE.test(path);
 	const isUnixPath = path.startsWith("/") && !path.startsWith("//");
 	const isRelativePath = RELATIVE_PATH_RE.test(path);
 	const isBareFileName =

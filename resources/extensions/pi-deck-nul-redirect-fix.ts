@@ -37,7 +37,10 @@
  * @packageDocumentation
  */
 
-import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	isToolCallEventType,
+	type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // 纯函数：命令字符串重写（不依赖 pi API，便于独立测试）

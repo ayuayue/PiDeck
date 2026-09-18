@@ -160,12 +160,20 @@ test("getStatus reports running shape and clears after stop", async () => {
 	});
 	// withManager 的 finally 已 stop；此处验证 stop 后的形状
 	const WebServiceManager = loadWebServiceManager();
-	const manager = new WebServiceManager({ subscribePiEvents: () => () => undefined });
+	const manager = new WebServiceManager({
+		subscribePiEvents: () => () => undefined,
+	});
 	await manager.start("127.0.0.1", 0);
 	await manager.stop();
 	// loadTsCommonJs 在独立 vm 域编译，对象原型不同，deepStrictEqual 按原型判等会误报，逐字段断言。
 	const stopped = manager.getStatus();
-	assert.deepEqual(Object.keys(stopped).sort(), ["host", "port", "requiresAuth", "running", "token"]);
+	assert.deepEqual(Object.keys(stopped).sort(), [
+		"host",
+		"port",
+		"requiresAuth",
+		"running",
+		"token",
+	]);
 	assert.equal(stopped.running, false);
 	assert.equal(stopped.host, "");
 	assert.equal(stopped.port, 0);
@@ -198,7 +206,9 @@ function loadWebApi(fetchImpl, windowStub) {
 		URLSearchParams,
 		window: windowStub,
 		require: () => {
-			throw new Error("webApi.ts should not need runtime requires (type-only imports)");
+			throw new Error(
+				"webApi.ts should not need runtime requires (type-only imports)",
+			);
 		},
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: "webApi.ts" });

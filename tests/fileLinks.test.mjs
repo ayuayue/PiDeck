@@ -5,8 +5,12 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 // 迁自 tests/file-links.test.ts（该文件从未被 npm test 的 *.test.mjs glob 执行）。
 // 关键修正：经 loadTsCommonJs 直接加载生产模块 src/renderer/src/utils/fileLinks.ts，
 // 不再复制函数副本；fileLinks.ts 本身是零依赖纯函数模块，无需 stub。
-const { filePathFromHref, normalizeLocalFilePath, stripFileLocation, toInternalFileHref } =
- loadTsCommonJs("src/renderer/src/utils/fileLinks.ts");
+const {
+ filePathFromHref,
+ normalizeLocalFilePath,
+ stripFileLocation,
+ toInternalFileHref,
+} = loadTsCommonJs("src/renderer/src/utils/fileLinks.ts");
 
 test("本地文件目标可规范化并往返 href", () => {
  const localTargets = [
@@ -39,15 +43,28 @@ test("外部目标一律拒绝", () => {
   "//example.com/docs/file.md",
  ];
  for (const target of externalTargets) {
-  assert.equal(normalizeLocalFilePath(target), null, `expected external target: ${target}`);
+  assert.equal(
+   normalizeLocalFilePath(target),
+   null,
+   `expected external target: ${target}`,
+  );
   assert.equal(toInternalFileHref(target), null);
  }
 });
 
 test("行号剥离与 href 解码", () => {
- assert.equal(normalizeLocalFilePath("/C:/Users/Test/file.ts:9"), "C:/Users/Test/file.ts:9");
- assert.equal(stripFileLocation("C:/Users/Test/file.ts:9:3"), "C:/Users/Test/file.ts");
- assert.equal(stripFileLocation("C:/Users/Test/file.ts"), "C:/Users/Test/file.ts");
+ assert.equal(
+  normalizeLocalFilePath("/C:/Users/Test/file.ts:9"),
+  "C:/Users/Test/file.ts:9",
+ );
+ assert.equal(
+  stripFileLocation("C:/Users/Test/file.ts:9:3"),
+  "C:/Users/Test/file.ts",
+ );
+ assert.equal(
+  stripFileLocation("C:/Users/Test/file.ts"),
+  "C:/Users/Test/file.ts",
+ );
  assert.equal(
   filePathFromHref("file://C%3A%2FUsers%2FTest%2FMy%20File.ts%3A9"),
   "C:/Users/Test/My File.ts:9",
