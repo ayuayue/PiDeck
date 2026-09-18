@@ -4950,7 +4950,10 @@ export class AgentManager {
 
 		if (typed.type === "message_start" && typed.message?.role === "assistant") {
 			// abort 封印后的残留 assistant 事件应丢弃，防止误重新激活流式状态。
-			if (this.isAgentStreamSealed(agentId)) {
+			// stop()/关闭路径已 agents.delete + clearStreamGate（封印随之删除），
+			// 死 agentId 的封印恒为「未封」；runtime 缺失即拒绝——迟到 delta 不得
+			// 为死 agentId 重建 messages/streamingText 键并外发死 agent 事件。
+			if (!runtime || this.isAgentStreamSealed(agentId)) {
 				return;
 			}
 			this.beginAssistantMessage(agentId);
@@ -5240,7 +5243,7 @@ export class AgentManager {
 			typed.assistantMessageEvent
 		) {
 			// abort 封印后的延迟 text/thinking delta 一律丢弃，避免重建气泡或串台。
-			if (this.isAgentStreamSealed(agentId)) {
+			if (!runtime || this.isAgentStreamSealed(agentId)) {
 				return;
 			}
 			this.handleAssistantMessageEvent(agentId, typed);
@@ -5250,7 +5253,8 @@ export class AgentManager {
 			typed.type === "message_end" &&
 			typed.message?.role === "assistant"
 		) {
-			if (this.isAgentStreamSealed(agentId)) {
+			// stop() 后 runtime 已删：迟到 message_end 不得为死 agentId 重建状态。
+			if (!runtime || this.isAgentStreamSealed(agentId)) {
 				return;
 			}
 			if (this.activeAssistantMessageIds.has(agentId)) {
@@ -5279,7 +5283,7 @@ export class AgentManager {
 
 		if (typed.type === "tool_execution_start") {
 			// abort 封印后的延迟工具事件应丢弃，避免重新激活流式状态。
-			if (this.isAgentStreamSealed(agentId)) {
+			if (!runtime || this.isAgentStreamSealed(agentId)) {
 				return;
 			}
 			// 新工具轮次开始：上一个 ask 的等待累计若未被其 end 事件消耗（如 abort 封印），
@@ -5305,7 +5309,7 @@ export class AgentManager {
 
 		if (typed.type === "tool_execution_end") {
 			// abort 封印后的延迟工具事件应丢弃。
-			if (this.isAgentStreamSealed(agentId)) {
+			if (!runtime || this.isAgentStreamSealed(agentId)) {
 				return;
 			}
 			this.upsertToolMessage(
@@ -5345,7 +5349,7 @@ export class AgentManager {
 
 		if (typed.type === "tool_execution_update") {
 			// abort 封印后的延迟工具事件应丢弃。
-			if (this.isAgentStreamSealed(agentId)) {
+			if (!runtime || this.isAgentStreamSealed(agentId)) {
 				return;
 			}
 			this.upsertToolMessage(agentId, typed, "running");
