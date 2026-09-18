@@ -203,8 +203,6 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
     sessionDurationByAgent: services.sessionDurationByAgent,
     activeProjectId: services.activeProjectId,
     showNotice: services.showNotice,
-    // 后台 Ask toast 的「前往会话」：由 App 级 focusAskSessionById 解析 record 并登记 Tab
-    onFocusSession: services.focusAskSessionById,
   });
 
   const activeAgent = runtime.activeAgentId

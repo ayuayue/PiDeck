@@ -5,8 +5,6 @@ import type { AgentTab, SessionRecord, SessionRuntimeTarget } from "../../../sha
 import {
   currentSessionIdAtom,
   currentSessionRuntimeAtom,
-  sessionRecordsAtom,
-  sessionRuntimeUiByIdAtom,
 } from "../atoms/session-atoms";
 import {
   sessionRecordByIdAtomFamily,
@@ -21,14 +19,9 @@ import {
 } from "../utils/sessionCommands";
 import { isUserFacingSessionStart } from "./useSessionTimelineController";
 import type { QueuedPrompt } from "./useQueuedPrompt";
-import { t } from "../i18n";
-import { dismissNotice, type NoticeActions, type NoticeId } from "../utils/notice";
+import { type NoticeActions, type NoticeId } from "../utils/notice";
 import {
-  describeBackgroundAsk,
-  forgetBackgroundAsk,
-  getRememberedBackgroundAskKeys,
   getRuntimeNotificationKey,
-  rememberBackgroundAsk,
   rememberRuntimeNotification,
 } from "../utils/runtimeNotification";
 
@@ -38,9 +31,6 @@ export const activeAgentIdAtom = selectAtom(
   currentSessionRuntimeAtom,
   (rt) => rt?.agentId,
 );
-
-// Ask 提醒的 Toast 句柄跨 Tab 生命周期存在，不能放在单个 hook 实例的 ref 中。
-const backgroundAskNoticeIdMap = new Map<string, NoticeId>();
 
 // ── types ──
 
@@ -84,8 +74,6 @@ export interface UseSessionRuntimeControllerOptions {
     title?: string,
     actions?: NoticeActions,
   ) => NoticeId | undefined;
-  /** Ask 提醒的「前往会话」动作：跳转到等待回答的会话（渲染层提供，不依赖主进程）。 */
-  onFocusSession?: (sessionId: string) => void;
 }
 
 const idleSendState = { status: "idle" as const };
@@ -106,12 +94,10 @@ export function useSessionRuntimeController(
     sessionDurationByAgent,
     activeProjectId,
     showNotice,
-    onFocusSession,
   } = options;
 
   const focusedSessionId = useAtomValue(currentSessionIdAtom);
   const currentSessionId = boundSessionIdOption ?? focusedSessionId;
-  const isFocusedPane = currentSessionId === focusedSessionId;
   const sessionKey = currentSessionId ?? "";
 
   const recordAtom = useMemo(() => sessionRecordByIdAtomFamily(sessionKey), [sessionKey]);
@@ -131,9 +117,6 @@ export function useSessionRuntimeController(
   const currentSessionRuntime = useAtomValue(runtimeAtom);
   const currentSessionRuntimeUi = useAtomValue(runtimeUiAtom);
   const currentSessionSendState = useAtomValue(sendAtom);
-
-  const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
-  const sessionRecords = useAtomValue(sessionRecordsAtom);
 
   const activeAgentId = currentSessionRuntime?.agentId;
   const runtimeTarget =
@@ -230,51 +213,6 @@ export function useSessionRuntimeController(
       notification.notifyType,
     );
   }, [currentSessionId, currentSessionRuntimeUi, showNotice]);
-
-  useEffect(() => {
-    if (!isFocusedPane) return;
-    const activeBackgroundKeys = new Set<string>();
-    const pendingAskKeys = new Set<string>();
-    for (const [sessionId, runtimeUi] of Object.entries(sessionRuntimeUiById)) {
-      const pendingAsk = Object.values(runtimeUi.requests).find(({ request, status }) =>
-        (status === "pending" || status === "responding") &&
-        ["select", "confirm", "input", "editor", "batch_ask"].includes(request.method),
-      );
-      if (!pendingAsk) continue;
-
-      const key = `${sessionId}:${runtimeUi.runtimeGeneration}:${pendingAsk.request.requestId}`;
-      pendingAskKeys.add(key);
-      // 不按聚焦会话过滤：任何会话的 Ask（含当前 Tab）都弹 toast 提醒
-      activeBackgroundKeys.add(key);
-      if (!rememberBackgroundAsk(key)) continue;
-      const display = describeBackgroundAsk({
-        sessionName: sessionRecords[sessionId]?.title,
-        requestTitle: pendingAsk.request.title,
-        defaultSessionName: t("ask.defaultTitle"),
-      });
-      const message = display.question
-        ? t("ask.backgroundPendingDetail", { title: display.sessionName, question: display.question })
-        : t("ask.backgroundPending", { title: display.sessionName });
-      const noticeId = showNotice(message, Number.POSITIVE_INFINITY, "warning", undefined, {
-        action: onFocusSession
-          ? { label: t("ask.jumpToSession"), onClick: () => onFocusSession(sessionId) }
-          : undefined,
-      });
-      if (noticeId !== undefined) backgroundAskNoticeIdMap.set(key, noticeId);
-    }
-
-    // 仅当 Ask 不再 pending（已回答/取消）时撤掉对应浮层；通知 key 保留到 Ask 真正完成，避免来回切换反复弹出。
-    for (const [key, noticeId] of backgroundAskNoticeIdMap) {
-      if (activeBackgroundKeys.has(key)) continue;
-      dismissNotice(noticeId);
-      backgroundAskNoticeIdMap.delete(key);
-    }
-
-    // 只有请求已经回答/取消，才回收去重 key；切换焦点不算 Ask 生命周期结束。
-    for (const key of getRememberedBackgroundAskKeys()) {
-      if (!pendingAskKeys.has(key)) forgetBackgroundAsk(key);
-    }
-  }, [focusedSessionId, isFocusedPane, sessionRecords, sessionRuntimeUiById, showNotice, onFocusSession]);
 
   return {
     currentSessionId,

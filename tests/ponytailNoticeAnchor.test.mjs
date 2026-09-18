@@ -33,7 +33,12 @@ test("通知统一走 sonner 全局 toast（不再有 app-notice 锚点浮层）
   assert.match(notice, /from "sonner"/);
   assert.match(notice, /toast\.custom/);
   assert.match(notice, /duration \?\? .*1500/);
-  assert.match(runtimeController, /backgroundPending/);
+  // M7：后台 Ask 巡检 effect 已搬到 App 级单点挂载的 useBackgroundAskPatrol
+  const askPatrol = readFileSync(
+    "src/renderer/src/hooks/useBackgroundAskPatrol.ts",
+    "utf8",
+  );
+  assert.match(askPatrol, /backgroundPending/);
   assert.match(runtimeController, /Number\.POSITIVE_INFINITY/);
 
   // Toaster 使用官方右上角布局；关闭/复制按钮由自定义卡片渲染（NoticeToastCard）

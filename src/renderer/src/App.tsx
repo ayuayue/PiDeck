@@ -84,6 +84,7 @@ import { useSessionRuntimeBridge } from "./hooks/useSessionRuntimeBridge";
 import { useAgentLoadNotice } from "./hooks/useAgentLoadNotice";
 import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
 import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
+import { useBackgroundAskPatrol } from "./hooks/useBackgroundAskPatrol";
 import {
   announcementCenterOpenAtom,
   announcementNotificationEnabledAtom,
@@ -3865,6 +3866,9 @@ export function App() {
     },
     [selectSessionCommand, store, workspaceChrome],
   );
+
+  // M7：后台 Ask 巡检全应用单点挂载（原寄生在每栏 runtime 控制器，全局订阅拖垮分屏）
+  useBackgroundAskPatrol({ onFocusSession: jumpToAskSession });
 
   // 切会话过渡：会话区整体做一次 160ms 淡入+微位移（Web Animations API，
   // 不卸载树/不动布局，避免整树重建的卡顿与瞬间替换的生硬）；

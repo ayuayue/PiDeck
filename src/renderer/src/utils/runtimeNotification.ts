@@ -8,6 +8,7 @@ const MAX_SEEN_RUNTIME_NOTIFICATIONS = 200;
 const seenBackgroundAskKeys = new Set<string>();
 
 import { formatAskTitle } from "./askUi";
+import type { SessionRuntimeUiState } from "../atoms/session-atoms";
 
 export function getRuntimeNotificationKey(
   sessionId: string,
@@ -74,4 +75,40 @@ export function describeBackgroundAsk(input: {
   const sessionName = input.sessionName?.trim() || input.defaultSessionName;
   const question = input.requestTitle ? formatAskTitle(input.requestTitle) || undefined : undefined;
   return { sessionName, question };
+}
+
+/** 后台 Ask 巡检筛出的一条待提醒 Ask（M7：纯收集逻辑，供单点挂载的巡检 hook 消费）。 */
+export type PendingBackgroundAsk = {
+  /** 与 rememberBackgroundAsk 去重集合同格：sessionId:runtimeGeneration:requestId */
+  key: string;
+  sessionId: string;
+  requestTitle: string | undefined;
+};
+
+/** 仅这些 extension_ui 方法算「Ask」（与原巡检 effect 的白名单一致）。 */
+const BACKGROUND_ASK_METHODS = ["select", "confirm", "input", "editor", "batch_ask"];
+
+/**
+ * 从全局 runtimeUi 快照筛出所有待提醒的 Ask（pending/responding × Ask 方法）。
+ * 纯函数、不依赖 React/i18n，巡检 hook 只负责 toast 去重与展示。
+ */
+export function collectPendingBackgroundAsks(
+  sessionRuntimeUiById: Record<string, SessionRuntimeUiState>,
+): PendingBackgroundAsk[] {
+  const result: PendingBackgroundAsk[] = [];
+  for (const [sessionId, runtimeUi] of Object.entries(sessionRuntimeUiById)) {
+    for (const { request, status } of Object.values(runtimeUi.requests)) {
+      if (
+        (status === "pending" || status === "responding") &&
+        BACKGROUND_ASK_METHODS.includes(request.method)
+      ) {
+        result.push({
+          key: `${sessionId}:${runtimeUi.runtimeGeneration}:${request.requestId}`,
+          sessionId,
+          requestTitle: request.title,
+        });
+      }
+    }
+  }
+  return result;
 }
