@@ -41,16 +41,18 @@ import {
   effectiveAgentBackendAtom,
   imageGenConfigAtom,
   projectByIdAtomFamily,
-  sessionAttachmentsByIdAtom,
-  sessionComposerModeByIdAtom,
+  sessionAttachmentsBySessionIdAtomFamily,
+  sessionComposerModeBySessionIdAtomFamily,
   sessionDraftByIdAtom,
+  sessionDraftBySessionIdAtomFamily,
+  sessionMessageCacheBySessionIdAtomFamily,
   sessionMessagesCacheAtom,
-  sessionPasteFilesByIdAtom,
+  sessionPasteFilesBySessionIdAtomFamily,
   sessionRecordByIdAtomFamily,
   sessionRuntimeBySessionIdAtomFamily,
   sessionRuntimeUiBySessionIdAtomFamily,
-  sessionQuotesByIdAtom,
-  sessionSendStateByIdAtom,
+  sessionQuotesBySessionIdAtomFamily,
+  sessionSendStateBySessionIdAtomFamily,
   sessionSummariesByProjectIdAtomFamily,
   setSessionAttachmentsAtom,
   setSessionComposerModeAtom,
@@ -358,12 +360,33 @@ export function useSessionComposerController(
   const projectSessions = useAtomValue(
     sessionSummariesByProjectIdAtomFamily(effectiveProjectId ?? ""),
   );
-  const drafts = useAtomValue(sessionDraftByIdAtom);
-  const attachmentsBySession = useAtomValue(sessionAttachmentsByIdAtom);
-  const pasteFilesBySession = useAtomValue(sessionPasteFilesByIdAtom);
-  const modes = useAtomValue(sessionComposerModeByIdAtom);
-  const sendStates = useAtomValue(sessionSendStateByIdAtom);
-  const messageCache = useAtomValue(sessionMessagesCacheAtom);
+  // H6：按 sessionId 隔离订阅——分屏时一栏打字/流式不再牵连其他栏重渲染。
+  // atomFamily 本身按 sessionId 记忆化，useMemo 再固定一次引用。
+  const draftAtom = useMemo(() => sessionDraftBySessionIdAtomFamily(sessionId), [sessionId]);
+  const attachmentsAtom = useMemo(
+    () => sessionAttachmentsBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
+  const pasteFilesAtom = useMemo(
+    () => sessionPasteFilesBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
+  const modeAtom = useMemo(() => sessionComposerModeBySessionIdAtomFamily(sessionId), [sessionId]);
+  const sendStateAtom = useMemo(
+    () => sessionSendStateBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
+  const messageCacheAtom = useMemo(
+    () => sessionMessageCacheBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
+  const quotesAtom = useMemo(() => sessionQuotesBySessionIdAtomFamily(sessionId), [sessionId]);
+  const draft = useAtomValue(draftAtom);
+  const attachments = useAtomValue(attachmentsAtom);
+  const pasteFiles = useAtomValue(pasteFilesAtom);
+  const localMode = useAtomValue(modeAtom);
+  const sendState = useAtomValue(sendStateAtom);
+  const messageCache = useAtomValue(messageCacheAtom);
   const imageGenConfig = useAtomValue(imageGenConfigAtom);
   const setImageGenConfig = useSetAtom(imageGenConfigAtom);
   const setDraftAtom = useSetAtom(setSessionDraftAtom);
@@ -373,9 +396,6 @@ export function useSessionComposerController(
   const setSendStateAtom = useSetAtom(setSessionSendStateAtom);
   const setCacheMessages = useSetAtom(cacheSessionMessagesAtom);
 
-  const draft = drafts[sessionId] ?? "";
-  const attachments = attachmentsBySession[sessionId] ?? [];
-  const pasteFiles = pasteFilesBySession[sessionId] ?? [];
   // DSH：plan 由 host 持有；goal 由本地选择或进行中/阻塞的目标驱动（切回普通会 pause）。
   // 生图为独立供应商配置，不属于 pi/dsh 任一后端，两种后端均可用。
   // 引导页虚拟会话的后端显式选择：无 record、不落 catalog，后端切换走
@@ -390,7 +410,7 @@ export function useSessionComposerController(
     record?.backend === "dsh" ||
     runtime?.backend === "dsh" ||
     (isGuideBootstrapSession && guideBackendOverride === "dsh");
-  const hasImageGenHistory = (messageCache[sessionId]?.messages ?? []).some(
+  const hasImageGenHistory = (messageCache?.messages ?? []).some(
     (message) => Boolean(message.meta?.imageGen),
   );
   // 生图供应商/模型来自独立 imagegen.json，与会话 LLM 模型无关。
@@ -400,11 +420,10 @@ export function useSessionComposerController(
     ? "imagegen"
     : deriveComposerAgentMode({
     backend: isDshBackend ? "dsh" : "pi",
-    localMode: modes[sessionId],
+    localMode: localMode,
     planModeActive: runtime?.state?.planModeActive === true,
     goalPhase: runtime?.state?.goal?.phase,
   });
-  const sendState = sendStates[sessionId] ?? { status: "idle" as const };
   // DSH 部署默认模型选择（settings.yaml agent-default-model）：草稿/未激活会话
   // 的底栏与选择器用它展示默认模型/思考档位（host 会话创建前没有 runtime state）。
   // settings.yaml 未配 reasoningEffort 时，回退到默认模型自身的 defaultEffort
@@ -865,14 +884,13 @@ export function useSessionComposerController(
   );
   // 引用 chip 白名单：id → 截断后的快照预览 label；无快照时返回 undefined，
   // 解析器直接跳过引用分支（零开销快速路径）
-  const sessionQuotes = useAtomValue(sessionQuotesByIdAtom);
+  const sessionQuotes = useAtomValue(quotesAtom);
   const validQuotes = useMemo(() => {
-    const map = sessionQuotes[sessionId];
-    if (!map) return undefined;
-    const entries = Object.entries(map);
+    if (!sessionQuotes) return undefined;
+    const entries = Object.entries(sessionQuotes);
     if (entries.length === 0) return undefined;
     return new Map(entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]));
-  }, [sessionQuotes, sessionId]);
+  }, [sessionQuotes]);
   const suggestionItems = useMemo(
     () => suggestionsOpen
       ? buildSuggestionItems(draft, cursor, commands, flatFiles, projectSessions)

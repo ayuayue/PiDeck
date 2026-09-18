@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { atomFamily, selectAtom } from "jotai/utils";
 import type { ComposerAgentMode, ImageContent } from "../../../shared/types";
 import type { ModelPending } from "../utils/modelPendingDisplay";
 import type { QuoteSnippet } from "../components/session/composer/quoteChip";
@@ -47,6 +48,34 @@ export const sessionSendStateByIdAtom = atom<Record<string, SessionSendState>>({
  * 本轮结束后再套到 Agent。新加、不在启动快照里的模型不走这里，走重启确认。
  */
 export const modelPendingByIdAtom = atom<Record<string, ModelPending | undefined>>({});
+
+// —— 按 sessionId 隔离的订阅族（H6）——
+// 分屏每栏 Composer 只订本栏会话的切片：写别的会话不再重建本栏的 Map 订阅。
+// 默认值必须是模块级稳定常量——字面量 [] 每次重算都是新数组，Object.is 恒
+// 不等，隔离失效。与 session-atoms.ts 的 sessionMessageCacheBySessionIdAtomFamily
+// 同构（timeline 域 2026-10 同类修复的既有模式）。
+const EMPTY_ATTACHMENTS: ImageContent[] = [];
+const EMPTY_PASTE_FILES: PastedTextFile[] = [];
+export const idleSessionSendState: SessionSendState = { status: "idle" };
+
+export const sessionDraftBySessionIdAtomFamily = atomFamily((sessionId: string) =>
+  selectAtom(sessionDraftByIdAtom, (byId) => byId[sessionId] ?? "", Object.is),
+);
+export const sessionAttachmentsBySessionIdAtomFamily = atomFamily((sessionId: string) =>
+  selectAtom(sessionAttachmentsByIdAtom, (byId) => byId[sessionId] ?? EMPTY_ATTACHMENTS, Object.is),
+);
+export const sessionPasteFilesBySessionIdAtomFamily = atomFamily((sessionId: string) =>
+  selectAtom(sessionPasteFilesByIdAtom, (byId) => byId[sessionId] ?? EMPTY_PASTE_FILES, Object.is),
+);
+export const sessionQuotesBySessionIdAtomFamily = atomFamily((sessionId: string) =>
+  selectAtom(sessionQuotesByIdAtom, (byId) => byId[sessionId], Object.is),
+);
+export const sessionComposerModeBySessionIdAtomFamily = atomFamily((sessionId: string) =>
+  selectAtom(sessionComposerModeByIdAtom, (byId) => byId[sessionId], Object.is),
+);
+export const sessionSendStateBySessionIdAtomFamily = atomFamily((sessionId: string) =>
+  selectAtom(sessionSendStateByIdAtom, (byId) => byId[sessionId] ?? idleSessionSendState, Object.is),
+);
 
 export const currentSessionDraftAtom = atom(
   (get) => {
