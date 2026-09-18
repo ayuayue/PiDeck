@@ -1581,7 +1581,7 @@ export function App() {
       const toolName: string | undefined = msg.meta?.toolName as
         | string
         | undefined;
-      const args: any = msg.meta?.args;
+      const args: unknown = msg.meta?.args;
       const status: string = String(msg.meta?.status ?? "done");
       // 只收集文件写入/编辑类的工具调用，作为右侧 Files 与会话结束摘要的统一数据源。
       if (!toolName || !/write|edit|create|patch/i.test(toolName)) continue;
@@ -3035,8 +3035,8 @@ export function App() {
     // 与 composer isBusy 对齐（含 isExecutingTool）：DSH 工具执行期间 steer 也应可用。
     return (
       rt?.status === "running" ||
-      Boolean((rt?.state as any)?.isStreaming) ||
-      Boolean((rt?.state as any)?.isExecutingTool)
+      Boolean(rt?.state?.isStreaming) ||
+      Boolean(rt?.state?.isExecutingTool)
     );
   }
 

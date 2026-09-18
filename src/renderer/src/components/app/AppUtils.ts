@@ -1040,7 +1040,7 @@ export function parseToolArgs(value: unknown): Record<string, unknown> | undefin
 	}
 }
 
-export function getToolFilePath(args: any): string | undefined {
+export function getToolFilePath(args: unknown): string | undefined {
 	if (!args) return undefined;
 	if (typeof args === "string" && args.trim()) {
 		try { args = JSON.parse(args); } catch { return undefined; }
