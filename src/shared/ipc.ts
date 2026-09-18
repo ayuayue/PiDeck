@@ -105,7 +105,8 @@ export const ipcChannels = {
 	sessionsListSessionTodo: "sessions:list-session-todo",
 	/** DSH 会话轨迹系统提示（request/header 事件的 EpochHeader.system；非 DSH/无数据返回 undefined）。 */
 	sessionsCatalogReadDshSystemPrompt: "sessions:catalog-read-dsh-system-prompt",
-	sessionsCatalogReadReferenceMessages: "sessions:catalog-read-reference-messages",
+	sessionsCatalogReadReferenceMessages:
+		"sessions:catalog-read-reference-messages",
 	/** 按需读取单条消息完整文本（工具结果截断后的「查看完整输出」入口）。 */
 	sessionsCatalogReadMessageFullText: "sessions:catalog-read-message-full-text",
 	sessionsCatalogCopy: "sessions:catalog-copy",
@@ -321,7 +322,8 @@ export const ipcChannels = {
 	/** 内置扩展热更新：还原为随包分发的内置版本（当前覆盖层转 .bak） */
 	extensionsBuiltInUpdateRestore: "extensions:builtin-update-restore",
 	/** 内置扩展热更新：恢复上一个覆盖版（.bak 校验通过才写回） */
-	extensionsBuiltInUpdateRestorePrevious: "extensions:builtin-update-restore-previous",
+	extensionsBuiltInUpdateRestorePrevious:
+		"extensions:builtin-update-restore-previous",
 	/** 内置扩展热更新：打开当前生效的扩展目录 */
 	extensionsBuiltInOpenDir: "extensions:builtin-open-dir",
 	/** 提示词商店官方模板热更新：查询内置/覆盖层版本状态（不联网）。与扩展热更新同一套交互模型。 */
@@ -778,5 +780,4 @@ export const ipcChannels = {
 	shellMenuGetState: "shell-menu:get-state",
 	/** 渲染层 → 主进程：启用/取消资源管理器右键菜单注册 */
 	shellMenuSetEnabled: "shell-menu:set-enabled",
-
 } as const;
