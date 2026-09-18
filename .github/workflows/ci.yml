@@ -29,6 +29,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check generated artifacts drift
+        # check:* 守卫（--check 模式只校验不写盘）：改了 announcements-md / 扩展 /
+        # 提示词 / 技能 / pi-ai 目录源但忘跑对应 generate/build 时红灯，挡住漂移直入
+        # main（AGENTS.md「CI 防漂移」承诺的实际执行点）。
+        # 必须放在 Build 之前：npm run build 链会静默再生成清单，mask 已提交漂移；
+        # check:xueprompts 已内联在 npm run build 脚本链里，不重复接入。
+        run: npm run check:announcements && npm run check:pi-ai-catalog && npm run check:extensions-manifest && npm run check:prompts-manifest && npm run check:skills-manifest
+
       - name: Test
         # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，
         # Windows runner 偶发死锁挂起（二分定位：546 文件串行全过、并发偶发挂）；
