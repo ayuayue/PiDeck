@@ -1,6 +1,22 @@
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
-import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import {
+  delimiter,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { app } from "electron";
 import type { AppSettings, PiInstallStatus } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
@@ -111,7 +127,11 @@ export type PiCommandInvocation = {
 
 /** .cmd 垫片解析结果：命中 node 直启入口，或说明为何不能直启。 */
 export type CmdShimResolution =
-  | { kind: "entry"; entry: string; matchedBy: "prefix-relative" | "shim-relative" }
+  | {
+      kind: "entry";
+      entry: string;
+      matchedBy: "prefix-relative" | "shim-relative";
+    }
   | { kind: "not-cmd" }
   | { kind: "missing" }
   | { kind: "unreadable" }
@@ -119,7 +139,10 @@ export type CmdShimResolution =
   | { kind: "entry-missing"; candidate: string };
 
 /** 把「没能走 node 直启」的解析结果翻成人话（命中时返回 null）。 */
-export function describeCmdShimFallback(resolution: CmdShimResolution, shimPath: string): string | null {
+export function describeCmdShimFallback(
+  resolution: CmdShimResolution,
+  shimPath: string,
+): string | null {
   switch (resolution.kind) {
     case "entry":
       return null;
@@ -178,13 +201,23 @@ export class PiLocator {
    * When `customPath` is provided, it takes priority over auto-detection —
    * this is the user's manually specified path from settings.
    */
-  resolveCommand(customPath?: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string) {
+  resolveCommand(
+    customPath?: string,
+    wslEnabled?: boolean,
+    wslDistro?: string,
+    wslUser?: string,
+  ) {
     const normalizedCustomPath = this.normalizeCustomPath(customPath);
     // wsl:// 是显式运行目标，优先保留；普通本地路径则不能覆盖已启用的 WSL 模式，
     // 否则设置页残留的 Windows pi.cmd 会把 Agent 静默切回宿主机。
     if (normalizedCustomPath?.startsWith("wsl://")) return normalizedCustomPath;
     if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
-      const wslCustomPath = this.toWslCustomPath(normalizedCustomPath, wslEnabled, wslDistro, wslUser);
+      const wslCustomPath = this.toWslCustomPath(
+        normalizedCustomPath,
+        wslEnabled,
+        wslDistro,
+        wslUser,
+      );
       if (wslCustomPath) return wslCustomPath;
       // 热路径只读缓存：同步 WSL 探测会把关窗/设置点死。
       // 即使尚未预热或探测失败，也必须保留 WSL 边界；返回裸 `pi` 的 WSL 标记，
@@ -207,7 +240,7 @@ export class PiLocator {
     }
 
     const candidates = this.getCandidates();
-    const found = candidates.find(candidate => existsSync(candidate));
+    const found = candidates.find((candidate) => existsSync(candidate));
     if (found) return found;
     return "pi";
   }
@@ -247,7 +280,10 @@ export class PiLocator {
   private readWslCache(key: string): WslCommandCacheEntry | undefined {
     const cached = wslCommandCache.get(key);
     if (!cached) return undefined;
-    if (cached.command === null && Date.now() - cached.at > WSL_PI_NEGATIVE_CACHE_TTL_MS) {
+    if (
+      cached.command === null &&
+      Date.now() - cached.at > WSL_PI_NEGATIVE_CACHE_TTL_MS
+    ) {
       wslCommandCache.delete(key);
       return undefined;
     }
@@ -257,17 +293,19 @@ export class PiLocator {
   getSearchDirs() {
     const home = app.getPath("home");
     const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
-    const localAppData = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
+    const localAppData =
+      process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
     // mise 数据目录可被 MISE_DATA_DIR 覆盖（安装目录可再被 MISE_INSTALL_PATH 覆盖）。
     // 只扫硬编码默认目录会漏掉自定义安装（如 D:\mise-data），且非 Windows 默认是
     // ~/.local/share/mise 而非 AppData；npm 全局 bin（pi.cmd）默认就装在
     // <mise 数据目录>/installs/node/<version>/ 下，与 node.exe 同目录。
-    const miseDataDir = process.env.MISE_DATA_DIR || (
-      process.platform === "win32"
+    const miseDataDir =
+      process.env.MISE_DATA_DIR ||
+      (process.platform === "win32"
         ? join(localAppData, "mise")
-        : join(home, ".local", "share", "mise")
-    );
-    const miseInstallsDir = process.env.MISE_INSTALL_PATH || join(miseDataDir, "installs");
+        : join(home, ".local", "share", "mise"));
+    const miseInstallsDir =
+      process.env.MISE_INSTALL_PATH || join(miseDataDir, "installs");
     const dirs = [
       ...this.pathDirs(),
       join(appData, "npm"),
@@ -282,9 +320,9 @@ export class PiLocator {
       // apps\nodejs\current（全局包装在该目录，node.exe 同目录）。
       ...(process.platform === "win32"
         ? [
-            ...this.listChildDirs(join(localAppData, "fnm", "node-versions")).map(dir =>
-              join(dir, "installation"),
-            ),
+            ...this.listChildDirs(
+              join(localAppData, "fnm", "node-versions"),
+            ).map((dir) => join(dir, "installation")),
             join(home, "scoop", "shims"),
             join(home, "scoop", "apps", "nodejs", "current"),
           ]
@@ -294,7 +332,9 @@ export class PiLocator {
       join(home, ".local", "bin"),
       join(home, ".npm-global", "bin"),
       join(home, ".nvm", "current", "bin"),
-      ...this.listChildDirs(join(home, ".nvm", "versions", "node")).map(dir => join(dir, "bin")),
+      ...this.listChildDirs(join(home, ".nvm", "versions", "node")).map((dir) =>
+        join(dir, "bin"),
+      ),
       join(home, ".asdf", "shims"),
       join(home, ".volta", "bin"),
       // macOS GUI 启动（Dock/Finder）经常拿不到终端里的 Homebrew PATH。
@@ -306,8 +346,8 @@ export class PiLocator {
             "/usr/local/bin",
             join(home, "Library", "pnpm"),
             join(home, ".fnm", "current", "bin"),
-            ...this.listChildDirs(join(home, ".fnm", "node-versions")).map((dir) =>
-              join(dir, "installation", "bin"),
+            ...this.listChildDirs(join(home, ".fnm", "node-versions")).map(
+              (dir) => join(dir, "installation", "bin"),
             ),
           ]
         : []),
@@ -319,11 +359,16 @@ export class PiLocator {
     return [...new Set(dirs.filter(Boolean))];
   }
 
-  createProcessEnv(settings?: PiProxySettings, pathPrefix?: string, wsl?: PiCommandInvocation["wsl"]) {
+  createProcessEnv(
+    settings?: PiProxySettings,
+    pathPrefix?: string,
+    wsl?: PiCommandInvocation["wsl"],
+  ) {
     if (wsl) {
       // WSL 模式：保留原始 PATH 以便找到 wsl.exe（在 System32 中），
       // 同时注入代理环境变量（wsl.exe 子进程通过 Windows 网络栈访问外网）。
-      const pathValue = pathPrefix || process.env.PATH || process.env.Path || "";
+      const pathValue =
+        pathPrefix || process.env.PATH || process.env.Path || "";
       const base = this.sanitizePiChildEnv({
         ...process.env,
         // Windows cmd 读 Path；部分宿主只改 PATH 会导致 .cmd shim 找不到 node
@@ -333,7 +378,10 @@ export class PiLocator {
       return this.applyPiProxyEnv(base, settings);
     }
     const searchDirs = pathPrefix
-      ? [pathPrefix, ...this.getSearchDirs().filter(dir => dir !== pathPrefix)]
+      ? [
+          pathPrefix,
+          ...this.getSearchDirs().filter((dir) => dir !== pathPrefix),
+        ]
       : this.getSearchDirs();
     const pathValue = searchDirs.join(delimiter);
     const env = this.sanitizePiChildEnv({
@@ -387,7 +435,11 @@ export class PiLocator {
     return next;
   }
 
-  createInvocation(command: string, args: string[], options: { wslCwd?: string } = {}): PiCommandInvocation {
+  createInvocation(
+    command: string,
+    args: string[],
+    options: { wslCwd?: string } = {},
+  ): PiCommandInvocation {
     // WSL 模式：command 为 "wsl://<distro>/<user>/<pi 绝对路径>" 形式的标记
     if (command.startsWith("wsl://")) {
       const parsed = this.parseWslUrl(command);
@@ -426,7 +478,12 @@ export class PiLocator {
     }
 
     if (process.platform !== "win32") {
-      return { command, args, shell: false, pathPrefix: this.getCommandBinDir(command) };
+      return {
+        command,
+        args,
+        shell: false,
+        pathPrefix: this.getCommandBinDir(command),
+      };
     }
 
     // Windows：npm/pnpm 的 pi 是 .cmd 垫片，内容只是把参数转发给
@@ -461,7 +518,9 @@ export class PiLocator {
     const innerCommand = [command, ...args]
       .map((part) => this.quoteCmdArgument(part))
       .join(" ");
-    const commandLine = this.needsCmdQuote(command) ? `"${innerCommand}"` : innerCommand;
+    const commandLine = this.needsCmdQuote(command)
+      ? `"${innerCommand}"`
+      : innerCommand;
     return {
       command: this.resolveCmdExe(),
       args: ["/d", "/s", "/c", commandLine],
@@ -503,10 +562,7 @@ export class PiLocator {
       : CMD_EXE_ARG_CHAR_BUDGET;
   }
 
-  private applyPiProxyEnv(
-    env: NodeJS.ProcessEnv,
-    settings?: PiProxySettings,
-  ) {
+  private applyPiProxyEnv(env: NodeJS.ProcessEnv, settings?: PiProxySettings) {
     if (!settings?.piProxyEnabled) return env;
     const proxyUrl = settings.piProxyUrl.trim();
     if (!proxyUrl) return env;
@@ -537,15 +593,31 @@ export class PiLocator {
     wslUser?: string,
   ): Promise<PiInstallStatus> {
     const normalized = this.normalizeCustomPath(customPath);
-    const command = this.toWslCustomPath(normalized, wslEnabled, wslDistro, wslUser) ?? normalized;
+    const command =
+      this.toWslCustomPath(normalized, wslEnabled, wslDistro, wslUser) ??
+      normalized;
     if (!command) {
-      return { installed: false, searchedDirs: [], error: this.translate("mainPi.pathRequired") };
+      return {
+        installed: false,
+        searchedDirs: [],
+        error: this.translate("mainPi.pathRequired"),
+      };
     }
-    if (this.isUnsupportedPowerShellShim(command)) return this.unsupportedPowerShellStatus(command);
+    if (this.isUnsupportedPowerShellShim(command))
+      return this.unsupportedPowerShellStatus(command);
     if (command.startsWith("wsl://")) {
       const parsed = this.parseWslUrl(command);
-      if (!parsed) return { installed: false, searchedDirs: [], error: this.translate("mainPi.invalidWslUrl") };
-      const status = await this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+      if (!parsed)
+        return {
+          installed: false,
+          searchedDirs: [],
+          error: this.translate("mainPi.invalidWslUrl"),
+        };
+      const status = await this.checkWslCommand(
+        parsed.distro,
+        parsed.user,
+        parsed.piCommand,
+      );
       // 设置页继续保存用户输入的 Linux 路径；下次启动由 resolveCommand 再转成 wsl:// 标记。
       return { ...status, command: normalized };
     }
@@ -568,22 +640,42 @@ export class PiLocator {
       this.isUnsupportedPowerShellShim(normalizedCustomPath) &&
       !(wslEnabled && process.platform === "win32" && wslDistro && wslUser)
     ) {
-      return this.unsupportedPowerShellStatus(normalizedCustomPath, this.getSearchDirs());
+      return this.unsupportedPowerShellStatus(
+        normalizedCustomPath,
+        this.getSearchDirs(),
+      );
     }
     // 设置页检测可以等 WSL 探测：缓存未命中时先异步探测，再 resolve，避免热路径同步子进程。
     if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
-      await this.warmWslCommand(wslDistro, wslUser, { force: options?.forceWslProbe });
+      await this.warmWslCommand(wslDistro, wslUser, {
+        force: options?.forceWslProbe,
+      });
     }
     // 状态检测是异步入口：先预热登录 shell PATH（macOS/Linux GUI 启动拿不到
     // 终端 PATH 时靠它找到 brew/nvm 里的 pi），再读 getSearchDirs 快照。
     await this.warmLoginShellPath();
-    const command = this.resolveCommand(customPath, wslEnabled, wslDistro, wslUser);
+    const command = this.resolveCommand(
+      customPath,
+      wslEnabled,
+      wslDistro,
+      wslUser,
+    );
     const searchedDirs = this.getSearchDirs();
 
     if (command.startsWith("wsl://")) {
       const parsed = this.parseWslUrl(command);
-      if (!parsed) return { installed: false, command, searchedDirs: [], error: this.translate("mainPi.invalidWslUrl") };
-      const wslStatus = await this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+      if (!parsed)
+        return {
+          installed: false,
+          command,
+          searchedDirs: [],
+          error: this.translate("mainPi.invalidWslUrl"),
+        };
+      const wslStatus = await this.checkWslCommand(
+        parsed.distro,
+        parsed.user,
+        parsed.piCommand,
+      );
       return {
         ...wslStatus,
         command: `wsl -d ${parsed.distro} -u ${parsed.user} ${parsed.piCommand}`,
@@ -616,7 +708,11 @@ export class PiLocator {
     if (!marker) return { installed: false, searchedDirs: [] };
     const parsed = this.parseWslUrl(marker);
     if (!parsed) return { installed: false, searchedDirs: [] };
-    const status = await this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+    const status = await this.checkWslCommand(
+      parsed.distro,
+      parsed.user,
+      parsed.piCommand,
+    );
     return {
       ...status,
       command: `wsl -d ${parsed.distro} -u ${parsed.user} ${parsed.piCommand}`,
@@ -632,7 +728,12 @@ export class PiLocator {
     let value = rawPath?.trim() ?? "";
     if (!value) return "";
 
-    const quotePairs: Array<[string, string]> = [["\"", "\""], ["'", "'"], ["“", "”"], ["‘", "’"]];
+    const quotePairs: Array<[string, string]> = [
+      ['"', '"'],
+      ["'", "'"],
+      ["“", "”"],
+      ["‘", "’"],
+    ];
     let stripped = true;
     while (stripped && value.length >= 2) {
       stripped = false;
@@ -664,7 +765,10 @@ export class PiLocator {
   }
 
   private isUnsupportedPowerShellShim(command: string) {
-    return process.platform === "win32" && command.trim().toLowerCase().endsWith(".ps1");
+    return (
+      process.platform === "win32" &&
+      command.trim().toLowerCase().endsWith(".ps1")
+    );
   }
 
   /**
@@ -677,7 +781,10 @@ export class PiLocator {
     return process.platform === "win32" && command.startsWith("/");
   }
 
-  private linuxPathOutsideWslStatus(command: string, searchedDirs: string[]): PiInstallStatus {
+  private linuxPathOutsideWslStatus(
+    command: string,
+    searchedDirs: string[],
+  ): PiInstallStatus {
     return {
       installed: false,
       command,
@@ -727,45 +834,65 @@ export class PiLocator {
    *
    * 使用 encoding: 'buffer' 避免 Windows 中文环境下 stderr 的 GBK 输出被 utf8 错误解码导致乱码。
    */
-  private async runCheck(command: string, searchedDirs: string[]): Promise<PiInstallStatus> {
-    return new Promise(resolve => {
+  private async runCheck(
+    command: string,
+    searchedDirs: string[],
+  ): Promise<PiInstallStatus> {
+    return new Promise((resolve) => {
       const invocation = this.createInvocation(command, ["--version"]);
-      execFile(invocation.command, invocation.args, {
-        env: this.createProcessEnv(undefined, invocation.pathPrefix, invocation.wsl),
-        shell: invocation.shell,
-        windowsHide: true,
-        timeout: 8_000,
-        encoding: 'buffer',
-        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-      }, (error, stdout, stderr) => {
-        if (error) {
-          // 优先使用 stderr 中的实际错误信息（如"系统找不到指定的文件"），
-          // 并处理 Windows GBK 编码问题。兜底用 error.message 但去掉冗余的命令行前缀。
-          const stderrText = this.decodeBuffer(stderr);
-          const stdoutText = this.decodeBuffer(stdout);
-          const raw = stderrText || this.cleanExecError(error.message);
-          // 仅命令行本身没有诊断价值时，补上 exit code / timeout，方便区分 PATH 与真失败
-          const errObj = error as NodeJS.ErrnoException & { killed?: boolean; code?: string | number };
-          console.error("[PiLocator] pi CLI check failed", {
-            command,
-            error: raw,
-            stderr: stderrText || undefined,
-            stdout: stdoutText || undefined,
-            exitCode: errObj.code,
-            killed: errObj.killed,
-            invocation: {
-              command: invocation.command,
-              args: invocation.args,
-              pathPrefix: invocation.pathPrefix,
-            },
-          });
-          resolve({ installed: false, command, searchedDirs, error: this.composeCheckFailure(raw) });
-          return;
-        }
+      execFile(
+        invocation.command,
+        invocation.args,
+        {
+          env: this.createProcessEnv(
+            undefined,
+            invocation.pathPrefix,
+            invocation.wsl,
+          ),
+          shell: invocation.shell,
+          windowsHide: true,
+          timeout: 8_000,
+          encoding: "buffer",
+          windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            // 优先使用 stderr 中的实际错误信息（如"系统找不到指定的文件"），
+            // 并处理 Windows GBK 编码问题。兜底用 error.message 但去掉冗余的命令行前缀。
+            const stderrText = this.decodeBuffer(stderr);
+            const stdoutText = this.decodeBuffer(stdout);
+            const raw = stderrText || this.cleanExecError(error.message);
+            // 仅命令行本身没有诊断价值时，补上 exit code / timeout，方便区分 PATH 与真失败
+            const errObj = error as NodeJS.ErrnoException & {
+              killed?: boolean;
+              code?: string | number;
+            };
+            console.error("[PiLocator] pi CLI check failed", {
+              command,
+              error: raw,
+              stderr: stderrText || undefined,
+              stdout: stdoutText || undefined,
+              exitCode: errObj.code,
+              killed: errObj.killed,
+              invocation: {
+                command: invocation.command,
+                args: invocation.args,
+                pathPrefix: invocation.pathPrefix,
+              },
+            });
+            resolve({
+              installed: false,
+              command,
+              searchedDirs,
+              error: this.composeCheckFailure(raw),
+            });
+            return;
+          }
 
-        const version = this.decodeBuffer(stdout).trim();
-        resolve({ installed: true, command, searchedDirs, version });
-      });
+          const version = this.decodeBuffer(stdout).trim();
+          resolve({ installed: true, command, searchedDirs, version });
+        },
+      );
     });
   }
 
@@ -777,17 +904,28 @@ export class PiLocator {
   private resolveWslExe(): { command: string; shell: boolean } {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     // 尝试真实 System32（通过 Sysnative 处理 32-bit 重定向）
-    const candidates = process.arch === "ia32"
-      ? [join(systemRoot, "Sysnative", "wsl.exe"), join(systemRoot, "System32", "wsl.exe")]
-      : [join(systemRoot, "System32", "wsl.exe")];
+    const candidates =
+      process.arch === "ia32"
+        ? [
+            join(systemRoot, "Sysnative", "wsl.exe"),
+            join(systemRoot, "System32", "wsl.exe"),
+          ]
+        : [join(systemRoot, "System32", "wsl.exe")];
     for (const candidate of candidates) {
       const ok = existsSync(candidate);
-      console.log('[PiLocator] resolveWslExe candidate:', candidate, 'exists:', ok);
+      console.log(
+        "[PiLocator] resolveWslExe candidate:",
+        candidate,
+        "exists:",
+        ok,
+      );
       if (ok) return { command: candidate, shell: false };
     }
     // 绝对路径均不存在：让 CreateProcess/Node 直接通过 PATH 查找 wsl.exe。
     // 不能打开 shell：distro/user/cwd 都来自设置，shell fallback 会引入命令注入。
-    console.log('[PiLocator] resolveWslExe fallback: PATH lookup with shell disabled');
+    console.log(
+      "[PiLocator] resolveWslExe fallback: PATH lookup with shell disabled",
+    );
     return { command: "wsl", shell: false };
   }
   /** @deprecated 使用 resolveWslExe() 代替，支持 PATH 回退 */
@@ -799,12 +937,19 @@ export class PiLocator {
    * 解析 "wsl://<distro>/<user>/<piCommand>" 格式的标记。
    * piCommand 现在是绝对 Linux 路径（带斜杠），解析规则集中在 wslPiProbe，与构造侧对称。
    */
-  private parseWslUrl(url: string): { distro: string; user: string; piCommand: string } | null {
+  private parseWslUrl(
+    url: string,
+  ): { distro: string; user: string; piCommand: string } | null {
     return parseWslCommandMarker(url);
   }
 
-  private peekCachedWslCommand(distro: string, user: string): string | undefined {
-    return this.readWslCache(wslCommandCacheKey(distro, user))?.command ?? undefined;
+  private peekCachedWslCommand(
+    distro: string,
+    user: string,
+  ): string | undefined {
+    return (
+      this.readWslCache(wslCommandCacheKey(distro, user))?.command ?? undefined
+    );
   }
 
   /**
@@ -820,7 +965,8 @@ export class PiLocator {
   ): string | undefined {
     const entry = this.readWslCache(wslCommandCacheKey(distro, user));
     if (!entry?.command) return undefined;
-    if (entry.command !== buildWslCommandMarker(distro, user, piCommand)) return undefined;
+    if (entry.command !== buildWslCommandMarker(distro, user, piCommand))
+      return undefined;
     return entry.nodeBinDir || undefined;
   }
 
@@ -832,7 +978,10 @@ export class PiLocator {
    * 并缓存**绝对路径 + node bin 目录**，使「探测结果」与「启动参数」同源。
    * 禁止回到 execFileSync：超时会把 Electron 主进程事件循环堵住。
    */
-  private probeWslCommand(distro: string, user: string): Promise<string | null> {
+  private probeWslCommand(
+    distro: string,
+    user: string,
+  ): Promise<string | null> {
     const key = wslCommandCacheKey(distro, user);
     const cached = this.readWslCache(key);
     if (cached) return Promise.resolve(cached.command);
@@ -841,7 +990,9 @@ export class PiLocator {
 
     const task = this.runWslPiProbe(distro, user)
       .then((result) => {
-        const command = result ? buildWslCommandMarker(distro, user, result.piPath) : null;
+        const command = result
+          ? buildWslCommandMarker(distro, user, result.piPath)
+          : null;
         wslCommandCache.set(key, {
           command,
           nodeBinDir: result?.nodeBinDir ?? "",
@@ -863,14 +1014,23 @@ export class PiLocator {
    * 后者仍覆盖已知安装目录 glob 与包管理器 prefix。
    * 「脚本跑通但没找到」不重试，避免未装 pi 的用户白等一轮 WSL 往返。
    */
-  private async runWslPiProbe(distro: string, user: string): Promise<WslPiProbeResult | null> {
+  private async runWslPiProbe(
+    distro: string,
+    user: string,
+  ): Promise<WslPiProbeResult | null> {
     const script = buildWslPiProbeScript();
     const shells: Array<{ shell: string; flags: string[] }> = [
       { shell: "/bin/bash", flags: ["-lic"] },
       { shell: "/bin/sh", flags: ["-c"] },
     ];
     for (const candidate of shells) {
-      const output = await this.execWslProbe(distro, user, candidate.shell, candidate.flags, script);
+      const output = await this.execWslProbe(
+        distro,
+        user,
+        candidate.shell,
+        candidate.flags,
+        script,
+      );
       if (output === null) continue;
       return parseWslPiProbeOutput(output);
     }
@@ -903,7 +1063,10 @@ export class PiLocator {
           if (error) {
             // 不区分错误类型：调用端会降级到 /bin/sh 重试，最终只是「未检测到」。
             // 但必须留痕，否则只能从 UI 的「未检测到」倒推是 WSL 探测链哪一环挂了。
-            console.error("[PiLocator] WSL pi probe failed", { shell, error: error.message });
+            console.error("[PiLocator] WSL pi probe failed", {
+              shell,
+              error: error.message,
+            });
             resolve(null);
             return;
           }
@@ -920,8 +1083,12 @@ export class PiLocator {
    * 参数组装必须与 createInvocation 同函数（buildWslPiExecArgs）：
    * 否则会出现「--version 能跑但启动失败」或反过来的不对称，用户看到的就是「检测不到 / 启动不了」。
    */
-  private checkWslCommand(distro: string, user: string, piCommand: string): Promise<PiInstallStatus> {
-    return new Promise(resolve => {
+  private checkWslCommand(
+    distro: string,
+    user: string,
+    piCommand: string,
+  ): Promise<PiInstallStatus> {
+    return new Promise((resolve) => {
       const wslExe = this.resolveWslExe();
       const wslArgs = buildWslPiExecArgs({
         distro,
@@ -930,39 +1097,62 @@ export class PiLocator {
         nodeBinDir: this.peekCachedWslNodeBinDir(distro, user, piCommand),
         args: ["--version"],
       });
-      const child = execFile(wslExe.command, wslArgs, {
-        env: this.createProcessEnv(undefined, undefined, { distro, user, piCommand }),
-        shell: wslExe.shell,
-        windowsHide: true,
-        timeout: WSL_PI_PROBE_TIMEOUT_MS,
-        // Decode the raw bytes ourselves so UTF-16LE output is not corrupted
-        // before decodeWslOutput gets a chance to inspect it.
-        encoding: "buffer",
-      }, (error, stdout, stderr) => {
-        if (error) {
-          const raw = decodeWslOutput(stderr).trim() || this.cleanExecError(error.message);
-          console.error("[PiLocator] WSL pi CLI check failed", { piCommand, error: raw });
-          resolve({ installed: false, searchedDirs: [], error: this.composeCheckFailure(raw) });
-          return;
-        }
-        resolve({ installed: true, command: `wsl -d ${distro} -u ${user} ${piCommand}`, version: decodeWslOutput(stdout).trim(), searchedDirs: [] });
-      });
+      const child = execFile(
+        wslExe.command,
+        wslArgs,
+        {
+          env: this.createProcessEnv(undefined, undefined, {
+            distro,
+            user,
+            piCommand,
+          }),
+          shell: wslExe.shell,
+          windowsHide: true,
+          timeout: WSL_PI_PROBE_TIMEOUT_MS,
+          // Decode the raw bytes ourselves so UTF-16LE output is not corrupted
+          // before decodeWslOutput gets a chance to inspect it.
+          encoding: "buffer",
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            const raw =
+              decodeWslOutput(stderr).trim() ||
+              this.cleanExecError(error.message);
+            console.error("[PiLocator] WSL pi CLI check failed", {
+              piCommand,
+              error: raw,
+            });
+            resolve({
+              installed: false,
+              searchedDirs: [],
+              error: this.composeCheckFailure(raw),
+            });
+            return;
+          }
+          resolve({
+            installed: true,
+            command: `wsl -d ${distro} -u ${user} ${piCommand}`,
+            version: decodeWslOutput(stdout).trim(),
+            searchedDirs: [],
+          });
+        },
+      );
       // pi 的 RPC 模式靠 stdin 通信，但 --version 不需要；提前关闭避免子进程等输入。
       child.stdin?.end();
     });
   }
 
   private decodeBuffer(buf: Buffer | null): string {
-    if (!buf || buf.length === 0) return '';
-    const utf8 = buf.toString('utf8');
+    if (!buf || buf.length === 0) return "";
+    const utf8 = buf.toString("utf8");
     // UTF-8 解码后不含 Unicode 替换字符（\ufffd），说明解码正确
-    if (!utf8.includes('\ufffd')) return utf8;
+    if (!utf8.includes("\ufffd")) return utf8;
     // Windows 中文环境下，cmd/powershell 的错误输出通常是 GBK (codepage 936)
     try {
-      return new TextDecoder('gbk', { fatal: false }).decode(buf);
+      return new TextDecoder("gbk", { fatal: false }).decode(buf);
     } catch {
       // 极少数环境不支持 gbk TextDecoder（如某些精简 Node.js），保留原始字节
-      return buf.toString('latin1');
+      return buf.toString("latin1");
     }
   }
 
@@ -973,10 +1163,10 @@ export class PiLocator {
   private cleanExecError(message: string): string {
     // Node.js execFile 错误格式："Command failed: powershell.exe ..."
     // 去掉前缀，只保留后半段或返回简洁提示
-    const cleaned = message.replace(/^Command failed:\s*/i, '').trim();
+    const cleaned = message.replace(/^Command failed:\s*/i, "").trim();
     // 如果去掉前缀后仍是完整命令行（太长），截断为友好提示
     if (cleaned.length > 120) {
-      return cleaned.slice(0, 100) + '…';
+      return cleaned.slice(0, 100) + "…";
     }
     return cleaned;
   }
@@ -992,10 +1182,11 @@ export class PiLocator {
     const firstLine = raw
       .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
       .split(/\r?\n/)
-      .map(line => line.replace(/[\x00-\x1f\x7f]/g, "").trim())
-      .find(line => line.length > 0);
+      .map((line) => line.replace(/[\x00-\x1f\x7f]/g, "").trim())
+      .find((line) => line.length > 0);
     if (!firstLine) return this.translate("mainPi.checkFailed");
-    const short = firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine;
+    const short =
+      firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine;
     return this.translate("mainPi.checkFailedReason", { reason: short });
   }
 
@@ -1042,22 +1233,33 @@ export class PiLocator {
 
     // ① %dp0% / %~dp0% 之后紧跟 `\<node_modules 相对路径>`；`\\(` 中的反斜杠是字面量，
     // 其后的 `(` 即捕获组起点，整段相对路径由该组取回。
-    const match = content.match(/%~?dp0%?\\(node_modules[\\/][^"%\r\n]+\.(?:m?js|cjs))/i);
+    const match = content.match(
+      /%~?dp0%?\\(node_modules[\\/][^"%\r\n]+\.(?:m?js|cjs))/i,
+    );
     if (match) {
       // 垫片内一律是 Windows 反斜杠；归一成 `/` 使 path.resolve 在 POSIX 宿主上也能正确拼接
       // （测试会以 Linux/macOS 宿主模拟 win32 跑这条分支）。
       const entry = resolve(baseDir, match[1].replace(/\\/g, "/"));
       // 逃逸检查：解析结果必须仍在垫片目录内，挡住 `..\..\` 形态的路径改写。
       const rel = relative(baseDir, entry);
-      if (!rel || rel.startsWith("..") || isAbsolute(rel)) return { kind: "entry-missing", candidate: entry };
-      return existsSync(entry) ? { kind: "entry", entry, matchedBy: "prefix-relative" } : { kind: "entry-missing", candidate: entry };
+      if (!rel || rel.startsWith("..") || isAbsolute(rel))
+        return { kind: "entry-missing", candidate: entry };
+      return existsSync(entry)
+        ? { kind: "entry", entry, matchedBy: "prefix-relative" }
+        : { kind: "entry-missing", candidate: entry };
     }
 
     // ② 本地安装垫片：`"%dp0%\..\<包>\bin\<脚本>"`（可继续带 `..`，但必须留在 node_modules 内）
     const shimRelative = content.match(/%~?dp0%?\\\.\.\\([^"%\r\n]+)/i);
     if (shimRelative) {
-      const candidate = resolve(baseDir, `../${shimRelative[1].replace(/\\/g, "/")}`);
-      if (/[\\/]node_modules[\\/]/i.test(candidate) && isRunnableNodeEntry(candidate)) {
+      const candidate = resolve(
+        baseDir,
+        `../${shimRelative[1].replace(/\\/g, "/")}`,
+      );
+      if (
+        /[\\/]node_modules[\\/]/i.test(candidate) &&
+        isRunnableNodeEntry(candidate)
+      ) {
         return { kind: "entry", entry: candidate, matchedBy: "shim-relative" };
       }
       return { kind: "entry-missing", candidate };
@@ -1077,7 +1279,8 @@ export class PiLocator {
   private resolveCmdExe(): string {
     const fromEnv = process.env.ComSpec?.trim();
     if (fromEnv && existsSync(fromEnv)) return fromEnv;
-    const systemRoot = process.env.SystemRoot?.trim() || process.env.windir?.trim();
+    const systemRoot =
+      process.env.SystemRoot?.trim() || process.env.windir?.trim();
     if (systemRoot) {
       const candidate = join(systemRoot, "System32", "cmd.exe");
       if (existsSync(candidate)) return candidate;
@@ -1108,10 +1311,13 @@ export class PiLocator {
     // Windows 不再自动检测 pi.ps1：PowerShell shim 与 .cmd 指向同一入口，但执行策略/编码/引号规则更复杂。
     // Linux 另追加 pi.js/pi.mjs/pi.cjs：部分用户通过 alias "node /path/pi.js" 直接运行 JS 源文件而非
     // npm 装出的 shim（#169）；pi 排在前，存在标准 shim 时仍优先命中，不会被同名 JS 误拦。
-    const names = process.platform === "win32"
-      ? ["pi.cmd", "pi.exe", "pi"]
-      : ["pi", "pi.js", "pi.mjs", "pi.cjs"];
-    return this.getSearchDirs().flatMap(dir => names.map(name => join(dir, name)));
+    const names =
+      process.platform === "win32"
+        ? ["pi.cmd", "pi.exe", "pi"]
+        : ["pi", "pi.js", "pi.mjs", "pi.cjs"];
+    return this.getSearchDirs().flatMap((dir) =>
+      names.map((name) => join(dir, name)),
+    );
   }
 
   private pathDirs() {
@@ -1120,7 +1326,9 @@ export class PiLocator {
     // 下次 spawn / 状态检测即拿到登录 shell 目录。绝不允许回到同步 execFileSync。
     if (cachedLoginShellPath === undefined) void this.warmLoginShellPath();
     const fromShell = cachedLoginShellPath ?? "";
-    return [...fromEnv.split(delimiter), ...fromShell.split(delimiter)].filter(Boolean);
+    return [...fromEnv.split(delimiter), ...fromShell.split(delimiter)].filter(
+      Boolean,
+    );
   }
 
   /** 异步预热登录 shell PATH（win32 恒空）。结果（含失败负缓存 ""）进程级缓存。 */
@@ -1135,7 +1343,7 @@ export class PiLocator {
     const task = new Promise<string>((resolve) => {
       execFile(
         "/bin/sh",
-        ["-lc", "printf %s \"$PATH\""],
+        ["-lc", 'printf %s "$PATH"'],
         { encoding: "utf8", timeout: 3000 },
         (error, stdout) => {
           // 失败（超时/无 sh）负缓存 ""：与旧 catch 行为一致，仅退化到 env PATH。
@@ -1152,8 +1360,8 @@ export class PiLocator {
   private listChildDirs(parent: string) {
     try {
       return readdirSync(parent, { withFileTypes: true })
-        .filter(entry => entry.isDirectory())
-        .map(entry => join(parent, entry.name));
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(parent, entry.name));
     } catch {
       return [];
     }

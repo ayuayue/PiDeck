@@ -47,14 +47,28 @@ test("读路径全部 spawn currentGitExecutable：getRefs/getOriginalContent/ge
 	await service.getAheadBehind("/repo");
 	await service.diffFileBetweenRefs("/repo", "main", "dev", "a.txt");
 	await service.compareBranches("/repo", "main", "dev");
-	await service.getCommitDetail("/repo", "0123456789abcdef0123456789abcdef01234567");
-	assert.ok(calls.length >= 10, `应产生多次 git 子进程调用，实际 ${calls.length}`);
+	await service.getCommitDetail(
+		"/repo",
+		"0123456789abcdef0123456789abcdef01234567",
+	);
+	assert.ok(
+		calls.length >= 10,
+		`应产生多次 git 子进程调用，实际 ${calls.length}`,
+	);
 	for (const { command } of calls) {
-		assert.equal(command, CUSTOM_GIT, "所有读路径必须走用户配置的 git 可执行文件");
+		assert.equal(
+			command,
+			CUSTOM_GIT,
+			"所有读路径必须走用户配置的 git 可执行文件",
+		);
 	}
 });
 
-test("源码契约：GitService 内不再有 execFileAsync(\"git\") 字面量（兜住 :188/:207 等条件路径）", () => {
+test('源码契约：GitService 内不再有 execFileAsync("git") 字面量（兜住 :188/:207 等条件路径）', () => {
 	const src = readFileSync("src/main/git/GitService.ts", "utf8");
-	assert.doesNotMatch(src, /execFileAsync\(\s*"git"/, "所有 execFileAsync 调用点必须用 currentGitExecutable()");
+	assert.doesNotMatch(
+		src,
+		/execFileAsync\(\s*"git"/,
+		"所有 execFileAsync 调用点必须用 currentGitExecutable()",
+	);
 });

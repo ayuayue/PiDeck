@@ -43,7 +43,10 @@ before(() => {
   );
   const stubElectronDir = join(buildDir, "node_modules", "electron");
   mkdirSync(stubElectronDir, { recursive: true });
-  writeFileSync(join(stubElectronDir, "package.json"), JSON.stringify({ name: "electron", main: "index.js" }));
+  writeFileSync(
+    join(stubElectronDir, "package.json"),
+    JSON.stringify({ name: "electron", main: "index.js" }),
+  );
   writeFileSync(
     join(stubElectronDir, "index.js"),
     "module.exports = { shell: { trashItem: async () => {} } };",
@@ -72,10 +75,20 @@ describe("diffFileBetweenRefs 截断（M4）", () => {
     const base = git("rev-parse", "HEAD~1");
     const head = git("rev-parse", "HEAD");
     const out = await service.diffFileBetweenRefs(
-      repositoryDir, base, head, "big.txt", 64 * 1024,
+      repositoryDir,
+      base,
+      head,
+      "big.txt",
+      64 * 1024,
     );
-    assert.ok(out.endsWith("... (diff truncated)"), "截断结果必须以内联标记结尾");
-    assert.ok(out.length < 70 * 1024, `截断后长度必须贴近上限，实际 ${out.length}`);
+    assert.ok(
+      out.endsWith("... (diff truncated)"),
+      "截断结果必须以内联标记结尾",
+    );
+    assert.ok(
+      out.length < 70 * 1024,
+      `截断后长度必须贴近上限，实际 ${out.length}`,
+    );
   });
 
   test("未超限 diff 原样返回，无标记", async () => {
@@ -83,7 +96,11 @@ describe("diffFileBetweenRefs 截断（M4）", () => {
     const base = git("rev-parse", "HEAD~1");
     const head = git("rev-parse", "HEAD");
     const out = await service.diffFileBetweenRefs(
-      repositoryDir, base, head, "big.txt", 10 * 1024 * 1024,
+      repositoryDir,
+      base,
+      head,
+      "big.txt",
+      10 * 1024 * 1024,
     );
     assert.ok(out.length > 300_000, "完整 diff 应约为两倍文件体量");
     assert.ok(!out.includes("... (diff truncated)"));
@@ -94,8 +111,11 @@ describe("diffFileBetweenRefs 截断（M4）", () => {
     const src = readFileSync("src/main/ipc/gitIpc.ts", "utf8");
     // 抓块沿用仓库既有契约测试惯例（见 skillsRenameIpc.test.mjs）：search 定位起点 +
     // indexOf("});") 截到块尾，避免脆弱的行尾正则（handler 均以 `\t\t},` 收尾）。
-    const start = src.search(/ipcMain\.handle\(\s*ipcChannels\.gitDiffFileBetween/);
-    const handler = start >= 0 ? src.slice(start, src.indexOf("});", start) + 3) : "";
+    const start = src.search(
+      /ipcMain\.handle\(\s*ipcChannels\.gitDiffFileBetween/,
+    );
+    const handler =
+      start >= 0 ? src.slice(start, src.indexOf("});", start) + 3) : "";
     assert.ok(handler.length > 0, "找不到 gitDiffFileBetween handler");
     assert.match(handler, /maxEditorFileSizeMB/);
     assert.match(handler, /diffFileBetweenRefs\([\s\S]*maxBytes/);

@@ -7,7 +7,19 @@ import { trashPath } from "../fs/trash";
 import { REF_BASE } from "../rewind/checkpointConstants";
 import { runGit as spawnGit, type RunGitOptions } from "./gitProcess";
 import { currentGitExecutable } from "./gitExecutable";
-import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff, GitAheadBehind } from "../../shared/types";
+import type {
+	GitBranchInfo,
+	CommitDetail,
+	CommitEntry,
+	GitRef,
+	BranchDiffResult,
+	GitChangedFile,
+	GitFileStatus,
+	GitCommitFileDiff,
+	GitResourceGroupType,
+	GitWorkspaceFileDiff,
+	GitAheadBehind,
+} from "../../shared/types";
 import { GitStatus } from "../../shared/types";
 import type { GitResource, GitResourceGroups } from "../../shared/types";
 
@@ -24,7 +36,10 @@ export class GitService {
 	}
 
 	/** 只缓存轻量 commit 元数据/文件清单；正文永不缓存，且 LRU 总预算不超过 2MB。 */
-	private readonly commitDetailCache = new Map<string, { detail: CommitDetail; bytes: number }>();
+	private readonly commitDetailCache = new Map<
+		string,
+		{ detail: CommitDetail; bytes: number }
+	>();
 	private readonly commitDetailCacheLimit = 16;
 	private readonly commitDetailCacheByteLimit = 2 * 1024 * 1024;
 	private commitDetailCacheBytes = 0;
@@ -41,9 +56,13 @@ export class GitService {
 			...commit.parents,
 			...commit.refNames,
 		];
-		for (const file of detail.files) text.push(file.path, file.originalPath ?? "");
+		for (const file of detail.files)
+			text.push(file.path, file.originalPath ?? "");
 		// JS 字符串通常按 UTF-16 存储；对象本身按每条文件记录追加小额估算。
-		return text.reduce((total, value) => total + value.length * 2, 0) + detail.files.length * 64;
+		return (
+			text.reduce((total, value) => total + value.length * 2, 0) +
+			detail.files.length * 64
+		);
 	}
 
 	private readCommitDetailCache(key: string): CommitDetail | undefined {
@@ -75,7 +94,10 @@ export class GitService {
 	}
 
 	/** 将 renderer 提供的 commit-ish 安全解析为完整 SHA，后续命令只接收 hash。 */
-	private async resolveCommitHash(cwd: string, ref: string): Promise<string | null> {
+	private async resolveCommitHash(
+		cwd: string,
+		ref: string,
+	): Promise<string | null> {
 		try {
 			const { stdout } = await execFileAsync(
 				currentGitExecutable(),
@@ -96,7 +118,11 @@ export class GitService {
 	 */
 	async isGitRepo(cwd: string): Promise<boolean> {
 		try {
-			await execFileAsync(currentGitExecutable(), ["rev-parse", "--is-inside-work-tree"], { cwd });
+			await execFileAsync(
+				currentGitExecutable(),
+				["rev-parse", "--is-inside-work-tree"],
+				{ cwd },
+			);
 			return true;
 		} catch {
 			return false;
@@ -109,8 +135,14 @@ export class GitService {
 			// 显式设置 maxBuffer 防止仓库分支数过多时 stdout 超过 1MB 默认上限而被截断。
 			const BRANCH_MAX_BUFFER = 10 * 1024 * 1024;
 			const [{ stdout: currentRaw }, { stdout: localRaw }] = await Promise.all([
-				execFileAsync(currentGitExecutable(), ["branch", "--show-current"], { cwd }),
-				execFileAsync(currentGitExecutable(), ["branch", "--format=%(refname:short)"], { cwd, maxBuffer: BRANCH_MAX_BUFFER }),
+				execFileAsync(currentGitExecutable(), ["branch", "--show-current"], {
+					cwd,
+				}),
+				execFileAsync(
+					currentGitExecutable(),
+					["branch", "--format=%(refname:short)"],
+					{ cwd, maxBuffer: BRANCH_MAX_BUFFER },
+				),
 			]);
 
 			const current = currentRaw.trim() || null;
@@ -133,11 +165,21 @@ export class GitService {
 
 	async checkout(cwd: string, branch: string): Promise<GitBranchInfo> {
 		try {
-			if (!branch || branch.startsWith("-")) throw new Error("Invalid branch name");
+			if (!branch || branch.startsWith("-"))
+				throw new Error("Invalid branch name");
 			const fullRef = `refs/heads/${branch}`;
-			await this.git(["check-ref-format", fullRef], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
-			await this.git(["show-ref", "--verify", "--quiet", fullRef], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
-			await this.git(["checkout", "--end-of-options", branch], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+			await this.git(["check-ref-format", fullRef], {
+				cwd,
+				timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+			});
+			await this.git(["show-ref", "--verify", "--quiet", fullRef], {
+				cwd,
+				timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+			});
+			await this.git(["checkout", "--end-of-options", branch], {
+				cwd,
+				timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+			});
 		} catch (e: unknown) {
 			const msg = e instanceof Error ? e.message : String(e);
 			// execFile 默认只输出 stdout；checkout 失败时 stderr 包含真正原因。
@@ -151,9 +193,16 @@ export class GitService {
 	 * 使用 checkout -b 命令在当前分支基础上创建新分支。
 	 */
 	async createBranch(cwd: string, branchName: string): Promise<GitBranchInfo> {
-		if (!branchName || branchName.startsWith("-")) throw new Error("Invalid branch name");
-		await this.git(["check-ref-format", `refs/heads/${branchName}`], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
-		await this.git(["checkout", "-b", branchName], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		if (!branchName || branchName.startsWith("-"))
+			throw new Error("Invalid branch name");
+		await this.git(["check-ref-format", `refs/heads/${branchName}`], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
+		await this.git(["checkout", "-b", branchName], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 		return this.getBranches(cwd);
 	}
 
@@ -167,7 +216,10 @@ export class GitService {
 	 * - 文件不在任何 Git 仓库内（git 命令失败）→ 返回空字符串。
 	 * - 文件是未跟踪的新增文件（HEAD 中不存在该路径）→ git show 报错，返回空字符串。
 	 */
-	async getOriginalContent(filePath: string, maxBytes = 5 * 1024 * 1024): Promise<string> {
+	async getOriginalContent(
+		filePath: string,
+		maxBytes = 5 * 1024 * 1024,
+	): Promise<string> {
 		try {
 			const dir = dirname(filePath);
 			const { stdout: rootRaw } = await execFileAsync(
@@ -189,7 +241,9 @@ export class GitService {
 				["-C", repoRoot, "show", blobRef],
 				{ maxBuffer: limit + 1 },
 			);
-			return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0") ? "" : stdout;
+			return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0")
+				? ""
+				: stdout;
 		} catch {
 			return "";
 		}
@@ -204,17 +258,22 @@ export class GitService {
 		// `-- .` 将 monorepo 中的状态限定到当前项目目录，避免 sibling 资源进入抽屉。
 		const [{ stdout: statusRaw }, { stdout: rootRaw }] = await Promise.all([
 			execFileAsync(
-				currentGitExecutable(), ["status", "--porcelain", "-z", "--untracked-files=all", "--", "."],
+				currentGitExecutable(),
+				["status", "--porcelain", "-z", "--untracked-files=all", "--", "."],
 				{ cwd, maxBuffer: 16 * 1024 * 1024, timeout: GIT_MUTATION_TIMEOUT_MS },
 			),
-			execFileAsync(currentGitExecutable(), ["rev-parse", "--show-toplevel"], { cwd, timeout: GIT_MUTATION_TIMEOUT_MS }),
+			execFileAsync(currentGitExecutable(), ["rev-parse", "--show-toplevel"], {
+				cwd,
+				timeout: GIT_MUTATION_TIMEOUT_MS,
+			}),
 		]);
 		const repoRoot = await realpath(resolve(rootRaw.trim()));
 		const inputProjectRoot = resolve(cwd);
 		const projectRoot = await realpath(inputProjectRoot);
 		const toProjectPath = (canonicalPath: string): string | null => {
 			const scoped = relative(projectRoot, canonicalPath);
-			if (scoped === ".." || scoped.startsWith(`..${sep}`) || isAbsolute(scoped)) return null;
+			if (scoped === ".." || scoped.startsWith(`..${sep}`) || isAbsolute(scoped))
+				return null;
 			// 对外保留 ProjectStore 中的路径表示（Windows 可能是 8.3 短路径）。
 			return resolve(inputProjectRoot, scoped);
 		};
@@ -225,22 +284,40 @@ export class GitService {
 				? toProjectPath(resolve(repoRoot, resource.oldPath))
 				: null;
 			if (resource.oldPath && !displayOldPath) return [];
-			return [{
-				...resource,
-				path: displayPath,
-				...(displayOldPath ? { oldPath: displayOldPath } : {}),
-			}];
+			return [
+				{
+					...resource,
+					path: displayPath,
+					...(displayOldPath ? { oldPath: displayOldPath } : {}),
+				},
+			];
 		});
-		const groups: GitResourceGroups = { merge: [], index: [], workingTree: [], untracked: [] };
+		const groups: GitResourceGroups = {
+			merge: [],
+			index: [],
+			workingTree: [],
+			untracked: [],
+		};
 		for (const resource of resources) {
 			if (resource.status === GitStatus.UNTRACKED) groups.untracked.push(resource);
-			else if (resource.status === GitStatus.INDEX_MODIFIED || resource.status === GitStatus.INDEX_ADDED ||
-				resource.status === GitStatus.INDEX_DELETED || resource.status === GitStatus.INDEX_RENAMED ||
-				resource.status === GitStatus.INDEX_COPIED || resource.status === GitStatus.INDEX_TYPE_CHANGED)
+			else if (
+				resource.status === GitStatus.INDEX_MODIFIED ||
+				resource.status === GitStatus.INDEX_ADDED ||
+				resource.status === GitStatus.INDEX_DELETED ||
+				resource.status === GitStatus.INDEX_RENAMED ||
+				resource.status === GitStatus.INDEX_COPIED ||
+				resource.status === GitStatus.INDEX_TYPE_CHANGED
+			)
 				groups.index.push(resource);
-			else if (resource.status === GitStatus.ADDED_BY_US || resource.status === GitStatus.ADDED_BY_THEM ||
-				resource.status === GitStatus.DELETED_BY_US || resource.status === GitStatus.DELETED_BY_THEM ||
-				resource.status === GitStatus.BOTH_ADDED || resource.status === GitStatus.BOTH_DELETED || resource.status === GitStatus.BOTH_MODIFIED)
+			else if (
+				resource.status === GitStatus.ADDED_BY_US ||
+				resource.status === GitStatus.ADDED_BY_THEM ||
+				resource.status === GitStatus.DELETED_BY_US ||
+				resource.status === GitStatus.DELETED_BY_THEM ||
+				resource.status === GitStatus.BOTH_ADDED ||
+				resource.status === GitStatus.BOTH_DELETED ||
+				resource.status === GitStatus.BOTH_MODIFIED
+			)
 				groups.merge.push(resource);
 			else groups.workingTree.push(resource);
 		}
@@ -255,7 +332,11 @@ export class GitService {
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			// 非 Git 仓库或 Git 未安装时抛出异常，让渲染层展示对应提示
-			if (/not a git repository|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
+			if (
+				/not a git repository|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(
+					msg,
+				)
+			) {
 				throw err;
 			}
 			return { merge: [], index: [], workingTree: [], untracked: [] };
@@ -274,7 +355,12 @@ export class GitService {
 		maxBytes: number,
 	): Promise<GitWorkspaceFileDiff | null> {
 		try {
-			if (group !== "merge" && group !== "index" && group !== "workingTree" && group !== "untracked") {
+			if (
+				group !== "merge" &&
+				group !== "index" &&
+				group !== "workingTree" &&
+				group !== "untracked"
+			) {
 				return null;
 			}
 			const {
@@ -283,14 +369,15 @@ export class GitService {
 				inputProjectRoot: inputRoot,
 				projectRoot,
 			} = await this.getStatusContext(cwd);
-			const samePath = (left: string, right: string) => process.platform === "win32"
-				? left.toLocaleLowerCase() === right.toLocaleLowerCase()
-				: left === right;
+			const samePath = (left: string, right: string) =>
+				process.platform === "win32"
+					? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+					: left === right;
 			// GitPanel 的 Changes 组把 untracked 文件合并显示但统一传 workingTree 组，
 			// 导致未跟踪文件在 workingTree 组里找不到而打不开；容错回查 untracked 组。
 			const resource =
-				groups[group].find((entry) => samePath(entry.path, resolve(filePath)))
-				?? (group === "workingTree"
+				groups[group].find((entry) => samePath(entry.path, resolve(filePath))) ??
+				(group === "workingTree"
 					? groups.untracked.find((entry) => samePath(entry.path, resolve(filePath)))
 					: undefined);
 			if (!resource) return null;
@@ -302,27 +389,44 @@ export class GitService {
 
 			const toRepoPath = (absolutePath: string) => {
 				const scoped = relative(inputRoot, resolve(absolutePath));
-				if (scoped === ".." || scoped.startsWith(`..${sep}`) || isAbsolute(scoped)) {
+				if (
+					scoped === ".." ||
+					scoped.startsWith(`..${sep}`) ||
+					isAbsolute(scoped)
+				) {
 					throw new Error("Git resource is outside the project");
 				}
 				const canonicalPath = resolve(projectRoot, scoped);
 				const result = relative(repoRoot, canonicalPath).replace(/\\/g, "/");
-				if (!result || result === ".." || result.startsWith("../") || isAbsolute(result)) {
+				if (
+					!result ||
+					result === ".." ||
+					result.startsWith("../") ||
+					isAbsolute(result)
+				) {
 					throw new Error("Git resource is outside the repository");
 				}
 				return result;
 			};
 			const currentPath = toRepoPath(resource.path);
-			const oldPath = resource.oldPath ? toRepoPath(resource.oldPath) : currentPath;
+			const oldPath = resource.oldPath
+				? toRepoPath(resource.oldPath)
+				: currentPath;
 			const limit = Math.max(1, Math.floor(maxBytes));
 			const readBlob = async (blobRef: string): Promise<string | null> => {
 				try {
 					// maxBuffer 按字节硬限制输出；一次 git show 即可兼顾内存边界与较低进程开销。
-					const { stdout } = await execFileAsync(currentGitExecutable(), ["show", blobRef], {
-						cwd: repoRoot,
-						maxBuffer: limit + 1,
-					});
-					return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0") ? null : stdout;
+					const { stdout } = await execFileAsync(
+						currentGitExecutable(),
+						["show", blobRef],
+						{
+							cwd: repoRoot,
+							maxBuffer: limit + 1,
+						},
+					);
+					return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0")
+						? null
+						: stdout;
 				} catch {
 					return null;
 				}
@@ -332,11 +436,15 @@ export class GitService {
 					const pathMetadata = await lstat(resource.path);
 					if (pathMetadata.isSymbolicLink()) {
 						const target = await readlink(resource.path);
-						return Buffer.byteLength(target, "utf8") <= limit && !target.includes("\0") ? target : null;
+						return Buffer.byteLength(target, "utf8") <= limit &&
+							!target.includes("\0")
+							? target
+							: null;
 					}
 					if (!pathMetadata.isFile()) return null;
 					// 从同一个、不跟随 symlink 的文件句柄做有界读取，消除 stat/readFile 间增长或替换竞态。
-					const noFollow = process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
+					const noFollow =
+						process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
 					const handle = await open(resource.path, constants.O_RDONLY | noFollow);
 					try {
 						const metadata = await handle.stat();
@@ -346,7 +454,12 @@ export class GitService {
 						const content = Buffer.allocUnsafe(capacity);
 						let total = 0;
 						while (total < capacity) {
-							const { bytesRead } = await handle.read(content, total, capacity - total, total);
+							const { bytesRead } = await handle.read(
+								content,
+								total,
+								capacity - total,
+								total,
+							);
 							if (bytesRead === 0) break;
 							total += bytesRead;
 						}
@@ -367,21 +480,30 @@ export class GitService {
 				originalContent = "";
 				modifiedContent = await readWorkingTree();
 			} else if (effectiveGroup === "index") {
-				originalContent = resource.status === GitStatus.INDEX_ADDED
-					? ""
-					: await readBlob(`HEAD:${oldPath}`);
-				modifiedContent = resource.status === GitStatus.INDEX_DELETED
-					? ""
-					: await readBlob(`:${currentPath}`);
+				originalContent =
+					resource.status === GitStatus.INDEX_ADDED
+						? ""
+						: await readBlob(`HEAD:${oldPath}`);
+				modifiedContent =
+					resource.status === GitStatus.INDEX_DELETED
+						? ""
+						: await readBlob(`:${currentPath}`);
 			} else if (effectiveGroup === "workingTree") {
-				originalContent = await readBlob(`:${resource.oldPath ? oldPath : currentPath}`);
-				modifiedContent = resource.status === GitStatus.DELETED ? "" : await readWorkingTree();
+				originalContent = await readBlob(
+					`:${resource.oldPath ? oldPath : currentPath}`,
+				);
+				modifiedContent =
+					resource.status === GitStatus.DELETED ? "" : await readWorkingTree();
 			} else {
-				const missingFromHead = resource.status === GitStatus.ADDED_BY_THEM ||
+				const missingFromHead =
+					resource.status === GitStatus.ADDED_BY_THEM ||
 					resource.status === GitStatus.DELETED_BY_US ||
 					resource.status === GitStatus.BOTH_DELETED;
-				originalContent = missingFromHead ? "" : await readBlob(`HEAD:${currentPath}`);
-				modifiedContent = resource.status === GitStatus.BOTH_DELETED ? "" : await readWorkingTree();
+				originalContent = missingFromHead
+					? ""
+					: await readBlob(`HEAD:${currentPath}`);
+				modifiedContent =
+					resource.status === GitStatus.BOTH_DELETED ? "" : await readWorkingTree();
 			}
 			if (originalContent === null || modifiedContent === null) return null;
 			return { path: resource.path, originalContent, modifiedContent };
@@ -399,17 +521,22 @@ export class GitService {
 	async getStagedDiff(cwd: string, maxBytes = 100 * 1024): Promise<string> {
 		try {
 			// 先试暂存区 diff
-			const { stdout } = await execFileAsync(currentGitExecutable(), ["diff", "--staged", "--unified=3"], {
-				cwd,
-				encoding: "utf8",
-				timeout: GIT_MUTATION_TIMEOUT_MS,
-				maxBuffer: 10 * 1024 * 1024,
-			});
+			const { stdout } = await execFileAsync(
+				currentGitExecutable(),
+				["diff", "--staged", "--unified=3"],
+				{
+					cwd,
+					encoding: "utf8",
+					timeout: GIT_MUTATION_TIMEOUT_MS,
+					maxBuffer: 10 * 1024 * 1024,
+				},
+			);
 			// 无暂存内容时直接返回空，不再回退到工作区 diff；由调用方提示用户先暂存
 			if (!stdout.trim()) return "";
-			const truncated = stdout.length > maxBytes
-				? stdout.slice(0, maxBytes) + "\n\n... (diff truncated)"
-				: stdout;
+			const truncated =
+				stdout.length > maxBytes
+					? stdout.slice(0, maxBytes) + "\n\n... (diff truncated)"
+					: stdout;
 			return truncated;
 		} catch {
 			return "";
@@ -424,12 +551,26 @@ export class GitService {
 	 */
 	async getCommitLog(
 		cwd: string,
-		options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean },
+		options?: {
+			maxEntries?: number;
+			ref?: string;
+			path?: string;
+			allBranches?: boolean;
+		},
 	): Promise<CommitEntry[]> {
 		// 列表只需要 subject；完整 body 仅在按需 commit detail 中读取，避免无用的大字符串传输。
 		const COMMIT_FORMAT = "%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%s";
-		const maxEntries = Math.min(500, Math.max(1, Math.floor(options?.maxEntries ?? 32)));
-		const args = ["log", `--format=${COMMIT_FORMAT}`, "-z", "--topo-order", `-n${maxEntries}`];
+		const maxEntries = Math.min(
+			500,
+			Math.max(1, Math.floor(options?.maxEntries ?? 32)),
+		);
+		const args = [
+			"log",
+			`--format=${COMMIT_FORMAT}`,
+			"-z",
+			"--topo-order",
+			`-n${maxEntries}`,
+		];
 		const useAll = options?.allBranches ?? true;
 
 		if (useAll && !options?.ref) {
@@ -450,7 +591,10 @@ export class GitService {
 		}
 
 		try {
-			const { stdout } = await execFileAsync(currentGitExecutable(), args, { cwd, maxBuffer: 32 * 1024 * 1024 });
+			const { stdout } = await execFileAsync(currentGitExecutable(), args, {
+				cwd,
+				maxBuffer: 32 * 1024 * 1024,
+			});
 			if (!stdout) return [];
 
 			return parseCommits(stdout);
@@ -487,7 +631,9 @@ export class GitService {
 		}
 
 		try {
-			const { stdout } = await execFileAsync(currentGitExecutable(), args, { cwd });
+			const { stdout } = await execFileAsync(currentGitExecutable(), args, {
+				cwd,
+			});
 			const n = Number.parseInt(stdout.trim(), 10);
 			return Number.isFinite(n) && n >= 0 ? n : 0;
 		} catch {
@@ -511,9 +657,9 @@ export class GitService {
 			);
 			// for-each-ref 一行一 ref（字段间 NUL），先按行滤掉内部快照 ref 再解析，
 			// 避免 refs/pi-checkpoints/* 出现在用户可见的分支/标签引用列表里。
-			const rows = stdout.split(/\r?\n/).filter(
-				(line) => line.trim() && !line.startsWith(`${REF_BASE}/`),
-			);
+			const rows = stdout
+				.split(/\r?\n/)
+				.filter((line) => line.trim() && !line.startsWith(`${REF_BASE}/`));
 			return parseRefs(rows.join("\n"));
 		} catch {
 			return [];
@@ -600,10 +746,7 @@ export class GitService {
 	 * Merge commit 与 VS Code SCM History 一样只比较第一父提交；根提交通过
 	 * diff-tree --root 与空树比较，避免为根提交伪造不存在的 parent ref。
 	 */
-	async getCommitDetail(
-		cwd: string,
-		ref: string,
-	): Promise<CommitDetail | null> {
+	async getCommitDetail(cwd: string, ref: string): Promise<CommitDetail | null> {
 		const COMMIT_FORMAT = "%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B";
 		try {
 			// Graph 已提供完整 SHA 时直接使用；其他 renderer ref 必须先安全解析，不能进入 git 选项区。
@@ -616,7 +759,15 @@ export class GitService {
 			if (cached) return cached;
 			const { stdout } = await execFileAsync(
 				currentGitExecutable(),
-				["show", "-s", "--shortstat", `--format=${COMMIT_FORMAT}`, "-z", commitHash, "--"],
+				[
+					"show",
+					"-s",
+					"--shortstat",
+					`--format=${COMMIT_FORMAT}`,
+					"-z",
+					commitHash,
+					"--",
+				],
 				{ cwd, maxBuffer: 32 * 1024 * 1024 },
 			);
 			if (!stdout) return null;
@@ -625,16 +776,37 @@ export class GitService {
 			if (!commit) return null;
 
 			const diffArgs = commit.parents[0]
-				? ["diff", "--name-status", "-z", "--find-renames", commit.parents[0], commit.hash]
-				: ["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", "--find-renames", commit.hash];
-			const { stdout: filesRaw } = await execFileAsync(currentGitExecutable(), diffArgs, {
-				cwd,
-				maxBuffer: 32 * 1024 * 1024,
-			});
+				? [
+						"diff",
+						"--name-status",
+						"-z",
+						"--find-renames",
+						commit.parents[0],
+						commit.hash,
+					]
+				: [
+						"diff-tree",
+						"--root",
+						"--no-commit-id",
+						"--name-status",
+						"-r",
+						"-z",
+						"--find-renames",
+						commit.hash,
+					];
+			const { stdout: filesRaw } = await execFileAsync(
+				currentGitExecutable(),
+				diffArgs,
+				{
+					cwd,
+					maxBuffer: 32 * 1024 * 1024,
+				},
+			);
 
 			const detail = { commit, files: parseDiffNameStatus(filesRaw) };
 			// LRU 准入预算同时作为 IPC 硬上限，防止异常大 message/文件清单进入 renderer。
-			if (this.estimateCommitDetailBytes(detail) > this.commitDetailCacheByteLimit) return null;
+			if (this.estimateCommitDetailBytes(detail) > this.commitDetailCacheByteLimit)
+				return null;
 			this.writeCommitDetailCache(cacheKey, detail);
 			return detail;
 		} catch {
@@ -662,25 +834,36 @@ export class GitService {
 			);
 			if (!file) return null;
 
-			const parent = detail.commit.parents[0] ?? "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+			const parent =
+				detail.commit.parents[0] ?? "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 			const oldPath = file.originalPath ?? file.path;
 			const limit = Math.max(1, Math.floor(maxBytes));
 			const readBlob = async (blobRef: string): Promise<string | null> => {
 				try {
-					const { stdout } = await execFileAsync(currentGitExecutable(), ["show", blobRef], {
-						cwd,
-						maxBuffer: limit + 1,
-					});
-					return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0") ? null : stdout;
+					const { stdout } = await execFileAsync(
+						currentGitExecutable(),
+						["show", blobRef],
+						{
+							cwd,
+							maxBuffer: limit + 1,
+						},
+					);
+					return Buffer.byteLength(stdout, "utf8") > limit || stdout.includes("\0")
+						? null
+						: stdout;
 				} catch {
 					return null;
 				}
 			};
 			// 只有 Git 状态明确表示该侧不存在时才返回空字符串。两侧顺序读取，
 			// 避免两个接近上限的 git show 缓冲区同时驻留在主进程内存中。
-			const originalContent = file.status === "added" ? "" : await readBlob(`${parent}:${oldPath}`);
+			const originalContent =
+				file.status === "added" ? "" : await readBlob(`${parent}:${oldPath}`);
 			if (originalContent === null) return null;
-			const modifiedContent = file.status === "deleted" ? "" : await readBlob(`${detail.commit.hash}:${file.path}`);
+			const modifiedContent =
+				file.status === "deleted"
+					? ""
+					: await readBlob(`${detail.commit.hash}:${file.path}`);
 			if (originalContent === null || modifiedContent === null) return null;
 			return {
 				path: file.path,
@@ -703,67 +886,84 @@ export class GitService {
 		operation: "stage" | "unstage",
 	): Promise<string[]> {
 		const { groups, projectRoot } = await this.getStatusContext(cwd);
-		const candidates = operation === "stage"
-			? [...groups.merge, ...groups.workingTree, ...groups.untracked]
-			: groups.index;
+		const candidates =
+			operation === "stage"
+				? [...groups.merge, ...groups.workingTree, ...groups.untracked]
+				: groups.index;
 		const normalizePath = (entry: string) => {
 			const normalized = resolve(entry);
 			// projectRoot 来自 fs/promises.realpath（异步版，Windows 上展开 8.3 短路径为长名）；
 			// 同步 realpathSync 不展开（JS 实现），必须用 realpathSync.native（libuv）保持同空间，
 			// 否则短路径（如 ADMINI~1）下项目内文件会被误判为 outside（stage/unstage 直接报错）。
 			// 路径已不存在（stale/删除竞态）时 native 抛错，回退 resolve（短名空间）。
-			const canonical = process.platform === "win32"
-				? (() => {
-					try {
-						return realpathSync.native(normalized);
-					} catch {
-						return normalized;
-					}
-				})()
-				: normalized;
-			return process.platform === "win32" ? canonical.toLocaleLowerCase() : canonical;
+			const canonical =
+				process.platform === "win32"
+					? (() => {
+							try {
+								return realpathSync.native(normalized);
+							} catch {
+								return normalized;
+							}
+						})()
+					: normalized;
+			return process.platform === "win32"
+				? canonical.toLocaleLowerCase()
+				: canonical;
 		};
 		const requested = new Set(paths.map(normalizePath));
-		const matched = candidates.filter((resource) => requested.has(normalizePath(resource.path)));
+		const matched = candidates.filter((resource) =>
+			requested.has(normalizePath(resource.path)),
+		);
 		// 竞态容错：渲染层持有的 status 快照可能落后于主进程最新状态（外部工具 stage/
 		// 删除/改名后未及时刷新）。未匹配路径区分两类处理：项目目录内的视为 stale——该
 		// 路径当前已无对应可操作状态，静默跳过（不弹无意义的报错，用户感知为“无操作”）；
 		// 项目目录外的视为安全违规，必须拒绝。边界用 projectRoot（cwd 的 realpath）判定，
 		// monorepo 下 sibling 目录同样被拦截。
-		const matchedPaths = new Set(matched.map((resource) => normalizePath(resource.path)));
-		const normalizedRoot = process.platform === "win32"
-			? projectRoot.toLocaleLowerCase()
-			: projectRoot;
+		const matchedPaths = new Set(
+			matched.map((resource) => normalizePath(resource.path)),
+		);
+		const normalizedRoot =
+			process.platform === "win32" ? projectRoot.toLocaleLowerCase() : projectRoot;
 		// resolve 空间兜底：已被删除/不可操作的 stale 路径无法 native 展开（回退短名），
 		// 用 projectRoot 的 resolve 形态判定仍在项目内 → 静默跳过，而非误报 outside。
-		const resolvedRoot = process.platform === "win32"
-			? resolve(projectRoot).toLocaleLowerCase()
-			: resolve(projectRoot);
+		const resolvedRoot =
+			process.platform === "win32"
+				? resolve(projectRoot).toLocaleLowerCase()
+				: resolve(projectRoot);
 		const isInsideProject = (normalizedPath: string) =>
-			normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}${sep}`)
-			|| normalizedPath === resolvedRoot || normalizedPath.startsWith(`${resolvedRoot}${sep}`);
+			normalizedPath === normalizedRoot ||
+			normalizedPath.startsWith(`${normalizedRoot}${sep}`) ||
+			normalizedPath === resolvedRoot ||
+			normalizedPath.startsWith(`${resolvedRoot}${sep}`);
 		const outsideProject = [...requested].filter(
 			(p) => !matchedPaths.has(p) && !isInsideProject(p),
 		);
 		if (outsideProject.length > 0) {
 			throw new Error("Git resource is outside the project");
 		}
-		return [...new Set(matched.flatMap((resource) => {
-			// 只有 unstaged rename/copy 的 Stage 和 staged rename/copy 的 Unstage 需要新旧路径；
-			// 普通工作区修改（包括 staged rename 后的新路径编辑）只操作当前路径，避免不存在的 oldPath 令整条命令失败。
-			const includeOldPath = operation === "unstage" ||
-				resource.status === GitStatus.INTENT_TO_RENAME;
-			return includeOldPath && resource.oldPath
-				? [resource.path, resource.oldPath]
-				: [resource.path];
-		}))];
+		return [
+			...new Set(
+				matched.flatMap((resource) => {
+					// 只有 unstaged rename/copy 的 Stage 和 staged rename/copy 的 Unstage 需要新旧路径；
+					// 普通工作区修改（包括 staged rename 后的新路径编辑）只操作当前路径，避免不存在的 oldPath 令整条命令失败。
+					const includeOldPath =
+						operation === "unstage" || resource.status === GitStatus.INTENT_TO_RENAME;
+					return includeOldPath && resource.oldPath
+						? [resource.path, resource.oldPath]
+						: [resource.path];
+				}),
+			),
+		];
 	}
 
 	/** Stage 文件（git add） */
 	async stageFiles(cwd: string, paths: string[]): Promise<void> {
 		const safePaths = await this.resolveMutationPaths(cwd, paths, "stage");
 		if (safePaths.length === 0) return;
-		await this.git(["--literal-pathspecs", "add", "--", ...safePaths], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		await this.git(["--literal-pathspecs", "add", "--", ...safePaths], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 	}
 
 	/** Unstage 文件（git restore --staged） */
@@ -772,10 +972,23 @@ export class GitService {
 		if (safePaths.length === 0) return;
 		const head = await this.resolveCommitHash(cwd, "HEAD");
 		if (head) {
-			await this.git(["--literal-pathspecs", "restore", "--staged", "--", ...safePaths], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+			await this.git(
+				["--literal-pathspecs", "restore", "--staged", "--", ...safePaths],
+				{ cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS },
+			);
 		} else {
 			// Unborn repository 没有 HEAD，restore --staged 无基线；从 index 移除但保留工作区文件。
-			await this.git(["--literal-pathspecs", "rm", "--cached", "--ignore-unmatch", "--", ...safePaths], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+			await this.git(
+				[
+					"--literal-pathspecs",
+					"rm",
+					"--cached",
+					"--ignore-unmatch",
+					"--",
+					...safePaths,
+				],
+				{ cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS },
+			);
 		}
 	}
 
@@ -793,11 +1006,15 @@ export class GitService {
 		}
 		const { groups, repoRoot } = await this.getStatusContext(cwd);
 		const requestedPath = resolve(filePath);
-		const samePath = (left: string, right: string) => process.platform === "win32"
-			? left.toLocaleLowerCase() === right.toLocaleLowerCase()
-			: left === right;
-		const resource = groups[group].find((entry) => samePath(resolve(entry.path), requestedPath));
-		if (!resource) throw new Error("Git resource is stale or outside the project");
+		const samePath = (left: string, right: string) =>
+			process.platform === "win32"
+				? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+				: left === right;
+		const resource = groups[group].find((entry) =>
+			samePath(resolve(entry.path), requestedPath),
+		);
+		if (!resource)
+			throw new Error("Git resource is stale or outside the project");
 
 		if (group === "untracked") {
 			const metadata = await lstat(resource.path);
@@ -814,7 +1031,10 @@ export class GitService {
 			return;
 		}
 
-		await this.git(["--literal-pathspecs", "restore", "--worktree", "--", resource.path], { cwd: repoRoot, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		await this.git(
+			["--literal-pathspecs", "restore", "--worktree", "--", resource.path],
+			{ cwd: repoRoot, timeoutMs: GIT_MUTATION_TIMEOUT_MS },
+		);
 	}
 
 	/**
@@ -822,17 +1042,23 @@ export class GitService {
 	 * 先用一次状态快照校验分组和路径，再合并 tracked restore；未跟踪文件逐个进回收站，
 	 * 这样既保持单文件回滚语义，也避免渲染层并发发送多个相互覆盖的 Git 操作。
 	 */
-	async discardFiles(cwd: string, resources: Array<{ group: "workingTree" | "untracked"; path: string }>): Promise<void> {
+	async discardFiles(
+		cwd: string,
+		resources: Array<{ group: "workingTree" | "untracked"; path: string }>,
+	): Promise<void> {
 		if (resources.length === 0) return;
 		const { groups, repoRoot } = await this.getStatusContext(cwd);
-		const samePath = (left: string, right: string) => process.platform === "win32"
-			? left.toLocaleLowerCase() === right.toLocaleLowerCase()
-			: left === right;
+		const samePath = (left: string, right: string) =>
+			process.platform === "win32"
+				? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+				: left === right;
 		const trackedPaths: string[] = [];
 		const untrackedPaths: string[] = [];
 		for (const resource of resources) {
 			const requestedPath = resolve(resource.path);
-			const match = groups[resource.group].find((entry) => samePath(resolve(entry.path), requestedPath));
+			const match = groups[resource.group].find((entry) =>
+				samePath(resolve(entry.path), requestedPath),
+			);
 			if (!match) throw new Error("Git resource is stale or outside the project");
 			if (resource.group === "untracked") {
 				const metadata = await lstat(match.path);
@@ -846,7 +1072,13 @@ export class GitService {
 		}
 		if (trackedPaths.length > 0) {
 			await this.git(
-				["--literal-pathspecs", "restore", "--worktree", "--", ...[...new Set(trackedPaths)]],
+				[
+					"--literal-pathspecs",
+					"restore",
+					"--worktree",
+					"--",
+					...[...new Set(trackedPaths)],
+				],
 				{ cwd: repoRoot, timeoutMs: GIT_MUTATION_TIMEOUT_MS },
 			);
 		}
@@ -862,25 +1094,41 @@ export class GitService {
 
 	/** 创建提交 */
 	async commit(cwd: string, message: string): Promise<void> {
-		await this.git(["commit", "-m", message], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		await this.git(["commit", "-m", message], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 	}
 
 	/** Cherry-pick：将指定提交应用到当前分支 */
 	async cherryPick(cwd: string, hash: string): Promise<void> {
-		await this.git(["cherry-pick", hash], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		await this.git(["cherry-pick", hash], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 	}
 
 	/** Revert：创建一个反向提交撤销指定提交的变更 */
 	async revertCommit(cwd: string, hash: string): Promise<void> {
-		await this.git(["revert", "--no-edit", hash], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		await this.git(["revert", "--no-edit", hash], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 	}
 
 	/**
 	 * Reset：移动 HEAD 到指定提交
 	 * @param mode soft｜mixed｜hard，默认 soft
 	 */
-	async resetToCommit(cwd: string, hash: string, mode: "soft" | "mixed" | "hard" = "soft"): Promise<void> {
-		await this.git(["reset", `--${mode}`, hash], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+	async resetToCommit(
+		cwd: string,
+		hash: string,
+		mode: "soft" | "mixed" | "hard" = "soft",
+	): Promise<void> {
+		await this.git(["reset", `--${mode}`, hash], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 	}
 
 	/**
@@ -889,8 +1137,14 @@ export class GitService {
 	 */
 	async dropCommit(cwd: string, hash: string): Promise<void> {
 		// 先获取 parent hash
-		const { stdout: parentHash } = await this.git(["rev-parse", `${hash}^`], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
-		await this.git(["rebase", "--onto", parentHash.trim(), hash], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS });
+		const { stdout: parentHash } = await this.git(["rev-parse", `${hash}^`], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
+		await this.git(["rebase", "--onto", parentHash.trim(), hash], {
+			cwd,
+			timeoutMs: GIT_MUTATION_TIMEOUT_MS,
+		});
 	}
 
 	/** Push：将当前分支推送到远程 */
@@ -911,7 +1165,11 @@ export class GitService {
 			await this.git(["fetch"], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS * 4 });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			if (/not a git repository|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
+			if (
+				/not a git repository|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(
+					msg,
+				)
+			) {
 				return;
 			}
 			throw err;
@@ -927,14 +1185,16 @@ export class GitService {
 		try {
 			// 无上游时该命令失败（exit 128），直接视为无角标
 			const { stdout: upstreamRaw } = await execFileAsync(
-				currentGitExecutable(), ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+				currentGitExecutable(),
+				["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
 				{ cwd, timeout: GIT_MUTATION_TIMEOUT_MS },
 			);
 			const upstream = upstreamRaw.trim();
 			if (!upstream) return null;
 			// --left-right --count 输出 "<left> <right>"：左=HEAD 独有（ahead），右=上游独有（behind）
 			const { stdout: countRaw } = await execFileAsync(
-				currentGitExecutable(), ["rev-list", "--left-right", "--count", `HEAD...${upstream}`],
+				currentGitExecutable(),
+				["rev-list", "--left-right", "--count", `HEAD...${upstream}`],
 				{ cwd, timeout: GIT_MUTATION_TIMEOUT_MS },
 			);
 			const [left, right] = countRaw.trim().split(/\s+/);
@@ -955,18 +1215,30 @@ export class GitService {
 	async deleteFiles(cwd: string, paths: string[]): Promise<void> {
 		if (paths.length === 0) return;
 		const { groups } = await this.getStatusContext(cwd);
-		const all = [...groups.merge, ...groups.index, ...groups.workingTree, ...groups.untracked];
+		const all = [
+			...groups.merge,
+			...groups.index,
+			...groups.workingTree,
+			...groups.untracked,
+		];
 		const normalize = (p: string) => {
 			const resolved = resolve(p);
 			// Windows 文件系统大小写不敏感：统一小写做键，避免大小写差异导致匹配失败
-			return process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
+			return process.platform === "win32"
+				? resolved.toLocaleLowerCase()
+				: resolved;
 		};
 		const requested = new Set(paths.map(normalize));
 		// 只匹配 status 中的路径：防路径穿越与过期资源（已删除/移动的文件）；
 		// 同一文件可能同时出现在 index 与 workingTree（暂存后又修改），按归一化路径去重再比对
-		const matchedResources = all.filter((resource) => requested.has(normalize(resource.path)));
-		const matchedPaths = new Set(matchedResources.map((resource) => normalize(resource.path)));
-		if (matchedPaths.size !== requested.size) throw new Error("Git resource is stale or outside the project");
+		const matchedResources = all.filter((resource) =>
+			requested.has(normalize(resource.path)),
+		);
+		const matchedPaths = new Set(
+			matchedResources.map((resource) => normalize(resource.path)),
+		);
+		if (matchedPaths.size !== requested.size)
+			throw new Error("Git resource is stale or outside the project");
 		const deleted = new Set<string>();
 		for (const resource of matchedResources) {
 			const key = normalize(resource.path);
@@ -990,7 +1262,8 @@ export class GitService {
  * 格式（%n 换行分隔，\0 NUL 分隔 commit）：
  *   hash\nauthorName\nauthorEmail\nauthorDate\ncommitDate\nparents\nrefNames\nmessage\0\n[shortStat]
  */
-const commitRegex = /([0-9a-f]{40})\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)(?:\n([^]*?))?(?:\x00)(?:\n((?:.*)files? changed(?:.*))$)?/gm;
+const commitRegex =
+	/([0-9a-f]{40})\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)(?:\n([^]*?))?(?:\x00)(?:\n((?:.*)files? changed(?:.*))$)?/gm;
 
 function parseCommits(data: string, includeFullMessage = false): CommitEntry[] {
 	const commits: CommitEntry[] = [];
@@ -1000,7 +1273,18 @@ function parseCommits(data: string, includeFullMessage = false): CommitEntry[] {
 		match = commitRegex.exec(data);
 		if (match === null) break;
 
-		const [, hash, authorName, authorEmail, authorDate, , parentsRaw, refNamesRaw, messageRaw, shortStatRaw] = match;
+		const [
+			,
+			hash,
+			authorName,
+			authorEmail,
+			authorDate,
+			,
+			parentsRaw,
+			refNamesRaw,
+			messageRaw,
+			shortStatRaw,
+		] = match;
 
 		let message = messageRaw ?? "";
 		if (message.endsWith("\n")) {
@@ -1016,7 +1300,10 @@ function parseCommits(data: string, includeFullMessage = false): CommitEntry[] {
 			authorDate: Number(authorDate) * 1000,
 			parents: parentsRaw ? parentsRaw.split(" ").filter(Boolean) : [],
 			refNames: refNamesRaw
-				? refNamesRaw.split(",").map((s: string) => s.trim()).filter(Boolean)
+				? refNamesRaw
+						.split(",")
+						.map((s: string) => s.trim())
+						.filter(Boolean)
 				: [],
 			graph: [],
 			...(includeFullMessage ? { fullMessage: message } : {}),
@@ -1027,8 +1314,13 @@ function parseCommits(data: string, includeFullMessage = false): CommitEntry[] {
 	return commits;
 }
 
-const shortStatRegex = /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/;
-function parseShortStat(data: string): { files: number; insertions: number; deletions: number } {
+const shortStatRegex =
+	/(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/;
+function parseShortStat(data: string): {
+	files: number;
+	insertions: number;
+	deletions: number;
+} {
 	const m = data.trim().match(shortStatRegex);
 	if (!m) return { files: 0, insertions: 0, deletions: 0 };
 	return {
@@ -1080,12 +1372,17 @@ function parseDiffNameStatus(raw: string): GitChangedFile[] {
 		const statusChar = statusToken[0] ?? "";
 		const originalOrCurrentPath = fields[index++] ?? "";
 		const isRenameOrCopy = statusChar === "R" || statusChar === "C";
-		const currentPath = isRenameOrCopy ? fields[index++] ?? "" : originalOrCurrentPath;
+		const currentPath = isRenameOrCopy
+			? (fields[index++] ?? "")
+			: originalOrCurrentPath;
 		if (!currentPath) continue;
 		const status: GitFileStatus =
-			statusChar === "A" ? "added"
-				: statusChar === "D" ? "deleted"
-					: statusChar === "R" || statusChar === "C" ? "renamed"
+			statusChar === "A"
+				? "added"
+				: statusChar === "D"
+					? "deleted"
+					: statusChar === "R" || statusChar === "C"
+						? "renamed"
 						: "modified";
 		files.push({
 			path: currentPath,
@@ -1114,9 +1411,10 @@ function parsePorcelainStatus(raw: string): GitResource[] {
 		const y = line[1]!; // working tree status
 		const filePath = line.slice(3);
 		// porcelain -z 的 rename/copy 顺序是“当前路径\0原路径\0”，与普通可读格式相反。
-		const oldPath = x === "R" || x === "C" || y === "R" || y === "C"
-			? fields[index++]
-			: undefined;
+		const oldPath =
+			x === "R" || x === "C" || y === "R" || y === "C"
+				? fields[index++]
+				: undefined;
 		const push = (status: GitStatus, letter: string, includeOldPath = false) => {
 			result.push({
 				path: filePath,
@@ -1127,15 +1425,42 @@ function parsePorcelainStatus(raw: string): GitResource[] {
 		};
 
 		// 未解决冲突是一条独立资源，不能再同时拆入 index/workingTree。
-		if (x === "U" && y === "U") { push(GitStatus.BOTH_MODIFIED, "!"); continue; }
-		if (x === "A" && y === "A") { push(GitStatus.BOTH_ADDED, "!"); continue; }
-		if (x === "D" && y === "D") { push(GitStatus.BOTH_DELETED, "!"); continue; }
-		if (x === "A" && y === "U") { push(GitStatus.ADDED_BY_US, "!"); continue; }
-		if (x === "U" && y === "A") { push(GitStatus.ADDED_BY_THEM, "!"); continue; }
-		if (x === "D" && y === "U") { push(GitStatus.DELETED_BY_US, "!"); continue; }
-		if (x === "U" && y === "D") { push(GitStatus.DELETED_BY_THEM, "!"); continue; }
-		if (x === "?" && y === "?") { push(GitStatus.UNTRACKED, "U"); continue; }
-		if (x === "!" && y === "!") { push(GitStatus.IGNORED, "I"); continue; }
+		if (x === "U" && y === "U") {
+			push(GitStatus.BOTH_MODIFIED, "!");
+			continue;
+		}
+		if (x === "A" && y === "A") {
+			push(GitStatus.BOTH_ADDED, "!");
+			continue;
+		}
+		if (x === "D" && y === "D") {
+			push(GitStatus.BOTH_DELETED, "!");
+			continue;
+		}
+		if (x === "A" && y === "U") {
+			push(GitStatus.ADDED_BY_US, "!");
+			continue;
+		}
+		if (x === "U" && y === "A") {
+			push(GitStatus.ADDED_BY_THEM, "!");
+			continue;
+		}
+		if (x === "D" && y === "U") {
+			push(GitStatus.DELETED_BY_US, "!");
+			continue;
+		}
+		if (x === "U" && y === "D") {
+			push(GitStatus.DELETED_BY_THEM, "!");
+			continue;
+		}
+		if (x === "?" && y === "?") {
+			push(GitStatus.UNTRACKED, "U");
+			continue;
+		}
+		if (x === "!" && y === "!") {
+			push(GitStatus.IGNORED, "I");
+			continue;
+		}
 
 		// X 与 Y 必须分别生成资源：同一文件可以同时含“已暂存”和“未暂存”修改。
 		if (x === "M") push(GitStatus.INDEX_MODIFIED, "M");

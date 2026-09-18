@@ -6,10 +6,16 @@ import test from "node:test";
 // 本测试锁定新契约：notify 请求仍经 showNotice 出口，showNotice 落到 sonner，
 // Toaster 在渲染树根挂载，旧的 app-notice/NoticeCenter 不再回流。
 
-const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
+const sessionAtoms = readFileSync(
+  "src/renderer/src/atoms/session-atoms.ts",
+  "utf8",
+);
 const mainEntry = readFileSync("src/renderer/src/main.tsx", "utf8");
 const notice = readFileSync("src/renderer/src/utils/notice.ts", "utf8");
-const sonner = readFileSync("src/renderer/src/components/ui-shadcn/sonner.tsx", "utf8");
+const sonner = readFileSync(
+  "src/renderer/src/components/ui-shadcn/sonner.tsx",
+  "utf8",
+);
 const sessionView = readFileSync(
   "src/renderer/src/components/session/SessionView.tsx",
   "utf8",
@@ -49,7 +55,10 @@ test("通知统一走 sonner 全局 toast（不再有 app-notice 锚点浮层）
   );
   assert.match(card, /toast\.dismiss/);
   // fallback toast must align with Sonner while leaving the custom title-bar drag region.
-  assert.match(notice, /"top:calc\(var\(--window-drag-height, 0px\) \+ 12px\)"/);
+  assert.match(
+    notice,
+    /"top:calc\(var\(--window-drag-height, 0px\) \+ 12px\)"/,
+  );
   assert.doesNotMatch(notice, /"top:16px"/);
   assert.match(notice, /common\.close/);
 

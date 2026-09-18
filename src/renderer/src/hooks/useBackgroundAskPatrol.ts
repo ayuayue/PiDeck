@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { useAtomValue } from "jotai";
-import { sessionRecordsAtom, sessionRuntimeUiByIdAtom } from "../atoms/session-atoms";
+import {
+  sessionRecordsAtom,
+  sessionRuntimeUiByIdAtom,
+} from "../atoms/session-atoms";
 import { t } from "../i18n";
 import { dismissNotice, showNotice, type NoticeId } from "../utils/notice";
 import {
@@ -25,7 +28,9 @@ export interface UseBackgroundAskPatrolOptions {
  * 变化都会戳醒所有分屏栏的 Injector——违反「多实例必须按 session 订阅」。
  * 巡检天然跨会话，按架构规则收敛到单一全局挂载点。
  */
-export function useBackgroundAskPatrol(options: UseBackgroundAskPatrolOptions): void {
+export function useBackgroundAskPatrol(
+  options: UseBackgroundAskPatrolOptions,
+): void {
   const { onFocusSession } = options;
   const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
   const sessionRecords = useAtomValue(sessionRecordsAtom);
@@ -41,14 +46,27 @@ export function useBackgroundAskPatrol(options: UseBackgroundAskPatrolOptions): 
         defaultSessionName: t("ask.defaultTitle"),
       });
       const message = display.question
-        ? t("ask.backgroundPendingDetail", { title: display.sessionName, question: display.question })
+        ? t("ask.backgroundPendingDetail", {
+            title: display.sessionName,
+            question: display.question,
+          })
         : t("ask.backgroundPending", { title: display.sessionName });
-      const noticeId = showNotice(message, Number.POSITIVE_INFINITY, "warning", undefined, {
-        action: onFocusSession
-          ? { label: t("ask.jumpToSession"), onClick: () => onFocusSession(ask.sessionId) }
-          : undefined,
-      });
-      if (noticeId !== undefined) backgroundAskNoticeIdMap.set(ask.key, noticeId);
+      const noticeId = showNotice(
+        message,
+        Number.POSITIVE_INFINITY,
+        "warning",
+        undefined,
+        {
+          action: onFocusSession
+            ? {
+                label: t("ask.jumpToSession"),
+                onClick: () => onFocusSession(ask.sessionId),
+              }
+            : undefined,
+        },
+      );
+      if (noticeId !== undefined)
+        backgroundAskNoticeIdMap.set(ask.key, noticeId);
     }
 
     // 仅当 Ask 不再 pending（已回答/取消）时撤掉对应浮层；通知 key 保留到 Ask

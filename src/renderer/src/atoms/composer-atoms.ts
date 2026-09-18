@@ -11,11 +11,11 @@ import { currentSessionIdAtom } from "./session-atoms";
  * 遗留项目内 chip（inProject=true）仍走 @"path" 引用。
  */
 export type PastedTextFile = {
-	id: string;
-	path: string;
-	fileName: string;
-	bytes: number;
-	inProject: boolean;
+  id: string;
+  path: string;
+  fileName: string;
+  bytes: number;
+  inProject: boolean;
 };
 
 export type SessionComposerMode = ComposerAgentMode;
@@ -36,18 +36,28 @@ export type SessionSendState = {
 };
 
 export const sessionDraftByIdAtom = atom<Record<string, string>>({});
-export const sessionAttachmentsByIdAtom = atom<Record<string, ImageContent[]>>({});
-export const sessionPasteFilesByIdAtom = atom<Record<string, PastedTextFile[]>>({});
+export const sessionAttachmentsByIdAtom = atom<Record<string, ImageContent[]>>(
+  {},
+);
+export const sessionPasteFilesByIdAtom = atom<Record<string, PastedTextFile[]>>(
+  {},
+);
 export const sessionQuotesByIdAtom = atom<Record<string, SessionQuoteMap>>({});
 
-export const sessionComposerModeByIdAtom = atom<Record<string, SessionComposerMode>>({});
-export const sessionSendStateByIdAtom = atom<Record<string, SessionSendState>>({});
+export const sessionComposerModeByIdAtom = atom<
+  Record<string, SessionComposerMode>
+>({});
+export const sessionSendStateByIdAtom = atom<Record<string, SessionSendState>>(
+  {},
+);
 
 /**
  * 生成进行中切换模型：pi 不支持运行中 set_model，只写入会话记录；
  * 本轮结束后再套到 Agent。新加、不在启动快照里的模型不走这里，走重启确认。
  */
-export const modelPendingByIdAtom = atom<Record<string, ModelPending | undefined>>({});
+export const modelPendingByIdAtom = atom<
+  Record<string, ModelPending | undefined>
+>({});
 
 // —— 按 sessionId 隔离的订阅族（H6）——
 // 分屏每栏 Composer 只订本栏会话的切片：写别的会话不再重建本栏的 Map 订阅。
@@ -58,23 +68,49 @@ const EMPTY_ATTACHMENTS: ImageContent[] = [];
 const EMPTY_PASTE_FILES: PastedTextFile[] = [];
 export const idleSessionSendState: SessionSendState = { status: "idle" };
 
-export const sessionDraftBySessionIdAtomFamily = atomFamily((sessionId: string) =>
-  selectAtom(sessionDraftByIdAtom, (byId) => byId[sessionId] ?? "", Object.is),
+export const sessionDraftBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) =>
+    selectAtom(
+      sessionDraftByIdAtom,
+      (byId) => byId[sessionId] ?? "",
+      Object.is,
+    ),
 );
-export const sessionAttachmentsBySessionIdAtomFamily = atomFamily((sessionId: string) =>
-  selectAtom(sessionAttachmentsByIdAtom, (byId) => byId[sessionId] ?? EMPTY_ATTACHMENTS, Object.is),
+export const sessionAttachmentsBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) =>
+    selectAtom(
+      sessionAttachmentsByIdAtom,
+      (byId) => byId[sessionId] ?? EMPTY_ATTACHMENTS,
+      Object.is,
+    ),
 );
-export const sessionPasteFilesBySessionIdAtomFamily = atomFamily((sessionId: string) =>
-  selectAtom(sessionPasteFilesByIdAtom, (byId) => byId[sessionId] ?? EMPTY_PASTE_FILES, Object.is),
+export const sessionPasteFilesBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) =>
+    selectAtom(
+      sessionPasteFilesByIdAtom,
+      (byId) => byId[sessionId] ?? EMPTY_PASTE_FILES,
+      Object.is,
+    ),
 );
-export const sessionQuotesBySessionIdAtomFamily = atomFamily((sessionId: string) =>
-  selectAtom(sessionQuotesByIdAtom, (byId) => byId[sessionId], Object.is),
+export const sessionQuotesBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) =>
+    selectAtom(sessionQuotesByIdAtom, (byId) => byId[sessionId], Object.is),
 );
-export const sessionComposerModeBySessionIdAtomFamily = atomFamily((sessionId: string) =>
-  selectAtom(sessionComposerModeByIdAtom, (byId) => byId[sessionId], Object.is),
+export const sessionComposerModeBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) =>
+    selectAtom(
+      sessionComposerModeByIdAtom,
+      (byId) => byId[sessionId],
+      Object.is,
+    ),
 );
-export const sessionSendStateBySessionIdAtomFamily = atomFamily((sessionId: string) =>
-  selectAtom(sessionSendStateByIdAtom, (byId) => byId[sessionId] ?? idleSessionSendState, Object.is),
+export const sessionSendStateBySessionIdAtomFamily = atomFamily(
+  (sessionId: string) =>
+    selectAtom(
+      sessionSendStateByIdAtom,
+      (byId) => byId[sessionId] ?? idleSessionSendState,
+      Object.is,
+    ),
 );
 
 export const currentSessionDraftAtom = atom(
@@ -94,7 +130,11 @@ export const currentSessionAttachmentsAtom = atom(
     const sessionId = get(currentSessionIdAtom);
     return sessionId ? (get(sessionAttachmentsByIdAtom)[sessionId] ?? []) : [];
   },
-  (get, set, value: ImageContent[] | ((current: ImageContent[]) => ImageContent[])) => {
+  (
+    get,
+    set,
+    value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]),
+  ) => {
     const sessionId = get(currentSessionIdAtom);
     if (!sessionId) return;
     set(setSessionAttachmentsAtom, { sessionId, value });
@@ -124,15 +164,18 @@ export const currentSessionSendStateAtom = atom((get) => {
 
 export const setSessionDraftAtom = atom(
   null,
-  (get, set, input: {
-    sessionId: string;
-    value: string | ((current: string) => string);
-  }) => {
+  (
+    get,
+    set,
+    input: {
+      sessionId: string;
+      value: string | ((current: string) => string);
+    },
+  ) => {
     const drafts = get(sessionDraftByIdAtom);
     const current = drafts[input.sessionId] ?? "";
-    const nextValue = typeof input.value === "function"
-      ? input.value(current)
-      : input.value;
+    const nextValue =
+      typeof input.value === "function" ? input.value(current) : input.value;
     const next = { ...drafts };
     if (nextValue) next[input.sessionId] = nextValue;
     else delete next[input.sessionId];
@@ -142,15 +185,18 @@ export const setSessionDraftAtom = atom(
 
 export const setSessionAttachmentsAtom = atom(
   null,
-  (get, set, input: {
-    sessionId: string;
-    value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]);
-  }) => {
+  (
+    get,
+    set,
+    input: {
+      sessionId: string;
+      value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]);
+    },
+  ) => {
     const attachments = get(sessionAttachmentsByIdAtom);
     const current = attachments[input.sessionId] ?? [];
-    const nextValue = typeof input.value === "function"
-      ? input.value(current)
-      : input.value;
+    const nextValue =
+      typeof input.value === "function" ? input.value(current) : input.value;
     const next = { ...attachments };
     if (nextValue.length) next[input.sessionId] = nextValue;
     else delete next[input.sessionId];
@@ -161,15 +207,20 @@ export const setSessionAttachmentsAtom = atom(
 /** 会话内粘贴文件 chip 的写入/清理（与附件同生命周期：运行时态，不落盘）。 */
 export const setSessionPasteFilesAtom = atom(
   null,
-  (get, set, input: {
-    sessionId: string;
-    value: PastedTextFile[] | ((current: PastedTextFile[]) => PastedTextFile[]);
-  }) => {
+  (
+    get,
+    set,
+    input: {
+      sessionId: string;
+      value:
+        | PastedTextFile[]
+        | ((current: PastedTextFile[]) => PastedTextFile[]);
+    },
+  ) => {
     const files = get(sessionPasteFilesByIdAtom);
     const current = files[input.sessionId] ?? [];
-    const nextValue = typeof input.value === "function"
-      ? input.value(current)
-      : input.value;
+    const nextValue =
+      typeof input.value === "function" ? input.value(current) : input.value;
     const next = { ...files };
     if (nextValue.length) next[input.sessionId] = nextValue;
     else delete next[input.sessionId];
@@ -180,15 +231,18 @@ export const setSessionPasteFilesAtom = atom(
 /** 写入/清理会话引用快照仓；与草稿同生命周期（运行时态，不落盘）。 */
 export const setSessionQuotesAtom = atom(
   null,
-  (get, set, input: {
-    sessionId: string;
-    value: SessionQuoteMap | ((current: SessionQuoteMap) => SessionQuoteMap);
-  }) => {
+  (
+    get,
+    set,
+    input: {
+      sessionId: string;
+      value: SessionQuoteMap | ((current: SessionQuoteMap) => SessionQuoteMap);
+    },
+  ) => {
     const quotes = get(sessionQuotesByIdAtom);
     const current = quotes[input.sessionId] ?? {};
-    const nextValue = typeof input.value === "function"
-      ? input.value(current)
-      : input.value;
+    const nextValue =
+      typeof input.value === "function" ? input.value(current) : input.value;
     const next = { ...quotes };
     if (Object.keys(nextValue).length > 0) next[input.sessionId] = nextValue;
     else delete next[input.sessionId];
@@ -218,19 +272,26 @@ export const setSessionSendStateAtom = atom(
 
 export const clearSessionComposerSnapshotAtom = atom(
   null,
-  (get, set, input: {
-    sessionId: string;
-    draft: string;
-    attachments: ImageContent[];
-  }) => {
+  (
+    get,
+    set,
+    input: {
+      sessionId: string;
+      draft: string;
+      attachments: ImageContent[];
+    },
+  ) => {
     const currentDraft = get(sessionDraftByIdAtom)[input.sessionId] ?? "";
     if (currentDraft === input.draft) {
       set(setSessionDraftAtom, { sessionId: input.sessionId, value: "" });
     }
-    const currentAttachments = get(sessionAttachmentsByIdAtom)[input.sessionId] ?? [];
+    const currentAttachments =
+      get(sessionAttachmentsByIdAtom)[input.sessionId] ?? [];
     if (
       currentAttachments.length === input.attachments.length &&
-      currentAttachments.every((attachment, index) => attachment === input.attachments[index])
+      currentAttachments.every(
+        (attachment, index) => attachment === input.attachments[index],
+      )
     ) {
       set(setSessionAttachmentsAtom, { sessionId: input.sessionId, value: [] });
     }
@@ -248,7 +309,10 @@ export const promoteSessionComposerStateAtom = atom(
     if (input.fromSessionId === input.toSessionId) return;
     const move = <T>(source: Record<string, T>) => {
       if (!(input.fromSessionId in source)) return source;
-      const next = { ...source, [input.toSessionId]: source[input.fromSessionId] };
+      const next = {
+        ...source,
+        [input.toSessionId]: source[input.fromSessionId],
+      };
       delete next[input.fromSessionId];
       return next;
     };
@@ -260,23 +324,26 @@ export const promoteSessionComposerStateAtom = atom(
   },
 );
 
-export const removeSessionComposerStateAtom = atom(null, (get, set, sessionId: string) => {
-  const drafts = { ...get(sessionDraftByIdAtom) };
-  delete drafts[sessionId];
-  set(sessionDraftByIdAtom, drafts);
-  const attachments = { ...get(sessionAttachmentsByIdAtom) };
-  delete attachments[sessionId];
-  set(sessionAttachmentsByIdAtom, attachments);
-  const pasteFiles = { ...get(sessionPasteFilesByIdAtom) };
-  delete pasteFiles[sessionId];
-  set(sessionPasteFilesByIdAtom, pasteFiles);
-  const modes = { ...get(sessionComposerModeByIdAtom) };
-  delete modes[sessionId];
-  set(sessionComposerModeByIdAtom, modes);
-  const sendStates = { ...get(sessionSendStateByIdAtom) };
-  delete sendStates[sessionId];
-  set(sessionSendStateByIdAtom, sendStates);
-  const modelPending = { ...get(modelPendingByIdAtom) };
-  delete modelPending[sessionId];
-  set(modelPendingByIdAtom, modelPending);
-});
+export const removeSessionComposerStateAtom = atom(
+  null,
+  (get, set, sessionId: string) => {
+    const drafts = { ...get(sessionDraftByIdAtom) };
+    delete drafts[sessionId];
+    set(sessionDraftByIdAtom, drafts);
+    const attachments = { ...get(sessionAttachmentsByIdAtom) };
+    delete attachments[sessionId];
+    set(sessionAttachmentsByIdAtom, attachments);
+    const pasteFiles = { ...get(sessionPasteFilesByIdAtom) };
+    delete pasteFiles[sessionId];
+    set(sessionPasteFilesByIdAtom, pasteFiles);
+    const modes = { ...get(sessionComposerModeByIdAtom) };
+    delete modes[sessionId];
+    set(sessionComposerModeByIdAtom, modes);
+    const sendStates = { ...get(sessionSendStateByIdAtom) };
+    delete sendStates[sessionId];
+    set(sessionSendStateByIdAtom, sendStates);
+    const modelPending = { ...get(modelPendingByIdAtom) };
+    delete modelPending[sessionId];
+    set(modelPendingByIdAtom, modelPending);
+  },
+);

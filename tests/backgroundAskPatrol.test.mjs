@@ -3,14 +3,19 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const runtimeNotification = loadTsCommonJs("src/renderer/src/utils/runtimeNotification.ts");
+const runtimeNotification = loadTsCommonJs(
+  "src/renderer/src/utils/runtimeNotification.ts",
+);
 
 test("collectPendingBackgroundAsks：只收 pending/responding 的 Ask 方法，key 带 runtimeGeneration", () => {
   const uiById = {
     "s-a": {
       runtimeGeneration: 3,
       requests: {
-        r1: { status: "pending", request: { method: "input", requestId: "r1", title: "你的名字？" } },
+        r1: {
+          status: "pending",
+          request: { method: "input", requestId: "r1", title: "你的名字？" },
+        },
       },
     },
     "s-b": {
@@ -23,7 +28,10 @@ test("collectPendingBackgroundAsks：只收 pending/responding 的 Ask 方法，
     "s-c": {
       runtimeGeneration: 2,
       requests: {
-        r4: { status: "responding", request: { method: "editor", requestId: "r4" } },
+        r4: {
+          status: "responding",
+          request: { method: "editor", requestId: "r4" },
+        },
       },
     },
   };
@@ -42,14 +50,28 @@ test("collectPendingBackgroundAsks：空快照返回空数组", () => {
 });
 
 test("源码契约：巡检收敛到单点，runtime 控制器不再订全局 Map", () => {
-  const controller = readFileSync("src/renderer/src/hooks/useSessionRuntimeController.ts", "utf8");
-  assert.doesNotMatch(controller, /useAtomValue\(sessionRuntimeUiByIdAtom\)/, "M7：全局 UI Map 订阅移出分栏 hook");
-  assert.doesNotMatch(controller, /useAtomValue\(sessionRecordsAtom\)/, "M7：全局 records Map 订阅移出分栏 hook");
+  const controller = readFileSync(
+    "src/renderer/src/hooks/useSessionRuntimeController.ts",
+    "utf8",
+  );
+  assert.doesNotMatch(
+    controller,
+    /useAtomValue\(sessionRuntimeUiByIdAtom\)/,
+    "M7：全局 UI Map 订阅移出分栏 hook",
+  );
+  assert.doesNotMatch(
+    controller,
+    /useAtomValue\(sessionRecordsAtom\)/,
+    "M7：全局 records Map 订阅移出分栏 hook",
+  );
 
   const app = readFileSync("src/renderer/src/App.tsx", "utf8");
   assert.match(app, /useBackgroundAskPatrol\(/, "App 级单点挂载");
 
-  const patrol = readFileSync("src/renderer/src/hooks/useBackgroundAskPatrol.ts", "utf8");
+  const patrol = readFileSync(
+    "src/renderer/src/hooks/useBackgroundAskPatrol.ts",
+    "utf8",
+  );
   assert.match(patrol, /collectPendingBackgroundAsks/);
   assert.match(patrol, /rememberBackgroundAsk/);
 });

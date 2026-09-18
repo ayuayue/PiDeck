@@ -14,7 +14,9 @@ test("skills:rename channel is defined, invoked and handled in all three layers"
 });
 
 test("skills rename handler validates renderer input and routes to SkillManager.rename", () => {
-  const start = systemIpc.search(/ipcMain\.handle\(\s*ipcChannels\.skillsRename/);
+  const start = systemIpc.search(
+    /ipcMain\.handle\(\s*ipcChannels\.skillsRename/,
+  );
   assert.ok(start >= 0, "skillsRename handler must exist in systemIpc");
   const block = systemIpc.slice(start, systemIpc.indexOf("});", start) + 3);
   // 渲染层路径与新名称不可信：进入 SkillManager 前先做类型/非空/长度校验（AGENTS.md 输入校验在边界）。

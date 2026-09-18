@@ -132,7 +132,10 @@ import {
   requireSessionCommand,
   toSessionRuntimeTarget,
 } from "../utils/sessionCommands";
-import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTimelineController";
+import {
+  isSessionRuntimeBusy,
+  isUserFacingSessionStart,
+} from "./useSessionTimelineController";
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
 import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
 import { useVoiceTranscription } from "./useVoiceTranscription";
@@ -142,7 +145,10 @@ import {
 } from "../utils/voiceTranscriptionInsert";
 
 /** 统一压缩结果 → 用户可见文案；所有分支都给文案（取消也要可见，见 classifyCompactError）。 */
-function compactNotice(kind: CompactNoticeKind, detail?: string): string | null {
+function compactNotice(
+  kind: CompactNoticeKind,
+  detail?: string,
+): string | null {
   switch (kind) {
     case "done":
       return t("app.compactDone");
@@ -191,7 +197,8 @@ function friendlyCompactError(
     error && typeof error === "object" && "debugDetails" in error
       ? String((error as { debugDetails?: unknown }).debugDetails ?? "").trim()
       : "";
-  const rawMessage = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  const rawMessage =
+    error instanceof Error ? error.message.trim() : String(error ?? "").trim();
   const raw = debugDetails || rawMessage;
   const detail = raw
     .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, "")
@@ -201,11 +208,12 @@ function friendlyCompactError(
   const text = compactNotice(kind, detail);
   if (!text) return null;
   // 取消 / 改写类提示要用户看见「压缩为什么换了个方式」，停留时间长于普通完成提示。
-  const durationMs = kind === "done"
-    ? 4000
-    : kind === "cancelledByOwner" || kind === "routedToOwner"
-      ? 10000
-      : 7000;
+  const durationMs =
+    kind === "done"
+      ? 4000
+      : kind === "cancelledByOwner" || kind === "routedToOwner"
+        ? 10000
+        : 7000;
   return { text, durationMs };
 }
 
@@ -269,11 +277,13 @@ export function canApplyRuntimeEditorText(
     currentDraft: string;
   },
 ): boolean {
-  return guard.sessionId === input.sessionId &&
+  return (
+    guard.sessionId === input.sessionId &&
     guard.agentId === input.agentId &&
     guard.runtimeGeneration === input.runtimeGeneration &&
     guard.pristine &&
-    guard.baselineDraft === input.currentDraft;
+    guard.baselineDraft === input.currentDraft
+  );
 }
 
 export type LatestRequestToken = { key: string; sequence: number };
@@ -311,8 +321,9 @@ export function createSessionReferenceSelection(
 ): SessionReferenceSelection {
   const entries = selectedIndices
     .map((index, position) => ({ index, message: selectedMessages[position] }))
-    .filter((entry): entry is { index: number; message: SessionReferenceMessage } =>
-      Boolean(entry.message),
+    .filter(
+      (entry): entry is { index: number; message: SessionReferenceMessage } =>
+        Boolean(entry.message),
     );
   return { selectedIndices: entries.map((entry) => entry.index), entries };
 }
@@ -356,13 +367,18 @@ export function useSessionComposerController(
     projectByIdAtomFamily(effectiveProjectId ?? ""),
   );
   const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
-  const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId));
+  const runtimeUi = useAtomValue(
+    sessionRuntimeUiBySessionIdAtomFamily(sessionId),
+  );
   const projectSessions = useAtomValue(
     sessionSummariesByProjectIdAtomFamily(effectiveProjectId ?? ""),
   );
   // H6：按 sessionId 隔离订阅——分屏时一栏打字/流式不再牵连其他栏重渲染。
   // atomFamily 本身按 sessionId 记忆化，useMemo 再固定一次引用。
-  const draftAtom = useMemo(() => sessionDraftBySessionIdAtomFamily(sessionId), [sessionId]);
+  const draftAtom = useMemo(
+    () => sessionDraftBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
   const attachmentsAtom = useMemo(
     () => sessionAttachmentsBySessionIdAtomFamily(sessionId),
     [sessionId],
@@ -371,7 +387,10 @@ export function useSessionComposerController(
     () => sessionPasteFilesBySessionIdAtomFamily(sessionId),
     [sessionId],
   );
-  const modeAtom = useMemo(() => sessionComposerModeBySessionIdAtomFamily(sessionId), [sessionId]);
+  const modeAtom = useMemo(
+    () => sessionComposerModeBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
   const sendStateAtom = useMemo(
     () => sessionSendStateBySessionIdAtomFamily(sessionId),
     [sessionId],
@@ -380,7 +399,10 @@ export function useSessionComposerController(
     () => sessionMessageCacheBySessionIdAtomFamily(sessionId),
     [sessionId],
   );
-  const quotesAtom = useMemo(() => sessionQuotesBySessionIdAtomFamily(sessionId), [sessionId]);
+  const quotesAtom = useMemo(
+    () => sessionQuotesBySessionIdAtomFamily(sessionId),
+    [sessionId],
+  );
   const draft = useAtomValue(draftAtom);
   const attachments = useAtomValue(attachmentsAtom);
   const pasteFiles = useAtomValue(pasteFilesAtom);
@@ -403,37 +425,43 @@ export function useSessionComposerController(
   // 由 App.ensureSessionForSend 读取同一份偏好创建真实会话。仅在引导页初始化，
   // 真实会话（record 短暂未就绪）不受 localStorage 残留影响。
   const isGuideBootstrapSession = sessionId === GUIDE_BOOTSTRAP_SESSION_ID;
-  const [guideBackendOverride, setGuideBackendOverride] = useState<AgentBackend | undefined>(
-    () => (isGuideBootstrapSession ? readWelcomeBackendPreference() : undefined),
+  const [guideBackendOverride, setGuideBackendOverride] = useState<
+    AgentBackend | undefined
+  >(() =>
+    isGuideBootstrapSession ? readWelcomeBackendPreference() : undefined,
   );
   const isDshBackend =
     record?.backend === "dsh" ||
     runtime?.backend === "dsh" ||
     (isGuideBootstrapSession && guideBackendOverride === "dsh");
-  const hasImageGenHistory = (messageCache?.messages ?? []).some(
-    (message) => Boolean(message.meta?.imageGen),
+  const hasImageGenHistory = (messageCache?.messages ?? []).some((message) =>
+    Boolean(message.meta?.imageGen),
   );
   // 生图供应商/模型来自独立 imagegen.json，与会话 LLM 模型无关。
   const activeImageGenProviderId = imageGenConfig.activeProviderId;
   const activeImageGenModelId = imageGenConfig.activeModel;
-  const mode: ComposerAgentMode = record?.backend === "imagegen" || hasImageGenHistory
-    ? "imagegen"
-    : deriveComposerAgentMode({
-    backend: isDshBackend ? "dsh" : "pi",
-    localMode: localMode,
-    planModeActive: runtime?.state?.planModeActive === true,
-    goalPhase: runtime?.state?.goal?.phase,
-  });
+  const mode: ComposerAgentMode =
+    record?.backend === "imagegen" || hasImageGenHistory
+      ? "imagegen"
+      : deriveComposerAgentMode({
+          backend: isDshBackend ? "dsh" : "pi",
+          localMode: localMode,
+          planModeActive: runtime?.state?.planModeActive === true,
+          goalPhase: runtime?.state?.goal?.phase,
+        });
   // DSH 部署默认模型选择（settings.yaml agent-default-model）：草稿/未激活会话
   // 的底栏与选择器用它展示默认模型/思考档位（host 会话创建前没有 runtime state）。
   // settings.yaml 未配 reasoningEffort 时，回退到默认模型自身的 defaultEffort
   // （DSH 官方语义：每个模型都有 reasoning.defaultEffort）。
-  const [dshDefault, setDshDefault] = useState<{
-    provider: string;
-    model: string;
-    reasoningEffort?: string;
-    defaultEffort?: string;
-  } | undefined>(undefined);
+  const [dshDefault, setDshDefault] = useState<
+    | {
+        provider: string;
+        model: string;
+        reasoningEffort?: string;
+        defaultEffort?: string;
+      }
+    | undefined
+  >(undefined);
   useEffect(() => {
     if (!isDshBackend) {
       // 离开 dsh 后端（切回 pi/生图）时清掉残留的 DSH 部署默认模型：
@@ -455,7 +483,8 @@ export function useSessionComposerController(
           try {
             const models = await desktopApi.sessions.listDshModels();
             const defaultModel = models.find(
-              (model) => model.provider === next.provider && model.id === next.model,
+              (model) =>
+                model.provider === next.provider && model.id === next.model,
             );
             defaultEffort = defaultModel?.defaultEffort;
           } catch {
@@ -477,11 +506,14 @@ export function useSessionComposerController(
   // 不需要这里重复解析。
   // 读「有效」后端（经 DSH runtime 安装态钳制）：引导页预取的启动默认不会指向不可用后端。
   const defaultAgentBackend = useAtomValue(effectiveAgentBackendAtom);
-  const [bootstrapDefaults, setBootstrapDefaults] = useState<ResolvedLaunchDefaults | undefined>(undefined);
+  const [bootstrapDefaults, setBootstrapDefaults] = useState<
+    ResolvedLaunchDefaults | undefined
+  >(undefined);
   useEffect(() => {
     if (record) return;
     let cancelled = false;
-    void desktopApi.sessions.resolveLaunchDefaults({ backend: defaultAgentBackend })
+    void desktopApi.sessions
+      .resolveLaunchDefaults({ backend: defaultAgentBackend })
       .then((next) => {
         if (!cancelled) setBootstrapDefaults(next);
       })
@@ -498,12 +530,14 @@ export function useSessionComposerController(
   // 编辑器只在内容同步到 forValue 的同一趟 layout pass 配对消费，过期请求会被丢弃。
   const caretRef = useRef<ComposerCaretRequest | null>(null);
   const liveDomDraftRef = useRef({ sessionId, value: draft });
-  const draftGuardRef = useRef(createComposerDraftGuard({
-    sessionId,
-    agentId: runtime?.agentId,
-    runtimeGeneration: runtime?.runtimeGeneration,
-    draft,
-  }));
+  const draftGuardRef = useRef(
+    createComposerDraftGuard({
+      sessionId,
+      agentId: runtime?.agentId,
+      runtimeGeneration: runtime?.runtimeGeneration,
+      draft,
+    }),
+  );
   const templateRequestGateRef = useRef(createLatestRequestGate());
   const promptHistoryRef = useRef<Record<string, string[]>>({});
   /**
@@ -530,9 +564,15 @@ export function useSessionComposerController(
   // 生图进行中：置 true 时发送按钮禁用（避免并发多次生图），完成后图片进附件栏
   const [generatingImage, setGeneratingImage] = useState(false);
   // 生图尺寸/水印记在 AppSettings，跨会话复用；非法磁盘值回落到默认。
-  const [imageGenSize, setImageGenSizeState] = useState<string>(DEFAULT_IMAGE_GEN_SIZE);
-  const [imageGenWatermark, setImageGenWatermarkState] = useState(DEFAULT_IMAGE_GEN_WATERMARK);
-  const [imageGenOutputFormat, setImageGenOutputFormatState] = useState(DEFAULT_IMAGE_GEN_OUTPUT_FORMAT);
+  const [imageGenSize, setImageGenSizeState] = useState<string>(
+    DEFAULT_IMAGE_GEN_SIZE,
+  );
+  const [imageGenWatermark, setImageGenWatermarkState] = useState(
+    DEFAULT_IMAGE_GEN_WATERMARK,
+  );
+  const [imageGenOutputFormat, setImageGenOutputFormatState] = useState(
+    DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
+  );
   const [picker, setPicker] = useState<ComposerPickerKind | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>([]);
   const [files, setFiles] = useState<FileTreeNode[]>([]);
@@ -542,7 +582,11 @@ export function useSessionComposerController(
   const loadingDirPathsRef = useRef<Set<string>>(new Set());
   // @ 纯文件名搜索的整树后台加载：按 projectId 隔离的单个状态，每项目最多触发
   // 一次（成功或失败都算尝试过），避免用户每敲一个新关键词都重扫整棵目录树。
-  const deepTreeStateRef = useRef<{ projectId: string; loaded: boolean; loading: boolean }>({
+  const deepTreeStateRef = useRef<{
+    projectId: string;
+    loaded: boolean;
+    loading: boolean;
+  }>({
     projectId: "",
     loaded: false,
     loading: false,
@@ -552,137 +596,212 @@ export function useSessionComposerController(
     key: string;
     items: PromptTemplateInfo[];
   }>({ key: templateKey, items: [] });
-  const templates = templateState.key === templateKey ? templateState.items : [];
+  const templates =
+    templateState.key === templateKey ? templateState.items : [];
   const [sendShortcut, setSendShortcut] = useState<
     "enter-send" | "ctrl-enter-send" | "shift-enter-send"
   >("enter-send");
-  const [sessionReference, setSessionReference] = useState<SessionSummary | null>(null);
+  const [sessionReference, setSessionReference] =
+    useState<SessionSummary | null>(null);
   const [sessionReferenceSelections, setSessionReferenceSelections] = useState<
     Record<string, SessionReferenceSelection>
   >({});
 
-  const markDraftMutation = useCallback((targetSessionId = sessionId) => {
-    if (targetSessionId !== sessionId) return;
-    draftGuardRef.current = markComposerDraftMutation(draftGuardRef.current);
-  }, [sessionId]);
+  const markDraftMutation = useCallback(
+    (targetSessionId = sessionId) => {
+      if (targetSessionId !== sessionId) return;
+      draftGuardRef.current = markComposerDraftMutation(draftGuardRef.current);
+    },
+    [sessionId],
+  );
 
-  const setDraft = useCallback((value: string | ((current: string) => string)) => {
-    markDraftMutation();
-    setDraftAtom({ sessionId, value });
-  }, [markDraftMutation, sessionId, setDraftAtom]);
+  const setDraft = useCallback(
+    (value: string | ((current: string) => string)) => {
+      markDraftMutation();
+      setDraftAtom({ sessionId, value });
+    },
+    [markDraftMutation, sessionId, setDraftAtom],
+  );
 
-  const setAttachments = useCallback((
-    value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]),
-  ) => {
-    setAttachmentsAtom({ sessionId, value });
-  }, [sessionId, setAttachmentsAtom]);
+  const setAttachments = useCallback(
+    (value: ImageContent[] | ((current: ImageContent[]) => ImageContent[])) => {
+      setAttachmentsAtom({ sessionId, value });
+    },
+    [sessionId, setAttachmentsAtom],
+  );
 
-  const setPasteFiles = useCallback((
-    value: PastedTextFile[] | ((current: PastedTextFile[]) => PastedTextFile[]),
-  ) => {
-    setPasteFilesAtom({ sessionId, value });
-  }, [sessionId, setPasteFilesAtom]);
+  const setPasteFiles = useCallback(
+    (
+      value:
+        | PastedTextFile[]
+        | ((current: PastedTextFile[]) => PastedTextFile[]),
+    ) => {
+      setPasteFilesAtom({ sessionId, value });
+    },
+    [sessionId, setPasteFilesAtom],
+  );
 
-  const setMode = useCallback((nextMode: ComposerAgentMode) => {
-    // 生图历史是独立消息协议，普通/计划/目标模式的命令语义不适用；
-    // 同一会话一旦产生生图记录（或本身是 imagegen 后端），必须保持生图模式，避免误发普通请求。
-    if ((hasImageGenHistory || record?.backend === "imagegen") && nextMode !== "imagegen") return;
-    // DSH：plan 走 host /plan；goal 走 create/resume/pause IPC（切回普通暂停，不清除）。
-    // 本地 atom 仍写入 goal，让选择器立刻切到目标模式；首条用户消息再 /goal 创建。
-    if (isDshBackend) {
-      const currentPhase = runtime?.state?.goal?.phase;
-      const agentId = runtime?.agentId;
-      if (nextMode === "plan" || (nextMode === "normal" && mode === "plan")) {
-        const command = nextMode === "plan" ? "/plan" : "/plan off";
-        void desktopApi.sessions.sendPrompt({
-          sessionId,
-          requestId: crypto.randomUUID(),
-          message: command,
-        }).then((result) => {
-          if (!result.accepted) {
-            showNotice(result.error ?? t("dshPlan.switchFailed"), 4000);
-          } else if (nextMode === "plan") {
-            showNotice(t("dshPlan.pendingNotice"), 3000);
-          }
-        }).catch((error) => {
-          showNotice(error instanceof Error ? error.message : String(error), 4000);
-        });
-        if (nextMode === "plan") {
-          setModeAtom({ sessionId, mode: "normal" });
-          // 模式选择器互斥：进 plan 时暂停进行中的 goal，不清除。
-          if (agentId && (currentPhase === "active" || currentPhase === "blocked")) {
-            void desktopApi.sessions.runDshGoalAction(agentId, "pause").catch((error) => {
-              showNotice(error instanceof Error ? error.message : String(error), 4000);
-            });
-          }
-        }
+  const setMode = useCallback(
+    (nextMode: ComposerAgentMode) => {
+      // 生图历史是独立消息协议，普通/计划/目标模式的命令语义不适用；
+      // 同一会话一旦产生生图记录（或本身是 imagegen 后端），必须保持生图模式，避免误发普通请求。
+      if (
+        (hasImageGenHistory || record?.backend === "imagegen") &&
+        nextMode !== "imagegen"
+      )
         return;
+      // DSH：plan 走 host /plan；goal 走 create/resume/pause IPC（切回普通暂停，不清除）。
+      // 本地 atom 仍写入 goal，让选择器立刻切到目标模式；首条用户消息再 /goal 创建。
+      if (isDshBackend) {
+        const currentPhase = runtime?.state?.goal?.phase;
+        const agentId = runtime?.agentId;
+        if (nextMode === "plan" || (nextMode === "normal" && mode === "plan")) {
+          const command = nextMode === "plan" ? "/plan" : "/plan off";
+          void desktopApi.sessions
+            .sendPrompt({
+              sessionId,
+              requestId: crypto.randomUUID(),
+              message: command,
+            })
+            .then((result) => {
+              if (!result.accepted) {
+                showNotice(result.error ?? t("dshPlan.switchFailed"), 4000);
+              } else if (nextMode === "plan") {
+                showNotice(t("dshPlan.pendingNotice"), 3000);
+              }
+            })
+            .catch((error) => {
+              showNotice(
+                error instanceof Error ? error.message : String(error),
+                4000,
+              );
+            });
+          if (nextMode === "plan") {
+            setModeAtom({ sessionId, mode: "normal" });
+            // 模式选择器互斥：进 plan 时暂停进行中的 goal，不清除。
+            if (
+              agentId &&
+              (currentPhase === "active" || currentPhase === "blocked")
+            ) {
+              void desktopApi.sessions
+                .runDshGoalAction(agentId, "pause")
+                .catch((error) => {
+                  showNotice(
+                    error instanceof Error ? error.message : String(error),
+                    4000,
+                  );
+                });
+            }
+          }
+          return;
+        }
+        if (nextMode === "goal") {
+          if (mode === "plan") {
+            void desktopApi.sessions
+              .sendPrompt({
+                sessionId,
+                requestId: crypto.randomUUID(),
+                message: "/plan off",
+              })
+              .catch((error) => {
+                showNotice(
+                  error instanceof Error ? error.message : String(error),
+                  4000,
+                );
+              });
+          }
+          setModeAtom({ sessionId, mode: "goal" });
+          if (
+            agentId &&
+            (currentPhase === "paused" || currentPhase === "blocked")
+          ) {
+            void desktopApi.sessions
+              .runDshGoalAction(agentId, "resume")
+              .catch((error) => {
+                showNotice(
+                  error instanceof Error ? error.message : String(error),
+                  4000,
+                );
+              });
+          } else if (!currentPhase || currentPhase === "complete") {
+            showNotice(t("dshGoal.pendingNotice"), 3000);
+          }
+          return;
+        }
+        if (nextMode === "normal" && mode === "goal") {
+          setModeAtom({ sessionId, mode: "normal" });
+          if (
+            agentId &&
+            (currentPhase === "active" || currentPhase === "blocked")
+          ) {
+            void desktopApi.sessions
+              .runDshGoalAction(agentId, "pause")
+              .catch((error) => {
+                showNotice(
+                  error instanceof Error ? error.message : String(error),
+                  4000,
+                );
+              });
+          }
+          return;
+        }
       }
-      if (nextMode === "goal") {
-        if (mode === "plan") {
-          void desktopApi.sessions.sendPrompt({
+      // pi：切回普通立刻发 /goal pause，不要等下一条无标记消息才停。
+      if (!isDshBackend && nextMode === "normal" && mode === "goal") {
+        setModeAtom({ sessionId, mode: "normal" });
+        void desktopApi.sessions
+          .sendPrompt({
             sessionId,
             requestId: crypto.randomUUID(),
-            message: "/plan off",
-          }).catch((error) => {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
+            message: "/goal pause",
+          })
+          .catch((error) => {
+            showNotice(
+              error instanceof Error ? error.message : String(error),
+              4000,
+            );
           });
-        }
-        setModeAtom({ sessionId, mode: "goal" });
-        if (agentId && (currentPhase === "paused" || currentPhase === "blocked")) {
-          void desktopApi.sessions.runDshGoalAction(agentId, "resume").catch((error) => {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
-          });
-        } else if (!currentPhase || currentPhase === "complete") {
-          showNotice(t("dshGoal.pendingNotice"), 3000);
-        }
         return;
       }
-      if (nextMode === "normal" && mode === "goal") {
-        setModeAtom({ sessionId, mode: "normal" });
-        if (agentId && (currentPhase === "active" || currentPhase === "blocked")) {
-          void desktopApi.sessions.runDshGoalAction(agentId, "pause").catch((error) => {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
-          });
-        }
-        return;
-      }
-    }
-    // pi：切回普通立刻发 /goal pause，不要等下一条无标记消息才停。
-    if (!isDshBackend && nextMode === "normal" && mode === "goal") {
-      setModeAtom({ sessionId, mode: "normal" });
-      void desktopApi.sessions.sendPrompt({
-        sessionId,
-        requestId: crypto.randomUUID(),
-        message: "/goal pause",
-      }).catch((error) => {
-        showNotice(error instanceof Error ? error.message : String(error), 4000);
-      });
-      return;
-    }
-    setModeAtom({ sessionId, mode: nextMode });
-  }, [hasImageGenHistory, isDshBackend, mode, runtime?.agentId, runtime?.state?.goal?.phase, sessionId, setModeAtom]);
+      setModeAtom({ sessionId, mode: nextMode });
+    },
+    [
+      hasImageGenHistory,
+      isDshBackend,
+      mode,
+      runtime?.agentId,
+      runtime?.state?.goal?.phase,
+      sessionId,
+      setModeAtom,
+    ],
+  );
 
   const loadTemplates = useCallback(async () => {
     const token = templateRequestGateRef.current.begin(templateKey);
     const next: PromptTemplateInfo[] = [];
     try {
       const globalResult = await desktopApi.prompts.list();
-      next.push(...globalResult.templates.map((template) => ({
-        ...template,
-        description: translateBuiltinPromptDescription(template),
-        argumentHint: parseArgumentHint(template.content),
-      })));
+      next.push(
+        ...globalResult.templates.map((template) => ({
+          ...template,
+          description: translateBuiltinPromptDescription(template),
+          argumentHint: parseArgumentHint(template.content),
+        })),
+      );
     } catch {
       // Project templates remain usable when the global store is unavailable.
     }
     if (record?.projectId) {
       try {
-        const projectResult = await desktopApi.prompts.listByProject(record.projectId);
-        next.push(...projectResult.templates.map((template) => ({
-          ...template,
-          argumentHint: parseArgumentHint(template.content),
-        })));
+        const projectResult = await desktopApi.prompts.listByProject(
+          record.projectId,
+        );
+        next.push(
+          ...projectResult.templates.map((template) => ({
+            ...template,
+            argumentHint: parseArgumentHint(template.content),
+          })),
+        );
       } catch {
         // A project does not have to provide .pi/prompts.
       }
@@ -748,29 +867,42 @@ export function useSessionComposerController(
     if (lastEditorTextEnvelopeRef.current === envelope) return;
     lastEditorTextEnvelopeRef.current = envelope;
     const currentDraft = store.get(sessionDraftByIdAtom)[sessionId] ?? "";
-    if (!canApplyRuntimeEditorText(draftGuardRef.current, {
-      sessionId,
-      agentId: runtime.agentId,
-      runtimeGeneration: runtime.runtimeGeneration,
-      currentDraft,
-    })) {
+    if (
+      !canApplyRuntimeEditorText(draftGuardRef.current, {
+        sessionId,
+        agentId: runtime.agentId,
+        runtimeGeneration: runtime.runtimeGeneration,
+        currentDraft,
+      })
+    ) {
       return;
     }
     liveDomDraftRef.current = { sessionId, value: editorText.text };
     setDraft(editorText.text);
     setCursor(editorText.text.length);
-    caretRef.current = { pos: editorText.text.length, forValue: editorText.text };
+    caretRef.current = {
+      pos: editorText.text.length,
+      forValue: editorText.text,
+    };
   }, [runtime, runtimeUi, sessionId, setDraft, store]);
 
   useEffect(() => {
-    void desktopApi.settings.get().then((settings) => {
-      setSendShortcut(settings.sendShortcut);
-      setImageGenSizeState(parseImageGenSize(settings.imageGenSize) ?? DEFAULT_IMAGE_GEN_SIZE);
-      setImageGenWatermarkState(parseImageGenWatermark(settings.imageGenWatermark));
-      setImageGenOutputFormatState(
-        parseImageGenOutputFormat(settings.imageGenOutputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
-      );
-    }).catch(() => undefined);
+    void desktopApi.settings
+      .get()
+      .then((settings) => {
+        setSendShortcut(settings.sendShortcut);
+        setImageGenSizeState(
+          parseImageGenSize(settings.imageGenSize) ?? DEFAULT_IMAGE_GEN_SIZE,
+        );
+        setImageGenWatermarkState(
+          parseImageGenWatermark(settings.imageGenWatermark),
+        );
+        setImageGenOutputFormatState(
+          parseImageGenOutputFormat(settings.imageGenOutputFormat) ??
+            DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
+        );
+      })
+      .catch(() => undefined);
   }, []);
 
   // 单栏会话复用同一 Composer 实例：切 tab 必须清掉 picker/建议/预览等本地 UI，
@@ -798,11 +930,14 @@ export function useSessionComposerController(
     // @ 引用跟文件抽屉同一套懒加载：maxDepth 0 只扫根层，展开再补子目录。
     // 旧实现扫 8 层会在切项目时把主进程/渲染都拖死（大会话项目尤其明显）。
     // 引导页虚拟会话没有 record，靠 bootstrapProjectId 兑底加载文件树。
-    void desktopApi.files.list(effectiveProjectId, { maxDepth: 0 }).then((next) => {
-      if (current) setFiles(next);
-    }).catch(() => {
-      if (current) setFiles([]);
-    });
+    void desktopApi.files
+      .list(effectiveProjectId, { maxDepth: 0 })
+      .then((next) => {
+        if (current) setFiles(next);
+      })
+      .catch(() => {
+        if (current) setFiles([]);
+      });
     return () => {
       current = false;
     };
@@ -831,17 +966,23 @@ export function useSessionComposerController(
         return;
       }
       let current = true;
-      void desktopApi.sessions.listRuntimeCommands(dshTarget).then((result) => {
-        if (current) {
-          const live = requireSessionCommand(result).value;
-          // live 清单可能不含 help 等基础命令（部分命令仅桌面侧存在）：
-          // 与静态建议集合并去重，优先 live 描述。
-          const names = new Set(live.map((command) => command.name));
-          setCommands([...live, ...staticCommands.filter((command) => !names.has(command.name))]);
-        }
-      }).catch(() => {
-        if (current) setCommands(staticCommands);
-      });
+      void desktopApi.sessions
+        .listRuntimeCommands(dshTarget)
+        .then((result) => {
+          if (current) {
+            const live = requireSessionCommand(result).value;
+            // live 清单可能不含 help 等基础命令（部分命令仅桌面侧存在）：
+            // 与静态建议集合并去重，优先 live 描述。
+            const names = new Set(live.map((command) => command.name));
+            setCommands([
+              ...live,
+              ...staticCommands.filter((command) => !names.has(command.name)),
+            ]);
+          }
+        })
+        .catch(() => {
+          if (current) setCommands(staticCommands);
+        });
       return () => {
         current = false;
       };
@@ -852,11 +993,14 @@ export function useSessionComposerController(
       return;
     }
     let current = true;
-    void desktopApi.sessions.listRuntimeCommands(target).then((result) => {
-      if (current) setCommands(requireSessionCommand(result).value);
-    }).catch(() => {
-      if (current) setCommands([]);
-    });
+    void desktopApi.sessions
+      .listRuntimeCommands(target)
+      .then((result) => {
+        if (current) setCommands(requireSessionCommand(result).value);
+      })
+      .catch(() => {
+        if (current) setCommands([]);
+      });
     return () => {
       current = false;
     };
@@ -870,16 +1014,23 @@ export function useSessionComposerController(
 
   const flatFiles = useMemo(() => flattenFiles(files), [files]);
   const mergedCommands = useMemo(() => mergeCommands(commands), [commands]);
-  const validCommandNames = useMemo(() => new Set([
-    ...mergedCommands.map((command) => command.name),
-    ...templates.map((template) => template.name),
-  ]), [mergedCommands, templates]);
+  const validCommandNames = useMemo(
+    () =>
+      new Set([
+        ...mergedCommands.map((command) => command.name),
+        ...templates.map((template) => template.name),
+      ]),
+    [mergedCommands, templates],
+  );
   const validFilePaths = useMemo(
     () => new Set(flatFiles.map((file) => file.relativePath)),
     [flatFiles],
   );
   const validSessionRefs = useMemo(
-    () => new Set(projectSessions.map((session) => session.name ?? session.filePath)),
+    () =>
+      new Set(
+        projectSessions.map((session) => session.name ?? session.filePath),
+      ),
     [projectSessions],
   );
   // 引用 chip 白名单：id → 截断后的快照预览 label；无快照时返回 undefined，
@@ -889,12 +1040,21 @@ export function useSessionComposerController(
     if (!sessionQuotes) return undefined;
     const entries = Object.entries(sessionQuotes);
     if (entries.length === 0) return undefined;
-    return new Map(entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]));
+    return new Map(
+      entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]),
+    );
   }, [sessionQuotes]);
   const suggestionItems = useMemo(
-    () => suggestionsOpen
-      ? buildSuggestionItems(draft, cursor, commands, flatFiles, projectSessions)
-      : [],
+    () =>
+      suggestionsOpen
+        ? buildSuggestionItems(
+            draft,
+            cursor,
+            commands,
+            flatFiles,
+            projectSessions,
+          )
+        : [],
     [commands, cursor, draft, flatFiles, projectSessions, suggestionsOpen],
   );
 
@@ -908,12 +1068,16 @@ export function useSessionComposerController(
     const dirNode = resolveAtDrillDirectory(trigger.query, files);
     if (!dirNode) return;
     // 已有 children 数组 = 子项已加载（含空目录），不重复请求
-    if (Array.isArray(dirNode.children) || loadingDirPathsRef.current.has(dirNode.path)) {
+    if (
+      Array.isArray(dirNode.children) ||
+      loadingDirPathsRef.current.has(dirNode.path)
+    ) {
       return;
     }
     let current = true;
     loadingDirPathsRef.current.add(dirNode.path);
-    void desktopApi.files.list(effectiveProjectId, { maxDepth: 0, directory: dirNode.path })
+    void desktopApi.files
+      .list(effectiveProjectId, { maxDepth: 0, directory: dirNode.path })
       .then((children) => {
         if (!current) return;
         setFiles((prev) => mergeFileTreeChildren(prev, dirNode.path, children));
@@ -939,16 +1103,26 @@ export function useSessionComposerController(
     // 切到新项目：重建状态（不 return，继续按新状态评估是否触发）
     const state = deepTreeStateRef.current;
     if (state.projectId !== effectiveProjectId) {
-      deepTreeStateRef.current = { projectId: effectiveProjectId, loaded: false, loading: false };
+      deepTreeStateRef.current = {
+        projectId: effectiveProjectId,
+        loaded: false,
+        loading: false,
+      };
     }
-    if (deepTreeStateRef.current.loaded || deepTreeStateRef.current.loading) return;
+    if (deepTreeStateRef.current.loaded || deepTreeStateRef.current.loading)
+      return;
     const trigger = detectTrigger(draft, cursor, validSessionRefs);
-    if (!trigger || trigger.char !== "@" || !shouldLoadFullTreeForAtSearch(trigger.query)) {
+    if (
+      !trigger ||
+      trigger.char !== "@" ||
+      !shouldLoadFullTreeForAtSearch(trigger.query)
+    ) {
       return;
     }
     // 标记在途后即便本 effect 因继续输入被重新评估，loading 门也会挡住重复请求
     deepTreeStateRef.current.loading = true;
-    void desktopApi.files.list(effectiveProjectId, { maxDepth: FILE_TREE_ABSOLUTE_MAX_DEPTH })
+    void desktopApi.files
+      .list(effectiveProjectId, { maxDepth: FILE_TREE_ABSOLUTE_MAX_DEPTH })
       .then((next) => {
         // 用项目比对而非 current 标志：输入过程中的每个按键都会触发本 effect
         // 重新评估并清理旧闭包，但请求仍属于当前项目——数据不该被丢弃，
@@ -1008,7 +1182,9 @@ export function useSessionComposerController(
   const isBusy = isSessionRuntimeBusy(runtime?.status, runtime?.state);
   // 预热只创建进程，不能把编辑器 setEditable(false)：contenteditable 关掉会失焦，输入一半就断。
   const isStarting = isUserFacingSessionStart(sendState.status);
-  const hasContent = Boolean(draft.trim() || attachments.length || pasteFiles.length);
+  const hasContent = Boolean(
+    draft.trim() || attachments.length || pasteFiles.length,
+  );
 
   const resetEphemeralUi = useCallback(() => {
     setHistoryIndex(-1);
@@ -1018,58 +1194,73 @@ export function useSessionComposerController(
     liveDomDraftRef.current = { sessionId, value: "" };
   }, [sessionId]);
 
-  const resolveSessionReferences = useCallback(async (message: string) => {
-    let resolved = message;
-    const sessionsByLongestName = [...projectSessions].sort(
-      (left, right) =>
-        (right.name ?? right.filePath).length - (left.name ?? left.filePath).length,
-    );
-    for (const referencedSession of sessionsByLongestName) {
-      const sessionName = referencedSession.name ?? referencedSession.filePath;
-      const raw = `&${sessionName}`;
-      if (!resolved.toLowerCase().includes(raw.toLowerCase())) continue;
-      const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(escaped, "gi");
-      const saved = sessionReferenceSelections[raw];
-      const selectedMessages = saved
-        ? selectedSessionReferenceMessages(saved)
-        : await desktopApi.sessions.readReferenceMessages(referencedSession.id);
-      const context = selectedMessages
-        .map((item) => `[${item.role === "user" ? "User" : "Assistant"}]: ${item.content}`)
-        .join("\n");
-      resolved = resolved.replace(
-        pattern,
-        context
-          ? `<referenced_session name="${sessionName}">\n${context}\n</referenced_session>`
-          : "",
+  const resolveSessionReferences = useCallback(
+    async (message: string) => {
+      let resolved = message;
+      const sessionsByLongestName = [...projectSessions].sort(
+        (left, right) =>
+          (right.name ?? right.filePath).length -
+          (left.name ?? left.filePath).length,
       );
-    }
-    return resolved;
-  }, [projectSessions, sessionReferenceSelections]);
+      for (const referencedSession of sessionsByLongestName) {
+        const sessionName =
+          referencedSession.name ?? referencedSession.filePath;
+        const raw = `&${sessionName}`;
+        if (!resolved.toLowerCase().includes(raw.toLowerCase())) continue;
+        const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const pattern = new RegExp(escaped, "gi");
+        const saved = sessionReferenceSelections[raw];
+        const selectedMessages = saved
+          ? selectedSessionReferenceMessages(saved)
+          : await desktopApi.sessions.readReferenceMessages(
+              referencedSession.id,
+            );
+        const context = selectedMessages
+          .map(
+            (item) =>
+              `[${item.role === "user" ? "User" : "Assistant"}]: ${item.content}`,
+          )
+          .join("\n");
+        resolved = resolved.replace(
+          pattern,
+          context
+            ? `<referenced_session name="${sessionName}">\n${context}\n</referenced_session>`
+            : "",
+        );
+      }
+      return resolved;
+    },
+    [projectSessions, sessionReferenceSelections],
+  );
 
   /**
    * 手动压缩唯一入口：圆环按钮与 /compact 共用。
    * 不再设占用门槛（数据可用即可压，低占用时 pi 自行判定 nothing-to-do/too-small）；
    * 压缩中拒绝重复点击；成功弹完成。
    */
-  const runManualCompact = useCallback(async (
-    target: { sessionId: string; agentId: string; runtimeGeneration: number },
-    prompt?: string,
-  ) => {
-    const live = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
-    const compacting = live?.state?.isCompacting === true;
-    if (compacting) {
-      showNotice(t("app.compactInProgress"), 4000);
-      return;
-    }
-    try {
-      requireSessionCommand(await desktopApi.sessions.compactRuntime(target, prompt));
-      showNotice(t("app.compactDone"), 4000);
-    } catch (error) {
-      const notice = friendlyCompactError(error);
-      if (notice) showNotice(notice.text, notice.durationMs);
-    }
-  }, [sessionId, store]);
+  const runManualCompact = useCallback(
+    async (
+      target: { sessionId: string; agentId: string; runtimeGeneration: number },
+      prompt?: string,
+    ) => {
+      const live = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
+      const compacting = live?.state?.isCompacting === true;
+      if (compacting) {
+        showNotice(t("app.compactInProgress"), 4000);
+        return;
+      }
+      try {
+        requireSessionCommand(
+          await desktopApi.sessions.compactRuntime(target, prompt),
+        );
+        showNotice(t("app.compactDone"), 4000);
+      } catch (error) {
+        const notice = friendlyCompactError(error);
+        if (notice) showNotice(notice.text, notice.durationMs);
+      }
+    },
+    [sessionId, store],
+  );
 
   const send = useSessionSend({
     sessionId,
@@ -1083,9 +1274,15 @@ export function useSessionComposerController(
         const phase = runtime?.state?.goal?.phase;
         if (runtime?.agentId && (phase === "paused" || phase === "blocked")) {
           try {
-            await desktopApi.sessions.runDshGoalAction(runtime.agentId, "resume");
+            await desktopApi.sessions.runDshGoalAction(
+              runtime.agentId,
+              "resume",
+            );
           } catch (error) {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
+            showNotice(
+              error instanceof Error ? error.message : String(error),
+              4000,
+            );
           }
         }
       }
@@ -1116,30 +1313,43 @@ export function useSessionComposerController(
   // 提示词作为 user 消息立即上屏；随后追加一条 assistant「生图占位」消息（meta.imageGen=generating），
   // 生成期间由 FinalAnswer 渲染 beUI ImageGeneration 点阵动画，完成后原地更新为 complete（图片清晰过渡），
   // 失败原地更新为 error。不调用 send、不进附件栏（无运行中 Agent 也能用）。
-  const persistImageGenSelection = useCallback((providerId: string, modelId: string) => {
-    const next = {
-      ...imageGenConfig,
-      activeProviderId: providerId,
-      activeModel: modelId,
-    };
-    setImageGenConfig(next);
-    void desktopApi.imagegen.saveConfig(next).catch(() => undefined);
-  }, [imageGenConfig, setImageGenConfig]);
+  const persistImageGenSelection = useCallback(
+    (providerId: string, modelId: string) => {
+      const next = {
+        ...imageGenConfig,
+        activeProviderId: providerId,
+        activeModel: modelId,
+      };
+      setImageGenConfig(next);
+      void desktopApi.imagegen.saveConfig(next).catch(() => undefined);
+    },
+    [imageGenConfig, setImageGenConfig],
+  );
 
   const generateImage = useCallback(async () => {
     const prompt = draft.trim();
     if (!prompt || generatingImage) return;
-    const provider = findImageGenProvider(imageGenConfig, activeImageGenProviderId)
-      ?? imageGenConfig.providers[0];
-    const modelId = provider && provider.models.includes(activeImageGenModelId)
-      ? activeImageGenModelId
-      : (provider?.models[0] ?? "");
-    if (!provider?.id || !modelId || !provider.baseUrl.trim() || !provider.apiKey.trim()) {
+    const provider =
+      findImageGenProvider(imageGenConfig, activeImageGenProviderId) ??
+      imageGenConfig.providers[0];
+    const modelId =
+      provider && provider.models.includes(activeImageGenModelId)
+        ? activeImageGenModelId
+        : (provider?.models[0] ?? "");
+    if (
+      !provider?.id ||
+      !modelId ||
+      !provider.baseUrl.trim() ||
+      !provider.apiKey.trim()
+    ) {
       showNotice(t("imagegen.error.notConfigured"), 5000);
       return;
     }
     // 参考图前置门禁：供应商未声明带图输入时直接提示，不发无效请求（主进程也会拦截兑底）
-    if (attachments.length > 0 && (provider.referenceMode ?? "none") === "none") {
+    if (
+      attachments.length > 0 &&
+      (provider.referenceMode ?? "none") === "none"
+    ) {
       showNotice(t("imagegen.error.referenceUnsupported"), 5000);
       return;
     }
@@ -1153,12 +1363,21 @@ export function useSessionComposerController(
 
     // 把本地生图消息追加进时间线缓存（整体替换 messages 数组，source=runtime 沿用乐观提交约定）。
     const appendTimelineMessage = (message: ChatMessage) => {
-      const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-      setCacheMessages({ sessionId, messages: [...previous, message], source: "runtime" });
+      const previous =
+        store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
+      setCacheMessages({
+        sessionId,
+        messages: [...previous, message],
+        source: "runtime",
+      });
     };
     // 按 id 原地更新已上屏消息（生图占位 → complete/error 复用同一条，避免时间线多出一条）。
-    const updateTimelineMessage = (id: string, patch: (m: ChatMessage) => ChatMessage) => {
-      const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
+    const updateTimelineMessage = (
+      id: string,
+      patch: (m: ChatMessage) => ChatMessage,
+    ) => {
+      const previous =
+        store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
       setCacheMessages({
         sessionId,
         messages: previous.map((m) => (m.id === id ? patch(m) : m)),
@@ -1184,7 +1403,11 @@ export function useSessionComposerController(
       stopReason: "stop",
       timestamp: Date.now(),
       meta: {
-        imageGen: { status: "generating", prompt, size: imageGenSize } satisfies ImageGenMeta,
+        imageGen: {
+          status: "generating",
+          prompt,
+          size: imageGenSize,
+        } satisfies ImageGenMeta,
       },
     });
     setDraft("");
@@ -1214,14 +1437,21 @@ export function useSessionComposerController(
           ...m,
           images: [result.image],
           meta: {
-            imageGen: { status: "complete", prompt, size: imageGenSize } satisfies ImageGenMeta,
+            imageGen: {
+              status: "complete",
+              prompt,
+              size: imageGenSize,
+            } satisfies ImageGenMeta,
           },
         }));
         showNotice(t("imagegen.done"), 4000);
       } else {
         // 失败恢复附件：参考图放回输入框便于改词重试；前插不覆盖期间新粘贴的图
         if (attachments.length > 0) {
-          setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
+          setAttachmentsAtom({
+            sessionId,
+            value: (current) => [...attachments, ...current],
+          });
         }
         updateTimelineMessage(imageMessageId, (m) => ({
           ...m,
@@ -1238,7 +1468,10 @@ export function useSessionComposerController(
     } catch {
       // 网络/超时类失败同样恢复附件，便于原地重试
       if (attachments.length > 0) {
-        setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
+        setAttachmentsAtom({
+          sessionId,
+          value: (current) => [...attachments, ...current],
+        });
       }
       updateTimelineMessage(imageMessageId, (m) => ({
         ...m,
@@ -1253,7 +1486,23 @@ export function useSessionComposerController(
     } finally {
       setGeneratingImage(false);
     }
-  }, [activeImageGenModelId, activeImageGenProviderId, attachments, draft, generatingImage, imageGenConfig, imageGenOutputFormat, imageGenSize, imageGenWatermark, record?.noSession, sessionId, setAttachmentsAtom, setCacheMessages, setDraft, store]);
+  }, [
+    activeImageGenModelId,
+    activeImageGenProviderId,
+    attachments,
+    draft,
+    generatingImage,
+    imageGenConfig,
+    imageGenOutputFormat,
+    imageGenSize,
+    imageGenWatermark,
+    record?.noSession,
+    sessionId,
+    setAttachmentsAtom,
+    setCacheMessages,
+    setDraft,
+    store,
+  ]);
 
   // 统一发送入口：先晋升预览 Tab 再投递（幂等，非预览无副作用）。
   // 发送按钮 / 追问按钮 / Enter 键 / 无 Agent 时的 /compact 直发都会走这里，
@@ -1274,14 +1523,19 @@ export function useSessionComposerController(
           if (file.inProject) {
             refs.push(formatFilePathRef(file.path));
           } else {
-            const content = await desktopApi.files.readContent(file.path).catch(() => "");
+            const content = await desktopApi.files
+              .readContent(file.path)
+              .catch(() => "");
             if (content) refs.push(content);
           }
         }
-        const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-          ? liveDomDraftRef.current.value
-          : draft;
-        const joined = [liveDraft.trim(), refs.join("\n\n")].filter(Boolean).join("\n\n");
+        const liveDraft =
+          liveDomDraftRef.current.sessionId === sessionId
+            ? liveDomDraftRef.current.value
+            : draft;
+        const joined = [liveDraft.trim(), refs.join("\n\n")]
+          .filter(Boolean)
+          .join("\n\n");
         liveDomDraftRef.current = { sessionId, value: joined };
         setDraft(joined);
         // 已折叠进草稿：立即移除 chip（发送成功/失败都会在 clearSnapshot 兜底清空）
@@ -1290,249 +1544,323 @@ export function useSessionComposerController(
       options.onPromoteSession?.(sessionId);
       return send(behavior);
     },
-    [draft, mode, generateImage, options.onPromoteSession, pasteFiles, send, sessionId, setDraft, setPasteFiles],
+    [
+      draft,
+      mode,
+      generateImage,
+      options.onPromoteSession,
+      pasteFiles,
+      send,
+      sessionId,
+      setDraft,
+      setPasteFiles,
+    ],
   );
 
-  const selectSuggestion = useCallback((item: SuggestionItem) => {
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    // 目录引用（isDirectory）不带尾随空格：@src/ 之后继续敲路径段时建议框会
-    // 随按键重新打开（onChange → detectTrigger），实现连续的目录下钻引用；
-    // 带空格会让建议框立刻关闭，用户必须回删空格才能继续，容易误以为只能选一层。
-    const result = applySuggestion(liveDraft, liveCursor, item.value, validSessionRefs, {
-      noTrailingSpace: item.isDirectory === true,
-    });
-    liveDomDraftRef.current = { sessionId, value: result.text };
-    setDraft(result.text);
-    setCursor(result.cursor);
-    caretRef.current = { pos: result.cursor, forValue: result.text };
-    setSuggestionsOpen(false);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft, validSessionRefs]);
+  const selectSuggestion = useCallback(
+    (item: SuggestionItem) => {
+      const liveDraft =
+        liveDomDraftRef.current.sessionId === sessionId
+          ? liveDomDraftRef.current.value
+          : draft;
+      const liveCursor = editorRef.current
+        ? getComposerCaretOffset(editorRef.current)
+        : cursor;
+      // 目录引用（isDirectory）不带尾随空格：@src/ 之后继续敲路径段时建议框会
+      // 随按键重新打开（onChange → detectTrigger），实现连续的目录下钻引用；
+      // 带空格会让建议框立刻关闭，用户必须回删空格才能继续，容易误以为只能选一层。
+      const result = applySuggestion(
+        liveDraft,
+        liveCursor,
+        item.value,
+        validSessionRefs,
+        {
+          noTrailingSpace: item.isDirectory === true,
+        },
+      );
+      liveDomDraftRef.current = { sessionId, value: result.text };
+      setDraft(result.text);
+      setCursor(result.cursor);
+      caretRef.current = { pos: result.cursor, forValue: result.text };
+      setSuggestionsOpen(false);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [cursor, draft, sessionId, setDraft, validSessionRefs],
+  );
 
   const closeSuggestions = useCallback(() => {
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    const result = clearSuggestionTrigger(liveDraft, liveCursor, validSessionRefs);
-    liveDomDraftRef.current = { sessionId, value: result.text };
-    setDraft(result.text);
-    setCursor(result.cursor);
-    caretRef.current = { pos: result.cursor, forValue: result.text };
-    setSuggestionsOpen(false);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft, validSessionRefs]);
-
-  const onChange = useCallback((value: string, nextCursor: number) => {
-    liveDomDraftRef.current = { sessionId, value };
-    setDraft(value);
-    setCursor(nextCursor);
-    setSuggestionsOpen(detectTrigger(value, nextCursor, validSessionRefs) !== null);
-    if (historyIndex >= 0) {
-      const history = getPromptHistory();
-      if (value !== history[historyIndex]) {
-        setHistoryIndex(-1);
-        setSavedDraft("");
-      }
-    }
-  }, [getPromptHistory, historyIndex, sessionId, setDraft, validSessionRefs]);
-
-  const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (suggestionsOpen && suggestionItems.length > 0) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSelectedSuggestionIndex((index) => Math.min(index + 1, suggestionItems.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
-        return;
-      }
-      if (event.key === "Enter") {
-        // IME 合成中的回车属于输入法确认候选，不能拿去选建议项
-        if (isComposingKeyboardEvent(event)) return;
-        event.preventDefault();
-        const selected = suggestionItems[
-          Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
-        ];
-        if (selected) selectSuggestion(selected);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSuggestions();
-        return;
-      }
-    }
-
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
+    const liveDraft =
+      liveDomDraftRef.current.sessionId === sessionId
+        ? liveDomDraftRef.current.value
+        : draft;
     const liveCursor = editorRef.current
       ? getComposerCaretOffset(editorRef.current)
       : cursor;
-    const firstLine = !liveDraft.slice(0, liveCursor).includes("\n");
-    const lastLine = !liveDraft.slice(liveCursor).includes("\n");
-    const history = getPromptHistory();
+    const result = clearSuggestionTrigger(
+      liveDraft,
+      liveCursor,
+      validSessionRefs,
+    );
+    liveDomDraftRef.current = { sessionId, value: result.text };
+    setDraft(result.text);
+    setCursor(result.cursor);
+    caretRef.current = { pos: result.cursor, forValue: result.text };
+    setSuggestionsOpen(false);
+    requestAnimationFrame(() => editorRef.current?.focus());
+  }, [cursor, draft, sessionId, setDraft, validSessionRefs]);
 
-    if (event.key === "ArrowUp" && firstLine && history.length > 0) {
-      event.preventDefault();
-      const nextIndex = historyIndex < 0
-        ? 0
-        : Math.min(historyIndex + 1, history.length - 1);
-      if (historyIndex < 0) setSavedDraft(liveDraft);
-      setHistoryIndex(nextIndex);
-      liveDomDraftRef.current = { sessionId, value: history[nextIndex] };
-      setDraft(history[nextIndex]);
-      caretRef.current = { pos: history[nextIndex].length, forValue: history[nextIndex] };
-      return;
-    }
-    if (event.key === "ArrowDown" && lastLine && historyIndex >= 0) {
-      event.preventDefault();
-      const nextIndex = historyIndex - 1;
-      const nextDraft = nextIndex >= 0 ? history[nextIndex] : savedDraft;
-      setHistoryIndex(nextIndex);
-      if (nextIndex < 0) setSavedDraft("");
-      liveDomDraftRef.current = { sessionId, value: nextDraft };
-      setDraft(nextDraft);
-      caretRef.current = { pos: nextDraft.length, forValue: nextDraft };
-      return;
-    }
-    if (event.key === "Escape" && historyIndex >= 0) {
-      liveDomDraftRef.current = { sessionId, value: savedDraft };
-      setDraft(savedDraft);
-      setHistoryIndex(-1);
-      setSavedDraft("");
-      return;
-    }
-
-    const intent =
-      mode === "plan" && isPlanModeSendKey(event)
-        ? "send"
-        : getComposerEnterIntent(event, sendShortcut);
-    if (intent === "send") {
-      event.preventDefault();
-      // Enter 发送也晋升预览 Tab（promoteAndSend 内部统一处理）。
-      // 忙碌时按「忙碌时投递行为」设置决定语义（pi/dsh 统一，不再按后端分叉）；
-      // 空闲直发（undefined）。设置在常用设置→会话，改后即时生效（App 同步 atom）。
-      void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)));
-    }
-  }, [
-    closeSuggestions,
-    draft,
-    getPromptHistory,
-    historyIndex,
-    isBusy,
-    mode,
-    promoteAndSend,
-    savedDraft,
-    selectedSuggestionIndex,
-    selectSuggestion,
-    sendShortcut,
-    sessionId,
-    setDraft,
-    store,
-    suggestionItems,
-    suggestionsOpen,
-  ]);
-
-  const addImageFiles = useCallback(async (imageFiles: File[]) => {
-    // G2：DSH 图片附件已支持（经 host attachment 服务上传，sendPrompt 带 image 块），
-    // 与 pi 共用附件流程，不再按 backend 拦截。
-    for (const file of imageFiles) {
-      try {
-        const image = await processComposerImageFile(file);
-        setAttachments((current) => [...current, image]);
-      } catch (error) {
-        showNotice(composerImageNotice(error), 3000);
+  const onChange = useCallback(
+    (value: string, nextCursor: number) => {
+      liveDomDraftRef.current = { sessionId, value };
+      setDraft(value);
+      setCursor(nextCursor);
+      setSuggestionsOpen(
+        detectTrigger(value, nextCursor, validSessionRefs) !== null,
+      );
+      if (historyIndex >= 0) {
+        const history = getPromptHistory();
+        if (value !== history[historyIndex]) {
+          setHistoryIndex(-1);
+          setSavedDraft("");
+        }
       }
-    }
-  }, [setAttachments]);
+    },
+    [getPromptHistory, historyIndex, sessionId, setDraft, validSessionRefs],
+  );
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (suggestionsOpen && suggestionItems.length > 0) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setSelectedSuggestionIndex((index) =>
+            Math.min(index + 1, suggestionItems.length - 1),
+          );
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
+          return;
+        }
+        if (event.key === "Enter") {
+          // IME 合成中的回车属于输入法确认候选，不能拿去选建议项
+          if (isComposingKeyboardEvent(event)) return;
+          event.preventDefault();
+          const selected =
+            suggestionItems[
+              Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
+            ];
+          if (selected) selectSuggestion(selected);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeSuggestions();
+          return;
+        }
+      }
+
+      const liveDraft =
+        liveDomDraftRef.current.sessionId === sessionId
+          ? liveDomDraftRef.current.value
+          : draft;
+      const liveCursor = editorRef.current
+        ? getComposerCaretOffset(editorRef.current)
+        : cursor;
+      const firstLine = !liveDraft.slice(0, liveCursor).includes("\n");
+      const lastLine = !liveDraft.slice(liveCursor).includes("\n");
+      const history = getPromptHistory();
+
+      if (event.key === "ArrowUp" && firstLine && history.length > 0) {
+        event.preventDefault();
+        const nextIndex =
+          historyIndex < 0 ? 0 : Math.min(historyIndex + 1, history.length - 1);
+        if (historyIndex < 0) setSavedDraft(liveDraft);
+        setHistoryIndex(nextIndex);
+        liveDomDraftRef.current = { sessionId, value: history[nextIndex] };
+        setDraft(history[nextIndex]);
+        caretRef.current = {
+          pos: history[nextIndex].length,
+          forValue: history[nextIndex],
+        };
+        return;
+      }
+      if (event.key === "ArrowDown" && lastLine && historyIndex >= 0) {
+        event.preventDefault();
+        const nextIndex = historyIndex - 1;
+        const nextDraft = nextIndex >= 0 ? history[nextIndex] : savedDraft;
+        setHistoryIndex(nextIndex);
+        if (nextIndex < 0) setSavedDraft("");
+        liveDomDraftRef.current = { sessionId, value: nextDraft };
+        setDraft(nextDraft);
+        caretRef.current = { pos: nextDraft.length, forValue: nextDraft };
+        return;
+      }
+      if (event.key === "Escape" && historyIndex >= 0) {
+        liveDomDraftRef.current = { sessionId, value: savedDraft };
+        setDraft(savedDraft);
+        setHistoryIndex(-1);
+        setSavedDraft("");
+        return;
+      }
+
+      const intent =
+        mode === "plan" && isPlanModeSendKey(event)
+          ? "send"
+          : getComposerEnterIntent(event, sendShortcut);
+      if (intent === "send") {
+        event.preventDefault();
+        // Enter 发送也晋升预览 Tab（promoteAndSend 内部统一处理）。
+        // 忙碌时按「忙碌时投递行为」设置决定语义（pi/dsh 统一，不再按后端分叉）；
+        // 空闲直发（undefined）。设置在常用设置→会话，改后即时生效（App 同步 atom）。
+        void promoteAndSend(
+          resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)),
+        );
+      }
+    },
+    [
+      closeSuggestions,
+      draft,
+      getPromptHistory,
+      historyIndex,
+      isBusy,
+      mode,
+      promoteAndSend,
+      savedDraft,
+      selectedSuggestionIndex,
+      selectSuggestion,
+      sendShortcut,
+      sessionId,
+      setDraft,
+      store,
+      suggestionItems,
+      suggestionsOpen,
+    ],
+  );
+
+  const addImageFiles = useCallback(
+    async (imageFiles: File[]) => {
+      // G2：DSH 图片附件已支持（经 host attachment 服务上传，sendPrompt 带 image 块），
+      // 与 pi 共用附件流程，不再按 backend 拦截。
+      for (const file of imageFiles) {
+        try {
+          const image = await processComposerImageFile(file);
+          setAttachments((current) => [...current, image]);
+        } catch (error) {
+          showNotice(composerImageNotice(error), 3000);
+        }
+      }
+    },
+    [setAttachments],
+  );
 
   /**
    * 把已格式化的引用文本（@path、@"a b/" 等）插入输入框当前光标处。
    * 文件树拖拽、OS 文件拖入/粘贴、「加入对话引用」按钮共用同一插入规则：
    * 只引用路径，不上传内容；与前字符之间按需补空格。
    */
-  const insertRefTexts = useCallback((refTexts: string[]) => {
-    if (refTexts.length === 0) return;
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    const refText = refTexts.join(" ");
-    const previous = liveDraft[liveCursor - 1];
-    const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
-    const next = liveDraft.slice(0, liveCursor) + spacer + refText + liveDraft.slice(liveCursor);
-    const nextCursor = liveCursor + spacer.length + refText.length;
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    setCursor(nextCursor);
-    caretRef.current = { pos: nextCursor, forValue: next };
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft]);
+  const insertRefTexts = useCallback(
+    (refTexts: string[]) => {
+      if (refTexts.length === 0) return;
+      const liveDraft =
+        liveDomDraftRef.current.sessionId === sessionId
+          ? liveDomDraftRef.current.value
+          : draft;
+      const liveCursor = editorRef.current
+        ? getComposerCaretOffset(editorRef.current)
+        : cursor;
+      const refText = refTexts.join(" ");
+      const previous = liveDraft[liveCursor - 1];
+      const spacer =
+        liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
+      const next =
+        liveDraft.slice(0, liveCursor) +
+        spacer +
+        refText +
+        liveDraft.slice(liveCursor);
+      const nextCursor = liveCursor + spacer.length + refText.length;
+      liveDomDraftRef.current = { sessionId, value: next };
+      setDraft(next);
+      setCursor(nextCursor);
+      caretRef.current = { pos: nextCursor, forValue: next };
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [cursor, draft, sessionId, setDraft],
+  );
 
   /** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用）；含空格路径自动加引号 */
-  const insertFilePathRefs = useCallback((paths: string[]) => {
-    insertRefTexts(
-      paths.map((path) =>
-        formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path) }),
-      ),
-    );
-  }, [insertRefTexts]);
+  const insertFilePathRefs = useCallback(
+    (paths: string[]) => {
+      insertRefTexts(
+        paths.map((path) =>
+          formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path) }),
+        ),
+      );
+    },
+    [insertRefTexts],
+  );
 
   /**
    * 把纯文本插入输入框当前光标处（不带 @ 引用包装）。
    * 与 insertRefTexts 同一套光标/草稿同步协议；仅用于「转文件失败回退原样粘贴」
    * 这类需要绕过 TipTap 默认粘贴路径的场景（onPaste 已同步 preventDefault）。
    */
-  const insertPlainTextAtCursor = useCallback((text: string) => {
-    if (!text) return;
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    const next = liveDraft.slice(0, liveCursor) + text + liveDraft.slice(liveCursor);
-    const nextCursor = liveCursor + text.length;
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    setCursor(nextCursor);
-    caretRef.current = { pos: nextCursor, forValue: next };
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft]);
+  const insertPlainTextAtCursor = useCallback(
+    (text: string) => {
+      if (!text) return;
+      const liveDraft =
+        liveDomDraftRef.current.sessionId === sessionId
+          ? liveDomDraftRef.current.value
+          : draft;
+      const liveCursor = editorRef.current
+        ? getComposerCaretOffset(editorRef.current)
+        : cursor;
+      const next =
+        liveDraft.slice(0, liveCursor) + text + liveDraft.slice(liveCursor);
+      const nextCursor = liveCursor + text.length;
+      liveDomDraftRef.current = { sessionId, value: next };
+      setDraft(next);
+      setCursor(nextCursor);
+      caretRef.current = { pos: nextCursor, forValue: next };
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [cursor, draft, sessionId, setDraft],
+  );
 
   const captureVoiceTarget = useCallback((): VoiceTranscriptionTarget => {
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
+    const liveDraft =
+      liveDomDraftRef.current.sessionId === sessionId
+        ? liveDomDraftRef.current.value
+        : draft;
     const selection = editorRef.current
       ? getComposerSelectionRange(editorRef.current)
       : { from: cursor, to: cursor };
     return { sessionId, draft: liveDraft, ...selection };
   }, [cursor, draft, sessionId]);
 
-  const applyVoiceText = useCallback((target: VoiceTranscriptionTarget, text: string) => {
-    const currentDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : store.get(sessionDraftByIdAtom)[sessionId] ?? "";
-    const result = resolveVoiceTranscriptionInsertion({
-      target,
-      currentSessionId: sessionId,
-      currentDraft,
-      text,
-    });
-    if (!result.ok) return false;
-    liveDomDraftRef.current = { sessionId, value: result.value };
-    setDraft(result.value);
-    setCursor(result.caret);
-    caretRef.current = { pos: result.caret, forValue: result.value };
-    requestAnimationFrame(() => editorRef.current?.focus());
-    return true;
-  }, [sessionId, setDraft, store]);
+  const applyVoiceText = useCallback(
+    (target: VoiceTranscriptionTarget, text: string) => {
+      const currentDraft =
+        liveDomDraftRef.current.sessionId === sessionId
+          ? liveDomDraftRef.current.value
+          : (store.get(sessionDraftByIdAtom)[sessionId] ?? "");
+      const result = resolveVoiceTranscriptionInsertion({
+        target,
+        currentSessionId: sessionId,
+        currentDraft,
+        text,
+      });
+      if (!result.ok) return false;
+      liveDomDraftRef.current = { sessionId, value: result.value };
+      setDraft(result.value);
+      setCursor(result.caret);
+      caretRef.current = { pos: result.caret, forValue: result.value };
+      requestAnimationFrame(() => editorRef.current?.focus());
+      return true;
+    },
+    [sessionId, setDraft, store],
+  );
 
   const voice = useVoiceTranscription({
     scopeKey: sessionId,
@@ -1547,33 +1875,39 @@ export function useSessionComposerController(
    * projectPath 仍会传给主进程做已登记项目校验，但不再决定落盘目录。
    * 写盘失败（权限/路径异常）回退原样插入，保证粘贴内容不丢。
    */
-  const pasteTextToFile = useCallback(async (text: string) => {
-    try {
-      const result = await desktopApi.pasteFiles.write({
-        // 项目根经 projectId 反查项目清单（不依赖可能缺失的 record.projectPath）；
-        // 非空时主进程只做已登记项目校验，新写入一律落 userData/paste-files/。
-        projectPath: composerProject?.path ?? "",
-        content: text,
-      });
-      setPasteFiles((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          path: result.path,
-          fileName: result.fileName,
-          bytes: result.bytes,
-          inProject: result.inProject,
-        },
-      ]);
-      showNotice(
-        t("app.pasteConvertedToFile", { name: result.fileName, size: formatBytes(result.bytes) }),
-        4000,
-      );
-    } catch {
-      showNotice(t("app.pasteConvertFailed"), 3000);
-      insertPlainTextAtCursor(text);
-    }
-  }, [composerProject?.path, insertPlainTextAtCursor, setPasteFiles]);
+  const pasteTextToFile = useCallback(
+    async (text: string) => {
+      try {
+        const result = await desktopApi.pasteFiles.write({
+          // 项目根经 projectId 反查项目清单（不依赖可能缺失的 record.projectPath）；
+          // 非空时主进程只做已登记项目校验，新写入一律落 userData/paste-files/。
+          projectPath: composerProject?.path ?? "",
+          content: text,
+        });
+        setPasteFiles((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            path: result.path,
+            fileName: result.fileName,
+            bytes: result.bytes,
+            inProject: result.inProject,
+          },
+        ]);
+        showNotice(
+          t("app.pasteConvertedToFile", {
+            name: result.fileName,
+            size: formatBytes(result.bytes),
+          }),
+          4000,
+        );
+      } catch {
+        showNotice(t("app.pasteConvertFailed"), 3000);
+        insertPlainTextAtCursor(text);
+      }
+    },
+    [composerProject?.path, insertPlainTextAtCursor, setPasteFiles],
+  );
 
   /** 从 File 列表解析本地路径（Electron 32+ 必须走 webUtils，不能用已移除的 File.path） */
   const resolveLocalPathsFromFiles = useCallback((files: File[]) => {
@@ -1599,31 +1933,43 @@ export function useSessionComposerController(
    * 或过大，位图仍在（否则粘贴会退化成无用的 @path 引用）；实在没有位图才整体回退
    * @path 引用，保证「复制图片」粘贴始终有可用结果。
    */
-  const pasteClipboardImages = useCallback(async (paths: string[], dataTransfer: DataTransfer | null) => {
-    try {
-      const files: File[] = [];
-      for (const path of paths) {
-        const dataUrl = await desktopApi.files.readBase64(path, COMPOSER_IMAGE_MAX_BYTES);
-        if (!dataUrl) throw new Error(`Cannot read image: ${path}`);
-        const fileName = path.split(/[\\/]/).pop() || path;
-        files.push(dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), fileName));
+  const pasteClipboardImages = useCallback(
+    async (paths: string[], dataTransfer: DataTransfer | null) => {
+      try {
+        const files: File[] = [];
+        for (const path of paths) {
+          const dataUrl = await desktopApi.files.readBase64(
+            path,
+            COMPOSER_IMAGE_MAX_BYTES,
+          );
+          if (!dataUrl) throw new Error(`Cannot read image: ${path}`);
+          const fileName = path.split(/[\\/]/).pop() || path;
+          files.push(
+            dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), fileName),
+          );
+        }
+        await addImageFiles(files);
+      } catch {
+        // 位图兜底：事件粘贴优先取 clipboardData 的 image 项；右键粘贴无事件，走 Electron 剪贴板位图
+        const imageFiles = dataTransfer
+          ? getClipboardImageFiles(dataTransfer)
+          : [];
+        if (imageFiles.length) {
+          await addImageFiles(imageFiles);
+          return;
+        }
+        const imageDataUrl = desktopApi.clipboard.readImage();
+        if (imageDataUrl) {
+          await addImageFiles([
+            dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png"),
+          ]);
+          return;
+        }
+        insertFilePathRefs(paths);
       }
-      await addImageFiles(files);
-    } catch {
-      // 位图兜底：事件粘贴优先取 clipboardData 的 image 项；右键粘贴无事件，走 Electron 剪贴板位图
-      const imageFiles = dataTransfer ? getClipboardImageFiles(dataTransfer) : [];
-      if (imageFiles.length) {
-        await addImageFiles(imageFiles);
-        return;
-      }
-      const imageDataUrl = desktopApi.clipboard.readImage();
-      if (imageDataUrl) {
-        await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
-        return;
-      }
-      insertFilePathRefs(paths);
-    }
-  }, [addImageFiles, insertFilePathRefs]);
+    },
+    [addImageFiles, insertFilePathRefs],
+  );
 
   /**
    * 右键「粘贴」（无 ClipboardEvent）：从 Electron 剪贴板同步读取。
@@ -1641,7 +1987,9 @@ export function useSessionComposerController(
     }
     const imageDataUrl = desktopApi.clipboard.readImage();
     if (imageDataUrl) {
-      await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
+      await addImageFiles([
+        dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png"),
+      ]);
       return true;
     }
     // 大段文本（右键粘贴菜单无 ClipboardEvent）：同样转文件，避免塞进 ProseMirror 变卡
@@ -1651,7 +1999,12 @@ export function useSessionComposerController(
       return true;
     }
     return false;
-  }, [addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile]);
+  }, [
+    addImageFiles,
+    insertFilePathRefs,
+    pasteClipboardImages,
+    pasteTextToFile,
+  ]);
 
   /**
    * 粘贴：系统文件路径以 @path 引用插入，位图/截图附加为图片。
@@ -1661,63 +2014,74 @@ export function useSessionComposerController(
    * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
    * 路径为受支持图片时优先附加预览，否则仍按路径引用处理，避免被误当成截图。
    */
-  const onPaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
-    // 1) 资源管理器复制/剪切的文件：浏览器 ClipboardEvent 通常没有 kind=file，
-    //    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
-    const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
-    if (clipboardPaths.length > 0) {
-      event.preventDefault();
-      // 复制的全是受支持图片 → 附加预览；混合/其他文件 → 维持 @path 引用
-      if (clipboardPaths.every(isImageFilePath)) {
-        void pasteClipboardImages(clipboardPaths, event.clipboardData);
-      } else {
-        insertFilePathRefs(clipboardPaths);
-      }
-      return;
-    }
-
-    // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
-    const fileItems = Array.from(event.clipboardData.items).filter((item) => item.kind === "file");
-    if (fileItems.length > 0) {
-      const files = fileItems
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
-      const paths = resolveLocalPathsFromFiles(files);
-      if (paths.length > 0) {
+  const onPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      // 1) 资源管理器复制/剪切的文件：浏览器 ClipboardEvent 通常没有 kind=file，
+      //    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
+      const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
+      if (clipboardPaths.length > 0) {
         event.preventDefault();
-        // 与第 1 步同规则：全是图片 → 附加预览（失败位图兜底），混合 → @path
-        if (paths.every(isImageFilePath)) {
-          void pasteClipboardImages(paths, event.clipboardData);
+        // 复制的全是受支持图片 → 附加预览；混合/其他文件 → 维持 @path 引用
+        if (clipboardPaths.every(isImageFilePath)) {
+          void pasteClipboardImages(clipboardPaths, event.clipboardData);
         } else {
-          insertFilePathRefs(paths);
+          insertFilePathRefs(clipboardPaths);
         }
         return;
       }
-    }
 
-    // 3) 剪贴板位图（截图/微信QQ/网页复制图片）：必须优先于纯文本——
-    //    这类复制常同时写位图 + text 槽（微信写图片缓存路径、网页写图片 URL），
-    //    位图才是用户要的内容；文件路径场景已在前两步处理，这里只剩纯位图。
-    const imageFiles = getClipboardImageFiles(event.clipboardData);
-    if (imageFiles.length) {
-      event.preventDefault();
-      void addImageFiles(imageFiles);
-      return;
-    }
-    // 4) 大段纯文本粘贴（复制日志/代码/长文是主要来源）：直接插入 ProseMirror
-    //    会随文本量级变卡（文档模型 + 逐键建议扫描），改为落盘成文件并在附件栏
-    //    显示文件 chip（与图片粘贴同款形态），发送时自动折叠 @引用/原样文本。
-    const plainText = event.clipboardData.getData("text/plain");
-    if (plainText.length >= PASTE_TO_FILE_MIN_CHARS) {
-      event.preventDefault();
-      void pasteTextToFile(plainText);
-      return;
-    }
-    // 5) 其余纯文本一律交给编辑器原样插入：不做自动路径识别——
-    //    粘贴 /foo/bar、//注释 这类文本时，若自动补 @ 并转成引用 chip，
-    //    文本变成原子节点无法再编辑移动光标（用户反馈的痛点）；
-    //    需要引用文件时走资源管理器复制文件（步骤 1/2）或手动输入 @ 触发补全。
-  }, [addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile, resolveLocalPathsFromFiles]);
+      // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
+      const fileItems = Array.from(event.clipboardData.items).filter(
+        (item) => item.kind === "file",
+      );
+      if (fileItems.length > 0) {
+        const files = fileItems
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => Boolean(file));
+        const paths = resolveLocalPathsFromFiles(files);
+        if (paths.length > 0) {
+          event.preventDefault();
+          // 与第 1 步同规则：全是图片 → 附加预览（失败位图兜底），混合 → @path
+          if (paths.every(isImageFilePath)) {
+            void pasteClipboardImages(paths, event.clipboardData);
+          } else {
+            insertFilePathRefs(paths);
+          }
+          return;
+        }
+      }
+
+      // 3) 剪贴板位图（截图/微信QQ/网页复制图片）：必须优先于纯文本——
+      //    这类复制常同时写位图 + text 槽（微信写图片缓存路径、网页写图片 URL），
+      //    位图才是用户要的内容；文件路径场景已在前两步处理，这里只剩纯位图。
+      const imageFiles = getClipboardImageFiles(event.clipboardData);
+      if (imageFiles.length) {
+        event.preventDefault();
+        void addImageFiles(imageFiles);
+        return;
+      }
+      // 4) 大段纯文本粘贴（复制日志/代码/长文是主要来源）：直接插入 ProseMirror
+      //    会随文本量级变卡（文档模型 + 逐键建议扫描），改为落盘成文件并在附件栏
+      //    显示文件 chip（与图片粘贴同款形态），发送时自动折叠 @引用/原样文本。
+      const plainText = event.clipboardData.getData("text/plain");
+      if (plainText.length >= PASTE_TO_FILE_MIN_CHARS) {
+        event.preventDefault();
+        void pasteTextToFile(plainText);
+        return;
+      }
+      // 5) 其余纯文本一律交给编辑器原样插入：不做自动路径识别——
+      //    粘贴 /foo/bar、//注释 这类文本时，若自动补 @ 并转成引用 chip，
+      //    文本变成原子节点无法再编辑移动光标（用户反馈的痛点）；
+      //    需要引用文件时走资源管理器复制文件（步骤 1/2）或手动输入 @ 触发补全。
+    },
+    [
+      addImageFiles,
+      insertFilePathRefs,
+      pasteClipboardImages,
+      pasteTextToFile,
+      resolveLocalPathsFromFiles,
+    ],
+  );
 
   /**
    * 拖拽：
@@ -1725,27 +2089,37 @@ export function useSessionComposerController(
    * 2) OS 本地文件/目录 → 以 @path 引用插入（含图片文件，不上传内容）；
    * 3) 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
    */
-  const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const nodePayload = readFileNodeDragPayload(event.dataTransfer);
-    if (nodePayload) {
-      insertRefTexts([fileNodeDragPayloadToRef(nodePayload)]);
-      return;
-    }
-    const files = Array.from(event.dataTransfer.files);
-    if (files.length === 0) return;
-    const paths = resolveLocalPathsFromFiles(files);
-    if (paths.length > 0) {
-      insertFilePathRefs(paths);
-      return;
-    }
-    void addImageFiles(getDroppedImageFiles(event.dataTransfer));
-  }, [addImageFiles, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles]);
+  const onDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const nodePayload = readFileNodeDragPayload(event.dataTransfer);
+      if (nodePayload) {
+        insertRefTexts([fileNodeDragPayloadToRef(nodePayload)]);
+        return;
+      }
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length === 0) return;
+      const paths = resolveLocalPathsFromFiles(files);
+      if (paths.length > 0) {
+        insertFilePathRefs(paths);
+        return;
+      }
+      void addImageFiles(getDroppedImageFiles(event.dataTransfer));
+    },
+    [
+      addImageFiles,
+      insertFilePathRefs,
+      insertRefTexts,
+      resolveLocalPathsFromFiles,
+    ],
+  );
 
   /** 「加入对话引用」按钮：系统选择器选中的文件/目录以 @path 插入 */
   const attachFile = useCallback(async () => {
     try {
-      const paths = await desktopApi.dialog.pickFiles({ title: t("menu.attachFile") });
+      const paths = await desktopApi.dialog.pickFiles({
+        title: t("menu.attachFile"),
+      });
       insertFilePathRefs(paths);
     } catch {
       // 用户取消或出错时不作处理
@@ -1753,11 +2127,15 @@ export function useSessionComposerController(
   }, [insertFilePathRefs]);
 
   /** 移除粘贴文件 chip：同步删除落盘文件（粘贴产物，不留孤儿文件）。 */
-  const removePasteFile = useCallback((index: number) => {
-    const target = pasteFiles[index];
-    setPasteFiles((current) => current.filter((_, item) => item !== index));
-    if (target) void desktopApi.pasteFiles.delete(target.path).catch(() => undefined);
-  }, [pasteFiles, setPasteFiles]);
+  const removePasteFile = useCallback(
+    (index: number) => {
+      const target = pasteFiles[index];
+      setPasteFiles((current) => current.filter((_, item) => item !== index));
+      if (target)
+        void desktopApi.pasteFiles.delete(target.path).catch(() => undefined);
+    },
+    [pasteFiles, setPasteFiles],
+  );
 
   /** 清空全部粘贴文件 chip（附件栏「清空」按钮）：逐个删除落盘文件。 */
   const clearPasteFiles = useCallback(() => {
@@ -1767,16 +2145,19 @@ export function useSessionComposerController(
     setPasteFiles([]);
   }, [pasteFiles, setPasteFiles]);
 
-  const onChipClick = useCallback((chip: ComposerChip) => {
-    // 文件引用点击不再打开文件/分屏（用户要求阻止点击打开事件）：
-    // 引用 chip 只是一段文本标记，打开文件走时间线链接或文件树等显式入口。
-    if (chip.kind === "session") {
-      const selected = projectSessions.find(
-        (session) => (session.name ?? session.filePath) === chip.label,
-      );
-      if (selected) setSessionReference(selected);
-    }
-  }, [projectSessions]);
+  const onChipClick = useCallback(
+    (chip: ComposerChip) => {
+      // 文件引用点击不再打开文件/分屏（用户要求阻止点击打开事件）：
+      // 引用 chip 只是一段文本标记，打开文件走时间线链接或文件树等显式入口。
+      if (chip.kind === "session") {
+        const selected = projectSessions.find(
+          (session) => (session.name ?? session.filePath) === chip.label,
+        );
+        if (selected) setSessionReference(selected);
+      }
+    },
+    [projectSessions],
+  );
 
   useEffect(() => {
     if (!hasContent) {
@@ -1800,7 +2181,10 @@ export function useSessionComposerController(
       // abort 失败必须可见：之前这里直接 throw 变成未处理 rejection，
       // 用户点停止后毫无反馈、agent 继续运行，表现为「停止不了」。
       // 异常常驻提示，直到用户手动关闭。
-      showNotice(error instanceof Error ? error.message : String(error), Number.POSITIVE_INFINITY);
+      showNotice(
+        error instanceof Error ? error.message : String(error),
+        Number.POSITIVE_INFINITY,
+      );
     }
   }, [runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
 
@@ -1817,42 +2201,54 @@ export function useSessionComposerController(
    * 同步渲染不可靠。激活后 UI 不再渲染切换器（changeBackend 返回 undefined）。
    * imagegen 后端同样锁定：生图会话不可切回 pi/dsh（互不影响）。
    */
-  const backendLocked = Boolean(runtime?.agentId) || record?.status === "active" || record?.backend === "imagegen";
-  const changeBackend = useCallback(async (next: AgentBackend) => {
-    if (backendLocked) return;
-    // 引导页虚拟会话（无 catalog record）：与 pickModel/pickThinking 的引导页
-    // 分支同构——显式选择写 localStorage 偏好并本地即时回显，不走 IPC。
-    // 直接 updateRecord("renderer:guide-bootstrap") 在主进程必然查不到会话，
-    // 报「会话不存在，请刷新会话列表后重试」（2026-09 用户反馈的新建页切 DSH 报错）。
-    // 首次发送时 App.ensureSessionForSend 读取同一份偏好创建真实会话，选择不丢失。
-    if (isGuideBootstrapSession) {
-      setGuideBackendOverride(next);
-      try {
-        localStorage.setItem(WELCOME_BACKEND_KEY, next);
-      } catch {
-        // localStorage 不可用时静默；本次页面内仍由 guideBackendOverride 即时生效
+  const backendLocked =
+    Boolean(runtime?.agentId) ||
+    record?.status === "active" ||
+    record?.backend === "imagegen";
+  const changeBackend = useCallback(
+    async (next: AgentBackend) => {
+      if (backendLocked) return;
+      // 引导页虚拟会话（无 catalog record）：与 pickModel/pickThinking 的引导页
+      // 分支同构——显式选择写 localStorage 偏好并本地即时回显，不走 IPC。
+      // 直接 updateRecord("renderer:guide-bootstrap") 在主进程必然查不到会话，
+      // 报「会话不存在，请刷新会话列表后重试」（2026-09 用户反馈的新建页切 DSH 报错）。
+      // 首次发送时 App.ensureSessionForSend 读取同一份偏好创建真实会话，选择不丢失。
+      if (isGuideBootstrapSession) {
+        setGuideBackendOverride(next);
+        try {
+          localStorage.setItem(WELCOME_BACKEND_KEY, next);
+        } catch {
+          // localStorage 不可用时静默；本次页面内仍由 guideBackendOverride 即时生效
+        }
+        return;
       }
-      return;
-    }
-    try {
-      // 切回 pi 时按 pi 配置重新解析默认模型/思考档位（与 createDraft 缺省填充
-      // 同一解析器 launchDefaults），而不是直接清空——否则用户 pi 配置里的
-      // defaultProvider/defaultModel 不会出现在切回后的会话（底栏回退残留 DSH 默认）。
-      // dsh/imagegen 后端模型由各自部署默认决定，record 保持清空。
-      const resolved = next === "pi"
-        ? await desktopApi.sessions.resolveLaunchDefaults({ backend: "pi" }).catch(() => undefined)
-        : undefined;
-      const defaults = resolveBackendSwitchDefaults(next, resolved);
-      const updated = await desktopApi.sessions.updateRecord(sessionId, {
-        backend: next,
-        model: defaults.model,
-        thinkingLevel: defaults.thinkingLevel,
-      });
-      upsertSession(updated);
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : String(error), 4000);
-    }
-  }, [backendLocked, isGuideBootstrapSession, record, sessionId, upsertSession]);
+      try {
+        // 切回 pi 时按 pi 配置重新解析默认模型/思考档位（与 createDraft 缺省填充
+        // 同一解析器 launchDefaults），而不是直接清空——否则用户 pi 配置里的
+        // defaultProvider/defaultModel 不会出现在切回后的会话（底栏回退残留 DSH 默认）。
+        // dsh/imagegen 后端模型由各自部署默认决定，record 保持清空。
+        const resolved =
+          next === "pi"
+            ? await desktopApi.sessions
+                .resolveLaunchDefaults({ backend: "pi" })
+                .catch(() => undefined)
+            : undefined;
+        const defaults = resolveBackendSwitchDefaults(next, resolved);
+        const updated = await desktopApi.sessions.updateRecord(sessionId, {
+          backend: next,
+          model: defaults.model,
+          thinkingLevel: defaults.thinkingLevel,
+        });
+        upsertSession(updated);
+      } catch (error) {
+        showNotice(
+          error instanceof Error ? error.message : String(error),
+          4000,
+        );
+      }
+    },
+    [backendLocked, isGuideBootstrapSession, record, sessionId, upsertSession],
+  );
 
   const compact = useCallback(async () => {
     const target = toSessionRuntimeTarget(sessionId, runtime);
@@ -1864,56 +2260,84 @@ export function useSessionComposerController(
       return;
     }
     await runManualCompact(target);
-  }, [runtime?.agentId, runtime?.runtimeGeneration, sessionId, setDraft, promoteAndSend, runManualCompact]);
+  }, [
+    runtime?.agentId,
+    runtime?.runtimeGeneration,
+    sessionId,
+    setDraft,
+    promoteAndSend,
+    runManualCompact,
+  ]);
 
-  const openPicker = useCallback((kind: ComposerPickerKind) => {
-    if (kind === "template") void loadTemplates();
-    setPicker(kind);
-  }, [loadTemplates]);
+  const openPicker = useCallback(
+    (kind: ComposerPickerKind) => {
+      if (kind === "template") void loadTemplates();
+      setPicker(kind);
+    },
+    [loadTemplates],
+  );
 
-  const insertTemplate = useCallback((template: PromptTemplateInfo) => {
-    const next = appendSlashCommandToDraft(draft, template.name);
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, sessionId, setDraft]);
+  const insertTemplate = useCallback(
+    (template: PromptTemplateInfo) => {
+      const next = appendSlashCommandToDraft(draft, template.name);
+      liveDomDraftRef.current = { sessionId, value: next };
+      setDraft(next);
+      caretRef.current = { pos: next.length, forValue: next };
+      setPicker(null);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [draft, sessionId, setDraft],
+  );
 
   // 技能选择器选中后插入技能斜杠命令到草稿尾（与 insertTemplate 同构）：
   // pi 用 /skill:名称（裸 /名称 pi 当未知命令拒绝——斜线命令与技能冲突的根因），
   // DSH 由宿主把裸 /名称注册成技能命令；插入后光标落末尾，回车即可发送。
-  const insertSkillInvocation = useCallback((name: string) => {
-    const token = toSkillInvocationToken(isDshBackend ? "dsh" : "pi", name);
-    const next = appendSlashCommandToDraft(draft, token);
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, isDshBackend, sessionId, setDraft]);
+  const insertSkillInvocation = useCallback(
+    (name: string) => {
+      const token = toSkillInvocationToken(isDshBackend ? "dsh" : "pi", name);
+      const next = appendSlashCommandToDraft(draft, token);
+      liveDomDraftRef.current = { sessionId, value: next };
+      setDraft(next);
+      caretRef.current = { pos: next.length, forValue: next };
+      setPicker(null);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [draft, isDshBackend, sessionId, setDraft],
+  );
 
   // 「一键插入全文」：选择器条目上的插入按钮把提示词/技能正文整段塞进草稿
   // （不是斜线命令形态），便于用户直接编辑或原文发送；与斜线插入是并列入口。
   // 插入内容先剥离 YAML frontmatter「描述头」（name/description 元数据是给选择器用的，
   // 不该出现在输入框里）——预览详情仍显示原文件，只有插入动作做剥离。
-  const insertTemplateContent = useCallback((template: PromptTemplateInfo) => {
-    const next = appendContentToDraft(draft, stripMarkdownFrontmatter(template.content));
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, sessionId, setDraft]);
+  const insertTemplateContent = useCallback(
+    (template: PromptTemplateInfo) => {
+      const next = appendContentToDraft(
+        draft,
+        stripMarkdownFrontmatter(template.content),
+      );
+      liveDomDraftRef.current = { sessionId, value: next };
+      setDraft(next);
+      caretRef.current = { pos: next.length, forValue: next };
+      setPicker(null);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [draft, sessionId, setDraft],
+  );
 
-  const insertSkillContent = useCallback((content: string) => {
-    const next = appendContentToDraft(draft, stripMarkdownFrontmatter(content));
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, sessionId, setDraft]);
+  const insertSkillContent = useCallback(
+    (content: string) => {
+      const next = appendContentToDraft(
+        draft,
+        stripMarkdownFrontmatter(content),
+      );
+      liveDomDraftRef.current = { sessionId, value: next };
+      setDraft(next);
+      caretRef.current = { pos: next.length, forValue: next };
+      setPicker(null);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [draft, sessionId, setDraft],
+  );
 
   return {
     sessionId,
@@ -1921,14 +2345,22 @@ export function useSessionComposerController(
     runtime,
     // 引导页优先回显显式切换（guideBackendOverride），否则退回上次偏好/默认 pi；
     // 真实会话以 record 为准。
-    backend: record?.backend ?? (isGuideBootstrapSession ? guideBackendOverride : undefined) ?? "pi",
+    backend:
+      record?.backend ??
+      (isGuideBootstrapSession ? guideBackendOverride : undefined) ??
+      "pi",
     /** 草稿期可切换后端；激活后锁定（undefined → UI 隐藏切换器）。 */
     changeBackend: backendLocked ? undefined : changeBackend,
     /** DSH 部署默认模型（settings.yaml agent-default-model）；仅 dsh 后端时展示，
      *  离开 dsh 时清空（否则残留值会随 defaultModel 泄漏到 pi 会话底栏）。 */
-    dshDefaultModel: isDshBackend && dshDefault
-      ? { provider: dshDefault.provider, modelId: dshDefault.model, modelName: dshDefault.model }
-      : undefined,
+    dshDefaultModel:
+      isDshBackend && dshDefault
+        ? {
+            provider: dshDefault.provider,
+            modelId: dshDefault.model,
+            modelName: dshDefault.model,
+          }
+        : undefined,
     /** DSH 部署默认思考档位：settings.yaml 的 reasoningEffort 优先，缺省用模型自身 defaultEffort。 */
     dshDefaultThinkingLevel: isDshBackend
       ? (dshDefault?.reasoningEffort ?? dshDefault?.defaultEffort)
@@ -1947,7 +2379,9 @@ export function useSessionComposerController(
     previewImage,
     sessionReference,
     sessionReferenceSelection: sessionReference
-      ? sessionReferenceSelections[`&${sessionReference.name ?? sessionReference.filePath}`]
+      ? sessionReferenceSelections[
+          `&${sessionReference.name ?? sessionReference.filePath}`
+        ]
       : undefined,
     bangMode: getBangMode(draft),
     isBusy,
@@ -1982,7 +2416,10 @@ export function useSessionComposerController(
           event.dataTransfer.dropEffect = "copy";
         }
       },
-      onFocus: () => setSuggestionsOpen(detectTrigger(draft, cursor, validSessionRefs) !== null),
+      onFocus: () =>
+        setSuggestionsOpen(
+          detectTrigger(draft, cursor, validSessionRefs) !== null,
+        ),
       onBlur: () => setSuggestionsOpen(false),
       onChipClick,
       attachFile,
@@ -1998,8 +2435,12 @@ export function useSessionComposerController(
     },
     images: {
       preview: setPreviewImage,
-      add: (image: ImageContent) => setAttachments((current) => [...current, image]),
-      remove: (index: number) => setAttachments((current) => current.filter((_, item) => item !== index)),
+      add: (image: ImageContent) =>
+        setAttachments((current) => [...current, image]),
+      remove: (index: number) =>
+        setAttachments((current) =>
+          current.filter((_, item) => item !== index),
+        ),
       clear: () => setAttachments([]),
     },
     pasteFiles: {
@@ -2012,7 +2453,9 @@ export function useSessionComposerController(
       // 忙碌时按「忙碌时投递行为」设置决定语义（pi/dsh 统一，不再按后端分叉）；
       // 空闲直发。排队项的插入/排队切换走输入框上方队列面板的行内按钮。
       send: () => {
-        void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)));
+        void promoteAndSend(
+          resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)),
+        );
       },
       abort: () => void abort(),
       compact: () => void compact(),
@@ -2032,23 +2475,33 @@ export function useSessionComposerController(
         const parsed = parseImageGenSize(size);
         if (!parsed) return;
         setImageGenSizeState(parsed);
-        void desktopApi.settings.update({ imageGenSize: parsed }).catch(() => undefined);
+        void desktopApi.settings
+          .update({ imageGenSize: parsed })
+          .catch(() => undefined);
       },
       setImageGenWatermark: (watermark: boolean) => {
         setImageGenWatermarkState(watermark);
-        void desktopApi.settings.update({ imageGenWatermark: watermark }).catch(() => undefined);
+        void desktopApi.settings
+          .update({ imageGenWatermark: watermark })
+          .catch(() => undefined);
       },
       setImageGenOutputFormat: (format: string) => {
         const parsed = parseImageGenOutputFormat(format, null);
         if (!parsed) return;
         setImageGenOutputFormatState(parsed);
-        void desktopApi.settings.update({ imageGenOutputFormat: parsed }).catch(() => undefined);
+        void desktopApi.settings
+          .update({ imageGenOutputFormat: parsed })
+          .catch(() => undefined);
       },
       unknown: sendState.status === "unknown",
       unknownError: sendState.error,
       acknowledgeUnknown: acknowledgeUnknownDelivery,
       // DSH 只在 host 明确报告 routable=false 时锁住发送；undefined 代表尚未确认或目录加载失败。
-      canSend: hasContent && !isStarting && !generatingImage && (!isDshBackend || runtime?.state?.modelRoutable !== false),
+      canSend:
+        hasContent &&
+        !isStarting &&
+        !generatingImage &&
+        (!isDshBackend || runtime?.state?.modelRoutable !== false),
       generatingImage,
     },
     pickers: {
@@ -2081,7 +2534,9 @@ export function useSessionComposerController(
   };
 }
 
-export type SessionComposerController = ReturnType<typeof useSessionComposerController>;
+export type SessionComposerController = ReturnType<
+  typeof useSessionComposerController
+>;
 
 /** 生图错误码 → 用户可见文案。http/鉴权类错误尽量附上厂商 detail（已脱敏）。 */
 function mapImageGenError(error: string, detail?: string): string {

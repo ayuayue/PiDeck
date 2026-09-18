@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { selectAtom } from "jotai/utils";
-import type { AgentTab, SessionRecord, SessionRuntimeTarget } from "../../../shared/types";
+import type {
+  AgentTab,
+  SessionRecord,
+  SessionRuntimeTarget,
+} from "../../../shared/types";
 import {
   currentSessionIdAtom,
   currentSessionRuntimeAtom,
@@ -100,14 +104,24 @@ export function useSessionRuntimeController(
   const currentSessionId = boundSessionIdOption ?? focusedSessionId;
   const sessionKey = currentSessionId ?? "";
 
-  const recordAtom = useMemo(() => sessionRecordByIdAtomFamily(sessionKey), [sessionKey]);
-  const runtimeAtom = useMemo(() => sessionRuntimeBySessionIdAtomFamily(sessionKey), [sessionKey]);
-  const runtimeUiAtom = useMemo(() => sessionRuntimeUiBySessionIdAtomFamily(sessionKey), [sessionKey]);
+  const recordAtom = useMemo(
+    () => sessionRecordByIdAtomFamily(sessionKey),
+    [sessionKey],
+  );
+  const runtimeAtom = useMemo(
+    () => sessionRuntimeBySessionIdAtomFamily(sessionKey),
+    [sessionKey],
+  );
+  const runtimeUiAtom = useMemo(
+    () => sessionRuntimeUiBySessionIdAtomFamily(sessionKey),
+    [sessionKey],
+  );
   const sendAtom = useMemo(
     () =>
       selectAtom(
         sessionSendStateByIdAtom,
-        (states) => (sessionKey ? (states[sessionKey] ?? idleSendState) : idleSendState),
+        (states) =>
+          sessionKey ? (states[sessionKey] ?? idleSendState) : idleSendState,
         Object.is,
       ),
     [sessionKey],
@@ -147,17 +161,23 @@ export function useSessionRuntimeController(
 
   const activeConversationStatus: "starting" | "running" | "idle" | undefined =
     currentSessionId
-      ? ((currentSessionRuntime?.status as "starting" | "running" | "idle" | undefined) ??
+      ? ((currentSessionRuntime?.status as
+          | "starting"
+          | "running"
+          | "idle"
+          | undefined) ??
         (currentSessionSendState.status === "activating" ? "starting" : "idle"))
       : undefined;
 
   // 标题栏 loading / 输入框禁用只跟用户发送走；后台预热的 runtime starting 不能顶高顶栏。
-  const isAgentStarting = isUserFacingSessionStart(currentSessionSendState.status);
+  const isAgentStarting = isUserFacingSessionStart(
+    currentSessionSendState.status,
+  );
 
   const isAgentBusy = Boolean(
     hasActiveConversation &&
-    (activeConversationStatus === "running" ||
-      activeRuntimeState?.isStreaming),
+      (activeConversationStatus === "running" ||
+        activeRuntimeState?.isStreaming),
   );
 
   const currentSessionLiveAgentId =
@@ -178,7 +198,10 @@ export function useSessionRuntimeController(
    * canRestartSession 布尔已由 capabilities + canRunSessionAction 取代。
    */
   const runCapabilities = sessionRunCapabilities({
-    state: resolveSessionRunState(currentSessionRuntime, Boolean(runtimeTarget)),
+    state: resolveSessionRunState(
+      currentSessionRuntime,
+      Boolean(runtimeTarget),
+    ),
     hasBinding: Boolean(runtimeTarget),
     busy: Boolean(restartingAgentId && restartingAgentId === activeAgentId),
     hasInFlightQueuedPrompt: activeQueuedPrompts.some(
@@ -209,7 +232,9 @@ export function useSessionRuntimeController(
       notification.message,
       notification.notifyType === "error"
         ? Number.POSITIVE_INFINITY
-        : notification.notifyType === "warning" ? 3000 : 1500,
+        : notification.notifyType === "warning"
+          ? 3000
+          : 1500,
       notification.notifyType,
     );
   }, [currentSessionId, currentSessionRuntimeUi, showNotice]);

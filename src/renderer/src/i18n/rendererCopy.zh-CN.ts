@@ -21,8 +21,10 @@ export const zhCN = {
   "sessionManager.archivedCount": "已归档 {count} 个",
   "sessionManager.workspaceTag": "该会话属于工作区 {name}",
   "sessionManager.deleteArchivedTitle": "删除已归档会话",
-  "sessionManager.deleteArchivedBody": "确认永久删除已归档会话「{name}」吗？文件将移入系统回收站，从归档列表移除后无法直接恢复。",
-  "sessionManager.deleteArchivedBodyMany": "确认永久删除选中的 {count} 个已归档会话吗？文件将移入系统回收站，从归档列表移除后无法直接恢复。",
+  "sessionManager.deleteArchivedBody":
+    "确认永久删除已归档会话「{name}」吗？文件将移入系统回收站，从归档列表移除后无法直接恢复。",
+  "sessionManager.deleteArchivedBodyMany":
+    "确认永久删除选中的 {count} 个已归档会话吗？文件将移入系统回收站，从归档列表移除后无法直接恢复。",
   "app.sidebarChats": "聊天",
   "app.sidebarProjects": "项目",
   "app.sidebarWorkspaces": "工作区",
@@ -35,14 +37,16 @@ export const zhCN = {
   "app.createAgent": "启动 Agent",
   "app.renderErrorTitle": "界面渲染异常",
   "app.renderErrorUnknown": "发生未知渲染错误",
-  "app.renderErrorHelp": "可以重试当前界面、刷新应用，或退出应用。若持续出现，请把控制台错误反馈给我们。",
+  "app.renderErrorHelp":
+    "可以重试当前界面、刷新应用，或退出应用。若持续出现，请把控制台错误反馈给我们。",
   "app.renderErrorRetry": "重试",
   "app.renderErrorReload": "刷新应用",
   "app.renderErrorToast": "界面异常",
   "app.renderErrorStack": "错误详情",
   "app.renderErrorAutoReload": "将在 {seconds} 秒后自动刷新应用…",
   "app.renderErrorAutoReloadCancel": "取消自动刷新",
-  "app.renderErrorAutoReloadExhausted": "自动刷新已尝试多次仍未恢复，请手动刷新或退出应用。",
+  "app.renderErrorAutoReloadExhausted":
+    "自动刷新已尝试多次仍未恢复，请手动刷新或退出应用。",
   "app.runtimeErrorToast": "运行异常",
   "app.unhandledRejectionToast": "未处理异常",
   "app.worktreeCreate": "新建工作区",
@@ -55,8 +59,10 @@ export const zhCN = {
   "app.worktreeRemoveNotFound": "没有找到对应的 Git worktree，可能已被外部删除",
   "app.worktreeRemoved": "工作区已删除",
   "app.worktreeRemoveConfirmTitle": "删除工作区",
-  "app.worktreeRemoveConfirmMessage": "确定删除该工作区？对应的分支和目录将被移除，该操作不可撤销。",
-  "app.worktreeRemoveBlockedByAgents": "该工作区下有正在运行的 Agent，请先关闭后再删除。",
+  "app.worktreeRemoveConfirmMessage":
+    "确定删除该工作区？对应的分支和目录将被移除，该操作不可撤销。",
+  "app.worktreeRemoveBlockedByAgents":
+    "该工作区下有正在运行的 Agent，请先关闭后再删除。",
   "app.worktreeNotGitRepo": "该项目不是 Git 仓库，无法启用工作区模式",
   "app.worktreeBranchPreview": "将创建同级目录和分支 {name}",
   "app.worktreeMainWorkspace": "主工作区",
@@ -70,7 +76,8 @@ export const zhCN = {
   "app.projectRefreshed": "项目已刷新",
   "app.projectsRefreshed": "已刷新 {count} 个项目",
   "app.projectsRefreshFailed": "刷新项目列表失败：{error}",
-  "app.projectDirectoryMissing": "项目目录不存在，已刷新项目列表。请恢复目录，或在项目菜单中移除该项目。",
+  "app.projectDirectoryMissing":
+    "项目目录不存在，已刷新项目列表。请恢复目录，或在项目菜单中移除该项目。",
   "app.files": "文件",
   "app.model": "模型",
   "app.new": "新会话",
@@ -86,7 +93,8 @@ export const zhCN = {
   "sidebar.hoverCard.localTask": "本地任务",
   "sidebar.hoverCard.messageCount": "共 {count} 条消息",
   "sidebar.emptyProjectsTitle": "添加你的项目目录",
-  "sidebar.emptyProjectsDesc": "pi 会在项目目录中读写文件、执行命令。添加后可在左侧管理多个项目。",
+  "sidebar.emptyProjectsDesc":
+    "pi 会在项目目录中读写文件、执行命令。添加后可在左侧管理多个项目。",
   "app.anonymousChatTitle": "匿名 Chat - {name}",
   "app.guideBootstrapUnavailable": "当前没有可用的项目，无法创建会话",
   "app.guideProjectPicker": "选择要创建会话的项目",
@@ -104,14 +112,17 @@ export const zhCN = {
   "askPanel.copyAnswer": "复制答案",
   "askPanel.copyAnswerDone": "已复制答案",
   "askPanel.insertToComposer": "把答案插入主会话输入框",
-  "askPanel.insertToComposerUnavailable": "从会话排队区发起时才可插入主会话输入框",
+  "askPanel.insertToComposerUnavailable":
+    "从会话排队区发起时才可插入主会话输入框",
   "askPanel.insertToComposerDone": "已插入主会话输入框",
   "askPanel.followUpPlaceholder": "继续追问…",
   "askPanel.sendFollowUp": "发送追问",
   "app.anonymousChatCloseTitle": "关闭匿名聊天？",
-  "app.anonymousChatCloseBody": "匿名聊天的记录不会被保存，关闭后消息将丢失。确认关闭？",
+  "app.anonymousChatCloseBody":
+    "匿名聊天的记录不会被保存，关闭后消息将丢失。确认关闭？",
   "app.openFolderConfirmTitle": "添加为项目？",
-  "app.openFolderConfirmMessage": "来自资源管理器右键的目录\n{{path}}\n尚未添加到项目列表，是否将其添加为项目并打开？",
+  "app.openFolderConfirmMessage":
+    "来自资源管理器右键的目录\n{{path}}\n尚未添加到项目列表，是否将其添加为项目并打开？",
   "app.openFolderConfirmAdd": "添加并打开",
   "app.openFolderAdded": "项目已添加：{{name}}",
   "app.sessionOpened": "会话已打开",
@@ -245,10 +256,12 @@ export const zhCN = {
   "terminal.shellEmpty": "未检测到可用 Shell",
   "terminal.selectShell": "选择 Shell",
   "config.restoreBuiltIn": "恢复内置",
-  "config.extensionConflict": "检测到扩展冲突，已自动禁用内置扩展：{builtIn}（与 {thirdParty} 冲突）",
+  "config.extensionConflict":
+    "检测到扩展冲突，已自动禁用内置扩展：{builtIn}（与 {thirdParty} 冲突）",
   "config.extensionWhitelistOff": "禁用 -e 参数",
   "config.extensionWhitelistOn": "-e 参数已禁用",
-  "config.extensionWhitelistHint": "存在禁用项时，启动 RPC 会通过 -e 参数只加载未禁用的扩展。若某个扩展导致启动失败，可关闭 -e 参数，恢复 pi 默认加载全部扩展。",
+  "config.extensionWhitelistHint":
+    "存在禁用项时，启动 RPC 会通过 -e 参数只加载未禁用的扩展。若某个扩展导致启动失败，可关闭 -e 参数，恢复 pi 默认加载全部扩展。",
   "config.extensionWhitelistOnToast": "已关闭 -e 白名单，pi 将默认加载全部扩展",
   "config.extensionWhitelistOffToast": "已恢复 -e 白名单，禁用列表重新生效",
   "config.extensionWhitelistToggleFailed": "切换 -e 白名单失败：{error}",
@@ -270,7 +283,8 @@ export const zhCN = {
   "app.compactCancelledByOwner":
     "压缩被会话内的扩展取消：该扩展接管了上下文管理（如上下文压缩类插件），PiDeck 的压缩无法生效",
   "app.compactCancelledByOwnerWithReason": "压缩由扩展接管：{reason}",
-  "app.compactRoutedToOwner": "已改用 {command} 压缩（当前会话的上下文窗口由扩展接管）",
+  "app.compactRoutedToOwner":
+    "已改用 {command} 压缩（当前会话的上下文窗口由扩展接管）",
   "app.compactInterrupted": "压缩已中断",
   "rewind.title": "检查点",
   "rewind.panelHint": "当前会话的文件快照",
@@ -280,13 +294,15 @@ export const zhCN = {
   "rewind.noSession": "未打开会话",
   "rewind.noSessionHint": "打开一个 pi 会话后，这里会展示它的检查点",
   "rewind.empty": "暂无检查点",
-  "rewind.emptyHint": "检查点在 write/edit/bash 操作后自动创建；当前会话还没有可用快照",
+  "rewind.emptyHint":
+    "检查点在 write/edit/bash 操作后自动创建；当前会话还没有可用快照",
   "rewind.unavailable": "当前会话无可用运行时，无法读取检查点",
   "rewind.loadFailed": "加载检查点失败：{error}",
   "rewind.restore": "回退到此处",
   "rewind.restoreTitle": "将工作区文件恢复到该检查点",
   "rewind.restoreConfirmTitle": "确认回退文件",
-  "rewind.restoreConfirmMessage": "将把工作区文件恢复到检查点 {id}（{time}）的状态：未跟踪的新增文件会被清理，node_modules 等忽略目录不受影响。此操作会覆盖当前文件改动，且不可撤销。",
+  "rewind.restoreConfirmMessage":
+    "将把工作区文件恢复到检查点 {id}（{time}）的状态：未跟踪的新增文件会被清理，node_modules 等忽略目录不受影响。此操作会覆盖当前文件改动，且不可撤销。",
   "rewind.restoreConfirmRestore": "回退文件",
   "rewind.restoring": "正在回退…",
   "rewind.restoreDone": "文件已回退到检查点 {id}",
@@ -310,12 +326,16 @@ export const zhCN = {
   "rewind.scopeAllHint": "文件回退 + 会话 fork",
   "rewind.restoreConfirmConversation": "回退对话",
   "rewind.restoreConfirmAll": "全部回退",
-  "rewind.restoreConfirmMessageConversation": "将把会话 fork 到检查点 {id}（{time}）时刻，原会话保留；不会修改工作区文件。",
-  "rewind.restoreConfirmMessageAll": "将把工作区文件恢复到检查点 {id}（{time}）的状态，并把会话 fork 到该时刻。未跟踪的新增文件会被清理，node_modules 等忽略目录不受影响。原会话保留。此操作会覆盖当前文件改动，且不可撤销。",
+  "rewind.restoreConfirmMessageConversation":
+    "将把会话 fork 到检查点 {id}（{time}）时刻，原会话保留；不会修改工作区文件。",
+  "rewind.restoreConfirmMessageAll":
+    "将把工作区文件恢复到检查点 {id}（{time}）的状态，并把会话 fork 到该时刻。未跟踪的新增文件会被清理，node_modules 等忽略目录不受影响。原会话保留。此操作会覆盖当前文件改动，且不可撤销。",
   "rewind.restoreDoneForked": "已回退到检查点 {id}，会话已 fork：{forked}",
   "rewind.conversationForked": "会话已 fork 到检查点 {id}：新会话 {forked}",
-  "rewind.health.failed": "检查点自动备份失败（{time}）：{error}。失败期间不会有新的检查点，文件回退可能没有可用的恢复点。",
-  "rewind.health.noGit": "当前项目目录没有初始化 Git 仓库，检查点功能不可用。可在项目目录执行 git init 并完成一次提交后恢复使用。",
+  "rewind.health.failed":
+    "检查点自动备份失败（{time}）：{error}。失败期间不会有新的检查点，文件回退可能没有可用的恢复点。",
+  "rewind.health.noGit":
+    "当前项目目录没有初始化 Git 仓库，检查点功能不可用。可在项目目录执行 git init 并完成一次提交后恢复使用。",
   "app.forkFromMessage": "Fork",
   "app.forkFromMessageTitle": "从此消息 fork 为新会话（可改后重发）",
   "app.forkBusyTitle": "回复结束后即可 fork 为新会话",
@@ -323,7 +343,8 @@ export const zhCN = {
   "app.forkCancelled": "Fork 已取消",
   "app.forkMissingEntryId": "该消息无法 fork（缺少会话 entryId）",
   "app.forkFailed": "Fork 失败：{error}",
-  "app.agentCreateTimeout": "Agent 启动超时，请检查 pi 是否能正常启动，或稍后重试。",
+  "app.agentCreateTimeout":
+    "Agent 启动超时，请检查 pi 是否能正常启动，或稍后重试。",
   "app.sessionRefreshTimeout": "会话列表刷新超时，请稍后重试。",
   "app.agentStarting": "正在启动 Agent…",
   "app.agentStartingPlaceholder": "Agent 正在启动…",
@@ -334,7 +355,8 @@ export const zhCN = {
   "app.branchOnlyOne": "仅此一个分支",
   "app.branchNone": "无分支",
   "git.branchSwitcherConfirmTitle": "切换分支？",
-  "git.branchSwitcherConfirmMessage": "将切换到分支「{branch}」。未提交的更改会随切换携带；若目标分支对同一文件存在冲突，git 会拒绝切换（当前分支保持不变）。",
+  "git.branchSwitcherConfirmMessage":
+    "将切换到分支「{branch}」。未提交的更改会随切换携带；若目标分支对同一文件存在冲突，git 会拒绝切换（当前分支保持不变）。",
   "git.branchSwitcherConfirmLabel": "切换",
   "app.branchSwitchFailed": "切换分支失败：{error}",
   "app.branchSwitching": "切换中...",
@@ -349,18 +371,21 @@ export const zhCN = {
   "app.pasteFileRemove": "移除文件",
   "app.collapseList": "折叠列表",
   "app.composerAttach": "加入指令",
-  "app.composerEnterPlaceholder": "输入消息，@ 引用文件，/ 运行命令，& 引用会话…",
+  "app.composerEnterPlaceholder":
+    "输入消息，@ 引用文件，/ 运行命令，& 引用会话…",
   "app.composerFilesStatus": "右侧面板可查看文件",
   "app.composerNoAgentPlaceholder": "请选择一个 Agent 后输入消息",
   "app.composerSessionStatus": "右侧面板正在显示 {name} 的历史会话",
   "app.composerShellPlaceholder": "! 直接运行 shell 命令",
   "app.composerShellStatus": "Shell 命令：直接执行当前输入",
-  "app.composerShortcutPlaceholder": "输入消息，@ 引用文件，/ 运行命令，& 引用会话…",
+  "app.composerShortcutPlaceholder":
+    "输入消息，@ 引用文件，/ 运行命令，& 引用会话…",
   "app.composerSilentPlaceholder": "!! 直接运行，不写入上下文",
   "app.composerSilentStatus": "静默命令：直接执行，不写入上下文",
   "app.composerPlanPlaceholder": "计划模式：输入任务以生成计划",
   "app.composerPlanStatus": "计划模式：只读分析，生成计划后再确认执行",
-  "app.composerGoalPlaceholder": "目标模式：输入要达成的目标，发送后会自动连续推进",
+  "app.composerGoalPlaceholder":
+    "目标模式：输入要达成的目标，发送后会自动连续推进",
   "app.composerModeTitle": "选择本次消息的工作模式",
   "app.composerModeLabel": "模式",
   "app.composerModeNormal": "普通模式",
@@ -368,9 +393,11 @@ export const zhCN = {
   "app.composerModePlan": "计划模式",
   "app.composerModePlanDesc": "先只读分析并生成计划，需要你确认后再执行",
   "app.composerModeGoal": "目标模式",
-  "app.composerModeGoalDesc": "围绕一条目标自动连续推进，直到完成、阻塞或你暂停",
+  "app.composerModeGoalDesc":
+    "围绕一条目标自动连续推进，直到完成、阻塞或你暂停",
   "app.composerModeImagegen": "生图模式",
-  "app.composerModeImagegenDesc": "输入提示词生成图片，结果加入附件栏，随消息发送给 pi 查看",
+  "app.composerModeImagegenDesc":
+    "输入提示词生成图片，结果加入附件栏，随消息发送给 pi 查看",
   "app.composerModeCancelImagegen": "退出生图模式",
   "app.composerModeCancelPlan": "取消计划",
   "app.composerModeCancelGoal": "暂停目标",
@@ -383,10 +410,12 @@ export const zhCN = {
   "app.feedbackCopied": "反馈内容已复制",
   "app.filesRefreshed": "文件列表已刷新",
   "app.filesRefreshFailed": "刷新文件列表失败：{error}",
-  "app.filesDirectoryTooLarge": "该目录有 {count} 个条目，超过 {max} 上限，已停止加载以免卡死界面",
+  "app.filesDirectoryTooLarge":
+    "该目录有 {count} 个条目，超过 {max} 上限，已停止加载以免卡死界面",
   "app.openEditorFailed": "打开编辑器失败：{error}",
   "app.openFileFailed": "打开文件失败：{error}",
-  "app.fileLinkCannotResolve": "无法打开文件链接：路径缺少会话基准目录或不在当前项目内：{path}",
+  "app.fileLinkCannotResolve":
+    "无法打开文件链接：路径缺少会话基准目录或不在当前项目内：{path}",
   "app.fileLinkNotFound": "路径不存在或已失效：{path}",
   "fileLink.openInExplorer": "在资源管理器打开",
   "fileLink.copyRelativePath": "复制相对路径",
@@ -394,7 +423,8 @@ export const zhCN = {
   "app.noExternalEditors": "未检测到外部编辑器",
   "app.openProjectInEditor": "在编辑器中打开项目",
   "app.openWithEditor": "打开方式",
-  "app.openWithEditorNoProject": "未绑定项目目录：编辑器打开不可用，文件管理器将打开主目录",
+  "app.openWithEditorNoProject":
+    "未绑定项目目录：编辑器打开不可用，文件管理器将打开主目录",
   "app.fileManager": "文件管理器",
   "app.fileManager.windowsExplorer": "文件资源管理器",
   "app.openInFileManager": "在文件管理器中打开项目",
@@ -421,7 +451,8 @@ export const zhCN = {
   "git.smartCommitYes": "是",
   "git.smartCommitAlways": "始终",
   "git.smartCommitNever": "从不",
-  "git.stageBeforeCommit": "请先点击文件旁的 +，或在“更改”标题栏点击 + 暂存文件，然后再提交。",
+  "git.stageBeforeCommit":
+    "请先点击文件旁的 +，或在“更改”标题栏点击 + 暂存文件，然后再提交。",
   "git.resolveConflictsBeforeCommit": "请先解决合并冲突，然后再提交。",
   "git.committing": "正在提交…",
   "git.commitPlaceholder": "消息（Ctrl+Enter 提交到“{branch}”）",
@@ -435,12 +466,15 @@ export const zhCN = {
   "git.discardChanges": "回滚更改",
   "git.discardDirectory": "回滚目录",
   "git.discardDirectoryConfirmTitle": "回滚目录更改？",
-  "git.discardDirectoryConfirmMessage": "将回滚“{path}”下的 {count} 个未暂存文件；已暂存内容会保留，未跟踪文件将移入回收站。",
+  "git.discardDirectoryConfirmMessage":
+    "将回滚“{path}”下的 {count} 个未暂存文件；已暂存内容会保留，未跟踪文件将移入回收站。",
   "git.discardUntracked": "删除未跟踪文件",
   "git.discardConfirmTitle": "丢弃文件更改？",
-  "git.discardConfirmMessage": "将丢弃“{path}”的未暂存更改。已暂存的内容会保留，此操作无法撤销。",
+  "git.discardConfirmMessage":
+    "将丢弃“{path}”的未暂存更改。已暂存的内容会保留，此操作无法撤销。",
   "git.discardUntrackedConfirmTitle": "删除未跟踪文件？",
-  "git.discardUntrackedConfirmMessage": "将永久删除未跟踪文件“{path}”。此操作无法撤销。",
+  "git.discardUntrackedConfirmMessage":
+    "将永久删除未跟踪文件“{path}”。此操作无法撤销。",
   "git.resizePanes": "调整源代码管理面板高度",
   "git.filterReference": "筛选引用",
   "git.showCurrentBranch": "仅显示当前分支",
@@ -455,7 +489,8 @@ export const zhCN = {
   "git.openFileDiff": "查看 {path} 的提交差异",
   "git.openWorkspaceDiff": "查看 {path} 的 Git 差异",
   "git.fileDiffUnavailable": "无法读取该提交文件的差异内容",
-  "git.workspaceDiffUnavailable": "无法读取该工作区文件的差异内容，文件可能已变化或超过大小限制",
+  "git.workspaceDiffUnavailable":
+    "无法读取该工作区文件的差异内容，文件可能已变化或超过大小限制",
   "git.filesChanged": "已更改 {count} 个文件",
   "git.base": "基准",
   "git.compare": "比较",
@@ -483,10 +518,12 @@ export const zhCN = {
   "git.resetMixed": "混合重置（保留工作区）",
   "git.resetHard": "硬重置（丢弃所有更改）",
   "git.resetHardConfirmTitle": "硬重置提交？",
-  "git.resetHardConfirmMessage": "将丢弃 {hash} 之后的所有未提交更改。此操作无法撤销。",
+  "git.resetHardConfirmMessage":
+    "将丢弃 {hash} 之后的所有未提交更改。此操作无法撤销。",
   "git.dropCommit": "删除此提交",
   "git.dropCommitConfirmTitle": "删除提交？",
-  "git.dropCommitConfirmMessage": "将从当前分支删除提交 {hash}。此操作会改写历史，请谨慎操作。",
+  "git.dropCommitConfirmMessage":
+    "将从当前分支删除提交 {hash}。此操作会改写历史，请谨慎操作。",
   "git.contextMenuSuccess": "操作成功",
   "git.contextMenuFailed": "操作失败：{error}",
   "git.loadMore": "加载更多",
@@ -496,7 +533,8 @@ export const zhCN = {
   "git.generateCommitMessageFailed": "生成提交摘要失败",
   "git.generateCommitMessageProgress": "正在生成提交信息…",
   "git.generateCommitMessageDone": "提交摘要已生成",
-  "git.generateCommitMessageEmpty": "模型没有返回提交摘要，请重试或检查 Git 摘要模型设置。",
+  "git.generateCommitMessageEmpty":
+    "模型没有返回提交摘要，请重试或检查 Git 摘要模型设置。",
   "git.retryGenerate": "重试",
   "git.goSettings": "去设置",
   "git.notAGitRepo": "项目尚未初始化 Git 仓库",
@@ -512,12 +550,15 @@ export const zhCN = {
   "git.operationFailed": "Git 操作失败",
   "git.compareFailed": "分支对比失败",
   "git.pushNoUpstreamTitle": "推送失败：分支未设置上游",
-  "git.pushNoUpstreamDesc": "当前分支 {branch} 还没有上游分支，可在终端运行以下命令建立上游后重试：\n{command}",
+  "git.pushNoUpstreamDesc":
+    "当前分支 {branch} 还没有上游分支，可在终端运行以下命令建立上游后重试：\n{command}",
   "git.deleteFile": "删除文件",
   "git.deleteFileConfirmTitle": "删除文件",
-  "git.deleteFileConfirmMessage": "确定要删除 {path} 吗？文件将移入回收站，可恢复。",
+  "git.deleteFileConfirmMessage":
+    "确定要删除 {path} 吗？文件将移入回收站，可恢复。",
   "git.gitNotInstalled": "系统未安装 Git",
-  "git.gitNotInstalledDesc": "源代码管理功能需要 Git。请前往 https://git-scm.com 安装 Git 后重启 PiDeck。",
+  "git.gitNotInstalledDesc":
+    "源代码管理功能需要 Git。请前往 https://git-scm.com 安装 Git 后重启 PiDeck。",
   "browser.devicePC": "PC",
   "browser.deviceMobile": "手机",
   "browser.deviceTablet": "平板",
@@ -539,9 +580,11 @@ export const zhCN = {
   "app.restoreSplit": "恢复分屏",
   "app.imageAlt": "图片 {index}",
   "app.visionBridgeSeen": "视觉桥已查看",
-  "app.visionBridgeSeenDesc": "这张图片由视觉模型转换成了文字描述（模型本身不支持看图）",
+  "app.visionBridgeSeenDesc":
+    "这张图片由视觉模型转换成了文字描述（模型本身不支持看图）",
   "app.visionBridgeFailed": "视觉桥转换失败",
-  "app.visionBridgeFailedDesc": "图片未能转换成描述，以下为失败原因，可在设置 → 视觉桥中检查模型/接口地址/API Key",
+  "app.visionBridgeFailedDesc":
+    "图片未能转换成描述，以下为失败原因，可在设置 → 视觉桥中检查模型/接口地址/API Key",
   "app.visionBridgeImageLabel": "图片 #{index}",
   "app.visionConverting": "视觉桥转换中…",
   "app.visionDetail": "详情",
@@ -581,7 +624,8 @@ export const zhCN = {
   "about.runtimeInfo": "运行时",
   "about.dshVersion": "DSH 运行时",
   "about.piAiVersion": "pi-ai 模型目录",
-  "about.runtimeStack": "Electron {electron} · Chromium {chromium} · Node {node}",
+  "about.runtimeStack":
+    "Electron {electron} · Chromium {chromium} · Node {node}",
   "about.timestamps": "时间",
   "about.buildTime": "打包时间",
   "about.installedAt": "安装时间",
@@ -597,12 +641,18 @@ export const zhCN = {
   "app.modelListLoading": "正在加载模型列表…",
   "app.modelListLoadFailed": "模型列表加载失败",
   "app.modelListEmptyTitle": "模型列表为空",
-  "app.modelListEmptyGuide": "没有可用模型。请在「模型」设置页添加 provider 与模型，然后点击刷新。",
-  "app.modelListFailPiNotFound": "未检测到 pi 运行时——模型列表由 pi 提供。请到「设置 → pi」安装/配置 pi 路径并检测通过后，点刷新重试。",
-  "app.modelListFailVersionTooOld": "当前 pi 版本过低，不支持列出模型（需要支持 pi --list-models 的版本）。请升级 pi 后点刷新重试。",
-  "app.modelListFailConfigInvalid": "模型配置文件（models.json / auth.json）格式有问题，pi 读不了模型。请到「模型」设置页修复配置（或删除损坏文件重建），再点刷新重试。",
-  "app.modelListFailCliFailed": "pi --list-models 执行失败，拿不到模型列表。请点刷新重试；若持续失败，可在设置页检查 pi 健康状态。",
-  "app.modelListFailEmpty": "没有可用模型：pi 目录与本地 models.json 均无模型。请到「模型」设置页添加 provider 与模型。",
+  "app.modelListEmptyGuide":
+    "没有可用模型。请在「模型」设置页添加 provider 与模型，然后点击刷新。",
+  "app.modelListFailPiNotFound":
+    "未检测到 pi 运行时——模型列表由 pi 提供。请到「设置 → pi」安装/配置 pi 路径并检测通过后，点刷新重试。",
+  "app.modelListFailVersionTooOld":
+    "当前 pi 版本过低，不支持列出模型（需要支持 pi --list-models 的版本）。请升级 pi 后点刷新重试。",
+  "app.modelListFailConfigInvalid":
+    "模型配置文件（models.json / auth.json）格式有问题，pi 读不了模型。请到「模型」设置页修复配置（或删除损坏文件重建），再点刷新重试。",
+  "app.modelListFailCliFailed":
+    "pi --list-models 执行失败，拿不到模型列表。请点刷新重试；若持续失败，可在设置页检查 pi 健康状态。",
+  "app.modelListFailEmpty":
+    "没有可用模型：pi 目录与本地 models.json 均无模型。请到「模型」设置页添加 provider 与模型。",
   "app.modelCollapseAllProviders": "折叠所有提供商",
   "app.modelExpandAllProviders": "展开所有提供商",
   "app.modelScrollToTop": "滚动到顶部",
@@ -630,18 +680,22 @@ export const zhCN = {
     "项目下方默认展示运行中的 Agent 和最近历史会话；右键项目可导入 Codex 会话或删除目录记录。",
   "app.projectNewAgent": "新建 Agent",
   "app.projectMissing": "目录不存在",
-  "app.projectMissingHint": "项目目录已被删除、移动或暂时不可达（如未挂载的磁盘/未启动的 WSL）。可恢复目录，或在项目右键菜单中移除该项目。",
+  "app.projectMissingHint":
+    "项目目录已被删除、移动或暂时不可达（如未挂载的磁盘/未启动的 WSL）。可恢复目录，或在项目右键菜单中移除该项目。",
   "app.projectRunningHint": "该工作区有会话正在运行（Agent 进程未退出）。",
   "app.chatProjectSettings": "修改聊天记录保存目录",
   "app.modelRestartTitle": "重启 Agent 生效",
-  "app.modelRestartBody": "模型 {model} 已在本地 models.json 中配置，但当前运行的 Agent 尚未加载新配置。重启 Agent 后即可使用，是否重启？",
+  "app.modelRestartBody":
+    "模型 {model} 已在本地 models.json 中配置，但当前运行的 Agent 尚未加载新配置。重启 Agent 后即可使用，是否重启？",
   "app.modelRestartDone": "Agent 已重启，新模型已生效",
   "app.modelPendingTitle": "模型将在本轮结束后切换：{from} → {to}",
   "app.chatProjectPathUpdated": "聊天记录目录已更新",
-  "app.chatPathOverlapsProject": "该目录已作为项目存在，不能设为聊天记录目录（同路径会占用项目区）。请选择其他目录。",
+  "app.chatPathOverlapsProject":
+    "该目录已作为项目存在，不能设为聊天记录目录（同路径会占用项目区）。请选择其他目录。",
   "app.projectRemoveTitle": "删除目录记录",
   "app.projectRemoveBlockedTitle": "无法删除项目",
-  "app.projectRemoveBlockedByAgent": "该项目仍有运行中的 Agent，请先停止或关闭后再删除。",
+  "app.projectRemoveBlockedByAgent":
+    "该项目仍有运行中的 Agent，请先停止或关闭后再删除。",
   "app.projectRemoveBlockedAck": "知道了",
   "app.projectAvatarTitle": "{name} 项目目录",
   "app.projectSessionsLoading": "正在加载历史会话…",
@@ -663,7 +717,8 @@ export const zhCN = {
   "app.renameProjectPlaceholder": "输入新的项目名称",
   "app.renameProjectTitle": "重命名项目",
   "app.renameProjectHint": "仅更改侧栏显示名称，不会修改磁盘目录",
-  "app.emptyGuide": "从左侧选择一个 Agent 开始对话，或点击下方按钮启动新的 Agent。\n左侧 Agent 列表可以创建、切换不同项目的 Agent。",
+  "app.emptyGuide":
+    "从左侧选择一个 Agent 开始对话，或点击下方按钮启动新的 Agent。\n左侧 Agent 列表可以创建、切换不同项目的 Agent。",
   "app.newChatPlaceholder": "输入消息，开始新的对话…",
   "app.newChatCreateFailed": "创建会话失败，请重试",
   "app.newChatRuntimeTimeout": "会话启动超时，请稍后重试",
@@ -673,8 +728,7 @@ export const zhCN = {
   "app.editAndResendTitle": "放回输入框编辑，手动发送",
   "app.resizeComposer": "拖动调整输入框高度",
   "app.askResizeLabel": "拖动或使用方向键调整 Ask 区域高度",
-  "app.restartTitle":
-    "重启 Agent 进程，重新加载配置文件（供应商、API key 等）",
+  "app.restartTitle": "重启 Agent 进程，重新加载配置文件（供应商、API key 等）",
   "app.send": "发送",
   "app.sendBehaviorTitle": "选择运行中发送方式",
   "app.queuedMessagesLabel": "待发送",
@@ -710,9 +764,12 @@ export const zhCN = {
   "app.sessionDeleted": "已删除会话",
   "app.sessionDeletedFromArchive": "已从归档删除",
   "app.sessionDeleteFailed": "删除会话失败",
-  "session.deletedDshKeepData": "会话记录已删除（DSH host 数据保留在 DSH_HOME，可手动清理）",
-  "app.sessionArchived": "已归档会话。可在项目右键「会话管理」→「已归档」中查看并恢复",
-  "app.sessionArchivedDsh": "已归档会话。可在「配置管理」的 DSH 页「归档区」查看并恢复",
+  "session.deletedDshKeepData":
+    "会话记录已删除（DSH host 数据保留在 DSH_HOME，可手动清理）",
+  "app.sessionArchived":
+    "已归档会话。可在项目右键「会话管理」→「已归档」中查看并恢复",
+  "app.sessionArchivedDsh":
+    "已归档会话。可在「配置管理」的 DSH 页「归档区」查看并恢复",
   "app.sessionRestored": "已恢复会话",
   "app.sessionDuration": "本次会话耗时",
   "app.sessionNameRequired": "会话名称不能为空",
@@ -790,8 +847,10 @@ export const zhCN = {
   "sessionSubagents.detailStartedAt": "开始于 {time}",
   "sessionSubagents.detailCompletedAt": "完成于 {time}",
   "sessionSubagents.openChildSession": "打开子会话",
-  "sessionSubagents.acpDelegateHint": "带 acp_delegate 标记的条目来自 billion-context 委托：无子会话文件与完整结果文本，产出以会话内通知和结果文件为准。",
-  "sessionSubagents.fullResultPending": "完整结果尚未落盘，当前展示实时预览（结尾可能截断），稍后重开可见全文。",
+  "sessionSubagents.acpDelegateHint":
+    "带 acp_delegate 标记的条目来自 billion-context 委托：无子会话文件与完整结果文本，产出以会话内通知和结果文件为准。",
+  "sessionSubagents.fullResultPending":
+    "完整结果尚未落盘，当前展示实时预览（结尾可能截断），稍后重开可见全文。",
   "sessionSubagents.viewFullResult": "查看完整结果",
   "sessionSubagents.dialogTitle": "子代理 {type} 详情",
   "sessionSubagents.status.completed": "完成",
@@ -803,7 +862,8 @@ export const zhCN = {
   "sessionSubagents.status.steered": "已转向",
   "sessionSubagents.status.unknown": "未知状态",
   "sessionSubagents.status.lost": "已停止（失联）",
-  "sessionSubagents.lostHint": "长时间未收到终态，运行进程可能已退出；已按已停止展示，具体完成情况以子会话记录为准。",
+  "sessionSubagents.lostHint":
+    "长时间未收到终态，运行进程可能已退出；已按已停止展示，具体完成情况以子会话记录为准。",
   // 扩展通知卡（pi custom_message）：子代理后台任务完成会唤醒父会话，卡片说明「为什么又出一段回答」
   "notify.customTitle": "扩展通知",
   "notify.subagent.completed": "子代理已完成",
@@ -820,7 +880,8 @@ export const zhCN = {
   "sessionFiles.openFile": "打开文件",
   "sessionFiles.count": "{count} 个文件",
   "sessionFiles.saveAll": "保存全部",
-  "sessionFiles.saveAllTitle": "标记本轮修改已处理并清空列表（文件已由 Agent 写入磁盘，这里只是汇总；下一轮修改会重新出现）",
+  "sessionFiles.saveAllTitle":
+    "标记本轮修改已处理并清空列表（文件已由 Agent 写入磁盘，这里只是汇总；下一轮修改会重新出现）",
   // composer 上方 goal 条（dsh GoalBar）：无目标/已完成不渲染
   "sessionGoal.aria": "当前目标",
   // composer 上方排队卡（dsh QueueDock 独立卡）：多条时折叠头文案
@@ -849,10 +910,12 @@ export const zhCN = {
   "app.statusStarting": "启动中",
   "app.statusError": "失败",
   "app.highAgentCountTitle": "运行的 Agent 有点多，给电脑减减负吧",
-  "app.highAgentCountBody": "当前有 {count} 个 Agent 处于激活状态，内存占用会随之明显上升。暂时用不上的话，可以在左侧列表对蓝色（空闲）状态的会话点击右键 → 选择「关闭 Agent」释放内存。别担心，关闭不会丢失会话记录，随时都能重新打开，工作也会更轻快。",
+  "app.highAgentCountBody":
+    "当前有 {count} 个 Agent 处于激活状态，内存占用会随之明显上升。暂时用不上的话，可以在左侧列表对蓝色（空闲）状态的会话点击右键 → 选择「关闭 Agent」释放内存。别担心，关闭不会丢失会话记录，随时都能重新打开，工作也会更轻快。",
   "app.highAgentCountSnooze": "本次不再提醒",
   "app.thinkingPickerTitle": "选择思考级别",
-  "app.thinkingPickerHint": "某些模型可能不支持所有级别，系统会自动调整为支持的最接近级别",
+  "app.thinkingPickerHint":
+    "某些模型可能不支持所有级别，系统会自动调整为支持的最接近级别",
   "app.thinkingPickerUnsupported": "当前模型未提供可用的思考档位，无法切换。",
   "app.thinkingSwitchFailed": "切换思考级别失败：{error}",
   "app.thinkingUnsupported": "当前模型不支持 {level}，已回退为 {fallback}",
@@ -939,12 +1002,15 @@ export const zhCN = {
   "command.copyAgentId": "复制 Agent ID",
   // ── 首次启动引导：让用户知道有命令面板这件事（只弹一次，看过即写 localStorage）──
   "command.onboarding.title": "用命令面板直达任何设置",
-  "command.onboarding.desc": "按 {shortcut} 打开命令面板，输入几个字即可模糊搜索设置项、配置页与常用操作，选中后直接跳过去或立即执行。",
+  "command.onboarding.desc":
+    "按 {shortcut} 打开命令面板，输入几个字即可模糊搜索设置项、配置页与常用操作，选中后直接跳过去或立即执行。",
   "command.onboarding.whatCanSearch": "能搜到什么",
   "command.onboarding.exampleSettings": "设置项",
-  "command.onboarding.exampleSettingsDesc": "「沙箱」「RPC 超时」「托盘」—— 跳到那一行并高亮",
+  "command.onboarding.exampleSettingsDesc":
+    "「沙箱」「RPC 超时」「托盘」—— 跳到那一行并高亮",
   "command.onboarding.exampleActions": "操作",
-  "command.onboarding.exampleActionsDesc": "重启 / 停止当前 Agent、复制 Agent ID、新建会话",
+  "command.onboarding.exampleActionsDesc":
+    "重启 / 停止当前 Agent、复制 Agent ID、新建会话",
   "command.onboarding.exampleConfig": "配置",
   "command.onboarding.exampleConfigDesc": "模型、认证、MCP 服务、配置源文件",
   "command.onboarding.hint": "快捷键都能在「设置 → 快捷键」里改",
@@ -980,8 +1046,10 @@ export const zhCN = {
   "notice.viewDetails": "查看详情",
   "notice.detailsTitle": "通知详情",
   // 扩展被禁用启动的 toast：设置开关是持久成因（每个新会话都会复现），回退只作用于本次运行。
-  "notice.extensionsDisabledBySetting": "「禁用扩展启动」已开启：本次会话未加载任何扩展，todo/plan/ask 等能力不可用。不需要排查扩展时请去设置关闭该开关。",
-  "notice.extensionsDisabledFallback": "扩展加载失败，本次运行已临时禁用扩展（不会写入设置）。可把本会话的错误详情发给 AI 排查扩展问题。",
+  "notice.extensionsDisabledBySetting":
+    "「禁用扩展启动」已开启：本次会话未加载任何扩展，todo/plan/ask 等能力不可用。不需要排查扩展时请去设置关闭该开关。",
+  "notice.extensionsDisabledFallback":
+    "扩展加载失败，本次运行已临时禁用扩展（不会写入设置）。可把本会话的错误详情发给 AI 排查扩展问题。",
   "notice.openDevExtensionsSettings": "去设置关闭",
   "common.delete": "删除",
   "common.paste": "粘贴",
@@ -1047,7 +1115,8 @@ export const zhCN = {
   "app.promptTemplateEmpty": "暂无模板。请先在设置页添加提示词模板",
   "app.promptTemplateScopeGlobal": "全局",
   "app.promptTemplateScopeProject": "项目",
-  "app.promptTemplateEmptyBody": "提示词模板「/{name}」正文为空，请先编辑模板补充内容",
+  "app.promptTemplateEmptyBody":
+    "提示词模板「/{name}」正文为空，请先编辑模板补充内容",
   // ── 加号菜单（附件/技能/提示词三合一）──
   "app.composerAddTitle": "添加附件、技能、提示词或模式",
   "app.composerAddAttach": "上传附件",
@@ -1061,19 +1130,24 @@ export const zhCN = {
 
   // ── 技能选择面板 ──
   "app.skillPickerTitle": "选择技能",
-  "app.skillPickerHint": "点击技能插入调用命令（pi 为 /skill:名称，DSH 为 /名称），回车即可执行",
+  "app.skillPickerHint":
+    "点击技能插入调用命令（pi 为 /skill:名称，DSH 为 /名称），回车即可执行",
   "app.skillPickerSearchPlaceholder": "搜索技能名称或描述…",
   "app.skillPickerSearchEmpty": "未匹配到技能",
   "app.skillBadgeGlobal": "全局",
   "app.skillBadgeProject": "项目",
-  "app.skillPickerEmpty": "暂无可用技能。可在全局技能目录（~/.pi/agent/skills）或项目资源面板添加",
+  "app.skillPickerEmpty":
+    "暂无可用技能。可在全局技能目录（~/.pi/agent/skills）或项目资源面板添加",
   "app.skillPickerLoading": "技能加载中…",
-  "app.skillPickerNoProject": "当前会话无项目：仅显示全局技能。可在 ~/.pi/agent/skills 添加全局技能",
-  "app.skillPickerChatProject": "Chat 项目没有项目级技能：仅显示全局技能。可在 ~/.pi/agent/skills 添加全局技能",
+  "app.skillPickerNoProject":
+    "当前会话无项目：仅显示全局技能。可在 ~/.pi/agent/skills 添加全局技能",
+  "app.skillPickerChatProject":
+    "Chat 项目没有项目级技能：仅显示全局技能。可在 ~/.pi/agent/skills 添加全局技能",
 
   "app.skillPickerNoAgent": "技能目录需要会话启动后才能读取",
   "app.skillPickerLoadFailed": "技能加载失败",
-  "app.skillPickerLoadFailedNote": "技能目录读取失败，可检查技能文件是否损坏或后端状态后重试（下方为失败详情）",
+  "app.skillPickerLoadFailedNote":
+    "技能目录读取失败，可检查技能文件是否损坏或后端状态后重试（下方为失败详情）",
   "common.details": "详情",
   "common.disabled": "禁用",
   "common.error": "错误",
@@ -1140,11 +1214,14 @@ export const zhCN = {
   "sidebar.dshSearchResults": "DSH 会话搜索结果",
   "session.backendPickerHint": "选择后端（pi / dsh）",
   "session.backendLockedHint": "后端已锁定（会话创建后不可切换）",
-  "session.backendLockedNotice": "Agent 已启动，后端已锁定，无法再切换 pi / dsh。如需更换后端，请新建一个会话。",
+  "session.backendLockedNotice":
+    "Agent 已启动，后端已锁定，无法再切换 pi / dsh。如需更换后端，请新建一个会话。",
   "session.sendDshImagesUnsupported": "DSH 暂不支持图片附件",
-  "session.sendDshModelRouteUnavailable": "当前 DSH 模型路由不可用，请选择其他模型或恢复提供方配置。",
+  "session.sendDshModelRouteUnavailable":
+    "当前 DSH 模型路由不可用，请选择其他模型或恢复提供方配置。",
   "session.sendDshUnsupportedPayload": "DSH 暂不支持宿主指令",
-  "dshCommand.permission": "切换权限预设（read-only / workspace-write / danger-full-access）",
+  "dshCommand.permission":
+    "切换权限预设（read-only / workspace-write / danger-full-access）",
   "dshCommand.plan": "开启计划模式",
   "dshCommand.planOff": "关闭计划模式",
   "dshCommand.compact": "压缩会话上下文",
@@ -1164,7 +1241,8 @@ export const zhCN = {
   "dshTools.goalComplete": "完成",
   "dshTools.goalClear": "清除",
   "dshTools.goalClearConfirmTitle": "清除当前目标？",
-  "dshTools.goalClearConfirmMessage": "将清除当前目标并停止自动推进，此操作不可撤销。",
+  "dshTools.goalClearConfirmMessage":
+    "将清除当前目标并停止自动推进，此操作不可撤销。",
   "dshTools.goalProgressAria": "已推进 {rounds}/{cap} 轮",
   "dshTools.goalEmpty": "当前没有目标，输入目标后创建（DSH goal 自动推进）。",
   "dshTools.goalPlaceholder": "输入目标…",
@@ -1286,28 +1364,34 @@ export const zhCN = {
   "config.dsh.title": "DSH 配置管理",
   "config.dsh.started": "运行中",
   "config.dsh.restartHost": "重启 host",
-  "config.dsh.hostRestarted": "DSH host 已重启。活跃 DSH 会话已停止，重新打开即可继续。",
+  "config.dsh.hostRestarted":
+    "DSH host 已重启。活跃 DSH 会话已停止，重新打开即可继续。",
   "config.dsh.hostRestartFailed": "DSH host 重启失败，请重试或重启应用。",
   "config.dsh.autoImportForeign": "启动时自动导入外部会话",
-  "config.dsh.autoImportForeignHint": "开启后启动时把其他工具在 DSH_HOME 创建的会话写入侧栏（只读扫描，不启动 host）。关闭后不再收录这些会话。",
+  "config.dsh.autoImportForeignHint":
+    "开启后启动时把其他工具在 DSH_HOME 创建的会话写入侧栏（只读扫描，不启动 host）。关闭后不再收录这些会话。",
   "config.dsh.autoImportOn": "已开启启动时自动导入外部会话",
   "config.dsh.autoImportOff": "已关闭启动时自动导入外部会话",
   "config.dsh.archived": "归档区",
-  "config.dsh.archivedHint": "已归档的 DSH 会话（host 数据移入 DSH_HOME/.pideck-archive，可随时恢复；不销毁数据）。",
+  "config.dsh.archivedHint":
+    "已归档的 DSH 会话（host 数据移入 DSH_HOME/.pideck-archive，可随时恢复；不销毁数据）。",
   "config.dsh.archivedEmpty": "暂无归档会话。",
   "config.dsh.restore": "恢复",
   "config.dsh.restored": "已恢复 DSH 会话，重新打开即可继续。",
   "config.dsh.dynamicPlugins": "动态 Cordis 插件",
-  "config.dsh.dynamicPluginsHint": "进程内临时扩展：定义不落盘、重启即失、按会话归属；运行/停止/卸载为面板手势（无需审批）。Host 源码在 DSH host 进程内执行——只安装你自己编写的代码。",
+  "config.dsh.dynamicPluginsHint":
+    "进程内临时扩展：定义不落盘、重启即失、按会话归属；运行/停止/卸载为面板手势（无需审批）。Host 源码在 DSH host 进程内执行——只安装你自己编写的代码。",
   "config.dsh.installPlugin": "安装插件",
-  "config.dsh.dynamicPluginsEmpty": "暂无动态插件（点击「安装插件」定义源码包）。",
+  "config.dsh.dynamicPluginsEmpty":
+    "暂无动态插件（点击「安装插件」定义源码包）。",
   "config.dsh.pluginSession": "归属会话",
   "config.dsh.pluginIdPrefix": "ID 前缀",
   "config.dsh.pluginIdPrefixHint": "ID 前缀需为 3-6 个小写英文字母",
   "config.dsh.pluginName": "名称",
   "config.dsh.pluginPurpose": "用途说明",
   "config.dsh.pluginHostCode": "Host 源码（apply(ctx) 插件）",
-  "config.dsh.pluginClientCodeHint": "Client 半区需 dsh-web 浏览器页面，PiDeck 桌面端不渲染——请只填写 Host 半区。",
+  "config.dsh.pluginClientCodeHint":
+    "Client 半区需 dsh-web 浏览器页面，PiDeck 桌面端不渲染——请只填写 Host 半区。",
   "config.dsh.pluginFormIncomplete": "请填写名称、用途与 Host 源码",
   "config.dsh.pluginInstalled": "插件已定义（未运行，可点击「运行」启动）",
   "config.dsh.pluginRun": "运行",
@@ -1320,9 +1404,11 @@ export const zhCN = {
   "config.dsh.pluginStoppedToast": "插件已停止",
   "config.dsh.pluginUninstalled": "插件已卸载",
   "config.dsh.pluginNoPackage": "该插件没有可运行的包版本",
-  "config.dsh.pluginNoSession": "没有可用的 DSH 会话（先创建一个 DSH 会话再安装插件）。",
+  "config.dsh.pluginNoSession":
+    "没有可用的 DSH 会话（先创建一个 DSH 会话再安装插件）。",
   "config.dsh.staticPlugins": "静态 Loader 条目（只读）",
-  "config.dsh.staticPluginsHint": "当前部署 cordis 组合中的 Loader 条目（同一模块的多条 Loader 条目已合并成一行，仅展示一次）。来源栏区分「自带」（dsh base / 随包预设 / PiDeck 组合）与「用户安装」（$DSH_HOME/cordis.patch.yml 用户补丁层）；用户安装的条目可就地卸载（先备份补丁文件再移除行，PiDeck 管理目录内的插件文件一并移入回收站），host 重启后生效。",
+  "config.dsh.staticPluginsHint":
+    "当前部署 cordis 组合中的 Loader 条目（同一模块的多条 Loader 条目已合并成一行，仅展示一次）。来源栏区分「自带」（dsh base / 随包预设 / PiDeck 组合）与「用户安装」（$DSH_HOME/cordis.patch.yml 用户补丁层）；用户安装的条目可就地卸载（先备份补丁文件再移除行，PiDeck 管理目录内的插件文件一并移入回收站），host 重启后生效。",
   "config.dsh.staticPluginsEmpty": "暂无静态条目。",
   "config.dsh.staticPluginsCount": "{count} 个模块",
   "config.dsh.staticPluginsColumnModule": "模块",
@@ -1336,9 +1422,11 @@ export const zhCN = {
   "config.dsh.pluginFilterBuiltin": "来源：自带",
   "config.dsh.pluginUserUninstall": "卸载",
   "config.dsh.pluginUserConfirmUninstall": "确认卸载",
-  "config.dsh.pluginUserUninstalled": "已从用户补丁层移除，重启 DSH host 后生效",
+  "config.dsh.pluginUserUninstalled":
+    "已从用户补丁层移除，重启 DSH host 后生效",
   "config.dsh.pluginUserUninstallFailed": "卸载失败",
-  "config.dsh.pluginFilesKeepHint": "已从用户补丁层移除；插件文件不在 PiDeck 管理目录内，请手动删除",
+  "config.dsh.pluginFilesKeepHint":
+    "已从用户补丁层移除；插件文件不在 PiDeck 管理目录内，请手动删除",
   "config.dsh.pluginHostRestartFailed": "DSH host 重启失败，请到概览页手动重启",
   "config.dsh.pluginEnabled": "启用",
   "config.dsh.pluginDisabled": "停用",
@@ -1346,8 +1434,10 @@ export const zhCN = {
   "config.dsh.directories": "配置目录",
   "config.dsh.homeDir": "DSH_HOME",
   "config.dsh.openFolder": "打开目录",
-  "config.dsh.overviewHint": "Provider 路由与模型配置在「模型」tab 中管理（llm-deepseek / llm-pi-ai）。",
-  "config.dsh.modelsHint": "各提供方一行收起即见密钥状态（绿=已配置、红=缺失）；点击展开可填密钥、改自定义设置与模型目录。",
+  "config.dsh.overviewHint":
+    "Provider 路由与模型配置在「模型」tab 中管理（llm-deepseek / llm-pi-ai）。",
+  "config.dsh.modelsHint":
+    "各提供方一行收起即见密钥状态（绿=已配置、红=缺失）；点击展开可填密钥、改自定义设置与模型目录。",
   "config.dsh.providersCount": "{count} 个 provider",
   "config.dsh.providerKeyPlaceholder": "provider 名称（如 my-gateway）",
   "config.dsh.addProvider": "添加 provider",
@@ -1359,7 +1449,8 @@ export const zhCN = {
   "config.dsh.modelsInherited": "使用适配器默认模型",
   "config.dsh.modelsCustomized": "已自定义 {count} 个模型",
   "config.dsh.resetModels": "恢复默认模型",
-  "config.dsh.modelsEmptyHint": "留空表示使用适配器默认模型；目录外模型 ID 仍可直接发送。",
+  "config.dsh.modelsEmptyHint":
+    "留空表示使用适配器默认模型；目录外模型 ID 仍可直接发送。",
   "config.dsh.defaultImageInput": "新模型默认支持图片输入",
   "config.dsh.addModel": "添加模型",
   "config.dsh.removeModel": "删除此模型",
@@ -1370,8 +1461,10 @@ export const zhCN = {
   "config.dsh.modelError.idRequired": "模型 {index}：必须填写模型 ID。",
   "config.dsh.modelError.idDuplicate": "模型 {index}：模型 ID 不能重复。",
   "config.dsh.modelError.nameInvalid": "模型 {index}：显示名称不能为空。",
-  "config.dsh.modelError.contextInvalid": "模型 {index}：上下文窗口必须是正整数。",
-  "config.dsh.modelError.maxTokensInvalid": "模型 {index}：最大输出 token 数必须是正整数。",
+  "config.dsh.modelError.contextInvalid":
+    "模型 {index}：上下文窗口必须是正整数。",
+  "config.dsh.modelError.maxTokensInvalid":
+    "模型 {index}：最大输出 token 数必须是正整数。",
   "config.dsh.apiKey": "API 密钥",
   "config.dsh.keyConfigured": "API 密钥已配置",
   "config.dsh.keyMissing": "API 密钥缺失",
@@ -1388,27 +1481,35 @@ export const zhCN = {
   "config.dsh.keyEnvRef": "API 密钥环境变量",
   "config.dsh.keyRefHint": "密钥将写入凭证 {ref}",
   "config.dsh.customSettings": "自定义设置",
-  "config.dsh.customSettingsHint": "这里只配置接口地址和路由身份；API 密钥在上方单独管理，高级适配器设置请在源文件中维护。",
+  "config.dsh.customSettingsHint":
+    "这里只配置接口地址和路由身份；API 密钥在上方单独管理，高级适配器设置请在源文件中维护。",
   "config.dsh.field.baseURL": "接口地址（Base URL）",
-  "config.dsh.field.baseURLHint": "供应商的 API 根地址，通常以 /v1 结尾。官方 DeepSeek 可留空。",
+  "config.dsh.field.baseURLHint":
+    "供应商的 API 根地址，通常以 /v1 结尾。官方 DeepSeek 可留空。",
   "config.dsh.field.baseURLPlaceholder": "https://api.example.com/v1",
   "config.dsh.deepseekBaseUrlPlaceholder": "https://api.deepseek.com",
   "config.dsh.field.api": "接口协议",
-  "config.dsh.field.apiHint": "多数网关选 openai-completions；Anthropic / Gemini 等按供应商文档选择。",
+  "config.dsh.field.apiHint":
+    "多数网关选 openai-completions；Anthropic / Gemini 等按供应商文档选择。",
   "config.dsh.field.apiKeyEnv": "密钥环境变量名",
-  "config.dsh.field.apiKeyEnvHint": "这是凭证槽位名称（如 OPENAI_API_KEY），不是密钥本身。密钥请填上方输入框。",
+  "config.dsh.field.apiKeyEnvHint":
+    "这是凭证槽位名称（如 OPENAI_API_KEY），不是密钥本身。密钥请填上方输入框。",
   "config.dsh.field.apiKeyEnvPlaceholder": "OPENAI_API_KEY",
   "config.dsh.field.displayName": "显示名称",
-  "config.dsh.field.displayNameHint": "侧栏和配置页展示用的名字，可与内部 id 不同。",
+  "config.dsh.field.displayNameHint":
+    "侧栏和配置页展示用的名字，可与内部 id 不同。",
   "config.dsh.field.displayNamePlaceholder": "例如 我的网关",
   "config.dsh.field.headers": "额外请求头",
   "config.dsh.field.headersHint": "少数网关需要自定义 Header，一般不用填。",
   "config.dsh.field.retryPolicy": "请求重试",
   "config.dsh.field.maxRetries": "最大重试次数",
-  "config.dsh.field.maxRetriesHint": "供应商请求失败后的重试次数（默认 5）。只对瞬时错误生效；填 0 表示失败后不再重试。每个供应商单独配置，没有全局项。",
-  "config.dsh.field.maxRetriesAlways": "当前为无限重试。填写次数后改为有限重试。",
+  "config.dsh.field.maxRetriesHint":
+    "供应商请求失败后的重试次数（默认 5）。只对瞬时错误生效；填 0 表示失败后不再重试。每个供应商单独配置，没有全局项。",
+  "config.dsh.field.maxRetriesAlways":
+    "当前为无限重试。填写次数后改为有限重试。",
   "config.dsh.field.reasoningEffort": "Reasoning effort",
-  "config.dsh.field.reasoningEffortHint": "档位随供应商/模型而定：DeepSeek 官方支持 off / low / high / max；OpenAI 兼容网关常见 off / minimal / low / medium / high / xhigh / max（以模型声明为准）。留空使用模型默认档位。",
+  "config.dsh.field.reasoningEffortHint":
+    "档位随供应商/模型而定：DeepSeek 官方支持 off / low / high / max；OpenAI 兼容网关常见 off / minimal / low / medium / high / xhigh / max（以模型声明为准）。留空使用模型默认档位。",
   "config.dsh.deepseekOfficial": "DeepSeek 官方",
   "config.dsh.tab.overview": "概览",
   "config.dsh.tab.models": "模型",
@@ -1430,22 +1531,28 @@ export const zhCN = {
   "config.dsh.secretEmpty": "输入新值",
   "config.dsh.credentialRefHint": "凭证环境变量：{env}",
   "config.dsh.namespacesEmpty": "暂无命名空间（host 未启动或没有已注册配置）。",
-  "config.dsh.credentialsEmpty": "暂无凭证引用（schema 中未声明 credential-ref 字段）。",
-  "config.dsh.authHint": "各 provider 通过环境变量名引用凭证；填入新值保存，或删除解除引用。",
-  "config.dsh.settingsHint": "DSH host 级设置（agent-loop / shell / permission / web-search 等命名空间）。",
+  "config.dsh.credentialsEmpty":
+    "暂无凭证引用（schema 中未声明 credential-ref 字段）。",
+  "config.dsh.authHint":
+    "各 provider 通过环境变量名引用凭证；填入新值保存，或删除解除引用。",
+  "config.dsh.settingsHint":
+    "DSH host 级设置（agent-loop / shell / permission / web-search 等命名空间）。",
   "config.dsh.credentialConfigured": "已配置（{source}）",
   "config.dsh.credentialUnset": "未配置",
   "config.dsh.credentialPendingUnset": "待清除",
   "config.dsh.unsavedHint": "有未保存的修改，点击右上角「保存」提交",
   "config.dsh.credentialValuePlaceholder": "输入凭证值…",
   "config.dsh.rawEditingAt": "直接编辑",
-  "config.dsh.rawHostReads": "保存后由 DSH host 读取（改动范围以官方文档为准）。",
+  "config.dsh.rawHostReads":
+    "保存后由 DSH host 读取（改动范围以官方文档为准）。",
   "config.dsh.pickHomeTitle": "选择 DSH 配置目录（DSH_HOME）",
   "config.dsh.changeHome": "切换配置目录",
   "config.dsh.resetHome": "恢复默认（~/.dsh）",
-  "config.dsh.homeHint": "默认直接使用你本地的 ~/.dsh（与 dsh CLI 共用配置/凭证/会话）；可切换为其他目录，切换后立即重启 host 生效。",
+  "config.dsh.homeHint":
+    "默认直接使用你本地的 ~/.dsh（与 dsh CLI 共用配置/凭证/会话）；可切换为其他目录，切换后立即重启 host 生效。",
   "config.dsh.approvals": "审批",
-  "config.dsh.autoAllowApprovalHint": "开启后，DSH 会话中的工具/命令审批将自动放行，不再弹出确认（立即生效，仅影响本应用内的 DSH 会话）。",
+  "config.dsh.autoAllowApprovalHint":
+    "开启后，DSH 会话中的工具/命令审批将自动放行，不再弹出确认（立即生效，仅影响本应用内的 DSH 会话）。",
   "config.dsh.autoAllowOn": "审批自动放行已开启",
   "config.dsh.autoAllowOff": "审批自动放行已关闭",
   "config.dsh.tab.presets": "Agent 预设",
@@ -1453,8 +1560,10 @@ export const zhCN = {
   "config.dsh.tab.pluginConfig": "插件配置",
   "config.dsh.tab.pluginList": "插件列表",
   "config.dsh.tab.security": "安全",
-  "config.dsh.presetsHint": "Agent 预设决定会话的插件组合（工具/技能/计划模式等）。默认预设（标准模式）用于新建 DSH 会话，运行中的会话保持开始时的预设；点击「设为默认」切换。",
-  "config.dsh.presetsEmpty": "当前部署未装配 Agent 预设（会话直接使用 host 组合，与 dsh-web 的预设目录形态不同）。若需启用预设组合，可在「源文件」中按 dsh-web 的 agent-presets 配置并重启 host。",
+  "config.dsh.presetsHint":
+    "Agent 预设决定会话的插件组合（工具/技能/计划模式等）。默认预设（标准模式）用于新建 DSH 会话，运行中的会话保持开始时的预设；点击「设为默认」切换。",
+  "config.dsh.presetsEmpty":
+    "当前部署未装配 Agent 预设（会话直接使用 host 组合，与 dsh-web 的预设目录形态不同）。若需启用预设组合，可在「源文件」中按 dsh-web 的 agent-presets 配置并重启 host。",
   "config.dsh.presetDefault": "默认",
   "config.dsh.presetSetDefault": "设为默认",
   "config.dsh.presetPending": "设为默认（待保存）",
@@ -1464,17 +1573,22 @@ export const zhCN = {
   "config.dsh.presetRemoved": "预设已删除",
   "config.dsh.presetNotWritable": "settings 文档不可写，无法修改默认预设",
   "config.dsh.presetStandardName": "标准模式",
-  "config.dsh.presetStandardDesc": "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",
+  "config.dsh.presetStandardDesc":
+    "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",
   "config.dsh.presetCodeName": "PTC 模式",
-  "config.dsh.presetCodeDesc": "具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。",
+  "config.dsh.presetCodeDesc":
+    "具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。",
   "config.dsh.presetMinimalName": "极简模式",
-  "config.dsh.presetMinimalDesc": "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
+  "config.dsh.presetMinimalDesc":
+    "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
   "config.dsh.presetCordisName": "创造模式",
-  "config.dsh.presetCordisDesc": "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
+  "config.dsh.presetCordisDesc":
+    "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
   "config.dsh.presetSystem": "内置",
   "config.dsh.presetUser": "本地",
   "config.dsh.presetBroken": "无法组合会话：{reason}",
-  "config.dsh.pluginsHint": "DSH host 插件配置（与 dsh-web 插件配置页同源命名空间）：",
+  "config.dsh.pluginsHint":
+    "DSH host 插件配置（与 dsh-web 插件配置页同源命名空间）：",
   "config.dsh.pluginTitle": "插件：{name}",
   "config.dsh.pluginAgentLoop": "Agent 循环",
   "config.dsh.pluginAgentLoopDesc": "Agent 如何派发工具调用。",
@@ -1492,10 +1606,12 @@ export const zhCN = {
   "config.dsh.pluginPhaseActive": "已挂载",
   "config.dsh.pluginPhaseFailed": "挂载失败",
   "config.dsh.pluginPhaseUnloading": "卸载中",
-  "config.dsh.securityHint": "DSH 会话的权限预设（sandbox 模式 + 审批策略捆绑，与 dsh-web 一致）。默认预设作用于新建会话；会话内切换走输入框底栏的盾牌按钮（/permission 命令）。",
+  "config.dsh.securityHint":
+    "DSH 会话的权限预设（sandbox 模式 + 审批策略捆绑，与 dsh-web 一致）。默认预设作用于新建会话；会话内切换走输入框底栏的盾牌按钮（/permission 命令）。",
   "config.dsh.securityDefaultPreset": "新会话默认权限预设",
   "dshPermission.menuTitle": "权限预设",
-  "dshPermission.menuHint": "切换 DSH 会话权限（sandbox + 审批捆绑）；完全访问需确认。",
+  "dshPermission.menuHint":
+    "切换 DSH 会话权限（sandbox + 审批捆绑）；完全访问需确认。",
   "dshPermission.readOnly": "Read Only",
   "dshPermission.readOnlyDesc": "沙箱只读 + 每次批准",
   "dshPermission.workspaceWrite": "Workspace Write",
@@ -1506,16 +1622,22 @@ export const zhCN = {
   "dshPermission.unknown": "—",
   "dshPermission.switchNotice": "已切换权限预设：{name}",
   "dshPermission.switchFailed": "DSH 主机未确认请求的权限预设已生效。",
-  "dshPermission.presetPendingNotice": "权限预设 {name} 已保存，将在会话启动后生效（发送消息即启动）。",
-  "dshPermission.presetNeedsSession": "引导页还没有真实会话：请先发送消息创建会话，再设置权限预设。",
+  "dshPermission.presetPendingNotice":
+    "权限预设 {name} 已保存，将在会话启动后生效（发送消息即启动）。",
+  "dshPermission.presetNeedsSession":
+    "引导页还没有真实会话：请先发送消息创建会话，再设置权限预设。",
   "dshPermission.fullAccessConfirmTitle": "切换到完全访问？",
-  "dshPermission.fullAccessConfirmBody": "完全访问（danger-full-access）下工具调用无需逐次批准，可以执行任意命令并写入任意文件。确认切换到该预设？",
+  "dshPermission.fullAccessConfirmBody":
+    "完全访问（danger-full-access）下工具调用无需逐次批准，可以执行任意命令并写入任意文件。确认切换到该预设？",
   "dshPermission.fullAccessConfirmLabel": "确认切换",
   "dshPermission.needRuntimeTitle": "会话尚未启动",
-  "dshPermission.needRuntimeBody": "权限预设作用于 DSH 会话，请先发送一条消息启动会话，或在「DSH 配置管理 → 安全」中修改新会话默认预设。",
+  "dshPermission.needRuntimeBody":
+    "权限预设作用于 DSH 会话，请先发送一条消息启动会话，或在「DSH 配置管理 → 安全」中修改新会话默认预设。",
   "dshPreset.menuTitle": "Agent 模式",
-  "dshPreset.menuHint": "选择本会话组合使用的 Agent 预设。模式在会话创建时固定，创建后不可更改。",
-  "dshPreset.presetPendingNotice": "已预选 Agent 模式 {name}，会话创建时生效（发送消息即创建）。",
+  "dshPreset.menuHint":
+    "选择本会话组合使用的 Agent 预设。模式在会话创建时固定，创建后不可更改。",
+  "dshPreset.presetPendingNotice":
+    "已预选 Agent 模式 {name}，会话创建时生效（发送消息即创建）。",
   "dshPreset.unset": "跟随默认",
   "sessionProxy.title": "会话代理设置",
   "sessionProxy.manageHint": "为当前会话单独设置代理，不影响其他会话。",
@@ -1528,34 +1650,49 @@ export const zhCN = {
   "sessionProxy.globalStatus": "全局代理：{status}",
   "sessionProxy.globalOn": "已启用 {url}",
   "sessionProxy.globalOff": "未启用",
-  "sessionProxy.globalEmptyWarn": "全局代理地址为空，「启用代理」前请先在「设置 → 代理」中填写地址。",
-  "sessionProxy.providerFilterMatched": "按供应商白名单：当前模型供应商 {provider} 在名单内，实际将走代理（即使全局关闭）",
-  "sessionProxy.providerFilterNotMatched": "按供应商白名单：当前模型供应商 {provider} 不在名单内，实际将直连（即使全局开启）",
-  "sessionProxy.providerFilterHint": "可在「设置 → 代理 → 按供应商走代理」中调整名单；会话显式选择“启用/直连”时白名单不生效",
+  "sessionProxy.globalEmptyWarn":
+    "全局代理地址为空，「启用代理」前请先在「设置 → 代理」中填写地址。",
+  "sessionProxy.providerFilterMatched":
+    "按供应商白名单：当前模型供应商 {provider} 在名单内，实际将走代理（即使全局关闭）",
+  "sessionProxy.providerFilterNotMatched":
+    "按供应商白名单：当前模型供应商 {provider} 不在名单内，实际将直连（即使全局开启）",
+  "sessionProxy.providerFilterHint":
+    "可在「设置 → 代理 → 按供应商走代理」中调整名单；会话显式选择“启用/直连”时白名单不生效",
   "sessionProxy.savedNotice": "已保存，重启该会话后生效",
   "sessionProxy.restartingForApply": "正在重启会话以应用代理设置…",
   "sessionProxy.savedApplied": "已保存并重启，代理设置已生效",
-  "sessionProxy.savedRestartFailed": "代理设置已保存，但自动重启失败；请手动重启该会话使其生效",
-  "sessionProxy.autoRestartHint": "该会话正在运行：保存后将自动重启进程，代理设置立即生效。",
-  "sessionProxy.dshSavedNotice": "已保存；应用于共享的 DSH host，需 host 重启后生效",
-  "sessionProxy.dshShareHint": "DSH 会话共享一个 host 进程：此设置会应用到所有 DSH 会话；多个会话冲突时「直连」优先于「启用代理」。",
+  "sessionProxy.savedRestartFailed":
+    "代理设置已保存，但自动重启失败；请手动重启该会话使其生效",
+  "sessionProxy.autoRestartHint":
+    "该会话正在运行：保存后将自动重启进程，代理设置立即生效。",
+  "sessionProxy.dshSavedNotice":
+    "已保存；应用于共享的 DSH host，需 host 重启后生效",
+  "sessionProxy.dshShareHint":
+    "DSH 会话共享一个 host 进程：此设置会应用到所有 DSH 会话；多个会话冲突时「直连」优先于「启用代理」。",
   "dshPlan.pendingNotice": "计划模式将在下一条消息生效",
   "dshPlan.switchFailed": "计划模式切换失败",
   "dshGoal.pendingNotice": "下一条消息将作为目标开始自动推进",
   "dshGoal.switchFailed": "目标模式切换失败",
-  "config.dsh.homeChangeNextBoot": "已切换 DSH 配置目录，下次创建 DSH 会话时生效。",
-  "config.dsh.homeChangeApplied": "已切换 DSH 配置目录，DSH host 已重启并生效（活跃 DSH 会话已停止，重新打开即可）。",
+  "config.dsh.homeChangeNextBoot":
+    "已切换 DSH 配置目录，下次创建 DSH 会话时生效。",
+  "config.dsh.homeChangeApplied":
+    "已切换 DSH 配置目录，DSH host 已重启并生效（活跃 DSH 会话已停止，重新打开即可）。",
   "config.dsh.homeChangeFailed": "DSH host 重启失败，请重试或重启应用。",
   "config.dsh.homeReset": "已恢复默认 DSH 配置目录（~/.dsh）。",
-  "config.dsh.homeResetApplied": "已恢复默认 DSH 配置目录（~/.dsh），DSH host 已重启并生效。",
+  "config.dsh.homeResetApplied":
+    "已恢复默认 DSH 配置目录（~/.dsh），DSH host 已重启并生效。",
   "config.dsh.bootFailedTitle": "DSH host 启动失败",
-  "config.dsh.bootFailedHint": "DSH host 未能启动。请先点「重试」或「重启 host」；若持续失败，可尝试重新安装 DSH 后端，或检查 DSH 配置目录后重启应用。详细原因见下。",
+  "config.dsh.bootFailedHint":
+    "DSH host 未能启动。请先点「重试」或「重启 host」；若持续失败，可尝试重新安装 DSH 后端，或检查 DSH 配置目录后重启应用。详细原因见下。",
   "config.dsh.retry": "重试",
   "dsh.runtime.notInstalledTitle": "尚未安装 DSH 后端",
-  "dsh.runtime.notInstalledDesc": "DSH 后端运行时未安装。安装后即可使用 DSH 会话与其配置管理；不安装不影响 pi 后端。",
-  "dsh.runtime.devNoDownload": "当前为开发模式：DSH runtime 与正式版统一从 Release 下载；如需离线调试，也可手动导入 runtime 归档。",
+  "dsh.runtime.notInstalledDesc":
+    "DSH 后端运行时未安装。安装后即可使用 DSH 会话与其配置管理；不安装不影响 pi 后端。",
+  "dsh.runtime.devNoDownload":
+    "当前为开发模式：DSH runtime 与正式版统一从 Release 下载；如需离线调试，也可手动导入 runtime 归档。",
   "dsh.runtime.brokenTitle": "DSH 后端不可用",
-  "dsh.runtime.brokenDesc": "已安装的 DSH 运行时（{version}）与当前应用版本不兼容，请重新安装匹配的运行时。",
+  "dsh.runtime.brokenDesc":
+    "已安装的 DSH 运行时（{version}）与当前应用版本不兼容，请重新安装匹配的运行时。",
   "dsh.runtime.install": "安装 DSH 后端",
   "dsh.runtime.reinstall": "重新安装 DSH 后端",
   "dsh.runtime.importLocal": "从本地导入（.tgz 或已解压目录）",
@@ -1565,19 +1702,26 @@ export const zhCN = {
   "dsh.runtime.phase.extracting": "正在解压…",
   "dsh.runtime.phase.finalizing": "正在落位…",
   "dsh.runtime.phase.uninstalling": "正在卸载 runtime…",
-  "dsh.runtime.installHint": "runtime 只在你首次使用 DSH 时下载一次；不安装不影响 pi 后端。",
+  "dsh.runtime.installHint":
+    "runtime 只在你首次使用 DSH 时下载一次；不安装不影响 pi 后端。",
   "dsh.runtime.installDir": "安装目录",
   "dsh.runtime.notInstalledCreate": "DSH 后端未安装，已改用 pi 后端创建会话。",
-  "dsh.runtime.managedHint": "按需下载到应用数据目录，可卸载；升级 DSH 不必重装 PiDeck。",
+  "dsh.runtime.managedHint":
+    "按需下载到应用数据目录，可卸载；升级 DSH 不必重装 PiDeck。",
   "dsh.runtime.outdatedTitle": "DSH runtime 版本不配套",
-  "dsh.runtime.outdatedDesc": "当前安装的 runtime 是 v{installed}，与本版本 PiDeck 配套的 v{declared} 不一致。为避免协议不兼容导致异常，DSH 已暂停使用，请重新安装配套版本。",
-  "dsh.runtime.sendOutdated": "DSH 后端运行时（v{installed}）与本版本 PiDeck 配套版本（v{declared}）不一致，已停止使用。请到配置管理页重新安装后再发送。",
+  "dsh.runtime.outdatedDesc":
+    "当前安装的 runtime 是 v{installed}，与本版本 PiDeck 配套的 v{declared} 不一致。为避免协议不兼容导致异常，DSH 已暂停使用，请重新安装配套版本。",
+  "dsh.runtime.sendOutdated":
+    "DSH 后端运行时（v{installed}）与本版本 PiDeck 配套版本（v{declared}）不一致，已停止使用。请到配置管理页重新安装后再发送。",
   "dsh.runtime.builtinHint": "随应用分发，不可卸载。",
-  "dsh.runtime.migrationNotice": "检测到你有过 DSH 会话，但 DSH 后端运行时尚未安装。安装后即可继续，pi 会话不受影响。",
+  "dsh.runtime.migrationNotice":
+    "检测到你有过 DSH 会话，但 DSH 后端运行时尚未安装。安装后即可继续，pi 会话不受影响。",
   "dsh.runtime.migrationAction": "去安装",
   "dsh.runtime.installed": "DSH 后端安装完成",
-  "dsh.runtime.sendNotInstalled": "这是 DSH 会话，但 DSH 后端运行时尚未安装。安装后即可继续发送。",
-  "dsh.runtime.sendBroken": "DSH 后端运行时不可用（{reason}），请重新安装后再发送。",
+  "dsh.runtime.sendNotInstalled":
+    "这是 DSH 会话，但 DSH 后端运行时尚未安装。安装后即可继续发送。",
+  "dsh.runtime.sendBroken":
+    "DSH 后端运行时不可用（{reason}），请重新安装后再发送。",
   "dsh.runtime.installAction": "去安装",
   "config.nav.config": "配置管理",
   "config.nav.models": "模型",
@@ -1585,17 +1729,22 @@ export const zhCN = {
   "config.nav.settings": "设置",
   "config.nav.trust": "信任",
   "config.nav.mcp": "MCP",
-  "config.mcp.hint": "查看并编辑 pi-mcp-adapter 读取的 MCP 服务。保存写入 ~/.pi/agent/mcp.json；其它层只读展示。需安装官方扩展 npm:pi-mcp-adapter。",
+  "config.mcp.hint":
+    "查看并编辑 pi-mcp-adapter 读取的 MCP 服务。保存写入 ~/.pi/agent/mcp.json；其它层只读展示。需安装官方扩展 npm:pi-mcp-adapter。",
   "config.mcp.docs": "适配器配置文档",
-  "config.mcp.notInstalled.desc": "MCP 服务需要 pi-mcp-adapter 扩展在 pi 进程内加载 mcp.json 才能生效，当前未检测到该扩展。安装后即可在此页管理 MCP 服务。",
+  "config.mcp.notInstalled.desc":
+    "MCP 服务需要 pi-mcp-adapter 扩展在 pi 进程内加载 mcp.json 才能生效，当前未检测到该扩展。安装后即可在此页管理 MCP 服务。",
   "config.mcp.notInstalled.install": "一键安装扩展",
   "config.mcp.notInstalled.installing": "安装中…",
-  "config.mcp.notInstalled.installFailed": "安装失败，请稍后重试，或在终端手动执行上方命令。",
+  "config.mcp.notInstalled.installFailed":
+    "安装失败，请稍后重试，或在终端手动执行上方命令。",
   "config.mcp.notInstalled.copyCmd": "复制命令",
   "config.mcp.notInstalled.copied": "已复制",
-  "config.mcp.notInstalled.restartHint": "安装完成后需重启 Agent 会话，pi-mcp-adapter 才会被 pi 加载生效；也可以直接点「刷新」重新检测。",
+  "config.mcp.notInstalled.restartHint":
+    "安装完成后需重启 Agent 会话，pi-mcp-adapter 才会被 pi 加载生效；也可以直接点「刷新」重新检测。",
   "config.mcp.add": "添加服务",
-  "config.mcp.empty": "还没有 MCP 服务。可添加 stdio / HTTP / socket 服务，或把已有 mcp.json 放到适配器会读的路径。",
+  "config.mcp.empty":
+    "还没有 MCP 服务。可添加 stdio / HTTP / socket 服务，或把已有 mcp.json 放到适配器会读的路径。",
   "config.mcp.selectHint": "选择左侧服务查看详情，或添加新服务。",
   "config.mcp.newServer": "新服务",
   "config.mcp.writable": "可写",
@@ -1611,7 +1760,8 @@ export const zhCN = {
   "config.mcp.nameRequired": "请填写服务名称",
   "config.mcp.nameDuplicate": "已存在同名 MCP 服务",
   "config.mcp.nameInvalid": "名称只能用字母、数字、下划线和短横线",
-  "config.mcp.writableBroken": "~/.pi/agent/mcp.json 不是合法 JSON，请先到源文件页修好再保存，避免覆盖原文件。",
+  "config.mcp.writableBroken":
+    "~/.pi/agent/mcp.json 不是合法 JSON，请先到源文件页修好再保存，避免覆盖原文件。",
   "config.mcp.field.name": "名称",
   "config.mcp.field.transport": "传输",
   "config.mcp.field.command": "命令",
@@ -1622,7 +1772,8 @@ export const zhCN = {
   "config.mcp.field.env": "环境变量",
   "config.mcp.field.envPlaceholder": "每行一条，例如 API_KEY=sk-...",
   "config.mcp.field.headers": "HTTP 头",
-  "config.mcp.field.headersPlaceholder": "每行一条，例如 Authorization=Bearer ...",
+  "config.mcp.field.headersPlaceholder":
+    "每行一条，例如 Authorization=Bearer ...",
   "config.mcp.field.lifecycle": "生命周期",
   "config.mcp.field.enabled": "启用",
   "config.mcp.field.enabledHint": "关闭后适配器不会连接该服务，配置仍保留。",
@@ -1639,7 +1790,8 @@ export const zhCN = {
   "config.mcp.layer.piAgent": "~/.pi/agent",
   "config.mcp.layer.project": "项目 .mcp.json",
   "config.mcp.layer.projectPi": "项目 .pi/mcp.json",
-  "config.trust.hint": "已信任的目录，其下的项目级配置（AGENTS.md、扩展等）将自动生效。",
+  "config.trust.hint":
+    "已信任的目录，其下的项目级配置（AGENTS.md、扩展等）将自动生效。",
   "config.trust.emptyTitle": "暂无信任目录",
   "config.trust.emptyDesc": "添加目录路径以信任该目录下的项目级配置。",
   "config.trust.addPlaceholder": "输入目录路径，如 C:\\Users\\myproject",
@@ -1647,7 +1799,8 @@ export const zhCN = {
   "config.trust.statusTrusted": "已信任",
   "config.trust.statusIgnored": "已忽略",
   "agent.trust.title": "项目信任确认",
-  "agent.trust.message": "此项目包含 pi 配置资源（扩展、skills、设置等）。信任后 pi 将加载并执行这些项目级资源，请确认你信任该项目来源。",
+  "agent.trust.message":
+    "此项目包含 pi 配置资源（扩展、skills、设置等）。信任后 pi 将加载并执行这些项目级资源，请确认你信任该项目来源。",
   "agent.trust.project": "项目路径",
   "agent.trust.trustRemember": "信任并记住",
   "agent.trust.trustSession": "本次信任",
@@ -1659,7 +1812,8 @@ export const zhCN = {
   "config.resourceScope.project": "当前项目",
   "config.resourceScope.projectFallback": "当前已加载项目",
   "config.resourceScope.saveMcpFirst": "请先保存 MCP 更改后再切换作用域。",
-  "config.resourceScope.inheritedReadOnly": "继承的全局资源不能在项目作用域中修改。",
+  "config.resourceScope.inheritedReadOnly":
+    "继承的全局资源不能在项目作用域中修改。",
   "config.resourceManaged": "托管",
   "config.resourceManagedHint": "由包或设置项加载；在此仅只读展示。",
   "config.resourceGroup.project": "项目资源",
@@ -1679,13 +1833,16 @@ export const zhCN = {
   "config.process.loadFailed": "获取进程快照失败",
   "config.process.column.pid": "PID",
   "config.process.column.memory": "内存",
-  "config.process.memoryHint": "专用内存（Private Memory），口径对齐系统任务管理器。pi 经 node 直启后统计的是 pi 本体进程的真实内存（完整 Node 运行时 + pi bundle，通常 100~300MB 属正常水平）。",
+  "config.process.memoryHint":
+    "专用内存（Private Memory），口径对齐系统任务管理器。pi 经 node 直启后统计的是 pi 本体进程的真实内存（完整 Node 运行时 + pi bundle，通常 100~300MB 属正常水平）。",
   "config.process.column.agentId": "进程",
   "config.process.column.session": "会话",
   "config.process.column.action": "操作",
   "config.process.stop": "停止",
-  "config.process.stopConfirm": "停止 Agent {agent}？将终止其进程并结束当前会话。",
-  "config.process.stopHostConfirm": "停止 DSH Host？将结束全部 DSH 会话并关闭共享 host 进程（会话文件仍保留，可再打开）。",
+  "config.process.stopConfirm":
+    "停止 Agent {agent}？将终止其进程并结束当前会话。",
+  "config.process.stopHostConfirm":
+    "停止 DSH Host？将结束全部 DSH 会话并关闭共享 host 进程（会话文件仍保留，可再打开）。",
   "config.process.stopped": "{agent} 已停止",
   "config.process.stopFailed": "停止 {agent} 失败",
   "config.nav.skills": "技能",
@@ -1693,8 +1850,10 @@ export const zhCN = {
   "config.nav.imagegen": "生图",
   "config.group.agent": "Agent 能力",
   "config.imagegen.section": "生图",
-  "config.imagegen.sectionDesc": "独立于 pi/dsh，放在设置页统一管理。接口一律按 OpenAI 兼容 /images/generations 发送；火山等只需换 baseUrl。勾选该供应商实际支持的官方字段后，会话生图底栏才会出现对应输入。",
-  "config.imagegen.empty": "还没有生图供应商。添加后即可在会话里切换生图模式使用。",
+  "config.imagegen.sectionDesc":
+    "独立于 pi/dsh，放在设置页统一管理。接口一律按 OpenAI 兼容 /images/generations 发送；火山等只需换 baseUrl。勾选该供应商实际支持的官方字段后，会话生图底栏才会出现对应输入。",
+  "config.imagegen.empty":
+    "还没有生图供应商。添加后即可在会话里切换生图模式使用。",
   "config.imagegen.providerName": "名称",
   "config.imagegen.providerNamePlaceholder": "例如 OpenAI 或火山方舟",
   "config.imagegen.baseUrl": "接口地址",
@@ -1710,27 +1869,35 @@ export const zhCN = {
   "config.imagegen.expandAll": "全部展开",
   "config.imagegen.collapseAll": "全部收起",
   "config.imagegen.extraParams": "支持的参数",
-  "config.imagegen.extraParamsHint": "按官方文档勾选。没勾选的字段不会出现在底栏，也不会发到接口（避免未知字段 400）。",
+  "config.imagegen.extraParamsHint":
+    "按官方文档勾选。没勾选的字段不会出现在底栏，也不会发到接口（避免未知字段 400）。",
   "config.imagegen.referenceMode": "参考图模式",
-  "config.imagegen.referenceModeHint": "声明该供应商能否把上传的图片作为参考。不支持时附件栏会被拦截；edits 走 /images/edits 表单接口；image-field 把图片并入 JSON 请求体。",
+  "config.imagegen.referenceModeHint":
+    "声明该供应商能否把上传的图片作为参考。不支持时附件栏会被拦截；edits 走 /images/edits 表单接口；image-field 把图片并入 JSON 请求体。",
   "config.imagegen.referenceNone": "不支持",
   "config.imagegen.referenceEdits": "支持（/images/edits）",
   "config.imagegen.referenceImageField": "支持（image 字段）",
   "config.imagegen.apiStyle": "接口方言",
-  "config.imagegen.apiStyleHint": "同一 images/generations 接口各家字段名/响应结构不同：OpenAI、方舟用 size 字段、返回 data[].b64_json；SiliconFlow 用 image_size、返回 images[].url（参考图为单个图片）",
+  "config.imagegen.apiStyleHint":
+    "同一 images/generations 接口各家字段名/响应结构不同：OpenAI、方舟用 size 字段、返回 data[].b64_json；SiliconFlow 用 image_size、返回 images[].url（参考图为单个图片）",
   "config.imagegen.apiStyleOpenai": "OpenAI 兼容（size / data[].b64_json）",
-  "config.imagegen.apiStyleSiliconflow": "SiliconFlow（image_size / images[].url）",
+  "config.imagegen.apiStyleSiliconflow":
+    "SiliconFlow（image_size / images[].url）",
   "config.imagegen.paramSize": "size（分辨率）",
-  "config.imagegen.paramSizeHint": "官方 size。OpenAI 用 1024x1024 等；火山还支持 1K / 2K / 4K。",
+  "config.imagegen.paramSizeHint":
+    "官方 size。OpenAI 用 1024x1024 等；火山还支持 1K / 2K / 4K。",
   "config.imagegen.paramOutputFormat": "output_format（输出格式）",
-  "config.imagegen.paramOutputFormatHint": "官方 output_format：png / jpeg。火山 Seedream 5.0 支持；OpenAI 官方不要勾。",
+  "config.imagegen.paramOutputFormatHint":
+    "官方 output_format：png / jpeg。火山 Seedream 5.0 支持；OpenAI 官方不要勾。",
   "config.imagegen.paramWatermark": "watermark（水印）",
-  "config.imagegen.paramWatermarkHint": "官方 watermark。火山方舟支持；OpenAI 官方不要勾。",
+  "config.imagegen.paramWatermarkHint":
+    "官方 watermark。火山方舟支持；OpenAI 官方不要勾。",
   "config.imagegen.fetchNeedKey": "请先填写接口地址和 API Key 再拉取模型列表",
   "config.imagegen.saved": "生图配置已保存",
   "config.imagegen.saveFailed": "保存生图配置失败",
   "security.enabledTitle": "启用安全管理",
-  "security.enabledHint": "开启后，pi agent 的工具调用将按等级策略拦截或要求确认；关闭时完全放行（默认，零干预）。规则变更即时生效（≤2 秒）。",
+  "security.enabledHint":
+    "开启后，pi agent 的工具调用将按等级策略拦截或要求确认；关闭时完全放行（默认，零干预）。规则变更即时生效（≤2 秒）。",
   "security.defaultLevelTitle": "全局默认等级",
   "security.selectLevel": "选择等级",
   "security.levelsTitle": "等级配置（每个等级独立控制工具动作与目录边界）",
@@ -1748,7 +1915,8 @@ export const zhCN = {
   "security.tool.find": "查找文件",
   "security.tool.ls": "列目录",
   "security.tool.ask_question": "提问用户",
-  "security.toolActionsHint": "bash 命中下方危险命令正则时：显式放行则放行；严格等级直接拒绝；其余弹窗确认。",
+  "security.toolActionsHint":
+    "bash 命中下方危险命令正则时：显式放行则放行；严格等级直接拒绝；其余弹窗确认。",
   "security.denyBashTitle": "bash 危险命令正则（每行一个）",
   "security.denyBashPlaceholder": "如 \\brm\\s+-[a-z]*[rf]\n\\bsudo\\b",
   "security.pathPolicyTitle": "文件访问边界",
@@ -1756,7 +1924,8 @@ export const zhCN = {
   "security.pathPolicy.workspace": "仅工作目录",
   "security.pathPolicy.custom": "工作目录 + 自定义目录",
   "security.defaultActionTitle": "兜底动作",
-  "security.customAllowDirsTitle": "附加允许目录（每行一个，相对路径按工作目录解析）",
+  "security.customAllowDirsTitle":
+    "附加允许目录（每行一个，相对路径按工作目录解析）",
   "security.denyDirsTitle": "始终禁止的目录（每行一个，优先级最高）",
   "security.dirsPlaceholder": "每行一个绝对路径",
   "security.protectSensitiveTitle": "敏感文件保护（.env / .git / 密钥等）",
@@ -1767,7 +1936,8 @@ export const zhCN = {
   "security.pickerEmpty": "没有匹配的等级",
   "security.disabled": "已关闭",
   "security.followDefault": "跟随全局默认",
-  "security.menuDisabledHint": "安全管理未启用。在 Pi 管理 → 安全中开启后即可按等级管控。",
+  "security.menuDisabledHint":
+    "安全管理未启用。在 Pi 管理 → 安全中开启后即可按等级管控。",
   "security.confirmTitle": "安全确认",
   "security.confirmQuestion": "是否允许此工具调用？",
   "security.confirmToolLabel": "工具",
@@ -1782,36 +1952,54 @@ export const zhCN = {
   "config.addAuth": "+ 添加认证",
   "config.addProvider": "+ 添加供应商",
   "config.providerGuide": "配置指南",
-  "config.providerGuideApiDesc1": "Chat Completions API — 兼容性最广，适用第三方服务、代理和本地模型",
+  "config.providerGuideApiDesc1":
+    "Chat Completions API — 兼容性最广，适用第三方服务、代理和本地模型",
   "config.providerGuideApiDesc2": "Messages API — Claude 系列模型专用",
   "config.providerGuideApiDesc3": "Responses API — 新版 OpenAI API，推荐使用",
   "config.providerGuideApiDesc4": "Generative AI API — Gemini 系列模型",
-  "config.providerGuideApiDesc5": "Codex Responses — ChatGPT Plus/Pro 订阅。出问题时改 openai-responses + User-Agent",
-  "config.providerGuideApiDesc6": "Conversations API — Mistral 原生接口，推荐替代 openai-completions",
-  "config.apiType.openai-completions": "OpenAI Chat Completions API — 兼容性最广，适用于大多数第三方服务和本地模型",
-  "config.apiType.openai-responses": "OpenAI Responses API — 新版 API，推荐使用",
-  "config.apiType.openai-codex-responses": "OpenAI Codex Responses — ChatGPT Plus/Pro 订阅。出问题可改用 openai-responses + 自定义 User-Agent",
-  "config.apiType.anthropic-messages": "Anthropic Messages API — Claude 系列模型专用",
-  "config.apiType.google-generative-ai": "Google Generative AI API — Gemini 系列模型",
-  "config.apiType.mistral-conversations": "Mistral Conversations API — Mistral 模型原生接口",
+  "config.providerGuideApiDesc5":
+    "Codex Responses — ChatGPT Plus/Pro 订阅。出问题时改 openai-responses + User-Agent",
+  "config.providerGuideApiDesc6":
+    "Conversations API — Mistral 原生接口，推荐替代 openai-completions",
+  "config.apiType.openai-completions":
+    "OpenAI Chat Completions API — 兼容性最广，适用于大多数第三方服务和本地模型",
+  "config.apiType.openai-responses":
+    "OpenAI Responses API — 新版 API，推荐使用",
+  "config.apiType.openai-codex-responses":
+    "OpenAI Codex Responses — ChatGPT Plus/Pro 订阅。出问题可改用 openai-responses + 自定义 User-Agent",
+  "config.apiType.anthropic-messages":
+    "Anthropic Messages API — Claude 系列模型专用",
+  "config.apiType.google-generative-ai":
+    "Google Generative AI API — Gemini 系列模型",
+  "config.apiType.mistral-conversations":
+    "Mistral Conversations API — Mistral 模型原生接口",
   "config.providerGuideApis": "API 类型说明",
   "config.providerGuideCompat": "兼容性配置",
-  "config.providerGuideCompatDevRole": "服务器不支持 developer 角色时设为 false，pi 将使用 system 角色代替",
-  "config.providerGuideCompatReasoningContent": "DeepSeek 系网关要求带 tool_calls 的回合回传 reasoning_content，否则报 400；非 DeepSeek 后端保持关闭",
-  "config.providerGuideCompatReasoning": "服务器不支持 reasoning_effort 参数时设为 false",
-  "config.providerGuideIntro": "供应商配置用于连接自定义模型服务（Ollama、vLLM、LM Studio、API 代理等）。以下是一些常见配置场景和说明：",
+  "config.providerGuideCompatDevRole":
+    "服务器不支持 developer 角色时设为 false，pi 将使用 system 角色代替",
+  "config.providerGuideCompatReasoningContent":
+    "DeepSeek 系网关要求带 tool_calls 的回合回传 reasoning_content，否则报 400；非 DeepSeek 后端保持关闭",
+  "config.providerGuideCompatReasoning":
+    "服务器不支持 reasoning_effort 参数时设为 false",
+  "config.providerGuideIntro":
+    "供应商配置用于连接自定义模型服务（Ollama、vLLM、LM Studio、API 代理等）。以下是一些常见配置场景和说明：",
   "config.providerGuideNote": "完整的参数说明和示例请参考 pi 官方文档",
-  "config.providerGuideTip1": "获取模型列表后，先进行连接测试。测试通过不代表会话中一定能正常使用（可能缺少工具调用、流式输出等支持）",
-  "config.providerGuideTip2": "如果连接测试成功但会话失败，检查 compat 兼容性设置（是否支持 developer 角色、reasoning_effort 等）",
-  "config.providerGuideTip3": "本地模型（Ollama/LM Studio）建议关闭 reasoning 和 developer role 支持",
-  "config.providerGuideTip4": "OpenAI 兼容服务优先使用 openai-completions API，大多数第三方服务都兼容此接口",
+  "config.providerGuideTip1":
+    "获取模型列表后，先进行连接测试。测试通过不代表会话中一定能正常使用（可能缺少工具调用、流式输出等支持）",
+  "config.providerGuideTip2":
+    "如果连接测试成功但会话失败，检查 compat 兼容性设置（是否支持 developer 角色、reasoning_effort 等）",
+  "config.providerGuideTip3":
+    "本地模型（Ollama/LM Studio）建议关闭 reasoning 和 developer role 支持",
+  "config.providerGuideTip4":
+    "OpenAI 兼容服务优先使用 openai-completions API，大多数第三方服务都兼容此接口",
   "config.providerGuideTips": "排错指南",
   "config.providerGuideTitle": "供应商配置指南",
   "config.providerGuideTroubleshoot": "排错指南",
   "config.addModelFromList": "+ 从列表选择",
   "config.addModelManual": "+ 手动添加",
   "config.modelSearchPlaceholder": "搜索模型 ID 或名称",
-  "config.modelFetchSelectionSummary": "已选择 {selected} / {total} 个获取到的模型",
+  "config.modelFetchSelectionSummary":
+    "已选择 {selected} / {total} 个获取到的模型",
   "config.saveSelectedModels": "保存所选模型",
   "config.advancedPreservedTitle": "高级字段已保留",
   "config.advancedPreservedProvider":
@@ -1828,7 +2016,8 @@ export const zhCN = {
   "config.authEnvVar": "环境变量",
   "config.authGetKey": "获取 API Key",
   "config.authGuide": "使用指南",
-  "config.authGuideDesc": "认证配置用于存储 API Key，pi 会自动从 ~/.pi/agent/auth.json 读取。",
+  "config.authGuideDesc":
+    "认证配置用于存储 API Key，pi 会自动从 ~/.pi/agent/auth.json 读取。",
   "config.authGuideNote": "完整的供应商列表和支持的环境变量请参考",
   "config.authGuideStep1": "添加认证 → 选择你的供应商（如 Anthropic、OpenAI）",
   "config.authGuideStep2": "输入 API Key → 可设置环境变量名或直接输入密钥",
@@ -1845,15 +2034,24 @@ export const zhCN = {
   "config.baseUrlAutoNormalized": "Base URL 已自动补全版本路径：{url}",
   "config.exported": "配置已导出",
   "config.fetchModelsFailed": "获取模型列表失败",
-  "config.fetchModelsHint": "获取失败可能因服务方对 /models 端点做了限制。实际可用模型以启动会话后 /model 命令列出为准。",
-  "config.fetchModelsHintOpenai": "获取模型列表失败。已尝试 /v1/models 和 /models 两个路径，均未返回有效模型列表。OpenAI / Responses API 网关可能限制 models 端点访问。建议在「额外模型」中手动添加已知的模型 ID（如 gpt-4o、gpt-4o-mini），然后启动会话后使用 /model 命令确认可用模型。",
-  "config.fetchModelsHintAnthropic": "Anthropic Messages API 不支持 /models 端点。请手动添加 Claude 模型 ID（如 claude-sonnet-4-20250514、claude-3.5-haiku），或查看 pi 官方文档获取完整模型列表。",
-  "config.fetchModelsHintOpenaiCodex": "Codex Responses 不支持通用 /models 端点。请在「额外模型」中手动添加可用模型 ID，或从会话历史/文档中查找模型名称。",
-  "config.fetchModelsHintGoogle": "Google Generative AI API 的 /models 端点可能返回有限列表。实际可用模型以 Gemini 官方列表为准，建议手动添加所需模型 ID。",
-  "config.fetchModelsHintMistral": "Mistral API 的 /models 端点可能未开放访问。建议手动添加 Mistral 模型 ID（如 mistral-large-latest），或查看 Mistral 官方文档获取完整列表。",
-  "config.fetchModelsHintOpenaiCompletions": "获取模型列表失败。OpenAI Chat Completions API 的 /v1/models 和 /models 端点均未返回有效数据。如果使用代理或第三方服务，请确认该服务是否支持模型列表查询。不支持时可直接在「额外模型」中手动添加已知模型 ID。",
-  "config.testConnectionHint": "测试通过真实 pi 调用完成，与会话走同一路径。测试失败意味着该模型在会话中大概率也无法使用，请检查 Base URL、API Key 与模型 ID。",
-  "config.testFailedButModelsFetched": "已成功获取模型列表，说明网络与鉴权正常，但真实调用失败——通常是模型 ID 与网关不匹配。请确认测试模型 ID 正确，或改用列表中的模型。",
+  "config.fetchModelsHint":
+    "获取失败可能因服务方对 /models 端点做了限制。实际可用模型以启动会话后 /model 命令列出为准。",
+  "config.fetchModelsHintOpenai":
+    "获取模型列表失败。已尝试 /v1/models 和 /models 两个路径，均未返回有效模型列表。OpenAI / Responses API 网关可能限制 models 端点访问。建议在「额外模型」中手动添加已知的模型 ID（如 gpt-4o、gpt-4o-mini），然后启动会话后使用 /model 命令确认可用模型。",
+  "config.fetchModelsHintAnthropic":
+    "Anthropic Messages API 不支持 /models 端点。请手动添加 Claude 模型 ID（如 claude-sonnet-4-20250514、claude-3.5-haiku），或查看 pi 官方文档获取完整模型列表。",
+  "config.fetchModelsHintOpenaiCodex":
+    "Codex Responses 不支持通用 /models 端点。请在「额外模型」中手动添加可用模型 ID，或从会话历史/文档中查找模型名称。",
+  "config.fetchModelsHintGoogle":
+    "Google Generative AI API 的 /models 端点可能返回有限列表。实际可用模型以 Gemini 官方列表为准，建议手动添加所需模型 ID。",
+  "config.fetchModelsHintMistral":
+    "Mistral API 的 /models 端点可能未开放访问。建议手动添加 Mistral 模型 ID（如 mistral-large-latest），或查看 Mistral 官方文档获取完整列表。",
+  "config.fetchModelsHintOpenaiCompletions":
+    "获取模型列表失败。OpenAI Chat Completions API 的 /v1/models 和 /models 端点均未返回有效数据。如果使用代理或第三方服务，请确认该服务是否支持模型列表查询。不支持时可直接在「额外模型」中手动添加已知模型 ID。",
+  "config.testConnectionHint":
+    "测试通过真实 pi 调用完成，与会话走同一路径。测试失败意味着该模型在会话中大概率也无法使用，请检查 Base URL、API Key 与模型 ID。",
+  "config.testFailedButModelsFetched":
+    "已成功获取模型列表，说明网络与鉴权正常，但真实调用失败——通常是模型 ID 与网关不匹配。请确认测试模型 ID 正确，或改用列表中的模型。",
   "config.fetchedModels": "已获取 {count} 个模型",
   "config.imported": "配置已导入",
   "config.importFailed": "导入失败",
@@ -1875,16 +2073,21 @@ export const zhCN = {
   "config.saveAndClose": "保存并关闭",
   "config.discardChanges": "放弃更改",
   "config.dirtyTooltip": "有未保存的修改",
-  "config.modelsSavedRestartHint": "模型配置已保存，请重启激活的 Agent 会话以应用新配置",
+  "config.modelsSavedRestartHint":
+    "模型配置已保存，请重启激活的 Agent 会话以应用新配置",
   "config.modelsSaved": "模型配置已保存",
-  "config.modelsSavedWithSpecs": "已保存，并为 {count} 个模型按能力目录补全规格",
+  "config.modelsSavedWithSpecs":
+    "已保存，并为 {count} 个模型按能力目录补全规格",
   "config.modelsSavedVerified": "模型配置已保存，共 {count} 个模型",
-  "config.modelsSavedButEmpty": "配置已保存，但里面没有模型。请到「模型」页添加供应商或用「获取模型」拉取。",
+  "config.modelsSavedButEmpty":
+    "配置已保存，但里面没有模型。请到「模型」页添加供应商或用「获取模型」拉取。",
   // 保存后的后台 pi 验证（fork 真实 pi 确认配置可加载）失败提示；成功静默不弹。
   "config.modelsVerifyFailedTitle": "模型配置验证失败",
-  "config.modelsVerifyFailed": "pi 加载模型列表未通过，新配置可能不生效：{detail}",
+  "config.modelsVerifyFailed":
+    "pi 加载模型列表未通过，新配置可能不生效：{detail}",
   "config.modelsRefreshed": "已刷新 {count} 个 Agent 的模型配置",
-  "config.modelsRefreshedPartial": "已刷新 {refreshed} 个 Agent，{failed} 个刷新失败",
+  "config.modelsRefreshedPartial":
+    "已刷新 {refreshed} 个 Agent，{failed} 个刷新失败",
   "config.usage.refresh": "刷新用量",
   "config.usage.remainingShort": "剩",
   "config.usage.usedShort": "已用",
@@ -1905,7 +2108,8 @@ export const zhCN = {
   "config.usageProbe.enable": "启用用量查询",
   "config.usageProbe.templatesTitle": "预设模板",
   "config.usageProbe.builtin": "已内置：{label}",
-  "config.usageProbe.builtinHint": "内置模板已就绪：无需填写任何字段，打开上方「启用用量查询」后生效",
+  "config.usageProbe.builtinHint":
+    "内置模板已就绪：无需填写任何字段，打开上方「启用用量查询」后生效",
   "config.usageProbe.category.balance": "官方余额",
   "config.usageProbe.category.plan": "套餐额度",
   "config.usageProbe.category.subscription": "官方订阅",
@@ -1913,20 +2117,26 @@ export const zhCN = {
   "config.usageProbe.category.newapi": "New API",
   "config.usageProbe.category.cookie": "Cookie 登录态",
   "config.usageProbe.category.none": "无模板",
-  "config.usageProbe.noneHint": "不选任何预设模板：仅依赖内置候选与旧探针自动匹配（适合通用/New API 都不适用的供应商）",
+  "config.usageProbe.noneHint":
+    "不选任何预设模板：仅依赖内置候选与旧探针自动匹配（适合通用/New API 都不适用的供应商）",
   "config.usageProbe.noneNoTest": "无模板时没有可探测的端点，无需测试",
   "config.usageProbe.generalHint": "通用 OpenAI 兼容 /usage 端点",
   "config.usageProbe.balanceHint": "自动使用供应商的 API Key 查询账户余额",
-  "config.usageProbe.planHint": "自动使用供应商的 API Key 和 Base URL 查询套餐额度",
-  "config.usageProbe.subscriptionHint": "读取登录凭据（OAuth）查询官方订阅额度；启用并保存后才会请求",
+  "config.usageProbe.planHint":
+    "自动使用供应商的 API Key 和 Base URL 查询套餐额度",
+  "config.usageProbe.subscriptionHint":
+    "读取登录凭据（OAuth）查询官方订阅额度；启用并保存后才会请求",
   "config.usageProbe.newapiHint": "New API / OneAPI 中转站余额（积分自动换算）",
-  "config.usageProbe.cookieHint": "自研网关网页后台接口（如 /api/wallet/summary），需要登录态 Cookie 且不能用 API Key（否则双凭证冲突）",
-  "config.usageProbe.legacyDetected": "检测到旧版探针配置（{name}，共 {count} 条）：已自动填入 Cookie 模板字段，直接保存即可迁移为新格式",
+  "config.usageProbe.cookieHint":
+    "自研网关网页后台接口（如 /api/wallet/summary），需要登录态 Cookie 且不能用 API Key（否则双凭证冲突）",
+  "config.usageProbe.legacyDetected":
+    "检测到旧版探针配置（{name}，共 {count} 条）：已自动填入 Cookie 模板字段，直接保存即可迁移为新格式",
   "config.usageProbe.legacyUnnamed": "未命名探针",
   "config.usageProbe.credentialApiKey": "API Key（可选）",
   "config.usageProbe.credentialApiKeyPlaceholder": "留空则使用供应商的 API Key",
   "config.usageProbe.credentialBaseUrl": "请求地址（可选）",
-  "config.usageProbe.credentialBaseUrlPlaceholder": "留空则使用供应商的请求地址",
+  "config.usageProbe.credentialBaseUrlPlaceholder":
+    "留空则使用供应商的请求地址",
   "config.usageProbe.timeout": "超时时间（秒）",
   "config.usageProbe.interval": "自动查询间隔（分钟，0 表示不自动查询）",
   "config.usageProbe.test": "测试",
@@ -1940,25 +2150,38 @@ export const zhCN = {
   "config.usageProbe.saveFailed": "保存失败",
   "config.usageProbe.saveError": "保存失败：{error}",
   "config.usageProbe.aiAssist": "让 AI 帮我查接口文档",
-  "config.usageProbe.aiAssistTitle": "把提示词填入主会话输入框并关闭设置，发送即可让 AI 帮你查文档",
-  "config.usageProbe.aiAssistInserted": "已把提示词填入主会话输入框，发送即可让 AI 帮你查",
-  "config.usageProbe.aiAssistCopiedOnly": "当前没有活动会话可填入，已复制提示词到剪贴板；粘贴给 pi 发送即可",
-  "config.usageProbe.aiPrompt": "请帮我让供应商「{provider}」显示用量/余额。usage-probe 技能已装好，请按技能里的流程处理：\n1. 先判断该供应商是否已内置用量支持——内置的话直接告诉我，无需配置；\n2. 未内置时，按接口形态告诉我在「用量查询」弹窗里选「通用模板」「New API」还是「Cookie 登录态」、要填哪些字段；\n3. 都覆盖不了时，帮我写 {configPath} 的 probes 数组（配置里不要写 apiKey）。\n\n供应商名称：{provider}\n接口 baseUrl：\n用量/余额接口文档链接（可选）：",
+  "config.usageProbe.aiAssistTitle":
+    "把提示词填入主会话输入框并关闭设置，发送即可让 AI 帮你查文档",
+  "config.usageProbe.aiAssistInserted":
+    "已把提示词填入主会话输入框，发送即可让 AI 帮你查",
+  "config.usageProbe.aiAssistCopiedOnly":
+    "当前没有活动会话可填入，已复制提示词到剪贴板；粘贴给 pi 发送即可",
+  "config.usageProbe.aiPrompt":
+    "请帮我让供应商「{provider}」显示用量/余额。usage-probe 技能已装好，请按技能里的流程处理：\n1. 先判断该供应商是否已内置用量支持——内置的话直接告诉我，无需配置；\n2. 未内置时，按接口形态告诉我在「用量查询」弹窗里选「通用模板」「New API」还是「Cookie 登录态」、要填哪些字段；\n3. 都覆盖不了时，帮我写 {configPath} 的 probes 数组（配置里不要写 apiKey）。\n\n供应商名称：{provider}\n接口 baseUrl：\n用量/余额接口文档链接（可选）：",
   "config.usageProbe.newApiToken": "访问令牌",
-  "config.usageProbe.newApiTokenPlaceholder": "在 New API 网站「个人设置 → 安全」里生成",
-  "config.usageProbe.newApiTokenRequired": "请填写访问令牌（New API 网站「个人设置 → 安全」里生成）",
+  "config.usageProbe.newApiTokenPlaceholder":
+    "在 New API 网站「个人设置 → 安全」里生成",
+  "config.usageProbe.newApiTokenRequired":
+    "请填写访问令牌（New API 网站「个人设置 → 安全」里生成）",
   "config.usageProbe.newApiUserId": "用户 ID",
   "config.usageProbe.newApiUserIdPlaceholder": "例如 114514",
-  "config.usageProbe.newApiUserIdRequired": "请填写用户 ID（New API 网站个人资料页可见）",
+  "config.usageProbe.newApiUserIdRequired":
+    "请填写用户 ID（New API 网站个人资料页可见）",
   "config.usageProbe.cookieLabel": "登录 Cookie",
-  "config.usageProbe.cookiePlaceholder": "浏览器 F12 → Network → 接口请求头的 Cookie 完整值，如 _c_xxx=...; tr_session=sess_...",
-  "config.usageProbe.cookieRequired": "请填写登录 Cookie（F12 → Network → 接口请求头 Cookie）",
+  "config.usageProbe.cookiePlaceholder":
+    "浏览器 F12 → Network → 接口请求头的 Cookie 完整值，如 _c_xxx=...; tr_session=sess_...",
+  "config.usageProbe.cookieRequired":
+    "请填写登录 Cookie（F12 → Network → 接口请求头 Cookie）",
   "config.usageProbe.cookiePathLabel": "接口路径",
-  "config.usageProbe.cookiePathPlaceholder": "以 / 开头，例如 /api/wallet/summary",
-  "config.usageProbe.cookiePathRequired": "请填写接口路径（以 / 开头的余额接口）",
+  "config.usageProbe.cookiePathPlaceholder":
+    "以 / 开头，例如 /api/wallet/summary",
+  "config.usageProbe.cookiePathRequired":
+    "请填写接口路径（以 / 开头的余额接口）",
   "config.usageProbe.cookieValuePathLabel": "余额字段路径",
-  "config.usageProbe.cookieValuePathPlaceholder": "响应 JSON 中的余额路径，例如 data.availableBalanceCny",
-  "config.usageProbe.cookieValuePathRequired": "请填写余额字段路径（响应 JSON 中余额所在位置，如 data.availableBalanceCny）",
+  "config.usageProbe.cookieValuePathPlaceholder":
+    "响应 JSON 中的余额路径，例如 data.availableBalanceCny",
+  "config.usageProbe.cookieValuePathRequired":
+    "请填写余额字段路径（响应 JSON 中余额所在位置，如 data.availableBalanceCny）",
   "config.usageProbe.cookieCurrencyPathLabel": "币种字段路径（可选）",
   "config.usageProbe.cookieCurrencyPathPlaceholder": "例如 data.currency",
   "config.usageProbe.loadFailed": "读取探针配置失败：{error}",
@@ -1980,27 +2203,33 @@ export const zhCN = {
   "config.count.extensions": "{count} 个扩展",
   "config.count.auth": "{count} 个认证",
   "config.retry.title": "自动重试",
-  "config.retry.hint": "只配置 pi Agent 外层重试次数和基础延迟，通过指数退避处理供应商请求失败。修改后需重启 Agent 生效。",
+  "config.retry.hint":
+    "只配置 pi Agent 外层重试次数和基础延迟，通过指数退避处理供应商请求失败。修改后需重启 Agent 生效。",
   "config.retry.maxRetries": "最大重试次数",
   "config.retry.baseDelayMs": "基础延迟 (ms)",
   "config.count.models": "{count} 模型",
   "config.count.providers": "{count} 个供应商",
   // ── 内置供应商（TokenDance） ──
-  "config.tokendance.subtitle": "词元跳动 · 一个 Key 接入海量模型的 OpenAI 兼容网关",
+  "config.tokendance.subtitle":
+    "词元跳动 · 一个 Key 接入海量模型的 OpenAI 兼容网关",
   "config.tokendance.modelsCount": "模型目录",
   "config.tokendance.fromCache": "缓存",
   "config.tokendance.appUrlLabel": "App URL",
   "config.tokendance.hint":
     "配置后会写入 Pi 模型配置（含 DSH 模型目录），模型列表与用量查询即走既有链路；请求自带 X-App-URL 归因头。",
-  "config.tokendance.advantageOne": "一个 API Key 即可调用市面上绝大多数模型平台，无需分别注册维护",
-  "config.tokendance.advantageTwo": "大量模型有特价，常见模型价格明显低于官方直购，并定期有免费模型可用",
-  "config.tokendance.advantageCredit": "新用户注册即送 1 元体验额度，可以先免费试用再决定是否充值",
+  "config.tokendance.advantageOne":
+    "一个 API Key 即可调用市面上绝大多数模型平台，无需分别注册维护",
+  "config.tokendance.advantageTwo":
+    "大量模型有特价，常见模型价格明显低于官方直购，并定期有免费模型可用",
+  "config.tokendance.advantageCredit":
+    "新用户注册即送 1 元体验额度，可以先免费试用再决定是否充值",
   "config.tokendance.expandDetails": "展开/收起详情",
   "config.tokendance.catalogError": "目录拉取失败",
   "config.tokendance.addToConfig": "一键配置",
   "config.tokendance.configuredBadge": "已配置",
   "config.tokendance.alreadyConfigured": "已配置",
-  "config.tokendance.alreadyConfiguredTitle": "已写入配置，可在下方供应商卡片中编辑",
+  "config.tokendance.alreadyConfiguredTitle":
+    "已写入配置，可在下方供应商卡片中编辑",
   "config.tokendance.oauthButton": "获取 / 更新 API Key",
   "config.tokendance.installTitle": "配置 TokenDance？",
   "config.tokendance.installDesc":
@@ -2017,10 +2246,12 @@ export const zhCN = {
   "config.tokendance.keyOptionPaste": "我已有 API Key，直接粘贴",
   "config.tokendance.keyPastePlaceholder": "粘贴 API Key…",
   "config.tokendance.keyApply": "保存 Key",
-  "config.tokendance.keyOptionOauth": "前往 TokenDance 授权获取（自动创建 Key）",
+  "config.tokendance.keyOptionOauth":
+    "前往 TokenDance 授权获取（自动创建 Key）",
   "config.tokendance.keyLater": "稍后再说",
   "config.tokendance.oauthAppUrl": "归因 App URL：{appUrl}",
-  "config.tokendance.oauthStepCode": "授权完成后复制页面上的一次性授权码（10 分钟有效），粘贴到下方输入框：",
+  "config.tokendance.oauthStepCode":
+    "授权完成后复制页面上的一次性授权码（10 分钟有效），粘贴到下方输入框：",
   "config.tokendance.oauthCodePlaceholder": "粘贴一次性授权码…",
   "config.tokendance.oauthOpenPage": "打开授权页",
   "config.tokendance.oauthReopen": "重新打开授权页",
@@ -2029,14 +2260,18 @@ export const zhCN = {
   // 单一操作弹窗：授权 + 自动收 Key + 写入配置一次完成
   "config.tokendance.setupPrimary": "授权并一键配置",
   "config.tokendance.setupPrimaryUpdate": "授权并更新 API Key",
-  "config.tokendance.waitingBrowser": "已在浏览器打开授权页：完成登录后 PiDeck 会自动接收 API Key 并写入配置，无需手动复制。",
+  "config.tokendance.waitingBrowser":
+    "已在浏览器打开授权页：完成登录后 PiDeck 会自动接收 API Key 并写入配置，无需手动复制。",
   "config.tokendance.writingConfig": "正在写入配置…",
-  "config.tokendance.headlessFallback": "本机回环端口不可用，已改用手动方式：请在授权页复制一次性授权码后粘贴到下方。",
-  "config.tokendance.manualHint": "自动接收未完成？把授权页上的一次性授权码粘贴到方式 1，或直接粘贴你在 TokenDance 后台创建的 API Key（方式 2）。",
+  "config.tokendance.headlessFallback":
+    "本机回环端口不可用，已改用手动方式：请在授权页复制一次性授权码后粘贴到下方。",
+  "config.tokendance.manualHint":
+    "自动接收未完成？把授权页上的一次性授权码粘贴到方式 1，或直接粘贴你在 TokenDance 后台创建的 API Key（方式 2）。",
   "config.count.skills": "{count} 个 Skill",
   "config.custom": "自定义",
   "config.deleteModel": "删除模型",
-  "config.deleteModelsBatchConfirm": "确认删除供应商「{provider}」下选中的 {count} 个模型吗？此操作不可撤销。",
+  "config.deleteModelsBatchConfirm":
+    "确认删除供应商「{provider}」下选中的 {count} 个模型吗？此操作不可撤销。",
   "config.modelBatchSelected": "已选 {selected} / {total}",
   "config.selectAllModels": "选择全部模型",
   "config.selectModel": "选择模型 {model}",
@@ -2044,37 +2279,45 @@ export const zhCN = {
   "config.duplicateProvider": "复制供应商",
   "config.migrate.toDsh": "一键迁移到 DSH",
   "config.migrate.toPi": "一键迁移到 pi",
-  "config.migrate.overwriteConfirm": "对端已有供应商「{name}」，覆盖它的地址、模型和密钥？",
+  "config.migrate.overwriteConfirm":
+    "对端已有供应商「{name}」，覆盖它的地址、模型和密钥？",
   "config.migrate.overwriteTitle": "覆盖已有供应商",
   "config.migrate.overwriteAction": "覆盖",
   "config.migrate.okWithKey": "已迁移「{name}」（含 API 密钥）",
-  "config.migrate.okNoKey": "已迁移「{name}」（未找到可复制的密钥，请到对端补填）",
+  "config.migrate.okNoKey":
+    "已迁移「{name}」（未找到可复制的密钥，请到对端补填）",
   "config.migrate.failed": "供应商迁移失败",
   "config.deleteSkillConfirmTitle": "删除 Skill",
   "config.deleteSkillConfirmBody":
     "确认删除「{name}」吗？此操作会删除本地 Skill 文件，且不可撤销。",
   "config.deletePromptConfirmTitle": "删除提示词",
-  "config.deletePromptConfirmBody":
-    "确认删除「{name}」吗？此操作不可撤销。",
+  "config.deletePromptConfirmBody": "确认删除「{name}」吗？此操作不可撤销。",
   "config.label.enabledModels": "模型切换列表",
   "config.label.defaultProvider": "默认供应商",
   "config.label.defaultModel": "默认模型",
   "config.defaults.title": "默认供应商与模型",
-  "config.defaults.hint": "始终展示的常驻配置（即使 settings.json 里未写入也会显示，留空即不生效）。留空时 pi 自动选择：默认供应商取首个有可用凭据的供应商，默认模型取该供应商的第一个模型。",
+  "config.defaults.hint":
+    "始终展示的常驻配置（即使 settings.json 里未写入也会显示，留空即不生效）。留空时 pi 自动选择：默认供应商取首个有可用凭据的供应商，默认模型取该供应商的第一个模型。",
   "config.general.title": "通用行为",
-  "config.general.hint": "高频 pi 配置的常驻入口，未写入时显示为空/默认值，仅保存后写入 settings.json 生效。",
+  "config.general.hint":
+    "高频 pi 配置的常驻入口，未写入时显示为空/默认值，仅保存后写入 settings.json 生效。",
   "config.general.thinkingLevelPlaceholder": "未设置（默认）",
-  "config.general.thinkingLevelHint": "默认思考档位：off/low/medium/high/xhigh/max，留空由 pi 按模型和上下文决定",
+  "config.general.thinkingLevelHint":
+    "默认思考档位：off/low/medium/high/xhigh/max，留空由 pi 按模型和上下文决定",
   "config.general.hideThinkingBlockHint": "在输出中隐藏思考过程块",
   "config.general.quietStartupHint": "启动时隐藏版本横幅输出",
   "config.general.steeringModePlaceholder": "未设置（默认 one-at-a-time）",
-  "config.general.steeringModeHint": "steering 消息的发送模式：all 一次全部发送，one-at-a-time 逐条",
+  "config.general.steeringModeHint":
+    "steering 消息的发送模式：all 一次全部发送，one-at-a-time 逐条",
   "config.general.followUpModePlaceholder": "未设置（默认 one-at-a-time）",
-  "config.general.followUpModeHint": "后续追问消息的发送模式：all / one-at-a-time",
+  "config.general.followUpModeHint":
+    "后续追问消息的发送模式：all / one-at-a-time",
   "config.general.projectTrustPlaceholder": "未设置（默认 ask）",
-  "config.general.projectTrustHint": "RPC 模式不弹信任询问，决定是否加载项目 .pi/settings.json 等资源：ask 忽略（默认）/ always 信任 / never 永不",
+  "config.general.projectTrustHint":
+    "RPC 模式不弹信任询问，决定是否加载项目 .pi/settings.json 等资源：ask 忽略（默认）/ always 信任 / never 永不",
   "config.general.transportPlaceholder": "auto（自动选择）",
-  "config.general.transportHint": "多协议供应商的传输方式：sse / websocket / websocket-cached / auto",
+  "config.general.transportHint":
+    "多协议供应商的传输方式：sse / websocket / websocket-cached / auto",
   "config.label.lastChangelogVersion": "上次更新日志版本",
   "config.label.customPrompt": "自定义提示词",
   "config.label.promptGuidelines": "提示词指南",
@@ -2105,9 +2348,11 @@ export const zhCN = {
   "config.openOfficialDocs": "查看官方文档",
   "config.description": "描述",
   "config.developerRole": "developer 角色",
-  "config.developerRoleDesc": "API 不支持 developer role 时关闭，pi 将改用 system role 发送系统提示。",
+  "config.developerRoleDesc":
+    "API 不支持 developer role 时关闭，pi 将改用 system role 发送系统提示。",
   "config.reasoningContentReplay": "回传思考内容",
-  "config.reasoningContentReplayDesc": "DeepSeek 系接口要求带工具调用的历史回合回传 reasoning_content，缺字段会报 400。经中转站用 DeepSeek 模型时建议开启（保存时也会按 provider 名/地址/模型 ID 自动开启）。",
+  "config.reasoningContentReplayDesc":
+    "DeepSeek 系接口要求带工具调用的历史回合回传 reasoning_content，缺字段会报 400。经中转站用 DeepSeek 模型时建议开启（保存时也会按 provider 名/地址/模型 ID 自动开启）。",
   "config.docsCustomProvider": "自定义供应商文档",
   "config.docsModels": "models 文档",
   "config.docsSettings": "settings 文档",
@@ -2123,13 +2368,15 @@ export const zhCN = {
   "config.settings.selectModelFor": "为 {provider} 选择或输入模型",
   "config.settings.selectModelFirst": "请先选择服务商",
   "config.settings.addEnabledModels": "添加模型切换列表 (enabledModels)",
-  "config.settings.enabledModelsHint": "限定会话中可切换的模型（provider/id 或 glob 模式），未配置时不限制。",
+  "config.settings.enabledModelsHint":
+    "限定会话中可切换的模型（provider/id 或 glob 模式），未配置时不限制。",
   "config.settings.enabledModelsPlaceholder": "点击选择加入切换列表的模型",
   "config.settings.enabledModelsSelected": "个模型已选",
-  "config.settings.enabledModelsSearchPlaceholder": "搜索模型 ID… 输入含 * 或 ? 可添加 glob 模式",
+  "config.settings.enabledModelsSearchPlaceholder":
+    "搜索模型 ID… 输入含 * 或 ? 可添加 glob 模式",
   "config.settings.enabledModelsGlobHint": "glob 模式",
   "config.loadingExtensions": "正在加载扩展列表…",
-"config.emptyExtensions": "暂无已安装扩展。",
+  "config.emptyExtensions": "暂无已安装扩展。",
   "config.emptyModels": "暂无模型，点击「+ 模型」添加",
   "config.emptyProviders": "暂无供应商配置",
   "config.others.title": "其他设置项",
@@ -2140,14 +2387,16 @@ export const zhCN = {
   "editor.source": "源码",
   "editor.attachSelectionRange": "引用选中内容（第 {range} 行）",
   "editor.diffTooLarge": "文件过大，无法显示差异对比",
-  "editor.diffTooLargeDetail": "旧文件 {old} 行，新文件 {new} 行，请使用 git diff 查看",
+  "editor.diffTooLargeDetail":
+    "旧文件 {old} 行，新文件 {new} 行，请使用 git diff 查看",
   "editor.pdfPreview": "PDF 预览",
   "editors.clear": "清除",
   "editors.browse": "浏览",
   "editors.detectedFrom": "来源：{source}",
   "editors.detecting": "检测中...",
   "editors.enabled": "启用",
-  "editors.hint": "管理项目下拉菜单中的外部编辑器。首次启动会异步检测，路径也可以手动填写。",
+  "editors.hint":
+    "管理项目下拉菜单中的外部编辑器。首次启动会异步检测，路径也可以手动填写。",
   "editors.notConfigured": "未配置",
   "editors.pathPlaceholder": "编辑器可执行文件路径",
   "editors.redetect": "重新检测",
@@ -2170,8 +2419,10 @@ export const zhCN = {
   "config.builtInExt.versionUnknown": "版本未知",
   "config.builtInExt.rowVersion": "v{version}",
   "config.builtInExt.overlayActive": "已应用热更新",
-  "config.builtInExt.description": "内置扩展随应用分发；可在此直接同步远端最新版，紧急补丁无需等应用发版。",
-  "config.builtInExt.restartHint": "热更新需新建或重启 agent 才生效（当前运行中的会话仍用旧扩展）。",
+  "config.builtInExt.description":
+    "内置扩展随应用分发；可在此直接同步远端最新版，紧急补丁无需等应用发版。",
+  "config.builtInExt.restartHint":
+    "热更新需新建或重启 agent 才生效（当前运行中的会话仍用旧扩展）。",
   "config.builtInExt.check": "检测更新",
   "config.builtInExt.checking": "检测中…",
   "config.builtInExt.update": "更新到最新",
@@ -2182,11 +2433,15 @@ export const zhCN = {
   "config.builtInExt.upToDate": "已是最新（远端 v{version}）",
   "config.builtInExt.hasUpdate": "远端 v{remote} · {count} 个文件有更新",
   "config.builtInExt.upToDateToast": "内置扩展已是最新（v{version}）",
-  "config.builtInExt.hasUpdateToast": "内置扩展发现更新：远端 v{remote}，{count} 个文件有差异",
-  "config.builtInExt.updatedToast": "内置扩展已更新到 v{version}（{count} 个文件），新建或重启 agent 生效",
+  "config.builtInExt.hasUpdateToast":
+    "内置扩展发现更新：远端 v{remote}，{count} 个文件有差异",
+  "config.builtInExt.updatedToast":
+    "内置扩展已更新到 v{version}（{count} 个文件），新建或重启 agent 生效",
   "config.builtInExt.alreadyLatestToast": "内置扩展已是最新，未做改动",
-  "config.builtInExt.restoredToast": "已还原为随包分发的内置版本，新建或重启 agent 生效",
-  "config.builtInExt.restoredPreviousToast": "已恢复上一个热更新版本，新建或重启 agent 生效",
+  "config.builtInExt.restoredToast":
+    "已还原为随包分发的内置版本，新建或重启 agent 生效",
+  "config.builtInExt.restoredPreviousToast":
+    "已恢复上一个热更新版本，新建或重启 agent 生效",
   "config.builtInExt.nothingToRestoreToast": "没有可还原的覆盖层",
   "config.builtInExt.checkFailed": "检测内置扩展更新失败：{error}",
   "config.builtInExt.operationFailed": "内置扩展操作失败：{error}",
@@ -2201,7 +2456,8 @@ export const zhCN = {
   "config.contentStore.upToDate": "已是最新（远端 v{version}）",
   "config.contentStore.hasUpdate": "远端 v{remote} · {count} 个文件有更新",
   "config.contentStore.upToDateToast": "已是最新（v{version}）",
-  "config.contentStore.hasUpdateToast": "发现更新：远端 v{remote}，{count} 个文件有差异",
+  "config.contentStore.hasUpdateToast":
+    "发现更新：远端 v{remote}，{count} 个文件有差异",
   "config.contentStore.updatedToast": "已更新到 v{version}（{count} 个文件）",
   "config.contentStore.alreadyLatestToast": "已是最新，未做改动",
   "config.contentStore.restoredToast": "已还原为随包分发的内置版本",
@@ -2213,11 +2469,15 @@ export const zhCN = {
   "config.contentStore.versionUnknown": "版本未知",
   "config.contentStore.overlayActive": "已应用热更新",
   "config.contentStore.prompts.title": "官方模板更新",
-  "config.contentStore.prompts.description": "随应用分发的内置模板；可在此直接同步远端最新版，紧急修正无需等应用发版。覆盖层优先于随包版本。",
-  "config.contentStore.prompts.restartHint": "热更新已写入覆盖层并即时生效，重新进入本页即可看到新模板。",
+  "config.contentStore.prompts.description":
+    "随应用分发的内置模板；可在此直接同步远端最新版，紧急修正无需等应用发版。覆盖层优先于随包版本。",
+  "config.contentStore.prompts.restartHint":
+    "热更新已写入覆盖层并即时生效，重新进入本页即可看到新模板。",
   "config.contentStore.skills.title": "内置技能更新",
-  "config.contentStore.skills.description": "随应用分发的内置技能（SKILL.md）；可在此直接同步远端最新版，紧急修正无需等应用发版。覆盖层优先于随包版本。",
-  "config.contentStore.skills.restartHint": "热更新已写入覆盖层并即时生效，重新进入技能列表即可看到新技能。",
+  "config.contentStore.skills.description":
+    "随应用分发的内置技能（SKILL.md）；可在此直接同步远端最新版，紧急修正无需等应用发版。覆盖层优先于随包版本。",
+  "config.contentStore.skills.restartHint":
+    "热更新已写入覆盖层并即时生效，重新进入技能列表即可看到新技能。",
   "config.extensionUpdatedToast": "{name} 已更新",
   "config.extensionUpdateCommandCopied": "更新指令已复制：{command}",
   "config.installedExtensions": "已安装扩展",
@@ -2251,56 +2511,91 @@ export const zhCN = {
   "goal.replaceConfirm": "当前有进行中的目标：「{goal}」\n是否替换为新目标？",
   "config.openPackageDetail": "查看包详情",
   "config.recommendedPackages": "推荐扩展包",
-  "config.recommendedPackagesHint": "以下扩展与 PiDeck 兼容，可直接安装使用。部分 CLI 特有功能（如 TUI 界面）在桌面端可能不适用。",
-  "config.recommendedPackage.contextMode": "MCP 插件，可节省 98% 的上下文窗口。支持 Claude Code、Gemini CLI、VS Code Copilot 等。沙箱代码执行、FTS5 知识库和意图驱动搜索。",
-  "config.recommendedPackage.webAccess": "网络搜索、URL 抓取、GitHub 仓库克隆、PDF 提取、YouTube 视频理解和本地视频分析。",
-  "config.recommendedPackage.mcpAdapter": "MCP（Model Context Protocol）适配器扩展，让 Pi 可以连接任何 MCP 服务器。",
-  "config.recommendedPackage.memory": "长期记忆扩展，用于在 Pi 会话之间保存和检索偏好、项目事实与经验教训。",
-  "config.recommendedPackage.subagents": "任务委派扩展，支持链式、并行执行和 TUI 澄清。可将复杂任务拆解给多个子 Agent。",
+  "config.recommendedPackagesHint":
+    "以下扩展与 PiDeck 兼容，可直接安装使用。部分 CLI 特有功能（如 TUI 界面）在桌面端可能不适用。",
+  "config.recommendedPackage.contextMode":
+    "MCP 插件，可节省 98% 的上下文窗口。支持 Claude Code、Gemini CLI、VS Code Copilot 等。沙箱代码执行、FTS5 知识库和意图驱动搜索。",
+  "config.recommendedPackage.webAccess":
+    "网络搜索、URL 抓取、GitHub 仓库克隆、PDF 提取、YouTube 视频理解和本地视频分析。",
+  "config.recommendedPackage.mcpAdapter":
+    "MCP（Model Context Protocol）适配器扩展，让 Pi 可以连接任何 MCP 服务器。",
+  "config.recommendedPackage.memory":
+    "长期记忆扩展，用于在 Pi 会话之间保存和检索偏好、项目事实与经验教训。",
+  "config.recommendedPackage.subagents":
+    "任务委派扩展，支持链式、并行执行和 TUI 澄清。可将复杂任务拆解给多个子 Agent。",
   "config.noDescription": "暂无描述",
   "projectResources.title": "项目技能 & 扩展 & 提示词",
   "projectResources.skillsTab": "技能 ({count})",
   "projectResources.extensionsTab": "扩展 ({count})",
   "projectResources.promptsTab": "提示词 ({count})",
-  "projectResources.emptyPrompts": "该项目暂无项目级提示词。.pi/prompts/ 下的 .md 文件将显示在这里。",
-  "projectResources.emptySkills": "该项目暂无 Skill。在上方输入名称和描述后点击添加。",
-  "projectResources.emptyExtensions": "该项目暂无 Extension。文件应放在 .pi/extensions/ 下。",
-  "projectResources.deleteSkillConfirm": "确认删除 Skill「{name}」吗？此操作会删除本地 Skill 文件。",
-  "projectResources.deleteExtensionConfirm": "确认删除 Extension「{name}」吗？此操作会删除本地 Extension 文件。",
-  "projectResources.extensionsHint": "项目扩展放在 .pi/extensions/ 目录下（.ts/.js 文件、含 index.ts/index.js 的子目录，或 package.json 的 pi.extensions 声明）。",
+  "projectResources.emptyPrompts":
+    "该项目暂无项目级提示词。.pi/prompts/ 下的 .md 文件将显示在这里。",
+  "projectResources.emptySkills":
+    "该项目暂无 Skill。在上方输入名称和描述后点击添加。",
+  "projectResources.emptyExtensions":
+    "该项目暂无 Extension。文件应放在 .pi/extensions/ 下。",
+  "projectResources.deleteSkillConfirm":
+    "确认删除 Skill「{name}」吗？此操作会删除本地 Skill 文件。",
+  "projectResources.deleteExtensionConfirm":
+    "确认删除 Extension「{name}」吗？此操作会删除本地 Extension 文件。",
+  "projectResources.extensionsHint":
+    "项目扩展放在 .pi/extensions/ 目录下（.ts/.js 文件、含 index.ts/index.js 的子目录，或 package.json 的 pi.extensions 声明）。",
   "projectResources.editFile": "在默认编辑器中打开 SKILL.md",
   "projectResources.editorSaved": "已保存",
   "projectResources.projectScope": "项目级",
   "projectResources.refreshed": "已刷新",
-  "projectResources.deletePromptConfirm": "确认删除提示词「{name}」吗？此操作会删除本地 .md 文件。",
-  "projectResources.chatUnsupported": "Chat 项目没有项目级资源目录（.pi/.agents），仅支持全局技能与全局提示词。",
+  "projectResources.deletePromptConfirm":
+    "确认删除提示词「{name}」吗？此操作会删除本地 .md 文件。",
+  "projectResources.chatUnsupported":
+    "Chat 项目没有项目级资源目录（.pi/.agents），仅支持全局技能与全局提示词。",
   "config.install": "安装",
   "config.installed": "已安装",
   // 扩展管理：pi list 输出的 "(filtered)" 标记（settings 里对象形式配置，只选择性加载资源）
   "config.extensionFiltered": "过滤式安装",
   // 推荐扩展列表的本地化描述（ExtensionsTab 按 descriptionKey 取文案）
-  "config.extRecommended.piDeckTodo": "PiDeck 内置：当前有效计划 TODO 扩展，支持显式替换、恢复和分支级持久化，并在对话中追踪任务进度。",
-  "config.extRecommended.piDeckPlanMode": "PiDeck 内置：计划模式扩展，让 AI 在回复前首先生成执行计划，复杂任务一目了然。",
-  "config.extRecommended.piDeckGoalMode": "PiDeck 内置：目标模式扩展，围绕一条目标自动连续推进，直到完成、阻塞或你暂停。",
-  "config.extRecommended.piDeckAskQuestion": "PiDeck 内置：在对话中插入精心设计的问题卡片，引导 AI 给出更精准的回答。",
-  "config.extRecommended.piDeckNulRedirectFix": "PiDeck 内置：修复 Windows 下 pi 重定向到 NUL 设备时可能产生的残留文件问题。",
-  "config.extRecommended.contextMode": "MCP 插件，可节省 98% 的上下文窗口。沙箱代码执行、FTS5 知识库和意图驱动搜索。",
-  "config.extRecommended.piWebAccess": "网络搜索、URL 抓取、GitHub 仓库克隆、PDF 提取、YouTube 视频理解和本地视频分析。",
-  "config.extRecommended.piMcpAdapter": "MCP（Model Context Protocol）适配器扩展，让 Pi 可以连接任何 MCP 服务器。",
-  "config.extRecommended.piSubagents": "任务委派扩展，支持链式、并行执行和 TUI 澄清。可将复杂任务拆解给多个子 Agent。",
+  "config.extRecommended.piDeckTodo":
+    "PiDeck 内置：当前有效计划 TODO 扩展，支持显式替换、恢复和分支级持久化，并在对话中追踪任务进度。",
+  "config.extRecommended.piDeckPlanMode":
+    "PiDeck 内置：计划模式扩展，让 AI 在回复前首先生成执行计划，复杂任务一目了然。",
+  "config.extRecommended.piDeckGoalMode":
+    "PiDeck 内置：目标模式扩展，围绕一条目标自动连续推进，直到完成、阻塞或你暂停。",
+  "config.extRecommended.piDeckAskQuestion":
+    "PiDeck 内置：在对话中插入精心设计的问题卡片，引导 AI 给出更精准的回答。",
+  "config.extRecommended.piDeckNulRedirectFix":
+    "PiDeck 内置：修复 Windows 下 pi 重定向到 NUL 设备时可能产生的残留文件问题。",
+  "config.extRecommended.contextMode":
+    "MCP 插件，可节省 98% 的上下文窗口。沙箱代码执行、FTS5 知识库和意图驱动搜索。",
+  "config.extRecommended.piWebAccess":
+    "网络搜索、URL 抓取、GitHub 仓库克隆、PDF 提取、YouTube 视频理解和本地视频分析。",
+  "config.extRecommended.piMcpAdapter":
+    "MCP（Model Context Protocol）适配器扩展，让 Pi 可以连接任何 MCP 服务器。",
+  "config.extRecommended.piSubagents":
+    "任务委派扩展，支持链式、并行执行和 TUI 澄清。可将复杂任务拆解给多个子 Agent。",
   // 已安装列表：内置扩展一行简介（ExtensionTableRow 按 source 映射 builtInExtDesc.*）
-  "config.builtInExtDesc.pi-deck-request-size-recovery": "请求体超限自动恢复：识别网关 413/请求体过大错误，征得同意后临时切换大上限模型压缩会话再切回，解除无法发送的死锁。",
-  "config.builtInExtDesc.pi-deck-ask-question": "注册 ask_question 工具：模型可通过桌面 UI 向你提问（单选/输入/确认/批量问题 Tab），回答回传给模型。",
-  "config.builtInExtDesc.pi-deck-goal-mode": "目标模式：围绕一条目标自动续轮推进，直到完成、阻塞、暂停或到达轮次上限；状态跨重启可恢复。",
-  "config.builtInExtDesc.pi-deck-nul-redirect-fix": "NUL 重定向修复：bash 执行前把「> nul」等 Windows 重定向改写为 /dev/null，避免 Git Bash 产生删不掉的 nul 文件。",
-  "config.builtInExtDesc.pi-deck-plan-mode": "计划模式：先以只读工具集产出编号计划，经你选择执行/停留/修改后再恢复写工具，[DONE:n] 标记驱动进度展示。",
-  "config.builtInExtDesc.pi-deck-retry-no-body": "瞬态错误重试增强：识别网关空响应、中文「服务暂时不可用」、stream_read_error 等 pi 重试名单外的瞬态故障并改写，触发自动重试。",
-  "config.builtInExtDesc.pi-deck-security-gate": "安全门：按会话安全等级策略拦截工具调用——危险 bash 命令弹窗确认或直接拒绝；策略快照热更新，无需重启。",
-  "config.builtInExtDesc.pi-deck-session-title": "会话标题生成：首轮结束后用独立最小上下文异步生成简短标题，不修改主对话与会话记录。",
-  "config.builtInExtDesc.pi-deck-subagents": "子代理状态桥接：订阅 pi-subagents / acp_delegate 委托链的生命周期事件，把各子代理的运行状态与结果快照推给桌面端子代理面板展示（本身不派发子代理）。",
-  "config.builtInExtDesc.pi-deck-todo": "待办计划管理：分支级持久化的当前工作计划，仅通过 list/add/update/delete/replace/restore/clear 显式工具变更，切换分支自动恢复对应计划。",
-  "config.builtInExtDesc.pi-deck-trash-guard": "回收站守卫：拦截 rm/Remove-Item 等删除类命令，执行前把每个目标复制送入系统回收站留底，原命令照常执行。",
-  "config.builtInExtDesc.pi-deck-vision": "视觉桥接：给 DeepSeek 等无视觉模型「装上眼睛」，把粘贴/上传及工具结果中的图片转成文字描述后再交给模型。",
+  "config.builtInExtDesc.pi-deck-request-size-recovery":
+    "请求体超限自动恢复：识别网关 413/请求体过大错误，征得同意后临时切换大上限模型压缩会话再切回，解除无法发送的死锁。",
+  "config.builtInExtDesc.pi-deck-ask-question":
+    "注册 ask_question 工具：模型可通过桌面 UI 向你提问（单选/输入/确认/批量问题 Tab），回答回传给模型。",
+  "config.builtInExtDesc.pi-deck-goal-mode":
+    "目标模式：围绕一条目标自动续轮推进，直到完成、阻塞、暂停或到达轮次上限；状态跨重启可恢复。",
+  "config.builtInExtDesc.pi-deck-nul-redirect-fix":
+    "NUL 重定向修复：bash 执行前把「> nul」等 Windows 重定向改写为 /dev/null，避免 Git Bash 产生删不掉的 nul 文件。",
+  "config.builtInExtDesc.pi-deck-plan-mode":
+    "计划模式：先以只读工具集产出编号计划，经你选择执行/停留/修改后再恢复写工具，[DONE:n] 标记驱动进度展示。",
+  "config.builtInExtDesc.pi-deck-retry-no-body":
+    "瞬态错误重试增强：识别网关空响应、中文「服务暂时不可用」、stream_read_error 等 pi 重试名单外的瞬态故障并改写，触发自动重试。",
+  "config.builtInExtDesc.pi-deck-security-gate":
+    "安全门：按会话安全等级策略拦截工具调用——危险 bash 命令弹窗确认或直接拒绝；策略快照热更新，无需重启。",
+  "config.builtInExtDesc.pi-deck-session-title":
+    "会话标题生成：首轮结束后用独立最小上下文异步生成简短标题，不修改主对话与会话记录。",
+  "config.builtInExtDesc.pi-deck-subagents":
+    "子代理状态桥接：订阅 pi-subagents / acp_delegate 委托链的生命周期事件，把各子代理的运行状态与结果快照推给桌面端子代理面板展示（本身不派发子代理）。",
+  "config.builtInExtDesc.pi-deck-todo":
+    "待办计划管理：分支级持久化的当前工作计划，仅通过 list/add/update/delete/replace/restore/clear 显式工具变更，切换分支自动恢复对应计划。",
+  "config.builtInExtDesc.pi-deck-trash-guard":
+    "回收站守卫：拦截 rm/Remove-Item 等删除类命令，执行前把每个目标复制送入系统回收站留底，原命令照常执行。",
+  "config.builtInExtDesc.pi-deck-vision":
+    "视觉桥接：给 DeepSeek 等无视觉模型「装上眼睛」，把粘贴/上传及工具结果中的图片转成文字描述后再交给模型。",
   "config.installing": "安装中...",
   "config.installFailed": "安装失败",
   "config.extensionToggleFailed": "切换扩展状态失败，请稍后重试",
@@ -2322,7 +2617,8 @@ export const zhCN = {
   "config.modelSpecAutoFilled": "已按模型能力目录填充 {model} 的规格",
   "config.modelResetAdaptive": "重置为自适应",
   "config.modelResetAdaptiveDone": "已按 {model} 的自适应模板重置能力字段",
-  "config.modelResetAdaptiveKept": "未匹配到自适应模板，已保留手动填写的容量字段",
+  "config.modelResetAdaptiveKept":
+    "未匹配到自适应模板，已保留手动填写的容量字段",
   "config.modelOptionExpand": "展开模型选项",
   "config.modelSelectPlaceholder": "选择模型",
   "config.modelSelectedCount": "已选 {count} 个模型",
@@ -2334,7 +2630,8 @@ export const zhCN = {
   "config.needsFix": "需修复",
   "config.openFolder": "打开目录",
   "config.providerNamePlaceholder": "供应商名称，如 openai",
-  "config.providerNameRule": "仅支持字母开头，字母、数字、下划线或连字符（用于 DSH 环境变量名兼容）",
+  "config.providerNameRule":
+    "仅支持字母开头，字母、数字、下划线或连字符（用于 DSH 环境变量名兼容）",
   "config.providerNameDuplicate": "该供应商已存在",
   "config.addProviderDialogTitle": "添加供应商",
   "config.editProviderDialogTitle": "编辑供应商",
@@ -2343,30 +2640,36 @@ export const zhCN = {
   "config.providerCollapse": "收起高级配置",
   "config.addProviderName": "供应商名称",
   "config.addProviderConfirm": "添加",
-  "config.providerDialogModelsHint": "已配置模型随供应商一起保存；也可先填 Base URL 和 API Key 拉取 /models 勾选加入。",
+  "config.providerDialogModelsHint":
+    "已配置模型随供应商一起保存；也可先填 Base URL 和 API Key 拉取 /models 勾选加入。",
   "config.modelsSavedFromFetch": "已加入 {count} 个模型",
   "config.modelsAlreadyConfigured": "所选模型均已配置",
   "config.hideProvider": "隐藏该供应商",
   "config.showProvider": "显示该供应商",
   "config.hiddenProviders": "已隐藏 ({count})",
-  "config.hiddenProvidersHint": "已隐藏的供应商不会显示在模型页列表与模型选择器中；点右侧眼睛按钮恢复。",
+  "config.hiddenProvidersHint":
+    "已隐藏的供应商不会显示在模型页列表与模型选择器中；点右侧眼睛按钮恢复。",
   "config.reason": "原因",
   "config.reasoning": "推理",
   "config.capabilities": "能力",
   "config.reasoningEffort": "推理强度",
-  "config.reasoningEffortDesc": "API 不支持 reasoning_effort 参数时关闭，避免请求被拒绝。",
+  "config.reasoningEffortDesc":
+    "API 不支持 reasoning_effort 参数时关闭，避免请求被拒绝。",
   "config.xhigh": "xhigh",
   "config.xhighOff": "关闭",
-  "config.xhighDesc": "声明该模型支持 pi 的 xhigh 档位，并选择发送给上游的 reasoning_effort 值。选择后会自动开启推理和 provider 的 reasoning_effort。",
+  "config.xhighDesc":
+    "声明该模型支持 pi 的 xhigh 档位，并选择发送给上游的 reasoning_effort 值。选择后会自动开启推理和 provider 的 reasoning_effort。",
   "config.thinkingLevels": "思考级别",
-  "config.thinkingLevelsDesc": "按 pi 内部 thinkingLevel（xhigh / max）映射到供应商实际发送值。每个级别独立配置，可映射到 xhigh 或 max。",
+  "config.thinkingLevelsDesc":
+    "按 pi 内部 thinkingLevel（xhigh / max）映射到供应商实际发送值。每个级别独立配置，可映射到 xhigh 或 max。",
   "config.modelCost": "计费（USD / 1M tokens）",
   "config.costInput": "输入",
   "config.costOutput": "输出",
   "config.costCacheRead": "缓存读",
   "config.costCacheWrite": "缓存写",
   "config.costTiersTitle": "梯度计费",
-  "config.costTiersHint": "输入 token（含缓存）超过阈值后，整次请求按该档费率计费；多档取满足条件中阈值最高的一档。",
+  "config.costTiersHint":
+    "输入 token（含缓存）超过阈值后，整次请求按该档费率计费；多档取满足条件中阈值最高的一档。",
   "config.costTiersAdd": "添加梯度",
   "config.costTierThreshold": "输入阈值",
   "config.costTiersEmpty": "暂无梯度，将始终按上方基础费率计费。",
@@ -2437,7 +2740,8 @@ export const zhCN = {
   "config.yaoLoadError": "加载中文提示词失败，请稍后重试",
   "config.yaoPreviewError": "加载提示词详情失败，请稍后重试",
   "config.yaoImportError": "导入提示词失败，请稍后重试",
-  "config.baseUrlHint": "获取/测试会兼容尝试 / 与 /v1；会话会原样使用此处地址。建议填写到 /v1（或 /v1beta）。",
+  "config.baseUrlHint":
+    "获取/测试会兼容尝试 / 与 /v1；会话会原样使用此处地址。建议填写到 /v1（或 /v1beta）。",
   "config.promptStoreInstallName": "安装后路径",
   "config.label.compaction": "会话压缩",
   "config.label.sessionDir": "会话目录",
@@ -2453,7 +2757,8 @@ export const zhCN = {
   "config.label.doubleEscapeAction": "双击 Esc 动作",
   "config.label.treeFilterMode": "会话树默认过滤",
   "config.sessionDir.title": "会话存储目录",
-  "config.sessionDir.hint": "仅配置全局 ~/.pi/agent/settings.json 的 sessionDir。相对路径相对项目 cwd（如 .pi/sessions）；留空则使用默认 ~/.pi/agent/sessions/。项目级请改对应项目的 .pi/settings.json。",
+  "config.sessionDir.hint":
+    "仅配置全局 ~/.pi/agent/settings.json 的 sessionDir。相对路径相对项目 cwd（如 .pi/sessions）；留空则使用默认 ~/.pi/agent/sessions/。项目级请改对应项目的 .pi/settings.json。",
   "config.sessionDir.placeholder": "例如 .pi/sessions 或 ~/my-sessions",
   "config.testConnection": "测试连接",
   "config.testElapsed": "耗时",
@@ -2461,14 +2766,14 @@ export const zhCN = {
   "config.testLatency": "延迟",
   "config.testModel": "测试模型",
   "config.testModelPlaceholder": "输入模型 ID 进行测试",
-"config.testProxy": "代理",
-"config.proxyFollow": "跟随全局",
-"config.proxyFollowHint": "跟随全局代理设置",
-"config.proxyPi": "PI 代理",
-"config.proxyDesktop": "桌面代理",
-"config.proxyOff": "直连",
-"config.proxyOffHint": "直连（绕过所有代理）",
-"config.proxyUrlUnset": "未配置代理 URL",
+  "config.testProxy": "代理",
+  "config.proxyFollow": "跟随全局",
+  "config.proxyFollowHint": "跟随全局代理设置",
+  "config.proxyPi": "PI 代理",
+  "config.proxyDesktop": "桌面代理",
+  "config.proxyOff": "直连",
+  "config.proxyOffHint": "直连（绕过所有代理）",
+  "config.proxyUrlUnset": "未配置代理 URL",
   "config.testOutputTokens": "输出 {count}",
   "config.testingConnection": "测试中…",
   "config.tokens": "Token",
@@ -2478,15 +2783,22 @@ export const zhCN = {
   "config.uninstallExtensionBody":
     "确认卸载「{source}」吗？这会执行 pi remove 并从 pi 配置中移除该扩展。",
   "config.deleteExtensionTitle": "删除扩展",
-  "config.deleteExtensionBody": "确认从当前作用域删除「{source}」吗？此操作需要新建或重启 Agent 才会生效。",
+  "config.deleteExtensionBody":
+    "确认从当前作用域删除「{source}」吗？此操作需要新建或重启 Agent 才会生效。",
   "config.userAgentRuntimeDefault": "不写入（使用运行时默认）",
   "config.userAgentBrowser": "Mozilla/5.0 (浏览器)",
-  "config.apiTypeDescription.openaiCompletions": "OpenAI Chat Completions API — 兼容性最广，适用于大多数第三方服务和本地模型",
-  "config.apiTypeDescription.openaiResponses": "OpenAI Responses API — 新版 API，支持更多功能",
-  "config.apiTypeDescription.openaiCodexResponses": "OpenAI Codex Responses — 用于 ChatGPT Plus/Pro 订阅。如遇问题可尝试 openai-responses + 自定义 User-Agent",
-  "config.apiTypeDescription.anthropicMessages": "Anthropic Messages API — Claude 系列模型专用",
-  "config.apiTypeDescription.googleGenerativeAi": "Google Generative AI API — Gemini 系列模型",
-  "config.apiTypeDescription.mistralConversations": "Mistral Conversations API — Mistral 模型原生接口",
+  "config.apiTypeDescription.openaiCompletions":
+    "OpenAI Chat Completions API — 兼容性最广，适用于大多数第三方服务和本地模型",
+  "config.apiTypeDescription.openaiResponses":
+    "OpenAI Responses API — 新版 API，支持更多功能",
+  "config.apiTypeDescription.openaiCodexResponses":
+    "OpenAI Codex Responses — 用于 ChatGPT Plus/Pro 订阅。如遇问题可尝试 openai-responses + 自定义 User-Agent",
+  "config.apiTypeDescription.anthropicMessages":
+    "Anthropic Messages API — Claude 系列模型专用",
+  "config.apiTypeDescription.googleGenerativeAi":
+    "Google Generative AI API — Gemini 系列模型",
+  "config.apiTypeDescription.mistralConversations":
+    "Mistral Conversations API — Mistral 模型原生接口",
   "config.im.botDefaultName": "飞书机器人",
   "config.im.addFailed": "添加失败",
   "config.im.loadFailed": "加载飞书配置失败",
@@ -2520,34 +2832,46 @@ export const zhCN = {
   "config.im.testConnection": "测试连接",
   "config.im.saving": "保存中…",
   "config.im.saveBot": "保存 Bot",
-  "config.im.feishuGuideHint": "请先创建飞书智能体或企业自建应用，然后将 App ID 和 App Secret 填入上方表单。点击下方「配置指南」查看详细步骤。",
-  "config.im.singleConnectionHint": "提示：同时只能连接一个 Bot。在会话区域可切换当前连接的 Bot。",
+  "config.im.feishuGuideHint":
+    "请先创建飞书智能体或企业自建应用，然后将 App ID 和 App Secret 填入上方表单。点击下方「配置指南」查看详细步骤。",
+  "config.im.singleConnectionHint":
+    "提示：同时只能连接一个 Bot。在会话区域可切换当前连接的 Bot。",
   "config.im.feishuOpenPlatform": "飞书开放平台",
   "config.im.guideMethodTitle": "配置方式",
   "config.im.guideMethodA": "方式一：飞书智能体（推荐，免配置）",
-  "config.im.guideMethodADesc": "飞书智能体已预置机器人能力、权限和事件订阅，创建即用，无需手动配置。",
+  "config.im.guideMethodADesc":
+    "飞书智能体已预置机器人能力、权限和事件订阅，创建即用，无需手动配置。",
   "config.im.guideMethodAStep1a": "打开飞书开放平台",
   "config.im.guideMethodAStep1b": "点击「创建智能体」，填写名称和描述",
   "config.im.guideMethodAStep2": "创建后会展示 App ID 和 App Secret",
   "config.im.guideMethodAStep3": "在 PiDeck 填入配置，点击保存后连接",
-  "config.im.guideMethodAStep4": "在飞书中向 Bot 发送 /whoami 获取你的 open_id，填入 Bot 详情中的「你的 Open ID」字段，以便新建会话时自动拉你进群",
+  "config.im.guideMethodAStep4":
+    "在飞书中向 Bot 发送 /whoami 获取你的 open_id，填入 Bot 详情中的「你的 Open ID」字段，以便新建会话时自动拉你进群",
   "config.im.guideMethodB": "方式二：飞书开放平台（手动配置）",
-  "config.im.guideMethodBDesc": "在开放平台手动创建企业自建应用，需自行开启权限和订阅事件。",
+  "config.im.guideMethodBDesc":
+    "在开放平台手动创建企业自建应用，需自行开启权限和订阅事件。",
   "config.im.guideMethodBStep1": "打开飞书开放平台 → 创建「企业自建应用」",
   "config.im.guideMethodBStep1a": "打开飞书开放平台",
   "config.im.guideMethodBStep1b": "创建「企业自建应用」",
   "config.im.guideMethodBStep2": "在「应用功能」→「机器人」中开启机器人能力",
-  "config.im.guideMethodBStep3": "在「权限管理」中开启以下权限（参考智能体默认权限集）：",
-  "config.im.guideMethodBStep4": "在「事件订阅」中配置 im.message.receive_v1（WebSocket 长连接模式）",
-  "config.im.guideMethodBStep5": "创建版本 → 设置可用范围 → 提交审核 → 发布上线",
-  "config.im.guideMethodBStep6": "在「凭证与基础信息」中获取 App ID 和 App Secret，填入 PiDeck",
+  "config.im.guideMethodBStep3":
+    "在「权限管理」中开启以下权限（参考智能体默认权限集）：",
+  "config.im.guideMethodBStep4":
+    "在「事件订阅」中配置 im.message.receive_v1（WebSocket 长连接模式）",
+  "config.im.guideMethodBStep5":
+    "创建版本 → 设置可用范围 → 提交审核 → 发布上线",
+  "config.im.guideMethodBStep6":
+    "在「凭证与基础信息」中获取 App ID 和 App Secret，填入 PiDeck",
   "config.im.guideGroupChat": "📌 群聊中需要 @机器人 才能触发回复",
   "config.im.guideScopeTitle": "权限和作用域（可复制导入）",
-  "config.im.guideScopeDesc": "在开放平台「权限管理」页面粘贴此 JSON 可批量添加权限",
+  "config.im.guideScopeDesc":
+    "在开放平台「权限管理」页面粘贴此 JSON 可批量添加权限",
   "config.im.guideEventsTitle": "事件订阅（可复制导入）",
-  "config.im.guideEventsDesc": "在开放平台「事件订阅」页面逐一添加或通过 API 批量订阅",
+  "config.im.guideEventsDesc":
+    "在开放平台「事件订阅」页面逐一添加或通过 API 批量订阅",
   "config.im.guideCallbacksTitle": "回调配置（可复制导入）",
-  "config.im.guideCallbacksDesc": "在开放平台「事件订阅」→「回调订阅」中添加，用于接收模型切换按钮点击",
+  "config.im.guideCallbacksDesc":
+    "在开放平台「事件订阅」→「回调订阅」中添加，用于接收模型切换按钮点击",
   "config.im.guideOpenPlatform": "飞书开放平台",
   "config.im.openId": "你的 Open ID",
   "config.im.openIdRequired": "请先获取 Open ID",
@@ -2571,12 +2895,14 @@ export const zhCN = {
   "config.im.hideSecret": "隐藏",
   "config.im.editOpenId": "编辑 Open ID",
   "config.im.expandHint": "点击展开配置与关联 Agent",
-  "config.im.openIdHint": "在飞书中向 Bot 发送 /whoami 即可查看你的 open_id，用于自动拉群",
+  "config.im.openIdHint":
+    "在飞书中向 Bot 发送 /whoami 即可查看你的 open_id，用于自动拉群",
   "config.im.noBindings": "暂无活跃绑定",
   "config.im.session": "会话",
   "config.im.guide": "配置指南",
   "config.im.onlineGuide": "在线文档",
-  "config.im.docUrl": "https://xid01i1952l.feishu.cn/wiki/Yf8Gw5QW3is7xdkuG98cvRVen5d?from=from_copylink",
+  "config.im.docUrl":
+    "https://xid01i1952l.feishu.cn/wiki/Yf8Gw5QW3is7xdkuG98cvRVen5d?from=from_copylink",
   "config.im.permGetMessageP2P": "读取用户发给机器人的单聊消息",
   "config.im.permGetMessageGroup": "接收群聊中 @机器人 消息",
   "config.im.permSendMessage": "以应用的身份发送消息",
@@ -2611,7 +2937,8 @@ export const zhCN = {
   "environment.searchedDirsDesc": "桌面端自动检测时扫描了以下目录：",
   "environment.recheck": "重新检测",
   "environment.clearCheckFlag": "重置检测标记",
-  "environment.clearCheckFlagHint": "重置 pi 环境检测标记，下次启动时重新触发检测",
+  "environment.clearCheckFlagHint":
+    "重置 pi 环境检测标记，下次启动时重新触发检测",
   "environment.checkFlagCleared": "已重置 pi 环境检测标记，重启后将重新检测",
   "environment.stepCli": "检测 CLI",
   "environment.stepInstall": "安装 Pi",
@@ -2696,31 +3023,41 @@ export const zhCN = {
   "feedback.health.score": "健康度",
   "feedback.health.errors": "{count} 项异常",
   "feedback.health.warns": "{count} 项警告",
-  "feedback.health.idleHint": "点击上方按钮，一键采集脱敏的环境信息、体检项和最近报错日志。报告中不包含任何密钥、Token、邮箱或完整路径。",
+  "feedback.health.idleHint":
+    "点击上方按钮，一键采集脱敏的环境信息、体检项和最近报错日志。报告中不包含任何密钥、Token、邮箱或完整路径。",
   "feedback.health.runningHint": "正在采集环境信息并做体检，请稍候…",
   "feedback.health.errorDetail": "诊断失败",
   "feedback.health.empty": "没有可展示的检查项。",
   "feedback.ai.title": "让 AI 分析问题",
-  "feedback.ai.hint": "生成一段包含诊断报告与项目上下文的提示词；可复制给任意 AI，也可一键新建会话填入输入框（pi 会自动加载项目 AGENTS.md 与技能）。",
-  "feedback.ai.notReady": "请先在「环境诊断」页生成诊断报告，再回来生成 AI 分析提示词。",
+  "feedback.ai.hint":
+    "生成一段包含诊断报告与项目上下文的提示词；可复制给任意 AI，也可一键新建会话填入输入框（pi 会自动加载项目 AGENTS.md 与技能）。",
+  "feedback.ai.notReady":
+    "请先在「环境诊断」页生成诊断报告，再回来生成 AI 分析提示词。",
   "feedback.ai.createSession": "新建会话分析",
-  "feedback.ai.createSessionHint": "新建一个会话，把提示词（含诊断报告与项目 AGENTS.md/技能）填入输入框，回车即可让 pi 分析",
+  "feedback.ai.createSessionHint":
+    "新建一个会话，把提示词（含诊断报告与项目 AGENTS.md/技能）填入输入框，回车即可让 pi 分析",
   "feedback.ai.sessionCreated": "已创建会话，提示词已填入输入框",
   "feedback.ai.sessionCreateFailed": "创建会话失败",
   "feedback.ai.noProject": "当前没有可用项目，无法新建会话",
-  "feedback.openIssueHint": "用系统浏览器打开 GitHub Issue 预填页（需登录 GitHub）",
+  "feedback.openIssueHint":
+    "用系统浏览器打开 GitHub Issue 预填页（需登录 GitHub）",
   "feedback.share.title": "导出与分享",
-  "feedback.share.hint": "把诊断结果复制或导出，发到 GitHub Issue、邮件或用户群，方便支持者快速定位。",
+  "feedback.share.hint":
+    "把诊断结果复制或导出，发到 GitHub Issue、邮件或用户群，方便支持者快速定位。",
   "feedback.share.copyMarkdown": "复制 Markdown 报告",
-  "feedback.share.copyMarkdownDesc": "完整诊断报告，适合贴 GitHub Issue 或邮件。",
+  "feedback.share.copyMarkdownDesc":
+    "完整诊断报告，适合贴 GitHub Issue 或邮件。",
   "feedback.share.copyPrompt": "复制 AI 提示词",
-  "feedback.share.copyPromptDesc": "含角色设定与排障要求，贴给任意 AI 即可分析。",
+  "feedback.share.copyPromptDesc":
+    "含角色设定与排障要求，贴给任意 AI 即可分析。",
   "feedback.share.copyPromptAction": "复制提示词",
   "feedback.share.exportMarkdown": "导出为 .md 文件",
-  "feedback.share.exportMarkdownDesc": "保存 Markdown 报告到本地，可分享或归档。",
+  "feedback.share.exportMarkdownDesc":
+    "保存 Markdown 报告到本地，可分享或归档。",
   "feedback.share.exportAction": "导出报告",
   "feedback.share.exportZip": "导出完整日志包 (.zip)",
-  "feedback.share.exportZipDesc": "含脱敏日志 + 报告 + 环境 JSON，适合支持者深挖。",
+  "feedback.share.exportZipDesc":
+    "含脱敏日志 + 报告 + 环境 JSON，适合支持者深挖。",
   "feedback.share.exportZipAction": "导出日志包",
   "drawer.changed": "已修改",
   "drawer.changedLines": "{count} 行",
@@ -2745,7 +3082,8 @@ export const zhCN = {
   "drawer.deleteFileTitle": "删除文件",
   "drawer.deleteFileConfirm": "确定要删除「{name}」吗？此操作不可撤销。",
   "drawer.deleteFolderTitle": "删除目录",
-  "drawer.deleteFolderConfirm": "确定要删除「{name}」及其所有内容吗？此操作不可撤销。",
+  "drawer.deleteFolderConfirm":
+    "确定要删除「{name}」及其所有内容吗？此操作不可撤销。",
   "drawer.renameTitle": "重命名",
   "drawer.files": "文件",
   "drawer.pasteFiles": "粘贴文件到此处",
@@ -2756,7 +3094,8 @@ export const zhCN = {
   "drawer.modifiedFilesAria": "本轮回答修改文件列表",
   "drawer.modifiedThisSession": "本次会话修改",
   "drawer.gitChangedFiles": "Git 工作区修改",
-  "drawer.gitChangedFilesDesc": "显示当前项目未提交到 Git 的工作区变动，提交后会清空",
+  "drawer.gitChangedFilesDesc":
+    "显示当前项目未提交到 Git 的工作区变动，提交后会清空",
   "drawer.gitChangesNone": "工作区干净，无未提交变更",
   "drawer.moreFiles": "还有 {count} 个",
   "drawer.projectSessions": "{name} · 历史会话",
@@ -2789,7 +3128,8 @@ export const zhCN = {
   "menu.sectionRunControl": "运行控制",
   "menu.runControlHint": "会话未运行，点此启动 Agent",
   "runControl.restartRunningTitle": "重启会话进程",
-  "runControl.restartRunningBody": "该会话的 Agent 正在运行，重启会中断当前回答并重新启动进程。会话记录与历史消息会保留。",
+  "runControl.restartRunningBody":
+    "该会话的 Agent 正在运行，重启会中断当前回答并重新启动进程。会话记录与历史消息会保留。",
   "runControl.startFailedTitle": "启动 Agent 失败",
   "menu.pinSession": "置顶会话",
   "menu.unpinSession": "取消置顶",
@@ -2829,7 +3169,8 @@ export const zhCN = {
   "menu.copySessionFilePathUnavailable": "无法获取会话文件路径",
   "menu.rpcLogView": "查看 RPC 日志",
   "rpc.logOpenedTitle": "RPC 日志记录已开启",
-  "rpc.logOpenedDescription": "该 Agent 的 RPC 通信已开始留痕，可在日志查看器中查看。",
+  "rpc.logOpenedDescription":
+    "该 Agent 的 RPC 通信已开始留痕，可在日志查看器中查看。",
   "rpc.logViewNow": "立即查看",
   "menu.rpcLogging": "打开RPC日志",
   "menu.rpcLoggingOn": "关闭RPC日志",
@@ -2921,26 +3262,33 @@ export const zhCN = {
   "settings.tabs.visionDesc": "给无视觉模型装眼睛",
   "settings.tabs.imagegen": "生图",
   "settings.tabs.imagegenDesc": "独立生图供应商（OpenAI/火山/SiliconFlow）",
-  "settings.shortcuts.intro": "自定义全局快捷键：点击「修改」后直接按新组合键即可录入（Esc 取消，Delete 恢复默认）。修改后立即生效，无需重启。",
+  "settings.shortcuts.intro":
+    "自定义全局快捷键：点击「修改」后直接按新组合键即可录入（Esc 取消，Delete 恢复默认）。修改后立即生效，无需重启。",
   "settings.shortcuts.groupGeneral": "通用",
   "settings.shortcuts.groupDev": "开发",
   "settings.shortcuts.openSettingsLabel": "打开设置",
-  "settings.shortcuts.openSettingsDesc": "打开设置窗口。macOS 默认 ⌘,（系统惯例），Windows/Linux 默认 Ctrl+Alt+S。",
+  "settings.shortcuts.openSettingsDesc":
+    "打开设置窗口。macOS 默认 ⌘,（系统惯例），Windows/Linux 默认 Ctrl+Alt+S。",
   "settings.shortcuts.openNewSessionLabel": "新建会话",
-  "settings.shortcuts.openNewSessionDesc": "打开新建会话引导页。默认 Ctrl/Cmd+N；输入框聚焦时不会触发。",
+  "settings.shortcuts.openNewSessionDesc":
+    "打开新建会话引导页。默认 Ctrl/Cmd+N；输入框聚焦时不会触发。",
   "settings.shortcuts.openSearchLabel": "搜索会话",
-  "settings.shortcuts.openSearchDesc": "打开会话搜索命令面板。默认 Ctrl/Cmd+F；输入框聚焦时不会触发。",
+  "settings.shortcuts.openSearchDesc":
+    "打开会话搜索命令面板。默认 Ctrl/Cmd+F；输入框聚焦时不会触发。",
   "settings.shortcuts.openCommandPaletteLabel": "命令面板",
-  "settings.shortcuts.openCommandPaletteDesc": "打开命令面板：模糊搜索设置项并跳转，或执行重启 Agent 等操作。默认 Ctrl/Cmd+P；输入框聚焦时不会触发。",
+  "settings.shortcuts.openCommandPaletteDesc":
+    "打开命令面板：模糊搜索设置项并跳转，或执行重启 Agent 等操作。默认 Ctrl/Cmd+P；输入框聚焦时不会触发。",
   "settings.shortcuts.toggleDevToolsLabel": "开发者工具",
-  "settings.shortcuts.toggleDevToolsDesc": "打开/关闭开发者工具。默认 F12，保持默认时还兼容 Ctrl+Shift+I / Ctrl+Shift+J（macOS ⌘⌥I / J）。",
+  "settings.shortcuts.toggleDevToolsDesc":
+    "打开/关闭开发者工具。默认 F12，保持默认时还兼容 Ctrl+Shift+I / Ctrl+Shift+J（macOS ⌘⌥I / J）。",
   "settings.shortcuts.change": "修改",
   "settings.shortcuts.recording": "录制中…",
   "settings.shortcuts.recordingHint": "按 Esc 取消，按 Delete 恢复默认",
   "settings.shortcuts.reset": "恢复默认",
   "settings.shortcuts.resetAll": "全部恢复默认",
   "settings.shortcuts.conflictWith": "与「{label}」冲突",
-  "settings.shortcuts.needModifier": "请组合 Ctrl/⌘ 等修饰键（功能键如 F12 除外）",
+  "settings.shortcuts.needModifier":
+    "请组合 Ctrl/⌘ 等修饰键（功能键如 F12 除外）",
   "settings.shortcuts.saveBlocked": "存在冲突的快捷键，请先恢复或修改后再保存",
   "settings.panes.system": "系统设置",
   "settings.panes.config": "配置管理",
@@ -2952,19 +3300,26 @@ export const zhCN = {
   "imagegen.save": "保存图片",
   "imagegen.copyFailed": "复制图片失败",
   "imagegen.referenceUnavailable": "参考图已不可用，仅恢复提示词",
-  "imagegen.error.notConfigured": "还没有配好生图供应商。请到设置 → 生图 填写接口地址、API Key 和模型",
-  "imagegen.error.referenceUnsupported": "当前生图供应商未声明支持参考图，附件不会参与生成。可在生图配置里为该供应商选择参考图模式",
-  "imagegen.transientHint": "当前是匿名会话，重启后生图记录不会保留；想保留请先创建正式会话",
-  "imagegen.error.invalidKey": "生图服务拒绝了请求：API Key 无效（请检查 Key 或额度）",
-  "imagegen.error.invalidKeyDetail": "生图服务拒绝了请求：API Key 无效（请检查 Key 或额度）。{detail}",
-  "imagegen.error.badBaseUrl": "生图接口地址不对（404），请检查该模型的接口地址是否可访问",
+  "imagegen.error.notConfigured":
+    "还没有配好生图供应商。请到设置 → 生图 填写接口地址、API Key 和模型",
+  "imagegen.error.referenceUnsupported":
+    "当前生图供应商未声明支持参考图，附件不会参与生成。可在生图配置里为该供应商选择参考图模式",
+  "imagegen.transientHint":
+    "当前是匿名会话，重启后生图记录不会保留；想保留请先创建正式会话",
+  "imagegen.error.invalidKey":
+    "生图服务拒绝了请求：API Key 无效（请检查 Key 或额度）",
+  "imagegen.error.invalidKeyDetail":
+    "生图服务拒绝了请求：API Key 无效（请检查 Key 或额度）。{detail}",
+  "imagegen.error.badBaseUrl":
+    "生图接口地址不对（404），请检查该模型的接口地址是否可访问",
   "imagegen.error.badBaseUrlDetail": "生图接口地址不对。{detail}",
   "imagegen.error.network": "生图网络请求失败（检查网络/代理或稍后重试）",
   "imagegen.error.http": "生图服务返回错误（{detail}）",
   "imagegen.error.empty": "生图服务没有返回图片数据",
   "imagegen.size": "尺寸",
   "imagegen.sizeAuto": "不设置",
-  "imagegen.sizeHint": "不设置则不发送 size，由模型决定。也可选预设，或直接输入宽×高 / 1K",
+  "imagegen.sizeHint":
+    "不设置则不发送 size，由模型决定。也可选预设，或直接输入宽×高 / 1K",
   "imagegen.sizeCustomPlaceholder": "搜索或输入 1280x720",
   "imagegen.sizeCustomUse": "使用 {size}",
   "imagegen.sizeCustomInvalid": "格式如 1280x720 或 2K",
@@ -2975,18 +3330,24 @@ export const zhCN = {
   "imagegen.providerModel": "生图模型",
   "imagegen.notConfiguredHint": "先到设置 → 生图 添加供应商",
   "settings.vision.section": "视觉桥（Vision Bridge）",
-  "settings.vision.sectionDesc": "DeepSeek 等无视觉模型收到图片时，pi 只会提示「图片将被省略」。开启后，图片会在请求前自动交给下方配置的视觉模型，原位替换为「[图片 #1（视觉桥已查看）]＋文字描述」；转换失败则替换为「[图片 #N 转换失败，内容不可见]」。视觉请求复用 pi 已配置的供应商，无需重复填 key。",
+  "settings.vision.sectionDesc":
+    "DeepSeek 等无视觉模型收到图片时，pi 只会提示「图片将被省略」。开启后，图片会在请求前自动交给下方配置的视觉模型，原位替换为「[图片 #1（视觉桥已查看）]＋文字描述」；转换失败则替换为「[图片 #N 转换失败，内容不可见]」。视觉请求复用 pi 已配置的供应商，无需重复填 key。",
   "settings.vision.enabled": "启用视觉桥",
-  "settings.vision.enabledDesc": "关闭后图片按原样传给模型（无视觉模型只会看到占位提示）",
+  "settings.vision.enabledDesc":
+    "关闭后图片按原样传给模型（无视觉模型只会看到占位提示）",
   "settings.vision.provider": "视觉模型供应商",
-  "settings.vision.providerDesc": "复用 pi 已配置的供应商（models.json / auth.json）",
+  "settings.vision.providerDesc":
+    "复用 pi 已配置的供应商（models.json / auth.json）",
   "settings.vision.model": "视觉模型",
-  "settings.vision.modelDesc": "选一个能看图出文字描述的模型（是否支持视觉由你判断）",
+  "settings.vision.modelDesc":
+    "选一个能看图出文字描述的模型（是否支持视觉由你判断）",
   "settings.vision.modelSelectedHint": "已选：图片将交给该模型转成文字描述",
-  "settings.vision.noImagesWarning": "⚠ 该模型不支持图片输入，视觉桥转换会失败——请换一个支持图片的模型（如 glm-4v-flash / qwen-vl-plus）",
+  "settings.vision.noImagesWarning":
+    "⚠ 该模型不支持图片输入，视觉桥转换会失败——请换一个支持图片的模型（如 glm-4v-flash / qwen-vl-plus）",
   "settings.vision.supportsImages": "支持图片输入",
   "settings.vision.unsupportedImages": "不支持图片输入",
-  "settings.vision.capabilityUnknown": "能力未知（pi 未提供该模型的能力信息，仍可尝试）",
+  "settings.vision.capabilityUnknown":
+    "能力未知（pi 未提供该模型的能力信息，仍可尝试）",
   "settings.vision.contextWindow": "上下文 {{size}}",
   "settings.vision.outputCap": "单次输出上限 {{size}}",
   "settings.vision.thinking": "支持思考（reasoning）",
@@ -2997,28 +3358,36 @@ export const zhCN = {
   "settings.vision.apiAnthropic": "Anthropic Messages（/v1/messages）",
   "settings.vision.apiGoogle": "Google Generative AI（generateContent）",
   "settings.vision.baseUrl": "接口地址（可选）",
-  "settings.vision.baseUrlDesc": "留空时使用供应商默认端点；国内供应商（GLM/Qwen 等）需要填如 https://open.bigmodel.cn/api/paas/v4",
+  "settings.vision.baseUrlDesc":
+    "留空时使用供应商默认端点；国内供应商（GLM/Qwen 等）需要填如 https://open.bigmodel.cn/api/paas/v4",
   "settings.vision.apiKey": "API Key（可选）",
-  "settings.vision.apiKeyDesc": "留空复用 pi 已配置的供应商 key；仅在需要单独凭据时填写",
+  "settings.vision.apiKeyDesc":
+    "留空复用 pi 已配置的供应商 key；仅在需要单独凭据时填写",
   "settings.vision.maxTokens": "描述最大 token",
-  "settings.vision.maxTokensDesc": "不限制：不传该字段，输出长度由模型决定，描述更完整但更耗 token；限制：控制单次输出上限。Anthropic 接口必填，不限制时自动兜底 1024",
+  "settings.vision.maxTokensDesc":
+    "不限制：不传该字段，输出长度由模型决定，描述更完整但更耗 token；限制：控制单次输出上限。Anthropic 接口必填，不限制时自动兜底 1024",
   "settings.vision.maxTokensUnlimited": "不限制",
   "settings.vision.maxTokensCustom": "自定义",
   "settings.vision.concurrency": "并发描述数",
   "settings.vision.timeout": "超时时间（秒）",
-  "settings.vision.timeoutDesc": "单张图片转换请求的超时；超时后中断请求并在运行日志记录原因（默认 120 秒）",
+  "settings.vision.timeoutDesc":
+    "单张图片转换请求的超时；超时后中断请求并在运行日志记录原因（默认 120 秒）",
   "settings.vision.promptTemplate": "描述提示词模板",
-  "settings.vision.promptTemplateDesc": "{{instruction}} 会被替换为用户指令。默认提示词要求描述画面内容、文字、UI 结构，适合代码截图场景。",
+  "settings.vision.promptTemplateDesc":
+    "{{instruction}} 会被替换为用户指令。默认提示词要求描述画面内容、文字、UI 结构，适合代码截图场景。",
   "settings.vision.promptDefault": "恢复默认",
   "settings.vision.save": "保存视觉桥配置",
   "settings.vision.saved": "已保存：新会话或下一次发送消息时生效",
   "settings.vision.saveFailed": "保存失败",
   "settings.vision.modelRequired": "启用视觉桥需要先选择视觉模型",
   "settings.vision.configFile": "配置文件位置",
-  "settings.vision.configFileDesc": "扩展与 PiDeck 共享这份文件：脱离 PiDeck 单独使用 pi 时也可手动编辑生效。",
+  "settings.vision.configFileDesc":
+    "扩展与 PiDeck 共享这份文件：脱离 PiDeck 单独使用 pi 时也可手动编辑生效。",
   "settings.vision.logSection": "运行记录（诊断）",
-  "settings.vision.logSectionDesc": "每次图片转换都会写入日志。发一张图给会话后再回来点刷新，即可确认视觉桥是否真的生效；日志不含任何密钥。",
-  "settings.vision.logEmpty": "暂无运行记录——还没有图片经过视觉桥（或日志刚被清空）",
+  "settings.vision.logSectionDesc":
+    "每次图片转换都会写入日志。发一张图给会话后再回来点刷新，即可确认视觉桥是否真的生效；日志不含任何密钥。",
+  "settings.vision.logEmpty":
+    "暂无运行记录——还没有图片经过视觉桥（或日志刚被清空）",
   "settings.vision.logRefresh": "刷新",
   "settings.vision.logClear": "清空",
   "settings.vision.logTruncated": "（日志过长，仅显示末尾）",
@@ -3039,22 +3408,26 @@ export const zhCN = {
   "settings.pet.alwaysOnTopDesc": "宠物窗始终悬浮在其他窗口之上",
   "settings.pet.choose": "选择宠物",
   "settings.pet.preview": "动画预览",
-  "settings.pet.previewDesc": "临时切换预览宠物动画行，切回「自动」恢复聚合状态",
+  "settings.pet.previewDesc":
+    "临时切换预览宠物动画行，切回「自动」恢复聚合状态",
   "settings.pet.previewMode": "预览模式",
   "settings.pet.previewAuto": "自动（聚合状态）",
-  "settings.pet.petdexHint": "运行 npx petdex install <名字> 安装社区宠物，重启后可在列表选择",
+  "settings.pet.petdexHint":
+    "运行 npx petdex install <名字> 安装社区宠物，重启后可在列表选择",
   "settings.pet.petdexSite": "前往 petdex.dev 官网搜索更多宠物",
   "settings.pet.noPets": "暂无可用宠物",
   "settings.pet.scale": "宠物大小",
   "settings.pet.scaleDesc": "拖拽滑块调整宠物在桌面上的显示尺寸",
   "settings.pet.patrol": "idle 巡游",
-  "settings.pet.patrolDesc": "无任务时宠物沿屏幕底部自动左右走动（业务态出现即让位）",
+  "settings.pet.patrolDesc":
+    "无任务时宠物沿屏幕底部自动左右走动（业务态出现即让位）",
   "settings.pet.patrolPause": "巡游停顿时长",
   "settings.pet.patrolPauseDesc": "巡游碰边后停留在 idle 的时长（分钟）",
   "settings.pet.testError": "测试失败通知",
   "settings.pet.testDone": "测试完成通知",
   "settings.sound.title": "声音提醒",
-  "settings.sound.sectionDesc": "会话完成、出错或等待输入时播放提示音（窗口隐藏到托盘也会响）",
+  "settings.sound.sectionDesc":
+    "会话完成、出错或等待输入时播放提示音（窗口隐藏到托盘也会响）",
   "settings.sound.enabled": "启用声音提醒",
   "settings.sound.enabledDesc": "总开关；关闭后所有事件都不再出声",
   "settings.sound.volume": "音量",
@@ -3068,7 +3441,8 @@ export const zhCN = {
   "settings.sound.errorDesc": "Agent 运行异常（状态变为 error）时播放",
   "settings.sound.errorEnable": "启用出错提醒",
   "settings.sound.waiting": "等待输入",
-  "settings.sound.waitingDesc": "Agent 发起选择/确认/输入等交互请求时播放（默认关闭）",
+  "settings.sound.waitingDesc":
+    "Agent 发起选择/确认/输入等交互请求时播放（默认关闭）",
   "settings.sound.waitingEnable": "启用等待输入提醒",
   "settings.sound.choose": "选择音效",
   "settings.sound.presetGroup": "预设音效",
@@ -3076,10 +3450,12 @@ export const zhCN = {
   "settings.sound.customOption": "自定义：{name}",
   "settings.sound.preview": "试听",
   "settings.sound.customTitle": "自定义音频",
-  "settings.sound.customDesc": "导入本地音频文件（wav/mp3/ogg/m4a/flac，最大 5MB），导入后可在上方事件下拉中选择",
+  "settings.sound.customDesc":
+    "导入本地音频文件（wav/mp3/ogg/m4a/flac，最大 5MB），导入后可在上方事件下拉中选择",
   "settings.sound.import": "导入音频文件",
   "settings.sound.importing": "导入中…",
-  "settings.sound.importDesc": "选择本地音频文件，导入后出现在上方事件的下拉选项中",
+  "settings.sound.importDesc":
+    "选择本地音频文件，导入后出现在上方事件的下拉选项中",
   "settings.sound.importError.canceled": "已取消",
   "settings.sound.importError.invalidType": "不支持的音频格式",
   "settings.sound.importError.tooLarge": "文件超过 5MB 上限",
@@ -3100,7 +3476,8 @@ export const zhCN = {
   "settings.storage.rpcLogsSize": "RPC 日志大小",
   "settings.storage.pasteFiles": "粘贴文件",
   "settings.storage.pasteFilesSize": "粘贴文件大小",
-  "settings.storage.pasteFilesDesc": "输入框长文本转文件后落在应用数据目录；也会清理各项目遗留的 .pideck-paste",
+  "settings.storage.pasteFilesDesc":
+    "输入框长文本转文件后落在应用数据目录；也会清理各项目遗留的 .pideck-paste",
   "settings.storage.clearSuccess": "清理完成",
   "settings.storage.appLogs": "应用日志",
   "settings.storage.rpcLogs": "RPC 日志",
@@ -3111,24 +3488,30 @@ export const zhCN = {
   "settings.storage.clearAllDesc": "同时清理应用日志、RPC 日志与粘贴文件",
   "settings.storage.clearAllButton": "清理全部",
   "settings.storage.clearLocalStorage": "清理界面本地缓存",
-  "settings.storage.clearLocalStorageDesc": "清理过滤器、文件排序等渲染层界面缓存；侧栏/抽屉宽度会从应用设置恢复，不影响设置、会话与日志",
+  "settings.storage.clearLocalStorageDesc":
+    "清理过滤器、文件排序等渲染层界面缓存；侧栏/抽屉宽度会从应用设置恢复，不影响设置、会话与日志",
   "settings.storage.clearLocalStorageButton": "清理界面缓存",
-  "settings.storage.clearLocalStorageConfirm": "确认清理界面本地缓存吗？过滤器、排序等渲染层偏好将重置，侧栏/抽屉宽度会从应用设置恢复，页面会自动刷新。设置与会话数据不受影响。",
+  "settings.storage.clearLocalStorageConfirm":
+    "确认清理界面本地缓存吗？过滤器、排序等渲染层偏好将重置，侧栏/抽屉宽度会从应用设置恢复，页面会自动刷新。设置与会话数据不受影响。",
   "settings.storage.openFolder": "打开日志文件夹",
   "settings.storage.openFolderDesc": "在文件管理器中查看日志文件",
   // ===== 配置备份（config-backup） =====
   "settings.backup.title": "配置备份",
-  "settings.backup.desc": "配置备份：首次使用时自动创建一份初始快照，之后不再自动备份。需要时可手动备份，配置出错或丢失时可用备份一键恢复。",
+  "settings.backup.desc":
+    "配置备份：首次使用时自动创建一份初始快照，之后不再自动备份。需要时可手动备份，配置出错或丢失时可用备份一键恢复。",
   "settings.backup.createButton": "立即备份",
-  "settings.backup.createDesc": "把当前模型配置、pi 设置与 PiDeck 设置保存为一份快照",
+  "settings.backup.createDesc":
+    "把当前模型配置、pi 设置与 PiDeck 设置保存为一份快照",
   "settings.backup.createSuccess": "备份已创建",
-  "settings.backup.hint": "备份保存在本机应用数据目录，查看时密钥已脱敏。初始备份长期保留，手动备份不会被自动删除；恢复前会自动为当前配置创建保护备份（保护备份仅保留最近 5 份）。",
+  "settings.backup.hint":
+    "备份保存在本机应用数据目录，查看时密钥已脱敏。初始备份长期保留，手动备份不会被自动删除；恢复前会自动为当前配置创建保护备份（保护备份仅保留最近 5 份）。",
   "settings.backup.listTitle": "备份列表",
   "settings.backup.empty": "暂无备份，点击「立即备份」创建一份",
   "settings.backup.view": "查看",
   "settings.backup.restore": "恢复",
   "settings.backup.restoreTitle": "恢复备份",
-  "settings.backup.restoreSelectDesc": "选择要恢复的文件（默认全部）。恢复前会自动为当前配置保存一份保护备份，恢复后建议重启应用使设置完全生效。",
+  "settings.backup.restoreSelectDesc":
+    "选择要恢复的文件（默认全部）。恢复前会自动为当前配置保存一份保护备份，恢复后建议重启应用使设置完全生效。",
   "settings.backup.restoreSelected": "恢复所选（{count}）",
   "settings.backup.restoreSuccess": "恢复完成，建议重启应用使设置完全生效",
   "settings.backup.deleteTitle": "删除备份",
@@ -3137,11 +3520,13 @@ export const zhCN = {
   "settings.backup.bulkDelete": "批量删除",
   "settings.backup.bulkDeleteSelected": "批量删除（{count}）",
   "settings.backup.bulkDeleteTitle": "批量删除备份",
-  "settings.backup.bulkDeleteConfirm": "确认删除选中的 {count} 份备份吗？删除后无法恢复。",
+  "settings.backup.bulkDeleteConfirm":
+    "确认删除选中的 {count} 份备份吗？删除后无法恢复。",
   "settings.backup.bulkDeleteSuccess": "已删除 {count} 份备份",
   "settings.backup.readFailed": "读取备份失败",
   "settings.backup.detailTitle": "查看备份",
-  "settings.backup.redactedNotice": "密钥已隐藏（显示为 ***），如需完整内容请直接查看本机备份文件。",
+  "settings.backup.redactedNotice":
+    "密钥已隐藏（显示为 ***），如需完整内容请直接查看本机备份文件。",
   "settings.backup.reason.firstRun": "首次使用",
   "settings.backup.reason.upgrade": "版本升级",
   "settings.backup.reason.onSave": "配置保存",
@@ -3149,23 +3534,30 @@ export const zhCN = {
   "settings.backup.reason.manual": "手动",
   // ===== 用量统计（usage-stats） =====
   "usageStats.notInstalled.title": "未安装用量统计插件",
-  "usageStats.notInstalled.desc": "Pi 会话的用量统计需要 pi-tracker 扩展在 pi 进程内记录每次对话的 Token 消耗。\n安装后请重启 Agent 会话使扩展加载，并在会话中开始对话——只有产生对话后数据才会落盘。\nDSH 会话已内置 dsh-bill，启动 DSH 并对话后会自动记账，无需再装插件。",
+  "usageStats.notInstalled.desc":
+    "Pi 会话的用量统计需要 pi-tracker 扩展在 pi 进程内记录每次对话的 Token 消耗。\n安装后请重启 Agent 会话使扩展加载，并在会话中开始对话——只有产生对话后数据才会落盘。\nDSH 会话已内置 dsh-bill，启动 DSH 并对话后会自动记账，无需再装插件。",
   "usageStats.notInstalled.install": "一键安装 pi-tracker",
   "usageStats.notInstalled.installing": "安装中…",
-  "usageStats.notInstalled.installDone": "安装完成！请重启 Agent 会话（或重启应用），然后开始一次对话，数据会自动记录。",
-  "usageStats.notInstalled.restartHint": "安装后需重启 Agent 会话，扩展才会被 pi 加载",
-  "usageStats.notInstalled.installHint": "或在终端执行：pi install npm:pi-tracker，然后重启 pi 会话",
+  "usageStats.notInstalled.installDone":
+    "安装完成！请重启 Agent 会话（或重启应用），然后开始一次对话，数据会自动记录。",
+  "usageStats.notInstalled.restartHint":
+    "安装后需重启 Agent 会话，扩展才会被 pi 加载",
+  "usageStats.notInstalled.installHint":
+    "或在终端执行：pi install npm:pi-tracker，然后重启 pi 会话",
   "usageStats.notInstalled.copyCmd": "复制命令",
   "usageStats.notInstalled.copied": "已复制",
-  "usageStats.notInstalled.backfill": "插件只记录安装之后的对话。如需补上历史用量，可执行 /analytics import 回填，在 pi 终端或 PiDeck 启动的 Agent 中均可",
+  "usageStats.notInstalled.backfill":
+    "插件只记录安装之后的对话。如需补上历史用量，可执行 /analytics import 回填，在 pi 终端或 PiDeck 启动的 Agent 中均可",
   "usageStats.refresh": "刷新",
   "usageStats.refreshing": "刷新中…",
   "usageStats.loading": "正在统计…",
   "usageStats.error": "用量统计加载失败，请稍后重试",
   "usageStats.errorHint": "错误信息：{message}",
   "usageStats.empty.title": "暂无用量数据",
-  "usageStats.empty.desc": "还没有记录到任何用量。Pi 会话需已安装 pi-tracker 并对话；DSH 会话已内置 dsh-bill，对话后会自动出现。",
-  "usageStats.empty.backfill": "Pi 历史可执行 /analytics import 回填。DSH 历史由 dsh-bill 在 host 启动时从会话日志回填。",
+  "usageStats.empty.desc":
+    "还没有记录到任何用量。Pi 会话需已安装 pi-tracker 并对话；DSH 会话已内置 dsh-bill，对话后会自动出现。",
+  "usageStats.empty.backfill":
+    "Pi 历史可执行 /analytics import 回填。DSH 历史由 dsh-bill 在 host 启动时从会话日志回填。",
   "usageStats.window": "数据覆盖 {since} 起，共 {days} 天",
   "usageStats.cards.totalTokens": "累计 Token",
   "usageStats.cards.totalCost": "累计成本",
@@ -3209,14 +3601,18 @@ export const zhCN = {
   "settings.interface": "界面",
   "settings.git": "Git",
   "settings.gitManagement": "Git 源代码管理",
-  "settings.gitManagementDesc": "在会话右侧显示 Git 管理入口，用于暂存、提交、查看提交图和比较分支。",
+  "settings.gitManagementDesc":
+    "在会话右侧显示 Git 管理入口，用于暂存、提交、查看提交图和比较分支。",
   "settings.gitCommitMessagePrompt": "Git 提交摘要提示词",
-  "settings.gitCommitMessagePromptDesc": "AI 生成 Git 提交摘要的提示词模板，{diff} 会被替换为实际变更内容。",
+  "settings.gitCommitMessagePromptDesc":
+    "AI 生成 Git 提交摘要的提示词模板，{diff} 会被替换为实际变更内容。",
   "settings.gitCommitMessageModel": "Git 摘要模型",
-  "settings.gitCommitMessageModelDesc": "使用与会话 Command 模型选择器相同的全量模型列表，选择用于生成提交摘要的 provider/model。",
+  "settings.gitCommitMessageModelDesc":
+    "使用与会话 Command 模型选择器相同的全量模型列表，选择用于生成提交摘要的 provider/model。",
   "settings.gitCommitMessageModelUnset": "选择 Git 摘要模型",
   "settings.gitExecutable": "Git 可执行文件",
-  "settings.gitExecutableDesc": "指定 git 二进制绝对路径。留空则自动解析：优先 PATH 中的 git，其次常见安装位置。所有 Git 操作（含 worktree 与提交快照）都会使用该路径。",
+  "settings.gitExecutableDesc":
+    "指定 git 二进制绝对路径。留空则自动解析：优先 PATH 中的 git，其次常见安装位置。所有 Git 操作（含 worktree 与提交快照）都会使用该路径。",
   "settings.gitExecutablePlaceholder": "留空自动检测",
   "settings.gitExecutableSourcePath": "来自 PATH",
   "settings.gitExecutableSourceConfigured": "已手动指定",
@@ -3228,7 +3624,8 @@ export const zhCN = {
   "settings.gitExecutableClear": "重置为自动",
   "settings.gitExecutableVersion": "v{version}",
   "settings.gitExecutableUseSystem": "使用系统 git",
-  "settings.gitExecutableInvalid": "无法执行该路径，请确认 git 位置正确。可点击「使用系统 git」回退到已识别到的路径。",
+  "settings.gitExecutableInvalid":
+    "无法执行该路径，请确认 git 位置正确。可点击「使用系统 git」回退到已识别到的路径。",
   "settings.sectionSession": "会话",
   "settings.sectionWindow": "窗口",
   "settings.sectionThemeBackground": "主题与背景",
@@ -3239,12 +3636,14 @@ export const zhCN = {
   "settings.sectionRuntime": "运行",
   "settings.sectionEditors": "外部编辑器",
   "settings.contentWidthPct": "聊天内容宽度",
-  "settings.contentWidthPctDesc": "消息、输入框与待发送共用同一宽度。100% 接近全宽（仍留 12px 边距）。",
+  "settings.contentWidthPctDesc":
+    "消息、输入框与待发送共用同一宽度。100% 接近全宽（仍留 12px 边距）。",
   "settings.theme": "主题",
   "settings.themeSystem": "跟随系统",
   "settings.themeSchedule": "跟随时间",
   "settings.themeScheduleRange": "浅色时段",
-  "settings.themeScheduleRangeDesc": "从左侧时刻起用浅色，到右侧时刻切暗色。可跨午夜（例如 22:00 → 06:00）。",
+  "settings.themeScheduleRangeDesc":
+    "从左侧时刻起用浅色，到右侧时刻切暗色。可跨午夜（例如 22:00 → 06:00）。",
   "settings.themeScheduleLightStart": "浅色开始",
   "settings.themeScheduleDarkStart": "暗色开始",
   "settings.themeLight": "浅色",
@@ -3256,16 +3655,20 @@ export const zhCN = {
   "settings.skin.seaBlue": "海盐蓝",
   "settings.skin.warmBeige": "暖阳米",
   "settings.skin.custom": "自定义",
-  "settings.skinDesc": "换肤：内置皮肤调整背景/边框色板；与主题色（accent）正交，可叠加使用。",
+  "settings.skinDesc":
+    "换肤：内置皮肤调整背景/边框色板；与主题色（accent）正交，可叠加使用。",
   "settings.backgroundImage": "背景图片",
-  "settings.backgroundImageDesc": "选择本地图片作为应用背景；透明度=图片可见度（100% 图片完全显示、0% 纯面板色；浅色白遮罩/暗色黑遮罩，面板统一半透明透出）。",
+  "settings.backgroundImageDesc":
+    "选择本地图片作为应用背景；透明度=图片可见度（100% 图片完全显示、0% 纯面板色；浅色白遮罩/暗色黑遮罩，面板统一半透明透出）。",
   "settings.backgroundImageChoose": "选择图片…",
   "settings.backgroundImageClear": "清除",
   "settings.backgroundImageOpacity": "背景图透明度",
-  "settings.accentDesc": "外观主题整套控制界面的背景、边框、悬停/选中态与主色，并自动适配浅色/暗色；出厂默认经典（中性黑白灰）。",
+  "settings.accentDesc":
+    "外观主题整套控制界面的背景、边框、悬停/选中态与主色，并自动适配浅色/暗色；出厂默认经典（中性黑白灰）。",
   "settings.skin.classicGreenDesc": "中性白灰表面 + 黑白灰主色，出厂默认。",
   "settings.skin.freshGreen": "森系绿",
-  "settings.skin.freshGreenDesc": "森系纸感绿：低饱和纸感浅绿表面 + 鼠尾草绿主色，安静耐看。",
+  "settings.skin.freshGreenDesc":
+    "森系纸感绿：低饱和纸感浅绿表面 + 鼠尾草绿主色，安静耐看。",
   "settings.skin.graphiteDesc": "冷调石墨灰表面 + 中性主色，安静克制。",
   "settings.skin.seaBlueDesc": "海蓝冷调表面 + 蓝色主色，清爽通透。",
   "settings.skin.warmBeigeDesc": "暖米纸感表面 + 琥珀主色，柔和护眼。",
@@ -3285,7 +3688,8 @@ export const zhCN = {
   "settings.fontSizePerAreaDesc": "为侧边栏、会话正文和输入框分别设置字号",
   "settings.fontSizeExpand": "展开各区域字号设置",
   "settings.fontSizeCollapse": "收起各区域字号设置",
-  "settings.zoomFactorHint": "缩放整个窗口界面（含图标与间距）；只想调整文字大小，请用下方的字号设置。",
+  "settings.zoomFactorHint":
+    "缩放整个窗口界面（含图标与间距）；只想调整文字大小，请用下方的字号设置。",
   "settings.uiFontSize": "界面字号",
   "settings.chatFontSize": "会话正文字号",
   "settings.inputFontSize": "输入框字号",
@@ -3295,12 +3699,13 @@ export const zhCN = {
   "settings.fontFamilyBaseSans": "无衬线",
   "settings.fontFamilyBaseSerif": "衬线体",
   "settings.fontFamilyBaseCustomField": "自定义界面字体",
-  "settings.fontFamilyBaseCustomPlaceholder": "例如：\"Microsoft YaHei\"",
+  "settings.fontFamilyBaseCustomPlaceholder": '例如："Microsoft YaHei"',
   "settings.fontFamilyMono": "代码字体",
-  "settings.fontFamilyMonoDesc": "代码块、消息编辑框、工具卡等使用的等宽字体（不含终端）。",
+  "settings.fontFamilyMonoDesc":
+    "代码块、消息编辑框、工具卡等使用的等宽字体（不含终端）。",
   "settings.fontFamilyMonoSystemMono": "系统等宽",
   "settings.fontFamilyMonoCustomField": "自定义代码字体",
-  "settings.fontFamilyMonoCustomPlaceholder": "例如：\"JetBrains Mono\"",
+  "settings.fontFamilyMonoCustomPlaceholder": '例如："JetBrains Mono"',
   "settings.fontCustomOption": "自定义",
   "settings.language": "语言",
   "settings.languageSystem": "跟随系统",
@@ -3308,7 +3713,8 @@ export const zhCN = {
   "settings.languageEn": "English",
   "settings.sessionTabOpenMode": "会话 Tab 打开方式",
   "settings.autoSessionTitle": "自动生成会话标题",
-  "settings.autoSessionTitleDesc": "首轮 Agent 成功结束后，用当前 pi 模型异步生成标题；会额外消耗一次模型调用和少量 token，不修改主提示词或会话消息。关闭后需新建或重启 Agent 才生效。",
+  "settings.autoSessionTitleDesc":
+    "首轮 Agent 成功结束后，用当前 pi 模型异步生成标题；会额外消耗一次模型调用和少量 token，不修改主提示词或会话消息。关闭后需新建或重启 Agent 才生效。",
   "settings.sessionTabOpenModePreview": "预览（发消息后自动固定）",
   "settings.sessionTabOpenModePermanent": "常驻（打开即固定）",
   "settings.languagePseudo": "伪翻译",
@@ -3318,17 +3724,23 @@ export const zhCN = {
   "app.collapseDrawer": "关闭右侧边栏",
   "app.openDrawer": "打开右侧边栏",
   "app.closeDrawer": "关闭右侧边栏",
-  "settings.piRpcNoSkillsDesc": "启动时不发现/加载 skills。用于排查或加速；开启后技能命令不可用。",
+  "settings.piRpcNoSkillsDesc":
+    "启动时不发现/加载 skills。用于排查或加速；开启后技能命令不可用。",
   "settings.piRpcNoSkills": "禁用技能启动 (--no-skills)",
   "settings.useStreamdownRenderer": "Streamdown 渲染引擎",
-  "settings.useStreamdownRendererDesc": "助手消息默认用 Streamdown 渲染：流式半截 Markdown 容错更好、按块缓存更流畅。遇异常可关回旧渲染。",
-  "settings.piRpcNoExtensionsDesc": "启动时不加载任何扩展。用于排查坏扩展导致 RPC 起不来；开启后 todo/plan/ask 等扩展会失效。",
+  "settings.useStreamdownRendererDesc":
+    "助手消息默认用 Streamdown 渲染：流式半截 Markdown 容错更好、按块缓存更流畅。遇异常可关回旧渲染。",
+  "settings.piRpcNoExtensionsDesc":
+    "启动时不加载任何扩展。用于排查坏扩展导致 RPC 起不来；开启后 todo/plan/ask 等扩展会失效。",
   "settings.piRpcNoExtensions": "禁用扩展启动 (--no-extensions)",
-  "settings.piRpcOfflineDesc": "以 --offline 启动 pi，跳过模型目录网络刷新。默认关闭：开启后新装/更新的模型不会实时出现在模型列表，如需加快冷启动可自行开启。",
+  "settings.piRpcOfflineDesc":
+    "以 --offline 启动 pi，跳过模型目录网络刷新。默认关闭：开启后新装/更新的模型不会实时出现在模型列表，如需加快冷启动可自行开启。",
   "settings.piRpcOffline": "RPC 离线启动 (--offline)",
-  "settings.piRpcStartupDesc": "影响 pi --mode rpc 的启动参数。改完后需重新启动 Agent 才会生效。",
+  "settings.piRpcStartupDesc":
+    "影响 pi --mode rpc 的启动参数。改完后需重新启动 Agent 才会生效。",
   "settings.piRpcStartup": "Agent 启动诊断",
-  "settings.electronSandboxDesc": "控制 Electron 渲染进程沙箱（与 pi Agent 无关）。默认关闭以兼容 Windows 安全软件/旧 GPU 驱动；开启后需重启 PiDeck。若启动异常请改回关闭。",
+  "settings.electronSandboxDesc":
+    "控制 Electron 渲染进程沙箱（与 pi Agent 无关）。默认关闭以兼容 Windows 安全软件/旧 GPU 驱动；开启后需重启 PiDeck。若启动异常请改回关闭。",
   "settings.electronSandbox": "启用 Chromium 沙箱",
   "settings.startupWindow.last": "上次窗口大小",
   "settings.startupWindow.compact": "窗口 · 紧凑 (1100×720)",
@@ -3336,14 +3748,18 @@ export const zhCN = {
   "settings.startupWindow.large": "窗口 · 大 (1480×960)",
   "settings.startupWindow.maximized": "最大化",
   "settings.startupWindow.fullscreen": "全屏",
-  "settings.startupWindowModeDesc": "下次启动时应用。默认最大化（与历史行为一致，不挡任务栏）。",
+  "settings.startupWindowModeDesc":
+    "下次启动时应用。默认最大化（与历史行为一致，不挡任务栏）。",
   "settings.startupWindowMode": "启动窗口大小",
-  "settings.singleInstanceDesc": "开启后，同一版本再次打开会唤起已有窗口（含托盘隐藏）。不同版本（如 0.6.7 与 0.6.8）可同时运行。开发模式与正式版数据目录隔离。关闭后允许同版本多开。修改后需重启生效。",
+  "settings.singleInstanceDesc":
+    "开启后，同一版本再次打开会唤起已有窗口（含托盘隐藏）。不同版本（如 0.6.7 与 0.6.8）可同时运行。开发模式与正式版数据目录隔离。关闭后允许同版本多开。修改后需重启生效。",
   "settings.singleInstance": "单实例运行（复用窗口）",
   "settings.shellContextMenuSection": "文件资源管理器集成",
-  "settings.shellContextMenuSectionDesc": "在 Windows 文件夹右键菜单中提供「用 PiDeck 打开」入口，对本机当前用户生效（写入用户注册表，便携版同样可用）。",
+  "settings.shellContextMenuSectionDesc":
+    "在 Windows 文件夹右键菜单中提供「用 PiDeck 打开」入口，对本机当前用户生效（写入用户注册表，便携版同样可用）。",
   "settings.shellContextMenu": "在文件夹右键菜单中打开项目",
-  "settings.shellContextMenuDesc": "在文件夹图标（及空白处）右键菜单显示「用 PiDeck 打开」：已收录的目录直接跳转到对应项目，未收录的目录会先确认添加为项目。",
+  "settings.shellContextMenuDesc":
+    "在文件夹图标（及空白处）右键菜单显示「用 PiDeck 打开」：已收录的目录直接跳转到对应项目，未收录的目录会先确认添加为项目。",
   "settings.shellContextMenuUnsupported": "该功能仅支持 Windows。",
   "settings.checkUpdate": "检测更新",
   "settings.piUpdate": "Pi CLI 更新",
@@ -3354,7 +3770,8 @@ export const zhCN = {
   "settings.piUpdateDone": "Pi 更新命令已完成",
   "settings.piUpdateChecked": "Pi 已是最新版本",
   "settings.catalogSectionTitle": "模型目录",
-  "settings.catalogSectionDesc": "内置模型目录随版本发布（打包资源）；模型上新时可从 GitHub main 分支拉取预生成目录覆盖到本地（复用应用更新的 GitHub 镜像配置，国内可达性更好），覆盖文件仅写入应用数据目录，可随时一键还原。",
+  "settings.catalogSectionDesc":
+    "内置模型目录随版本发布（打包资源）；模型上新时可从 GitHub main 分支拉取预生成目录覆盖到本地（复用应用更新的 GitHub 镜像配置，国内可达性更好），覆盖文件仅写入应用数据目录，可随时一键还原。",
   "settings.catalogUpdateSource": "目录更新源（与应用更新同源）",
   "settings.catalogBuiltin": "内置目录",
   "settings.catalogOverlay": "覆盖版本（最新 pi-ai）",
@@ -3370,28 +3787,34 @@ export const zhCN = {
   "settings.catalogRestorePrev": "恢复上一个覆盖版",
   "settings.catalogOpenFile": "打开文件",
   "settings.catalogCheckLatest": "已是最新：远端 {remote}",
-  "settings.catalogCheckAvailable": "发现新版本 {remote}（当前 {local}），点击「更新到最新」",
+  "settings.catalogCheckAvailable":
+    "发现新版本 {remote}（当前 {local}），点击「更新到最新」",
   "settings.catalogUpdated": "更新成功，已在下次使用时生效",
   "settings.catalogAlreadyLatest": "已是最新版本，无需更新",
   "settings.catalogRestored": "已还原为内置目录",
   "settings.catalogRestorePrevOk": "已恢复上一个覆盖版",
   "settings.catalogFailNetwork": "网络不可用或下载失败，请检查网络/代理后重试",
-  "settings.catalogFailValidation": "下载内容校验失败，未应用（仓库文件可能异常）",
+  "settings.catalogFailValidation":
+    "下载内容校验失败，未应用（仓库文件可能异常）",
   "settings.catalogFailWrite": "写入失败，当前目录未受影响",
   "settings.catalogFailNoBackup": "没有可恢复的备份",
   "settings.catalogFailUnexpected": "操作失败，请重试",
   "settings.catalogUpdateAvailable": "有新版本：本地 {local} → 最新 {remote}",
   "settings.piUpdateAvailable": "发现 Pi 新版本",
-  "settings.piUpdateAvailableDetail": "Pi CLI 有新版本：当前 {current} → 最新 {latest}。可使用上方的「更新 Pi」操作更新。",
+  "settings.piUpdateAvailableDetail":
+    "Pi CLI 有新版本：当前 {current} → 最新 {latest}。可使用上方的「更新 Pi」操作更新。",
   "settings.piUpdateFailed": "Pi 更新失败：{error}",
   "settings.autoDownloadUpdates": "自动下载更新",
-  "settings.autoDownloadUpdatesDesc": "发现新版本后自动下载安装包，下载完成后提示重启安装；关闭后仅提示有更新，需要手动下载。",
+  "settings.autoDownloadUpdatesDesc":
+    "发现新版本后自动下载安装包，下载完成后提示重启安装；关闭后仅提示有更新，需要手动下载。",
   "settings.updateSource": "更新源",
-  "settings.updateSourceDesc": "选择检测与下载更新使用的网络通道。国内推荐使用 AtomGit 加速源，也可切换至 GitHub 官方通道。",
+  "settings.updateSourceDesc":
+    "选择检测与下载更新使用的网络通道。国内推荐使用 AtomGit 加速源，也可切换至 GitHub 官方通道。",
   "settings.updateSourceAtomGit": "AtomGit（推荐）",
   "settings.updateSourceGithub": "GitHub 官方",
   "settings.updateSourceCustom": "自定义镜像…",
-  "settings.updateSourceCustomHint": "填写镜像服务商的地址前缀，例如 https://ghfast.top",
+  "settings.updateSourceCustomHint":
+    "填写镜像服务商的地址前缀，例如 https://ghfast.top",
   "settings.updateSourceCustomInvalid": "地址需以 http(s):// 开头",
   "settings.updateSourceFeedOfficial": "使用应用内置的 GitHub 官方通道",
   "settings.updateSourceFeedPreview": "当前更新源地址：{url}",
@@ -3407,31 +3830,40 @@ export const zhCN = {
   "settings.updateInstallNow": "重启并安装",
   "settings.updateDownloadNow": "立即下载",
   "settings.updateAvailable": "发现新版本 v{version}",
-  "settings.updateManualAvailable": "发现新版本 v{version}，请在 Release 页面手动安装",
-  "settings.macManualUpdateDesc": "当前 macOS 发行版未使用 Apple Developer ID 签名，因此只提供更新检测和 Release 手动安装。",
-  "settings.portableUpdateNotice": "便携版应用内更新会运行 NSIS 安装包并变成安装版（开始菜单/桌面快捷方式，数据目录可能改变）。若要保持便携，请到 GitHub Release 手动下载 portable 包。",
+  "settings.updateManualAvailable":
+    "发现新版本 v{version}，请在 Release 页面手动安装",
+  "settings.macManualUpdateDesc":
+    "当前 macOS 发行版未使用 Apple Developer ID 签名，因此只提供更新检测和 Release 手动安装。",
+  "settings.portableUpdateNotice":
+    "便携版应用内更新会运行 NSIS 安装包并变成安装版（开始菜单/桌面快捷方式，数据目录可能改变）。若要保持便携，请到 GitHub Release 手动下载 portable 包。",
   "settings.portableUpdateOpenRelease": "前往 GitHub 下 portable",
-  "settings.updateGithubFailHint": "官方 GitHub 直连失败时，可在下方「更新源」切换到国内镜像。",
+  "settings.updateGithubFailHint":
+    "官方 GitHub 直连失败时，可在下方「更新源」切换到国内镜像。",
   "settings.updateUpToDate": "已是最新版本",
   "settings.updateErrorDetail": "更新失败：{error}",
   "settings.checkUpdateRetry": "重试检测",
   "app.updateCardVersion": "PiDeck v{version}",
   "settings.updating": "更新中...",
   "settings.extensionsUpdate": "扩展更新",
-  "settings.extensionsUpdateDesc": "在扩展管理中可查看每个扩展的当前/最新版本并单独更新。",
+  "settings.extensionsUpdateDesc":
+    "在扩展管理中可查看每个扩展的当前/最新版本并单独更新。",
   "settings.updateExtensions": "更新",
   "settings.updateExtensionsAll": "更新全部扩展",
   "settings.extensionsUpdateDone": "扩展更新命令已完成",
-  "settings.extensionsUpdating": "正在执行 pi update --extensions --no-approve...",
-  "settings.extensionsUpdatingDesc": "更新期间请保持窗口打开，完成后可查看完整输出。",
-  "settings.extensionsUpdateResultHint": "已保留 pi CLI 返回的完整输出；如果只显示 Updated packages，说明 CLI 未提供逐项详情，可关闭后刷新确认。",
+  "settings.extensionsUpdating":
+    "正在执行 pi update --extensions --no-approve...",
+  "settings.extensionsUpdatingDesc":
+    "更新期间请保持窗口打开，完成后可查看完整输出。",
+  "settings.extensionsUpdateResultHint":
+    "已保留 pi CLI 返回的完整输出；如果只显示 Updated packages，说明 CLI 未提供逐项详情，可关闭后刷新确认。",
   "settings.extensionsUpdateChecked": "扩展更新检查已完成",
   "settings.extensionsUpdateFailed": "扩展更新失败：{error}",
   "settings.extensionsUpdateFailedGeneric": "扩展更新失败，请稍后重试",
   "settings.currentPath": "当前路径：{path}",
   "settings.currentVersion": "当前版本",
   "settings.dshRunnerNode": "DSH 沙箱 Node",
-  "settings.dshRunnerNodeDesc": "Windows 上 DSH 沙箱需要 Node 24 的 node.exe（控制台程序），用来避免 electron.exe 弹出黑窗口。不必改系统 PATH：本机可以继续用 Node 22/25。PiDeck 会自动找 nvm / fnm / mise / Scoop 里的 24；没有则从应用更新源（默认 AtomGit）下载一份只给本应用用的副本，不进安装包。",
+  "settings.dshRunnerNodeDesc":
+    "Windows 上 DSH 沙箱需要 Node 24 的 node.exe（控制台程序），用来避免 electron.exe 弹出黑窗口。不必改系统 PATH：本机可以继续用 Node 22/25。PiDeck 会自动找 nvm / fnm / mise / Scoop 里的 24；没有则从应用更新源（默认 AtomGit）下载一份只给本应用用的副本，不进安装包。",
   "settings.dshRunnerNodePlaceholder": "留空自动检测 Node 24",
   "settings.dshRunnerNodeSourcePath": "来自 PATH",
   "settings.dshRunnerNodeSourceConfigured": "已手动指定",
@@ -3450,8 +3882,10 @@ export const zhCN = {
   "settings.dshRunnerNodeInstallOk": "已下载到应用数据目录，不改系统 PATH",
   "settings.dshRunnerNodeInstallFailed": "下载失败：{error}",
   "settings.dshRunnerNodeOpenDownload": "打开更新源资源页",
-  "settings.dshRunnerNodeCoexistHint": "PATH 上的 node 可以不是 24。nvm / fnm 用户请选 v24.x 目录里的 node.exe，不要选 current 垫片。一键下载走应用更新源（AtomGit/GitHub），只写到 PiDeck 数据目录。",
-  "settings.dshRunnerNodeMissingHint": "未找到 Node 24。可在开发设置里从更新源下载专用副本（不改 PATH），或手动指定本机 node.exe；否则 DSH 沙箱命令可能闪一下黑窗口。",
+  "settings.dshRunnerNodeCoexistHint":
+    "PATH 上的 node 可以不是 24。nvm / fnm 用户请选 v24.x 目录里的 node.exe，不要选 current 垫片。一键下载走应用更新源（AtomGit/GitHub），只写到 PiDeck 数据目录。",
+  "settings.dshRunnerNodeMissingHint":
+    "未找到 Node 24。可在开发设置里从更新源下载专用副本（不改 PATH），或手动指定本机 node.exe；否则 DSH 沙箱命令可能闪一下黑窗口。",
   "settings.dshRunnerNodeOpenSettings": "去设置",
   "settings.customPiPath": "自定义 pi 路径",
   "settings.customPiPathValid": "校验通过：{version}",
@@ -3463,29 +3897,38 @@ export const zhCN = {
   "settings.devTools": "开发者控制台",
   "settings.devToolsDesc": "打开 DevTools 查看控制台日志，排查问题",
   "settings.developerDiagnostics": "性能诊断",
-  "settings.developerDiagnosticsDesc": "记录主进程内存、事件循环延迟、打开会话/加载历史等关键耗时。数据写到应用数据目录的 diagnostics 文件夹，用来追查卡死和内存上涨。默认关闭。",
+  "settings.developerDiagnosticsDesc":
+    "记录主进程内存、事件循环延迟、打开会话/加载历史等关键耗时。数据写到应用数据目录的 diagnostics 文件夹，用来追查卡死和内存上涨。默认关闭。",
   "settings.developerDiagnosticsOpenFolder": "打开诊断目录",
   "settings.developerDiagnosticsRefresh": "刷新快照",
   "settings.developerDiagnosticsLag": "事件循环延迟 {lag} ms（峰值 {max} ms）",
   "settings.developerDiagnosticsMemory": "主进程 RSS {rss} · 堆 {heap}",
-  "settings.developerDiagnosticsEmpty": "开启后点刷新，可看到最近关键路径耗时。",
+  "settings.developerDiagnosticsEmpty":
+    "开启后点刷新，可看到最近关键路径耗时。",
   "settings.detectFailed": "检测失败：{error}",
   "settings.detecting": "检测中...",
   "settings.detectEnvironment": "检测环境",
   "settings.enableDesktopProxy": "启用桌面端网络代理",
   "settings.enableNotifications": "Agent 完成响应时发送系统通知",
   "settings.askNotification": "Ask 提问系统通知",
-  "settings.askNotificationDesc": "Agent 向你提问（select/confirm/input/editor）时，同时发送系统通知（默认关闭，应用内 toast 始终显示）",
+  "settings.askNotificationDesc":
+    "Agent 向你提问（select/confirm/input/editor）时，同时发送系统通知（默认关闭，应用内 toast 始终显示）",
   "settings.agentCountReminder": "激活 Agent 数量提醒",
-  "settings.agentCountReminderDesc": "激活 Agent 达到 15 个时，启动时提醒关闭空闲会话释放内存",
+  "settings.agentCountReminderDesc":
+    "激活 Agent 达到 15 个时，启动时提醒关闭空闲会话释放内存",
   "settings.announcementNotification": "公告通知",
-  "settings.announcementNotificationDesc": "收到新公告时弹出提醒（默认开启；输入或会话运行中会自动延后弹出）。关闭后侧栏公告入口与提醒一并隐藏",
+  "settings.announcementNotificationDesc":
+    "收到新公告时弹出提醒（默认开启；输入或会话运行中会自动延后弹出）。关闭后侧栏公告入口与提醒一并隐藏",
   "settings.enablePiProxy": "启用 pi agent 代理",
-  "settings.enablePiProxyDesc": "开启后所有 pi 会话默认走下方地址（重启会话后生效）。仅保存地址不开启开关时，可配合右键菜单「会话代理」或下方供应商白名单按需启用",
+  "settings.enablePiProxyDesc":
+    "开启后所有 pi 会话默认走下方地址（重启会话后生效）。仅保存地址不开启开关时，可配合右键菜单「会话代理」或下方供应商白名单按需启用",
   "settings.piProxyModels": "按模型走代理",
-  "settings.piProxyModelsDesc": "粒度比供应商更细：仅名单内模型强制走代理（即使全局关闭也复用上方地址），名单外强制直连。条目格式为 provider/模型ID，留空则不按模型过滤（回落供应商名单/全局设置）",
-  "settings.piProxyModelsHint": "与按供应商白名单可共存：模型名单优先匹配，供应商名单兜底；新建会话首条请求即按模型自动匹配代理",
-  "settings.piProxyModelsEmpty": "暂无可选模型（请先在模型配置中配置模型，或刷新后重试）",
+  "settings.piProxyModelsDesc":
+    "粒度比供应商更细：仅名单内模型强制走代理（即使全局关闭也复用上方地址），名单外强制直连。条目格式为 provider/模型ID，留空则不按模型过滤（回落供应商名单/全局设置）",
+  "settings.piProxyModelsHint":
+    "与按供应商白名单可共存：模型名单优先匹配，供应商名单兜底；新建会话首条请求即按模型自动匹配代理",
+  "settings.piProxyModelsEmpty":
+    "暂无可选模型（请先在模型配置中配置模型，或刷新后重试）",
   "settings.piProxyModelsLoading": "加载模型中…",
   "settings.piProxyModelsSelected": "已选 {count} 个模型走代理",
   "settings.piProxyModelsGroupSelected": "组内已选 {count}",
@@ -3493,37 +3936,48 @@ export const zhCN = {
   "settings.piProxyModelsClear": "清空",
   "settings.proxyProvider": "供应商",
   "settings.piProxyModelsSearch": "搜索模型（provider/ID 或名称）",
-  "settings.piProxyModelsSearchHint": "搜索只过滤显示，已保存的名单不受影响；已勾选但未匹配的模型仍保留",
+  "settings.piProxyModelsSearchHint":
+    "搜索只过滤显示，已保存的名单不受影响；已勾选但未匹配的模型仍保留",
   "settings.piProxyModelsExtras": "已选但不在当前列表（模型可能已被删除/改名）",
-"settings.piProxyModelsNoModelProviders": "仅配置了供应商（暂无模型）",
-"settings.piProxyModelsNoModelHint": "去 Pi 管理 → 模型 添加模型后即可配置代理",
+  "settings.piProxyModelsNoModelProviders": "仅配置了供应商（暂无模型）",
+  "settings.piProxyModelsNoModelHint":
+    "去 Pi 管理 → 模型 添加模型后即可配置代理",
   "settings.enableWebService": "启用 Web 服务",
   "settings.environment": "环境",
   "settings.foundPi": "已找到 {version}",
-  "settings.linkOpenModeDesc": "默认使用系统浏览器；应用内窗口适合临时查看文档和网页。应用内打开时，Ctrl+点击（macOS 为 Cmd+点击）链接可临时改用系统浏览器。",
+  "settings.linkOpenModeDesc":
+    "默认使用系统浏览器；应用内窗口适合临时查看文档和网页。应用内打开时，Ctrl+点击（macOS 为 Cmd+点击）链接可临时改用系统浏览器。",
   "settings.linkOpenMode": "链接打开方式",
   "settings.linkOpenMode.external": "默认浏览器",
   "settings.linkOpenMode.internal": "应用内窗口",
   "settings.workspaceContentOpenMode": "文件 / Diff 打开方式",
   "settings.expandInterimDuringStream": "流式对话时展开中间过程",
-  "settings.expandInterimDuringStreamDesc": "开启（默认）时，最新轮流式输出时自动展开思考与工具详情。关闭时，对话过程中保持折叠，节省渲染资源；手动展开的轮次不受影响。",
+  "settings.expandInterimDuringStreamDesc":
+    "开启（默认）时，最新轮流式输出时自动展开思考与工具详情。关闭时，对话过程中保持折叠，节省渲染资源；手动展开的轮次不受影响。",
   "settings.collapsePrevRunsOnNewTurn": "新一轮开始时收起上一轮",
-  "settings.collapsePrevRunsOnNewTurnDesc": "发送新消息后自动收起上一轮展开的思考/工具详情（含手动展开的），减少同时渲染的内容。",
+  "settings.collapsePrevRunsOnNewTurnDesc":
+    "发送新消息后自动收起上一轮展开的思考/工具详情（含手动展开的），减少同时渲染的内容。",
   "settings.idleAgentSection": "闲置 Agent 内存优化",
-  "settings.idleAgentSectionDesc": "长时间闲置的 Agent 进程仍占内存；开启后会自动释放，会话下次使用时会自动重新启动",
+  "settings.idleAgentSectionDesc":
+    "长时间闲置的 Agent 进程仍占内存；开启后会自动释放，会话下次使用时会自动重新启动",
   "settings.idleAgentAutoRelease": "自动释放闲置 Agent",
-  "settings.idleAgentAutoReleaseDesc": "关闭后闲置 Agent 常驻内存不释放（需要更大内存时建议保持开启）",
+  "settings.idleAgentAutoReleaseDesc":
+    "关闭后闲置 Agent 常驻内存不释放（需要更大内存时建议保持开启）",
   "settings.idleAgentKeepCount": "保留闲置 Agent 数量",
-  "settings.idleAgentKeepCountDesc": "超出该数量且满足闲置时长的 Agent 会被释放，优先释放闲置最久的（范围 1-20）",
+  "settings.idleAgentKeepCountDesc":
+    "超出该数量且满足闲置时长的 Agent 会被释放，优先释放闲置最久的（范围 1-20）",
   "settings.idleAgentCountUnit": "个",
   "settings.idleAgentTimeoutMin": "闲置判定时长",
-  "settings.idleAgentTimeoutMinDesc": "Agent 连续闲置超过该时长才可被释放；当前正在查看的会话即使闲置超时也不会释放（范围 1-1440 分钟）",
+  "settings.idleAgentTimeoutMinDesc":
+    "Agent 连续闲置超过该时长才可被释放；当前正在查看的会话即使闲置超时也不会释放（范围 1-1440 分钟）",
   "settings.idleAgentTimeoutUnit": "分钟",
-  "settings.workspaceContentOpenModeDesc": "从文件树或 Git 打开内容时，默认在中间栏分屏，或占满中间栏。",
+  "settings.workspaceContentOpenModeDesc":
+    "从文件树或 Git 打开内容时，默认在中间栏分屏，或占满中间栏。",
   "settings.workspaceContentOpenMode.split": "默认分屏",
   "settings.workspaceContentOpenMode.maximize": "默认占满中间栏",
   "settings.maxEditorFileSize": "编辑器最大文件大小 (MB)",
-  "settings.maxEditorFileSizeDesc": "超过此大小的文件不加载编辑器，防止编辑器卡死。默认 5MB",
+  "settings.maxEditorFileSizeDesc":
+    "超过此大小的文件不加载编辑器，防止编辑器卡死。默认 5MB",
   "settings.localWebHint": "本机预览地址；局域网访问请替换为本机 IP",
   "settings.nativeMenu": "显示原生菜单",
   "settings.nativeTitleBar": "使用系统标题栏",
@@ -3540,9 +3994,11 @@ export const zhCN = {
   "settings.piVersion": "pi 版本",
   "settings.notDetected": "未检测到 pi CLI",
   "settings.checkPi": "检测 pi",
-  "settings.customPiPathDesc": "支持带引号、双反斜杠和无扩展名路径；保存前会自动归一化并校验。",
+  "settings.customPiPathDesc":
+    "支持带引号、双反斜杠和无扩展名路径；保存前会自动归一化并校验。",
   "settings.piSource.label": "pi 来源",
-  "settings.piSource.desc": "选择使用 Windows 本地安装的 pi，还是 WSL 发行版中的 pi。",
+  "settings.piSource.desc":
+    "选择使用 Windows 本地安装的 pi，还是 WSL 发行版中的 pi。",
   "settings.piSource.windows": "Windows — 使用本地 pi",
   "settings.piSource.wsl": "WSL — 使用 WSL 发行版中的 pi",
   "settings.wsl.distro": "WSL 发行版",
@@ -3557,7 +4013,8 @@ export const zhCN = {
   "settings.wsl.apiUnavailable": "WSL API 未就绪，请重启应用后再试",
   "settings.wsl.validationFailed": "WSL 连接验证失败，请稍后重试",
   "settings.piUpdateSection": "Pi CLI 更新",
-  "settings.piUpdateSectionDesc": "先检测当前与最新版本，有新版本时才执行更新。",
+  "settings.piUpdateSectionDesc":
+    "先检测当前与最新版本，有新版本时才执行更新。",
   "settings.piUpdateStatus": "当前：{current} · 最新：{latest}",
   "settings.piUpdateSuccess": "Pi 更新成功",
   "settings.devToolsSection": "开发者工具",
@@ -3588,15 +4045,19 @@ export const zhCN = {
     "关闭当前窗口并重新打开桌面版，适合应用标题栏或底层设置变更。",
   "settings.restartNotice": "标题栏设置保存后需要重启 PiDeck 生效。",
   "settings.rpcTimeout": "RPC 超时时间（秒）",
-  "settings.rpcTimeoutDesc": "Agent 执行命令的最长等待时间，默认 600 秒（10 分钟），最小 600 秒",
+  "settings.rpcTimeoutDesc":
+    "Agent 执行命令的最长等待时间，默认 600 秒（10 分钟），最小 600 秒",
   "settings.unsavedTitle": "未保存的更改",
   "settings.updateInstallUnsavedTitle": "安装前有未保存的更改",
-  "settings.updateInstallUnsavedMessage": "重启安装会关闭 PiDeck。请先保存更改，或确认放弃。",
+  "settings.updateInstallUnsavedMessage":
+    "重启安装会关闭 PiDeck。请先保存更改，或确认放弃。",
   "settings.saveAndInstall": "保存并重启安装",
   "settings.discardAndInstall": "放弃更改并安装",
   "settings.unsavedMessage": "您有未保存的更改，是否在关闭前保存？",
-  "settings.unsavedMessageDetail": "「{tab}」的「{item}」尚未保存，是否在关闭前保存？",
-  "settings.unsavedMessageMore": "「{tab}」的「{item}」等共 {count} 项尚未保存，是否在关闭前保存？",
+  "settings.unsavedMessageDetail":
+    "「{tab}」的「{item}」尚未保存，是否在关闭前保存？",
+  "settings.unsavedMessageMore":
+    "「{tab}」的「{item}」等共 {count} 项尚未保存，是否在关闭前保存？",
   "settings.unsavedListIntro": "以下 {count} 项有未保存的更改：",
   "settings.unsavedUnknownItem": "其他选项",
   "settings.saveAndClose": "保存并关闭",
@@ -3604,7 +4065,8 @@ export const zhCN = {
   "settings.dirtyTooltip": "此项已修改，尚未保存",
   "settings.loadFailed": "设置加载失败",
   "settings.renderCrashed": "设置页面渲染异常",
-  "settings.renderCrashedHelp": "可以先关闭设置弹框继续使用。请把控制台错误反馈给我们，便于定位。",
+  "settings.renderCrashedHelp":
+    "可以先关闭设置弹框继续使用。请把控制台错误反馈给我们，便于定位。",
   "settings.sendShortcut.ctrl": "Ctrl/⌘ + Enter 发送，Enter 换行",
   "settings.inputShortcut": "发送快捷键",
   "settings.sendShortcut.enter": "Enter 发送，Ctrl/Shift+Enter 换行",
@@ -3620,7 +4082,8 @@ export const zhCN = {
   "settings.dshRuntimeBuiltin": "随应用内置 v{version}",
   "settings.dshRuntimeUnknown": "已就绪",
   "settings.dshRuntimeUninstall": "卸载运行时",
-  "settings.dshRuntimeUninstallConfirm": "卸载 DSH 运行时？卸载后 DSH 会话将无法启动，需要重新下载才能使用；pi 后端不受影响。",
+  "settings.dshRuntimeUninstallConfirm":
+    "卸载 DSH 运行时？卸载后 DSH 会话将无法启动，需要重新下载才能使用；pi 后端不受影响。",
   "settings.dshRuntimeUninstalled": "DSH 运行时已卸载",
   "settings.busySendDelivery": "忙碌时发送",
   "settings.busySendDeliveryDesc":
@@ -3645,7 +4108,8 @@ export const zhCN = {
   "settings.webServiceSectionDesc": "局域网访问入口",
   "settings.webServiceHost": "服务主机",
   "settings.webServicePort": "服务端口",
-  "settings.enableWebServiceDesc": "开启后会在本机启动 HTTP 服务，局域网内其他设备可通过你的电脑 IP 和端口访问",
+  "settings.enableWebServiceDesc":
+    "开启后会在本机启动 HTTP 服务，局域网内其他设备可通过你的电脑 IP 和端口访问",
   "settings.openWebService": "打开 Web 服务",
   "settings.webLocalService": "局域网 Web 服务",
   "settings.webLocalServiceDesc":
@@ -3732,19 +4196,26 @@ export const zhCN = {
   "message.editReloadPrompt": "修改将写入会话记录并立即生效，确定继续？",
   "message.editFailed": "编辑失败",
   "message.deleteTitle": "删除消息",
-  "message.deleteReloadPrompt": "删除后该消息将从会话中移除，后续对话内容保留。此操作不可撤销。确定继续？",
+  "message.deleteReloadPrompt":
+    "删除后该消息将从会话中移除，后续对话内容保留。此操作不可撤销。确定继续？",
   "message.deleteFailed": "删除失败",
   "message.resendFailed": "重发失败",
   "message.anonymousEditUnsupported": "匿名会话不保存记录，无法编辑消息",
   "message.anonymousDeleteUnsupported": "匿名会话不保存记录，无法删除消息",
   "message.historyStopToEditTitle": "停止后编辑",
-  "message.historyStopToEditBody": "会话正在运行。编辑消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
-  "message.historyStopToEditBodyIdle": "编辑消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
-  "message.historyStopToDeleteBody": "会话正在运行。删除消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
-  "message.historyStopToDeleteBodyIdle": "删除消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
+  "message.historyStopToEditBody":
+    "会话正在运行。编辑消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
+  "message.historyStopToEditBodyIdle":
+    "编辑消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
+  "message.historyStopToDeleteBody":
+    "会话正在运行。删除消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
+  "message.historyStopToDeleteBodyIdle":
+    "删除消息会先停止 Agent，再改会话文件；下次发送时才会重新启动。",
   "message.historyStopToResendTitle": "停止后重发",
-  "message.historyStopToResendBody": "会话正在运行。重发会先停止 Agent，截断该消息之后的内容，再重新发送。",
-  "message.historyStopToResendBodyIdle": "重发会先停止 Agent，截断该消息之后的内容，再重新发送。",
+  "message.historyStopToResendBody":
+    "会话正在运行。重发会先停止 Agent，截断该消息之后的内容，再重新发送。",
+  "message.historyStopToResendBodyIdle":
+    "重发会先停止 Agent，截断该消息之后的内容，再重新发送。",
   "message.historyOverlay.stopping": "正在停止 Agent…",
   "message.historyOverlay.mutating": "正在更新会话文件…",
   "message.historyOverlay.reloading": "正在重新加载会话…",
@@ -3786,7 +4257,8 @@ export const zhCN = {
   "tool.viewDiff": "查看本次 diff",
   "editor.unsavedMarker": " · 未保存",
   "timeline.loadFailed": "会话历史加载失败",
-  "timeline.loadFailedHint": "无法读取会话文件，可能已被删除或路径失效。可重试，或检查该项目目录下的会话文件。",
+  "timeline.loadFailedHint":
+    "无法读取会话文件，可能已被删除或路径失效。可重试，或检查该项目目录下的会话文件。",
   "common.retry": "重试",
   "timeline.loadingMore": "加载中...",
   "timeline.loadEarlierTurns": "显示更早的 {count} 轮对话",
@@ -3800,21 +4272,29 @@ export const zhCN = {
   "diagnostic.extensionErrorToastTitle": "扩展执行错误",
   "diagnostic.retryToastTitle": "自动重试",
   "health.check.pi.installed": "pi 安装状态",
-  "health.check.pi.installed.hint": "检查 pi 是否已安装且能读出版本。未安装或版本读取失败时，会话无法正常启动。",
+  "health.check.pi.installed.hint":
+    "检查 pi 是否已安装且能读出版本。未安装或版本读取失败时，会话无法正常启动。",
   "health.check.config.parsable": "pi 配置文件可解析",
-  "health.check.config.parsable.hint": "检查 models.json / auth.json / settings.json 能否被正确解析。配置损坏会导致模型列表为空或会话起不来。",
+  "health.check.config.parsable.hint":
+    "检查 models.json / auth.json / settings.json 能否被正确解析。配置损坏会导致模型列表为空或会话起不来。",
   "health.check.logs.errors": "近期报错密度",
-  "health.check.logs.errors.hint": "统计最近 7 天日志中的 error/warn 条数，判断是否有系统性故障。",
+  "health.check.logs.errors.hint":
+    "统计最近 7 天日志中的 error/warn 条数，判断是否有系统性故障。",
   "health.check.disk.space": "数据盘剩余空间",
-  "health.check.disk.space.hint": "数据目录所在磁盘的剩余空间。空间不足会导致会话/日志写入失败甚至闪退。",
+  "health.check.disk.space.hint":
+    "数据目录所在磁盘的剩余空间。空间不足会导致会话/日志写入失败甚至闪退。",
   "health.check.memory.rss": "主进程常驻内存",
-  "health.check.memory.rss.hint": "主进程 RSS 内存占用。过高通常提示内存泄漏或超大会话。",
+  "health.check.memory.rss.hint":
+    "主进程 RSS 内存占用。过高通常提示内存泄漏或超大会话。",
   "health.check.proxy.consistency": "代理配置自洽",
-  "health.check.proxy.consistency.hint": "开了代理开关却没填地址，会导致所有网络请求失败。",
+  "health.check.proxy.consistency.hint":
+    "开了代理开关却没填地址，会导致所有网络请求失败。",
   "health.check.wsl.config": "WSL 兜底配置",
-  "health.check.wsl.config.hint": "Windows 上开启 WSL 兜底却未填发行版，兜底永远不会生效。",
+  "health.check.wsl.config.hint":
+    "Windows 上开启 WSL 兜底却未填发行版，兜底永远不会生效。",
   "health.check.instance.locks": "单实例锁状态",
-  "health.check.instance.locks.hint": "检查实例锁文件是否残留。旧版本升级被中断会留下锁文件，导致再次启动「双击图标没反应」，需手动删除 ~/.config/pi-desktop/instance-locks 下的锁。",
+  "health.check.instance.locks.hint":
+    "检查实例锁文件是否残留。旧版本升级被中断会留下锁文件，导致再次启动「双击图标没反应」，需手动删除 ~/.config/pi-desktop/instance-locks 下的锁。",
   ...mainProcessZhCN,
   "update.openRelease": "打开 Release",
   "update.viewInSettings": "查看设置",
@@ -3823,19 +4303,22 @@ export const zhCN = {
   "update.installFailedTitle": "更新安装未启动",
   "update.installFailedDetail": "安装未能启动：{error}",
   "update.saveBeforeInstallTitle": "请先保存文件更改",
-  "update.saveBeforeInstallDetail": "PiDeck 未能保存所有打开文件的更改。请处理编辑器中的错误后重试。",
+  "update.saveBeforeInstallDetail":
+    "PiDeck 未能保存所有打开文件的更改。请处理编辑器中的错误后重试。",
   "update.restartNow": "重启并安装",
   "update.downloadFailedTitle": "更新下载失败",
   "update.downloadFailedDetail": "下载失败：{error}",
   "update.availableToastTitle": "发现新版本",
   "update.availableToast": "PiDeck v{version} 可用，可在设置中下载。",
-  "update.availableManualToast": "PiDeck v{version} 可用，请从 Release 页面手动下载安装。",
+  "update.availableManualToast":
+    "PiDeck v{version} 可用，请从 Release 页面手动下载安装。",
   "update.dotMenuTitle": "有新版本可用",
   "update.dotMenuApp": "PiDeck v{version}",
   "update.dotMenuPi": "pi CLI v{version}",
   "update.dotMenuCatalog": "模型目录 v{version}",
   "update.dotHintTitle": "有新版本可用",
-  "update.dotHintBody": "侧栏设置按钮上的圆点表示有可用更新（PiDeck 应用 / pi CLI / 模型目录）。",
+  "update.dotHintBody":
+    "侧栏设置按钮上的圆点表示有可用更新（PiDeck 应用 / pi CLI / 模型目录）。",
   "update.dotHintAction": "查看更新",
   "update.dotHintDismiss": "知道了",
   "feishu.link.connectedWithName": "飞书: {name}",
@@ -3863,7 +4346,8 @@ export const zhCN = {
   "web.openProjects": "打开项目列表",
   "web.closeProjects": "关闭项目列表",
   "web.deleteProject": "移除项目",
-  "web.deleteProjectConfirm": "只移除项目列表记录，不删除项目文件。确定继续吗？",
+  "web.deleteProjectConfirm":
+    "只移除项目列表记录，不删除项目文件。确定继续吗？",
   "web.projectPathPlaceholder": "输入项目目录路径",
   "web.createProject": "添加项目",
   "web.model": "模型",
@@ -3875,13 +4359,15 @@ export const zhCN = {
   "web.connecting": "连接中...",
   "web.promptPlaceholder": "发送消息到当前会话",
   "web.composerHint": "Enter 发送，Shift+Enter 换行",
-  "web.emptySelection": "直接输入消息即可自动新建会话开始对话；或从左侧选择项目、现有会话。",
+  "web.emptySelection":
+    "直接输入消息即可自动新建会话开始对话；或从左侧选择项目、现有会话。",
   "web.sendNoProject": "当前没有可用项目，请先在左侧添加一个项目目录。",
   "web.noMessages": "暂无消息",
   "web.noSessions": "该项目暂无会话，点 + 新建",
   "web.moreSessions": "更多会话 ({count})",
   "web.ungrouped": "未分组",
-  "web.ungroupedHint": "无法匹配到任何项目的会话（可能项目已被移除，或会话未归属项目）",
+  "web.ungroupedHint":
+    "无法匹配到任何项目的会话（可能项目已被移除，或会话未归属项目）",
   "web.scrollToBottom": "滚动到底部",
   "web.streamFailed": "流式连接失败",
   "session.view.chat": "对话",
@@ -3919,8 +4405,10 @@ export const zhCN = {
   "session.trajectory.kind.import": "导入",
   "session.trajectory.kind.retry": "重试",
   "session.trajectory.kind.error": "错误",
-  "session.trajectory.systemPromptHint": "Pi 不会把当轮真实系统提示落进会话文件。这里展示内置 pi-system 参考文本，便于对照身份、工具和行为准则。",
-  "session.trajectory.systemPromptHintDsh": "DSH 的系统提示由 harness 在请求时组装（persona + sections）。这里展示当轮请求的真实系统提示（dsh-web 轨迹同源）。",
+  "session.trajectory.systemPromptHint":
+    "Pi 不会把当轮真实系统提示落进会话文件。这里展示内置 pi-system 参考文本，便于对照身份、工具和行为准则。",
+  "session.trajectory.systemPromptHintDsh":
+    "DSH 的系统提示由 harness 在请求时组装（persona + sections）。这里展示当轮请求的真实系统提示（dsh-web 轨迹同源）。",
   "session.trajectory.field.time": "时间",
   "session.trajectory.field.duration": "耗时",
   "session.trajectory.field.status": "状态",
@@ -3958,14 +4446,16 @@ export const zhCN = {
   "voice.error.empty": "语音转写未返回文本",
   "voice.error.staleTarget": "输入内容已发生变化，未插入转写结果",
   "voice.settings.title": "语音输入",
-  "voice.settings.description": "配置兼容 OpenAI /audio/transcriptions 的转写服务。API Key 仅加密保存在本机主进程。",
+  "voice.settings.description":
+    "配置兼容 OpenAI /audio/transcriptions 的转写服务。API Key 仅加密保存在本机主进程。",
   "voice.settings.baseUrl": "服务地址",
   "voice.settings.apiKey": "API Key",
   "voice.settings.apiKeyConfigured": "已配置，留空则保留",
   "voice.settings.apiKeyMissing": "尚未配置",
   "voice.settings.model": "模型",
   "voice.settings.language": "语言",
-  "voice.settings.languageDescription": "可选的 ISO-639-1 语言代码，留空则自动检测。",
+  "voice.settings.languageDescription":
+    "可选的 ISO-639-1 语言代码，留空则自动检测。",
   "voice.settings.languagePlaceholder": "例如 zh 或 en",
   "voice.settings.actions": "配置操作",
   "voice.settings.save": "保存语音设置",
@@ -3974,7 +4464,8 @@ export const zhCN = {
   "voice.settings.keyCleared": "语音转写 API Key 已清除",
   "voice.settings.loadFailed": "读取语音设置失败",
   "voice.settings.error.invalidConfig": "语音设置无效，请检查地址、模型和语言",
-  "voice.settings.error.secureStorageUnavailable": "系统安全存储不可用，无法保存新的 API Key",
+  "voice.settings.error.secureStorageUnavailable":
+    "系统安全存储不可用，无法保存新的 API Key",
   "voice.settings.error.saveFailed": "保存语音设置失败",
   "announcements.title": "公告",
   "announcements.empty": "暂无公告",
@@ -4002,7 +4493,8 @@ export const zhCN = {
   "automation.projectSubtitle": "仅显示此项目的任务和运行记录",
   "automation.emptyTasks": "暂无定时任务",
   "automation.emptyProjectTasks": "此项目暂无定时任务",
-  "automation.emptyTasksDesc": "创建一个定时任务，按 Cron 周期自动启动会话执行日常巡检、构建或自动化 Prompt",
+  "automation.emptyTasksDesc":
+    "创建一个定时任务，按 Cron 周期自动启动会话执行日常巡检、构建或自动化 Prompt",
   "automation.createTask": "新建任务",
   "automation.editTask": "编辑任务",
   "automation.deleteTask": "删除任务",
@@ -4014,7 +4506,8 @@ export const zhCN = {
   "automation.projectSelect": "选择关联项目",
   "automation.scheduleType": "调度规则",
   "automation.cronExpression": "Cron 表达式",
-  "automation.cronHelp": "可视化选择频率；自定义模式下可输入 5 位 Cron（分 时 日 月 周）",
+  "automation.cronHelp":
+    "可视化选择频率；自定义模式下可输入 5 位 Cron（分 时 日 月 周）",
   "automation.cronPreview": "下次触发时间",
   "automation.cronInvalid": "无效的 Cron 表达式",
   "automation.cronGenerated": "生成表达式",
@@ -4050,13 +4543,17 @@ export const zhCN = {
   "automation.thinkingInherit": "跟随项目/全局",
   "automation.mode": "工作模式",
   "automation.modeInherit": "跟随项目/全局",
-  "automation.modeHint": "计划/目标模式需要 pi 内置的计划/目标扩展已启用；目标模式会在无人值守时自动连续推进，注意配合预算上限使用",
-  "automation.dshModeHint": "DSH 仅支持普通模式：计划/目标模式与思考档位是 pi 内置扩展，DSH 下自动跟随默认",
+  "automation.modeHint":
+    "计划/目标模式需要 pi 内置的计划/目标扩展已启用；目标模式会在无人值守时自动连续推进，注意配合预算上限使用",
+  "automation.dshModeHint":
+    "DSH 仅支持普通模式：计划/目标模式与思考档位是 pi 内置扩展，DSH 下自动跟随默认",
   "automation.backend": "执行后端",
   "automation.backendPi": "pi（本地编码助手）",
   "automation.backendDsh": "DSH",
-  "automation.backendHint": "DSH 任务由 DSH host 进程执行；两种后端共用项目工作区与模型配置，任务记录各自的会话时间线",
-  "automation.backendDshUnavailable": "DSH runtime 未就绪，请先在设置中安装/修复后再保存",
+  "automation.backendHint":
+    "DSH 任务由 DSH host 进程执行；两种后端共用项目工作区与模型配置，任务记录各自的会话时间线",
+  "automation.backendDshUnavailable":
+    "DSH runtime 未就绪，请先在设置中安装/修复后再保存",
   "automation.enabled": "已启用",
   "automation.disabled": "已暂停",
   "automation.runNow": "立即执行一次",
@@ -4065,7 +4562,8 @@ export const zhCN = {
   "automation.historyTab": "运行历史",
   "automation.historyEmpty": "暂无历史执行记录",
   "automation.clearHistory": "清空历史",
-  "automation.clearHistoryConfirm": "确定清空全部已结束的运行记录吗？进行中的任务会保留。此操作不可撤销。",
+  "automation.clearHistoryConfirm":
+    "确定清空全部已结束的运行记录吗？进行中的任务会保留。此操作不可撤销。",
   "automation.historyDeleted": "已删除 {count} 条历史记录",
   "automation.historyCleared": "已清空 {count} 条历史记录",
   "automation.tasksTab": "任务列表",
@@ -4115,4 +4613,3 @@ export const zhCN = {
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
-

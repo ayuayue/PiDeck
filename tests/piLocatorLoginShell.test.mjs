@@ -28,7 +28,10 @@ test("warmLoginShellPath：异步执行一次并进程级缓存（成功值）",
 			execCalls += 1;
 			assert.equal(command, "/bin/sh");
 			// VM 跨 realm：args 是沙箱内 Array，与宿主 Array 原型不同，用 JSON 文本比较。
-			assert.equal(JSON.stringify(args), JSON.stringify(["-lc", 'printf %s "$PATH"']));
+			assert.equal(
+				JSON.stringify(args),
+				JSON.stringify(["-lc", 'printf %s "$PATH"']),
+			);
 			callback(null, "/usr/local/bin:/opt/homebrew/bin\n", "");
 		},
 	});

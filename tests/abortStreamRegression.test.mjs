@@ -42,15 +42,19 @@ test("abort feedback is toast-only and seals stream generation", () => {
 	);
 
 	// 4) agent_settled 必须 noteAbortSettled，但不得直接 openAgentStream
-	const settledBlock = agentManager.match(
-		/if \(typed\.type === "agent_settled"\) \{[\s\S]*?\n\t\t\}/,
-	)?.[0] ?? "";
+	const settledBlock =
+		agentManager.match(
+			/if \(typed\.type === "agent_settled"\) \{[\s\S]*?\n\t\t\}/,
+		)?.[0] ?? "";
 	assert.match(settledBlock, /noteAgentAbortSettled\(agentId\)/);
 	assert.match(settledBlock, /recentlyAborted\.delete\(agentId\)/);
 	assert.doesNotMatch(settledBlock, /openAgentStream/);
 
 	// 5) 前端 notice 走 runtime bridge toast；abort 后 live 思考由 agents:thinking done 清通道
-	const bridge = readFileSync("src/renderer/src/hooks/useSessionRuntimeBridge.ts", "utf8");
+	const bridge = readFileSync(
+		"src/renderer/src/hooks/useSessionRuntimeBridge.ts",
+		"utf8",
+	);
 	const atoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
 	assert.match(bridge, /agents:notice/);
 	assert.match(bridge, /showNotice\(/);
@@ -60,7 +64,10 @@ test("abort feedback is toast-only and seals stream generation", () => {
 
 test("abort failures surface to the user and escalate when pi keeps running", () => {
 	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
-	const composer = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+	const composer = readFileSync(
+		"src/renderer/src/hooks/useSessionComposerController.ts",
+		"utf8",
+	);
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
@@ -78,9 +85,15 @@ test("abort failures surface to the user and escalate when pi keeps running", ()
 
 	// 3) 渲染层 abort 失败必须可见：try/catch + toast，禁止未处理 rejection 静默吞错
 	assert.match(composer, /catch \(error\)/);
-	assert.match(composer, /showNotice\(\s*error instanceof Error \? error\.message : String\(error\)/);
+	assert.match(
+		composer,
+		/showNotice\(\s*error instanceof Error \? error\.message : String\(error\)/,
+	);
 	assert.match(app, /catch \(error\)/);
-	assert.match(app, /showToast\(\s*error instanceof Error \? error\.message : String\(error\)/);
+	assert.match(
+		app,
+		/showToast\(\s*error instanceof Error \? error\.message : String\(error\)/,
+	);
 
 	// 4) 无运行时目标时也不得静默：给出 runtimeUnavailable 提示
 	assert.match(composer, /sessionCommand\.runtimeUnavailable/);
