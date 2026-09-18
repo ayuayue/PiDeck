@@ -502,7 +502,18 @@ export function useSessionTimelineController(options: {
 	const prependHistoryPage = useSetAtom(prependSessionHistoryPageAtom);
   const setLoadState = useSetAtom(setSessionMessageLoadStateAtom);
   const touchMessages = useSetAtom(touchSessionMessagesAtom);
-  const loadStates = useAtomValue(sessionMessageLoadStateAtom);
+  // 订阅收窄：整表订阅 sessionMessageLoadStateAtom 会让本栏在**任何**会话的加载
+  // 状态变化时重渲染（分屏下每栏各放大一次）；只取本会话 status 切片
+  // （与上方 cacheSliceAtom 同一模式，status 为原始值，Object.is 相等即不重渲染）。
+  const loadStateStatusAtom = useMemo(
+    () =>
+      selectAtom(
+        sessionMessageLoadStateAtom,
+        (states) => (options.sessionId ? states[options.sessionId]?.status : undefined),
+      ),
+    [options.sessionId],
+  );
+  const loadStateStatus = useAtomValue(loadStateStatusAtom);
   const lastLoadedSessionRef = useRef<string | undefined>(undefined);
   const sessionRecord = useAtomValue(
     sessionRecordByIdAtomFamily(options.sessionId ?? ""),
@@ -528,7 +539,7 @@ export function useSessionTimelineController(options: {
   // 新建/切回空会话必须留在起始页，不能先挂底部栏再卸（输入框上跳）。
   const isSurfaceLoading = deriveSessionSurfaceRuntime(
     messages.length,
-    options.sessionId ? loadStates[options.sessionId]?.status : undefined,
+    loadStateStatus,
     undefined,
     undefined,
     undefined,
