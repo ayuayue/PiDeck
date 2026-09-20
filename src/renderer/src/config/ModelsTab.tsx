@@ -27,6 +27,7 @@ import { splitVisibleAndHiddenProviders } from "./providerVisibility";
 import { applyProviderOrder } from "../utils/providerOrder";
 import { useProviderReorder } from "../hooks/useProviderReorder";
 import { ModelsTable } from "./ModelsTable";
+import { ModelsExportPanel } from "./ModelsExportPanel";
 import type { MutableRefObject } from "react";
 
 /** 把现有 provider 配置转成编辑弹窗的预填值（名字/字段/模型列表）。 */
@@ -167,6 +168,8 @@ export function ModelsTab(props: {
 	const [showGuide, setShowGuide] = useState(false);
 	const [batchMode, setBatchMode] = useState(false);
 	const [selectedProviders, setSelectedProviders] = useState<Set<string>>(() => new Set());
+	// 批量导出：非空时列表区被面板独占（与 AddProviderDialog 同一模式）。
+	const [transferView, setTransferView] = useState<{ kind: "export"; ids: string[] } | { kind: "import" } | null>(null);
 	// 模型批量删除只作用于当前展开的 provider，避免不同 provider 的同一行索引互相污染。
 	const [modelBatchProvider, setModelBatchProvider] = useState<string | null>(null);
 	const [selectedModelIndexes, setSelectedModelIndexes] = useState<Set<number>>(() => new Set());
@@ -249,7 +252,7 @@ export function ModelsTab(props: {
 	return (
 		<div>
 			{/* 列表态：顶部按钮 + 指南 + 卡片列表；新增/编辑时整区切换为配置表单页（非弹窗） */}
-			{!props.addingProvider && !props.editingProvider && (
+			{!props.addingProvider && !props.editingProvider && !transferView && (
 				<>
 					<div className="mb-3 flex items-center justify-between gap-3">
 						<span className="font-mono text-xs tabular-nums text-text-tertiary">{t("config.count.providers", { count: visibleProviderNames.length })}</span>
@@ -289,6 +292,16 @@ export function ModelsTab(props: {
 									disabled={selectedProviders.size === 0}
 								>
 									{t("common.deleteSelected")} ({selectedProviders.size})
+								</Button>
+							)}
+							{batchMode && (
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={selectedProviders.size === 0}
+									onClick={() => setTransferView({ kind: "export", ids: [...selectedProviders] })}
+								>
+									{t("config.models.transfer.exportSelected", { count: selectedProviders.size })}
 								</Button>
 							)}
 						</div>
@@ -794,6 +807,8 @@ export function ModelsTab(props: {
 					}}
 				/>
 			)}
+
+			{transferView?.kind === "export" && (<ModelsExportPanel providerIds={transferView.ids} providers={props.data.providers} onBack={() => setTransferView(null)} />)}
 		</div>
 	);
 }
