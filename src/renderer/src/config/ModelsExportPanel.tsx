@@ -58,19 +58,11 @@ export function ModelsExportPanel(props: ModelsExportPanelProps) {
 				<span>{t("config.models.transfer.exportTitle")}</span>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-				<p className="text-sm text-text-secondary">
-					{t("config.models.transfer.selectedProviders", { count: props.providerIds.length })}
-				</p>
+				<p className="text-sm text-text-secondary">{t("config.models.transfer.selectedProviders", { count: props.providerIds.length })}</p>
 				{!payload && (
 					<div className="mt-4 space-y-2">
 						<Label htmlFor="models-export-password">{t("config.models.transfer.password")}</Label>
-						<Input
-							id="models-export-password"
-							type="password"
-							value={password}
-							onChange={(e) => setPassword(e.target.value)}
-							autoComplete="new-password"
-						/>
+						<Input id="models-export-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
 						<p className="text-xs text-text-secondary">{t("config.models.transfer.passwordHint")}</p>
 						{!password.trim() && <p className="text-xs text-warning">{t("config.models.transfer.noEncryptHint")}</p>}
 					</div>

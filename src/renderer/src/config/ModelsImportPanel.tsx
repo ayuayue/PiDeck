@@ -7,15 +7,7 @@ import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { t } from "../i18n";
 import type { ProviderConfig, ModelsFile } from "./configTypes";
-import {
-	applyTransferToDraft,
-	decodeModelsTransfer,
-	maskSecret,
-	planProviderMerge,
-	type DecodeModelsTransferResult,
-	type ProviderTransferDecision,
-	type SideChoice,
-} from "./modelsTransfer";
+import { applyTransferToDraft, decodeModelsTransfer, maskSecret, planProviderMerge, type DecodeModelsTransferResult, type ProviderTransferDecision, type SideChoice } from "./modelsTransfer";
 
 interface ModelsImportPanelProps {
 	data: ModelsFile;
@@ -84,7 +76,12 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 		setStep("select");
 	};
 
+	// 导入文件只应是小体积 base64 文本；限制 4MB 防误选大文件把渲染层堵死（自我 DoS 防护）。
 	const handleFile = async (file: File) => {
+		if (file.size > 4 * 1024 * 1024) {
+			setError(t("config.models.transfer.invalid"));
+			return;
+		}
 		setText(await file.text());
 	};
 
@@ -159,6 +156,7 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 							onChange={(e) => {
 								const file = e.target.files?.[0];
 								if (file) void handleFile(file);
+								e.target.value = ""; // 重置以复选同一文件
 							}}
 						/>
 						{needsPassword && (
@@ -182,16 +180,11 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 										if (next.has(id)) next.delete(id);
 										else next.add(id);
 										setSelected(next);
-
 									}}
 								/>
 								<span>{id}</span>
 								<span className="text-xs text-text-tertiary">{provider.baseUrl ?? provider.api ?? ""}</span>
-								{props.data.providers[id] ? (
-									<span className="text-xs text-warning">{t("config.models.transfer.conflictWithLocal")}</span>
-								) : (
-									<span className="text-xs text-info">{t("config.models.transfer.newProvider")}</span>
-								)}
+								{props.data.providers[id] ? <span className="text-xs text-warning">{t("config.models.transfer.conflictWithLocal")}</span> : <span className="text-xs text-info">{t("config.models.transfer.newProvider")}</span>}
 							</label>
 						))}
 						{error && <p className="text-sm text-danger">{error}</p>}
@@ -201,9 +194,9 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 					<div className="space-y-4">
 						<div className="flex flex-wrap gap-2">
 							<Button variant="outline" size="sm" onClick={() => setModes(Object.fromEntries(conflictIds.map((id) => [id, "overwrite"])))}>
-							{t("config.models.transfer.overwriteAll")}
-						</Button>
-						<Button variant="outline" size="sm" onClick={() => setModes(Object.fromEntries(conflictIds.map((id) => [id, "merge"])))}>
+								{t("config.models.transfer.overwriteAll")}
+							</Button>
+							<Button variant="outline" size="sm" onClick={() => setModes(Object.fromEntries(conflictIds.map((id) => [id, "merge"])))}>
 								{t("config.models.transfer.mergeAll")}
 							</Button>
 							<Button variant="outline" size="sm" onClick={() => setAllChoices("local")}>
@@ -238,14 +231,8 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 														<div key={d.field} className="flex items-center justify-between gap-2 py-1">
 															<span className="w-32 shrink-0">{d.field}</span>
 															<span className="min-w-0 flex-1 truncate">{displayValue(d.field, d.local)}</span>
-															<Button
-																variant="outline"
-																size="sm"
-																onClick={() => setFieldChoices(toggleChoice(fieldChoices, id, d.field))}
-															>
-																{(fieldChoices[id]?.[d.field] ?? "local") === "local"
-																	? t("config.models.transfer.local")
-																	: t("config.models.transfer.imported")}
+															<Button variant="outline" size="sm" onClick={() => setFieldChoices(toggleChoice(fieldChoices, id, d.field))}>
+																{(fieldChoices[id]?.[d.field] ?? "local") === "local" ? t("config.models.transfer.local") : t("config.models.transfer.imported")}
 															</Button>
 															<span className="min-w-0 flex-1 truncate">{displayValue(d.field, d.imported)}</span>
 														</div>
@@ -259,12 +246,12 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 														const key = `${d.modelId}::${d.field}`;
 														return (
 															<div key={key} className="flex items-center justify-between gap-2 py-1">
-																<span className="w-44 shrink-0 truncate">{d.modelId} · {d.field}</span>
+																<span className="w-44 shrink-0 truncate">
+																	{d.modelId} · {d.field}
+																</span>
 																<span className="min-w-0 flex-1 truncate">{displayValue(d.field, d.local)}</span>
 																<Button variant="outline" size="sm" onClick={() => setModelChoices(toggleChoice(modelChoices, id, key))}>
-																	{(modelChoices[id]?.[key] ?? "local") === "local"
-																		? t("config.models.transfer.local")
-																		: t("config.models.transfer.imported")}
+																	{(modelChoices[id]?.[key] ?? "local") === "local" ? t("config.models.transfer.local") : t("config.models.transfer.imported")}
 																</Button>
 																<span className="min-w-0 flex-1 truncate">{displayValue(d.field, d.imported)}</span>
 															</div>
@@ -272,11 +259,7 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 													})}
 												</div>
 											)}
-											{plan.newModels.length > 0 && (
-												<p className="text-xs text-text-tertiary">
-													{t("config.models.transfer.newModels", { ids: plan.newModels.map((n) => n.modelId).join(", ") })}
-												</p>
-											)}
+											{plan.newModels.length > 0 && <p className="text-xs text-text-tertiary">{t("config.models.transfer.newModels", { ids: plan.newModels.map((n) => n.modelId).join(", ") })}</p>}
 										</div>
 									)}
 								</div>
