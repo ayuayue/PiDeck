@@ -1552,6 +1552,12 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		setExpandedAuth(newName);
 	};
 
+	// 导入面板把合并结果写入未保存草稿；用户在配置页检查后点「保存」才落盘（设计决策 #7）
+	const handleApplyModelsTransfer = (next: ModelsFile) => {
+		setModelsData(next);
+		markDirty("config:models");
+	};
+
 	const handleDeleteProviders = (names: string[]) => {
 		setDeleteConfirm({
 			type: "batch",
@@ -2550,6 +2556,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 											onDeleteProvider={handleDeleteProvider}
 											onDuplicateProvider={handleDuplicateProvider}
 											onDeleteProviders={handleDeleteProviders}
+											onApplyModelsTransfer={handleApplyModelsTransfer}
 											onAddModel={handleAddModel}
 											onUpdateModel={handleUpdateModel}
 											onUpdateModelThinkingLevel={handleUpdateModelThinkingLevel}
