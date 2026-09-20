@@ -301,12 +301,7 @@ export function ModelsTab(props: {
 								</Button>
 							)}
 							{batchMode && (
-								<Button
-									size="sm"
-									variant="outline"
-									disabled={selectedProviders.size === 0}
-									onClick={() => setTransferView({ kind: "export", ids: [...selectedProviders] })}
-								>
+								<Button size="sm" variant="outline" disabled={selectedProviders.size === 0} onClick={() => setTransferView({ kind: "export", ids: [...selectedProviders] })}>
 									{t("config.models.transfer.exportSelected", { count: selectedProviders.size })}
 								</Button>
 							)}
@@ -814,10 +809,8 @@ export function ModelsTab(props: {
 				/>
 			)}
 
-			{transferView?.kind === "export" && (<ModelsExportPanel providerIds={transferView.ids} providers={props.data.providers} onBack={() => setTransferView(null)} />)}
-			{transferView?.kind === "import" && (
-				<ModelsImportPanel data={props.data} onApply={props.onApplyModelsTransfer} onBack={() => setTransferView(null)} />
-			)}
+			{transferView?.kind === "export" && <ModelsExportPanel providerIds={transferView.ids} providers={props.data.providers} onBack={() => setTransferView(null)} />}
+			{transferView?.kind === "import" && <ModelsImportPanel data={props.data} onApply={props.onApplyModelsTransfer} onBack={() => setTransferView(null)} />}
 		</div>
 	);
 }

@@ -54,9 +54,7 @@ interface EncryptedEnvelope {
 }
 
 export type TransferDecodeError = "invalid-format" | "unsupported-version" | "wrong-kind";
-export type DecodeModelsTransferResult =
-	| { ok: true; providers: Record<string, ProviderConfig>; wasEncrypted: boolean }
-	| { ok: false; error: TransferDecodeError | "encrypted-no-password" | "wrong-password" };
+export type DecodeModelsTransferResult = { ok: true; providers: Record<string, ProviderConfig>; wasEncrypted: boolean } | { ok: false; error: TransferDecodeError | "encrypted-no-password" | "wrong-password" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -74,13 +72,7 @@ function toProviders(value: unknown): Record<string, ProviderConfig> | null {
 
 async function deriveKey(password: string, salt: WebBytes): Promise<CryptoKey> {
 	const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-	return crypto.subtle.deriveKey(
-		{ name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
-		keyMaterial,
-		{ name: "AES-GCM", length: 256 },
-		false,
-		["encrypt", "decrypt"],
-	);
+	return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" }, keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 
 export async function encodeModelsTransfer(providers: Record<string, ProviderConfig>, password?: string): Promise<string> {
@@ -229,12 +221,7 @@ export function planProviderMerge(local: ProviderConfig, imported: ProviderConfi
 
 export type SideChoice = "local" | "imported";
 
-export function applyProviderMerge(
-	local: ProviderConfig,
-	imported: ProviderConfig,
-	providerFieldChoices: Record<string, SideChoice>,
-	modelChoices: Record<string, SideChoice>,
-): ProviderConfig {
+export function applyProviderMerge(local: ProviderConfig, imported: ProviderConfig, providerFieldChoices: Record<string, SideChoice>, modelChoices: Record<string, SideChoice>): ProviderConfig {
 	const merged: ProviderConfig = { ...local };
 	const fieldNames = new Set([...Object.keys(local), ...Object.keys(imported)]);
 	for (const field of fieldNames) {
@@ -275,11 +262,7 @@ export function applyProviderMerge(
 
 export type ProviderTransferDecision = "overwrite" | { merge: { providerFieldChoices: Record<string, SideChoice>; modelChoices: Record<string, SideChoice> } };
 
-export function applyTransferToDraft(
-	draft: ModelsFile,
-	imported: Record<string, ProviderConfig>,
-	decisions: Record<string, ProviderTransferDecision>,
-): ModelsFile {
+export function applyTransferToDraft(draft: ModelsFile, imported: Record<string, ProviderConfig>, decisions: Record<string, ProviderTransferDecision>): ModelsFile {
 	const providers: Record<string, ProviderConfig> = { ...draft.providers };
 	for (const [id, decision] of Object.entries(decisions)) {
 		const incoming = imported[id];
