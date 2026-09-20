@@ -28,6 +28,7 @@ import { applyProviderOrder } from "../utils/providerOrder";
 import { useProviderReorder } from "../hooks/useProviderReorder";
 import { ModelsTable } from "./ModelsTable";
 import { ModelsExportPanel } from "./ModelsExportPanel";
+import { ModelsImportPanel } from "./ModelsImportPanel";
 import type { MutableRefObject } from "react";
 
 /** 把现有 provider 配置转成编辑弹窗的预填值（名字/字段/模型列表）。 */
@@ -124,6 +125,8 @@ export function ModelsTab(props: {
 	onChangeTestModelId: (providerName: string, modelId: string) => void;
 	onChangeTestProxyMode: (providerName: string, mode: ConfigProxyMode) => void;
 	onClearTestResult: () => void;
+	/** 导入面板把合并结果写回未保存草稿（父级 ConfigModal 处理，不直接落盘）。 */
+	onApplyModelsTransfer: (next: ModelsFile) => void;
 	onSave: () => void;
 	onChangeProvider: (name: string, field: string, value: unknown) => void;
 }) {
@@ -259,6 +262,9 @@ export function ModelsTab(props: {
 						<div className="flex min-w-0 items-center gap-1.5">
 							<Button size="sm" variant="outline" onClick={props.onStartAddProvider} disabled={saving}>
 								{t("config.addProvider")}
+							</Button>
+							<Button size="sm" variant="outline" onClick={() => setTransferView({ kind: "import" })} disabled={saving}>
+								{t("config.models.transfer.importButton")}
 							</Button>
 							<Button size="sm" variant="outline" onClick={() => setShowGuide(!showGuide)} disabled={saving}>
 								{t("config.providerGuide")}
@@ -809,6 +815,9 @@ export function ModelsTab(props: {
 			)}
 
 			{transferView?.kind === "export" && (<ModelsExportPanel providerIds={transferView.ids} providers={props.data.providers} onBack={() => setTransferView(null)} />)}
+			{transferView?.kind === "import" && (
+				<ModelsImportPanel data={props.data} onApply={props.onApplyModelsTransfer} onBack={() => setTransferView(null)} />
+			)}
 		</div>
 	);
 }
