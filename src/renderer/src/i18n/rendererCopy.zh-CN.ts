@@ -1131,6 +1131,8 @@ export const zhCN = {
 	"common.save": "保存",
 	"common.saving": "保存中…",
 	"common.selectAll": "全选",
+	"common.invertSelection": "反选",
+	"common.clearSelection": "清除选择",
 	"common.show": "显示",
 	"common.showMore": "查看更多",
 	"common.untitled": "未命名",

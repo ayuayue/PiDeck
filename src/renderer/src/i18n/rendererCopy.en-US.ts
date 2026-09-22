@@ -1134,6 +1134,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"common.save": "Save",
 	"common.saving": "Saving...",
 	"common.selectAll": "Select All",
+	"common.invertSelection": "Invert Selection",
+	"common.clearSelection": "Clear Selection",
 	"common.show": "Show",
 	"common.showMore": "Show More",
 	"common.untitled": "Untitled",

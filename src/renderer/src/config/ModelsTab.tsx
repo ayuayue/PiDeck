@@ -9,7 +9,7 @@ import { getHeaderValue, setHeaderValue } from "./providerHeaders";
 import { buildModelsFromFetchedSelection } from "./modelsUtils";
 // 排序键收敛到 shared：与模型下拉列表 / 主进程写入保持同一顺序。
 import { compareModelRows } from "../../../shared/modelOrder";
-import { countSelectedModelIndexes, toggleAllModelIndexes, toggleModelIndex } from "./modelBatchSelection";
+import { countSelectedModelIndexes, invertModelIndexes, selectAllModelIndexes, toggleAllModelIndexes, toggleModelIndex } from "./modelBatchSelection";
 import { FetchedModelCombobox } from "./FetchedModelCombobox";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
@@ -296,6 +296,16 @@ export function ModelsTab(props: {
 							</Button>
 							{batchMode && (
 								<>
+									<Button size="sm" variant="ghost" disabled={visibleProviderNames.length === 0} onClick={() => setSelectedProviders(new Set(visibleProviderNames))}>
+										{t("common.selectAll")}
+									</Button>
+									<Button size="sm" variant="ghost" disabled={visibleProviderNames.length === 0} onClick={() => setSelectedProviders(new Set(visibleProviderNames.filter((name) => !selectedProviders.has(name))))}>
+										{t("common.invertSelection")}
+									</Button>
+									{/* 清除选择只清空勾选，留在批量模式（不动 batchAction） */}
+									<Button size="sm" variant="ghost" disabled={visibleProviderNames.length === 0} onClick={() => setSelectedProviders(new Set())}>
+										{t("common.clearSelection")}
+									</Button>
 									<Select value={batchAction ?? undefined} onValueChange={(next) => setBatchAction(next === "delete" || next === "export" ? next : null)}>
 										<SelectTrigger aria-label={t("config.models.batchActionLabel")} className="h-8 w-32">
 											<SelectValue placeholder={t("config.models.batchActionLabel")} />
@@ -641,19 +651,31 @@ export function ModelsTab(props: {
 															{isModelBatchMode ? t("common.cancel") : t("common.deleteBatch")}
 														</Button>
 														{isModelBatchMode && (
-															<Button
-																variant="destructive"
-																size="sm"
-																onClick={() => {
-																	if (selectedModelCount === 0) return;
-																	props.onDeleteModels(name, [...selectedModelIndexes]);
-																	clearModelBatch();
-																}}
-																disabled={selectedModelCount === 0}
-															>
-																<Trash2 className="size-3.5" aria-hidden="true" />
-																{t("common.deleteSelected")} ({selectedModelCount})
-															</Button>
+															<>
+																<Button size="sm" variant="ghost" disabled={provider.models.length === 0} onClick={() => setSelectedModelIndexes(selectAllModelIndexes(provider.models.length))}>
+																	{t("common.selectAll")}
+																</Button>
+																<Button size="sm" variant="ghost" disabled={provider.models.length === 0} onClick={() => setSelectedModelIndexes(invertModelIndexes(selectedModelIndexes, provider.models.length))}>
+																	{t("common.invertSelection")}
+																</Button>
+																{/* 清除选择只清空勾选，留在批量模式（不动 modelBatchProvider） */}
+																<Button size="sm" variant="ghost" disabled={provider.models.length === 0} onClick={() => setSelectedModelIndexes(new Set())}>
+																	{t("common.clearSelection")}
+																</Button>
+																<Button
+																	variant="destructive"
+																	size="sm"
+																	onClick={() => {
+																		if (selectedModelCount === 0) return;
+																		props.onDeleteModels(name, [...selectedModelIndexes]);
+																		clearModelBatch();
+																	}}
+																	disabled={selectedModelCount === 0}
+																>
+																	<Trash2 className="size-3.5" aria-hidden="true" />
+																	{t("common.deleteSelected")} ({selectedModelCount})
+																</Button>
+															</>
 														)}
 													</div>
 												</div>

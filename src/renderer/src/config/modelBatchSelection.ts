@@ -37,6 +37,22 @@ export function toggleAllModelIndexes(selectedIndexes: ReadonlySet<number>, tota
 	return new Set(Array.from({ length: total }, (_, index) => index));
 }
 
+/** 全选：返回 0..total-1 的完整行号集合。 */
+export function selectAllModelIndexes(total: number): Set<number> {
+	const next = new Set<number>();
+	for (let i = 0; i < total; i += 1) next.add(i);
+	return next;
+}
+
+/** 反选：在 0..total-1 全集内翻转 current（越界残留项不会重新出现）。 */
+export function invertModelIndexes(current: ReadonlySet<number>, total: number): Set<number> {
+	const next = new Set<number>();
+	for (let i = 0; i < total; i += 1) {
+		if (!current.has(i)) next.add(i);
+	}
+	return next;
+}
+
 /** 按选中行索引移除模型，供确认删除回调和测试共同复用。 */
 export function removeSelectedModelIndexes<T>(items: ReadonlyArray<T>, selectedIndexes: ReadonlySet<number>): T[] {
 	return items.filter((_, index) => !selectedIndexes.has(index));
