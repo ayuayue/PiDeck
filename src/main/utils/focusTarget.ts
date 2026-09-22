@@ -15,6 +15,8 @@ const AGENT_RE = new RegExp(`pideck://agent/(${FOCUS_UUID})`, "i");
 const OPEN_PROJECT_FLAG = "--open-project";
 
 export type FocusTarget = {
+	quickTaskPath?: string;
+	quickTaskDesktop?: boolean;
 	sessionId?: string;
 	agentId?: string;
 	/** 文件夹右键菜单唤起：待打开/导入的目录路径（来自 --open-project 参数）。 */
@@ -25,6 +27,11 @@ export function extractFocusTargetFromArgv(argv?: string[]): FocusTarget | undef
 	if (!argv || argv.length === 0) return undefined;
 	for (let i = 0; i < argv.length; i++) {
 		const text = String(argv[i]);
+		if (text === "--quick-task-desktop") return { quickTaskDesktop: true };
+		if (text === "--quick-task" || text.startsWith("--quick-task=")) {
+			const path = text === "--quick-task" ? argv[i + 1] : text.slice("--quick-task=".length);
+			if (path && !path.startsWith("--")) return { quickTaskPath: path };
+		}
 		const sessionMatch = text.match(SESSION_RE);
 		if (sessionMatch) return { sessionId: sessionMatch[1] };
 		const agentMatch = text.match(AGENT_RE);

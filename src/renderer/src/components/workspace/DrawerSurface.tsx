@@ -152,6 +152,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 					<DrawerContent
 						panel={drawer}
 						project={drawer === "sessions" ? files.sessionsProject : undefined}
+						projectId={git.activeProjectId}
 						files={files.files}
 						sessions={
 							files.sessionsProjectId && files.sessionSourceFilter[files.sessionsProjectId as string]

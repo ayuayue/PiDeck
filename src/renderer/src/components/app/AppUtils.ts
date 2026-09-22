@@ -5,6 +5,7 @@
 
 import type { ReactNode } from "react";
 import type { ChatMessage, FileTreeNode, PiCommand } from "../../../../shared/types";
+import { isRetryStatusMessage } from "../session/timelineFailureNotice";
 import type { TranslationKey } from "../../i18n";
 import { formatFilePathRef } from "../session/composer/chips";
 import { replaceExpandedRefBlocksWithLabels } from "../session/composer/quoteChip";
@@ -144,6 +145,18 @@ export type ToolGroupItem = {
 
 export type MessageItem = { kind: "message"; message: ChatMessage };
 
+/**
+ * 重试过程条目：一轮 run 内的自动重试状态消息（正在重试/成功/最终失败）。
+ * 与工具/思考同层，作为 run 的过程步骤参与折叠，不再渲染成时间线独立大卡片
+ * ——旧形态与工具时间线割裂且顺序错乱（卡片插在工具调用与后续回答之间）。
+ */
+export type RetryGroupItem = {
+	kind: "retry-group";
+	/** 与消息 id 一致，保证 Live upsert（同 id 原地改写）映射稳定 */
+	id: string;
+	message: ChatMessage;
+};
+
 export type ThinkingGroupItem = {
 	kind: "thinking-group";
 	id: string;
@@ -156,7 +169,7 @@ export type ThinkingGroupItem = {
 export type AgentRunItem = {
 	kind: "agent-run";
 	id: string;
-	items: Array<MessageItem | ToolGroupItem | ThinkingGroupItem>;
+	items: Array<MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem>;
 	startedAt: number;
 	endedAt: number;
 	/** 本轮内 ask_question 的用户等待总时长（ms）：由已完成的 ask 工具消息推导，
@@ -168,7 +181,7 @@ export type AgentRunItem = {
 	askPendingAt?: number;
 };
 
-export type RenderMessage = MessageItem | ToolGroupItem | ThinkingGroupItem | AgentRunItem;
+export type RenderMessage = MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem | AgentRunItem;
 
 /**
  * 生图占位消息的渲染身份：generating → error 往往只改 meta.imageGen，
@@ -241,6 +254,11 @@ export function sameAgentRunForRender(previous: AgentRunItem, next: AgentRunItem
 		if (item.kind === "message" && other.kind === "message") {
 			return sameChatMessageForRender(item.message, other.message);
 		}
+		if (item.kind === "retry-group" && other.kind === "retry-group") {
+			// 重试条目是同 id 原地 upsert（running→success/error 只改 meta/text），
+			// 必须按消息本体比较，否则运行中→收敛的状态变化不会触发重绘。
+			return item.id === other.id && sameChatMessageForRender(item.message, other.message);
+		}
 		if (item.kind === "thinking-group" && other.kind === "thinking-group") {
 			return item.id === other.id && item.text === other.text && item.startedAt === other.startedAt && item.endedAt === other.endedAt;
 		}
@@ -274,7 +292,7 @@ export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?
 	const result: RenderMessage[] = [];
 	let currentTools: ChatMessage[] = [];
 	let currentThinking: ChatMessage[] = [];
-	let currentRun: Array<MessageItem | ToolGroupItem | ThinkingGroupItem> = [];
+	let currentRun: Array<MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem> = [];
 	let runStartedAt = 0;
 	let runEndedAt = 0;
 	/** 当前回合的触发用户消息时间戳，用于替代 assistant/tool 时间戳作为回合起点 */
@@ -413,7 +431,7 @@ export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?
 	// 暂存区：仅用于 ask_question 续答——system 卡片后用户回复时，把卡片前的工具/思考
 	// 暂存起来，等下一条 assistant 到来后合并为同一 agent-run。
 	// 普通「上一轮只有工具/思考、用户又发新问题」场景不得使用此暂存，否则会串轮。
-	let pendingRun: (MessageItem | ToolGroupItem | ThinkingGroupItem)[] | null = null;
+	let pendingRun: (MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem)[] | null = null;
 
 	for (const message of messages) {
 		if (isThinkingOnly(message)) {
@@ -442,6 +460,25 @@ export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?
 			flushThinking();
 			if (currentRun.length === 0) runStartedAt = message.timestamp;
 			currentTools.push(message);
+		} else if (isRetryStatusMessage(message)) {
+			// 自动重试状态消息（正在重试/成功/最终失败）收进当前 run 的过程序列：
+			// 它是本轮请求生命周期的一部分，应与工具/思考同层展示（折叠行），而不是
+			// 独立大卡片插在工具与后续回答之间（旧形态的割裂/错序根因）。
+			// 先冲刷未成组的工具/思考（flushTools 内含 flushThinking），保证重试行
+			// 在 run 内严格晚于它之前的工具——否则工具会在 retry 之后才成组、顺序颠倒。
+			// 边界：run 尚未开始（如首轮请求立即失败、无任何工具/思考/回答）时保持
+			// 独立条目不硬塞——否则会凭空造出一个只有重试行的空 run。
+			flushTools();
+			if (pendingRun && currentRun.length === 0) {
+				currentRun.push(...pendingRun);
+				pendingRun = null;
+			}
+			if (currentRun.length === 0) {
+				result.push({ kind: "message", message });
+			} else {
+				currentRun.push({ kind: "retry-group", id: message.id, message });
+				runEndedAt = message.timestamp;
+			}
 		} else if (message.role === "system") {
 			// System 消息（如 askQuestion 卡片）不应中断当前 agent run。
 			// 工具、thinking 和后续 assistant 消息应合并为同一轮回答，

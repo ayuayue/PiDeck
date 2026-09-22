@@ -15,7 +15,8 @@ import { DshRemoteClient } from "./dshRemoteClient";
 import { toDshAvailableModels, toDshFetchedModels, unwrapDshDiscoveryModels } from "./dshModels";
 import { parseAgentDefaultModel } from "./dshDefaultModel";
 import { credentialValueFromDocument, isValidCredentialRef } from "./dshCredentials";
-import { workspaceDirFor, findDshSessionDir } from "./dshSessionPath";
+import { workspaceDirFor, findDshSessionDir, dshSessionFilePath } from "./dshSessionPath";
+import { toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 import { migrateLegacyPideckDshFiles, pideckArchivePath, pideckDshHome, pideckHostLockPath } from "./pideckDshHome";
 import { foldSessionTitleFromDir, listForeignSessionsFromDisk, scanDshSessionHeaders } from "./dshForeignSessionScan";
 import { externalHostHolderPid, resolveDshHomeSharing } from "./dshHomeSharing";
@@ -62,6 +63,13 @@ export class DshHost {
 	/** DSH_HOME 并发锁（B6）：锁文件路径与是否由本实例持有。 */
 	private hostLockPath = "";
 	private ownsHostLock = false;
+	/**
+	 * 当前 WSL 环境（装配时经 configureWsl 注入，与 AgentManager.configureWsl 同一时机）。
+	 * DSH host 是 Windows 原生进程：它拿到的路径必须能被 Windows 的 node:fs realpath 解析，
+	 * 而 WSL 模式下项目记录的是 Linux 路径（/mnt/h/...）——直接交给 host 会被当成
+	 * 当前盘根目录（realpath('/mnt/h/x') → C:\mnt）而报 ENOENT，会话必然创建失败。
+	 */
+	private wslEnvironment: WslEnvironment | null = null;
 
 	constructor(
 		private readonly getUserDataDir: () => string,
@@ -371,6 +379,42 @@ export class DshHost {
 		return this.dshHome || resolveDshHomeDir(override, this.getUserDataDir());
 	}
 
+	/**
+	 * 注入当前 WSL 环境（null = 非 WSL 模式或未配置）。
+	 *
+	 * 边界约定：进出 DSH host 的路径按「Windows 主机视角」处理——workspace 建/解析，
+	 * 以及 host 自己按 workspace 路径编码的会话目录（$DSH_HOME/sessions/<编码>/<sessionId>）。
+	 * 上层（DshAgentManager、index.ts 的 IPC 装配）继续用项目记录的路径（WSL 模式下是
+	 * /mnt/... 形式），转换只发生在这一层，避免主机路径渗进 tab.cwd / catalog / 渲染层
+	 * ——渲染层拿 agent.cwd 当文件链接与编辑器的 baseDir，Linux 路径才是它要的形式。
+	 */
+	configureWsl(environment: WslEnvironment | null): void {
+		this.wslEnvironment = environment;
+	}
+
+	/**
+	 * 交给 DSH host 的路径统一走这里转成 Windows 主机路径。
+	 * 转换失败（相对路径 / 不支持的 UNC / 发行版不匹配）保持原样：让 host 报出真实错误，
+	 * 好过在这里换成一个更让人困惑的路径。
+	 */
+	private toHostPath(path: string): string {
+		if (!this.wslEnvironment) return path;
+		try {
+			return toWindowsHostPath(path, this.wslEnvironment);
+		} catch {
+			return path;
+		}
+	}
+
+	/**
+	 * 会话日志文件路径：必须按 host 实际使用的 workspace 路径编码。
+	 * WSL 项目在 host 侧是 H:\...，用 /mnt/h/... 编码会得到一个 host 从未写过的目录
+	 * （「复制会话文件路径」指向假路径，删除/归档只能靠 sessionId 兜底扫描）。
+	 */
+	sessionFilePath(cwd: string, sessionId: string): string {
+		return dshSessionFilePath(this.getHomeDir(), this.toHostPath(cwd), sessionId);
+	}
+
 	/** DSH 配置管理页数据：host 启动状态 + DSH_HOME 目录 + 最近一次 boot 失败原因。 */
 	async getStatus(): Promise<{
 		started: boolean;
@@ -476,9 +520,11 @@ export class DshHost {
 	 * title 为归档时刻 catalog 里的会话名：不存则恢复/列表只能看到 host id
 	 * 或退化为日志折叠（见 listArchivedSessions / unarchiveSession）。
 	 * 返回归档目录路径；会话不存在时返回 undefined。
+	 * @param cwd 上层传入的项目路径（catalog 记录的 project.path）；目录定位按 host 视角转换后编码。
 	 */
 	async archiveSession(dshSessionId: string, cwd: string, title?: string): Promise<string | undefined> {
-		const sourceDir = join(this.getHomeDir(), "sessions", workspaceDirFor(cwd), dshSessionId);
+		const hostCwd = this.toHostPath(cwd);
+		const sourceDir = join(this.getHomeDir(), "sessions", workspaceDirFor(hostCwd), dshSessionId);
 		if (!existsSync(sourceDir)) return undefined;
 		const archiveRoot = pideckArchivePath(this.getHomeDir());
 		const targetDir = join(archiveRoot, dshSessionId);
@@ -489,7 +535,12 @@ export class DshHost {
 			join(targetDir, "pideck-manifest.json"),
 			JSON.stringify({
 				dshSessionId,
+				// cwd 保持上层传入的项目路径形式：恢复时 sessionIpc 要按它匹配/注册项目记录
+				// （WSL 项目存的是 /mnt/...，换主机路径会让 findByPath 落空并新建重复项目）。
 				cwd,
+				// host 实际使用的 workspace 路径：恢复时按它还原目录，与当前 WSL 开关无关
+				// （归档后关掉 WSL 再恢复也要能移回原位）。
+				hostCwd,
 				archivedAt: Date.now(),
 				// G14+：标题随 manifest 持久化，恢复后列表/会话记录直接可用；
 				// 旧归档没有该字段，由读取侧用日志折叠兜底。
@@ -507,16 +558,20 @@ export class DshHost {
 		const manifestPath = join(archivedDir, "pideck-manifest.json");
 		if (!existsSync(manifestPath)) return undefined;
 		let cwd = "";
+		let hostCwd = "";
 		let title: string | undefined;
 		try {
-			const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { cwd?: unknown; title?: unknown };
+			const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { cwd?: unknown; hostCwd?: unknown; title?: unknown };
 			if (typeof manifest.cwd === "string" && manifest.cwd) cwd = manifest.cwd;
+			if (typeof manifest.hostCwd === "string" && manifest.hostCwd) hostCwd = manifest.hostCwd;
 			if (typeof manifest.title === "string" && manifest.title.trim()) title = manifest.title.trim();
 		} catch {
 			// manifest 损坏：无法恢复原位置
 			return undefined;
 		}
-		const targetDir = join(this.getHomeDir(), "sessions", workspaceDirFor(cwd), dshSessionId);
+		// 优先用归档时记录的 host 路径（自描述，跨「归档期间切换 WSL 开关」也正确）；
+		// 旧 manifest 没有该字段时按当前环境转换，非 WSL 场景转换即原样。
+		const targetDir = join(this.getHomeDir(), "sessions", workspaceDirFor(hostCwd || this.toHostPath(cwd)), dshSessionId);
 		mkdirSync(dirname(targetDir), { recursive: true });
 		renameSync(archivedDir, targetDir);
 		// 旧归档 manifest 无标题时，从恢复后的会话日志前缀只读折叠补全
@@ -549,7 +604,7 @@ export class DshHost {
 	 *            失配时按 sessionId 兜底扫描（项目目录移动后仍可删除）。
 	 */
 	async deleteSession(dshSessionId: string, cwd: string): Promise<boolean> {
-		const target = findDshSessionDir(this.getHomeDir(), cwd, dshSessionId);
+		const target = findDshSessionDir(this.getHomeDir(), this.toHostPath(cwd), dshSessionId);
 		if (!target) return false;
 		await this.trashPath(target);
 		return true;
@@ -798,13 +853,15 @@ export class DshHost {
 	 * 新会话必须带这个 workspaceId 创建，host 才会 attachSession；
 	 * 只传 cwd 会永远留在 dsh-web「未分组」。失败返回 undefined，由创建方失败，
 	 * 不再静默降级成 cwd-only。
+	 * @param cwd 上层传入的项目路径；发给 host 前转成 Windows 主机路径（host 用
+	 *            node:fs realpath 归一化 path，Linux 路径在 Windows 上必然 ENOENT）。
 	 */
 	async resolveWorkspaceId(cwd: string): Promise<import("@deepseek-ai/dsh-workspace/types").WorkspaceId | undefined> {
 		try {
 			await this.ensureStarted();
 			const client = this.client;
 			if (!client) return undefined;
-			const resolved = await client.workspaceCreate({ path: cwd });
+			const resolved = await client.workspaceCreate({ path: this.toHostPath(cwd) });
 			if (!resolved.result.ok) return undefined;
 			return resolved.result.value.workspace.workspaceId;
 		} catch {

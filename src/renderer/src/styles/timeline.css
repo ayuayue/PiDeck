@@ -1074,8 +1074,9 @@ body.ask-dialog-open .ask-card-preview {
 }
 
 
-/* 阻塞式 Ask 是时间线的一步，而不是悬浮层：正常流布局会自动为展开内容预留高度，
- * sticky 只适合导航/工具条，不适合会改变高度的表单。 */
+/* 主会话栏的阻塞式 Ask 已改由 SessionView 钉在对话区下方（issue #230，类名 session-v-ask）。
+ * 这里保留的 .session-runtime-ui 只服务并行问询浮层（AskPanelOverlay）的时间线：
+ * 它在时间线内用正常流布局，不用 sticky——sticky 只适合导航/工具条，不适合会改变高度的表单。 */
 .message-timeline > [role="log"] {
   display: flex;
   min-height: 100%;

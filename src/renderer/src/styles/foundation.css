@@ -1510,16 +1510,18 @@ select:focus-visible {
   }
 }
 /* 拖拽区高度同时暴露在 :root：sonner toaster、兑底 toast 等浮层渲染在 #root 内、
-   并非 .wechat-shell 的后代，读不到 shell 作用域变量，会错误地按 0px 计算顶部 offset */
+   并非 .wechat-shell 的后代，读不到 shell 作用域变量，会错误地按 0px 计算顶部 offset。
+   quick-task-shell 也属于同一套自定义标题栏契约，不能只依赖完整工作台选择器。 */
 :root {
   --window-drag-height: 0px;
 }
-:root:has(.wechat-shell.custom-titlebar-enabled) {
+:root:has(.custom-titlebar-enabled) {
   --window-drag-height: 40px;
   /* 4 × 36px；拖拽层 / Tab 栏让位 / 控件条共用，避免各写 144 漂移 */
   --window-controls-width: 144px;
 }
-.wechat-shell.custom-titlebar-enabled {
+.wechat-shell.custom-titlebar-enabled,
+.quick-task-shell.custom-titlebar-enabled {
   --window-drag-height: 40px;
   --window-controls-width: 144px;
   /* 内容顶到窗口上沿：不再留空白标题条。拖拽/窗口按钮用 fixed 叠层。 */
@@ -1612,7 +1614,8 @@ select:focus-visible {
   background: color-mix(in srgb, var(--color-danger) 86%, #000);
   color: var(--color-text-inverse);
 }
-/* 侧栏 Logo 行即标题栏热区；高度与窗口控件对齐。 */
+/* 侧栏 Logo 行即标题栏热区；高度与窗口控件对齐。
+   compact 小任务也复用该 40px chrome；它的业务动作通过下方按钮规则显式 no-drag。 */
 .custom-titlebar-enabled .list-toolbar {
   position: relative;
   z-index: 930;
@@ -1640,6 +1643,14 @@ select:focus-visible {
    抽屉打开后控件叠在抽屉顶上，会话 Tab 不再预留 144px（否则开关会与抽屉 tab 栏隔开）。 */
 .custom-titlebar-enabled:not(.drawer-open) .session-tabs-bar {
   margin-right: var(--window-controls-width);
+}
+/* compact 的业务动作位于共享窗口控件左侧；让 toolbar 本身避开控件区，
+   同时把按钮和 toolbar 后代标记为 no-drag，避免 Electron 的拖拽命中规则吞掉点击。 */
+.quick-task-shell.custom-titlebar-enabled .list-toolbar {
+  margin-right: var(--window-controls-width);
+}
+.quick-task-shell.custom-titlebar-enabled .list-toolbar button {
+  -webkit-app-region: no-drag;
 }
 /* 抽屉开关：固定在会话 Tab 栏最右侧 */
 .session-tabs-bar .header-drawer-toggle {
@@ -2402,6 +2413,11 @@ select:focus-visible {
 }
 .agent-more-row,
 .session-more-row {
+  /* 分页行（查看更多 / 收起 / 加载更多）的基座：只保留 flex 骨架与右侧数字对齐。
+     横向留白/对齐交给 JSX 的 `px-2`，与会话行（`px-2`）逐像素对齐——
+     旧值 margin-left 8px + padding-left 14px 把入口推得比会话标题右 14px，用户看到「没对齐」。
+     （注：本注释必须留在块内，块的紧邻上方写注释会让 sidebarRowAlignment 的
+     选择器解析把注释当成选择器前缀，导致「rule for .agent-more-row not found」。） */
   position: relative;
   /* 同 .agent-row：button 的 width:auto 是 shrink-to-fit，fill-available 扣除 margin 撑满。 */
   width: -webkit-fill-available;
@@ -2410,8 +2426,8 @@ select:focus-visible {
   align-items: center;
   gap: 7px;
   min-height: 26px;
-  margin: 2px 0 2px 8px;
-  padding: 4px 6px 4px 14px;
+  margin: 2px 0;
+  padding: 2px 8px;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -2554,8 +2570,16 @@ select:focus-visible {
   flex-shrink: 0;
 }
 .session-more-row {
-  margin-left: 8px;
+  /* 横向留白与对齐统一交给 JSX 的 px-2（与会话行对齐）；这里只保留底部收尾间距。 */
   margin-bottom: 6px;
+}
+.session-more-row,
+.session-more-btn {
+  /* 「查看更多 / 收起 / 加载更多」行：统一压到 26px，比会话行（32px）矮一档。
+     两处入口（项目页 SessionTree、活动页「最近会话」）共用这一条高度，
+     避免同一个功能在不同页里长得不一样（用户要求两处对齐）。 */
+  min-height: 26px;
+  padding: 2px 8px;
 }
 /* 「查看更多」按钮：数字需靠右对齐到会话行的时间列，故按钮本体必须是
    fill-available 宽的 flex 容器（ml-auto 依赖父级 flex）。

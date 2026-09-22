@@ -6,12 +6,19 @@ import type { SessionProxyOverride } from "../../shared/types/session";
 import { getAppLogger } from "../logging/sharedLogger";
 import { renameWithRetry } from "../utils/fsRetry";
 import { buildSessionOriginKey, buildSummaryOriginKey, canonicalizeSessionPath, collectSessionSubtreeIds, getImportedSessionSourceId, getSessionEnvironment, isInSubagentArtifactsDir, looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
+import { looksLikeExpandedRefBlockTitle } from "../../shared/expandedRefBlocks";
 
 export type SessionCatalogEntry = {
 	id: string;
 	projectId: string;
 	originKey?: string;
 	title: string;
+	/**
+	 * PiDeck owns the display title once this is true. Only an unclaimed fresh
+	 * provisional title may accept one automatic or initial JSONL title; pi JSONL/TUI
+	 * changes never overwrite an owned catalog title.
+	 */
+	titleLocked?: boolean;
 	/** Anonymous entries are in-memory only and are never written to session-catalog.json. */
 	noSession?: boolean;
 	source: SessionSource;
@@ -73,22 +80,24 @@ type SessionCatalogContext = {
  */
 export type SessionFilePathResolver = (projectId: string, filePath: string, environment: SessionEnvironment) => string;
 
-/** 会话标题读取与有效性校验的合并结果：name 缺省时保留 catalog 标题；valid:false 表示
- *  文件非有效 Pi 会话（如 pi-subagents transcript 转储，首条记录用 recordType 而无 type 头），
- *  mergeScanned 应拒绝索引该文件（#168）；parentSessionPath 仅供平铺子代理形态
+/** 会话标题读取与有效性校验的合并结果：name 仅用于首次索引或未确认的 provisional 标题；
+ * valid:false 表示文件非有效 Pi 会话（如 pi-subagents transcript 转储，首条记录用 recordType 而无 type 头），
+ * mergeScanned 应拒绝索引该文件（#168）；parentSessionPath 仅供平铺子代理形态
  * （@tintinweb/pi-subagents：parentSession header + 会话名 <agent>#<8hex>）回填父关系，
- *  用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。
- *  forked 为 pi fork/branch 探测结果（parentSession header + 非 tintinweb 形态）：
- *  只做列表 (fork) 标记，不影响 parentSessionPath 的折叠语义。
- *  nameFromSessionInfo 标记 name 是否直接取自 session_info（权威）：
- *  - true/缺省 = 权威来源，允许覆盖 catalog 已有真实标题（pi-tui /name 外部改名同步）；
- *  - false = 首条消息回退的弱信号（session_info 落在头/尾窗口盲区），只用于占位标题补名，
- *    不得覆盖已有真实标题（2026-09 自动命名被第二轮消息挤出窗口后被回退覆盖的现场）。 */
+ * 用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。
+ * forked 为 pi fork/branch 探测结果（parentSession header + 非 tintinweb 形态）：
+ * 只做列表 (fork) 标记，不影响 parentSessionPath 的折叠语义。 */
 export type SessionTitleFetchResult = { name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean };
 
+export type SessionTitleFetchOptions = {
+	/** false = only inspect the bounded header for structural metadata; do not read name windows. */
+	includeTitle?: boolean;
+};
+
 /** 标题刷新 + 会话头有效性校验：装配层注入（实现为 SessionScanner.inferSessionNameAndValidity，
- *  见 main/index.ts）。文件版本变化时有界读取头尾，既补占位标题，也同步 pi-tui 外部改名。 */
-export type SessionTitleFetcher = (filePath: string) => Promise<SessionTitleFetchResult>;
+ * 见 main/index.ts）。读取结果为首次发现和未确认 provisional 标题提供初始化值；已有 catalog 标题
+ * 不再跟随 pi-tui /name 或 JSONL 的后续变化。 */
+export type SessionTitleFetcher = (filePath: string, options?: SessionTitleFetchOptions) => Promise<SessionTitleFetchResult>;
 
 /** 扫描未读正文时没有 session_info。pi JSONL 文件名是时间戳，不能当标题，否则侧栏全是日期。 */
 function scannedFileStemTitle(filePath: string): string {
@@ -110,7 +119,15 @@ function catalogDisplayTitle(title: string | undefined): string | undefined {
 function isPlaceholderCatalogTitle(title: string | undefined): boolean {
 	if (!title) return true;
 	if (looksLikePiSessionFileStem(title)) return true;
-	return /^untitled(?: session)?$/i.test(title);
+	// 未折叠的块原文标题（`<prompt_template …>` 等历史脏数据）同样是占位名：
+	// 允许首次补名把它换成用户可识别的标题，否则它会一直留在侧栏。
+	if (looksLikeExpandedRefBlockTitle(title)) return true;
+	return /^(?:untitled(?: session)?|new session|新会话)$/i.test(title);
+}
+
+/** 缺省是旧 catalog：真实标题默认已由 PiDeck 确认；仅占位标题保留一次初始化机会。 */
+function isTitleLocked(entry: Pick<SessionCatalogEntry, "title" | "titleLocked">): boolean {
+	return entry.titleLocked ?? !isPlaceholderCatalogTitle(entry.title);
 }
 
 function cloneEntry(entry: SessionCatalogEntry): SessionCatalogEntry {
@@ -240,6 +257,18 @@ export class SessionCatalog {
 			}
 		}
 
+		// 旧 catalog 没有 titleLocked：已有真实标题视为 PiDeck 已确认，避免升级后被
+		// 扫描或 TUI 写入反向覆盖；只有占位标题保留一次初始化/自动命名机会。
+		const missingTitleLocks = this.entries.filter((entry) => typeof entry.titleLocked !== "boolean");
+		if (missingTitleLocks.length > 0) {
+			for (const entry of missingTitleLocks) entry.titleLocked = !isPlaceholderCatalogTitle(entry.title);
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch {
+				// 迁移失败不影响内存中的所有权规则；下次启动会继续写回。
+			}
+		}
+
 		// 兼容旧数据：早期版本可能存有相对 filePath（pi 返回相对 cwd 的 sessionFile，
 		// 如 sessionDir 配置为 ".pi/sessions"）。相对路径与扫描器绝对路径的 originKey
 		// 不同 → 同一文件出现两条记录（侧栏重复显示），且文件操作落到错误位置。
@@ -342,6 +371,7 @@ export class SessionCatalog {
 			id: randomUUID(),
 			projectId: input.projectId,
 			title: input.title,
+			titleLocked: true,
 			noSession: true,
 			source: "pi",
 			environment: input.environment,
@@ -420,6 +450,7 @@ export class SessionCatalog {
 					projectId: input.projectId,
 					originKey,
 					title: input.title,
+					titleLocked: true,
 					source: input.source,
 					environment: input.environment,
 					filePath,
@@ -436,7 +467,6 @@ export class SessionCatalog {
 			} else {
 				entry.projectId = input.projectId;
 				entry.originKey = originKey;
-				entry.title = input.title;
 				entry.source = input.source;
 				entry.environment = input.environment;
 				entry.filePath = filePath;
@@ -462,6 +492,12 @@ export class SessionCatalog {
 		model?: { provider: string; modelId: string };
 		thinkingLevel?: string;
 		permissionPreset?: string;
+		/**
+		 * Fresh drafts remain eligible for their first PiDeck automatic or JSONL title,
+		 * even when the provisional UI label is not literally "Untitled". Callers that
+		 * import an already named external session must opt in to final ownership.
+		 */
+		titleLocked?: boolean;
 		/** DSH agent 预设（会话「模式」）草稿期预选；外部会话导入时来自 host 会话 header。 */
 		agentPreset?: string;
 		/** 外部（dsh-web 等）会话导入：host 会话已存在，条目直接置 active（重启不清理）。 */
@@ -522,6 +558,7 @@ export class SessionCatalog {
 				id: randomUUID(),
 				projectId: input.projectId,
 				title: input.title,
+				titleLocked: input.titleLocked ?? Boolean(input.dshSessionId),
 				source: input.source ?? "pi",
 				environment: input.environment,
 				backend: input.backend,
@@ -564,7 +601,10 @@ export class SessionCatalog {
 		this.assertLoaded();
 		const transient = this.transientEntries.get(id);
 		if (transient) {
-			if (patch.title !== undefined) transient.title = patch.title;
+			if (patch.title !== undefined) {
+				transient.title = patch.title;
+				transient.titleLocked = true;
+			}
 			if (patch.model !== undefined) transient.model = patch.model ?? undefined;
 			if (patch.thinkingLevel !== undefined) transient.thinkingLevel = patch.thinkingLevel ?? undefined;
 			if (patch.permissionPreset !== undefined) transient.permissionPreset = patch.permissionPreset ?? undefined;
@@ -581,7 +621,10 @@ export class SessionCatalog {
 		}
 		const entry = await this.enqueueMutation((entries) => {
 			const nextEntry = this.requireEntry(entries, id);
-			if (patch.title !== undefined) nextEntry.title = patch.title;
+			if (patch.title !== undefined) {
+				nextEntry.title = patch.title;
+				nextEntry.titleLocked = true;
+			}
 			if (patch.model !== undefined) nextEntry.model = patch.model ?? undefined;
 			if (patch.thinkingLevel !== undefined) nextEntry.thinkingLevel = patch.thinkingLevel ?? undefined;
 			if (patch.permissionPreset !== undefined) nextEntry.permissionPreset = patch.permissionPreset ?? undefined;
@@ -593,6 +636,60 @@ export class SessionCatalog {
 			// null = 清除覆盖恢复跟随全局
 			if (patch.proxy !== undefined) nextEntry.proxy = patch.proxy ?? undefined;
 			nextEntry.updatedAt = patch.updatedAt ?? Date.now();
+			return { value: cloneEntry(nextEntry), changed: true };
+		});
+		return this.recordFromEntry(entry);
+	}
+
+	/**
+	 * Claims a fresh provisional title for PiDeck's automatic title. This is intentionally
+	 * separate from generic update(): a delayed automatic result must never replace a
+	 * manual title that reached the catalog first.
+	 */
+	async applyAutomaticTitle(id: string, title: string): Promise<SessionRecord> {
+		this.assertLoaded();
+		const nextTitle = title.replace(/\s+/g, " ").trim();
+		if (!nextTitle) throw new Error("Automatic session title is required");
+		const transient = this.transientEntries.get(id);
+		if (transient) {
+			if (!isTitleLocked(transient)) {
+				transient.title = nextTitle;
+				transient.titleLocked = true;
+				transient.updatedAt = Date.now();
+			}
+			return this.recordFromEntry(transient);
+		}
+		const entry = await this.enqueueMutation((entries) => {
+			const nextEntry = this.requireEntry(entries, id);
+			if (isTitleLocked(nextEntry)) return { value: cloneEntry(nextEntry), changed: false };
+			nextEntry.title = nextTitle;
+			nextEntry.titleLocked = true;
+			nextEntry.updatedAt = Date.now();
+			return { value: cloneEntry(nextEntry), changed: true };
+		});
+		return this.recordFromEntry(entry);
+	}
+
+	/**
+	 * Reserves catalog title ownership before a manual rename reaches pi. The rename
+	 * RPC is asynchronous, so this closes the window where a pending auto-title
+	 * result could otherwise claim the still-provisional record first.
+	 */
+	async claimTitleOwnership(id: string): Promise<SessionRecord> {
+		this.assertLoaded();
+		const transient = this.transientEntries.get(id);
+		if (transient) {
+			if (!isTitleLocked(transient)) {
+				transient.titleLocked = true;
+				transient.updatedAt = Date.now();
+			}
+			return this.recordFromEntry(transient);
+		}
+		const entry = await this.enqueueMutation((entries) => {
+			const nextEntry = this.requireEntry(entries, id);
+			if (isTitleLocked(nextEntry)) return { value: cloneEntry(nextEntry), changed: false };
+			nextEntry.titleLocked = true;
+			nextEntry.updatedAt = Date.now();
 			return { value: cloneEntry(nextEntry), changed: true };
 		});
 		return this.recordFromEntry(entry);
@@ -767,12 +864,10 @@ export class SessionCatalog {
 		} = {},
 	): Promise<SessionRecord[]> {
 		this.assertLoaded();
-		// 轻量列表扫描的 summary 不带 name（listPathSummary 只 stat，见 SessionScanner）；
-		// 新文件/占位标题需要补名，已有标题的文件若 mtime 变化也需有界回读——pi-tui `/name`
-		// 会在 JSONL 末尾追加 session_info，否则项目刷新和重启 Session 都只会继续使用旧 catalog 标题。
-		// 同一次读头部顺带校验会话头有效性：invalidOrigins 收集被判定为非有效会话
-		// 的 originKey（transcript 等无 type 头的产物，#168），下面据此清洗与拒绝。
-		const { names: fetchedNames, authoritative: fetchedAuthoritativeByOrigin, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } = await this.collectScannedTitles(summaries, context);
+		// 新发现文件用 pi JSONL 标题初始化 catalog；一旦 catalog 已有记录，后续扫描
+		// 只更新文件身份、预览和结构元数据，不能用 pi/TUI 的标题覆盖 PiDeck 名称。
+		// 同一次读取仍校验会话头：invalidOrigins 收集非有效会话文件，下面据此清洗与拒绝。
+		const { names: fetchedNames, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } = await this.collectScannedTitles(summaries, context);
 		return this.enqueueMutation((entries) => {
 			let changed = false;
 
@@ -827,10 +922,6 @@ export class SessionCatalog {
 			for (const summary of acceptedSummaries) {
 				const originKey = buildSummaryOriginKey(summary, context);
 				const fetchedTitle = fetchedNames.get(originKey);
-				// 权威性：命中 session_info（或显式 name 行）才允许覆盖 catalog 已有真实标题。
-				// 首条消息回退（nameFromSessionInfo === false）是弱信号——会话文件变大后
-				// session_info 可能落在扫描器头/尾窗口的盲区，弱回退不得把用户/自动命名冲掉。
-				const fetchedAuthoritative = fetchedAuthoritativeByOrigin.get(originKey) ?? true;
 				// 平铺子代理（tintinweb 形态）父关系回补：轻量扫描不带 parentSessionPath，
 				// 标题回读时若探测到父（<agent>#<8hex> + parentSession header）则用拾取值；
 				// 普通会话/用户 fork 不探测到该值，保持 summary/旧值原样。
@@ -842,13 +933,15 @@ export class SessionCatalog {
 				let entry = byOrigin.get(originKey);
 				if (!entry) {
 					const now = summary.updatedAt || Date.now();
+					const initialTitle = catalogDisplayTitle(summary.name) || catalogDisplayTitle(fetchedTitle) || scannedFileStemTitle(summary.filePath);
 					entry = {
 						id: randomUUID(),
 						projectId,
 						originKey,
 						// listPathSummary 没有 name；readSummary 若仍带回时间戳文件名，也不能当标题。
-						// summary.name（全量解析）优先，头部补名次之，最后才回退文件名 stem。
-						title: catalogDisplayTitle(summary.name) || catalogDisplayTitle(fetchedTitle) || scannedFileStemTitle(summary.filePath),
+						// 发现时读取到的名称是初始化值；纯占位名留给一次自动/补名领取。
+						title: initialTitle,
+						titleLocked: !isPlaceholderCatalogTitle(initialTitle),
 						source: summary.source ?? "pi",
 						environment: getSessionEnvironment(summary),
 						filePath: summary.filePath,
@@ -866,12 +959,13 @@ export class SessionCatalog {
 					changed = true;
 					if (options?.manualAssignment) entry.manualProjectAssignment = true;
 				} else {
-					// 旧 catalog 可能已经保存了时间戳文件名；不能在清洗失败时用 entry.title 回退，
-					// 否则每次扫描都会把这个错误标题原样保留下来，重启后仍显示时间戳。
-					// 已存在真实标题时，弱回退（首条消息文本）不得覆盖（2026-09 现场：
-					// 自动命名 session_info 被第二轮消息挤出窗口盲区后被消息文本冲掉）；
-					// 权威回读（session_info 命中）与占位标题升级不受此限。
-					const nextTitle = catalogDisplayTitle(summary.name) || (fetchedAuthoritative || isPlaceholderCatalogTitle(entry.title) ? catalogDisplayTitle(fetchedTitle) : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					// Catalog is the display-title authority. An explicitly unlocked entry is a
+					// fresh provisional session, even if its UI label is "<project> agent";
+					// it may absorb exactly one initial JSONL title before becoming owned.
+					const canInitializeTitle = !isTitleLocked(entry);
+					const initialTitle = catalogDisplayTitle(summary.name) || catalogDisplayTitle(fetchedTitle);
+					const nextTitle = (canInitializeTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					const nextTitleLocked = canInitializeTitle && initialTitle ? true : entry.titleLocked;
 					// 父关系最终值：新探测值优先，缺失时保留旧值（轻量扫描恒缺省，不能清掉已持久化的父）。
 					const nextParent = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
 					// fork 标记同样只增补、不清空：未探测到（轻量扫描/普通会话）保留持久化值。
@@ -883,6 +977,7 @@ export class SessionCatalog {
 						entry.projectId !== nextProjectId ||
 						entry.filePath !== summary.filePath ||
 						entry.title !== nextTitle ||
+						entry.titleLocked !== nextTitleLocked ||
 						entry.source !== (summary.source ?? "pi") ||
 						entry.environment !== getSessionEnvironment(summary) ||
 						entry.wslDistro !== (summary.wsl ? context.wslDistro : undefined) ||
@@ -896,6 +991,7 @@ export class SessionCatalog {
 						entry.projectId = nextProjectId;
 						entry.filePath = summary.filePath;
 						entry.title = nextTitle;
+						entry.titleLocked = nextTitleLocked;
 						entry.source = summary.source ?? "pi";
 						entry.environment = getSessionEnvironment(summary);
 						entry.wslDistro = summary.wsl ? context.wslDistro : undefined;
@@ -947,38 +1043,36 @@ export class SessionCatalog {
 		);
 	}
 
-	/** 对新文件/占位标题，或文件版本相对 catalog 发生变化的条目读取标题。
-	 *  unchanged 的真实标题不读盘，避免周期扫描重复 I/O；mtime 变化则回读头尾以同步
-	 *  pi-tui `/name` 追加的 session_info。同一次读取顺带校验会话头有效性（#168）：transcript 等无 type 头的产物
-	 *  被标记 invalid，mergeScanned 据此拒绝索引并清洗存量条目。
-	 *  tintinweb 平铺子代理（@tintinweb/pi-subagents）会话名固定 <agent>#<8hex>：
-	 *  一旦标题回填该形态而条目仍无父关系，说明它是历史扫描遗留的孤儿（旧版 catalog
-	 *  不含 parentSessionPath），需要重新读头部回补（见 fetchTitle 返回的 parentSessionPath）。
-	 *  用户 fork 的名字由用户命名、通常不匹配该模式，不会被额外唤醒读盘。 */
-	private async collectScannedTitles(summaries: SessionSummary[], context: SessionCatalogContext): Promise<{ names: Map<string, string>; authoritative: Map<string, boolean>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
+	/** 对新文件、未确认 provisional 标题，或需要一次性回填旧子代理父关系的条目读取会话头。
+	 * 已锁定 catalog 标题不会因为文件 mtime 变化而补读：PiDeck 已持久化显示名，
+	 * 也不再关心 JSONL 中段或尾部追加的 session_info。标题读取仍顺带校验会话头、
+	 * 补平铺子代理父关系和 fork 标记。 */
+	private async collectScannedTitles(summaries: SessionSummary[], context: SessionCatalogContext): Promise<{ names: Map<string, string>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
 		const names = new Map<string, string>();
-		const authoritative = new Map<string, boolean>();
 		const invalid = new Set<string>();
 		const parents = new Map<string, string>();
 		const forked = new Map<string, boolean>();
-		if (!this.fetchTitle) return { names, authoritative, invalid, parents, forked };
+		if (!this.fetchTitle) return { names, invalid, parents, forked };
 		const byOrigin = new Map(this.entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]));
-		const wanted: Array<{ originKey: string; filePath: string }> = [];
+		const wanted: Array<{ originKey: string; filePath: string; includeTitle: boolean }> = [];
 		for (const summary of summaries) {
 			const originKey = buildSummaryOriginKey(summary, context);
-			// readSummary 全量路径已携带权威标题，无需再次读盘。
-			if (catalogDisplayTitle(summary.name)) continue;
 			const existing = byOrigin.get(originKey);
-			if (existing) {
+			if (existing && isTitleLocked(existing)) {
+				// Existing PiDeck-owned sessions do not need title freshness. The only
+				// retained disk probe repairs a legacy flat subagent's missing parent link,
+				// and requests header-only metadata rather than a full title scan.
 				const tintinwebOrphan = existing.source === "pi" && !existing.parentSessionPath && /^[^#]+#[0-9a-f]{8}$/i.test(existing.title);
-				const fileVersionChanged = existing.updatedAt !== summary.updatedAt;
-				// 已有真实标题且文件版本未变时跳过；变化通常意味着 pi 追加消息/改名，
-				// 头尾窗口读取会用最后一条 session_info 更新标题，成本仍受 128KB 上限约束。
-				if (!isPlaceholderCatalogTitle(existing.title) && !tintinwebOrphan && !fileVersionChanged) continue;
+				if (tintinwebOrphan) wanted.push({ originKey, filePath: summary.filePath, includeTitle: false });
+				continue;
 			}
-			wanted.push({ originKey, filePath: summary.filePath });
+			// readSummary 全量路径已携带初始名称，无需再次读盘。
+			if (catalogDisplayTitle(summary.name)) continue;
+			// New files and explicitly unlocked provisional records need one exact title
+			// read; every other locked record remains entirely out of this path.
+			wanted.push({ originKey, filePath: summary.filePath, includeTitle: true });
 		}
-		if (wanted.length === 0) return { names, authoritative, invalid, parents, forked };
+		if (wanted.length === 0) return { names, invalid, parents, forked };
 		// 有界并行读头部；限制并发避免 WSL 环境一次拉起过多 wsl.exe。
 		// 单个失败降级为无标题/不拒绝，不影响扫描结果。
 		const CONCURRENCY = 8;
@@ -986,11 +1080,10 @@ export class SessionCatalog {
 		const workers = Array.from({ length: Math.min(CONCURRENCY, wanted.length) }, async () => {
 			while (cursor < wanted.length) {
 				const item = wanted[cursor++];
-				const result = await this.fetchTitle!(item.filePath).catch(() => undefined);
+				const result = await this.fetchTitle!(item.filePath, { includeTitle: item.includeTitle }).catch(() => undefined);
 				if (!result) continue;
-				if (result.name) {
+				if (item.includeTitle && result.name) {
 					names.set(item.originKey, result.name);
-					authoritative.set(item.originKey, result.nameFromSessionInfo !== false);
 				}
 				// valid 显式为 false 才拒绝；缺省（读不到/未校验）保留原行为
 				if (result.valid === false) invalid.add(item.originKey);
@@ -1003,14 +1096,14 @@ export class SessionCatalog {
 			}
 		});
 		await Promise.all(workers);
-		return { names, authoritative, invalid, parents, forked };
+		return { names, invalid, parents, forked };
 	}
 
 	private recordFromEntry(entry: SessionCatalogEntry, summary?: SessionSummary): SessionRecord {
 		return {
 			id: entry.id,
 			projectId: entry.projectId,
-			title: catalogDisplayTitle(summary?.name) || catalogDisplayTitle(entry.title) || "Untitled",
+			title: catalogDisplayTitle(entry.title) || "Untitled",
 			noSession: entry.noSession,
 			source: summary?.source ?? entry.source,
 			environment: summary ? getSessionEnvironment(summary) : entry.environment,

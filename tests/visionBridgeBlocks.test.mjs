@@ -11,6 +11,7 @@ const { extractVisionBridgeBlocks } = loadTsCommonJs("src/renderer/src/utils/vis
 
 const SUCCESS_BLOCK = (n, desc) => `[图片 #${n}（视觉桥已查看，以下为图片实际内容）]\n${desc}`;
 const FAILED_BLOCK = (n, reason) => `[图片 #${n} 视觉桥转换失败：${reason}。请检查视觉桥设置（模型/接口地址/API Key）后重试，此图片内容不可见]`;
+const SKIPPED_BLOCK = (n, reason) => `[图片 #${n} 未发送给模型：${reason}]`;
 
 test("图片轮询必须先确认视觉桥已开启", () => {
 	// 关闭视觉桥或使用原生多模态模型时，普通图片不能显示视觉桥转换动画。
@@ -67,6 +68,59 @@ test("成功块与失败块混合时互不串扰", () => {
 	assert.equal(result.blocks[0].description, "第一张能看。");
 	assert.equal(result.blocks[1].kind, "failed");
 	assert.equal(result.blocks[1].reason, "HTTP 401: unauthorized");
+	assert.equal(result.text, "");
+});
+
+test("旧会话的「视觉桥未配置」失败块按未发送呈现（历史标记归一化）", () => {
+	// 旧版本把「桥没开」也写成失败标记；重开旧会话时不该再看到红卡
+	const reason = "视觉桥未配置（enabled/provider/model 不完整）";
+	const result = extractVisionBridgeBlocks(FAILED_BLOCK(1, reason));
+	assert.equal(result.blocks.length, 1);
+	assert.equal(result.blocks[0].kind, "skipped");
+	assert.equal(result.blocks[0].reason, reason);
+	assert.equal(result.text, "");
+});
+
+test("真实失败原因不会被归一化成未发送", () => {
+	for (const reason of ["timeout(30000ms)", "HTTP 401: unauthorized", "视觉桥接口地址解析失败"]) {
+		const result = extractVisionBridgeBlocks(FAILED_BLOCK(1, reason));
+		assert.equal(result.blocks[0].kind, "failed", `${reason} 应仍是失败红卡`);
+	}
+});
+
+test("识别未发送块：渲染中性提示卡，正文剥除标记", () => {
+	const reason = "视觉桥未启用，且 ai88/deepseek-v4-flash 未声明图片输入能力";
+	const result = extractVisionBridgeBlocks(SKIPPED_BLOCK(1, reason));
+	assert.equal(result.blocks.length, 1);
+	assert.equal(result.blocks[0].kind, "skipped");
+	assert.equal(result.blocks[0].index, 1);
+	assert.equal(result.blocks[0].reason, reason);
+	assert.equal(result.text, "");
+});
+
+test("未发送块不会被解析成失败块（回归：没开桥却显示转换失败红卡）", () => {
+	// 用户反馈场景：视觉桥压根没开、模型也支持图片，却被告知「视觉桥转换失败」并被
+	// 引导去检查 Key/接口地址。文案里带配置入口，但不得命中失败标记正则。
+	const reason = "视觉桥未启用，且 ai88/deepseek-v4-flash 未声明图片输入能力。可在「配置 → 模型」中为该模型勾选「图片」，或在「设置 → 视觉桥」中启用视觉桥后重新发送图片";
+	const result = extractVisionBridgeBlocks(SKIPPED_BLOCK(1, reason));
+	assert.equal(result.blocks.length, 1);
+	assert.equal(result.blocks[0].kind, "skipped");
+	assert.ok(!result.blocks.some((block) => block.kind === "failed"), "未发送（配置事实）与失败（真故障）是两种卡片");
+});
+
+test("未发送/成功/失败三种块混合时各归其位", () => {
+	const text = `${SKIPPED_BLOCK(1, "视觉桥未启用")}\n\n${SUCCESS_BLOCK(2, "第二张能看。")}\n\n${FAILED_BLOCK(3, "HTTP 401: unauthorized")}`;
+	const result = extractVisionBridgeBlocks(text);
+	assert.equal(result.blocks.length, 3);
+	assert.equal(result.blocks[0].kind, "skipped");
+	assert.equal(result.blocks[0].index, 1);
+	assert.equal(result.blocks[0].reason, "视觉桥未启用");
+	assert.equal(result.blocks[1].kind, "success");
+	assert.equal(result.blocks[1].index, 2);
+	assert.equal(result.blocks[1].description, "第二张能看。");
+	assert.equal(result.blocks[2].kind, "failed");
+	assert.equal(result.blocks[2].index, 3);
+	assert.equal(result.blocks[2].reason, "HTTP 401: unauthorized");
 	assert.equal(result.text, "");
 });
 

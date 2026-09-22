@@ -26,6 +26,8 @@ export type SessionPaneServices = {
 	abortAgent: (agentId?: string) => Promise<void>;
 	restartActiveAgent: (agentId?: string) => Promise<void>;
 	runCreateSessionDraft: () => Promise<void>;
+	/** 输入框 `/login`：打开登录供应商弹框（App 级装配，弹框订阅 atom 自己渲染） */
+	openProviderLogin?: (providerId?: string) => void;
 	enqueueSessionPrompt: (
 		sessionId: string,
 		snapshot: {

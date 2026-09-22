@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "6e08c34c2ca1d62802e1f86cc7dba6d5cbde0579d197ea74f4c7c676c9781eec",
+  "bundleSha256": "0b63f5911120e0f18aca3842590da1fc26091bc754cd978b7aabde5c39d49c47",
   "fileCount": 13,
   "files": [
     {
@@ -31,8 +31,8 @@
     },
     {
       "name": "pi-deck-retry-no-body.ts",
-      "sha256": "fba2809a17f1aaf296547703b9197befe03fb35738e222843e2b466d55c63808",
-      "bytes": 14579
+      "sha256": "0e2edc4dc4ff1b32c3a1f553362804d8ae8d60657f741d011b6e94642cf4ccae",
+      "bytes": 15606
     },
     {
       "name": "pi-deck-security-gate.ts",
@@ -41,8 +41,8 @@
     },
     {
       "name": "pi-deck-session-title.ts",
-      "sha256": "414334d5c18f2f0a069151111453fce2d52258293ba569fd4791bb475a40f321",
-      "bytes": 18558
+      "sha256": "fe5734a430b0686040b74164e6aa1b8bf59c55c9331201d38452812d4f677477",
+      "bytes": 24166
     },
     {
       "name": "pi-deck-subagents.ts",
@@ -66,8 +66,8 @@
     },
     {
       "name": "pi-deck-vision.ts",
-      "sha256": "a3369bc9b6ddebe2fff4cad7c7cdae93a16b9b403e13ffa37b069148d0a7e577",
-      "bytes": 50332
+      "sha256": "90b38ad76b8deaa632914ed0680c2cdaac437d52d32de80abcd9206583467897",
+      "bytes": 56104
     }
   ]
 }

@@ -290,6 +290,7 @@ export class AutomationRunCoordinator {
 				title,
 				environment,
 				source: "pi",
+				titleLocked: true,
 				backend: task.backend ?? "pi",
 				model: task.model,
 				thinkingLevel: task.thinkingLevel,

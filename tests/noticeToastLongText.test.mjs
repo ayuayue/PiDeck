@@ -14,6 +14,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const card = readFileSync("src/renderer/src/components/ui-shadcn/notice-toast.tsx", "utf8");
+// 弹窗本体单独一个文件（notice-toast 若 import MarkdownStream 会经 MarkdownLink → utils/notice 成环，
+// 见该文件头注释），因此卡片与弹窗的契约断言分别扫两个文件
+const dialog = readFileSync("src/renderer/src/components/ui-shadcn/notice-details-dialog.tsx", "utf8");
 const toaster = readFileSync("src/renderer/src/components/ui-shadcn/sonner.tsx", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
@@ -35,12 +38,14 @@ test("truncated card offers view-details and dismisses toast before opening the 
 });
 
 test("details dialog host lives in the Toaster layer, not inside the toast card", () => {
-	// 弹窗组件导出自 notice-toast，但由 sonner.tsx 的 Toaster 常驻挂载并注册 opener
-	assert.match(card, /export function NoticeDetailsDialog/);
+	// 弹窗组件导出自 notice-details-dialog，由 sonner.tsx 的 Toaster 常驻挂载并注册 opener
+	assert.match(dialog, /export function NoticeDetailsDialog/);
 	assert.match(card, /export function setNoticeDetailsOpener/);
 	assert.match(card, /export function openNoticeDetails/);
 	assert.match(toaster, /setNoticeDetailsOpener\(setDetails\)/);
 	assert.match(toaster, /<NoticeDetailsDialog/);
+	// Toaster 必须从新文件取弹窗组件（旧路径已随拆分移除）
+	assert.match(toaster, /import \{ NoticeDetailsDialog \} from "\.\/notice-details-dialog"/);
 	// 卡片内部不得直接渲染弹窗（否则随 toast 卸载被连带关闭）
 	assert.doesNotMatch(card, /<NoticeDetailsDialog/);
 });
@@ -48,10 +53,11 @@ test("details dialog host lives in the Toaster layer, not inside the toast card"
 test("copy keeps the full text regardless of truncation", () => {
 	// 卡片与弹窗的复制语义一致：有正文时「标题\n正文」，否则仅标题（拼接在截断之后，不受显示截断影响）
 	const copySemantic = (source) => source.match(/const copyText = ([^\n]+);/g) ?? [];
-	const cardCopies = copySemantic(card).filter((line) => line.includes("description"));
+	const cardCopies = [...copySemantic(card), ...copySemantic(dialog)].filter((line) => line.includes("description"));
 	assert.ok(cardCopies.length >= 2, `card and dialog must each keep full-text copy semantics, got: ${cardCopies.length}`);
 	// 复制走完整 copyText，且复制入口不在 truncated 条件内（截断与否都可复制）
-	assert.match(card, /writeClipboardText\(copyText\)/);
+	assert.match(card, /writeClipboard\(copyText\)/);
+	assert.match(dialog, /writeClipboard\(copyText\)/);
 	assert.doesNotMatch(card, /truncated \?[\s\S]{0,200}handleCopy/);
 });
 

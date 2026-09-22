@@ -138,7 +138,12 @@ function loadAgentManager() {
 					};
 				}
 				if (specifier === "./sessionEntryIds") {
-					return { takeActiveEntryId: (ids, index) => ({ entryId: ids?.[index], nextIndex: index + 1 }) };
+					// 真模块提供 isRoleMessageRole（0.86 system 条目与消息槽位对齐依赖它）；
+					// takeActiveEntryId 保留原替身，不改变本测试的隔离范围。
+					return {
+						...loadTsCommonJs("src/main/pi/sessionEntryIds.ts"),
+						takeActiveEntryId: (ids, index) => ({ entryId: ids?.[index], nextIndex: index + 1 }),
+					};
 				}
 				if (specifier === "./agentUtils") {
 					return {

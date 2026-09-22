@@ -2,6 +2,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { BusySendDelivery } from "../../../shared/busySendDelivery";
 import type { AgentBackend } from "../../../shared/types";
+import type { QuickMessagesSnapshot } from "../../../shared/types/quickMessages";
 import { resolveEffectiveAgentBackend } from "../../../shared/types/dshRuntime";
 import { dshRuntimeStatusAtom } from "./dsh-atoms";
 import type { SettingsFieldAnchorSlug } from "../utils/settingsFieldAnchors";
@@ -89,6 +90,16 @@ export const effectiveAgentBackendAtom = atom<AgentBackend>((get) => resolveEffe
  * 避免把 settings props 一路透传进深层 hook。默认与 main SettingsStore 保持一致。
  */
 export const busySendDeliveryAtom = atom<BusySendDelivery>("steer");
+
+/**
+ * 快捷消息快照（配置文件 userData/quick-messages.json，主进程 QuickMessageStore 读写）。
+ *
+ * 为什么放 atom 而不是组件 state：消费方在两条互不相干的子树里（composer 底栏弹框、
+ * 设置页维护区），必须看到同一份「当前生效条目」，否则设置页改完弹框还是旧清单。
+ * 读写入口统一走 useQuickMessages（加载 / 保存 / 打开配置文件），组件不直接 set。
+ * null = 尚未读到文件（弹框先显示加载态，不把「还没读完」误报成「没有快捷消息」）。
+ */
+export const quickMessagesSnapshotAtom = atom<QuickMessagesSnapshot | null>(null);
 
 /**
  * 侧栏展开的项目 id 集合（有 id = 展开）。

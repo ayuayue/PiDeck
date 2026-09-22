@@ -109,3 +109,20 @@ test("default settings: security gate on with off level (zero-intervention)", ()
 	// 快照 schemaVersion 与扩展侧常量一致
 	assert.match(securityTypes, /schemaVersion:\s*1/);
 });
+
+test("安全管理 tab 必须 forceMount：切 tab 不能卸载草稿（allow/ask/deny 会静默丢失）", () => {
+	// 回归契约（2026-09 用户反馈「ask 的选中切个 tab 就没了」）：
+	// SecuritySection 的草稿（enabled / defaultLevelId / 各等级 toolActions 等）只存在组件内部 state，
+	// Radix Tabs 默认卸载非激活 TabsContent → 切走再回来草稿归零；
+	// 更隐蔽的是它卸载时会上抛 onDirtyChange(false)，把父级黄点清掉，连关闭时的保存确认也不弹。
+	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const securityTabTag = configModal.match(/<TabsContent value="security"[^>]*>/);
+	assert.ok(securityTabTag, "ConfigModal 必须直接用 TabsContent 承载安全管理页");
+	assert.match(securityTabTag[0], /forceMount/, "安全管理 TabsContent 必须 forceMount 常挂");
+	assert.match(securityTabTag[0], /data-\[state=inactive\]:hidden/, "inactive 必须 hidden，否则会叠在别的 tab 上");
+
+	// 面板确实带着脏状态上报（forceMount 挂的是自管草稿的面板，而不是把它接到别处）
+	assert.match(configModal, /<SecuritySection ref=\{securitySectionRef\} onDirtyChange=\{handleSecurityDirtyChange\}/);
+	// 脏标记必须能被保存流程消费（saveByKey 的 security 分支）
+	assert.match(configModal, /case "security":\s*\n\s*return securitySectionRef\.current\?\.save\(\) \?\? false;/);
+});

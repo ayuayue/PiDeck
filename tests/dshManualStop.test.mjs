@@ -19,7 +19,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { DshHost } = loadTsCommonJs("src/main/dsh/DshHost.ts");
 const { DshHostProcess } = loadTsCommonJs("src/main/dsh/DshHostProcess.ts");
-const { DSH_MANUALLY_STOPPED_ERROR, dshManuallyStoppedError, isDshManuallyStoppedError } = loadTsCommonJs("src/main/dsh/dshManualStop.ts");
+const { DSH_MANUALLY_STOPPED_ERROR, dshManuallyStoppedError, dshUnavailablePageFor, isDshManuallyStoppedError } = loadTsCommonJs("src/main/dsh/dshManualStop.ts");
 
 /** 跨 realm 安全断言：错误是「手动停止拒绝」（稳定文案精确匹配；不用 instanceof——错误在 vm realm 内构造，跨 realm instanceof 恒 false）。 */
 const rejectsManuallyStopped = (fn) => assert.rejects(fn, (error) => error?.message === DSH_MANUALLY_STOPPED_ERROR);
@@ -49,6 +49,20 @@ test("dshManualStop: 错误文案是稳定常量且判定只认精确匹配", ()
 	assert.equal(isDshManuallyStoppedError("DSH host is manually stopped"), false);
 	assert.equal(isDshManuallyStoppedError(new Error("boot failed: port in use")), false);
 	assert.equal(isDshManuallyStoppedError(new Error(DSH_MANUALLY_STOPPED_ERROR + " (extra)")), false);
+});
+
+test("dshManualStop: 手动停止降级为带原因的不可读页；其他错误不伪装", () => {
+	// DSH 会话没有 pi 会话文件：读取失败必须带可解释原因，渲染层才能出「启动 host」专态。
+	const page = dshUnavailablePageFor(dshManuallyStoppedError());
+	// 跨 realm 对象不能 deepStrictEqual（原型不同），逐字段断言。
+	assert.equal(page?.unavailable, "dsh-host-stopped");
+	assert.equal(page?.messages.length, 0);
+	assert.equal(page?.total, 0);
+	assert.equal(page?.nextBefore, null);
+	// 真实读取故障（host 崩溃 / 文件损坏）不能降级成「点一下就能好」的状态。
+	assert.equal(dshUnavailablePageFor(new Error("host crashed")), null);
+	assert.equal(dshUnavailablePageFor("DSH host is manually stopped"), null);
+	assert.equal(dshUnavailablePageFor(undefined), null);
 });
 
 test("DshHost.ensureStarted: 手动停止时拒绝自动拉起", async () => {

@@ -10,6 +10,10 @@
  *
  * 数据流：本组件只做「草稿编辑 + 保存」；保存走 api.security.updateConfig
  * → SecurityStore 校验/持久化 → 写策略快照 → 运行中的安全门扩展 2s 内热更新。
+ *
+ * 草稿归属：草稿只存在本组件 state 里，所以宿主必须 forceMount 常挂本面板
+ * （ConfigModal 的 security TabsContent）—— 否则切 tab 会连带草稿一起卸载，
+ * 未保存的工具动作（allow/ask/deny）静默消失。
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -95,7 +99,9 @@ export const SecuritySection = forwardRef<SecuritySectionHandle, SecuritySection
 		onDirtyChange?.(dirty);
 	}, [dirty, onDirtyChange]);
 
-	// 组件卸载（切换 tab / 关闭弹框）时上报 false，避免父级残留“假脏”标记
+	// 卸载（宿主关闭配置面板）时上报 false，避免父级残留“假脏”标记。
+	// 本面板由宿主 forceMount 常挂，切换 tab 不会走到这里：若真在切 tab 时卸载，
+	// 草稿会丢，且脏标记被清掉后连关闭时的保存确认都不再弹。
 	useEffect(() => {
 		return () => onDirtyChange?.(false);
 	}, [onDirtyChange]);

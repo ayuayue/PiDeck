@@ -1,6 +1,7 @@
 import { useSetAtom, useStore } from "jotai";
 import { useRef } from "react";
 import type { ComposerAgentMode, ImageContent, SendSessionPromptInput, SendSessionPromptResult, SessionRuntimeTarget } from "../../../shared/types";
+import { classifyComposerSlashCommand } from "../utils/composerSlashCommand";
 import {
 	bindSessionRuntimeAtom,
 	bumpNewTurnCollapseTickAtom,
@@ -57,6 +58,8 @@ export type UseSessionSendOptions = {
 	compact: (target: SessionRuntimeTarget, prompt?: string) => Promise<void>;
 	/** `/new`：桌面拦截后新建 Agent 会话（不发给 pi）。 */
 	createNewSession?: () => Promise<void>;
+	/** `/login [providerId]`：桌面拦截后打开登录供应商弹框（pi 的登录只在它的 CLI 层，走认证例外通道）。 */
+	openProviderLogin?: (providerId?: string) => void;
 	resetComposerUi?: () => void;
 	recordPromptHistory?: (sessionId: string, message: string) => void;
 	refreshProject?: (projectId: string) => void;
@@ -145,12 +148,47 @@ export function useSessionSend(options: UseSessionSendOptions) {
 		options.showError?.(message, 4500);
 	}
 
-	return async function sendSessionPrompt(streamingBehavior?: "steer" | "followUp") {
+	/**
+	 * 发送收尾时清空草稿快照。
+	 * keepDraft=true（快捷消息直发）时跳过：那条路径消费的是外部文本，
+	 * 用户正在写的草稿/附件/引用必须原样保留。
+	 */
+	function clearComposerSnapshot(targetSessionId: string, keepDraft: boolean) {
+		if (keepDraft) return;
+		clearSnapshot(targetSessionId);
+	}
+
+	/**
+	 * 清空输入框的临时 UI 状态（↑ 历史游标、联想菜单、DOM 草稿镜像等）。
+	 * keepDraft=true（快捷消息直发）时跳过：这些状态全属于用户正在编辑的那份草稿，
+	 * 把 liveDomDraftRef 置空会让后续发送误以为输入框是空的。
+	 */
+	function resetComposerEphemeralUi(keepDraft: boolean) {
+		if (keepDraft) return;
+		options.resetComposerUi?.();
+	}
+
+	/**
+	 * 投递被拒时把原文回填草稿，供用户修改重发。
+	 * keepDraft=true（快捷消息直发）时跳过：那段文字原本不在草稿里，回填会污染用户输入
+	 * （弹框里点一下就能重发，代价远低于把用户写了一半的内容顶下去）。
+	 */
+	function restoreRejectedPrompt(targetSessionId: string, keepDraft: boolean, message: string, imageSnapshot?: ImageContent[]) {
+		if (keepDraft) return;
+		restoreRejectedSnapshot(targetSessionId, message, imageSnapshot);
+	}
+
+	return async function sendSessionPrompt(streamingBehavior?: "steer" | "followUp", overrideText?: string) {
 		const sourceSessionId = options.sessionId;
 		if (sendingSessionIdsRef.current.has(sourceSessionId)) return;
 
-		const rawDraft = store.get(sessionDraftByIdAtom)[sourceSessionId] ?? "";
-		const attachmentSnapshot = store.get(sessionAttachmentsByIdAtom)[sourceSessionId] ?? [];
+		// overrideText 有值 = 快捷消息直发：正文来自弹框条目而非当前草稿。
+		// 这里固定三条约束（下面所有分支都靠 keepDraft 收口）：草稿/附件不参与本次发送、
+		// 发送后不清空草稿、被拒时不回填草稿——用户可能正写到一半，直发一条「继续」
+		// 把他的草稿清掉或把他贴的图一起发出去都不可接受。
+		const keepDraft = overrideText !== undefined;
+		const rawDraft = overrideText ?? store.get(sessionDraftByIdAtom)[sourceSessionId] ?? "";
+		const attachmentSnapshot = keepDraft ? [] : (store.get(sessionAttachmentsByIdAtom)[sourceSessionId] ?? []);
 		const imageSnapshot = attachmentSnapshot.length ? [...attachmentSnapshot] : undefined;
 		if (!hasComposerSubmission(rawDraft, imageSnapshot)) return;
 		// 引用展开唯一咽喉点（审计定稿）：后续乐观缓存/队列快照/历史记录全部消费自包含块文本，
@@ -209,12 +247,23 @@ export function useSessionSend(options: UseSessionSendOptions) {
 		sendingSessionIdsRef.current.add(sourceSessionId);
 		const requestId = crypto.randomUUID();
 		const trimmedMessage = message.trim();
-		const isNewCommand = /^\/new\s*$/.test(trimmedMessage);
-		const isCompactCommand = /^\/compact(?:\s|$)/.test(trimmedMessage);
+		// 接管类命令统一由纯函数分类：这里只分派，不再散落正则（见 utils/composerSlashCommand.ts）。
+		const slashCommand = classifyComposerSlashCommand(trimmedMessage);
+		if (slashCommand.kind === "login") {
+			// `/login` 同样不是发给模型的消息：不写乐观用户气泡、不 ensureSessionId，
+			// 也不占 sending 锁（弹框里的登录与后续发送互不干扰）。
+			clearComposerSnapshot(sourceSessionId, keepDraft);
+			resetComposerEphemeralUi(keepDraft);
+			sendingSessionIdsRef.current.delete(sourceSessionId);
+			options.openProviderLogin?.(slashCommand.providerId);
+			return;
+		}
+		const isNewCommand = slashCommand.kind === "new";
+		const isCompactCommand = slashCommand.kind === "compact";
 		if (isNewCommand) {
 			// 不写乐观用户气泡、不 ensureSessionId：/new 是桌面 chrome，不是发给模型的消息。
-			clearSnapshot(sourceSessionId);
-			options.resetComposerUi?.();
+			clearComposerSnapshot(sourceSessionId, keepDraft);
+			resetComposerEphemeralUi(keepDraft);
 			try {
 				await options.createNewSession?.();
 			} catch (error) {
@@ -239,7 +288,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				sessionId: targetSessionId,
 				state: { status: "activating", requestId },
 			});
-			clearSnapshot(targetSessionId);
+			clearComposerSnapshot(targetSessionId, keepDraft);
 			const cacheEntry = store.get(sessionMessagesCacheAtom)?.[targetSessionId];
 			const previousMessages = cacheEntry?.messages ?? [];
 			setCacheMessages({
@@ -257,7 +306,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				],
 				source: "runtime" as const,
 			});
-			options.resetComposerUi?.();
+			resetComposerEphemeralUi(keepDraft);
 		};
 
 		const publishBeforeActivation = !usesLocalQueue && !isCompactCommand;
@@ -302,9 +351,10 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				// No Agent yet — let normal send path start Agent first;
 				// pi will handle /compact command once active.
 			} else {
-				const compactPrompt = trimmedMessage.replace(/^\/compact\s*/, "").trim();
-				clearSnapshot(sessionId);
-				options.resetComposerUi?.();
+				// 提示词由分类器统一剥离（`/compact` 后的内容按 pi 语义是自定义提示词）。
+				const compactPrompt = slashCommand.kind === "compact" ? slashCommand.prompt : "";
+				clearComposerSnapshot(sessionId, keepDraft);
+				resetComposerEphemeralUi(keepDraft);
 				try {
 					await options.compact(runtimeTarget, compactPrompt || undefined);
 				} finally {
@@ -336,8 +386,8 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				behavior: streamingBehavior,
 			});
 			if (enqueued) {
-				clearSnapshot(sessionId);
-				options.resetComposerUi?.();
+				clearComposerSnapshot(sessionId, keepDraft);
+				resetComposerEphemeralUi(keepDraft);
 				sendingSessionIdsRef.current.delete(sourceSessionId);
 				return;
 			}
@@ -352,7 +402,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 					requestId,
 				},
 			});
-			clearSnapshot(sessionId);
+			clearComposerSnapshot(sessionId, keepDraft);
 
 			// Special paths publish only after their runtime/session target is known.
 			const cacheEntry = store.get(sessionMessagesCacheAtom)?.[sessionId];
@@ -372,7 +422,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				],
 				source: "runtime" as const,
 			});
-			options.resetComposerUi?.();
+			resetComposerEphemeralUi(keepDraft);
 		}
 
 		let preparedMessage = message;
@@ -380,7 +430,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 			preparedMessage = options.prepareMessage ? await options.prepareMessage(message) : message;
 		} catch (error) {
 			// 拒绝时回填原始草稿（含 token），保留 chip 形态供用户修改重发
-			restoreRejectedSnapshot(sessionId, rawDraft, imageSnapshot);
+			restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot);
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			setSendState({
 				sessionId: sourceSessionId,
@@ -396,7 +446,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 			// 模板正文为空（UI 新建模板只写 frontmatter 未填正文）：拦截发送，
 			// 给明确提示而不是把空白消息发到主进程被拒为“消息不能为空”。
 			// 回填原始草稿（含引用 token），保留 chip 形态
-			restoreRejectedSnapshot(sessionId, rawDraft, imageSnapshot);
+			restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot);
 			rejectEmptyTemplate(emptyTemplateName);
 			sendingSessionIdsRef.current.delete(sourceSessionId);
 			return;
@@ -484,7 +534,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				options.showUnknown?.();
 			} else {
 				// 拒绝时回填原始草稿（含 token）保留 chip 形态；unknown 快照仍存展开后文本（已实际投递的内容）
-				restoreRejectedSnapshot(sessionId, rawDraft, imageSnapshot);
+				restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot);
 				setSendState({
 					sessionId,
 					state: { status: "error", requestId, error: deliveryError },

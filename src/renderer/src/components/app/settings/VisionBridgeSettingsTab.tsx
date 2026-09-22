@@ -12,9 +12,8 @@
  * 要求改 toast），失败提示就近展示（与头部保存按钮对照），底部保留运行日志诊断区。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, RefreshCw, Trash2 } from "lucide-react";
+import { Check, RefreshCw, Trash2 } from "lucide-react";
 import { t } from "../../../i18n";
-import { cn } from "../../../lib/utils";
 import { desktopApi } from "../../../desktopApi";
 import { showNotice } from "../../../utils/notice";
 import { Button } from "../../ui-shadcn/button";
@@ -24,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { ModelPicker } from "../../session/ComposerComponents";
 import type { AvailableModel, VisionBridgeConfig, VisionLogInfo } from "../../../../../shared/types";
 import { SettingsSection } from "./SettingsStorageTab";
-import { SettingRow, SettingSwitchRow } from "./SettingRows";
+import { SettingRow, SettingSwitchRow, SettingsModelPickerControl } from "./SettingRows";
 import { DEFAULT_PROMPT, DEFAULT_TIMEOUT_MS, configFilePath, emptyDraft } from "./visionDraft.ts";
 
 export type { VisionBridgeConfig, VisionBridgeState } from "../../../../../shared/types";
@@ -160,19 +159,7 @@ export function VisionBridgeSettingsTab(props: {
 						) : undefined
 					}
 				>
-					<Button
-						type="button"
-						variant="outline"
-						className="w-full justify-between font-mono text-control"
-						/* provider/model 是不可断行 token（/ 与 - 都不产生换行机会），
-						   长模型名靠 min-w-0 truncate 收在按钮内省略号截断，
-						   悬停 title 显示完整引用；未选择时不挂 title，避免空 tooltip。 */
-						title={selectedModelLabel || undefined}
-						onClick={openPicker}
-					>
-						<span className={cn("min-w-0 truncate", !selectedModelLabel && "text-muted-foreground")}>{selectedModelLabel || t("settings.vision.modelPlaceholder")}</span>
-						<ChevronsUpDown size={14} className="flex-none opacity-60" aria-hidden />
-					</Button>
+					<SettingsModelPickerControl value={selectedModelLabel} placeholder={t("settings.vision.modelPlaceholder")} onOpen={openPicker} onClear={() => updateDraft({ provider: "", model: "" })} />
 				</SettingRow>
 
 				{/* API 格式（一般自动推断） */}

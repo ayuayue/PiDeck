@@ -23,7 +23,8 @@
 
 import { join } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { ATOMGIT_API_HOST, ATOMGIT_HOST, UPDATE_REPO, UPDATE_REPO_OWNER } from "../../shared/updateSources";
+import { ATOMGIT_HOST, UPDATE_REPO, UPDATE_REPO_OWNER } from "../../shared/updateSources";
+import { atomGitContentsApiUrl, decodeAtomGitContentsResponse, gitHubRawFileUrl } from "./atomGitContents";
 import type { UpdateSourceId } from "../../shared/types/settings";
 
 /** CHANGELOG 文件名（按语言）——仓库根目录下的两套并行文件。 */
@@ -136,27 +137,10 @@ export function countChangelogVersions(markdown: string): number {
 /**
  * 解码 AtomGit OpenAPI contents 响应（`GET /api/v5/repos/:owner/:repo/contents/:path`）。
  *
- * 官方文档形态：`{ type: "file", encoding: "base64", content: "<base64>", ... }`。
- * base64 解码后是 UTF-8 原文（Buffer.from 忽略 base64 序列里的换行，无需预处理）。
- * 任何形态异常都抛错，由 getChangelog 的逐源 try/catch 吞掉并尝试下一源。
+ * 实现已统一到 `update/atomGitContents.ts`（与内置扩展/内容热更新、模型目录共用同一套
+ * 形态校验与 base64 解码），这里只保留同名再导出，兼容既有引用点与单测导入。
  */
-export function decodeAtomGitContentsResponse(body: string): string {
-	let payload: unknown;
-	try {
-		payload = JSON.parse(body);
-	} catch {
-		throw new Error("atomgit contents response is not valid JSON");
-	}
-	const record = payload as { type?: unknown; encoding?: unknown; content?: unknown } | null;
-	if (typeof record !== "object" || record === null || record.type !== "file" || typeof record.content !== "string") {
-		throw new Error("atomgit contents response has an unexpected shape");
-	}
-	if (record.encoding === "base64") {
-		return Buffer.from(record.content, "base64").toString("utf8");
-	}
-	// 文档只描述 base64；非 base64 encoding 的形态不认识，交原文给 looksLikeChangelog 把关
-	return record.content;
-}
+export { decodeAtomGitContentsResponse };
 
 /**
  * 生成候选源 URL 列表（按优先级）。
@@ -167,16 +151,9 @@ export function decodeAtomGitContentsResponse(body: string): string {
 export function buildChangelogUrls(input: { source: UpdateSourceId; branch?: string; language: ChangelogLanguage }): { id: ChangelogSourceId; url: string }[] {
 	const branch = input.branch ?? DEFAULT_BRANCH;
 	const file = input.language === "zh" ? CHANGELOG_FILE_ZH : CHANGELOG_FILE_EN;
-	const repoPath = `${UPDATE_REPO_OWNER}/${UPDATE_REPO}`;
 	const candidates: { id: ChangelogSourceId; url: string }[] = [];
-	const atomgit = {
-		id: "atomgit" as const,
-		url: `${ATOMGIT_API_HOST}/api/v5/repos/${repoPath}/contents/${encodeURIComponent(file)}` + `?ref=${encodeURIComponent(branch)}`,
-	};
-	const github = {
-		id: "github" as const,
-		url: `https://raw.githubusercontent.com/${repoPath}/${branch}/${file}`,
-	};
+	const atomgit = { id: "atomgit" as const, url: atomGitContentsApiUrl(file, branch) };
+	const github = { id: "github" as const, url: gitHubRawFileUrl(file, branch) };
 	// 用户显式选了官方源时把 GitHub 提前，尊重其选择（官方源用户通常网络可达）。
 	if (input.source === "github") {
 		candidates.push(github, atomgit);

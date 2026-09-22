@@ -115,6 +115,12 @@ test("Session tree keys use catalog SessionRecord identity, including child rows
 	assert.doesNotMatch(source, /key=\{child\.session\.filePath\}/);
 });
 
+test("active sidebar rows use the bound catalog title before a transient AgentTab title", () => {
+	const source = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+	assert.match(source, /const displayTitle = agentSession \? \("title" in agentSession \? agentSession\.title : agentSession\.name \|\| child\.agent\.title\) : child\.agent\.title;/);
+	assert.match(source, /<TitleScrollText text=\{displayTitle\} className="font-medium"/);
+});
+
 test("runtime context authorization uses the record binding instead of a same-path agent", () => {
 	const { getBoundSidebarRuntimeAgent } = loadControllerModule();
 	const catalog = {
@@ -437,6 +443,19 @@ test("sidebar splits Chats/Projects by navTab without duplicating list logic", (
 	// controller 暴露 navTab + setNavTab
 	assert.match(controller, /navTab: SidebarNavTab;/);
 	assert.match(controller, /setNavTab: \(tab: SidebarNavTab\) => void/);
+});
+
+test("sidebar nav rail stretches its tabs across the full width", () => {
+	const content = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
+	// beUI pill 的 trigger 外包了一层 <div className="relative">（承载 layoutId 指示器），
+	// 它才是轨道内的 flex item；只在 TabsTrigger 上写 w-full 只能撑满包层自身，
+	// 侧栏拉宽时右侧会留空轨（对比下方 Dock 的 w-full justify-between 分发）。
+	assert.match(content, /<TabsList[\s\S]{0,200}\[&>div\]:flex-1/);
+	assert.match(content, /<TabsList[\s\S]{0,200}\[&>div\]:min-w-0/);
+	// 三档 trigger 都要可收缩（min-w-0 + overflow-hidden），否则窄侧栏会被 nowrap 文案顶开。
+	assert.equal((content.match(/className=\{cn\("w-full min-w-0 gap-1\.5 overflow-hidden px-2 py-1\.5 text-xs"/g) ?? []).length, 3);
+	// 文案截断兜底（窄侧栏 / 英文长标签）：标签必须在 truncate span 内，裸文本会溢出胶囊。
+	assert.equal((content.match(/<span className="truncate">\{t\("app\.sidebar(?:Active|Chats|Projects)"\)\}<\/span>/g) ?? []).length, 3);
 });
 
 test("expanded children can be collapsed back via sidebar controller", () => {

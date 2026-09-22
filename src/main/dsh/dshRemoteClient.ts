@@ -29,8 +29,9 @@ function envelope<T>(promise: Promise<DshRpcResult<T>>): Promise<DshEnvelope<T>>
  *   切点」，必须 ≤ 会话当前 cursor（超大值被 host 拒为 gateway/bad-request），
  *   由调用方经冷读 observation 提供（DshAgentManager.historyPage）；
  *   结果重排为旧 {events:[{event,view}], projections} 形状（view 取 event.surfaceOp）。
- * - events.mux（全会话聚合流）已不存在：审批/提问走 $events 事件瀑布，
- *   会话日志事件走每会话 session/follow 流（manager 侧各自泵）。
+ * - events.mux（全会话聚合流）已不存在，拆成三条流：审批/提问走 $events 事件瀑布，
+ *   会话日志事件走每会话 session/follow 流，投影变更广播走 Host 级 session/control
+ *   流（manager 侧各自泵）。漏掉第三条 ⇒ 投影永远停在 attach 初值（指标条只剩轮数）。
  * - respond(client-response) → $events/result 瀑布应答（ApprovalOutcome 字符串 /
  *   AskUserQuestionAnswer 对象）。
  */
@@ -284,6 +285,52 @@ export class DshRemoteClient {
 						yield { payload: { sessionId, type: "session/event", event, view: event.surfaceOp } };
 					}
 				}
+			}
+		}
+	}
+
+	/**
+	 * Host 级会话控制流（`session/control`，0.1.5 的 SessionControlFrame）：
+	 * 首帧 `{type:'baseline', value:{queues, jobs, projections}}` 是全会话投影快照
+	 * （`{[sessionId]: {asOfSeq, values}}`），之后每条
+	 * `{type:'projection', sessionId, key, value, seq}` 是该单元的替换帧
+	 * （host 的 sessionProjections.onChanged 原样广播）。
+	 *
+	 * 为什么必须订阅：session/follow 的 snapshot 只带一次 attach 时刻的投影基线，
+	 * 实时变更（sessionStats 墙钟/累计 token/上下文占用/todos）**只在这条流上**。
+	 * 不订阅就只剩 deriveSessionStatsFallback 的「N 轮 · M 步」。
+	 *
+	 * 翻成下游 dispatchMuxFrame 认识的形状：baseline 拆成每会话一条
+	 * session/projection-baseline（一次播种全部 runtime），projection 直接复用
+	 * session/projection（applyProjectionFrame 按 key higher-seq-wins）。
+	 * queue/jobs 帧暂不消费（渲染层队列/后台任务未接入）。
+	 */
+	async *sessionControl(signal: AbortSignal): AsyncGenerator<DshMuxFrame> {
+		const items = this.rpc.openStream("session/control", {}, signal);
+		for await (const item of items) {
+			if (item === null || typeof item !== "object") continue;
+			const frame = item as Record<string, unknown>;
+			if (frame.type === "baseline") {
+				const value = frame.value;
+				const projections = value !== null && typeof value === "object" ? (value as Record<string, unknown>).projections : undefined;
+				if (projections === null || typeof projections !== "object") continue;
+				for (const [sessionId, block] of Object.entries(projections as Record<string, unknown>)) {
+					yield { payload: { sessionId, type: "session/projection-baseline", block } };
+				}
+				continue;
+			}
+			if (frame.type === "projection") {
+				// 边界校验：sessionId 非字符串的帧下游找不到 owner，直接丢弃。
+				if (typeof frame.sessionId !== "string") continue;
+				yield {
+					payload: {
+						sessionId: frame.sessionId,
+						type: "session/projection",
+						key: frame.key,
+						value: frame.value,
+						seq: frame.seq,
+					},
+				};
 			}
 		}
 	}

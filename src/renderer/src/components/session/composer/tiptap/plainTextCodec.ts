@@ -1,10 +1,18 @@
 /**
  * Composer TipTap：string ↔ ProseMirror doc 往返。
- * 单段落 + hardBreak 表示换行；mention 原子节点用 data-raw 还原。
+ * 换行有两种来源，序列化必须同时覆盖：
+ * - 受控同步 / 粘贴写入的「单段落 + hardBreak」（Shift+Enter 也是 hardBreak）；
+ * - 用户按 Enter 换行时 ProseMirror splitBlock 产生的「多段落」
+ *   （发送快捷键设为 Ctrl/Cmd+Enter 或 Shift+Enter 时 Enter 不再是发送键，走这条路）。
+ * 段落之间补一个 \n，与 caretBridge 的偏移换算共用同一规则。
+ * mention 原子节点用 data-raw 还原。
  */
 
 import type { JSONContent } from "@tiptap/core";
 import { parseRichInputChips, type ComposerChip } from "../chips";
+
+/** 段落之间的纯文本分隔符。caretBridge 的偏移换算必须与序列化同用这一个值。 */
+export const COMPOSER_PARAGRAPH_SEPARATOR = "\n";
 
 export type ComposerChipWhitelist = {
 	validCommandNames?: Set<string>;
@@ -78,6 +86,9 @@ export function plainTextToComposerDoc(text: string, whitelist: ComposerChipWhit
 /** TipTap JSON / 节点 → 纯字符串（发信 / draft 真相）。 */
 export function composerDocToPlainText(doc: JSONContent): string {
 	const parts: string[] = [];
+	// 段落计数：只有第一个段落不补分隔符，空段落也必须补——否则用户敲的空行
+	// 会在发送时被静默吞掉，且草稿行号会与编辑器里的行错位。
+	let paragraphCount = 0;
 	const walk = (node: JSONContent): void => {
 		if (node.type === "text" && typeof node.text === "string") {
 			parts.push(node.text);
@@ -93,20 +104,13 @@ export function composerDocToPlainText(doc: JSONContent): string {
 			return;
 		}
 		if (node.type === "paragraph") {
-			// 多段落时段落之间补换行（防御；当前 schema 只用单段）
-			if (parts.length > 0 && !parts[parts.length - 1]?.endsWith("\n")) {
-				parts.push("\n");
-			}
+			if (paragraphCount++ > 0) parts.push(COMPOSER_PARAGRAPH_SEPARATOR);
 			node.content?.forEach(walk);
 			return;
 		}
 		node.content?.forEach(walk);
 	};
 	walk(doc);
-	// 单 paragraph 开头不应多一个 \n
-	if (parts[0] === "\n" && doc.content?.length === 1) {
-		// no-op: hardBreaks only inside paragraph
-	}
 	return parts.join("");
 }
 

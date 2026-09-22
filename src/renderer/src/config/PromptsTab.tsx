@@ -10,7 +10,7 @@ import { PromptStoreTab } from "./PromptStoreTab";
 import { ContentTabs } from "./ContentTabs";
 import { Input } from "../components/ui-shadcn/input";
 import { Textarea } from "../components/ui-shadcn/textarea";
-import { Label } from "../components/ui-shadcn/label";
+import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
 import type { ResourceScope } from "./ResourceScopeSelector";
 import { globalPromptOverrideKey } from "../../../shared/resourceIdentity";
 import { isProjectDiscoverySource } from "./resourceScopeModel";
@@ -305,20 +305,21 @@ export function PromptsTab(props: {
 						</div>
 					</div>
 
-					<section className="config-create-card">
-						<strong>{t("config.createPrompt")}</strong>
-						<Label className="config-create-label">
-							<span>{t("config.name")}</span>
+					<CreateResourceCard
+						title={t("config.createPrompt")}
+						submit={
+							<Button size="sm" variant="default" disabled={!canCreate || props.creating} onClick={props.onCreate}>
+								{props.loading || props.creating ? t("common.loading") : t("config.create")}
+							</Button>
+						}
+					>
+						<CreateResourceField label={t("config.name")}>
 							<Input value={props.newName} placeholder={t("config.promptNamePlaceholder")} onChange={(e) => props.onChangeNewName(e.target.value)} />
-						</Label>
-						<Label className="config-create-label">
-							<span>{t("config.description")}</span>
+						</CreateResourceField>
+						<CreateResourceField label={t("config.description")}>
 							<Textarea className="min-h-[72px] resize-y" value={props.newDescription} placeholder={t("config.promptDescriptionPlaceholder")} onChange={(e) => props.onChangeNewDescription(e.target.value)} />
-						</Label>
-						<Button size="sm" variant="default" className="justify-self-start" disabled={!canCreate || props.creating} onClick={props.onCreate}>
-							{props.loading || props.creating ? t("common.loading") : t("config.create")}
-						</Button>
-					</section>
+						</CreateResourceField>
+					</CreateResourceCard>
 
 					<section className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
 						{visibleTemplateCount === 0 ? (

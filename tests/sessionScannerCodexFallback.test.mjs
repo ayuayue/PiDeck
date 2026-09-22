@@ -173,6 +173,7 @@ function loadSessionScanner(homePath) {
 				return { app: { getPath: () => homePath }, shell: {} };
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "../wsl/WslPaths") return wslPaths;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;

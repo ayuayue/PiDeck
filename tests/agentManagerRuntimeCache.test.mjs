@@ -355,6 +355,71 @@ test("loadMessages aligns trimmed runtime messages with their real entry ids", a
 	}
 });
 
+test("loadMessages keeps entryId slots aligned when the window contains pi 0.86 system entries", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-runtime-cache-system-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		// 0.86 会话：首条 entry 是系统提示 sections，会话中段再插一条工具清单变更
+		// （两者都是 type:"message" + role:"system"，落在尾部 12 轮窗口内）。
+		const entries = [];
+		let parent = null;
+		const push = (id, role, text, extra = {}) => {
+			entries.push({ id, parentId: parent, type: "message", message: { role, content: [{ type: "text", text }], ...extra } });
+			parent = id;
+		};
+		push("sys0", "system", "", { sections: { preamble: "You are pi." } });
+		for (let i = 1; i <= 15; i += 1) {
+			push(`u${i}`, "user", `q${i}`);
+			push(`a${i}`, "assistant", `a${i}`);
+			if (i === 7) push("sys7", "system", "", { toolsRemoved: [{ name: "edit" }] });
+		}
+		await writeFile(sessionPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
+		const runtime = {
+			tab: {
+				id: "agent-1",
+				projectId: "project-1",
+				cwd: "C:/project",
+				title: "Session",
+				status: "idle",
+				sessionPath,
+				sessionEnvironment: "native",
+				sessionSource: "pi",
+				createdAt: 1,
+			},
+			process: { client: { request: async () => ({ success: true, data: {} }) } },
+		};
+		const manager = new AgentManager(
+			() => ({ id: "project-1", name: "Project", path: "C:/project" }),
+			() => null,
+			{ get: () => ({}) },
+			{},
+		);
+		manager.agents.set("agent-1", runtime);
+		const payloads = [];
+		manager.onOutput((channel, payload) => {
+			if (channel === "agents:message") payloads.push(payload);
+		});
+
+		await manager.loadMessages("agent-1");
+		const cached = manager.messages.get("agent-1");
+		const entryIdOf = (text) => cached.find((message) => message.text === text)?.meta?.entryId;
+		// 窗口首条 q4 必须绑回 u4：修复前 sys7 会占掉一个 id 槽位，导致 q4→a4、q7→sys7。
+		assert.equal(cached[0].text, "q4");
+		assert.equal(cached[0].meta.entryId, "u4");
+		assert.equal(entryIdOf("q7"), "u7");
+		assert.equal(entryIdOf("q8"), "u8");
+		assert.equal(cached[cached.length - 1].meta.entryId, "a15");
+		// windowStartFilePos 用 message 条目空间：sys0 与 sys7 各占 1 条，窗口首条 q4 的文件下标
+		// 从 6 变为 7，显示窗口（尾部 9 轮）起点偏移 6 ⇒ 13（无 system 的 15 轮用例是 12）。
+		const full = payloads.find((p) => p.windowStart !== undefined);
+		assert.ok(full, "windowed full flush expected");
+		assert.equal(full.windowStart, 6);
+		assert.equal(full.windowStartFilePos, 13);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("trimRuntimeCache keeps leading compaction summary cards", async () => {
 	const { manager, sessionPath, directory } = await createHarness();
 	try {

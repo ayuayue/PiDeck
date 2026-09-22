@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { t } from "../i18n";
 import { writeClipboard } from "../utils/clipboard";
@@ -10,6 +10,7 @@ import { Input } from "../components/ui-shadcn/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
 import { filterComboboxOptions, groupComboboxOptions, isKnownComboboxValue } from "./comboboxOptions";
+import { cn } from "../lib/utils";
 
 // ── 复制到剪贴板工具 ──────────────────────────────────
 
@@ -76,15 +77,26 @@ export function SecretInput(props: { value: string; onChange: (v: string) => voi
 /** Radix Select 不允许空字符串 value，用哨兵值映射回 ""。 */
 const SENTINEL = "__none__";
 
-export function ConfigSelect(props: { value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void; placeholder?: string }) {
+export function ConfigSelect(props: {
+	value: string;
+	options: Array<{ value: string; label: string }>;
+	onChange: (value: string) => void;
+	placeholder?: string;
+	/**
+	 * 触发器宽度类，默认 `w-full`（表单里占满右列的控件）。
+	 * 内联场景（如兼容性组的「严格工具采样」与复选框并排）传 `w-auto` 按内容定宽。
+	 */
+	triggerClassName?: string;
+}) {
 	// 老 settings.json 可能残留枚举外的取值（如自定义传输协议）；此时补一条「自定义」
 	// item 兜底，否则 Radix Select 因 value 无匹配 item 而显示空白、且无法回选。
 	const hasCustom = props.value !== "" && !isKnownComboboxValue(props.options, props.value);
 	return (
 		<Select value={props.value === "" ? SENTINEL : props.value} onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}>
 			{/* trigger 必须带 w-full：shadcn 基础类自带 w-fit（utilities 层）会压过 legacy 的
-			    .config-select-trigger{width:100%}，不加则下拉收缩成内容宽度（值多的行长条很丑） */}
-			<SelectTrigger className="config-select-trigger w-full">
+			    .config-select-trigger{width:100%}，不加则下拉收缩成内容宽度（值多的行长条很丑）。
+			    内联场景由调用方用 triggerClassName 传 w-auto 覆盖（cn 走 twMerge，后者胜出）。 */}
+			<SelectTrigger className={cn("config-select-trigger w-full", props.triggerClassName)}>
 				<SelectValue placeholder={props.placeholder ?? props.options.find((o) => o.value === props.value)?.label ?? props.value} />
 			</SelectTrigger>
 			<SelectContent>
@@ -185,7 +197,7 @@ export function ConfigComboboxInput(props: { value: string; options: Array<{ val
 							<Fragment key={section.group ?? `__ungrouped_${sectionIndex}`}>
 								{section.group && (
 									// 分组标题不可选中：cmdk 会把 CommandItem 当选项，标题用 div 避免干扰键盘导航。
-									<div className="px-2 pt-2 pb-1 text-[11px] font-medium text-text-tertiary">section.group</div>
+									<div className="px-2 pt-2 pb-1 text-[11px] font-medium text-text-tertiary">{section.group}</div>
 								)}
 								{section.items.map((option) => (
 									<CommandItem key={option.value} value={option.value} onSelect={() => commit(option.value)}>
@@ -238,5 +250,37 @@ export function ApiTypeInput(props: { value: string; onChange: (value: string) =
 				))}
 			</SelectContent>
 		</Select>
+	);
+}
+
+/**
+ * 资源新建卡片外壳（提示词 / 技能等「新建」区共用，保证各处长相一致）。
+ * 表单区固定收窄到 max-w-3xl：配置页内容区在宽窗口下可达 1000px+，
+ * 输入框铺满整行会显得松散且难扫读；收窄后名称/位置/描述在任何窗口宽度下都是可读的字段宽度。
+ */
+export function CreateResourceCard(props: { title: string; submit: ReactNode; children: ReactNode }) {
+	return (
+		<section className="grid gap-3 rounded-lg border border-border-subtle bg-bg-muted p-3.5">
+			<strong className="text-control font-semibold text-foreground">{props.title}</strong>
+			<div className="grid max-w-3xl gap-2.5">
+				{props.children}
+				{/* 提交按钮靠右收尾：与字段左对齐同一条轴线，不再孤零零贴在卡片左下角 */}
+				<div className="flex justify-end">{props.submit}</div>
+			</div>
+		</section>
+	);
+}
+
+/**
+ * 新建卡片的字段结构：标签一行、控件一行。
+ * 刻意用原生 <label> + Tailwind，不用 shadcn Label 原语：Label 自带 flex + gap-2，
+ * 会把「名称 / 描述」这类两字中文标签挤成一字一行的竖排（原生 label 同时保留包裹控件的关联语义）。
+ */
+export function CreateResourceField(props: { label: string; children: ReactNode }) {
+	return (
+		<label className="grid gap-1">
+			<span className="text-caption text-text-secondary">{props.label}</span>
+			{props.children}
+		</label>
 	);
 }

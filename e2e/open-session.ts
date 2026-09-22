@@ -40,3 +40,21 @@ export async function openFirstSession(window: Page) {
 	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
 	return composer;
 }
+
+/**
+ * 多项目种子（函数式覆盖）。
+ *
+ * 不要写 `test.use({ seedProjects: [a, b] })`：Playwright 的 option fixture 会把
+ * ≥2 元素的数组当成 `[value, options]` 元组，只取第 0 个元素（`[a]` 则不会），
+ * 于是 b 及之后静默消失（详见 mock-pi-fixture 的 normalizeSeeds 注释）。
+ * 函数形态不经过元组解析，任意条数都安全：
+ *
+ * ```ts
+ * test.use({ seedProjects: seedProjectsOption([a, b]) });
+ * ```
+ */
+export function seedProjectsOption(projects: SeedProject[]) {
+	return async ({}, use: (value: SeedProject[]) => Promise<void>) => {
+		await use(projects);
+	};
+}

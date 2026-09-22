@@ -88,16 +88,21 @@ export function htmlToPlainText(html: string): string {
  * 在窗口失焦时抛 "Document is not focused" 异常。
  *
  * 在非 Electron 环境（preview / web）下回退到 Web Clipboard API。
+ *
+ * 返回是否写入成功：多数调用方 `void writeClipboard(x)` 忽略即可，但需要「已复制」反馈的
+ * 调用方（toast 复制按钮 / MarkdownLink 复制路径 / DOM 降级 toast）必须按返回值决定要不要
+ * 切勾号——写入失败还弹成功反馈比不弹更糟。
  */
 
-export async function writeClipboard(text: string): Promise<void> {
+export async function writeClipboard(text: string): Promise<boolean> {
 	// 1. Electron 环境：通过 preload bridge 直接调用主进程 clipboard
 	// （能力探测走 unknown 中转；preload 未暴露 writeText 时自然落到 Web API）
-	const pd = (window as unknown as { piDesktop?: { clipboard?: { writeText: (t: string) => void } } }).piDesktop;
+	const pd = (window as unknown as { piDesktop?: { clipboard?: { writeText: (t: string) => boolean | Promise<boolean> } } }).piDesktop;
 	if (pd?.clipboard?.writeText) {
 		try {
-			pd.clipboard.writeText(text);
-			return;
+			// writeText 自 Electron 38 起是主进程 invoke（Promise<boolean>），旧同步实现可能直接返回 boolean。
+			// 必须 await 后判真值：不 await 会把「还在写」当成功，且 invoke 的 rejection 变成未处理拒绝。
+			if (await Promise.resolve(pd.clipboard.writeText(text))) return true;
 		} catch {
 			// preload bridge 写入失败，回退到 Web API
 		}
@@ -106,7 +111,7 @@ export async function writeClipboard(text: string): Promise<void> {
 	// 2. Web Clipboard API（需要 document focus，但作为兜底）
 	try {
 		await navigator.clipboard.writeText(text);
-		return;
+		return true;
 	} catch {
 		// 某些场景下 document 可能无焦点导致抛异常
 	}
@@ -120,10 +125,12 @@ export async function writeClipboard(text: string): Promise<void> {
 		textarea.style.pointerEvents = "none";
 		document.body.appendChild(textarea);
 		textarea.select();
-		document.execCommand("copy");
+		const ok = document.execCommand("copy");
 		document.body.removeChild(textarea);
+		return ok;
 	} catch {
-		// 所有方式均失败，静默忽略（调用方已处理自己的错误通知）
+		// 所有方式均失败：返回 false，由调用方决定不展示成功反馈（不在此处弹二次错误）
+		return false;
 	}
 }
 

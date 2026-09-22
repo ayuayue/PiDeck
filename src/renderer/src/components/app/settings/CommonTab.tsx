@@ -10,6 +10,8 @@ import { Input } from "../../ui-shadcn/input";
 import { SettingsSection } from "./SettingsStorageTab";
 import { DirtyMarker, SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
 import { VoiceTranscriptionSettingsSection } from "./VoiceTranscriptionSettingsSection";
+import { QuickTaskMenuSetting } from "./QuickTaskMenuSetting";
+import { QuickMessagesSetting } from "./QuickMessagesSetting";
 
 type CommonTabProps = {
 	draft: AppSettings;
@@ -291,6 +293,11 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
 				<SettingSwitchRow anchor="common-collapse-prev-runs" title={t("settings.collapsePrevRunsOnNewTurn")} description={t("settings.collapsePrevRunsOnNewTurnDesc")} checked={draft.collapsePrevRunsOnNewTurn} onChange={(checked) => updateDraft({ collapsePrevRunsOnNewTurn: checked })} />
 			</SettingsSection>
 
+			{/* 快捷消息：数据在 userData/quick-messages.json，本区自持编辑状态并即时落盘（不参与全局草案/取消）。 */}
+			<SettingsSection title={t("settings.quickMessagesSection")} description={t("settings.quickMessagesSectionDesc")}>
+				<QuickMessagesSetting />
+			</SettingsSection>
+
 			{/* 闲置 Agent 内存优化：自动释放长时间闲置的 agent 进程，降低多会话内存占用 */}
 			<SettingsSection title={t("settings.idleAgentSection")} description={t("settings.idleAgentSectionDesc")}>
 				<SettingSwitchRow anchor="common-idle-agent-auto-release" title={t("settings.idleAgentAutoRelease")} description={t("settings.idleAgentAutoReleaseDesc")} checked={draft.idleAgentAutoRelease ?? true} dirty={isDirty("idleAgentAutoRelease")} onChange={(checked) => updateDraft({ idleAgentAutoRelease: checked })} />
@@ -354,6 +361,7 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
           HKCU 写入即时生效；非 Windows 平台开关置灰并提示。 */}
 			<SettingsSection title={t("settings.shellContextMenuSection")} description={t("settings.shellContextMenuSectionDesc")}>
 				<SettingSwitchRow anchor="common-shell-context-menu" title={t("settings.shellContextMenu")} description={t("settings.shellContextMenuDesc")} checked={shellMenuState?.registered ?? false} disabled={!shellMenuState?.supported || shellMenuBusy} onChange={toggleShellMenu} />
+				<QuickTaskMenuSetting />
 				{!shellMenuState?.supported && <p className="px-4 pb-2 text-xs text-destructive">{t("settings.shellContextMenuUnsupported")}</p>}
 				{shellMenuError && <p className="px-4 pb-2 text-xs text-destructive">{shellMenuError}</p>}
 			</SettingsSection>

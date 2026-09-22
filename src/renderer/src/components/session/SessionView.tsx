@@ -13,6 +13,7 @@ import { SessionSubagentsStrip } from "./SessionSubagentsStrip";
 import { SessionTodoStrip } from "./SessionTodoStrip";
 import { SessionSurfaceStage } from "./SessionSurfaceStage";
 import { ComposerArea } from "./ComposerArea";
+import { chatContentWidthStyle } from "./chatContentWidth";
 import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SIZE } from "../terminal/TerminalDockPanel";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayProjectDirectoryName, redistributeTerminalAgainstTimeline, shouldMountBottomComposer, sessionResizableGroupKey, sessionGroupDefaultLayout } from "../../rendererUtils";
@@ -80,6 +81,8 @@ export type SessionViewProps = {
 	onSwitchBranch?: (branch: string) => void;
 	ensureSessionId?: (sessionId: string) => Promise<string>;
 	queuePanel?: ReactNode;
+	/** 当前是否有待回答的阻塞式 Ask（与 SessionRuntimeUiOverlay 同代判据）。 */
+	askPanelVisible?: boolean;
 	runtimeUi?: ReactNode;
 
 	// ── Terminal dock ──
@@ -145,6 +148,7 @@ export function SessionView({
 	onSwitchBranch,
 	ensureSessionId,
 	queuePanel,
+	askPanelVisible = false,
 	runtimeUi,
 	terminalDockVisible,
 	terminalOpen,
@@ -202,6 +206,14 @@ export function SessionView({
 	const timelineColumnStyle = {
 		"--session-timeline-min": `${TIMELINE_MIN_HEIGHT}px`,
 	} as CSSProperties;
+	// Ask 底栏与 composer 互斥分高（issue #230 定案，2026-12 用户拍板 B：卡片接管列底）：
+	// ask 可见时 composer 通过 max-height:0 + overflow-hidden 坍缩到零高，而不是卸载——
+	// 粘贴转文件的 chip 删盘动作在 composer 的卸载路径上会丢失（orphan 临时文件），
+	// 草稿/附件虽在 atom 里，仍以「不卸载」为更强约束。
+	// 因此两者不会同时占高；不设固定像素上限（用户反馈：别限我的卡片高度），
+	// 上限就是「列高 - 对话区保底」，正常情况下卡片不会被截断，超长才内部滚动兜底。
+	const askMaxHeight = `calc(100% - var(--session-timeline-min, ${TIMELINE_MIN_HEIGHT}px))`;
+	const composerMaxHeight = askPanelVisible ? "0px" : `min(${COMPOSER_MAX_HEIGHT}px, calc(100% - var(--session-timeline-min, ${TIMELINE_MIN_HEIGHT}px)))`;
 
 	// 终端 Panel 随 terminalOpen 动态挂载，约束注册有一帧延迟。
 	// 折叠/展开用稳态读数 + setLayout：差额全部给 timeline，输入栏不在 Group 里。
@@ -277,18 +289,34 @@ export function SessionView({
 								forkingMessageId,
 								onToast,
 								onQuickPrompt,
-								runtimeUi,
 							}}
 						/>
 					</div>
+					{/* 阻塞式 Ask 底栏（issue #230）：与输入框同级钉在对话区下方，
+					    不再随时间线滚动——用户上翻看历史时提问卡仍常驻可见，不必再往下找。
+					    宽度基准与消息列/输入框同源（chatContentWidthStyle + scrollbar-gutter 槽位），
+					    内容超「列高 - 对话区保底」时由本层滚动（时间线仍是唯一的消息滚动 owner）。
+					    必须用 askPanelVisible 而不是仅 runtimeUi 门控：overlay 无 pending 时返回 null，
+					    只看 runtimeUi 会留下一条空白底栏。 */}
+					{runtimeUi && askPanelVisible ? (
+						<div className="session-v-ask min-h-0 shrink-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]" style={{ maxHeight: askMaxHeight }} aria-live="polite">
+							<div className="pb-2" style={chatContentWidthStyle}>
+								{runtimeUi}
+							</div>
+						</div>
+					) : null}
 					{/* 有消息或仍在加载：列底固有高度输入栏。空会话就绪后卸掉，改由起始页居中输入。
               max-height 相对本列：窗口放大后上限抬起，待办/改文件条随内容恢复，不锁死像素。 */}
 					{bottomComposerVisible && (
 						<div
 							className="session-v-composer flex min-h-0 shrink-0 flex-col overflow-hidden [scrollbar-gutter:stable]"
 							style={{
-								maxHeight: `min(${COMPOSER_MAX_HEIGHT}px, calc(100% - var(--session-timeline-min, ${TIMELINE_MIN_HEIGHT}px)))`,
+								maxHeight: composerMaxHeight,
 							}}
+							// 坍缩到 0px 时必须同时 inert + aria-hidden：否则看不见的编辑器仍可被 Tab/点击命中，
+							// 用户会往一个不可见的输入框里打字（React 19 支持 inert 属性）。
+							inert={askPanelVisible}
+							aria-hidden={askPanelVisible || undefined}
 						>
 							<ComposerArea
 								ref={composerRef}

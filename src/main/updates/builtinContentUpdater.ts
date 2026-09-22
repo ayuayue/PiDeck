@@ -24,7 +24,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { ATOMGIT_API_HOST, UPDATE_REPO, UPDATE_REPO_OWNER } from "../../shared/updateSources";
+import { decodeAtomGitContentsBuffer, repoFileSourceEntries, type RepoFileSourceEntry } from "../update/atomGitContents";
 import type { UpdateSourceId } from "../../shared/types/settings";
 import type { BuiltinContentCheckResult, BuiltinContentUpdateResult, BuiltinContentUpdateStatus } from "../../shared/types/contentUpdate";
 
@@ -57,25 +57,8 @@ export function sha256Of(content: Buffer | string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
 
-type SourceEntry = { id: "atomgit" | "github"; url: string };
-
-/**
- * 解析 AtomGit OpenAPI contents 响应的 content 字段为原始字节。
- * sha256 按字节计算，经 utf8 往返会让校验在个别字符上抖动，必须取 Buffer。
- */
-function decodeAtomGitContentsBuffer(body: string): Buffer | null {
-	let payload: unknown;
-	try {
-		payload = JSON.parse(body);
-	} catch {
-		return null;
-	}
-	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
-	const record = payload as { type?: unknown; encoding?: unknown; content?: unknown };
-	if (record.type !== "file" || typeof record.content !== "string") return null;
-	if (record.encoding === "base64") return Buffer.from(record.content, "base64");
-	return Buffer.from(record.content, "utf8");
-}
+/** 源候选（atomgit OpenAPI / github raw）；形态与 update/atomGitContents 共用。 */
+type SourceEntry = RepoFileSourceEntry;
 
 export type BuiltinContentUpdaterOptions = {
 	/** 应用 userData 目录：覆盖层落在它下面（打包态可写）。 */
@@ -494,22 +477,13 @@ export class BuiltinContentUpdater {
 		}
 	}
 
-	/** 源顺序：GitHub 源时 raw 直连优先，否则 AtomGit OpenAPI 优先（国内直连更稳）。 */
+	/**
+	 * 源顺序：GitHub 源时 raw 直连优先，否则 AtomGit OpenAPI 优先（国内直连更稳）。
+	 * URL 构造与 base64 解码统一在 update/atomGitContents.ts——AtomGit 不能走
+	 * `/<owner>/<repo>/raw/<ref>/<path>`（已被 GitCode 前端接管，返回 SPA HTML）。
+	 */
 	private sourceEntries(relPath: string, branch: string): SourceEntry[] {
-		const repoPath = `${UPDATE_REPO_OWNER}/${UPDATE_REPO}`;
-		const encoded = relPath
-			.split("/")
-			.map((part) => encodeURIComponent(part))
-			.join("/");
-		const atomgit: SourceEntry = {
-			id: "atomgit",
-			url: `${ATOMGIT_API_HOST}/api/v5/repos/${repoPath}/contents/${encoded}?ref=${encodeURIComponent(branch)}`,
-		};
-		const github: SourceEntry = {
-			id: "github",
-			url: `https://raw.githubusercontent.com/${repoPath}/${branch}/${relPath}`,
-		};
-		return this.source() === "github" ? [github, atomgit] : [atomgit, github];
+		return repoFileSourceEntries(relPath, branch, this.source());
 	}
 
 	private async downloadManifest(branch: string): Promise<{ ok: true; text: string } | { ok: false; message: string }> {

@@ -1,51 +1,20 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
-function compileModule(filePath, imports = {}) {
-	const source = readFileSync(filePath, "utf8");
-	const output = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	const localRequire = (specifier) => imports[specifier] ?? nodeRequire(specifier);
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: localRequire,
-			console,
-			setTimeout,
-			clearTimeout,
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
-
+/** 加载生产 SessionCatalog：相对 import 由 helper 按源文件目录解析，生产代码新增本地依赖不会再炸 loader。 */
 function loadCatalog(fsPromises = nodeRequire("node:fs/promises")) {
-	const identity = compileModule("src/shared/sessionIdentity.ts");
-	const fsRetry = compileModule("src/main/utils/fsRetry.ts", {
-		"node:fs/promises": fsPromises,
-	});
-	return compileModule("src/main/sessions/SessionCatalog.ts", {
-		"../../shared/sessionIdentity": identity,
-		"../utils/fsRetry": fsRetry,
-		"../logging/sharedLogger": { getAppLogger: () => null },
-		"node:fs/promises": fsPromises,
+	return loadTsCommonJs("src/main/sessions/SessionCatalog.ts", {
+		stubs: {
+			"node:fs/promises": fsPromises,
+			"../logging/sharedLogger": { getAppLogger: () => null },
+		},
 	});
 }
 

@@ -154,13 +154,15 @@ test("canonicalWorkspacePath: 统一分隔符；native 大小写不敏感，WSL 
 
 // ── 归档按家族过滤 ─────────────────────────────────────────────────────────
 
-test("filterArchivedPiByFamily: 原始路径前缀归属；跨家族与无索引的不进", () => {
-	const family = [project("root", "C:/work/repo"), project("wt-a", "C:/work/repo-wt-a", "root")];
+test("filterArchivedPiByFamily: 按 JSONL cwd 归属；默认 Pi 存储路径、跨家族与无 cwd 不进", () => {
+	const family = [project("root", "C:/work/my-project"), project("wt-a", "C:/work/my-project-wt-a", "root")];
 	const items = [
-		{ summary: summary({ id: "p1", wsl: false }), originalPath: "C:/work/repo/.pi/sessions/a.jsonl" },
-		{ summary: summary({ id: "p2", wsl: false }), originalPath: "C:/work/repo-wt-a/.pi/sessions/b.jsonl" },
-		{ summary: summary({ id: "p3", wsl: false }), originalPath: "D:/other/.pi/sessions/c.jsonl" },
-		{ summary: summary({ id: "p4", wsl: false }) }, // 索引缺失
+		// 默认 Pi 布局在用户目录中；编码目录不应参与项目归属判定。
+		{ summary: summary({ id: "p1", wsl: false, projectPath: "C:/work/my-project" }), originalPath: "C:/Users/u/.pi/agent/sessions/--C--work-my-project--/a.jsonl" },
+		{ summary: summary({ id: "p2", wsl: false, projectPath: "C:/work/my-project-wt-a" }), originalPath: "C:/Users/u/.pi/agent/sessions/--C--work-my-project-wt-a--/b.jsonl" },
+		{ summary: summary({ id: "p3", wsl: false, projectPath: "D:/other" }), originalPath: "C:/Users/u/.pi/agent/sessions/--D--other--/c.jsonl" },
+		{ summary: summary({ id: "p4", wsl: false }), originalPath: "C:/work/my-project/.pi/sessions/d.jsonl" }, // 缺少 cwd 时不猜测编码/文件路径
+		{ summary: summary({ id: "p5", wsl: false, projectPath: "C:/work/my-project" }) }, // 索引缺失，无法恢复
 	];
 	const kept = filterArchivedPiByFamily(items, family);
 	assert.equal(kept.map((item) => item.summary.id).join(","), "p1,p2");
@@ -169,8 +171,18 @@ test("filterArchivedPiByFamily: 原始路径前缀归属；跨家族与无索引
 test("filterArchivedPiByFamily: 路径边界不误中（C:/a 不中 C:/ab）", () => {
 	const family = [project("root", "C:/work/a")];
 	const items = [
-		{ summary: summary({ id: "inside" }), originalPath: "C:/work/a/.pi/sessions/x.jsonl" },
-		{ summary: summary({ id: "outside" }), originalPath: "C:/work/ab/.pi/sessions/x.jsonl" },
+		{ summary: summary({ id: "inside", projectPath: "C:/work/a/subdir" }), originalPath: "C:/Users/u/.pi/agent/sessions/--C--work-a-subdir--/x.jsonl" },
+		{ summary: summary({ id: "outside", projectPath: "C:/work/ab" }), originalPath: "C:/Users/u/.pi/agent/sessions/--C--work-ab--/x.jsonl" },
+	];
+	const kept = filterArchivedPiByFamily(items, family);
+	assert.equal(kept.map((item) => item.summary.id).join(","), "inside");
+});
+
+test("filterArchivedPiByFamily: WSL cwd 按路径形态识别且大小写敏感", () => {
+	const family = [project("root", "/home/dev/Work")];
+	const items = [
+		{ summary: summary({ id: "inside", projectPath: "/home/dev/Work/subdir" }), originalPath: "/home/dev/.pi/agent/sessions/--home-dev-Work-subdir--/x.jsonl" },
+		{ summary: summary({ id: "different-case", projectPath: "/home/dev/work" }), originalPath: "/home/dev/.pi/agent/sessions/--home-dev-work--/y.jsonl" },
 	];
 	const kept = filterArchivedPiByFamily(items, family);
 	assert.equal(kept.map((item) => item.summary.id).join(","), "inside");
@@ -191,8 +203,8 @@ test("filterArchivedDshByFamily: cwd 精确匹配家族成员路径", () => {
 
 test("archivedPiWorkspaceLabel: 主工作区不标记，worktree 显示目录名", () => {
 	const family = [project("root", "C:/work/repo"), project("wt-a", "C:/work/repo-wt-a", "root")];
-	assert.equal(archivedPiWorkspaceLabel({ summary: summary({ id: "p1" }), originalPath: "C:/work/repo/.pi/sessions/a.jsonl" }, family), undefined);
-	assert.equal(archivedPiWorkspaceLabel({ summary: summary({ id: "p2" }), originalPath: "C:/work/repo-wt-a/.pi/sessions/b.jsonl" }, family), "repo-wt-a");
+	assert.equal(archivedPiWorkspaceLabel({ summary: summary({ id: "p1", projectPath: "C:/work/repo" }), originalPath: "C:/Users/u/.pi/agent/sessions/--C--work-repo--/a.jsonl" }, family), undefined);
+	assert.equal(archivedPiWorkspaceLabel({ summary: summary({ id: "p2", projectPath: "C:/work/repo-wt-a" }), originalPath: "C:/Users/u/.pi/agent/sessions/--C--work-repo-wt-a--/b.jsonl" }, family), "repo-wt-a");
 });
 
 test("archivedDshWorkspaceLabel: 同上（cwd 归属）", () => {

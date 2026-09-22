@@ -89,8 +89,9 @@ function ImageGenMessage(props: { meta: ImageGenMeta; images?: ImageContent[]; o
 						</Button>
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
-								<Button variant="ghost" size="icon-sm" className="size-6 rounded-none border-l border-border/60 px-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" type="button" aria-label={t("copy.moreOptions")} title={t("copy.moreOptions")}>
-									<ChevronDown size={12} />
+								{/* 与 CopyMenu 同规格（size-7 / 图标 14）：生图卡片的下拉半边原来比主按钮小一号 */}
+								<Button variant="ghost" size="icon-sm" className="size-7 rounded-none border-l border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground" type="button" aria-label={t("copy.moreOptions")} title={t("copy.moreOptions")}>
+									<ChevronDown size={14} />
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="start" className="copy-menu-popover min-w-[132px]">

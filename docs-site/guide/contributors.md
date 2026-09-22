@@ -196,7 +196,7 @@ title: 贡献者
   <div class="contributor-info">
     <strong>Q-xuan</strong>
     <span class="contributor-handle">@Q-xuan</span>
-    <p>行内代码里的文件引用重新可点 (#228)</p>
+    <p>行内代码里的文件引用重新可点 (#228)、修复 LaTeX 括号公式渲染 (#251)</p>
     <a href="https://github.com/Q-xuan" target="_blank" rel="noreferrer">GitHub</a>
   </div>
 </div>

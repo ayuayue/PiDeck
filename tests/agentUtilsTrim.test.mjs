@@ -163,23 +163,43 @@ test("inferTitleFromMessages preserves long prompts for the visual sidebar clamp
 	assert.equal(inferTitleFromMessages([{ role: "user", text: prompt }]), prompt);
 });
 
-test("pi runtime title changes notify catalog the same way DSH does", () => {
-	// 侧栏/Tab 读 SessionRecord.title。DSH 已有 onTitleChanged → catalog.update → catalog-refreshed；
-	// pi 必须走同一条，否则 refreshAutoTitle 只改 AgentTab，回话后 UI 仍显示「新会话」。
+test("only PiDeck automatic titles can write runtime names back to the catalog", () => {
+	// The catalog is the display authority. Runtime session_info changes remain transient;
+	// only the bundled extension's marker can claim an unowned placeholder title.
 	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 	const index = readFileSync("src/main/index.ts", "utf8");
 	const utils = readFileSync("src/main/pi/agentUtils.ts", "utf8");
 	assert.match(utils, /session\.newTitle/);
 	assert.match(utils, /session\.dshUntitled/);
-	assert.match(agentManager, /setTitleChangedHandler\(/);
-	assert.match(agentManager, /if \(changed \|\| forceCatalogSync\) this\.onTitleChanged\?\.\(agentId, next\)/);
-	assert.match(agentManager, /applyRuntimeTitle\(agentId, data\?\.sessionName \?\? runtime\.tab\.title, false, true\)/);
-	assert.match(agentManager, /looksLikePiSessionFileStem\(next\)/);
-	assert.match(agentManager, /piSessionName/);
-	assert.match(agentManager, /return this\.applyRuntimeTitle\(agentId, nextTitle\)/);
-	assert.match(index, /agentManager\.setTitleChangedHandler\(/);
-	// 链式调用可能被格式化拆行（sessionCatalog 与 .update 分行）：容忍换行。
-	assert.match(index, /sessionCatalog\s*\.?\s*update\(\s*sessionId,\s*\{\s*title\s*\}\)/);
+	assert.match(agentManager, /setAutomaticTitleChangedHandler\(/);
+	assert.match(agentManager, /pendingAutomaticTitles/);
+	assert.match(agentManager, /automaticMarker\?\.title === name/);
+	assert.doesNotMatch(agentManager, /forceCatalogSync/);
+	assert.match(agentManager, /return this\.applyRuntimeTitle\(agentId, nextTitle, true, true\)/);
+	assert.match(index, /agentManager\.setAutomaticTitleChangedHandler\(/);
+	assert.match(index, /sessionCatalog\s*\.?\s*applyAutomaticTitle\(sessionId, title\)/);
 	assert.match(index, /sessionsCatalogRefreshed/);
-	assert.match(index, /Pi title sync to catalog failed/);
+	assert.match(index, /Pi automatic title sync to catalog failed/);
+});
+
+// 回归 2026-10 #250：首条消息带 /模板 时，展开后的 `<prompt_template …>` 是发给模型的指令包装，
+// 不是用户意图。占位标题必须只取块外文本，否则侧栏先显示 XML 原文，总结失败就一直留着。
+test("inferTitleFromMessages strips expanded reference blocks from the first user message", () => {
+	const { formatPromptTemplateBlock } = loadTsCommonJs("src/shared/expandedRefBlocks.ts");
+	const template = formatPromptTemplateBlock("翻译官", "# 翻译官工作规则\n" + "规则正文。".repeat(500));
+	assert.equal(inferTitleFromMessages([{ role: "user", text: `${template}\n\nhow are you` }]), "how are you");
+	// 只插了模板没写正文：用模板名当标题，而不是把两千字模板正文塞进侧栏。
+	assert.equal(inferTitleFromMessages([{ role: "user", text: template }]), "/翻译官");
+	// 引用块（❝引用 / &会话）同样只保留用户自己的话。
+	assert.equal(inferTitleFromMessages([{ role: "user", text: '<quoted_context label="引用A" message_id="m1">\nA 全文\n</quoted_context>\n照着改' }]), "照着改");
+	assert.equal(inferTitleFromMessages([{ role: "user", text: '<referenced_session name="会话B">\n[User]: x\n</referenced_session>' }]), "&会话B");
+});
+
+test("isDefaultAgentTitle treats un-folded reference block titles as placeholders", () => {
+	// 旧代码已经把 XML 写进 catalog 的会话必须能自愈：判定为占位名，下一次消息即可重新命名。
+	assert.equal(isDefaultAgentTitle('<prompt_template name="翻译官"> # 翻译官工作规则 规则正文', project, translateTitle), true);
+	assert.equal(isDefaultAgentTitle('<prompt_template name="翻译官">', project, translateTitle), true);
+	// 正常标题（含用户手写的尖括号文本）不受影响。
+	assert.equal(isDefaultAgentTitle("修复登录流程", project, translateTitle), false);
+	assert.equal(isDefaultAgentTitle("<skill> 是什么意思", project, translateTitle), false);
 });

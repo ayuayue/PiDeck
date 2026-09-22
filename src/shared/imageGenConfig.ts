@@ -172,9 +172,10 @@ export function sanitizeImageGenConfig(input: unknown): ImageGenConfigFile {
 		});
 	}
 	const requestedProvider = typeof raw.activeProviderId === "string" ? raw.activeProviderId.trim() : "";
-	const activeProvider = providers.find((provider) => provider.id === requestedProvider) ?? providers[0];
+	// 空值和失效 id 都表示“尚未选择”：不能因为供应商数组非空就静默选第一个。
+	const activeProvider = requestedProvider ? providers.find((provider) => provider.id === requestedProvider) : undefined;
 	const requestedModel = typeof raw.activeModel === "string" ? raw.activeModel.trim().slice(0, MAX_MODEL_ID) : "";
-	const activeModel = activeProvider ? (activeProvider.models.includes(requestedModel) ? requestedModel : (activeProvider.models[0] ?? "")) : "";
+	const activeModel = activeProvider?.models.includes(requestedModel) ? requestedModel : "";
 	return {
 		providers,
 		activeProviderId: activeProvider?.id ?? "",

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import { ChevronsUpDown, X } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import { t } from "../../../i18n";
+import { Button } from "../../ui-shadcn/button";
 import { Switch } from "../../ui-shadcn/switch";
 import { Textarea } from "../../ui-shadcn/textarea";
 
@@ -59,7 +61,48 @@ export function SettingRow(props: {
 	);
 }
 
-/** 开关行：标题/描述在左，Switch 右对齐控件列；dirty 时标题旁显示黄点。 */
+/** 带清除按钮的设置控件包装器：值非空时在控件右侧并排显示清除按钮。 */
+export function ClearableSettingsInput(props: { empty: boolean; onClear: () => void; children: ReactNode }) {
+	return (
+		<div className="flex w-full items-center gap-1.5">
+			<div className="min-w-0 flex-1">{props.children}</div>
+			{!props.empty && (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					className="size-6 shrink-0 rounded-sm text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+					onMouseDown={(event) => {
+						// 阻止清除操作触发选择器的焦点/值变更连锁反应；实际动作放在 click，保留键盘可用性。
+						event.preventDefault();
+						event.stopPropagation();
+					}}
+					onClick={(event) => {
+						event.stopPropagation();
+						props.onClear();
+					}}
+					title={t("common.clear")}
+					aria-label={t("common.clear")}
+				>
+					<X size={12} aria-hidden="true" />
+				</Button>
+			)}
+		</div>
+	);
+}
+
+/** 设置页统一的模型选择触发器：右侧显示已选模型，旁边提供清除动作。 */
+export function SettingsModelPickerControl(props: { value: string; placeholder: string; onOpen: () => void; onClear: () => void; disabled?: boolean }) {
+	return (
+		<ClearableSettingsInput empty={!props.value} onClear={props.onClear}>
+			<Button type="button" variant="outline" disabled={props.disabled} className="w-full min-w-0 justify-between font-mono text-control" onClick={props.onOpen} title={props.value || props.placeholder} aria-label={props.value || props.placeholder}>
+				<span className={cn("min-w-0 truncate", !props.value && "text-muted-foreground")}>{props.value || props.placeholder}</span>
+				<ChevronsUpDown size={14} className="flex-none opacity-60" aria-hidden="true" />
+			</Button>
+		</ClearableSettingsInput>
+	);
+}
+
 export function SettingSwitchRow(props: {
 	title: ReactNode;
 	description?: ReactNode;

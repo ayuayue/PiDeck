@@ -147,20 +147,21 @@ PiDeck 当前有三条不同的 pi-ai 使用路径，不能混为一谈：
 | 路径 | 实际使用 | 当前版本/职责 |
 |---|---|---|
 | Pi 后端运行时 | 外部 `pi --mode rpc` 进程内部使用用户安装的 Pi 自己携带的 pi-ai | PiDeck 不打包 Pi CLI，也不把自己的 pi-ai 注入 Pi 子进程；Pi 0.85.0 的 provider/thinking 逻辑由外部 Pi 自己负责 |
-| PiDeck 主进程 | 只读构建期生成的 `resources/pi-ai-catalog.json` 与 manifest | `@earendil-works/pi-ai@0.85.0` 是精确锁定的 `devDependency` 输入；构建脚本只提取 context/maxTokens/reasoning/input/name/thinkingLevelMap 等规格字段，运行时不加载 SDK |
+| PiDeck 主进程 | 只读构建期生成的 `resources/pi-ai-catalog.json` 与 manifest | `@earendil-works/pi-ai@0.86.1` 是精确锁定的 `devDependency` 输入；构建脚本只提取 context/maxTokens/reasoning/input/name/thinkingLevelMap 等规格字段，运行时不加载 SDK |
 | DSH host | `dsh-llm-pi-ai` 动态调用 `createModels`、catalog、`getSupportedThinkingLevels` 和 provider API | `dsh-llm-pi-ai` 声明 `^0.82.1`；lock 将其解析为嵌套的 `@earendil-works/pi-ai@0.82.1`。对 0.x semver 而言该范围为 `>=0.82.1 <0.83.0`，不包含 `0.85.0` |
 
 因此：
 
-- **仅升级 PiDeck 的构建期 `@earendil-works/pi-ai` 输入到 0.85.0，不会让 Pi 后端 runtime 变成 0.85.0**，也不会自动打开 Pi UI 的按模型过滤；
-- DSH adapter 在自己的依赖树中解析 `0.82.1`；PiDeck catalog artifact 的来源是 `0.85.0`，两者有意共存；
-- 不建议用 `overrides` 强行把 DSH 的 pi-ai 改成 0.85.0。应等待/推动 `dsh-llm-pi-ai` 发布声明兼容 0.85.x 后，再整体升级 DSH 相关包并做 host smoke、thinking effort、流式请求和 provider catalog 回归。
+- **仅升级 PiDeck 的构建期 `@earendil-works/pi-ai` 输入到 0.86.1，不会让 Pi 后端 runtime 变成 0.86.1**，也不会自动打开 Pi UI 的按模型过滤；
+- DSH adapter 在自己的依赖树中解析 `0.82.1`；PiDeck catalog artifact 的来源是 `0.86.1`，两者有意共存；
+- 不建议用 `overrides` 强行把 DSH 的 pi-ai 改成 0.86.1。应等待/推动 `dsh-llm-pi-ai` 发布声明兼容 0.86.x 后，再整体升级 DSH 相关包并做 host smoke、thinking effort、流式请求和 provider catalog 回归。
 
 ### 是否打包进 PiDeck
 
-**PiDeck 主进程不再打包完整的 `@earendil-works/pi-ai@0.85.0` SDK；安装包只带静态 catalog artifact**：
+**PiDeck 主进程不再打包完整的 `@earendil-works/pi-ai@0.86.1` SDK；安装包只带静态 catalog artifact**：
 
 - `@earendil-works/pi-ai` 位于精确锁定的 `devDependencies`，`npm run build` 先运行 `scripts/generate-pi-ai-catalog.mjs`；
+- 生成器在使用默认来源目录（`node_modules`）时会校验本地安装版本与 `package.json` 精确锁定一致，不一致直接失败并提示 `npm ci`（防陈旧安装静默降级目录）；确需从未锁定来源生成时显式传 `--source-dir`；
 - 生成器从官方 `dist/providers/data/*.json` 仅提取主进程消费的模型规格，写入 `resources/pi-ai-catalog.json` 及带来源/完整性信息的 manifest；
 - electron-builder 通过 `extraResources` 将这两个文件放进 `resources/`；`piAiBuiltinCatalog.ts` 运行时校验 manifest 的 catalog SHA-256 与条目数，失败则回退 endpoint `/models` 或用户手填；
 - `scripts/verify-asar-runtime.js` 守护 app 的两份 catalog 资源；`scripts/check-dsh-asar.mjs` 与 `scripts/check-dsh-boot.mjs` 继续守护 DSH runtime 所需的 `pi-ai@0.82.1`；
@@ -168,7 +169,7 @@ PiDeck 当前有三条不同的 pi-ai 使用路径，不能混为一谈：
 
 这份 catalog artifact **不是 Pi 后端 runtime 使用的那一份**。PiDeck 通过 `PiLocator` 执行用户已经安装的 `pi` CLI；Pi CLI 自己携带/解析自己的 pi-ai。PiDeck 不打包 `pi-coding-agent`，也不把 catalog 来源版本注入外部 Pi 进程。
 
-升级记录：PiDeck 主进程 catalog artifact 的来源从 `0.84.4` 升级为 `0.85.0`（2026-09，随 pi v0.85.0 跟进）；DSH 仍保留 adapter 兼容的嵌套 `0.82.1`。只有当 `@deepseek-ai/dsh-llm-pi-ai` 发布明确兼容 `@earendil-works/pi-ai 0.85.x` 的版本后，才升级 DSH adapter/runtime 依赖树，并完成 typecheck、catalog/迁移测试、DSH host smoke、thinking effort、流式请求和 provider catalog 回归。
+升级记录：PiDeck 主进程 catalog artifact 的来源从 `0.84.4` 起，随上游 pi-ai 发布逐版跟进：`0.85.0` → `0.85.1` → `0.86.0` → `0.86.1`（2026-09；0.86.1 对应 41 个源 JSON、1443 条模型）；DSH 仍保留 adapter 兼容的嵌套 `0.82.1`。只有当 `@deepseek-ai/dsh-llm-pi-ai` 发布明确兼容 `@earendil-works/pi-ai 0.86.x` 的版本后，才升级 DSH adapter/runtime 依赖树，并完成 typecheck、catalog/迁移测试、DSH host smoke、thinking effort、流式请求和 provider catalog 回归。
 
 ## 兼容代码移除规则
 

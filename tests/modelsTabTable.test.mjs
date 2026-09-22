@@ -213,3 +213,20 @@ test("dead CSS rules removed, kept rules intact", () => {
 	assert.match(surfaces, /\.config-thinking-levels-cell \{/);
 	assert.match(surfaces, /\.config-thinking-levels-row \.config-select-trigger > span/);
 });
+
+test("逐模型 UA 不再占独立列，改由操作列图标 + 弹框编辑", () => {
+	// 回归（2026-09 用户反馈）：每行摊一个 w-40 空输入框太占宽度，改成
+	// 操作列指纹图标（已配置时高亮）+ Dialog 内的 ConfigComboboxInput。
+	assert.doesNotMatch(tableSource, /<TableHead[^>]*>\{t\("config\.modelUserAgent"\)\}/, "表头不应再有 UA 列");
+	assert.doesNotMatch(tableSource, /showUaColumn/, "旧的列开关变量应已移除");
+
+	// 图标按钮：两个回调都在时才渲染；已配置（非空）时用强调色高亮（代替独立列的「一眼可见」）
+	assert.match(tableSource, /\{hasUserAgentOverride && \(\s*<Button[\s\S]*?className=\{userAgentOverride \? "size-7 text-\[color:var\(--color-accent\)\]" : "size-7"\}[\s\S]*?setUaDialogIndex\(i\)[\s\S]*?<Fingerprint/);
+
+	// 弹框：每行一个受控 Dialog，内含解释、UA 下拉与「清除覆盖」
+	assert.match(tableSource, /<Dialog\s*open=\{uaDialogIndex === i\}[\s\S]*?<DialogDescription>\{t\("config\.modelUserAgentDialogDesc"\)\}[\s\S]*?<ConfigComboboxInput value=\{userAgentOverride\}[\s\S]*?config\.modelUserAgentClear/);
+
+	// 值的读写在行内收拢：空串 = 继承供应商级 UA
+	assert.match(tableSource, /const userAgentOverride = hasUserAgentOverride \? props\.getModelUserAgentOverride!\(i\) : "";/);
+	assert.match(tableSource, /onChange=\{\(value\) => props\.onUpdateModelUserAgent!\(i, value\)\}/);
+});

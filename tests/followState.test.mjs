@@ -107,7 +107,7 @@ test("forced follow animations ignore user escapes", () => {
 	);
 });
 
-test("empty overflow cannot escape by an up input", () => {
+test("empty rendered overflow reports up intent without escaping follow mode", () => {
 	assertDecision(
 		follow.decideFollowFromUserInput({
 			direction: "up",
@@ -115,7 +115,8 @@ test("empty overflow cannot escape by an up input", () => {
 			distanceFromBottom: 40,
 			canScroll: false,
 		}),
-		"none",
+		"intent",
+		"up",
 	);
 });
 

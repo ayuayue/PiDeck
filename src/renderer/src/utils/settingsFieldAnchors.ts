@@ -131,6 +131,12 @@ export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
 	// ── 常用设置 ──────────────────────────────────────────────────────
 	{
 		tab: "common",
+		slug: "common-quick-messages",
+		labelKey: "settings.quickMessages",
+		keywords: ["快捷消息", "常用消息", "常用语", "一键发送", "继续", "提交", "推送", "quick message", "quick messages"],
+	},
+	{
+		tab: "common",
 		slug: "common-session-tab-open-mode",
 		labelKey: "settings.sessionTabOpenMode",
 		keywords: ["会话标签打开方式", "预览", "固定标签", "tab 打开模式", "preview"],

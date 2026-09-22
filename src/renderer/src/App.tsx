@@ -24,12 +24,14 @@ import {
 } from "lucide-react";
 import { showNotice, type NoticeKind } from "./utils/notice";
 import { copyTextWithCopiedNotice } from "./utils/clipboardNotice";
+import { sessionHistoryUnavailableState } from "./utils/sessionHistoryAvailability";
 import { buildSettingsCommands, type PaletteCommand } from "./utils/commandPaletteCommands";
 import { CommandPalette } from "./components/overlays/CommandPalette";
 import { CommandPaletteOnboarding, markCommandPaletteOnboardingSeen } from "./components/overlays/CommandPaletteOnboarding";
 import { desktopApi as api, isLanWeb, missingElectronPreload } from "./desktopApi";
 import { turnFlowSettingsAtom, defaultAgentBackendAtom, effectiveAgentBackendAtom, busySendDeliveryAtom, imageGenConfigAtom, dshRuntimeStatusAtom, openSettingsAtom, openAutomationModalAtom, sessionRecordsAtom, bumpNewTurnCollapseTickAtom } from "./atoms";
 import { resolveBusySendDelivery } from "../../shared/busySendDelivery";
+import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
 // 文件链接路由：图片类型走弹窗预览
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico"]);
@@ -46,6 +48,7 @@ import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
 import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
 import { useBackgroundAskPatrol } from "./hooks/useBackgroundAskPatrol";
 import { announcementCenterOpenAtom, announcementNotificationEnabledAtom } from "./atoms/announcement-atoms";
+import { openProviderLoginAtom } from "./atoms/providerLoginAtoms";
 import { useSessionLayout } from "./hooks/useSessionLayout";
 import { useFileEditor } from "./hooks/useFileEditor";
 import { resolveFileLinkPath } from "./utils/filePathLinks";
@@ -126,6 +129,8 @@ import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./comp
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
 import { FileLinkBaseProvider } from "./components/session/FileLinkBase";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
+import { useQuickTask } from "./hooks/useQuickTask";
+import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { ScratchPadOverlay } from "./components/overlays/ScratchPadOverlay";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
@@ -189,6 +194,8 @@ export function App() {
 	const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
 	const replaceProjectSessions = useSetAtom(replaceProjectSessionsAtom);
 	const openAutomationModal = useSetAtom(openAutomationModalAtom);
+	// `/login`：打开供应商登录弹框（弹框自己从 atom 取预选供应商）。
+	const openProviderLogin = useSetAtom(openProviderLoginAtom);
 	const setProjects = useSetAtom(replaceProjectInventoryAtom);
 	const applyRuntimeEvent = useSetAtom(applySessionRuntimeEventAtom);
 	const upsertSession = useSetAtom(upsertSessionAtom);
@@ -633,6 +640,9 @@ export function App() {
 		autoSessionTitle: false,
 		// 与 main SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 		busySendDelivery: "steer",
+		// 遗留字段：快捷消息已改存独立配置文件 userData/quick-messages.json（见 useQuickMessages），
+		// 这里保留字段只为满足 AppSettings 类型，内容不再被读取。
+		quickMessages: [],
 		enableGitManagement: true,
 		gitCommitMessagePrompt: "请根据以下 git diff 生成一条中文 git commit message。\n\n变更描述：\n{diff}\n\nGitmoji 对应关系：\n✨ feat - 新功能\n🐛 fix - Bug 修复\n📚 docs - 文档更新\n💎 style - 代码格式\n♻️ refactor - 重构\n🧪 test - 测试\n🔧 chore - 构建/工具",
 		gitCommitMessageProvider: "",
@@ -678,6 +688,7 @@ export function App() {
 		workspaceContentOpenMode: "split",
 		contentMaxWidth: 1800,
 		chatContentWidthPct: 80,
+		sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 		maxEditorFileSizeMB: 5,
 		externalEditors: createDefaultExternalEditorSettings(),
 
@@ -1438,6 +1449,8 @@ export function App() {
 		defaultBackend: effectiveAgentBackend,
 	});
 
+	const quickTask = useQuickTask({ ready: settingsLoaded, backend: effectiveAgentBackend, upsertSession, selectSession: selectSessionCommand, registerSession: workspaceChrome.registerOpenSession, refreshProjects, getSessionRecord });
+
 	// 关闭 Tab / 分屏退栏时的焦点切换：只改 currentSession，不碰 Tab 登记
 	useEffect(() => {
 		workspaceChrome.bindFocusHandlers({
@@ -2116,6 +2129,13 @@ export function App() {
 		setSessionMessageLoadState({ sessionId, state: { status: "loading" } });
 		try {
 			const page = await api.sessions.readRecordMessagePage(sessionId, undefined, 100);
+			// DSH host 被手动停止：读盘返回带原因的空页，不是「空会话」。
+			// 必须早退，否则 force 写空缓存会把这个会话洗成空白（看着像数据丢了）。
+			const unavailable = sessionHistoryUnavailableState(page);
+			if (unavailable) {
+				setSessionMessageLoadState({ sessionId, state: unavailable });
+				return;
+			}
 			setCacheMessages({
 				sessionId,
 				messages: page.messages,
@@ -2928,6 +2948,25 @@ export function App() {
 		}
 	}
 
+	/**
+	 * 按需加载单个项目的会话 catalog：已 loading/ready 的项目直接跳过。
+	 * 空项目也可能已经成功加载，所以用 catalog 状态区分「空结果」和「尚未扫描」。
+	 *
+	 * silent 区分两种触发意图：
+	 * - false（默认，用户点选/展开项目）：走常规加载态，侧栏会显示该项在加载；
+	 * - true（活动页「最近会话」跨项目预热）：后台静默拉取，不挂 loading 态、不装 catalog
+	 *   看门狗——用户只是看了眼活动页，不该让侧栏一堆项目同时转圈。
+	 * 两者共用同一处「什么时候该扫、什么时候该跳过」判断，避免规则漂移。
+	 */
+	const ensureProjectCatalogLoaded = useCallback(
+		(projectId: string, silent = false) => {
+			const loadState = store.get(sessionCatalogLoadStateAtom)[projectId];
+			if (loadState?.status === "loading" || loadState?.status === "ready") return;
+			void refreshProjectSessions(projectId, silent).catch(() => undefined);
+		},
+		[store, refreshProjectSessions],
+	);
+
 	const sidebarActions: SidebarActions = {
 		projects: {
 			add: addProject,
@@ -2936,11 +2975,8 @@ export function App() {
 				// 点开目录只选中项目并显示引导页：不自动创建会话，避免每点一个目录都
 				// 悄悄新建一个 agent 会话 tab。创建由用户手动点「启动 Agent / 临时对话」
 				// 触发；启动时首项目自动选中除外（见 bootstrapProps.onProjectsChanged）。
-				// 空项目也可能已经成功加载；用 catalog 状态区分“空结果”和“尚未扫描”。
-				const loadState = store.get(sessionCatalogLoadStateAtom)[projectId];
-				if (loadState?.status !== "loading" && loadState?.status !== "ready") {
-					void refreshProjectSessions(projectId).catch(() => undefined);
-				}
+				// 项目点击选中即按需加载 catalog（已加载/加载中的跳过）。
+				ensureProjectCatalogLoaded(projectId);
 			},
 			refresh: async (projectId) => {
 				const project = projects.find((candidate) => candidate.id === projectId);
@@ -2976,6 +3012,10 @@ export function App() {
 			// 侧栏单击模式由设置 sessionTabOpenMode 控制（默认 preview=临时预览，发消息自动晋升常驻）；
 			// 双击仍是显式常驻。tabMode 为 undefined 时用当前设置值。
 			open: (projectId, sessionId, tabMode) => openSidebarSessionByIdWithTab(projectId, sessionId, tabMode ?? settings.sessionTabOpenMode),
+			// 活动页「最近会话」跨项目展示：后台静默预热尚未扫描的项目 catalog。
+			ensureCatalogsLoaded: (projectIds) => {
+				for (const projectId of projectIds) ensureProjectCatalogLoaded(projectId, true);
+			},
 			beginDrag: workspaceChrome.beginDrag,
 			endDrag: workspaceChrome.endDrag,
 			createDraft: async (projectId) => {
@@ -3258,6 +3298,8 @@ export function App() {
 
 	const sessionTabsProps = {
 		tabs: workspaceChrome.sessionTabIds,
+		// 会话 Tab 宽度上限（外观设置可调，默认 104px）：SessionTabsBar 据此写 CSS 变量控制各 Tab 封顶。
+		tabMaxWidth: settings.sessionTabMaxWidth,
 		pinnedTabs: workspaceChrome.pinnedSessionTabIds,
 		previewTabId: workspaceChrome.previewSessionTabId,
 		currentSessionId,
@@ -3352,6 +3394,7 @@ export function App() {
 			onPreviewImage: setPreviewImage,
 			abortAgent,
 			restartActiveAgent,
+			openProviderLogin,
 			runCreateSessionDraft: async () => {
 				await createSessionDraftWithTab();
 			},
@@ -3422,6 +3465,7 @@ export function App() {
 			queueFlushBySessionRef,
 			restartActiveAgent,
 			restartingAgentId,
+			openProviderLogin,
 			resendUserMessage,
 			sessionDurationByAgent,
 			settings.showThinking,
@@ -3839,6 +3883,13 @@ export function App() {
 			<>
 				<AppBootstrap {...bootstrapProps} />
 				<AppShell
+					compactContent={
+						quickTask.active ? (
+							<QuickTaskSurface task={quickTask}>
+								<SessionPaneServicesProvider value={sessionPaneServices}>{quickTask.session && <ChatSessionPane sessionId={quickTask.session.id} focused onFocusPane={() => focusSessionPane(quickTask.session!.id)} splitPane={false} />}</SessionPaneServicesProvider>
+							</QuickTaskSurface>
+						) : undefined
+					}
 					listCollapsed={listCollapsed}
 					listWidth={listWidth}
 					drawer={drawer}
@@ -4183,7 +4234,7 @@ export function App() {
 				{/* 命令面板首次引导：它是纯键盘入口，没有任何可点的 affordance，
         不主动提示就等于不存在。看完即写 localStorage，只弹一次。
         空状态（没项目）不弹——那时面板本身也没什么可搜的。 */}
-				<CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !commandPaletteOpen} onTryNow={openCommandPalette} />
+				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !commandPaletteOpen} onTryNow={openCommandPalette} />}
 			</>
 		</FileLinkBaseProvider>
 	);

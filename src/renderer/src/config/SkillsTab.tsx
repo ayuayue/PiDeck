@@ -12,7 +12,7 @@ import { ContentStoreUpdatePanel } from "./ContentStoreUpdatePanel";
 import { desktopApi } from "../desktopApi";
 import { Input } from "../components/ui-shadcn/input";
 import { Textarea } from "../components/ui-shadcn/textarea";
-import { Label } from "../components/ui-shadcn/label";
+import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
 import type { ResourceScope } from "./ResourceScopeSelector";
 import { globalSkillOverrideKey, isGlobalSkillSourceId } from "../../../shared/resourceIdentity";
 import { ResourceImportDialog } from "./ResourceImportDialog";
@@ -149,15 +149,20 @@ export function SkillsTab(props: {
 						</div>
 					</div>
 
-					<section className="config-create-card">
-						<strong>{t("config.createSkill")}</strong>
-						<div className="config-create-grid">
-							<Label className="config-create-label">
-								<span>{t("config.name")}</span>
+					<CreateResourceCard
+						title={t("config.createSkill")}
+						submit={
+							<Button size="sm" variant="default" disabled={!canCreate || props.creating} onClick={props.onCreate}>
+								{props.creating ? t("config.creatingSkill") : t("config.addSkill")}
+							</Button>
+						}
+					>
+						{/* 名称与位置同行：位置是新建时的落点，同属元信息；窄窗口（<820px）降为单列，避免 Select 被压成细条。 */}
+						<div className="grid grid-cols-[minmax(0,1fr)_minmax(180px,260px)] gap-2.5 max-[820px]:grid-cols-1">
+							<CreateResourceField label={t("config.name")}>
 								<Input value={props.newName} placeholder={t("config.skillNamePlaceholder")} onChange={(event) => props.onChangeNewName(event.target.value)} />
-							</Label>
-							<Label className="config-create-label">
-								<span>{t("config.location")}</span>
+							</CreateResourceField>
+							<CreateResourceField label={t("config.location")}>
 								<Select
 									value={props.newLocationId}
 									onValueChange={(v) => {
@@ -168,7 +173,7 @@ export function SkillsTab(props: {
 									}}
 								>
 									{/* 只显示相对路径（label 形如 ~/.pi/agent/skills）：绝对路径长且无增益，
-										窄列会溢出框边界；单行 + truncate 超长省略。 */}
+									    窄列会溢出框边界；单行 + truncate 超长省略。 */}
 									<SelectTrigger className="w-full">
 										<span className="min-w-0 flex-1 truncate text-left">{selectedLocation?.label ?? t("config.chooseFolder")}</span>
 									</SelectTrigger>
@@ -180,16 +185,12 @@ export function SkillsTab(props: {
 										))}
 									</SelectContent>
 								</Select>
-							</Label>
+							</CreateResourceField>
 						</div>
-						<Label className="config-create-label">
-							<span>{t("config.description")}</span>
+						<CreateResourceField label={t("config.description")}>
 							<Textarea value={props.newDescription} placeholder={t("config.skillUseWhenPlaceholder")} onChange={(event) => props.onChangeNewDescription(event.target.value)} className="min-h-[72px] resize-y" />
-						</Label>
-						<Button size="sm" variant="default" className="justify-self-start" onClick={props.onCreate} disabled={!canCreate || props.creating}>
-							{props.creating ? t("config.creatingSkill") : t("config.addSkill")}
-						</Button>
-					</section>
+						</CreateResourceField>
+					</CreateResourceCard>
 
 					<div className="overflow-x-auto rounded-lg border border-border-subtle bg-bg-panel">
 						{visibleSkills.length === 0 ? (

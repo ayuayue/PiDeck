@@ -61,6 +61,7 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "workspaceContentOpenMode", tab: "common", itemKey: "settings.workspaceContentOpenMode" },
 	{ field: "expandInterimDuringStream", tab: "common", itemKey: "settings.expandInterimDuringStream" },
 	{ field: "collapsePrevRunsOnNewTurn", tab: "common", itemKey: "settings.collapsePrevRunsOnNewTurn" },
+	// 快捷消息不在这里：它存在独立配置文件、改完即时落盘，不属于本弹框的草案（见 QuickMessagesSetting）
 	{ field: "idleAgentAutoRelease", tab: "common", itemKey: "settings.idleAgentAutoRelease" },
 	{ field: "idleAgentKeepCount", tab: "common", itemKey: "settings.idleAgentKeepCount" },
 	{ field: "idleAgentTimeoutMin", tab: "common", itemKey: "settings.idleAgentTimeoutMin" },
@@ -91,6 +92,7 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "fontFamilyMonoCustom", tab: "appearance", itemKey: "settings.fontFamilyMonoCustomField" },
 	{ field: "chatContentWidthPct", tab: "appearance", itemKey: "settings.contentWidthPct" },
 	{ field: "contentMaxWidth", tab: "appearance", itemKey: "settings.contentWidthPct" },
+	{ field: "sessionTabMaxWidth", tab: "appearance", itemKey: "settings.sessionTabMaxWidth" },
 	{ field: "useNativeTitleBar", tab: "appearance", itemKey: "settings.nativeTitleBar" },
 	{ field: "showNativeMenu", tab: "appearance", itemKey: "settings.nativeMenu" },
 

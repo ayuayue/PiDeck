@@ -33,24 +33,8 @@ function compile(filePath, stubs = {}) {
 	return module.exports;
 }
 
-const reactStub = {
-	forwardRef: (render) => render,
-	useCallback: (fn) => fn,
-	useLayoutEffect: () => undefined,
-	useMemo: (fn) => fn(),
-	useRef: (value) => ({ current: value }),
-};
-
 function loadChips() {
 	return compile("src/renderer/src/components/session/composer/chips.ts");
-}
-
-function loadRichInput(chips) {
-	return compile("src/renderer/src/components/app/RichInput.tsx", {
-		react: reactStub,
-		"react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: {} },
-		"../session/composer/chips": chips,
-	});
 }
 
 function loadAppUtils(chips) {
@@ -72,7 +56,6 @@ function createDataTransfer() {
 }
 
 const chipsModule = loadChips();
-const richInput = loadRichInput(chipsModule);
 const appUtils = loadAppUtils(chipsModule);
 const { PI_FILE_NODE_DRAG_MIME, PI_FILE_PATH_DRAG_MIME, writeFileNodeDragPayload, readFileNodeDragPayload, fileNodeDragPayloadToRef } = appUtils;
 
@@ -175,10 +158,10 @@ test("节点转 @ 引用：relativePath 缺失时退回绝对路径", () => {
 	);
 });
 
-// 端到端守卫：生成的引用文本必须能被 RichInput chip 规则识别，
+// 端到端守卫：生成的引用文本必须能被 composer 的 chip 规则识别，
 // 否则拖进去只是纯文本、不会渲染成引用 chip。
 test("生成的引用文本可解析为 file chip", () => {
-	const { parseRichInputChips } = richInput;
+	const { parseRichInputChips } = chipsModule;
 	const validFilePaths = new Set(["src/utils/a.ts", "src/components"]);
 
 	const fileChips = parseRichInputChips("看下 @src/utils/a.ts", undefined, validFilePaths);

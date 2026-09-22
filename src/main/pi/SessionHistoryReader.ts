@@ -8,6 +8,7 @@ import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCop
 import type { RpcResponse } from "./PiRpcClient";
 import type { AppLogger } from "../logging/AppLogger";
 import { stoppedMessageFingerprint, type StoppedMessageIdentity } from "./stoppedMessageIdentity";
+import { isRoleMessageRole } from "./sessionEntryIds";
 
 type SessionModelSelection = {
 	provider: string;
@@ -281,9 +282,10 @@ function deriveSessionHistoryMetadata(activeBranch: readonly SessionDisplayEntry
 /**
  * 按下标插入卡片（降序 splice，避免前一次插入把后一次的偏移推移）。
  *
- * `toArrayIndex` 把「绝对消息条目下标」映射成目标数组下标：普通页 / 加载窗口里
- * 消息与条目一一对应（减 start 即可），而压缩页里已经有一张压缩卡片占了槽位，
- * 落在它之后的卡片需要整体 +1 补偿（见 convertCompactionPageMessages）。
+ * `toArrayIndex` 把「绝对消息条目下标」映射成目标数组下标：必须经
+ * {@link messageIndexFromEntryOffset} 只数角色条目（0.86 的 system 条目会破坏
+ * 「条目与消息一一对应」），而压缩页里已经有一张压缩卡片占了槽位，落在它之后的
+ * 卡片需要整体 +1 补偿（见 convertCompactionPageMessages）。
  */
 function spliceCardsByOffset<T>(items: T[], cards: ReadonlyArray<{ offset: number; card: T }>, toArrayIndex: (absoluteOffset: number) => number): T[] {
 	if (cards.length === 0) return items;
@@ -294,6 +296,33 @@ function spliceCardsByOffset<T>(items: T[], cards: ReadonlyArray<{ offset: numbe
 		next.splice(index, 0, entry.card);
 	}
 	return next;
+}
+
+/**
+ * 把「绝对消息条目下标」映射成「投影后消息数组下标」：只数会生成 ChatMessage 的
+ * 角色条目（user/assistant/toolResult）。
+ *
+ * 为什么不能写 `offset - windowStart`：pi 0.86 起系统提示/工具清单变更也是
+ * `type:"message"` 条目（role:"system"），它们不生成 ChatMessage、不占消息下标；
+ * 直接按条目数相减会让卡片整体后移，offset 靠尾时还会被 clamp 到时间线末尾。
+ * windowEntries 必须是从 windowStart 起、与投影输入同源的条目切片。
+ */
+export function messageIndexFromEntryOffset(windowEntries: ReadonlyArray<{ role?: string }>, absoluteOffset: number, windowStart: number): number {
+	const bound = Math.min(Math.max(absoluteOffset - windowStart, 0), windowEntries.length);
+	let count = 0;
+	for (let position = 0; position < bound; position += 1) {
+		if (isRoleMessageRole(windowEntries[position]?.role)) count += 1;
+	}
+	return count;
+}
+
+/**
+ * 与投影器 entryId 槽位口径一致的条目 id 列表：只保留消费槽位的角色条目。
+ * 0.86 的 role:"system" 条目混进来会让其后消息的 meta.entryId 整体前移。
+ * 入参用结构子集：索引条目直接带 role，而「传了会话全文」的分支只有 message 载荷。
+ */
+function roleMessageEntryIds(entries: ReadonlyArray<{ id: string; role?: string; message?: unknown }>): string[] {
+	return entries.filter((entry) => isRoleMessageRole(entry.role ?? (isRecord(entry.message) ? entry.message.role : undefined))).map((entry) => entry.id);
 }
 
 /**
@@ -440,8 +469,10 @@ export class SessionHistoryReader {
 			const index = await this.getSessionDisplayIndex(sessionPath);
 			const entries = index.activeMessageEntries;
 			const rawMessages = await this.readIndexedSessionMessages(index.hostPath, entries);
-			const entryIds = entries.map((entry) => entry.id);
-			const finalRaw = this.insertCompactionSummaryRaw(index, rawMessages);
+			// 投影器的 entryId 槽位只对应角色消息：0.86 的 role:"system" 条目不能进 id 列表，
+			// 否则其后所有消息的 meta.entryId 整体前移（按 entryId 定位的编辑/重发会落错条目）。
+			const entryIds = roleMessageEntryIds(entries);
+			const finalRaw = this.insertCompactionSummaryRaw(index, rawMessages, 0);
 			const messages = this.deps.convertMessages(agentId, finalRaw, entryIds);
 			// 整条分支读取：通知卡片同样要补（Web/Viewer 与桌面时间线保持同一口径，
 			// 否则同一会话在两处会呈现不同的回合切分）。
@@ -450,7 +481,7 @@ export class SessionHistoryReader {
 				end: entries.length,
 				isTailWindow: true,
 			});
-			return this.applyCustomMessageCards(messages, cards, 0, this.resolveCompactionInsertOffset(index));
+			return this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index));
 		}
 		const content = sessionContent;
 		const entries: Array<{
@@ -507,7 +538,8 @@ export class SessionHistoryReader {
 		// Offline Session viewers must expose the complete active branch. The runtime
 		// prompt-history cap belongs to Agent startup, while renderer pagination owns
 		// how much of a historical Session is rendered at one time.
-		const activeEntryIds = currentEntries.map((entry) => entry.id);
+		// entryIds 只含角色条目：投影器不会为 0.86 的 role:"system" 条目分配槽位。
+		const activeEntryIds = roleMessageEntryIds(currentEntries);
 
 		let finalRaw: unknown[] = rawMessages;
 		if (lastCompaction) {
@@ -608,11 +640,9 @@ export class SessionHistoryReader {
 		const readable = scope.filter((entry) => SessionHistoryReader.isFileChangeSource(entry));
 		if (readable.length === 0) return [];
 		const rawMessages = await this.readIndexedSessionMessages(index.hostPath, readable);
-		return this.deps.convertMessages(
-			agentId,
-			rawMessages,
-			readable.map((entry) => entry.id),
-		);
+		// isFileChangeSource 是「要不要读进内存」的保守预判（role 未知也读），
+		// 但 entryId 槽位必须严格按角色过滤：非角色条目会占位导致后续条目 id 错位。
+		return this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(readable));
 	}
 
 	/**
@@ -629,20 +659,18 @@ export class SessionHistoryReader {
 		const windowStart = boundTurnWindowStart(index.activeMessageEntries, total, turnCount, maxEntries);
 		const entries = index.activeMessageEntries.slice(windowStart);
 		const rawMessages = await this.readIndexedSessionMessages(index.hostPath, entries);
-		const finalRaw = this.insertCompactionSummaryRaw(index, rawMessages);
+		// 窗口 = 条目切片：压缩插入点（绝对下标）必须换算成本窗口内下标，
+		// 否则压缩卡片会插进窗口内部靠前处/被挤到窗口末尾（readLoadWindow 是 Web 整量读入口）。
+		const finalRaw = this.insertCompactionSummaryRaw(index, rawMessages, windowStart);
 		// 加载窗口覆盖到文件尾部：末条通知（offset === total）也属于它
 		const cards = await this.buildCustomMessageCards(index, agentId, {
 			start: windowStart,
 			end: total,
 			isTailWindow: true,
 		});
-		const messages = this.deps.convertMessages(
-			agentId,
-			finalRaw,
-			entries.map((entry) => entry.id),
-		);
+		const messages = this.deps.convertMessages(agentId, finalRaw, roleMessageEntryIds(entries));
 		return {
-			messages: this.applyCustomMessageCards(messages, cards, windowStart, this.resolveCompactionInsertOffset(index)),
+			messages: this.applyCustomMessageCards(messages, cards, entries, windowStart, this.resolveCompactionInsertOffset(index)),
 			total,
 			windowStart,
 		};
@@ -700,13 +728,7 @@ export class SessionHistoryReader {
 			// 同一索引空间：索引切片 + 转换 + 页内卡片。
 			const entries = index.activeMessageEntries.slice(start, boundedBefore);
 			const rawMessages = await this.readIndexedSessionMessages(index.hostPath, entries);
-			const messages = await this.convertCompactionPageMessages(
-				index,
-				agentId,
-				rawMessages,
-				entries.map((entry) => entry.id),
-				start,
-			);
+			const messages = await this.convertCompactionPageMessages(index, agentId, rawMessages, roleMessageEntryIds(entries), start, entries);
 			// 压缩页里已有一张压缩卡片占了槽位，通知卡片按同一插入点做 +1 补偿
 			const cards = await this.buildCustomMessageCards(index, agentId, {
 				start,
@@ -715,7 +737,7 @@ export class SessionHistoryReader {
 				isTailWindow: boundedBefore >= total,
 			});
 			return {
-				messages: this.applyCustomMessageCards(messages, cards, start, this.resolveCompactionInsertOffset(index)),
+				messages: this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)),
 				total,
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
@@ -734,15 +756,7 @@ export class SessionHistoryReader {
 			isTailWindow: boundedBefore >= total,
 		});
 		return {
-			messages: this.applyCustomMessageCards(
-				this.deps.convertMessages(
-					agentId,
-					rawMessages,
-					entries.map((entry) => entry.id),
-				),
-				cards,
-				start,
-			),
+			messages: this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start),
 			total,
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
@@ -826,15 +840,30 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * 取活动分支末尾 `messageCount` 条消息的 entryId（与 JSONL 尾部窗口一一对应）。
+	 * 取活动分支末尾 `messageCount` 条**消费 entryId 槽位的角色消息**的 entryId
+	 * （与 JSONL 尾部窗口一一对应）。
 	 * loadMessages 用它代替 get_entries：pi 会把整棵 entry 树打成单行 JSON，同步 parse 会冻窗。
+	 *
+	 * 为什么必须按角色过滤：activeMessageEntries 只按 `type === "message"` 收集，而 pi 0.86
+	 * 起系统提示与工具清单变更也会落成 `type:"message"` + `role:"system"` 的条目
+	 * （transcript-backed prompt/tool 更新，首个请求一条完整 sections、之后按 name 打补丁）。
+	 * AgentMessageProjector 只给 user/assistant/toolResult 分配槽位；若这里直接对
+	 * activeMessageEntries 尾部切片，窗口内夹着 system 条目时返回的 id 会整体错位
+	 * （u1→a1、a1→u2 …），而 SessionFileEditor 按 id 定位，编辑/删除/重发将落到相邻条目上
+	 * （重发另有 assertResendRootEntry 文本校验兜底，编辑/删除没有）。2026-09 适配 0.86。
 	 */
 	async getRecentActiveEntryIds(sessionPath: string, messageCount: number): Promise<string[]> {
 		const index = await this.getSessionDisplayIndex(sessionPath);
-		const total = index.activeMessageEntries.length;
-		const count = Number.isFinite(messageCount) && messageCount > 0 ? Math.min(Math.floor(messageCount), total) : 0;
+		const entries = index.activeMessageEntries;
+		const count = Number.isFinite(messageCount) && messageCount > 0 ? Math.min(Math.floor(messageCount), entries.length) : 0;
 		if (count <= 0) return [];
-		return index.activeMessageEntries.slice(total - count).map((entry) => entry.id);
+		// 从尾部倒着收集，凑够 count 条即停：避免对上千条消息的会话做一次全量 filter 分配。
+		const ids: string[] = [];
+		for (let position = entries.length - 1; position >= 0 && ids.length < count; position -= 1) {
+			const entry = entries[position];
+			if (isRoleMessageRole(entry.role)) ids.push(entry.id);
+		}
+		return ids.reverse();
 	}
 
 	/**
@@ -930,24 +959,27 @@ export class SessionHistoryReader {
 	 * 但不消耗条目下标，所以落在它之后的通知要 +1 补偿，否则会错位一格。
 	 * （是否真的插了压缩卡片按消息 meta 实判，避免依赖调用方的假设。）
 	 */
-	private applyCustomMessageCards(messages: ChatMessage[], cards: Array<{ offset: number; card: ChatMessage }>, windowStart: number, compactionInsertOffset?: number): ChatMessage[] {
+	private applyCustomMessageCards(messages: ChatMessage[], cards: Array<{ offset: number; card: ChatMessage }>, windowEntries: ReadonlyArray<{ role?: string }>, windowStart: number, compactionInsertOffset?: number): ChatMessage[] {
 		if (cards.length === 0) return messages;
 		const hasCompactionCard = messages.some((message) => message.meta?.type === "compaction");
 		return spliceCardsByOffset(messages, cards, (offset) => {
 			const afterCompaction = hasCompactionCard && compactionInsertOffset !== undefined && offset >= compactionInsertOffset;
-			return offset - windowStart + (afterCompaction ? 1 : 0);
+			return messageIndexFromEntryOffset(windowEntries, offset, windowStart) + (afterCompaction ? 1 : 0);
 		});
 	}
 
 	/**
 	 * 把最近一次压缩摘要插进 rawMessages（与离线 Viewer / loadMessages 同一插入点）。
 	 * compactionSummary 不消费 entryId 槽位，插在 firstKeptEntryId 之前。
+	 * windowStart = rawMessages 在 activeMessageEntries 里的起始下标（全量传 0）。
 	 */
-	private insertCompactionSummaryRaw(index: SessionDisplayIndex, rawMessages: unknown[]): unknown[] {
+	private insertCompactionSummaryRaw(index: SessionDisplayIndex, rawMessages: unknown[], windowStart: number): unknown[] {
 		const lastCompaction = index.activeBranch.findLast((entry) => entry.type === "compaction");
 		if (!lastCompaction) return rawMessages;
-		// 与压缩页/通知卡片共用同一偏移口径（firstKeptEntryId 优先，回退压缩条目后的消息数）
-		const insertAt = this.resolveCompactionInsertOffset(index) ?? rawMessages.length;
+		// 与压缩页/通知卡片共用同一偏移口径（firstKeptEntryId 优先，回退压缩条目后的消息数）；
+		// rawMessages 是窗口切片，绝对下标要减 windowStart 再 clamp（插在全量分支也成立）。
+		const absoluteInsertAt = this.resolveCompactionInsertOffset(index) ?? windowStart + rawMessages.length;
+		const insertAt = Math.min(Math.max(absoluteInsertAt - windowStart, 0), rawMessages.length);
 		const card = {
 			role: "compactionSummary",
 			summary: lastCompaction.summary || this.deps.translate("session.summaryPlaceholder"),
@@ -968,7 +1000,7 @@ export class SessionHistoryReader {
 	 * 卡片落在 firstKeptEntryId 之前，即归档消息之后、保留消息之前；卡片在页外不插）。
 	 * 卡片 id 对齐 projector 的 `${agentId}-meta-N` 输出，保证与运行时窗口卡片去重一致。
 	 */
-	private async convertCompactionPageMessages(index: SessionDisplayIndex, agentId: string, rawMessages: unknown[], entryIds: string[], start: number): Promise<ChatMessage[]> {
+	private async convertCompactionPageMessages(index: SessionDisplayIndex, agentId: string, rawMessages: unknown[], entryIds: string[], start: number, windowEntries: ReadonlyArray<SessionDisplayEntry>): Promise<ChatMessage[]> {
 		const messages = this.deps.convertMessages(agentId, rawMessages, entryIds);
 		const compactions = index.activeBranch.filter((entry) => entry.type === "compaction");
 		const lastCompaction = compactions[compactions.length - 1];
@@ -980,8 +1012,10 @@ export class SessionHistoryReader {
 			const compIdx = index.activeBranch.findIndex((entry) => entry.id === lastCompaction.id);
 			insertAt = compIdx >= 0 ? index.activeBranch.slice(0, compIdx + 1).filter((entry) => entry.type === "message" && entry.hasMessage).length : index.activeMessageEntries.length;
 		}
-		const rel = insertAt - start;
-		if (rel < 0 || rel > messages.length) return messages; // 卡片在本页之外
+		// 页外判断用条目空间；映射到消息数组下标必须跳过 system 等非角色条目
+		// （0.86：它们不生成 ChatMessage），否则卡片整体后移或被挤到页尾。
+		if (insertAt < start || insertAt > start + windowEntries.length) return messages; // 卡片在本页之外
+		const rel = messageIndexFromEntryOffset(windowEntries, insertAt, start);
 		const card: ChatMessage = {
 			id: `${agentId}-meta-1`,
 			agentId,

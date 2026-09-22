@@ -8,11 +8,10 @@
 > （见 §10）。pi 链路零改动。
 >
 > 基线：`dev` 分支；DSH runtime `0.1.5-rc.1`；deep-fusion 形态（utilityProcess + MessagePort fetch 桥）。
-> 配套文档：`docs/dsh-agent-backend-plan.md`（接入计划）、`docs/dsh-compat-gap-analysis.md` §7（G13 动态插件现状）、
+> 配套文档：`docs/dsh-agent-backend-plan.md`（接入计划）、
 > `docs/dsh-runtime-optional-plan.md`（runtime 按需安装）。
 
-**状态：方案待评审（未实施）。** 本计划属架构级改动（host 部署形态），按 AGENTS.md「长期重构纪律」
-必须先评审对照表再动手。
+**状态：部分落地。** ② 本地 / npm 插件安装已实现（`dsh:plugin-install` / `-uninstall` / `-run` / `-stop` 通道 + `src/main/dsh/dshUserPlugins.ts` 对用户补丁层的读写）；① patch 层热应用（`patchReload: live`）未接，`src/main/dsh/hostEntry.ts` 的 `hmr` 行仍 `disabled: true`。本计划余下部分属架构级改动（host 部署形态），按 AGENTS.md「长期重构纪律」必须先评审对照表再动手。
 
 ---
 

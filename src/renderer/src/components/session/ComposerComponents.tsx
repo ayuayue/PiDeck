@@ -22,7 +22,7 @@ import { resolveComposerThinkingLevel } from "../../utils/thinkingDisplay";
 import { WELCOME_MODEL_KEY, isWelcomeModelLost, readWelcomeModelPreference, readWelcomeThinkingPreference, shouldClearWelcomePreference } from "../../utils/chatSessionBootstrap";
 import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import { CommandPickerGroup, CommandPickerPanel, type CommandPickerFilter } from "../ui-shadcn/command-picker";
-import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, orderProviderGroups, resolveModelPickerBody } from "./sessionPickerOptions";
+import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, modelRowLabel, modelRowName, orderProviderGroups, resolveModelPickerBody } from "./sessionPickerOptions";
 import type { AgentBackend, AgentRuntimeState, AvailableModel, ComposerAgentMode, GitBranchInfo, ModelListFailReason, ModelListReport, SessionRecord, UsageProbeBackend } from "../../../../shared/types";
 
 /** 单个 extension widget 卡片：可折叠标题栏 + 内容行，支持手动关闭 */
@@ -231,6 +231,9 @@ export function ComposerBottomBar(props: {
 	disabled?: boolean;
 	/** thinking 按钮专用禁用：仅在 Agent 启动中禁用，运行中由后端决定是否接受修改。 */
 	thinkingDisabled?: boolean;
+	/** 分支切换专用禁用：agent 运行中保持锁定（切分支会真的改动工作区文件，
+	 *  正在跑的代码被换掉有风险）；「+」菜单等草稿/下一轮配置类入口不跟随此锁。 */
+	branchDisabled?: boolean;
 	/** 模型按钮专用禁用：仅启动中禁用；运行中优先直接交给后端，busy 时才排到下一轮。 */
 	modelDisabled?: boolean;
 	/** 生成进行中已选定、本轮结束后才套到 Agent 的模型（显示为 from→to）。 */
@@ -255,6 +258,8 @@ export function ComposerBottomBar(props: {
 	feishuIndicator?: ReactNode;
 	/** 安全等级选择器（自包含组件，注入到左下角工具组） */
 	securityControl?: ReactNode;
+	/** 快捷消息入口（自包含组件，摆在安全控制位右侧，符合「权限右边」的固定习惯） */
+	quickMessagesControl?: ReactNode;
 	voiceControls: ReactNode;
 	sendControls: ReactNode;
 	onPickModel: () => void;
@@ -458,8 +463,14 @@ export function ComposerBottomBar(props: {
 					</DropdownMenu>
 					{props.feishuIndicator}
 					{/* 生图模式无 pi/DSH runtime：安全等级（pi 安全门）与 DSH 权限预设都对图片生成无意义，
-					   且 SecurityControl 按 backend 分发时没有 imagegen 分支会误显示成 pi 安全等级菜单，故直接屏蔽。 */}
-					{isImageGenMode ? null : props.securityControl}
+					   且 SecurityControl 按 backend 分发时没有 imagegen 分支会误显示成 pi 安全等级菜单；
+					   快捷消息同理（正文是给对话模型的指令），两个控制位一起屏蔽。 */}
+					{isImageGenMode ? null : (
+						<>
+							{props.securityControl}
+							{props.quickMessagesControl}
+						</>
+					)}
 				</div>
 				<div className={`composer-bottom-center flex min-w-0 flex-1 items-center justify-center gap-4${isImageGenMode ? " overflow-x-auto overflow-y-hidden [scrollbar-width:none]" : " overflow-hidden"}`}>
 					{isImageGenMode && props.imageGenOptions ? (
@@ -513,7 +524,7 @@ export function ComposerBottomBar(props: {
 					{/* 分支只读 chip 升级为可切换下拉：当前分支即触发器，展开列表选目标分支后
 					    先弹确认（切换会携带未提交更改），确认后才调栏级 switchBranch（绑定本栏项目）。 */}
 					{props.gitInfo?.current && props.onSwitchBranch ? (
-						<ComposerBranchSwitcher gitInfo={props.gitInfo} disabled={props.disabled} onSwitchBranch={props.onSwitchBranch} />
+						<ComposerBranchSwitcher gitInfo={props.gitInfo} disabled={props.branchDisabled ?? props.disabled} onSwitchBranch={props.onSwitchBranch} />
 					) : props.gitInfo?.current ? (
 						<span
 							className="composer-bar-branch inline-flex max-w-[12rem] items-center gap-1.5 truncate px-1.5 text-sm font-semibold text-foreground/75"
@@ -807,6 +818,8 @@ export function ModelPicker(props: {
 		// 分组各渲染一行时，value 必须唯一，否则鼠标悬停/键盘选中会让两行同时高亮。
 		// data-picker-value 仍保留模型 key，供面板“当前模型滚动定位”使用。
 		const itemValue = valueOverride ?? modelKey;
+		// 行文案：provider/名称，单行（原双行「name + provider/id」视觉太重，id 收进 tooltip）。
+		const labels = modelRowLabel(model);
 		return (
 			<CommandItem key={itemValue} value={itemValue} data-picker-value={modelKey} keywords={[model.name ?? "", model.id, model.provider, modelKey]} onSelect={() => props.onPick(model)} className="group min-h-9 items-center gap-2 rounded-md px-2.5 py-1">
 				{/* 收藏/取消收藏按钮：填充星为收藏，空心为未收藏 */}
@@ -824,8 +837,8 @@ export function ModelPicker(props: {
 						<Star size={14} strokeWidth={1.8} fill={favorited ? "currentColor" : "none"} />
 					</button>
 				)}
-				<span className="min-w-0 flex-1 truncate font-mono text-control font-medium text-foreground" title={model.name ? `${model.name} · ${modelKey}` : modelKey}>
-					{modelKey}
+				<span className="min-w-0 flex-1 truncate font-mono text-control font-medium text-foreground" title={`${modelRowName(model)} · ${modelKey}`}>
+					{labels}
 				</span>
 				{/* 隐藏模型操作按钮：悬停时显示，点击将模型放入隐藏列表 */}
 				{props.onToggleHideModel && !favorited && (
@@ -889,10 +902,12 @@ export function ModelPicker(props: {
 						<CommandPickerGroup id="hidden-models" label={t("app.modelHiddenSection")} count={hiddenModelList.length} countText={t("app.modelHiddenCount", { count: hiddenModelList.length })}>
 							{hiddenModelList.map((model) => {
 								const modelKey = `${model.provider}/${model.id}`;
+								// 与可见行同一套文案规则（provider/名称，单行），只是整体弱化显示。
+								const labels = modelRowLabel(model);
 								return (
 									<CommandItem key={`hidden/${modelKey}`} value={`hidden/${modelKey}`} data-picker-value={modelKey} keywords={[model.name ?? "", model.id, model.provider, modelKey]} className="group min-h-9 items-center gap-2 rounded-md px-2.5 py-1 text-muted-foreground" onSelect={() => props.onPick(model)}>
-										<span className="min-w-0 flex-1 truncate font-mono text-control opacity-70" title={modelKey}>
-											{modelKey}
+										<span className="min-w-0 flex-1 truncate font-mono text-control opacity-70" title={`${modelRowName(model)} · ${modelKey}`}>
+											{labels}
 										</span>
 										<button
 											type="button"

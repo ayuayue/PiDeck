@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui-shadcn/button";
 import { X } from "lucide-react";
@@ -28,6 +28,10 @@ import type {
 import { Checkbox } from "../ui-shadcn/checkbox";
 import { Label } from "../../components/ui-shadcn/label";
 import { DirectoryImportSourceList } from "./DirectoryImportSourceList";
+import { ImportListNoMatch, ImportListSearchRow, ImportListWindowFooter } from "./ImportListControls";
+import { useImportSessionFilter } from "../../hooks/useImportSessionFilter";
+import { useLazyListWindow } from "../../hooks/useLazyListWindow";
+import { buildImportSearchHaystack, formatImportSearchTime } from "../../utils/importSessionList";
 
 function displayPath(path?: string) {
 	if (!path) return "";
@@ -49,7 +53,7 @@ function formatCodexStatus(status: CodexSessionSummary["status"]) {
 	return t("codex.status.new");
 }
 
-function groupCodexSessions(sessions: CodexSessionSummary[]) {
+function groupCodexSessions(sessions: readonly CodexSessionSummary[]) {
 	const parentById = new Map(sessions.map((session) => [session.id, session]));
 	const childrenByParent = new Map<string, CodexSessionSummary[]>();
 	const orphanSubagents: CodexSessionSummary[] = [];
@@ -73,6 +77,19 @@ function groupCodexSessions(sessions: CodexSessionSummary[]) {
 function codexSubagentLabel(session: CodexSessionSummary) {
 	const parts = [session.agentNickname, session.agentRole].filter(Boolean);
 	return parts.length ? parts.join(" · ") : t("codex.subagent");
+}
+
+/**
+ * Codex 行的搜索索引：父行与子代理行共用，子代理额外拼上昵称/角色，
+ * 这样「按子代理名找父会话」也能命中（命中的子代理会在「未关联子代理」分组里出现）。
+ */
+function buildCodexRowHaystack(session: CodexSessionSummary) {
+	return buildImportSearchHaystack([buildRowHaystack(session), session.agentNickname, session.agentRole]);
+}
+
+/** 导入弹窗会话行的公共搜索字段（状态文案是各源自己的，由弹窗用 formatStatus 追加）。 */
+function buildRowHaystack(session: ImportSessionLike) {
+	return buildImportSearchHaystack([session.title, session.preview, session.sourcePath, session.status, session.projectPath, formatImportSearchTime(session.updatedAt)]);
 }
 
 function formatClaudeStatus(status: ClaudeSessionSummary["status"]) {
@@ -103,15 +120,26 @@ export function CodexImportModal(props: {
 	onClose: () => void;
 	onRefresh: () => void;
 	onToggle: (sourcePath: string) => void;
-	onToggleAll: () => void;
+	/** 全选 / 取消全选；传 sourcePaths 时只在该子集内切换（搜索命中的行），缺省为控制器自己的可选集。 */
+	onToggleAll: (sourcePaths?: string[]) => void;
 	onImport: () => void;
 }) {
 	const [expandedSubagents, setExpandedSubagents] = useState<Set<string>>(() => new Set());
 	const [showOrphanSubagents, setShowOrphanSubagents] = useState(false);
+	const listRef = useRef<HTMLDivElement | null>(null);
+	const filter = useImportSessionFilter<CodexSessionSummary>(props.sessions, buildCodexRowHaystack);
+	// 分组必须跑在「完整命中集」上：父行要如实显示子代理数量，不能被渲染窗口裁剪。
+	const grouped = useMemo(() => groupCodexSessions(filter.matched), [filter.matched]);
+	// 父行与「未关联子代理」各自增量渲染，两者共用一个滚动容器，各自的尾随哨兵按需追加。
+	const parentWindow = useLazyListWindow(grouped.parents, { scrollRef: listRef });
+	const orphanWindow = useLazyListWindow(grouped.orphanSubagents, { scrollRef: listRef });
 	const selected = new Set(props.selectedPaths);
-	const grouped = groupCodexSessions(props.sessions);
 	const selectableParents = grouped.parents;
 	const allSelected = selectableParents.length > 0 && selectableParents.every((session) => selected.has(session.sourcePath));
+	const toggleAllVisible = () =>
+		// 搜索态下「全选」只作用于命中行，已选中但未命中的行不会被误清空（由 utils 的并集/子集规则保证）。
+		// 路径列表只在点击时提取：敲每个字符都做一次 O(n) map 是白花的（会话数可能上千）。
+		props.onToggleAll(filter.isSearching ? selectableParents.map((session) => session.sourcePath) : undefined);
 	const toggleSubagents = (parentId: string) => {
 		setExpandedSubagents((current) => {
 			const next = new Set(current);
@@ -164,7 +192,7 @@ export function CodexImportModal(props: {
 							<RefreshCw size={14} />
 							{t("common.refresh")}
 						</Button>
-						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
+						<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={toggleAllVisible} disabled={filter.matched.length === 0}>
 							<Check size={14} />
 							{allSelected ? t("codex.selectNone") : t("common.selectAll")}
 						</Button>
@@ -178,7 +206,8 @@ export function CodexImportModal(props: {
 						</Button>
 					</div>
 				</div>
-				<div className="codex-import-body">
+				{!props.loading && props.sessions.length > 0 && <ImportListSearchRow value={filter.query} onChange={filter.setQuery} matchedCount={filter.matched.length} totalCount={filter.totalCount} />}
+				<div className="codex-import-body" ref={listRef}>
 					{props.loading ? (
 						<div className="history-loading">
 							<div className="loader animate-pideck-spin" />
@@ -189,9 +218,11 @@ export function CodexImportModal(props: {
 							<strong>{t("codex.emptyTitle")}</strong>
 							<span>{t("codex.emptyDesc")}</span>
 						</div>
+					) : filter.isSearching && filter.matched.length === 0 ? (
+						<ImportListNoMatch query={filter.query} totalCount={filter.totalCount} onClear={filter.clearQuery} />
 					) : (
 						<div className="codex-session-list">
-							{grouped.parents.map((session) => {
+							{parentWindow.visible.map((session) => {
 								const children = grouped.childrenByParent.get(session.id) ?? [];
 								const expanded = expandedSubagents.has(session.id);
 								return (
@@ -211,9 +242,15 @@ export function CodexImportModal(props: {
 									<Button type="button" variant="ghost" size="sm" className="codex-subagent-toggle h-auto px-1.5 text-xs codex-orphan-subagents-title" onClick={() => setShowOrphanSubagents((current) => !current)}>
 										{t("codex.orphanSubagents", { count: grouped.orphanSubagents.length })}
 									</Button>
-									{showOrphanSubagents && <div className="codex-subagent-list">{grouped.orphanSubagents.map((session) => renderRow(session, "codex-session-row codex-subagent-row"))}</div>}
+									{showOrphanSubagents && (
+										<div className="codex-subagent-list">
+											{orphanWindow.visible.map((session) => renderRow(session, "codex-session-row codex-subagent-row"))}
+											<ImportListWindowFooter sentinelRef={orphanWindow.sentinelRef} visibleCount={orphanWindow.visibleCount} totalCount={orphanWindow.totalCount} hasMore={orphanWindow.hasMore} onLoadMore={orphanWindow.loadMore} />
+										</div>
+									)}
 								</div>
 							)}
+							<ImportListWindowFooter sentinelRef={parentWindow.sentinelRef} visibleCount={parentWindow.visibleCount} totalCount={parentWindow.totalCount} hasMore={parentWindow.hasMore} onLoadMore={parentWindow.loadMore} />
 						</div>
 					)}
 				</div>
@@ -297,6 +334,8 @@ type ImportSessionLike = {
 	messageCount: number;
 	/** 源文件字节数；目录导入的行没有该字段（缺省按 0 展示，由 renderMeta 覆盖）。 */
 	sourceSize?: number;
+	/** 原工作目录（目录导入的汇总带该字段）；只参与搜索索引，不作为渲染依据。 */
+	projectPath?: string;
 	status: ImportStatusValue;
 };
 
@@ -324,7 +363,8 @@ function SessionImportModal<T extends ImportSessionLike>(props: {
 	onClose: () => void;
 	onRefresh: () => void;
 	onToggle: (sourcePath: string) => void;
-	onToggleAll: () => void;
+	/** 全选 / 取消全选；传 sourcePaths 时只在该子集内切换（搜索命中的行），缺省为控制器自己的可选集。 */
+	onToggleAll: (sourcePaths?: string[]) => void;
 	onImport: () => void;
 	/** 头部附加控件（目录导入的「来源目录 + 只看失效目录」）；缺省不渲染。 */
 	headerExtra?: ReactNode;
@@ -342,7 +382,15 @@ function SessionImportModal<T extends ImportSessionLike>(props: {
 	renderMeta?: (session: T) => ReactNode;
 }) {
 	const selected = new Set(props.selectedPaths);
-	const allSelected = props.sessions.length > 0 && props.sessions.every((session) => selected.has(session.sourcePath));
+	const listRef = useRef<HTMLDivElement | null>(null);
+	// 状态文案是各源自己的（未导入 / 可覆盖更新…）：搜索索引里带上它，按状态筛选也能命中。
+	const buildHaystack = useCallback((session: T) => buildImportSearchHaystack([buildRowHaystack(session), props.formatStatus(session.status)]), [props.formatStatus]);
+	const filter = useImportSessionFilter<T>(props.sessions, buildHaystack);
+	// 只渲染命中的前 N 行，滚到尾部哨兵后再追加一批（长列表不再一次挂载上千行）。
+	const listWindow = useLazyListWindow(filter.matched, { scrollRef: listRef });
+	const allSelected = filter.matched.length > 0 && filter.matched.every((session) => selected.has(session.sourcePath));
+	// 搜索态下「全选」只作用于命中行，路径只在点击时提取（列表可能上千行）。
+	const toggleAllVisible = () => props.onToggleAll(filter.isSearching ? filter.matched.map((session) => session.sourcePath) : undefined);
 	const copy = (key: string, params?: Record<string, string | number>) => t(`${props.copyPrefix}.${key}` as TranslationKey, params);
 	return (
 		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
@@ -371,7 +419,7 @@ function SessionImportModal<T extends ImportSessionLike>(props: {
 									<RefreshCw size={14} />
 									{t("common.refresh")}
 								</Button>
-								<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={props.onToggleAll} disabled={props.sessions.length === 0}>
+								<Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shadow-none rounded-lg gap-1.5" onClick={toggleAllVisible} disabled={filter.matched.length === 0}>
 									<Check size={14} />
 									{allSelected ? copy("selectNone") : t("common.selectAll")}
 								</Button>
@@ -383,7 +431,9 @@ function SessionImportModal<T extends ImportSessionLike>(props: {
 						)}
 					</div>
 				</div>
-				<div className="codex-import-body">
+				{!props.bodyOverride && !props.loading && props.sessions.length > 0 && <ImportListSearchRow value={filter.query} onChange={filter.setQuery} matchedCount={filter.matched.length} totalCount={filter.totalCount} />}
+				{/* 目录来源首屏自带内边距与滚动区（搜索行需全宽贴着工具栏），所以这里去掉 body 的 12px 内边距。 */}
+				<div className={props.bodyOverride ? "codex-import-body p-0" : "codex-import-body"} ref={listRef}>
 					{props.bodyOverride ? (
 						props.bodyOverride
 					) : props.loading ? (
@@ -398,9 +448,11 @@ function SessionImportModal<T extends ImportSessionLike>(props: {
 								<span>{copy("emptyDesc")}</span>
 							</div>
 						))
+					) : filter.isSearching && filter.matched.length === 0 ? (
+						<ImportListNoMatch query={filter.query} totalCount={filter.totalCount} onClear={filter.clearQuery} />
 					) : (
 						<div className="codex-session-list">
-							{props.sessions.map((session) => (
+							{listWindow.visible.map((session) => (
 								<Label key={session.sourcePath} className="codex-session-row">
 									<Checkbox checked={selected.has(session.sourcePath)} onCheckedChange={() => props.onToggle(session.sourcePath)} />
 									<div className="codex-session-main">
@@ -415,6 +467,7 @@ function SessionImportModal<T extends ImportSessionLike>(props: {
 									</div>
 								</Label>
 							))}
+							<ImportListWindowFooter sentinelRef={listWindow.sentinelRef} visibleCount={listWindow.visibleCount} totalCount={listWindow.totalCount} hasMore={listWindow.hasMore} onLoadMore={listWindow.loadMore} />
 						</div>
 					)}
 				</div>
@@ -505,7 +558,8 @@ export function DirectoryImportModal(props: {
 	onClose: () => void;
 	onRefresh: () => void;
 	onToggle: (sourcePath: string) => void;
-	onToggleAll: () => void;
+	/** 原样透传给通用弹窗工具栏：搜索态下只作用于命中行。 */
+	onToggleAll: (sourcePaths?: string[]) => void;
 	onImport: () => void;
 }) {
 	// 未选目录 = 首屏：工具栏与主体换成「现有会话目录」列表（没有源目录可扫时不摆无关的会话工具）。

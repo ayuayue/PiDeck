@@ -15,12 +15,8 @@ const { AgentMessageProjector, buildActiveBranchEntryIds } = loadTsCommonJs("src
 						? content
 						: "",
 		},
-		"./sessionEntryIds": {
-			takeActiveEntryId: (ids, index) => ({
-				entryId: ids?.[index],
-				nextIndex: index + 1,
-			}),
-		},
+		// ./sessionEntryIds 不再打桩：entryId 槽位判定（isRoleMessageRole）是 0.86 system
+		// 条目对齐的回归点，必须用生产实现，否则测试只能证明桩的行为。该模块无依赖，可直接加载。
 	},
 });
 
@@ -184,14 +180,31 @@ test("marks recovered ask_question cards unanswered when that agent was cancelle
 	assert.equal(messages[0].meta._askCard.options, undefined);
 });
 
-test("returns only message entries on the active branch", () => {
+test("returns only role message entries on the active branch", () => {
 	const ids = buildActiveBranchEntryIds(
 		[
 			{ id: "session", parentId: null, type: "session" },
-			{ id: "message-1", parentId: "session", type: "message" },
+			{ id: "message-1", parentId: "session", type: "message", message: { role: "user" } },
 			{ id: "model", parentId: "message-1", type: "model_change" },
-			{ id: "message-2", parentId: "model", type: "message" },
-			{ id: "discarded", parentId: "message-1", type: "message" },
+			{ id: "message-2", parentId: "model", type: "message", message: { role: "assistant" } },
+			{ id: "discarded", parentId: "message-1", type: "message", message: { role: "assistant" } },
+		],
+		"message-2",
+	);
+
+	assert.deepEqual(Array.from(ids), ["message-1", "message-2"]);
+});
+
+test("skips pi 0.86 system message entries when aligning entry ids", () => {
+	// 0.86 起系统提示/工具清单变更也是 type:"message"，但不消费 entryId 槽位：
+	// 不过滤会让后续消息整体错位，编辑/删除/重发会落到相邻条目上。
+	const ids = buildActiveBranchEntryIds(
+		[
+			{ id: "session", parentId: null, type: "session" },
+			{ id: "sys-0", parentId: "session", type: "message", message: { role: "system" } },
+			{ id: "message-1", parentId: "sys-0", type: "message", message: { role: "user" } },
+			{ id: "sys-1", parentId: "message-1", type: "message", message: { role: "system" } },
+			{ id: "message-2", parentId: "sys-1", type: "message", message: { role: "assistant" } },
 		],
 		"message-2",
 	);

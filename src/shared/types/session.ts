@@ -33,11 +33,24 @@ export type ChatMessage = {
 	stopReason?: string;
 };
 
+/**
+ * 历史暂时不可读的结构化原因（渲染层据此出专态 UI，而不是让 IPC 抛裸错误）。
+ * 目前只有一种：DSH host 被用户手动停止——此时 host 不会自动拉起，历史读取
+ * 必然失败且不会自愈，「启动 host」是唯一恢复路径。
+ */
+export type SessionHistoryUnavailableReason = "dsh-host-stopped";
+
 /** A bounded historical timeline slice. `nextBefore` is the exclusive index for an older page. */
 export type SessionMessagePage = {
 	messages: ChatMessage[];
 	total: number;
 	nextBefore: number | null;
+	/**
+	 * 本页不是「读到了空历史」而是「历史暂时读不了」：messages 为空且原因为 unavailable。
+	 * 渲染层必须据此进错误专态，不能按空会话渲染起始页——DSH 会话没有 pi 会话文件，
+	 * 把 host 未运行显示成「文件已删除/路径失效」会把用户引向错误方向。
+	 */
+	unavailable?: SessionHistoryUnavailableReason;
 	/** 当前活动分支最后使用的模型；由历史索引读取时顺手提取。 */
 	model?: { provider: string; modelId: string };
 	/** 当前活动分支最后记录的思考档位；无显式记录但有模型时回退为 off。 */
@@ -149,9 +162,8 @@ export type ArchivedDshSession = {
 };
 
 /**
- * pi 归档区会话清单行：会话摘要 + 归档前的原始路径（index.json 反查）。
- * originalPath 用于把归档会话按项目归属过滤（弹窗归档视图不再全量）；
- * 索引缺失/损坏的极旧归档为 undefined，弹窗不展示（配置页仍全局可恢复）。
+ * pi 归档区会话清单行：summary 的 projectPath 来自归档 JSONL 的 cwd，用于按项目归属；
+ * originalPath 是归档路径到原文件路径的索引，恢复时必需。
  */
 export type ArchivedPiSession = {
 	summary: SessionSummary;

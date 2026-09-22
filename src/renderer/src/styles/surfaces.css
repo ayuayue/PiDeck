@@ -2123,19 +2123,14 @@
   flex-wrap: wrap;
 }
 
+/* 兼容性配置项：横向一行（复选框 + 标签，或 标签 + 三态下拉）。
+   早期这里是 column —— 给常驻的兼容性说明小字留第二行；说明收进 tooltip 后该方向
+   失去意义，留着会把「严格工具采样」（标签 + 下拉）拆成两行，整组高度不齐、
+   下拉也和上面三个复选框错位。 */
 .config-compat-item {
   display: flex;
-  flex-direction: column;
-  /* 复选框与下方描述保持 6px 呼吸感（原 2px 贴得太紧，视觉评审指出） */
+  align-items: center;
   gap: 6px;
-}
-
-.config-compat-item-desc {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-micro);
-  line-height: 1.35;
-  padding-left: 22px;
-  max-width: 300px;
 }
 
 
@@ -2949,28 +2944,6 @@ div.fixed.inset-0.z-50 {
   display: flex;
   gap: 8px;
 }
-.config-create-card {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
-}
-.config-create-card > strong {
-  color: var(--color-text-primary);
-}
-.config-create-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
-  gap: 12px;
-}
-.config-create-label {
-  display: grid;
-  gap: 6px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-control);
-}
 .skills-list {
   display: grid;
   gap: var(--space-2);
@@ -3003,11 +2976,6 @@ div.fixed.inset-0.z-50 {
 .skill-card-actions {
   align-items: center;
 }
-@media (max-width: 820px) {
-  .config-create-grid {
-    grid-template-columns: 1fr;
-  }
-}
 
 :root[data-theme="dark"] .config-card,
 :root[data-theme="dark"] .config-provider-card,
@@ -3017,7 +2985,6 @@ div.fixed.inset-0.z-50 {
 :root[data-theme="dark"] .config-advanced-preserved,
 :root[data-theme="dark"] .config-model-advanced-note,
 :root[data-theme="dark"] .config-diagnostic-card,
-:root[data-theme="dark"] .config-create-card,
 :root[data-theme="dark"] .extension-card,
 :root[data-theme="dark"] .session-delete-confirm,
 :root[data-theme="dark"] .conversation-outline,

@@ -5,6 +5,8 @@
 
 import type { ChatMessage, Project } from "../../shared/types";
 import { looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
+import { looksLikeExpandedRefBlockTitle, textForSessionTitle } from "../../shared/expandedRefBlocks";
+import { isRoleMessageRole } from "./sessionEntryIds";
 
 export { looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
 
@@ -77,14 +79,15 @@ export function trimHistoryMessages<T>(rawMessages: T[], maxTurns = 12): T[] {
 /**
  * 统计 [0, endIndex) 内会消费 entryId 槽位的角色消息数（user/assistant/toolResult）。
  * 与 AgentMessageProjector 的槽位消费规则一致：compactionSummary/branchSummary/非角色条目
- * 不消费槽位。用于 trim 后把 activeEntryIds 与保留消息重新对齐。
+ * 不消费槽位（pi 0.86 起窗口里可能夹 `role:"system"` 的 prompt/tool 更新条目，同样不算）。
+ * 用于 trim 后把 activeEntryIds 与保留消息重新对齐。
  */
 export function countRoleMessagesBefore<T>(rawMessages: T[], endIndex: number): number {
 	const bound = Math.min(Math.max(0, endIndex), rawMessages.length);
 	let count = 0;
 	for (let i = 0; i < bound; i++) {
 		const role = (rawMessages[i] as { role?: unknown } | undefined)?.role;
-		if (role === "user" || role === "assistant" || role === "toolResult") count++;
+		if (isRoleMessageRole(role)) count++;
 	}
 	return count;
 }
@@ -199,7 +202,10 @@ export function cleanTitle(value?: string): string | undefined {
 export function inferTitleFromMessages(messages: ChatMessage[]): string | undefined {
 	const firstUserText = messages.find((message) => message.role === "user")?.text;
 	const firstAssistantText = messages.find((message) => message.role === "assistant")?.text;
-	return cleanTitle(firstUserText) || cleanTitle(firstAssistantText);
+	// 标题只取用户自己写的话：/模板、&会话、❝引用块的正文是发给模型的上下文，
+	// 直接当标题会把整段 XML 写进侧栏（2026-10 现场：标题变成 `<prompt_template …>`）；
+	// 只插了模板没写正文时回退到模板名，而不是把模板全文/空串当标题。
+	return cleanTitle(firstUserText ? textForSessionTitle(firstUserText) : undefined) || cleanTitle(firstAssistantText);
 }
 
 /** 判断 Agent 标题是否为默认/占位标题（仅此时允许首轮回话自动改名）。
@@ -212,6 +218,9 @@ export function isDefaultAgentTitle(title: string, project: Project, translate: 
 	if (looksLikePiSessionFileStem(trimmed)) return true;
 	// catalog 把时间戳标题写成 Untitled；扫描器默认文案也是 Untitled。
 	if (/^untitled(?: session)?$/i.test(trimmed)) return true;
+	// 未折叠的自包含块原文（`<prompt_template …>` 等 2026-10 现场写入的脏标题）没有信息价值，
+	// 必须当占位名：否则它既不是默认名、也永远等不到下一次自动命名，只能留在侧栏。
+	if (looksLikeExpandedRefBlockTitle(trimmed)) return true;
 	return (
 		trimmed === `${project.name} agent` ||
 		trimmed === `${project.name} DSH` ||

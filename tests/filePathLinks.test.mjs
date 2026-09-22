@@ -37,6 +37,55 @@ test("regex rejects bare words without separators or dots", () => {
 	assert.equal(FILE_PATH_RE.test("src"), false);
 });
 
+// —— 无后缀目录 / 白名单无后缀文件（issue #229 第二项）——
+// 识别只是候选，误报由存在性校验降级成纯文本；因此这里既锁正例也锁反例。
+
+test("matches suffix-less directories, trailing slashes and whitelisted nameless files", () => {
+	const text = "改 src/main/ipc 里的实现，看 src/renderer/src/components、docs/，读 Makefile 与 a/.gitignore";
+	const matches = matchPlainFilePaths(text);
+	assert.deepEqual(
+		matches.map((m) => m.path),
+		["src/main/ipc", "src/renderer/src/components", "docs/", "Makefile", "a/.gitignore"],
+	);
+	for (const m of matches) {
+		assert.equal(text.slice(m.start, m.end), m.path);
+	}
+});
+
+test("matches suffix-less absolute and home-relative directories", () => {
+	const text = "看 C:\\proj\\src 和 /usr/local，还有 ~/dev/proj 与 ./src/utils";
+	assert.deepEqual(
+		matchPlainFilePaths(text).map((m) => m.path),
+		["C:\\proj\\src", "/usr/local", "~/dev/proj", "./src/utils"],
+	);
+});
+
+// 目录候选常常是文件路径的前缀：必须只产出一个「更长」的候选，否则能点击的链接会被截断。
+test("directory candidates never truncate a longer file path", () => {
+	assert.deepEqual(
+		matchPlainFilePaths("路径是 C:\\proj\\src\\a.ts 文件").map((m) => m.path),
+		["C:\\proj\\src\\a.ts"],
+	);
+	assert.deepEqual(
+		matchPlainFilePaths("改 src/main/index.ts 与 docs/guide.md").map((m) => m.path),
+		["src/main/index.ts", "docs/guide.md"],
+	);
+});
+
+// 英文散文里的斜杠列表是目录识别最大的误报源：`and/` 后面还跟着字母 → 不算目录。
+test("never linkifies slash lists from prose", () => {
+	for (const text of ["and/or 关系", "N/A", "TCP/IP 协议", "CI/CD 流水线", "he/she", "A/B/C/ 这种", "他/她/它 都用", "24/7 全天候", "1/2/3 分数", "版本 2.0 发布"]) {
+		assert.deepEqual(matchPlainFilePaths(text), [], text);
+	}
+});
+
+// 单段无后缀词与英文单词无法区分 → 一律不识别（`src/main` 只有 1 个斜杠，与 `and/or` 同形）。
+test("never linkifies bare words without extension or path shape", () => {
+	for (const text of ["components 目录", "docs 目录", "改 src/main 目录", "xMakefile 不是", "Makefile.bak 备份", "a.env 不是"]) {
+		assert.deepEqual(matchPlainFilePaths(text), [], text);
+	}
+});
+
 test("isAbsoluteFilePath covers win drive, posix root and tilde only", () => {
 	assert.equal(isAbsoluteFilePath("D:\\a\\b.ts"), true);
 	assert.equal(isAbsoluteFilePath("/usr/local/a.ts"), true);

@@ -6,7 +6,7 @@ import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { ModelPicker } from "../../session/ComposerComponents";
 import { SettingsSection } from "./SettingsStorageTab";
-import { DirtyMarker, SettingRow, SettingSwitchRow, SettingTextarea } from "./SettingRows";
+import { SettingRow, SettingSwitchRow, SettingTextarea, DirtyMarker, SettingsModelPickerControl } from "./SettingRows";
 
 type GitTabProps = {
 	draft: AppSettings;
@@ -184,15 +184,12 @@ export const GitTab = memo(function GitTab(props: GitTabProps) {
 						}
 						description={t("settings.gitCommitMessageModelDesc")}
 					>
-						<Button
-							variant="outline"
-							className="w-full justify-start font-mono text-xs"
-							onClick={props.onOpenGitModelPicker}
-							// title 兜底完整值：长供应商/模型在按钮内被 truncate 省略时，悬停仍可读全。
-							title={draft.gitCommitMessageProvider && draft.gitCommitMessageModel ? `${draft.gitCommitMessageProvider}/${draft.gitCommitMessageModel}` : t("settings.gitCommitMessageModelUnset")}
-						>
-							<span className="min-w-0 truncate">{draft.gitCommitMessageProvider && draft.gitCommitMessageModel ? `${draft.gitCommitMessageProvider}/${draft.gitCommitMessageModel}` : t("settings.gitCommitMessageModelUnset")}</span>
-						</Button>
+						<SettingsModelPickerControl
+							value={draft.gitCommitMessageProvider && draft.gitCommitMessageModel ? `${draft.gitCommitMessageProvider}/${draft.gitCommitMessageModel}` : ""}
+							placeholder={t("settings.gitCommitMessageModelUnset")}
+							onOpen={props.onOpenGitModelPicker}
+							onClear={() => updateDraft({ gitCommitMessageProvider: "", gitCommitMessageModel: "" })}
+						/>
 					</SettingRow>
 					<SettingTextarea anchor="git-commit-message-prompt" title={t("settings.gitCommitMessagePrompt")} description={t("settings.gitCommitMessagePromptDesc")} value={draft.gitCommitMessagePrompt} onChange={(value) => updateDraft({ gitCommitMessagePrompt: value })} />
 					{props.gitModelPickerOpen && (

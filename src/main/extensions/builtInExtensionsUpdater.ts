@@ -27,7 +27,7 @@
 
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ATOMGIT_API_HOST, UPDATE_REPO, UPDATE_REPO_OWNER } from "../../shared/updateSources";
+import { decodeAtomGitContentsBuffer, repoFileSourceEntries, type RepoFileSourceEntry } from "../update/atomGitContents";
 import type { UpdateSourceId } from "../../shared/types/settings";
 import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../../shared/types/extensionsUpdate";
 import { BUILT_IN_EXTENSIONS_OVERLAY_BACKUP_DIR_NAME, BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, EXTENSIONS_MANIFEST_FILE_NAME, listExtensionFileNames, readManifestFromDir, readVerifiedArtifact, sha256Of, parseBuiltInExtensionsManifest, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
@@ -55,7 +55,8 @@ const EXTENSIONS_REPO_DIR = "resources/extensions";
  */
 export const VENDOR_DEP_PACKAGE_NAMES = ["undici"] as const;
 
-type SourceEntry = { id: "atomgit" | "github"; url: string };
+/** 源候选（atomgit OpenAPI / github raw）；形态与 update/atomGitContents 共用，避免两处各定义一份。 */
+type SourceEntry = RepoFileSourceEntry;
 
 /** 最小响应形状：支持流式 body（undici/Node fetch 必有）或整体 arrayBuffer（测试替身）。 */
 type ResponseBodyLike = {
@@ -68,27 +69,6 @@ type ResponseLike = {
 	body?: ResponseBodyLike | null;
 	arrayBuffer?(): Promise<ArrayBuffer>;
 };
-
-/**
- * 解析 AtomGit OpenAPI contents 响应的 content 字段为原始字节。
- *
- * 与 ChangelogService.decodeAtomGitContentsResponse 同源实现——这里取 Buffer 而非字符串，
- * 因为扩展文件的 sha256 是按**字节**算的，经 utf8 往返会让校验在个别字符上抖动。
- */
-function decodeAtomGitContentsBuffer(body: string): Buffer | null {
-	let payload: unknown;
-	try {
-		payload = JSON.parse(body);
-	} catch {
-		return null;
-	}
-	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
-	const record = payload as { type?: unknown; encoding?: unknown; content?: unknown };
-	if (record.type !== "file" || typeof record.content !== "string") return null;
-	if (record.encoding === "base64") return Buffer.from(record.content, "base64");
-	// 文档只描述 base64；其他形态不认识，交调用方的内容校验把关
-	return Buffer.from(record.content, "utf8");
-}
 
 /**
  * 逐包复制 vendored 依赖到 `<target>/node_modules/<pkg>`（覆盖层 tmp 组装与自愈共用）。
@@ -437,19 +417,13 @@ export class BuiltInExtensionsUpdater {
 		}
 	}
 
-	/** 源顺序：GitHub 源时 raw 直连优先，否则 AtomGit OpenAPI 优先（国内直连更稳）。 */
+	/**
+	 * 源顺序：GitHub 源时 raw 直连优先，否则 AtomGit OpenAPI 优先（国内直连更稳）。
+	 * URL 构造与 base64 解码统一在 update/atomGitContents.ts——AtomGit 不能走
+	 * `/<owner>/<repo>/raw/<ref>/<path>`（已被 GitCode 前端接管，返回 SPA HTML）。
+	 */
 	private sourceEntries(relPath: string, branch: string): SourceEntry[] {
-		const repoPath = `${UPDATE_REPO_OWNER}/${UPDATE_REPO}`;
-		const encoded = relPath.split("/").map(encodeURIComponent).join("/");
-		const atomgit: SourceEntry = {
-			id: "atomgit",
-			url: `${ATOMGIT_API_HOST}/api/v5/repos/${repoPath}/contents/${encoded}?ref=${encodeURIComponent(branch)}`,
-		};
-		const github: SourceEntry = {
-			id: "github",
-			url: `https://raw.githubusercontent.com/${repoPath}/${branch}/${relPath}`,
-		};
-		return this.source() === "github" ? [github, atomgit] : [atomgit, github];
+		return repoFileSourceEntries(relPath, branch, this.source());
 	}
 
 	private async downloadManifest(branch: string): Promise<{ ok: true; text: string } | { ok: false; message: string }> {

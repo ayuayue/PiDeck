@@ -7,6 +7,11 @@
  * filePathLinkifier 做法（候选先 stat 校验、存在才保留链接、否则维持纯文本），
  * 渲染侧与校验侧共用同一份匹配/解析逻辑，保证「所见链接」=「校验对象」=
  * 「点击打开的路径」。
+ *
+ * 识别边界（issue #229）：目录与无扩展名文件（`src/main/ipc`、`Makefile`、`.gitignore`）
+ * 也参与识别——识别只是「候选」，存在性由 verdict store 静默校验，误报会降级成纯文本。
+ * 刻意不识别：单段无扩展名普通词（`components`）、1 层相对路径（`src/main`，与 `and/or`、
+ * `N/A` 无法区分）、斜杠列表（`A/B/C/`、`他/她/`）。
  */
 
 /** 裸文件路径识别正则：
@@ -27,21 +32,144 @@ export interface PlainFilePathMatch {
 	end: number;
 }
 
+/** 目录段：与 FILE_PATH_RE 的前缀段同一口径（首字符必须是字母/下划线，避免 `24/7`、`2024/01` 被当成路径）。 */
+const DIR_SEGMENT = "[\\p{L}_][\\p{L}\\p{N}_.-]*";
+/** 目录候选的末段：只认 ASCII 字母/数字/下划线/连字符。
+ *  中文词紧贴斜杠时（模型常写 `src/main/和 utils/`，斜杠后不空格）与中文目录名无法用正则区分；
+ *  而中文目录名通常带扩展名或尾斜杠（分别由 FILE_PATH_RE / TRAILING_SLASH_DIR_RE 覆盖），
+ *  因此末段收窄到 ASCII 是这里唯一可靠的判据。 */
+const DIR_LAST_SEGMENT = "[A-Za-z_][A-Za-z0-9_-]*";
+/** 尾随边界：后面还有路径字符或分隔符，说明这是更长路径的前缀，不能当独立候选
+ *  （`C:\proj\src\a.ts` 必须留给 FILE_PATH_RE，不能被目录规则截成 `C:\proj\src\a`）。 */
+const PATH_TAIL_BOUNDARY = "(?![\\p{L}\\p{N}_.\\-\\\\/])";
+/** 强前缀（与 FILE_PATH_RE 同一组形态）：盘符 / 家目录 / 绝对 / `./`、`../` 相对。 */
+const DIR_STRONG_PREFIX = "(?:[A-Za-z]:[\\\\/]|~[\\\\/]|(?:\\.\\.?[\\\\/]|[\\\\/]))";
+/** 强前缀开头的路径（可 0 段或多段）：`C:\proj\`、`~/dev/`、`/usr/local/`、`./src/`。 */
+const DIR_STRONG_START = DIR_STRONG_PREFIX + "(?:" + DIR_SEGMENT + "[\\\\/])*";
+/** 深路径起点（含无后缀目录规则）：相对形式要求 ≥2 段，否则 `and/or` 会被当成 `and/` + `or`。 */
+const DIR_DEEP_START = "(?:" + DIR_STRONG_START + "|(?:" + DIR_SEGMENT + "[\\\\/]){2,})";
+
+/** 起点边界：前面还粘着单词/路径字符说明这是更长 token 的尾巴（`and/or` 里的 `/or`、`xMakefile`）。 */
+const PATH_HEAD_BOUNDARY = "(?<![\\p{L}\\p{N}_.\\-\\\\/])";
+
+/**
+ * 尾斜杠目录：`src/main/`、`docs/`、`C:\proj\`、`~/dev/`。
+ * 尾斜杠本身是强信号，因此单段也认（`docs/`）；尾随边界只排除 ASCII 字母数字
+ * ——英文散文里的 `and/or`、`TCP/IP`、`he/she`（`and/` 后面还有字母）因此不命中，
+ * 而 `src/main/和 utils/` 这种中文紧贴斜杠的写法仍成立。
+ * 纯文本里的多段斜杠列表（`A/B/C/`、`他/她/`、`24/7/`）由 hasPlausibleSegment 兜底。
+ */
+const TRAILING_SLASH_DIR_RE = new RegExp(PATH_HEAD_BOUNDARY + "(?:" + DIR_STRONG_START + "|(?:" + DIR_SEGMENT + "[\\\\/])+)(?![A-Za-z0-9])", "gu");
+
+/**
+ * 无扩展名目录（可出现在绝对路径或 2 层以上的相对路径）：`src/renderer/src/components`、
+ * `C:\proj\src`、`/usr/local`、`~/dev/proj`。相对路径要求 ≥2 个斜杠，因为 `and/or`、`N/A`、
+ * `TCP/IP`、`CI/CD` 这类斜杠列表与 1 层相对路径无法区分——宁可漏掉 `src/main`，不可误报。
+ */
+const BARE_DIR_RE = new RegExp(PATH_HEAD_BOUNDARY + DIR_DEEP_START + DIR_LAST_SEGMENT + PATH_TAIL_BOUNDARY, "gu");
+
+/**
+ * 无扩展名文件的封闭白名单 + 点开头配置文件。
+ * 单段无扩展名的普通单词（`components`、`docs`）绝不能识别——与英文单词无法区分；
+ * 只有这些「整个文件名的确可以是无扩展名」的固定名字才有资格进白名单。
+ */
+const NAMELESS_FILE_NAMES = [
+	"Makefile",
+	"GNUmakefile",
+	"Dockerfile",
+	"Containerfile",
+	"Jenkinsfile",
+	"Justfile",
+	"Gemfile",
+	"Rakefile",
+	"Brewfile",
+	"Caddyfile",
+	"Vagrantfile",
+	"Procfile",
+	"LICENSE",
+	"LICENCE",
+	"COPYING",
+	"NOTICE",
+	"README",
+	"CHANGELOG",
+	"CONTRIBUTING",
+	"AUTHORS",
+	"CODEOWNERS",
+	"\\.gitignore",
+	"\\.gitattributes",
+	"\\.gitmodules",
+	"\\.gitkeep",
+	"\\.mailmap",
+	"\\.editorconfig",
+	"\\.npmrc",
+	"\\.nvmrc",
+	"\\.node-version",
+	"\\.prettierrc",
+	"\\.prettierignore",
+	"\\.eslintignore",
+	"\\.dockerignore",
+	"\\.babelrc",
+	"\\.env",
+	"\\.envrc",
+	"\\.htaccess",
+	"\\.bashrc",
+	"\\.zshrc",
+	"\\.profile",
+	"\\.vimrc",
+	"\\.ignore",
+];
+
+/**
+ * 白名单名字（可带目录前缀）：`Makefile`、`docs/Makefile`、`a/.gitignore`。
+ * 前后都有边界，`xMakefile`、`Makefile.bak`、`a.env` 一律不命中。
+ */
+const NAMELESS_FILE_RE = new RegExp(`(?<![\\p{L}\\p{N}_.\\-\\\\/])` + `(?:[A-Za-z]:[\\\\/]|~[\\\\/]|(?:\\.\\.?[\\\\/]|[\\\\/])|(?:${DIR_SEGMENT}[\\\\/])+)?` + `(?:${NAMELESS_FILE_NAMES.join("|")})${PATH_TAIL_BOUNDARY}`, "giu");
+
+/**
+ * 尾斜杠目录候选的保守过滤：`A/B/C/`、`他/她/`、`24/7/` 这类短段斜杠列表与目录无法靠正则区分，
+ * 要求至少一个段长度 ≥2（盘符不算段）。
+ */
+function hasPlausibleSegment(match: string): boolean {
+	const withoutDrive = match.replace(/^[A-Za-z]:[\\/]/, "");
+	return withoutDrive.split(/[\\/]+/).some((segment) => segment.length >= 2);
+}
+
 /**
  * 提取文本中的裸文件路径候选。
  * 完整 URL 先整体替换成等长空格再匹配：URL 尾巴（example.com/docs/a.md）长得
  * 就像嵌套路径，逐字符守卫（"://" 前缀、"//" 开头）总能被切分位置绕过；
  * 打码后索引不变，命中的 path 从原文按区间截取，调用方拿到的仍是原文本。
+ *
+ * 四条规则并行扫描后合并：带扩展名的文件（FILE_PATH_RE）、尾斜杠目录、无扩展名目录、
+ * 无扩展名白名单文件。目录候选常常是文件路径的前缀（`src/main/` ⊂ `src/main/index.ts`），
+ * 因此合并时按「起点更早、长度更长」优先，保证一个 token 只产出一个候选。
  */
 export function matchPlainFilePaths(text: string): PlainFilePathMatch[] {
 	const masked = text.replace(URL_RE, (matched) => " ".repeat(matched.length));
-	const matches: PlainFilePathMatch[] = [];
-	FILE_PATH_RE.lastIndex = 0;
-	let m: RegExpExecArray | null;
-	while ((m = FILE_PATH_RE.exec(masked)) !== null) {
-		matches.push({ path: text.slice(m.index, m.index + m[0].length), start: m.index, end: m.index + m[0].length });
+	const candidates: PlainFilePathMatch[] = [];
+	const collect = (regex: RegExp, accept?: (value: string) => boolean) => {
+		regex.lastIndex = 0;
+		let match: RegExpExecArray | null;
+		while ((match = regex.exec(masked)) !== null) {
+			if (accept && !accept(match[0])) continue;
+			candidates.push({ path: text.slice(match.index, match.index + match[0].length), start: match.index, end: match.index + match[0].length });
+		}
+	};
+	collect(FILE_PATH_RE);
+	collect(TRAILING_SLASH_DIR_RE, hasPlausibleSegment);
+	collect(BARE_DIR_RE);
+	collect(NAMELESS_FILE_RE);
+	candidates.sort((a, b) => a.start - b.start || b.end - a.end);
+	const merged: PlainFilePathMatch[] = [];
+	for (const candidate of candidates) {
+		const previous = merged.at(-1);
+		if (previous && candidate.start < previous.end) {
+			if (candidate.end > previous.end) merged[merged.length - 1] = candidate;
+			continue;
+		}
+		merged.push(candidate);
 	}
-	return matches;
+	return merged;
 }
 
 /** ~ 及 ~/ 开头视为绝对引用：~ 固定指用户家目录，不随项目 base 变化。 */

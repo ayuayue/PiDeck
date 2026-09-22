@@ -7,12 +7,17 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 const notice = readFileSync("src/renderer/src/components/session/timelineFailureNotice.ts", "utf8");
 const eventCards = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
+const retryStep = readFileSync("src/renderer/src/components/session/turn/RetryStep.tsx", "utf8");
+const processSummaryToggle = readFileSync("src/renderer/src/components/session/turn/ProcessSummaryToggle.tsx", "utf8");
 
 const i18n = loadTsCommonJs("src/renderer/src/i18n.ts");
-const { FLOATING_FAILURE_KEYS, RETRY_STATUS_KEYS, composeFailureNotice, failureRetrySignature, isExtensionErrorMessage, isFailureNoticeMessage, isFloatingFailureMessage, isRetryStatusMessage, reduceFailureNoticePass } = loadTsCommonJs("src/renderer/src/components/session/timelineFailureNotice.ts", {
-	// 与 composeFailureNotice 共用同一份 i18n 模块，否则 setI18nLocale 改不到 toast 文案。
-	stubs: { "../../i18n": i18n },
-});
+const { FLOATING_FAILURE_KEYS, RETRY_STATUS_KEYS, composeFailureNotice, failureRetrySignature, isExtensionErrorMessage, isFailureNoticeMessage, isFloatingFailureMessage, isRetryStatusMessage, isTransientRetryCard, reduceFailureNoticePass } = loadTsCommonJs(
+	"src/renderer/src/components/session/timelineFailureNotice.ts",
+	{
+		// 与 composeFailureNotice 共用同一份 i18n 模块，否则 setI18nLocale 改不到 toast 文案。
+		stubs: { "../../i18n": i18n },
+	},
+);
 const { setI18nLocale } = i18n;
 
 function message(i18nKey, extras = {}) {
@@ -77,6 +82,42 @@ test("timeline render: 重试状态与失败诊断都渲染卡片，重试卡带
 	assert.match(eventCards, /isRetryStatusMessage\(props\.message\)/);
 	assert.match(eventCards, /t\("diagnostic\.retryTitle"\)/);
 	assert.match(eventCards, /className=\{retryRunning \? "animate-pideck-spin" : undefined\}/);
+});
+
+test("transient retry card: 重试卡不进时间线顶层，改由 run 内过程行留痕", () => {
+	// 用户反馈（m00001）：重试卡与工具时间线割裂且顺序错乱 → 全部重试状态卡不再
+	// 渲染顶层大卡片，收进所属 agent-run 的过程行（RetryStep，失败红/运行中旋转）。
+	// toast 层判定保持不变：成功卡仍算重试状态卡，toast 照常弹。
+	assert.equal(isRetryStatusMessage(message("diagnostic.retrySucceeded", { role: "system", text: "自动重试成功，共重试 2 次" })), true);
+	assert.equal(isRetryStatusMessage(message("diagnostic.retryScheduled", { role: "system" })), true);
+	assert.equal(isRetryStatusMessage(message("diagnostic.retryFailed", { role: "system" })), true);
+	// 渲染层 system 分支短路全部重试状态卡（留痕职责移交 run 内过程行）
+	assert.match(timeline, /if \(isRetryStatusMessage\(message\)\) return null;/);
+	// RetryStep 过程行存在且复用工具行语言（tool-card class + 失败 tone-error）
+	assert.match(retryStep, /tool-card w-full min-w-0 tone-/);
+	assert.match(retryStep, /animate-pideck-spin/);
+	// 过程摘要包含重试计数（折叠态一眼可看出本轮重试过）
+	assert.match(processSummaryToggle, /executionRetryCount/);
+});
+
+test("retry success toast: 卡片不进时间线，toast 仍照常弹", () => {
+	const toastedIds = new Set();
+	const toastedRetrySignatures = new Set();
+	const baseline = pass({ toastedIds, toastedRetrySignatures });
+	const succeeded = message("diagnostic.retrySucceeded", {
+		id: "retry-ok",
+		role: "system",
+		text: "自动重试成功，共重试 2 次",
+		i18nParams: { count: "2/3" },
+	});
+	const live = pass({
+		messages: [succeeded],
+		state: baseline.state,
+		toastedIds,
+		toastedRetrySignatures,
+	});
+	assert.equal(toastIds(live), "retry-ok");
+	assert.equal(failureRetrySignature(succeeded), "retry-ok:diagnostic.retrySucceeded:2/3");
 });
 
 test("retry status keys: 覆盖重试周期四态，不含普通失败诊断", () => {

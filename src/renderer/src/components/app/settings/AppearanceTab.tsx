@@ -4,6 +4,7 @@ import type { AppSkinId } from "../../../../../shared/types/settings";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { SKIN_PRESETS } from "../../../themePresets";
+import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_MAX, SESSION_TAB_MAX_WIDTH_MIN } from "../../../../../shared/sessionTabWidth";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
@@ -401,6 +402,22 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 
 			{/* 窗口样式 */}
 			<SettingsSection title={t("settings.sectionWindowStyle")}>
+				{/* 会话 Tab 宽度上限：仅封顶不设最小宽，Tab 仍按内容收缩；拖动时先本地夹取预览，保存时主进程再归一化。 */}
+				<SettingRow anchor="appearance-session-tab-width" title={<span>{t("settings.sessionTabMaxWidth")}</span>} description={t("settings.sessionTabMaxWidthDesc")}>
+					<div className="flex w-full items-center gap-2">
+						<input
+							type="range"
+							min={SESSION_TAB_MAX_WIDTH_MIN}
+							max={SESSION_TAB_MAX_WIDTH_MAX}
+							step="4"
+							value={draft.sessionTabMaxWidth}
+							onChange={(event) => updateDraft({ sessionTabMaxWidth: clampSessionTabMaxWidth(parseInt(event.target.value)) })}
+							className="min-w-0 flex-1 accent-[var(--color-accent)]"
+							aria-label={t("settings.sessionTabMaxWidth")}
+						/>
+						<span className="min-w-12 shrink-0 text-right font-brand text-sm text-muted-foreground tabular-nums">{draft.sessionTabMaxWidth}px</span>
+					</div>
+				</SettingRow>
 				<SettingSwitchRow anchor="appearance-native-title-bar" title={t("settings.nativeTitleBar")} checked={draft.useNativeTitleBar} onChange={(checked) => updateDraft({ useNativeTitleBar: checked })} />
 				<SettingSwitchRow anchor="appearance-native-menu" title={t("settings.nativeMenu")} checked={draft.showNativeMenu} onChange={(checked) => updateDraft({ showNativeMenu: checked })} />
 			</SettingsSection>

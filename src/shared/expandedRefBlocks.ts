@@ -204,6 +204,11 @@ export function parseExpandedRefBlocks(text: string): ExpandedRefBlock[] {
 	return topLevel;
 }
 
+/** 块折叠后的展示标签（复制/预览/标题共用一套形态，避免各处自造写法）。 */
+function expandedRefBlockLabel(block: ExpandedRefBlock): string {
+	return block.kind === "quote" ? `❝${block.label}` : block.kind === "session" ? `&${block.name}` : `/${block.label}`;
+}
+
 /**
  * 把消息文本中的自包含块替换为 `❝label` / `&会话名` / `/命令` 展示文本。
  * 供复制、队列预览、侧栏 preview、Web 端、子代理转录等所有纯文本出口使用，
@@ -219,9 +224,51 @@ export function replaceExpandedRefBlocksWithLabels(text: string): string {
 	let cursor = 0;
 	for (const block of blocks) {
 		if (block.start > cursor) parts.push(text.slice(cursor, block.start));
-		parts.push(block.kind === "quote" ? `❝${block.label}` : block.kind === "session" ? `&${block.name}` : `/${block.label}`);
+		parts.push(expandedRefBlockLabel(block));
 		cursor = block.end;
 	}
 	if (cursor < text.length) parts.push(text.slice(cursor));
 	return parts.join("");
+}
+
+/**
+ * 会话标题专用清洗：只保留块外由用户自己写的文字，块正文（模板全文、引用全文、技能说明）不进标题。
+ *
+ * 与 preview 的诉求不同：preview 要回答「用户引用了什么」，块标签原地保留即可；
+ * 标题只需要一句话概括这次会话要做什么，把两千字的模板正文写进标题就是纯噪声
+ *（2026-10 现场：首条消息用 /模板 时占位标题被写成 `<prompt_template …>` 原文）。
+ * 块外没有任何文字（只插了 /模板 就发送）时回退到块标签（`/模板名`），保证标题不落空。
+ */
+export function textForSessionTitle(text: string): string {
+	if (!text.includes("<")) return text;
+	const blocks = parseExpandedRefBlocks(text);
+	if (blocks.length === 0) return text;
+	const outside: string[] = [];
+	const labels: string[] = [];
+	let cursor = 0;
+	for (const block of blocks) {
+		if (block.start > cursor) outside.push(text.slice(cursor, block.start));
+		labels.push(expandedRefBlockLabel(block));
+		cursor = block.end;
+	}
+	if (cursor < text.length) outside.push(text.slice(cursor));
+	// 块之间的分隔换行只用于排版，标题里合并成一个空格（存储层仍不截断）。
+	const outsideText = outside.join(" ").replace(/\s+/g, " ").trim();
+	return outsideText || labels.join(" ");
+}
+
+/**
+ * 标题是否残留未折叠的自包含块原文（历史脏标题）。
+ *
+ * 这类标题没有任何信息价值，调用方必须当占位名处理，允许用首条消息/扫描结果重新覆盖；
+ * 否则标题一旦被写成 `<prompt_template …>` 就不再是「默认名」，自动命名永远不会再修它
+ *（2026-10 现场：总结失败时 XML 标题永久留在侧栏）。
+ */
+export function looksLikeExpandedRefBlockTitle(title: string | undefined): boolean {
+	if (!title?.includes("<")) return false;
+	// 完整块（带闭合标签）一定能解析出来，块不在开头（`帮我看看 <quoted_context …>`）也命中。
+	if (parseExpandedRefBlocks(title).length > 0) return true;
+	// 写入方截断/只落了半个块时没有闭合标签，按「带 name/label 属性的块开标签」判定。
+	// 不用裸 `<skill>` 之类无属性形态，避免把用户手写的「<skill> 是什么意思」误判成脏标题。
+	return /<(?:quoted_context|referenced_session|skill|prompt_template)\b[^>]*\b(?:name|label)="/i.test(title);
 }

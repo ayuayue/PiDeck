@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const extensionPath = "resources/extensions/pi-deck-session-title.ts";
 
@@ -72,6 +73,7 @@ function createHarness({ enabled = true, entries = [], titleName, authBaseUrl, h
 	const handlers = new Map();
 	const completeCalls = [];
 	const setNames = [];
+	const statusUpdates = [];
 	const sessionManager = {
 		getSessionId: () => sessionId,
 		getBranch: () => branch,
@@ -82,6 +84,11 @@ function createHarness({ enabled = true, entries = [], titleName, authBaseUrl, h
 		cwd: "C:/project",
 		sessionManager,
 		model: hasModel ? { provider: "test-provider", id: "test-model" } : undefined,
+		ui: {
+			setStatus(key, text) {
+				statusUpdates.push({ key, text });
+			},
+		},
 		modelRegistry: {
 			getApiKeyAndHeaders:
 				authResolver ??
@@ -118,6 +125,7 @@ function createHarness({ enabled = true, entries = [], titleName, authBaseUrl, h
 		completeCalls,
 		handlers,
 		setNames,
+		statusUpdates,
 		setBranch(next) {
 			branch = next;
 		},
@@ -169,6 +177,7 @@ test("首轮 settled 后只用最小独立 context 生成标题并写回 session
 	await flushAsyncWork();
 
 	assert.deepEqual(harness.setNames, ["修复登录流程"]);
+	assert.deepEqual(harness.statusUpdates, [{ key: "pideck:auto-title", text: "修复登录流程" }]);
 	assert.equal(harness.completeCalls.length, 1);
 	const request = harness.completeCalls[0];
 	assert.equal(request.titleContext.tools, undefined);
@@ -465,4 +474,65 @@ test("fork/resume sessions and duplicate settled events are not auto-named", asy
 	resolveCompletion(assistantMessage([{ type: "text", text: "唯一标题" }]));
 	await flushAsyncWork();
 	assert.deepEqual(duplicateHarness.setNames, ["唯一标题"]);
+});
+
+// 回归 2026-10 #250：首条消息用 /模板 时，块正文是发给主模型的上下文，不是用户意图。
+// 旧实现把 1600 字预算全给了模板正文，用户真正说的话被截掉，标题变成模板里的章节名。
+const templateBlock = (name, body) => `<prompt_template name="${name}">\n${body}\n</prompt_template>`;
+const longTemplateBody = `# 翻译官工作规则\n${"规则正文。".repeat(500)}`;
+
+test("只插了 /模板 没写正文时直接用模板名命名，不再请求模型", async () => {
+	const entries = [messageEntry(userMessage(templateBlock("翻译官", longTemplateBody)), 0)];
+	const harness = createHarness({ entries });
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+
+	// 模板名本身就是最准确的标题：省掉一次模型请求，也不再受推理模型输出预算/超时影响。
+	assert.equal(harness.completeCalls.length, 0);
+	assert.deepEqual(harness.setNames, ["/翻译官"]);
+});
+
+test("首条消息带 /模板 时只把用户自己写的话送进标题请求", async () => {
+	const entries = [messageEntry(userMessage(`${templateBlock("翻译官", longTemplateBody)}\n\nhow are you`), 0)];
+	const harness = createHarness({ entries });
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+
+	assert.equal(harness.completeCalls.length, 1);
+	const content = harness.completeCalls[0].titleContext.messages[0].content;
+	assert.match(content, /how are you/);
+	// 模板正文与 XML 包装不能出现在标题请求里（否则又会总结出「翻译官工作规则」）。
+	assert.doesNotMatch(content, /规则正文/);
+	assert.doesNotMatch(content, /prompt_template/);
+});
+
+test("扩展自带的块清洗与 shared 解析层逐条一致", () => {
+	// 扩展是 pi 用 -e 加载的独立文件，无法 import shared，只能自带一份实现；
+	// 这里逐条对照，防止两侧对同一条消息得出不同标题（分叉即回归）。
+	const { formatPromptTemplateBlock, textForSessionTitle } = loadTsCommonJs("src/shared/expandedRefBlocks.ts");
+	const { titleTextFromUserInput } = loadTsCommonJs(extensionPath, {
+		stubs: { "@earendil-works/pi-ai/compat": { completeSimple: () => Promise.reject(new Error("unused")) } },
+	});
+	const template = formatPromptTemplateBlock("翻译官", longTemplateBody);
+	const samples = [
+		`${template}\n\nhow are you`,
+		template,
+		`帮我翻译 ${template}\n\n这段话`,
+		'<quoted_context label="引用A" message_id="m1">\nA 全文\n</quoted_context>\n照着改',
+		'<referenced_session name="会话B">\n[User]: x\n</referenced_session>',
+		'<skill name="cv-writer">\n指令正文\n</skill>\n帮我写简历',
+		'<skill name="cv-writer">\n指令正文\n</skill>',
+		`${formatPromptTemplateBlock("a", "A")}\n${formatPromptTemplateBlock("b", "B")}`,
+		"普通消息，没有块",
+		"<skill> 是什么意思",
+	];
+	for (const sample of samples) {
+		assert.equal(titleTextFromUserInput(sample).text, textForSessionTitle(sample), `diverged on: ${sample.slice(0, 48)}`);
+	}
+	// 纯块输入必须被标记出来（调用方据此跳过模型请求）。
+	assert.equal(titleTextFromUserInput(template).blockOnly, true);
+	assert.equal(titleTextFromUserInput(`帮我翻译 ${template}\n\n这段话`).blockOnly, false);
+	assert.equal(titleTextFromUserInput("普通消息，没有块").blockOnly, false);
 });

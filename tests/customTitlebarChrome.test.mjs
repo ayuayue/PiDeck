@@ -13,9 +13,22 @@ const brand = readFileSync("src/renderer/src/components/app/AppParts.tsx", "utf8
 const sidebar = readFileSync("src/renderer/src/components/sidebar/AppSidebar.tsx", "utf8");
 const tabs = readFileSync("src/renderer/src/components/session/SessionTabsBar.tsx", "utf8");
 const shell = readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8");
+const quickTaskSurface = readFileSync("src/renderer/src/components/app/QuickTaskSurface.tsx", "utf8");
+
+test("compact task shell participates in the shared custom titlebar contract", () => {
+	// 小任务复用主窗口的标题栏按钮和拖拽层；根节点必须进入同一套 CSS 作用域，
+	// 否则 --window-drag-height / --window-controls-width 会退回无效默认值。
+	assert.match(shell, /if \(props\.compactContent\)[\s\S]*?"wechat-shell quick-task-shell"/);
+	assert.match(shell, /!useNativeTitleBar && platform === "darwin" \? "mac-custom-titlebar" : ""/);
+	assert.match(quickTaskSurface, /BrandLockup/);
+	assert.match(quickTaskSurface, /list-toolbar flex h-10/);
+	assert.match(foundation, /\.quick-task-shell\.custom-titlebar-enabled \{[\s\S]*?padding-top:\s*0;/);
+	assert.match(foundation, /\.quick-task-shell\.custom-titlebar-enabled \.list-toolbar \{[\s\S]*?margin-right:\s*var\(--window-controls-width\);/);
+	assert.match(foundation, /\.quick-task-shell\.custom-titlebar-enabled \.list-toolbar button \{[\s\S]*?-webkit-app-region:\s*no-drag;/);
+});
 
 test("custom titlebar content is flush to window top (no shell padding strip)", () => {
-	assert.match(foundation, /\.wechat-shell\.custom-titlebar-enabled \{[\s\S]*?padding-top:\s*0;/);
+	assert.match(foundation, /\.wechat-shell\.custom-titlebar-enabled,[\s\S]*?\.quick-task-shell\.custom-titlebar-enabled \{[\s\S]*?padding-top:\s*0;/);
 	assert.match(foundation, /\.window-drag-layer \{[\s\S]*?background:\s*transparent;/);
 	assert.doesNotMatch(foundation, /\.custom-titlebar-enabled \.chat-pane[\s\S]{0,80}margin-top:\s*calc\(-1 \* var\(--window-drag-height\)\)/);
 	assert.match(foundation, /\.custom-titlebar-enabled:not\(\.drawer-open\) \.session-tabs-bar \{[\s\S]*?margin-right:\s*var\(--window-controls-width\);/);
@@ -85,8 +98,8 @@ test("session tabs bar keeps trailing inset for drawer toggle (no px-* override)
 	assert.match(tabs, /header-drawer-toggle/);
 	assert.match(tabs, /PanelRight/);
 	// margin 让位 + min-width:0：避免 flex 内容把 drag 区撑进窗口控件
-	assert.match(foundation, /\.custom-titlebar-enabled:not\(\.drawer-open\) \.session-tabs-bar \{[\s\S]*?margin-right:\s*var\(--window-controls-width\);/);
 	assert.match(foundation, /\.custom-titlebar-enabled \.session-tabs-bar \{[\s\S]*?min-width:\s*0;/);
+	assert.match(foundation, /\.custom-titlebar-enabled \.session-tabs-bar \{[\s\S]*?margin-right:\s*var\(--window-controls-width\);/);
 	assert.match(foundation, /\.window-controls,\s*\n\.window-controls \* \{[\s\S]*?-webkit-app-region:\s*no-drag;/);
 });
 
@@ -155,7 +168,7 @@ test("drawer toggle stays on session tab bar right; no gap when drawer open", ()
 	// drawer-open 必须同时要求未折叠：折叠后聊天区顶到窗口右缘，Tab 栏仍须让位，
 	// 否则抽屉开关会与关闭按钮重叠。
 	assert.match(shell, /drawer && !drawerCollapsed \? "drawer-open" : ""/);
-	assert.match(foundation, /\.custom-titlebar-enabled:not\(\.drawer-open\) \.session-tabs-bar \{[\s\S]*?margin-right:\s*var\(--window-controls-width\);/);
+	assert.match(foundation, /\.custom-titlebar-enabled \.session-tabs-bar \{[\s\S]*?margin-right:\s*var\(--window-controls-width\);/);
 	assert.match(foundation, /\.custom-titlebar-enabled \.shell-panel-drawer \.detail-drawer \{[\s\S]*?padding-top:\s*var\(--window-drag-height\);/);
 });
 

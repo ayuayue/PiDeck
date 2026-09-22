@@ -127,6 +127,26 @@ export function orderProviderGroups(providers: string[], recentProviders?: strin
 }
 
 /**
+ * 模型选择器行内展示名：用户在「模型」页配置的 name（渠道别名、中文名很常见）——
+ * 提供商返回的 id 可能又长又乱，用自定义名称映射更好认；缺失或仅含空白时回退 id。
+ */
+export function modelRowName(model: { id: string; name?: string }): string {
+	const name = model.name?.trim();
+	return name ? name : model.id;
+}
+
+/**
+ * 模型选择器行文案：单行 `provider/名称`。
+ *
+ * 名称取 modelRowName（自定义 name 回落 id）。provider 前缀必须保留：收藏栏与已隐藏栏
+ * 跨供应商混排，没有分组标题提供上下文，且不同渠道可能取了同一个别名。底层唯一标识
+ * provider/id 不占版面，只出现在悬停 tooltip（`名称 · provider/id`）与搜索关键词里。
+ */
+export function modelRowLabel(model: { id: string; name?: string; provider: string }): string {
+	return `${model.provider}/${modelRowName(model)}`;
+}
+
+/**
  * 模型选择器搜索过滤：子串精确匹配（替代 cmdk 内置 fuzzy）。
  *
  * 为什么不用默认 fuzzy：cmdk 1.1 的 command-score 对「任意子序列」都返回 >0 即显示，

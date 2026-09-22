@@ -234,8 +234,9 @@ test("go-bottom survives shrink clamp; real browsing still expands and relocks",
 	const composer = window.locator(".composer .rich-input");
 	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
 
-	// 构造 6 轮长对话：贴底窗口 3 轮之外存在可扩/可收回的隐藏轮次。
-	for (let i = 1; i <= 6; i += 1) {
+	// 构造 9 轮长对话：一次持续上滚必须跨过两个 3 轮窗口，才能证明首次扩窗补偿
+	// 没有把后续真实上滚永久误判为程序化滚动。
+	for (let i = 1; i <= 9; i += 1) {
 		await sendPrompt(window, `滚动回归前置第 ${i} 轮：制造超过三轮的隐藏历史。`);
 	}
 	// 留出「最新轮安静收起」的 1.5s 窗口，避免它干扰后续断言。
@@ -306,8 +307,8 @@ test("go-bottom survives shrink clamp; real browsing still expands and relocks",
 	// 扩窗断言失去意义。重新适配几何，保证上滚前内容确实溢出视口。
 	await window.waitForTimeout(2600);
 	await fitNearTopBottom(app, window);
-	await wheel(window, -160, 14, 160);
-	expect(await window.locator(".turn-row").count(), "real up-scroll must still expand the window").toBeGreaterThan(3);
+	await wheel(window, -160, 20, 160);
+	expect(await window.locator(".turn-row").count(), "continuous real up-scroll must cross more than one render-window cohort").toBeGreaterThan(6);
 	await expect(bottomButton(window)).toHaveCount(1);
 
 	// ── 按钮回底必须原子收回 3 轮，不得被收缩 clamp 重新扩回 ──
@@ -318,9 +319,9 @@ test("go-bottom survives shrink clamp; real browsing still expands and relocks",
 	await expect.poll(async () => Math.abs((await geometry(window)).dist), { timeout: 1_200 }).toBeLessThanOrEqual(2);
 
 	// ── 回底后再次上滚仍须上报新的 up 意图；方向去重不能吞掉新浏览周期 ──
-	const secondUpResult = await wheel(window, -160, 14, 160);
+	const secondUpResult = await wheel(window, -160, 20, 160);
 	const secondUpButtons = await bottomButton(window).count();
-	expect(await window.locator(".turn-row").count(), `a second up-scroll after go-bottom must expand again; geometry=${JSON.stringify(secondUpResult)} buttons=${secondUpButtons}`).toBeGreaterThan(3);
+	expect(await window.locator(".turn-row").count(), `a second up-scroll after go-bottom must cross multiple cohorts; geometry=${JSON.stringify(secondUpResult)} buttons=${secondUpButtons}`).toBeGreaterThan(6);
 	await expect(bottomButton(window)).toHaveCount(1);
 
 	// ── 用户下滚回底部：重锁 + 窗口收回 3 轮 + 按钮消失 ──

@@ -228,6 +228,9 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 		const childCount = child.codexSubagents.length + child.piSubagents.length;
 		if (child.type === "agent") {
 			const agentSession = props.sessions.find((session) => props.controller.catalog.runtimeBySessionId[session.id]?.agentId === child.agent.id) ?? summaries.find((session) => session.filePath === child.agent.sessionPath);
+			// Catalog owns the display title. AgentTab.title may reflect a transient pi/TUI
+			// session_info event, so only use it for an unbound runtime with no record.
+			const displayTitle = agentSession ? ("title" in agentSession ? agentSession.title : agentSession.name || child.agent.title) : child.agent.title;
 			return (
 				<Fragment key={child.key}>
 					{/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题 */}
@@ -238,7 +241,7 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 							void props.controller.openMenu({ kind: "agent", agentId: child.agent.id, x: event.clientX, y: event.clientY });
 						}}
 					>
-						<SessionHoverCard session={agentSession} title={child.agent.title} projectName={props.project.name} status={child.agent.status} disabled={Boolean(props.controller.menu)}>
+						<SessionHoverCard session={agentSession} title={displayTitle} projectName={props.project.name} status={child.agent.status} disabled={Boolean(props.controller.menu)}>
 							<button
 								type="button"
 								className={cn(sessionRowClass, agentSession?.id === props.currentSessionId && selectedRowClass)}
@@ -255,7 +258,7 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 									<div className="conversation-title flex min-w-0 items-center gap-1.5">
 										{/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题；
                     选中背景仍保留，聚焦行也允许 hover 查看完整标题。 */}
-										<TitleScrollText text={child.agent.title} className="font-medium" />
+										<TitleScrollText text={displayTitle} className="font-medium" />
 										<SessionBackendMark backend={child.agent.backend} />
 										{/* 待确认 ask：运行中 Agent 行同样按会话粒度标记，避免多会话同时等待时分不清。 */}
 										{hasPendingAskForSession(agentSession?.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}

@@ -1,54 +1,40 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import test from "node:test";
 import { createStore } from "jotai/vanilla";
 import { selectAtom } from "jotai/utils";
-import ts from "typescript";
-import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
-const nodeRequire = createRequire(import.meta.url);
-function compile(filePath, imports = {}) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	}).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: (id) => imports[id] ?? nodeRequire(id),
-		Date,
-	});
-	return module.exports;
-}
-const sessionAtoms = compile("src/renderer/src/atoms/session-atoms.ts", {
-	"../utils/agentRuntimeState": compile("src/renderer/src/utils/agentRuntimeState.ts"),
-	"../utils/sessionRecordIdentity": compile("src/renderer/src/utils/sessionRecordIdentity.ts"),
-	"../utils/liveTextHandoff": compile("src/renderer/src/utils/liveTextHandoff.ts"),
-	"./outlineRevision": compile("src/renderer/src/atoms/outlineRevision.ts"),
-	"./outlineProjectionCache": compile("src/renderer/src/atoms/outlineProjectionCache.ts"),
-});
-const composerAtoms = compile("src/renderer/src/atoms/composer-atoms.ts", {
-	"./session-atoms": sessionAtoms,
-});
-const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts", {
-	react: {},
-	jotai: { atom: (value) => ({ _mockInit: value }) },
-	"jotai/utils": {},
-	"../atoms": {},
-	"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
-	"../desktopApi": {},
-	"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },
-	"./timeline/scrollHistoryPolicy": {},
-	"../components/session/timeline/turnRenderWindow": {
-		TIMELINE_SCROLLED_TURN_LIMIT: 3,
-		TIMELINE_WINDOW_EXPAND_STEP: 3,
+/**
+ * 模块图：session-atoms / composer-atoms / 时间线控制器（同一沙箱实例共享模块缓存，
+ * 所以 composer-atoms 的 ./session-atoms 与上面加载的是同一份）。
+ *
+ * 相对 import 交给 createTsSandbox 按**被加载文件目录**解析：旧的手写 require 桥
+ * 以 tests/ 为基准，生产代码一新增本地依赖就整片 MODULE_NOT_FOUND（本文件曾挂在这里：
+ * session-atoms 链路新增 ../i18n 依赖后报 `Cannot find module '../i18n'`）。
+ * jotai / react 不 stub —— 保持真实模块（与历史行为一致，atomFamily 在模块顶层求值）。
+ */
+const sandbox = createTsSandbox({
+	stubs: {
+		"../atoms": {},
+		"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
+		"../desktopApi": {},
+		// i18n 只用到 t()：测试不校验文案，桩成直返 key。
+		"../i18n": { t: (key) => key },
+		"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },
+		"./timeline/scrollHistoryPolicy": {},
+		"../components/session/timeline/turnRenderWindow": {
+			TIMELINE_MOUNTED_TURN_LIMIT: 3,
+			TIMELINE_SCROLLED_TURN_LIMIT: 3,
+			TIMELINE_WINDOW_EXPAND_STEP: 3,
+		},
 	},
-	// useSessionTimelineController 引入 jumpWindowPolicy（策略函数），loader 缺此 stub 时
-	// 回落到 nodeRequire 解析 .ts 失败。其自身依赖 ./turnRenderWindow，用同名 mock 即可。
-	"../components/session/timeline/jumpWindowPolicy": compile("src/renderer/src/components/session/timeline/jumpWindowPolicy.ts", { "./turnRenderWindow": { TIMELINE_WINDOW_EXPAND_STEP: 3 } }),
-	"./timeline/browsePin": compile("src/renderer/src/hooks/timeline/browsePin.ts"),
+	globals: { Date },
 });
+const sessionAtoms = sandbox("src/renderer/src/atoms/session-atoms.ts");
+const composerAtoms = sandbox("src/renderer/src/atoms/composer-atoms.ts");
+const timeline = sandbox("src/renderer/src/hooks/useSessionTimelineController.ts");
+const historyAvailability = sandbox("src/renderer/src/utils/sessionHistoryAvailability.ts");
 
 test("session load and send selectors retain current references across background patches", () => {
 	const store = createStore();
@@ -221,4 +207,16 @@ test("ready with zero record count and no cache entry still stays loading", () =
 	assert.equal(staleRecord.isLoading, true);
 	const staleRecordAfterDisk = timeline.deriveSessionSurfaceRuntime(0, "ready", "idle", undefined, undefined, true);
 	assert.equal(staleRecordAfterDisk.isLoading, false);
+});
+
+test("history availability gate only flags pages main marked unavailable", () => {
+	const { sessionHistoryUnavailableState } = historyAvailability;
+	// DSH host 被手动停止：main 返回带原因的空页，渲染层必须进错误专态而不是写空缓存。
+	const stopped = sessionHistoryUnavailableState({ messages: [], total: 0, nextBefore: null, unavailable: "dsh-host-stopped" });
+	// 跨 realm 对象用字段比较（deepStrictEqual 会拿 prototype 身份，必然不等）
+	assert.equal(stopped?.status, "error");
+	assert.equal(stopped?.reason, "dsh-host-stopped");
+	// 真空会话（无 unavailable 字段）不能被误判成不可用——否则空草稿永远进错误态。
+	assert.equal(sessionHistoryUnavailableState({ messages: [], total: 0, nextBefore: null }), null);
+	assert.equal(sessionHistoryUnavailableState({ messages: [{ role: "user" }], total: 1, nextBefore: 0 }), null);
 });

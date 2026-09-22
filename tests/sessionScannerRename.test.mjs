@@ -98,6 +98,7 @@ function loadSessionScanner(homePath) {
 				};
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;
 			if (id === "../wsl/WslPaths") return wslPaths;

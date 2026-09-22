@@ -13,6 +13,8 @@
  * - prompt：立即 success，然后以 ~80ms 间隔流式输出 12 个 text_delta，
  *   文本为 "Mock 回复：「<消息>」"；prompt 含 "SLOW" 时放慢到 220ms×18，
  *   便于稳定地在中途点击「停止」。
+ * - prompt 含 RETRY_OK / RETRY_FAIL：复刻 pi 的自动重试事件序列
+ *   （见 simulateRetry；E2E：retry-status-card.spec.ts）。
  * - abort：立即 success；取消进行中的流，发 agent_end + agent_settled。
  * - 其它命令一律 success（桌面端对未知字段宽容），避免误报错误气泡。
  */
@@ -89,14 +91,16 @@ function encodeSessionDir(cwd) {
 // 2) 项目 cwd/.pi/sessions 镜像，SessionScanner 扫历史（#113 3.2-9）
 let sessionFile = resumeSessionPath;
 let sessionHeaderWritten = false;
-const TMP_SESSION_FILE_PATH = path.join(require("node:os").tmpdir(), sessionId + ".jsonl");
 const PROJECT_SESSIONS_DIR = path.join(process.cwd(), ".pi", "sessions");
 const PROJECT_SESSION_FILE_PATH = path.join(PROJECT_SESSIONS_DIR, sessionId + ".jsonl");
+// Session identity tests need the RPC-reported file and scanner file to be the same,
+// as with real pi; retain the older dual-file fixture for existing recovery tests.
+const TMP_SESSION_FILE_PATH = process.env.PIDECK_MOCK_SESSION_IN_PROJECT === "1" ? PROJECT_SESSION_FILE_PATH : path.join(require("node:os").tmpdir(), sessionId + ".jsonl");
 function ensureSessionFile() {
 	if (sessionFile) return;
 	try {
-		fs.writeFileSync(TMP_SESSION_FILE_PATH, "", { flag: "a" });
 		fs.mkdirSync(PROJECT_SESSIONS_DIR, { recursive: true });
+		fs.writeFileSync(TMP_SESSION_FILE_PATH, "", { flag: "a" });
 		const settingsPath = path.join(process.cwd(), ".pi", "settings.json");
 		if (!fs.existsSync(settingsPath)) {
 			fs.writeFileSync(settingsPath, JSON.stringify({ sessionDir: ".pi/sessions" }, null, 2));
@@ -321,6 +325,72 @@ function emit(event) {
 	send(event);
 }
 
+/** 自动重试模拟用的错误原文（与真实 5xx 网关错误同形）。 */
+const RETRY_ERROR = "HTTP 429 Too Many Requests";
+
+/**
+ * 自动重试事件序列模拟（E2E：retry-status-card.spec.ts）。
+ * 对齐真实 pi（dist/core/agent-session.js）：
+ * - 每次重试前发 auto_retry_start{attempt,maxAttempts,delayMs,errorMessage}；
+ * - 重试由 agent.continue() 继续，continue 会再发一次 agent_start；
+ * - 成功那次 assistant message_end **之后**才发 auto_retry_end{success:true} 并把计数归零
+ *   ——计数按「一次 LLM 调用」归零，所以同一轮 run 内多次 5xx 会连发多组 success，
+ *   桌面端据此各留一张成功卡（用户反馈「重试成功卡堆一排」的复现路径）；
+ * - 耗尽则发 auto_retry_end{success:false,finalError}，本轮 run 以 error 收尾。
+ *
+ * RETRY_OK：同一轮内连续 3 个「网关空响应 → 重试成功」周期（真实空响应形态：重试后的
+ *   调用成功但没有任何正文，所以时间线上只看得到一排重试卡），随后用 SLOW 节奏流式输出
+ *   正常回答——留出足够窗口让 E2E 在「本轮仍在跑」时断言时间线上没有成功卡。
+ *   必须在轮内断言：agent_settled 会重读会话文件，PiDeck 本地卡片本来就会被清掉。
+ * RETRY_FAIL：重试耗尽 → 桌面端保留失败卡留痕。
+ */
+function simulateRetry(userText) {
+	const failOnly = userText.includes("RETRY_FAIL");
+	const backoffMs = 1500;
+	streaming = true;
+	emit({ type: "agent_start" });
+	const runCycle = (left) => {
+		if (left <= 0) {
+			if (failOnly) {
+				// 失败卡同理要留出稳定断言窗口：agent_settled 会重读会话文件，
+				// 只隔一帧就收尾的话 E2E 拿不到「失败卡留在时间线上」的稳定状态。
+				setTimeout(() => {
+					streaming = false;
+					emit({
+						type: "agent_end",
+						messages: [{ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", errorMessage: RETRY_ERROR }],
+					});
+					emit({ type: "agent_settled" });
+				}, 2500);
+				return;
+			}
+			// 重试全部收敛后、最终回答前留一段空窗：E2E 要在这段时间内断言
+			// 「时间线上没有成功卡」。不能等到回答流式开始再断言——流式途中渲染层
+			// 会因窗口/前缀重算把这几张卡清掉，那时断言等于什么都没测。
+			setTimeout(() => startStream("SLOW " + userText), 4000);
+			return;
+		}
+		emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: backoffMs, errorMessage: RETRY_ERROR });
+		setTimeout(() => {
+			if (failOnly) {
+				emit({ type: "auto_retry_end", success: false, attempt: 1, maxAttempts: 3, finalError: RETRY_ERROR });
+				runCycle(0);
+				return;
+			}
+			emit({ type: "agent_start" });
+			// 网关空响应：这次调用算「成功」但没有任何正文。
+			// stopReason 用 toolUse 而不是 stop：真实重试多发在工具循环中间（重试后的调用
+			// 继续要工具），而 stop 会在渲染层断开 agent-run；一旦断成多个 run，turn 挂载
+			// 窗口只保留尾部 3 轮，早于窗口起点的重试卡会被 slice 掉，反而复现不出「堆一排」。
+			emit({ type: "message_start", message: { role: "assistant", content: [{ type: "text", text: "" }] } });
+			emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "" }], stopReason: "toolUse" } });
+			emit({ type: "auto_retry_end", success: true, attempt: 1 });
+			runCycle(left - 1);
+		}, backoffMs);
+	};
+	runCycle(failOnly ? 1 : 3);
+}
+
 function stopStream(settled) {
 	if (streamTimer) {
 		clearTimeout(streamTimer);
@@ -341,48 +411,50 @@ function startStream(userText, options = {}) {
 	const burst = userText.includes("BURST");
 	// prompt 含 "MDEMO" 时回复富 markdown，用于截图巡检渲染元素（链接/代码/表格/引用）
 	// raw 模式（Ask 回答回显）：不套模板、不截断，保证长 JSON 答案完整回传
-	const reply = options.raw
-		? userText
-		: userText.includes("BURST")
-			? "Mock 回复：「BURST」" + "第一段缓慢吐字节奏稳定，然后密集输出段以极快速度连续推送多字符用于复现真实模型突发输出导致的蹦字现象，这段文本会在一两百毫秒内一次性灌入渲染层。"
-			: userText.includes("LONG")
-				? "Mock 回复：「LONG」" +
-					Array.from({ length: 120 })
-						.map((_, i) => `第 ${i + 1} 行：长回答示例文本，用于撑高时间线高度（滚动/贴底类用例需要内容溢出视口）。`)
-						.join("\n")
-				: userText.includes("MDEMO")
-					? [
-							"以下是渲染元素巡检：",
-							"",
-							"修改了 src/main/index.ts 和 ./docs/ui-2.0-revamp-plan.md，详见 https://github.com/miaojingang/pi-desktop 。",
-							"",
-							"> 引用块：重构期间禁止静默吞掉对方改动，每个冲突都要确认能力归属。",
-							"",
-							"行内代码 `npm run typecheck` 必须通过。",
-							"",
-							"```ts",
-							"const gate = await runTypecheck();",
-							'if (!gate.ok) throw new Error("typecheck failed");',
-							"```",
-							"",
-							"| 批次 | 状态 | 说明 |",
-							"| --- | --- | --- |",
-							"| U2 | ✅ | Streamdown 渲染管线 |",
-							"| U5 | ✅ | 组件清扫 |",
-							"",
-							"```mermaid",
-							"graph LR",
-							"  A[启动] --> B{校验}",
-							"  B -->|通过| C[执行]",
-							"  B -->|失败| D[报错]",
-							"  C --> E[结束]",
-							"```",
-							"",
-							"行内公式 $x^2 + y^2 = z^2$ 与块级公式：",
-							"",
-							"$$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$",
-						].join("\n")
-					: `Mock 回复：「${userText.slice(0, 40)}」流式渲染验证完成。`;
+	const reply = userText.startsWith("MATH_REPRO\n")
+		? userText.slice("MATH_REPRO\n".length)
+		: options.raw
+			? userText
+			: userText.includes("BURST")
+				? "Mock 回复：「BURST」" + "第一段缓慢吐字节奏稳定，然后密集输出段以极快速度连续推送多字符用于复现真实模型突发输出导致的蹦字现象，这段文本会在一两百毫秒内一次性灌入渲染层。"
+				: userText.includes("LONG")
+					? "Mock 回复：「LONG」" +
+						Array.from({ length: 120 })
+							.map((_, i) => `第 ${i + 1} 行：长回答示例文本，用于撑高时间线高度（滚动/贴底类用例需要内容溢出视口）。`)
+							.join("\n")
+					: userText.includes("MDEMO")
+						? [
+								"以下是渲染元素巡检：",
+								"",
+								"修改了 src/main/index.ts 和 ./docs/ui-2.0-revamp-plan.md，详见 https://github.com/miaojingang/pi-desktop 。",
+								"",
+								"> 引用块：重构期间禁止静默吞掉对方改动，每个冲突都要确认能力归属。",
+								"",
+								"行内代码 `npm run typecheck` 必须通过。",
+								"",
+								"```ts",
+								"const gate = await runTypecheck();",
+								'if (!gate.ok) throw new Error("typecheck failed");',
+								"```",
+								"",
+								"| 批次 | 状态 | 说明 |",
+								"| --- | --- | --- |",
+								"| U2 | ✅ | Streamdown 渲染管线 |",
+								"| U5 | ✅ | 组件清扫 |",
+								"",
+								"```mermaid",
+								"graph LR",
+								"  A[启动] --> B{校验}",
+								"  B -->|通过| C[执行]",
+								"  B -->|失败| D[报错]",
+								"  C --> E[结束]",
+								"```",
+								"",
+								"行内公式 $x^2 + y^2 = z^2$ 与块级公式：",
+								"",
+								"$$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$",
+							].join("\n")
+						: `Mock 回复：「${userText.slice(0, 40)}」流式渲染验证完成。`;
 	const chunkCount = slow ? 18 : burst ? 24 : 12;
 	const per = Math.max(1, Math.ceil(reply.length / chunkCount));
 	streamChunks = [];
@@ -545,6 +617,10 @@ function handleCommand(cmd) {
 					});
 					setTimeout(() => process.exit(1), 80);
 				}, 80);
+				return;
+			}
+			if (text.includes("RETRY_OK") || text.includes("RETRY_FAIL")) {
+				simulateRetry(text);
 				return;
 			}
 			if (streaming) {

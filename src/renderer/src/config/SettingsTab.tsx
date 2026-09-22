@@ -1,5 +1,5 @@
 import { Button } from "../components/ui-shadcn/button";
-import { useState, useRef, useCallback, useEffect, type ReactNode } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { X, Plus, Check } from "lucide-react";
 import type { AuthFile, SettingsFile, ModelsFile } from "./configTypes";
 import { collectProviderOptions } from "./providerOptions";
@@ -8,7 +8,7 @@ import { t } from "../i18n";
 import { Input } from "../components/ui-shadcn/input";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
-import { SettingBox, SettingRow, SettingSwitchRow } from "../components/app/settings/SettingRows";
+import { SettingBox, SettingRow, SettingSwitchRow, ClearableSettingsInput } from "../components/app/settings/SettingRows";
 import { SettingsSection } from "../components/app/settings/SettingsStorageTab";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
@@ -599,35 +599,6 @@ function EnabledModelsInput(props: {
 				</Command>
 			</PopoverContent>
 		</Popover>
-	);
-}
-
-/** 带清空按钮的输入包装器：值非空时在控件右侧并排显示 ✕ 清除按钮，点击即清除选中值。
- *  清除只置空值（onChange("")），保留设置项 key，避免设置页整行消失。
- *  ✕ 置于控件外右侧（flex 并排，不悬浮在控件上）——不会遮挡输入文字、下拉箭头，
- *  也不会与控件内部图标（如 Select 的 chevron）发生重叠。 */
-function ClearableSettingsInput(props: { empty: boolean; onClear: () => void; children: ReactNode }) {
-	return (
-		<div className="flex w-full items-center gap-1.5">
-			<div className="min-w-0 flex-1">{props.children}</div>
-			{!props.empty && (
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					className="size-6 shrink-0 rounded-sm text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-					onMouseDown={(e) => {
-						// 用 mousedown 而非 click：避免触发 combobox 的 onFocus/onChange 连锁反应
-						e.preventDefault();
-						e.stopPropagation();
-						props.onClear();
-					}}
-					title={t("common.clear")}
-				>
-					<X size={12} />
-				</Button>
-			)}
-		</div>
 	);
 }
 

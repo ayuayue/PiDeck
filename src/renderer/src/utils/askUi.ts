@@ -1,4 +1,4 @@
-import type { AgentUiRequest, AgentUiResponse } from "../../../shared/types";
+import type { AgentUiBatchQuestion, AgentUiRequest, AgentUiResponse } from "../../../shared/types";
 
 /**
  * Ask 提问 UI 的纯逻辑（与渲染解耦，便于单测与 E2E 断言）。
@@ -53,6 +53,42 @@ export function pickActiveAskRequest(entries: Readonly<Record<string, AskRequest
 	if (!entries) return undefined;
 	const active = Object.values(entries).filter((entry) => entry.status === "pending" || entry.status === "responding");
 	return active[active.length - 1]?.request;
+}
+
+/** runtime 与 runtime UI 的绑定形状（结构类型，避免纯逻辑依赖渲染层 atoms）。 */
+export type AskRuntimeBinding = { agentId?: string; runtimeGeneration: number; status: string };
+export type AskRuntimeUiBinding = { agentId: string; runtimeGeneration: number; requests?: Readonly<Record<string, AskRequestEntry>> };
+
+/**
+ * 当前可交互的 ask 请求（无则 undefined）。
+ *
+ * 这是「runtime 与 UI 同代」的唯一判据，同时被两处使用，必须保持单一定义：
+ * - SessionRuntimeUiOverlay：决定是否渲染提问卡（并拒绝旧 runtime 的迟到请求）；
+ * - SessionRuntimeInjector：决定底栏 ask 面板是否占位（布局层需要提前知道，
+ *   不能只靠卡片自己返回 null，否则 composer 高度预留会算错）。
+ * detached/closed 的 runtime 一律视为不可交互。
+ */
+export function resolveActiveAskRequest(runtime: AskRuntimeBinding | undefined, ui: AskRuntimeUiBinding | undefined): AgentUiRequest | undefined {
+	if (!runtime || !ui) return undefined;
+	if (runtime.status === "detached" || runtime.status === "closed") return undefined;
+	if (runtime.agentId !== ui.agentId || runtime.runtimeGeneration !== ui.runtimeGeneration) return undefined;
+	return pickActiveAskRequest(ui.requests);
+}
+
+/**
+ * 批量卡「选完自动前进」策略（issue #230 第 1 点：点完一题不能自动跳下一题）。
+ *
+ * 只有单值选择（select / confirm）选完即自动前进：
+ * - multi_select 要多次勾选，不能跳；
+ * - editor 的 onChange 每次击键都会写入答案，绝不能自动前进（否则打第一个字就跳题）；
+ * - input（点提交/回车）与 select 的自定义文本提交也算「一次提交完成本题」，同样自动；
+ * - 单题批次（total <= 1）不自动：卡片本身就是确认卡，点选项即提交等于删掉确认步骤，
+ *   误触后无法反悔；未题（total > 1）也自动，去向由调用方决定：
+ *   非末题 → 下一题；末题 → 审阅页（review）或直接提交全部。
+ */
+export function shouldAutoAdvanceBatchAnswer(input: { type: AgentUiBatchQuestion["type"]; total: number }): boolean {
+	if (input.total <= 1) return false;
+	return input.type === "select" || input.type === "confirm" || input.type === "input";
 }
 
 /** select 的选项是否可点击（有选项时才渲染选项按钮） */

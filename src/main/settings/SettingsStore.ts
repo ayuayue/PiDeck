@@ -8,6 +8,8 @@ import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
+import { normalizeQuickMessages } from "../../shared/quickMessages";
+import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { getAppLogger } from "../logging/sharedLogger";
 import { setConfiguredGitPath } from "../git/gitExecutable";
 import { renameWithRetry } from "../utils/fsRetry";
@@ -107,6 +109,10 @@ const defaultSettings: AppSettings = {
 	// 忙碌时发送默认「插入当前回合」（对齐 pi 历史行为）；dsh 会话此前默认排队，
 	// 统一后由本设置项决定，用户可在常用设置→会话中改回。
 	busySendDelivery: "steer",
+	// 快捷消息：**遗留字段**。新版本清单存在 userData/quick-messages.json（QuickMessageStore），
+	// 出厂值在随包资源 quick-messages.default.json，不再硬编码。这里保留空数组作为默认值，
+	// 旧数据（升级前用户改过的条目）仍会在读取时原样保留，供首次迁移作种子。
+	quickMessages: [],
 	enableGitManagement: true,
 	gitCommitMessagePrompt: `请根据以下 git diff 生成一条中文 git commit message。
 
@@ -177,6 +183,8 @@ Gitmoji 对应关系：
 	// 内容区宽度默认 80%：轻微留白兼顾阅读舒适（1826px 面板 → 内容 1461px）；
 	// 分屏窄栏时由容器查询自动收敛，详见 foundation.css --chat-content-pct。
 	chatContentWidthPct: 80,
+	// 会话 Tab 最大宽度默认 104px：与旧硬编码 max-w-[104px] 一致，迁移零回归。
+	sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 	maxEditorFileSizeMB: 5,
 	externalEditors: createDefaultExternalEditorSettings(),
 
@@ -339,6 +347,8 @@ export class SettingsStore {
 			// 语义从「最大宽度 px」变为「占面板百分比」，无法精确换算（面板宽度可变），
 			// 用线性映射保留旧值感觉：800→60%、1400→84%、1800(不限)→100%。
 			this.migrateContentWidth();
+			// 会话 Tab 最大宽度：磁盘 JSON 无类型，手工改坏（非数字/超界）时钳回合法区间。
+			this.settings.sessionTabMaxWidth = clampSessionTabMaxWidth(this.settings.sessionTabMaxWidth);
 			// 兼容迁移：全局用量自动查询开关已删除（改为每个 provider 徽章/弹窗里的开关）。
 			this.migrateRemovedUsageAutoQuerySwitch();
 			// 兼容迁移：按供应商/模型过滤的代理白名单，旧数据缺省为 []（不按名单过滤，保持全局行为）。
@@ -371,6 +381,10 @@ export class SettingsStore {
 			// 快捷键覆盖来自旧 settings.json 时可能是脏值（未知 id / 非法 accelerator）；
 			// 统一清洗，坏条目回落平台默认，避免主进程匹配读到无效键。
 			this.settings.shortcuts = sanitizeShortcutOverrides(parsed.shortcuts, process.platform);
+			// 快捷消息来自旧 JSON 时可能是脏值（非数组/含空白与重复项/超长）：统一清洗，
+			// 避免把脏值当成迁移种子写进配置文件；缺字段回落空数组（“没有旧数据”），
+			// 不要在这里注入出厂清单——出厂清单改由随包资源文件提供。
+			this.settings.quickMessages = normalizeQuickMessages(parsed.quickMessages);
 		}
 		// showThinking 不再作为可持久化的独立配置项，完全跟随 pi agent 的 hideThinkingBlock。
 		// 启动时重新读取以确保每次启动都使用最新值，而非缓存的 defaultSettings。
@@ -459,9 +473,22 @@ export class SettingsStore {
 		if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
 			delete safePatch.autoSessionTitle;
 		}
+		// 会话 Tab 最大宽度：非有限数值直接丢弃（保持原设置），合法值钳到 80–400。
+		if ("sessionTabMaxWidth" in safePatch) {
+			if (typeof safePatch.sessionTabMaxWidth === "number" && Number.isFinite(safePatch.sessionTabMaxWidth)) {
+				safePatch.sessionTabMaxWidth = clampSessionTabMaxWidth(safePatch.sessionTabMaxWidth);
+			} else {
+				delete safePatch.sessionTabMaxWidth;
+			}
+		}
 		// 全局快捷键覆盖来自渲染层，入参不可信：只保留已知 id + 合法 accelerator 的条目。
 		if ("shortcuts" in safePatch) {
 			safePatch.shortcuts = sanitizeShortcutOverrides(safePatch.shortcuts, process.platform);
+		}
+		// 快捷消息清单已是遗留字段（渲染层不再发送，清单改走 quickMessages:* IPC + 独立配置文件）：
+		// 仍然保留清洗，避免历史渲染层或手工改 settings.json 时把脏值写回去。
+		if ("quickMessages" in safePatch) {
+			safePatch.quickMessages = normalizeQuickMessages(safePatch.quickMessages);
 		}
 		// 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
 		if ("updateSource" in safePatch) {

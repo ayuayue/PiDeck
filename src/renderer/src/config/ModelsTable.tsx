@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Brain, Coins, EyeOff, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Coins, EyeOff, Fingerprint, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import type { ModelItem } from "./configTypes";
 import { ConfigSelect, ConfigComboboxInput, openDocsInSystemBrowser } from "./ConfigShared";
@@ -11,7 +11,7 @@ import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui-shadcn/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui-shadcn/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui-shadcn/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 
 /** 模型已知字段（除未知字段外的受管字段），用于计费弹框里提示「高级字段将被保留」。 */
@@ -31,7 +31,7 @@ export type ModelsTableProps = {
 	 * 且 model-config.d.ts 里 headers 是该对象合法的 TypeBox 字段（非自定义字段）。
 	 */
 	onUpdateModelUserAgent?: (index: number, value: string) => void;
-	/** 读取该行当前的逐模型 UA 覆盖（可选；不传则不渲染该列）。 */
+	/** 读取该行当前的逐模型 UA 覆盖（可选；与 onUpdateModelUserAgent 成对出现才渲染操作列的 UA 按钮）。 */
 	getModelUserAgentOverride?: (index: number) => string;
 	onUpdateModelThinkingLevel: (index: number, key: "xhigh" | "max", value: "" | "xhigh" | "max") => void;
 	onDeleteModel: (index: number) => void;
@@ -62,19 +62,23 @@ export type ModelsTableProps = {
 /**
  * 模型表格（模型页展开卡片 / 供应商编辑页共用）：
  * id/名称/上下文长度/maxTokens/思考级别/能力（推理、图片）/操作列，
- * 计费弹框（基础费率 + 梯度计费）由组件内部管理，输入即保存。
+ * 计费弹框（基础费率 + 梯度计费）与逐模型 UA 弹框由组件内部管理，输入即保存。
  * 行操作一律用 index 定位，provider 相关回调由调用方包一层。
  */
 export function ModelsTable(props: ModelsTableProps) {
 	const { models, batchMode = false, selectedIndexes } = props;
 	// UA 预设在渲染期取一次即可（只依赖 i18n，models 变化不会让它失效）。
 	const modelUserAgentOptions = getUserAgentOptions();
-	// 逐模型 UA 列按需渲染：两个回调都给了才有意义（只给一半等于点了没反应）。
-	const showUaColumn = Boolean(props.onUpdateModelUserAgent && props.getModelUserAgentOverride);
+	// 逐模型 UA 按需渲染：两个回调都给了才有意义（只给一半等于点了没反应）。
+	const hasUserAgentOverride = Boolean(props.onUpdateModelUserAgent && props.getModelUserAgentOverride);
 	const getRowKey = props.getRowKey ?? ((index: number) => String(index));
 	const modelIdInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 	// 计费弹框：打开中的行 index（null = 关闭）
 	const [costDialogIndex, setCostDialogIndex] = useState<number | null>(null);
+
+	// 逐模型 UA 弹框：打开中的行 index（null = 关闭）。
+	// 收进操作列图标而非独立列：UA 覆盖是少数人才用的高级项，早先每行摊一个空输入框白占整列宽度。
+	const [uaDialogIndex, setUaDialogIndex] = useState<number | null>(null);
 	// 梯度计费编辑草稿：弹窗打开时从 cost.tiers 初始化；输入即规整落盘（与基础费率行为一致）
 	const [tierEditor, setTierEditor] = useState<{ key: string; drafts: CostTierDraft[] } | null>(null);
 	const selectionState = getModelSelectionState(selectedIndexes ?? new Set<number>(), models.length);
@@ -134,7 +138,6 @@ export function ModelsTable(props: ModelsTableProps) {
 						<TableHead className="w-24">{t("config.maxTokens")}</TableHead>
 						<TableHead className="w-24">{t("config.thinkingLevels")}</TableHead>
 						<TableHead className="w-24">{t("config.capabilities")}</TableHead>
-						{showUaColumn && <TableHead className="w-40">{t("config.modelUserAgent")}</TableHead>}
 						<TableHead className="w-20 text-right pr-3">{t("config.actions")}</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -167,6 +170,9 @@ export function ModelsTable(props: ModelsTableProps) {
 						const maxValue = m.thinkingLevelMap?.max === "xhigh" || m.thinkingLevelMap?.max === "max" ? m.thinkingLevelMap.max : "";
 						const hasOnlyManagedThinkingLevelMap = m.thinkingLevelMap && Object.keys(m.thinkingLevelMap).every((key) => key === "xhigh" || key === "max");
 						const modelComplexFields = ["api", "baseUrl", "thinkingLevelMap", "cost", "headers", "compat"].filter((key) => m[key] !== undefined && (key !== "thinkingLevelMap" || !hasOnlyManagedThinkingLevelMap));
+
+						// 逐模型 UA 覆盖值（空串 = 继承供应商级 UA）：操作列按钮据此判断是否已配置，弹框用它做初值
+						const userAgentOverride = hasUserAgentOverride ? props.getModelUserAgentOverride!(i) : "";
 						return (
 							<>
 								<TableRow key={rowKey} className="align-middle" data-state={batchMode && selectedIndexes?.has(i) ? "selected" : undefined}>
@@ -278,14 +284,7 @@ export function ModelsTable(props: ModelsTableProps) {
 											</Label>
 										</div>
 									</TableCell>
-									{/* 逐模型 UA：留空 = 继承 provider 级 UA（modelOverrides 不写该键）。
-									    写了则由 pi 覆盖 provider.headers 的同名键（优先级更高）。 */}
-									{showUaColumn && (
-										<TableCell className="p-2">
-											<ConfigComboboxInput value={props.getModelUserAgentOverride!(i)} options={modelUserAgentOptions} onChange={(value) => props.onUpdateModelUserAgent!(i, value)} placeholder={t("config.modelUserAgentInherit")} />
-										</TableCell>
-									)}
-									{/* 操作列：排序（上移/下移）+ 隐藏 + 重置为自适应 + 计费（Dialog）+ 删除 */}
+									{/* 操作列：排序（上移/下移）+ 隐藏 + 重置为自适应 + 逐模型 UA（Dialog）+ 计费（Dialog）+ 删除 */}
 									<TableCell className="p-2">
 										<div className="flex items-center justify-end gap-0.5">
 											{props.onMoveModel && (
@@ -306,6 +305,12 @@ export function ModelsTable(props: ModelsTableProps) {
 											{props.onResetModel && (
 												<Button variant="ghost" size="icon-sm" className="size-7" onClick={() => props.onResetModel!(i)} disabled={props.resettingModelKey === rowKey} title={t("config.modelResetAdaptive")}>
 													<RotateCcw className="size-3.5" aria-hidden="true" />
+												</Button>
+											)}
+											{/* 已配置覆盖时图标高亮，并在 tooltip 里直接带出当前 UA（代替独立列的「一眼可见」） */}
+											{hasUserAgentOverride && (
+												<Button variant="ghost" size="icon-sm" className={userAgentOverride ? "size-7 text-[color:var(--color-accent)]" : "size-7"} onClick={() => setUaDialogIndex(i)} title={userAgentOverride ? `${t("config.modelUserAgent")}: ${userAgentOverride}` : t("config.modelUserAgent")}>
+													<Fingerprint className="size-3.5" aria-hidden="true" />
 												</Button>
 											)}
 											<Button variant="ghost" size="icon-sm" className="size-7" onClick={() => setCostDialogIndex(i)} title={t("config.modelCost")}>
@@ -411,11 +416,43 @@ export function ModelsTable(props: ModelsTableProps) {
 										</DialogFooter>
 									</DialogContent>
 								</Dialog>
+
+								{/* 逐模型 UA 弹框：与计费同模式（每行一个受控 Dialog，选中即保存）。
+									留空 = modelOverrides 不写该键 → 继承供应商级 UA；写了则由 pi 覆盖 provider.headers
+									的同名键（core/provider-composer.js 的 rawModelHeaders 把它展开在最后，优先级更高）。 */}
+								<Dialog
+									open={uaDialogIndex === i}
+									onOpenChange={(open) => {
+										if (!open) setUaDialogIndex(null);
+									}}
+								>
+									<DialogContent className="sm:max-w-lg">
+										<DialogHeader>
+											<DialogTitle>{t("config.modelUserAgent")}</DialogTitle>
+											<DialogDescription>{t("config.modelUserAgentDialogDesc")}</DialogDescription>
+										</DialogHeader>
+										<div className="flex items-center gap-2">
+											<ConfigComboboxInput value={userAgentOverride} options={modelUserAgentOptions} onChange={(value) => props.onUpdateModelUserAgent!(i, value)} placeholder={t("config.modelUserAgentInherit")} />
+											{userAgentOverride && (
+												<Button variant="ghost" size="sm" className="h-8 shrink-0 px-2 text-xs" onClick={() => props.onUpdateModelUserAgent!(i, "")}>
+													{t("config.modelUserAgentClear")}
+												</Button>
+											)}
+										</div>
+										<DialogFooter>
+											<Button variant="default" size="sm" onClick={() => setUaDialogIndex(null)}>
+												{t("common.done")}
+											</Button>
+										</DialogFooter>
+									</DialogContent>
+								</Dialog>
 							</>
 						);
 					})}
 					{models.length === 0 && (
 						<TableRow className="hover:bg-transparent">
+							{/* 空表提示跨全部列：非批量 7 列（ID/名称/上下文/最大Token/思考级别/能力/操作），批量再 +1。
+							    加列/删列时必须同步这里，否则空表提示跨不满整行。 */}
 							<TableCell colSpan={batchMode ? 8 : 7} className="py-5 text-center text-xs text-text-tertiary">
 								{t("config.emptyModels")}
 							</TableCell>

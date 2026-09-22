@@ -95,6 +95,12 @@ scripts/tmp-*
 .tmp-*.mjs
 .tmp-*/
 .tmp-el-probe/
+# 仓库根的一次性探针脚本（正式测试一律放 tests/*.test.mjs，根目录这些是排查残留；
+# 用 / 锚定根目录，避免误伤 tests/ 下的正式用例）
+/test-*.mjs
+/test-*.js
+/check-*.js
+/check-*.mjs
 # beUI 官方源码提取的临时对比目录（不应提交）
 .beui-official/
 

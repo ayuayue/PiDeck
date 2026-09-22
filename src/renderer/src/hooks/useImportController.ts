@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toggleSelectedPaths } from "../utils/importSessionList";
 
 export type ImportControllerOptions<TSummary, TReport> = {
 	projectId: string | null | undefined;
@@ -18,7 +19,8 @@ export type ImportControllerState<TSummary, TReport> = {
 	error: string | null;
 	refresh: () => Promise<void>;
 	toggle: (sourcePath: string) => void;
-	toggleAll: () => void;
+	/** 全选 / 取消全选；传入 sourcePaths 时只在该子集内切换（列表搜索后「全选」不应波及被过滤掉的行）。 */
+	toggleAll: (sourcePaths?: string[]) => void;
 	importSelected: () => Promise<TReport | null>;
 	reset: () => void;
 };
@@ -82,12 +84,13 @@ export function useImportController<TSummary, TReport>(options: ImportController
 		setSelectedPaths((current) => (current.includes(sourcePath) ? current.filter((path) => path !== sourcePath) : [...current, sourcePath]));
 	}, []);
 
-	const toggleAll = useCallback(() => {
-		setSelectedPaths((current) => {
-			const all = sessions.map(pathOf).filter(Boolean);
-			return all.length > 0 && all.every((path) => current.includes(path)) ? [] : all;
-		});
-	}, [pathOf, sessions]);
+	const toggleAll = useCallback(
+		(sourcePaths?: string[]) => {
+			const targets = sourcePaths ?? sessions.map(pathOf).filter(Boolean);
+			setSelectedPaths((current) => toggleSelectedPaths(current, targets));
+		},
+		[pathOf, sessions],
+	);
 
 	const importSelected = useCallback(async () => {
 		if (!projectId || selectedPaths.length === 0 || importing) return null;

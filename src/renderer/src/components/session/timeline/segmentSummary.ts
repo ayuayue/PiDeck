@@ -10,15 +10,19 @@ export type ProcessSummary = {
 	toolCount: number;
 	thinkingCount: number;
 	interimCount: number;
+	/** 本轮自动重试次数（过程行条数）：>0 时汇总按钮追加「N次重试」 */
+	retryCount: number;
 };
 
 export function buildProcessSummary(items: TurnDisplayItem[]): ProcessSummary {
 	let toolCount = 0;
 	let thinkingCount = 0;
 	let interimCount = 0;
+	let retryCount = 0;
 	for (const item of items) {
 		if (item.kind === "process-entry") {
 			if (item.entry.kind === "tool-entry") toolCount += 1;
+			else if (item.entry.kind === "retry-entry") retryCount += 1;
 			else thinkingCount += 1;
 		} else if (item.kind === "interim-answer") {
 			// 只数有文本的中间回复：空文本骨架是 live 挂载点 / 模型 error 占位
@@ -27,9 +31,9 @@ export function buildProcessSummary(items: TurnDisplayItem[]): ProcessSummary {
 			if (item.message.text.trim()) interimCount += 1;
 		}
 	}
-	return { toolCount, thinkingCount, interimCount };
+	return { toolCount, thinkingCount, interimCount, retryCount };
 }
 
 export function isEmptySummary(summary: ProcessSummary): boolean {
-	return summary.toolCount === 0 && summary.thinkingCount === 0 && summary.interimCount === 0;
+	return summary.toolCount === 0 && summary.thinkingCount === 0 && summary.interimCount === 0 && summary.retryCount === 0;
 }

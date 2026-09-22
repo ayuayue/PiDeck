@@ -26,14 +26,14 @@ export function ComposerImageGenOptions(props: {
 	onWatermarkChange: (watermark: boolean) => void;
 }) {
 	const providers = props.config.providers;
-	const provider = providers.find((item) => item.id === props.providerId) ?? providers[0];
+	const provider = providers.find((item) => item.id === props.providerId);
 	const extra: ImageGenProviderExtraParams = provider?.extraParams ?? DEFAULT_IMAGE_GEN_EXTRA_PARAMS;
 	const models = provider?.models.filter(Boolean) ?? [];
 	const outputFormat = parseImageGenOutputFormat(props.outputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT;
-	const modelValue = models.includes(props.modelId) ? props.modelId : (models[0] ?? "");
+	const modelValue = provider && models.includes(props.modelId) ? props.modelId : "";
 	const selectionValue = provider && modelValue ? encodeImageGenSelection(provider.id, modelValue) : "";
 	const providerLabel = provider?.name.trim() || provider?.id || "";
-	const triggerLabel = providerLabel && modelValue ? `${providerLabel} / ${modelValue}` : providerLabel || modelValue;
+	const triggerLabel = provider && modelValue ? `${providerLabel} / ${modelValue}` : "";
 
 	if (providers.length === 0) {
 		return <span className="truncate px-1.5 text-micro text-muted-foreground">{t("imagegen.notConfiguredHint")}</span>;

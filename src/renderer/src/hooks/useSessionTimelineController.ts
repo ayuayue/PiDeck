@@ -3,7 +3,9 @@ import { atom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { animateScrollTop, pinScrollDurationMs } from "../lib/pinTurnScroll";
 import { selectAtom } from "jotai/utils";
 import { desktopApi } from "../desktopApi";
-import type { AgentRuntimeState, ChatMessage, SessionRecord } from "../../../shared/types";
+import type { AgentRuntimeState, ChatMessage, SessionMessagePage, SessionRecord } from "../../../shared/types";
+import { t } from "../i18n";
+import { sessionHistoryUnavailableState } from "../utils/sessionHistoryAvailability";
 import {
 	cacheSessionMessagesAtom,
 	clearSessionHistoryAtom,
@@ -22,6 +24,7 @@ import {
 import type { MessageScrollerScrollApi } from "../components/agents/message-scroller";
 import { TURN_WINDOW_AUTO_EXPAND_THRESHOLD, resolveAutoExpandThreshold } from "./timeline/autoExpandThreshold";
 import { shouldAutoExpandRenderWindow, shouldApplyDelayedHistoryResult } from "./timeline/scrollHistoryPolicy";
+import { beginProgrammaticScroll, clearProgrammaticScroll, createProgrammaticScrollGuard, finishProgrammaticScrollFrame, isProgrammaticScrollActive } from "./timeline/programmaticScrollGuard";
 import { browsePinScrollTop, followBrowsePinAfterUserScroll, shouldCompensateBrowsePin, type BrowsePin } from "./timeline/browsePin";
 import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIMIT, TIMELINE_WINDOW_EXPAND_STEP } from "../components/session/timeline/turnRenderWindow";
 import { estimateJumpExpandTurns, resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
@@ -245,6 +248,8 @@ export type SessionTimelineController = {
 	/** 下一次「加载更多」触发 disk 轮次分页（渲染窗口已耗尽且窗口前还有历史） */
 	nextLoadIsHistory: boolean;
 	isLoadingMoreMessages: boolean;
+	/** 上一次「加载更多」失败原因（原始 IPC 文案）；null = 无错误。时间线在按钮下方出失败行并允许直接重试。 */
+	loadMoreError: string | null;
 	/** 补页后保持当前视口（新历史只出现在上方）。所有入口统一，不再有「新页直接出现」的跳动。 */
 	loadMoreMessages: (source?: "scroll" | "button") => void;
 	/** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制历史意图消费。
@@ -311,6 +316,11 @@ export type SessionTimelineController = {
 	 * 绕过「已加载 + 有缓存就跳过」和 runtime 缓存守卫。
 	 */
 	reloadFromDisk: () => Promise<void>;
+	/**
+	 * DSH host 被手动停止时的恢复入口：先显式启动 host（唯一能解开手动停止标记的
+	 * 路径），再重载本会话历史。返回是否启动成功；false 时调用方给用户提示。
+	 */
+	startDshHostAndReload: () => Promise<boolean>;
 };
 
 export function useSessionTimelineController(options: { sessionId?: string; messages?: ChatMessage[] }): SessionTimelineController {
@@ -399,7 +409,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// The rAF below still coalesces the settled position and atom persistence.
 		currentAnchorRef.current = computeCurrentAnchor();
 		// restoreAt / 扩窗补偿派发的 scroll：只更新冻住那一行的 expected，不改钉到新的第一可见行。
-		if (!programmaticScrollRef.current && !autoScrollRef.current) {
+		if (!isProgrammaticScrollActive(programmaticScrollGuardRef.current, performance.now()) && !autoScrollRef.current) {
 			if (browsePinFrozenRef.current && browsePinRef.current) {
 				const top = measureBrowsePinViewportTop(timelineRef.current, browsePinRef.current.messageId);
 				browsePinRef.current = followBrowsePinAfterUserScroll(browsePinRef.current, top);
@@ -481,8 +491,16 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 
 		void desktopApi.sessions
 			.readRecordMessagePage(sessionId, undefined, DISK_INITIAL_TURN_PAGE_SIZE)
-			.then((page: { messages: ChatMessage[]; total: number; nextBefore: number | null }) => {
+			.then((page: SessionMessagePage) => {
 				if (latestLoadBySession.get(sessionId) !== sequence) return;
+				// DSH host 被手动停止：历史暂时读不了——不是空历史、也不是会话文件失效。
+				// 必须进专态而不是写空缓存，写缓存会把它显示成空会话 + 起始页，
+				// 用户看到「这个会话没了」而真实原因是运行时被自己停了（2026-09 反馈）。
+				const unavailable = sessionHistoryUnavailableState(page);
+				if (unavailable) {
+					setLoadState({ sessionId, state: unavailable });
+					return;
+				}
 				cacheMessages({
 					sessionId,
 					messages: page.messages,
@@ -513,6 +531,13 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		try {
 			const page = await desktopApi.sessions.readRecordMessagePage(sessionId, undefined, DISK_INITIAL_TURN_PAGE_SIZE);
 			if (latestLoadBySession.get(sessionId) !== sequence) return;
+			// 与首屏同源：手动停止态下重试仍不会成功，保持专态
+			//（否则「重试」会把错误态洗成空会话，又回到用户看到的错误方向）。
+			const unavailable = sessionHistoryUnavailableState(page);
+			if (unavailable) {
+				setLoadState({ sessionId, state: unavailable });
+				return;
+			}
 			cacheMessages({
 				sessionId,
 				messages: page.messages,
@@ -535,6 +560,22 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		}
 	}, [cacheMessages, options.sessionId, setLoadState]);
 
+	/**
+	 * DSH host 被手动停止时的恢复入口（时间线专态的「启动 host 并重试」）。
+	 *
+	 * 为什么不能只重试读盘：手动停止态不会自愈——预热 / 按需兜底 / 崩溃重启 /
+	 * runtime 安装恢复全被 isManualStopped 门控拒掉（见 dshManualStop），只有用户
+	 * 显式 startDshHost（主进程清标记后 boot）才能恢复。所以先启动、再重载。
+	 */
+	const startDshHostAndReload = useCallback(async () => {
+		// 启动失败不抛：保持专态等用户再点（真正原因会由后续读盘的错误态/日志暴露）。
+		const started = await desktopApi.sessions.startDshHost().catch(() => false);
+		if (!started) return false;
+		// reloadFromDisk 失败会自行写 error 态并 rethrow，这里不重复上报。
+		await reloadFromDisk().catch(() => undefined);
+		return true;
+	}, [reloadFromDisk]);
+
 	const diskPage = controllerEnabled && cachedEntry?.source === "disk" ? cachedEntry.page : undefined;
 	// ── 激活显示窗口（2026-08 激活分页）──
 	// runtime 窗口会话：显示数组 = disk 历史前缀（轮次页 prepend）+ 运行时窗口段。
@@ -549,6 +590,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 内存预算由主进程 12 轮缓存 + 回底临时历史清理承担，渲染层不再有第二道条数窗口。
 	const visibleMessages = combinedMessages;
 	const [isLoadingMessagePage, setIsLoadingMessagePage] = useState(false);
+	/**
+	 * 「加载更多对话」失败态：IPC 抛错（DSH host 不可用 / 会话文件失效）原先没人接，
+	 * finally 只复位 loading，表现为「点了没反应」。这里留原始文案给时间线出错误行。
+	 */
+	const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 	// This snapshot is intentionally read during render. In the reused solo pane,
 	// waiting for a passive effect would let MessageScroller commit the previous
 	// session's follow mode before the target session's anchor is materialized.
@@ -561,8 +607,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	const [restorePhase, setRestorePhase] = useState<"pending" | "complete">("pending");
 	// 与 autoScroll 初始值保持一致（有锚点的会话首帧即不跟底），避免首帧 ref/state 不一致
 	const autoScrollRef = useRef(autoScroll);
-	const programmaticScrollRef = useRef(false);
-	const programmaticScrollUntilRef = useRef(0);
+	const programmaticScrollGuardRef = useRef(createProgrammaticScrollGuard());
 	/**
 	 * 历史浏览代数：回底/切会话时递增。在途历史分页与扩窗任务捕获发起时代数，
 	 * 返回时若已过期只允许写缓存，不得再驱动 DOM 扩窗/锚点恢复（迟到结果
@@ -715,6 +760,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// restoreAnchor 的快照在 render 阶段初始化，不能在此处无条件重置为 3 轮。
 	useEffect(() => {
 		setIsLoadingMessagePage(false);
+		// 失败提示是会话级状态：切会话不能把上一会话的加载失败带过来显示
+		setLoadMoreError(null);
 		pendingExpandTurnsRef.current = 0;
 		lastWindowExpandAtRef.current = 0;
 		if (expandBatchFrameRef.current !== undefined) {
@@ -793,6 +840,23 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		highlightTimersRef.current.set(timer, timer);
 	}, []);
 
+	const clearProgrammaticTimelineScroll = useCallback(() => {
+		clearProgrammaticScroll(programmaticScrollGuardRef.current);
+	}, []);
+	/**
+	 * Mark controller-owned movement so its resulting scroll events cannot be
+	 * consumed as history intent. Timed windows expire from the deadline itself;
+	 * one-frame windows use a generation token so stale rAF cleanup is harmless.
+	 */
+	const markProgrammaticScroll = useCallback((durationMs = 0) => {
+		const guard = programmaticScrollGuardRef.current;
+		const generation = beginProgrammaticScroll(guard, performance.now(), durationMs);
+		if (durationMs > 0) return;
+		window.requestAnimationFrame(() => {
+			finishProgrammaticScrollFrame(guard, generation);
+		});
+	}, []);
+
 	const scrollToBottom = useCallback(() => {
 		const requestOwnerKey = ownerKey;
 		if (ownerKeyRef.current !== requestOwnerKey) return;
@@ -803,13 +867,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		invalidateHistoryBrowsing();
 		settleScrollCancelRef.current?.();
 		settleScrollCancelRef.current = undefined;
-		programmaticScrollUntilRef.current = 0;
-		programmaticScrollRef.current = true;
-		window.requestAnimationFrame(() => {
-			if (programmaticScrollUntilRef.current === 0) {
-				programmaticScrollRef.current = false;
-			}
-		});
+		markProgrammaticScroll();
 		autoScrollRef.current = true;
 		setAutoScroll(true);
 		setShowScrollToBottom(false);
@@ -828,7 +886,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			top: timeline.scrollHeight,
 			behavior: reduceMotion ? "instant" : "smooth",
 		});
-	}, [invalidateHistoryBrowsing, ownerKey]);
+	}, [invalidateHistoryBrowsing, markProgrammaticScroll, ownerKey]);
 
 	/**
 	 * The outline rail is a sibling of the scroll viewport, so its wheel event
@@ -849,22 +907,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		},
 		[ownerKey],
 	);
-	/** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制用户意图消费。
-	 *  durationMs > 0 时按时间窗口抑制：连续 smooth scroll 会派发多个 scroll 事件，
-	 *  单次 boolean 在下一帧自动清除，避免吞掉后续真实输入。 */
-	const markProgrammaticScroll = useCallback((durationMs = 0) => {
-		programmaticScrollRef.current = true;
-		programmaticScrollUntilRef.current = durationMs > 0 ? performance.now() + durationMs : 0;
-		if (durationMs === 0) {
-			// 单次抑制若没有产生 scroll 事件（赋值后位移为 0），rAF 兜底清除，
-			// 避免吞掉用户下一次真实滚动。
-			window.requestAnimationFrame(() => {
-				if (programmaticScrollUntilRef.current === 0) {
-					programmaticScrollRef.current = false;
-				}
-			});
-		}
-	}, []);
 
 	/**
 	 * 顶部插入内容后钉住当前视口。必须走 restoreAt：原生 scrollTop 赋值不会解锁引擎，
@@ -989,8 +1031,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				if (cancelled) return;
 				cancelled = true;
 				timeline.removeEventListener("pointerdown", onScrollbarPointerDown, true);
-				programmaticScrollUntilRef.current = 0;
-				programmaticScrollRef.current = false;
+				clearProgrammaticTimelineScroll();
 				cancelAnimation();
 				settleScrollCancelRef.current = undefined;
 			};
@@ -1006,14 +1047,13 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				onComplete: () => {
 					completed = true;
 					timeline.removeEventListener("pointerdown", onScrollbarPointerDown, true);
-					programmaticScrollUntilRef.current = 0;
-					programmaticScrollRef.current = false;
+					clearProgrammaticTimelineScroll();
 					settleScrollCancelRef.current = undefined;
 				},
 			});
 			if (!completed) settleScrollCancelRef.current = () => interrupt();
 		},
-		[markProgrammaticScroll, ownerKey],
+		[clearProgrammaticTimelineScroll, markProgrammaticScroll, ownerKey],
 	);
 
 	const setAutoScrollFromScroller = useCallback(
@@ -1079,10 +1119,18 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				trackLatestLoad(sessionId, sequence);
 				const expectedRevision = cachedEntry?.revision ?? 0;
 				setIsLoadingMessagePage(true);
+				// 重试时先清掉上一次的错误行
+				setLoadMoreError(null);
 				void desktopApi.sessions
 					.readRecordMessagePage(sessionId, before, RUNTIME_HISTORY_TURN_PAGE_SIZE)
-					.then((page: { messages: ChatMessage[]; total: number; nextBefore: number | null }) => {
+					.then((page: SessionMessagePage) => {
 						if (latestLoadBySession.get(sessionId) !== sequence) return;
+						// 翻页期间 host 被停：保留已加载内容，出可辨识的失败行（静默丢弃这一页
+						// 会让「加载更多」看起来没反应），下次点击仍可重试。
+						if (sessionHistoryUnavailableState(page)) {
+							setLoadMoreError(t("timeline.dshHostStopped"));
+							return;
+						}
 						if (prependMessagePage({ sessionId, before, expectedRevision, page })) {
 							// 历史消息页最多只开放一个 3 轮 cohort；数据页可能按消息数返回很多轮，
 							// 不能再固定 +10 把 DOM 一次性解锁，剩余已加载数据交给本地扩窗。
@@ -1099,6 +1147,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 								if (growth > 0) expandWindowBatched(growth);
 							}
 						}
+					})
+					.catch((error: unknown) => {
+						// 失败必须可见：没有 catch 时 IPC 抛错被吞掉，按钮弹回但页面无提示（2026-09 反馈）。
+						if (latestLoadBySession.get(sessionId) !== sequence) return;
+						setLoadMoreError(error instanceof Error ? error.message : String(error));
 					})
 					.finally(() => {
 						if (latestLoadBySession.get(sessionId) === sequence) setIsLoadingMessagePage(false);
@@ -1126,12 +1179,19 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				trackLatestLoad(sessionId, sequence);
 				const expectedRevision = cachedEntry?.revision ?? 0;
 				setIsLoadingMessagePage(true);
+				// 重试时先清掉上一次的错误行
+				setLoadMoreError(null);
 				void desktopApi.sessions
 					.readRecordMessagePage(sessionId, before ?? (anchorFilePos !== undefined ? anchorFilePos : undefined), RUNTIME_HISTORY_TURN_PAGE_SIZE, {
 						beforeEntryId: anchorEntryId ?? runtimeHistory?.nextBeforeEntryId ?? undefined,
 					})
-					.then((page) => {
+					.then((page: SessionMessagePage) => {
 						if (latestLoadBySession.get(sessionId) !== sequence) return;
+						// 与 disk 翻页同一语义：host 被停时不把空页当新历史，出失败行
+						if (sessionHistoryUnavailableState(page)) {
+							setLoadMoreError(t("timeline.dshHostStopped"));
+							return;
+						}
 						if (prependHistoryPage({ sessionId, expectedRevision, before, page })) {
 							// runtime history 页与 DOM 使用同一 3 轮 cohort；缓存命中和文件回退
 							// 都只开放实际带回的轮数，避免数据 +3、窗口却 +10。
@@ -1147,6 +1207,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 								if (growth > 0) expandWindowBatched(growth);
 							}
 						}
+					})
+					.catch((error: unknown) => {
+						// 失败必须可见：没有 catch 时 IPC 抛错被吞掉，按钮弹回但页面无提示（2026-09 反馈）。
+						if (latestLoadBySession.get(sessionId) !== sequence) return;
+						setLoadMoreError(error instanceof Error ? error.message : String(error));
 					})
 					.finally(() => {
 						if (latestLoadBySession.get(sessionId) === sequence) setIsLoadingMessagePage(false);
@@ -1267,8 +1332,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		skipBrowsePinRef.current = false;
 		// 切会话：取消旧会话遗留的挂起跳转与动画状态。
 		setPendingJump(undefined);
-		programmaticScrollRef.current = false;
-		programmaticScrollUntilRef.current = 0;
+		clearProgrammaticTimelineScroll();
 		settleScrollCancelRef.current?.();
 		settleScrollCancelRef.current = undefined;
 		// 会话切换：清掉上一会话的置顶垫片与动画标记
@@ -1279,7 +1343,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			userScrollIntentFrameRef.current = undefined;
 		}
 		return clearHighlightTimers;
-	}, [clearHighlightTimers, ownerKey]);
+	}, [clearHighlightTimers, clearProgrammaticTimelineScroll, ownerKey]);
 
 	useLayoutEffect(() => {
 		if (ownerKey === LEGACY_OWNER_KEY) return;
@@ -1419,7 +1483,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			userScrollIntentFrameRef.current = window.requestAnimationFrame(() => {
 				userScrollIntentFrameRef.current = undefined;
 				if (!controllerEnabled || ownerKeyRef.current !== requestOwnerKey) return;
-				if (performance.now() < programmaticScrollUntilRef.current || programmaticScrollRef.current) return;
+				if (isProgrammaticScrollActive(programmaticScrollGuardRef.current, performance.now())) return;
 				const timeline = timelineRef.current;
 				if (!timeline) return;
 
@@ -1484,15 +1548,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		const nextScrollTop = resolveTimelineTopCompensation(anchor.value.top, heightDelta);
 		if (nextScrollTop === null) {
 			loadMoreAnchorRef.current = undefined;
-			programmaticScrollRef.current = true;
-			const topFrame = requestAnimationFrame(() => {
-				programmaticScrollRef.current = false;
-			});
-			return () => cancelAnimationFrame(topFrame);
+			markProgrammaticScroll();
+			return;
 		}
 		pinViewportAfterPrepend(nextScrollTop);
 		loadMoreAnchorRef.current = undefined;
-	}, [controllerEnabled, ownerKey, pinBrowseRow, pinViewportAfterPrepend, visibleMessages.length]);
+	}, [controllerEnabled, markProgrammaticScroll, ownerKey, pinBrowseRow, pinViewportAfterPrepend, visibleMessages.length]);
 
 	// 浏览态内容后增高（历史 Markdown 轻量→全量、图片、mermaid）：扩窗那一帧的补偿不够，
 	// 按钉住的行继续补漂移。跟随时不碰——吸底引擎负责下方增长。
@@ -1569,6 +1630,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 2026-11 轮次模型：runtime 会话一律按轮补页（无内存扩窗阶段），文案恒为「加载更多对话」
 		nextLoadIsHistory: controllerEnabled && !diskPage && historyHasMore,
 		isLoadingMoreMessages: diskPage || historyHasMore ? isLoadingMessagePage : false,
+		/** 上一次「加载更多」失败原因（原始 IPC 文案，渲染层错误行 title）；null = 无错误。 */
+		loadMoreError,
 		loadMoreMessages,
 		markProgrammaticScroll,
 		pinViewportAfterPrepend,
@@ -1592,5 +1655,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		isSurfaceLoading,
 		knownEmpty,
 		reloadFromDisk,
+		startDshHostAndReload,
 	};
 }

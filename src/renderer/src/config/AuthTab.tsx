@@ -44,6 +44,11 @@ const PRESET_PROVIDERS = [
 	{ value: "xiaomi-token-plan-cn", label: "Xiaomi MiMo Token (China)", env: "XIAOMI_TOKEN_PLAN_CN_API_KEY", url: "" },
 	{ value: "xiaomi-token-plan-ams", label: "Xiaomi MiMo Token (Amsterdam)", env: "XIAOMI_TOKEN_PLAN_AMS_API_KEY", url: "" },
 	{ value: "xiaomi-token-plan-sgp", label: "Xiaomi MiMo Token (Singapore)", env: "XIAOMI_TOKEN_PLAN_SGP_API_KEY", url: "" },
+	// 0.86/0.86.1 新增 provider：Meta 走 META_API_KEY（订阅也可用 pi 的 /login meta）；
+	// Radius 只有 OAuth（在 pi 终端执行 /login radius 写入 auth.json），这里保留卡片是为了
+	// 让用户知道 provider 名与文档入口，env 列因此标 oauth 而不是具体环境变量名。
+	{ value: "meta", label: "Meta (Muse)", env: "META_API_KEY", url: "https://pi.dev/docs/latest/providers#meta-muse-subscription" },
+	{ value: "radius", label: "Radius (OAuth)", env: "oauth", url: "https://pi.dev/docs/latest/providers#radius" },
 ];
 
 // 认证类型选项（auth.json credential.type）：pi 只识别 api_key 与 oauth。

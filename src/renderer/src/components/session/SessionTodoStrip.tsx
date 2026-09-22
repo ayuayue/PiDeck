@@ -96,7 +96,20 @@ function CompletedGlyph() {
 	);
 }
 
-/** 进行中：品牌色渐变环，CSS 动画整体旋转（渐变从实到透明，转起来有扫光感）。 */
+/** 进行中：品牌色渐变环，CSS 动画整体旋转（渐变从实到透明，转起来有扫光感）。
+ *
+ * ⚠️ 旋转必须留在 <svg> 根上，不能下放到 <circle>（2027-01 两个坑连在一起）：
+ * 1) Chromium 给 SVG 子元素（circle）的默认 transform-origin 是 **0 0**（不是 50% 50%），
+ *    旋转 circle 会围绕 viewBox 左上角甩出去，圆环被甩出 16×16 盒子、再被行
+ *    overflow-hidden 裁成一道小弧（实测 circleRect 跑到 svgRect 外面）；
+ *    svg 根是有 CSS 盒子的替换元素，origin 才是盒中心，旋转才是原地转。
+ * 2) 而旋转的方盒 AABB 会涨到 16×√2 ≈ 22.6px，超出 20px 行高约 1.3px；
+ *    Chromium 算滚动溢出时取后代变换后的 AABB，会把外层 ul（overflow-y:auto，
+ *    max-h-[180px]）的 scrollHeight 从 104 顶到 105 → 原生滚动条以旋转频率
+ *    出现/消失（只有末行底部溢出计入，所以「最后一条进行中」才看得到闪）。
+ * 所以这里的解法是「旋转留在 svg 根 + 行 overflow-hidden 把 AABB 关在行内」：
+ * 行高 20px、圆环墨迹 16px（居中留 2px），裁切不会切到可见像素，
+ * 而 scrollHeight 恒定（e2e/todo-strip-scrollbar.spec.ts 逐帧断言）。 */
 function ProgressGlyph() {
 	const gradientId = useId();
 	return (
@@ -224,8 +237,12 @@ export function SessionTodoStrip(props: { sessionId: string }) {
 			</div>
 			{!collapsed && (
 				<ul className="mb-2 flex max-h-[180px] flex-col gap-2 overflow-y-auto overscroll-contain [contain:layout_paint] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
+					{/* 行内 overflow-hidden：旋转方盒的「变换后包围盒（AABB）」不得外溢到列表
+					    scrollHeight（旋转 svg 的 AABB ≈ 22.6px > 20px 行高，会让外层 ul 的
+					    scrollHeight 反复越界 → 原生滚动条闪）。行高 20px、图标墨迹 16px，
+					    居中留 2px 余量，裁切不会切到可见像素。 */}
 					{items.map((item) => (
-						<li key={item.id} className="flex min-w-0 items-center gap-2.5 text-[13px] leading-5 text-text-secondary">
+						<li key={item.id} className="flex min-w-0 items-center gap-2.5 overflow-hidden text-[13px] leading-5 text-text-secondary">
 							<span className="grid size-4 shrink-0 place-items-center" aria-hidden="true">
 								<StatusGlyph status={item.status} />
 							</span>

@@ -159,3 +159,88 @@ test("sessionsFollow：opt-in assistantStream，并把实时帧翻成 assistant/
 	assert.equal(seen[1].payload.event.data.chunk.text, "答");
 	client.dispose();
 });
+
+// ── 投影控制流（session/control） ──
+// 0.1.5 把「投影变更广播」从 events.mux 挪到这条 Host 级流：不订阅 ⇒ sessionStats /
+// tokenUsage / contextPressure / contextBreakdown 永远停在 attach 那一刻的初值，
+// 输入框底下只剩 deriveSessionStatsFallback 的「N 轮 · M 步」。
+
+test("sessionControl：baseline 拆成每会话投影基线帧，projection 复用 session/projection 形状", async () => {
+	const { transport, mainToHost, hostPush } = makeMemoryTransport();
+	const client = new DshApiClient({ transport });
+	const remote = new DshRemoteClient(client);
+	const controller = new AbortController();
+	const seen = [];
+	const consume = (async () => {
+		for await (const frame of remote.sessionControl(controller.signal)) seen.push(frame);
+	})();
+	await waitForOutbound(mainToHost, 1);
+	const open = mainToHost[0];
+	assert.equal(open.type, "stream-open");
+	assert.equal(open.endpoint, "session/control");
+
+	// 首帧 baseline：全会话投影快照，必须按 sessionId 拆开（下游 dispatchMuxFrame 按
+	// sessionId 找 runtime，整块下发会找不到 owner 而静默丢弃）。
+	hostPush({
+		type: "stream-item",
+		id: open.id,
+		value: {
+			type: "baseline",
+			value: {
+				queues: { s1: [] },
+				jobs: { s1: [] },
+				projections: {
+					s1: { asOfSeq: 7, values: { sessionStats: { turns: 1, steps: 35 } } },
+					s2: { asOfSeq: 3, values: { todos: null } },
+				},
+			},
+		},
+	});
+	// 实时帧：host 的 sessionProjections.onChanged 原样广播（含 seq）。
+	hostPush({
+		type: "stream-item",
+		id: open.id,
+		value: { type: "projection", sessionId: "s1", key: "sessionStats", value: { turns: 2, steps: 40 }, seq: 9 },
+	});
+	// queue/jobs 帧本项目暂不消费（渲染层队列/后台任务未接入），不应产出下游帧。
+	hostPush({ type: "stream-item", id: open.id, value: { type: "queue", sessionId: "s1", value: [] } });
+
+	const deadline = Date.now() + 5000;
+	while (seen.length < 3 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+	hostPush({ type: "stream-end", id: open.id });
+	await consume;
+
+	assert.equal(seen.length, 3, "baseline 两条 + projection 一条，queue 帧不产出");
+	assert.equal(seen[0].payload.type, "session/projection-baseline");
+	assert.equal(seen[0].payload.sessionId, "s1");
+	assert.deepEqual(seen[0].payload.block, { asOfSeq: 7, values: { sessionStats: { turns: 1, steps: 35 } } });
+	assert.equal(seen[1].payload.sessionId, "s2");
+	assert.equal(seen[1].payload.block.asOfSeq, 3);
+	assert.equal(seen[2].payload.type, "session/projection");
+	assert.equal(seen[2].payload.sessionId, "s1");
+	assert.equal(seen[2].payload.key, "sessionStats");
+	assert.deepEqual(seen[2].payload.value, { turns: 2, steps: 40 });
+	assert.equal(seen[2].payload.seq, 9, "seq 必须透传，投影帧按 higher-seq-wins 收敛");
+	client.dispose();
+});
+
+test("sessionControl：baseline 缺失 projections 时安全跳过，不产出任何帧", async () => {
+	const { transport, mainToHost, hostPush } = makeMemoryTransport();
+	const client = new DshApiClient({ transport });
+	const remote = new DshRemoteClient(client);
+	const controller = new AbortController();
+	const seen = [];
+	const consume = (async () => {
+		for await (const frame of remote.sessionControl(controller.signal)) seen.push(frame);
+	})();
+	await waitForOutbound(mainToHost, 1);
+	const open = mainToHost[0];
+	hostPush({ type: "stream-item", id: open.id, value: { type: "baseline", value: { queues: {}, jobs: {} } } });
+	// 畸形帧：sessionId 非字符串 / value 非对象，都不应把垃圾推给下游。
+	hostPush({ type: "stream-item", id: open.id, value: { type: "projection", sessionId: 5, key: "sessionStats", value: 1 } });
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	hostPush({ type: "stream-end", id: open.id });
+	await consume;
+	assert.deepEqual(seen, []);
+	client.dispose();
+});

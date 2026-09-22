@@ -23,6 +23,7 @@ import { InterimAnswer } from "./InterimAnswer";
 import { ProcessSummaryToggle } from "./ProcessSummaryToggle";
 import { TurnAuthorHeader } from "./TurnAuthorHeader";
 import { ThinkingStep } from "./ThinkingStep";
+import { RetryStep } from "./RetryStep";
 import { ToolStep } from "./ToolStep";
 import { useTurnExecution } from "./useTurnExecution";
 import type { DiffFileHandler } from "../ToolCallComponents";
@@ -303,6 +304,9 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 										itemKey = item.entry.id;
 										if (item.entry.kind === "thinking-entry") {
 											content = <ThinkingStep group={item.entry.group} hidden={!stepsVisible} showThinking={props.showThinking} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+										} else if (item.entry.kind === "retry-entry") {
+											// 自动重试过程行：与工具/思考同层，失败红、运行中旋转（见 RetryStep 注释）
+											content = <RetryStep group={{ kind: "retry-group", id: item.entry.id, message: item.entry.message }} hidden={!stepsVisible} />;
 										} else {
 											content = <ToolStep group={item.entry.group} hidden={!stepsVisible} stopped={props.agentRunning !== true} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />;
 										}
@@ -366,39 +370,47 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 					</div>
 				))}
 
-				{/* 操作栏 */}
-				{mergedText && !editing && (
-					<div className="flex min-h-6 items-center gap-1 opacity-55 transition-opacity hover:opacity-100 focus-within:opacity-100">
-						{!containsImageGen && <CopyMenu text={stripMarkdown(mergedText)} markdown={mergedText} targetRef={rowRef} />}
-						<Button type="button" variant="ghost" size="icon-sm" className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={props.onEnterMultiSelect} title={t("app.multiSelectEnter")}>
-							<Share size={14} />
-						</Button>
-						{!props.isStreaming && !props.isRuntimeBusy && assistantMessages.at(-1)?.message.id && (
+				{/* 操作栏 + 尾部耗时：合并为同一行，耗时排在行末（少占一行高度）。
+				    耗时：回复生成中由 LiveDuration 实时计时（100ms 连续跳动，用户视线在底部），
+				    回复结束后固定为总耗时。全轮只有一个耗时显示点（行头只留时间戳），
+				    避免开头结尾重复；无最终回答的轮（纯工具/思考）只有耗时、无按钮，同样可见。
+				    透明度：半透明降噪（hover/focus-within 恢复）必须盖住整行——按钮图标与行末耗时同一层，
+				    否则出现「图标偏淡、数字偏深」的割裂观感；无按钮时不降噪（没有需要弱化的交互件）。
+				    ask_question 等待回答期间不增长：冻结在提问弹起时刻，等待不计入处理耗时。 */}
+				{((mergedText && !editing) || showDuration) && (
+					<div className={`flex min-h-6 items-center gap-1${mergedText && !editing ? " opacity-55 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}>
+						{mergedText && !editing && (
 							<>
-								{props.onEditMessage && (
-									<Button type="button" variant="ghost" size="icon-sm" className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={startEditing} title={t("common.edit")}>
-										<SquarePen size={14} />
-									</Button>
-								)}
-								{props.onDeleteMessage && (
-									<Button type="button" variant="ghost" size="icon-sm" className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={deleteMessage} title={t("common.delete")}>
-										<Trash size={14} />
-									</Button>
+								{!containsImageGen && <CopyMenu text={stripMarkdown(mergedText)} markdown={mergedText} targetRef={rowRef} />}
+								<Button type="button" variant="ghost" size="icon-sm" className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={props.onEnterMultiSelect} title={t("app.multiSelectEnter")}>
+									<Share size={14} />
+								</Button>
+								{!props.isStreaming && !props.isRuntimeBusy && assistantMessages.at(-1)?.message.id && (
+									<>
+										{props.onEditMessage && (
+											<Button type="button" variant="ghost" size="icon-sm" className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={startEditing} title={t("common.edit")}>
+												<SquarePen size={14} />
+											</Button>
+										)}
+										{props.onDeleteMessage && (
+											<Button type="button" variant="ghost" size="icon-sm" className="turn-row-action-btn size-7 rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" onClick={deleteMessage} title={t("common.delete")}>
+												<Trash size={14} />
+											</Button>
+										)}
+									</>
 								)}
 							</>
 						)}
-					</div>
-				)}
-
-				{/* 尾部耗时：回复生成中由 LiveDuration 实时计时（100ms 连续跳动，用户视线在底部），
-				    回复结束后固定为总耗时。全轮只有一个耗时显示点（行头只留时间戳），
-				    避免开头结尾重复；无最终回答的轮（纯工具/思考）同样可见。
-				    ask_question 等待回答期间不增长：冻结在提问弹起时刻，等待不计入处理耗时。 */}
-				{showDuration && (
-					<div className="flex items-center gap-1.5 text-muted-foreground">
-						<Clock size={12} className="shrink-0" aria-hidden="true" />
-						{/* 耗时数字与行头时间一致用界面字体（见 TurnAuthorHeader 注释）；tabular-nums 保持跳动不抖 */}
-						<span className="text-body leading-none tabular-nums">{isRunLive && run.askPending ? formatDuration(Math.max(0, (run.askPendingAt ?? effectiveStart) - effectiveStart)) : isRunLive ? <LiveDuration startedAt={effectiveStart} isStreaming /> : formatDuration(duration)}</span>
+						{showDuration && (
+							/* 图标尺寸 14 对齐同行按钮图标（原独占一行时是 12）；
+							   pl-[7px] 等于 size-7 按钮里 14px 图标的水平内缩量：时钟与前一个按钮图标的间距
+							   7+gap-1+7 与按钮之间的一致，不再比按钮之间更近。 */
+							<div className="flex items-center gap-1.5 pl-[7px] text-muted-foreground">
+								<Clock size={14} className="shrink-0" aria-hidden="true" />
+								{/* 耗时数字与行头时间一致用界面字体（见 TurnAuthorHeader 注释）；tabular-nums 保持跳动不抖 */}
+								<span className="text-body leading-none tabular-nums">{isRunLive && run.askPending ? formatDuration(Math.max(0, (run.askPendingAt ?? effectiveStart) - effectiveStart)) : isRunLive ? <LiveDuration startedAt={effectiveStart} isStreaming /> : formatDuration(duration)}</span>
+							</div>
+						)}
 					</div>
 				)}
 			</div>

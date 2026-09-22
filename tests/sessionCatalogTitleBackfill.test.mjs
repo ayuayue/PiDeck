@@ -1,59 +1,28 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * SessionCatalog 占位标题回填测试（fetchTitle 注入链路）。
  *
  * 背景：侧栏轻量扫描（listPathSummary）不带 name，未打开过的 pi 会话标题落成
- * Untitled。mergeScanned 通过注入的 SessionTitleFetcher 对占位标题做有界读头部补名：
- * 只读「标题仍是占位符」的文件，已有真实标题的条目不触发读盘。
+ * Untitled。mergeScanned 通过注入的 SessionTitleFetcher 对新发现或未锁定 provisional
+ * 条目做有界标题读取；已有真实 catalog 标题的记录不再因文件变化触发读盘。
  */
 
 const nodeRequire = createRequire(import.meta.url);
 
-function compileModule(filePath, imports = {}) {
-	const source = readFileSync(filePath, "utf8");
-	const output = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	const localRequire = (specifier) => imports[specifier] ?? nodeRequire(specifier);
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: localRequire,
-			console,
-			setTimeout,
-			clearTimeout,
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
-
+/** 加载生产 SessionCatalog：相对 import 由 helper 按源文件目录解析，生产代码新增本地依赖不会再炸 loader。 */
 function loadCatalog(fsPromises = nodeRequire("node:fs/promises")) {
-	const identity = compileModule("src/shared/sessionIdentity.ts");
-	const fsRetry = compileModule("src/main/utils/fsRetry.ts", {
-		"node:fs/promises": fsPromises,
-	});
-	return compileModule("src/main/sessions/SessionCatalog.ts", {
-		"../../shared/sessionIdentity": identity,
-		"../utils/fsRetry": fsRetry,
-		"../logging/sharedLogger": { getAppLogger: () => null },
-		"node:fs/promises": fsPromises,
+	return loadTsCommonJs("src/main/sessions/SessionCatalog.ts", {
+		stubs: {
+			"node:fs/promises": fsPromises,
+			"../logging/sharedLogger": { getAppLogger: () => null },
+		},
 	});
 }
 
@@ -134,7 +103,7 @@ test("unchanged files with real titles do not trigger pointless title reads", as
 	}
 });
 
-test("an externally appended pi session_info refreshes an existing real catalog title", async () => {
+test("an externally appended pi session_info cannot overwrite an existing catalog title", async () => {
 	const { SessionCatalog } = loadCatalog();
 	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-title-external-rename-"));
 	try {
@@ -151,16 +120,56 @@ test("an externally appended pi session_info refreshes an existing real catalog 
 		assert.equal(initial.title, "PiDeck 旧标题");
 		assert.equal(fetcherCalls, 0);
 
-		// pi-tui /name 会在 JSONL 末尾追加 session_info，同时改变 mtime/size；轻量扫描
-		// 虽不带 name，也必须回读标题并覆盖 catalog 中已有的真实标题。
+		// pi-tui /name 会在 JSONL 追加 session_info 并改变 mtime/size；catalog 已有
+		// PiDeck-owned 标题时，刷新甚至不再读取该文件，只保留持久化显示名。
 		const [renamed] = await catalog.mergeScanned("project-1", [lightSummary({ updatedAt: 2000 })]);
-		assert.equal(renamed.title, "pi-tui 重命名后的标题");
-		assert.equal(fetcherCalls, 1);
+		assert.equal(renamed.title, "PiDeck 旧标题");
+		assert.equal(fetcherCalls, 0);
 
-		currentTitle = "不应在未变化时重复读取";
+		currentTitle = "锁定记录不得因后续刷新读盘";
 		const [unchanged] = await catalog.mergeScanned("project-1", [lightSummary({ updatedAt: 2000 })]);
-		assert.equal(unchanged.title, "pi-tui 重命名后的标题");
-		assert.equal(fetcherCalls, 1);
+		assert.equal(unchanged.title, "PiDeck 旧标题");
+		assert.equal(fetcherCalls, 0);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("automatic title claims an unowned placeholder once", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-auto-title-"));
+	try {
+		const catalog = new SessionCatalog(join(dir, "sessions.json"));
+		await catalog.load();
+		const [draft] = await catalog.mergeScanned("project-1", [lightSummary()]);
+		assert.equal(draft.title, "Untitled");
+
+		const automatic = await catalog.applyAutomaticTitle(draft.id, "自动生成标题");
+		assert.equal(automatic.title, "自动生成标题");
+		const lateAutomatic = await catalog.applyAutomaticTitle(draft.id, "不得覆盖的第二个自动标题");
+		assert.equal(lateAutomatic.title, "自动生成标题");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("manual ownership blocks an in-flight automatic title and later JSONL names", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-manual-title-"));
+	try {
+		const catalog = new SessionCatalog(join(dir, "sessions.json"));
+		await catalog.load();
+		const [draft] = await catalog.mergeScanned("project-1", [lightSummary()]);
+
+		// sessionIpc calls this before its asynchronous set_session_name request.
+		await catalog.claimTitleOwnership(draft.id);
+		const lateAutomatic = await catalog.applyAutomaticTitle(draft.id, "自动标题迟到结果");
+		assert.equal(lateAutomatic.title, "Untitled");
+
+		const manual = await catalog.update(draft.id, { title: "A-123" });
+		assert.equal(manual.title, "A-123");
+		const [afterExternalRename] = await catalog.mergeScanned("project-1", [lightSummary({ name: "A", updatedAt: 2000 })]);
+		assert.equal(afterExternalRename.title, "A-123");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -200,19 +209,17 @@ test("a non-authoritative first-message fallback must not overwrite an existing 
 		assert.equal(initial.title, "Add usage probe config");
 		assert.equal(fetcherCalls, 0);
 
-		// 第二轮：文件版本变化触发补名回读，但回读结果是弱回退（没命中 session_info）。
+		// 第二轮即使文件版本变化，锁定记录也不做补名读取；PiDeck 已有最终展示标题。
 		const [afterSecondRound] = await catalog.mergeScanned("project-1", [lightSummary({ updatedAt: 2000 })]);
-		assert.equal(afterSecondRound.title, "Add usage probe config", "weak fallback must not clobber the real title");
-		assert.equal(fetcherCalls, 1);
+		assert.equal(afterSecondRound.title, "Add usage probe config", "locked catalog title must not be re-read from JSONL");
+		assert.equal(fetcherCalls, 0);
 
-		// 权威来源（命中 session_info，pi-tui 外部改名）仍应覆盖。
-		let authoritative = true;
+		// 即使 fetcher 明确命中新的 session_info，已有 catalog 标题仍保持不变。
 		const authoritativeFetcher = async () => ({ name: "pi-tui 重命名后的标题", valid: true, nameFromSessionInfo: true });
-		void authoritative;
 		const catalog2 = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, authoritativeFetcher);
 		await catalog2.load();
 		const [renamed] = await catalog2.mergeScanned("project-1", [lightSummary({ updatedAt: 3000 })]);
-		assert.equal(renamed.title, "pi-tui 重命名后的标题");
+		assert.equal(renamed.title, "Add usage probe config");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -285,22 +292,60 @@ test("legacy tintinweb orphans get parentSessionPath backfilled and persisted", 
 	try {
 		const childPath = "C:/sessions/2026-08-22T04-23-00-162Z_child.jsonl";
 		const parentPath = "C:/sessions/2026-08-22T04-22-29-162Z_parent.jsonl";
-		// 无 fetcher 首次合并：孤儿条目落库（无父关系，旧版行为）。
+		// 无 fetcher 首次合并：模拟旧 catalog 已有真实子代理名，但没有父关系。
 		const plain = new SessionCatalog(join(dir, "sessions.json"));
 		await plain.load();
-		const [orphan] = await plain.mergeScanned("project-1", [lightSummary({ id: childPath, filePath: childPath })]);
+		const [orphan] = await plain.mergeScanned("project-1", [lightSummary({ id: childPath, filePath: childPath, name: "Explore#a1b2c3d4" })]);
 		assert.equal(orphan.parentSessionPath, undefined, "legacy index has no parent link yet");
 
-		// 升级后的 fetcher（会探测到父）：嫌疑名回检应重新读头并补父关系。
-		const fetcher = async (filePath) => (filePath === childPath ? { name: "Explore#a1b2c3d4", valid: true, parentSessionPath: parentPath } : { name: "Parent" });
+		// 升级后的 fetcher（会探测到父）：只读头元数据补父关系，不能再为标题扫描中段。
+		const fetchOptions = [];
+		const fetcher = async (filePath, options) => {
+			fetchOptions.push(options);
+			return filePath === childPath ? { name: "Explore#a1b2c3d4", valid: true, parentSessionPath: parentPath } : { name: "Parent" };
+		};
 		const upgraded = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, fetcher);
 		await upgraded.load();
 		const [repaired] = await upgraded.mergeScanned("project-1", [lightSummary({ id: childPath, filePath: childPath })]);
 		assert.equal(repaired.parentSessionPath, parentPath, "orphan parent link must be backfilled");
+		assert.equal(fetchOptions.length, 1);
+		assert.equal(fetchOptions[0]?.includeTitle, false, "legacy structural repair must request header-only metadata");
 		// 落入磁盘：下次扫描无需再探测读盘。
 		const onDisk = JSON.parse(await nodeRequire("node:fs/promises").readFile(join(dir, "sessions.json"), "utf8"));
 		const persisted = onDisk.sessions?.find((entry) => entry.filePath === childPath);
 		assert.equal(persisted?.parentSessionPath, parentPath, "backfilled parent link must persist to disk");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// 回归 2026-10 #250：旧版本把展开后的 `<prompt_template …>` 原文写进了 catalog 标题。
+// 它既不是 Untitled 也不是文件名，补名链路原本永远不会再碰它 —— 必须按占位名处理才能自愈。
+test("a polluted expanded-block title is treated as a placeholder and gets backfilled", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-title-dirty-"));
+	try {
+		let fetcherCalls = 0;
+		const fetcher = async () => {
+			fetcherCalls += 1;
+			return { name: "how are you", valid: true, nameFromSessionInfo: false };
+		};
+		const catalog = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, fetcher);
+		await catalog.load();
+		const dirtyTitle = '<prompt_template name="翻译官"> # 翻译官工作规则 规则正文';
+		const [dirty] = await catalog.mergeScanned("project-1", [lightSummary({ name: dirtyTitle, updatedAt: 1000 })]);
+		assert.equal(dirty.title, dirtyTitle);
+		assert.equal(fetcherCalls, 0, "summary 自带名称时不触发补名读盘");
+
+		// 同一文件版本（周期扫描）：脏标题必须仍被当成占位名，触发补名并允许弱回退覆盖。
+		const [healed] = await catalog.mergeScanned("project-1", [lightSummary({ updatedAt: 1000 })]);
+		assert.equal(healed.title, "how are you");
+		assert.equal(fetcherCalls, 1);
+
+		// 标题已恢复成真实名称后不再重复读盘。
+		const [stable] = await catalog.mergeScanned("project-1", [lightSummary({ updatedAt: 1000 })]);
+		assert.equal(stable.title, "how are you");
+		assert.equal(fetcherCalls, 1);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

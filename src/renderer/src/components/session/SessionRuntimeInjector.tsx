@@ -17,6 +17,7 @@ import { usePaneGitInfo } from "../../hooks/usePaneGitInfo";
 import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
 import { requireSessionCommand, sessionCommandFailureToast, toSessionRuntimeTarget } from "../../utils/sessionCommands";
+import { resolveActiveAskRequest } from "../../utils/askUi";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import type { ChatMessage, RewindCheckpointSummary } from "../../../../shared/types";
@@ -156,6 +157,10 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 		showNotice: services.showNotice,
 	});
 
+	// 底栏 ask 是否占位：必须与 SessionRuntimeUiOverlay 用同一份同代判据（askUi.resolveActiveAskRequest），
+	// 否则 stale runtime 的残留 pending 请求会让 composer 白让一块高度。
+	const askPanelVisible = React.useMemo(() => Boolean(resolveActiveAskRequest(currentSessionRuntime, currentSessionRuntimeUi)), [currentSessionRuntime, currentSessionRuntimeUi]);
+
 	const activeAgent = runtime.activeAgentId ? services.agents.find((a) => a.id === runtime.activeAgentId) : undefined;
 	const canMutateActiveMessages = runtime.canMutateActiveMessages;
 	// 未启动时 activeAgent 为空，必须看 catalog backend，不能只看 live tab。
@@ -265,18 +270,10 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 					gitInfo={paneGit.gitInfo}
 					onSwitchBranch={paneGit.switchBranch}
 					ensureSessionId={services.ensureSessionId}
-					runtimeUi={
-						runtimeUiResponder ? (
-							<SessionRuntimeUiOverlay
-								sessionId={currentSessionId}
-								runtime={currentSessionRuntime}
-								ui={currentSessionRuntimeUi}
-								responder={runtimeUiResponder}
-								// 展开工具/思考卡片不应抢夺用户当前滚动位置；只有新消息进入时由时间线控制自动贴底。
-								onExpandedChange={() => undefined}
-							/>
-						) : null
-					}
+					// Ask 现由 SessionView 钉在时间线列底部（与输入框同级），不再进时间线滚动内容。
+					// askPanelVisible 决定底栏是否占位 + composer 高度预留；overlay 自己也用同一份判据。
+					askPanelVisible={askPanelVisible}
+					runtimeUi={runtimeUiResponder ? <SessionRuntimeUiOverlay sessionId={currentSessionId} runtime={currentSessionRuntime} ui={currentSessionRuntimeUi} responder={runtimeUiResponder} onExpandedChange={() => undefined} /> : null}
 					queuePanel={currentSessionId ? <QueuedPromptPanel trackRef={queuedTrackRef} sessionId={currentSessionId} prompts={activeQueuedPrompts} visiblePrompts={activeQueuedPrompts} onRetract={services.queueRetract} onDiscard={services.queueDiscard} onChangeBehavior={services.queueChangeBehavior} /> : undefined}
 					terminalDockVisible={paneTerminalDockVisible}
 					terminalOpen={paneTerminalOpen}

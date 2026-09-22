@@ -43,7 +43,7 @@ export const SCROLLBAR_HIT_SLOP_PX = 12;
 
 export type FollowDirection = "up" | "down";
 
-export type FollowDecision = { action: "none" } | { action: "escape"; report: "up" } | { action: "relock"; report: "down" } | { action: "intent"; report: "down" };
+export type FollowDecision = { action: "none" } | { action: "escape"; report: "up" } | { action: "relock"; report: "down" } | { action: "intent"; report: FollowDirection };
 
 /** wheel 在位移前触发：用这次 delta 将到达的距底做下滚重锁。 */
 export function distanceAfterWheelDelta(distanceFromBottom: number, deltaY: number): number {
@@ -93,7 +93,10 @@ export function decideFollowFromUserInput(input: { direction: FollowDirection; r
 	}
 	if (input.direction === "up") {
 		if (input.canScroll === false) {
-			return { action: "none" };
+			// The mounted tail window may fit inside the viewport while older turns are
+			// virtualized. Report the gesture so the timeline can reveal that history,
+			// but keep the engine locked until the controller confirms an expansion.
+			return { action: "intent", report: "up" };
 		}
 		if (input.distanceFromBottom > FAR_FROM_BOTTOM_PX || input.readerDisplacementPx > AT_BOTTOM_TOLERANCE_PX) {
 			return { action: "escape", report: "up" };

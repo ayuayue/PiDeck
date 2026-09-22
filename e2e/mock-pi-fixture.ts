@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ImageGenConfigFile } from "../src/shared/types/imagegen";
+import { armStartupOverlayDismissal } from "./startupOverlays";
 
 /**
  * Mock pi fixture（#115 U6）：在隔离 userData 中预置 settings.json，
@@ -48,13 +49,45 @@ export type SeedImageGenConfig = ImageGenConfigFile;
 
 const repoRoot = resolve(__dirname, "..");
 
-export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | undefined; seedFeishuBots: SeedFeishuBot[] | undefined; seedSessionFiles: SeedSessionFile[] | undefined; seedSettings: SeedSettings | undefined; seedImageGenConfig: SeedImageGenConfig | undefined }>({
+/**
+ * Playwright option fixture 的「元组陷阱」归一化入口。
+ *
+ * `test.use({ seedXxx: [...] })` 的值会被 Playwright 按
+ * `isFixtureTuple = Array.isArray(v) && typeof v[1] === "object"` 判定：
+ * - 1 个元素（`[p1]`）→ 不是元组，整数组透传（正常）；
+ * - ≥2 个元素（`[p1, p2]`）→ **被当成 [value, options] 元组**，只取第 0 个元素，
+ *   第 2 个及之后静默丢弃（2027-01 实际踩到：多项目种子只剩第一个）。
+ *
+ * 同一写法在 1 个和 2 个种子时行为不同，排查成本极高，所以这里不再静默兼容：
+ * 收到「单个对象」直接报错并给出可用写法（函数式覆盖），让用例在启动前失败。
+ * ≥2 个种子请用函数式覆盖（函数形态不经过元组解析）：
+ * ```ts
+ * test.use({ seedProjects: async ({}, use) => use([projectA, projectB]) });
+ * ```
+ */
+function normalizeSeeds<T>(name: string, value: readonly T[] | T | undefined, requirement: string): T[] {
+	if (value === undefined) return [];
+	if (Array.isArray(value)) return value as T[];
+	throw new Error(`${name} 只收到单个对象（不是数组）——这几乎一定是 Playwright 把 >=2 元素的数组当成 [value, options] 元组截断了。${requirement} 多个种子请用函数式覆盖：test.use({ ${name}: async ({}, use) => use([a, b]) })`);
+}
+
+export const test = base.extend<
+	MockPiFixture & { seedProjects: SeedProject[] | undefined; seedFeishuBots: SeedFeishuBot[] | undefined; seedSessionFiles: SeedSessionFile[] | undefined; seedSettings: SeedSettings | undefined; seedImageGenConfig: SeedImageGenConfig | undefined; launchArgs: string[]; mockSessionInProject: boolean }
+>({
 	seedProjects: [undefined, { option: true }],
 	seedFeishuBots: [undefined, { option: true }],
 	seedSessionFiles: [undefined, { option: true }],
 	seedSettings: [undefined, { option: true }],
 	seedImageGenConfig: [undefined, { option: true }],
-	app: async ({ seedProjects, seedFeishuBots, seedSessionFiles, seedSettings, seedImageGenConfig }, use) => {
+	// Exercise real startup intents with the same isolated profile and mock RPC backend.
+	launchArgs: [[], { option: true }],
+	mockSessionInProject: [false, { option: true }],
+	app: async ({ seedProjects, seedFeishuBots, seedSessionFiles, seedSettings, seedImageGenConfig, launchArgs, mockSessionInProject }, use) => {
+		// 先归一化（元组陷阱见 normalizeSeeds 注释）：非法值在启动 Electron 之前就报错，
+		// 避免用例因「种子项目凭空消失」在后面超时。
+		const projects = normalizeSeeds("seedProjects", seedProjects, "项目需含 id / name / path（用 makeSeedProject 生成）。");
+		const feishuBots = normalizeSeeds("seedFeishuBots", seedFeishuBots, "Bot 需含 id / name / appId。");
+		const sessionFiles = normalizeSeeds("seedSessionFiles", seedSessionFiles, "会话文件需含 projectPath / entries。");
 		const userDataRoot = mkdtempSync(join(tmpdir(), "pideck-mockpi-"));
 		try {
 			// Windows 桌面端通过 cmd shim 调起自定义 pi（见 PiLocator.createInvocation），
@@ -92,11 +125,11 @@ export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | 
 			}
 
 			// 可选：预置项目列表。ProjectStore.load 会保留种子项目并追加内置聊天项目。
-			if (seedProjects && seedProjects.length > 0) {
+			if (projects.length > 0) {
 				writeFileSync(
 					join(userDataRoot, "profile", "projects.json"),
 					JSON.stringify(
-						seedProjects.map((project, index) => ({
+						projects.map((project, index) => ({
 							lastOpenedAt: Date.now() + index,
 							sortOrder: index,
 							...project,
@@ -106,13 +139,13 @@ export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | 
 			}
 			// 可选：预置飞书 Bot 配置（FeishuConfig 读 userData/pi-desktop/feishu.json）。
 			// appSecret 用 base64（encryptSecret 的简化格式），空串即可——e2e 不真连飞书。
-			if (seedFeishuBots && seedFeishuBots.length > 0) {
+			if (feishuBots.length > 0) {
 				mkdirSync(join(userDataRoot, "profile", "pi-desktop"), { recursive: true });
 				writeFileSync(
 					join(userDataRoot, "profile", "pi-desktop", "feishu.json"),
 					JSON.stringify({
 						version: 2,
-						bots: seedFeishuBots.map((bot) => ({
+						bots: feishuBots.map((bot) => ({
 							id: bot.id,
 							name: bot.name,
 							appId: bot.appId,
@@ -127,8 +160,8 @@ export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | 
 			// 可选：预置历史会话文件（未启动 agent 场景）。mock-pi 的会话文件名 = encodeSessionDir(cwd) + ".jsonl"，
 			// 与 SessionScanner.decodeSessionDir 对偶；必须同时写 .pi/settings.json（sessionDir: ".pi/sessions"）
 			// 否则扫描根只有全局 ~/.pi/agent/sessions，项目级文件不会被发现。
-			if (seedSessionFiles && seedSessionFiles.length > 0) {
-				for (const seedFile of seedSessionFiles) {
+			if (sessionFiles.length > 0) {
+				for (const seedFile of sessionFiles) {
 					const sessionsDir = join(seedFile.projectPath, ".pi", "sessions");
 					mkdirSync(sessionsDir, { recursive: true });
 					writeFileSync(join(sessionsDir, encodeSessionDir(seedFile.projectPath) + ".jsonl"), seedFile.entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
@@ -150,11 +183,17 @@ export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | 
 				CI: "1",
 				// PIDECK_E2E：主进程 isE2E 开关，窗口 showInactive 不抢焦点、不最大化（见 main/index.ts）
 				PIDECK_E2E: "1",
+				PIDECK_MOCK_SESSION_IN_PROJECT: mockSessionInProject ? "1" : "0",
+				// 主进程按 PIDECK_E2E_USER_DATA_DIR 覆写 userData（与 fixtures.ts 同源）。
+				// 缺了它 app.setPath("userData") 仍指向真实开发目录：seedProjects / seedSettings /
+				// seedSessionFiles 全写进临时目录但应用不读，表现为「种子项目凭空消失」
+				// （layout.spec 等依赖项目行的用例因此失败）。
+				PIDECK_E2E_USER_DATA_DIR: join(userDataRoot, "profile"),
 				...(process.platform === "win32" ? { APPDATA: userDataRoot, USERPROFILE: userDataRoot } : process.platform === "darwin" ? { HOME: userDataRoot } : { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
 			};
 			delete env.ELECTRON_RENDERER_URL;
 			const app = await electron.launch({
-				args: [join(repoRoot, "out", "main", "index.js"), `--user-data-dir=${join(userDataRoot, "profile")}`],
+				args: [join(repoRoot, "out", "main", "index.js"), `--user-data-dir=${join(userDataRoot, "profile")}`, ...launchArgs],
 				env,
 			});
 			await use(app);
@@ -175,6 +214,9 @@ export const test = base.extend<MockPiFixture & { seedProjects: SeedProject[] | 
 	window: async ({ app }, use) => {
 		const window = await app.firstWindow();
 		await window.waitForLoadState("domcontentloaded");
+		// 启动引导弹窗会抢焦点/遮拦点击，统一在这里挂上「出现即关」，
+		// 否则会伪装成业务失败（点击超时、打字被吞）。
+		await armStartupOverlayDismissal(window);
 		await use(window);
 	},
 });

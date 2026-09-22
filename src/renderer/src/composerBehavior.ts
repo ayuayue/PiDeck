@@ -400,18 +400,66 @@ export function resolveComposerHistoryDraft(params: { activeAgentId: string | nu
 	return livePromptByAgent[activeAgentId] ?? renderedPrompt;
 }
 
+/** 历史导航按键的处置结果：三种接管方式 + 放行。 */
+export type ComposerHistoryNavIntent = "recall-older" | "recall-newer" | "restore-draft" | "release";
+
+export type ComposerHistoryKeyState = {
+	/** KeyboardEvent.key。 */
+	key: string;
+	/** 光标所在顶层块就是文档第一个块（取自 ProseMirror state，不受软换行影响）。 */
+	atFirstBlock: boolean;
+	/** 光标所在顶层块就是文档最后一个块。 */
+	atLastBlock: boolean;
+	/** 光标上方没有视觉行（软换行后的首视觉行也算）。 */
+	atVisualTop: boolean;
+	/** 光标下方没有视觉行。 */
+	atVisualBottom: boolean;
+	/** -1 表示未在浏览历史。 */
+	historyIndex: number;
+	historyLength: number;
+	/** Shift/Ctrl/Alt/Meta 任意组合。 */
+	modifier: boolean;
+	/** 非折叠选区（选中了文本）。 */
+	hasSelection: boolean;
+};
+
 /**
- * 判断光标是否在第一行/最后一行。
- * 历史导航只在单行边界触发，避免多行编辑时 ArrowUp/Down 抢走光标移动。
+ * 决定 ↑/↓/Esc 是否由 composer 接管，以及接管成什么动作。
+ *
+ * 业务规则（对齐 Claude Code 与同类产品的既定行为）：
+ * - 边界是**视觉行**，不是逻辑行：输入框跨多个视觉行时，↑/↓ 先移动光标；
+ *   光标已在首/末视觉行且确实无路可走时，才走历史。
+ *   只判逻辑行会让软换行后的视觉第 2 行被当成首行，一按 ↑ 就把草稿换成历史消息。
+ * - 两段判定必须相与：atVisual* 只看光标所在块内部的行盒（块内判定），
+ *   atFirstBlock/atLastBlock 才能回答「是不是文档首/末块」——合起来才是
+ *   「整个编辑器里光标上方/下方没有任何视觉行」。
+ * - 方向键上的修饰键一律放行：Shift+↑ 是扩选，Ctrl/Alt/Meta+↑ 是词/段跳转，抢走会让用户没法选词与选择。
+ * - 有选区时方向键一律放行：选中文本时的方向键属于选区调整，拿去回填会连选区一起丢掉。
+ * - 无历史 / 未在浏览时的 ↓ 一律放行（纯光标移动）。
+ * - Esc 不参与上述守卫：它在浏览态的唯一语义就是「放弃回填、还原草稿」，输入框里
+ *   Shift/Alt+Esc 没有竞争语义，把它归入放行反而会让用户困在浏览态。
+ *
+ * IME 合成态不在这里判断：它必须在 keydown 入口统一拦截（那里还要覆盖候选菜单分支），
+ * 调用方保证传进来的按键已经过 isComposingKeyboardEvent 过滤。
  */
-export function getComposerHistoryLineBounds(text: string, cursorPos: number): { isFirstLine: boolean; isLastLine: boolean } {
-	const safePos = Math.max(0, Math.min(cursorPos, text.length));
-	const textBeforeCursor = text.substring(0, safePos);
-	const textAfterCursor = text.substring(safePos);
-	return {
-		isFirstLine: !textBeforeCursor.includes("\n"),
-		isLastLine: !textAfterCursor.includes("\n"),
-	};
+export function resolveComposerHistoryIntent(state: ComposerHistoryKeyState): ComposerHistoryNavIntent {
+	if (state.key === "Escape") return state.historyIndex >= 0 ? "restore-draft" : "release";
+
+	if (state.modifier || state.hasSelection) return "release";
+
+	if (state.key === "ArrowUp") {
+		if (!state.atFirstBlock || !state.atVisualTop) return "release";
+		return state.historyLength > 0 ? "recall-older" : "release";
+	}
+
+	if (state.key === "ArrowDown") {
+		// 未在浏览时 ↓ 永远只是光标下移，不回填。
+		if (state.historyIndex < 0) return "release";
+		if (!state.atLastBlock || !state.atVisualBottom) return "release";
+		return "recall-newer";
+	}
+
+	return "release";
 }
 
 /**

@@ -27,6 +27,8 @@ const MAX_TITLE_ATTEMPTS = 2;
 const TITLE_MAX_TOKENS = 512;
 /** 首轮预算被推理吃光时的升级预算：长思考模型至少还有一轮完整的正文空间。 */
 const TITLE_MAX_TOKENS_ESCALATED = 2048;
+/** Main process accepts this marker only immediately before the matching session_info change. */
+const AUTO_TITLE_STATUS_KEY = "pideck:auto-title";
 
 const TITLE_SYSTEM_PROMPT = `You generate a concise title for a coding assistant conversation.
 Return only one plain-text title on one line, with no explanation, quotes, Markdown, emoji, or "Title:" prefix.
@@ -53,10 +55,16 @@ const GENERIC_TITLES = new Set([
 	"未命名",
 ]);
 
-type TitleInput = {
+type TitleRequestInput = {
 	userText: string;
 	assistantText?: string;
 };
+
+/**
+ * 标题输入：`direct` = 消息里只有引用块（如只插了 /模板 没写正文），标签本身就是标题，
+ * 不必再花一次模型请求；`request` = 把剥块后的用户文本交给标题模型概括。
+ */
+type TitleInput = { kind: "direct"; title: string } | ({ kind: "request" } & TitleRequestInput);
 
 type PendingTitle = {
 	controller: AbortController;
@@ -123,6 +131,73 @@ function isCommandInput(text: string): boolean {
 	return /^\s*\/[\w:-]+(?:\s|$)/.test(text);
 }
 
+/**
+ * 自包含引用块的标题清洗（与 src/shared/expandedRefBlocks.ts 的 textForSessionTitle 同语义）。
+ *
+ * 扩展是 pi 用 `-e` 直接加载的独立文件，运行时不能 import 应用源码，所以这里必须自带一份；
+ * 两侧行为一致性由 tests/piDeckSessionTitle.test.mjs 的对照用例锁定。
+ * 只保留块外由用户自己写的文字：模板正文/引用全文是发给主模型的上下文，进标题就是噪声
+ *（2026-10 现场：首条消息用 /模板 时 1600 字预算被模板正文吃光，用户真正说的话根本没进请求，
+ * 标题变成模板里的章节名「翻译官工作规则」）。块外没有任何文字时回退到块标签（`/模板名`）。
+ */
+const TITLE_BLOCK_PATTERNS: ReadonlyArray<{ source: string; flags: string; label: (name: string) => string }> = [
+	// 与 shared 解析层一一对应：属性名与换行要求必须一致，否则同一消息会在两侧得出不同标题。
+	{ source: '<quoted_context\\s+label="([^"]*)"\\s+message_id="[^"]*">\\r?\\n[\\s\\S]*?\\r?\\n<\\/quoted_context>', flags: "g", label: (name) => `❝${name}` },
+	{ source: '<referenced_session\\s+name="([^"]*)">\\r?\\n[\\s\\S]*?\\r?\\n<\\/referenced_session>', flags: "g", label: (name) => `&${name}` },
+	{ source: '<skill\\b[^>]*\\bname="([^"]*)"[^>]*>[\\s\\S]*?<\\/skill>', flags: "gi", label: (name) => `/skill:${name}` },
+	{ source: '<prompt_template\\b[^>]*\\bname="([^"]*)"[^>]*>[\\s\\S]*?<\\/prompt_template>', flags: "gi", label: (name) => `/${name}` },
+];
+
+/** XML 属性反转义（仅处理 PiDeck/pi 生成的四种实体，与 shared 一致）。 */
+function decodeBlockAttribute(value: string): string {
+	return value.replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&");
+}
+
+type TitleTextBlock = { start: number; end: number; label: string };
+
+function findTitleTextBlocks(text: string): TitleTextBlock[] {
+	const blocks: TitleTextBlock[] = [];
+	for (const pattern of TITLE_BLOCK_PATTERNS) {
+		const re = new RegExp(pattern.source, pattern.flags);
+		let match: RegExpExecArray | null;
+		while ((match = re.exec(text)) !== null) {
+			blocks.push({ start: match.index, end: match.index + match[0].length, label: pattern.label(decodeBlockAttribute(match[1] ?? "")) });
+		}
+	}
+	// 与 shared 一致：排序后跳过被外层块覆盖的内层块（引用会话的正文里可能再嵌引用块）。
+	blocks.sort((left, right) => left.start - right.start || right.end - left.end);
+	const topLevel: TitleTextBlock[] = [];
+	let coveredEnd = -1;
+	for (const block of blocks) {
+		if (block.start < coveredEnd) continue;
+		topLevel.push(block);
+		coveredEnd = block.end;
+	}
+	return topLevel;
+}
+
+/**
+ * 从落盘的首条 user 消息里提取标题用文本。
+ * blockOnly=true 表示消息里只有引用块（如只插了 /模板），此时 text 是块标签（`/模板名`）。
+ */
+export function titleTextFromUserInput(text: string): { text: string; blockOnly: boolean } {
+	if (!text.includes("<")) return { text, blockOnly: false };
+	const blocks = findTitleTextBlocks(text);
+	if (blocks.length === 0) return { text, blockOnly: false };
+	const outside: string[] = [];
+	const labels: string[] = [];
+	let cursor = 0;
+	for (const block of blocks) {
+		if (block.start > cursor) outside.push(text.slice(cursor, block.start));
+		labels.push(block.label);
+		cursor = block.end;
+	}
+	if (cursor < text.length) outside.push(text.slice(cursor));
+	const outsideText = outside.join(" ").replace(/\s+/g, " ").trim();
+	if (outsideText) return { text: outsideText, blockOnly: false };
+	return { text: labels.join(" "), blockOnly: true };
+}
+
 function hasConversation(branch: readonly SessionEntry[]): boolean {
 	return branch.some((entry) => entry.type === "message" && (
 		entry.message.role === "user" || entry.message.role === "assistant"
@@ -174,12 +249,21 @@ export function buildTitleInput(branch: readonly SessionEntry[]): TitleInput | u
 	const firstUser = firstMessageText(branch, "user");
 	if (!firstUser || isCommandInput(firstUser)) return undefined;
 
+	// /模板、/skill:、&会话、❝引用在发送前已展开成自包含块，块正文是给主模型读的上下文。
+	// 标题必须先剥块：否则 1600 字预算会被模板正文吃光，用户真正说的话根本进不了请求。
+	const cleaned = titleTextFromUserInput(firstUser);
+	if (cleaned.blockOnly) {
+		// 只插了 /模板 没写正文：模板名就是最准确的标题，不必再花一次模型请求。
+		return { kind: "direct", title: cleaned.text };
+	}
+
 	const finalAssistant = lastAssistant(branch);
 	const firstAssistant = isIncompleteAssistant(finalAssistant)
 		? undefined
 		: firstCompletedAssistantText(branch);
 	return {
-		userText: prepareInputText(firstUser, MAX_USER_INPUT_CHARS),
+		kind: "request",
+		userText: prepareInputText(cleaned.text, MAX_USER_INPUT_CHARS),
 		...(firstAssistant
 			? { assistantText: prepareInputText(firstAssistant, MAX_ASSISTANT_INPUT_CHARS) }
 			: {}),
@@ -195,7 +279,7 @@ export function isOutputBudgetExhausted(response: AssistantMessage): boolean {
 }
 
 /** 构造独立请求的 Context；该 Context 与主 agent 的上下文完全无关。 */
-export function buildTitleContext(input: TitleInput): Context {
+export function buildTitleContext(input: TitleRequestInput): Context {
 	const assistantSection = input.assistantText
 		? `\n\nAssistant's first response:\n${input.assistantText}`
 		: "";
@@ -320,7 +404,7 @@ async function withTimeout<T>(
 
 async function requestTitle(
 	model: NonNullable<ExtensionContext["model"]>,
-	input: TitleInput,
+	input: TitleRequestInput,
 	controller: AbortController,
 	authPromise: Promise<TitleAuth | undefined>,
 ): Promise<string | undefined> {
@@ -404,6 +488,15 @@ export default function piDeckSessionTitle(pi: ExtensionAPI): void {
 		current?.controller.abort();
 	};
 
+	/** Mark this exact name so PiDeck can distinguish our auto rename from /name or TUI writes. */
+	const markAutomaticTitle = (ctx: ExtensionContext, title: string) => {
+		try {
+			ctx.ui.setStatus(AUTO_TITLE_STATUS_KEY, title);
+		} catch {
+			// A non-interactive host can reject status UI; the pi session rename still proceeds.
+		}
+	};
+
 	pi.on("session_start", (event, ctx) => {
 		cancelPending();
 		runtimeGeneration += 1;
@@ -485,6 +578,23 @@ export default function piDeckSessionTitle(pi: ExtensionAPI): void {
 		const input = buildTitleInput(branch);
 		if (!input) return;
 
+		if (input.kind === "direct") {
+			// 消息里只有引用块（只插了 /模板 没写正文）：标签本身就是最准确的标题。
+			// 直接命名，不消耗模型请求，也不再受推理模型输出预算/超时影响。
+			titleAttempts += 1;
+			titleAttemptRunGeneration = agentRunGeneration;
+			applyingAutoTitle = true;
+			try {
+				markAutomaticTitle(ctx, input.title);
+				pi.setSessionName(input.title);
+			} catch {
+				// session 已在销毁/替换时，丢弃即可。
+			} finally {
+				applyingAutoTitle = false;
+			}
+			return;
+		}
+
 		titleAttempts += 1;
 		titleAttemptRunGeneration = agentRunGeneration;
 		const request: PendingTitle = {
@@ -507,6 +617,7 @@ export default function piDeckSessionTitle(pi: ExtensionAPI): void {
 				if (!title || !isCurrent()) return;
 				applyingAutoTitle = true;
 				try {
+					markAutomaticTitle(ctx, title);
 					pi.setSessionName(title);
 				} catch {
 					// session 已在销毁/替换时，丢弃旁路结果即可。

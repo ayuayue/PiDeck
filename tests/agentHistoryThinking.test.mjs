@@ -163,7 +163,8 @@ function loadAgentManagerModule() {
 				if (specifier === "../sessions/jsonlLineStream") return loadTsCommonJs("src/main/sessions/jsonlLineStream.ts");
 				// 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
 				if (specifier === "../../shared/fileChanges") return { collectLatestTurnFileChanges: () => [] };
-				return nodeRequire(specifier);
+				// 其余相对 import 交给统一沙箱按源文件目录解析（生产新增本地模块不再整片 MODULE_NOT_FOUND）
+				return resolveUnstubbedRequire(specifier);
 			},
 			Buffer,
 			Date,

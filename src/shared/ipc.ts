@@ -76,6 +76,12 @@ export const ipcChannels = {
 	catalogUpdateRestorePrevious: "catalog:update-restore-previous",
 	/** 模型目录打开文件：用系统默认程序打开当前生效目录文件（覆盖层优先，否则内置） */
 	catalogOpenFile: "catalog:open-file",
+	/** 快捷消息：读取 userData/quick-messages.json（文件缺失时用随包资源清单种子化） */
+	quickMessagesGet: "quick-messages:get",
+	/** 快捷消息：整体保存条目数组（顺序即弹框顺序，空数组代表用户清空） */
+	quickMessagesSave: "quick-messages:save",
+	/** 快捷消息：用系统默认程序打开配置文件（路径由主进程解析，渲染层不传路径） */
+	quickMessagesOpenFile: "quick-messages:open-file",
 	sessionsList: "sessions:list",
 	/** Session-first catalog APIs. */
 	sessionsCatalogList: "sessions:catalog-list",
@@ -820,6 +826,23 @@ export const ipcChannels = {
 	// ===== 资源管理器右键菜单（HKCU 注册/查询，portable 亦可用） =====
 	/** 渲染层 → 主进程：查询「用 PiDeck 打开」右键菜单是否已注册 */
 	shellMenuGetState: "shell-menu:get-state",
+	quickTaskGetState: "quick-task:get-state",
+	quickTaskChanged: "quick-task:changed",
+	quickTaskExit: "quick-task:exit",
+	shellMenuQuickTaskGetState: "shell-menu:quick-task-get-state",
+	shellMenuQuickTaskSetEnabled: "shell-menu:quick-task-set-enabled",
 	/** 渲染层 → 主进程：启用/取消资源管理器右键菜单注册 */
 	shellMenuSetEnabled: "shell-menu:set-enabled",
+
+	// ===== pi 供应商认证（登录/登出）=====
+	// 这是 PiDeck 访问 pi 内部能力的唯一例外通道：pi 的供应商登录只在它的 CLI 里，
+	// 没有 RPC 与扩展入口，所以由 PiDeck 拉起认证助手进程调用 pi 官方认证 API。
+	// 边界与纪律见仓库根 AGENTS.md「认证例外通道」，禁止在此通道上扩展非认证能力。
+	piAuthListProviders: "pi-auth:list-providers",
+	piAuthLogin: "pi-auth:login",
+	piAuthAnswerPrompt: "pi-auth:answer-prompt",
+	piAuthCancel: "pi-auth:cancel",
+	piAuthLogout: "pi-auth:logout",
+	/** 主进程 → 渲染层：登录流程的事件/提问推送 */
+	piAuthFlowUpdate: "pi-auth:flow-update",
 } as const;

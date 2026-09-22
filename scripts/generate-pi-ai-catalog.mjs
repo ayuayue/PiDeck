@@ -11,10 +11,19 @@
  * manifest 不记录生成时间，保证同一输入得到字节级一致输出；它记录来源包版本、
  * 源 JSON 哈希和 artifact 哈希，供 runtime/CI 发现资源损坏或漏更新。
  *
+ * 构建守卫（2026-09 事故）：build/build:fast 会无条件重生成并覆盖 resources/，
+ * 而 --check 只拿「本地已安装版本」与仓库文件比字节。换分支后没跑 npm ci、
+ * node_modules 停在旧版 pi-ai 时，一次构建就会把已提交的新目录静默写回旧版本，
+ * 本地自检还全绿。因此使用默认来源目录时，来源包版本必须与 package.json 的
+ * 精确锁定版本一致，否则生成与校验都直接失败（提示先跑 npm ci）。
+ *
  * 用法：
  *   node scripts/generate-pi-ai-catalog.mjs
  *   node scripts/generate-pi-ai-catalog.mjs --check
  *   node scripts/generate-pi-ai-catalog.mjs --source-dir <pi-ai-dir> --out-dir <resources-dir>
+ *
+ * --source-dir 是逃生通道：显式指定其他来源（本地补丁版、调试、其他 pi-ai 副本）时
+ * 不做锁定比对，由调用方自己保证来源可信。
  */
 
 import { createHash } from "node:crypto";
@@ -32,6 +41,9 @@ export const PI_AI_CATALOG_MANIFEST_FILE_NAME = "pi-ai-catalog.manifest.json";
 
 export const DEFAULT_PI_AI_SOURCE_DIR = join(PROJECT_ROOT, "node_modules", "@earendil-works", "pi-ai");
 export const DEFAULT_OUTPUT_DIR = join(PROJECT_ROOT, "resources");
+
+/** 锁定构建期输入的字段：devDependencies 里的精确版本（不允许 ^/~ 范围）。 */
+const PI_AI_DECLARED_VERSION_FIELD = "devDependencies";
 
 function isRecord(value) {
 	return value != null && typeof value === "object" && !Array.isArray(value);
@@ -162,13 +174,52 @@ function writeIfChanged(path, content) {
 	return true;
 }
 
+/** 精确版本形态（纯数字点分，允许预发布/构建后缀），用于判断声明值能否逐字节比对。 */
+function isExactVersion(spec) {
+	return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(spec);
+}
+
+/** 读取 package.json 里 pi-ai 的声明版本（构建期输入的锁定值）。 */
+export function readDeclaredPiAiVersion({ packageJsonPath = join(PROJECT_ROOT, "package.json") } = {}) {
+	const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+	const spec = pkg?.[PI_AI_DECLARED_VERSION_FIELD]?.[PI_AI_PACKAGE_NAME] ?? pkg?.dependencies?.[PI_AI_PACKAGE_NAME];
+	return typeof spec === "string" && spec.length > 0 ? spec : undefined;
+}
+
+/**
+ * 构建守卫：默认来源目录（node_modules）的 pi-ai 版本必须与 package.json 精确锁定一致。
+ *
+ * 为什么必须挡：build/build:fast 无条件用本地安装覆盖 resources/，陈旧安装会静默
+ * 降级已提交的模型目录（0.86.0 → 0.85.1 事故），而 --check 与本地测试都会跟着
+ * 变成「自洽的错」，只有 CI 的 npm ci 环境才能发现。这里在写盘前直接失败。
+ *
+ * 范围声明（^/~）无法逐字节比对，缺失声明同理，均 fail-open 交给
+ * tests/piAiCatalogPackaging.test.mjs 的精确锁定断言兜底。
+ */
+export function assertSourceVersionMatchesPin({ sourceVersion, declaredVersion, sourceDir }) {
+	if (!declaredVersion || !isExactVersion(declaredVersion)) return;
+	if (declaredVersion === sourceVersion) return;
+	throw new Error(`${PI_AI_PACKAGE_NAME} 本地安装版本 ${sourceVersion} 与 package.json 锁定版本 ${declaredVersion} 不一致：` + `继续构建会用旧数据覆盖 resources/ 造成模型目录降级/漂移（来源目录：${sourceDir}）。` + "请先跑 npm ci 同步依赖；确实要从未锁定来源生成时，显式传 --source-dir <pi-ai 目录>。");
+}
+
 /**
  * 生成或校验 catalog artifact。check 模式不写文件，适合 CI 验证提交资源没有过期。
+ *
+ * declaredVersion 仅用于测试注入「与本地安装错位」的场景；默认读取 package.json。
  */
-export function generatePiAiCatalog({ sourceDir = DEFAULT_PI_AI_SOURCE_DIR, outDir = DEFAULT_OUTPUT_DIR, check = false } = {}) {
+export function generatePiAiCatalog({ sourceDir = DEFAULT_PI_AI_SOURCE_DIR, outDir = DEFAULT_OUTPUT_DIR, check = false, declaredVersion } = {}) {
 	const resolvedSourceDir = resolve(sourceDir);
 	const resolvedOutDir = resolve(outDir);
 	const sourcePackage = readSourcePackage(resolvedSourceDir);
+	// 只有默认来源（node_modules）才是「构建期输入」，必须与精确锁定一致；
+	// 显式指定 --source-dir 视为调用方有意换源，不做比对。
+	if (resolvedSourceDir === resolve(DEFAULT_PI_AI_SOURCE_DIR)) {
+		assertSourceVersionMatchesPin({
+			sourceVersion: sourcePackage.version,
+			declaredVersion: declaredVersion ?? readDeclaredPiAiVersion(),
+			sourceDir: resolvedSourceDir,
+		});
+	}
 	const collected = collectPiAiCatalogEntries(join(resolvedSourceDir, "dist", "providers", "data"));
 	const catalog = createPiAiCatalogArtifact(collected.entries);
 	const catalogText = serializeJson(catalog);

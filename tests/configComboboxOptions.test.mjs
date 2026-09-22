@@ -14,6 +14,14 @@ function compile(filePath) {
 }
 
 const { filterComboboxOptions, groupComboboxOptions, isKnownComboboxValue } = compile("src/renderer/src/config/comboboxOptions.ts");
+const configSharedSource = readFileSync("src/renderer/src/config/ConfigShared.tsx", "utf8");
+
+test("combobox 分组标题渲染翻译后的组名，而不是字面量 section.group", () => {
+	// 回归：组标题曾写成 >section.group<（漏了 JSX 花括号），
+	// User-Agent 下拉里会直接显示字面量 "section.group" 而不是「官方 CLI / SDK / 通用客户端」。
+	assert.match(configSharedSource, /\{section\.group\}/);
+	assert.doesNotMatch(configSharedSource, />\s*section\.group\s*</);
+});
 
 const OPTIONS = [
 	{ value: "anthropic", label: "Anthropic" },

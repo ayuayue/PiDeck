@@ -2806,7 +2806,9 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 							</div>
 						</TabsContent>
 
-						<TabsContent value="security" className="config-main min-w-0">
+						{/* forceMount：面板自管草稿（工具动作 allow/ask/deny、目录边界等只在组件 state 里），
+						    切走再回来不能丢未保存编辑；inactive 必须 hidden，否则叠在别的 tab 上。 */}
+						<TabsContent value="security" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
 							<div className="config-content">
 								<SecuritySection ref={securitySectionRef} onDirtyChange={handleSecurityDirtyChange} />
 							</div>

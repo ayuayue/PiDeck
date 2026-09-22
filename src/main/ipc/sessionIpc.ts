@@ -36,6 +36,7 @@ import type {
 	ArchivedDshSession,
 } from "../../shared/types";
 import { parseSessionProcessEventsFromFile } from "../sessions/sessionProcessEventsFile";
+import { dshUnavailablePageFor } from "../dsh/dshManualStop";
 import { downgradeRunningStartedBefore, downgradeStaleRunning } from "../pi/derivedSubagents";
 import { resolveLaunchDefaultOptions, isModelInModelsConfig } from "../sessions/launchDefaults";
 import { BackgroundScanCoordinator } from "../sessions/BackgroundScanCoordinator";
@@ -199,8 +200,12 @@ export type DshBackendIpcDeps = {
 	stopDshHost?: () => Promise<boolean>;
 	/** DSH host 显式启动：清除手动停止标记并 boot；返回 host 是否就绪。 */
 	startDshHost?: () => Promise<boolean>;
-	/** DSH 历史分页（session.history 事件流翻页）；未装配时返回空页。 */
-	readDshHistoryPage?: (dshSessionId: string, beforeSeq: number | undefined, pageSize: number) => Promise<{ messages: import("../../shared/types").ChatMessage[]; total: number; nextBefore: number | null }>;
+	/**
+	 * DSH 历史分页（session.history 事件流翻页）；未装配时返回空页。
+	 * 第三个参数二选一：`turnCount` = 渲染层契约的轮数（首屏 9 / 加载更多 3，由 main 侧
+	 * 按 24 条/轮换算成 host 的消息预算）；`maxMessages` = 显式消息窗口（Web/工具结果回读）。
+	 */
+	readDshHistoryPage?: (dshSessionId: string, beforeSeq: number | undefined, options: { turnCount?: number; maxMessages?: number }) => Promise<{ messages: import("../../shared/types").ChatMessage[]; total: number; nextBefore: number | null }>;
 	/** DSH 轨迹过程事件（运行时会话按 mux/重放收集；历史会话从 host history 推导；未装配时返回空数组）。 */
 	readDshProcessEvents?: (agentId: string | undefined, dshSessionId: string | undefined) => Promise<import("../../shared/types/trajectory").SessionProcessEvent[]>;
 	/** DSH 轨迹系统提示（运行时会话读投影缓存；历史会话从 host history 折叠 request/header；未装配返回 undefined）。 */
@@ -603,6 +608,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			projectId: input.projectId,
 			title: input.title?.trim() || mainCopy("session.newTitle"),
 			environment: settingsStore.get().wslEnabled ? "wsl" : "native",
+			titleLocked: false,
 			// 后端透传：仅接受白名单枚举，其余视为 pi（渲染层不可信输入校验在边界）。
 			backend: input.backend === "dsh" ? "dsh" : undefined,
 			model,
@@ -665,6 +671,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		}
 		const title = patch.title?.trim();
 		if (title && title !== entry.title) {
+			// Reserve the catalog before the asynchronous pi rename. A late automatic-title
+			// result must observe manual ownership even while set_session_name is in flight.
+			await sessionCatalog.claimTitleOwnership(sessionId);
 			const target = sessionRuntimeCoordinator.getTarget(sessionId);
 			if (target) {
 				const renamed = await sessionRuntimeCoordinator.renameRuntime(target, title);
@@ -782,7 +791,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		// DSH 会话没有 pi 会话文件：全量读走 host 历史事件流（一次拉最大页），
 		// 与分页路径同源；未装配 readDshHistoryPage 时返回空数组。
 		if (entry?.backend === "dsh" && entry.dshSessionId && readDshHistoryPage) {
-			const page = await readDshHistoryPage(entry.dshSessionId, undefined, 1000);
+			const page = await readDshHistoryPage(entry.dshSessionId, undefined, { maxMessages: 1000 });
 			return page.messages;
 		}
 		if (entry?.backend === "imagegen") {
@@ -862,9 +871,20 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.sessionsCatalogReadMessagePage, async (_event, sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => {
 		const entry = sessionCatalog.get(sessionId);
 		// DSH 会话没有 pi 会话文件：历史浏览走 host 的 session.history 事件流翻页
-		// （游标 = 事件 seq），与 pi 的磁盘分页同形状（messages/total/nextBefore）。
+		// （游标 = 事件 seq），与 pi 的磁盘分页同形状（messages/total/nextBefore）；
+		// 第三条参数在 pi 路径是「轮数」，所以 DSH 这里按 turnCount 传（main 侧换算消息预算）。
 		if (entry?.backend === "dsh" && entry.dshSessionId && readDshHistoryPage) {
-			return readDshHistoryPage(entry.dshSessionId, before, pageSize ?? 100);
+			try {
+				return await readDshHistoryPage(entry.dshSessionId, before, { turnCount: pageSize });
+			} catch (error) {
+				// 手动停止态下历史读取必然失败且不会自愈（预热/按需兜底/崩溃重启全被门控）：
+				// 转成带原因的空页，让渲染层出「运行时已停止 + 启动 host」专态，而不是把
+				// host 未运行报成「会话文件已删除/路径失效」——DSH 会话没有 pi 会话文件。
+				// 其余错误（host 崩溃 / 文件损坏）继续抛，渲染层按普通失败处理。
+				const unavailable = dshUnavailablePageFor(error);
+				if (unavailable) return unavailable;
+				throw error;
+			}
 		}
 		if (entry?.backend === "imagegen" || !entry?.filePath) {
 			// imagegen 后端会话（可能残留无意义 pi filePath）或纯生图草稿：

@@ -69,6 +69,37 @@ test("pickActiveAskRequest: 过滤 responding 与 pending 之外的请求", () =
 	assert.equal(picked, active);
 });
 
+test("resolveActiveAskRequest: 同代且 pending 时才返回请求", () => {
+	const { resolveActiveAskRequest } = loadAskUi();
+	const req = request({ requestId: "req-1", method: "select" });
+	const ui = { agentId: "agent-1", runtimeGeneration: 3, requests: { a: { status: "pending", request: req } } };
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "running" }, ui), req);
+	// 旧 runtime 的迟到请求：agentId / generation 不同一律拒绝
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 2, status: "running" }, ui), undefined);
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-old", runtimeGeneration: 3, status: "running" }, ui), undefined);
+	// detached / closed 的 runtime 不再可交互（即使 UI 还残留 pending 请求）
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "detached" }, ui), undefined);
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "closed" }, ui), undefined);
+	// 缺少 runtime 或 ui 时没有可交互请求
+	assert.equal(resolveActiveAskRequest(undefined, ui), undefined);
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "running" }, undefined), undefined);
+});
+
+test("shouldAutoAdvanceBatchAnswer: 多题批次的单值选择才自动前进", () => {
+	const { shouldAutoAdvanceBatchAnswer } = loadAskUi();
+	// select / confirm / input 是「一次提交即完成本题」，答完即自动前进（issue #230 第 1 点）
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "select", total: 3 }), true);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "confirm", total: 3 }), true);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "input", total: 3 }), true);
+	// multi_select 需多次勾选，editor 每次击键都写答案（会打字即跳题），都不能自动跳
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "multi_select", total: 3 }), false);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "editor", total: 3 }), false);
+	// 单题批次不自动：卡片本身就是确认卡，点选项即提交等于删掉确认步骤，误触无法反悔。
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "select", total: 1 }), false);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "confirm", total: 1 }), false);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "select", total: 0 }), false);
+});
+
 test("classifyAskCardStatus: 明确回答视为 answered", () => {
 	const { classifyAskCardStatus } = loadAskUi();
 	assert.equal(classifyAskCardStatus("answered", false), "answered");
@@ -253,7 +284,7 @@ test("shouldSuppressAskClick: 无 window 视为不吞（SSR 兜底）", () => {
 
 test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", () => {
 	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
-	assert.match(source, /import \{[^}]*pickActiveAskRequest[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
+	assert.match(source, /import \{[^}]*resolveActiveAskRequest[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
 	assert.match(source, /import \{[^}]*buildAskResponse[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
 	assert.match(source, /import \{[^}]*serializeBatchAnswers[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
 	assert.match(source, /import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
@@ -274,7 +305,11 @@ test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", ()
 test("SessionRuntimeUiOverlay keeps recovery prompts visible after model errors", () => {
 	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
 	assert.doesNotMatch(source, /runtime\.status !== "error"/);
-	assert.match(source, /runtime\.status !== "closed"/);
+	// 同代判定（含 detached/closed 拒绝）已提到 askUi.resolveActiveAskRequest：
+	// overlay 与布局层（底栏占位）必须用同一份判据，不能再在组件里各写一份。
+	const askUi = readFileSync("src/renderer/src/utils/askUi.ts", "utf8");
+	assert.match(askUi, /runtime\.status === "detached" \|\| runtime\.status === "closed"/);
+	assert.match(source, /resolveActiveAskRequest\(runtime, ui\)/);
 });
 
 test("Timeline 已清理死代码，安全卡在选项点击前调按压感知守卫", () => {
@@ -321,5 +356,7 @@ test("ask_question 扩展 schema 支持 multi_select 且强制走批量 envelope
 test("渲染层不再用 find 取第一个 pending 请求", () => {
 	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
 	assert.doesNotMatch(source, /Object\.values\(ui\.requests\)\.find/);
-	assert.match(source, /pickActiveAskRequest\(ui\.requests\)/);
+	// 同代判定 + 当前请求解析统一走 askUi.resolveActiveAskRequest：
+	// 布局层（SessionRuntimeInjector）必须用同一份判据决定底栏 ask 是否占位。
+	assert.match(source, /resolveActiveAskRequest\(runtime, ui\)/);
 });

@@ -12,6 +12,7 @@ import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } fro
 import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../shared/types/extensionsUpdate";
 import type { BuiltinContentCheckResult, BuiltinContentUpdateResult, BuiltinContentUpdateStatus } from "../shared/types/contentUpdate";
 import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult, VoiceTranscriptionSaveInput, VoiceTranscriptionSaveResult } from "../shared/types/voiceTranscription";
+import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
 import type {
 	YaoPromptListResult,
 	YaoPromptDetailResult,
@@ -187,7 +188,27 @@ const api = {
 		/** 异步写入纯文本：诊断报告/AI 提示词可达数十 KB，直连 clipboard 在 Electron 38 已废弃。 */
 		writeText: (value: string) => ipcRenderer.invoke(ipcChannels.clipboardWriteText, value) as Promise<boolean>,
 	},
+	quickTask: {
+		getState: () => ipcRenderer.invoke(ipcChannels.quickTaskGetState) as Promise<import("../shared/types/quickTask").QuickTaskState>,
+		onChanged: (callback: (state: import("../shared/types/quickTask").QuickTaskState) => void) => subscribe(ipcChannels.quickTaskChanged, callback),
+		exit: () => ipcRenderer.invoke(ipcChannels.quickTaskExit) as Promise<void>,
+	},
+	/**
+	 * pi 供应商认证（`/login`）：pi 的登录只在它的 CLI 交互层存在，应用内登录走
+	 * 这条例外通道（见 AGENTS.md「认证例外通道」）。调用方就是登录弹框。
+	 */
+	piAuth: {
+		listProviders: () => ipcRenderer.invoke(ipcChannels.piAuthListProviders) as Promise<{ ok: true; list: import("../shared/types/piAuth").PiAuthProviderList } | { ok: false; errorKind: import("../shared/types/piAuth").PiAuthErrorKind; error: string }>,
+		login: (request: import("../shared/types/piAuth").PiAuthLoginRequest) => ipcRenderer.invoke(ipcChannels.piAuthLogin, request) as Promise<import("../shared/types/piAuth").PiAuthLoginResult>,
+		/** 回填 pi 的提问（授权码/API key 等）；false = 提问已失效（取消或超时后迟到） */
+		answerPrompt: (promptId: string, value: string) => ipcRenderer.invoke(ipcChannels.piAuthAnswerPrompt, { promptId, value }) as Promise<boolean>,
+		cancel: () => ipcRenderer.invoke(ipcChannels.piAuthCancel) as Promise<boolean>,
+		logout: (providerId: string) => ipcRenderer.invoke(ipcChannels.piAuthLogout, providerId) as Promise<import("../shared/types/piAuth").PiAuthLogoutResult>,
+		onFlowUpdate: (callback: (update: import("../shared/types/piAuth").PiAuthFlowUpdate) => void) => subscribe(ipcChannels.piAuthFlowUpdate, callback),
+	},
 	shellMenu: {
+		getQuickTaskState: () => ipcRenderer.invoke(ipcChannels.shellMenuQuickTaskGetState) as Promise<{ supported: boolean; registered: boolean }>,
+		setQuickTaskEnabled: (enabled: boolean) => ipcRenderer.invoke(ipcChannels.shellMenuQuickTaskSetEnabled, enabled) as Promise<{ supported: boolean; registered: boolean }>,
 		/** 查询资源管理器右键菜单注册状态（非 Windows 返回 supported=false） */
 		getState: () =>
 			ipcRenderer.invoke(ipcChannels.shellMenuGetState) as Promise<{
@@ -1296,6 +1317,15 @@ const api = {
 		restorePrevious: () => ipcRenderer.invoke(ipcChannels.catalogUpdateRestorePrevious) as Promise<CatalogUpdateResult>,
 		/** 用系统默认程序打开当前生效的目录文件（覆盖层优先，否则内置） */
 		openFile: () => ipcRenderer.invoke(ipcChannels.catalogOpenFile) as Promise<void>,
+	},
+
+	// ── 快捷消息（独立配置文件 userData/quick-messages.json，可直接编辑） ──
+	quickMessages: {
+		get: () => ipcRenderer.invoke(ipcChannels.quickMessagesGet) as Promise<QuickMessagesSnapshot>,
+		/** 整体保存条目数组（顺序即弹框顺序，空数组 = 清空） */
+		save: (items: string[]) => ipcRenderer.invoke(ipcChannels.quickMessagesSave, items) as Promise<QuickMessagesSaveResult>,
+		/** 用系统默认程序打开配置文件（路径由主进程解析，文件不存在时会先生成） */
+		openFile: () => ipcRenderer.invoke(ipcChannels.quickMessagesOpenFile) as Promise<void>,
 	},
 
 	// ── 定时任务与自动化 ──

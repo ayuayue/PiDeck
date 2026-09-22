@@ -12,9 +12,17 @@ PiDeck 是一个面向本地开发工作的 Electron 桌面应用，用于在多
 - PiDeck 负责窗口管理、进程生命周期、会话浏览/导入、Git 面板、终端、设置 —— **UI 框架的事 pi 也不要做**。
 - 两者通过 stdio JSON-RPC 通信，禁止引入第二条通信通道（如直接 HTTP 到 pi 内部）。
 
+**唯一例外：认证通道（`pi-auth`，边界不得扩大）**
+
+- 为什么需要例外：pi 的供应商登录（CLI 里的 `/login`）只存在于它的**交互层** —— RPC 方法表没有 auth 入口，扩展 API 也不提供登录。PiDeck 要用自己的弹框完成登录，只能直接调 pi 官方的认证 API。
+- 允许的做法：主进程以子进程方式运行 `resources/pi-auth-host.mjs`（认证助手），由它 import pi 包内 `dist/index.js` 导出的 `ModelRuntime`，完成「列供应商 / 登录 / 回答提问 / 取消 / 登出」五件事。**凭据仍由 pi 自己写进它的 `auth.json`**，PiDeck 不碰凭据内容。
+- 边界：这条通道**只允许认证用途**，禁止扩展成通用 pi API 桥（不要拿它去调会话/工具/模型）；渲染层只能经 `pi-auth:*` IPC 访问，不得直接 import pi SDK。
+- 代码归属：pi SDK 入口/node 解析在 `src/main/pi/auth/piAuthHostLaunch.ts`（WSL 下明确不支持，UI 提示改用终端 `/login`）；进程生命周期与 NDJSON 协议在 `src/main/pi/auth/PiAuthService.ts`；助手本体是 `resources/pi-auth-host.mjs`（协议 v1，stdout 只放协议数据，日志走 stderr）。
+- 打包：`resources/pi-auth-host.mjs` 必须列进 `package.json` 的 `extraResources`，漏了打包版会报「应用缺少认证助手文件」。
+
 ## 代码结构与跨层契约
 
-本项目只维护项目根目录这一份 `AGENTS.md`；除非用户明确要求，不要再在子目录生成同名规则文件。`docs/开发规范.md` 中仍有历史架构表述，若与本文件或实际类型/API 冲突，以本文件和代码为准。
+本项目只维护项目根目录这一份 `AGENTS.md`；除非用户明确要求，不要再在子目录生成同名规则文件。规则冲突时以本文件和实际类型/API 为准。
 
 - `src/shared/` 是跨进程纯契约层：共享类型按 `shared/types/*.ts` 拆分，`shared/types.ts` 仅做兼容导出；IPC 名称只定义在 `shared/ipc.ts`。
 - `src/main/` 是唯一可访问 Node/Electron 主进程能力的业务层。`main/<domain>/` 拥有领域行为，`main/ipc/*Ipc.ts` 只做输入校验和适配，`main/index.ts` 只增装配，不新增业务。
@@ -341,12 +349,8 @@ src/
 3. 整个功能/修复完成后简要总结，并询问「需要我提交吗？」。
 4. 用户同意提交时，一个功能/修复的全部变更放在一个 commit，不拆多个小 commit（用户另有要求除外）。
 
-### GitHub 协作说明
-
-详见 `docs/PiDeck-协作说明.md`。
-
 ## 长期重构纪律
 
-- 大重构必须先写对照计划（参考 `docs/issue-113-main-parity-plan.md`），明确能力 parity 表与合并门禁。
+- 大重构必须先写对照计划（能力 parity 表 + 合并门禁），计划文档放 `docs/` 并注明状态；落地完成后按本文档的文档纪律收口（更新状态行或删除），不留长期悬空的计划文档。
 - 禁止无对照表的长期分叉分支；main 的用户可感知改动当周回填到进行中重构分支。
 - 重构期间禁止用 `-X theirs`/`-X ours` 静默吞掉对方改动；每个冲突都要确认能力归属。

@@ -925,7 +925,11 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .session-more-row,
 .chat-list-pane.v3-braun .sidebar-body .agent-more-row {
   margin: 2px 0;
-  padding: 6px 8px;
+  /* 「查看更多 / 收起 / 加载更多」统一紧凑行高：26px（文字 16px + 上下 2px）。
+     用户要求分页行比会话行矮一档，且项目页与活动页两处同一个功能的行高一致；
+     旧值 padding 6px 得到 32px，与会话行齐平。横向留白交给 JSX 的 px-2。 */
+  padding: 2px 8px;
+  min-height: 26px;
   justify-content: center;
   text-align: center;
   color: var(--color-text-tertiary);
@@ -936,7 +940,8 @@ html[data-theme="dark"] .scratch-pad-md mark {
 
 .chat-list-pane.v3-braun .sidebar-body .worktree-sessions-more {
   margin: 2px 0;
-  padding: 6px 8px;
+  padding: 2px 8px;
+  min-height: 26px;
   justify-content: center;
   text-align: center;
   color: var(--color-text-tertiary);

@@ -93,6 +93,7 @@ import {
 	Sparkles,
 	MessageSquare,
 	Quote,
+	EyeOff,
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { normalizeSessionPathForCompare } from "../../agentListDisplay";
@@ -524,8 +525,10 @@ export function CopyMenu(props: { text: string; markdown: string; targetRef: Rea
 				</Button>
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button variant="ghost" size="icon-sm" className="size-6 rounded-none border-l border-border/60 px-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" type="button" aria-label={t("copy.moreOptions")} title={t("copy.moreOptions")}>
-							<ChevronDown size={12} />
+						{/* 展开菜单的半边与主按钮同规格（size-7 / 图标 14）：原来的 24px 窄按钮 + 12px 图标
+						    比同排其它操作图标小一号，是「图标大小不一」的来源；竖线分隔保留（两块仍是一个控件）。 */}
+						<Button variant="ghost" size="icon-sm" className="size-7 rounded-none border-l border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground" type="button" aria-label={t("copy.moreOptions")} title={t("copy.moreOptions")}>
+							<ChevronDown size={14} />
 						</Button>
 					</DropdownMenuTrigger>
 					{/* 保留 copy-menu-popover 锚点类：多选导出/截图复制仍靠它排除菜单节点 */}
@@ -865,6 +868,19 @@ export const UserBubble = memo(function UserBubble(props: {
 								</div>
 								{block.description && <p className="mt-1.5 text-[13px] leading-[1.6] break-words whitespace-pre-wrap text-text-primary">{block.description}</p>}
 								{visionDetailOpen && <VisionBridgeDetail events={visionEvents} loading={visionLoading} />}
+							</div>
+						) : block.kind === "skipped" ? (
+							// 未发送：中性提示卡（视觉桥没开/没选模型，图片压根没进转换流程，不是故障）。
+							// 用 warning 而非 danger：红色意味着「出错了」，会把用户引去检查 Key/接口地址，
+							// 而真正要做的只是开视觉桥或给模型勾上图片输入（2026-09 反馈）。
+							<div key={bi} className="w-full min-w-0 rounded-lg border border-warning/40 bg-warning/10 p-2.5" title={t("app.visionBridgeNotSentDesc")}>
+								<div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
+									<EyeOff size={12} className="shrink-0" />
+									<span>{t("app.visionBridgeNotSent")}</span>
+									<span className="text-warning/60">·</span>
+									<span>{t("app.visionBridgeImageLabel", { index: block.index })}</span>
+								</div>
+								{block.reason && <p className="mt-1.5 text-[13px] leading-[1.6] break-words whitespace-pre-wrap text-text-primary">{block.reason}</p>}
 							</div>
 						) : (
 							// 失败：红色卡片，原因直出，用户不用去设置页翻日志

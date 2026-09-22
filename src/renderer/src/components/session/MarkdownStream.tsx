@@ -6,6 +6,7 @@ import { createMathPlugin } from "@streamdown/math";
 import { MarkdownLink, remarkLinkifyPaths } from "./MarkdownLink";
 import { markdownUrlTransform } from "./MarkdownLinkCore";
 import { remarkGfmNoSingleTilde } from "../../utils/markdownPlugins";
+import { normalizeMathDelimiters } from "../../utils/normalizeMathDelimiters";
 import { FormulaCopyLayer } from "./FormulaCopyLayer";
 import { useSmoothStream } from "../../utils/useSmoothStream";
 import { STREAM_LIGHT_MAX_CHARS, STREAM_UNFREEZABLE_MIN_CHARS, SETTLE_FULL_MAX_CHARS, shouldRenderStreamPlain, shouldKeepLightOnSettle } from "./markdownStreamPolicy";
@@ -136,7 +137,9 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 		content: props.text,
 		isStreaming: Boolean(props.isStreaming),
 	});
-	const displayText = props.isStreaming ? displayedContent : props.text;
+	const rawDisplayText = props.isStreaming ? displayedContent : props.text;
+	// 在分块前统一分隔符，避免公式跨冻结边界；消息原文与复制内容不改写。
+	const displayText = useMemo(() => normalizeMathDelimiters(rawDisplayText), [rawDisplayText]);
 	const isStreamingNow = Boolean(props.isStreaming);
 	// 流式期间走轻量渲染：跳过代码高亮/mermaid/数学等重插件，只跑 marked 核心解析，
 	// 否则 30fps 逐字渲染会让插件管线（每帧全量树遍历）占满主线程，React concurrent

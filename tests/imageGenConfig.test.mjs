@@ -101,6 +101,28 @@ test("strips kind and keeps extraParams flags", () => {
 	assert.equal(next.activeModel, "doubao-seedream");
 });
 
+test("empty or invalid active selection stays unset instead of selecting the first provider/model", () => {
+	const { sanitizeImageGenConfig } = loadConfig();
+	const input = {
+		providers: [
+			{ id: "ig-a", name: "A", baseUrl: "https://a.example/v1", apiKey: "k", models: ["m1"] },
+			{ id: "ig-b", name: "B", baseUrl: "https://b.example/v1", apiKey: "k", models: ["m2"] },
+		],
+	};
+
+	const empty = sanitizeImageGenConfig({ ...input, activeProviderId: "", activeModel: "" });
+	assert.equal(empty.activeProviderId, "");
+	assert.equal(empty.activeModel, "");
+
+	const invalidProvider = sanitizeImageGenConfig({ ...input, activeProviderId: "missing", activeModel: "m1" });
+	assert.equal(invalidProvider.activeProviderId, "");
+	assert.equal(invalidProvider.activeModel, "");
+
+	const emptyModel = sanitizeImageGenConfig({ ...input, activeProviderId: "ig-a", activeModel: "" });
+	assert.equal(emptyModel.activeProviderId, "ig-a");
+	assert.equal(emptyModel.activeModel, "");
+});
+
 test("legacy kind=ark without extraParams enables all three official fields", () => {
 	const { sanitizeImageGenConfig } = loadConfig();
 	const next = sanitizeImageGenConfig({

@@ -95,18 +95,20 @@ function isPathWithinMember(canonical: string, memberPaths: ReadonlySet<string>)
 }
 
 /**
- * pi 归档按家族过滤：以归档前原始路径（index.json 反查）前缀归属。
- * 原始路径缺失（索引缺失/损坏的极旧归档）→ 无法归属 → 不显示在弹窗归档页
- * （配置页「归档区」仍全局可见可恢复，不丢数据）。
+ * pi 归档按家族过滤：使用归档 JSONL 中记录的 cwd/projectPath。
+ * Pi 默认会话文件存于 ~/.pi/agent/sessions/<encoded-cwd>，文件路径不属于项目目录，
+ * 因而不能拿 originalPath 做项目归属判断；originalPath 仅保留为恢复索引。
  */
 export function filterArchivedPiByFamily(items: readonly ArchivedPiSession[], family: readonly Project[]): ArchivedPiSession[] {
 	const nativeMembers = familyPathSet(family, false);
 	const wslMembers = familyPathSet(family, true);
 	return items.filter((item) => {
-		if (!item.originalPath) return false;
-		const wsl = item.summary.wsl === true;
+		const projectPath = item.summary.projectPath;
+		// 缺少恢复索引的归档不能恢复；缺少 cwd 的归档不能可靠归属，均不展示在项目页。
+		if (!item.originalPath || !projectPath) return false;
+		const wsl = item.summary.wsl === true || isWslLikePath(projectPath);
 		const members = wsl ? wslMembers : nativeMembers;
-		return isPathWithinMember(canonicalWorkspacePath(item.originalPath, wsl), members);
+		return isPathWithinMember(canonicalWorkspacePath(projectPath, wsl), members);
 	});
 }
 
@@ -141,11 +143,12 @@ function workspaceMemberForPath(canonical: string, wsl: boolean, family: readonl
 	return best;
 }
 
-/** pi 归档行工作区标签：原始路径归属 worktree 子项目时返回目录名；主工作区/无法归属返回 undefined。 */
+/** pi 归档行工作区标签：以 JSONL cwd/projectPath 判断归属；主工作区不标记。 */
 export function archivedPiWorkspaceLabel(item: ArchivedPiSession, family: readonly Project[]): string | undefined {
-	if (!item.originalPath) return undefined;
-	const wsl = item.summary.wsl === true;
-	return workspaceMemberForPath(canonicalWorkspacePath(item.originalPath, wsl), wsl, family)?.name;
+	const projectPath = item.summary.projectPath;
+	if (!item.originalPath || !projectPath) return undefined;
+	const wsl = item.summary.wsl === true || isWslLikePath(projectPath);
+	return workspaceMemberForPath(canonicalWorkspacePath(projectPath, wsl), wsl, family)?.name;
 }
 
 /** DSH 归档行工作区标签：cwd 归属 worktree 子项目时返回目录名；主工作区返回 undefined。 */

@@ -202,6 +202,12 @@ export type SystemIpcDeps = {
 	configureConfigManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
 	configureXuePromptManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
 	configureAgentManagerWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
+	/**
+	 * DSH host 的 WSL 环境：DSH host 是 Windows 原生进程，workspace 解析与会话目录
+	 * 编码都必须是 Windows 主机路径。WSL 模式下项目记录是 /mnt/... 形式，缺了这层转换
+	 * 会让 workspace.resolve 直接失败（会话建不出来）。
+	 */
+	configureDshHostWsl?: (env: import("../wsl/WslPaths").WslEnvironment | null) => void;
 	/** Session command IPC error converter */
 	sessionCommandIpcError?: (error: import("../../shared/types").SessionCommandError) => Error;
 	/** 读取技能 SKILL.md 正文（装配层注入：路径白名单校验由 readSkillContent 完成）。 */
@@ -347,6 +353,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		configureConfigManagerWsl,
 		configureXuePromptManagerWsl,
 		configureAgentManagerWsl,
+		configureDshHostWsl,
 		sessionCommandIpcError,
 		readSkillContent,
 		extensionManager,
@@ -1502,6 +1509,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				if (configureConfigManagerWsl) configureConfigManagerWsl(environment);
 				if (configureXuePromptManagerWsl) configureXuePromptManagerWsl(environment);
 				if (configureAgentManagerWsl) configureAgentManagerWsl(environment);
+				if (configureDshHostWsl) configureDshHostWsl(environment);
 			} else {
 				if (clearSessionScannerWsl) clearSessionScannerWsl();
 				if (configureSkillManagerWsl) configureSkillManagerWsl(null);
@@ -1510,6 +1518,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				if (configureConfigManagerWsl) configureConfigManagerWsl(null);
 				if (configureXuePromptManagerWsl) configureXuePromptManagerWsl(null);
 				if (configureAgentManagerWsl) configureAgentManagerWsl(null);
+				if (configureDshHostWsl) configureDshHostWsl(null);
 			}
 		}
 		if ("customPiPath" in patch || "wslEnabled" in patch || "wslDistro" in patch || "wslUser" in patch) {

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { t as translateFn, TranslationKey } from "../i18n";
+import { toggleSelectedPaths } from "../utils/importSessionList";
 import type { Project } from "../../../shared/types";
 
 export interface ImportController<T = unknown, R = unknown> {
@@ -11,7 +12,8 @@ export interface ImportController<T = unknown, R = unknown> {
 	error: string | null;
 	refresh: () => Promise<void>;
 	toggle: (sourcePath: string) => void;
-	toggleAll: () => void;
+	/** 全选 / 取消全选；传入 sourcePaths 时只在该子集内切换（列表搜索后的「全选」只覆盖命中行）。 */
+	toggleAll: (sourcePaths?: string[]) => void;
 	importSelected: () => Promise<R | null>;
 }
 
@@ -85,10 +87,14 @@ export function useImportSource<T extends { sourcePath: string }, R extends { im
 		setSelected((current) => (current.includes(sourcePath) ? current.filter((item) => item !== sourcePath) : [...current, sourcePath]));
 	}, []);
 
-	const toggleAll = useCallback(() => {
-		const allPaths = pickPaths(sessions);
-		setSelected((current) => (allPaths.length > 0 && allPaths.every((path) => current.includes(path)) ? [] : allPaths));
-	}, [pickPaths, sessions]);
+	const toggleAll = useCallback(
+		(sourcePaths?: string[]) => {
+			// 子集来自当前搜索结果：Codex 的搜索由弹窗完成，控制器只知道全量会话。
+			const paths = sourcePaths ?? pickPaths(sessions);
+			setSelected((current) => toggleSelectedPaths(current, paths));
+		},
+		[pickPaths, sessions],
+	);
 
 	const importSelected = useCallback(async () => {
 		if (!project || selected.length === 0) return null;

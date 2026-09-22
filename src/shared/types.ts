@@ -2,6 +2,7 @@
 // Phase 1.1: 按域拆分为子文件，此处统一 re-export
 
 export * from "./types/project";
+export * from "./sessionTabWidth";
 export * from "./types/focus";
 export * from "./types/agent";
 export * from "./types/session";
@@ -47,3 +48,5 @@ export * from "./types/soundAlert";
 export * from "./types/packageCatalog";
 export * from "./types/automation";
 export * from "./types/contentUpdate";
+export * from "./types/piAuth";
+export * from "./types/quickMessages";

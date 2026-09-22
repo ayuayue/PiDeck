@@ -17,9 +17,9 @@ import { deriveTimelineRunActivity } from "./timeline/timelineRunActivity";
 import { canLoadSessionTimelineMore, deriveSessionSurfaceRuntime, type SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
-import { Loader2 } from "lucide-react";
+import { Loader2, LoaderCircle, Power } from "lucide-react";
 import { showNotice } from "../../utils/notice";
-import { composeFailureNotice, reduceFailureNoticePass, type FailureNoticePassState } from "./timelineFailureNotice";
+import { composeFailureNotice, isRetryStatusMessage, reduceFailureNoticePass, type FailureNoticePassState } from "./timelineFailureNotice";
 import { SessionStartSurface } from "./SessionStartSurface";
 import { NotifyMessageCard, shouldRenderNotifyCard } from "./NotifyMessageCard";
 import { MessageScroller } from "../agents/message-scroller";
@@ -111,6 +111,21 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const messageLoadState = useAtomValue(messageLoadStateSelector);
 	const sendState = useAtomValue(sendStateSelector);
 	const controller = props.controller;
+	// DSH host 被用户手动停止：历史暂时读不了（main 侧降级成带原因的空页）。
+	// 与普通读盘失败分开渲染——DSH 会话没有 pi 会话文件，重试也永远不会自愈。
+	const dshHostStopped = messageLoadState?.status === "error" && messageLoadState.reason === "dsh-host-stopped";
+	const [startingDshHost, setStartingDshHost] = useState(false);
+	/** 专态主按钮：显式启动 host（唯一能解开手动停止标记的路径）+ 重载本会话历史。 */
+	const startDshHostAndRetry = useCallback(async () => {
+		if (startingDshHost) return;
+		setStartingDshHost(true);
+		try {
+			// 启动失败（host boot 报错）保留专态并提示；成功路径由控制器重载历史
+			if (!(await controller.startDshHostAndReload())) showNotice(t("config.dsh.hostStartFailed"), 6000);
+		} finally {
+			setStartingDshHost(false);
+		}
+	}, [controller, startingDshHost]);
 	const timelineRef = props.timelineRef ?? controller.timelineRef;
 	const activeMessages = controller.messages;
 	const paginatedMessages = controller.visibleMessages;
@@ -781,6 +796,17 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 				</div>
 			)}
 
+			{/* 加载更多失败：按钮弹回却没有任何提示就是 2026-09 反馈的「点了没反应」。
+			    这里出失败行（原始 IPC 文案放 title），按钮仍在，可直接再点重试。 */}
+			{controller.loadMoreError && (
+				<div className="flex flex-col items-center gap-1 px-6 pb-3 text-center">
+					<p className="text-xs font-medium text-destructive">{t("timeline.loadMoreFailed")}</p>
+					<p className="max-w-[560px] text-[11px] text-muted-foreground" title={controller.loadMoreError}>
+						{t("timeline.loadMoreFailedHint")}
+					</p>
+				</div>
+			)}
+
 			{isConversationLoading && (
 				<div className="history-loading">
 					<div className="history-loading-placeholder">
@@ -811,8 +837,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			)}
 
 			{/* 读盘失败终态：文件被删/路径失效/解析异常时不能无限滞留骨架，
-          也不裸显示起始页误导——明确错误文案 + 重试（2026-08 生图会话文件缺失）。 */}
-			{messageLoadState?.status === "error" && activeMessages.length === 0 && (
+          也不裸显示起始页误导——明确错误文案 + 重试（2026-08 生图会话文件缺失）。
+          DSH host 被手动停止走下面的专态分支：DSH 会话没有 pi 会话文件，说成
+          「文件可能已被删除」会把用户引向错误方向，而且重试永远无效。 */}
+			{messageLoadState?.status === "error" && activeMessages.length === 0 && !dshHostStopped && (
 				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
 					<p className="text-sm font-medium">{t("timeline.loadFailed")}</p>
 					<p className="max-w-[560px] text-xs text-muted-foreground" title={messageLoadState.error ?? ""}>
@@ -821,6 +849,25 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					<Button type="button" variant="outline" size="sm" onClick={() => void controller.reloadFromDisk()}>
 						{t("common.retry")}
 					</Button>
+				</div>
+			)}
+
+			{/* DSH 手动停止专态：不是故障而是用户自己的选择（预热/按需兜底/崩溃重启全被
+			    门控，不会自愈），所以主操作是「启动 host」而非只给重试；启动成功后
+			    控制器自动重载历史，用户无感回到会话内容。 */}
+			{messageLoadState?.status === "error" && activeMessages.length === 0 && dshHostStopped && (
+				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+					<p className="text-sm font-medium">{t("timeline.dshHostStopped")}</p>
+					<p className="max-w-[560px] text-xs text-muted-foreground">{t("timeline.dshHostStoppedHint")}</p>
+					<div className="flex items-center gap-2">
+						<Button type="button" size="sm" className="gap-1.5" disabled={startingDshHost} onClick={() => void startDshHostAndRetry()}>
+							{startingDshHost ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <Power className="size-3.5" aria-hidden="true" />}
+							{t("timeline.dshHostStoppedStart")}
+						</Button>
+						<Button type="button" variant="outline" size="sm" onClick={() => void controller.reloadFromDisk()}>
+							{t("common.retry")}
+						</Button>
+					</div>
 				</div>
 			)}
 
@@ -923,8 +970,14 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 							if (meta?.type === "compaction") {
 								return null;
 							}
-							// 系统诊断（含自动重试状态）一律渲染卡片：重试此前只弹 toast，
-							// 用户事后无从确认重试发生/重试到第几次，这里与 toast 并存留痕。
+							// 重试成功卡是瞬态卡：连续重试每个周期各留一张，堆成一排「自动重试成功」很难看
+							// （用户反馈）。成功由 toast 即时报告，这里不渲染。
+							// 自动重试状态卡（含运行中/失败）已收进所属 agent-run 内部作为过程行
+							// （groupToolMessages 的 retry-group 分支 → TurnRow RetryStep），
+							// 留痕职责由过程行承担，不再在时间线顶层渲染独立大卡片——
+							// 旧形态与工具时间线割裂且插在工具与后续回答之间（顺序错乱根因）。
+							if (isRetryStatusMessage(message)) return null;
+							// 系统诊断渲染卡片留痕（与 toast 并存，见 timelineFailureNotice）。
 							return <DiagnosticMessageCard key={message.id} message={message} />;
 						}
 						return null;
@@ -934,8 +987,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 				</div>
 			)}
 
-			{/* Ask 是阻塞式会话步骤，必须参与时间线的正常布局；这样它展开时会推动正文高度，
-          而不是靠 sticky/z-index 覆盖最后一条工具调用或回答。 */}
+			{/* 时间线内的 Ask 通道只服务于并行问询浮层（AskPanelOverlay / OwnedSessionMessageTimeline）；
+			    主会话栏的阻塞式 Ask 已改由 SessionView 钉在对话区下方（issue #230），不再走这里。
+			    这里仍用正常流布局而不是 sticky/z-index，避免覆盖最后一条工具调用或回答。 */}
 			{props.runtimeUi ? <div className="session-runtime-ui mx-auto w-full min-w-0 empty:hidden">{props.runtimeUi}</div> : null}
 
 			{/* 发送清屏垫片（pin-to-top）已于 2026 移除：其与流式跟随有冲突、偶发页面抖动。 */}

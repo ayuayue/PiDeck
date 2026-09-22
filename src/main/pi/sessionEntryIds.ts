@@ -3,6 +3,25 @@
  * 抽离出 AgentManager 以便单测覆盖「空 assistant 不消费 slot」这类错位回归。
  */
 
+/** 会消费 entryId 槽位的对话角色消息。 */
+export const ROLE_MESSAGE_ROLES = ["user", "assistant", "toolResult"] as const;
+
+/**
+ * 判断一个 message 条目的 role 是否消费 entryId 槽位。
+ *
+ * 为什么需要显式判定：会话 JSONL 里 `type:"message"` 的条目不止这三种角色。pi 0.86 起
+ * 系统提示与工具清单变更也会落成 `message.role === "system"` 的条目（transcript-backed
+ * prompt/tool 更新：首个请求一条完整 sections，之后按 name 打补丁、工具增减走
+ * toolsAdded/toolsRemoved，见 pi docs session-format#entry-types）。
+ *
+ * AgentMessageProjector 只为 user/assistant/toolResult 分配 entryId，因此凡「按 id 与消息
+ * 一一对齐」的地方（取尾部 N 条 id、统计文件窗口位置）都必须用同一判定过滤，否则窗口内
+ * 出现 system 条目时整段 id 会错位，编辑/删除/重发会落到相邻条目上。
+ */
+export function isRoleMessageRole(role: unknown): role is (typeof ROLE_MESSAGE_ROLES)[number] {
+	return role === "user" || role === "assistant" || role === "toolResult";
+}
+
 /**
  * 从 activeEntryIds 消费一个槽位。
  * 业务规则：get_entries 的 message 型 entry 与 get_messages 的

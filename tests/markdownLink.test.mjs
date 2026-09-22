@@ -138,6 +138,33 @@ test("file name without directory segment is not linkified (avoid false positive
 	assert.deepEqual(linkify("版本 2.0 发布"), []);
 });
 
+// issue #229 第二项：无后缀目录 / 白名单无后缀文件也要能点击（识别层放宽）。
+test("suffix-less directories and nameless files linkify end to end", () => {
+	assert.deepEqual(linkify("改 src/main/ipc 里的实现"), ["file://src/main/ipc"]);
+	assert.deepEqual(linkify("看 src/renderer/src/components 与 docs/"), ["file://src/renderer/src/components", "file://docs/"]);
+	assert.deepEqual(linkify("配置在 Makefile 和 .gitignore"), ["file://Makefile", "file://.gitignore"]);
+	assert.deepEqual(linkify("看 C:\\proj\\src"), ["file://C:%5Cproj%5Csrc"]);
+	// 目录候选不得截断更长的文件路径
+	assert.deepEqual(linkify("入口 src/main/index.ts"), ["file://src/main/index.ts"]);
+	// 行内代码里的目录/无后缀文件（反引号包裹是模型最常用的写法）
+	const { isStandaloneFileReference } = markdownCore;
+	assert.equal(isStandaloneFileReference("src/main/ipc"), true);
+	assert.equal(isStandaloneFileReference("docs/"), true);
+	assert.equal(isStandaloneFileReference("Makefile"), true);
+});
+
+// 放宽识别后最容易出问题的是英文散文与斜杠列表：端到端锁住「不产生链接」。
+test("prose slash lists and bare words stay inert after widening recognition", () => {
+	for (const text of ["and/or 关系", "TCP/IP 协议", "CI/CD 流水线", "24/7 全天候", "components 目录", "改 src/main 目录"]) {
+		assert.deepEqual(linkify(text), [], text);
+	}
+	const { isStandaloneFileReference } = markdownCore;
+	assert.equal(isStandaloneFileReference("and/or"), false);
+	assert.equal(isStandaloneFileReference("TCP/IP"), false);
+	assert.equal(isStandaloneFileReference("main"), false);
+	assert.equal(isStandaloneFileReference("xMakefile"), false);
+});
+
 test("isLocalPathRef: protocol-less hrefs are local paths, real URLs are not", () => {
 	const { isLocalPathRef } = markdownCore;
 	assert.equal(isLocalPathRef("docs/guide.md"), true);

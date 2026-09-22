@@ -10,7 +10,8 @@
 
 import { createElement } from "react";
 import { toast } from "sonner";
-import { NoticeToastCard, writeClipboardText } from "../components/ui-shadcn/notice-toast";
+import { NoticeToastCard } from "../components/ui-shadcn/notice-toast";
+import { writeClipboard } from "./clipboard";
 import { t } from "../i18n";
 
 /**
@@ -213,7 +214,7 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeKind 
 	copyBtn.style.cssText = iconButtonCss;
 	copyBtn.appendChild(svgIcon("copy"));
 	copyBtn.addEventListener("click", () => {
-		void writeClipboardText(title ? `${title}\n${message}` : message).then((ok) => {
+		void writeClipboard(title ? `${title}\n${message}` : message).then((ok) => {
 			if (!ok) return;
 			// 复制成功后短暂切换成勾号（与 NoticeToastCard 一致），再还原
 			copyBtn.replaceChildren(svgIcon("check"));

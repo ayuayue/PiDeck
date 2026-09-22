@@ -6,6 +6,7 @@
  */
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { formatProbeFailure, probeElectronBinary } = require("./electronBinaryProbe.js");
 
 const ELECTRON_VITE_BIN = path.join(__dirname, "..", "node_modules", "electron-vite", "bin", "electron-vite.js");
 const STALE_ELECTRON_VITE_ENV_KEYS = ["ELECTRON_RENDERER_URL", "ELECTRON_CLI_ARGS", "ELECTRON_EXEC_PATH", "ELECTRON_MAJOR_VER", "NODE_ENV_ELECTRON_VITE", "VITE_DEV_SERVER_URL"];
@@ -68,6 +69,20 @@ function getElectronViteInvocation({ nodeExecPath = process.execPath, electronVi
 	};
 }
 
+/**
+ * 开发启动前的 Electron 二进制自检（只告警不阻断）。
+ * 二进制写坏时子进程创建失败，dev 的表现是「打印完构建日志 + start electron app... 之后直接
+ * 结束」（退出码 127），从日志完全看不出与代码无关；这里提前把结论和修复命令打出来。
+ * 之所以不阻断启动：探活要起一个子进程（冷启动可能几秒），不该让自检失败挡掉用户的显式启动，
+ * 用户可能正准备用 ELECTRON_OVERRIDE_DIST_PATH 等方式自行处理。
+ */
+function checkElectronBinaryBeforeDev({ probe = probeElectronBinary, env = process.env, warn = console.warn } = {}) {
+	const result = probe({ env });
+	if (result.ok) return result;
+	for (const line of formatProbeFailure(result)) warn(line);
+	return result;
+}
+
 function runDev() {
 	// 先构建本地 workspace 包（如 dsh-tool-pwsh-persistent 的 lib/），
 	// 否则 DSH host 启动时 require.resolve 命中缺失的 lib/index.js 会以 code=1 退出。
@@ -76,6 +91,7 @@ function runDev() {
 		stdio: "inherit",
 		shell: true,
 	});
+	checkElectronBinaryBeforeDev();
 	const invocation = getElectronViteInvocation();
 	// Windows 下切换到 UTF-8 代码页，使终端能正确显示中文输出
 	if (process.platform === "win32") {
@@ -107,6 +123,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+	checkElectronBinaryBeforeDev,
 	createDevEnvironment,
 	getElectronViteInvocation,
 	isLinuxWaylandWithXDisplay,

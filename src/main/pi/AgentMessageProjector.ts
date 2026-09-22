@@ -2,7 +2,7 @@ import type { ChatMessage, ImageContent } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { extractToolResultText as extractSharedToolResultText, formatToolDetail as formatSharedToolDetail, safeJson as sharedSafeJson, truncateDetailWithMeta as truncateSharedDetailWithMeta, truncateForDetail as truncateSharedForDetail } from "../../shared/formatToolDetail";
 import { extractMessageText } from "./messageContent";
-import { takeActiveEntryId } from "./sessionEntryIds";
+import { isRoleMessageRole, takeActiveEntryId } from "./sessionEntryIds";
 
 export type AgentMessageProjectorDeps = {
 	translate: (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
@@ -19,7 +19,9 @@ export function buildActiveBranchEntryIds(entries: Array<{ id: string; parentId:
 		entryById.set(entry.id, entry);
 	}
 
-	// 从 leafId 回溯到 root，只保留 type=message 的条目
+	// 从 leafId 回溯到 root，只保留消费 entryId 槽位的角色 message 条目。
+	// pi 0.86 起分支上还会出现 role:"system" 的 prompt/tool 更新条目（以及历史上无
+	// message 载荷的异常条目），它们不参与消息投影；若不过滤会让后续 id 整体错位。
 	const allBranchIds: string[] = [];
 	let currentId: string | null = leafId;
 	while (currentId) {
@@ -27,7 +29,11 @@ export function buildActiveBranchEntryIds(entries: Array<{ id: string; parentId:
 		const entry = entryById.get(currentId);
 		currentId = entry?.parentId ?? null;
 	}
-	return allBranchIds.filter((id) => entryById.get(id)?.type === "message");
+	return allBranchIds.filter((id) => {
+		const entry = entryById.get(id);
+		if (!entry || entry.type !== "message") return false;
+		return isRoleMessageRole(entry.message?.role);
+	});
 }
 
 /**
@@ -44,11 +50,12 @@ export class AgentMessageProjector {
 		// 用于生成元消息 id（compaction/branchSummary）的计数器
 		let metaSeq = 0;
 		// entryId 按 active branch 顺序与 rawMessages 一一对应。
-		// 注意：entryIndex 只在 user/assistant/toolResult 时递增，
-		// 因为 compactionSummary/branchSummary 在 get_entries 中无对应 entry，
-		// 同时 activeEntryIds 还包含 model_change/thinking_level_change/custom 等非角色条目。
+		// 注意：entryIndex 只在 user/assistant/toolResult 时递增，因为
+		// compactionSummary/branchSummary 在 get_entries 中无对应 entry，而 activeEntryIds 也只
+		// 含消费槽位的角色 message 条目（buildActiveBranchEntryIds / getRecentActiveEntryIds
+		// 都按 isRoleMessageRole 过滤，pi 0.86 的 role:"system" 条目不算）。
 		// 因此 currentEntryId 的读取必须放在各个角色块内部，不能在所有条目前统一读取，
-		// 否则非 user/assistant/toolResult 条目会提前消费 entryIndex 槽位。
+		// 否则非用户/助手/工具条目会提前消费 entryIndex 槽位。
 		let entryIndex = 0;
 		return (
 			rawMessages

@@ -4,6 +4,7 @@ import { desktopApi } from "../desktopApi";
 import type { SessionProcessEvent } from "../../../shared/types/trajectory";
 import type { SessionRecord } from "../../../shared/types";
 import { prependSessionHistoryPageAtom, prependSessionMessagePageAtom, sessionMessageCacheBySessionIdAtomFamily, sessionRecordByIdAtomFamily, type SessionMessageCacheEntry } from "../atoms";
+import { sessionHistoryUnavailableState } from "../utils/sessionHistoryAvailability";
 
 /** 与时间线 runtime 翻页对齐：一次补 3 轮，复用同一份消息缓存。 */
 const RUNTIME_HISTORY_TURN_PAGE_SIZE = 3;
@@ -110,6 +111,10 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 				.readRecordMessagePage(sessionId, before, 100)
 				.then((page) => {
 					if (loadSequenceRef.current !== sequence) return;
+					// DSH host 被手动停止时返回「暂时读不了」的空页：不能当前缀写进缓存，
+					// 否则 total 归零、游标被清空，「加载更多」消失且无法重试。保持现状即可，
+					// 恢复路径由时间线的「启动 host」专态给出。
+					if (sessionHistoryUnavailableState(page)) return;
 					prependMessagePage({ sessionId, before, expectedRevision, page });
 				})
 				.finally(() => {
@@ -132,6 +137,8 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 			})
 			.then((page) => {
 				if (loadSequenceRef.current !== sequence) return;
+				// 与 disk 翻页同源：host 被停时的空页不是新历史（否则同样的游标/total 损坏）。
+				if (sessionHistoryUnavailableState(page)) return;
 				prependHistoryPage({ sessionId, expectedRevision, before, page });
 			})
 			.finally(() => {

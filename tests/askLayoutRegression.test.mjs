@@ -21,8 +21,9 @@ test("Ask cards keep long content readable in every render path", () => {
 	// 选项卡片/描述必须换行展示（break-words whitespace-normal），不能截断或裁切；
 	// 注意批量问答 tab 胶囊是例外：tab 只做单行摘要（truncate），完整问题在详情区展示。
 	assert.match(overlay, /break-words whitespace-normal/);
-	// 批量问答 tab 胶囊：单行截断 + 悬停 title 看全文，禁止多行溢出胶囊固定高度。
-	assert.match(overlay, /max-w-\[28ch\] min-w-0 truncate text-left" title=\{question\.question\}/);
+	// 批量问答 tab 胶囊：单行截断 + 悬停 title 看全文，禁止多行溢出胶囊固定高度；
+	// 宽度封顶 14ch（2026-12 用户反馈：28ch 太长，标签条太占位置）。
+	assert.match(overlay, /max-w-\[14ch\] min-w-0 truncate text-left" title=\{question\.question\}/);
 	assert.match(toolCards, /whitespace-normal break-words font-mono text-caption/);
 	assert.match(toolCards, /formatAskTitle\(item\.question/);
 	assert.match(webTimeline, /formatAskTitle\(props\.request\.title/);
@@ -75,12 +76,61 @@ test("selected ask options stay visible under the outline variant's dark utiliti
 	assert.doesNotMatch(timelineStyles, /\.ask-inline-bar-option\.selected\s*\{/);
 });
 
+test("Batch question tabs stay on one scrolling line, and single-choice answers auto-advance", () => {
+	// 2026-12 用户反馈：标签条换行后占掉好几行，太占位置。
+	// 结论：条本身固定单行（overflow-x-auto），靠「短标题 + 序号」压住宽度；
+	// 不再 flex-wrap（issue #230 的「看得全」诉求改由 cap 后的短标签 + 内滚承担）。
+	assert.match(overlay, /className="mb-1 flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border-subtle pb-1" role="tablist"/);
+	assert.doesNotMatch(overlay, /flex-wrap gap-1 border-b border-border-subtle/);
+
+	// issue #230 第 1 点：单值选择选完自动前进，末题同样自动（去审阅/直接提交）。
+	// 策略走纯函数 shouldAutoAdvanceBatchAnswer（见 askUiStateMachine），
+	// 推进编排收敛到 BatchAskInlineBar.answerAndAdvance 一处。
+	assert.match(overlay, /shouldAutoAdvanceBatchAnswer\(\{ type: question\.type, total \}\)/);
+	const advances = overlay.match(/(?:^|\s)answer\((?:true|false|value)/g) ?? [];
+	assert.equal(advances.length, 3, "confirm 是/否 + 批量单选 三条单值选择路径都要走 answer()");
+	// 末题必须带上刚写入的答案提交，不能读同一事件里尚未提交的 state。
+	assert.match(overlay, /submitAnswers\(committed\)/);
+	assert.match(overlay, /const committed = commitAnswer\(question\.id, value, label, wasCustom\)/);
+	// multi_select 不得自动前进（需多次勾选）：它仍然直连 props.onAnswer，不走 answer() 包装。
+	assert.match(overlay, /props\.onAnswer\(next, next\.join\("、"\)\);/);
+	assert.doesNotMatch(overlay, /answer\(next,/);
+	// 自动前进后被点的按钮随换题卸载，焦点会掉回 body：换题后把焦点收回卡片容器。
+	assert.match(overlay, /refocusAfterAdvanceRef\.current = true/);
+	assert.match(overlay, /containerRef\.current\?\.focus\(\)/);
+	assert.match(overlay, /tabIndex=\{-1\}/);
+});
+
+test("Ask options render as full-width horizontal bars, one per row", () => {
+	// 2026-12 用户反馈：2/4 列栅格在长文案下把选项压成窄条，标签与说明挤在一起。
+	// 单选/多选/单卡三条渲染路径统一改成整行横条（flex-col + w-full），
+	// 与 WebTimeline 的既有选项语言一致；不得退回 grid-cols-* 栅格。
+	const bars = overlay.match(/className="flex min-w-0 flex-col gap-2"/g) ?? [];
+	assert.equal(bars.length, 3, "batch select / batch multi_select / single select must all be one-per-row bars");
+	assert.doesNotMatch(overlay, /grid-cols-[24]/);
+	// 横条高度由内容决定（长描述自然换行），不再靠 72px 固定最小高度对齐栅格单元。
+	assert.doesNotMatch(overlay, /min-h-\[72px\]/);
+	// 横条密度：整行横条 + 32px 下限 + 6px 纵向内边距。
+	// 2026-12 用户反馈「很密集不舒服」：曾压到 26px/3px/1.35，观感过挤。
+	assert.match(overlay, /ask-inline-bar-option h-auto min-h-\[32px\] w-full min-w-0 max-w-none items-center justify-start gap-1\.5 px-2\.5 py-1\.5 text-left break-words whitespace-normal/);
+	// 说明与标签同一行、同字号（text-caption）、空格分隔，只靠颜色淡（tertiary）区分——
+	// 用户反馈：说明别用小字、也别压成第二行（大屏上又小又局限）；禁止再引入破折号/小字。
+	assert.match(overlay, /<span className="text-text-primary">\{label\}<\/span>/);
+	assert.match(overlay, /<span className="text-text-tertiary">\{` \$\{description\}`\}<\/span>/);
+	assert.doesNotMatch(overlay, /text-micro font-normal leading-\[1\.5\] text-text-tertiary/);
+	assert.doesNotMatch(overlay, / — \$\{description\}/);
+	// 说明同一行后横条是单行布局，不再 flex-col 两行堆叠。
+	assert.doesNotMatch(overlay, /min-h-\[32px\][^"]*flex-col/);
+	// 题号行「详情 i/n」已删（用户反馈：多余，tab 已有序号 + 头部有进度）。
+	assert.doesNotMatch(overlay, /common\.details/);
+});
+
 test("Plan/simple select options render as single-row optically aligned buttons", () => {
 	// 2026-12 用户反馈：上下两行（标签/说明各一行）文本对不齐。
 	// live 卡选项改为单行：固定高度 + 标签不缩 + 说明 truncate，等宽等高光学对齐。
 	// TimelineEventCards 的 AskQuestionCard 死代码与其专属 CSS 已删除（2026-08 清理），
 	// 该视觉语言现只由 SessionRuntimeUiOverlay 的 ask-inline-bar-option 承载。
-	assert.match(overlay, /ask-inline-bar-option h-\[30px\] w-full min-w-0 max-w-none items-center justify-start gap-2 px-2 py-0 text-left/);
+	assert.match(overlay, /ask-inline-bar-option h-\[32px\] w-full min-w-0 max-w-none items-center justify-start gap-2 px-2\.5 py-0 text-left/);
 	assert.match(overlay, /max-w-\[45%\] shrink-0 truncate text-caption font-medium leading-none text-text-primary/);
 	assert.match(overlay, /min-w-0 flex-1 truncate text-micro leading-none text-text-tertiary/);
 });
@@ -158,9 +208,33 @@ test("Ask option clicks skip submit while text is selected", () => {
  * 编辑器的最小高度互相挤压。回归契约从两方面锁定这个边界：composer 不再接收 runtimeUi，
  * timeline 负责承载它；Ask 内容也不再创建第二个纵向滚动 owner。
  */
-test("ask stays out of composer sizing and uses the session timeline as its scroll owner", () => {
+test("ask owns a pinned slot between the timeline stage and the composer", () => {
 	assert.doesNotMatch(composerArea, /runtimeUi/);
-	assert.match(sessionView, /<SessionSurfaceStage[\s\S]*runtimeUi,/);
+	// Ask 不再进时间线滚动内容（issue #230：看历史时提问卡在视口外）。
+	assert.doesNotMatch(sessionView, /<SessionSurfaceStage[\s\S]*runtimeUi,/);
+	// 底栏本身是唯一新增的 Ask 滚动层；高度就是「列高 - 对话区保底」，不设固定像素。
+	assert.match(sessionView, /session-v-ask min-h-0 shrink-0 overflow-y-auto overscroll-contain \[scrollbar-gutter:stable\]/);
+	assert.match(sessionView, /\{runtimeUi && askPanelVisible \? \(/);
+	assert.match(sessionView, /const askMaxHeight = `calc\(100% - var\(--session-timeline-min, \$\{TIMELINE_MIN_HEIGHT\}px\)\)`/);
+	// 不设固定像素上限（用户反馈：别限卡片高度）；超长才由内滚兜底。
+	assert.doesNotMatch(sessionView, /ASK_PANEL_MAX_HEIGHT/);
+	// Ask 与 composer 互斥分高（issue #230 定案 B：弹卡时卡片独占列底，输入框坍缩到零高）。
+	// 不卸载——粘贴转文件的删盘动作在 composer 卸载路径上会丢（orphan 临时文件）。
+	assert.match(sessionView, /const composerMaxHeight = askPanelVisible \? "0px" : `min\(\$\{COMPOSER_MAX_HEIGHT\}px, calc\(100% - var\(--session-timeline-min, \$\{TIMELINE_MIN_HEIGHT\}px\)\)\)`/);
+	assert.match(sessionView, /maxHeight: composerMaxHeight/);
+	// composer 全程挂载（不因 ask 卸载）；坍缩到 0px 时同时 inert + aria-hidden，
+	// 不可见编辑器不得再被 Tab/点击命中（否则用户会往隐形输入框里打字）。
+	assert.match(sessionView, /bottomComposerVisible && \(/);
+	assert.match(sessionView, /inert=\{askPanelVisible\}/);
+	assert.match(sessionView, /aria-hidden=\{askPanelVisible \|\| undefined\}/);
+	assert.doesNotMatch(sessionView, /composerMaxHeight = `min\(\$\{COMPOSER_MAX_HEIGHT\}px/);
+	// 占位判据必须与 overlay 同源，否则 stale runtime 的残留 pending 会让 composer 白让高度。
+	assert.match(sessionView, /askPanelVisible\?: boolean/);
+	const injector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
+	assert.match(injector, /const askPanelVisible = React\.useMemo\(\(\) => Boolean\(resolveActiveAskRequest\(currentSessionRuntime, currentSessionRuntimeUi\)\)/);
+	assert.match(injector, /askPanelVisible=\{askPanelVisible\}/);
+	// 宽度基准与消息列/输入框同源，不另开一套宽度。
+	assert.match(sessionView, /<div className="pb-2" style=\{chatContentWidthStyle\}>[\s\S]*?\{runtimeUi\}/);
 	assert.match(timeline, /className="session-runtime-ui mx-auto w-full/);
 	assert.doesNotMatch(timeline, /session-runtime-ui sticky bottom-0/);
 	// 内容宽度：消息区/输入框 inline width，Ask 随时间线同宽。

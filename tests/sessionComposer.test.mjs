@@ -6,6 +6,8 @@ import vm from "node:vm";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { dshSendBlockReason } = loadTsCommonJs("src/shared/types/dshRuntime.ts");
+// 斜杠命令分类是纯函数：注入真实实现（而不是替身），避免测试里的判定与生产漂移。
+const { classifyComposerSlashCommand } = loadTsCommonJs("src/renderer/src/utils/composerSlashCommand.ts");
 
 function compile(filePath, stubs = {}) {
 	const source = readFileSync(filePath, "utf8");
@@ -48,6 +50,7 @@ function loadSendHelpers() {
 			stripQuoteTokens: (text) => text.trim(),
 		},
 		"../i18n": { translateI18nDescriptor: (_descriptor, fallback) => fallback },
+		"../utils/composerSlashCommand": { classifyComposerSlashCommand },
 	});
 }
 
@@ -156,6 +159,8 @@ function createSendHarness(initial = {}) {
 		},
 		// DSH 发送拦截：真实纯函数 + 提示替身（记录调用，不真弹 sonner toast）。
 		"../../../shared/types/dshRuntime": { dshSendBlockReason },
+		// `/login` 拦截后的入口：记录调用参数，断言「没被当普通消息发出去」。
+		"../utils/composerSlashCommand": { classifyComposerSlashCommand },
 		"../utils/dshRuntimeHint": {
 			// useSessionSend 顶部还解构了 DSH_INSTALL_SETTINGS_TARGET / maybeHintMissingDshRunnerNode
 			// （后者在 DSH 会话放行后调用，探测本机 Node）；测试环境 desktopApi 不存在，桩为 no-op。
@@ -311,10 +316,16 @@ test("Composer identity is session-only and send snapshots address the captured 
 
 test("A/B switching cannot clear or restore the other Session draft", () => {
 	const source = sendSource();
-	assert.match(source, /clearSnapshot\(sessionId\)/);
+	// 清空/恢复都抽到了同名前缀的 helper（第三参 keepDraft 供快捷消息直发复用），
+	// 但第一个参数必须仍是本次发送捕获的 sessionId：切到 B 后再回填不能动 B 的草稿。
+	assert.match(source, /clearComposerSnapshot\(sessionId, keepDraft\)/);
 	// 拒绝恢复用原始草稿（rawDraft，含引用 token）：保留 chip 形态供用户修改重发；
 	// unknown 快照仍存展开后文本（已实际投递的内容）
-	assert.match(source, /restoreRejectedSnapshot\(sessionId, rawDraft, imageSnapshot\)/);
+	assert.match(source, /restoreRejectedPrompt\(sessionId, keepDraft, rawDraft, imageSnapshot\)/);
+	assert.match(source, /restoreRejectedSnapshot\(targetSessionId, message, imageSnapshot\)/);
+	// 输入框临时 UI（↑ 历史、DOM 草稿镜像）同样必须留 keepDraft 出口，否则直发会把用户草稿镜像置空
+	assert.match(source, /function resetComposerEphemeralUi\(keepDraft: boolean\) \{\s*if \(keepDraft\) return;/);
+	assert.equal(source.match(/options\.resetComposerUi\?\.\(\)/g)?.length, 1, "resetComposerUi 必须统一走 resetComposerEphemeralUi 收口");
 	assert.match(source, /setDraft\(\{\s*sessionId: targetSessionId/);
 	assert.match(source, /setAttachments\(\{\s*sessionId: targetSessionId/);
 });
@@ -523,6 +534,47 @@ test("/new is intercepted as a desktop session create, not sent to pi", async ()
 	assert.equal(createCalls, 1);
 	assert.equal(sendPromptCalls, 0);
 	assert.equal(harness.state.get(harness.atoms.sessionDraftByIdAtom)["session-a"], undefined);
+});
+
+test("/login opens the provider login dialog instead of being sent to pi", async () => {
+	const harness = createSendHarness({ drafts: { "session-a": "/login anthropic" } });
+	let sendPromptCalls = 0;
+	const opened = [];
+	const send = harness.send({
+		sessionId: "session-a",
+		templates: [],
+		compact: async () => undefined,
+		openProviderLogin: (providerId) => {
+			opened.push(providerId);
+		},
+		sendPrompt: async () => {
+			sendPromptCalls += 1;
+			return { accepted: true };
+		},
+	});
+	await send();
+	// 回归背景：`/login` 以前落进普通发送分支被模型「回答」，这里锁住三条边界。
+	assert.equal(sendPromptCalls, 0, "login must not reach sendPrompt");
+	assert.deepEqual(opened, ["anthropic"], "provider argument is forwarded");
+	assert.equal(harness.state.get(harness.atoms.sessionDraftByIdAtom)["session-a"], undefined, "draft is cleared like /new");
+	// sendStates 在从未发送过的会话上是空值：用可选链断言「没被占用」。
+	assert.equal(harness.state.get("sendStates")?.["session-a"], undefined, "login must not occupy the send lock");
+});
+
+test("a bare /login without provider still opens the dialog", async () => {
+	const harness = createSendHarness({ drafts: { "session-a": "/login" } });
+	const opened = [];
+	const send = harness.send({
+		sessionId: "session-a",
+		templates: [],
+		compact: async () => undefined,
+		openProviderLogin: (providerId) => {
+			opened.push(providerId);
+		},
+		sendPrompt: async () => ({ accepted: true }),
+	});
+	await send();
+	assert.deepEqual(opened, [undefined]);
 });
 
 test("DSH session send is blocked with a friendly hint when runtime is missing", async () => {

@@ -23,6 +23,7 @@ import { PathTooltip } from "../ui-shadcn/PathTooltip";
 import { FileSearch, Search } from "lucide-react";
 import { useFileSearch } from "../../hooks/useFileSearch";
 import { FileSearchResults } from "./FileSearchResults";
+import { isEditableTarget, isFileSearchShortcut, isTypeToSearchKey } from "../../utils/fileSearchTrigger";
 
 // Button 收口状态（P0 UI 统一）：抽屉头部/文件工具行图标按钮已换 shadcn Button（ghost + 原 tailwind class 保留）。
 // 保留原生 button（内容排版/折叠区块语义 + 自定义 CSS 驱动，P2 CSS 收口时迁移）：
@@ -43,6 +44,8 @@ type SessionModifiedFile = {
 export function DrawerContent(props: {
 	panel: WorkspaceDrawerPanel;
 	project?: Project;
+	/** 文件面板所属项目 id：会话历史面板用不到，但文件树与按名称搜索必须靠它（缺了搜索入口不渲染） */
+	projectId?: string;
 	files: FileTreeNode[];
 	sessions: SessionSummary[];
 	sessionsLoading?: boolean;
@@ -87,7 +90,7 @@ export function DrawerContent(props: {
 			)}
 			{props.panel === "files" && (
 				<FilesPanel
-					projectId={props.project?.id}
+					projectId={props.projectId ?? props.project?.id}
 					files={props.files}
 					expandedDirs={props.expandedDirs}
 					onToggleDirectory={props.onToggleDirectory}
@@ -109,7 +112,7 @@ export function DrawerContent(props: {
 }
 
 function FilesPanel(props: {
-	/** 搜索用项目 id：未选中项目时搜索入口不渲染 */
+	/** 搜索用项目 id（由抽屉按当前文件树项目传入）：缺省时不渲染搜索入口、快捷键也不响应 */
 	projectId?: string;
 	files: FileTreeNode[];
 	expandedDirs: Set<string>;
@@ -156,10 +159,13 @@ function FilesPanel(props: {
 	// 文件名搜索（issue #215）：状态域在 hook，面板只转发输入与关闭
 	const fileSearch = useFileSearch({ projectId: props.projectId });
 	const [searchOpen, setSearchOpen] = useState(false);
+	// 面板容器：退出搜索后把焦点收回来，否则焦点落到 body，之后的 Ctrl+F / 输入即搜索都收不到键
+	const panelRef = useRef<HTMLDivElement | null>(null);
 	// 关闭时同步清空查询词：退出搜索态必须回到完整文件树，且避免残留查询触发下一次挂载时的扫描
 	const closeSearch = useCallback(() => {
 		setSearchOpen(false);
 		fileSearch.clearSearch();
+		panelRef.current?.focus();
 	}, [fileSearch]);
 	// 排序是纯展示层变换：不改变 props.files 引用，只影响渲染次序
 	const sortedFiles = useMemo(() => sortFileNodes(props.files, sortMode, sortDirection), [props.files, sortMode, sortDirection]);
@@ -188,7 +194,31 @@ function FilesPanel(props: {
 			if (props.onPasteFiles && props.projectRoot) {
 				props.onPasteFiles(props.projectRoot);
 			}
+			return;
 		}
+		// 搜索要项目 id 才能扫盘：没有选中项目时连入口都不渲染，快捷键也不应响应
+		if (!props.projectId) return;
+		// Ctrl+F / ⌘F：在面板内打开搜索视图（挡掉宿主自带查找栏）；焦点在输入框里时不抢键
+		if (isFileSearchShortcut(event)) {
+			if (isEditableTarget(event.target)) return;
+			event.preventDefault();
+			setSearchOpen(true);
+			return;
+		}
+		// 输入即搜索：焦点在面板/文件树上时直接敲字符即进搜索，首字符带进查询词。
+		// searchOpen 后输入框已自己聚焦，字符归输入框，这里不再重复播种。
+		if (searchOpen || isEditableTarget(event.target)) return;
+		if (isTypeToSearchKey(event)) {
+			event.preventDefault();
+			setSearchOpen(true);
+			fileSearch.setQuery(event.key);
+		}
+	};
+	// 面板内点一下就把焦点收回容器：Ctrl+V 粘贴、Ctrl+F 与「输入即搜索」都挂在容器 keydown 上，
+	// 焦点落在 body 时按键不会冒泡到这里（此前必须先点中某个文件行，快捷键才生效）
+	const handlePanelMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+		if (isEditableTarget(event.target)) return; // 别把焦点从搜索框/重命名输入框里抢走
+		event.currentTarget.focus();
 	};
 	const handlePanelContextMenu = (event: React.MouseEvent) => {
 		// 仅面板背景本身被右键时触发（不拦截文件节点的右键事件）
@@ -211,7 +241,9 @@ function FilesPanel(props: {
 	return (
 		<div
 			className="files-panel flex min-h-0 flex-1 flex-col overflow-x-hidden"
+			ref={panelRef}
 			tabIndex={-1}
+			onMouseDown={handlePanelMouseDown}
 			onDragOver={handlePanelDragOver}
 			onDragLeave={() => {
 				setDragOverDir(null);

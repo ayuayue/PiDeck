@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { DirectoryImportReport, DirectorySessionSourceDir, DirectorySessionSummary, DirectorySourceKind, Project } from "../../../shared/types";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
+import { toggleSelectedPaths } from "../utils/importSessionList";
 
 export type DirectoryImportController = {
 	sessions: DirectorySessionSummary[];
@@ -29,7 +30,8 @@ export type DirectoryImportController = {
 	refresh: () => Promise<void>;
 	refreshSources: () => Promise<void>;
 	toggle: (sourcePath: string) => void;
-	toggleAll: () => void;
+	/** 全选 / 取消全选；传 sourcePaths 时只在该子集内切换（搜索命中的行），缺省为当前可见（过滤器生效后的）会话。 */
+	toggleAll: (sourcePaths?: string[]) => void;
 	importSelected: () => Promise<DirectoryImportReport | null>;
 };
 
@@ -164,10 +166,13 @@ export function useDirectoryImport(input: UseDirectoryImportInput): UseDirectory
 		setSelected((current) => (current.includes(sourcePath) ? current.filter((item) => item !== sourcePath) : [...current, sourcePath]));
 	}, []);
 
-	const toggleAll = useCallback(() => {
-		const all = visible.map((session) => session.sourcePath);
-		setSelected((current) => (all.length > 0 && all.every((path) => current.includes(path)) ? [] : all));
-	}, [visible]);
+	const toggleAll = useCallback(
+		(sourcePaths?: string[]) => {
+			const targets = sourcePaths ?? visible.map((session) => session.sourcePath);
+			setSelected((current) => toggleSelectedPaths(current, targets));
+		},
+		[visible],
+	);
 
 	const importSelected = useCallback(async () => {
 		if (!project || !directory || selected.length === 0) return null;

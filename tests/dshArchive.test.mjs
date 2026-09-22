@@ -21,10 +21,10 @@ function makeHost() {
 }
 
 /** 在 sessions 树里造一个假 host 会话目录（session.jsonl.zstd 占位）。 */
-function makeSessionDir(home, cwd, sessionId) {
+function makeSessionDir(home, cwd, sessionId, logName = "session.jsonl.zstd") {
 	const dir = join(home, "sessions", workspaceDirFor(cwd), sessionId);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, "session.jsonl.zstd"), "fake-log");
+	writeFileSync(join(dir, logName), "fake-log");
 	return dir;
 }
 
@@ -329,6 +329,37 @@ test("DshHost.deleteSession：cwd 失配时按 sessionId 兜底扫描仍能删�
 
 		const deleted = await host.deleteSession(sessionId, staleCwd);
 		assert.equal(deleted, true, "cwd 失配时兜底扫描应命中并删除");
+		assert.equal(trashed.length, 1, "回收站回调应被调用一次");
+		assert.ok(!existsSync(sessionDir), "会话目录应已移走");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("DshHost.deleteSession：v1+ 格式代（session.v3.jsonl.zstd）的会话也能删除", async () => {
+	// 回归：官方 generationLogFilename 下 v1+ 带 `vN` 版本号，只认 v0 的无版本名会让
+	// findDshSessionDir 找不到目录 → deleteSession 直接 false（新版 DSH 的会话删不掉）。
+	const home = mkdtempSync(join(tmpdir(), "pideck-dsh-delsession-v3-"));
+	const trashed = [];
+	const host = new DshHost(
+		() => join(home, "userData"),
+		() => home,
+		() => undefined,
+		() => home,
+		undefined,
+		undefined,
+		async (path) => {
+			trashed.push(path);
+			rmSync(path, { recursive: true, force: true });
+		},
+	);
+	try {
+		const cwd = "C:/work/project";
+		const sessionId = "session-v3-1";
+		const sessionDir = makeSessionDir(home, cwd, sessionId, "session.v3.jsonl.zstd");
+
+		const deleted = await host.deleteSession(sessionId, cwd);
+		assert.equal(deleted, true, "v3 格式代的会话必须能删除");
 		assert.equal(trashed.length, 1, "回收站回调应被调用一次");
 		assert.ok(!existsSync(sessionDir), "会话目录应已移走");
 	} finally {

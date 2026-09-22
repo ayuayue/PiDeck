@@ -6,9 +6,14 @@
  * 匹配一张**全英文**名单（429/500/502/503/504/524 与 `connection error` 等关键词）。
  * 实测本机会话里有三类漏网之鱼：
  *
- *   1. `400 status code (no body)` —— 网关空响应，400 不在名单里；且 pi 0.84.4 起
- *      还会被溢出正则 `/^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i` 误判为上下文
- *      溢出，走压缩恢复而非重试（详见 makeRetryableErrorMessage 注释）。
+ *   1. `400 status code (no body)` —— 网关空响应，400/413 不在重试名单里。
+ *      破锚需求随 pi 版本变化（详见 makeRetryableErrorMessage 注释）：
+ *      - pi ≤ 0.85：该文案还会被溢出正则
+ *        `/^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i` 误判为上下文溢出，
+ *        走压缩恢复而非重试，必须破锚；
+ *      - pi ≥ 0.86：上游已把 bodyless 400/413 移出溢出判定（不再误判），破锚
+ *        变成冗余但无害，为兼容仍在用旧版 pi 的用户保留。
+ *      两个版本都必须追加 `(connection error)` 才算进重试名单。
  *   2. `模型服务暂时不可用，请稍后重试` —— 中文文案，名单里一个词都命中不了。
  *   3. `stream_read_error` / `unexpected EOF` / HTTP2 `GOAWAY` —— 传输层瞬态错误，
  *      同样不在名单里。
@@ -199,7 +204,7 @@ const PI_OVERFLOW_ANCHORED_STATUS = /^4(?:00|13)\b/i;
  * 1. 追加 ` (connection error)`：命中 agent-session 的 `isRetryableAssistantError`
  *    名单中的 `connection.?error`，让错误进入 `_prepareRetry` 完整重试闭环。
  *
- * 2. 必要时在开头前置 `transient upstream fault: `：agent-session 的
+ * 2. 必要时在开头前置 `transient upstream fault: `：pi ≤ 0.85 的 agent-session
  *    `_isRetryableError` 会**先**判 `isContextOverflow`，溢出判定优先于重试判定：
  *
  *      OVERFLOW_PATTERNS 末条 = /^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i
@@ -210,6 +215,11 @@ const PI_OVERFLOW_ANCHORED_STATUS = /^4(?:00|13)\b/i;
  *    （实测 pi 0.84.4：503 空响应能重试，400 空响应不能，差别就在这一条。）
  *    该正则锚定开头 `^`，所以前置任意标记即可解除误判；原文与状态码完整保留。
  *
+ *    版本矩阵（2026-09 核对）：pi 0.86 起上游已修掉该误判（实测 0.86.1：
+ *    `400 status code (no body)` 的 isContextOverflow=false，但仍不在重试名单里）。
+ *    因此破锚前缀对 ≥0.86 是冗余但无害的兼容手段，保留以覆盖继续使用旧版 pi 的
+ *    用户；等最低支持版本抬升后再按兼容代码移除规则清理。
+ *
  * Anthropic 例外：`api` 为 anthropic 系时不做前置，让 pi 按设计走压缩恢复 ——
  * 那里的 400 + 空 body 确实大概率是 prompt 超长，重试无意义。
  *
@@ -219,6 +229,10 @@ const PI_OVERFLOW_ANCHORED_STATUS = /^4(?:00|13)\b/i;
  */
 /**
  * 判断空响应错误是否需要「破锚」以解除 pi 的上下文溢出误判。
+ *
+ * 只有 pi ≤ 0.85 需要：0.86 起上游已把 bodyless 400/413 移出溢出判定。
+ * 保留是兼容仍在用旧版 pi 的用户（破锚文本对 ≥0.86 无副作用），
+ * 移除条件与 `docs/pi-compatibility.md` 的兼容代码移除规则一致。
  *
  * @param errorMessage - 原始错误信息
  * @param api - assistant 消息的 api 标识

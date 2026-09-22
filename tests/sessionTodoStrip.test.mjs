@@ -93,3 +93,24 @@ test("glyph circles widen canvas to 16x16 with 6.4 radius and overflow-visible t
 	assert.match(strip, /<svg[^>]*width=\{16\}[^>]*height=\{16\}[^>]*viewBox="-1 -1 16 16"[^>]*className="[^"]*overflow-visible[^"]*text-text-tertiary"/);
 	assert.match(strip, /<circle cx="7" cy="7" r="6\.4" stroke="currentColor" strokeWidth="1\.2" strokeDasharray="2\.4 2\.4"/);
 });
+
+/**
+ * 待办条滚动条闪烁回归（2027-01）：旋转图标的「变换后包围盒（AABB）」不得撑高列表 scrollHeight。
+ *
+ * Chromium 算滚动溢出时取后代变换后的 AABB：旋转 16×16 svg 方盒时 AABB 涨到
+ * 16×√2 ≈ 22.6px > 20px 行高 → ul（overflow-y:auto）scrollHeight 104↔105 反复越界 →
+ * 原生滚动条以旋转频率出现/消失。修法：行内 overflow-hidden 把 AABB 关在行内；
+ * 旋转必须留在 svg 根（下放到 circle 会围绕默认 transform-origin:0 0 甩出盒子，
+ * 被行裁剪成一道小弧）。真实布局断言见 e2e/todo-strip-scrollbar.spec.ts。
+ */
+test("in-progress glyph keeps its spin on the svg box and the row clips the rotated AABB", () => {
+	const strip = stripSource();
+	const progressGlyph = strip.slice(strip.indexOf("function ProgressGlyph"), strip.indexOf("function PendingGlyph"));
+	assert.ok(progressGlyph.length > 0, "ProgressGlyph block must be locatable");
+	// 旋转留在 svg 根：只有带 CSS 盒子的 svg 根，transform-origin 才是盒中心
+	assert.match(progressGlyph, /<svg[^>]*className="[^"]*overflow-visible animate-pideck-spin[^"]*\[animation-duration:1s\][^"]*"/, "spin animation must stay on the <svg> box");
+	// 不能下放到 circle：SVG 子元素默认 transform-origin:0 0，会围绕 viewBox 左上角甩出去
+	assert.doesNotMatch(progressGlyph, /<circle[^>]*className="[^"]*animate-pideck-spin/, "spinning a <circle> swings it out of the viewBox (transform-origin defaults to 0 0)");
+	// 行级裁剪：把旋转 AABB（≈22.6px）关在 20px 行内，否则外层 ul 的 scrollHeight 会反复越界
+	assert.match(strip, /<li[^>]*className="flex min-w-0 items-center gap-2\.5 overflow-hidden[^"]*"/);
+});

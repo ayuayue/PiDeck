@@ -2,7 +2,9 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Toaster as SonnerToaster } from "sonner";
 import { setToasterReady } from "../../utils/notice";
-import { NoticeDetailsDialog, setNoticeDetailsOpener, type NoticeDetailsPayload } from "./notice-toast";
+// 弹窗本体单文件：它 import MarkdownStream，与 notice-toast 同文件会形成循环 import
+import { NoticeDetailsDialog } from "./notice-details-dialog";
+import { setNoticeDetailsOpener, type NoticeDetailsPayload } from "./notice-toast";
 
 /**
  * 全局 Toaster（#115）：sonner 官方组件，只承担堆叠/定位/时长/主题跟随，

@@ -296,18 +296,6 @@ test("history navigation falls back to rendered prompt when live draft is missin
 	assert.equal(draft, "fallback draft");
 });
 
-test("history line bounds use the live draft cursor position", () => {
-	const { getComposerHistoryLineBounds } = loadComposerBehaviorModule();
-
-	const multi = getComposerHistoryLineBounds("line1\nline2", 2);
-	assert.equal(multi.isFirstLine, true);
-	assert.equal(multi.isLastLine, false);
-
-	const last = getComposerHistoryLineBounds("line1\nline2", 8);
-	assert.equal(last.isFirstLine, false);
-	assert.equal(last.isLastLine, true);
-});
-
 // confirm 扩展层走 select([是,否])：桌面端必须识别为纯是否题，不展示自定义输入。
 test("detects yes/no confirm options and rejects multi-choice selects", () => {
 	const { isYesNoConfirmOptions } = loadComposerBehaviorModule();

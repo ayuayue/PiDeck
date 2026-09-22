@@ -136,19 +136,22 @@ function loadAgentManager(existsPredicate = () => false) {
 					: // 停止身份缓存（72fe93da 起 SessionHistoryReader 依赖）：真实加载保持身份核对行为
 						id === "./stoppedMessageIdentity"
 						? loadTsCommonJs("src/main/pi/stoppedMessageIdentity.ts")
-						: id === "../../shared/sessionTodo"
-							? // todo 快照解析纯函数：本测试不覆盖，空实现满足依赖契约
-								{ parseTodoSnapshotData: () => undefined }
-							: // 工具推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
-								id === "./derivedSubagents"
-								? { deriveToolSubagentEntries: () => [] }
-								: // 会话 JSONL 流式行扫描器：真实加载，但注入被断言的 fs 替身（读到 host 路径）
-									id === "../sessions/jsonlLineStream"
-									? loadTsCommonJs("src/main/sessions/jsonlLineStream.ts", { stubs: { "node:fs/promises": fsPromises } })
-									: // 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
-										id === "../../shared/fileChanges"
-										? { collectLatestTurnFileChanges: () => [] }
-										: require(id),
+						: // entryId 槽位判定（isRoleMessageRole）：真实加载，0.86 system 条目对齐依赖它
+							id === "./sessionEntryIds"
+							? loadTsCommonJs("src/main/pi/sessionEntryIds.ts")
+							: id === "../../shared/sessionTodo"
+								? // todo 快照解析纯函数：本测试不覆盖，空实现满足依赖契约
+									{ parseTodoSnapshotData: () => undefined }
+								: // 工具推导纯函数：本测试不覆盖（另有 sessionAcpDelegateDerive.test.mjs），空实现满足依赖契约
+									id === "./derivedSubagents"
+									? { deriveToolSubagentEntries: () => [] }
+									: // 会话 JSONL 流式行扫描器：真实加载，但注入被断言的 fs 替身（读到 host 路径）
+										id === "../sessions/jsonlLineStream"
+										? loadTsCommonJs("src/main/sessions/jsonlLineStream.ts", { stubs: { "node:fs/promises": fsPromises } })
+										: // 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
+											id === "../../shared/fileChanges"
+											? { collectLatestTurnFileChanges: () => [] }
+											: require(id),
 		},
 		{ filename: "SessionHistoryReader.ts" },
 	);

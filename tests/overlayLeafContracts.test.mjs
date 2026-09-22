@@ -88,6 +88,14 @@ const askUiMock = {
 		const active = list.filter((entry) => entry.status === "pending" || entry.status === "responding");
 		return active[active.length - 1]?.request;
 	},
+	resolveActiveAskRequest: (runtime, ui) => {
+		if (!runtime || !ui) return undefined;
+		if (runtime.status === "detached" || runtime.status === "closed") return undefined;
+		if (runtime.agentId !== ui.agentId || runtime.runtimeGeneration !== ui.runtimeGeneration) return undefined;
+		const list = Object.values(ui.requests ?? {});
+		const active = list.filter((entry) => entry.status === "pending" || entry.status === "responding");
+		return active[active.length - 1]?.request;
+	},
 	buildAskResponse: (method, value, options) => (options?.cancelled ? { cancelled: true } : method === "confirm" ? { confirmed: Boolean(value), value: Boolean(value) } : { value: value ?? "" }),
 	serializeBatchAnswers: () => "{}",
 	shouldSuppressAskClick: () => false,

@@ -18,6 +18,7 @@
  * 由 turn/TurnRow 渲染成「一个汇总按钮 + 步骤原位穿插 + 回答常驻」。
  */
 import type { AgentRunItem, ThinkingGroupItem } from "../../app/AppUtils";
+import type { ChatMessage } from "../../../../../shared/types";
 import type { TurnDisplayItem } from "./types";
 
 /* 内联 strip 工具：本模块零运行时依赖（node 单测直接加载 .ts，
@@ -30,6 +31,15 @@ function stripAnsi(text: string): string {
 
 function stripThinkingTags(text: string): string {
 	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+}
+
+/** 重试状态消息判定（内联副本）：与 timelineFailureNotice.RETRY_STATUS_KEYS 同口径。
+ * 本模块被 node 单测直接加载，不能引入带 React/i18n 依赖的运行时模块。 */
+const RETRY_STATUS_I18N_KEYS = new Set(["diagnostic.retryScheduled", "diagnostic.retryScheduledAfterDelay", "diagnostic.retrySucceeded", "diagnostic.retryFailed"]);
+
+function isRetryStatusMessage(message: ChatMessage): boolean {
+	const key = message.meta?.i18nKey;
+	return typeof key === "string" && RETRY_STATUS_I18N_KEYS.has(key);
 }
 
 export function buildTurnDisplay(
@@ -68,6 +78,13 @@ export function buildTurnDisplay(
 				kind: "process-entry",
 				entry: { kind: "tool-entry", id: item.id, group: item },
 			});
+			return;
+		}
+		if (item.kind === "retry-group") {
+			// 自动重试状态：作为过程行展示（run 内 upsert 同 id），无需展开思考等逻辑
+			if (isRetryStatusMessage(item.message)) {
+				items.push({ kind: "process-entry", entry: { kind: "retry-entry", id: item.id, message: item.message } });
+			}
 			return;
 		}
 		if (item.kind !== "message" || item.message.role !== "assistant") return;

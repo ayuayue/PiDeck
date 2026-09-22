@@ -81,7 +81,7 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.7.7-beta** (2026-09-20)
+> **Latest: v0.7.7-beta** (2026-09-21)
 
 ### v0.7.7-beta Release Highlights
 - 🚀 **Search workspace files by name (#215)**
@@ -89,13 +89,13 @@
 - 🚀 **Import external resources (MCP / skills / prompt templates)**
 - 🚀 **Strict tool sampling can be switched explicitly (`compat.supportsStrictMode`)**
 - 🚀 **Hide and reorder providers, models and auth entries**
-- 🚀 **The sidebar project tree shows the current Git branch**
 - 🚀 **New “cycle model” and “cycle thinking effort” shortcuts (Ctrl+M / Ctrl+T, macOS ⌘⌥M / ⌘⌥T)**
 - 🚀 **Session tab hover tooltips show the workspace**
 - 🚀 **Hour-scale durations for long tasks**
 - 🚀 **DSH host can be stopped manually (persisted across restarts)**
 - 🚀 **The pi environment guide installs portable Node and the pi CLI in one click**
 - 🚀 **DSH runtime archives are cross-packed from a single runner**
+- 🚀 **The model catalogue moves to pi 0.86.1 (1443 models)**
 - ✨ **Third-party relays no longer fail to list models — or to use a manually typed one**
 - ✨ **Provider User-Agent collapsed into a single editable dropdown, with a much fuller preset list**
 - ✨ **Shared DSH config directory is now called out (#189)**

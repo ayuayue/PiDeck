@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import type { DshForeignSessionItem } from "./dshForeignSync";
 import { readSessionProjectionTitles } from "./dshProjectionCache";
+import { findDshSessionLogFile } from "./dshSessionPath";
 import { consumeTitleEvent, resolveFoldedTitle, type LoggedTitleFold } from "./dshSessionTitleFold";
 
 /**
@@ -14,7 +15,8 @@ import { consumeTitleEvent, resolveFoldedTitle, type LoggedTitleFold } from "./d
  * - 用户要的是「启动侧栏就有会话」，不是「先把 host 拉起来再手动导入」。
  *
  * 布局与 `@deepseek-ai/dsh-session-persistence-jsonl` 一致：
- * `$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session.jsonl.zstd`（或未压缩 `.jsonl`）。
+ * `$DSH_HOME/sessions/<workspaceDir>/<sessionId>/session[.vN].jsonl[.zstd]`（日志文件名带
+ * 「格式代」，v0 无版本名、v1+ 带 `vN`；发现逻辑复用 dshSessionPath.findDshSessionLogFile）。
  * 只读 header 帧/首行：`{ type:'session', id, cwd?, origin?, parentSession?, delegationDepth? }`。
  * 标题不在 header 里。优先官方投影缓存 `session_projcache`；缓存未覆盖的冷会话
  * 再只读日志前缀，按 `foldSessionTitle` last-wins 取 `session/title`，
@@ -26,6 +28,29 @@ import { consumeTitleEvent, resolveFoldedTitle, type LoggedTitleFold } from "./d
 const ZSTD_MAGIC = 4_247_762_216;
 /** 标题事件紧跟首条 user/message；256KiB 足够覆盖冷会话前缀，绝不读整段多 MB 日志。 */
 const TITLE_LOG_READ_LIMIT = 256 * 1024;
+/** 单帧解压输出上限（内存硬边界）：zstd 帧自带可声明的 contentSize，实测 339 字节的帧能
+ *  解出 10MB（构造/损坏文件在主进程里就是内存尖峰）。日志帧是「一次追加」的增量，
+ *  8MiB 已远超正常单帧；超限时 zlib 抛 ERR_BUFFER_TOO_LARGE，被现有 try/catch 当作
+ *  帧损坏处理（调用方降级/跳过），不会解出半个 GB 才 OOM。 */
+const MAX_FRAME_OUTPUT_BYTES = 8 * 1024 * 1024;
+/** 只读 header 的前缀上限：首帧通常只有 header 行（每追加一次一个帧），64KiB 足够。
+ *  目的是让「只要 id/归属、不要标题」的扫描（侧栏清单命中投影缓存时）不读满 256KiB。 */
+const HEADER_READ_LIMIT = 64 * 1024;
+
+/**
+ * 是否折叠日志标题（CPU 开关）：折叠要读前缀并逐帧解压，是扫描里最贵的一步。
+ * - 省略：不折叠——扫描 id/归属的调用方（`DshHost.listSessionIds`）不该为标题买单；
+ * - `true`：无条件折叠（导入单个会话、归档区列标题）；
+ * - 函数：按会话判定（清单场景：只有官方投影缓存未覆盖的冷会话才回退到日志折叠）。
+ */
+export type FoldTitleOption = boolean | ((sessionId: string) => boolean);
+
+/** 折叠开关判定（缺省视为不折叠）。 */
+function wantsFoldedTitle(option: FoldTitleOption | undefined, sessionId: string): boolean {
+	if (option === true) return true;
+	if (typeof option === "function") return option(sessionId);
+	return false;
+}
 
 /** 磁盘 header 的最小字段（只取过滤/归属需要的）。 */
 export type ScannedDshSessionHeader = {
@@ -54,7 +79,7 @@ export function isForeignRootSession(header: ScannedDshSessionHeader): boolean {
 }
 
 /** 扫描 DSH_HOME/sessions 下全部带合法 header 的会话（含子代理；只读）。 */
-export function scanDshSessionHeaders(dshHome: string): ScannedDshSessionHeader[] {
+export function scanDshSessionHeaders(dshHome: string, options: { foldTitle?: FoldTitleOption } = {}): ScannedDshSessionHeader[] {
 	const sessionsRoot = join(dshHome, "sessions");
 	if (!existsSync(sessionsRoot)) return [];
 	let workspaceDirs: string[];
@@ -77,7 +102,7 @@ export function scanDshSessionHeaders(dshHome: string): ScannedDshSessionHeader[
 			continue;
 		}
 		for (const sessionDir of sessionDirs) {
-			const header = readSessionHeader(join(workspacePath, sessionDir));
+			const header = readSessionHeader(join(workspacePath, sessionDir), options.foldTitle);
 			if (header) found.push(header);
 		}
 	}
@@ -87,7 +112,9 @@ export function scanDshSessionHeaders(dshHome: string): ScannedDshSessionHeader[
 /** 外部根会话清单：磁盘扫描 + 根会话过滤 + 投影缓存标题 + 日志折叠补全。 */
 export function listForeignSessionsFromDisk(dshHome: string): DshForeignSessionItem[] {
 	const titles = readSessionProjectionTitles(dshHome);
-	return scanDshSessionHeaders(dshHome)
+	// 缓存是 dsh-web 热路径，且大多数外部会话都在缓存里；只有缓存没覆盖的冷会话才读日志前缀
+	// 折叠标题（命中时连 64KiB 以外的字节都不读、后续帧也不解压）。
+	return scanDshSessionHeaders(dshHome, { foldTitle: (sessionId) => !titles.has(sessionId) })
 		.filter(isForeignRootSession)
 		.map((header) => {
 			// 缓存是 dsh-web 热路径；冷会话常缺行，必须再用日志折叠，否则首次安装全是占位名。
@@ -105,46 +132,58 @@ export function listForeignSessionsFromDisk(dshHome: string): DshForeignSessionI
 
 /**
  * 从单个会话目录只读折叠标题（归档区复用：.pideck-archive/<sessionId>/ 与
- * sessions 树同构——同目录名/同 session.jsonl[.zstd] 布局）。
+ * sessions 树同构——同目录名/同 session[.vN].jsonl[.zstd] 布局）。
  * 只读 header/前缀，不启动 host、不写缓存；无日志/折叠失败返回 undefined。
  */
 export function foldSessionTitleFromDir(sessionDir: string): string | undefined {
-	const header = readSessionHeader(sessionDir);
+	const header = readSessionHeader(sessionDir, true);
 	return header?.loggedTitle;
 }
 
-/** 读单个会话目录的 header；优先 zstd，其次未压缩 jsonl。读失败/损坏返回 undefined。 */
-function readSessionHeader(sessionDir: string): ScannedDshSessionHeader | undefined {
-	const zstdPath = join(sessionDir, "session.jsonl.zstd");
-	if (existsSync(zstdPath)) return readZstdHeader(zstdPath);
-	const jsonlPath = join(sessionDir, "session.jsonl");
-	if (existsSync(jsonlPath)) return readJsonlHeader(jsonlPath);
-	return undefined;
+/** 读单个会话目录的 header；按实际 generation 取日志（v1+ 优先），无日志返回 undefined。 */
+function readSessionHeader(sessionDir: string, foldTitle?: FoldTitleOption): ScannedDshSessionHeader | undefined {
+	const log = findDshSessionLogFile(sessionDir);
+	if (!log) return undefined;
+	return log.compressed ? readZstdHeader(log.path, foldTitle) : readJsonlHeader(log.path, foldTitle);
 }
 
-function readZstdHeader(filePath: string): ScannedDshSessionHeader | undefined {
-	const prefix = readFilePrefix(filePath, TITLE_LOG_READ_LIMIT);
+function readZstdHeader(filePath: string, foldTitle: FoldTitleOption | undefined): ScannedDshSessionHeader | undefined {
+	// 两段式读：先只读 header 帧（64KiB），确实需要折叠标题时才补读到 256KiB。
+	// 只需要 id/归属的扫描因此既不读满前缀，也不解压第二帧起的任何数据。
+	let prefix = readFilePrefix(filePath, HEADER_READ_LIMIT);
 	if (!prefix) return undefined;
-	const headerEnd = firstZstdFrameEnd(prefix.bytes);
+	let headerEnd = firstZstdFrameEnd(prefix.bytes);
+	if (headerEnd === undefined && prefix.bytes.length < TITLE_LOG_READ_LIMIT) {
+		// 小会话可能整体写在一帧里（header + 正文同帧）：小前缀装不下就退到大前缀。
+		// 读得少绝不能变成丢会话，所以这里必须再试一次而不是直接返回 undefined。
+		prefix = readFilePrefix(filePath, TITLE_LOG_READ_LIMIT) ?? prefix;
+		headerEnd = firstZstdFrameEnd(prefix.bytes);
+	}
 	if (headerEnd === undefined) return undefined;
 	let header: ScannedDshSessionHeader | undefined;
 	try {
-		const plain = zstdDecompressSync(prefix.bytes.subarray(0, headerEnd));
+		const plain = zstdDecompressSync(prefix.bytes.subarray(0, headerEnd), { maxOutputLength: MAX_FRAME_OUTPUT_BYTES });
 		header = parseHeaderLine(plain.toString("utf8"), prefix.mtimeMs);
 	} catch {
 		return undefined;
 	}
 	if (!header) return undefined;
-	const loggedTitle = foldTitleFromZstdPrefix(prefix.bytes);
+	if (!wantsFoldedTitle(foldTitle, header.id)) return header;
+	// 折叠要完整前缀：上面为拿 header 可能只读了小前缀，这里补满，否则标题事件落在
+	// 64KiB 之后就会漏（标题通常紧跟首条提示，但窗口不能因此悄悄收窄）。
+	const foldPrefix = prefix.bytes.length >= TITLE_LOG_READ_LIMIT ? prefix : (readFilePrefix(filePath, TITLE_LOG_READ_LIMIT) ?? prefix);
+	const loggedTitle = foldTitleFromZstdPrefix(foldPrefix.bytes);
 	return loggedTitle ? { ...header, loggedTitle } : header;
 }
 
-function readJsonlHeader(filePath: string): ScannedDshSessionHeader | undefined {
+function readJsonlHeader(filePath: string, foldTitle: FoldTitleOption | undefined): ScannedDshSessionHeader | undefined {
 	const prefix = readFilePrefix(filePath, TITLE_LOG_READ_LIMIT);
 	if (!prefix) return undefined;
-	const header = parseHeaderLine(prefix.bytes.toString("utf8"), prefix.mtimeMs);
+	const text = prefix.bytes.toString("utf8");
+	const header = parseHeaderLine(text, prefix.mtimeMs);
 	if (!header) return undefined;
-	const loggedTitle = foldTitleFromJsonlPrefix(prefix.bytes.toString("utf8"));
+	if (!wantsFoldedTitle(foldTitle, header.id)) return header;
+	const loggedTitle = foldTitleFromJsonlPrefix(text);
 	return loggedTitle ? { ...header, loggedTitle } : header;
 }
 
@@ -152,11 +191,13 @@ function readJsonlHeader(filePath: string): ScannedDshSessionHeader | undefined 
 function foldTitleFromZstdPrefix(buffer: Buffer): string | undefined {
 	const state: LoggedTitleFold = {};
 	let offset = 0;
+	// CPU 边界：循环被前缀长度（≤256KiB）封顶，且解压失败即 break——
+	// 构造的大帧最多让循环多试一次就退出，不会逐帧解到底。
 	while (offset < buffer.length) {
 		const frameEnd = firstZstdFrameEnd(buffer.subarray(offset));
 		if (frameEnd === undefined) break;
 		try {
-			const plain = zstdDecompressSync(buffer.subarray(offset, offset + frameEnd)).toString("utf8");
+			const plain = zstdDecompressSync(buffer.subarray(offset, offset + frameEnd), { maxOutputLength: MAX_FRAME_OUTPUT_BYTES }).toString("utf8");
 			for (const line of plain.split(/\r?\n/)) consumeTitleEvent(line, state);
 		} catch {
 			break;

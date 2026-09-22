@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ClipboardList } from "lucide-react";
 import type { AgentUiBatchQuestion, AgentUiRequest, AgentUiResponse, SessionUiResponseInput } from "../../../../shared/types";
 import type { SessionRuntimeUiState, SessionRuntimeViewState } from "../../atoms/session-atoms";
 import { t } from "../../i18n";
-import { buildAskResponse, formatAskTitle, isComposingKeyboardEvent, parseSecurityConfirmTitle, pickActiveAskRequest, resolveBatchAskDirectEnter, resolveSingleAskDirectEnter, serializeBatchAnswers, shouldSuppressAskClick, splitAskOption } from "../../utils/askUi";
+import { buildAskResponse, formatAskTitle, isComposingKeyboardEvent, parseSecurityConfirmTitle, resolveActiveAskRequest, resolveBatchAskDirectEnter, resolveSingleAskDirectEnter, serializeBatchAnswers, shouldAutoAdvanceBatchAnswer, shouldSuppressAskClick, splitAskOption } from "../../utils/askUi";
 import { SecurityConfirmCard } from "./SecurityConfirmCard";
 import { Button } from "../ui-shadcn/button";
 import { Input } from "../ui-shadcn/input";
@@ -125,38 +125,67 @@ function BatchAskInlineBar(props: { request: AgentUiRequest; responding: boolean
 	const currentQuestion = reviewTab ? undefined : questions[currentTab];
 	const finalStep = currentTab === total - 1;
 
-	function setAnswer(questionId: string, value: BatchAnswer, label = batchAnswerLabel(value), wasCustom = false) {
-		setAnswers((current) => ({ ...current, [questionId]: value }));
-		setAnswerLabels((current) => ({ ...current, [questionId]: label }));
-		setCustomAnswerIds((current) => {
-			const next = new Set(current);
-			if (wasCustom) next.add(questionId);
-			else next.delete(questionId);
-			return next;
-		});
+	/**
+	 * 写入答案并返回**新的三份 state**。
+	 *
+	 * 自动前进（尤其末题直接提交）必须在同一个事件里拿到刚写入的答案：
+	 * setAnswers/setAnswerLabels/setCustomAnswerIds 是异步提交的，再读 state 会漏掉本题。
+	 */
+	function commitAnswer(questionId: string, value: BatchAnswer, label = batchAnswerLabel(value), wasCustom = false) {
+		const nextAnswers = { ...answers, [questionId]: value };
+		const nextLabels = { ...answerLabels, [questionId]: label };
+		const nextCustom = new Set(customAnswerIds);
+		if (wasCustom) nextCustom.add(questionId);
+		else nextCustom.delete(questionId);
+		setAnswers(nextAnswers);
+		setAnswerLabels(nextLabels);
+		setCustomAnswerIds(nextCustom);
+		return { answers: nextAnswers, labels: nextLabels, custom: nextCustom };
 	}
 
-	function submitText(question: AgentUiBatchQuestion) {
+	/** 自定义输入（select 的「其他」）与纯输入题的提交：写入答案并按策略自动前进。 */
+	function submitText(question: AgentUiBatchQuestion): boolean {
 		const value = inputValues[question.id]?.trim();
-		if (value) setAnswer(question.id, value, value, question.type === "select");
+		if (!value) return false;
+		return answerAndAdvance(question, value, value, question.type === "select");
 	}
 
-	function submitAnswers() {
+	function submitAnswers(overrides?: { answers?: Record<string, BatchAnswer>; labels?: Record<string, string>; custom?: Set<string> }) {
+		// 自动前进到末题时会带上「本次刚写入」的答案（overrides），不能读 state：
+		// 同一事件里 setAnswers 还没提交，直接 submitAnswers() 会把本题答案丢掉。
+		const effectiveAnswers = overrides?.answers ?? answers;
+		const effectiveLabels = overrides?.labels ?? answerLabels;
+		const effectiveCustom = overrides?.custom ?? customAnswerIds;
 		props.onSubmit(
 			serializeBatchAnswers(
 				questions,
-				answers,
+				effectiveAnswers,
 				Object.fromEntries(
 					questions.map((question) => [
 						question.id,
 						{
-							label: answerLabels[question.id],
-							wasCustom: customAnswerIds.has(question.id),
+							label: effectiveLabels[question.id],
+							wasCustom: effectiveCustom.has(question.id),
 						},
 					]),
 				),
 			),
 		);
+	}
+
+	/** 答题并推进（返回值：本函数是否已把卡片推进到下一站，供焦点修复判断）。 */
+	function answerAndAdvance(question: AgentUiBatchQuestion, value: BatchAnswer, label?: string, wasCustom?: boolean): boolean {
+		const committed = commitAnswer(question.id, value, label, wasCustom);
+		if (!shouldAutoAdvanceBatchAnswer({ type: question.type, total })) return false;
+		if (!finalStep) {
+			setCurrentTab(currentTab + 1);
+		} else if (props.request.batchReview) {
+			setCurrentTab(total);
+		} else {
+			// 末题且无需审阅：带上刚写入的答案直接提交全部
+			submitAnswers(committed);
+		}
+		return true;
 	}
 
 	if (total === 0) return null;
@@ -183,7 +212,9 @@ function BatchAskInlineBar(props: { request: AgentUiRequest; responding: boolean
 				<span className="shrink-0 text-micro font-medium text-text-secondary">{t("ask.batchProgress", { done: answeredCount, total })}</span>
 			</div>
 
-			<div className="mb-1 flex min-w-0 gap-1 overflow-x-auto border-b border-border-subtle pb-1" role="tablist">
+			{/* 题目索引：单行不换行（2026-12 用户反馈：换行后标签条占掉好几行，太占位置）。
+			    标签只做「序号 + 短标题」，宽度封顶后横向滚动；条高固定一行，不再抢正文高度。 */}
+			<div className="mb-1 flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border-subtle pb-1" role="tablist">
 				{questions.map((question, index) => {
 					const answered = isBatchAnswered(answers[question.id]);
 					const active = index === currentTab;
@@ -193,14 +224,14 @@ function BatchAskInlineBar(props: { request: AgentUiRequest; responding: boolean
 							variant="ghost"
 							role="tab"
 							aria-selected={active}
-							className={`ask-batch-tab inline-flex h-[26px] flex-none items-center gap-1 rounded-md border border-border-subtle bg-transparent px-2 font-sans text-micro whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-55${answered ? ` ${ASK_TAB_ANSWERED_CLASS}` : ""}${active ? ` ${ASK_TAB_ACTIVE_CLASS}` : ""}`}
+							className={`ask-batch-tab inline-flex h-[24px] flex-none items-center gap-1 rounded-md border border-border-subtle bg-transparent px-1.5 font-sans text-micro whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-55${answered ? ` ${ASK_TAB_ANSWERED_CLASS}` : ""}${active ? ` ${ASK_TAB_ACTIVE_CLASS}` : ""}`}
 							disabled={props.responding}
 							onClick={() => setCurrentTab(index)}
 						>
 							<span className="min-w-[14px] text-center font-mono font-semibold">{index + 1}</span>
 							{/* 单行截断：tab 只做摘要，完整问题在下方详情区展示；
 							    多行会突破胶囊固定高度溢出到下方内容（min-w-0 让 truncate 在 flex 里生效） */}
-							<span className="max-w-[28ch] min-w-0 truncate text-left" title={question.question}>
+							<span className="max-w-[14ch] min-w-0 truncate text-left" title={question.question}>
 								{question.question}
 							</span>
 							{answered ? <Check size={11} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
@@ -212,7 +243,7 @@ function BatchAskInlineBar(props: { request: AgentUiRequest; responding: boolean
 						variant="ghost"
 						role="tab"
 						aria-selected={reviewTab}
-						className={`ask-batch-tab ask-batch-tab--review border-[var(--color-warning)] text-[var(--color-warning)] inline-flex h-[26px] flex-none items-center gap-1 rounded-md px-2 font-sans text-micro whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-55${reviewTab ? " active" : ""}`}
+						className={`ask-batch-tab ask-batch-tab--review border-[var(--color-warning)] text-[var(--color-warning)] inline-flex h-[24px] flex-none items-center gap-1 rounded-md px-1.5 font-sans text-micro whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-55${reviewTab ? " active" : ""}`}
 						disabled={props.responding}
 						onClick={() => setCurrentTab(total)}
 					>
@@ -244,7 +275,7 @@ function BatchAskInlineBar(props: { request: AgentUiRequest; responding: boolean
 							})}
 						</div>
 						{!allAnswered ? <div className="rounded-sm bg-[color:color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-2 text-caption text-[var(--color-warning)]">{t("ask.batchIncomplete")}</div> : null}
-						<Button className="w-full" variant="default" disabled={!allAnswered || props.responding} onClick={submitAnswers}>
+						<Button className="w-full" variant="default" disabled={!allAnswered || props.responding} onClick={() => submitAnswers()}>
 							{t("ask.batchSubmitAll")}
 						</Button>
 					</div>
@@ -256,7 +287,7 @@ function BatchAskInlineBar(props: { request: AgentUiRequest; responding: boolean
 						answer={answers[currentQuestion.id]}
 						inputValue={inputValues[currentQuestion.id] ?? ""}
 						responding={props.responding}
-						onAnswer={(value, label, wasCustom) => setAnswer(currentQuestion.id, value, label, wasCustom)}
+						onAnswer={(value, label, wasCustom) => answerAndAdvance(currentQuestion, value, label, wasCustom)}
 						onInputChange={(value) => setInputValues((current) => ({ ...current, [currentQuestion.id]: value }))}
 						onSubmitInput={() => submitText(currentQuestion)}
 						onPrevious={currentTab > 0 ? () => setCurrentTab(currentTab - 1) : undefined}
@@ -285,26 +316,38 @@ function BatchQuestion(props: {
 	answer: BatchAnswer;
 	inputValue: string;
 	responding: boolean;
-	onAnswer: (value: BatchAnswer, label?: string, wasCustom?: boolean) => void;
+	onAnswer: (value: BatchAnswer, label?: string, wasCustom?: boolean) => boolean;
 	onInputChange: (value: string) => void;
-	onSubmitInput: () => void;
+	onSubmitInput: () => boolean;
 	onPrevious?: () => void;
 	onNext: () => void;
 	nextDisabled: boolean;
 	finalLabel?: string;
 }) {
 	const { question } = props;
-	const selectOptions = question.type === "select" || question.type === "multi_select" ? (question.options ?? []) : [];
-	const hasOptionDescriptions = selectOptions.some((option) => typeof option !== "string" && Boolean(option.description));
-	const hasLongOptionText = selectOptions.some((option) => {
-		const label = typeof option === "string" ? option : option.label;
-		const description = typeof option === "string" ? "" : (option.description ?? "");
-		return label.length > 28 || description.length > 56;
-	});
-	const expandedOptionLayout = hasOptionDescriptions || hasLongOptionText || selectOptions.length > 6;
+	// 被点的选项按钮会随换题卸载，焦点掉回 body：把焦点收回卡片容器（tabIndex={-1}），
+	// 键盘用户不必从页面开头重新 Tab。只在本次点击真的推进了才收，不抢鼠标用户的焦点。
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const refocusAfterAdvanceRef = useRef(false);
+	useEffect(() => {
+		if (!refocusAfterAdvanceRef.current) return;
+		refocusAfterAdvanceRef.current = false;
+		containerRef.current?.focus();
+	}, [props.questionIndex]);
+	const answer = (value: BatchAnswer, label?: string, wasCustom?: boolean) => {
+		if (!props.onAnswer(value, label, wasCustom)) return;
+		refocusAfterAdvanceRef.current = true;
+	};
+	// 自定义输入/纯输入题提交后同样可能自动前进，输入框随换题卸载，焦点要一起收回。
+	const submitInput = () => {
+		if (!props.onSubmitInput()) return;
+		refocusAfterAdvanceRef.current = true;
+	};
 	return (
 		<div
-			className="flex flex-col gap-1.5"
+			ref={containerRef}
+			tabIndex={-1}
+			className="flex flex-col gap-1.5 outline-none"
 			onKeyDown={(event) => {
 				// 批量卡直接回车（策略见 askUi.resolveBatchAskDirectEnter）：
 				// 选项按钮上已作答回车 = 提交并推进；卡片空白处同理；未作答回车交原生 click 完成选中。
@@ -323,10 +366,7 @@ function BatchQuestion(props: {
 				}
 			}}
 		>
-			<div className="font-mono text-micro font-semibold text-text-tertiary">
-				{t("common.details")} {props.questionIndex + 1}/{props.total}
-			</div>
-			<div className="mb-1 text-control font-medium leading-5 break-words text-text-primary">{question.question}</div>
+			<div className="mb-1.5 text-control font-medium leading-[1.5] break-words text-text-primary">{question.question}</div>
 			<div className="ask-batch-question-body">
 				{question.type === "confirm" ? (
 					<div className="flex gap-2">
@@ -338,7 +378,7 @@ function BatchQuestion(props: {
 								// 划选 mouseup 落在按钮上会冒充 click；按压感知守卫只吞本次按压新拖出的选区，
 								// 旧选区残留不再误吞（划选复制/双击选词后选项仍可正常点击）。
 								if (shouldSuppressAskClick()) return;
-								props.onAnswer(true, t("common.true"));
+								answer(true, t("common.true"));
 							}}
 						>
 							{/* 选中态对勾：部分主题色 accent 对比度低，光靠变色难分辨已选项 */}
@@ -351,7 +391,7 @@ function BatchQuestion(props: {
 							disabled={props.responding}
 							onClick={() => {
 								if (shouldSuppressAskClick()) return;
-								props.onAnswer(false, t("common.false"));
+								answer(false, t("common.false"));
 							}}
 						>
 							{props.answer === false ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
@@ -360,8 +400,9 @@ function BatchQuestion(props: {
 					</div>
 				) : question.type === "select" && question.options?.length ? (
 					<>
-						{/* 长文案/多选项使用宽卡片并自然增高；外层时间线是唯一滚动容器，避免嵌套滚动。 */}
-						<div className={`grid min-w-0 gap-1.5 ${expandedOptionLayout ? "grid-cols-2 max-[720px]:grid-cols-1" : "grid-cols-4 max-[720px]:grid-cols-2 max-[480px]:grid-cols-1"}`}>
+						{/* 选项一律整行横条（2026-12 用户反馈）：栅格 2/4 列在长文案下会被压成窄条，
+						    横条让标签与说明各自有整行宽度，长文案也能完整换行；外层时间线是唯一滚动容器。 */}
+						<div className="flex min-w-0 flex-col gap-2">
 							{question.options.map((option, index) => {
 								const rawLabel = typeof option === "string" ? option : option.label;
 								const parsed = typeof option === "string" ? splitAskOption(option) : { label: rawLabel, description: option.description };
@@ -371,26 +412,22 @@ function BatchQuestion(props: {
 								return (
 									<Button
 										key={`${question.id}:${index}`}
-										className={`ask-inline-bar-option h-auto min-h-[30px] w-full min-w-0 max-w-none flex-col items-start justify-center gap-0.5 px-2 py-1 text-left break-words whitespace-normal${expandedOptionLayout ? " min-h-[72px] py-2" : ""}${props.answer === value ? ` ${ASK_OPTION_SELECTED_CLASS}` : ""}`}
+										className={`ask-inline-bar-option h-auto min-h-[32px] w-full min-w-0 max-w-none items-center justify-start gap-1.5 px-2.5 py-1.5 text-left break-words whitespace-normal${props.answer === value ? ` ${ASK_OPTION_SELECTED_CLASS}` : ""}`}
 										variant="outline"
 										disabled={props.responding}
 										onClick={() => {
 											if (shouldSuppressAskClick()) return;
-											props.onAnswer(value, label);
+											answer(value, label);
 										}}
 									>
 										{/* 选中态对勾标记：主题色 accent 对比度低时只靠边框/背景变色难分辨已选项 */}
-										<span className="flex min-w-0 max-w-full items-center gap-1">
-											{props.answer === value ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
-											<span className="min-w-0 max-w-full break-words whitespace-normal text-caption font-medium leading-5 text-text-primary" title={label}>
-												{label}
-											</span>
+										{props.answer === value ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+										{/* 说明与标签同一行、同字号、空格分隔，只靠颜色区分（2026-12 用户反馈：
+										    说明别用小字、也别放第二行——小屏还好，大屏上又小又局限）。 */}
+										<span className="min-w-0 flex-1 whitespace-normal break-words text-caption leading-[1.45]">
+											<span className="text-text-primary">{label}</span>
+											{description ? <span className="text-text-tertiary">{` ${description}`}</span> : null}
 										</span>
-										{description ? (
-											<span className="min-w-0 max-w-full break-words whitespace-normal text-micro font-normal leading-5 text-text-tertiary" title={description}>
-												{description}
-											</span>
-										) : null}
 									</Button>
 								);
 							})}
@@ -406,11 +443,11 @@ function BatchQuestion(props: {
 									onKeyDown={(event) => {
 										if (event.key === "Enter") {
 											event.preventDefault();
-											props.onSubmitInput();
+											submitInput();
 										}
 									}}
 								/>
-								<Button variant="default" disabled={props.responding || !props.inputValue.trim()} onClick={props.onSubmitInput}>
+								<Button variant="default" disabled={props.responding || !props.inputValue.trim()} onClick={submitInput}>
 									{t("ask.submit")}
 								</Button>
 							</div>
@@ -418,8 +455,9 @@ function BatchQuestion(props: {
 					</>
 				) : question.type === "multi_select" && question.options?.length ? (
 					<>
-						{/* 多选：checkbox 语义（选中打勾，再点取消），选完走底部的下一题/提交全部 */}
-						<div className={`grid min-w-0 gap-1.5 ${expandedOptionLayout ? "grid-cols-2 max-[720px]:grid-cols-1" : "grid-cols-4 max-[720px]:grid-cols-2 max-[480px]:grid-cols-1"}`}>
+						{/* 多选：checkbox 语义（选中打勾，再点取消），选完走底部的下一题/提交全部。
+						    与单选一致用整行横条，保证勾选态与文案在长选项下都可读。 */}
+						<div className="flex min-w-0 flex-col gap-2">
 							{question.options.map((option, index) => {
 								const rawLabel = typeof option === "string" ? option : option.label;
 								const parsed = typeof option === "string" ? splitAskOption(option) : { label: rawLabel, description: option.description };
@@ -431,7 +469,7 @@ function BatchQuestion(props: {
 								return (
 									<Button
 										key={`${question.id}:${index}`}
-										className={`ask-inline-bar-option h-auto min-h-[30px] w-full min-w-0 max-w-none flex-col items-start justify-center gap-0.5 px-2 py-1 text-left break-words whitespace-normal${expandedOptionLayout ? " min-h-[72px] py-2" : ""}${selected ? ` ${ASK_OPTION_SELECTED_CLASS}` : ""}`}
+										className={`ask-inline-bar-option h-auto min-h-[32px] w-full min-w-0 max-w-none items-center justify-start gap-1.5 px-2.5 py-1.5 text-left break-words whitespace-normal${selected ? ` ${ASK_OPTION_SELECTED_CLASS}` : ""}`}
 										variant="outline"
 										disabled={props.responding}
 										onClick={() => {
@@ -442,17 +480,11 @@ function BatchQuestion(props: {
 										}}
 									>
 										{/* 选中态对勾标记：主题色 accent 对比度低时只靠边框/背景变色难分辨已选项 */}
-										<span className="flex min-w-0 max-w-full items-center gap-1">
-											{selected ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
-											<span className="min-w-0 max-w-full break-words whitespace-normal text-caption font-medium leading-5 text-text-primary" title={label}>
-												{label}
-											</span>
+										{selected ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+										<span className="min-w-0 flex-1 whitespace-normal break-words text-caption leading-[1.45]">
+											<span className="text-text-primary">{label}</span>
+											{description ? <span className="text-text-tertiary">{` ${description}`}</span> : null}
 										</span>
-										{description ? (
-											<span className="min-w-0 max-w-full break-words whitespace-normal text-micro font-normal leading-5 text-text-tertiary" title={description}>
-												{description}
-											</span>
-										) : null}
 									</Button>
 								);
 							})}
@@ -489,12 +521,12 @@ function BatchQuestion(props: {
 								// IME 合成中的回车只用于选字/提交候选，不能当作提交键
 								if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
 									event.preventDefault();
-									props.onSubmitInput();
+									submitInput();
 								}
 							}}
 						/>
 						{/* 纯输入题的按钮与输入框并排；不能使用 w-full，否则 Button 的 shrink-0 会把输入框压成窄条。 */}
-						<Button className="shrink-0" variant="default" disabled={props.responding || !props.inputValue.trim()} onClick={props.onSubmitInput}>
+						<Button className="shrink-0" variant="default" disabled={props.responding || !props.inputValue.trim()} onClick={submitInput}>
 							{t("ask.submit")}
 						</Button>
 					</div>
@@ -516,8 +548,9 @@ function BatchQuestion(props: {
 }
 
 export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onExpandedChange }: SessionRuntimeUiOverlayProps) {
-	const active = Boolean(runtime && ui && runtime.status !== "detached" && runtime.status !== "closed" && runtime.agentId === ui.agentId && runtime.runtimeGeneration === ui.runtimeGeneration);
-	const request = useMemo(() => (active && ui ? pickActiveAskRequest(ui.requests) : undefined), [active, ui]);
+	// 同代判定与「当前 ask 请求」统一走 askUi.resolveActiveAskRequest：
+	// SessionRuntimeInjector 的底栏占位需要同一份判据（见该函数注释）。
+	const request = useMemo(() => resolveActiveAskRequest(runtime, ui), [runtime, ui]);
 	const requestState = request ? ui?.requests[request.requestId] : undefined;
 	const requestKey = request ? `${sessionId}:${request.agentId}:${ui?.runtimeGeneration}:${request.requestId}` : "";
 	const [value, setValue] = useState("");
@@ -533,7 +566,7 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 		setExpanded(true);
 	}, [requestKey, request?.prefill, request?.value]);
 
-	if (!active || !request || !requestState) return null;
+	if (!request || !requestState) return null;
 	const responding = busy || requestState.status === "responding";
 	const answer = async (method: string, response: AgentUiResponse) => {
 		if (responding) return;
@@ -613,7 +646,8 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 				}}
 			>
 				{request.method === "select" && request.options?.length ? (
-					<div className="grid min-w-0 grid-cols-2 gap-1.5 max-[480px]:grid-cols-1">
+					// 单卡选项同样整行横条：横条比双列栅格更耐长文案，也与批量卡的选项语言一致。
+					<div className="flex min-w-0 flex-col gap-2">
 						{request.options.map((option) => {
 							const parsed = splitAskOption(option);
 							return (
@@ -621,7 +655,7 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 									key={`${request.requestId}:${option}`}
 									// 单行选项（2026-12 用户反馈：上下两行文本对不齐）：标签+说明同行，
 									// 固定高度 + 说明 truncate（title 兔底全文），等宽等高实现光学对齐。
-									className={`ask-inline-bar-option h-[30px] w-full min-w-0 max-w-none items-center justify-start gap-2 px-2 py-0 text-left${selectedOption === option ? ` ${ASK_OPTION_SELECTED_CLASS}` : ""}`}
+									className={`ask-inline-bar-option h-[32px] w-full min-w-0 max-w-none items-center justify-start gap-2 px-2.5 py-0 text-left${selectedOption === option ? ` ${ASK_OPTION_SELECTED_CLASS}` : ""}`}
 									variant="outline"
 									disabled={responding}
 									onClick={() => {

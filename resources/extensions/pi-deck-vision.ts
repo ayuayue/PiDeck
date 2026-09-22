@@ -18,7 +18,10 @@
  * - 复用已配置供应商：apiKey/baseUrl 优先从 pi 的模型注册表解析
  *   （ctx.modelRegistry.getProviderAuth），不重复填 key；配置文件里也可显式指定。
  * - 能力优先：当前会话模型明确支持 image 时完全放行原图；只有不支持图片时才启用视觉桥。
- * - 配置容错：视觉桥配置缺失或端点解析失败时不伪造成功，保留 pi 原始图片并写明原因。
+ * - 配置容错：绝不伪造转换成功，也不伪造「失败」——视觉桥没开就写清楚「图片未发送给模型」
+ *   并给出可执行入口（配置→模型 勾选图片 / 设置→视觉桥 启用），只有真的尝试转换而失败
+ *   （端点解析不到、视觉调用出错）才用失败标记。图片一律不留在消息里：pi 对不支持图片的
+ *   模型只会用 "(image omitted: model does not support images)" 顶替，写明原因对模型和用户都更有用。
  * - 失败降级：视觉调用失败时替换为错误占位文本，绝不阻断 agent 主流程；
  *   同一图片（base64 哈希）在进程生命周期内只调用一次。
  */
@@ -307,6 +310,17 @@ export function resolveConfigDir(): string {
 	const override = process.env.PIDECK_VISION_CONFIG_DIR;
 	if (override && override.trim()) return override.trim();
 	return join(homedir(), ".pi", "agent");
+}
+
+/**
+ * pi 的 agent 目录（models.json / auth.json 所在处）。
+ * 与 pi 的 getAgentDir 同源：PI_CODING_AGENT_DIR 优先（pi 探针等场景会把配置指向临时目录），
+ * 否则回落到视觉桥配置目录（默认 ~/.pi/agent）。
+ */
+export function resolveAgentDir(): string {
+	const override = process.env.PI_CODING_AGENT_DIR;
+	if (override && override.trim()) return override.trim();
+	return resolveConfigDir();
 }
 
 /** 计算图片 base64 的 sha256 前缀，用于缓存去重。 */
@@ -739,10 +753,12 @@ function truncateText(text: string, max: number): string {
 /** 并发描述多张图片并汇总批次事件。
  * 导出仅用于测试覆盖（批次事件与 per-image 计时逻辑）；运行时入口是 default export 的 hooks。 */
 /**
- * 生成「图片不可见」占位文本（复用视觉桥失败标记格式，渲染层据此渲染红卡）。
- * 模型不支持图片时，视觉桥未配置/接口解析失败若放行原图，openai-completions 等
- * provider 会无条件把用户图片编码进 payload，模型 API 直接 400 → 会话失败。
- * 这里把图片替换成明确占位，模型仍能知道「有图但看不到」，不阻断主流程。
+ * 生成转换失败标记文本（渲染层据此渲染红卡，原因直出到消息里）。
+ *
+ * 只用于「确实尝试转换但失败了」：接口地址解析不到、视觉调用报错/超时。
+ * 注意（2026-09 修正）：pi 自己会在 transformMessages 阶段替不支持图片的模型
+ * 把图片降级成 "(image omitted: model does not support images)"，原图不会进 provider、
+ * 更不会 400。所以「视觉桥未配置」不是失败，不该套用本函数（见 buildSkippedImagesText）。
  */
 export function buildOmittedImagesText(images: ImageContent[], reason: string): string {
 	return images
@@ -751,6 +767,21 @@ export function buildOmittedImagesText(images: ImageContent[], reason: string): 
 			const n = i + 1;
 			return `[图片 #${n} 视觉桥转换失败：${reason}。请检查视觉桥设置（模型/接口地址/API Key）后重试，此图片内容不可见]`;
 		})
+		.join("\n\n");
+}
+
+/**
+ * 生成「图片未发送给模型」说明标记（渲染层渲染为中性提示卡）。
+ *
+ * 与失败标记的关键区别：这里根本没有人尝试转换（视觉桥没开、没选模型），
+ * 属于「配置事实」而非「故障」。旧版复用失败文案，用户明明没开视觉桥也会看到
+ * 红色「视觉桥转换失败」并被引导去检查 Key/接口地址，排查方向被带偏。
+ * 标记里必须带可执行入口，否则用户只知道图没发出去、不知道去哪儿开。
+ */
+export function buildSkippedImagesText(images: ImageContent[], reason: string): string {
+	return images
+		.slice(0, MAX_IMAGES_PER_TURN)
+		.map((_, i) => `[图片 #${i + 1} 未发送给模型：${reason}]`)
 		.join("\n\n");
 }
 
@@ -875,6 +906,73 @@ export async function describeImages(
 	return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
+/** models.json 单模型条目中参与图片能力判定的字段（其余字段原样忽略） */
+type ModelsJsonModelEntry = { id?: string; input?: string[]; images?: boolean };
+/** models.json providers 映射（只取判定所需字段） */
+type ModelsJsonProviders = Record<string, { models?: ModelsJsonModelEntry[] }>;
+
+/** models.json 解析缓存：按「路径 + mtime」失效，避免每条带图消息重复解析大文件。
+ * 必须带路径：不同 agent 目录下的文件可能撞上同一毫秒 mtime（测试/临时目录场景），
+ * 只按 mtime 判等会把 A 目录的解析结果当 B 目录的用。 */
+let modelsJsonProvidersCache: { filePath: string; mtimeMs: number; providers: ModelsJsonProviders | null } | null = null;
+
+/**
+ * 读取磁盘上的 models.json providers（按 mtime 缓存）；任何异常返回 null。
+ * 只服务于「这张图为什么没被转换」的诊断文案，失败必须静默降级，绝不影响主流程。
+ */
+export async function loadModelsJsonProviders(): Promise<ModelsJsonProviders | null> {
+	try {
+		const filePath = join(resolveAgentDir(), "models.json");
+		const info = await stat(filePath);
+		if (modelsJsonProvidersCache && modelsJsonProvidersCache.filePath === filePath && modelsJsonProvidersCache.mtimeMs === info.mtimeMs) {
+			return modelsJsonProvidersCache.providers;
+		}
+		const parsed = JSON.parse(await readFile(filePath, "utf8")) as { providers?: unknown };
+		const providers = parsed && typeof parsed.providers === "object" && parsed.providers !== null ? (parsed.providers as ModelsJsonProviders) : null;
+		modelsJsonProvidersCache = { filePath, mtimeMs: info.mtimeMs, providers };
+		return providers;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * 磁盘配置是否为当前会话模型声明了图片输入能力。
+ *
+ * 存在的意义：模型目录是 pi 进程启动时读入的，改完 models.json 对已在跑的会话不生效。
+ * 「明明勾了图片输入还是提示不支持」的真实原因就是模型目录过期（用户实测：同一模型
+ * 改配置前启动的会话一直失败，改配置后新开的会话正常），此时该提示重启会话，
+ * 而不是让用户继续在配置里找问题。
+ */
+export async function modelsJsonDeclaresImageInput(ctx: ExtensionContext): Promise<boolean> {
+	const model = ctx.model;
+	if (!model) return false;
+	const providers = await loadModelsJsonProviders();
+	const entry = providers?.[model.provider]?.models?.find((item) => item?.id === model.id);
+	if (!entry) return false;
+	// input 是 pi 的完整模态声明（["text","image"]）；兼容只写 images 布尔的手写配置
+	if (Array.isArray(entry.input)) return entry.input.includes("image");
+	return entry.images === true;
+}
+
+/**
+ * 组装「图片未发送给模型」的原因文案（用户可读 + 可执行）。
+ *
+ * 为什么不用「视觉桥转换失败」措辞：这种情形下图片压根没进转换流程（桥没开），
+ * 说「失败」会把用户引去检查视觉桥的 Key/接口地址，而真正该做的是二选一：
+ * 给模型声明图片输入能力，或开启视觉桥。指错排查方向比不提示更糟。
+ */
+export async function buildNotConvertedReason(ctx: ExtensionContext, config: VisionBridgeConfig | null | undefined): Promise<string> {
+	const label = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "当前模型";
+	if (!config?.enabled) {
+		if (await modelsJsonDeclaresImageInput(ctx)) {
+			return `视觉桥未启用，且本会话仍按启动时的模型目录处理图片（${label} 未声明图片输入）。models.json 里该模型已勾选「图片」，重启会话后重新发送图片即可`;
+		}
+		return `视觉桥未启用，且 ${label} 未声明图片输入能力。可在「配置 → 模型」中为该模型勾选「图片」，或在「设置 → 视觉桥」中启用视觉桥后重新发送图片`;
+	}
+	return "视觉桥已启用但没有选择视觉模型，请在「设置 → 视觉桥」中选择模型后重新发送图片";
+}
+
 export default function (pi: ExtensionAPI) {
 	// 用户输入事件：粘贴/上传的图片在进入 agent 前直接转成描述文本。
 	// 不这么做的话，pi 会在 provider 层把图片替换成
@@ -893,10 +991,12 @@ export default function (pi: ExtensionAPI) {
 				return undefined;
 			}
 			if (!config?.enabled || !config.provider || !config.model) {
-				// 有图片但桥未就绪：模型不支持图片时，放行原图会进 provider 触发 API 400（会话失败），
-				// 因此替换为明确占位文本，模型仍知道「有图但看不到」，不阻断主流程。
-				log("warn", `${images.length} image(s) but vision bridge not configured（enabled/provider/model 不完整），替换为占位文本`);
-				const placeholder = buildOmittedImagesText(images, "视觉桥未配置（enabled/provider/model 不完整）");
+				// 桥未就绪（未启用 / 没选视觉模型）：这张图没有被转换，用中性的「未发送给模型」标记，
+				// 不能复用转换失败文案——否则用户明明没开视觉桥也被告知「视觉桥转换失败」，
+				// 排查方向被带偏（2026-09 用户反馈）。
+				const reason = await buildNotConvertedReason(ctx, config);
+				log("warn", `${images.length} image(s) not converted（vision bridge not ready）: ${reason}`);
+				const placeholder = buildSkippedImagesText(images, reason);
 				const text = typed.text ? `${typed.text}\n\n${placeholder}` : placeholder;
 				return { action: "transform", text, images: [] };
 			}

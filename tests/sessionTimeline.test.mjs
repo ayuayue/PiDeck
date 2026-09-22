@@ -1,62 +1,51 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import test from "node:test";
 import { createStore } from "jotai/vanilla";
 import { selectAtom } from "jotai/utils";
-import ts from "typescript";
-import vm from "node:vm";
-
-const nodeRequire = createRequire(import.meta.url);
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const source = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
 
-function compileModule(filePath, imports = {}) {
-	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	}).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: (specifier) => imports[specifier] ?? nodeRequire(specifier),
-		Date,
-	});
-	return module.exports;
-}
-
+/**
+ * 时间线控制器模块图。
+ *
+ * 用 createTsSandbox（相对 import 以**被加载文件目录**为基准解析）而不是手写
+ * require 桥：旧写法未列进 stub 表的本地依赖会以 tests/ 为基准解析，生产代码
+ * 一新增 import 就整片 MODULE_NOT_FOUND（本文件曾因此踩坑两次）。现在只有需要
+ * 替身/故意打桩的依赖才列在 stubs 里，其余相对依赖（jumpWindowPolicy /
+ * browsePin / turnRenderWindow 等策略模块）按真实路径加载——跳转策略必须真实
+ * 求值才能测行为，桩掉等于测了个假的。
+ */
 function loadTimelineHelpers() {
-	return compileModule("src/renderer/src/hooks/useSessionTimelineController.ts", {
-		react: {},
-		jotai: { atom: (value) => ({ _mockInit: value }) },
-		"jotai/utils": {},
-		"../atoms": {},
-		"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
-		"../desktopApi": {},
-		"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },
-		"./timeline/scrollHistoryPolicy": {},
-		"../components/session/timeline/turnRenderWindow": {
-			TIMELINE_MOUNTED_TURN_LIMIT: 3,
-			TIMELINE_SCROLLED_TURN_LIMIT: 3,
-			TIMELINE_WINDOW_EXPAND_STEP: 3,
+	return createTsSandbox({
+		stubs: {
+			react: {},
+			jotai: { atom: (value) => ({ _mockInit: value }) },
+			"jotai/utils": {},
+			"../atoms": {},
+			"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
+			"../desktopApi": {},
+			// i18n 只用到 t()：测试不校验文案，桩成直返 key（避免加载真实词典）。
+			"../i18n": { t: (key) => key },
+			"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },
+			"./timeline/scrollHistoryPolicy": {},
+			"../components/session/timeline/turnRenderWindow": {
+				TIMELINE_MOUNTED_TURN_LIMIT: 3,
+				TIMELINE_SCROLLED_TURN_LIMIT: 3,
+				TIMELINE_WINDOW_EXPAND_STEP: 3,
+			},
 		},
-		// 控制器 import 的跳转策略必须真实加载：shim 缺失时编译后 require 直接
-		// MODULE_NOT_FOUND（285bc919 引入策略模块时漏补，4 个用例一直没跑起来）
-		"../components/session/timeline/jumpWindowPolicy": compileModule("src/renderer/src/components/session/timeline/jumpWindowPolicy.ts", { "./turnRenderWindow": { TIMELINE_WINDOW_EXPAND_STEP: 3 } }),
-		"./timeline/browsePin": compileModule("src/renderer/src/hooks/timeline/browsePin.ts"),
-	});
+		globals: { Date },
+	})("src/renderer/src/hooks/useSessionTimelineController.ts");
 }
 
+/**
+ * session-atoms 模块图：依赖都是真实相对路径，直接交给 createTsSandbox 按源文件
+ * 目录解析（旧写法逐个 stub 真实文件，只是为了绕开手写 loader 的解析基准）。
+ */
 function loadSessionAtoms() {
-	return compileModule("src/renderer/src/atoms/session-atoms.ts", {
-		"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
-		"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
-		// 流式正文交接（3f4c252f 起被 session-atoms 依赖）：测试 loader 缺此 stub 时
-		// session-atoms 编译后 require 失败（Cannot find module '../utils/liveTextHandoff'）
-		"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),
-		"./outlineRevision": compileModule("src/renderer/src/atoms/outlineRevision.ts"),
-		"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
-	});
+	return createTsSandbox()("src/renderer/src/atoms/session-atoms.ts");
 }
 
 test("timeline pagination restores the load-more anchor instead of jumping the viewport", () => {
@@ -173,7 +162,11 @@ test("prepend scroll compensation is skipped while following bottom and pins the
 	assert.match(source, /if \(autoScrollRef\.current \|\| anchor\.value\.generation !== historyBrowseGenerationRef\.current\) \{\n\s*loadMoreAnchorRef\.current = undefined;\n\s*return;\n\s*\}/);
 	assert.match(source, /if \(anchor\.value\.preserveAtTop\) \{\n\s*pinBrowseRow\(\);/);
 	assert.doesNotMatch(source, /timeline\.scrollTop = nextScrollTop/);
-	assert.match(source, /requestAnimationFrame\(\(\) => \{\n\s*programmaticScrollRef\.current = false;/);
+	// 顶部不补偿路径仍需抑制本帧 scroll；守卫由代数化 rAF 清理，不能再用会
+	// 被定时窗口永久锁住的独立 boolean。
+	assert.match(source, /if \(nextScrollTop === null\) \{[\s\S]{0,180}?markProgrammaticScroll\(\);/);
+	assert.match(source, /finishProgrammaticScrollFrame\(guard, generation\)/);
+	assert.doesNotMatch(source, /programmaticScrollRef/);
 });
 
 test("escaping follow mode and expanding the window unlock the stick-to-bottom engine", () => {
@@ -215,7 +208,7 @@ test("auto history load consumes engine intent without a competing scroll listen
 	assert.match(source, /const setUserScrollIntent = useCallback/);
 	assert.match(source, /if \(intent !== "up"\) return;/);
 	assert.match(source, /userScrollIntentFrameRef\.current = window\.requestAnimationFrame/);
-	assert.match(source, /if \([\s\S]*?programmaticScrollRef\.current[\s\S]*?\) return;/);
+	assert.match(source, /if \(isProgrammaticScrollActive\(programmaticScrollGuardRef\.current, performance\.now\(\)\)\) return;/);
 	assert.match(source, /HISTORY_AUTO_LOAD_THRESHOLD/);
 	assert.doesNotMatch(source, /timeline\.addEventListener\("scroll", onScroll/);
 });

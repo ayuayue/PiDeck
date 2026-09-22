@@ -4,38 +4,36 @@ import test from "node:test";
 
 const read = (p) => readFileSync(p, "utf8");
 
-test("i18n defines app.currentBranch in zh-CN and en-US", () => {
+// 侧栏项目行的 Git 分支徽标已按用户反馈移除（项目行信息过载、视觉噪音大）。
+// 下面的断言是「不许长回来」的回归守卫：分支只在 worktree 主工作区行与 Git 抽屉里展示。
+
+test("ProjectTree no longer renders a git branch badge on the project row", () => {
+	const src = read("src/renderer/src/components/sidebar/ProjectTree.tsx");
+	// 项目行不再取当前分支，也不再为徽标引入 GitBranch 图标
+	assert.doesNotMatch(src, /const\s+branch\s*=\s*props\.branchByProject/);
+	assert.doesNotMatch(src, /<GitBranch/);
+	assert.doesNotMatch(src, /title=\{t\("app\.currentBranch"/);
+});
+
+test("ProjectTree still passes branchByProject to the worktree tree", () => {
+	const src = read("src/renderer/src/components/sidebar/ProjectTree.tsx");
+	// worktree 主工作区行的分支展示依赖这份字典，删徽标时不能顺手删掉
+	assert.match(src, /branch=\{props\.branchByProject\?\.\[project\.id\]\}/);
+});
+
+test("i18n no longer ships the removed project-row branch copy", () => {
 	const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 	const en = read("src/renderer/src/i18n/rendererCopy.en-US.ts");
-	assert.match(zh, /"app\.currentBranch":\s*"当前分支：\{branch\}"/);
-	assert.match(en, /"app\.currentBranch":\s*"Current branch: \{branch\}"/);
+	assert.doesNotMatch(zh, /"app\.currentBranch"/);
+	assert.doesNotMatch(en, /"app\.currentBranch"/);
 });
 
-test("ProjectTree renders git branch badge next to project directory name", () => {
-	const src = read("src/renderer/src/components/sidebar/ProjectTree.tsx");
-	// 导入 GitBranch 图标
-	assert.match(src, /import\s*\{[^}]*GitBranch[^}]*\}\s*from\s*"lucide-react"/);
-	// 读取 branch = props.branchByProject?.[project.id]
-	assert.match(src, /const\s+branch\s*=\s*props\.branchByProject\?\.\[project\.id\]/);
-	// 分支标签渲染契约：仅在非 missing 且 branch 存在时渲染
-	assert.match(src, /\{branch\s*&&\s*!project\.missing\s*&&\s*\(/);
-	// 包含 GitBranch 图标与 truncate 类以防长分支名溢出
-	assert.match(src, /<GitBranch\s+size=\{10\}/);
-	assert.match(src, /<span\s+className="truncate font-mono">\{branch\}<\/span>/);
-	// 包含悬停提示 title
-	assert.match(src, /title=\{t\("app\.currentBranch",\s*\{\s*branch\s*\}\)\}/);
-});
-
-test("useProjectSync fetches branch for non-worktree projects and exposes setBranchByProject", () => {
+test("useProjectSync keeps worktree branch lookup but drops per-project branch fetching", () => {
 	const src = read("src/renderer/src/hooks/useProjectSync.ts");
-	// 导出 setBranchByProject 供 App.tsx 联动回写
-	assert.match(src, /return\s*\{[^}]*setBranchByProject/);
-	// 包含 refreshProjectBranch 函数
-	assert.match(src, /async function refreshProjectBranch\(projectId:\s*string\)/);
-	// refreshProjects 遍历项目拉取普通项目分支
-	assert.match(src, /void refreshProjectBranch\(p\.id\)/);
-	// refreshProjectTree 在普通项目刷新时更新分支
-	assert.match(src, /await refreshProjectBranch\(latestProject\.id\)/);
+	// 分支字典仍由 refreshWorktrees 写入（worktree 主工作区行显示分支）
+	assert.match(src, /setBranchByProject\(\(prev\)\s*=>\s*\(\{\s*\.\.\.prev,\s*\[projectId\]:\s*branchInfo\.current\s*\}\)\)/);
+	// 仅为项目行徽标存在的按项目拉取逻辑已删除，避免每次刷新多跑一轮 git
+	assert.doesNotMatch(src, /refreshProjectBranch/);
 });
 
 test("App.tsx synchronizes branch changes to branchByProject", () => {

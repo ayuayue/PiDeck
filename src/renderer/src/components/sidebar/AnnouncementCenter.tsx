@@ -180,7 +180,7 @@ function AnnouncementDetailDrawer(props: { item: AnnouncementItem | null; onClos
 							else if (event.deltaMode === 2) delta = el.clientHeight * Math.sign(delta);
 							el.scrollTop = Math.min(max, Math.max(0, el.scrollTop + delta));
 						}}
-						className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+						className="markdown-body min-h-0 flex-1 overflow-y-auto px-5 py-4"
 					>
 						<MarkdownStream
 							text={item.body}

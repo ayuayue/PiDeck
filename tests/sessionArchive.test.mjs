@@ -98,6 +98,7 @@ function loadSessionScanner(homePath) {
 				};
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;
 			if (id === "../wsl/WslPaths") return wslPaths;
@@ -155,6 +156,24 @@ test("archive moves the session into .pideck-archive and list no longer returns 
 		);
 		const item = archivedList.find((s) => s.summary.filePath === archived);
 		assert.equal(item?.originalPath, sessionPath, "listArchived must carry the original path from index.json");
+		assert.equal(item?.summary.projectPath, "c:/proj", "archived summary must retain the JSONL cwd for project attribution");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("readSummary preserves WSL cwd casing for archived project attribution", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-archive-wsl-cwd-"));
+	try {
+		const { SessionScanner } = loadSessionScanner(home);
+		const scanner = new SessionScanner();
+		await scanner.configureWsl({ distro: "Ubuntu", user: "dev", linuxHome: "/home/dev", windowsHome: "\\\\wsl.localhost\\Ubuntu\\home\\dev" });
+		scanner.readWslFileVersion = async () => ({ mtimeMs: 1, size: 256 });
+		scanner.readWslFileHead = async () => `${JSON.stringify({ type: "session", id: "wsl-archive", cwd: "/home/dev/Work" })}\n`;
+		scanner.inferWslParentSessionFromPath = async () => undefined;
+
+		const summary = await scanner.readSummary("/home/dev/.pi/agent/sessions/.pideck-archive/archive.jsonl");
+		assert.equal(summary?.projectPath, "/home/dev/Work");
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
@@ -259,6 +278,32 @@ test("archive directory is excluded from regular scans", async () => {
 		// 直接触发完整扫描：即使归档目录内还有 .jsonl，常规 list 也必须跳过
 		const summaries = await scanner.list();
 		assert.ok(!summaries.some((s) => s.filePath.includes(".pideck-archive")), "archive dir must be excluded from list");
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("summary messageCount ignores pi 0.86 system message entries", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pideck-archive-message-count-"));
+	try {
+		const sessionsRoot = join(home, ".pi", "agent", "sessions");
+		const sessionPath = join(sessionsRoot, "with-system.jsonl");
+		// 0.86 会话首条 entry 是系统提示 sections；侧栏消息数不能把它算成一条消息。
+		writeSession(sessionPath, [
+			{ type: "session", id: "cccc0001", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", cwd: "C:\\proj" },
+			{ type: "message", id: "cccc0002", parentId: "cccc0001", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "system", content: "", sections: { preamble: "You are pi." } } },
+			{ type: "message", id: "cccc0003", parentId: "cccc0002", timestamp: "2026-01-01T00:00:02.000Z", message: { role: "user", content: "hello" } },
+			{ type: "message", id: "cccc0004", parentId: "cccc0003", timestamp: "2026-01-01T00:00:03.000Z", message: { role: "assistant", content: "hi" } },
+		]);
+
+		const { SessionScanner } = loadSessionScanner(home);
+		const scanner = new SessionScanner();
+		await scanner.list();
+		const archived = await scanner.archive(sessionPath);
+		const archivedList = await scanner.listArchived();
+		const item = archivedList.find((entry) => entry.summary.filePath === archived);
+		assert.ok(item, "archived summary must be readable (readSummary path)");
+		assert.equal(item.summary.messageCount, 2, "system 条目不计入消息数");
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}

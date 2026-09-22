@@ -8,6 +8,7 @@ import { useSessionComposerController } from "../../hooks/useSessionComposerCont
 import { ComposerAttachmentBar, ComposerSendControls, SessionDeliveryNotice } from "./ComposerPanels";
 import { ComposerPickerHost } from "./ComposerPickerHost";
 import { SecurityControl } from "./SecurityControl";
+import { QuickMessageMenu } from "./QuickMessageMenu";
 import { modelPendingByIdAtom } from "../../atoms/composer-atoms";
 import { ComposerRuntimeIntegrations } from "./ComposerRuntimeIntegrations";
 import { useSessionPaneServices } from "./SessionPaneServices";
@@ -70,6 +71,11 @@ function ComposerMeasuredExtras(props: ComposerExtrasProps) {
 	return (
 		<ComposerWidgetLayoutProvider value={widgetLayoutValue}>
 			<>
+				{/* 卡片列不预留 scrollbar 槽位：这层是「窗口不够高时兜底滚动」的容器，
+				    卡片宽度必须与下方输入框/消息列同宽（100% 同源，见 chatContentWidth）。
+				    曾加过 [scrollbar-gutter:stable] 试图治待办条滚动条闪烁，但真正闪的是
+				    待办条自己的 ul（旋转图标 AABB 撑高 scrollHeight，见 SessionTodoStrip
+				    ProgressGlyph 注释），gutter 治不了，还会把卡片压窄 10px。 */}
 				<div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain pb-px empty:hidden">
 					{props.widgets}
 					{props.queuePanel}
@@ -96,6 +102,8 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 		// 预览 Tab 里发消息 → 自动晋升常驻（由 App 装配的 SessionPaneServices 提供）
 		onPromoteSession: useSessionPaneServices().promoteSessionToPermanent,
 		onCreateSession: useSessionPaneServices().runCreateSessionDraft,
+		// 输入框 `/login`：桌面接管后打开登录供应商弹框（pi 的登录只在它的 CLI 层）
+		onProviderLogin: useSessionPaneServices().openProviderLogin,
 	});
 
 	const modelPendingMap = useAtomValue(modelPendingByIdAtom);
@@ -185,12 +193,15 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 											onPick={composer.suggestions.pick}
 										/>
 									) : null}
-									{/* 运行中允许后端尝试切换思考强度；是否能作用于当前回合由具体 Agent 后端决定。 */}
+									{/* 运行中只锁「会话启动瞬间」（isStarting）：「+」菜单（附件/技能/提示词/模式）
+									    与模式退出×都是改草稿或下一轮生效的配置，busy 时开放；
+									    分支切换会动工作区文件，用 branchDisabled 单独保留 busy 锁。 */}
 									<ComposerBottomBar
 										sessionId={props.sessionId}
 										state={composer.runtime?.state}
 										runtimeLive={isLiveRuntimeStatus(composer.runtime?.status)}
-										disabled={composer.isBusy || composer.isStarting}
+										disabled={composer.isStarting}
+										branchDisabled={composer.isBusy || composer.isStarting}
 										thinkingDisabled={composer.isStarting}
 										modelDisabled={composer.isStarting}
 										modelPending={modelPendingMap[props.sessionId]}
@@ -206,6 +217,10 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										securityControl={
 											/* C20：后端安全控制位统一入口（pi 安全等级 / DSH 权限预设） */
 											<SecurityControl sessionId={props.sessionId} backend={composer.backend} disabled={composer.isStarting} />
+										}
+										quickMessagesControl={
+											/* 快捷消息：点条目插入草稿，条目右侧按钮直发（正文不进草稿，见 useSessionSend 的 overrideText 契约） */
+											<QuickMessageMenu disabled={composer.isStarting} sendDisabled={!composer.delivery.canSendQuickMessage} onInsert={composer.pickers.insertQuickMessage} onSend={composer.delivery.sendQuickMessage} />
 										}
 										onPickModel={() => composer.pickers.open("model")}
 										onPickThinking={() => composer.pickers.open("thinking")}

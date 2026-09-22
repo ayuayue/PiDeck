@@ -113,7 +113,7 @@ export function ModelsTab(props: {
 	onUpdateModelThinkingLevel: (providerName: string, index: number, key: "xhigh" | "max", value: "" | "xhigh" | "max") => void;
 	/** 逐模型 User-Agent 覆盖（落到 provider.modelOverrides），可选。 */
 	onUpdateModelUserAgent?: (providerName: string, index: number, value: string) => void;
-	/** 读取某模型当前的 UA 覆盖值（可选；与上一个回调成对出现才渲染该列）。 */
+	/** 读取某模型当前的 UA 覆盖值（可选；与上一个回调成对出现才渲染操作列的 UA 按钮）。 */
 	getModelUserAgentOverride?: (providerName: string, index: number) => string;
 	onDeleteModel: (providerName: string, index: number) => void;
 	onDeleteModels: (providerName: string, indexes: number[]) => void;

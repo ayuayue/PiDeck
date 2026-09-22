@@ -56,6 +56,11 @@ export type SidebarActions = {
 	sessions: {
 		/** 单击默认 preview；双击传 permanent。侧栏拖拽分屏也会走 open。 */
 		open: (projectId: string, sessionId: string, tabMode?: "preview" | "permanent") => Promise<void>;
+		/**
+		 * 按需预加载会话 catalog：活动页「最近会话」要跨项目数据，而 catalog 平时只在
+		 * 展开/选中项目时才扫描。已在 loading/ready 的项目会被跳过，不会重复触发扫描。
+		 */
+		ensureCatalogsLoaded: (projectIds: readonly string[]) => void;
 		/** 侧栏会话开始拖拽（与 Tab 栏共用 MIME，可拖到聊天区边缘分屏） */
 		beginDrag?: (sessionId: string) => void;
 		endDrag?: () => void;
@@ -304,7 +309,13 @@ export function SidebarContent(props: SidebarContentProps) {
             轨道：muted 弱化底 + hairline 边框；高亮块盖掉 beUI 默认的 bg-primary 色块，
             换成 background 浮起面（细描边 + 投影；暗色用 bg-active 提亮一档做「抬起」感）。
             激活文字显式给 text-foreground 压掉 beUI 的 text-primary-foreground
-            （反白色落在浅色胶囊上不可见）。选择即记忆（双写 localStorage + settings.json）。 */}
+            （反白色落在浅色胶囊上不可见）。选择即记忆（双写 localStorage + settings.json）。
+
+            宽度自适应：beUI pill 的 trigger 外面还包了一层 <div className="relative">（承载
+            layoutId 指示器），它才是轨道里的 flex item；只在 TabsTrigger 上写 w-full 只能撑满
+            这层包层，包层自身仍是内容宽，所以侧栏拉宽时右侧会留一段空轨（下方 Dock 用
+            w-full justify-between 分发才显得自适应）。用后代选择器把包层设为 flex-1，三档
+            平分轨道；包层 min-w-0 + 文案 truncate 作窄侧栏/英文长标签的溢出兜底。 */}
 				<Tabs
 					value={controller.navTab}
 					onValueChange={(value) => {
@@ -313,18 +324,18 @@ export function SidebarContent(props: SidebarContentProps) {
 					}}
 					variant="pill"
 				>
-					<TabsList className="w-full rounded-full bg-muted/70 p-0.5">
-						<TabsTrigger value="active" className={cn("w-full gap-1.5 px-2 py-1.5 text-xs", controller.navTab === "active" && "text-foreground")} indicatorClassName="bg-background shadow-sm dark:bg-bg-active">
+					<TabsList className="w-full rounded-full bg-muted/70 p-0.5 [&>div]:min-w-0 [&>div]:flex-1">
+						<TabsTrigger value="active" className={cn("w-full min-w-0 gap-1.5 overflow-hidden px-2 py-1.5 text-xs", controller.navTab === "active" && "text-foreground")} indicatorClassName="bg-background shadow-sm dark:bg-bg-active">
 							<Activity className="size-3.5 shrink-0" aria-hidden="true" />
-							{t("app.sidebarActive")}
+							<span className="truncate">{t("app.sidebarActive")}</span>
 						</TabsTrigger>
-						<TabsTrigger value="chats" className={cn("w-full gap-1.5 px-2 py-1.5 text-xs", controller.navTab === "chats" && "text-foreground")} indicatorClassName="bg-background shadow-sm dark:bg-bg-active">
+						<TabsTrigger value="chats" className={cn("w-full min-w-0 gap-1.5 overflow-hidden px-2 py-1.5 text-xs", controller.navTab === "chats" && "text-foreground")} indicatorClassName="bg-background shadow-sm dark:bg-bg-active">
 							<MessageSquare className="size-3.5 shrink-0" aria-hidden="true" />
-							{t("app.sidebarChats")}
+							<span className="truncate">{t("app.sidebarChats")}</span>
 						</TabsTrigger>
-						<TabsTrigger value="projects" className={cn("w-full gap-1.5 px-2 py-1.5 text-xs", controller.navTab === "projects" && "text-foreground")} indicatorClassName="bg-background shadow-sm dark:bg-bg-active">
+						<TabsTrigger value="projects" className={cn("w-full min-w-0 gap-1.5 overflow-hidden px-2 py-1.5 text-xs", controller.navTab === "projects" && "text-foreground")} indicatorClassName="bg-background shadow-sm dark:bg-bg-active">
 							<Folder className="size-3.5 shrink-0" aria-hidden="true" />
-							{t("app.sidebarProjects")}
+							<span className="truncate">{t("app.sidebarProjects")}</span>
 						</TabsTrigger>
 					</TabsList>
 				</Tabs>

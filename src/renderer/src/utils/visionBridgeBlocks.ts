@@ -2,9 +2,10 @@
  * 视觉桥转换块的识别与提取（纯函数，可单测）。
  *
  * pi-deck-vision 扩展在 input 事件阶段把用户消息里的图片转成文字描述，
- * 转换结果会持久化进会话文件，消息文本里因此留下两类标记块：
+ * 转换结果会持久化进会话文件，消息文本里因此留下三类标记块：
  *   成功：[图片 #N（视觉桥已查看，以下为图片实际内容）]\n<描述文本>
  *   失败：[图片 #N 视觉桥转换失败：<原因>。请检查视觉桥设置（模型/接口地址/API Key）后重试，此图片内容不可见]
+ *   未发送：[图片 #N 未发送给模型：<原因>]（视觉桥没开/没选模型，属配置事实，不是故障）
  *
  * 渲染层用本函数把它们从正文里剥出，渲染成可视化卡片：
  * 用户一眼看到「走了视觉桥」（成功徽章 / 失败红卡 + 原因），
@@ -14,12 +15,24 @@
 
 import type { VisionBridgeEvent } from "../../../shared/types/vision";
 
-export type VisionBridgeBlock = { kind: "success"; index: number; description: string } | { kind: "failed"; index: number; reason: string };
+export type VisionBridgeBlock =
+	| { kind: "success"; index: number; description: string }
+	| { kind: "failed"; index: number; reason: string }
+	/** 图片未进入转换流程（桥没开/没选模型）：中性提示卡，不是错误 */
+	| { kind: "skipped"; index: number; reason: string };
 
 /** 成功标记：兼容「（视觉桥已查看）」与「（视觉桥已查看，以下为图片实际内容）」两种后缀。 */
 const SUCCESS_MARK_RE = /\[图片 #(\d+)（视觉桥已查看[^）]*）\]/g;
 /** 失败标记：整块自包含（原因 + 修复指引 + 收尾句），reason 取「。请检查视觉桥设置」之前的部分。 */
 const FAILED_MARK_RE = /\[图片 #(\d+)\s+视觉桥转换失败：([\s\S]*?)。请检查视觉桥设置[\s\S]*?此图片内容不可见\]/g;
+/** 未发送标记：`[图片 #N 未发送给模型：<原因>]`，原因里不应出现 `]`。 */
+const SKIPPED_MARK_RE = /\[图片 #(\d+)\s+未发送给模型：([\s\S]*?)\]/g;
+/**
+ * 历史遗留标记：旧版把「视觉桥没开/没选模型」也写成失败标记，原因固定以「视觉桥未配置」开头。
+ * 那种情形图片压根没进转换流程，重开旧会话时不该再看到红卡——按未发送归一化。
+ * 注意只匹配这个固定前缀：接口地址解析失败、超时、HTTP 4xx 等真实故障必须仍是红卡。
+ */
+const LEGACY_NOT_CONFIGURED_RE = /^视觉桥未配置/;
 
 export function extractVisionBridgeBlocks(text: string): {
 	blocks: VisionBridgeBlock[];
@@ -33,10 +46,19 @@ export function extractVisionBridgeBlocks(text: string): {
 	};
 	const marks: Mark[] = [];
 	for (const m of text.matchAll(FAILED_MARK_RE)) {
+		const reason = m[2].trim();
+		const index = Number(m[1]);
 		marks.push({
 			start: m.index,
 			end: m.index + m[0].length,
-			block: { kind: "failed", index: Number(m[1]), reason: m[2].trim() },
+			block: LEGACY_NOT_CONFIGURED_RE.test(reason) ? { kind: "skipped", index, reason } : { kind: "failed", index, reason },
+		});
+	}
+	for (const m of text.matchAll(SKIPPED_MARK_RE)) {
+		marks.push({
+			start: m.index,
+			end: m.index + m[0].length,
+			block: { kind: "skipped", index: Number(m[1]), reason: m[2].trim() },
 		});
 	}
 	for (const m of text.matchAll(SUCCESS_MARK_RE)) {

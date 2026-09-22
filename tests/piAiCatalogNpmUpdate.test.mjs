@@ -24,6 +24,20 @@ function okResponse(text) {
 	return { ok: true, arrayBuffer: async () => new TextEncoder().encode(text).buffer };
 }
 
+/**
+ * AtomGit OpenAPI contents 响应：base64 信封装文件内容。
+ * 客户端必须解码信封才能拿到文件正文（直接当文本用会 JSON.parse 失败）。
+ */
+function contentsEnvelopeResponse(text) {
+	return okResponse(
+		JSON.stringify({
+			type: "file",
+			encoding: "base64",
+			content: Buffer.from(text, "utf8").toString("base64"),
+		}),
+	);
+}
+
 /** 构造一份合法的来源数据文件内容（{ group: { modelId: model } }）。 */
 function demoDataFileContent(modelId = "model-a") {
 	return JSON.stringify({
@@ -222,7 +236,7 @@ test("catalog:checkRemote 走仓库分支 manifest（主源）", async () => {
 	}
 });
 
-test("catalog: 镜像源（atomgit）优先走 AtomGit raw 并生效", async () => {
+test("catalog: 镜像源（atomgit）优先走 AtomGit contents API 并生效", async () => {
 	const dir = tempDir();
 	try {
 		const { catalogText, manifestText } = generateArtifact("9.9.9");
@@ -232,8 +246,8 @@ test("catalog: 镜像源（atomgit）优先走 AtomGit raw 并生效", async () 
 			source: () => "atomgit",
 			fetchImpl: async (url) => {
 				seen.push(url);
-				if (url.endsWith("pi-ai-catalog.manifest.json")) return okResponse(manifestText);
-				if (url.endsWith("pi-ai-catalog.json")) return okResponse(catalogText);
+				if (url.includes("pi-ai-catalog.manifest.json")) return contentsEnvelopeResponse(manifestText);
+				if (url.includes("pi-ai-catalog.json")) return contentsEnvelopeResponse(catalogText);
 				throw new Error(`unexpected url ${url}`);
 			},
 			timeoutMs: 200,
@@ -241,11 +255,11 @@ test("catalog: 镜像源（atomgit）优先走 AtomGit raw 并生效", async () 
 		const result = await updater.update("main");
 		assert.equal(result.ok, true);
 		assert.equal(result.updated, true);
-		// 268e620f 起镜像清单收敛为 AtomGit（ghfast 等前缀代理退役）：
-		// 分支请求应优先经 AtomGit raw 路径（<host>/<owner>/<repo>/raw/<branch>/resources）
+		// <host>/<owner>/<repo>/raw/<ref>/<path> 已被 GitCode 前端接管（返回 SPA HTML + 验证码 SDK），
+		// 因此镜像源改走 AtomGit OpenAPI contents（base64 信封，客户端需解码）。
 		assert.ok(
-			seen.some((u) => u.startsWith("https://atomgit.com/ayuayue/PiDeck/raw/main/resources/")),
-			`分支请求应优先走 AtomGit raw，实际: ${JSON.stringify(seen)}`,
+			seen.some((u) => u.startsWith("https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/contents/resources/pi-ai-catalog.manifest.json?ref=main")),
+			`分支请求应优先走 AtomGit contents API，实际: ${JSON.stringify(seen)}`,
 		);
 		assert.equal(updater.getStatus().overlay?.packageVersion, "9.9.9");
 	} finally {
@@ -253,34 +267,58 @@ test("catalog: 镜像源（atomgit）优先走 AtomGit raw 并生效", async () 
 	}
 });
 
-test("catalog: 非镜像源 id 回退 GitHub raw 直连", async () => {
+test("catalog: atomgit 返回非 JSON（SPA HTML）时回落 GitHub raw 并生效", async () => {
 	const dir = tempDir();
 	try {
 		const { catalogText, manifestText } = generateArtifact("9.9.9");
 		const seen = [];
 		const updater = new PiAiCatalogUpdater({
 			userDataDir: dir,
-			// "custom"/前缀代理镜像已随 268e620f 退役；未知 id 不在 UPDATE_SOURCE_MIRRORS
-			// 中，mirrorHost() 返回 null → 回退 GitHub raw 直连（customHost 不再参与目录下载）
-			source: () => "custom",
-			customHost: () => "https://ghproxy.example.com",
+			source: () => "atomgit",
 			fetchImpl: async (url) => {
 				seen.push(url);
-				if (url.endsWith("pi-ai-catalog.manifest.json")) return okResponse(manifestText);
-				if (url.endsWith("pi-ai-catalog.json")) return okResponse(catalogText);
+				if (url.startsWith("https://api.atomgit.com/")) return okResponse("<!doctype html><html><body>GitCode</body></html>");
+				if (url.includes("pi-ai-catalog.manifest.json")) return okResponse(manifestText);
+				if (url.includes("pi-ai-catalog.json")) return okResponse(catalogText);
 				throw new Error(`unexpected url ${url}`);
 			},
 			timeoutMs: 200,
 		});
-		await updater.update("main");
+		const result = await updater.update("main");
+		assert.equal(result.ok, true, "AtomGit 形态不识别时不应整单失败");
+		assert.equal(result.updated, true);
 		assert.ok(
-			seen.some((u) => u.startsWith("https://raw.githubusercontent.com/ayuayue/PiDeck/")),
-			`非镜像源应回退 GitHub raw 直连，实际: ${JSON.stringify(seen)}`,
+			seen.some((u) => u.startsWith("https://raw.githubusercontent.com/ayuayue/PiDeck/main/resources/")),
+			`应回落到 GitHub raw，实际: ${JSON.stringify(seen)}`,
 		);
-		assert.ok(
-			seen.every((u) => !u.startsWith("https://ghproxy.example.com")),
-			`customHost 不应参与目录下载，实际: ${JSON.stringify(seen)}`,
-		);
+		assert.equal(updater.getStatus().overlay?.packageVersion, "9.9.9");
+	} finally {
+		cleanup(dir);
+	}
+});
+
+test("catalog: 未知源 id 仍按「AtomGit 优先 → GitHub raw」取件", async () => {
+	const dir = tempDir();
+	try {
+		const { catalogText, manifestText } = generateArtifact("9.9.9");
+		const seen = [];
+		const updater = new PiAiCatalogUpdater({
+			userDataDir: dir,
+			// "custom"/前缀代理镜像已随 268e620f 退役；未知 id 一律归为非 github 源 → AtomGit 优先。
+			// 该测试同时证明：自定义镜像主机不再参与目录下载（参数已从选项里移除）。
+			source: () => "custom",
+			fetchImpl: async (url) => {
+				seen.push(url);
+				const body = url.includes("pi-ai-catalog.manifest.json") ? manifestText : catalogText;
+				if (url.startsWith("https://api.atomgit.com/")) return contentsEnvelopeResponse(body);
+				if (url.startsWith("https://raw.githubusercontent.com/")) return okResponse(body);
+				throw new Error(`unexpected url ${url}`);
+			},
+			timeoutMs: 200,
+		});
+		const result = await updater.update("main");
+		assert.equal(result.ok, true);
+		assert.ok(seen[0].startsWith("https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/contents/"), `非 github 源应 AtomGit OpenAPI 优先，实际首个请求: ${seen[0]}`);
 	} finally {
 		cleanup(dir);
 	}

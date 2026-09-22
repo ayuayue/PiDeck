@@ -28,6 +28,11 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	"../atoms": {},
 	"../lib/pinTurnScroll": { animateScrollTop: () => () => undefined, pinScrollDurationMs: () => 320 },
 	"../desktopApi": {},
+	// 控制器用 t() 播报「DSH 已停止」文案，而 i18n.ts 会拉起整份字典 → 给最小 stub；
+	// sessionHistoryAvailability 是纯函数（只有 type import），照 browsePin 的做法编译真模块。
+	// 两个都必须在 stub 表里：缺失时 loader 回落到以 tests/ 为基准的 nodeRequire，解析 .ts 必失败。
+	"../i18n": { t: (key) => key },
+	"../utils/sessionHistoryAvailability": compile("src/renderer/src/utils/sessionHistoryAvailability.ts"),
 	"./timeline/autoExpandThreshold": { TURN_WINDOW_AUTO_EXPAND_THRESHOLD: 120, resolveAutoExpandThreshold: (h) => Math.max(120, Math.round(h * 0.4)) },
 	"./timeline/scrollHistoryPolicy": {},
 	"../components/session/timeline/turnRenderWindow": {

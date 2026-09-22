@@ -7,7 +7,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import { getAppLogger } from "../logging/sharedLogger";
-import type { DshEnvelope, DshHistoryPage } from "./dshRemoteClient";
+import type { DshEnvelope, DshHistoryEntry, DshHistoryPage } from "./dshRemoteClient";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
 import type { DshHost } from "./DshHost";
 import { renderDshSessionHtml, sanitizeExportFileName } from "./dshSessionHtmlExport";
@@ -30,8 +30,7 @@ import {
 import { applyDshControlEvent, beginDshCancel, type DshControlState } from "./dshRuntimeControl";
 import { toDshAvailableModels } from "./dshModels";
 import { approvalUiRequest, buildDshRejectValue, buildDshRespondValue, parseDshApprovalFrame, parseDshQuestionFrame, questionUiRequest, type DshApprovalFrame, type DshQuestionFrame } from "./dshApprovalBridge";
-// DSH 会话持久化路径编码（与 DshHost 归档共用同一 workspace 目录名规则）
-import { dshSessionFilePath } from "./dshSessionPath";
+import { assembleDshHistoryEntries, countDshUserMessages, DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE, normalizeDshTurnPageSize, planDshHistoryRounds, trimToOldestTurnStart } from "./dshHistoryPagePlan";
 
 const DSH_PROJECTION_KEYS = ["contextPressure", "contextBreakdown", "tokenUsage", "sessionStats", "todos"];
 
@@ -94,6 +93,9 @@ export class DshAgentManager implements SessionAgentGateway {
 	private muxAbort?: AbortController;
 	private muxPump?: Promise<void>;
 	private muxFirstSubscription = true;
+	/** Host 级投影控制流（session/control）泵：投影变更广播的唯一来源。 */
+	private controlAbort?: AbortController;
+	private controlPump?: Promise<void>;
 	/** 0.1.5：每会话 session/follow 泵（journal 事件流；取代旧聚合 mux 的会话事件）。
 	 *  共享 mux（$events）只剩审批/提问瀑布；journal 事件按会话各开一条。 */
 	private readonly followPumps = new Map<string, { controller: AbortController; promise: Promise<void> }>();
@@ -182,9 +184,10 @@ export class DshAgentManager implements SessionAgentGateway {
 	/**
 	 * 按 cwd + dsh sessionId 推导 host 会话文件路径（F5：渲染层右键「复制会话文件路径」用，
 	 * 历史会话无运行时 tab 时也拿得到）。DSH 会话文件是 zstd 压缩日志，路径仅作定位。
+	 * 目录编码交给 DshHost（按 host 视角路径推导，WSL 项目必须是 H:\... 形式）。
 	 */
 	resolveSessionFilePath(cwd: string, dshSessionId: string): string {
-		return dshSessionFilePath(this.dshHost.getHomeDir(), cwd, dshSessionId);
+		return this.dshHost.sessionFilePath(cwd, dshSessionId);
 	}
 
 	async create(input: CreateAgentInput): Promise<AgentTab> {
@@ -273,7 +276,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			agentPreset: attachedAgentPreset ?? createdAgentPreset,
 			createdAt: Date.now(),
 			// DSH 会话文件（侧栏右键「复制会话文件路径」；attach 时同步写回 catalog 记录）
-			sessionPath: dshSessionFilePath(this.dshHost.getHomeDir(), cwd, sessionId),
+			sessionPath: this.dshHost.sessionFilePath(cwd, sessionId),
 		};
 		const runtime: DshAgentRuntime = {
 			tab,
@@ -498,7 +501,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			status: "idle",
 			createdAt: Date.now(),
 			// attach 同一会话：文件路径不变（沿用旧 id 的 host 会话文件）
-			sessionPath: dshSessionFilePath(this.dshHost.getHomeDir(), cwd, sessionId),
+			sessionPath: this.dshHost.sessionFilePath(cwd, sessionId),
 		};
 		const runtime: DshAgentRuntime = {
 			tab,
@@ -953,35 +956,83 @@ export class DshAgentManager implements SessionAgentGateway {
 	 * （事件流翻页，beforeSeq 为排除边界：返回 seq < beforeSeq 的事件，与本页最旧事件
 	 * seq 相同即可不重复）。投影复用 dshEventProjector（过滤注入上下文）。
 	 * 返回形状对齐渲染层 disk 分页协议（sessionsCatalogReadMessagePage）。
+	 *
+	 * options 二选一（换算口径见 dshHistoryPagePlan）：
+	 *  - turnCount：渲染层契约的「轮数」（首屏 9 / 加载更多 3）。host 的 session/page
+	 *    以消息事件数计数（MESSAGE_TYPES，默认 50），旧实现把它当 maxMessages 直接透传，
+	 *    于是「加载更多」一次只前进 3 条消息（稀疏会话里不到半轮），用户必须连点很多次；
+	 *    这里按 24 条/轮换算预算并支持多轮补取，直到凑够轮数或到会话开头；
+	 *  - maxMessages：显式消息窗口（Web/mobile 首屏、工具结果回读），原样透传一轮。
 	 */
-	async readHistoryPage(dshSessionId: string, beforeSeq: number | undefined, maxMessages: number): Promise<{ messages: ChatMessage[]; total: number; nextBefore: number | null }> {
+	async readHistoryPage(dshSessionId: string, beforeSeq: number | undefined, options: { turnCount?: number; maxMessages?: number } = {}): Promise<{ messages: ChatMessage[]; total: number; nextBefore: number | null }> {
 		// 历史浏览是 DSH host 的第一个入口：点击历史 DSH 会话时 runtime 尚未激活
 		// （懒启动），必须 ensureStarted 拉起 host，否则 requireClient 直接抛
 		// "DSH host is not started"，时间线加载失败显示为空会话。
 		const client = await this.ensureClient();
-		const page = await this.historyPage(String(dshSessionId), { beforeSeq, maxMessages });
-		if (!page.result.ok) {
-			// 历史读取失败不再静默返回空：0.1.5 升级后「会话内容为空」的根因（throughSeq
-			// 送 MAX 被 host 拒）就是被这个分支吞掉的；这里把真实原因记主进程日志并抛给
-			// 渲染层（时间线 error 态），避免「看着像空会话」。
-			const error = page.result.error;
-			getAppLogger()?.warn("dsh-agent", "dsh history page failed", {
-				sessionId: String(dshSessionId),
-				code: error.code,
-				message: error.message,
-			});
-			throw new Error(`DSH session history unavailable (${error.code}): ${error.message}`);
+		// 轮分页（渲染层契约）与显式消息窗口二选一：前者按「一轮 ≈ 24 条消息」换算成 host 的
+		// maxMessages 预算，必要时多轮补取；后者（Web/mobile 首屏、工具结果回读）原样送一轮。
+		const pagingByTurns = options.maxMessages === undefined;
+		const turnCount = pagingByTurns ? normalizeDshTurnPageSize(options.turnCount ?? DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE) : 0;
+		const rounds = pagingByTurns ? planDshHistoryRounds(turnCount) : [Math.max(1, Math.floor(options.maxMessages ?? DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE))];
+		const batches: DshHistoryEntry[][] = [];
+		let cursor = beforeSeq;
+		let hasMore = false;
+		let pageError: { code: string; message: string } | undefined;
+		for (const [round, maxMessages] of rounds.entries()) {
+			const page = await this.historyPage(String(dshSessionId), { beforeSeq: cursor, maxMessages });
+			if (!page.result.ok) {
+				// 历史读取失败不再静默返回空：0.1.5 升级后「会话内容为空」的根因（throughSeq
+				// 送 MAX 被 host 拒）就是被这个分支吞掉的；这里把真实原因记主进程日志（首轮
+				// 还会抛给渲染层转 error 态），避免「看着像空会话」。
+				pageError = page.result.error;
+				getAppLogger()?.warn("dsh-agent", "dsh history page failed", {
+					sessionId: String(dshSessionId),
+					code: pageError.code,
+					message: pageError.message,
+					round,
+					rounds: rounds.length,
+				});
+				break;
+			}
+			const batch = (page.result.value.events ?? []).map((entry) => ({ event: entry.event, view: entry.view })).filter((item): item is DshHistoryEntry => Boolean(item.event));
+			hasMore = page.result.value.hasMore === true;
+			if (batch.length === 0) break;
+			batches.push(batch);
+			// 下一轮从本批最旧事件继续往更早处取（beforeSeq 是排除边界，不会重复取到同一批）
+			const oldest = batch.reduce<number | undefined>((min, item) => {
+				const seq = item.event.seq;
+				return typeof seq === "number" && Number.isFinite(seq) && (min === undefined || seq < min) ? seq : min;
+			}, undefined);
+			if (oldest === undefined || !hasMore) break;
+			cursor = oldest;
+			if (batches.length >= rounds.length) break;
+			// 已凑够渲染层要的轮数就收手：正常会话（每轮 2~9 条消息）一轮即满足，
+			// 只有超长轮（实测单轮最多 157 条消息）才会走满补取轮数。
+			if (countDshUserMessages(assembleDshHistoryEntries(batches, beforeSeq).entries) >= turnCount) break;
 		}
-		const entries = (page.result.value.events ?? [])
-			.map((entry) => ({ event: entry.event, view: entry.view }))
-			.filter((item): item is { event: NonNullable<typeof item.event>; view: typeof item.view } => Boolean(item.event))
-			.sort((left: { event: { seq?: number } }, right: { event: { seq?: number } }) => (left.event.seq ?? 0) - (right.event.seq ?? 0));
+		// 首轮失败保持「明确报错」语义（渲染层转 error 态）；补取轮失败时保留已取到的部分页
+		// （日志已记），下一次点击仍从同一游标续取，比整页报错重来体验更好。
+		if (pageError && batches.length === 0) {
+			throw new Error(`DSH session history unavailable (${pageError.code}): ${pageError.message}`);
+		}
+		const assembled = assembleDshHistoryEntries(batches, beforeSeq);
+		if (assembled.droppedByContract > 0) {
+			// host 违反了排除边界契约（回了 seq ≥ beforeSeq 的事件）：丢弃并留痕，
+			// 否则渲染层拿到的游标会在原地打转（再点一次拿到同一页）。
+			getAppLogger()?.warn("dsh-agent", "dsh history page returned out-of-range events", {
+				sessionId: String(dshSessionId),
+				beforeSeq,
+				dropped: assembled.droppedByContract,
+			});
+		}
+		// 轮分页把页首裁到本页最旧的 turn/start：不完整的那一轮下次点击会重新取到（游标已指向
+		// 裁剪后的起点），观感与 pi 的轮对齐分页一致；显式消息窗口（Web/工具结果）保持原样。
+		const entries = pagingByTurns ? trimToOldestTurnStart(assembled.entries, hasMore) : assembled.entries;
 		const agentId = `dsh:${dshSessionId}`;
 		let projection = projectDshEvent(undefined, undefined, agentId);
 		for (const { event, view } of entries) {
 			projection = projectDshEvent(projection, event, agentId, view);
 		}
-		const hasMore = page.result.value.hasMore === true;
 		const oldestSeq = entries.length > 0 ? entries[0].event.seq : undefined;
 		// 游标语义：下一页传本页最旧事件 seq（DSH history 的 beforeSeq 是排除边界，
 		// 返回 seq < beforeSeq 的事件，与渲染层 prepend 协议「nextBefore 原样回传」对齐）。
@@ -1425,7 +1476,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			status: "idle",
 			createdAt: Date.now(),
 			// fork/clone 产生新 dsh sessionId：会话文件路径同步更新
-			sessionPath: dshSessionFilePath(this.dshHost.getHomeDir(), runtime.cwd, newSessionId),
+			sessionPath: this.dshHost.sessionFilePath(runtime.cwd, newSessionId),
 		};
 		const nextRuntime: DshAgentRuntime = {
 			...runtime,
@@ -1686,9 +1737,17 @@ export class DshAgentManager implements SessionAgentGateway {
 	}
 
 	/**
-	 * mux session/projection 帧 → runtime 投影缓存（上下文圆环/会话统计数据源）。
-	 * 只消费本项目消费的投影单元（contextPressure/contextBreakdown/tokenUsage/sessionStats），
-	 * 其余键忽略——渲染层队列/后台任务展示（session/queue、session/jobs）如需接入，在此扩展。
+	 * 投影帧 → runtime 投影缓存（上下文圆环/会话统计/待办的数据源）。
+	 *
+	 * 帧有三个来源，都汇到这一个入口：
+	 * - `session/control` 的 `{type:'projection', sessionId, key, value, seq}`
+	 *   （0.1.5 唯一实时来源，host 的 sessionProjections.onChanged 原样广播）；
+	 * - `session/follow` snapshot 里的 `projections`；
+	 * - 投影 baseline（`applyProjectionBaseline` 逐 key 拆开复用本方法）。
+	 *
+	 * 只消费本项目消费的投影单元（contextPressure/contextBreakdown/tokenUsage/
+	 * sessionStats/todos），其余键忽略——渲染层队列/后台任务展示（session/queue、
+	 * session/jobs）如需接入，在此扩展。
 	 * 帧的 value 是 host 按 onChanged 原样下发的单元值本体（无 {key: value} 包装）；
 	 * 解析器（parse*Projection）统一兼容包装形（attach projections.values）与单元值形（帧）。
 	 */
@@ -1754,20 +1813,31 @@ export class DshAgentManager implements SessionAgentGateway {
 	}
 
 	/**
-	 * 消费 `session.history` 尾页携带的 projections baseline（官方 ProjectionValueStore
-	 * 播种语义）：attach/restart/重连补帧/崩溃恢复都拉同一尾页，baseline 是底层完整折叠，
-	 * 不受 200 条事件窗口截断影响。与 mux 实时帧共用 acceptsProjectionFrame 的
-	 * higher-seq-wins，历史基线晚于实时帧到达时会被拒绝（不回退）。
+	 * 消费投影 baseline（`{asOfSeq, values}` 块）——两个来源共用同一入口：
+	 * - `session.history` 尾页的 `projections`（attach/restart/重连补帧/崩溃恢复都拉
+	 *   同一尾页，是底层完整折叠，不受 200 条事件窗口截断影响）；
+	 * - `session/control` 首帧 `{type:'baseline', value:{projections}}` 里每会话一块
+	 *   （host 重连后重发，天然完成投影补齐）。
+	 *
+	 * 逐 key 判断是否存在：缺 key 的不动（保留现值），避免用 baseline 的“缺省”
+	 * 把已到达的实时值抹掉。与实时帧共用 acceptsProjectionFrame 的 higher-seq-wins，
+	 * 基线晚于实时帧到达时会被拒绝（不回退）。
 	 */
+	private applyProjectionBaseline(runtime: DshAgentRuntime, block: unknown): void {
+		if (block === null || typeof block !== "object") return;
+		const record = block as { asOfSeq?: unknown; values?: unknown };
+		if (record.values === null || typeof record.values !== "object") return;
+		const values = record.values as Record<string, unknown>;
+		const asOfSeq = typeof record.asOfSeq === "number" && Number.isSafeInteger(record.asOfSeq) && record.asOfSeq >= -1 ? record.asOfSeq : undefined;
+		for (const key of DSH_PROJECTION_KEYS) {
+			if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
+			this.applyProjectionFrame(runtime, { key, value: values[key], seq: asOfSeq });
+		}
+	}
+
+	/** `session.history` 尾页 projections baseline 入口（语义见 applyProjectionBaseline）。 */
 	private applyHistoryProjectionBaseline(runtime: DshAgentRuntime, projections: unknown): void {
-		if (projections === null || typeof projections !== "object") return;
-		const block = projections as { asOfSeq?: unknown; values?: unknown };
-		const asOfSeq = typeof block.asOfSeq === "number" && Number.isSafeInteger(block.asOfSeq) && block.asOfSeq >= -1 ? block.asOfSeq : undefined;
-		const values = block.values !== null && typeof block.values === "object" ? (block.values as Record<string, unknown>) : undefined;
-		const parsed = parseDshTodoList(values?.todos);
-		if (parsed === undefined) return;
-		if (asOfSeq !== undefined && !this.acceptsProjectionFrame(runtime, "todos", asOfSeq)) return;
-		runtime.todos = parsed;
+		this.applyProjectionBaseline(runtime, projections);
 	}
 
 	private applyControl(runtime: DshAgentRuntime, next: DshControlState): void {
@@ -1927,14 +1997,63 @@ export class DshAgentManager implements SessionAgentGateway {
 		this.muxAbort = undefined;
 		this.muxPump = undefined;
 		this.muxFirstSubscription = true;
+		this.controlAbort?.abort();
+		this.controlAbort = undefined;
+		this.controlPump = undefined;
 		for (const pump of this.followPumps.values()) pump.controller.abort();
 		this.followPumps.clear();
 	}
 
 	/**
-	 * 确保进程级共享 mux 在跑。host 的 events.mux 是全会话聚合流：
-	 * 每个 runtime 再开一条会互相打断，第二个会话 create/attach 失败。
-	 * 断连自愈仍按指数退避重连；重连后给每个仍活着的 runtime 补帧。
+	 * 确保 Host 级投影控制流（session/control）在跑。
+	 *
+	 * 0.1.5 把旧 events.mux 的「投影变更广播」放在这条流上：session/follow 的
+	 * snapshot 只在 attach 那一刻带一次投影基线，之后 sessionStats / tokenUsage /
+	 * contextPressure / contextBreakdown / todos 的每次变更都只经
+	 * sessionProjections.onChanged → session/control 下发。不订阅这条流，
+	 * runtime 投影就永远停在 attach 初值（新建会话更是全空），
+	 * deriveSessionStatsFallback 顶上 ⇒ 输入框底下只剩「N 轮 · M 步」，
+	 * LLM/工具墙钟、平均首字、tok/s、累计 token、缓存命中率全部缺失。
+	 *
+	 * 与 mux 同款断连退避；重连后 host 重发 baseline，天然完成投影补齐
+	 * （baseline 走 higher-seq-wins，不会把已到达的新值打回旧值）。
+	 */
+	private startControlPump(): void {
+		if (this.controlPump && this.controlAbort && !this.controlAbort.signal.aborted) return;
+		const controller = new AbortController();
+		this.controlAbort = controller;
+		this.controlPump = (async () => {
+			let backoffMs = 250;
+			while (!controller.signal.aborted) {
+				if (!this.dshHost.isHostProcessRunning() || !this.dshHost.isHostReady()) {
+					await delay(backoffMs, controller.signal);
+					backoffMs = Math.min(backoffMs * 2, 2000);
+					continue;
+				}
+				try {
+					const client = this.requireClient();
+					for await (const frame of client.sessionControl(controller.signal)) {
+						backoffMs = 250;
+						this.dispatchMuxFrame(frame);
+					}
+				} catch {
+					// 流错误（host 崩溃 abortAllPending）或 host 未启动：退避重连。
+				}
+				if (controller.signal.aborted) break;
+				await delay(backoffMs, controller.signal);
+				backoffMs = Math.min(backoffMs * 2, 2000);
+			}
+		})().catch((error) => {
+			if (controller.signal.aborted) return;
+			console.error("[dsh-agent] control pump error:", error);
+		});
+	}
+
+	/**
+	 * 确保进程级共享 mux 在跑。0.1.5 后 events.mux 已不存在：会话 journal 走
+	 * 每会话 follow 泵，审批/提问瀑布走 $events，投影广播走 session/control。
+	 * 三者都是进程级共享流（每个 runtime 再开一条会互相打断，第二个会话
+	 * create/attach 失败）；断连自愈按指数退避重连。
 	 */
 	private startMux(_runtime: DshAgentRuntime): void {
 		// 0.1.5：会话 journal 事件走每会话 follow 泵（this.followPumps），共享 mux
@@ -1944,6 +2063,9 @@ export class DshAgentManager implements SessionAgentGateway {
 		// （journal 有 turn/end），但 PiDeck 收不到任何事件（无流式、无收口、无报错）。
 		// ensureFollowPump 按 agentId 幂等，重复调用无害。
 		this.ensureFollowPump(_runtime);
+		// 投影控制流同理：必须早于下面的 mux 早退分支，否则第二个会话起就不再订阅
+		// （startControlPump 自身幂等，重复调用无害）。
+		this.startControlPump();
 		if (this.muxPump && this.muxAbort && !this.muxAbort.signal.aborted) return;
 		const controller = new AbortController();
 		this.muxAbort = controller;
@@ -1999,6 +2121,11 @@ export class DshAgentManager implements SessionAgentGateway {
 		if (!runtime) return;
 		if (payload.type === "approval/requested" || payload.type === "question/requested") {
 			this.handleServerRequest(runtime, frame, payload);
+			return;
+		}
+		if (payload.type === "session/projection-baseline") {
+			// session/control 的 baseline 是全会话投影快照，按 sessionId 拆帧后到这里。
+			this.applyProjectionBaseline(runtime, payload.block);
 			return;
 		}
 		if (payload.type === "session/projection") {

@@ -23,6 +23,10 @@ export const ProcessSummaryToggle = memo(function ProcessSummaryToggle(props: { 
 	if (props.summary.interimCount > 0) {
 		parts.push(t("activity.executionInterimCount", { count: props.summary.interimCount }));
 	}
+	if (props.summary.retryCount > 0) {
+		// 自动重试也计入本轮过程摘要：折叠态一眼可看出「这轮重试过」
+		parts.push(t("activity.executionRetryCount", { count: props.summary.retryCount }));
+	}
 	const label = parts.length > 0 ? t("activity.executionSummary", { summary: parts.join(" ") }) : "";
 
 	return (

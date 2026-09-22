@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { armStartupOverlayDismissal } from "./startupOverlays";
 
 /**
  * Electron 应用 fixture：默认启动构建产物（out/main/index.js）；设置
@@ -97,6 +98,9 @@ export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | und
 	window: async ({ app }, use) => {
 		const window = await app.firstWindow();
 		await window.waitForLoadState("domcontentloaded");
+		// 启动引导弹窗会抢焦点/遮拦点击，统一在这里挂上「出现即关」，
+		// 否则会伪装成业务失败（点击超时、打字被吞）。
+		await armStartupOverlayDismissal(window);
 		await use(window);
 	},
 });

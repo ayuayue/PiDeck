@@ -19,7 +19,9 @@ import { PI_AI_CATALOG_FILE_NAME, PI_AI_CATALOG_MANIFEST_FILE_NAME, invalidatePi
 import { compareSemver, generatePiAiCatalogFromFiles, type CatalogSourceFile } from "./piAiCatalogGenerate";
 import type { CatalogArtifactSourceStatus, CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../../shared/types/catalog";
 import type { UpdateSourceId } from "../../shared/types/settings";
-import { normalizeCustomMirrorHost, UPDATE_SOURCE_MIRRORS } from "../../shared/updateSources";
+// AtomGit 只有 OpenAPI contents 可取文件（`/<owner>/<repo>/raw/...` 已被 GitCode 前端接管，
+// 返回 SPA HTML），URL 构造与解码与内置扩展/内容、changelog 共用一套实现。
+import { atomGitContentsApiUrl, decodeAtomGitContentsResponse, gitHubRawFileUrl, type RepoFileSourceEntry } from "../update/atomGitContents";
 
 /** 默认回退分支：main（发行分支，模型目录与正式发行版对齐） */
 export const CATALOG_UPDATE_DEFAULT_BRANCH = "main";
@@ -43,22 +45,22 @@ function nonEmptyString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** 仓库文件源 id（atomgit OpenAPI / github raw）。 */
+type CatalogSourceId = RepoFileSourceEntry["id"];
+
 /**
- * 下载源（按顺序尝试）：若配置了 AtomGit 则优先从 AtomGit raw 下载，随后回退 GitHub raw。
+ * 下载源（按顺序尝试）：GitHub 源时 raw 直连优先，否则 AtomGit OpenAPI 优先。
+ *
+ * manifest 与 catalog 必须配对同源：跨源取会让 manifest 声明的 sha256/entryCount
+ * 与实际内容错配，写入前校验必失败。任一源失败只影响本次尝试，由 downloadFromAnySource
+ * 依次换下一个源，所以两种源配置下远端目录更新都可用。
  */
-function sourceBaseUrls(branch: string, mirrorHost?: string | null): { catalog: string; manifest: string }[] {
-	const rawCatalog = `https://raw.githubusercontent.com/ayuayue/PiDeck/${branch}/resources/${PI_AI_CATALOG_FILE_NAME}`;
-	const rawManifest = `https://raw.githubusercontent.com/ayuayue/PiDeck/${branch}/resources/${PI_AI_CATALOG_MANIFEST_FILE_NAME}`;
-	const sources: { catalog: string; manifest: string }[] = [];
-	if (mirrorHost) {
-		const atomgitPrefix = `${mirrorHost}/ayuayue/PiDeck/raw/${branch}/resources`;
-		sources.push({
-			catalog: `${atomgitPrefix}/${PI_AI_CATALOG_FILE_NAME}`,
-			manifest: `${atomgitPrefix}/${PI_AI_CATALOG_MANIFEST_FILE_NAME}`,
-		});
-	}
-	sources.push({ catalog: rawCatalog, manifest: rawManifest });
-	return sources;
+function sourceBaseUrls(branch: string, source: CatalogSourceId): { id: CatalogSourceId; catalog: string; manifest: string }[] {
+	const catalogFile = `resources/${PI_AI_CATALOG_FILE_NAME}`;
+	const manifestFile = `resources/${PI_AI_CATALOG_MANIFEST_FILE_NAME}`;
+	const build = (file: string, id: CatalogSourceId) => (id === "atomgit" ? atomGitContentsApiUrl(file, branch) : gitHubRawFileUrl(file, branch));
+	const order: CatalogSourceId[] = source === "github" ? ["github", "atomgit"] : ["atomgit", "github"];
+	return order.map((id) => ({ id, catalog: build(catalogFile, id), manifest: build(manifestFile, id) }));
 }
 
 /**
@@ -112,13 +114,12 @@ export type PiAiCatalogUpdaterOptions = {
 	/** 默认分支，默认 main */
 	branch?: string;
 	/**
-	 * 更新源：复用应用更新的 GitHub 镜像配置（shared/updateSources.ts）。
-	 * 目录下载/检测默认直连 GitHub 分支，国内用户切镜像后自动走代理前缀。
+	 * 更新源：复用应用更新的镜像偏好（shared/updateSources.ts）。
+	 * github → GitHub raw 直连优先；其余（atomgit 等）→ AtomGit OpenAPI 优先；
+	 * 两个源始终互为兜底，所以任何源配置下目录更新都可用。
 	 * 用函数而非快照：设置可在运行时更改，每次检查/下载读最新值。
 	 */
 	source?: () => UpdateSourceId;
-	/** source="custom" 时的镜像前缀；与 source 同生命周期（运行时读最新）。 */
-	customHost?: () => string;
 };
 
 export class PiAiCatalogUpdater {
@@ -129,7 +130,6 @@ export class PiAiCatalogUpdater {
 	private readonly maxManifestBytes: number;
 	private readonly branch: string;
 	private readonly source: () => UpdateSourceId;
-	private readonly customHost: () => string;
 
 	constructor(options: PiAiCatalogUpdaterOptions) {
 		this.userDataDir = options.userDataDir;
@@ -139,17 +139,14 @@ export class PiAiCatalogUpdater {
 		this.maxManifestBytes = options.maxManifestBytes ?? 64 * 1024;
 		this.branch = options.branch ?? CATALOG_UPDATE_DEFAULT_BRANCH;
 		this.source = options.source ?? (() => "github");
-		this.customHost = options.customHost ?? (() => "");
 	}
 
 	/**
-	 * 当前源对应的镜像/加速 host：github 官方源返回 null（直连 GitHub raw），
-	 * atomgit 返回 AtomGit 域名，供 sourceBaseUrls 优先从 AtomGit raw 加速获取。
+	 * 当前生效源归一化为仓库文件源 id：github 官方源走 raw 直连，其余（atomgit/自定义镜像）
+	 * 都走 AtomGit OpenAPI——两者都是匿名可读的公开源，任一失败会自动换另一个。
 	 */
-	private mirrorHost(): string | null {
-		const source = this.source();
-		if (source === "github") return null;
-		return UPDATE_SOURCE_MIRRORS.find((m) => m.id === source)?.host ?? null;
+	private currentSource(): CatalogSourceId {
+		return this.source() === "github" ? "github" : "atomgit";
 	}
 
 	private catalogPath(): string {
@@ -235,10 +232,10 @@ export class PiAiCatalogUpdater {
 
 	/** 回退源：从仓库分支拉取预生成件（双源下载 → 校验 → 版本防降级 → 写入）。 */
 	private async updateFromBranch(branch: string): Promise<CatalogUpdateResult> {
-		const mirrorHost = this.mirrorHost();
+		const source = this.currentSource();
 		let pair: { catalogRaw: string; manifestRaw: string };
 		try {
-			pair = await this.downloadFromAnySource(branch, mirrorHost);
+			pair = await this.downloadFromAnySource(branch, source);
 		} catch (error) {
 			return {
 				ok: false,
@@ -382,10 +379,10 @@ export class PiAiCatalogUpdater {
 
 	/** 回退：从仓库分支 manifest 解析版本并做语义比较。 */
 	private async checkRemoteFromBranch(branch: string): Promise<CatalogCheckResult> {
-		const mirrorHost = this.mirrorHost();
+		const source = this.currentSource();
 		let manifestRaw: string;
 		try {
-			manifestRaw = await this.downloadManifestFromAnySource(branch, mirrorHost);
+			manifestRaw = await this.downloadManifestFromAnySource(branch, source);
 		} catch (error) {
 			return {
 				ok: false,
@@ -404,16 +401,25 @@ export class PiAiCatalogUpdater {
 	}
 
 	/**
+	 * 单源取文本：AtomGit OpenAPI 回的是 base64 信封，必须先解码（形态异常会抛错 →
+	 * 外层 try/catch 换下一个源）；GitHub raw 响应体即原文。
+	 */
+	private async downloadRepoFile(id: CatalogSourceId, url: string, maxBytes: number): Promise<string> {
+		const body = await this.downloadText(url, maxBytes);
+		return id === "atomgit" ? decodeAtomGitContentsResponse(body) : body;
+	}
+
+	/**
 	 * 下载一对 artifact（先 manifest 后 catalog），按源列表顺序尝试：
-	 * 源内任一文件失败（网络/超时/HTTP 错误/超大小）即换下一个源。
+	 * 源内任一文件失败（网络/超时/HTTP 错误/超大小/形态不识别）即换下一个源。
 	 * 全部失败抛错，由调用方归为 network。
 	 */
-	private async downloadFromAnySource(branch: string, mirrorHost?: string | null): Promise<{ catalogRaw: string; manifestRaw: string }> {
+	private async downloadFromAnySource(branch: string, source: CatalogSourceId): Promise<{ catalogRaw: string; manifestRaw: string }> {
 		let lastError: unknown;
-		for (const source of sourceBaseUrls(branch, mirrorHost)) {
+		for (const pair of sourceBaseUrls(branch, source)) {
 			try {
-				const manifestRaw = await this.downloadText(source.manifest, this.maxManifestBytes);
-				const catalogRaw = await this.downloadText(source.catalog, this.maxCatalogBytes);
+				const manifestRaw = await this.downloadRepoFile(pair.id, pair.manifest, this.maxManifestBytes);
+				const catalogRaw = await this.downloadRepoFile(pair.id, pair.catalog, this.maxCatalogBytes);
 				return { catalogRaw, manifestRaw };
 			} catch (error) {
 				lastError = error;
@@ -423,11 +429,11 @@ export class PiAiCatalogUpdater {
 	}
 
 	/** 只下载 manifest（checkRemote 用），源列表同 update，全部失败抛错。 */
-	private async downloadManifestFromAnySource(branch: string, mirrorHost?: string | null): Promise<string> {
+	private async downloadManifestFromAnySource(branch: string, source: CatalogSourceId): Promise<string> {
 		let lastError: unknown;
-		for (const source of sourceBaseUrls(branch, mirrorHost)) {
+		for (const pair of sourceBaseUrls(branch, source)) {
 			try {
-				return await this.downloadText(source.manifest, this.maxManifestBytes);
+				return await this.downloadRepoFile(pair.id, pair.manifest, this.maxManifestBytes);
 			} catch (error) {
 				lastError = error;
 			}

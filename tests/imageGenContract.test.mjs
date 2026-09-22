@@ -119,6 +119,10 @@ test("composer 生图底栏用独立配置，不读会话 LLM", () => {
 	assert.match(area, /composer\.delivery\.setImageGenSelection/);
 	assert.match(options, /encodeImageGenSelection/);
 	assert.match(options, /SelectGroup/);
+	// 空的 activeProviderId/activeModel 必须保持未选择，不能在底栏静默落到 providers[0]。
+	assert.match(options, /providers\.find\(\(item\) => item\.id === props\.providerId\)/);
+	assert.doesNotMatch(options, /providers\[0\]/);
+	assert.doesNotMatch(controller, /findImageGenProvider\(imageGenConfig, activeImageGenProviderId\) \?\? imageGenConfig\.providers\[0\]/);
 	assert.match(controller, /imageGenConfigAtom/);
 	assert.match(controller, /findImageGenProvider/);
 	assert.match(controller, /provider: provider\.id/);

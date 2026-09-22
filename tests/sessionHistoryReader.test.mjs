@@ -534,6 +534,45 @@ test("getRecentActiveEntryIds returns the last N active message ids", async () =
 	}
 });
 
+test("getRecentActiveEntryIds skips pi 0.86 system message entries", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-entry-ids-role-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		// 0.86 起系统提示/工具清单变更也落成 type:"message" + role:"system" 条目：
+		// 首个请求一条完整 sections，会话中段工具变更再补一条。
+		await writeFile(
+			sessionPath,
+			[
+				JSON.stringify({ id: "session", type: "session" }),
+				JSON.stringify({ id: "sys0", parentId: "session", type: "message", message: { role: "system", content: "", sections: { preamble: "You are pi." } } }),
+				JSON.stringify({ id: "u1", parentId: "sys0", type: "message", message: { role: "user", content: [{ type: "text", text: "q1" }] } }),
+				JSON.stringify({ id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "a1" }] } }),
+				JSON.stringify({ id: "u2", parentId: "a1", type: "message", message: { role: "user", content: [{ type: "text", text: "q2" }] } }),
+				JSON.stringify({ id: "a2", parentId: "u2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "a2" }] } }),
+				JSON.stringify({ id: "u3", parentId: "a2", type: "message", message: { role: "user", content: [{ type: "text", text: "q3" }] } }),
+				JSON.stringify({ id: "a3", parentId: "u3", type: "message", message: { role: "assistant", content: [{ type: "text", text: "a3" }] } }),
+				// 会话中段工具清单变更（plan 模式 setActiveTools 等）：落在尾部窗口内。
+				JSON.stringify({ id: "sys3", parentId: "a3", type: "message", message: { role: "system", content: "", toolsRemoved: [{ name: "edit" }] } }),
+				JSON.stringify({ id: "u4", parentId: "sys3", type: "message", message: { role: "user", content: [{ type: "text", text: "q4" }] } }),
+				JSON.stringify({ id: "a4", parentId: "u4", type: "message", message: { role: "assistant", content: [{ type: "text", text: "a4" }] } }),
+			].join("\n"),
+			"utf8",
+		);
+		const reader = createReader((path) => path);
+		// 窗口内夹着 sys3：必须跳过它，否则返回的 id 整体前移一条（u1→a1、a1→u2 …）。
+		const ids = await reader.getRecentActiveEntryIds(sessionPath, 4);
+		assert.equal(JSON.stringify(ids), JSON.stringify(["u3", "a3", "u4", "a4"]));
+		// 窗口不跨越该条目时结果不变。
+		const shorter = await reader.getRecentActiveEntryIds(sessionPath, 2);
+		assert.equal(JSON.stringify(shorter), JSON.stringify(["u4", "a4"]));
+		// getActiveEntryCount 仍是「message 条目总数」：readRecordMessagePage 的数值 before
+		// 游标与 entryId 对齐是两套口径，不要把这里改成角色消息数。
+		assert.equal(await reader.getActiveEntryCount(sessionPath), 10);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("SessionHistoryReader prefetches the next page and serves it from cache", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-prefetch-"));
 	const sessionPath = join(directory, "session.jsonl");
@@ -816,6 +855,127 @@ test("readFileChangeMessages falls back to a bounded tail without a user boundar
 		const changes = collectSessionFileChanges(await reader.readFileChangeMessages(sessionPath, "viewer"));
 		assert.equal(changes.length, 1);
 		assert.equal(changes[0].path, "src/orphan.ts");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+// ── pi 0.86：type:"message" 里混入 role:"system"（系统提示/工具清单变更） ──
+
+/**
+ * 带真实投影器槽位语义的读器：只对 user/assistant/toolResult 消费 entryId，
+ * 其余条目（0.86 的 role:"system"、压缩卡片）不占槽位。
+ * 基础 createReader 会把 entryIds 按 rawMessages 下标平铺，暴露不了错位。
+ */
+function createRoleAwareReader(toHostPath) {
+	return new SessionHistoryReader({
+		toHostPath,
+		convertMessages: (_agentId, rawMessages, entryIds = []) => {
+			let entryIndex = 0;
+			const messages = [];
+			for (const message of rawMessages) {
+				const role = message?.role;
+				if (role === "compactionSummary" || role === "branchSummary") {
+					messages.push({ id: `meta-${messages.length}`, role: "system", text: String(message.summary ?? ""), meta: { type: role === "compactionSummary" ? "compaction" : "branchSummary" } });
+					continue;
+				}
+				if (role !== "user" && role !== "assistant" && role !== "toolResult") continue;
+				const entryId = entryIds[entryIndex];
+				entryIndex += 1;
+				messages.push({ id: `history-${entryId ?? entryIndex}`, role, text: textFromContent(message.content), meta: entryId ? { entryId } : {} });
+			}
+			return messages;
+		},
+		trimMessages: (messages) => messages,
+		translate: () => "Summary unavailable.",
+	});
+}
+
+const systemEntry = (id, parentId, extra) => JSON.stringify({ id, parentId, type: "message", message: { role: "system", content: "", ...extra } });
+const roleEntry = (id, parentId, role, text) => JSON.stringify({ id, parentId, type: "message", message: { role, content: [{ type: "text", text }] } });
+
+function writeLines(sessionPath, lines) {
+	return writeFile(sessionPath, `${lines.join("\n")}\n`, "utf8");
+}
+
+function joined(messages) {
+	return messages.map((message) => `${message.text}:${message.meta?.entryId ?? "-"}`);
+}
+
+test("page projection skips pi 0.86 system entries when assigning entry ids", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-system-ids-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			systemEntry("s0", "session", { sections: { preamble: "You are pi." } }),
+			roleEntry("u1", "s0", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "a1"),
+			systemEntry("s2", "a1", { toolsRemoved: [{ name: "edit" }] }),
+			roleEntry("u2", "s2", "user", "q2"),
+			roleEntry("a2", "u2", "assistant", "a2"),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		// 旧实现把含 system 的 id 数组直接交给投影器：q1→s0、a1→u1、q2→a1、a2→s2 整体前移。
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "a1:a1", "q2:u2", "a2:a2"]));
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("custom_message card lands at the message index even when system entries precede it", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-card-offset-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			systemEntry("s0", "session", { sections: { preamble: "You are pi." } }),
+			roleEntry("u1", "s0", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "a1"),
+			JSON.stringify({ id: "cm1", parentId: "a1", type: "custom_message", customType: "pi-deck-subagent", content: "后台任务完成", display: true, timestamp: "2026-01-01T00:00:03.000Z" }),
+			roleEntry("u2", "cm1", "user", "q2"),
+			roleEntry("a2", "u2", "assistant", "a2"),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		// 通知的条目 offset=3（s0/u1/a1），但消息下标只有 2 条角色消息在前：
+		// 旧实现按 offset−start 插在下标 3（u2 之后），新实现插在 a1 之后。
+		assert.equal(JSON.stringify(Array.from(page.messages, (message) => message.text)), JSON.stringify(["q1", "a1", "后台任务完成", "q2", "a2"]));
+		assert.equal(page.messages[2].meta.type, "customMessage");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("readLoadWindow maps the compaction insert point into the window", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-load-window-compaction-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			roleEntry("u1", "session", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "a1"),
+			roleEntry("u2", "a1", "user", "q2"),
+			roleEntry("a2", "u2", "assistant", "a2"),
+			JSON.stringify({ id: "comp", parentId: "a2", type: "compaction", summary: "compacted", firstKeptEntryId: "u3", tokensBefore: 120000, timestamp: "2026-01-01T00:00:03.000Z" }),
+			roleEntry("u3", "comp", "user", "q3"),
+			roleEntry("a3", "u3", "assistant", "a3"),
+			roleEntry("u4", "a3", "user", "q4"),
+			roleEntry("a4", "u4", "assistant", "a4"),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		// turnCount=3 → 窗口 = u2..a4（windowStart=2），压缩保留起点 u3 在窗口内（绝对下标 4）。
+		const window = await reader.readLoadWindow(sessionPath, "viewer", 3, 1600);
+		assert.equal(window.windowStart, 2);
+		const compactionIndex = window.messages.findIndex((message) => message.meta?.type === "compaction");
+		// 旧实现拿绝对下标 4 切窗口数组：卡片插到 u3/a3 之后；新实现换算为窗口内下标 2。
+		assert.equal(compactionIndex, 2);
+		assert.equal(JSON.stringify(Array.from(window.messages, (message) => message.text)), JSON.stringify(["q2", "a2", "compacted", "q3", "a3", "q4", "a4"]));
+		assert.equal(JSON.stringify(joined(window.messages.filter((message) => message.role !== "system"))), JSON.stringify(["q2:u2", "a2:a2", "q3:u3", "a3:a3", "q4:u4", "a4:a4"]));
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

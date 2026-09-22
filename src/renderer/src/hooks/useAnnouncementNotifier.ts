@@ -103,7 +103,8 @@ export function useAnnouncementNotifier(): void {
 			void desktopApi.announcements.markNotified(consumed.map((item) => item.id)).catch(() => undefined);
 			const item = shown[0];
 			if (!item) return;
-			// 正文纯文本展示（与公告中心一致，不做 markdown 渲染，控制攻击面）；
+			// 正文原样传给 showNotice：toast 卡片仍是纯文本（截断预览），但超长时点「查看详情」
+			// 的弹窗会经 MarkdownStream 渲染 markdown —— 公告本就是 md 正文，纯文本展示会满屏 `**`。
 			// 「查看」按钮打开公告中心（atom 驱动，见 announcement-atoms）。
 			showNotice(item.body, ANNOUNCEMENT_TOAST_DURATION_MS, levelToNoticeKind(item.level), item.title, {
 				action: {

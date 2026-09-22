@@ -89,11 +89,12 @@ function rewriteErrorMessage(message) {
 
 // =========================================================================
 // pi agent-session 层判定副本
-// （pi 0.84.4：_isRetryableError = isContextOverflow 优先，其次 isRetryableAssistantError）
+// （pi ≤ 0.85：_isRetryableError = isContextOverflow 优先，其次 isRetryableAssistantError；
+//   pi ≥ 0.86：上游已把 bodyless 400/413 移出溢出判定，本副本用于锁定 ≤0.85 的兜底口径）
 // =========================================================================
 
 /**
- * pi 的 OVERFLOW_PATTERNS 末条会把 `^4(00|13) (no body)` 判为上下文溢出，
+ * pi（≤0.85）的 OVERFLOW_PATTERNS 末条会把 `^4(00|13) (no body)` 判为上下文溢出，
  * 命中后走压缩恢复而非重试。这是 400 空响应「不重试」的真正原因，
  * 只补 `(connection error)` 无法绕过（正则锚定开头）。
  */
@@ -163,6 +164,20 @@ function piWillRetry(message) {
 	return isRetryableAssistantError(message);
 }
 
+/**
+ * pi ≥ 0.86 的溢出判定副本：上游已把 bodyless 400/413 末条移出 OVERFLOW_PATTERNS
+ * （实测 0.86.1：`400 status code (no body)` 的 isContextOverflow=false）。
+ * 但 400/413 仍不在重试名单里 —— 改写必须保留 `(connection error)`。
+ */
+const OVERFLOW_PATTERNS_086 = [/prompt is too long/i, /request_too_large/i, /exceeds the context window/i, /context[_ ]length[_ ]exceeded/i, /too many tokens/i, /token limit exceeded/i];
+
+function isContextOverflow086(message) {
+	const errorMessage = message.errorMessage;
+	if (message.stopReason !== "error" || !errorMessage) return false;
+	if (NON_OVERFLOW_PATTERNS.some((p) => p.test(errorMessage))) return false;
+	return OVERFLOW_PATTERNS_086.some((p) => p.test(errorMessage));
+}
+
 // =========================================================================
 // 纯函数行为测试
 // =========================================================================
@@ -218,7 +233,7 @@ test("原始 400 空响应被 pi 判为上下文溢出而跳过重试（问题�
 	assert.equal(piWillRetry(original), false);
 });
 
-test("只追加 connection error 无法绕过溢出误判（pi 0.84.4 回归防护）", () => {
+test("只追加 connection error 无法绕过溢出误判（pi ≤0.85 回归防护）", () => {
 	// 这是 0.84.x 之前有效的旧方案：命中重试名单，却被溢出判定抢先拦截
 	const legacy = {
 		stopReason: "error",
@@ -239,6 +254,21 @@ test("破锚改写后 400 空响应不再被判溢出，进入 pi 重试", () =>
 	assert.equal(isContextOverflow(rewritten), false);
 	assert.equal(isRetryableAssistantError(rewritten), true);
 	assert.equal(piWillRetry(rewritten), true);
+});
+
+test("400 空响应版本矩阵：≤0.85 靠破锚，≥0.86 破锚无害且标注仍必需", () => {
+	const raw = { stopReason: "error", errorMessage: "400 status code (no body)", api: "openai-completions" };
+	// ≤0.85：原文被溢出误判拦下，重试根本不发生（破锚的原因）
+	assert.equal(piWillRetry(raw), false);
+	// ≥0.86：上游已修掉溢出误判，但原文依旧不在重试名单里
+	assert.equal(isContextOverflow086(raw), false);
+	assert.equal(isRetryableAssistantError(raw), false);
+
+	const rewritten = { ...raw, errorMessage: makeRetryableErrorMessage(raw.errorMessage, raw.api) };
+	// 改写后两个版本都必须进入重试闭环（破锚对 ≥0.86 无副作用，(connection error) 不可省）
+	assert.equal(piWillRetry(rewritten), true);
+	assert.equal(isContextOverflow086(rewritten), false);
+	assert.equal(isRetryableAssistantError(rewritten), true);
 });
 
 test("anthropic 的 400 空响应仍走压缩恢复而非重试", () => {

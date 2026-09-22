@@ -1,10 +1,14 @@
 import type { PiDesktopApi } from "../../preload";
 import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE } from "../../shared/types";
+import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalTab } from "../../shared/types";
 import type { ResourceImportKind } from "../../shared/types/resourceImport";
 import { t } from "./i18n";
 
 const now = Date.now();
+
+/** 快捷消息预览夹具：预览/截图需要一个非空弹框；真实数据在 userData/quick-messages.json。 */
+const PREVIEW_QUICK_MESSAGES: readonly string[] = ["继续", "提交", "推送", "提交推送"];
 
 const projects: Project[] = [
 	{
@@ -101,9 +105,10 @@ let previewSettings: AppSettings = {
 	disabledSkills: [],
 	/** 提示词模板禁用列表：与 SettingsStore 默认一致，预览壳不启用模板白名单 */
 	disabledPrompts: [],
-	sessionTabOpenMode: "preview",
-	// 与 SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
+	sessionTabOpenMode: "preview", // 与 SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 	busySendDelivery: "steer",
+	// 遗留字段：快捷消息已改存独立配置文件（预览模式没有真实文件，见下方 quickMessages 预览桩）
+	quickMessages: [],
 	enableGitManagement: true,
 	gitCommitMessagePrompt: "",
 	gitCommitMessageProvider: "",
@@ -150,6 +155,7 @@ let previewSettings: AppSettings = {
 	workspaceContentOpenMode: "split",
 	contentMaxWidth: 1800,
 	chatContentWidthPct: 80,
+	sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 	maxEditorFileSizeMB: 5,
 	externalEditors: createDefaultExternalEditorSettings(),
 
@@ -232,7 +238,20 @@ export function createPreviewApi(): PiDesktopApi {
 	return {
 		clipboard: clipboardStub,
 		// 资源管理器右键菜单预览桩：预览环境无注册表操作，一律报不支持
+		quickTask: { getState: async () => ({ active: false, requestId: 0 }), onChanged: () => () => undefined, exit: async () => undefined },
+		// 预览模式没有真实 pi 认证宿主；提供与 preload 同形状的安全空实现，
+		// 避免新增认证能力让静态预览整站无法通过类型检查或初始化。
+		piAuth: {
+			listProviders: async () => ({ ok: false as const, errorKind: "sdk-unavailable" as const, error: "Pi auth is unavailable in preview mode." }),
+			login: async ({ providerId }: { providerId: string }) => ({ ok: false, cancelled: false, providerId, errorKind: "sdk-unavailable" as const, error: "Pi auth is unavailable in preview mode." }),
+			answerPrompt: async () => false,
+			cancel: async () => false,
+			logout: async (providerId: string) => ({ ok: false, providerId, error: "Pi auth is unavailable in preview mode." }),
+			onFlowUpdate: () => () => undefined,
+		},
 		shellMenu: {
+			getQuickTaskState: async () => ({ supported: false, registered: false }),
+			setQuickTaskEnabled: async () => ({ supported: false, registered: false }),
 			getState: async () => ({ supported: false, registered: false }),
 			setEnabled: async () => ({ supported: false, registered: false }),
 		},
@@ -1587,6 +1606,22 @@ export function createPreviewApi(): PiDesktopApi {
 			updateFromGithub: async () => ({ ok: false, code: "network", message: "preview stub" }),
 			restore: async () => ({ ok: true, updated: false }),
 			restorePrevious: async () => ({ ok: false, code: "no-backup", message: "preview stub" }),
+			openFile: async () => undefined,
+		},
+		// 快捷消息预览桩：预览模式没有真实配置文件（配置在 userData/quick-messages.json），
+		// 用固定夹具让弹框在预览/截图里可用，不假装能读写磁盘。
+		quickMessages: {
+			get: async () => ({
+				items: [...PREVIEW_QUICK_MESSAGES],
+				defaults: [...PREVIEW_QUICK_MESSAGES],
+				filePath: "(preview)",
+				seeded: false,
+				defaultsAvailable: false,
+			}),
+			save: async (items) => ({
+				ok: true as const,
+				snapshot: { items, defaults: [...PREVIEW_QUICK_MESSAGES], filePath: "(preview)", seeded: false, defaultsAvailable: false },
+			}),
 			openFile: async () => undefined,
 		},
 		automation: {
