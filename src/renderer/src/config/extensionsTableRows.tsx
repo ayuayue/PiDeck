@@ -1,4 +1,4 @@
-﻿import { Button } from "../components/ui-shadcn/button";
+import { Button } from "../components/ui-shadcn/button";
 import { TableCell, TableRow } from "../components/ui-shadcn/table";
 import { Copy, FolderOpen, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import type { PiExtensionSummary } from "../../../shared/types";
@@ -11,6 +11,7 @@ import { t, type TranslationKey } from "../i18n";
  */
 const BUILT_IN_EXTENSION_DESC: Record<string, TranslationKey> = {
 	"pi-deck-gui-bridge.ts": "config.builtInExtDesc.pi-deck-gui-bridge",
+	"pi-deck-ext-points.ts": "config.builtInExtDesc.pi-deck-ext-points",
 	"pi-deck-request-size-recovery.ts": "config.builtInExtDesc.pi-deck-request-size-recovery",
 	"pi-deck-ask-question.ts": "config.builtInExtDesc.pi-deck-ask-question",
 	"pi-deck-goal-mode.ts": "config.builtInExtDesc.pi-deck-goal-mode",
