@@ -2499,6 +2499,7 @@ export const zhCN = {
 	"config.builtInExtDesc.pi-deck-retry-no-body": "瞬态错误重试增强：识别网关空响应、中文「服务暂时不可用」、stream_read_error 等 pi 重试名单外的瞬态故障并改写，触发自动重试。",
 	"config.builtInExtDesc.pi-deck-security-gate": "安全门：按会话安全等级策略拦截工具调用——危险 bash 命令弹窗确认或直接拒绝；策略快照热更新，无需重启。",
 	"config.builtInExtDesc.pi-deck-gui-bridge": "GUI 扩展桥：把 pi 在 RPC 模式下被丢弃的声明式 UI 扩展点（顶部区/底部状态区/状态栏/输入框挂件/流式状态行/折叠思考块标签/会话标题/输入框本体）接回桌面端，并另供一套写法同形的 GUI 专属扩展点与 GUI 作画工厂。",
+	"config.builtInExtDesc.pi-deck-ext-points": "扩展点面板：在设置里列出 pi + PiDeck 的全部可挂载点，标好每条在桌面端会不会生效；勾选并写下用途后可生成一份交给 agent 的开发草稿。清单在运行时从 pi 的类型定义读取，没有构建期快照要同步。",
 	"config.builtInExtDesc.pi-deck-session-title": "会话标题生成：首轮结束后用独立最小上下文异步生成简短标题，不修改主对话与会话记录。",
 	"config.builtInExtDesc.pi-deck-subagents": "子代理状态桥接：订阅 pi-subagents / acp_delegate 委托链的生命周期事件，把各子代理的运行状态与结果快照推给桌面端子代理面板展示（本身不派发子代理）。",
 	"config.builtInExtDesc.pi-deck-todo": "待办计划管理：分支级持久化的当前工作计划，仅通过 list/add/update/delete/replace/restore/clear 显式工具变更，切换分支自动恢复对应计划。",

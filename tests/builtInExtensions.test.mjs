@@ -49,9 +49,10 @@ test("listActiveBuiltInExtensionPaths respects removedBuiltIn and missing files"
 		const paths = listActiveBuiltInExtensionPaths({ appPath: root, resourcesPath: root, isDev: true }, ["pi-deck-todo.ts"]);
 		assert.equal(paths.length, 1);
 		assert.ok(String(paths[0]).endsWith("pi-deck-ask-question.ts"));
-		// 内置扩展清单随版本增长：gui-bridge/ask/goal/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
-		assert.equal(BUILT_IN_EXTENSIONS.length, 13);
+		// 内置扩展清单随版本增长：gui-bridge/ext-points/ask/goal/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
+		assert.equal(BUILT_IN_EXTENSIONS.length, 14);
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-gui-bridge.ts"));
+		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-ext-points.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-goal-mode.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-session-title.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-trash-guard.ts"));
@@ -59,8 +60,9 @@ test("listActiveBuiltInExtensionPaths respects removedBuiltIn and missing files"
 		// 但它们必须仍在 extensions-manifest.json 里，否则热更新覆盖层会缺依赖。
 		assert.ok(!BUILT_IN_EXTENSIONS.includes("pi-deck-gui-bridge-types.ts"));
 		assert.ok(!BUILT_IN_EXTENSIONS.includes("pi-deck-gui-bridge-serialize.ts"));
-		// 桥排在最前：先加载才能保证后续扩展拿到已包装的 ctx.ui
+		// 顺序有语义：桥在最前（先包装 ctx.ui），扩展点面板紧随其后（要用桥挂出来的 ctx.gui）
 		assert.equal(BUILT_IN_EXTENSIONS[0], "pi-deck-gui-bridge.ts");
+		assert.equal(BUILT_IN_EXTENSIONS[1], "pi-deck-ext-points.ts");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

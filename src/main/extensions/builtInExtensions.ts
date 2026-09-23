@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
 
@@ -15,9 +15,11 @@ import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltI
  * 它负责在 `session_start` 里包装共享的 `ctx.ui`，把 RPC 下被丢弃的声明式
  * UI 扩展点接回 PiDeck。pi 按 `-e` 顺序加载扩展，桥先加载使时序无歧义。
  *
+ * `pi-deck-ext-points`（扩展点面板）紧随其后：它要用桥挂出来的 `ctx.gui`。
  */
 export const BUILT_IN_EXTENSIONS = [
 	"pi-deck-gui-bridge.ts",
+	"pi-deck-ext-points.ts",
 	"pi-deck-request-size-recovery.ts",
 	"pi-deck-ask-question.ts",
 	"pi-deck-goal-mode.ts",
