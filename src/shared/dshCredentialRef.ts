@@ -2,9 +2,9 @@
  * DSH provider API key credential reference derivation.
  *
  * Normal provider names use the same conventional spelling as dsh-web
- * (`<ROUTE>_API_KEY`). Legacy Pi configs can contain names outside the new
- * provider-name whitelist, so those routes receive a stable, valid, unique
- * PiDeck-owned reference instead of an invalid environment-variable name.
+ * (`<ROUTE>_API_KEY`). Names may also contain Unicode or other characters;
+ * those routes receive a stable, valid PiDeck-owned reference instead of an
+ * invalid environment-variable name.
  */
 
 const PROVIDER_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;

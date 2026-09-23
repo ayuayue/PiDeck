@@ -48,6 +48,9 @@ export type SessionPreferenceController = {
 	toggleHideModel: (provider: string, modelId: string) => Promise<void>;
 	/** 选择器选中：应用模型（含 busy 排队 / 需重启引导 / 降级写记录） */
 	applyModel: (model: AvailableModel) => Promise<void>;
+	/** 仅清除引导页 / 未启动草稿的预选，不向运行中 Agent 发送空模型。 */
+	canClearModel: boolean;
+	clearModel: () => Promise<void>;
 	/** 选择器选中：应用思考档位 */
 	applyThinking: (level: string) => Promise<void>;
 	/** 快捷键：收藏内环绕切换模型 */
@@ -270,6 +273,25 @@ export function useSessionPreferenceController(options: {
 		}
 	}
 
+	const canClearModel = (!record || record.status === "draft") && !runtime?.agentId;
+
+	async function clearModel() {
+		// 点击前再次检查实时绑定，防止选择器打开后 Agent 已启动。
+		if ((record && record.status !== "draft") || currentHandle()) return;
+		try {
+			if (record) {
+				const updated = await desktopApi.sessions.updateRecord(sessionId, { model: null });
+				state.upsertSession(updated);
+			} else {
+				localStorage.removeItem(isDshSession ? WELCOME_DSH_MODEL_KEY : WELCOME_MODEL_KEY);
+			}
+			state.setModelPending(undefined);
+			onApplied();
+		} catch (error) {
+			showNotice(error instanceof Error ? error.message : String(error), 4000);
+		}
+	}
+
 	async function applyThinking(level: string) {
 		// 引导页只有 renderer-only 虚拟会话，尚无 catalog record 可更新。先保存本次
 		// 显式选择，底栏关闭选择器后立即从同一偏好重绘；首次发送创建真实会话时再带入。
@@ -468,6 +490,8 @@ export function useSessionPreferenceController(options: {
 		toggleFavorite: state.toggleFavorite,
 		toggleHideModel: state.toggleHideModel,
 		applyModel: (model) => applyModelRef.current(model),
+		canClearModel,
+		clearModel,
 		applyThinking: (level) => applyThinkingRef.current(level),
 		cycleModel,
 		cycleThinking,

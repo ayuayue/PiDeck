@@ -1294,10 +1294,6 @@
   font-size: var(--font-size-control);
 }
 @media (max-width: 820px) {
-  .config-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-  }
   .config-sidebar {
     flex-direction: row;
     gap: var(--space-3);
@@ -1397,6 +1393,7 @@
 
 .config-layout {
   min-height: 0;
+  min-width: 0;
   flex: 1;
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr);
@@ -1684,10 +1681,51 @@
 
 .config-test-controls {
   flex: 1;
+  flex-wrap: wrap;
 }
 
 .config-test-controls input {
-  flex: 1;
+  flex: 1 1 150px;
+}
+
+/* 按内容区宽度响应：设置侧栏也会占宽，不能只看窗口断点。 */
+.config-provider-form {
+  min-width: 0;
+  container-type: inline-size;
+  container-name: provider-form;
+}
+
+.config-provider-field {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.config-provider-field > * {
+  min-width: 0;
+}
+
+.config-provider-field > .config-compat-group {
+  flex-wrap: wrap;
+}
+
+@container provider-form (max-width: 480px) {
+  .config-provider-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .config-provider-field > label {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .config-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
 }
 
 :root[data-theme="dark"] .search-box,

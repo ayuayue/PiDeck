@@ -7,8 +7,8 @@
 
  */
 
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GripVertical, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GripVertical, Plus, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
@@ -26,7 +26,8 @@ import { validateDshDeepseekModels, type DshDeepseekModelValidationFailure } fro
 import type { DshModelRow } from "./DshModelsTable";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { ConfirmDialog } from "../components/ui-shadcn/ConfirmDialog";
-import { isValidProviderName } from "../../../shared/providerName";
+import { AddDshProviderDialog } from "./AddDshProviderDialog";
+import { buildDshProviderFromDraft, type DshProviderDraft } from "./dshProviderDraft";
 import { applyProviderOrder } from "../utils/providerOrder";
 import { useProviderReorder } from "../hooks/useProviderReorder";
 
@@ -284,8 +285,8 @@ export function PiAiProvidersCard(props: {
 
 	const [draft, setDraft] = useState<Record<string, unknown>>({});
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-	const [newProviderKey, setNewProviderKey] = useState("");
 	const [addingProvider, setAddingProvider] = useState(false);
+	const [addPageDirty, setAddPageDirty] = useState(false);
 	/** 密钥草稿：providerKey → 输入的新密钥（保存时统一 credentials.set）。 */
 	const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
 	/**
@@ -300,7 +301,7 @@ export function PiAiProvidersCard(props: {
 	const [error, setError] = useState<string | null>(null);
 
 	/** 脏状态：settings 草稿、任一密钥草稿或待删除 provider 非空。 */
-	const dirty = Object.keys(draft).length > 0 || Object.values(keyDrafts).some((value) => value.trim()) || pendingRemovals.length > 0;
+	const dirty = Object.keys(draft).length > 0 || Object.values(keyDrafts).some((value) => value.trim()) || pendingRemovals.length > 0 || addPageDirty;
 	useEffect(() => {
 		sectionApi?.onDirtyChange(instanceId, dirty);
 		// 卸载时清掉本实例的脏来源，避免收起/切换后残留黄点
@@ -309,60 +310,78 @@ export function PiAiProvidersCard(props: {
 
 	/** 统一保存：先删待移除 provider（凭证 + 配置，对齐 dsh-web removeProviderProfile），
 	 *  再写密钥草稿、提交 settings patch。 */
-	const save = useCallback(async (): Promise<boolean> => {
-		if (!dirty) return true;
-		setSaving(true);
-		setError(null);
-		try {
-			// 删除顺序与 dsh-web 一致：先删凭证、再删 provider 配置——第二步失败时
-			// provider 行仍可见，整个操作可安全重试（两个 unset 都是幂等的）。
-			// 凭证仅当它是「页面管理的派生引用」时联动删除（dsh-web targetOf 语义：
-			// apiKeyEnv 恰好等于派生 ref 且已配置且可写）；显式配置的 apiKeyEnv
-			// 可能被其他 provider 复用，不删。删除配置走 settings.mutate unset，
-			// 因为 settings.update 是 merge，patch 删 key 不会让 host 删掉现有 provider。
-			if (pendingRemovals.length > 0) {
-				for (const key of pendingRemovals) {
-					const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
-					const meta = (currentProfile ?? {}) as Record<string, unknown>;
-					const managedRef = credentialRefFor(undefined, key);
-					const explicitRef = typeof meta.apiKeyEnv === "string" && meta.apiKeyEnv.trim() ? meta.apiKeyEnv.trim() : undefined;
-					const ref = explicitRef ?? managedRef;
-					const state = ops.credentials[ref];
-					if (ref === managedRef && state?.configured === true && state.writable) {
-						// 静默删凭证（不带 load）：本函数末尾 onSave→saveNamespace 已统一刷新一次，
-						// 若走 ops.unsetKey（内部自带 load）会触发第二次全页重渲染（删除保存闪两下）。
-						await desktopApi.sessions.unsetDshCredential(ref);
+	const save = useCallback(
+		async (addition?: DshProviderDraft): Promise<boolean> => {
+			if (!dirty && !addition) return true;
+			const added = addition ? buildDshProviderFromDraft(addition) : undefined;
+			const saveDraft = added ? { ...draft, providers: { ...(draft.providers && typeof draft.providers === "object" ? draft.providers : {}), [added.name]: added.profile } } : draft;
+			const saveKeys = added?.apiKey ? { ...keyDrafts, [added.name]: added.apiKey } : keyDrafts;
+			setSaving(true);
+			setError(null);
+			try {
+				// 删除顺序与 dsh-web 一致：先删凭证、再删 provider 配置——第二步失败时
+				// provider 行仍可见，整个操作可安全重试（两个 unset 都是幂等的）。
+				// 凭证仅当它是「页面管理的派生引用」时联动删除（dsh-web targetOf 语义：
+				// apiKeyEnv 恰好等于派生 ref 且已配置且可写）；显式配置的 apiKeyEnv
+				// 可能被其他 provider 复用，不删。删除配置走 settings.mutate unset，
+				// 因为 settings.update 是 merge，patch 删 key 不会让 host 删掉现有 provider。
+				if (pendingRemovals.length > 0) {
+					for (const key of pendingRemovals) {
+						const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
+						const meta = (currentProfile ?? {}) as Record<string, unknown>;
+						const managedRef = credentialRefFor(undefined, key);
+						const explicitRef = typeof meta.apiKeyEnv === "string" && meta.apiKeyEnv.trim() ? meta.apiKeyEnv.trim() : undefined;
+						const ref = explicitRef ?? managedRef;
+						const state = ops.credentials[ref];
+						if (ref === managedRef && state?.configured === true && state.writable) {
+							// 静默删凭证（不带 load）：本函数末尾 onSave→saveNamespace 已统一刷新一次，
+							// 若走 ops.unsetKey（内部自带 load）会触发第二次全页重渲染（删除保存闪两下）。
+							await desktopApi.sessions.unsetDshCredential(ref);
+						}
+						await desktopApi.sessions.mutateDshSettings(namespace.ns, [{ op: "unset", path: ["providers", key] }], namespace.revision);
 					}
-					await desktopApi.sessions.mutateDshSettings(namespace.ns, [{ op: "unset", path: ["providers", key] }], namespace.revision);
 				}
+				for (const [key, keyValue] of Object.entries(saveKeys)) {
+					const trimmed = keyValue.trim();
+					if (!trimmed) continue;
+					const draftProfile = (saveDraft.providers as Record<string, unknown> | undefined)?.[key];
+					const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
+					const meta = (draftProfile ?? currentProfile) as Record<string, unknown> | undefined;
+					const ref = credentialRefFor(meta, key);
+					// 同删除路径：静默写凭证，避免与末尾 onSave 的刷新叠加（保存闪两下）。
+					await desktopApi.sessions.setDshCredential(ref, trimmed);
+				}
+				await props.onSave(pruneEmptyObjects(saveDraft) as Record<string, unknown>);
+				setDraft({});
+				setKeyDrafts({});
+				setPendingRemovals([]);
+				if (added) {
+					setExpanded((previous) => ({ ...previous, [added.name]: true }));
+					setAddingProvider(false);
+					setAddPageDirty(false);
+				}
+				return true;
+			} catch (err) {
+				setError(err instanceof Error ? err.message : String(err));
+				return false;
+			} finally {
+				setSaving(false);
 			}
-			for (const [key, keyValue] of Object.entries(keyDrafts)) {
-				const trimmed = keyValue.trim();
-				if (!trimmed) continue;
-				const draftProfile = (draft.providers as Record<string, unknown> | undefined)?.[key];
-				const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
-				const meta = (draftProfile ?? currentProfile) as Record<string, unknown> | undefined;
-				const ref = credentialRefFor(meta, key);
-				// 同删除路径：静默写凭证，避免与末尾 onSave 的刷新叠加（保存闪两下）。
-				await desktopApi.sessions.setDshCredential(ref, trimmed);
-			}
-			await props.onSave(pruneEmptyObjects(draft) as Record<string, unknown>);
-			setDraft({});
-			setKeyDrafts({});
-			setPendingRemovals([]);
-			return true;
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-			return false;
-		} finally {
-			setSaving(false);
-		}
-	}, [dirty, keyDrafts, draft, pendingRemovals, namespace.ns, namespace.revision, namespace.value, ops, props]);
+		},
+		[dirty, keyDrafts, draft, pendingRemovals, namespace.ns, namespace.revision, namespace.value, ops.credentials, props.onSave],
+	);
+	const addPageSaveRef = useRef<(() => Promise<boolean>) | null>(null);
+	const registerAddPageSave = useCallback((save: (() => Promise<boolean>) | null) => {
+		addPageSaveRef.current = save;
+	}, []);
+	const saveRef = useRef(save);
+	saveRef.current = save;
 	useEffect(() => {
 		if (!sectionApi) return;
-		sectionApi.registerSave(instanceId, save);
+		// 注册项不随草稿/页切换反复删除插入，否则 saveAll 的 Map 迭代会再次保存同一项。
+		sectionApi.registerSave(instanceId, () => (addPageSaveRef.current ? addPageSaveRef.current() : saveRef.current()));
 		return () => sectionApi.unregisterSave(instanceId);
-	}, [sectionApi, instanceId, save]);
+	}, [sectionApi, instanceId]);
 
 	// 注意：下面的顺序计算 + 排序 hook 必须放在任何提前 return 之前——
 	// schema/字段未就绪时组件会早退，若 hook 落在早退之后，schema 异步到达时 hook 数量变化，React 直接报错。
@@ -397,14 +416,6 @@ export function PiAiProvidersCard(props: {
 	}
 	const inner = schema.refs[innerRefId];
 
-	/** 内置目录候选：未激活（尚未配置）且不在当前列表中的行；已配置的 provider 不重复推荐。
-	 *  注意 dsh-llm-pi-ai 的 declared 语义：内置 catalog 行 declared=false，
-	 *  用户自定义行 declared=true——候选不看 declared，只看 active。 */
-	const directoryCandidates = useMemo(() => {
-		const configured = new Set(entries.map((entry) => entry.key));
-		return (props.directory ?? []).filter((entry) => !entry.active && !configured.has(entry.provider)).sort((left, right) => left.displayName.localeCompare(right.displayName));
-	}, [props.directory, entries]);
-
 	/** 草稿覆盖读取：draft 优先，否则用现值（缺失草稿路径必须回退，不能吞已保存值）。 */
 	const entryValue = (key: string, path: string[]) => readDshEntryValue(draft, namespace.value, key, path);
 
@@ -427,36 +438,6 @@ export function PiAiProvidersCard(props: {
 			current[last] = next;
 		}
 		setDraft(nextDraft);
-	};
-
-	/** 添加 provider：优先从内置目录（llm.providers declared 行）带出 displayName/apiKeyEnv。 */
-	const addProvider = (directoryEntry?: { provider: string; displayName: string }) => {
-		const key = directoryEntry?.provider ?? newProviderKey.trim();
-		// DSH 兼容性：provider name 经 credentialRefFor 转成 <NAME>_API_KEY 环境变量名，
-		// 含特殊字符/空格/点号会生成非法环境变量名 → host 进程读不到密钥。
-		// 目录候选已预置合规名，仅校验自定义输入；非法时提示规则、不写入。
-		if (!key) return;
-		if (entries.some((entry) => entry.key === key)) return;
-		if (!isValidProviderName(key)) {
-			showNotice(t("config.providerNameRule"));
-			return;
-		}
-		setDraft((prev) => {
-			const next = structuredClone(prev) as Record<string, unknown>;
-			const providers = (next.providers ?? {}) as Record<string, unknown>;
-			const profile: Record<string, unknown> = {};
-			if (directoryEntry && directoryEntry.displayName && directoryEntry.displayName !== key) {
-				profile.displayName = directoryEntry.displayName;
-			}
-			// 内置目录带出派生密钥引用（dsh-web 同规则：profile 未声明 apiKeyEnv 时派生 <ROUTE>_API_KEY）
-			profile.apiKeyEnv = credentialRefFor(undefined, key);
-			providers[key] = profile;
-			next.providers = providers;
-			return next;
-		});
-		setExpanded((prev) => ({ ...prev, [key]: true }));
-		setNewProviderKey("");
-		setAddingProvider(false);
 	};
 
 	/** 点删除：先弹确认（与 Pi 管理页同款 ConfirmDialog，danger 样式）。 */
@@ -512,6 +493,10 @@ export function PiAiProvidersCard(props: {
 	const PROFILE_FIELD_ORDER = ["displayName", "baseURL", "baseUrl", "api"] as const;
 	const orderedProfileFields = [...PROFILE_FIELD_ORDER.map((name) => providerProfileFields.find((field) => field.name === name)).filter((field): field is NonNullable<typeof field> => Boolean(field)), ...providerProfileFields.filter((field) => !(PROFILE_FIELD_ORDER as readonly string[]).includes(field.name))];
 
+	if (addingProvider) {
+		return <AddDshProviderDialog existingNames={orderedKeys} directory={props.directory} settingsNs={namespace.ns} writable={writable} onRegisterSave={registerAddPageSave} onDirtyChange={setAddPageDirty} onConfirm={save} error={error} onBack={() => setAddingProvider(false)} />;
+	}
+
 	return (
 		<div className="flex min-w-0 flex-col">
 			<div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-4 py-2">
@@ -531,48 +516,10 @@ export function PiAiProvidersCard(props: {
 			</div>
 
 			<div className="grid gap-2 p-4">
-				{/* 添加 provider（对齐 dsh-web 的休眠目录选择 + 自定义输入）：目录行点击即带出 displayName/密钥引用 */}
-				<div className="flex flex-wrap items-center gap-2">
-					{addingProvider ? (
-						<>
-							<Input
-								className="h-7 w-56 font-mono"
-								placeholder={t("config.dsh.providerKeyPlaceholder")}
-								value={newProviderKey}
-								autoFocus
-								disabled={!writable}
-								onChange={(event) => setNewProviderKey(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter") addProvider();
-								}}
-							/>
-							<Button type="button" variant="default" size="sm" className="h-7" disabled={!isValidProviderName(newProviderKey)} onClick={() => addProvider()}>
-								{t("common.confirm")}
-							</Button>
-							<Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={() => setAddingProvider(false)}>
-								<X className="size-3.5" aria-hidden="true" />
-							</Button>
-							{newProviderKey.trim() && !isValidProviderName(newProviderKey) ? <p className="text-micro text-destructive">{t("config.providerNameRule")}</p> : null}
-						</>
-					) : (
-						<Button type="button" variant="secondary" size="sm" className="h-7" disabled={!writable} onClick={() => setAddingProvider(true)}>
-							<Plus className="size-3.5" aria-hidden="true" />
-							{t("config.dsh.addProvider")}
-						</Button>
-					)}
-					{/* 内置目录候选（declared 未激活行；与 dsh-web 的休眠目录同一数据源） */}
-					{directoryCandidates.length > 0 && (
-						<div className="flex flex-wrap items-center gap-1.5">
-							<span className="text-micro text-muted-foreground">{t("config.dsh.directoryLabel")}</span>
-							{directoryCandidates.map((entry) => (
-								<Button key={entry.provider} type="button" variant="outline" size="sm" className="h-7 gap-1 font-mono" disabled={!writable} onClick={() => addProvider(entry)}>
-									<Plus className="size-3" aria-hidden="true" />
-									{entry.displayName !== entry.provider ? `${entry.displayName} (${entry.provider})` : entry.provider}
-								</Button>
-							))}
-						</div>
-					)}
-				</div>
+				<Button type="button" variant="secondary" size="sm" className="h-7 justify-self-start" disabled={!writable} onClick={() => setAddingProvider(true)}>
+					<Plus className="size-3.5" aria-hidden="true" />
+					{t("config.dsh.addProvider")}
+				</Button>
 
 				{/* 排序说明：顺序是 PiDeck 本地偏好（AppSettings.dshProviderOrder），不写回 DSH 配置文件 */}
 				{orderedKeys.length > 1 && (

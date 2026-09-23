@@ -6,7 +6,8 @@ import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { t, type TranslationKey } from "../i18n";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui-shadcn/tooltip";
-import { ApiTypeInput, ConfigComboboxInput, ConfigSelect, SecretInput } from "./ConfigShared";
+import { ConfigComboboxInput, ConfigSelect } from "./ConfigShared";
+import { ProviderEndpointFields } from "./ProviderEndpointFields";
 import { getUserAgentOptions, isUserAgentOverriddenByApiType, isValidUserAgent } from "./userAgentPresets";
 import type { ConfigProxyMode } from "../../../shared/types/fetchedModel";
 
@@ -114,27 +115,8 @@ export function ProviderConnectionForm(props: {
 
 	return (
 		<div className="config-provider-form grid gap-2.5">
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.baseUrl")}</Label>
-				<div className="config-base-url-field">
-					<Input
-						value={props.baseUrl}
-						className="h-8 min-w-0 rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
-						onChange={(e) => props.onChangeBaseUrl(e.target.value)}
-						placeholder="https://api.openai.com/v1"
-					/>
-					<span className="mt-1 block text-[11px] leading-relaxed text-text-tertiary">{t("config.baseUrlHint")}</span>
-				</div>
-			</div>
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.apiType")}</Label>
-				<ApiTypeInput value={props.api} onChange={props.onChangeApi} />
-			</div>
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
-				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.apiKey")}</Label>
-				<SecretInput value={props.apiKey} onChange={props.onChangeApiKey} />
-			</div>
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
+			<ProviderEndpointFields baseUrl={props.baseUrl} api={props.api} apiKey={props.apiKey} onChangeBaseUrl={props.onChangeBaseUrl} onChangeApi={props.onChangeApi} onChangeApiKey={props.onChangeApiKey} />
+			<div className="config-provider-field items-center">
 				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.userAgent")}</Label>
 				<div className="config-header-field">
 					<ConfigComboboxInput value={props.userAgent} options={userAgentOptions} onChange={props.onChangeUserAgent} placeholder={t("config.userAgentRuntimeDefault")} />
@@ -152,7 +134,7 @@ export function ProviderConnectionForm(props: {
 			</div>
 
 			{/* 快速测试连接 */}
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
+			<div className="config-provider-field items-center">
 				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testModel")}</Label>
 				<div className="config-test-controls">
 					<Input
@@ -169,7 +151,7 @@ export function ProviderConnectionForm(props: {
 
 			{/* 测试/拉取模型的代理选择：需要代理才能访问的供应商（海外网关等）不用改全局代理开关。
 			    刻意不渲染右侧代理说明小字：选项文案已自解释，保持界面干净。 */}
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
+			<div className="config-provider-field items-center">
 				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.testProxy")}</Label>
 				<ConfigSelect
 					value={props.testProxyMode}
@@ -246,7 +228,7 @@ export function ProviderConnectionForm(props: {
 			)}
 
 			{/* 兼容性勾选 */}
-			<div className="grid grid-cols-[90px_1fr] items-center gap-2.5">
+			<div className="config-provider-field items-center">
 				<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.compatibility")}</Label>
 				<div className="config-compat-group">
 					<div className="config-compat-item">

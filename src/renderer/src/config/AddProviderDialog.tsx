@@ -295,7 +295,7 @@ export function AddProviderDialog(props: {
 	}, [props.onRequestSave, submit]);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col">
+		<div className="provider-add-page flex h-full min-h-0 min-w-0 flex-col">
 			{/* 页面头部：返回按钮 + 标题（对齐设置界面头部形态） */}
 			<div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-4 py-2.5">
 				<Button type="button" variant="ghost" size="icon-sm" className="size-7 shrink-0 text-muted-foreground hover:text-foreground" onClick={props.onBack} title={t("common.back")} aria-label={t("common.back")}>
@@ -305,13 +305,14 @@ export function AddProviderDialog(props: {
 			</div>
 
 			{/* 内容区：配置字段 + 获取模型 + 模型列表（可滚动） */}
-			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-				<div className="config-provider-form grid gap-2.5">
-					<div className="grid grid-cols-[90px_1fr] items-start gap-2.5">
+			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4">
+				<div className="config-provider-form grid min-w-0 gap-2.5">
+					<div className="config-provider-field items-start">
 						<Label className="pl-0.5 pt-1.5 text-left text-xs font-medium text-text-secondary">{t("config.addProviderName")}</Label>
 						<div className="flex min-w-0 flex-col gap-1">
 							<Input
 								value={name}
+								aria-label={t("config.addProviderName")}
 								className="h-8 min-w-0 rounded-sm border border-border-subtle bg-bg-panel px-3 font-mono text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 								placeholder={t("config.providerNamePlaceholder")}
 								autoFocus
@@ -351,7 +352,7 @@ export function AddProviderDialog(props: {
 
 				{/* ── 模型配置区：获取 /models + 勾选保存 + 已配置列表（新增/编辑共用） ── */}
 				<div className="mt-4 border-t border-border-subtle pt-3">
-					<div className="mb-2 flex items-center justify-between gap-2">
+					<div className="mb-2 flex flex-wrap items-center justify-between gap-2">
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
 							<span className="text-xs font-semibold text-text-primary">{t("config.modelList")}</span>
 							{modelBatchMode && (

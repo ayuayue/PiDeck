@@ -222,73 +222,78 @@ export const DshConfigTab = forwardRef<
 		return ok;
 	}, [props.onDirtyChange, registrySaveAll]);
 
-	const load = useCallback(async () => {
-		setLoading(true);
-		try {
-			// runtime 未安装时 host 起不来，describe 必然失败：跳过配置加载，
-			// 概览页由 DshRuntimeSection 展示安装引导；装好后 status-changed 触发重载。
-			if (!runtimeInstalled) {
-				setNamespaces([]);
-				setWritable(false);
-				setHasDocument(false);
-				setModelCatalog({});
-				setProviderDirectory([]);
-				setError(null);
-				return [];
-			}
-			const settingsResult = await desktopApi.sessions.describeDshSettings();
-			setNamespaces(settingsResult.namespaces);
-			setWritable(settingsResult.writable);
-			setHasDocument(settingsResult.hasDocument);
-			const refs = new Set<string>();
-			for (const ns of settingsResult.namespaces) {
-				const schema = normalizeDshSchema(ns.schema);
-				// 同时收集 schema 静态 default 与 value 动态值（llm-pi-ai providers 的 env 名只存在 value 里）
-				if (schema) collectCredentialRefsWithValue(schema, schema.refs[schema.uid], ns.value, refs);
-				// 模型命名空间补派生 ref（对齐 dsh-web：未显式 apiKeyEnv 时按 <ROUTE>_API_KEY 派生），
-				// 否则行头/认证页会漏掉只有派生名的 provider（如 llm-pi-ai 未写 apiKeyEnv 的配置）
-				if (ns.ns === "llm-deepseek") {
-					refs.add(credentialRefFor((ns.value ?? {}) as Record<string, unknown>, "deepseek"));
-				} else if (ns.ns === "llm-pi-ai") {
-					const providers = (ns.value as { providers?: Record<string, unknown> } | undefined)?.providers ?? {};
-					for (const [key, provider] of Object.entries(providers)) {
-						refs.add(credentialRefFor((provider ?? {}) as Record<string, unknown>, key));
+	const load = useCallback(
+		async (background = false) => {
+			// 保存刷新不能卸载表单，否则冲突重试/校验失败会丢掉尚未提交的草稿。
+			if (!background) setLoading(true);
+			try {
+				// runtime 未安装时 host 起不来，describe 必然失败：跳过配置加载，
+				// 概览页由 DshRuntimeSection 展示安装引导；装好后 status-changed 触发重载。
+				if (!runtimeInstalled) {
+					setNamespaces([]);
+					setWritable(false);
+					setHasDocument(false);
+					setModelCatalog({});
+					setProviderDirectory([]);
+					setError(null);
+					return [];
+				}
+				const settingsResult = await desktopApi.sessions.describeDshSettings();
+				setNamespaces(settingsResult.namespaces);
+				setWritable(settingsResult.writable);
+				setHasDocument(settingsResult.hasDocument);
+				const refs = new Set<string>();
+				for (const ns of settingsResult.namespaces) {
+					const schema = normalizeDshSchema(ns.schema);
+					// 同时收集 schema 静态 default 与 value 动态值（llm-pi-ai providers 的 env 名只存在 value 里）
+					if (schema) collectCredentialRefsWithValue(schema, schema.refs[schema.uid], ns.value, refs);
+					// 模型命名空间补派生 ref（对齐 dsh-web：未显式 apiKeyEnv 时按 <ROUTE>_API_KEY 派生），
+					// 否则行头/认证页会漏掉只有派生名的 provider（如 llm-pi-ai 未写 apiKeyEnv 的配置）
+					if (ns.ns === "llm-deepseek") {
+						refs.add(credentialRefFor((ns.value ?? {}) as Record<string, unknown>, "deepseek"));
+					} else if (ns.ns === "llm-pi-ai") {
+						const providers = (ns.value as { providers?: Record<string, unknown> } | undefined)?.providers ?? {};
+						for (const [key, provider] of Object.entries(providers)) {
+							refs.add(credentialRefFor((provider ?? {}) as Record<string, unknown>, key));
+						}
 					}
 				}
-			}
-			setCredentialRefs([...refs]);
-			// host 级模型目录：模型 tab 行头显示生效模型数、未自定义时展示内置目录（dsh-web 继承模型行）
-			try {
-				const models = await desktopApi.sessions.listDshModels();
-				const byProvider: Record<string, Array<{ id: string; name?: string }>> = {};
-				for (const model of models) {
-					const group = (byProvider[model.provider] ??= []);
-					group.push({ id: model.id, ...(typeof model.name === "string" && model.name ? { name: model.name } : {}) });
+				setCredentialRefs([...refs]);
+				// host 级模型目录：模型 tab 行头显示生效模型数、未自定义时展示内置目录（dsh-web 继承模型行）
+				try {
+					const models = await desktopApi.sessions.listDshModels();
+					const byProvider: Record<string, Array<{ id: string; name?: string }>> = {};
+					for (const model of models) {
+						const group = (byProvider[model.provider] ??= []);
+						group.push({ id: model.id, ...(typeof model.name === "string" && model.name ? { name: model.name } : {}) });
+					}
+					setModelCatalog(byProvider);
+				} catch {
+					setModelCatalog({});
 				}
-				setModelCatalog(byProvider);
-			} catch {
-				setModelCatalog({});
+				// 可配置提供方目录：模型页「添加 provider」的内置候选（失败不阻塞页面）
+				try {
+					const directory = await desktopApi.sessions.listDshProviders();
+					setProviderDirectory(directory);
+				} catch {
+					setProviderDirectory([]);
+				}
+				setError(null);
+				// 返回本次拉到的 namespace 列表（saveNamespace 冲突重试要用最新 revision）
+				return settingsResult.namespaces;
+			} catch (err) {
+				if (background) throw err;
+				setError(err instanceof Error ? err.message : String(err));
+				// describe 失败说明 host boot 刚失败：同步刷新一次状态，让 bootError 详情
+				// （getStatus().bootError）尽早到位，错误 banner 能展示真实原因而不是只有笼统 IPC 消息。
+				void loadStatus();
+				return undefined;
+			} finally {
+				if (!background) setLoading(false);
 			}
-			// 可配置提供方目录：模型页「添加 provider」的内置候选（失败不阻塞页面）
-			try {
-				const directory = await desktopApi.sessions.listDshProviders();
-				setProviderDirectory(directory);
-			} catch {
-				setProviderDirectory([]);
-			}
-			setError(null);
-			// 返回本次拉到的 namespace 列表（saveNamespace 冲突重试要用最新 revision）
-			return settingsResult.namespaces;
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-			// describe 失败说明 host boot 刚失败：同步刷新一次状态，让 bootError 详情
-			// （getStatus().bootError）尽早到位，错误 banner 能展示真实原因而不是只有笼统 IPC 消息。
-			void loadStatus();
-			return undefined;
-		} finally {
-			setLoading(false);
-		}
-	}, [runtimeInstalled]);
+		},
+		[runtimeInstalled],
+	);
 
 	// 句柄依赖 load（声明在其后）：reload 供外部直写 settings 后刷新（如 TokenDance 一键安装）。
 	useImperativeHandle(
@@ -397,12 +402,12 @@ export const DshConfigTab = forwardRef<
 				// 其它错误（schema 拒绝等）原样上抛，由子卡片展示错误并保留草稿。
 				const isConflict = error instanceof Error && (error.message.includes("SETTINGS_CONFLICT") || error.message.includes("changed since it was read"));
 				if (!isConflict) throw error;
-				const fresh = await load();
+				const fresh = await load(true);
 				const freshView = fresh?.find((item) => item.ns === ns);
 				await desktopApi.sessions.updateDshSettings(ns, patch, freshView?.revision);
 			}
-			// 保存后刷新（revision / 脱敏值更新）
-			await load();
+			// 保存后刷新（revision / 脱敏值更新），保持页内表单挂载。
+			await load(true);
 		},
 		[namespaces, load],
 	);

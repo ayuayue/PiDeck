@@ -734,6 +734,8 @@ export function ModelPicker(props: {
 	current?: { provider?: string; modelId?: string; modelName?: string };
 	onClose: () => void;
 	onPick: (model: AvailableModel) => void;
+	/** 仅引导页和未启动草稿可恢复默认模型解析。 */
+	onClear?: () => void;
 	/** 收藏的模型 ID 列表（格式：provider/modelId），收藏的模型独立置顶显示但仍保留在原供应商分组 */
 	favoriteModels?: string[];
 	/** 切换收藏状态；引导页不提供收藏操作，因此允许省略。 */
@@ -884,11 +886,18 @@ export function ModelPicker(props: {
 			filter={modelPickerSearchFilter}
 			// 手动刷新入口：标题栏右上角，任何情况下（含加载失败）都能重新拉取模型列表。
 			headerAction={
-				props.onRefresh ? (
-					<Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" aria-label={t("app.modelPickerRefresh")} title={props.refreshing ? t("app.modelPickerRefreshing") : t("app.modelPickerRefresh")} onClick={props.onRefresh} disabled={props.refreshing}>
-						<RefreshCw size={14} className={props.refreshing ? "animate-pideck-spin" : ""} aria-hidden="true" />
-					</Button>
-				) : undefined
+				<>
+					{props.onClear && (
+						<Button variant="ghost" size="sm" className="h-7 text-caption" onClick={props.onClear} title={t("app.modelClearSelectionHint")}>
+							{t("app.modelClearSelection")}
+						</Button>
+					)}
+					{props.onRefresh && (
+						<Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" aria-label={t("app.modelPickerRefresh")} title={props.refreshing ? t("app.modelPickerRefreshing") : t("app.modelPickerRefresh")} onClick={props.onRefresh} disabled={props.refreshing}>
+							<RefreshCw size={14} className={props.refreshing ? "animate-pideck-spin" : ""} aria-hidden="true" />
+						</Button>
+					)}
+				</>
 			}
 		>
 			{bodyState === "loading" ? (

@@ -62,6 +62,7 @@ export function ComposerPickerHost(props: ComposerPickerHostProps) {
 				current={preference.currentModel}
 				onClose={props.onClose}
 				onPick={(model) => void preference.applyModel(model)}
+				onClear={preference.canClearModel ? () => void preference.clearModel() : undefined}
 				favoriteModels={preference.favoriteModels}
 				onToggleFavorite={(provider, modelId) => void preference.toggleFavorite(provider, modelId)}
 				recentProviders={preference.recentProviders}
