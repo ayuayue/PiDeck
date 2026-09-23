@@ -20,6 +20,7 @@ import { ComposerWidgetLayoutProvider, type ComposerWidgetCollapsedByKey, useCom
 import type { GitBranchInfo } from "../../../../shared/types";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { VoiceTranscriptionControls } from "./VoiceTranscriptionControls";
+import { BridgeGuiSlot, BridgeStatusBar, BridgeWidgetSlot } from "../bridge/BridgeSlot";
 
 export type ComposerAreaProps = {
 	sessionId: string;
@@ -56,6 +57,12 @@ type ComposerExtrasProps = {
 	composerBox: ReactNode;
 	/** 输入卡正下方 StatsLine；与输入卡同一列，不吃剩余高度。 */
 	statsLine?: ReactNode;
+	/** GUI 扩展桥：输入框上方挂件（aboveEditor）。 */
+	bridgeWidgetsAbove?: ReactNode;
+	/** GUI 扩展桥：输入框下方挂件（belowEditor）。 */
+	bridgeWidgetsBelow?: ReactNode;
+	/** GUI 扩展桥：状态栏条目。 */
+	bridgeStatusBar?: ReactNode;
 };
 
 /**
@@ -77,6 +84,8 @@ function ComposerMeasuredExtras(props: ComposerExtrasProps) {
 				    ProgressGlyph 注释），gutter 治不了，还会把卡片压窄 10px。 */}
 				<div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain pb-px empty:hidden">
 					{props.widgets}
+					{/* GUI 扩展桥：输入框上方挂件（aboveEditor）。无内容时该组件返回 null，不占位。 */}
+					{props.bridgeWidgetsAbove}
 					{props.queuePanel}
 					{props.deliveryNotice}
 				</div>
@@ -84,6 +93,9 @@ function ComposerMeasuredExtras(props: ComposerExtrasProps) {
 				<div className="flex w-full min-w-0 shrink-0 flex-col">
 					{props.composerBox}
 					{props.statsLine}
+					{/* GUI 扩展桥：状态栏条目 + 输入框下方挂件（belowEditor）。无内容时都不占位。 */}
+					{props.bridgeStatusBar}
+					{props.bridgeWidgetsBelow}
 				</div>
 			</>
 		</ComposerWidgetLayoutProvider>
@@ -136,6 +148,10 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 								) : null
 							}
 							statsLine={<ComposerStatsLine state={composer.runtime?.state} turnCount={props.turnCount} />}
+							// GUI 扩展桥的四个落点：全部「无内容不占位」（组件内部返回 null）
+							bridgeWidgetsAbove={<BridgeWidgetSlot sessionId={props.sessionId} placement="aboveEditor" />}
+							bridgeWidgetsBelow={<BridgeWidgetSlot sessionId={props.sessionId} placement="belowEditor" />}
+							bridgeStatusBar={<BridgeStatusBar sessionId={props.sessionId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 pt-1" />}
 							composerBox={
 								<div
 									// overflow-visible：保留命令面板/建议浮层；面板 minSize 已保证底栏不被裁切
@@ -252,6 +268,10 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										}
 										sendControls={<ComposerSendControls isAgentBusy={composer.isBusy} isAgentStarting={composer.isStarting} hasContent={composer.hasContent} canSend={composer.delivery.canSend} isGeneratingImage={composer.delivery.generatingImage} onSend={composer.delivery.send} onStop={composer.delivery.abort} />}
 									/>
+									{/* GUI 扩展桥：输入框工具栏落点（ctx.gui.setComposerToolbar）。
+									    **旁插**在底栏之后、输入卡之内 —— 不改 ComposerBottomBar 的既有 props 契约（§7.4 只追加）。
+									    无贡献时返回 null，不占位。 */}
+									<BridgeGuiSlot sessionId={props.sessionId} slot="composer.toolbar" className="flex flex-wrap items-center gap-1 px-2 pb-1" />
 								</div>
 							}
 						/>

@@ -23,6 +23,7 @@ import { Dock, DockItem } from "../motion/dock";
 import { UpdateDotHint } from "./UpdateDotHint";
 import { AnnouncementCenter } from "./AnnouncementCenter";
 import { AutomationDockButton } from "../automation/AutomationDockButton";
+import { BridgeGuiSlot } from "../bridge/BridgeSlot";
 import { MorphingSearch, type MorphingSearchItem } from "../motion/morphing-search";
 import { parseSidebarNavTab } from "../../utils/sidebarNavTab";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
@@ -354,6 +355,12 @@ export function SidebarContent(props: SidebarContentProps) {
             scrollbar-gutter: stable：滚动条出现/消失时列表宽度不跳变（与抽屉一致）。 */}
 				<section className="conversation-list min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 					<ProjectTree controller={controller} actions={actions} currentProjectId={currentRootProject?.id} currentSessionId={props.currentSessionId} worktreesByProject={props.worktreesByProject} branchByProject={props.branchByProject} removingWorktreePaths={props.removingWorktreePaths} />
+					{/* GUI 扩展桥：侧边栏面板/分区落点（ctx.gui.setSidebarPanel / setSidebarSection）。
+					    **旁插**在 ProjectTree 之后 —— 不改侧边栏原有结构（§7.4 只追加）。
+					    侧边栏是应用级 chrome，桥状态按「当前聚焦会话」取（桥的运行时状态本就是按
+					    runtimeGeneration 存的，detach 即清）；无贡献时返回 null，不占位。 */}
+					<BridgeGuiSlot sessionId={props.currentSessionId} slot="sidebar.panel" className="flex flex-col gap-2 px-2 py-2" />
+					<BridgeGuiSlot sessionId={props.currentSessionId} slot="sidebar.section" className="flex flex-col gap-2 px-2 py-2" />
 				</section>
 			</div>
 			{/* 底栏 dock（beUI Dock）：设置/公告/反馈/主题切换收进浮动卡片，铺满底栏宽度

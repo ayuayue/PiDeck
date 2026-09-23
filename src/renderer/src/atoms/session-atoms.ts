@@ -7,6 +7,7 @@ import { findLastUserMessageIndex, shouldRefreshOutlineForRuntimeUpsert } from "
 import { releaseSessionOutlineProjection } from "./outlineProjectionCache";
 import { sameProjectSessionList } from "../utils/sessionRecordIdentity";
 import { resolveStreamingTextUpdate, shouldHoldLiveText, shouldReleaseHeldLiveText } from "../utils/liveTextHandoff";
+import type { BridgeOverlayOptions, BridgeUINode, BridgeUpdate } from "../../../shared/types/bridge";
 
 /**
  * 渲染层会话消息缓存上限（LRU）。
@@ -118,6 +119,25 @@ export type SessionRuntimeUiState = {
 	runtimeGeneration: number;
 	requests: Record<string, SessionRuntimeUiRequestState>;
 	widgets: Record<string, string[]>;
+	/**
+	 * GUI 扩展桥的落点树（§8.2 A 组）。
+	 *
+	 * 键是落点 id（`header` / `footer` / `editor` / `widget:<key>` / `gui:<slot>:<key>`），
+	 * 值是桥推来的 UINode 树（null 表示该落点无内容 → 渲染层不占位）。
+	 * 与 `widgets` 分开存放：`widgets` 是 pi 原生的字符串行 widget（保持原路，§14.4），
+	 * 这里是桥接管的组件树，两者互不干扰。
+	 */
+	bridgeTargets?: Record<string, BridgeUINode | null>;
+	/** 桥的状态栏条目（多 key 共存）。 */
+	bridgeStatus?: Record<string, string>;
+	/** 桥的流式状态行（setWorkingMessage / setWorkingVisible / setWorkingIndicator）。 */
+	bridgeWorking?: { message?: string; visible?: boolean; frames?: string[] };
+	/** 桥的会话标题（setTitle）。 */
+	bridgeTitle?: string;
+	/** 桥的折叠思考块标签（setHiddenThinkingLabel）。 */
+	bridgeThinkingLabel?: string;
+	/** 桥的覆盖层（ctx.gui.custom 的 overlay / modal）。 */
+	bridgeOverlays?: Record<string, { node: BridgeUINode; options?: BridgeOverlayOptions }>;
 	notification?: {
 		requestId: string;
 		message: string;
@@ -380,6 +400,14 @@ export const currentSessionRuntimeUiAtom = atom((get) => {
 	const sessionId = get(currentSessionIdAtom);
 	return sessionId ? get(sessionRuntimeUiByIdAtom)[sessionId] : undefined;
 });
+
+/**
+ * 按会话取 GUI 扩展桥的落点树（§8.2 A 组）。
+ *
+ * atomFamily 而非「当前会话」全局原子：分屏/多栏挂载时每栏只订自己的
+ * sessionId，一栏的桥更新不会拖垮另一栏重渲染（AGENTS.md「多实例必须按 session 订阅」）。
+ */
+export const sessionBridgeUiFamily = atomFamily((sessionId: string) => atom((get) => get(sessionRuntimeUiByIdAtom)[sessionId]?.bridgeTargets));
 
 export const currentSessionMessagesAtom = atom((get) => {
 	const sessionId = get(currentSessionIdAtom);
@@ -946,8 +974,78 @@ function tryReleaseLiveThinkingAfterHistory(get: Getter, set: Setter, sessionId:
 	disposeStreamingThinkingFamily(liveId);
 }
 
-function applySessionRuntimeUiEvent(current: SessionRuntimeUiState | undefined, event: SessionRuntimeEvent, payload: Record<string, unknown>, bindingChanged: boolean): SessionRuntimeUiState | undefined {
-	const base =
+/**
+ * 应用一帧 GUI 扩展桥更新（§8.2 A 组）。
+ *
+ * 纯函数：入参 base 与 payload，返回新 state。桥的每种更新只动自己那个字段，
+ * 其余字段原样保留 —— 保证「只追加」（§7.4）在渲染层也成立。
+ *
+ * 未知 `update.type` 一律忽略（前向兼容：桥升级后推的新类型不会让旧 PiDeck 崩）。
+ */
+function applyBridgeUpdate(base: SessionRuntimeUiState, payload: Record<string, unknown>, revision: number): SessionRuntimeUiState {
+	const update = payload.bridgeUpdate as BridgeUpdate | undefined;
+	if (!update || typeof update !== "object" || typeof update.type !== "string") return { ...base, revision };
+
+	switch (update.type) {
+		case "ui-update": {
+			const targetId = typeof update.targetId === "string" ? update.targetId : "";
+			if (!targetId) return { ...base, revision };
+			const targets = { ...(base.bridgeTargets ?? {}) };
+			if (update.node === null || update.node === undefined) {
+				// 落点无内容 → 删键（渲染层据此「不占位」，§8.4 C）
+				delete targets[targetId];
+			} else {
+				targets[targetId] = update.node;
+			}
+			return { ...base, revision, bridgeTargets: targets };
+		}
+		case "status": {
+			const key = typeof update.key === "string" ? update.key : "";
+			if (!key) return { ...base, revision };
+			const status = { ...(base.bridgeStatus ?? {}) };
+			if (update.text === undefined || update.text === null) delete status[key];
+			else status[key] = String(update.text);
+			return { ...base, revision, bridgeStatus: status };
+		}
+		case "working": {
+			// 字段是「可选增量」语义：只覆盖本次带来的字段，未带的保持原值
+			const next = { ...(base.bridgeWorking ?? {}) };
+			if ("message" in update) next.message = update.message;
+			if ("visible" in update) next.visible = update.visible;
+			if ("frames" in update) next.frames = update.frames;
+			return { ...base, revision, bridgeWorking: next };
+		}
+		case "title":
+			return { ...base, revision, bridgeTitle: typeof update.title === "string" ? update.title : undefined };
+		case "thinking-label":
+			return { ...base, revision, bridgeThinkingLabel: typeof update.label === "string" ? update.label : undefined };
+		case "overlay": {
+			const elementId = typeof update.elementId === "string" ? update.elementId : "";
+			if (!elementId) return { ...base, revision };
+			const overlays = { ...(base.bridgeOverlays ?? {}) };
+			if (update.node === null || update.node === undefined) delete overlays[elementId];
+			else overlays[elementId] = { node: update.node, options: update.options };
+			return { ...base, revision, bridgeOverlays: overlays };
+		}
+		case "overlay-update": {
+			const elementId = typeof update.elementId === "string" ? update.elementId : "";
+			if (!elementId || !update.node) return { ...base, revision };
+			const overlays = { ...(base.bridgeOverlays ?? {}) };
+			const existing = overlays[elementId];
+			overlays[elementId] = { node: update.node, options: existing?.options };
+			return { ...base, revision, bridgeOverlays: overlays };
+		}
+		case "resync": {
+			// 全量重推：桥随后会把每个落点逐条发来；这里只记一次 revision。
+			// 不清空现有内容 —— 清空会让 UI 闪一下，而重推本身会覆盖。
+			return { ...base, revision };
+		}
+		default:
+			return { ...base, revision };
+	}
+}
+
+function applySessionRuntimeUiEvent(current: SessionRuntimeUiState | undefined, event: SessionRuntimeEvent, payload: Record<string, unknown>, bindingChanged: boolean): SessionRuntimeUiState | undefined {	const base =
 		!current || bindingChanged || current.agentId !== event.agentId || current.runtimeGeneration !== event.runtimeGeneration
 			? {
 					agentId: event.agentId,
@@ -1017,6 +1115,10 @@ function applySessionRuntimeUiEvent(current: SessionRuntimeUiState | undefined, 
 		if (request.widgetLines?.length) widgets[widgetKey] = request.widgetLines;
 		else delete widgets[widgetKey];
 		return { ...base, revision, widgets };
+	}
+	// GUI 扩展桥：一帧 UI 更新 → 写进 bridgeTargets / bridgeStatus / …（§8.2 A 组）
+	if (request.method === "bridge:update") {
+		return applyBridgeUpdate(base, payload, revision);
 	}
 	if (!["select", "confirm", "input", "editor", "batch_ask"].includes(request.method)) {
 		return { ...base, revision };
