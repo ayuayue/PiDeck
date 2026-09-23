@@ -73,6 +73,13 @@ type PiProcessOptions = {
 	 */
 	proxyOverride?: SessionProxyMode;
 	/**
+	 * GUI 扩展桥的环境变量（`PIDECK_BRIDGE_URL` / `PIDECK_BRIDGE_TOKEN` / `PIDECK_BRIDGE_PI_PATH`）。
+	 *
+	 * 由 AgentManager 在 spawn 前从 BridgeServer 取（每 agent 一份 token）。
+	 * 缺省表示端点不可用 —— 桥会静默不工作，pi 行为不变（§14.5）。
+	 */
+	bridgeEnv?: Record<string, string>;
+	/**
 	 * spawn pi 前对会话文件的预检/修复回调（如剔除旧版 PiDeck 私有 sessionName 头行，
 	 * 该行会让 pi 报 "Session file is not a valid pi session" 并 exit 1）。
 	 * 返回是否发生修复；抛错或未注入都不阻塞启动（pi 自身的加载错误更接近事实，留日志即可）。
@@ -662,6 +669,21 @@ export class PiProcess extends EventEmitter {
 			// 飞书绑定会话：ask_question 换成禁用提示版（扩展读取此标记，纯标志位无需路径转换）
 			if (this.options.feishuLinked) {
 				env.PIDECK_FEISHU_LINKED = "1";
+			}
+			// GUI 扩展桥：注入本机端点 URL + 每次 spawn 独享的 token，
+			// 以及 pi 自身的安装路径（桥据此定位与 pi 同实例的 pi-tui，见 pi-deck-gui-bridge-tui.ts）。
+			// 端点不可用时 bridgeEnv 为空 → 不注入 → 桥静默不工作，pi 行为不变。
+			if (this.options.bridgeEnv) {
+				for (const [key, value] of Object.entries(this.options.bridgeEnv)) {
+					if (value) env[key] = value;
+				}
+				// pi 安装路径：桥的 pi-tui 加载器用它做**最可靠**的解析锚点
+				// （没有它也能靠 process.argv 兜底，但显式注入更确定）。
+				// WSL 下 command 是 `wsl://...` 而非 Windows 路径，桥在 distro 内用不到
+				// 宿主路径，故跳过 —— 由 argv 兜底。
+				if (!command.startsWith("wsl://")) {
+					env.PIDECK_BRIDGE_PI_PATH = command;
+				}
 			}
 			// 会话自动标题由 PiDeck 内置扩展在 agent_settled 后独立调用模型；
 			// 显式注入 0/1，避免继承宿主环境中的同名变量。设置变更对新建/重启 Agent 生效。

@@ -9,6 +9,7 @@ import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { t } from "../../i18n";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { hasPendingAskForSession } from "../../utils/askUi";
+import { BridgeGuiSlot } from "../bridge/BridgeSlot";
 import { filterSidebarSessions, getBoundSidebarRuntimeAgent, type SidebarController } from "../../hooks/useSidebarController";
 import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
@@ -359,6 +360,12 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 						<Ellipsis size={14} aria-hidden="true" />
 					</Button>
 				</div>
+				{/* GUI 扩展桥：会话列表条目附加落点（ctx.gui.setSessionItemExtra）。
+				    **追加**在行容器之后、子代理列表之前 —— 不改行本身的结构与 hover/拖拽行为（§7.4 只追加）。
+				    无贡献时返回 null，不占位。
+				    注：仓库无统一 SessionItem 组件，此处只接了 SessionTree 的历史会话行；
+				    ActiveSessionsTree / RecentSessionsSection / SessionTabsBar 仍为 pending。 */}
+				<BridgeGuiSlot sessionId={child.session.id} slot="session.item" className="flex flex-col gap-0.5 pl-5" />
 				{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
 			</SidebarRemovalRow>
 		);

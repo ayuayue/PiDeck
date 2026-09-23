@@ -14,6 +14,7 @@ import { writeClipboardImage } from "../../utils/clipboard";
 import { useTimelineSelection } from "../../hooks/useTimelineSelection";
 import { SelectionToolbar } from "./timeline/SelectionToolbar";
 import { deriveTimelineRunActivity } from "./timeline/timelineRunActivity";
+import { BridgeWorkingLine } from "../bridge/BridgeSlot";
 import { canLoadSessionTimelineMore, deriveSessionSurfaceRuntime, type SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -984,6 +985,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					})}
 
 					{hasActiveConversation && !cancellingUi && isRuntimeBusy && <RespondingIndicator isCompacting={isCompacting} isStarting={activeConversationStatus === "starting"} isExecutingTool={activeRuntimeState?.isExecutingTool} liveTextStreaming={liveTextStreaming} liveThinkingStreaming={liveThinkingStreaming} />}
+					{/* GUI 扩展桥：流式状态行（ctx.ui.setWorkingMessage / setWorkingVisible / setWorkingIndicator）。
+					    **旁插**在原生指示器之后 —— 保留原生形态，不顶替（§8.2 A 组 / §7.4 只追加）。
+					    无桥贡献时该组件返回 null，不占位。 */}
+					<BridgeWorkingLine sessionId={sessionId} />
 				</div>
 			)}
 

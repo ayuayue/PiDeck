@@ -37,6 +37,7 @@ import type {
 	ResolvedLaunchDefaults,
 	ArchivedDshSession,
 } from "../../shared/types";
+import type { BridgeEventInput } from "../../shared/types/bridge";
 import { parseSessionProcessEventsFromFile } from "../sessions/sessionProcessEventsFile";
 import { dshUnavailablePageFor } from "../dsh/dshManualStop";
 import { downgradeRunningStartedBefore, downgradeStaleRunning } from "../pi/derivedSubagents";
@@ -1385,6 +1386,28 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		}
 	});
 	ipcMain.handle(ipcChannels.sessionsUiResponse, (_event, input: SessionUiResponseInput) => sessionRuntimeCoordinator.respondToUi(input));
+	/**
+	 * GUI 扩展桥：渲染进程回灌交互事件 → 排入该 agent 的桥队列。
+	 *
+	 * 边界校验（AGENTS.md「输入校验在边界」）：
+	 * - 三个身份字段必填（sessionId / agentId / runtimeGeneration）
+	 * - runtimeGeneration 必须与该会话当前 runtime 一致，拒绝旧 runtime 的迟到事件
+	 * 失败一律返回 false（渲染层据此静默丢弃），**不抛错跨 IPC**。
+	 */
+	ipcMain.handle(ipcChannels.sessionsBridgeEvent, (_event, input: BridgeEventInput) => {
+		if (!input || typeof input !== "object") return false;
+		const { sessionId, agentId, runtimeGeneration, event } = input;
+		if (typeof sessionId !== "string" || !sessionId) return false;
+		if (typeof agentId !== "string" || !agentId) return false;
+		if (typeof runtimeGeneration !== "number" || !Number.isFinite(runtimeGeneration)) return false;
+		if (!event || typeof event !== "object" || typeof event.type !== "string") return false;
+		const current = sessionRuntimeCoordinator.getTarget(sessionId);
+		if (!current || current.agentId !== agentId || current.runtimeGeneration !== runtimeGeneration) {
+			// 旧 runtime 的迟到事件：丢弃，不报错
+			return false;
+		}
+		return sessionRuntimeCoordinator.pushBridgeEvent(agentId, event);
+	});
 	ipcMain.handle(ipcChannels.sessionsRuntimeList, () => sessionRuntimeCoordinator.listRuntimes());
 	ipcMain.handle(ipcChannels.sessionsRuntimeActivate, async (_event, sessionId: string) => {
 		const startedAt = Date.now();

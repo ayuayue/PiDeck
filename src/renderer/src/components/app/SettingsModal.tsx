@@ -18,6 +18,7 @@ import { dirtySettingsTabIds, type SettingsUnsavedTabId } from "./settings/unsav
 import { computeDirtyFields } from "./settings/settingsDirtyFields.ts";
 import { SETTINGS_TAB_IDS, SETTINGS_TAB_LABEL_KEYS } from "./settings/settingsTabLayout";
 import { isSettingsTabHidden, resolveInitialSettingsTab, resolveVisibleSettingsTabs } from "./settings/settingsTabVisibility";
+import { BridgeGuiSlot, useBridgeChromeSessionId } from "../bridge/BridgeSlot";
 import { showNotice } from "../../utils/notice";
 import { useGitModels } from "./settings/gitModels.ts";
 import { formatSettingsUnsavedMessage, summarizeSettingsUnsavedChanges } from "./settings/unsavedChangesSummary.ts";
@@ -229,6 +230,8 @@ function SettingsModalContent(props: SettingsModalProps) {
 	// 弹窗每次打开都会重新挂载（Radix Dialog 关闭即卸载内容）。
 	// 深链（如 Git「去设置」）优先于上次记住的 tab，否则会停在外观/开发等其它页。
 	const hasPendingUpdate = useAtomValue(hasPendingUpdateAtom);
+	// GUI 扩展桥：设置弹窗是应用级单实例 chrome，按「当前聚焦会话」取桥状态。
+	const bridgeChromeSessionId = useBridgeChromeSessionId();
 	// 开弹窗时的隐藏模块快照只用于算初始 tab；侧栏过滤读草稿（下方 draftSettings.hiddenModules），开关一切即预览。
 	const [activeTab, setActiveTab] = useState<SettingsTabId>(() => resolveInitialSettingsTab(getDefaultStore().get(settingsFocusAtom)?.tab, loadLastSettingsTab(), props.settings.hiddenModules ?? NO_HIDDEN_MODULES));
 	/**
@@ -856,6 +859,11 @@ function SettingsModalContent(props: SettingsModalProps) {
 								</Suspense>
 							</TabsContent>
 						</Tabs>
+						{/* GUI 扩展桥：设置弹窗内的扩展区块（ctx.gui.setSettingsSection）。
+						    **追加**在全部设置 tab 之下 —— 不改 SETTINGS_TAB_LAYOUT / TAB_META /
+						    i18n 标签这套 tab 注册表（它有独立的契约测试），也不新增 TabsContent。
+						    无贡献时返回 null，不占位。 */}
+						<BridgeGuiSlot sessionId={bridgeChromeSessionId} slot="settings.section" className="mx-3 mb-3 flex shrink-0 flex-col gap-2" />
 					</TabsContent>
 				</Tabs>
 				{/* 未保存变更确认对话框 */}

@@ -18,6 +18,7 @@ import { resolveLiveInterimId } from "../timeline/liveMount";
 import { buildProcessSummary } from "../timeline/segmentSummary";
 import type { AgentRunItem, MessageItem } from "../timeline/types";
 import { sameAgentRunForRender } from "../../app/AppUtils";
+import { BridgeGuiSlot, useBridgeThinkingLabel } from "../../bridge/BridgeSlot";
 import { FinalAnswer } from "./FinalAnswer";
 import { InterimAnswer } from "./InterimAnswer";
 import { ProcessSummaryToggle } from "./ProcessSummaryToggle";
@@ -143,6 +144,9 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 	//   （2026-08 回归：判定逻辑见 resolveLiveInterimId，按轮级门控）。
 	// 流式期间 content 每 50ms 变化但 streaming 不变 → 派生 boolean 引用稳定 → 零额外重渲染。
 	const liveTextActive = useAtomValue(props.sessionId ? liveTextActiveBySessionAtom(props.sessionId) : NO_LIVE_TEXT_ATOM);
+	// GUI 扩展桥：扩展设的折叠思考块标签（ctx.ui.setHiddenThinkingLabel）。
+	// 无贡献时为 undefined，ThinkingBlock 保持原生耗时小字（§7.4 只追加）。
+	const bridgeThinkingLabel = useBridgeThinkingLabel(props.sessionId);
 	const liveInterimId = useMemo(() => {
 		const last = displayItems.find((item) => item.kind === "interim-answer" && item.id === lastInterimId);
 		if (!last || last.kind !== "interim-answer") return undefined;
@@ -304,7 +308,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 									if (item.kind === "process-entry") {
 										itemKey = item.entry.id;
 										if (item.entry.kind === "thinking-entry") {
-											content = <ThinkingStep group={item.entry.group} hidden={!stepsVisible} showThinking={props.showThinking} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+											content = <ThinkingStep group={item.entry.group} hidden={!stepsVisible} showThinking={props.showThinking} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} sessionId={props.sessionId} hiddenLabel={bridgeThinkingLabel} />;
 										} else if (item.entry.kind === "retry-entry") {
 											// 自动重试过程行：与工具/思考同层，失败红、运行中旋转（见 RetryStep 注释）
 											content = <RetryStep group={{ kind: "retry-group", id: item.entry.id, message: item.entry.message }} hidden={!stepsVisible} />;
@@ -418,6 +422,10 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 					</div>
 				)}
 			</div>
+			{/* GUI 扩展桥：消息气泡附加落点（ctx.gui.setMessageExtra，key = role）。
+			    TurnRow 渲染的是助手回合，故按 role="assistant" 匹配。
+			    **追加在默认内容下方**，不顶替气泡（§7.1-B / §7.4）。无贡献时不占位。 */}
+			<BridgeGuiSlot sessionId={props.sessionId} slot="message.extra" matchKey="assistant" className="mt-1 flex flex-col gap-1" />
 		</article>
 	);
 }, turnRowPropsEqual);

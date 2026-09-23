@@ -6,6 +6,9 @@ import type { GitBranchInfo, ImageContent, TerminalTarget } from "../../../../sh
 import type { SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { isLanWeb, desktopApi as api } from "../../desktopApi";
 import { SessionHeader } from "./SessionHeader";
+import { BridgeOverlayHost, BridgeGuiSlot, BridgeSlot } from "../bridge/BridgeSlot";
+import { BRIDGE_TARGET } from "../../../../shared/types/bridge";
+import { useBridgeSessionTitle } from "../../hooks/useBridgeSessionTitle";
 import { SessionBranchBar } from "./SessionBranchBar";
 import { SessionFilesStrip } from "./SessionFilesStrip";
 import { SessionGoalStrip } from "./SessionGoalStrip";
@@ -166,6 +169,8 @@ export function SessionView({
 	abortAgent: _abortAgent,
 }: SessionViewProps) {
 	const paneServices = useSessionPaneServices();
+	// GUI 扩展桥：把扩展的 ctx.ui.setTitle 应用到 document.title（无贡献时不动，§7.4 只追加）
+	useBridgeSessionTitle(sessionId);
 	// 会话身份面包屑的项目名：多 Tab/分屏时提醒当前会话属于哪个项目。
 	// 从会话记录解析 projectId → 项目目录名；无记录（匿名会话等）时省略。
 	const sessionRecord = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
@@ -254,6 +259,12 @@ export function SessionView({
 				duration={sessionDuration}
 				isStarting={isAgentStarting}
 			/>
+			{/* GUI 扩展桥：顶部区落点（ctx.ui.setHeader）。无贡献时返回 null，不占位。 */}
+			<BridgeSlot sessionId={sessionId} targetId={BRIDGE_TARGET.header} className="flex flex-col gap-1 px-1" />
+			{/* GUI 扩展桥：顶部横幅通知区落点（ctx.gui.setBanner）。
+			    紧贴会话标题栏之下、聊天区之上 —— 与 SessionBranchBar 同级「旁插」。
+			    无贡献时返回 null，不占位、不挤动下方布局。 */}
+			<BridgeGuiSlot sessionId={sessionId} slot="banner" className="flex flex-col gap-1 px-1" />
 			{/* 分支导航条：仅当当前会话存在 fork 分支关系（父/兄弟/子分支）时显示 */}
 			<SessionBranchBar sessionId={sessionId} onOpenSession={onOpenBranchSession} />
 			<ResizablePanelGroup
@@ -358,6 +369,10 @@ export function SessionView({
 					/>
 				)}
 			</ResizablePanelGroup>
+			{/* GUI 扩展桥：底部状态区落点（ctx.ui.setFooter）+ 覆盖层宿主（ctx.gui.custom）。
+			    两者无内容时都返回 null，PiDeck 原有 DOM 零变化。 */}
+			<BridgeSlot sessionId={sessionId} targetId={BRIDGE_TARGET.footer} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1" />
+			<BridgeOverlayHost sessionId={sessionId} />
 		</div>
 	);
 }

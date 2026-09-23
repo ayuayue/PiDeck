@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pin, Minus, Square, X } from "lucide-react";
 import { t } from "../i18n";
+import { BridgeGuiSlot, useBridgeChromeSessionId } from "./bridge/BridgeSlot";
 
 type Props = {
 	useNativeTitleBar: boolean;
@@ -30,6 +31,9 @@ function RestoreIcon() {
 export function AppHeader({ useNativeTitleBar, platform, toggleAlwaysOnTop, isWindowAlwaysOnTop, minimizeWindow, toggleMaximizeWindow, isWindowMaximized, onWindowMaximizedChange, closeWindow }: Props) {
 	const [windowAlwaysOnTop, setWindowAlwaysOnTop] = useState(false);
 	const [maximized, setMaximized] = useState(false);
+	// GUI 扩展桥：标题栏是应用级单实例 chrome，按「当前聚焦会话」取桥状态。
+	// （桥的运行时状态本就按 runtimeGeneration 存，detach 即清，见 §7.7。）
+	const bridgeChromeSessionId = useBridgeChromeSessionId();
 
 	useEffect(() => {
 		if (useNativeTitleBar) return;
@@ -59,6 +63,11 @@ export function AppHeader({ useNativeTitleBar, platform, toggleAlwaysOnTop, isWi
 	return (
 		<>
 			<div className="window-drag-layer" aria-hidden="true" />
+			{/* GUI 扩展桥：窗口/标签栏动作落点（ctx.gui.setTitlebarAction）。
+			    必须显式 `-webkit-app-region: no-drag` —— app-region **不继承**，
+			    祖先的 drag 会让点击被 Electron 的拖拽命中规则吞掉（§8.2 titlebar 注意事项）。
+			    无贡献时返回 null，不占位、不吃拖拽区。 */}
+			<BridgeGuiSlot sessionId={bridgeChromeSessionId} slot="titlebar.action" className="window-controls flex items-center gap-1" />
 			{showWinWindowControls ? (
 				<div className="window-controls" aria-label={t("app.windowControls")}>
 					<button

@@ -43,6 +43,8 @@ import { listActiveBuiltInExtensionPaths } from "../extensions/builtInExtensions
 import { createPiProcessExtensionResolvers } from "../extensions/piProcessExtensionResolvers";
 import { createPiProcessSkillResolvers } from "../skills/piProcessSkillResolvers";
 import { createPiProcessPromptResolvers } from "../prompts/piProcessPromptResolvers";
+import { getBridgeServer } from "./bridge/BridgeServer";
+import type { BridgeEvent, BridgeUpdate } from "../../shared/types/bridge";
 import { describeExtensionFallbackSkip, formatExtensionFallbackDebug, resolveDisabledExtensionsCopy, resolveDisabledExtensionsReason, shouldRetryWithoutExtensions } from "./extensionStartupFallback";
 import type { DisabledExtensionsReason } from "./extensionStartupFallback";
 import { formatExtensionErrorReason } from "./extensionError";
@@ -593,13 +595,20 @@ export class AgentManager {
 	 * 内置扩展以 -e 从 app resources 加载，不再依赖用户扩展目录副本。
 	 * 安全管理：确保策略快照已落盘（小 JSON 写，等完成后启动，保证扩展首次拦截即可读到）。
 	 * settingsOverride 仅用于本次 spawn（如扩展加载失败后强制 --no-extensions），不改持久设置。
+	 *
+	 * `agentId` 可选：提供时同时注册 GUI 扩展桥会话（§9.2），把
+	 * `PIDECK_BRIDGE_URL` / `PIDECK_BRIDGE_TOKEN` 注入 pi 子进程环境。
+	 * 不提供（如临时会话）则不注册 —— 桥在该进程里静默不工作。
 	 */
-	private createPiProcess(cwd: string, sessionPath?: string, securitySessionKey?: string, settingsOverride?: Partial<Pick<AppSettings, "piRpcNoExtensions" | "piRpcNoSkills" | "removedBuiltInExtensions">>): PiProcess {
+	private createPiProcess(cwd: string, sessionPath?: string, securitySessionKey?: string, settingsOverride?: Partial<Pick<AppSettings, "piRpcNoExtensions" | "piRpcNoSkills" | "removedBuiltInExtensions">>, agentId?: string): PiProcess {
 		const settings = settingsOverride ? { ...this.settingsStore.get(), ...settingsOverride } : this.settingsStore.get();
 		if (this.securityStore) {
 			void this.securityStore.ensureSnapshotWritten();
 		}
 		return new PiProcess(cwd, settings, undefined, {
+			// GUI 扩展桥：注册本 agent 的端点会话，拿到注入用的 URL/token。
+			// 端点未就绪时返回 undefined → 不注入 → 桥静默不工作（fail-safe）。
+			bridgeEnv: agentId ? this.registerBridgeSession(agentId) : undefined,
 			// 扩展解析器与模型能力缓存共用（piProcessExtensionResolvers）：
 			// 保证「选择器能看到扩展贡献的模型」与「运行时实际加载的扩展」同源。
 			// 技能/模板解析器同源：禁用的技能与提示词模板在 RPC 启动时以白名单剔除。
@@ -622,6 +631,69 @@ export class AgentManager {
 			// 预检修复：全部 spawn 路径（create/reattach/withTemporarySession）都在 start() 内生效。
 			repairSessionFileBeforeStart: this.repairSessionFile,
 		});
+	}
+
+	/**
+	 * 注册 GUI 扩展桥会话，返回要注入 pi 子进程的环境变量（§9.2）。
+	 *
+	 * 桥扩展读 `PIDECK_BRIDGE_URL` / `PIDECK_BRIDGE_TOKEN`，把 pi 侧被 RPC 丢弃的
+	 * 声明式 UI 扩展点推给 PiDeck。端点未就绪（起不来）时返回 undefined，
+	 * 调用方不注入 → 桥静默不工作，pi 与 PiDeck 都照常（fail-safe，§14.5）。
+	 */
+	private registerBridgeSession(agentId: string): Record<string, string> | undefined {
+		try {
+			const server = getBridgeServer();
+			if (!server.ready) return undefined;
+			const { url, token } = server.registerAgent(agentId, (update) => this.handleBridgeUpdate(agentId, update));
+			return { PIDECK_BRIDGE_URL: url, PIDECK_BRIDGE_TOKEN: token };
+		} catch (error) {
+			void this.appLogger?.warn("agent", "GUI bridge session registration failed; bridge stays idle", {
+				agentId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return undefined;
+		}
+	}
+
+	/**
+	 * 桥推来的一帧更新 → 转发给渲染进程。
+	 *
+	 * 复用 `agents:ui-request` 通道（method 前缀 `bridge:`），与 `setWidget` 等
+	 * 现有 UI 请求走同一条落点链路 —— 不新开通道，也不落会话 JSONL
+	 * （桥状态是纯内存的运行时 UI，§7.7 要求 2）。
+	 */
+	private handleBridgeUpdate(agentId: string, update: BridgeUpdate): void {
+		const runtime = this.agents.get(agentId);
+		if (!runtime) return;
+		this.emit(ipcChannels.agentsUiRequest, {
+			agentId,
+			requestId: `bridge-${update.type}`,
+			method: "bridge:update",
+			title: "",
+			bridgeUpdate: update,
+		});
+	}
+
+	/**
+	 * 渲染层来的交互事件 → 排入桥的待回灌队列。
+	 *
+	 * 桥在下次轮询（~100ms）时取走并在 pi 进程内调扩展注册的回调（§8.3）。
+	 */
+	pushBridgeEvent(agentId: string, event: BridgeEvent): boolean {
+		try {
+			return getBridgeServer().pushEvent(agentId, event);
+		} catch {
+			return false;
+		}
+	}
+
+	/** 注销某 agent 的桥会话（agent 停止 / 会话删除时调用）。 */
+	unregisterBridgeSession(agentId: string): void {
+		try {
+			getBridgeServer().unregisterAgent(agentId);
+		} catch {
+			// 注销失败无副作用（token 会随端点关闭一起清掉）
+		}
 	}
 
 	/**
@@ -731,7 +803,7 @@ export class AgentManager {
 		if (!settingsOverride && existing && !existing.isRunning() && existing.getDiagnostics() === null) {
 			process = existing;
 		} else {
-			process = this.createPiProcess(options.projectPath, options.sessionPath, options.deckSessionId, settingsOverride);
+			process = this.createPiProcess(options.projectPath, options.sessionPath, options.deckSessionId, settingsOverride, agentId);
 		}
 		if (runtime) runtime.process = process;
 		process.on("version-check", (payload) => {
@@ -1457,7 +1529,7 @@ export class AgentManager {
 		// 每次 spawn 前异步刷新模型列表缓存（不等完成，避免阻塞 Agent 启动）：
 		// 用户直接编辑 models.json/auth.json 后，下一次启动的 Agent 即能看到新模型。
 		this.onBeforeAgentSpawn?.();
-		this.agents.set(id, { tab, process: this.createPiProcess(project.path, input.sessionPath, input.deckSessionId) });
+		this.agents.set(id, { tab, process: this.createPiProcess(project.path, input.sessionPath, input.deckSessionId, undefined, id) });
 		this.messages.set(id, []);
 		this.emitState();
 

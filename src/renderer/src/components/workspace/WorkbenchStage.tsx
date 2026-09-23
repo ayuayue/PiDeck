@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui-shadcn/resizable";
 import type { WorkspaceContentOpenMode } from "../../../../shared/types";
+import { BridgeGuiSlot, useBridgeChromeSessionId } from "../bridge/BridgeSlot";
 
 export type WorkbenchStageProps = {
 	/** 无内容时只渲染 session；有内容时按 layout 分屏或占满中间栏 */
@@ -31,6 +32,8 @@ export type WorkbenchStageProps = {
 export function WorkbenchStage(props: WorkbenchStageProps) {
 	const sessionPanelRef = useRef<PanelImperativeHandle>(null);
 	const contentFrameRef = useRef<HTMLDivElement>(null);
+	// GUI 扩展桥：工作台是应用级单实例 chrome，按「当前聚焦会话」取桥状态。
+	const bridgeChromeSessionId = useBridgeChromeSessionId();
 
 	// 内容区宽度上报：右缘刻度轴（.outline-hover）默认贴窗口右缘，工作台分屏时
 	// 需右移内容区宽度才能落在消息区右缘。maximize 会话区收起，按 0 偏移回窗口右缘。
@@ -80,6 +83,11 @@ export function WorkbenchStage(props: WorkbenchStageProps) {
 				<ResizablePanel id="workbench-content" minSize="25%" defaultSize="52%" className="workbench-content-pane">
 					<div ref={contentFrameRef} className="workbench-content-frame">
 						{props.content}
+						{/* GUI 扩展桥：主内容区落点（ctx.gui.setContentView）。
+						    **追加**在工作区内容之后 —— 不改内容区既有布局（§7.4 只追加）。
+						    WorkbenchStage 无 sessionId prop，按「当前聚焦会话」取（应用级单实例 chrome）。
+						    无贡献时返回 null，不占位。 */}
+						<BridgeGuiSlot sessionId={bridgeChromeSessionId} slot="content.view" className="flex min-h-0 flex-col gap-2 overflow-auto p-2" />
 					</div>
 				</ResizablePanel>
 			</ResizablePanelGroup>
