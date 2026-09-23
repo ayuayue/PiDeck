@@ -1,12 +1,23 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
 
 /**
  * PiDeck 内置扩展（随应用 resources 分发，不再复制到 ~/.pi/agent/extensions）。
  * 启动 RPC 时通过可重复的 `--extension/-e` 注入，避免污染用户全局 pi。
+ *
+ * ⚠️ **只列「入口」扩展文件**：被扩展 import 的辅助模块（如 `pi-deck-todo-state.ts`、
+ * `pi-deck-gui-bridge-*.ts`）**不在**本表 —— 它们不通过 `-e` 注入，
+ * 但仍必须进 `extensions-manifest.json`（清单按目录扫描全部 `.ts`），
+ * 否则热更新覆盖层会缺少依赖、pi 报模块找不到。
+ *
+ * ⚠️ 顺序有语义：`pi-deck-gui-bridge` 排在**最前**。
+ * 它负责在 `session_start` 里包装共享的 `ctx.ui`，把 RPC 下被丢弃的声明式
+ * UI 扩展点接回 PiDeck。pi 按 `-e` 顺序加载扩展，桥先加载使时序无歧义。
+ *
  */
 export const BUILT_IN_EXTENSIONS = [
+	"pi-deck-gui-bridge.ts",
 	"pi-deck-request-size-recovery.ts",
 	"pi-deck-ask-question.ts",
 	"pi-deck-goal-mode.ts",
