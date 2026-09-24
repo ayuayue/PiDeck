@@ -5,13 +5,18 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
 
-function createManager(modelsConfig) {
+function createManager(config, { runtimeName = "runtime-raw-name", thinkingLevel = "high" } = {}) {
+	const requests = [];
+	let modelConfigReads = 0;
 	const manager = new AgentManager(
 		() => ({ id: "project-1", name: "Project", path: "C:/project" }),
 		() => null,
 		{ get: () => ({}) },
 		{
-			getModelsConfig: async () => modelsConfig,
+			getModelsConfig: async () => {
+				modelConfigReads += 1;
+				return config;
+			},
 		},
 	);
 	manager.agents.set("agent-1", {
@@ -28,11 +33,14 @@ function createManager(modelsConfig) {
 		process: {
 			client: {
 				request: async ({ type }) => {
+					requests.push(type);
 					if (type === "get_state") {
 						return {
 							success: true,
 							data: {
-								model: { provider: "router9", id: "qd/qfmodel", name: "runtime-raw-name" },
+								// runtimeName=null 表示 Pi 未返回 name 字段（缺省值 undefined 会被解构默认值覆盖）
+								model: { provider: "router9", id: "qd/qfmodel", ...(runtimeName !== null ? { name: runtimeName } : {}) },
+								thinkingLevel,
 							},
 						};
 					}
@@ -41,7 +49,7 @@ function createManager(modelsConfig) {
 			},
 		},
 	});
-	return manager;
+	return { manager, requests, getModelConfigReads: () => modelConfigReads };
 }
 
 function modelsConfig(name) {
@@ -56,32 +64,46 @@ function modelsConfig(name) {
 	};
 }
 
-test("getRuntimeState: models.json alias wins over pi runtime model.name", async () => {
-	const manager = createManager(modelsConfig("qwen-3.8-flash"));
+test("getRuntimeState: Pi runtime model.name wins without reading local aliases", async () => {
+	const harness = createManager(modelsConfig("local-alias"));
 
-	const state = await manager.getRuntimeState("agent-1");
+	const state = await harness.manager.getRuntimeState("agent-1");
 
 	assert.equal(state.provider, "router9");
 	assert.equal(state.modelId, "qd/qfmodel");
-	assert.equal(state.modelName, "qwen-3.8-flash");
+	assert.equal(state.modelName, "runtime-raw-name");
+	assert.equal(harness.getModelConfigReads(), 0);
 });
 
-test("getRuntimeState: blank configured name falls back to model id", async () => {
-	const manager = createManager(modelsConfig("   "));
+test("getRuntimeState: blank runtime name falls back to model ID", async () => {
+	const harness = createManager(modelsConfig("local-alias"), { runtimeName: "   " });
 
-	const state = await manager.getRuntimeState("agent-1");
+	const state = await harness.manager.getRuntimeState("agent-1");
 
 	assert.equal(state.modelName, "qd/qfmodel");
+	assert.equal(harness.getModelConfigReads(), 0);
 });
 
-test("getRuntimeState: an unavailable models config falls back to model id", async () => {
-	const manager = createManager({
-		get parsed() {
-			throw new Error("models config unavailable");
-		},
+test("getRuntimeState: absent runtime name falls back to model ID", async () => {
+	const harness = createManager(undefined, { runtimeName: null });
+
+	const state = await harness.manager.getRuntimeState("agent-1");
+
+	assert.equal(state.modelName, "qd/qfmodel");
+	assert.equal(harness.getModelConfigReads(), 0);
+});
+
+test("getRuntimeModelThinkingState reads the actual model and effort with one get_state RPC", async () => {
+	const harness = createManager(modelsConfig("local-alias"), { runtimeName: "Pi model name", thinkingLevel: "high" });
+
+	const state = await harness.manager.getRuntimeModelThinkingState("agent-1");
+
+	assert.deepEqual(JSON.parse(JSON.stringify(state)), {
+		provider: "router9",
+		modelId: "qd/qfmodel",
+		modelName: "Pi model name",
+		thinkingLevel: "high",
 	});
-
-	const state = await manager.getRuntimeState("agent-1");
-
-	assert.equal(state.modelName, "qd/qfmodel");
+	assert.deepEqual(harness.requests, ["get_state"]);
+	assert.equal(harness.getModelConfigReads(), 0);
 });

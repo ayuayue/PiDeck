@@ -26,6 +26,7 @@ import type {
 	SendPromptResult,
 	SessionEnvironment,
 	SessionMessagePage,
+	SessionRuntimeModelSelection,
 	ThinkingUpdate,
 	SessionFileChange,
 	SessionTodoSnapshot,
@@ -2390,9 +2391,9 @@ export class AgentManager {
 		const cacheHitAveragePercent = clampPercent(fileHitStats.average);
 		const perf = this.lastPerfByAgent.get(agentId);
 		return {
-			modelName: await this.resolveModelDisplayName(model?.provider, model?.id),
-			provider: model?.provider,
-			modelId: model?.id,
+			modelName: normalizedRuntimeName(model?.name) ?? normalizedRuntimeName(model?.id),
+			provider: normalizedRuntimeName(model?.provider),
+			modelId: normalizedRuntimeName(model?.id),
 			thinkingLevel: state?.thinkingLevel,
 			isStreaming: state?.isStreaming || this.streamingAgents.has(agentId),
 			...(this.agentTurnActiveById.has(agentId) ? { isTurnActive: this.agentTurnActiveById.get(agentId) } : {}),
@@ -2501,10 +2502,8 @@ export class AgentManager {
 	}
 
 	/**
-	 * 切换运行中 Agent 的模型。
-	 *
-	 * 模型可选性已在目录/命令响应处校验。选择链路刻意不先调 get_state：PiDeck 保存并
-	 * 展示用户点选的 provider/id，运行态只由独立事件流在需要时同步。
+	 * 切换运行中 Agent 的模型。Coordinator 在 set_model 成功后读取 get_state，
+	 * 用 Pi 实际生效的模型名称与 thinkingLevel 更新会话记录；这里不重发旧档位。
 	 */
 	async setModel(agentId: string, provider: string, modelId: string): Promise<void> {
 		const runtime = this.requireRuntime(agentId);
@@ -2533,17 +2532,32 @@ export class AgentManager {
 		}
 		this.emitState();
 	}
-	/**
-	 * 会话内系统提示：catalog 保存的模型偏好已失效被跳过（模型被重命名/删除，
-	 * 不在本地 models.json 也不在 pi 模型目录）。不阻断发送，沿用 runtime 当前
-	 * 模型；由 SessionRuntimeCoordinator.applyPreferences 在降级时调用。
-	 */
-	notifyModelPreferenceIgnored(agentId: string, provider: string, modelId: string): void {
-		if (!this.agents.has(agentId)) return;
-		this.addLocalizedMessage(agentId, "system", "diagnostic.modelPreferenceIgnored", `会话保存的模型偏好 ${provider}/${modelId} 已不存在（可能已被重命名或删除），本次发送沿用当前模型。请打开模型选择器重新选择。`, { params: { provider, model: modelId } });
+	async getRuntimeModelThinkingState(agentId: string): Promise<SessionRuntimeModelSelection | undefined> {
+		const runtime = this.requireRuntime(agentId);
+		try {
+			const response = await runtime.process.client.request({ type: "get_state" }, this.rpcTimeoutMs);
+			if (!response.success || !isRecord(response.data) || !isRecord(response.data.model)) return undefined;
+			const model = response.data.model;
+			const provider = normalizedRuntimeName(model.provider);
+			const modelId = normalizedRuntimeName(model.id);
+			if (!provider || !modelId) return undefined;
+			const modelName = normalizedRuntimeName(model.name) ?? modelId;
+			return {
+				provider,
+				modelId,
+				modelName,
+				...(typeof response.data.thinkingLevel === "string" ? { thinkingLevel: response.data.thinkingLevel } : {}),
+			};
+		} catch (error) {
+			void this.appLogger?.warn("agent", "Runtime model state read failed", {
+				agentId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return undefined;
+		}
 	}
 
-	/** 本地 models.json 是否包含指定 provider/modelId。 */
+	/** 本地 models.json 是否包含指定 provider/modelId；仅用于判断运行时模型快照是否过期。 */
 	private async localModelsContains(provider: string, modelId: string): Promise<boolean> {
 		try {
 			const result = await this.configManager.getModelsConfig();
@@ -2555,18 +2569,13 @@ export class AgentManager {
 	}
 
 	/**
-	 * Runtime state keeps PiDeck's local alias for diagnostics and non-Composer consumers.
-	 * Composer model selection never reads this field; it uses the saved session preference.
+	 * 会话内系统提示：catalog 保存的模型偏好已失效被跳过（模型被重命名/删除，
+	 * 不在本地 models.json 也不在 pi 模型目录）。不阻断发送，沿用 runtime 当前
+	 * 模型；由 SessionRuntimeCoordinator.applyPreferences 在降级时调用。
 	 */
-	private async resolveModelDisplayName(provider: string | undefined, modelId: string | undefined): Promise<string | undefined> {
-		if (!provider || !modelId) return modelId;
-		try {
-			const config = (await this.configManager.getModelsConfig()).parsed;
-			const entry = config?.providers?.[provider]?.models?.find((model) => model.id === modelId);
-			return entry?.name?.trim() || modelId;
-		} catch {
-			return modelId;
-		}
+	notifyModelPreferenceIgnored(agentId: string, provider: string, modelId: string): void {
+		if (!this.agents.has(agentId)) return;
+		this.addLocalizedMessage(agentId, "system", "diagnostic.modelPreferenceIgnored", `会话保存的模型偏好 ${provider}/${modelId} 已不存在（可能已被重命名或删除），本次发送沿用当前模型。请打开模型选择器重新选择。`, { params: { provider, model: modelId } });
 	}
 
 	/**
@@ -6400,6 +6409,12 @@ export const DIRECT_EMIT_CHANNELS: ReadonlySet<string> = new Set([ipcChannels.ag
  *  RPC 事件负载形状不可信，统一经此谓词后再逐字段判型。 */
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+function normalizedRuntimeName(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const normalized = value.trim();
+	return normalized || undefined;
 }
 
 type AgentRuntime = {

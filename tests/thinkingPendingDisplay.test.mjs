@@ -68,10 +68,9 @@ test("契约: ComposerArea 不预先限制运行中的思考强度修改", () =>
 	assert.match(area, /modelDisabled=\{composer\.isStarting\}/);
 });
 
-test("契约: 用户选择的思考档位不被 runtime 回传值覆写", () => {
-	// 思考档位应用链路现由 controller 持有（选择器与 Ctrl+T 快捷键共用同一实现）
-	const picker = [readFileSync("src/renderer/src/hooks/useSessionPreferenceState.ts", "utf8"), readFileSync("src/renderer/src/hooks/useSessionPreferenceController.ts", "utf8")].join("\n");
-	assert.match(picker, /thinkingLevel: level/);
+test("契约: 活动 Pi 会话将 get_state 返回的有效档位写入会话记录", () => {
+	const picker = readFileSync("src/renderer/src/hooks/useSessionPreferenceController.ts", "utf8");
+	assert.match(picker, /applied\.value\.thinkingLevel/);
 	assert.doesNotMatch(picker, /appliedThinkingLevel/);
 	assert.doesNotMatch(picker, /thinkingPending|setThinkingPending/);
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { AvailableModel, SessionRuntimeTarget } from "../../../shared/types";
+import type { AvailableModel, SessionRuntimeModelSelection, SessionRuntimeTarget } from "../../../shared/types";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
 import type { ModelPending } from "../utils/modelPendingDisplay";
@@ -18,14 +18,7 @@ type RuntimeLike =
  * 当后端明确拒绝运行中模型切换时，把待选模型在 runtime 空闲后重新提交；
  * 支持 live selection 的后端不会进入这条 fallback 路径。
  */
-export function usePendingModelApply(input: {
-	sessionId: string;
-	runtime: RuntimeLike;
-	modelPending: ModelPending | undefined;
-	applySelectedModel: (model: { provider: string; modelId: string; modelName?: string }) => void;
-	clearPending: () => void;
-	offerRestart: (handle: SessionRuntimeTarget, model: AvailableModel) => void;
-}) {
+export function usePendingModelApply(input: { sessionId: string; runtime: RuntimeLike; modelPending: ModelPending | undefined; applySelectedModel: (model: SessionRuntimeModelSelection) => void; clearPending: () => void; offerRestart: (handle: SessionRuntimeTarget, model: AvailableModel) => void }) {
 	const applyingRef = useRef(false);
 	// 套模型若需重启，只弹一次；取消后也不要跟着 runtime 刷新再弹。
 	const blockedRef = useRef(false);
@@ -54,14 +47,10 @@ export function usePendingModelApply(input: {
 		let cancelled = false;
 		void (async () => {
 			try {
-				// 重试同样只确认命令成功，展示值由待应用选择本身提供，不读取 runtime state。
-				requireSessionCommand(await desktopApi.sessions.setRuntimeModel(handle, pending.to.provider, pending.to.modelId, pending.to.modelName));
+				// 运行时 readback 是最终值；不要用排队时的模型快照覆盖实际模型名/档位。
+				const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeModel(handle, pending.to.provider, pending.to.modelId, pending.to.modelName));
 				if (cancelled) return;
-				current.applySelectedModel({
-					provider: pending.to.provider,
-					modelId: pending.to.modelId,
-					modelName: pending.to.modelName ?? pending.to.modelId,
-				});
+				current.applySelectedModel(applied.value);
 				current.clearPending();
 			} catch (error) {
 				if (cancelled) return;

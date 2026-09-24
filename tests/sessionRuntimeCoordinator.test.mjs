@@ -84,6 +84,8 @@ function createHarness(options = {}) {
 		setModel: 0,
 		setModelArgs: [],
 		setThinking: 0,
+		modelThinkingState: 0,
+		preferenceOrder: [],
 		setPermission: 0,
 		publishRuntimeState: 0,
 		update: 0,
@@ -210,10 +212,18 @@ function createHarness(options = {}) {
 		setModel: async (_agentId, provider, modelId) => {
 			calls.setModel += 1;
 			calls.setModelArgs.push({ provider, modelId });
+			calls.preferenceOrder.push("setModel");
 			if (options.modelError) throw new Error(options.modelError);
+		},
+		getRuntimeModelThinkingState: async () => {
+			calls.modelThinkingState += 1;
+			calls.preferenceOrder.push("readState");
+			if (options.entry?.backend === "dsh") return undefined;
+			return calls.setThinking > 0 ? (options.thinkingState ?? options.modelThinkingState) : options.modelThinkingState;
 		},
 		setThinking: async () => {
 			calls.setThinking += 1;
+			calls.preferenceOrder.push("setThinking");
 		},
 		async setPermission(_agentId, _preset) {
 			if (!this?.backend) throw new Error("Cannot read properties of undefined (reading 'resolveBackend')");
@@ -1188,7 +1198,7 @@ test("runtime model preference is not persisted when AgentManager fails", async 
 	assert.equal(harness.calls.setModel, 1);
 });
 
-test("runtime thinking persists the user-selected level without reading runtime state", async () => {
+test("runtime thinking falls back to the requested level when no Pi snapshot is available", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const harness = createHarness({
 		entry: { thinkingLevel: "off" },
@@ -1204,9 +1214,10 @@ test("runtime thinking persists the user-selected level without reading runtime 
 	assert.equal(result.value.value.thinkingLevel, "high");
 	assert.equal(harness.entry.thinkingLevel, "high");
 	assert.equal(harness.calls.runtimeState, 0);
+	assert.equal(harness.calls.modelThinkingState, 1);
 });
 
-test("runtime model persists the user-selected model without reading runtime state", async () => {
+test("runtime model uses the selected value when no Pi snapshot is available", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const harness = createHarness({
 		tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }],
@@ -1224,9 +1235,71 @@ test("runtime model persists the user-selected model without reading runtime sta
 	assert.equal(harness.entry.model?.provider, "router9");
 	assert.equal(harness.entry.model?.modelId, "qd/qfmodel");
 	assert.equal(harness.entry.model?.modelName, "qwen-3.8-flash");
-	assert.equal(harness.calls.runtimeState, 0);
+	assert.equal(harness.calls.modelThinkingState, 1);
 	assert.equal(harness.calls.setModel, 1);
 });
+test("Pi model change persists the runtime model name and effective thinking level", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		entry: { thinkingLevel: "max" },
+		tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }],
+		modelThinkingState: { provider: "router9", modelId: "qd/qfmodel", modelName: "Pi runtime name", thinkingLevel: "high" },
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+
+	const result = await coordinator.setRuntimeModel({ sessionId: "session-1", agentId: "agent-a", runtimeGeneration }, "router9", "qd/qfmodel", "local alias");
+
+	assert.equal(result.ok, true);
+	assert.deepEqual(JSON.parse(JSON.stringify(result.value.value)), {
+		provider: "router9",
+		modelId: "qd/qfmodel",
+		modelName: "Pi runtime name",
+		thinkingLevel: "high",
+	});
+	assert.equal(harness.entry.model?.modelName, "Pi runtime name");
+	assert.equal(harness.entry.thinkingLevel, "high");
+	assert.equal(harness.calls.setThinking, 0, "set_model owns target-model effort selection");
+});
+
+test("manual Pi thinking selection persists the effective runtime level", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		entry: { thinkingLevel: "off" },
+		tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }],
+		thinkingState: { provider: "openai", modelId: "gpt-test", modelName: "GPT", thinkingLevel: "high" },
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+
+	const result = await coordinator.setRuntimeThinking({ sessionId: "session-1", agentId: "agent-a", runtimeGeneration }, "max");
+	const repeated = await coordinator.setRuntimeThinking({ sessionId: "session-1", agentId: "agent-a", runtimeGeneration }, "max");
+
+	assert.equal(result.ok, true);
+	assert.equal(result.value.value.thinkingLevel, "high");
+	assert.equal(repeated.value.value.thinkingLevel, "high");
+	assert.equal(harness.entry.thinkingLevel, "high");
+	assert.equal(harness.calls.setThinking, 1);
+	assert.equal(harness.calls.modelThinkingState, 1);
+});
+
+test("model and thinking changes are serialized so their readbacks cannot race", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }],
+		modelThinkingState: { provider: "router9", modelId: "qd/qfmodel", modelName: "runtime", thinkingLevel: "high" },
+		thinkingState: { provider: "router9", modelId: "qd/qfmodel", modelName: "runtime", thinkingLevel: "max" },
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+	const target = { sessionId: "session-1", agentId: "agent-a", runtimeGeneration };
+
+	await Promise.all([coordinator.setRuntimeModel(target, "router9", "qd/qfmodel"), coordinator.setRuntimeThinking(target, "max")]);
+
+	assert.deepEqual(harness.calls.preferenceOrder, ["setModel", "readState", "setThinking", "readState"]);
+	assert.equal(harness.entry.thinkingLevel, "max");
+});
+
 test("runtime model selection normalizes a blank name to the model id", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const harness = createHarness({

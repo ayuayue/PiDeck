@@ -23,6 +23,7 @@ import type {
 	SessionModelPreference,
 	SessionRuntimeEvent,
 	SessionRuntimeInfo,
+	SessionRuntimeModelSelection,
 	SessionRuntimeReplacement,
 	SessionRuntimeTarget,
 	SessionTargetedValue,
@@ -109,6 +110,7 @@ export interface SessionAgentGateway {
 		},
 	): Promise<{ text: string; images?: ImageContent[] } | undefined>;
 	prepareResendFromMessage(agentId: string, messageId: string): Promise<{ text: string; images?: ImageContent[] }>;
+	getRuntimeModelThinkingState?(agentId: string): Promise<SessionRuntimeModelSelection | undefined>;
 	setModel(agentId: string, provider: string, modelId: string): Promise<unknown>;
 	setThinking(agentId: string, level: string): Promise<unknown>;
 	/** 可选能力：DSH 会话权限预设（/permission 命令）；pi 后端不持有。 */
@@ -264,6 +266,9 @@ export class SessionRuntimeCoordinator {
 			preferences: AppliedSessionPreferences;
 		}
 	>();
+	/** Serializes model/effort changes so a slower earlier get_state cannot overwrite a newer choice. */
+	private readonly preferenceMutationTails = new Map<string, Promise<void>>();
+	private readonly lastRequestedThinkingBySession = new Map<string, { agentId: string; level: string }>();
 
 	constructor(
 		private readonly catalog: SessionCatalogGateway,
@@ -659,60 +664,86 @@ export class SessionRuntimeCoordinator {
 		return this.runTargetCommand(target, (agentId) => this.agents.forkSession(agentId, entryId));
 	}
 
-	setRuntimeModel(target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string): Promise<SessionCommandResult<SessionTargetedValue<SessionModelPreference>>> {
-		return this.runTargetCommand(target, async (agentId) => {
-			const existing = this.catalog.get(target.sessionId);
-			const selectedModel = createSessionModelPreference(provider, modelId, modelName);
-			const last = this.lastAppliedBySession.get(target.sessionId);
-			const alreadyApplied = last?.agentId === agentId && last.preferences.model?.provider === provider && last.preferences.model.modelId === modelId;
-			if (alreadyApplied && existing?.model?.modelName === selectedModel.modelName) {
-				return selectedModel;
-			}
-			// 可选模型已由运行时目录校验。命令成功后保存用户点选值，选择路径不读取
-			// get_state；完整运行态仍由独立事件流在启动/流式等场景推送。
-			if (!alreadyApplied) await this.agents.setModel(agentId, provider, modelId);
-			const updated = await this.catalog.update(target.sessionId, {
-				model: selectedModel,
-				updatedAt: Date.now(),
-			});
-			this.lastAppliedBySession.set(target.sessionId, {
-				agentId,
-				preferences: snapshotPreferences(updated),
-			});
-			void this.logger?.info("session-runtime", "Runtime model changed", {
-				sessionId: target.sessionId,
-				agentId,
-				provider,
-				modelId,
-			});
-			return selectedModel;
-		});
+	setRuntimeModel(target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string): Promise<SessionCommandResult<SessionTargetedValue<SessionRuntimeModelSelection>>> {
+		return this.runTargetCommand(target, (agentId) =>
+			this.serializePreferenceMutation(target.sessionId, async () => {
+				this.requireBoundTarget(target);
+				const existing = this.catalog.get(target.sessionId);
+				const selectedModel = createSessionModelPreference(provider, modelId, modelName);
+				const last = this.lastAppliedBySession.get(target.sessionId);
+				const alreadyApplied = last?.agentId === agentId && last.preferences.model?.provider === provider && last.preferences.model.modelId === modelId;
+				if (alreadyApplied && existing?.model?.modelName === selectedModel.modelName) return selectedModel;
+
+				// Pi 自己按目标模型默认值、全局默认和当前档位选择实际强度；不要把旧档位再发回去。
+				if (!alreadyApplied) {
+					await this.agents.setModel(agentId, provider, modelId);
+					this.lastRequestedThinkingBySession.delete(target.sessionId);
+				}
+				this.requireBoundTarget(target);
+				const runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
+				this.requireBoundTarget(target);
+				const appliedModel = runtimeSelection ? createSessionModelPreference(runtimeSelection.provider, runtimeSelection.modelId, runtimeSelection.modelName) : selectedModel;
+				const effectiveThinkingLevel = runtimeSelection?.thinkingLevel;
+				const result: SessionRuntimeModelSelection = {
+					...appliedModel,
+					...(effectiveThinkingLevel !== undefined ? { thinkingLevel: effectiveThinkingLevel } : {}),
+				};
+				const updated = await this.catalog.update(target.sessionId, {
+					model: appliedModel,
+					...(effectiveThinkingLevel !== undefined ? { thinkingLevel: effectiveThinkingLevel } : {}),
+					updatedAt: Date.now(),
+				});
+				this.lastAppliedBySession.set(target.sessionId, {
+					agentId,
+					preferences: snapshotPreferences(updated),
+				});
+				// 审计契约（tests/sessionLifecycleAudit.test.mjs）要求 provider/modelId 以简写
+				// 字段出现；set_model 精确应用请求的 provider/id，另附 Pi 回报的名称与生效档位。
+				void this.logger?.info("session-runtime", "Runtime model changed", {
+					sessionId: target.sessionId,
+					agentId,
+					provider,
+					modelId,
+					modelName: appliedModel.modelName,
+					thinkingLevel: effectiveThinkingLevel,
+				});
+				return result;
+			}),
+		);
 	}
 
 	setRuntimeThinking(target: SessionRuntimeTarget, level: string): Promise<SessionCommandResult<SessionTargetedValue<{ thinkingLevel: string }>>> {
-		return this.runTargetCommand(target, async (agentId) => {
-			const last = this.lastAppliedBySession.get(target.sessionId);
-			if (last?.agentId === agentId && last.preferences.thinkingLevel === level) {
-				return { thinkingLevel: level };
-			}
-			// 候选档位已按当前模型能力过滤。成功后保存用户选择，不读取 get_state
-			// 或用其回传档位覆盖选择；runtime 状态另由事件流更新。
-			await this.agents.setThinking(agentId, level);
-			const updated = await this.catalog.update(target.sessionId, {
-				thinkingLevel: level,
-				updatedAt: Date.now(),
-			});
-			this.lastAppliedBySession.set(target.sessionId, {
-				agentId,
-				preferences: snapshotPreferences(updated),
-			});
-			void this.logger?.info("session-runtime", "Runtime thinking changed", {
-				sessionId: target.sessionId,
-				agentId,
-				level,
-			});
-			return { thinkingLevel: level };
-		});
+		return this.runTargetCommand(target, (agentId) =>
+			this.serializePreferenceMutation(target.sessionId, async () => {
+				this.requireBoundTarget(target);
+				const lastRequest = this.lastRequestedThinkingBySession.get(target.sessionId);
+				if (lastRequest?.agentId === agentId && lastRequest.level === level) {
+					return { thinkingLevel: this.catalog.get(target.sessionId)?.thinkingLevel ?? level };
+				}
+
+				await this.agents.setThinking(agentId, level);
+				this.requireBoundTarget(target);
+				const runtimeSelection = await this.agents.getRuntimeModelThinkingState?.(agentId);
+				this.requireBoundTarget(target);
+				const effectiveThinkingLevel = runtimeSelection?.thinkingLevel ?? level;
+				const updated = await this.catalog.update(target.sessionId, {
+					thinkingLevel: effectiveThinkingLevel,
+					updatedAt: Date.now(),
+				});
+				this.lastAppliedBySession.set(target.sessionId, {
+					agentId,
+					preferences: snapshotPreferences(updated),
+				});
+				this.lastRequestedThinkingBySession.set(target.sessionId, { agentId, level });
+				void this.logger?.info("session-runtime", "Runtime thinking changed", {
+					sessionId: target.sessionId,
+					agentId,
+					requestedLevel: level,
+					thinkingLevel: effectiveThinkingLevel,
+				});
+				return { thinkingLevel: effectiveThinkingLevel };
+			}),
+		);
 	}
 
 	/**
@@ -1046,9 +1077,9 @@ export class SessionRuntimeCoordinator {
 			// restart 会先 applyLatestPreferences(新 agent) 再 unbind 旧 agent；
 			// 只清「属于这个旧进程」的记录，别把刚写上的新 agent 快照删掉。
 			const last = this.lastAppliedBySession.get(sessionId);
-			if (last?.agentId === agentId) {
-				this.lastAppliedBySession.delete(sessionId);
-			}
+			if (last?.agentId === agentId) this.lastAppliedBySession.delete(sessionId);
+			const lastRequest = this.lastRequestedThinkingBySession.get(sessionId);
+			if (lastRequest?.agentId === agentId) this.lastRequestedThinkingBySession.delete(sessionId);
 		}
 		this.sessionIdByAgent.delete(agentId);
 	}
@@ -1396,6 +1427,7 @@ export class SessionRuntimeCoordinator {
 		}
 		await this.applyPreferences(latest, agentId);
 		this.lastAppliedBySession.set(sessionId, { agentId, preferences });
+		this.lastRequestedThinkingBySession.delete(sessionId);
 		return true;
 	}
 
@@ -1723,6 +1755,20 @@ export class SessionRuntimeCoordinator {
 			throw new SessionRuntimeCommandError("SESSION_RUNTIME_CHANGED", "Session runtime binding changed");
 		}
 		return { ...target };
+	}
+
+	private serializePreferenceMutation<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+		const previous = this.preferenceMutationTails.get(sessionId) ?? Promise.resolve();
+		const current = previous.then(operation, operation);
+		const tail = current.then(
+			() => undefined,
+			() => undefined,
+		);
+		this.preferenceMutationTails.set(sessionId, tail);
+		void tail.then(() => {
+			if (this.preferenceMutationTails.get(sessionId) === tail) this.preferenceMutationTails.delete(sessionId);
+		});
+		return current;
 	}
 
 	private async runTargetCommand<T>(target: SessionRuntimeTarget, operation: (agentId: string) => Promise<T>): Promise<SessionCommandResult<SessionTargetedValue<T>>> {

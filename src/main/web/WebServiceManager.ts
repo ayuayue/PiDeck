@@ -24,9 +24,9 @@ import type {
 	SendSessionPromptResult,
 	SessionCommandResult,
 	SessionMessagePage,
-	SessionModelPreference,
 	SessionRecord,
 	SessionRuntimeInfo,
+	SessionRuntimeModelSelection,
 	SessionRuntimeReplacement,
 	SessionRuntimeTarget,
 	SessionSummary,
@@ -117,7 +117,7 @@ type WebServiceDependencies = {
 	getRewindCheckpointDiff: (target: SessionRuntimeTarget, checkpointId: string) => Promise<SessionCommandResult<SessionTargetedValue<string>>>;
 	restoreRewindCheckpoint: (target: SessionRuntimeTarget, checkpointId: string, scope: RewindRestoreScope) => Promise<SessionCommandResult<SessionTargetedValue<RewindRestoreResult>>>;
 	prepareSessionRuntimeResend: (target: SessionRuntimeTarget, messageId: string) => Promise<SessionCommandResult<SessionTargetedValue<{ text: string; images?: ImageContent[] }>>>;
-	setSessionRuntimeModel: (target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string) => Promise<SessionCommandResult<SessionTargetedValue<SessionModelPreference>>>;
+	setSessionRuntimeModel: (target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string) => Promise<SessionCommandResult<SessionTargetedValue<SessionRuntimeModelSelection>>>;
 	setSessionRuntimeThinking: (target: SessionRuntimeTarget, level: string) => Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>;
 	setSessionRuntimePermission: (target: SessionRuntimeTarget, preset: string) => Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>;
 	cloneSessionRuntime: (target: SessionRuntimeTarget) => Promise<

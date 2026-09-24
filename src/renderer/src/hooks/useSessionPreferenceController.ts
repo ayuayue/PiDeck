@@ -1,6 +1,6 @@
 import { useStore } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AvailableModel, ModelListReport, SessionModelPreference, SessionRuntimeTarget } from "../../../shared/types";
+import type { AvailableModel, ModelListReport, SessionRuntimeModelSelection, SessionRuntimeTarget } from "../../../shared/types";
 import { createSessionModelPreference } from "../../../shared/modelDisplayName";
 import { currentSessionIdAtom, sessionRuntimeByIdAtom } from "../atoms";
 import { useSessionPreferenceState } from "./useSessionPreferenceState";
@@ -120,12 +120,13 @@ export function useSessionPreferenceController(options: {
 	const recordRef = useRef(record);
 	recordRef.current = record;
 
-	function writeSelectedModelToState(model: SessionModelPreference) {
+	function writeSelectedModelToState(model: SessionRuntimeModelSelection) {
 		const current = recordRef.current;
 		if (!current) return;
 		state.upsertSession({
 			...current,
-			model,
+			model: createSessionModelPreference(model.provider, model.modelId, model.modelName),
+			...(model.thinkingLevel !== undefined ? { thinkingLevel: model.thinkingLevel } : {}),
 			updatedAt: Date.now(),
 		});
 	}
@@ -196,7 +197,7 @@ export function useSessionPreferenceController(options: {
 		sessionId,
 		runtime,
 		modelPending,
-		applySelectedModel: (model) => writeSelectedModelToState(createSessionModelPreference(model.provider, model.modelId, model.modelName)),
+		applySelectedModel: (model) => writeSelectedModelToState(model),
 		clearPending: () => state.setModelPending(undefined),
 		offerRestart: offerModelRestart,
 	});
@@ -236,15 +237,14 @@ export function useSessionPreferenceController(options: {
 			onApplied();
 			return;
 		}
+		const selected = selectedModelPreference(model);
 		const handle = currentHandle();
 		try {
 			if (handle) {
 				try {
-					const selected = selectedModelPreference(model);
-					// 命令响应只确认成功/失败；底栏立即写入用户点选的本地展示值，不读取
-					// 或合并 runtime get_state 回传。
-					requireSessionCommand(await desktopApi.sessions.setRuntimeModel(handle, selected.provider, selected.modelId, selected.modelName));
-					writeSelectedModelToState(selected);
+					// Pi 返回的模型名与实际生效档位是运行态真值；旧档位不随 set_model 重发。
+					const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeModel(handle, selected.provider, selected.modelId, selected.modelName));
+					writeSelectedModelToState(applied.value);
 					state.setModelPending(undefined);
 				} catch (error) {
 					if (error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_BUSY") {
@@ -308,12 +308,11 @@ export function useSessionPreferenceController(options: {
 		try {
 			if (handle) {
 				try {
-					// 命令响应只确认成功/失败。记录和底栏统一保存用户点选档位，
-					// 不读取或合并 runtime get_state 回传。
-					requireSessionCommand(await desktopApi.sessions.setRuntimeThinking(handle, level));
+					const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeThinking(handle, level));
 					const current = recordRef.current;
 					if (current) {
-						state.upsertSession({ ...current, thinkingLevel: level, updatedAt: Date.now() });
+						// Pi 可能规范化/钳制档位；记录与底栏统一采用实际生效值。
+						state.upsertSession({ ...current, thinkingLevel: applied.value.thinkingLevel, updatedAt: Date.now() });
 					}
 				} catch (error) {
 					// 与模型选择同一策略：运行时不可用时降级为写记录，启动时生效

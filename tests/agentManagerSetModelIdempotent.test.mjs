@@ -10,8 +10,8 @@ const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
  * 历史根因：pi 的 setModel 无条件追加 model_change（值没变也写），而
  * SessionRuntimeCoordinator.applyPreferences 在每次激活/重启都会重放会话偏好。
  * 修复方式已演进为两条独立保证：
- * 1. 选择链路不查询 get_state：命令即事实。PiDeck 选中什么就发什么，展示值来自
- *    用户选择/会话记录快照，而不是运行态回读（本文件锁定该契约）；
+ * 1. AgentManager.setModel/setThinking 只负责发送选择命令，不预读 get_state；SessionRuntimeCoordinator
+ *    在 Pi 接受命令后再读一次有效状态并写回会话记录，避免旧档位覆盖 Pi 的目标模型默认值；
  * 2. 重复偏好由 SessionRuntimeCoordinator.lastAppliedBySession 去重：同一 agent
  *    上同一份偏好不会重放 set_model（见 sessionRuntimeCoordinator.test.mjs 的
  *    「reselecting an already-applied model or thinking level skips duplicate

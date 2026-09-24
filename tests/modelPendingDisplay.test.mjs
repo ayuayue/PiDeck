@@ -108,6 +108,8 @@ test("契约: 运行中优先直接切换模型，后端 busy 时才排到下一
 	assert.match(picker, /isLiveRuntimeStatus\(runtime\?\.status\)/);
 
 	assert.match(picker, /setRuntimeModel/);
+	assert.match(picker, /writeSelectedModelToState\(applied\.value\)/);
+	assert.match(hook, /applySelectedModel\(applied\.value\)/);
 	assert.match(picker, /error\.code === "SESSION_RUNTIME_BUSY"/);
 	assert.match(picker, /pickModelWhileBusy/);
 	assert.match(picker, /listRuntimeModels\(handle\)/);

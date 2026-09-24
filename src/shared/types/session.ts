@@ -110,14 +110,16 @@ export type SessionProxyOverride = {
 	mode: SessionProxyMode;
 };
 
-/**
- * PiDeck-owned selected model preference. `modelName` is the display label selected from
- * the local model catalog; old records may omit it and render with `modelId` instead.
- */
+/** PiDeck 会话记录里的模型名称快照；运行中 Pi 会话写回 Pi 返回的 model.name。 */
 export type SessionModelPreference = {
 	provider: string;
 	modelId: string;
 	modelName?: string;
+};
+
+/** 成功切换后从运行时读回的实际模型与思考档位。 */
+export type SessionRuntimeModelSelection = SessionModelPreference & {
+	thinkingLevel?: string;
 };
 
 export type SessionSummary = {

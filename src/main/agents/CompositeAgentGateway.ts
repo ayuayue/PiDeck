@@ -1,4 +1,21 @@
-import type { AgentBackend, AgentGatewayCapability, AgentRuntimeState, AgentTab, AvailableModel, ChatMessage, CreateAgentInput, ImageContent, RewindCheckpointPage, RewindCheckpointPageParams, RewindRestoreResult, RewindRestoreScope, SendPromptInput, SendPromptResult, SessionUiResponseInput } from "../../shared/types";
+import type {
+	AgentBackend,
+	AgentGatewayCapability,
+	AgentRuntimeState,
+	AgentTab,
+	AvailableModel,
+	ChatMessage,
+	CreateAgentInput,
+	ImageContent,
+	RewindCheckpointPage,
+	RewindCheckpointPageParams,
+	RewindRestoreResult,
+	RewindRestoreScope,
+	SendPromptInput,
+	SendPromptResult,
+	SessionRuntimeModelSelection,
+	SessionUiResponseInput,
+} from "../../shared/types";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
 
 /**
@@ -206,6 +223,10 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 
 	async setModel(agentId: string, provider: string, modelId: string): Promise<unknown> {
 		return this.owner(agentId).setModel(agentId, provider, modelId);
+	}
+
+	async getRuntimeModelThinkingState(agentId: string): Promise<SessionRuntimeModelSelection | undefined> {
+		return this.owner(agentId).getRuntimeModelThinkingState?.(agentId);
 	}
 
 	async setThinking(agentId: string, level: string): Promise<unknown> {

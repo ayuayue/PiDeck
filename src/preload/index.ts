@@ -150,6 +150,7 @@ import type {
 	SessionCommandResult,
 	SessionRuntimeEvent,
 	SessionRuntimeInfo,
+	SessionRuntimeModelSelection,
 	SessionRuntimeReplacement,
 	SessionRuntimeTarget,
 	SessionTargetedValue,
@@ -623,7 +624,7 @@ const api = {
 					}>
 				>
 			>,
-		setRuntimeModel: (target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetModel, target, provider, modelId, modelName) as Promise<SessionCommandResult<SessionTargetedValue<{ provider: string; modelId: string; modelName?: string }>>>,
+		setRuntimeModel: (target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetModel, target, provider, modelId, modelName) as Promise<SessionCommandResult<SessionTargetedValue<SessionRuntimeModelSelection>>>,
 		setRuntimeThinking: (target: SessionRuntimeTarget, level: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetThinking, target, level) as Promise<SessionCommandResult<SessionTargetedValue<{ thinkingLevel: string }>>>,
 		setRuntimePermission: (target: SessionRuntimeTarget, preset: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetPermission, target, preset) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
 		cloneRuntime: (target: SessionRuntimeTarget) =>
