@@ -29,6 +29,8 @@ export type PromptTemplateInfo = {
 	description: string;
 	content: string;
 	argumentHint?: string;
+	scope?: "global" | "project";
+	enabled?: boolean;
 };
 
 /** 从 frontmatter 中提取 argument-hint 元数据 */

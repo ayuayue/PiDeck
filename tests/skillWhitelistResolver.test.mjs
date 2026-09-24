@@ -85,17 +85,16 @@ test("有禁用项时枚举全局/项目技能并剔除禁用项", () => {
 	}
 });
 
-test("frontmatter 的 disable-model-invocation（老版禁用语义）同样被排除", () => {
+test("frontmatter disable-model-invocation stays available through the manual slash command", () => {
 	const { resolveEnabledSkillPaths } = loadResolverModule();
 	const { root, home, agentDir, cwd } = setupFixtures();
 	try {
 		skillMd(join(agentDir, "skills", "frontmatter-disabled"), "frontmatter-disabled", "disable-model-invocation: true\n");
 		skillMd(join(agentDir, "skills", "normal"), "normal");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
-		// 无 settings 禁用但 frontmatter 禁用 → 仍启用白名单且排除该技能
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["missing"] });
 		assert.ok(result);
-		same(result, [join(agentDir, "skills", "normal", "SKILL.md")]);
+		same(result, [join(agentDir, "skills", "frontmatter-disabled", "SKILL.md"), join(agentDir, "skills", "normal", "SKILL.md")]);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -206,10 +205,9 @@ test("settings.skills 的 override patterns：! 排除、+ 强制包含、- 强�
 		skillMd(join(agentDir, "skills", "beta-tool"), "beta-tool");
 		skillMd(join(agentDir, "skills", "kept-skill"), "kept-skill");
 		put(".pi/agent/settings.json", JSON.stringify({ skills: ["!beta-tool", "+skills/kept-skill", "-skills/kept-skill"] }));
-		// 触发白名单：禁用任一技能（frontmatter 禁用也可）
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		// beta-tool 被 ! 排除；kept-skill 被 + 强制包含后又被 - 强制排除（force-exclude 最后判定）
 		same(result, []);
@@ -224,9 +222,9 @@ test("override patterns 的 + 强制包含覆盖 ! 排除", () => {
 	try {
 		skillMd(join(agentDir, "skills", "beta-tool"), "beta-tool");
 		put(".pi/agent/settings.json", JSON.stringify({ skills: ["!beta-tool", "+skills/beta-tool"] }));
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		same(result, [join(agentDir, "skills", "beta-tool", "SKILL.md")]);
 	} finally {
@@ -242,9 +240,9 @@ test("packages 对象条目 skills 空数组 = 该包全部技能禁用", () => 
 		skillMd(join(pkgDir, "skills", "pack-skill"), "pack-skill");
 		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "skill-pack" }), "utf8");
 		put(".pi/agent/settings.json", JSON.stringify({ packages: [{ source: "npm:skill-pack", skills: [] }] }));
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		same(result, []);
 	} finally {
@@ -261,9 +259,9 @@ test("packages 对象条目 skills patterns 只注入匹配的技能", () => {
 		skillMd(join(pkgDir, "skills", "beta-skill"), "beta-skill");
 		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "skill-pack" }), "utf8");
 		put(".pi/agent/settings.json", JSON.stringify({ packages: [{ source: "npm:skill-pack", skills: ["alpha-*"] }] }));
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		same(result, [join(pkgDir, "skills", "alpha-skill", "SKILL.md")]);
 	} finally {
@@ -287,9 +285,9 @@ test("package object without a skill filter falls back only when the manifest om
 				packages: [{ source: "npm:fallback-pack" }, { source: "npm:empty-pack" }],
 			}),
 		);
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		same(result, [join(fallbackPkg, "skills", "fallback-skill", "SKILL.md")]);
 	} finally {
@@ -312,9 +310,9 @@ test("项目 autoload:false package 作为全局包的 delta 覆盖", () => {
 				packages: [{ source: "npm:skill-pack", skills: ["!skills/beta-*"], autoload: false }],
 			}),
 		);
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		same(result, [join(pkgDir, "skills", "alpha-skill", "SKILL.md")]);
 	} finally {
@@ -331,9 +329,9 @@ test("manifest pi.skills 声明的 patterns 过滤生效（! 排除）", () => {
 		skillMd(join(pkgDir, "custom", "beta-skill"), "beta-skill");
 		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "skill-pack", pi: { skills: ["custom/alpha-skill", "!custom/beta-skill"] } }), "utf8");
 		put(".pi/agent/settings.json", JSON.stringify({ packages: ["npm:skill-pack"] }));
-		skillMd(join(agentDir, "skills", "trigger"), "trigger", "disable-model-invocation: true\n");
+		skillMd(join(agentDir, "skills", "trigger"), "trigger");
 
-		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: [] });
+		const result = resolveEnabledSkillPaths({ agentHomeDir: home, cwd, disabledNames: ["trigger"] });
 		assert.ok(result);
 		same(result, [join(pkgDir, "custom", "alpha-skill", "SKILL.md")]);
 	} finally {
@@ -494,7 +492,7 @@ test("additionalAgentHomeDirs：WSL 家目录的 ~/.pi/agent/skills 与 ~/.agent
 	}
 });
 
-test("additionalAgentHomeDirs：PiDeck 禁用名与 frontmatter 禁用对 WSL 家目录技能同样生效", () => {
+test("additionalAgentHomeDirs: PiDeck disabled names filter WSL skills while user-only skills stay loaded", () => {
 	const { resolveEnabledSkillPaths } = loadResolverModule();
 	const { root, home, cwd } = setupFixtures();
 	const wsl = setupWslHome(root, "wsl-home");
@@ -510,7 +508,7 @@ test("additionalAgentHomeDirs：PiDeck 禁用名与 frontmatter 禁用对 WSL �
 			additionalAgentHomeDirs: [wsl.home],
 		});
 		assert.ok(result);
-		same(result, [join(wsl.home, ".agents", "skills", "wsl-kept", "SKILL.md")]);
+		same(result, [join(wsl.home, ".agents", "skills", "wsl-frontmatter-off", "SKILL.md"), join(wsl.home, ".agents", "skills", "wsl-kept", "SKILL.md")]);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

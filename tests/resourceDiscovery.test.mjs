@@ -26,7 +26,7 @@ test("discoverSkills covers packages, explicit settings paths, and ancestor .age
 		skillPackage(root, packageRoot, "pkg-skill");
 		put(join(explicitSkillDir, "custom-skill", "SKILL.md"), "---\nname: custom-skill\ndescription: custom description\n---\n\n# custom-skill\n");
 		// Ancestor .agents/skills (parent of the project cwd).
-		put(join(root, ".agents", "skills", "ancestor-skill", "SKILL.md"), "---\nname: ancestor-skill\ndescription: ancestor description\n---\n\n# ancestor-skill\n");
+		put(join(root, ".agents", "skills", "ancestor-skill", "SKILL.md"), "---\nname: ancestor-skill\ndescription: ancestor description\ndisable-model-invocation: true\n---\n\n# ancestor-skill\n");
 		put(
 			join(agentDir, "settings.json"),
 			JSON.stringify({
@@ -52,10 +52,30 @@ test("discoverSkills covers packages, explicit settings paths, and ancestor .age
 		assert.equal(byName.get("pkg-skill").sourceId, "package-user");
 		assert.equal(byName.get("custom-skill").sourceId, "settings-user");
 		assert.equal(byName.get("ancestor-skill").sourceId, "ancestor-agents");
+		assert.equal(byName.get("ancestor-skill").userOnly, true);
+		assert.equal(byName.get("ancestor-skill").enabled, true);
 		for (const skill of skills) {
 			assert.equal(skill.managed, true);
 			assert.equal(skill.enabled, true);
 		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("discoverSkills keeps disable-model-invocation as user-only rather than PiDeck disabled", () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-discovery-user-only-"));
+	try {
+		const home = join(root, "home");
+		const skillDir = join(home, ".pi", "agent", "skills", "manual-only");
+		const skillPath = join(skillDir, "SKILL.md");
+		put(skillPath, "---\nname: manual-only\ndisable-model-invocation: true\n---\n\n# manual-only\n");
+		put(join(home, ".pi", "agent", "settings.json"), JSON.stringify({ skills: ["skills/manual-only"] }));
+		const { discoverSkills } = loadTsCommonJs("src/main/resourceDiscovery.ts");
+		const skills = discoverSkills({ agentHomeDir: home, includeProjectResources: false });
+		assert.equal(skills.length, 1);
+		assert.equal(skills[0].userOnly, true);
+		assert.equal(skills[0].enabled, true);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -125,6 +145,46 @@ test("discovery respects disabled lists and includeProjectResources=false", () =
 			disabledSkillNames: [],
 		});
 		assert.equal(Array.from(excludedProject).filter((skill) => skill.path.startsWith(root)).length, 1);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("PiDeck discovery applies global and project disable states only to their own scopes", () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-discovery-scopes-"));
+	try {
+		const home = join(root, "home");
+		const agentDir = join(home, ".pi", "agent");
+		const projectDir = join(root, "project");
+		const skillName = "same-name";
+		const promptName = "same-prompt";
+		put(join(root, "global-skills", skillName, "SKILL.md"), `---\nname: ${skillName}\n---\n`);
+		put(join(projectDir, ".pi", "project-skills", skillName, "SKILL.md"), `---\nname: ${skillName}\n---\n`);
+		put(join(root, "global-prompts", `${promptName}.md`), "global prompt");
+		put(join(projectDir, ".pi", "project-prompts", `${promptName}.md`), "project prompt");
+		put(join(agentDir, "settings.json"), JSON.stringify({ skills: [join(root, "global-skills")], prompts: [join(root, "global-prompts")] }));
+		put(join(projectDir, ".pi", "settings.json"), JSON.stringify({ skills: ["project-skills"], prompts: ["project-prompts"] }));
+		const { discoverSkills, discoverPrompts } = loadTsCommonJs("src/main/resourceDiscovery.ts");
+
+		const globalDisabled = {
+			agentHomeDir: home,
+			cwd: projectDir,
+			includeProjectResources: true,
+			disabledSkillNames: [skillName],
+			disabledPromptNames: [promptName],
+		};
+		const skillsWithGlobalDisabled = discoverSkills(globalDisabled);
+		assert.equal(skillsWithGlobalDisabled.find((skill) => skill.sourceId === "settings-user")?.enabled, false);
+		assert.equal(skillsWithGlobalDisabled.find((skill) => skill.sourceId === "settings-project")?.enabled, true);
+		const promptsWithGlobalDisabled = discoverPrompts(globalDisabled);
+		assert.equal(promptsWithGlobalDisabled.find((prompt) => prompt.sourceId === "settings-user")?.enabled, false);
+		assert.equal(promptsWithGlobalDisabled.find((prompt) => prompt.sourceId === "settings-project")?.enabled, true);
+
+		const projectDisabled = { agentHomeDir: home, cwd: projectDir, includeProjectResources: true, disabledProjectSkillNames: [skillName], disabledProjectPromptNames: [promptName] };
+		assert.equal(discoverSkills(projectDisabled).find((skill) => skill.sourceId === "settings-user")?.enabled, true);
+		assert.equal(discoverSkills(projectDisabled).find((skill) => skill.sourceId === "settings-project")?.enabled, false);
+		assert.equal(discoverPrompts(projectDisabled).find((prompt) => prompt.sourceId === "settings-user")?.enabled, true);
+		assert.equal(discoverPrompts(projectDisabled).find((prompt) => prompt.sourceId === "settings-project")?.enabled, false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

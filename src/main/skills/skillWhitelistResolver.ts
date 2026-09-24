@@ -51,7 +51,7 @@ export function resolveEnabledSkillPaths(options: SkillWhitelistResolverOptions)
 	const globalDisabledKeys = new Set((options.disabledNames ?? []).map((name) => name.toLowerCase()));
 	const projectDisabledKeys = new Set(readStringArray(projectSettings, "disabledSkills").map((name) => name.toLowerCase()));
 	const inheritedDisabledKeys = new Set(includeProjectResources ? readProjectResourceOverrides(cwd).disabledGlobalSkills : []);
-	// 扫描过程中发现的 PiDeck 禁用/frontmatter 排除项计数：无任何禁用时返回 null（白名单关闭）。
+	// 扫描过程中发现的 PiDeck 显式禁用项计数：无任何禁用时返回 null（白名单关闭）。
 	const excluded = { count: 0 };
 	const enabledForScope = (skillFile: string, disabledKeys: Set<string>, globalSourceId?: GlobalSkillSourceId) => {
 		const enabled = isEnabledSkill(skillFile, disabledKeys, globalSourceId, inheritedDisabledKeys);
@@ -123,7 +123,7 @@ export function resolveEnabledSkillPaths(options: SkillWhitelistResolverOptions)
 		if (enabled) addPath(resource.path);
 	}
 
-	// 无任何禁用（settings ∪ 项目继承覆盖 ∪ frontmatter）→ 白名单关闭，pi 默认发现全部技能。
+	// 无任何 PiDeck 禁用（settings ∪ 项目继承覆盖）→ 白名单关闭，pi 默认发现全部技能。
 	if (includeProjectResources && globalDisabledKeys.size === 0 && projectDisabledKeys.size === 0 && inheritedDisabledKeys.size === 0 && excluded.count === 0) {
 		return null;
 	}
@@ -147,8 +147,8 @@ export type SkillWhitelistResolverOptions = {
 	disabledNames: string[];
 };
 
-/** 读取 frontmatter 中的技能名与 disable-model-invocation（与 SkillManager.parseFrontmatter 同规则）。 */
-function readSkillMeta(skillFile: string): { name: string; modelInvocationDisabled: boolean } {
+/** Reads the skill name; invocation policy remains Pi runtime's responsibility. */
+function readSkillMeta(skillFile: string): { name: string } {
 	try {
 		const raw = readFileSync(skillFile, "utf8");
 		const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
@@ -165,24 +165,19 @@ function readSkillMeta(skillFile: string): { name: string; modelInvocationDisabl
 				if (key) fields[key] = value;
 			}
 		}
-		return {
-			name: String(fields.name ?? "").trim(),
-			modelInvocationDisabled: fields["disable-model-invocation"] === "true",
-		};
+		return { name: String(fields.name ?? "").trim() };
 	} catch {
-		return { name: "", modelInvocationDisabled: false };
+		return { name: "" };
 	}
 }
 
 /**
- * 技能文件是否应注入白名单：frontmatter 无 name（读不到，注入后由 pi 校验丢弃）视为
- * 未禁用；显式禁用列表（PiDeck settings ∪ 项目 settings）或 frontmatter 的
- * disable-model-invocation（老版 PiDeck 禁用语义，仅阻止自动调用）都排除——
- * 后者一并排除让旧禁用状态升级后直接变为「不加载」，无需用户重新操作。
+ * Skill enabled state only reflects PiDeck's explicit disabled lists and inherited overrides.
+ * Pi's `disable-model-invocation` is intentionally passed through unchanged: the skill remains
+ * loaded and available to the user via `/skill:name`, while Pi suppresses automatic invocation.
  */
 function isEnabledSkill(skillFile: string, disabledKeys: Set<string>, globalSourceId?: GlobalSkillSourceId, inheritedDisabledKeys: ReadonlySet<string> = new Set()): boolean {
-	const { name, modelInvocationDisabled } = readSkillMeta(skillFile);
-	if (modelInvocationDisabled) return false;
+	const { name } = readSkillMeta(skillFile);
 	if (!name) return true;
 	if (disabledKeys.has(name.toLowerCase())) return false;
 	return !(globalSourceId && inheritedDisabledKeys.has(globalSkillOverrideKey(globalSourceId, name)));

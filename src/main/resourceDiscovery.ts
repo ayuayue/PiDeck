@@ -27,6 +27,8 @@ export type DiscoveredSkillResource = {
 	sourceId: ResourceDiscoverySourceId;
 	sourceLabel: string;
 	description: string;
+	/** Pi 禁止模型自动调用，但用户仍可通过 /skill:name 手动调用。 */
+	userOnly: boolean;
 	/** 是否可用（排除 PiDeck settings 禁用列表后）。 */
 	enabled: boolean;
 	/** 由 package / settings 声明或来自祖先目录：不得当作本地文件直接编辑。 */
@@ -63,10 +65,16 @@ export type ResourceDiscoveryOptions = {
 	cwd?: string;
 	/** False when the trust decision rejects project resources. */
 	includeProjectResources?: boolean;
-	/** PiDeck settings 中禁用的全局技能名（比较时小写）。 */
+	/** PiDeck 全局 settings 中禁用的全局技能名（比较时小写）。 */
 	disabledSkillNames?: string[];
-	/** PiDeck settings 中禁用的全局模板名（比较时小写）。 */
+	/** PiDeck 项目 .pi/settings.json 中完全禁用的项目技能名。 */
+	disabledProjectSkillNames?: string[];
+	/** PiDeck 全局 settings 中禁用的全局模板名（比较时小写）。 */
 	disabledPromptNames?: string[];
+	/** PiDeck 项目 .pi/settings.json 中禁用的项目模板名。 */
+	disabledProjectPromptNames?: string[];
+	/** 当前项目禁用的全局模板名。 */
+	disabledGlobalPromptNames?: string[];
 	/** PiDeck settings 中禁用的扩展条目（scope+source）。 */
 	disabledExtensions?: { scope: "user" | "project" | "unknown"; source: string }[];
 };
@@ -80,7 +88,10 @@ export function discoverSkills(options: ResourceDiscoveryOptions): DiscoveredSki
 
 	const userSettings = readSettingsObject(join(agentDir, "settings.json"));
 	const projectSettings = includeProjectResources ? readSettingsObject(join(projectBaseDir, "settings.json")) : {};
-	const disabledKeys = new Set((options.disabledSkillNames ?? []).map((name) => name.toLowerCase()));
+	const disabledGlobalKeys = new Set((options.disabledSkillNames ?? []).map((name) => name.toLowerCase()));
+	const disabledProjectKeys = new Set((options.disabledProjectSkillNames ?? []).map((name) => name.toLowerCase()));
+	const isGlobalSkillEnabled = (name: string) => !disabledGlobalKeys.has(name.toLowerCase());
+	const isProjectSkillEnabled = (name: string) => !disabledProjectKeys.has(name.toLowerCase());
 
 	const result: DiscoveredSkillResource[] = [];
 	const seen = new Set<string>();
@@ -103,7 +114,8 @@ export function discoverSkills(options: ResourceDiscoveryOptions): DiscoveredSki
 			sourceId: "settings-user",
 			sourceLabel: "settings.skills",
 			description: readSkillDescription(item),
-			enabled: !disabledKeys.has(name.toLowerCase()),
+			userOnly: readSkillUserOnly(item),
+			enabled: isGlobalSkillEnabled(name),
 			managed: true,
 		});
 	}
@@ -118,7 +130,8 @@ export function discoverSkills(options: ResourceDiscoveryOptions): DiscoveredSki
 				sourceId: "settings-project",
 				sourceLabel: "settings.skills",
 				description: readSkillDescription(item),
-				enabled: !disabledKeys.has(name.toLowerCase()),
+				userOnly: readSkillUserOnly(item),
+				enabled: isProjectSkillEnabled(name),
 				managed: true,
 			});
 		}
@@ -136,7 +149,8 @@ export function discoverSkills(options: ResourceDiscoveryOptions): DiscoveredSki
 				sourceId: "ancestor-agents",
 				sourceLabel: ".agents/skills",
 				description: readSkillDescription(item),
-				enabled: true,
+				userOnly: readSkillUserOnly(item),
+				enabled: isProjectSkillEnabled(name),
 				managed: true,
 			});
 		}
@@ -160,7 +174,8 @@ export function discoverSkills(options: ResourceDiscoveryOptions): DiscoveredSki
 			sourceId: resource.scope === "project" ? "package-project" : "package-user",
 			sourceLabel: resource.scope === "project" ? "package (project)" : "package (user)",
 			description: readSkillDescription(resource.path),
-			enabled: resource.enabled && !disabledKeys.has(name.toLowerCase()),
+			userOnly: readSkillUserOnly(resource.path),
+			enabled: resource.enabled && (resource.scope === "project" ? isProjectSkillEnabled(name) : isGlobalSkillEnabled(name)),
 			managed: true,
 		});
 	}
@@ -177,7 +192,14 @@ export function discoverPrompts(options: ResourceDiscoveryOptions): DiscoveredPr
 
 	const userSettings = readSettingsObject(join(agentDir, "settings.json"));
 	const projectSettings = includeProjectResources ? readSettingsObject(join(projectBaseDir, "settings.json")) : {};
-	const disabledKeys = new Set((options.disabledPromptNames ?? []).map((name) => name.toLowerCase()));
+	const disabledGlobalKeys = new Set((options.disabledPromptNames ?? []).map((name) => name.toLowerCase()));
+	const disabledProjectKeys = new Set((options.disabledProjectPromptNames ?? []).map((name) => name.toLowerCase()));
+	const disabledInheritedKeys = new Set((options.disabledGlobalPromptNames ?? []).map((name) => name.toLowerCase()));
+	const isGlobalPromptEnabled = (name: string) => {
+		const key = name.toLowerCase();
+		return !disabledGlobalKeys.has(key) && !disabledInheritedKeys.has(key);
+	};
+	const isProjectPromptEnabled = (name: string) => !disabledProjectKeys.has(name.toLowerCase());
 
 	const result: DiscoveredPromptResource[] = [];
 	const seen = new Set<string>();
@@ -198,7 +220,7 @@ export function discoverPrompts(options: ResourceDiscoveryOptions): DiscoveredPr
 			sourceId: "settings-user",
 			sourceLabel: "settings.prompts",
 			description: readPromptDescription(item),
-			enabled: !disabledKeys.has(name.toLowerCase()),
+			enabled: isGlobalPromptEnabled(name),
 			managed: true,
 		});
 	}
@@ -211,7 +233,7 @@ export function discoverPrompts(options: ResourceDiscoveryOptions): DiscoveredPr
 				sourceId: "settings-project",
 				sourceLabel: "settings.prompts",
 				description: readPromptDescription(item),
-				enabled: !disabledKeys.has(name.toLowerCase()),
+				enabled: isProjectPromptEnabled(name),
 				managed: true,
 			});
 		}
@@ -232,7 +254,7 @@ export function discoverPrompts(options: ResourceDiscoveryOptions): DiscoveredPr
 			sourceId: resource.scope === "project" ? "package-project" : "package-user",
 			sourceLabel: resource.scope === "project" ? "package (project)" : "package (user)",
 			description: readPromptDescription(resource.path),
-			enabled: resource.enabled && !disabledKeys.has(name.toLowerCase()),
+			enabled: resource.enabled && (resource.scope === "project" ? isProjectPromptEnabled(name) : isGlobalPromptEnabled(name)),
 			managed: true,
 		});
 	}
@@ -334,6 +356,27 @@ function readSkillName(path: string): string {
 		// fall through to directory-name fallback
 	}
 	return basename(dirname(path));
+}
+
+function readSkillUserOnly(path: string): boolean {
+	try {
+		const raw = readFileSync(path, "utf8");
+		const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
+		if (!match) return false;
+		for (const line of match[1].split(/\r?\n/)) {
+			const index = line.indexOf(":");
+			if (index === -1 || line.slice(0, index).trim() !== "disable-model-invocation") continue;
+			return (
+				line
+					.slice(index + 1)
+					.trim()
+					.replace(/^['"]|['"]$/g, "") === "true"
+			);
+		}
+	} catch {
+		// Unreadable skill: retain it as an ordinary user-invocable skill candidate.
+	}
+	return false;
 }
 
 function readSkillDescription(path: string): string {

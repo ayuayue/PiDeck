@@ -12,8 +12,8 @@ const { mainProcessT } = loadTsCommonJs("src/shared/i18n/mainProcessCopy.ts");
 
 const en = (key, params) => mainProcessT("en-US", key, params);
 
-function managerFor(project) {
-	return new ProjectResourceManager((projectId) => (project && project.id === projectId ? project : undefined), en);
+function managerFor(project, discoveryDependencies = {}) {
+	return new ProjectResourceManager((projectId) => (project && project.id === projectId ? project : undefined), en, undefined, discoveryDependencies);
 }
 
 const chatProject = {
@@ -37,6 +37,47 @@ test("list on a chat project returns empty resources instead of throwing", async
 		disabledGlobalSkills: [],
 		disabledGlobalPrompts: [],
 	});
+});
+
+test("discovery supports draft loading without a project and chat sessions", async () => {
+	const manager = managerFor(chatProject);
+	for (const result of [await manager.discovery(), await manager.discovery("builtin-chat")]) {
+		assert.ok(Array.isArray(result.skills));
+		assert.ok(Array.isArray(result.prompts));
+		assert.ok(Array.isArray(result.extensions));
+	}
+});
+
+test("discovery omits project resources after trust is denied and applies project disabled lists", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-prm-discovery-trust-"));
+	try {
+		const skillName = `draft-skill-${Date.now()}`;
+		const project = { id: "p1", name: "P1", path: root, lastOpenedAt: 1 };
+		const piDir = join(root, ".pi");
+		mkdirSync(join(piDir, "custom-skill"), { recursive: true });
+		writeFileSync(join(piDir, "custom-skill", "SKILL.md"), `---\nname: ${skillName}\ndescription: local skill\n---\n\n# ${skillName}\n`);
+		writeFileSync(join(piDir, "settings.json"), JSON.stringify({ skills: ["custom-skill"], disabledSkills: [skillName] }));
+
+		const unresolved = await managerFor(project).discovery("p1");
+		assert.equal(unresolved.projectResourcesAllowed, false);
+		assert.equal(
+			unresolved.skills.some((skill) => skill.name === skillName),
+			false,
+		);
+
+		const denied = await managerFor(project, { getProjectTrustDecision: async () => false }).discovery("p1");
+		assert.equal(denied.projectResourcesAllowed, false);
+		assert.equal(
+			denied.skills.some((skill) => skill.name === skillName),
+			false,
+		);
+
+		const allowed = await managerFor(project, { getProjectTrustDecision: async () => true }).discovery("p1");
+		assert.equal(allowed.projectResourcesAllowed, true);
+		assert.equal(allowed.skills.find((skill) => skill.name === skillName)?.enabled, false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test("list on an unknown project still throws notFound", async () => {

@@ -18,6 +18,8 @@ export type PiSkillSummary = {
 	sourceId: PiSkillLocation["id"];
 	sourceLabel: string;
 	type: "directory" | "markdown";
+	/** Pi 禁用模型自动调用时仍可由用户通过 /skill:name 手动调用。 */
+	userOnly?: boolean;
 	enabled: boolean;
 	valid: boolean;
 	warnings: string[];

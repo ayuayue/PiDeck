@@ -313,18 +313,26 @@ test("installTemplate 保留用户对内置技能的禁用标记（重启覆盖�
 		const first = await manager.installUsageProbeTemplate();
 		assert.equal(first.success, true);
 		const target = join(home, ".pi", "agent", "skills", "usage-probe", "SKILL.md");
-		// 2. 用户在技能页禁用（toggle 写 disable-model-invocation 到 frontmatter）
+		const settings = { disabledSkills: [] };
+		manager.configureSettings(
+			() => settings,
+			(patch) => {
+				Object.assign(settings, patch);
+				return Promise.resolve(settings);
+			},
+		);
+		// 2. 用户在技能页禁用：PiDeck settings 禁用列表是全禁用的唯一状态源。
 		await manager.toggle(target, false);
-		assert.match(readFileSync(target, "utf8"), /disable-model-invocation: true/);
+		assert.deepEqual(settings.disabledSkills, ["usage-probe"]);
 		// 3. 模拟重启：main/index.ts 启动时 fire-and-forget 再次安装模板
 		const second = await manager.installUsageProbeTemplate();
 		assert.equal(second.success, true);
-		// 4. 禁用标记必须保留，重新扫描后该技能仍为禁用态
-		assert.match(readFileSync(target, "utf8"), /disable-model-invocation: true/);
+		// 4. PiDeck settings 禁用列表在模板覆盖后仍保留。
 		const { skills } = await manager.list();
 		const skill = skills.find((item) => item.path === target);
 		assert.ok(skill);
 		assert.equal(skill.enabled, false);
+		assert.deepEqual(settings.disabledSkills, ["usage-probe"]);
 	});
 });
 
@@ -379,23 +387,23 @@ test("toggle 同步持久化 PiDeck settings 禁用列表（白名单模式依�
 			},
 		);
 
-		// 禁用：settings 列表 + frontmatter 双写
+		// 禁用：只有 PiDeck settings 列表记录全禁用，不改写 Pi 的用户手动调用标记。
 		await manager.toggle(target, false);
 		assert.deepEqual(settings.disabledSkills, ["My-Skill"]);
-		assert.match(readFileSync(target, "utf8"), /disable-model-invocation: true/);
+		assert.doesNotMatch(readFileSync(target, "utf8"), /disable-model-invocation: true/);
 		const afterDisable = await manager.list();
 		assert.equal(afterDisable.skills.find((s) => s.path === target).enabled, false);
 
-		// 启用：从 settings 列表移除 + frontmatter 清除（名称大小写不敏感去重）
+		// 启用：从 settings 列表移除（名称大小写不敏感去重）；frontmatter 状态独立保留。
 		await manager.toggle(target, true);
 		assert.deepEqual(settings.disabledSkills, []);
-		assert.match(readFileSync(target, "utf8"), /disable-model-invocation: false/);
+		assert.doesNotMatch(readFileSync(target, "utf8"), /disable-model-invocation: true/);
 		const afterEnable = await manager.list();
 		assert.equal(afterEnable.skills.find((s) => s.path === target).enabled, true);
 	});
 });
 
-test("list 合并 settings 禁用列表：未配置 settings 的旧 frontmatter 禁用仍显示为禁用", async () => {
+test("list treats legacy disable-model-invocation as user-only, not a PiDeck disabled setting", async () => {
 	await withTemporaryHome(async (home) => {
 		const { SkillManager } = loadSkillManagerModule();
 		const manager = new SkillManager(home);
@@ -415,8 +423,9 @@ test("list 合并 settings 禁用列表：未配置 settings 的旧 frontmatter 
 		);
 		const result = await manager.list();
 		const skill = result.skills.find((s) => s.path === target);
-		assert.equal(skill.enabled, false);
-		// 未触发任何 settings 写入
+		assert.equal(skill.enabled, true);
+		assert.equal(skill.userOnly, true);
+		// Pi frontmatter 标记不持久化为 PiDeck settings 全禁用状态。
 		assert.deepEqual(settings.disabledSkills, []);
 	});
 });

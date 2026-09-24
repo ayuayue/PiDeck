@@ -105,7 +105,7 @@ export function registerProjectResourceIpc({ appLogger, projectResourceManager }
 		return result;
 	});
 	ipcMain.handle(ipcChannels.projectResourcesDiscovery, async (_event, projectId: unknown) => {
-		if (!nonEmptyString(projectId, 256)) throw new Error("Invalid project id.");
-		return projectResourceManager.discovery(projectId.trim());
+		if (projectId !== undefined && !nonEmptyString(projectId, 256)) throw new Error("Invalid project id.");
+		return projectResourceManager.discovery(typeof projectId === "string" ? projectId.trim() : undefined);
 	});
 }

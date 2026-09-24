@@ -34,7 +34,13 @@ export function emptyProjectResourceData(): ProjectResourceListResult {
 }
 
 export function emptyDiscoveryData(): ProjectResourceDiscoveryResult {
-	return { skills: [], prompts: [], extensions: [] };
+	return {
+		projectResourcesAllowed: false,
+		overrides: { disabledGlobalExtensions: [], disabledGlobalSkills: [], disabledGlobalPrompts: [] },
+		skills: [],
+		prompts: [],
+		extensions: [],
+	};
 }
 
 /** Discovery rows split into the project group vs the inherited global group. */

@@ -433,7 +433,7 @@ export function createPreviewApi(): PiDesktopApi {
 				valid: true,
 				warnings: [],
 			}),
-			discovery: async () => ({ skills: [], prompts: [], extensions: [] }),
+			discovery: async () => ({ projectResourcesAllowed: false, overrides: { disabledGlobalExtensions: [], disabledGlobalSkills: [], disabledGlobalPrompts: [] }, skills: [], prompts: [], extensions: [] }),
 		},
 		files: {
 			list: async (_projectId, options) => {

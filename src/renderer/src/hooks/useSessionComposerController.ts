@@ -65,6 +65,7 @@ import { resolveBackendSwitchDefaults } from "../utils/backendSwitchDefaults";
 import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeBackendPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
 import { showNotice } from "../utils/notice";
 import { requireSessionCommand, toSessionRuntimeTarget } from "../utils/sessionCommands";
+import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, type DraftResourceCommandSnapshot } from "../utils/draftResourceCommands";
 import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTimelineController";
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
 import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
@@ -414,6 +415,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const [imageGenOutputFormat, setImageGenOutputFormatState] = useState(DEFAULT_IMAGE_GEN_OUTPUT_FORMAT);
 	const [picker, setPicker] = useState<ComposerPickerKind | null>(null);
 	const [commands, setCommands] = useState<PiCommand[]>([]);
+	const [draftResourceCommandSnapshot, setDraftResourceCommandSnapshot] = useState<DraftResourceCommandSnapshot>({ projectId: undefined, commands: [] });
 	const [files, setFiles] = useState<FileTreeNode[]>([]);
 	// @ 引用懒加载状态：已按 maxDepth 0 拉过子项的目录绝对路径（防重复请求），
 	// 与在途加载集合成对出现；目录不在任一集合才能发新请求。
@@ -763,6 +765,39 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		};
 	}, [isDshBackend, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
 
+	// Draft sessions have no Pi process to ask for get_commands. Discover the same local
+	// skills/prompts Pi will load; as soon as a runtime exists, its RPC list is authoritative.
+	useEffect(() => {
+		if (isDshBackend || runtime?.agentId) {
+			setDraftResourceCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+			return;
+		}
+		let current = true;
+		setDraftResourceCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+		const globalSkills = desktopApi.skills
+			.list()
+			.then((result) => result.skills)
+			.catch(() => []);
+		const projectSkills = effectiveProjectId ? desktopApi.projectResources.list(effectiveProjectId).catch(() => undefined) : Promise.resolve(undefined);
+		const discovered = desktopApi.projectResources.discovery(effectiveProjectId ?? undefined).catch(() => ({ projectResourcesAllowed: false, overrides: { disabledGlobalExtensions: [], disabledGlobalSkills: [], disabledGlobalPrompts: [] }, skills: [], prompts: [], extensions: [] }));
+		void Promise.all([globalSkills, projectSkills, discovered]).then(([global, project, resources]) => {
+			if (!current) return;
+			const skills = [...(project?.skills ?? []), ...global, ...resources.skills];
+			const prompts = [...templates, ...resources.prompts];
+			setDraftResourceCommandSnapshot({
+				projectId: effectiveProjectId,
+				commands: buildDraftResourceCommands(skills, prompts, {
+					projectResourcesAllowed: resources.projectResourcesAllowed,
+					disabledGlobalSkillKeys: resources.overrides.disabledGlobalSkills,
+					disabledGlobalPromptNames: resources.overrides.disabledGlobalPrompts,
+				}),
+			});
+		});
+		return () => {
+			current = false;
+		};
+	}, [effectiveProjectId, isDshBackend, runtime?.agentId, templates]);
+
 	useEffect(() => {
 		templateRequestGateRef.current.invalidate(templateKey);
 		setTemplateState({ key: templateKey, items: [] });
@@ -783,7 +818,9 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		if (entries.length === 0) return undefined;
 		return new Map(entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]));
 	}, [sessionQuotes]);
-	const suggestionItems = useMemo(() => (suggestionsOpen ? buildSuggestionItems(draft, cursor, commands, flatFiles, projectSessions) : []), [commands, cursor, draft, flatFiles, projectSessions, suggestionsOpen]);
+	const draftResourceCommands = draftResourceCommandsForProject(draftResourceCommandSnapshot, effectiveProjectId);
+	const suggestionCommands = selectComposerSuggestionCommands(isDshBackend, Boolean(runtime?.agentId), commands, draftResourceCommands);
+	const suggestionItems = useMemo(() => (suggestionsOpen ? buildSuggestionItems(draft, cursor, suggestionCommands, flatFiles, projectSessions) : []), [cursor, draft, flatFiles, projectSessions, suggestionCommands, suggestionsOpen]);
 
 	// @ 引用向下钻取：随输入懒加载子目录（maxDepth 0 只拉一层，与文件抽屉同语义）。
 	// 修复 maxDepth 0 化后只能引用到项目根一层（71d27ed1 为保主进程响应把 8 层递归改成

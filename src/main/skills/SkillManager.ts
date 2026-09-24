@@ -267,12 +267,8 @@ export class SkillManager {
 
 	async toggle(skillPath: string, enabled: boolean): Promise<PiSkillSummary> {
 		const skill = await this.findByPath(skillPath);
-		const raw = await readFile(skill.path, "utf8");
-		const next = this.setFrontmatterBoolean(raw, "disable-model-invocation", !enabled);
-		await writeFile(skill.path, next, "utf8");
-		// 同步 PiDeck settings 禁用列表（技能白名单模式 --no-skills/--skill 的依据）。
-		// frontmatter 标记保留：老版本 UI 的禁用状态、手动编辑场景仍以此为准，
-		// 白名单解析器对两者都排除，显示与加载保持一致。
+		// PiDeck enabled 只由其禁用列表控制。Pi 的 disable-model-invocation 仅阻止模型自动调用，
+		// 用户仍可手动 /skill:name，因此作为独立 userOnly 状态展示。
 		if (this.settingsProvider && this.settingsPatcher) {
 			const current = this.settingsProvider().disabledSkills ?? [];
 			const nameKey = skill.name.toLowerCase();
@@ -325,14 +321,11 @@ export class SkillManager {
 			const targetDir = join(this.locations[0].path, skillName);
 			await mkdir(targetDir, { recursive: true });
 			const targetPath = join(targetDir, SKILL_FILE);
-			// 模板覆盖前保留用户禁用状态：PiDeck 技能开关把 disable-model-invocation
-			// 写进这份 SKILL.md 的 frontmatter，无条件覆盖会在每次启动时把用户禁用的
-			// 内置技能重置为启用（「重启后技能全部恢复」bug 的根源）。模板正文仍随
-			// 应用更新同步，仅该状态字段需回迁。
+			// 模板正文随应用更新同步；用户自行设置的 user-only 标记仍需保留。
 			const previous = await readFile(targetPath, "utf8").catch(() => null);
-			const wasDisabled = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
+			const wasUserOnly = previous !== null && this.parseFrontmatter(previous)["disable-model-invocation"] === "true";
 			await writeFile(targetPath, content, "utf8");
-			if (wasDisabled) {
+			if (wasUserOnly) {
 				await writeFile(targetPath, this.setFrontmatterBoolean(content, "disable-model-invocation", true), "utf8");
 			}
 			return { success: true, path: targetPath };
@@ -425,9 +418,9 @@ export class SkillManager {
 			sourceId: location.id,
 			sourceLabel: location.label,
 			type,
-			// 禁用 = PiDeck settings 禁用列表 ∪ frontmatter 标记（老版语义）；两者任一命中
-			// 都视为禁用，与技能白名单解析器的排除规则一致
-			enabled: frontmatter["disable-model-invocation"] !== "true" && !this.isDisabledInSettings(name),
+			// PiDeck 完全禁用保存在 settings.disabledSkills，不改写 Pi 的自动调用语义。
+			userOnly: frontmatter["disable-model-invocation"] === "true",
+			enabled: !this.isDisabledInSettings(name),
 			valid: warnings.length === 0,
 			warnings,
 		};

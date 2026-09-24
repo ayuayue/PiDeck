@@ -3387,6 +3387,17 @@ app
 				}
 				return project.path;
 			},
+			{
+				getProjectTrustDecision: async (project) => {
+					const settings = settingsStore.get();
+					const cwd = process.platform === "win32" && project.environment === "wsl" && settings.wslEnabled && settings.wslDistro ? toWslLinuxPath(project.path, { distro: settings.wslDistro }) : project.path;
+					return configManager.getProjectTrustDecision(cwd);
+				},
+				getGlobalDisabledResourceNames: () => {
+					const settings = settingsStore.get();
+					return { skills: settings.disabledSkills, prompts: settings.disabledPrompts };
+				},
+			},
 		);
 		resourceImportManager = new ResourceImportManager(
 			configManager,

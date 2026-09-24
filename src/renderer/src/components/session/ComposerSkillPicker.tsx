@@ -5,7 +5,7 @@ import { toSkillInvocationToken } from "../../composerBehavior";
 import { t } from "../../i18n";
 import { desktopApi } from "../../desktopApi";
 import { projectByIdAtomFamily } from "../../atoms";
-import type { AgentBackend, DshSkillView, PiSkillSummary } from "../../../../shared/types";
+import type { AgentBackend, DshSkillView, PiSkillSummary, ProjectResourceDiscoveryResult } from "../../../../shared/types";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../ui-shadcn/command";
 import { Button } from "../ui-shadcn/button";
 import { PickerDialog } from "./ComposerComponents";
@@ -21,11 +21,25 @@ type SkillItem = {
 	userOnly?: boolean;
 	/** 来源归属：项目技能或全局技能（仅 pi 后端有意义，用于徽标区分）。 */
 	source?: "project" | "global";
+	/** 来源标识：项目禁用覆盖筛选全局技能时保留稳定 identity。 */
+	sourceId?: string;
 	/** 完整来源路径（徽标 title 提示，如 ~/.pi/agent/skills / .pi/skills）。 */
 	sourceLabel?: string;
 	/** SKILL.md 绝对路径（仅 pi 技能有；DSH 技能由宿主管理，无正文读取通道）。 */
 	path?: string;
 };
+
+function mapDiscoveredSkill(skill: ProjectResourceDiscoveryResult["skills"][number]): SkillItem {
+	const source = skill.sourceId === "settings-project" || skill.sourceId === "package-project" || skill.sourceId === "ancestor-agents" ? "project" : "global";
+	return {
+		name: skill.name,
+		description: skill.description,
+		userOnly: skill.userOnly,
+		source,
+		sourceId: skill.sourceId,
+		sourceLabel: skill.sourceLabel,
+	};
+}
 
 /** 技能详情预览态：正文懒加载（点击眼睛/插入时才读 SKILL.md，列表加载不背文件 IO）。 */
 type SkillDetailState = {
@@ -83,7 +97,9 @@ export function ComposerSkillPicker(props: {
 										.map<SkillItem>((skill: PiSkillSummary) => ({
 											name: skill.name,
 											description: skill.description,
+											userOnly: skill.userOnly,
 											source: "project",
+											sourceId: skill.sourceId,
 											sourceLabel: skill.sourceLabel,
 											path: skill.path,
 										})),
@@ -95,16 +111,25 @@ export function ComposerSkillPicker(props: {
 								.map<SkillItem>((skill) => ({
 									name: skill.name,
 									description: skill.description,
+									userOnly: skill.userOnly,
 									source: "global",
+									sourceId: skill.sourceId,
 									sourceLabel: skill.sourceLabel,
 									path: skill.path,
 								})),
 						),
-					]).then(([projectSkills, globalSkills]) => {
-						// 同名去重（小写不区分）：两边都可见时项目技能优先（当前项目上下文更具体），
-						// 与 pi 实际解析一致地避免同一个名字在面板里出现两次。
+						desktopApi.projectResources.discovery(props.projectId).catch(() => ({ projectResourcesAllowed: false, overrides: { disabledGlobalExtensions: [], disabledGlobalSkills: [], disabledGlobalPrompts: [] }, skills: [], prompts: [], extensions: [] })),
+					]).then(([projectSkills, globalSkills, discovery]) => {
+						const projectResourcesAllowed = discovery.projectResourcesAllowed;
+						const visibleProjectSkills = projectResourcesAllowed ? projectSkills : [];
+						const disabledInheritedSkills = new Set(discovery.overrides.disabledGlobalSkills);
+						const visibleGlobalSkills = globalSkills.filter((skill) => !disabledInheritedSkills.has(`${skill.sourceId}:${skill.name.toLowerCase()}`));
+						const discoveredSkills = discovery.skills.filter((skill) => skill.enabled).map(mapDiscoveredSkill);
+						const discoveredProjectSkills = discoveredSkills.filter((skill) => skill.source === "project");
+						const discoveredGlobalSkills = discoveredSkills.filter((skill) => skill.source === "global");
+						// 同名去重：项目直接目录优先，其次项目 Pi 发现项，再到全局目录。
 						const seen = new Map<string, SkillItem>();
-						for (const skill of [...projectSkills, ...globalSkills]) {
+						for (const skill of [...visibleProjectSkills, ...discoveredProjectSkills, ...visibleGlobalSkills, ...discoveredGlobalSkills]) {
 							const key = skill.name.toLowerCase();
 							const prev = seen.get(key);
 							if (!prev || (skill.source === "project" && prev.source === "global")) {
@@ -134,7 +159,7 @@ export function ComposerSkillPicker(props: {
 		return () => {
 			cancelled = true;
 		};
-	}, [props.backend, props.projectId, props.agentId]);
+	}, [hasProjectResources, isChatSessionProject, props.backend, props.projectId, props.agentId]);
 
 	/** 读技能正文：白名单校验在主进程（只允许全局/项目技能位置），渲染层只传 path。 */
 	function readContent(item: SkillItem): Promise<string | undefined> {

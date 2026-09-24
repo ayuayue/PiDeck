@@ -42,6 +42,10 @@ async function readProjectSettingsForWrite(settingsFile: string, invalidJsonMess
 type ProjectProvider = (projectId: string) => Project | undefined;
 type ProjectPathResolver = (project: Project) => string;
 type ProjectResourceCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
+type ProjectResourceDiscoveryDependencies = {
+	getProjectTrustDecision?: (project: Project) => Promise<boolean | null>;
+	getGlobalDisabledResourceNames?: () => { skills: string[]; prompts: string[] };
+};
 
 /**
  * 管理单个项目目录内的 pi 资源。
@@ -52,6 +56,7 @@ export class ProjectResourceManager {
 		private readonly getProject: ProjectProvider,
 		private readonly translate: ProjectResourceCopy = () => "Project resource operation failed.",
 		private readonly resolveProjectPath: ProjectPathResolver = (project) => project.path,
+		private readonly discoveryDependencies: ProjectResourceDiscoveryDependencies = {},
 	) {}
 
 	/** Windows fs 边界使用主机路径；store 里的 WSL Linux 路径在此转换。 */
@@ -349,9 +354,7 @@ export class ProjectResourceManager {
 		const nextDisabled = disabled.filter((name) => name.toLowerCase() !== nameKey);
 		if (!enabled) nextDisabled.push(skill.name);
 
-		const raw = await readFile(safeSkillPath, "utf8");
-		const next = this.setFrontmatterBoolean(raw, "disable-model-invocation", !enabled);
-		await writeFile(safeSkillPath, next, "utf8");
+		// PiDeck disabledSkills 是完全禁用；Pi 的 frontmatter 只控制模型能否自动调用。
 		settings.disabledSkills = nextDisabled;
 		await mkdir(dirname(settingsFile), { recursive: true });
 		await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
@@ -476,9 +479,9 @@ export class ProjectResourceManager {
 			sourceId: location.id,
 			sourceLabel: location.label,
 			type,
-			// 禁用 = 项目禁用列表 ∪ frontmatter 标记（老版语义，仅阻止自动调用，升级后由
-			// 白名单解析器一并排除，显示与加载保持一致）
-			enabled: frontmatter["disable-model-invocation"] !== "true" && !disabledKeys.has(name.toLowerCase()),
+			// 项目禁用列表代表完全禁用；disable-model-invocation 是 Pi 的独立 user-only 状态。
+			userOnly: frontmatter["disable-model-invocation"] === "true",
+			enabled: !disabledKeys.has(name.toLowerCase()),
 			valid: warnings.length === 0,
 			warnings,
 		};
@@ -591,29 +594,45 @@ export class ProjectResourceManager {
 	 * 只读的运行时资源描述（packages、settings 显式路径、祖先 .agents/skills）。
 	 * 与 pi 0.85 resolver 共用同一发现实现，让管理页能看到 pi 实际会加载的资源。
 	 */
-	async discovery(projectId: string) {
-		const project = this.requireProject(projectId);
-		if (project.kind === "chat") {
-			return {
-				skills: [],
-				prompts: [],
-				extensions: [],
-			};
+	async discovery(projectId?: string) {
+		let cwd: string | undefined;
+		let projectResourcesAllowed = false;
+		let projectSettings: Record<string, unknown> = {};
+		if (projectId) {
+			const project = this.getProject(projectId);
+			if (!project) throw new Error(this.translate("project.notFound"));
+			if (project.kind !== "chat") {
+				const trustDecision = await this.discoveryDependencies.getProjectTrustDecision?.(project);
+				// Drafts have no session-scoped approval yet; only a remembered approval matches runtime discovery.
+				projectResourcesAllowed = trustDecision === true;
+				if (projectResourcesAllowed) {
+					cwd = this.projectRoot(project);
+					projectSettings = await this.readProjectSettings(project);
+				}
+			}
 		}
+		const includeProjectResources = projectResourcesAllowed;
+		const globalDisabled = this.discoveryDependencies.getGlobalDisabledResourceNames?.() ?? { skills: [], prompts: [] };
+		const disabledNames = (value: unknown) => (Array.isArray(value) ? value : []).filter((name): name is string => typeof name === "string");
+		const overrides = projectResourceOverridesFromRecord(projectSettings);
 		const { discoverSkills, discoverPrompts, discoverExtensions } = await import("../resourceDiscovery");
 		return {
+			projectResourcesAllowed,
+			overrides,
 			skills: discoverSkills({
-				cwd: this.projectRoot(project),
-				includeProjectResources: true,
+				cwd,
+				includeProjectResources,
+				disabledSkillNames: globalDisabled.skills,
+				disabledProjectSkillNames: disabledNames(projectSettings.disabledSkills),
 			}),
 			prompts: discoverPrompts({
-				cwd: this.projectRoot(project),
-				includeProjectResources: true,
+				cwd,
+				includeProjectResources,
+				disabledPromptNames: globalDisabled.prompts,
+				disabledProjectPromptNames: disabledNames(projectSettings.disabledPrompts),
+				disabledGlobalPromptNames: overrides.disabledGlobalPrompts,
 			}),
-			extensions: discoverExtensions({
-				cwd: this.projectRoot(project),
-				includeProjectResources: true,
-			}),
+			extensions: discoverExtensions({ cwd, includeProjectResources }),
 		};
 	}
 
@@ -677,8 +696,8 @@ export class ProjectResourceManager {
 		// 禁用列表同步迁移：旧名条目替换为新名，避免孤儿数据与白名单双源漂移
 		await this.migrateDisabledSkillName(project, skill.name, displayName);
 
-		// 重命名后重新读取
-		return this.readSkill(newSkillPath, this.skillLocations(project).find((l) => newSkillPath.startsWith(l.path)) ?? this.skillLocations(project)[0], skill.type);
+		// 重命名后按项目 settings 重新读取禁用态与 Pi user-only frontmatter。
+		return this.findSkill(project, newSkillPath);
 	}
 
 	/** 重命名后同步项目 .pi/settings.json 的 disabledSkills：旧名条目替换为新名（大小写不敏感）。
@@ -783,20 +802,6 @@ export class ProjectResourceManager {
 		if (!description) warnings.push(this.translate("mainSkill.warningDescriptionRequired"));
 		if (description.length > 1024) warnings.push(this.translate("mainSkill.warningDescriptionTooLong"));
 		return warnings;
-	}
-
-	private setFrontmatterBoolean(raw: string, key: string, value: boolean) {
-		const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-		if (!match) return `---\n${key}: ${value}\n---\n\n${raw}`;
-		const lines = match[1].split(/\r?\n/);
-		let changed = false;
-		const nextLines = lines.map((line) => {
-			if (!line.trim().startsWith(`${key}:`)) return line;
-			changed = true;
-			return `${key}: ${value}`;
-		});
-		if (!changed) nextLines.push(`${key}: ${value}`);
-		return raw.replace(match[0], `---\n${nextLines.join("\n")}\n---`);
 	}
 
 	private normalizeSkillName(value: string) {

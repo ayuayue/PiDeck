@@ -90,6 +90,9 @@ export type ProjectResourceListResult = {
 
 /** 运行时发现的资源（packages / settings 显式路径 / 祖先 .agents/skills）的只读描述。 */
 export type ProjectResourceDiscoveryResult = {
+	/** Whether project-scoped resources may be suggested under the current trust decision. */
+	projectResourcesAllowed: boolean;
+	overrides: ProjectResourceOverrides;
 	skills: Array<{
 		id: string;
 		name: string;
@@ -98,6 +101,7 @@ export type ProjectResourceDiscoveryResult = {
 		sourceId: string;
 		sourceLabel: string;
 		description: string;
+		userOnly?: boolean;
 		enabled: boolean;
 		managed: boolean;
 	}>;
