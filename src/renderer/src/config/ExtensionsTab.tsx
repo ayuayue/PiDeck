@@ -326,8 +326,12 @@ export function ExtensionsTab(props: {
 						{/* 内置扩展版本 + 热更新：包级版本号（不跟应用版本走），检测走 AtomGit 清单。
 				    只放全局作用域——内置扩展是全局资源，项目视图里给「更新」入口会误导。 */}
 						{props.scope === "global" && <BuiltInExtensionsUpdatePanel onApplied={props.onRefresh} />}
+						{/* 刷新（停用/启用、卸载、手动刷新）期间必须保持表格挂载：loading 占位会把内容高度骤缩，
+						    浏览器随即把 .config-content 的 scrollTop 夹到 0，用户每次操作都要从头滚回原区间，
+						    聚焦的开关按钮也会随行卸载而失焦（与 ModelsTab 的 silent 回读同一类问题）。
+						    仅当还没有任何数据可显示时才让位给加载占位；刷新中沿用旧表格，行高不变、视口与焦点都留在原处。 */}
 						<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
-							{props.loading ? (
+							{props.loading && visibleExtensions.length === 0 ? (
 								<div className="py-12 text-center text-control text-muted-foreground">{t("config.loadingExtensions")}</div>
 							) : visibleExtensions.length === 0 ? (
 								<div className="py-12 text-center text-control text-muted-foreground">{t("config.emptyExtensions")}</div>
