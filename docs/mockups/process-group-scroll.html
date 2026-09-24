@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<title>过程组 · 定稿方向（限高 + 滚轮，行样式照抄现状）</title>
+		<style>
+			:root {
+				--font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+				--font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", monospace;
+				/* foundation.css 真实 token */
+				--font-size-caption: 12px;
+				--font-size-control: 13px;
+				--font-size-micro: 10px;
+				--font-size-chat: 15px;
+				--line-height-caption: 18px;
+				--radius-md: 8px;
+				--bg-app: #ffffff;
+				--text-primary: #202124;
+				--text-secondary: #4b5563;
+				--text-tertiary: #6b7280;
+				--text-faint: #9fa3ac;
+				--border-subtle: #e5e5e5;
+				--border-strong: #d7d7d7;
+				--bg-hover: #e5e7eb;
+				--card-bg: #fafafa;
+				--muted-bg: #f4f4f5;
+				--bg-muted: #efeff1;
+				--thinking: #6366f1;
+				--tool: #2563eb;
+				--warning: #b7791f;
+				--danger: #b42318;
+				--danger-soft: #fdecea;
+				--chrome: #f7f7f8;
+			}
+			* { box-sizing: border-box; }
+			body { margin: 0; padding: 26px 22px 48px; background: #e9e9eb; font-family: var(--font-family-base); font-size: 13px; line-height: 1.6; color: #202124; }
+			h1 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+			.sub { margin: 0 0 20px; color: #6b7280; font-size: 12.5px; }
+			h2 { margin: 26px 0 4px; font-size: 14px; font-weight: 640; }
+			.h2note { margin: 0 0 12px; color: #6b7280; font-size: 12px; }
+
+			.pane { background: var(--chrome); border: 1px solid #d8d8dc; border-radius: 12px; padding: 18px 0 22px; }
+			.col { width: 820px; max-width: 100%; margin: 0 auto; background: var(--bg-app); padding: 18px 24px 20px; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+
+			/* ── 行头 ── */
+			.author { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+			.avatar { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--muted-bg); color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+			.author-name { color: var(--text-secondary); font-size: 12.5px; font-weight: 560; }
+			.author-time { color: var(--text-faint); font-size: 11.5px; }
+
+			/* ── 大折叠栏（现状，不改） ── */
+			.fold-pill { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 500; line-height: var(--line-height-caption); }
+			.fold-pill .fold-ico { display: inline-flex; color: var(--text-tertiary); }
+			.fold-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+
+			/* ── 新增：过程组组头 ── */
+			.group { display: flex; flex-direction: column; }
+			.g-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 24px; padding: 0 7px 0 2px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-caption); font-weight: 500; line-height: var(--line-height-caption); cursor: pointer; transition: background-color .14s ease, color .14s ease; }
+			.g-head:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); color: var(--text-primary); }
+			.g-chip { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: color-mix(in srgb, var(--tool) 12%, transparent); color: var(--tool); }
+			.g-head[data-done] .g-chip { background: color-mix(in srgb, var(--text-tertiary) 13%, transparent); color: var(--text-tertiary); }
+			.g-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+			.g-chev { flex: none; display: inline-flex; margin-left: 1px; color: var(--text-faint); }
+			.g-sep { flex: none; color: var(--text-faint); }
+			.g-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); font-family: var(--font-family-mono); font-size: 11.5px; font-weight: 400; }
+			@keyframes sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+			.shimmer { background-image: linear-gradient(110deg, var(--text-tertiary) 40%, var(--text-primary) 50%, var(--text-tertiary) 60%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent !important; animation: sweep 2.2s linear infinite; }
+
+			/* ── 新增：组体 = 限高 + 内部滚动（缩进/竖线沿用现有展开区语言 ml-5 + pl-3 + 2px） ── */
+			.group-body { margin: 4px 0 0 20px; padding-left: 12px; border-left: 2px solid var(--border-subtle); }
+			.scroller { max-height: min(320px, 30vh); overflow-y: auto; overscroll-behavior: contain; }
+			.scroller::-webkit-scrollbar { width: 8px; }
+			.scroller::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+			.scroller::-webkit-scrollbar-track { background: transparent; }
+
+			/* ── 现状行样式（照抄 ThinkingBlock / ToolCard，一个字不改） ── */
+			.trow { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 4px; border: 0; border-radius: var(--radius-md); background: transparent; width: 100%; text-align: left; font-size: var(--font-size-control); line-height: 20px; color: var(--text-faint); }
+			.trow:hover { background: color-mix(in srgb, var(--bg-hover) 50%, transparent); }
+			.trow + .trow { margin-top: 0; }
+			.ico { flex: none; display: inline-flex; align-items: center; justify-content: center; }
+			.ico-think { color: var(--thinking); }
+			.ico-tool { color: var(--tool); }
+			.tname { flex: none; font-size: var(--font-size-control); color: var(--text-faint); }
+			.tchev { flex: none; display: inline-flex; color: var(--text-faint); }
+			.tdur { flex: none; font-size: var(--font-size-caption); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+			.tlabel { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--text-faint); }
+			.tpreview { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--text-faint); }
+			.badge { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; border-radius: 6px; font-size: var(--font-size-micro); line-height: 16px; }
+			.badge--done { background: var(--bg-muted); color: var(--text-secondary); }
+			.badge--run { border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); color: var(--warning); }
+			.badge--err { border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); color: var(--danger); }
+
+			/* ── 中间回复 / 最终回复（现状，不改） ── */
+			.interim, .final { color: var(--text-primary); font-size: var(--font-size-chat); line-height: 1.6; }
+			.final { margin-top: 14px; }
+			.final ul { margin: 8px 0 0; padding-left: 20px; }
+			.final li { margin-bottom: 3px; }
+			.collapse { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--text-tertiary); font: inherit; font-size: var(--font-size-caption); cursor: pointer; opacity: .55; }
+			.actions { display: flex; align-items: center; gap: 4px; margin-top: 10px; color: var(--text-secondary); opacity: .55; }
+			.act { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; }
+			.dur { display: flex; align-items: center; gap: 6px; padding-left: 7px; color: var(--text-secondary); }
+			.dur-num { font-size: 13px; font-variant-numeric: tabular-nums; }
+
+			/* 说明 */
+			.note { width: 820px; max-width: 100%; margin: 10px auto 0; color: #6b7280; font-size: 12px; }
+			.note b { color: #202124; }
+			table.spec { margin: 0 auto; width: 820px; max-width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; font-size: 12px; }
+			table.spec th, table.spec td { padding: 7px 12px; border-bottom: 1px solid #e6e6e9; text-align: left; vertical-align: top; }
+			table.spec th { background: #f7f7f9; font-weight: 620; }
+			code { font-family: var(--font-family-mono); font-size: 11px; background: #f0f0f3; padding: 1px 4px; border-radius: 4px; }
+			.cmp { display: flex; gap: 18px; width: 820px; max-width: 100%; margin: 0 auto; }
+			.cmp > div { flex: 1 1 0; background: #fff; border: 1px solid #dcdce0; border-radius: 10px; padding: 12px 14px; }
+			.cmp h4 { margin: 0 0 8px; font-size: 12px; font-weight: 620; color: #6b7280; }
+			.cmp .surface { background: #fff; }
+		</style>
+	</head>
+	<body>
+		<h1>过程组 · 定稿方向</h1>
+		<p class="sub">
+			改动只有两处：<b>① 新增「过程组」概念 ② 新增组头的显示样式</b>。行内容（思考行 / 工具行 / 中间回复 / 重试错误 / 最终回复）<b>全部照抄现状，一个字不改</b>。组体限高 + 内部滚轮。
+		</p>
+
+		<h2>A · 完整一轮（大折叠栏展开）</h2>
+		<p class="h2note">G1 折叠、G2 展开；中间回复在两组之间；最终回复在大折叠栏外面。</p>
+		<div class="pane">
+			<div class="col">
+				<div class="author"><span class="avatar">Pi</span><span class="author-name">Pi</span><span class="author-time">14:32</span></div>
+
+				<button class="fold-pill">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+					<span class="fold-ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12h-8" /><path d="M21 6h-8" /><path d="M21 18h-8" /><path d="M3 6v4c0 1.1.9 2 2 2h4" /><path d="M3 10v6c0 1.1.9 2 2 2h4" /></svg></span>
+					<span>执行过程: 5个工具 3次思考 1段中间回复</span>
+				</button>
+
+				<div class="fold-body">
+					<!-- 组 G1：折叠 -->
+					<div class="group">
+						<button class="g-head" data-done>
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span class="g-label">已读取文件并搜索代码</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						</button>
+					</div>
+
+					<!-- 中间回复 -->
+					<div class="interim">先看了一下现在的实现——折叠区点开后是全部步骤一次平铺，长长一条。真正缺的是中间那层「过程组」。</div>
+
+					<!-- 组 G2：展开 + 限高滚动 -->
+					<div class="group">
+						<button class="g-head" data-done>
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+							<span class="g-label">已运行代码</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>
+						</button>
+						<div class="group-body">
+							<div class="scroller">
+								<!-- 思考行：Brain + 思考了 Xs + chevron + 等宽预览（现状） -->
+								<button class="trow">
+									<span class="ico ico-think"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.2A3 3 0 0 0 15 8a3 3 0 0 0-3-3Z" /><path d="M12 5v13" /><path d="M9 20h6" /></svg></span>
+									<small class="tdur">思考了 3s</small>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="tpreview">需要先确认折叠区现在挂了哪些东西…</span>
+								</button>
+								<!-- 工具行：图标 + 小写工具名 + chevron + 状态徽章 + 耗时 + 等宽语义短语（现状） -->
+								<button class="trow">
+									<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+									<span class="tname">read</span>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="badge badge--done"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>完成</span>
+									<span class="tdur">0.2s</span>
+									<span class="tlabel">读取 TurnRow.tsx</span>
+								</button>
+								<button class="trow">
+									<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg></span>
+									<span class="tname">grep</span>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="badge badge--done"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>完成</span>
+									<span class="tdur">0.1s</span>
+									<span class="tlabel">搜索 showEarlierSteps</span>
+								</button>
+								<button class="trow">
+									<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+									<span class="tname">bash</span>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="badge badge--run">运行中</span>
+									<span class="tdur">12.4s</span>
+									<span class="tlabel">执行 pnpm run typecheck</span>
+								</button>
+								<button class="trow">
+									<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+									<span class="tname">read</span>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="badge badge--done"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>完成</span>
+									<span class="tdur">0.3s</span>
+									<span class="tlabel">读取 foundation.css</span>
+								</button>
+								<button class="trow">
+									<span class="ico ico-think"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.2A3 3 0 0 0 15 8a3 3 0 0 0-3-3Z" /><path d="M12 5v13" /><path d="M9 20h6" /></svg></span>
+									<small class="tdur">思考了 5s</small>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="tpreview">限高用 vh 还是 cqh 要定一下…</span>
+								</button>
+								<button class="trow">
+									<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z" /></svg></span>
+									<span class="tname">edit</span>
+									<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+									<span class="badge badge--done"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>完成</span>
+									<span class="tdur">0.4s</span>
+									<span class="tlabel">编辑 timeline.css</span>
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<button class="collapse">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
+						<span>收起</span>
+					</button>
+				</div>
+
+				<div class="final">
+					结论：只在现有扁平序列上加一个纯函数分组层——把连续思考/工具合并成过程组，组头给类别摘要，组体限高可滚，其他一律不动。
+				</div>
+
+				<div class="actions">
+					<span class="act"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg></span>
+					<span class="act"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" /></svg></span>
+					<span class="dur"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg><span class="dur-num">38.6s</span></span>
+				</div>
+			</div>
+		</div>
+		<p class="note">
+			<b>组体</b>= 限高 <code>min(320px, 30vh)</code> + <code>overflow-y:auto</code> + <code>overscroll-behavior:contain</code>。缩进与竖线沿用现有「思考展开正文」的语言（<code>ml-5</code> + <code>2px</code> 竖线 + <code>pl-3</code>），不新造一套。
+		</p>
+
+		<h2>B · 限高怎么随屏幕变</h2>
+		<p class="h2note"><code>min(320px, 30vh)</code> 两个值分工：320px 是上限，30vh 是小窗口保护。行高 28px。</p>
+		<table class="spec">
+			<tr><th style="width:150px">窗口高度</th><th style="width:220px">实际 max-height</th><th>可见行数</th><th>说明</th></tr>
+			<tr><td>1600px（大屏）</td><td>320px</td><td>约 11 行</td><td>被 320px 封顶，不会无限长</td></tr>
+			<tr><td>1200px（常见）</td><td>320px</td><td>约 11 行</td><td>同上</td></tr>
+			<tr><td>1000px</td><td>300px</td><td>约 10 行</td><td>开始跟着窗口缩</td></tr>
+			<tr><td>760px（笔记本+终端）</td><td>228px</td><td>约 8 行</td><td>明显收窄，不挤占正文</td></tr>
+			<tr><td>600px（小窗）</td><td>180px</td><td>约 6 行</td><td>仍然能看清一屏</td></tr>
+		</table>
+		<p class="note">
+			<b>一个要你知道的前提</b>：<code>vh</code> 量的是<b>窗口</b>高度，不是时间线阅读区高度。PiDeck 的阅读区被底部那些条（todo/files/subagents）+ composer + 终端分走一截，实际大概只有窗口的 60~70%。
+			所以 <code>30vh</code> 落到阅读区里约为其 <b>45%</b> —— 这是我认为"合适"的量级。<br />
+			如果要更准，可以给时间线滚动容器加 <code>container-type: size</code>，然后写 <code>min(320px, 32cqh)</code>，这样就是真正按阅读区比例算。代价是给滚动容器加了 containment，需要回归一次滚动/跟随。**建议第一步先用 vh，实测后再决定要不要上 cqh。**
+		</p>
+
+		<h2>C · 行样式：组体里和现在完全一样</h2>
+		<p class="h2note">左边是现在没分组时的样子，右边是放进组体后的样子——只有外层多了缩进和竖线，行本身一字未改。</p>
+		<div class="cmp">
+			<div>
+				<h4>现在（未分组）</h4>
+				<div class="surface">
+					<button class="trow">
+						<span class="ico ico-think"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.2A3 3 0 0 0 15 8a3 3 0 0 0-3-3Z" /><path d="M12 5v13" /><path d="M9 20h6" /></svg></span>
+						<small class="tdur">思考了 3s</small>
+						<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						<span class="tpreview">需要先确认折叠区现在挂了哪些东西…</span>
+					</button>
+					<button class="trow">
+						<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span class="tname">read</span>
+						<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						<span class="badge badge--done"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>完成</span>
+						<span class="tdur">0.2s</span>
+						<span class="tlabel">读取 TurnRow.tsx</span>
+					</button>
+				</div>
+			</div>
+			<div>
+				<h4>放进组体后</h4>
+				<div class="surface">
+					<div class="group-body" style="margin-top:0">
+						<button class="trow">
+							<span class="ico ico-think"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.2A3 3 0 0 0 15 8a3 3 0 0 0-3-3Z" /><path d="M12 5v13" /><path d="M9 20h6" /></svg></span>
+							<small class="tdur">思考了 3s</small>
+							<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+							<span class="tpreview">需要先确认折叠区现在挂了哪些东西…</span>
+						</button>
+						<button class="trow">
+							<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span class="tname">read</span>
+							<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+							<span class="badge badge--done"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>完成</span>
+							<span class="tdur">0.2s</span>
+							<span class="tlabel">读取 TurnRow.tsx</span>
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<h2>D · 组头悬停框宽度（你强调的那一点）</h2>
+		<p class="h2note">悬停底色必须铺满整行、与流式输出同宽；按文字宽度收缩就是返工。下面把 hover 底色显式画出来对比（虚线框 = 内容列宽度）。</p>
+		<div class="pane">
+			<div class="col">
+				<div style="color: #b42318; font-size: 11px; letter-spacing: .04em; margin-bottom: 6px">修改前 · inline-flex + align-self: flex-start</div>
+				<div style="display: flex; flex-direction: column; align-items: flex-start; border: 1px dashed #d7d7d7; border-radius: 8px; padding: 6px">
+					<button class="g-head" data-done style="display: inline-flex; width: auto; background: color-mix(in srgb, var(--text-primary) 4%, transparent); color: var(--text-primary)">
+						<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span class="g-label">已读取文件并搜索代码</span>
+						<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					</button>
+				</div>
+				<div style="color: #b42318; font-size: 11.5px; margin-top: 6px">↑ 框只包住文字，触控/悬停区也就这么宽</div>
+
+				<div style="color: #15803d; font-size: 11px; letter-spacing: .04em; margin: 20px 0 6px">修改后 · flex + w-full（已实现）</div>
+				<div style="display: flex; flex-direction: column; border: 1px dashed #d7d7d7; border-radius: 8px; padding: 6px">
+					<button class="g-head" data-done style="background: color-mix(in srgb, var(--text-primary) 4%, transparent); color: var(--text-primary)">
+						<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span class="g-label">已读取文件并搜索代码</span>
+						<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					</button>
+				</div>
+				<div style="color: #15803d; font-size: 11.5px; margin-top: 6px">↑ 悬停底色铺满整行，与正文和流式输出同宽</div>
+			</div>
+		</div>
+	</body>
+</html>

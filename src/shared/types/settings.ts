@@ -180,6 +180,12 @@ export type AppSettings = {
 	 */
 	expandInterimDuringStream: boolean;
 	/**
+	 * 时间线是否按「过程组」显示（实验特性）。
+	 * false（默认）：保持现在的平铺显示（连续思考/工具调用逐条铺开）；
+	 * true：一轮里连续的思考与工具调用合并成过程组，点开组头才展开明细。
+	 */
+	processGroupDisplay: boolean;
+	/**
 	 * 新一轮（用户发送新消息）开始时自动收起上一轮展开的中间过程，节省渲染资源。
 	 * true（默认）：发送新消息后收起所有非最新轮（含手动展开的）；false：保持现状。
 	 */

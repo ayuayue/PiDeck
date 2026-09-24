@@ -167,6 +167,12 @@ export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
 	},
 	{
 		tab: "common",
+		slug: "common-process-group-display",
+		labelKey: "settings.processGroupDisplay",
+		keywords: ["过程组", "分组显示", "process group", "平铺", "实验特性"],
+	},
+	{
+		tab: "common",
 		slug: "common-collapse-prev-runs",
 		labelKey: "settings.collapsePrevRunsOnNewTurn",
 		keywords: ["折叠历史轮次", "折叠", "collapse", "上一轮", "收起"],

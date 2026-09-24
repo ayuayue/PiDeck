@@ -362,6 +362,40 @@ export type RunStepsVisibleMemoryEntry = {
  */
 export const runStepsVisibleMemoryBySessionIdAtomFamily = atomFamily((sessionId: string) => atom<Record<string, RunStepsVisibleMemoryEntry>>({}));
 
+/**
+ * 过程组手风琴状态（契约 §3）。
+ *
+ * 定义在 atoms 而不是 hook 里，是为了保持依赖方向：**atom 拥有这个值**，hook 从 atoms 取类型，
+ * 而不是 atoms 反向 import components（那会形成 atoms → components 的层级倒置）。
+ * 归属与相邻的 `RunStepsVisibleMemoryEntry` 一致。
+ *
+ * 两条互不干扰的通道 + 一个抑制位：
+ * - `autoGroupId`：自动通道，只有一个槽位，永远指向「最新的过程组」；新组出现时推进，旧自动组因此关闭；
+ * - `manualGroupIds`：手动通道，用户亲手点开的组集合，新内容不影响它们；
+ * - `suppressedAutoGroupId`：用户主动点关的那个自动组，「我就是要它关着」优先于自动展开。
+ */
+export interface ProcessGroupOpenState {
+	/** 自动通道：只有一个槽位，永远指向「最新的组」。新组出现时推进到新组，旧自动组因此关闭。 */
+	readonly autoGroupId: string | undefined;
+	/** 手动通道：用户亲手点开的组，互不干扰；新内容不影响它们。 */
+	readonly manualGroupIds: readonly string[];
+	/**
+	 * 抑制位：用户**主动点关**的那个自动组 id。
+	 *
+	 * 为什么必须进状态、不能放组件 ref：ref 不会被「大折叠栏关闭（reset）」清掉，
+	 * 于是重开折叠栏时最新组的同步会被同值短路吃掉，**最新组不再自动展开**（已复现的缺陷）。
+	 * 放进状态后「关闭 → 清空」天然解除抑制，整条行为也能用纯函数验证。
+	 */
+	readonly suppressedAutoGroupId: string | undefined;
+}
+
+/**
+ * 过程组手风琴状态，按 sessionId → runId 两级记忆（内存级，不持久化，与 runStepsVisibleMemory 同规约）。
+ *
+ * 只记「展开意愿」（自动槽 + 手动集合）；组内卡片的展开态随 Radix 子树卸载自然销毁（契约 §3）。
+ */
+export const processGroupOpenBySessionIdAtomFamily = atomFamily((sessionId: string) => atom<Record<string, ProcessGroupOpenState>>({}));
+
 export const sessionMessageLruAtom = atom<string[]>([]);
 export const sessionMessageLoadStateAtom = atom<Record<string, SessionLoadState>>({});
 export const sessionCatalogLoadStateAtom = atom<Record<string, SessionLoadState>>({});
@@ -1492,6 +1526,7 @@ export const removeSessionStateAtom = atom(null, (get, set, sessionId: string) =
 	liveThinkingIdBySessionIdAtomFamily.remove(sessionId);
 	newTurnCollapseTickBySessionIdAtomFamily.remove(sessionId);
 	runStepsVisibleMemoryBySessionIdAtomFamily.remove(sessionId);
+	processGroupOpenBySessionIdAtomFamily.remove(sessionId);
 	streamingTextBySessionIdAtomFamily.remove(sessionId);
 	sessionMessageCacheBySessionIdAtomFamily.remove(sessionId);
 	set(streamingTextByIdAtom, (prevMap) => {

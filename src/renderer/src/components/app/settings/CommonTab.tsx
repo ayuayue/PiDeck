@@ -290,6 +290,8 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
 				</SettingRow>
 				{/* 流式对话设置：中间过程与本轮修改文件的默认展示行为。 */}
 				<SettingSwitchRow anchor="common-expand-interim-during-stream" title={t("settings.expandInterimDuringStream")} description={t("settings.expandInterimDuringStreamDesc")} checked={draft.expandInterimDuringStream} onChange={(checked) => updateDraft({ expandInterimDuringStream: checked })} />
+				{/* 过程组显示（实验）：开启后连续思考/工具调用合并成过程组，关闭则保持平铺显示 */}
+				<SettingSwitchRow anchor="common-process-group-display" title={t("settings.processGroupDisplay")} description={t("settings.processGroupDisplayDesc")} checked={draft.processGroupDisplay} onChange={(checked) => updateDraft({ processGroupDisplay: checked })} />
 				<SettingSwitchRow anchor="common-collapse-prev-runs" title={t("settings.collapsePrevRunsOnNewTurn")} description={t("settings.collapsePrevRunsOnNewTurnDesc")} checked={draft.collapsePrevRunsOnNewTurn} onChange={(checked) => updateDraft({ collapsePrevRunsOnNewTurn: checked })} />
 			</SettingsSection>
 

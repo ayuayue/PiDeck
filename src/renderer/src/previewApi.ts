@@ -130,6 +130,8 @@ let previewSettings: AppSettings = {
 	showThinking: true,
 	// 流式对话行为：与主进程 SettingsStore 默认一致（预览窗口保持相同观感）
 	expandInterimDuringStream: true,
+	// 过程组显示默认关闭：与主进程 SettingsStore 默认一致（预览窗口保持平铺观感）
+	processGroupDisplay: false,
 	collapsePrevRunsOnNewTurn: true,
 	showDevTools: false,
 	developerDiagnostics: false,

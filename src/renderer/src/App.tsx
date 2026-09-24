@@ -664,6 +664,8 @@ export function App() {
 		showThinking: true,
 		// 流式对话行为：默认自动展开中间过程；新一轮默认收起非最新轮（与 SettingsStore 一致）
 		expandInterimDuringStream: true,
+		// 过程组显示默认关闭：与主进程 SettingsStore 默认一致，首屏未拉到真实设置前保持平铺渲染
+		processGroupDisplay: false,
 		collapsePrevRunsOnNewTurn: true,
 		showDevTools: false,
 		developerDiagnostics: false,
@@ -739,9 +741,10 @@ export function App() {
 	useEffect(() => {
 		setTurnFlowSettings({
 			expandInterimDuringStream: settings.expandInterimDuringStream,
+			processGroupDisplay: settings.processGroupDisplay,
 			collapsePrevRunsOnNewTurn: settings.collapsePrevRunsOnNewTurn,
 		});
-	}, [settings.expandInterimDuringStream, settings.collapsePrevRunsOnNewTurn, setTurnFlowSettings]);
+	}, [settings.expandInterimDuringStream, settings.processGroupDisplay, settings.collapsePrevRunsOnNewTurn, setTurnFlowSettings]);
 
 	// 新建会话默认后端同步给根级组件（并行问询 AskPanel 等不持有 settings props）。
 	const setDefaultAgentBackend = useSetAtom(defaultAgentBackendAtom);

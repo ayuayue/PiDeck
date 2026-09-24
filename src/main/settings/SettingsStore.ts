@@ -156,6 +156,8 @@ Gitmoji 对应关系：
 	// 流式对话设置：默认自动展开中间过程（思考/工具详情随最新轮流式展开）；
 	// 新一轮开始默认收起非最新轮（含手动展开的），用户可在设置中关闭。
 	expandInterimDuringStream: true,
+	// 过程组显示默认关闭（保守项）：默认走现有平铺渲染，用户显式开启后才走过程组。
+	processGroupDisplay: false,
 	collapsePrevRunsOnNewTurn: true,
 	showDevTools: false,
 	developerDiagnostics: false,
