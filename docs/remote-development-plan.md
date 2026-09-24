@@ -4,7 +4,7 @@
 >
 > 文档维护约定：本文只保留决策（范围/架构/阶段门禁/能力对照）；§4.2 bootstrap、§6.5 终端握手、§7 协议帧等 implementation 级细节在对应 Phase 开工时拆出为独立 spec 并随代码演进，本文留指针。每个 Phase 收口时回填状态。
 >
-> 最后更新：2026-09-24（评审修订：snapshot 分块协议、remoteSessionId/标题来源、远端 Node 准入门控、部署锁机制与多客户端并存、helper 并发模型与延迟预算、命名统一）
+> 最后更新：2026-09-24（评审修订：snapshot 分块协议、remoteSessionId/标题来源、远端 Node 准入门控、部署锁机制与多客户端并存、helper 并发模型与延迟预算、命名统一；§16 补上游 client/server 采用预案与采用触发条件）
 >
 > 目标：让本地 PiDeck 通过 SSH 管理远程主机、远程项目和远程 Pi Session，并在不复制 Pi Agent 行为的前提下，逐步达到本地项目的核心使用体验。
 
@@ -153,6 +153,7 @@ Electron main
 - runner 使用 `spawn(piCommand, args, { cwd, shell: false, detached: true })` 为真实的 `pi --mode rpc` 创建独立 POSIX process group，记录 `pgid = child.pid`；握手之后 stdout/stdin 只承载 Pi 原生 JSON-RPC，不增加 PiDeck 自定义 Agent 消息。
 - runner 先原子写入并 fsync 带 nonce、pid/pgid 和进程启动标识的 lease，再发送 ready；退出时对 `-pgid` 执行 TERM → 有界等待 → KILL，确认整个进程组已回收后才删除 lease。
 - SSH 进程退出即视为 runtime 退出；runner 必须监听 stdin EOF、`SIGHUP`、`SIGTERM` 并执行同一清理流程。runner 崩溃留下的 lease 只能在 nonce、pid/pgid 和进程启动标识同时匹配时用于回收，不能按裸 pid 杀进程。
+- runner 与 lease 是本计划中**预期寿命最短**的模块（上游官方 client/server 若达标即可整体取代，见 §16.2）：只做握手、进程组与 lease 回收，不承载 PiDeck 的业务语义，避免把远端会话/工具行为长进 runner。
 
 采用两条通路的原因：控制通路需要 host 级连接和文件能力；Agent 通路需要维持现有 `PiProcess` 的 RPC 语义与独立生命周期。两者都走 SSH stdio，不新增到 Pi 的 HTTP 或私有 SDK 通道。
 
@@ -871,8 +872,36 @@ tests/remoteIpcContract.test.mjs
 - `packages/client/README.md`、`packages/server/README.md`、`packages/protocol/README.md` 是否仍标记 experimental，以及 protocol version 与 compatibility policy 是否变化。
 - 是否出现受支持的跨机器 transport、peer authentication、协议版本协商、server/worker 生命周期和远端安装升级文档；只有 TCP/WebSocket 字节 transport 仍不足以替代 PiDeck 的 SSH 主机管理。
 - stdio RPC 的 breaking changes，尤其 `message_update`、Session resume 和 command response。
+- 官方文档是否仍把「RPC 模式 + SDK」列为推荐的嵌入方式（`pi.dev/docs/latest` 的 Automate or embed Pi 一节与 RPC 文档把 IDE/custom clients 列为一等适用面，这是 PiDeck 继续依赖 stdio 的公开依据）。
 
 只有同时满足「完整 coding-agent controller/server 消费面正式发布、正式远程文档、版本兼容承诺、跨机认证与生命周期闭环、非 source-only」时，才评估用 Pi 官方 remote client 替换 `SshPiRuntimeLauncher`。低层 `pi-client` / `pi-protocol` / `pi-server` 包单独发布不满足该门槛。即使替换，也只能影响 Agent 通路；PiDeck 的主机管理、项目文件、Git 和终端仍属于 PiDeck。若届时官方方案不再基于 SSH 承载的 stdio JSON-RPC，必须先单独评审并更新 `AGENTS.md` 的通信边界；本计划不授权新增到 Pi 内部的第二条通道。
+
+### 16.1 采用触发条件与现状结论
+
+现状结论（2026-09-24 核对）：**不做任何改动也能继续用**。PiDeck 不 import `pi-client` / `pi-protocol` / `pi-server`，消费的是官方文档化的 `pi --mode rpc` stdio 面；这三个包自述 experimental、无兼容承诺，官方文档导航里没有远程/server 章节，且其 README 明确把 peer authentication 与 server/worker 生命周期留给应用层。只有出现下列信号才重开评估，并按最小面积处理：
+
+| # | 触发信号 | 影响面 |
+| --- | --- | --- |
+| 1 | stdio RPC 出现 breaking change 或被标记 deprecated | 全量 RPC 消费面，最高优先级 |
+| 2 | 新会话能力只在 Chord service 层暴露、RPC 不再跟进 | 会话/Agent 命令面 |
+| 3 | 我们需要「同一远端会话被多窗口/多实例附着」——stdio 一对一结构上做不到 | 仅 Agent 通路 |
+| 4 | 上游满足上面的替换门槛 | 仅 Agent 通路 |
+| 5 | 官方方案不再基于 SSH 承载的 stdio JSON-RPC | 需单独评审并更新 `AGENTS.md` 通信边界 |
+
+已排除的误判：**「低层包已发 npm」不等于「官方远程产品可用」**，也不等于 PiDeck 的 SSH/主机管理工作过时。当前官方现成 transport 只有 Unix domain socket（本机），没有跨机部署、凭据管理或自动重连/重放（client README 明确 *never reconnects or replays requests automatically*），这些仍由 PiDeck 负责。
+
+### 16.2 采用官方协议时删什么、留什么
+
+关键结论：采用官方协议**不是**新增第二条通信通道，而是同一条 SSH 通道上换协议层。`pi-client` 的入口契约就是 `ByteTransportFactory`（README 原文：*"Connect using WebSocket, Unix socket, or another ordered byte transport"*），而 SSH stdio **本身就是一个 ordered byte transport**；官方只提供 Unix socket 现成实现，认证与生命周期留给应用层——正是本计划在做的事。替换的只是协议层，SSH/主机管理/bootstrap 工作不废弃。
+
+| 计划模块 | 采用官方协议后 |
+| --- | --- |
+| 控制 helper（fs/git/session 索引）、bootstrap/manifest、终端、配置、trust、catalog、UI | **全部保留**（上游明确不覆盖这些） |
+| `SshPiRuntimeLauncher` 的流交接层 | 改为在既有 SSH stdio 上实现 `ByteTransportFactory` |
+| `resources/remote-host/runner.mjs`、lease/nonce、进程组 TERM → KILL、自研 `runtimeGeneration` fencing | **可删除**，由 server 侧 attachment 生命周期与 `attachmentId` 取代 |
+| 多呈现附着（一个远端会话挂多个客户端） | 新增能力，stdio 结构上给不了 |
+
+因此 `runner.mjs` 与随附的 lease 逻辑是本计划中**预期寿命最短**的模块：保持它薄、不把 PiDeck 特有语义长进去，将来替换成本才低（对应 4.1 的 runner 职责边界）。
 
 ## 17. 推荐实施顺序
 
