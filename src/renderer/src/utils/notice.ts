@@ -110,8 +110,9 @@ function ensureFallbackHost() {
 	const host = document.createElement("div");
 	host.id = "app-notice-fallback-host";
 	host.setAttribute("aria-live", "polite");
-	// 与 sonner 的 top-right 位置保持一致，并让开标题栏拖拽区，避免兑底与正式 toast 位置跳动
-	host.style.cssText = ["position:fixed", "top:calc(var(--window-drag-height, 0px) + 12px)", "right:16px", "z-index:2147483000", "display:flex", "flex-direction:column", "align-items:flex-end", "gap:8px", "pointer-events:none", "max-width:min(520px, calc(100vw - 32px))", "-webkit-app-region:no-drag"].join(";");
+	// 与 sonner 的 top-right 位置和宽度保持一致；兜底只在 Toaster 尚未挂载时短暂使用，
+	// 也必须限制超长标题，否则首屏异常提示会再次撑成横条。
+	host.style.cssText = ["position:fixed", "top:calc(var(--window-drag-height, 0px) + 12px)", "right:16px", "z-index:2147483000", "display:flex", "flex-direction:column", "align-items:flex-end", "gap:8px", "pointer-events:none", "width:min(420px, calc(100vw - 32px))", "-webkit-app-region:no-drag"].join(";");
 	document.body.appendChild(host);
 	fallbackHost = host;
 	return host;
@@ -151,7 +152,8 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeKind 
 		"box-shadow:var(--shadow-popover, 0 4px 12px rgba(0,0,0,0.12))",
 		"font:500 13px/1.5 var(--font-family-base, system-ui,-apple-system,Segoe UI,sans-serif)",
 		"word-break:break-word",
-		"width:min(360px, calc(100vw - 32px))",
+		// 兜底宿主已经限定最大宽度，子项填满宿主即可与 sonner 卡片同宽并正常换行。
+		"width:100%",
 	].join(";");
 	item.setAttribute("role", kind === "error" ? "alert" : "status");
 	item.dataset.noticeId = noticeId;

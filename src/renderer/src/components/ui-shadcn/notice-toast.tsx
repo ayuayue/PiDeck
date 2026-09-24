@@ -63,7 +63,9 @@ export function NoticeToastCard({ toastId, kind, title, description, actions }: 
 	const copiedTimer = useRef<number | null>(null);
 	const { Icon, className: iconColor } = KIND_ICON[kind];
 
-	// 长文本截断：标题最多 3 行（leading-5 → 60px）、正文最多 4 行（leading-4 → 64px）。
+	// 卡片宽度由 sonner 的 --width 统一限制在 420px；这里再限制内容列，避免
+	// flex item 的默认最小宽度把超长、无空格的会话标题撑出卡片。
+	// 标题最多 3 行（leading-5 → 60px）、正文最多 4 行（leading-4 → 64px）。
 	// 用 scrollHeight > clientHeight 检测溢出（纯 overflow-hidden 方案检测可靠，
 	// line-clamp 布局下 scrollHeight 不可靠），溢出时展示「查看详情」入口。
 	const titleRef = useRef<HTMLParagraphElement>(null);
@@ -116,17 +118,17 @@ export function NoticeToastCard({ toastId, kind, title, description, actions }: 
 	const hasActions = Boolean(actions?.action || actions?.cancel);
 
 	return (
-		<div className="flex w-full items-start gap-3 rounded-lg border border-border-subtle bg-bg-panel p-3.5 shadow-[var(--shadow-popover)] select-text">
+		<div className="flex w-full min-w-0 items-start gap-3 rounded-lg border border-border-subtle bg-bg-panel p-3.5 shadow-[var(--shadow-popover)] select-text">
 			<span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-bg-muted ${iconColor}`}>
 				<Icon className="h-3.5 w-3.5" />
 			</span>
 
 			<div className="min-w-0 flex-1">
-				<p ref={titleRef} className="max-h-[60px] overflow-hidden text-[13px] font-medium leading-5 break-words text-text-primary">
+				<p ref={titleRef} className="max-h-[60px] min-w-0 overflow-hidden text-[13px] font-medium leading-5 break-words text-text-primary">
 					{title}
 				</p>
 				{description ? (
-					<p ref={descriptionRef} className="mt-0.5 max-h-[64px] overflow-hidden text-xs leading-4 break-words text-text-secondary">
+					<p ref={descriptionRef} className="mt-0.5 max-h-[64px] min-w-0 overflow-hidden text-xs leading-4 break-words text-text-secondary">
 						{description}
 					</p>
 				) : null}

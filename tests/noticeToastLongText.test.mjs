@@ -20,14 +20,25 @@ const dialog = readFileSync("src/renderer/src/components/ui-shadcn/notice-detail
 const toaster = readFileSync("src/renderer/src/components/ui-shadcn/sonner.tsx", "utf8");
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
+const notice = readFileSync("src/renderer/src/utils/notice.ts", "utf8");
 
 test("toast card clamps long title/description and detects overflow", () => {
 	// 标题最多 3 行（leading-5 → 60px），正文最多 4 行（leading-4 → 64px）
-	assert.match(card, /max-h-\[60px\] overflow-hidden/);
-	assert.match(card, /max-h-\[64px\] overflow-hidden/);
+	assert.match(card, /max-h-\[60px\][^\n]*overflow-hidden/);
+	assert.match(card, /max-h-\[64px\][^\n]*overflow-hidden/);
 	// 溢出检测：scrollHeight > clientHeight（纯 overflow-hidden 方案，line-clamp 下不可靠）
 	assert.match(card, /scrollHeight > el\.clientHeight \+ 1/);
 	assert.match(card, /useLayoutEffect/);
+});
+
+test("sonner and fallback toasts share a bounded responsive width", () => {
+	// Sonner 默认宽度是固定像素值；覆盖 --width 后，超长标题只能在 420px 内换行。
+	assert.match(toaster, /style=\{\{ "--width": "min\(420px, calc\(100vw - 32px\)\)" \} as React\.CSSProperties\}/);
+	// Toaster 未挂载时的 DOM 兜底也必须跟随同一上限，避免两条渲染路径表现分叉。
+	assert.match(notice, /"width:min\(420px, calc\(100vw - 32px\)\)"/);
+	assert.match(notice, /"width:100%"/);
+	assert.match(card, /min-w-0/);
+	assert.match(card, /break-words/);
 });
 
 test("truncated card offers view-details and dismisses toast before opening the dialog", () => {

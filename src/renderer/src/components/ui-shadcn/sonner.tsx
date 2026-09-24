@@ -69,6 +69,10 @@ export function Toaster() {
 			<SonnerToaster
 				theme={theme}
 				position="top-right"
+				// 固定最大宽度避免超长会话标题把 toast 撑成横条；卡片内部的
+				// min-w-0 + break-words 负责换行，超过可读高度再显示详情入口。
+				// 420px 为桌面端右上角通知的可读上限，小窗口由 viewport 自动收缩。
+				style={{ "--width": "min(420px, calc(100vw - 32px))" } as React.CSSProperties}
 				gap={10}
 				visibleToasts={4}
 				offset={{
