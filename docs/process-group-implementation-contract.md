@@ -187,7 +187,8 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 ```
 
 渲染要求：
-- **组头是一个 `<button>`，宽度必须 `w-full`**（占满内容列，与流式输出同宽），悬停底色也随之铺满整行 —— **不要出现「文字多宽、框就多宽」**。内部布局与现有过程行同构：左起 20px 类别图标方块 → 类别文案 → chevron。
+- **组头是一个 `<button>`，宽度必须 `w-full`**（占满内容列，与流式输出同宽），悬停底色也随之铺满整行 —— **不要出现「文字多宽、框就多宽」**。内部布局与现有过程行同构：左起 22px 类别图标方块（图标 14px）→ 类别文案 → chevron。
+- **组头尺寸不得小于组体里的行**（2026 用户反馈修正）：成员行是 `text-control`(13px) / `min-h-7`(28px) / 图标 16px，所以组头取 `text-control` + `h-7` + `font-semibold`。**禁止退回 `text-caption`(12px) + `h-6`(24px)**——那会造成「容器比内容小」的倒置层级，用户一眼就觉得组头偏小。层级改由**字重（600 vs 400）与颜色（`text-secondary` vs `text-faint`）**承担，而不是缩小容器。回归守卫：`tests/processGroupRendering.test.mjs` 的「组头不得小于组体里的行」。
 - 组头文案：
   - `running === true`：`t(activityCategoryLabelKey(topKind, "running"))` + 若有实时详情则追加 `t("timeline.processGroup.separator")` + 详情；文案走 `<ShimmerText>`（复用 `src/renderer/src/components/session/ShimmerText.tsx`）。
   - 已结束：`topActivityKinds(group.counts, 3)` → 分别取 `done` 文案，按 `joinTwo` / `joinList` + `listSeparator` 组装；超过 3 类用 `more` 包裹；**`counts` 为空且有思考时**用 `t("timeline.processGroup.analyzed")`。

@@ -140,19 +140,22 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 	return (
 		<div className="flex min-w-0 flex-col" data-process-group-id={props.group.id}>
 			{/* 组头：w-full 占满内容列（与流式输出同宽），hover 底色因此铺满整行；
-			    内部与现有过程行同构：20px 类别图标方块 → 文案 → chevron，左对齐右侧留白。
+			    内部与现有过程行同构：22px 类别图标方块 → 文案 → chevron，左对齐右侧留白。
+			    尺寸规则（2026 用户反馈修正）：组头**不得小于组体里的行**——成员行是
+			    text-control(13px)/min-h-7(28px)/图标 16px，组头取同档 13px/28px 才不会出现
+			    「容器比内容小」的倒置层级；层级改由字重（600 vs 400）与颜色（secondary vs faint）承担。
 			    data-process-group-head 是 e2e/结构测试的稳定锚点（组头、组体、scroller 各一个）。 */}
 			<button
 				type="button"
 				data-process-group-head=""
-				className="flex h-6 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-[7px] text-left text-caption font-medium text-text-secondary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-primary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+				className="flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-[7px] text-left text-control font-semibold text-text-secondary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-primary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
 				aria-expanded={props.open}
 				aria-controls={bodyId}
 				onClick={() => props.onToggle(!props.open)}
 			>
 				{/* 类别图标方块：运行中 = 工具身份色（12% 透明底 + 该色图标），已结束 = 中性灰（弱化） */}
-				<span aria-hidden="true" className={`grid size-5 shrink-0 place-items-center rounded-[5px] ${props.running ? "bg-[color:color-mix(in_srgb,var(--color-tool)_12%,transparent)] text-[var(--color-tool)]" : "bg-[color:color-mix(in_srgb,var(--color-text-tertiary)_13%,transparent)] text-text-tertiary"}`}>
-					<Icon size={13} aria-hidden="true" />
+				<span aria-hidden="true" className={`grid size-[22px] shrink-0 place-items-center rounded-md ${props.running ? "bg-[color:color-mix(in_srgb,var(--color-tool)_12%,transparent)] text-[var(--color-tool)]" : "bg-[color:color-mix(in_srgb,var(--color-text-tertiary)_13%,transparent)] text-text-tertiary"}`}>
+					<Icon size={14} aria-hidden="true" />
 				</span>
 				{props.running ? (
 					<>
@@ -162,7 +165,7 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 								<span aria-hidden="true" className="shrink-0 text-text-faint">
 									{t("timeline.processGroup.separator")}
 								</span>
-								<span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[length:11.5px] font-normal text-text-tertiary">{detail}</span>
+								<span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-caption font-normal text-text-tertiary">{detail}</span>
 							</>
 						)}
 					</>

@@ -93,6 +93,17 @@ test("组开合走手风琴 hook，且大折叠栏关闭时清空两个通道", 
 	assert.match(foldSource, /node\.id === runningGroupId/);
 });
 
+test("组头不得小于组体里的行（用户反馈：容器比内容小 = 层级倒置）", () => {
+	// 成员行是 text-control(13px) / min-h-7(28px)。组头若退回 text-caption(12px) + h-6(24px)，
+	// 就会出现「容器比内容还小」的倒置，用户一眼就觉得"组头偏小"。
+	const header = groupSource.match(/data-process-group-head=""[\s\S]{0,700}?aria-expanded=/)?.[0] ?? "";
+	assert.ok(header.length > 0, "组头 button 必须带 data-process-group-head 锚点");
+	assert.match(header, /text-control/, "组头字号必须与成员行同档（13px）");
+	assert.match(header, /h-7/, "组头行高必须与成员行同档（28px）");
+	assert.doesNotMatch(header, /text-caption/);
+	assert.doesNotMatch(header, /\bh-6\b/);
+});
+
 test("组头 / 组体有稳定 DOM 锚点（e2e 依赖，不许改名）", () => {
 	assert.match(groupSource, /data-process-group-id=\{props\.group\.id\}/);
 	assert.match(groupSource, /data-process-group-head=""/);

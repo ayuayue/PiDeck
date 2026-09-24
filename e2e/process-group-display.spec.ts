@@ -31,9 +31,15 @@ async function startAgent(window: Page) {
 	return composer;
 }
 
-/** 发送一条同时触发思考与工具调用的消息。 */
+/**
+ * 发送一条同时触发思考与工具调用的消息。
+ * 前置两步与既有 e2e（typewriter.spec.ts）一致：先等启动遮罩消失、再点 composer 取焦点，
+ * 否则 `启动 Agent` 根本还没渲染出来（首帧只有窗口控制按钮）。
+ */
 async function runProcessTurn(window: Page) {
-	await startAgent(window);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	const composer = await startAgent(window);
+	await composer.click();
 	await window.keyboard.type("THINK TOOL 过程组验证");
 	await window.keyboard.press("Enter");
 }
@@ -42,6 +48,7 @@ test.describe("开关开启：过程组显示", () => {
 	test.use({ seedSettings: { processGroupDisplay: true } });
 
 	test("组头与内容列同宽，且组体限高真的生效", async ({ window }) => {
+		test.setTimeout(90_000);
 		await runProcessTurn(window);
 
 		const head = window.locator("[data-process-group-head]").first();
@@ -79,6 +86,7 @@ test.describe("开关开启：过程组显示", () => {
 
 test.describe("默认（开关关闭）", () => {
 	test("不出现过程组，保持原平铺渲染", async ({ window }) => {
+		test.setTimeout(90_000);
 		await runProcessTurn(window);
 
 		// 平铺路径的折叠汇总按钮出现 → 这一轮确实有过程内容

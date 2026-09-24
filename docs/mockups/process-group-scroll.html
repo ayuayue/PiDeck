@@ -55,9 +55,10 @@
 
 			/* ── 新增：过程组组头 ── */
 			.group { display: flex; flex-direction: column; }
-			.g-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 24px; padding: 0 7px 0 2px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-caption); font-weight: 500; line-height: var(--line-height-caption); cursor: pointer; transition: background-color .14s ease, color .14s ease; }
+			.g-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 7px 0 2px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-control); font-weight: 600; line-height: var(--line-height-control); cursor: pointer; transition: background-color .14s ease, color .14s ease; }
 			.g-head:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); color: var(--text-primary); }
-			.g-chip { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: color-mix(in srgb, var(--tool) 12%, transparent); color: var(--tool); }
+			.g-chip { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: color-mix(in srgb, var(--tool) 12%, transparent); color: var(--tool); }
+			.g-chip svg { width: 14px; height: 14px; }
 			.g-head[data-done] .g-chip { background: color-mix(in srgb, var(--text-tertiary) 13%, transparent); color: var(--text-tertiary); }
 			.g-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 			.g-chev { flex: none; display: inline-flex; margin-left: 1px; color: var(--text-faint); }
@@ -316,6 +317,43 @@
 					</button>
 				</div>
 				<div style="color: #15803d; font-size: 11.5px; margin-top: 6px">↑ 悬停底色铺满整行，与正文和流式输出同宽</div>
+			</div>
+		</div>
+		<h2>E · 组头字号（你反馈"偏小"的那一点）</h2>
+		<p class="h2note">成员行是 13px / 28px。组头原本做成 12px / 24px —— <b>容器比它肚子里的行还小</b>，层级是反的。下面把两种尺寸各配同一行工具行对比（真实尺寸，未放大）。</p>
+		<div class="pane">
+			<div class="col">
+				<div style="color: #b42318; font-size: 11px; letter-spacing: .04em; margin-bottom: 8px">修改前 · 组头 12px / 24px（比成员行小一档）</div>
+				<button class="g-head" data-done style="font-size: var(--font-size-caption); font-weight: 500; height: 24px; line-height: var(--line-height-caption)">
+					<span class="g-chip" style="width: 20px; height: 20px; border-radius: 5px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+					<span class="g-label">执行了命令</span>
+					<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+				</button>
+				<button class="trow" style="padding-left: 31px">
+					<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+					<span class="tname">bash</span>
+					<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					<span class="badge badge--done">完成</span>
+					<span class="tdur">10.7s</span>
+					<span class="tlabel">执行 cd /f/PiDeck &amp;&amp; echo "=== ..."</span>
+				</button>
+				<div style="color: #b42318; font-size: 11.5px; margin-top: 6px">↑ 组头（12px）看起来比它的内容（13px）还弱 —— 这就是"偏小"的来源</div>
+
+				<div style="color: #15803d; font-size: 11px; letter-spacing: .04em; margin: 22px 0 8px">修改后 · 组头 13px / 28px / 字重 600（已实现）</div>
+				<button class="g-head" data-done>
+					<span class="g-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+					<span class="g-label">执行了命令</span>
+					<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+				</button>
+				<button class="trow" style="padding-left: 31px">
+					<span class="ico ico-tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+					<span class="tname">bash</span>
+					<span class="tchev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					<span class="badge badge--done">完成</span>
+					<span class="tdur">10.7s</span>
+					<span class="tlabel">执行 cd /f/PiDeck &amp;&amp; echo "=== ..."</span>
+				</button>
+				<div style="color: #15803d; font-size: 11.5px; margin-top: 6px">↑ 同字号同高度，层级改由<b>字重（600 vs 400）</b>和<b>颜色（secondary vs faint）</b>承担 —— 不再靠"缩小容器"分层</div>
 			</div>
 		</div>
 	</body>
