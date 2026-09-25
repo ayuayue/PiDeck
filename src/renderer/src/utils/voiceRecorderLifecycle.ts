@@ -1,5 +1,8 @@
 export type VoiceTranscriptionState = "idle" | "requesting" | "recording" | "transcribing";
 
+/** 录音按钮可见/可用判据（与主进程 runtimeReady 同源）。 */
+export type VoiceConfigGate = { enabled: boolean; runtimeReady: boolean };
+
 export function canStartVoiceRecording(state: VoiceTranscriptionState): boolean {
 	return state === "idle";
 }
@@ -9,16 +12,17 @@ export function canCancelVoiceRecording(state: VoiceTranscriptionState): boolean
 }
 
 /**
- * 语音转写是否已配置完整（baseUrl + model + 加密存储的 apiKey 三者齐备）。
- * 渲染层据此隐藏录音按钮：未配置必需参数时不显示入口，避免点了才报
- * notConfigured（用户不可达的提示）。baseUrl/model 传空串时视为未配置。
+ * 语音转写入口是否显示：总开关开启 **且** 当前引擎就绪。
+ * - cloud：runtimeReady = baseUrl + model + 加密存储的 apiKey 齐备；
+ * - local：runtimeReady = whisper-cli 就位且所选模型已装（主进程 stat 得出）。
+ * 未满足时隐藏按钮，而非点了才报错（避免不可达的错误提示）。
  */
-export function isVoiceTranscriptionConfigured(config: { hasApiKey: boolean; baseUrl: string; model: string }): boolean {
-	return config.hasApiKey && config.baseUrl.trim().length > 0 && config.model.trim().length > 0;
+export function isVoiceTranscriptionConfigured(config: VoiceConfigGate): boolean {
+	return config.enabled && config.runtimeReady;
 }
 
 /** 请求麦克风前的前置检查（启动路径防御，与按钮显示条件同一套判定）。 */
-export function shouldRequestVoiceMicrophone(config: { hasApiKey: boolean; baseUrl: string; model: string }): boolean {
+export function shouldRequestVoiceMicrophone(config: VoiceConfigGate): boolean {
 	return isVoiceTranscriptionConfigured(config);
 }
 

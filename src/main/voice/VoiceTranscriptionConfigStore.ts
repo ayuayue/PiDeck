@@ -1,15 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG, sanitizeVoiceTranscriptionApiKey, sanitizeVoiceTranscriptionConfig } from "../../shared/voiceTranscriptionConfig";
+import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG, sanitizeVoiceTranscriptionApiKey, sanitizeVoiceTranscriptionConfig, type SanitizedVoiceTranscriptionConfig } from "../../shared/voiceTranscriptionConfig";
+import type { WhisperModelId } from "../../shared/types/whisperRuntime";
 import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionSaveResult } from "../../shared/types/voiceTranscription";
 
 const MAX_PROTECTED_API_KEY_LENGTH = 8192;
 
-type PersistedVoiceTranscriptionConfig = {
+type PersistedVoiceTranscriptionConfig = SanitizedVoiceTranscriptionConfig & {
 	version: 1;
-	baseUrl: string;
-	model: string;
-	language: string;
 	protectedApiKey?: string;
 };
 
@@ -20,7 +18,7 @@ export type VoiceTranscriptionCredentials = {
 	language: string;
 };
 
-/** Owns encrypted transcription credentials in Electron userData. */
+/** Owns transcription settings (and encrypted cloud credentials) in Electron userData. */
 export class VoiceTranscriptionConfigStore {
 	constructor(
 		private readonly deps: {
@@ -29,6 +27,8 @@ export class VoiceTranscriptionConfigStore {
 			protect: (plainText: string) => Uint8Array;
 			unprotect: (encrypted: Uint8Array) => string;
 			log: (message: string, details?: Record<string, unknown>) => void;
+			/** 本地引擎是否可用（whisper-cli 就位 + 所选模型已装）；由主进程注入。 */
+			isLocalReady: (config: { cliPath: string; localModelId: string }) => boolean;
 		},
 	) {}
 
@@ -67,7 +67,7 @@ export class VoiceTranscriptionConfigStore {
 			const configPath = this.deps.getConfigPath();
 			await mkdir(dirname(configPath), { recursive: true });
 			await writeFile(configPath, JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
-			this.deps.log("config saved", { hasApiKey: Boolean(protectedApiKey) });
+			this.deps.log("config saved", { engine: sanitized.engine, hasApiKey: Boolean(protectedApiKey) });
 			return { ok: true, config: this.toPublicConfig(next) };
 		} catch {
 			this.deps.log("config save failed");
@@ -94,22 +94,32 @@ export class VoiceTranscriptionConfigStore {
 			if (!sanitized || !isRecord(parsed)) return this.emptyConfig();
 			const rawProtectedApiKey = Reflect.get(parsed, "protectedApiKey");
 			const protectedApiKey = typeof rawProtectedApiKey === "string" && rawProtectedApiKey.length <= MAX_PROTECTED_API_KEY_LENGTH ? rawProtectedApiKey : undefined;
-			return { version: 1, ...sanitized, ...(protectedApiKey ? { protectedApiKey } : {}) };
+			// 迁移：旧云版配置没有 enabled 字段但已配好密钥 → 视为已开启，
+			// 避免升级后录音按钮从用户界面上凭空消失。
+			const migratedEnabled = !Object.hasOwn(parsed, "enabled") ? Boolean(protectedApiKey) : sanitized.enabled;
+			return { version: 1, ...sanitized, enabled: migratedEnabled, ...(protectedApiKey ? { protectedApiKey } : {}) };
 		} catch {
 			return this.emptyConfig();
 		}
 	}
 
 	private emptyConfig(): PersistedVoiceTranscriptionConfig {
-		return { version: 1, ...DEFAULT_VOICE_TRANSCRIPTION_CONFIG };
+		return { version: 1, ...DEFAULT_VOICE_TRANSCRIPTION_CONFIG, engine: "cloud", localModelId: DEFAULT_VOICE_TRANSCRIPTION_CONFIG.localModelId };
 	}
 
 	private toPublicConfig(config: PersistedVoiceTranscriptionConfig): VoiceTranscriptionPublicConfig {
+		const runtimeReady = config.engine === "local" ? this.deps.isLocalReady({ cliPath: config.cliPath, localModelId: config.localModelId }) : Boolean(config.protectedApiKey) && config.baseUrl.trim().length > 0 && config.model.trim().length > 0;
 		return {
+			enabled: config.enabled,
+			engine: config.engine,
 			baseUrl: config.baseUrl,
 			model: config.model,
 			language: config.language,
+			inputDeviceId: config.inputDeviceId,
+			localModelId: config.localModelId,
+			cliPath: config.cliPath,
 			hasApiKey: Boolean(config.protectedApiKey),
+			runtimeReady,
 		};
 	}
 }

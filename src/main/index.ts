@@ -281,6 +281,9 @@ import { ImageGenConfigStore } from "./imagegen/ImageGenConfigStore";
 import { registerVoiceTranscriptionIpc } from "./ipc/voiceTranscriptionIpc";
 import { VoiceTranscriptionConfigStore } from "./voice/VoiceTranscriptionConfigStore";
 import { VoiceTranscriptionService } from "./voice/VoiceTranscriptionService";
+import { fetchWhisperReleaseDigests, WhisperRuntimeManager } from "./voice/WhisperRuntimeManager";
+import { getWhisperModelDef } from "../shared/types/whisperRuntime";
+import { WhisperTranscriber } from "./voice/WhisperTranscriber";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
@@ -1725,6 +1728,12 @@ async function createWindow() {
 			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "openQuickMessages");
 			return;
 		}
+		// 语音输入开关：与快捷消息同理，输入框聚焦时仍然生效——录音恰恰发生在打字现场。
+		if (isShortcutInput("toggleVoiceRecording", input)) {
+			event.preventDefault();
+			mainWindow.webContents.send(ipcChannels.appShortcutTriggered, "toggleVoiceRecording");
+			return;
+		}
 		if (isShortcutInput("toggleDevTools", input)) {
 			event.preventDefault();
 			toggleMainWindowDevTools(mainWindow);
@@ -2427,19 +2436,47 @@ function registerIpc() {
 		log: (message, ...args) => appLogger.info("vision", message, ...args),
 	});
 
+	const whisperRuntimeRoot = join(app.getPath("userData"), "voice-runtime");
+	const whisperRuntimeManager = new WhisperRuntimeManager({
+		platform: process.platform,
+		arch: process.arch,
+		layout: { runtimeRoot: whisperRuntimeRoot, modelsRoot: join(whisperRuntimeRoot, "models"), tempRoot: join(whisperRuntimeRoot, "tmp") },
+		download: createNetDownloader((scope, message, detail) => void appLogger.warn(scope, message, detail)),
+		fetchReleaseDigests: fetchWhisperReleaseDigests,
+		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
+	});
+	const whisperTranscriber = new WhisperTranscriber({
+		manager: whisperRuntimeManager,
+		getTempRoot: () => join(whisperRuntimeRoot, "tmp"),
+		// piLocator 在启动装配后段才就绪（本注册在其之前），转写发生在运行期，闭包懒取即可。
+		getEnv: () => (piLocator ? piLocator.createProcessEnv() : undefined),
+		log: (message, details) => void appLogger.info("voice-whisper", message, details),
+	});
 	const voiceTranscriptionConfigStore = new VoiceTranscriptionConfigStore({
 		getConfigPath: () => join(app.getPath("userData"), "voice-transcription.json"),
 		isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
 		protect: (plainText) => safeStorage.encryptString(plainText),
 		unprotect: (encrypted) => safeStorage.decryptString(Buffer.from(encrypted)),
 		log: (message, details) => void appLogger.info("voice-transcription", message, details),
+		isLocalReady: (config) => {
+			const status = whisperRuntimeManager.getStatus({ cliPath: config.cliPath, localModelId: undefined });
+			const selected = getWhisperModelDef(config.localModelId);
+			return status.cliReady && Boolean(selected && whisperRuntimeManager.isModelInstalled(selected.id));
+		},
 	});
 	registerVoiceTranscriptionIpc({
 		configStore: voiceTranscriptionConfigStore,
 		service: new VoiceTranscriptionService({
+			getPublicConfig: () => voiceTranscriptionConfigStore.getPublicConfig(),
 			getCredentials: () => voiceTranscriptionConfigStore.getCredentials(),
+			transcribeLocal: (input) => whisperTranscriber.transcribe(input),
+			cancelLocal: (requestId) => whisperTranscriber.cancel(requestId),
 			log: (message, details) => void appLogger.info("voice-transcription", message, details),
 		}),
+		runtimeManager: whisperRuntimeManager,
+		emitRuntimeProgress: (progress) => {
+			if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.voiceTranscriptionRuntimeProgress, progress);
+		},
 	});
 
 	// 生图：凭据来自独立 userData/imagegen.json，不读 pi models.json

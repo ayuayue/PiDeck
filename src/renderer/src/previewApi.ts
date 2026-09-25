@@ -1,5 +1,6 @@
 import type { PiDesktopApi } from "../../preload";
 import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE } from "../../shared/types";
+import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../shared/voiceTranscriptionConfig";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalTab } from "../../shared/types";
 import type { ResourceImportKind } from "../../shared/types/resourceImport";
@@ -1584,23 +1585,29 @@ export function createPreviewApi(): PiDesktopApi {
 			readImageBlob: async () => null,
 		},
 		voiceTranscription: {
-			getConfig: async () => ({
-				baseUrl: "https://api.openai.com/v1",
-				model: "whisper-1",
-				language: "",
-				hasApiKey: false,
-			}),
+			getConfig: async () => ({ ...DEFAULT_VOICE_TRANSCRIPTION_CONFIG, hasApiKey: false, runtimeReady: false }),
 			saveConfig: async (config) => ({
 				ok: true,
 				config: {
+					enabled: config.enabled,
+					engine: config.engine,
 					baseUrl: config.baseUrl,
 					model: config.model,
 					language: config.language,
+					inputDeviceId: config.inputDeviceId,
+					localModelId: config.localModelId,
+					cliPath: config.cliPath,
 					hasApiKey: false,
+					runtimeReady: false,
 				},
 			}),
 			transcribe: async () => ({ ok: false, error: "notConfigured" }),
 			cancel: async () => {},
+			runtimeStatus: async () => ({ autoRuntimeSupported: false, cliReady: false, cliSource: "none", cliPath: null, runtimeVersion: null, models: [] }),
+			installRuntime: async () => ({ ok: false, error: "preview stub" }),
+			installModel: async () => ({ ok: false, error: "preview stub" }),
+			deleteModel: async () => ({ ok: false, error: "preview stub" }),
+			onRuntimeProgress: () => () => undefined,
 		},
 		// 模型目录预览桩：无内置目录可读，返回「不可用」空态，仅供预览不崩溃
 		catalog: {

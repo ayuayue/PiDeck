@@ -1,5 +1,6 @@
 import { normalizeVoiceTranscriptionUrl, VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES, VOICE_TRANSCRIPTION_TIMEOUT_MS } from "../../shared/voiceTranscriptionConfig";
-import type { VoiceTranscriptionRequest, VoiceTranscriptionResult } from "../../shared/types/voiceTranscription";
+import type { WhisperModelId } from "../../shared/types/whisperRuntime";
+import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult } from "../../shared/types/voiceTranscription";
 import type { VoiceTranscriptionCredentials } from "./VoiceTranscriptionConfigStore";
 
 const MAX_RESPONSE_BYTES = 128 * 1024;
@@ -14,13 +15,17 @@ const AUDIO_EXTENSIONS = new Map([
 	["audio/x-wav", "wav"],
 ]);
 
-/** Calls an OpenAI-compatible multipart transcription endpoint from main only. */
+/** Transcription boundary: routes to the cloud endpoint or the local whisper-cli engine. */
 export class VoiceTranscriptionService {
 	private readonly inFlight = new Map<string, AbortController>();
 
 	constructor(
 		private readonly deps: {
+			getPublicConfig: () => Promise<VoiceTranscriptionPublicConfig>;
 			getCredentials: () => Promise<VoiceTranscriptionCredentials | null>;
+			/** 本地引擎入口（WhisperTranscriber.transcribe）；引擎为 local 但未注入时视为不可用。 */
+			transcribeLocal?: (input: { requestId: string; audio: ArrayBuffer; mimeType: string; cliPath: string; modelId: WhisperModelId; language: string }) => Promise<VoiceTranscriptionResult>;
+			cancelLocal?: (requestId: string) => void;
 			fetch?: typeof fetch;
 			timeoutMs?: number;
 			log: (message: string, details?: Record<string, unknown>) => void;
@@ -32,6 +37,18 @@ export class VoiceTranscriptionService {
 		const extension = AUDIO_EXTENSIONS.get(mimeType);
 		if (!extension || input.audio.byteLength === 0 || input.audio.byteLength > VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
 			return { ok: false, error: "invalidRequest" };
+		}
+		const config = await this.deps.getPublicConfig();
+		if (config.engine === "local") {
+			if (!this.deps.transcribeLocal) return { ok: false, error: "engineUnavailable" };
+			return this.deps.transcribeLocal({
+				requestId: input.requestId,
+				audio: input.audio,
+				mimeType,
+				cliPath: config.cliPath,
+				modelId: config.localModelId,
+				language: config.language,
+			});
 		}
 		const previous = this.inFlight.get(input.requestId);
 		if (previous) previous.abort();
@@ -83,6 +100,7 @@ export class VoiceTranscriptionService {
 
 	cancel(requestId: string): void {
 		this.inFlight.get(requestId)?.abort();
+		this.deps.cancelLocal?.(requestId);
 	}
 }
 

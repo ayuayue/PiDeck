@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useStore } from "jotai";
 import { VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "../../../shared/voiceTranscriptionConfig";
-import type { VoiceTranscriptionErrorCode } from "../../../shared/types/voiceTranscription";
+import type { VoiceTranscriptionErrorCode, VoiceTranscriptionPublicConfig } from "../../../shared/types/voiceTranscription";
+import { currentSessionIdAtom } from "../atoms";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
+import { GUIDE_BOOTSTRAP_SESSION_ID } from "../utils/chatSessionBootstrap";
+import { ownsQuickMessageShortcut } from "../utils/quickMessageShortcut";
+import { encodeRecordingToWav } from "../utils/voiceWavEncoder";
 import type { VoiceTranscriptionTarget } from "../utils/voiceTranscriptionInsert";
 import { canCancelVoiceRecording, canStartVoiceRecording, isVoiceTranscriptionConfigured, releaseVoiceRecordingResources, shouldRequestVoiceMicrophone, type VoiceTranscriptionState } from "../utils/voiceRecorderLifecycle";
 
@@ -13,15 +18,17 @@ const MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;code
 
 /** Owns the microphone and recorder lifecycle; audio is never persisted. */
 export function useVoiceTranscription(input: { scopeKey: string; captureTarget: () => VoiceTranscriptionTarget; applyText: (target: VoiceTranscriptionTarget, text: string) => boolean }) {
+	const store = useStore();
 	const [state, setState] = useState<VoiceTranscriptionState>("idle");
-	// 配置完整性（baseUrl+model+apiKey 齐备）决定录音按钮是否显示：
-	// 未配置时整个入口隐藏，而不是点了才提示 notConfigured。
+	// 配置完整性（总开关 + 当前引擎就绪）决定录音按钮是否显示：
+	// 未就绪时整个入口隐藏，而不是点了才提示 notConfigured。
 	const [configured, setConfigured] = useState(false);
 	const stateRef = useRef<VoiceTranscriptionState>("idle");
 	const recorderRef = useRef<MediaRecorder | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
 	const chunksRef = useRef<Blob[]>([]);
 	const targetRef = useRef<VoiceTranscriptionTarget | null>(null);
+	const engineRef = useRef<VoiceTranscriptionPublicConfig["engine"]>("cloud");
 	const operationRef = useRef(0);
 	const inFlightRequestIdRef = useRef<string | null>(null);
 	const mountedRef = useRef(true);
@@ -63,15 +70,23 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 			}
 			let dispatchedRequestId: string | null = null;
 			try {
-				const audioBuffer = await audio.arrayBuffer();
+				// 本地 whisper-cli 只吃 wav：在渲染层解码重采样为 16kHz mono（webm 主进程解不了）。
+				const local = engineRef.current === "local";
+				const payload: ArrayBuffer = local ? await encodeRecordingToWav(audio) : await audio.arrayBuffer();
+				const mimeType = local ? "audio/wav" : audio.type;
 				if (!mountedRef.current || operationRef.current !== operation) return;
+				if (payload.byteLength === 0 || payload.byteLength > VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
+					updateState("idle");
+					showNotice(t("voice.error.invalidRequest"), 4000);
+					return;
+				}
 				const requestId = crypto.randomUUID();
 				dispatchedRequestId = requestId;
 				inFlightRequestIdRef.current = requestId;
 				const result = await desktopApi.voiceTranscription.transcribe({
 					requestId,
-					audio: audioBuffer,
-					mimeType: audio.type,
+					audio: payload,
+					mimeType,
 				});
 				if (!mountedRef.current || operationRef.current !== operation) return;
 				if (!result.ok) {
@@ -113,6 +128,7 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 		operationRef.current = operation;
 		cancelInFlight();
 		updateState("requesting");
+		let deviceId = "";
 		try {
 			const config = await desktopApi.voiceTranscription.getConfig();
 			if (!mountedRef.current || operationRef.current !== operation) return;
@@ -121,6 +137,9 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 				showNotice(t("voice.error.notConfigured"), 4000);
 				return;
 			}
+			// 记住引擎：transcribeAudio 在 onstop 里执行，届时无法再回读配置。
+			engineRef.current = config.engine;
+			deviceId = config.inputDeviceId;
 		} catch {
 			if (!mountedRef.current || operationRef.current !== operation) return;
 			updateState("idle");
@@ -134,7 +153,9 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 		}
 		const target = captureTargetRef.current();
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			// 选定设备优先；设备临时拔出/占用导致 exact 失败时回落系统默认，
+			// 避免「设置里选了设备 → 设备暂时不在 → 完全不能录音」。
+			const stream = await requestMicrophone(navigator.mediaDevices, deviceId);
 			if (!mountedRef.current || operationRef.current !== operation) {
 				for (const track of stream.getTracks()) track.stop();
 				return;
@@ -185,6 +206,31 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 		recorder.stop();
 	}, [updateState]);
 
+	// 快捷键/按钮共用的「切换式」录音开关：空闲→开始，录音中→停止并转写。
+	// 用 ref 读同步状态，避免把 start/stop 的最新闭包塞进订阅依赖导致每次重订。
+	const startRef = useRef(start);
+	startRef.current = start;
+	const stopRef = useRef(stop);
+	stopRef.current = stop;
+	const configuredRef = useRef(false);
+	const toggle = useCallback(() => {
+		if (stateRef.current === "recording") {
+			stopRef.current();
+			return;
+		}
+		if (stateRef.current === "idle" && configuredRef.current) void startRef.current();
+	}, []);
+
+	// 全局快捷键呼出录音：与快捷消息同理，须自证「本栏是聚焦栏」，否则分屏下按一次
+	// 会同时触发多栏录音。输入框聚焦时仍生效（语音正是打字现场）。
+	useEffect(() => {
+		return desktopApi.app.onShortcutTriggered((triggered) => {
+			if (triggered !== "toggleVoiceRecording") return;
+			if (!ownsQuickMessageShortcut({ focusedSessionId: store.get(currentSessionIdAtom), sessionId: scopeKey, guideSessionId: GUIDE_BOOTSTRAP_SESSION_ID })) return;
+			toggle();
+		});
+	}, [scopeKey, store, toggle]);
+
 	useEffect(() => {
 		mountedRef.current = true;
 		return () => {
@@ -221,17 +267,34 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 		void desktopApi.voiceTranscription
 			.getConfig()
 			.then((config) => {
-				if (active) setConfigured(isVoiceTranscriptionConfigured(config));
+				if (!active) return;
+				const ready = isVoiceTranscriptionConfigured(config);
+				configuredRef.current = ready;
+				setConfigured(ready);
 			})
 			.catch(() => {
-				if (active) setConfigured(false);
+				if (!active) return;
+				configuredRef.current = false;
+				setConfigured(false);
 			});
 		return () => {
 			active = false;
 		};
 	}, [scopeKey]);
 
-	return { state, start, stop, cancel, configured };
+	return { state, start, stop, cancel, toggle, configured };
+}
+
+/** 按选定设备请求麦克风；无设备或 exact 失败时回落系统默认设备。 */
+async function requestMicrophone(mediaDevices: MediaDevices, deviceId: string): Promise<MediaStream> {
+	if (deviceId) {
+		try {
+			return await mediaDevices.getUserMedia({ audio: { deviceId: { exact: deviceId } } });
+		} catch (error) {
+			if (!(error instanceof DOMException) || (error.name !== "OverconstrainedError" && error.name !== "NotFoundError")) throw error;
+		}
+	}
+	return mediaDevices.getUserMedia({ audio: true });
 }
 
 function voiceErrorMessage(error: VoiceTranscriptionErrorCode): string {
