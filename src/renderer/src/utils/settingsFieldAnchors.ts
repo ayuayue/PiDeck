@@ -30,6 +30,7 @@ export type SettingsFieldAnchor = {
 };
 
 export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
+	{ tab: "appearance", slug: "appearance-navigation-mode", labelKey: "settings.navigationMode", keywords: ["简洁模式", "标签模式", "simple", "navigation"] },
 	// ── 开发设置 ──────────────────────────────────────────────────────
 	{
 		tab: "dev",

@@ -31,7 +31,9 @@ export type WorkbenchContentProps = {
 	gitDiffDisplayMode: WorkspaceContentOpenMode;
 	onToggleGitDiffMode: () => void;
 	onCloseGitDiff: () => void;
+	editorTabs: readonly EditorTabLike[];
 	activeTab: EditorTabLike | null;
+	onDirty: (id: string) => void;
 	editorMode: WorkspaceContentOpenMode;
 	onToggleEditorMode?: () => void;
 	onCloseEditor: () => void;
@@ -43,51 +45,55 @@ export type WorkbenchContentProps = {
 /**
  * 中间栏阅读面：Git Diff / 文件编辑共用 FileDiffViewer。
  *
- * Tab 名单已上收到 SessionTabsBar（与会话 Tab 同一条栏）；这里只渲染内容与顶栏动作。
+ * 文件标签分别由标签模式顶栏与简洁模式右侧承载。已打开文件保持实例，切换仅隐藏，保留撤销历史。
+ * 非当前文件关闭全局保存快捷键；关闭标签时才释放实例。
  * 不用 React.lazy：Vite/Electron 下动态 import 偶发
  * 「Failed to fetch dynamically imported module」，且 lazy 会缓存 rejected
  * promise，边界「重试」也无法恢复。打开文件是主路径，静态引入更稳。
  */
 export function WorkbenchContent(props: WorkbenchContentProps) {
-	if (props.gitDiff) {
-		return (
-			<FileDiffViewer
-				displayMode={props.gitDiffDisplayMode}
-				filePath={props.gitDiff.filePath}
-				mode="diff"
-				onToggleMode={props.onToggleGitDiffMode}
-				originalContent={props.gitDiff.originalContent}
-				modifiedContent={props.gitDiff.modifiedContent}
-				onClose={props.onCloseGitDiff}
-				readContent={props.readContent}
-				theme={props.theme}
-				maxFileSizeMB={props.maxFileSizeMB}
-				/* Tab 在总栏；内容区只留动作钮，避免第二套标题/绿条 */
-				chromeTabsExternal
-			/>
-		);
-	}
-
-	if (!props.activeTab) return null;
-
 	return (
-		<FileDiffViewer
-			displayMode={props.editorMode}
-			filePath={props.activeTab.filePath}
-			activeTabId={props.activeTab.id}
-			fileAccessScope={props.activeTab.fileAccessScope}
-			mode={props.activeTab.mode}
-			onToggleMode={props.activeTab.preserveDrawer ? undefined : props.onToggleEditorMode}
-			originalContent={props.activeTab.mode === "diff" ? props.activeTab.originalContent : undefined}
-			initialLine={props.activeTab.initialLine}
-			modifiedContent={props.activeTab.modifiedContent}
-			onClose={props.onCloseEditor}
-			readContent={props.readContent}
-			readOriginalContent={props.readOriginalContent}
-			saveContent={props.activeTab.allowSave ? props.saveContent : undefined}
-			theme={props.theme}
-			maxFileSizeMB={props.maxFileSizeMB}
-			chromeTabsExternal
-		/>
+		<>
+			{props.editorTabs.map((tab) => (
+				<div key={tab.id} className={props.activeTab?.id === tab.id && !props.gitDiff ? "flex h-full min-h-0 flex-col" : "hidden"}>
+					<FileDiffViewer
+						active={props.activeTab?.id === tab.id && !props.gitDiff}
+						onDirty={() => props.onDirty(tab.id)}
+						displayMode={props.editorMode}
+						filePath={tab.filePath}
+						activeTabId={tab.id}
+						fileAccessScope={tab.fileAccessScope}
+						mode={tab.mode}
+						onToggleMode={props.onToggleEditorMode}
+						originalContent={tab.mode === "diff" ? tab.originalContent : undefined}
+						initialLine={tab.initialLine}
+						modifiedContent={tab.modifiedContent}
+						onClose={props.onCloseEditor}
+						readContent={props.readContent}
+						readOriginalContent={props.readOriginalContent}
+						saveContent={tab.allowSave ? props.saveContent : undefined}
+						theme={props.theme}
+						maxFileSizeMB={props.maxFileSizeMB}
+						chromeTabsExternal
+					/>
+				</div>
+			))}
+			{props.gitDiff && (
+				<FileDiffViewer
+					key="git-diff"
+					displayMode={props.gitDiffDisplayMode}
+					filePath={props.gitDiff.filePath}
+					mode="diff"
+					onToggleMode={props.onToggleGitDiffMode}
+					originalContent={props.gitDiff.originalContent}
+					modifiedContent={props.gitDiff.modifiedContent}
+					onClose={props.onCloseGitDiff}
+					readContent={props.readContent}
+					theme={props.theme}
+					maxFileSizeMB={props.maxFileSizeMB}
+					chromeTabsExternal
+				/>
+			)}
+		</>
 	);
 }

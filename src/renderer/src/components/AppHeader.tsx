@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Pin, Minus, Square, X } from "lucide-react";
 import { t } from "../i18n";
+import { cn } from "../lib/utils";
 
 type Props = {
+	simple?: boolean;
 	useNativeTitleBar: boolean;
 	/** mac 用系统红绿灯，不再渲染右侧 Win 风格 min/max/close。 */
 	platform: NodeJS.Platform;
@@ -27,7 +29,7 @@ function RestoreIcon() {
 	);
 }
 
-export function AppHeader({ useNativeTitleBar, platform, toggleAlwaysOnTop, isWindowAlwaysOnTop, minimizeWindow, toggleMaximizeWindow, isWindowMaximized, onWindowMaximizedChange, closeWindow }: Props) {
+export function AppHeader({ simple = false, useNativeTitleBar, platform, toggleAlwaysOnTop, isWindowAlwaysOnTop, minimizeWindow, toggleMaximizeWindow, isWindowMaximized, onWindowMaximizedChange, closeWindow }: Props) {
 	const [windowAlwaysOnTop, setWindowAlwaysOnTop] = useState(false);
 	const [maximized, setMaximized] = useState(false);
 
@@ -60,7 +62,7 @@ export function AppHeader({ useNativeTitleBar, platform, toggleAlwaysOnTop, isWi
 		<>
 			<div className="window-drag-layer" aria-hidden="true" />
 			{showWinWindowControls ? (
-				<div className="window-controls" aria-label={t("app.windowControls")}>
+				<div className={cn("window-controls", simple ? "bg-(--simple-shell-surface)" : "bg-bg-panel")} aria-label={t("app.windowControls")}>
 					<button
 						type="button"
 						className={`window-control pin${windowAlwaysOnTop ? " active" : ""}`}

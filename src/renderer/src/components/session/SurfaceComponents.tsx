@@ -731,11 +731,12 @@ export const UserBubble = memo(function UserBubble(props: {
 			if (messageExpanded) return; // 展开态无需测量，保持按钮可见
 			setMessageOverflowing(el.scrollHeight > el.clientHeight + 1);
 		};
-		check();
+		// ResizeObserver 挂载后会先回调一次；直接check会在逐条挂载历史消息时
+		// 强制同步布局，重复测量整条时间线。统一在浏览器布局完成后读取。
 		const observer = new ResizeObserver(check);
 		observer.observe(el);
 		return () => observer.disconnect();
-	}, [messageExpanded]);
+	}, [messageExpanded, editing, message.text]);
 	// 视觉桥块：pi-deck-vision 扩展把用户消息里的图片换成描述文本时，会在消息里
 	// 留下「[图片 #N（视觉桥已查看...）]」/失败标记。先剥出块，渲染成可视化卡片，
 	// 用户才能直观看到「走了视觉桥」以及转换结果/失败原因，而不是一段方括号文本。

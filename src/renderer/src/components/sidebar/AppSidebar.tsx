@@ -13,6 +13,7 @@ import { Button } from "../ui-shadcn/button";
 import { t } from "../../i18n";
 
 interface AppSidebarProps {
+	simple?: boolean;
 	actions: SidebarActions;
 	currentProjectId: string | undefined;
 	currentSessionId: string | undefined;
@@ -82,6 +83,7 @@ export function AppSidebar(props: AppSidebarProps) {
 	return (
 		<>
 			<SidebarContent
+				simple={props.simple}
 				controller={controller}
 				actions={props.actions}
 				currentProjectId={props.currentProjectId}
@@ -94,7 +96,7 @@ export function AppSidebar(props: AppSidebarProps) {
 				onOpenNewSession={props.onOpenNewSession}
 				chrome={
 					<>
-						<div className="list-toolbar flex h-10 shrink-0 items-center gap-1 border-b border-border/40 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]">
+						<div className={props.simple ? "list-toolbar flex h-12 shrink-0 items-center gap-1 px-2.5 [-webkit-app-region:no-drag]" : "list-toolbar flex h-10 shrink-0 items-center gap-1 border-b border-border/40 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]"}>
 							<AboutPopover appInfo={props.appInfo}>
 								<div
 									className="app-badge flex min-w-0 flex-1 cursor-pointer items-center justify-center pl-5"

@@ -600,7 +600,10 @@
   line-height: 1.2;
 }
 
-/* ── 四种状态变体：只差异颜色，容器尺寸不变，避免布局跳动 ── */
+/* ── 状态变体：只差异颜色，容器尺寸不变，避免布局跳动 ──
+   starting / executing / compacting 用警告色（后台在忙、等待时长不确定）；
+   thinking / responding 不写规则，继承容器基础色（模型正常输出中）；waiting 用最弱三级色。
+   新增 kind（如 thinking）不写规则即继承基础色，这是有意的默认分支。 */
 
 /* 状态色只作用于前置指示器（Loader 用 currentColor）与文字基调；无框后不再有边框/背景色 */
 .responding-indicator[data-kind="starting"],

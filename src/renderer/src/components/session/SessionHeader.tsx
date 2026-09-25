@@ -80,6 +80,7 @@ export function SessionHeader(props: SessionHeaderProps) {
 					<HatGlasses size={14} aria-hidden="true" />
 				</span>
 			)}
+			{props.embedded && session?.backend === "dsh" && <DshAgentPresetControl sessionId={sessionId} />}
 			{sessionMode && session?.backend === "dsh" && <DshToolsButton sessionId={sessionId} />}
 		</div>
 	);

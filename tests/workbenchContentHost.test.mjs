@@ -121,7 +121,8 @@ test("file tabs use preview/permanent strategy owned by useFileEditor", () => {
 	assert.match(tabsBar, /editorTabs\?:/);
 	assert.match(tabsBar, /EditorWorkbenchTab/);
 	assert.match(content, /chromeTabsExternal/);
-	assert.match(app, /editorTabs=\{workbenchEditorTabs\}/);
+	assert.match(app, /editorTabs=\{simpleMode \? \[\] : workbenchEditorTabs\}/);
+	assert.match(app, /<WorkbenchFileTabs tabs=\{workbenchEditorTabs\}/);
 
 	const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
 	// 编辑/退出编辑按钮已移除（diff 只读、view 源码即编辑），不存在退出编辑与关闭叉撞车问题

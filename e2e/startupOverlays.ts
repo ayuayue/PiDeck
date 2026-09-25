@@ -22,10 +22,8 @@ export async function armStartupOverlayDismissal(window: Page): Promise<boolean>
 			/* 受限环境（localStorage 不可用）：忽略，下面的轮询仍能兜住 */
 		}
 		const dismiss = (): boolean => {
-			const dialog = document.querySelector('[role="dialog"]');
-			if (!dialog) return false;
-			// 只点引导自己的关闭按钮，不误关别的弹窗（用例可能自己开弹窗）
-			const button = Array.from(dialog.querySelectorAll("button")).find((item) => /以后再说|Later/.test(item.textContent ?? ""));
+			// 设置弹窗可能先打开；不能只检查第一个Dialog而漏掉后弹出的引导。
+			const button = Array.from(document.querySelectorAll('[role="dialog"] button')).find((item) => /以后再说|Later/.test(item.textContent ?? "")) as HTMLButtonElement | undefined;
 			if (!button) return false;
 			button.click();
 			return true;

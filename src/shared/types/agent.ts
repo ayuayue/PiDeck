@@ -107,6 +107,8 @@ export type AgentRuntimeState = {
 	contextTokens?: number | null;
 	contextWindow?: number | null;
 	contextPercent?: number | null;
+	/** 最近一次请求因上下文窗口超限而失败；即使当前占用快照缺失也要保留这个恢复入口。 */
+	contextOverflow?: boolean;
 	/** 对话消息估算 token：主进程按会话文件消息文本字符数 ÷ 4 粗估，
 	 *  用于 UI 展示「对话 vs 系统+工具」两段占比（pi 不返回 prompt 构成）。 */
 	contextMessageTokens?: number;

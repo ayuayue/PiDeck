@@ -7,6 +7,16 @@ import vm from "node:vm";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
+function transpile(path) {
+	return ts.transpileModule(readFileSync(path, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+}
+
+function loadWhisperRuntime() {
+	const module = { exports: {} };
+	vm.runInNewContext(transpile("src/shared/types/whisperRuntime.ts"), { module, exports: module.exports });
+	return module.exports;
+}
+
 function loadRegistration() {
 	const handlers = new Map();
 	const ipcChannels = {
@@ -14,10 +24,15 @@ function loadRegistration() {
 		voiceTranscriptionSaveConfig: "voice:save-config",
 		voiceTranscriptionTranscribe: "voice:transcribe",
 		voiceTranscriptionCancel: "voice:cancel",
+		// 安装进度是 webContents.send 推送通道，不走 ipcMain.handle，故不出现在这里。
+		voiceTranscriptionRuntimeStatus: "voice:runtime-status",
+		voiceTranscriptionRuntimeInstall: "voice:runtime-install",
+		voiceTranscriptionModelInstall: "voice:model-install",
+		voiceTranscriptionModelDelete: "voice:model-delete",
 	};
+	const whisperRuntime = loadWhisperRuntime();
 	const module = { exports: {} };
-	const source = ts.transpileModule(readFileSync("src/main/ipc/voiceTranscriptionIpc.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-	vm.runInNewContext(source, {
+	vm.runInNewContext(transpile("src/main/ipc/voiceTranscriptionIpc.ts"), {
 		module,
 		exports: module.exports,
 		ArrayBuffer,
@@ -26,6 +41,7 @@ function loadRegistration() {
 				return { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } };
 			}
 			if (id === "../../shared/ipc") return { ipcChannels };
+			if (id === "../../shared/types/whisperRuntime") return whisperRuntime;
 			throw new Error(`unexpected require: ${id}`);
 		},
 	});
@@ -36,7 +52,7 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 	const { handlers, ipcChannels, register } = loadRegistration();
 	const calls = { cancelled: [], transcribed: [] };
 	const configStore = {
-		getPublicConfig: async () => ({ hasApiKey: false }),
+		getPublicConfig: async () => ({ hasApiKey: false, cliPath: "", localModelId: "base-q5_1" }),
 		saveConfig: async () => ({ ok: false, error: "invalidConfig" }),
 	};
 	const service = {
@@ -46,7 +62,27 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 		},
 		cancel: (requestId) => calls.cancelled.push(requestId),
 	};
-	register({ configStore, service });
+	const runtimeCalls = { status: [], installRuntime: 0, installModel: [], deleteModel: [] };
+	const runtimeManager = {
+		getStatus: async (input) => {
+			runtimeCalls.status.push(input);
+			return { cliReady: true };
+		},
+		installRuntime: async () => {
+			runtimeCalls.installRuntime += 1;
+			return { ok: true };
+		},
+		installModel: async (modelId) => {
+			runtimeCalls.installModel.push(modelId);
+			return { ok: true };
+		},
+		deleteModel: async (modelId) => {
+			runtimeCalls.deleteModel.push(modelId);
+			return { ok: true };
+		},
+	};
+	const emitted = [];
+	register({ configStore, service, runtimeManager, emitRuntimeProgress: (p) => emitted.push(p) });
 
 	assert.deepEqual(Array.from(handlers.keys()).sort(), Object.values(ipcChannels).sort());
 	const transcribe = handlers.get(ipcChannels.voiceTranscriptionTranscribe);
@@ -62,4 +98,27 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 	await cancel({}, "bad id");
 	await cancel({}, "request-1");
 	assert.deepEqual(calls.cancelled, ["request-1"]);
+
+	// runtime-status 读取当前配置后把 cliPath/localModelId 传给 manager
+	// （入参对象在 vm realm 里构造，逐字段比较以避开跨 realm 原型差异）
+	const status = handlers.get(ipcChannels.voiceTranscriptionRuntimeStatus);
+	assert.equal((await status({})).cliReady, true);
+	assert.equal(runtimeCalls.status.length, 1);
+	assert.equal(runtimeCalls.status[0].cliPath, "");
+	assert.equal(runtimeCalls.status[0].localModelId, "base-q5_1");
+
+	// model-install / model-delete 只接受目录内的 modelId，未知一律拒绝、不触达 manager
+	const installModel = handlers.get(ipcChannels.voiceTranscriptionModelInstall);
+	const deleteModel = handlers.get(ipcChannels.voiceTranscriptionModelDelete);
+	assert.equal((await installModel({}, "nope-not-a-model")).error, "unknown-model");
+	assert.deepEqual(await installModel({}, "small-q5_1"), { ok: true });
+	assert.equal((await deleteModel({}, "nope")).error, "unknown-model");
+	assert.deepEqual(await deleteModel({}, "tiny-q5_1"), { ok: true });
+	assert.deepEqual(runtimeCalls.installModel, ["small-q5_1"]);
+	assert.deepEqual(runtimeCalls.deleteModel, ["tiny-q5_1"]);
+
+	// runtime-install 触发安装并把进度回调透传给 manager（emitRuntimeProgress 引用一致）
+	const runtimeInstall = handlers.get(ipcChannels.voiceTranscriptionRuntimeInstall);
+	assert.deepEqual(await runtimeInstall({}), { ok: true });
+	assert.equal(runtimeCalls.installRuntime, 1);
 });

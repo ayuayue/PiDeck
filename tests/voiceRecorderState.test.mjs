@@ -20,18 +20,20 @@ test("only idle can start and only recording can cancel", () => {
 	assert.equal(canCancelVoiceRecording("transcribing"), false);
 });
 
-test("microphone permission is gated by the redacted hasApiKey preflight", () => {
-	// 必需参数三件套：apiKey + baseUrl + model，缺一不可（未配置时按钮隐藏）
-	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: true, baseUrl: "https://api.openai.com/v1", model: "whisper-1" }), true);
-	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: false, baseUrl: "https://api.openai.com/v1", model: "whisper-1" }), false);
-	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: true, baseUrl: "  ", model: "whisper-1" }), false);
-	assert.equal(isVoiceTranscriptionConfigured({ hasApiKey: true, baseUrl: "https://api.openai.com/v1", model: "" }), false);
-	assert.equal(shouldRequestVoiceMicrophone({ hasApiKey: false, baseUrl: "", model: "" }), false);
-	assert.equal(shouldRequestVoiceMicrophone({ hasApiKey: true, baseUrl: "https://api.openai.com/v1", model: "whisper-1" }), true);
+test("录音入口由「总开关开启 + 当前引擎就绪」把守，未就绪不请求麦克风", () => {
+	// enabled && runtimeReady 双条件，缺一即隐藏按钮/不申请权限。
+	assert.equal(isVoiceTranscriptionConfigured({ enabled: true, runtimeReady: true }), true);
+	assert.equal(isVoiceTranscriptionConfigured({ enabled: false, runtimeReady: true }), false);
+	assert.equal(isVoiceTranscriptionConfigured({ enabled: true, runtimeReady: false }), false);
+	assert.equal(isVoiceTranscriptionConfigured({ enabled: false, runtimeReady: false }), false);
+	// 请求麦克风走同一判据。
+	assert.equal(shouldRequestVoiceMicrophone({ enabled: false, runtimeReady: false }), false);
+	assert.equal(shouldRequestVoiceMicrophone({ enabled: true, runtimeReady: true }), true);
 	const hookSource = readFileSync("src/renderer/src/hooks/useVoiceTranscription.ts", "utf8");
-	assert.ok(hookSource.indexOf("voiceTranscription.getConfig()") < hookSource.indexOf("getUserMedia({ audio: true })"));
+	// 先读脱敏配置判就绪，再申请麦克风（未就绪应提前返回，不弹权限）。
+	assert.ok(hookSource.indexOf("voiceTranscription.getConfig()") < hookSource.indexOf("requestMicrophone(navigator.mediaDevices"));
 	assert.ok(hookSource.indexOf("streamRef.current = stream") < hookSource.indexOf("new MediaRecorder(stream"));
-	// 渲染层入口由配置完整性控制：ComposerArea 在未配置时不渲染录音控件
+	// 渲染层入口由配置就绪控制：ComposerArea 在未配置时不渲染录音控件
 	const composerSource = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
 	// formatter 会去掉单元素三元的包裹括号：用 \(? 容忍。
 	assert.match(composerSource, /composer\.voice\.configured \? \(?/);

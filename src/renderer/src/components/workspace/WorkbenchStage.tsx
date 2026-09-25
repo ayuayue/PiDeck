@@ -4,6 +4,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui-shad
 import type { WorkspaceContentOpenMode } from "../../../../shared/types";
 
 export type WorkbenchStageProps = {
+	simple?: boolean;
+	contentChrome?: ReactNode;
 	/** 无内容时只渲染 session；有内容时按 layout 分屏或占满中间栏 */
 	layout: WorkspaceContentOpenMode;
 	hasContent: boolean;
@@ -30,6 +32,7 @@ export type WorkbenchStageProps = {
  */
 export function WorkbenchStage(props: WorkbenchStageProps) {
 	const sessionPanelRef = useRef<PanelImperativeHandle>(null);
+	const contentPanelRef = useRef<PanelImperativeHandle>(null);
 	const contentFrameRef = useRef<HTMLDivElement>(null);
 
 	// 内容区宽度上报：右缘刻度轴（.outline-hover）默认贴窗口右缘，工作台分屏时
@@ -51,44 +54,41 @@ export function WorkbenchStage(props: WorkbenchStageProps) {
 	}, [props.onContentWidthChange, props.hasContent, props.layout]);
 
 	useEffect(() => {
-		if (!props.hasContent) return;
 		const panel = sessionPanelRef.current;
-		if (!panel) return;
-		try {
+		const contentPanel = contentPanelRef.current;
+		if (!panel || !contentPanel) return;
+		if (!props.hasContent) {
+			contentPanel.collapse();
+			panel.expand();
+		} else {
+			contentPanel.expand();
 			if (props.layout === "maximize") panel.collapse();
 			else panel.expand();
-		} catch {
-			// 面板尚未注册到 Group 时 resize API 可能抛错，下一帧布局会自愈
 		}
 	}, [props.hasContent, props.layout]);
 
-	const body =
-		!props.hasContent || !props.content ? (
-			props.session
-		) : (
-			<ResizablePanelGroup orientation="horizontal" className="workbench-stage-split">
-				{/* 尺寸统一用字符串百分比（"48%"）而非数字：react-resizable-panels v4 的
-				   约束派生把数字按 px 解析（minSize={20} → 20px → 占 2%），而初始化布局
-				   把数字当 %（defaultSize={48} → 48%），同值两处解析不一致；
-				   maximize↔split 切换后 expand() 恢复宽度依赖该约束，数字会缩成一条窄缝。
-				   defaultSize 固定不变（挂载时生效一次），避免 Panel 重注册丢失 expandToSize
-				   （折叠前宽度），后续展开/收起全由下方 effect 的 collapse()/expand() 驱动。 */}
-				<ResizablePanel id="workbench-session" panelRef={sessionPanelRef} collapsible collapsedSize="0%" minSize="20%" defaultSize="48%" className="workbench-session-pane">
-					{props.session}
-				</ResizablePanel>
-				<ResizableHandle withHandle className="workbench-stage-sash" />
-				<ResizablePanel id="workbench-content" minSize="25%" defaultSize="52%" className="workbench-content-pane">
-					<div ref={contentFrameRef} className="workbench-content-frame">
-						{props.content}
-					</div>
-				</ResizablePanel>
-			</ResizablePanelGroup>
-		);
-
+	// Keep both panel identities stable across mode changes and opening a file:
+	// remounting the session/editor would discard scroll position and undo state.
 	return (
-		<div className={!props.hasContent || !props.content ? "workbench-stage workbench-stage-solo" : "workbench-stage workbench-stage-with-content"}>
-			{props.chrome}
-			<div className="workbench-stage-body">{body}</div>
+		<div className={`workbench-stage ${props.hasContent ? "workbench-stage-with-content" : "workbench-stage-solo"}${props.simple ? " simple-workbench" : ""}`}>
+			{!props.simple && props.chrome}
+			<div className="workbench-stage-body">
+				<ResizablePanelGroup orientation="horizontal" className="workbench-stage-split">
+					<ResizablePanel id="workbench-session" panelRef={sessionPanelRef} collapsible collapsedSize="0%" minSize="20%" defaultSize="48%" className="workbench-session-pane">
+						<div className="flex h-full min-h-0 flex-col">
+							{props.simple && props.chrome}
+							<div className="flex min-h-0 flex-1 flex-col">{props.session}</div>
+						</div>
+					</ResizablePanel>
+					<ResizableHandle withHandle className="workbench-stage-sash" disabled={!props.hasContent || props.layout === "maximize"} style={!props.hasContent ? { display: "none" } : undefined} />
+					<ResizablePanel id="workbench-content" panelRef={contentPanelRef} collapsible collapsedSize="0%" minSize="25%" defaultSize="52%" className="workbench-content-pane">
+						<div ref={contentFrameRef} className="workbench-content-frame">
+							{props.simple && props.hasContent && props.contentChrome}
+							{props.content}
+						</div>
+					</ResizablePanel>
+				</ResizablePanelGroup>
+			</div>
 		</div>
 	);
 }

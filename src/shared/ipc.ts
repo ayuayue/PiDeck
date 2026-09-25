@@ -796,6 +796,16 @@ export const ipcChannels = {
 	voiceTranscriptionSaveConfig: "voice-transcription:save-config",
 	voiceTranscriptionTranscribe: "voice-transcription:transcribe",
 	voiceTranscriptionCancel: "voice-transcription:cancel",
+	/** 本地 whisper 运行时/模型安装状态（主进程 stat + 哈希锁记录）。 */
+	voiceTranscriptionRuntimeStatus: "voice-transcription:runtime-status",
+	/** 按需下载 whisper-cli 二进制归档（不进安装包）。 */
+	voiceTranscriptionRuntimeInstall: "voice-transcription:runtime-install",
+	/** 按需下载指定 ggml 模型（入参 modelId）。 */
+	voiceTranscriptionModelInstall: "voice-transcription:model-install",
+	/** 删除已下载模型（释放磁盘）。 */
+	voiceTranscriptionModelDelete: "voice-transcription:model-delete",
+	/** 安装进度推送（订阅式，返回退订）。 */
+	voiceTranscriptionRuntimeProgress: "voice-transcription:runtime-progress",
 
 	// ===== 应用公告（无服务器拉取） =====
 	/** 渲染层 → 主进程：拉取当前公告快照（主进程返回缓存，不做网络请求） */

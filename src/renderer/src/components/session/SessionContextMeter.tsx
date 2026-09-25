@@ -6,6 +6,7 @@ import { t } from "../../i18n";
 import type { AgentRuntimeState } from "../../../../shared/types";
 import type { UsageProbeBackend } from "../../../../shared/types/providerUsage";
 import { compactUiState, resolveCompactUsagePercent } from "../../../../shared/compactFeedback";
+import type { SessionRuntimeTarget } from "../../../../shared/types";
 import { openSettingsAtom } from "../../atoms/app-ui-atoms";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { ProviderUsageDetails } from "../app/ProviderUsageDetails";
@@ -137,10 +138,13 @@ export function contextSegments(state: Pick<AgentRuntimeState, "contextTokens" |
 export function SessionContextMeter(props: {
 	state?: Pick<
 		AgentRuntimeState,
-		"contextPercent" | "contextTokens" | "contextWindow" | "contextMessageTokens" | "cacheHitPercent" | "cacheHitAveragePercent" | "cacheHitSampleCount" | "inputTokens" | "outputTokens" | "isCompacting" | "cost" | "ttftMs" | "totalMs" | "tps" | "cacheRead" | "cacheWrite" | "cacheTotal" | "provider"
+		"contextPercent" | "contextTokens" | "contextWindow" | "contextOverflow" | "contextMessageTokens" | "cacheHitPercent" | "cacheHitAveragePercent" | "cacheHitSampleCount" | "inputTokens" | "outputTokens" | "isCompacting" | "cost" | "ttftMs" | "totalMs" | "tps" | "cacheRead" | "cacheWrite" | "cacheTotal" | "provider"
 	>;
 	/** 压缩上下文（原右上角紧凑徽章动作，迁入面板底部） */
 	onCompact?: () => void;
+	/** 超限错误时的恢复动作：压缩入口必须能在占用快照缺失时直接触发。 */
+	overflowRecoveryTarget?: SessionRuntimeTarget;
+	onOverflowRecovery?: (target: SessionRuntimeTarget) => void;
 	/**
 	 * 运行时缺省时的 provider 兜底（由会话记录/默认 model 推导）：用量查询只依赖
 	 * provider 配置解析端点、不依赖 agent 运行，未激活/未启动会话也可查用量。
@@ -257,8 +261,12 @@ export function SessionContextMeter(props: {
 	// 无 capacity 数据（会话未运行/模型切换瞬间）也渲染占位环：0% 空环 +「暂不可用」提示，
 	// 保证底部栏圆环常驻。contextOccupancy 语义不变（仍返回 null 供面板内部判断）。
 	const percent = context?.percent ?? 0;
+	// 上下文超限失败后，Pi 仍可能没有可用的 get_session_stats 百分比（错误回合没有
+	// 成功 assistant usage）。此时不能把唯一恢复入口锁死：主进程已明确标记 overflow，
+	// 手动压缩由 pi 自己决定是否有可压内容。
+	const overflowRecovery = props.state?.contextOverflow === true;
 	// 低占用保留有效数字（1M 窗口下 408 tokens ≈ 0.04%，不显示成「0%」）
-	const reading = context !== null ? t("sessionContext.used", { percent: formatPercent(percent) }) : t("sessionContext.unavailable");
+	const reading = context !== null ? t("sessionContext.used", { percent: formatPercent(percent) }) : overflowRecovery ? t("sessionContext.overflow") : t("sessionContext.unavailable");
 	const figures = context !== null && [context.usedTokens, context.contextWindow].every((v) => v != null) ? `~${formatTokens(context.usedTokens!)} / ${formatTokens(context.contextWindow!)}` : undefined;
 	// host contextBreakdown 三段占用条（dsh-web 同宽算法：各自占 breakdownTotal 份额 × percent）
 	const breakdownSegments =
@@ -274,13 +282,13 @@ export function SessionContextMeter(props: {
 					return parts.filter((part) => part.tokens > 0).map((part) => ({ key: part.key, color: part.color, width: Math.min(100, (percent * part.tokens) / breakdownTotal) }));
 				})()
 			: undefined;
-	const showCompact = props.onCompact !== undefined;
+	const showCompact = props.onCompact !== undefined || (overflowRecovery && props.overflowRecoveryTarget !== undefined && props.onOverflowRecovery !== undefined);
 	// 压缩按钮态走共享策略：无占用数据（percent 未上报）禁用；压缩中禁用。
 	// 传 context?.percent 而非 ?? 0 后的 percent：占位环需要 0，但未就绪判定
 	// 必须以「是否有真实数据」为准（percent=0 的真实数据也允许压缩）。
 	const compactUi = compactUiState(context?.percent, compacting);
-	const compactDisabled = compactUi.compacting || !compactUi.ready;
-	const compactUrgency = compactUi.urgency === "danger" ? "text-destructive border-destructive/40 hover:bg-destructive/10" : compactUi.urgency === "warn" ? "text-amber-500 border-amber-500/40 hover:bg-amber-500/10" : "border-border hover:bg-muted/60";
+	const compactDisabled = compactUi.compacting || (!compactUi.ready && !overflowRecovery);
+	const compactUrgency = overflowRecovery ? "text-destructive border-destructive/40 bg-destructive/5 hover:bg-destructive/10" : compactUi.urgency === "danger" ? "text-destructive border-destructive/40 hover:bg-destructive/10" : compactUi.urgency === "warn" ? "text-amber-500 border-amber-500/40 hover:bg-amber-500/10" : "border-border hover:bg-muted/60";
 
 	return (
 		<span ref={rootRef} className="relative inline-flex" data-testid="session-context-meter">
@@ -436,12 +444,18 @@ export function SessionContextMeter(props: {
 								type="button"
 								data-testid="session-context-compact"
 								disabled={compactDisabled}
-								title={compactUi.compacting ? t("sessionContext.compacting") : compactUi.ready ? t("sessionContext.compact") : t("sessionContext.compactNotReadyHint")}
-								onClick={props.onCompact}
+								title={compactUi.compacting ? t("sessionContext.compacting") : overflowRecovery ? t("sessionContext.compactOverflowHint") : compactUi.ready ? t("sessionContext.compact") : t("sessionContext.compactNotReadyHint")}
+								onClick={() => {
+									if (overflowRecovery && props.overflowRecoveryTarget && props.onOverflowRecovery) {
+										props.onOverflowRecovery(props.overflowRecoveryTarget);
+										return;
+									}
+									props.onCompact?.();
+								}}
 								className={`mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-md border bg-transparent text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${compactUrgency}`}
 							>
 								<FoldVertical size={13} className={compactUi.compacting ? "animate-pideck-spin" : undefined} />
-								{compactUi.compacting ? t("sessionContext.compacting") : compactUi.ready ? t("sessionContext.compact") : t("sessionContext.compactNotReady")}
+								{compactUi.compacting ? t("sessionContext.compacting") : overflowRecovery ? t("sessionContext.compactOverflow") : compactUi.ready ? t("sessionContext.compact") : t("sessionContext.compactNotReady")}
 							</button>
 						)}
 					</div>,

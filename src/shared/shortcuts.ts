@@ -18,7 +18,7 @@
  * 见 parseAccelerator。纯函数实现，node --test 可直接单测，不依赖 electron 运行时。
  */
 
-export type ShortcutId = "openSettings" | "toggleDevTools" | "openNewSession" | "openSearch" | "openCommandPalette" | "cycleModel" | "cycleThinking" | "openQuickMessages";
+export type ShortcutId = "openSettings" | "toggleDevTools" | "openNewSession" | "openSearch" | "openCommandPalette" | "cycleModel" | "cycleThinking" | "openQuickMessages" | "toggleVoiceRecording";
 
 /** 设置页分组：general=通用（普通用户常用），dev=开发调试 */
 export type ShortcutGroupId = "general" | "dev";
@@ -102,6 +102,15 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
 		// 「打字打到一半插入口令」，而输入框正是常驻焦点；Ctrl/Cmd+Shift+M 在文本编辑
 		// 与浏览器里都没有既有含义（无「静音标签页」之类冲突），劫持它是安全的。
 		defaultAccelerator: { darwin: "Cmd+Shift+M", other: "Ctrl+Shift+M" },
+	},
+	{
+		id: "toggleVoiceRecording",
+		group: "general",
+		labelKey: "settings.shortcuts.toggleVoiceRecordingLabel",
+		descriptionKey: "settings.shortcuts.toggleVoiceRecordingDesc",
+		// 开始/停止语音录音（需先在设置里开启语音输入）。功能键可裸按且全平台无
+		// 文本编辑/浏览器既有含义，避让已占用区（Ctrl+M/T、Ctrl+Shift+M 等）。
+		defaultAccelerator: { darwin: "F9", other: "F9" },
 	},
 	{
 		id: "toggleDevTools",

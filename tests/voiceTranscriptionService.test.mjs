@@ -14,18 +14,28 @@ function transpile(path) {
 	}).outputText;
 }
 
-function loadSharedConfig() {
+function loadSharedWhisperRuntime() {
+	const module = { exports: {} };
+	vm.runInNewContext(transpile("src/shared/types/whisperRuntime.ts"), { module, exports: module.exports });
+	return module.exports;
+}
+
+function loadSharedConfig(whisperRuntime) {
 	const module = { exports: {} };
 	vm.runInNewContext(transpile("src/shared/voiceTranscriptionConfig.ts"), {
 		module,
 		exports: module.exports,
 		URL,
+		require: (id) => {
+			if (id === "./types/whisperRuntime") return whisperRuntime;
+			throw new Error(`unexpected require: ${id}`);
+		},
 	});
 	return module.exports;
 }
 
 function loadServiceClass() {
-	const sharedConfig = loadSharedConfig();
+	const sharedConfig = loadSharedConfig(loadSharedWhisperRuntime());
 	const module = { exports: {} };
 	vm.runInNewContext(transpile("src/main/voice/VoiceTranscriptionService.ts"), {
 		module,
@@ -53,11 +63,25 @@ const credentials = {
 	model: "whisper-1",
 	language: "zh",
 };
+// 云引擎配置：transcribe 先读它判引擎，再走 getCredentials。
+const cloudConfig = {
+	enabled: true,
+	engine: "cloud",
+	baseUrl: "https://api.example.com/v1/",
+	model: "whisper-1",
+	language: "zh",
+	inputDeviceId: "",
+	localModelId: "base-q5_1",
+	cliPath: "",
+	hasApiKey: true,
+	runtimeReady: true,
+};
 const audio = new Uint8Array([1, 2, 3]).buffer;
 
 test("sends bounded multipart fields to the normalized endpoint", async () => {
 	let captured;
 	const service = new VoiceTranscriptionService({
+		getPublicConfig: async () => cloudConfig,
 		getCredentials: async () => credentials,
 		fetch: async (url, init) => {
 			captured = { url: String(url), init };
@@ -83,6 +107,7 @@ test("sends bounded multipart fields to the normalized endpoint", async () => {
 test("rejects unsupported MIME and oversized audio before fetching", async () => {
 	let calls = 0;
 	const service = new VoiceTranscriptionService({
+		getPublicConfig: async () => cloudConfig,
 		getCredentials: async () => credentials,
 		fetch: async () => {
 			calls += 1;
@@ -111,6 +136,7 @@ test("maps status and malformed responses without returning upstream bodies or k
 		[500, "http"],
 	]) {
 		const service = new VoiceTranscriptionService({
+			getPublicConfig: async () => cloudConfig,
 			getCredentials: async () => credentials,
 			fetch: async () => new Response(`secret body ${credentials.apiKey}`, { status }),
 			log: () => {},
@@ -120,6 +146,7 @@ test("maps status and malformed responses without returning upstream bodies or k
 		assert.equal("detail" in result, false);
 	}
 	const malformed = new VoiceTranscriptionService({
+		getPublicConfig: async () => cloudConfig,
 		getCredentials: async () => credentials,
 		fetch: async () => new Response("not json", { status: 200 }),
 		log: () => {},
@@ -129,6 +156,7 @@ test("maps status and malformed responses without returning upstream bodies or k
 
 test("timeout aborts the request and maps to timeout", async () => {
 	const service = new VoiceTranscriptionService({
+		getPublicConfig: async () => cloudConfig,
 		getCredentials: async () => credentials,
 		timeoutMs: 5,
 		fetch: async (_url, init) =>
@@ -148,6 +176,7 @@ test("cancel aborts and removes in-flight state so the request id can be reused"
 		markStarted = resolve;
 	});
 	const service = new VoiceTranscriptionService({
+		getPublicConfig: async () => cloudConfig,
 		getCredentials: async () => credentials,
 		fetch: async (_url, init) => {
 			calls += 1;
@@ -168,4 +197,43 @@ test("cancel aborts and removes in-flight state so the request id can be reused"
 	const second = await service.transcribe({ requestId: "reused", audio, mimeType: "audio/mpeg" });
 	assert.equal(second.ok, true);
 	assert.equal(second.text, "second");
+});
+
+test("routes engine=local to the injected transcriber, and reports unavailable without one", async () => {
+	const localConfig = { ...cloudConfig, engine: "local", cliPath: "/opt/whisper-cli", localModelId: "small-q5_1", language: "zh" };
+	let forwarded;
+	const withLocal = new VoiceTranscriptionService({
+		getPublicConfig: async () => localConfig,
+		getCredentials: async () => null, // 本地路径不得触碰云凭据
+		transcribeLocal: async (input) => {
+			forwarded = input;
+			return { ok: true, text: "本地结果" };
+		},
+		log: () => {},
+	});
+	const result = await withLocal.transcribe({ requestId: "local-1", audio, mimeType: "audio/wav" });
+	assert.equal(result.ok, true);
+	assert.equal(result.text, "本地结果");
+	assert.equal(forwarded.cliPath, "/opt/whisper-cli");
+	assert.equal(forwarded.modelId, "small-q5_1");
+	assert.equal(forwarded.language, "zh");
+
+	const withoutLocal = new VoiceTranscriptionService({
+		getPublicConfig: async () => localConfig,
+		getCredentials: async () => null,
+		log: () => {},
+	});
+	assert.equal((await withoutLocal.transcribe({ requestId: "local-2", audio, mimeType: "audio/wav" })).error, "engineUnavailable");
+});
+
+test("cancel forwards to the local engine's cancel hook", () => {
+	const cancelled = [];
+	const service = new VoiceTranscriptionService({
+		getPublicConfig: async () => cloudConfig,
+		getCredentials: async () => credentials,
+		cancelLocal: (id) => cancelled.push(id),
+		log: () => {},
+	});
+	service.cancel("req-9");
+	assert.deepEqual(cancelled, ["req-9"]);
 });

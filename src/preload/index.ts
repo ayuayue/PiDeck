@@ -12,6 +12,7 @@ import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } fro
 import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../shared/types/extensionsUpdate";
 import type { BuiltinContentCheckResult, BuiltinContentUpdateResult, BuiltinContentUpdateStatus } from "../shared/types/contentUpdate";
 import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult, VoiceTranscriptionSaveInput, VoiceTranscriptionSaveResult } from "../shared/types/voiceTranscription";
+import type { WhisperInstallProgress, WhisperInstallResult, WhisperRuntimeStatus } from "../shared/types/whisperRuntime";
 import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
 import type {
 	YaoPromptListResult,
@@ -1308,6 +1309,15 @@ const api = {
 		saveConfig: (config: VoiceTranscriptionSaveInput) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionSaveConfig, config) as Promise<VoiceTranscriptionSaveResult>,
 		transcribe: (request: VoiceTranscriptionRequest) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionTranscribe, request) as Promise<VoiceTranscriptionResult>,
 		cancel: (requestId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionCancel, requestId) as Promise<void>,
+		/** 本地 whisper 运行时/模型安装状态（含自定义 CLI 路径生效判定）。 */
+		runtimeStatus: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionRuntimeStatus) as Promise<WhisperRuntimeStatus>,
+		/** 按需下载 whisper-cli 二进制（进度走 onRuntimeProgress）。 */
+		installRuntime: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionRuntimeInstall) as Promise<WhisperInstallResult>,
+		/** 按需下载指定 ggml 模型（入参为共享目录里的 modelId）。 */
+		installModel: (modelId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionModelInstall, modelId) as Promise<WhisperInstallResult>,
+		deleteModel: (modelId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionModelDelete, modelId) as Promise<WhisperInstallResult>,
+		/** 安装进度推送；返回退订函数。 */
+		onRuntimeProgress: (callback: (progress: WhisperInstallProgress) => void) => subscribe(ipcChannels.voiceTranscriptionRuntimeProgress, callback),
 	},
 	// ── 模型目录（pi-ai-catalog）：查询状态 / 检查更新 / 从 GitHub 更新 / 还原 / 恢复备份 ──
 	catalog: {

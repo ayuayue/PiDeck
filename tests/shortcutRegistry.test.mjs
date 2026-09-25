@@ -190,6 +190,7 @@ test("resolveShortcutBindings：覆盖 ∪ 默认；非法覆盖回退默认；�
 		cycleModel: "Ctrl+M",
 		cycleThinking: "Ctrl+T",
 		openQuickMessages: "Ctrl+Shift+M",
+		toggleVoiceRecording: "F9",
 		toggleDevTools: "F12", // 非法裸键回退默认
 	});
 });
@@ -227,6 +228,7 @@ test("平台默认键列表完整（覆盖表之外不丢键）", () => {
 		cycleThinking: "Ctrl+T",
 		// 快捷消息：Ctrl+M 已被模型循环占用，必须带 Shift 避让
 		openQuickMessages: "Ctrl+Shift+M",
+		toggleVoiceRecording: "F9",
 		toggleDevTools: "F12",
 	});
 	const mac = loadShortcuts({ platform: "darwin" });
@@ -239,6 +241,7 @@ test("平台默认键列表完整（覆盖表之外不丢键）", () => {
 		cycleModel: "Cmd+Alt+M",
 		cycleThinking: "Cmd+Alt+T",
 		openQuickMessages: "Cmd+Shift+M",
+		toggleVoiceRecording: "F9",
 		toggleDevTools: "F12",
 	});
 });
