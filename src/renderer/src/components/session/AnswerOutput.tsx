@@ -27,7 +27,13 @@ function answerOutputClassName(variant: AnswerOutputVariant): string {
 	// 折叠区 gap 为 0：settled 中间段必须自己留空，否则贴着思考/工具行。
 	// live 挂在折叠容器外，父级 flex gap-3 已经分隔，不能再叠 mt-3。
 	if (variant === "process") {
-		return "execution-interim markdown-body my-3 text-chat text-text-primary";
+		// my-5 = 段前段后各 20px（--spacing 4px × 5，原为 my-3 的 12px）。
+		// ⑤ 在这里用**段前段后距**而不是加大行高把中间回复"托"出来：
+		//   - 段前段后距与回复行数无关，10 行也不会再加倍；
+		//   - 行高（leading-*）会随行数线性变高，且会让中间回复与最终回复在同一屏
+		//     出现两种行距（都是正文，行距不一致看着像 bug）。
+		// 行高保持 --line-height-chat(1.6)，不额外加 leading-*。
+		return "execution-interim markdown-body my-5 text-chat text-text-primary";
 	}
 	return "execution-interim markdown-body text-chat text-text-primary";
 }

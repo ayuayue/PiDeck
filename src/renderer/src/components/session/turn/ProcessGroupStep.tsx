@@ -143,18 +143,32 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			    内部与现有过程行同构：22px 类别图标方块 → 文案 → chevron，左对齐右侧留白。
 			    尺寸规则（2026 用户反馈修正）：组头**不得小于组体里的行**——成员行是
 			    text-control(13px)/min-h-7(28px)/图标 16px，组头取同档 13px/28px 才不会出现
-			    「容器比内容小」的倒置层级；层级改由字重（600 vs 400）与颜色（secondary vs faint）承担。
+			    「容器比内容小」的倒置层级。
+			    自重规则（2026-08 用户反馈「组头喧宾夺主」修正）：降权只能走**颜色 / 填充 / 字重**，
+			    **不得再靠缩小字号**（那会退回上面的倒置）。
+			      ① 不填色：类别图标方块去掉底色，只留图标；运行中保留工具身份色作为「正在跑」信号。
+			      ④ 静止降色：标签 text-tertiary（#6b7280，对白底 4.82:1，过 WCAG AA），hover 回 secondary。
+			         **不用 opacity**——text-secondary 压到 60% 实测只有约 2.87:1，不过 AA。
+			      ② 降字重：标签 600 → 500（font-medium）。降之前组头是**整轮唯一的 600**：
+			         大折叠栏胶囊与「显示更早」都是 500，过程行与正文都是 400 —— 也就是说它是
+			         一屏里最粗的一行，这才是「比中间回复还重」的机械原因。降到 500 后与胶囊同档。
+			         不再降到 400：那样组头与成员行完全同权，只剩颜色可区分，会失去「这是一组」的形态。
+			         hover **不改字重**（CJK 下字重变化会改宽度，导致行内 chevron 抖动）；
+			         hover 已有颜色 + 底色两重反馈。
+			    于是层级由字重（600 vs 400）+ 颜色承担，中间回复（text-chat 15px / text-primary）成为正文主角。
+			    回归守卫：tests/processGroupRendering.test.mjs「组头不得靠填充/字号抢戏」。
 			    data-process-group-head 是 e2e/结构测试的稳定锚点（组头、组体、scroller 各一个）。 */}
 			<button
 				type="button"
 				data-process-group-head=""
-				className="flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-[7px] text-left text-control font-semibold text-text-secondary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-primary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+				className="flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-[7px] text-left text-control font-medium text-text-tertiary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-secondary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
 				aria-expanded={props.open}
 				aria-controls={bodyId}
 				onClick={() => props.onToggle(!props.open)}
 			>
-				{/* 类别图标方块：运行中 = 工具身份色（12% 透明底 + 该色图标），已结束 = 中性灰（弱化） */}
-				<span aria-hidden="true" className={`grid size-[22px] shrink-0 place-items-center rounded-md ${props.running ? "bg-[color:color-mix(in_srgb,var(--color-tool)_12%,transparent)] text-[var(--color-tool)]" : "bg-[color:color-mix(in_srgb,var(--color-text-tertiary)_13%,transparent)] text-text-tertiary"}`}>
+				{/* 类别图标：① 不填色——运行中 = 工具身份色图标，已结束 = 中性灰，
+				    两者都不再有底色（底色曾是整屏唯一的实心块，正是「喧宾夺主」的来源） */}
+				<span aria-hidden="true" className={`grid size-[22px] shrink-0 place-items-center rounded-md ${props.running ? "text-[var(--color-tool)]" : "text-text-tertiary"}`}>
 					<Icon size={14} aria-hidden="true" />
 				</span>
 				{props.running ? (

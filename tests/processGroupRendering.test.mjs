@@ -16,6 +16,16 @@ import test from "node:test";
 
 const foldSource = readFileSync("src/renderer/src/components/session/turn/ProcessFold.tsx", "utf8");
 const groupSource = readFileSync("src/renderer/src/components/session/turn/ProcessGroupStep.tsx", "utf8");
+
+/** WCAG 相对亮度 → 该色对白底的对比度。把「组头静止色必须过 AA」写成可执行断言，而不是注释里的口头承诺。 */
+function contrastOnWhite(hex) {
+	const channel = (v) => {
+		const s = v / 255;
+		return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+	};
+	const luminance = 0.2126 * channel(Number.parseInt(hex.slice(1, 3), 16)) + 0.7152 * channel(Number.parseInt(hex.slice(3, 5), 16)) + 0.0722 * channel(Number.parseInt(hex.slice(5, 7), 16));
+	return 1.05 / (luminance + 0.05);
+}
 const turnRowSource = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 const budgetSource = readFileSync("src/renderer/src/components/session/timeline/turnMountBudget.ts", "utf8");
 
@@ -102,6 +112,39 @@ test("组头不得小于组体里的行（用户反馈：容器比内容小 = �
 	assert.match(header, /h-7/, "组头行高必须与成员行同档（28px）");
 	assert.doesNotMatch(header, /text-caption/);
 	assert.doesNotMatch(header, /\bh-6\b/);
+});
+
+// 组头「自重」契约（2026-08 用户两轮反馈的产物）：
+//   第一次「组头偏小」→ 尺寸不得小于成员行（下一条测试钉住字号/高度）；
+//   第二次「组头喧宾夺主，比中间回复还重」→ 降权**只能走颜色/填充**，而且静止色仍须过 WCAG AA。
+// 注意中间回复本来就更大（text-chat 15px / text-primary，组头是 13px）：组头抢戏靠的是
+// 「全场唯一实心色块 + 600 字重 + 一轮里重复出现」这三件事，所以守卫防的是把它们加回去。
+test("组头不得靠填充/字号抢戏：无实心色块 + 静止降色且仍过 WCAG AA", () => {
+	// ① 不填色：类别图标方块（size-[22px] 那个 span）不得有任何 bg- 填充
+	const chip = groupSource.match(/size-\[22px\][\s\S]{0,300}?<Icon/)?.[0] ?? "";
+	assert.ok(chip.length > 0, "必须能找到类别图标方块（size-[22px] → <Icon>）");
+	assert.doesNotMatch(chip, /\bbg-/, "① 类别图标方块不得有底色填充——那曾是整屏唯一的实心块");
+	assert.match(chip, /--color-tool/, "运行中仍须保留工具身份色图标，作为「正在跑」的信号");
+
+	// ④ 静止降色：tertiary → hover secondary；不得改用 opacity 压暗
+	const headerTag = groupSource.match(/<button[\s\S]{0,900}?aria-expanded=\{props\.open\}/)?.[0] ?? "";
+	assert.ok(headerTag.length > 0, "必须能找到组头 button 开标签");
+	assert.match(headerTag, /text-text-tertiary/, "④ 组头静止色应为 text-tertiary（比 secondary 退后一档）");
+	assert.match(headerTag, /hover:text-text-secondary/, "hover 应回到 secondary");
+	assert.doesNotMatch(headerTag, /hover:text-text-primary/);
+	assert.doesNotMatch(headerTag, /\bopacity-\d/, "④ 不得用 opacity 淡化：会把静态对比度压到 AA 以下（实测约 2.87:1）");
+
+	// ② 降字重：组头曾是整轮唯一的 600（胶囊/过程行/正文分别是 500/400/400）→ 降到 500
+	assert.match(headerTag, /font-medium/, "② 组头字重应为 500（font-medium）");
+	assert.doesNotMatch(headerTag, /font-semibold/, "② 组头不得回到 600——那会是整轮最粗的一行，重新喧宾夺主");
+	assert.doesNotMatch(headerTag, /hover:font-/, "② hover 不改字重（宽度变化会导致行内 chevron 抖动）");
+
+	// 静止色对白底的对比度必须 ≥ 4.5:1（AGENTS.md：浅色档必须够深才能过 AA）
+	const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
+	const tertiaryHex = foundation.match(/--color-text-tertiary:\s*(#[0-9a-fA-F]{6})/)?.[1] ?? "";
+	assert.ok(tertiaryHex, "必须能读到亮色主题的 --color-text-tertiary");
+	const ratio = contrastOnWhite(tertiaryHex);
+	assert.ok(ratio >= 4.5, `--color-text-tertiary(${tertiaryHex}) 对白底仅 ${ratio.toFixed(2)}:1，低于 WCAG AA 4.5:1——组头静止色不能用比它更浅的 token`);
 });
 
 test("组头 / 组体有稳定 DOM 锚点（e2e 依赖，不许改名）", () => {

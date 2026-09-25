@@ -116,11 +116,13 @@ test("thinking markdown is one size smaller than chat body", () => {
 	assert.doesNotMatch(timelineCss, /\[data-marker-kind="thinking"\] \.markdown-body[\s\S]*?font-size:\s*var\(--font-size-chat\)/);
 });
 
-test("interim answers share chat body size; process variant only adds gap from tool/thinking rows", () => {
+test("interim answers share chat body size; process variant only adds spacing from tool/thinking rows", () => {
 	assert.match(timelineCss, /\.execution-interim \{[\s\S]*?font-size:\s*var\(--font-size-chat\)/);
 	assert.doesNotMatch(timelineCss, /\.execution-interim\[data-variant="process"\]/);
 	const answer = readFileSync("src/renderer/src/components/session/AnswerOutput.tsx", "utf8");
-	assert.match(answer, /execution-interim markdown-body my-3 text-chat/);
+	// 中间回复：段前段后各 20px（my-5，与行数无关）；行高仍走 --line-height-chat，不额外加 leading-*
+	assert.match(answer, /execution-interim markdown-body my-5 text-chat/);
+	assert.doesNotMatch(answer, /execution-interim markdown-body my-5 text-chat[^"]*leading-/);
 	assert.match(answer, /execution-interim markdown-body text-chat text-text-primary/);
 	assert.doesNotMatch(answer, /mt-3 text-chat/);
 });
