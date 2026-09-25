@@ -15,6 +15,34 @@ const AUDIO_EXTENSIONS = new Map([
 	["audio/x-wav", "wav"],
 ]);
 
+/**
+ * ASR 的「非语音占位词」：whisper 系（本地 whisper.cpp 与云端 whisper-1）判定音频里
+ * 「没有语音」时不返回空串，而是吐词表里的特殊标记 —— 用户看到的 `[BLANK_AUDIO]`
+ * 就是它被当成正文插进了输入框。
+ *
+ * 标记随语言与音频内容而变（静音 [BLANK_AUDIO]、有音乐 [MUSIC]、键盘声 [KLICKGERÄUSCH]），
+ * 逐个枚举追不完，所以方括号形式按「全大写 token」整类识别：whisper 的非语音标记
+ * 清一色是大写字母 + 下划线，而口述正文里的方括号内容几乎不会是全大写。
+ */
+const NON_SPEECH_BRACKET_TOKEN = /\[[\p{Lu}][\p{Lu}_ ]{1,30}\]/gu;
+const NON_SPEECH_WORDS = ["BLANK", "BLANK_AUDIO", "BLANK AUDIO", "SILENCE", "SILIENCE", "NOISE", "MUSIC", "LAUGHTER", "UNKNOWN"];
+
+/**
+ * 去掉非语音占位词：方括号按全大写整类处理；圆括号/尖括号只认清单内的词，
+ * 避免把口述正文里的括号内容（「……（原文如此）」）一并吃掉。
+ */
+export function stripNonSpeechPlaceholders(text: string): string {
+	const boundary = NON_SPEECH_WORDS.join("|");
+	const paired = new RegExp(`(?:<\\s*(?:${boundary})\\s*>|\\(\\s*(?:${boundary})\\s*\\))`, "gi");
+	return text.replace(NON_SPEECH_BRACKET_TOKEN, " ").replace(paired, " ").replace(/\s+/g, " ").trim();
+}
+
+/** 两个引擎共用的结果收口：过滤后仍有正文才算成功，否则按 empty 返回。 */
+function toSpeechResult(raw: string): VoiceTranscriptionResult {
+	const speech = stripNonSpeechPlaceholders(raw);
+	return speech ? { ok: true, text: speech } : { ok: false, error: "empty" };
+}
+
 /** Transcription boundary: routes to the cloud endpoint or the local whisper-cli engine. */
 export class VoiceTranscriptionService {
 	private readonly inFlight = new Map<string, AbortController>();
@@ -41,7 +69,7 @@ export class VoiceTranscriptionService {
 		const config = await this.deps.getPublicConfig();
 		if (config.engine === "local") {
 			if (!this.deps.transcribeLocal) return { ok: false, error: "engineUnavailable" };
-			return this.deps.transcribeLocal({
+			const local = await this.deps.transcribeLocal({
 				requestId: input.requestId,
 				audio: input.audio,
 				mimeType,
@@ -49,6 +77,7 @@ export class VoiceTranscriptionService {
 				modelId: config.localModelId,
 				language: config.language,
 			});
+			return local.ok ? toSpeechResult(local.text) : local;
 		}
 		const previous = this.inFlight.get(input.requestId);
 		if (previous) previous.abort();
@@ -85,7 +114,7 @@ export class VoiceTranscriptionService {
 			const textBody = await readBoundedResponseText(response, MAX_RESPONSE_BYTES);
 			if (textBody === null) return { ok: false, error: "http" };
 			const text = parseTranscriptionText(textBody);
-			return text ? { ok: true, text } : { ok: false, error: "empty" };
+			return toSpeechResult(text);
 		} catch {
 			const error = controller.signal.aborted ? (timedOut ? "timeout" : "cancelled") : "network";
 			this.deps.log("request failed", { error });

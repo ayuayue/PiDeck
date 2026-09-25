@@ -58,6 +58,8 @@ export class WhisperTranscriber {
 			await writeFile(wavPath, Buffer.from(input.audio));
 			const text = await this.runCli(cliPath, wavPath, modelPath, input.requestId, input.language);
 			if (text === null) return { ok: false, error: "cancelled" };
+			// 只判「有没有输出字符」；`[BLANK_AUDIO]` 这类非语音占位词由
+			// VoiceTranscriptionService 统一收口（云端引擎也会吐同样的词，必须同源过滤）。
 			return text.trim() ? { ok: true, text: text.trim() } : { ok: false, error: "empty" };
 		} catch (error) {
 			this.deps.log("local transcription failed", { error: error instanceof Error ? error.message : String(error) });

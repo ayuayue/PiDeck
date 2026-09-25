@@ -73,10 +73,12 @@ export function isSafeArchiveEntry(destDir: string, entryPath: string): boolean 
 	return rel === "" || (!rel.startsWith("..") && !resolve(destDir, rel).startsWith(".."));
 }
 
-/** 在解出的目录树里找 CLI 可执行文件（旧版归档叫 main，新版叫 whisper-cli）。 */
+/** 在解出的目录树里找 CLI 可执行文件：按 names 优先级返回（新版 whisper-cli 优先于旧版 main）。 */
 export function findWhisperCliBinary(dir: string, platform: NodeJS.Platform): string | null {
 	const names = platform === "win32" ? ["whisper-cli.exe", "main.exe"] : ["whisper-cli", "main"];
 	const stack = [dir];
+	let best: string | null = null;
+	let bestRank = Number.POSITIVE_INFINITY;
 	while (stack.length > 0) {
 		const current = stack.pop() as string;
 		let entries;
@@ -89,12 +91,16 @@ export function findWhisperCliBinary(dir: string, platform: NodeJS.Platform): st
 			const full = join(current, entry.name);
 			if (entry.isDirectory()) {
 				stack.push(full);
-			} else if (names.includes(entry.name) && isSafeArchiveEntry(dir, relative(dir, full))) {
-				return full;
+				continue;
+			}
+			const rank = names.indexOf(entry.name);
+			if (rank >= 0 && rank < bestRank && isSafeArchiveEntry(dir, relative(dir, full))) {
+				best = full;
+				bestRank = rank;
 			}
 		}
 	}
-	return null;
+	return best;
 }
 
 export class WhisperRuntimeManager {
@@ -131,11 +137,16 @@ export class WhisperRuntimeManager {
 	private autoRuntimeStatus(): { cliPath: string | null; version: string | null } {
 		const versionDir = join(this.deps.layout.runtimeRoot, WHISPER_CPP_RELEASE_TAG);
 		try {
-			const marker = JSON.parse(readFileSync(join(versionDir, RUNTIME_MARKER_FILE), "utf8")) as { cliRelPath?: unknown };
+			const marker = JSON.parse(readFileSync(join(versionDir, RUNTIME_MARKER_FILE), "utf8")) as { version?: unknown; cliRelPath?: unknown };
+			if (typeof marker.version !== "string") return { cliPath: null, version: null };
+			// 优先用清单记录的相对路径；它可能失效（历史 bug：记录了被清理的临时目录路径），
+			// 此时回退到扫描版本目录，让旧安装无需重新下载即可自愈。
 			if (typeof marker.cliRelPath === "string") {
-				const cli = join(versionDir, marker.cliRelPath);
-				if (existsSync(cli)) return { cliPath: cli, version: WHISPER_CPP_RELEASE_TAG };
+				const recorded = join(versionDir, marker.cliRelPath);
+				if (existsSync(recorded)) return { cliPath: recorded, version: marker.version };
 			}
+			const scanned = findWhisperCliBinary(versionDir, this.deps.platform);
+			if (scanned) return { cliPath: scanned, version: marker.version };
 		} catch {
 			/* 未安装或标记损坏 = 不可用 */
 		}
@@ -182,13 +193,16 @@ export class WhisperRuntimeManager {
 			await extractArchive(archivePath, staging, host.format, this.deps.log);
 			const cli = findWhisperCliBinary(staging, this.deps.platform);
 			if (!cli) return fail("cli-missing-in-archive");
+			// 先按暂存目录算出相对路径：rename 后暂存目录整体成为版本目录，
+			// 用「相对暂存目录」而非「相对版本目录」才不会记成指向临时目录的死路径。
+			const cliRelPath = relative(staging, cli);
 
 			const versionDir = join(layout.runtimeRoot, WHISPER_CPP_RELEASE_TAG);
 			// rename 到已存在目录在 Windows 会失败：先移除旧版本目录。
 			rmSync(versionDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 			mkdirSync(layout.runtimeRoot, { recursive: true });
 			renameSync(staging, versionDir);
-			writeFileSync(join(versionDir, RUNTIME_MARKER_FILE), JSON.stringify({ version: WHISPER_CPP_RELEASE_TAG, cliRelPath: relative(versionDir, cli), platform: this.deps.platform, arch: this.deps.arch }, null, 2), "utf8");
+			writeFileSync(join(versionDir, RUNTIME_MARKER_FILE), JSON.stringify({ version: WHISPER_CPP_RELEASE_TAG, cliRelPath, platform: this.deps.platform, arch: this.deps.arch }, null, 2), "utf8");
 			onProgress({ target: "runtime", phase: "done", percent: 100 });
 			log?.("voice-runtime", "runtime installed", { version: WHISPER_CPP_RELEASE_TAG });
 			return { ok: true };

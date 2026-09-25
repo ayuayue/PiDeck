@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSetAtom } from "jotai";
 import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../../../../shared/voiceTranscriptionConfig";
 import type { VoiceTranscriptionPublicConfig } from "../../../../../shared/types/voiceTranscription";
 import { getWhisperModelDef, WHISPER_MODEL_CATALOG, type WhisperInstallProgress, type WhisperRuntimeStatus } from "../../../../../shared/types/whisperRuntime";
+import { voiceConfigRevisionAtom } from "../../../atoms";
 import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
 import { showNotice } from "../../../utils/notice";
@@ -45,13 +47,18 @@ export function VoiceTranscriptionSettingsSection() {
 	const [devices, setDevices] = useState<RecordingDevice[]>([]);
 	const [progress, setProgress] = useState<WhisperInstallProgress | null>(null);
 	const [busyTarget, setBusyTarget] = useState<string | null>(null);
+	// 任何配置/运行时变化都自增版本号，让已挂载的输入框即时重探按钮可见性（无需切会话/重启）。
+	const bumpVoiceConfig = useSetAtom(voiceConfigRevisionAtom);
 
 	const refreshRuntime = useCallback(() => {
 		return desktopApi.voiceTranscription
 			.runtimeStatus()
-			.then(setRuntime)
+			.then((status) => {
+				setRuntime(status);
+				bumpVoiceConfig((revision) => revision + 1);
+			})
 			.catch(() => undefined);
-	}, []);
+	}, [bumpVoiceConfig]);
 
 	useEffect(() => {
 		let active = true;
@@ -132,6 +139,7 @@ export function VoiceTranscriptionSettingsSection() {
 			}
 			setConfig(result.config);
 			setApiKey("");
+			bumpVoiceConfig((revision) => revision + 1);
 			showNotice(t(clearApiKey ? "voice.settings.keyCleared" : "voice.settings.saved"), 3000);
 		} catch {
 			showNotice(t("voice.settings.error.saveFailed"), 4000);

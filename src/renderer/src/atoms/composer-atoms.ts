@@ -264,3 +264,11 @@ export const removeSessionComposerStateAtom = atom(null, (get, set, sessionId: s
 	delete modelPending[sessionId];
 	set(modelPendingByIdAtom, modelPending);
 });
+
+/**
+ * 语音配置版本号：设置页保存/安装/删除模型后自增，供 useVoiceTranscription 的
+ * 配置探测 effect 依赖。语音配置由主进程独立 store 持有（不在 AppSettings 里），
+ * 渲染层没有现成的「设置已变」信号；用这个轻量计数器把弹框里的改动即时推给
+ * 已挂载的输入框，避免「开了开关但要切会话/重启才出现按钮」。
+ */
+export const voiceConfigRevisionAtom = atom(0);

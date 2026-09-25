@@ -1,43 +1,61 @@
-import { LoaderCircle, Mic, Square, X } from "lucide-react";
+import { Mic, Square, X } from "lucide-react";
 import type { VoiceTranscriptionState } from "../../hooks/useVoiceTranscription";
 import { t } from "../../i18n";
-import { Button } from "../ui-shadcn/button";
+import { Button, StatefulButton } from "../motion/button";
+import { Loader } from "../motion/loader";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 
+/**
+ * 语音输入控件：动效一律用已 vendored 的 beui 组件（motion/button、motion/loader），
+ * 但几何与配色跟随输入框底栏既有语言（28px、rounded-md、text-foreground、hover:bg-muted/60），
+ * 避免和左侧的「+ / 模型」chip 不齐，也避免抢走右侧那颗实心发送圆钮的视觉主次。
+ *
+ * - idle：beui Button（按下缩放 + 点击涟漪）；
+ * - recording：beui loader 的 bars 变体做电平感律动，停/取消收进同一颗胶囊；
+ * - requesting / transcribing：beui StatefulButton 的 loading 态（宽度形变 + 逐字模糊滚入）。
+ */
+const BAR_BUTTON_CLASS = "size-7 rounded-md text-foreground hover:bg-muted/60";
+
 export function VoiceTranscriptionControls(props: { state: VoiceTranscriptionState; disabled?: boolean; onStart: () => void; onStop: () => void; onCancel: () => void }) {
+	const busyLabel = t(props.state === "requesting" ? "voice.requesting" : "voice.transcribing");
 	return (
-		<div className="flex h-7 w-[60px] shrink-0 items-center justify-end gap-1" aria-live="polite">
+		<div className="flex h-7 shrink-0 items-center justify-end gap-1">
 			{props.state === "idle" ? (
-				<VoiceButton label={t("voice.start")} disabled={props.disabled} onClick={props.onStart}>
-					<Mic className="size-3.5" aria-hidden="true" />
-				</VoiceButton>
+				<VoiceTip label={t("voice.start")}>
+					<Button type="button" variant="ghost" size="icon" ripple disabled={props.disabled} aria-label={t("voice.start")} className={BAR_BUTTON_CLASS} onClick={props.onStart}>
+						<Mic className="size-3.5" aria-hidden="true" />
+					</Button>
+				</VoiceTip>
 			) : props.state === "recording" ? (
-				<>
-					<VoiceButton label={t("voice.stopAndTranscribe")} onClick={props.onStop} tone="recording">
-						<Square className="size-3" fill="currentColor" aria-hidden="true" />
-					</VoiceButton>
-					<VoiceButton label={t("voice.cancel")} onClick={props.onCancel}>
-						<X className="size-3.5" aria-hidden="true" />
-					</VoiceButton>
-				</>
+				<div className="flex h-7 items-center gap-0.5 rounded-md bg-destructive/10 pr-0.5 pl-1">
+					<Loader variant="bars" size={13} speed={0.85} label={t("voice.recording")} className="text-destructive" />
+					<VoiceTip label={t("voice.stopAndTranscribe")}>
+						<Button type="button" variant="ghost" size="icon" aria-label={t("voice.stopAndTranscribe")} className="size-7 rounded-md text-destructive hover:bg-destructive/15 hover:text-destructive" onClick={props.onStop}>
+							<Square className="size-3" fill="currentColor" aria-hidden="true" />
+						</Button>
+					</VoiceTip>
+					<VoiceTip label={t("voice.cancel")}>
+						<Button type="button" variant="ghost" size="icon" aria-label={t("voice.cancel")} className={BAR_BUTTON_CLASS} onClick={props.onCancel}>
+							<X className="size-3.5" aria-hidden="true" />
+						</Button>
+					</VoiceTip>
+				</div>
 			) : (
-				<VoiceButton label={t(props.state === "requesting" ? "voice.requesting" : "voice.transcribing")} disabled>
-					<LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" />
-				</VoiceButton>
+				<VoiceTip label={busyLabel}>
+					{/* StatefulButton 的 loading 态自带 aria-live 播报，无需再加 sr-only。 */}
+					<StatefulButton state="loading" loadingText={busyLabel} variant="ghost" size="sm" className="h-7 rounded-md px-2 text-caption text-foreground">
+						{""}
+					</StatefulButton>
+				</VoiceTip>
 			)}
-			<span className="sr-only">{props.state === "recording" ? t("voice.recording") : props.state === "requesting" ? t("voice.requesting") : props.state === "transcribing" ? t("voice.transcribing") : ""}</span>
 		</div>
 	);
 }
 
-function VoiceButton(props: { label: string; disabled?: boolean; tone?: "recording"; onClick?: () => void; children: React.ReactNode }) {
+function VoiceTip(props: { label: string; children: React.ReactElement }) {
 	return (
 		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button type="button" variant="ghost" size="icon-sm" className={props.tone === "recording" ? "size-7 text-destructive hover:bg-destructive/10 hover:text-destructive" : "size-7 text-muted-foreground hover:text-foreground"} disabled={props.disabled} aria-label={props.label} onClick={props.onClick}>
-					{props.children}
-				</Button>
-			</TooltipTrigger>
+			<TooltipTrigger asChild>{props.children}</TooltipTrigger>
 			<TooltipContent>{props.label}</TooltipContent>
 		</Tooltip>
 	);

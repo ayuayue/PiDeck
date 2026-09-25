@@ -11,6 +11,9 @@
 /** WAV 采样率（whisper 训练口径 16kHz，重采样到此值识别质量最优）。 */
 export const VOICE_WAV_SAMPLE_RATE = 16000;
 
+/** RIFF 头固定 44 字节（16 字节 fmt + 8 字节 data 块头 + 20 字节块身）。 */
+const WAV_HEADER_BYTES = 44;
+
 /**
  * 把单声道 Float32 PCM（-1..1）编码为 16 位 PCM WAV（含 RIFF 头）。
  * 纯函数：小端、mono、PCM 格式（fmt=1）。
@@ -43,6 +46,37 @@ export function encodeWavPcm(samples: Float32Array, sampleRate: number): ArrayBu
 
 function writeAscii(view: DataView, offset: number, text: string): void {
 	for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+}
+
+/**
+ * 判定「这段录音里到底有没有说话」的峰值门限（0..1，约 -36 dBFS）。
+ *
+ * 为什么需要：whisper 对静音不返回空串，而是幻觉出 " you"、"我不想要我" 这类文本，
+ * 或输出 `[BLANK_AUDIO]` 占位词——直接插进用户输入框就是脏数据。安静房间的噪声峰值
+ * 通常 < 0.005，而正常说话（哪怕小声）峰值 > 0.03，这个门限足以分开两者。
+ */
+export const VOICE_MIN_SPEAKING_PEAK = 0.01;
+
+/** 可判定的最短录音时长（秒）：低于此长度 whisper 基本只能靠猜，直接提示重录。 */
+export const VOICE_MIN_SPEAKING_SECONDS = 0.4;
+
+/**
+ * 读取 PCM16 WAV 的峰值幅度（0..1）。纯函数、只依赖 RIFF 布局，
+ * 不解析头部字段：入参一定是本模块 encodeWavPcm 的产物。
+ */
+export function measureWavPeakLevel(wav: ArrayBuffer): number {
+	const samples = new Int16Array(wav, WAV_HEADER_BYTES);
+	let peak = 0;
+	for (let i = 0; i < samples.length; i += 1) {
+		const magnitude = samples[i] < 0 ? -samples[i] : samples[i];
+		if (magnitude > peak) peak = magnitude;
+	}
+	return peak / 32768;
+}
+
+/** 由峰值与采样率算出可送转写的音频时长（秒）。 */
+export function wavDurationSeconds(wav: ArrayBuffer, sampleRate: number = VOICE_WAV_SAMPLE_RATE): number {
+	return (wav.byteLength - WAV_HEADER_BYTES) / 2 / sampleRate;
 }
 
 /**

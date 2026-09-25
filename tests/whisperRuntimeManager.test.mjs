@@ -82,3 +82,57 @@ test("findWhisperCliBinary 在解出的目录树里找到可执行文件（新�
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("findWhisperCliBinary 同名并存时优先 whisper-cli.exe（而非旧版 main.exe）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "pideck-whisper-prio-"));
+	try {
+		mkdirSync(join(dir, "Release"), { recursive: true });
+		writeFileSync(join(dir, "Release", "main.exe"), "x");
+		writeFileSync(join(dir, "Release", "whisper-cli.exe"), "x");
+		assert.equal(manager.findWhisperCliBinary(dir, "win32"), join(dir, "Release", "whisper-cli.exe"));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("运行时标记记录了失效的临时路径时，getStatus 扫描版本目录自愈（用户报「老是提示未配置」的根因）", () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-whisper-selfheal-"));
+	try {
+		const runtimeRoot = join(root, "runtime");
+		const versionDir = join(runtimeRoot, runtime.WHISPER_CPP_RELEASE_TAG);
+		mkdirSync(join(versionDir, "Release"), { recursive: true });
+		writeFileSync(join(versionDir, "Release", "whisper-cli.exe"), "x");
+		writeFileSync(join(versionDir, "Release", "main.exe"), "x");
+		// 坏标记：cliRelPath 指向安装后被清理掉的临时目录（正是线上那份 pideck-runtime.json 的形态）。
+		writeFileSync(join(versionDir, "pideck-runtime.json"), JSON.stringify({ version: runtime.WHISPER_CPP_RELEASE_TAG, cliRelPath: "..\\tmp\\runtime-123\\Release\\main.exe", platform: "win32", arch: "x64" }), "utf8");
+		const mgr = new manager.WhisperRuntimeManager({
+			platform: "win32",
+			arch: "x64",
+			layout: { runtimeRoot, modelsRoot: join(root, "models"), tempRoot: join(root, "tmp") },
+			download: async () => {},
+		});
+		const status = mgr.getStatus({ cliPath: "", localModelId: "base-q5_1" });
+		assert.equal(status.cliReady, true);
+		assert.equal(status.cliSource, "auto");
+		// 死路径被回退扫描取代，且命中高优先级的 whisper-cli.exe。
+		assert.equal(status.cliPath, join(versionDir, "Release", "whisper-cli.exe"));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("没有任何可用 CLI 文件时 getStatus 判为未就绪（不会假就绪）", () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-whisper-empty-"));
+	try {
+		const runtimeRoot = join(root, "runtime");
+		const versionDir = join(runtimeRoot, runtime.WHISPER_CPP_RELEASE_TAG);
+		mkdirSync(versionDir, { recursive: true });
+		writeFileSync(join(versionDir, "pideck-runtime.json"), JSON.stringify({ version: runtime.WHISPER_CPP_RELEASE_TAG, cliRelPath: "nope.exe", platform: "win32", arch: "x64" }), "utf8");
+		const mgr = new manager.WhisperRuntimeManager({ platform: "win32", arch: "x64", layout: { runtimeRoot, modelsRoot: join(root, "models"), tempRoot: join(root, "tmp") }, download: async () => {} });
+		const status = mgr.getStatus({ cliPath: "", localModelId: "base-q5_1" });
+		assert.equal(status.cliReady, false);
+		assert.equal(status.cliSource, "none");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

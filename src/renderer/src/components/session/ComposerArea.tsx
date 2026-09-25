@@ -249,7 +249,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 												: undefined
 										}
 										voiceControls={
-											// 未配置必需参数（baseUrl+model+apiKey）时整个录音入口隐藏
+											// 总开关开启即显示录音入口；引擎未就绪时点击才提示去设置补全（见 useVoiceTranscription.start）
 											composer.voice.configured ? <VoiceTranscriptionControls state={composer.voice.state} disabled={composer.isStarting} onStart={() => void composer.voice.start()} onStop={composer.voice.stop} onCancel={composer.voice.cancel} /> : undefined
 										}
 										sendControls={<ComposerSendControls isAgentBusy={composer.isBusy} isAgentStarting={composer.isStarting} hasContent={composer.hasContent} canSend={composer.delivery.canSend} isGeneratingImage={composer.delivery.generatingImage} onSend={composer.delivery.send} onStop={composer.delivery.abort} />}

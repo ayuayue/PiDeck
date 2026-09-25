@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useStore } from "jotai";
+import { useAtomValue, useStore } from "jotai";
 import { VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "../../../shared/voiceTranscriptionConfig";
 import type { VoiceTranscriptionErrorCode, VoiceTranscriptionPublicConfig } from "../../../shared/types/voiceTranscription";
-import { currentSessionIdAtom } from "../atoms";
+import { currentSessionIdAtom, voiceConfigRevisionAtom } from "../atoms";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
@@ -10,7 +10,7 @@ import { GUIDE_BOOTSTRAP_SESSION_ID } from "../utils/chatSessionBootstrap";
 import { ownsQuickMessageShortcut } from "../utils/quickMessageShortcut";
 import { encodeRecordingToWav } from "../utils/voiceWavEncoder";
 import type { VoiceTranscriptionTarget } from "../utils/voiceTranscriptionInsert";
-import { canCancelVoiceRecording, canStartVoiceRecording, isVoiceTranscriptionConfigured, releaseVoiceRecordingResources, shouldRequestVoiceMicrophone, type VoiceTranscriptionState } from "../utils/voiceRecorderLifecycle";
+import { canCancelVoiceRecording, canStartVoiceRecording, hasSpeakableAudio, isVoiceTranscriptionConfigured, releaseVoiceRecordingResources, shouldRequestVoiceMicrophone, type VoiceTranscriptionState } from "../utils/voiceRecorderLifecycle";
 
 export type { VoiceTranscriptionState } from "../utils/voiceRecorderLifecycle";
 
@@ -20,9 +20,9 @@ const MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;code
 export function useVoiceTranscription(input: { scopeKey: string; captureTarget: () => VoiceTranscriptionTarget; applyText: (target: VoiceTranscriptionTarget, text: string) => boolean }) {
 	const store = useStore();
 	const [state, setState] = useState<VoiceTranscriptionState>("idle");
-	// 配置完整性（总开关 + 当前引擎就绪）决定录音按钮是否显示：
-	// 未就绪时整个入口隐藏，而不是点了才提示 notConfigured。
 	const [configured, setConfigured] = useState(false);
+	// 设置页保存/安装后的改动经此版本号推给已挂载的输入框，即时刷新按钮可见性。
+	const voiceConfigRevision = useAtomValue(voiceConfigRevisionAtom);
 	const stateRef = useRef<VoiceTranscriptionState>("idle");
 	const recorderRef = useRef<MediaRecorder | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
@@ -78,6 +78,13 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 				if (payload.byteLength === 0 || payload.byteLength > VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
 					updateState("idle");
 					showNotice(t("voice.error.invalidRequest"), 4000);
+					return;
+				}
+				// 静音预检：whisper 对「没说话」不会返回空，而是幻觉出 " you"、"我不想要我"
+				// 这类文本。在本地引擎落锤前先用峰值/时长挡掉，脏文本就不会进输入框。
+				if (local && !hasSpeakableAudio(payload)) {
+					updateState("idle");
+					showNotice(t("voice.error.noSpeech"), 4000);
 					return;
 				}
 				const requestId = crypto.randomUUID();
@@ -261,7 +268,8 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 		[cancelInFlight, releaseMedia, scopeKey, updateState],
 	);
 
-	// 配置在 scope（会话/面板）切换时重新探测；getConfig 只返回脱敏字段，无泄漏风险。
+	// 配置在 scope（会话/面板）切换或设置页改动（版本号变化）时重新探测；
+	// getConfig 只返回脱敏字段，无泄漏风险。
 	useEffect(() => {
 		let active = true;
 		void desktopApi.voiceTranscription
@@ -280,7 +288,7 @@ export function useVoiceTranscription(input: { scopeKey: string; captureTarget: 
 		return () => {
 			active = false;
 		};
-	}, [scopeKey]);
+	}, [scopeKey, voiceConfigRevision]);
 
 	return { state, start, stop, cancel, toggle, configured };
 }

@@ -13,11 +13,11 @@ function loadEncoder() {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 	}).outputText;
 	const module = { exports: {} };
-	vm.runInNewContext(source, { module, exports: module.exports, ArrayBuffer, DataView, Math, Float32Array });
+	vm.runInNewContext(source, { module, exports: module.exports, ArrayBuffer, DataView, Math, Float32Array, Int16Array });
 	return module.exports;
 }
 
-const { VOICE_WAV_SAMPLE_RATE, encodeWavPcm } = loadEncoder();
+const { VOICE_WAV_SAMPLE_RATE, encodeWavPcm, measureWavPeakLevel, wavDurationSeconds, VOICE_MIN_SPEAKING_PEAK, VOICE_MIN_SPEAKING_SECONDS } = loadEncoder();
 
 function ascii(view, offset, length) {
 	let out = "";
@@ -56,4 +56,24 @@ test("encodeWavPcm maps float samples to int16 with asymmetric full-scale and cl
 	assert.equal(view.getInt16(48, true), 32767); // 2 夹到 1
 	assert.equal(view.getInt16(50, true), -32768); // -2 夹到 -1
 	assert.equal(view.getInt16(52, true), 0);
+});
+
+test("measureWavPeakLevel 取绝对值峰值：静音为 0，负极值不被漏掉", () => {
+	assert.equal(measureWavPeakLevel(encodeWavPcm(new Float32Array([0, 0, 0, 0]), VOICE_WAV_SAMPLE_RATE)), 0);
+	// 只有负极值时也必须算出峰值（早期用 max 而非 max|.| 会漏）。
+	const negativeOnly = measureWavPeakLevel(encodeWavPcm(new Float32Array([0, -0.8, 0.1]), VOICE_WAV_SAMPLE_RATE));
+	assert.ok(Math.abs(negativeOnly - 0.8) < 0.001, `expected ~0.8, got ${negativeOnly}`);
+	assert.ok(measureWavPeakLevel(encodeWavPcm(new Float32Array([0.002, -0.002]), VOICE_WAV_SAMPLE_RATE)) < VOICE_MIN_SPEAKING_PEAK, "噪声 floor 必须低于门限");
+	assert.ok(measureWavPeakLevel(encodeWavPcm(new Float32Array([0.05, -0.05]), VOICE_WAV_SAMPLE_RATE)) > VOICE_MIN_SPEAKING_PEAK, "小声说话必须高于门限");
+});
+
+test("wavDurationSeconds 按 PCM16 数据段算时长（跳过 44 字节头）", () => {
+	const oneSecond = new Float32Array(VOICE_WAV_SAMPLE_RATE);
+	assert.ok(Math.abs(wavDurationSeconds(encodeWavPcm(oneSecond, VOICE_WAV_SAMPLE_RATE)) - 1) < 1e-6);
+	assert.equal(wavDurationSeconds(encodeWavPcm(new Float32Array(VOICE_WAV_SAMPLE_RATE / 10), VOICE_WAV_SAMPLE_RATE)), 0.1);
+});
+
+test("静音预检门限取值合理：明显短于正常语音、明显高于房间噪声", () => {
+	assert.ok(VOICE_MIN_SPEAKING_PEAK >= 0.004 && VOICE_MIN_SPEAKING_PEAK <= 0.03, `peak gate=${VOICE_MIN_SPEAKING_PEAK}`);
+	assert.ok(VOICE_MIN_SPEAKING_SECONDS > 0 && VOICE_MIN_SPEAKING_SECONDS <= 1, `duration gate=${VOICE_MIN_SPEAKING_SECONDS}`);
 });
