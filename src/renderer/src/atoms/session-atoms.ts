@@ -1137,8 +1137,9 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 				...nextRuntime,
 				status,
 				// 终态（error/closed）会话不再需要运行时状态（goal/todos/model 上下文等），
-				// 清空以释放渲染进程内存；历史消息在 sessionMessagesCacheAtom 中不受影响。
-				state: status === "error" || status === "closed" ? undefined : nextRuntime.state,
+				// 清空以释放渲染进程内存；但上下文超限是一个可操作的恢复态：
+				// 即使会话进入 error，圆环仍必须保留这个最小标记，才能提供「压缩后重试」入口。
+				state: status === "error" || status === "closed" ? (nextRuntime.state?.contextOverflow ? { contextOverflow: true } : undefined) : nextRuntime.state,
 				projectId: typeof payload.projectId === "string" ? payload.projectId : nextRuntime.projectId,
 				cwd: typeof payload.cwd === "string" ? payload.cwd : nextRuntime.cwd,
 				title: typeof payload.title === "string" ? payload.title : nextRuntime.title,

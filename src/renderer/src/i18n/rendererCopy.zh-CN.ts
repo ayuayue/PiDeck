@@ -765,6 +765,9 @@ export const zhCN = {
 	// 标题括号阅读（percent 插值），figures 为 ~used / window 紧凑格式
 	"sessionContext.used": "上下文已用 {percent}%",
 	"sessionContext.unavailable": "上下文数据暂不可用",
+	"sessionContext.overflow": "上下文已超限，建议先压缩",
+	"sessionContext.compactOverflow": "压缩以恢复发送",
+	"sessionContext.compactOverflowHint": "上下文超限：点击压缩后再重试发送",
 	"sessionContext.figures": "~{used} / {window}",
 	"sessionContext.conversation": "对话",
 	"sessionContext.systemTools": "系统 + 工具",

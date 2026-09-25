@@ -25,7 +25,7 @@ import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, isWelcomeModelLost, readWelco
 import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import { CommandPickerGroup, CommandPickerPanel, type CommandPickerFilter } from "../ui-shadcn/command-picker";
 import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, modelRowLabel, modelRowName, orderProviderGroups, resolveModelPickerBody } from "./sessionPickerOptions";
-import type { AgentBackend, AgentRuntimeState, AvailableModel, ComposerAgentMode, GitBranchInfo, ModelListFailReason, ModelListReport, SessionRecord, UsageProbeBackend } from "../../../../shared/types";
+import type { AgentBackend, AgentRuntimeState, AvailableModel, ComposerAgentMode, GitBranchInfo, ModelListFailReason, ModelListReport, SessionRecord, SessionRuntimeTarget, UsageProbeBackend } from "../../../../shared/types";
 
 /** 单个 extension widget 卡片：可折叠标题栏 + 内容行，支持手动关闭 */
 // widgetKey 由扩展定义且跨重启稳定,可按 widgetKey 持久化折叠状态。
@@ -280,6 +280,9 @@ export function ComposerBottomBar(props: {
 	onPickSkill: () => void;
 	onPickThinking: () => void;
 	onCompact: () => void;
+	/** 上下文超限且占用快照缺失时，提供独立的恢复压缩入口。 */
+	overflowRecoveryTarget?: SessionRuntimeTarget;
+	onOverflowRecovery?: (target: SessionRuntimeTarget) => void;
 	onChangeMode: (mode: ComposerAgentMode) => void;
 	/** 会话已有生图消息时锁定生图模式，下拉不可切走。 */
 	imageGenLocked?: boolean;
@@ -525,6 +528,8 @@ export function ComposerBottomBar(props: {
 						<SessionContextMeter
 							state={props.state}
 							onCompact={props.onCompact}
+							overflowRecoveryTarget={props.overflowRecoveryTarget}
+							onOverflowRecovery={props.onOverflowRecovery}
 							backend={usageBackend}
 							// 未激活会话用会话记录/默认 model 推导的 provider 查用量（用量不依赖 agent 运行）
 							fallbackProvider={modelProvider}

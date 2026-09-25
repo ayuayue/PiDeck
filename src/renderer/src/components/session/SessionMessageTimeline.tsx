@@ -983,7 +983,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 						return null;
 					})}
 
-					{hasActiveConversation && !cancellingUi && isRuntimeBusy && <RespondingIndicator isCompacting={isCompacting} isStarting={activeConversationStatus === "starting"} isExecutingTool={activeRuntimeState?.isExecutingTool} liveTextStreaming={liveTextStreaming} liveThinkingStreaming={liveThinkingStreaming} />}
+					{hasActiveConversation && !cancellingUi && isRuntimeBusy && (
+						<RespondingIndicator isCompacting={isCompacting} isStarting={activeConversationStatus === "starting"} isExecutingTool={activeRuntimeState?.isExecutingTool} executingToolName={activeRuntimeState?.executingToolName} liveTextStreaming={liveTextStreaming} liveThinkingStreaming={liveThinkingStreaming} />
+					)}
 				</div>
 			)}
 

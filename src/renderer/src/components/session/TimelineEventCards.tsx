@@ -15,6 +15,7 @@ import { Loader } from "../motion/loader";
 import { useSmoothStream } from "../../utils/useSmoothStream";
 import { SingleLinePreview } from "./SingleLinePreview";
 import { deriveRespondingKind, type RespondingKind } from "./timeline/respondingKind";
+import { getToolPhrase } from "./timeline/toolPhrase";
 import { isRetryStatusMessage } from "./timelineFailureNotice";
 
 // Button 收口状态（P0）：本文件按钮全部保留原生——
@@ -178,16 +179,33 @@ export const ThinkingBlock = memo(
  * 每种状态一组 i18n 短语轮播；状态切换用 key 重建，从第一条短语重新开始。
  */
 
-/** 每种状态对应的轮播短语组（i18n；waiting 单条即不轮播）。 */
+/** 每种状态的短语组。只有 starting 保留多条轮播——它是唯一「后台在预热、渲染层观测不到
+ *  子阶段」的状态；其余各态都对应一个可观测的真实阶段，一律用单条短语
+ *  （beUI ReasoningText 在 phrases.length < 2 时不启动轮播），状态条文案因此始终等于
+ *  后台正在做的事，而不是每 1.8s 换一句猜测（用户反馈：动画不能真实反映后台）。 */
 const RESPONDING_PHRASES: Record<RespondingKind, string[]> = {
 	compacting: [t("agent.loading.compacting")],
 	starting: [t("agent.loading.starting1"), t("agent.loading.starting2"), t("agent.loading.starting3")],
-	executing: [t("agent.loading.executing1"), t("agent.loading.executing2"), t("agent.loading.executing3")],
-	responding: [t("agent.loading.responding1"), t("agent.loading.responding2"), t("agent.loading.responding3")],
+	executing: [t("agent.loading.executing1")],
+	thinking: [t("agent.loading.responding1")],
+	responding: [t("agent.loading.responding3")],
 	waiting: [t("agent.loading.waiting")],
 };
 
-export function RespondingIndicator(props: { isCompacting?: boolean; isStarting?: boolean; isExecutingTool?: boolean; liveTextStreaming?: boolean; liveThinkingStreaming?: boolean }) {
+/**
+ * 工具执行态文案：用 runtime 上报的真实工具名生成短语（「正在读取文件...」
+ * 「正在执行命令...」），而不是「执行工具 / 读取文件 / 应用改动」的轮播猜测。
+ * 工具名缺失时（旧 pi / DSH 快照未上报 executingToolName）退回通用「执行工具」；
+ * 过长（扩展 / MCP 工具名）时截断——状态条是单行 nowrap，否则会把消息流撑宽。
+ */
+function executingPhrases(toolName: string | undefined): string[] {
+	const fallback = t("agent.loading.executing1");
+	if (!toolName) return [fallback];
+	const label = getToolPhrase(toolName, {}).loadingLabel || fallback;
+	return [label.length > 48 ? `${label.slice(0, 47)}…` : label];
+}
+
+export function RespondingIndicator(props: { isCompacting?: boolean; isStarting?: boolean; isExecutingTool?: boolean; executingToolName?: string; liveTextStreaming?: boolean; liveThinkingStreaming?: boolean }) {
 	// 判定抽到 deriveRespondingKind：pi / DSH 共用，状态条跟「此刻有没有字/工具」对齐。
 	const kind = deriveRespondingKind({
 		isCompacting: props.isCompacting,
@@ -196,6 +214,8 @@ export function RespondingIndicator(props: { isCompacting?: boolean; isStarting?
 		liveTextStreaming: props.liveTextStreaming,
 		liveThinkingStreaming: props.liveThinkingStreaming,
 	});
+	// executing 的短语依赖真实工具名（动态），无法放进静态短语表
+	const phrases = kind === "executing" ? executingPhrases(props.executingToolName) : RESPONDING_PHRASES[kind];
 
 	return (
 		<div className="responding-indicator" data-kind={kind}>
@@ -204,7 +224,7 @@ export function RespondingIndicator(props: { isCompacting?: boolean; isStarting?
 			   不用官方默认的 ascii 终端字符；文字放大到 text-base */}
 			<ReasoningText
 				key={kind}
-				phrases={RESPONDING_PHRASES[kind]}
+				phrases={phrases}
 				variant="swap"
 				interval={1800}
 				indicator={<Loader variant="dot-matrix" size={18} speed={1.1} label={t("agent.loading.aria")} />}

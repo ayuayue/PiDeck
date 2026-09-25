@@ -131,6 +131,17 @@ test("pi compact path consults the context owner before sending the RPC", () => 
 	assert.match(owner, /MAGIC_CONTEXT_WRAPUP_COMMAND = "\/ctx-wrapup"/);
 });
 
+test("context overflow keeps a visible recovery compact action even without usage data", () => {
+	const meter = readFileSync("src/renderer/src/components/session/SessionContextMeter.tsx", "utf8");
+	const agentState = readFileSync("src/shared/types/agent.ts", "utf8");
+	const overflow = readFileSync("src/shared/contextOverflow.ts", "utf8");
+	assert.match(agentState, /contextOverflow\?: boolean/);
+	assert.match(overflow, /context_length_exceeded/);
+	assert.match(meter, /overflowRecovery/);
+	assert.match(meter, /compactOverflow/);
+	assert.match(meter, /!compactUi\.ready && !overflowRecovery/);
+});
+
 test("meter compact button uses shared ui state and e2e testid", () => {
 	const meter = readFileSync("src/renderer/src/components/session/SessionContextMeter.tsx", "utf8");
 	assert.match(meter, /from "\.\.\/\.\.\/\.\.\/\.\.\/shared\/compactFeedback"/);
@@ -139,7 +150,7 @@ test("meter compact button uses shared ui state and e2e testid", () => {
 	assert.match(meter, /data-testid="session-context-compact"/);
 	assert.match(meter, /sessionContext\.compactNotReady/);
 	assert.match(meter, /sessionContext\.compactNotReadyHint/);
-	assert.match(meter, /compactDisabled = compactUi\.compacting \|\| !compactUi\.ready/);
+	assert.match(meter, /compactDisabled = compactUi\.compacting \|\| \(!compactUi\.ready && !overflowRecovery\)/);
 });
 
 test("composer compact path toasts done and maps inProgress", () => {
@@ -175,6 +186,15 @@ test("pi compact failure resolves the cancel source instead of swallowing it", (
 	assert.match(pi, /"Compact failed"[\s\S]{0,400}compactionCancelEvidence\(agentId\)/);
 	// 判明来源时抛稳定标记（渲染层才分类得出「扩展接管」）
 	assert.match(pi, /throw new Error\(cancelSource\)/);
+});
+
+test("context overflow is carried through the main and DSH runtime paths", () => {
+	const pi = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	const dsh = readFileSync("src/main/dsh/DshAgentManager.ts", "utf8");
+	assert.match(pi, /isContextOverflowError\(errorMsg\)/);
+	assert.match(pi, /contextOverflowByAgent/);
+	assert.match(dsh, /isContextOverflowError\(reasonMessage\)/);
+	assert.match(dsh, /contextOverflow: runtime\.contextOverflow === true/);
 });
 
 test("pi and dsh compact throw already compacting instead of returning success", () => {

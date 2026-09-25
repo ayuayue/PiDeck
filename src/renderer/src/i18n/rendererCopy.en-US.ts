@@ -767,6 +767,9 @@ export const enUS: Record<TranslationKey, string> = {
 	// headline brackets the percent slot; figures is the ~used / window compact pair
 	"sessionContext.used": "{percent}% of context used",
 	"sessionContext.unavailable": "Context data unavailable",
+	"sessionContext.overflow": "Context limit reached — compact before retrying",
+	"sessionContext.compactOverflow": "Compact to resume sending",
+	"sessionContext.compactOverflowHint": "Context limit reached — compact before retrying",
 	"sessionContext.figures": "~{used} / {window}",
 	"sessionContext.conversation": "Conversation",
 	"sessionContext.systemTools": "System + tools",

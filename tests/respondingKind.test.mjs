@@ -17,7 +17,16 @@ test("工具进行中优先于预热和回复中", () => {
 
 test("已有 live 正文或思考时不再显示预热", () => {
 	assert.equal(deriveRespondingKind({ isStarting: true, liveTextStreaming: true }), "responding");
-	assert.equal(deriveRespondingKind({ isStarting: true, liveThinkingStreaming: true }), "responding");
+	assert.equal(deriveRespondingKind({ isStarting: true, liveThinkingStreaming: true }), "thinking");
+});
+
+test("思考与正文是两个阶段：思考期不得报「撰写回复」", () => {
+	// 只有思考 delta → thinking；只有正文 delta → responding。
+	// 合并成同一个状态会让状态条在纯推理期就显示「撰写回复」（用户反馈动画与后台不符）。
+	assert.equal(deriveRespondingKind({ liveThinkingStreaming: true }), "thinking");
+	assert.equal(deriveRespondingKind({ liveTextStreaming: true }), "responding");
+	// 思考收尾与正文首字同批到达时正文优先，避免状态条来回跳
+	assert.equal(deriveRespondingKind({ liveTextStreaming: true, liveThinkingStreaming: true }), "responding");
 });
 
 test("预热只在还没有字和工具时成立", () => {

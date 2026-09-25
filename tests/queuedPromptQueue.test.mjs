@@ -139,7 +139,12 @@ test("queue drain is serialized and waits for an ordered canonical Session capab
 	assert.match(appSource, /previous\?\.isExecutingTool\s*&&\s*!current\.isExecutingTool[\s\S]*?queue\.flushQueuedSteerPrompts\(sessionId\)/);
 	assert.match(runtimeStateSource, /incoming\.toolStateSequence < current\.toolStateSequence/);
 	assert.match(agentManagerSource, /updateActiveToolCalls/);
-	assert.match(toolRuntimeStateSource, /calls\.delete\(event\.toolCallId\)/);
+	// end 的 key 必须经 resolveEndToolCallKey 解析（缺 toolCallId 时按 toolName / 唯一项回退），
+	// 不能直接按原始 id 删除：start 缺 id 时用的是 `${toolName}-${timestamp}` 兜底 key，
+	// 直接删会让工具永久「执行中」，这个 true→false 边沿就永远不出现，
+	// 排队的 steer 提示词会一直卡在队列里（行为细节见 tests/toolRuntimeState.test.mjs）。
+	assert.match(toolRuntimeStateSource, /const key = resolveEndToolCallKey\(calls, event\.toolCallId, event\.toolName\)/);
+	assert.match(toolRuntimeStateSource, /if \(key !== undefined\) calls\.delete\(key\)/);
 	assert.match(toolRuntimeStateSource, /completedBatch: event\.type === "end" && current\.size > 0 && calls\.size === 0/);
 	assert.match(queuedPromptHookSource, /claimIdleHead\(queuedPromptsRef\.current, sessionId\)/);
 	assert.match(queuedPromptHookSource, /claimNextSteerPrompt\(queuedPromptsRef\.current, sessionId\)/);

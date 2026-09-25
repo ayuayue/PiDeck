@@ -31,6 +31,7 @@ import { applyDshControlEvent, beginDshCancel, type DshControlState } from "./ds
 import { toDshAvailableModels } from "./dshModels";
 import { approvalUiRequest, buildDshRejectValue, buildDshRespondValue, parseDshApprovalFrame, parseDshQuestionFrame, questionUiRequest, type DshApprovalFrame, type DshQuestionFrame } from "./dshApprovalBridge";
 import { assembleDshHistoryEntries, countDshUserMessages, DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE, normalizeDshTurnPageSize, planDshHistoryRounds, trimToOldestTurnStart } from "./dshHistoryPagePlan";
+import { isContextOverflowError } from "../../shared/contextOverflow";
 
 const DSH_PROJECTION_KEYS = ["contextPressure", "contextBreakdown", "tokenUsage", "sessionStats", "todos"];
 
@@ -878,6 +879,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			contextTokens: typeof contextTokens === "number" ? contextTokens : undefined,
 			contextWindow: typeof contextWindow === "number" ? contextWindow : undefined,
 			contextPercent: contextPercent,
+			contextOverflow: runtime.contextOverflow === true,
 			contextMessageTokens: typeof contextMessageTokens === "number" ? contextMessageTokens : undefined,
 			// host contextBreakdown 的系统/工具两段（dsh-web ContextMeter 三段图例同源；
 			// 0 是有效值，undefined 表示无投影）
@@ -2263,6 +2265,15 @@ export class DshAgentManager implements SessionAgentGateway {
 			this.emitRuntimeState(runtime.tab.id);
 		}
 		if (p.turnEnded) {
+			const wasCompacting = runtime.isCompacting === true;
+			const turnEndReason = event?.data && typeof event.data === "object" && (event.data as { reason?: unknown }).reason;
+			const reasonMessage = turnEndReason && typeof turnEndReason === "object" && "error" in turnEndReason && typeof (turnEndReason as { error?: { message?: unknown } }).error?.message === "string" ? (turnEndReason as { error: { message: string } }).error.message : "";
+			if (reasonMessage) {
+				runtime.contextOverflow = isContextOverflowError(reasonMessage);
+			} else if (wasCompacting) {
+				// /compact 回合正常收口后，清掉之前的超限恢复态；普通回答收口不改写该标记。
+				runtime.contextOverflow = false;
+			}
 			this.emit(ipcChannels.agentsTextStream, {
 				agentId: runtime.tab.id,
 				text: lastAssistantText(runtime.messages),
@@ -2396,6 +2407,8 @@ type DshAgentRuntime = {
 	planModeActive?: boolean;
 	/** /compact 命令回合进行中（命令已发出、turn/end 未到）；UI 压缩按钮显示进行态。 */
 	isCompacting?: boolean;
+	/** 最近一次请求因上下文超限失败；保留压缩恢复入口，即使 host 没有 pressure 投影。 */
+	contextOverflow?: boolean;
 	/** 已投影的最大事件 seq（D6：mux 重连补帧时跳过已投影事件，避免重复）。 */
 	lastProjectedSeq?: number;
 	/** 每个 host projection key 的水位线，按 DSH web 的 higher-seq-wins 规则维护。 */

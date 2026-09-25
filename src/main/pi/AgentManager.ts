@@ -102,6 +102,7 @@ import type { RpcLogger } from "../logging/RpcLogger";
 import type { RpcLogBatch, RpcLogEntry } from "../../shared/types/rpcLog";
 import type { AppLogger } from "../logging/AppLogger";
 import { toWindowsHostPath, toWslLinuxPath, type WslEnvironment } from "../wsl/WslPaths";
+import { isContextOverflowError } from "../../shared/contextOverflow";
 
 /** 项目信任确认弹窗的用户选择 */
 export type ProjectTrustChoice = "trust-remember" | "trust-session" | "deny";
@@ -261,6 +262,20 @@ export class AgentManager {
 	 */
 	private static readonly AGENT_SETTLED_TIMEOUT_MS = 5000;
 	/**
+	 * 扩展 UI 请求（select/confirm/input/editor）未显式指定 timeout 时的兜底上限。
+	 *
+	 * pi 侧没有任何默认超时：createDialogPromise 只把 opts.timeout 原样透传（扩展不传就是
+	 * undefined），editor 更是从不带 timeout 字段，而 pending 请求只在收到
+	 * extension_ui_response 时才 settle。于是「扩展没传 timeout + PiDeck 没回包」会让 pi
+	 * 永久阻塞在读取 stdin 上——表现为工具返回后卡住、只有点「停止」才解开
+	 * （abort → cancelPendingUIRequests 发 value:null）。这里给一个足够宽松的上限兜底，
+	 * 保证 pi 不会被永久卡死；扩展显式指定的 timeout 仍然优先。
+	 *
+	 * 30 分钟远大于正常人工思考时间，且定时器回调只在请求仍 pending 时才真正取消，
+	 * 用户已作答/已取消的请求不受影响。
+	 */
+	private static readonly DEFAULT_UI_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+	/**
 	 * 超过该大小的历史会话跳过 get_messages RPC，改为直接从 JSONL 文件尾部读取最近 N 条消息。
 	 * pi 当前不支持 limit/cursor，40MB JSONL 会以单行大 JSON 返回，主进程 JSON.parse 会短暂冻结整个应用。
 	 * 文件直接读取仅解析近尾部少量消息，避免大会话加载导致的界面冻结。
@@ -331,6 +346,8 @@ export class AgentManager {
 	 * 这里用时间戳 + 窗口判定（COMPACT_USER_ABORT_WINDOW_MS），不受事件清标影响。
 	 */
 	private readonly lastUserAbortAt = new Map<string, number>();
+	/** 最近一次回合是否因上下文超限失败；错误态也要保留给圆环恢复入口。 */
+	private readonly contextOverflowByAgent = new Map<string, boolean>();
 	/**
 	 * 每个 agent 最近一次 compaction 的观测（start/end 事件之间的耗时与结果）。
 	 *
@@ -2070,6 +2087,9 @@ export class AgentManager {
 			}
 
 			this.compactingAgents.delete(agentId);
+			// 上下文超限恢复入口成功后清除失败标记；否则下一次打开圆环仍会误显示「先压缩」。
+			this.contextOverflowByAgent.delete(agentId);
+			this.emitContextOverflowState(agentId, false);
 			// 压缩成功且进程未退出，直接加载消息（压缩期间乐观/流式消息不能丢：保护到重载完成）
 			await this.loadMessages(agentId, false, undefined, { preserveMessagesAfter: Date.now() }).catch(() => undefined);
 			void this.appLogger?.info("agent", "Compact completed successfully", {
@@ -2405,6 +2425,7 @@ export class AgentManager {
 			contextTokens: stats?.contextUsage?.tokens,
 			contextWindow: stats?.contextUsage?.contextWindow ?? model?.contextWindow,
 			contextPercent: stats?.contextUsage?.percent,
+			contextOverflow: this.contextOverflowByAgent.get(agentId) === true,
 			/** 对话消息估算 token：消息字符 ÷ 4（1 token ≈ 4 chars），缺文件数据时不报 */
 			contextMessageTokens: fileHitStats.messageChars != null ? Math.round(fileHitStats.messageChars / 4) : undefined,
 			inputTokens,
@@ -3100,6 +3121,7 @@ export class AgentManager {
 		this.rpcCompactingAgents.delete(agentId);
 		// 取消来源判定用的运行期观测随生命周期清理（agentId 每次 spawn 都是新 UUID）
 		this.lastUserAbortAt.delete(agentId);
+		this.contextOverflowByAgent.delete(agentId);
 		this.lastCompactionObservation.delete(agentId);
 		this.compactionStartedAt.delete(agentId);
 		this.agentTurnActiveById.delete(agentId);
@@ -4506,6 +4528,9 @@ export class AgentManager {
 				// 重试中保持 running，不能误置为 idle/error，否则宠物聚合状态会提前转 done/failed
 				if (runtime) runtime.tab.status = "running";
 			} else if (errorMsg) {
+				const contextOverflow = isContextOverflowError(errorMsg);
+				this.contextOverflowByAgent.set(agentId, contextOverflow);
+				this.emitContextOverflowState(agentId, contextOverflow);
 				this.addDetailedErrorMessage(agentId, String(errorMsg));
 				// 有错误且不会重试 → Agent 进入 error 态，宠物聚合为 failed（行5），
 				// 否则会被误置为 idle 触发"所有任务完成"通知。
@@ -4519,6 +4544,9 @@ export class AgentManager {
 					stopReason: typed.stopReason,
 				});
 			} else if (typed.stopReason === "error" || errorMessages.length > 0) {
+				const contextOverflow = isContextOverflowError(errorMsg ?? topMsg?.errorMessage ?? typed.error ?? typed.stopReason);
+				this.contextOverflowByAgent.set(agentId, contextOverflow);
+				this.emitContextOverflowState(agentId, contextOverflow);
 				this.addDetailedErrorMessage(agentId);
 				// 与上一分支同款 abort 例外：终止回合不把活进程标成终态。
 				if (runtime && !abortedTurn) runtime.tab.status = "error";
@@ -4679,6 +4707,9 @@ export class AgentManager {
 			const toolState = updateActiveToolCalls(activeToolCalls, {
 				type: "end",
 				toolCallId: String(typed.toolCallId ?? ""),
+				// end 可能不带 toolCallId（此时上面是空串），把 toolName 一并交给归并逻辑：
+				// start 缺 id 时用的是 `${toolName}-${timestamp}` 兜底 key，只按空串删会永远删不掉。
+				toolName: endedToolName || undefined,
 			});
 			this.applyActiveToolCallState(agentId, toolState);
 			// 工具调用完成后保持 agent 状态为 running，等待后续的 agent_end 事件
@@ -5814,14 +5845,22 @@ export class AgentManager {
 	}
 
 	private scheduleUIRequestTimeout(agentId: string, requestId: string, timeout: unknown) {
-		if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return;
+		// 扩展显式指定且合法时优先用它；否则退回兜底上限，避免 pi 永久阻塞（见常量注释）。
+		const explicitTimeout = typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : undefined;
+		const effectiveTimeout = explicitTimeout ?? AgentManager.DEFAULT_UI_REQUEST_TIMEOUT_MS;
 
 		const timer = setTimeout(() => {
 			if (!this.pendingUIRequests.get(agentId)?.has(requestId)) return;
 			// A timeout must close both ends of the protocol. Merely hiding the
 			// renderer form leaves Pi blocked on extension_ui_response indefinitely.
+			void this.appLogger?.warn("agent", "Extension UI request timed out; cancelling to unblock pi", {
+				agentId,
+				requestId,
+				timeoutMs: effectiveTimeout,
+				explicitTimeout: explicitTimeout != null,
+			});
 			this.sendUIResponse(agentId, requestId, { cancelled: true });
-		}, Math.floor(timeout));
+		}, effectiveTimeout);
 		timer.unref?.();
 	}
 
@@ -5838,7 +5877,14 @@ export class AgentManager {
 		if ((this.pendingUIRequests.get(agentId)?.size ?? 0) > 0) return;
 		if (this.rpcCompactingAgents.has(agentId) || this.compactingAgents.has(agentId)) return;
 		if (this.activeAssistantMessageIds.has(agentId)) return;
-		if (this.toolExecutingByAgent.get(agentId)) return;
+		// 这里刻意不再用本地 toolExecutingByAgent 做否决：pi 的 isStreaming 就是
+		// `_isAgentRunActive`（见 pi dist/core/agent-session.js 的 getter 注释
+		// "processing an agent run or post-run continuation"），工具执行期间为 true，
+		// 因此下面的 get_state 已经覆盖「工具还在跑」这一情形。本地标志一旦因为丢事件而
+		// 卡在 true（例如 tool_execution_end 缺 toolCallId 时按空串删不掉），
+		// 用它否决就会让本函数永远提前返回——兜底判空闲失效、会话永久 running，
+		// 正是本函数要修的那个 bug。分歧只记录不改判，便于事后定位丢事件。
+		const staleToolFlag = this.toolExecutingByAgent.get(agentId);
 
 		const response = await runtime.process.client.request({ type: "get_state" }, 10_000).catch(() => undefined);
 		if (!response?.success || !response.data) return;
@@ -5849,6 +5895,18 @@ export class AgentManager {
 			pendingMessageCount?: number;
 		};
 		if (state.isStreaming || state.isCompacting || (state.pendingMessageCount ?? 0) > 0) return;
+
+		// pi 权威判定无工作，但本地仍认为有工具在跑 → 本地标志已过期（工具 end 事件丢了）。
+		// 这正是「会话卡在 running / 底栏一直显示工具名」的信号，记 warn 并清掉过期状态。
+		if (staleToolFlag) {
+			void this.appLogger?.warn("agent", "Recovered idle while local tool flag was still set", {
+				agentId,
+				staleToolName: staleToolFlag,
+				activeToolCalls: Array.from(this.activeToolCallsByAgent.get(agentId)?.entries() ?? []),
+			});
+			// 清掉过期工具状态，否则底栏会一直显示一个早已结束的工具名
+			this.applyActiveToolCallState(agentId, { calls: new Map<string, string>(), isExecutingTool: false, completedBatch: false });
+		}
 
 		this.setAgentTurnActive(agentId, false);
 		runtime.tab.status = "idle";
@@ -6220,6 +6278,17 @@ export class AgentManager {
 				executingToolName: this.toolExecutingByAgent.get(agentId) ?? undefined,
 				toolStateSequence: this.toolStateSequenceByAgent.get(agentId) ?? 0,
 			} as AgentRuntimeState,
+		});
+	}
+
+	/**
+	 * 上下文超限是失败回合里唯一仍需保留的恢复信号：完整 runtime-state 可能因
+	 * error 终态被清理，先发轻量 patch 让 renderer 在清理前记住它，圆环才能继续提供压缩入口。
+	 */
+	private emitContextOverflowState(agentId: string, contextOverflow: boolean) {
+		this.emit(ipcChannels.agentsRuntimeState, {
+			agentId,
+			state: { contextOverflow },
 		});
 	}
 
