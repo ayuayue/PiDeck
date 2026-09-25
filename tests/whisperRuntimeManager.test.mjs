@@ -54,6 +54,17 @@ test("模型清单数据锚点：id/文件名唯一、sha256 为 64 位小写 he
 	assert.ok(runtime.getWhisperModelDef(runtime.DEFAULT_WHISPER_MODEL_ID));
 });
 
+test("模型清单封顶在 Small：Medium / Turbo 按实测效果下架，档位不得回流", () => {
+	// vm realm 返回数组，逐值比较以避开跨 realm 原型差异（deepStrictEqual 会挂）。
+	assert.equal(runtime.WHISPER_MODEL_CATALOG.map((def) => def.id).join(","), "tiny-q5_1,base-q5_1,small-q5_1");
+	// 下架的两个档位再解析必须为空：设置页下拉与下载入口都以 getWhisperModelDef 为准。
+	assert.equal(runtime.getWhisperModelDef("medium-q5_0"), undefined);
+	assert.equal(runtime.getWhisperModelDef("turbo-q5_0"), undefined);
+	// 体积上界（含默认档）：清单里出现比 Small 更大的模型即视为把下架的档位又带回来了。
+	for (const def of runtime.WHISPER_MODEL_CATALOG) assert.ok(def.bytes <= 200_000_000, `档位体积不越过 Small: ${def.id}`);
+	assert.equal(runtime.DEFAULT_WHISPER_MODEL_ID, "small-q5_1");
+});
+
 test("模型下载候选：镜像优先、官方兜底；资产 URL 固定在 release tag 下", () => {
 	const candidates = runtime.whisperModelUrlCandidates("ggml-base-q5_1.bin");
 	assert.match(candidates[0], /^https:\/\/hf-mirror\.com\//);

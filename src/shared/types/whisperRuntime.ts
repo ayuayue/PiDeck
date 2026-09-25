@@ -1,7 +1,7 @@
 /**
  * 本地语音转写（whisper.cpp）运行时契约：模型目录、平台二进制清单、状态与进度类型。
  *
- * 为什么进包为 0 字节：whisper-cli 二进制（~9MB）与 ggml 模型（32~574MB）都在用户
+ * 为什么进包为 0 字节：whisper-cli 二进制（~9MB）与 ggml 模型（31~181MB）都在用户
  * 点击「下载」后才拉取到 userData/voice-runtime/，安装包本身不受影响。
  *
  * 数据锚点（2026-09 核对，更新版本时同步改这里）：
@@ -10,7 +10,7 @@
  *   镜像顺序 hf-mirror.com → huggingface.co。
  */
 
-export type WhisperModelId = "tiny-q5_1" | "base-q5_1" | "small-q5_1" | "medium-q5_0" | "turbo-q5_0";
+export type WhisperModelId = "tiny-q5_1" | "base-q5_1" | "small-q5_1";
 
 export type WhisperModelDef = {
 	id: WhisperModelId;
@@ -30,11 +30,15 @@ export const WHISPER_MODEL_CATALOG: readonly WhisperModelDef[] = [
 	{ id: "tiny-q5_1", file: "ggml-tiny-q5_1.bin", bytes: 32152673, sha256: "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7", label: "Tiny (q5_1) · 31MB", multilingual: true },
 	{ id: "base-q5_1", file: "ggml-base-q5_1.bin", bytes: 59707625, sha256: "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898", label: "Base (q5_1) · 57MB", multilingual: true },
 	{ id: "small-q5_1", file: "ggml-small-q5_1.bin", bytes: 190085487, sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb", label: "Small (q5_1) · 181MB", multilingual: true },
-	{ id: "medium-q5_0", file: "ggml-medium-q5_0.bin", bytes: 539212467, sha256: "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f", label: "Medium (q5_0) · 514MB", multilingual: true },
-	{ id: "turbo-q5_0", file: "ggml-large-v3-turbo-q5_0.bin", bytes: 574041195, sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2", label: "Large v3 Turbo (q5_0) · 547MB", multilingual: true },
 ];
 
-export const DEFAULT_WHISPER_MODEL_ID: WhisperModelId = "base-q5_1";
+/**
+ * 清单封顶在 Small：Medium / Large-v3-Turbo 已按实测结果下架（2026-09，用户反馈「效果不好」）——
+ * 本机短句转写上更小模型反而更稳，而大模型 CPU 耗时成倍增长、更容易在停顿处吐占位词/幻觉。
+ * 下架只从清单移除：已按旧 id 落盘的 .bin 不再出现在设置页（成了孤儿文件），
+ * 存量配置里的旧 id 由 sanitizeVoiceTranscriptionConfig 回落到默认档。
+ */
+export const DEFAULT_WHISPER_MODEL_ID: WhisperModelId = "small-q5_1";
 
 export function getWhisperModelDef(id: unknown): WhisperModelDef | undefined {
 	return typeof id === "string" ? WHISPER_MODEL_CATALOG.find((def) => def.id === id) : undefined;
