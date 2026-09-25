@@ -32,7 +32,7 @@ test("effectiveUIFontSize falls back to global fontSize when uiFontSize is null"
 });
 
 test("font size mapping matches foundation --font-size-control presets", () => {
-	assert.equal(JSON.stringify(L.NOTIFICATION_FONT_SIZE_PX), JSON.stringify({ compact: 12, default: 13, medium: 14, large: 15, xlarge: 16 }));
+	assert.equal(JSON.stringify(L.NOTIFICATION_FONT_SIZE_PX), JSON.stringify({ compact: 12, medium: 14, large: 15, xlarge: 16 }));
 });
 
 test("notification font size is independent of petScale", () => {

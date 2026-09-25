@@ -10,6 +10,7 @@ import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { normalizeQuickMessages } from "../../shared/quickMessages";
+import { normalizeFontSizeMode, normalizeOptionalFontSizeMode } from "../../shared/fontSize";
 import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { getAppLogger } from "../logging/sharedLogger";
 import { setConfiguredGitPath } from "../git/gitExecutable";
@@ -266,7 +267,7 @@ Gitmoji 对应关系：
 	// 字体配置：默认使用系统字体；用户可通过自定义字体设置修改。
 	// 出厂默认取 "default" 档：与 CSS token 基线（:root 无覆盖时）一致，
 	// 避免「默认」档位名与实际出厂外观错位（旧默认 medium 比 default 大一档）。
-	fontSize: "default",
+	fontSize: "medium",
 	uiFontSize: null,
 	chatFontSize: null,
 	inputFontSize: null,
@@ -374,6 +375,13 @@ export class SettingsStore {
 			this.settings.themeScheduleDarkStart = schedule.darkStart;
 			// 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
+			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
+			// 刻意不做迁移框架——任何不在档位表里的历史值一律落到「中」，旧用户升级后自动等于中；
+			// 同时避免 UI 下拉读到未知值时变成空白。null（跟随全局）必须保持 null。
+			this.settings.fontSize = normalizeFontSizeMode(this.settings.fontSize);
+			this.settings.uiFontSize = normalizeOptionalFontSizeMode(this.settings.uiFontSize);
+			this.settings.chatFontSize = normalizeOptionalFontSizeMode(this.settings.chatFontSize);
+			this.settings.inputFontSize = normalizeOptionalFontSizeMode(this.settings.inputFontSize);
 			// 声音提醒来自旧 JSON 时可能缺字段/非法；统一归一化（旧数据自动获得默认配置）。
 			this.settings.soundAlert = normalizeSoundAlertSettings(parsed.soundAlert);
 			// git 可执行文件路径来自旧 JSON 时可能是脏值（非字符串）；回落空串（自动解析），

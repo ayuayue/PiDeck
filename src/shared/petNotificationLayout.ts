@@ -21,7 +21,6 @@ export const PET_BASE_H = 208;
 /** UI 字号档位 → 提醒气泡 CSS 字号（px）；与 foundation.css --font-size-control 一致 */
 export const NOTIFICATION_FONT_SIZE_PX: Record<AppFontSizeMode, number> = {
 	compact: 12,
-	default: 13,
 	medium: 14,
 	large: 15,
 	xlarge: 16,

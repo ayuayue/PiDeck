@@ -29,7 +29,7 @@ export type WebNetworkAddress = {
 export type WorkspaceContentOpenMode = "split" | "maximize";
 /** 会话 Tab 打开模式：preview=单击为临时预览（发消息后自动晋升常驻），permanent=单击即常驻共存 */
 export type SessionTabOpenMode = "preview" | "permanent";
-export type AppFontSizeMode = "compact" | "default" | "medium" | "large" | "xlarge";
+export type AppFontSizeMode = "compact" | "medium" | "large" | "xlarge";
 
 /** 更新源：atomgit = 国内 AtomGit 源（默认首选）；github = 官方 GitHub Release。 */
 export type UpdateSourceId = "atomgit" | "github";

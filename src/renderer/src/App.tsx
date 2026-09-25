@@ -715,7 +715,7 @@ export function App() {
 		favoriteModels: [],
 
 		// 字体配置：与 main SettingsStore 默认值保持一致，避免启动时闪烁
-		fontSize: "default",
+		fontSize: "medium",
 		uiFontSize: null,
 		chatFontSize: null,
 		inputFontSize: null,

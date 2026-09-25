@@ -3618,7 +3618,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.themeDark": "Dark",
 	"settings.fontSize": "Global Font Size",
 	"settings.fontSizeCompact": "Compact",
-	"settings.fontSizeDefault": "Default",
 	"settings.fontSizeMedium": "Medium",
 	"settings.fontSizeLarge": "Large",
 	"settings.fontSizeXlarge": "Extra Large",

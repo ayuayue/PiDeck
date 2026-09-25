@@ -11,8 +11,9 @@ const timeline = readFileSync("src/renderer/src/components/session/SessionMessag
 
 test("tool card name is a faint process-layer label, weight kept normal", () => {
 	// 过程层视觉：工具名用 tertiary 浅色退到正文之后；字重保持 normal（不降档，
-	// 过轻在 CJK 下会有锯齿感，用户反馈优先保字重、靠颜色区分）
-	assert.match(toolCard, /className="shrink-0 text-control lowercase text-text-faint"/);
+	// 过轻在 CJK 下会有锯齿感，用户反馈优先保字重、靠颜色区分）。
+	// 字号走会话正文轨道（text-chat-row = 正文 −2px）：随「会话正文字号」缩放，不随界面字号。
+	assert.match(toolCard, /className="shrink-0 text-chat-row lowercase text-text-faint"/);
 	assert.doesNotMatch(toolCard, /font-light/);
 	assert.doesNotMatch(toolCard, /font-\[650\]/);
 	// ToolActivityCard 也不再用 <strong> 加粗

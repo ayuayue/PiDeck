@@ -27,17 +27,17 @@ export const ErrorStep = memo(function ErrorStep(props: { group: ErrorGroupItem;
 			<TimelineMarker kind="tool" tone="error" contentClassName="pb-1">
 				<section className="tool-card w-full min-w-0 tone-error" data-error-step="true" data-message-id={props.group.id}>
 					<div className="relative flex min-h-7 items-center rounded-md transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)]">
-						<div className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-default items-center gap-2 py-1 pr-0.5 pl-1 text-control leading-5 text-text-faint">
+						<div className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-default items-center gap-2 py-1 pr-0.5 pl-1 text-chat-row text-text-faint">
 							<span className="tool-card-icon inline-flex shrink-0 items-center justify-center">
 								<AlertTriangle size={16} aria-hidden="true" className="text-danger" />
 							</span>
-							<span className="shrink-0 text-control lowercase text-text-faint">{t("diagnostic.errorTitle")}</span>
-							<Badge variant="outline" className="gap-1 border-danger/40 bg-danger-soft px-1 py-0 text-micro text-danger">
+							<span className="shrink-0 text-chat-row lowercase text-text-faint">{t("diagnostic.errorTitle")}</span>
+							<Badge variant="outline" className="gap-1 border-danger/40 bg-danger-soft px-1 py-0 text-chat-detail text-danger">
 								<CircleX size={9} aria-hidden="true" />
 								{t("tool.statusError")}
 							</Badge>
 							{/* 主进程下发的诊断文案（请求失败 / 已自动重试 N/M 次 …） */}
-							<span className="min-w-0 flex-[1_1_auto] truncate font-mono text-caption text-danger" title={label}>
+							<span className="min-w-0 flex-[1_1_auto] truncate font-mono text-chat-detail text-danger" title={label}>
 								{label}
 							</span>
 							{/* 展开按钮：仅当有具体错误详情（429 原文等）可看时出现 */}

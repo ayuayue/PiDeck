@@ -30,16 +30,16 @@ export const RetryStep = memo(function RetryStep(props: { group: RetryGroupItem;
 	// 状态徽章与 ToolCard 三态同构（outline 琥珀 / danger-soft 红 / secondary 完成），
 	// 扫读语言一致：一眼区分「在等重试 / 重试也救不回来 / 重试成功」。
 	const statusBadge = retryRunning ? (
-		<Badge variant="outline" className="gap-1 border-warning/40 px-1 py-0 text-micro text-warning">
+		<Badge variant="outline" className="gap-1 border-warning/40 px-1 py-0 text-chat-detail text-warning">
 			{t("tool.statusRunning")}
 		</Badge>
 	) : retryFailed ? (
-		<Badge variant="outline" className="gap-1 border-danger/40 bg-danger-soft px-1 py-0 text-micro text-danger">
+		<Badge variant="outline" className="gap-1 border-danger/40 bg-danger-soft px-1 py-0 text-chat-detail text-danger">
 			<CircleX size={9} aria-hidden="true" />
 			{t("tool.statusError")}
 		</Badge>
 	) : (
-		<Badge variant="secondary" className="gap-1 px-1 py-0 text-micro">
+		<Badge variant="secondary" className="gap-1 px-1 py-0 text-chat-detail">
 			<CircleCheck size={9} aria-hidden="true" />
 			{t("tool.statusDone")}
 		</Badge>
@@ -50,16 +50,16 @@ export const RetryStep = memo(function RetryStep(props: { group: RetryGroupItem;
 			<TimelineMarker kind="tool" tone={retryRunning ? "active" : retryFailed ? "error" : "success"} contentClassName="pb-1">
 				<section className={`tool-card w-full min-w-0 tone-${retryFailed ? "error" : retryRunning ? "running" : "ok"}`} data-status={status} data-retry-step="true" data-message-id={props.group.id}>
 					<div className="relative flex min-h-7 items-center rounded-md transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)]">
-						<div className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-default items-center gap-2 py-1 pr-0.5 pl-1 text-control leading-5 text-text-faint">
+						<div className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-default items-center gap-2 py-1 pr-0.5 pl-1 text-chat-row text-text-faint">
 							{/* 图标：运行中旋转（继承旧诊断卡 RefreshCw 语义 + tool-card--running 呼吸色），
 							    失败态图标转红（tool-card.tone-error 覆写 status 色，图标由下方 label 色承担） */}
 							<span className="tool-card-icon inline-flex shrink-0 items-center justify-center">
 								<RefreshCw size={16} aria-hidden="true" className={retryRunning ? "animate-pideck-spin" : retryFailed ? "text-danger" : undefined} />
 							</span>
-							<span className="shrink-0 text-control lowercase text-text-faint">{t("diagnostic.retryTitle")}</span>
+							<span className="shrink-0 text-chat-row lowercase text-text-faint">{t("diagnostic.retryTitle")}</span>
 							{statusBadge}
 							{/* 重试详情：主进程下发的完整状态文案（第几次/延时/失败原因概括） */}
-							<span className={`min-w-0 flex-[1_1_auto] truncate font-mono text-caption ${retryFailed ? "text-danger" : "text-text-faint"}`} title={label}>
+							<span className={`min-w-0 flex-[1_1_auto] truncate font-mono text-chat-detail ${retryFailed ? "text-danger" : "text-text-faint"}`} title={label}>
 								{label}
 							</span>
 							{/* 展开按钮：仅当有具体错误详情（失败原因等）可看时出现 */}

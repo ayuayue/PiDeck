@@ -24,7 +24,7 @@ test("Ask cards keep long content readable in every render path", () => {
 	// 批量问答 tab 胶囊：单行截断 + 悬停 title 看全文，禁止多行溢出胶囊固定高度；
 	// 宽度封顶 14ch（2026-12 用户反馈：28ch 太长，标签条太占位置）。
 	assert.match(overlay, /max-w-\[14ch\] min-w-0 truncate text-left" title=\{question\.question\}/);
-	assert.match(toolCards, /whitespace-normal break-words font-mono text-caption/);
+	assert.match(toolCards, /whitespace-normal break-words font-mono text-chat-detail/);
 	assert.match(toolCards, /formatAskTitle\(item\.question/);
 	assert.match(webTimeline, /formatAskTitle\(props\.request\.title/);
 	assert.match(webTimeline, /flex-col items-start justify-center whitespace-normal/);

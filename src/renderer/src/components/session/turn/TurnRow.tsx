@@ -329,7 +329,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 										// 用 Tailwind utility 对齐旧 CSS 的 token（不新增手写 class）。
 										<button
 											type="button"
-											className="mt-1 inline-flex h-[26px] items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-[length:var(--font-size-caption)] font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+											className="mt-1 inline-flex h-[26px] items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
 											onClick={() => setExpandedStepsRunId(run.id)}
 											title={t("timeline.showEarlierSteps", { count: mountedSteps.hiddenCount })}
 										>

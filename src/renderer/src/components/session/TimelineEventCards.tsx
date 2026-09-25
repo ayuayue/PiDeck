@@ -108,7 +108,7 @@ export const ThinkingBlock = memo(
 					{/* 整行可点，结构对齐 ToolCard trigger：图标 + 耗时 + chevron + 折叠预览。 */}
 					<button
 						type="button"
-						className="group relative flex min-h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-control leading-5 transition-[background-color,transform] duration-150 motion-reduce:transition-none hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)] active:scale-[0.99] focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+						className="group relative flex min-h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-chat-row transition-[background-color,transform] duration-150 motion-reduce:transition-none hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)] active:scale-[0.99] focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
 						onClick={() => setExpanded((v) => !v)}
 						aria-expanded={expanded}
 						title={expanded ? t("thinking.collapse") : t("thinking.expand")}
@@ -118,7 +118,7 @@ export const ThinkingBlock = memo(
 						{props.isStreaming && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-[-300px] w-[300px] animate-thinking-sweep motion-reduce:animate-none bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-bg-app)_55%,transparent),transparent)]" />}
 						<Brain size={16} className="thinking-row-icon shrink-0" aria-hidden="true" />
 						{(hasEnded || props.isStreaming) && props.startedAt && (
-							<small className="shrink-0 text-caption tabular-nums text-text-faint">
+							<small className="shrink-0 text-chat-row tabular-nums text-text-faint">
 								{hasEnded ? (
 									t("thinking.duration", { duration: durationText })
 								) : (
@@ -135,7 +135,7 @@ export const ThinkingBlock = memo(
 						{expanded ? <ChevronDown size={14} className="shrink-0 text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 text-text-faint" aria-hidden="true" />}
 						{/* 折叠才挂预览：与工具 displayLabel 一样 truncate 在同一行；
 				    展开后正文在下方，行内预览会抢宽度、和打字机重复。 */}
-						{!expanded && <SingleLinePreview text={displayedContent} running={props.isStreaming} showSweep={false} className="min-w-0 flex-[1_1_auto] font-mono text-caption text-text-faint" />}
+						{!expanded && <SingleLinePreview text={displayedContent} running={props.isStreaming} showSweep={false} className="min-w-0 flex-[1_1_auto] font-mono text-chat-detail text-text-faint" />}
 					</button>
 					{expanded && (
 						<div className="relative ml-5 mt-1 mb-2 rounded-b-sm border-l-2 border-border-subtle bg-transparent pl-3 animate-in fade-in duration-100 motion-reduce:animate-none">
@@ -146,7 +146,7 @@ export const ThinkingBlock = memo(
 							<div className="flex pb-1.5">
 								<button
 									type="button"
-									className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro text-text-tertiary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_45%,transparent)] hover:text-text-secondary focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+									className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-chat-detail text-text-tertiary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_45%,transparent)] hover:text-text-secondary focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
 									onClick={() => setExpanded(false)}
 								>
 									<ChevronUp size={12} aria-hidden="true" />

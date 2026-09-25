@@ -132,6 +132,14 @@
   --text-body--line-height: var(--line-height-body);
   --text-chat: var(--font-size-chat);
   --text-chat--line-height: var(--line-height-chat);
+  /* 过程层（组头 / 工具调用 / 思考 / 重试错误 / 提问卡 / 大折叠栏胶囊）字号体系。
+     与 --text-chat 同源派生，随「会话正文字号」缩放，**不随界面字号**。
+     只有两档，保证层级任何档位下都恒定且肉眼可辨：row(正文−2) > detail(正文−4)。
+     徽章用 detail 档（靠 chip 底色区分，不单独设字号）。 */
+  --text-chat-row: var(--font-size-chat-row);
+  --text-chat-row--line-height: var(--line-height-chat-row);
+  --text-chat-detail: var(--font-size-chat-detail);
+  --text-chat-detail--line-height: var(--line-height-chat-detail);
   --text-input: var(--font-size-input);
   --text-input--line-height: var(--line-height-input);
   --text-title: var(--font-size-title);

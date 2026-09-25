@@ -180,7 +180,7 @@ let previewSettings: AppSettings = {
 	hiddenModels: [],
 	hiddenModules: [],
 
-	fontSize: "default",
+	fontSize: "medium",
 	uiFontSize: null,
 	chatFontSize: null,
 	inputFontSize: null,

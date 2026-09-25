@@ -168,9 +168,9 @@
   border-radius: var(--radius-md);
   background: var(--color-chat-card-bg);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-chat-detail);
   font-weight: 500;
-  line-height: var(--line-height-caption);
+  line-height: var(--line-height-chat-detail);
   cursor: pointer;
   text-align: left;
   transition:
@@ -208,8 +208,8 @@
   border: 0;
   background: transparent;
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
   cursor: pointer;
   align-self: flex-start;
   opacity: 0.55;
@@ -412,14 +412,14 @@
 .tool-activity-copy .tool-activity-name {
   overflow: hidden;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-chat-detail);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tool-activity-copy span {
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-chat-detail);
 }
 .tool-activity-pulse {
   display: inline-flex;
@@ -565,8 +565,8 @@
    与正文的差异主要由 tertiary 浅色承担：颜色浅一档已足够把思考退到回答之后。 */
 [data-marker-kind="thinking"] .markdown-body,
 .thinking-card.markdown-body {
-  font-size: var(--font-size-control);
-  line-height: var(--line-height-control);
+  font-size: var(--font-size-chat-row);
+  line-height: var(--line-height-chat-row);
   font-weight: 350;
 }
 /* 流式思考卡片：实时展示推理过程 */
@@ -591,7 +591,7 @@
   /* 无外框融入消息流：不设 border/背景/padding，仅保留行内间距 */
   margin: 0;
   padding: 0;
-  font-size: var(--font-size-control);
+  font-size: var(--font-size-chat-row);
   color: var(--color-text-secondary);
   line-height: 1.2;
 }
@@ -772,9 +772,9 @@
   background: color-mix(in srgb, var(--color-tool) 8%, transparent);
   color: var(--color-tool);
   font-family: var(--font-family-business);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-chat-detail);
   font-weight: 600;
-  line-height: var(--line-height-micro);
+  line-height: var(--line-height-chat-detail);
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -846,9 +846,9 @@ body.ask-dialog-open .ask-card-preview {
   border-radius: 999px;
   background: var(--color-chat-control-bg);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-chat-detail);
   font-weight: 500;
-  line-height: var(--line-height-caption);
+  line-height: var(--line-height-chat-detail);
   transition: none;
 }
 .ask-question-card-tool-inner .ask-question-card-option-item.selected {
@@ -866,7 +866,7 @@ body.ask-dialog-open .ask-card-preview {
   border-radius: 0;
   background: transparent;
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-size-chat-detail);
   font-weight: 700;
   color: var(--color-success);
   transition: none;
@@ -883,15 +883,15 @@ body.ask-dialog-open .ask-card-preview {
   min-width: 0;
 }
 .ask-question-card-tool-inner .ask-question-card-option-label {
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
   color: inherit;
   font-family: var(--font-family-base);
   font-weight: 500;
 }
 .ask-question-card-tool-inner .ask-question-card-option-desc {
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
   color: var(--color-text-tertiary);
   font-weight: 400;
 }
@@ -904,8 +904,8 @@ body.ask-dialog-open .ask-card-preview {
   border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
   background: var(--color-chat-card-bg);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
   color: var(--color-chat-link);
   font-weight: 700;
 }
@@ -941,7 +941,7 @@ body.ask-dialog-open .ask-card-preview {
   border-radius: 50%;
   background: var(--color-bg-muted);
   color: var(--color-text-tertiary);
-  font: 11px/1 var(--font-family-business);
+  font: var(--font-size-chat-detail)/1 var(--font-family-business);
 }
 .ask-question-card-result-copy {
   display: flex;
@@ -957,16 +957,16 @@ body.ask-dialog-open .ask-card-preview {
 }
 .ask-question-card-result-question {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
 }
 .ask-question-card-result-answer {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
 }
 .ask-question-card-result-answer.answered {
   color: var(--color-accent);
@@ -978,7 +978,7 @@ body.ask-dialog-open .ask-card-preview {
 .ask-question-card-tool-inner .ask-question-card-title .ask-question-card-status {
   margin-left: auto;
   color: var(--color-accent);
-  font: 11px/1 var(--font-family-business);
+  font: var(--font-size-chat-detail)/1 var(--font-family-business);
   font-weight: 500;
 }
 
@@ -999,7 +999,7 @@ body.ask-dialog-open .ask-card-preview {
   border-radius: var(--radius-sm);
   background: var(--color-chat-control-bg);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-control);
+  font-size: var(--font-size-chat-row);
   font-weight: 500;
   line-height: var(--line-height-body);
   cursor: pointer;
@@ -1142,24 +1142,24 @@ body.ask-dialog-open .ask-card-preview {
 .ask-inline-bar .ask-inline-bar-option {
   min-height: 26px;
   padding: 4px 10px;
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
 }
 .ask-inline-bar input {
   height: 32px;
   min-height: 32px;
   padding: 0 8px;
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-chat-detail);
 }
 .ask-inline-bar textarea {
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  font-size: var(--font-size-chat-detail);
+  line-height: var(--line-height-chat-detail);
 }
 .ask-inline-bar .ask-inline-bar-submit-btn {
   min-height: 32px;
   height: 32px;
   padding: 0 10px;
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-chat-detail);
 }
 
 /* 收起状态工具组里的 skill chip */

@@ -48,7 +48,6 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 	// 保留 ACCENT_PRESETS 仅供自定义主题参考（无独立主色下拉）。
 	const fontSizeOptions: SelectOption[] = [
 		{ value: "compact", label: t("settings.fontSizeCompact") },
-		{ value: "default", label: t("settings.fontSizeDefault") },
 		{ value: "medium", label: t("settings.fontSizeMedium") },
 		{ value: "large", label: t("settings.fontSizeLarge") },
 		{ value: "xlarge", label: t("settings.fontSizeXlarge") },
