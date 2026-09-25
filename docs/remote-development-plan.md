@@ -684,11 +684,13 @@ Phase 1 是全计划风险最高的契约迁移（全库 path-bearing contract �
 
 ### Phase 2：主机管理与 helper
 
-- 实现 `RemoteHostStore`、`SshCommandBuilder`、连接状态机和诊断。
+- 将已实现的 `RemoteHostStore` 装配到 main 生命周期，并继续实现 `SshCommandBuilder` 已验证连接参数、连接状态机和诊断。
 - 在 store 层落实 draft/verified endpoint identity 规则、referenced profile tombstone、持久化 `retiredHostIds`，以及由 main 持有 durable journal 的幂等 rebind；迁移必须覆盖 ProjectStore/SessionCatalog 引用、origin 冲突检查和崩溃恢复。
 - 实现 helper v1、manifest、上传、校验、原子激活和版本清理。
 - 增加 `remote:*` IPC、preload API 和设置页主机面板。
 - 首批仅支持 key/agent 认证和 POSIX 远端。
+
+> 当前 Phase 2 安全切片已完成候选 `ssh -G` argv、路由摘要、隔离临时 `known_hosts` 的认证后 host key 候选验证、main-only `PendingConfirmationBroker` 与 `SshHostPinStore` 的一次性 sender 绑定确认、认证重验及不覆盖已有文件的 pin 写入/读取校验。已新增离线 `RemoteHostStore`：严格版本化 profile/retired-id envelope、revision CAS 和主机目录锁，备份仅供 needs-repair 下离线查看；`offerPin/confirmPin` 只能从主进程待决确认取得 endpoint，锁内复核 pin 后提交档案，启动和提交失败会检测未知、孤儿、缺失或不匹配的 pin 并 fail closed。**尚未装配**到 app、IPC、preload、设置页或产品连接入口；pin 与 profile 跨文件崩溃后只会进入 needs-repair，缺少安全的人工修复流程，ProjectStore/SessionCatalog 的共同锁、引用检查及 rebind journal 也尚未实现，不能标记 Phase 2 完成。验证器首批仅接受单条普通 `ssh-ed25519` host key，RSA/ECDSA、host certificate/CA 及异常 pin 均 fail closed；扩大算法支持前须有对应 OpenSSH 解析与跨平台 fixture。首次握手前若 `ssh -G` 最终配置仍含 `SendEnv`/`SetEnv` 即拒绝，且显式禁用 X11/agent/端口转发；这不替代真实客户端环境传播矩阵。Windows/macOS/Linux 客户端的产品级已认证 fingerprint 和完整环境矩阵仍未通过，不得据此激活主机或启动 helper。
 
 门禁：恶意 host/port/path 不可注入 argv；协议畸形、超时、hash 不匹配和版本不兼容都有结构化错误；OpenSSH 已认证 fingerprint 无法取得时 fail closed，alias 改指不会启动 helper；伪造/重放/过期或来自其他 sender 的高风险确认不能激活 profile/root/rebind/delete；被引用 profile 不可硬删除或原地改指；rebind 中途崩溃可恢复，完成后 locator/origin 无冲突且 trust 不继承；所有资源有清理路径。
 
