@@ -2553,7 +2553,7 @@ export const zhCN = {
 	"config.extRecommended.piSubagents": "任务委派扩展，支持链式、并行执行和 TUI 澄清。可将复杂任务拆解给多个子 Agent。",
 	// 已安装列表：内置扩展一行简介（ExtensionTableRow 按 source 映射 builtInExtDesc.*）
 	"config.builtInExtDesc.pi-deck-request-size-recovery": "请求体超限自动恢复：识别网关 413/请求体过大错误，征得同意后临时切换大上限模型压缩会话再切回，解除无法发送的死锁。",
-	"config.builtInExtDesc.pi-deck-ask-question": "注册 ask_question 工具：模型可通过桌面 UI 向你提问（单选/输入/确认/批量问题 Tab），回答回传给模型。",
+	"config.builtInExtDesc.pi-deck-ask-question": "注册 ask_question 工具：模型可通过统一的提问卡片向你提问（单选/多选/确认/输入，多问题时以 Tab 展开），选择题恒带自定义输入，回答回传给模型。",
 	"config.builtInExtDesc.pi-deck-goal-mode": "目标模式：围绕一条目标自动续轮推进，直到完成、阻塞、暂停或到达轮次上限；状态跨重启可恢复。",
 	"config.builtInExtDesc.pi-deck-nul-redirect-fix": "NUL 重定向修复：bash 执行前把「> nul」等 Windows 重定向改写为 /dev/null，避免 Git Bash 产生删不掉的 nul 文件。",
 	"config.builtInExtDesc.pi-deck-plan-mode": "计划模式：先以只读工具集产出编号计划，经你选择执行/停留/修改后再恢复写工具，[DONE:n] 标记驱动进度展示。",
@@ -4393,7 +4393,7 @@ export const zhCN = {
 	"voice.settings.runtimeSourceCustom": "使用自定义路径",
 	"voice.settings.runtimeDownload": "下载运行时",
 	"voice.settings.runtimeUnsupported": "当前平台无预编译包，请在下方手动指定 whisper-cli 路径。",
-	"voice.settings.modelDescription": "模型越大越准、越慢、越占空间。选择后可在此下载。",
+	"voice.settings.modelDescription": "模型越大越慢、越占空间，本地 CPU 上不保证更准；默认推荐 Small。选择后可在此下载。",
 	"voice.settings.modelFile": "模型文件 · {model}",
 	"voice.settings.modelInstalled": "已下载",
 	"voice.settings.modelDownload": "下载模型",

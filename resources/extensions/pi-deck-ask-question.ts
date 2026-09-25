@@ -2,20 +2,19 @@
  * PiDeck Ask Question Extension
  *
  * 注册 ask_question 工具，让 LLM 可以向用户提问并从桌面端 UI 获取回答。
- * 使用 pi RPC Extension UI Protocol（ctx.ui.select/input/editor）实现用户交互，
+ * 使用 pi RPC Extension UI Protocol（ctx.ui.input）实现用户交互，
  * 桌面端处理 extension_ui_request/response 协议循环。
- * confirm 不调用 ctx.ui.confirm：RPC 把 cancelled 也解析成 false，与「否」无法区分；
- * 改为 select(是/否)，点叉走 value:null，与 select 取消语义一致。
  *
- * 两种用法：
- *   1. 单问题模式（向后兼容）：顶层 type/question/options/placeholder/prefill/allowOther
- *   2. 批量模式：questions 数组；桌面端以 Tab 标签页一次展示全部问题
- *      （RPC 只能串行 dialog，因此批量走一次 input envelope，由桌面端展开为 Tab UI）
+ * 提问形态（2026-09 收口，用户反馈「有时批量有时不批量、有时有自定义输入有时没有」）：
+ *   - 无论单问题（顶层 type/question/options）还是批量（questions 数组），一律归一为
+ *     问题列表后走同一个批量信封（一次 input envelope），由桌面端展开为卡片 UI。
+ *     历史上单问题走原生 RPC 弹框、批量走 Tab 卡，同一内容两种外观随模型心情漂移；
+ *     现在只有一条渲染形态，模型调用方式的差异不再影响用户所见。
+ *   - select 题的自定义输入框恒定显示：allowOther 参数保留（模型传值不报错）但不再
+ *     参与渲染决策，「自行输入」不再时隐时现。
  *
  * select 选项支持字符串或 {label, value?, description?} 对象；description 会拼进选项
- * 显示文本，让用户在桌面端按钮上直接看到说明。allowOther（默认 true）由扩展层在
- * 选项末尾追加「✎ 自行输入...」，选中后再用 ctx.ui.input 收集自定义答案——这样桌面端
- * select 不再硬编码自定义按钮，allowOther 完全由工具调用方控制。
+ * 显示文本，让用户在桌面端按钮上直接看到说明。
  *
  * type 推断兜底（2026-09 统计：flash 档模型约 1/6 的批量提问会省略可推导的 type，
  * 校验层硬失败导致整批重发）：type 保持 schema 可选，执行时按问题形状兜底——
@@ -38,8 +37,6 @@ interface NormalizedOption {
 	/** 选中后返回的值 */
 	value: string;
 	description?: string;
-	/** allowOther 追加的「自行输入」标记 */
-	isOther?: boolean;
 }
 
 // 归一化后的问题
@@ -63,25 +60,19 @@ interface Answer {
 	wasCustom?: boolean;
 }
 
-// askOne 需要的上下文子集：只依赖 hasUI + 四个 RPC UI 方法，便于脱离 pi 内部 ctx 类型约束
+// askOne/askBatch 需要的上下文子集：桌面端统一走批量信封后只依赖 ui.input
 interface AskCtx {
 	hasUI: boolean;
 	ui: {
-		select: (question: string, options: string[]) => Promise<string>;
-		confirm: (question: string, description?: string) => Promise<boolean>;
 		input: (question: string, placeholder?: string) => Promise<string>;
-		editor: (question: string, prefill?: string) => Promise<string>;
 	};
 }
 
 /**
- * RPC only supports one dialog at a time. Batch questions travel in an input
- * envelope, which the desktop expands into its single composer-adjacent form.
+ * RPC only supports one dialog at a time. ALL questions (single or batch) travel in
+ * one input envelope, which the desktop expands into its single composer-adjacent form.
  */
 export const BATCH_ASK_ENVELOPE_KEY = "__piDeckBatchAsk";
-
-// allowOther 追加项的固定文案；选中后触发 ctx.ui.input 收集自定义答案
-const OTHER_LABEL = "✎ 自行输入...";
 
 // Schema：选项可为字符串简写或对象
 const OptionSchema = Type.Union([
@@ -104,7 +95,7 @@ const QuestionSchema = Type.Object({
 	question: Type.String({ description: "The question or prompt to display" }),
 	options: Type.Optional(Type.Array(OptionSchema, { description: "Options for select / multi_select type questions" })),
 	allowOther: Type.Optional(
-		Type.Boolean({ description: "Allow custom text input for select (default: true)" }),
+		Type.Boolean({ description: "Accepted for compatibility but ignored: select questions always show a custom text input" }),
 	),
 	placeholder: Type.Optional(Type.String({ description: "Placeholder for input/editor type questions" })),
 	prefill: Type.Optional(Type.String({ description: "Prefill for input/editor type questions" })),
@@ -134,7 +125,7 @@ const AskQuestionParams = Type.Object({
 	question: Type.Optional(Type.String({ description: "The question to show (single-question mode)" })),
 	options: Type.Optional(Type.Array(OptionSchema, { description: "Options (single select / multi_select mode)" })),
 	allowOther: Type.Optional(
-		Type.Boolean({ description: "Allow custom text input for select (single mode, default: true)" }),
+		Type.Boolean({ description: "Accepted for compatibility but ignored: select questions always show a custom text input" }),
 	),
 	placeholder: Type.Optional(Type.String({ description: "Placeholder (single input/editor mode)" })),
 	prefill: Type.Optional(Type.String({ description: "Prefill (single input/editor mode)" })),
@@ -150,11 +141,6 @@ function normalizeOptions(options: unknown): NormalizedOption[] {
 		const label = String(o.label ?? "");
 		return { label, value: o.value ?? label, description: o.description };
 	});
-}
-
-/** 拼接选项显示文本：有 description 时附在 label 后，便于桌面端按钮直接展示说明 */
-function optionDisplayText(opt: NormalizedOption): string {
-	return opt.description ? `${opt.label} — ${opt.description}` : opt.label;
 }
 
 /**
@@ -183,8 +169,9 @@ function toQuestions(params: Record<string, unknown>): NormalizedQuestion[] {
 				type,
 				question: String(r.question ?? ""),
 				options: isPickList ? normalizeOptions(r.options) : undefined,
-				// allowOther 仅对 select 有意义（multi_select 多选即自由组合，不追加自定义项）；未显式传 false 时按 true 处理
-				allowOther: type === "select" ? r.allowOther !== false : undefined,
+				// 自定义输入恒定显示（用户反馈「有时有有时没有」的根因之一）：allowOther 传值
+				// 仍被 schema 接受，但不再参与渲染决策；仅 select 有此框，multi_select 多选即自由组合。
+				allowOther: type === "select" ? true : undefined,
 				placeholder: r.placeholder as string | undefined,
 				prefill: r.prefill as string | undefined,
 			};
@@ -199,39 +186,15 @@ function toQuestions(params: Record<string, unknown>): NormalizedQuestion[] {
 			type,
 			question: String(params.question ?? ""),
 			options: isPickList ? normalizeOptions(params.options) : undefined,
-			allowOther: type === "select" ? params.allowOther !== false : undefined,
+			allowOther: type === "select" ? true : undefined,
 			placeholder: params.placeholder as string | undefined,
 			prefill: params.prefill as string | undefined,
 		},
 	];
 }
 
-/** 单问题结果：保持 {question,type,answer,answered} 结构，兼容历史会话反推 */
-function singleResult(q: NormalizedQuestion, a: Answer, cancelled: boolean) {
-	const answered = !cancelled && a.value !== null && a.value !== undefined;
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text: cancelled
-					? `用户取消了提问: ${q.question}`
-					: `用户回答: ${typeof a.value === "boolean" ? (a.value ? "是" : "否") : String(a.value ?? "")}`,
-			},
-		],
-		details: {
-			question: q.question,
-			type: q.type,
-			answer: cancelled ? null : a.value,
-			answerLabel: a.label,
-			answered,
-			options: q.options,
-			...(cancelled ? { cancelled: true } : {}),
-		},
-	};
-}
-
 /** 批量结果：返回结构化 questions/answers，便于 LLM 按 id 取值 */
-function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boolean) {
+function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boolean, overrideText?: string) {
 	const lines = answers.map((a) => {
 		// multi_select 的 value 是数组，拼接展示（如「A、C」）
 		const v = Array.isArray(a.value)
@@ -246,80 +209,19 @@ function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boo
 			{
 				type: "text" as const,
 				text:
-					cancelled && answers.length === 0
+					overrideText ??
+					(cancelled && answers.length === 0
 						? "用户取消了问卷"
 						: lines.length
 							? lines.join("\n")
-							: "无答案",
+							: "无答案"),
 			},
 		],
 		details: { questions: qs, answers, cancelled },
 	};
 }
 
-/**
- * 执行单个问题的提问。select 会按 allowOther 追加「自行输入」项；
- * 用户取消时由框架层抛出，调用方在循环里 try-catch 中断批量。
- */
-async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
-	switch (q.type) {
-		case "select": {
-			const base = q.options ?? [];
-			// allowOther 默认 true：追加「自行输入」项，选中后走 input 收集
-			const opts: NormalizedOption[] =
-				q.allowOther !== false
-					? [...base, { label: OTHER_LABEL, value: "__other__", isOther: true }]
-					: base;
-			const labels = opts.map(optionDisplayText);
-			// 循环：取消「自行输入」后回到选单，而非直接返回
-			while (true) {
-				const selected = await ctx.ui.select(q.question, labels);
-				if (selected == null || selected === "") {
-					return { id: q.id, type: q.type, value: null };
-				}
-				const chosen =
-					opts.find((option) => optionDisplayText(option) === selected) ??
-					opts.find((option) => option.value === selected) ??
-					opts.find((option) => option.label === selected) ??
-					(selected === OTHER_LABEL || selected === "__other__"
-						? opts.find((option) => option.isOther)
-						: undefined);
-				if (!chosen) {
-					// PiDeck's inline custom field returns text directly instead of opening
-					// a second RPC dialog. Preserve that answer when custom input is allowed.
-					return q.allowOther !== false
-						? { id: q.id, type: q.type, value: selected, label: selected, wasCustom: true }
-						: { id: q.id, type: q.type, value: null };
-				}
-				if (chosen.isOther) {
-					const custom = await ctx.ui.input(`${q.question}（自行输入）`, "");
-					if (custom?.trim()) {
-						return { id: q.id, type: q.type, value: custom.trim(), label: custom.trim(), wasCustom: true };
-					}
-					continue;
-				}
-				return { id: q.id, type: q.type, value: chosen.value, label: chosen.label, wasCustom: false };
-			}
-		}
-		case "confirm": {
-			const selected = await ctx.ui.select(q.question, ["是", "否"]);
-			if (selected === "是") return { id: q.id, type: q.type, value: true, label: "是" };
-			if (selected === "否") return { id: q.id, type: q.type, value: false, label: "否" };
-			return { id: q.id, type: q.type, value: null };
-		}
-		case "editor": {
-			const text = await ctx.ui.editor(q.question, q.prefill ?? "");
-			return { id: q.id, type: q.type, value: text };
-		}
-		default: {
-			// input 类型
-			const text = await ctx.ui.input(q.question, q.placeholder ?? "");
-			return { id: q.id, type: q.type, value: text };
-		}
-	}
-}
-
-/** Submit a complete batch through one RPC dialog so desktop can render all tabs at once. */
+/** Submit the whole question list through one RPC dialog so desktop renders one card. */
 async function askBatch(
 	questions: NormalizedQuestion[],
 	review: boolean,
@@ -369,11 +271,12 @@ export default function (pi: ExtensionAPI) {
 			: [
 				"Ask the user to provide input, make a selection, or confirm an action.",
 				"The tool blocks until the user responds through the desktop UI.",
-				"Single question: use type/question/options/placeholder/prefill.",
-				"Multiple questions: use questions:[{id,type,question,options,allowOther,...}] to ask all at once in a tabbed batch UI.",
+				"Preferred call form: questions:[{id,type,question,options,placeholder,prefill}] — one or more questions in a single card.",
+				"Single-question top-level fields (type/question/options) are also accepted; both forms render the exact same card UI.",
 				"The type field is optional; it defaults to select when options are provided, otherwise input. Best practice: still set select/multi_select/confirm explicitly.",
-				"For batch mode, set review:true to require a Submit/review tab before final submit.",
+				"Set review:true to require a Submit/review tab before final submit.",
 				"Use type:multi_select when the user should pick MULTIPLE items from a list — it renders checkboxes and returns an array of selected values.",
+				"Every select question always shows a free-text input box under the options; there is no way to hide it.",
 			].join(" "),
 		promptSnippet: feishuLinked
 			? "Ask the user a question directly in the reply text (Feishu session: ask_question is disabled)"
@@ -386,92 +289,43 @@ export default function (pi: ExtensionAPI) {
 			]
 			: [
 				"IMPORTANT RULE: Whenever you need ANY input from the user (a choice, confirmation, text, or multi-line content), you MUST use the ask_question tool. Do NOT write questions in plain text — that forces the user to type free-form replies and breaks the desktop UI interaction flow.",
+				"When you have more than one question, ALWAYS pass them together as a questions array in ONE call; never split related questions into repeated single calls.",
 				"Use type:select with options when the user should pick from predefined choices. Options may be strings or {label, value?, description?} objects; use description to explain long options.",
 				"Use type:multi_select with options when the user should pick MULTIPLE choices — checkboxes are rendered and the answer is an array of selected values.",
 				"Use type:confirm when you need a yes/no decision before proceeding (e.g. destructive operations, irreversible changes).",
 				"Use type:input for short free-text responses, and type:editor for multi-line content like code or long explanations.",
-				"For multiple related questions, pass a questions array instead of calling the tool repeatedly — desktop shows a tabbed batch UI and returns all answers at once.",
-				"Set allowOther:false on a select question to forbid custom input (default true).",
-				"For batch questions, set review:true to force a Submit/review tab so the user confirms all answers before submitting.",
+				"select questions always include a custom free-text input for the user; do not pass allowOther.",
+				"Set review:true to force a Submit/review tab so the user confirms all answers before submitting.",
 			],
 				parameters: AskQuestionParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const record = params as Record<string, unknown>;
-			const isBatch = Array.isArray(record.questions) && (record.questions as unknown[]).length > 0;
 			const questions = toQuestions(record);
-			// multi_select 的选项多选无法用 RPC 单选表达：单问题 multi_select 也强制走批量 envelope，
-			// 桌面端展开为带多选框的单个 tab，复用同一批应答协议。
-			const needsBatchEnvelope = isBatch || questions.some((q) => q.type === "multi_select");
 
 			// 飞书绑定会话：不弹交互卡片，直接返回指引（agent 会把问题写进回复转述给用户）
 			if (feishuLinked) {
-				const msg = "ask_question 已禁用：当前会话连接了飞书，交互式提问卡片不可用。请把问题直接写入回复文本，用户会以飞书消息回答。";
-				return isBatch
-					? batchResult(questions, [], true)
-					: {
-							content: [{ type: "text" as const, text: msg }],
-							details: {
-								question: questions[0].question,
-								type: questions[0].type,
-								answer: null,
-								answered: false,
-							},
-						};
-				}
-
-
+				return batchResult(questions, [], true, "ask_question 已禁用：当前会话连接了飞书，交互式提问卡片不可用。请把问题直接写入回复文本，用户会以飞书消息回答。");
+			}
 
 			// 非交互模式（headless）：不阻塞直接返回
 			if (!ctx.hasUI) {
-				const msg = "ask_question 无法执行：当前环境不支持交互式 UI。";
-				return isBatch
-					? batchResult(questions, [], true)
-					: {
-							content: [{ type: "text" as const, text: msg }],
-							details: {
-								question: questions[0].question,
-								type: questions[0].type,
-								answer: null,
-								answered: false,
-							},
-						};
+				return batchResult(questions, [], true, "ask_question 无法执行：当前环境不支持交互式 UI。");
 			}
 
 			// select / multi_select 必须有非空 options，否则桌面端无法渲染选择卡片
 			for (const q of questions) {
 				if ((q.type === "select" || q.type === "multi_select") && (!q.options || q.options.length === 0)) {
-					const msg = `ask_question 未执行：${q.type === "multi_select" ? "multi_select" : "select"} 类型必须提供 options（问题: ${q.question}）`;
-					return isBatch
-						? batchResult(questions, [], true)
-						: {
-								content: [{ type: "text" as const, text: msg }],
-								details: {
-									question: q.question,
-									type: q.type,
-									answer: null,
-									answered: false,
-									error: `${q.type} requires non-empty options`,
-								},
-							};
+					return batchResult(questions, [], true, `ask_question 未执行：${q.type} 类型必须提供 options（问题: ${q.question}）`);
 				}
 			}
 
-			if (needsBatchEnvelope) {
-				try {
-					const { answers, cancelled } = await askBatch(questions, record.review === true, ctx);
-					return batchResult(questions, answers, cancelled);
-				} catch {
-					return batchResult(questions, [], true);
-				}
-			}
-
+			// 单一渲染形态：无论单问题还是批量，都走同一个批量信封，桌面端只有一种卡片外观
 			try {
-				const answer = await askOne(questions[0], ctx);
-				const cancelled = answer.value === null || answer.value === undefined;
-				return singleResult(questions[0], answer, cancelled);
+				const { answers, cancelled } = await askBatch(questions, record.review === true, ctx);
+				return batchResult(questions, answers, cancelled);
 			} catch {
-				return singleResult(questions[0], { id: questions[0].id, type: questions[0].type, value: null }, true);
+				return batchResult(questions, [], true);
 			}
 		},
 	});

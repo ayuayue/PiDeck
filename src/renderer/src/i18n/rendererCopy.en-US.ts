@@ -2559,7 +2559,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.extRecommended.piSubagents": "A task delegation extension with chained and parallel execution plus TUI clarification. Breaks complex tasks down across multiple sub-agents.",
 	// Installed list: one-line description per built-in extension (ExtensionTableRow maps source -> builtInExtDesc.*)
 	"config.builtInExtDesc.pi-deck-request-size-recovery": "Request-size recovery: detects gateway 413/request-too-large errors and, with your consent, temporarily switches to a higher-limit model to compact the session, then switches back to unblock sending.",
-	"config.builtInExtDesc.pi-deck-ask-question": "Registers the ask_question tool: the model can ask you questions through the desktop UI (select/input/confirm/batched question tabs) and receives your answers.",
+	"config.builtInExtDesc.pi-deck-ask-question": "Registers the ask_question tool: the model asks you questions through one unified card UI (select/multi-select/confirm/input, tabbed for multiple questions; selects always include a custom input) and receives your answers.",
 	"config.builtInExtDesc.pi-deck-goal-mode": "Goal mode: keeps working toward one objective round after round until it is complete, blocked, paused, or the round limit is hit; state survives restarts.",
 	"config.builtInExtDesc.pi-deck-nul-redirect-fix": "NUL redirect fix: rewrites Windows-style redirects like `> nul` to /dev/null before bash runs, preventing Git Bash from creating undeletable nul files.",
 	"config.builtInExtDesc.pi-deck-plan-mode": "Plan mode: produces a numbered plan with a read-only toolset first; after you choose execute/stay/revise, write tools are restored and [DONE:n] markers drive the progress widget.",
@@ -4404,7 +4404,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"voice.settings.runtimeSourceCustom": "Using custom path",
 	"voice.settings.runtimeDownload": "Download runtime",
 	"voice.settings.runtimeUnsupported": "No prebuilt binary for this platform. Set the whisper-cli path below.",
-	"voice.settings.modelDescription": "Larger models are more accurate but slower and heavier. Select one, then download it here.",
+	"voice.settings.modelDescription": "Larger models are slower and heavier, and aren't guaranteed to be more accurate on a local CPU; Small is the recommended default. Select one, then download it here.",
 	"voice.settings.modelFile": "Model file · {model}",
 	"voice.settings.modelInstalled": "Downloaded",
 	"voice.settings.modelDownload": "Download model",

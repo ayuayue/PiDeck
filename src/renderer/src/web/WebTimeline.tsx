@@ -250,6 +250,17 @@ function WebAskCard(props: { request: WebPendingUiRequest; busy: boolean; onResp
 								</Button>
 							);
 						})}
+						{/* select 自定义输入恒定显示（与桌面端批量卡同语义）：ask_question 统一走批量
+						    信封后手机端若缺这个框，用户就只能从预设选项里答。allowOther !== false 判断
+						    保留给 plan-mode 等非 ask 来源。 */}
+						{currentQ.allowOther !== false ? (
+							<>
+								<textarea className="min-h-16 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" placeholder={currentQ.placeholder || t("ask.customPlaceholder")} value={batchInput} disabled={props.busy} onChange={(event) => setBatchInput(event.target.value)} />
+								<Button type="button" size="sm" disabled={props.busy || !batchInput.trim()} onClick={() => handleAnswerOne(batchInput.trim())}>
+									{isLast ? t("ask.submit") : t("ask.batchNext")}
+								</Button>
+							</>
+						) : null}
 					</div>
 				) : currentQ.type === "multi_select" && currentQ.options && currentQ.options.length > 0 ? (
 					<div className="flex flex-col gap-2">

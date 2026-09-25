@@ -342,13 +342,18 @@ test("AgentManager select 无选项降级为 input（不静默取消）", () => 
 	assert.doesNotMatch(source, /select 无选项时自动取消，不等用户响应/);
 });
 
-test("ask_question 扩展 schema 支持 multi_select 且强制走批量 envelope", () => {
+test("ask_question 扩展 schema 支持 multi_select 且一切提问统一走批量 envelope", () => {
 	const ext = readFileSync("resources/extensions/pi-deck-ask-question.ts", "utf8");
 	// 批量与单问题两处类型枚举都含 multi_select
 	const enumOccurrences = ext.match(/StringEnum\(\["select", "multi_select", "confirm", "input", "editor"\]/g);
 	assert.ok(enumOccurrences && enumOccurrences.length >= 2);
-	// 单问题 multi_select 也强制走批量 envelope（RPC 单选无法表达多选）
-	assert.match(ext, /needsBatchEnvelope = isBatch \|\| questions\.some\(\(q\) => q\.type === "multi_select"\)/);
+	// 单一渲染形态（2026-09 收口）：不再有单问题弹框分支，execute 一律调 askBatch
+	assert.doesNotMatch(ext, /needsBatchEnvelope/, "单问题/批量双路径已废除，不应再按形态分流");
+	assert.doesNotMatch(ext, /async function askOne/, "askOne（原生弹框路径）应已删除");
+	assert.match(ext, /await askBatch\(questions, record\.review === true, ctx\)/);
+	// select 题自定义输入恒定显示：allowOther 不再读模型传值
+	assert.doesNotMatch(ext, /allowOther !== false/);
+	assert.match(ext, /allowOther: type === "select" \? true : undefined/);
 	// multi_select 空数组视为未作答
 	assert.match(ext, /!Array\.isArray\(value\) \|\| value\.length > 0/);
 });

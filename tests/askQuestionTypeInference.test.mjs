@@ -123,34 +123,33 @@ test("显式 type 不被推断覆盖：confirm / multi_select / editor 原样生
 	assert.deepEqual(JSON.parse(JSON.stringify(types)), ["confirm", "multi_select", "editor"]);
 });
 
-test("单问题模式缺 type：带 options 走 select（ui.select 收到选项），不带走 input（ui.input）", async () => {
+test("单问题模式也走批量信封：带 options 推断 select、无 options 推断 input，形态与批量一致", async () => {
 	const tool = registerTool();
-
-	// 带 options → select：select 返回合法选项，得到答案
-	const selectCtx = {
-		hasUI: true,
-		ui: { select: async () => "A", confirm: async () => true, input: async () => "", editor: async () => "" },
-	};
-	const selectResult = await tool.execute("call_1", { question: "选一个", options: ["A", "B"] }, undefined, undefined, selectCtx);
-	assert.equal(selectResult.details.type, "select");
-	assert.equal(selectResult.details.answer, "A");
-
+	// 带 options → select：与批量同样的 envelope 载荷（1 题卡）
+	{
+		const { promise, envelope } = runBatch(tool, { question: "选一个", options: ["A", "B"] });
+		await promise;
+		const questions = envelope().questions;
+		assert.equal(questions.length, 1);
+		assert.equal(questions[0].type, "select");
+		// 自定义输入恒定显示：不再依赖模型传 allowOther
+		assert.equal(questions[0].allowOther, true);
+	}
 	// 无 options → input
-	let inputQuestion;
-	const inputCtx = {
-		hasUI: true,
-		ui: {
-			select: async () => "",
-			confirm: async () => true,
-			input: async (question) => {
-				inputQuestion = question;
-				return "hello";
-			},
-			editor: async () => "",
-		},
-	};
-	const inputResult = await tool.execute("call_1", { question: "填个名字" }, undefined, undefined, inputCtx);
-	assert.equal(inputResult.details.type, "input");
-	assert.equal(inputQuestion, "填个名字");
-	assert.equal(inputResult.details.answer, "hello");
+	{
+		const { promise, envelope } = runBatch(tool, { question: "填个名字" });
+		await promise;
+		const questions = envelope().questions;
+		assert.equal(questions[0].type, "input");
+		assert.equal(questions[0].allowOther, undefined);
+	}
+});
+
+test("allowOther:false 传值被接受但不再隐藏自定义输入（恒定显示）", async () => {
+	const tool = registerTool();
+	const { promise, envelope } = runBatch(tool, {
+		questions: [{ id: "q1", question: "选一个", options: ["A", "B"], allowOther: false }],
+	});
+	await promise;
+	assert.equal(envelope().questions[0].allowOther, true);
 });
