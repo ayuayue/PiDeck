@@ -142,8 +142,11 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			{/* 组头：w-full 占满内容列（与流式输出同宽），hover 底色因此铺满整行；
 			    内部与现有过程行同构：22px 类别图标方块 → 文案 → chevron，左对齐右侧留白。
 			    尺寸规则（2026 用户反馈修正）：组头**不得小于组体里的行**——成员行是
-			    text-control(13px)/min-h-7(28px)/图标 16px，组头取同档 13px/28px 才不会出现
+			    text-chat-row（正文 −2px，默认档 13px）/min-h-7/图标 16px，组头取同档才不会出现
 			    「容器比内容小」的倒置层级。
+			    轨道规则（2026-08）：组头与整个过程层都在**会话正文轨道**上（字号由 --font-size-chat
+			    派生，见 foundation.css 的 --font-size-chat-row/-detail/-micro），随「会话正文字号」
+			    缩放、**不随界面字号**。因此这里用 min-h-7 而不是固定 h-7：字号放大后固定高度会裁切行。
 			    自重规则（2026-08 用户反馈「组头喧宾夺主」修正）：降权只能走**颜色 / 填充 / 字重**，
 			    **不得再靠缩小字号**（那会退回上面的倒置）。
 			      ① 不填色：类别图标方块去掉底色，只留图标；运行中保留工具身份色作为「正在跑」信号。
@@ -155,13 +158,13 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			         不再降到 400：那样组头与成员行完全同权，只剩颜色可区分，会失去「这是一组」的形态。
 			         hover **不改字重**（CJK 下字重变化会改宽度，导致行内 chevron 抖动）；
 			         hover 已有颜色 + 底色两重反馈。
-			    于是层级由字重（600 vs 400）+ 颜色承担，中间回复（text-chat 15px / text-primary）成为正文主角。
+			    于是层级由字重（500 vs 400）+ 颜色承担，中间回复（text-chat，默认 15px / text-primary）成为正文主角。
 			    回归守卫：tests/processGroupRendering.test.mjs「组头不得靠填充/字号抢戏」。
 			    data-process-group-head 是 e2e/结构测试的稳定锚点（组头、组体、scroller 各一个）。 */}
 			<button
 				type="button"
 				data-process-group-head=""
-				className="flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-[7px] text-left text-control font-medium text-text-tertiary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-secondary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+				className="flex min-h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md pl-0.5 pr-[7px] text-left text-chat-row font-medium text-text-tertiary transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-text-primary)_4%,transparent)] hover:text-text-secondary focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
 				aria-expanded={props.open}
 				aria-controls={bodyId}
 				onClick={() => props.onToggle(!props.open)}
@@ -179,7 +182,7 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 								<span aria-hidden="true" className="shrink-0 text-text-faint">
 									{t("timeline.processGroup.separator")}
 								</span>
-								<span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-caption font-normal text-text-tertiary">{detail}</span>
+								<span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-chat-detail font-normal text-text-tertiary">{detail}</span>
 							</>
 						)}
 					</>
@@ -199,7 +202,7 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 							// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
 							<button
 								type="button"
-								className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-[length:var(--font-size-caption)] font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+								className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
 								onClick={() => setExpandedGroupId(props.group.id)}
 								title={t("timeline.showEarlierSteps", { count: mounted.hiddenCount })}
 							>

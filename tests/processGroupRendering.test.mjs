@@ -104,14 +104,73 @@ test("组开合走手风琴 hook，且大折叠栏关闭时清空两个通道", 
 });
 
 test("组头不得小于组体里的行（用户反馈：容器比内容小 = 层级倒置）", () => {
-	// 成员行是 text-control(13px) / min-h-7(28px)。组头若退回 text-caption(12px) + h-6(24px)，
-	// 就会出现「容器比内容还小」的倒置，用户一眼就觉得"组头偏小"。
+	// 成员行是 text-chat-row（正文 −2px，默认 13px）/ min-h-7。组头若退回界面轨道的 caption(12px)
+	// + 固定 h-6/h-7，就会出现「容器比内容还小」的倒置（用户原话"组头偏小"）。
 	const header = groupSource.match(/data-process-group-head=""[\s\S]{0,700}?aria-expanded=/)?.[0] ?? "";
 	assert.ok(header.length > 0, "组头 button 必须带 data-process-group-head 锚点");
-	assert.match(header, /text-control/, "组头字号必须与成员行同档（13px）");
-	assert.match(header, /h-7/, "组头行高必须与成员行同档（28px）");
-	assert.doesNotMatch(header, /text-caption/);
-	assert.doesNotMatch(header, /\bh-6\b/);
+	const cls = header.match(/className="([^"]+)"/)?.[1]?.split(/\s+/) ?? [];
+	assert.ok(cls.includes("text-chat-row"), "组头字号必须与成员行同档（会话正文 −2px）");
+	assert.ok(cls.includes("min-h-7"), "组头高度必须与成员行同档");
+	assert.ok(!cls.includes("h-7") && !cls.includes("h-6"), "不得用固定高度：字号放大后会裁切行");
+	assert.ok(!cls.includes("text-caption") && !cls.includes("text-control"), "不得退回界面字号轨道");
+});
+
+// 过程层字号轨道（2026-08 用户要求：组头 / 工具调用 / 思考全部跟进「会话正文字号」）。
+// 原先是挂在界面轨道（text-control / -caption / -micro）上的固定值——用户调大正文时过程行不变大，
+// 而这既违反可访问性（用户调大字号就是因为看不清），又和已确立的「降权只走颜色/字重、不靠缩小字号」
+// 原则冲突。现在改为从 --font-size-chat 派生三档，层级由固定偏移量保证。
+// 这条守卫防两类回归：(1) 有人图省事把某行改回界面轨道 class；
+// (2) 偏移量被改坏，导致「正文 > 标题 > 详情 > 徽章」的层阶不再成立。
+test("过程层字号派生自会话正文：层阶恒定，且默认档与迁移前的 13/12/11 逐像素等价", () => {
+	const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
+	const offsetOf = (tier, floor) => {
+		const m = foundation.match(new RegExp(`--font-size-chat-${tier}:\\s*max\\(\\s*${floor}px\\s*,\\s*calc\\(\\s*var\\(--font-size-chat\\)\\s*-\\s*(\\d+)px\\s*\\)\\s*\\)`));
+		return m ? Number(m[1]) : null;
+	};
+	const rowOff = offsetOf("row", 13);
+	const detailOff = offsetOf("detail", 12);
+	assert.deepEqual([rowOff, detailOff], [2, 4], "两档偏移必须是 2 / 4（恒定 2px 步长）");
+	assert.doesNotMatch(foundation, /--font-size-chat-micro:/, "过程层只保留两档：徽章并入详情档，不再有第三档");
+
+	// 会话正文必须是 4 档、等距 2px（旧的 5 档 14/15/16/18/20 里有 1px 步长，相邻档肉眼分不出）
+	const chatSizes = [...new Set([...foundation.matchAll(/--font-size-chat:\s*(\d+)px/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
+	assert.deepEqual(chatSizes, [14, 16, 18, 20], "字号档位必须是紧凑 14 / 中 16 / 大 18 / 特大 20");
+
+	for (const chat of chatSizes) {
+		// 与 CSS 的 max() 下限保护一致：小档位下不继续缩
+		const row = Math.max(13, chat - rowOff);
+		const detail = Math.max(12, chat - detailOff);
+		assert.ok(detail < row && row < chat, `正文 ${chat}px 时层阶必须成立（得到 标题 ${row} / 详情 ${detail}）`);
+	}
+
+	// 行高必须用无单位倍率（固定 px 行高会在大档位下压扁文字）
+	for (const tier of ["row", "detail"]) {
+		assert.match(foundation, new RegExp(`--line-height-chat-${tier}:\\s*[\\d.]+\\s*;`), `--line-height-chat-${tier} 必须是倍率而非固定 px`);
+	}
+});
+
+test("过程层组件不得回退到界面字号轨道", () => {
+	// TimelineEventCards 只扫思考行相关行：该文件还渲染通知/诊断卡片，它们不在本次范围内。
+	const wholeFiles = {
+		"ToolCallComponents.tsx": "src/renderer/src/components/session/ToolCallComponents.tsx",
+		"RetryStep.tsx": "src/renderer/src/components/session/turn/RetryStep.tsx",
+		"ErrorStep.tsx": "src/renderer/src/components/session/turn/ErrorStep.tsx",
+		"ProcessGroupStep.tsx": "src/renderer/src/components/session/turn/ProcessGroupStep.tsx",
+		"ProcessFold.tsx": "src/renderer/src/components/session/turn/ProcessFold.tsx",
+		"TurnRow.tsx": "src/renderer/src/components/session/turn/TurnRow.tsx",
+	};
+	for (const [name, path] of Object.entries(wholeFiles)) {
+		const src = readFileSync(path, "utf8");
+		const bad = src.match(/\btext-(control|caption|micro)\b/g) ?? [];
+		assert.deepEqual(bad, [], `${name} 不得再用界面轨道字号 class，应使用 text-chat-row / text-chat-detail / text-chat-micro`);
+	}
+	// 已有的界面轨道字号 token 也不得出现在过程层的 legacy CSS 里
+	const timelineCss = readFileSync("src/renderer/src/styles/timeline.css", "utf8");
+	const processCss = timelineCss.match(/\.(execution-summary-(toggle|collapse)|thinking-card|responding-indicator|tool-card-kind|tool-activity-copy|ask-question-card|ask-inline-bar)[\s\S]{0,120}?\{[^}]*\}/g) ?? [];
+	assert.ok(processCss.length > 0, "必须能匹配到过程层 legacy 规则");
+	for (const block of processCss) {
+		assert.doesNotMatch(block, /var\(--font-size-(control|caption|micro)\)/, `过程层 legacy 规则不得再用界面轨道字号：\n${block.slice(0, 120)}`);
+	}
 });
 
 // 组头「自重」契约（2026-08 用户两轮反馈的产物）：
