@@ -74,6 +74,7 @@ function showFailureToast(message: ChatMessage): void {
 }
 
 type TimelineInteractionProps = {
+	instantSessionSwitch?: boolean;
 	hasProject: boolean;
 	onCreateSession: () => void;
 	showThinking: boolean;
@@ -221,11 +222,11 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const [contentEntering, setContentEntering] = useState(false);
 	const prevConversationLoadingRef = useRef(isConversationLoading);
 	useLayoutEffect(() => {
-		if (prevConversationLoadingRef.current && !isConversationLoading) {
+		if (!props.instantSessionSwitch && prevConversationLoadingRef.current && !isConversationLoading) {
 			setContentEntering(true);
 		}
 		prevConversationLoadingRef.current = isConversationLoading;
-	}, [isConversationLoading]);
+	}, [isConversationLoading, props.instantSessionSwitch]);
 	// 动画播完清理类（非视觉关键路径，放 useEffect 避免 layout 阶段多一次重渲染）
 	useEffect(() => {
 		if (!contentEntering) return;
@@ -722,7 +723,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 	return (
 		<MessageScroller
-			className={cn("message-timeline-host h-full min-h-0", contentEntering && "timeline-content-enter")}
+			className={cn("message-timeline-host h-full min-h-0", !props.instantSessionSwitch && contentEntering && "timeline-content-enter")}
 			viewportClassName="message-timeline"
 			// 宽度约束落在内层 [role=log] 而非 scroller 宿主：视口撑满整个面板，
 			// 原生滚动条贴面板最右侧；内容列仍与 composer 同宽居中（见 chatContentWidth）。

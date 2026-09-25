@@ -403,7 +403,7 @@ export function WebChatApp() {
 	const moreCount = activeMeta ? Math.max(0, activeMeta.total - messagesBySessionRef.current[activeSessionId]?.length) : 0;
 
 	return (
-		<div className="app web-app wechat-shell flex h-screen w-full min-w-0 overflow-hidden bg-background text-foreground">
+		<div className="app web-app wechat-shell flex h-screen w-full min-w-0 overflow-hidden bg-background text-foreground [[data-bg-image=on]_&]:bg-transparent">
 			<WebSidebar
 				state={state}
 				activeSessionId={activeSessionId}
@@ -419,7 +419,7 @@ export function WebChatApp() {
 				onCreateProject={handleCreateProject}
 				onDeleteProject={handleDeleteProject}
 			/>
-			<main className="chat-pane flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+			<main className="chat-pane flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-bg-panel">
 				<WebHeader
 					title={activeSession?.title || t("web.chooseSession")}
 					status={headerStatus}

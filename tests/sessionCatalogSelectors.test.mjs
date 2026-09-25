@@ -35,6 +35,7 @@ function compileModule(filePath, imports = {}) {
 
 function loadAtoms() {
 	const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
+		"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
 		"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
 		"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
 		"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),

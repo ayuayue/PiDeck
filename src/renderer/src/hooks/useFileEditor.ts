@@ -35,6 +35,7 @@ interface GitDrawerDiff {
 }
 
 export interface UseFileEditorInput {
+	preserveTabsForGit?: boolean;
 	activeProjectId: string | undefined;
 	activeProjectIdRef: React.MutableRefObject<string | undefined>;
 	activeAgent: AgentTab | null;
@@ -121,6 +122,8 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	const { activeProjectId, activeProjectIdRef, activeAgent, activeProject, drawer, modifiedFiles, setDrawer, setDrawerCollapsed, contentOpenMode, showToast, readFileContent, readGitOriginalContent, writeFileContent, openFile, workspaceFileDiff, commitFileDiff, t } = input;
 
 	const contentOpenModeRef = useRef(contentOpenMode);
+	const preserveTabsForGitRef = useRef(input.preserveTabsForGit);
+	preserveTabsForGitRef.current = input.preserveTabsForGit;
 	contentOpenModeRef.current = contentOpenMode;
 
 	// ---- 中间栏内容布局（split | maximize）----
@@ -371,10 +374,12 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 				}
 				const groupLabel = group === "index" ? t("git.stagedChanges") : group === "merge" ? t("git.mergeChanges") : t("git.changes");
 				const mode = contentOpenModeRef.current;
-				// Diff 独占阅读面：清掉文件 tab，避免关 Diff 后又弹回文件
-				setActiveTabId(null);
-				setEditorTabs([]);
-				setPreviewEditorTabId(null);
+				// Simple mode keeps file drafts beside Git; tabs retain the upstream exclusive surface.
+				if (!preserveTabsForGitRef.current) {
+					setActiveTabId(null);
+					setEditorTabs([]);
+					setPreviewEditorTabId(null);
+				}
 				editorModeRef.current = mode;
 				setEditorMode(mode);
 				setGitDiffDisplayMode(mode);
@@ -407,9 +412,11 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 					return;
 				}
 				const mode = contentOpenModeRef.current;
-				setActiveTabId(null);
-				setEditorTabs([]);
-				setPreviewEditorTabId(null);
+				if (!preserveTabsForGitRef.current) {
+					setActiveTabId(null);
+					setEditorTabs([]);
+					setPreviewEditorTabId(null);
+				}
 				editorModeRef.current = mode;
 				setEditorMode(mode);
 				setGitDiffDisplayMode(mode);

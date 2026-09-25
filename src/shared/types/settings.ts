@@ -273,6 +273,8 @@ export type AppSettings = {
 	 * Tab 按内容收缩（w-fit），短标题的 Tab 不受影响；有前置徽标时上限另加
 	 * SESSION_TAB_BADGE_EXTRA_WIDTH（28px，旧 132px 差值）。外观设置滑杆可调。
 	 */
+	/** Navigation presentation only; does not change session identities. */
+	navigationMode: "tabs" | "simple";
 	sessionTabMaxWidth: number;
 	/** 编辑器最大文件大小（MB），超过此大小的文件不加载编辑器。默认 5MB。 */
 	maxEditorFileSizeMB: number;

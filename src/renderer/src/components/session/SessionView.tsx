@@ -243,17 +243,19 @@ export function SessionView({
 		<div className={splitPane ? `session-split-pane flex h-full min-h-0 flex-col${focused ? " session-split-pane-focused" : ""}` : "contents"} onMouseDown={splitPane ? () => onFocusPane?.() : undefined}>
 			{/* Tab 栏已统一外置；运行控制（停止/重启）在共享 Tab 栏的 Tab 下拉；
           本栏只保留会话状态徽章与分屏身份标题（抽屉开关在共享 Tab 栏）。 */}
-			<SessionHeader
-				headerRef={chatHeaderRef}
-				statusSessionId={sessionId}
-				title={sessionTitle}
-				projectName={projectName}
-				paneTitle={splitPane ? sessionTitle : undefined}
-				onExitSplit={splitPane ? () => paneServices.exitSessionSplit(sessionId) : undefined}
-				isAnonymous={activeAgent?.noSession}
-				duration={sessionDuration}
-				isStarting={isAgentStarting}
-			/>
+			{(!paneServices.simpleNavigation || splitPane) && (
+				<SessionHeader
+					headerRef={chatHeaderRef}
+					statusSessionId={sessionId}
+					title={sessionTitle}
+					projectName={projectName}
+					paneTitle={splitPane ? sessionTitle : undefined}
+					onExitSplit={splitPane ? () => paneServices.exitSessionSplit(sessionId) : undefined}
+					isAnonymous={activeAgent?.noSession}
+					duration={sessionDuration}
+					isStarting={isAgentStarting}
+				/>
+			)}
 			{/* 分支导航条：仅当当前会话存在 fork 分支关系（父/兄弟/子分支）时显示 */}
 			<SessionBranchBar sessionId={sessionId} onOpenSession={onOpenBranchSession} />
 			<ResizablePanelGroup
@@ -272,6 +274,7 @@ export function SessionView({
 							sessionTimeline={sessionTimeline}
 							isRestarting={isRestarting}
 							timelineProps={{
+								instantSessionSwitch: paneServices.simpleNavigation,
 								hasProject,
 								onCreateSession: runCreateSessionDraft,
 								showThinking,

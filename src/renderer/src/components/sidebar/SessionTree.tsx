@@ -14,6 +14,7 @@ import { Button } from "../ui-shadcn/button";
 import type { SidebarActions } from "./SidebarContent";
 import { PendingAskBadge } from "./PendingAskBadge";
 import { SessionBackendMark, SessionSourceBadge } from "../session/SessionSourceBadge";
+import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
 import { cn } from "../../lib/utils";
@@ -174,7 +175,13 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 		return (
 			<div key={session.id} className={rowContainerClass} onContextMenu={(event) => openContext(event, session, false)}>
 				<SessionHoverCard session={session} title={title} projectName={props.project.name} disabled={Boolean(props.controller.menu)}>
-					<button type="button" className={cn(sessionRowClass, "session-row codex-subagent-sidebar-row pl-2", session.id === props.currentSessionId && selectedRowClass)} onClick={() => openSession(session.id)} onDoubleClick={() => openSession(session.id, "permanent")} {...sessionDragProps(session.id)}>
+					<button
+						type="button"
+						className={cn(sessionRowClass, "session-row codex-subagent-sidebar-row pl-2", session.id === props.currentSessionId && selectedRowClass)}
+						onClick={() => openSession(session.id)}
+						onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(session.id, "permanent")}
+						{...sessionDragProps(session.id)}
+					>
 						<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 							<div className="conversation-title flex min-w-0 items-center gap-1.5">
 								<TitleScrollText text={title} />
@@ -254,12 +261,16 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 								onClick={() => {
 									if (agentSession) openSession(agentSession.id);
 								}}
-								onDoubleClick={() => {
-									if (agentSession) openSession(agentSession.id, "permanent");
-								}}
+								onDoubleClick={
+									props.actions.sessions.simpleNavigation
+										? undefined
+										: () => {
+												if (agentSession) openSession(agentSession.id, "permanent");
+											}
+								}
 								{...(agentSession ? sessionDragProps(agentSession.id) : {})}
 							>
-								{renderRuntimeStatusDot(child.agent.status)}
+								{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={child.agent.status} sessionId={agentSession?.id} /> : renderRuntimeStatusDot(child.agent.status)}
 								<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 									<div className="conversation-title flex min-w-0 items-center gap-1.5">
 										{/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题；
@@ -315,10 +326,10 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 								child.session.id === props.currentSessionId && selectedRowClass,
 							)}
 							onClick={() => openSession(child.session.id)}
-							onDoubleClick={() => openSession(child.session.id, "permanent")}
+							onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(child.session.id, "permanent")}
 							{...sessionDragProps(child.session.id)}
 						>
-							{renderRuntimeStatusDot(runtimeSnapshot?.status)}
+							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtimeSnapshot?.status} sessionId={child.session.id} /> : renderRuntimeStatusDot(runtimeSnapshot?.status)}
 							{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
 							<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 								<div className="conversation-title flex min-w-0 items-center gap-1.5">
@@ -378,10 +389,16 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 						<SidebarRemovalRow key={`draft:${session.id}`} itemId={session.id}>
 							<div className={cn("draft-session-row group/draft grid items-center gap-1", "grid-cols-[minmax(0,1fr)_2rem]")} onContextMenu={(event) => openDraftContext(event, session)}>
 								<SessionHoverCard session={session} title={session.title} projectName={props.project.name} status={runtime?.status} disabled={Boolean(props.controller.menu)}>
-									<button type="button" className={cn(sessionRowClass, "session-row draft-session-trigger", session.id === props.currentSessionId && selectedRowClass)} onClick={() => openSession(session.id)} onDoubleClick={() => openSession(session.id, "permanent")} {...sessionDragProps(session.id)}>
+									<button
+										type="button"
+										className={cn(sessionRowClass, "session-row draft-session-trigger", session.id === props.currentSessionId && selectedRowClass)}
+										onClick={() => openSession(session.id)}
+										onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(session.id, "permanent")}
+										{...sessionDragProps(session.id)}
+									>
 										<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 											<div className="conversation-title flex min-w-0 items-center gap-1.5">
-												{renderRuntimeStatusDot(runtime?.status)}
+												{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={session.id} /> : renderRuntimeStatusDot(runtime?.status)}
 												{/* 草稿会话：选中背景仍保留，聚焦行也允许 hover 查看完整标题 */}
 												<TitleScrollText text={session.title} className="font-medium" />
 												<SessionBackendMark backend={session.backend} />

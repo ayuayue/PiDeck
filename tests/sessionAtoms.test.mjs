@@ -43,6 +43,7 @@ function loadAtoms() {
 	const outlineRevision = compileModule("src/renderer/src/atoms/outlineRevision.ts");
 	const outlineProjectionCache = compileModule("src/renderer/src/atoms/outlineProjectionCache.ts");
 	const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
+		"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
 		"../utils/agentRuntimeState": runtimeState,
 		"../utils/sessionRecordIdentity": sessionRecordIdentity,
 		"../utils/liveTextHandoff": liveTextHandoff,

@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, Ellipsis } from "lucide-react";
 import { useAtomValue } from "jotai";
 import { sessionRecordToSummary } from "../../atoms/session-selectors";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { sessionStatusDotClass } from "../../agentListDisplay";
 import { hasPendingAskForSession } from "../../utils/askUi";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -10,6 +11,7 @@ import type { SidebarActions } from "./SidebarContent";
 import { Button } from "../ui-shadcn/button";
 import { PendingAskBadge } from "./PendingAskBadge";
 import { SessionBackendMark, SessionSourceBadge } from "../session/SessionSourceBadge";
+import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
@@ -63,6 +65,7 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 	// 没有历史会话时整段消失：标题与分界线一起收起，活动页保持现状（不为空列表留一条悬空分界线）。
 	if (props.rows.length === 0) return null;
 	// 剩余未展示条数：按钮标题用「再加载 N 个会话」，按钮右侧数字沿用项目行的右对齐计数列。
+	const shownCount = Math.min(props.visibleCount, props.totalCount);
 	const remainingCount = Math.max(0, props.totalCount - props.visibleCount);
 	// 收起：只有展开过（超过首页 10 条）才出现，与项目页「查看更多 / 收起」并列的语义一致。
 	const canCollapse = canCollapseRecent(props.visibleCount);
@@ -74,8 +77,8 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 			<div className="sticky top-0 z-10 flex items-center gap-2 border-t border-border/40 bg-sidebar px-1 pt-1 pb-0.5">
 				{/* 加粗：与项目页分组标题（ProjectTree 的「项目 / 聊天」）同一档，一眼看出这是分段而不是一行会话。 */}
 				<span className="text-caption font-semibold text-muted-foreground">{t("app.sidebarRecentSessions")}</span>
-				<span className="ml-auto shrink-0 text-caption tabular-nums text-muted-foreground" title={t("app.sidebarRecentShown", { shown: props.visibleCount, total: props.totalCount })}>
-					{props.visibleCount}/{props.totalCount}
+				<span className="ml-auto shrink-0 text-caption tabular-nums text-muted-foreground" title={t("app.sidebarRecentShown", { shown: shownCount, total: props.totalCount })}>
+					{shownCount}/{props.totalCount}
 				</span>
 			</div>
 			{props.rows.map((row) => (
@@ -111,17 +114,18 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: stri
 	const { row, controller } = props;
 	// 模型已按「可显示」判据过滤，这里只做类型收窄：无摘要身份的记录渲染出来会是空标题行。
 	const summary = sessionRecordToSummary(row.session);
-	if (!summary) return null;
 	const sessionId = row.session.id;
+	const runtime = controller.catalog.runtimeBySessionId[sessionId];
+	if (!summary && !runtime) return null;
 	const pendingAsk = hasPendingAskForSession(sessionId, props.sessionRuntimeUiById);
 	const selected = sessionId === props.currentSessionId;
-	const displayTitle = summary.name || row.session.title || t("common.untitled");
+	const displayTitle = summary?.name || row.session.title || t("common.untitled");
 	// 单击默认 preview、双击显式常驻：与活动行/历史行同一入口语义。
 	const openSession = (tabMode?: "preview" | "permanent") => {
 		void props.actions.sessions.open(row.projectId, sessionId, tabMode);
 	};
 	const openMenu = (x: number, y: number) => {
-		void controller.openMenu({ kind: "session", projectId: row.projectId, sessionId, pinnable: true, x, y });
+		void controller.openMenu(runtime?.agentId ? { kind: "agent", agentId: runtime.agentId, x, y } : { kind: "session", projectId: row.projectId, sessionId, pinnable: true, x, y });
 	};
 	return (
 		<div
@@ -131,12 +135,12 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: stri
 				openMenu(event.clientX, event.clientY);
 			}}
 		>
-			<SessionHoverCard session={row.session} title={displayTitle} projectName={props.projectName} disabled={Boolean(controller.menu)}>
+			<SessionHoverCard session={row.session} title={displayTitle} projectName={props.projectName} status={runtime?.status} disabled={Boolean(controller.menu)}>
 				<button
 					type="button"
 					className={cn(recentRowClass, "session-row history-session-row mx-0 min-h-8 pl-2 pr-2 py-0", selected && selectedRowClass)}
 					onClick={() => openSession()}
-					onDoubleClick={() => openSession("permanent")}
+					onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession("permanent")}
 					draggable
 					onDragStart={(event) => {
 						event.dataTransfer.effectAllowed = "move";
@@ -149,9 +153,8 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: stri
 				>
 					<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
 						<div className="conversation-title flex min-w-0 items-center gap-1.5">
-							{/* 历史会话没有运行态：标题降一级灰度，与上方活动行形成层级差；
-                  项目归属由 hover 卡的「所属空间」承担，行内不重复显示项目名（与活动行同样式）。 */}
-							<TitleScrollText text={displayTitle} className="font-normal text-muted-foreground/90" />
+							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={sessionId} /> : runtime && <span className={cn("size-1.5 shrink-0 rounded-full", sessionStatusDotClass(runtime.status))} aria-hidden="true" />}
+							<TitleScrollText text={displayTitle} className={runtime ? "font-medium" : "font-normal text-muted-foreground/90"} />
 							{(row.session.backend === "dsh" || row.session.backend === "imagegen") && <SessionBackendMark backend={row.session.backend} />}
 							{pendingAsk && <PendingAskBadge count={1} />}
 							{row.session.source && row.session.source !== "pi" && <SessionSourceBadge source={row.session.source} />}

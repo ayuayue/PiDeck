@@ -1,3 +1,4 @@
+import { touchRecentSessionAtom, forgetRecentSessionAtom } from "./recent-session-atoms";
 import { atom } from "jotai";
 import type { Getter, Setter } from "jotai";
 import { atomFamily, selectAtom } from "jotai/utils";
@@ -427,6 +428,10 @@ export const replaceSessionRuntimesAtom = atom(null, (get, set, runtimes: Sessio
 		const existing = current[runtime.sessionId];
 		if (existing && existing.runtimeGeneration > runtime.runtimeGeneration) continue;
 		const bindingChanged = existing?.agentId !== runtime.agentId || existing.runtimeGeneration !== runtime.runtimeGeneration;
+		// 启动/恢复的快照可能先于状态事件到达；以实际绑定补记，重复刷新不改顺序。
+		if (bindingChanged && runtime.agentId && !runtime.noSession && (runtime.status === "starting" || runtime.status === "running" || runtime.status === "idle")) {
+			set(touchRecentSessionAtom, { sessionId: runtime.sessionId, projectId: runtime.projectId });
+		}
 		next[runtime.sessionId] = {
 			...(bindingChanged ? {} : existing),
 			agentId: runtime.agentId,
@@ -1132,6 +1137,11 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 
 	if ((event.sourceChannel === "agents:state" || event.sourceChannel === "sessions:runtime") && payload) {
 		const status = payload.status;
+		// 只在实际运行状态边沿更新最近列表；不让流式token或历史扫描不断写存储。
+		if (status !== currentRuntime.status && (status === "starting" || status === "running" || (currentRuntime.status === "running" && status === "idle"))) {
+			const record = get(sessionRecordsAtom)[event.sessionId];
+			if (record && !record.noSession) set(touchRecentSessionAtom, { sessionId: record.id, projectId: record.projectId });
+		}
 		if (status === "starting" || status === "idle" || status === "running" || status === "error" || status === "closed") {
 			nextRuntime = {
 				...nextRuntime,
@@ -1474,6 +1484,10 @@ export const bindSessionRuntimeAtom = atom(
 			return;
 		}
 		const bindingChanged = Boolean(current?.agentId && current.agentId !== input.agentId);
+		const record = get(sessionRecordsAtom)[input.sessionId];
+		if (record && !record.noSession && (input.status === "running" || current?.agentId !== input.agentId)) {
+			set(touchRecentSessionAtom, { sessionId: record.id, projectId: record.projectId });
+		}
 		if (bindingChanged) {
 			const ui = { ...get(sessionRuntimeUiByIdAtom) };
 			delete ui[input.sessionId];
@@ -1496,6 +1510,7 @@ export const bindSessionRuntimeAtom = atom(
 );
 
 export const removeSessionStateAtom = atom(null, (get, set, sessionId: string) => {
+	set(forgetRecentSessionAtom, sessionId);
 	const records = { ...get(sessionRecordsAtom) };
 	const session = records[sessionId];
 	delete records[sessionId];

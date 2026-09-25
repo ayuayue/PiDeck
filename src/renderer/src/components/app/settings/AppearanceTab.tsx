@@ -74,6 +74,26 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 			{/* 主题与背景 */}
 			<SettingsSection title={t("settings.sectionThemeBackground")}>
 				<SettingRow
+					anchor="appearance-navigation-mode"
+					title={
+						<>
+							<span>{t("settings.navigationMode")}</span>
+							<DirtyMarker dirty={isDirty("navigationMode")} label={t("settings.navigationMode")} />
+						</>
+					}
+					description={t("settings.navigationModeDesc")}
+				>
+					<Select value={draft.navigationMode} onValueChange={(value) => updateDraft({ navigationMode: value as AppSettings["navigationMode"] })}>
+						<SelectTrigger className="w-40">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="tabs">{t("settings.navigationTabs")}</SelectItem>
+							<SelectItem value="simple">{t("settings.navigationSimple")}</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingRow
 					title={
 						<>
 							<span>{t("settings.theme")}</span>

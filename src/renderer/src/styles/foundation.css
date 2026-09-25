@@ -1450,7 +1450,6 @@ select:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-app);
 }
 /* 三栏面板组：充满标题栏以外的全部空间 */
 .shell-panel-group {
@@ -1564,7 +1563,6 @@ select:focus-visible {
   /* 紧凑靠右上角：每键 36px（原 50px） */
   grid-template-columns: repeat(4, 36px);
   height: var(--window-drag-height);
-  background: var(--color-bg-panel);
   -webkit-app-region: no-drag;
 }
 /* app-region 不继承（见 toaster 注释）：后代必须显式 no-drag，
@@ -2025,12 +2023,6 @@ select:focus-visible {
   font-weight: 500;
 }
 /* 项目行无 .active：选中高亮只挂在会话叶子上。 */
-.project-group > .conversation.project-draggable:first-child {
-  cursor: grab;
-}
-.project-group > .conversation.project-draggable:first-child:active {
-  cursor: grabbing;
-}
 .project-group > .conversation.dragging:first-child {
   opacity: 0.58;
 }
@@ -2650,12 +2642,6 @@ select:focus-visible {
   opacity: 1;
 }
 
-/* 换肤壁纸模式：启用背景图（data-bg-image="on"）时主容器透明，
-   bg 系列 token 的半透明由 App.tsx 注入（覆盖所有面板/输入框，整体协调）；
-   未启用时保持原不透明背景（零回归） */
-:root[data-bg-image="on"] .wechat-shell {
-  background: transparent;
-}
 /* 壁纸模式项目栏文件夹图标底：project-avatar 默认是 muted/panel 混色灰块，
    半透明注入后仍透不干净；透明化后只留 Folder 图标本色。
    选中态（active）的 accent-soft 高亮靠更高特异性保留（不透明化），维持选中区分。
@@ -2824,7 +2810,6 @@ select:focus-visible {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: var(--color-bg-panel);
   overflow: hidden;
 }
 

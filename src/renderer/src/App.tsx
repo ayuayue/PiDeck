@@ -1,3 +1,7 @@
+import { Button } from "./components/ui-shadcn/button";
+import { useSessionNavigation } from "./hooks/useSessionNavigation";
+import { WorkbenchFileTabs } from "./components/workspace/WorkbenchFileTabs";
+import { ArrowLeft, ArrowRight, PanelLeft } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
 import { applyAppearanceAttributes, toggleThemeMode } from "./themeAppearance";
@@ -692,6 +696,7 @@ export function App() {
 		workspaceContentOpenMode: "split",
 		contentMaxWidth: 1800,
 		chatContentWidthPct: 80,
+		navigationMode: "tabs",
 		sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 		maxEditorFileSizeMB: 5,
 		externalEditors: createDefaultExternalEditorSettings(),
@@ -1308,7 +1313,8 @@ export function App() {
 		modifiedFiles,
 		setDrawer,
 		setDrawerCollapsed,
-		contentOpenMode: settings.workspaceContentOpenMode ?? "split",
+		preserveTabsForGit: settings.navigationMode === "simple",
+		contentOpenMode: settings.navigationMode === "simple" ? "split" : (settings.workspaceContentOpenMode ?? "split"),
 		showToast,
 		readFileContent: api.files.readContent,
 		readGitOriginalContent: api.git.originalContent,
@@ -3024,9 +3030,9 @@ export function App() {
 			changeChatPath,
 		},
 		sessions: {
-			// 侧栏单击模式由设置 sessionTabOpenMode 控制（默认 preview=临时预览，发消息自动晋升常驻）；
-			// 双击仍是显式常驻。tabMode 为 undefined 时用当前设置值。
-			open: (projectId, sessionId, tabMode) => openSidebarSessionByIdWithTab(projectId, sessionId, tabMode ?? settings.sessionTabOpenMode),
+			// 简洁模式没有临时预览；标签模式保留原设置及双击晋升。
+			simpleNavigation: settings.navigationMode === "simple",
+			open: (projectId, sessionId, tabMode) => openSidebarSessionByIdWithTab(projectId, sessionId, settings.navigationMode === "simple" ? "permanent" : (tabMode ?? settings.sessionTabOpenMode)),
 			// 活动页「最近会话」跨项目展示：后台静默预热尚未扫描的项目 catalog。
 			ensureCatalogsLoaded: (projectIds) => {
 				for (const projectId of projectIds) ensureProjectCatalogLoaded(projectId, true);
@@ -3133,6 +3139,7 @@ export function App() {
 
 	const sidebarContentNode = (
 		<AppSidebar
+			simple={settings.navigationMode === "simple"}
 			listCollapsed={listCollapsed}
 			toggleListCollapsed={toggleListCollapsed}
 			actions={sidebarActions}
@@ -3181,6 +3188,11 @@ export function App() {
 		[selectSessionCommand, store],
 	);
 
+	const navigation = useSessionNavigation(currentSessionId, (id) => {
+		workspaceChrome.registerOpenSession(id, "permanent");
+		focusSessionPane(id);
+	});
+
 	// 后台 Ask 通知「前往会话」：跳转的同时登记常驻 Tab——agent 开多时被询问的会话
 	// 可能根本没开 Tab（后台并行 ask 等），只切焦点的话回答完切换出去就找不到了。
 	const jumpToAskSession = useCallback(
@@ -3206,6 +3218,8 @@ export function App() {
 		if (!el || prevSessionIdRef.current === currentSessionId) return;
 		const prev = prevSessionIdRef.current;
 		prevSessionIdRef.current = currentSessionId;
+		// 简洁模式直接切内容：整区位移会越过面板边界，制造额外滚动条。
+		if (settings.navigationMode === "simple") return;
 		// 分屏内面板间聚焦切换：各栏都已渲染、内容未变，只有聚焦边框亮起；
 		// 整区重播淡入微位移会造成「抖/闪」，静默跳过（边框高亮由
 		// .session-split-pane-focused 类切换承担，无动画）。
@@ -3223,7 +3237,7 @@ export function App() {
 			{ duration: 160, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
 		);
 		return () => anim.cancel();
-	}, [currentSessionId, workspaceChrome.splitLayout]);
+	}, [currentSessionId, workspaceChrome.splitLayout, settings.navigationMode]);
 
 	// —— Tab 栏 ⋯ 菜单「当前会话操作」：重命名 / 复制会话 / 导出 HTML / 复制路径 / 打开文件 ——
 	// 与侧栏会话右键菜单同源同语义：搜索定位的会话可能不在侧栏可见（侧栏只渲染部分行），
@@ -3316,6 +3330,10 @@ export function App() {
 				}
 			: undefined;
 
+	useEffect(() => {
+		if (settings.navigationMode === "simple" && workspaceChrome.previewSessionTabId) workspaceChrome.promotePreview(workspaceChrome.previewSessionTabId);
+	}, [settings.navigationMode, workspaceChrome.previewSessionTabId, workspaceChrome.promotePreview]);
+
 	const sessionTabsProps = {
 		tabs: workspaceChrome.sessionTabIds,
 		// 会话 Tab 宽度上限（外观设置可调，默认 104px）：SessionTabsBar 据此写 CSS 变量控制各 Tab 封顶。
@@ -3406,6 +3424,7 @@ export function App() {
 
 	const sessionPaneServices = useMemo(
 		() => ({
+			simpleNavigation: settings.navigationMode === "simple",
 			isLanWeb,
 			promoteSessionToPermanent: workspaceChrome.promotePreview,
 			showToast,
@@ -3489,6 +3508,7 @@ export function App() {
 			resendUserMessage,
 			sessionDurationByAgent,
 			settings.showThinking,
+			settings.navigationMode,
 			setPreviewImage,
 			setTerminalCollapsedByOwnerKey,
 			setTerminalHeight,
@@ -3568,28 +3588,20 @@ export function App() {
 			current === width ? current : width,
 		);
 	}, []);
-	const workbenchLayout = workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;
+	const simpleMode = settings.navigationMode === "simple";
+	const [simpleContentExpanded, setSimpleContentExpanded] = useState(false);
+	useEffect(() => setSimpleContentExpanded(false), [activeTabId, gitDrawerDiff?.filePath, simpleMode]);
+	const workbenchLayout = simpleMode ? (simpleContentExpanded ? "maximize" : "split") : workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;
 
 	// 文件/Diff Tab 挂进总 SessionTabsBar：与会话共用一条栏，内容区不再另起绿条 Tab
-	const workbenchEditorTabs =
-		workbenchHasGitDiff && gitDrawerDiff
-			? [
-					{
-						id: gitDrawerDiff.filePath,
-						label: gitDrawerDiff.label,
-						title: gitDrawerDiff.filePath,
-						active: true,
-					},
-				]
-			: workbenchHasEditor
-				? editorTabs.map((tab) => ({
-						id: tab.id,
-						label: tab.label ?? tab.filePath.split(/[/\\]/).pop() ?? tab.filePath,
-						title: tab.filePath,
-						preview: tab.id === previewEditorTabId,
-						active: tab.id === activeTabId,
-					}))
-				: [];
+	const fileTabs = editorTabs.map((tab) => ({
+		id: tab.id,
+		label: tab.label ?? tab.filePath.split(/[/\\]/).pop() ?? tab.filePath,
+		title: tab.filePath,
+		preview: tab.id === previewEditorTabId,
+		active: !workbenchHasGitDiff && tab.id === activeTabId,
+	}));
+	const workbenchEditorTabs = [...(simpleMode || !workbenchHasGitDiff ? fileTabs : []), ...(workbenchHasGitDiff && gitDrawerDiff ? [{ id: `git-diff:${gitDrawerDiff.filePath}`, label: gitDrawerDiff.label, title: gitDrawerDiff.filePath, active: true }] : [])];
 
 	// 工具开关上收会话 Tab 栏（原右侧悬浮工具条入口的唯一挂载点）：
 	// 草稿纸 / 终端 / 外部编辑器，与抽屉开关同排。
@@ -3741,12 +3753,25 @@ export function App() {
 		return commands;
 	})();
 
+	const selectWorkbenchTab = (id: string) => {
+		if (id.startsWith("git-diff:")) return;
+		if (workbenchHasGitDiff) dismissGitDiff();
+		selectEditorTab(id);
+	};
+	const closeWorkbenchTab = (id: string) => {
+		if (id.startsWith("git-diff:")) {
+			if (simpleMode) dismissGitDiff();
+			else closeGitDiff();
+		} else closeEditorTab(id);
+	};
+	const toggleSimpleContent = () => setSimpleContentExpanded((value) => !value);
 	const sessionTabsBarNode = (
 		<SessionTabsBar
 			{...sessionTabsProps}
+			simple={simpleMode}
 			sessionActions={tabsSessionActions}
 			toolActions={sessionToolActions}
-			editorTabs={workbenchEditorTabs}
+			editorTabs={simpleMode ? [] : workbenchEditorTabs}
 			onSelectEditorTab={(tabId) => {
 				if (workbenchHasGitDiff) return;
 				selectEditorTab(tabId);
@@ -3766,15 +3791,18 @@ export function App() {
 		<WorkbenchContent
 			theme={workbenchTheme}
 			maxFileSizeMB={settings.maxEditorFileSizeMB}
+			editorTabs={editorTabs}
+			onDirty={promotePreviewEditorTab}
 			gitDiff={workbenchHasGitDiff && gitDrawerDiff ? gitDrawerDiff : null}
-			gitDiffDisplayMode={gitDiffDisplayMode}
-			onToggleGitDiffMode={toggleGitDiffDisplayMode}
-			onCloseGitDiff={closeGitDiff}
-			activeTab={workbenchHasEditor && activeTab ? activeTab : null}
-			editorMode={editorMode}
-			onToggleEditorMode={activeTab?.preserveDrawer ? undefined : toggleEditorMode}
+			gitDiffDisplayMode={simpleMode ? workbenchLayout : gitDiffDisplayMode}
+			onToggleGitDiffMode={simpleMode ? toggleSimpleContent : toggleGitDiffDisplayMode}
+			onCloseGitDiff={simpleMode ? dismissGitDiff : closeGitDiff}
+			activeTab={activeTab}
+			editorMode={simpleMode ? workbenchLayout : editorMode}
+			onToggleEditorMode={simpleMode ? toggleSimpleContent : activeTab?.preserveDrawer ? undefined : toggleEditorMode}
 			onCloseEditor={() => {
-				closeEditor();
+				if (simpleMode && activeTab) closeEditorTab(activeTab.id);
+				else closeEditor();
 			}}
 			readContent={readEditorFileContent}
 			readOriginalContent={readEditorOriginalContent}
@@ -3782,7 +3810,18 @@ export function App() {
 		/>
 	) : null;
 
-	const chatPaneContentNode = <WorkbenchStage chrome={sessionTabsBarNode} layout={workbenchLayout} hasContent={workbenchHasContent} session={chatPaneSessionNode} content={workbenchContentNode} onContentWidthChange={handleWorkbenchContentWidth} />;
+	const chatPaneContentNode = (
+		<WorkbenchStage
+			simple={simpleMode}
+			contentChrome={<WorkbenchFileTabs tabs={workbenchEditorTabs} onSelect={selectWorkbenchTab} onClose={closeWorkbenchTab} onPromote={promotePreviewEditorTab} />}
+			chrome={sessionTabsBarNode}
+			layout={workbenchLayout}
+			hasContent={workbenchHasContent}
+			session={chatPaneSessionNode}
+			content={workbenchContentNode}
+			onContentWidthChange={handleWorkbenchContentWidth}
+		/>
+	);
 
 	// ── DrawerSurface port objects (stable via useMemo) ──
 	const drawerPorts = useDrawerPorts({
@@ -3903,6 +3942,21 @@ export function App() {
 			<>
 				<AppBootstrap {...bootstrapProps} />
 				<AppShell
+					navigationChrome={
+						simpleMode ? (
+							<div className="simple-navigation-bar flex h-8 shrink-0 items-center gap-0.5 bg-(--simple-shell-surface) px-2 [&_button]:[-webkit-app-region:no-drag]">
+								<Button variant="ghost" size="icon-sm" className="size-6.5" type="button" aria-label={listCollapsed ? t("app.expandList") : t("app.collapseList")} title={listCollapsed ? t("app.expandList") : t("app.collapseList")} onClick={toggleListCollapsed}>
+									<PanelLeft size={14} />
+								</Button>
+								<Button variant="ghost" size="icon-sm" className="size-6.5" type="button" aria-label={t("navigation.back")} title={t("navigation.back")} disabled={!navigation.canBack} onClick={navigation.back}>
+									<ArrowLeft size={14} />
+								</Button>
+								<Button variant="ghost" size="icon-sm" className="size-6.5" type="button" aria-label={t("navigation.forward")} title={t("navigation.forward")} disabled={!navigation.canForward} onClick={navigation.forward}>
+									<ArrowRight size={14} />
+								</Button>
+							</div>
+						) : undefined
+					}
 					compactContent={
 						quickTask.active ? (
 							<QuickTaskSurface task={quickTask}>

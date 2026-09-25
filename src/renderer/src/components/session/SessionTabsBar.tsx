@@ -18,6 +18,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { cn } from "../../lib/utils";
 import { SessionBackendBadge } from "./SessionSourceBadge";
 import { TitleScrollText } from "../sidebar/TitleScrollText";
+import { SessionHeader } from "./SessionHeader";
+import { SessionActivityIndicator } from "./SessionActivityIndicator";
 
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { buildProjectTabGroups, type ProjectTabGroup } from "../../utils/sessionTabGroups";
@@ -99,6 +101,7 @@ export type SessionToolAction = {
 };
 
 export type SessionTabsBarProps = {
+	simple?: boolean;
 	tabs: readonly string[];
 	/**
 	 * 会话 Tab 最大宽度（px，80–400）：来自外观设置 sessionTabMaxWidth，
@@ -206,6 +209,7 @@ export type SessionTabsBarProps = {
 };
 
 export function SessionTabsBar(props: SessionTabsBarProps) {
+	const embeddedHeaderRef = useRef<HTMLDivElement>(null);
 	const { tabs, pinnedTabs, currentSessionId, previewTabId, tabMaxWidth } = props;
 	const tabItems = useMemo(() => tabs.map((sessionId) => ({ sessionId })), [tabs]);
 	const dragSourceRef = useRef<string | null>(null);
@@ -364,7 +368,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 	// --session-tab-max-*：外观设置可调的 Tab 宽度上限，徽标 Tab 额外加 28px（见 shared/sessionTabWidth.ts）。
 	return (
 		<div
-			className="session-tabs-bar flex h-10 shrink-0 items-center gap-1 overflow-x-clip border-b border-border/40 bg-background/80 pl-[max(0.5rem,var(--session-tabs-left-inset,0.5rem))]"
+			className={cn("session-tabs-bar flex h-10 shrink-0 items-center gap-1 overflow-x-clip border-b border-border/40 bg-background/80 pl-[max(0.5rem,var(--session-tabs-left-inset,0.5rem))]", props.simple && "simple-session-header h-12 border-0 bg-transparent [--session-tabs-left-inset:16px]")}
 			style={
 				{
 					"--session-tab-max-w": `${tabMaxWidth}px`,
@@ -372,7 +376,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 				} as CSSProperties
 			}
 		>
-			{props.listCollapsed && props.onToggleListCollapsed ? (
+			{!props.simple && props.listCollapsed && props.onToggleListCollapsed ? (
 				<Button type="button" variant="ghost" size="icon-sm" className="list-toggle-native size-7 shrink-0" aria-label={t("app.expandList")} title={t("app.expandList")} onClick={props.onToggleListCollapsed}>
 					<PanelLeft className="size-3.5" aria-hidden="true" />
 				</Button>
@@ -387,6 +391,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 						const groupCollapsed = hasSplitGroup && Boolean(props.splitGroupCollapsed);
 						const renderTab = (sessionId: string) => (
 							<SessionTab
+								simple={props.simple}
 								key={sessionId}
 								sessionId={sessionId}
 								active={sessionId === currentSessionId}
@@ -422,6 +427,18 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 								onDragEnd={handleDragEnd}
 							/>
 						);
+						if (props.simple)
+							return (
+								<>
+									{currentSessionId && renderTab(currentSessionId)}
+									{currentSessionId && !hasSplitGroup && <SessionHeader mode="session" sessionId={currentSessionId} embedded headerRef={embeddedHeaderRef} />}
+									{hasSplitGroup && (
+										<Button variant="ghost" size="icon-sm" aria-label={t("session.splitGroup.exitAll")} title={t("session.splitGroup.exitAll")} onClick={props.onExitAllSplit}>
+											<X className="size-3.5" />
+										</Button>
+									)}
+								</>
+							);
 						// —— 收集顶层 Tab 节点：普通会话 Tab；分屏组「胶囊 + 组内 Tab」整体算一个节点。
 						// 分隔线策略改为显式 emitDivider：默认只在「进入新组 / 离开分组 / 普通 Tab 之间」插淡坚线，
 						// 同一项目分组内相邻 Tab 不插线（保持组内连续），避免浏览器式分隔线把分组切散。
@@ -570,7 +587,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 					})()}
 					{/* 浏览器式新建入口：跟在最后一张标签后面，下拉选择新建到哪个项目。
             （新建会话保留独立「+」按钮；⋯ 菜单只收运行控制与工具） */}
-					<NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} />
+					{!props.simple && <NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} />}
 					{/* 文件/Diff 与会话共用本栏：同一套 session-tab 皮，不另开绿条栏 */}
 					{props.editorTabs && props.editorTabs.length > 0 ? (
 						<>
@@ -838,6 +855,7 @@ function GroupCapsuleButton(props: {
 }
 
 function SessionTab(props: {
+	simple?: boolean;
 	sessionId: string;
 	active: boolean;
 	/** 固定 Tab：前置、窄宽度、无关闭按钮 */
@@ -898,6 +916,18 @@ function SessionTab(props: {
 	const select = () => props.onSelect(sessionId);
 	const close = () => props.onClose(sessionId);
 
+	if (props.simple)
+		return (
+			<div className="simple-session-title flex min-w-0 flex-1 items-center gap-1.5 px-2 text-sm font-medium text-foreground" title={title}>
+				<SessionActivityIndicator status={status} sessionId={sessionId} busy={props.isRestarting || props.isStopping || props.isReloading} />
+				{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
+				<TitleScrollText text={title} disabled className="truncate font-bold" />
+				{(record?.backend === "dsh" || record?.backend === "imagegen") && <SessionBackendBadge backend={record.backend} className="h-4 shrink-0" />}
+				{runtime?.state?.planModeActive && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModePlan")}</span>}
+				{runtime?.state?.goal && runtime.state.goal.phase !== "complete" && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModeGoal")}</span>}
+			</div>
+		);
+
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
@@ -918,7 +948,6 @@ function SessionTab(props: {
 							onDragEnd={props.onDragEnd}
 							onClick={select}
 							onDoubleClick={() => {
-								// 双击预览 Tab → 常驻（侧栏双击同语义）；已常驻则忽略
 								if (preview) props.onPromotePreview?.(sessionId);
 							}}
 							onAuxClick={(event) => {

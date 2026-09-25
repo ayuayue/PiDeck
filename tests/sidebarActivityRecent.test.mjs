@@ -206,11 +206,15 @@ describe("最近会话区渲染契约", () => {
 	});
 
 	test("分段顺序：活动行在上、最近会话在下，两段各自成区（下半部分常驻）", () => {
-		const paneStart = activeSessionsTree.indexOf('className="active-sessions-pane');
-		const listStart = activeSessionsTree.indexOf('className="active-sessions-list');
+		const paneStart = activeSessionsTree.indexOf('"active-sessions-pane');
+		const listStart = activeSessionsTree.indexOf('"active-sessions-list');
 		const activeRowsIndex = activeSessionsTree.indexOf("liveRows.map(");
-		const recentPaneIndex = activeSessionsTree.indexOf('className="recent-sessions-pane');
-		const recentIndex = activeSessionsTree.indexOf("<RecentSessionsSection");
+		const recentPaneIndex = activeSessionsTree.indexOf('"recent-sessions-pane', activeRowsIndex);
+		const recentIndex = activeSessionsTree.indexOf("<RecentSessionsSection", activeRowsIndex);
+		const simpleStart = activeSessionsTree.indexOf("if (props.singleScroll)");
+		const simpleSection = activeSessionsTree.slice(simpleStart, paneStart);
+		assert.match(simpleSection, /<RecentSessionsSection/);
+		assert.doesNotMatch(simpleSection, /liveRows\.map\(/);
 		assert.ok(paneStart !== -1, "活动页需要一个上下分区的容器");
 		assert.ok(listStart !== -1, "活动页需要上半列表容器");
 		assert.ok(activeRowsIndex !== -1, "活动行仍在该组件内渲染");
@@ -219,6 +223,8 @@ describe("最近会话区渲染契约", () => {
 		assert.ok(listStart < activeRowsIndex, "上半列表容器必须包裹活动行");
 		assert.ok(recentPaneIndex !== -1 && recentIndex !== -1, "最近会话需要自己的下半区容器");
 		assert.ok(activeRowsIndex < recentIndex, "最近会话区必须排在活动行下方");
+		assert.match(activeSessionsTree, /if \(props\.singleScroll\)/);
+		assert.match(activeSessionsTree, /className="active-sessions-pane flex h-full min-h-0 flex-col"/);
 		// 上下两半共用 1fr 平分：行数多时不会把另一半挤走，各自滚动
 		assert.ok((activeSessionsTree.match(/flex min-h-0 flex-1 flex-col/g) ?? []).length >= 2, "上下两半都要 min-h-0 + flex-1");
 		assert.ok((activeSessionsTree.match(/overflow-y-auto/g) ?? []).length >= 2, "上下两半各自滚动");
@@ -232,7 +238,8 @@ describe("最近会话区渲染契约", () => {
 		// 分界线：上边框 + 段落标题、计数行；标题在计数左侧（标题左对齐、计数右对齐）
 		assert.match(recentSessionsSection, /border-t border-border\/40/);
 		const headerIndex = recentSessionsSection.indexOf('t("app.sidebarRecentSessions")');
-		const countIndex = recentSessionsSection.indexOf("props.visibleCount}/{props.totalCount}");
+		const countIndex = recentSessionsSection.indexOf("shownCount}/{props.totalCount}");
+		assert.match(recentSessionsSection, /const shownCount = Math\.min\(props\.visibleCount, props\.totalCount\)/);
 		assert.ok(headerIndex !== -1, "段落标题必须显示「最近会话」");
 		assert.ok(countIndex !== -1, "段落标题必须显示 x/y 计数");
 		assert.ok(headerIndex < countIndex, "标题在计数之前");

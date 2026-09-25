@@ -35,6 +35,8 @@ function fileLoadErrorMessage(error: unknown): string {
 }
 
 export function FileDiffViewer(props: {
+	active?: boolean;
+	onDirty?: () => void;
 	filePath: string;
 	mode?: ViewMode;
 	/** 展示模式：drawer=窄抽屉；split/maximize=中间栏宿主；modal=遗留全屏弹层 */
@@ -330,11 +332,11 @@ export function FileDiffViewer(props: {
 	);
 
 	useEffect(() => {
-		if (!isDiffMode) {
+		if (!isDiffMode && props.active !== false) {
 			window.addEventListener("keydown", handleKeyDown);
 			return () => window.removeEventListener("keydown", handleKeyDown);
 		}
-	}, [isDiffMode, handleKeyDown]);
+	}, [isDiffMode, props.active, handleKeyDown]);
 
 	// 卸载时取消挂起的自动保存 timer + 释放媒体 Blob URL（生命周期配对）
 	useEffect(() => {
@@ -353,9 +355,10 @@ export function FileDiffViewer(props: {
 			contentRef.current = value;
 			setContent(value);
 			setDirty(true);
+			props.onDirty?.();
 			scheduleAutoSave();
 		},
-		[scheduleAutoSave],
+		[scheduleAutoSave, props.onDirty],
 	);
 
 	// 编辑器选中文本 → 右键「引用选中内容」：以 pi 的 read 语法 @path:start-end 派发到输入框。
