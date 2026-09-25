@@ -749,6 +749,39 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		onConfirm: () => void;
 	} | null>(null);
 
+	/**
+	 * 检测成功且实际走通 /v1（或 /v1beta）时，把表单里的 baseUrl 自动改成带版本路径。
+	 * 原因：检测侧会兼容补路径，但 pi 会话会原样读 models.json；不改写则「测试正常、会话 404」。
+	 * 仅改内存表单，需用户点保存后才写入磁盘。
+	 * 后端仅在确实需要改写时返回 suggestedBaseUrl，前端直接应用即可。
+	 * 声明在 loadConfig 之前：后台自动发现分支要在闭包里引用它（TDZ）。
+	 */
+	const applySuggestedBaseUrl = useCallback(
+		(providerName: string, suggestedBaseUrl?: string) => {
+			if (!suggestedBaseUrl) return false;
+			const next = suggestedBaseUrl.replace(/\/+$/, "");
+			if (!next) return false;
+			// 函数式更新，避免 async 返回时闭包拿到旧 modelsData。
+			setModelsData((prev) => {
+				const provider = prev.providers[providerName];
+				if (!provider) return prev;
+				const current = (provider.baseUrl ?? "").replace(/\/+$/, "");
+				if (current === next) return prev;
+				return {
+					...prev,
+					providers: {
+						...prev.providers,
+						[providerName]: { ...provider, baseUrl: next },
+					},
+				};
+			});
+			// 检测/测试自动改写 baseUrl 同样属于表单修改，标记未保存
+			markDirty("config:models");
+			return true;
+		},
+		[markDirty],
+	);
+
 	const loadConfig = useCallback(
 		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
 			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
@@ -841,6 +874,11 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								.then((result) => {
 									if (result.success && result.models) {
 										discovered[providerName] = result.models;
+										// 后台发现与手动「获取模型」同源：检测走通了 /v1 而 models.json 仍是根路径时
+										// 同步改写表单 baseUrl（仅内存 + markDirty，用户保存才落盘），
+										// 避免「列表拉到了、会话仍 404」。KNOWN_PROVIDER_ENDPOINTS 的
+										// provider 不在 modelsData 里时该调用是 no-op。
+										applySuggestedBaseUrl(providerName, result.suggestedBaseUrl);
 									}
 								})
 								.catch(() => {
@@ -909,7 +947,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				setLoading(false);
 			}
 		},
-		[tab, clearDirty],
+		[tab, clearDirty, applySuggestedBaseUrl],
 	);
 
 	useEffect(() => {
@@ -1120,38 +1158,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		// 展开新复制的 provider
 		setExpandedProvider(newName);
 	};
-
-	/**
-	 * 检测成功且实际走通 /v1（或 /v1beta）时，把表单里的 baseUrl 自动改成带版本路径。
-	 * 原因：检测侧会兼容补路径，但 pi 会话会原样读 models.json；不改写则「测试正常、会话 404」。
-	 * 仅改内存表单，需用户点保存后才写入磁盘。
-	 * 后端仅在确实需要改写时返回 suggestedBaseUrl，前端直接应用即可。
-	 */
-	const applySuggestedBaseUrl = useCallback(
-		(providerName: string, suggestedBaseUrl?: string) => {
-			if (!suggestedBaseUrl) return false;
-			const next = suggestedBaseUrl.replace(/\/+$/, "");
-			if (!next) return false;
-			// 函数式更新，避免 async 返回时闭包拿到旧 modelsData。
-			setModelsData((prev) => {
-				const provider = prev.providers[providerName];
-				if (!provider) return prev;
-				const current = (provider.baseUrl ?? "").replace(/\/+$/, "");
-				if (current === next) return prev;
-				return {
-					...prev,
-					providers: {
-						...prev.providers,
-						[providerName]: { ...provider, baseUrl: next },
-					},
-				};
-			});
-			// 检测/测试自动改写 baseUrl 同样属于表单修改，标记未保存
-			markDirty("config:models");
-			return true;
-		},
-		[markDirty],
-	);
 
 	// 从 provider 的 baseUrl + apiKey 拉取可用模型列表
 	const handleFetchModels = async (providerName: string) => {

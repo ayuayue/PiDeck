@@ -13,7 +13,7 @@ import type { FetchedModel, ConfigProxyMode } from "../../../shared/types/fetche
 import type { ModelItem, ProviderCompat } from "./configTypes";
 import { ModelsTable } from "./ModelsTable";
 import { ProviderConnectionForm, type ProviderTestResult } from "./ProviderConnectionForm";
-import { buildProviderConfigFromDraft, resolveInitialReasoningContentReplay, type AddProviderDraft } from "./addProviderDraft";
+import { buildProviderConfigFromDraft, resolveFetchedBaseUrl, resolveInitialReasoningContentReplay, type AddProviderDraft } from "./addProviderDraft";
 import { applyModelPatches, applyAdaptiveTemplateReset, computeModelSpecPatches, mergeAdaptiveModelTemplate } from "../utils/modelSpecAutoFill";
 import { countSelectedModelIndexes, removeSelectedModelIndexes, toggleAllModelIndexes, toggleModelIndex } from "./modelBatchSelection";
 
@@ -139,6 +139,12 @@ export function AddProviderDialog(props: {
 			if (result.success && result.models) {
 				setFetchedModels(result.models);
 				setSelectedFetchedIds([]);
+				// 检测走通了 /v1 而草稿还是根路径 → 立即写回草稿，保存时才不落坏 baseUrl（同展开卡片）
+				const resolved = resolveFetchedBaseUrl(baseUrl, result.suggestedBaseUrl);
+				if (resolved.changed) {
+					setBaseUrl(resolved.baseUrl);
+					showNotice(t("config.baseUrlAutoNormalized", { url: resolved.baseUrl }));
+				}
 			} else {
 				setFetchError(result.error ?? t("config.fetchModelsFailed"));
 			}

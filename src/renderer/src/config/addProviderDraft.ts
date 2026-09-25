@@ -60,6 +60,19 @@ export function resolveInitialReasoningContentReplay(
 }
 
 /**
+ * 「获取模型」成功后的 baseUrl 归一化：检测侧若走通了版本路径（/v1 等）而草稿
+ * 仍是不带版本的根路径，会返回 suggestedBaseUrl（见 ConfigManager.fetchProviderModels）。
+ * pi 会话原样使用 models.json 的 baseUrl，不改写则「拉取正常、会话 404」。
+ * 与设置页展开卡片的 applySuggestedBaseUrl 同一语义，抽成纯函数便于单测。
+ */
+export function resolveFetchedBaseUrl(currentBaseUrl: string, suggestedBaseUrl?: string): { baseUrl: string; changed: boolean } {
+	const next = (suggestedBaseUrl ?? "").trim().replace(/\/+$/, "");
+	const current = (currentBaseUrl ?? "").trim().replace(/\/+$/, "");
+	if (!next || next === current) return { baseUrl: currentBaseUrl, changed: false };
+	return { baseUrl: next, changed: true };
+}
+
+/**
  * 弹窗草稿 → models.json provider 配置。
  * 空字段不写入（与手写 models.json 一致）；User-Agent 走 headers；
  * compat 全 false 不写（与 pi 默认一致）；baseUrl 去除首尾空白。
