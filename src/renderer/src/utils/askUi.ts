@@ -199,6 +199,72 @@ export function formatSecurityConfirmSummary(info: SecurityConfirmInfo): string 
 }
 
 /**
+ * DSH 已作答回显（纯数据投影）。
+ *
+ * 背景：pi 的 ask 是 ask_question 工具调用，收口时主进程把问答写进工具消息
+ * meta._askCard，时间线留下静态卡；DSH 的审批/提问是带外 server-request，
+ * completed 事件不带答案值，应答后卡片直接消失（用户反馈「dsh 提交后的渲染没有做」）。
+ * 渲染层在 responder 应答 accepted 时用本函数把「请求 + 用户答案」投影成静态回显，
+ * 挂在时间线尾部。内存级，不落盘（DSH 历史由 host 折叠，合成消息会被下次全量投影冲掉）。
+ */
+export type AskEchoItem = {
+	question: string;
+	answer: BatchAnswerValue;
+	answered: boolean;
+};
+
+export type AskEcho = {
+	requestId: string;
+	/** 整单取消：标题显示「已取消」 */
+	cancelled: boolean;
+	items: AskEchoItem[];
+};
+
+/** batch 提交信封：serializeBatchAnswers 产出的 JSON（回显侧解码）。 */
+type BatchAnswerEnvelopeItem = { id?: unknown; value?: unknown; label?: unknown };
+
+function decodeBatchEnvelope(value: unknown): BatchAnswerEnvelopeItem[] | undefined {
+	if (typeof value !== "string") return undefined;
+	try {
+		const parsed = JSON.parse(value) as { answers?: unknown };
+		return Array.isArray(parsed?.answers) ? (parsed.answers as BatchAnswerEnvelopeItem[]) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * 把一次已接受的应答投影为回显数据；非 ask 方法或无法解读时返回 undefined（不显示回显）。
+ * - batch_ask：用 batchQuestions 逐题配对信封答案（信封解码失败退回整串原文）；
+ * - confirm：答案取 confirmed；select/input/editor：取 value；
+ * - 取消：列出原题、answered=false（与 pi _askCard 的取消语义一致）。
+ */
+export function buildAskEcho(request: AgentUiRequest, response: AgentUiResponse): AskEcho | undefined {
+	if (!["select", "confirm", "input", "editor", "batch_ask"].includes(request.method)) return undefined;
+	const cancelled = Boolean(response.cancelled);
+	const batchQuestions = request.batchQuestions ?? [];
+	if (request.method === "batch_ask" && batchQuestions.length > 0) {
+		const envelope = decodeBatchEnvelope(response.value);
+		const items: AskEchoItem[] = batchQuestions.map((question) => {
+			const answerItem = envelope?.find((entry) => entry?.id === question.id);
+			const raw = answerItem?.value;
+			const value: BatchAnswerValue = typeof raw === "string" || typeof raw === "boolean" || Array.isArray(raw) ? raw : null;
+			const label = typeof answerItem?.label === "string" ? answerItem.label : undefined;
+			return { question: formatAskTitle(question.question), answer: label ?? value, answered: !cancelled && value !== null };
+		});
+		if (!envelope && !cancelled && typeof response.value === "string") {
+			items.push({ question: formatAskTitle(request.title || ""), answer: response.value, answered: true });
+		}
+		return { requestId: request.requestId, cancelled, items };
+	}
+	const question = formatAskTitle(request.title || "");
+	if (request.method === "confirm") {
+		return { requestId: request.requestId, cancelled, items: [{ question, answer: cancelled ? null : Boolean(response.confirmed), answered: !cancelled }] };
+	}
+	return { requestId: request.requestId, cancelled, items: [{ question, answer: cancelled ? null : (response.value ?? null), answered: !cancelled }] };
+}
+
+/**
  * 移除 Plan Mode / 安全确认给桌面端识别用的内部标题标记，兑底为人类可读内容。
  * - Plan Mode：[PI_DECK_PLAN_NEXT] 前缀剥掉，保留后面的计划内容；
  * - 安全确认：[PI_DECK_SECURITY_CONFIRM] + JSON 负载，换成「安全确认：<工具>」摘要。

@@ -67,7 +67,16 @@ export type SessionRuntimeUiResponder = {
 	respond: (request: AgentUiRequest, response: AgentUiResponse) => Promise<boolean>;
 };
 
-export function createSessionRuntimeUiResponder(input: { binding: RuntimeUiBinding; readBinding: () => RuntimeUiBinding | undefined; claim: ResponseClaim; rollback: ResponseRollback; send: (input: SessionUiResponseInput) => Promise<void>; onError?: (error: unknown) => void }): SessionRuntimeUiResponder {
+export function createSessionRuntimeUiResponder(input: {
+	binding: RuntimeUiBinding;
+	readBinding: () => RuntimeUiBinding | undefined;
+	claim: ResponseClaim;
+	rollback: ResponseRollback;
+	send: (input: SessionUiResponseInput) => Promise<void>;
+	onError?: (error: unknown) => void;
+	/** 应答成功（host 已收到）后的旁路回调：DSH 回显等，不参与应答流程 */
+	onAccepted?: (request: AgentUiRequest, response: AgentUiResponse) => void;
+}): SessionRuntimeUiResponder {
 	return {
 		respond: async (request, response) => {
 			const start = input.readBinding();
@@ -82,6 +91,7 @@ export function createSessionRuntimeUiResponder(input: { binding: RuntimeUiBindi
 			}
 			try {
 				await input.send(envelope);
+				input.onAccepted?.(request, response);
 				return true;
 			} catch (error) {
 				input.rollback({ ...envelope, request });
@@ -105,8 +115,8 @@ export type SessionRuntimeUiOverlayProps = {
 	onExpandedChange?: (expanded: boolean) => void;
 };
 
-/** 批量答案 label：布尔转是/否，数组 join「、」，其余原样 */
-function batchAnswerLabel(value: BatchAnswerValue): string {
+/** 批量答案 label：布尔转是/否，数组 join「、」，其余原样（回显卡 SessionAskEcho 同源复用） */
+export function batchAnswerLabel(value: BatchAnswerValue): string {
 	if (typeof value === "boolean") return value ? t("common.true") : t("common.false");
 	if (Array.isArray(value)) return value.join("、");
 	return value ?? "";

@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronRight, Clipboard, CornerDownLeft, Loader2, M
 import removeMarkdown from "remove-markdown";
 import { useAskPanel } from "../../hooks/useAskPanel";
 import { claimSessionRuntimeUiResponseAtom, rollbackSessionRuntimeUiResponseAtom, sessionMessageCacheBySessionIdAtomFamily } from "../../atoms/session-atoms";
+import { recordAskEchoAtom } from "../../atoms/ask-echo-atoms";
 import { sessionRuntimeBySessionIdAtomFamily, sessionRuntimeUiBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { setSessionDraftAtom } from "../../atoms/composer-atoms";
 import { Input } from "../ui-shadcn/input";
@@ -50,6 +51,7 @@ export function AskPanelOverlay() {
 	const sessionRuntimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId ?? ""));
 	const claimSessionUiResponse = useSetAtom(claimSessionRuntimeUiResponseAtom);
 	const rollbackSessionUiResponse = useSetAtom(rollbackSessionRuntimeUiResponseAtom);
+	const setRecordAskEcho = useSetAtom(recordAskEchoAtom);
 	const runtimeRef = useRef(runtime);
 	runtimeRef.current = runtime;
 
@@ -78,9 +80,11 @@ export function AskPanelOverlay() {
 			claim: claimSessionUiResponse,
 			rollback: rollbackSessionUiResponse,
 			send: (input) => desktopApi.sessions.sendUiResponse(input),
+			// 与 SessionRuntimeInjector 同源：应答成功后捕获 DSH 时间线回显（atom 内部按 backend 门控）
+			onAccepted: (request, response) => setRecordAskEcho({ sessionId, request, response }),
 			onError: (error) => showNotice(error instanceof Error ? error.message : String(error), 4000),
 		});
-	}, [claimSessionUiResponse, rollbackSessionUiResponse, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
+	}, [claimSessionUiResponse, rollbackSessionUiResponse, setRecordAskEcho, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
 
 	// 会话切换（新的并行问询）时收起上次的详情浮层并回到默认位置
 	useEffect(() => {

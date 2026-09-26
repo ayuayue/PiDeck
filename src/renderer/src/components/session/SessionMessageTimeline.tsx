@@ -24,6 +24,7 @@ import { composeFailureNotice, isRetryStatusMessage, reduceFailureNoticePass, ty
 import { SessionStartSurface } from "./SessionStartSurface";
 import { NotifyMessageCard, shouldRenderNotifyCard } from "./NotifyMessageCard";
 import { MessageScroller } from "../agents/message-scroller";
+import { SessionAskEcho } from "./SessionAskEcho";
 import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
@@ -994,6 +995,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			    主会话栏的阻塞式 Ask 已改由 SessionView 钉在对话区下方（issue #230），不再走这里。
 			    这里仍用正常流布局而不是 sticky/z-index，避免覆盖最后一条工具调用或回答。 */}
 			{props.runtimeUi ? <div className="session-runtime-ui mx-auto w-full min-w-0 empty:hidden">{props.runtimeUi}</div> : null}
+
+			{/* DSH 已作答提问的时间线回显（pi 由 _askCard 工具卡留痕；DSH 提问是带外请求，
+			    应答后不留痕会让用户以为没提交成功）。瞬态内存卡片，判据见 SessionAskEcho。 */}
+			<SessionAskEcho sessionId={sessionId} />
 
 			{/* 发送清屏垫片（pin-to-top）已于 2026 移除：其与流式跟随有冲突、偶发页面抖动。 */}
 
