@@ -568,9 +568,10 @@ export function createRemoteWorkspaceReader(options: RemoteWorkspaceReaderOption
 		const { path, cancellation, timeoutMs } = setup;
 		const site = siteOf(setup, REMOTE_HELPER_METHOD_FS_READ);
 		const before = await requestStat(setup);
-		// A directory, a symlink or anything else that is not a regular file is refused before the first chunk.
-		// `fs.stat` classifies with lstat semantics, so a link is `other` and is never followed for a read here
-		// either, even though the helper itself would follow a link that stays inside its root.
+		// A directory, a symlink or anything else that is not a regular file is refused before the first chunk:
+		// the sizing `fs.stat` classifies with lstat semantics, so a link is `other` here, and the helper does
+		// not resolve a link for a read either (its `fs.read` refuses any link in the path as `NOT_A_FILE`).
+		// Nothing below follows one: a link's target is only read when the caller names the resolved path.
 		if (before.kind !== "file") throw refuse(site, "NOT_A_FILE");
 		if (before.bytes > REMOTE_WORKSPACE_MAX_READ_BYTES) throw refuse(site, "RESULT_TOO_LARGE");
 		const total = before.bytes;
