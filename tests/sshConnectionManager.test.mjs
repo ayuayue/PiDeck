@@ -7,12 +7,22 @@ import { createManualTimers, createPinnedClient, createPinnedHostFixture, fakeEn
 const { createSshConnectionManager } = loadTsCommonJs("src/main/remote/SshConnectionManager.ts");
 const { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_TIMEOUT_MS } = loadTsCommonJs("src/main/remote/SshProcessLauncher.ts");
 const { buildHelperRemoteCommand } = loadTsCommonJs("src/main/remote/RemoteHelperCommand.ts");
+const { quotePosixArgument } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 
 /**
  * The verified bootstrap result every production call site has to pass on: `deployRoot` comes from the
  * bootstrap ready frame, never from a guessed remote HOME, and the address only has to be a content hash.
  */
 const HELPER_SESSION = { nodePath: "/usr/bin/node", deployRoot: "/home/dev/.pideck/remote-host", bundleSha256: "a".repeat(64) };
+
+/**
+ * A verified workspace root carrying the two characters that prove the quoting: a space (an unquoted join
+ * would split the token in two) and a single quote (a naive quote wrap would end the quoted word early).
+ */
+const WORKSPACE_ROOT = "/home/dev/work/my 'project' dir";
+
+/** The same verified bootstrap plus the workspace root the caller resolved at wiring time. */
+const ROOTED_HELPER_SESSION = { ...HELPER_SESSION, root: WORKSPACE_ROOT };
 
 /**
  * Every manager in this suite is built here, so the mandatory handshake session is stated once; a test
@@ -615,60 +625,102 @@ test("dispose waits for an in-flight spawn and refuses later connects", async (t
 });
 
 test("composes with the real launcher: explicit session deadline and exit classification", async (t) => {
+	// Both legal session shapes are composed here, because the argv tail is the one place the optional root
+	// can be lost: a host-only session must keep the bare two-token command, a session with a verified
+	// workspace root must carry `--root` plus the quoted root as its two trailing tokens.
+	const shapes = [
+		{ label: "host-only", session: HELPER_SESSION },
+		{ label: "rooted", session: ROOTED_HELPER_SESSION },
+	];
+	for (const shape of shapes) {
+		const { directory, profile } = await createPinnedHostFixture(t, {}, `pideck pinned host ${shape.label}-`);
+		const { client } = createPinnedClient(profile.id);
+		const children = [];
+		const real = createSshProcessLauncher({
+			spawn: () => {
+				const child = new EventEmitter();
+				child.pid = 4242;
+				child.stdout = new EventEmitter();
+				child.stderr = new EventEmitter();
+				// The manager opens the helper protocol on this session, so the pinned child needs a writable stdin:
+				// without one the handshake could not leave and the session could never become ready.
+				child.stdin = new EventEmitter();
+				child.stdin.write = () => true;
+				child.stdin.end = () => undefined;
+				child.kill = () => {
+					queueMicrotask(() => child.emit("exit", null, "SIGKILL"));
+					return true;
+				};
+				children.push(child);
+				queueMicrotask(() => child.emit("spawn"));
+				return child;
+			},
+		});
+		const requests = [];
+		const launcher = {
+			start(request) {
+				requests.push(request);
+				return real.start(request);
+			},
+		};
+		const manual = createManualTimers();
+		const manager = createManager({ userDataDir: directory, client, launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0, helperSession: shape.session });
+		t.after(() => manager.dispose());
+		const connecting = manager.connect(profile.id);
+		await waitFor(() => children.length === 1, { label: `the real launcher to spawn (${shape.label})` });
+		children[0].emit("exit", 255, null);
+		await connecting;
+		assert.equal(manager.getState(profile.id).state, "reconnecting", shape.label);
+		assert.equal(requests.length, 1, shape.label);
+		// The launcher's own default is a 30s command deadline; a control session must state a longer bound.
+		assert.equal(requests[0].timeoutMs, SSH_LAUNCHER_MAX_TIMEOUT_MS, shape.label);
+		assert.equal(requests[0].maxOutputBytes, SSH_LAUNCHER_MAX_OUTPUT_BYTES, shape.label);
+		assert.equal(requests[0].invocation.executable, fakeSshPath, shape.label);
+		// The helper command is the one remote token sequence and travels as the last argv element, directly
+		// after the destination: the pinned arguments before it are unchanged, so this asserts the tail.
+		assert.equal(requests[0].invocation.args.at(-2), profile.sshHost, shape.label);
+		const tail = requests[0].invocation.args.at(-1);
+		// The expectation is the builder's own output for this session, never a literal typed out here: a
+		// hardcoded command would keep passing after the template changed underneath it.
+		assert.equal(tail, buildHelperRemoteCommand(shape.session), shape.label);
+		if (shape.session.root === undefined) {
+			assert.equal(tail.split(" ").length, 2, `${shape.label}: the node word and the entry word, nothing else`);
+			assert.equal(tail.includes("--root"), false, `${shape.label}: a host-only session must not grow the flag`);
+			assert.equal(tail.includes("''"), false, `${shape.label}: the missing root must not be spelled as an empty token`);
+		} else {
+			// The root carries a space and a single quote on purpose: an unquoted join would split the token and a
+			// naive wrap would close the quote early, and neither would show up in a `--root`-only assertion.
+			assert.equal(tail.endsWith(`--root ${quotePosixArgument(WORKSPACE_ROOT)}`), true, `${shape.label}: the verified root is the last, properly quoted argument`);
+			assert.equal(tail.includes(`--root ${WORKSPACE_ROOT}`), false, `${shape.label}: the raw root must never appear unquoted`);
+		}
+		const lost = Array.from(manager.listDiagnostics(profile.id)).filter((entry) => entry.code === "SSH_CONNECTION_LOST");
+		assert.ok(lost.length >= 1, shape.label);
+		assert.equal(
+			lost.some((entry) => entry.exitCode === 255),
+			true,
+			"the real launcher's exit code reaches the diagnostic",
+		);
+	}
+});
+
+test("a verified workspace root reaches the launched command as the --root pair", async (t) => {
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
-	const children = [];
-	const real = createSshProcessLauncher({
-		spawn: () => {
-			const child = new EventEmitter();
-			child.pid = 4242;
-			child.stdout = new EventEmitter();
-			child.stderr = new EventEmitter();
-			// The manager opens the helper protocol on this session, so the pinned child needs a writable stdin:
-			// without one the handshake could not leave and the session could never become ready.
-			child.stdin = new EventEmitter();
-			child.stdin.write = () => true;
-			child.stdin.end = () => undefined;
-			child.kill = () => {
-				queueMicrotask(() => child.emit("exit", null, "SIGKILL"));
-				return true;
-			};
-			children.push(child);
-			queueMicrotask(() => child.emit("spawn"));
-			return child;
-		},
-	});
-	const requests = [];
-	const launcher = {
-		start(request) {
-			requests.push(request);
-			return real.start(request);
-		},
-	};
+	const fake = createFakeLauncher();
 	const manual = createManualTimers();
-	const manager = createManager({ userDataDir: directory, client, launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	// The caller injected a root, so the launched command must be the four-token shape; the manager neither
+	// rebuilds nor validates the path, it only forwards the verified value.
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0, helperSession: ROOTED_HELPER_SESSION });
 	t.after(() => manager.dispose());
-	const connecting = manager.connect(profile.id);
-	await waitFor(() => children.length === 1, { label: "the real launcher to spawn" });
-	children[0].emit("exit", 255, null);
-	await connecting;
-	assert.equal(manager.getState(profile.id).state, "reconnecting");
-	assert.equal(requests.length, 1);
-	// The launcher's own default is a 30s command deadline; a control session must state a longer bound.
-	assert.equal(requests[0].timeoutMs, SSH_LAUNCHER_MAX_TIMEOUT_MS);
-	assert.equal(requests[0].maxOutputBytes, SSH_LAUNCHER_MAX_OUTPUT_BYTES);
-	assert.equal(requests[0].invocation.executable, fakeSshPath);
-	// The helper command is the one remote token sequence and travels as the last argv element, directly
-	// after the destination: the pinned arguments before it are unchanged, so this asserts the tail.
-	assert.equal(requests[0].invocation.args.at(-2), profile.sshHost);
-	assert.equal(requests[0].invocation.args.at(-1), buildHelperRemoteCommand(HELPER_SESSION));
-	const lost = Array.from(manager.listDiagnostics(profile.id)).filter((entry) => entry.code === "SSH_CONNECTION_LOST");
-	assert.ok(lost.length >= 1);
-	assert.equal(
-		lost.some((entry) => entry.exitCode === 255),
-		true,
-		"the real launcher's exit code reaches the diagnostic",
-	);
+
+	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
+	assert.equal(fake.requests.length, 1);
+	const expected = buildHelperRemoteCommand({ nodePath: HELPER_SESSION.nodePath, deployRoot: HELPER_SESSION.deployRoot, bundleSha256: HELPER_SESSION.bundleSha256, root: WORKSPACE_ROOT });
+	const tail = fake.requests[0].invocation.args.at(-1);
+	assert.equal(tail, expected, "the launched command is the builder's rooted command, computed independently here");
+	assert.equal(tail.endsWith(`--root ${quotePosixArgument(WORKSPACE_ROOT)}`), true);
+	// The two shapes are observably different, so a dropped root could not pass this test.
+	assert.notEqual(tail, buildHelperRemoteCommand(HELPER_SESSION));
 });
 
 test("a helper that never answers the handshake is never reported as ready", async (t) => {
@@ -735,6 +787,34 @@ test("an attempt without a verified bootstrap session fails closed before launch
 	await manager.retry(profile.id);
 	assert.equal(manager.getState(profile.id).state, "needs-attention");
 	assert.equal(fake.requests.length, 0);
+});
+
+test("a root that is not a non-empty string fails closed before any remote action", async (t) => {
+	// A supplied root that is empty or not a string at all is a wiring fault of the caller, not a transient
+	// host problem: the manager must refuse it the same way it refuses a missing session — before the spawn
+	// and without arming the ladder — so a bad root can never become five retries of a broken command.
+	for (const [label, root] of [
+		["empty string", ""],
+		["number", 7],
+		["null", null],
+	]) {
+		const { directory, profile } = await createPinnedHostFixture(t);
+		const { client } = createPinnedClient(profile.id);
+		const fake = createFakeLauncher();
+		const manual = createManualTimers();
+		const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0, helperSession: { ...HELPER_SESSION, root } });
+		t.after(() => manager.dispose());
+
+		const state = await connectAndSettle(manager, profile.id);
+		assert.equal(state.state, "needs-attention", label);
+		assert.equal(state.lastCode, "SSH_HELPER_NOT_BOOTSTRAPPED", label);
+		assert.equal(fake.requests.length, 0, `${label}: nothing may be launched for an unusable root`);
+		assert.equal(manual.live().length, 0, `${label}: a wiring fault must not arm the retry ladder`);
+		// needs-attention is terminal here too: a retry cannot fix the caller's value, so nothing may spawn.
+		await manager.retry(profile.id);
+		assert.equal(manager.getState(profile.id).state, "needs-attention", label);
+		assert.equal(fake.requests.length, 0, label);
+	}
 });
 
 test("aborting during the handshake is teardown, not a handshake failure", async (t) => {

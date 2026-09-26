@@ -23,6 +23,16 @@ export type SshHelperSession = {
 	nodePath: string;
 	deployRoot: string;
 	bundleSha256: string;
+	/**
+	 * Verified workspace root the helper confines every `fs.*` method to. The caller takes it from the
+	 * workspace path the connection already verified and injects it at wiring time: the manager never
+	 * guesses a root, never defaults to a remote HOME and never expands `~`. Omitting it is the legal
+	 * host-only session (`hello`/`echo`/`cancel` are served, every `fs.*` answers PATH_OUTSIDE_ROOT), not
+	 * an error. When it *is* present it has to be a non-empty string — anything else is a local wiring
+	 * fault, while the path semantics (absolute, no trailing slash, not `/`, length, control characters)
+	 * stay in `buildHelperRemoteCommand` so the two places cannot drift apart.
+	 */
+	root?: string;
 };
 
 export type SshConnectionManagerOptions = {
@@ -34,7 +44,8 @@ export type SshConnectionManagerOptions = {
 	/**
 	 * Verified helper bootstrap of this host. There is no fallback: without it an attempt fails closed
 	 * with `SSH_HELPER_NOT_BOOTSTRAPPED`, because `ready` must never mean less than "the activated
-	 * helper answered on this session".
+	 * helper answered on this session". Its optional `root` is forwarded verbatim into the launched
+	 * command; the manager itself neither validates nor invents one.
 	 */
 	helperSession?: SshHelperSession;
 	/** Local deadline for that handshake. Clamped to the launcher cap; a nonsensical value uses the default. */
@@ -130,12 +141,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Read the verified bootstrap session. An unusable value is reported exactly like a missing one: a
  * relative path or a bad bundle address is a local wiring fault, and retrying the command builder's
  * refusal five times would only delay the `needs-attention` the caller has to see.
+ *
+ * `root` is optional — a host-only session is a legal state, not a defect — but a root that *is* there
+ * and is not a non-empty string is a wiring fault of exactly the same kind, so it fails closed here
+ * instead of entering the retry ladder. Only presence is decided here; the path rules (absolute, no
+ * trailing slash, not `/`, length, control characters) stay in `buildHelperRemoteCommand` so a second
+ * copy of them cannot drift away from the one the command is actually built with.
  */
 function readHelperSession(value: unknown): SshHelperSession | undefined {
 	if (!isRecord(value)) return undefined;
-	const { nodePath, deployRoot, bundleSha256 } = value;
+	const { nodePath, deployRoot, bundleSha256, root } = value;
 	if (typeof nodePath !== "string" || typeof deployRoot !== "string" || typeof bundleSha256 !== "string") return undefined;
-	return { nodePath, deployRoot, bundleSha256 };
+	if (root === undefined) return { nodePath, deployRoot, bundleSha256 };
+	if (typeof root !== "string" || root.length === 0) return undefined;
+	return { nodePath, deployRoot, bundleSha256, root };
 }
 
 /** A missing or nonsensical handshake budget falls back to the default; the deadline is never disabled. */
@@ -396,7 +415,14 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 			if (session === undefined) throw new Error("SSH_HELPER_NOT_BOOTSTRAPPED");
 			let remoteCommand: string;
 			try {
-				remoteCommand = buildHelperRemoteCommand(session);
+				// Two distinct input objects on purpose: a host-only session must reach the builder with the key
+				// *absent*, because that is what drops the whole `--root` pair and selects the legal host-only
+				// mode, while the rooted shape carries the verified value. The key is never spelled as
+				// `root: undefined`: "no root" and "unusable root" have to stay two different states from here to
+				// the helper, and one spread object would leave that difference to the builder's own reading of
+				// `undefined` instead of stating it where the two shapes are decided.
+				remoteCommand =
+					session.root === undefined ? buildHelperRemoteCommand({ nodePath: session.nodePath, deployRoot: session.deployRoot, bundleSha256: session.bundleSha256 }) : buildHelperRemoteCommand({ nodePath: session.nodePath, deployRoot: session.deployRoot, bundleSha256: session.bundleSha256, root: session.root });
 			} catch {
 				// The template builder refuses a relative/trailing-slash path, `/` and a bad bundle address. Those
 				// are the caller's own wiring, so they share the fail-closed code instead of entering the ladder
