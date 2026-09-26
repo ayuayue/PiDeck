@@ -119,8 +119,8 @@ let previewSettings: AppSettings = {
 	closeToTray: true,
 	singleInstance: true,
 	enableNotifications: true,
-	// 与主进程 SettingsStore 默认一致：标题生成默认关闭，避免预览壳与真实设置产生分歧
-	autoSessionTitle: false,
+	// 与主进程 SettingsStore 默认一致：标题生成默认开启，预览壳与真实设置保持一致
+	autoSessionTitle: true,
 	// Ask 提问系统通知默认关闭：与主进程 SettingsStore 默认一致
 	askNotificationEnabled: false,
 	// 人文关怀提醒开关：与主进程 SettingsStore 默认值保持一致（预览 mock 需覆盖 AppSettings 全部必填字段）
@@ -133,8 +133,8 @@ let previewSettings: AppSettings = {
 	showThinking: true,
 	// 流式对话行为：与主进程 SettingsStore 默认一致（预览窗口保持相同观感）
 	expandInterimDuringStream: true,
-	// 过程组显示默认关闭：与主进程 SettingsStore 默认一致（预览窗口保持平铺观感）
-	processGroupDisplay: false,
+	// 过程组显示默认开启：与主进程 SettingsStore 默认一致（预览窗口按过程组渲染）
+	processGroupDisplay: true,
 	showDevTools: false,
 	developerDiagnostics: false,
 	electronChromiumSandbox: false,

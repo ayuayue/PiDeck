@@ -235,7 +235,7 @@ export type ProcessFoldProps = {
 | 文件 | 要改什么 |
 |---|---|
 | `src/shared/types/settings.ts` | 在 `Settings` 里加 `processGroupDisplay: boolean;`（紧邻 `expandInterimDuringStream`） |
-| `src/main/settings/SettingsStore.ts` | 默认值加 `processGroupDisplay: false`（与 `expandInterimDuringStream: true` 同一处对象） |
+| `src/main/settings/SettingsStore.ts` | 默认值加 `processGroupDisplay: false`（与 `expandInterimDuringStream: true` 同一处对象）；2026-11 起默认值改为 `true`（过程组转正为默认显示，可在设置中关回平铺） |
 | `src/renderer/src/atoms/app-ui-atoms.ts` | ① `TurnFlowSettings` 类型加 `processGroupDisplay: boolean`；② `turnFlowSettingsAtom` 初值加 `processGroupDisplay: false` |
 | `src/renderer/src/previewApi.ts` | 默认设置里加 `processGroupDisplay: false`（与另两处默认值同源） |
 | `src/renderer/src/App.tsx` | ① 草稿默认值加 `processGroupDisplay: false`；② 把 `settings.processGroupDisplay` 同步进 `turnFlowSettingsAtom`（与 `expandInterimDuringStream` 同一个 `useEffect`，并把新字段加进依赖数组） |
@@ -276,7 +276,7 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 | 组组件 | `turn/ProcessGroupStep.tsx`（组头 `flex w-full`、组体限高滚轮、组内预算） |
 | 大折叠栏内容 | `turn/ProcessFold.tsx` |
 | 二选一分支 | `turn/TurnRow.tsx`（`flowSettings.processGroupDisplay ? <ProcessFold/> : 原扁平渲染`） |
-| 设置开关 | `processGroupDisplay`，默认 `false`，7 处默认值/同步 + 设置页开关行 + 未保存变更目录 |
+| 设置开关 | `processGroupDisplay`，默认 `false`（2026-11 起改为 `true`），7 处默认值/同步 + 设置页开关行 + 未保存变更目录 |
 | i18n | 35 键 × 2 locale |
 | 测试 | `groupTurnProcess` / `toolCategory` / `processGroupState` / `processGroupCopy` / `appSettingsDefaults` / **`processGroupRendering`（结构契约）** |
 

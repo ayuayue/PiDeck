@@ -20,7 +20,7 @@ test("askNotificationEnabled 三处默认值一致且默认关闭", () => {
 	assert.match(preview, /askNotificationEnabled: false/);
 });
 
-test("autoSessionTitle 四处默认关闭且设置说明提示额外 token 消耗", () => {
+test("autoSessionTitle 四处默认开启且设置说明提示额外 token 消耗", () => {
 	const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
 	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
@@ -29,9 +29,10 @@ test("autoSessionTitle 四处默认关闭且设置说明提示额外 token 消�
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	assert.match(settingsType, /autoSessionTitle: boolean/);
-	assert.match(store, /autoSessionTitle: false/);
-	assert.match(app, /autoSessionTitle: false/);
-	assert.match(preview, /autoSessionTitle: false/);
+	// 默认开启：主进程持久化默认、渲染层首屏默认、预览 mock 三处同步
+	assert.match(store, /autoSessionTitle: true/);
+	assert.match(app, /autoSessionTitle: true/);
+	assert.match(preview, /autoSessionTitle: true/);
 	assert.match(commonTab, /checked=\{draft\.autoSessionTitle \?\? false\}/);
 	assert.match(zh, /settings\.autoSessionTitleDesc[\s\S]{0,220}token/);
 	assert.match(en, /settings\.autoSessionTitleDesc[\s\S]{0,260}tokens/);

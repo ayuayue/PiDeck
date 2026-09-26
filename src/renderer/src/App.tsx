@@ -650,8 +650,8 @@ export function App() {
 		/** 提示词模板禁用列表：与 SettingsStore 默认一致，空数组 = 不启用模板白名单 */
 		disabledPrompts: [],
 		sessionTabOpenMode: "preview",
-		// 与 main SettingsStore 默认一致：标题生成默认关闭，避免首轮结束后无感知消耗 token
-		autoSessionTitle: false,
+		// 与 main SettingsStore 默认一致：标题生成默认开启，侧栏不再全是「新会话」
+		autoSessionTitle: true,
 		// 与 main SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 		busySendDelivery: "steer",
 		// 遗留字段：快捷消息已改存独立配置文件 userData/quick-messages.json（见 useQuickMessages），
@@ -678,8 +678,8 @@ export function App() {
 		showThinking: true,
 		// 流式对话行为：默认自动展开中间过程（与 SettingsStore 一致）
 		expandInterimDuringStream: true,
-		// 过程组显示默认关闭：与主进程 SettingsStore 默认一致，首屏未拉到真实设置前保持平铺渲染
-		processGroupDisplay: false,
+		// 过程组显示默认开启：与主进程 SettingsStore 默认一致，首屏即按过程组渲染
+		processGroupDisplay: true,
 		showDevTools: false,
 		developerDiagnostics: false,
 		// Electron Chromium 沙箱默认关，与主进程历史兼容策略一致

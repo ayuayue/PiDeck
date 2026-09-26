@@ -196,7 +196,11 @@ test.describe("开关开启：过程组显示", () => {
 	});
 });
 
-test.describe("默认（开关关闭）", () => {
+test.describe("显式关闭（seed processGroupDisplay: false）", () => {
+	// 默认值已改为开启（2026-11）：平铺渲染路径仍由本分组显式关闭开关来覆盖，
+	// 保证关闭路径不会被默认开启挤掉。
+	test.use({ seedSettings: { processGroupDisplay: false } });
+
 	test("不出现过程组，保持原平铺渲染", async ({ window }) => {
 		test.setTimeout(90_000);
 		await runProcessTurn(window);

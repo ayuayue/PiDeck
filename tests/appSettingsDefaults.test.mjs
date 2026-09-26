@@ -4,23 +4,23 @@ import test from "node:test";
 
 // 默认值「三处同源」契约：设置的实际默认值分布在渲染层 atom / 主进程 SettingsStore /
 // 预览 mock 三条独立通路里。任何一处漏改或写成相反值，都会出现「首屏/预览窗口与真实设置不一致」
-// 的闪变（默认 true 还会直接改变未改设置用户的时间线行为）。
+// 的闪变（过程组显示默认 true，任何一处漏改都会让首屏闪回平铺渲染）。
 // 正则必须空白容忍：仓库格式化基线不做折行，但 `:` 前后与逗号间距仍可能被调整。
 const read = (path) => readFileSync(path, "utf8");
 const appUiAtoms = read("src/renderer/src/atoms/app-ui-atoms.ts");
 const settingsStore = read("src/main/settings/SettingsStore.ts");
 const previewApi = read("src/renderer/src/previewApi.ts");
 
-test("processGroupDisplay defaults to false in all three default-value sources", () => {
+test("processGroupDisplay defaults to true in all three default-value sources", () => {
 	const sources = [
 		["src/renderer/src/atoms/app-ui-atoms.ts", appUiAtoms],
 		["src/main/settings/SettingsStore.ts", settingsStore],
 		["src/renderer/src/previewApi.ts", previewApi],
 	];
 	for (const [path, source] of sources) {
-		assert.match(source, /processGroupDisplay\s*:\s*false\b/, `${path} 应把 processGroupDisplay 默认值设为 false`);
-		// 防止有人把默认值改成 true（保守项：默认必须保持现有平铺显示）
-		assert.doesNotMatch(source, /processGroupDisplay\s*:\s*true\b/, `${path} 不得把 processGroupDisplay 默认值改为 true`);
+		assert.match(source, /processGroupDisplay\s*:\s*true\b/, `${path} 应把 processGroupDisplay 默认值设为 true`);
+		// 防止有人把默认值改回 false（过程组显示现为默认开启，用户可在设置中关回平铺显示）
+		assert.doesNotMatch(source, /processGroupDisplay\s*:\s*false\b/, `${path} 不得把 processGroupDisplay 默认值改为 false`);
 	}
 });
 

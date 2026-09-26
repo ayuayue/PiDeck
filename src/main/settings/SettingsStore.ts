@@ -106,8 +106,9 @@ const defaultSettings: AppSettings = {
 	startupWindowMode: "last",
 	piEnvironmentChecked: false,
 	sessionTabOpenMode: "preview",
-	// 默认关闭：标题请求会额外调用当前 pi 模型并消耗 token，避免用户无感知地产生用量。
-	autoSessionTitle: false,
+	// 默认开启：标题由当前 pi 模型异步生成，侧栏不再全是「新会话」；
+	// 会额外消耗一次模型调用和少量 token，设置说明已写明，用户可随时关闭。
+	autoSessionTitle: true,
 	// 忙碌时发送默认「插入当前回合」（对齐 pi 历史行为）；dsh 会话此前默认排队，
 	// 统一后由本设置项决定，用户可在常用设置→会话中改回。
 	busySendDelivery: "steer",
@@ -158,8 +159,8 @@ Gitmoji 对应关系：
 	showThinking: readPiAgentShowThinking() ?? true,
 	// 流式对话设置：默认自动展开中间过程（思考/工具详情随最新轮流式展开）。
 	expandInterimDuringStream: true,
-	// 过程组显示默认关闭（保守项）：默认走现有平铺渲染，用户显式开启后才走过程组。
-	processGroupDisplay: false,
+	// 过程组显示默认开启：连续思考/工具调用合并成过程组，设置里可随时关回平铺显示。
+	processGroupDisplay: true,
 	showDevTools: false,
 	developerDiagnostics: false,
 	// 默认关闭 Chromium 沙箱：与历史 Windows no-sandbox 兼容策略一致

@@ -400,7 +400,7 @@ B + 4 档展示模式（`compact/standard/detailed/verbose`）+ 组头 150ms 最
 ## 9. 目标结构设计稿（用户已确认）
 
 > **状态：已实现。** 落地清单、刻意做的三个设计决策（依赖方向 / 不变量写进类型 / 不用 `as`）与已知限制，见 [process-group-implementation-contract.md](./process-group-implementation-contract.md) §7。
-> 显示方式由设置项 `processGroupDisplay` 控制，**默认关闭**（保持原平铺显示）。
+> 显示方式由设置项 `processGroupDisplay` 控制，**默认开启**（2026-11 起；可在设置中关回平铺显示）。
 
 ### 9.1 目标形状
 

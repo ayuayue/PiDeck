@@ -113,7 +113,8 @@ export type AppSettings = {
 	sessionTabOpenMode: SessionTabOpenMode;
 	/**
 	 * 是否在首轮 agent 成功结束后，用当前 pi 模型异步生成会话标题。
-	 * 默认关闭以避免用户无感知地产生额外模型调用和 token 消耗；设置只在新建或重启 Agent 进程时注入，关闭不影响已有会话的主 agent。
+	 * 默认开启，让侧栏自动获得可读标题；会额外消耗一次模型调用和少量 token（设置说明已写明）。
+	 * 设置只在新建或重启 Agent 进程时注入，关闭不影响已有会话的主 agent。
 	 */
 	autoSessionTitle: boolean;
 	/**
@@ -197,8 +198,8 @@ export type AppSettings = {
 	expandInterimDuringStream: boolean;
 	/**
 	 * 时间线是否按「过程组」显示（实验特性）。
-	 * false（默认）：保持现在的平铺显示（连续思考/工具调用逐条铺开）；
-	 * true：一轮里连续的思考与工具调用合并成过程组，点开组头才展开明细。
+	 * true（默认）：一轮里连续的思考与工具调用合并成过程组，点开组头才展开明细；
+	 * false：保持平铺显示（连续思考/工具调用逐条铺开）。
 	 */
 	processGroupDisplay: boolean;
 	/** 是否开启开发者控制台（DevTools） */
