@@ -3,16 +3,23 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Project } from "../../shared/types";
+import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { normalizeSelectedWslProjectPath, parseWslUncPath, WslPathError, type WslEnvironment } from "../wsl/WslPaths";
 import { getAppLogger } from "../logging/sharedLogger";
+import { assertHostRebindRecordIds, canonicalHostLocatorJson, type HostRebindRecordPatch, type HostRebindRecordResult, type HostRebindRecordSnapshot, type HostRebindStorePort } from "../remote/HostRebindJournal";
 import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
 import { loadProjectStore, writeProjectStoreSnapshot } from "./projectStorePersistence";
 
 const CHAT_PROJECT_ID = "builtin-chat";
 const CHAT_PROJECT_NAME = "Chat";
 
+/** 端口边界只允许稳定码（设计 §4.4）：与 projectStoreCodec.ts:81 的 ssh 读拒绝同码。 */
+const PROJECT_STORE_NEEDS_REPAIR = "PROJECT_STORE_NEEDS_REPAIR";
+const PROJECT_STORE_REMOTE_UNSUPPORTED = "PROJECT_STORE_REMOTE_UNSUPPORTED";
+const REBIND_UNKNOWN_OUTCOME = "REMOTE_HOST_REBIND_UNKNOWN_OUTCOME";
+
 class ProjectStoreNeedsRepairError extends Error {
-	readonly code = "PROJECT_STORE_NEEDS_REPAIR";
+	readonly code = PROJECT_STORE_NEEDS_REPAIR;
 
 	constructor(message: string) {
 		super(message);
@@ -25,9 +32,15 @@ function errorMessage(error: unknown): string {
 	return String(error);
 }
 
-export class ProjectStore {
+export class ProjectStore implements HostRebindStorePort {
 	/** DSH 外部会话兑底项目稳定 id（无 cwd/未匹配目录的会话归属；见 ensureExternalSessionsProject）。 */
 	private static readonly EXTERNAL_PROJECT_ID = "builtin-external";
+	/**
+	 * 引用能力声明（设计 §4.4 / Q6）：`projects.json` 读到 ssh locator 时 `readV2Project` 直接拒绝
+	 * （projectStoreCodec.ts:81），`Project` 类型也没有 locator 字段 ⇒ 本 store 结构上不可能持有 host
+	 * 引用，注册表据此整源跳过。Phase 3 放开 `PROJECT_STORE_REMOTE_UNSUPPORTED` 时这里必须一起改回 true。
+	 */
+	readonly canHoldHostReferences = false;
 	private readonly filePath = join(app.getPath("userData"), "projects.json");
 	private readonly chatPathFile = join(app.getPath("userData"), "chat-path.json");
 	/** 用户从侧栏移除过的目录：启动自动导入不得再按会话 cwd 把它们加回。 */
@@ -417,8 +430,44 @@ export class ProjectStore {
 		this.projects = this.projects.filter((project) => project.worktreeParentId !== parentId || this.isChatProject(project));
 	}
 
+	/**
+	 * Host-rebind read port（设计 §4.4）：逐条返回记录的当前 locator（规范 JSON）；记录不存在时按契约
+	 * 返回缺省 locator（收敛侧据此判 `REMOTE_HOST_REBIND_RECORD_MISSING`，INV-6：不复活）。
+	 *
+	 * 本 store 只能持有 local locator，所以这里**如实**返回记录的 local locator（与落盘形态同源：
+	 * `encodeProjectStoreSnapshot` 用同一个 `projectLocatorFromLegacy` 派生），不编造 ssh 支持。
+	 * 计划里只要出现 ssh 的 before/after，逐记录比对必然不相等 ⇒ 收敛侧 STALE_PLAN 停事务，不迁移。
+	 */
+	async readHostRecordLocators(recordIds: readonly string[]): Promise<readonly HostRebindRecordSnapshot[]> {
+		this.assertHostRebindUsable();
+		assertHostRebindRecordIds(recordIds);
+		// 同步走一趟内存快照：整批读是同一个一致性视图（本函数内没有 await）。
+		return recordIds.map((recordId) => {
+			const project = this.projects.find((candidate) => candidate.id === recordId);
+			if (!project) return { recordId };
+			return { recordId, locator: canonicalHostLocatorJson(projectLocatorFromLegacy({ path: project.path, environment: project.environment, wslDistro: project.wslDistro })) };
+		});
+	}
+
+	/**
+	 * Host-rebind write port（设计 §4.4 / Q6）：本 store 装不下 ssh locator，因此没有任何补丁能在这里
+	 * 成立 —— 一律拒绝，且**不经过 `save()`**、不碰磁盘。这是诚实的 fail closed，不是"还没实现"：
+	 * 放开它必须同时放开 `projectStoreCodec.ts:81` 并补 SSH 项目的 containment 校验（计划 §12 Phase 3 门禁）。
+	 */
+	async applyHostRebind(_txId: string, patches: readonly HostRebindRecordPatch[]): Promise<readonly HostRebindRecordResult[]> {
+		this.assertHostRebindUsable();
+		if (!Array.isArray(patches)) throw new Error(REBIND_UNKNOWN_OUTCOME);
+		if (patches.length === 0) return [];
+		throw new Error(PROJECT_STORE_REMOTE_UNSUPPORTED);
+	}
+
+	/** 端口边界只允许稳定码：needs-repair 时读写都必须 fail closed，不能答成"没有记录"或"没有补丁"。 */
+	private assertHostRebindUsable(): void {
+		if (this.needsRepair) throw new Error(PROJECT_STORE_NEEDS_REPAIR);
+	}
+
 	private assertReadable() {
-		if (this.needsRepair) throw this.repairError ?? new ProjectStoreNeedsRepairError("PROJECT_STORE_NEEDS_REPAIR");
+		if (this.needsRepair) throw this.repairError ?? new ProjectStoreNeedsRepairError(PROJECT_STORE_NEEDS_REPAIR);
 	}
 
 	private assertWritable() {

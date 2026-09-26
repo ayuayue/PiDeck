@@ -6,10 +6,17 @@ import type { AgentBackend, AgentTab, SessionEnvironment, SessionLocator, Sessio
 import type { SessionProxyOverride } from "../../shared/types/session";
 import { SessionLocatorRouter } from "./SessionLocatorRouter";
 import { getAppLogger } from "../logging/sharedLogger";
+import { assertHostRebindRecordIds, canonicalHostLocatorJson, isHostRebindRecordId, type HostRebindRecordOutcome, type HostRebindRecordPatch, type HostRebindRecordResult, type HostRebindRecordSnapshot, type HostRebindStorePort } from "../remote/HostRebindJournal";
 import { renameWithRetry } from "../utils/fsRetry";
 import { buildSessionOriginKey, buildSummaryOriginKey, canonicalizeSessionPath, collectSessionSubtreeIds, getImportedSessionSourceId, getSessionEnvironment, isInSubagentArtifactsDir, looksLikeCodexSessionFileStem, looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
 import { looksLikeExpandedRefBlockTitle } from "../../shared/expandedRefBlocks";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
+
+/** 端口边界只允许稳定码（设计 §4.4）：recorder 自己的 needs-repair 码 + 收敛侧的"结果未知"。 */
+const SESSION_CATALOG_NEEDS_REPAIR = "SESSION_CATALOG_NEEDS_REPAIR";
+const REBIND_UNKNOWN_OUTCOME = "REMOTE_HOST_REBIND_UNKNOWN_OUTCOME";
+/** 单次 rebind 的补丁上限：与 journal 解码器的 records 上限一致。 */
+const MAX_REBIND_PATCHES = 10_000;
 
 /**
  * 会话标题所有权来源（#266 时序抽奖修复）：
@@ -328,6 +335,64 @@ function equalModel(left?: SessionModelPreference, right?: SessionModelPreferenc
 	return left?.provider === right?.provider && left?.modelId === right?.modelId;
 }
 
+/** 各 kind 的合法 locator 键：补丁只能携带该 kind 认识的字段，未知键一律拒绝（不许借端口注入脏字段）。 */
+const SESSION_LOCATOR_KEYS: Record<SessionLocator["kind"], readonly string[]> = {
+	local: ["kind", "environment", "filePath", "wslDistro", "wslUser"],
+	ssh: ["kind", "hostId", "remotePath", "remoteSessionId", "remotePathAliases"],
+};
+
+/**
+ * 端口补丁的整批形状（设计 §4.4）：形状错误 = 这次调用无法解释 ⇒ 稳定码"结果未知"（收敛侧绝不能
+ * 当成"已应用"）。补丁语义非法（不是 ssh→ssh、不止 hostId 变化）不在这里抛，而是逐条判 changed。
+ */
+function readHostRebindPatches(patches: readonly HostRebindRecordPatch[]): readonly HostRebindRecordPatch[] {
+	if (!Array.isArray(patches) || patches.length > MAX_REBIND_PATCHES) throw new Error(REBIND_UNKNOWN_OUTCOME);
+	for (const patch of patches) {
+		if (!isRecord(patch) || !isHostRebindRecordId(patch.recordId) || typeof patch.beforeLocator !== "string" || typeof patch.afterLocator !== "string") throw new Error(REBIND_UNKNOWN_OUTCOME);
+	}
+	return patches;
+}
+
+/**
+ * 解析补丁里的 locator 字符串：必须是 catalog 认可的 locator，且**就是**它的规范 JSON。
+ * 规范形态是端口契约（`HostRebindJournal.canonicalHostLocatorJson`）：写进去的 locator 必须能原样读回来，
+ * 否则收敛侧重放时永远看不到 `afterLocator`，事务会卡在 STALE_PLAN。
+ */
+function parseCanonicalSessionLocator(value: string): SessionLocator | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(value);
+	} catch {
+		return undefined;
+	}
+	if (!isRecord(parsed) || (parsed.kind !== "local" && parsed.kind !== "ssh")) return undefined;
+	const kind: SessionLocator["kind"] = parsed.kind;
+	if (!Object.keys(parsed).every((key) => SESSION_LOCATOR_KEYS[kind].includes(key))) return undefined;
+	if (!isSessionLocator(parsed)) return undefined;
+	return canonicalHostLocatorJson(parsed) === value ? parsed : undefined;
+}
+
+/**
+ * rebind 补丁只允许把 ssh locator 的 `hostId` 换成另一个（设计 §4.4）：`remotePath` / `remoteSessionId` /
+ * `remotePathAliases` 必须原样保留。不合法 ⇒ 该记录判 changed（收敛侧 STALE_PLAN），绝不写盘 ——
+ * 这个端口不是通用 locator 改写入口，也不是"顺手修点别的"的地方。
+ */
+function hostRebindTargetLocator(beforeLocator: string, afterLocator: string): SessionLocator | undefined {
+	const before = parseCanonicalSessionLocator(beforeLocator);
+	const after = parseCanonicalSessionLocator(afterLocator);
+	if (!before || !after || before.kind !== "ssh" || after.kind !== "ssh") return undefined;
+	if (before.hostId === after.hostId) return undefined;
+	return canonicalHostLocatorJson({ ...before, hostId: after.hostId }) === canonicalHostLocatorJson(after) ? after : undefined;
+}
+
+/**
+ * 被拒绝的批次（任一条 missing/changed ⇒ 整批不写，INV-9）：没有任何记录被写入，所以"本来能写"的
+ * 那几条也只能报 changed —— 端口不允许在没写盘的情况下报 applied（收敛侧把 changed 判为 STALE_PLAN）。
+ */
+function refusedHostRebind(patches: readonly HostRebindRecordPatch[], outcomes: readonly HostRebindRecordOutcome[]): readonly HostRebindRecordResult[] {
+	return patches.map((patch, index) => ({ recordId: patch.recordId, outcome: outcomes[index] === "applied" ? "changed" : outcomes[index] }));
+}
+
 function isMissingFileError(error: unknown): boolean {
 	return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT");
 }
@@ -373,15 +438,15 @@ class UnsupportedSessionCatalogLocatorError extends Error {
 }
 
 export class SessionCatalogRecoveryError extends Error {
-	readonly code = "SESSION_CATALOG_NEEDS_REPAIR";
+	readonly code = SESSION_CATALOG_NEEDS_REPAIR;
 
 	constructor() {
-		super("SESSION_CATALOG_NEEDS_REPAIR: catalog cannot be safely loaded");
+		super(`${SESSION_CATALOG_NEEDS_REPAIR}: catalog cannot be safely loaded`);
 		this.name = "SessionCatalogRecoveryError";
 	}
 }
 
-export class SessionCatalog {
+export class SessionCatalog implements HostRebindStorePort {
 	private entries: SessionCatalogEntry[] = [];
 	private readonly locatorRouter = new SessionLocatorRouter();
 	/** Runtime-only records share the catalog lookup contract without durable storage. */
@@ -637,6 +702,105 @@ export class SessionCatalog {
 	getLocalFilePath(id: string): string | undefined {
 		const locator = this.getLocator(id);
 		return locator ? this.locatorRouter.resolveFilePath(locator) : undefined;
+	}
+
+	/**
+	 * Host-rebind read port（设计 §4.4）：逐条返回记录的当前 locator（规范 JSON）；记录不存在、
+	 * 或该记录本来就没有位置（无文件草稿 / dsh / imagegen / 运行期 transient）时按契约返回缺省 locator。
+	 *
+	 * 读的是**内存快照**：catalog 从不重读磁盘（见设计 1.1），而内存就是下一次写盘的权威内容；
+	 * 本函数内没有 await，整批读是同一个一致性视图。needs-repair / 未加载都不能答成"没有记录"
+	 * （那会被收敛侧读成"记录已删除"）⇒ 直接抛稳定码，fail closed。
+	 */
+	async readHostRecordLocators(recordIds: readonly string[]): Promise<readonly HostRebindRecordSnapshot[]> {
+		this.assertHostRebindUsable();
+		assertHostRebindRecordIds(recordIds);
+		return recordIds.map((recordId) => {
+			const entry = this.entries.find((candidate) => candidate.id === recordId);
+			const locator = entry ? this.sessionLocatorForEntry(entry) : undefined;
+			return locator ? { recordId, locator: canonicalHostLocatorJson(locator) } : { recordId };
+		});
+	}
+
+	/**
+	 * Host-rebind write port（设计 §4.4）：整批一次原子写（`enqueueMutation` → `writeSnapshot`），
+	 * 逐记录 before/after CAS。`txId` 只用于日志对账，catalog 不落它（journal 才是事务记录）。
+	 *
+	 * - **全有或全无**（INV-9）：任一条 missing/changed 就整批不写；未写入的批次里没有任何记录可以报
+	 *   `applied` —— 本来能写的那几条按 changed 报出（收敛侧映射为 STALE_PLAN：这个计划已不成立）。
+	 * - **幂等重放**：记录已是 `afterLocator` ⇒ `already-applied`，不产生第二次写。
+	 * - **locator 写入口**只有 `setLocalSessionFilePath` / `normalizeEntryLocator`：ssh→ssh 走后者，
+	 *   由它同步 filePath/originKey/piSessionId/wslDistro/wslUser/parentSessionPath 的清空。直接改
+	 *   `entry.locator` 会留下本地镜像字段，让 findByFilePath / originKeyForEntry / sessionLocatorForEntry
+	 *   三条链路各说各话。
+	 * - 结果条数恒等于补丁条数（收敛侧把"少返结果"判为 `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`）。
+	 */
+	async applyHostRebind(txId: string, patches: readonly HostRebindRecordPatch[]): Promise<readonly HostRebindRecordResult[]> {
+		this.assertHostRebindUsable();
+		const planned = readHostRebindPatches(patches);
+		let results: readonly HostRebindRecordResult[];
+		try {
+			results = await this.enqueueMutation((entries) => {
+				const outcomes: HostRebindRecordOutcome[] = [];
+				const pending: { readonly index: number; readonly locator: SessionLocator }[] = [];
+				for (const patch of planned) {
+					const index = entries.findIndex((candidate) => candidate.id === patch.recordId);
+					if (index < 0) {
+						// 记录不存在 ⇒ missing（收敛侧转 REMOTE_HOST_REBIND_RECORD_MISSING，INV-6：绝不重建）。
+						outcomes.push("missing");
+						continue;
+					}
+					const current = this.sessionLocatorForEntry(entries[index]);
+					const currentLocator = current ? canonicalHostLocatorJson(current) : undefined;
+					const target = currentLocator === undefined ? undefined : hostRebindTargetLocator(patch.beforeLocator, patch.afterLocator);
+					if (currentLocator === undefined || target === undefined) {
+						// 记录没有位置，或补丁不是"只换 hostId 的 ssh→ssh"：逐记录判 changed，绝不写盘。
+						outcomes.push("changed");
+						continue;
+					}
+					if (currentLocator === patch.afterLocator) {
+						outcomes.push("already-applied");
+						continue;
+					}
+					if (currentLocator !== patch.beforeLocator) {
+						outcomes.push("changed");
+						continue;
+					}
+					outcomes.push("applied");
+					pending.push({ index, locator: target });
+				}
+				if (outcomes.some((outcome) => outcome !== "applied" && outcome !== "already-applied")) return { value: refusedHostRebind(planned, outcomes), changed: false };
+				for (const item of pending) {
+					// 只改 locator，再交给唯一的 ssh 分支镜像同步（normalizeEntryLocator，见其注释）。
+					entries[item.index] = normalizeEntryLocator({ ...entries[item.index], locator: item.locator });
+				}
+				return {
+					value: planned.map((patch, index) => ({ recordId: patch.recordId, outcome: outcomes[index] })),
+					changed: pending.length > 0,
+				};
+			});
+		} catch (error) {
+			throw this.asHostRebindError(error);
+		}
+		void getAppLogger()?.info("session-catalog", "Session catalog rebound to a new host", { txId, applied: results.filter((result) => result.outcome === "applied").length });
+		return results;
+	}
+
+	/** 端口边界只允许稳定码：needs-repair / 未加载都不能被读成"记录不存在"或"没有补丁"。 */
+	private assertHostRebindUsable(): void {
+		if (this.needsRepair) throw new Error(SESSION_CATALOG_NEEDS_REPAIR);
+		if (!this.loaded) throw new Error(REBIND_UNKNOWN_OUTCOME);
+	}
+
+	/**
+	 * 端口边界只允许稳定码：needs-repair ⇒ catalog 自己的码；其余（写盘 errno 等）可能已落地也可能
+	 * 没落地，一律算"结果未知" —— 收敛侧据此不 retire、保留 journal，下次 resume 幂等重跑。
+	 */
+	private asHostRebindError(error: unknown): Error {
+		if (this.needsRepair) return new Error(SESSION_CATALOG_NEEDS_REPAIR);
+		const message = typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : undefined;
+		if (message === SESSION_CATALOG_NEEDS_REPAIR) return new Error(message);
+		return new Error(REBIND_UNKNOWN_OUTCOME);
 	}
 
 	findByFilePath(filePath: string, environment: SessionEnvironment): SessionCatalogEntry | undefined {

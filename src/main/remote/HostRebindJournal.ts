@@ -7,9 +7,9 @@
  * so a stale or missing `stage` can never cause a wrong action (design §4.3).
  *
  * Failure semantics (stable codes): every failure leaves this module as one of `HOST_REBIND_CODES`,
- * a pass-through code from `REMOTE_HOST_STORE_CODES` / `HOST_REFERENCE_REGISTRY_CODES`, or
- * `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`. Anything else (errno, port text, stack messages) is folded
- * into a stable code: nothing else may escape.
+ * a pass-through code from `REMOTE_HOST_STORE_CODES` / `HOST_REFERENCE_REGISTRY_CODES` /
+ * `HOST_REBIND_STORE_PORT_CODES`, or `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`. Anything else (errno,
+ * port text, stack messages) is folded into a stable code: nothing else may escape.
  */
 import { uptime } from "node:os";
 import { lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
@@ -51,6 +51,13 @@ export type HostRebindRecordSnapshot = { readonly recordId: string; readonly loc
 
 /** Store-side port (§4.4). Phase-1 stores implement it later; convergence only needs these two calls. */
 export type HostRebindStorePort = {
+	/**
+	 * Whether the store can structurally hold an ssh locator at all (§4.4 / design Q6). Absent = yes.
+	 * `false` (ProjectStore before Phase 3: `projectStoreCodec.ts:81` refuses ssh on read and `Project`
+	 * carries no locator) means the port still answers reads with what the record really holds, but
+	 * every patch is refused: no plan naming such a store can ever be migrated.
+	 */
+	readonly canHoldHostReferences?: boolean;
 	/** Read the current locator of each requested record; a deleted record comes back without a locator. */
 	readHostRecordLocators(recordIds: readonly string[]): Promise<readonly HostRebindRecordSnapshot[]>;
 	/** All-or-nothing per-record CAS write; replaying an already-applied patch reports "already-applied". */
@@ -117,11 +124,25 @@ export type HostRebindCode = (typeof HOST_REBIND_CODES)[number];
 /** Non-fatal leftovers reported on a committed transaction. */
 export const HOST_REBIND_WARNING_CODES = ["UNKNOWN_OUTCOME_ROLLED_FORWARD", "JOURNAL_REMOVE_FAILED"] as const;
 
+/**
+ * Store-port codes that keep their own meaning across the boundary (§4.4). "This store cannot be
+ * written" and "this store cannot represent remote locators" are *known* fail-closed answers, so they
+ * must not be folded into `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME` (INV-10 keeps "nothing was written" /
+ * "outcome unknown" / "validation failed" / "needs a human" distinguishable).
+ */
+export const HOST_REBIND_STORE_PORT_CODES = ["PROJECT_STORE_NEEDS_REPAIR", "PROJECT_STORE_REMOTE_UNSUPPORTED", "SESSION_CATALOG_NEEDS_REPAIR"] as const;
+
 const HOST_REBIND_CODE_SET: ReadonlySet<string> = new Set(HOST_REBIND_CODES);
+const HOST_REBIND_STORE_PORT_CODE_SET: ReadonlySet<string> = new Set(HOST_REBIND_STORE_PORT_CODES);
 const REBIND_STAGE_SET: ReadonlySet<string> = new Set(REBIND_STAGES);
 
 export function isHostRebindCode(code: string): code is HostRebindCode {
 	return HOST_REBIND_CODE_SET.has(code);
+}
+
+/** A store-port code the journal surfaces unchanged instead of folding it into an unknown outcome. */
+export function isHostRebindStorePortCode(code: string): boolean {
+	return HOST_REBIND_STORE_PORT_CODE_SET.has(code);
 }
 
 function isRebindStage(value: unknown): value is RebindStage {
@@ -179,8 +200,44 @@ function isLocator(value: unknown): value is string {
  */
 function asStableError(error: unknown): Error {
 	const message = stableMessage(error);
-	if (message !== undefined && (isHostRebindCode(message) || isRemoteHostStoreCode(message) || isHostReferenceRegistryCode(message))) return new Error(message);
+	if (message !== undefined && (isHostRebindCode(message) || isRemoteHostStoreCode(message) || isHostReferenceRegistryCode(message) || isHostRebindStorePortCode(message))) return new Error(message);
 	return new Error("REMOTE_HOST_REBIND_UNKNOWN_OUTCOME");
+}
+
+/**
+ * Canonical JSON of a locator (port contract, §4.4). Keys are emitted in sorted order and `undefined`
+ * fields are dropped, so the same locator always yields the same bytes no matter which writer built
+ * the object. This matters because both the journal's per-record comparison (`classify`) and every
+ * store port's CAS compare these strings byte-wise: a planner that encodes `beforeLocator` /
+ * `afterLocator` differently would turn every record into `changed` (stale plan), never into a write.
+ */
+export function canonicalHostLocatorJson(value: object): string {
+	const encode = (input: unknown): unknown => {
+		if (Array.isArray(input)) return input.map(encode);
+		if (!isRecord(input)) return input;
+		return Object.fromEntries(
+			Object.keys(input)
+				.sort()
+				.filter((key) => input[key] !== undefined)
+				.map((key) => [key, encode(input[key])]),
+		);
+	};
+	return JSON.stringify(encode(value));
+}
+
+/** One record id of the shape the journal decoder accepts (`isBoundedId`), for port callers. */
+export function isHostRebindRecordId(value: unknown): value is string {
+	return isBoundedId(value);
+}
+
+/**
+ * Port-side input guard (§4.4): a store port is also callable directly, so both ports accept exactly
+ * the batch shape the journal produces — a bounded list of bounded ids, one snapshot per id. A request
+ * the port cannot even interpret is reported as an unknown outcome (fail closed, nothing written).
+ */
+export function assertHostRebindRecordIds(recordIds: readonly string[]): void {
+	if (!Array.isArray(recordIds) || recordIds.length > MAX_RECORDS) throw new Error("REMOTE_HOST_REBIND_UNKNOWN_OUTCOME");
+	for (const recordId of recordIds) if (!isHostRebindRecordId(recordId)) throw new Error("REMOTE_HOST_REBIND_UNKNOWN_OUTCOME");
 }
 
 /** Boot identity without /proc: two processes on the same boot derive the same value. */
