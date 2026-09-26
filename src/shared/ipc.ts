@@ -566,6 +566,25 @@ export const ipcChannels = {
 
 	/** Agent Extension UI 协议：主进程 → 渲染进程，推送扩展的 UI 请求（select/confirm/input/editor） */
 	agentsUiRequest: "agents:ui-request",
+	/**
+	 * GUI 扩展桥：渲染进程 → 主进程，回灌交互事件（select/navigate/input/key/action）。
+	 *
+	 * 命名归 `sessions:*` 而不是 `agents:*`，理由有两条：
+	 * 1. 它与 `sessionsUiResponse` 同族 —— 都是「渲染层把用户对扩展 UI 的操作送回 pi」；
+	 * 2. 入参带 `sessionId + agentId + runtimeGeneration` 三个身份字段，
+	 *    语义上是会话级 runtime 命令（AGENTS.md 硬性要求），不是 agent 直发事件。
+	 * （`agents:*` 在 preload 侧另有「订阅必须进 DIRECT_EMIT_CHANNELS 白名单」的契约，
+	 * 而本通道是 invoke 不是订阅，放错族会误导后来者。）
+	 */
+	sessionsBridgeEvent: "sessions:bridge-event",
+	/**
+	 * GUI 扩展桥：渲染进程 → 主进程，请求桥全量重推一次（规格书 §9.4）。
+	 *
+	 * 与 `sessionsBridgeEvent` 同族：都是「渲染层把需求送回桥」，
+	 * 同样带 `sessionId + agentId + runtimeGeneration` 三个身份字段。
+	 * 主进程只在下一轮桥轮询的响应体里带一个 `resync: true`，不新开路由。
+	 */
+	sessionsBridgeResync: "sessions:bridge-resync",
 	/** 项目信任确认：主进程 → 渲染进程，启动 Agent 前请求用户对含 .pi 资源的项目做信任决策 */
 	projectsTrustRequest: "projects:trust-request",
 	/** 项目信任确认：渲染进程 → 主进程，回传用户的信任选择（trust-remember/trust-session/deny） */

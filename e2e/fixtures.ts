@@ -89,7 +89,7 @@ export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | und
 			// 未打包运行时应用名解析为 "Electron"，userData 默认落到真实
 			// %APPDATA%/Electron-dev（跨 E2E 运行共享、污染本机）。必须显式
 			// --user-data-dir 指向临时目录（Electron 尊重该 Chromium 开关）。
-			args: packagedExecutablePath ? [`--user-data-dir=${profileDir}`] : [join(repoRoot, "out", "main", "index.js"), `--user-data-dir=${profileDir}`],
+			args: packagedExecutablePath ? [`--user-data-dir=${profileDir}`] : [repoRoot, `--user-data-dir=${profileDir}`],
 			env,
 		});
 		await use(app);

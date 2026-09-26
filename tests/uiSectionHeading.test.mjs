@@ -18,7 +18,9 @@ test("settings and Pi management sections use the shared heading", () => {
 	assert.match(storage, /className="settings-section-header pb-2"/);
 	// Pi 设置页已改为复用「常用设置」同源的共享 SettingsSection / SettingRow / SettingBox 分区布局
 	// （标题层级由 SettingsStorageTab 内的 SectionHeading 统一约束），不再直接使用 SectionHeading。
-	assert.match(piSettings, /import \{ SettingBox, SettingRow, SettingSwitchRow \} from "\.\.\/components\/app\/settings\/SettingRows"/);
+	// 断言「从共享 SettingRows 引入这三个行/盒原语」，不限制同时引入的其它原语
+	// （例如 ClearableSettingsInput 也是同一模块的共享件）。
+	assert.match(piSettings, /import \{[^}]*\bSettingBox\b[^}]*\bSettingRow\b[^}]*\bSettingSwitchRow\b[^}]*\} from "\.\.\/components\/app\/settings\/SettingRows"/);
 	assert.match(piSettings, /import \{ SettingsSection \} from "\.\.\/components\/app\/settings\/SettingsStorageTab"/);
 	assert.doesNotMatch(piSettings, /<SectionHeading/);
 	assert.doesNotMatch(piSettings, /config-settings-section-title/);

@@ -5,8 +5,27 @@ import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltI
 /**
  * PiDeck 内置扩展（随应用 resources 分发，不再复制到 ~/.pi/agent/extensions）。
  * 启动 RPC 时通过可重复的 `--extension/-e` 注入，避免污染用户全局 pi。
+ *
+ * ⚠️ **只列「入口」扩展文件**：被扩展 import 的辅助模块（如 `pi-deck-todo-state.ts`、
+ * `pi-deck-gui-bridge-*.ts`）**不在**本表 —— 它们不通过 `-e` 注入，
+ * 但仍必须进 `extensions-manifest.json`（清单按目录扫描全部 `.ts`），
+ * 否则热更新覆盖层会缺少依赖、pi 报模块找不到。
+ *
+ * ⚠️ 顺序有语义：`pi-deck-gui-bridge` 排在**最前**。
+ * 它负责在 `session_start` 里包装共享的 `ctx.ui`，把 RPC 下被丢弃的声明式
+ * UI 扩展点接回 PiDeck。pi 按 `-e` 顺序加载扩展，桥先加载使**内置批次内部**
+ * 时序无歧义。
+ *
+ * ⚠️ 但这只管内置批次自己：pi 的发现顺序是「项目 → 全局 `~/.pi/agent/extensions`
+ * → `-e` 显式」，全局用户扩展**永远先于**本批次加载/注册，同一次 emit
+ * 的 handler 按注册顺序共享同一个 ctx 执行——所以全局扩展在 `session_start`
+ * 里拿不到 `ctx.gui`，**不能靠调整这里的顺序解决**。
+ * 桥的解法是把 `gui` getter 同时挂上 `ctx.ui` **共享单例**（`ui.gui`）：
+ * 任何加载顺序的扩展，从桥挂载后的任何事件 / 命令 handler 里
+ * `ctx.ui.gui` 都可靠可用（见桥 `docs/extension-points.md` §2.1）。
  */
 export const BUILT_IN_EXTENSIONS = [
+	"pi-deck-gui-bridge.ts",
 	"pi-deck-request-size-recovery.ts",
 	"pi-deck-ask-question.ts",
 	"pi-deck-goal-mode.ts",

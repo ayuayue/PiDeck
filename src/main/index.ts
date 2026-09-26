@@ -193,6 +193,7 @@ import { defaultPathCheck } from "./projects/projectPresence";
 import { FileSystemService } from "./fs/FileSystemService";
 import { AgentManager } from "./pi/AgentManager";
 import { PiProcess } from "./pi/PiProcess";
+import { getBridgeServer, stopBridgeServer } from "./pi/bridge/BridgeServer";
 import { PiModelCapabilityCache, watchPiConfigDirectory } from "./pi/PiModelCapabilityCache";
 // 生图消息不走 Agent 消息流，改名前需判断标题是否仍是占位名
 import { isDefaultAgentTitle } from "./pi/agentUtils";
@@ -3556,6 +3557,8 @@ app
 		);
 		// C12：退出清理登记（before-quit 统一 runAll，新增资源不再改 before-quit）
 		quitCleanup.register("pi-agents", () => agentManager?.stopAll());
+		// GUI 扩展桥端点：关掉监听，释放端口（桥随 pi 子进程一起结束）
+		quitCleanup.register("gui-bridge", () => stopBridgeServer());
 		// 开发诊断必须在 registerIpc 之前创建：systemIpc 闭包捕获这个实例。
 		diagnosticsMonitor = new DiagnosticsMonitor({
 			logger: appLogger,
@@ -4173,6 +4176,18 @@ app
 
 		// 先注册 IPC 并创建窗口：WSL 探测 / pi settings / 代理 / Web 服务都可能卡住或抛错，
 		// 不能挡在 createWindow 前面（打包便携版表现为「启动没反应」，dev 因热路径较短不易复现）。
+		// GUI 扩展桥端点：只绑 127.0.0.1，起不来就静默跳过（桥不工作，pi 与 PiDeck 照常）。
+		// 必须在任何 Agent spawn 之前启动，否则首个 agent 拿不到 PIDECK_BRIDGE_URL。
+		// 放在 registerIpc 之前：端点与 IPC 注册无依赖，早启动早就绪。
+		void getBridgeServer()
+			.start()
+			.then((info) => {
+				if (!info) return;
+				void appLogger?.info("app", "GUI bridge endpoint ready", { baseUrl: info.baseUrl });
+			})
+			.catch((error: unknown) => {
+				void appLogger?.warn("app", "GUI bridge endpoint startup failed", error);
+			});
 		registerIpc();
 		registerFeishuIpc();
 		// 配置备份（手动模式）：仅在备份目录为空（首次使用）时自动建一份 first-run，

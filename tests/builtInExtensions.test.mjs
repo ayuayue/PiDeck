@@ -49,11 +49,18 @@ test("listActiveBuiltInExtensionPaths respects removedBuiltIn and missing files"
 		const paths = listActiveBuiltInExtensionPaths({ appPath: root, resourcesPath: root, isDev: true }, ["pi-deck-todo.ts"]);
 		assert.equal(paths.length, 1);
 		assert.ok(String(paths[0]).endsWith("pi-deck-ask-question.ts"));
-		// 内置扩展清单随版本增长：ask/goal/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
-		assert.equal(BUILT_IN_EXTENSIONS.length, 12);
+		// 内置扩展清单随版本增长：gui-bridge/ask/goal/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
+		assert.equal(BUILT_IN_EXTENSIONS.length, 13);
+		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-gui-bridge.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-goal-mode.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-session-title.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-trash-guard.ts"));
+		// 桥的辅助模块**不得**进 -e 注入表（它们不是扩展入口，只是被 import 的模块）；
+		// 但它们必须仍在 extensions-manifest.json 里，否则热更新覆盖层会缺依赖。
+		assert.ok(!BUILT_IN_EXTENSIONS.includes("pi-deck-gui-bridge-types.ts"));
+		assert.ok(!BUILT_IN_EXTENSIONS.includes("pi-deck-gui-bridge-serialize.ts"));
+		// 顺序有语义：桥在最前（先包装 ctx.ui）
+		assert.equal(BUILT_IN_EXTENSIONS[0], "pi-deck-gui-bridge.ts");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

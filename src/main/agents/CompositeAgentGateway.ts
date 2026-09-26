@@ -16,6 +16,7 @@ import type {
 	SessionRuntimeModelSelection,
 	SessionUiResponseInput,
 } from "../../shared/types";
+import type { BridgeEvent } from "../../shared/types/bridge";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
 
 /**
@@ -243,6 +244,32 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 	notifyModelPreferenceIgnored(agentId: string, provider: string, modelId: string): void {
 		const gateway = this.owner(agentId);
 		gateway.notifyModelPreferenceIgnored?.(agentId, provider, modelId);
+	}
+
+	/**
+	 * 可选能力透传：渲染层→pi 的 GUI 桥事件回灌（§8.3）。
+	 *
+	 * **必须显式转发**：`SessionRuntimeCoordinator` 走的是 `agents.pushBridgeEvent?.(...) ?? false`，
+	 * 本类漏实现时可选调用链会直接短路——渲染层所有桥事件（勾选/输入/按钮）
+	 * 都变成静默丢弃，表现为「面板点了没反应」。DSH 网关未实现则返回 false（同样静默）。
+	 */
+	pushBridgeEvent(agentId: string, event: BridgeEvent): boolean {
+		try {
+			return this.owner(agentId).pushBridgeEvent?.(agentId, event) ?? false;
+		} catch {
+			// 未知 agent（已停止 / 从未创建）：桥事件是 fire-and-forget 的 UI 交互，
+			// 静默丢弃并返回 false，不要把异常抛回 IPC 边界。
+			return false;
+		}
+	}
+
+	/**
+	 * 可选能力透传：请求桥下一次轮询时全量重推一次（§9.4）。
+	 *
+	 * 与 `pushBridgeEvent` 同因：漏转发会让开设置弹窗/切会话/应用启动时的"重推"全部静默失效。
+	 */
+	requestBridgeResync(agentId: string): boolean {
+		return this.owner(agentId).requestBridgeResync?.(agentId) ?? false;
 	}
 
 	async publishRuntimeState(agentId: string): Promise<void> {

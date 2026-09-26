@@ -18,8 +18,10 @@ test("契约: 底栏安全控制位经 SecurityControl 统一入口（pi 安全�
 	assert.match(area, /<SecurityControl sessionId=\{props\.sessionId\} backend=\{composer\.backend\} disabled=\{composer\.isStarting\} \/>/);
 	assert.doesNotMatch(area, /<SecurityLevelMenu/);
 	assert.doesNotMatch(area, /<DshPermissionMenu/);
-	// 模板/附件仍走全局 busy 禁用；思考与模型已单独放开运行中
-	assert.match(area, /disabled=\{composer\.isBusy \|\| composer\.isStarting\}/);
+	// 底栏各控制位只锁「会话启动瞬间」（isStarting）：改草稿/下一轮生效的操作 busy 时开放；
+	// 唯一保留全局 busy 锁的是分支切换（会动工作区文件，见 ComposerArea 的 branchDisabled 注释）。
+	assert.match(area, /disabled=\{composer\.isStarting\}/);
+	assert.match(area, /branchDisabled=\{composer\.isBusy \|\| composer\.isStarting\}/);
 	assert.match(area, /modelDisabled=\{composer\.isStarting\}/);
 });
 

@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui-shadcn
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "./components/ui-shadcn/dialog";
 import { ConfirmDialog } from "./components/ui-shadcn/ConfirmDialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./components/ui-shadcn/alert-dialog";
-import { X, Cpu, FileCode2, FileText, KeyRound, Puzzle, Settings2, Shield, ShieldCheck, Sparkles, PlugZap, FolderOpen } from "lucide-react";
+import { X, Blocks, Cpu, FileCode2, FileText, KeyRound, Puzzle, Settings2, Shield, ShieldCheck, Sparkles, PlugZap, FolderOpen } from "lucide-react";
 import { cn } from "./lib/utils";
 import { deepClone } from "./utils/deepEqual";
 import { showNotice } from "./utils/notice";
@@ -25,6 +25,10 @@ import { SettingsTab } from "./config/SettingsTab";
 import { PromptsTab } from "./config/PromptsTab";
 import { SkillsTab } from "./config/SkillsTab";
 import { ExtensionsTab } from "./config/ExtensionsTab";
+// 桥贡献的「独立配置页」落点：每个 gui:config.page:* 贡献在「Agent 能力」组里占一个导航页。
+// 会话取值 / 落点 id 映射 / 「页消失就回退」都收在 hook 里（PR 评审 §3）。
+import { BridgeGuiSingleSlot } from "./components/bridge/BridgeSlot";
+import { guiPageSectionId, useBridgeConfigPages } from "./hooks/useBridgeConfigPages";
 import { type ResourceScope } from "./config/ResourceScopeSelector";
 import { SecuritySection, type SecuritySectionHandle } from "./components/config/SecuritySection";
 import { DshLogo, PiLogo } from "./components/session/SessionSourceBadge";
@@ -53,9 +57,12 @@ const api: PiDesktopApi = (window as unknown as { piDesktop: PiDesktopApi }).piD
 // config 组子页（模型/认证/设置/信任/MCP/原始文件）用 "config:<tab>" 复合值，
 // 其余组直接以 section 名作 value；Tabs 受控 value 由此编码，业务仍走 section/tab 双 state，
 // loadConfig 等既有依赖零改动。
-type ConfigSection = "config" | "security" | "skills" | "prompts" | "extensions";
+// `page.*` 是桥贡献的独立配置页（落点 `config.page`）—— 数量由扩展决定，不是静态枚举。
+type ConfigSection = "config" | "security" | "skills" | "prompts" | "extensions" | `page.${string}`;
 
 // 注意：修改 ConfigSection/ConfigTab 枚举时需同步更新 CONFIG_SECTIONS/CONFIG_TABS 校验数组
+
+// 注意：`guiPageSectionId` 的实现与单测在 hooks/useBridgeConfigPages.ts（这里直接复用，避免漂移）
 
 /** section+tab → Tabs value（config 组子页编码为 "config:<tab>"）。 */
 function sectionTabValue(section: ConfigSection, tab: ConfigTab): string {
@@ -89,7 +96,9 @@ function loadLastConfigTab(): { section: ConfigSection; tab?: ConfigTab } | null
 		const raw = localStorage.getItem(CONFIG_LAST_TAB_KEY);
 		if (!raw) return null;
 		const parsed = parseSectionTabValue(raw);
-		if (!CONFIG_SECTIONS.includes(parsed.section)) return null;
+		// `page.*` 的合法性没法在这里判（贡献列表要等 pi 起来才有）—— 先放行，
+		// 由 ConfigModalContent 里的 effect 在贡献确实不存在时拉回 config。
+		if (!CONFIG_SECTIONS.includes(parsed.section) && !parsed.section.startsWith("page.")) return null;
 		if (parsed.section === "config" && (!parsed.tab || !CONFIG_TABS.includes(parsed.tab))) return null;
 		return parsed;
 	} catch {
@@ -374,6 +383,12 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const [section, setSection] = useState<ConfigSection>(resourceOnly ? "skills" : focusConfigTab || focusProvider ? "config" : (lastTab?.section ?? "config"));
 	// 深链（如圆球面板「去配置用量」）优先于上次记住的配置分页。
 	const [tab, setTab] = useState<ConfigTab>(focusConfigTab ?? lastTab?.tab ?? "models");
+	// 桥贡献的配置页：会话取值 / 落点 id 映射 / 「页消失就回退」都由该 hook 拥有
+	// （PR 评审 §3：这段业务逻辑不留在 3000 行的装配组件里）。
+	const { sessionId: bridgeSessionId, pages: configPages } = useBridgeConfigPages({
+		activeSection: section,
+		onPageMissing: () => setSection("config"),
+	});
 	// 深链 provider：models 页展开该供应商卡片并滚动高亮（ModelsTab 消费）。
 	const [focusedProvider, setFocusedProvider] = useState<string | undefined>(focusProvider);
 	// 用量探针配置弹窗：由模型/认证/DSH 卡片触发（provider + backend 决定配置落盘位置）。
@@ -2526,9 +2541,30 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									</span>
 									{t("config.nav.prompts")}
 								</TabsTrigger>
+								{/* 桥贡献的独立配置页（落点 `config.page`）：标题取贡献自己的 slot.title，
+								    缺省用 key；排序已在 useGuiContributions 里按 order + key 做好。 */}
+								{configPages.map((page) => (
+									<TabsTrigger key={page.targetId} value={guiPageSectionId(page.targetId)} className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
+										<span className="config-nav-icon">
+											<Blocks size={14} aria-hidden="true" />
+										</span>
+										{page.node.slot?.title ?? page.key}
+									</TabsTrigger>
+								))}
 							</div>
 						</TabsList>
 
+						{/* 桥贡献的独立配置页内容：一项一个 Tab，按完整落点 id 精确取项。 */}
+						{configPages.map((page) => (
+							<TabsContent key={page.targetId} value={guiPageSectionId(page.targetId)} className="config-main min-w-0">
+								{/* 与原生 tab 同构：TabsContent > .config-content（滚动容器）> 内容。
+								    少了 .config-content 这层，页面内容既不滚、也会被 .config-main 裁掉；
+								    页面内的 sticky/absolute 还会挂到弹窗的滚动视口上（页脚悬到列表中间）。 */}
+								<div className="config-content">
+									<BridgeGuiSingleSlot sessionId={bridgeSessionId} slot="config.page" targetId={page.targetId} />
+								</div>
+							</TabsContent>
+						))}
 						<TabsContent value="config:models" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}

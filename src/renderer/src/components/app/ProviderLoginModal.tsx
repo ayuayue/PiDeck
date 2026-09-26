@@ -57,7 +57,7 @@ function ProviderLoginBody({ preselectedProviderId }: { preselectedProviderId?: 
 				<div className={PHASE_BODY_CLASS}>
 					{state.phase === "loading" && (
 						<div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
-							<Loader2 className="size-4 animate-spin" />
+							<Loader2 className="size-4 animate-pideck-spin" />
 							{t("providerLogin.loading")}
 						</div>
 					)}
@@ -156,7 +156,7 @@ function RunningBody({ flow, state }: { flow: ReturnType<typeof useProviderLogin
 				*/
 				<div className="space-y-1 rounded-lg border border-dashed border-border p-3">
 					<p className="flex items-center gap-2 text-xs text-muted-foreground">
-						<Loader2 className="size-3.5 animate-spin" />
+						<Loader2 className="size-3.5 animate-pideck-spin" />
 						{state.prompt ? t("providerLogin.running.awaitingAnswer") : t("providerLogin.running.awaitingLink")}
 					</p>
 					{!state.prompt && <p className="text-xs text-muted-foreground">{t("providerLogin.running.proxyHint")}</p>}

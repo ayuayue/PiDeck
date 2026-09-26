@@ -623,6 +623,9 @@ export function createPreviewApi(): PiDesktopApi {
 				runtimeGeneration: 1,
 			}),
 			sendUiResponse: async () => undefined,
+			// GUI 扩展桥：预览模式无桥端点，恒丢弃
+			sendBridgeEvent: async () => false,
+			requestBridgeResync: async () => false,
 			onRuntimeEvent: noop,
 			listRuntimes: async () => [],
 			activateRuntime: async () => ({
