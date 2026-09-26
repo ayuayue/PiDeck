@@ -676,11 +676,10 @@ export function App() {
 		toastDurationMs: DEFAULT_TOAST_DURATION_MS,
 		// showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
 		showThinking: true,
-		// 流式对话行为：默认自动展开中间过程；新一轮默认收起非最新轮（与 SettingsStore 一致）
+		// 流式对话行为：默认自动展开中间过程（与 SettingsStore 一致）
 		expandInterimDuringStream: true,
 		// 过程组显示默认关闭：与主进程 SettingsStore 默认一致，首屏未拉到真实设置前保持平铺渲染
 		processGroupDisplay: false,
-		collapsePrevRunsOnNewTurn: true,
 		showDevTools: false,
 		developerDiagnostics: false,
 		// Electron Chromium 沙箱默认关，与主进程历史兼容策略一致
@@ -757,9 +756,8 @@ export function App() {
 		setTurnFlowSettings({
 			expandInterimDuringStream: settings.expandInterimDuringStream,
 			processGroupDisplay: settings.processGroupDisplay,
-			collapsePrevRunsOnNewTurn: settings.collapsePrevRunsOnNewTurn,
 		});
-	}, [settings.expandInterimDuringStream, settings.processGroupDisplay, settings.collapsePrevRunsOnNewTurn, setTurnFlowSettings]);
+	}, [settings.expandInterimDuringStream, settings.processGroupDisplay, setTurnFlowSettings]);
 
 	// 新建会话默认后端同步给根级组件（并行问询 AskPanel 等不持有 settings props）。
 	const setDefaultAgentBackend = useSetAtom(defaultAgentBackendAtom);
@@ -2540,7 +2538,7 @@ export function App() {
 			throw new Error(localizedError);
 		}
 		// 排队投递（steer「插入当前回合」/ followUp 排队）同样构成「新一轮」：
-		// bump 会话 tick，timeline 侧非最新轮据此收起（设置② collapsePrevRunsOnNewTurn）。
+		// bump 会话 tick，timeline 侧非最新轮据此收起。
 		// 普通发送由 useSessionSend 的 sendPrompt 返回值自己 bump；这里是队列 drain 的
 		// 唯一出口，漏掉会导致中断轮（无最终回答）在新一轮开始后仍保持展开。
 		store.set(bumpNewTurnCollapseTickAtom, sessionId);

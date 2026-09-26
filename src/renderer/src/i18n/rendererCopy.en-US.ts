@@ -3907,8 +3907,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.expandInterimDuringStreamDesc": "On (default): thinking and tool details auto-expand while the latest turn streams. Off: keep them collapsed to save rendering resources; manually expanded turns are unaffected.",
 	"settings.processGroupDisplay": "Grouped process display (experimental)",
 	"settings.processGroupDisplayDesc": "When on, consecutive reasoning and tool calls in a turn merge into process groups; expand a group header to see its details. Turn it off to keep the current flat layout.",
-	"settings.collapsePrevRunsOnNewTurn": "Collapse previous turns on new message",
-	"settings.collapsePrevRunsOnNewTurnDesc": "Automatically collapses thinking/tool details of previous turns (including manually expanded ones) after sending a new message, reducing what is rendered at once.",
 	"settings.idleAgentSection": "Idle agent memory optimization",
 	"settings.idleAgentSectionDesc": "Idle agent processes still hold memory. When on, long-idle agents are released automatically and restart on next use.",
 	"settings.idleAgentAutoRelease": "Auto-release idle agents",

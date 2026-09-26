@@ -208,7 +208,6 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		hasFinalAnswer,
 		isLatestRun: props.isLatestRun,
 		expandInterimDuringStream: flowSettings.expandInterimDuringStream,
-		collapsePrevRunsOnNewTurn: flowSettings.collapsePrevRunsOnNewTurn,
 		newTurnCollapseTick,
 		autoCollapseTick: props.autoCollapseTick,
 		onAutoCollapsed: props.onAutoCollapsed,

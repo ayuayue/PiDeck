@@ -3897,8 +3897,6 @@ export const zhCN = {
 	"settings.expandInterimDuringStreamDesc": "开启（默认）时，最新轮流式输出时自动展开思考与工具详情。关闭时，对话过程中保持折叠，节省渲染资源；手动展开的轮次不受影响。",
 	"settings.processGroupDisplay": "过程组显示（实验）",
 	"settings.processGroupDisplayDesc": "开启后，一轮里的连续思考与工具调用会合并成「过程组」，点开组头才展开明细；关闭则保持现在的平铺方式。",
-	"settings.collapsePrevRunsOnNewTurn": "新一轮开始时收起上一轮",
-	"settings.collapsePrevRunsOnNewTurnDesc": "发送新消息后自动收起上一轮展开的思考/工具详情（含手动展开的），减少同时渲染的内容。",
 	"settings.idleAgentSection": "闲置 Agent 内存优化",
 	"settings.idleAgentSectionDesc": "长时间闲置的 Agent 进程仍占内存；开启后会自动释放，会话下次使用时会自动重新启动",
 	"settings.idleAgentAutoRelease": "自动释放闲置 Agent",

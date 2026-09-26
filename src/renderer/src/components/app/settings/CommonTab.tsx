@@ -292,7 +292,6 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
 				<SettingSwitchRow anchor="common-expand-interim-during-stream" title={t("settings.expandInterimDuringStream")} description={t("settings.expandInterimDuringStreamDesc")} checked={draft.expandInterimDuringStream} onChange={(checked) => updateDraft({ expandInterimDuringStream: checked })} />
 				{/* 过程组显示（实验）：开启后连续思考/工具调用合并成过程组，关闭则保持平铺显示 */}
 				<SettingSwitchRow anchor="common-process-group-display" title={t("settings.processGroupDisplay")} description={t("settings.processGroupDisplayDesc")} checked={draft.processGroupDisplay} onChange={(checked) => updateDraft({ processGroupDisplay: checked })} />
-				<SettingSwitchRow anchor="common-collapse-prev-runs" title={t("settings.collapsePrevRunsOnNewTurn")} description={t("settings.collapsePrevRunsOnNewTurnDesc")} checked={draft.collapsePrevRunsOnNewTurn} onChange={(checked) => updateDraft({ collapsePrevRunsOnNewTurn: checked })} />
 			</SettingsSection>
 
 			{/* 快捷消息：数据在 userData/quick-messages.json，本区自持编辑状态并即时落盘（不参与全局草案/取消）。 */}

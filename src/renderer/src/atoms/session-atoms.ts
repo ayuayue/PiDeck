@@ -319,8 +319,8 @@ function disposeStreamingThinkingFamily(thinkingId: string) {
 
 /**
  * 「新一轮开始」信号：composer 发送成功后 +1（sessionId 键）。
- * TurnRow 订阅本会话 tick：变化时非最新轮强制收起（设置② collapsePrevRunsOnNewTurn 开启时），
- * 含用户手动展开的轮次。tick 低频（每轮一次），跨会话订阅经 family selectAtom 隔离。
+ * TurnRow 订阅本会话 tick：变化时非最新轮强制收起（含用户手动展开的轮次）；
+ * tick 低频（每轮一次），跨会话订阅经 family selectAtom 隔离。
  */
 export const newTurnCollapseTickByIdAtom = atom<Record<string, number>>({});
 

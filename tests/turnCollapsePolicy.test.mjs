@@ -38,10 +38,38 @@ test("queued prompt drains bump the new-turn collapse tick", () => {
 	assert.ok(bumpIndex > acceptedIndex, "tick bump happens only after accepted");
 });
 
-test("new-turn collapse stays enabled by default in both settings layers", () => {
-	// 设置②（collapsePrevRunsOnNewTurn）默认开启，保证新一轮折叠对新会话默认生效。
-	assert.match(appUiAtoms, /collapsePrevRunsOnNewTurn: true/);
-	assert.match(settingsStore, /collapsePrevRunsOnNewTurn: true/);
+test("new-turn collapse is unconditional: the switch is gone from every layer", () => {
+	// 开关已删除（用户要求恒定开启）：契约/默认值/UI/i18n 任何一层残留 key，
+	// 都会让人以为还能关（或让旧 UI 读一个没人写的字段）。
+	const layers = [
+		["shared types", readFileSync("src/shared/types/settings.ts", "utf8")],
+		["App 首屏默认值", app],
+		["TurnFlowSettings", appUiAtoms],
+		["useTurnExecution", turnExecution],
+		["TurnRow", turnRow],
+		["CommonTab", readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8")],
+		["unsavedChangesSummary", readFileSync("src/renderer/src/components/app/settings/unsavedChangesSummary.ts", "utf8")],
+		["settingsFieldAnchors", readFileSync("src/renderer/src/utils/settingsFieldAnchors.ts", "utf8")],
+		["previewApi", readFileSync("src/renderer/src/previewApi.ts", "utf8")],
+		["i18n zh-CN", readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8")],
+		["i18n en-US", readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8")],
+	];
+	for (const [label, source] of layers) {
+		assert.doesNotMatch(source, /collapsePrevRunsOnNewTurn/, `${label} 不应再引用已删除的开关`);
+	}
+	// SettingsStore 只保留迁移用的字面量（清理旧字段），默认值不得再出现。
+	assert.doesNotMatch(settingsStore, /collapsePrevRunsOnNewTurn:\s*true/);
+	// 行为无条件：初始态与 effect 都不再读开关。
+	assert.doesNotMatch(turnExecution, /if \(!opts\.collapsePrevRunsOnNewTurn\) return;/);
+});
+
+test("SettingsStore 启动时清理旧开关字段并落盘一次", () => {
+	// 设置对象整体持久化：不删旧字段，下一次任意保存都会把它写回磁盘。
+	assert.match(settingsStore, /this\.migrateRemovedCollapsePrevRunsSwitch\(\)/);
+	assert.match(settingsStore, /private migrateRemovedCollapsePrevRunsSwitch\(\)/);
+	assert.match(settingsStore, /const legacy = this\.settings as unknown as Record<string, unknown>;/);
+	assert.match(settingsStore, /delete legacy\.collapsePrevRunsOnNewTurn;/);
+	assert.match(settingsStore, /void this\.save\(\)\.catch\(\(\) => undefined\)/);
 });
 
 test("manual/streaming expansion is remembered across remounts (session-scoped)", () => {

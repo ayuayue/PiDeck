@@ -480,7 +480,7 @@ export function useSessionSend(options: UseSessionSendOptions) {
 				...(description ? { description } : {}),
 				...(streamingBehavior ? { streamingBehavior } : {}),
 			});
-			// 新一轮开始：bump 本会话 tick，timeline 侧非最新轮据此收起（设置②）。
+			// 新一轮开始：bump 本会话 tick，timeline 侧非最新轮据此收起。
 			// sendPrompt resolve = pi 已接受消息，旧轮即将/已经结束，此时收掉最省资源。
 			store.set(bumpNewTurnCollapseTickAtom, sessionId);
 			if (result.agentId) {

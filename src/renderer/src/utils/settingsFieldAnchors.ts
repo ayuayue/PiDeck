@@ -180,12 +180,6 @@ export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
 	},
 	{
 		tab: "common",
-		slug: "common-collapse-prev-runs",
-		labelKey: "settings.collapsePrevRunsOnNewTurn",
-		keywords: ["折叠历史轮次", "折叠", "collapse", "上一轮", "收起"],
-	},
-	{
-		tab: "common",
 		slug: "common-idle-agent-auto-release",
 		labelKey: "settings.idleAgentAutoRelease",
 		keywords: ["闲置释放", "内存优化", "idle", "自动关闭 agent", "省内存"],

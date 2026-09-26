@@ -201,11 +201,6 @@ export type AppSettings = {
 	 * true：一轮里连续的思考与工具调用合并成过程组，点开组头才展开明细。
 	 */
 	processGroupDisplay: boolean;
-	/**
-	 * 新一轮（用户发送新消息）开始时自动收起上一轮展开的中间过程，节省渲染资源。
-	 * true（默认）：发送新消息后收起所有非最新轮（含手动展开的）；false：保持现状。
-	 */
-	collapsePrevRunsOnNewTurn: boolean;
 	/** 是否开启开发者控制台（DevTools） */
 	showDevTools: boolean;
 	/**

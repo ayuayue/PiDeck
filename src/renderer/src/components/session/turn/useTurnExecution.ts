@@ -39,8 +39,6 @@ export function useTurnExecution(opts: {
 	isLatestRun?: boolean;
 	/** 设置①：流式对话时展开中间过程。默认关。 */
 	expandInterimDuringStream?: boolean;
-	/** 设置②：新一轮开始时收起上一轮。默认开。 */
-	collapsePrevRunsOnNewTurn?: boolean;
 	/** 新一轮开始信号（session 级单调递增）。变化时非最新轮被强制收起。 */
 	newTurnCollapseTick?: number;
 	/** 最新轮结束后的自动收起信号（timeline 侧 1.5s idle 计时）。 */
@@ -64,7 +62,7 @@ export function useTurnExecution(opts: {
 		}
 		// 新一轮已发生且本轮非最新：一律折叠（含手动展开过的，含本轮刚刚失去
 		// 最新位 & tick 已 bump 的「卸载期间新消息」场景），旧记忆作废。
-		if (opts.collapsePrevRunsOnNewTurn !== false && opts.isLatestRun === false && currentTick > 0) {
+		if (opts.isLatestRun === false && currentTick > 0) {
 			return false;
 		}
 		// 非 live（agentRunning=false：只看历史/会话空闲）一律折叠。
@@ -116,7 +114,6 @@ export function useTurnExecution(opts: {
 	// 消费式处理：仅在“挂载后新发生的新一轮”时动作，挂载时已有的 tick 由初始态
 	// 裁定（记忆 atTick >= tick 时恢复，否则按新一轮折叠），effect 不重复清空。
 	useEffect(() => {
-		if (!opts.collapsePrevRunsOnNewTurn) return;
 		const tick = opts.newTurnCollapseTick ?? 0;
 		if (tick <= 0 || tick === lastNewTurnCollapseTickRef.current) return;
 		// tick 已推进但本轮仍是最新（新一轮属于本轮的后续渲染）：等 isLatestRun
@@ -126,7 +123,7 @@ export function useTurnExecution(opts: {
 		userOverrideRef.current = false;
 		setStepsVisible(false);
 		opts.onStepsVisibleMemoryChange?.(undefined, tick);
-	}, [opts.collapsePrevRunsOnNewTurn, opts.isLatestRun, opts.newTurnCollapseTick, opts.onStepsVisibleMemoryChange]);
+	}, [opts.isLatestRun, opts.newTurnCollapseTick, opts.onStepsVisibleMemoryChange]);
 
 	// timeline 侧 1.5s idle 后发来的自动收起信号。仅最新轮、仍有最终回答且执行过程
 	// 当前可见时收起；已经手动折叠/从未展开的轮次不回调，timeline 不会错误滚动。
