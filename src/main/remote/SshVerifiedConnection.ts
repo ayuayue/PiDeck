@@ -5,6 +5,7 @@ import { runSshClientSelfCheck, type SshClientRuntime } from "./SshClientRuntime
 import { assertNoForwardedEnvironment, querySshDraftRoute } from "./SshHostVerifier";
 import { SshHostPinStore } from "./SshHostPinStore";
 import { RemoteHostStore, type RemoteHostStoreState } from "./RemoteHostStore";
+import { REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH } from "./RemoteHelperContract";
 import type { RemoteHostProfile } from "./RemoteHostStoreCodec";
 import { parseSshResolvedRoute, sshRouteDigest } from "./SshRouteDigest";
 
@@ -159,6 +160,6 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 function readRemoteCommand(value: unknown, kind: VerifiedSshCommandKind): string | undefined {
 	if (value === undefined) return undefined;
 	if (kind !== "ssh-batch") throw new Error("SSH_REMOTE_COMMAND_NOT_ALLOWED");
-	if (typeof value !== "string" || value.length === 0 || value.length > 8192 || /[\x00\n\r]/.test(value)) throw new Error("SSH_REMOTE_COMMAND_INVALID");
+	if (typeof value !== "string" || value.length === 0 || value.length > REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH || /[\x00\n\r]/.test(value)) throw new Error("SSH_REMOTE_COMMAND_INVALID");
 	return value;
 }

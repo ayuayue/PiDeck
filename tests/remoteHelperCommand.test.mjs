@@ -4,6 +4,8 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { buildHelperRemoteCommand, resolveHelperEntryPath } = loadTsCommonJs("src/main/remote/RemoteHelperCommand.ts");
+const { REMOTE_HELPER_ENTRY_FILE_NAME } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
+const { REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH } = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 
 const SHA = "a".repeat(64);
 const DEPLOY_ROOT = "/home/dev/.pideck/remote-host";
@@ -83,4 +85,14 @@ test("the ssh argv carries the command after the destination and only for a batc
 	assert.equal(command.split(" ").length, 2);
 	assert.equal(command.startsWith("'"), true);
 	assert.equal(command.endsWith("'"), true);
+});
+
+test("the default entry name and the command ceiling come from one place", () => {
+	// A second literal for the entry name would let a rename drift the template away from the bundle.
+	const built = buildHelperRemoteCommand({ nodePath: "/usr/bin/node", deployRoot: DEPLOY_ROOT, bundleSha256: SHA });
+	assert.equal(built.includes(REMOTE_HELPER_ENTRY_FILE_NAME), true, "the template must use the entry name the bundle declares");
+	assert.equal(buildHelperRemoteCommand({ nodePath: "/usr/bin/node", deployRoot: DEPLOY_ROOT, bundleSha256: SHA, entryName: "other.mjs" }).includes("other.mjs"), true);
+	// Whatever the producer returns has to be something the argv boundary accepts.
+	assert.ok(built.length <= REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH);
+	assert.throws(() => buildHelperRemoteCommand({ nodePath: `/${"n".repeat(4094)}`, deployRoot: `/${"d".repeat(4094)}`, bundleSha256: SHA }), /REMOTE_HELPER_COMMAND_INVALID_LENGTH/);
 });

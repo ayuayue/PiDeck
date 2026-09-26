@@ -1,5 +1,6 @@
 import { quotePosixArgument, REMOTE_BOOTSTRAP_STAGING_PREFIX } from "./RemoteBootstrapContract";
-import { REMOTE_BOOTSTRAP_BUNDLE_DIR_NAME } from "./RemoteHelperContract";
+import { REMOTE_HELPER_ENTRY_FILE_NAME } from "./RemoteHelperEntry";
+import { REMOTE_BOOTSTRAP_BUNDLE_DIR_NAME, REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH } from "./RemoteHelperContract";
 
 /**
  * The fixed remote command template of plan §168: the only place that turns local knowledge into a
@@ -60,8 +61,11 @@ function readRemotePath(value: unknown, label: string): string {
 export function buildHelperRemoteCommand(input: HelperRemoteCommandInput): string {
 	if (typeof input !== "object" || input === null) throw new Error("REMOTE_HELPER_COMMAND_INVALID_INPUT");
 	const nodePath = readRemotePath(input.nodePath, "NODE");
-	const entryPath = resolveHelperEntryPath({ deployRoot: input.deployRoot, bundleSha256: input.bundleSha256, entryName: input.entryName ?? "helper.mjs" });
+	const entryPath = resolveHelperEntryPath({ deployRoot: input.deployRoot, bundleSha256: input.bundleSha256, entryName: input.entryName ?? REMOTE_HELPER_ENTRY_FILE_NAME });
 	// Staging is never executable: a command that pointed at it would run unverified bytes.
 	if (entryPath.includes(`/${REMOTE_BOOTSTRAP_STAGING_PREFIX}`)) throw new Error("REMOTE_HELPER_COMMAND_INVALID_ENTRY");
-	return [quotePosixArgument(nodePath), quotePosixArgument(entryPath)].join(" ");
+	const built = [quotePosixArgument(nodePath), quotePosixArgument(entryPath)].join(" ");
+	// The argv boundary refuses a longer command, so emitting one would only move the failure later.
+	if (built.length > REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH) throw new Error("REMOTE_HELPER_COMMAND_INVALID_LENGTH");
+	return built;
 }
