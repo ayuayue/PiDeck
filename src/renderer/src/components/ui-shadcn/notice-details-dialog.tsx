@@ -6,6 +6,7 @@ import { openInSystemBrowser } from "../../utils/openExternal";
 import { MarkdownStream } from "../session/MarkdownStream";
 import { Button } from "./button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog";
+import { openNoticeHistoryDialog } from "./notice-history-dialog";
 import { KIND_ICON, type NoticeDetailsPayload } from "./notice-toast";
 
 /**
@@ -87,7 +88,20 @@ export function NoticeDetailsDialog({ payload, onOpenChange }: { payload: Notice
 						</div>
 					</div>
 				) : null}
-				<div className="flex justify-end">
+				<div className="flex justify-end gap-2">
+					{/* 详情弹窗是「错过 toast 后」最常见的落点，顺手给全量历史入口；
+					    先收起本弹窗再开历史，避免两层模态叠着抢焦点 */}
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						onClick={() => {
+							onOpenChange(false);
+							openNoticeHistoryDialog();
+						}}
+					>
+						{t("notice.historyOpen")}
+					</Button>
 					<Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
 						{copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
 						{copied ? t("copy.success") : t("common.copy")}

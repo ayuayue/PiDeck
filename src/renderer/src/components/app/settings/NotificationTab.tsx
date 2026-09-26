@@ -1,12 +1,13 @@
 import { memo, useEffect, useState } from "react";
 import { Play, Upload, Trash2 } from "lucide-react";
-import { createDefaultSoundAlertSettings, DEFAULT_SOUND_BY_KIND, SOUND_ALERT_PRESETS, parseSoundAlertRef, type AppSettings, type CustomSoundInfo, type SoundAlertKind, type SoundAlertSettings } from "../../../../../shared/types";
+import { createDefaultSoundAlertSettings, DEFAULT_SOUND_BY_KIND, SOUND_ALERT_PRESETS, TOAST_DURATION_STICKY_MS, parseSoundAlertRef, type AppSettings, type CustomSoundInfo, type SoundAlertKind, type SoundAlertSettings } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { resolveSoundUrl } from "../../../utils/soundUrls";
 import { Button } from "../../ui-shadcn/button";
 import { Switch } from "../../ui-shadcn/switch";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
+import { openNoticeHistoryDialog } from "../../ui-shadcn/notice-history-dialog";
 import { SettingsSection } from "./SettingsStorageTab";
 import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
 
@@ -16,6 +17,12 @@ type NotificationTabProps = {
 	/** 字段级脏检查（与其它 tab 同一 isDirty 回调），驱动标题旁黄点。 */
 	isDirty?: (field: keyof AppSettings) => boolean;
 };
+
+/**
+ * toast 默认时长档位（ms）：含 -1（常驻哨兵，见 shared TOAST_DURATION_STICKY_MS）。
+ * 与主进程 clampToastDurationMs 的合法区间（1000–60000）一致。
+ */
+const TOAST_DURATION_PRESETS = [1500, 2500, 4000, 6000, 10000, TOAST_DURATION_STICKY_MS] as const;
 
 /** 事件行：启用开关 + 音效下拉 + 试听。 */
 function SoundEventRow(props: { kind: SoundAlertKind; settings: SoundAlertSettings; customSounds: CustomSoundInfo[]; isDirty: (field: keyof AppSettings) => boolean; onChange: (config: SoundAlertSettings[SoundAlertKind]) => void }) {
@@ -160,6 +167,29 @@ export const NotificationTab = memo(function NotificationTab(props: Notification
 				<SettingSwitchRow anchor="notification-ask" title={t("settings.askNotification")} description={t("settings.askNotificationDesc")} checked={draft.askNotificationEnabled} onChange={(checked) => updateDraft({ askNotificationEnabled: checked })} />
 				<SettingSwitchRow anchor="notification-agent-count" title={t("settings.agentCountReminder")} description={t("settings.agentCountReminderDesc")} checked={draft.agentCountReminderEnabled} onChange={(checked) => updateDraft({ agentCountReminderEnabled: checked })} />
 				<SettingSwitchRow anchor="notification-announcement" title={t("settings.announcementNotification")} description={t("settings.announcementNotificationDesc")} checked={draft.announcementNotificationEnabled} onChange={(checked) => updateDraft({ announcementNotificationEnabled: checked })} />
+			</SettingsSection>
+
+			{/* 应用内通知（toast）：默认展示时长可配置 + 历史回看 */}
+			<SettingsSection title={t("settings.inAppNotificationSection")}>
+				<SettingRow anchor="notification-toast-duration" title={t("settings.toastDuration")} description={t("settings.toastDurationDesc")}>
+					<Select value={String(draft.toastDurationMs)} onValueChange={(value) => updateDraft({ toastDurationMs: Number(value) })}>
+						<SelectTrigger className="h-9 min-w-0" aria-label={t("settings.toastDuration")}>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{TOAST_DURATION_PRESETS.map((preset) => (
+								<SelectItem key={preset} value={String(preset)}>
+									{preset === TOAST_DURATION_STICKY_MS ? t("settings.toastDurationSticky") : t("settings.toastDurationSeconds", { seconds: Math.round(preset / 1000) })}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingRow title={t("settings.toastHistory")} description={t("settings.toastHistoryDesc")}>
+					<Button variant="outline" size="sm" onClick={openNoticeHistoryDialog}>
+						{t("settings.toastHistoryOpen")}
+					</Button>
+				</SettingRow>
 			</SettingsSection>
 
 			<SettingsSection title={t("settings.sound.title")} description={t("settings.sound.sectionDesc")}>

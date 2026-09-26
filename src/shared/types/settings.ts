@@ -53,6 +53,14 @@ export type MirrorHealthResult = {
 
 /** 宠物缩放默认值：0.3 = 设置滑块 30%。出厂 100% 太大，新用户/缺省回退都用此值。 */
 export const DEFAULT_PET_SCALE = 0.3;
+/** toast 默认展示时长（ms）出厂值：与渲染层 notice.ts 兜底常量一致。 */
+export const DEFAULT_TOAST_DURATION_MS = 4000;
+/**
+ * toast 默认时长「常驻（不自动消失）」哨兵值。
+ * 必须用有限数：设置落盘走 settings.json，`JSON.stringify(Infinity)` 会变成 null，
+ * 升级后读回即丢失。渲染层在 configureNoticeDefaults 里把哨兵映射回 POSITIVE_INFINITY。
+ */
+export const TOAST_DURATION_STICKY_MS = -1;
 export type AppFontBaseMode = "system" | "sans" | "serif" | "custom";
 export type AppFontMonoMode = "system-mono" | "custom";
 /** 主窗口启动尺寸预设：last=上次关闭时的窗口大小（读不到时顺延默认）；fullscreen 占满屏幕，maximized 最大化，其余为固定窗口 */
@@ -171,6 +179,15 @@ export type AppSettings = {
 	 * 弹出时机由渲染层忙碌检测控制（输入中/模态打开/窗口隐藏时延迟），与本开关解耦。
 	 */
 	announcementNotificationEnabled: boolean;
+	/**
+	 * 应用内 toast（info/neutral 档）未显式指定时长时的默认展示时长（ms）。
+	 * 扩展 ctx.ui.notify 等短时提示过去硬编码 1500ms，用户普遍反馈来不及看；
+	 * 改为可配置兜底。调用方显式传入的时长（如启动回退提示 10s、error 常驻）不受影响，
+	 * error/warning/question 的更长默认值也不受本项牵引。
+	 * 取值：有限正数毫秒（主进程钳制 1000–60000）或 TOAST_DURATION_STICKY_MS(-1)=常驻；
+	 * 非法值读取时钳回默认。渲染层把哨兵映射为 Number.POSITIVE_INFINITY。
+	 */
+	toastDurationMs: number;
 	/** 是否在会话中显示模型思考过程，默认开启 */
 	showThinking: boolean;
 	/**

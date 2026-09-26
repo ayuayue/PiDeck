@@ -23,7 +23,9 @@ test("通知统一走 sonner 全局 toast（不再有 app-notice 锚点浮层）
 	assert.match(runtimeController, /showNotice\(\s*notification\.message/);
 	assert.match(notice, /from "sonner"/);
 	assert.match(notice, /toast\.custom/);
-	assert.match(notice, /duration \?\? .*1500/);
+	// info 档默认时长改为可配置兜底（设置项 toastDurationMs，见 configureNoticeDefaults），
+	// 契约是「duration 省略时走 noticeDefaultDurationMs 变量」，不再锁死 1500 字面量。
+	assert.match(notice, /duration\s*\?\?\s*[^;\n]*noticeDefaultDurationMs/);
 	// M7：后台 Ask 巡检 effect 已搬到 App 级单点挂载的 useBackgroundAskPatrol
 	const askPatrol = readFileSync("src/renderer/src/hooks/useBackgroundAskPatrol.ts", "utf8");
 	assert.match(askPatrol, /backgroundPending/);

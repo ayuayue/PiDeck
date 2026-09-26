@@ -1,4 +1,5 @@
 import { Button } from "./components/ui-shadcn/button";
+import { NoticeHistoryDialog } from "./components/ui-shadcn/notice-history-dialog";
 import { useSessionNavigation } from "./hooks/useSessionNavigation";
 import { WorkbenchFileTabs } from "./components/workspace/WorkbenchFileTabs";
 import { ArrowLeft, ArrowRight, PanelLeft } from "lucide-react";
@@ -26,7 +27,7 @@ import {
 	RefreshCw,
 	Fingerprint,
 } from "lucide-react";
-import { showNotice, type NoticeKind } from "./utils/notice";
+import { configureNoticeDefaults, showNotice, type NoticeKind } from "./utils/notice";
 import { copyTextWithCopiedNotice } from "./utils/clipboardNotice";
 import { sessionHistoryUnavailableState } from "./utils/sessionHistoryAvailability";
 import { buildSettingsCommands, type PaletteCommand } from "./utils/commandPaletteCommands";
@@ -161,6 +162,7 @@ const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourc
 import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE } from "../../shared/types";
 import { hydrateImageContents } from "../../shared/imageContentSrc";
 import type { AgentRuntimeState, AgentTab, SessionRuntimeTarget, AppInfo, AppSettings, ChatMessage, FileTreeNode, ImageContent, PiCommand, Project, AgentBackend, SessionLaunchPreferences, SessionRecord, SessionSummary, ComposerAgentMode, TerminalTarget, GitBranchInfo, FocusTargetPayload } from "../../shared/types";
+import { DEFAULT_TOAST_DURATION_MS } from "../../shared/types";
 
 export function App() {
 	if (missingElectronPreload) {
@@ -664,6 +666,8 @@ export function App() {
 		agentCountReminderEnabled: true,
 		// 公告通知默认开启：与主进程 SettingsStore 默认一致，首屏未拉到真实设置前不误关提醒
 		announcementNotificationEnabled: true,
+		// toast 默认展示时长：与主进程 defaultSettings 同源（扩展提示的兜底可读时长）
+		toastDurationMs: DEFAULT_TOAST_DURATION_MS,
 		// showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
 		showThinking: true,
 		// 流式对话行为：默认自动展开中间过程；新一轮默认收起非最新轮（与 SettingsStore 一致）
@@ -1011,6 +1015,10 @@ export function App() {
 
 	// 公告通知调度（读镜像 atom）：输入/Agent 运行中/模态打开/窗口不活跃时自动延后弹出（不打扰操作，见 hook 注释）
 	useAnnouncementNotifier();
+	// toast 默认展示时长同步给 notice helper（showNotice 单点消费；保存设置即时生效）
+	useEffect(() => {
+		configureNoticeDefaults({ toastDurationMs: settings.toastDurationMs });
+	}, [settings.toastDurationMs]);
 	// 模型保存后台验证结果（fork 真实 pi ~17s）失败时全局 toast；成功静默，见 hook 注释
 	useModelsVerifyNotifier();
 	const activeQueuedPrompts = currentSessionId ? (queue.queuedPrompts[currentSessionId] ?? []) : [];
@@ -4289,6 +4297,10 @@ export function App() {
 
 					{/* 并行问询结果弹框（AskPanel）：独立匿名会话的结果展示，根级渲染 */}
 					<AskPanelOverlay />
+
+					{/* toast 通知历史：全渲染层唯一一份（设置页/详情弹窗两个入口共用，
+					    模块级 opener 注册式打开，见 utils/noticeHistory + ui-shadcn/notice-history-dialog） */}
+					<NoticeHistoryDialog />
 
 					{/* 外部编辑器选择气泡 */}
 					<ExternalEditorOverlay

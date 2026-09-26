@@ -70,6 +70,7 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "askNotificationEnabled", tab: "notification", itemKey: "settings.askNotification" },
 	{ field: "agentCountReminderEnabled", tab: "notification", itemKey: "settings.agentCountReminder" },
 	{ field: "announcementNotificationEnabled", tab: "notification", itemKey: "settings.announcementNotification" },
+	{ field: "toastDurationMs", tab: "notification", itemKey: "settings.toastDuration" },
 	{ field: "startupWindowMode", tab: "common", itemKey: "settings.startupWindowMode" },
 	{ field: "closeToTray", tab: "common", itemKey: "settings.closeToTray" },
 	{ field: "singleInstance", tab: "common", itemKey: "settings.singleInstance" },

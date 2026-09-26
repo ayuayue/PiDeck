@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_GEN_WATERMARK, parseImageGenOutputFormat, parseImageGenSize, parseImageGenWatermark } from "../../shared/imageGenParams";
-import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, normalizeSoundAlertSettings, type AppSettings } from "../../shared/types";
+import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS, normalizeSoundAlertSettings, type AppSettings } from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
@@ -153,6 +153,8 @@ Gitmoji 对应关系：
 	agentCountReminderEnabled: true,
 	// 公告通知默认开启：新公告弹 toast 提醒（弹出时机另有忙碌延迟控制）
 	announcementNotificationEnabled: true,
+	// toast 默认展示时长：扩展 notify 等短时提示的兜底时长可配置（见 AppSettings.toastDurationMs）
+	toastDurationMs: DEFAULT_TOAST_DURATION_MS,
 	showThinking: readPiAgentShowThinking() ?? true,
 	// 流式对话设置：默认自动展开中间过程（思考/工具详情随最新轮流式展开）；
 	// 新一轮开始默认收起非最新轮（含手动展开的），用户可在设置中关闭。
@@ -304,6 +306,17 @@ export function migrateUpdateSourceToAtomgit(settings: { updateSource?: unknown;
 /** 供应商卡片自定义顺序的落盘上限：只防脏数组无限膨胀，正常配置远低于此值 */
 const MAX_PROVIDER_ORDER_ENTRIES = 200;
 
+/**
+ * toast 默认时长的读取钳制：-1（常驻哨兵，见 TOAST_DURATION_STICKY_MS）与 [1000, 60000]
+ * 的有限正数放行，其余（脏数据/越界/负数）回落默认值。
+ * 磁盘 JSON 无类型，手工改坏不能让 toast 永不再消失；Infinity 不进这里（JSON 存不了）。
+ */
+function clampToastDurationMs(value: unknown): number {
+	if (value === TOAST_DURATION_STICKY_MS) return TOAST_DURATION_STICKY_MS;
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 1000 || value > 60000) return DEFAULT_TOAST_DURATION_MS;
+	return value;
+}
+
 export class SettingsStore {
 	private readonly filePath = desktopSettingsPath();
 	private settings: AppSettings = { ...defaultSettings };
@@ -336,6 +349,9 @@ export class SettingsStore {
 			if (typeof this.settings.announcementNotificationEnabled !== "boolean") {
 				this.settings.announcementNotificationEnabled = defaultSettings.announcementNotificationEnabled;
 			}
+			// toast 默认时长：旧 settings.json 缺字段或脏值（0/负数/超大/字符串）钳回默认，
+			// 避免升级后 toast 永不再消失或瞬间消失。
+			this.settings.toastDurationMs = clampToastDurationMs(this.settings.toastDurationMs);
 			// 兼容迁移：内置 CommitMono 字体已移除（打包瘦身），旧设置里的 "commit-mono"
 			// 不再存在于 AppFontMonoMode 枚举，统一回退到系统等宽字体，避免类型漂移。
 			// 注意：磁盘 JSON 是无类型的，旧值可能是已删除的枚举项，先拓宽为 string 再比较。
@@ -598,6 +614,10 @@ export class SettingsStore {
 		// 声音提醒来自渲染层，入参不可信：缺字段/非法引用/越界音量一律回落默认。
 		if ("soundAlert" in safePatch) {
 			safePatch.soundAlert = normalizeSoundAlertSettings(safePatch.soundAlert);
+		}
+		// toast 默认时长来自渲染层，入参不可信：非法值钳回默认（-1=常驻哨兵放行）。
+		if ("toastDurationMs" in safePatch) {
+			safePatch.toastDurationMs = clampToastDurationMs(safePatch.toastDurationMs);
 		}
 		// 闲置 agent 释放参数来自渲染层，钳制到合理范围避免非法值（0/负数/超大）写入磁盘
 		if ("idleAgentKeepCount" in safePatch) {
