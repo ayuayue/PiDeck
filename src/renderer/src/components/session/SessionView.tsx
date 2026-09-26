@@ -338,6 +338,7 @@ export function SessionView({
 										<SessionGoalStrip sessionId={sessionId} />
 									</>
 								}
+								commitSuggestRun={latestAgentRun}
 							/>
 						</div>
 					)}

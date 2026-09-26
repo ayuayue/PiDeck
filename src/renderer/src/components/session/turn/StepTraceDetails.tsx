@@ -15,7 +15,12 @@ export function resolveStepDetail(message: ChatMessage): string {
 	const debugDetails = typeof message.meta?.debugDetails === "string" ? message.meta.debugDetails.trim() : "";
 	if (debugDetails) return stripAnsi(debugDetails).trim();
 	const errorMessage = typeof message.meta?.errorMessage === "string" ? message.meta.errorMessage.trim() : "";
-	return stripAnsi(errorMessage).trim();
+	if (stripAnsi(errorMessage).trim()) return stripAnsi(errorMessage).trim();
+	// 回退一：主进程带原文的错误行（"请求失败：<原因>"，DSH turn/end 错误只有裸 text）从未写
+	// debugDetails，原因只存在于正文；无 i18nKey 说明 text 就是错误原文本身，直接作详情展示。
+	if (!message.meta?.i18nKey && (message.role === "error" || message.role === "system")) return stripAnsi(message.text ?? "").trim();
+	// 回退二：带 i18nKey 的行文案是翻译后的状态描述（"自动重试成功" 等），展开只会原样重复，不算详情。
+	return "";
 }
 
 export const StepTraceDetails = memo(function StepTraceDetails(props: { message: ChatMessage }) {

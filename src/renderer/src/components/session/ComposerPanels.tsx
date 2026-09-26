@@ -326,14 +326,14 @@ export function ComposerSendControls(props: {
 	const hasSplitMenu = Boolean(props.onSendSteer || props.onSendFollowUp || props.onSendParallel);
 	const splitDisabled = props.isAgentStarting || props.isGeneratingImage || !props.canSend;
 	return (
-		// shadcn ButtonGroup 官方 split-button 形态：DropdownMenu 直接作为组内子项
-		// （Radix 的 DropdownMenu 不产生 DOM 节点，trigger 按钮自然成为第二个成员，
-		// 由 ButtonGroup 收平相邻内侧角拼成一颗胶囊），组内不加中间分隔线。
+		// shadcn ButtonGroup 官方 split-button 形态：主钮 + caret 两段贴合成一颗圆角矩形
+		// （DropdownMenu 不产生 DOM 节点，trigger 按钮自然成为第二个成员，
+		// 由 ButtonGroup 收平相邻内侧角），中间以分隔线断口，与官方示例一致。
 		<ButtonGroup className="composer-send-controls">
 			<Button
 				variant="default"
 				size="icon-sm"
-				className="composer-send-primary size-7 rounded-full bg-[var(--color-accent)] px-0 text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
+				className="composer-send-primary size-7 rounded-l-md bg-[var(--color-accent)] px-0 text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
 				aria-label={label}
 				title={label}
 				disabled={disabled}
@@ -347,7 +347,7 @@ export function ComposerSendControls(props: {
 						<Button
 							variant="default"
 							size="icon-sm"
-							className="h-7 rounded-full bg-[var(--color-accent)] px-1.5 text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
+							className="h-7 rounded-r-md bg-[var(--color-accent)] px-1.5 text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
 							aria-label={t("app.sendBehaviorTitle")}
 							title={t("app.sendBehaviorTitle")}
 							disabled={splitDisabled}

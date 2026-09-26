@@ -17,8 +17,8 @@ import { resolveStepDetail, StepTraceDetails } from "./StepTraceDetails";
  * - 成功：中性 + 完成徽章（成功由 toast 即时报告，行保留作为周期终点痕迹）。
  * 行文案沿用主进程 i18n 描述符（正在自动重试 N，X 秒后重试 等）。
  *
- * 展开详情（用户反馈）：行尾 chevron 可点开查看具体错误原因
- * （debugDetails / errorMessage，见 StepTraceDetails）。无详情时保持单行。
+ * 展开详情（用户反馈）：整行可点展开（与 ToolCard trigger 同构），查看具体错误原因
+ * （debugDetails / errorMessage，见 StepTraceDetails）。无详情时保持单行不可点。
  */
 export const RetryStep = memo(function RetryStep(props: { group: RetryGroupItem; hidden: boolean }) {
 	const status = String(props.group.message.meta?.status ?? "");
@@ -44,37 +44,42 @@ export const RetryStep = memo(function RetryStep(props: { group: RetryGroupItem;
 			{t("tool.statusDone")}
 		</Badge>
 	);
+	const rowInner = (
+		<>
+			{/* 图标：运行中旋转（继承旧诊断卡 RefreshCw 语义 + tool-card--running 呼吸色），
+			    失败态图标转红（tool-card.tone-error 覆写 status 色，图标由下方 label 色承担） */}
+			<span className="tool-card-icon inline-flex shrink-0 items-center justify-center">
+				<RefreshCw size={16} aria-hidden="true" className={retryRunning ? "animate-pideck-spin" : retryFailed ? "text-danger" : undefined} />
+			</span>
+			<span className="shrink-0 text-chat-row lowercase text-text-faint">{t("diagnostic.retryTitle")}</span>
+			{statusBadge}
+			{hasDetail && (expanded ? <ChevronDown size={14} className="shrink-0 text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 text-text-faint" aria-hidden="true" />)}
+			{/* 重试详情：主进程下发的完整状态文案（第几次/延时/失败原因概括），点开看未截断原文 */}
+			<span className={`min-w-0 flex-[1_1_auto] truncate font-mono text-chat-detail ${retryFailed ? "text-danger" : "text-text-faint"}`} title={label}>
+				{label}
+			</span>
+		</>
+	);
 	return (
 		<div style={{ display: props.hidden ? "none" : undefined }}>
 			{/* Marker tone 与工具行同语义：running=active、error=error、成功=success */}
 			<TimelineMarker kind="tool" tone={retryRunning ? "active" : retryFailed ? "error" : "success"} contentClassName="pb-1">
 				<section className={`tool-card w-full min-w-0 tone-${retryFailed ? "error" : retryRunning ? "running" : "ok"}`} data-status={status} data-retry-step="true" data-message-id={props.group.id}>
 					<div className="relative flex min-h-7 items-center rounded-md transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)]">
-						<div className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-default items-center gap-2 py-1 pr-0.5 pl-1 text-chat-row text-text-faint">
-							{/* 图标：运行中旋转（继承旧诊断卡 RefreshCw 语义 + tool-card--running 呼吸色），
-							    失败态图标转红（tool-card.tone-error 覆写 status 色，图标由下方 label 色承担） */}
-							<span className="tool-card-icon inline-flex shrink-0 items-center justify-center">
-								<RefreshCw size={16} aria-hidden="true" className={retryRunning ? "animate-pideck-spin" : retryFailed ? "text-danger" : undefined} />
-							</span>
-							<span className="shrink-0 text-chat-row lowercase text-text-faint">{t("diagnostic.retryTitle")}</span>
-							{statusBadge}
-							{/* 重试详情：主进程下发的完整状态文案（第几次/延时/失败原因概括） */}
-							<span className={`min-w-0 flex-[1_1_auto] truncate font-mono text-chat-detail ${retryFailed ? "text-danger" : "text-text-faint"}`} title={label}>
-								{label}
-							</span>
-							{/* 展开按钮：仅当有具体错误详情（失败原因等）可看时出现 */}
-							{hasDetail && (
-								<button
-									type="button"
-									className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-text-faint transition-colors hover:bg-bg-hover hover:text-text-secondary"
-									onClick={() => setExpanded((value) => !value)}
-									aria-expanded={expanded}
-									title={expanded ? t("common.collapse") : t("common.expand")}
-								>
-									{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
-								</button>
-							)}
-						</div>
+						{/* 整行可点展开（与 ToolCard 的 trigger 同构）：原来只有 20px chevron 可点，
+						    用户反馈「无法点击」；无详情时保持 div，不渲染空展开。 */}
+						{hasDetail ? (
+							<button
+								type="button"
+								className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-pointer items-center gap-2 border-0 bg-transparent py-1 pr-0.5 pl-1 text-left text-chat-row text-text-faint focus-visible:-outline-offset-2 focus-visible:outline-2"
+								onClick={() => setExpanded((value) => !value)}
+								aria-expanded={expanded}
+							>
+								{rowInner}
+							</button>
+						) : (
+							<div className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-default items-center gap-2 py-1 pr-0.5 pl-1 text-chat-row text-text-faint">{rowInner}</div>
+						)}
 					</div>
 					{/* 展开的错误详情：具体原因原文（如 "429 Too Many Requests …"） */}
 					{expanded && (

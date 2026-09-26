@@ -113,12 +113,13 @@ test("busy composer keeps send circle; stop only when input is empty", () => {
 	assert.match(composerPanelsSource, /<DropdownMenu>/);
 	assert.match(composerPanelsSource, /app\.sendBehaviorTitle/);
 	assert.doesNotMatch(composerPanelsSource, /composer-bar-btn stop/);
-	assert.match(composerPanelsSource, /composer-send-primary size-7/);
-	// 主钮与 caret 用 shadcn ButtonGroup 官方 split-button 形态拼成一颗胶囊：
-	// DropdownMenu 直接作为组内子项（不加 ButtonGroupSeparator / fragment），不再允许回到「大黑圆 + 小灰圆」割裂形态。
+	assert.match(composerPanelsSource, /composer-send-primary size-7 rounded-l-md/);
+	// 主钮与 caret 用 shadcn ButtonGroup 官方 split-button 形态拼成一颗圆角矩形：
+	// DropdownMenu 直接作为组内子项（不加 ButtonGroupSeparator / fragment），相邻内侧角由组收平；
+	// 不再允许回到「大黑圆 + 小灰圆」两颗 rounded-full 的割裂形态。
 	assert.match(composerPanelsSource, /<ButtonGroup className="composer-send-controls">/);
 	assert.doesNotMatch(composerPanelsSource, /ButtonGroupSeparator/);
-	assert.doesNotMatch(composerPanelsSource, /size-6 rounded-full/);
+	assert.doesNotMatch(composerPanelsSource, /rounded-full bg-\[var\(--color-accent\)\]/);
 });
 
 test("composer send split menu exposes steer/followUp/parallel items", () => {
