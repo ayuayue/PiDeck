@@ -1,6 +1,6 @@
 # 远程主机跨 store 事务设计（hostId 引用 × ProjectStore × SessionCatalog）
 
-> 状态：**部分落地**。依赖 Phase 1 脏文件的部分仍是 Proposed（未实现）；「不依赖 Phase 1 脏文件」的切片已实现并提交 `9d0710470` —— §4.1 注册表（`src/main/remote/RemoteHostReferenceRegistry.ts`）、§4.3 journal + tx 锁 + §5.4 收敛算法（`src/main/remote/HostRebindJournal.ts`）、§4.5 修复原语与 `diagnose`（`src/main/remote/RemoteHostRepair.ts`），以及 `RemoteHostStore.ts` 的注册表接入、无 provider fail-closed 对称化与两个 main-only 修复写入口。仍缺 §4.2 的 `HostRebindCoordinator`、§4.4 两个 store 的端口实现、§4.1 引用源的生产实现，且**尚无生产装配**：`src/main/index.ts` 不构造这些模块，唯一的 store 消费方 `SshVerifiedConnection.ts:117`、`:146` 仍是无选项的 `open(userDataDir)`。
+> 状态：**部分落地**。依赖 Phase 1 脏文件的部分仍是 Proposed（未实现）；「不依赖 Phase 1 脏文件」的切片已实现并提交 `9d0710470` —— §4.1 注册表（`src/main/remote/RemoteHostReferenceRegistry.ts`）、§4.3 journal + tx 锁 + §5.4 收敛算法（原在 `src/main/remote/HostRebindJournal.ts`；`295877d8e` 之后 tx 锁与收敛分别落在 `src/main/remote/HostRebindTxLock.ts` / `src/main/remote/HostRebindConvergence.ts`，见 §7.4 风险 5）、§4.5 修复原语与 `diagnose`（`src/main/remote/RemoteHostRepair.ts`），以及 `RemoteHostStore.ts` 的注册表接入、无 provider fail-closed 对称化与两个 main-only 修复写入口。仍缺 §4.2 的 `HostRebindCoordinator`、§4.4 两个 store 的端口实现、§4.1 引用源的生产实现，且**尚无生产装配**：`src/main/index.ts` 不构造这些模块，唯一的 store 消费方 `SshVerifiedConnection.ts:117`、`:146` 仍是无选项的 `open(userDataDir)`。
 >
 > 适用工作树：`feat/remote-development`，调研基线 commit `2fd646c3a`（工作树另有 114 项与本任务无关的脏改动，本文只读引用，不评价、不触碰）。
 >
@@ -9,6 +9,8 @@
 > **标注约定**：本文所有关于现状的陈述都带 `文件:行号`；凡由行号推出、而非代码字面写明的结论，标 **【推断】**；凡代码中查不到、必须由产品/后续调研拍板的，标 **【待确认】**，并在第 8 节汇总。本文不复制大段源码，只用行号 + 一句话概括。
 >
 > **行号基线**：§1 的现状陈述按调研基线 `2fd646c3a` 取行号；`RemoteHostStore.ts` 在该基线之后净增 188 行（398 → 586 行，来自 §4.1 注册表接入、`isReferenced` 改写、`mutateRepair` 与两个修复写入口），因此该文件的旧行号必须按符号重新定位。凡标注 `当前:` 的行号都取自含 `9d0710470` 的当前工作树。
+>
+> **模块拆分基线（`295877d8e`）**：`HostRebindJournal.ts` 已从 674 行拆成三个模块 —— `HostRebindJournal.ts`（361 行：端口契约类型、稳定码词表、`canonicalHostLocatorJson`、journal 编解码与文件 I/O、`resume()` 外壳）、`HostRebindTxLock.ts`（155 行：tx 锁 owner/存活判定/抢占）、`HostRebindConvergence.ts`（343 行：`convergeRebindJournal` 全流程，含 `classify` / `applyStore` / roll-forward）。**因此本文里凡指向 `HostRebindJournal.ts` 的旧行号（尤其 §4.2 方法失败语义表、§4.3 的"已落地"注、§5.1 R6、§6.2 C）都按符号重新定位**：§4.2/§4.4/§5.4/§7.1/§7.4 已在本次修订中校正，其余章节的旧行号尚未逐条重取，按符号名搜索即可。
 
 ---
 
@@ -273,7 +275,7 @@ export type RebindRecordPlan = {
 };
 
 /**
- * 终态码：**只覆盖"已收敛"两态**（`HostRebindJournal.ts:78`）。
+ * 终态码：**只覆盖"已收敛"两态**（`HostRebindJournal.ts:122-123`）。
  * 失败出口**不返回 outcome**，一律抛稳定码（`HOST_REBIND_CODES`，见下表）—— 这就是 INV-10 要求的可区分性。
  */
 export type RebindOutcomeCode = "REMOTE_HOST_REBIND_COMMITTED" | "REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS";
@@ -307,7 +309,7 @@ export type HostRebindCoordinator = {
 };
 ```
 
-> **命名与落地**：本节 `HostRebindCoordinator` 仍是设计契约（**未实现**，§7.1 第 3 项）。`9d0710470` 落地的收敛入口叫 `HostRebindJournal.resume(ports): Promise<RebindOutcome | undefined>`（`HostRebindJournal.ts:352-362`）：无 journal、或 tx 锁被**活着的**持有者占用时返回 `undefined`（R4 的"看到锁就退让"）；`resumePendingRebind()` 只是协调器将来对它的包装。端口形状见 §4.4。
+> **命名与落地**：本节 `HostRebindCoordinator` 仍是设计契约（**未实现**，§7.1 第 3 项）。`9d0710470` 落地的收敛入口叫 `HostRebindJournal.resume(ports): Promise<RebindOutcome | undefined>`（`HostRebindJournal.ts:350-360`，`295877d8e` 后取锁即转交 `HostRebindConvergence.ts:160` 的 `convergeRebindJournal`）：无 journal、或 tx 锁被**活着的**持有者占用时返回 `undefined`（R4 的"看到锁就退让"）；`resumePendingRebind()` 只是协调器将来对它的包装。端口形状见 §4.4。
 
 **方法失败语义**
 
@@ -325,11 +327,13 @@ export type HostRebindCoordinator = {
 | `rebind` | `REMOTE_HOST_REBIND_RECORD_MISSING` | journal 记录的项目/会话在收敛时已不存在（INV-6，转人工） |
 | `rebind` | `REMOTE_HOST_REBIND_INCOMPLETE` | 迁移完成但最终锁内扫描仍有引用 ⇒ 不 retire，停在 disabled tombstone |
 | `rebind` | `REMOTE_HOST_REFERENCED` / `REMOTE_HOST_RETIRE_INVALID` / `REMOTE_HOST_REVISION_CONFLICT` | 由 `RemoteHostStore` 原样透出（语义不变） |
-| `rebind` | `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME` | 主机 store 在提交后抛出（见 1.5 的 finally 分支）：调用方必须 refresh 后重读，禁止假定未提交；端口抛出的非稳定错误文本与"结果条数少于补丁数"也折叠到这个码 |
-| `rebind` | `REMOTE_HOST_REBIND_STORE_PORT_MISSING` | 需要的 store 端口没装配或形状不对（`HostRebindJournal.ts:262-265`；测试：`tests/hostRebindJournal.test.mjs:444`） |
-| `rebind` | `REMOTE_HOST_REBIND_JOURNAL_INVALID` / `_JOURNAL_WRITE_FAILED` | journal 读不出（畸形/超限/非普通文件）或写不进；读侧**绝不猜测、绝不删除**（`:298-336`） |
-| `rebind` | `REMOTE_HOST_REBIND_TX_LOCK_UNWRITABLE` | tx 锁目录不可写、创建失败（非 `EEXIST`）：`:579` |
+| `rebind` | `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME` | 主机 store 在提交后抛出（见 1.5 的 finally 分支）：调用方必须 refresh 后重读，禁止假定未提交；端口抛出的非稳定错误文本与"结果条数少于补丁数"也折叠到这个码。**但 store 端口的直通码不折叠**：`PROJECT_STORE_NEEDS_REPAIR` / `PROJECT_STORE_REMOTE_UNSUPPORTED` / `SESSION_CATALOG_NEEDS_REPAIR` 原样透出（词表 `HOST_REBIND_STORE_PORT_CODES`，`HostRebindJournal.ts:131-137`；折叠点 `HostRebindConvergence.ts:97-101`；详见 §4.4） |
+| `rebind` | `REMOTE_HOST_REBIND_STORE_PORT_MISSING` | 需要的 store 端口没装配或形状不对（`HostRebindConvergence.ts:150-152`；测试：`tests/hostRebindJournal.test.mjs:444`） |
+| `rebind` | `REMOTE_HOST_REBIND_JOURNAL_INVALID` / `_JOURNAL_WRITE_FAILED` | journal 读不出（畸形/超限/非普通文件）或写不进；读侧**绝不猜测、绝不删除**（`HostRebindJournal.ts:296-342`：`read` `:296-320` / `write` `:327-334` / `remove` `:336-342`） |
+| `rebind` | `REMOTE_HOST_REBIND_TX_LOCK_UNWRITABLE` | tx 锁目录不可写、创建失败（非 `EEXIST`）：`HostRebindTxLock.ts:120`（码本身 `:28`，经 `HostRebindJournal.ts:108` 并入 `HOST_REBIND_CODES`） |
 | `rebind` | `REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS` | **终态码（`RebindOutcome.code`，不是异常）**：tx 已收敛，但有非致命遗留 —— 未知结果已回滚前进（`UNKNOWN_OUTCOME_ROLLED_FORWARD`）或 journal 删除失败（`JOURNAL_REMOVE_FAILED`）。注意：**source pin 清理失败不在 warning 里** —— 它在 `retire` 内部 best-effort（当前 `RemoteHostStore.ts:335-339`），由下次 open/refresh 的 `pruneRetiredPins` 重试（`:179-188`） |
+
+> **行号提醒**：本表原引用取自 617 行的基线；`9d0710470` 补齐 §4.4 的端口类型、`295877d8e` 又把 tx 锁与收敛拆出去，行号两次下移。**本表已整体按当前工作树校正**：journal 读写 `HostRebindJournal.ts:296-342`、`assertStorePort` `HostRebindConvergence.ts:150-152`、折叠点 `HostRebindConvergence.ts:97-101`、tx 锁 `HostRebindTxLock.ts:28` 与 `:120`。
 
 ### 4.3 journal 记录
 
@@ -366,7 +370,7 @@ export type HostRebindRecordOutcome = "applied" | "already-applied" | "missing" 
 
 export type HostRebindRecordResult = {
 	readonly recordId: string;
-	/** applied = 本次写入；already-applied = 磁盘已是 after（幂等重放）；missing = 记录不存在；changed = 与两者都不同 */
+	/** applied = 本次写入；already-applied = **store 当前内容**已是 after（幂等重放，读的是内存快照而不是磁盘，见 §5.4）；missing = 记录不存在；changed = 与两者都不同 */
 	readonly outcome: HostRebindRecordOutcome;
 };
 
@@ -374,10 +378,18 @@ export type HostRebindRecordResult = {
 export type HostRebindRecordSnapshot = { readonly recordId: string; readonly locator?: string };
 
 /**
- * **projects 与 sessions 共用同一个类型**（`HostRebindJournal.ts:46-58`；没有 `ProjectHostRebindPort` /
- * `SessionHostRebindPort` 之分，差异只在 sessions 侧额外的 origin 冲突检查）。
+ * **projects 与 sessions 共用同一个类型**（`HostRebindJournal.ts:50-69`；没有 `ProjectHostRebindPort` /
+ * `SessionHostRebindPort` 之分）。
+ * **注意：origin 冲突检查不在这里** —— 端口只做逐记录 CAS，`REMOTE_HOST_REBIND_ORIGIN_CONFLICT` 归
+ * `plan()`（见 §4.2 与 §7.1 第 16 项）。
  */
 export type HostRebindStorePort = {
+	/**
+	 * 该 store **结构上**能否持有 ssh locator（`HostRebindJournal.ts:58-64`）；缺省 = 能。
+	 * `false`（Phase 3 之前的 ProjectStore：`projectStoreCodec.ts:81` 读 ssh 即拒绝、`Project` 无 locator：
+	 * `ProjectStore.ts:38-43`）表示读端口仍如实返回记录真正持有的内容，但**每一批补丁都会被拒**。
+	 */
+	readonly canHoldHostReferences?: boolean;
 	/** 读回每个被请求记录的当前 locator（规范 JSON）；"记录已删除"用缺省 locator 表达。 */
 	readHostRecordLocators(recordIds: readonly string[]): Promise<readonly HostRebindRecordSnapshot[]>;
 	/** 单次原子写完成全部 patched 记录；任一记录 changed/missing ⇒ 整次写入放弃（不部分提交）。 */
@@ -385,16 +397,27 @@ export type HostRebindStorePort = {
 };
 ```
 
-- **为什么必须补 `readHostRecordLocators(recordIds)`**：§5.4 步骤 5 的权威判据是"逐记录比对 locator"（`classify`，`HostRebindJournal.ts:454-482`），而 §4.1 的 hit **不携带 hostId**，无法回答"这条记录该不该迁" ⇒ 端口必须能**只读**返回记录当前的 locator。没有它，收敛只能看 journal 的 `stage`，而 `stage` 明确不是权威（§4.3）。
+- **为什么必须补 `readHostRecordLocators(recordIds)`**：§5.4 步骤 5 的权威判据是"逐记录比对 locator"（`classify`，`HostRebindConvergence.ts:249-274`；拆分前在 `HostRebindJournal.ts`），而 §4.1 的 hit **不携带 hostId**，无法回答"这条记录该不该迁" ⇒ 端口必须能**只读**返回记录当前的 locator。没有它，收敛只能看 journal 的 `stage`，而 `stage` 明确不是权威（§4.3）。
 - **没有 `listHostReferences()`**：全仓库不存在这个方法（grep 无命中）。引用集合由 §4.1 的注册表产出；端口只负责逐记录读与写。
-- **收敛对端口的强制契约**（`HostRebindJournal.ts`）：
-  - 必须对**每个**被请求的 recordId 返回一条 snapshot：漏条目与"记录已不存在"落到同一个判据（`locator === undefined`）⇒ 报 `REMOTE_HOST_REBIND_RECORD_MISSING`（`:470-473`）。**所以"读不出来"必须抛错，不能少返条目**，否则会被当成"记录已被删"。
-  - `applyHostRebind` 的结果条数必须等于补丁条数，否则整次判 `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`（`:492`）——"少返结果"不等于"已应用"。
-  - `missing` / `changed` 由**收敛侧**再判一次并停止事务（`:496-497`），端口返回值不能自已宣布成功。
-  - 两个端口都必须装配：端口缺失或形状不对在逐记录判定之前就抛 `REMOTE_HOST_REBIND_STORE_PORT_MISSING`（`:374-375` 对两个 store 都先做 `assertStorePort`）。
+- **收敛对端口的强制契约**（判定在 `HostRebindConvergence.ts`，端口类型在 `HostRebindJournal.ts`）：
+  - 必须对**每个**被请求的 recordId 返回一条 snapshot：漏条目与"记录已不存在"落到同一个判据（`locator === undefined`）⇒ 报 `REMOTE_HOST_REBIND_RECORD_MISSING`（`:260-272`，判定点 `:269`）。**所以"读不出来"必须抛错，不能少返条目**，否则会被当成"记录已被删"。
+  - `applyHostRebind` 的结果条数必须等于补丁条数，否则整次判 `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`（`:284`）——"少返结果"不等于"已应用"。
+  - `missing` / `changed` 由**收敛侧**再判一次并停止事务（`:288-289`），端口返回值不能自已宣布成功。
+  - 两个端口都必须装配：端口缺失或形状不对在逐记录判定之前就抛 `REMOTE_HOST_REBIND_STORE_PORT_MISSING`（`:170-171` 对两个 store 都先做 `assertStorePort`；`assertStorePort` 本体在 `:150-152`）。
 - `applyHostRebind` 必须**全有或全无**（单次 `writeSnapshot`），且重放时返回 `already-applied` 而不是报错。
 - 两个 port 的实现都必须**只有** `hostId`（以及 ssh locator 的 `remote*` 字段原样保留）可变；`remotePath`/`remoteSessionId`/`remotePathAliases` 在 rebind 中保持不变；禁止顺手做别的"修复"。
-- 失败语义：`REMOTE_HOST_REBIND_STALE_PLAN`（changed）、`REMOTE_HOST_REBIND_RECORD_MISSING`（missing）；写盘失败沿用各自 store 现有错误（`PROJECT_STORE_NEEDS_REPAIR` / `SESSION_CATALOG_NEEDS_REPAIR`）；端口缺失/形状不对为 `REMOTE_HOST_REBIND_STORE_PORT_MISSING`。
+- **before/after 的编码只有一个规范器：`canonicalHostLocatorJson`**（`HostRebindJournal.ts:182-202`：键按字典序排序 `:196`、丢掉 `undefined` 字段 `:197`）。这不是风格问题 —— `classifyRebindRecord` 与两个端口的 CAS 都是**逐字节**比对（`locator === plan.afterLocator` `HostRebindConvergence.ts:114`、`locator === plan.beforeLocator` `:115`），planner 若用别的编码（`JSON.stringify` 原样、键序随构造顺序）产出 `beforeLocator`/`afterLocator`，**每一条记录都会落进 `changed`** ⇒ `REMOTE_HOST_REBIND_STALE_PLAN`，一条也写不进去。这是**字节陷阱**，失败形态还是"计划看起来完全正确、执行时全军覆没"。端口侧做的是同一件事的逆运算：`parseCanonicalSessionLocator` 要求 `canonicalHostLocatorJson(parsed) === value`（`SessionCatalog.ts:361-373`），键序不同的 before 直接判 changed（测试：`tests/hostRebindStorePorts.test.mjs:413-415`）。
+  - **落点漂移（已发生，记录在此）**：§7.1 第 18 项原规划把规范化器放 `src/shared/locationAdapters.ts`（名为 `canonicalLocatorJson`，见 §7.1 C 表第 18 行），实际落在 `HostRebindJournal.ts:190`（`295877d8e` 拆分后仍在原模块），名字是 `canonicalHostLocatorJson`；`src/shared/locationAdapters.ts` 至今**没有**任何 canonical 函数（只有 `projectLocatorFromLegacy` / `sessionLocatorFromLegacy`）。现在的实际契约是"规范器跟着端口契约走"：两个 store 都从 `../remote/HostRebindJournal` import 它（`SessionCatalog.ts:9`、`ProjectStore.ts:9`）。第 18 项的行动项因此应改为"**不要**另建第二个规范器"。
+- **端口码直通词表 `HOST_REBIND_STORE_PORT_CODES`**（`HostRebindJournal.ts:131-137`）= `PROJECT_STORE_NEEDS_REPAIR` / `PROJECT_STORE_REMOTE_UNSUPPORTED` / `SESSION_CATALOG_NEEDS_REPAIR`。折叠逻辑在收敛模块：`asStableError`（`HostRebindConvergence.ts:93-101`）只原样透出四类码 —— 本模块自有的 `HOST_REBIND_CODES`、`REMOTE_HOST_STORE_CODES`、`HOST_REFERENCE_REGISTRY_CODES`、以及注入进来的直通词表（`isStableJournalCode` = `isHostRebindCode || isHostRebindStorePortCode`，`HostRebindJournal.ts:152-155`，由 `resume()` 传进 `convergeRebindJournal`）—— **其余一律折叠成 `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`**（`HostRebindConvergence.ts:100`）。少了这个词表，"这个 store 写不了 / 装不下 ssh / 需要修复"这些**已知的 fail-closed 答案**会被读成"结果未知"，把"什么都没写"和"写没写不知道"混成一类 ⇒ 直接违反 INV-10。判定入口是 `isHostRebindStorePortCode()`（`HostRebindJournal.ts:147-150`），端到端透出由 `tests/hostRebindStorePorts.test.mjs:489` 固化（`PROJECT_STORE_REMOTE_UNSUPPORTED` 原样冒出）。
+- **`PROJECT_STORE_REMOTE_UNSUPPORTED` 是复用码：它同时是"读 ssh 拒绝"和"写拒绝"**。读侧是 `readV2Project` 拒绝 ssh locator（`projectStoreCodec.ts:81`，§1.2 I13）；写侧是端口拒绝**任何**非空补丁（`ProjectStore.ts:18`、`:457-462`）。语义是同一句"这个 store 装不下 ssh locator"，所以不需要第二个码。评审时不要把它误读成"只有读到 ssh 才会出现"：只要 plan 给 ProjectStore 派了补丁，写侧就会抛它（测试：`tests/hostRebindStorePorts.test.mjs:209-210`、`:489`）。
+- **被拒批次里的记录一律报 `changed`：绝不允许"没写盘却报 applied"**（`SessionCatalog.ts:388-394` 的 `refusedHostRebind`，调用点 `:772`）。整批是全有或全无（INV-9），任一条 `missing`/`changed` 就让整批不写；此时"本来能写、但因同批失败而没写"的那几条也**必须**报 `changed`。`applied` 的定义是**本次写入**（见上文 `HostRebindRecordResult` 的注释），在没写盘的批次上它是假的；收敛侧把 `applied` 计进 `migrated*`（`HostRebindConvergence.ts:285-292`），假 applied 会直接污染 `RebindOutcome`。测试：`tests/hostRebindStorePorts.test.mjs:372-396`（`[本可 applied, missing]` 的批次回报 `[changed, missing]`，且落盘逐字节不变、内存 hostId 不动）。
+- **端口入参形状非法 ⇒ `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`（fail closed，什么都不写）**：批次形状（数组、条数 ≤ 10000、id 非空 ≤ 128 字符且无控制字符）在**任何读/写之前**校验 —— `assertHostRebindRecordIds`（`HostRebindJournal.ts:209-217`，上限 `:162`）、`readHostRebindPatches`（`SessionCatalog.ts:344-354`，上限 `:19`）、`ProjectStore.applyHostRebind` 的数组检查（`:459`）。形状错误的调用"无法解释"，既不能答成"没有记录"也不能答成"没有补丁"；**读端与写端都按同一码拒绝**（畸形输入逐项固化：`tests/hostRebindStorePorts.test.mjs:441-464`），空批次是合法 no-op（返回 `[]`）。
+- **`canHoldHostReferences` 缺省 true，且今天没有任何消费方**（声明与注释：`HostRebindJournal.ts:58-64`）：`resume`/`convergeRebindJournal` 从不读这个字段 —— 全仓库只有三处声明/赋值（`HostRebindJournal.ts:64` 的**端口**声明、`RemoteHostReferenceRegistry.ts:46` 的 **provider** 同名字段、`ProjectStore.ts:43` 的赋值），唯一被读取的只有 provider 那一个（注册表在 `RemoteHostReferenceRegistry.ts:152` 用它整源跳过）。⇒ 一个声明 `false` 的端口不会因此被收敛侧跳过：它照样会被调用 `applyHostRebind`，拒绝来自端口自己抛码（`ProjectStore.ts:457-462`）。将来的消费方是**装配层**：把端口的这个字段转发成 §4.1 provider 的 `capability`（测试固化的正是这个形状：`tests/remoteHostStoreLifecycle.test.mjs:309`、`tests/remoteHostReferenceRegistry.test.mjs:104`）。注意 §4.1 与 §4.4 是**同名字段、两个类型**：前者已落地消费，后者还没有。
+- **ssh 条目的镜像字段同步：真正生效的边界是读入路径，写路径那一层是防御性冗余**（这句是给评审与测试看的事实，**不要**读成"写路径规则已被测试锁住"）：`normalizeEntryLocator`（`SessionCatalog.ts:298-314`）在 ssh 分支清空 `filePath`/`originKey`/`piSessionId`/`wslDistro`/`wslUser`/`parentSessionPath`；它在**读入路径上无条件生效**（`readCatalogFile` 对每个条目都跑：`:1710-1721`，`entries.map(normalizeEntryLocator)` 在 `:1718`），写路径（`applyHostRebind` 的 `:775`）再跑一次只算冗余。
+  - 今天**没有任何可观测状态**需要写路径那一层：能进入内存的 ssh 条目只有 `readCatalogFile` 一个来源（已规范化），而所有会给条目挂本地字段的入口都对 ssh 硬拒绝或过滤（`setLocalSessionFilePath` `:316-317`、`attachRuntime` `:1124`、`mergeScanned` 的 origin 索引 `:1320` 与 `setLocalSessionFilePath` `:1433`、`repairRelativeFilePaths` `:1636`）—— 镜像字段在内存里长不回来。
+  - 因此**去掉 `:775` 的规范化零个用例转红**（含 `tests/hostRebindStorePorts.test.mjs` 的 15 个）：写路径的输入前提就是"字段已经干净"。真正咬合的是读入路径 —— 去掉 `:1718` 的规范化，`tests/sessionEntryLocatorNormalization.test.mjs` 2/2 转红（该文件头部记录了两次突变自检的结果），而 15 个端口用例**仍然全绿**（它们被写路径的冗余救了回来，所以锁不住读入路径）。
+  - 保留写路径那一层的唯一理由：`applyHostRebind` 是本模块**唯一**改 `locator` 的写入口，将来若出现绕开 `setLocalSessionFilePath` 直接改 `locator` 的新入口，"只改 locator、不带上镜像同步"会立刻让 `findByFilePath` / `originKeyForEntry` / `sessionLocatorForEntry` 三条链路各说各话（`:732-736` 的注释就是这条规则）。
+- 失败语义：`REMOTE_HOST_REBIND_STALE_PLAN`（changed）、`REMOTE_HOST_REBIND_RECORD_MISSING`（missing）；写盘失败沿用各自 store 现有错误（`PROJECT_STORE_NEEDS_REPAIR` / `SESSION_CATALOG_NEEDS_REPAIR`，以及写侧复用的 `PROJECT_STORE_REMOTE_UNSUPPORTED` —— 三者都是直通码，见上）；端口缺失/形状不对为 `REMOTE_HOST_REBIND_STORE_PORT_MISSING`；批次形状非法为 `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`（fail closed，什么都不写）。
 
 ### 4.5 人工修复原语（main-only，全部需要 human confirmation）
 
@@ -486,7 +509,7 @@ export type HostRepairPort = {
 | 放弃 | 影响 | 残余缓解 |
 | --- | --- | --- |
 | 与普通 mutator 的**严格**跨进程互斥 | 存在"扫描→retire 提交"之间的 TOCTOU 窗口；另一实例在别处修改 `projects.json`/`session-catalog.json` 时无法被锁住 | 步骤 3/4/5 把不可见错误变成可检测错误或可补偿动作；窗口内产生的新引用会在步骤 5 被迁走 |
-| "rebind 期间引用集合冻结" | 同上层原因；不再承诺"计划时的记录集就是全部要迁的记录" | `plan()` 的结果只作为初值；收敛以**磁盘实际内容**为准（逐记录 CAS + `already-applied` 幂等） |
+| "rebind 期间引用集合冻结" | 同上层原因；不再承诺"计划时的记录集就是全部要迁的记录" | `plan()` 的结果只作为初值；收敛以 **store 内存内容**为准（逐记录 CAS + `already-applied` 幂等；这两个 store 的端口从不重读磁盘，见 §5.4 的"权威来源"注） |
 | "journal 永不丢失" | journal 文件被外部删除/磁盘损坏时，事务退化为"半迁移但合法"的状态 | 该状态满足 INV-1（引用要么指 source，要么指 target，两者都存在 profile）；恢复方式是用同一对 source/target **重新执行** rebind（`already-applied` 使重放安全）。不承诺自动发现 |
 | 锁的自动回收 | 崩溃遗留 tx 锁需要人工/进程标识判定（R6） | owner 元数据 + 年龄阈值 + 显式确认；不做超时抢占 |
 | 对 `.tmp` 残留的清理 | 硬崩溃会留下 `*.tmp`（`durableJsonStore.ts:21-22` 的随机名只在进程内 `finally` 清理，`:59-62`） | 列为低优先级：由 journal 收敛流程顺带按前缀+年龄清理（不删非本目录文件）**【推断】** |
@@ -510,20 +533,24 @@ export type HostRepairPort = {
 
 **启动收敛算法（幂等、可重入）**
 
-> **落地对应**：下面的算法已实现为 `HostRebindJournal.resume(ports)`（`HostRebindJournal.ts:352-409`）；每步执行**之前**先由 `advance()` 把 `stage` 改写成"即将执行的那一步"（`:412-416`）。`resumePendingRebind()` 这个名字属于尚未实现的协调器（§4.2）。
+> **落地对应**：下面的算法已实现为 `HostRebindJournal.resume(ports)`（`HostRebindJournal.ts:344-360`，取锁后转交 `convergeRebindJournal`）；每步执行**之前**先由 `advance()` 把 `stage` 改写成"即将执行的那一步"（`HostRebindConvergence.ts:207-212`）。`resumePendingRebind()` 这个名字属于尚未实现的协调器（§4.2）。
+
+> **权威来源是 store 的内存内容，不是磁盘**（对 `ProjectStore` / `SessionCatalog` 这两个 store 成立，与 §4.3 的"权威状态是逐记录内容比对"配套）。`readHostRecordLocators` 读的是内存快照 —— catalog 从不重读磁盘（`SessionCatalog.ts:707-723` 的注释与实现，写侧同样只改内存：`:1663-1680` 的 `enqueueMutation` → `writeSnapshot`），ProjectStore 也只走内存（`ProjectStore.ts:433-450`）。两个后果必须写清：
+> 1. **"写已落地但抛错"时内存会暂时落后于磁盘**：`rename` 已落地、store 才抛错（§1.5 的 `finally` 分支同型），此时磁盘是 `after`、内存仍是 `before`；收敛重跑时逐记录判定（`classify`，`HostRebindConvergence.ts:249-274`）会按内存再判成"待迁移"，`applyHostRebind` 用内存内容重写一次 ⇒ **幂等收敛**（既不卡住，也不会把已迁移的记录写回 source）。测试固化：`tests/hostRebindStorePorts.test.mjs:538-566`（`:555` 磁盘已是 target、`:556` 内存仍是 source，重跑后在 `:561-564` 收敛）。
+> 2. **别处的写者在端口这一层是不可见的**：端口的期望值来自内存，不是"重新读盘比对"，所以另一个实例/进程直接改 `projects.json` / `session-catalog.json` 时，端口会拿自己的内存快照整份覆盖它。这正是 §5.3 放弃"严格跨进程互斥"的根因；也意味着 **INV-5 里"不得用内存快照覆盖磁盘上更新的数据"这句在端口层并不成立**，它只能靠"单侧 owner + advisory interlock + 事后扫描补偿"缓解（§5.3）。**【待确认】** 是否把 INV-5 收窄成"只约束 host store 的 CAS（它确实锁内重读磁盘，`RemoteHostStore.ts:544`）"，并把两个 store 的保证降级为"同进程串行 + 逐记录内容幂等"，需要产品/评审拍板；本文其余部分按"端口权威 = 内存"叙述。
 
 1. 读 `<userData>/remote-host-rebind.json`。不存在 ⇒ no-op（返回 `undefined`）。
 2. 解析失败 ⇒ 不猜测、不删除：抛 `REMOTE_HOST_REBIND_JOURNAL_INVALID`，并让 host store 保持 `needs-repair`（人工介入，6.2 D）。
 3. 取 tx 锁（R4：被别的进程持有 ⇒ 放弃本次恢复，返回 `undefined`，由"看到 journal 就退让"的 mutator 保证一致性）。
 4. 校验 `target` profile 仍存在且 verified、pin 仍可读（`readPin`）。任一不成立 ⇒ 停在 `needs-repair`（`REMOTE_HOST_REBIND_TARGET_ANCHOR_UNREADABLE`），**绝不**改用 source 的锚点或跳过校验（INV-3）。
-5. 对 `records` 逐条判定（**权威判据，不看 stage**）：
+5. 对 `records` 逐条判定（**权威判据，不看 stage**；判据取自 store 的**内存快照**，见上方"权威来源"注）：
    - 记录不存在 ⇒ `REMOTE_HOST_REBIND_RECORD_MISSING`，停止（INV-6）。
    - locator == `afterLocator` ⇒ 视为已完成（幂等）。
    - locator == `beforeLocator` ⇒ 待迁移。
    - 两者都不是 ⇒ `REMOTE_HOST_REBIND_STALE_PLAN`，停止。
 6. 若仍有待迁移的记录：先确认 source 的期望状态（若 source profile 仍 enabled ⇒ 执行 disable），再按 `projects` → `sessions` 顺序各执行一次 `applyHostRebind`（只含待迁移记录）。
 7. 若 `source` 的 id 已在 `retiredHostIds` 中 ⇒ 阶段已完成，跳到 9（**这一分支必须显式写**：`retire` 对已退役 id 会抛 `REMOTE_HOST_RETIRE_INVALID`，`:247` + 测试 `tests/remoteHostStoreLifecycle.test.mjs:225-226`，把它当失败会让收敛永远卡住）。
-8. 最终锁内完整引用扫描（`scanReferences`）—— **两个失败分支的码不同，必须分开写**（`HostRebindJournal.ts:400-403`）：
+8. 最终锁内完整引用扫描（`scanReferences`）—— **两个失败分支的码不同，必须分开写**（`HostRebindConvergence.ts:198-199`）：
    - 扫描**不完整**（有源读不出、或集合形状非法）⇒ `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`（注意是**注册表**的码，没有 `REMOTE_HOST_REBIND_` 前缀）：不完整证明不了"无引用"，唯一安全答案是**不 retire**。
    - 扫描**完整但仍有引用**（含 source 自己）⇒ `REMOTE_HOST_REBIND_INCOMPLETE`：不 retire，source **停在 disabled tombstone**（这是合法终态，引用仍可解析、任何连接 fail closed）。
    - 两者都不写任何 store、不删 journal（停在 `source-retired`），因此重跑 `resume` 幂等；测试把两个分支各固化成一条：`tests/hostRebindJournal.test.mjs:318-338`（`:321` 与 `:335`）。
@@ -630,7 +657,7 @@ export type HostRepairPort = {
 | # | 文件 | 内容 | 状态（`9d0710470`） |
 | --- | --- | --- | --- |
 | 1 | `src/main/remote/RemoteHostReferenceRegistry.ts` | 4.1 的注册表（含 `complete` 语义） | **已落地**（217 行） |
-| 2 | `src/main/remote/HostRebindJournal.ts` | 4.3 的 journal 读写（复用 `writeDurableJsonFile`）+ §5.1 的 **tx 锁** + §5.4 的**收敛算法**（原清单把收敛放在第 3 项的协调器里，实际落在本文件） | **已落地**（617 行；体量与拆分建议见 §7.4 风险 5） |
+| 2 | `src/main/remote/HostRebindJournal.ts` | 4.3 的 journal 读写（复用 `writeDurableJsonFile`）+ §5.1 的 **tx 锁** + §5.4 的**收敛算法**（原清单把收敛放在第 3 项的协调器里，实际落在本文件）+ §4.4 的**端口契约类型与规范器** `canonicalHostLocatorJson` | **已落地**（**674 行 → `295877d8e` 拆分后 361 行**；tx 锁与收敛分别落在 `HostRebindTxLock.ts`(155) / `HostRebindConvergence.ts`(343)，拆分结果见 §7.4 风险 5） |
 | 3 | `src/main/remote/HostRebindCoordinator.ts` | 4.2 的协调器：`plan` / `rebind` / `describePending` / 对 `resume` 的 `resumePendingRebind()` 包装（计划文档已预留该文件名，`docs/remote-development-plan.md:282`） | **未实现** |
 | 4 | `src/main/remote/RemoteHostRepair.ts` | 4.5 的修复原语 + `diagnose` | **已落地**（526 行） |
 | 5 | `tests/remoteHostRebind.test.mjs` | 计划、冲突、逐记录 CAS、幂等重放 | **未实现**；逐记录 CAS 与幂等重放已由第 6 项那个文件覆盖（`tests/hostRebindJournal.test.mjs:201`、`:253`），`plan()` 的冲突检查仍无测试 |
@@ -652,9 +679,9 @@ export type HostRepairPort = {
 
 | # | 文件 | 脏状态 | 改动 | 测试断言建议 |
 | --- | --- | --- | --- | --- |
-| 14 | `src/main/projects/ProjectStore.ts` | **M（脏）** | 实现 `readHostRecordLocators()` / `applyHostRebind()`（4.4；引用集合由 4.1 的 provider 提供，端口里**没有** `listHostReferences()`）；`remove()` 前做 interlock 检查 | 逐记录 CAS：changed/missing ⇒ 整次不写；重放 ⇒ `already-applied` 且 revision 不变（幂等）；每个请求的 recordId 都必须回一条 snapshot（记录已删 ⇒ 缺省 locator） |
-| 15 | `src/main/projects/projectStoreCodec.ts` | **??（Phase 1 新增，未跟踪）** | 决定 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`:81`）的去留。**Phase 3 之前建议保留**：一旦放开，就必须同时上线 SSH 项目的 containment 校验（计划 §12 Phase 3 门禁），否则等于提前开启半成品能力 | 保留：ssh locator ⇒ 抛 `PROJECT_STORE_REMOTE_UNSUPPORTED`；放开：必须新增"缺 hostId/remotePath 拒绝"+ 契约测试 |
-| 16 | `src/main/sessions/SessionCatalog.ts` | **M（脏）** | `readHostRecordLocators()` / `applyHostRebind()`；catalog 无 revision ⇒ 只能逐记录 CAS（4.4）；origin 冲突检查复用现有 origin 逻辑 | 同 #14；另加"同一 host 下重复 `remoteSessionId` ⇒ `REMOTE_HOST_REBIND_ORIGIN_CONFLICT`" |
+| 14 | `src/main/projects/ProjectStore.ts` | **M（脏）** | 实现 `readHostRecordLocators()` / `applyHostRebind()`（4.4；引用集合由 4.1 的 provider 提供，端口里**没有** `listHostReferences()`）；`remove()` 前做 interlock 检查。**落地形态**：只读端口已实现（`:441-450`，如实返回 local locator）；写端口**一律拒绝** —— 非空补丁直接抛 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`:457-462`），不经过 `save()`、不碰磁盘；能力声明 `canHoldHostReferences = false`（`:38-43`） | **本行的写断言建议在 `PROJECT_STORE_REMOTE_UNSUPPORTED` 放开前不可能成立 ⇒ 标为 Phase 3**："逐记录 CAS：changed/missing ⇒ 整次不写"与"重放 ⇒ `already-applied` 且 revision 不变（幂等）"这些断言今天**一条都不可能观测到**（端口连一次写都不会发生），它们随 Phase 3 放开开关一起生效。**今天可断言的只有**：空批次 ⇒ `[]`、非空批次 ⇒ `PROJECT_STORE_REMOTE_UNSUPPORTED`、`projects.json` / `.bak` 逐字节不变、revision 不前进（`tests/hostRebindStorePorts.test.mjs:200-226`），以及"每个请求的 recordId 都必须回一条 snapshot（记录已删 ⇒ 缺省 locator）"（`:189-197`）。**逐记录 CAS 与幂等重放的可执行断言全部在 sessions 侧**（`tests/hostRebindStorePorts.test.mjs:340-396`） |
+| 15 | `src/main/projects/projectStoreCodec.ts` | **??（Phase 1 新增，未跟踪）** | 决定 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`:81`）的去留。**Phase 3 之前建议保留**：一旦放开，就必须同时上线 SSH 项目的 containment 校验（计划 §12 Phase 3 门禁），否则等于提前开启半成品能力 | 保留：ssh locator ⇒ 抛 `PROJECT_STORE_REMOTE_UNSUPPORTED`；放开：必须新增"缺 hostId/remotePath 拒绝"+ 契约测试。注意同一个码**也被写侧复用**（端口拒绝任何补丁，`ProjectStore.ts:457-462`；§4.4），放开时两处必须一起改 |
+| 16 | `src/main/sessions/SessionCatalog.ts` | **M（脏）** | `readHostRecordLocators()` / `applyHostRebind()`；catalog 无 revision ⇒ 只能逐记录 CAS（4.4）。**origin 冲突检查不在端口里**（见右栏） | 同 #14 的 sessions 版本（逐记录 CAS / 幂等重放已在 `tests/hostRebindStorePorts.test.mjs:340-396` 固化）。**`REMOTE_HOST_REBIND_ORIGIN_CONFLICT` 不属于端口层**：端口只做逐记录 CAS（`SessionCatalog.ts:738-787`），且 `hostRebindTargetLocator` 只接受"仅 hostId 变化"的补丁（`:375-386`），端口里没有任何 origin/去重检查；该码今天**只有声明、没有产出点**（`HostRebindJournal.ts:116`）。它归 `plan()` —— §4.2 的 plan 失败表已把它列在协调器一侧，而协调器仍未实现（§7.1 第 3 项）。所以"同一 host 下重复 `remoteSessionId` ⇒ `REMOTE_HOST_REBIND_ORIGIN_CONFLICT`"这条用例必须等 `plan()` 落地后才能写，**不能**写成端口用例 |
 | 17 | `src/main/sessions/SessionLocatorRouter.ts` | **??（Phase 1 新增）** | 不改：ssh 抛 `UNSUPPORTED_PROJECT_LOCATION`（`:15`）是目标语义 | 只加测试：rebind 后 ssh locator 仍不可进本地 fs 路径 |
 | 18 | `src/shared/locationAdapters.ts` | **??（Phase 1 新增）** | 建议新增 `canonicalLocatorJson(locator)`（固定键序）供 before/after 比对；**不要**在这里做 rebind 逻辑 | 同一 locator 不同键序 ⇒ 同串；ssh 分支不产出 legacy 字段（`:48` 已如此） |
 | 19 | `src/shared/types/project.ts` / `src/shared/types/session.ts` | **M（脏）** | 仅在需要"引用索引"时才动类型；建议不动（`hostId` 已在 locator 里，见 `project.ts:3`、`session.ts:108`） | 类型不加测试，靠 #9 的契约扫描 |
@@ -668,8 +695,8 @@ export type HostRepairPort = {
 
 | # | 文件 | 改动 |
 | --- | --- | --- |
-| 25 | `src/main/remote/RemoteHostPaths.ts`（新增） | `resolveRemoteHostPaths(userDataDir)` 作为远程主机域**磁盘根的唯一来源**：`remote-hosts.json`(+`.bak`) / `remote-hosts.json.lock` / `ssh-host-keys/` / `remote-host-rebind.json`(+`.lock`)。今天这四类路径各自派生：`RemoteHostStore.ts:133`、`:167`、`:191`、`:226`（store 文件 / 锁 / pin 根，其中 pin 根在 store 与 pin store 各拼一次）、`SshHostPinStore.ts:101`、`RemoteHostRepair.ts:188-189`（还额外提供 `paths.pinRoot` / `paths.hostLockFile` 覆盖 —— 这正是漂移入口）、`HostRebindJournal.ts:282-283`；`RemoteHostRepair.hasActiveWriteTemp()` 里的 `remote-hosts\.json\..*\.tmp` 正则（`:445`）是同一 basename 的第五处字面依赖。这呼应 `AGENTS.md`「同一磁盘根必须同源」；同源入口的既有先例是 `src/main/index.ts` 的 `resolveBuiltInExtensionRoots()` 与 `resolveImageGenStorageRoots()`。**推断**：同源后，`RemoteHostRepair` 的 `paths?` 覆盖应从生产装配里消失（只留给测试），否则"测试与生产走不同根"的漂移仍然存在 |
-| 26 | `src/main/remote/HostRebindJournal.ts` / `src/main/remote/RemoteHostRepair.ts`（拆分） | 两者都已超 400 行目标（617 / 526 行），且 `HostRebindJournal.ts` 已越过 600 行的"必须评估拆分"线；边界建议见 §7.4 风险 5 |
+| 25 | `src/main/remote/RemoteHostPaths.ts`（新增） | `resolveRemoteHostPaths(userDataDir)` 作为远程主机域**磁盘根的唯一来源**：`remote-hosts.json`(+`.bak`) / `remote-hosts.json.lock` / `ssh-host-keys/` / `remote-host-rebind.json`(+`.lock`)。今天这四类路径各自派生：`RemoteHostStore.ts:133`、`:167`、`:191`、`:226`（store 文件 / 锁 / pin 根，其中 pin 根在 store 与 pin store 各拼一次）、`SshHostPinStore.ts:101`、`RemoteHostRepair.ts:188-189`（还额外提供 `paths.pinRoot` / `paths.hostLockFile` 覆盖 —— 这正是漂移入口）、`HostRebindJournal.ts:280-281`（journal 与 tx 锁路径；`295877d8e` 拆分后仍在原模块）；`RemoteHostRepair.hasActiveWriteTemp()` 里的 `remote-hosts\.json\..*\.tmp` 正则（`:445`）是同一 basename 的第五处字面依赖。这呼应 `AGENTS.md`「同一磁盘根必须同源」；同源入口的既有先例是 `src/main/index.ts` 的 `resolveBuiltInExtensionRoots()` 与 `resolveImageGenStorageRoots()`。**推断**：同源后，`RemoteHostRepair` 的 `paths?` 覆盖应从生产装配里消失（只留给测试），否则"测试与生产走不同根"的漂移仍然存在 |
+| 26 | `src/main/remote/HostRebindJournal.ts` / `src/main/remote/RemoteHostRepair.ts`（拆分） | 拆分前两者都已超 400 行目标（`HostRebindJournal.ts` 617 → **674 行**，已越过 600 行的"必须评估拆分"线；`RemoteHostRepair.ts` 526 行）。**`HostRebindJournal.ts` 已在 `295877d8e` 拆成三块**（361 / 155 / 343 行，见 §7.4 风险 5）；`RemoteHostRepair.ts`（526 行）**仍未拆**，边界建议见 §7.4 风险 5 |
 
 **不建议改**：`SshCommandBuilder.ts`、`SshHostVerifier.ts`、`RemoteControlClient.ts`、`RemoteHostConnectionState.ts` —— 跨 store 事务不触碰 argv/协议/连接状态机（`needs-attention` 是连接层概念，与 store 的 `needs-repair` 是两回事，见 `RemoteHostConnectionTypes.ts:8` 与 `RemoteHostStore.ts:9`，**不要合并这两个状态**）。
 
@@ -705,19 +732,22 @@ export type HostRepairPort = {
 **风险 4｜A1 的生产绑定缺失：`verifyRoute` 只能由装配方注入，未注入时 A1 与 A 类诊断在生产不可用。**
 事实：`HostRepairPinPort.verifyRoute(route, pinAlias)`（`RemoteHostRepair.ts:54`）是 A1 重新认证活主机的唯一入口，而它需要的能力 —— "用 pin store 自己那个 `SshClientRuntime` 跑一次 `ssh -G` + host key 候选验证" —— 目前是 private：`SshHostPinStore.verifierFor()`（`SshHostPinStore.ts:110-115`）与它惰性解析的 `resolvedClient`（`:112`）都不对外暴露，模块内的 `pinDigest`（`:32-35`）同样不可调用。装配方今天只有两条路：(a) 用导出的 `verifyDraftSshHost(route, pinAlias, { client })`（`SshHostVerifier.ts:147`）配一个**自建**的 `SshClientRuntime`；(b) 让 `SshHostPinStore` 暴露一个 main-only 的 reverify API（§7.1 第 11 项）。诊断侧同样受影响：`diagnose()` 把 `REMOTE_HOST_PIN_ORPHAN` 映射成 `["complete-activation-from-pin", "discard-orphan-pin"]`（`:205-207`），其中 A1 在生产不可执行 ⇒ 用户拿到的建议里有一条是空动作。缓解：A2（`discardOrphanPin`）不需要 `verifyRoute`，仍是可执行的兜底；但 A2 会丢弃 pin（重新激活必须重做一次完整确认），所以它不是 A1 的等价替代。**【待确认】** 选 (a) 还是 (b) 需要装配层拍板；倾向 (b)，理由是"客户端实例的所有权留在 pin store"能避免 (a) 带来的双客户端分叉。
 
-**风险 5｜两个模块已超 400 行目标，其中一个已越过 600 行的评估线；自然拆法是纯搬迁。**
-事实（当前工作树）：`HostRebindJournal.ts` 617 行（非空 563）、`RemoteHostRepair.ts` 526 行（非空 483）、`RemoteHostStore.ts` 586 行（非空 549）、`RemoteHostReferenceRegistry.ts` 217 行（非空 192）。按 `AGENTS.md` 的文件体量红线（目标 ≤ 400 行，超过 600 行**必须评估拆分**）：`HostRebindJournal.ts` 已经越线，`RemoteHostStore.ts` 与 `RemoteHostRepair.ts` 逼近。
-建议边界（都是现有代码块的自然断层，不改变语义）：
+**风险 5｜两个模块已超 400 行目标，其中一个已越过 600 行的评估线；拆分已在 `295877d8e` 落地，剩 `RemoteHostRepair.ts`。**
+事实：`9d0710470` 后的当前工作树里 `HostRebindJournal.ts` 已从 617 涨到 **674 行（非空 615）**，越过 600 行的"必须评估拆分"硬线；`RemoteHostRepair.ts` 526 行（非空 483）、`RemoteHostStore.ts` 586 行（非空 549）、`RemoteHostReferenceRegistry.ts` 217 行（非空 192）均逼近 400 行目标。
+**拆分已落地（`295877d8e`）**：实际边界与本文原先的建议一致（模块名也照用），下表按现状给出：
 
-| 建议模块 | 搬走什么 | 现有位置 | 规模 |
+| 模块（现状） | 搬走了什么 | 实测规模 | 拆分前位置（674 行基线） |
 | --- | --- | --- | --- |
-| `HostRebindTxLock.ts`（新） | tx 锁：owner 写入/读取、`currentBootId` 推导、存活判定与抢占规则 | `HostRebindJournal.ts:137`、`:187-200`、`:558-616` | ≈ 120 行 |
-| `HostRebindConvergence.ts`（新） | 收敛：逐记录分类、阶段推进、roll-forward、outcome 组装（只依赖 §4.4 端口） | `:364-551` | ≈ 190 行 |
-| `HostRebindJournal.ts`（保留） | journal 类型/编解码/文件 I/O + `resume` 外壳 | `:21-362` 的剩余部分 | ≈ 200 行 |
-| `RemoteHostRepairDiagnosis.ts`（新） | `diagnose()` + 孤儿/坏锚点扫描（只读） | `RemoteHostRepair.ts:200-235`、`:456-488` | ≈ 70 行 |
-| `RemoteHostRepairPrimitives.ts`（新） | 四个原语 + pin 检查/锁检查 | `:242-355`、`:388-415` | ≈ 160 行 |
+| `HostRebindTxLock.ts`（新） | tx 锁：`HostRebindTxLockOwner` 类型、`MAX_LOCK_BYTES`（`:30`）、`currentBootId`（`:65`）、`defaultIsProcessAlive`（`:69`）、`classifyRebindTxLockOwner`（`:86`）、`acquireRebindTxLock`（`:120`）、`REBIND_TX_LOCK_UNWRITABLE`（`:28`） | **155 行** | `HostRebindJournal.ts:156`、`:158`、`:243-257`、`:610-673` |
+| `HostRebindConvergence.ts`（新） | 收敛：`convergeRebindJournal`（`:160-205`，含 roll-forward 与最终扫描）、`advance`（`:207-212`）、`classify`（`:249-274`）、`applyStore`（`:276-294`）、`classifyRebindRecord`（`:112-117`）、`classifyRebindResult`（`:126-133`）、`asStableError` 折叠（`:97-101`）、`assertStorePort`（`:150-152`） | **343 行** | `HostRebindJournal.ts:421-608` |
+| `HostRebindJournal.ts`（保留） | 端口/journal 契约类型（`:28-101`）、稳定码词表（`:104-155`）、`canonicalHostLocatorJson`（`:190-202`）、`assertHostRebindRecordIds`（`:214-217`）、`decodeRebindJournal`（`:224-257`）、文件 I/O（`read` `:296-320` / `write` `:327-334` / `remove` `:336-342`）与 `resume` 外壳（`:350-360`） | **361 行** | `HostRebindJournal.ts:1-419` 的剩余部分 |
+| `RemoteHostRepairDiagnosis.ts`（**仍未拆**） | `diagnose()` + 孤儿/坏锚点扫描（只读） | 建议 ≈ 70 行 | `RemoteHostRepair.ts:200-235`、`:456-488` |
+| `RemoteHostRepairPrimitives.ts`（**仍未拆**） | 四个原语 + pin 检查/锁检查 | 建议 ≈ 160 行 | `RemoteHostRepair.ts:242-355`、`:388-415` |
 
-成本与风险：纯移动 + 导出调整，没有状态语义变化；现有测试都是端口注入（`tests/hostRebindJournal.test.mjs:33-136` 的 stub 端口），拆完用例不需要改。**【推断】** 唯一的耦合风险在 import 图 —— `RemoteHostRepair.ts:21` 已经 `import { currentBootId } from "./HostRebindJournal"`，拆锁时要么先把这条边指向新模块，要么保留 `HostRebindJournal` 的再导出，避免形成环。
+> **仍然超线的是 `RemoteHostRepair.ts`（526 行）**：拆分边界按上表最后两行，且它的行号未受 `295877d8e` 影响（该提交只改了它 1 行 import：`RemoteHostRepair.ts:21` 现在 `import { currentBootId } from "./HostRebindTxLock"`）。**注意这条 import 边的归属已按当时的"耦合风险"处理完毕**：拆锁时先把边指向了新模块，没有再导出环。
+> **可选（若要把 `HostRebindJournal.ts` 也压到 400 行以内）**：把 §4.4 的端口契约类型 + `canonicalHostLocatorJson` + `assertHostRebindRecordIds` 单独立成 `HostRebindPorts.ts`（现 `:50-101`、`:182-217`），两个 store 与收敛模块都从它 import；这样它会降到 ≈ 250 行。**代价**是 `canonicalHostLocatorJson` 的 import 路径要改两处（`SessionCatalog.ts:9`、`ProjectStore.ts:9`）。**【待确认】** 是否连这一步一起做，由落地者按当次改动面拍板（`295877d8e` 选择了"不拆端口契约"，因为契约与码表同源、拆开反而多一条 import 边）。
+
+成本与风险：本次拆分为纯搬迁 + 导出调整，没有状态语义变化；测试也是端口注入（`tests/hostRebindJournal.test.mjs:33-136` 的 stub 端口），拆完用例不需要改，`295877d8e` 另加了两个模块级用例（`tests/hostRebindTxLock.test.mjs`、`tests/hostRebindConvergence.test.mjs`）。
 
 ---
 
