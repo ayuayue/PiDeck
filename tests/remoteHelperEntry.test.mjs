@@ -16,8 +16,21 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * answering" has to fail the test instead of hanging it.
  */
 
-const { REMOTE_HELPER_CAPABILITIES, REMOTE_HELPER_MAX_CONCURRENT_REQUESTS, REMOTE_HELPER_MAX_ECHO_DELAY_MS, REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_MAX_QUEUED_REQUESTS, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH, REMOTE_HELPER_MAX_HOST_ID_LENGTH, REMOTE_HELPER_MAX_ID_LENGTH, REMOTE_HELPER_MAX_METHOD_LENGTH, REMOTE_HELPER_PROTOCOL_VERSION } =
-	loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
+const {
+	REMOTE_HELPER_CAPABILITIES,
+	REMOTE_HELPER_MAX_CONCURRENT_REQUESTS,
+	REMOTE_HELPER_MAX_ECHO_DELAY_MS,
+	REMOTE_HELPER_MAX_FRAME_BYTES,
+	REMOTE_HELPER_MAX_QUEUED_REQUESTS,
+	REMOTE_HELPER_METHOD_CANCEL,
+	REMOTE_HELPER_METHOD_ECHO,
+	REMOTE_HELPER_METHOD_HELLO,
+	REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH,
+	REMOTE_HELPER_MAX_HOST_ID_LENGTH,
+	REMOTE_HELPER_MAX_ID_LENGTH,
+	REMOTE_HELPER_MAX_METHOD_LENGTH,
+	REMOTE_HELPER_PROTOCOL_VERSION,
+} = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 const { REMOTE_HELPER_ENTRY_FILE_NAME, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_INLINE_SOURCE } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
 const { REMOTE_FRAME_DIAGNOSTIC_CODES, createRemoteControlClient } = loadTsCommonJs("src/main/remote/RemoteControlClient.ts");
 
@@ -26,7 +39,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "64edeaf7bee7d3339b54fcb119326d5e85172deca92b2c8079177cbd16f5789a";
+const FROZEN_SHA256 = "1abaf6a3ef7d6bcabf327ae490c32fecc7cba9c49a7f21485793e9b52826f8ba";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -533,6 +546,27 @@ helperTest("the frozen field bounds match the contract both sides share", () => 
 	assert.equal(Number("128"), REMOTE_HELPER_MAX_ID_LENGTH);
 	assert.equal(Number("64"), REMOTE_HELPER_MAX_METHOD_LENGTH);
 	assert.equal(Number("4096"), REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH);
+});
+
+helperTest("a frame-cap violation abandons admitted work, which the caller sees as a lost transport", async (t) => {
+	const session = startHelper(t);
+	// The documented exception to one-terminal-outcome-per-request: the echo below is admitted and holds
+	// a slot, then an oversized tail ends the process before its timer fires. The client therefore gets a
+	// dead transport rather than a silence it would misread as its own deadline.
+	const admitted = session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "admitted", delayMs: 5_000 });
+	admitted.catch(() => {});
+	const admittedId = session.requestIdAt(0);
+	assert.equal(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello before the oversized tail")).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
+	// One oversized unterminated tail: over the cap without ever becoming a line.
+	session.child.stdin.write(Buffer.alloc(REMOTE_HELPER_MAX_FRAME_BYTES + 1, 0x41));
+	await guard(session.waitForFrames(2, "the refusal frame"), "the refusal frame");
+	assert.equal(session.frames.at(-1).error.code, "PROTOCOL_INVALID");
+	assert.notEqual(await session.waitForExit(2_000), 0, "the cap violation is fatal, not a served refusal");
+	assert.equal(
+		session.frames.some((frame) => frame.id === admittedId && frame.ok === true),
+		false,
+		"the admitted request is abandoned without an answer",
+	);
 });
 
 helperTest("stdin EOF ends the helper with code 0 and drops its pending work", async (t) => {
