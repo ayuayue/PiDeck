@@ -47,3 +47,24 @@ test("密钥不随按键落盘，失焦才提交（三家各一个输入框）",
 		assert.doesNotMatch(source, new RegExp(`onChange=\\{\\(event\\) => \\{[^}]*persist\\(configRef\\.current, \\{ ${field}`), `${field} 不得随按键落盘`);
 	}
 });
+
+test("总开关关闭时不渲染下方配置项，只留开关本身", () => {
+	// 回归（2026-09 用户反馈「看着很烦」）：关着语音输入时，整屏引擎/密钥/模型输入框
+	// 全部无法生效，却占满一屏。判据是「开关之后的所有配置行都在 config.enabled 分支里」，
+	// 所以这里断言开关行之后紧跟条件分支，且分支一直包到 actions 行收尾。
+	const switchIndex = source.indexOf('<SettingSwitchRow title={t("voice.settings.enabled")}');
+	const guardIndex = source.indexOf("{config.enabled ? (", switchIndex);
+	assert.ok(switchIndex > 0 && guardIndex > switchIndex, "开关行之后必须紧跟 config.enabled 条件分支");
+	// 分界点之前不能出现任何配置控件（否则有行漏在分支外，关掉开关仍然可见）
+	const beforeGuard = source.slice(switchIndex, guardIndex);
+	for (const leaked of ["<Input", "<Select", "voice.settings.engine"]) {
+		assert.ok(!beforeGuard.includes(leaked), `${leaked} 不得出现在开关与条件分支之间（会常驻显示）`);
+	}
+	const tail = source.slice(guardIndex);
+	assert.match(tail, /\)\s*:\s*null\}/, "条件分支必须有 else null 收尾，不能漏掉闭合");
+	// actions 行（检测/保存）也在同一分支内：没有配置项时按钮没有意义。
+	// 分支收尾用 lastIndexOf：分支内还有若干内联 `) : null}`（例如进度提示），取最后一个才是包裹层的。
+	const actionsIndex = source.indexOf('title={t("voice.settings.actions")}');
+	const elseIndex = source.lastIndexOf(") : null}");
+	assert.ok(actionsIndex > guardIndex && actionsIndex < elseIndex, "配置操作按钮必须落在条件分支内");
+});

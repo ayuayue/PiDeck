@@ -343,198 +343,204 @@ export function VoiceTranscriptionSettingsSection() {
 	return (
 		<SettingsSection title={t("voice.settings.title")} description={t("voice.settings.description")}>
 			<SettingSwitchRow title={t("voice.settings.enabled")} description={t("voice.settings.enabledDescription")} checked={config.enabled} disabled={busy} onChange={(checked) => patch({ enabled: checked })} />
-			<SettingRow title={t("voice.settings.engine")} alignEnd={false}>
-				<Select value={config.engine} disabled={busy} onValueChange={(value) => patch({ engine: value === "local" ? "local" : "cloud" })}>
-					<SelectTrigger className="w-full">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="cloud">{t("voice.settings.engineCloud")}</SelectItem>
-						<SelectItem value="local">{t("voice.settings.engineLocal")}</SelectItem>
-					</SelectContent>
-				</Select>
-			</SettingRow>
-			<SettingRow title={t("voice.settings.device")} description={t("voice.settings.deviceDescription")} alignEnd={false}>
-				<Select value={config.inputDeviceId || "__default__"} disabled={busy} onValueChange={(value) => patch({ inputDeviceId: value === "__default__" ? "" : value })}>
-					<SelectTrigger className="w-full">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="__default__">{t("voice.settings.deviceDefault")}</SelectItem>
-						{devices.map((device) => (
-							<SelectItem key={device.deviceId} value={device.deviceId}>
-								{device.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-			</SettingRow>
-
-			{isLocal ? (
+			{/* 总开关关闭时下面每一项都不生效（麦克风按钮本身也不会出现），整块隐藏：
+			    一屏无法使用的输入框只会制造噪音（用户反馈「看着很烦」）。 */}
+			{config.enabled ? (
 				<>
-					<SettingRow title={t("voice.settings.runtime")} description={runtime.cliReady ? t("voice.settings.runtimeReady") : t("voice.settings.runtimeMissing")} alignEnd={false}>
-						{runtime.cliReady ? (
-							<span className="text-caption text-muted-foreground">{runtime.cliSource === "custom" ? t("voice.settings.runtimeSourceCustom") : `${t("voice.settings.runtimeSourceAuto")} · ${runtime.runtimeVersion ?? ""}`}</span>
-						) : runtime.autoRuntimeSupported ? (
-							<div className="flex w-full items-center gap-2">
-								<Button type="button" size="sm" loading={busyTarget === "runtime"} disabled={busy || Boolean(busyTarget)} onClick={() => void installRuntime()}>
-									{t("voice.settings.runtimeDownload")}
-								</Button>
-								{showProgress && progress?.target === "runtime" ? (
-									<div className="flex items-center gap-2">
-										<span className="text-caption text-muted-foreground">{formatProgress(progress)}</span>
-										<InstallCancelButton />
-									</div>
-								) : null}
-							</div>
-						) : (
-							<span className="text-caption text-muted-foreground">{t("voice.settings.runtimeUnsupported")}</span>
-						)}
-					</SettingRow>
-					<SettingRow title={t("voice.settings.model")} description={t("voice.settings.modelDescription")} alignEnd={false}>
-						<Select value={config.localModelId} disabled={busy} onValueChange={(value) => patch({ localModelId: value as VoiceTranscriptionPublicConfig["localModelId"] })}>
+					<SettingRow title={t("voice.settings.engine")} alignEnd={false}>
+						<Select value={config.engine} disabled={busy} onValueChange={(value) => patch({ engine: value === "local" ? "local" : "cloud" })}>
 							<SelectTrigger className="w-full">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{WHISPER_MODEL_CATALOG.map((model) => (
-									<SelectItem key={model.id} value={model.id}>
-										{model.label}
+								<SelectItem value="cloud">{t("voice.settings.engineCloud")}</SelectItem>
+								<SelectItem value="local">{t("voice.settings.engineLocal")}</SelectItem>
+							</SelectContent>
+						</Select>
+					</SettingRow>
+					<SettingRow title={t("voice.settings.device")} description={t("voice.settings.deviceDescription")} alignEnd={false}>
+						<Select value={config.inputDeviceId || "__default__"} disabled={busy} onValueChange={(value) => patch({ inputDeviceId: value === "__default__" ? "" : value })}>
+							<SelectTrigger className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="__default__">{t("voice.settings.deviceDefault")}</SelectItem>
+								{devices.map((device) => (
+									<SelectItem key={device.deviceId} value={device.deviceId}>
+										{device.label}
 									</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
 					</SettingRow>
-					<SettingRow title={selectedModel ? t("voice.settings.modelFile", { model: selectedModel.label }) : t("voice.settings.model")} alignEnd={false}>
-						<div className="flex items-center gap-2">
-							{selectedModelStatus?.installed ? (
-								<>
-									<span className="text-caption text-muted-foreground">{t("voice.settings.modelInstalled")}</span>
-									<Button type="button" variant="outline" size="sm" disabled={busy || Boolean(busyTarget)} onClick={() => void deleteModel(config.localModelId)}>
-										{t("voice.settings.modelDelete")}
-									</Button>
-								</>
-							) : (
-								<Button type="button" size="sm" loading={busyTarget === config.localModelId} disabled={busy || Boolean(busyTarget)} onClick={() => void installModel(config.localModelId)}>
-									{t("voice.settings.modelDownload")}
-								</Button>
-							)}
-							{showProgress && progress && progress.target !== "runtime" ? (
-								<div className="flex items-center gap-2">
-									<span className="text-caption text-muted-foreground">{formatProgress(progress)}</span>
-									<InstallCancelButton />
-								</div>
-							) : (
-								<PartialDownloadHint status={selectedModelStatus} />
-							)}
-						</div>
-					</SettingRow>
-					<SettingRow title={t("voice.settings.cliPath")} description={t("voice.settings.cliPathDescription")} alignEnd={false} stacked>
-						<Input value={config.cliPath} disabled={busy} placeholder={t("voice.settings.cliPathPlaceholder")} onChange={(event) => patch({ cliPath: event.target.value })} />
-					</SettingRow>
-				</>
-			) : (
-				<>
-					<SettingRow title={t("voice.settings.cloudProvider")} description={t("voice.settings.cloudProviderDescription")} alignEnd={false}>
-						<Select value={config.cloudProvider} disabled={busy} onValueChange={(value) => patch({ cloudProvider: value === "volcengine" ? "volcengine" : "openai" })}>
-							<SelectTrigger className="w-full">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="openai">{t("voice.settings.cloudProviderOpenai")}</SelectItem>
-								<SelectItem value="volcengine">{t("voice.settings.cloudProviderVolc")}</SelectItem>
-							</SelectContent>
-						</Select>
-					</SettingRow>
-					{isVolc ? (
+
+					{isLocal ? (
 						<>
-							<SettingRow title={t("voice.settings.volcAppId")} description={t("voice.settings.volcAppIdDescription")} alignEnd={false} stacked>
-								<Input
-									type="password"
-									value={volcAppId}
-									disabled={busy}
-									placeholder={config.hasVolcAppId ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
-									autoComplete="off"
-									onChange={(event) => setVolcAppId(event.target.value)}
-									// 密钥不跟着每次按键落盘（半截 key 写进配置更难排查），失焦才提交。
-									onBlur={() => {
-										if (volcAppId.trim()) void persist(configRef.current, { volcAppId });
-									}}
-								/>
+							<SettingRow title={t("voice.settings.runtime")} description={runtime.cliReady ? t("voice.settings.runtimeReady") : t("voice.settings.runtimeMissing")} alignEnd={false}>
+								{runtime.cliReady ? (
+									<span className="text-caption text-muted-foreground">{runtime.cliSource === "custom" ? t("voice.settings.runtimeSourceCustom") : `${t("voice.settings.runtimeSourceAuto")} · ${runtime.runtimeVersion ?? ""}`}</span>
+								) : runtime.autoRuntimeSupported ? (
+									<div className="flex w-full items-center gap-2">
+										<Button type="button" size="sm" loading={busyTarget === "runtime"} disabled={busy || Boolean(busyTarget)} onClick={() => void installRuntime()}>
+											{t("voice.settings.runtimeDownload")}
+										</Button>
+										{showProgress && progress?.target === "runtime" ? (
+											<div className="flex items-center gap-2">
+												<span className="text-caption text-muted-foreground">{formatProgress(progress)}</span>
+												<InstallCancelButton />
+											</div>
+										) : null}
+									</div>
+								) : (
+									<span className="text-caption text-muted-foreground">{t("voice.settings.runtimeUnsupported")}</span>
+								)}
 							</SettingRow>
-							<SettingRow title={t("voice.settings.volcAccessToken")} description={t("voice.settings.volcAccessTokenDescription")} alignEnd={false} stacked>
-								<Input
-									type="password"
-									value={volcAccessToken}
-									disabled={busy}
-									placeholder={config.hasVolcAccessToken ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
-									autoComplete="off"
-									onChange={(event) => setVolcAccessToken(event.target.value)}
-									onBlur={() => {
-										if (volcAccessToken.trim()) void persist(configRef.current, { volcAccessToken });
-									}}
-								/>
-							</SettingRow>
-							<SettingRow title={t("voice.settings.cloudResourceId")} description={t("voice.settings.cloudResourceIdDescription")} alignEnd={false}>
-								<Select value={config.cloudResourceId} disabled={busy} onValueChange={(value) => patch({ cloudResourceId: value })}>
+							<SettingRow title={t("voice.settings.model")} description={t("voice.settings.modelDescription")} alignEnd={false}>
+								<Select value={config.localModelId} disabled={busy} onValueChange={(value) => patch({ localModelId: value as VoiceTranscriptionPublicConfig["localModelId"] })}>
 									<SelectTrigger className="w-full">
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										{VOLC_SUPPORTED_RESOURCE_IDS.map((resourceId) => (
-											<SelectItem key={resourceId} value={resourceId}>
-												{t(VOLC_RESOURCE_ID_LABELS[resourceId])} · {resourceId}
+										{WHISPER_MODEL_CATALOG.map((model) => (
+											<SelectItem key={model.id} value={model.id}>
+												{model.label}
 											</SelectItem>
 										))}
 									</SelectContent>
 								</Select>
 							</SettingRow>
+							<SettingRow title={selectedModel ? t("voice.settings.modelFile", { model: selectedModel.label }) : t("voice.settings.model")} alignEnd={false}>
+								<div className="flex items-center gap-2">
+									{selectedModelStatus?.installed ? (
+										<>
+											<span className="text-caption text-muted-foreground">{t("voice.settings.modelInstalled")}</span>
+											<Button type="button" variant="outline" size="sm" disabled={busy || Boolean(busyTarget)} onClick={() => void deleteModel(config.localModelId)}>
+												{t("voice.settings.modelDelete")}
+											</Button>
+										</>
+									) : (
+										<Button type="button" size="sm" loading={busyTarget === config.localModelId} disabled={busy || Boolean(busyTarget)} onClick={() => void installModel(config.localModelId)}>
+											{t("voice.settings.modelDownload")}
+										</Button>
+									)}
+									{showProgress && progress && progress.target !== "runtime" ? (
+										<div className="flex items-center gap-2">
+											<span className="text-caption text-muted-foreground">{formatProgress(progress)}</span>
+											<InstallCancelButton />
+										</div>
+									) : (
+										<PartialDownloadHint status={selectedModelStatus} />
+									)}
+								</div>
+							</SettingRow>
+							<SettingRow title={t("voice.settings.cliPath")} description={t("voice.settings.cliPathDescription")} alignEnd={false} stacked>
+								<Input value={config.cliPath} disabled={busy} placeholder={t("voice.settings.cliPathPlaceholder")} onChange={(event) => patch({ cliPath: event.target.value })} />
+							</SettingRow>
 						</>
 					) : (
 						<>
-							<SettingRow title={t("voice.settings.baseUrl")} alignEnd={false} stacked>
-								<Input value={config.baseUrl} disabled={busy} onChange={(event) => patch({ baseUrl: event.target.value })} />
+							<SettingRow title={t("voice.settings.cloudProvider")} description={t("voice.settings.cloudProviderDescription")} alignEnd={false}>
+								<Select value={config.cloudProvider} disabled={busy} onValueChange={(value) => patch({ cloudProvider: value === "volcengine" ? "volcengine" : "openai" })}>
+									<SelectTrigger className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="openai">{t("voice.settings.cloudProviderOpenai")}</SelectItem>
+										<SelectItem value="volcengine">{t("voice.settings.cloudProviderVolc")}</SelectItem>
+									</SelectContent>
+								</Select>
 							</SettingRow>
-							<SettingRow title={t("voice.settings.apiKey")} description={t("voice.settings.apiKeyAutoSaveHint")} alignEnd={false} stacked>
-								<Input
-									type="password"
-									value={apiKey}
-									disabled={busy}
-									placeholder={config.hasApiKey ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
-									autoComplete="off"
-									onChange={(event) => setApiKey(event.target.value)}
-									onBlur={() => {
-										if (apiKey.trim()) void persist(configRef.current, { apiKey });
-									}}
-								/>
-							</SettingRow>
-							<SettingRow title={t("voice.settings.model")} alignEnd={false} stacked>
-								<Input value={config.model} disabled={busy} onChange={(event) => patch({ model: event.target.value })} />
-							</SettingRow>
+							{isVolc ? (
+								<>
+									<SettingRow title={t("voice.settings.volcAppId")} description={t("voice.settings.volcAppIdDescription")} alignEnd={false} stacked>
+										<Input
+											type="password"
+											value={volcAppId}
+											disabled={busy}
+											placeholder={config.hasVolcAppId ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
+											autoComplete="off"
+											onChange={(event) => setVolcAppId(event.target.value)}
+											// 密钥不跟着每次按键落盘（半截 key 写进配置更难排查），失焦才提交。
+											onBlur={() => {
+												if (volcAppId.trim()) void persist(configRef.current, { volcAppId });
+											}}
+										/>
+									</SettingRow>
+									<SettingRow title={t("voice.settings.volcAccessToken")} description={t("voice.settings.volcAccessTokenDescription")} alignEnd={false} stacked>
+										<Input
+											type="password"
+											value={volcAccessToken}
+											disabled={busy}
+											placeholder={config.hasVolcAccessToken ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
+											autoComplete="off"
+											onChange={(event) => setVolcAccessToken(event.target.value)}
+											onBlur={() => {
+												if (volcAccessToken.trim()) void persist(configRef.current, { volcAccessToken });
+											}}
+										/>
+									</SettingRow>
+									<SettingRow title={t("voice.settings.cloudResourceId")} description={t("voice.settings.cloudResourceIdDescription")} alignEnd={false}>
+										<Select value={config.cloudResourceId} disabled={busy} onValueChange={(value) => patch({ cloudResourceId: value })}>
+											<SelectTrigger className="w-full">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												{VOLC_SUPPORTED_RESOURCE_IDS.map((resourceId) => (
+													<SelectItem key={resourceId} value={resourceId}>
+														{t(VOLC_RESOURCE_ID_LABELS[resourceId])} · {resourceId}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</SettingRow>
+								</>
+							) : (
+								<>
+									<SettingRow title={t("voice.settings.baseUrl")} alignEnd={false} stacked>
+										<Input value={config.baseUrl} disabled={busy} onChange={(event) => patch({ baseUrl: event.target.value })} />
+									</SettingRow>
+									<SettingRow title={t("voice.settings.apiKey")} description={t("voice.settings.apiKeyAutoSaveHint")} alignEnd={false} stacked>
+										<Input
+											type="password"
+											value={apiKey}
+											disabled={busy}
+											placeholder={config.hasApiKey ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
+											autoComplete="off"
+											onChange={(event) => setApiKey(event.target.value)}
+											onBlur={() => {
+												if (apiKey.trim()) void persist(configRef.current, { apiKey });
+											}}
+										/>
+									</SettingRow>
+									<SettingRow title={t("voice.settings.model")} alignEnd={false} stacked>
+										<Input value={config.model} disabled={busy} onChange={(event) => patch({ model: event.target.value })} />
+									</SettingRow>
+								</>
+							)}
 						</>
 					)}
-				</>
-			)}
 
-			<SettingRow title={t("voice.settings.language")} description={t("voice.settings.languageDescription")} alignEnd={false} stacked>
-				<Input value={config.language} disabled={busy} placeholder={t("voice.settings.languagePlaceholder")} onChange={(event) => patch({ language: event.target.value })} />
-			</SettingRow>
-			<SettingRow title={t("voice.settings.actions")} description={t("voice.settings.autoSaveHint")}>
-				<div className="flex items-center gap-2">
-					{!isLocal && hasCloudKey ? (
-						<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void save(true)}>
-							{t("voice.settings.clearKey")}
-						</Button>
-					) : null}
-					{/* 检测会发一次真实请求（约 0.4 秒静音）；凭据不全时主进程直接回 notConfigured，不浪费额度。 */}
-					<Button type="button" variant="outline" size="sm" loading={testing} disabled={busy || saving} onClick={() => void runTest()}>
-						{t("voice.settings.test")}
-					</Button>
-					<Button type="button" size="sm" loading={saving} disabled={busy} onClick={() => void save(false)}>
-						{t("voice.settings.save")}
-					</Button>
-				</div>
-			</SettingRow>
+					<SettingRow title={t("voice.settings.language")} description={t("voice.settings.languageDescription")} alignEnd={false} stacked>
+						<Input value={config.language} disabled={busy} placeholder={t("voice.settings.languagePlaceholder")} onChange={(event) => patch({ language: event.target.value })} />
+					</SettingRow>
+					<SettingRow title={t("voice.settings.actions")} description={t("voice.settings.autoSaveHint")}>
+						<div className="flex items-center gap-2">
+							{!isLocal && hasCloudKey ? (
+								<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void save(true)}>
+									{t("voice.settings.clearKey")}
+								</Button>
+							) : null}
+							{/* 检测会发一次真实请求（约 0.4 秒静音）；凭据不全时主进程直接回 notConfigured，不浪费额度。 */}
+							<Button type="button" variant="outline" size="sm" loading={testing} disabled={busy || saving} onClick={() => void runTest()}>
+								{t("voice.settings.test")}
+							</Button>
+							<Button type="button" size="sm" loading={saving} disabled={busy} onClick={() => void save(false)}>
+								{t("voice.settings.save")}
+							</Button>
+						</div>
+					</SettingRow>
+				</>
+			) : null}
 		</SettingsSection>
 	);
 }
