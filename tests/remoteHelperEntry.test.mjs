@@ -26,7 +26,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "fd6db9dddfa16e90385586176735323dc611141a950b76a59881732c5314aefe";
+const FROZEN_SHA256 = "64edeaf7bee7d3339b54fcb119326d5e85172deca92b2c8079177cbd16f5789a";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -503,6 +503,27 @@ helperTest("a byte sequence that is not utf8 inside a string value fails closed"
 	assert.equal(refusal.id, "", "a frame that could not be decoded has no identity to echo");
 	// The helper stays usable: a well-formed frame after the refusal is still served.
 	assert.equal(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello after the refusal")).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
+});
+
+helperTest("a queued request that outlives its deadline is refused instead of running late", async (t) => {
+	const session = startHelper(t);
+	// Four slots held, then a fifth request that cannot start before its own deadline passes. The client
+	// settles it locally first; the helper has to refuse it as well, otherwise the work would run after
+	// the caller was told it timed out (and a retry would execute it a second time).
+	const holding = Array.from({ length: REMOTE_HELPER_MAX_CONCURRENT_REQUESTS }, (_value, index) => session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: `h${index}`, delayMs: 400 }));
+	const late = session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "late", delayMs: 0 }, { timeoutMs: 100 });
+	late.catch(() => {});
+	const lateId = session.requestIdAt(REMOTE_HELPER_MAX_CONCURRENT_REQUESTS);
+	await guard(Promise.all(holding), "the four scheduled echoes");
+	const refusal = session.frames.find((candidate) => candidate.id === lateId && candidate.ok === false);
+	assert.ok(refusal, "the helper must answer the expired request");
+	assert.equal(refusal.error.code, "REQUEST_TIMEOUT");
+	assert.equal(refusal.error.retryable, true);
+	assert.equal(
+		session.frames.some((candidate) => candidate.id === lateId && candidate.ok === true),
+		false,
+		"an expired request must never be answered with a result",
+	);
 });
 
 helperTest("stdin EOF ends the helper with code 0 and drops its pending work", async (t) => {
