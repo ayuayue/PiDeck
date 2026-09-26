@@ -211,7 +211,7 @@ function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boo
 				text:
 					overrideText ??
 					(cancelled && answers.length === 0
-						? "用户取消了问卷"
+						? "用户取消了提问"
 						: lines.length
 							? lines.join("\n")
 							: "无答案"),

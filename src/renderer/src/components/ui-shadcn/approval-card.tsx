@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ClipboardCheck, Copy, Eye, EyeOff, X } from "lucide-react";
+import { Check, ChevronDown, CircleHelp, Copy, Eye, EyeOff, X } from "lucide-react";
 import { Button } from "./button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 import { cn } from "../../lib/utils";
@@ -98,7 +98,7 @@ export function ApprovalCard(props: {
 						<ChevronDown className={cn("size-3.5 shrink-0 transition-transform duration-200", !props.open && "-rotate-90")} aria-hidden="true" />
 					</Button>
 				</CollapsibleTrigger>
-				<ClipboardCheck className="mt-1.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+				<CircleHelp className="mt-1.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
 				<div className="min-w-0 flex-1 py-0.5">
 					<div className="whitespace-pre-wrap break-words text-caption font-semibold leading-relaxed text-foreground select-text">{props.title}</div>
 					{props.description ? (

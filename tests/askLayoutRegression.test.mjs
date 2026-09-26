@@ -41,14 +41,35 @@ test("Batch input questions keep the input flexible and submit button compact", 
 
 test("Batch ask selected options carry a check mark for low-contrast themes", () => {
 	// 2026-12 用户反馈：部分主题色 accent 对比度低，选框只靠边框/背景变色难分辨已选项。
-	// select 选项与 confirm 按钮在选中态都要渲染 Check 图标；图标色走 success token 而非 accent。
-	assert.match(overlay, /props\.answer === value \? <Check size=\{14\} className="shrink-0 text-\[var\(--color-success\)\]" aria-hidden="true" \/> : null/);
-	assert.match(overlay, /props\.answer === true \? <Check size=\{14\} className="shrink-0 text-\[var\(--color-success\)\]" aria-hidden="true" \/> : null/);
-	assert.match(overlay, /props\.answer === false \? <Check size=\{14\} className="shrink-0 text-\[var\(--color-success\)\]" aria-hidden="true" \/> : null/);
+	// select 选项与 confirm 按钮在选中态都要渲染描线对勾（DrawCheck，beui Checkbox 同款动效）；
+	// 图标色走 success token 而非 accent。
+	assert.match(overlay, /props\.answer === value \? <DrawCheck className="shrink-0 text-\[var\(--color-success\)\]" \/> : null/);
+	assert.match(overlay, /props\.answer === true \? <DrawCheck className="shrink-0 text-\[var\(--color-success\)\]" \/> : null/);
+	assert.match(overlay, /props\.answer === false \? <DrawCheck className="shrink-0 text-\[var\(--color-success\)\]" \/> : null/);
 	assert.match(overlay, /选中态对勾标记：主题色 accent 对比度低时只靠边框\/背景变色难分辨已选项/);
-	// 单卡单选（最常走的 ask 路径）同样补 Check：夜间模式下底色差可能不明显，
+	// 单卡单选（最常走的 ask 路径）同样补对勾：夜间模式下底色差可能不明显，
 	// 非颜色线索是最后一道保障。
-	assert.match(overlay, /selectedOption === option \? <Check size=\{14\} className="shrink-0 text-\[var\(--color-success\)\]" aria-hidden="true" \/> : null/);
+	assert.match(overlay, /selectedOption === option \? <DrawCheck className="shrink-0 text-\[var\(--color-success\)\]" \/> : null/);
+});
+
+/**
+ * 换题动效借用自 beui ApprovalCard 的编排（AnimatePresence mode=wait + 横向滑入 + 标题滚动），
+ * 但协议结构（tab 条/审阅页/editor/守卫）不随组件替换——这里锁定「动效在、结构没被换皮带走」。
+ */
+test("Batch question switching plays the borrowed beui motion choreography", () => {
+	const drawCheck = readFileSync("src/renderer/src/components/motion/draw-check.tsx", "utf8");
+	assert.match(overlay, /import \{ AnimatePresence, motion, useReducedMotion \} from "motion\/react"/);
+	assert.match(overlay, /<AnimatePresence initial=\{false\} mode="wait">/);
+	// 每题一个 key：换题 = 重挂子树，滑出/滑入由外层 motion.div 承担。
+	assert.match(overlay, /key=\{`ask-q-\$\{currentQuestion\.id\}`\}/);
+	// reduced-motion 降级路径必须存在（静态透明度切换，不跑位移）。
+	assert.match(overlay, /reduce \? \{ opacity: 1 \} : \{ opacity: 0, x: 8 \}/);
+	// 题目行在动画外的稳定层，靠 value 换键触发逐字滚动。
+	assert.match(overlay, /<ActionSwapRollText value=\{currentQuestion\.id\}>\{currentQuestion\.question\}<\/ActionSwapRollText>/);
+	assert.match(overlay, /import \{ DrawCheck \} from "\.\.\/motion\/draw-check"/);
+	// DrawCheck 本体：描线（pathLength 0→1）+ reduce 降级。
+	assert.match(drawCheck, /pathLength: 0/);
+	assert.match(drawCheck, /useReducedMotion/);
 });
 
 /**

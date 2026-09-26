@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ClipboardList } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAtom } from "jotai";
+import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { ActionSwapRollText } from "../motion/action-swap-roll";
+import { DrawCheck } from "../motion/draw-check";
 import type { AgentUiBatchQuestion, AgentUiRequest, AgentUiResponse, SessionUiResponseInput } from "../../../../shared/types";
 import type { SessionRuntimeUiState, SessionRuntimeViewState } from "../../atoms/session-atoms";
 import { askDraftBySessionRequestAtomFamily, type AskInteractionDraft, type AskSingleDraft } from "../../atoms/ask-draft-atoms";
@@ -144,6 +148,8 @@ function BatchAskInlineBar(props: {
 }) {
 	const questions = props.request.batchQuestions ?? [];
 	const total = questions.length;
+	// 动效降级开关：系统 prefers-reduced-motion 时所有借用自 beui 的过渡退化为无动画。
+	const reduce = useReducedMotion() ?? false;
 	const draftKey = props.requestKey;
 	const batch = props.draft?.batch ?? emptyAskBatchDraft();
 	const answers = batch.answers;
@@ -258,7 +264,8 @@ function BatchAskInlineBar(props: {
 		>
 			<div className="mb-2 flex min-w-0 items-center gap-2" aria-label={t("ask.batchProgress", { done: answeredCount, total })}>
 				<div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={answeredCount}>
-					<div className="h-full rounded-full bg-[var(--color-success)] transition-[width] duration-200" style={{ width: `${total > 0 ? (answeredCount / total) * 100 : 0}%` }} />
+					{/* 进度宽度走弹簧（beui ProgressDots 同源 SPRING_LAYOUT）：逐题完成时比线性 width 过渡更有「落定」感；首帧不补间。 */}
+					<motion.div className="h-full rounded-full bg-[var(--color-success)]" initial={false} animate={{ width: `${total > 0 ? (answeredCount / total) * 100 : 0}%` }} transition={reduce ? { duration: 0 } : SPRING_LAYOUT} />
 				</div>
 				<span className="shrink-0 text-micro font-medium text-text-secondary">{t("ask.batchProgress", { done: answeredCount, total })}</span>
 			</div>
@@ -304,9 +311,17 @@ function BatchAskInlineBar(props: {
 				) : null}
 			</div>
 
-			<div>
+			{/* 题目行放在换题动画之外的稳定层：AnimatePresence 重挂子树时这里只换 value，
+			    ActionSwapRollText（beui ApprovalCard 标题同款）逐字滚动，与下方选项体滑动互补。 */}
+			{!reviewTab && currentQuestion ? (
+				<div className="mb-1.5 text-control font-medium leading-[1.5] break-words text-text-primary">
+					<ActionSwapRollText value={currentQuestion.id}>{currentQuestion.question}</ActionSwapRollText>
+				</div>
+			) : null}
+
+			<AnimatePresence initial={false} mode="wait">
 				{reviewTab ? (
-					<div className="flex flex-col gap-1.5">
+					<motion.div key="ask-review" className="flex flex-col gap-1.5" initial={reduce ? { opacity: 1 } : { opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={reduce ? { opacity: 0 } : { opacity: 0, x: -6 }} transition={{ duration: reduce ? 0 : 0.2, ease: EASE_OUT }}>
 						<div className="inline-flex items-center gap-1 text-control font-semibold text-text-primary">
 							<ClipboardList size={16} aria-hidden="true" />
 							<span>{t("ask.batchReviewTitle")}</span>
@@ -329,33 +344,35 @@ function BatchAskInlineBar(props: {
 						<Button className="w-full" variant="default" disabled={!allAnswered || props.responding} onClick={() => submitAnswers()}>
 							{t("ask.batchSubmitAll")}
 						</Button>
-					</div>
+					</motion.div>
 				) : currentQuestion ? (
-					<BatchQuestion
-						question={currentQuestion}
-						questionIndex={currentTab}
-						total={total}
-						answer={answers[currentQuestion.id]}
-						inputValue={inputValues[currentQuestion.id] ?? ""}
-						responding={props.responding}
-						onAnswer={(value, label, wasCustom) => answerAndAdvance(currentQuestion, value, label, wasCustom)}
-						onInputChange={(value) => changeBatch((current) => ({ ...current, inputValues: { ...current.inputValues, [currentQuestion.id]: value } }))}
-						onSubmitInput={() => submitText(currentQuestion)}
-						onPrevious={currentTab > 0 ? () => changeBatch((current) => ({ ...current, currentTab: currentTab - 1 })) : undefined}
-						onNext={() => {
-							if (!finalStep) {
-								changeBatch((current) => ({ ...current, currentTab: currentTab + 1 }));
-							} else if (props.request.batchReview) {
-								changeBatch((current) => ({ ...current, currentTab: total }));
-							} else {
-								submitAnswers();
-							}
-						}}
-						nextDisabled={finalStep && !props.request.batchReview && !allAnswered}
-						finalLabel={finalStep && !props.request.batchReview ? t("ask.batchSubmitAll") : undefined}
-					/>
+					<motion.div key={`ask-q-${currentQuestion.id}`} initial={reduce ? { opacity: 1 } : { opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={reduce ? { opacity: 0 } : { opacity: 0, x: -6 }} transition={{ duration: reduce ? 0 : 0.2, ease: EASE_OUT }}>
+						<BatchQuestion
+							question={currentQuestion}
+							questionIndex={currentTab}
+							total={total}
+							answer={answers[currentQuestion.id]}
+							inputValue={inputValues[currentQuestion.id] ?? ""}
+							responding={props.responding}
+							onAnswer={(value, label, wasCustom) => answerAndAdvance(currentQuestion, value, label, wasCustom)}
+							onInputChange={(value) => changeBatch((current) => ({ ...current, inputValues: { ...current.inputValues, [currentQuestion.id]: value } }))}
+							onSubmitInput={() => submitText(currentQuestion)}
+							onPrevious={currentTab > 0 ? () => changeBatch((current) => ({ ...current, currentTab: currentTab - 1 })) : undefined}
+							onNext={() => {
+								if (!finalStep) {
+									changeBatch((current) => ({ ...current, currentTab: currentTab + 1 }));
+								} else if (props.request.batchReview) {
+									changeBatch((current) => ({ ...current, currentTab: total }));
+								} else {
+									submitAnswers();
+								}
+							}}
+							nextDisabled={finalStep && !props.request.batchReview && !allAnswered}
+							finalLabel={finalStep && !props.request.batchReview ? t("ask.batchSubmitAll") : undefined}
+						/>
+					</motion.div>
 				) : null}
-			</div>
+			</AnimatePresence>
 		</ApprovalCard>
 	);
 }
@@ -417,7 +434,6 @@ function BatchQuestion(props: {
 				}
 			}}
 		>
-			<div className="mb-1.5 text-control font-medium leading-[1.5] break-words text-text-primary">{question.question}</div>
 			<div className="ask-batch-question-body">
 				{question.type === "confirm" ? (
 					<div className="flex gap-2">
@@ -433,7 +449,7 @@ function BatchQuestion(props: {
 							}}
 						>
 							{/* 选中态对勾：部分主题色 accent 对比度低，光靠变色难分辨已选项 */}
-							{props.answer === true ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+							{props.answer === true ? <DrawCheck className="shrink-0 text-[var(--color-success)]" /> : null}
 							{t("common.true")}
 						</Button>
 						<Button
@@ -445,7 +461,7 @@ function BatchQuestion(props: {
 								answer(false, t("common.false"));
 							}}
 						>
-							{props.answer === false ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+							{props.answer === false ? <DrawCheck className="shrink-0 text-[var(--color-success)]" /> : null}
 							{t("common.false")}
 						</Button>
 					</div>
@@ -472,7 +488,7 @@ function BatchQuestion(props: {
 										}}
 									>
 										{/* 选中态对勾标记：主题色 accent 对比度低时只靠边框/背景变色难分辨已选项 */}
-										{props.answer === value ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+										{props.answer === value ? <DrawCheck className="shrink-0 text-[var(--color-success)]" /> : null}
 										{/* 说明与标签同一行、同字号、空格分隔，只靠颜色区分（2026-12 用户反馈：
 										    说明别用小字、也别放第二行——小屏还好，大屏上又小又局限。 */}
 										<span className="min-w-0 flex-1 whitespace-normal break-words text-caption leading-[1.45]">
@@ -531,7 +547,7 @@ function BatchQuestion(props: {
 										}}
 									>
 										{/* 选中态对勾标记：主题色 accent 对比度低时只靠边框/背景变色难分辨已选项 */}
-										{selected ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+										{selected ? <DrawCheck className="shrink-0 text-[var(--color-success)]" /> : null}
 										<span className="min-w-0 flex-1 whitespace-normal break-words text-caption leading-[1.45]">
 											<span className="text-text-primary">{label}</span>
 											{description ? <span className="text-text-tertiary">{` ${description}`}</span> : null}
@@ -736,7 +752,7 @@ export function SessionRuntimeUiOverlay({ sessionId, runtime, ui, responder, onE
 								>
 									{/* 选中态对勾：夜间模式下 accent 混色底 + 边框仍可能不够醒目，
 									    与批量卡一致再补一个非颜色线索（success 色，不跟随主题 accent）。 */}
-									{selectedOption === option ? <Check size={14} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+									{selectedOption === option ? <DrawCheck className="shrink-0 text-[var(--color-success)]" /> : null}
 									{/* 标签不缩不截：短标签（如「开始执行」）保证两枚按钮说明文案起点对齐；
 									    超长标签兜底 max-w 截断，避免挤压说明列。 */}
 									<span className="max-w-[45%] shrink-0 truncate text-caption font-medium leading-none text-text-primary">{parsed.label}</span>
