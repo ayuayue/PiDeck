@@ -29,12 +29,30 @@ function isExcluded(node: Node | null): boolean {
  * 行为对齐 assistant-ui/Codex（2026-09 调研）：
  * - selectionchange 只负责"收起"（拖选中不闪浮层）；pointerup/keyup 后延迟 ~60ms 评估展示；
  * - 容器滚动即隐藏（fixed 定位会随滚动失效）；Escape 收起。
+ *
+ * 展示后锁定（2026-12 流式修复）：浮层一旦展示，selectionchange 的塌陷不再隐藏——
+ * agent 输出中 React 重挂文本节点会把浏览器选区收搞（isCollapsed），未锁定时浮层
+ * 在流式期间会被随机踢掉（hover 时消失）。快照在展示那刻已定格，保持展示不影响
+ * 正确性；真正的用户交互（重新按压 / Escape / 点击按钮本身）才收起。
+ *
+ * 锁定期间的滚动也不再隐藏，而是跟随选区重新定位（2026-12）：思考/正文流式增高时
+ * stick-to-bottom 引擎每帧自动贴底，每次都是 scroll 事件——旧逻辑「滚动即隐藏」会让
+ * 浮层弹出后下一帧就被踢掉，流式期间划选永远「没反应」。改为用锁存的 Range 重取
+ * rect 平移浮层；Range 失效（选区被挤没，rect 面积为 0）才真正隐藏。
  */
 export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>): { quote: TimelineSelectionQuote | null; clear: () => void } {
 	const [quote, setQuote] = useState<TimelineSelectionQuote | null>(null);
 	const evaluateTimerRef = useRef(0);
+	/** 浮层已展示且快照已定格：流式引起的选区塌陷不再收起，见组件头注释。 */
+	const lockedRef = useRef(false);
+	/** 锁定时锁存的选区 Range：滚动跟随用（重取 rect），失效即隐藏。 */
+	const lockedRangeRef = useRef<Range | null>(null);
 
-	const clear = useCallback(() => setQuote(null), []);
+	const clear = useCallback(() => {
+		lockedRef.current = false;
+		lockedRangeRef.current = null;
+		setQuote(null);
+	}, []);
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -42,10 +60,21 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 
 		const currentSelection = () => window.getSelection();
 
-		// 拖选过程中 selectionchange 连续触发：折叠立即收起，展开中不动（避免闪烁）
+		// 拖选过程中 selectionchange 连续触发：折叠立即收起，展开中不动（避免闪烁）。
+		// 锁定期间一律忽略：此时塌陷大概率是流式 DOM 变更挤掉选区，不是用户收起。
 		const onSelectionChange = () => {
+			if (lockedRef.current) return;
 			const selection = currentSelection();
 			if (!selection || selection.isCollapsed) setQuote(null);
+		};
+
+		// 新的按压 = 用户开始新交互：解除锁定并收起（点击浮层按钮自身除外，
+		// 否则 pointerdown 先收起、click 到来时 quote 已变 null，插入会落空）。
+		const onPointerDown = (event: PointerEvent) => {
+			if (event.target instanceof Element && event.target.closest("[data-quote-toolbar]")) return;
+			lockedRef.current = false;
+			lockedRangeRef.current = null;
+			setQuote(null);
 		};
 
 		const evaluate = () => {
@@ -65,10 +94,14 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 				maxLength: MAX_QUOTE_CHARS,
 			});
 			if (!ok) {
+				lockedRef.current = false;
+				lockedRangeRef.current = null;
 				setQuote(null);
 				return;
 			}
 			const rect = range.getBoundingClientRect();
+			lockedRef.current = true;
+			lockedRangeRef.current = range.cloneRange();
 			setQuote({
 				text: text.trim(),
 				messageId: resolveMessageId(range.startContainer, container) ?? "",
@@ -88,28 +121,53 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 		const onKeyUp = (event: KeyboardEvent) => {
 			// Shift+方向键 / Ctrl+A 等键盘扩选；Escape 只负责收起
 			if (event.key === "Escape") {
+				lockedRef.current = false;
+				lockedRangeRef.current = null;
 				setQuote(null);
 				return;
 			}
 			if (event.shiftKey || event.key === "a" || event.key === "A") scheduleEvaluate();
 		};
-		// 滚动让 fixed 定位失真：直接隐藏（下次划选会重新评估）
-		const onHide = () => setQuote(null);
+		// 锁定期间滚动跟随选区重新定位（stick-to-bottom 自动贴底每帧都是 scroll，
+		// 不能按旧逻辑隐藏）；未锁定时滚动才隐藏（fixed 定位随滚动失真，旧语义不变）。
+		const onScroll = () => {
+			if (!lockedRef.current) {
+				setQuote(null);
+				return;
+			}
+			const range = lockedRangeRef.current;
+			if (!range) {
+				lockedRef.current = false;
+				setQuote(null);
+				return;
+			}
+			const rect = range.getBoundingClientRect();
+			if (rect.width === 0 && rect.height === 0) {
+				// 选区被流式 DOM 变更挤没：解除锁定并隐藏
+				lockedRef.current = false;
+				lockedRangeRef.current = null;
+				setQuote(null);
+				return;
+			}
+			setQuote((current) => (current ? { ...current, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } } : current));
+		};
 
 		document.addEventListener("selectionchange", onSelectionChange);
+		document.addEventListener("pointerdown", onPointerDown);
 		container.addEventListener("pointerup", onPointerUp);
 		document.addEventListener("keyup", onKeyUp);
 		// capture：捕获内层滚动容器（消息列自身可滚）
-		container.addEventListener("scroll", onHide, true);
-		window.addEventListener("resize", onHide);
+		container.addEventListener("scroll", onScroll, true);
+		window.addEventListener("resize", onScroll);
 
 		return () => {
 			window.clearTimeout(evaluateTimerRef.current);
 			document.removeEventListener("selectionchange", onSelectionChange);
+			document.removeEventListener("pointerdown", onPointerDown);
 			container.removeEventListener("pointerup", onPointerUp);
 			document.removeEventListener("keyup", onKeyUp);
-			container.removeEventListener("scroll", onHide, true);
-			window.removeEventListener("resize", onHide);
+			container.removeEventListener("scroll", onScroll, true);
+			window.removeEventListener("resize", onScroll);
 		};
 	}, [containerRef]);
 
