@@ -25,11 +25,33 @@ test("isQuotableRange requires a single message and non-excluded endpoints", () 
 	assert.equal(isQuotableRange({ ...base, text: longText }), false);
 });
 
-test("excluded selector covers streaming turns, process details, and tool cards", () => {
-	// 与时间线 DOM 契约对齐：流式 turn-row--pending / 执行过程折叠区 / 工具卡
+test("excluded selector covers streaming turns and per-component regions", () => {
+	// 与时间线 DOM 契约对齐：流式 turn + 逐项排除（工具卡/重试/错误/思考/过程组头体）。
+	// 注意：不再整体排除 .execution-summary-details——中间回复就在折叠区内，需可引用。
+	assert.doesNotMatch(QUOTE_EXCLUDED_SELECTOR, /execution-summary-details/);
 	assert.match(QUOTE_EXCLUDED_SELECTOR, /\.turn-row--pending/);
-	assert.match(QUOTE_EXCLUDED_SELECTOR, /\.execution-summary-details/);
 	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-tool-kind\]/);
+	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-retry-step\]/);
+	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-error-step\]/);
+	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-thinking-step\]/);
+	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-process-group-head\]/);
+	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-process-group-body\]/);
+});
+
+test("interim answers inside a completed turn are quotable while cross-message is not", () => {
+	// 中间回复场景：同一轮内选区两端都在同一条中间回复（data-message-id=消息 id）内。
+	const interim = {
+		messageIdA: "msg-interim-1",
+		messageIdB: "msg-interim-1",
+		excludedA: false,
+		excludedB: false,
+		text: "中间回复正文",
+	};
+	assert.equal(isQuotableRange(interim), true);
+	// 跨到另一条中间回复 / 最终回答：拒绝（closest 解析出不同消息 id）。
+	assert.equal(isQuotableRange({ ...interim, messageIdB: "msg-final" }), false);
+	// live 流式中的中间回复：turn 仍为 pending，两端命中排除。
+	assert.equal(isQuotableRange({ ...interim, excludedA: true, excludedB: true }), false);
 });
 
 test("computeToolbarPosition prefers above the selection and clamps into viewport", () => {

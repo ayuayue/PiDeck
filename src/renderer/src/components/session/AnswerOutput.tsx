@@ -59,6 +59,8 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
 	settle?: boolean;
 	/** 视觉档位；live 忽略，始终按 answer 渲染（边打边读）。 */
 	variant?: AnswerOutputVariant;
+	/** 引用锚点：settled 中间回复透传消息 id，渲染为 data-message-id（划选引用解析用）。 */
+	messageId?: string;
 	onOpenExternal: (url: string, forceSystem?: boolean) => void;
 	onOpenFile?: (path: string) => void;
 }) {
@@ -68,7 +70,7 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
 	const cleanText = stripThinkingTags(stripAnsi(props.text ?? ""));
 	if (!cleanText.trim()) return null;
 	return (
-		<div className={answerOutputClassName(props.variant ?? "process")} data-is-streaming="0" data-variant={props.variant ?? "process"} data-settle={props.settle ? "1" : undefined} style={{ display: props.hidden ? "none" : undefined }}>
+		<div className={answerOutputClassName(props.variant ?? "process")} data-message-id={props.messageId} data-is-streaming="0" data-variant={props.variant ?? "process"} data-settle={props.settle ? "1" : undefined} style={{ display: props.hidden ? "none" : undefined }}>
 			<MarkdownStream text={cleanText} isStreaming={false} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
 		</div>
 	);

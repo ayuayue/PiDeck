@@ -3,8 +3,18 @@
  * 无 DOM / React 依赖，node:test 可直接加载；DOM 胶水在 useTimelineSelection 里。
  */
 
-/** 命中任一祖先选择器即不可引用：流式中的 turn、工具卡、折叠执行过程。 */
-export const QUOTE_EXCLUDED_SELECTOR = ".turn-row--pending, .execution-summary-details, [data-tool-kind]";
+/**
+ * 引用排除范围（白名单思路的照底表：除中间回复/最终回答/用户气泡正文外，逐项排除）：
+ * - `.turn-row--pending`：流式中的 turn（含 live 中间回复，快照会失真）。
+ * - `[data-tool-kind]`：工具卡（含卡内展开的输出）。
+ * - `[data-retry-step]` / `[data-error-step]`：重试 / 错误诊断行。
+ * - `[data-thinking-step]`：思考卡（含展开正文）。
+ * - `[data-process-group-head]` / `[data-process-group-body]`：过程组头（摘要按钮）与组体（思考/工具成员）。
+ * 注意：不再整体排除 `.execution-summary-details`——中间回复（settled InterimAnswer）
+ * 就在折叠区内，其正文根节点带 data-message-id，放开后划选可归属到具体消息。
+ * 折叠态安全：历史轮折叠=完全卸载、live 轮折叠=display:none，都选不中。
+ */
+export const QUOTE_EXCLUDED_SELECTOR = ".turn-row--pending, [data-tool-kind], [data-retry-step], [data-error-step], [data-thinking-step], [data-process-group-head], [data-process-group-body]";
 
 /** 引用快照长度上限：超长划选截断并提示语义由 label 省略号体现（防极端大文本入 atom）。 */
 export const MAX_QUOTE_CHARS = 4000;

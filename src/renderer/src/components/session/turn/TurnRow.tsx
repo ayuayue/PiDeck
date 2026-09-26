@@ -367,6 +367,8 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 														// 折叠区内一律 process：正文已与最终回答同尺寸，process 只负责 my-3 间距。
 														// 无最终回答的末段也要这段间距，否则会贴着上方工具行。
 														variant="process"
+														// 中间回复引用锚点：settled 正文根节点带 data-message-id，划选可解析来源消息。
+														messageId={item.id}
 														onOpenExternal={props.onOpenExternal}
 														onOpenFile={props.onOpenFile}
 													/>

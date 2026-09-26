@@ -104,7 +104,7 @@ export const ThinkingBlock = memo(
 				// 与工具行一样压扁底距：思考不再是「标题行 + 虚线框」双行块
 				contentClassName="pb-1"
 			>
-				<section className="w-full min-w-0 overflow-hidden rounded-md border-0">
+				<section data-thinking-step="true" className="w-full min-w-0 overflow-hidden rounded-md border-0">
 					{/* 整行可点，结构对齐 ToolCard trigger：图标 + 耗时 + chevron + 折叠预览。 */}
 					<button
 						type="button"

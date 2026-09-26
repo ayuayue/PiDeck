@@ -60,7 +60,8 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 			case "interim":
 				// live 那一条由 TurnRow 挂在大折叠栏外，这里跳过以免同一段正文出现两份
 				if (node.id === props.liveInterimId) return null;
-				return <InterimAnswer mode="settled" text={node.message.text} hidden={false} isStreaming={false} variant="process" onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+				// 中间回复引用锚点：settled 正文根节点带 data-message-id，划选可解析来源消息。
+				return <InterimAnswer mode="settled" text={node.message.text} hidden={false} isStreaming={false} variant="process" messageId={node.id} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 			case "entry": {
 				// 自动重试 / 错误诊断：与中间回复同级的一级行（状态色沿用现状，不做改动）。
 				// `TurnStandaloneEntry` 的联合只有这两种，用局部常量收窄即可，不需要兜底分支。

@@ -18,9 +18,11 @@ export const InterimAnswer = memo(function InterimAnswer(props: {
 	settle?: boolean;
 	/** settled 视觉档位；live 忽略。正文同尺寸；process 只多上下间距。 */
 	variant?: AnswerOutputVariant;
+	/** 引用锚点：settled 时透传给 AnswerOutput 渲染 data-message-id。 */
+	messageId?: string;
 	onOpenExternal: (url: string) => void;
 	onOpenFile?: (path: string) => void;
 }) {
 	const mode = props.mode ?? "settled";
-	return <AnswerOutput mode={mode} sessionId={props.sessionId} text={props.text} hidden={props.hidden} isStreaming={props.isStreaming} settle={props.settle} variant={props.variant} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+	return <AnswerOutput mode={mode} sessionId={props.sessionId} text={props.text} hidden={props.hidden} isStreaming={props.isStreaming} settle={props.settle} variant={props.variant} messageId={props.messageId} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 });
