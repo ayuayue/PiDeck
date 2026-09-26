@@ -78,7 +78,7 @@ test("content enter animation mounts before paint (no flash-then-fade)", () => {
 	// 触发必须同步（useLayoutEffect），让内容挂载的第一帧就带动画类。
 	const surface = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 	const enterBlock = surface.slice(surface.indexOf("会话内容就绪淡入"), surface.indexOf("// ── 失败/重试 toast"));
-	assert.match(enterBlock, /useLayoutEffect\(\(\) => \{\n\s*if \(prevConversationLoadingRef\.current && !isConversationLoading\) \{\n\s*setContentEntering\(true\);/);
+	assert.match(surface, /useLayoutEffect\(\(\) => \{\n\s*if \(!props\.instantSessionSwitch && prevConversationLoadingRef\.current && !isConversationLoading\) \{\n\s*setContentEntering\(true\);/);
 	// 类清理（非视觉关键）留在 useEffect，不在 layout 阶段多一次重渲染
 	assert.match(enterBlock, /const timer = window\.setTimeout\(\(\) => setContentEntering\(false\), 180\);/);
 });

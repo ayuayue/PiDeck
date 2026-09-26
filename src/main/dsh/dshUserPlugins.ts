@@ -47,13 +47,19 @@ function loadYaml(text: string): unknown {
 export function normalizeModuleName(name: string): string {
 	let value = name.trim();
 	if (/^file:/i.test(value)) {
+		// loader 的绝对路径行会拼成 file:///C:/… 或 file:////tmp/…（POSIX 绝对路径再加一层）。
+		// 把多余的空 authority 斜杠折回再解析，否则 file:////tmp/x 会解成 //tmp/x。
 		try {
-			value = fileURLToPath(value);
+			value = fileURLToPath(value.replace(/^file:\/{3,}/i, "file:///"));
 		} catch {
 			value = value.replace(/^file:\/\//, "");
 		}
 	}
-	return value.replace(/\\/g, "/");
+	value = value.replace(/\\/g, "/");
+	// Windows 盘符路径：fileURLToPath("file:///C:/a") 会多出一个前导 "/"（/C:/a）。
+	// 去掉它，盘符路径才能与裸路径 / 其它 file URL 归一化到同一结果。
+	if (/^\/[a-zA-Z]:\//.test(value)) value = value.slice(1);
+	return value;
 }
 
 /** 解析用户补丁层的 insert 行；文件缺失 = 空名单，解析失败 = 空名单 + error。 */

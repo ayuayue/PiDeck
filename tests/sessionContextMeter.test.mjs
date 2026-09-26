@@ -218,8 +218,8 @@ test("panel reuses the SessionStatus detail builder and keeps compact action", (
 	assert.match(source, /t\("sessionContext\.compact"\)/);
 	assert.match(source, /t\("sessionContext\.compacting"\)/);
 	assert.match(source, /t\("sessionContext\.compactNotReady"\)/);
-	assert.match(source, /compactUi\.urgency === "danger" \? "text-destructive/);
-	assert.match(source, /compactUi\.urgency === "warn" \? "text-amber-500/);
+	assert.match(source, /compactUi\.urgency === "danger"\s*\?\s*"text-destructive/);
+	assert.match(source, /compactUi\.urgency === "warn"\s*\?\s*"text-amber-500/);
 	assert.match(source, /disabled=\{compactDisabled\}/);
 	assert.match(source, /onClick=\{\(\) => \{/);
 	assert.match(source, /showCompact = props\.onCompact !== undefined \|\|/);

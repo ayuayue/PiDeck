@@ -4,10 +4,13 @@ import test from "node:test";
 import { readRendererStyles } from "./helpers/rendererStyles.mjs";
 
 const css = readRendererStyles();
+const shell = readFileSync("src/renderer/src/components/app/AppShell.tsx", "utf8");
 
 test("wallpaper mode: background image reveals through translucent panels", () => {
-	// 启用背景图时主容器透明（修复前 .wechat-shell 不透明背景盖住 body 背景图）
-	assert.match(css, /:root\[data-bg-image="on"\] \.wechat-shell\s*\{\s*background:\s*transparent;/);
+	// 启用背景图时主容器透明（修复前 .wechat-shell 不透明背景盖住 body 背景图）。
+	// 现由 shell 上的 Tailwind `[[data-bg-image=on]_&]:bg-transparent` 承担，
+	// 覆盖主工作台与 compact 小任务两套 shell，不再写死根选择器。
+	assert.match(shell, /wechat-shell[\s\S]*?\[\[data-bg-image=on\]_&\]:bg-transparent/);
 	// 弹窗使用独立中高不透明度，并在弹窗内局部覆盖 bg 变量（变量继承），
 	// 让 header/body 统一跟随壁纸设置，同时保留足够可读性。
 	assert.match(css, /:root\[data-bg-image="on"\] \[data-slot="dialog-content"\][\s\S]*?--wallpaper-dialog-alpha: max\(90%, calc\(var\(--wallpaper-panel-alpha, 30%\) \+ 35%\)\);/);

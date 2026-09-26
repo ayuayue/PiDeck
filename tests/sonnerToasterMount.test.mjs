@@ -77,5 +77,5 @@ test("toaster is excluded from the window drag region and drag height is exposed
 	assert.match(surfaces, /\[data-sonner-toaster\][\s\S]*?-webkit-app-region:\s*no-drag/);
 	// toaster 不是 .wechat-shell 的后代，--window-drag-height 必须在 :root 可读
 	const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
-	assert.match(foundation, /:root:has\(\.wechat-shell\.custom-titlebar-enabled\)/);
+	assert.match(foundation, /:root:has\(\.custom-titlebar-enabled\)/);
 });

@@ -474,6 +474,11 @@ describe("GitService committed-file diff integration", () => {
 		const plainDir = mkdtempSync(join(tmpdir(), "pideck-not-git-"));
 		try {
 			await assert.doesNotReject(() => service.fetch(plainDir));
+		} catch (err) {
+			// fetch 只对「非 git 仓库」静默放行：报错文案来自 git 本地化输出，
+			// 英文环境是 "not a git repository"，中文环境是 "不是 git 仓库"（见下）。
+			assert.match(String(err), /not a git repository|不是 git 仓库/, `非 git 目录不应把 fetch 失败抛出，但错误应与「非仓库」无关：${String(err)}`);
+			throw err;
 		} finally {
 			rmSync(plainDir, { recursive: true, force: true });
 		}

@@ -26,7 +26,10 @@ export function sanitizeProjectDisplayName(name: string): string {
 /** 比较用路径键：去尾部分隔符、统一斜杠；Windows 忽略大小写。 */
 export function projectPathKey(path: string): string {
 	const trimmed = path.replace(/[\\/]+$/, "").replace(/\\/g, "/");
-	return process.platform === "win32" ? trimmed.toLowerCase() : trimmed;
+	// Windows 盘符路径（C:/… 或 C:\…）大小写不敏感：统一小写盘符并按不区分大小写比较。
+	// 不能只看 process.platform——同一份项目记录/dev 配置会在不同平台间流转，
+	// 盘符路径本身足以判定（避免非 Windows 机器上大小写不同的同一路径被判成两条）。
+	return process.platform === "win32" || /^[a-zA-Z]:\//.test(trimmed) ? trimmed.toLowerCase() : trimmed;
 }
 
 /**

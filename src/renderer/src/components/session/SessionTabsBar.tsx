@@ -918,14 +918,31 @@ function SessionTab(props: {
 
 	if (props.simple)
 		return (
-			<div className="simple-session-title flex min-w-0 flex-1 items-center gap-1.5 px-2 text-sm font-medium text-foreground" title={title}>
-				<SessionActivityIndicator status={status} sessionId={sessionId} busy={props.isRestarting || props.isStopping || props.isReloading} />
-				{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
-				<TitleScrollText text={title} disabled className="truncate font-bold" />
-				{(record?.backend === "dsh" || record?.backend === "imagegen") && <SessionBackendBadge backend={record.backend} className="h-4 shrink-0" />}
-				{runtime?.state?.planModeActive && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModePlan")}</span>}
-				{runtime?.state?.goal && runtime.state.goal.phase !== "complete" && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModeGoal")}</span>}
-			</div>
+			// 简洁模式同样用富 hover 提示（标题 + 工作区），与默认标签模式的 Tab 行为一致；
+			// 不再用原生 title：原生只能显示标题，且会与 TitleScrollText 的滚动提示叠成双气泡。
+			<Tooltip delayDuration={500}>
+				<TooltipTrigger asChild>
+					<div className="simple-session-title flex min-w-0 flex-1 items-center gap-1.5 px-2 text-sm font-medium text-foreground" aria-label={workspaceName ? `${title} — ${workspaceName}` : title}>
+						<SessionActivityIndicator status={status} sessionId={sessionId} busy={props.isRestarting || props.isStopping || props.isReloading} />
+						{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
+						<TitleScrollText text={title} disabled className="truncate font-bold" />
+						{(record?.backend === "dsh" || record?.backend === "imagegen") && <SessionBackendBadge backend={record.backend} className="h-4 shrink-0" />}
+						{runtime?.state?.planModeActive && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModePlan")}</span>}
+						{runtime?.state?.goal && runtime.state.goal.phase !== "complete" && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModeGoal")}</span>}
+					</div>
+				</TooltipTrigger>
+				<TooltipContent side="bottom" align="start" className="max-w-80">
+					<div className="flex min-w-0 flex-col gap-0.5">
+						<span className="truncate font-medium">{title}</span>
+						{workspaceName ? (
+							<span className="truncate text-[11px] text-background/75" title={tabProject?.path}>
+								{workspaceName}
+								{tabProject?.path && tabProject.path !== workspaceName ? ` · ${tabProject.path}` : ""}
+							</span>
+						) : null}
+					</div>
+				</TooltipContent>
+			</Tooltip>
 		);
 
 	return (

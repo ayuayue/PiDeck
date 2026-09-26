@@ -8,6 +8,7 @@ import vm from "node:vm";
 const require = createRequire(import.meta.url);
 
 function loadEditorDetector(fsStub, platform = "win32") {
+	const winPath = require("node:path").win32;
 	const source = readFileSync("src/main/editors/EditorDetector.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -30,7 +31,7 @@ function loadEditorDetector(fsStub, platform = "win32") {
 		},
 		require: (name) => {
 			if (name === "node:fs/promises") return fsStub;
-			if (name === "node:path") return require("node:path");
+			if (name === "node:path") return winPath;
 			if (name === "node:child_process") {
 				return {
 					// 假 reg 进程：spawn 后立刻模拟进程结束（无输出），

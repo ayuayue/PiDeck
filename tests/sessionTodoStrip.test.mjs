@@ -18,9 +18,10 @@ test("composer forwards widgets slot; session surfaces mount the three strips th
 	const composer = composerSource();
 	const view = viewSource();
 	const start = startSource();
-	// ComposerArea：widgets prop 透传到 ComposerMeasuredExtras
+	// ComposerArea：widgets prop 与提交/推送建议条合流后透传到 ComposerMeasuredExtras
 	assert.match(composer, /widgets\?: ReactNode/);
-	assert.match(composer, /widgets=\{props\.widgets \?\? null\}/);
+	assert.match(composer, /\{props\.widgets \?\? null\}/);
+	assert.match(composer, /<ComposerMeasuredExtras[\s\S]*widgets=\{composerWidgets\}/);
 	// SessionView：todo → files → subagents → goal，独立横栏卡顺序挂载
 	assert.match(view, /<SessionTodoStrip sessionId=\{sessionId\} \/>/);
 	assert.match(view, /<SessionFilesStrip[\s\S]*?run=\{latestAgentRun\}[\s\S]*?onDiffFile=\{onDiffFile\}/);

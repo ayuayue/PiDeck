@@ -23,7 +23,7 @@ const { BUILT_IN_EXTENSIONS } = loadTsCommonJs("src/main/extensions/builtInExten
 
 // ── vm 加载扩展（真实 node 内置模块 + stub child_process / pi 模块） ──
 
-function compileExtension(fakeSpawn) {
+function compileExtension(fakeSpawn, platform = process.platform) {
 	const source = readFileSync("resources/extensions/pi-deck-trash-guard.ts", "utf8");
 	const output = ts.transpileModule(source, {
 		compilerOptions: {
@@ -44,7 +44,7 @@ function compileExtension(fakeSpawn) {
 				if (specifier === "@earendil-works/pi-coding-agent") return {};
 				return nodeRequire(specifier);
 			},
-			process,
+			process: { ...process, platform },
 			console,
 			Buffer,
 			setTimeout,
@@ -162,7 +162,9 @@ test("trash-guard 扩展已注册进 BUILT_IN_EXTENSIONS", () => {
 
 test("tool_call: rm 前把副本送回收站（spawn 收到暂存路径），原文件不动", async () => {
 	const { calls, fakeSpawn } = makeFakeSpawn();
-	const ext = compileExtension(fakeSpawn);
+	// 默认导出走 moveToTrash → platformTrashKind(process.platform)：固定 win32 才能走到
+	// powershell EncodedCommand 分支（Linux/macOS 上会分别走 gio / osascript）。
+	const ext = compileExtension(fakeSpawn, "win32");
 	const dir = mkdtempSync(join(tmpdir(), "trash-guard-e2e-"));
 	const target = join(dir, "doomed.txt");
 	writeFileSync(target, "precious");

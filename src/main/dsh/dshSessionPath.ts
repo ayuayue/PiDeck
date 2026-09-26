@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 as win32Path } from "node:path";
 
 /**
  * DSH 会话持久化路径编码（DshAgentManager 与 DshHost 共用）：
@@ -77,7 +77,14 @@ export function findDshSessionLogFile(dir: string): { path: string; compressed: 
  */
 export function dshSessionFilePath(dshHome: string, cwd: string, sessionId: string): string {
 	const dir = join(dshHome, "sessions", workspaceDirFor(cwd), sessionId);
-	return findDshSessionLogFile(dir)?.path ?? join(dir, "session.jsonl.zstd");
+	const existing = findDshSessionLogFile(dir)?.path;
+	if (existing) return existing;
+	// 尚未落盘的新会话：按 DSH home 所在平台拼规范名（home 的 sep 才是产物的真实形态）。
+	// home 属于另一平台（如宿主在 DSH 里读写 Windows 实例的 C:\… home）时用 win32.join 还原，
+	// 保证调用方拿到的字符串在目标平台上直接可用。仅看 cwd 不够：临时 POSIX home +
+	// Windows 风格 cwd 的混合场景仍应跟随当前平台。
+	const isWindowsHome = /^[a-zA-Z]:[\\/]/.test(dshHome) || /^[\\/]{2}/.test(dshHome);
+	return (isWindowsHome ? win32Path : { join }).join(dir, "session.jsonl.zstd");
 }
 
 /** 会话目录是否带 host 持久化日志（任意 generation 的 session[.vN].jsonl[.zstd]）。 */

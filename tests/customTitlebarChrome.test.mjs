@@ -18,7 +18,7 @@ const quickTaskSurface = readFileSync("src/renderer/src/components/app/QuickTask
 test("compact task shell participates in the shared custom titlebar contract", () => {
 	// 小任务复用主窗口的标题栏按钮和拖拽层；根节点必须进入同一套 CSS 作用域，
 	// 否则 --window-drag-height / --window-controls-width 会退回无效默认值。
-	assert.match(shell, /if \(props\.compactContent\)[\s\S]*?"wechat-shell quick-task-shell"/);
+	assert.match(shell, /if \(props\.compactContent\)[\s\S]*?"wechat-shell quick-task-shell/);
 	assert.match(shell, /!useNativeTitleBar && platform === "darwin" \? "mac-custom-titlebar" : ""/);
 	assert.match(quickTaskSurface, /BrandLockup/);
 	assert.match(quickTaskSurface, /list-toolbar flex h-10/);

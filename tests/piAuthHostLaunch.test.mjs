@@ -124,6 +124,9 @@ test("resolvePiAuthHostLaunch: 裸命令名走 PATH 解析并保留代理环境�
 		const prefix = join(dir, "npm-prefix");
 		writePiPackage(join(prefix, "node_modules", "@earendil-works", "pi-coding-agent"));
 		writeFileSync(join(prefix, "pi.cmd"), "@echo off\n");
+		// npm 全局垫片：Windows 是 pi.cmd，POSIX 是无扩展名的 pi。两个都写，
+		// 让本用例在任意平台都能走到「裸命令名 → PATH 解析」这条路径。
+		writeFileSync(join(prefix, "pi"), "#!/usr/bin/env node\n");
 		const originalPath = process.env.PATH;
 		process.env.PATH = prefix;
 		try {

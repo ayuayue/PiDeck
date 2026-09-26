@@ -796,7 +796,9 @@ export class GitService {
 			await this.git(["fetch"], { cwd, timeoutMs: GIT_MUTATION_TIMEOUT_MS * 4 });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			if (/not a git repository|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
+			// git 的错误文案随 locale 变化：英文 "not a git repository"，中文「不是 git 仓库」。
+			// 非仓库目录下的 fetch 静默返回，不能只匹配英文。
+			if (/not a git repository|不是\s*git\s*仓库|fatal:|command not found|ENOENT|spawn.*git.*ENOENT/i.test(msg)) {
 				return;
 			}
 			throw err;
