@@ -138,6 +138,29 @@ test("fresh candidate and strict queries build pinned SSH/SCP argv per request",
 	assert.equal(terminal.args[0], "-tt");
 });
 
+test("a helper command rides after the destination and only on a batch session", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const { client, calls } = configRunner(profile.id, ({ args, strict }) => ({ exitCode: 0, stdout: strict ? strictConfig(profile.id, args) : candidateConfig(profile.id) }));
+	const command = "'/usr/bin/node' '/home/dev/.pideck/remote-host/bundles/abc/helper.mjs'";
+	const batch = await buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: command });
+	// The destination stays the operand right after `--`, and the command is one element after it: ssh
+	// joins the trailing operands into the remote command, so it must never precede the host.
+	const destination = batch.args.indexOf("--");
+	assert.equal(batch.args[destination + 1], profile.sshHost);
+	assert.equal(batch.args[destination + 2], command);
+	assert.equal(batch.args.length, destination + 3);
+	// The resolved-config query verifies the route, not the command, so it must not carry it.
+	const queries = calls.filter((call) => call.args.includes("-G"));
+	assert.equal(queries.length > 0, true);
+	for (const query of queries) assert.equal(query.args.includes(command), false, "the strict query must stay command-free");
+
+	// A command on a transfer would silently become another ssh operand; it is refused instead.
+	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "scp", { client, remoteCommand: command }), /SSH_REMOTE_COMMAND_NOT_ALLOWED/);
+	for (const bad of ["", "line\nbreak", "nul\u0000byte", "x".repeat(8193)]) {
+		await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: bad }), /SSH_REMOTE_COMMAND_INVALID/, JSON.stringify(bad.slice(0, 10)));
+	}
+});
+
 test("explicit jump and identity stay in both SSH and SCP without claiming exclusive key selection", async (t) => {
 	const identityDirectory = await mkdtemp(join(tmpdir(), "pideck ssh identity-"));
 	t.after(() => rm(identityDirectory, { recursive: true, force: true }));

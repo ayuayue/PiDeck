@@ -109,7 +109,7 @@ async function assertReadableIdentity(filePath?: string): Promise<void> {
 }
 
 /** Build argv after fresh route/pin checks through the caller's client; ssh -G can evaluate Match exec or DNS. */
-export async function buildPinnedSshInvocation(userDataDir: string, hostId: string, kind: VerifiedSshCommandKind, options: { client: SshClientRuntime }): Promise<PinnedSshInvocation> {
+export async function buildPinnedSshInvocation(userDataDir: string, hostId: string, kind: VerifiedSshCommandKind, options: { client: SshClientRuntime; remoteCommand?: string }): Promise<PinnedSshInvocation> {
 	if (typeof options?.client?.run !== "function" || typeof options.client.sshPath !== "string") throw new Error("SSH_HOST_CLIENT_CONTEXT_REQUIRED");
 	const client = options.client;
 	const { version } = await runSshClientSelfCheck(client);
@@ -130,6 +130,10 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 		...(profile.identityFile !== undefined ? { identityFile: profile.identityFile } : {}),
 	};
 	const requestedArgs = buildVerifiedSshArgv(target, kind);
+	// The helper command is the one argv element a remote shell will parse; it stays optional so a plain
+	// preflight keeps producing exactly the argv earlier batches shipped, and it is never part of the
+	// resolved-config query (that query verifies the route, not the command).
+	const remoteCommand = readRemoteCommand(options?.remoteCommand, kind);
 	await assertReadableIdentity(target.identityFile);
 	const candidate = await querySshDraftRoute(profile, target.pinAlias, { client });
 	assertSavedRoute(candidate.hostName, candidate.user, candidate.port, sshRouteDigest(candidate), profile);
@@ -144,5 +148,17 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 	const currentPin = await pinStore.readPin(hostId, currentProfile.verifiedEndpoint);
 	if (currentPin.filePath !== target.pinFile) throw new Error("SSH_HOST_NOT_READY");
 	await assertReadableIdentity(target.identityFile);
-	return { executable: kind === "scp" ? client.scpPath : client.sshPath, destination: target.sshHost, args: requestedArgs, env: client.env, openSshVersion: version };
+	return { executable: kind === "scp" ? client.scpPath : client.sshPath, destination: target.sshHost, args: remoteCommand === undefined ? requestedArgs : [...requestedArgs, remoteCommand], env: client.env, openSshVersion: version };
+}
+
+/**
+ * Validate the optional remote command at the boundary that produces the argv. It is one already-quoted
+ * token sequence: a newline would turn it into two commands, a NUL cannot travel through argv at all,
+ * and the length bound keeps an accidental file-sized string out of a command line.
+ */
+function readRemoteCommand(value: unknown, kind: VerifiedSshCommandKind): string | undefined {
+	if (value === undefined) return undefined;
+	if (kind !== "ssh-batch") throw new Error("SSH_REMOTE_COMMAND_NOT_ALLOWED");
+	if (typeof value !== "string" || value.length === 0 || value.length > 8192 || /[\x00\n\r]/.test(value)) throw new Error("SSH_REMOTE_COMMAND_INVALID");
+	return value;
 }

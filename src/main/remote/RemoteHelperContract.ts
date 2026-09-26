@@ -17,8 +17,24 @@ export const REMOTE_HELPER_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const REMOTE_HELPER_MAX_REQUEST_TIMEOUT_MS = 300_000;
 
 /** Stable helper error codes. Free text never travels as a code (diagnostics stay redacted). */
-export const REMOTE_HELPER_ERROR_CODES = ["METHOD_NOT_FOUND", "REQUEST_CANCELLED", "REQUEST_TIMEOUT", "RESULT_TOO_LARGE", "PATH_OUTSIDE_ROOT", "PROTOCOL_INVALID", "HELPER_INTERNAL", "REMOTE_CONNECTION_LOST"] as const;
+export const REMOTE_HELPER_ERROR_CODES = ["METHOD_NOT_FOUND", "REQUEST_CANCELLED", "REQUEST_TIMEOUT", "RESULT_TOO_LARGE", "PATH_OUTSIDE_ROOT", "PROTOCOL_INVALID", "HELPER_INTERNAL", "REMOTE_CONNECTION_LOST", "TOO_MANY_REQUESTS"] as const;
 export type RemoteHelperErrorCode = (typeof REMOTE_HELPER_ERROR_CODES)[number];
+
+/** `hello` and `cancel` are mandatory; only optional behaviour is negotiated through capabilities. */
+export const REMOTE_HELPER_METHOD_HELLO = "hello";
+export const REMOTE_HELPER_METHOD_ECHO = "echo";
+export const REMOTE_HELPER_METHOD_CANCEL = "cancel";
+export const REMOTE_HELPER_CAPABILITIES = ["echo"] as const;
+export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number];
+/** Bounded concurrency plus a bounded waiting room: past both, a request is refused, never buffered. */
+export const REMOTE_HELPER_MAX_QUEUED_REQUESTS = 64;
+/**
+ * Upper bound for the optional delay of `echo`. The delay exists so a connection self-test can hold a
+ * few requests open and observe the concurrency bound instead of only the steady state.
+ */
+export const REMOTE_HELPER_MAX_ECHO_DELAY_MS = 5_000;
+
+export type RemoteHelperHelloResult = RemoteHelperHandshake & { helperVersion: string; nodeVersion: string; pid: number };
 
 export type RemoteHelperRequestFrame = {
 	v: number;
