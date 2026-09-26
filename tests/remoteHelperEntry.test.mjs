@@ -51,7 +51,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "ec1a70bcd2cde4aee242e4c1389538a23cbc5757ebbab4f919b091ebfee90268";
+const FROZEN_SHA256 = "64cedc254255378afd2afc959933b0f4761c9226ce6b9a6b8076e1ce1cc86ae7";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -180,9 +180,9 @@ function createFsFixture(t) {
  * line, `frames` every inbound line that parsed, and `diagnostics` what the client refused to use, so a
  * test can assert both the protocol traffic and the client side verdict on it.
  *
- * Every helper is started with a root, because the launcher's fixed template always passes one: a test
- * states `root: null` for the fail-closed startup path (no flag at all) or `rootArgs` for an argv shape
- * the template never produces.
+ * The argv shape is stated by each test: `root: null` starts no `--root` at all (the legal host-only
+ * session), `root: ""` states an explicitly empty value (which fails closed), any other `root` gets a
+ * fresh empty directory, and `rootArgs` covers argv shapes the launcher's template never produces.
  */
 function startHelper(t, options = {}) {
 	const env = { ...process.env };
@@ -429,13 +429,84 @@ helperTest("an unknown method is refused with METHOD_NOT_FOUND", async (t) => {
 	assert.equal(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello after a refusal")).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
 });
 
-helperTest("a helper without a usable root fails closed before it serves anything", async (t) => {
+helperTest("a helper started without --root is a legal host-only session that serves no path", async (t) => {
+	// No `--root` at all is a state of its own, not a broken value: that is what the launcher's template
+	// produces while it has no verified root to pass. The helper starts, answers the whole control
+	// vocabulary, and refuses every fs.* call with PATH_OUTSIDE_ROOT, because without a root there is no
+	// reachable path to name.
+	const session = startHelper(t, { root: null });
+	const hello = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello without a root"));
+	assert.equal(hello.protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
+	assert.equal(hello.home, HELPER_HOME);
+	// The capabilities are reported as this build really has them: fs.* is still a capability, it is only the
+	// paths that are unreachable, so a client must never read the host-only mode as a downgraded build.
+	assert.deepEqual(hello.capabilities, Array.from(REMOTE_HELPER_CAPABILITIES));
+	assert.equal(hello.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
+	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "host-only" }), "echo without a root")), { text: "host-only", delayMs: 0 });
+	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_CANCEL, { requestId: "req-never-seen" }), "cancel without a root")), {
+		cancelled: false,
+		reason: "already-settled",
+	});
+	/**
+	 * One refusal whose request id is known in advance: `expectRefusal` mints a request of its own, and this
+	 * test has to prove that the answer to *this* call was a refusal instead of a result.
+	 */
+	async function refusal(method, params) {
+		const pending = session.client.request(method, params);
+		const id = session.requestIdAt(session.sent.length - 1);
+		const error = await rejection(guard(pending, `${method} without a root`));
+		assert.equal(error.code, "PATH_OUTSIDE_ROOT", `${method} has no reachable path without a root`);
+		assert.equal(error.retryable, false, method);
+		assert.ok(REMOTE_HELPER_ERROR_CODES.includes(error.code), error.code);
+		return id;
+	}
+	for (const [method, params] of [
+		[REMOTE_HELPER_METHOD_FS_STAT, { path: "." }],
+		[REMOTE_HELPER_METHOD_FS_LIST, { path: "." }],
+		[REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 8 }],
+	]) {
+		const id = await refusal(method, params);
+		assert.equal(
+			session.frames.some((frame) => frame.id === id && frame.ok === true),
+			false,
+			`${method} must not produce a result without a root`,
+		);
+	}
+	// Nothing in this mode may look like an answer: the only refusals are those three calls, and each one is
+	// the containment code rather than a startup failure, because an omitted --root is not ROOT_INVALID.
+	assert.deepEqual(
+		session.frames.filter((frame) => frame.ok === false).map((frame) => frame.error.code),
+		["PATH_OUTSIDE_ROOT", "PATH_OUTSIDE_ROOT", "PATH_OUTSIDE_ROOT"],
+	);
+	assert.equal(
+		session.frames.some((frame) => frame.ok === false && frame.error.code === "ROOT_INVALID"),
+		false,
+		"an omitted --root must not be reported as an unusable root",
+	);
+	// The session is still alive and still serving the control vocabulary after all of it.
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_HELLO)).home, HELPER_HOME);
+	assert.equal(
+		await session.waitForExit(300).then(
+			() => "exited",
+			() => "running",
+		),
+		"running",
+		"a host-only helper keeps running",
+	);
+	assert.equal(session.lines.length, session.frames.length, "every stdout line has to be a protocol frame");
+	assert.equal(session.stderr(), "");
+});
+
+helperTest("a --root that is present but unusable fails closed before it serves anything", async (t) => {
 	const unusable = join(createRootFixture(t), "file-as-root");
 	writeFileSync(unusable, "not a directory");
 	const cases = [
-		["no --root at all", { rootArgs: [] }],
-		["an empty root", { root: "" }],
+		// The explicit empty value is the contrast case of the test above: the same template with a root that
+		// is present and unusable is fatal, and it stays fatal rather than degrading into a host-only helper.
+		["an explicitly empty root", { root: "" }],
+		["a root flag with no value", { rootArgs: ["--root"] }],
 		["a relative root", { root: "work/project" }],
+		["a root with a trailing separator", { root: `${createRootFixture(t)}/` }],
 		["a root that does not exist", { root: join(tmpdir(), "pideck-helper-missing-root-7f3a1c") }],
 		["a file as the root", { root: unusable }],
 		["the filesystem root", { root: "/" }],
@@ -447,7 +518,7 @@ helperTest("a helper without a usable root fails closed before it serves anythin
 		// identity plus a non-zero exit: the transport dies instead of a silent helper that answers nothing.
 		const code = await session.waitForExit(6000);
 		assert.equal(typeof code, "number", `${label}: the helper must exit on its own`);
-		assert.notEqual(code, 0, `${label}: a helper without a root must fail closed`);
+		assert.notEqual(code, 0, `${label}: a helper with an unusable root must fail closed`);
 		assert.equal(session.frames.length, 1, `${label}: exactly one refusal frame`);
 		const frame = session.frames[0];
 		assert.equal(frame.ok, false, label);
@@ -458,8 +529,8 @@ helperTest("a helper without a usable root fails closed before it serves anythin
 		assert.equal(session.lines.length, session.frames.length, `${label}: every stdout line has to be a protocol frame`);
 		assert.equal(session.stderr(), "", `${label}: the helper never writes stderr text`);
 	}
-	// The same command shape with a usable root is served, so the refusal above is about the root and not
-	// about the argv shape.
+	// The same argv shape with a usable root is served, so the refusals above are about the value the flag
+	// carried and not about the flag itself.
 	const working = startHelper(t, { root: createRootFixture(t) });
 	assert.equal((await call(working, REMOTE_HELPER_METHOD_HELLO)).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
 });

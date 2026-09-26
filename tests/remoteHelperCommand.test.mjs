@@ -69,14 +69,18 @@ test("refuses a node path, deploy root, root or entry name that is not a fixed r
 	assert.throws(() => resolveHelperEntryPath({ deployRoot: "/", bundleSha256: SHA, entryName: "helper.mjs" }), /REMOTE_HELPER_COMMAND_INVALID/);
 });
 
-test("an omitted root keeps the fixed shape with an empty token instead of defaulting to a home", () => {
-	// The builder never guesses a root. The one shape it can emit without one is the same four tokens with
-	// an empty root, which the helper refuses at startup (ROOT_INVALID, non-zero exit): a caller that
-	// forgot the root gets a helper that will not run, never one confined to the whole remote account.
+test("an omitted root drops the --root pair instead of defaulting to a home or an empty token", () => {
+	// The builder never guesses a root, and it never spells one as an empty token either: an omitted root is
+	// the legal host-only session, so the flag pair disappears entirely and the command keeps the two tokens
+	// the helper always needs. A root that *is* supplied still goes through the full check below.
 	const command = buildHelperRemoteCommand({ nodePath: "/usr/bin/node", deployRoot: DEPLOY_ROOT, bundleSha256: SHA });
-	assert.equal(command, `'/usr/bin/node' '${DEPLOY_ROOT}/bundles/${SHA}/helper.mjs' --root ''`);
+	assert.equal(command, `'/usr/bin/node' '${DEPLOY_ROOT}/bundles/${SHA}/helper.mjs'`);
+	assert.equal(command.includes("--root"), false, "an omitted root must not produce the flag at all");
 	assert.equal(command.includes("$HOME"), false);
-	assert.equal(command.split(" ").length, 4, "the token shape does not change when the root is omitted");
+	// Two quoted tokens and no empty token anywhere: `''` would be a third argv element, and that spelling is
+	// reserved for a caller that really passed an empty root — which the helper refuses at startup.
+	assert.deepEqual(command.split(" "), [`'/usr/bin/node'`, `'${DEPLOY_ROOT}/bundles/${SHA}/helper.mjs'`], "an omitted root keeps the bare two-token shape");
+	assert.equal(command.split(" ").includes("''"), false, "an omitted root must not emit an empty-string token");
 	// An explicitly empty root is a caller bug, not the same thing as an omitted one.
 	assert.throws(() => buildHelperRemoteCommand({ nodePath: "/usr/bin/node", deployRoot: DEPLOY_ROOT, bundleSha256: SHA, root: "" }), /REMOTE_HELPER_COMMAND_INVALID_ROOT/);
 });
@@ -102,6 +106,26 @@ test("a real shell splits the command into exactly four literal words", (t) => {
 	assert.equal(third, "--root", "the flag is a literal word, not part of a quoted path");
 	assert.equal(fourth, root, "the root arrives literally, unexpanded and unquoted");
 	const pwned = spawnSync(shell, [], { input: "test -e /tmp/pideck-pwned && printf pwned; test -e /tmp/pideck-pwned-root && printf pwned", encoding: "utf8" });
+	assert.equal(pwned.stdout, "", "no substitution may have run");
+});
+
+test("a real shell splits the root-less command into exactly two literal words", () => {
+	const shell = posixShell();
+	assert.notEqual(shell, null, "no POSIX shell (bash or sh) is available, so the quoting proof cannot run");
+	// The same hostile payloads, but with the root omitted: the proof is that the shell sees two words, not
+	// that the builder merely forgot to print a third one.
+	const nodePath = "/opt/no de/$(touch /tmp/pideck-pwned-rootless)/node'x";
+	const deployRoot = "/home/o'brien $HOME `id` */host";
+	const command = buildHelperRemoteCommand({ nodePath, deployRoot, bundleSha256: SHA });
+	const script = `set -- ${command}\nprintf '%s\\n' "$#" "$1" "$2"\nprintf '[%s]\\n' "$3"\n`;
+	const probe = spawnSync(shell, [], { input: script, encoding: "utf8" });
+	assert.equal(probe.status, 0, probe.stderr);
+	const [count, first, second, third] = probe.stdout.split("\n");
+	assert.equal(count, "2", "an omitted root must leave exactly the node word and the entry word");
+	assert.equal(first, nodePath, "the node path arrives literally, with its spaces and quotes");
+	assert.equal(second, `${deployRoot}/bundles/${SHA}/helper.mjs`, "the entry path arrives literally, unexpanded");
+	assert.equal(third, "[]", "an empty third word would mean the flag pair was emitted after all");
+	const pwned = spawnSync(shell, [], { input: "test -e /tmp/pideck-pwned-rootless && printf pwned", encoding: "utf8" });
 	assert.equal(pwned.stdout, "", "no substitution may have run");
 });
 

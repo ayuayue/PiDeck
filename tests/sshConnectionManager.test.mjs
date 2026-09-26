@@ -24,7 +24,7 @@ function createManager(options) {
 
 /** A legal `hello` result: the manager only has to agree on the protocol version and the platform fields. */
 function helloResult(protocolVersion = 1) {
-	return { protocolVersion, platform: "linux", arch: "x64", home: "/home/dev", capabilities: ["echo"], helperVersion: "1.0.4", nodeVersion: "v22.14.0", pid: 321 };
+	return { protocolVersion, platform: "linux", arch: "x64", home: "/home/dev", capabilities: ["echo", "fs.stat", "fs.list", "fs.read"], helperVersion: "1.2.0", nodeVersion: "v22.14.0", pid: 321 };
 }
 
 /** The response frame a fake helper sends for one request frame the manager wrote. */
