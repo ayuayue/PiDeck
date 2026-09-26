@@ -1620,6 +1620,7 @@ export function createPreviewApi(): PiDesktopApi {
 			installModel: async () => ({ ok: false, error: "preview stub" }),
 			deleteModel: async () => ({ ok: false, error: "preview stub" }),
 			onRuntimeProgress: () => () => undefined,
+			abortInstall: async () => false,
 		},
 		// 模型目录预览桩：无内置目录可读，返回「不可用」空态，仅供预览不崩溃
 		catalog: {
