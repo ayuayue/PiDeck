@@ -3937,8 +3937,8 @@ export const zhCN = {
 	"settings.notificationSection": "通知",
 	// 应用内通知（toast）区：默认时长档位 + 历史回看入口
 	"settings.inAppNotificationSection": "应用内通知",
-	"settings.toastDuration": "提示默认展示时长",
-	"settings.toastDurationDesc": "未显式指定时长的提示（如扩展发出的通知）的默认停留时间；调用方特意指定的时长与错误类常驻提示不受影响",
+	"settings.toastDuration": "提示展示时长",
+	"settings.toastDurationDesc": "所有应用内提示（toast）的停留时间，全局生效：调用方自带的时长与错误/警告类提示都会被它覆盖；仅标为「常驻」或代码里要求手动关闭的提示不受影响",
 	"settings.toastDurationSeconds": "{seconds} 秒",
 	"settings.toastDurationSticky": "常驻（手动关闭）",
 	"settings.toastHistory": "通知历史",

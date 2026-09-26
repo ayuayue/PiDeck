@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 /**
- * toast 通知历史 + 可配置默认时长的行为断言。
+ * toast 通知历史 + 全局统一展示时长的行为断言。
  * 背景：扩展 ctx.ui.notify 的提示硬编码 1500ms「烧一下就没了」，且错过后无从回看。
  * showNotice 是全渲染层唯一入口，这里从它断言两件事：
  * 1. 每次弹出都进 noticeHistory 环形缓冲（封顶丢最旧、订阅可退订、可清空）；
- * 2. info/neutral 未传时长时用设置同步进来的默认档，显式时长（常驻/短确认）不受牵引。
+ * 2. 时长口径是「全局统一」：设置项覆盖调用方显式传入的时长与各档内部默认，
+ *    唯一保留的是常驻（Number.POSITIVE_INFINITY）。
  */
 function loadNotice(noticeHistory) {
 	const sonnerCalls = [];
@@ -31,7 +32,7 @@ function loadNotice(noticeHistory) {
 	return { notice, sonnerCalls };
 }
 
-it("未显式传时长的 info 走可配置默认档，error/warning 默认与显式时长不受牵引", () => {
+it("时长口径为全局统一：设置档覆盖各档默认与调用方显式时长，仅常驻保留", () => {
 	const recorded = [];
 	const { notice } = loadNotice({ recordNoticeHistory: (entry) => recorded.push(entry) });
 	notice.setToasterReady(true);
@@ -45,17 +46,26 @@ it("未显式传时长的 info 走可配置默认档，error/warning 默认与�
 	notice.showNotice("提问提示", undefined, "question");
 	assert.deepEqual(
 		recorded.slice(1).map((entry) => entry.duration),
-		[3000, 3000, 3000],
-		"error/warning/question 保留各自更长默认，不随 info 档漂移",
+		[8000, 8000, 8000],
+		"error/warning/question 也统一走配置档（原 3000ms 内部默认已被覆盖）",
 	);
 
 	notice.showNotice("短确认", 1200);
-	assert.equal(recorded[4].duration, 1200, "调用方显式时长必须被尊重");
+	notice.showNotice("长错误", 10000, "error");
+	assert.deepEqual(
+		recorded.slice(4).map((entry) => entry.duration),
+		[8000, 8000],
+		"调用方显式时长一律被配置档覆盖",
+	);
 
-	// 常驻哨兵：默认档变成 Infinity（有限档仍不受影响）
+	// 常驻是唯一保留项
+	notice.showNotice("必须手动关闭", Number.POSITIVE_INFINITY, "error");
+	assert.equal(recorded[6].duration, Number.POSITIVE_INFINITY, "显式常驻不受配置牵引");
+
+	// 常驻哨兵：配置档本身变成 Infinity
 	notice.configureNoticeDefaults({ toastDurationMs: -1 });
 	notice.showNotice("扩展提示2", undefined, "info");
-	assert.equal(recorded[5].duration, Number.POSITIVE_INFINITY);
+	assert.equal(recorded[7].duration, Number.POSITIVE_INFINITY);
 });
 
 it("configureNoticeDefaults 只接受正数与常驻哨兵（-1 → Infinity），脏值忽略", () => {
@@ -79,20 +89,21 @@ it("showNotice 把每次弹出写进历史：kind/标题/正文/生效时长", (
 	const recorded = [];
 	const { notice } = loadNotice({ recordNoticeHistory: (entry) => recorded.push(entry) });
 	notice.setToasterReady(true);
+	notice.configureNoticeDefaults({ toastDurationMs: 6000 });
 
 	notice.showNotice("路径不存在", undefined, "warning", "打开文件失败");
 	assert.equal(recorded.length, 1);
 	assert.equal(recorded[0].title, "打开文件失败");
 	assert.equal(recorded[0].description, "路径不存在");
 	assert.equal(recorded[0].kind, "warning");
-	// warning 未传时长 → 3000ms 兜底（不随 info 默认档变化）
-	assert.equal(recorded[0].duration, 3000);
+	// 生效时长即全局配置档
+	assert.equal(recorded[0].duration, 6000);
 
 	notice.showNotice("只有正文", 1234);
 	assert.equal(recorded[1].title, "只有正文");
 	assert.equal(recorded[1].description, undefined);
 	assert.equal(recorded[1].kind, "neutral");
-	assert.equal(recorded[1].duration, 1234, "显式时长必须原样记录");
+	assert.equal(recorded[1].duration, 6000, "记录的是生效时长（全局档），不是调用方传入值");
 
 	// 空正文被丢弃：也不该留历史
 	notice.showNotice("   ");
@@ -144,18 +155,23 @@ it("历史表格筛选：最新在前，级别精确匹配、关键词命中标�
 	assert.deepEqual(ids({ search: "不存在", kind: "all" }), [], "无命中返回空数组");
 });
 
-it("重放历史条目按原 kind/时长重新弹出（标题+正文语义还原）", () => {
+it("重放历史条目还原 kind/标题/正文，时长沿用当前全局档（常驻条目仍常驻）", () => {
 	const recorded = [];
 	const { notice, sonnerCalls } = loadNotice({ recordNoticeHistory: (entry) => recorded.push(entry) });
 	notice.setToasterReady(true);
+	notice.configureNoticeDefaults({ toastDurationMs: 7000 });
 	notice.showNotice("正文详情", 5000, "error", "会话失败");
+	notice.showNotice("需要手动处理", Number.POSITIVE_INFINITY, "error", "会话中断");
 	sonnerCalls.length = 0;
 
 	notice.replayNoticeEntry(recorded[0]);
-	assert.equal(sonnerCalls.length, 1);
+	notice.replayNoticeEntry(recorded[1]);
+	assert.equal(sonnerCalls.length, 2);
 	const card = sonnerCalls[0].render("toast-id");
 	assert.equal(card.props.title, "会话失败");
 	assert.equal(card.props.description, "正文详情");
 	assert.equal(card.props.kind, "error");
-	assert.equal(sonnerCalls[0].options.duration, 5000);
+	// 重放不还原当初的显式时长：时长归当前配置档管（与全局统一口径一致）
+	assert.equal(sonnerCalls[0].options.duration, 7000);
+	assert.equal(sonnerCalls[1].options.duration, Number.POSITIVE_INFINITY, "常驻条目重放后仍常驻");
 });

@@ -138,8 +138,8 @@ export function useSessionRuntimeController(options: UseSessionRuntimeController
 		const key = getRuntimeNotificationKey(currentSessionId, currentSessionRuntimeUi.runtimeGeneration, notification.requestId);
 		if (!rememberRuntimeNotification(key)) return;
 		// 异常提示（error）常驻不自动消失：会话失败/重试类通知需要用户看到并处理，
-		// 自动消失容易错过；info/warning 不传时长，交给 showNotice 的可配置默认档
-		// （设置项 toastDurationMs；扩展 notify 过去硬编码 1500ms，用户普遍反馈看不清）。
+		// 自动消失容易错过。其余档位不传时长，由设置项 toastDurationMs 全局决定
+		// （扩展 notify 过去硬编码 1500ms，用户普遍反馈看不清）。
 		showNotice(notification.message, notification.notifyType === "error" ? Number.POSITIVE_INFINITY : undefined, notification.notifyType);
 	}, [currentSessionId, currentSessionRuntimeUi, showNotice]);
 

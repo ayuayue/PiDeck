@@ -1,10 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Toaster as SonnerToaster } from "sonner";
+import { Inbox } from "lucide-react";
+import { t } from "../../i18n";
+import { getActiveNoticeOverflow, subscribeActiveNoticeCount, VISIBLE_TOAST_COUNT } from "../../utils/noticeCountStore";
 import { setToasterReady } from "../../utils/notice";
 // 弹窗本体单文件：它 import MarkdownStream，与 notice-toast 同文件会形成循环 import
 import { NoticeDetailsDialog } from "./notice-details-dialog";
 import { setNoticeDetailsOpener, type NoticeDetailsPayload } from "./notice-toast";
+import { openNoticeHistoryDialog } from "./notice-history-dialog";
 
 /**
  * 全局 Toaster（#115）：sonner 官方组件，只承担堆叠/定位/时长/主题跟随，
@@ -28,6 +32,52 @@ function subscribeTheme(callback: () => void) {
 
 function getThemeSnapshot(): "light" | "dark" {
 	return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+/** 收纳条无新增时的自动淡出时长：它只是「刚刚刷屏」的余温提示，不该常驻抢视线。 */
+const OVERFLOW_PILL_AUTO_DISMISS_MS = 5000;
+
+/**
+ * 收纳条（Notification Stack 薄层）：活跃 toast 超过 sonner 可见堆叠数时，
+ * 被压在堆叠里的旧 toast 用户看不见也滚不到；此条显示「还有 N 条未展示」并提供通知历史面板入口。
+ * 刻意不贴 toast 列（top-right）：sonner 的 OMISSION_HEIGHT 会把堆叠底部
+ * 之下约 26px 划给「点击展开」热区，贴上去会和展开手势打架。
+ * 数据源是 notice.ts 单点维护的活跃 id 集合，不查 sonner 内部状态。
+ * 呈现是「一次性提示」：点击（已进历史面板，没必要再留）或 5s 无新增即淡出，
+ * 只有新 toast 把溢出推得比上次更高时才重新出现。
+ */
+function NoticeOverflowPill() {
+	const overflow = useSyncExternalStore(subscribeActiveNoticeCount, getActiveNoticeOverflow, getActiveNoticeOverflow);
+	// 「已阅水位」= 上一次淡出/点击时的溢出数；差值才是需要提醒的新内容
+	const [acknowledged, setAcknowledged] = useState(0);
+	const pending = overflow - acknowledged;
+	useEffect(() => {
+		// 全部 toast 已消失：水位归零，下一波溢出重新提醒
+		if (overflow <= 0) {
+			setAcknowledged(0);
+			return;
+		}
+		if (pending <= 0) return;
+		const timer = window.setTimeout(() => setAcknowledged(overflow), OVERFLOW_PILL_AUTO_DISMISS_MS);
+		return () => window.clearTimeout(timer);
+	}, [overflow, pending]);
+	if (pending <= 0) return null;
+	return (
+		<button
+			type="button"
+			onClick={() => {
+				// 点开历史即视为已阅：面板里能看到全部条目，留个常驻提示只是噪音
+				setAcknowledged(overflow);
+				openNoticeHistoryDialog();
+			}}
+			title={t("notice.stackOverflowTitle")}
+			style={{ zIndex: 999999998, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+			className="fixed bottom-4 right-4 inline-flex h-8 items-center gap-1.5 rounded-full border border-border-subtle bg-bg-panel px-3 text-xs font-medium text-text-secondary shadow-md transition-colors hover:text-text-primary"
+		>
+			<Inbox className="size-3.5 shrink-0" />
+			{t("notice.stackOverflow", { count: String(pending) })}
+		</button>
+	);
 }
 
 export function Toaster() {
@@ -74,7 +124,7 @@ export function Toaster() {
 				// 420px 为桌面端右上角通知的可读上限，小窗口由 viewport 自动收缩。
 				style={{ "--width": "min(420px, calc(100vw - 32px))" } as React.CSSProperties}
 				gap={10}
-				visibleToasts={4}
+				visibleToasts={VISIBLE_TOAST_COUNT}
 				offset={{
 					// 让开自定义标题栏拖拽区（--window-drag-height：frameless 下 32px，否则 0px）。
 					// 首个 toast 若贴顶，左上角关闭按钮会落在 -webkit-app-region: drag 层里，
@@ -83,6 +133,7 @@ export function Toaster() {
 					right: "16px",
 				}}
 			/>
+			<NoticeOverflowPill />
 			<NoticeDetailsDialog
 				payload={details}
 				onOpenChange={(open) => {

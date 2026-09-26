@@ -3947,8 +3947,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.notificationSection": "Notifications",
 	// In-app notifications (toast): default duration presets + history entry
 	"settings.inAppNotificationSection": "In-app Notifications",
-	"settings.toastDuration": "Default Toast Duration",
-	"settings.toastDurationDesc": "How long toasts without an explicit duration (e.g. extension notifications) stay on screen. Durations chosen by callers and sticky error toasts are unaffected",
+	"settings.toastDuration": "Toast Duration",
+	"settings.toastDurationDesc": "How long every in-app toast stays on screen — it overrides durations supplied by callers as well as error/warning toasts. Only sticky (dismiss manually) notices are unaffected",
 	"settings.toastDurationSeconds": "{seconds}s",
 	"settings.toastDurationSticky": "Sticky (dismiss manually)",
 	"settings.toastHistory": "Notification History",
