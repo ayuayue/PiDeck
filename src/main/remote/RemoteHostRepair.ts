@@ -18,7 +18,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { currentBootId } from "./HostRebindJournal";
+import { currentBootId } from "./HostRebindTxLock";
 import type { SshDraftRoute } from "./SshCommandBuilder";
 import type { SshDraftHostCandidate } from "./SshHostVerifier";
 import { fingerprintSshHostKey, readBoundedHostKey } from "./SshHostVerifier";
