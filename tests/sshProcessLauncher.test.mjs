@@ -157,6 +157,25 @@ test("starts the pinned executable as an argv array through a shell-free spawn",
 	assert.deepEqual(Object.keys(call.spawnOptions).sort(), ["env", "shell", "stdio", "windowsHide"]);
 });
 
+test("a requested working directory reaches spawn, and an unusable one is refused", async () => {
+	const context = setup();
+	const directory = process.cwd();
+	await launch(context, { invocation: invocation({ cwd: directory }) });
+	assert.equal(context.calls[0].spawnOptions.cwd, directory);
+
+	// Without a cwd the option must stay absent rather than becoming an empty string.
+	const bare = setup();
+	await launch(bare, { invocation: invocation() });
+	assert.equal(Object.hasOwn(bare.calls[0].spawnOptions, "cwd"), false);
+	assert.deepEqual(Object.keys(bare.calls[0].spawnOptions).sort(), ["env", "shell", "stdio", "windowsHide"]);
+
+	for (const bad of ["relative/dir", "", "C:\\bad\u0000dir", "x".repeat(5000)]) {
+		const broken = setup();
+		await assert.rejects(launch(broken, { invocation: invocation({ cwd: bad }) }), /SSH_LAUNCHER_REQUEST_INVALID/);
+		assert.equal(broken.calls.length, 0, `no process may start for ${JSON.stringify(bad.slice(0, 12))}`);
+	}
+});
+
 test("a zero exit is reported as exited with the child pid", async () => {
 	const context = setup();
 	const handle = await launch(context);

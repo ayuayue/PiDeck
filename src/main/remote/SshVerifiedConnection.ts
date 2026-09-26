@@ -16,6 +16,12 @@ export type PinnedSshInvocation = {
 	/** Sanitized environment the launcher must use for this process. */
 	readonly env: Readonly<NodeJS.ProcessEnv>;
 	readonly openSshVersion: string;
+	/**
+	 * Optional working directory for a transfer: scp reads "host:path" from a colon before the first
+	 * separator, so a Windows drive path (C:\...) as a source operand would be sent to the wrong place.
+	 * Running from the bundle directory lets scp receive bare file names instead.
+	 */
+	readonly cwd?: string;
 };
 
 function activeProfile(state: RemoteHostStoreState, hostId: string): RemoteHostProfile & { verifiedEndpoint: NonNullable<RemoteHostProfile["verifiedEndpoint"]> } {

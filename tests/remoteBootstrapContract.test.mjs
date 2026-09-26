@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, chown, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -413,10 +413,18 @@ test("the inline source keeps its fixed protocol vocabulary", () => {
 	// Hashing a staged file must not widen the entry's module surface: only the two core modules it
 	// already used are pulled in, and sha256 comes from the WebCrypto global instead of a new require.
 	assert.equal((REMOTE_BOOTSTRAP_INLINE_SOURCE.match(/require\(/g) ?? []).length, 2, "the entry may only require node:fs and node:path");
-	// The owner and mode policy is the strict half of the finalize gate, so pin the comparisons with
-	// whitespace-tolerant patterns: a refactor must not quietly turn the mode equality into a no-op.
+	// The owner rule stays a hard gate and the mode is forced rather than trusted, so pin the sequence
+	// with whitespace-tolerant patterns: owner check, the entry's own chmod to the declared mode, then a
+	// second lstat that confirms the result. A refactor must neither drop the owner check nor chmod
+	// without re-reading the mode it just set.
 	assert.match(REMOTE_BOOTSTRAP_INLINE_SOURCE, /st\.uid\s*!==\s*process\.getuid\(\)/);
-	assert.match(REMOTE_BOOTSTRAP_INLINE_SOURCE, /\(st\.mode\s*&\s*0o777\)\s*!==\s*parseInt\(entry\.mode\s*,\s*8\)/);
+	assert.match(REMOTE_BOOTSTRAP_INLINE_SOURCE, /st\.uid\s*!==\s*process\.getuid\(\)[\s\S]{0,400}?chmodSync\(file\s*,\s*parseInt\(entry\.mode\s*,\s*8\)\)[\s\S]{0,400}?lstatSync\(file\)[\s\S]{0,400}?\(st\.mode\s*&\s*0o777\)\s*!==\s*parseInt\(entry\.mode\s*,\s*8\)/);
+	// An already active bundle is re-verified read-only, so the forced mode must stay out of that branch:
+	// every chmod in the entry belongs to the staging directory or to a staged file, both of which are
+	// defined before `activeMatches`.
+	const activeBranchStart = REMOTE_BOOTSTRAP_INLINE_SOURCE.search(/async\s+function\s+activeMatches\s*\(/);
+	assert.notEqual(activeBranchStart, -1, "the read-only active-bundle branch must exist");
+	assert.ok(!REMOTE_BOOTSTRAP_INLINE_SOURCE.slice(activeBranchStart).includes("chmodSync"), "an already active bundle must never be chmodded");
 	assert.match(REMOTE_BOOTSTRAP_INLINE_SOURCE, /Buffer\.byteLength\(line\s*,\s*"utf8"\)\s*>\s*MAX_FRAME/);
 	assert.match(REMOTE_BOOTSTRAP_INLINE_SOURCE, /Buffer\.byteLength\(buffered\s*,\s*"utf8"\)\s*>\s*MAX_FRAME/);
 });
@@ -425,7 +433,7 @@ test("the inline entry is byte-frozen", () => {
 	// This entry is the only code that runs on a remote before anything is deployed, so any edit must
 	// be deliberate: update this digest in the same commit that changes REMOTE_BOOTSTRAP_INLINE_SOURCE.
 	const digest = createHash("sha256").update(REMOTE_BOOTSTRAP_INLINE_SOURCE, "utf8").digest("hex");
-	assert.equal(digest, "a65a1845f76d9b263059c050f6392e3baa380faac905eecfd1b8574ff076a399");
+	assert.equal(digest, "1702099f62ee1a57f4bfaedb14a004a9f115a4c058f203247908b967a5d0c495");
 });
 
 test("the frozen entry refuses a deploy root that is not a private real directory", async (t) => {
@@ -639,8 +647,7 @@ test("finalize is idempotent for an already active bundle and never rewrites it"
 	const file = stagedFile("helper.mjs", "already-active-body\n");
 	// Preset the active directory exactly as the declaration describes it, then stamp a fixed mtime: a
 	// rewrite (a rename over it, or a re-upload of the bytes) would lose that timestamp.
-	const active = activeOf(home);
-	await mkdir(active, { recursive: true });
+	const active = await makePrivateActiveDirectory(home);
 	const activeFile = join(active, file.name);
 	await writeFile(activeFile, file.text, { mode: 0o600 });
 	await utimes(activeFile, new Date(1_000_000), new Date(1_000_000));
@@ -656,17 +663,35 @@ test("finalize is idempotent for an already active bundle and never rewrites it"
 	);
 	assert.deepEqual(result.frames[1], { v: 1, op: "finalized", active: `./bundles/${BUNDLE_SHA}`, files: 1 });
 	assert.equal(await readFile(activeFile, "utf8"), file.text);
-	assert.equal((await stat(activeFile)).mtimeMs, before.mtimeMs, "an already active bundle must not be rewritten");
+	const after = await stat(activeFile);
+	assert.equal(after.mtimeMs, before.mtimeMs, "an already active bundle must not be rewritten");
+	// The re-verification is read-only, so it must not chmod either. On POSIX a chmod moves ctime even
+	// when the mode value stays the same, which is what makes that timestamp able to catch one.
+	assert.equal(after.mode, before.mode, "an already active bundle must not be chmodded");
+	if (POSIX) assert.equal(after.ctimeMs, before.ctimeMs, "a read-only re-verification must not touch the active bundle metadata");
 	// The redundant staging copy is still dropped and the lock released.
 	await assert.rejects(lstat(stagingOf(home)), /ENOENT/);
 	await assert.rejects(lstat(lockPathOf(home)), /ENOENT/);
 });
 
+/**
+ * Pre-create the deploy hierarchy for a test that needs an existing bundle. The entry refuses a deploy
+ * root that is not private, and a plain mkdir would inherit the umask (0755 on POSIX), so every level
+ * gets its mode set explicitly — on some filesystems the mode passed to mkdir is ignored.
+ */
+async function makePrivateActiveDirectory(home) {
+	const levels = [join(home, ".pideck"), deployRootOf(home), bundlesOf(home), activeOf(home)];
+	for (const level of levels) {
+		await mkdir(level, { recursive: true, mode: 0o700 });
+		await chmod(level, 0o700);
+	}
+	return activeOf(home);
+}
+
 test("an already active directory with different content is never overwritten", async (t) => {
 	const home = await temporaryHome(t);
 	const file = stagedFile("helper.mjs", "declared-body\n");
-	const active = activeOf(home);
-	await mkdir(active, { recursive: true });
+	const active = await makePrivateActiveDirectory(home);
 	const activeFile = join(active, file.name);
 	await writeFile(activeFile, "somebody-elses-body\n", { mode: 0o600 });
 	const before = await stat(activeFile);
@@ -758,12 +783,52 @@ test("a commit that covers fewer files than begin declared fails with BOOTSTRAP_
 	await assertNothingActivated(home, "incomplete");
 });
 
-test("a mode that deviates from the declaration fails with BOOTSTRAP_MODE_INVALID", { skip: POSIX ? false : "POSIX only: Windows has no uid and synthesizes file modes" }, async (t) => {
+test("a staged mode that deviates from the declaration is forced to the declared mode", async (t) => {
+	// The uploader is not trusted to preserve POSIX modes: a Windows host hands over the synthetic
+	// 0644/0666 it made up, scp -p included, so a mismatching staged mode must be repaired rather than
+	// rejected. Both frozen modes are covered so a hardcoded chmod target cannot pass.
+	const cases = [
+		{ declared: stagedFile("helper.mjs", "export const helper = 1;\n", "0600"), uploaded: "0644" },
+		{ declared: stagedFile("bootstrap.mjs", "#!/usr/bin/env node\nrun();\n", "0700"), uploaded: "0600" },
+	];
+	for (const item of cases) {
+		const home = await temporaryHome(t);
+		const session = await startStagingSession(home);
+		const staged = await stageFile(home, item.declared, item.uploaded);
+		if (POSIX) {
+			// writeFile is masked by umask, so pin the uploaded mode explicitly: the case only proves
+			// anything while the staged file really deviates from the declaration.
+			await chmod(staged, Number.parseInt(item.uploaded, 8));
+			assert.equal(await modeText(staged), item.uploaded, item.declared.name);
+		}
+		session.write(beginFrame(1), fileFrame(item.declared), COMMIT_FRAME);
+		const result = await session.finish();
+		assert.equal(result.code, 0, result.stderr);
+		assert.deepEqual(
+			result.frames.map((frame) => frame.op),
+			["ready", "finalized"],
+			item.declared.name,
+		);
+		const active = join(activeOf(home), item.declared.name);
+		assert.equal(await readFile(active, "utf8"), item.declared.text);
+		// Windows has no real mode (stat reports a synthetic value), so only POSIX can assert the result.
+		if (POSIX) assert.equal(await modeText(active), item.declared.mode, item.declared.name);
+	}
+});
+
+/**
+ * A foreign-owned staged file can only be produced with chown, i.e. by a privileged run. The owner rule
+ * is additionally pinned as a source-level sequence in "the inline source keeps its fixed protocol
+ * vocabulary", so an unprivileged run still fails loudly if that gate is dropped.
+ */
+const CAN_STAGE_FOREIGN_OWNER = POSIX && process.getuid() === 0;
+
+test("a staged file owned by another user is still refused with BOOTSTRAP_MODE_INVALID", { skip: CAN_STAGE_FOREIGN_OWNER ? false : "root only: chown is what stages a foreign-owned file" }, async (t) => {
 	const home = await temporaryHome(t);
 	const session = await startStagingSession(home);
-	const declared = stagedFile("bootstrap.mjs", "#!/usr/bin/env node\nrun();\n", "0700");
-	// The bytes and the digest are declared correctly; only the staged permission differs.
-	await stageFile(home, declared, "0600");
+	const declared = stagedFile("helper.mjs", "helper\n");
+	const staged = await stageFile(home, declared);
+	await chown(staged, 1, 1);
 	session.write(beginFrame(1), fileFrame(declared), COMMIT_FRAME);
 	const result = await session.finish();
 	assert.notEqual(result.code, 0);
@@ -772,7 +837,7 @@ test("a mode that deviates from the declaration fails with BOOTSTRAP_MODE_INVALI
 		["ready", "error"],
 	);
 	assert.equal(result.frames[1].code, "BOOTSTRAP_MODE_INVALID");
-	await assertNothingActivated(home, "mode");
+	await assertNothingActivated(home, "foreign owner");
 });
 
 test("an abort before the commit point cleans up and never activates anything", async (t) => {
@@ -791,21 +856,22 @@ test("an abort before the commit point cleans up and never activates anything", 
 	await assertNothingActivated(home, "abort");
 });
 
-test("an abort that lands on the commit point is answered without removing the activated bundle", async (t) => {
+test("an abort that lands on the commit point still reports the deployment it cannot undo", async (t) => {
 	const home = await temporaryHome(t);
 	const session = await startStagingSession(home);
 	const files = [stagedFile("helper.mjs", "helper\n"), stagedFile("runner.mjs", "runner\n")];
 	for (const file of files) await stageFile(home, file);
 	// commit and abort travel in one stdin write: the abort is already queued while the commit is
-	// underway, so the run is past its point of no return and the bundle must survive the answer.
+	// underway. The rename cannot be undone, so the terminal frame has to report the deployment —
+	// answering "aborted" would tell the caller nothing was deployed while the bundle sits there.
 	session.write(beginFrame(files.length), ...files.map((file) => fileFrame(file)), COMMIT_FRAME, ABORT_FRAME);
 	const result = await session.finish();
 	assert.equal(result.code, 0, result.stderr);
 	assert.deepEqual(
 		result.frames.map((frame) => frame.op),
-		["ready", "aborted"],
+		["ready", "finalized"],
 	);
-	assert.deepEqual(result.frames[1], { v: 1, op: "aborted", reason: "requested" });
+	assert.deepEqual(result.frames[1], { v: 1, op: "finalized", active: `./bundles/${BUNDLE_SHA}`, files: files.length });
 	for (const file of files) assert.equal(await readFile(join(activeOf(home), file.name), "utf8"), file.text);
 	await assert.rejects(lstat(stagingOf(home)), /ENOENT/);
 	await assert.rejects(lstat(lockPathOf(home)), /ENOENT/);
@@ -1018,4 +1084,19 @@ test("closing stdin right after the commit frame does not destroy the commit", a
 	assert.equal(result.code, 0, result.stderr);
 	assert.equal(result.frames.at(-1).op, "finalized", "the commit already happened, so the terminal frame reports it");
 	assert.equal(await pathExists(join(bundlesOf(home), BUNDLE_SHA, "helper.mjs")), true);
+});
+
+test("an undeclared file left in staging blocks the commit instead of riding into the bundle", async (t) => {
+	// The whole directory is renamed, so an unverified leftover would become part of the content-addressed
+	// bundle and every later idempotent run would then fail its entry-count comparison forever.
+	const home = await temporaryHome(t);
+	const session = await startStagingSession(home);
+	const file = stagedFile("helper.mjs", "helper\n");
+	await stageFile(home, file);
+	await stageFile(home, stagedFile("leftover.mjs", "leftover\n"));
+	session.write(beginFrame(1), fileFrame(file), COMMIT_FRAME);
+	const result = await session.finish();
+	assert.notEqual(result.code, 0);
+	assert.equal(result.frames.at(-1).code, "BOOTSTRAP_FILE_MISMATCH");
+	await assertNothingActivated(home, "undeclared staging entry");
 });

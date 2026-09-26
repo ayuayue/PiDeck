@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { SshLauncherHandle, SshLauncherRequest, SshProcessExit, SshProcessExitKind, SshProcessLauncher } from "./RemoteHostConnectionTypes";
 import type { PinnedSshInvocation } from "./SshVerifiedConnection";
@@ -61,7 +62,7 @@ type TerminationCause = "stopped" | "timeout" | "output-too-large" | "line-too-l
 type OutputStreamName = "stdout" | "stderr";
 
 /** Validated launch input: exactly the values spawn() receives. */
-type LaunchTarget = { executable: string; args: string[]; env: NodeJS.ProcessEnv };
+type LaunchTarget = { executable: string; args: string[]; env: NodeJS.ProcessEnv; cwd?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,10 +106,21 @@ function readLaunchTarget(invocation: PinnedSshInvocation): LaunchTarget {
 	const executable = raw.executable;
 	const args = raw.args;
 	const env = raw.env;
+	const cwd = raw.cwd;
 	assertExecutable(executable);
 	assertArgv(args);
 	assertProcessEnv(env);
-	return { executable, args, env };
+	return { executable, args, env, ...(readCwd(cwd) === undefined ? {} : { cwd: readCwd(cwd) as string }) };
+}
+
+/**
+ * A transfer (scp) needs a working directory so its source operands can stay bare file names: an
+ * absolute Windows path would otherwise read as "host:path" to scp's colon detection.
+ */
+function readCwd(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || value.length === 0 || value.length > MAX_EXECUTABLE_LENGTH || !isAbsolute(value) || /[\x00-\x1f\x7f]/.test(value)) throw invalidRequest();
+	return value;
 }
 
 function spawnFailureCode(error: unknown): string {
@@ -148,6 +160,7 @@ function spawnPinnedChild(spawnProcess: typeof spawn, target: LaunchTarget, want
 			shell: false,
 			windowsHide: true,
 			env: target.env,
+			...(target.cwd === undefined ? {} : { cwd: target.cwd }),
 			// A closed stdin keeps a stray write from ever becoming remote input; a helper protocol that must
 			// answer questions asks for the pipe explicitly.
 			stdio: wantsStdin ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
