@@ -18,7 +18,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *   hello handshake -> upload plan -> finalize frames -> real child process -> fs.stat/fs.list/fs.read
  *   -> RemoteWorkspaceReader
  *
- * Every layer is the production one: the frozen helper body (REMOTE_HELPER_INLINE_SOURCE, build 1.3.0)
+ * Every layer is the production one: the frozen helper body (REMOTE_HELPER_INLINE_SOURCE, build 1.4.0)
  * runs as a real child process with a real `--root`, stdout is fed line by line into the real
  * RemoteControlClient, and the real RemoteWorkspaceReader speaks through a port that is nothing but that
  * client. No stub answers a frame anywhere.

@@ -98,9 +98,13 @@ export type RemoteWorkspacePortRequestOptions = {
  * transport can cancel at all — one way to withdraw it by the id it reported.
  *
  * The `request` member is exactly `SshConnectionManager.request`'s shape, so a manager-backed adapter is
- * `{ request: (hostId, method, params, options) => manager.request(hostId, method, params, options) }`; such
- * an adapter never reports an id, and every read still works with cancellation reduced to a local
- * abandonment. Both members are plain functions: an adapter must not rely on `this`.
+ * `{ request: (hostId, method, params, options) => manager.request(hostId, method, params, options), cancel:
+ * (hostId, requestId, options) => manager.cancel(hostId, requestId, options) }`: the manager reports the id of
+ * the frame it wrote through `options.onRequestId` and withdraws by that same id, which is what makes a
+ * cancelled read name a real request instead of only abandoning it locally. A transport that cannot report an
+ * id is still usable — every read works with cancellation reduced to a local abandonment — and one that cannot
+ * cancel at all simply leaves `cancel` out. Both members are plain functions: an adapter must not rely on
+ * `this`.
  */
 export type RemoteWorkspacePort = {
 	request: (hostId: string, method: string, params?: unknown, options?: RemoteWorkspacePortRequestOptions) => Promise<unknown>;

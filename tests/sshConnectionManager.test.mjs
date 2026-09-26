@@ -5,6 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { createManualTimers, createPinnedClient, createPinnedHostFixture, fakeEnv, fakeSshPath, flushMicrotasks, waitFor } from "./helpers/sshPinnedHostFixture.mjs";
 
 const { createSshConnectionManager } = loadTsCommonJs("src/main/remote/SshConnectionManager.ts");
+const { createRemoteWorkspaceReader } = loadTsCommonJs("src/main/remote/RemoteWorkspaceReader.ts");
 const { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_TIMEOUT_MS } = loadTsCommonJs("src/main/remote/SshProcessLauncher.ts");
 const { buildHelperRemoteCommand } = loadTsCommonJs("src/main/remote/RemoteHelperCommand.ts");
 const { quotePosixArgument } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
@@ -468,6 +469,92 @@ test("carries helper requests over the pinned session and rejects them when the 
 	protocol.handles[0].exit({ kind: "failed", code: 255, signal: null });
 	await assert.rejects(lost, /REMOTE_CONNECTION_LOST/);
 	assert.equal(manager.getState(profile.id).state, "reconnecting");
+});
+
+test("a request reports the id of the frame it wrote, and that id is what a cancel withdraws", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const protocol = createProtocolLauncher();
+	const manager = createManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	t.after(() => manager.dispose());
+	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
+
+	const reported = [];
+	const pending = manager.request(profile.id, "fs.stat", { path: "alpha.txt" }, { onRequestId: (id) => reported.push(id) });
+	const frame = await waitForFrame(protocol, (candidate) => candidate.method === "fs.stat");
+	// The id is reported once, after the frame left, and it is that frame's own id: the control client mints
+	// ids internally and only cancels by id, so this is the one name a withdraw can use.
+	assert.deepEqual(reported, [frame.id]);
+	assert.match(frame.id, /^req-\d+$/);
+
+	// The reported id is enough to withdraw the request: the frame the helper would receive names it.
+	const cancelled = manager.cancel(profile.id, reported[0]);
+	const withdraw = await waitForFrame(protocol, (candidate) => candidate.method === "cancel", "the withdraw frame");
+	assert.deepEqual(withdraw.params, { requestId: frame.id });
+	protocol.stdout({ v: 1, hostId: profile.id, generation: withdraw.generation, id: withdraw.id, ok: true, result: { cancelled: true } });
+	// The helper aborted work that had not started, so the target settles as one terminal outcome...
+	await assert.rejects(pending, /REQUEST_CANCELLED/);
+	// ...and the withdraw itself answers truthfully.
+	assert.deepEqual(JSON.parse(JSON.stringify(await cancelled)), { cancelled: true });
+	// A withdraw that arrives after the fact takes nothing back, and the manager relays exactly that answer.
+	const late = await manager.cancel(profile.id, frame.id);
+	assert.deepEqual(JSON.parse(JSON.stringify(late)), { cancelled: false, reason: "already-settled" });
+});
+
+test("no request id is reported for a request that never left", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const protocol = createProtocolLauncher();
+	const manager = createManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	t.after(() => manager.dispose());
+
+	// Not ready: the manager refuses before a client exists, so there is nothing an id could name.
+	const notReady = [];
+	await assert.rejects(manager.request(profile.id, "fs.stat", { path: "alpha.txt" }, { onRequestId: (id) => notReady.push(id) }), /SSH_CONNECTION_NOT_READY/);
+	assert.deepEqual(notReady, []);
+
+	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
+	const reported = [];
+	// A method the protocol does not allow is refused before the client mints an id at all.
+	await assert.rejects(manager.request(profile.id, "not a method", undefined, { onRequestId: (id) => reported.push(id) }), /PROTOCOL_INVALID/);
+	// Unserializable params mint an id and then fail to encode, so the frame never exists: reporting that id
+	// would hand the caller a name for a request no helper ever saw.
+	const framesBefore = protocol.frames.length;
+	await assert.rejects(manager.request(profile.id, "fs.stat", { path: 1n }, { onRequestId: (id) => reported.push(id) }), /PROTOCOL_INVALID/);
+	assert.equal(protocol.frames.length, framesBefore, "a frame that cannot be encoded never reaches the transport");
+	// A transport that refuses the write is the third "no usable path" case: the client settles the request as
+	// a lost connection, and the manager must not claim an id for a frame that stayed here.
+	protocol.handles[0].write = () => {
+		throw new Error("write refused");
+	};
+	await assert.rejects(manager.request(profile.id, "fs.stat", { path: "alpha.txt" }, { onRequestId: (id) => reported.push(id) }), /REMOTE_CONNECTION_LOST/);
+	assert.deepEqual(reported, [], "no id may be reported for a request that never left");
+});
+
+test("a reader over the manager withdraws the very request it was told the id of", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const protocol = createProtocolLauncher();
+	const manager = createManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	t.after(() => manager.dispose());
+	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
+
+	// The production adapter shape RemoteWorkspaceReader documents: the manager *is* the port. Nothing here
+	// patches an id in from the outside, which is the wiring gap this test exists to close.
+	const reader = createRemoteWorkspaceReader({
+		port: {
+			request: (hostId, method, params, options) => manager.request(hostId, method, params, options),
+			cancel: (hostId, requestId, options) => manager.cancel(hostId, requestId, options),
+		},
+	});
+	const controller = new AbortController();
+	const abandoned = reader.stat(profile.id, "alpha.txt", { signal: controller.signal });
+	const statFrame = await waitForFrame(protocol, (candidate) => candidate.method === "fs.stat");
+	controller.abort();
+	// The abandoned read settles locally, and the withdraw that follows names the request frame it started.
+	await assert.rejects(abandoned, /REQUEST_CANCELLED/);
+	const withdraw = await waitForFrame(protocol, (candidate) => candidate.method === "cancel", "the withdraw frame");
+	assert.deepEqual(withdraw.params, { requestId: statFrame.id });
 });
 
 test("a late exit from an aborted attempt cannot tear down the session that replaced it", async (t) => {

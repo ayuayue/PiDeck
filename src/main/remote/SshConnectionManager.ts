@@ -1,7 +1,7 @@
 import { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_TIMEOUT_MS } from "./SshProcessLauncher";
 import { createConnectionDiagnostic, createDiagnosticHistory, diagnosticCodeFromError } from "./SshConnectionDiagnostics";
 import { createRemoteControlClient, type RemoteControlClient } from "./RemoteControlClient";
-import { REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_PROTOCOL_VERSION } from "./RemoteHelperContract";
+import { REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_PROTOCOL_VERSION, type RemoteHelperCancelResult } from "./RemoteHelperContract";
 import { buildHelperRemoteCommand } from "./RemoteHelperCommand";
 import { buildPinnedSshInvocation } from "./SshVerifiedConnection";
 import type { SshClientRuntime } from "./SshClientRuntime";
@@ -56,13 +56,37 @@ export type SshConnectionManagerOptions = {
 	onDiagnostic?: (entry: SshConnectionDiagnostic) => void;
 };
 
+/**
+ * Per-call options of `request`. `onRequestId` is what makes a request withdrawable at all: the control
+ * client mints the id itself and only cancels *by id*, so the id has to travel back to the caller.
+ */
+export type SshConnectionRequestOptions = {
+	/** Local deadline of the request, forwarded to the control client's own contract bounds. */
+	timeoutMs?: number;
+	/**
+	 * Called once, after the frame carrying the request has left the transport, with the id that frame was
+	 * sent under — the only name `cancel` accepts for it. A request that was refused before anything was
+	 * written (not ready, an unusable method, a frame that could not be encoded or written) reports no id
+	 * at all, because there is no request the caller could withdraw.
+	 */
+	onRequestId?: (requestId: string) => void;
+};
+
 export type SshConnectionManager = {
 	getState(hostId: string): ConnectionMachineState;
 	listDiagnostics(hostId?: string): SshConnectionDiagnostic[];
 	connect(hostId: string): Promise<ConnectionMachineState>;
 	retry(hostId: string): Promise<ConnectionMachineState>;
 	/** Send one helper request on the live session of a ready host. */
-	request(hostId: string, method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+	request(hostId: string, method: string, params?: unknown, options?: SshConnectionRequestOptions): Promise<unknown>;
+	/**
+	 * Withdraw one helper request by the id `request` reported, on the live session of a ready host. The
+	 * answer is the control client's own: `{cancelled:true}` means the helper aborted work that had not
+	 * started, and `{cancelled:false, reason:"already-settled"}` means the withdraw did **not** take effect —
+	 * the request had already started or already finished — so it is never a rollback and says nothing about
+	 * the request's own outcome.
+	 */
+	cancel(hostId: string, requestId: string, options?: { timeoutMs?: number }): Promise<RemoteHelperCancelResult>;
 	disconnect(hostId: string, reason: "abort" | "shutdown"): Promise<void>;
 	dispose(): Promise<void>;
 };
@@ -101,6 +125,12 @@ type HostEntry = {
 type LiveAttempt = {
 	handle: SshLauncherHandle;
 	control?: RemoteControlClient;
+	/**
+	 * Armed for exactly the synchronous window in which `request` hands one method to the control client, so
+	 * the id of the frame that client writes can be read back (see `acceptFrameId`). It lives on the attempt
+	 * because only that attempt's client can fill it.
+	 */
+	idCapture?: RequestIdCapture;
 	unsubscribeExit?: () => void;
 	unsubscribeStdout?: () => void;
 	unsubscribeStderr?: () => void;
@@ -115,6 +145,12 @@ const MAX_STABILITY_WINDOW_MS = 10_000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 /** Stable diagnostic codes only; anything else is collapsed before it reaches the redaction layer. */
 const DIAGNOSTIC_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
+/**
+ * The shape `RemoteControlClient` mints for its request ids (`req-N`, bounded by the contract's id ceiling),
+ * restated here because the client exports neither the pattern nor the id itself. Only a value that matches
+ * it is ever reported to a caller, so a reported id is always one the client would accept for a withdraw.
+ */
+const REQUEST_ID_PATTERN = /^req-\d{1,18}$/;
 /**
  * A control session must outlive a one-shot probe, so the manager states its own deadline explicitly
  * instead of inheriting the launcher's 30s command default. The launcher cap is the hard bound.
@@ -161,6 +197,58 @@ function readHelperSession(value: unknown): SshHelperSession | undefined {
 function readHandshakeTimeoutMs(value: unknown): number {
 	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return DEFAULT_HANDSHAKE_TIMEOUT_MS;
 	return Math.max(1, Math.min(Math.floor(value), SSH_LAUNCHER_MAX_TIMEOUT_MS));
+}
+
+/**
+ * The id of the frame one `request` call is writing. `method` is a fence: a capture only accepts a frame for
+ * the request it was armed for, so a frame belonging to something else — the attempt's own handshake, a
+ * cancel — can never be reported as this caller's request.
+ */
+type RequestIdCapture = { method: string; id?: string };
+
+/**
+ * Read the request id out of a frame the control client just encoded. The client mints ids internally and
+ * exposes cancellation only *by id*, so the line it hands to the transport is the single place that id exists
+ * outside its own pending table; reading it there is what makes `onRequestId` possible without a second id
+ * source. Every unusable line — not this client's JSON, another method's frame, an id that is not the minted
+ * shape — leaves the capture empty, which is the fail-closed answer: a caller is never handed an id it could
+ * not withdraw, and `SshConnectionManager.request` reports nothing when the capture stayed empty.
+ */
+function acceptFrameId(capture: RequestIdCapture | undefined, line: string): void {
+	if (capture === undefined || capture.id !== undefined) return;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch {
+		return;
+	}
+	if (!isRecord(parsed) || parsed.method !== capture.method) return;
+	const id = parsed.id;
+	if (typeof id !== "string" || !REQUEST_ID_PATTERN.test(id)) return;
+	capture.id = id;
+}
+
+/**
+ * Hand one reported id to the caller's observer. It runs after the frame left, inside the caller's own call,
+ * and a broken observer is swallowed exactly like a broken diagnostic sink: an observer must never be able to
+ * fail a request that is already on the wire.
+ */
+function reportRequestId(options: SshConnectionRequestOptions | undefined, requestId: string): void {
+	const onRequestId = options?.onRequestId;
+	if (typeof onRequestId !== "function") return;
+	try {
+		onRequestId(requestId);
+	} catch {
+		// Observer side channel; see above.
+	}
+}
+
+/**
+ * The control client's own per-call options. `onRequestId` belongs to this layer and is deliberately not
+ * forwarded, so the two option surfaces cannot drift into one another.
+ */
+function clientRequestOptions(options: { timeoutMs?: number } | undefined): { timeoutMs?: number } | undefined {
+	return options?.timeoutMs === undefined ? undefined : { timeoutMs: options.timeoutMs };
 }
 
 /**
@@ -447,7 +535,12 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 			attempt.unsubscribeExit = handle.onExit((exit) => onExit(entry, generation, epoch, attempt, exit));
 			const control = createRemoteControlClient({
 				hostId: entry.hostId,
-				send: (line) => handle.write(line),
+				// The capture is filled here, and only after the write returned: a frame that never left the
+				// transport cannot be withdrawn, so it must not be reported to a caller either.
+				send: (line) => {
+					handle.write(line);
+					acceptFrameId(attempt.idCapture, line);
+				},
 				...(options.now === undefined ? {} : { now: options.now }),
 				onDiagnostic: (diagnostic) => record(entry, diagnostic.code),
 			});
@@ -575,9 +668,38 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 			// refused instead of queueing work behind a connection that does not exist yet.
 			if (disposed) return Promise.reject(new Error("SSH_CONNECTION_MANAGER_DISPOSED"));
 			const entry = entryFor(hostId);
+			const live = entry.live;
+			if (entry.machine.state !== "ready" || live === undefined || live.control === undefined) return Promise.reject(new Error("SSH_CONNECTION_NOT_READY"));
+			const control = live.control;
+			// Arm the capture for the synchronous window in which the client mints its id and writes the frame:
+			// `control.request` runs that whole prologue before it returns its promise, so no second caller can
+			// pick up this frame's id. The client's id is the only name a withdraw can use, which is why it has
+			// to be read back out of the frame (see `acceptFrameId`).
+			const capture: RequestIdCapture = { method };
+			live.idCapture = capture;
+			let started: Promise<unknown>;
+			try {
+				started = control.request(method, params, clientRequestOptions(requestOptions));
+			} finally {
+				// Disarmed on every path, including a refusal the client raised before writing anything.
+				if (live.idCapture === capture) live.idCapture = undefined;
+			}
+			// Reported only once the capture holds an id, which only happens for a frame the transport took:
+			// a refused, undeliverable or never-encoded request reports nothing at all.
+			if (capture.id !== undefined) reportRequestId(requestOptions, capture.id);
+			return started;
+		},
+		cancel(hostId, requestId, requestOptions) {
+			// Same readiness rule as `request`: only the live generation of a ready host can be asked to
+			// withdraw anything, and anything else fails closed instead of queueing behind a dead session.
+			if (disposed) return Promise.reject(new Error("SSH_CONNECTION_MANAGER_DISPOSED"));
+			const entry = entryFor(hostId);
 			const control = entry.live?.control;
 			if (entry.machine.state !== "ready" || control === undefined) return Promise.reject(new Error("SSH_CONNECTION_NOT_READY"));
-			return control.request(method, params, requestOptions);
+			// The client owns the id shape, the pending table and the meaning of the answer, so this is a
+			// pass-through on purpose: re-validating or reinterpreting them here could only disagree with the
+			// side that actually decides whether the withdraw took effect.
+			return control.cancel(requestId, clientRequestOptions(requestOptions));
 		},
 		async dispose() {
 			if (disposed) return;

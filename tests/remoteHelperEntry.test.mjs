@@ -54,7 +54,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "18a47e0fefcdcdd22de25c0ee5478f37cb5cf50bf6d47477196fdc75c8ed06ee";
+const FROZEN_SHA256 = "8c5681ea396f91b61d0a67b62e656d35d8b21db46da9278fcb2a32666787cc9a";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -352,7 +352,11 @@ helperTest("the frozen helper source is one byte-frozen ASCII line", () => {
 		["node:fs", "node:path"],
 		"the helper may load exactly the two builtins the read-only batch needs",
 	);
-	assert.ok(REMOTE_HELPER_INLINE_SOURCE.length > 1024 && REMOTE_HELPER_INLINE_SOURCE.length < 64 * 1024, `unexpected source size ${REMOTE_HELPER_INLINE_SOURCE.length}`);
+	// The ceiling is not cosmetic: the self-test starts this body as `node -e <source>`, and Windows caps a
+	// whole process command line at 32767 characters - of which the quoting of the source itself costs a few
+	// hundred. A body past that budget cannot be started at all (the spawn fails with ENAMETOOLONG), so the
+	// budget is asserted here instead of surfacing as a child process that never existed.
+	assert.ok(REMOTE_HELPER_INLINE_SOURCE.length > 1024 && REMOTE_HELPER_INLINE_SOURCE.length < 31 * 1024, `unexpected source size ${REMOTE_HELPER_INLINE_SOURCE.length}: the -e self-test cannot carry a larger body on Windows`);
 });
 
 helperTest("the exported entry identity matches the frozen source", () => {
@@ -598,6 +602,30 @@ helperTest("fs.stat classifies entries with lstat semantics", async (t) => {
 	assert.equal(session.stderr(), "");
 });
 
+helperTest("fs.stat classifies the entry itself and refuses a path that walks through a link", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	// The three kinds the contract declares, unchanged by the walk: a regular file, a real directory (the
+	// root included, which a client names as "." and never as an absolute path) and an entry that is a link.
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt" })).kind, "file");
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "empty.txt" })).kind, "file");
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "sub" })).kind, "directory");
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "." })).kind, "directory");
+	for (const path of ["alpha-link", "inside-link", "gone-link", "rel-link"]) {
+		const link = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path });
+		assert.equal(link.kind, "other", `${path} is the entry itself, never its target`);
+		// inside-link points at a directory, so reporting the target's kind is the exact regression here.
+		assert.notEqual(link.kind, "directory", `${path} must not be described by what it points at`);
+	}
+	// What the walk refuses is the *request path*: the leaf named through a link is never classified, so stat
+	// can no longer promise a `file` that read refuses for the very same path.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link/beta.txt" }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	// A component that exists but is not a directory is still its own errno, not a link verdict.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt/child" }, THROUGH_A_FILE);
+	assert.equal(session.stderr(), "");
+});
+
 helperTest("fs.list answers name-sorted entries and never follows a link", async (t) => {
 	const fixture = createFsFixture(t);
 	const session = startHelper(t, { root: fixture.root });
@@ -658,6 +686,35 @@ helperTest("fs.list answers name-sorted entries and never follows a link", async
 	assert.equal(session.stderr(), "");
 });
 
+helperTest("fs.list refuses a request path that walks through a link and still classifies link entries as other", async (t) => {
+	const fixture = createFsFixture(t);
+	// A real directory that is only reachable by walking through the fixture's inside-link, so the refusal
+	// below cannot be confused with a path that simply does not exist.
+	mkdirSync(join(fixture.root, "sub", "deep"));
+	const session = startHelper(t, { root: fixture.root });
+	// The directory path itself is walked the way stat walks an entry: a link above it refuses the whole
+	// path, and the other two methods answer that same code for the same path - one verdict, three methods.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "inside-link/deep" }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link/deep" }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/deep", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	// The resolved path is still served when the caller names it explicitly - that is the only way to it.
+	assert.deepEqual((await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "sub/deep" })).entries, []);
+	// A link named directly is not a directory, and the entries of a real listing still classify every link
+	// as itself: the walk changed which request paths are refused, never how an entry is classified.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "inside-link" }, "NOT_A_DIRECTORY");
+	const entries = (await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." })).entries;
+	assert.deepEqual(
+		entries.filter((entry) => entry.kind === "other").map((entry) => entry.name),
+		["alpha-link", "escape", "gone-link", "inside-link", "outside-file", "outside-gone", "rel-link"],
+		"a listing still describes every link entry as other",
+	);
+	assert.deepEqual(
+		entries.find((entry) => entry.name === "inside-link"),
+		{ name: "inside-link", kind: "other" },
+	);
+	assert.equal(session.stderr(), "");
+});
+
 helperTest("fs.read returns one bounded chunk and reports EOF honestly", async (t) => {
 	const fixture = createFsFixture(t);
 	const session = startHelper(t, { root: fixture.root });
@@ -680,11 +737,13 @@ helperTest("fs.read returns one bounded chunk and reports EOF honestly", async (
 	// bytes=0 reads nothing: not EOF while the file still has data at that offset.
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 0 }), { chunk: "", bytes: 0, eof: false });
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "empty.txt", offset: 0, bytes: 64 }), { chunk: "", bytes: 0, eof: true });
-	// A path that only resolves by walking through a link is refused like the link itself: read never
-	// resolves one, so this is NOT_A_FILE even though the leaf it names is a regular file - stat of the
-	// same path describes that leaf (`file`), and the traversal is what read refuses.
+	// A path that only resolves by walking through a link is refused like the link itself: no method of the
+	// batch follows one, so this is NOT_A_FILE even though the leaf it names is a regular file. stat used to
+	// answer `file` here from a single lstat of the whole path - lstat skips only the last component - so a
+	// client could be told by one method that an entry is a readable file while the other refused it. Both
+	// methods now walk the request path, and the two codes are pinned to be the same one.
 	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 64 }, "NOT_A_FILE");
-	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link/beta.txt" })).kind, "file");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link/beta.txt" }, "NOT_A_FILE");
 	// A link to a file inside the root is the entry-shaped case of the same rule: the bytes behind it are
 	// never returned, and stat of that very entry says `other` rather than `file`.
 	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha-link", offset: 0, bytes: 64 }, "NOT_A_FILE");
