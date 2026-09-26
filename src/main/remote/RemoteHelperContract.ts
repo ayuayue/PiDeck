@@ -73,3 +73,30 @@ export const REMOTE_BUNDLE_MANIFEST_SCHEMA_VERSION = 1;
 export const REMOTE_BUNDLE_MAX_FILES = 256;
 export const REMOTE_BUNDLE_MAX_FILE_BYTES = 32 * 1024 * 1024;
 export const REMOTE_BUNDLE_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Bootstrap staging-session frames (plan §168). The frozen entry caps an inbound line at 4096 bytes,
+ * so the manifest travels as one small frame per file instead of a single document.
+ */
+export const REMOTE_BOOTSTRAP_PROTOCOL_VERSION = 1;
+export const REMOTE_BOOTSTRAP_MAX_FRAME_BYTES = 4096;
+/** Immutable, content-addressed activation target: `<deployRoot>/bundles/<bundleSha256>`. */
+export const REMOTE_BOOTSTRAP_BUNDLE_DIR_NAME = "bundles";
+/** File modes the entry accepts: regular files 0600, executables 0700. */
+export const REMOTE_BOOTSTRAP_FILE_MODES = ["0600", "0700"] as const;
+export type RemoteBootstrapFileMode = (typeof REMOTE_BOOTSTRAP_FILE_MODES)[number];
+
+export type RemoteBootstrapFinalizeBeginFrame = { v: 1; op: "finalize-begin"; files: number; bundleSha256: string };
+export type RemoteBootstrapFinalizeFileFrame = { v: 1; op: "finalize-file"; name: string; sha256: string; bytes: number; mode: RemoteBootstrapFileMode };
+export type RemoteBootstrapFinalizeCommitFrame = { v: 1; op: "finalize-commit" };
+export type RemoteBootstrapAbortFrame = { v: 1; op: "abort" };
+export type RemoteBootstrapInboundFrame = RemoteBootstrapFinalizeBeginFrame | RemoteBootstrapFinalizeFileFrame | RemoteBootstrapFinalizeCommitFrame | RemoteBootstrapAbortFrame;
+
+export type RemoteBootstrapReadyFrame = { v: 1; op: "ready"; protocolVersion: number; bundleSha256: string; nonce: string; deployRoot: string; staging: string; stagingMode: "0700" };
+export type RemoteBootstrapFinalizedFrame = { v: 1; op: "finalized"; active: string; files: number };
+export type RemoteBootstrapAbortedFrame = { v: 1; op: "aborted"; reason: "requested" | "eof" };
+export type RemoteBootstrapErrorFrame = { v: 1; op: "error"; code: string };
+export type RemoteBootstrapResultFrame = RemoteBootstrapReadyFrame | RemoteBootstrapFinalizedFrame | RemoteBootstrapAbortedFrame | RemoteBootstrapErrorFrame;
+
+export const REMOTE_BOOTSTRAP_FINALIZE_ERROR_CODES = ["BOOTSTRAP_INPUT_INVALID", "BOOTSTRAP_ENTRY_OP_UNSUPPORTED", "BOOTSTRAP_FINALIZE_INCOMPLETE", "BOOTSTRAP_FILE_MISMATCH", "BOOTSTRAP_MODE_INVALID", "BOOTSTRAP_ACTIVE_CONFLICT", "BOOTSTRAP_INTERNAL"] as const;
+export type RemoteBootstrapFinalizeErrorCode = (typeof REMOTE_BOOTSTRAP_FINALIZE_ERROR_CODES)[number];
