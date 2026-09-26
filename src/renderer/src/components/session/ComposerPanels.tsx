@@ -12,6 +12,8 @@ import { buildAskContextBlock } from "../../utils/askPanelContext";
 import { canChangeQueuedPromptBehavior, canDiscardQueuedPrompt, canRetractQueuedPromptToInput, discardControlHint, retractControlHint } from "../../utils/queuedPromptQueue";
 import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
+import { ButtonGroup } from "../ui-shadcn/button-group";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { sessionRecordByIdAtomFamily } from "../../atoms";
 import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { useAskPanel } from "../../hooks/useAskPanel";
@@ -297,32 +299,93 @@ export function ComposerSendControls(props: {
 	isGeneratingImage?: boolean;
 	onSend: () => void;
 	onStop: () => void;
+	/** 拆分菜单：加入当前回合（steer）。仅忙碌时可用，由组件内部按 isAgentBusy 禁用。 */
+	onSendSteer?: () => void;
+	/** 拆分菜单：排队到下一轮（followUp）。 */
+	onSendFollowUp?: () => void;
+	/** 拆分菜单：并行发送（新建独立会话后台处理）。无图片附件时可用。 */
+	onSendParallel?: () => void;
+	/** 并行发送可用性（如有图片附件则置灰）。 */
+	canSendParallel?: boolean;
 }) {
 	// 主题色圆钮（随外观主题主色：经典=近黑、森系绿=鼠尾草绿）。
 	// 空闲发送；忙碌且输入框为空时才变停止（清空输入即回到停止）；
 	// 忙碌但有内容时保持发送（走 steer/followUp 投递，见 busySendDelivery）。
-	// 插入/排队/并行在排队行上选。
-	const primaryStops =
-		resolveComposerSendButtonState({
-			isAgentBusy: props.isAgentBusy,
-			hasContent: props.hasContent,
-			isGeneratingImage: props.isGeneratingImage,
-		}) === "stop";
+	// 主钮尺寸对齐底栏其余按钮（28px），避免「过大不统一」。
+	const buttonState = resolveComposerSendButtonState({
+		isAgentBusy: props.isAgentBusy,
+		hasContent: props.hasContent,
+		isGeneratingImage: props.isGeneratingImage,
+	});
+	const primaryStops = buttonState === "stop";
 	const label = primaryStops ? t("app.stop") : t("app.send");
 	const disabled = primaryStops ? false : props.isAgentStarting || props.isGeneratingImage || !props.canSend;
+	// 拆分菜单：把「加入当前回合 / 排队到下一轮 / 并行发送」从「发出后的队列行」前置到发送现场，
+	// 让用户在发送前就能发现这三种投递方式（此前只能发出去之后在队列面板里逐条切换）。
+	// 菜单项可用性按当前状态收口：加入当前回合仅忙碌时可用；并行要求无图片附件。
+	const hasSplitMenu = Boolean(props.onSendSteer || props.onSendFollowUp || props.onSendParallel);
+	const splitDisabled = props.isAgentStarting || props.isGeneratingImage || !props.canSend;
 	return (
-		<div className="composer-send-controls flex items-center">
+		// shadcn ButtonGroup 官方 split-button 形态：DropdownMenu 直接作为组内子项
+		// （Radix 的 DropdownMenu 不产生 DOM 节点，trigger 按钮自然成为第二个成员，
+		// 由 ButtonGroup 收平相邻内侧角拼成一颗胶囊），组内不加中间分隔线。
+		<ButtonGroup className="composer-send-controls">
 			<Button
 				variant="default"
 				size="icon-sm"
-				className="composer-send-primary size-8 rounded-full bg-[var(--color-accent)] text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
+				className="composer-send-primary size-7 rounded-full bg-[var(--color-accent)] px-0 text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
 				aria-label={label}
 				title={label}
 				disabled={disabled}
 				onClick={primaryStops ? props.onStop : props.onSend}
 			>
-				{props.isGeneratingImage ? <LoaderCircle size={15} strokeWidth={2.4} className="animate-pideck-spin" aria-hidden="true" /> : primaryStops ? <Square size={13} strokeWidth={0} fill="currentColor" aria-hidden="true" /> : <ArrowUp size={15} strokeWidth={2.4} aria-hidden="true" />}
+				{props.isGeneratingImage ? <LoaderCircle size={14} strokeWidth={2.4} className="animate-pideck-spin" aria-hidden="true" /> : primaryStops ? <Square size={12} strokeWidth={0} fill="currentColor" aria-hidden="true" /> : <ArrowUp size={14} strokeWidth={2.4} aria-hidden="true" />}
 			</Button>
-		</div>
+			{hasSplitMenu ? (
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button
+							variant="default"
+							size="icon-sm"
+							className="h-7 rounded-full bg-[var(--color-accent)] px-1.5 text-[var(--color-text-inverse)] shadow-none hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)] disabled:opacity-40"
+							aria-label={t("app.sendBehaviorTitle")}
+							title={t("app.sendBehaviorTitle")}
+							disabled={splitDisabled}
+						>
+							<ChevronDown size={14} strokeWidth={2.4} aria-hidden="true" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" side="top" sideOffset={6} className="min-w-52">
+						{props.onSendSteer ? (
+							<DropdownMenuItem disabled={!props.isAgentBusy} onSelect={() => props.onSendSteer?.()}>
+								<ArrowUp size={14} strokeWidth={2} aria-hidden="true" />
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span>{t("app.sendSteerTitle")}</span>
+									<span className="truncate text-micro text-muted-foreground">{t("app.sendSteerDesc")}</span>
+								</span>
+							</DropdownMenuItem>
+						) : null}
+						{props.onSendFollowUp ? (
+							<DropdownMenuItem onSelect={() => props.onSendFollowUp?.()}>
+								<ListOrdered size={14} strokeWidth={2} aria-hidden="true" />
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span>{t("app.sendFollowUpTitle")}</span>
+									<span className="truncate text-micro text-muted-foreground">{t("app.sendFollowUpDesc")}</span>
+								</span>
+							</DropdownMenuItem>
+						) : null}
+						{props.onSendParallel ? (
+							<DropdownMenuItem disabled={props.canSendParallel === false} onSelect={() => props.onSendParallel?.()}>
+								<Split size={14} strokeWidth={2} aria-hidden="true" />
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span>{t("app.sendAskTitle")}</span>
+									<span className="truncate text-micro text-muted-foreground">{t("app.sendAskDesc")}</span>
+								</span>
+							</DropdownMenuItem>
+						) : null}
+					</DropdownMenuContent>
+				</DropdownMenu>
+			) : null}
+		</ButtonGroup>
 	);
 }

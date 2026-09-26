@@ -95,9 +95,13 @@ test("busy composer keeps send circle; stop only when input is empty", () => {
 	assert.match(sendControls, /onStop=\{composer\.delivery\.abort\}/);
 	// 忙碌时有无内容决定停止/发送：hasContent 由控制器传入，不再只看 isAgentBusy
 	assert.match(sendControls, /hasContent=\{composer\.hasContent\}/);
-	assert.doesNotMatch(sendControls, /onSendSteer/);
-	assert.doesNotMatch(sendControls, /onSendFollowUp/);
-	assert.doesNotMatch(sendControls, /onSendAsk/);
+	// 发送钮拆分为「主按钮 + caret 下拉」：主按钮仍是 发送/停止（onSend/onStop）；
+	// 并行发送（sendParallel）、插队（sendSteer）、排队（sendFollowUp）前置到 caret 菜单，
+	// 让用户发送前就能发现投递方式（此前只能发出后在队列行切换，感知差）。
+	assert.match(sendControls, /onSendSteer=\{composer\.delivery\.sendSteer\}/);
+	assert.match(sendControls, /onSendFollowUp=\{composer\.delivery\.sendFollowUp\}/);
+	assert.match(sendControls, /onSendParallel=\{composer\.delivery\.sendParallel\}/);
+	assert.match(sendControls, /canSendParallel=\{composer\.delivery\.canSendParallel\}/);
 	assert.match(composerPanelsSource, /composer-send-primary/);
 	assert.match(composerPanelsSource, /primaryStops \? t\("app\.stop"\) : t\("app\.send"\)/);
 	assert.match(composerPanelsSource, /onClick=\{primaryStops \? props\.onStop : props\.onSend\}/);
@@ -105,8 +109,32 @@ test("busy composer keeps send circle; stop only when input is empty", () => {
 	assert.match(composerPanelsSource, /hasContent: props\.hasContent/);
 	assert.doesNotMatch(composerPanelsSource, /send-behavior-toggle/);
 	assert.doesNotMatch(composerPanelsSource, /send-behavior-chevron/);
-	assert.doesNotMatch(composerPanelsSource, /<DropdownMenu>/);
+	// caret 下拉菜单（Radix DropdownMenu）：承载 steer/followUp/parallel 三个投递动作
+	assert.match(composerPanelsSource, /<DropdownMenu>/);
+	assert.match(composerPanelsSource, /app\.sendBehaviorTitle/);
 	assert.doesNotMatch(composerPanelsSource, /composer-bar-btn stop/);
+	assert.match(composerPanelsSource, /composer-send-primary size-7/);
+	// 主钮与 caret 用 shadcn ButtonGroup 官方 split-button 形态拼成一颗胶囊：
+	// DropdownMenu 直接作为组内子项（不加 ButtonGroupSeparator / fragment），不再允许回到「大黑圆 + 小灰圆」割裂形态。
+	assert.match(composerPanelsSource, /<ButtonGroup className="composer-send-controls">/);
+	assert.doesNotMatch(composerPanelsSource, /ButtonGroupSeparator/);
+	assert.doesNotMatch(composerPanelsSource, /size-6 rounded-full/);
+});
+
+test("composer send split menu exposes steer/followUp/parallel items", () => {
+	// caret 菜单三项：插队（steer，仅忙碌时可用）、排队（followUp）、并行（sendParallel）。
+	// 图标/键名与队列行一致，保持用户认知一致。
+	assert.match(composerPanelsSource, /onSendSteer\?\./);
+	assert.match(composerPanelsSource, /onSendFollowUp\?\./);
+	assert.match(composerPanelsSource, /onSendParallel\?\./);
+	assert.match(composerPanelsSource, /app\.sendSteerTitle/);
+	assert.match(composerPanelsSource, /app\.sendFollowUpTitle/);
+	assert.match(composerPanelsSource, /app\.sendAskTitle/);
+	assert.match(composerPanelsSource, /<ChevronDown/);
+	// 并行发送不支持图片附件：控制器按 canSendParallel=false 置灰
+	assert.match(composerPanelsSource, /disabled=\{props\.canSendParallel === false\}/);
+	assert.match(composerControllerSource, /sendToAsk\(effectiveProjectId, text/);
+	assert.match(composerControllerSource, /originSessionId: sessionId/);
 });
 
 test("composer keeps native typing inside the Session feature root", () => {
@@ -121,7 +149,8 @@ test("composer keeps native typing inside the Session feature root", () => {
 	assert.doesNotMatch(queuedPromptHookSource, /promptByAgent/);
 	assert.match(appSource, /livePromptByAgentRef\.current = migrateAgentRecord/);
 	assert.doesNotMatch(composerControllerSource, /sendBehaviorMenuOpen/);
-	assert.doesNotMatch(composerPanelsSource, /<DropdownMenuItem/);
+	// caret 拆分菜单已常驻发送钮（见上 test），这里只确认队列行仍保留原生行为切换，不与发送菜单重复
+	assert.match(composerPanelsSource, /<DropdownMenuItem/);
 });
 
 test("queue drain is serialized and waits for an ordered canonical Session capability event", () => {
