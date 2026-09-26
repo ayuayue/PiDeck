@@ -8,7 +8,12 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { RemoteHostStore } = loadTsCommonJs("src/main/remote/RemoteHostStore.ts");
 const { SshHostPinStore } = loadTsCommonJs("src/main/remote/SshHostPinStore.ts");
+const { RemoteHostReferenceRegistry } = loadTsCommonJs("src/main/remote/RemoteHostReferenceRegistry.ts");
 const missingHostId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+function scanOf(hostIds, overrides = {}) {
+	return { referencedHostIds: new Set(hostIds), hits: [], complete: true, unavailable: [], ...overrides };
+}
 
 function sshString(text) {
 	const value = Buffer.isBuffer(text) ? text : Buffer.from(text);
@@ -223,4 +228,98 @@ test("retiring needs a reference provider, a tombstone and no remaining referenc
 	assert.equal(reloaded.getSnapshot().status, "ready");
 	assert.deepEqual(Array.from(reloaded.getSnapshot().retiredHostIds), [profile.id]);
 	await assert.rejects(store.retire(profile.id, 4), /REMOTE_HOST_RETIRE_INVALID/, "a retired id has no profile left");
+});
+
+test("an incomplete reference scan blocks retire and draft edits without touching the snapshot", async (t) => {
+	const { directory, pinStore, store, profile } = await verifiedHost(t);
+	await store.disable(profile.id, 2);
+
+	// One unreadable source is enough: the scan cannot prove "no references", so nothing may be deleted.
+	const incomplete = new RemoteHostReferenceRegistry();
+	incomplete.register("sessions", { scan: async () => scanOf([]) });
+	incomplete.register("projects", {
+		scan: async () => {
+			throw new Error("EACCES at C:\\Users\\me\\projects.json");
+		},
+	});
+	// Opening must stay possible (the registry is consulted lazily), the mutation is what fails closed.
+	const blocked = await RemoteHostStore.open(directory, { pinStore, referenceRegistry: incomplete });
+	const revision = blocked.getSnapshot().revision;
+	const diskBefore = await readFile(join(directory, "remote-hosts.json"), "utf8");
+	await assert.rejects(blocked.retire(profile.id, revision), (error) => error.message === "REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE");
+	assert.equal(await readFile(join(directory, "remote-hosts.json"), "utf8"), diskBefore, "INV-2: the snapshot is byte-identical");
+	assert.notEqual(blocked.getProfile(profile.id), undefined, "the tombstone is not deleted");
+	await assert.rejects(blocked.updateDraft(profile.id, { label: "Nope" }, revision), /REMOTE_HOST_EDIT_INVALID/);
+	assert.equal(await readFile(join(directory, "remote-hosts.json"), "utf8"), diskBefore);
+
+	// A source that reports its own incompleteness behaves the same as one that throws.
+	const partial = new RemoteHostReferenceRegistry();
+	partial.register("sessions", { scan: async () => scanOf([], { complete: false }) });
+	const partialStore = await RemoteHostStore.open(directory, { pinStore, referenceRegistry: partial });
+	await assert.rejects(partialStore.retire(profile.id, revision), (error) => error.message === "REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE");
+	assert.equal(await readFile(join(directory, "remote-hosts.json"), "utf8"), diskBefore);
+
+	// A readable registry that reports no reference is allowed to retire the tombstone.
+	const complete = new RemoteHostReferenceRegistry();
+	complete.register("sessions", { scan: async () => scanOf([]) });
+	const allowed = await RemoteHostStore.open(directory, { pinStore, referenceRegistry: complete });
+	assert.equal(await allowed.retire(profile.id, revision), profile.id);
+	assert.deepEqual(Array.from(allowed.getSnapshot().retiredHostIds), [profile.id]);
+});
+
+test("a draft edit fails closed whenever the reference set cannot be proven", async (t) => {
+	const { directory, pinStore, references } = await fixture(t);
+	const store = await RemoteHostStore.open(directory, { pinStore, references });
+	const draft = await store.createDraft({ label: "Draft", sshHost: "build-pi", connectTimeoutMs: 15000 }, 0);
+
+	// No provider at all: the design turns the old fail-open of updateDraft into a hard failure.
+	const bare = await RemoteHostStore.open(directory, { pinStore });
+	await assert.rejects(bare.updateDraft(draft.id, { label: "Renamed" }, 1), (error) => error.message === "REMOTE_HOST_REFERENCES_UNAVAILABLE");
+
+	// A registry without a single registered source refuses instead of assuming an empty set.
+	const empty = new RemoteHostReferenceRegistry();
+	const emptyRegistry = await RemoteHostStore.open(directory, { pinStore, referenceRegistry: empty });
+	await assert.rejects(emptyRegistry.updateDraft(draft.id, { label: "Renamed" }, 1), (error) => error.message === "REMOTE_HOST_REFERENCE_SOURCE_MISSING");
+	await assert.rejects(RemoteHostStore.open(directory, { pinStore, references, referenceRegistry: empty }), (error) => error.message === "REMOTE_HOST_REFERENCES_UNAVAILABLE");
+
+	// A failing source, and a legacy provider that throws free text: only the stable code may escape.
+	const throwing = await RemoteHostStore.open(directory, {
+		pinStore,
+		references: {
+			referencedHostIds: async () => {
+				throw new Error("boom at C:\\Users\\me\\remote-hosts.json");
+			},
+		},
+	});
+	await assert.rejects(throwing.updateDraft(draft.id, { label: "Renamed" }, 1), (error) => {
+		assert.equal(error.message, "REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE");
+		return true;
+	});
+
+	for (const instance of [bare, emptyRegistry, throwing]) assert.equal(instance.getSnapshot().revision, 1);
+	assert.equal(JSON.parse(await readFile(join(directory, "remote-hosts.json"), "utf8")).revision, 1, "every refused edit left the file untouched");
+	assert.equal(store.getProfile(draft.id).label, "Draft");
+});
+
+test("a registry reports references through the store, and they are re-read at write time", async (t) => {
+	const { directory, pinStore } = await fixture(t);
+	const referenced = new Set();
+	const registry = new RemoteHostReferenceRegistry();
+	registry.register("sessions", { scan: async () => scanOf(referenced) });
+	registry.register("projects", { scan: async () => scanOf([]), capability: { canHoldHostReferences: false } });
+	const store = await RemoteHostStore.open(directory, { pinStore, referenceRegistry: registry });
+	const draft = await store.createDraft({ label: "Draft", sshHost: "build-pi", connectTimeoutMs: 15000 }, 0);
+
+	// The union of the registered sources is what the store sees (empty right now).
+	const edited = await store.updateDraft(draft.id, { label: "Renamed" }, 1);
+	assert.equal(edited.label, "Renamed");
+
+	// A reference that appears after open() must still block the next write, not a cached answer.
+	referenced.add(draft.id);
+	await assert.rejects(store.updateDraft(draft.id, { label: "Again" }, 2), /REMOTE_HOST_REFERENCED/);
+	assert.equal(JSON.parse(await readFile(join(directory, "remote-hosts.json"), "utf8")).revision, 2);
+
+	await store.disable(draft.id, 2);
+	await assert.rejects(store.retire(draft.id, 3), /REMOTE_HOST_REFERENCED/);
+	assert.deepEqual(JSON.parse(await readFile(join(directory, "remote-hosts.json"), "utf8")).retiredHostIds, []);
 });
