@@ -1,12 +1,10 @@
-import { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_TIMEOUT_MS } from "./SshProcessLauncher";
+import { createSshProcessLauncher, SSH_LAUNCHER_MAX_TIMEOUT_MS } from "./SshProcessLauncher";
 import { createConnectionDiagnostic, createDiagnosticHistory, diagnosticCodeFromError } from "./SshConnectionDiagnostics";
-import { createRemoteControlClient, type RemoteControlClient } from "./RemoteControlClient";
-import { REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_PROTOCOL_VERSION, type RemoteHelperCancelResult } from "./RemoteHelperContract";
-import { buildHelperRemoteCommand } from "./RemoteHelperCommand";
-import { buildPinnedSshInvocation } from "./SshVerifiedConnection";
+import { type RemoteHelperCancelResult } from "./RemoteHelperContract";
 import type { SshClientRuntime } from "./SshClientRuntime";
 import { createConnectionMachine, isConnectionMachineShutdown, reduceConnectionEvent, type ConnectionEffect, type ConnectionEvent, type ConnectionMachineState } from "./RemoteHostConnectionState";
-import { SSH_RECONNECT_BACKOFF_MS, type SshConnectionDiagnostic, type SshConnectionPhase, type SshLauncherHandle, type SshProcessLauncher } from "./RemoteHostConnectionTypes";
+import { SSH_RECONNECT_BACKOFF_MS, type SshConnectionDiagnostic, type SshConnectionPhase, type SshProcessExit, type SshProcessLauncher } from "./RemoteHostConnectionTypes";
+import { releaseSshAttempt, runSshConnectionAttempt, type RequestIdCapture, type SshAttemptDeps, type SshAttemptHost, type SshAttemptReleaseReason, type SshConnectionAttempt } from "./SshConnectionAttempt";
 
 /** Injectable timer port so reconnect schedules stay observable and testable. */
 export type SshConnectionTimers = {
@@ -94,9 +92,7 @@ export type SshConnectionManager = {
 type HostEntry = {
 	hostId: string;
 	machine: ConnectionMachineState;
-	handle?: SshLauncherHandle;
 	timer?: unknown;
-	unsubscribeExit?: () => void;
 	/** Generation whose attempt is currently in flight; guards against double-driving one attempt. */
 	runningGeneration?: number;
 	/**
@@ -108,11 +104,11 @@ type HostEntry = {
 	/** In-flight attempt for this host, so teardown can wait for it instead of racing the spawn. */
 	attempt?: Promise<void>;
 	/**
-	 * Resources owned by the *current* attempt. Everything is released through the object itself, so a
-	 * late callback from a superseded attempt can only ever release its own handle and client — it can
-	 * never tear down the session that replaced it.
+	 * Resources owned by the *current* attempt, handed over by `SshConnectionAttempt`. Everything is
+	 * released through that object, so a late callback from a superseded attempt can only ever release
+	 * its own handle and client — it can never tear down the session that replaced it.
 	 */
-	live?: LiveAttempt;
+	live?: SshConnectionAttempt;
 	/** Short-lived sessions seen so far; a session that lives long enough resets the counter. */
 	flaps: number;
 	/** Timestamp the current session became ready, used to tell a flap from a healthy session. */
@@ -120,20 +116,6 @@ type HostEntry = {
 	/** Codes already recorded for the current generation, so remote noise cannot flush the history. */
 	recordedCodes: Set<string>;
 	latestPhase: SshConnectionPhase;
-};
-
-type LiveAttempt = {
-	handle: SshLauncherHandle;
-	control?: RemoteControlClient;
-	/**
-	 * Armed for exactly the synchronous window in which `request` hands one method to the control client, so
-	 * the id of the frame that client writes can be read back (see `acceptFrameId`). It lives on the attempt
-	 * because only that attempt's client can fill it.
-	 */
-	idCapture?: RequestIdCapture;
-	unsubscribeExit?: () => void;
-	unsubscribeStdout?: () => void;
-	unsubscribeStderr?: () => void;
 };
 
 const DEFAULT_STABILITY_WINDOW_MS = 750;
@@ -145,18 +127,6 @@ const MAX_STABILITY_WINDOW_MS = 10_000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 /** Stable diagnostic codes only; anything else is collapsed before it reaches the redaction layer. */
 const DIAGNOSTIC_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
-/**
- * The shape `RemoteControlClient` mints for its request ids (`req-N`, bounded by the contract's id ceiling),
- * restated here because the client exports neither the pattern nor the id itself. Only a value that matches
- * it is ever reported to a caller, so a reported id is always one the client would accept for a withdraw.
- */
-const REQUEST_ID_PATTERN = /^req-\d{1,18}$/;
-/**
- * A control session must outlive a one-shot probe, so the manager states its own deadline explicitly
- * instead of inheriting the launcher's 30s command default. The launcher cap is the hard bound.
- */
-const SESSION_DEADLINE_MS = SSH_LAUNCHER_MAX_TIMEOUT_MS;
-const SESSION_MAX_OUTPUT_BYTES = SSH_LAUNCHER_MAX_OUTPUT_BYTES;
 /** A session that dies before this uptime is a flap, not a working connection. */
 const MIN_HEALTHY_UPTIME_MS = 30_000;
 /** Flaps tolerated (across ready cycles) before the manager stops retrying and asks the user. */
@@ -197,35 +167,6 @@ function readHelperSession(value: unknown): SshHelperSession | undefined {
 function readHandshakeTimeoutMs(value: unknown): number {
 	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return DEFAULT_HANDSHAKE_TIMEOUT_MS;
 	return Math.max(1, Math.min(Math.floor(value), SSH_LAUNCHER_MAX_TIMEOUT_MS));
-}
-
-/**
- * The id of the frame one `request` call is writing. `method` is a fence: a capture only accepts a frame for
- * the request it was armed for, so a frame belonging to something else — the attempt's own handshake, a
- * cancel — can never be reported as this caller's request.
- */
-type RequestIdCapture = { method: string; id?: string };
-
-/**
- * Read the request id out of a frame the control client just encoded. The client mints ids internally and
- * exposes cancellation only *by id*, so the line it hands to the transport is the single place that id exists
- * outside its own pending table; reading it there is what makes `onRequestId` possible without a second id
- * source. Every unusable line — not this client's JSON, another method's frame, an id that is not the minted
- * shape — leaves the capture empty, which is the fail-closed answer: a caller is never handed an id it could
- * not withdraw, and `SshConnectionManager.request` reports nothing when the capture stayed empty.
- */
-function acceptFrameId(capture: RequestIdCapture | undefined, line: string): void {
-	if (capture === undefined || capture.id !== undefined) return;
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(line);
-	} catch {
-		return;
-	}
-	if (!isRecord(parsed) || parsed.method !== capture.method) return;
-	const id = parsed.id;
-	if (typeof id !== "string" || !REQUEST_ID_PATTERN.test(id)) return;
-	capture.id = id;
 }
 
 /**
@@ -300,6 +241,11 @@ function isFatalCode(code: string): boolean {
  * `ready` means "the helper answered a v1 handshake on this session" — never merely "a process is
  * alive". That is why a verified `helperSession` is mandatory: without one an attempt fails closed
  * with `SSH_HELPER_NOT_BOOTSTRAPPED` instead of reporting a connection that was never proven usable.
+ *
+ * This module keeps the host-level half of that work only: the machine events, the phase vocabulary, the
+ * backoff ladder and flap budget, the diagnostics history and the public API. One attempt's own
+ * lifecycle — pinned invocation, process, subscriptions, control client, handshake and its per-attempt
+ * release — lives in `SshConnectionAttempt`, which reaches this host exclusively through `SshAttemptHost`.
  */
 export function createSshConnectionManager(options: SshConnectionManagerOptions): SshConnectionManager {
 	if (typeof options?.userDataDir !== "string" || typeof options.client?.run !== "function") throw new Error("SSH_CONNECTION_MANAGER_OPTIONS_INVALID");
@@ -311,6 +257,17 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 	const handshakeTimeoutMs = readHandshakeTimeoutMs(options.handshakeTimeoutMs);
 	const history = createDiagnosticHistory();
 	const hosts = new Map<string, HostEntry>();
+	/** Stable inputs of every attempt; only the bootstrap is read per attempt, never cached. */
+	const attemptDeps: SshAttemptDeps = {
+		userDataDir: options.userDataDir,
+		client: options.client,
+		launcher,
+		stabilityWindowMs,
+		handshakeTimeoutMs,
+		delay,
+		readBootstrap: () => readHelperSession(options.helperSession),
+		...(options.now === undefined ? {} : { now: options.now }),
+	};
 	let disposed = false;
 
 	function entryFor(hostId: string): HostEntry {
@@ -393,30 +350,20 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 	}
 
 	/**
-	 * Release one attempt's own resources: detach its subscriptions, reject its pending requests and
-	 * stop its process. Everything is scoped to the attempt, so releasing a superseded attempt can
-	 * never disturb the session that replaced it.
+	 * Release one attempt's own resources through `SshConnectionAttempt` and drop this host's reference to
+	 * it. The reference is cleared between the detach and the signal, so a re-entrant teardown can never
+	 * release the same attempt twice.
 	 */
-	function releaseAttempt(entry: HostEntry, live: LiveAttempt, reason: "abort" | "shutdown" | "lost"): void {
-		live.unsubscribeExit?.();
-		live.unsubscribeExit = undefined;
-		live.unsubscribeStdout?.();
-		live.unsubscribeStdout = undefined;
-		live.unsubscribeStderr?.();
-		live.unsubscribeStderr = undefined;
-		try {
-			live.control?.closeConnection(reason === "lost" ? "REMOTE_CONNECTION_LOST" : reason === "abort" ? "REQUEST_CANCELLED" : "REMOTE_CONNECTION_LOST");
-		} catch {
-			// Teardown runs from exit and timer callbacks; it must never throw into the event loop.
-		}
-		if (entry.live === live) entry.live = undefined;
-		if (reason !== "lost") void live.handle.stop(reason).catch(() => undefined);
+	function releaseLive(entry: HostEntry, attempt: SshConnectionAttempt, reason: SshAttemptReleaseReason): void {
+		releaseSshAttempt(attempt, reason, () => {
+			if (entry.live === attempt) entry.live = undefined;
+		});
 	}
 
 	/** Stop whatever this host currently runs; used by the failure paths of a running attempt. */
 	function stopHandle(entry: HostEntry): void {
 		const live = entry.live;
-		if (live) releaseAttempt(entry, live, "shutdown");
+		if (live) releaseLive(entry, live, "shutdown");
 	}
 
 	function delay(delayMs: number): Promise<void> {
@@ -456,138 +403,11 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 	}
 
 	/**
-	 * `ready` may only mean "the remote helper answered a v1 handshake" (plan §10/§11.1). The pinned ssh
-	 * session is the transport, so the handshake is the one piece of evidence that the *activated bundle*
-	 * — not a login shell, not another version of the helper — is on the other end.
-	 *
-	 * A released attempt is not a handshake failure: abort, shutdown and a lost session have already
-	 * recorded their own outcome, so their pending request ends as SUPERSEDED and the caller's failure
-	 * path skips the attempt instead of reporting it twice.
+	 * Terminal exit of one process. `SshConnectionAttempt` has already released the attempt's own resources
+	 * and hands the closed process over here; flap counting, the retry ladder and the resulting machine
+	 * event are this host's own.
 	 */
-	async function assertHelperHandshake(entry: HostEntry, generation: number, live: LiveAttempt, control: RemoteControlClient): Promise<void> {
-		let result: unknown;
-		try {
-			// `hello` takes no params; the deadline is the manager's own, so a silent helper fails the attempt
-			// instead of holding it open until the launcher's session deadline.
-			result = await control.request(REMOTE_HELPER_METHOD_HELLO, undefined, { timeoutMs: handshakeTimeoutMs });
-		} catch (error) {
-			if (entry.machine.generation !== generation || entry.live !== live) throw new Error("SSH_HELPER_HANDSHAKE_SUPERSEDED");
-			throw error;
-		}
-		if (entry.machine.generation !== generation || entry.live !== live) throw new Error("SSH_HELPER_HANDSHAKE_SUPERSEDED");
-		if (!isRecord(result)) throw new Error("SSH_HELPER_HANDSHAKE_INVALID");
-		// Version first: a bundle that answers another version may still look well-formed, and it is the one
-		// mismatch a retry cannot fix, so it has to be the cause the caller sees.
-		if (result.protocolVersion !== REMOTE_HELPER_PROTOCOL_VERSION) {
-			record(entry, "SSH_HELPER_PROTOCOL_MISMATCH");
-			throw new Error("SSH_HELPER_PROTOCOL_MISMATCH");
-		}
-		if (typeof result.platform !== "string" || typeof result.arch !== "string" || typeof result.home !== "string" || !Array.isArray(result.capabilities)) throw new Error("SSH_HELPER_HANDSHAKE_INVALID");
-		// `helperVersion`/`nodeVersion`/`pid` are identity for the UI, not evidence of compatibility, so a
-		// helper that omits them is still a working helper.
-		record(entry, "SSH_HELPER_HANDSHAKE_OK");
-	}
-
-	async function runAttempt(entry: HostEntry, generation: number): Promise<void> {
-		if (disposed || isConnectionMachineShutdown(entry.machine) || entry.runningGeneration === generation) return;
-		entry.runningGeneration = generation;
-		const epoch = entry.epoch;
-		// Held outside the try so the failure path can tell "this attempt is still the live one" from
-		// "something already released it" without re-deriving ownership from the handle.
-		let live: LiveAttempt | undefined;
-		try {
-			entry.latestPhase = "openssh";
-			// Fail closed before touching the remote: the helper's location comes from the verified bootstrap
-			// result, so without one there is nothing to launch and nothing to handshake with.
-			const session = readHelperSession(options.helperSession);
-			if (session === undefined) throw new Error("SSH_HELPER_NOT_BOOTSTRAPPED");
-			let remoteCommand: string;
-			try {
-				// Two distinct input objects on purpose: a host-only session must reach the builder with the key
-				// *absent*, because that is what drops the whole `--root` pair and selects the legal host-only
-				// mode, while the rooted shape carries the verified value. The key is never spelled as
-				// `root: undefined`: "no root" and "unusable root" have to stay two different states from here to
-				// the helper, and one spread object would leave that difference to the builder's own reading of
-				// `undefined` instead of stating it where the two shapes are decided.
-				remoteCommand =
-					session.root === undefined ? buildHelperRemoteCommand({ nodePath: session.nodePath, deployRoot: session.deployRoot, bundleSha256: session.bundleSha256 }) : buildHelperRemoteCommand({ nodePath: session.nodePath, deployRoot: session.deployRoot, bundleSha256: session.bundleSha256, root: session.root });
-			} catch {
-				// The template builder refuses a relative/trailing-slash path, `/` and a bad bundle address. Those
-				// are the caller's own wiring, so they share the fail-closed code instead of entering the ladder
-				// as five transient failures of an attempt that cannot be fixed by retrying.
-				throw new Error("SSH_HELPER_NOT_BOOTSTRAPPED");
-			}
-			record(entry, "SSH_CONNECTION_PREFLIGHT");
-			const invocation = await buildPinnedSshInvocation(options.userDataDir, entry.hostId, "ssh-batch", { client: options.client, remoteCommand });
-			if (entry.machine.generation !== generation) return;
-			entry.latestPhase = "authenticate";
-			apply(entry, { type: "phase-entered", generation, phase: "authenticate" });
-			const handle = await launcher.start({ hostId: entry.hostId, generation, invocation, timeoutMs: SESSION_DEADLINE_MS, maxOutputBytes: SESSION_MAX_OUTPUT_BYTES, maxLineBytes: REMOTE_HELPER_MAX_FRAME_BYTES, stdin: true });
-			if (disposed || entry.epoch !== epoch || entry.machine.generation !== generation) {
-				// The attempt was superseded, aborted or torn down while spawning: the process must not
-				// survive it, even though start() already produced a live handle.
-				await handle.stop("abort").catch(() => undefined);
-				return;
-			}
-			const attempt: LiveAttempt = { handle };
-			live = attempt;
-			entry.live = attempt;
-			attempt.unsubscribeExit = handle.onExit((exit) => onExit(entry, generation, epoch, attempt, exit));
-			const control = createRemoteControlClient({
-				hostId: entry.hostId,
-				// The capture is filled here, and only after the write returned: a frame that never left the
-				// transport cannot be withdrawn, so it must not be reported to a caller either.
-				send: (line) => {
-					handle.write(line);
-					acceptFrameId(attempt.idCapture, line);
-				},
-				...(options.now === undefined ? {} : { now: options.now }),
-				onDiagnostic: (diagnostic) => record(entry, diagnostic.code),
-			});
-			control.openConnection();
-			attempt.control = control;
-			// stdout carries protocol frames only; stderr is diagnostics, so its text is never recorded
-			// (only the fact that the helper complained).
-			attempt.unsubscribeStdout = handle.onStdoutLine((line) => {
-				try {
-					control.handleLine(line);
-				} catch {
-					record(entry, "SSH_HELPER_FRAME_DROPPED");
-				}
-			});
-			attempt.unsubscribeStderr = handle.onStderrLine(() => record(entry, "SSH_HELPER_STDERR"));
-			await delay(stabilityWindowMs);
-			if (entry.machine.generation !== generation || isConnectionMachineShutdown(entry.machine)) return;
-			if (entry.live !== attempt) return; // already released during the window
-			// Staged progress with real evidence (plan §11.1): the machine reports `bootstrapping` while the
-			// activated bundle is asked to identify itself, and `ready` is applied only after it answered.
-			entry.latestPhase = "helper";
-			apply(entry, { type: "phase-entered", generation, phase: "helper" });
-			await assertHelperHandshake(entry, generation, attempt, control);
-			// The handshake is another await on this path: abort, shutdown or a lost session may have released
-			// the attempt while the helper was answering, and only a live attempt may become ready.
-			if (entry.machine.generation !== generation || isConnectionMachineShutdown(entry.machine)) return;
-			if (entry.live !== attempt) return;
-			apply(entry, { type: "connected", generation });
-			entry.readyAt = now();
-			record(entry, "SSH_CONNECTION_READY");
-		} catch (error) {
-			// A caller abort (epoch) and an attempt that was already released have both had their outcome
-			// recorded by the path that released them; failing them again would add a second diagnostic and a
-			// flap for a session that is gone. Stale generations and a latched machine are fenced the same way.
-			if (entry.epoch === epoch && entry.live === live && entry.machine.generation === generation && !isConnectionMachineShutdown(entry.machine)) {
-				stopHandle(entry);
-				fail(entry, generation, error);
-			}
-		} finally {
-			if (entry.runningGeneration === generation) entry.runningGeneration = undefined;
-		}
-	}
-
-	function onExit(entry: HostEntry, generation: number, epoch: number, live: LiveAttempt, exit: { kind: string; code: number | null; signal: NodeJS.Signals | null; errorCode?: string }): void {
-		// Release this attempt's own resources first: its pending requests must settle even when the exit
-		// is fenced away, but nothing here may touch a session that already replaced this attempt.
-		releaseAttempt(entry, live, "lost");
+	function onProcessExit(entry: HostEntry, generation: number, epoch: number, exit: SshProcessExit): void {
 		// An abort keeps the generation (so the fence stays monotonic), which is why the epoch matters
 		// here: without it a late exit from an aborted attempt would still be recorded and counted.
 		if (disposed || entry.epoch !== epoch || isConnectionMachineShutdown(entry.machine) || entry.machine.generation !== generation) return;
@@ -604,6 +424,82 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 		if (escalateIfExhausted(entry, generation)) return;
 		const applied = apply(entry, { type: "disconnected", generation, code });
 		if (applied.state.state === "reconnecting") entry.latestPhase = "openssh";
+	}
+
+	/**
+	 * One attempt's whole view of this host: the phase/diagnostic sinks, the ownership fences and the two
+	 * hand-backs (a closed process, a failed attempt). Everything an attempt may do to this host goes
+	 * through this object, so it can never reach another host's or another generation's state.
+	 */
+	function createAttemptHost(entry: HostEntry, generation: number): SshAttemptHost {
+		const epoch = entry.epoch;
+		/** The attempt this port handed over; `entry.live` holds the same object once it was adopted. */
+		let attempt: SshConnectionAttempt | undefined;
+
+		/**
+		 * True while this attempt is still the host's live one and the machine still accepts its report.
+		 * Before adoption both sides are `undefined`, which is the pre-flight state of an attempt that may
+		 * still fail closed without having touched a process at all.
+		 */
+		function ownsLiveAttempt(): boolean {
+			return entry.epoch === epoch && entry.live === attempt && entry.machine.generation === generation && !disposed && !isConnectionMachineShutdown(entry.machine);
+		}
+
+		return {
+			hostId: entry.hostId,
+			generation,
+			setPhase(phase) {
+				entry.latestPhase = phase;
+			},
+			enterPhase(phase) {
+				entry.latestPhase = phase;
+				apply(entry, { type: "phase-entered", generation, phase });
+			},
+			record(code, exitCode) {
+				record(entry, code, exitCode);
+			},
+			markReady() {
+				apply(entry, { type: "connected", generation });
+				entry.readyAt = now();
+				record(entry, "SSH_CONNECTION_READY");
+			},
+			isCurrentGeneration() {
+				return entry.machine.generation === generation;
+			},
+			isSuperseded() {
+				return disposed || entry.epoch !== epoch || entry.machine.generation !== generation;
+			},
+			adopt(next) {
+				attempt = next;
+				entry.live = next;
+			},
+			ownsLiveAttempt,
+			releaseAttempt(reason) {
+				if (attempt !== undefined) releaseLive(entry, attempt, reason);
+			},
+			absorbExit(exit) {
+				onProcessExit(entry, generation, epoch, exit);
+			},
+			failAttempt(error) {
+				// A caller abort (epoch) and an attempt that was already released have both had their
+				// outcome recorded by the path that released them; failing them again would add a second
+				// diagnostic and a flap for a session that is gone. Stale generations and a latched machine
+				// are fenced the same way.
+				if (!ownsLiveAttempt()) return;
+				stopHandle(entry);
+				fail(entry, generation, error);
+			},
+		};
+	}
+
+	async function runAttempt(entry: HostEntry, generation: number): Promise<void> {
+		if (disposed || isConnectionMachineShutdown(entry.machine) || entry.runningGeneration === generation) return;
+		entry.runningGeneration = generation;
+		try {
+			await runSshConnectionAttempt(createAttemptHost(entry, generation), attemptDeps);
+		} finally {
+			if (entry.runningGeneration === generation) entry.runningGeneration = undefined;
+		}
 	}
 
 	function kickOff(entry: HostEntry, startGeneration: number | undefined): Promise<void> | undefined {
@@ -625,7 +521,7 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 		entry.epoch += 1;
 		clearTimer(entry);
 		const live = entry.live;
-		if (live) await releaseAttempt(entry, live, reason);
+		if (live) await releaseLive(entry, live, reason);
 		entry.readyAt = undefined;
 		if (reason === "shutdown") {
 			// App exit latches the machine: no timer or retry may revive a torn-down connection.

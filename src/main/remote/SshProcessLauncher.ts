@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { isAbsolute } from "node:path";
-import { StringDecoder } from "node:string_decoder";
+import { createSshLauncherOutput, type SshLauncherStreamName } from "./SshLauncherOutput";
 import type { SshLauncherHandle, SshLauncherRequest, SshProcessExit, SshProcessExitKind, SshProcessLauncher } from "./RemoteHostConnectionTypes";
 import type { PinnedSshInvocation } from "./SshVerifiedConnection";
 
@@ -9,10 +9,13 @@ import type { PinnedSshInvocation } from "./SshVerifiedConnection";
  *
  * This module is the only place that turns a PinnedSshInvocation into a process: it always passes the
  * absolute executable plus an argv array with `shell: false`, so nothing derived from a user profile
- * (host name, identity path, ProxyCommand) can be re-interpreted as shell syntax. Unconsumed output is
- * bounded per stream (a line handed to a subscriber stops counting against it), stdin is opened only when
+ * (host name, identity path, ProxyCommand) can be re-interpreted as shell syntax. stdin is opened only when
  * the request asks for it and then accepts single-line frames only, every request carries a deadline, and
  * stop() is idempotent so a shutdown/abort race cannot leak a live ssh process.
+ *
+ * The read side is not owned here: decoding, line splitting, the per-line/per-stream byte bounds and the
+ * bounded holding area for lines that arrive before the first subscriber all live in
+ * `SshLauncherOutput`; this module only decides what an overflow means (kill and report).
  */
 
 /**
@@ -53,13 +56,10 @@ export const SSH_LAUNCHER_STDIN_WRITE_FAILED = "SSH_LAUNCHER_STDIN_WRITE_FAILED"
  */
 const STARTUP_CONFIRMATION_GRACE_MS = 250;
 const MAX_EXECUTABLE_LENGTH = 1024;
-/** Lines held for a caller that has not subscribed yet; a helper may answer before we attach. */
-const MAX_BACKLOG_LINES = 64;
 /** uv_spawn failures that mean "the pinned client cannot be executed at all". */
 const UNAVAILABLE_SPAWN_CODES = new Set(["ENOENT", "EACCES", "EPERM", "ENOTDIR", "EISDIR"]);
 
 type TerminationCause = "stopped" | "timeout" | "output-too-large" | "line-too-large";
-type OutputStreamName = "stdout" | "stderr";
 
 /** Validated launch input: exactly the values spawn() receives. */
 type LaunchTarget = { executable: string; args: string[]; env: NodeJS.ProcessEnv; cwd?: string };
@@ -138,21 +138,6 @@ function readBoundedDuration(value: unknown, fallback: number, max: number): num
 	return Math.max(1, Math.min(Math.floor(value), max));
 }
 
-function byteLengthOf(chunk: unknown): number {
-	if (typeof chunk === "string") return Buffer.byteLength(chunk, "utf8");
-	if (Buffer.isBuffer(chunk)) return chunk.length;
-	if (ArrayBuffer.isView(chunk)) return chunk.byteLength;
-	return 0;
-}
-
-/** A stream chunk as bytes for the line decoder; an unusable chunk decodes to nothing. */
-function bufferOf(chunk: unknown): Buffer {
-	if (typeof chunk === "string") return Buffer.from(chunk, "utf8");
-	if (Buffer.isBuffer(chunk)) return chunk;
-	if (ArrayBuffer.isView(chunk)) return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-	return Buffer.alloc(0);
-}
-
 /** Start the pinned executable without a shell; a failing uv_spawn is mapped to a stable code. */
 function spawnPinnedChild(spawnProcess: typeof spawn, target: LaunchTarget, wantsStdin: boolean): ChildProcess {
 	try {
@@ -184,26 +169,14 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 			const timeoutMs = readBoundedDuration(request?.timeoutMs, SSH_LAUNCHER_DEFAULT_TIMEOUT_MS, SSH_LAUNCHER_MAX_TIMEOUT_MS);
 			const maxOutputBytes = readBoundedDuration(request?.maxOutputBytes, SSH_LAUNCHER_DEFAULT_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_OUTPUT_BYTES);
 			const maxLineBytes = readBoundedDuration(request?.maxLineBytes, SSH_LAUNCHER_DEFAULT_MAX_LINE_BYTES, SSH_LAUNCHER_MAX_LINE_BYTES);
-			// The holding area for frames that arrived before the first subscriber counts against the same
-			// unconsumed gauge, so its byte bound may not be wider than either cap it mirrors. One extra byte
-			// covers the newline of a maximum-size frame: without it a legal maximal frame could never be
-			// held and would be killed as an overflow.
-			const maxBacklogBytes = Math.min(maxLineBytes + 1, maxOutputBytes);
 			const wantsStdin = request?.stdin === true;
 			const child = spawnPinnedChild(spawnProcess, target, wantsStdin);
 
 			const listeners = new Set<(exit: SshProcessExit) => void>();
 			const outputDetachers: Array<() => void> = [];
-			/** Bytes that arrived and were neither handed to a subscriber nor discarded as a blank line. */
-			const outputBytes: Record<OutputStreamName, number> = { stdout: 0, stderr: 0 };
-			const lineListeners: Record<OutputStreamName, Set<(line: string) => void>> = { stdout: new Set(), stderr: new Set() };
-			// A line that arrives before the caller subscribes (the helper may answer immediately) is held
-			// briefly so the first subscriber still sees it; holdLine() enforces its two bounds.
-			const lineBacklog: Record<OutputStreamName, Array<{ line: string; bytes: number }>> = { stdout: [], stderr: [] };
-			/** Bytes currently held in lineBacklog; they keep counting until a subscriber takes them. */
-			const backlogBytes: Record<OutputStreamName, number> = { stdout: 0, stderr: 0 };
-			const decoders: Record<OutputStreamName, StringDecoder> = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
-			const lineBuffers: Record<OutputStreamName, string> = { stdout: "", stderr: "" };
+			// The read side owns its own bounds; an overflow is a terminal verdict here: a process that
+			// broke either byte contract gets no second grace window.
+			const output = createSshLauncherOutput({ maxOutputBytes, maxLineBytes, onOverflow: (cause) => terminate(cause, "force") });
 			let settled: SshLauncherExit | null = null;
 			let cause: TerminationCause | null = null;
 			let startupConfirmed = false;
@@ -252,7 +225,7 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 				settled = exit;
 				// Whatever the process wrote before it ended still reaches its subscribers; a helper that dies
 				// mid-frame would otherwise report nothing at all.
-				flushLines();
+				output.flush();
 				cleanup();
 				const pending = [...listeners];
 				listeners.clear();
@@ -376,124 +349,10 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 				});
 			}
 
-			function outputReporter(name: OutputStreamName): (chunk: unknown) => void {
-				return (chunk: unknown): void => {
-					if (settled !== null) return;
-					const size = byteLengthOf(chunk);
-					if (size <= 0) return;
-					// Arriving bytes are unconsumed until a complete line is handed to a subscriber (or discarded
-					// as blank), so a long-lived stream is not charged for output the caller already consumed.
-					outputBytes[name] += size;
-					// Decode through a StringDecoder: a multi-byte character can be split across chunks, and a
-					// naive per-chunk toString() would corrupt the frame it belongs to.
-					consumeText(name, decoders[name].write(bufferOf(chunk)));
-					if (settled !== null) return;
-					// Compared after this chunk's complete lines were delivered on purpose: bytes a subscriber has
-					// already taken are not unconsumed any more.
-					if (outputBytes[name] > maxOutputBytes) {
-						// Only byte counts are kept, so the oversized chunk - and everything before it - neither
-						// grows the main-process heap nor reaches an error message.
-						outputBytes[name] = maxOutputBytes;
-						terminate("output-too-large", "force");
-					}
-				};
-			}
-
-			/** Release bytes that left the unconsumed gauge because a subscriber took them or they were blank. */
-			function releaseConsumed(name: OutputStreamName, bytes: number): void {
-				if (bytes <= 0) return;
-				outputBytes[name] = Math.max(0, outputBytes[name] - bytes);
-			}
-
-			/**
-			 * Hand one complete line to the subscribers. `footprint` is the number of stream bytes the line
-			 * occupied (its text plus the terminating newline): those bytes stop counting against the
-			 * unconsumed budget the moment the line is delivered or dropped as blank, while a line held for a
-			 * subscriber that has not attached yet keeps counting.
-			 */
-			function emitLine(name: OutputStreamName, rawLine: string, footprint: number): void {
-				const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-				// Blank lines carry no frame; dropping them here keeps every downstream parser free of
-				// "is this line meaningful" logic.
-				if (line.length === 0) {
-					releaseConsumed(name, footprint);
-					return;
-				}
-				const subscribers = lineListeners[name];
-				if (subscribers.size === 0) {
-					holdLine(name, line, footprint);
-					return;
-				}
-				releaseConsumed(name, footprint);
-				for (const listener of [...subscribers]) listener(line);
-			}
-
-			/**
-			 * Hold a line for a caller that has not subscribed yet. The holding area is bounded by line count
-			 * and by bytes, and a full area means nobody is consuming the stream: terminate with the same
-			 * output-too-large code as any other unconsumed overflow instead of growing without bound.
-			 */
-			function holdLine(name: OutputStreamName, line: string, footprint: number): void {
-				if (lineBacklog[name].length >= MAX_BACKLOG_LINES || backlogBytes[name] + footprint > maxBacklogBytes) {
-					terminate("output-too-large", "force");
-					return;
-				}
-				lineBacklog[name].push({ line, bytes: footprint });
-				backlogBytes[name] += footprint;
-			}
-
-			/** Split decoded text into lines, enforcing the per-line cap without ever truncating silently. */
-			function consumeText(name: OutputStreamName, text: string): void {
-				if (text.length === 0) return;
-				lineBuffers[name] += text;
-				let index = lineBuffers[name].indexOf("\n");
-				while (index !== -1) {
-					const rawLine = lineBuffers[name].slice(0, index);
-					lineBuffers[name] = lineBuffers[name].slice(index + 1);
-					// The terminating newline is one byte and belongs to this line's footprint even though it is
-					// not part of the frame text.
-					emitLine(name, rawLine, Buffer.byteLength(rawLine, "utf8") + 1);
-					// A line that overflowed the bounds already settled the handle and flushed the remainder.
-					if (settled !== null) return;
-					index = lineBuffers[name].indexOf("\n");
-				}
-				if (Buffer.byteLength(lineBuffers[name], "utf8") > maxLineBytes) {
-					terminate("line-too-large", "force");
-				}
-			}
-
-			/** Flush a decoder's remainder and any partial final line, so a dying helper still reports. */
-			function flushLines(): void {
-				for (const name of ["stdout", "stderr"] as const) {
-					const tail = decoders[name].end();
-					if (tail.length > 0) consumeText(name, tail);
-					if (lineBuffers[name].length > 0) {
-						const partial = lineBuffers[name];
-						lineBuffers[name] = "";
-						// A partial line has no newline: its footprint is exactly its own bytes.
-						emitLine(name, partial, Buffer.byteLength(partial, "utf8"));
-					}
-				}
-			}
-
-			function subscribeLines(name: OutputStreamName, listener: (line: string) => void): () => void {
-				if (typeof listener !== "function") throw new Error("SSH_LAUNCHER_REQUEST_INVALID");
-				lineListeners[name].add(listener);
-				// Replay what arrived before the first subscriber; later subscribers only see new lines.
-				if (lineListeners[name].size === 1) {
-					const backlog = lineBacklog[name].splice(0);
-					const held = backlogBytes[name];
-					backlogBytes[name] = 0;
-					// The holding area is consumed by this hand-off, so its bytes leave the unconsumed gauge; the
-					// replay itself stays asynchronous to keep subscribing free of re-entrancy.
-					releaseConsumed(name, held);
-					queueMicrotask(() => {
-						for (const entry of backlog) if (lineListeners[name].has(listener)) listener(entry.line);
-					});
-				}
-				return () => {
-					lineListeners[name].delete(listener);
-				};
+			function outputReporter(name: SshLauncherStreamName): (chunk: unknown) => void {
+				// The accumulator rejects everything that arrives after it was flushed, so a chunk from a
+				// stream we are about to detach needs no second check here.
+				return (chunk: unknown): void => output.feed(name, chunk);
 			}
 
 			/** A writable stdin exists only while the request asked for one and the child has not settled. */
@@ -576,10 +435,10 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 					};
 				},
 				onStdoutLine(listener: (line: string) => void): () => void {
-					return subscribeLines("stdout", listener);
+					return output.subscribe("stdout", listener);
 				},
 				onStderrLine(listener: (line: string) => void): () => void {
-					return subscribeLines("stderr", listener);
+					return output.subscribe("stderr", listener);
 				},
 				write(line: string): void {
 					writeStdinLine(line);
