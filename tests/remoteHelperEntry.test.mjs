@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,16 +15,27 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * the other fails here. Raw writes cover the frames the client is required to refuse to send (a
  * malformed frame, an over-cap frame), and every wait is bounded, because "the helper stopped
  * answering" has to fail the test instead of hanging it.
+ *
+ * The read-only batch (fs.stat/fs.list/fs.read) is proved the same way: a real child process with a real
+ * root, real files, a real link that leaves the root and a real decoy outside it. Nothing about the
+ * confinement is asserted through a stub, because a stub cannot show that the target was never touched.
  */
 
 const {
 	REMOTE_HELPER_CAPABILITIES,
+	REMOTE_HELPER_ERROR_CODES,
+	REMOTE_HELPER_MAX_CHUNK_BYTES,
 	REMOTE_HELPER_MAX_CONCURRENT_REQUESTS,
 	REMOTE_HELPER_MAX_ECHO_DELAY_MS,
 	REMOTE_HELPER_MAX_FRAME_BYTES,
+	REMOTE_HELPER_MAX_LIST_ENTRIES,
+	REMOTE_HELPER_MAX_PATH_LENGTH,
 	REMOTE_HELPER_MAX_QUEUED_REQUESTS,
 	REMOTE_HELPER_METHOD_CANCEL,
 	REMOTE_HELPER_METHOD_ECHO,
+	REMOTE_HELPER_METHOD_FS_LIST,
+	REMOTE_HELPER_METHOD_FS_READ,
+	REMOTE_HELPER_METHOD_FS_STAT,
 	REMOTE_HELPER_METHOD_HELLO,
 	REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH,
 	REMOTE_HELPER_MAX_HOST_ID_LENGTH,
@@ -39,14 +51,18 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "1abaf6a3ef7d6bcabf327ae490c32fecc7cba9c49a7f21485793e9b52826f8ba";
+const FROZEN_SHA256 = "ec1a70bcd2cde4aee242e4c1389538a23cbc5757ebbab4f919b091ebfee90268";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
 const DROP_CODES = new Set(Object.values(REMOTE_FRAME_DIAGNOSTIC_CODES));
+/** The token a refusal must never have read: it exists only outside the root. */
+const DECOY = "pideck-decoy-7f3a1c";
+/** Contract source read back by this suite: the result shapes are asserted against the declared types. */
+const CONTRACT_SOURCE = "src/main/remote/RemoteHelperContract.ts";
 
 /** Every test drives real child processes, so each one carries a hard deadline of its own. */
-const helperTest = (name, fn) => test(name, { timeout: TEST_TIMEOUT_MS }, fn);
+const helperTest = (name, fn, timeoutMs = TEST_TIMEOUT_MS) => test(name, { timeout: timeoutMs }, fn);
 
 /** Production objects live in another VM realm, so deep comparisons are normalised through JSON. */
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -84,16 +100,98 @@ async function rejection(promise) {
 	throw new Error("expected the promise to reject");
 }
 
+/** One successful request, normalised out of the helper's realm. */
+async function call(session, method, params) {
+	return plain(await guard(session.client.request(method, params), method));
+}
+
+/**
+ * One refusal: the code has to be exactly the expected one (or one of the expected ones where the platform
+ * picks the errno itself), it has to be a declared contract code — free text or an undeclared code would
+ * break the client's vocabulary — and it is never retryable, because every read-only refusal is
+ * deterministic: retrying the same params cannot fix an escape or a missing file.
+ */
+async function expectRefusal(session, method, params, code) {
+	const expected = Array.isArray(code) ? code : [code];
+	const error = await rejection(guard(session.client.request(method, params), `${method} refusal`));
+	assert.ok(expected.includes(error.code), `${method} ${JSON.stringify(params)} answered ${error.code}, expected ${expected.join(" or ")}`);
+	assert.equal(error.retryable, false, `${method} ${JSON.stringify(params)}`);
+	assert.ok(REMOTE_HELPER_ERROR_CODES.includes(error.code), `${error.code} is not in REMOTE_HELPER_ERROR_CODES`);
+	return error;
+}
+
+/**
+ * A path that walks *through* a regular file. POSIX reports ENOTDIR there, which the helper maps to
+ * NOT_A_DIRECTORY; Windows has no ENOTDIR at all and libuv reports ERROR_PATH_NOT_FOUND as ENOENT, which
+ * maps to PATH_NOT_FOUND. Both are stable, declared refusals — and the deployed helper only ever runs on a
+ * POSIX host — so the assertion accepts whichever errno the platform actually produces.
+ */
+const THROUGH_A_FILE = ["NOT_A_DIRECTORY", "PATH_NOT_FOUND"];
+
+/** Field names of one contract type, read out of the contract source: the shapes must match word for word. */
+function contractFields(typeName) {
+	const source = readFileSync(CONTRACT_SOURCE, "utf8");
+	const match = new RegExp(`export\\s+type\\s+${typeName}\\s*=\\s*\\{([\\s\\S]*?)\\};`).exec(source);
+	assert.ok(match, `RemoteHelperContract does not declare ${typeName}`);
+	return Array.from(match[1].matchAll(/([A-Za-z][A-Za-z0-9]*)\??\s*:/g)).map((entry) => entry[1]);
+}
+
+/** An isolated empty root for every helper that does not care about files. */
+function createRootFixture(t) {
+	const root = mkdtempSync(join(tmpdir(), "pideck-helper-root-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	return root;
+}
+
+/**
+ * A root with what the read-only methods need around it: a small tree inside, a decoy tree outside and a
+ * link inside the root that resolves outside it. The decoy carries a token no frame may ever contain, and
+ * on POSIX it is unreadable and its directory unsearchable, so "the helper refused" is distinguishable
+ * from "the helper tried and failed": a read attempt could only answer PERMISSION_DENIED.
+ */
+function createFsFixture(t) {
+	const base = mkdtempSync(join(tmpdir(), "pideck-helper-fs-"));
+	const root = join(base, "root");
+	const outside = join(base, "outside");
+	mkdirSync(join(root, "sub"), { recursive: true });
+	mkdirSync(join(outside, "blocked"), { recursive: true });
+	writeFileSync(join(root, "alpha.txt"), "alpha content");
+	writeFileSync(join(root, "empty.txt"), "");
+	writeFileSync(join(root, "sub", "beta.txt"), "beta content");
+	writeFileSync(join(root, "sub", "zeta.txt"), "zeta content");
+	writeFileSync(join(outside, "secret.txt"), DECOY, { mode: 0o000 });
+	writeFileSync(join(outside, "blocked", "marker.txt"), DECOY);
+	if (process.platform !== "win32") chmodSync(join(outside, "blocked"), 0o000);
+	symlinkSync(outside, join(root, "escape"), process.platform === "win32" ? "junction" : "dir");
+	// A link that stays inside the root: reading through it is ordinary (a linked workspace file), while
+	// stat and list must still describe the link itself.
+	symlinkSync(join(root, "sub"), join(root, "inside-link"), process.platform === "win32" ? "junction" : "dir");
+	t.after(() => {
+		// Restore what the fixture took away, otherwise the cleanup cannot traverse or delete its own tree.
+		chmodSync(join(outside, "secret.txt"), 0o600);
+		if (process.platform !== "win32") chmodSync(join(outside, "blocked"), 0o700);
+		rmSync(base, { recursive: true, force: true });
+	});
+	return { base, root, outside };
+}
+
 /**
  * One real helper process plus the production client that speaks to it. `sent` keeps every outbound
  * line, `frames` every inbound line that parsed, and `diagnostics` what the client refused to use, so a
  * test can assert both the protocol traffic and the client side verdict on it.
+ *
+ * Every helper is started with a root, because the launcher's fixed template always passes one: a test
+ * states `root: null` for the fail-closed startup path (no flag at all) or `rootArgs` for an argv shape
+ * the template never produces.
  */
 function startHelper(t, options = {}) {
 	const env = { ...process.env };
 	if (options.home === null) delete env.HOME;
 	else env.HOME = options.home ?? HELPER_HOME;
-	const argv = options.entryPath === undefined ? ["-e", REMOTE_HELPER_INLINE_SOURCE] : [options.entryPath];
+	const rootArgs = options.rootArgs !== undefined ? options.rootArgs : options.root === null ? [] : ["--root", options.root === undefined ? createRootFixture(t) : options.root];
+	// `--` keeps node from parsing the helper's own flag as a node option; the deployed command runs a file,
+	// where the same argv shape needs no separator (covered by the uploaded-helper test).
+	const argv = options.entryPath === undefined ? ["-e", REMOTE_HELPER_INLINE_SOURCE, "--", ...rootArgs] : [options.entryPath, ...rootArgs];
 	const child = spawn(process.execPath, argv, { env, stdio: ["pipe", "pipe", "pipe"] });
 	const sent = [];
 	const lines = [];
@@ -224,7 +322,14 @@ helperTest("the frozen helper source is one byte-frozen ASCII line", () => {
 	assert.ok(!/[\r\n]/.test(REMOTE_HELPER_INLINE_SOURCE), "the source is one line");
 	assert.ok(!/[\u0000-\u001f\u007f]/.test(REMOTE_HELPER_INLINE_SOURCE), "no control byte may reach stdin or an argv token");
 	assert.ok(!REMOTE_HELPER_INLINE_SOURCE.includes("console."), "stdout carries protocol frames only");
+	// The deployed artifact is an ES module, where require does not exist, so the body loads its two
+	// builtins through process.getBuiltinModule - and it must load nothing else.
 	assert.ok(!REMOTE_HELPER_INLINE_SOURCE.includes("require("), "the helper needs nothing but process and its stdio");
+	assert.deepEqual(
+		Array.from(REMOTE_HELPER_INLINE_SOURCE.matchAll(/getBuiltinModule\("([^"]+)"\)/g)).map((match) => match[1]),
+		["node:fs", "node:path"],
+		"the helper may load exactly the two builtins the read-only batch needs",
+	);
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.length > 1024 && REMOTE_HELPER_INLINE_SOURCE.length < 64 * 1024, `unexpected source size ${REMOTE_HELPER_INLINE_SOURCE.length}`);
 });
 
@@ -233,11 +338,14 @@ helperTest("the exported entry identity matches the frozen source", () => {
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
-	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL]) {
+	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
 		assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${token}"`), token);
 	}
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(String(REMOTE_HELPER_MAX_FRAME_BYTES)), "the frame cap must be visible in the frozen source");
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(String(REMOTE_HELPER_MAX_ECHO_DELAY_MS)), "the echo delay ceiling must be visible in the frozen source");
+	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(String(REMOTE_HELPER_MAX_CHUNK_BYTES)), "the read chunk ceiling must be visible in the frozen source");
+	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(String(REMOTE_HELPER_MAX_LIST_ENTRIES)), "the listing ceiling must be visible in the frozen source");
+	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(String(REMOTE_HELPER_MAX_PATH_LENGTH)), "the path ceiling must be visible in the frozen source");
 });
 
 helperTest("hello answers the contract handshake through the production client", async (t) => {
@@ -321,6 +429,361 @@ helperTest("an unknown method is refused with METHOD_NOT_FOUND", async (t) => {
 	assert.equal(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello after a refusal")).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
 });
 
+helperTest("a helper without a usable root fails closed before it serves anything", async (t) => {
+	const unusable = join(createRootFixture(t), "file-as-root");
+	writeFileSync(unusable, "not a directory");
+	const cases = [
+		["no --root at all", { rootArgs: [] }],
+		["an empty root", { root: "" }],
+		["a relative root", { root: "work/project" }],
+		["a root that does not exist", { root: join(tmpdir(), "pideck-helper-missing-root-7f3a1c") }],
+		["a file as the root", { root: unusable }],
+		["the filesystem root", { root: "/" }],
+		["a repeated root", { rootArgs: ["--root", createRootFixture(t), "--root", createRootFixture(t)] }],
+	];
+	for (const [label, options] of cases) {
+		const session = startHelper(t, options);
+		// The root is validated before stdin is even wired, so the refusal is a frame with no readable
+		// identity plus a non-zero exit: the transport dies instead of a silent helper that answers nothing.
+		const code = await session.waitForExit(6000);
+		assert.equal(typeof code, "number", `${label}: the helper must exit on its own`);
+		assert.notEqual(code, 0, `${label}: a helper without a root must fail closed`);
+		assert.equal(session.frames.length, 1, `${label}: exactly one refusal frame`);
+		const frame = session.frames[0];
+		assert.equal(frame.ok, false, label);
+		assert.equal(frame.error.code, "ROOT_INVALID", label);
+		assert.equal(frame.error.retryable, false, label);
+		assert.ok(REMOTE_HELPER_ERROR_CODES.includes(frame.error.code), label);
+		assert.deepEqual({ hostId: frame.hostId, generation: frame.generation, id: frame.id }, { hostId: "", generation: 0, id: "" }, `${label}: nothing is known, so no identity is claimed`);
+		assert.equal(session.lines.length, session.frames.length, `${label}: every stdout line has to be a protocol frame`);
+		assert.equal(session.stderr(), "", `${label}: the helper never writes stderr text`);
+	}
+	// The same command shape with a usable root is served, so the refusal above is about the root and not
+	// about the argv shape.
+	const working = startHelper(t, { root: createRootFixture(t) });
+	assert.equal((await call(working, REMOTE_HELPER_METHOD_HELLO)).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
+});
+
+helperTest("a root that is itself a link is canonicalized once at startup", async (t) => {
+	const fixture = createFsFixture(t);
+	const linked = join(fixture.base, "linked-root");
+	symlinkSync(fixture.root, linked, process.platform === "win32" ? "junction" : "dir");
+	const session = startHelper(t, { root: linked });
+	// The boundary is the canonical directory the link resolves to, so the tree behind the link is served
+	// and the link cannot be used to widen the root.
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt" })).kind, "file");
+	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 5 })).chunk, "base64").toString("utf8"), "alpha");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "../outside/secret.txt" }, "PATH_OUTSIDE_ROOT");
+});
+
+helperTest("fs.stat classifies entries with lstat semantics", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	const file = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt" });
+	assert.deepEqual(Object.keys(file), contractFields("RemoteHelperStatResult"));
+	assert.equal(file.kind, "file");
+	assert.equal(file.bytes, "alpha content".length);
+	assert.equal(typeof file.mtimeMs, "number");
+	assert.ok(Number.isFinite(file.mtimeMs));
+	const empty = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "empty.txt" });
+	assert.equal(empty.kind, "file");
+	assert.equal(empty.bytes, 0);
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "sub" })).kind, "directory");
+	// "." is the root itself, so a client never needs an absolute path to describe it.
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "." })).kind, "directory");
+	// A link is never followed for the answer: it is "other", and its own size is not the target's.
+	const link = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link" });
+	assert.equal(link.kind, "other", "lstat semantics: the entry itself is classified, never its target");
+	assert.notEqual(link.kind, "directory");
+	// The link that resolves outside the root is not classified at all: it is refused before the lstat.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "escape" }, "PATH_OUTSIDE_ROOT");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "sub/missing.txt" }, "PATH_NOT_FOUND");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt/child" }, THROUGH_A_FILE);
+	for (const params of [undefined, {}, { path: "" }, { path: 7 }, { path: null }, { path: "a".repeat(REMOTE_HELPER_MAX_PATH_LENGTH + 1) }, { path: "a\u0000b" }]) {
+		await expectRefusal(session, REMOTE_HELPER_METHOD_FS_STAT, params, "PROTOCOL_INVALID");
+	}
+	assert.equal(session.stderr(), "");
+});
+
+helperTest("fs.list answers name-sorted entries and never follows a link", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	const listing = plain(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." }));
+	assert.deepEqual(Object.keys(listing), contractFields("RemoteHelperListResult"));
+	assert.deepEqual(
+		listing.entries.map((entry) => entry.name),
+		["alpha.txt", "empty.txt", "escape", "inside-link", "sub"],
+		"entries are sorted by name in code-unit order",
+	);
+	for (const entry of listing.entries) {
+		const fields = Object.keys(entry);
+		assert.ok(
+			fields.every((field) => contractFields("RemoteHelperListEntry").includes(field)),
+			JSON.stringify(fields),
+		);
+		assert.ok(["file", "directory", "other"].includes(entry.kind), entry.kind);
+		// bytes travels for regular files only; a negative or non-numeric size would be a shape bug.
+		if (entry.kind === "file") assert.ok(Number.isSafeInteger(entry.bytes) && entry.bytes >= 0, JSON.stringify(entry));
+		else assert.equal(entry.bytes, undefined, JSON.stringify(entry));
+	}
+	assert.deepEqual(
+		listing.entries.find((entry) => entry.name === "alpha.txt"),
+		{ name: "alpha.txt", kind: "file", bytes: "alpha content".length },
+	);
+	assert.deepEqual(
+		listing.entries.find((entry) => entry.name === "sub"),
+		{ name: "sub", kind: "directory" },
+	);
+	assert.deepEqual(
+		listing.entries.find((entry) => entry.name === "escape"),
+		{ name: "escape", kind: "other" },
+	);
+	assert.deepEqual(
+		listing.entries.find((entry) => entry.name === "inside-link"),
+		{ name: "inside-link", kind: "other" },
+	);
+	// A subdirectory is listed by name, and an empty directory is a valid, empty answer.
+	assert.deepEqual(
+		(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "sub" })).entries.map((entry) => entry.name),
+		["beta.txt", "zeta.txt"],
+	);
+	mkdirSync(join(fixture.root, "void"));
+	assert.deepEqual((await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "void" })).entries, []);
+	// A file is not a directory, a missing path is not a listing, and a link is not followed into a listing.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "alpha.txt" }, "NOT_A_DIRECTORY");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "void/nothing" }, "PATH_NOT_FOUND");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "inside-link" }, "NOT_A_DIRECTORY");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "escape" }, "PATH_OUTSIDE_ROOT");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: ".." }, "PATH_OUTSIDE_ROOT");
+	for (const params of [undefined, {}, { path: "" }, { path: 7 }, { path: "a".repeat(REMOTE_HELPER_MAX_PATH_LENGTH + 1) }]) {
+		await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, params, "PROTOCOL_INVALID");
+	}
+	assert.ok(
+		session.lines.every((line) => !line.includes(DECOY)),
+		"no frame may carry the decoy",
+	);
+	assert.equal(session.stderr(), "");
+});
+
+helperTest("fs.read returns one bounded chunk and reports EOF honestly", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	const first = await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 5 });
+	assert.deepEqual(Object.keys(first), contractFields("RemoteHelperReadResult"));
+	assert.deepEqual(first, { chunk: Buffer.from("alpha").toString("base64"), bytes: 5, eof: false });
+	assert.equal(Buffer.from(first.chunk, "base64").toString("utf8"), "alpha");
+	// A chunk that reaches the end of the file is a short read, and it says so.
+	const tail = await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 6, bytes: 64 });
+	assert.equal(Buffer.from(tail.chunk, "base64").toString("utf8"), "content");
+	assert.equal(tail.bytes, "content".length);
+	assert.equal(tail.eof, true);
+	// The whole file is the boundary case of the same call.
+	const whole = await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: "alpha content".length });
+	assert.deepEqual(whole, { chunk: Buffer.from("alpha content").toString("base64"), bytes: "alpha content".length, eof: true });
+	// An offset at EOF answers with nothing and says EOF, and so does an offset past it.
+	for (const offset of ["alpha content".length, "alpha content".length + 100]) {
+		assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset, bytes: 64 }), { chunk: "", bytes: 0, eof: true }, `offset ${offset}`);
+	}
+	// bytes=0 reads nothing: not EOF while the file still has data at that offset.
+	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 0 }), { chunk: "", bytes: 0, eof: false });
+	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "empty.txt", offset: 0, bytes: 64 }), { chunk: "", bytes: 0, eof: true });
+	// Reading through a link that resolves inside the root is the ordinary case (a linked workspace file):
+	// the resolved path is what gets opened, while stat and list above still describe the link itself.
+	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 64 })).chunk, "base64").toString("utf8"), "beta content");
+	// A directory, a missing path and a path through a file are refusals, not partial answers.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "sub", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: ".", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "missing.txt", offset: 0, bytes: 8 }, "PATH_NOT_FOUND");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt/child", offset: 0, bytes: 8 }, THROUGH_A_FILE);
+	// The chunk ceiling is the contract's: a larger request is refused rather than silently shortened.
+	for (const params of [
+		{ path: "alpha.txt", offset: 0, bytes: REMOTE_HELPER_MAX_CHUNK_BYTES + 1 },
+		{ path: "alpha.txt", offset: -1, bytes: 8 },
+		{ path: "alpha.txt", offset: 1.5, bytes: 8 },
+		{ path: "alpha.txt", offset: 0, bytes: -1 },
+		{ path: "alpha.txt", offset: 0, bytes: 1.5 },
+		{ path: "alpha.txt", offset: 0, bytes: "8" },
+		{ path: "alpha.txt", offset: Number.MAX_SAFE_INTEGER + 2, bytes: 8 },
+		{ path: "alpha.txt", offset: 0 },
+		{ path: "alpha.txt", bytes: 8 },
+		{ path: "alpha.txt", offset: null, bytes: 8 },
+	]) {
+		await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, params, "PROTOCOL_INVALID");
+	}
+	assert.equal(session.stderr(), "");
+});
+
+helperTest(
+	"fs.read reassembles a file larger than one chunk with every frame inside the cap",
+	async (t) => {
+		const fixture = createFsFixture(t);
+		// Deterministic bytes, and a length that is not a multiple of the chunk or of three: the last chunk
+		// therefore exercises both the short read and the base64 padding path.
+		const content = Buffer.alloc(REMOTE_HELPER_MAX_CHUNK_BYTES + 1234);
+		for (let index = 0; index < content.length; index += 1) content[index] = index % 251;
+		writeFileSync(join(fixture.root, "big.bin"), content);
+		const session = startHelper(t, { root: fixture.root });
+		const chunks = [];
+		let offset = 0;
+		let guardCount = 0;
+		for (;;) {
+			guardCount += 1;
+			assert.ok(guardCount < 8, "the reader must reach EOF in a bounded number of chunks");
+			const chunk = await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "big.bin", offset, bytes: REMOTE_HELPER_MAX_CHUNK_BYTES });
+			assert.equal(chunk.bytes, Buffer.from(chunk.chunk, "base64").length, "bytes is the decoded length");
+			chunks.push(Buffer.from(chunk.chunk, "base64"));
+			offset += chunk.bytes;
+			if (chunk.eof) break;
+		}
+		const reassembled = Buffer.concat(chunks);
+		assert.equal(reassembled.length, content.length);
+		assert.equal(createHash("sha256").update(reassembled).digest("hex"), createHash("sha256").update(content).digest("hex"), "the chunks must reassemble the original bytes");
+		assert.equal(chunks.length, 2, "one full chunk plus the tail");
+		assert.equal(chunks[0].length, REMOTE_HELPER_MAX_CHUNK_BYTES);
+		// The declared chunk ceiling is safe by arithmetic, not by luck: 1 MiB of bytes is at most
+		// 1398104 base64 characters, so the worst-case frame stays an order of magnitude below 8 MiB.
+		const worstCaseFrame = 4 * Math.ceil(REMOTE_HELPER_MAX_CHUNK_BYTES / 3) + 512;
+		assert.ok(worstCaseFrame < REMOTE_HELPER_MAX_FRAME_BYTES, `${worstCaseFrame} must stay below the frame cap`);
+		const chunkLines = session.lines.filter((line) => line.includes('"chunk"'));
+		assert.equal(chunkLines.length, 2);
+		for (const line of chunkLines) {
+			assert.ok(Buffer.byteLength(line, "utf8") <= worstCaseFrame, `a chunk frame of ${Buffer.byteLength(line, "utf8")} bytes exceeds the declared worst case`);
+			assert.ok(Buffer.byteLength(line, "utf8") < REMOTE_HELPER_MAX_FRAME_BYTES, "a chunk frame must fit the frame cap");
+		}
+		assert.ok(chunkLines[0].includes(Buffer.from(content.subarray(0, 3)).toString("base64").slice(0, 8)), "the first frame carries the head of the file");
+		assert.equal(session.stderr(), "");
+	},
+	60_000,
+);
+
+helperTest("every path that could leave the root is refused without reading the target", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	const cases = [
+		// Lexical escapes: refused before any filesystem access at all.
+		["a parent traversal", { path: "../outside/secret.txt", offset: 0, bytes: 32 }],
+		["a deep traversal", { path: "sub/../../outside/secret.txt", offset: 0, bytes: 32 }],
+		["a bare parent", { path: ".." }],
+		["an absolute path", { path: join(fixture.outside, "secret.txt") }],
+		["a windows separator", { path: "..\\outside\\secret.txt", offset: 0, bytes: 32 }],
+		["a windows drive", { path: "C:/Windows/win.ini" }],
+		["an encoded traversal", { path: "%2e%2e%2foutside%2fsecret.txt", offset: 0, bytes: 32 }],
+		["an encoded dot segment", { path: "%2E%2E/outside/secret.txt", offset: 0, bytes: 32 }],
+		["an encoded backslash", { path: "..%5coutside%5csecret.txt", offset: 0, bytes: 32 }],
+		["a traversal into an unsearchable directory", { path: "../outside/blocked/marker.txt", offset: 0, bytes: 32 }],
+		// The case no string rule can catch: the path is inside the root until the link is resolved.
+		["a link out of the root", { path: "escape/secret.txt", offset: 0, bytes: 32 }],
+		["a link out of the root as a directory", { path: "escape" }],
+		["a link out of the root listed", { path: "escape/blocked" }],
+	];
+	for (const [label, params] of cases) {
+		for (const method of [REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
+			await expectRefusal(session, method, params, "PATH_OUTSIDE_ROOT");
+		}
+	}
+	// No refusal may have produced a result, and no line — request echo or answer — may carry the decoy
+	// bytes: a helper that opened the target and refused afterwards would still have read them.
+	assert.ok(session.frames.length >= cases.length * 3);
+	assert.ok(
+		session.frames.every((frame) => frame.ok === false),
+		"an escape must never be answered with a result",
+	);
+	assert.ok(
+		session.lines.every((line) => !line.includes(DECOY)),
+		"the decoy was read or echoed",
+	);
+	assert.ok(
+		session.lines.every((line) => !line.includes(Buffer.from(DECOY, "utf8").toString("base64"))),
+		"the decoy must not travel base64 encoded either",
+	);
+	assert.equal(session.stderr(), "");
+	// The helper is intact and still serves the same tree.
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt" })).kind, "file");
+});
+
+helperTest(
+	"fs.list serves a directory at the entry cap and refuses one above it",
+	async (t) => {
+		const fixture = createFsFixture(t);
+		const session = startHelper(t, { root: fixture.root });
+		const many = join(fixture.root, "many");
+		mkdirSync(many);
+		const nameOf = (index) => `f${String(index).padStart(5, "0")}.txt`;
+		for (let index = 0; index < REMOTE_HELPER_MAX_LIST_ENTRIES; index += 1) writeFileSync(join(many, nameOf(index)), "");
+		// At the cap the listing is complete and sorted: the ceiling is inclusive, not a truncation point.
+		const listing = plain(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "many" }));
+		assert.equal(listing.entries.length, REMOTE_HELPER_MAX_LIST_ENTRIES);
+		assert.equal(listing.entries[0].name, nameOf(0));
+		assert.equal(listing.entries.at(-1).name, nameOf(REMOTE_HELPER_MAX_LIST_ENTRIES - 1));
+		const listingLine = session.lines.filter((line) => line.includes('"entries"')).at(-1);
+		assert.ok(Buffer.byteLength(listingLine, "utf8") < REMOTE_HELPER_MAX_FRAME_BYTES, "a full listing must fit one frame");
+		// One entry past the cap is a refusal, not a partial listing that looks complete.
+		writeFileSync(join(many, "zzz-overflow.txt"), "");
+		await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "many" }, "RESULT_TOO_LARGE");
+		assert.equal(session.stderr(), "");
+	},
+	60_000,
+);
+
+helperTest("a file that changes while it is being read still settles", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	const target = join(fixture.root, "alpha.txt");
+	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 5 })).chunk, "base64").toString("utf8"), "alpha");
+	// Truncated between two reads: the next read reports what is left instead of a stale length.
+	truncateSync(target, 2);
+	const truncated = await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 64 });
+	assert.deepEqual(truncated, { chunk: Buffer.from("al").toString("base64"), bytes: 2, eof: true });
+	// Replaced between two reads: the new bytes are what comes back, and the helper stays usable.
+	writeFileSync(target, "replacement");
+	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 64 })).chunk, "base64").toString("utf8"), "replacement");
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_HELLO)).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
+	// Shrunk below the requested range while the reader holds an offset: still an answer, never a crash.
+	truncateSync(target, 1);
+	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 4, bytes: 64 }), { chunk: "", bytes: 0, eof: true });
+	assert.equal(session.stderr(), "");
+});
+
+helperTest("a link whose target is gone is a link for stat and a missing file for read", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	// The fixture's inside-link points at root/sub. Removing that directory is what a checkout or a cleanup
+	// does to a linked workspace entry: the link itself stays, and no privilege is needed to make it dangle.
+	rmSync(join(fixture.root, "sub"), { recursive: true, force: true });
+	const dangling = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link" });
+	assert.equal(dangling.kind, "other", "the link is still an entry, so stat answers about the link itself");
+	// A link with no resolvable target is a missing file, not an unreadable one, and never a listing.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link", offset: 0, bytes: 8 }, "PATH_NOT_FOUND");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 8 }, "PATH_NOT_FOUND");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "inside-link" }, "NOT_A_DIRECTORY");
+	// The rest of the tree is untouched, so a lost target is a refusal about one path, not a broken session.
+	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 5 })).chunk, "base64").toString("utf8"), "alpha");
+	assert.equal(session.stderr(), "");
+});
+
+helperTest("the read-only methods run inline and never take an echo slot", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	// Every slot is held by a slow echo: a stat that queued behind them would answer only after the hold.
+	const holding = Array.from({ length: REMOTE_HELPER_MAX_CONCURRENT_REQUESTS }, (_value, index) => {
+		const busy = session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: `h${index}`, delayMs: REMOTE_HELPER_MAX_ECHO_DELAY_MS });
+		// EOF ends the session with these still pending; a late rejection is expected and must not surface
+		// as an unhandled rejection in the runner.
+		busy.catch(() => {});
+		return busy;
+	});
+	const startedAt = Date.now();
+	const stat = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt" });
+	const elapsed = Date.now() - startedAt;
+	assert.equal(stat.kind, "file");
+	assert.ok(elapsed < REMOTE_HELPER_MAX_ECHO_DELAY_MS / 2, `a read-only method must not wait for an echo slot (took ${elapsed} ms)`);
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 4 })).bytes, 4);
+	session.client.closeConnection();
+	session.endStdin();
+	assert.equal(await session.waitForExit(4000), 0);
+	await Promise.all(holding.map((promise) => promise.catch(() => undefined)));
+});
 helperTest("a malformed frame is refused with an identity the client drops", async (t) => {
 	const session = startHelper(t);
 	const generation = session.client.connectionGeneration;
@@ -546,6 +1009,22 @@ helperTest("the frozen field bounds match the contract both sides share", () => 
 	assert.equal(Number("128"), REMOTE_HELPER_MAX_ID_LENGTH);
 	assert.equal(Number("64"), REMOTE_HELPER_MAX_METHOD_LENGTH);
 	assert.equal(Number("4096"), REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH);
+	// The read-only batch states the same bounds: one chunk ceiling, one listing ceiling, one path ceiling.
+	assert.equal(Number("1048576"), REMOTE_HELPER_MAX_CHUNK_BYTES);
+	assert.equal(Number("4096"), REMOTE_HELPER_MAX_LIST_ENTRIES);
+	assert.equal(Number("4096"), REMOTE_HELPER_MAX_PATH_LENGTH);
+	assert.equal(REMOTE_HELPER_METHOD_FS_STAT, "fs.stat");
+	assert.equal(REMOTE_HELPER_METHOD_FS_LIST, "fs.list");
+	assert.equal(REMOTE_HELPER_METHOD_FS_READ, "fs.read");
+	// Every refusal the batch can produce is a declared code, and the declared vocabulary stays closed.
+	for (const code of ["PATH_OUTSIDE_ROOT", "RESULT_TOO_LARGE", "PATH_NOT_FOUND", "NOT_A_DIRECTORY", "NOT_A_FILE", "PERMISSION_DENIED", "IO_ERROR", "ROOT_INVALID"]) {
+		assert.ok(REMOTE_HELPER_ERROR_CODES.includes(code), code);
+	}
+	assert.deepEqual(contractFields("RemoteHelperStatResult"), ["kind", "bytes", "mtimeMs"]);
+	assert.deepEqual(contractFields("RemoteHelperReadResult"), ["chunk", "bytes", "eof"]);
+	assert.equal(contractFields("RemoteHelperListEntry").includes("bytes"), true);
+	assert.equal(contractFields("RemoteHelperListEntry").includes("name"), true);
+	assert.equal(contractFields("RemoteHelperListEntry").includes("kind"), true);
 });
 
 helperTest("a frame-cap violation abandons admitted work, which the caller sees as a lost transport", async (t) => {
@@ -586,7 +1065,11 @@ helperTest("the uploaded helper.mjs runs the same frozen source", async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-helper-entry-"));
 	const entryPath = join(directory, REMOTE_HELPER_ENTRY_FILE_NAME);
 	await writeFile(entryPath, REMOTE_HELPER_INLINE_SOURCE, "utf8");
-	const session = startHelper(t, { entryPath });
+	// The uploaded artifact is started exactly the way the remote command does it: a real file and the
+	// root as a plain argv pair, with no `--` separator in front of the flag.
+	const root = createRootFixture(t);
+	await writeFile(join(root, "entry.txt"), "uploaded");
+	const session = startHelper(t, { entryPath, root });
 	// Registered after the helper, so the child is stopped before Windows tries to remove its file.
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	const result = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello from the uploaded entry"));
@@ -594,6 +1077,10 @@ helperTest("the uploaded helper.mjs runs the same frozen source", async (t) => {
 	assert.equal(result.home, HELPER_HOME);
 	assert.deepEqual(result.capabilities, Array.from(REMOTE_HELPER_CAPABILITIES));
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "file" }), "echo from the uploaded entry")), { text: "file", delayMs: 0 });
+	// The ES module artifact loads its two builtins and confines itself to the same root.
+	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." }), { entries: [{ name: "entry.txt", kind: "file", bytes: "uploaded".length }] });
+	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "entry.txt", offset: 0, bytes: 8 })).chunk, "base64").toString("utf8"), "uploaded");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "../entry.txt", offset: 0, bytes: 8 }, "PATH_OUTSIDE_ROOT");
 	session.endStdin();
 	assert.equal(await session.waitForExit(4000), 0);
 });

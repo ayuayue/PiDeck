@@ -8,13 +8,18 @@ import { REMOTE_BOOTSTRAP_BUNDLE_DIR_NAME, REMOTE_HELPER_MAX_REMOTE_COMMAND_LENG
  *
  * `ssh -T host <command>` hands the words to the remote login shell, so every token is quoted with the
  * same POSIX rule the bootstrap template uses and no token is ever interpolated from user input: the
- * command is `<node> <deployRoot>/bundles/<bundleSha256>/helper.mjs`. Anything with different quoting,
- * redirection or a second command would be a second template, which is exactly what the plan forbids.
+ * command is `<node> <deployRoot>/bundles/<bundleSha256>/helper.mjs --root <absolute root>`. The four
+ * tokens and their order are fixed — the flag is a literal and the root is one quoted path — because the
+ * helper reads the flag from argv and would otherwise have to guess where its root came from. Anything
+ * with different quoting, redirection or a second command would be a second template, which is exactly
+ * what the plan forbids.
  */
 
 const SHA256 = /^[0-9a-f]{64}$/;
 /** A remote path we are willing to put in a command line: absolute, no control characters. */
 const CONTROL = /[\x00-\x1f\x7f]/;
+/** Fixed token that names the helper's confinement root; the helper scans argv for exactly one of them. */
+const ROOT_FLAG = "--root";
 
 export type HelperRemoteCommandInput = {
 	/** Absolute POSIX path of the node binary the helper must run under (from the connection probe). */
@@ -25,6 +30,12 @@ export type HelperRemoteCommandInput = {
 	bundleSha256: string;
 	/** File inside the bundle; defaults to the pinned helper entry name. */
 	entryName?: string;
+	/**
+	 * Absolute POSIX directory the helper confines every `fs.*` method to. A supplied value must be the
+	 * canonical path the connection verified (absolute, no trailing slash, not `/`); a different spelling
+	 * is refused instead of normalized, exactly like the deploy root.
+	 */
+	root?: string;
 };
 
 /** Absolute path of the activated helper for one deploy root and bundle address. */
@@ -55,16 +66,32 @@ function readRemotePath(value: unknown, label: string): string {
 }
 
 /**
+ * The helper's confinement root as one shell token. It is the same remote-path rule as the deploy root,
+ * plus one deliberate difference: an *omitted* root is not turned into a default (the remote HOME least of
+ * all). It becomes an empty token inside the otherwise unchanged four-token template, and the helper
+ * refuses an empty root at startup with a ROOT_INVALID frame and a non-zero exit — so no helper ever runs,
+ * and no path is ever served, outside a verified root. The refusal lives at the process boundary rather
+ * than here because the caller that owns the verified root (SshHelperSession) does not carry one yet:
+ * failing closed in this builder would strand every connection attempt instead of reporting the missing
+ * root where it is produced. A root that *is* supplied but unusable still throws.
+ */
+function readHelperRoot(value: unknown): string {
+	if (value === undefined) return "";
+	return readRemotePath(value, "ROOT");
+}
+
+/**
  * Build the remote command as one string of quoted tokens. The caller passes it to the launcher as a
  * single argv element after the destination, so the remote shell is the only thing that ever splits it.
  */
 export function buildHelperRemoteCommand(input: HelperRemoteCommandInput): string {
 	if (typeof input !== "object" || input === null) throw new Error("REMOTE_HELPER_COMMAND_INVALID_INPUT");
 	const nodePath = readRemotePath(input.nodePath, "NODE");
+	const root = readHelperRoot(input.root);
 	const entryPath = resolveHelperEntryPath({ deployRoot: input.deployRoot, bundleSha256: input.bundleSha256, entryName: input.entryName ?? REMOTE_HELPER_ENTRY_FILE_NAME });
 	// Staging is never executable: a command that pointed at it would run unverified bytes.
 	if (entryPath.includes(`/${REMOTE_BOOTSTRAP_STAGING_PREFIX}`)) throw new Error("REMOTE_HELPER_COMMAND_INVALID_ENTRY");
-	const built = [quotePosixArgument(nodePath), quotePosixArgument(entryPath)].join(" ");
+	const built = [quotePosixArgument(nodePath), quotePosixArgument(entryPath), ROOT_FLAG, quotePosixArgument(root)].join(" ");
 	// The argv boundary refuses a longer command, so emitting one would only move the failure later.
 	if (built.length > REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH) throw new Error("REMOTE_HELPER_COMMAND_INVALID_LENGTH");
 	return built;
