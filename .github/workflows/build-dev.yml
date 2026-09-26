@@ -1,0 +1,175 @@
+name: Build Dev Packages
+
+# dev 通道（PiDeck Dev，双品牌包）手动构建链路：
+# - 仅 workflow_dispatch 手动触发（无 tag push 等自动触发器）：dev 通道发版节奏由人控制；
+# - 构建代码取 dispatch 所选分支 HEAD（tag 不必已存在；softprops 以本次 commit 建 tag）；
+# - 版本号 = 输入 tag 去 v 前缀，构建前 npm pkg set 写入 package.json，
+#   保证产物名 / latest*.yml 内版本与 Release tag 一致；
+# - 三平台安装包（win x64 / mac x64+arm64 / linux x64+arm64），全部 --publish never
+#   （经 scripts/dist-dev.js，独立 productName/appId/pideck-dev 协议）；
+# - softprops 上传 **prerelease** Release：prerelease 标记保证不抢占 GitHub
+#   /releases/latest（stable 的 macOS 手动更新与 DSH runtime latest 跟随都读它），
+#   且 sync-atomgit.yml 对 prerelease Release 不同步（AtomGit 是 stable 镜像源）；
+# - 不打 DSH runtime / runner-node sidecar：安装包内 runtime 已随 npm run build
+#   打进 extraResources，独立 tgz 资产是 stable 发版链路（release.yml）的职责。
+# 注意：dev 包的自动更新 feed 尚未接入（当前为手动下载安装）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag（形如 v0.7.8-beta.1；版本号将写入本次构建产物）"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version and validate tag
+        id: resolve
+        env:
+          # 手输内容不可信：走 env 而非直接拼进 shell（与 release.yml 同款纪律）
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          # 必须是 v + semver（允许 -beta.1 等 prerelease 后缀，dev 通道预期形态）
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::tag 需形如 v0.7.8-beta.1（v + semver，可带 prerelease 后缀），got: ${TAG}"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+  build-dev:
+    name: Build ${{ matrix.name || matrix.platform }} dev packages
+    needs: [resolve-version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            command: node scripts/dist-dev.js --win nsis portable zip
+            verify_globs: "PiDeck-Dev-*-setup.exe PiDeck-Dev-*-portable.exe PiDeck-Dev-*-win.zip latest*.yml"
+            electron_mirror: https://npmmirror.com/mirrors/electron/
+            electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+          - platform: macos
+            name: macOS x64
+            os: macos-latest
+            command: node scripts/dist-dev.js --mac dmg zip --x64
+            verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip latest*.yml"
+            electron_mirror: ""
+            electron_builder_binaries_mirror: ""
+          - platform: macos
+            name: macOS arm64
+            os: macos-latest
+            command: node scripts/dist-dev.js --mac dmg zip --arm64
+            verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip latest*.yml"
+            electron_mirror: ""
+            electron_builder_binaries_mirror: ""
+          - platform: linux
+            name: Linux x64
+            os: ubuntu-latest
+            command: node scripts/dist-dev.js --linux AppImage deb tar.gz --x64
+            verify_globs: "PiDeck-Dev-*-x64.AppImage PiDeck-Dev-*-x64.deb PiDeck-Dev-*-x64.tar.gz latest*.yml"
+            electron_mirror: https://npmmirror.com/mirrors/electron/
+            electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+          # 与 release.yml 同款：arm64 用原生 runner（npm ci 按 arm64 编译 node-pty 等原生模块）；
+          # skip_yml=true 不上传 arm64 job 的 latest*.yml——它只含 arm64 文件，会覆盖 x64 job 的 yml。
+          - platform: linux
+            name: Linux arm64
+            os: ubuntu-24.04-arm
+            command: node scripts/dist-dev.js --linux AppImage deb tar.gz --arm64
+            verify_globs: "PiDeck-Dev-*-arm64.AppImage PiDeck-Dev-*-arm64.deb PiDeck-Dev-*-arm64.tar.gz"
+            electron_mirror: https://npmmirror.com/mirrors/electron/
+            electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+            skip_yml: true
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 在构建前写入版本号（npm ci 之后改，避免任何 lock 校验干扰）：
+      # 产物名与 latest*.yml 内的版本来自 package.json，必须与 Release tag 一致。
+      - name: Set package version from tag
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          npm pkg set version="${VERSION}"
+          node -p "'package.json version -> ' + require('./package.json').version"
+
+      - name: Generate app icon
+        run: npm run make-icon
+
+      - name: Build dev packages
+        run: ${{ matrix.command }}
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
+          ELECTRON_BUILDER_BINARIES_MIRROR: ${{ matrix.electron_builder_binaries_mirror }}
+
+      # 上传前断言关键产物存在，防止构建静默失败产出空 Release
+      # （electron-builder 偶发部分 target 失败但进程退出码为 0）。
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          set -e
+          for GLOB in ${{ matrix.verify_globs }}; do
+            if ! ls release/${GLOB} >/dev/null 2>&1; then
+              echo "::error::缺少产物 release/${GLOB}"
+              ls release/ || true
+              exit 1
+            fi
+          done
+          echo "产物齐全："
+          ls release/PiDeck-Dev-* release/latest*.yml 2>/dev/null || true
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          # 用 PAT 而非默认 GITHUB_TOKEN：GITHUB_TOKEN 创建的 Release 不广播
+          # release: published 事件，后续接入的监听 workflow 无法触发（与 release.yml 同因）。
+          token: ${{ secrets.RELEASE_PAT }}
+          tag_name: ${{ needs.resolve-version.outputs.tag }}
+          # tag 不存在时指到本次构建 commit；tag 已存在时本字段被忽略
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          body: |
+            PiDeck Dev（开发通道）构建，非正式版。
+
+            - 分支 HEAD：${{ github.sha }}
+            - 与 stable 安装包可并存；userData 与 stable 共用（pi-desktop）。
+          fail_on_unmatched_files: false
+          files: |
+            release/*.exe
+            release/*.zip
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+            release/*.tar.gz
+            release/*.blockmap
+            ${{ matrix.skip_yml != true && 'release/latest*.yml' || '' }}

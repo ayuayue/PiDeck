@@ -78,6 +78,11 @@ jobs:
   sync-atomgit:
     name: Sync Release to AtomGit
     runs-on: ubuntu-latest
+    # prerelease（dev 通道）Release 不同步：AtomGit 是 stable 更新镜像源
+    # （客户端 updateSource=atomgit 的 latest feed），同步 beta 产物会让 stable
+    # 客户端拉到 dev 包。release 事件对象自带 prerelease 布尔标记；仅拦自动链路，
+    # 手动触发（workflow_dispatch）不受限——人工填 beta tag 属人为决策，自行担责。
+    if: ${{ !(github.event_name == 'release' && github.event.release.prerelease) }}
     # 兜底超时：历史上 PUT 上传挂起导致 job 卡了 52 分钟无进展；
     # 三个版本全量约 7GB，上传速度不确定，给足 6 小时（GitHub hosted runner 上限）；超时强制失败后可重跑（已传附件自动跳过）
     timeout-minutes: 360

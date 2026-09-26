@@ -34,6 +34,7 @@ import { ipcChannels } from "../../shared/ipc";
 import { collectSessionFileChanges } from "../../shared/fileChanges";
 import { COMPACT_CANCELLED_BY_OWNER, COMPACT_CANCELLED_BY_USER_ABORT, COMPACT_HOOK_REJECT_MAX_MS, COMPACT_OBSERVATION_MAX_AGE_MS, COMPACT_ROUTED_TO_OWNER, COMPACT_USER_ABORT_WINDOW_MS } from "../../shared/compactFeedback";
 import { PiProcess, type WhitelistSkip } from "./PiProcess";
+import { APP_DEEP_LINK_SCHEME } from "../utils/deepLinkScheme";
 import { createCompactRpcRequest } from "./compactRpc";
 import { resolveWhitelistSkipCopy, WHITELIST_SKIP_KIND_COPY } from "./whitelistSkipNotice";
 import { readPiCompactionOwnership, type PiCompactionOwnership } from "./compactionOwner";
@@ -5974,14 +5975,15 @@ export class AgentManager {
 
 	/**
 	 * 生成带会话跳转参数的 Windows toast XML。
-	 * 使用 activationType="protocol" + pideck:// 协议 URL：点击通知时 Windows 通过
-	 * 注册表协议关联唤起应用（不依赖 ToastActivatorCLSID / 快捷方式匹配，更可靠），
+	 * 使用 activationType="protocol" + 本构建 deep link scheme（stable：pideck://，dev 通道：pideck-dev://）：
+	 * 点击通知时 Windows 通过注册表协议关联唤起应用（不依赖 ToastActivatorCLSID / 快捷方式匹配，更可靠），
 	 * 被唤起实例的 argv 携带协议 URL，主实例据此识别要跳转的会话。
-	 * sessionId 缺省时 launch 回退为 pideck:// 根地址（点击仅聚焦窗口）。
+	 * 两通道 scheme 不同，保证 dev 包的通知不会唤起 stable（反之亦然）。
+	 * sessionId 缺省时 launch 回退为 scheme 根地址（点击仅聚焦窗口）。
 	 */
 	private buildToastXml(title: string, body: string, sessionId?: string): string {
 		const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-		const launch = sessionId ? `pideck://session/${sessionId}` : "pideck://";
+		const launch = sessionId ? `${APP_DEEP_LINK_SCHEME}://session/${sessionId}` : `${APP_DEEP_LINK_SCHEME}://`;
 		return `<toast activationType="protocol" launch="${launch}">
   <visual>
     <binding template="ToastGeneric">

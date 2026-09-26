@@ -37,6 +37,13 @@ test("解析 pideck://agent/ 兼容格式（旧 toast 兜底）", () => {
 	expectTarget(argv, { sessionId: undefined, agentId: AGENT_ID });
 });
 
+test("解析 pideck-dev:// 协议 URL（dev 通道安装包的同源 scheme）", () => {
+	const argv = ["PiDeckDev.exe", `pideck-dev://session/${SESSION_ID}`];
+	expectTarget(argv, { sessionId: SESSION_ID, agentId: undefined });
+	const agentArgv = ["PiDeckDev.exe", `pideck-dev://agent/${AGENT_ID}`];
+	expectTarget(agentArgv, { sessionId: undefined, agentId: AGENT_ID });
+});
+
 test("协议 URL 大小写不敏感", () => {
 	const upper = SESSION_ID.toUpperCase();
 	const argv = ["PiDeck.exe", `PIDECK://SESSION/${upper}`];
