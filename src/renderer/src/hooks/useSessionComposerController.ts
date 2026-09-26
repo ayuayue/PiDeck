@@ -57,6 +57,7 @@ import { formatFilePathRef, type ComposerChip } from "../components/session/comp
 import type { ComposerCaretRequest } from "../components/session/composer/types";
 import { getComposerCaretCoords, getComposerCaretOffset, getComposerCaretBlockEdge, getComposerSelectionRange, isComposerAtVisualEdge } from "../components/session/composer/caretCoords";
 import { desktopApi } from "../desktopApi";
+import { useAskPanel } from "./useAskPanel";
 import { formatBytes } from "../../../shared/formatBytes";
 import { t } from "../i18n";
 import { COMPOSER_IMAGE_MAX_BYTES, ComposerImageError, dataUrlToFile, getClipboardImageFiles, getDroppedImageFiles, imageMimeTypeFromPath, isImageFilePath, processComposerImageFile } from "../utils/composerImages";
@@ -1026,7 +1027,9 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		enqueue,
 	});
 
-	// 生图：凭据来自独立 imagegen.json（供应商 + 模型），不读会话 LLM。
+	// 并行发送（拆分菜单「并行发送」）：把当前草稿文本送进独立 Ask 会话后台处理，不打断当前会话。
+	// useAskPanel 内部用全局 atom 管会话/胶囊状态，会话各处共享同一实例，重复调用安全。
+	const askPanel = useAskPanel();
 	// 结果按「消息」语义上屏（与 useSessionSend 乐观提交同一约定：写时间线缓存、source=runtime）：
 	// 提示词作为 user 消息立即上屏；随后追加一条 assistant「生图占位」消息（meta.imageGen=generating），
 	// 生成期间由 FinalAnswer 渲染 beUI ImageGeneration 点阵动画，完成后原地更新为 complete（图片清晰过渡），
@@ -1966,6 +1969,15 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			send: () => {
 				void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)));
 			},
+			// 拆分菜单（发送钮右侧 caret）：把「加入当前回合 / 排队到下一轮 / 并行发送」前置到发送现场。
+			// 主钮仍走「忙碌时投递行为」设置；这三项是显式覆盖，不受设置影响。
+			// steer = 立刻插队进当前回合（仅忙碌时有意义）；followUp = 排队到下一轮再排空。
+			sendSteer: () => {
+				void promoteAndSend("steer");
+			},
+			sendFollowUp: () => {
+				void promoteAndSend("followUp");
+			},
 			/**
 			 * 快捷消息直发：正文来自弹框清单而非草稿，其余语义与普通发送一致
 			 * （预览 Tab 晋升、忙碌时按「忙碌时投递行为」设置决定 steer / 排队）。
@@ -1981,6 +1993,18 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			 * 快捷消息的正文来自清单，发它的时候输入框通常是空的。
 			 */
 			canSendQuickMessage: !isStarting && !generatingImage && (!isDshBackend || runtime?.state?.modelRoutable !== false),
+			// 并行发送（拆分菜单）：当前草稿文本进独立 Ask 会话后台处理，成功后清空草稿。
+			// 仅投递纯文本：并行问询不支持图片附件（与队列面板 onSendAsk 的 canAsk 判据一致），
+			// 带图时 ComposerSendControls 端按 canSendParallel=false 置灰。
+			canSendParallel: Boolean(draft.trim()) && attachments.length === 0 && !isStarting && !generatingImage && Boolean(effectiveProjectId),
+			sendParallel: () => {
+				const text = draft.trim();
+				if (!text || !effectiveProjectId) return;
+				void askPanel.sendToAsk(effectiveProjectId, text, { originSessionId: sessionId }).then((ok) => {
+					// 并行会话已接管这条问题：成功后清空当前草稿，避免用户重复发送同一句。
+					if (ok) setDraft("");
+				});
+			},
 			abort: () => void abort(),
 			compact: () => void compact(),
 			// 上下文超限失败时，即使 contextPercent 缺失，仍保留当前绑定作为压缩恢复目标。

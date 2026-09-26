@@ -1,9 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { normalizeVoiceTranscriptionUrl, VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES, VOICE_TRANSCRIPTION_TIMEOUT_MS } from "../../shared/voiceTranscriptionConfig";
+import { toSimplifiedChinese } from "./simplifiedChinese";
+import { createSilentWav } from "./silentWav";
+import { readBoundedResponseText } from "./responseText";
+import { transcribeWithVolcengine } from "./VolcengineSpeechClient";
 import type { WhisperModelId } from "../../shared/types/whisperRuntime";
-import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult } from "../../shared/types/voiceTranscription";
+import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult, VoiceTranscriptionTestResult } from "../../shared/types/voiceTranscription";
 import type { VoiceTranscriptionCredentials } from "./VoiceTranscriptionConfigStore";
 
 const MAX_RESPONSE_BYTES = 128 * 1024;
+/** 检测探针的静音时长：够服务端解出一帧音频并回业务码，又不至于真占用多少转写额度。 */
+const PROBE_SILENCE_MS = 400;
 const AUDIO_EXTENSIONS = new Map([
 	["audio/webm", "webm"],
 	["audio/ogg", "ogg"],
@@ -37,9 +44,13 @@ export function stripNonSpeechPlaceholders(text: string): string {
 	return text.replace(NON_SPEECH_BRACKET_TOKEN, " ").replace(paired, " ").replace(/\s+/g, " ").trim();
 }
 
-/** 两个引擎共用的结果收口：过滤后仍有正文才算成功，否则按 empty 返回。 */
+/**
+ * 两个引擎共用的结果收口：过滤占位词 → 繁体落回简体 → 仍有正文才算成功。
+ * 繁简转换放这里而不是各自引擎里，因为云端 whisper 系模型同样会吐繁体，
+ * 而「口述结果是简体」是用户对整个语音输入的期待。
+ */
 function toSpeechResult(raw: string): VoiceTranscriptionResult {
-	const speech = stripNonSpeechPlaceholders(raw);
+	const speech = toSimplifiedChinese(stripNonSpeechPlaceholders(raw));
 	return speech ? { ok: true, text: speech } : { ok: false, error: "empty" };
 }
 
@@ -89,6 +100,23 @@ export class VoiceTranscriptionService {
 			const credentials = await this.deps.getCredentials();
 			if (controller.signal.aborted) return { ok: false, error: "cancelled" };
 			if (!credentials) return { ok: false, error: "notConfigured" };
+			const startTimeout = () => {
+				timeout = setTimeout(() => {
+					timedOut = true;
+					controller.abort();
+				}, this.deps.timeoutMs ?? VOICE_TRANSCRIPTION_TIMEOUT_MS);
+			};
+
+			if (credentials.provider === "volcengine") {
+				// 豆包极速版按 audio.format 声称的编码解码，这里只接受渲染层已转码的 WAV
+				// （provider=volcengine 时录音用 encodeRecordingToWav 送出，webm 会被服务端判 45000151）。
+				if (mimeType !== "audio/wav" && mimeType !== "audio/x-wav") return { ok: false, error: "invalidRequest" };
+				startTimeout();
+				const result = await transcribeWithVolcengine({ fetchImpl: this.deps.fetch, log: this.deps.log }, { audio: input.audio, appId: credentials.appId, accessToken: credentials.accessToken, resourceId: credentials.resourceId, language: credentials.language, signal: controller.signal });
+				// 失败时豆包的业务码/ logId 随 result.detail 原样透出（检测按钮要靠它给差异化文案）。
+				return result.ok ? toSpeechResult(result.text) : result;
+			}
+
 			const endpoint = normalizeVoiceTranscriptionUrl(credentials.baseUrl);
 			if (!endpoint || !credentials.model.trim()) return { ok: false, error: "notConfigured" };
 
@@ -96,10 +124,7 @@ export class VoiceTranscriptionService {
 			body.append("file", new Blob([input.audio], { type: mimeType }), `recording.${extension}`);
 			body.append("model", credentials.model.trim());
 			if (credentials.language.trim()) body.append("language", credentials.language.trim());
-			timeout = setTimeout(() => {
-				timedOut = true;
-				controller.abort();
-			}, this.deps.timeoutMs ?? VOICE_TRANSCRIPTION_TIMEOUT_MS);
+			startTimeout();
 			const response = await (this.deps.fetch ?? fetch)(endpoint, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${credentials.apiKey}` },
@@ -127,34 +152,24 @@ export class VoiceTranscriptionService {
 		}
 	}
 
+	/**
+	 * 「检测连通性」：拿一小段静音把当前配置走一遍真实转写链路（凭据 → 权限 → 服务端解码音频）。
+	 *
+	 * 判据是「服务受理了这段音频」而不是「识别出了字」：静音必然空手而归，
+	 * 所以 ok 与 empty 都算通过；只有 notConfigured / invalidKey / invalidRequest（参数或
+	 * base64 形态不被接受）/ http（未开通极速版、额度用尽）/ network 这类码才是真问题。
+	 * 未开通与额度类失败官方没有单独码，失败文案会把 statusCode / logId 一并带出便于查工单。
+	 */
+	async testConnection(): Promise<VoiceTranscriptionTestResult> {
+		const result = await this.transcribe({ requestId: `probe-${randomUUID()}`, audio: createSilentWav(PROBE_SILENCE_MS), mimeType: "audio/wav" });
+		if (result.ok || result.error === "empty") return { ok: true };
+		return "detail" in result ? { ok: false, error: result.error, detail: result.detail } : { ok: false, error: result.error };
+	}
+
 	cancel(requestId: string): void {
 		this.inFlight.get(requestId)?.abort();
 		this.deps.cancelLocal?.(requestId);
 	}
-}
-
-async function readBoundedResponseText(response: Response, limit: number): Promise<string | null> {
-	const declaredLength = Number(response.headers.get("content-length") ?? "0");
-	if (Number.isFinite(declaredLength) && declaredLength > limit) return null;
-	if (!response.body) {
-		const text = await response.text();
-		return new TextEncoder().encode(text).byteLength <= limit ? text : null;
-	}
-	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
-	let total = 0;
-	let text = "";
-	while (true) {
-		const chunk = await reader.read();
-		if (chunk.done) break;
-		total += chunk.value.byteLength;
-		if (total > limit) {
-			await reader.cancel();
-			return null;
-		}
-		text += decoder.decode(chunk.value, { stream: true });
-	}
-	return text + decoder.decode();
 }
 
 function parseTranscriptionText(raw: string): string {

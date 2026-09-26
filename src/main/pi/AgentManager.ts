@@ -4547,7 +4547,9 @@ export class AgentManager {
 				const contextOverflow = isContextOverflowError(errorMsg ?? topMsg?.errorMessage ?? typed.error ?? typed.stopReason);
 				this.contextOverflowByAgent.set(agentId, contextOverflow);
 				this.emitContextOverflowState(agentId, contextOverflow);
-				this.addDetailedErrorMessage(agentId);
+				// 无显式 errorMsg 时不停止把线索落进气泡：stopReason/末条 error 消息的
+				// errorMessage 至少能让用户点开看到「原因未知在哪未知」。
+				this.addDetailedErrorMessage(agentId, typeof topMsg?.errorMessage === "string" ? topMsg.errorMessage : typeof typed.error === "string" ? typed.error : undefined);
 				// 与上一分支同款 abort 例外：终止回合不把活进程标成终态。
 				if (runtime && !abortedTurn) runtime.tab.status = "error";
 				// 与上一分支同款留痕：无显式错误文本时也记下 stopReason 与最后一条

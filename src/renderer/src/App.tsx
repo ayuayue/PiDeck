@@ -672,7 +672,7 @@ export function App() {
 		agentCountReminderEnabled: true,
 		// 公告通知默认开启：与主进程 SettingsStore 默认一致，首屏未拉到真实设置前不误关提醒
 		announcementNotificationEnabled: true,
-		// toast 默认展示时长：与主进程 defaultSettings 同源（扩展提示的兜底可读时长）
+		// toast 展示时长：与主进程 defaultSettings 同源（全局统一口径）
 		toastDurationMs: DEFAULT_TOAST_DURATION_MS,
 		// showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
 		showThinking: true,
@@ -1021,7 +1021,7 @@ export function App() {
 
 	// 公告通知调度（读镜像 atom）：输入/Agent 运行中/模态打开/窗口不活跃时自动延后弹出（不打扰操作，见 hook 注释）
 	useAnnouncementNotifier();
-	// toast 默认展示时长同步给 notice helper（showNotice 单点消费；保存设置即时生效）
+	// toast 展示时长同步给 notice helper（全局统一口径；保存设置即时生效）
 	useEffect(() => {
 		configureNoticeDefaults({ toastDurationMs: settings.toastDurationMs });
 	}, [settings.toastDurationMs]);

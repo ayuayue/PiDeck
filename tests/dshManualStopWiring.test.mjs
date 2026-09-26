@@ -31,6 +31,10 @@ const appShell = readFileSync("src/renderer/src/App.tsx", "utf8");
 const historyMutations = readFileSync("src/renderer/src/hooks/useSessionHistoryMutations.ts", "utf8");
 const trajectorySource = readFileSync("src/renderer/src/hooks/useSessionTrajectorySource.ts", "utf8");
 const availabilityUtil = readFileSync("src/renderer/src/utils/sessionHistoryAvailability.ts", "utf8");
+const sharedContract = readFileSync("src/shared/dshManualStop.ts", "utf8");
+const modelCatalogHook = readFileSync("src/renderer/src/hooks/useBackendModelCatalog.ts", "utf8");
+const composerParts = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
+const dshConfigTab = readFileSync("src/renderer/src/config/DshConfigTab.tsx", "utf8");
 /** 所有直接消费 readRecordMessagePage 返回页的渲染层模块（新生效点也必须进这道闸）。 */
 const pageConsumers = [
 	["useSessionTimelineController", timelineController],
@@ -119,6 +123,28 @@ test("dshManualStopped: 停止后时间线给「启动 host」专态，不说成
 	assert.match(trajectorySource, /if \(sessionHistoryUnavailableState\(page\)\) return;/);
 });
 
+test("dshManualStopped: IPC 错误透出渲染层必须映射 i18n，不得原样展示 sentinel", () => {
+	// 2026-09 反馈：DSH 会话打开模型选择器 toast 出
+	// 「Error invoking remote method 'dsh:list-models': Error: DSH host is manually stopped」
+	// ——主进程内部契约字符串直接漏给用户。
+	// sentinel 单一数据源在 shared，主进程只 re-export（防止两处字面量漂移）。
+	assert.match(sharedContract, /export const DSH_MANUALLY_STOPPED_ERROR = "DSH host is manually stopped"/);
+	assert.match(sharedContract, /export function isDshManuallyStoppedErrorMessage/);
+	assert.match(dshManualStop, /from "\.\.\/\.\.\/shared\/dshManualStop"/);
+	assert.doesNotMatch(dshManualStop, /export const DSH_MANUALLY_STOPPED_ERROR =/);
+	// 模型目录 hook：识别 sentinel → 专用失败原因 + i18n toast，detail 不带原始包装消息。
+	assert.match(modelCatalogHook, /isDshManuallyStoppedErrorMessage\(rawDetail\)/);
+	assert.match(modelCatalogHook, /reason: dshStopped \? "dsh-host-stopped" : "cli-failed"/);
+	assert.match(modelCatalogHook, /t\("app\.modelListFailDshStopped"\)/);
+	assert.match(modelCatalogHook, /detail: dshStopped \? "" : rawDetail/);
+	// 选择器引导块按 reason 出文案（Record 键齐全由 typecheck 把关，这里锚定新增项）。
+	assert.match(composerParts, /"dsh-host-stopped": "app\.modelListFailDshStopped"/);
+	// DSH 配置页错误 banner 同样映射（describe/保存失败都会抛同一 sentinel）。
+	assert.match(dshConfigTab, /isDshManuallyStoppedErrorMessage/);
+	assert.match(dshConfigTab, /dshConfigErrorMessage\(err\)/);
+	assert.match(dshConfigTab, /dshConfigErrorMessage\(saveError\)/);
+});
+
 test("dshManualStopped: i18n 中英文案齐全", () => {
 	for (const key of [
 		"config.dsh.stopHost",
@@ -132,6 +158,7 @@ test("dshManualStopped: i18n 中英文案齐全", () => {
 		"timeline.dshHostStopped",
 		"timeline.dshHostStoppedHint",
 		"timeline.dshHostStoppedStart",
+		"app.modelListFailDshStopped",
 	]) {
 		assert.match(zh, new RegExp(`"${key.replace(/\./g, "\\.")}"`));
 		assert.match(en, new RegExp(`"${key.replace(/\./g, "\\.")}"`));

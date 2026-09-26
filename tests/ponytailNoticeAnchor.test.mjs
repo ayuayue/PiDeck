@@ -23,9 +23,9 @@ test("通知统一走 sonner 全局 toast（不再有 app-notice 锚点浮层）
 	assert.match(runtimeController, /showNotice\(\s*notification\.message/);
 	assert.match(notice, /from "sonner"/);
 	assert.match(notice, /toast\.custom/);
-	// info 档默认时长改为可配置兜底（设置项 toastDurationMs，见 configureNoticeDefaults），
-	// 契约是「duration 省略时走 noticeDefaultDurationMs 变量」，不再锁死 1500 字面量。
-	assert.match(notice, /duration\s*\?\?\s*[^;\n]*noticeDefaultDurationMs/);
+	// toast 时长口径：设置项 toastDurationMs 全局统一，只有调用方显式常驻（Infinity）保留，
+	// 契约是「resolvedDuration 取 noticeDefaultDurationMs 且只对 Infinity 开例外」，不锁死字面量。
+	assert.match(notice, /resolvedDuration[\s\S]{0,160}?noticeDefaultDurationMs/);
 	// M7：后台 Ask 巡检 effect 已搬到 App 级单点挂载的 useBackgroundAskPatrol
 	const askPatrol = readFileSync("src/renderer/src/hooks/useBackgroundAskPatrol.ts", "utf8");
 	assert.match(askPatrol, /backgroundPending/);

@@ -33,8 +33,12 @@ export type DshRuntimeLayout = {
 	tempRoot: string;
 };
 
-/** 下载器：`onProgress(receivedBytes, totalBytes|undefined)`。 */
-export type DshRuntimeDownloader = (url: string, destPath: string, onProgress?: (received: number, total?: number) => void, signal?: AbortSignal) => Promise<void>;
+/**
+ * 下载器：`onProgress(receivedBytes, totalBytes|undefined)`。
+ * `options.resumeFromBytes`：目标文件已有的字节数，下载器据此带 Range 续传并在其后追加写；
+ * 服务端不支持 Range 时自行退回全量重下，调用方只需保证 destPath 是那个半截文件。
+ */
+export type DshRuntimeDownloader = (url: string, destPath: string, onProgress?: (received: number, total?: number) => void, signal?: AbortSignal, options?: { resumeFromBytes?: number }) => Promise<void>;
 
 /** 解压器：把 tarball 解到 destDir（destDir 由本模块创建并保证为空）。 */
 export type DshRuntimeExtractor = (archivePath: string, destDir: string) => Promise<void>;

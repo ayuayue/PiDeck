@@ -20,6 +20,8 @@ import { ComposerWidgetLayoutProvider, type ComposerWidgetCollapsedByKey, useCom
 import type { GitBranchInfo } from "../../../../shared/types";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { VoiceTranscriptionControls } from "./VoiceTranscriptionControls";
+import { SessionCommitSuggestionStrip } from "./SessionCommitSuggestionStrip";
+import type { AgentRunItem } from "./timeline/types";
 
 export type ComposerAreaProps = {
 	sessionId: string;
@@ -28,6 +30,8 @@ export type ComposerAreaProps = {
 	onSwitchBranch?: (branch: string) => void;
 	/** 输入框上方独立卡（todo / goal）；放在 widgets 槽位。 */
 	widgets?: ReactNode;
+	/** 最新一轮 run：驱动「提交/推送」快捷建议条（判据见 commitIntentSuggestions）。 */
+	commitSuggestRun?: AgentRunItem;
 	/** 排队消息独立卡（与 todo/goal 同列同宽，不贴输入框、不右浮）。 */
 	queuePanel?: ReactNode;
 	enqueue?: (sessionId: string, snapshot: EnqueuePromptSnapshot) => boolean;
@@ -107,6 +111,15 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 
 	const modelPendingMap = useAtomValue(modelPendingByIdAtom);
 
+	// 「提交/推送」快捷建议条：跟在其它独立卡之后，用 composer 的直发通道
+	// （正文不经草稿）。run 身份换轮后建议自动重算，无需显式关闭。
+	const composerWidgets = (
+		<>
+			{props.widgets ?? null}
+			{props.commitSuggestRun ? <SessionCommitSuggestionStrip sessionId={props.sessionId} run={props.commitSuggestRun} sendDisabled={!composer.delivery.canSendQuickMessage} onSend={composer.delivery.sendQuickMessage} /> : null}
+		</>
+	);
+
 	const prewarmStartedForSessionRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
 		if (!props.sessionId || !window.piDesktop) return;
@@ -127,7 +140,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
               输入卡 shrink-0 始终完整可见。 */}
 					<footer ref={footerRef} className="composer flex max-h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden bg-transparent px-0 pb-2" style={composerFooterStyle()} data-session-id={props.sessionId}>
 						<ComposerMeasuredExtras
-							widgets={props.widgets ?? null}
+							widgets={composerWidgets}
 							queuePanel={props.queuePanel}
 							deliveryNotice={<SessionDeliveryNotice status={composer.sendState.status} message={composer.sendState.unknownSnapshot?.message} images={composer.sendState.unknownSnapshot?.images} error={composer.sendState.error} onAcknowledge={composer.delivery.acknowledgeUnknown} />}
 							attachmentBar={
@@ -250,9 +263,25 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										}
 										voiceControls={
 											// 总开关开启即显示录音入口；引擎未就绪时点击才提示去设置补全（见 useVoiceTranscription.start）
-											composer.voice.configured ? <VoiceTranscriptionControls state={composer.voice.state} disabled={composer.isStarting} onStart={() => void composer.voice.start()} onStop={composer.voice.stop} onCancel={composer.voice.cancel} /> : undefined
+											composer.voice.configured ? (
+												<VoiceTranscriptionControls state={composer.voice.state} busy={composer.voice.transcribingBusy} readLevel={composer.voice.readLevel} disabled={composer.isStarting} onStart={() => void composer.voice.start()} onStop={composer.voice.stop} onCancel={composer.voice.cancel} />
+											) : undefined
 										}
-										sendControls={<ComposerSendControls isAgentBusy={composer.isBusy} isAgentStarting={composer.isStarting} hasContent={composer.hasContent} canSend={composer.delivery.canSend} isGeneratingImage={composer.delivery.generatingImage} onSend={composer.delivery.send} onStop={composer.delivery.abort} />}
+										sendControls={
+											<ComposerSendControls
+												isAgentBusy={composer.isBusy}
+												isAgentStarting={composer.isStarting}
+												hasContent={composer.hasContent}
+												canSend={composer.delivery.canSend}
+												isGeneratingImage={composer.delivery.generatingImage}
+												onSend={composer.delivery.send}
+												onStop={composer.delivery.abort}
+												onSendSteer={composer.delivery.sendSteer}
+												onSendFollowUp={composer.delivery.sendFollowUp}
+												onSendParallel={composer.delivery.sendParallel}
+												canSendParallel={composer.delivery.canSendParallel}
+											/>
+										}
 									/>
 								</div>
 							}

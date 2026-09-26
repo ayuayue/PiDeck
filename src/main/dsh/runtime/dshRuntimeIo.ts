@@ -104,12 +104,16 @@ async function extractWithSystemTar(tarBin: string, archivePath: string, destDir
 }
 
 /**
- * 用 Electron net 下载到文件（跟随重定向、支持取消与进度）。
+ * 用 Electron net 下载到文件（跟随重定向、支持取消、进度与 Range 续传）。
  * 与 app update 不同源的地方：runtime 归档较大（数十 MB），这里按 chunk 落盘
  * 而不是整份进内存，避免峰值内存翻倍。
+ *
+ * 续传（`options.resumeFromBytes`）：几百 MB 的模型一旦断线就重下，体验不可接受。
+ * 调用方把已落盘的字节数传进来，这里带 `Range` 请求剩余部分并追加写；
+ * 服务端不理 Range（回 200 全量）时按全量重写，语义仍然正确——最终校验由调用方负责。
  */
 export function createNetDownloader(log?: (scope: string, message: string, detail?: unknown) => void): DshRuntimeDownloader {
-	return async (url, destPath, onProgress, signal) => {
+	return async (url, destPath, onProgress, signal, options) => {
 		// file:// / 本地路径：直接复制，不走 net（Electron net 不发 file 请求）。
 		const localPath = localPathFromUrl(url);
 		if (localPath) {
@@ -120,11 +124,20 @@ export function createNetDownloader(log?: (scope: string, message: string, detai
 			return;
 		}
 		mkdirSync(dirname(destPath), { recursive: true });
+		// 断点不存在（文件被清掉/还没写过）就按 0 处理，别让 Range 头写出 `bytes=0-` 之外的怪值。
+		let offset = Math.max(0, options?.resumeFromBytes ?? 0);
+		if (offset > 0 && !existsSync(destPath)) offset = 0;
 		let currentUrl = url;
 		for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
 			if (signal?.aborted) throw new Error("download aborted");
-			const response = await requestOnce(currentUrl, destPath, onProgress, signal, log);
+			const response = await requestOnce(currentUrl, destPath, onProgress, signal, log, offset);
 			if (response.kind === "done") return;
+			if (response.kind === "restart") {
+				// 服务端说这个起点无效（416：远端比我们手里的文件小，或干脆不支持分段）
+				// ——半截文件不可信，从 0 重来。
+				offset = 0;
+				continue;
+			}
 			currentUrl = response.location;
 		}
 		throw new Error("too many redirects");
@@ -214,7 +227,7 @@ export function fetchDshRunnerNodeIndex(url: string, log?: (scope: string, messa
 	return fetchJsonIndex<DshRunnerNodeReleaseIndex>(url, "dsh-runner-node", (parsed) => Array.isArray(parsed?.releases), log);
 }
 
-type RequestOutcome = { kind: "done" } | { kind: "redirect"; location: string };
+type RequestOutcome = { kind: "done" } | { kind: "redirect"; location: string } | { kind: "restart" };
 
 /**
  * 排空不打算消费的响应体（重定向 / 错误响应）。
@@ -226,13 +239,15 @@ function discardResponse(response: Electron.IncomingMessage): void {
 	});
 }
 
-function requestOnce(url: string, destPath: string, onProgress: ((received: number, total?: number) => void) | undefined, signal: AbortSignal | undefined, log: ((scope: string, message: string, detail?: unknown) => void) | undefined): Promise<RequestOutcome> {
+function requestOnce(url: string, destPath: string, onProgress: ((received: number, total?: number) => void) | undefined, signal: AbortSignal | undefined, log: ((scope: string, message: string, detail?: unknown) => void) | undefined, resumeFrom: number): Promise<RequestOutcome> {
 	return new Promise<RequestOutcome>((resolvePromise, rejectPromise) => {
 		const request = net.request(url);
 		const settle = (outcome: RequestOutcome) => {
 			request.removeAllListeners();
 			resolvePromise(outcome);
 		};
+
+		if (resumeFrom > 0) request.setHeader("Range", `bytes=${resumeFrom}-`);
 
 		request.on("response", (response) => {
 			const status = response.statusCode;
@@ -248,16 +263,28 @@ function requestOnce(url: string, destPath: string, onProgress: ((received: numb
 				settle({ kind: "redirect", location: new URL(target, url).toString() });
 				return;
 			}
+			// 416：请求起点超出远端资源长度。手里的半截文件不可信，交回外层从 0 重来。
+			if (status === 416) {
+				discardResponse(response);
+				log?.("dsh-runtime", "range not satisfiable, restarting from zero", { url, resumeFrom });
+				settle({ kind: "restart" });
+				return;
+			}
 			if (status < 200 || status >= 300) {
 				discardResponse(response);
 				rejectPromise(new Error(`download failed with status ${status}`));
 				return;
 			}
+			// 只有 206 才是真续传；服务端忽略 Range 回 200 全量时必须覆盖写，
+			// 否则会把整份内容接在已有半截之后。
+			const resuming = resumeFrom > 0 && status === 206;
 			const totalHeader = response.headers["content-length"];
-			const total = Array.isArray(totalHeader) ? Number.parseInt(totalHeader[0] ?? "", 10) : Number.parseInt(String(totalHeader ?? ""), 10);
-			const totalBytes = Number.isFinite(total) ? total : undefined;
+			const contentLength = Array.isArray(totalHeader) ? Number.parseInt(totalHeader[0] ?? "", 10) : Number.parseInt(String(totalHeader ?? ""), 10);
+			const rangeTotal = resuming ? parseContentRangeTotal(response.headers["content-range"]) : undefined;
+			const totalBytes = Number.isFinite(contentLength) ? (resuming ? (rangeTotal ?? resumeFrom + contentLength) : contentLength) : undefined;
 
-			let received = 0;
+			// 进度对调用方始终是「累计字节 / 整份体积」，续传段只是接着往上加。
+			let received = resuming ? resumeFrom : 0;
 			response.on("data", (chunk: Buffer) => {
 				received += chunk.length;
 				onProgress?.(received, totalBytes);
@@ -265,7 +292,7 @@ function requestOnce(url: string, destPath: string, onProgress: ((received: numb
 			response.on("aborted", () => rejectPromise(new Error("download aborted by remote")));
 			response.on("error", (error) => rejectPromise(error));
 
-			const writeStream = createWriteStream(destPath);
+			const writeStream = createWriteStream(destPath, { flags: resuming ? "a" : "w" });
 			// 用 pipeline 串起「HTTP 响应 → 落盘」，任一端出错都会正确销毁两端，
 			// 不会留下半截临时文件占据 userData。
 			pipeline(response as unknown as NodeJS.ReadableStream, writeStream)
@@ -280,4 +307,13 @@ function requestOnce(url: string, destPath: string, onProgress: ((received: numb
 		});
 		request.end();
 	});
+}
+
+/** 从 `Content-Range: bytes 512-1023/1024` 里取资源总长；解析失败返回 undefined。 */
+function parseContentRangeTotal(header: string | string[] | undefined): number | undefined {
+	const raw = Array.isArray(header) ? header[0] : header;
+	const matched = /\/\s*(\d+)\s*$/.exec(raw ?? "");
+	if (!matched) return undefined;
+	const total = Number.parseInt(matched[1] ?? "", 10);
+	return Number.isFinite(total) ? total : undefined;
 }

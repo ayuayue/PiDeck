@@ -153,7 +153,7 @@ Gitmoji 对应关系：
 	agentCountReminderEnabled: true,
 	// 公告通知默认开启：新公告弹 toast 提醒（弹出时机另有忙碌延迟控制）
 	announcementNotificationEnabled: true,
-	// toast 默认展示时长：扩展 notify 等短时提示的兜底时长可配置（见 AppSettings.toastDurationMs）
+	// toast 展示时长：全局统一时长（见 AppSettings.toastDurationMs）
 	toastDurationMs: DEFAULT_TOAST_DURATION_MS,
 	showThinking: readPiAgentShowThinking() ?? true,
 	// 流式对话设置：默认自动展开中间过程（思考/工具详情随最新轮流式展开）；
@@ -307,7 +307,7 @@ export function migrateUpdateSourceToAtomgit(settings: { updateSource?: unknown;
 const MAX_PROVIDER_ORDER_ENTRIES = 200;
 
 /**
- * toast 默认时长的读取钳制：-1（常驻哨兵，见 TOAST_DURATION_STICKY_MS）与 [1000, 60000]
+ * toast 展示时长的读取钳制：-1（常驻哨兵，见 TOAST_DURATION_STICKY_MS）与 [1000, 60000]
  * 的有限正数放行，其余（脏数据/越界/负数）回落默认值。
  * 磁盘 JSON 无类型，手工改坏不能让 toast 永不再消失；Infinity 不进这里（JSON 存不了）。
  */
@@ -349,7 +349,7 @@ export class SettingsStore {
 			if (typeof this.settings.announcementNotificationEnabled !== "boolean") {
 				this.settings.announcementNotificationEnabled = defaultSettings.announcementNotificationEnabled;
 			}
-			// toast 默认时长：旧 settings.json 缺字段或脏值（0/负数/超大/字符串）钳回默认，
+			// toast 展示时长：旧 settings.json 缺字段或脏值（0/负数/超大/字符串）钳回默认，
 			// 避免升级后 toast 永不再消失或瞬间消失。
 			this.settings.toastDurationMs = clampToastDurationMs(this.settings.toastDurationMs);
 			// 兼容迁移：内置 CommitMono 字体已移除（打包瘦身），旧设置里的 "commit-mono"
@@ -615,7 +615,7 @@ export class SettingsStore {
 		if ("soundAlert" in safePatch) {
 			safePatch.soundAlert = normalizeSoundAlertSettings(safePatch.soundAlert);
 		}
-		// toast 默认时长来自渲染层，入参不可信：非法值钳回默认（-1=常驻哨兵放行）。
+		// toast 展示时长来自渲染层，入参不可信：非法值钳回默认（-1=常驻哨兵放行）。
 		if ("toastDurationMs" in safePatch) {
 			safePatch.toastDurationMs = clampToastDurationMs(safePatch.toastDurationMs);
 		}

@@ -19,7 +19,7 @@ type NotificationTabProps = {
 };
 
 /**
- * toast 默认时长档位（ms）：含 -1（常驻哨兵，见 shared TOAST_DURATION_STICKY_MS）。
+ * toast 展示时长档位（ms）：含 -1（常驻哨兵，见 shared TOAST_DURATION_STICKY_MS）。
  * 与主进程 clampToastDurationMs 的合法区间（1000–60000）一致。
  */
 const TOAST_DURATION_PRESETS = [1500, 2500, 4000, 6000, 10000, TOAST_DURATION_STICKY_MS] as const;
@@ -169,7 +169,7 @@ export const NotificationTab = memo(function NotificationTab(props: Notification
 				<SettingSwitchRow anchor="notification-announcement" title={t("settings.announcementNotification")} description={t("settings.announcementNotificationDesc")} checked={draft.announcementNotificationEnabled} onChange={(checked) => updateDraft({ announcementNotificationEnabled: checked })} />
 			</SettingsSection>
 
-			{/* 应用内通知（toast）：默认展示时长可配置 + 历史回看 */}
+			{/* 应用内通知（toast）：展示时长全局可配 + 历史回看 */}
 			<SettingsSection title={t("settings.inAppNotificationSection")}>
 				<SettingRow anchor="notification-toast-duration" title={t("settings.toastDuration")} description={t("settings.toastDurationDesc")}>
 					<Select value={String(draft.toastDurationMs)} onValueChange={(value) => updateDraft({ toastDurationMs: Number(value) })}>

@@ -107,7 +107,7 @@ test("local engine runtimeReady comes from isLocalReady; legacy cloud config mig
 		isLocalReady: () => localReady,
 	});
 	try {
-		const local = await store.saveConfig({ enabled: true, engine: "local", localModelId: "base-q5_1", baseUrl: "https://api.openai.com/v1", model: "whisper-1", language: "" });
+		const local = await store.saveConfig({ enabled: true, engine: "local", localModelId: "small-q5_1", baseUrl: "https://api.openai.com/v1", model: "whisper-1", language: "" });
 		assert.equal(local.ok, true);
 		// 本地引擎的 runtimeReady 只看 isLocalReady，与是否配了云密钥无关。
 		assert.equal(local.config.engine, "local");

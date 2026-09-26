@@ -53,10 +53,10 @@ export type MirrorHealthResult = {
 
 /** 宠物缩放默认值：0.3 = 设置滑块 30%。出厂 100% 太大，新用户/缺省回退都用此值。 */
 export const DEFAULT_PET_SCALE = 0.3;
-/** toast 默认展示时长（ms）出厂值：与渲染层 notice.ts 兜底常量一致。 */
+/** toast 展示时长（ms）出厂值：全局统一时长，与渲染层 notice.ts 常量一致。 */
 export const DEFAULT_TOAST_DURATION_MS = 4000;
 /**
- * toast 默认时长「常驻（不自动消失）」哨兵值。
+ * toast 时长「常驻（不自动消失）」哨兵值。
  * 必须用有限数：设置落盘走 settings.json，`JSON.stringify(Infinity)` 会变成 null，
  * 升级后读回即丢失。渲染层在 configureNoticeDefaults 里把哨兵映射回 POSITIVE_INFINITY。
  */
@@ -180,10 +180,9 @@ export type AppSettings = {
 	 */
 	announcementNotificationEnabled: boolean;
 	/**
-	 * 应用内 toast（info/neutral 档）未显式指定时长时的默认展示时长（ms）。
-	 * 扩展 ctx.ui.notify 等短时提示过去硬编码 1500ms，用户普遍反馈来不及看；
-	 * 改为可配置兜底。调用方显式传入的时长（如启动回退提示 10s、error 常驻）不受影响，
-	 * error/warning/question 的更长默认值也不受本项牵引。
+	 * 应用内 toast 的展示时长（ms），全局统一口径：所有提示（含调用方显式传入的时长、
+	 * error/warning/question 档）都按此值停留，只有调用方要求「常驻」的提示不受影响。
+	 * 起因是扩展 ctx.ui.notify 等提示硬编码 1500ms，用户普遍反馈来不及看。
 	 * 取值：有限正数毫秒（主进程钳制 1000–60000）或 TOAST_DURATION_STICKY_MS(-1)=常驻；
 	 * 非法值读取时钳回默认。渲染层把哨兵映射为 Number.POSITIVE_INFINITY。
 	 */

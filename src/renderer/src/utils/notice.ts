@@ -26,16 +26,16 @@ import { t } from "../i18n";
 export type NoticeKind = "info" | "error" | "warning" | "question";
 
 /**
- * info/neutral 档未显式传时长时的默认展示时长（ms），Number.POSITIVE_INFINITY = 常驻。
+ * 全局 toast 展示时长（ms），Number.POSITIVE_INFINITY = 常驻。
  * 由设置项 `toastDurationMs` 经 configureNoticeDefaults 同步（App 装配层 effect），
  * 出厂值取 shared 的 DEFAULT_TOAST_DURATION_MS，与主进程 defaultSettings 同源。
- * 扩展 ctx.ui.notify 的短时提示过去硬编码 1500ms，用户普遍反馈「烧一下就没了」，
- * 因此改走这个可配置兜底；error/warning/question 保留各自的更长默认值不受影响。
+ * 口径是「全局统一」：调用方显式传入的时长不再被尊重，只有常驻（Infinity）保留——
+ * 扩展 ctx.ui.notify 等提示过去硬编码 1500ms，用户普遍反馈「烧一下就没了」。
  */
 let noticeDefaultDurationMs: number = DEFAULT_TOAST_DURATION_MS;
 
 /**
- * 同步 toast 默认时长（来自设置项 toastDurationMs）。
+ * 同步 toast 展示时长（来自设置项 toastDurationMs）。
  * 设置层用有限哨兵 TOAST_DURATION_STICKY_MS(-1) 表示常驻——settings.json 存不了
  * Infinity（JSON 序列化成 null）——这里映射回 sonner 需要的 Number.POSITIVE_INFINITY。
  * 其余非法值（NaN/负数/0）忽略。
@@ -51,7 +51,7 @@ export function configureNoticeDefaults(input: { toastDurationMs?: number }): vo
 	noticeDefaultDurationMs = value;
 }
 
-/** 当前生效的 info 档默认时长（测试与调试用）。 */
+/** 当前生效的全局展示时长（测试与调试用）。 */
 export function getNoticeDefaultDurationMs(): number {
 	return noticeDefaultDurationMs;
 }
@@ -288,8 +288,9 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeKind 
 const iconButtonCss = ["display:inline-flex", "align-items:center", "justify-content:center", "width:24px", "height:24px", "flex:none", "border:0", "border-radius:var(--radius-md, 6px)", "background:transparent", "color:var(--color-text-tertiary, #8b8f94)", "cursor:pointer"].join(";");
 
 /**
- * 弹出全局 toast。duration 省略时 info/neutral 走可配置默认时长（设置项 toastDurationMs，
- * 出厂 4000ms）、需要用户留意/处理的 error/warning/question=3000ms。
+ * 弹出全局 toast。展示时长由设置项 toastDurationMs 统一决定（全局口径）：
+ * 除调用方显式传 Number.POSITIVE_INFINITY（常驻，需手动关闭）外，
+ * 传入的 duration 与 error/warning/question 的内部默认档都被配置档覆盖。
  * 粘性提示必须传 Number.POSITIVE_INFINITY：sonner 把 duration: 0 当成立刻关闭，
  * 看起来就像“闪一下就没了”。空 message 会直接丢弃，调用方需保证有正文。
  * 每次弹出都会记进 noticeHistory 环形缓冲（历史面板回看/复制/重放的唯一数据源）。
@@ -303,8 +304,8 @@ export function showNotice(
 	/** 稳定 id：同 id 再次弹出时顶掉上一条，避免自动重试等连发场景堆一排 toast。 */
 	id?: NoticeId,
 ): NoticeId | undefined {
-	// question 需要用户点开会话去回答，比纯提示停留更久（Ask 场景通常自带 Infinity 保持粘性）。
-	const resolvedDuration = duration ?? (kind === "error" || kind === "warning" || kind === "question" ? 3000 : noticeDefaultDurationMs);
+	// 常驻是唯一例外：只有调用方明确要求「手动关闭」时才跳过配置档。
+	const resolvedDuration = duration === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : noticeDefaultDurationMs;
 	const text = String(message ?? "").trim();
 	if (!text) return;
 	// 单点记录历史：卡片主文案=标题（无标题时整段正文），描述只在有标题时存在。

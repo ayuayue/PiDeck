@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentBackend, AvailableModel, ModelListReport } from "../../../shared/types";
+import { isDshManuallyStoppedErrorMessage } from "../../../shared/dshManualStop";
 import { desktopApi } from "../desktopApi";
+import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
 
 /**
@@ -64,21 +66,26 @@ export function useBackendModelCatalog(options: { sessionId: string; backend?: A
 				.catch((error) => {
 					if (sequence !== sequenceRef.current) return;
 					// IPC 异常兜底：列表置空 + 合成失败报告（选择器据此显示失败引导与重试按钮，
-					// 而不是把 report 留成 null 导致面板空白），并 toast 提示原始错误。
-					const detail = error instanceof Error ? error.message : String(error);
+					// 而不是把 report 留成 null 导致面板空白），并 toast 提示错误。
+					// 「DSH host 手动停止」是主进程内部 sentinel（契约见 shared/dshManualStop.ts），
+					// 原样展示会把 "Error invoking remote method ..." 漏给用户：toast 映射成 i18n 文案，
+					// report 用专用失败原因（选择器引导「启动 host」而非「检查 pi 健康」；detail 留空，
+					// 引导块已按 reason 出文案，pre 里再放 sentinel 等于没修）。
+					const rawDetail = error instanceof Error ? error.message : String(error);
+					const dshStopped = options.backend === "dsh" && isDshManuallyStoppedErrorMessage(rawDetail);
 					setModels([]);
 					setReport({
 						models: [],
 						ok: false,
-						reason: "cli-failed",
+						reason: dshStopped ? "dsh-host-stopped" : "cli-failed",
 						version: null,
-						detail,
+						detail: dshStopped ? "" : rawDetail,
 						source: "none",
 						at: Date.now(),
 					});
 					setLoading(false);
 					setRefreshing(false);
-					showNotice(detail, 4000);
+					showNotice(dshStopped ? t("app.modelListFailDshStopped") : rawDetail, 4000);
 				});
 		},
 		[options.enabled, options.backend, options.projectId],

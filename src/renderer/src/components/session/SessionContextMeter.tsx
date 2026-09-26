@@ -288,7 +288,13 @@ export function SessionContextMeter(props: {
 	// 必须以「是否有真实数据」为准（percent=0 的真实数据也允许压缩）。
 	const compactUi = compactUiState(context?.percent, compacting);
 	const compactDisabled = compactUi.compacting || (!compactUi.ready && !overflowRecovery);
-	const compactUrgency = overflowRecovery ? "text-destructive border-destructive/40 bg-destructive/5 hover:bg-destructive/10" : compactUi.urgency === "danger" ? "text-destructive border-destructive/40 hover:bg-destructive/10" : compactUi.urgency === "warn" ? "text-amber-500 border-amber-500/40 hover:bg-amber-500/10" : "border-border hover:bg-muted/60";
+	const compactUrgency = overflowRecovery
+		? "text-destructive border-destructive/40 bg-destructive/5 hover:bg-destructive/10"
+		: compactUi.urgency === "danger"
+			? "text-destructive border-destructive/40 hover:bg-destructive/10"
+			: compactUi.urgency === "warn"
+				? "text-amber-500 border-amber-500/40 hover:bg-amber-500/10"
+				: "border-border hover:bg-muted/60";
 
 	return (
 		<span ref={rootRef} className="relative inline-flex" data-testid="session-context-meter">

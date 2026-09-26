@@ -2,9 +2,9 @@
  * 本地 whisper-cli 转写执行器。
  *
  * 渲染层把录音解码成 16kHz 单声道 WAV 后经 IPC 送进来（webm/opus 依赖 whisper.cpp
- * 之外的解码器，Chromium 侧解码零成本）；本模块写临时文件 → spawn 官方 CLI →
- * 收 stdout → 清理。音频只在磁盘短暂存在（与「音频永不持久化」的边界一致，
- * finally 必须删除）。
+ * 之外的解码器，Chromium 侧解码零成本）；本模块写临时文件 → 交给常驻 whisper-server，
+ * 不可用时回退一次性 whisper-cli → 收结果 → 清理。音频只在磁盘短暂存在（与「音频永不
+ * 持久化」的边界一致，finally 必须删除）。
  *
  * 子进程规范（AGENTS 安全约束）：参数数组传递不拼 shell；env 走注入的清洗函数；
  * Windows 用 windowsHide；超时 killProcessTree 杀整棵树，promise 必 settle。
@@ -16,6 +16,8 @@ import { VOICE_TRANSCRIPTION_LOCAL_TIMEOUT_MS, VOICE_TRANSCRIPTION_MAX_AUDIO_BYT
 import type { VoiceTranscriptionResult } from "../../shared/types/voiceTranscription";
 import type { WhisperModelId } from "../../shared/types/whisperRuntime";
 import { killProcessTree } from "../git/gitProcess";
+import { VOICE_SIMPLIFIED_CHINESE_PROMPT } from "./simplifiedChinese";
+import type { WhisperServerPool } from "./WhisperServerPool";
 import type { WhisperRuntimeManager } from "./WhisperRuntimeManager";
 
 /** 转写输出文本上限：10 分钟语音的正常输出远小于此，超出视为异常输出。 */
@@ -23,6 +25,11 @@ const MAX_STDOUT_BYTES = 1024 * 1024;
 
 export type WhisperTranscriberDeps = {
 	manager: Pick<WhisperRuntimeManager, "resolveCliPath" | "modelPath">;
+	/**
+	 * 常驻 whisper-server（首选路径）。未注入或其判定不可用时回退 whisper-cli，
+	 * 回退是刻意的：常驻进程拉不起来只是「慢一点」，而不是语音输入失效。
+	 */
+	server?: Pick<WhisperServerPool, "transcribe" | "cancel">;
 	/** 临时 WAV 的落盘目录（userData/voice-runtime/tmp）。 */
 	getTempRoot: () => string;
 	/** 子进程环境（注入 PiLocator.createProcessEnv 之类的清洗结果）；未就绪时返回 undefined = 继承默认。 */
@@ -56,7 +63,7 @@ export class WhisperTranscriber {
 			// requestId 已在 IPC 边界限定 [a-zA-Z0-9-]，可直接作文件名。
 			wavPath = join(tempRoot, `rec-${input.requestId}.wav`);
 			await writeFile(wavPath, Buffer.from(input.audio));
-			const text = await this.runCli(cliPath, wavPath, modelPath, input.requestId, input.language);
+			const text = await this.transcribeWithPreferredEngine({ requestId: input.requestId, wavPath, cliPath, modelPath, language: input.language });
 			if (text === null) return { ok: false, error: "cancelled" };
 			// 只判「有没有输出字符」；`[BLANK_AUDIO]` 这类非语音占位词由
 			// VoiceTranscriptionService 统一收口（云端引擎也会吐同样的词，必须同源过滤）。
@@ -69,17 +76,35 @@ export class WhisperTranscriber {
 		}
 	}
 
-	/** 用户取消进行中的转写：杀掉 whisper-cli 进程树。 */
+	/** 用户取消进行中的转写：中断常驻 server 的请求，并杀掉 whisper-cli 进程树。 */
 	cancel(requestId: string): void {
+		this.deps.server?.cancel(requestId);
 		const pid = this.inFlight.get(requestId);
 		if (pid === undefined) return;
 		this.cancelled.add(requestId);
 		killProcessTree(pid);
 	}
 
+	/**
+	 * 首选常驻 whisper-server（模型已加载，实测单段 2.6~3.3s）；它不可用或失败时
+	 * 回退一次性 whisper-cli（每段都要重载模型，6.3~8.5s）。
+	 * 两条路径共用同一份临时 WAV，回退不重复落盘。返回 null = 用户已取消。
+	 */
+	private async transcribeWithPreferredEngine(input: { requestId: string; wavPath: string; cliPath: string; modelPath: string; language: string }): Promise<string | null> {
+		const server = this.deps.server;
+		if (!server) return this.runCli(input.cliPath, input.wavPath, input.modelPath, input.requestId, input.language);
+		const outcome = await server.transcribe(input);
+		if (outcome.status === "ok") return outcome.text;
+		if (outcome.status === "cancelled") return null;
+		this.deps.log("resident server unavailable, falling back to whisper-cli", { error: outcome.error });
+		return this.runCli(input.cliPath, input.wavPath, input.modelPath, input.requestId, input.language);
+	}
+
 	private runCli(cliPath: string, wavPath: string, modelPath: string, requestId: string, language: string): Promise<string | null> {
 		return new Promise((resolvePromise, rejectPromise) => {
-			const args = ["-m", modelPath, "-f", wavPath, "-nt", "--no-prints"];
+			// -bo 1 -bs 1 -nf：贪心解码、关掉温度回退；与常驻 server 的请求参数保持一致，
+			// 否则回退路径会突然慢一倍（实测 6.3s → 3.4s）。
+			const args = ["-m", modelPath, "-f", wavPath, "-nt", "--no-prints", "-bo", "1", "-bs", "1", "-nf", "--prompt", VOICE_SIMPLIFIED_CHINESE_PROMPT, "--carry-initial-prompt"];
 			// 空语言 = 交给 whisper 自动检测（--language auto 在部分版本行为不一致，直接省略最稳）。
 			if (language.trim()) args.push("-l", language.trim());
 			const child = spawn(cliPath, args, {

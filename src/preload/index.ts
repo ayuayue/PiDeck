@@ -11,7 +11,7 @@ import type { ImageBlobPayload, ImageGenConfigFile, ImageGenRequest, ImageGenRes
 import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
 import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../shared/types/extensionsUpdate";
 import type { BuiltinContentCheckResult, BuiltinContentUpdateResult, BuiltinContentUpdateStatus } from "../shared/types/contentUpdate";
-import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult, VoiceTranscriptionSaveInput, VoiceTranscriptionSaveResult } from "../shared/types/voiceTranscription";
+import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionRequest, VoiceTranscriptionResult, VoiceTranscriptionSaveInput, VoiceTranscriptionSaveResult, VoiceTranscriptionTestResult } from "../shared/types/voiceTranscription";
 import type { WhisperInstallProgress, WhisperInstallResult, WhisperRuntimeStatus } from "../shared/types/whisperRuntime";
 import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
 import type {
@@ -1315,6 +1315,8 @@ const api = {
 		saveConfig: (config: VoiceTranscriptionSaveInput) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionSaveConfig, config) as Promise<VoiceTranscriptionSaveResult>,
 		transcribe: (request: VoiceTranscriptionRequest) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionTranscribe, request) as Promise<VoiceTranscriptionResult>,
 		cancel: (requestId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionCancel, requestId) as Promise<void>,
+		/** 用静音探针检测当前配置是否真的能转写（密钥留在主进程，渲染层只拿结论）。 */
+		test: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionTest) as Promise<VoiceTranscriptionTestResult>,
 		/** 本地 whisper 运行时/模型安装状态（含自定义 CLI 路径生效判定）。 */
 		runtimeStatus: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionRuntimeStatus) as Promise<WhisperRuntimeStatus>,
 		/** 按需下载 whisper-cli 二进制（进度走 onRuntimeProgress）。 */
@@ -1324,6 +1326,8 @@ const api = {
 		deleteModel: (modelId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionModelDelete, modelId) as Promise<WhisperInstallResult>,
 		/** 安装进度推送；返回退订函数。 */
 		onRuntimeProgress: (callback: (progress: WhisperInstallProgress) => void) => subscribe(ipcChannels.voiceTranscriptionRuntimeProgress, callback),
+		/** 取消进行中的下载（运行时与模型同一时刻只有一个任务）；false = 当前没有在跑的任务。 */
+		abortInstall: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionInstallCancel) as Promise<boolean>,
 	},
 	// ── 模型目录（pi-ai-catalog）：查询状态 / 检查更新 / 从 GitHub 更新 / 还原 / 恢复备份 ──
 	catalog: {

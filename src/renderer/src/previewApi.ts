@@ -127,7 +127,7 @@ let previewSettings: AppSettings = {
 	agentCountReminderEnabled: true,
 	// 公告通知开关：与主进程 SettingsStore 默认一致（预览 mock 需覆盖 AppSettings 全部必填字段）
 	announcementNotificationEnabled: true,
-	// toast 默认展示时长：与主进程 defaultSettings 一致
+	// toast 展示时长：与主进程 defaultSettings 一致
 	toastDurationMs: DEFAULT_TOAST_DURATION_MS,
 	// showThinking 由 pi agent 的 hideThinkingBlock 控制，运行时从主进程加载
 	showThinking: true,
@@ -1592,23 +1592,28 @@ export function createPreviewApi(): PiDesktopApi {
 			readImageBlob: async () => null,
 		},
 		voiceTranscription: {
-			getConfig: async () => ({ ...DEFAULT_VOICE_TRANSCRIPTION_CONFIG, hasApiKey: false, runtimeReady: false }),
+			getConfig: async () => ({ ...DEFAULT_VOICE_TRANSCRIPTION_CONFIG, hasApiKey: false, hasVolcAppId: false, hasVolcAccessToken: false, runtimeReady: false }),
 			saveConfig: async (config) => ({
 				ok: true,
 				config: {
 					enabled: config.enabled,
 					engine: config.engine,
+					cloudProvider: config.cloudProvider,
 					baseUrl: config.baseUrl,
 					model: config.model,
 					language: config.language,
 					inputDeviceId: config.inputDeviceId,
 					localModelId: config.localModelId,
 					cliPath: config.cliPath,
+					cloudResourceId: config.cloudResourceId,
 					hasApiKey: false,
+					hasVolcAppId: false,
+					hasVolcAccessToken: false,
 					runtimeReady: false,
 				},
 			}),
 			transcribe: async () => ({ ok: false, error: "notConfigured" }),
+			test: async () => ({ ok: false, error: "notConfigured" }),
 			cancel: async () => {},
 			runtimeStatus: async () => ({ autoRuntimeSupported: false, cliReady: false, cliSource: "none", cliPath: null, runtimeVersion: null, models: [] }),
 			installRuntime: async () => ({ ok: false, error: "preview stub" }),

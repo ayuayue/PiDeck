@@ -285,6 +285,7 @@ import { VoiceTranscriptionService } from "./voice/VoiceTranscriptionService";
 import { fetchWhisperReleaseDigests, WhisperRuntimeManager } from "./voice/WhisperRuntimeManager";
 import { getWhisperModelDef } from "../shared/types/whisperRuntime";
 import { WhisperTranscriber } from "./voice/WhisperTranscriber";
+import { WhisperServerPool } from "./voice/WhisperServerPool";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
@@ -2447,8 +2448,20 @@ function registerIpc() {
 		fetchReleaseDigests: fetchWhisperReleaseDigests,
 		log: (scope, message, detail) => void appLogger.info(scope, message, detail),
 	});
+	const whisperServerPool = new WhisperServerPool({
+		resolveServerPath: (input) => whisperRuntimeManager.resolveServerPath(input),
+		getEnv: () => (piLocator ? piLocator.createProcessEnv() : undefined),
+		log: (message, details) => void appLogger.info("voice-whisper-server", message, details),
+	});
+	// C12：退出清理登记（before-quit 统一 runAll）——常驻推理进程必须随应用回收，
+	// 否则残留的 whisper-server 会一直占着几百 MB 模型内存和监听端口。
+	quitCleanup.register("whisper-server", async () => {
+		whisperServerPool.abortAll();
+		await whisperServerPool.shutdown("quit");
+	});
 	const whisperTranscriber = new WhisperTranscriber({
 		manager: whisperRuntimeManager,
+		server: whisperServerPool,
 		getTempRoot: () => join(whisperRuntimeRoot, "tmp"),
 		// piLocator 在启动装配后段才就绪（本注册在其之前），转写发生在运行期，闭包懒取即可。
 		getEnv: () => (piLocator ? piLocator.createProcessEnv() : undefined),
@@ -2476,6 +2489,8 @@ function registerIpc() {
 			log: (message, details) => void appLogger.info("voice-transcription", message, details),
 		}),
 		runtimeManager: whisperRuntimeManager,
+		// 删模型/换二进制前先放下常驻进程：Windows 的文件锁会让删除直接失败。
+		beforeRuntimeMutation: () => whisperServerPool.shutdown("runtime-mutation"),
 		emitRuntimeProgress: (progress) => {
 			if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.voiceTranscriptionRuntimeProgress, progress);
 		},
