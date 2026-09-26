@@ -24,9 +24,12 @@ export function parseSshResolvedRoute(result: { exitCode: number; stdout: string
 	for (const [index, rawLine] of lines.entries()) {
 		if (index === lines.length - 1 && rawLine === "") continue;
 		const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-		const match = /^([a-z][a-z0-9]*)(?:[ \t]+(.*))?$/.exec(line);
+		// OpenSSH prints most keywords in lower case but not all (e.g. canonicalizePermittedcnames),
+		// so internal capitals are allowed; the first character must stay lower case, which still
+		// rejects stray banner text such as "UNTRUSTED BANNER" in the query output.
+		const match = /^([a-z][A-Za-z0-9]*)(?:[ \t]+(.*))?$/.exec(line);
 		if (!match || /[\x00-\x08\x0b-\x1f\x7f]/.test(line)) invalidRoute();
-		const key = match[1];
+		const key = match[1].toLowerCase();
 		if (!ROUTE_KEYS.has(key)) continue;
 		if (fields.has(key)) invalidRoute();
 		fields.set(key, match[2] ?? "");

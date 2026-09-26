@@ -1,14 +1,13 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSshConfigQueryArgs, type SshDraftRoute } from "./SshCommandBuilder";
-import { parseSshResolvedRoute, sshRouteDigest } from "./SshRouteDigest";
+import { runSshClientSelfCheck, type SshClientRuntime, type SshCommandResult, type SshCommandRunner } from "./SshClientRuntime";
+import { parseSshResolvedRoute, sshRouteDigest, type SshResolvedRoute } from "./SshRouteDigest";
 
-export type SshCommandResult = { exitCode: number; stdout: string };
-export type SshCommandRunner = (executable: string, args: string[]) => Promise<SshCommandResult>;
+export type { SshClientRuntime, SshCommandResult, SshCommandRunner };
 
 export type SshDraftHostCandidate = {
 	hostName: string;
@@ -55,17 +54,6 @@ export async function readBoundedHostKey(filePath: string): Promise<Buffer> {
 	}
 }
 
-async function runSsh(executable: string, args: string[]): Promise<SshCommandResult> {
-	return new Promise((resolve, reject) => {
-		execFile(executable, args, { encoding: "utf8", timeout: 30_000, maxBuffer: 256 * 1024, windowsHide: true, shell: false }, (error, stdout) => {
-			if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return reject(new Error("SSH_HOST_COMMAND_OUTPUT_TOO_LARGE"));
-			if (error?.code === "ETIMEDOUT" || error?.killed) return reject(new Error("SSH_HOST_COMMAND_TIMEOUT"));
-			if (error?.code === "ENOENT" || error?.code === "EACCES") return reject(new Error("SSH_CLIENT_UNAVAILABLE"));
-			resolve({ exitCode: error ? (typeof error.code === "number" ? error.code : -1) : 0, stdout });
-		});
-	});
-}
-
 export function fingerprintSshHostKey(bytes: Buffer, pinAlias: string): string {
 	if (bytes.length === 0 || bytes.length > MAX_PIN_BYTES) invalidKey();
 	const text = bytes.toString("utf8");
@@ -81,7 +69,7 @@ export function fingerprintSshHostKey(bytes: Buffer, pinAlias: string): string {
 	return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
 }
 
-function assertNoForwardedEnvironment(stdout: string): void {
+export function assertNoForwardedEnvironment(stdout: string): void {
 	if (stdout.split(/\r?\n/).some((line) => /^(?:sendenv|setenv)(?:[ \t]|$)/.test(line))) throw new Error("SSH_HOST_ENV_UNVERIFIED");
 }
 
@@ -137,28 +125,40 @@ function draftProbeArgs(routeArgs: string[], pinAlias: string, knownHostsFile: s
 	];
 }
 
-/** Return an in-memory candidate after SSH authentication; profile activation needs separate user confirmation. */
-export async function verifyDraftSshHost(route: SshDraftRoute, pinAlias: string, options: { run?: SshCommandRunner } = {}): Promise<SshDraftHostCandidate> {
+/** Resolve the candidate route through the caller's client; a missing context fails closed. */
+export async function querySshDraftRoute(route: SshDraftRoute, pinAlias: string, options: { client: SshClientRuntime }): Promise<SshResolvedRoute> {
 	if (typeof pinAlias !== "string" || !/^pideck-[a-z0-9-]{1,120}$/.test(pinAlias)) throw new Error("INVALID_SSH_PIN_ALIAS");
+	const client = requireClient(options);
 	const routeArgs = buildSshConfigQueryArgs(route);
 	const queryArgs = ["-G", "-o", `HostKeyAlias=${pinAlias}`, "-o", "SendEnv=-*", "-o", "ForwardX11=no", ...routeArgs.slice(1)];
-	const run = options.run ?? runSsh;
-	const query = await run("ssh", queryArgs);
-	const resolvedRoute = parseSshResolvedRoute(query);
+	const query = await client.run(client.sshPath, queryArgs);
+	const resolved = parseSshResolvedRoute(query);
 	assertNoForwardedEnvironment(query.stdout);
-	if (resolvedRoute.hostKeyAlias !== pinAlias) throw new Error("SSH_HOST_ROUTE_CHANGED");
+	if (resolved.hostKeyAlias !== pinAlias) throw new Error("SSH_HOST_ROUTE_CHANGED");
+	return resolved;
+}
+
+function requireClient(options: { client: SshClientRuntime }): SshClientRuntime {
+	if (typeof options?.client?.run !== "function" || typeof options.client.sshPath !== "string") throw new Error("SSH_CLIENT_CONTEXT_REQUIRED");
+	return options.client;
+}
+
+/** Return an in-memory candidate after SSH authentication; profile activation needs separate user confirmation. */
+export async function verifyDraftSshHost(route: SshDraftRoute, pinAlias: string, options: { client: SshClientRuntime }): Promise<SshDraftHostCandidate> {
+	const client = requireClient(options);
+	await runSshClientSelfCheck(client);
+	const resolvedRoute = await querySshDraftRoute(route, pinAlias, { client });
+	const routeArgs = buildSshConfigQueryArgs(route);
 	const routeDigest = sshRouteDigest(resolvedRoute);
 	const directory = await mkdtemp(join(tmpdir(), "pideck-ssh-kh-"));
 	try {
 		const knownHostsFile = join(directory, "known_hosts");
-		const auth = await run("ssh", draftProbeArgs(routeArgs, pinAlias, knownHostsFile));
+		const auth = await client.run(client.sshPath, draftProbeArgs(routeArgs, pinAlias, knownHostsFile));
 		if (auth.exitCode !== 0 || auth.stdout !== "") throw new Error("SSH_HOST_AUTHENTICATION_FAILED");
 		const knownHostsBytes = await readBoundedHostKey(knownHostsFile);
 		const fingerprint = fingerprintSshHostKey(knownHostsBytes, pinAlias);
-		const afterQuery = await run("ssh", queryArgs);
-		const afterAuth = parseSshResolvedRoute(afterQuery);
-		assertNoForwardedEnvironment(afterQuery.stdout);
-		if (afterAuth.hostKeyAlias !== pinAlias || sshRouteDigest(afterAuth) !== routeDigest) throw new Error("SSH_HOST_ROUTE_CHANGED");
+		const afterAuth = await querySshDraftRoute(route, pinAlias, { client });
+		if (sshRouteDigest(afterAuth) !== routeDigest) throw new Error("SSH_HOST_ROUTE_CHANGED");
 		return {
 			hostName: resolvedRoute.hostName,
 			user: resolvedRoute.user,

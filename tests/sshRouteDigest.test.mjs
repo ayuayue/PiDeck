@@ -48,6 +48,15 @@ test("missing and explicitly empty optional routes are distinct", () => {
 	assert.notEqual(sshRouteDigest(absent), sshRouteDigest(empty));
 });
 
+test("accepts real OpenSSH keyword casing while ignoring unrelated options", () => {
+	// Captured from Windows OpenSSH 9.5p2: one keyword is printed with an internal capital.
+	const route = parsed(`${directConfig}canonicalizePermittedcnames none\naddressfamily any\ncompression no\n`);
+	assert.equal(route.hostName, "example.invalid");
+	assert.equal(sshRouteDigest(route), sshRouteDigest(parsed(directConfig)));
+	// A duplicated route key is still rejected even when spelled with different casing.
+	assert.throws(() => parsed(`${directConfig}HostName changed.invalid\n`), /INVALID_SSH_ROUTE/);
+});
+
 test("refuses nonzero exit, incomplete config, duplicate route fields and malformed output", () => {
 	assert.throws(() => parsed(directConfig, 255), /INVALID_SSH_ROUTE/);
 	for (const config of [

@@ -3,9 +3,13 @@ import { link, lstat, mkdir, open, unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
 import { buildSshConfigQueryArgs, type SshDraftRoute } from "./SshCommandBuilder";
+import { createSshClientRuntime, type SshClientRuntime } from "./SshClientRuntime";
 import { fingerprintSshHostKey, readBoundedHostKey, type SshDraftHostCandidate, verifyDraftSshHost } from "./SshHostVerifier";
 
 export type VerifiedSshEndpoint = Omit<SshDraftHostCandidate, "knownHostsBase64">;
+
+/** Pin enrollment only needs the route and alias; the client context is bound by the store itself. */
+type SshHostPinVerifier = (route: SshDraftRoute, pinAlias: string) => Promise<SshDraftHostCandidate>;
 
 export type SshPinOffer = {
 	requestId: string;
@@ -75,20 +79,39 @@ async function syncDirectory(directory: string): Promise<void> {
 /** Persist only broker-approved, reverified host pins; the caller must separately save endpoint metadata. */
 export class SshHostPinStore {
 	private readonly root: string;
-	private readonly verifier: typeof verifyDraftSshHost;
+	private readonly verifier?: SshHostPinVerifier;
+	private readonly client?: SshClientRuntime;
+	private resolvedClient?: SshClientRuntime;
 	private readonly broker = new PendingConfirmationBroker<PendingPin>({
 		onRemoved: (requestId) => {
-			for (const [hostId, pending] of this.byHost) if (pending.requestId === requestId) this.byHost.delete(hostId);
+			for (const [hostId, pending] of this.byHost)
+				if (pending.requestId === requestId) {
+					this.byHost.delete(hostId);
+					this.pendingRoutes.delete(hostId);
+				}
 		},
 	});
 	private readonly byHost = new Map<string, { requestId: string; senderId: number; digest: string }>();
+	private readonly pendingRoutes = new Map<string, SshDraftRoute>();
 	private readonly senderEpoch = new Map<number, number>();
 	private closed = false;
 
-	constructor(userDataDir: string, options: { verifier?: typeof verifyDraftSshHost } = {}) {
+	constructor(userDataDir: string, options: { verifier?: SshHostPinVerifier; client?: SshClientRuntime } = {}) {
 		if (typeof userDataDir !== "string" || !isAbsolute(userDataDir) || /[\x00-\x1f\x7f]/.test(userDataDir)) throw new Error("SSH_HOST_PIN_ROOT_INVALID");
 		this.root = join(userDataDir, "ssh-host-keys");
-		this.verifier = options.verifier ?? verifyDraftSshHost;
+		this.verifier = options.verifier;
+		this.client = options.client;
+	}
+
+	/**
+	 * Resolve the client lazily: constructing the store must stay cheap (and must not require an
+	 * OpenSSH installation) so simply opening the host catalog cannot fail on a missing client.
+	 */
+	private verifierFor(): SshHostPinVerifier {
+		if (this.verifier) return this.verifier;
+		this.resolvedClient ??= this.client ?? createSshClientRuntime();
+		const client = this.resolvedClient;
+		return (route, pinAlias) => verifyDraftSshHost(route, pinAlias, { client });
 	}
 
 	async offer(input: { hostId: string; senderId: number; route: SshDraftRoute }): Promise<SshPinOffer> {
@@ -100,7 +123,7 @@ export class SshHostPinStore {
 		buildSshConfigQueryArgs(route);
 		const filePath = this.pathFor(input.hostId);
 		await assertPinAbsent(filePath);
-		const candidate = await this.verifier(route, `pideck-${input.hostId}`);
+		const candidate = await this.verifierFor()(route, `pideck-${input.hostId}`);
 		candidateBytes(candidate, input.hostId);
 		await assertPinAbsent(filePath);
 		this.assertActive(input.senderId, epoch);
@@ -110,7 +133,22 @@ export class SshHostPinStore {
 		if (previous) this.broker.cancel(previous.requestId);
 		const issued = this.broker.begin({ senderId: input.senderId, action: ACTION, subjectId: input.hostId, stateDigest: digest, payload: { candidate: snapshot, route } });
 		this.byHost.set(input.hostId, { requestId: issued.requestId, senderId: input.senderId, digest });
+		this.pendingRoutes.set(input.hostId, { ...route });
 		return { ...issued, hostId: input.hostId, hostName: snapshot.hostName, user: snapshot.user, port: snapshot.port, pinAlias: snapshot.pinAlias, routeDigest: snapshot.routeDigest, hostKeyFingerprints: [...snapshot.hostKeyFingerprints] };
+	}
+
+	/** True while an offer for this host is waiting for confirmation. */
+	hasPendingOffer(hostId: string): boolean {
+		return this.byHost.has(hostId);
+	}
+
+	/**
+	 * Route the pending offer was made for. The caller compares it against the current profile before
+	 * publishing, so a draft that was re-pointed while the prompt was open cannot be marked verified.
+	 */
+	pendingRoute(hostId: string): SshDraftRoute | undefined {
+		const route = this.pendingRoutes.get(hostId);
+		return route === undefined ? undefined : { ...route };
 	}
 
 	async answer(input: SshPinAnswer): Promise<VerifiedSshEndpoint | null> {
@@ -120,8 +158,9 @@ export class SshHostPinStore {
 		const epoch = this.senderEpoch.get(input.senderId) ?? 0;
 		const authorized = this.broker.answer({ ...input, action: ACTION, subjectId: input.hostId, stateDigest: pending.digest });
 		this.byHost.delete(input.hostId);
+		this.pendingRoutes.delete(input.hostId);
 		if (!authorized) return null;
-		const current = await this.verifier(authorized.route, authorized.candidate.pinAlias);
+		const current = await this.verifierFor()(authorized.route, authorized.candidate.pinAlias);
 		const bytes = candidateBytes(current, input.hostId);
 		if (pinDigest(input.hostId, current) !== pending.digest) throw new Error("SSH_HOST_CANDIDATE_CHANGED");
 		this.assertActive(input.senderId, epoch);
@@ -142,16 +181,37 @@ export class SshHostPinStore {
 		}
 	}
 
+	/**
+	 * Remove the pin of a host whose profile is being retired. Only called once the profile itself is
+	 * gone, otherwise the pin would be reported as an orphan and the store would need repair.
+	 */
+	async deletePin(hostId: string): Promise<void> {
+		this.checkHostId(hostId);
+		const filePath = this.pathFor(hostId);
+		try {
+			await unlink(filePath);
+			await syncDirectory(this.root);
+		} catch (error) {
+			// A pin that is already gone is the desired state; anything else must surface as a failure.
+			if (errorCode(error) !== "ENOENT") throw new Error("SSH_HOST_PIN_CLEANUP_FAILED");
+		}
+	}
+
 	cancelSender(senderId: number): void {
 		this.senderEpoch.set(senderId, (this.senderEpoch.get(senderId) ?? 0) + 1);
 		this.broker.cancelSender(senderId);
-		for (const [hostId, item] of this.byHost) if (item.senderId === senderId) this.byHost.delete(hostId);
+		for (const [hostId, item] of this.byHost)
+			if (item.senderId === senderId) {
+				this.byHost.delete(hostId);
+				this.pendingRoutes.delete(hostId);
+			}
 	}
 
 	dispose(): void {
 		this.closed = true;
 		this.broker.dispose();
 		this.byHost.clear();
+		this.pendingRoutes.clear();
 		this.senderEpoch.clear();
 	}
 
