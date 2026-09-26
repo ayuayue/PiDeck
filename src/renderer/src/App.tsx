@@ -525,6 +525,8 @@ export function App() {
 		setCodexImportProject,
 		claudeImportProject,
 		setClaudeImportProject,
+		qoderImportProject,
+		setQoderImportProject,
 		openCodeImportProject,
 		setOpenCodeImportProject,
 		zcodeImportProject,
@@ -535,12 +537,14 @@ export function App() {
 		setCursorImportProject,
 		codexImportController,
 		claudeImportController,
+		qoderImportController,
 		openCodeImportController,
 		zcodeImportController,
 		workbuddyImportController,
 		cursorImportController,
 		openCodexImport,
 		openClaudeImport,
+		openQoderImport,
 		openOpenCodeImport,
 		openZCodeImport,
 		openWorkBuddyImport,
@@ -553,6 +557,8 @@ export function App() {
 		importCodexSessionsApi: api.codexSessions.import,
 		scanClaudeSessions: api.claudeSessions.scan,
 		importClaudeSessionsApi: api.claudeSessions.import,
+		scanQoderSessions: api.qoderSessions.scan,
+		importQoderSessionsApi: api.qoderSessions.import,
 		scanOpenCodeSessions: api.openCodeSessions.scan,
 		importOpenCodeSessionsApi: api.openCodeSessions.import,
 		scanZCodeSessions: api.zcodeSessions.scan,
@@ -3020,6 +3026,7 @@ export function App() {
 			importSessions: (project, source) => {
 				if (source === "codex") return openCodexImport(project);
 				if (source === "claude") return openClaudeImport(project);
+				if (source === "qoder") return openQoderImport(project);
 				if (source === "zcode") return openZCodeImport(project);
 				if (source === "workbuddy") return openWorkBuddyImport(project);
 				if (source === "cursor") return openCursorImport(project);
@@ -4279,6 +4286,7 @@ export function App() {
 					{proxyDialogSessionId && <SessionProxyDialog sessionId={proxyDialogSessionId} onClose={() => setProxyDialogSessionId(null)} />}
 					{codexImportProject && <ImportOverlayHost kind="codex" project={codexImportProject} controller={codexImportController} onClose={() => setCodexImportProject(null)} />}
 					{claudeImportProject && <ImportOverlayHost kind="claude" project={claudeImportProject} controller={claudeImportController} onClose={() => setClaudeImportProject(null)} />}
+					{qoderImportProject && <ImportOverlayHost kind="qoder" project={qoderImportProject} controller={qoderImportController} onClose={() => setQoderImportProject(null)} />}
 					{openCodeImportProject && <ImportOverlayHost kind="opencode" project={openCodeImportProject} controller={openCodeImportController} onClose={() => setOpenCodeImportProject(null)} />}
 					{zcodeImportProject && <ImportOverlayHost kind="zcode" project={zcodeImportProject} controller={zcodeImportController} onClose={() => setZcodeImportProject(null)} />}
 					{workbuddyImportProject && <ImportOverlayHost kind="workbuddy" project={workbuddyImportProject} controller={workbuddyImportController} onClose={() => setWorkbuddyImportProject(null)} />}

@@ -519,6 +519,7 @@ export function SessionSourceFilterMenu(props: { menu: { projectId: string; x: n
 		pi: t("sessionSource.pi"),
 		codex: t("sessionSource.codex"),
 		claude: t("sessionSource.claude"),
+		qoder: t("sessionSource.qoder"),
 		opencode: t("sessionSource.opencode"),
 		zcode: t("sessionSource.zcode"),
 		workbuddy: t("sessionSource.workbuddy"),
@@ -559,6 +560,7 @@ export function ProjectContextMenu(props: {
 	onOpenWithEditor: () => void;
 	onImportCodexSessions: () => void;
 	onImportClaudeSessions: () => void;
+	onImportQoderSessions: () => void;
 	onImportOpenCodeSessions: () => void;
 	onImportZCodeSessions: () => void;
 	onImportWorkBuddySessions: () => void;
@@ -669,6 +671,7 @@ export function ProjectContextMenu(props: {
 						<DropdownMenuSubContent>
 							<DropdownMenuItem onSelect={props.onImportCodexSessions}>{t("menu.importCodex")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportClaudeSessions}>{t("menu.importClaude")}</DropdownMenuItem>
+							<DropdownMenuItem onSelect={props.onImportQoderSessions}>{t("menu.importQoder")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportOpenCodeSessions}>{t("menu.importOpenCode")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportZCodeSessions}>{t("menu.importZCode")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportWorkBuddySessions}>{t("menu.importWorkBuddy")}</DropdownMenuItem>

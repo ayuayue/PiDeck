@@ -74,6 +74,43 @@ export type ClaudeImportReport = {
 	failed: number;
 };
 
+// ── Qoder Session Import Types ─────────────────────────────────────────
+// Qoder 与 Claude 同构（导入器直接复用其管线），汇总结构与 Claude 一致。
+
+export type QoderImportStatus = "new" | "current" | "outdated";
+
+export type QoderSessionSummary = {
+	id: string;
+	sourcePath: string;
+	targetPath: string;
+	cwd: string;
+	title: string;
+	preview: string;
+	createdAt: number;
+	updatedAt: number;
+	messageCount: number;
+	status: QoderImportStatus;
+	sourceSize: number;
+	importedSourceMtime?: number;
+};
+
+export type QoderImportResult = {
+	id: string;
+	sourcePath: string;
+	targetPath?: string;
+	title?: string;
+	success: boolean;
+	overwritten?: boolean;
+	messageCount?: number;
+	error?: string;
+};
+
+export type QoderImportReport = {
+	results: QoderImportResult[];
+	imported: number;
+	failed: number;
+};
+
 // ── OpenCode Session Import Types ──────────────────────────────────────
 
 export type OpenCodeImportStatus = "new" | "current" | "outdated";

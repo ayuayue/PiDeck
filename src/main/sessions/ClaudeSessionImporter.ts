@@ -25,8 +25,23 @@ type ParsedClaudeSession = {
 /** 向 pi 会话写一条消息（返回 Promise：流式导入要尊重写盘背压）。 */
 type ClaudePushMessage = (role: "user" | "assistant" | "toolResult", content: unknown[], extra?: Record<string, unknown>, timestampValue?: string) => Promise<void>;
 
+/**
+ * Claude Code（~/.claude/projects）会话导入器。
+ *
+ * 同时作为「Claude 同构 transcript」家族的基类：Qoder 等工具的 JSONL 与本类的
+ * 解析/转换管线逐字段兼容（user/assistant 行 + text/thinking/tool_use/tool_result 块，
+ * 顶层带 cwd/sessionId），子类只需覆盖 sourceRoot/sourceKey 等保护字段与目录扫描方式。
+ */
 export class ClaudeSessionImporter {
-	private readonly claudeRoot = join(app.getPath("home"), ".claude", "projects");
+	/** 源会话库根目录；子类导入器（如 Qoder）改指向自己的工具目录。 */
+	protected sourceRoot = join(app.getPath("home"), ".claude", "projects");
+	/** 来源标识：决定产物文件名 `<key>_<id>.jsonl`、导入标记行 `<key>_import` 与 api 标签。 */
+	protected sourceKey = "claude";
+	/** 来源展示名（标题/预览兜底文案与扫描错误信息用）。 */
+	protected sourceLabel = "Claude";
+	/** 源 transcript 不带可辨识模型时的占位标签（model_change 行 / assistant provider）。 */
+	protected defaultProvider = "anthropic";
+	protected defaultModelId = "claude-sonnet-4";
 	private readonly piRoot = join(app.getPath("home"), ".pi", "agent", "sessions");
 
 	constructor(private readonly translate: SessionImportCopy = defaultSessionImportCopy) {}
@@ -190,24 +205,24 @@ export class ClaudeSessionImporter {
 		});
 
 		await pushEntry({
-			type: "claude_import",
+			type: `${this.sourceKey}_import`,
 			version: 1,
-			claudeSessionId: sessionId,
+			sourceSessionId: sessionId,
 			sourcePath: session.sourcePath,
 			sourceMtime: session.sourceMtime,
 			sourceSize: session.sourceSize,
 			importedAt: new Date().toISOString(),
 		});
 
-		// 假设使用 Claude 模型
+		// 源未声明模型时回退占位标签（Qoder 等子类可覆盖）
 		const modelChangeId = this.makeId(sessionId, sequence++);
 		await pushEntry({
 			type: "model_change",
 			id: modelChangeId,
 			parentId,
 			timestamp,
-			provider: "anthropic",
-			modelId: "claude-sonnet-4",
+			provider: this.defaultProvider,
+			modelId: this.defaultModelId,
 		});
 		parentId = modelChangeId;
 
@@ -260,9 +275,9 @@ export class ClaudeSessionImporter {
 						"assistant",
 						content,
 						{
-							api: "claude-import",
-							provider: "anthropic",
-							model: message.model || "claude-sonnet-4",
+							api: `${this.sourceKey}-import`,
+							provider: this.defaultProvider,
+							model: message.model || this.defaultModelId,
 							stopReason: normalizeImportedStopReason({
 								raw: message.stop_reason,
 								hasToolCall: importedContentHasToolCall(content),
@@ -280,7 +295,7 @@ export class ClaudeSessionImporter {
 			}
 		}
 
-		const title = titleState.title || this.cleanTitle(basename(session.sourcePath)) || this.translate("session.importedTitle", { source: "Claude" });
+		const title = titleState.title || this.cleanTitle(basename(session.sourcePath)) || this.translate("session.importedTitle", { source: this.sourceLabel });
 		// 使用 pi 原生 session_info 格式追加在末尾，避免旧版 sessionName 行（无 type 字段）
 		// 在文件头破坏 pi 的首行校验导致会话无法加载（见 #114）。
 		await pushEntry({
@@ -294,7 +309,7 @@ export class ClaudeSessionImporter {
 
 		return {
 			title,
-			preview: titleState.preview || this.translate("session.importedPreview", { source: "Claude" }),
+			preview: titleState.preview || this.translate("session.importedPreview", { source: this.sourceLabel }),
 			messageCount,
 		};
 	}
@@ -411,7 +426,7 @@ export class ClaudeSessionImporter {
 		}
 
 		if (!firstUserEntry?.sessionId || !firstUserEntry?.cwd) {
-			throw new Error("Missing Claude session metadata");
+			throw new Error(`Missing ${this.sourceLabel} session metadata`);
 		}
 
 		return {
@@ -431,19 +446,19 @@ export class ClaudeSessionImporter {
 	}
 
 	private assertClaudeSourcePath(filePath: string) {
-		const root = this.normalize(this.claudeRoot);
+		const root = this.normalize(this.sourceRoot);
 		const target = this.normalize(filePath);
 		if (target !== root && !target.startsWith(`${root}/`)) {
-			throw new Error("Claude session path is outside ~/.claude/projects");
+			throw new Error(`${this.sourceLabel} session path is outside the import root`);
 		}
 	}
 
 	/** 读取导入产物头部的 import 标记（有界读头部，不再整读会话文件——见 importMetaHead）。 */
 	private async readImportMeta(targetPath: string) {
-		return readImportMetaHead(targetPath, "claude_import");
+		return readImportMetaHead(targetPath, `${this.sourceKey}_import`);
 	}
 
-	private async collectJsonl(dir: string): Promise<string[]> {
+	protected async collectJsonl(dir: string): Promise<string[]> {
 		try {
 			const entries = await readdir(dir, { withFileTypes: true });
 			const files: string[] = [];
@@ -462,21 +477,21 @@ export class ClaudeSessionImporter {
 	}
 
 	private getClaudeProjectDir(projectPath: string): string {
-		// 将项目路径转换为 Claude 的目录名格式
+		// 将项目路径转换为 Claude 的目录名格式（Qoder 等衍生工具沿用同一 slug 约定）
 		// 例如：C:\Users\14012\pi-desktop -> C--Users-14012-pi-desktop
 		const normalized = projectPath.replace(/\\/g, "/");
 		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
 		if (win) {
 			const dirName = `${win[1]}--${win[2].replace(/\//g, "-")}`;
-			return join(this.claudeRoot, dirName);
+			return join(this.sourceRoot, dirName);
 		}
 		const dirName = normalized.replace(/^\//, "").replace(/\//g, "-");
-		return join(this.claudeRoot, dirName);
+		return join(this.sourceRoot, dirName);
 	}
 
 	private getTargetPath(projectPath: string, session: ParsedClaudeSession) {
 		const id = session.meta.sessionId.replace(/[^a-zA-Z0-9_-]/g, "-");
-		return join(this.getProjectSessionDir(projectPath), `claude_${id}.jsonl`);
+		return join(this.getProjectSessionDir(projectPath), `${this.sourceKey}_${id}.jsonl`);
 	}
 
 	private getProjectSessionDir(projectPath: string) {

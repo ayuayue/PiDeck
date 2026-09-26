@@ -1,4 +1,20 @@
-import type { CodexImportReport, CodexSessionSummary, ClaudeImportReport, ClaudeSessionSummary, OpenCodeImportReport, OpenCodeSessionSummary, ZCodeImportReport, ZCodeSessionSummary, WorkBuddyImportReport, WorkBuddySessionSummary, CursorImportReport, CursorSessionSummary, Project } from "../../../shared/types";
+import type {
+	CodexImportReport,
+	CodexSessionSummary,
+	ClaudeImportReport,
+	ClaudeSessionSummary,
+	QoderImportReport,
+	QoderSessionSummary,
+	OpenCodeImportReport,
+	OpenCodeSessionSummary,
+	ZCodeImportReport,
+	ZCodeSessionSummary,
+	WorkBuddyImportReport,
+	WorkBuddySessionSummary,
+	CursorImportReport,
+	CursorSessionSummary,
+	Project,
+} from "../../../shared/types";
 import { useImportSource, type ImportController } from "./useImportSource";
 
 function getSelectableCodexImportPaths(sessions: CodexSessionSummary[]) {
@@ -19,6 +35,10 @@ export interface UseImportFlowInput {
 	scanClaudeSessions: (projectId: string) => Promise<ClaudeSessionSummary[]>;
 	/** API: import Claude sessions */
 	importClaudeSessionsApi: (projectId: string, sourcePaths: string[]) => Promise<ClaudeImportReport>;
+	/** API: scan Qoder sessions */
+	scanQoderSessions: (projectId: string) => Promise<QoderSessionSummary[]>;
+	/** API: import Qoder sessions */
+	importQoderSessionsApi: (projectId: string, sourcePaths: string[]) => Promise<QoderImportReport>;
 	/** API: scan OpenCode sessions */
 	scanOpenCodeSessions: (projectId: string) => Promise<OpenCodeSessionSummary[]>;
 	/** API: import OpenCode sessions */
@@ -44,6 +64,8 @@ export interface UseImportFlowOutput {
 	setCodexImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	claudeImportProject: Project | null;
 	setClaudeImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
+	qoderImportProject: Project | null;
+	setQoderImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	openCodeImportProject: Project | null;
 	setOpenCodeImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	zcodeImportProject: Project | null;
@@ -54,12 +76,14 @@ export interface UseImportFlowOutput {
 	setCursorImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	codexImportController: ImportController<CodexSessionSummary, CodexImportReport>;
 	claudeImportController: ImportController<ClaudeSessionSummary, ClaudeImportReport>;
+	qoderImportController: ImportController<QoderSessionSummary, QoderImportReport>;
 	openCodeImportController: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>;
 	zcodeImportController: ImportController<ZCodeSessionSummary, ZCodeImportReport>;
 	workbuddyImportController: ImportController<WorkBuddySessionSummary, WorkBuddyImportReport>;
 	cursorImportController: ImportController<CursorSessionSummary, CursorImportReport>;
 	openCodexImport: (project: Project) => Promise<void>;
 	openClaudeImport: (project: Project) => Promise<void>;
+	openQoderImport: (project: Project) => Promise<void>;
 	openOpenCodeImport: (project: Project) => Promise<void>;
 	openZCodeImport: (project: Project) => Promise<void>;
 	openWorkBuddyImport: (project: Project) => Promise<void>;
@@ -67,7 +91,7 @@ export interface UseImportFlowOutput {
 }
 
 /**
- * 汇总导入源（Codex / Claude / OpenCode / ZCode / WorkBuddy / Cursor）的会话导入流程。
+ * 汇总导入源（Codex / Claude / Qoder / OpenCode / ZCode / WorkBuddy / Cursor）的会话导入流程。
  * 每个源的状态机由 useImportSource 提供，本 hook 只负责把 API 与文案前缀装配进来。
  */
 export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
@@ -93,6 +117,13 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		copyPrefix: "claude",
 		scan: input.scanClaudeSessions,
 		importSessions: input.importClaudeSessionsApi,
+	});
+
+	const qoder = useImportSource<QoderSessionSummary, QoderImportReport>({
+		...base,
+		copyPrefix: "qoder",
+		scan: input.scanQoderSessions,
+		importSessions: input.importQoderSessionsApi,
 	});
 
 	const openCode = useImportSource<OpenCodeSessionSummary, OpenCodeImportReport>({
@@ -128,6 +159,8 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		setCodexImportProject: codex.setProject,
 		claudeImportProject: claude.project,
 		setClaudeImportProject: claude.setProject,
+		qoderImportProject: qoder.project,
+		setQoderImportProject: qoder.setProject,
 		openCodeImportProject: openCode.project,
 		setOpenCodeImportProject: openCode.setProject,
 		zcodeImportProject: zcode.project,
@@ -138,12 +171,14 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		setCursorImportProject: cursor.setProject,
 		codexImportController: codex.controller,
 		claudeImportController: claude.controller,
+		qoderImportController: qoder.controller,
 		openCodeImportController: openCode.controller,
 		zcodeImportController: zcode.controller,
 		workbuddyImportController: workbuddy.controller,
 		cursorImportController: cursor.controller,
 		openCodexImport: codex.open,
 		openClaudeImport: claude.open,
+		openQoderImport: qoder.open,
 		openOpenCodeImport: openCode.open,
 		openZCodeImport: zcode.open,
 		openWorkBuddyImport: workbuddy.open,

@@ -40,7 +40,7 @@ export type SidebarActions = {
 		reorder: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
 		reveal: (project: Project) => Promise<void>;
 		openWithEditor: (project: Project) => void;
-		importSessions: (project: Project, source: "codex" | "claude" | "opencode" | "zcode" | "workbuddy" | "cursor") => void;
+		importSessions: (project: Project, source: "codex" | "claude" | "qoder" | "opencode" | "zcode" | "workbuddy" | "cursor") => void;
 		/** 导入其他目录的会话：源目录现选，用于目录移动/改名后找回历史。 */
 		importDirectorySessions: (project: Project) => void;
 		manageResources: (project: Project) => void;
@@ -471,6 +471,10 @@ export function SidebarContent(props: SidebarContentProps) {
 					}}
 					onImportClaudeSessions={() => {
 						actions.projects.importSessions(menuProject, "claude");
+						controller.closeMenu();
+					}}
+					onImportQoderSessions={() => {
+						actions.projects.importSessions(menuProject, "qoder");
 						controller.closeMenu();
 					}}
 					onImportOpenCodeSessions={() => {

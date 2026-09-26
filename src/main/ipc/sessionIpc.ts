@@ -94,6 +94,7 @@ import type { ConfigManager } from "../config/ConfigManager";
 import type { TerminalSessionManager } from "../terminal/TerminalSessionManager";
 import type { CodexSessionImporter } from "../sessions/CodexSessionImporter";
 import type { ClaudeSessionImporter } from "../sessions/ClaudeSessionImporter";
+import type { QoderSessionImporter } from "../sessions/QoderSessionImporter";
 import type { OpenCodeSessionImporter } from "../sessions/OpenCodeSessionImporter";
 import type { ZCodeSessionImporter } from "../sessions/ZCodeSessionImporter";
 import type { WorkBuddySessionImporter } from "../sessions/WorkBuddySessionImporter";
@@ -301,6 +302,7 @@ export type SessionIpcDeps = {
 	configManager: ConfigManager;
 	codexSessionImporter: CodexSessionImporter;
 	claudeSessionImporter: ClaudeSessionImporter;
+	qoderSessionImporter: QoderSessionImporter;
 	openCodeSessionImporter: OpenCodeSessionImporter;
 	zcodeSessionImporter: ZCodeSessionImporter;
 	workbuddySessionImporter: WorkBuddySessionImporter;
@@ -372,6 +374,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		configManager,
 		codexSessionImporter,
 		claudeSessionImporter,
+		qoderSessionImporter,
 		openCodeSessionImporter,
 		zcodeSessionImporter,
 		workbuddySessionImporter,
@@ -1721,6 +1724,23 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		if (!project) throw new Error(`Project not found: ${projectId}`);
 		const result = await claudeSessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "Claude sessions imported", {
+			projectId,
+			sourceCount: sourcePaths.length,
+		});
+		return result;
+	});
+	ipcMain.handle(ipcChannels.qoderSessionsScan, async (_event, projectId: string) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		const result = await qoderSessionImporter.scan(project.path);
+		void appLogger.debug("session", "Qoder sessions scanned", { projectId });
+		return result;
+	});
+	ipcMain.handle(ipcChannels.qoderSessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		const result = await qoderSessionImporter.import(project.path, sourcePaths);
+		void appLogger.info("session", "Qoder sessions imported", {
 			projectId,
 			sourceCount: sourcePaths.length,
 		});

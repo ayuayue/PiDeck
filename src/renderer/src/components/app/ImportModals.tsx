@@ -11,6 +11,8 @@ import type {
 	CodexImportReport,
 	ClaudeSessionSummary,
 	ClaudeImportReport,
+	QoderSessionSummary,
+	QoderImportReport,
 	OpenCodeSessionSummary,
 	OpenCodeImportReport,
 	ZCodeSessionSummary,
@@ -96,6 +98,12 @@ function formatClaudeStatus(status: ClaudeSessionSummary["status"]) {
 	if (status === "current") return t("claude.status.current");
 	if (status === "outdated") return t("claude.status.outdated");
 	return t("claude.status.new");
+}
+
+function formatQoderStatus(status: QoderSessionSummary["status"]) {
+	if (status === "current") return t("qoder.status.current");
+	if (status === "outdated") return t("qoder.status.outdated");
+	return t("qoder.status.new");
 }
 
 function formatOpenCodeStatus(status: OpenCodeSessionSummary["status"]) {
@@ -290,6 +298,22 @@ export function ClaudeImportModal(props: {
 	onImport: () => void;
 }) {
 	return <SessionImportModal copyPrefix="claude" formatStatus={formatClaudeStatus} {...props} />;
+}
+
+export function QoderImportModal(props: {
+	project: Project;
+	sessions: QoderSessionSummary[];
+	selectedPaths: string[];
+	loading: boolean;
+	importing: boolean;
+	report: QoderImportReport | null;
+	onClose: () => void;
+	onRefresh: () => void;
+	onToggle: (sourcePath: string) => void;
+	onToggleAll: () => void;
+	onImport: () => void;
+}) {
+	return <SessionImportModal copyPrefix="qoder" formatStatus={formatQoderStatus} {...props} />;
 }
 
 export function OpenCodeImportModal(props: {

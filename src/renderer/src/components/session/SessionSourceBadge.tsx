@@ -9,6 +9,7 @@ const SOURCE_LABELS: Record<SessionSource, string> = {
 	pi: t("sessionSource.pi"),
 	codex: t("sessionSource.codex"),
 	claude: t("sessionSource.claude"),
+	qoder: t("sessionSource.qoder"),
 	opencode: t("sessionSource.opencode"),
 	zcode: t("sessionSource.zcode"),
 	workbuddy: t("sessionSource.workbuddy"),
@@ -27,6 +28,8 @@ const SOURCE_TONES: Record<SessionSource, string> = {
 	workbuddy: "border-muted-foreground/40 text-muted-foreground",
 	// Cursor 无随包品牌 SVG，用中性色 + 指针标记，避免误用第三方品牌色。
 	cursor: "border-muted-foreground/40 text-muted-foreground",
+	// Qoder 同样无随包品牌 SVG：自绘「Q」环形+尾笔标记，沿用中性色惯例（与 zcode/workbuddy 一致）。
+	qoder: "border-muted-foreground/40 text-muted-foreground",
 };
 
 function SourceLogo(props: { source: SessionSource }) {
@@ -85,6 +88,15 @@ function SourceLogo(props: { source: SessionSource }) {
 				<path fill="currentColor" d="M12 2.2 20.8 7.2 12 12.2 3.2 7.2Z" />
 				<path fill="currentColor" opacity="0.66" d="M3.2 7.2 12 12.2V21.8L3.2 16.8Z" />
 				<path fill="currentColor" opacity="0.4" d="M12 12.2 20.8 7.2V16.8L12 21.8Z" />
+			</svg>
+		);
+	}
+
+	if (props.source === "qoder") {
+		// 自绘「Q」：圆环（evenodd 挖空）+ 右下出环尾笔，14px 徽标上仍可辨认为字母 Q。
+		return (
+			<svg viewBox="0 0 24 24" className="size-3.5" aria-hidden="true" focusable="false">
+				<path fill="currentColor" fillRule="evenodd" d="M11 2a9 9 0 1 0 5.2 16.3l3.2 3.2 2.1-2.1-3.2-3.2A9 9 0 0 0 11 2Zm0 3.3a5.7 5.7 0 1 1 0 11.4 5.7 5.7 0 0 1 0-11.4Z" />
 			</svg>
 		);
 	}

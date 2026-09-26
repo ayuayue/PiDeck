@@ -40,6 +40,8 @@ import type {
 	CodexSessionSummary,
 	ClaudeImportReport,
 	ClaudeSessionSummary,
+	QoderImportReport,
+	QoderSessionSummary,
 	OpenCodeImportReport,
 	OpenCodeSessionSummary,
 	ZCodeImportReport,
@@ -661,6 +663,10 @@ const api = {
 	claudeSessions: {
 		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.claudeSessionsScan, projectId) as Promise<ClaudeSessionSummary[]>,
 		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.claudeSessionsImport, projectId, sourcePaths) as Promise<ClaudeImportReport>,
+	},
+	qoderSessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.qoderSessionsScan, projectId) as Promise<QoderSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.qoderSessionsImport, projectId, sourcePaths) as Promise<QoderImportReport>,
 	},
 	openCodeSessions: {
 		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.openCodeSessionsScan, projectId) as Promise<OpenCodeSessionSummary[]>,

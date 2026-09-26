@@ -14,7 +14,7 @@ import type { AgentBackend, SessionSource } from "../../shared/types";
 export type SessionFilterPill = SessionSource | "dsh" | "imagegen";
 
 /** 类别渲染顺序：来源顺序不变，dsh/imagegen 追加在末尾（视觉上不打断既有布局）。 */
-export const SESSION_FILTER_PILLS: readonly SessionFilterPill[] = ["pi", "codex", "claude", "opencode", "zcode", "workbuddy", "cursor", "dsh", "imagegen"];
+export const SESSION_FILTER_PILLS: readonly SessionFilterPill[] = ["pi", "codex", "claude", "qoder", "opencode", "zcode", "workbuddy", "cursor", "dsh", "imagegen"];
 
 /** 字符串是否为合法的过滤类别（持久化数据校验用）。 */
 export function isSessionFilterPill(value: unknown): value is SessionFilterPill {

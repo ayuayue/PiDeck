@@ -794,6 +794,10 @@ export function createPreviewApi(): PiDesktopApi {
 			scan: async () => [],
 			import: async () => ({ results: [], imported: 0, failed: 0 }),
 		},
+		qoderSessions: {
+			scan: async () => [],
+			import: async () => ({ results: [], imported: 0, failed: 0 }),
+		},
 		openCodeSessions: {
 			scan: async () => [],
 			import: async () => ({ results: [], imported: 0, failed: 0 }),

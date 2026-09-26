@@ -223,6 +223,7 @@ import { SessionCommandIpcError } from "./sessions/SessionCommandIpcError";
 import { appendSessionForkSuffix } from "./sessions/sessionForkTitle";
 import { CodexSessionImporter } from "./sessions/CodexSessionImporter";
 import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
+import { QoderSessionImporter } from "./sessions/QoderSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { ZCodeSessionImporter } from "./sessions/ZCodeSessionImporter";
 import { WorkBuddySessionImporter } from "./sessions/WorkBuddySessionImporter";
@@ -348,6 +349,7 @@ let sessionRuntimeCoordinator: SessionRuntimeCoordinator;
 let idleAgentReleaser: IdleAgentReleaser | null = null;
 let codexSessionImporter: CodexSessionImporter;
 let claudeSessionImporter: ClaudeSessionImporter;
+let qoderSessionImporter: QoderSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
 let zcodeSessionImporter: ZCodeSessionImporter;
 let workbuddySessionImporter: WorkBuddySessionImporter;
@@ -2618,6 +2620,7 @@ function registerIpc() {
 		configManager,
 		codexSessionImporter,
 		claudeSessionImporter,
+		qoderSessionImporter,
 		openCodeSessionImporter,
 		zcodeSessionImporter,
 		workbuddySessionImporter,
@@ -3207,6 +3210,7 @@ app
 		sessionScanner = new SessionScanner(mainCopy);
 		codexSessionImporter = new CodexSessionImporter(mainCopy);
 		claudeSessionImporter = new ClaudeSessionImporter(mainCopy);
+		qoderSessionImporter = new QoderSessionImporter(mainCopy);
 		openCodeSessionImporter = new OpenCodeSessionImporter(mainCopy);
 		zcodeSessionImporter = new ZCodeSessionImporter(mainCopy);
 		workbuddySessionImporter = new WorkBuddySessionImporter(mainCopy);

@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
-import { ClaudeImportModal, CodexImportModal, CursorImportModal, DirectoryImportModal, OpenCodeImportModal, WorkBuddyImportModal, ZCodeImportModal } from "../app/ImportModals";
+import { ClaudeImportModal, CodexImportModal, CursorImportModal, DirectoryImportModal, OpenCodeImportModal, QoderImportModal, WorkBuddyImportModal, ZCodeImportModal } from "../app/ImportModals";
 import type {
 	CodexImportReport,
 	CodexSessionSummary,
 	ClaudeImportReport,
 	ClaudeSessionSummary,
+	QoderImportReport,
+	QoderSessionSummary,
 	OpenCodeImportReport,
 	OpenCodeSessionSummary,
 	ZCodeImportReport,
@@ -23,6 +25,7 @@ import type { DirectoryImportController } from "../../hooks/useDirectoryImport";
 export type ImportOverlayHostProps =
 	| { kind: "codex"; project: Project; controller: ImportController<CodexSessionSummary, CodexImportReport>; onClose: () => void }
 	| { kind: "claude"; project: Project; controller: ImportController<ClaudeSessionSummary, ClaudeImportReport>; onClose: () => void }
+	| { kind: "qoder"; project: Project; controller: ImportController<QoderSessionSummary, QoderImportReport>; onClose: () => void }
 	| { kind: "opencode"; project: Project; controller: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>; onClose: () => void }
 	| { kind: "zcode"; project: Project; controller: ImportController<ZCodeSessionSummary, ZCodeImportReport>; onClose: () => void }
 	| { kind: "workbuddy"; project: Project; controller: ImportController<WorkBuddySessionSummary, WorkBuddyImportReport>; onClose: () => void }
@@ -85,6 +88,13 @@ export function ImportOverlayHost(props: ImportOverlayHostProps) {
 				{renderImportError(props.controller.error)}
 			</>
 		);
+	if (props.kind === "qoder")
+		return (
+			<>
+				<QoderImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />
+				{renderImportError(props.controller.error)}
+			</>
+		);
 	if (props.kind === "opencode")
 		return (
 			<>
@@ -125,6 +135,7 @@ export function ImportOverlayHost(props: ImportOverlayHostProps) {
 export type ImportOverlayData = {
 	codex: { sessions: CodexSessionSummary[]; report: CodexImportReport | null };
 	claude: { sessions: ClaudeSessionSummary[]; report: ClaudeImportReport | null };
+	qoder: { sessions: QoderSessionSummary[]; report: QoderImportReport | null };
 	opencode: { sessions: OpenCodeSessionSummary[]; report: OpenCodeImportReport | null };
 	zcode: { sessions: ZCodeSessionSummary[]; report: ZCodeImportReport | null };
 	workbuddy: { sessions: WorkBuddySessionSummary[]; report: WorkBuddyImportReport | null };

@@ -273,6 +273,8 @@ export const ipcChannels = {
 	codexSessionsImport: "codex-sessions:import",
 	claudeSessionsScan: "claude-sessions:scan",
 	claudeSessionsImport: "claude-sessions:import",
+	qoderSessionsScan: "qoder-sessions:scan",
+	qoderSessionsImport: "qoder-sessions:import",
 	openCodeSessionsScan: "opencode-sessions:scan",
 	openCodeSessionsImport: "opencode-sessions:import",
 	zcodeSessionsScan: "zcode-sessions:scan",
