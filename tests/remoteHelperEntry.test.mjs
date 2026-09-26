@@ -17,8 +17,11 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * answering" has to fail the test instead of hanging it.
  *
  * The read-only batch (fs.stat/fs.list/fs.read) is proved the same way: a real child process with a real
- * root, real files, a real link that leaves the root and a real decoy outside it. Nothing about the
- * confinement is asserted through a stub, because a stub cannot show that the target was never touched.
+ * root, real files, real links — to a file, to a directory, with a relative target, dangling, out of the
+ * root once with a target that exists and once without — and a real decoy outside it. Nothing about the
+ * confinement is asserted through a stub, because a stub cannot show that the target was never touched,
+ * and no method of the batch is allowed to follow a link: stat and list describe the link itself as
+ * `other`, and read refuses the same entry as NOT_A_FILE instead of resolving it.
  */
 
 const {
@@ -51,7 +54,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "64cedc254255378afd2afc959933b0f4761c9226ce6b9a6b8076e1ce1cc86ae7";
+const FROZEN_SHA256 = "18a47e0fefcdcdd22de25c0ee5478f37cb5cf50bf6d47477196fdc75c8ed06ee";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -109,14 +112,23 @@ async function call(session, method, params) {
  * One refusal: the code has to be exactly the expected one (or one of the expected ones where the platform
  * picks the errno itself), it has to be a declared contract code — free text or an undeclared code would
  * break the client's vocabulary — and it is never retryable, because every read-only refusal is
- * deterministic: retrying the same params cannot fix an escape or a missing file.
+ * deterministic: retrying the same params cannot fix an escape or a missing file. The request id is read
+ * before the answer arrives, so the same request can also be proved never to have produced a result: a
+ * refusal that came with an ok frame would mean the helper did the work and then declined to admit it.
  */
 async function expectRefusal(session, method, params, code) {
 	const expected = Array.isArray(code) ? code : [code];
-	const error = await rejection(guard(session.client.request(method, params), `${method} refusal`));
+	const pending = session.client.request(method, params);
+	const id = session.requestIdAt(session.sent.length - 1);
+	const error = await rejection(guard(pending, `${method} refusal`));
 	assert.ok(expected.includes(error.code), `${method} ${JSON.stringify(params)} answered ${error.code}, expected ${expected.join(" or ")}`);
 	assert.equal(error.retryable, false, `${method} ${JSON.stringify(params)}`);
 	assert.ok(REMOTE_HELPER_ERROR_CODES.includes(error.code), `${error.code} is not in REMOTE_HELPER_ERROR_CODES`);
+	assert.equal(
+		session.frames.some((frame) => frame.id === id && frame.ok === true),
+		false,
+		`${method} ${JSON.stringify(params)} was refused and still answered with a result`,
+	);
 	return error;
 }
 
@@ -144,10 +156,10 @@ function createRootFixture(t) {
 }
 
 /**
- * A root with what the read-only methods need around it: a small tree inside, a decoy tree outside and a
- * link inside the root that resolves outside it. The decoy carries a token no frame may ever contain, and
- * on POSIX it is unreadable and its directory unsearchable, so "the helper refused" is distinguishable
- * from "the helper tried and failed": a read attempt could only answer PERMISSION_DENIED.
+ * A root with what the read-only methods need around it: a small tree inside, a decoy tree outside and the
+ * links of both directions described below. The decoy carries a token no frame may ever contain, and on
+ * POSIX it is unreadable and its directory unsearchable, so "the helper refused" is distinguishable from
+ * "the helper tried and failed": a read attempt could only answer PERMISSION_DENIED.
  */
 function createFsFixture(t) {
 	const base = mkdtempSync(join(tmpdir(), "pideck-helper-fs-"));
@@ -163,9 +175,19 @@ function createFsFixture(t) {
 	writeFileSync(join(outside, "blocked", "marker.txt"), DECOY);
 	if (process.platform !== "win32") chmodSync(join(outside, "blocked"), 0o000);
 	symlinkSync(outside, join(root, "escape"), process.platform === "win32" ? "junction" : "dir");
-	// A link that stays inside the root: reading through it is ordinary (a linked workspace file), while
-	// stat and list must still describe the link itself.
+	// The links the three read-only methods have to agree about: a target that is a file, one that is a
+	// directory, one written as a relative target, one that does not exist, and targets outside the root —
+	// once pointing at something that exists and once dangling. None of them is ever followed: stat and
+	// list describe the link itself (`other`), and read refuses the path instead of resolving it. Only the
+	// two that point out of the root are answered by the containment check rather than by read, and even
+	// then the code differs with the target: PATH_OUTSIDE_ROOT while it exists, and read's own NOT_A_FILE
+	// while it does not, so neither answer ever depends on opening the target.
+	symlinkSync(join(outside, "secret.txt"), join(root, "outside-file"), process.platform === "win32" ? "file" : undefined);
 	symlinkSync(join(root, "sub"), join(root, "inside-link"), process.platform === "win32" ? "junction" : "dir");
+	symlinkSync(join(root, "alpha.txt"), join(root, "alpha-link"), process.platform === "win32" ? "file" : undefined);
+	symlinkSync(join("sub", "zeta.txt"), join(root, "rel-link"), process.platform === "win32" ? "file" : undefined);
+	symlinkSync(join(root, "nothing.txt"), join(root, "gone-link"), process.platform === "win32" ? "file" : undefined);
+	symlinkSync(join(outside, "gone.txt"), join(root, "outside-gone"), process.platform === "win32" ? "file" : undefined);
 	t.after(() => {
 		// Restore what the fixture took away, otherwise the cleanup cannot traverse or delete its own tree.
 		chmodSync(join(outside, "secret.txt"), 0o600);
@@ -583,7 +605,7 @@ helperTest("fs.list answers name-sorted entries and never follows a link", async
 	assert.deepEqual(Object.keys(listing), contractFields("RemoteHelperListResult"));
 	assert.deepEqual(
 		listing.entries.map((entry) => entry.name),
-		["alpha.txt", "empty.txt", "escape", "inside-link", "sub"],
+		["alpha-link", "alpha.txt", "empty.txt", "escape", "gone-link", "inside-link", "outside-file", "outside-gone", "rel-link", "sub"],
 		"entries are sorted by name in code-unit order",
 	);
 	for (const entry of listing.entries) {
@@ -658,9 +680,15 @@ helperTest("fs.read returns one bounded chunk and reports EOF honestly", async (
 	// bytes=0 reads nothing: not EOF while the file still has data at that offset.
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 0 }), { chunk: "", bytes: 0, eof: false });
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "empty.txt", offset: 0, bytes: 64 }), { chunk: "", bytes: 0, eof: true });
-	// Reading through a link that resolves inside the root is the ordinary case (a linked workspace file):
-	// the resolved path is what gets opened, while stat and list above still describe the link itself.
-	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 64 })).chunk, "base64").toString("utf8"), "beta content");
+	// A path that only resolves by walking through a link is refused like the link itself: read never
+	// resolves one, so this is NOT_A_FILE even though the leaf it names is a regular file - stat of the
+	// same path describes that leaf (`file`), and the traversal is what read refuses.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 64 }, "NOT_A_FILE");
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link/beta.txt" })).kind, "file");
+	// A link to a file inside the root is the entry-shaped case of the same rule: the bytes behind it are
+	// never returned, and stat of that very entry says `other` rather than `file`.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha-link", offset: 0, bytes: 64 }, "NOT_A_FILE");
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha-link" })).kind, "other");
 	// A directory, a missing path and a path through a file are refusals, not partial answers.
 	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "sub", offset: 0, bytes: 8 }, "NOT_A_FILE");
 	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: ".", offset: 0, bytes: 8 }, "NOT_A_FILE");
@@ -816,7 +844,7 @@ helperTest("a file that changes while it is being read still settles", async (t)
 	assert.equal(session.stderr(), "");
 });
 
-helperTest("a link whose target is gone is a link for stat and a missing file for read", async (t) => {
+helperTest("a link whose target is gone is a link for stat and a link for read, never a missing file", async (t) => {
 	const fixture = createFsFixture(t);
 	const session = startHelper(t, { root: fixture.root });
 	// The fixture's inside-link points at root/sub. Removing that directory is what a checkout or a cleanup
@@ -824,12 +852,77 @@ helperTest("a link whose target is gone is a link for stat and a missing file fo
 	rmSync(join(fixture.root, "sub"), { recursive: true, force: true });
 	const dangling = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "inside-link" });
 	assert.equal(dangling.kind, "other", "the link is still an entry, so stat answers about the link itself");
-	// A link with no resolvable target is a missing file, not an unreadable one, and never a listing.
-	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link", offset: 0, bytes: 8 }, "PATH_NOT_FOUND");
-	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 8 }, "PATH_NOT_FOUND");
+	// A dangling link is still a link, so read refuses it as NOT_A_FILE rather than reporting the target it
+	// does not have: the verdict is about the entry, and it does not depend on whether the target exists.
+	// That holds for the link itself and for a path that would only resolve by walking through it.
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "inside-link/beta.txt", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	// The fixture's gone-link never had a target at all, and the verdict is the same one.
+	assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "gone-link" })).kind, "other");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "gone-link", offset: 0, bytes: 8 }, "NOT_A_FILE");
+	// A link is not a listing either, whether or not its target is gone.
 	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "inside-link" }, "NOT_A_DIRECTORY");
+	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "gone-link" }, "NOT_A_DIRECTORY");
 	// The rest of the tree is untouched, so a lost target is a refusal about one path, not a broken session.
 	assert.equal(Buffer.from((await call(session, REMOTE_HELPER_METHOD_FS_READ, { path: "alpha.txt", offset: 0, bytes: 5 })).chunk, "base64").toString("utf8"), "alpha");
+	assert.equal(session.stderr(), "");
+});
+
+helperTest("fs.read refuses every link instead of resolving it", async (t) => {
+	const fixture = createFsFixture(t);
+	const session = startHelper(t, { root: fixture.root });
+	/**
+	 * Every link shape the fixture carries, with the code read has to answer. A link the containment check
+	 * resolves inside the root — a file target, a relative target, a directory target, a target that never
+	 * existed, and one whose target string points out of the root without existing either — is refused by
+	 * read itself as NOT_A_FILE, because read never resolves a link: nothing is opened, so no target can
+	 * contribute a byte or a size. The one case answered earlier is a link whose target exists outside the
+	 * root: the containment check every fs.* method runs first refuses it as PATH_OUTSIDE_ROOT — the same
+	 * code stat and list answer, and one code for every outside target whatever it is — so read never even
+	 * reaches the link.
+	 */
+	const cases = [
+		["alpha-link", "NOT_A_FILE"],
+		["rel-link", "NOT_A_FILE"],
+		["inside-link", "NOT_A_FILE"],
+		["gone-link", "NOT_A_FILE"],
+		["outside-gone", "NOT_A_FILE"],
+		["escape", "PATH_OUTSIDE_ROOT"],
+		["outside-file", "PATH_OUTSIDE_ROOT"],
+		// The shape one lstat of the whole path would have missed: only the last component is skipped by
+		// lstat, so a link in the middle of the path is exactly what read has to walk past to refuse it.
+		["inside-link/beta.txt", "NOT_A_FILE"],
+	];
+	for (const [path, code] of cases) {
+		await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path, offset: 0, bytes: 64 }, code);
+	}
+	// No request in this test has been answered with bytes, and the decoy exists only outside the root:
+	// anything read through a link would have to show up here. Every stat and list call comes after this
+	// point, so the transcript asserted about is exactly the refusals above.
+	assert.equal(session.frames.length, cases.length);
+	assert.ok(
+		session.frames.every((frame) => frame.ok === false),
+		"a link must never be answered with a result",
+	);
+	assert.ok(
+		session.lines.every((line) => !line.includes(DECOY)),
+		"the decoy was read or echoed",
+	);
+	assert.ok(
+		session.lines.every((line) => !line.includes(Buffer.from(DECOY, "utf8").toString("base64"))),
+		"the decoy must not travel base64 encoded either",
+	);
+	// The other two methods agree about the very same entries: every link is `other` for stat, and the
+	// listing of the root classifies each one of them as `other` too — so a client that classifies an entry
+	// and then reads it is answered consistently by all three methods.
+	for (const path of ["alpha-link", "rel-link", "inside-link", "gone-link", "outside-gone"]) {
+		assert.equal((await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path })).kind, "other", `${path} is the link itself`);
+	}
+	assert.deepEqual(
+		(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." })).entries.filter((entry) => entry.kind === "other").map((entry) => entry.name),
+		["alpha-link", "escape", "gone-link", "inside-link", "outside-file", "outside-gone", "rel-link"],
+		"a listing describes every link as other as well",
+	);
 	assert.equal(session.stderr(), "");
 });
 
