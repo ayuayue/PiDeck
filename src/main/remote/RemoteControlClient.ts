@@ -1,4 +1,4 @@
-import { REMOTE_HELPER_DEFAULT_REQUEST_TIMEOUT_MS, REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_MAX_REQUEST_TIMEOUT_MS, REMOTE_HELPER_PROTOCOL_VERSION, type RemoteHelperCancelParams, type RemoteHelperCancelResult, type RemoteHelperErrorBody, type RemoteHelperRequestFrame } from "./RemoteHelperContract";
+import { REMOTE_HELPER_DEFAULT_REQUEST_TIMEOUT_MS, REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_MAX_REQUEST_TIMEOUT_MS, REMOTE_HELPER_PROTOCOL_VERSION, type RemoteHelperCancelParams, type RemoteHelperCancelResult, type RemoteHelperErrorBody, type RemoteHelperRequestFrame, REMOTE_HELPER_MAX_HOST_ID_LENGTH, REMOTE_HELPER_MAX_METHOD_LENGTH } from "./RemoteHelperContract";
 
 /**
  * Main-side client for helper protocol v1 (plan §7.1). It owns framing, host/generation fencing, the
@@ -20,8 +20,8 @@ const METHOD_PATTERN = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)*$/;
 /** Stable codes only: §7.1 forbids free text as a code, so nothing else may be thrown or diagnosed. */
 const STABLE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,63}$/;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
-const MAX_HOST_ID_LENGTH = 128;
-const MAX_METHOD_LENGTH = 128;
+const MAX_HOST_ID_LENGTH = REMOTE_HELPER_MAX_HOST_ID_LENGTH;
+const MAX_METHOD_LENGTH = REMOTE_HELPER_MAX_METHOD_LENGTH;
 /** An error body's message is relayed only when it is bounded; a huge body is not echoed anywhere. */
 const MAX_REMOTE_MESSAGE_LENGTH = 4096;
 /** Lower bound for an injected frame limit, so a nonsensical value cannot make the client unusable. */

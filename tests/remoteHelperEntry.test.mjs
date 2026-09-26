@@ -16,7 +16,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * answering" has to fail the test instead of hanging it.
  */
 
-const { REMOTE_HELPER_CAPABILITIES, REMOTE_HELPER_MAX_CONCURRENT_REQUESTS, REMOTE_HELPER_MAX_ECHO_DELAY_MS, REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_MAX_QUEUED_REQUESTS, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_PROTOCOL_VERSION } =
+const { REMOTE_HELPER_CAPABILITIES, REMOTE_HELPER_MAX_CONCURRENT_REQUESTS, REMOTE_HELPER_MAX_ECHO_DELAY_MS, REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_MAX_QUEUED_REQUESTS, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH, REMOTE_HELPER_MAX_HOST_ID_LENGTH, REMOTE_HELPER_MAX_ID_LENGTH, REMOTE_HELPER_MAX_METHOD_LENGTH, REMOTE_HELPER_PROTOCOL_VERSION } =
 	loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 const { REMOTE_HELPER_ENTRY_FILE_NAME, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_INLINE_SOURCE } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
 const { REMOTE_FRAME_DIAGNOSTIC_CODES, createRemoteControlClient } = loadTsCommonJs("src/main/remote/RemoteControlClient.ts");
@@ -524,6 +524,15 @@ helperTest("a queued request that outlives its deadline is refused instead of ru
 		false,
 		"an expired request must never be answered with a result",
 	);
+});
+
+helperTest("the frozen field bounds match the contract both sides share", () => {
+	// The helper cannot import the contract, so this is what stops the two from drifting apart: a host id
+	// past the helper bound turns every request on that connection into a silent timeout.
+	assert.equal(Number("64"), REMOTE_HELPER_MAX_HOST_ID_LENGTH);
+	assert.equal(Number("128"), REMOTE_HELPER_MAX_ID_LENGTH);
+	assert.equal(Number("64"), REMOTE_HELPER_MAX_METHOD_LENGTH);
+	assert.equal(Number("4096"), REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH);
 });
 
 helperTest("stdin EOF ends the helper with code 0 and drops its pending work", async (t) => {

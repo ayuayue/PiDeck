@@ -9,6 +9,12 @@ export const REMOTE_HELPER_PROTOCOL_VERSION = 1;
 
 /** One NDJSON frame, UTF-8 encoded. Anything larger is a protocol error, never a truncation. */
 export const REMOTE_HELPER_MAX_FRAME_BYTES = 8 * 1024 * 1024;
+
+/** Field bounds both sides enforce. A mismatch turns a rejection into a silent timeout. */
+export const REMOTE_HELPER_MAX_HOST_ID_LENGTH = 64;
+export const REMOTE_HELPER_MAX_ID_LENGTH = 128;
+export const REMOTE_HELPER_MAX_METHOD_LENGTH = 64;
+export const REMOTE_HELPER_MAX_ECHO_TEXT_LENGTH = 4096;
 /** File bodies travel in chunks; the base64 form still has to fit the frame limit. */
 export const REMOTE_HELPER_MAX_CHUNK_BYTES = 1024 * 1024;
 /** Bounded concurrency: long transfers must not head-of-line block short requests. */
