@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 function loadUpdateService() {
 	// vm 沙箱依赖解析：UpdateService 现在依赖 updateSources（其依赖 shared/updateSources）。
@@ -108,6 +109,8 @@ function createFakeUpdater() {
 		checkCalls: 0,
 		downloadCalls: 0,
 		installCalls: 0,
+		/** setAllowPrerelease 调用记录（dev 通道语义断言用）。 */
+		allowPrereleaseCalls: [],
 		checkImpl: null,
 		downloadImpl: null,
 		installImpl: null,
@@ -116,6 +119,9 @@ function createFakeUpdater() {
 		},
 		setFeedUrl(url) {
 			updater.feedUrl = url;
+		},
+		setAllowPrerelease(enabled) {
+			updater.allowPrereleaseCalls.push(enabled);
 		},
 		isAutoDownload() {
 			return updater.autoDownload !== false;
@@ -184,6 +190,7 @@ function createAutomaticService(options = {}) {
 		log: (level, message, details) => logs.push({ level, message, details }),
 		getCurrentVersion: () => "0.7.3-beta",
 		deliveryMode: "automatic",
+		channel: options.channel,
 		autoUpdater: updater,
 		prepareForInstall: options.prepareForInstall,
 		rollbackInstallPreparation: options.rollbackInstallPreparation,
@@ -192,7 +199,7 @@ function createAutomaticService(options = {}) {
 	return { service, updater, settings, snapshots, logs };
 }
 
-function createManualService(checkManualAppUpdate) {
+function createManualService(checkManualAppUpdate, options = {}) {
 	const settings = createSettingsStore();
 	const snapshots = [];
 	const logs = [];
@@ -202,6 +209,7 @@ function createManualService(checkManualAppUpdate) {
 		log: (level, message, details) => logs.push({ level, message, details }),
 		getCurrentVersion: () => "0.7.3-beta",
 		deliveryMode: "manual",
+		channel: options.channel,
 		checkManualAppUpdate,
 	});
 	return { service, settings, snapshots, logs };
@@ -542,6 +550,65 @@ test("switching update source rebuilds the generic feed URL immediately", async 
 	assert.equal(updater.feedUrl, null);
 });
 
+// 真实 updater 路径（createRealAutoUpdater）：fake updater 测不到 currentFeedUrl 去重守卫。
+// 桩注入 electron / node:fs / electron-updater，验证源切换往返不被 early-return 吞掉。
+test("real updater setFeedUrl: github -> mirror -> github round trip rebuilds the github provider", (t) => {
+	const setFeedURLCalls = [];
+	const electronUpdaterStub = {
+		autoUpdater: {
+			autoDownload: true,
+			setFeedURL: (config) => setFeedURLCalls.push(config),
+			on: () => {},
+			off: () => {},
+		},
+	};
+	// feedOverride 必须为 null：显式 options.feedUrl / env 注入会让 setFeedUrl 恒 early-return。
+	const savedE2E = process.env.PIDECK_E2E;
+	const savedFeedEnv = process.env.PIDEK_UPDATE_FEED_URL;
+	delete process.env.PIDECK_E2E;
+	delete process.env.PIDEK_UPDATE_FEED_URL;
+	t.after(() => {
+		if (savedE2E === undefined) delete process.env.PIDECK_E2E;
+		else process.env.PIDECK_E2E = savedE2E;
+		if (savedFeedEnv === undefined) delete process.env.PIDEK_UPDATE_FEED_URL;
+		else process.env.PIDEK_UPDATE_FEED_URL = savedFeedEnv;
+	});
+
+	// existsSync→true：跳过兜底 app-update.yml 写盘分支，测试零文件副作用。
+	const { createRealAutoUpdater } = loadTsCommonJs("src/main/update/createAutoUpdater.ts", {
+		stubs: {
+			electron: { app: { isPackaged: false, getAppPath: () => "/test-app", getPath: () => "/test-userdata" } },
+			"node:fs": { existsSync: () => true, mkdirSync: () => undefined, writeFileSync: () => undefined },
+			"electron-updater": electronUpdaterStub,
+		},
+	});
+	const real = createRealAutoUpdater();
+	const atomgitUrl = "https://atomgit.com/ayuayue/PiDeck/releases/download/latest";
+
+	// 初始 github 源：currentFeedUrl 初始即 null，early-return，不触碰 provider。
+	real.setFeedUrl(null);
+	assert.deepEqual(setFeedURLCalls, []);
+
+	// 切到镜像：generic provider 整体接管。（vm 沙箱跨 realm，不能 deepEqual 对象，逐字段断言。）
+	real.setFeedUrl(atomgitUrl);
+	assert.equal(setFeedURLCalls.length, 1);
+	assert.equal(setFeedURLCalls[0].provider, "generic");
+	assert.equal(setFeedURLCalls[0].url, atomgitUrl);
+
+	// 回归点：切回 github 官方源必须重建 github provider。若 currentFeedUrl 缺少赋值，
+	// 这里命中 null === null early-return，镜像 provider 残留（stable 既有功能回归）。
+	real.setFeedUrl(null);
+	assert.equal(setFeedURLCalls.length, 2);
+	assert.equal(setFeedURLCalls[1].provider, "github");
+	assert.equal(setFeedURLCalls[1].owner, "ayuayue");
+	assert.equal(setFeedURLCalls[1].repo, "PiDeck");
+	assert.equal(electronUpdaterStub.autoUpdater.forceDevUpdateConfig, true);
+
+	// 去重守卫仍有效：重复 setFeedUrl(null) 不得再次触发 setFeedURL。
+	real.setFeedUrl(null);
+	assert.equal(setFeedURLCalls.length, 2);
+});
+
 test("atomgit source is applied as generic feed URL on start", async (t) => {
 	const { service, updater } = createAutomaticService({
 		settings: { updateSource: "atomgit" },
@@ -549,6 +616,52 @@ test("atomgit source is applied as generic feed URL on start", async (t) => {
 	stopAfter(t, service);
 	service.start({ startDelayMs: 0, intervalMs: 60_000 });
 	assert.equal(updater.feedUrl, "https://atomgit.com/ayuayue/PiDeck/releases/download/latest");
+});
+
+test("dev channel: feed is forced to GitHub and allowPrerelease=true regardless of the configured source", async (t) => {
+	const { service, updater, settings } = createAutomaticService({
+		channel: "dev",
+		settings: { updateSource: "atomgit" },
+	});
+	stopAfter(t, service);
+	service.start({ startDelayMs: 0, intervalMs: 60_000 });
+	// dev 恒官方 GitHub：null = 恢复原生 provider；预发布恒开启。
+	assert.equal(updater.feedUrl, null);
+	assert.deepEqual(updater.allowPrereleaseCalls, [true]);
+
+	// 设置项切换后重新应用：dev 语义不随 updateSource 漂移。
+	await settings.update({ updateSource: "atomgit" });
+	service.applyUpdateSource();
+	assert.equal(updater.feedUrl, null);
+	assert.deepEqual(updater.allowPrereleaseCalls, [true, true]);
+});
+
+test("stable channel behavior is unchanged: atomgit feed applies and prerelease stays explicitly false", async (t) => {
+	const { service, updater } = createAutomaticService({
+		channel: "stable",
+		settings: { updateSource: "atomgit" },
+	});
+	stopAfter(t, service);
+	service.start({ startDelayMs: 0, intervalMs: 60_000 });
+	assert.equal(updater.feedUrl, "https://atomgit.com/ayuayue/PiDeck/releases/download/latest");
+	// 显式重置 false（声明式保障，防残留）；绝不为 stable 开启预发布。
+	assert.deepEqual(updater.allowPrereleaseCalls, [false]);
+});
+
+test("manual delivery on dev channel checks GitHub even when atomgit source is configured", async (t) => {
+	let receivedUrl;
+	const { service, settings } = createManualService(
+		(latestReleaseUrl) => {
+			receivedUrl = latestReleaseUrl;
+			return Promise.resolve({ hasUpdate: false, latestVersion: "0.7.3-beta" });
+		},
+		{ channel: "dev" },
+	);
+	stopAfter(t, service);
+	await settings.update({ updateSource: "atomgit" });
+	await service.checkNow();
+	// dev 强制官方 GitHub：latestReleaseUrl 为 undefined（镜像 URL 不得传入检查器）。
+	assert.equal(receivedUrl, undefined);
 });
 
 test("manual delivery uses latestReleaseUrl from the configured atomgit source per check", async (t) => {

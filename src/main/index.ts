@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell, Tray, Notification } from "electron";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
@@ -21,10 +22,16 @@ import { mainProcessJsFlags, rendererHeapAdditionalArguments } from "./v8HeapLim
 import { isDevToolsShortcut, toggleMainWindowDevTools } from "./devTools";
 import { isShortcutInput, refreshShortcutBindings } from "./appShortcuts";
 import { DEFAULT_DEV_USER_DATA_NAME, isSharedDevBranch, readDevGitBranch, resolveDevUserDataDirName, sanitizeDevBranchSegment } from "./devIsolation";
-import { resolveAppUserDataDir } from "./portableUserData";
+import { resolveAppUserDataDir, resolveChannelDevDataDir, resolvePackagedUserDataDir } from "./portableUserData";
+import { readDataEnvDecision, validateStartupDataEnv, writeDataEnvDecision } from "./dataEnv/dataEnvMarker";
+import { registerDataEnvIpc } from "./ipc/dataEnvIpc";
+import { ChannelSwitchService } from "./update/ChannelSwitchService";
+import { registerChannelSwitchIpc } from "./ipc/channelSwitchIpc";
+import { resolveUpdateChannel } from "./update/channelIdentity";
 import { APP_DEEP_LINK_SCHEME } from "./utils/deepLinkScheme";
 import { extractFocusTargetFromArgv } from "./utils/focusTarget";
 import type { Project, StartupWindowMode } from "../shared/types";
+import type { DataEnvMode } from "../shared/types/dataEnv";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
@@ -54,13 +61,24 @@ const explicitUserDataDir = (isE2E ? process.env.PIDECK_E2E_USER_DATA_DIR?.trim(
 // 显式目录仅在 dev 态或 E2E 下生效：生产发行物不受外部参数影响，数据目录保持稳定
 // （否则 e2e 会读到本机真实开发数据，settings/projects 全部污染测试断言）。
 const gatedExplicitUserDataDir = explicitUserDataDir && (isDevBuild || isE2E) ? explicitUserDataDir : undefined;
+// —— 数据环境决策（规格 §6 启动序列：ready 前只读不写，保持 setPath 时序）——
+// 只有 dev 通道读决策指针：stable 恒走共用目录，不碰 dev 独立目录。
+// 决策指针与独立数据目录同处（规格 §6）：读到 null = dev 首启未决策，本会话临时落共用目录运行。
+const updateChannel = resolveUpdateChannel();
+const channelDevDataDir = updateChannel === "dev" ? resolveChannelDevDataDir({ appDataDir: app.getPath("appData"), portableExeDir: process.env.PORTABLE_EXECUTABLE_DIR }) : "";
+const devDataMode: DataEnvMode | null = updateChannel === "dev" ? (readDataEnvDecision(channelDevDataDir)?.dataMode ?? null) : null;
+// 共用数据目录：既是 setPath 的 shared 分支，也是数据导入的源目录（与 fallbackSharedDir 同源，规格 §6 单向正式→dev）。
+const fallbackSharedDataDir = resolvePackagedUserDataDir({ appData: app.getPath("appData") });
 app.setPath(
 	"userData",
 	resolveAppUserDataDir({
 		explicitDir: gatedExplicitUserDataDir,
 		unpackagedDevDir: join(app.getPath("appData"), devUserDataDirName),
 		isPackaged: app.isPackaged,
-		appData: app.getPath("appData"),
+		channel: updateChannel,
+		devDataMode,
+		channelDevDataDir,
+		fallbackSharedDir: fallbackSharedDataDir,
 	}),
 );
 
@@ -1567,6 +1585,21 @@ async function createWindow() {
 		mainWindow?.webContents.setZoomFactor(settingsStore.get().zoomFactor);
 		// 加载期排队的通知跳转目标补发一次（renderer 挂载后还会主动拉取，幂等兜底）
 		flushPendingFocusTargetOnLoad();
+		// —— 数据环境通知（规格 §6：首帧后与渲染层对齐目录归属）——
+		// dev 打包首启未决策 → 请渲染层弹数据模式选择（本会话临时落共用目录运行）；
+		// 未打包 dev 恒走开发隔离目录，不弹。
+		if (updateChannel === "dev" && app.isPackaged && devDataMode === null) {
+			mainWindow?.webContents.send(ipcChannels.dataEnvDecisionRequired);
+		}
+		// 目录标记与通道匹配校验（存量无标记 → ok 不打扰）：stable 包落在 channel-dev 目录才 mismatch。
+		const markerInDataDir = readDataEnvDecision(app.getPath("userData"));
+		if (markerInDataDir && validateStartupDataEnv(updateChannel, markerInDataDir) === "mismatch") {
+			mainWindow?.webContents.send(ipcChannels.dataEnvMismatchDetected, { dataModeInDir: markerInDataDir.dataMode });
+		}
+		// 共用目录存量标记补写（向后兼容：无标记视为 shared，首启补一次，之后只在缺失时写）。
+		if (updateChannel === "stable" && markerInDataDir === null) {
+			writeDataEnvDecision(app.getPath("userData"), "shared", app.getVersion());
+		}
 	});
 	mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
 		void appLogger.error("app", "Main window load failed", {
@@ -2336,6 +2369,55 @@ function registerIpc() {
 	registerUsageStatsIpc(ipcMain, usageStatsService);
 	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService
 	registerPiAuthIpc(ipcMain, piAuthService);
+	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
+	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
+	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
+	registerDataEnvIpc({
+		getChannel: () => updateChannel,
+		getDecisionDir: () => channelDevDataDir,
+		getActiveDirectory: () => (devDataMode === "channel-dev" ? "channel-dev" : "shared"),
+		getAppVersion: () => app.getVersion(),
+		relaunchApp: restartApp,
+		quitApp: () => {
+			isQuitting = true;
+			app.quit();
+		},
+		// 数据导入（规格 §6 单向正式→dev）：源 = 共用目录（与 setPath 的 fallbackSharedDir 同源），目标 = dev 独立目录。
+		getSharedDataDir: () => fallbackSharedDataDir,
+		getChannelDevDataDir: () => channelDevDataDir,
+		sendProgress: (progress) => mainWindow?.webContents.send(ipcChannels.dataEnvImportProgress, progress),
+	});
+
+	// 频道切换（跨通道升级，规格 §3）：服务 electron-free，网络/临时目录/启动安装器/退出/推送在此装配。
+	// quitApp 先置 isQuitting，与 dataEnv/托盘「退出」同一写法，防 closeToTray 吞掉退出。
+	const channelSwitchService = new ChannelSwitchService({
+		currentChannel: () => updateChannel,
+		netFetch: (url, init) => net.fetch(url, init),
+		getTempDir: () => app.getPath("temp"),
+		spawnInstaller: (filePath) => {
+			// win：NSIS 安装器 detached 脱离父进程运行，PiDeck 退出后安装流程继续；mac/linux 由系统接管。
+			if (process.platform === "win32") {
+				spawn(filePath, [], { detached: true, stdio: "ignore" }).unref();
+				return;
+			}
+			void shell.openPath(filePath);
+		},
+		quitApp: () => {
+			isQuitting = true;
+			app.quit();
+		},
+		sendToRenderer: (snapshot) => {
+			const win = mainWindow;
+			if (win && !win.isDestroyed()) {
+				win.webContents.send(ipcChannels.channelSwitchStateChanged, snapshot);
+			}
+		},
+		registerQuitCleanup: (name, cleanup) => {
+			quitCleanup.register(name, cleanup);
+		},
+	});
+	// 安装包目录白名单直接用服务的 getInstallerDir()，同源不拼第二份路径。
+	registerChannelSwitchIpc({ service: channelSwitchService, getInstallerDir: () => channelSwitchService.getInstallerDir() });
 
 	if (automationStore && automationScheduler && automationRunCoordinator) {
 		registerAutomationIpc({
@@ -2821,6 +2903,8 @@ function registerIpc() {
 	installAtomgitNoCacheBypass(() => session.fromPartition(UPDATER_PARTITION_NAME, { cache: false }));
 	const updateServiceBase = {
 		settingsStore,
+		// 更新通道（dev/stable，启动时已判定）：dev 强制 GitHub 源 + allowPrerelease（见 UpdateService.applyUpdateSource）。
+		channel: updateChannel,
 		checkPiUpdate: () => extensionManager.checkPiUpdate(),
 		// 模型目录：复用设置页同一检查链路（GitHub main 分支 manifest 比对），结果并入更新快照。
 		checkCatalogUpdate: () => catalogUpdater.checkRemote(),
@@ -2838,7 +2922,7 @@ function registerIpc() {
 	// quitAndInstall 会调用 app.quit；该标记让 closeToTray 放行真正的退出。
 	let updateInstallSetQuitting = false;
 	if (process.platform === "darwin") {
-		const checkMacManualUpdate = createMacManualUpdateChecker();
+		const checkMacManualUpdate = createMacManualUpdateChecker({ channel: updateChannel });
 		updateService = new UpdateService({
 			...updateServiceBase,
 			deliveryMode: "manual",

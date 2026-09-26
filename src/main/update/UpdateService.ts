@@ -5,11 +5,15 @@
  * quitAndInstall；manual（当前无 Developer ID 签名的 macOS）：仅检查 GitHub
  * Release，UI 引导用户手动下载，绝不承诺无法稳定完成的应用内替换。
  *
+ * 更新通道（deps.channel）：dev 构建无论设置 updateSource 为何都强制官方 GitHub
+ * 源并开启 prerelease（镜像只分发 stable 产物，dev 的 0.8.0-beta.* 仅存在于
+ * GitHub Releases）；stable 语义与历史行为一致。
+ *
  * 生命周期：start() 装配启动调度与事件订阅；stop() 在退出路径清理（配对清理）。
  */
 
 import type { AppSettings } from "../../shared/types/settings";
-import type { AppUpdateDeliveryMode, AppUpdateDownloadState, AppUpdateStatusSnapshot } from "../../shared/types/app";
+import type { AppUpdateDeliveryMode, AppUpdateDownloadState, AppUpdateStatusSnapshot, UpdateChannel } from "../../shared/types/app";
 import type { PiUpdateCheckResult } from "../../shared/types";
 import type { CatalogCheckResult } from "../../shared/types/catalog";
 import type { SettingsStore } from "../settings/SettingsStore";
@@ -37,6 +41,8 @@ export type UpdateServiceDeps = {
 	getCurrentVersion: () => string;
 	/** 当前发行物的更新交付能力；省略时保持既有自动升级默认值。 */
 	deliveryMode?: AppUpdateDeliveryMode;
+	/** 更新通道：dev 强制 GitHub 源 + allowPrerelease；省略视为 stable（历史行为）。 */
+	channel?: UpdateChannel;
 	/** automatic 模式的 electron-updater 封装（真实实例见 createAutoUpdater；测试传 fake）。 */
 	autoUpdater?: AutoUpdaterLike;
 	/** 安装前的主进程退出准备（例如关闭到托盘开启时先置 isQuitting）。 */
@@ -76,6 +82,7 @@ function emptyDownloadState(): AppUpdateDownloadState {
 export class UpdateService {
 	private readonly deps: UpdateServiceDeps;
 	private readonly deliveryMode: AppUpdateDeliveryMode;
+	private readonly channel: UpdateChannel;
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private installWatchdog: ReturnType<typeof setTimeout> | null = null;
 	private installPreparationApplied = false;
@@ -90,6 +97,7 @@ export class UpdateService {
 	constructor(deps: UpdateServiceDeps) {
 		this.deps = deps;
 		this.deliveryMode = deps.deliveryMode ?? "automatic";
+		this.channel = deps.channel ?? "stable";
 		if (this.deliveryMode === "automatic") this.subscribeAutoUpdater();
 		else this.getManualChecker(); // Fail at composition time instead of silently disabling macOS checks.
 	}
@@ -210,13 +218,17 @@ export class UpdateService {
 	/**
 	 * 切换更新源（设置保存后立即调用）：镜像 → generic feed URL；
 	 * 回 GitHub → setFeedUrl(null) 恢复原生 provider。
+	 * dev 通道覆盖设置恒用官方 GitHub 源并允许 prerelease：AtomGit 镜像只分发
+	 * stable 产物，dev 的 0.8.0-beta.* 仅存在于 GitHub Releases；stable 显式重置
+	 * false（声明式保障，防 electron-updater 按版本段推断的残留）。
 	 */
 	applyUpdateSource(): void {
 		if (this.deliveryMode !== "automatic") return;
 		const settings = this.deps.settingsStore.get();
-		const source = normalizeUpdateSource(settings.updateSource);
-		const feedUrl = updateSourceFeedUrl(source);
-		this.getAutoUpdater().setFeedUrl(feedUrl);
+		const effectiveSource = this.channel === "dev" ? "github" : normalizeUpdateSource(settings.updateSource);
+		this.getAutoUpdater().setFeedUrl(updateSourceFeedUrl(effectiveSource));
+		// dev 恒 true；stable 恒 false（显式重置，防设置残留）。
+		this.getAutoUpdater().setAllowPrerelease(this.channel === "dev");
 	}
 
 	/** 记录「已提示过该版本」（渲染层 toast 展示后调用，实现每版本只提示一次）。 */
@@ -394,7 +406,8 @@ export class UpdateService {
 	private async checkApp(): Promise<AppCheckResult> {
 		if (this.deliveryMode === "manual") {
 			const settings = this.deps.settingsStore.get();
-			const source = normalizeUpdateSource(settings.updateSource);
+			// dev 通道强制官方 GitHub 源：镜像 latestReleaseUrl 指向 stable latest，不适用 dev prerelease（checker 内部走 releases 列表）。
+			const source = this.channel === "dev" ? "github" : normalizeUpdateSource(settings.updateSource);
 			const releaseUrl = updateSourceLatestReleaseUrl(source);
 			const result = await this.getManualChecker()(releaseUrl ?? undefined);
 			this.lastApp = result;

@@ -1,14 +1,16 @@
 import { ExternalLink, ScrollText } from "lucide-react";
 import { useState } from "react";
-import type { AppInfo } from "../../../../../shared/types";
+import type { AppInfo, UpdateChannel } from "../../../../../shared/types";
 import type { UpdateSourceId } from "../../../../../shared/types/settings";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { useAtomValue } from "jotai";
 import { updateStatusAtom } from "../../../atoms/update-atoms";
+import { cn } from "../../../lib/utils";
 import { Button } from "../../ui-shadcn/button";
 import { Progress } from "../../ui-shadcn/progress";
 import { ChangelogDialog } from "./ChangelogDialog";
+import { ChannelSwitchDialog } from "./ChannelSwitchDialog";
 
 type AppUpdateCardProps = {
 	/** 当前 PiDeck 版本（设置里显示 vX.Y.Z）。 */
@@ -17,6 +19,8 @@ type AppUpdateCardProps = {
 	platform: AppInfo["platform"];
 	/** 由主进程统一提供的受信任 Release 页面地址。 */
 	releasesUrl: string;
+	/** 当前更新通道（updateChannelInfoAtom，useChannelSwitchWatch 初拉）；徽章与切换方向依据。 */
+	channel: UpdateChannel;
 	/**
 	 * 启动时检测的安装类型。Win 便携版应用内更新仍走 NSIS setup
 	 * （会装成安装版），需在 UI 说清区别；不改 deliveryMode。
@@ -61,6 +65,8 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 	// 「查看更新日志」弹窗受控状态：发现新版本时最需要知道「这版改了什么」，
 	// 这是用户的决策点，所以入口放在这里有更新提示的分支里，而不是只留在关于弹框。
 	const [changelogOpen, setChangelogOpen] = useState(false);
+	// 通道切换向导（确认/下载/安装）：入口在卡片底部，流程状态由 channelSwitchStatusAtom 承载。
+	const [switchOpen, setSwitchOpen] = useState(false);
 
 	const openRelease = () => {
 		const releaseBaseUrl = props.releasesUrl.replace(/\/$/, "");
@@ -74,7 +80,11 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 		<div className="mb-3">
 			{/* 首行固定最小行高 + 垂直居中：与「自动下载更新」等 SettingRow 同行高观感，按钮不致偏上。 */}
 			<div className="flex min-h-10 items-center justify-between gap-2">
-				<span className="text-body">{t("app.updateCardVersion", { version: props.appVersion })}</span>
+				<div className="flex items-center gap-2">
+					<span className="text-body">{t("app.updateCardVersion", { version: props.appVersion })}</span>
+					{/* 通道徽章：dev=琥珀、stable=绿，语义色区分当前跟踪的发布线。 */}
+					<span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", props.channel === "dev" ? "bg-amber-500/15 text-amber-500" : "bg-emerald-500/15 text-emerald-500")}>{t(props.channel === "dev" ? "settings.channelBadgeDev" : "settings.channelBadgeStable")}</span>
+				</div>
 				<Button variant="secondary" size="sm" onClick={props.onCheckUpdate} loading={props.checking || phase === "checking"}>
 					{t("settings.checkUpdate")}
 				</Button>
@@ -188,7 +198,15 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 			{/* 已是最新（成功检查且无更新） */}
 			{phase === "idle" && app && !app.hasUpdate && updateStatus?.lastCheckAt && <p className="mt-2 text-caption text-success">{t("settings.updateUpToDate")}</p>}
 
+			{/* 通道切换入口：按当前通道展示反向目标（stable→开发版 / dev→稳定版）。 */}
+			<div className="mt-1 flex justify-end">
+				<Button variant="ghost" size="sm" onClick={() => setSwitchOpen(true)}>
+					{t(props.channel === "dev" ? "settings.channelSwitchToStable" : "settings.channelSwitchToDev")}
+				</Button>
+			</div>
+
 			<ChangelogDialog open={changelogOpen} onOpenChange={setChangelogOpen} />
+			<ChannelSwitchDialog open={switchOpen} onOpenChange={setSwitchOpen} releasesUrl={props.releasesUrl} />
 		</div>
 	);
 }

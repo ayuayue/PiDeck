@@ -74,6 +74,10 @@ import { usePiUpdate } from "./hooks/usePiUpdate";
 import { useProviderUsageStartupWarmup } from "./hooks/useProviderUsage";
 
 import { useBackgroundUpdateWatch } from "./hooks/useBackgroundUpdateWatch";
+import { useChannelSwitchWatch } from "./hooks/useChannelSwitchWatch";
+import { useDataEnvWatch } from "./hooks/useDataEnvWatch";
+import { DataModeChoiceDialog } from "./components/app/DataModeChoiceDialog";
+import { DataEnvMismatchDialog } from "./components/app/DataEnvMismatchDialog";
 import { useProjectSync } from "./hooks/useProjectSync";
 import {
 	agentInventoryAtom,
@@ -606,6 +610,12 @@ export function App() {
 		// 打开设置页并定位「开发设置」tab（toast「查看设置」动作目标）。
 		openSettings: () => store.set(openSettingsAtom, { tab: "dev" }),
 	});
+
+	// 通道切换状态订阅：初拉当前通道 + 切换快照，AppUpdateCard 徽章/切换向导消费。
+	useChannelSwitchWatch({ api });
+
+	// 数据环境事件订阅：dev 首启模式选择 / 目录标记警告 / 导入进度（弹窗由 dataEnvAtoms 驱动）。
+	useDataEnvWatch({ api });
 
 	const PROJECT_EXPANDED_DIRS_KEY_PREFIX = "pid:project-expanded-dirs:";
 
@@ -4235,6 +4245,10 @@ export function App() {
         不主动提示就等于不存在。看完即写 localStorage，只弹一次。
         空状态（没项目）不弹——那时面板本身也没什么可搜的。 */}
 				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !commandPaletteOpen} onTryNow={openCommandPalette} />}
+
+				{/* 数据环境弹窗族：首启数据模式选择（内含导入向导）与目录标记警告，事件/atom 驱动 */}
+				<DataModeChoiceDialog />
+				<DataEnvMismatchDialog />
 			</>
 		</FileLinkBaseProvider>
 	);

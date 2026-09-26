@@ -249,6 +249,27 @@ export function createPreviewApi(): PiDesktopApi {
 			logout: async (providerId: string) => ({ ok: false, providerId, error: "Pi auth is unavailable in preview mode." }),
 			onFlowUpdate: () => () => undefined,
 		},
+		// 数据环境预览桩：预览模式无真实数据目录，按 stable 通道未决策返回；导入同步不可用
+		dataEnv: {
+			getInfo: async () => ({ channel: "stable" as const, decided: false, dataMode: null, activeDirectory: "shared" as const }),
+			chooseMode: async () => ({ ok: false as const, error: "invalid-mode" as const }),
+			restart: async () => undefined,
+			confirmMismatch: async () => undefined,
+			onDecisionRequired: () => () => undefined,
+			onMismatchDetected: () => () => undefined,
+			getImportPreview: async () => ({ ok: false as const, error: "unavailable" as const }),
+			importStart: async () => ({ ok: false as const, error: "unavailable" as const }),
+			importCancel: async () => undefined,
+			onImportProgress: () => () => undefined,
+		},
+		// 频道切换预览桩：预览模式不接真实更新源，查询/下载均不可用，状态恒 idle。
+		channelSwitch: {
+			query: async () => ({ ok: false as const, error: "preview-unavailable" as const }),
+			download: async () => ({ ok: false as const, error: "preview-unavailable" as const }),
+			launch: async () => ({ ok: false as const, error: "preview-unavailable" as const }),
+			getStatus: async () => ({ phase: "idle" as const }),
+			onStateChanged: () => () => undefined,
+		},
 		shellMenu: {
 			getQuickTaskState: async () => ({ supported: false, registered: false }),
 			setQuickTaskEnabled: async () => ({ supported: false, registered: false }),
@@ -959,6 +980,7 @@ export function createPreviewApi(): PiDesktopApi {
 			preferredSystemLanguages: async () => (navigator.languages?.length ? [...navigator.languages] : [navigator.language]),
 			networkAddresses: async () => [{ address: "192.168.1.100", interfaceName: "Wi-Fi", cidr: "192.168.1.100/24", isPrivate: true }],
 			checkUpdate: async () => undefined,
+			getChannel: async () => ({ channel: "stable" as const, currentVersion: "preview" }),
 			onUpdateStatus: () => () => undefined,
 			onOpenSettings: () => () => undefined,
 			// 预览/浏览器模式没有全局快捷键，订阅退化为空操作

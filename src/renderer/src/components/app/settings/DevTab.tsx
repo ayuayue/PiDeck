@@ -1,9 +1,10 @@
 import { memo, useEffect, useState } from "react";
-import type { AppInfo, AppSettings, PiCliUpdateResult, PiInstallStatus, PiUpdateCheckResult, WslConnectionValidation } from "../../../../../shared/types";
+import type { AppInfo, AppSettings, DataEnvInfo, PiCliUpdateResult, PiInstallStatus, PiUpdateCheckResult, WslConnectionValidation } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { useAtomValue } from "jotai";
 import { updateStatusAtom } from "../../../atoms/update-atoms";
+import { updateChannelInfoAtom } from "../../../atoms/channelSwitchAtoms";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
@@ -11,6 +12,7 @@ import { SettingsSection } from "./SettingsStorageTab";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
 import { UpdateSourceSetting } from "./UpdateSourceSetting";
+import { ConfirmDialog } from "../../ui-shadcn/ConfirmDialog";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { CatalogSection } from "./CatalogSection";
 import { DshRunnerNodeRow } from "./DshRunnerNodeRow";
@@ -65,11 +67,49 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 	const piPath = props.customPiPath || props.piStatus?.command || "";
 	// 后台检查发现可提示的 PiDeck 新版本（未跳过）时高亮设置页更新分区。
 	const updateStatus = useAtomValue(updateStatusAtom);
+	// 当前更新通道（useChannelSwitchWatch 初拉）：AppUpdateCard 徽章与切换方向依据；
+	// 初拉未返回前按 stable 兜底（多数用户为正式包，getChannel 返回后立即校正）。
+	const channelInfo = useAtomValue(updateChannelInfoAtom);
 	const piCliStatus = updateStatus?.piCli ?? null;
 	// 手动检查的结果比定时后台快照更新，统一决定提示内容和更新按钮是否可用。
 	const piUpdateStatus = props.piUpdateCheck ?? piCliStatus;
 	const piUpdateAvailable = Boolean(piUpdateStatus?.hasUpdate);
 	const piUpdateNotice = piUpdateAvailable && piUpdateStatus?.latestVersion ? piUpdateStatus : null;
+
+	// ── 数据环境（仅 dev 包显示）：当前模式 + 切换入口（改模式需重启生效，规格 §6 设置页修改入口）──
+	const isDevChannel = channelInfo?.channel === "dev";
+	const [dataEnvInfo, setDataEnvInfo] = useState<DataEnvInfo | null>(null);
+	const [dataEnvConfirmOpen, setDataEnvConfirmOpen] = useState(false);
+	const [dataEnvSwitchFailed, setDataEnvSwitchFailed] = useState(false);
+	useEffect(() => {
+		if (!isDevChannel) return;
+		let disposed = false;
+		void desktopApi.dataEnv
+			.getInfo()
+			.then((info) => {
+				if (!disposed) setDataEnvInfo(info);
+			})
+			.catch(() => undefined);
+		return () => {
+			disposed = true;
+		};
+	}, [isDevChannel]);
+
+	/** 切换到反向数据模式：写决策指针后立即重启（setPath 于下次 ready 前分流生效）。 */
+	const handleSwitchDataMode = () => {
+		setDataEnvConfirmOpen(false);
+		const target = dataEnvInfo?.dataMode === "channel-dev" ? "shared" : "channel-dev";
+		void desktopApi.dataEnv
+			.chooseMode(target)
+			.then((result) => {
+				if ("error" in result) {
+					setDataEnvSwitchFailed(true);
+					return;
+				}
+				void desktopApi.dataEnv.restart();
+			})
+			.catch(() => setDataEnvSwitchFailed(true));
+	};
 
 	// ── WSL 相关状态（仅 Windows + WSL 开启时拉取）──
 	const [wslUserInput, setWslUserInput] = useState(draft.wslUser);
@@ -359,6 +399,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 					appVersion={props.appInfo.version}
 					platform={props.appInfo.platform}
 					releasesUrl={props.appInfo.releasesUrl}
+					channel={channelInfo?.channel ?? "stable"}
 					installationType={draft.installationType}
 					updateSource={draft.updateSource}
 					checking={props.updateChecking}
@@ -373,6 +414,24 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 				)}
 				<UpdateSourceSetting draft={draft} updateDraft={updateDraft} />
 			</SettingsSection>
+
+			{/* 数据环境（仅 dev 包）：当前数据模式 + 切换入口（改模式提示需重启） */}
+			{isDevChannel && dataEnvInfo && (
+				<SettingsSection title={t("settings.dataEnvSectionTitle")}>
+					<SettingRow
+						anchor="dev-data-env-mode"
+						title={<span>{t("settings.dataEnvCurrentMode")}</span>}
+						// 无决策指针按 shared 语义展示（与主进程「无标记视为 shared」一致）
+						description={dataEnvInfo.dataMode === "channel-dev" ? t("dataMode.channelDevTitle") : t("dataMode.sharedTitle")}
+					>
+						<Button variant="secondary" onClick={() => setDataEnvConfirmOpen(true)}>
+							{t("settings.dataEnvSwitchButton")}
+						</Button>
+					</SettingRow>
+					{dataEnvSwitchFailed && <p className="px-0.5 text-caption text-destructive">{t("dataMode.modeChangeFailed")}</p>}
+					{dataEnvConfirmOpen && <ConfirmDialog title={t("settings.dataEnvSwitchButton")} message={t("settings.dataEnvSwitchConfirmDesc")} onConfirm={handleSwitchDataMode} onCancel={() => setDataEnvConfirmOpen(false)} />}
+				</SettingsSection>
+			)}
 
 			{/* 模型目录：内置随版本发布，可从 GitHub 拉取最新覆盖 */}
 			<CatalogSection updateSource={draft.updateSource} customUpdateSourceUrl={draft.customUpdateSourceUrl} />

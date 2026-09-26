@@ -261,6 +261,48 @@ export type AppUpdateDownloadState = {
 };
 
 /**
+ * 应用更新通道：dev 构建跟踪 dev 预发布，stable 构建跟踪正式版。
+ * 编译期由 __PIDECK_DEV_BUILD__ 决定，运行期不变（见 main/update/channelIdentity.ts）。
+ */
+export type UpdateChannel = "stable" | "dev";
+
+/** 当前更新通道与应用版本（update:get-channel 返回，通道相关下载源选择用）。 */
+export interface UpdateChannelInfo {
+	channel: UpdateChannel;
+	currentVersion: string;
+}
+
+/** 跨通道切换的目标发布（GitHub Release 经 selectTargetRelease 归一化后的形状）。 */
+export interface TargetChannelRelease {
+	version: string;
+	/** Release 说明截断摘要（300 字符）。 */
+	notesExcerpt: string;
+	/** 平台匹配的安装包下载直连（仅 https）。 */
+	assetUrl: string;
+	/** 安装包文件名（临时目录内落盘名，渲染层不得传入路径分隔符）。 */
+	assetName: string;
+	/** GitHub 资产 digest（形如 "sha256:hex"，可选字段；缺失则下载后跳过校验）。 */
+	digestSha256?: string;
+	/** 发布页地址（html_url，缺失回退仓库 releases 页），查询失败/未匹配时的退化入口。 */
+	releasePageUrl: string;
+}
+
+/** 通道切换全流程快照（query/download 状态机推送 + get-status 拉取，渲染层据此渲染切换向导）。 */
+export interface ChannelSwitchSnapshot {
+	phase: "idle" | "querying" | "available" | "downloading" | "ready" | "error";
+	target?: TargetChannelRelease;
+	/** 下载进度（0-100 整数，单调不减；无法取得 content-length 时只在开始/结束时出现）。 */
+	percent?: number;
+	/** ready 阶段的安装包落盘路径（仅限本服务临时目录内，launch 前缀校验用）。 */
+	installerPath?: string;
+	/** error 阶段的失败说明；查询类失败附 releases 页地址作手动下载退化入口。 */
+	error?: string;
+}
+
+/** 通道切换动作结果（query/download/launch 共用）：失败附 error，成功按动作带 release / installerPath。 */
+export type ChannelSwitchActionResult = { ok: true; release?: TargetChannelRelease; installerPath?: string } | { ok: false; error: string };
+
+/**
  * 主进程后台更新检查推送给渲染层的状态快照（齿轮角标 / toast / 设置页卡片用）。
  * 由主进程 UpdateService 定时检查后通过 app:update-status-changed 推送。
  */

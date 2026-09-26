@@ -199,6 +199,11 @@ export function createRealAutoUpdater(options?: { feedUrl?: string; isAutoDownlo
 				autoUpdater.setFeedURL({ provider: "github", owner: UPDATE_REPO_OWNER, repo: UPDATE_REPO });
 			}
 		},
+		setAllowPrerelease: (enabled: boolean) => {
+			// electron-updater 的 allowPrerelease 默认按当前版本号是否含 prerelease 段推断；
+			// 显式赋值是声明式保障（dev 恒 true / stable 恒 false，见 UpdateService.applyUpdateSource）。
+			autoUpdater.allowPrerelease = enabled;
+		},
 		checkForUpdates: async () => {
 			const result = await autoUpdater.checkForUpdates();
 			// electron-updater 在未激活（dev 未切镜像源）时默认静默返回 null。把它提升为错误，

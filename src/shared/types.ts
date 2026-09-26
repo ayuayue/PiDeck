@@ -17,6 +17,7 @@ export * from "./types/fileChanges";
 export * from "./types/sessionTodo";
 export * from "./types/imports";
 export * from "./types/app";
+export * from "./types/dataEnv";
 export * from "./types/usageStats";
 export * from "./types/processMetrics";
 export * from "./types/diagnostics";

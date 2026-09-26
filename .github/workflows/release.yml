@@ -10,6 +10,13 @@ name: Release
 # 手动补发入口：publish-dsh-runtime.yml / publish-dsh-runner-node.yml（保留，用于
 # 给旧版本补发或重试；前者同样支持 --target-* 交叉模式），sync-atomgit.yml 手动
 # 触发用于补同步。
+#
+# 通道维度（2026-09 channel-switch 起）：workflow_dispatch 新增 channel 输入——
+#   stable（默认）：正式 Release，历史行为不变；
+#   dev：PiDeck Dev 预发布 Release（prerelease=true，构建走 dist:*:dev 双品牌包）。
+# dev 发版统一走本入口选 channel=dev（tag 须含 -beta 段，如 v0.8.0-beta.1）；
+# push tag v* 恒按 stable 处理。build-dev.yml 是 dev 的另一手动构建入口，
+# 同样恒 prerelease（发布语义与本 workflow 对齐）。
 
 on:
   push:
@@ -44,6 +51,17 @@ on:
         required: false
         type: string
         default: ""
+      channel:
+        # 通道维度：stable = 正式 Release（默认，历史行为）；dev = PiDeck Dev 预发布
+        # Release（prerelease=true，构建走 dist:*:dev 双品牌包）。dev 发版统一走本入口，
+        # tag 须含 -beta 段（resolve-version 里校验）；push tag v* 恒按 stable。
+        description: "发布通道：stable=正式版；dev=开发版预发布（tag 需形如 v0.8.0-beta.1）"
+        required: false
+        type: choice
+        default: stable
+        options:
+          - stable
+          - dev
 
 permissions:
   contents: write
@@ -58,6 +76,8 @@ jobs:
       ref: ${{ steps.resolve.outputs.ref }}
       # 仅「手动留空 tag」时需要：把 release tag 指到本次构建的分支 HEAD
       target_commitish: ${{ steps.resolve.outputs.target_commitish }}
+      # 通道维度：dev 通道 → true（build 与 Release 创建两处消费；push 触发恒 false）
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -70,6 +90,8 @@ jobs:
           # dispatch 下 tag 必有值（choice 的 default=auto 会被服务端填入），
           # push 事件下两者都为空串，走 push tag 分支。
           INPUT_TAG: ${{ github.event.inputs.tag_custom != '' && github.event.inputs.tag_custom || github.event.inputs.tag }}
+          # 通道输入：push 事件无此输入（空串）→ 恒按 stable；手输内容不拼 shell，走 env。
+          INPUT_CHANNEL: ${{ github.event.inputs.channel }}
         run: |
           TARGET_COMMITISH=""
           # 还原哨兵值：auto ≡ 旧的「留空」
@@ -101,6 +123,22 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "ref=${REF}" >> $GITHUB_OUTPUT
           echo "target_commitish=${TARGET_COMMITISH}" >> $GITHUB_OUTPUT
+          # 通道维度：dev 通道要求 prerelease 版本号（tag 含 -beta 段），保证 dev Release
+          # 恒带 prerelease 标记——不抢占 GitHub /releases/latest（stable 的 macOS 手动更新
+          # 与 DSH runtime latest 跟随都读它），也不会被 sync-atomgit 当 stable 镜像同步。
+          CHANNEL="${INPUT_CHANNEL:-stable}"
+          PRERELEASE="false"
+          if [ "$CHANNEL" = "dev" ]; then
+            case "$TAG" in
+              *-beta*) PRERELEASE="true" ;;
+              *)
+                echo "::error::dev 通道发版必须使用 prerelease 版本号（X.Y.Z-beta.N，tag 形如 v0.8.0-beta.1），got: ${TAG}"
+                exit 1
+                ;;
+            esac
+          fi
+          echo "channel=${CHANNEL} prerelease=${PRERELEASE}"
+          echo "prerelease=${PRERELEASE}" >> $GITHUB_OUTPUT
 
   extract-changelog:
     name: Extract changelog
@@ -149,24 +187,32 @@ jobs:
           - platform: windows
             os: windows-latest
             command: npm run build && npx electron-builder --win nsis portable zip --publish never
+            # dev 通道：PiDeck Dev 双品牌包（经 scripts/dist-dev.js）。--publish never 显式
+            # 关闭 electron-builder 在 CI 对 tagged checkout 的 onTagOrDraft 自动发布——
+            # 发布统一由下方 softprops 步骤完成，保持「单发布方」不变量。dist:mac:dev 自身
+            # 不带架构参数（runner 是 arm64），x64/arm64 用 `npm run <script> -- <args>` 透传。
+            command_dev: npm run dist:win:dev -- --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
           - platform: macos
             name: macOS x64
             os: macos-latest
             command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never
+            command_dev: npm run dist:mac:dev -- --x64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: macos
             name: macOS arm64
             os: macos-latest
             command: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never
+            command_dev: npm run dist:mac:dev -- --arm64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: linux
             name: Linux x64
             os: ubuntu-latest
             command: npm run build && npx electron-builder --linux AppImage deb tar.gz --x64 --publish never
+            command_dev: npm run dist:linux:dev -- --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
           # Linux arm64 用原生 arm64 runner（ubuntu-24.04-arm，GA）：node-pty 等原生模块
@@ -178,6 +224,7 @@ jobs:
             name: Linux arm64
             os: ubuntu-24.04-arm
             command: npm run build && npx electron-builder --linux AppImage deb tar.gz --arm64 --publish never
+            command_dev: npm run dist:linux:dev:arm64 -- --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
             skip_yml: true
@@ -199,11 +246,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # dev 通道：tag 所指 commit 的 package.json 未必已 bump 到 beta 版本号，而产物名与
+      # latest*.yml 内版本取自 package.json——构建前写入，保证与 Release tag 一致
+      # （与 build-dev.yml 同款；stable 保持既有约定：tag 自带版本一致的提交）。
+      - name: Set package version from tag (dev channel)
+        if: needs.resolve-version.outputs.prerelease == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          npm pkg set version="${VERSION}"
+          node -p "'package.json version -> ' + require('./package.json').version"
+
       - name: Generate app icon
         run: npm run make-icon
 
       - name: Build packages
-        run: ${{ matrix.command }}
+        # stable 走原命令；dev 通道（prerelease=true）走 dist:*:dev 双品牌包命令
+        run: ${{ needs.resolve-version.outputs.prerelease == 'true' && matrix.command_dev || matrix.command }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -228,7 +288,9 @@ jobs:
           # `release: published` 事件（GitHub 防递归机制），导致 sync-atomgit 等
           # 监听 release 事件的 workflow 永远不触发。PAT 发布的事件可正常触发。
           token: ${{ secrets.RELEASE_PAT }}
-          # 始终正式发布：手动留空 tag 时已解析为 v${package.json.version}
+          # stable 恒正式发布（手动留空 tag 时已解析为 v${package.json.version）；
+          # dev 通道（channel=dev）恒 prerelease，不抢占 /releases/latest。
+          prerelease: ${{ needs.resolve-version.outputs.prerelease == 'true' }}
           tag_name: ${{ needs.resolve-version.outputs.tag }}
           # 仅「留空 tag」模式有值，把 tag 指到本次构建的分支 HEAD；其它模式留空不覆盖
           target_commitish: ${{ needs.resolve-version.outputs.target_commitish }}

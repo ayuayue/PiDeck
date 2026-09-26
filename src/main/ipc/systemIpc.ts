@@ -8,6 +8,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
+import { resolveUpdateChannel } from "../update/channelIdentity";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
 import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
 import { ChangelogService, type ChangelogLanguage } from "../update/ChangelogService";
@@ -985,6 +986,12 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.appCheckUpdate, async () => {
 		await updateService?.checkNow();
 	});
+	// 当前更新通道（编译期判定）：version 与 getAppInfo 同源（都是 app.getVersion()），
+	// 不复用 appInfoPromise —— 那份缓存含 pi --version spawn，只为取版本不值得连带。
+	ipcMain.handle(ipcChannels.appGetChannel, () => ({
+		channel: resolveUpdateChannel(),
+		currentVersion: app.getVersion(),
+	}));
 	ipcMain.handle(ipcChannels.appDownloadUpdate, async () => {
 		await updateService?.downloadNow();
 	});

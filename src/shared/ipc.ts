@@ -459,6 +459,8 @@ export const ipcChannels = {
 	appNetworkAddresses: "app:network-addresses",
 	appPreferredSystemLanguages: "app:preferred-system-languages",
 	appCheckUpdate: "app:check-update",
+	/** 查询当前构建所属更新通道（stable/dev，编译期判定）。 */
+	appGetChannel: "update:get-channel",
 	/** 手动下载已检测到的新版本（autoDownload 关闭时使用）。 */
 	appDownloadUpdate: "app:download-update",
 	/** 重启并安装已下载的更新（quitAndInstall）。 */
@@ -845,4 +847,38 @@ export const ipcChannels = {
 	piAuthLogout: "pi-auth:logout",
 	/** 主进程 → 渲染层：登录流程的事件/提问推送 */
 	piAuthFlowUpdate: "pi-auth:flow-update",
+
+	// ===== 数据环境（stable 共用目录 / dev 独立目录的决策与切换，规格 §6） =====
+	/** 渲染层 → 主进程：查询数据环境状态（决策指针 + 当前生效目录）。 */
+	dataEnvGetInfo: "data-env:get-info",
+	/** 渲染层 → 主进程：写入数据模式决策（只写指针，须重启应用才切换实际数据目录）。 */
+	dataEnvChooseMode: "data-env:choose-mode",
+	/** 渲染层 → 主进程：重启应用（决策生效 / 切换流程收尾）。 */
+	dataEnvRestart: "data-env:restart",
+	/** 渲染层 → 主进程：启动期数据环境不匹配的确认结果（continue / quit）。 */
+	dataEnvConfirmMismatch: "data-env:confirm-mismatch",
+	/** 主进程 → 渲染层：dev 首启未决策，请求数据模式选择。 */
+	dataEnvDecisionRequired: "data-env:decision-required",
+	/** 主进程 → 渲染层：目录标记与当前通道不匹配，请求用户确认。 */
+	dataEnvMismatchDetected: "data-env:mismatch-detected",
+	/** 渲染层 → 主进程：开始从共用目录复制到独立目录（进行中重复调用返回 busy）。 */
+	dataEnvImportStart: "data-env:import-start",
+	/** 渲染层 → 主进程：请求取消进行中的导入（已复制内容保留）。 */
+	dataEnvImportCancel: "data-env:import-cancel",
+	/** 主进程 → 渲染层：导入进度推送（phase: copying/done/cancelled/error）。 */
+	dataEnvImportProgress: "data-env:import-progress",
+	/** 渲染层 → 主进程：读取共用目录的导入预览（迁移清单 + 体积预估）。 */
+	dataEnvGetImportPreview: "data-env:get-import-preview",
+
+	// ===== 通道切换（跨通道查版本 → 下载 → 引导安装，规格 §3） =====
+	/** 渲染层 → 主进程：查询反向通道最新发布（dev↔stable，匿名 GitHub API）。 */
+	channelSwitchQuery: "channel-switch:query",
+	/** 渲染层 → 主进程：下载目标发布安装包到临时目录（进度经 state-changed 推送）。 */
+	channelSwitchDownload: "channel-switch:download",
+	/** 渲染层 → 主进程：启动安装器并退出应用（用户确认后调用；仅限本服务临时目录内路径）。 */
+	channelSwitchLaunch: "channel-switch:launch",
+	/** 渲染层 → 主进程：拉取当前通道切换状态快照（页面挂载/重启用）。 */
+	channelSwitchGetStatus: "channel-switch:get-status",
+	/** 主进程 → 渲染层：通道切换状态机快照推送（querying/available/downloading/ready/error）。 */
+	channelSwitchStateChanged: "channel-switch:state-changed",
 } as const;
