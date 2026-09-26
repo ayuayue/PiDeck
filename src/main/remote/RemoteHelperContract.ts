@@ -41,10 +41,13 @@ export const REMOTE_HELPER_MAX_REQUEST_TIMEOUT_MS = 300_000;
  *
  * The filesystem half of the list is a closed set on purpose: one code per condition the caller can act
  * on, and `IO_ERROR` for every errno nobody predicted, so a raw platform code or message is never
- * relayed. `PATH_OUTSIDE_ROOT` is a refusal before the operation (nothing outside the root is opened),
- * `RESULT_TOO_LARGE` is a bounded result that is refused instead of truncated, `ROOT_INVALID` is the
- * fatal startup answer of a helper whose `--root` argument is missing, relative, `/`, not a directory or
- * unreadable, and `NOT_A_FILE` covers both a directory and a non-regular entry handed to `fs.read`.
+ * relayed. `PATH_OUTSIDE_ROOT` is a refusal before the operation (nothing outside the root is opened) and
+ * is also the answer of every filesystem method in a host-only session, which is a helper started without
+ * a `--root` at all: that is a legal state, not a misconfiguration, because probing and the handshake need
+ * no file access. `RESULT_TOO_LARGE` is a bounded result that is refused instead of truncated, `ROOT_INVALID`
+ * is the fatal startup answer of a helper whose `--root` argument is present but unusable (empty, relative,
+ * `/`, not a directory or unreadable), and `NOT_A_FILE` covers both a directory and a non-regular entry
+ * handed to `fs.read`.
  */
 export const REMOTE_HELPER_ERROR_CODES = [
 	"METHOD_NOT_FOUND",
