@@ -20,10 +20,17 @@ test("AnswerOutput renders data-message-id anchor on settled interim bodies", ()
 	// messageId prop 存在并透传到 settled 容器的 data-message-id
 	assert.match(answerOutputSource, /messageId\?:\s*string/);
 	assert.match(answerOutputSource, /data-message-id=\{props\.messageId\}/);
-	// live 模式分支不加锚点（流式轮整体排除，快照会失真）
+	// live 分支（主组件内）不加锚点（流式轮整体排除，快照会失真）
 	const liveBranch = answerOutputSource.slice(answerOutputSource.indexOf('props.mode === "live"'), answerOutputSource.indexOf("const cleanText"));
 	assert.ok(liveBranch.length > 0, "live branch must exist");
 	assert.doesNotMatch(liveBranch, /data-message-id/);
+	// LiveAnswerBody 带排除戳：settle 交接期残留时（轮已切 complete），
+	// 划选不得解析到外层 run id——靠 data-live-answer 截住。
+	const liveBodyIndex = answerOutputSource.indexOf("const LiveAnswerBody");
+	assert.ok(liveBodyIndex > 0, "LiveAnswerBody must exist");
+	const liveBody = answerOutputSource.slice(liveBodyIndex);
+	assert.doesNotMatch(liveBody, /data-message-id/);
+	assert.match(liveBody, /data-live-answer="true"/);
 });
 
 test("InterimAnswer forwards messageId to AnswerOutput", () => {
@@ -48,10 +55,10 @@ test("ThinkingBlock marks its card so expanded reasoning text stays excluded fro
 });
 
 test("quote exclusion no longer blacklists the whole execution fold", () => {
-	// 放开折叠区整体排除；逐项排除工具/重试/错误/思考/过程组头体
+	// 放开折叠区整体排除；逐项排除工具/重试/错误/思考/过程组头体/live 正文副本
 	assert.ok(quoteExcludedSelectorLine.length > 0, "QUOTE_EXCLUDED_SELECTOR must be defined");
 	assert.doesNotMatch(quoteExcludedSelectorLine, /execution-summary-details/);
-	for (const marker of ["[data-tool-kind]", "[data-retry-step]", "[data-error-step]", "[data-thinking-step]", "[data-process-group-head]", "[data-process-group-body]"]) {
+	for (const marker of ["[data-tool-kind]", "[data-retry-step]", "[data-error-step]", "[data-thinking-step]", "[data-process-group-head]", "[data-process-group-body]", "[data-live-answer]"]) {
 		assert.ok(quoteExcludedSelectorLine.includes(marker), `QUOTE_EXCLUDED_SELECTOR must contain ${marker}`);
 	}
 	assert.match(quoteExcludedSelectorLine, /\.turn-row--pending/);

@@ -85,7 +85,7 @@ const LiveAnswerBody = memo(function LiveAnswerBody(props: { sessionId: string; 
 	const sourceText = streaming?.content ?? "";
 	const text = stripThinkingTags(stripAnsi(sourceText));
 	return (
-		<div className={answerOutputClassName("answer")} data-is-streaming={props.isStreaming ? "1" : "0"} data-variant="answer" style={{ display: props.hidden ? "none" : undefined }}>
+		<div className={answerOutputClassName("answer")} data-live-answer="true" data-is-streaming={props.isStreaming ? "1" : "0"} data-variant="answer" style={{ display: props.hidden ? "none" : undefined }}>
 			<MarkdownStream text={text} isStreaming={Boolean(props.isStreaming)} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
 		</div>
 	);

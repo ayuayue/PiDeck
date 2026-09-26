@@ -10,11 +10,14 @@
  * - `[data-retry-step]` / `[data-error-step]`：重试 / 错误诊断行。
  * - `[data-thinking-step]`：思考卡（含展开正文）。
  * - `[data-process-group-head]` / `[data-process-group-body]`：过程组头（摘要按钮）与组体（思考/工具成员）。
+ * - `[data-live-answer]`：live 正文副本（打字未定稿）。run 结束后的短暂残留期，轮样式已切成
+ *   complete 但 live 副本可能仍在挂载：不加排除的话划选会解析到外层 run id，引用错归属。
+ *   live 副本永久不可引用；定稿后由带 data-message-id 的 settled 副本接管。
  * 注意：不再整体排除 `.execution-summary-details`——中间回复（settled InterimAnswer）
  * 就在折叠区内，其正文根节点带 data-message-id，放开后划选可归属到具体消息。
  * 折叠态安全：历史轮折叠=完全卸载、live 轮折叠=display:none，都选不中。
  */
-export const QUOTE_EXCLUDED_SELECTOR = ".turn-row--pending, [data-tool-kind], [data-retry-step], [data-error-step], [data-thinking-step], [data-process-group-head], [data-process-group-body]";
+export const QUOTE_EXCLUDED_SELECTOR = ".turn-row--pending, [data-tool-kind], [data-retry-step], [data-error-step], [data-thinking-step], [data-process-group-head], [data-process-group-body], [data-live-answer]";
 
 /** 引用快照长度上限：超长划选截断并提示语义由 label 省略号体现（防极端大文本入 atom）。 */
 export const MAX_QUOTE_CHARS = 4000;

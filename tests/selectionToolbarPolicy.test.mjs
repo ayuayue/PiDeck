@@ -38,6 +38,12 @@ test("excluded selector covers streaming turns and per-component regions", () =>
 	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-process-group-body\]/);
 });
 
+test("live answer copy is permanently excluded (settle handover guard)", () => {
+	// B 点守卫：run 结束后 live 副本残留窗口内，轮样式已切 complete、.turn-row--pending
+	// 不再命中，live 副本必须靠自身 data-live-answer 戳排除，否则划选会归属到 run id。
+	assert.match(QUOTE_EXCLUDED_SELECTOR, /\[data-live-answer\]/);
+});
+
 test("interim answers inside a completed turn are quotable while cross-message is not", () => {
 	// 中间回复场景：同一轮内选区两端都在同一条中间回复（data-message-id=消息 id）内。
 	const interim = {
