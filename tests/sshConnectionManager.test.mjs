@@ -6,9 +6,48 @@ import { createManualTimers, createPinnedClient, createPinnedHostFixture, fakeEn
 
 const { createSshConnectionManager } = loadTsCommonJs("src/main/remote/SshConnectionManager.ts");
 const { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_TIMEOUT_MS } = loadTsCommonJs("src/main/remote/SshProcessLauncher.ts");
+const { buildHelperRemoteCommand } = loadTsCommonJs("src/main/remote/RemoteHelperCommand.ts");
 
-/** Fake launcher: records requests and hands out controllable handles with manual lifecycle. */
-function createFakeLauncher() {
+/**
+ * The verified bootstrap result every production call site has to pass on: `deployRoot` comes from the
+ * bootstrap ready frame, never from a guessed remote HOME, and the address only has to be a content hash.
+ */
+const HELPER_SESSION = { nodePath: "/usr/bin/node", deployRoot: "/home/dev/.pideck/remote-host", bundleSha256: "a".repeat(64) };
+
+/**
+ * Every manager in this suite is built here, so the mandatory handshake session is stated once; a test
+ * that wants the fail-closed path overrides it explicitly (`helperSession: undefined`).
+ */
+function createManager(options) {
+	return createSshConnectionManager({ helperSession: HELPER_SESSION, ...options });
+}
+
+/** A legal `hello` result: the manager only has to agree on the protocol version and the platform fields. */
+function helloResult(protocolVersion = 1) {
+	return { protocolVersion, platform: "linux", arch: "x64", home: "/home/dev", capabilities: ["echo"], helperVersion: "1.0.4", nodeVersion: "v22.14.0", pid: 321 };
+}
+
+/** The response frame a fake helper sends for one request frame the manager wrote. */
+function helloFrame(request, result) {
+	return { v: 1, hostId: request.hostId, generation: request.generation, id: request.id, ok: true, result };
+}
+
+/**
+ * Waits for a request frame the test itself sent. The manager's own `hello` handshake is recorded too, so
+ * a frame is addressed by method (plus an optional index fence) instead of by its position in the array.
+ */
+async function waitForFrame(protocol, match, label = "the request frame") {
+	await waitFor(() => protocol.frames.some(match), { label });
+	return protocol.frames.find(match);
+}
+
+/**
+ * Fake launcher: records requests and hands out controllable handles with manual lifecycle. The handle
+ * speaks just enough of the helper protocol for the manager's handshake — `write()` answers the first
+ * `hello` of the attempt through the handle's own emitter — so a silent helper is modelled by turning
+ * that answer off (`answerHello: false`) rather than by leaving the manager without a transport.
+ */
+function createFakeLauncher({ answerHello = true, protocolVersion = 1 } = {}) {
 	const requests = [];
 	const handles = [];
 	return {
@@ -20,6 +59,9 @@ function createFakeLauncher() {
 				const emitter = new EventEmitter();
 				const exits = [];
 				const lateCallbacks = [];
+				// The manager's handshake is the first `hello` a fresh attempt sends; a later `hello` belongs to a
+				// test's own request, so only the first one is answered here.
+				let handshakeAnswered = false;
 				const handle = {
 					pid: 4321,
 					stopCalls: [],
@@ -34,14 +76,22 @@ function createFakeLauncher() {
 							if (index >= 0) exits.splice(index, 1);
 						};
 					},
-					onStdoutLine() {
-						return () => undefined;
+					onStdoutLine(listener) {
+						emitter.on("stdout", listener);
+						return () => emitter.off("stdout", listener);
 					},
 					onStderrLine() {
 						return () => undefined;
 					},
 					write(line) {
 						handle.writes.push(line);
+						const request = JSON.parse(line);
+						if (!answerHello || request.method !== "hello" || handshakeAnswered) return;
+						handshakeAnswered = true;
+						const frame = helloFrame(request, helloResult(protocolVersion));
+						// A real helper answers on stdout asynchronously; a queued microtask keeps the manager from
+						// ever observing the answer before the request left.
+						queueMicrotask(() => emitter.emit("stdout", JSON.stringify(frame)));
 					},
 					async stop(reason) {
 						handle.stopCalls.push(reason);
@@ -149,6 +199,8 @@ function createProtocolLauncher() {
 		launcher: {
 			async start() {
 				const exitListeners = new Set();
+				// One handshake per attempt: the manager's own `hello` is answered here, a test's `hello` is not.
+				let handshakeAnswered = false;
 				// Kept beyond unsubscribe: a native "exit" that was already queued still reaches the manager,
 				// which is exactly the case the attempt-ownership fence has to survive.
 				const lateExitListeners = [];
@@ -159,7 +211,14 @@ function createProtocolLauncher() {
 					lateDeliveries: 0,
 					write(line) {
 						handle.writes.push(line);
-						frames.push(JSON.parse(line));
+						const request = JSON.parse(line);
+						frames.push(request);
+						// Same rule as the plain fake launcher: answer the attempt's own handshake and leave every
+						// later frame (including a test's own `hello` request) to the test.
+						if (request.method !== "hello" || handshakeAnswered) return;
+						handshakeAnswered = true;
+						const frame = helloFrame(request, helloResult());
+						queueMicrotask(() => emit(stdoutListeners, JSON.stringify(frame)));
 					},
 					onExit(listener) {
 						exitListeners.add(listener);
@@ -208,7 +267,7 @@ test("a pinned session that stays alive reaches ready through the staged phases"
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client, calls } = createPinnedClient(profile.id);
 	const fake = createFakeLauncher();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 	t.after(() => manager.dispose());
 
 	const state = await connectAndSettle(manager, profile.id);
@@ -224,6 +283,10 @@ test("a pinned session that stays alive reaches ready through the staged phases"
 	const codes = diagnostics.map((entry) => entry.code);
 	assert.ok(codes.includes("SSH_CONNECTION_PREFLIGHT"));
 	assert.ok(codes.includes("SSH_PHASE_AUTHENTICATE"));
+	// The helper phase is entered with evidence, and `ready` is applied only after the handshake answered.
+	assert.ok(codes.includes("SSH_PHASE_HELPER"));
+	assert.ok(codes.includes("SSH_HELPER_HANDSHAKE_OK"));
+	assert.ok(codes.indexOf("SSH_HELPER_HANDSHAKE_OK") < codes.indexOf("SSH_CONNECTION_READY"), "ready follows the handshake");
 	assert.ok(codes.includes("SSH_CONNECTION_READY"));
 	// Redaction: nothing recorded may contain a filesystem path or a command line.
 	for (const entry of diagnostics) assert.equal((JSON.stringify(entry).match(/[\\/]|ssh -|ProxyCommand/g) ?? []).length, 0, JSON.stringify(entry));
@@ -236,7 +299,7 @@ test("fatal preflight failures stop at needs-attention without launching a proce
 			throw new Error(code);
 		});
 		const fake = createFakeLauncher();
-		const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+		const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 		t.after(() => manager.dispose());
 		const state = await connectAndSettle(manager, profile.id);
 		assert.equal(state.state, "needs-attention", code);
@@ -253,7 +316,7 @@ test("transient launch failures retry on the documented ladder and stop when exh
 	const { client } = createPinnedClient(profile.id);
 	const failing = createFailingLauncher();
 	const manual = createManualTimers();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: failing.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: failing.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
 	t.after(() => manager.dispose());
 
 	const first = await manager.connect(profile.id);
@@ -285,7 +348,7 @@ test("a live session that drops after ready returns to reconnecting", async (t) 
 	const { client } = createPinnedClient(profile.id);
 	const fake = createFakeLauncher();
 	const manual = createManualTimers();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
 	t.after(() => manager.dispose());
 	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
 	fake.handles[0].exit({ kind: "failed", code: 255, signal: null });
@@ -300,7 +363,7 @@ test("abort returns the host to idle without accepting the old attempt, shutdown
 	const { client } = createPinnedClient(profile.id);
 	const fake = createFakeLauncher();
 	const manual = createManualTimers();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
 	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
 	const generation = manager.getState(profile.id).generation;
 	await manager.disconnect(profile.id, "abort");
@@ -335,7 +398,7 @@ test("aborting while the process is still spawning stops the late handle", async
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
 	const deferred = createDeferredLauncher();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: deferred.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: deferred.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 	t.after(() => manager.dispose());
 	const connecting = manager.connect(profile.id);
 	await deferred.started;
@@ -352,15 +415,19 @@ test("carries helper requests over the pinned session and rejects them when the 
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
 	const protocol = createProtocolLauncher();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 	t.after(() => manager.dispose());
 
 	await assert.rejects(manager.request(profile.id, "hello"), /SSH_CONNECTION_NOT_READY/);
 	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
 
+	// Connect sent exactly one frame — the manager's own handshake — and it was answered before `ready`.
+	assert.equal(protocol.frames.length, 1, "only the handshake is sent during connect");
+	assert.equal(protocol.frames[0].method, "hello");
+
 	const pending = manager.request(profile.id, "hello", { clientVersion: "0.7.7" });
-	await waitFor(() => protocol.frames.length === 1, { label: "the request frame" });
-	const frame = protocol.frames[0];
+	// The handshake is a `hello` too, so the test's own frame is located by its params, not by its index.
+	const frame = await waitForFrame(protocol, (candidate) => candidate.method === "hello" && candidate.params?.clientVersion === "0.7.7");
 	assert.equal(frame.v, 1);
 	assert.equal(frame.hostId, profile.id);
 	assert.equal(frame.method, "hello");
@@ -387,7 +454,7 @@ test("carries helper requests over the pinned session and rejects them when the 
 
 	// A dropped request must not hang: losing the session settles every pending promise once.
 	const lost = manager.request(profile.id, "path.list", { root: "/home/u" });
-	await waitFor(() => protocol.frames.length === 2, { label: "the second request frame" });
+	await waitForFrame(protocol, (candidate) => candidate.method === "path.list", "the second request frame");
 	protocol.handles[0].exit({ kind: "failed", code: 255, signal: null });
 	await assert.rejects(lost, /REMOTE_CONNECTION_LOST/);
 	assert.equal(manager.getState(profile.id).state, "reconnecting");
@@ -397,7 +464,7 @@ test("a late exit from an aborted attempt cannot tear down the session that repl
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
 	const protocol = createProtocolLauncher();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 	t.after(() => manager.dispose());
 
 	await connectAndSettle(manager, profile.id);
@@ -408,8 +475,10 @@ test("a late exit from an aborted attempt cannot tear down the session that repl
 	assert.notEqual(live, aborted);
 
 	// A request on the replacement session is in flight while the aborted attempt reports its exit.
+	// Both attempts sent their own handshake first, so only a frame after those can be this request.
+	const answered = protocol.frames.length;
 	const pending = manager.request(profile.id, "hello");
-	await waitFor(() => protocol.frames.length === 1, { label: "the request frame" });
+	const frame = await waitForFrame(protocol, (candidate, index) => index >= answered && candidate.method === "hello");
 	aborted.emitLate({ kind: "failed", code: 255, signal: null });
 	await flushMicrotasks();
 	// The late event must actually have reached the manager's exit handler for this test to mean anything.
@@ -417,7 +486,6 @@ test("a late exit from an aborted attempt cannot tear down the session that repl
 	// The replacement must be untouched: still ready, still usable, still stoppable.
 	assert.equal(manager.getState(profile.id).state, "ready");
 	assert.equal(live.stopCalls.length, 0, "the live process was not stopped by the late exit");
-	const frame = protocol.frames[0];
 	protocol.stdout({ v: 1, hostId: profile.id, generation: frame.generation, id: frame.id, ok: true, result: { alive: true } });
 	assert.deepEqual(JSON.parse(JSON.stringify(await pending)), { alive: true });
 	await manager.disconnect(profile.id, "shutdown");
@@ -428,7 +496,7 @@ test("repeated helper noise cannot flush the connection history", async (t) => {
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
 	const protocol = createProtocolLauncher();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: protocol.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 	t.after(() => manager.dispose());
 	await connectAndSettle(manager, profile.id);
 	for (let index = 0; index < 500; index += 1) protocol.stderr(`noise line ${index}`);
@@ -450,7 +518,7 @@ test("user retry leaves needs-attention once the cause is fixed, and skips the a
 	});
 	const fake = createFakeLauncher();
 	const manual = createManualTimers();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
 	t.after(() => manager.dispose());
 
 	// needs-attention is terminal: retrying before the cause is fixed must not spawn a process either.
@@ -480,7 +548,7 @@ test("a crashed session with a Windows exit code is diagnosed instead of crashin
 	const { client } = createPinnedClient(profile.id);
 	const fake = createFakeLauncher();
 	const manual = createManualTimers();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
 	t.after(() => manager.dispose());
 	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
 	// 0xC0000005 is a real Windows crash code and far outside the [-1,255] diagnostic domain.
@@ -504,7 +572,7 @@ test("a session that only ever dies shortly after ready escalates instead of fla
 	const fake = createFakeLauncher();
 	const manual = createManualTimers();
 	// A frozen clock means every session has ~0 uptime, so all of them count as flaps.
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0, now: () => 1_000_000 });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0, now: () => 1_000_000 });
 	t.after(() => manager.dispose());
 	assert.equal((await connectAndSettle(manager, profile.id)).state, "ready");
 	for (let round = 0; round < 6; round += 1) {
@@ -527,7 +595,7 @@ test("dispose waits for an in-flight spawn and refuses later connects", async (t
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
 	const deferred = createDeferredLauncher();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher: deferred.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher: deferred.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0 });
 	const connecting = manager.connect(profile.id).catch(() => undefined);
 	await deferred.started;
 	// A bare method reference is how app-lifecycle hooks are usually wired; it must still tear down.
@@ -556,6 +624,11 @@ test("composes with the real launcher: explicit session deadline and exit classi
 			child.pid = 4242;
 			child.stdout = new EventEmitter();
 			child.stderr = new EventEmitter();
+			// The manager opens the helper protocol on this session, so the pinned child needs a writable stdin:
+			// without one the handshake could not leave and the session could never become ready.
+			child.stdin = new EventEmitter();
+			child.stdin.write = () => true;
+			child.stdin.end = () => undefined;
 			child.kill = () => {
 				queueMicrotask(() => child.emit("exit", null, "SIGKILL"));
 				return true;
@@ -573,7 +646,7 @@ test("composes with the real launcher: explicit session deadline and exit classi
 		},
 	};
 	const manual = createManualTimers();
-	const manager = createSshConnectionManager({ userDataDir: directory, client, launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	const manager = createManager({ userDataDir: directory, client, launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
 	t.after(() => manager.dispose());
 	const connecting = manager.connect(profile.id);
 	await waitFor(() => children.length === 1, { label: "the real launcher to spawn" });
@@ -585,6 +658,10 @@ test("composes with the real launcher: explicit session deadline and exit classi
 	assert.equal(requests[0].timeoutMs, SSH_LAUNCHER_MAX_TIMEOUT_MS);
 	assert.equal(requests[0].maxOutputBytes, SSH_LAUNCHER_MAX_OUTPUT_BYTES);
 	assert.equal(requests[0].invocation.executable, fakeSshPath);
+	// The helper command is the one remote token sequence and travels as the last argv element, directly
+	// after the destination: the pinned arguments before it are unchanged, so this asserts the tail.
+	assert.equal(requests[0].invocation.args.at(-2), profile.sshHost);
+	assert.equal(requests[0].invocation.args.at(-1), buildHelperRemoteCommand(HELPER_SESSION));
 	const lost = Array.from(manager.listDiagnostics(profile.id)).filter((entry) => entry.code === "SSH_CONNECTION_LOST");
 	assert.ok(lost.length >= 1);
 	assert.equal(
@@ -592,4 +669,93 @@ test("composes with the real launcher: explicit session deadline and exit classi
 		true,
 		"the real launcher's exit code reaches the diagnostic",
 	);
+});
+
+test("a helper that never answers the handshake is never reported as ready", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	// The process stays alive and simply never answers, so only the manager's own deadline can end it.
+	const fake = createFakeLauncher({ answerHello: false });
+	const manual = createManualTimers();
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, handshakeTimeoutMs: 25, timers: manual.timers, random: () => 0 });
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.notEqual(state.state, "ready", "a silent helper must not produce a ready connection");
+	assert.equal(state.state, "reconnecting");
+	assert.equal(state.lastCode, "REQUEST_TIMEOUT");
+	const codes = Array.from(manager.listDiagnostics(profile.id)).map((entry) => entry.code);
+	assert.equal(codes.includes("SSH_HELPER_HANDSHAKE_OK"), false);
+	assert.equal(codes.includes("SSH_CONNECTION_READY"), false);
+	assert.ok(codes.includes("REQUEST_TIMEOUT"), "the local deadline is what ends the attempt");
+	// Silence is transient like any other lost session: the ladder's first rung is armed.
+	assert.deepEqual(
+		manual.live().map((handle) => handle.delayMs),
+		[1000],
+	);
+});
+
+test("a helper that answers another protocol version stops at needs-attention", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	// The uploaded bundle and this build disagree, so the version is the actionable cause: retrying the
+	// same bundle could only produce the same answer.
+	const fake = createFakeLauncher({ protocolVersion: 2 });
+	const manual = createManualTimers();
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.equal(state.state, "needs-attention");
+	assert.equal(state.lastCode, "SSH_HELPER_PROTOCOL_MISMATCH");
+	const codes = Array.from(manager.listDiagnostics(profile.id)).map((entry) => entry.code);
+	assert.ok(codes.includes("SSH_HELPER_PROTOCOL_MISMATCH"));
+	assert.equal(codes.includes("SSH_HELPER_HANDSHAKE_OK"), false);
+	assert.equal(codes.includes("SSH_CONNECTION_READY"), false);
+	assert.equal(manual.live().length, 0, "a protocol mismatch must not arm a retry");
+	assert.deepEqual(Array.from(fake.handles[0].stopCalls), ["shutdown"], "the incompatible helper is stopped");
+});
+
+test("an attempt without a verified bootstrap session fails closed before launching anything", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const fake = createFakeLauncher();
+	const manual = createManualTimers();
+	// `helperSession: undefined` is the unwired caller: a live ssh process must not be mistaken for a
+	// verified connection, so the manager reports the missing bootstrap instead of ready.
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0, helperSession: undefined });
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.equal(state.state, "needs-attention");
+	assert.equal(state.lastCode, "SSH_HELPER_NOT_BOOTSTRAPPED");
+	assert.equal(fake.requests.length, 0, "nothing may be launched without a bootstrap result");
+	assert.equal(manual.live().length, 0);
+	// needs-attention is terminal, so even an explicit retry must not start a process.
+	await manager.retry(profile.id);
+	assert.equal(manager.getState(profile.id).state, "needs-attention");
+	assert.equal(fake.requests.length, 0);
+});
+
+test("aborting during the handshake is teardown, not a handshake failure", async (t) => {
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	// The helper stays silent, so the attempt is suspended inside the handshake when the caller aborts.
+	const fake = createFakeLauncher({ answerHello: false });
+	const manual = createManualTimers();
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: manual.timers, random: () => 0 });
+	t.after(() => manager.dispose());
+
+	const connecting = manager.connect(profile.id);
+	await waitFor(() => fake.handles[0]?.writes.length === 1, { label: "the handshake frame to be written" });
+	await manager.disconnect(profile.id, "abort");
+	await connecting;
+
+	assert.equal(manager.getState(profile.id).state, "disconnected", "an abort during the handshake returns the host to idle");
+	const codes = Array.from(manager.listDiagnostics(profile.id)).map((entry) => entry.code);
+	assert.equal(codes.includes("SSH_HELPER_HANDSHAKE_SUPERSEDED"), false, "teardown is not reported as a handshake failure");
+	assert.equal(codes.includes("REQUEST_TIMEOUT"), false, "the abort must not wait for the local deadline");
+	assert.ok(codes.includes("REQUEST_CANCELLED"), "the pending handshake is settled by the teardown exactly once");
+	assert.deepEqual(Array.from(fake.handles[0].stopCalls), ["abort"]);
+	assert.equal(manual.live().length, 0, "an abort leaves no retry armed");
 });

@@ -1,7 +1,8 @@
 import { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES, SSH_LAUNCHER_MAX_TIMEOUT_MS } from "./SshProcessLauncher";
 import { createConnectionDiagnostic, createDiagnosticHistory, diagnosticCodeFromError } from "./SshConnectionDiagnostics";
 import { createRemoteControlClient, type RemoteControlClient } from "./RemoteControlClient";
-import { REMOTE_HELPER_MAX_FRAME_BYTES } from "./RemoteHelperContract";
+import { REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_PROTOCOL_VERSION } from "./RemoteHelperContract";
+import { buildHelperRemoteCommand } from "./RemoteHelperCommand";
 import { buildPinnedSshInvocation } from "./SshVerifiedConnection";
 import type { SshClientRuntime } from "./SshClientRuntime";
 import { createConnectionMachine, isConnectionMachineShutdown, reduceConnectionEvent, type ConnectionEffect, type ConnectionEvent, type ConnectionMachineState } from "./RemoteHostConnectionState";
@@ -13,12 +14,31 @@ export type SshConnectionTimers = {
 	clearTimeout(handle: unknown): void;
 };
 
+/**
+ * Verified bootstrap result of one host: the node binary the connection probe found, plus the deploy
+ * root and bundle address the bootstrap ready frame reported. The manager never guesses a remote HOME,
+ * so this is the only place the helper's remote location comes from.
+ */
+export type SshHelperSession = {
+	nodePath: string;
+	deployRoot: string;
+	bundleSha256: string;
+};
+
 export type SshConnectionManagerOptions = {
 	userDataDir: string;
 	client: SshClientRuntime;
 	launcher?: SshProcessLauncher;
 	/** How long a started SSH session must stay alive before it counts as connected. */
 	stabilityWindowMs?: number;
+	/**
+	 * Verified helper bootstrap of this host. There is no fallback: without it an attempt fails closed
+	 * with `SSH_HELPER_NOT_BOOTSTRAPPED`, because `ready` must never mean less than "the activated
+	 * helper answered on this session".
+	 */
+	helperSession?: SshHelperSession;
+	/** Local deadline for that handshake. Clamped to the launcher cap; a nonsensical value uses the default. */
+	handshakeTimeoutMs?: number;
 	timers?: SshConnectionTimers;
 	now?: () => number;
 	random?: () => number;
@@ -77,6 +97,11 @@ type LiveAttempt = {
 
 const DEFAULT_STABILITY_WINDOW_MS = 750;
 const MAX_STABILITY_WINDOW_MS = 10_000;
+/**
+ * A handshake that never completes must fail the attempt instead of suspending it: the helper answers in
+ * milliseconds, so this budget only covers a slow link plus one process start.
+ */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 /** Stable diagnostic codes only; anything else is collapsed before it reaches the redaction layer. */
 const DIAGNOSTIC_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
 /**
@@ -95,6 +120,28 @@ const MAX_RECORDED_CODES = 256;
 /** `exitCode` from a crashed Windows process (e.g. 0xC0000005) is not in the diagnostic domain. */
 function normalizeExitCode(exitCode: number | null | undefined): number | undefined {
 	return typeof exitCode === "number" && Number.isSafeInteger(exitCode) && exitCode >= -1 && exitCode <= 255 ? exitCode : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Read the verified bootstrap session. An unusable value is reported exactly like a missing one: a
+ * relative path or a bad bundle address is a local wiring fault, and retrying the command builder's
+ * refusal five times would only delay the `needs-attention` the caller has to see.
+ */
+function readHelperSession(value: unknown): SshHelperSession | undefined {
+	if (!isRecord(value)) return undefined;
+	const { nodePath, deployRoot, bundleSha256 } = value;
+	if (typeof nodePath !== "string" || typeof deployRoot !== "string" || typeof bundleSha256 !== "string") return undefined;
+	return { nodePath, deployRoot, bundleSha256 };
+}
+
+/** A missing or nonsensical handshake budget falls back to the default; the deadline is never disabled. */
+function readHandshakeTimeoutMs(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return DEFAULT_HANDSHAKE_TIMEOUT_MS;
+	return Math.max(1, Math.min(Math.floor(value), SSH_LAUNCHER_MAX_TIMEOUT_MS));
 }
 
 /**
@@ -128,6 +175,10 @@ const FATAL_CODES = new Set([
 	"INVALID_SSH_VERIFIED_TARGET",
 	"INVALID_SSH_CONNECT_TIMEOUT",
 	"INVALID_SSH_COMMAND_KIND",
+	// A bundle that answers another protocol version and an attempt without a verified bootstrap result
+	// are both unfixable by retrying: only a fresh bootstrap or a corrected caller can change them.
+	"SSH_HELPER_PROTOCOL_MISMATCH",
+	"SSH_HELPER_NOT_BOOTSTRAPPED",
 ]);
 
 function isFatalCode(code: string): boolean {
@@ -135,10 +186,13 @@ function isFatalCode(code: string): boolean {
 }
 
 /**
- * Owns the local lifecycle of one pinned SSH connection per host: it drives the pure state machine,
- * performs the preflight, starts the process through the injected launcher and records redacted
- * diagnostics. It deliberately does not talk to the remote side beyond starting the pinned ssh
- * process, so `ready` means "the pinned session started and stayed alive" — never "helper verified".
+ * Owns the lifecycle of one pinned SSH connection per host: it drives the pure state machine, performs
+ * the preflight, starts the pinned ssh process through the injected launcher, asks the remote helper to
+ * identify itself and records redacted diagnostics.
+ *
+ * `ready` means "the helper answered a v1 handshake on this session" — never merely "a process is
+ * alive". That is why a verified `helperSession` is mandatory: without one an attempt fails closed
+ * with `SSH_HELPER_NOT_BOOTSTRAPPED` instead of reporting a connection that was never proven usable.
  */
 export function createSshConnectionManager(options: SshConnectionManagerOptions): SshConnectionManager {
 	if (typeof options?.userDataDir !== "string" || typeof options.client?.run !== "function") throw new Error("SSH_CONNECTION_MANAGER_OPTIONS_INVALID");
@@ -147,6 +201,7 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 	const now = options.now ?? (() => Date.now());
 	const random = options.random ?? (() => Math.random());
 	const stabilityWindowMs = Math.min(Math.max(options.stabilityWindowMs ?? DEFAULT_STABILITY_WINDOW_MS, 0), MAX_STABILITY_WINDOW_MS);
+	const handshakeTimeoutMs = readHandshakeTimeoutMs(options.handshakeTimeoutMs);
 	const history = createDiagnosticHistory();
 	const hosts = new Map<string, HostEntry>();
 	let disposed = false;
@@ -293,14 +348,63 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 		return false;
 	}
 
+	/**
+	 * `ready` may only mean "the remote helper answered a v1 handshake" (plan §10/§11.1). The pinned ssh
+	 * session is the transport, so the handshake is the one piece of evidence that the *activated bundle*
+	 * — not a login shell, not another version of the helper — is on the other end.
+	 *
+	 * A released attempt is not a handshake failure: abort, shutdown and a lost session have already
+	 * recorded their own outcome, so their pending request ends as SUPERSEDED and the caller's failure
+	 * path skips the attempt instead of reporting it twice.
+	 */
+	async function assertHelperHandshake(entry: HostEntry, generation: number, live: LiveAttempt, control: RemoteControlClient): Promise<void> {
+		let result: unknown;
+		try {
+			// `hello` takes no params; the deadline is the manager's own, so a silent helper fails the attempt
+			// instead of holding it open until the launcher's session deadline.
+			result = await control.request(REMOTE_HELPER_METHOD_HELLO, undefined, { timeoutMs: handshakeTimeoutMs });
+		} catch (error) {
+			if (entry.machine.generation !== generation || entry.live !== live) throw new Error("SSH_HELPER_HANDSHAKE_SUPERSEDED");
+			throw error;
+		}
+		if (entry.machine.generation !== generation || entry.live !== live) throw new Error("SSH_HELPER_HANDSHAKE_SUPERSEDED");
+		if (!isRecord(result)) throw new Error("SSH_HELPER_HANDSHAKE_INVALID");
+		// Version first: a bundle that answers another version may still look well-formed, and it is the one
+		// mismatch a retry cannot fix, so it has to be the cause the caller sees.
+		if (result.protocolVersion !== REMOTE_HELPER_PROTOCOL_VERSION) {
+			record(entry, "SSH_HELPER_PROTOCOL_MISMATCH");
+			throw new Error("SSH_HELPER_PROTOCOL_MISMATCH");
+		}
+		if (typeof result.platform !== "string" || typeof result.arch !== "string" || typeof result.home !== "string" || !Array.isArray(result.capabilities)) throw new Error("SSH_HELPER_HANDSHAKE_INVALID");
+		// `helperVersion`/`nodeVersion`/`pid` are identity for the UI, not evidence of compatibility, so a
+		// helper that omits them is still a working helper.
+		record(entry, "SSH_HELPER_HANDSHAKE_OK");
+	}
+
 	async function runAttempt(entry: HostEntry, generation: number): Promise<void> {
 		if (disposed || isConnectionMachineShutdown(entry.machine) || entry.runningGeneration === generation) return;
 		entry.runningGeneration = generation;
 		const epoch = entry.epoch;
+		// Held outside the try so the failure path can tell "this attempt is still the live one" from
+		// "something already released it" without re-deriving ownership from the handle.
+		let live: LiveAttempt | undefined;
 		try {
 			entry.latestPhase = "openssh";
+			// Fail closed before touching the remote: the helper's location comes from the verified bootstrap
+			// result, so without one there is nothing to launch and nothing to handshake with.
+			const session = readHelperSession(options.helperSession);
+			if (session === undefined) throw new Error("SSH_HELPER_NOT_BOOTSTRAPPED");
+			let remoteCommand: string;
+			try {
+				remoteCommand = buildHelperRemoteCommand(session);
+			} catch {
+				// The template builder refuses a relative/trailing-slash path, `/` and a bad bundle address. Those
+				// are the caller's own wiring, so they share the fail-closed code instead of entering the ladder
+				// as five transient failures of an attempt that cannot be fixed by retrying.
+				throw new Error("SSH_HELPER_NOT_BOOTSTRAPPED");
+			}
 			record(entry, "SSH_CONNECTION_PREFLIGHT");
-			const invocation = await buildPinnedSshInvocation(options.userDataDir, entry.hostId, "ssh-batch", { client: options.client });
+			const invocation = await buildPinnedSshInvocation(options.userDataDir, entry.hostId, "ssh-batch", { client: options.client, remoteCommand });
 			if (entry.machine.generation !== generation) return;
 			entry.latestPhase = "authenticate";
 			apply(entry, { type: "phase-entered", generation, phase: "authenticate" });
@@ -311,9 +415,10 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 				await handle.stop("abort").catch(() => undefined);
 				return;
 			}
-			const live: LiveAttempt = { handle };
-			entry.live = live;
-			live.unsubscribeExit = handle.onExit((exit) => onExit(entry, generation, epoch, live, exit));
+			const attempt: LiveAttempt = { handle };
+			live = attempt;
+			entry.live = attempt;
+			attempt.unsubscribeExit = handle.onExit((exit) => onExit(entry, generation, epoch, attempt, exit));
 			const control = createRemoteControlClient({
 				hostId: entry.hostId,
 				send: (line) => handle.write(line),
@@ -321,25 +426,37 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 				onDiagnostic: (diagnostic) => record(entry, diagnostic.code),
 			});
 			control.openConnection();
-			live.control = control;
+			attempt.control = control;
 			// stdout carries protocol frames only; stderr is diagnostics, so its text is never recorded
 			// (only the fact that the helper complained).
-			live.unsubscribeStdout = handle.onStdoutLine((line) => {
+			attempt.unsubscribeStdout = handle.onStdoutLine((line) => {
 				try {
 					control.handleLine(line);
 				} catch {
 					record(entry, "SSH_HELPER_FRAME_DROPPED");
 				}
 			});
-			live.unsubscribeStderr = handle.onStderrLine(() => record(entry, "SSH_HELPER_STDERR"));
+			attempt.unsubscribeStderr = handle.onStderrLine(() => record(entry, "SSH_HELPER_STDERR"));
 			await delay(stabilityWindowMs);
 			if (entry.machine.generation !== generation || isConnectionMachineShutdown(entry.machine)) return;
-			if (entry.live !== live) return; // already released during the window
+			if (entry.live !== attempt) return; // already released during the window
+			// Staged progress with real evidence (plan §11.1): the machine reports `bootstrapping` while the
+			// activated bundle is asked to identify itself, and `ready` is applied only after it answered.
+			entry.latestPhase = "helper";
+			apply(entry, { type: "phase-entered", generation, phase: "helper" });
+			await assertHelperHandshake(entry, generation, attempt, control);
+			// The handshake is another await on this path: abort, shutdown or a lost session may have released
+			// the attempt while the helper was answering, and only a live attempt may become ready.
+			if (entry.machine.generation !== generation || isConnectionMachineShutdown(entry.machine)) return;
+			if (entry.live !== attempt) return;
 			apply(entry, { type: "connected", generation });
 			entry.readyAt = now();
 			record(entry, "SSH_CONNECTION_READY");
 		} catch (error) {
-			if (entry.machine.generation === generation && !isConnectionMachineShutdown(entry.machine)) {
+			// A caller abort (epoch) and an attempt that was already released have both had their outcome
+			// recorded by the path that released them; failing them again would add a second diagnostic and a
+			// flap for a session that is gone. Stale generations and a latched machine are fenced the same way.
+			if (entry.epoch === epoch && entry.live === live && entry.machine.generation === generation && !isConnectionMachineShutdown(entry.machine)) {
 				stopHandle(entry);
 				fail(entry, generation, error);
 			}
