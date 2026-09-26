@@ -8,11 +8,13 @@
  * 共用同一份注册表）；本模块只做两件事：
  * 1. 持有「设置 → 生效绑定」的内存缓存（启动 load 后与 settings:update 保存后刷新，
  *    见 main/index.ts 与 ipc/systemIpc.ts），匹配时按缓存判键，改设置即时生效；
- * 2. 兜底开发者工具的浏览器习惯组合键——仅当该快捷键仍是默认 F12 时保留
- *    Ctrl+Shift+I/J（macOS ⌘⌥I/J），用户自定义后只认新绑定，避免两套规则并存。
+ * 2. 兜底常用组合键——开发者工具仅当该快捷键仍是默认 F12 时保留
+ *    Ctrl+Shift+I/J（macOS ⌘⌥I/J）；窗口缩放保持默认时兼容等价按键
+ *    （Ctrl++ / 数字键盘 + 等，见 isZoomEquivalentChord）。用户自定义后只认新绑定，
+ *    避免两套规则并存。
  */
 
-import { getShortcutDef, matchesAccelerator, resolveDefaultAccelerator, resolveShortcutBindings, type ShortcutId, type ShortcutInput } from "../shared/shortcuts";
+import { getShortcutDef, matchesAccelerator, normalizeInputKey, resolveDefaultAccelerator, resolveShortcutBindings, type ShortcutId, type ShortcutInput } from "../shared/shortcuts";
 
 /** 当前生效的快捷键绑定（id → accelerator），null = 尚未刷新（此时按全默认匹配）。 */
 let activeBindings: Record<ShortcutId, string> | null = null;
@@ -46,7 +48,33 @@ export function isShortcutInput(id: ShortcutId, input: ShortcutInput): boolean {
 			return isLegacyDevToolsChord(input);
 		}
 	}
+	// 缩放保持默认时兼容同一动作的等价按键（Ctrl++ / 数字键盘 + 等），
+	// 用户自定义后只认新绑定。
+	if (id === "zoomIn" || id === "zoomOut") {
+		const def = getShortcutDef(id);
+		if (def && acc === resolveDefaultAccelerator(def, process.platform)) {
+			return isZoomEquivalentChord(id, input);
+		}
+	}
 	return false;
+}
+
+/**
+ * 缩放快捷键的等价按键：物理键盘上「放大」的常见按法是 Ctrl+= 与 Ctrl+Shift+=（即 Ctrl++），
+ * 数字键盘的 + 则不带 Shift；「缩小」同理（- / _ / 数字键盘 -）。
+ * 只允许本平台的主修饰键且不叠加其它修饰键，避免抢 Ctrl+Alt+= 这类组合。
+ */
+function isZoomEquivalentChord(id: ShortcutId, input: ShortcutInput): boolean {
+	if (input.type !== "keyDown" || input.isComposing) return false;
+	const isMac = process.platform === "darwin";
+	if (isMac) {
+		if (!input.meta || input.control || input.alt) return false;
+	} else if (!input.control || input.meta || input.alt) {
+		return false;
+	}
+	const key = normalizeInputKey(input.key);
+	if (id === "zoomIn") return key === "=" || key === "+" || key === "plus";
+	return key === "-" || key === "_";
 }
 
 /** 默认态保留的 DevTools 组合键（F12 不在此判，由绑定匹配兜底）。 */

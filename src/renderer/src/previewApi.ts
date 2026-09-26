@@ -1023,6 +1023,8 @@ export function createPreviewApi(): PiDesktopApi {
 			toggleMaximizeWindow: async () => false,
 			isWindowMaximized: async () => false,
 			onWindowMaximizedChange: () => () => undefined,
+			// 预览环境无主进程快捷键，返回空订阅以保持 API 形状
+			onZoomFactorChange: () => () => undefined,
 			toggleAlwaysOnTopWindow: async () => false,
 			isWindowAlwaysOnTop: async () => false,
 			closeWindow: async () => undefined,

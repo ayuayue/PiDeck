@@ -533,6 +533,9 @@ export const ipcChannels = {
 	appWindowIsMaximized: "app:window-is-maximized",
 	/** 主进程 → 渲染：最大化状态变化（含双击标题栏等非按钮路径） */
 	appWindowMaximizedChanged: "app:window-maximized-changed",
+	/** 主进程 → 渲染：窗口缩放比例变化。缩放快捷键在主进程直接改 zoomFactor
+	 * （见 main/windowZoom.ts），推给渲染层仅为同步设置态（设置页百分比显示）。 */
+	appZoomFactorChanged: "app:zoom-factor-changed",
 	appWindowToggleAlwaysOnTop: "app:window-toggle-always-on-top",
 	/** 读取主窗口当前是否置顶（渲染层初始化置顶按钮态用，避免硬编码 false） */
 	appWindowIsAlwaysOnTop: "app:window-is-always-on-top",

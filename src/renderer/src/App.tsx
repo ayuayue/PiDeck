@@ -3686,6 +3686,15 @@ export function App() {
 		});
 	}, [openCommandPalette]);
 
+	// 窗口缩放快捷键（Ctrl/Cmd+= / Ctrl/Cmd+-）由主进程直接改 zoomFactor 并落盘
+	// （见 main/windowZoom.ts），渲染层只订阅新比例同步设置态——否则设置页
+	// 「外观 → 窗口缩放」会一直显示快捷键改动前的旧百分比。
+	useEffect(() => {
+		return api.app.onZoomFactorChange((zoomFactor) => {
+			setSettings((prev) => (prev.zoomFactor === zoomFactor ? prev : { ...prev, zoomFactor }));
+		});
+	}, []);
+
 	// 列表刻意不 memo：条目数在百级以内，构建成本远低于一次 React 渲染；而 t() 是
 	// 模块级函数，memo 依赖里没法可靠表达「语言变了」，漏掉就会出现
 	// 「切完语言，面板里还是旧文案」。

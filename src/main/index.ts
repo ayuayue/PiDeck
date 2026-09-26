@@ -20,6 +20,7 @@ import { acquireVersionSingleInstance, type FocusPayload } from "./singleInstanc
 import { mainProcessJsFlags, rendererHeapAdditionalArguments } from "./v8HeapLimits";
 import { isDevToolsShortcut, toggleMainWindowDevTools } from "./devTools";
 import { isShortcutInput, refreshShortcutBindings } from "./appShortcuts";
+import { createWindowZoomShortcutHandler } from "./windowZoom";
 import { DEFAULT_DEV_USER_DATA_NAME, isSharedDevBranch, readDevGitBranch, resolveDevUserDataDirName, sanitizeDevBranchSegment } from "./devIsolation";
 import { resolvePackagedUserDataDir } from "./portableUserData";
 import { extractFocusTargetFromArgv } from "./utils/focusTarget";
@@ -421,6 +422,24 @@ let cleanupPasteFiles: (() => Promise<number>) | undefined;
 
 /** 退出清理登记表（C12）：常驻资源创建处登记，before-quit 统一顺序执行。 */
 const quitCleanup = new QuitCleanupRegistry();
+
+// 窗口整体缩放快捷键（Ctrl/Cmd+= 放大、Ctrl/Cmd+- 缩小）：按 shared/zoom 档位应用并持久化。
+// 主窗口与内置浏览器 webview guest 的 before-input-event 共用同一判定函数。
+const handleWindowZoomShortcut = createWindowZoomShortcutHandler({
+	getWindow: () => mainWindow,
+	getZoomFactor: () => settingsStore.get().zoomFactor,
+	// 持久化失败不影响本次缩放的观感（已 setZoomFactor），只记日志交由下次启动恢复
+	persistZoomFactor: (value) => {
+		void settingsStore.update({ zoomFactor: value }).catch((error) => {
+			void appLogger.warn("settings", "Failed to persist zoom factor", { error: error instanceof Error ? error.message : String(error) });
+		});
+	},
+	// 同步渲染层设置态：否则设置页「外观 → 窗口缩放」会一直显示快捷键改动前的旧百分比
+	notifyZoomFactor: (value) => {
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		mainWindow.webContents.send(ipcChannels.appZoomFactorChanged, value);
+	},
+});
 
 // ── DSH 外部会话同步（dshForeignSync 编排；本文件只做依赖装配）────────────
 // 清单来自磁盘只读扫描（不启动 host）；目标项目按会话自己的 cwd 建/挂，无 cwd 才兑底。
@@ -1449,7 +1468,7 @@ function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
 		});
 
 		// webview guest 是独立 webContents，按键到不了主窗口的 before-input-event；
-		// 转发全局快捷键到主窗口：DevTools 开关、打开设置（唤起窗口并广播），
+		// 转发全局快捷键到主窗口：窗口缩放、DevTools 开关、打开设置（唤起窗口并广播），
 		// 键位按用户配置匹配（见 appShortcuts.ts / shared/shortcuts.ts）。
 		guest.on("before-input-event", (event, input) => {
 			if (isShortcutInput("openSettings", input)) {
@@ -1457,6 +1476,11 @@ function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
 				if (!window || window.isDestroyed()) return;
 				if (!window.isVisible()) window.show();
 				window.webContents.send(ipcChannels.appOpenSettings);
+				return;
+			}
+			// 窗口缩放：命中后直接改主窗口 zoomFactor 并持久化；仅回推新比例同步设置态
+			if (handleWindowZoomShortcut(input)) {
+				event.preventDefault();
 				return;
 			}
 			if (!isShortcutInput("toggleDevTools", input)) return;
@@ -1693,6 +1717,11 @@ async function createWindow() {
 			// 快捷键可能命中在窗口隐藏（托盘）期间：先唤起窗口，再让渲染层打开设置页
 			if (!mainWindow.isVisible()) mainWindow.show();
 			mainWindow.webContents.send(ipcChannels.appOpenSettings);
+			return;
+		}
+		// 窗口缩放：主进程直接改 zoomFactor 并持久化，只回推新比例同步设置态
+		if (handleWindowZoomShortcut(input)) {
+			event.preventDefault();
 			return;
 		}
 		if (isShortcutInput("openNewSession", input)) {

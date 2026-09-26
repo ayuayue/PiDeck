@@ -879,6 +879,8 @@ const api = {
 		toggleMaximizeWindow: () => ipcRenderer.invoke(ipcChannels.appWindowToggleMaximize) as Promise<boolean>,
 		isWindowMaximized: () => ipcRenderer.invoke(ipcChannels.appWindowIsMaximized) as Promise<boolean>,
 		onWindowMaximizedChange: (callback: (maximized: boolean) => void) => subscribe(ipcChannels.appWindowMaximizedChanged, callback),
+		// 缩放快捷键在主进程改 zoomFactor 后推送新比例，渲染层据此同步设置态
+		onZoomFactorChange: (callback: (zoomFactor: number) => void) => subscribe(ipcChannels.appZoomFactorChanged, callback),
 		toggleAlwaysOnTopWindow: () => ipcRenderer.invoke(ipcChannels.appWindowToggleAlwaysOnTop) as Promise<boolean>,
 		isWindowAlwaysOnTop: () => ipcRenderer.invoke(ipcChannels.appWindowIsAlwaysOnTop) as Promise<boolean>,
 		closeWindow: () => ipcRenderer.invoke(ipcChannels.appWindowClose) as Promise<void>,

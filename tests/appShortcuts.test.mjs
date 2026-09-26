@@ -136,6 +136,30 @@ test("开发者工具保持默认 F12 时兼容 Ctrl+Shift+I/J；自定义后兼
 	assert.equal(mac.mod.isShortcutInput("toggleDevTools", ctrlShiftI), false);
 });
 
+test("缩放保持默认时兼容 Ctrl++ / 数字键盘；自定义后只认新绑定", () => {
+	const { mod } = loadAppShortcuts({ platform: "win32" });
+	// 默认 Ctrl+= 命中
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "=", control: true })), true);
+	// 等价键：Ctrl+Shift+=（物理键盘上的 Ctrl++）与数字键盘 +（无 Shift）
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "+", control: true, shift: true })), true);
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "+", control: true })), true);
+	assert.equal(mod.isShortcutInput("zoomOut", input({ key: "-", control: true })), true);
+	assert.equal(mod.isShortcutInput("zoomOut", input({ key: "_", control: true, shift: true })), true);
+	// 叠加 Alt / Meta 不算，避免抢 Ctrl+Alt+= 这类组合
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "+", control: true, alt: true })), false);
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "+", control: true, meta: true })), false);
+	// 自定义后等价键与默认键都失效
+	mod.refreshShortcutBindings({ shortcuts: { zoomIn: "Ctrl+9", zoomOut: "Ctrl+0" } });
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "9", control: true })), true);
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "+", control: true, shift: true })), false);
+	assert.equal(mod.isShortcutInput("zoomIn", input({ key: "=", control: true })), false);
+	// macOS 默认 Cmd+= 及其等价键
+	const mac = loadAppShortcuts({ platform: "darwin" });
+	assert.equal(mac.mod.isShortcutInput("zoomIn", input({ key: "=", meta: true })), true);
+	assert.equal(mac.mod.isShortcutInput("zoomIn", input({ key: "+", meta: true, shift: true })), true);
+	assert.equal(mac.mod.isShortcutInput("zoomIn", input({ key: "=", control: true })), false);
+});
+
 test("设置里写入非法覆盖时回退默认；未知快捷键 id 直接忽略", () => {
 	const { mod } = loadAppShortcuts({ platform: "win32" });
 	// 裸键（无修饰）在设置页应被拦下，这里模拟绕过校验写入，匹配端必须兜底
