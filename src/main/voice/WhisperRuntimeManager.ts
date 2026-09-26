@@ -16,11 +16,11 @@
  */
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { getWhisperModelDef, resolveWhisperHostSupport, WHISPER_CPP_RELEASE_TAG, WHISPER_MODEL_CATALOG, whisperAssetUrl, whisperCppReleaseApiUrl, whisperModelUrlCandidates, type WhisperInstallProgress, type WhisperModelId, type WhisperRuntimeStatus } from "../../shared/types/whisperRuntime";
 
-/** 下载器：`onProgress(receivedBytes, totalBytes|undefined)`。 */
-export type WhisperDownloader = (url: string, destPath: string, onProgress?: (received: number, total?: number) => void, signal?: AbortSignal) => Promise<void>;
+/** 下载器：`onProgress(receivedBytes, totalBytes|undefined)`；`options.resumeFromBytes` 见 createNetDownloader。 */
+export type WhisperDownloader = (url: string, destPath: string, onProgress?: (received: number, total?: number) => void, signal?: AbortSignal, options?: { resumeFromBytes?: number }) => Promise<void>;
 
 /** Release 资产名 → sha256（小写 hex）；返回 null = API 不可达/解析失败。 */
 export type WhisperReleaseDigestsFetcher = (url: string) => Promise<Record<string, string> | null>;
@@ -57,6 +57,16 @@ function errorMessage(error: unknown): string {
 	return String(error);
 }
 
+/**
+ * 「内容级」失败码：这类错误说明手里的半截 .part 字节不可信，续传上去也永远校验不过，
+ * 必须丢弃后从 0 重下。网络中断/镜像 5xx 不在其列——它们留下的断点是有效的。
+ */
+const DISCARDABLE_MODEL_ERRORS = ["size-mismatch", "sha256-mismatch", "download-exceeded-size"];
+
+function isDiscardableModelError(error: string): boolean {
+	return DISCARDABLE_MODEL_ERRORS.some((code) => error.includes(code));
+}
+
 /** 流式 sha256（小写 hex）：模型可达数百 MB，禁止整读进内存。 */
 export async function sha256OfFile(filePath: string): Promise<string> {
 	const hash = createHash("sha256");
@@ -73,9 +83,10 @@ export function isSafeArchiveEntry(destDir: string, entryPath: string): boolean 
 	return rel === "" || (!rel.startsWith("..") && !resolve(destDir, rel).startsWith(".."));
 }
 
-/** 在解出的目录树里找 CLI 可执行文件：按 names 优先级返回（新版 whisper-cli 优先于旧版 main）。 */
-export function findWhisperCliBinary(dir: string, platform: NodeJS.Platform): string | null {
-	const names = platform === "win32" ? ["whisper-cli.exe", "main.exe"] : ["whisper-cli", "main"];
+/** 在解出的目录树里找指定可执行文件：按 names 优先级返回（新版名字优先于旧版 main）。 */
+export function findWhisperBinary(dir: string, platform: NodeJS.Platform, names: readonly string[]): string | null {
+	const suffix = platform === "win32" ? ".exe" : "";
+	const candidates = names.map((name) => (platform === "win32" ? `${name}${suffix}` : name));
 	const stack = [dir];
 	let best: string | null = null;
 	let bestRank = Number.POSITIVE_INFINITY;
@@ -93,7 +104,7 @@ export function findWhisperCliBinary(dir: string, platform: NodeJS.Platform): st
 				stack.push(full);
 				continue;
 			}
-			const rank = names.indexOf(entry.name);
+			const rank = candidates.indexOf(entry.name);
 			if (rank >= 0 && rank < bestRank && isSafeArchiveEntry(dir, relative(dir, full))) {
 				best = full;
 				bestRank = rank;
@@ -103,8 +114,52 @@ export function findWhisperCliBinary(dir: string, platform: NodeJS.Platform): st
 	return best;
 }
 
+/** CLI 在归档里的候选名（旧版 whisper.cpp 叫 main）。 */
+const WHISPER_CLI_NAMES = ["whisper-cli", "main"] as const;
+/** 常驻 HTTP 服务进程，与 CLI 同一个归档、同一个目录。 */
+const WHISPER_SERVER_NAMES = ["whisper-server"] as const;
+
+/** 在解出的目录树里找 CLI 可执行文件：按 names 优先级返回（新版 whisper-cli 优先于旧版 main）。 */
+export function findWhisperCliBinary(dir: string, platform: NodeJS.Platform): string | null {
+	return findWhisperBinary(dir, platform, WHISPER_CLI_NAMES);
+}
+
 export class WhisperRuntimeManager {
+	/** 当前安装任务的中止入口（见 withExclusiveInstall）。 */
+	private installController: AbortController | null = null;
+
 	constructor(private readonly deps: WhisperRuntimeManagerDeps) {}
+
+	/**
+	 * 取消进行中的运行时/模型下载。
+	 *
+	 * 渲染层没法把 AbortSignal 传过 IPC，所以中止入口放在主进程这一侧：
+	 * 下载由本管理器发起、也由它持有 controller，abortInstall() 是唯一出口。
+	 * @returns false = 当前没有在跑的任务。
+	 */
+	abortInstall(): boolean {
+		if (!this.installController) return false;
+		this.installController.abort();
+		return true;
+	}
+
+	/**
+	 * 安装任务串行化：同一时刻只允许一个下载（避免两个任务互相覆盖 tmp 与版本目录），
+	 * 并把该任务的 signal 交给具体安装逻辑，使 abortInstall() 能精确中止当前那一个。
+	 */
+	private async withExclusiveInstall(target: WhisperInstallProgress["target"], onProgress: (progress: WhisperInstallProgress) => void, run: (signal: AbortSignal) => Promise<WhisperCommandResult>): Promise<WhisperCommandResult> {
+		if (this.installController) {
+			onProgress({ target, phase: "error", percent: 100, error: "already-installing" });
+			return { ok: false, error: "already-installing" };
+		}
+		const controller = new AbortController();
+		this.installController = controller;
+		try {
+			return await run(controller.signal);
+		} finally {
+			if (this.installController === controller) this.installController = null;
+		}
+	}
 
 	/**
 	 * 汇总运行时状态。configCliPath：用户自定义 whisper-cli 路径（存在才生效）。
@@ -124,8 +179,20 @@ export class WhisperRuntimeManager {
 				id: def.id,
 				installed: this.isModelInstalled(def.id),
 				bytes: def.bytes,
+				// 未完成下载的字节数：设置页据此显示「已下载 X，再次下载接着传」，
+				// 用户关心的「有没有记录进度」就有了可见答案。
+				partialBytes: this.partialModelBytes(def.file),
 			})),
 		};
+	}
+
+	/** 指定模型的未完成下载字节数（无断点或读不到为 0）。 */
+	private partialModelBytes(fileName: string): number {
+		try {
+			return statSync(join(this.deps.layout.tempRoot, `${fileName}.part`)).size;
+		} catch {
+			return 0;
+		}
 	}
 
 	/** 解析当前生效的 whisper-cli 绝对路径（自定义优先，其次自动下载目录）。 */
@@ -134,27 +201,49 @@ export class WhisperRuntimeManager {
 		return status.cliPath;
 	}
 
+	/**
+	 * 解析与生效 CLI **同目录**的 whisper-server（常驻推理用）。
+	 * 优先取 CLI 旁边的兄弟文件：用户自定义 cliPath 时，配套的 server 只可能在同一目录，
+	 * 拿别处的 server 配用户的模型路径会让 DLL 版本对不上。找不到返回 null，
+	 * 调用方（WhisperServerPool）据此回退 whisper-cli。
+	 */
+	resolveServerPath(config: { cliPath?: string }): string | null {
+		const cliPath = this.resolveCliPath(config);
+		if (!cliPath) return null;
+		const sibling = join(dirname(cliPath), this.deps.platform === "win32" ? "whisper-server.exe" : "whisper-server");
+		if (existsSync(sibling)) return sibling;
+		return findWhisperBinary(dirname(cliPath), this.deps.platform, WHISPER_SERVER_NAMES);
+	}
+
+	/**
+	 * 检测优先：只要版本目录里找得到 CLI 就算已安装，标记文件只用于加速定位。
+	 * 标记可能缺失、损坏、缺 version，或记录了安装后被清理掉的临时路径（历史 bug，
+	 * 线上那份 pideck-runtime.json 就是这样）——任何一种都必须退回扫描，
+	 * 否则用户「明明装过」仍被提示去下载（installRuntime 也走这里，因此点击不再重下）。
+	 */
 	private autoRuntimeStatus(): { cliPath: string | null; version: string | null } {
 		const versionDir = join(this.deps.layout.runtimeRoot, WHISPER_CPP_RELEASE_TAG);
+		let marker: { version?: unknown; cliRelPath?: unknown } | null = null;
 		try {
-			const marker = JSON.parse(readFileSync(join(versionDir, RUNTIME_MARKER_FILE), "utf8")) as { version?: unknown; cliRelPath?: unknown };
-			if (typeof marker.version !== "string") return { cliPath: null, version: null };
-			// 优先用清单记录的相对路径；它可能失效（历史 bug：记录了被清理的临时目录路径），
-			// 此时回退到扫描版本目录，让旧安装无需重新下载即可自愈。
-			if (typeof marker.cliRelPath === "string") {
-				const recorded = join(versionDir, marker.cliRelPath);
-				if (existsSync(recorded)) return { cliPath: recorded, version: marker.version };
-			}
-			const scanned = findWhisperCliBinary(versionDir, this.deps.platform);
-			if (scanned) return { cliPath: scanned, version: marker.version };
+			marker = JSON.parse(readFileSync(join(versionDir, RUNTIME_MARKER_FILE), "utf8")) as { version?: unknown; cliRelPath?: unknown };
 		} catch {
-			/* 未安装或标记损坏 = 不可用 */
+			marker = null; // 未安装或标记损坏：交给下面的目录扫描判定
 		}
+		if (typeof marker?.cliRelPath === "string") {
+			const recorded = join(versionDir, marker.cliRelPath);
+			if (existsSync(recorded)) return { cliPath: recorded, version: WHISPER_CPP_RELEASE_TAG };
+		}
+		const scanned = findWhisperCliBinary(versionDir, this.deps.platform);
+		if (scanned) return { cliPath: scanned, version: WHISPER_CPP_RELEASE_TAG };
 		return { cliPath: null, version: null };
 	}
 
 	/** 安装 whisper-cli 二进制归档（已就位时直接成功，不重复下载）。 */
-	async installRuntime(onProgress: (progress: WhisperInstallProgress) => void, signal?: AbortSignal): Promise<WhisperCommandResult> {
+	async installRuntime(onProgress: (progress: WhisperInstallProgress) => void): Promise<WhisperCommandResult> {
+		return this.withExclusiveInstall("runtime", onProgress, (signal) => this.installRuntimeInner(onProgress, signal));
+	}
+
+	private async installRuntimeInner(onProgress: (progress: WhisperInstallProgress) => void, signal: AbortSignal): Promise<WhisperCommandResult> {
 		const { layout, log } = this.deps;
 		const fail = (error: string): WhisperCommandResult => {
 			onProgress({ target: "runtime", phase: "error", percent: 100, error });
@@ -207,7 +296,7 @@ export class WhisperRuntimeManager {
 			log?.("voice-runtime", "runtime installed", { version: WHISPER_CPP_RELEASE_TAG });
 			return { ok: true };
 		} catch (error) {
-			return fail(errorMessage(error));
+			return fail(signal.aborted ? "cancelled" : errorMessage(error));
 		} finally {
 			rmSync(archivePath, { force: true });
 			rmSync(staging, { recursive: true, force: true });
@@ -215,7 +304,11 @@ export class WhisperRuntimeManager {
 	}
 
 	/** 下载并校验安装指定模型；已装且字节一致时短路。 */
-	async installModel(modelId: WhisperModelId, onProgress: (progress: WhisperInstallProgress) => void, signal?: AbortSignal): Promise<WhisperCommandResult> {
+	async installModel(modelId: WhisperModelId, onProgress: (progress: WhisperInstallProgress) => void): Promise<WhisperCommandResult> {
+		return this.withExclusiveInstall(modelId, onProgress, (signal) => this.installModelInner(modelId, onProgress, signal));
+	}
+
+	private async installModelInner(modelId: WhisperModelId, onProgress: (progress: WhisperInstallProgress) => void, signal: AbortSignal): Promise<WhisperCommandResult> {
 		const { layout, log } = this.deps;
 		const fail = (error: string): WhisperCommandResult => {
 			onProgress({ target: modelId, phase: "error", percent: 100, error });
@@ -232,11 +325,16 @@ export class WhisperRuntimeManager {
 
 		mkdirSync(layout.tempRoot, { recursive: true });
 		mkdirSync(layout.modelsRoot, { recursive: true });
-		const partPath = join(layout.tempRoot, `${def.file}.${Date.now()}.part`);
+		// 断点文件名固定（不带时间戳）：取消或网络中断后它留在 tmp 里，下次点「下载模型」接着传，
+		// 而不是把几百 MB 从头再来。完整性失败才会删它。
+		const partPath = join(layout.tempRoot, `${def.file}.part`);
+		this.discardLegacyPartFiles(def.file);
 		let lastError = "download-failed";
 		for (const url of whisperModelUrlCandidates(def.file)) {
 			try {
-				onProgress({ target: modelId, phase: "downloading", percent: 0 });
+				if (signal.aborted) break;
+				const resumeFrom = this.resumableBytes(partPath, def.bytes);
+				onProgress({ target: modelId, phase: "downloading", percent: this.dlPercent(resumeFrom, def.bytes), receivedBytes: resumeFrom, totalBytes: def.bytes });
 				await this.deps.download(
 					url,
 					partPath,
@@ -246,6 +344,7 @@ export class WhisperRuntimeManager {
 						onProgress({ target: modelId, phase: "downloading", percent: this.dlPercent(received, total), receivedBytes: received, totalBytes: total ?? def.bytes });
 					},
 					signal,
+					{ resumeFromBytes: resumeFrom },
 				);
 				onProgress({ target: modelId, phase: "verifying", percent: 80 });
 				const size = statSync(partPath).size;
@@ -261,13 +360,51 @@ export class WhisperRuntimeManager {
 				return { ok: true };
 			} catch (error) {
 				lastError = errorMessage(error);
-				if (signal?.aborted) break;
+				// 取消后不要再试下一个镜像源（那等于把刚中止的下载又起一遍）。
+				if (signal.aborted) break;
+				// 只有「内容不可信」才丢弃断点：超长/尺寸不符/哈希不符意味着续传上去的字节是错的，
+				// 留着只会每次都校验失败。网络中断、镜像 5xx 都保留 .part。
+				if (isDiscardableModelError(lastError)) rmSync(partPath, { force: true });
 				log?.("voice-runtime", "model candidate failed, trying next", { modelId, url, error: lastError });
-			} finally {
-				rmSync(partPath, { force: true });
 			}
 		}
+		if (signal.aborted) return fail("cancelled");
 		return fail(lastError);
+	}
+
+	/**
+	 * 旧命名断点（`<文件>.<时间戳>.part`）一律清掉：改名成固定名之前每次下载都换一个后缀，
+	 * 那些半截文件既续不上也没入口删除，升级后只会变成几百 MB 的磁盘垃圾。
+	 */
+	private discardLegacyPartFiles(fileName: string): void {
+		let entries: string[];
+		try {
+			entries = readdirSync(this.deps.layout.tempRoot);
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (entry === `${fileName}.part`) continue;
+			if (!entry.startsWith(`${fileName}.`) || !entry.endsWith(".part")) continue;
+			rmSync(join(this.deps.layout.tempRoot, entry), { force: true });
+			this.deps.log?.("voice-runtime", "removed legacy partial download", { entry });
+		}
+	}
+
+	/**
+	 * 可用于续传的字节数：没有断点返回 0；断点已经不小于目标体积说明它是坏数据
+	 * （完整的文件早就该被 rename 走了），丢弃后从 0 开始，否则会永远卡在同一个错误上。
+	 */
+	private resumableBytes(partPath: string, expectedBytes: number): number {
+		try {
+			const size = statSync(partPath).size;
+			if (size < expectedBytes) return size;
+			rmSync(partPath, { force: true });
+			this.deps.log?.("voice-runtime", "discarded oversized partial download", { partPath, size, expectedBytes });
+			return 0;
+		} catch {
+			return 0;
+		}
 	}
 
 	/** 删除已下载模型（释放磁盘；正在被转写进程读取时 Windows 会拒删，转成结构化错误）。 */
@@ -276,6 +413,8 @@ export class WhisperRuntimeManager {
 		if (!def) return { ok: false, error: "unknown-model" };
 		try {
 			rmSync(join(this.deps.layout.modelsRoot, def.file), { force: true });
+			// 断点也一并清掉：用户主动删除模型表示不要这份下载，不该下次点下载又续上来。
+			rmSync(join(this.deps.layout.tempRoot, `${def.file}.part`), { force: true });
 			return { ok: true };
 		} catch (error) {
 			return { ok: false, error: errorMessage(error) };

@@ -797,6 +797,8 @@ export const ipcChannels = {
 	voiceTranscriptionGetConfig: "voice-transcription:get-config",
 	voiceTranscriptionSaveConfig: "voice-transcription:save-config",
 	voiceTranscriptionTranscribe: "voice-transcription:transcribe",
+	/** 用一小段静音走一遍当前配置的真实链路，把「凭据/权限/额度」问题在设置页就说清楚。 */
+	voiceTranscriptionTest: "voice-transcription:test",
 	voiceTranscriptionCancel: "voice-transcription:cancel",
 	/** 本地 whisper 运行时/模型安装状态（主进程 stat + 哈希锁记录）。 */
 	voiceTranscriptionRuntimeStatus: "voice-transcription:runtime-status",
@@ -808,6 +810,8 @@ export const ipcChannels = {
 	voiceTranscriptionModelDelete: "voice-transcription:model-delete",
 	/** 安装进度推送（订阅式，返回退订）。 */
 	voiceTranscriptionRuntimeProgress: "voice-transcription:runtime-progress",
+	/** 取消进行中的运行时/模型下载（同一时刻只有一个安装任务）。 */
+	voiceTranscriptionInstallCancel: "voice-transcription:install-cancel",
 
 	// ===== 应用公告（无服务器拉取） =====
 	/** 渲染层 → 主进程：拉取当前公告快照（主进程返回缓存，不做网络请求） */

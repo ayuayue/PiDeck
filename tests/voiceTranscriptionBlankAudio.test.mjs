@@ -11,7 +11,7 @@ import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 const load = createTsSandbox();
 const service = load("src/main/voice/VoiceTranscriptionService.ts");
 
-const LOCAL_CONFIG = { enabled: true, engine: "local", language: "", cliPath: "", localModelId: "base-q5_1", baseUrl: "", model: "", hasApiKey: false, runtimeReady: true, inputDeviceId: "" };
+const LOCAL_CONFIG = { enabled: true, engine: "local", language: "", cliPath: "", localModelId: "small-q5_1", baseUrl: "", model: "", hasApiKey: false, runtimeReady: true, inputDeviceId: "" };
 
 function serviceWithLocalResult(text) {
 	return new service.VoiceTranscriptionService({

@@ -24,11 +24,13 @@ function loadRegistration() {
 		voiceTranscriptionSaveConfig: "voice:save-config",
 		voiceTranscriptionTranscribe: "voice:transcribe",
 		voiceTranscriptionCancel: "voice:cancel",
+		voiceTranscriptionTest: "voice:test",
 		// 安装进度是 webContents.send 推送通道，不走 ipcMain.handle，故不出现在这里。
 		voiceTranscriptionRuntimeStatus: "voice:runtime-status",
 		voiceTranscriptionRuntimeInstall: "voice:runtime-install",
 		voiceTranscriptionModelInstall: "voice:model-install",
 		voiceTranscriptionModelDelete: "voice:model-delete",
+		voiceTranscriptionInstallCancel: "voice:install-cancel",
 	};
 	const whisperRuntime = loadWhisperRuntime();
 	const module = { exports: {} };
@@ -52,7 +54,7 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 	const { handlers, ipcChannels, register } = loadRegistration();
 	const calls = { cancelled: [], transcribed: [] };
 	const configStore = {
-		getPublicConfig: async () => ({ hasApiKey: false, cliPath: "", localModelId: "base-q5_1" }),
+		getPublicConfig: async () => ({ hasApiKey: false, cliPath: "", localModelId: "small-q5_1" }),
 		saveConfig: async () => ({ ok: false, error: "invalidConfig" }),
 	};
 	const service = {
@@ -61,8 +63,12 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 			return { ok: true, text: "voice" };
 		},
 		cancel: (requestId) => calls.cancelled.push(requestId),
+		testConnection: async () => {
+			calls.tests = (calls.tests ?? 0) + 1;
+			return { ok: true };
+		},
 	};
-	const runtimeCalls = { status: [], installRuntime: 0, installModel: [], deleteModel: [] };
+	const runtimeCalls = { status: [], installRuntime: 0, installModel: [], deleteModel: [], abortInstall: 0 };
 	const runtimeManager = {
 		getStatus: async (input) => {
 			runtimeCalls.status.push(input);
@@ -80,6 +86,10 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 			runtimeCalls.deleteModel.push(modelId);
 			return { ok: true };
 		},
+		abortInstall: () => {
+			runtimeCalls.abortInstall += 1;
+			return runtimeCalls.abortInstall === 1;
+		},
 	};
 	const emitted = [];
 	register({ configStore, service, runtimeManager, emitRuntimeProgress: (p) => emitted.push(p) });
@@ -94,6 +104,11 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 	assert.equal(calls.transcribed.length, 1);
 	assert.equal(calls.transcribed[0].audio, audio);
 
+	// test 无入参：探针音频与密钥都留在主进程，渲染层只拿结论。
+	const probe = handlers.get(ipcChannels.voiceTranscriptionTest);
+	assert.equal((await probe({})).ok, true);
+	assert.equal(calls.tests, 1);
+
 	const cancel = handlers.get(ipcChannels.voiceTranscriptionCancel);
 	await cancel({}, "bad id");
 	await cancel({}, "request-1");
@@ -105,7 +120,7 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 	assert.equal((await status({})).cliReady, true);
 	assert.equal(runtimeCalls.status.length, 1);
 	assert.equal(runtimeCalls.status[0].cliPath, "");
-	assert.equal(runtimeCalls.status[0].localModelId, "base-q5_1");
+	assert.equal(runtimeCalls.status[0].localModelId, "small-q5_1");
 
 	// model-install / model-delete 只接受目录内的 modelId，未知一律拒绝、不触达 manager
 	const installModel = handlers.get(ipcChannels.voiceTranscriptionModelInstall);
@@ -113,12 +128,18 @@ test("voice IPC registers narrow handlers and validates transcription input", as
 	assert.equal((await installModel({}, "nope-not-a-model")).error, "unknown-model");
 	assert.deepEqual(await installModel({}, "small-q5_1"), { ok: true });
 	assert.equal((await deleteModel({}, "nope")).error, "unknown-model");
-	assert.deepEqual(await deleteModel({}, "tiny-q5_1"), { ok: true });
+	assert.deepEqual(await deleteModel({}, "medium-q5_0"), { ok: true });
 	assert.deepEqual(runtimeCalls.installModel, ["small-q5_1"]);
-	assert.deepEqual(runtimeCalls.deleteModel, ["tiny-q5_1"]);
+	assert.deepEqual(runtimeCalls.deleteModel, ["medium-q5_0"]);
 
 	// runtime-install 触发安装并把进度回调透传给 manager（emitRuntimeProgress 引用一致）
 	const runtimeInstall = handlers.get(ipcChannels.voiceTranscriptionRuntimeInstall);
 	assert.deepEqual(await runtimeInstall({}), { ok: true });
 	assert.equal(runtimeCalls.installRuntime, 1);
+
+	// install-cancel 只负责中止主进程侧当前任务，并把「有没有任务可中止」原样返回给渲染层
+	const installCancel = handlers.get(ipcChannels.voiceTranscriptionInstallCancel);
+	assert.equal(await installCancel({}), true);
+	assert.equal(await installCancel({}), false);
+	assert.equal(runtimeCalls.abortInstall, 2);
 });

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
-import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../../../../shared/voiceTranscriptionConfig";
-import type { VoiceTranscriptionPublicConfig } from "../../../../../shared/types/voiceTranscription";
+import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG, VOLC_ENGINE_DEFAULT_RESOURCE_ID, VOLC_SUPPORTED_RESOURCE_IDS } from "../../../../../shared/voiceTranscriptionConfig";
+import { formatBytes } from "../../../../../shared/formatBytes";
+import type { VoiceTranscriptionPublicConfig, VoiceTranscriptionTestResult } from "../../../../../shared/types/voiceTranscription";
 import { getWhisperModelDef, WHISPER_MODEL_CATALOG, type WhisperInstallProgress, type WhisperRuntimeStatus } from "../../../../../shared/types/whisperRuntime";
 import { voiceConfigRevisionAtom } from "../../../atoms";
 import { desktopApi } from "../../../desktopApi";
@@ -16,6 +17,8 @@ import { SettingRow, SettingSwitchRow } from "./SettingRows";
 const DEFAULT_CONFIG: VoiceTranscriptionPublicConfig = {
 	...DEFAULT_VOICE_TRANSCRIPTION_CONFIG,
 	hasApiKey: false,
+	hasVolcAppId: false,
+	hasVolcAccessToken: false,
 	runtimeReady: false,
 };
 
@@ -31,24 +34,90 @@ const DEFAULT_RUNTIME_STATUS: WhisperRuntimeStatus = {
 type RecordingDevice = { deviceId: string; label: string };
 
 /**
+ * 资源 ID → 展示名。清单来自 shared（只有客户端真正实现了的协议才出现在这里），
+ * 设置页因此不再给自由文本：填错一个字符就是服务端 45000001「参数无效」，用户完全无从下手。
+ */
+const VOLC_RESOURCE_ID_LABELS: Record<(typeof VOLC_SUPPORTED_RESOURCE_IDS)[number], "voice.settings.cloudResourceIdTurbo"> = {
+	[VOLC_ENGINE_DEFAULT_RESOURCE_ID]: "voice.settings.cloudResourceIdTurbo",
+};
+
+/** 三个密钥输入框的名字：与主进程 saveConfig 的密钥字段同名，提交即清空对应草稿。 */
+type SecretField = "apiKey" | "volcAppId" | "volcAccessToken";
+
+/** 自动保存防抖：够短，用户感觉是「立刻存了」；够长，一次下拉/连续输入只写一次盘。 */
+const AUTO_SAVE_DELAY_MS = 400;
+
+/**
+ * 安装失败码的展示文案：中止 / 并发这类已知码走 i18n，未知码原样带出
+ * （size-mismatch、sha256-mismatch 这类信息对定位镜像问题是线索，不要翻译成空泛提示）。
+ */
+function installErrorCopy(error?: string): string {
+	if (error === "cancelled") return t("voice.settings.error.cancelled");
+	if (error === "already-installing") return t("voice.settings.error.alreadyInstalling");
+	return error || t("voice.settings.error.installFailed");
+}
+
+/** 检测结果的文案：错误码复用录音失败那套话术，豆包的业务码追加在后面。 */
+function testCopy(result: VoiceTranscriptionTestResult | null): string {
+	if (!result) return t("voice.settings.test.unexpected");
+	if (result.ok) return t("voice.settings.test.ok");
+	const base = t(`voice.error.${result.error}`);
+	const statusCode = result.detail?.statusCode;
+	if (!statusCode) return base;
+	// 「未开通极速版 / 额度用尽」官方没有专用码，只会落到 http 或参数无效，故补一句排查方向。
+	const hint = result.error === "http" || result.error === "invalidRequest" ? ` ${t("voice.settings.test.volcHint")}` : "";
+	return `${base}（${statusCode}）${hint}`;
+}
+
+/** 下载中止入口：只在有安装任务在跑时出现（主进程 abortInstall 中止当前那一个）。 */
+function InstallCancelButton() {
+	return (
+		<Button type="button" variant="outline" size="sm" onClick={() => void desktopApi.voiceTranscription.abortInstall().catch(() => undefined)}>
+			{t("voice.settings.installCancel")}
+		</Button>
+	);
+}
+
+/**
+ * 未完成下载的提示：断点字节数由主进程 stat 得到，所以关掉设置页、甚至重启应用之后
+ * 用户仍然看得到「已经下了多少」，而不是以为一切归零。
+ */
+function PartialDownloadHint({ status }: { status?: WhisperRuntimeStatus["models"][number] }) {
+	const partial = status && !status.installed ? (status.partialBytes ?? 0) : 0;
+	if (partial <= 0) return null;
+	return <span className="text-caption text-muted-foreground">{t("voice.settings.modelPartial", { size: formatBytes(partial) })}</span>;
+}
+
+/**
  * 语音输入设置区：总开关 + 引擎（云端 / 本地 whisper.cpp）+ 各自配置项。
  *
- * 为什么本地运行时/模型的安装动作与「保存」解耦：下载是即时、耗时的副作用（进度走
- * onRuntimeProgress 事件），不该被一次表单保存绑定；用户点「下载」即刻开始，保存只落
- * 引擎选择、模型 id、设备、语言、自定义路径等纯配置。总开关（enabled）决定输入框是否
- * 出现麦克风按钮，因此也必须随保存写盘。
+ * 配置项改动即自动保存（防抖），不依赖用户记得点「保存」：这个分区嵌在通用设置里，
+ * 切换标签会卸载本组件，手动保存模式下用户改完切走就静默丢失。
+ *
+ * 为什么本地运行时/模型的安装动作仍与保存解耦：下载是即时、耗时的副作用（进度走
+ * onRuntimeProgress 事件），不该被一次表单保存绑定；用户点「下载」即刻开始。
  */
 export function VoiceTranscriptionSettingsSection() {
 	const [config, setConfig] = useState<VoiceTranscriptionPublicConfig>(DEFAULT_CONFIG);
 	const [apiKey, setApiKey] = useState("");
+	const [volcAppId, setVolcAppId] = useState("");
+	const [volcAccessToken, setVolcAccessToken] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const [testing, setTesting] = useState(false);
 	const [runtime, setRuntime] = useState<WhisperRuntimeStatus>(DEFAULT_RUNTIME_STATUS);
 	const [devices, setDevices] = useState<RecordingDevice[]>([]);
 	const [progress, setProgress] = useState<WhisperInstallProgress | null>(null);
 	const [busyTarget, setBusyTarget] = useState<string | null>(null);
 	// 任何配置/运行时变化都自增版本号，让已挂载的输入框即时重探按钮可见性（无需切会话/重启）。
 	const bumpVoiceConfig = useSetAtom(voiceConfigRevisionAtom);
+	// 自动保存：设置页的每一项改动都必须落盘，否则切换标签/关闭弹框就把用户改的一堆选项丢了
+	// （历史上这里只有手动「保存」，切走即丢）。configRef 供定时器与卸载 flush 取最新快照。
+	const configRef = useRef(config);
+	const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(() => {
+		configRef.current = config;
+	}, [config]);
 
 	const refreshRuntime = useCallback(() => {
 		return desktopApi.voiceTranscription
@@ -109,44 +178,117 @@ export function VoiceTranscriptionSettingsSection() {
 			setProgress(next);
 			if (next.phase === "done" || next.phase === "error") {
 				setBusyTarget(null);
-				if (next.phase === "error") showNotice(next.error || t("voice.settings.error.installFailed"), 5000);
+				if (next.phase === "error") showNotice(installErrorCopy(next.error), 5000);
 				void refreshRuntime();
 			}
 		});
 	}, [refreshRuntime]);
 
-	const patch = (next: Partial<VoiceTranscriptionPublicConfig>) => setConfig((current) => ({ ...current, ...next }));
+	const patch = (next: Partial<VoiceTranscriptionPublicConfig>) => {
+		setConfig((current) => ({ ...current, ...next }));
+		scheduleAutoSave();
+	};
+
+	/**
+	 * 落一次盘。自动保存与显式保存共用同一条路径，区别只在是否置 `saving`（自动保存不该
+	 * 让整页控件瞬间禁用）与是否弹「已保存」。密钥草稿只在失焦/点保存时提交，
+	 * 提交成功即清空对应输入框——密文不回显，占位符「已配置」是它唯一的可见反馈。
+	 */
+	const persist = useCallback(
+		async (next: VoiceTranscriptionPublicConfig, secrets: Partial<Record<SecretField, string>> = {}, clearApiKey = false): Promise<boolean> => {
+			const trimmed: Partial<Record<SecretField, string>> = {};
+			for (const [field, value] of Object.entries(secrets)) {
+				if (value?.trim()) trimmed[field as SecretField] = value;
+			}
+			const result = await desktopApi.voiceTranscription
+				.saveConfig({
+					enabled: next.enabled,
+					engine: next.engine,
+					cloudProvider: next.cloudProvider,
+					baseUrl: next.baseUrl,
+					model: next.model,
+					language: next.language,
+					inputDeviceId: next.inputDeviceId,
+					localModelId: next.localModelId,
+					cliPath: next.cliPath,
+					cloudResourceId: next.cloudResourceId,
+					...trimmed,
+					...(clearApiKey ? { clearApiKey: true } : {}),
+				})
+				.catch(() => null);
+			if (!result || !result.ok) {
+				showNotice(result ? t(`voice.settings.error.${result.error}`) : t("voice.settings.error.saveFailed"), 4000);
+				return false;
+			}
+			// 期间用户又改了别的项：以本地为准，等下一次防抖保存，不要用旧响应覆盖新输入。
+			if (configRef.current === next) setConfig(result.config);
+			const setters: Record<SecretField, (value: string) => void> = { apiKey: setApiKey, volcAppId: setVolcAppId, volcAccessToken: setVolcAccessToken };
+			for (const field of Object.keys(trimmed) as SecretField[]) setters[field]("");
+			if (clearApiKey) Object.values(setters).forEach((setter) => setter(""));
+			bumpVoiceConfig((revision) => revision + 1);
+			return true;
+		},
+		[bumpVoiceConfig],
+	);
+
+	const scheduleAutoSave = () => {
+		if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+		autoSaveTimer.current = setTimeout(() => {
+			autoSaveTimer.current = null;
+			void persist(configRef.current);
+		}, AUTO_SAVE_DELAY_MS);
+	};
+
+	/** 当前服务商的密钥草稿；另一家的输入框即使还留着字也不该顺手写盘。 */
+	const currentSecretDrafts = (): Partial<Record<SecretField, string>> => (configRef.current.engine === "local" ? {} : configRef.current.cloudProvider === "volcengine" ? { volcAppId, volcAccessToken } : { apiKey });
 
 	const save = async (clearApiKey = false) => {
 		if (saving) return;
+		if (autoSaveTimer.current) {
+			clearTimeout(autoSaveTimer.current);
+			autoSaveTimer.current = null;
+		}
 		setSaving(true);
 		try {
-			const result = await desktopApi.voiceTranscription.saveConfig({
-				enabled: config.enabled,
-				engine: config.engine,
-				baseUrl: config.baseUrl,
-				model: config.model,
-				language: config.language,
-				inputDeviceId: config.inputDeviceId,
-				localModelId: config.localModelId,
-				cliPath: config.cliPath,
-				...(!clearApiKey && apiKey.trim() ? { apiKey } : {}),
-				...(clearApiKey ? { clearApiKey: true } : {}),
-			});
-			if (!result.ok) {
-				showNotice(t(`voice.settings.error.${result.error}`), 4000);
-				return;
-			}
-			setConfig(result.config);
-			setApiKey("");
-			bumpVoiceConfig((revision) => revision + 1);
-			showNotice(t(clearApiKey ? "voice.settings.keyCleared" : "voice.settings.saved"), 3000);
-		} catch {
-			showNotice(t("voice.settings.error.saveFailed"), 4000);
+			const ok = await persist(configRef.current, clearApiKey ? {} : currentSecretDrafts(), clearApiKey);
+			if (ok) showNotice(t(clearApiKey ? "voice.settings.keyCleared" : "voice.settings.saved"), 3000);
 		} finally {
 			setSaving(false);
 		}
 	};
+
+	/**
+	 * 检测连通性：先把待提交的密钥草稿与配置落盘（否则检测的是磁盘上的旧值），再让主进程
+	 * 用一段静音走一遍真实链路。判据是「服务受理了音频」，所以空结果也算通过。
+	 */
+	const runTest = async () => {
+		if (testing) return;
+		if (autoSaveTimer.current) {
+			clearTimeout(autoSaveTimer.current);
+			autoSaveTimer.current = null;
+		}
+		setTesting(true);
+		try {
+			// 保存失败（例如地址/模型不合法）时不要再去探测：那时磁盘上的配置还是旧的。
+			if (!(await persist(configRef.current, currentSecretDrafts()))) return;
+			const result: VoiceTranscriptionTestResult | null = await desktopApi.voiceTranscription.test().catch(() => null);
+			showNotice(testCopy(result), 5000);
+		} finally {
+			setTesting(false);
+		}
+	};
+
+	// 卸载（切换设置标签、关闭弹框）时把还在防抖里的最后一次改动立刻写盘，
+	// 否则「刚改完就切走」还是会丢——这正是这次要根治的体验问题。
+	useEffect(
+		() => () => {
+			if (!autoSaveTimer.current) return;
+			clearTimeout(autoSaveTimer.current);
+			autoSaveTimer.current = null;
+			void persist(configRef.current);
+		},
+		[persist],
+	);
 
 	const installRuntime = async () => {
 		if (busyTarget) return;
@@ -156,7 +298,8 @@ export function VoiceTranscriptionSettingsSection() {
 		if (!result.ok) {
 			setBusyTarget(null);
 			setProgress(null);
-			showNotice(result.error || t("voice.settings.error.installFailed"), 5000);
+			// 中止的播报已经来自进度推送，这里再弹一次会变成两条相同 toast。
+			if (result.error !== "cancelled") showNotice(installErrorCopy(result.error), 5000);
 			return;
 		}
 		void refreshRuntime();
@@ -170,7 +313,8 @@ export function VoiceTranscriptionSettingsSection() {
 		if (!result.ok) {
 			setBusyTarget(null);
 			setProgress(null);
-			showNotice(result.error || t("voice.settings.error.installFailed"), 5000);
+			// 中止的播报已经来自进度推送，这里再弹一次会变成两条相同 toast。
+			if (result.error !== "cancelled") showNotice(installErrorCopy(result.error), 5000);
 			return;
 		}
 		void refreshRuntime();
@@ -189,6 +333,8 @@ export function VoiceTranscriptionSettingsSection() {
 	};
 
 	const isLocal = config.engine === "local";
+	const isVolc = config.cloudProvider === "volcengine";
+	const hasCloudKey = isVolc ? config.hasVolcAppId || config.hasVolcAccessToken : config.hasApiKey;
 	const selectedModel = getWhisperModelDef(config.localModelId);
 	const selectedModelStatus = runtime.models.find((model) => model.id === config.localModelId);
 	const busy = loading || saving;
@@ -234,7 +380,12 @@ export function VoiceTranscriptionSettingsSection() {
 								<Button type="button" size="sm" loading={busyTarget === "runtime"} disabled={busy || Boolean(busyTarget)} onClick={() => void installRuntime()}>
 									{t("voice.settings.runtimeDownload")}
 								</Button>
-								{showProgress && progress?.target === "runtime" ? <span className="text-caption text-muted-foreground">{formatProgress(progress)}</span> : null}
+								{showProgress && progress?.target === "runtime" ? (
+									<div className="flex items-center gap-2">
+										<span className="text-caption text-muted-foreground">{formatProgress(progress)}</span>
+										<InstallCancelButton />
+									</div>
+								) : null}
 							</div>
 						) : (
 							<span className="text-caption text-muted-foreground">{t("voice.settings.runtimeUnsupported")}</span>
@@ -268,7 +419,14 @@ export function VoiceTranscriptionSettingsSection() {
 									{t("voice.settings.modelDownload")}
 								</Button>
 							)}
-							{showProgress && progress && progress.target !== "runtime" ? <span className="text-caption text-muted-foreground">{formatProgress(progress)}</span> : null}
+							{showProgress && progress && progress.target !== "runtime" ? (
+								<div className="flex items-center gap-2">
+									<span className="text-caption text-muted-foreground">{formatProgress(progress)}</span>
+									<InstallCancelButton />
+								</div>
+							) : (
+								<PartialDownloadHint status={selectedModelStatus} />
+							)}
 						</div>
 					</SettingRow>
 					<SettingRow title={t("voice.settings.cliPath")} description={t("voice.settings.cliPathDescription")} alignEnd={false} stacked>
@@ -277,28 +435,101 @@ export function VoiceTranscriptionSettingsSection() {
 				</>
 			) : (
 				<>
-					<SettingRow title={t("voice.settings.baseUrl")} alignEnd={false} stacked>
-						<Input value={config.baseUrl} disabled={busy} onChange={(event) => patch({ baseUrl: event.target.value })} />
+					<SettingRow title={t("voice.settings.cloudProvider")} description={t("voice.settings.cloudProviderDescription")} alignEnd={false}>
+						<Select value={config.cloudProvider} disabled={busy} onValueChange={(value) => patch({ cloudProvider: value === "volcengine" ? "volcengine" : "openai" })}>
+							<SelectTrigger className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="openai">{t("voice.settings.cloudProviderOpenai")}</SelectItem>
+								<SelectItem value="volcengine">{t("voice.settings.cloudProviderVolc")}</SelectItem>
+							</SelectContent>
+						</Select>
 					</SettingRow>
-					<SettingRow title={t("voice.settings.apiKey")} alignEnd={false} stacked>
-						<Input type="password" value={apiKey} disabled={busy} placeholder={config.hasApiKey ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")} autoComplete="off" onChange={(event) => setApiKey(event.target.value)} />
-					</SettingRow>
-					<SettingRow title={t("voice.settings.model")} alignEnd={false} stacked>
-						<Input value={config.model} disabled={busy} onChange={(event) => patch({ model: event.target.value })} />
-					</SettingRow>
+					{isVolc ? (
+						<>
+							<SettingRow title={t("voice.settings.volcAppId")} description={t("voice.settings.volcAppIdDescription")} alignEnd={false} stacked>
+								<Input
+									type="password"
+									value={volcAppId}
+									disabled={busy}
+									placeholder={config.hasVolcAppId ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
+									autoComplete="off"
+									onChange={(event) => setVolcAppId(event.target.value)}
+									// 密钥不跟着每次按键落盘（半截 key 写进配置更难排查），失焦才提交。
+									onBlur={() => {
+										if (volcAppId.trim()) void persist(configRef.current, { volcAppId });
+									}}
+								/>
+							</SettingRow>
+							<SettingRow title={t("voice.settings.volcAccessToken")} description={t("voice.settings.volcAccessTokenDescription")} alignEnd={false} stacked>
+								<Input
+									type="password"
+									value={volcAccessToken}
+									disabled={busy}
+									placeholder={config.hasVolcAccessToken ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
+									autoComplete="off"
+									onChange={(event) => setVolcAccessToken(event.target.value)}
+									onBlur={() => {
+										if (volcAccessToken.trim()) void persist(configRef.current, { volcAccessToken });
+									}}
+								/>
+							</SettingRow>
+							<SettingRow title={t("voice.settings.cloudResourceId")} description={t("voice.settings.cloudResourceIdDescription")} alignEnd={false}>
+								<Select value={config.cloudResourceId} disabled={busy} onValueChange={(value) => patch({ cloudResourceId: value })}>
+									<SelectTrigger className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{VOLC_SUPPORTED_RESOURCE_IDS.map((resourceId) => (
+											<SelectItem key={resourceId} value={resourceId}>
+												{t(VOLC_RESOURCE_ID_LABELS[resourceId])} · {resourceId}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</SettingRow>
+						</>
+					) : (
+						<>
+							<SettingRow title={t("voice.settings.baseUrl")} alignEnd={false} stacked>
+								<Input value={config.baseUrl} disabled={busy} onChange={(event) => patch({ baseUrl: event.target.value })} />
+							</SettingRow>
+							<SettingRow title={t("voice.settings.apiKey")} description={t("voice.settings.apiKeyAutoSaveHint")} alignEnd={false} stacked>
+								<Input
+									type="password"
+									value={apiKey}
+									disabled={busy}
+									placeholder={config.hasApiKey ? t("voice.settings.apiKeyConfigured") : t("voice.settings.apiKeyMissing")}
+									autoComplete="off"
+									onChange={(event) => setApiKey(event.target.value)}
+									onBlur={() => {
+										if (apiKey.trim()) void persist(configRef.current, { apiKey });
+									}}
+								/>
+							</SettingRow>
+							<SettingRow title={t("voice.settings.model")} alignEnd={false} stacked>
+								<Input value={config.model} disabled={busy} onChange={(event) => patch({ model: event.target.value })} />
+							</SettingRow>
+						</>
+					)}
 				</>
 			)}
 
 			<SettingRow title={t("voice.settings.language")} description={t("voice.settings.languageDescription")} alignEnd={false} stacked>
 				<Input value={config.language} disabled={busy} placeholder={t("voice.settings.languagePlaceholder")} onChange={(event) => patch({ language: event.target.value })} />
 			</SettingRow>
-			<SettingRow title={t("voice.settings.actions")}>
+			<SettingRow title={t("voice.settings.actions")} description={t("voice.settings.autoSaveHint")}>
 				<div className="flex items-center gap-2">
-					{!isLocal && config.hasApiKey ? (
+					{!isLocal && hasCloudKey ? (
 						<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void save(true)}>
 							{t("voice.settings.clearKey")}
 						</Button>
 					) : null}
+					{/* 检测会发一次真实请求（约 0.4 秒静音）；凭据不全时主进程直接回 notConfigured，不浪费额度。 */}
+					<Button type="button" variant="outline" size="sm" loading={testing} disabled={busy || saving} onClick={() => void runTest()}>
+						{t("voice.settings.test")}
+					</Button>
 					<Button type="button" size="sm" loading={saving} disabled={busy} onClick={() => void save(false)}>
 						{t("voice.settings.save")}
 					</Button>
