@@ -1,12 +1,14 @@
 # 远程主机跨 store 事务设计（hostId 引用 × ProjectStore × SessionCatalog）
 
-> 状态：Proposed（设计契约，未实现）。本文只定义接口形状、失败语义、锁顺序与恢复算法，不包含实现步骤。
+> 状态：**部分落地**。依赖 Phase 1 脏文件的部分仍是 Proposed（未实现）；「不依赖 Phase 1 脏文件」的切片已实现并提交 `9d0710470` —— §4.1 注册表（`src/main/remote/RemoteHostReferenceRegistry.ts`）、§4.3 journal + tx 锁 + §5.4 收敛算法（`src/main/remote/HostRebindJournal.ts`）、§4.5 修复原语与 `diagnose`（`src/main/remote/RemoteHostRepair.ts`），以及 `RemoteHostStore.ts` 的注册表接入、无 provider fail-closed 对称化与两个 main-only 修复写入口。仍缺 §4.2 的 `HostRebindCoordinator`、§4.4 两个 store 的端口实现、§4.1 引用源的生产实现，且**尚无生产装配**：`src/main/index.ts` 不构造这些模块，唯一的 store 消费方 `SshVerifiedConnection.ts:117`、`:146` 仍是无选项的 `open(userDataDir)`。
 >
 > 适用工作树：`feat/remote-development`，调研基线 commit `2fd646c3a`（工作树另有 114 项与本任务无关的脏改动，本文只读引用，不评价、不触碰）。
 >
 > 关联文档：[远程开发实施计划](remote-development-plan.md) §5.2（主机配置与 rebind 约束）、[位置模型 ADR](project-location-architecture.md)。
 >
 > **标注约定**：本文所有关于现状的陈述都带 `文件:行号`；凡由行号推出、而非代码字面写明的结论，标 **【推断】**；凡代码中查不到、必须由产品/后续调研拍板的，标 **【待确认】**，并在第 8 节汇总。本文不复制大段源码，只用行号 + 一句话概括。
+>
+> **行号基线**：§1 的现状陈述按调研基线 `2fd646c3a` 取行号；`RemoteHostStore.ts` 在该基线之后净增 188 行（398 → 586 行，来自 §4.1 注册表接入、`isReferenced` 改写、`mutateRepair` 与两个修复写入口），因此该文件的旧行号必须按符号重新定位。凡标注 `当前:` 的行号都取自含 `9d0710470` 的当前工作树。
 
 ---
 
@@ -16,7 +18,7 @@
 
 | 实体 | 磁盘位置 | 进程内串行化 | 跨进程锁 | revision / CAS | 备份与恢复 | `needs-repair` 停写 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `RemoteHostStore` profile 目录 | `<userData>/remote-hosts.json`（+`.bak`） | 目录锁文件本身即互斥 | ✅ `remote-hosts.json.lock`，`open("wx",0o600)`：`src/main/remote/RemoteHostStore.ts:356` | ✅ 锁内重读磁盘，比对 `revision` + `profiles`/`retiredHostIds` 的 JSON：同文件 `:364` | `writeDurableJsonFile`（temp→fsync→轮换 `.bak`→rename），备份失败策略 `throw`：`:369`；启动时 primary/backup 取最高有效 revision：`:118-137` | ✅ 所有 mutator 首行要求 `status === "ready"`：`:350` |
+| `RemoteHostStore` profile 目录 | `<userData>/remote-hosts.json`（+`.bak`） | 目录锁文件本身即互斥 | ✅ `remote-hosts.json.lock`，`open("wx",0o600)`：`src/main/remote/RemoteHostStore.ts:356`（当前 `:544`） | ✅ 锁内重读磁盘，比对 `revision` + `profiles`/`retiredHostIds` 的 JSON：同文件 `:364`（当前 `:552`） | `writeDurableJsonFile`（temp→fsync→轮换 `.bak`→rename），备份失败策略 `throw`：`:369`；启动时 primary/backup 取最高有效 revision：`:118-137`（当前 `:190-214`） | ✅ 所有**普通** mutator 首行要求 `status === "ready"`：`:350`（当前 `:538`）；唯一例外是 §4.5 的两个 main-only 修复写入口（`mutateRepair`，当前 `:494-535`，按 reason 白名单） |
 | `SshHostPinStore` pin 文件 | `<userData>/ssh-host-keys/<hostId>` | 无（文件级原子发布） | ❌ | ❌ 以 `link()` 发布并天然拒绝覆盖：`src/main/remote/SshHostPinStore.ts:247`、`:251` | 无备份；temp + `fsync` + 硬链接 + 目录 sync：`:238-248` | ✅ 发布前 `assertPinAbsent`：`:51-59`、`:125`、`:128` |
 | `ProjectStore` | `<userData>/projects.json`（+`.bak`） | 单条 `writeQueue`：`src/main/projects/ProjectStore.ts:40`、`:456-473` | ❌ | ❌ 只在自己内存 revision 上 `+1` 后写盘，**不比对磁盘**：`:463-465` | `writeDurableJsonFile` + `backupFailurePolicy:"throw"`：`src/main/projects/projectStorePersistence.ts:47-54`；启动取 primary/backup 最高有效 revision：`:26-45`，两者都坏抛 `PROJECT_STORE_NEEDS_REPAIR`：`:34` | ✅ `needsRepair` 时读写都抛：`ProjectStore.ts:420-426` |
 | `SessionCatalog` | `<userData>/session-catalog.json`（+`.bak`） | 单条 `writeQueue`：`src/main/sessions/SessionCatalog.ts:392`、`:1499-1517` | ❌ | ❌ 文件 schema **没有 revision 字段**：`:84-89`（只有 `version:1`、`sessions`、`dismissedDshSessionIds`） | 自实现 temp+`.bak`+rename，备份轮换失败只告警不阻断：`:1560-1605` | ✅ `assertWritable`：`:1495-1497` |
@@ -35,7 +37,7 @@
 | I6 | verified / disabled profile 的身份字段冻结（比 endpoint 四元组更严） | `updateDraft` 显式拒绝 | `:197` | 改指只能新建 hostId；今天没有 rebind 实现 ⇒ 改指事实上不可完成（见 G2） |
 | I7 | `verifiedEndpoint` 与 `verifiedAt` 必须成对出现 | 编解码器 | `RemoteHostStoreCodec.ts:85` | 快照非法 → `needs-repair` |
 | I8 | retire 的提交顺序：**先提交快照，再删 pin** | `retire` 代码顺序 | `:257-261`（删除在 `mutate` 返回之后） | 提交成功 + 删 pin 失败 ⇒ 残留 pin；因 I4 的 retired 豁免而仍 `ready`，下次 open/refresh 重试清理 |
-| I9 | `needs-repair` 下禁止任何写入 | `mutate`/`offerPin` | `:350`、`:301` | 所有 mutator 抛 `REMOTE_HOST_STORE_NEEDS_REPAIR`（测试：`tests/remoteHostStore.test.mjs:123`、`:135`、`:166`） |
+| I9 | `needs-repair` 下禁止任何写入；唯一例外是 §4.5 按 reason 白名单的修复写入口 | `mutate` / `offerPin` / `mutateRepair` | `:350`、`:301`（当前 `:538`、`:391`、`:494-535`） | 普通 mutator 抛 `REMOTE_HOST_STORE_NEEDS_REPAIR`（测试：`tests/remoteHostStore.test.mjs:123`、`:135`、`:166`）；修复写入口只允许「锁内新鲜磁盘的全部 reason ⊆ 该原语拥有的那一类」，否则抛同一个码（测试：`tests/remoteHostRepair.test.mjs:304-320`） |
 | I10 | `needs-repair` 下禁止任何新的 SSH 调用 | `activeProfile` | `SshVerifiedConnection.ts:29`（status）、`:31`（disabled/无 endpoint）→ `SSH_HOST_NOT_READY` | 已建立的连接不会被主动断开（没有任何 store 订阅机制）**【推断】** |
 | I11 | retired id 永久保留、永不复用 | `createDraft` + 编解码器 | `:294`、`RemoteHostStoreCodec.ts:126-127` | 复用尝试抛 `REMOTE_HOST_ID_REUSED` |
 | I12 | 备份只能离线查看，绝不能被提升为可写信任 | 备份被选中时必然带 reason → `needs-repair` | `:121-137` + `:350`（测试：`remoteHostStore.test.mjs:126-137`、`:170-182`） | 只读，任何 mutator 拒绝 |
@@ -45,17 +47,18 @@
 
 ### 1.3 引用提供者的确切形状与失败语义
 
-- 形状（唯一出处）：`export type RemoteHostReferences = { referencedHostIds(): Promise<ReadonlySet<string>> }` —— `src/main/remote/RemoteHostStore.ts:14`。
-- 注入点：`static open(userDataDir, { pinStore?, references? })` —— `:158`，构造函数保存于 `:150-155`。
+- 形状（唯一出处）：`export type RemoteHostReferences = { referencedHostIds(): Promise<ReadonlySet<string>> }` —— `src/main/remote/RemoteHostStore.ts:14`（当前 `:15`）。
+- 注入点：`static open(userDataDir, { pinStore?, references?, referenceRegistry? })` —— `:158`（当前 `:232`，新增 `referenceRegistry` 供 §4.1 注册表接入），构造函数保存于 `:150-155`（当前 `:224-230`）。
 - 查询点只有两处，都在**目录锁内**执行：
-  1. `updateDraft` → `:201`（`REMOTE_HOST_REFERENCED`）；
-  2. `retire` 的 change 回调 → `:248`（`REMOTE_HOST_REFERENCED`）。
-  两者都经由 `private isReferenced()`：`:265-269`。
-- 失败语义（这是设计必须补的洞）：
-  - **无 provider**：`retire` 在进入锁之前显式抛 `REMOTE_HOST_REFERENCES_UNAVAILABLE`：`:243`；但 `updateDraft` 不会——`isReferenced` 在无 provider 时返回 `false`（`:266`），即 **`updateDraft` 对「无法证明无引用」是 fail-open 的**，与 `retire` 的 fail-closed 不对称。
-  - **provider 抛错**：异常从 `isReferenced` 直接冒泡出 `mutate`，调用方拿到的是 provider 自己的错误对象，**没有稳定码**（`mutate` 的 catch 只在 `writeStarted` 或 `pendingActivationHostId` 时改写状态，`:374-387`）。行为上仍是 fail closed（操作中止、无写入），但 IPC/renderer 无法区分「扫描失败」和「业务校验失败」。
-  - **无法表达"扫描不完整"**：接口返回值只有 `ReadonlySet<string>`，没有 complete/来源信息，因此「一个 store 读不出来」只能靠抛错表达；一旦实现者图省事 `catch` 后返回空集，就会静默变成「无引用」→ 硬删仍被引用的主机。**【推断】这是本设计里最危险的失败模式**，见 G1。
-- **今天没有任何生产路径注入 references**：全仓库对 `RemoteHostStore` 的使用只有 `SshVerifiedConnection.ts:117` 与 `:146`（两次 `open(userDataDir)`，都不传 options），其余全在 `tests/remoteHostStore*.test.mjs`。**⇒ 生产代码里 `retire` 必然抛 `REMOTE_HOST_REFERENCES_UNAVAILABLE`**；同时也没有任何生产 mutator（`disable/retire/offerPin/confirmPin/updateDraft` 都只在测试里被调用）。**【推断】** 因此本文描述的跨 store 事务是"从零加装配"，而不是改造既有调用链。
+  1. `updateDraft` → `:201`（`REMOTE_HOST_REFERENCED`；当前 `:279`）；
+  2. `retire` 的 change 回调 → `:248`（`REMOTE_HOST_REFERENCED`；当前 `:326`）。
+  两者都经由 `private isReferenced()`：`:265-269`（当前 `:343-359`）。
+- 失败语义（设计补的洞 vs `9d0710470` 已落地的部分）：
+  - **无 provider**：`retire` 在进入锁之前显式抛 `REMOTE_HOST_REFERENCES_UNAVAILABLE`：`:243`（当前 `:321`）；`updateDraft` 基线时不会（`isReferenced` 无 provider 返回 `false`，基线 `:266`），**当前已改成显式拒绝**（`updateDraft` 当前 `:272`、`isReferenced` 当前 `:345`）—— 即 fail-open 已修正为与 `retire` 对称的 fail-closed（测试：`tests/remoteHostStoreLifecycle.test.mjs:270-302`）。
+  - **注册表视图是惰性的**：`referenceRegistry` 经 `resolveReferences`（当前 `:92-103`）包成 store 需要的窄接口，`open()` 不读注册表，§4.1 的 `REMOTE_HOST_REFERENCE_SOURCE_MISSING` / `_SCAN_INCOMPLETE` 都在**首次查询**时才出现；同时传 `references` 与 `referenceRegistry` 视为装配歧义，`open()` 直接抛 `REMOTE_HOST_REFERENCES_UNAVAILABLE`（当前 `:94`）。
+  - **provider 抛错**：基线时异常直接冒泡、调用方拿到 provider 自己的错误对象（**没有稳定码**）；**当前有稳定码**：注册表码（`REMOTE_HOST_REFERENCE_*`）原样透出，其余一律折叠成 `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`（当前 `:353-355`），errno 与 provider 文本不再跨边界。
+  - **无法表达"扫描不完整"**：已由 §4.1 的 `complete` 补上（`RemoteHostReferenceRegistry.ts:29-47`）；接口返回值仍只有 `ReadonlySet<string>`，所以「一个 store 读不出来」在 store 侧只能靠抛错表达。一旦实现者图省事 `catch` 后返回空集，就会静默变成「无引用」→ 硬删仍被引用的主机。**【推断】这是本设计里最危险的失败模式**，见 G1。
+- **今天仍然没有任何生产路径注入 references**：全仓库对 `RemoteHostStore` 的使用只有 `SshVerifiedConnection.ts:117` 与 `:146`（两次 `open(userDataDir)`，都不传 options），其余全在 `tests/remoteHostStore*.test.mjs`；注册表 / journal / 修复模块同样没有生产构造点（`src/main/index.ts` 未装配）。**⇒ 生产代码里 `retire` 与 `updateDraft` 都必然抛 `REMOTE_HOST_REFERENCES_UNAVAILABLE`**；同时也没有任何生产 mutator（`disable/retire/offerPin/confirmPin/updateDraft` 都只在测试里被调用）。**【推断】** 因此本文描述的跨 store 事务是"从零加装配"，而不是改造既有调用链。
 
 ### 1.4 `needs-repair` 的全部触发条件与可用恢复动作
 
@@ -79,7 +82,7 @@
 
 - ✅ 能修：外部持锁者已退出后的 `REMOTE_HOST_LOCK_PRESENT`（测试：`tests/remoteHostStoreLifecycle.test.mjs:186-197`）；retired id 的残留 pin（`:176-184`，走 `pruneRetiredPins`）。
 - ❌ 修不好（refresh 只会重算同样的 reason）：
-  1. **失败激活留下的孤儿 pin**：`pinIssues` 只在传入 `pendingActivationHostId` 时容忍（`:73`），而 `refresh()` 不传 ⇒ 永远 `REMOTE_HOST_PIN_ORPHAN`。测试 `tests/remoteHostStore.test.mjs:105-124` 固化了这个状态。**且该实例会被彻底锁死**：`offerPin` 要求 `status === "ready"`（`:301`），`mutate` 同样（`:350`）⇒ 既不能重新 offer/confirm（`assertPinAbsent` 也会拒绝，`SshHostPinStore.ts:125`），也不能 retire/disable。**唯一出路是人工删除那个 pin 文件**（见 6.2 A）。
+  1. **失败激活留下的孤儿 pin**：`pinIssues` 只在传入 `pendingActivationHostId` 时容忍（`:73`；当前 `:147`），而 `refresh()` 不传 ⇒ 永远 `REMOTE_HOST_PIN_ORPHAN`。测试 `tests/remoteHostStore.test.mjs:105-124` 固化了这个状态。**且该实例会被彻底锁死**：`offerPin` 要求 `status === "ready"`（`:301`；当前 `:391`），`mutate` 同样（`:350`；当前 `:538`）⇒ 既不能重新 offer/confirm（`assertPinAbsent` 也会拒绝，`SshHostPinStore.ts:125`），也不能 retire/disable。**唯一出路是 §6.2 A 的修复原语**（A1 用已发布 pin 完成激活，或 A2 删除这个从未被验证的孤儿 pin），不再需要人工删文件（基线时的手段，已由 `9d0710470` 取代）。
   2. **verified profile 的 pin 丢失或被篡改**：refresh 报同样的 `REMOTE_HOST_PIN_INVALID`；而且因为是 store 级 `needs-repair`，**同一 store 里其它主机也全部变成只读**（`:350`）。这是 G6。
   3. **快照双坏 / 版本未知**：`REMOTE_HOST_SNAPSHOT_INVALID` 无法通过 refresh 消除。
   4. **`REMOTE_HOST_WRITE_UNCERTAIN`**：refresh 会按磁盘实际内容重算——若那次 rename 未落地，会"退回"到旧 revision 并显示 `ready`（**静默丢失一次未确认写入**，因为调用方只拿到过异常）**【推断】**；若落地了，则 revision 前进。两者都要求调用方**先 refresh 再判断结果**，不能假定失败。
@@ -113,7 +116,7 @@
 
 | 背景描述 | 实际 | 证据 |
 | --- | --- | --- |
-| `RemoteHostStoreReferences` | 实际类型名是 **`RemoteHostReferences`**（计划文档 `docs/remote-development-plan.md:701` 用了旧名，属文档漂移） | `RemoteHostStore.ts:14` |
+| `RemoteHostStoreReferences` | 实际类型名是 **`RemoteHostReferences`**（计划文档 `docs/remote-development-plan.md:701` 曾用旧名，属文档漂移；`9d0710470` 已把该处改写为 `RemoteHostReferences`） | `RemoteHostStore.ts:14`（当前 `:15`） |
 | "`retire` 要求显式注入 references、对象已是 disabled tombstone、引用为空" | ✅ 全部成立，**另有一条容易漏掉的前置**：`typeof pinStore.deletePin !== "function"` ⇒ `REMOTE_HOST_PIN_CLEANUP_FAILED` | `:243`、`:244`、`:247`、`:248` |
 | "成功时先提交快照再删 pin" | ✅ | `:250`、`:257-261` |
 | "已退役 id 的残留 pin 由加载器容忍并在下次 open 清理" | ✅，且 `refresh()` 也会清理；清理是 best-effort 且错误被吞、不告警 | `:163`、`:175`、`:105-114` |
@@ -181,21 +184,25 @@ export type RemoteHostReferenceSource = "projects" | "sessions" | "host-profiles
 
 export type RemoteHostReferenceHit = {
 	readonly source: RemoteHostReferenceSource;
-	/** 记录 id（projectId / sessionId / hostId），只用于报告与逐记录 CAS，不用于展示路径。 */
+	/**
+	 * 记录 id（projectId / sessionId / hostId），只用于报告、审计与逐记录 CAS，不用于展示路径。
+	 * **hit 不携带 hostId**（当前 `RemoteHostReferenceRegistry.ts:23-27`）：它无法回答"这条记录引用的是哪台主机"，
+	 * 所以 rebind 的记录集**只能由 store 端口给出**（§4.4 `readHostRecordLocators`）；provider 多返回的字段会被丢弃（`:114-117`）。
+	 */
 	readonly recordId: string;
 };
 
 export type RemoteHostReferenceScan = {
 	/** 所有被引用的 hostId（保守超集：宁可多报，不可漏报）。 */
 	readonly referencedHostIds: ReadonlySet<string>;
-	/** 命中明细，供 rebind 生成记录集与人工修复报告。 */
+	/** 命中明细，供人工修复报告与审计；**不用于生成 rebind 记录集**（没有 hostId，见上）。 */
 	readonly hits: readonly RemoteHostReferenceHit[];
 	/**
-	 * false = 至少一个引用源未能完整读取（文件损坏、needs-repair、超时、未知 schema）。
+	 * false = 至少一个引用源未能完整读取（文件损坏、needs-repair、超时、未知 schema），或**一个源都没注册**。
 	 * 调用方在 complete=false 时**必须**按"可能仍被引用"处理。
 	 */
 	readonly complete: boolean;
-	/** 未读取成功的来源，用于稳定码与诊断。 */
+	/** 未读取成功的来源，用于稳定码与诊断。注意：零注册源时它是空的，所以**不能只看它**。 */
 	readonly unavailable: readonly RemoteHostReferenceSource[];
 };
 
@@ -206,24 +213,33 @@ export type RemoteHostReferenceProvider = {
 };
 
 export type RemoteHostReferenceRegistry = {
+	/** 重复注册同一 source ⇒ `REMOTE_HOST_REFERENCE_SOURCE_DUPLICATE`（替换会静默丢掉前一个源的引用）；非法源/非 provider ⇒ `_SOURCE_INVALID`：`RemoteHostReferenceRegistry.ts:131-136`。 */
 	register(source: RemoteHostReferenceSource, provider: RemoteHostReferenceProvider): void;
-	/** 并发扫描所有来源并按 hostId 取并集；任一源抛错 ⇒ complete=false 且该源进入 unavailable。 */
+	/** 已登记的源，按登记顺序：`:138-140`。 */
+	registeredSources(): readonly RemoteHostReferenceSource[];
+	/** 并发扫描所有来源并按 hostId 取并集；任一源抛错 / 自报不完整 / 返回形状非法 ⇒ complete=false 且该源进入 unavailable（`scan()` 本身不抛）：`:148-183`。 */
 	scan(): Promise<RemoteHostReferenceScan>;
+	/** 单主机判定：扫描不完整时 `referenced` 恒为 `true`（安全答案不能因为调用方只看 referenced 而丢失）：`:190-193`。 */
+	isReferenced(hostId: string): Promise<{ readonly referenced: boolean; readonly complete: boolean }>;
 	/** 供 RemoteHostStore 注入用的兼容视图：complete=false 时抛 REFERENCE_SCAN_INCOMPLETE（fail closed）。 */
 	asStoreReferences(): RemoteHostReferences;
 };
 ```
 
+> **已落地词汇**（`9d0710470`）：本模块自有稳定码只有五个 —— `HOST_REFERENCE_REGISTRY_CODES`（`RemoteHostReferenceRegistry.ts:53`）= `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE` / `_SOURCE_MISSING` / `_SOURCE_INVALID` / `_SOURCE_DUPLICATE` / `_SCAN_INVALID`；`isHostReferenceRegistryCode()`（`:60-62`）供 `RemoteHostStore` 与 journal 判定"这个码属于注册表，可以原样透出"。
+
 **失败语义（稳定码）**
 
 | 情形 | 结果 |
 | --- | --- |
-| 某源抛错 / 超时 / 读不出 | `scan()` 本身不抛，返回 `complete=false` + `unavailable[]`；调用方决定 |
-| `complete=false` 时调用 `retire`/`updateDraft` | `asStoreReferences()` 抛 `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`（替换今天透传的任意错误） |
-| 未注册任何源 | 抛 `REMOTE_HOST_REFERENCE_SOURCE_MISSING`（禁止"空集=无引用"的默认值） |
-| 某源声明 `canHoldHostReferences=false` | 该源跳过且不影响 `complete`；一旦该源真的出现 hostId（由契约测试发现），实现方必须改回 true |
+| 某源抛错 / 超时 / 读不出 | `scan()` 本身不抛，返回 `complete=false` + `unavailable[]`；**已读到的 id 仍进入并集**（部分答案仍是保守超集，`:163-175`） |
+| 某源返回形状非法（缺 `hits`/`complete`、id 非法或超长） | 整源按"不可读"处理（`REMOTE_HOST_REFERENCE_SCAN_INVALID` → 进 `unavailable`），**绝不降级成空集**（`:110-119`；测试：`tests/remoteHostReferenceRegistry.test.mjs:167`） |
+| **零注册源** | `scan()` **不抛**：返回 `complete=false`，且 `unavailable` 为**空数组**（`:180`）⇒ 调用方必须看 `complete`，不能只看 `unavailable`（测试：`tests/remoteHostReferenceRegistry.test.mjs:84`） |
+| `complete=false` 时调用 `retire`/`updateDraft` | `asStoreReferences()` 返回的 `referencedHostIds()` 抛 `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`（`:199-210`），store 原样透出同码（当前 `RemoteHostStore.ts:353-355`）；替换基线里透传的任意错误 |
+| 未注册任何源 | `asStoreReferences()` **同步抛** `REMOTE_HOST_REFERENCE_SOURCE_MISSING`（`:200`），并在每次 `referencedHostIds()` 调用内重复检查（`:204`，store 可能持有这个视图整个生命周期）；**store 侧的惰性视图把同码推迟到首次查询** —— `open()` 不因此失败，`updateDraft`/`retire` 才失败（`RemoteHostStore.ts:92-103`；测试：`tests/remoteHostStoreLifecycle.test.mjs:280-282`） |
+| 某源声明 `canHoldHostReferences=false` | 该源跳过且不影响 `complete`；一旦该源真的出现 hostId（由契约测试发现），实现方必须改回 true（`:152`、`:164`；测试：`tests/remoteHostReferenceRegistry.test.mjs:98`） |
 
-> 与现状的差异：现有接口 `RemoteHostReferences`（`RemoteHostStore.ts:14`）没有 complete 概念，且 `updateDraft` 在无 provider 时 fail-open（`:266`）。本设计把"无 provider"和"扫描不完整"都变成硬失败。
+> 与现状的差异：现有接口 `RemoteHostReferences`（`RemoteHostStore.ts:14`，当前 `:15`）没有 complete 概念。本设计把"无 provider"和"扫描不完整"都变成硬失败 —— **已落地**：无 provider 时 `updateDraft` 也硬失败（当前 `:272`），`retire` 与 `updateDraft` 对称（§1.3）。
 
 ### 4.2 跨 store 事务协调器
 
@@ -256,13 +272,26 @@ export type RebindRecordPlan = {
 	readonly afterLocator: string;
 };
 
+/**
+ * 终态码：**只覆盖"已收敛"两态**（`HostRebindJournal.ts:78`）。
+ * 失败出口**不返回 outcome**，一律抛稳定码（`HOST_REBIND_CODES`，见下表）—— 这就是 INV-10 要求的可区分性。
+ */
+export type RebindOutcomeCode = "REMOTE_HOST_REBIND_COMMITTED" | "REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS";
+
 export type RebindOutcome = {
+	/** 终态分类（INV-10）：有非致命遗留时是 `..._COMMITTED_WITH_WARNINGS`；由 warnings.length 推导，不是独立写入的字段（`:541-551`）。 */
+	readonly code: RebindOutcomeCode;
 	readonly txId: string;
 	readonly stage: RebindStage; // 见 4.3
 	readonly migratedProjects: number;
 	readonly migratedSessions: number;
 	readonly sourceRetired: boolean;
-	/** 需要人工处理但事务已收敛（例如 source pin 清理失败）——不是错误。 */
+	/**
+	 * 需要人工处理但事务已收敛（例如 journal 删除失败）——不是错误。
+	 * **承载方式是稳定 token 数组**，取值只来自 `HOST_REBIND_WARNING_CODES`（`:118`），当前恰好两个：
+	 * `UNKNOWN_OUTCOME_ROLLED_FORWARD`（store 写抛错但磁盘证明效果已落地，`:509-530`）与
+	 * `JOURNAL_REMOVE_FAILED`（journal 删除失败，`:532-539`）；不是自由文本、不是 errno。
+	 */
 	readonly warnings: readonly string[];
 };
 
@@ -277,6 +306,8 @@ export type HostRebindCoordinator = {
 	describePending(): Promise<RebindDiagnosis | undefined>;
 };
 ```
+
+> **命名与落地**：本节 `HostRebindCoordinator` 仍是设计契约（**未实现**，§7.1 第 3 项）。`9d0710470` 落地的收敛入口叫 `HostRebindJournal.resume(ports): Promise<RebindOutcome | undefined>`（`HostRebindJournal.ts:352-362`）：无 journal、或 tx 锁被**活着的**持有者占用时返回 `undefined`（R4 的"看到锁就退让"）；`resumePendingRebind()` 只是协调器将来对它的包装。端口形状见 §4.4。
 
 **方法失败语义**
 
@@ -294,8 +325,11 @@ export type HostRebindCoordinator = {
 | `rebind` | `REMOTE_HOST_REBIND_RECORD_MISSING` | journal 记录的项目/会话在收敛时已不存在（INV-6，转人工） |
 | `rebind` | `REMOTE_HOST_REBIND_INCOMPLETE` | 迁移完成但最终锁内扫描仍有引用 ⇒ 不 retire，停在 disabled tombstone |
 | `rebind` | `REMOTE_HOST_REFERENCED` / `REMOTE_HOST_RETIRE_INVALID` / `REMOTE_HOST_REVISION_CONFLICT` | 由 `RemoteHostStore` 原样透出（语义不变） |
-| `rebind` | `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME` | 主机 store 在提交后抛出（见 1.5 的 finally 分支）：调用方必须 refresh 后重读，禁止假定未提交 |
-| `rebind` | `REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS` | tx 已收敛，但有非致命遗留（source pin 未清掉、journal 删除失败） |
+| `rebind` | `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME` | 主机 store 在提交后抛出（见 1.5 的 finally 分支）：调用方必须 refresh 后重读，禁止假定未提交；端口抛出的非稳定错误文本与"结果条数少于补丁数"也折叠到这个码 |
+| `rebind` | `REMOTE_HOST_REBIND_STORE_PORT_MISSING` | 需要的 store 端口没装配或形状不对（`HostRebindJournal.ts:262-265`；测试：`tests/hostRebindJournal.test.mjs:444`） |
+| `rebind` | `REMOTE_HOST_REBIND_JOURNAL_INVALID` / `_JOURNAL_WRITE_FAILED` | journal 读不出（畸形/超限/非普通文件）或写不进；读侧**绝不猜测、绝不删除**（`:298-336`） |
+| `rebind` | `REMOTE_HOST_REBIND_TX_LOCK_UNWRITABLE` | tx 锁目录不可写、创建失败（非 `EEXIST`）：`:579` |
+| `rebind` | `REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS` | **终态码（`RebindOutcome.code`，不是异常）**：tx 已收敛，但有非致命遗留 —— 未知结果已回滚前进（`UNKNOWN_OUTCOME_ROLLED_FORWARD`）或 journal 删除失败（`JOURNAL_REMOVE_FAILED`）。注意：**source pin 清理失败不在 warning 里** —— 它在 `retire` 内部 best-effort（当前 `RemoteHostStore.ts:335-339`），由下次 open/refresh 的 `pruneRetiredPins` 重试（`:179-188`） |
 
 ### 4.3 journal 记录
 
@@ -321,30 +355,46 @@ export type RebindJournal = {
 - commit point：先写入 `stage:"committed"` 并 fsync，再删除 journal 文件（对应计划 §5.2 的"`committed` 持久化后才清理 journal"，`docs/remote-development-plan.md:255`）。删除失败 ⇒ `REMOTE_HOST_REBIND_COMMITTED_WITH_WARNINGS`，重启时按已提交处理并重删。
 - **WAL 语义**：推进到下一阶段前先把 `stage` 写成**即将执行**的那一步；因为每一步都幂等（逐记录 before/after + 幂等 retire 判定），重放安全。
 
-### 4.4 store 侧新增契约（两条写入口，逐记录 CAS）
+> **已落地**（`HostRebindJournal.ts`）：本节由该文件实现 —— `read`/`write`/`remove`（`:298-344`）、严格解码 `decodeRebindJournal`（拒绝未知键、超限、以及 `beforeLocator === afterLocator` 的无效补丁，`:207-240`），落盘确实没有 `.bak`（测试：`tests/hostRebindJournal.test.mjs:176-188`）。同一文件还携带 §5.1 的 tx 锁与 §5.4 的收敛入口 `resume(ports)`；journal 的注入项是 `{ userDataDir, isProcessAlive?, bootId?, now? }`（`:141-148`）。
+
+### 4.4 store 侧新增契约（读 + 写两条入口，逐记录 CAS）
 
 ```ts
 export type HostRebindRecordPatch = { readonly recordId: string; readonly beforeLocator: string; readonly afterLocator: string };
 
+export type HostRebindRecordOutcome = "applied" | "already-applied" | "missing" | "changed";
+
 export type HostRebindRecordResult = {
 	readonly recordId: string;
 	/** applied = 本次写入；already-applied = 磁盘已是 after（幂等重放）；missing = 记录不存在；changed = 与两者都不同 */
-	readonly outcome: "applied" | "already-applied" | "missing" | "changed";
+	readonly outcome: HostRebindRecordOutcome;
 };
 
-/** ProjectStore：单次原子写完成全部 patched 记录；任一记录 changed/missing ⇒ 整次写入放弃（不部分提交）。 */
-export type ProjectHostRebindPort = {
-	listHostReferences(): Promise<RemoteHostReferenceScan>;
+/** `locator === undefined` = 该记录已不存在（INV-6）。 */
+export type HostRebindRecordSnapshot = { readonly recordId: string; readonly locator?: string };
+
+/**
+ * **projects 与 sessions 共用同一个类型**（`HostRebindJournal.ts:46-58`；没有 `ProjectHostRebindPort` /
+ * `SessionHostRebindPort` 之分，差异只在 sessions 侧额外的 origin 冲突检查）。
+ */
+export type HostRebindStorePort = {
+	/** 读回每个被请求记录的当前 locator（规范 JSON）；"记录已删除"用缺省 locator 表达。 */
+	readHostRecordLocators(recordIds: readonly string[]): Promise<readonly HostRebindRecordSnapshot[]>;
+	/** 单次原子写完成全部 patched 记录；任一记录 changed/missing ⇒ 整次写入放弃（不部分提交）。 */
 	applyHostRebind(txId: string, patches: readonly HostRebindRecordPatch[]): Promise<readonly HostRebindRecordResult[]>;
 };
-
-/** SessionCatalog：同上；额外做 origin 冲突检查（同一 host 下不得出现重复 (remoteSessionId|remotePath)）。 */
-export type SessionHostRebindPort = ProjectHostRebindPort;
 ```
 
+- **为什么必须补 `readHostRecordLocators(recordIds)`**：§5.4 步骤 5 的权威判据是"逐记录比对 locator"（`classify`，`HostRebindJournal.ts:454-482`），而 §4.1 的 hit **不携带 hostId**，无法回答"这条记录该不该迁" ⇒ 端口必须能**只读**返回记录当前的 locator。没有它，收敛只能看 journal 的 `stage`，而 `stage` 明确不是权威（§4.3）。
+- **没有 `listHostReferences()`**：全仓库不存在这个方法（grep 无命中）。引用集合由 §4.1 的注册表产出；端口只负责逐记录读与写。
+- **收敛对端口的强制契约**（`HostRebindJournal.ts`）：
+  - 必须对**每个**被请求的 recordId 返回一条 snapshot：漏条目与"记录已不存在"落到同一个判据（`locator === undefined`）⇒ 报 `REMOTE_HOST_REBIND_RECORD_MISSING`（`:470-473`）。**所以"读不出来"必须抛错，不能少返条目**，否则会被当成"记录已被删"。
+  - `applyHostRebind` 的结果条数必须等于补丁条数，否则整次判 `REMOTE_HOST_REBIND_UNKNOWN_OUTCOME`（`:492`）——"少返结果"不等于"已应用"。
+  - `missing` / `changed` 由**收敛侧**再判一次并停止事务（`:496-497`），端口返回值不能自已宣布成功。
+  - 两个端口都必须装配：端口缺失或形状不对在逐记录判定之前就抛 `REMOTE_HOST_REBIND_STORE_PORT_MISSING`（`:374-375` 对两个 store 都先做 `assertStorePort`）。
 - `applyHostRebind` 必须**全有或全无**（单次 `writeSnapshot`），且重放时返回 `already-applied` 而不是报错。
 - 两个 port 的实现都必须**只有** `hostId`（以及 ssh locator 的 `remote*` 字段原样保留）可变；`remotePath`/`remoteSessionId`/`remotePathAliases` 在 rebind 中保持不变；禁止顺手做别的"修复"。
-- 失败语义：`REMOTE_HOST_REBIND_STALE_PLAN`（changed）、`REMOTE_HOST_REBIND_RECORD_MISSING`（missing）；写盘失败沿用各自 store 现有错误（`PROJECT_STORE_NEEDS_REPAIR` / `SESSION_CATALOG_NEEDS_REPAIR`）。
+- 失败语义：`REMOTE_HOST_REBIND_STALE_PLAN`（changed）、`REMOTE_HOST_REBIND_RECORD_MISSING`（missing）；写盘失败沿用各自 store 现有错误（`PROJECT_STORE_NEEDS_REPAIR` / `SESSION_CATALOG_NEEDS_REPAIR`）；端口缺失/形状不对为 `REMOTE_HOST_REBIND_STORE_PORT_MISSING`。
 
 ### 4.5 人工修复原语（main-only，全部需要 human confirmation）
 
@@ -353,10 +403,10 @@ export type RepairConfirmation = { readonly requestId: string; readonly senderId
 
 export type HostRepairPort = {
 	/** 诊断：把 needs-repair reasons 映射成可执行建议（不写盘）。 */
-	diagnose(): Promise<HostRepairFinding[]>;
+	diagnose(): Promise<readonly HostRepairFinding[]>;
 	/** 完成一次"pin 已发布但档案未提交"的激活（A 类，保留信任锚）。 */
 	completeActivationFromPin(hostId: string, expectedRevision: number, confirmation: RepairConfirmation): Promise<void>;
-	/** 删除一个没有任何 profile 认领的孤儿 pin（B 类；只允许 draft/无 profile 场景）。 */
+	/** 删除一个没有任何 profile 认领的孤儿 pin（A2；只允许"从未验证且未 disabled"的 draft）。 */
 	discardOrphanPin(hostId: string, confirmation: RepairConfirmation): Promise<void>;
 	/** 删除崩溃残留的主机目录锁（只允许在无进程持有 + 年龄阈值满足时）。 */
 	clearStaleHostLock(observerPid: number, confirmation: RepairConfirmation): Promise<void>;
@@ -365,7 +415,28 @@ export type HostRepairPort = {
 };
 ```
 
-失败语义：全部以 `HOST_REPAIR_*` 前缀返回稳定码（`HOST_REPAIR_CONFIRMATION_REQUIRED`、`HOST_REPAIR_NOT_APPLICABLE`、`HOST_REPAIR_ANCHOR_STILL_VALID`、`HOST_REPAIR_LOCK_HELD`、`HOST_REPAIR_STORE_NOT_READY`），并且**任何原语都不得触及未指名的 hostId**。`forgetTrustAnchor` 在 profile 的 `verifiedEndpoint` 仍与现存 pin 匹配时必须抛 `HOST_REPAIR_ANCHOR_STILL_VALID`（防止把"信任锚好着呢"误降级）。
+**已落地的注入形状**（`RemoteHostRepair` 类，`RemoteHostRepair.ts:172`）：构造参数是 `{ userDataDir, store: HostRepairStorePort, pins: HostRepairPinPort, paths?, lockAgeMs?, now?, isProcessAlive?, bootId? }`（`:61-73`）。
+
+- `HostRepairStorePort`（`:42-50`）：`getSnapshot()` / `getProfile()` / `refresh()` + **两个修复写入口**（`completeActivationFromPin`、`forgetTrustAnchor`）；`RemoteHostStore` 结构化满足它，不需要额外胶水。
+- `HostRepairPinPort`（`:53-59`）：`verifyRoute(route, pinAlias)`（A1 需要的重新认证；**`SshHostPinStore.verifierFor()` 是 private**，见 6.2 A 与 §7.4 风险 4）/ `readPin(hostId, endpoint)`（不复用、抛 `SSH_HOST_PIN_INVALID`）/ `deletePin(hostId)`。
+- `diagnose()` 的产物是 `HostRepairFinding = { reason, classification, hostIds, actions }`（`:34-39`），按 reason 映射到 `orphan-pin` / `anchor-invalid` / `lock` / `snapshot` / `write-uncertain` / `unknown` 六类合法动作集（`:200-235`）。
+
+失败语义：全部以 `HOST_REPAIR_*` 前缀返回稳定码，**取值只来自 `HOST_REPAIR_CODES`**（`RemoteHostRepair.ts:76-93`）= `CONFIRMATION_REQUIRED`、`NOT_APPLICABLE`、`ANCHOR_STILL_VALID`、`ANCHOR_UNREADABLE`、`ANCHOR_MISMATCH`、`ROUTE_UNVERIFIED`、`LOCK_HELD`、`LOCK_UNREADABLE`、`STORE_NOT_READY`、`REVISION_CONFLICT`、`WRITE_UNCERTAIN`、`WRITE_FAILED`、`PIN_CLEANUP_FAILED`、`HOST_ID_INVALID`、`REVISION_INVALID`、`OBSERVER_PID_INVALID`。store 侧的码经 `mapStoreFailure()`（`:131-157`）折叠进这套词汇（`REMOTE_HOST_STORE_NEEDS_REPAIR` → `HOST_REPAIR_STORE_NOT_READY`、`REMOTE_HOST_STORE_BUSY` → `LOCK_HELD`、`REMOTE_HOST_PIN_INVALID`/`SSH_HOST_PIN_INVALID` → `ANCHOR_UNREADABLE` …），因此 errno、路径与 provider 文本都不会跨出边界。**任何原语都不得触及未指名的 hostId**（`assertHostId`：`:516-518`；测试：`tests/remoteHostRepair.test.mjs:415`），且没有 `confirmation` 一律 `HOST_REPAIR_CONFIRMATION_REQUIRED`（`:509-513`；测试 `:155`）。`forgetTrustAnchor` 在 profile 的 `verifiedEndpoint` 仍与现存 pin 匹配时必须抛 `HOST_REPAIR_ANCHOR_STILL_VALID`（`:338-342`，防止把"信任锚好着呢"误降级）。
+
+**与 I9 的关系：这是"按 reason 分类的白名单"，不是把规则开洞。**
+
+修复原语必须能在**它要修的那种损坏**上写盘，否则 §6.2 A/B 的修复路径永远需要一个"先恢复可写"的前置条件（G6/G7 的死锁）。实现把例外收窄成白名单：`RemoteHostStore.mutateRepair(expectedRevision, allowedReasons, change)`（当前 `:494-535`）在**锁内重新加载磁盘**后要求 `disk.reasons ⊆ allowedReasons`，否则抛 `REMOTE_HOST_STORE_NEEDS_REPAIR`（`:506-507`）。当前白名单只有两项：
+
+| 修复写入口 | 允许的 reason | 出处 |
+| --- | --- | --- |
+| `completeActivationFromPin`（A1） | `["REMOTE_HOST_PIN_ORPHAN"]` | 当前 `RemoteHostStore.ts:447` |
+| `forgetTrustAnchor`（B 降级） | `["REMOTE_HOST_PIN_INVALID"]` | 当前 `RemoteHostStore.ts:469` |
+
+说它不是开洞，理由有三条（每条都有测试/行号）：
+
+1. **判据是"全部 reason ⊆ 该类"，不是"包含该类"**：两种损坏同时存在时两个原语都不能写（测试：`tests/remoteHostRepair.test.mjs:304-320` 断言 `HOST_REPAIR_STORE_NOT_READY` 且目录字节不变）—— 修复不会顺手绕过别的损坏。
+2. **判定用锁内的新鲜磁盘状态**（`:506`），不是内存快照、也不是调用方自述；锁（`open("wx")`）、磁盘 CAS（`:508`）与编解码校验（`:511`）与普通 mutator 完全一致。写后**只断言 revision 前进、不断言 `ready`**（`:514-517`）—— 把"写成功"说成"已修好"本身就是 §6.1 铁律 2 禁止的静默信任。
+3. **每个原语只能做它自己那一类变换**（提交一次被中断激活的端点 / 把一个不可用锚点降级）：`createDraft`/`updateDraft`/`disable`/`retire`/`offerPin`/`confirmPin` 仍全部要求 `ready`（当前 `:538`、`:391`），这条规则没有一处被放宽。
 
 ---
 
@@ -380,14 +451,16 @@ export type HostRepairPort = {
 4. SessionCatalog.writeQueue      （进程内单条队列）
 ```
 
+> **路径同源（本节可靠性的前置）**：上面四处锁/目录路径目前是各自派生的（`RemoteHostStore.ts:133`、`:167`、`:191`、`:226`、`SshHostPinStore.ts:101`、`RemoteHostRepair.ts:188-189`、`HostRebindJournal.ts:282-283`），应收敛到 `resolveRemoteHostPaths(userDataDir)` 一个入口（§7.1 第 25 项）；否则"锁 1 与锁 2 指向不同磁盘根"这类漂移会直接让本节规定的获取顺序失效（`AGENTS.md`：同一磁盘根必须同源）。
+
 规则：
 
 - **R1**：只能在**未持有**任何 store 锁/队列时获取 1。禁止"在 session 写队列里发起 rebind"。
 - **R2**：2 只在单个 `RemoteHostStore` 调用期间存在（由 `mutate` 自己开关，`:356`、`:388-395`），调用返回即释放；**不允许**跨越 3/4 持有它。⇒ 阶段之间不存在"同时持有两个 store 锁"的情况，死锁不可能形成（只嵌套一层，且方向单一）。
 - **R3**：引用扫描（4.1）必须是**纯读**：只读内存快照 + 只读磁盘文件（含 `.bak`），**不得**进入 3/4 的写队列，也不得获取 1 之外的锁。否则会形成 `2 → 3` 与 `3 → 2` 的反向嵌套。**【推断】** `isReferenced` 在 `mutate` 的锁内被调用（`:201`、`:248`），所以这条是硬约束而不是风格建议。
-- **R4**：`resumePendingRebind()` 遵守同一顺序：先 1 再逐 store；发现 1 被别的进程持有时**不强等**，直接放弃本次恢复（`remote-hosts.json` 侧现状已经是这种"看到锁就退让"的语义，`:94-95`）。
+- **R4**：`resumePendingRebind()`（落地的等价入口是 `HostRebindJournal.resume(ports)`，§4.2）遵守同一顺序：先 1 再逐 store；发现 1 被别的进程持有时**不强等**，直接放弃本次恢复（`remote-hosts.json` 侧现状已经是这种"看到锁就退让"的语义，`:94-95`）。
 - **R5**：1 的持有者允许在锁内做**多轮** store 写（这是它存在的意义），但每轮之间必须释放 2（由 store 自己保证）。
-- **R6**：崩溃恢复不使用超时抢占：1 有 owner 信息（pid + 进程启动标识），只有"owner 进程不存在"或"owner pid 存在但启动标识不同（pid 复用）"才允许回收；否则一律转人工（对应 G5）。
+- **R6**：崩溃恢复不使用超时抢占：1 有 owner 信息 `{pid, bootId, startedAt}`（`HostRebindJournal.ts:560-568`），只有"owner 进程不存在"或"owner pid 存在但启动标识不同（pid 复用）"才允许回收；否则一律转人工（对应 G5）。**启动标识怎么来（跨平台）**：`currentBootId()` 不依赖 `/proc`，用 `String(Math.round((Date.now() - uptime() * 1000) / 1000))` 反推本次开机时刻 —— 同一次启动内两个进程必然得到同一个值（`:187-189`），且 `bootId` / `isProcessAlive` / `now` 都可注入（`:141-148`；测试：`tests/hostRebindJournal.test.mjs:384-415`）。判定顺序（`:592-597`）：owner 是自己 ⇒ 视为仍被持有；bootId 与本进程不同 ⇒ 判定 pid 复用，可回收；bootId 相同 ⇒ `kill(pid,0)` 探测，只有 `ESRCH` 证明进程已消失（`EPERM` 仍算活着，`:191-200`）。owner 读不出（空文件 / 超长 / 非 JSON）一律**当作活着**，不强等也不抢占（`:581`、`:599-616`）。修复侧复用同一个推导（`RemoteHostRepair.ts:21`、`:196`），两把锁的 bootId 因此可比；但**主机目录锁 `remote-hosts.json.lock` 目前仍是空文件**（当前 `RemoteHostStore.ts:544` 不写 owner），`clearStaleHostLock` 对"无 owner"落到年龄阈值 + 活跃 `*.tmp` 检测（`RemoteHostRepair.ts:309-313`），见 6.2 C。**【推断】** 给主机目录锁也写入同一份 owner 后，R6 的判定可以直接复用，不需要第二套约定。
 
 ### 5.2 死锁避免依据
 
@@ -437,6 +510,8 @@ export type HostRepairPort = {
 
 **启动收敛算法（幂等、可重入）**
 
+> **落地对应**：下面的算法已实现为 `HostRebindJournal.resume(ports)`（`HostRebindJournal.ts:352-409`）；每步执行**之前**先由 `advance()` 把 `stage` 改写成"即将执行的那一步"（`:412-416`）。`resumePendingRebind()` 这个名字属于尚未实现的协调器（§4.2）。
+
 1. 读 `<userData>/remote-host-rebind.json`。不存在 ⇒ no-op（返回 `undefined`）。
 2. 解析失败 ⇒ 不猜测、不删除：抛 `REMOTE_HOST_REBIND_JOURNAL_INVALID`，并让 host store 保持 `needs-repair`（人工介入，6.2 D）。
 3. 取 tx 锁（R4：被别的进程持有 ⇒ 放弃本次恢复，返回 `undefined`，由"看到 journal 就退让"的 mutator 保证一致性）。
@@ -448,7 +523,11 @@ export type HostRepairPort = {
    - 两者都不是 ⇒ `REMOTE_HOST_REBIND_STALE_PLAN`，停止。
 6. 若仍有待迁移的记录：先确认 source 的期望状态（若 source profile 仍 enabled ⇒ 执行 disable），再按 `projects` → `sessions` 顺序各执行一次 `applyHostRebind`（只含待迁移记录）。
 7. 若 `source` 的 id 已在 `retiredHostIds` 中 ⇒ 阶段已完成，跳到 9（**这一分支必须显式写**：`retire` 对已退役 id 会抛 `REMOTE_HOST_RETIRE_INVALID`，`:247` + 测试 `tests/remoteHostStoreLifecycle.test.mjs:225-226`，把它当失败会让收敛永远卡住）。
-8. 最终锁内完整引用扫描：仍有引用 ⇒ 不 retire，写入诊断并停在 `REMOTE_HOST_REBIND_INCOMPLETE`（source 保持 disabled tombstone，这是合法终态）；无引用 ⇒ `retire(source, 当前 revision)`（revision 从 `refresh()` 取，不复用 journal 里的旧值）。
+8. 最终锁内完整引用扫描（`scanReferences`）—— **两个失败分支的码不同，必须分开写**（`HostRebindJournal.ts:400-403`）：
+   - 扫描**不完整**（有源读不出、或集合形状非法）⇒ `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`（注意是**注册表**的码，没有 `REMOTE_HOST_REBIND_` 前缀）：不完整证明不了"无引用"，唯一安全答案是**不 retire**。
+   - 扫描**完整但仍有引用**（含 source 自己）⇒ `REMOTE_HOST_REBIND_INCOMPLETE`：不 retire，source **停在 disabled tombstone**（这是合法终态，引用仍可解析、任何连接 fail closed）。
+   - 两者都不写任何 store、不删 journal（停在 `source-retired`），因此重跑 `resume` 幂等；测试把两个分支各固化成一条：`tests/hostRebindJournal.test.mjs:318-338`（`:321` 与 `:335`）。
+   - 引用为空 ⇒ `retire(source, 当前 revision)`（revision 从 `refresh()` 取，不复用 journal 里的旧值；测试：`tests/hostRebindJournal.test.mjs:457-461`）。
 9. 写入 `stage:"committed"` → 删除 journal → 释放 tx 锁 → 返回 `RebindOutcome`（含 warnings）。
 
 各崩溃点的收敛结果：
@@ -461,8 +540,9 @@ export type HostRepairPort = {
 | `projects-written` 前/中 | projects 全未迁（原子写） | 步骤 6 重放 | 前进 |
 | `projects-written` 后、`sessions-written` 前 | 项目指 target、会话指 source（source 已 disable） | 步骤 6 只补 sessions | 前进 |
 | `sessions-written` 后、`retire` 前 | 引用全部指 target | 步骤 7/8 执行 retire | 前进 |
-| `retire` 提交后、pin 清理前 | source 已退役、pin 残留 | `pruneRetiredPins` 下次 open/refresh 清理（`:105-114`） | 已收敛（warning） |
+| `retire` 提交后、pin 清理前 | source 已退役、pin 残留 | `pruneRetiredPins` 下次 open/refresh 清理（`:105-114`） | 已收敛（**不是** warning：`retire` 内 best-effort、loader 容忍残留） |
 | `committed` 写入后、journal 删除前 | journal 存在且 `committed` | 直接删除 journal | 已收敛 |
+| 步骤 8 判定失败（扫描不完整 / 仍有引用） | source 已 disable、引用已迁到 target、未 retire、journal 停在 `source-retired` | 抛稳定码（`REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE` / `REMOTE_HOST_REBIND_INCOMPLETE`），不写任何 store、不删 journal | **未收敛**（可诊断）：停在 disabled tombstone，重跑 `resume` 幂等 |
 | journal 被外部删除 | 引用合法（source 或 target） | no-op；如需完成迁移则重新执行 rebind（`already-applied` 幂等） | 合法但可能半迁移 |
 
 **可重入规则**：`resumePendingRebind()` 任意次调用结果一致；`rebind()` 在 journal 已存在且指向同一 (source,target) 时返回同一 txId 的结果（续跑），指向不同端点时抛 `REMOTE_HOST_REBIND_JOURNAL_PRESENT`。
@@ -473,7 +553,7 @@ export type HostRepairPort = {
 
 ### 6.1 三条铁律
 
-1. **不得删除唯一一份信任锚**：任何 pin 的删除都必须能证明"没有 profile 认领它"（孤儿）或"它的 profile 已退役"（`retire` 的提交后清理）。禁止为了让 `needs-repair` 消失而删 verified profile 的 pin。
+1. **不得删除唯一一份信任锚**：任何 pin 的删除都必须能证明"没有 profile 认领它"（孤儿 —— 含"降级之后已没有 `verifiedEndpoint` 的 profile"，见 6.2 B 的提交后清理）或"它的 profile 已退役"（`retire` 的提交后清理）。禁止为了让 `needs-repair` 消失而删 verified profile 的 pin；**读不出内容的 pin 一律不删**（没有证明就没有删除，INV-4）。
 2. **不得静默信任新 endpoint**：修复与收敛都不得写 `verifiedEndpoint`；任何"改指"都必须先有一份**独立完成 offer/confirm** 的 target 档案与其 pin（INV-3/INV-7）。`forgetTrustAnchor` 只会降低信任，绝不会提高。
 3. **不得手改 JSON**：`remote-hosts.json`、`projects.json`、`session-catalog.json` 的任何手工编辑都会绕过 codec 校验（`RemoteHostStoreCodec.ts:107-129`）与备份轮换（`durableJsonStore.ts:34-54`），并且下一次写入会用内存快照覆盖它。所有修复必须经 §4.5 的原语。
 
@@ -481,10 +561,12 @@ export type HostRepairPort = {
 
 **A 类｜`REMOTE_HOST_PIN_ORPHAN`：draft profile 名下存在 pin（失败激活残留）**
 
-- 前置检查（主进程 `diagnose()` 返回）：该 hostId 对应的 profile **存在、`verifiedEndpoint === undefined`、`disabledAt === undefined`**（`RemoteHostStore.ts:77` 的判定条件）；`ssh-host-keys/<hostId>` 存在且大小 ≤ 16 KiB（`SshHostPinStore.ts:30`）。
+- 前置检查（主进程 `diagnose()` 返回）：该 hostId 对应的 profile **存在、`verifiedEndpoint === undefined`、`disabledAt === undefined`**（`RemoteHostStore.ts:77` 的判定条件；当前 `:151`）；`ssh-host-keys/<hostId>` 存在且大小 ≤ 16 KiB（`SshHostPinStore.ts:30`）。`diagnose()` 会把这类 finding 归到 `orphan-pin` 并给出 `["complete-activation-from-pin", "discard-orphan-pin"]`（`RemoteHostRepair.ts:205-207`），孤儿 id 由 `orphanPinHostIds()` 扫目录得到（`:456-475`）。
 - 允许动作（二选一，都需要 human confirmation）：
-  - **A1 保留锚点（推荐，前提是主机可达）**：`completeActivationFromPin(hostId, rev, confirmation)` —— 用 profile 当前 route 重新验证一次（`SshHostPinStore.verifierFor()`，`:110-115`），要求候选的 `knownHostsSha256` 与现有 pin 字节一致、`pinDigest` 与候选一致（`:32-35`），再在确认下写入 `verifiedEndpoint`。语义等价于"把一次被中断的 confirm 走完"，因此信任来源仍是用户原始确认的同一把 host key。
-  - **A2 删除孤儿 pin**：`discardOrphanPin(hostId, confirmation)`。安全性论证：draft 从未写入 `verifiedEndpoint`（`RemoteHostStoreCodec.ts:85` 保证成对），因此这个 pin **不是任何档案的信任锚**；删除后该 hostId 回到"从未验证"状态，重新激活必须重新走 offer/confirm（新的 SSH 认证 + 新指纹确认，`SshHostPinStore.ts:126-137`），不会静默信任任何 endpoint。
+  - **A1 保留锚点（推荐，前提是主机可达）**：`completeActivationFromPin(hostId, rev, confirmation)` —— 用 profile 当前 route 交给**注入的** `verifyRoute(route, pinAlias)` 重新认证一次（`RemoteHostRepair.ts:253`；`SshHostPinStore.verifierFor()` 是 private（`SshHostPinStore.ts:110-115`），修复模块拿不到它，端口是唯一入口），然后要求活主机给出的候选与**已发布的 pin 字节**双向一致：`sha256(pin 字节) === candidate.knownHostsSha256` **且** `fingerprintSshHostKey(pin 字节, candidate.pinAlias) === candidate.hostKeyFingerprints[0]`，别名必须是 `pideck-<hostId>` 且指纹恰好一条（`:258`、`:496-503`）。最后把候选端点交给 store，在 **store 锁内再 `readPin` 复核一次**后才提交 `verifiedEndpoint`（`RemoteHostStore.ts:446-460`；测试 `tests/remoteHostRepair.test.mjs:322-342` 断言"锁内复核失败 ⇒ `HOST_REPAIR_ANCHOR_UNREADABLE` 且文件未变、revision 未动"）。语义等价于"把一次被中断的 confirm 走完"，信任来源仍是用户原始确认的同一把 host key —— pin 字节前后不变（测试 `:190`），且旧实现想要的 `pinDigest` 复核在这里由"候选 ↔ 已发布 pin 字节"的双向校验取代（`pinDigest` 是 `SshHostPinStore.ts:32-35` 的模块内私有函数，外部无法调用）。
+    - 稳定码：`HOST_REPAIR_NOT_APPLICABLE`（不是 draft / pin 不存在或字节读不出）、`HOST_REPAIR_ROUTE_UNVERIFIED`（重新认证失败，`:254-257`）、`HOST_REPAIR_ANCHOR_MISMATCH`（候选与 pin 字节不一致，含 host key 轮换；测试 `:198-209`）、`HOST_REPAIR_ANCHOR_UNREADABLE`（store 锁内复核失败）。写入口本身只允许 `REMOTE_HOST_PIN_ORPHAN` 这一 reason（§4.5）。
+    - **未决风险（生产绑定）**：`verifyRoute` 必须由装配方注入；`SshHostPinStore.verifierFor()` 目前 private，未注入时 A1 与 A 类诊断在生产不可用（§7.4 风险 4，§7.1 第 11 项）。
+  - **A2 删除孤儿 pin**：`discardOrphanPin(hostId, confirmation)`。前置仍要求 profile **从未验证且未 disabled**（`requireDraft`，`RemoteHostRepair.ts:358-362`：`verifiedEndpoint`、`disabledAt` 都为 `undefined`），pin 存在且字节可读（否则 `HOST_REPAIR_NOT_APPLICABLE`），删除后复查确实缺失（否则 `HOST_REPAIR_PIN_CLEANUP_FAILED`，`:277-287`）。安全性论证：draft 从未写入 `verifiedEndpoint`（`RemoteHostStoreCodec.ts:85` 保证成对），因此这个 pin **不是任何档案的信任锚**；删除后该 hostId 回到"从未验证"状态，重新激活必须重新走 offer/confirm（新的 SSH 认证 + 新指纹确认，`SshHostPinStore.ts:125-128`、`:231-256`），不会静默信任任何 endpoint。**注意它够不到已 disabled 的 tombstone**：`disabledAt` 一旦写入，A2 就拒绝 —— 这正是 B 类降级后必须由 `forgetTrustAnchor` 自己收尾的原因（见下）。
 - 禁止动作：把它当成"verified profile 的 pin 丢失"处理；直接删 pin 而不确认 hostId 对应的确实是 draft；删除 profile 记录。
 - 回到可用：任一路径完成后 `refresh()`（`RemoteHostStore.ts:172-178`）应返回 `ready`；再断言 `getSnapshot().reasons` 不含 pin 类 reason。
 
@@ -495,17 +577,19 @@ export type HostRepairPort = {
   1. `createDraft`（新 hostId）+ `offerPin` + `confirmPin`：对同一 endpoint 重新做一次完整认证与指纹确认（这就是"重新拿到信任锚"的唯一合法方式）；
   2. `rebind(source=坏档案, target=新档案)`（§4.2）：把所有引用迁到新 hostId；
   3. `disable(source)` → `retire(source)`：把坏档案压成 retired id（此时 `pinIssues` 不再要求它的 pin，`:79-86` 只检查存在 `verifiedEndpoint` 的 profile）。
-  - 若主机不可达（无法完成第 1 步），则退化为：`forgetTrustAnchor(source, rev, confirmation)` 把坏档案降级为**无 endpoint 的 disabled tombstone**（`verifiedEndpoint`/`verifiedAt` 同时移除，满足 `RemoteHostStoreCodec.ts:85`），随后照 2/3 完成迁移与退役。语义：显式声明"这个端点的信任锚已经不可用且无法重建"，引用仍可解析（hostId/label 保留），但任何连接都会 fail closed（`SshVerifiedConnection.ts:31`）。
+  - 若主机不可达（无法完成第 1 步），则退化为：`forgetTrustAnchor(source, rev, confirmation)` 把坏档案降级为**无 endpoint 的 disabled tombstone**（`verifiedEndpoint`/`verifiedAt` 同时移除，满足 `RemoteHostStoreCodec.ts:85`；store 侧实现见当前 `RemoteHostStore.ts:468-486`），随后照 2/3 完成迁移与退役。语义：显式声明"这个端点的信任锚已经不可用且无法重建"，引用仍可解析（hostId/label 保留），但任何连接都会 fail closed（`SshVerifiedConnection.ts:31`）。
+  - **降级后那个 pin 怎么办（实现的清理规则，避开死锁）**：降级会把该 hostId 变成**已 disabled 的 tombstone**，而 `pinIssues` 对"存在 pin 但 profile 没有 `verifiedEndpoint`"一律报 `REMOTE_HOST_PIN_ORPHAN`（当前 `RemoteHostStore.ts:151`）；此时 `discardOrphanPin` 因 `disabledAt` 已写入而拒绝（A2 的 `requireDraft`），`retire` 又要求 store `ready` ⇒ 残留 pin 会把整个 store 永久钉在 `needs-repair`，第 3 步（退役）永远走不到。因此 `forgetTrustAnchor` 在**提交之后**自己收尾，规则只有一条：**仅当 pin 可读、且用 `sha256` + `fingerprint` 证明它不再认证刚被丢弃的那个锚点时才删除**（`RemoteHostRepair.ts:344-349` + `pinCertifiesAnchor` `:162-169`）；**不可读的 pin 一律不删**，留给 `diagnose()` 报 `PIN_ORPHAN` 交人工（INV-4：没有证明就没有删除）。两种情形都有测试固化：可读但不匹配 ⇒ 删掉、store 回到 `ready`；不可读（例如 pin 路径被换成目录）⇒ 保留，reason 从 `PIN_INVALID` 变成 `PIN_ORPHAN`（`tests/remoteHostRepair.test.mjs:278-302`）。
+  - **为什么不改成放宽 A2 的 profile 形状**：把 `discardOrphanPin` 扩展到"已 disabled 的 tombstone"就等于允许对**任何**没有 endpoint 的档案删 pin —— 那会把"孤儿 pin（失败激活）"和"刚被降级的锚点"合并成同一条无需证明的删除路径，正是 6.1 铁律 1 要挡住的事。现在的写法把"删除"限制在**有字节证据**的那一侧，代价是"不可读 pin"要人工收尾（可诊断、可见）。
 - 禁止动作：删除 pin 文件"让校验通过"（销毁唯一锚点）；把 `verifiedEndpoint` 手工改指到另一个端点；用 source 的旧 pin 给新 hostId 复用（`pinAlias` 必须等于 `pideck-<hostId>`，`RemoteHostStoreCodec.ts:55`，实际上做不到，但必须在文档里禁掉这个念头）。
 - 回到可用：第 3 步完成后 `refresh()` 应 `ready`；断言坏 hostId ∈ `retiredHostIds` 且其 pin 已被 `pruneRetiredPins` 清掉。
 
 **C 类｜`REMOTE_HOST_LOCK_PRESENT` / `REMOTE_HOST_LOCK_UNREADABLE`**
 
-- 前置检查：确认没有其它 PiDeck 实例在写——当前锁文件**没有 owner 信息**（`:356`），只能用 (a) 进程级单实例检查，(b) 锁文件 mtime 年龄阈值，(c) 同目录是否还有活跃的 `remote-hosts.json.<nonce>.tmp`（正在写盘的迹象）。
-- 允许动作：`clearStaleHostLock(observerPid, confirmation)` 删除锁文件；随后 `refresh()`。
+- 前置检查：确认没有其它 PiDeck 实例在写——主机目录锁在基线时**没有 owner 信息**（`:356`，当前 `:544` 仍是空的 `open("wx")`），因此落地实现按两级判据（`RemoteHostRepair.ts:294-320`）：(a) 若锁文件里有 owner 元数据（tx 锁的格式：`{pid, bootId, startedAt}`），owner 是自己、或"同 bootId 且进程活着" ⇒ `HOST_REPAIR_LOCK_HELD`（`:307-308`）；(b) 无 owner（当前主机目录锁就是这种情况）⇒ 要求同目录没有近期的 `remote-hosts.json.<nonce>.tmp`（`:437-454`，正则 `:445`）**且**锁文件 mtime 年龄 ≥ `lockAgeMs`（默认 120 000 ms，`:104`），否则同样 `HOST_REPAIR_LOCK_HELD`（`:309-313`）。锁文件 `lstat` 非 `ENOENT` 失败 ⇒ `HOST_REPAIR_LOCK_UNREADABLE`。
+- 允许动作：`clearStaleHostLock(observerPid, confirmation)` 删除锁文件（删除失败 ⇒ `HOST_REPAIR_WRITE_FAILED`）；随后 `refresh()`。测试：`tests/remoteHostRepair.test.mjs:365-413`（旧的空锁可清、活写入者/自己的 pid/新鲜锁/活跃 tmp 全被拒）。
 - 禁止动作：在有活跃写入者时删锁（会造成双写者）；删除锁文件后不 refresh 就继续 mutate（会拿到 `REMOTE_HOST_STORE_BUSY`）。
 - 回到可用：`refresh()` 后 `status === "ready"`，并成功执行一次无害写入（如 `createDraft` + `disable`）作为端到端验证。
-- **改进项**：新锁必须写入 `{pid, bootId, startedAt}`，这样 C 类可以自动判定而不是靠猜（G5）。
+- **改进项**：**tx 锁**已经写入 `{pid, bootId, startedAt}`（`HostRebindJournal.ts:560-568`），因此 tx 侧的 C 类判定可以自动化；**主机目录锁仍没有 owner 信息**，只能靠年龄阈值 + 活跃 tmp 信号兜底（G5 仍未完全关闭；给 store 的锁补 owner 见 §7.1 第 10 项）。
 
 **D 类｜快照类（`SNAPSHOT_INVALID` / `PRIMARY_INVALID` / `SNAPSHOT_CONFLICT` / `BACKUP_SELECTED`）**
 
@@ -539,26 +623,28 @@ export type HostRepairPort = {
 
 > "脏"= `git status` 显示的未提交改动（`M` = 已跟踪被改，`??` = 未跟踪新增），属于 Phase 1（位置模型）在建工作。**建议等这批落地（提交/稳定）后再动**，否则 rebase 冲突与"哪个版本是基线"问题会直接落到跨 store 事务这种最不该有噪音的地方。
 
-**A. 新建（干净树，可立即开工）**
+**A. 新建（干净树）**
 
-| # | 文件 | 内容 |
-| --- | --- | --- |
-| 1 | `src/main/remote/RemoteHostReferenceRegistry.ts` | 4.1 的注册表（含 `complete` 语义） |
-| 2 | `src/main/remote/HostRebindJournal.ts` | 4.3 的 journal 读写（复用 `writeDurableJsonFile`） |
-| 3 | `src/main/remote/HostRebindCoordinator.ts` | 4.2 的协调器 + 5.4 的收敛算法（计划文档已预留该文件名，`docs/remote-development-plan.md:282`） |
-| 4 | `src/main/remote/RemoteHostRepair.ts` | 4.5 的修复原语 |
-| 5 | `tests/remoteHostRebind.test.mjs` | 计划、冲突、逐记录 CAS、幂等重放 |
-| 6 | `tests/remoteHostRebindRecovery.test.mjs` | 5.4 表中每个崩溃点一个用例（stub 端口注入 + 真实 journal 文件） |
-| 7 | `tests/remoteHostReferenceRegistry.test.mjs` | 不完整扫描、源抛错、未注册源 |
-| 8 | `tests/remoteHostRepair.test.mjs` | 6.2 各类分诊的允许/禁止动作 |
-| 9 | `tests/remoteHostCrossStoreContract.test.mjs` | INV-11 的**正则扫描契约测试**：扫 `src/shared/types/*.ts` 与两个 codec 里的 `hostId` 字段，断言每个都归属一个已登记引用源 |
+> **落地状态（`9d0710470`）**：第 **1 / 2 / 4 / 7 / 8** 项已落地；同时落地了两处**不在原清单里**的文件 —— `tests/hostRebindJournal.test.mjs`（journal + tx 锁 + 收敛，吸收了原第 5/6 项里"逐记录 CAS、幂等重放、每个崩溃点"的部分）与 `tests/remoteHostStoreLifecycle.test.mjs` 追加的 3 个用例（注册表接入、不完整扫描拒写、无 provider 的编辑 fail-closed）。第 **3 / 5 / 6 / 9** 项**仍未实现**：协调器（`plan`/`rebind`/`describePending`）与 `plan()` 阶段的冲突检查完全不在本切片。
+
+| # | 文件 | 内容 | 状态（`9d0710470`） |
+| --- | --- | --- | --- |
+| 1 | `src/main/remote/RemoteHostReferenceRegistry.ts` | 4.1 的注册表（含 `complete` 语义） | **已落地**（217 行） |
+| 2 | `src/main/remote/HostRebindJournal.ts` | 4.3 的 journal 读写（复用 `writeDurableJsonFile`）+ §5.1 的 **tx 锁** + §5.4 的**收敛算法**（原清单把收敛放在第 3 项的协调器里，实际落在本文件） | **已落地**（617 行；体量与拆分建议见 §7.4 风险 5） |
+| 3 | `src/main/remote/HostRebindCoordinator.ts` | 4.2 的协调器：`plan` / `rebind` / `describePending` / 对 `resume` 的 `resumePendingRebind()` 包装（计划文档已预留该文件名，`docs/remote-development-plan.md:282`） | **未实现** |
+| 4 | `src/main/remote/RemoteHostRepair.ts` | 4.5 的修复原语 + `diagnose` | **已落地**（526 行） |
+| 5 | `tests/remoteHostRebind.test.mjs` | 计划、冲突、逐记录 CAS、幂等重放 | **未实现**；逐记录 CAS 与幂等重放已由第 6 项那个文件覆盖（`tests/hostRebindJournal.test.mjs:201`、`:253`），`plan()` 的冲突检查仍无测试 |
+| 6 | `tests/hostRebindJournal.test.mjs`（原清单写作 `tests/remoteHostRebindRecovery.test.mjs`） | 5.4 表中每个崩溃点一个用例（stub 端口注入 + 真实 journal 文件） | **已落地**（461 行；`:228` 的用例断言"每个崩溃点收敛到与不中断跑完相同的终态"） |
+| 7 | `tests/remoteHostReferenceRegistry.test.mjs` | 不完整扫描、源抛错、未注册源 | **已落地**（188 行） |
+| 8 | `tests/remoteHostRepair.test.mjs` | 6.2 各类分诊的允许/禁止动作 | **已落地**（429 行） |
+| 9 | `tests/remoteHostCrossStoreContract.test.mjs` | INV-11 的**正则扫描契约测试**：扫 `src/shared/types/*.ts` 与两个 codec 里的 `hostId` 字段，断言每个都归属一个已登记引用源 | **未实现**（INV-11 目前仍靠 code review 兜） |
 
 **B. 修改 remote 域（干净树）**
 
 | # | 文件 | 改动 | 测试断言建议 |
 | --- | --- | --- | --- |
-| 10 | `src/main/remote/RemoteHostStore.ts` | `references` 换成 4.1（或新增 `referenceProvider` 入口，保留旧名兼容）；provider 异常映射为 `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`；`updateDraft` 无 provider 时也要 fail closed；锁文件写入 owner 元数据；`forgetTrustAnchor` 的 store 级写入口 | provider 抛错 ⇒ 稳定码且文件未变；无 provider ⇒ `updateDraft` 也拒绝；锁文件含 owner 且旧格式空锁仍能判 `LOCK_PRESENT` |
-| 11 | `src/main/remote/SshHostPinStore.ts` | 新增只读 `listPins()`（供 `diagnose()` 与孤儿判定）；`readPin` 失败区分 `ENOENT` 与内容不匹配（新的稳定码，避免 6.2 B 的误诊） | 缺失 vs 篡改返回不同码；`listPins` 不返回 pin 内容（只有 hostId/size/sha256） |
+| 10 | `src/main/remote/RemoteHostStore.ts` | `references` 换成 4.1（或新增入口，保留旧名兼容）；provider 异常映射为 `REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE`；`updateDraft` 无 provider 时也要 fail closed；锁文件写入 owner 元数据；`forgetTrustAnchor` 的 store 级写入口 | **部分已落地**：新增 `referenceRegistry` 入口并保留 `references`（当前 `:232`；两者同时传视为歧义并拒绝，`:94`）、注册表码原样透出（`:353-355`）、`updateDraft` fail-closed（`:272`）、两个 main-only 修复写入口 + `mutateRepair`（`:446-486`、`:494-535`）。**仍未做**：锁文件写入 owner 元数据（当前 `:544` 仍写空锁）。测试建议不变，另加"修复写入口只在属于自己那一类 reason 下可写"（`tests/remoteHostRepair.test.mjs:304`） |
+| 11 | `src/main/remote/SshHostPinStore.ts` | 新增只读 `listPins()`（供 `diagnose()` 与孤儿判定）；`readPin` 失败区分 `ENOENT` 与内容不匹配（新的稳定码，避免 6.2 B 的误诊）；**新增 main-only reverify API** —— 把 private 的 `verifierFor()`（`:110-115`）暴露成例如 `reverifyRoute(route, hostId)`，供 4.5 的 `HostRepairPinPort.verifyRoute` 注入（今天装配方只能用导出的 `verifyDraftSshHost`（`SshHostVerifier.ts:147`）+ 自建 `SshClientRuntime` 顶替，那会与 pin store 内部解析出的客户端实例分叉，违反"探测一个客户端、启动另一个"的禁令） | 缺失 vs 篡改返回不同码；`listPins` 不返回 pin 内容（只有 hostId/size/sha256）；reverify API 不接受调用方提供的端点字段，也不改写 pin。注意落地实现已经在 `RemoteHostRepair.orphanPinHostIds()` 里直接 `readdir` 扫 pin 目录（`:456-475`），`listPins()` 剩下的收益是把 pin 根的所有权收回 pin store **【推断】** |
 | 12 | `src/main/remote/SshVerifiedConnection.ts` | 显式断言：pending journal / tx 进行中 ⇒ `SSH_HOST_NOT_READY`（现状已隐式满足，需固化） | 有 journal 时 `buildPinnedSshInvocation` 抛 `SSH_HOST_NOT_READY` 且不执行 `ssh -G` |
 | 13 | `src/main/remote/RemoteHostStoreCodec.ts` | 若要保留"已退役主机的展示名"，需要 schema 变更；否则**不动**（见第 8 节 Q3） | 若改 schema：新增字段必须向后兼容（旧 `retiredHostIds: string[]` 仍可读） |
 
@@ -566,9 +652,9 @@ export type HostRepairPort = {
 
 | # | 文件 | 脏状态 | 改动 | 测试断言建议 |
 | --- | --- | --- | --- | --- |
-| 14 | `src/main/projects/ProjectStore.ts` | **M（脏）** | 实现 `listHostReferences()` / `applyHostRebind()`（4.4）；`remove()` 前做 interlock 检查 | 逐记录 CAS：changed/missing ⇒ 整次不写；重放 ⇒ `already-applied` 且 revision 不变（幂等） |
+| 14 | `src/main/projects/ProjectStore.ts` | **M（脏）** | 实现 `readHostRecordLocators()` / `applyHostRebind()`（4.4；引用集合由 4.1 的 provider 提供，端口里**没有** `listHostReferences()`）；`remove()` 前做 interlock 检查 | 逐记录 CAS：changed/missing ⇒ 整次不写；重放 ⇒ `already-applied` 且 revision 不变（幂等）；每个请求的 recordId 都必须回一条 snapshot（记录已删 ⇒ 缺省 locator） |
 | 15 | `src/main/projects/projectStoreCodec.ts` | **??（Phase 1 新增，未跟踪）** | 决定 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`:81`）的去留。**Phase 3 之前建议保留**：一旦放开，就必须同时上线 SSH 项目的 containment 校验（计划 §12 Phase 3 门禁），否则等于提前开启半成品能力 | 保留：ssh locator ⇒ 抛 `PROJECT_STORE_REMOTE_UNSUPPORTED`；放开：必须新增"缺 hostId/remotePath 拒绝"+ 契约测试 |
-| 16 | `src/main/sessions/SessionCatalog.ts` | **M（脏）** | `listHostReferences()` / `applyHostRebind()`；catalog 无 revision ⇒ 只能逐记录 CAS（4.4）；origin 冲突检查复用现有 origin 逻辑 | 同 #14；另加"同一 host 下重复 `remoteSessionId` ⇒ `REMOTE_HOST_REBIND_ORIGIN_CONFLICT`" |
+| 16 | `src/main/sessions/SessionCatalog.ts` | **M（脏）** | `readHostRecordLocators()` / `applyHostRebind()`；catalog 无 revision ⇒ 只能逐记录 CAS（4.4）；origin 冲突检查复用现有 origin 逻辑 | 同 #14；另加"同一 host 下重复 `remoteSessionId` ⇒ `REMOTE_HOST_REBIND_ORIGIN_CONFLICT`" |
 | 17 | `src/main/sessions/SessionLocatorRouter.ts` | **??（Phase 1 新增）** | 不改：ssh 抛 `UNSUPPORTED_PROJECT_LOCATION`（`:15`）是目标语义 | 只加测试：rebind 后 ssh locator 仍不可进本地 fs 路径 |
 | 18 | `src/shared/locationAdapters.ts` | **??（Phase 1 新增）** | 建议新增 `canonicalLocatorJson(locator)`（固定键序）供 before/after 比对；**不要**在这里做 rebind 逻辑 | 同一 locator 不同键序 ⇒ 同串；ssh 分支不产出 legacy 字段（`:48` 已如此） |
 | 19 | `src/shared/types/project.ts` / `src/shared/types/session.ts` | **M（脏）** | 仅在需要"引用索引"时才动类型；建议不动（`hostId` 已在 locator 里，见 `project.ts:3`、`session.ts:108`） | 类型不加测试，靠 #9 的契约扫描 |
@@ -577,6 +663,13 @@ export type HostRepairPort = {
 | 22 | `src/main/ipc/sessionIpc.ts` | **M（脏）** | 同 #21（会话删除/归档路径） | 同上 |
 | 23 | `src/main/sessions/SessionRuntimeCoordinator.ts` | **M（脏）** | 可选：tx 进行中禁止 attach 到 source 引用（现状已对 ssh 全线 fail closed，`:960`、`:1269`） | ssh locator 依然不可 attach；新增"引用指向 retired id ⇒ 稳定码而非崩溃" |
 | 24 | `src/shared/i18n/mainProcessCopy.ts` | 干净 | 新稳定码的用户文案（按 `SessionCommandIpcError.ts:11-20` 的 code→copy key 映射模式） | `typecheck` 能强制覆盖全部新码 |
+
+**D. 本次落地后补出的条目（`9d0710470` 之后）**
+
+| # | 文件 | 改动 |
+| --- | --- | --- |
+| 25 | `src/main/remote/RemoteHostPaths.ts`（新增） | `resolveRemoteHostPaths(userDataDir)` 作为远程主机域**磁盘根的唯一来源**：`remote-hosts.json`(+`.bak`) / `remote-hosts.json.lock` / `ssh-host-keys/` / `remote-host-rebind.json`(+`.lock`)。今天这四类路径各自派生：`RemoteHostStore.ts:133`、`:167`、`:191`、`:226`（store 文件 / 锁 / pin 根，其中 pin 根在 store 与 pin store 各拼一次）、`SshHostPinStore.ts:101`、`RemoteHostRepair.ts:188-189`（还额外提供 `paths.pinRoot` / `paths.hostLockFile` 覆盖 —— 这正是漂移入口）、`HostRebindJournal.ts:282-283`；`RemoteHostRepair.hasActiveWriteTemp()` 里的 `remote-hosts\.json\..*\.tmp` 正则（`:445`）是同一 basename 的第五处字面依赖。这呼应 `AGENTS.md`「同一磁盘根必须同源」；同源入口的既有先例是 `src/main/index.ts` 的 `resolveBuiltInExtensionRoots()` 与 `resolveImageGenStorageRoots()`。**推断**：同源后，`RemoteHostRepair` 的 `paths?` 覆盖应从生产装配里消失（只留给测试），否则"测试与生产走不同根"的漂移仍然存在 |
+| 26 | `src/main/remote/HostRebindJournal.ts` / `src/main/remote/RemoteHostRepair.ts`（拆分） | 两者都已超 400 行目标（617 / 526 行），且 `HostRebindJournal.ts` 已越过 600 行的"必须评估拆分"线；边界建议见 §7.4 风险 5 |
 
 **不建议改**：`SshCommandBuilder.ts`、`SshHostVerifier.ts`、`RemoteControlClient.ts`、`RemoteHostConnectionState.ts` —— 跨 store 事务不触碰 argv/协议/连接状态机（`needs-attention` 是连接层概念，与 store 的 `needs-repair` 是两回事，见 `RemoteHostConnectionTypes.ts:8` 与 `RemoteHostStore.ts:9`，**不要合并这两个状态**）。
 
@@ -606,6 +699,25 @@ export type HostRepairPort = {
 **风险 3｜单点损坏把整个主机 store 变成只读，人工"修复"反而毁掉信任锚（G6/G7）。**
 成因是 store 级 `needs-repair` 语义（`RemoteHostStore.ts:139`、`:350`）叠加 `pinIssues` 的严格检查（`:79-86`）：一台主机的 pin 丢了，所有主机的管理动作全部拒绝；而"删 pin 让校验通过"是最省事的假修复。
 缓解：4.5 的修复原语（尤其 `forgetTrustAnchor` 与 `discardOrphanPin` 的分工）+ 6.1 的三条铁律 + `HOST_REPAIR_ANCHOR_STILL_VALID` 之类的反向保护 + 6.3 的确认清单。中期建议评估"坏档案隔离"（只让受损 hostId 不可写、其余仍可管理），但那是 store 语义变更，需要单独评审。
+
+### 7.4 未决风险（本次落地留下，2 条）
+
+**风险 4｜A1 的生产绑定缺失：`verifyRoute` 只能由装配方注入，未注入时 A1 与 A 类诊断在生产不可用。**
+事实：`HostRepairPinPort.verifyRoute(route, pinAlias)`（`RemoteHostRepair.ts:54`）是 A1 重新认证活主机的唯一入口，而它需要的能力 —— "用 pin store 自己那个 `SshClientRuntime` 跑一次 `ssh -G` + host key 候选验证" —— 目前是 private：`SshHostPinStore.verifierFor()`（`SshHostPinStore.ts:110-115`）与它惰性解析的 `resolvedClient`（`:112`）都不对外暴露，模块内的 `pinDigest`（`:32-35`）同样不可调用。装配方今天只有两条路：(a) 用导出的 `verifyDraftSshHost(route, pinAlias, { client })`（`SshHostVerifier.ts:147`）配一个**自建**的 `SshClientRuntime`；(b) 让 `SshHostPinStore` 暴露一个 main-only 的 reverify API（§7.1 第 11 项）。诊断侧同样受影响：`diagnose()` 把 `REMOTE_HOST_PIN_ORPHAN` 映射成 `["complete-activation-from-pin", "discard-orphan-pin"]`（`:205-207`），其中 A1 在生产不可执行 ⇒ 用户拿到的建议里有一条是空动作。缓解：A2（`discardOrphanPin`）不需要 `verifyRoute`，仍是可执行的兜底；但 A2 会丢弃 pin（重新激活必须重做一次完整确认），所以它不是 A1 的等价替代。**【待确认】** 选 (a) 还是 (b) 需要装配层拍板；倾向 (b)，理由是"客户端实例的所有权留在 pin store"能避免 (a) 带来的双客户端分叉。
+
+**风险 5｜两个模块已超 400 行目标，其中一个已越过 600 行的评估线；自然拆法是纯搬迁。**
+事实（当前工作树）：`HostRebindJournal.ts` 617 行（非空 563）、`RemoteHostRepair.ts` 526 行（非空 483）、`RemoteHostStore.ts` 586 行（非空 549）、`RemoteHostReferenceRegistry.ts` 217 行（非空 192）。按 `AGENTS.md` 的文件体量红线（目标 ≤ 400 行，超过 600 行**必须评估拆分**）：`HostRebindJournal.ts` 已经越线，`RemoteHostStore.ts` 与 `RemoteHostRepair.ts` 逼近。
+建议边界（都是现有代码块的自然断层，不改变语义）：
+
+| 建议模块 | 搬走什么 | 现有位置 | 规模 |
+| --- | --- | --- | --- |
+| `HostRebindTxLock.ts`（新） | tx 锁：owner 写入/读取、`currentBootId` 推导、存活判定与抢占规则 | `HostRebindJournal.ts:137`、`:187-200`、`:558-616` | ≈ 120 行 |
+| `HostRebindConvergence.ts`（新） | 收敛：逐记录分类、阶段推进、roll-forward、outcome 组装（只依赖 §4.4 端口） | `:364-551` | ≈ 190 行 |
+| `HostRebindJournal.ts`（保留） | journal 类型/编解码/文件 I/O + `resume` 外壳 | `:21-362` 的剩余部分 | ≈ 200 行 |
+| `RemoteHostRepairDiagnosis.ts`（新） | `diagnose()` + 孤儿/坏锚点扫描（只读） | `RemoteHostRepair.ts:200-235`、`:456-488` | ≈ 70 行 |
+| `RemoteHostRepairPrimitives.ts`（新） | 四个原语 + pin 检查/锁检查 | `:242-355`、`:388-415` | ≈ 160 行 |
+
+成本与风险：纯移动 + 导出调整，没有状态语义变化；现有测试都是端口注入（`tests/hostRebindJournal.test.mjs:33-136` 的 stub 端口），拆完用例不需要改。**【推断】** 唯一的耦合风险在 import 图 —— `RemoteHostRepair.ts:21` 已经 `import { currentBootId } from "./HostRebindJournal"`，拆锁时要么先把这条边指向新模块，要么保留 `HostRebindJournal` 的再导出，避免形成环。
 
 ---
 
