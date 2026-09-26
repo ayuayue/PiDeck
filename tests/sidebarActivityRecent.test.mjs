@@ -24,7 +24,7 @@ const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
 const zhCopy = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enCopy = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 
-const { RECENT_SESSIONS_INITIAL_VISIBLE, RECENT_SESSIONS_PAGE_SIZE, collectActiveSessionRows, collectRecentSessionRows, growRecentVisible, canCollapseRecent } = loadTsCommonJs("src/renderer/src/components/sidebar/activitySessionsModel.ts");
+const { RECENT_SESSIONS_INITIAL_VISIBLE, RECENT_SESSIONS_PAGE_SIZE, collectActiveSessionRows, collectRecentActivityRows, growRecentVisible, canCollapseRecent } = loadTsCommonJs("src/renderer/src/components/sidebar/activitySessionsModel.ts");
 
 /** 按 `const name = "..."` 抽取类名常量：不做正则转义，避免格式改动让断言整组失效。 */
 function extractStringConst(source, name) {
@@ -111,70 +111,113 @@ describe("collectActiveSessionRows（活动行收集）", () => {
 	});
 });
 
-describe("collectRecentSessionRows（最近会话收集）", () => {
+describe("collectRecentActivityRows（最近会话收集）", () => {
 	test("默认只返回 10 条，但回传总条数供「加载更多」显示 x/y", () => {
-		const sessions = Array.from({ length: 25 }, (_, index) => makeSession({ id: `s${index}`, updatedAt: 100 - index }));
-		const { rows, totalCount } = collectRecentSessionRows({ catalog: makeCatalog({ sessionsByProject: { p1: sessions } }), activeRows: [], visibleCount: RECENT_SESSIONS_INITIAL_VISIBLE });
+		const sessions = Array.from({ length: 25 }, (_, index) => makeSession({ id: `s${index}` }));
+		const activity = sessions.map((session, index) => ({ sessionId: session.id, at: 1000 - index }));
+		const { rows, totalCount } = collectRecentActivityRows({ catalog: makeCatalog({ sessionsByProject: { p1: sessions } }), activity, activeRows: [], visibleCount: RECENT_SESSIONS_INITIAL_VISIBLE });
 		assert.equal(RECENT_SESSIONS_INITIAL_VISIBLE, 10);
 		assert.equal(rows.length, 10);
 		assert.equal(totalCount, 25);
-		// 最新的排最前
+		// 最近访问的排最前
 		assert.equal(rows[0]?.session.id, "s0");
 	});
 
 	test("已在活动行出现的会话不会在「最近」里重复出现", () => {
-		const shared = makeSession({ id: "shared", updatedAt: 50 });
-		const onlyHistory = makeSession({ id: "history", updatedAt: 40 });
+		const shared = makeSession({ id: "shared" });
+		const onlyHistory = makeSession({ id: "history" });
 		const activeRows = collectActiveSessionRows(makeCatalog({ agents: [makeAgent({ status: "running" })], sessionsByProject: { p1: [shared] }, runtimeBySessionId: { shared: { agentId: "a1" } } }));
-		const { rows } = collectRecentSessionRows({ catalog: makeCatalog({ sessionsByProject: { p1: [shared, onlyHistory] }, runtimeBySessionId: { shared: { agentId: "a1" } } }), activeRows, visibleCount: 10 });
+		const { rows } = collectRecentActivityRows({
+			catalog: makeCatalog({ sessionsByProject: { p1: [shared, onlyHistory] }, runtimeBySessionId: { shared: { agentId: "a1" } } }),
+			activity: [
+				{ sessionId: "shared", at: 2 },
+				{ sessionId: "history", at: 1 },
+			],
+			activeRows,
+			visibleCount: 10,
+		});
 		assert.equal(rows.map((row) => row.session.id).join(","), "history");
 	});
 
-	test("排除草稿 / 匿名会话 / 嵌套子会话 / 无文件且非 dsh·生图的记录", () => {
+	test("活动行不渲染（activeRows 传空）时，运行中的会话仍出现在「最近」——否则简洁模式下会从侧栏消失", () => {
+		const running = makeSession({ id: "running" });
+		const catalog = makeCatalog({ agents: [makeAgent({ status: "running" })], sessionsByProject: { p1: [running] }, runtimeBySessionId: { running: { agentId: "a1" } } });
+		const activity = [{ sessionId: "running", at: 1 }];
+		// 标签模式（传活动行）去重后为空；简洁模式（传空）保留。两种模式因此不会一有一无。
+		assert.equal(collectRecentActivityRows({ catalog, activity, activeRows: collectActiveSessionRows(catalog), visibleCount: 10 }).rows.length, 0);
+		assert.equal(collectRecentActivityRows({ catalog, activity, activeRows: [], visibleCount: 10 }).rows[0]?.session.id, "running");
+	});
+
+	test("排除匿名会话与无文件且未绑定 runtime 的记录，保留 dsh / 生图 / 已绑定 runtime 的会话", () => {
 		const sessions = [
-			makeSession({ id: "draft", status: "draft", updatedAt: 9 }),
-			makeSession({ id: "no-session", noSession: true, updatedAt: 8 }),
-			makeSession({ id: "child", parentSessionPath: "/sessions/parent.jsonl", updatedAt: 7 }),
-			// 没有会话文件又不是 dsh/生图：sessionRecordToSummary 会返回 undefined，渲染出来是空标题行
-			makeSession({ id: "orphan", filePath: undefined, backend: "pi", updatedAt: 6 }),
-			makeSession({ id: "keep", updatedAt: 5 }),
+			makeSession({ id: "no-session", noSession: true }),
+			// 没有会话文件又不是 dsh/生图，且未绑定 runtime：sessionRecordToSummary 返回 undefined，渲染是空标题行
+			makeSession({ id: "orphan", filePath: undefined, backend: "pi" }),
+			makeSession({ id: "runtime-only", filePath: undefined, backend: "pi" }),
+			makeSession({ id: "dsh", backend: "dsh", filePath: undefined }),
+			makeSession({ id: "imagegen", backend: "imagegen", filePath: undefined }),
 		];
-		const { rows, totalCount } = collectRecentSessionRows({ catalog: makeCatalog({ sessionsByProject: { p1: sessions } }), activeRows: [], visibleCount: 10 });
-		assert.equal(rows.map((row) => row.session.id).join(","), "keep");
+		const activity = sessions.map((session, index) => ({ sessionId: session.id, at: 100 - index }));
+		const { rows, totalCount } = collectRecentActivityRows({ catalog: makeCatalog({ sessionsByProject: { p1: sessions }, runtimeBySessionId: { "runtime-only": { agentId: "a1" } } }), activity, activeRows: [], visibleCount: 10 });
+		assert.equal(rows.map((row) => row.session.id).join(","), "runtime-only,dsh,imagegen");
+		assert.equal(totalCount, 3);
+	});
+
+	test("访问记录指向已删除 / 尚未扫到 catalog 的会话时跳过（不渲染空行）", () => {
+		const { rows, totalCount } = collectRecentActivityRows({
+			catalog: makeCatalog({ sessionsByProject: { p1: [makeSession({ id: "kept" })] } }),
+			activity: [
+				{ sessionId: "gone", at: 10 },
+				{ sessionId: "kept", at: 5 },
+			],
+			activeRows: [],
+			visibleCount: 10,
+		});
+		assert.equal(rows.map((row) => row.session.id).join(","), "kept");
 		assert.equal(totalCount, 1);
 	});
 
-	test("dsh / 生图会话即使没有会话文件也算最近会话", () => {
-		const sessions = [makeSession({ id: "dsh", backend: "dsh", filePath: undefined, updatedAt: 3 }), makeSession({ id: "imagegen", backend: "imagegen", filePath: undefined, updatedAt: 2 })];
-		const { rows } = collectRecentSessionRows({ catalog: makeCatalog({ sessionsByProject: { p1: sessions } }), activeRows: [], visibleCount: 10 });
-		assert.equal(
-			rows
-				.map((row) => row.session.id)
-				.sort()
-				.join(","),
-			"dsh,imagegen",
-		);
-	});
-
-	test("跨项目平铺，并按 id 兜底排序保证同时间戳会话次序稳定", () => {
+	test("跨项目平铺，按访问时间倒序（同时间戳保留访问记录顺序，存储被改写也兜底重排）", () => {
 		const catalog = makeCatalog({
 			projects: ["p1", "p2"],
 			sessionsByProject: {
-				p1: [makeSession({ id: "b", projectId: "p1", updatedAt: 10 }), makeSession({ id: "a", projectId: "p1", updatedAt: 10 })],
-				p2: [makeSession({ id: "c", projectId: "p2", updatedAt: 20 })],
+				p1: [makeSession({ id: "a", projectId: "p1" }), makeSession({ id: "b", projectId: "p1" })],
+				p2: [makeSession({ id: "c", projectId: "p2" })],
 			},
 		});
-		const first = collectRecentSessionRows({ catalog, activeRows: [], visibleCount: 10 });
-		const second = collectRecentSessionRows({ catalog, activeRows: [], visibleCount: 10 });
-		assert.equal(first.rows.map((row) => row.session.id).join(","), "c,a,b");
-		assert.equal(first.rows.map((row) => row.session.id).join(","), second.rows.map((row) => row.session.id).join(","));
-		assert.equal(first.rows.map((row) => row.projectId).join(","), "p2,p1,p1");
+		const { rows } = collectRecentActivityRows({
+			catalog,
+			activity: [
+				{ sessionId: "a", at: 10 },
+				{ sessionId: "b", at: 10 },
+				{ sessionId: "c", at: 20 },
+			],
+			activeRows: [],
+			visibleCount: 10,
+		});
+		assert.equal(rows.map((row) => row.session.id).join(","), "c,a,b");
+		assert.equal(rows.map((row) => row.projectId).join(","), "p2,p1,p1");
+		assert.equal(rows.map((row) => row.sortAt).join(","), "20,10,10");
+
+		// 输入乱序（存储被外部改写）时仍按访问时间倒序输出
+		const shuffled = collectRecentActivityRows({
+			catalog,
+			activity: [
+				{ sessionId: "a", at: 10 },
+				{ sessionId: "c", at: 20 },
+				{ sessionId: "b", at: 30 },
+			],
+			activeRows: [],
+			visibleCount: 10,
+		});
+		assert.equal(shuffled.rows.map((row) => row.session.id).join(","), "b,c,a");
 	});
 
 	test("visibleCount 为 0/负数时不渲染任何行", () => {
 		const catalog = makeCatalog({ sessionsByProject: { p1: [makeSession({ id: "s1" })] } });
-		assert.equal(collectRecentSessionRows({ catalog, activeRows: [], visibleCount: 0 }).rows.length, 0);
-		assert.equal(collectRecentSessionRows({ catalog, activeRows: [], visibleCount: -5 }).rows.length, 0);
+		const activity = [{ sessionId: "s1", at: 1 }];
+		assert.equal(collectRecentActivityRows({ catalog, activity, activeRows: [], visibleCount: 0 }).rows.length, 0);
+		assert.equal(collectRecentActivityRows({ catalog, activity, activeRows: [], visibleCount: -5 }).rows.length, 0);
 	});
 });
 
@@ -211,7 +254,7 @@ describe("最近会话区渲染契约", () => {
 		const activeRowsIndex = activeSessionsTree.indexOf("liveRows.map(");
 		const recentPaneIndex = activeSessionsTree.indexOf('"recent-sessions-pane', activeRowsIndex);
 		const recentIndex = activeSessionsTree.indexOf("<RecentSessionsSection", activeRowsIndex);
-		const simpleStart = activeSessionsTree.indexOf("if (props.singleScroll)");
+		const simpleStart = activeSessionsTree.indexOf("if (props.recentOnly)");
 		const simpleSection = activeSessionsTree.slice(simpleStart, paneStart);
 		assert.match(simpleSection, /<RecentSessionsSection/);
 		assert.doesNotMatch(simpleSection, /liveRows\.map\(/);
@@ -223,7 +266,7 @@ describe("最近会话区渲染契约", () => {
 		assert.ok(listStart < activeRowsIndex, "上半列表容器必须包裹活动行");
 		assert.ok(recentPaneIndex !== -1 && recentIndex !== -1, "最近会话需要自己的下半区容器");
 		assert.ok(activeRowsIndex < recentIndex, "最近会话区必须排在活动行下方");
-		assert.match(activeSessionsTree, /if \(props\.singleScroll\)/);
+		assert.match(activeSessionsTree, /if \(props\.recentOnly\)/);
 		assert.match(activeSessionsTree, /className="active-sessions-pane flex h-full min-h-0 flex-col"/);
 		// 上下两半共用 1fr 平分：行数多时不会把另一半挤走，各自滚动
 		assert.ok((activeSessionsTree.match(/flex min-h-0 flex-1 flex-col/g) ?? []).length >= 2, "上下两半都要 min-h-0 + flex-1");

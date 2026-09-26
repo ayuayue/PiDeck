@@ -421,7 +421,7 @@ export function ProjectTree(props: {
 			<>
 				{projectsSection}
 				{chatSection}
-				<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} singleScroll />
+				<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} recentOnly />
 			</>
 		);
 	return <>{props.controller.navTab === "active" ? <ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} /> : props.controller.navTab === "chats" ? chatSection : projectsSection}</>;

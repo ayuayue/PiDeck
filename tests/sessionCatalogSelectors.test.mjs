@@ -46,6 +46,8 @@ function loadAtoms() {
 		"./session-atoms": sessions,
 		// 展示名拼装与 fork 标记相关，测试不关心文案，直接透传即可。
 		"../utils/sessionDisplayName": { sessionDisplayName: (title) => title },
+		// 可显示判据与显示管线同源（纯函数，无依赖），按真实实现加载。
+		"../utils/sessionRecordDisplay": compileModule("src/renderer/src/utils/sessionRecordDisplay.ts"),
 	});
 	return { ...sessions, ...selectors };
 }

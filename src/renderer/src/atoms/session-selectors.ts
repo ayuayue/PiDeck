@@ -2,6 +2,7 @@ import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { SessionRecord, SessionSummary } from "../../../shared/types";
 import { sessionDisplayName } from "../utils/sessionDisplayName";
+import { isDisplayableSessionRecord } from "../utils/sessionRecordDisplay";
 import { sessionHistoryMutationOverlayByIdAtom, sessionIdsByProjectAtom, sessionRecordsAtom, sessionRuntimeByIdAtom, sessionRuntimeUiByIdAtom } from "./session-atoms";
 
 export function sessionRecordToSummary(session: SessionRecord): SessionSummary | undefined {
@@ -10,7 +11,8 @@ export function sessionRecordToSummary(session: SessionRecord): SessionSummary |
 	// 空 filePath 在显示管线走 unkeyedSessions 分支
 	// （getSummaryKey 对空串归一化为 undefined），不会与其他会话折叠成一行；
 	// 右键菜单按 hasFilePath 隐藏「复制路径/打开文件」类文件操作。
-	if (!session.filePath && session.backend !== "dsh" && session.backend !== "imagegen") return undefined;
+	// 判据与侧栏收集模型共用（utils/sessionRecordDisplay），两处不再各写一份。
+	if (!isDisplayableSessionRecord(session)) return undefined;
 	return {
 		id: session.id,
 		filePath: session.filePath ?? "",
