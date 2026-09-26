@@ -115,8 +115,8 @@ export type SessionRuntimeUiOverlayProps = {
 	onExpandedChange?: (expanded: boolean) => void;
 };
 
-/** 批量答案 label：布尔转是/否，数组 join「、」，其余原样（回显卡 SessionAskEcho 同源复用） */
-export function batchAnswerLabel(value: BatchAnswerValue): string {
+/** 批量答案 label：布尔转是/否，数组 join「、」，其余原样 */
+function batchAnswerLabel(value: BatchAnswerValue): string {
 	if (typeof value === "boolean") return value ? t("common.true") : t("common.false");
 	if (Array.isArray(value)) return value.join("、");
 	return value ?? "";

@@ -24,7 +24,8 @@ import { composeFailureNotice, isRetryStatusMessage, reduceFailureNoticePass, ty
 import { SessionStartSurface } from "./SessionStartSurface";
 import { NotifyMessageCard, shouldRenderNotifyCard } from "./NotifyMessageCard";
 import { MessageScroller } from "../agents/message-scroller";
-import { SessionAskEcho } from "./SessionAskEcho";
+import { askEchoBySessionIdAtomFamily } from "../../atoms/ask-echo-atoms";
+import { injectAskEchoMessage } from "../../utils/askUi";
 import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
@@ -355,13 +356,31 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		return groups;
 	}, [runtimeHistoryMessages, isTurnRunning]);
 	// The window segment follows the same turn-level activity rule as history.
-	const groupedWindowRuns = useMemo(() => groupToolMessages(controller.messages, { agentBusy: isTurnRunning }), [controller.messages, isTurnRunning]);
+	// DSH 已作答回显内联注入：应答时记录的锚点（最后一条消息 id）即提问阻塞的
+	// 工具调用位置，把回显合成为 ask_question 工具消息插在其后，走 pi _askCard
+	// 同一分组/渲染路径。只在派生层注入——DSH 历史由 host 全量折叠投影，任何写
+	// 进缓存的合成消息都会被下次投影冲掉。runtime 换代即作废；锚点被压缩/重投影
+	// 改写找不到时不注入（错位的回显比没有更糟）。
+	const askEchoEntry = useAtomValue(askEchoBySessionIdAtomFamily(sessionId));
+	const askEchoPlacement = useMemo(() => {
+		if (!askEchoEntry) return undefined;
+		if (runtime?.agentId !== askEchoEntry.agentId || runtime.runtimeGeneration !== askEchoEntry.runtimeGeneration) return undefined;
+		return {
+			echo: askEchoEntry.echo,
+			agentId: askEchoEntry.agentId,
+			...(askEchoEntry.anchorMessageId ? { anchorMessageId: askEchoEntry.anchorMessageId } : {}),
+			answeredAt: askEchoEntry.answeredAt,
+		};
+	}, [askEchoEntry, runtime?.agentId, runtime?.runtimeGeneration]);
+	const echoedWindowMessages = useMemo(() => injectAskEchoMessage(controller.messages, askEchoPlacement), [controller.messages, askEchoPlacement]);
+	const echoedPaginatedMessages = useMemo(() => injectAskEchoMessage(paginatedMessages, askEchoPlacement), [paginatedMessages, askEchoPlacement]);
+	const groupedWindowRuns = useMemo(() => groupToolMessages(echoedWindowMessages, { agentBusy: isTurnRunning }), [echoedWindowMessages, isTurnRunning]);
 	const renderedRuns = useMemo(() => {
 		if (groupedHistoryRuns) {
 			return [...groupedHistoryRuns, ...groupedWindowRuns];
 		}
-		return groupToolMessages(paginatedMessages, { agentBusy: isTurnRunning });
-	}, [groupedHistoryRuns, groupedWindowRuns, paginatedMessages, isTurnRunning]);
+		return groupToolMessages(echoedPaginatedMessages, { agentBusy: isTurnRunning });
+	}, [groupedHistoryRuns, groupedWindowRuns, echoedPaginatedMessages, isTurnRunning]);
 	// 阶段0补强：对未变化的 run 复用旧对象引用，历史 run 的 memo 比较退化为 O(1)
 	const prevRenderedRunsRef = useRef<RenderMessage[] | undefined>(undefined);
 	const reconciledRuns = useMemo(() => {
@@ -995,10 +1014,6 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			    主会话栏的阻塞式 Ask 已改由 SessionView 钉在对话区下方（issue #230），不再走这里。
 			    这里仍用正常流布局而不是 sticky/z-index，避免覆盖最后一条工具调用或回答。 */}
 			{props.runtimeUi ? <div className="session-runtime-ui mx-auto w-full min-w-0 empty:hidden">{props.runtimeUi}</div> : null}
-
-			{/* DSH 已作答提问的时间线回显（pi 由 _askCard 工具卡留痕；DSH 提问是带外请求，
-			    应答后不留痕会让用户以为没提交成功）。瞬态内存卡片，判据见 SessionAskEcho。 */}
-			<SessionAskEcho sessionId={sessionId} />
 
 			{/* 发送清屏垫片（pin-to-top）已于 2026 移除：其与流式跟随有冲突、偶发页面抖动。 */}
 
