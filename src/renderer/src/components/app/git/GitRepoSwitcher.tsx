@@ -19,7 +19,7 @@ function repoLabel(repo: GitRepoInfo): string {
 export function GitRepoSwitcher(props: GitRepoSwitcherProps) {
 	const { repos, activePath, onSelect } = props;
 	if (repos.length <= 1) return null;
-	const value = activePath ?? repos[0]?.path;
+	const value = activePath ?? repos[0]?.relativePath;
 	return (
 		<div className="flex shrink-0 items-center gap-1 border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] px-2 py-1.5">
 			<Select value={value} onValueChange={onSelect}>
@@ -29,7 +29,7 @@ export function GitRepoSwitcher(props: GitRepoSwitcherProps) {
 				</SelectTrigger>
 				<SelectContent className="max-w-[min(24rem,calc(100vw-16px))]">
 					{repos.map((repo) => (
-						<SelectItem key={repo.path} value={repo.path} title={repo.path}>
+						<SelectItem key={repo.relativePath} value={repo.relativePath} title={repo.displayPath}>
 							<span className="min-w-0 truncate">{repoLabel(repo)}</span>
 						</SelectItem>
 					))}

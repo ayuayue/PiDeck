@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import type { Project } from "../../../shared/types";
+import type { Project, ProjectFileTarget } from "../../../shared/types";
 import type { AgentTab } from "../../../shared/types";
 import { desktopApi as api } from "../desktopApi";
 import { showNotice } from "../utils/notice";
@@ -25,7 +25,7 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 	const { displayAgents, setProjects, refreshWorktrees, overlays } = deps;
 
 	const [worktreeCreating, setWorktreeCreating] = useState(false);
-	const [removingWorktreePaths, setRemovingWorktreePaths] = useState<Set<string>>(new Set());
+	const [removingWorktreeProjectIds, setRemovingWorktreeProjectIds] = useState<Set<string>>(new Set());
 
 	/** 创建新的 git worktree 工作区 */
 	async function createWorktree(projectId: string, branchName: string) {
@@ -49,9 +49,9 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 	}
 
 	/** 删除 worktree 工作区 */
-	async function removeWorktree(parentProjectId: string, worktreePath: string) {
+	async function removeWorktree(parentProjectId: string, worktreeTarget: ProjectFileTarget) {
 		try {
-			const removed = await api.git.worktreeRemove(parentProjectId, worktreePath);
+			const removed = await api.git.worktreeRemove(parentProjectId, worktreeTarget);
 			if (!removed) {
 				throw new Error(t("app.worktreeRemoveNotFound"));
 			}
@@ -64,9 +64,9 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 			showNotice(t("app.worktreeRemoveFailed") + message, 5000);
 		} finally {
 			// 无论成功还是失败，都移除动画状态，避免 worktree 行永久隐藏
-			setRemovingWorktreePaths((prev) => {
+			setRemovingWorktreeProjectIds((prev) => {
 				const next = new Set(prev);
-				next.delete(worktreePath);
+				next.delete(worktreeTarget.projectId);
 				return next;
 			});
 		}
@@ -76,7 +76,7 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 	 * 请求删除 worktree：先校验是否有运行中的 Agent，再弹确认框，确认后执行删除。
 	 * 避免误删正在使用的 worktree，也保证删除结果通过 toast 反馈给用户。
 	 */
-	function requestRemoveWorktree(parentProjectId: string, worktreePath: string, childProject: Project | undefined) {
+	function requestRemoveWorktree(parentProjectId: string, worktreeTarget: ProjectFileTarget, childProject: Project | undefined) {
 		const childAgents = childProject ? displayAgents.filter((a) => a.projectId === childProject.id && (a.status === "running" || a.status === "starting")) : [];
 		if (childAgents.length > 0) {
 			showNotice(t("app.worktreeRemoveBlockedByAgents"), 5000);
@@ -90,9 +90,9 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 			onConfirm: () => {
 				overlays.clearConfirm();
 				// 先触发淡出动画（添加 removing 类），等动画结束后再执行真实删除。
-				setRemovingWorktreePaths((prev) => new Set(prev).add(worktreePath));
+				setRemovingWorktreeProjectIds((prev) => new Set(prev).add(worktreeTarget.projectId));
 				setTimeout(() => {
-					void removeWorktree(parentProjectId, worktreePath);
+					void removeWorktree(parentProjectId, worktreeTarget);
 				}, 280);
 			},
 		});
@@ -117,7 +117,7 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 
 	return {
 		worktreeCreating,
-		removingWorktreePaths,
+		removingWorktreeProjectIds,
 		createWorktree,
 		removeWorktree,
 		requestRemoveWorktree,

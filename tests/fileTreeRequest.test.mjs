@@ -64,7 +64,7 @@ test("missing project directories clear stale files and refresh project presence
 
 test("file deletion failures are shown to the user instead of only logged", () => {
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-	const deleteBlock = app.match(/await api\.files\.delete\(node\.path, true\);[\s\S]*?\n\s*}\n\s*},/);
+	const deleteBlock = app.match(/await api\.files\.delete\(target, true\);[\s\S]*?\n\s*}\n\s*},/);
 	assert.ok(deleteBlock, "file drawer delete handler should be discoverable");
 	// 实参可能被格式化换行：容忍 showToast( 与 t(...) 之间的空白。
 	assert.match(deleteBlock[0], /showToast\(\s*t\("app\.fileDeleteFailed"/);

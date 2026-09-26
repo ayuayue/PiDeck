@@ -124,7 +124,7 @@ import { useWorktreeActions } from "./hooks/useWorktreeActions";
 import { ChatSessionPane } from "./components/session/ChatSessionPane";
 import { SessionSplitStage } from "./components/session/SessionSplitStage";
 import { splitLayoutSessionIds } from "./utils/sessionSplitEdge";
-import { findLoadedDirectory, loadProjectFileTree, markFileTreeLoadFailed, mergeFileTreeChildren } from "./utils/fileTreeLazy";
+import { fileTreeNodeDisplayPath, fileTreeNodeKey, findDirectoryNodeByPath, findLoadedDirectory, loadProjectFileTree, markFileTreeLoadFailed, mergeFileTreeChildren } from "./utils/fileTreeLazy";
 import { SessionTabsBar, type SessionTabsBarProps, type SessionToolAction } from "./components/session/SessionTabsBar";
 import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./components/session/SessionPaneServices";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
@@ -156,7 +156,27 @@ import { flattenFiles, fileNodeDragPayloadToRef, mergeCommands, getToolFilePath,
 const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
 import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE } from "../../shared/types";
 import { hydrateImageContents } from "../../shared/imageContentSrc";
-import type { AgentRuntimeState, AgentTab, SessionRuntimeTarget, AppInfo, AppSettings, ChatMessage, FileTreeNode, ImageContent, PiCommand, Project, AgentBackend, SessionLaunchPreferences, SessionRecord, SessionSummary, ComposerAgentMode, TerminalTarget, GitBranchInfo, FocusTargetPayload } from "../../shared/types";
+import type {
+	AgentRuntimeState,
+	AgentTab,
+	SessionRuntimeTarget,
+	AppInfo,
+	AppSettings,
+	ChatMessage,
+	FileTreeNode,
+	ImageContent,
+	PiCommand,
+	Project,
+	ProjectFileTarget,
+	AgentBackend,
+	SessionLaunchPreferences,
+	SessionRecord,
+	SessionSummary,
+	ComposerAgentMode,
+	TerminalTarget,
+	GitBranchInfo,
+	FocusTargetPayload,
+} from "../../shared/types";
 
 export function App() {
 	if (missingElectronPreload) {
@@ -291,6 +311,7 @@ export function App() {
 	const [hasClipboardFiles, setHasClipboardFiles] = useState(false);
 	const [renamingFile, setRenamingFile] = useState<{
 		path: string;
+		target?: ProjectFileTarget;
 		name: string;
 	} | null>(null);
 	const [renamingFileInput, setRenamingFileInput] = useState("");
@@ -445,7 +466,7 @@ export function App() {
 				syncDshForeignSessions: api.sessions.syncDshForeignSessions,
 			},
 			files: {
-				list: (projectId: string, options?: { maxDepth?: number; directory?: string }) => api.files.list(projectId, options),
+				list: (project: string | ProjectFileTarget, options?: { maxDepth?: number; directory?: string }) => api.files.list(project, options),
 			},
 		},
 		showToast,
@@ -466,13 +487,14 @@ export function App() {
 	const restoreExpandedDirs = useCallback(
 		async (projectId: string): Promise<boolean> => {
 			// 从镜像 ref 读当前树：本函数在抽屉打开回调里调用，闭包里的 files 可能是旧渲染帧。
-			const pending: string[] = [];
+			const pending: Array<{ path: string; target?: ProjectFileTarget }> = [];
 			const collectPending = (nodes: FileTreeNode[]) => {
 				for (const node of nodes) {
 					if (node.type !== "directory") continue;
 					// 「已展开 + 无 children + 未标失败」= 占位正在展示或即将展示的目录，需要补拉。
-					if (expandedDirsRef.current.has(node.path) && !Array.isArray(node.children) && node.hasChildren !== false) {
-						pending.push(node.path);
+					const nodeKey = fileTreeNodeKey(node);
+					if (expandedDirsRef.current.has(nodeKey) && !Array.isArray(node.children) && node.hasChildren !== false) {
+						pending.push({ path: nodeKey, target: node.target });
 					}
 					if (node.children?.length) collectPending(node.children);
 				}
@@ -481,10 +503,11 @@ export function App() {
 			if (pending.length === 0) return false;
 			const generation = beginFileTreeRequest();
 			// 父目录先补：子目录 listing 依赖父层先 merge 出节点才能写入。
-			pending.sort((left, right) => left.length - right.length);
-			for (const directory of pending) {
+			pending.sort((left, right) => left.path.length - right.path.length);
+			for (const item of pending) {
+				const { path: directory, target } = item;
 				try {
-					const children = await api.files.list(projectId, { maxDepth: 0, directory });
+					const children = target ? await api.files.list(target, { maxDepth: 0 }) : await api.files.list(projectId, { maxDepth: 0, directory });
 					if (!isFileTreeRequestCurrent(generation, projectId)) return true;
 					setFiles((tree) => mergeFileTreeChildren(tree, directory, children));
 				} catch (error) {
@@ -845,9 +868,9 @@ export function App() {
 	} = useTerminalDock(terminalOwner);
 	// 终端 IPC 目标：
 	// - agent owner → 当前会话的 runtime target（须绑定已启动 Agent）；拿不到 runtime
-	//   （从未启动 / 停止后绑定缺失）时回退项目 cwd 目标，主进程按 cwd 隔离 PTY——
+	//   （从未启动 / 停止后绑定缺失）时回退项目 ID 目标，由主进程读取受信任 cwd——
 	//   保证普通项目的会话无论 Agent 是否激活都能开项目终端（按钮常显）。
-	// - project owner（引导页/未激活 agent/历史会话）→ 项目 cwd。
+	// - project owner（引导页/未激活 agent/历史会话）→ 项目 ID，主进程解析工作目录。
 	// - Chat 项目没有可落地的 cwd，不提供终端（激活中的匿名聊天除外，走 agent 目标）。
 	const terminalTarget: TerminalTarget | undefined = useMemo(() => {
 		if (!terminalOwner) return undefined;
@@ -855,7 +878,7 @@ export function App() {
 			const pid = terminalOwner.kind === "project" ? terminalOwner.id : (activeProjectId ?? currentSessionRecord?.projectId);
 			return pid ? projects.find((p) => p.id === pid) : undefined;
 		})();
-		const projectTarget = fallbackProject && !isChatProject(fallbackProject) ? { kind: "project" as const, projectId: fallbackProject.id, cwd: fallbackProject.path } : undefined;
+		const projectTarget = fallbackProject && !isChatProject(fallbackProject) ? { kind: "project" as const, projectId: fallbackProject.id } : undefined;
 		if (terminalOwner.kind === "agent") {
 			const runtimeTarget = getRuntimeTargetForSession(currentSessionId);
 			return runtimeTarget ? { kind: "agent", ...runtimeTarget } : projectTarget;
@@ -916,7 +939,7 @@ export function App() {
 	}, [agents, pendingAgents]);
 
 	// === worktree actions hook ===
-	const { worktreeCreating, removingWorktreePaths, createWorktree, removeWorktree, requestRemoveWorktree, toggleProjectWorktree } = useWorktreeActions({
+	const { worktreeCreating, removingWorktreeProjectIds, createWorktree, removeWorktree, requestRemoveWorktree, toggleProjectWorktree } = useWorktreeActions({
 		projects,
 		displayAgents,
 		setProjects,
@@ -1948,10 +1971,10 @@ export function App() {
 		void (async () => {
 			try {
 				const hydrated = await loadProjectFileTree(
-					() => api.files.list(projectId, { maxDepth: 0 }),
+					() => api.files.list({ projectId, relativePath: "" }, { maxDepth: 0 }),
 					dirs,
 					() => !cancelled && isFileTreeRequestCurrent(generation, projectId),
-					(directory) => api.files.list(projectId, { maxDepth: 0, directory }),
+					(directory) => (typeof directory === "string" ? api.files.list(projectId, { maxDepth: 0, directory }) : api.files.list(directory, { maxDepth: 0 })),
 				);
 				if (!cancelled && hydrated) setFiles(hydrated);
 			} catch (error) {
@@ -2750,11 +2773,12 @@ export function App() {
 	 */
 	async function drillCompactChain(projectId: string, startPath: string) {
 		let current = startPath;
+		let currentTarget = findDirectoryNodeByPath(filesRef.current, startPath)?.target;
 		const chain = new Set<string>([startPath]);
 		for (let i = 0; i < FILE_TREE_ABSOLUTE_MAX_DEPTH; i++) {
 			let children: FileTreeNode[];
 			try {
-				children = await api.files.list(projectId, { maxDepth: 0, directory: current });
+				children = currentTarget ? await api.files.list(currentTarget, { maxDepth: 0 }) : await api.files.list(projectId, { maxDepth: 0, directory: current });
 			} catch {
 				// 超大目录 / 权限问题：标记当前层「加载失败」，避免展开占位「加载中...」永久盖住文件名；
 				// 保留已加载部分（已 merge 的上层不受影响），用户重新点开可自然重试。
@@ -2765,7 +2789,8 @@ export function App() {
 			setFiles((tree) => mergeFileTreeChildren(tree, current, children));
 			// 恰 1 个子目录且无文件 → 继续沿链下钻，并把该子目录也标记展开。
 			if (children.length === 1 && children[0].type === "directory") {
-				current = children[0].path;
+				current = fileTreeNodeKey(children[0]);
+				currentTarget = children[0].target;
 				chain.add(current);
 				continue;
 			}
@@ -3111,7 +3136,7 @@ export function App() {
 				await createWorktree(projectId, branchName);
 			},
 			remove: (parentProjectId, entry, childProject) => {
-				requestRemoveWorktree(parentProjectId, entry.path, childProject);
+				requestRemoveWorktree(parentProjectId, entry.target, childProject);
 				return Promise.resolve();
 			},
 		},
@@ -3141,7 +3166,7 @@ export function App() {
 			worktreesByProject={worktreesByProject}
 			branchByProject={branchByProject}
 			creatingWorktree={worktreeCreating}
-			removingWorktreePaths={removingWorktreePaths}
+			removingWorktreeProjectIds={removingWorktreeProjectIds}
 			isLanWeb={isLanWeb}
 			// 「新建会话」：清空当前会话并选中活动项目 → 落到初始引导页（居中输入框 + 项目下拉切换），
 			// 用户选择项目后可直接输入对话（首次发送才创建真实会话）。无项目时保持引导页「添加项目」空态。
@@ -4021,15 +4046,21 @@ export function App() {
 							}}
 							onClose={() => setFileMenu(null)}
 							onOpen={() => {
-								void api.files.open(fileMenu.node.path).catch((error) => {
-									showToast(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-								});
+								const target = fileMenu.node.target ?? fileMenu.node.path;
+								if (target) {
+									void api.files.open(target).catch((error) => {
+										showToast(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+									});
+								}
 								setFileMenu(null);
 							}}
 							onReveal={() => {
-								void api.files.showInFolder(fileMenu.node.path).catch((error) => {
-									showToast(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
-								});
+								const target = fileMenu.node.target ?? fileMenu.node.path;
+								if (target) {
+									void api.files.showInFolder(target).catch((error) => {
+										showToast(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+									});
+								}
 								setFileMenu(null);
 							}}
 							onAttach={() => {
@@ -4041,7 +4072,7 @@ export function App() {
 										detail: {
 											refs: [
 												fileNodeDragPayloadToRef({
-													path: fileMenu.node.path,
+													path: fileTreeNodeDisplayPath(fileMenu.node),
 													relativePath: fileMenu.node.relativePath,
 													type: fileMenu.node.type,
 												}),
@@ -4052,19 +4083,23 @@ export function App() {
 								setFileMenu(null);
 							}}
 							onCopyPath={() => {
-								void navigator.clipboard.writeText(fileMenu.node.path);
+								void navigator.clipboard.writeText(fileTreeNodeDisplayPath(fileMenu.node));
 								setFileMenu(null);
 								showToast(t("app.pathCopied"), 1200);
 							}}
 							onRename={() => {
 								const node = fileMenu.node;
-								setRenamingFile({ path: node.path, name: node.name });
-								setRenamingFileInput(node.name);
+								if (node.target || node.path) {
+									setRenamingFile({ path: fileTreeNodeDisplayPath(node), target: node.target, name: node.name });
+									setRenamingFileInput(node.name);
+								}
 								setFileMenu(null);
 							}}
 							onDelete={() => {
 								const node = fileMenu.node;
+								const target = node.target ?? node.path;
 								setFileMenu(null);
+								if (!target) return;
 								overlays.showConfirm({
 									title: node.type === "directory" ? t("drawer.deleteFolderTitle") : t("drawer.deleteFileTitle"),
 									message: node.type === "directory" ? t("drawer.deleteFolderConfirm", { name: node.name }) : t("drawer.deleteFileConfirm", { name: node.name }),
@@ -4073,7 +4108,7 @@ export function App() {
 									onConfirm: async () => {
 										overlays.clearConfirm();
 										try {
-											await api.files.delete(node.path, true);
+											await api.files.delete(target, true);
 											void refreshVisibleFiles();
 											showToast(t("app.fileDeleted"), 2000);
 										} catch (error) {
@@ -4110,7 +4145,7 @@ export function App() {
 										onClose: () => setRenamingFile(null),
 										onConfirm: (path, newName) => {
 											void api.files
-												.rename(path, newName)
+												.rename(renamingFile.target ?? path, newName)
 												.then(() => {
 													void refreshVisibleFiles();
 													setRenamingFile(null);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import type { FileTreeNode } from "../../../../shared/types";
+import type { FileTreeNode, ProjectFileTarget } from "../../../../shared/types";
 import { t } from "../../i18n";
 import type { SuggestionItem } from "../app/AppUtils";
 import { Button } from "../ui-shadcn/button";
@@ -80,9 +80,11 @@ export function FileContextMenu(props: {
 	onRename?: () => void;
 	/** 剪贴板中有文件路径时显示「粘贴」选项 */
 	hasClipboardFiles?: boolean;
-	onPaste?: (targetDir: string) => void;
+	onPaste?: (targetDir: string | ProjectFileTarget) => void;
 }) {
-	const targetDir = props.menu.node.type === "directory" ? props.menu.node.path : props.menu.node.path.split(/[\\/]/).slice(0, -1).join("/") || ".";
+	const node = props.menu.node;
+	const parentRelativePath = node.type === "directory" ? node.relativePath : node.relativePath.split("/").slice(0, -1).join("/");
+	const targetDir: string | ProjectFileTarget | undefined = node.target ? { projectId: node.target.projectId, relativePath: parentRelativePath } : node.path ? (node.type === "directory" ? node.path : node.path.split(/[\\/]/).slice(0, -1).join("/") || ".") : undefined;
 
 	// #115 U5：右键菜单换 Radix DropdownMenu。虚拟锚点把菜单钉在右键坐标上，
 	// 视口碰撞翻转/焦点圈定/ESC 关闭全由 Radix 负责，删掉手写的测高翻转与遮罩。
@@ -121,7 +123,7 @@ export function FileContextMenu(props: {
 				<DropdownMenuItem onSelect={props.onOpen}>{t("menu.defaultOpen")}</DropdownMenuItem>
 				<DropdownMenuItem onSelect={props.onReveal}>{t("menu.revealFile")}</DropdownMenuItem>
 				<DropdownMenuItem onSelect={props.onCopyPath}>{t("menu.copyPath")}</DropdownMenuItem>
-				{props.hasClipboardFiles && props.onPaste && <DropdownMenuItem onSelect={() => props.onPaste?.(targetDir)}>{t("drawer.pasteFiles")}</DropdownMenuItem>}
+				{props.hasClipboardFiles && props.onPaste && targetDir && <DropdownMenuItem onSelect={() => props.onPaste?.(targetDir)}>{t("drawer.pasteFiles")}</DropdownMenuItem>}
 				{(props.onRename || props.onDelete) && <DropdownMenuSeparator />}
 				{props.onRename && <DropdownMenuItem onSelect={props.onRename}>{t("common.rename")}</DropdownMenuItem>}
 				{props.onDelete && (

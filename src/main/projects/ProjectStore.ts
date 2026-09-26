@@ -4,10 +4,26 @@ import { basename, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Project } from "../../shared/types";
 import { normalizeSelectedWslProjectPath, parseWslUncPath, WslPathError, type WslEnvironment } from "../wsl/WslPaths";
+import { getAppLogger } from "../logging/sharedLogger";
 import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
+import { loadProjectStore, writeProjectStoreSnapshot } from "./projectStorePersistence";
 
 const CHAT_PROJECT_ID = "builtin-chat";
 const CHAT_PROJECT_NAME = "Chat";
+
+class ProjectStoreNeedsRepairError extends Error {
+	readonly code = "PROJECT_STORE_NEEDS_REPAIR";
+
+	constructor(message: string) {
+		super(message);
+		this.name = "ProjectStoreNeedsRepairError";
+	}
+}
+
+function errorMessage(error: unknown): string {
+	if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
+	return String(error);
+}
 
 export class ProjectStore {
 	/** DSH 外部会话兑底项目稳定 id（无 cwd/未匹配目录的会话归属；见 ensureExternalSessionsProject）。 */
@@ -20,23 +36,39 @@ export class ProjectStore {
 	private chatProjectPath = join(app.getPath("userData"), "chat-workspace");
 	private projects: Project[] = [];
 	private dismissedPaths: string[] = [];
+	private revision = 0;
+	private writeQueue: Promise<void> = Promise.resolve();
+	private skipNextBackup = false;
+	private needsRepair = false;
+	private repairError: ProjectStoreNeedsRepairError | null = null;
 
 	constructor(private readonly chooseProjectTitle: () => string = () => "Choose project folder") {}
 
 	async load() {
+		let persisted: Awaited<ReturnType<typeof loadProjectStore>>;
 		try {
-			const raw = await readFile(this.filePath, "utf8");
-			this.projects = JSON.parse(raw) as Project[];
-		} catch {
+			persisted = await loadProjectStore(this.filePath);
+		} catch (error) {
+			this.needsRepair = true;
+			this.repairError = new ProjectStoreNeedsRepairError(errorMessage(error));
 			this.projects = [];
+			void getAppLogger()?.error("project-store", "Project store recovery is required", {
+				cause: this.repairError.message,
+			});
+			throw error;
 		}
+		this.needsRepair = false;
+		this.repairError = null;
+		this.projects = persisted.projects;
+		this.revision = persisted.revision;
+		this.skipNextBackup = persisted.skipNextBackup;
 		// 先读取用户自定义的聊天目录（若存在），再据此修正内置聊天项目路径。
 		await this.loadChatProjectPath();
 		await this.loadDismissedPaths();
 		const chatChanged = this.ensureChatProject();
 		const orderChanged = this.ensureSortOrder();
 		const ephemeralRemoved = this.dropEphemeralProjects();
-		const changed = chatChanged || orderChanged || ephemeralRemoved.length > 0;
+		const changed = chatChanged || orderChanged || ephemeralRemoved.length > 0 || persisted.needsRewrite;
 		await mkdir(this.chatProjectPath, { recursive: true });
 		if (changed) await this.save();
 		if (ephemeralRemoved.length > 0) await this.saveDismissedPaths();
@@ -44,10 +76,12 @@ export class ProjectStore {
 	}
 
 	list() {
+		this.assertReadable();
 		return [...this.projects].sort((a, b) => Number(this.isChatProject(b)) - Number(this.isChatProject(a)) || Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || this.projectSortOrder(a) - this.projectSortOrder(b) || b.lastOpenedAt - a.lastOpenedAt);
 	}
 
 	get(id: string) {
+		this.assertReadable();
 		return this.projects.find((project) => project.id === id);
 	}
 
@@ -61,6 +95,7 @@ export class ProjectStore {
 	 * 返回更新后的聊天项目（便于主进程向渲染端广播 projects:changed）。
 	 */
 	async setChatProjectPath(path: string) {
+		this.assertWritable();
 		const normalized = this.normalizeProjectPath(path);
 		// 边界保护：聊天目录不允许指向已注册的普通项目目录（issue #149）。否则聊天项目与
 		// 该项目同路径并存，重启后 ensureChatProject 曾把该项目整条吸收，且「添加项目」选
@@ -117,6 +152,7 @@ export class ProjectStore {
 	}
 
 	async chooseAndAdd(environment?: "windows" | "wsl", wslEnvironment?: WslEnvironment | null) {
+		this.assertWritable();
 		if (environment === "wsl" && !wslEnvironment) {
 			throw new WslPathError("INVALID_WSL_PATH", "The active WSL environment is unavailable.");
 		}
@@ -139,6 +175,7 @@ export class ProjectStore {
 
 	/** 添加项目，可指定所属环境（缺省 windows） */
 	async add(path: string, worktreeParentId?: string, environment?: "windows" | "wsl") {
+		this.assertWritable();
 		const normalizedPath = this.normalizeProjectPath(path);
 		// 内置聊天项目不参与「同路径即已有项目」匹配（issue #149）：用户挑选的目录即使与
 		// 聊天目录相同，也必须创建真正的项目记录——否则 add() 永远返回 builtin-chat，
@@ -178,6 +215,7 @@ export class ProjectStore {
 	}
 
 	async remove(id: string) {
+		this.assertWritable();
 		const removed = this.projects.filter((project) => project.id === id || project.worktreeParentId === id);
 		// 删除父项目时同步移除子项目记录，避免留下不可见的孤儿 worktree 项目。
 		this.projects = this.projects.filter((project) => (project.id !== id && project.worktreeParentId !== id) || this.isChatProject(project));
@@ -199,6 +237,7 @@ export class ProjectStore {
 	 * 返回更新后的项目；id 不存在返回 null。
 	 */
 	async rename(id: string, name: string): Promise<Project | null> {
+		this.assertWritable();
 		const project = this.get(id);
 		if (!project) return null;
 		if (this.isChatProject(project) || project.worktreeParentId) {
@@ -220,6 +259,7 @@ export class ProjectStore {
 	 * 避免 DSH 自动导入按 cwd 再注册。返回被删项目 id。
 	 */
 	dropEphemeralProjects(): string[] {
+		this.assertWritable();
 		const removedIds: string[] = [];
 		const kept: Project[] = [];
 		for (const project of this.projects) {
@@ -236,6 +276,7 @@ export class ProjectStore {
 	}
 
 	async reorder(projectIds: string[]) {
+		this.assertWritable();
 		const movableProjectIds = projectIds.filter((id) => id !== CHAT_PROJECT_ID);
 		const orderById = new Map(movableProjectIds.map((id, index) => [id, index]));
 		const tailStart = movableProjectIds.length;
@@ -321,6 +362,7 @@ export class ProjectStore {
 
 	/** 按路径查找项目；Windows 上忽略大小写和分隔符差异。 */
 	findByPath(path: string) {
+		this.assertReadable();
 		const normalizedPath = this.normalizeProjectPath(path);
 		return this.projects.find((project) => this.sameProjectPath(project.path, normalizedPath)) ?? null;
 	}
@@ -331,6 +373,7 @@ export class ProjectStore {
 	 * 目录落在 userData/external-sessions（随应用数据存在，不会被标记 missing）。
 	 */
 	async ensureExternalSessionsProject(name: string): Promise<Project> {
+		this.assertWritable();
 		const existing = this.projects.find((project) => project.id === ProjectStore.EXTERNAL_PROJECT_ID);
 		if (existing) {
 			// 语言切换等场景下名称可能变化：就地更新，保持 id 稳定（catalog 引用不失效）。
@@ -355,6 +398,7 @@ export class ProjectStore {
 	}
 
 	async toggleWorktreeEnabled(id: string) {
+		this.assertWritable();
 		const project = this.get(id);
 		if (!project) return null;
 		project.worktreeEnabled = !project.worktreeEnabled;
@@ -369,7 +413,16 @@ export class ProjectStore {
 
 	/** 移除指定父项目下的所有 worktree 子项目记录（不删除物理目录） */
 	clearWorktreeChildren(parentId: string) {
+		this.assertWritable();
 		this.projects = this.projects.filter((project) => project.worktreeParentId !== parentId || this.isChatProject(project));
+	}
+
+	private assertReadable() {
+		if (this.needsRepair) throw this.repairError ?? new ProjectStoreNeedsRepairError("PROJECT_STORE_NEEDS_REPAIR");
+	}
+
+	private assertWritable() {
+		this.assertReadable();
 	}
 
 	private isChatProject(project: Project) {
@@ -378,7 +431,7 @@ export class ProjectStore {
 
 	private normalizeProjectPath(path: string) {
 		// WSL Linux 路径（/mnt/d/xxx、/home/user/...）不能走 Windows path.resolve/normalize，
-		// 否则 /mnt/d/xxx 会被解析为 D:\mnt\d\xxx。仅去除尾部斜杠。
+		// 否则 /mnt/d/xxx 会被解析为 D:\\mnt\\d\\xxx。仅去除尾部斜杠。
 		if (process.platform === "win32" && path.startsWith("/")) {
 			return path.replace(/\/+$/, "");
 		}
@@ -400,9 +453,22 @@ export class ProjectStore {
 		return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 	}
 
-	private async save() {
-		// 项目列表是桌面端自己的轻量状态，不写入 pi session，避免影响 pi 原生会话格式。
-		await mkdir(app.getPath("userData"), { recursive: true });
-		await writeFile(this.filePath, JSON.stringify(this.projects, null, 2), "utf8");
+	private save(): Promise<void> {
+		this.assertWritable();
+		const snapshot = this.projects.map((project) => ({ ...project }));
+		const operation = this.writeQueue
+			.catch(() => undefined)
+			.then(async () => {
+				this.assertWritable();
+				const nextRevision = this.revision + 1;
+				await writeProjectStoreSnapshot(this.filePath, snapshot, nextRevision, { skipBackup: this.skipNextBackup });
+				this.revision = nextRevision;
+				this.skipNextBackup = false;
+			});
+		this.writeQueue = operation.then(
+			() => undefined,
+			() => undefined,
+		);
+		return operation;
 	}
 }

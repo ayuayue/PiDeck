@@ -350,7 +350,8 @@ test("pane terminal resolves agent target from its own runtime and project fallb
 	assert.equal(history.owner.kind, "project");
 	assert.equal(terminalOwnerKey(history.owner), "project:projP");
 	assert.equal(history.target.kind, "project");
-	assert.equal(history.target.cwd, "C:/work/projP");
+	assert.equal(history.target.projectId, "projP");
+	assert.equal("cwd" in history.target, false);
 
 	// Chat 项目没有可落地的 cwd → 不提供终端
 	const chat = resolvePaneTerminal({

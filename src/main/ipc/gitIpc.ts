@@ -1,8 +1,11 @@
 import { dialog, ipcMain, type BrowserWindow } from "electron";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ipcChannels } from "../../shared/ipc";
-import type { GitDiscardResource, GitGenerateCommitMessageResult, GitWorkspaceDiffGroup } from "../../shared/types";
+import type { CommitDetail, GitChangedFile, GitCommitFileDiff, GitDiscardResource, GitGenerateCommitMessageResult, GitRepoInfo, GitResource, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, ProjectFileTarget, WorktreeEntry } from "../../shared/types";
+import { parseProjectFileTarget } from "../files/projectFileTarget";
+import { GitBackendRouter, LocalGitBackend, resolveRelativeGitPath, type GitBackend, type GitRepositoryContext } from "../git/GitBackend";
+import type { LocalGitChangedFile, LocalGitCommitDetail, LocalGitCommitFileDiff, LocalGitResource, LocalGitResourceGroups, LocalGitWorkspaceFileDiff, LocalWorktreeEntry } from "../git/localGitTypes";
 import type { GitService } from "../git/GitService";
 import type { GitRefsWatcher } from "../git/GitRefsWatcher";
 import { currentGitExecutable, detectGitExecutable } from "../git/gitExecutable";
@@ -15,6 +18,10 @@ import type { SettingsStore } from "../settings/SettingsStore";
 import type { WorktreeService } from "../git/WorktreeService";
 import { normalizeSelectedWslProjectPath, parseWslUncPath, toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
 import { applyPiProxyModeWithProvider, computeGenProxyKey } from "../sessions/sessionProxyPolicy";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export type GitIpcDeps = {
 	appLogger: Pick<AppLogger, "warn" | "info" | "error">;
@@ -247,6 +254,7 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 	};
 
 	const projectHostPath = (project: { path: string }) => hostPath(project.path);
+	const gitBackendRouter = new GitBackendRouter(new LocalGitBackend(projectStore, projectHostPath), projectStore);
 	const projectStoredPath = (path: string, project: { environment?: string }) => {
 		const settings = settingsStore.get();
 		if (process.platform !== "win32" || project.environment !== "wsl" || !settings.wslEnabled || !settings.wslDistro) {
@@ -255,108 +263,239 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		return normalizeSelectedWslProjectPath(path, { distro: settings.wslDistro });
 	};
 
-	/** 解析项目 + 可选嵌套仓库路径。repoPath 必须落在项目内，缺省仍用项目根。 */
-	const requireGitCwd = (projectId: string, repoPath?: unknown): string => {
+	const projectTargetFromLocalPath = (projectId: string, path: unknown): ProjectFileTarget => {
+		if (typeof path !== "string" || !path.trim() || path.length > 32_768 || path.includes("\\0")) throw new Error("INVALID_GIT_FILE_TARGET");
 		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
-		return resolveGitCwd(projectHostPath(project), repoPath == null || repoPath === "" ? repoPath : hostPath(String(repoPath)));
+		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		const root = resolve(projectHostPath(project));
+		const localPath = resolveGitCwd(root, hostPath(path));
+		return parseProjectFileTarget({ projectId, relativePath: relative(root, localPath).replace(/\\/g, "/") });
 	};
 
-	const findGitCwd = (projectId: string, repoPath?: unknown): string | null => {
-		const project = projectStore.get(projectId);
-		if (!project) return null;
-		return resolveGitCwd(projectHostPath(project), repoPath == null || repoPath === "" ? repoPath : hostPath(String(repoPath)));
+	const parseGitProjectTarget = (projectId: string, value: unknown): ProjectFileTarget => {
+		const target = typeof value === "string" ? projectTargetFromLocalPath(projectId, value) : parseProjectFileTarget(value);
+		if (target.projectId !== projectId) throw new Error("GIT_PROJECT_TARGET_MISMATCH");
+		return target;
 	};
 
-	// 扫描项目内独立仓库（根 + 嵌套）。worktree / git init 仍只作用于项目根。
+	const parseGitRepositoryTarget = (projectId: string, value?: unknown): ProjectFileTarget => {
+		if (value === undefined || value === null || value === "") return { projectId, relativePath: "" };
+		return parseGitProjectTarget(projectId, value);
+	};
+
+	const requireGitRepository = async (projectId: string, rawRepoTarget?: unknown): Promise<GitRepositoryContext> => {
+		const target = parseGitRepositoryTarget(projectId, rawRepoTarget);
+		return gitBackendRouter.forProject(projectId).resolveRepository(target);
+	};
+
+	const findGitRepository = async (projectId: string, rawRepoTarget?: unknown): Promise<GitRepositoryContext | null> => {
+		if (!projectStore.get(projectId)) return null;
+		try {
+			return await requireGitRepository(projectId, rawRepoTarget);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+			throw error;
+		}
+	};
+
+	const requireGitCwd = async (projectId: string, repoTarget?: unknown): Promise<string> => (await requireGitRepository(projectId, repoTarget)).repoRoot;
+	const findGitCwd = async (projectId: string, repoTarget?: unknown): Promise<string | null> => (await findGitRepository(projectId, repoTarget))?.repoRoot ?? null;
+
+	const parseGitFileTargets = (projectId: string, value: unknown): ProjectFileTarget[] => {
+		if (!Array.isArray(value) || value.length > 1000) throw new Error("INVALID_GIT_FILE_TARGETS");
+		return value.map((entry) => parseGitProjectTarget(projectId, entry));
+	};
+
+	const localFilePaths = (backend: GitBackend, targets: ProjectFileTarget[]) => Promise.all(targets.map((target) => backend.resolveFilePath(target)));
+	const targetForAbsolutePath = (context: GitRepositoryContext, path: string): ProjectFileTarget => parseProjectFileTarget({ projectId: context.projectId, relativePath: resolveRelativeGitPath(context.projectRoot, path) });
+	const decorateResource = (context: GitRepositoryContext, resource: LocalGitResource): GitResource => {
+		const target = targetForAbsolutePath(context, resource.path);
+		const oldTarget = resource.oldPath ? targetForAbsolutePath(context, resource.oldPath) : undefined;
+		return {
+			path: target.relativePath,
+			target,
+			displayPath: target.relativePath,
+			status: resource.status,
+			letter: resource.letter,
+			...(oldTarget ? { oldPath: oldTarget.relativePath, oldTarget } : {}),
+		};
+	};
+	const decorateResourceGroups = (context: GitRepositoryContext, groups: LocalGitResourceGroups): GitResourceGroups => ({
+		merge: groups.merge.map((resource) => decorateResource(context, resource)),
+		index: groups.index.map((resource) => decorateResource(context, resource)),
+		workingTree: groups.workingTree.map((resource) => decorateResource(context, resource)),
+		untracked: groups.untracked.map((resource) => decorateResource(context, resource)),
+	});
+	const projectTargetFromRepoPath = (context: GitRepositoryContext, repoPath: string): ProjectFileTarget => parseProjectFileTarget({ projectId: context.projectId, relativePath: [context.repoTarget.relativePath, repoPath].filter(Boolean).join("/") });
+	const decorateChangedFile = (context: GitRepositoryContext, file: LocalGitChangedFile): GitChangedFile => {
+		const target = projectTargetFromRepoPath(context, file.path);
+		const originalTarget = file.originalPath ? projectTargetFromRepoPath(context, file.originalPath) : undefined;
+		return {
+			path: target.relativePath,
+			target,
+			displayPath: target.relativePath,
+			status: file.status,
+			...(originalTarget ? { originalPath: originalTarget.relativePath, originalTarget } : {}),
+		};
+	};
+	const decorateCommitDetail = (context: GitRepositoryContext, detail: LocalGitCommitDetail | null): CommitDetail | null => (detail ? { commit: detail.commit, files: detail.files.map((file) => decorateChangedFile(context, file)) } : null);
+	const decorateBranchDiff = (context: GitRepositoryContext, result: { files: LocalGitChangedFile[]; ahead: number; behind: number }) => ({
+		...result,
+		files: result.files.map((file) => decorateChangedFile(context, file)),
+	});
+	const decorateCommitFileDiff = (context: GitRepositoryContext, diff: LocalGitCommitFileDiff | null): GitCommitFileDiff | null => {
+		if (!diff) return null;
+		const target = projectTargetFromRepoPath(context, diff.path);
+		const originalTarget = diff.originalPath ? projectTargetFromRepoPath(context, diff.originalPath) : undefined;
+		return {
+			path: target.relativePath,
+			target,
+			displayPath: target.relativePath,
+			...(originalTarget ? { originalPath: originalTarget.relativePath, originalTarget } : {}),
+			originalContent: diff.originalContent,
+			modifiedContent: diff.modifiedContent,
+		};
+	};
+	const repoRelativePathForTarget = async (context: GitRepositoryContext, backend: GitBackend, target: ProjectFileTarget): Promise<string> => {
+		if (target.projectId !== context.projectId) throw new Error("GIT_PROJECT_TARGET_MISMATCH");
+		const path = await backend.resolveFilePath(target);
+		const relativePath = resolveRelativeGitPath(context.repoRoot, path);
+		if (!relativePath) throw new Error("GIT_FILE_TARGET_MUST_NOT_BE_REPOSITORY_ROOT");
+		return relativePath;
+	};
+	type ParsedGitHistoryOptions = { maxEntries?: number; ref?: string; path?: ProjectFileTarget; allBranches?: boolean };
+	const parseGitHistoryOptions = (projectId: string, value: unknown, includeMaxEntries: boolean): ParsedGitHistoryOptions | undefined => {
+		if (value === undefined) return undefined;
+		if (!isRecord(value)) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		const options = value;
+		const allowed = includeMaxEntries ? ["maxEntries", "ref", "path", "allBranches"] : ["ref", "path", "allBranches"];
+		if (Object.keys(options).some((key) => !allowed.includes(key))) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		const rawMaxEntries = options.maxEntries;
+		if (includeMaxEntries && rawMaxEntries !== undefined && (typeof rawMaxEntries !== "number" || !Number.isInteger(rawMaxEntries) || rawMaxEntries < 1 || rawMaxEntries > 500)) {
+			throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		}
+		const rawRef = options.ref;
+		if (rawRef !== undefined && (typeof rawRef !== "string" || !rawRef.trim() || rawRef.length > 512)) throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		const rawPath = options.path;
+		if (options.allBranches !== undefined && typeof options.allBranches !== "boolean") throw new Error("INVALID_GIT_HISTORY_OPTIONS");
+		return {
+			...(includeMaxEntries && typeof rawMaxEntries === "number" ? { maxEntries: rawMaxEntries } : {}),
+			...(typeof rawRef === "string" ? { ref: rawRef } : {}),
+			...(rawPath !== undefined ? { path: parseGitProjectTarget(projectId, rawPath) } : {}),
+			...(typeof options.allBranches === "boolean" ? { allBranches: options.allBranches } : {}),
+		};
+	};
+	const localGitHistoryOptions = async (context: GitRepositoryContext, backend: GitBackend, options: ParsedGitHistoryOptions | undefined): Promise<{ maxEntries?: number; ref?: string; path?: string; allBranches?: boolean } | undefined> => {
+		if (!options) return undefined;
+		const path = options.path ? await repoRelativePathForTarget(context, backend, options.path) : undefined;
+		return {
+			...(options.maxEntries !== undefined ? { maxEntries: options.maxEntries } : {}),
+			...(options.ref !== undefined ? { ref: options.ref } : {}),
+			...(path !== undefined ? { path } : {}),
+			...(options.allBranches !== undefined ? { allBranches: options.allBranches } : {}),
+		};
+	};
+
+	// Scan repositories through the same local-only boundary used by every Git operation.
 	ipcMain.handle(ipcChannels.gitListRepos, async (_event, projectId: string) => {
-		const project = projectStore.get(projectId);
-		if (!project) return [];
-		return listGitRepos(projectHostPath(project));
+		if (typeof projectId !== "string" || !projectId.trim() || projectId.length > 256) throw new Error("INVALID_PROJECT_ID");
+		if (!projectStore.get(projectId)) return [];
+		try {
+			return await gitBackendRouter.forProject(projectId).listRepositories({ projectId, relativePath: "" });
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+			throw error;
+		}
 	});
 
-	ipcMain.handle(ipcChannels.gitBranches, async (_event, projectId: string, repoPath?: string) => {
-		return gitService.getBranches(requireGitCwd(projectId, repoPath));
+	ipcMain.handle(ipcChannels.gitBranches, async (_event, projectId: string, repoPath?: unknown) => {
+		return gitService.getBranches(await requireGitCwd(projectId, repoPath));
 	});
 
-	ipcMain.handle(ipcChannels.gitCheckout, async (_event, projectId: string, branch: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitCheckout, async (_event, projectId: string, branch: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		const result = await gitService.checkout(cwd, branch);
 		// 切换分支可能覆盖未提交的工作区改动：记 warn 审计日志，排查"文件消失"时能定位到切换动作。
 		void appLogger.warn("git", "Branch checked out", { projectId, branch, repoPath: cwd, changed: result });
 		return result;
 	});
 
-	ipcMain.handle(ipcChannels.gitCreateBranch, async (_event, projectId: string, branchName: string, repoPath?: string) => {
-		return gitService.createBranch(requireGitCwd(projectId, repoPath), branchName);
+	ipcMain.handle(ipcChannels.gitCreateBranch, async (_event, projectId: string, branchName: string, repoPath?: unknown) => {
+		return gitService.createBranch(await requireGitCwd(projectId, repoPath), branchName);
 	});
 
-	// 差异查看需要文件的 Git HEAD 原始内容作为对比基准；参数是绝对文件路径，后端自行定位仓库根。
-	ipcMain.handle(ipcChannels.gitOriginalContent, async (_event, filePath: string) => {
+	// Diff 基准只接受 project target，避免 renderer 提供任意主机路径交给 Git 子进程。
+	ipcMain.handle(ipcChannels.gitOriginalContent, async (_event, rawTarget: unknown) => {
+		const target = parseProjectFileTarget(rawTarget);
+		const backend = gitBackendRouter.forProject(target.projectId);
+		const filePath = await backend.resolveFilePath(target);
 		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-		return gitService.getOriginalContent(hostPath(filePath), maxBytes);
+		return gitService.getOriginalContent(filePath, maxBytes);
 	});
 
-	ipcMain.handle(ipcChannels.gitWorktreeList, async (_event, projectId: string) => {
+	ipcMain.handle(ipcChannels.gitWorktreeList, async (_event, projectId: string): Promise<WorktreeEntry[]> => {
 		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
-		const entries = await worktreeService.list(projectHostPath(project));
-		const storedEntries = entries.map((entry) => ({
-			...entry,
-			path: projectStoredPath(entry.path, project),
-		}));
-		// 每次扫描都同步注册外部新增 worktree，保证侧栏数据和 git 状态一致。
-		for (const wt of storedEntries) {
-			await projectStore.add(wt.path, projectId, project.environment === "wsl" ? "wsl" : "windows");
+		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		const rootTarget = { projectId, relativePath: "" };
+		const repository = await requireGitRepository(projectId, rootTarget);
+		const entries = await worktreeService.list(repository.projectRoot);
+		const result: WorktreeEntry[] = [];
+		for (const entry of entries) {
+			const storedPath = projectStoredPath(entry.path, project);
+			const child = await projectStore.add(storedPath, projectId, project.environment === "wsl" ? "wsl" : "windows");
+			result.push({
+				target: { projectId: child.id, relativePath: "" },
+				branch: entry.branch,
+				displayPath: storedPath,
+				path: storedPath,
+			});
 		}
-		return storedEntries;
+		return result;
 	});
 
-	ipcMain.handle(ipcChannels.gitWorktreeCreate, async (_event, projectId: string, branchName: string) => {
+	ipcMain.handle(ipcChannels.gitWorktreeCreate, async (_event, projectId: string, branchName: string): Promise<WorktreeEntry> => {
 		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
-		const info = await worktreeService.create(projectHostPath(project), projectId, branchName);
+		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		const repository = await requireGitRepository(projectId, { projectId, relativePath: "" });
+		const info = await worktreeService.create(repository.projectRoot, projectId, branchName);
 		const storedPath = projectStoredPath(info.path, project);
-		await projectStore.add(storedPath, projectId, project.environment === "wsl" ? "wsl" : "windows");
-		return { ...info, path: storedPath };
+		const child = await projectStore.add(storedPath, projectId, project.environment === "wsl" ? "wsl" : "windows");
+		return {
+			target: { projectId: child.id, relativePath: "" },
+			branch: info.branch,
+			displayPath: storedPath,
+			path: storedPath,
+		};
 	});
 
-	ipcMain.handle(ipcChannels.gitWorktreeRemove, async (_event, projectId: string, worktreePath: string) => {
+	ipcMain.handle(ipcChannels.gitWorktreeRemove, async (_event, projectId: string, rawWorktreeTarget: unknown) => {
 		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		const worktreeTarget = parseProjectFileTarget(rawWorktreeTarget);
+		if (worktreeTarget.relativePath !== "" || worktreeTarget.projectId === projectId) throw new Error("INVALID_WORKTREE_TARGET");
+		const child = projectStore.get(worktreeTarget.projectId);
+		if (!child || child.worktreeParentId !== projectId) throw new Error("WORKTREE_TARGET_NOT_OWNED_BY_PROJECT");
+		const repository = await requireGitRepository(projectId, { projectId, relativePath: "" });
 		try {
-			const hostWorktreePath = hostPath(worktreePath);
-			const hostProjectPath = projectHostPath(project);
-			const ok = await worktreeService.remove(hostWorktreePath, hostProjectPath);
+			const hostWorktreePath = hostPath(child.path);
+			const ok = await worktreeService.remove(hostWorktreePath, repository.projectRoot);
 			const normalizeForCompare = (value: string) => {
 				const resolved = resolve(value);
 				return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 			};
-			const normalizedTarget = normalizeForCompare(hostWorktreePath);
-			const stillInGit = (await worktreeService.list(hostProjectPath)).some((entry) => normalizeForCompare(entry.path) === normalizedTarget);
-			// 如果 git 已经没有该 worktree（包括用户在外部删过导致 remove 返回 false），
-			// 也要清理 PiDeck 项目记录，否则重启后会从 projects.json 恢复成"删不掉"。
+			const normalizedPath = normalizeForCompare(hostWorktreePath);
+			const stillInGit = (await worktreeService.list(repository.projectRoot)).some((entry) => normalizeForCompare(entry.path) === normalizedPath);
 			if (ok || !stillInGit) {
-				const child = projectStore.findByPath(projectStoredPath(hostWorktreePath, project));
-				if (child) await projectStore.remove(child.id);
-				// worktree 删除 = 物理目录删除（走回收站），记审计日志便于追踪。
-				void appLogger.info("git", "Worktree removed", {
-					projectId,
-					worktreePath,
-					projectRecordRemoved: Boolean(child),
-				});
+				await projectStore.remove(child.id);
+				void appLogger.info("git", "Worktree removed", { projectId, worktreeTarget, projectRecordRemoved: true });
 				return true;
 			}
-			void appLogger.info("git", "Worktree removal skipped", {
-				projectId,
-				worktreePath,
-				reason: "worktree still tracked by git",
-			});
+			void appLogger.info("git", "Worktree removal skipped", { projectId, worktreeTarget, reason: "worktree still tracked by git" });
 			return false;
 		} catch (error) {
 			void appLogger.error("git", "Worktree remove failed", {
 				projectId,
-				worktreePath,
+				worktreeTarget,
 				error: error instanceof Error ? error.message : String(error),
 			});
 			throw error;
@@ -364,153 +503,182 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 	});
 
 	// -- Git 增强：提交历史 / 分支对比 / Graph
-	ipcMain.handle(ipcChannels.gitCommitLog, async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return [];
-		const hostOptions = options?.path ? { ...options, path: hostPath(options.path) } : options;
-		return gitService.getCommitLog(cwd, hostOptions);
+	ipcMain.handle(ipcChannels.gitCommitLog, async (_event, projectId: string, rawOptions?: unknown, repoPath?: unknown) => {
+		const options = parseGitHistoryOptions(projectId, rawOptions, true);
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return [];
+		const backend = gitBackendRouter.forProject(projectId);
+		return gitService.getCommitLog(context.repoRoot, await localGitHistoryOptions(context, backend, options));
 	});
 
-	ipcMain.handle(ipcChannels.gitCommitCount, async (_event, projectId: string, options?: { ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		// 找不到仓库时返回 0：徽章在 count<=0 时隐藏，避免把「无仓库」渲染成 NaN。
-		if (!cwd) return 0;
-		const hostOptions = options?.path ? { ...options, path: hostPath(options.path) } : options;
-		return gitService.getCommitCount(cwd, hostOptions);
+	ipcMain.handle(ipcChannels.gitCommitCount, async (_event, projectId: string, rawOptions?: unknown, repoPath?: unknown) => {
+		const options = parseGitHistoryOptions(projectId, rawOptions, false);
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return 0;
+		const backend = gitBackendRouter.forProject(projectId);
+		return gitService.getCommitCount(context.repoRoot, await localGitHistoryOptions(context, backend, options));
 	});
 
-	ipcMain.handle(ipcChannels.gitRefs, async (_event, projectId: string, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return [];
-		return gitService.getRefs(cwd);
+	ipcMain.handle(ipcChannels.gitRefs, async (_event, projectId: string, repoPath?: unknown) => {
+		const cwd = await findGitCwd(projectId, repoPath);
+		return cwd ? gitService.getRefs(cwd) : [];
 	});
 
-	ipcMain.handle(ipcChannels.gitBranchCompare, async (_event, projectId: string, base: string, target: string, repoPath?: string) => {
-		return gitService.compareBranches(requireGitCwd(projectId, repoPath), base, target);
+	ipcMain.handle(ipcChannels.gitBranchCompare, async (_event, projectId: string, base: string, target: string, repoPath?: unknown) => {
+		const context = await requireGitRepository(projectId, repoPath);
+		const result = await gitService.compareBranches(context.repoRoot, base, target);
+		return decorateBranchDiff(context, result);
 	});
 
-	ipcMain.handle(ipcChannels.gitCommitDetail, async (_event, projectId: string, ref: string, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return null;
-		return gitService.getCommitDetail(cwd, ref);
+	ipcMain.handle(ipcChannels.gitCommitDetail, async (_event, projectId: string, ref: string, repoPath?: unknown) => {
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return null;
+		return decorateCommitDetail(context, await gitService.getCommitDetail(context.repoRoot, ref));
 	});
 
-	ipcMain.handle(ipcChannels.gitCommitFileDiff, async (_event, projectId: string, ref: string, filePath: string, originalPath?: string, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return null;
+	ipcMain.handle(ipcChannels.gitCommitFileDiff, async (_event, projectId: string, ref: string, rawFileTarget: unknown, rawOriginalTarget?: unknown, repoPath?: unknown) => {
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return null;
+		const backend = gitBackendRouter.forProject(projectId);
+		const fileTarget = parseGitProjectTarget(projectId, rawFileTarget);
+		const originalTarget = rawOriginalTarget === undefined ? undefined : parseGitProjectTarget(projectId, rawOriginalTarget);
+		const filePath = await repoRelativePathForTarget(context, backend, fileTarget);
+		const originalPath = originalTarget ? await repoRelativePathForTarget(context, backend, originalTarget) : undefined;
 		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-		return gitService.getCommitFileDiff(cwd, ref, hostPath(filePath), originalPath ? hostPath(originalPath) : originalPath, maxBytes);
+		const diff = await gitService.getCommitFileDiff(context.repoRoot, ref, filePath, originalPath, maxBytes);
+		return decorateCommitFileDiff(context, diff);
 	});
 
-	ipcMain.handle(ipcChannels.gitDiffFileBetween, async (_event, projectId: string, ref1: string, ref2: string, filePath: string, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return "";
-		// 与 gitCommitFileDiff 同源上限：分支对比 diff 受 maxEditorFileSizeMB 约束
+	ipcMain.handle(ipcChannels.gitDiffFileBetween, async (_event, projectId: string, ref1: string, ref2: string, rawFileTarget: unknown, repoPath?: unknown) => {
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return "";
+		const backend = gitBackendRouter.forProject(projectId);
+		const fileTarget = parseGitProjectTarget(projectId, rawFileTarget);
+		const filePath = await repoRelativePathForTarget(context, backend, fileTarget);
 		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-		return gitService.diffFileBetweenRefs(cwd, ref1, ref2, hostPath(filePath), maxBytes);
+		return gitService.diffFileBetweenRefs(context.repoRoot, ref1, ref2, filePath, maxBytes);
 	});
 
 	// Git 工作区状态 + Stage/Unstage
-	ipcMain.handle(ipcChannels.gitStatus, async (_event, projectId: string, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return { merge: [], index: [], workingTree: [], untracked: [] };
-		return gitService.getStatus(cwd);
+	ipcMain.handle(ipcChannels.gitStatus, async (_event, projectId: string, repoPath?: unknown): Promise<GitResourceGroups> => {
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return { merge: [], index: [], workingTree: [], untracked: [] };
+		return decorateResourceGroups(context, await gitService.getStatus(context.repoRoot));
 	});
 
-	ipcMain.handle(ipcChannels.gitWorkspaceFileDiff, async (_event, projectId: string, group: GitWorkspaceDiffGroup, filePath: string, repoPath?: string) => {
-		const cwd = findGitCwd(projectId, repoPath);
-		if (!cwd) return null;
+	ipcMain.handle(ipcChannels.gitWorkspaceFileDiff, async (_event, projectId: string, group: unknown, rawFileTarget: unknown, repoPath?: unknown): Promise<GitWorkspaceFileDiff | null> => {
+		if (group !== "merge" && group !== "index" && group !== "workingTree" && group !== "untracked") throw new Error("INVALID_GIT_RESOURCE_GROUP");
+		const context = await findGitRepository(projectId, repoPath);
+		if (!context) return null;
+		const backend = gitBackendRouter.forProject(projectId);
+		const fileTarget = parseGitProjectTarget(projectId, rawFileTarget);
+		await repoRelativePathForTarget(context, backend, fileTarget);
+		const filePath = await backend.resolveFilePath(fileTarget);
 		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-		return gitService.getWorkspaceFileDiff(cwd, group, hostPath(filePath), maxBytes);
+		const diff = await gitService.getWorkspaceFileDiff(context.repoRoot, group, filePath, maxBytes);
+		if (!diff) return null;
+		const target = targetForAbsolutePath(context, diff.path);
+		return { path: target.relativePath, target, displayPath: target.relativePath, originalContent: diff.originalContent, modifiedContent: diff.modifiedContent };
 	});
 
-	ipcMain.handle(ipcChannels.gitStage, async (_event, projectId: string, paths: string[], repoPath?: string) => {
-		await gitService.stageFiles(requireGitCwd(projectId, repoPath), paths.map(hostPath));
+	ipcMain.handle(ipcChannels.gitStage, async (_event, projectId: string, rawTargets: unknown, repoPath?: unknown) => {
+		const targets = parseGitFileTargets(projectId, rawTargets);
+		const cwd = await requireGitCwd(projectId, repoPath);
+		const backend = gitBackendRouter.forProject(projectId);
+		await gitService.stageFiles(cwd, await localFilePaths(backend, targets));
 	});
 
-	ipcMain.handle(ipcChannels.gitUnstage, async (_event, projectId: string, paths: string[], repoPath?: string) => {
-		await gitService.unstageFiles(requireGitCwd(projectId, repoPath), paths.map(hostPath));
+	ipcMain.handle(ipcChannels.gitUnstage, async (_event, projectId: string, rawTargets: unknown, repoPath?: unknown) => {
+		const targets = parseGitFileTargets(projectId, rawTargets);
+		const cwd = await requireGitCwd(projectId, repoPath);
+		const backend = gitBackendRouter.forProject(projectId);
+		await gitService.unstageFiles(cwd, await localFilePaths(backend, targets));
 	});
 
-	ipcMain.handle(ipcChannels.gitDiscard, async (_event, projectId: string, group: "workingTree" | "untracked", filePath: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitDiscard, async (_event, projectId: string, rawGroup: unknown, rawTarget: unknown, repoPath?: unknown) => {
+		if (rawGroup !== "workingTree" && rawGroup !== "untracked") throw new Error("INVALID_GIT_RESOURCE_GROUP");
+		const target = parseGitProjectTarget(projectId, rawTarget);
+		const cwd = await requireGitCwd(projectId, repoPath);
+		const backend = gitBackendRouter.forProject(projectId);
+		const filePath = await backend.resolveFilePath(target);
 		try {
-			await gitService.discardFile(cwd, group, hostPath(filePath));
-			// untracked 丢弃 = 删除用户文件（走回收站），记审计日志便于追踪。
-			void appLogger.info("git", "Changes discarded", { projectId, group, filePath, repoPath: cwd });
+			await gitService.discardFile(cwd, rawGroup, filePath);
+			void appLogger.info("git", "Changes discarded", { projectId, group: rawGroup, target, repoTarget: parseGitRepositoryTarget(projectId, repoPath) });
 		} catch (error) {
 			void appLogger.error("git", "Discard changes failed", {
 				projectId,
-				group,
-				filePath,
-				repoPath: cwd,
+				group: rawGroup,
+				target,
 				error: error instanceof Error ? error.message : String(error),
 			});
 			throw error;
 		}
 	});
 
-	ipcMain.handle(ipcChannels.gitDiscardFiles, async (_event, projectId: string, resources: GitDiscardResource[], repoPath?: string) => {
-		if (!Array.isArray(resources) || resources.length > 1000 || resources.some((resource) => !resource || (resource.group !== "workingTree" && resource.group !== "untracked") || typeof resource.path !== "string" || resource.path.length === 0)) {
-			throw new Error("Invalid Git discard resources");
-		}
-		const cwd = requireGitCwd(projectId, repoPath);
-		await gitService.discardFiles(
-			cwd,
-			resources.map((resource) => ({ ...resource, path: hostPath(resource.path) })),
-		);
+	ipcMain.handle(ipcChannels.gitDiscardFiles, async (_event, projectId: string, rawResources: unknown, repoPath?: unknown) => {
+		if (!Array.isArray(rawResources) || rawResources.length > 1000) throw new Error("INVALID_GIT_DISCARD_RESOURCES");
+		const resources: GitDiscardResource[] = rawResources.map((raw) => {
+			if (!isRecord(raw)) throw new Error("INVALID_GIT_DISCARD_RESOURCES");
+			const group = raw.group === "workingTree" || raw.group === "untracked" ? raw.group : undefined;
+			if (!group) throw new Error("INVALID_GIT_DISCARD_RESOURCES");
+			return { group, target: parseGitProjectTarget(projectId, raw.target) };
+		});
+		const cwd = await requireGitCwd(projectId, repoPath);
+		const backend = gitBackendRouter.forProject(projectId);
+		const localResources = await Promise.all(resources.map(async (resource) => ({ group: resource.group, path: await backend.resolveFilePath(resource.target) })));
+		await gitService.discardFiles(cwd, localResources);
 		void appLogger.info("git", "Changes discarded in batch", {
 			projectId,
 			count: resources.length,
-			repoPath: cwd,
+			repoTarget: parseGitRepositoryTarget(projectId, repoPath),
 		});
 	});
 
-	ipcMain.handle(ipcChannels.gitCommit, async (_event, projectId: string, message: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitCommit, async (_event, projectId: string, message: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.commit(cwd, message);
 		void appLogger.info("git", "Commit created", { projectId, message, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitCherryPick, async (_event, projectId: string, hash: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitCherryPick, async (_event, projectId: string, hash: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.cherryPick(cwd, hash);
 		void appLogger.info("git", "Commit cherry-picked", { projectId, hash, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitRevert, async (_event, projectId: string, hash: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitRevert, async (_event, projectId: string, hash: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.revertCommit(cwd, hash);
 		void appLogger.info("git", "Commit reverted", { projectId, hash, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitPush, async (_event, projectId: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitPush, async (_event, projectId: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.push(cwd);
 		void appLogger.info("git", "Pushed", { projectId, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitPull, async (_event, projectId: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitPull, async (_event, projectId: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.pull(cwd);
 		void appLogger.info("git", "Pulled", { projectId, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitReset, async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitReset, async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.resetToCommit(cwd, hash, mode);
 		// hard reset 会丢工作区/暂存区改动（reflog 外的不可恢复路径），warn 级突出显示。
 		void appLogger.warn("git", "Reset to commit", { projectId, hash, mode, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitDropCommit, async (_event, projectId: string, hash: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitDropCommit, async (_event, projectId: string, hash: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		await gitService.dropCommit(cwd, hash);
 		void appLogger.warn("git", "Commit dropped", { projectId, hash, repoPath: cwd });
 	});
 
-	ipcMain.handle(ipcChannels.gitGenerateCommitMessage, async (_event, projectId: string, repoPath?: string): Promise<GitGenerateCommitMessageResult> => {
-		const cwd = findGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitGenerateCommitMessage, async (_event, projectId: string, repoPath?: unknown): Promise<GitGenerateCommitMessageResult> => {
+		const cwd = await findGitCwd(projectId, repoPath);
 		if (!cwd) return { ok: true, message: "" };
 
 		const diff = await gitService.getStagedDiff(cwd);
@@ -551,34 +719,29 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 	});
 
 	ipcMain.handle(ipcChannels.gitInit, async (_event, projectId: string) => {
-		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
-		const { execFile } = await import("node:child_process");
-		await execFile(currentGitExecutable(), ["init"], {
-			cwd: projectHostPath(project),
-			windowsHide: true,
-		});
-		void appLogger.info("git", "Repository initialized", { projectId, path: project.path });
+		const context = await requireGitRepository(projectId, { projectId, relativePath: "" });
+		await gitService.init(context.projectRoot);
+		void appLogger.info("git", "Repository initialized", { projectId, target: { projectId, relativePath: "" } });
 	});
 
 	// Fetch：刷新远程跟踪引用（定时轮询 ahead/behind 的前置步骤）。
 	// 非仓库直接跳过：面板首次挂载时 status 与 fetch 会并行，不能等 UI 标记。
-	ipcMain.handle(ipcChannels.gitFetch, async (_event, projectId: string, repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
+	ipcMain.handle(ipcChannels.gitFetch, async (_event, projectId: string, repoPath?: unknown) => {
+		const cwd = await requireGitCwd(projectId, repoPath);
 		if (!(await gitService.isGitRepo(cwd))) return;
 		await gitService.fetch(cwd);
 	});
 
 	// ahead/behind：驱动 push/pull 角标；无上游返回 null（不显示角标）
-	ipcMain.handle(ipcChannels.gitAheadBehind, async (_event, projectId: string, repoPath?: string) => {
-		return gitService.getAheadBehind(requireGitCwd(projectId, repoPath));
+	ipcMain.handle(ipcChannels.gitAheadBehind, async (_event, projectId: string, repoPath?: unknown) => {
+		return gitService.getAheadBehind(await requireGitCwd(projectId, repoPath));
 	});
 
 	// refs 变化监听：面板挂载时订阅、卸载时退订。commit/push/fetch/切分支会改写 refs 签名，
 	// 主进程检出后立即推送，渲染层重读（延迟上限 = watcher 的轮询间隔 1.5 秒）。
 	// 订阅是加速手段而非正确性前提：非 git 目录、读不到文件时 watcher 静默降级，渲染层仍有轮询兜底。
-	ipcMain.handle(ipcChannels.gitWatchRefs, (_event, projectId: string, repoPath?: string) => {
-		return gitRefsWatcher.acquire(projectId, requireGitCwd(projectId, repoPath));
+	ipcMain.handle(ipcChannels.gitWatchRefs, async (_event, projectId: string, repoPath?: unknown) => {
+		return gitRefsWatcher.acquire(projectId, await requireGitCwd(projectId, repoPath));
 	});
 
 	ipcMain.handle(ipcChannels.gitUnwatchRefs, (_event, watchId: string) => {
@@ -597,16 +760,18 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		window.webContents.send(ipcChannels.gitRefsChanged, watchId);
 	});
 
-	// 删除变更文件（移入回收站）：路径由 GitService 按 status 白名单校验
-	ipcMain.handle(ipcChannels.gitDeleteFiles, async (_event, projectId: string, paths: string[], repoPath?: string) => {
-		const cwd = requireGitCwd(projectId, repoPath);
-		// 入参不可信：必须是非空字符串数组，防注入
-		if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || !p)) {
-			throw new Error("Invalid paths");
-		}
-		await gitService.deleteFiles(cwd, paths.map(hostPath));
-		// 批量删除文件：最高风险操作之一，完整记录路径清单（含数量）便于误删回溯。
-		void appLogger.warn("git", "Files deleted (recycle bin)", { projectId, count: paths.length, paths, repoPath: cwd });
+	ipcMain.handle(ipcChannels.gitDeleteFiles, async (_event, projectId: string, rawTargets: unknown, repoPath?: unknown) => {
+		const targets = parseGitFileTargets(projectId, rawTargets);
+		if (targets.length === 0) throw new Error("INVALID_GIT_FILE_TARGETS");
+		const cwd = await requireGitCwd(projectId, repoPath);
+		const backend = gitBackendRouter.forProject(projectId);
+		await gitService.deleteFiles(cwd, await localFilePaths(backend, targets));
+		void appLogger.warn("git", "Files deleted (recycle bin)", {
+			projectId,
+			count: targets.length,
+			targets,
+			repoTarget: parseGitRepositoryTarget(projectId, repoPath),
+		});
 	});
 
 	ipcMain.handle(ipcChannels.gitDetectExecutable, async (_event, configuredPath?: unknown) => {

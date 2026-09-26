@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -146,7 +147,7 @@ function loadSessionNameLineModule() {
 	return sandbox.exports;
 }
 
-function loadSessionScanner(homePath, fsOverrides = {}) {
+function loadSessionScannerLegacy(homePath, fsOverrides = {}) {
 	const source = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -159,6 +160,7 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 	const sessionSummaryCache = loadSessionSummaryCacheModule(homePath);
 	const wslPaths = loadWslPathsModule();
 	const sessionIdentity = loadTranspiledModule("src/shared/sessionIdentity.ts");
+	const locationAdapters = loadTranspiledModule("src/shared/locationAdapters.ts");
 	// SessionScanner 新增的自包含块折叠（无依赖纯函数）
 	const expandedRefBlocks = loadTranspiledModule("src/shared/expandedRefBlocks.ts");
 	// 会话 JSONL 流式行扫描器（只依赖 node:fs/promises，测试注入真实实现）
@@ -181,6 +183,7 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 			// sessionNameLine 为无依赖纯函数模块，直接编译加载真实实现，保证清理口径一致
 			if (id === "./sessionNameLine") return loadSessionNameLineModule();
 			if (id === "../../shared/sessionIdentity") return sessionIdentity;
+			if (id === "../../shared/locationAdapters") return locationAdapters;
 			if (id === "../../shared/expandedRefBlocks") return expandedRefBlocks;
 			if (id === "./jsonlLineStream") return jsonlLineStream;
 			// sharedLogger 未注册时 getAppLogger 返回 null，SessionScanner 埋点静默跳过
@@ -191,6 +194,12 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: "SessionScanner.ts" });
 	return sandbox.exports;
+}
+
+function loadSessionScanner(homePath, fsOverrides = {}) {
+	return loadProductionSessionScanner(homePath, {
+		stubs: { "node:fs": { ...require("node:fs"), ...fsOverrides } },
+	});
 }
 
 function writeSession(filePath, entries) {
@@ -298,6 +307,7 @@ test("hides persisted pi-subagents runs without deleting them or unrelated neste
 		// 验证子会话的 parentSessionPath 指向正确的父会话文件
 		const workerSummary = summaries.find((s) => s.filePath === workerFile);
 		assert.equal(workerSummary.parentSessionPath, parentFile);
+		assert.deepEqual({ ...workerSummary.locator }, { kind: "local", environment: "native", filePath: workerFile });
 		const reviewerSummary = summaries.find((s) => s.filePath === reviewerFile);
 		assert.equal(reviewerSummary.parentSessionPath, parentFile);
 	} finally {

@@ -10,58 +10,16 @@
 // 3. setChatProjectPath() 拒绝把聊天目录指向已注册的普通项目目录。
 import assert from "node:assert/strict";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const require = createRequire(import.meta.url);
-
-function transpile(filePath) {
-	return ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	}).outputText;
-}
-
-function loadWslPaths() {
-	const sandbox = { exports: {}, require };
-	vm.runInNewContext(transpile("src/main/wsl/WslPaths.ts"), sandbox, { filename: "WslPaths.ts" });
-	return sandbox.exports;
-}
-
-function loadProjectPathPolicy() {
-	const sandbox = { exports: {}, require, process };
-	vm.runInNewContext(transpile("src/main/projects/projectPathPolicy.ts"), sandbox, {
-		filename: "projectPathPolicy.ts",
-	});
-	return sandbox.exports;
-}
-
-const paths = loadWslPaths();
-const pathPolicy = loadProjectPathPolicy();
-
-/** 与 wslPaths.test.mjs 同款 vm 沙箱加载 ProjectStore，userData 可参数化（真实文件 I/O 落在临时目录）。 */
+/** Use the shared TS loader so ProjectStore's local dependency graph resolves from source paths. */
 function loadProjectStore(userData) {
-	const sandbox = {
-		exports: {},
-		process,
-		require: (id) => {
-			if (id === "electron") return { app: { getPath: () => userData }, dialog: {} };
-			if (id === "../wsl/WslPaths") return paths;
-			if (id === "./projectPathPolicy") return pathPolicy;
-			return require(id);
-		},
-	};
-	vm.runInNewContext(transpile("src/main/projects/ProjectStore.ts"), sandbox, {
-		filename: "ProjectStore.ts",
+	return loadTsCommonJs("src/main/projects/ProjectStore.ts", {
+		stubs: { electron: { app: { getPath: () => userData }, dialog: {} } },
 	});
-	return sandbox.exports;
 }
 
 /** 每个用例独立 userData 目录，结束后清理；userFolder 即用户挑选的项目目录（与聊天目录同路径的候选）。 */

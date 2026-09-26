@@ -124,8 +124,8 @@ export type SidebarContentProps = {
 	worktreesByProject: Readonly<Record<string, readonly WorktreeEntry[]>>;
 	branchByProject?: Readonly<Record<string, string | null | undefined>>;
 	creatingWorktree?: boolean;
-	/** 正在删除的 worktree 路径集合（透传给 WorktreeTree 驱动淡出动画）。 */
-	removingWorktreePaths?: ReadonlySet<string>;
+	/** Child projects currently being removed. */
+	removingWorktreeProjectIds?: ReadonlySet<string>;
 	isLanWeb?: boolean;
 	chrome?: ReactNode;
 	/** 「新建会话」：打开初始引导页（居中输入框 + 项目下拉切换），由 App 提供。 */
@@ -353,7 +353,7 @@ export function SidebarContent(props: SidebarContentProps) {
 				{/* 单一滚动区承载项目与展开内容，避免项目导航/详情双滚动和重复标题。
             scrollbar-gutter: stable：滚动条出现/消失时列表宽度不跳变（与抽屉一致）。 */}
 				<section className="conversation-list min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
-					<ProjectTree controller={controller} actions={actions} currentProjectId={currentRootProject?.id} currentSessionId={props.currentSessionId} worktreesByProject={props.worktreesByProject} branchByProject={props.branchByProject} removingWorktreePaths={props.removingWorktreePaths} />
+					<ProjectTree controller={controller} actions={actions} currentProjectId={currentRootProject?.id} currentSessionId={props.currentSessionId} worktreesByProject={props.worktreesByProject} branchByProject={props.branchByProject} removingWorktreeProjectIds={props.removingWorktreeProjectIds} />
 				</section>
 			</div>
 			{/* 底栏 dock（beUI Dock）：设置/公告/反馈/主题切换收进浮动卡片，铺满底栏宽度
@@ -527,7 +527,8 @@ export function SidebarContent(props: SidebarContentProps) {
 									void actions.worktrees.remove(
 										menuProjectWorktreeParent.id,
 										{
-											path: menuProject.path,
+											target: { projectId: menuProject.id, relativePath: "" },
+											displayPath: menuProject.path,
 											branch: menuProject.name,
 										},
 										menuProject,

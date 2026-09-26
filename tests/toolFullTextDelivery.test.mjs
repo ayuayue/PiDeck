@@ -62,9 +62,9 @@ test("IPC channel, handler and preload surface are wired", () => {
 	// 四参签名：sessionId 用于运行期绑定不可用时的历史会话文件回退（_viewer 投影）
 	// 形参可能被格式化到同一行：用 \s* 容忍。
 	assert.match(preload, /readMessageFullText: \(\s*sessionId: string \| undefined,\s*agentId: string,\s*messageId: string,\s*entryId\?: string,?\s*\)/);
-	// handler 侧：运行期路径失败时回退 catalog filePath 定位
-	// 实参可能被格式化到同一行：\(\s*…\s*\) 容忍。
-	assert.match(readFileSync("src/main/ipc/sessionIpc.ts", "utf8"), /readMessageFullTextFromFile\(\s*record\.filePath,\s*messageId,\s*entryId as string \| undefined,?\s*\)/);
+	// handler 侧：运行期路径失败时，sessionId 经 catalog locator 定位本地文件回退
+	assert.match(readFileSync("src/main/ipc/sessionIpc.ts", "utf8"), /const requestedSessionPath = requestedSessionId \? localSessionFilePath\(requestedSessionId\) : undefined;/);
+	assert.match(readFileSync("src/main/ipc/sessionIpc.ts", "utf8"), /readMessageFullTextFromFile\(requestedSessionPath, messageId, messageEntryId\)/);
 });
 
 test("ToolCard shows on-demand full-output entry with loading/error states", () => {

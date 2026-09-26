@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentTab, CommitEntry, GitChangedFile, GitResourceGroupType, Project, ProjectFileAccessScope } from "../../../shared/types";
+import type { AgentTab, CommitEntry, GitChangedFile, GitResourceGroupType, Project, ProjectFileAccessScope, ProjectFileTarget } from "../../../shared/types";
 import type { WorkspaceContentOpenMode } from "../../../shared/types/settings";
 import type { DrawerPanel, SessionModifiedFile } from "../components/app/AppParts";
 import { openPermanentEditorTab, openPreviewEditorTab, promotePreviewEditorTab as nextPreviewAfterPromote, type EditorTabOpenMode } from "../utils/editorTabs";
@@ -11,6 +11,7 @@ const EDITOR_TAB_TEXT_BUDGET = 24 * 1024 * 1024;
 interface EditorTab {
 	id: string;
 	filePath: string;
+	fileTarget?: ProjectFileTarget;
 	mode: "view" | "diff";
 	originalContent: string;
 	modifiedContent?: string;
@@ -28,6 +29,7 @@ interface EditorTab {
 
 interface GitDrawerDiff {
 	projectId: string;
+	target: ProjectFileTarget;
 	filePath: string;
 	originalContent: string;
 	modifiedContent: string;
@@ -47,21 +49,23 @@ export interface UseFileEditorInput {
 	contentOpenMode: WorkspaceContentOpenMode;
 	showToast: (message: string, duration?: number) => void;
 	/** 读取文件内容的 API；maxBytes 用于编辑器大文件前置拦截（主进程 stat 检查，不传输超限内容） */
-	readFileContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
+	readFileContent: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
 	/** 读取 Git 原始内容的 API */
-	readGitOriginalContent: (path: string) => Promise<string>;
+	readGitOriginalContent: (target: ProjectFileTarget) => Promise<string>;
 	/** 保存文件内容的 API；项目来源的 tab 必须把同一授权 scope 带到写入边界 */
-	writeFileContent: (path: string, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	writeFileContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
 	/** 系统打开文件 */
-	openFile: (path: string) => Promise<void>;
+	openFile: (path: string | ProjectFileTarget) => Promise<void>;
 	/** 获取 Git 工作区差异 */
 	workspaceFileDiff: (
 		projectId: string,
 		group: GitResourceGroupType,
-		path: string,
-		repoPath?: string,
+		target: ProjectFileTarget,
+		repoTarget?: ProjectFileTarget,
 	) => Promise<{
 		path: string;
+		target: ProjectFileTarget;
+		displayPath: string;
 		originalContent: string;
 		modifiedContent: string;
 	} | null>;
@@ -69,11 +73,13 @@ export interface UseFileEditorInput {
 	commitFileDiff: (
 		projectId: string,
 		hash: string,
-		path: string,
-		originalPath?: string,
-		repoPath?: string,
+		target: ProjectFileTarget,
+		originalTarget?: ProjectFileTarget,
+		repoTarget?: ProjectFileTarget,
 	) => Promise<{
 		path: string;
+		target: ProjectFileTarget;
+		displayPath: string;
 		originalContent: string;
 		modifiedContent: string;
 	} | null>;
@@ -89,22 +95,22 @@ export interface UseFileEditorOutput {
 	activeTabId: string | null;
 	activeTab: EditorTab | null;
 	editorTabAccessSequenceRef: React.MutableRefObject<number>;
-	readEditorFileContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
-	readEditorOriginalContent: (path: string) => Promise<string>;
-	saveEditorFileContent: (path: string, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
-	openEditorTab: (path: string, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave?: boolean, tabKey?: string, label?: string, preserveDrawer?: boolean, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void;
+	readEditorFileContent: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
+	readEditorOriginalContent: (target?: ProjectFileTarget) => Promise<string>;
+	saveEditorFileContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	openEditorTab: (path: string | ProjectFileTarget, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave?: boolean, tabKey?: string, label?: string, preserveDrawer?: boolean, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void;
 	closeEditorTab: (tabId: string) => void;
 	selectEditorTab: (tabId: string) => void;
 	/** 双击预览 Tab → 常驻 */
 	promotePreviewEditorTab: (tabId: string) => void;
 	/** VS Code 式预览 Tab id（斜体）；至多一个 */
 	previewEditorTabId: string | null;
-	openFilePath: (path: string) => void;
+	openFilePath: (path: string | ProjectFileTarget) => void;
 	/** 单击默认 preview；双击传 permanent */
-	viewFilePath: (path: string, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void;
+	viewFilePath: (path: string | ProjectFileTarget, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void;
 	diffFilePath: (path: string, originalContent?: string, content?: string) => void;
-	openWorkspaceFileDiff: (group: GitResourceGroupType, path: string, repoPath?: string) => Promise<void>;
-	openCommitFileDiff: (commit: CommitEntry, file: GitChangedFile, repoPath?: string) => Promise<void>;
+	openWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget, repoTarget?: ProjectFileTarget) => Promise<void>;
+	openCommitFileDiff: (commit: CommitEntry, file: GitChangedFile, repoTarget?: ProjectFileTarget) => Promise<void>;
 	closeGitDiff: () => void;
 	/** 仅关掉 Git Diff、保留文件 tab（与 closeGitDiff 不同：后者连 tab 一起清）。 */
 	dismissGitDiff: () => void;
@@ -182,9 +188,9 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	}, []);
 
 	// ---- IO callbacks ----
-	const readEditorFileContent = useCallback((path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => readFileContent(path, maxBytes, scope), [readFileContent]);
-	const readEditorOriginalContent = useCallback((path: string) => readGitOriginalContent(path), [readGitOriginalContent]);
-	const saveEditorFileContent = useCallback((path: string, content: string, scope?: ProjectFileAccessScope) => writeFileContent(path, content, scope), [writeFileContent]);
+	const readEditorFileContent = useCallback((path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => readFileContent(path, maxBytes, scope), [readFileContent]);
+	const readEditorOriginalContent = useCallback((target?: ProjectFileTarget) => (target ? readGitOriginalContent(target) : Promise.resolve("")), [readGitOriginalContent]);
+	const saveEditorFileContent = useCallback((path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => writeFileContent(path, content, scope), [writeFileContent]);
 
 	// ---- tab management helpers ----
 	const editorTabTextBytes = (tab: EditorTab) => (tab.originalContent.length + (tab.modifiedContent?.length ?? 0)) * 2;
@@ -203,54 +209,61 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 		return next;
 	};
 
-	const openEditorTab = useCallback((path: string, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave = true, tabKey?: string, label?: string, preserveDrawer = false, openMode: EditorTabOpenMode = "permanent", initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => {
-		// updater 纯化：StrictMode 双调用下，updater 内 crypto.randomUUID/嵌套
-		// setState 会产生两个不同 id → activeTabId 与 editorTabs 不一致 → 首次空白。
-		// 改为在闭包内读同步 ref 计算 next，setState 传值（幂等，双调用安全）
-		// 预览/常驻名单由 editorTabs 纯策略决定；内容字段再写回 active tab。
-		const prev = editorTabsRef.current;
-		const previewId = previewEditorTabIdRef.current;
-		const candidate: EditorTab = {
-			id: crypto.randomUUID(),
-			filePath: path,
-			mode,
-			originalContent: originalContent ?? "",
-			modifiedContent,
-			allowSave,
-			tabKey,
-			label,
-			preserveDrawer,
-			...(initialLine !== undefined ? { initialLine } : {}),
-			fileAccessScope,
-			lastAccess: ++editorTabAccessSequenceRef.current,
-		};
-		const strategy = openMode === "preview" ? openPreviewEditorTab(prev, previewId, candidate) : openPermanentEditorTab(prev, previewId, candidate);
+	const openEditorTab = useCallback(
+		(path: string | ProjectFileTarget, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave = true, tabKey?: string, label?: string, preserveDrawer = false, openMode: EditorTabOpenMode = "permanent", initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => {
+			const fileTarget = typeof path === "string" ? undefined : path;
+			const filePath = typeof path === "string" ? path : path.relativePath;
+			// updater 纯化：StrictMode 双调用下，updater 内 crypto.randomUUID/嵌套
+			// setState 会产生两个不同 id → activeTabId 与 editorTabs 不一致 → 首次空白。
+			// 改为在闭包内读同步 ref 计算 next，setState 传值（幂等，双调用安全）
+			// 预览/常驻名单由 editorTabs 纯策略决定；内容字段再写回 active tab。
+			const prev = editorTabsRef.current;
+			const previewId = previewEditorTabIdRef.current;
+			const candidate: EditorTab = {
+				id: crypto.randomUUID(),
+				filePath,
+				fileTarget,
+				mode,
+				originalContent: originalContent ?? "",
+				modifiedContent,
+				allowSave,
+				tabKey,
+				label,
+				preserveDrawer,
+				...(initialLine !== undefined ? { initialLine } : {}),
+				fileAccessScope,
+				lastAccess: ++editorTabAccessSequenceRef.current,
+			};
+			const strategy = openMode === "preview" ? openPreviewEditorTab(prev, previewId, candidate) : openPermanentEditorTab(prev, previewId, candidate);
 
-		let nextTabs = strategy.tabs.map((tab) =>
-			tab.id === strategy.activeId
-				? {
-						...tab,
-						mode,
-						originalContent: originalContent ?? "",
-						modifiedContent,
-						allowSave,
-						tabKey,
-						label,
-						preserveDrawer,
-						...(initialLine !== undefined ? { initialLine } : {}),
-						fileAccessScope,
-						lastAccess: candidate.lastAccess,
-					}
-				: tab,
-		);
-		nextTabs = trimEditorTabs(nextTabs, strategy.activeId);
-		// trim 可能挤掉预览 Tab；预览 id 必须以仍在列表中的为准
-		const nextPreview = strategy.previewId && nextTabs.some((tab) => tab.id === strategy.previewId) ? strategy.previewId : null;
+			let nextTabs = strategy.tabs.map((tab) =>
+				tab.id === strategy.activeId
+					? {
+							...tab,
+							mode,
+							originalContent: originalContent ?? "",
+							modifiedContent,
+							allowSave,
+							tabKey,
+							label,
+							preserveDrawer,
+							...(initialLine !== undefined ? { initialLine } : {}),
+							fileTarget,
+							fileAccessScope,
+							lastAccess: candidate.lastAccess,
+						}
+					: tab,
+			);
+			nextTabs = trimEditorTabs(nextTabs, strategy.activeId);
+			// trim 可能挤掉预览 Tab；预览 id 必须以仍在列表中的为准
+			const nextPreview = strategy.previewId && nextTabs.some((tab) => tab.id === strategy.previewId) ? strategy.previewId : null;
 
-		setEditorTabs(nextTabs);
-		setActiveTabId(strategy.activeId);
-		setPreviewEditorTabId(nextPreview);
-	}, []);
+			setEditorTabs(nextTabs);
+			setActiveTabId(strategy.activeId);
+			setPreviewEditorTabId(nextPreview);
+		},
+		[],
+	);
 
 	const closeEditorTab = useCallback(
 		(tabId: string) => {
@@ -310,10 +323,11 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 
 	// ---- file actions ----
 	const openFilePath = useCallback(
-		(path: string) => {
-			const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
+		(path: string | ProjectFileTarget) => {
+			const displayPath = typeof path === "string" ? path : path.relativePath;
+			const resolvedPath = typeof path === "string" ? resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path) : path;
 			if (!resolvedPath) {
-				showToast(t("app.fileLinkCannotResolve", { path }));
+				showToast(t("app.fileLinkCannotResolve", { path: displayPath }));
 				return;
 			}
 			void openFile(resolvedPath).catch((error) => {
@@ -328,7 +342,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	);
 
 	const viewFilePath = useCallback(
-		(path: string, openMode: EditorTabOpenMode = "preview", initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => {
+		(path: string | ProjectFileTarget, openMode: EditorTabOpenMode = "preview", initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => {
 			// 只清 Git Diff，保留已有文件 tab——否则预览/多 tab 无法成立
 			dismissGitDiffOnly();
 			openEditorTab(path, "view", undefined, undefined, true, undefined, undefined, false, openMode, initialLine, fileAccessScope);
@@ -357,13 +371,13 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	);
 
 	const openWorkspaceFileDiffFn = useCallback(
-		async (group: GitResourceGroupType, path: string, repoPath?: string) => {
+		async (group: GitResourceGroupType, target: ProjectFileTarget, repoTarget?: ProjectFileTarget) => {
 			if (!activeProjectId) return;
 			const projectId = activeProjectId;
 			const request = ++gitDiffRequestSequenceRef.current;
 			try {
 				// repoPath 来自 Git 侧栏当前选中仓库；缺省仍读项目根，兼容单仓。
-				const diff = await workspaceFileDiff(projectId, group, path, repoPath);
+				const diff = await workspaceFileDiff(projectId, group, target, repoTarget);
 				if (activeProjectIdRef.current !== projectId || request !== gitDiffRequestSequenceRef.current) return;
 				if (!diff) {
 					showToast(t("git.workspaceDiffUnavailable"));
@@ -380,10 +394,11 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 				setGitDiffDisplayMode(mode);
 				setGitDrawerDiff({
 					projectId,
+					target: diff.target,
 					filePath: diff.path,
 					originalContent: diff.originalContent,
 					modifiedContent: diff.modifiedContent,
-					label: `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${groupLabel})`,
+					label: `${diff.displayPath.split(/[/\\]/).pop() ?? diff.displayPath} (${groupLabel})`,
 				});
 			} catch (error) {
 				if (activeProjectIdRef.current === projectId && request === gitDiffRequestSequenceRef.current) {
@@ -395,12 +410,12 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	);
 
 	const openCommitFileDiffFn = useCallback(
-		async (commit: CommitEntry, file: GitChangedFile, repoPath?: string) => {
+		async (commit: CommitEntry, file: GitChangedFile, repoTarget?: ProjectFileTarget) => {
 			if (!activeProjectId) return;
 			const projectId = activeProjectId;
 			const request = ++gitDiffRequestSequenceRef.current;
 			try {
-				const diff = await commitFileDiff(projectId, commit.hash, file.path, file.originalPath, repoPath);
+				const diff = await commitFileDiff(projectId, commit.hash, file.target, file.originalTarget, repoTarget);
 				if (activeProjectIdRef.current !== projectId || request !== gitDiffRequestSequenceRef.current) return;
 				if (!diff) {
 					showToast(t("git.fileDiffUnavailable"));
@@ -415,10 +430,11 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 				setGitDiffDisplayMode(mode);
 				setGitDrawerDiff({
 					projectId,
+					target: diff.target,
 					filePath: diff.path,
 					originalContent: diff.originalContent,
 					modifiedContent: diff.modifiedContent,
-					label: `${diff.path.split(/[/\\]/).pop() ?? diff.path} (${commit.shortHash})`,
+					label: `${diff.displayPath.split(/[/\\]/).pop() ?? diff.displayPath} (${commit.shortHash})`,
 				});
 			} catch (error) {
 				if (activeProjectIdRef.current === projectId && request === gitDiffRequestSequenceRef.current) {

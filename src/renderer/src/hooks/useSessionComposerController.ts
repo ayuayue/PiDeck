@@ -52,7 +52,7 @@ import {
 } from "../composerBehavior";
 import { applySuggestion, buildSuggestionItems, clearSuggestionTrigger, detectTrigger, DSH_COMMAND_SUGGESTIONS, fileNodeDragPayloadToRef, flattenFiles, mergeCommands, PI_FILE_NODE_DRAG_MIME, PI_FILE_PATH_DRAG_MIME, readFileNodeDragPayload, type SuggestionItem } from "../components/app/AppUtils";
 import { SESSION_TAB_DRAG_MIME } from "../utils/sessionSplitEdge";
-import { mergeFileTreeChildren, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } from "../utils/fileTreeLazy";
+import { fileTreeNodeKey, mergeFileTreeChildren, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } from "../utils/fileTreeLazy";
 import { formatFilePathRef, type ComposerChip } from "../components/session/composer/chips";
 import type { ComposerCaretRequest } from "../components/session/composer/types";
 import { getComposerCaretCoords, getComposerCaretOffset, getComposerCaretBlockEdge, getComposerSelectionRange, isComposerAtVisualEdge } from "../components/session/composer/caretCoords";
@@ -831,24 +831,25 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		if (!trigger || trigger.char !== "@") return;
 		const dirNode = resolveAtDrillDirectory(trigger.query, files);
 		if (!dirNode) return;
-		// 已有 children 数组 = 子项已加载（含空目录），不重复请求
-		if (Array.isArray(dirNode.children) || loadingDirPathsRef.current.has(dirNode.path)) {
-			return;
-		}
+		const directoryKey = fileTreeNodeKey(dirNode);
+		if (Array.isArray(dirNode.children) || loadingDirPathsRef.current.has(directoryKey)) return;
+		if (!dirNode.target && !dirNode.path) return;
 		let current = true;
-		loadingDirPathsRef.current.add(dirNode.path);
+		loadingDirPathsRef.current.add(directoryKey);
+		const listTarget = dirNode.target ?? effectiveProjectId;
+		const listOptions = dirNode.target ? { maxDepth: 0 } : { maxDepth: 0, directory: dirNode.path };
 		void desktopApi.files
-			.list(effectiveProjectId, { maxDepth: 0, directory: dirNode.path })
+			.list(listTarget, listOptions)
 			.then((children) => {
 				if (!current) return;
-				setFiles((prev) => mergeFileTreeChildren(prev, dirNode.path, children));
-				loadedDirPathsRef.current.add(dirNode.path);
+				setFiles((prev) => mergeFileTreeChildren(prev, directoryKey, children));
+				loadedDirPathsRef.current.add(directoryKey);
 			})
 			.catch(() => {
 				// 目录被删/权限不足：保留已加载部分，下次输入自然重试
 			})
 			.finally(() => {
-				loadingDirPathsRef.current.delete(dirNode.path);
+				loadingDirPathsRef.current.delete(directoryKey);
 			});
 		return () => {
 			current = false;

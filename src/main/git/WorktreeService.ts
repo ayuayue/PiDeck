@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { trashPath } from "../fs/trash";
 import { currentGitExecutable } from "./gitExecutable";
 import { worktreeSlugify } from "../../shared/worktreeSlug";
-import type { WorktreeEntry } from "../../shared/types";
+import type { LocalWorktreeEntry } from "./localGitTypes";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
 const execFileAsync = promisify(execFile);
@@ -35,7 +35,7 @@ export class WorktreeService {
 	 * 会作为普通条目出现在列表中；若不排除，用户误点删除会整目录 rm -rf（曾导致
 	 * 主工作区 40G 数据丢失）。
 	 */
-	async list(projectPath: string): Promise<WorktreeEntry[]> {
+	async list(projectPath: string): Promise<LocalWorktreeEntry[]> {
 		try {
 			const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], gitExecOptions(projectPath));
 			const mainWorktree = await this.getMainWorktree(projectPath);
@@ -170,13 +170,13 @@ export class WorktreeService {
 	 * 解析 git worktree list --porcelain 输出。
 	 * 过滤掉主工作区（rootPath，由 getMainWorktree 推导的仓库根），只返回其他 worktree。
 	 */
-	private parseWorktreeList(stdout: string, rootPath: string): WorktreeEntry[] {
-		const entries: WorktreeEntry[] = [];
+	private parseWorktreeList(stdout: string, rootPath: string): LocalWorktreeEntry[] {
+		const entries: LocalWorktreeEntry[] = [];
 		// 规范化路径用于比较（Windows 忽略大小写）
 		const normalizedRoot = this.canonicalSync(rootPath);
 
 		const lines = stdout.split(/\r?\n/);
-		let current: Partial<WorktreeEntry> | null = null;
+		let current: Partial<LocalWorktreeEntry> | null = null;
 
 		for (const line of lines) {
 			const trimmed = line.trim();

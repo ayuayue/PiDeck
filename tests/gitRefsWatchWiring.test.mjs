@@ -39,7 +39,7 @@ test("主进程按仓库路径订阅/退订，并把事件推给主窗口", () =
 });
 
 test("preload 暴露 watchRefs / unwatchRefs / onRefsChanged（含退订）", () => {
-	assert.match(preload, /watchRefs:\s*\(projectId: string, repoPath\?: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitWatchRefs, projectId, repoPath\) as Promise<string>/);
+	assert.match(preload, /watchRefs:\s*\(projectId: string, repoPath\?: ProjectFileTarget\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitWatchRefs, projectId, repoPath\) as Promise<string>/);
 	assert.match(preload, /unwatchRefs:\s*\(watchId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitUnwatchRefs, watchId\) as Promise<void>/);
 	const subscribeBlock = preload.slice(preload.indexOf("onRefsChanged:"), preload.indexOf("onRefsChanged:") + 400);
 	assert.match(subscribeBlock, /ipcRenderer\.on\(ipcChannels\.gitRefsChanged, handler\)/);
@@ -53,7 +53,7 @@ test("预览环境（无主进程）提供空实现，避免 desktopApi 类型�
 });
 
 test("GitDrawerHost 把 refs 订阅固定在仓库作用域上并透传给 GitPanel", () => {
-	assert.match(drawerHost, /watchRefs:\s*\(projectId: string, repoPath\?: string\) => Promise<string>/);
+	assert.match(drawerHost, /watchRefs:\s*\(projectId: string, repoPath\?: ProjectFileTarget\) => Promise<string>/);
 	assert.match(drawerHost, /onRefsChanged:\s*\(listener: \(watchId: string\) => void\) => \(\) => void/);
 	assert.match(drawerHost, /watchRefs:\s*\(id: string\)\s*=>\s*gitApi\.watchRefs\(id, repoPath\)/);
 	assert.match(drawerHost, /onRefsChanged:\s*gitApi\.onRefsChanged/);

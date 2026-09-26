@@ -5,9 +5,10 @@ import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { appendFile, mkdir, open as openFile, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { basename as posixBasename, dirname as posixDirname, isAbsolute as posixIsAbsolute, join as posixJoin } from "node:path/posix";
-import type { ArchivedPiSession, ChatMessage, ChatRole, SessionSummary } from "../../shared/types";
+import type { ArchivedPiSession, ChatMessage, ChatRole, SessionLocator, SessionSummary } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
+import { sessionLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isInSubagentArtifactsDir, isValidPiSessionFileHead, looksLikePiSessionFileStem, SUBAGENT_ARTIFACTS_DIR_NAME } from "../../shared/sessionIdentity";
 import { extractMessageText, extractThinkingRaw } from "../pi/messageContent";
 import { isRoleMessageRole } from "../pi/sessionEntryIds";
@@ -1684,6 +1685,7 @@ export class SessionScanner {
 		return {
 			id: filePath,
 			filePath,
+			locator: this.sessionLocatorForPath(filePath, isWsl),
 			projectPath: this.inferProjectPathFromFile(filePath),
 			preview: "",
 			updatedAt: info.mtimeMs,
@@ -1715,6 +1717,24 @@ export class SessionScanner {
 		return id || undefined;
 	}
 
+	private sessionLocatorForPath(filePath: string, isWsl = this.isWslPath(filePath)): SessionLocator {
+		return sessionLocatorFromLegacy({
+			environment: isWsl ? "wsl" : "native",
+			filePath,
+			...(isWsl && this.wslConfig
+				? {
+						wslDistro: this.wslConfig.distro,
+						wslUser: this.wslConfig.user,
+					}
+				: {}),
+		});
+	}
+
+	private withSessionLocator(summary: SessionSummary): SessionSummary {
+		if (summary.locator) return summary;
+		return { ...summary, locator: this.sessionLocatorForPath(summary.filePath, summary.wsl === true || this.isWslPath(summary.filePath)) };
+	}
+
 	private async readSummary(filePath: string, signal?: AbortSignal): Promise<SessionSummary | null> {
 		// 先读取轻量文件指纹；未变化时复用摘要，避免周期扫描反复读取和解析全部 JSONL。
 		const isWsl = this.isWslPath(filePath);
@@ -1722,7 +1742,7 @@ export class SessionScanner {
 		// schema v2：摘要新增 hasImageGen；不带 tag 的旧缓存缺字段，会一直不显示角标
 		const version = { mtimeMs: info.mtimeMs, size: info.size, schema: 2 };
 		const cached = this.summaryCache.get(filePath, version);
-		if (cached !== undefined) return cached;
+		if (cached !== undefined) return cached ? this.withSessionLocator(cached) : cached;
 
 		// catalog 摘要只读前缀：整文件 parse 会在后台扫描时占满主线程，点击/输入跟着卡。
 		const raw = isWsl ? await this.readWslFileHead(filePath, SessionScanner.SUMMARY_PARSE_MAX_BYTES, signal) : await this.readLocalFilePrefix(filePath, SessionScanner.SUMMARY_PARSE_MAX_BYTES);
@@ -1901,6 +1921,7 @@ export class SessionScanner {
 		const summary: SessionSummary = {
 			id: filePath,
 			filePath,
+			locator: this.sessionLocatorForPath(filePath, isWsl),
 			projectPath: projectPath ? this.canonicalProjectPath(projectPath, isWsl) : this.inferProjectPathFromFile(filePath),
 			name: inferredName,
 			// 无名称时的会话占位文案不是权威名；有名称时透传来源供 catalog 定所有权（#266）。

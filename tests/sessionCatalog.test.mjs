@@ -35,6 +35,63 @@ function summary(overrides = {}) {
 	};
 }
 
+test("catalog records expose canonical SSH locators without a stale local file path", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-session-locator-"));
+	const catalogPath = join(dir, "sessions.json");
+	const { buildSessionOriginKey } = loadTsCommonJs("src/shared/sessionIdentity.ts");
+	const staleLocalOrigin = buildSessionOriginKey({ source: "pi", environment: "native", filePath: "C:/stale/local/session.jsonl" });
+	try {
+		await writeFile(
+			catalogPath,
+			JSON.stringify({
+				version: 1,
+				sessions: [
+					{
+						id: "session-ssh",
+						projectId: "project-1",
+						title: "Remote session",
+						source: "pi",
+						environment: "native",
+						backend: "pi",
+						locator: { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo/.pi/sessions/one.jsonl", remoteSessionId: "remote-session-1" },
+						originKey: staleLocalOrigin,
+						piSessionId: "stale-pi-session",
+						filePath: "C:/stale/local/session.jsonl",
+						status: "active",
+						createdAt: 1,
+						updatedAt: 1,
+					},
+				],
+			}),
+			"utf8",
+		);
+		const catalog = new SessionCatalog(catalogPath);
+		await catalog.load();
+		const record = catalog.getRecord("session-ssh");
+		assert.equal(record?.locator?.kind, "ssh");
+		assert.equal(record?.filePath, undefined);
+		assert.equal(catalog.get("session-ssh")?.filePath, undefined);
+		assert.equal(catalog.get("session-ssh")?.originKey, undefined);
+		assert.equal(catalog.get("session-ssh")?.piSessionId, undefined);
+		const persisted = JSON.parse(await readFile(catalogPath, "utf8"));
+		assert.equal(persisted.sessions[0].filePath, undefined);
+		assert.equal(persisted.sessions[0].originKey, undefined);
+		assert.equal(persisted.sessions[0].piSessionId, undefined);
+		assert.equal(catalog.getLocator("session-ssh")?.kind, "ssh");
+		assert.throws(() => catalog.getLocalFilePath("session-ssh"), /UNSUPPORTED_PROJECT_LOCATION/);
+		const scanned = await catalog.mergeScanned("project-1", [summary({ filePath: "C:/stale/local/session.jsonl", id: "C:/stale/local/session.jsonl" })]);
+		assert.equal(scanned.length, 2);
+		assert.equal(scanned.find((candidate) => candidate.id === "session-ssh")?.filePath, undefined);
+		assert.equal(
+			scanned.some((candidate) => candidate.id !== "session-ssh" && candidate.filePath === "C:/stale/local/session.jsonl"),
+			true,
+		);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("does not restore an unsubmitted draft after the catalog is reloaded", async () => {
 	const { SessionCatalog } = loadCatalog();
 	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-draft-cleanup-"));
@@ -373,6 +430,14 @@ test("keeps a draft desktop session ID after Pi assigns a file path", async () =
 		assert.equal(records[0].model?.provider, "openai");
 		assert.equal(records[0].model?.modelId, "gpt-test");
 		assert.equal(records[0].thinkingLevel, "high");
+		assert.deepEqual(
+			{ ...records[0].locator },
+			{
+				kind: "local",
+				environment: "native",
+				filePath: "c:/sessions/example.jsonl",
+			},
+		);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -409,6 +474,17 @@ test("uses the configured WSL identity when a draft becomes active", async () =>
 		);
 		assert.equal(records.length, 1);
 		assert.equal(records[0].id, draft.id);
+		assert.equal(catalog.getLocalFilePath(draft.id), "/home/dev/.pi/agent/sessions/example.jsonl");
+		assert.deepEqual(
+			{ ...records[0].locator },
+			{
+				kind: "local",
+				environment: "wsl",
+				filePath: "/home/dev/.pi/agent/sessions/example.jsonl",
+				wslDistro: "Ubuntu",
+				wslUser: "dev",
+			},
+		);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -511,6 +587,134 @@ test("recovers a damaged primary catalog from its atomic backup", async () => {
 		assert.equal(recovered.listEntries()[0].id, first.id);
 		const repaired = JSON.parse(await readFile(filePath, "utf8"));
 		assert.equal(repaired.sessions[0].id, first.id);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("refuses writes when both catalog snapshots are invalid", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-needs-repair-"));
+	const filePath = join(dir, "sessions.json");
+	try {
+		await writeFile(filePath, "{truncated-primary", "utf8");
+		await writeFile(`${filePath}.bak`, "{truncated-backup", "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		await assert.rejects(catalog.createDraft({ projectId: "project-1", title: "Must not overwrite", environment: "native" }), (error) => error.code === "SESSION_CATALOG_NEEDS_REPAIR");
+		await assert.rejects(catalog.mergeScanned("project-1", [summary()]), (error) => error.code === "SESSION_CATALOG_NEEDS_REPAIR");
+		assert.equal(await readFile(filePath, "utf8"), "{truncated-primary");
+		assert.equal(await readFile(`${filePath}.bak`, "utf8"), "{truncated-backup");
+		assert.equal(catalog.listEntries().length, 0);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("refuses to replace an unreadable future catalog when backup is missing", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-unknown-locator-"));
+	const filePath = join(dir, "sessions.json");
+	const futureCatalog = JSON.stringify({
+		version: 1,
+		sessions: [{ id: "future", projectId: "project-1", title: "Future", source: "pi", environment: "native", status: "active", locator: { kind: "future", path: "/sessions/future.jsonl" } }],
+	});
+	try {
+		await writeFile(filePath, futureCatalog, "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		await assert.rejects(catalog.createDraft({ projectId: "project-1", title: "Must not overwrite", environment: "native" }), (error) => error.code === "SESSION_CATALOG_NEEDS_REPAIR");
+		assert.equal(await readFile(filePath, "utf8"), futureCatalog);
+		await assert.rejects(readFile(`${filePath}.bak`, "utf8"), (error) => error.code === "ENOENT");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("preserves an unknown locator primary instead of restoring an older backup", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-future-locator-backup-"));
+	const filePath = join(dir, "sessions.json");
+	const oldEntry = { id: "old", projectId: "project-1", title: "Old", source: "pi", environment: "native", status: "active" };
+	const futureCatalog = JSON.stringify({ version: 1, sessions: [oldEntry, { ...oldEntry, id: "new", title: "New", locator: { kind: "sftp", path: "/sessions/new.jsonl" } }] });
+	const oldBackup = JSON.stringify({ version: 1, sessions: [oldEntry] });
+	try {
+		await writeFile(filePath, futureCatalog, "utf8");
+		await writeFile(`${filePath}.bak`, oldBackup, "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		assert.equal(catalog.listEntries().length, 0);
+		await assert.rejects(catalog.createDraft({ projectId: "project-1", title: "Must not overwrite", environment: "native" }), (error) => error.code === "SESSION_CATALOG_NEEDS_REPAIR");
+		assert.equal(await readFile(filePath, "utf8"), futureCatalog);
+		assert.equal(await readFile(`${filePath}.bak`, "utf8"), oldBackup);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("restores a malformed known locator from a valid backup", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-invalid-local-backup-"));
+	const filePath = join(dir, "sessions.json");
+	const oldEntry = { id: "old", projectId: "project-1", title: "Old", source: "pi", environment: "native", status: "active" };
+	try {
+		await writeFile(filePath, JSON.stringify({ version: 1, sessions: [{ ...oldEntry, locator: { kind: "local", environment: "other" } }] }), "utf8");
+		await writeFile(`${filePath}.bak`, JSON.stringify({ version: 1, sessions: [oldEntry] }), "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		assert.equal(catalog.listEntries()[0]?.id, "old");
+		assert.equal(JSON.parse(await readFile(filePath, "utf8")).sessions[0].id, "old");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("refuses to downgrade an unknown catalog version", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-future-version-"));
+	const filePath = join(dir, "sessions.json");
+	const futureCatalog = JSON.stringify({ version: 2, sessions: [] });
+	try {
+		await writeFile(filePath, futureCatalog, "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		await assert.rejects(catalog.createDraft({ projectId: "project-1", title: "Must not downgrade", environment: "native" }), (error) => error.code === "SESSION_CATALOG_NEEDS_REPAIR");
+		assert.equal(await readFile(filePath, "utf8"), futureCatalog);
+		await assert.rejects(readFile(`${filePath}.bak`, "utf8"), (error) => error.code === "ENOENT");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("preserves a future catalog even when an older backup is readable", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-future-with-backup-"));
+	const filePath = join(dir, "sessions.json");
+	const futureCatalog = JSON.stringify({ version: 2, sessions: [] });
+	const oldBackup = JSON.stringify({ version: 1, sessions: [] });
+	try {
+		await writeFile(filePath, futureCatalog, "utf8");
+		await writeFile(`${filePath}.bak`, oldBackup, "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		await assert.rejects(catalog.createDraft({ projectId: "project-1", title: "Must not downgrade", environment: "native" }), (error) => error.code === "SESSION_CATALOG_NEEDS_REPAIR");
+		assert.equal(await readFile(filePath, "utf8"), futureCatalog);
+		assert.equal(await readFile(`${filePath}.bak`, "utf8"), oldBackup);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("accepts an unversioned legacy catalog as a writable v1 snapshot", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-unversioned-"));
+	const filePath = join(dir, "sessions.json");
+	try {
+		await writeFile(filePath, JSON.stringify({ sessions: [] }), "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		await catalog.createDraft({ projectId: "project-1", title: "Legacy", environment: "native" });
+		assert.equal(JSON.parse(await readFile(filePath, "utf8")).version, 1);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

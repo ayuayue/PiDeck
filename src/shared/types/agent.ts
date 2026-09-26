@@ -1,5 +1,5 @@
 import type { ThinkingLevelMap } from "./modelSpecs";
-import type { SessionEnvironment, SessionSource } from "./session";
+import type { SessionEnvironment, SessionLocator, SessionSource } from "./session";
 import type { TodoItem } from "./todo";
 
 export type AgentStatus = "starting" | "idle" | "running" | "error" | "closed";
@@ -224,6 +224,9 @@ export type ModelsVerifyResult = {
 export type CreateAgentInput = {
 	projectId: string;
 	title?: string;
+	/** Canonical history location; SSH is rejected until a remote session backend is installed. */
+	sessionLocator?: SessionLocator;
+	/** Local-only compatibility path for existing runtime callers. */
 	sessionPath?: string;
 	/** 运行时后端；缺省走当前装配的默认后端（pi），旧调用方无需改动。 */
 	backend?: AgentBackend;

@@ -18,10 +18,11 @@ test("file viewer IO callbacks are stable across App re-renders", () => {
 });
 
 test("file viewer keeps project scope and drops stale media reads", () => {
-	assert.match(viewer, /props\.readContent\(props\.filePath, maxFileSize, props\.fileAccessScope\)/);
+	assert.match(viewer, /const fileAccessPath = props\.fileTarget \?\? props\.filePath/);
+	assert.match(viewer, /props\.readContent\(fileAccessPath, maxFileSize, props\.fileAccessScope\)/);
 	assert.match(viewer, /FILE_TOO_LARGE:\(\\d\+\):\(\\d\+\)/);
 	assert.match(viewer, /props\.saveContent\(savePath, latest, props\.fileAccessScope\)/);
-	assert.match(viewer, /\[getLatestContent, isDiffMode, props\.saveContent, props\.filePath, props\.fileAccessScope\?\.projectId\]/);
+	assert.match(viewer, /\[getLatestContent, isDiffMode, props\.saveContent, props\.filePath, props\.fileTarget\?\.projectId, props\.fileTarget\?\.relativePath, props\.fileAccessScope\?\.projectId\]/);
 	assert.match(viewer, /async function loadMediaPreview\(\)/);
 	assert.match(viewer, /if \(cancelled \|\| !base64\)/);
 	assert.doesNotMatch(viewer, /loadMediaPreview\(cancelled\)|isCancelled: boolean/);

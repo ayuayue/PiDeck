@@ -48,6 +48,7 @@ function makeHarness() {
 	];
 	const catalog = {
 		get: (sessionId) => (records.has(sessionId) ? { id: sessionId } : undefined),
+		getLocator: () => undefined,
 		attachRuntime: async () => undefined,
 	};
 	const agents = {

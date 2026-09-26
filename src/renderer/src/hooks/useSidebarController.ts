@@ -83,9 +83,9 @@ export type SidebarController = {
 	hasExpandedChildren: (projectId: string) => boolean;
 	expandedSubagentGroups: ReadonlySet<string>;
 	toggleSubagentGroup: (groupId: string) => void;
-	expandedWorktreePaths: ReadonlySet<string>;
-	toggleWorktreeSessions: (path: string) => void;
-	expandWorktreeSessions: (path: string) => void;
+	expandedWorktreeProjectIds: ReadonlySet<string>;
+	toggleWorktreeSessions: (projectId: string) => void;
+	expandWorktreeSessions: (projectId: string) => void;
 	/**
 	 * 点选工作区（主工作区或 worktree）。
 	 * 切换到其他工作区时自动展开，避免「选中了却看不到会话」；
@@ -208,7 +208,7 @@ export function useSidebarController(
 	const [visibleChildCountByProject, setVisibleChildCountByProject] = useState<Record<string, number>>({});
 	const [sourceFilterMenu, setSourceFilterMenu] = useState<SidebarSourceFilterMenu>();
 	const [expandedSubagentGroups, setExpandedSubagentGroups] = useState<Set<string>>(() => new Set());
-	const [expandedWorktreePaths, setExpandedWorktreePaths] = useState<Set<string>>(() => new Set());
+	const [expandedWorktreeProjectIds, setExpandedWorktreeProjectIds] = useState<Set<string>>(() => new Set());
 	const [drag, setDrag] = useState<{ sourceProjectId?: string; overProjectId?: string }>({});
 	const [menu, setMenu] = useState<SidebarMenuTarget | null>(null);
 	const [agentRpcLogging, setAgentRpcLoggingById] = useState<Map<string, boolean>>(() => new Map());
@@ -470,16 +470,16 @@ export function useSidebarController(
 			return next;
 		});
 	}, []);
-	const toggleWorktreeSessions = useCallback((path: string) => {
-		setExpandedWorktreePaths((current) => {
+	const toggleWorktreeSessions = useCallback((projectId: string) => {
+		setExpandedWorktreeProjectIds((current) => {
 			const next = new Set(current);
-			if (next.has(path)) next.delete(path);
-			else next.add(path);
+			if (next.has(projectId)) next.delete(projectId);
+			else next.add(projectId);
 			return next;
 		});
 	}, []);
-	const expandWorktreeSessions = useCallback((path: string) => {
-		setExpandedWorktreePaths((current) => new Set(current).add(path));
+	const expandWorktreeSessions = useCallback((projectId: string) => {
+		setExpandedWorktreeProjectIds((current) => new Set(current).add(projectId));
 	}, []);
 	const openMenu = useCallback(
 		async (target: SidebarMenuTarget) => {
@@ -525,7 +525,7 @@ export function useSidebarController(
 		hasExpandedChildren,
 		expandedSubagentGroups,
 		toggleSubagentGroup,
-		expandedWorktreePaths,
+		expandedWorktreeProjectIds,
 		toggleWorktreeSessions,
 		expandWorktreeSessions,
 		drag,

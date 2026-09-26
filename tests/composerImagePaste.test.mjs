@@ -46,20 +46,21 @@ test("dataUrlToFile 解码 base64 字节、MIME 与文件名正确", async () =>
 
 // ── 源码级接线断言：对话框 properties 与粘贴分支 ──
 
+const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
 const filesIpc = readFileSync("src/main/ipc/filesIpc.ts", "utf8");
 const preload = readFileSync("src/preload/index.ts", "utf8");
 const controller = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
 
 test("附件选择器默认仅选文件，includeDirectories 才同时选目录", () => {
 	// 默认 properties 不含 openDirectory（Windows 上并存会退化为「只选文件夹」）
-	assert.match(filesIpc, /properties: options\?\.includeDirectories\s*\?\s*\["openFile", "openDirectory", "multiSelections"\]\s*:\s*\["openFile", "multiSelections"\]/);
+	assert.match(filesSystemIpc, /properties: options\?\.includeDirectories\s*\?\s*\["openFile", "openDirectory", "multiSelections"\]\s*:\s*\["openFile", "multiSelections"\]/);
 	assert.match(preload, /pickFiles: \(options\?:\s*\{ title\?: string; includeDirectories\?: boolean \}\)/);
 });
 
 test("readBase64 支持 maxBytes 预检，粘贴图片超大时主进程拦截", () => {
-	assert.match(filesIpc, /filesReadBase64,[\s\S]*?async \(_event, path: unknown, maxBytes\?: number, scope\?: unknown\)/);
+	assert.match(filesIpc, /filesReadBase64,\s*async \(_event, path: unknown, maxBytes\?: unknown, scope\?: unknown\)/);
 	assert.match(filesIpc, /FILE_TOO_LARGE/);
-	assert.match(preload, /readBase64: \(path: string, maxBytes\?: number, scope\?: ProjectFileAccessScope\)/);
+	assert.match(preload, /readBase64: \(path: string \| ProjectFileTarget, maxBytes\?: number, scope\?: ProjectFileAccessScope\)/);
 });
 
 test("onPaste 图片文件走预览分支，失败回退 @path 引用", () => {

@@ -19,8 +19,8 @@ interface AppSidebarProps {
 	worktreesByProject: Record<string, WorktreeEntry[]>;
 	branchByProject: Record<string, string | null>;
 	creatingWorktree: boolean;
-	/** 正在删除的 worktree 路径集合（useWorktreeActions 维护，驱动行淡出动画）。 */
-	removingWorktreePaths: ReadonlySet<string>;
+	/** Child projects currently being removed. */
+	removingWorktreeProjectIds: ReadonlySet<string>;
 	isLanWeb: boolean;
 	/** 「新建会话」：打开初始引导页（居中输入框 + 项目下拉切换），由 App 提供。 */
 	onOpenNewSession: () => void;
@@ -89,7 +89,7 @@ export function AppSidebar(props: AppSidebarProps) {
 				worktreesByProject={props.worktreesByProject}
 				branchByProject={props.branchByProject}
 				creatingWorktree={props.creatingWorktree}
-				removingWorktreePaths={props.removingWorktreePaths}
+				removingWorktreeProjectIds={props.removingWorktreeProjectIds}
 				isLanWeb={props.isLanWeb}
 				onOpenNewSession={props.onOpenNewSession}
 				chrome={

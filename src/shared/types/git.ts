@@ -1,3 +1,5 @@
+import type { ProjectFileTarget } from "./project";
+
 // ── Git 基础类型 ──────────────────────────────────────────────────────
 
 export type GitBranchInfo = {
@@ -10,12 +12,14 @@ export type GitBranchInfo = {
  * 侧栏按此项切换 cwd，避免把整棵工作区当成单一仓库。
  */
 export type GitRepoInfo = {
-	/** 仓库工作区绝对路径，作为后续 git 命令的 cwd */
-	path: string;
-	/** 展示名：根仓库用项目文件夹名，嵌套仓库用该目录名 */
-	name: string;
-	/** 相对项目根的 posix 路径；根仓库为空串 */
+	target: ProjectFileTarget;
+	/** Stable project-relative repository path; empty for the project root. */
 	relativePath: string;
+	/** Presentation label; must never be used as filesystem authority. */
+	displayPath: string;
+	name: string;
+	/** @deprecated Local-only compatibility for callers not yet migrated. */
+	path?: string;
 };
 
 /** AI 生成提交摘要的结果：结构化错误码供渲染层区分“未配置/忙碌/超时”，避免透传 pi 英文错误。 */
@@ -31,16 +35,23 @@ export type GitGenerateCommitMessageResult =
 export type GitFileStatus = "modified" | "added" | "deleted" | "renamed";
 
 export type GitChangedFile = {
+	/** Canonical project-relative path using slash separators. */
 	path: string;
+	target: ProjectFileTarget;
+	/** Repository-relative label for presentation. */
+	displayPath: string;
 	status: GitFileStatus;
-	/** 重命名文件在父提交中的原始路径；其他状态不设置。 */
 	originalPath?: string;
+	originalTarget?: ProjectFileTarget;
 };
 
-/** git worktree --porcelain 输出解析出的单条工作树信息 */
+/** git worktree entry registered as a local child project. */
 export type WorktreeEntry = {
-	path: string;
+	target: ProjectFileTarget;
 	branch: string;
+	displayPath: string;
+	/** @deprecated Local-only compatibility. */
+	path?: string;
 };
 
 // ── VS Code 风格 Git Status 系统 ─────────────────────────────────────
@@ -75,14 +86,14 @@ export type GitResourceGroupType = "merge" | "index" | "workingTree" | "untracke
 
 /** 单个 Git 变更资源，对应 VS Code Resource 类 */
 export type GitResource = {
-	/** 文件绝对路径 */
+	/** Stable slash-separated project-relative path, mirrored by target for compatibility. */
 	path: string;
-	/** Git 状态 */
+	target: ProjectFileTarget;
+	displayPath: string;
 	status: GitStatus;
-	/** 状态字母 (M/A/D/R/U/!/T) */
 	letter: string;
-	/** 重命名/拷贝的原始路径 */
 	oldPath?: string;
+	oldTarget?: ProjectFileTarget;
 };
 
 /** 按组分类的 Git 资源 */
@@ -96,7 +107,7 @@ export type GitResourceGroups = {
 /** 批量回滚时保留资源组，避免同一目录中的 tracked/untracked 文件混淆。 */
 export type GitDiscardResource = {
 	group: "workingTree" | "untracked";
-	path: string;
+	target: ProjectFileTarget;
 };
 
 /** Git Changes 各资源组打开 Diff 时的比较上下文。 */
@@ -107,8 +118,9 @@ export type GitWorkspaceDiffGroup = GitResourceGroupType;
  * 不随 status 轮询返回，避免在常驻 Git 抽屉中缓存所有变更文件内容。
  */
 export type GitWorkspaceFileDiff = {
-	/** 当前工作区文件绝对路径，供只读 Diff Viewer 识别语言和标签。 */
 	path: string;
+	target: ProjectFileTarget;
+	displayPath: string;
 	originalContent: string;
 	modifiedContent: string;
 };
@@ -142,7 +154,10 @@ export type CommitDetail = {
 /** 提交历史中单个文件相对第一父提交的两侧内容，供 Monaco Diff Viewer 展示。 */
 export type GitCommitFileDiff = {
 	path: string;
+	target: ProjectFileTarget;
+	displayPath: string;
 	originalPath?: string;
+	originalTarget?: ProjectFileTarget;
 	originalContent: string;
 	modifiedContent: string;
 };

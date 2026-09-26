@@ -5,6 +5,7 @@
 
 import type { ReactNode } from "react";
 import type { ChatMessage, FileTreeNode, PiCommand } from "../../../../shared/types";
+import { fileTreeNodeKey } from "../../utils/fileTreeLazy";
 import { isRetryStatusMessage } from "../session/timelineFailureNotice";
 import type { TranslationKey } from "../../i18n";
 import { formatFilePathRef } from "../session/composer/chips";
@@ -28,9 +29,10 @@ export interface FileNodeDragPayload {
 
 /** 拖拽开始侧：把节点信息写入 dataTransfer（路径 + JSON 双写，兼容只读路径的旧落点） */
 export function writeFileNodeDragPayload(dataTransfer: DataTransfer, node: FileTreeNode): void {
-	dataTransfer.setData(PI_FILE_PATH_DRAG_MIME, node.path);
+	const displayPath = node.displayPath ?? node.path ?? node.relativePath;
+	dataTransfer.setData(PI_FILE_PATH_DRAG_MIME, node.path ?? displayPath);
 	const payload: FileNodeDragPayload = {
-		path: node.path,
+		path: node.path ?? displayPath,
 		relativePath: node.relativePath,
 		type: node.type,
 	};
@@ -904,7 +906,7 @@ function buildFileTreeItems(entries: FileTreeNode[]): SuggestionItem[] {
 		}
 		for (const file of sortedFiles) {
 			result.push({
-				key: file.path,
+				key: fileTreeNodeKey(file),
 				label: formatPathSuggestionLabel(file),
 				description: formatPathSuggestionDescription(file.relativePath),
 				value: formatPathSuggestionValue(file),
@@ -956,7 +958,7 @@ export function buildSuggestionItems(prompt: string, cursor: number, commands: P
 			.sort((a, b) => b.score - a.score)
 			.slice(0, 15)
 			.map((item) => ({
-				key: item.file.path,
+				key: fileTreeNodeKey(item.file),
 				label: formatPathSuggestionLabel(item.file),
 				description: formatPathSuggestionDescription(item.file.relativePath),
 				// 相对路径含空格时同样加引号；目录追加 / 以通过 chip 规则并语义化为路径。

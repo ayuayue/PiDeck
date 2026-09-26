@@ -246,7 +246,7 @@ describe("Git panel VS Code Source Control contract", () => {
 		assert.match(graph, /props\.onOpenCommitFileDiff\(commit, file\)/);
 		assert.match(app, /api\.git\.commitFileDiff/);
 		assert.match(app, /setGitDrawerDiff\(\{/);
-		assert.match(app, /label: `\$\{diff\.path\.split[\s\S]*?\$\{commit\.shortHash\}/);
+		assert.match(app, /label: `\$\{diff\.displayPath\.split[\s\S]*?\$\{commit\.shortHash\}/);
 		assert.match(app, /WorkbenchContent/);
 		assert.match(preload, /gitCommitFileDiff/);
 		assert.match(gitIpc, /gitCommitFileDiff/);
@@ -314,7 +314,7 @@ describe("Git panel VS Code Source Control contract", () => {
 	});
 
 	test("discard flows through literal-pathspec restore and trash for untracked files", () => {
-		assert.match(preload, /discard: \(projectId: string, group: "workingTree" \| "untracked", filePath: string, repoPath\?: string\)/);
+		assert.match(preload, /discard: \(projectId: string, group: "workingTree" \| "untracked", fileTarget: ProjectFileTarget, repoPath\?: ProjectFileTarget\)/);
 		assert.match(gitIpc, /ipcChannels\.gitDiscard/);
 		assert.match(gitService, /async discardFile/);
 		assert.match(gitService, /"--literal-pathspecs", "add"/);

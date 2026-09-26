@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * detectTrigger 回归：普通正文里的 @ / & 不能打开建议框，
@@ -10,22 +8,14 @@ import vm from "node:vm";
  * 粘贴含 & 的文本后再输入也会把光标/文本搅乱。
  */
 function loadAppUtils() {
-	const source = readFileSync("src/renderer/src/components/app/AppUtils.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	});
-	const sandbox = {
-		exports: {},
-		location: { href: "file:///Users/test/app" },
-		require: (id) => {
-			if (id === "../session/composer/chips") {
-				return { formatFilePathRef: (p, opts) => (opts?.isDirectory ? `@${p}/` : `@${p}`) };
-			}
-			return {};
+	return loadTsCommonJs("src/renderer/src/components/app/AppUtils.ts", {
+		globals: { location: { href: "file:///Users/test/app" } },
+		stubs: {
+			"../session/composer/chips": { formatFilePathRef: (path, options) => (options?.isDirectory ? `@${path}/` : `@${path}`) },
+			"../session/composer/quoteChip": { replaceExpandedRefBlocksWithLabels: (text) => text },
+			"../session/timelineFailureNotice": { isRetryStatusMessage: () => false },
 		},
-	};
-	vm.runInNewContext(outputText, sandbox, { filename: "AppUtils.ts" });
-	return sandbox.exports;
+	});
 }
 
 const { detectTrigger, applySuggestion, clearSuggestionTrigger, buildSuggestionItems, mergeCommands } = loadAppUtils();

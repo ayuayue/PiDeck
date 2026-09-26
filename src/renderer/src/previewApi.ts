@@ -1,7 +1,7 @@
 import type { PiDesktopApi } from "../../preload";
-import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE } from "../../shared/types";
+import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, terminalOwnerKeyFor } from "../../shared/types";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
-import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalTab } from "../../shared/types";
+import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
 import type { ResourceImportKind } from "../../shared/types/resourceImport";
 import { t } from "./i18n";
 
@@ -215,16 +215,15 @@ export function createPreviewApi(): PiDesktopApi {
 		writeImage: async () => false,
 		writeText: async () => false,
 	};
-	const createTerminalTab = async (agentId: string, shell?: string, cwd?: string) => {
+	const createTerminalTab = async (target: TerminalTarget, shell?: TerminalShell) => {
 		const shellName = shell ?? "powershell";
 		const displayName = shellName === "git-bash" ? "Git Bash" : shellName === "bash" ? "bash" : shellName === "cmd" ? "cmd" : "PowerShell";
 		const tab: TerminalTab = {
 			id: `preview-terminal-${terminalTabs.length + 1}`,
-			agentId,
-			ownerKey: `agent:${agentId}`,
+			agentId: target.kind === "agent" ? target.agentId : "",
+			ownerKey: terminalOwnerKeyFor(target),
 			title: `${displayName} ${terminalTabs.length + 1}`,
-			cwd: "C:/Users/14012/preview-project",
-			shell: "powershell",
+			shell: shellName,
 			createdAt: Date.now(),
 		};
 		terminalTabs.push(tab);
@@ -826,7 +825,8 @@ export function createPreviewApi(): PiDesktopApi {
 			originalContent: async () => "",
 			worktreeList: async () => [],
 			worktreeCreate: async (_projectId, branchName) => ({
-				path: `/tmp/worktree/${branchName}`,
+				target: { projectId: `preview-worktree-${branchName}`, relativePath: "" },
+				displayPath: `/tmp/worktree/${branchName}`,
 				branch: branchName,
 			}),
 			worktreeRemove: async () => true,
@@ -1504,15 +1504,15 @@ export function createPreviewApi(): PiDesktopApi {
 			onChanged: () => () => {},
 		},
 		terminal: {
-			// 预览模式只按归属键过滤：agent 目标用 agentId，project 目标用项目 id
-			list: async (target) => terminalTabs.filter((tab) => tab.agentId === (target.kind === "agent" ? target.agentId : target.projectId)),
+			// 预览模式使用与主进程相同的 agent/project owner key
+			list: async (target) => terminalTabs.filter((tab) => tab.ownerKey === terminalOwnerKeyFor(target)),
 			ensure: async (target) => {
-				const key = target.kind === "agent" ? target.agentId : target.projectId;
-				const existing = terminalTabs.filter((tab) => tab.agentId === key);
+				const ownerKey = terminalOwnerKeyFor(target);
+				const existing = terminalTabs.filter((tab) => tab.ownerKey === ownerKey);
 				if (existing.length > 0) return existing;
-				return [await createTerminalTab(key)];
+				return [await createTerminalTab(target)];
 			},
-			create: (target) => createTerminalTab(target.kind === "agent" ? target.agentId : target.projectId),
+			create: (target, shell) => createTerminalTab(target, shell),
 			input: async (tabId, data) => {
 				for (const listener of terminalDataListeners) {
 					listener({ tabId, data });

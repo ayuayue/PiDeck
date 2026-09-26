@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AgentBackend, AgentTab, SessionEnvironment, SessionModelPreference, SessionRecord, SessionSource, SessionSummary } from "../../shared/types";
+import { sessionLocatorFromLegacy } from "../../shared/locationAdapters";
+import type { AgentBackend, AgentTab, SessionEnvironment, SessionLocator, SessionModelPreference, SessionRecord, SessionSource, SessionSummary } from "../../shared/types";
 import type { SessionProxyOverride } from "../../shared/types/session";
+import { SessionLocatorRouter } from "./SessionLocatorRouter";
 import { getAppLogger } from "../logging/sharedLogger";
 import { renameWithRetry } from "../utils/fsRetry";
 import { buildSessionOriginKey, buildSummaryOriginKey, canonicalizeSessionPath, collectSessionSubtreeIds, getImportedSessionSourceId, getSessionEnvironment, isInSubagentArtifactsDir, looksLikeCodexSessionFileStem, looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
@@ -42,6 +44,8 @@ export type SessionCatalogEntry = {
 	environment: SessionEnvironment;
 	/** 运行时后端；缺省 "pi"（旧 catalog 数据兼容）。 */
 	backend?: AgentBackend;
+	/** Canonical session location; legacy filePath/environment remain readable during migration. */
+	locator?: SessionLocator;
 	filePath?: string;
 	wslDistro?: string;
 	wslUser?: string;
@@ -245,11 +249,79 @@ function cloneModelPreference(model: SessionModelPreference | undefined): Sessio
 	return model ? createSessionModelPreference(model.provider, model.modelId, model.modelName) : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSessionLocator(value: unknown): value is SessionLocator {
+	if (!isRecord(value)) return false;
+	if (value.kind === "local") {
+		return (
+			(value.environment === "native" || value.environment === "wsl") &&
+			(value.filePath === undefined || (typeof value.filePath === "string" && value.filePath.length <= 4096)) &&
+			(value.wslDistro === undefined || (typeof value.wslDistro === "string" && value.wslDistro.length <= 256)) &&
+			(value.wslUser === undefined || (typeof value.wslUser === "string" && value.wslUser.length <= 256))
+		);
+	}
+	if (value.kind !== "ssh") return false;
+	return (
+		typeof value.hostId === "string" &&
+		Boolean(value.hostId.trim()) &&
+		value.hostId.length <= 256 &&
+		(value.remotePath === undefined || (typeof value.remotePath === "string" && value.remotePath.length <= 4096)) &&
+		(value.remoteSessionId === undefined || (typeof value.remoteSessionId === "string" && value.remoteSessionId.length <= 256)) &&
+		(value.remotePathAliases === undefined || (Array.isArray(value.remotePathAliases) && value.remotePathAliases.length <= 32 && value.remotePathAliases.every((path) => typeof path === "string" && path.length <= 4096)))
+	);
+}
+
+function cloneSessionLocator(locator: SessionLocator | undefined): SessionLocator | undefined {
+	if (!locator) return undefined;
+	if (locator.kind === "ssh") return { ...locator, ...(locator.remotePathAliases ? { remotePathAliases: [...locator.remotePathAliases] } : {}) };
+	return { ...locator };
+}
+
 function cloneEntry(entry: SessionCatalogEntry): SessionCatalogEntry {
 	return {
 		...entry,
+		...(entry.locator ? { locator: cloneSessionLocator(entry.locator) } : {}),
 		model: cloneModelPreference(entry.model),
 	};
+}
+
+function normalizeEntryLocator(entry: SessionCatalogEntry): SessionCatalogEntry {
+	const normalized = cloneEntry(entry);
+	if (normalized.locator?.kind === "ssh") {
+		normalized.filePath = undefined;
+		normalized.originKey = undefined;
+		normalized.piSessionId = undefined;
+		normalized.wslDistro = undefined;
+		normalized.wslUser = undefined;
+		normalized.parentSessionPath = undefined;
+	} else if (normalized.locator?.kind === "local") {
+		normalized.filePath = normalized.locator.filePath;
+		normalized.environment = normalized.locator.environment;
+		normalized.wslDistro = normalized.locator.wslDistro;
+		normalized.wslUser = normalized.locator.wslUser;
+	}
+	return normalized;
+}
+
+function setLocalSessionFilePath(entry: SessionCatalogEntry, filePath: string | undefined): void {
+	if (entry.locator?.kind === "ssh") throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+	if (entry.noSession || entry.backend === "dsh" || entry.backend === "imagegen") {
+		entry.filePath = undefined;
+		entry.locator = undefined;
+		return;
+	}
+	entry.filePath = filePath;
+	entry.locator = filePath
+		? sessionLocatorFromLegacy({
+				environment: entry.environment,
+				filePath,
+				wslDistro: entry.wslDistro,
+				wslUser: entry.wslUser,
+			})
+		: undefined;
 }
 
 function equalModel(left?: SessionModelPreference, right?: SessionModelPreference): boolean {
@@ -288,8 +360,30 @@ export function canAttachRuntimeMetadata(entry: SessionCatalogEntry | undefined,
 	);
 }
 
+class UnsupportedSessionCatalogVersionError extends Error {
+	constructor() {
+		super("SESSION_CATALOG_UNSUPPORTED_VERSION");
+	}
+}
+
+class UnsupportedSessionCatalogLocatorError extends Error {
+	constructor() {
+		super("SESSION_CATALOG_UNSUPPORTED_LOCATOR");
+	}
+}
+
+export class SessionCatalogRecoveryError extends Error {
+	readonly code = "SESSION_CATALOG_NEEDS_REPAIR";
+
+	constructor() {
+		super("SESSION_CATALOG_NEEDS_REPAIR: catalog cannot be safely loaded");
+		this.name = "SessionCatalogRecoveryError";
+	}
+}
+
 export class SessionCatalog {
 	private entries: SessionCatalogEntry[] = [];
+	private readonly locatorRouter = new SessionLocatorRouter();
 	/** Runtime-only records share the catalog lookup contract without durable storage. */
 	private transientEntries = new Map<string, SessionCatalogEntry>();
 	/** 侧栏删除过的 DSH host 会话：刷新/自动导入跳过；手动导入会清掉墓碑。 */
@@ -297,6 +391,7 @@ export class SessionCatalog {
 	private loaded = false;
 	private writeQueue: Promise<void> = Promise.resolve();
 	private skipNextBackup = false;
+	private needsRepair = false;
 
 	private identityContext: SessionCatalogContext;
 
@@ -316,30 +411,39 @@ export class SessionCatalog {
 	async load(): Promise<void> {
 		if (this.loaded) return;
 		let primaryError: unknown;
+		let locatorNormalizationNeeded = false;
 		try {
 			const snapshot = await this.readCatalogFile(this.filePath);
 			this.entries = snapshot.entries;
 			this.dismissedDshSessionIds = snapshot.dismissedDshSessionIds;
+			locatorNormalizationNeeded = snapshot.locatorNormalizationNeeded;
 		} catch (error) {
 			primaryError = error;
-			try {
-				const snapshot = await this.readCatalogFile(this.backupFilePath());
-				this.entries = snapshot.entries;
-				this.dismissedDshSessionIds = snapshot.dismissedDshSessionIds;
-				this.skipNextBackup = true;
-			} catch (backupError) {
-				if (isMissingFileError(primaryError) && isMissingFileError(backupError)) {
-					this.entries = [];
-					this.dismissedDshSessionIds = new Set();
-				} else {
-					// catalog 主文件与备份同时损坏是数据丢失信号，必须留 error 级日志供审计。
-					// 不再向上抛：打包启动链会 await load()，抛错会让 whenReady 中断、窗口永不出现。
-					void getAppLogger()?.error("session-catalog", "Catalog and backup both failed to load", {
-						primary: primaryError instanceof Error ? primaryError.message : String(primaryError),
-						backup: backupError instanceof Error ? backupError.message : String(backupError),
-					});
-					this.entries = [];
-					this.dismissedDshSessionIds = new Set();
+			if (error instanceof UnsupportedSessionCatalogVersionError || error instanceof UnsupportedSessionCatalogLocatorError) {
+				// A previous-version backup cannot authorize replacing an incompatible primary snapshot.
+				this.needsRepair = true;
+				void getAppLogger()?.error("session-catalog", "Catalog format is unsupported", { primary: error.message });
+			} else {
+				try {
+					const snapshot = await this.readCatalogFile(this.backupFilePath());
+					this.entries = snapshot.entries;
+					this.dismissedDshSessionIds = snapshot.dismissedDshSessionIds;
+					locatorNormalizationNeeded = snapshot.locatorNormalizationNeeded;
+					this.skipNextBackup = true;
+				} catch (backupError) {
+					if (isMissingFileError(primaryError) && isMissingFileError(backupError)) {
+						this.entries = [];
+						this.dismissedDshSessionIds = new Set();
+					} else {
+						// Keep startup available, but never replace unreadable snapshots with an empty catalog.
+						this.needsRepair = true;
+						void getAppLogger()?.error("session-catalog", "Catalog and backup both failed to load", {
+							primary: primaryError instanceof Error ? primaryError.message : String(primaryError),
+							backup: backupError instanceof Error ? backupError.message : String(backupError),
+						});
+						this.entries = [];
+						this.dismissedDshSessionIds = new Set();
+					}
 				}
 			}
 		}
@@ -439,6 +543,13 @@ export class SessionCatalog {
 				// 迁移是 best-effort；内存已生效，下一次启动仍会重试。
 			}
 		}
+		if (locatorNormalizationNeeded && !this.skipNextBackup) {
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch {
+				// Canonical locator cleanup is best-effort; in-memory routing already fails closed.
+			}
+		}
 		this.loaded = true;
 		if (this.skipNextBackup) {
 			await this.writeSnapshot(this.entries);
@@ -518,10 +629,20 @@ export class SessionCatalog {
 		return entry ? this.recordFromEntry(entry) : undefined;
 	}
 
+	getLocator(id: string): SessionLocator | undefined {
+		const entry = this.get(id);
+		return entry ? this.sessionLocatorForEntry(entry) : undefined;
+	}
+
+	getLocalFilePath(id: string): string | undefined {
+		const locator = this.getLocator(id);
+		return locator ? this.locatorRouter.resolveFilePath(locator) : undefined;
+	}
+
 	findByFilePath(filePath: string, environment: SessionEnvironment): SessionCatalogEntry | undefined {
 		this.assertLoaded();
 		const target = canonicalizeSessionPath(filePath, environment);
-		const entry = this.entries.find((candidate) => candidate.filePath && candidate.environment === environment && canonicalizeSessionPath(candidate.filePath, environment) === target);
+		const entry = this.entries.find((candidate) => candidate.locator?.kind !== "ssh" && candidate.filePath && candidate.environment === environment && canonicalizeSessionPath(candidate.filePath, environment) === target);
 		return entry ? cloneEntry(entry) : undefined;
 	}
 
@@ -551,6 +672,7 @@ export class SessionCatalog {
 				importedSourceId: input.importedSourceId,
 			});
 			let entry = entries.find((candidate) => {
+				if (candidate.locator?.kind === "ssh") return false;
 				if (candidate.originKey === originKey) return true;
 				if (!candidate.filePath) return false;
 				return (
@@ -585,6 +707,7 @@ export class SessionCatalog {
 					createdAt: now,
 					updatedAt: now,
 				};
+				setLocalSessionFilePath(entry, filePath);
 				entries.push(entry);
 			} else {
 				entry.projectId = input.projectId;
@@ -594,6 +717,7 @@ export class SessionCatalog {
 				entry.filePath = filePath;
 				entry.wslDistro = input.wslDistro;
 				entry.wslUser = input.wslUser;
+				setLocalSessionFilePath(entry, filePath);
 				entry.importedSourceId = input.importedSourceId;
 				entry.piSessionId = input.piSessionId;
 				// fork 标记只增补不清空：同一文件可能先以普通扫描注册、后经 fork 注册逻辑走到这里。
@@ -735,8 +859,10 @@ export class SessionCatalog {
 			if (patch.permissionPreset !== undefined) transient.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) transient.agentPreset = patch.agentPreset ?? undefined;
 			if (patch.backend !== undefined) transient.backend = patch.backend;
-			// 切到生图后端时需甩开 pi 会话文件（filePath/piSessionId 置空），否则残留文件引用
-			if (patch.filePath !== undefined) transient.filePath = patch.filePath ?? undefined;
+			// 切到生图/DSH 后端时需甩开 Pi 文件定位；路径变更时同步规范 locator。
+			if (patch.filePath !== undefined || patch.backend === "dsh" || patch.backend === "imagegen") {
+				setLocalSessionFilePath(transient, patch.filePath ?? undefined);
+			}
 			if (patch.piSessionId !== undefined) transient.piSessionId = patch.piSessionId ?? undefined;
 			if (patch.forked === true) transient.forked = true;
 			// null = 清除覆盖恢复跟随全局
@@ -755,7 +881,9 @@ export class SessionCatalog {
 			if (patch.permissionPreset !== undefined) nextEntry.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) nextEntry.agentPreset = patch.agentPreset ?? undefined;
 			if (patch.backend !== undefined) nextEntry.backend = patch.backend;
-			if (patch.filePath !== undefined) nextEntry.filePath = patch.filePath ?? undefined;
+			if (patch.filePath !== undefined || patch.backend === "dsh" || patch.backend === "imagegen") {
+				setLocalSessionFilePath(nextEntry, patch.filePath ?? undefined);
+			}
 			if (patch.piSessionId !== undefined) nextEntry.piSessionId = patch.piSessionId ?? undefined;
 			if (patch.forked === true) nextEntry.forked = true;
 			// null = 清除覆盖恢复跟随全局
@@ -829,13 +957,16 @@ export class SessionCatalog {
 		this.assertLoaded();
 		return this.enqueueMutation((entries) => {
 			const entry = this.requireEntry(entries, input.sessionId);
+			if (entry.locator?.kind === "ssh") throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 			// pi 可能上报相对 cwd 的 sessionFile：写入 catalog 前归一化为绝对路径，
 			// 否则与扫描器绝对路径 originKey 不一致，同一文件会出现两条记录。
 			const filePath = input.filePath && this.resolveFilePath ? this.resolveFilePath(entry.projectId, input.filePath, entry.environment) : input.filePath;
 			const previousFilePath = entry.filePath;
 			// DSH 的 sessionPath 是 host zstd，不是 pi JSONL；写进 filePath 会让渲染层
 			// 把空会话当成有磁盘历史（起始页 / 骨架来回抽）。
-			if (filePath && entry.backend !== "dsh") entry.filePath = filePath;
+			if (filePath && entry.backend !== "dsh" && entry.backend !== "imagegen" && !entry.noSession) {
+				setLocalSessionFilePath(entry, filePath);
+			}
 			if (input.piSessionId) entry.piSessionId = input.piSessionId;
 			if (input.dshSessionId) {
 				entry.dshSessionId = input.dshSessionId;
@@ -1022,7 +1153,7 @@ export class SessionCatalog {
 				return true;
 			});
 
-			const byOrigin = new Map(entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]));
+			const byOrigin = new Map(entries.filter((entry) => entry.originKey && entry.locator?.kind !== "ssh").map((entry) => [entry.originKey!, entry]));
 			const summaryById = new Map<string, SessionSummary>();
 
 			// Restore model/thinking from the session file when the catalog lacks them.
@@ -1081,6 +1212,7 @@ export class SessionCatalog {
 						createdAt: now,
 						updatedAt: now,
 					};
+					setLocalSessionFilePath(entry, summary.filePath);
 					entries.push(entry);
 					byOrigin.set(originKey, entry);
 					changed = true;
@@ -1134,6 +1266,7 @@ export class SessionCatalog {
 						entry.environment = getSessionEnvironment(summary);
 						entry.wslDistro = summary.wsl ? context.wslDistro : undefined;
 						entry.wslUser = summary.wsl ? context.wslUser : undefined;
+						setLocalSessionFilePath(entry, summary.filePath);
 						entry.importedSourceId = importedSourceId;
 						entry.status = "active";
 						// 子会话的父子关系可能随后续扫描才被识别（parent 文件出现/路径推断补全），
@@ -1261,24 +1394,42 @@ export class SessionCatalog {
 		return { titles, legacyProbes, invalid, parents, forked };
 	}
 
+	private sessionLocatorForEntry(entry: SessionCatalogEntry, summary?: SessionSummary): SessionLocator | undefined {
+		if (entry.locator?.kind === "ssh") return cloneSessionLocator(entry.locator);
+		if (entry.noSession || entry.backend === "dsh" || entry.backend === "imagegen") return undefined;
+		if (entry.locator) return cloneSessionLocator(entry.locator);
+		if (summary?.locator) return cloneSessionLocator(summary.locator);
+		const filePath = summary?.filePath ?? entry.filePath;
+		if (!filePath) return undefined;
+		return sessionLocatorFromLegacy({
+			environment: summary ? getSessionEnvironment(summary) : entry.environment,
+			filePath,
+			wslDistro: entry.wslDistro,
+			wslUser: entry.wslUser,
+		});
+	}
+
 	private recordFromEntry(entry: SessionCatalogEntry, summary?: SessionSummary): SessionRecord {
+		const locator = this.sessionLocatorForEntry(entry, summary);
+		const recordSummary = locator?.kind === "ssh" ? undefined : summary;
 		return {
 			id: entry.id,
 			projectId: entry.projectId,
 			title: catalogDisplayTitle(entry.title) || "Untitled",
 			noSession: entry.noSession,
-			source: summary?.source ?? entry.source,
-			environment: summary ? getSessionEnvironment(summary) : entry.environment,
+			source: recordSummary?.source ?? entry.source,
+			environment: recordSummary ? getSessionEnvironment(recordSummary) : entry.environment,
 			backend: entry.backend,
-			filePath: summary?.filePath ?? entry.filePath,
-			wslDistro: entry.wslDistro,
-			wslUser: entry.wslUser,
-			importedSourceId: summary ? getImportedSessionSourceId(summary) : entry.importedSourceId,
-			parentSessionPath: summary?.parentSessionPath ?? entry.parentSessionPath,
+			...(locator ? { locator } : {}),
+			filePath: locator ? (locator.kind === "local" ? locator.filePath : undefined) : (recordSummary?.filePath ?? entry.filePath),
+			wslDistro: locator?.kind === "ssh" ? undefined : entry.wslDistro,
+			wslUser: locator?.kind === "ssh" ? undefined : entry.wslUser,
+			importedSourceId: recordSummary ? getImportedSessionSourceId(recordSummary) : entry.importedSourceId,
+			parentSessionPath: locator?.kind === "ssh" ? undefined : (recordSummary?.parentSessionPath ?? entry.parentSessionPath),
 			forked: entry.forked,
-			projectPath: summary?.projectPath,
-			preview: summary?.preview ?? "",
-			messageCount: summary?.messageCount ?? 0,
+			projectPath: locator?.kind === "ssh" ? undefined : recordSummary?.projectPath,
+			preview: recordSummary?.preview ?? "",
+			messageCount: recordSummary?.messageCount ?? 0,
 			status: entry.status,
 			model: entry.model ? { ...entry.model } : undefined,
 			thinkingLevel: entry.thinkingLevel,
@@ -1287,18 +1438,18 @@ export class SessionCatalog {
 			dshSessionId: entry.dshSessionId,
 			proxy: entry.proxy ? { ...entry.proxy } : undefined,
 			createdAt: entry.createdAt,
-			updatedAt: summary?.updatedAt ?? entry.updatedAt,
-			wsl: summary?.wsl,
-			codexSessionId: summary?.codexSessionId,
-			codexThreadSource: summary?.codexThreadSource,
-			codexParentThreadId: summary?.codexParentThreadId,
-			codexAgentRole: summary?.codexAgentRole,
-			codexAgentNickname: summary?.codexAgentNickname,
+			updatedAt: recordSummary?.updatedAt ?? entry.updatedAt,
+			wsl: locator?.kind === "ssh" ? undefined : recordSummary?.wsl,
+			codexSessionId: recordSummary?.codexSessionId,
+			codexThreadSource: recordSummary?.codexThreadSource,
+			codexParentThreadId: recordSummary?.codexParentThreadId,
+			codexAgentRole: recordSummary?.codexAgentRole,
+			codexAgentNickname: recordSummary?.codexAgentNickname,
 		};
 	}
 
 	private originKeyForEntry(entry: SessionCatalogEntry): string | undefined {
-		if (!entry.filePath) return undefined;
+		if (entry.locator?.kind === "ssh" || !entry.filePath) return undefined;
 		return buildSessionOriginKey({
 			source: entry.source,
 			environment: entry.environment,
@@ -1318,11 +1469,12 @@ export class SessionCatalog {
 		if (!resolve) return undefined;
 		let changed = false;
 		const next = entries.map((entry) => {
-			if (!entry.filePath) return entry;
+			if (entry.locator?.kind === "ssh" || !entry.filePath) return entry;
 			const resolved = resolve(entry.projectId, entry.filePath, entry.environment);
 			if (!resolved || resolved === entry.filePath) return entry;
 			changed = true;
 			const repaired = { ...entry, filePath: resolved };
+			setLocalSessionFilePath(repaired, resolved);
 			// originKey 随路径变化重算，否则后续 mergeScanned/attachRuntime 仍按旧 key 去重
 			if (repaired.originKey) repaired.originKey = this.originKeyForEntry(repaired);
 			return repaired;
@@ -1340,10 +1492,15 @@ export class SessionCatalog {
 		if (!this.loaded) throw new Error("SessionCatalog.load() must complete before use");
 	}
 
+	private assertWritable(): void {
+		if (this.needsRepair) throw new SessionCatalogRecoveryError();
+	}
+
 	private enqueueMutation<T>(mutate: (entries: SessionCatalogEntry[]) => { value: T; changed: boolean }): Promise<T> {
 		const operation = this.writeQueue
 			.catch(() => undefined)
 			.then(async () => {
+				this.assertWritable();
 				const nextEntries = this.entries.map(cloneEntry);
 				const result = mutate(nextEntries);
 				if (result.changed) {
@@ -1366,23 +1523,42 @@ export class SessionCatalog {
 	private async readCatalogFile(filePath: string): Promise<{
 		entries: SessionCatalogEntry[];
 		dismissedDshSessionIds: Set<string>;
+		locatorNormalizationNeeded: boolean;
 	}> {
 		const parsed = JSON.parse(await readFile(filePath, "utf8")) as Partial<SessionCatalogFile>;
+		if (parsed.version !== undefined && parsed.version !== 1) {
+			throw new UnsupportedSessionCatalogVersionError();
+		}
 		if (!Array.isArray(parsed.sessions)) {
 			throw new Error(`Invalid Session catalog: ${filePath}`);
 		}
-		const entries = parsed.sessions.filter((entry): entry is SessionCatalogEntry => typeof entry?.id === "string" && typeof entry.projectId === "string" && typeof entry.title === "string" && (entry.environment === "native" || entry.environment === "wsl") && (entry.status === "draft" || entry.status === "active"));
+		const entries = parsed.sessions.filter((entry): entry is SessionCatalogEntry => {
+			const validFields = typeof entry?.id === "string" && typeof entry.projectId === "string" && typeof entry.title === "string" && (entry.environment === "native" || entry.environment === "wsl") && (entry.status === "draft" || entry.status === "active");
+			if (!validFields) return false;
+			if (isRecord(entry.locator) && typeof entry.locator.kind === "string" && entry.locator.kind !== "local" && entry.locator.kind !== "ssh") {
+				throw new UnsupportedSessionCatalogLocatorError();
+			}
+			return entry.locator === undefined || isSessionLocator(entry.locator);
+		});
 		if (entries.length !== parsed.sessions.length) {
 			throw new Error(`Session catalog contains invalid records: ${filePath}`);
 		}
+		const locatorNormalizationNeeded = entries.some((entry) => {
+			if (entry.locator?.kind === "ssh") {
+				return entry.filePath !== undefined || entry.originKey !== undefined || entry.piSessionId !== undefined || entry.wslDistro !== undefined || entry.wslUser !== undefined || entry.parentSessionPath !== undefined;
+			}
+			return entry.locator?.kind === "local" && (entry.filePath !== entry.locator.filePath || entry.environment !== entry.locator.environment || entry.wslDistro !== entry.locator.wslDistro || entry.wslUser !== entry.locator.wslUser);
+		});
 		const dismissed = Array.isArray(parsed.dismissedDshSessionIds) ? parsed.dismissedDshSessionIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
 		return {
-			entries: entries.map(cloneEntry),
+			entries: entries.map(normalizeEntryLocator),
 			dismissedDshSessionIds: new Set(dismissed),
+			locatorNormalizationNeeded,
 		};
 	}
 
 	private async writeSnapshot(entries: SessionCatalogEntry[]): Promise<void> {
+		this.assertWritable();
 		const snapshot: SessionCatalogFile = {
 			version: 1,
 			sessions: entries.map(cloneEntry),

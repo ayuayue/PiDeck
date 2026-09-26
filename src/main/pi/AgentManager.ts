@@ -34,6 +34,7 @@ import type {
 import { ipcChannels } from "../../shared/ipc";
 import { collectSessionFileChanges } from "../../shared/fileChanges";
 import { COMPACT_CANCELLED_BY_OWNER, COMPACT_CANCELLED_BY_USER_ABORT, COMPACT_HOOK_REJECT_MAX_MS, COMPACT_OBSERVATION_MAX_AGE_MS, COMPACT_ROUTED_TO_OWNER, COMPACT_USER_ABORT_WINDOW_MS } from "../../shared/compactFeedback";
+import { SessionLocatorRouter } from "../sessions/SessionLocatorRouter";
 import { PiProcess, type WhitelistSkip } from "./PiProcess";
 import { createCompactRpcRequest } from "./compactRpc";
 import { resolveWhitelistSkipCopy, WHITELIST_SKIP_KIND_COPY } from "./whitelistSkipNotice";
@@ -135,6 +136,7 @@ export type QueuedStartupDiagnostic = {
 export type AutomaticTitleSource = "auto" | "fallback";
 
 export class AgentManager {
+	private readonly sessionLocatorRouter = new SessionLocatorRouter();
 	/** 本网关的运行时后端身份：pi。 */
 	readonly backend: AgentBackend = "pi";
 	/** pi 后端支持全部可选能力。 */
@@ -1338,7 +1340,14 @@ export class AgentManager {
 	}
 
 	async create(rawInput: CreateAgentInput) {
-		const input = rawInput.sessionPath ? { ...rawInput, sessionPath: this.toSessionProtocolPath(rawInput.sessionPath) } : rawInput;
+		let input = rawInput;
+		if (rawInput.sessionLocator) {
+			const sessionPath = this.sessionLocatorRouter.resolveFilePath(rawInput.sessionLocator);
+			if (!sessionPath) throw new Error("SESSION_LOCATOR_FILE_REQUIRED");
+			input = { ...rawInput, sessionPath: this.toSessionProtocolPath(sessionPath) };
+		} else if (rawInput.sessionPath) {
+			input = { ...rawInput, sessionPath: this.toSessionProtocolPath(rawInput.sessionPath) };
+		}
 		const sessionKey = buildAgentSessionKey(input, this.getAgentSessionIdentityDefaults());
 		if (!sessionKey) return this.createUnlocked(input);
 

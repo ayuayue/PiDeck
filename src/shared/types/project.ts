@@ -1,3 +1,21 @@
+import type { SessionEnvironment } from "./session";
+
+export type ProjectLocation = { kind: "local"; environment: SessionEnvironment; wslDistro?: string } | { kind: "ssh"; hostId: string };
+
+export type ProjectLocator = { kind: "local"; environment: SessionEnvironment; localPath: string; wslDistro?: string } | { kind: "ssh"; hostId: string; remotePath: string };
+
+export type ProjectFileTarget = {
+	projectId: string;
+	/** Slash-separated path relative to the project root; the empty string denotes the root. */
+	relativePath: string;
+};
+
+export type LegacyProjectLocationFields = {
+	path: string;
+	environment?: "windows" | "wsl";
+	wslDistro?: string;
+};
+
 export type Project = {
 	id: string;
 	name: string;
@@ -10,6 +28,8 @@ export type Project = {
 	worktreeEnabled?: boolean;
 	/** 如果是 worktree 子项目，指向父项目的 id */
 	worktreeParentId?: string;
+	/** WSL distro identity for path routing; absent in legacy records when it can be derived. */
+	wslDistro?: string;
 	/** 项目所属环境：windows 或 wsl。缺省视为 windows（兼容旧数据）。 */
 	environment?: "windows" | "wsl";
 	/**

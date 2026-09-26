@@ -1,12 +1,17 @@
-import { app, dialog, ipcMain, shell, type BrowserWindow } from "electron";
-import { homedir } from "node:os";
-import { cp, readFile, rename as fsRename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { ipcMain, shell } from "electron";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { relative } from "node:path";
+import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { ipcChannels } from "../../shared/ipc";
-import type { FileManagerInfo, ProjectFileAccessScope } from "../../shared/types/project";
+import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
+import type { ProjectFileAccessScope, ProjectFileTarget } from "../../shared/types/project";
 import type { FileSearchResult } from "../../shared/types";
-import { detectFileManager, openFileManagerAt } from "../files/FileManager";
+import { registerFilesSystemIpc } from "./filesSystemIpc";
 import { createProjectFileReadBoundary, resolveProjectFileReadPath, type ProjectFileReadBoundary } from "../files/projectFileAccess";
+import { parseProjectFileTarget, resolveLocalProjectFileTarget } from "../files/projectFileTarget";
+import { LocalProjectFileBackend } from "../files/LocalProjectFileBackend";
+import { LocalFileMutationAdapter } from "../files/LocalFileMutationAdapter";
+import { ProjectFileBackendRouter } from "../files/ProjectFileBackend";
 import type { FileSystemService } from "../fs/FileSystemService";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
@@ -18,11 +23,42 @@ export type FilesIpcDeps = {
 	projectStore: ProjectStore;
 	settingsStore: SettingsStore;
 	appLogger: Pick<AppLogger, "info" | "error">;
-	getMainWindow: () => BrowserWindow | null;
 	openExternalUrl: (url: string, forceSystem?: boolean) => Promise<void>;
 };
 
-export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, appLogger, getMainWindow, openExternalUrl }: FilesIpcDeps): void {
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseFilePathInput(value: unknown): string | ProjectFileTarget {
+	if (typeof value === "string") {
+		if (!value.trim() || value.length > 32_768) throw new Error("Invalid file path");
+		return value;
+	}
+	return parseProjectFileTarget(value);
+}
+
+function parseFilePathInputs(value: unknown): Array<string | ProjectFileTarget> {
+	if (!Array.isArray(value) || value.length > 128) throw new Error("Invalid file path list");
+	const inputs: Array<string | ProjectFileTarget> = [];
+	for (const path of value) inputs.push(parseFilePathInput(path));
+	return inputs;
+}
+
+function parseOptionalMaxDepth(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > FILE_TREE_ABSOLUTE_MAX_DEPTH) throw new Error("INVALID_FILE_LIST_OPTIONS");
+	return value;
+}
+
+function parseOptionalMaxBytes(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error("INVALID_FILE_SIZE_LIMIT");
+	return value;
+}
+
+export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, appLogger, openExternalUrl }: FilesIpcDeps): void {
+	registerFilesSystemIpc({ settingsStore, openExternalUrl });
 	// Windows Node / Electron 边界不能直接消费 WSL Linux 路径：统一走 WslPaths 转成当前发行版的主机 UNC。
 	// 已经是普通 Windows/非 WSL 网络盘的输入保持不变，避免误伤非 WSL 路径。
 	const toWindowsPath = (path: string): string => {
@@ -31,6 +67,26 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		if (!settings.wslEnabled || !settings.wslDistro) return path;
 		if (!path.startsWith("/") && !parseWslUncPath(path)) return path;
 		return toWindowsHostPath(path, { distro: settings.wslDistro });
+	};
+
+	const localProjectFileBackend = new LocalProjectFileBackend({
+		fileSystemService,
+		resolveProjectRoot: (projectId) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error("PROJECT_NOT_FOUND");
+			return toWindowsPath(project.path);
+		},
+	});
+	const projectFileBackendRouter = new ProjectFileBackendRouter(localProjectFileBackend, (projectId) => {
+		const project = projectStore.get(projectId);
+		return project ? projectLocatorFromLegacy(project) : undefined;
+	});
+
+	const fileBackendForTargets = (targets: ProjectFileTarget[]) => {
+		const backends = targets.map((target) => projectFileBackendRouter.forProject(target.projectId));
+		const backend = backends[0];
+		if (backend && backends.some((candidate) => candidate !== backend)) throw new Error("CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED");
+		return backend;
 	};
 
 	const isProjectFileAccessScope = (value: unknown): value is ProjectFileAccessScope => {
@@ -53,6 +109,16 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 	};
 
 	const resolveReadablePath = async (rawPath: unknown, boundary?: ProjectFileReadBoundary): Promise<string> => {
+		if (isRecord(rawPath)) {
+			if (boundary) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			const target = parseProjectFileTarget(rawPath);
+			const project = projectStore.get(target.projectId);
+			if (!project) throw new Error("PROJECT_NOT_FOUND");
+			const projectRoot = toWindowsPath(project.path);
+			const targetPath = resolveLocalProjectFileTarget(projectRoot, target.relativePath);
+			const targetBoundary = await createProjectFileReadBoundary(projectRoot);
+			return resolveProjectFileReadPath(targetBoundary, targetPath);
+		}
 		if (typeof rawPath !== "string" || !rawPath.trim() || rawPath.length > 32_768) {
 			throw new Error("Invalid file path");
 		}
@@ -60,34 +126,38 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return boundary ? resolveProjectFileReadPath(boundary, hostPath) : hostPath;
 	};
 
-	ipcMain.handle(ipcChannels.dialogPickFiles, async (_event, options?: { title?: string; includeDirectories?: boolean }) => {
-		const result = await dialog.showOpenDialog({
-			// 调用方传入经过 i18n 的标题；缺省时交由系统使用平台默认文案。
-			title: options?.title,
-			// Windows 上 openFile 与 openDirectory 并存会退化为「只选文件夹」（FOS_PICKFOLDERS），
-			// 附件引用场景以选文件为主，默认只开文件；目录选择由调用方显式开启。
-			properties: options?.includeDirectories ? ["openFile", "openDirectory", "multiSelections"] : ["openFile", "multiSelections"],
-		});
-		return result.canceled ? [] : result.filePaths;
-	});
+	const localFileMutationAdapter = new LocalFileMutationAdapter(resolveReadablePath, appLogger);
 
-	ipcMain.handle(ipcChannels.filesList, async (_event, projectId: string, options?: { maxDepth?: number; directory?: string }) => {
-		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
-		const maxDepth = typeof options?.maxDepth === "number" && Number.isFinite(options.maxDepth) ? options.maxDepth : undefined;
-		const directory = typeof options?.directory === "string" && options.directory.trim() ? options.directory.trim() : undefined;
-		// directory 必须落在项目内；越界由 FileSystemService.listTree 拒绝。
-		const projectPath = toWindowsPath(project.path);
-		try {
-			return await fileSystemService.listTree(projectPath, maxDepth, directory);
-		} catch (error) {
-			// 项目根被外部删除时用稳定错误码替代 Node/Electron 的整段 ENOENT scandir，
-			// 渲染层据此清空陈旧文件树、刷新项目 presence，并显示可操作的本地化提示。
-			if (!directory && (error as NodeJS.ErrnoException).code === "ENOENT") {
-				throw new Error("PROJECT_DIRECTORY_MISSING");
-			}
-			throw error;
+	ipcMain.handle(ipcChannels.filesList, async (_event, projectOrTarget: unknown, options?: unknown) => {
+		let target: ProjectFileTarget | undefined;
+		let projectId: string;
+		if (typeof projectOrTarget === "string") {
+			if (!projectOrTarget.trim() || projectOrTarget.length > 256) throw new Error("INVALID_PROJECT_FILE_TARGET");
+			projectId = projectOrTarget;
+		} else {
+			target = parseProjectFileTarget(projectOrTarget);
+			projectId = target.projectId;
 		}
+		if (options !== undefined && !isRecord(options)) throw new Error("INVALID_FILE_LIST_OPTIONS");
+		const listOptions = options === undefined ? {} : options;
+		if (Object.keys(listOptions).some((key) => key !== "directory" && key !== "maxDepth")) throw new Error("INVALID_FILE_LIST_OPTIONS");
+		if (target && "directory" in listOptions && listOptions.directory !== undefined) throw new Error("INVALID_FILE_LIST_OPTIONS");
+		const maxDepth = parseOptionalMaxDepth(listOptions.maxDepth);
+		if ("directory" in listOptions && listOptions.directory !== undefined && typeof listOptions.directory !== "string") {
+			throw new Error("INVALID_FILE_LIST_OPTIONS");
+		}
+		const legacyDirectory = typeof listOptions.directory === "string" && listOptions.directory.trim() ? listOptions.directory.trim() : undefined;
+		const backend = projectFileBackendRouter.forProject(projectId);
+		if (target) return backend.list(target, maxDepth);
+		let relativePath = "";
+		if (legacyDirectory) {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error("PROJECT_NOT_FOUND");
+			const boundary = await createProjectFileReadBoundary(toWindowsPath(project.path));
+			const directory = await resolveProjectFileReadPath(boundary, toWindowsPath(legacyDirectory));
+			relativePath = relative(boundary.canonicalRoot, directory).replace(/\\/g, "/");
+		}
+		return backend.list({ projectId, relativePath }, maxDepth);
 	});
 
 	// 渲染层不可信：查询词必须是有限长度的非空字符串；结果上限与共享常量对齐，防大包滥用。
@@ -98,82 +168,49 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return query;
 	};
 
-	ipcMain.handle(ipcChannels.filesSearch, async (_event, projectId: string, query: string): Promise<FileSearchResult[]> => {
-		const project = projectStore.get(projectId);
-		if (!project) throw new Error(`Project not found: ${projectId}`);
+	ipcMain.handle(ipcChannels.filesSearch, async (_event, rawProjectId: unknown, query: unknown): Promise<FileSearchResult[]> => {
+		if (typeof rawProjectId !== "string" || !rawProjectId.trim() || rawProjectId.length > 256) throw new Error("INVALID_PROJECT_FILE_TARGET");
 		const normalizedQuery = parseFileSearchQuery(query);
-		return fileSystemService.searchNames(toWindowsPath(project.path), normalizedQuery);
+		const target = { projectId: rawProjectId, relativePath: "" };
+		return projectFileBackendRouter.forProject(rawProjectId).search(target, normalizedQuery);
 	});
 
 	ipcMain.handle(ipcChannels.filesOpen, async (_event, path: unknown, scope?: unknown) => {
+		const input = parseFilePathInput(path);
+		if (typeof input !== "string" && projectFileBackendRouter.forProject(input.projectId).locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
 		const boundary = await resolveProjectReadBoundary(scope);
-		const readablePath = await resolveReadablePath(path, boundary);
+		const readablePath = await resolveReadablePath(input, boundary);
 		const error = await shell.openPath(readablePath);
 		// Electron 通过返回字符串报告打开失败；显式抛出后前端才能提示路径不存在或系统无法打开。
 		if (error) throw new Error(error);
 	});
 
 	ipcMain.handle(ipcChannels.filesShowInFolder, async (_event, path: unknown, scope?: unknown) => {
+		const input = parseFilePathInput(path);
+		if (typeof input !== "string" && projectFileBackendRouter.forProject(input.projectId).locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
 		// 项目来源必须按 ProjectStore 中的注册根目录重新授权，不能信任 renderer 自报路径。
 		const boundary = await resolveProjectReadBoundary(scope);
-		const readablePath = await resolveReadablePath(path, boundary);
+		const readablePath = await resolveReadablePath(input, boundary);
 		shell.showItemInFolder(readablePath);
 	});
 
-	ipcMain.handle(ipcChannels.filesDetectFileManager, async (): Promise<FileManagerInfo | null> => {
-		// 「打开方式」下拉补充入口：返回当前平台可用的文件管理器信息（含 logo id 与启动命令）。
-		// Windows 用系统资源管理器真实图标（explorer.exe 的 ICO），渲染层直接展示。
-		const info = detectFileManager();
-		if (info?.id === "windows-explorer") {
-			const explorerPath = join(process.env.SystemRoot ?? "C:\\Windows", "explorer.exe");
-			const icon = await app.getFileIcon(explorerPath, { size: "large" });
-			if (!icon.isEmpty()) info.iconDataUrl = icon.toDataURL();
+	ipcMain.handle(ipcChannels.filesReadContent, async (_event, path: unknown, maxBytes?: unknown, scope?: unknown) => {
+		const input = parseFilePathInput(path);
+		const limit = parseOptionalMaxBytes(maxBytes);
+		if (typeof input !== "string") {
+			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			return projectFileBackendRouter.forProject(input.projectId).readContent(input, limit);
 		}
-		return info;
-	});
-
-	ipcMain.handle(ipcChannels.filesOpenFileManager, async (_event, path: string) => {
-		// 打开方式 → 文件管理器：目录交给系统文件管理器（explorer / Finder 等）。
-		// 空路径（未绑定激活项目）回退用户主目录：文件管理器是常驻快捷入口，不依赖项目。
-		// Windows/macOS 必须走 shell.openPath：直接 spawn explorer.exe 时，新进程把
-		// 「打开目录」转交给已在运行的 Explorer shell，既不继承前台激活权限也不弹窗，
-		// 窗口落在后台/根本不出现（表现就是「点了没反应」，用户侧还会越点堆越多
-		// 后台窗口）；shell.openPath 经 ShellExecute 打开，前台语义正确。
-		// Linux 保留检测到的文件管理器直启（xdg-open 可能被 MIME 误路由到浏览器）。
-		const target = typeof path === "string" && path.trim() ? toWindowsPath(path) : homedir();
-		if (process.platform !== "linux") {
-			const error = await shell.openPath(target);
-			if (error) throw new Error(error);
-			return;
-		}
-		await openFileManagerAt(target);
-	});
-
-	ipcMain.handle(ipcChannels.browserOpenExternal, async (_event, url: string) => {
-		// This IPC is renderer-callable, so it must share the protocol gate used by
-		// every other external-link path instead of passing arbitrary schemes to the OS.
-		await openExternalUrl(url, true);
-	});
-
-	ipcMain.handle(ipcChannels.filesReadContent, async (_event, path: unknown, maxBytes?: number, scope?: unknown) => {
 		try {
 			const boundary = await resolveProjectReadBoundary(scope);
-			const readablePath = await resolveReadablePath(path, boundary);
-			// 编辑器场景传入 maxBytes（maxEditorFileSizeMB 设置项）：读取前先 stat 拦截，
-			// 避免大文件全量读入主进程再经 IPC 传输（几百 MB 字符串会同时压垮两侧内存）。
-			// 其他调用方（技能/提示词小文件）不传参，行为不变。
-			if (typeof maxBytes === "number" && Number.isFinite(maxBytes) && maxBytes > 0) {
+			const readablePath = await resolveReadablePath(input, boundary);
+			if (limit !== undefined) {
 				const fileStat = await stat(readablePath);
-				if (fileStat.size > maxBytes) {
-					// 结构化前缀供渲染层识别后走 i18n 文案；message 不直接展示给用户
-					throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(maxBytes)}`);
-				}
+				if (fileStat.size > limit) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(limit)}`);
 			}
 			return await readFile(readablePath, "utf8");
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-				return "";
-			}
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
 			throw error;
 		}
 	});
@@ -184,17 +221,33 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		if (!Array.isArray(paths) || paths.length === 0 || paths.length > 128) {
 			throw new Error("paths must be a non-empty array (max 128)");
 		}
-		const normalized: string[] = [];
+		const normalized: Array<string | ProjectFileTarget> = [];
 		for (const raw of paths) {
-			if (typeof raw !== "string" || !raw.trim() || raw.length > 1024) {
-				throw new Error("each path must be a non-empty string (max 1024 chars)");
+			if (typeof raw === "string") {
+				if (!raw.trim() || raw.length > 1024) throw new Error("each path must be a non-empty string (max 1024 chars)");
+				normalized.push(raw);
+				continue;
 			}
-			normalized.push(raw);
+			if (isRecord(raw)) {
+				normalized.push(parseProjectFileTarget(raw));
+				continue;
+			}
+			throw new Error("each path must be a local path or ProjectFileTarget");
 		}
+		if (scope !== undefined && normalized.some((path) => typeof path !== "string")) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
 		// 项目根 realpath 每批只解析一次；每个目标仍独立 realpath，逐项越界按 false 计。
 		const boundary = await resolveProjectReadBoundary(scope);
 		return Promise.all(
 			normalized.map(async (path) => {
+				if (typeof path !== "string") {
+					const backend = projectFileBackendRouter.forProject(path.projectId);
+					try {
+						const [exists] = await backend.pathsExist([path]);
+						return exists ?? false;
+					} catch {
+						return false;
+					}
+				}
 				try {
 					const readablePath = await resolveReadablePath(path, boundary);
 					const fileStat = await stat(readablePath);
@@ -210,9 +263,14 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		// 会话内文件链接点击路由用：verdict store 只回答「存在与否」，区分不了目录，
 		// 而编辑器 readContent 对目录会抛 EISDIR（用户看到的 "illegal operation on a
 		// directory" 就是目录链接被当文件读）。这里补一次带边界的 stat 给渲染层分流。
+		const input = parseFilePathInput(path);
+		if (typeof input !== "string") {
+			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			return projectFileBackendRouter.forProject(input.projectId).stat(input);
+		}
 		const boundary = await resolveProjectReadBoundary(scope);
-		const readablePath = await resolveReadablePath(path, boundary);
 		try {
+			const readablePath = await resolveReadablePath(input, boundary);
 			const fileStat = await stat(readablePath);
 			return { exists: true, isDirectory: fileStat.isDirectory() };
 		} catch {
@@ -222,9 +280,15 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 
 	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: unknown, content: unknown, scope?: unknown) => {
 		if (typeof content !== "string") throw new Error("Invalid file content");
+		const input = parseFilePathInput(path);
+		if (typeof input !== "string") {
+			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			await projectFileBackendRouter.forProject(input.projectId).writeContent(input, content);
+			void appLogger.info("file", "Project file written", { target: input, bytes: Buffer.byteLength(content, "utf8") });
+			return;
+		}
 		const boundary = await resolveProjectReadBoundary(scope);
-		// 已存在的项目文件沿用读取边界的 realpath 校验，阻止 tab 打开后替换 symlink 再保存越界。
-		const writablePath = await resolveReadablePath(path, boundary);
+		const writablePath = await resolveReadablePath(input, boundary);
 		await writeFile(writablePath, content, "utf8");
 		void appLogger.info("file", "File written", {
 			path: writablePath,
@@ -232,46 +296,57 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		});
 	});
 
-	ipcMain.handle(ipcChannels.filesReadBase64, async (_event, path: unknown, maxBytes?: number, scope?: unknown) => {
+	ipcMain.handle(ipcChannels.filesReadBase64, async (_event, path: unknown, maxBytes?: unknown, scope?: unknown) => {
+		const input = parseFilePathInput(path);
+		const limit = parseOptionalMaxBytes(maxBytes);
+		if (typeof input !== "string") {
+			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			return projectFileBackendRouter.forProject(input.projectId).readBase64(input, limit);
+		}
 		try {
 			const boundary = await resolveProjectReadBoundary(scope);
-			const readablePath = await resolveReadablePath(path, boundary);
-			// 粘贴图片等场景传入 maxBytes 预检：超大文件在 stat 层拦截，
-			// 避免全量读入主进程再经 IPC 传输压垮两侧内存（与 filesReadContent 同一策略）。
-			if (typeof maxBytes === "number" && Number.isFinite(maxBytes) && maxBytes > 0) {
+			const readablePath = await resolveReadablePath(input, boundary);
+			if (limit !== undefined) {
 				const fileStat = await stat(readablePath);
-				if (fileStat.size > maxBytes) {
-					// 结构化前缀供渲染层识别后走回退逻辑；message 不直接展示给用户
-					throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(maxBytes)}`);
-				}
+				if (fileStat.size > limit) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(limit)}`);
 			}
-			// 二进制预览（图片/PDF 等）：读为 base64 由渲染层转 Blob URL 显示。
-			// 渲染层对空串（ENOENT）走「不支持」提示。
-			const buffer = await readFile(readablePath);
-			return buffer.toString("base64");
+			return (await readFile(readablePath)).toString("base64");
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-				return "";
-			}
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
 			throw error;
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesCreate, async (_event, parentDir: string, name: string, type: "file" | "directory") => {
-		const result = await fileSystemService.create(toWindowsPath(parentDir), name, type);
+	ipcMain.handle(ipcChannels.filesCreate, async (_event, rawParentDir: unknown, name: unknown, type: unknown) => {
+		const parentInput = parseFilePathInput(rawParentDir);
+		if (typeof name !== "string" || !name.trim() || name.length > 255) throw new Error("Invalid file name");
+		if (type !== "file" && type !== "directory") throw new Error("Invalid file type");
+		if (typeof parentInput !== "string") {
+			const result = await projectFileBackendRouter.forProject(parentInput.projectId).create(parentInput, name, type);
+			void appLogger.info("file", "Project file/folder created", { target: result, type });
+			return result;
+		}
+		const parentDir = await resolveReadablePath(parentInput);
+		const result = await fileSystemService.create(parentDir, name, type);
 		void appLogger.info("file", "File/folder created", { parentDir, name, type, result });
 		return result;
 	});
 
-	ipcMain.handle(ipcChannels.filesDelete, async (_event, path: string, recursive?: boolean) => {
+	ipcMain.handle(ipcChannels.filesDelete, async (_event, rawPath: unknown, recursive?: unknown) => {
+		const pathInput = parseFilePathInput(rawPath);
+		if (recursive !== undefined && typeof recursive !== "boolean") throw new Error("Invalid recursive flag");
 		try {
-			await fileSystemService.delete(toWindowsPath(path), recursive);
+			if (typeof pathInput !== "string") {
+				await projectFileBackendRouter.forProject(pathInput.projectId).delete(pathInput, recursive);
+				void appLogger.info("file", "Project file deleted", { target: pathInput, recursive: Boolean(recursive) });
+				return;
+			}
+			const path = await resolveReadablePath(pathInput);
+			await fileSystemService.delete(path, recursive);
 			void appLogger.info("file", "File deleted", { path, recursive: Boolean(recursive) });
 		} catch (error) {
-			// 删除失败同样留痕（回收站不可用/权限不足/路径不存在等），
-			// 保证"谁发起的删除、为什么没删掉"可事后审计。
 			void appLogger.error("file", "File delete failed", {
-				path,
+				...(typeof pathInput === "string" ? { path: pathInput } : { target: pathInput }),
 				recursive: Boolean(recursive),
 				error: error instanceof Error ? error.message : String(error),
 			});
@@ -279,55 +354,45 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesRename, async (_event, path: string, newName: string) => {
-		const result = await fileSystemService.rename(toWindowsPath(path), newName);
+	ipcMain.handle(ipcChannels.filesRename, async (_event, rawPath: unknown, newName: unknown) => {
+		const pathInput = parseFilePathInput(rawPath);
+		if (typeof newName !== "string" || !newName.trim() || newName.length > 255) throw new Error("Invalid file name");
+		if (typeof pathInput !== "string") {
+			const result = await projectFileBackendRouter.forProject(pathInput.projectId).rename(pathInput, newName);
+			void appLogger.info("file", "Project file renamed", { target: pathInput, newName, result });
+			return result;
+		}
+		const path = await resolveReadablePath(pathInput);
+		const result = await fileSystemService.rename(path, newName);
 		void appLogger.info("file", "File renamed", { path, newName, result });
 		return result;
 	});
 
-	ipcMain.handle(ipcChannels.filesCopy, async (_event, sourcePaths: string[], targetDir: string) => {
-		const hostTargetDir = toWindowsPath(targetDir);
-		const results: string[] = [];
-		for (const src of sourcePaths) {
-			try {
-				const hostSrc = toWindowsPath(src);
-				const name = basename(hostSrc);
-				const dest = join(hostTargetDir, name);
-				// 递归复制目录/文件；同名已存在时跳过覆盖（errorOnExist: false 反而报错，
-				// 这里语义为「已存在则不重复复制」——与资源管理器粘贴行为一致）
-				await cp(hostSrc, dest, { recursive: true, errorOnExist: false });
-				results.push(dest);
-				void appLogger.info("file", "File/folder copied", { src, dest });
-			} catch (error) {
-				void appLogger.info("file", "File copy failed", { src, targetDir, error: error instanceof Error ? error.message : String(error) });
-				throw error;
-			}
+	ipcMain.handle(ipcChannels.filesCopy, async (_event, rawSourcePaths: unknown, rawTargetDir: unknown) => {
+		const sourceInputs = parseFilePathInputs(rawSourcePaths);
+		const targetDirInput = parseFilePathInput(rawTargetDir);
+		const targetSources = sourceInputs.filter((source): source is ProjectFileTarget => typeof source !== "string");
+		const targets = [...targetSources, ...(typeof targetDirInput === "string" ? [] : [targetDirInput])];
+		const backend = fileBackendForTargets(targets);
+		if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
+			if (!backend) throw new Error("PROJECT_NOT_FOUND");
+			return backend.copy(targetSources, targetDirInput);
 		}
-		return results;
+		if (backend && backend.locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
+		return localFileMutationAdapter.copy(sourceInputs, targetDirInput);
 	});
 
-	ipcMain.handle(ipcChannels.filesMove, async (_event, sourcePaths: string[], targetDir: string) => {
-		const hostTargetDir = toWindowsPath(targetDir);
-		const results: string[] = [];
-		for (const src of sourcePaths) {
-			try {
-				const hostSrc = toWindowsPath(src);
-				const name = basename(hostSrc);
-				const dest = join(hostTargetDir, name);
-				// 同设备优先 rename（瞬时）；跨设备/跨盘 rename 会报 EXDEV，回退 cp + rm
-				try {
-					await fsRename(hostSrc, dest);
-				} catch {
-					await cp(hostSrc, dest, { recursive: true });
-					await rm(hostSrc, { recursive: true, force: true });
-				}
-				results.push(dest);
-				void appLogger.info("file", "File/folder moved", { src, dest });
-			} catch (error) {
-				void appLogger.info("file", "File move failed", { src, targetDir, error: error instanceof Error ? error.message : String(error) });
-				throw error;
-			}
+	ipcMain.handle(ipcChannels.filesMove, async (_event, rawSourcePaths: unknown, rawTargetDir: unknown) => {
+		const sourceInputs = parseFilePathInputs(rawSourcePaths);
+		const targetDirInput = parseFilePathInput(rawTargetDir);
+		const targetSources = sourceInputs.filter((source): source is ProjectFileTarget => typeof source !== "string");
+		const targets = [...targetSources, ...(typeof targetDirInput === "string" ? [] : [targetDirInput])];
+		const backend = fileBackendForTargets(targets);
+		if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
+			if (!backend) throw new Error("PROJECT_NOT_FOUND");
+			return backend.move(targetSources, targetDirInput);
 		}
-		return results;
+		if (backend && backend.locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
+		return localFileMutationAdapter.move(sourceInputs, targetDirInput);
 	});
 }

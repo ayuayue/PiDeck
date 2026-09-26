@@ -16,7 +16,7 @@ test("tab switch does not refresh the project file tree or git branches", () => 
 	// 文件抽屉走 loadProjectFileTree（根层 maxDepth 0）；切会话不得把 currentSessionId 绑进扫盘。
 	assert.match(appSource, /loadProjectFileTree\(/);
 	// 对象实参可能被格式化到多行：用 \s* 容忍。
-	assert.match(appSource, /api\.files\.list\(\s*projectId,\s*\{\s*maxDepth: 0\s*\}\)/);
+	assert.match(appSource, /api\.files\.list\(\s*\{ projectId, relativePath: "" \},\s*\{ maxDepth: 0 \}\)/);
 	assert.match(appSource, /api\.git\.branches\(activeProjectId\)/);
 	assert.match(appSource, /\}, \[activeProjectId\]\);/);
 	assert.doesNotMatch(appSource, /api\.git\.branches\(activeProjectId\)[\s\S]{0,400}\}, \[activeProjectId, currentSessionId/);

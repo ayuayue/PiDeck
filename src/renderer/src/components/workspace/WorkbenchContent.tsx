@@ -1,9 +1,10 @@
-import type { ProjectFileAccessScope, WorkspaceContentOpenMode } from "../../../../shared/types";
+import type { ProjectFileAccessScope, ProjectFileTarget, WorkspaceContentOpenMode } from "../../../../shared/types";
 import { FileDiffViewer } from "../app/FileDiffViewer";
 
 type EditorTabLike = {
 	id: string;
 	filePath: string;
+	fileTarget?: ProjectFileTarget;
 	mode: "view" | "diff";
 	originalContent: string;
 	modifiedContent?: string;
@@ -17,6 +18,7 @@ type EditorTabLike = {
 };
 
 type GitDiffLike = {
+	target: ProjectFileTarget;
 	filePath: string;
 	originalContent: string;
 	modifiedContent: string;
@@ -35,9 +37,9 @@ export type WorkbenchContentProps = {
 	editorMode: WorkspaceContentOpenMode;
 	onToggleEditorMode?: () => void;
 	onCloseEditor: () => void;
-	readContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
-	readOriginalContent: (path: string) => Promise<string>;
-	saveContent: (path: string, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	readContent: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
+	readOriginalContent: (target?: ProjectFileTarget) => Promise<string>;
+	saveContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
 };
 
 /**
@@ -53,6 +55,7 @@ export function WorkbenchContent(props: WorkbenchContentProps) {
 		return (
 			<FileDiffViewer
 				displayMode={props.gitDiffDisplayMode}
+				fileTarget={props.gitDiff.target}
 				filePath={props.gitDiff.filePath}
 				mode="diff"
 				onToggleMode={props.onToggleGitDiffMode}
@@ -74,6 +77,7 @@ export function WorkbenchContent(props: WorkbenchContentProps) {
 		<FileDiffViewer
 			displayMode={props.editorMode}
 			filePath={props.activeTab.filePath}
+			fileTarget={props.activeTab.fileTarget}
 			activeTabId={props.activeTab.id}
 			fileAccessScope={props.activeTab.fileAccessScope}
 			mode={props.activeTab.mode}

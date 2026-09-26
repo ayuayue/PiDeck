@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { ProjectFileTarget } from "../../../../shared/types";
 import { FileDiffViewer } from "../app/FileDiffViewer";
 import type { WorkspaceEditorTab, WorkspaceEditorMode } from "../../hooks/useWorkspacePanels";
 
@@ -13,9 +14,9 @@ export type EditorSurfaceProps = {
 	onClose: () => void;
 	onSelectTab: (id: string) => void;
 	onCloseTab: (id: string) => void;
-	readContent: (path: string) => Promise<string>;
-	readOriginalContent?: (path: string) => Promise<string>;
-	saveContent?: (path: string, content: string) => Promise<void>;
+	readContent: (path: string | ProjectFileTarget) => Promise<string>;
+	readOriginalContent?: (target?: ProjectFileTarget) => Promise<string>;
+	saveContent?: (path: string | ProjectFileTarget, content: string) => Promise<void>;
 };
 
 function useStableCallback<T extends (...args: never[]) => unknown>(callback: T) {
@@ -43,6 +44,7 @@ export function EditorSurface(props: EditorSurfaceProps) {
 	return (
 		<FileDiffViewer
 			displayMode={props.displayMode ?? "drawer"}
+			fileTarget={props.tab.fileTarget}
 			filePath={props.tab.filePath}
 			mode={props.tab.mode as WorkspaceEditorMode}
 			onToggleMode={props.tab.preserveDrawer ? undefined : onToggleMode}

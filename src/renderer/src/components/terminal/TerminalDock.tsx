@@ -11,6 +11,7 @@ import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import { Button } from "../ui-shadcn/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
 import type { PiDesktopApi } from "../../../../preload";
+import { terminalOwnerKeyFor } from "../../../../shared/types/terminal";
 import type { TerminalShell, TerminalTab, TerminalTarget } from "../../../../shared/types";
 import { t } from "../../i18n";
 
@@ -96,7 +97,7 @@ export function TerminalDock(props: {
 	const activeTabIdRef = useRef("");
 	const buffersRef = useRef<Record<string, string>>({});
 	// 归属键：决定加载 gate 与 pending 占位判断；project 终端由父级显式传入
-	const sessionKey = props.sessionKey ?? (props.target.kind === "agent" ? `agent:${props.target.agentId}` : `project:${props.target.projectId}`);
+	const sessionKey = props.sessionKey ?? terminalOwnerKeyFor(props.target);
 	/* copyNotice 已改用 toast (sonner) 实现 */
 	const [tabs, setTabs] = useState<TerminalTab[]>([]);
 	const [activeTabId, setActiveTabId] = useState("");
@@ -414,7 +415,6 @@ export function TerminalDock(props: {
 										props.onCollapsedChange(false);
 										focusTerminalSoon();
 									}}
-									title={tab.cwd}
 								>
 									{tab.title}
 									{tab.exited ? ` · ${t("terminal.exited")}` : ""}

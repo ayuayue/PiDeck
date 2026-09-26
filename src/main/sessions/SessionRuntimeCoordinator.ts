@@ -20,6 +20,7 @@ import type {
 	SessionCommandErrorCode,
 	SessionCommandResult,
 	SessionRecord,
+	SessionLocator,
 	SessionModelPreference,
 	SessionRuntimeEvent,
 	SessionRuntimeInfo,
@@ -39,6 +40,8 @@ import { sessionFileSizeMb } from "./sessionFileSizeCopy";
 export interface SessionCatalogGateway {
 	get(sessionId: string): SessionCatalogEntry | undefined;
 	getRecord(sessionId: string): SessionRecord | undefined;
+	getLocator(sessionId: string): SessionLocator | undefined;
+	getLocalFilePath(sessionId: string): string | undefined;
 	update(
 		sessionId: string,
 		patch: {
@@ -356,6 +359,7 @@ export class SessionRuntimeCoordinator {
 	listRuntimes(): SessionRuntimeInfo[] {
 		const result: SessionRuntimeInfo[] = [];
 		for (const [sessionId, agentId] of this.agentIdBySession) {
+			if (this.catalog.getLocator(sessionId)?.kind === "ssh") continue;
 			const tab = this.agents.list().find((candidate) => candidate.id === agentId);
 			if (!tab || isTerminalAgent(tab)) continue;
 			result.push(this.runtimeInfo(sessionId, tab));
@@ -364,6 +368,7 @@ export class SessionRuntimeCoordinator {
 	}
 
 	getTarget(sessionId: string): SessionRuntimeTarget | undefined {
+		if (this.catalog.getLocator(sessionId)?.kind === "ssh") return undefined;
 		const agentId = this.getAgentId(sessionId);
 		if (!agentId) return undefined;
 		const binding = this.getRuntimeBinding(agentId);
@@ -900,6 +905,7 @@ export class SessionRuntimeCoordinator {
 	}
 
 	observeRuntimeEvent(event: SessionRuntimeEvent): void {
+		if (this.catalog.getLocator(event.sessionId)?.kind === "ssh") return;
 		const binding = this.getRuntimeBinding(event.agentId);
 		if (!binding || binding.sessionId !== event.sessionId || binding.runtimeGeneration !== event.runtimeGeneration || event.sourceChannel !== "agents:ui-request" || !isRecord(event.payload)) {
 			return;
@@ -943,6 +949,7 @@ export class SessionRuntimeCoordinator {
 	listPendingUiRequests(sessionId?: string): PendingUiRequestSnapshot[] {
 		const items: PendingUiRequestSnapshot[] = [];
 		for (const pending of this.pendingUiRequests.values()) {
+			if (this.catalog.getLocator(pending.sessionId)?.kind === "ssh") continue;
 			if (sessionId && pending.sessionId !== sessionId) continue;
 			items.push({ ...pending });
 		}
@@ -950,6 +957,9 @@ export class SessionRuntimeCoordinator {
 	}
 
 	async respondToUi(input: SessionUiResponseInput): Promise<void> {
+		if (this.catalog.getLocator(input.sessionId)?.kind === "ssh") {
+			throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+		}
 		const binding = this.getRuntimeBinding(input.agentId);
 		if (!binding || binding.sessionId !== input.sessionId || binding.runtimeGeneration !== input.runtimeGeneration || this.agentIdBySession.get(input.sessionId) !== input.agentId) {
 			throw new Error("Session runtime binding changed before UI response");
@@ -1255,6 +1265,8 @@ export class SessionRuntimeCoordinator {
 		}
 		const entry = this.catalog.get(sessionId);
 		if (!entry) throw new Error(`Session not found: ${sessionId}`);
+		const locator = this.catalog.getLocator(sessionId);
+		if (locator?.kind === "ssh") throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		if (this.replacementBySession.has(sessionId)) {
 			throw new Error(`Session runtime replacement reservation conflict: ${sessionId}`);
 		}
@@ -1284,7 +1296,8 @@ export class SessionRuntimeCoordinator {
 			}
 		}
 
-		let tab = entry.filePath ? this.findAgentBySessionPath(entry) : undefined;
+		const localSessionPath = locator?.kind === "local" ? locator.filePath : undefined;
+		let tab = localSessionPath ? this.findAgentBySessionPath({ ...entry, filePath: localSessionPath }) : undefined;
 		if (tab && isTerminalAgent(tab)) {
 			// 进程仍存活的 error 终态（回复级错误标出，Issue #218）优先复活复用，
 			// 而不是停掉活进程重建——重建在扩展有问题时会触发无插件回退。
@@ -1303,7 +1316,8 @@ export class SessionRuntimeCoordinator {
 				projectId: entry.projectId,
 				title: entry.title,
 				deckSessionId: sessionId,
-				sessionPath: entry.filePath,
+				sessionLocator: locator,
+				sessionPath: localSessionPath,
 				environment: entry.environment,
 				source: entry.source,
 				backend: entry.backend,
@@ -1388,7 +1402,7 @@ export class SessionRuntimeCoordinator {
 	}
 
 	private findAgentBySessionPath(entry: SessionCatalogEntry): AgentTab | undefined {
-		if (!entry.filePath) return undefined;
+		if (this.catalog.getLocator(entry.id)?.kind === "ssh" || !entry.filePath) return undefined;
 		const target = buildSessionOriginKey({
 			source: entry.source,
 			environment: entry.environment,
@@ -1552,6 +1566,9 @@ export class SessionRuntimeCoordinator {
 	}
 
 	private bind(sessionId: string, agentId: string): number {
+		if (this.catalog.getLocator(sessionId)?.kind === "ssh") {
+			throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", "UNSUPPORTED_PROJECT_LOCATION");
+		}
 		if (this.deletingSessions.has(sessionId)) {
 			throw new Error(`Session is being deleted: ${sessionId}`);
 		}
@@ -1718,6 +1735,9 @@ export class SessionRuntimeCoordinator {
 	}
 
 	private requireTarget(target: SessionRuntimeTarget): SessionRuntimeBinding {
+		if (this.catalog.getLocator(target.sessionId)?.kind === "ssh") {
+			throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", "UNSUPPORTED_PROJECT_LOCATION");
+		}
 		if (!this.catalog.get(target.sessionId)) {
 			throw new SessionRuntimeCommandError("SESSION_NOT_FOUND", `Session not found: ${target.sessionId}`);
 		}
@@ -1732,6 +1752,9 @@ export class SessionRuntimeCoordinator {
 	 * 有 catalog 行但无绑定则报「运行实例不可用」，避免误导用户去刷新会话列表。
 	 */
 	private resolveStopTarget(target: SessionRuntimeTarget): SessionRuntimeTarget {
+		if (this.catalog.getLocator(target.sessionId)?.kind === "ssh") {
+			throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", "UNSUPPORTED_PROJECT_LOCATION");
+		}
 		const live = this.getRuntimeBinding(target.agentId);
 		if (live) {
 			return {
@@ -1821,7 +1844,8 @@ export class SessionRuntimeCoordinator {
 			if (entry.backend === "dsh" || entry.backend === "imagegen") {
 				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", `backend "${entry.backend}" does not support persisted session message mutation`);
 			}
-			if (!entry.filePath) {
+			const sessionFilePath = this.catalog.getLocalFilePath(sessionId);
+			if (!sessionFilePath) {
 				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", "Session not persisted");
 			}
 			this.requireStoppedForFileMutation(sessionId);
@@ -1830,7 +1854,7 @@ export class SessionRuntimeCoordinator {
 			if (typeof this.agents.mutatePersistedSessionMessage !== "function") {
 				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", `backend "${this.agents.backend}" does not support persisted session message mutation`);
 			}
-			const value = await this.agents.mutatePersistedSessionMessage(entry.filePath, messageId, operation, {
+			const value = await this.agents.mutatePersistedSessionMessage(sessionFilePath, messageId, operation, {
 				newText,
 				environment: entry.environment,
 				wslDistro: entry.wslDistro,

@@ -1,61 +1,19 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const require = createRequire(import.meta.url);
-
-function transpile(filePath) {
-	return ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	}).outputText;
-}
-
-function loadWslPaths() {
-	const sandbox = { exports: {}, require };
-	vm.runInNewContext(transpile("src/main/wsl/WslPaths.ts"), sandbox, { filename: "WslPaths.ts" });
-	return sandbox.exports;
-}
-
-function loadWslEnvironment(paths) {
-	const sandbox = {
-		exports: {},
-		process,
-		require: (id) => (id === "./WslPaths" ? paths : require(id)),
-	};
-	vm.runInNewContext(transpile("src/main/wsl/WslEnvironment.ts"), sandbox, { filename: "WslEnvironment.ts" });
-	return sandbox.exports;
-}
-
-function loadProjectStore(paths, dialog) {
-	const sandbox = {
-		exports: {},
-		require: (id) => {
-			if (id === "electron") {
-				return { app: { getPath: () => "/tmp/pideck-test" }, dialog };
-			}
-			if (id === "../wsl/WslPaths") return paths;
-			if (id === "./projectPathPolicy") {
-				// 并行提交给 ProjectStore 新增的路径策略纯函数：宿主 require 相对测试
-				// 文件解析不到（vm filename 是 ProjectStore.ts），显式注入真实编译版
-				const policyModule = { exports: {} };
-				vm.runInNewContext(transpile("src/main/projects/projectPathPolicy.ts"), { module: policyModule, exports: policyModule.exports }, { filename: "projectPathPolicy.ts" });
-				return policyModule.exports;
-			}
-			return require(id);
-		},
-	};
-	vm.runInNewContext(transpile("src/main/projects/ProjectStore.ts"), sandbox, { filename: "ProjectStore.ts" });
-	return sandbox.exports;
-}
-
-const paths = loadWslPaths();
+const paths = loadTsCommonJs("src/main/wsl/WslPaths.ts");
 const rootEnvironment = paths.createWslEnvironment("Ubuntu-24.04", "root", "/root");
+
+function loadWslEnvironment() {
+	return loadTsCommonJs("src/main/wsl/WslEnvironment.ts");
+}
+
+function loadProjectStore(dialog = {}) {
+	return loadTsCommonJs("src/main/projects/ProjectStore.ts", {
+		stubs: { electron: { app: { getPath: () => "/tmp/pideck-test" }, dialog } },
+	});
+}
 
 test("parses WSL UNC aliases and legacy forward-slash paths", () => {
 	const cases = [
@@ -119,7 +77,7 @@ test("builds root, regular-user, and custom HOME contexts", () => {
 });
 
 test("resolves HOME once and exposes an observable compatibility fallback", async () => {
-	const { resolveWslEnvironment } = loadWslEnvironment(paths);
+	const { resolveWslEnvironment } = loadWslEnvironment();
 	const calls = [];
 	const resolved = await resolveWslEnvironment("Ubuntu-24.04", "dev", {
 		wslCommand: "wsl.exe",
@@ -154,7 +112,7 @@ test("opens the WSL project picker at the active HOME and canonicalizes its sele
 			};
 		},
 	};
-	const { ProjectStore } = loadProjectStore(paths, dialog);
+	const { ProjectStore } = loadProjectStore(dialog);
 	const store = new ProjectStore();
 	let added;
 	store.add = async (...args) => {
@@ -177,7 +135,7 @@ test("rejects a project from another distro before adding it", async () => {
 			filePaths: ["\\\\wsl.localhost\\Debian\\root\\ba_cli"],
 		}),
 	};
-	const { ProjectStore } = loadProjectStore(paths, dialog);
+	const { ProjectStore } = loadProjectStore(dialog);
 	const store = new ProjectStore();
 	let addCalled = false;
 	store.add = async () => {
@@ -189,7 +147,7 @@ test("rejects a project from another distro before adding it", async () => {
 });
 
 test("matches WSL UNC aliases without folding Linux path case", () => {
-	const { ProjectStore } = loadProjectStore(paths, {});
+	const { ProjectStore } = loadProjectStore({});
 	const store = new ProjectStore();
 
 	assert.equal(store.sameProjectPath("//wsl$/ubuntu-24.04/root/Repo", "\\\\wsl.localhost\\Ubuntu-24.04\\root\\Repo"), true);

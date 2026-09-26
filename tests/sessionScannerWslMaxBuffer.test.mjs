@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -56,7 +58,7 @@ function loadSessionNameLineModule() {
 	return sandbox.exports;
 }
 
-function loadSessionScanner(homePath, execFileMock, wslHostRoot) {
+function loadSessionScannerLegacy(homePath, execFileMock, wslHostRoot) {
 	const source = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -88,6 +90,7 @@ function loadSessionScanner(homePath, execFileMock, wslHostRoot) {
 			}
 		: wslPathsReal;
 	const sessionIdentity = loadTranspiledModule("src/shared/sessionIdentity.ts");
+	const locationAdapters = loadTranspiledModule("src/shared/locationAdapters.ts");
 	// SessionScanner 新增的自包含块折叠（无依赖纯函数）
 	const expandedRefBlocks = loadTranspiledModule("src/shared/expandedRefBlocks.ts");
 	// 会话 JSONL 流式行扫描器（只依赖 node:fs/promises，测试注入真实实现）
@@ -117,6 +120,7 @@ function loadSessionScanner(homePath, execFileMock, wslHostRoot) {
 			if (id === "../wsl/WslPaths") return wslPaths;
 			if (id === "./sessionNameLine") return loadSessionNameLineModule();
 			if (id === "../../shared/sessionIdentity") return sessionIdentity;
+			if (id === "../../shared/locationAdapters") return locationAdapters;
 			if (id === "../../shared/expandedRefBlocks") return expandedRefBlocks;
 			if (id === "./jsonlLineStream") return jsonlLineStream;
 			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
@@ -125,6 +129,26 @@ function loadSessionScanner(homePath, execFileMock, wslHostRoot) {
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: "SessionScanner.ts" });
 	return sandbox.exports;
+}
+
+function loadSessionScanner(homePath, execFileMock, wslHostRoot) {
+	const realWslPaths = loadTsCommonJs("src/main/wsl/WslPaths.ts");
+	const wslPaths = wslHostRoot
+		? {
+				...realWslPaths,
+				toWindowsHostPath: (linuxPath) => {
+					const raw = String(linuxPath);
+					if (!raw.startsWith("/")) return raw;
+					return join(wslHostRoot, ...raw.slice(1).split("/"));
+				},
+			}
+		: realWslPaths;
+	return loadProductionSessionScanner(homePath, {
+		stubs: {
+			"node:child_process": { execFile: execFileMock },
+			"../wsl/WslPaths": wslPaths,
+		},
+	});
 }
 
 /**

@@ -28,7 +28,8 @@ test("App：文件树右键引用复用 fileNodeDragPayloadToRef 并经 composer
 
 	// 「默认方式打开」仍按节点自身路径交给系统默认处理器（目录 → 文件管理器）。
 	const openBlock = appSource.slice(appSource.indexOf("onOpen={() =>"), appSource.indexOf("onReveal={() =>"));
-	assert.match(openBlock, /api\.files\.open\(fileMenu\.node\.path\)/);
+	assert.match(openBlock, /const target = fileMenu\.node\.target \?\? fileMenu\.node\.path/);
+	assert.match(openBlock, /api\.files\.open\(target\)/);
 });
 
 test("目录节点引用带尾斜杠（raw）且可解析为 file chip", () => {

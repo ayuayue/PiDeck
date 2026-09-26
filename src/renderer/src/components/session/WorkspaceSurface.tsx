@@ -11,13 +11,14 @@ import { FileSortControl } from "./FileSortControl";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { sortFileNodes, FILE_SORT_OPTIONS, FILE_SORT_DEFAULT_DIRECTION, type FileSortMode, type FileSortDirection } from "../../utils/fileTreeSort";
 import { compactMiddlePackages } from "../../utils/fileTreeCompact";
+import { fileTreeNodeKey } from "../../utils/fileTreeLazy";
 import { compactMiddlePackagesAtom } from "../../atoms/app-ui-atoms";
 import { writeFileNodeDragPayload } from "../app/AppUtils";
 import { t } from "../../i18n";
 import type { WorkspaceDrawerPanel } from "../../hooks/useWorkspacePanels";
 import { showNotice } from "../../utils/notice";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
-import type { FileTreeNode, Project, SessionSummary } from "../../../../shared/types";
+import type { FileTreeNode, Project, ProjectFileTarget, SessionSummary } from "../../../../shared/types";
 import { Input } from "../ui-shadcn/input";
 import { PathTooltip } from "../ui-shadcn/PathTooltip";
 import { FileSearch, Search } from "lucide-react";
@@ -62,9 +63,9 @@ export function DrawerContent(props: {
 	onCopySession: (session: SessionSummary) => void | Promise<void>;
 	onExportSession: (session: SessionSummary) => void | Promise<void>;
 	onDeleteSession: (session: SessionSummary) => void | Promise<void>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (path: string | ProjectFileTarget) => void;
 	/** 单击默认预览；第二参 permanent = 双击常驻 */
-	onViewFile?: (path: string, openMode?: "preview" | "permanent") => void;
+	onViewFile?: (path: string | ProjectFileTarget, openMode?: "preview" | "permanent") => void;
 	/** 项目根目录：面板空白处拖入/粘贴/右键的落点 */
 	projectRoot?: string;
 	/** 从 OS 拖入文件到目录或面板空白区域（复制） */
@@ -122,9 +123,9 @@ function FilesPanel(props: {
 	/** 收起文件树中所有已展开的目录，清空 expandedDirs。 */
 	onCollapseAll?: () => void;
 	onOpenFolder?: () => void;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (path: string | ProjectFileTarget) => void;
 	/** 单击默认预览；第二参 permanent = 双击常驻 */
-	onViewFile?: (path: string, openMode?: "preview" | "permanent") => void;
+	onViewFile?: (path: string | ProjectFileTarget, openMode?: "preview" | "permanent") => void;
 	/** 项目根目录：面板空白处拖入/粘贴/右键的落点 */
 	projectRoot?: string;
 	/** 从 OS 拖入文件到目录或面板空白区域（复制） */
@@ -316,7 +317,7 @@ function FilesPanel(props: {
 			) : (
 				displayFiles.map((node) => (
 					<FileNode
-						key={node.path}
+						key={fileTreeNodeKey(node)}
 						node={node}
 						expandedDirs={props.expandedDirs}
 						onToggleDirectory={props.onToggleDirectory}
@@ -352,7 +353,7 @@ function loadFileListExpanded(sessionKey: string | null): boolean {
 
 export function SessionFileSummary(props: {
 	files: SessionModifiedFile[];
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (path: string | ProjectFileTarget) => void;
 	onDiffFile?: DiffFileHandler;
 	/** sessionIdOrPath: 会话唯一标识(如 sessionPath),用于按 agent/session 隔离折叠状态。
 	 *  组件卸载后再次挂载相同标识时,恢复之前保存的折叠偏好。 */
@@ -451,9 +452,9 @@ function FileNode(props: {
 	expandedDirs: Set<string>;
 	onToggleDirectory: (path: string) => void;
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (path: string | ProjectFileTarget) => void;
 	/** 单击默认预览；第二参 permanent = 双击常驻 */
-	onViewFile?: (path: string, openMode?: "preview" | "permanent") => void;
+	onViewFile?: (path: string | ProjectFileTarget, openMode?: "preview" | "permanent") => void;
 	depth?: number;
 	/** 拖入文件（仅目录节点使用） */
 	onDropFiles?: (targetDir: string, files: FileList) => void;
@@ -463,7 +464,9 @@ function FileNode(props: {
 	onDragOverDirChange?: (path: string | null) => void;
 }) {
 	const { node, expandedDirs, onToggleDirectory, depth = 0 } = props;
-	const expanded = expandedDirs.has(node.path);
+	const nodeKey = fileTreeNodeKey(node);
+	const fileActionTarget = node.target ?? node.path;
+	const expanded = expandedDirs.has(nodeKey);
 	const typeLabel = node.type === "file" ? getFileTypeLabel(node.name) : "";
 	const rowStyle = {
 		/* 每层 8px：旧 16 在窄抽屉里空白过大（标注「缩进太大」）。 */
@@ -489,9 +492,9 @@ function FileNode(props: {
 			event.preventDefault();
 			event.stopPropagation();
 			event.dataTransfer.dropEffect = "move";
-			props.onDragOverDirChange?.(node.path);
+			props.onDragOverDirChange?.(nodeKey);
 		},
-		[node.path, props.onDragOverDirChange],
+		[nodeKey, props.onDragOverDirChange],
 	);
 	const handleDragLeave = useCallback(() => {
 		props.onDragOverDirChange?.(null);
@@ -504,19 +507,19 @@ function FileNode(props: {
 			// 内部拖拽移动：优先检查 pi-file-path
 			const sourcePath = event.dataTransfer.getData("text/pi-file-path");
 			if (sourcePath) {
-				if (sourcePath !== node.path && props.onMoveFiles) {
+				if (node.path && sourcePath !== node.path && props.onMoveFiles) {
 					props.onMoveFiles([sourcePath], node.path);
 				}
 				return;
 			}
-			// 外部 OS 文件拖入：复制到目标目录
-			if (event.dataTransfer.files.length > 0 && props.onDropFiles) {
+			// 外部 OS 文件拖入：只有 local adapter 提供真实路径时才执行复制
+			if (node.path && event.dataTransfer.files.length > 0 && props.onDropFiles) {
 				props.onDropFiles(node.path, event.dataTransfer.files);
 			}
 		},
-		[node.path, props.onDropFiles, props.onMoveFiles, props.onDragOverDirChange],
+		[node.path, nodeKey, props.onDropFiles, props.onMoveFiles, props.onDragOverDirChange],
 	);
-	const isDragOver = props.dragOverDir === node.path;
+	const isDragOver = props.dragOverDir === nodeKey;
 	/* 树行用原生 button，不用 shadcn Button：后者基类强制子 SVG size-4，
 	   会压掉 Seti --file-type-icon-size 与 lucide size，靠 ! 反压是补丁。
 	   2027-01：hover 高亮加与侧栏行同款的过渡动画（transition-[background-color,
@@ -531,12 +534,12 @@ function FileNode(props: {
 					className={cn("file", fileRowButtonClass)}
 					style={rowStyle}
 					title={`${node.relativePath}\n${typeLabel}`}
-					draggable
-					onDragStart={handleDragStart}
-					onClick={() => props.onViewFile?.(node.path)}
+					draggable={Boolean(node.path)}
+					onDragStart={node.path ? handleDragStart : undefined}
+					onClick={() => fileActionTarget && props.onViewFile?.(fileActionTarget)}
 					onDoubleClick={(event) => {
 						event.preventDefault();
-						props.onViewFile?.(node.path, "permanent");
+						if (fileActionTarget) props.onViewFile?.(fileActionTarget, "permanent");
 					}}
 					onContextMenu={menu}
 				>
@@ -548,9 +551,20 @@ function FileNode(props: {
 		);
 	return (
 		<div className="file-node" style={rowStyle}>
-			<Collapsible open={expanded} onOpenChange={() => onToggleDirectory(node.path)}>
+			<Collapsible open={expanded} onOpenChange={() => onToggleDirectory(nodeKey)}>
 				<CollapsibleTrigger asChild>
-					<button type="button" className={cn("directory group", fileRowButtonClass, isDragOver && "bg-muted ring-1 ring-border")} style={rowStyle} title={node.relativePath} draggable onDragStart={handleDragStart} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onContextMenu={menu}>
+					<button
+						type="button"
+						className={cn("directory group", fileRowButtonClass, isDragOver && "bg-muted ring-1 ring-border")}
+						style={rowStyle}
+						title={node.relativePath}
+						draggable={Boolean(node.path)}
+						onDragStart={node.path ? handleDragStart : undefined}
+						onDragOver={handleDragOver}
+						onDragLeave={handleDragLeave}
+						onDrop={handleDrop}
+						onContextMenu={menu}
+					>
 						<ChevronRight
 							className={cn(
 								"file-node-chevron size-3.5 shrink-0 transition-transform",
@@ -580,7 +594,7 @@ function FileNode(props: {
 						<div className="file-children">
 							{node.children.map((child) => (
 								<FileNode
-									key={child.path}
+									key={fileTreeNodeKey(child)}
 									node={child}
 									expandedDirs={expandedDirs}
 									onToggleDirectory={onToggleDirectory}

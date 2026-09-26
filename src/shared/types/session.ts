@@ -1,3 +1,5 @@
+import type { ProjectFileTarget } from "./project";
+
 export type ChatRole = "user" | "assistant" | "tool" | "system" | "error";
 
 export type I18nParams = Record<string, string | number | boolean | null | undefined>;
@@ -67,8 +69,12 @@ export type SessionMessagePage = {
 
 export type FileTreeNode = {
 	name: string;
-	path: string;
+	/** Local-only compatibility path; project actions must use target. */
+	path?: string;
+	displayPath?: string;
 	relativePath: string;
+	/** Stable project-scoped identity; optional only for preview and legacy local fixtures. */
+	target?: ProjectFileTarget;
 	type: "file" | "directory";
 	children?: FileTreeNode[];
 	/**
@@ -84,18 +90,30 @@ export type FileTreeNode = {
 
 /**
  * 工作区文件名搜索结果（issue #215）：扁平列表，不构树。
- * `path` 为绝对路径，预览/打开/在文件夹中显示等复用 FileTreeNode 的下游链路；
+ * `target` 是项目作用域下的规范身份；`displayPath` 仅用于界面展示，`path` 仅供 local compatibility adapter。
  * 高亮由渲染层用查询词在 name 上 indexOf 计算，主进程不冗余回传命中片段。
  */
 export type FileSearchResult = {
 	name: string;
-	path: string;
+	path?: string;
+	displayPath?: string;
 	relativePath: string;
+	target?: ProjectFileTarget;
 	type: "file" | "directory";
 };
 
 export type SessionSource = "pi" | "codex" | "claude" | "opencode" | "zcode" | "workbuddy" | "cursor";
 export type SessionEnvironment = "native" | "wsl";
+
+export type SessionLocator = { kind: "local"; environment: SessionEnvironment; filePath?: string; wslDistro?: string; wslUser?: string } | { kind: "ssh"; hostId: string; remotePath?: string; remoteSessionId?: string; remotePathAliases?: string[] };
+
+export type LegacySessionLocationFields = {
+	environment: SessionEnvironment;
+	filePath?: string;
+	wslDistro?: string;
+	wslUser?: string;
+	wsl?: boolean;
+};
 
 /**
  * 会话级代理覆盖模式（单会话开关，复用全局代理 URL，不存每会话 URL）：
@@ -124,7 +142,9 @@ export type SessionRuntimeModelSelection = SessionModelPreference & {
 
 export type SessionSummary = {
 	id: string;
+	/** Local scanner identity; session consumers should use locator and catalog ID. */
 	filePath: string;
+	locator?: SessionLocator;
 	/** 会话归属项目 id（渲染层 worktree 家族区分用；扫描摘要恒缺省，catalog 记录回填）。 */
 	projectId?: string;
 	projectPath?: string;
@@ -201,6 +221,9 @@ export type SessionRecord = {
 	environment: SessionEnvironment;
 	/** 运行时后端（pi/dsh）；缺省 "pi"，旧 catalog 数据无需迁移。 */
 	backend?: import("./agent").AgentBackend;
+	/** Canonical file-backed location; absent for DSH, imagegen, and anonymous sessions. */
+	locator?: SessionLocator;
+	/** Local-only compatibility path; use locator for history routing. */
 	filePath?: string;
 	wslDistro?: string;
 	wslUser?: string;

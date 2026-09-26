@@ -12,7 +12,8 @@ test("session file deletion treats an already missing local file as success", ()
 });
 
 test("catalog delete still removes the catalog record after a stale file path", () => {
-	assert.match(ipc, /if \(entry\.filePath\) \{[\s\S]*await sessionScanner\.delete\(entry\.filePath\);[\s\S]*\}/);
+	assert.match(ipc, /const sessionFilePath = localSessionFilePath\(sessionId\);/);
+	assert.match(ipc, /if \(sessionFilePath\) \{[\s\S]*await sessionScanner\.delete\(sessionFilePath\);[\s\S]*\}/);
 	assert.match(ipc, /await sessionCatalog\.removeWithDescendants\(sessionId\)/);
 });
 

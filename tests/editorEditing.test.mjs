@@ -91,7 +91,7 @@ test("FileDiffViewer: image/PDF get inline preview via base64 Blob URL", () => {
 	assert.match(viewer, /editor\.pdfPreview/);
 	// 主进程 handler：读文件转 base64，ENOENT 返回空串（渲染层走「不支持」提示）
 	assert.match(ipc, /filesReadBase64/);
-	assert.match(ipc, /buffer\.toString\("base64"\)/);
+	assert.match(ipc, /readFile\(readablePath\)\)\.toString\("base64"\)/);
 	assert.match(ipc, /code === "ENOENT"/);
 });
 

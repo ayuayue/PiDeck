@@ -49,6 +49,7 @@ test("terminal:shells channel is handled and delegates to listShells", async () 
 	});
 	registerTerminalIpc({
 		appLogger: { info: () => {} },
+		projectStore: { get: () => undefined },
 		sessionRuntimeCoordinator: {},
 		terminalManager,
 		toSessionCommandIpcError: (error) => new Error(error?.message ?? "error"),

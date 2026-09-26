@@ -730,9 +730,9 @@ function emitReplacementState(binding: SessionRuntimeBinding, includeMessages: b
 }
 
 async function readCatalogSessionReferenceMessages(sessionId: string) {
-	const entry = sessionCatalog.get(sessionId);
-	if (!entry?.filePath) return [];
-	return sessionScanner.readMessages(entry.filePath);
+	const filePath = sessionCatalog.getLocalFilePath(sessionId);
+	if (!filePath) return [];
+	return sessionScanner.readMessages(filePath);
 }
 
 async function copyCatalogSession(sessionId: string) {
@@ -743,8 +743,9 @@ async function copyCatalogSession(sessionId: string) {
 	if (entry?.backend === "dsh") {
 		throw new Error(mainCopy("session.copyDshUnsupported"));
 	}
-	if (!entry?.filePath) throw new Error(mainCopy("session.fileNotFound"));
-	const result = (await agentManager.cloneSessionFile(entry.projectId, entry.filePath, entry.environment)) as {
+	const filePath = sessionCatalog.getLocalFilePath(sessionId);
+	if (!entry || !filePath) throw new Error(mainCopy("session.fileNotFound"));
+	const result = (await agentManager.cloneSessionFile(entry.projectId, filePath, entry.environment)) as {
 		cancelled?: boolean;
 		sessionPath?: string;
 	};
@@ -799,8 +800,9 @@ async function exportCatalogSessionHtml(sessionId: string): Promise<{ path: stri
 		const project = projectStore.get(entry.projectId);
 		return dshAgentManager.exportSessionHtml(entry.dshSessionId, entry.title, project?.path);
 	}
-	if (!entry?.filePath) throw new Error(mainCopy("session.fileNotFound"));
-	const result = await agentManager.exportSessionHtml(entry.projectId, entry.filePath);
+	const filePath = sessionCatalog.getLocalFilePath(sessionId);
+	if (!entry || !filePath) throw new Error(mainCopy("session.fileNotFound"));
+	const result = await agentManager.exportSessionHtml(entry.projectId, filePath);
 	if (!result || typeof result !== "object" || !("path" in result) || typeof result.path !== "string") {
 		throw new Error(mainCopy("session.exportFailed"));
 	}
@@ -2494,11 +2496,10 @@ function registerIpc() {
 					mainWindow?.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
 				}
 			}
-			// 生图独立持久化：imagegen 后端会话（可能残留无意义的 pi filePath）与无 pi 会话文件的
-			// 纯生图草稿，都落盘到 ImageSession 独立存储（PiDeck userData 下的 imagegen/sessions），
-			// 不再依赖 pi 会话文件；并把会话提升为 active，防重启时 staleDrafts 清理丢入口——
-			// 否则生图历史重启即失（2026 用户反馈）。只有非 imagegen 且有 filePath 才写 pi 文件。
-			if (entry.backend === "imagegen" || !entry.filePath) {
+			const localSessionFilePath = sessionCatalog.getLocalFilePath(sessionId);
+			// 生图独立持久化：imagegen 后端会话与无 pi 会话文件的纯生图草稿，
+			// 都落盘到 ImageSession 独立存储；只有有本地 Pi locator 才写 JSONL。
+			if (entry.backend === "imagegen" || !localSessionFilePath) {
 				await imageSessionStore.append(sessionId, [
 					{
 						id: randomUUID(),
@@ -2529,7 +2530,7 @@ function registerIpc() {
 				await sessionCatalog.promoteToActive(sessionId);
 				return;
 			}
-			await agentManager?.appendLocalMessagesToSession(entry.filePath, [
+			await agentManager?.appendLocalMessagesToSession(localSessionFilePath, [
 				{
 					role: "user",
 					// 参考图随 user 消息落盘：重启恢复历史时时间线里能看到参考图
@@ -3086,6 +3087,7 @@ function registerIpc() {
 
 	registerTerminalIpc({
 		appLogger,
+		projectStore,
 		sessionRuntimeCoordinator,
 		terminalManager,
 		toSessionCommandIpcError: sessionCommandIpcError,
@@ -3098,7 +3100,6 @@ function registerIpc() {
 		projectStore,
 		settingsStore,
 		appLogger,
-		getMainWindow: () => mainWindow,
 		openExternalUrl,
 	});
 	registerClipboardIpc({ appLogger });
@@ -3725,8 +3726,9 @@ app
 					if (target) {
 						const renamed = await sessionRuntimeCoordinator.renameRuntime(target, title);
 						if (!renamed.ok) throw sessionCommandIpcError(renamed.error);
-					} else if (entry.filePath) {
-						await sessionScanner.rename(entry.filePath, title);
+					} else {
+						const filePath = sessionCatalog.getLocalFilePath(sessionId);
+						if (filePath) await sessionScanner.rename(filePath, title);
 					}
 				}
 				return sessionCatalog.update(sessionId, {
@@ -3738,9 +3740,10 @@ app
 			deleteSessionRecord: async (sessionId) => {
 				const entry = sessionCatalog.get(sessionId);
 				if (!entry) return false;
+				const filePath = sessionCatalog.getLocalFilePath(sessionId);
 				// Web 删除与桌面 IPC 同一策略：先解绑再删 catalog，agent 后台停。
 				await sessionRuntimeCoordinator.releaseRuntimeForDelete(sessionId);
-				if (entry.filePath) await sessionScanner.delete(entry.filePath);
+				if (filePath) await sessionScanner.delete(filePath);
 				// DSH 没有 session.delete：与 pi 端同语义删除——把 host 会话目录移入系统回收站
 				// （可恢复；trashPath 失败时抛错由 IPC 呈现，拒绝静默硬删；目录已不在=幂等成功）。
 				// cwd 取项目目录（DSH workspace 编码同源）；项目被移除过则扫 sessions 树兑底。
@@ -3764,10 +3767,11 @@ app
 					const page = await dshAgentManager.readHistoryPage(entry.dshSessionId, undefined, { maxMessages: 1000 });
 					return { messages: page.messages, total: page.total, windowStart: 0, truncated: false };
 				}
-				if (!entry?.filePath) return { messages: [], total: 0, windowStart: 0, truncated: false };
+				const filePath = sessionCatalog.getLocalFilePath(sessionId);
+				if (!filePath) return { messages: [], total: 0, windowStart: 0, truncated: false };
 				// 有界加载窗口（9 轮 + 条目预算），不是全量历史：全量下发在大会话上会同时顶爆
 				// 主进程与渲染层（#213）。更早历史请走分页接口（Web：/messages/page）。
-				const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId);
+				const window = await agentManager.readSessionLoadWindow(filePath, sessionId);
 				return { ...window, truncated: window.windowStart > 0 };
 			},
 			readSessionMessagePage: async (sessionId, before, pageSize) => {
@@ -3777,8 +3781,9 @@ app
 				if (entry?.backend === "dsh" && entry.dshSessionId && dshAgentManager) {
 					return dshAgentManager.readHistoryPage(entry.dshSessionId, before, { turnCount: pageSize });
 				}
-				if (!entry?.filePath) return { messages: [], total: 0, nextBefore: null };
-				return agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize);
+				const filePath = sessionCatalog.getLocalFilePath(sessionId);
+				if (!filePath) return { messages: [], total: 0, nextBefore: null };
+				return agentManager.readSessionDisplayTurnPage(filePath, sessionId, before, pageSize);
 			},
 			sendSessionPrompt: async (input) => {
 				const result = await sessionRuntimeCoordinator.send(input);
@@ -3865,6 +3870,7 @@ app
 				return agentManager.getCwd(agentId);
 			},
 			(channel, payload) => mainWindow?.webContents.send(channel, payload),
+			projectStore,
 			() => settingsStore.get(),
 		);
 		// C12：退出清理登记（before-quit 统一 runAll）

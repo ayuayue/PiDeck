@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersistedPanelWidth } from "./usePersistedPanelWidth";
-import type { BranchDiffResult, CommitDetail, CommitEntry, ExternalEditor, GitChangedFile, GitResourceGroupType, GitResourceGroups, GitWorkspaceFileDiff } from "../../../shared/types";
+import type { BranchDiffResult, CommitDetail, CommitEntry, ExternalEditor, GitChangedFile, GitCommitFileDiff, GitResourceGroupType, GitResourceGroups, GitWorkspaceFileDiff, ProjectFileTarget } from "../../../shared/types";
 
 export const DRAWER_ANIMATION_MS = 120;
 export const EDITOR_TAB_LIMIT = 5;
@@ -12,6 +12,7 @@ export type WorkspaceEditorMode = "view" | "diff";
 export type WorkspaceEditorTab = {
 	id: string;
 	filePath: string;
+	fileTarget?: ProjectFileTarget;
 	mode: WorkspaceEditorMode;
 	originalContent: string;
 	modifiedContent?: string;
@@ -52,12 +53,12 @@ export type WorkspaceGitResourceAdapter = {
 	commitDetail: (projectId: string, ref: string) => Promise<CommitDetail | null>;
 	branchCompare: (projectId: string, base: string, target: string) => Promise<BranchDiffResult>;
 	getStatus: (projectId: string) => Promise<GitResourceGroups>;
-	stageFiles: (projectId: string, paths: string[]) => Promise<void>;
-	unstageFiles: (projectId: string, paths: string[]) => Promise<void>;
-	discardFile: (projectId: string, group: "workingTree" | "untracked", path: string) => Promise<void>;
+	stageFiles: (projectId: string, targets: ProjectFileTarget[]) => Promise<void>;
+	unstageFiles: (projectId: string, targets: ProjectFileTarget[]) => Promise<void>;
+	discardFile: (projectId: string, group: "workingTree" | "untracked", target: ProjectFileTarget) => Promise<void>;
 	commit: (projectId: string, message: string) => Promise<void>;
-	workspaceFileDiff: (projectId: string, group: GitResourceGroupType, path: string) => Promise<GitWorkspaceFileDiff | null>;
-	commitFileDiff: (projectId: string, hash: string, path: string, originalPath?: string) => Promise<(GitWorkspaceFileDiff & { originalPath?: string }) | null>;
+	workspaceFileDiff: (projectId: string, group: GitResourceGroupType, target: ProjectFileTarget, repoTarget?: ProjectFileTarget) => Promise<GitWorkspaceFileDiff | null>;
+	commitFileDiff: (projectId: string, hash: string, target: ProjectFileTarget, originalTarget?: ProjectFileTarget, repoTarget?: ProjectFileTarget) => Promise<GitCommitFileDiff | null>;
 };
 
 export type WorkspaceExternalEditorAdapter = {
@@ -288,10 +289,10 @@ export function useWorkspacePanels(options: WorkspacePanelOptions = {}) {
 		invalidateGitDiff();
 	}, [invalidateGitDiff]);
 
-	const openWorkspaceFileDiff = useCallback(async (group: GitResourceGroupType, path: string) => {
+	const openWorkspaceFileDiff = useCallback(async (group: GitResourceGroupType, target: ProjectFileTarget, repoTarget?: ProjectFileTarget) => {
 		const id = projectIdRef.current;
 		const request = ++gitRequestRef.current;
-		const diff = id ? await gitRef.current?.workspaceFileDiff(id, group, path) : null;
+		const diff = id ? await gitRef.current?.workspaceFileDiff(id, group, target, repoTarget) : null;
 		if (
 			!id ||
 			!isCurrentGitDiffResponse({
@@ -313,7 +314,7 @@ export function useWorkspacePanels(options: WorkspacePanelOptions = {}) {
 	const openCommitFileDiff = useCallback(async (commit: CommitEntry, file: GitChangedFile) => {
 		const id = projectIdRef.current;
 		const request = ++gitRequestRef.current;
-		const diff = id ? await gitRef.current?.commitFileDiff(id, commit.hash, file.path, file.originalPath) : null;
+		const diff = id ? await gitRef.current?.commitFileDiff(id, commit.hash, file.target, file.originalTarget) : null;
 		if (
 			!id ||
 			!isCurrentGitDiffResponse({

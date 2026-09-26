@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -147,7 +148,7 @@ function loadSessionNameLineModule() {
 	return sandbox.exports;
 }
 
-function loadSessionScanner(homePath, fsOverrides = {}) {
+function loadSessionScannerLegacy(homePath, fsOverrides = {}) {
 	const source = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -190,6 +191,10 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: "SessionScanner.ts" });
 	return sandbox.exports;
+}
+
+function loadSessionScanner(homePath) {
+	return loadProductionSessionScanner(homePath);
 }
 
 function writeSession(filePath, entries) {

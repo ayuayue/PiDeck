@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { Project, FileTreeNode, GitBranchInfo, WorktreeEntry, SessionSummary, SessionRecord } from "../../../shared/types";
+import type { Project, ProjectFileTarget, FileTreeNode, GitBranchInfo, WorktreeEntry, SessionSummary, SessionRecord } from "../../../shared/types";
 import type { SessionLoadState } from "../atoms/session-atoms";
 import { sessionRecordToSummary } from "../atoms/session-selectors";
 import { loadProjectFileTree } from "../utils/fileTreeLazy";
@@ -40,7 +40,7 @@ type UseProjectSyncInput = {
 			syncDshForeignSessions?: () => Promise<{ imported: number; skipped: number }>;
 		};
 		files: {
-			list: (projectId: string, options?: { maxDepth?: number; directory?: string }) => Promise<FileTreeNode[]>;
+			list: (project: string | ProjectFileTarget, options?: { maxDepth?: number; directory?: string }) => Promise<FileTreeNode[]>;
 		};
 	};
 	showToast: (message: string, duration?: number) => void;
@@ -350,10 +350,10 @@ export function useProjectSync(input: UseProjectSyncInput) {
 		try {
 			// 抽屉刷新只拉浅层根，再按当前展开目录补齐，避免整棵 12 层 IPC。
 			const next = await loadProjectFileTree(
-				() => api.files.list(projectId, { maxDepth: 0 }),
+				() => api.files.list({ projectId, relativePath: "" }, { maxDepth: 0 }),
 				expandedDirs,
 				() => isFileTreeRequestCurrent(generation, projectId),
-				(directory) => api.files.list(projectId, { maxDepth: 0, directory }),
+				(directory) => (typeof directory === "string" ? api.files.list(projectId, { maxDepth: 0, directory }) : api.files.list(directory, { maxDepth: 0 })),
 			);
 			if (!next) return;
 			setFiles(next);

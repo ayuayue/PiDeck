@@ -57,6 +57,31 @@ function isRecord(input: unknown): input is Record<string, unknown> {
 	return typeof input === "object" && input !== null && !Array.isArray(input);
 }
 
+function parseSessionId(value: unknown): string {
+	if (typeof value !== "string" || !value.trim() || value.length > 256) throw new Error("INVALID_SESSION_ID");
+	return value;
+}
+
+function parseSessionPageCursor(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new Error("INVALID_SESSION_PAGE_CURSOR");
+	return value;
+}
+
+function parseSessionPageSize(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1000) throw new Error("INVALID_SESSION_PAGE_SIZE");
+	return value;
+}
+
+function parseSessionPageOptions(value: unknown): { beforeEntryId?: string } | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value) || Object.keys(value).some((key) => key !== "beforeEntryId")) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	if (value.beforeEntryId === undefined) return {};
+	if (typeof value.beforeEntryId !== "string" || !value.beforeEntryId.trim() || value.beforeEntryId.length > 256) throw new Error("INVALID_SESSION_PAGE_OPTIONS");
+	return { beforeEntryId: value.beforeEntryId };
+}
+
 /** Normalize untrusted model input before it reaches the persisted catalog. */
 function normalizeSessionModelPreference(input: unknown): SessionModelPreference | undefined {
 	if (!isRecord(input) || typeof input.provider !== "string" || typeof input.modelId !== "string" || (input.modelName !== undefined && typeof input.modelName !== "string")) return undefined;
@@ -394,6 +419,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		replaceAgentSession,
 		dshBackend,
 	} = deps;
+	const localSessionFilePath = (sessionId: string) => sessionCatalog.getLocalFilePath(sessionId);
 	// C1：DSH 后端依赖从 dshBackend 分组解构（未装配 = 空对象，相关通道降级）。
 	const {
 		listDshModels,
@@ -458,12 +484,12 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	const backfillHistoricalSessionMetadata = async (sessionId: string, metadata: Pick<SessionMessagePage, "model" | "thinkingLevel">): Promise<void> => {
 		if (sessionRuntimeCoordinator.getTarget(sessionId)) return;
 		const entry = sessionCatalog.get(sessionId);
-		if (!entry || entry.backend === "dsh" || !entry.filePath) return;
+		if (!entry || entry.backend === "dsh" || !localSessionFilePath(sessionId)) return;
 		if (entry.model && entry.thinkingLevel) return;
 		if (!metadata.model && !metadata.thinkingLevel) return;
 		try {
 			const current = sessionCatalog.get(sessionId);
-			if (!current || current.backend === "dsh" || !current.filePath) return;
+			if (!current || current.backend === "dsh" || !localSessionFilePath(sessionId)) return;
 			const patch: {
 				model?: SessionModelPreference;
 				thinkingLevel?: string;
@@ -703,13 +729,16 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			if (target) {
 				const renamed = await sessionRuntimeCoordinator.renameRuntime(target, title);
 				if (!renamed.ok) throw sessionCommandIpcError(renamed.error, appLogger, mainCopy);
-			} else if (entry.filePath) {
-				await sessionScanner.rename(entry.filePath, title);
-				void appLogger.info("session", "Session renamed (file)", {
-					sessionId,
-					oldTitle: entry.title,
-					newTitle: title,
-				});
+			} else {
+				const sessionFilePath = localSessionFilePath(sessionId);
+				if (sessionFilePath) {
+					await sessionScanner.rename(sessionFilePath, title);
+					void appLogger.info("session", "Session renamed (file)", {
+						sessionId,
+						oldTitle: entry.title,
+						newTitle: title,
+					});
+				}
 			}
 		}
 		return sessionCatalog.update(sessionId, {
@@ -720,9 +749,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			...(patch.backend === "imagegen" ? { filePath: null, piSessionId: null } : {}),
 		});
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (_event, sessionId: string) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
 		if (!entry) return false;
+		const sessionFilePath = localSessionFilePath(sessionId);
 		// 删除即先杀后删：失败一次/卡在 bound 的会话也能删掉。
 		// 仍按路径扫一遍游离 agent，避免只解绑 catalog 却留着进程。
 		await sessionRuntimeCoordinator.releaseRuntimeForDelete(sessionId);
@@ -732,8 +763,8 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			if (entry.backend === "dsh" && entry.dshSessionId) {
 				await sessionCatalog.rememberDismissedDshSession(entry.dshSessionId);
 			}
-			if (entry.filePath) {
-				const normalizedTarget = canonicalizeSessionPath(entry.filePath, entry.environment);
+			if (sessionFilePath) {
+				const normalizedTarget = canonicalizeSessionPath(sessionFilePath, entry.environment);
 				const usingAgent = agentManager
 					.list()
 					.find((agent) => agent.sessionPath && agent.sessionEnvironment === entry.environment && (entry.environment !== "wsl" || (agent.wslDistro === entry.wslDistro && agent.wslUser === entry.wslUser)) && canonicalizeSessionPath(agent.sessionPath, entry.environment) === normalizedTarget);
@@ -741,24 +772,25 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					await sessionRuntimeCoordinator.stopAgentById(usingAgent.id).catch(() => undefined);
 					await agentManager.stop(usingAgent.id).catch(() => undefined);
 				}
-				await sessionScanner.delete(entry.filePath);
+				await sessionScanner.delete(sessionFilePath);
 			}
 			// 磁盘会把 sibling `<stem>/` 一并删掉；catalog 必须同步摘掉整棵子树，
 			// 否则 mergeScanned 只增改不删，子会话会孤儿提升成顶层行。
 			await sessionCatalog.removeWithDescendants(sessionId);
-			void appLogger.info("session", "Catalog session deleted", { sessionId, filePath: entry.filePath });
+			void appLogger.info("session", "Catalog session deleted", { sessionId, filePath: sessionFilePath });
 			return true;
 		} catch (error) {
 			// 会话删除失败（文件删除失败/记录移除失败/会话使用中拦截）也要留痕，便于事后追踪。
 			void appLogger.error("session", "Catalog session delete failed", {
 				sessionId,
-				filePath: entry.filePath,
+				filePath: sessionFilePath,
 				error: error instanceof Error ? error.message : String(error),
 			});
 			throw error;
 		}
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogArchive, async (_event, sessionId: string) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogArchive, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
 		// DSH 会话归档（G14）：host 目录移入 .pideck-archive（目录移动 + manifest，不销毁数据）。
 		// 运行中的会话不能归档（同 pi：移动文件会破坏 host 对当前写入位置的引用）。
@@ -780,12 +812,13 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			});
 			return true;
 		}
-		if (!entry?.filePath) return false;
+		const sessionFilePath = localSessionFilePath(sessionId);
+		if (!entry || !sessionFilePath) return false;
 		// 运行中的会话不能归档（同删除）：移动文件会破坏 pi 对当前写入位置的引用。
 		if (sessionRuntimeCoordinator.getTarget(sessionId) || sessionRuntimeCoordinator.isActivating(sessionId)) {
 			throw new Error(mainCopy("session.stopBeforeDelete"));
 		}
-		const archivedPath = await sessionScanner.archive(entry.filePath);
+		const archivedPath = await sessionScanner.archive(sessionFilePath);
 		// scanner.archive 会把 sibling `<stem>/` 一并移走；catalog 同步清子树，避免幽灵子会话。
 		await sessionCatalog.removeWithDescendants(sessionId);
 		void appLogger.info("session", "Session archived", { sessionId, archivedPath });
@@ -811,8 +844,10 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		void appLogger.info("session", "Archived session deleted", { archivedPath });
 		return true;
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogReadMessages, async (_event, sessionId: string) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogReadMessages, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
+		const sessionFilePath = localSessionFilePath(sessionId);
 		// DSH 会话没有 pi 会话文件：全量读走 host 历史事件流（一次拉最大页），
 		// 与分页路径同源；未装配 readDshHistoryPage 时返回空数组。
 		if (entry?.backend === "dsh" && entry.dshSessionId && readDshHistoryPage) {
@@ -823,21 +858,22 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// imagegen 后端会话：历史独立存 ImageSessionStore，不走 pi 文件
 			return (await readImageSessionMessages?.(sessionId)) ?? [];
 		}
-		if (!entry?.filePath) return [];
+		if (!sessionFilePath) return [];
 		// 有界「加载窗口」（9 轮 + 条目预算），不是全量历史：整量读出在大会话上
 		// 会同时顶爆主进程与渲染层（#213）；需要更早历史走 readRecordMessagePage。
-		const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId);
+		const window = await agentManager.readSessionLoadWindow(sessionFilePath, sessionId);
 		const messages = window.messages;
-		const metadata = await agentManager.readSessionDisplayMetadata(entry.filePath);
+		const metadata = await agentManager.readSessionDisplayMetadata(sessionFilePath);
 		await backfillHistoricalSessionMetadata(sessionId, metadata);
 		return messages;
 	});
 	/** 子代理列表：从会话文件 subagents:record + catalog 子会话回填合成。 */
-	ipcMain.handle(ipcChannels.sessionsListSubagents, async (_event, sessionId: string) => {
-		if (typeof sessionId !== "string" || !sessionId) return [];
+	ipcMain.handle(ipcChannels.sessionsListSubagents, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
-		if (!entry?.filePath) return [];
-		let records = await agentManager.readSessionSubagentRecords(entry.filePath);
+		const sessionFilePath = localSessionFilePath(sessionId);
+		if (!entry || !sessionFilePath) return [];
+		let records = await agentManager.readSessionSubagentRecords(sessionFilePath);
 		// acp_delegate 推导条目在会话无活 runtime 时残留的 running 视为已终止：
 		// 终态通知没写进文件（进程被杀/崩溃）的委托在历史会话里永远是 running，
 		// 会误导为仍在运行；活会话保持 running，由后续通知/桥接覆盖。
@@ -862,13 +898,14 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		// 再按子会话名 `${type}#${id前8位}` 精确匹配。
 		const children = sessionCatalog
 			.listEntries()
-			.filter((e) => e.parentSessionPath === entry.filePath)
+			.filter((e) => e.parentSessionPath === sessionFilePath)
 			.map((e) => sessionCatalog.getRecord(e.id))
 			.filter((r): r is NonNullable<typeof r> => r != null);
 		for (const record of records) {
 			const namePrefix = `${record.type}#${record.id.slice(0, 8)}`;
 			const child = children.find((s) => (s.title ?? "").startsWith(namePrefix));
-			if (child?.filePath) record.childSessionPath = child.filePath;
+			const childSessionPath = child?.locator?.kind === "local" ? child.locator.filePath : undefined;
+			if (childSessionPath) record.childSessionPath = childSessionPath;
 			if (child) record.childSessionId = child.id;
 		}
 		return records;
@@ -877,24 +914,31 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	 * 会话级文件修改汇总：只读会话文件「最新一轮」的 write/edit/create/patch
 	 * （有界读，不展开整条活动分支；历史/活会话通用）。
 	 */
-	ipcMain.handle(ipcChannels.sessionsListFileChanges, async (_event, sessionId: string) => {
-		if (typeof sessionId !== "string" || !sessionId) return [];
+	ipcMain.handle(ipcChannels.sessionsListFileChanges, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
+		const sessionFilePath = localSessionFilePath(sessionId);
 		// DSH/生图会话无 pi 会话文件，文件汇总无意义
-		if (!entry?.filePath || entry.backend === "dsh" || entry.backend === "imagegen") return [];
-		return agentManager.readSessionFileChanges(entry.filePath);
+		if (!entry || !sessionFilePath || entry.backend === "dsh" || entry.backend === "imagegen") return [];
+		return agentManager.readSessionFileChanges(sessionFilePath);
 	});
 	/** 会话级 todo 快照：从会话文件 pi-deck-todo custom 条目重建最新计划（历史会话任务 tab）。 */
-	ipcMain.handle(ipcChannels.sessionsListSessionTodo, async (_event, sessionId: string) => {
-		if (typeof sessionId !== "string" || !sessionId) return undefined;
+	ipcMain.handle(ipcChannels.sessionsListSessionTodo, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
+		const sessionFilePath = localSessionFilePath(sessionId);
 		// DSH/生图会话无 pi 会话文件，无 todo 快照
-		if (!entry?.filePath || entry.backend === "dsh" || entry.backend === "imagegen") return undefined;
-		return agentManager.readSessionTodo(entry.filePath);
+		if (!entry || !sessionFilePath || entry.backend === "dsh" || entry.backend === "imagegen") return undefined;
+		return agentManager.readSessionTodo(sessionFilePath);
 	});
 
-	ipcMain.handle(ipcChannels.sessionsCatalogReadMessagePage, async (_event, sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogReadMessagePage, async (_event, rawSessionId: unknown, rawBefore?: unknown, rawPageSize?: unknown, rawOptions?: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
+		const before = parseSessionPageCursor(rawBefore);
+		const pageSize = parseSessionPageSize(rawPageSize);
+		const options = parseSessionPageOptions(rawOptions);
 		const entry = sessionCatalog.get(sessionId);
+		const sessionFilePath = localSessionFilePath(sessionId);
 		// DSH 会话没有 pi 会话文件：历史浏览走 host 的 session.history 事件流翻页
 		// （游标 = 事件 seq），与 pi 的磁盘分页同形状（messages/total/nextBefore）；
 		// 第三条参数在 pi 路径是「轮数」，所以 DSH 这里按 turnCount 传（main 侧换算消息预算）。
@@ -911,7 +955,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				throw error;
 			}
 		}
-		if (entry?.backend === "imagegen" || !entry?.filePath) {
+		if (entry?.backend === "imagegen" || !sessionFilePath) {
 			// imagegen 后端会话（可能残留无意义 pi filePath）或纯生图草稿：
 			// 走 ImageSession 独立存储恢复生图历史，避免落到不存在的 pi 文件
 			const imageSessionMessages = (await readImageSessionMessages?.(sessionId)) ?? [];
@@ -938,7 +982,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				const target = sessionRuntimeCoordinator.getTarget(sessionId);
 				if (target) {
 					const cached = await agentManager
-						.tryReadRuntimeTurnPage(entry.filePath, target.agentId, {
+						.tryReadRuntimeTurnPage(sessionFilePath, target.agentId, {
 							beforeEntryId: options?.beforeEntryId,
 							before,
 							turnCount: pageSize,
@@ -947,7 +991,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					if (cached) return cached;
 				}
 			}
-			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId);
+			page = await agentManager.readSessionDisplayTurnPage(sessionFilePath, sessionId, before, pageSize, options?.beforeEntryId);
 			await backfillHistoricalSessionMetadata(sessionId, page);
 			return page;
 		} catch (error) {
@@ -963,15 +1007,16 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			}
 			appLogger.warn("session", "Read message page failed", {
 				sessionId,
-				filePath: entry.filePath,
+				filePath: sessionFilePath,
 				error: error instanceof Error ? error.message : String(error),
 			});
 			throw error;
 		}
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogReadProcessEvents, async (_event, sessionId: string): Promise<SessionProcessEvent[]> => {
-		if (typeof sessionId !== "string" || !sessionId.trim()) return [];
+	ipcMain.handle(ipcChannels.sessionsCatalogReadProcessEvents, async (_event, rawSessionId: unknown): Promise<SessionProcessEvent[]> => {
+		const sessionId = parseSessionId(rawSessionId);
 		const entry = sessionCatalog.get(sessionId);
+		const sessionFilePath = localSessionFilePath(sessionId);
 		// DSH 会话没有 pi 会话文件：过程事件由运行时会话按 mux/重放收集，
 		// 历史（未激活）会话从 host history 事件流推导（轨迹账本的
 		// modelChange/permission/plan/goal/compaction 记录）。
@@ -979,10 +1024,10 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			const target = sessionRuntimeCoordinator.getTarget(sessionId);
 			return readDshProcessEvents(target?.agentId, entry.dshSessionId);
 		}
-		if (!entry?.filePath) return [];
+		if (!sessionFilePath) return [];
 		// 流式扫描（收够 MAX_EVENTS 即停）：历史大会话读全文会撞 V8 单字符串上限 /
 		// 主进程 384MB 堆上限（闪退），而账本只需要前若干条记录。
-		return parseSessionProcessEventsFromFile(entry.filePath);
+		return parseSessionProcessEventsFromFile(sessionFilePath);
 	});
 	ipcMain.handle(ipcChannels.sessionsCatalogReadDshSystemPrompt, async (_event, sessionId: string): Promise<string | undefined> => {
 		if (typeof sessionId !== "string" || !sessionId.trim()) return undefined;
@@ -996,7 +1041,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		}
 		return undefined;
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogReadReferenceMessages, (_event, sessionId: string) => readCatalogSessionReferenceMessages(sessionId));
+	ipcMain.handle(ipcChannels.sessionsCatalogReadReferenceMessages, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
+		const filePath = localSessionFilePath(sessionId);
+		return filePath ? readCatalogSessionReferenceMessages(sessionId) : [];
+	});
 	// 按需读取消息完整文本（工具结果截断后的「查看完整输出」）：
 	// 入参校验在边界（渲染层数据不可信），agentId/messageId 必须为非空字符串。
 	// 运行期路径（agentId 绑定）不可用时（历史会话 _viewer 投影 / agent 已退出）
@@ -1005,12 +1054,12 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		if (typeof agentId !== "string" || !agentId.trim() || typeof messageId !== "string" || !messageId.trim()) {
 			throw new Error("Invalid message full-text request");
 		}
-		if (sessionId !== undefined && (typeof sessionId !== "string" || !sessionId.trim())) {
-			throw new Error("Invalid sessionId");
-		}
-		if (entryId !== undefined && (typeof entryId !== "string" || !entryId.trim())) {
+		const requestedSessionId = sessionId === undefined ? undefined : parseSessionId(sessionId);
+		if (entryId !== undefined && (typeof entryId !== "string" || !entryId.trim() || entryId.length > 256)) {
 			throw new Error("Invalid entryId");
 		}
+		const messageEntryId = typeof entryId === "string" ? entryId : undefined;
+		const requestedSessionPath = requestedSessionId ? localSessionFilePath(requestedSessionId) : undefined;
 		try {
 			// DSH 会话：工具结果全文随投影消息存内存（meta.fullText），
 			// 走 DshAgentManager 直接读取；pi 走运行时缓存/会话文件。
@@ -1020,13 +1069,10 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				}
 				return await readDshMessageFullText(agentId, messageId);
 			}
-			return await agentManager.readMessageFullText(agentId, messageId, entryId as string | undefined);
+			return await agentManager.readMessageFullText(agentId, messageId, messageEntryId);
 		} catch (error) {
-			if (typeof sessionId === "string" && sessionId.trim()) {
-				const record = sessionCatalog.get(sessionId);
-				if (record?.filePath) {
-					return agentManager.readMessageFullTextFromFile(record.filePath, messageId, entryId as string | undefined);
-				}
+			if (requestedSessionPath) {
+				return agentManager.readMessageFullTextFromFile(requestedSessionPath, messageId, messageEntryId);
 			}
 			throw error;
 		}
@@ -1245,7 +1291,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		if (!uninstallDshPlugin) throw new Error("DSH plugin uninstall is not available");
 		return uninstallDshPlugin(input as import("../../shared/types").DshPluginLifecycleInput);
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogCopy, async (_event, sessionId: string) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogCopy, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
+		localSessionFilePath(sessionId);
 		const result = await copyCatalogSession(sessionId);
 		void appLogger.info("session", "Session copied", {
 			sessionId,
@@ -1253,7 +1301,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		});
 		return result;
 	});
-	ipcMain.handle(ipcChannels.sessionsCatalogExportHtml, async (_event, sessionId: string) => {
+	ipcMain.handle(ipcChannels.sessionsCatalogExportHtml, async (_event, rawSessionId: unknown) => {
+		const sessionId = parseSessionId(rawSessionId);
+		localSessionFilePath(sessionId);
 		const result = await exportCatalogSessionHtml(sessionId);
 		void appLogger.info("session", "Session exported (catalog HTML)", {
 			sessionId,

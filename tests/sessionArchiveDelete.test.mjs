@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -60,7 +61,7 @@ function loadSessionNameLineModule() {
  * 加载 SessionScanner；shell.trashItem 采用真实删除（模拟回收站把文件移出归档目录），
  * 以便断言 deleteArchived 后归档文件确实离开磁盘且 listArchived 不再包含它。
  */
-function loadSessionScanner(homePath) {
+function loadSessionScannerLegacy(homePath) {
 	const source = readFileSync("src/main/sessions/SessionScanner.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -123,6 +124,16 @@ function loadSessionScanner(homePath) {
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: "SessionScanner.ts" });
 	return sandbox.exports;
+}
+
+function loadSessionScanner(homePath) {
+	return loadProductionSessionScanner(homePath, {
+		shell: {
+			trashItem: async (target) => {
+				if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+			},
+		},
+	});
 }
 
 function writeSession(filePath, entries) {

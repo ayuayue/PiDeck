@@ -104,6 +104,18 @@ function createHarness(options = {}) {
 						messageCount: 0,
 					}
 				: undefined,
+		getLocator: (sessionId) => {
+			if (sessionId !== entry.id || entry.noSession || entry.backend === "dsh" || entry.backend === "imagegen") return undefined;
+			if (entry.locator) return entry.locator;
+			if (!entry.filePath) return undefined;
+			return { kind: "local", environment: entry.environment, filePath: entry.filePath };
+		},
+		getLocalFilePath: (sessionId) => {
+			if (sessionId !== entry.id) return undefined;
+			const locator = entry.locator ?? (entry.filePath ? { kind: "local", environment: entry.environment, filePath: entry.filePath } : undefined);
+			if (locator?.kind === "ssh") throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+			return locator?.kind === "local" ? locator.filePath : undefined;
+		},
 		update: async (_sessionId, patch) => {
 			calls.update += 1;
 			Object.assign(entry, patch);
@@ -285,7 +297,26 @@ test("session security override key = catalog session id, distinct from sessionP
 	// deckSessionId 必须等于 catalog 会话身份（UI 保存覆盖用的 key），而非文件路径。
 	assert.equal(createInput.deckSessionId, sessionId);
 	assert.equal(createInput.sessionPath, filePath);
+	assert.deepEqual(createInput.sessionLocator, { kind: "local", environment: "native", filePath });
 	assert.notEqual(createInput.deckSessionId, createInput.sessionPath);
+});
+
+test("SSH session locators are rejected before local runtime creation", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		entry: {
+			status: "active",
+			filePath: "C:/stale/local/session.jsonl",
+			locator: { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo/session.jsonl", remoteSessionId: "remote-1" },
+		},
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+
+	const result = await coordinator.activateRuntime("session-1");
+
+	assert.equal(result.ok, false);
+	assert.match(result.error.debugDetails, /UNSUPPORTED_PROJECT_LOCATION/);
+	assert.equal(harness.calls.create, 0);
 });
 
 test("explicit activation creates a runtime that is bound to the requested Session", async () => {
@@ -886,6 +917,37 @@ test("Session UI response requires the current binding, generation, and pending 
 		/not pending/i,
 	);
 	assert.equal(harness.calls.uiResponse, 1);
+});
+
+test("stale SSH locators suppress bound runtime events and UI responses", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({ tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }] });
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+	await harness.catalog.update("session-1", {
+		locator: { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo/session.jsonl", remoteSessionId: "remote-1" },
+	});
+
+	coordinator.observeRuntimeEvent({
+		sessionId: "session-1",
+		agentId: "agent-a",
+		runtimeGeneration,
+		sourceChannel: "agents:ui-request",
+		payload: { requestId: "request-stale", method: "confirm", title: "Continue?" },
+	});
+	assert.equal(coordinator.listPendingUiRequests().length, 0);
+	assert.equal(coordinator.getTarget("session-1"), undefined);
+	await assert.rejects(
+		coordinator.respondToUi({
+			sessionId: "session-1",
+			requestId: "request-stale",
+			agentId: "agent-a",
+			runtimeGeneration,
+			response: { confirmed: true },
+		}),
+		/UNSUPPORTED_PROJECT_LOCATION/,
+	);
+	assert.equal(harness.calls.uiResponse, 0);
 });
 
 test("error runtime keeps its binding until the pending Session UI request is answered", async () => {
@@ -1642,6 +1704,22 @@ test("catalog message mutation refuses DSH sessions", async () => {
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "SESSION_COMMAND_FAILED");
 	assert.match(result.error.debugDetails, /dsh/);
+	assert.equal(harness.calls.mutatePersisted.length, 0);
+});
+
+test("catalog message mutation rejects SSH locators before touching stale local paths", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({
+		entry: catalogEntry({
+			filePath: "C:/stale/session.jsonl",
+			locator: { kind: "ssh", hostId: "host-a", remoteSessionId: "remote-1" },
+		}),
+	});
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const result = await coordinator.deleteCatalogMessage("session-1", "message-1");
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "SESSION_COMMAND_FAILED");
+	assert.match(result.error.debugDetails, /UNSUPPORTED_PROJECT_LOCATION/);
 	assert.equal(harness.calls.mutatePersisted.length, 0);
 });
 

@@ -1,4 +1,7 @@
+import type { ProjectFileTarget } from "../../../shared/types/project";
 import type { FileTreeNode } from "../../../shared/types";
+
+export type FileTreeListTarget = ProjectFileTarget | string;
 
 /**
  * 按相对路径查找目录节点（含尚未展开的，children 可为 undefined）。
@@ -63,10 +66,31 @@ export function shouldLoadFullTreeForAtSearch(query: string): boolean {
 	return true;
 }
 
+export function fileTreeNodeKey(node: FileTreeNode): string {
+	if (node.path) return node.path;
+	if (node.target) return `project:${node.target.projectId}\u0000${node.target.relativePath}`;
+	return node.displayPath ?? node.relativePath;
+}
+
+export function fileTreeNodeDisplayPath(node: FileTreeNode): string {
+	return node.displayPath ?? node.path ?? node.relativePath;
+}
+
+export function findDirectoryNodeByPath(nodes: FileTreeNode[], directoryPath: string): FileTreeNode | undefined {
+	for (const node of nodes) {
+		if (node.type === "directory" && fileTreeNodeKey(node) === directoryPath) return node;
+		if (node.children?.length) {
+			const nested = findDirectoryNodeByPath(node.children, directoryPath);
+			if (nested) return nested;
+		}
+	}
+	return undefined;
+}
+
 /** 目录是否已经拉过子项（有 children 数组即视为已加载，含空目录）。 */
 export function findLoadedDirectory(nodes: FileTreeNode[], directoryPath: string): FileTreeNode | undefined {
 	for (const node of nodes) {
-		if (node.type === "directory" && node.path === directoryPath) {
+		if (node.type === "directory" && fileTreeNodeKey(node) === directoryPath) {
 			return Array.isArray(node.children) ? node : undefined;
 		}
 		if (node.children?.length) {
@@ -92,7 +116,7 @@ export function markFileTreeLoadFailed(nodes: FileTreeNode[], directoryPath: str
 	// FilesPanel 的 useMemo / FileNode 全量重渲染（与 compactMiddlePackages 同约定）。
 	let touched = false;
 	const marked = nodes.map((node) => {
-		if (node.type === "directory" && node.path === directoryPath) {
+		if (node.type === "directory" && fileTreeNodeKey(node) === directoryPath) {
 			touched = true;
 			return { ...node, hasChildren: false };
 		}
@@ -110,7 +134,7 @@ export function markFileTreeLoadFailed(nodes: FileTreeNode[], directoryPath: str
 
 export function mergeFileTreeChildren(nodes: FileTreeNode[], directoryPath: string, children: FileTreeNode[]): FileTreeNode[] {
 	return nodes.map((node) => {
-		if (node.type === "directory" && node.path === directoryPath) {
+		if (node.type === "directory" && fileTreeNodeKey(node) === directoryPath) {
 			return {
 				...node,
 				children,
@@ -131,12 +155,13 @@ export function mergeFileTreeChildren(nodes: FileTreeNode[], directoryPath: stri
  * 按路径从短到长补齐已展开目录，保证父目录先于子目录写入。
  * 单个目录失败（已删/无权限）跳过，不阻断整棵树。
  */
-export async function hydrateExpandedFileTree(listDirectory: (directory: string) => Promise<FileTreeNode[]>, tree: FileTreeNode[], expandedDirs: Iterable<string>): Promise<FileTreeNode[]> {
+export async function hydrateExpandedFileTree(listDirectory: (directory: FileTreeListTarget) => Promise<FileTreeNode[]>, tree: FileTreeNode[], expandedDirs: Iterable<string>): Promise<FileTreeNode[]> {
 	const dirs = [...expandedDirs].sort((left, right) => left.length - right.length);
 	let next = tree;
 	for (const directory of dirs) {
 		try {
-			const children = await listDirectory(directory);
+			const target = findDirectoryNodeByPath(next, directory)?.target ?? directory;
+			const children = await listDirectory(target);
 			next = mergeFileTreeChildren(next, directory, children);
 		} catch {
 			// 持久化里的展开路径可能已不存在；忽略后展开态仍保留，下次刷新自然消失。
@@ -154,7 +179,7 @@ export function shouldApplyFileTreeResult(requestedProjectId: string, currentPro
  * 拉浅层根再补齐已展开目录；中途项目切走或请求被取代时返回 null，
  * 避免慢扫描结果盖住当前项目的文件树。
  */
-export async function loadProjectFileTree(listRoot: () => Promise<FileTreeNode[]>, expandedDirs: Iterable<string>, isCurrent: () => boolean, listDirectory: (directory: string) => Promise<FileTreeNode[]> = listRoot): Promise<FileTreeNode[] | null> {
+export async function loadProjectFileTree(listRoot: () => Promise<FileTreeNode[]>, expandedDirs: Iterable<string>, isCurrent: () => boolean, listDirectory: (directory: FileTreeListTarget) => Promise<FileTreeNode[]> = listRoot): Promise<FileTreeNode[] | null> {
 	const tree = await listRoot();
 	if (!isCurrent()) return null;
 	const next = await hydrateExpandedFileTree(listDirectory, tree, expandedDirs);

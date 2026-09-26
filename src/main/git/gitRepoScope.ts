@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { GitRepoInfo } from "../../shared/types";
+import type { LocalGitRepoInfo } from "./localGitTypes";
 
 /** 扫描嵌套仓库时跳过的构建/依赖目录，避免把依赖里的 .git 当成用户仓库。 */
 const SKIP_DIR_NAMES = new Set(["node_modules", ".git", "dist", "out", "build", ".next", "target", "vendor", "__pycache__", ".venv", "venv", "coverage"]);
@@ -42,7 +42,7 @@ export function resolveGitCwd(projectPath: string, repoPath?: unknown): string {
 	return resolved;
 }
 
-function toRepoInfo(projectRoot: string, repoPath: string): GitRepoInfo {
+function toRepoInfo(projectRoot: string, repoPath: string): LocalGitRepoInfo {
 	const rel = relative(projectRoot, repoPath);
 	const relativePath = rel === "" ? "" : rel.split(/[\\/]/).join("/");
 	return {
@@ -56,9 +56,9 @@ function toRepoInfo(projectRoot: string, repoPath: string): GitRepoInfo {
  * 在项目目录内发现独立 Git 仓库（目录或 gitfile 形式的 .git）。
  * 找到仓库后仍继续向下扫：VS Code 同款，支持根仓库 + packages/* 各自独立仓库。
  */
-export async function listGitRepos(projectPath: string): Promise<GitRepoInfo[]> {
+export async function listGitRepos(projectPath: string): Promise<LocalGitRepoInfo[]> {
 	const projectRoot = resolve(projectPath);
-	const found: GitRepoInfo[] = [];
+	const found: LocalGitRepoInfo[] = [];
 
 	const walk = async (dir: string, depth: number): Promise<void> => {
 		if (found.length >= GIT_REPO_SCAN_MAX_REPOS) return;

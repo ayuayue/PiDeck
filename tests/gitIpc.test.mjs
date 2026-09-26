@@ -49,11 +49,13 @@ test("Git IPC keeps project lookup, bounded diffs, and stale-worktree cleanup", 
 		assert.match(gitIpc, new RegExp(`ipcChannels\\.${channel}`));
 	}
 	assert.match(gitIpc, /maxEditorFileSizeMB/);
-	assert.match(gitIpc, /const stillInGit = \(await worktreeService\.list\(hostProjectPath\)\)\.some/);
+	assert.match(gitIpc, /const stillInGit = \(await worktreeService\.list\(repository\.projectRoot\)\)\.some/);
 	assert.match(gitIpc, /if \(ok \|\| !stillInGit\)/);
 	assert.match(gitIpc, /projectStore\.remove\(child\.id\)/);
 	assert.match(gitIpc, /const projectHostPath = \(project: \{ path: string \}\) => hostPath\(project\.path\)/);
-	assert.match(gitIpc, /paths\.map\(hostPath\)/);
+	assert.match(gitIpc, /const localFilePaths = \(backend: GitBackend, targets: ProjectFileTarget\[\]\) => Promise\.all\(targets\.map\(\(target\) => backend\.resolveFilePath\(target\)\)\)/);
+	assert.match(gitIpc, /worktreeTarget\.relativePath !== ""/);
+	assert.match(gitIpc, /child\.worktreeParentId !== projectId/);
 });
 
 test("git:fetch skips non-repositories instead of throwing", () => {

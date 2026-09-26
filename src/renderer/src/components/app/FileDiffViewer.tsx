@@ -1,4 +1,4 @@
-import type { ProjectFileAccessScope } from "../../../../shared/types";
+import type { ProjectFileAccessScope, ProjectFileTarget } from "../../../../shared/types";
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
@@ -36,6 +36,7 @@ function fileLoadErrorMessage(error: unknown): string {
 
 export function FileDiffViewer(props: {
 	filePath: string;
+	fileTarget?: ProjectFileTarget;
 	mode?: ViewMode;
 	/** 展示模式：drawer=窄抽屉；split/maximize=中间栏宿主；modal=遗留全屏弹层 */
 	displayMode?: "modal" | "drawer" | "split" | "maximize";
@@ -54,7 +55,7 @@ export function FileDiffViewer(props: {
 	onCloseTab?: (id: string) => void;
 	/** 双击预览 Tab → 常驻 */
 	onPromotePreviewTab?: (id: string) => void;
-	readContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
+	readContent: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => Promise<string>;
 	/** 项目文件读取授权；存在时 read/stat/base64 都由主进程限制到该项目根。 */
 	fileAccessScope?: ProjectFileAccessScope;
 	/** 从会话消息 meta 中提取的工具执行前原始内容，优先于 Git HEAD。 */
@@ -62,8 +63,8 @@ export function FileDiffViewer(props: {
 	/** Session-recorded modified content, preferred over disk read for historical sessions. */
 	modifiedContent?: string;
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
-	readOriginalContent?: (path: string) => Promise<string>;
-	saveContent?: (path: string, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	readOriginalContent?: (target?: ProjectFileTarget) => Promise<string>;
+	saveContent?: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
 	/** HTML 文件点击预览时，切换到内置浏览器面板预览。 */
 	onPreviewHtml?: (filePath: string) => void;
 	theme?: "light" | "dark";
@@ -98,6 +99,7 @@ export function FileDiffViewer(props: {
 	const contentRef = useRef(content);
 
 	const isDiffMode = props.mode === "diff";
+	const fileAccessPath = props.fileTarget ?? props.filePath;
 	const fileName = props.filePath.split(/[/\\]/).pop() ?? props.filePath;
 	const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
 	const isMarkdown = ext === "md" || ext === "mdx";
@@ -119,7 +121,7 @@ export function FileDiffViewer(props: {
 		// 清掉上一个文件的 Blob URL（媒体预览随 tab 切换失效）
 		revokeMediaUrl();
 		setMediaUrl(null);
-	}, [isDiffMode, props.activeTabId, props.filePath]);
+	}, [isDiffMode, props.activeTabId, props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -142,8 +144,8 @@ export function FileDiffViewer(props: {
 				// 差异模式优先使用会话缓存原始内容（originalContent），
 				// 没有时降级到 Git HEAD；两者都无则左侧显示空（新增文件）。
 				// 修改后内容优先使用会话记录（modifiedContent），历史会话恢复时磁盘可能已变化。
-				const contentPromise = props.modifiedContent !== undefined ? Promise.resolve(props.modifiedContent) : props.readContent(props.filePath, maxFileSize, props.fileAccessScope);
-				const originalPromise = isDiffMode && props.originalContent !== undefined ? Promise.resolve(props.originalContent) : isDiffMode && props.readOriginalContent ? props.readOriginalContent(props.filePath).catch(() => "") : Promise.resolve("");
+				const contentPromise = props.modifiedContent !== undefined ? Promise.resolve(props.modifiedContent) : props.readContent(fileAccessPath, maxFileSize, props.fileAccessScope);
+				const originalPromise = isDiffMode && props.originalContent !== undefined ? Promise.resolve(props.originalContent) : isDiffMode && props.readOriginalContent ? props.readOriginalContent(props.fileTarget).catch(() => "") : Promise.resolve("");
 				const [result, originalResult] = await Promise.all([contentPromise, originalPromise]);
 				if (!cancelled) {
 					const largestContentSize = Math.max(result.length, originalResult.length);
@@ -167,11 +169,11 @@ export function FileDiffViewer(props: {
 					// ENOENT 返回 ""（为「新建文件」流程保留的语义），死链直接渲染就是
 					// 一片空白。但 AI 回复链接打开的路径必须给明确反馈——已解析成绝对路径
 					// 仍读到空串，大概率是模型给的路径本就不存在；再确认一次并展示错误态。
-					if (result === "" && !isDiffMode && /^([A-Za-z]:[\\/]|\/)/.test(props.filePath)) {
+					if (result === "" && !isDiffMode && (props.fileTarget || /^([A-Za-z]:[\\/]|\/)/.test(props.filePath))) {
 						try {
-							const [exists] = await window.piDesktop.files.pathsExist([props.filePath], props.fileAccessScope);
+							const [exists] = await window.piDesktop.files.pathsExist([fileAccessPath], props.fileAccessScope);
 							if (!exists && !cancelled) {
-								setError(t("editor.fileNotFound", { path: props.filePath }));
+								setError(t("editor.fileNotFound", { path: props.fileTarget?.relativePath ?? props.filePath }));
 							}
 						} catch {
 							// 校验通道不可用（预览模式）：维持原状不额外报错。
@@ -195,7 +197,7 @@ export function FileDiffViewer(props: {
 				return;
 			}
 			try {
-				const base64 = await readBinary(props.filePath, undefined, props.fileAccessScope);
+				const base64 = await readBinary(fileAccessPath, undefined, props.fileAccessScope);
 				// 读取完成后重新读取闭包里的取消标记；传入 boolean 会冻结为调用时的 false，
 				// 旧 tab 的结果就可能 revoke 并覆盖新 tab 刚创建的 Blob URL。
 				if (cancelled || !base64) {
@@ -219,7 +221,7 @@ export function FileDiffViewer(props: {
 		// readContent/readOriginalContent 是稳定的 API 回调（上层已 useCallback），
 		// 不参与 effect deps，避免父组件因其他状态变化重渲染时反复加载文件导致编辑器重置到顶部。
 		// 两侧缓存内容都需要监听：同一路径可在多个历史提交 Diff tab 之间切换。
-	}, [props.filePath, props.activeTabId, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode, maxFileSize]);
+	}, [props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.activeTabId, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode, maxFileSize]);
 
 	const handleClose = useCallback(() => {
 		props.onClose();
@@ -255,7 +257,7 @@ export function FileDiffViewer(props: {
 		contentRef.current = "";
 		lastSavedRef.current = "";
 		setSaving(false);
-	}, [props.activeTabId, props.filePath, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode]);
+	}, [props.activeTabId, props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode]);
 
 	const saveNow = useCallback(async (): Promise<boolean> => {
 		if (saveTimerRef.current) {
@@ -266,7 +268,7 @@ export function FileDiffViewer(props: {
 		const latest = getLatestContent();
 		if (latest === lastSavedRef.current) return true;
 		const saveGeneration = saveGenerationRef.current;
-		const savePath = props.filePath;
+		const savePath = fileAccessPath;
 		setSaving(true);
 		try {
 			await props.saveContent(savePath, latest, props.fileAccessScope);
@@ -288,7 +290,7 @@ export function FileDiffViewer(props: {
 		} finally {
 			if (saveGeneration === saveGenerationRef.current) setSaving(false);
 		}
-	}, [getLatestContent, isDiffMode, props.saveContent, props.filePath, props.fileAccessScope?.projectId]);
+	}, [getLatestContent, isDiffMode, props.saveContent, props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.fileAccessScope?.projectId]);
 
 	// 更新安装会直接终止 Electron；把活跃文本编辑器的防抖保存提升为可等待的前置任务。
 	useEffect(() => {

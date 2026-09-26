@@ -11,7 +11,6 @@ import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { countPendingAsksForSessions } from "../../utils/askUi";
 import { cn } from "../../lib/utils";
 import { mergeWorkspaceTreeRows, type WorkspaceTreeRow } from "./workspaceTreeModel";
-import { normalizeWorkspacePath } from "./workspaceTreeModel";
 
 // 主工作区是根项目展开后的首个导航项，字号需要与父项目保持一致；
 // 其他 worktree 只是该项目的分支入口，渲染时会覆写为较小的 text-control，避免子项抢占层级。
@@ -48,18 +47,16 @@ export function WorktreeTree(props: {
 	agents: readonly AgentTab[];
 	entries: readonly WorktreeEntry[];
 	branch?: string | null;
-	/** 正在删除的 worktree 路径集合（与 removingWorktreePaths 同源，路径已归一化）。 */
-	removingWorktreePaths?: ReadonlySet<string>;
+	/** Child projects currently being removed. */
+	removingWorktreeProjectIds?: ReadonlySet<string>;
 }) {
 	const childProjects = props.controller.catalog.projects.filter((project) => project.worktreeParentId === props.project.id);
 	const rows = mergeWorkspaceTreeRows(props.entries, childProjects);
-	// 删除动画命中集合：useWorktreeActions 里以原始路径为 key，这里统一归一化再比较，
-	// 避免 Windows 盘符大小写/反斜杠差异导致该淡出的行不命中（与 workspaceTreeModel 同策略）。
-	const removingPaths = new Set([...(props.removingWorktreePaths ?? [])].map(normalizeWorkspacePath));
-	// 主工作区折叠态复用 worktree 展开集合，key 用根项目路径（与任何 worktree 路径都不冲突）。
+	const removingProjectIds = props.removingWorktreeProjectIds ?? new Set<string>();
+	// 主工作区折叠态复用 worktree 展开集合，key 用根项目 ID，与子项目身份自然区分。
 	// 注意语义反转：集合里存在 = 已折叠（worktree 行是存在 = 展开），因为主工作区默认展开。
-	const mainSessionsKey = props.project.path;
-	const mainCollapsed = props.controller.expandedWorktreePaths.has(mainSessionsKey);
+	const mainSessionsKey = props.project.id;
+	const mainCollapsed = props.controller.expandedWorktreeProjectIds.has(mainSessionsKey);
 	const mainRowId = `worktree-main-sessions-${props.project.id}`;
 	const mainActionsOpen = props.controller.menu?.kind === "project" && props.controller.menu.projectId === props.project.id;
 
@@ -159,7 +156,7 @@ export function WorktreeTree(props: {
 				</header>
 
 				{rows.map((row) => (
-					<WorkspaceTreeRowView key={row.key} row={row} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} removing={removingPaths.has(row.key)} />
+					<WorkspaceTreeRowView key={row.key} row={row} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} removing={removingProjectIds.has(row.key)} />
 				))}
 			</section>
 		</div>
@@ -175,12 +172,12 @@ function WorkspaceTreeRowView(props: {
 	controller: SidebarController;
 	actions: SidebarActions;
 	currentSessionId?: string;
-	/** 该行是否正在删除（命中 removingWorktreePaths 时淡出）。 */
+	/** 该行是否正在删除（project ID 命中时淡出）。 */
 	removing?: boolean;
 }) {
 	const { row } = props;
 	const childProject = row.project;
-	const expanded = Boolean(childProject && props.controller.expandedWorktreePaths.has(row.path));
+	const expanded = Boolean(childProject && props.controller.expandedWorktreeProjectIds.has(row.key));
 	const rowId = `worktree-sessions-${row.key.replace(/[^a-z0-9]+/gi, "-")}`;
 	const childActionsOpen = childProject !== undefined && props.controller.menu?.kind === "project" && props.controller.menu.projectId === childProject.id;
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
@@ -207,7 +204,7 @@ function WorkspaceTreeRowView(props: {
 					aria-label={expanded ? t("app.projectCollapse") : t("app.projectExpand")}
 					title={expanded ? t("app.projectCollapse") : t("app.projectExpand")}
 					disabled={!childProject}
-					onClick={() => props.controller.toggleWorktreeSessions(row.path)}
+					onClick={() => props.controller.toggleWorktreeSessions(row.key)}
 				>
 					{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
 				</Button>

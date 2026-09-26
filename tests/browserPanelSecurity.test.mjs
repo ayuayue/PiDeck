@@ -7,7 +7,7 @@ const rendererTypes = readFileSync("src/renderer/src/types.d.ts", "utf8");
 const main = readFileSync("src/main/index.ts", "utf8");
 // #115 U4：partition/白名单已收敛到共享模块，webview 管线主进程加固与浏览器安全模块都从它导入
 const browserSecurity = readFileSync("src/main/browser/browserSecurity.ts", "utf8");
-const filesIpc = readFileSync("src/main/ipc/filesIpc.ts", "utf8");
+const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
 
 function functionBlock(source, signature, nextSignature) {
 	const start = source.indexOf(signature);
@@ -85,7 +85,7 @@ test("webview hardening is installed before the main window loads renderer conte
 });
 
 test("external browser IPC shares the HTTP(S) protocol gate and Chromium sandbox stays enabled", () => {
-	const browserOpenExternal = functionBlock(filesIpc, "ipcMain.handle(ipcChannels.browserOpenExternal", "\n\n\tipcMain.handle(");
+	const browserOpenExternal = functionBlock(filesSystemIpc, "ipcMain.handle(ipcChannels.browserOpenExternal", "\n\n\tipcMain.handle(");
 	assert.match(browserOpenExternal, /await openExternalUrl\(url, true\)/);
 	assert.doesNotMatch(browserOpenExternal, /shell\.openExternal\(url\)/);
 	// Chromium 沙箱默认关闭是刻意的（Windows 安全软件/旧 GPU 驱动会在沙箱初始化触发原生断点），

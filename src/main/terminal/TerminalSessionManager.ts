@@ -2,7 +2,9 @@ import * as pty from "node-pty";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { ipcChannels } from "../../shared/ipc";
+import { terminalOwnerKeyFor } from "../../shared/types/terminal";
 import type { TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
+import type { ProjectStore } from "../projects/ProjectStore";
 import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
 import { getWslExe } from "../wsl/wslExe";
 
@@ -30,21 +32,6 @@ type TerminalWslSettings = {
 	wslDistro?: string;
 	wslUser?: string;
 };
-
-/**
- * 终端归属键：agent 用 `agent:<id>`，无 agent 的项目/历史会话终端用 `cwd:<normalized>`。
- * 主进程的 PTY 实例、回放 buffer 都按归属键隔离，保证项目间/agent 间终端绝不串台。
- */
-export function terminalOwnerKeyFor(target: TerminalTarget): string {
-	if (target.kind === "agent") return `agent:${target.agentId}`;
-	// Windows 路径大小写不敏感且分隔符可混用：归一化（统一分隔符 + 去首尾斜杠 +
-	// 小写）后做隔离键，避免同一目录因写法不同被当成两个终端桶。
-	const normalized = target.cwd
-		.replace(/[\\/]+/g, "/")
-		.replace(/^\/+|\/+$/g, "")
-		.toLowerCase();
-	return `cwd:${normalized}`;
-}
 
 export function isAgentOwnerKey(ownerKey: string): boolean {
 	return ownerKey.startsWith("agent:");
@@ -114,24 +101,23 @@ export class TerminalSessionManager {
 	private readonly runtimes = new Map<string, Map<string, TerminalRuntime>>();
 
 	constructor(
-		private readonly getCwd: (agentId: string) => string,
+		private readonly getAgentCwd: (agentId: string) => string,
 		private readonly emit: Emit,
+		private readonly projectStore: Pick<ProjectStore, "get">,
 		private readonly getSettings: () => TerminalWslSettings = () => ({}),
 	) {}
 
-	/** 目标所属终端桶；project 目标不存在运行中的 agent，不查 runtime */
-	private ownerKey(target: TerminalTarget): string {
-		return terminalOwnerKeyFor(target);
-	}
-
-	/** 目标的工作目录：agent 用 runtime cwd，project 直接用目标携带的 cwd */
+	/** Targets are resolved from trusted runtime/project stores, never from renderer paths. */
 	private cwdFor(target: TerminalTarget): string {
-		if (target.kind === "project") return target.cwd;
-		return this.getCwd(target.agentId);
+		if (target.kind === "agent") return this.getAgentCwd(target.agentId);
+		const project = this.projectStore.get(target.projectId);
+		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		if (project.kind === "chat") throw new Error("TERMINAL_PROJECT_UNSUPPORTED");
+		return project.path;
 	}
 
 	list(target: TerminalTarget) {
-		return [...(this.runtimes.get(this.ownerKey(target))?.values() ?? [])].map((runtime) => this.snapshot(runtime));
+		return [...(this.runtimes.get(terminalOwnerKeyFor(target))?.values() ?? [])].map((runtime) => this.snapshot(runtime));
 	}
 
 	/**
@@ -155,7 +141,7 @@ export class TerminalSessionManager {
 	}
 
 	create(target: TerminalTarget, shell?: TerminalShell): TerminalTab {
-		const ownerKey = this.ownerKey(target);
+		const ownerKey = terminalOwnerKeyFor(target);
 		const resolvedCwd = this.cwdFor(target);
 		const runtimes = this.ensureOwner(ownerKey);
 		const index = runtimes.size + 1;
@@ -166,7 +152,6 @@ export class TerminalSessionManager {
 			agentId: target.kind === "agent" ? target.agentId : "",
 			ownerKey,
 			title: `${this.displayShell(spawned.shell)} ${index}`,
-			cwd: resolvedCwd,
 			shell: spawned.shell,
 			createdAt: Date.now(),
 		};

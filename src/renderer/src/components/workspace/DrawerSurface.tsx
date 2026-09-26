@@ -108,7 +108,6 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 						<div className="git-drawer-source">
 							<GitDrawerHost
 								projectId={git.activeProjectId}
-								projectRoot={files.projects.find((project: { id: string; path?: string }) => project.id === git.activeProjectId)?.path}
 								gitApi={git.gitApi}
 								fallbackGitInfo={git.gitInfo}
 								fallbackSwitchBranch={git.switchBranch}

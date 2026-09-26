@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { loadSessionScanner as loadProductionSessionScanner } from "./helpers/loadSessionScanner.mjs";
 import ts from "typescript";
 import vm from "node:vm";
 
@@ -40,7 +41,7 @@ function loadTranspiledModule(filePath, overrides = new Map()) {
 	return sandbox.exports;
 }
 
-function loadSessionScanner(homePath) {
+function loadSessionScannerLegacy(homePath) {
 	const codexMeta = loadTranspiledModule("src/shared/codexSessionMeta.ts");
 	const messageContent = loadTranspiledModule("src/main/pi/messageContent.ts", new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]));
 	const fsRetry = loadTranspiledModule("src/main/utils/fsRetry.ts");
@@ -95,6 +96,10 @@ function loadSessionScanner(homePath) {
 	});
 	vm.runInNewContext(outputText, sandbox, { filename: "SessionScanner.ts" });
 	return sandbox.exports;
+}
+
+function loadSessionScanner(homePath) {
+	return loadProductionSessionScanner(homePath);
 }
 
 function writeSession(filePath, entries) {

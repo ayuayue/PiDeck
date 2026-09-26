@@ -24,9 +24,9 @@ test("terminal creation and listing cross IPC with an owner-validated target", (
 	assert.match(terminalDock, /target: TerminalTarget/);
 	assert.match(terminalDock, /props\.terminal\.ensure\(props\.target\)/);
 	assert.match(terminalDock, /props\.terminal\.create\(props\.target, shell\)/);
-	assert.match(mainIpcSource, /const requireTerminalTarget = \(target: TerminalTarget\)[\s\S]*kind === "project"[\s\S]*validateTarget\(target\)/);
-	assert.match(mainIpcSource, /terminalList[\s\S]*requireTerminalTarget\(target\)[\s\S]*terminalManager\.list\(target\)/);
-	assert.match(mainIpcSource, /terminalCreate[\s\S]*requireTerminalTarget\(target\)[\s\S]*terminalManager\.create\(target, shell\)/);
+	assert.match(mainIpcSource, /const requireTerminalTarget = \(value: unknown\)[\s\S]*target\.kind === "project"[\s\S]*projectStore\.get\(target\.projectId\)[\s\S]*sessionRuntimeCoordinator\.validateTarget\(target\)/);
+	assert.match(mainIpcSource, /terminalList[\s\S]*requireTerminalTarget\(rawTarget\)[\s\S]*terminalManager\.list\(target\)/);
+	assert.match(mainIpcSource, /terminalCreate[\s\S]*requireTerminalTarget\(rawTarget\)[\s\S]*terminalManager\.create\(target, parseTerminalShell\(rawShell\)\)/);
 	assert.doesNotMatch(main, /ipcMain\.handle\(ipcChannels\.terminal/);
 });
 

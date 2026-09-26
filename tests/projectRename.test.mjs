@@ -62,10 +62,14 @@ test("rename 更新普通项目显示名并持久化", async () => {
 		const renamed = await store.rename(added.id, "  内部平台  ");
 		assert.equal(renamed?.name, "内部平台");
 		assert.equal(store.get(added.id)?.name, "内部平台");
-		// 写入 projects.json，重启可恢复
+		// 写入 v2 projects.json，重启可恢复；本地兼容字段不进入持久化记录。
 		const saved = JSON.parse(readFileSync(join(dir, "projects.json"), "utf8"));
-		const savedProject = saved.find((p) => p.id === added.id);
+		assert.equal(saved.schemaVersion, 2);
+		const savedProject = saved.projects.find((p) => p.id === added.id);
 		assert.equal(savedProject.name, "内部平台");
+		assert.equal(savedProject.locator.localPath, added.path);
+		assert.equal(Object.hasOwn(savedProject, "path"), false);
+		assert.equal(Object.hasOwn(savedProject, "environment"), false);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

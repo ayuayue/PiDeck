@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { findLoadedDirectory, findDirectoryNodeByRelativePath, mergeFileTreeChildren, hydrateExpandedFileTree, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } = loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
+const { findLoadedDirectory, findDirectoryNodeByRelativePath, fileTreeNodeKey, findDirectoryNodeByPath, mergeFileTreeChildren, hydrateExpandedFileTree, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } = loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
 
 function dir(name, path, children) {
 	return { name, path, relativePath: name, type: "directory", children, hasChildren: true };
@@ -11,6 +11,42 @@ function dir(name, path, children) {
 function file(name, path) {
 	return { name, path, relativePath: name, type: "file" };
 }
+
+test("hydrateExpandedFileTree prefers the directory target returned by files:list", async () => {
+	const tree = [{ ...dir("src", "/p/src"), relativePath: "src", target: { projectId: "project-1", relativePath: "src" } }];
+	let requested;
+	const hydrated = await hydrateExpandedFileTree(
+		async (target) => {
+			requested = target;
+			return [file("main.ts", "/p/src/main.ts")];
+		},
+		tree,
+		["/p/src"],
+	);
+	assert.equal(requested.projectId, "project-1");
+	assert.equal(requested.relativePath, "src");
+	assert.equal(hydrated[0].children[0].name, "main.ts");
+});
+
+test("path-free file nodes hydrate by project target without inventing a local path", async () => {
+	const tree = [{ name: "src", relativePath: "src", target: { projectId: "project-1", relativePath: "src" }, type: "directory", hasChildren: true }];
+	assert.equal("path" in tree[0], false);
+	const directoryKey = fileTreeNodeKey(tree[0]);
+	assert.equal(directoryKey, "project:project-1\u0000src");
+	assert.equal(findDirectoryNodeByPath(tree, directoryKey), tree[0]);
+	let requested;
+	const hydrated = await hydrateExpandedFileTree(
+		async (target) => {
+			requested = target;
+			return [{ name: "main.ts", relativePath: "src/main.ts", target: { projectId: "project-1", relativePath: "src/main.ts" }, type: "file" }];
+		},
+		tree,
+		[directoryKey],
+	);
+	assert.deepEqual(requested, { projectId: "project-1", relativePath: "src" });
+	assert.equal("path" in hydrated[0], false);
+	assert.equal(hydrated[0].children[0].target.relativePath, "src/main.ts");
+});
 
 test("findLoadedDirectory treats missing children as not loaded", () => {
 	const tree = [dir("src", "/p/src")];

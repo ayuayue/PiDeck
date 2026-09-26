@@ -83,11 +83,12 @@ test("接线：restoreExpandedDirs 只补拉「已展开 + 无 children + 未标
 	assert.ok(fn, "restoreExpandedDirs should exist with generation guards");
 	const body = fn[0];
 	// 判定条件与 FileNode 占位分支同构：expanded && !children && hasChildren !== false。
-	assert.match(body, /expandedDirsRef\.current\.has\(node\.path\)/);
+	assert.match(body, /const nodeKey = fileTreeNodeKey\(node\)/);
+	assert.match(body, /expandedDirsRef\.current\.has\(nodeKey\)/);
 	assert.match(body, /!Array\.isArray\(node\.children\)/);
 	assert.match(body, /node\.hasChildren !== false/);
 	// 父目录先补（merge 依赖父层节点先存在）。
-	assert.match(body, /sort\(\(left, right\) => left\.length - right\.length\)/);
+	assert.match(body, /sort\(\(left, right\) => left\.path\.length - right\.path\.length\)/);
 	// 补拉过程带代次校验，切项目后不得写入。
 	assert.match(body, /isFileTreeRequestCurrent\(generation, projectId\)/);
 	// 失败打标：补拉本身失败也不能留下永久占位。

@@ -4,7 +4,7 @@ import { Button } from "../../ui-shadcn/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../../ui-shadcn/context-menu";
 import { getFileIconColor, getFileIconSeti } from "../../../fileIcons";
 import { t } from "../../../i18n";
-import { GitStatus, type GitFileStatus, type GitResource, type GitResourceGroupType } from "../../../../../shared/types";
+import { GitStatus, type GitDiscardResource, type GitFileStatus, type GitResource, type GitResourceGroupType, type ProjectFileTarget } from "../../../../../shared/types";
 export function fileNameOnly(path: string): string {
 	return path.split(/[/\\]/).pop() ?? path;
 }
@@ -21,35 +21,20 @@ function shortenDir(dir: string): string {
 }
 
 /** 按目录分组 Git 资源，返回 { dir -> resources[] } 映射 */
-function groupByDir(
-	resources: GitResource[],
-	/** 项目根目录，传入后目录名显示为相对路径而非绝对路径 */
-	rootPath?: string,
-): Map<string, GitResource[]> {
+function groupByDir(resources: GitResource[]): Map<string, GitResource[]> {
 	const dirs = new Map<string, GitResource[]>();
-	for (const r of resources) {
-		// 将绝对路径转为相对路径，使目录分组显示简洁的相对路径而非长绝对路径
-		let p = r.path;
-		if (rootPath) {
-			const normalizedRoot = rootPath.replace(/[\\]+/g, "/").replace(/\/+$/, "");
-			const normalizedPath = p.replace(/[\\]+/g, "/");
-			if (normalizedPath.startsWith(normalizedRoot + "/")) {
-				p = normalizedPath.slice(normalizedRoot.length + 1);
-			} else if (normalizedPath === normalizedRoot) {
-				p = "";
-			}
-		}
-		const parts = p.split(/[/\\]/);
+	for (const resource of resources) {
+		const parts = resource.path.split("/");
 		const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
 		if (!dirs.has(dir)) dirs.set(dir, []);
-		dirs.get(dir)!.push(r);
+		dirs.get(dir)!.push(resource);
 	}
 	return dirs;
 }
 
 /** 收集变更列表中可折叠的目录键（单根无目录头时返回空） */
-export function getCollapsibleChangeDirs(resources: GitResource[], projectRoot?: string): string[] {
-	const byDir = groupByDir(resources, projectRoot);
+export function getCollapsibleChangeDirs(resources: GitResource[]): string[] {
+	const byDir = groupByDir(resources);
 	const dirs = [...byDir.keys()];
 	// 与 FileTree 一致：仅一个根目录时不显示目录头，也就没有可折叠项
 	if (dirs.length === 1 && dirs[0] === "") return [];
@@ -60,28 +45,26 @@ export function getCollapsibleChangeDirs(resources: GitResource[], projectRoot?:
 export function FileTree(props: {
 	resources: GitResource[];
 	groupType: GitResourceGroupType;
-	stageFile?: (path: string) => void;
+	stageFile?: (target: ProjectFileTarget) => void;
 	/** 目录级暂存只传当前目录资源，避免影响其他目录。 */
-	stageDir?: (paths: string[]) => void;
-	unstageFile?: (path: string) => void;
-	discardFile?: (path: string, group: "workingTree" | "untracked") => void;
+	stageDir?: (targets: ProjectFileTarget[]) => void;
+	unstageFile?: (target: ProjectFileTarget) => void;
+	discardFile?: (target: ProjectFileTarget, group: "workingTree" | "untracked") => void;
 	/** 目录级回滚携带资源组，主进程可在一次状态快照中安全处理混合资源。 */
-	discardDir?: (resources: Array<{ path: string; group: "workingTree" | "untracked" }>, label: string) => void;
+	discardDir?: (resources: GitDiscardResource[], label: string) => void;
 	/** 右键菜单“删除文件”入口；未提供时不启用右键菜单 */
-	deleteFile?: (path: string) => void;
+	deleteFile?: (target: ProjectFileTarget) => void;
 	/** 行内“打开文件”按钮：打开编辑器而非 diff 视图 */
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: ProjectFileTarget) => void;
 	/** 已暂存文件路径集合：Changes 组中这些文件不再显示 stage/rollback 按钮（VS Code 语义） */
 	stagedPaths?: ReadonlySet<string>;
 	mutating: boolean;
-	onOpenWorkspaceFileDiff: (group: GitResourceGroupType, path: string) => void;
-	/** 项目根目录路径，用于显示相对路径 */
-	projectRoot?: string;
+	onOpenWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget) => void;
 	/** 受控：已折叠目录集合（与父级「收起/展开全部」共享） */
 	collapsedDirs: Set<string>;
 	onToggleDir: (dir: string) => void;
 }) {
-	const byDir = groupByDir(props.resources, props.projectRoot);
+	const byDir = groupByDir(props.resources);
 	// 按目录名排序，根目录排最前
 	const dirs = [...byDir.keys()].sort((a, b) => {
 		if (a === "") return -1;
@@ -110,7 +93,7 @@ export function FileTree(props: {
 									const discardable = stageable
 										.filter((resource) => resource.status === GitStatus.UNTRACKED || props.groupType === "workingTree")
 										.map((resource) => ({
-											path: resource.path,
+											target: resource.target,
 											group: resource.status === GitStatus.UNTRACKED ? ("untracked" as const) : ("workingTree" as const),
 										}));
 									return (
@@ -126,7 +109,7 @@ export function FileTree(props: {
 													disabled={props.mutating}
 													onClick={(event) => {
 														event.stopPropagation();
-														props.stageDir?.(stageable.map((resource) => resource.path));
+														props.stageDir?.(stageable.map((resource) => resource.target));
 													}}
 												>
 													<Plus size={13} aria-hidden="true" />
@@ -168,7 +151,7 @@ export function FileTree(props: {
 										label: t("git.unstage"),
 										kind: "unstage",
 										disabled: props.mutating,
-										run: () => props.unstageFile?.(r.path),
+										run: () => props.unstageFile?.(r.target),
 									});
 								} else if (props.groupType === "workingTree" || props.groupType === "untracked") {
 									// 已暂存文件在 Changes 组仅保留打开按钮，暂存/回滚归 Staged 组（VS Code 语义）
@@ -177,14 +160,14 @@ export function FileTree(props: {
 											label: t("git.stage"),
 											kind: "stage",
 											disabled: props.mutating,
-											run: () => props.stageFile?.(r.path),
+											run: () => props.stageFile?.(r.target),
 										});
 										// 回滚：tracked 走 git restore，untracked 走回收站删除
 										actions.push({
 											label: t("git.discardChanges"),
 											kind: "discard",
 											disabled: props.mutating,
-											run: () => props.discardFile?.(r.path, r.status === GitStatus.UNTRACKED ? "untracked" : "workingTree"),
+											run: () => props.discardFile?.(r.target, r.status === GitStatus.UNTRACKED ? "untracked" : "workingTree"),
 										});
 									}
 								}
@@ -192,7 +175,7 @@ export function FileTree(props: {
 									actions.push({
 										label: t("common.open"),
 										kind: "open",
-										run: () => props.onOpenFile?.(r.path),
+										run: () => props.onOpenFile?.(r.target),
 									});
 								}
 								return (
@@ -200,17 +183,18 @@ export function FileTree(props: {
 										key={r.path}
 										status={r.status}
 										letter={r.letter}
-										path={r.path}
+										path={r.displayPath || r.path}
+										target={r.target}
 										onOpen={() =>
 											props.onOpenWorkspaceFileDiff(
 												// Changes 组合并了 workingTree + untracked + index，但 groupType 写死 workingTree；
 												// 未跟踪文件按实际状态传 untracked，否则服务端在 workingTree 组找不到而打不开
 												props.groupType === "workingTree" && r.status === GitStatus.UNTRACKED ? "untracked" : props.groupType,
-												r.path,
+												r.target,
 											)
 										}
 										actions={actions}
-										deleteFile={props.deleteFile ? (path) => props.deleteFile?.(path) : undefined}
+										deleteFile={props.deleteFile ? (target) => props.deleteFile?.(target) : undefined}
 									/>
 								);
 							})}
@@ -299,6 +283,7 @@ export function ResourceRow(props: {
 	status: GitStatus;
 	letter: string;
 	path: string;
+	target?: ProjectFileTarget;
 	compareStatus?: GitFileStatus;
 	actions?: Array<{
 		label: string;
@@ -307,7 +292,7 @@ export function ResourceRow(props: {
 		run: () => void;
 	}>;
 	/** 右键菜单“删除文件”入口；未提供时不启用右键菜单（compare 只读列表） */
-	deleteFile?: (path: string) => void;
+	deleteFile?: (target: ProjectFileTarget) => void;
 	onOpen?: () => void | Promise<void>;
 }) {
 	const [opening, setOpening] = useState(false);
@@ -374,13 +359,14 @@ export function ResourceRow(props: {
 	);
 	// 右键删除仅对变更列表启用：包一层 ContextMenu，删除后由父级弹确认框；
 	// 回滚已移到行内按钮（add/rollback/openfile），compare 只读列表不启用右键
-	if (!props.deleteFile) return row;
+	if (!props.deleteFile || !props.target) return row;
+	const target = props.target;
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
 			<ContextMenuContent alignOffset={-4}>
 				{props.deleteFile && (
-					<ContextMenuItem variant="destructive" className="gap-2 text-[13px]" onSelect={() => props.deleteFile?.(props.path)}>
+					<ContextMenuItem variant="destructive" className="gap-2 text-[13px]" onSelect={() => props.deleteFile?.(target)}>
 						<Trash2 size={14} aria-hidden="true" />
 						{t("git.deleteFile")}
 					</ContextMenuItem>

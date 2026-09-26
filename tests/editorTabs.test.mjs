@@ -1,25 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * 编辑器文件 Tab 预览/常驻纯策略（与 sessionTabs 同语义）。
  */
 
 function loadEditorTabs() {
-	const source = readFileSync("src/renderer/src/utils/editorTabs.ts", "utf8");
-	const output = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-		fileName: "editorTabs.ts",
-	}).outputText;
-	const sandbox = { exports: {}, require: () => ({}) };
-	vm.runInNewContext(output, sandbox, { filename: "editorTabs.ts" });
-	return sandbox.exports;
+	return loadTsCommonJs("src/renderer/src/utils/editorTabs.ts");
 }
 
 const json = (value) => JSON.stringify(value);
@@ -84,4 +72,21 @@ test("editor tab identity keeps project-scoped buffers separate", () => {
 	const sameProject = openPermanentEditorTab([tab("a", "/shared/file.ts", undefined, "project-a")], null, tab("b", "/shared/file.ts", undefined, "project-a"));
 	assert.equal(json(sameProject.tabs.map((t) => t.id)), json(["a"]));
 	assert.equal(sameProject.activeId, "a");
+});
+
+test("editor tab target identity separates same relative paths across projects", () => {
+	const { openPermanentEditorTab } = loadEditorTabs();
+	const first = { ...tab("a", "src/main.ts"), fileTarget: { projectId: "project-a", relativePath: "src/main.ts" } };
+	const otherProject = { ...tab("b", "src/main.ts"), fileTarget: { projectId: "project-b", relativePath: "src/main.ts" } };
+	const result = openPermanentEditorTab([first], null, otherProject);
+	assert.equal(json(result.tabs.map((entry) => entry.id)), json(["a", "b"]));
+});
+
+test("editor tab target identity ignores display path differences", () => {
+	const { openPermanentEditorTab } = loadEditorTabs();
+	const first = { ...tab("a", "src/main.ts"), fileTarget: { projectId: "project-a", relativePath: "src/main.ts" } };
+	const reopened = { ...tab("b", "workspace/src/main.ts"), fileTarget: { projectId: "project-a", relativePath: "src/main.ts" } };
+	const result = openPermanentEditorTab([first], null, reopened);
+	assert.equal(json(result.tabs.map((entry) => entry.id)), json(["a"]));
+	assert.equal(result.activeId, "a");
 });
