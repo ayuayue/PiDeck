@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, t
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /*
@@ -66,6 +66,25 @@ const CONTRACT_SOURCE = "src/main/remote/RemoteHelperContract.ts";
 
 /** Every test drives real child processes, so each one carries a hard deadline of its own. */
 const helperTest = (name, fn, timeoutMs = TEST_TIMEOUT_MS) => test(name, { timeout: timeoutMs }, fn);
+
+/**
+ * The entry nearly every test starts: the frozen bytes written under the file name the deploy bundle
+ * uploads them as, once per run, inside the platform temp directory.
+ *
+ * Starting a file is how the helper is deployed, and unlike `node -e <source>` it costs no command line at
+ * all - which is what keeps a body of tens of kilobytes startable on Windows, where a whole CreateProcess
+ * command line is capped at 32767 characters and going over is a spawn failure rather than a helper that
+ * misbehaves (the source-size test states that budget and measures the `-e` shape against it). Two tests
+ * still start the `-e` shape on purpose; everything else starts this file.
+ *
+ * One copy per run instead of one per test, because every test starts the same bytes and the file has to
+ * outlive the last child that reads it - hence the file-scope hook rather than a test hook. The retries
+ * absorb a Windows directory removal racing a closing handle.
+ */
+const ENTRY_DIRECTORY = mkdtempSync(join(tmpdir(), "pideck-helper-entry-"));
+const ENTRY_PATH = join(ENTRY_DIRECTORY, REMOTE_HELPER_ENTRY_FILE_NAME);
+writeFileSync(ENTRY_PATH, REMOTE_HELPER_INLINE_SOURCE, "utf8");
+after(() => rmSync(ENTRY_DIRECTORY, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
 
 /** Production objects live in another VM realm, so deep comparisons are normalised through JSON. */
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -205,15 +224,21 @@ function createFsFixture(t) {
  * The argv shape is stated by each test: `root: null` starts no `--root` at all (the legal host-only
  * session), `root: ""` states an explicitly empty value (which fails closed), any other `root` gets a
  * fresh empty directory, and `rootArgs` covers argv shapes the launcher's template never produces.
+ *
+ * The startup shape is stated the same way. By default the body runs from a file - `node <entry> [--root
+ * <root>]`, the deployed shape, and the one no command line length can bound. `inlineEval: true` starts it
+ * as `node -e <source> -- [--root <root>]` instead, where the entry path is absent and argv shifts by one:
+ * that is the shape a remote probe and this self-test used, and the two tests that ask for it keep it
+ * covered.
  */
 function startHelper(t, options = {}) {
 	const env = { ...process.env };
 	if (options.home === null) delete env.HOME;
 	else env.HOME = options.home ?? HELPER_HOME;
 	const rootArgs = options.rootArgs !== undefined ? options.rootArgs : options.root === null ? [] : ["--root", options.root === undefined ? createRootFixture(t) : options.root];
-	// `--` keeps node from parsing the helper's own flag as a node option; the deployed command runs a file,
-	// where the same argv shape needs no separator (covered by the uploaded-helper test).
-	const argv = options.entryPath === undefined ? ["-e", REMOTE_HELPER_INLINE_SOURCE, "--", ...rootArgs] : [options.entryPath, ...rootArgs];
+	// `--` keeps node from parsing the helper's own flag as a node option in the `-e` shape; a file entry
+	// needs no separator, because everything after the script path is already a script argument.
+	const argv = options.inlineEval === true ? ["-e", REMOTE_HELPER_INLINE_SOURCE, "--", ...rootArgs] : [options.entryPath ?? ENTRY_PATH, ...rootArgs];
 	const child = spawn(process.execPath, argv, { env, stdio: ["pipe", "pipe", "pipe"] });
 	const sent = [];
 	const lines = [];
@@ -334,6 +359,46 @@ function startHelper(t, options = {}) {
 	};
 }
 
+/** Windows caps one CreateProcess command line - program path, every argument and its quoting - at 32767 characters. */
+const WINDOWS_COMMAND_LINE_LIMIT = 32_767;
+
+/**
+ * What one argv token costs once Windows sees it: libuv wraps a token that carries a space or a double quote
+ * in quotes and escapes every double quote as \" (uv/src/win/process.c, quote_cmd_arg). Reproduced rather
+ * than assumed, because that escaping is most of the difference between the size of the body and the size of
+ * the command line that has to carry it.
+ */
+function quoteWindowsArgument(argument) {
+	if (!/[\s"]/.test(argument)) return argument;
+	let quoted = '"';
+	let backslashes = 0;
+	for (const character of argument) {
+		if (character === "\\") {
+			backslashes += 1;
+			quoted += character;
+			continue;
+		}
+		if (character === '"') {
+			quoted += `${"\\".repeat(backslashes + 1)}"`;
+			backslashes = 0;
+			continue;
+		}
+		backslashes = 0;
+		quoted += character;
+	}
+	return `${quoted}${"\\".repeat(backslashes)}"`;
+}
+
+/**
+ * The command line `node -e <source> -- --root <root>` costs, charged at the roots the two `inlineEval`
+ * tests really pass: `createFsFixture`'s root is the longest of them, and `XXXXXX` stands for the six
+ * characters `mkdtemp` appends. An `-e` test with a deeper root has to charge that path here as well,
+ * otherwise this arithmetic stops describing the run it predicts.
+ */
+function inlineEvalCommandLineLength() {
+	return [process.execPath, "-e", REMOTE_HELPER_INLINE_SOURCE, "--", "--root", join(tmpdir(), "pideck-helper-fs-XXXXXX", "root")].map(quoteWindowsArgument).join(" ").length;
+}
+
 helperTest("the frozen helper source is one byte-frozen ASCII line", () => {
 	// The helper is uploaded as a content-addressed artifact, so its bytes are the deployment identity:
 	// an edit is only legitimate together with a deliberate update of both digests below.
@@ -352,11 +417,21 @@ helperTest("the frozen helper source is one byte-frozen ASCII line", () => {
 		["node:fs", "node:path"],
 		"the helper may load exactly the two builtins the read-only batch needs",
 	);
-	// The ceiling is not cosmetic: the self-test starts this body as `node -e <source>`, and Windows caps a
-	// whole process command line at 32767 characters - of which the quoting of the source itself costs a few
-	// hundred. A body past that budget cannot be started at all (the spawn fails with ENAMETOOLONG), so the
-	// budget is asserted here instead of surfacing as a child process that never existed.
-	assert.ok(REMOTE_HELPER_INLINE_SOURCE.length > 1024 && REMOTE_HELPER_INLINE_SOURCE.length < 31 * 1024, `unexpected source size ${REMOTE_HELPER_INLINE_SOURCE.length}: the -e self-test cannot carry a larger body on Windows`);
+	// Two size facts, deliberately different in kind. This one is a review bound on a frozen single-line
+	// artifact, not a startup constraint: everything below starts the body from a file, where no command line
+	// length applies, and the body has to stay small enough to be audited as one line. It is also two orders
+	// of magnitude below the 8 MiB frame cap the same body enforces.
+	assert.ok(REMOTE_HELPER_INLINE_SOURCE.length > 1024 && REMOTE_HELPER_INLINE_SOURCE.length < 64 * 1024, `unexpected source size ${REMOTE_HELPER_INLINE_SOURCE.length}`);
+	// This one is a startup constraint, and it belongs to exactly one shape: `node -e <source>`. Windows
+	// accepts at most 32766 characters in a CreateProcess command line (the documented cap is 32767 including
+	// the terminating null; measured here: 32766 starts, 32767 fails with ENAMETOOLONG), and the body, the
+	// escaping of every double quote in it and the launcher's own argv all come out of that one budget. It is
+	// asserted so the budget is stated rather than discovered as a child process that never existed, and the
+	// two `inlineEval` tests below are the behaviour this arithmetic predicts. A body that outgrows it means
+	// the `-e` coverage has to go deliberately - this assertion and those two tests together - never silently.
+	// POSIX is not the tighter platform here: its per-argument limit is about 128 KiB.
+	const inlineCommandLine = inlineEvalCommandLineLength();
+	assert.ok(inlineCommandLine < WINDOWS_COMMAND_LINE_LIMIT, `\`node -e <source>\` would need ${inlineCommandLine} characters of command line, ${inlineCommandLine - WINDOWS_COMMAND_LINE_LIMIT + 1} over the last length Windows accepts (${WINDOWS_COMMAND_LINE_LIMIT - 1}): the body can no longer be started that way`);
 });
 
 helperTest("the exported entry identity matches the frozen source", () => {
@@ -375,7 +450,10 @@ helperTest("the exported entry identity matches the frozen source", () => {
 });
 
 helperTest("hello answers the contract handshake through the production client", async (t) => {
-	const session = startHelper(t);
+	// The `-e` startup shape, on purpose: the deployment path a remote probe and this self-test used, and the
+	// only shape where the entry path is absent and argv shifts by one. Its command line budget is asserted in
+	// the source-size test above, and the file shape the bundle really deploys is covered by every other test.
+	const session = startHelper(t, { inlineEval: true });
 	const result = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello"));
 	assert.deepEqual(result, {
 		protocolVersion: REMOTE_HELPER_PROTOCOL_VERSION,
@@ -575,7 +653,9 @@ helperTest("a root that is itself a link is canonicalized once at startup", asyn
 
 helperTest("fs.stat classifies entries with lstat semantics", async (t) => {
 	const fixture = createFsFixture(t);
-	const session = startHelper(t, { root: fixture.root });
+	// The second `-e` test, and the one that carries a root through the shifted argv: a scan that missed the
+	// flag there would leave the whole read-only batch answering PATH_OUTSIDE_ROOT instead of serving the tree.
+	const session = startHelper(t, { inlineEval: true, root: fixture.root });
 	const file = await call(session, REMOTE_HELPER_METHOD_FS_STAT, { path: "alpha.txt" });
 	assert.deepEqual(Object.keys(file), contractFields("RemoteHelperStatResult"));
 	assert.equal(file.kind, "file");

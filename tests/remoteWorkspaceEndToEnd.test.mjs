@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /*
@@ -48,7 +48,7 @@ const {
 	REMOTE_HELPER_METHOD_HELLO,
 	REMOTE_HELPER_PROTOCOL_VERSION,
 } = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
-const { REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_INLINE_SOURCE } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
+const { REMOTE_HELPER_ENTRY_FILE_NAME, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_INLINE_SOURCE } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
 const { createRemoteControlClient } = loadTsCommonJs("src/main/remote/RemoteControlClient.ts");
 const { createRemoteWorkspaceReader, REMOTE_WORKSPACE_DIAGNOSTIC_CODES } = loadTsCommonJs("src/main/remote/RemoteWorkspaceReader.ts");
 const { REMOTE_BUNDLE_HASH_PREFIX, REMOTE_BUNDLE_HASH_SEPARATOR, buildBundleManifest, observeBundleFiles, planBundleUpload } = loadTsCommonJs("src/main/remote/RemoteBootstrapUpload.ts");
@@ -226,18 +226,35 @@ function createWorkspaceFixture(t) {
 }
 
 /**
+ * The helper entry every test in this suite starts: the frozen bytes under the file name the deploy bundle
+ * uploads them as, written once per run.
+ *
+ * The deployed helper is a file, and a file costs no command line. `node -e <source>` would have to carry
+ * the whole body on one, and Windows rejects a CreateProcess command line past 32767 characters - so this
+ * suite would silently become a second place where the size of the frozen body decides whether the chain
+ * can be tested at all. `remoteHelperEntry.test.mjs` keeps the `-e` shape covered, and asserts the budget it
+ * has to fit, on purpose. The file-scope hook removes the directory after the last child has read it; a test
+ * hook could delete it while a child is still starting.
+ */
+const ENTRY_DIRECTORY = mkdtempSync(join(tmpdir(), "pideck-e2e-entry-"));
+const ENTRY_PATH = join(ENTRY_DIRECTORY, REMOTE_HELPER_ENTRY_FILE_NAME);
+writeFileSync(ENTRY_PATH, REMOTE_HELPER_INLINE_SOURCE, "utf8");
+after(() => rmSync(ENTRY_DIRECTORY, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+
+/**
  * One real helper process plus the production client that speaks to it, wired the way the connection layer
  * wires it: the client writes through `send` into the child's stdin and every stdout line is fed back
  * through `handleLine`. The reader is created over the port built here, so the three layers under test are
  * the three real ones and nothing else.
  *
- * The argv shape is the self-test's: under `node -e` the entry path is absent, so `--` keeps node from
- * reading the helper's own flag as a node option and argv shifts by one, which is exactly why the helper
- * scans argv for `--root` instead of indexing it.
+ * The argv is the launcher's fixed template, `<node> <entry> [--root <root>]` - the deployed shape, with the
+ * frozen bytes in a real file. The `-e` shape (entry path absent, `--` before the helper's own flag, argv
+ * shifted by one) is pinned by remoteHelperEntry.test.mjs; the helper scans argv for `--root` instead of
+ * indexing it so that both shapes are served.
  */
 function startHelper(t, root) {
 	const env = { ...process.env, HOME: HELPER_HOME };
-	const child = spawn(process.execPath, ["-e", REMOTE_HELPER_INLINE_SOURCE, "--", "--root", root], { env, stdio: ["pipe", "pipe", "pipe"] });
+	const child = spawn(process.execPath, [ENTRY_PATH, "--root", root], { env, stdio: ["pipe", "pipe", "pipe"] });
 	const frames = [];
 	const lines = [];
 	const inbound = [];
