@@ -1,4 +1,15 @@
-import { REMOTE_HELPER_DEFAULT_REQUEST_TIMEOUT_MS, REMOTE_HELPER_MAX_FRAME_BYTES, REMOTE_HELPER_MAX_REQUEST_TIMEOUT_MS, REMOTE_HELPER_PROTOCOL_VERSION, type RemoteHelperCancelParams, type RemoteHelperCancelResult, type RemoteHelperErrorBody, type RemoteHelperRequestFrame, REMOTE_HELPER_MAX_HOST_ID_LENGTH, REMOTE_HELPER_MAX_METHOD_LENGTH } from "./RemoteHelperContract";
+import {
+	REMOTE_HELPER_DEFAULT_REQUEST_TIMEOUT_MS,
+	REMOTE_HELPER_MAX_FRAME_BYTES,
+	REMOTE_HELPER_MAX_REQUEST_TIMEOUT_MS,
+	REMOTE_HELPER_PROTOCOL_VERSION,
+	type RemoteHelperCancelParams,
+	type RemoteHelperCancelResult,
+	type RemoteHelperErrorBody,
+	type RemoteHelperRequestFrame,
+	REMOTE_HELPER_MAX_HOST_ID_LENGTH,
+	REMOTE_HELPER_MAX_METHOD_LENGTH,
+} from "./RemoteHelperContract";
 
 /**
  * Main-side client for helper protocol v1 (plan §7.1). It owns framing, host/generation fencing, the
@@ -496,6 +507,12 @@ export function createRemoteControlClient(options: RemoteControlClientOptions): 
 		return deferred.promise;
 	}
 
+	/**
+	 * Withdraw a request that has not started yet. `{cancelled:false, reason:"already-settled"}` means the
+	 * cancel did not take effect — the request had already started, already finished, or was never seen —
+	 * and it says nothing about whether the work succeeded, so a caller waiting for a rollback has to read
+	 * the request's own outcome instead.
+	 */
 	async function cancel(requestId: string, options?: RemoteControlRequestOptions): Promise<RemoteHelperCancelResult> {
 		if (typeof requestId !== "string" || !ID_PATTERN.test(requestId)) throw protocolInvalid();
 		if (!open) {
