@@ -26,7 +26,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "a03c9e3f46a56adc162bde0a8e7b57ec616c57fef0fe96114d38fcd2d548b061";
+const FROZEN_SHA256 = "fd6db9dddfa16e90385586176735323dc611141a950b76a59881732c5314aefe";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -396,7 +396,10 @@ helperTest("four requests hold the slots and the rest wait in the queue", async 
 	const slots = REMOTE_HELPER_MAX_CONCURRENT_REQUESTS;
 	// Deterministic probe instead of a wall-clock threshold: the helper can only cancel a request that is
 	// still waiting, so its cancel answers say where a request sits without relying on scheduling.
-	const holding = Array.from({ length: slots }, (_value, index) => client.request(REMOTE_HELPER_METHOD_ECHO, { text: `c${index}`, delayMs: 3_000 }));
+	// Hold for the full echo budget: the reviewer's gated-transport probe showed a late cancel frame can
+	// flip this assertion once the hold is short, and 5s is the widest margin the helper offers.
+	const hold = REMOTE_HELPER_MAX_ECHO_DELAY_MS;
+	const holding = Array.from({ length: slots }, (_value, index) => client.request(REMOTE_HELPER_METHOD_ECHO, { text: `c${index}`, delayMs: hold }));
 	const queued = client.request(REMOTE_HELPER_METHOD_ECHO, { text: "queued", delayMs: 0 });
 	queued.catch(() => {});
 	const queuedId = session.requestIdAt(slots);
@@ -412,7 +415,7 @@ helperTest("four requests hold the slots and the rest wait in the queue", async 
 
 	// Everything that held a slot still answers normally afterwards.
 	const results = await guard(Promise.all(holding), "the four scheduled echoes");
-	for (const [index, result] of results.entries()) assert.deepEqual(plain(result), { text: `c${index}`, delayMs: 3_000 });
+	for (const [index, result] of results.entries()) assert.deepEqual(plain(result), { text: `c${index}`, delayMs: hold });
 });
 
 helperTest("the waiting room is bounded at 64 and the overflow is refused", async (t) => {
@@ -481,6 +484,25 @@ helperTest("cancel refuses to fake a rollback for an in-flight or settled reques
 	session.writeLine(JSON.stringify({ v: REMOTE_HELPER_PROTOCOL_VERSION, hostId: HOST_ID, generation: client.connectionGeneration, id: "req-940", method: REMOTE_HELPER_METHOD_CANCEL, timeoutMs: 1000, params: { requestId: echoId } }));
 	await session.waitForFrames(session.frames.length + 1, "the late cancel answer");
 	assert.deepEqual(session.frames.at(-1), { v: REMOTE_HELPER_PROTOCOL_VERSION, hostId: HOST_ID, generation: client.connectionGeneration, id: "req-940", ok: true, result: { cancelled: false, reason: "already-settled" } });
+});
+
+helperTest("a byte sequence that is not utf8 inside a string value fails closed", async (t) => {
+	const session = startHelper(t);
+	// Lossy decoding used to turn these bytes into U+FFFD and let the frame through as ok, which the
+	// client drops by identity: a remote success reported as a local timeout. It must be refused, and
+	// the refusal has to be a frame, because a silent death leaves the caller waiting for its deadline.
+	const head = Buffer.from('{"v":1,"hostId":"01234567-89ab', "utf8");
+	const tail = Buffer.from('cdef-4def-0123456789ab","generation":1,"id":"raw-bad-utf8","method":"hello"}\n', "utf8");
+	session.child.stdin.write(Buffer.concat([head, Buffer.from([0xff, 0xfe]), tail]));
+	const before = session.frames.length;
+	await guard(session.waitForFrames(before + 1, "the refusal of a non-utf8 frame"), "the refusal frame");
+	const refusal = session.frames.at(-1);
+	assert.equal(refusal.ok, false);
+	assert.equal(refusal.error.code, "PROTOCOL_INVALID");
+	assert.equal(refusal.error.retryable, false);
+	assert.equal(refusal.id, "", "a frame that could not be decoded has no identity to echo");
+	// The helper stays usable: a well-formed frame after the refusal is still served.
+	assert.equal(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello after the refusal")).protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
 });
 
 helperTest("stdin EOF ends the helper with code 0 and drops its pending work", async (t) => {

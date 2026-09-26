@@ -56,10 +56,9 @@ test("refuses a node path, deploy root or entry name that is not a fixed remote 
 
 test("a real shell splits the command into exactly two literal words", (t) => {
 	const shell = posixShell();
-	if (shell === null) {
-		t.diagnostic("no POSIX shell is available; the quoting proof was skipped");
-		return;
-	}
+	// A skipped proof is not a proof: this assertion is the only independent check that the quoting can
+	// survive a real shell, so a machine without one has to say so instead of passing quietly.
+	assert.notEqual(shell, null, "no POSIX shell (bash or sh) is available, so the quoting proof cannot run");
 	// Every payload that would be dangerous if the quoting were wrong: spaces, quotes, command
 	// substitution, globs and a trailing option-looking token.
 	const nodePath = "/opt/no de/$(touch /tmp/pideck-pwned)/node'x";
