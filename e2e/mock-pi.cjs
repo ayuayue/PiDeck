@@ -409,6 +409,16 @@ function startStream(userText, options = {}) {
 	// BURST 模式：模拟真实 LLM 突发输出——前 6 个 chunk 慢速（250ms），
 	// 之后 15ms 密集推送（复现「开头吐字、后面蹦字」）。
 	const burst = userText.includes("BURST");
+	// TOOLMANY 模式（过程组内部跟底 e2e 用）：`TOOLMANY <n>` 会**逐个**推 n 次工具调用，
+	// 每次之间隔 manyToolDelayMs，用于制造「组体已展开、成员仍在继续到达」的增长窗口。
+	// 刻意不夹中间文本（tool 之间没有 text_delta）——一旦夹了，分组层会把它们切成多个组
+	// （中间回复是组边界），组体就撑不出内部滚动，测不到跟底。
+	const manyToolCount = (() => {
+		const match = /TOOLMANY\s+(\d+)/.exec(userText);
+		return match ? Number(match[1]) : 0;
+	})();
+	const manyToolDelayMs = Math.max(streamIntervalMs, 250);
+	let manyToolEmitted = 0;
 	// prompt 含 "MDEMO" 时回复富 markdown，用于截图巡检渲染元素（链接/代码/表格/引用）
 	// raw 模式（Ask 回答回显）：不套模板、不截断，保证长 JSON 答案完整回传
 	const reply = userText.startsWith("MATH_REPRO\n")
@@ -480,7 +490,7 @@ function startStream(userText, options = {}) {
 			});
 		}
 	}
-	if (userText.includes("TOOL")) {
+	if (manyToolCount === 0 && userText.includes("TOOL")) {
 		emit({
 			type: "tool_execution_start",
 			toolName: "bash",
@@ -512,6 +522,16 @@ function startStream(userText, options = {}) {
 		return true;
 	};
 	const emitChunk = () => {
+		// TOOLMANY：先把 n 个工具调用逐个推完，再进入正文流。
+		// 每个 tick 只推一个，组体在这段时间里持续增高（跟底用例的增长窗口）。
+		if (manyToolEmitted < manyToolCount) {
+			const id = `tool-e2e-many-${manyToolEmitted}`;
+			emit({ type: "tool_execution_start", toolName: "bash", toolCallId: id, args: { command: `echo step-${manyToolEmitted}` } });
+			emit({ type: "tool_execution_end", toolCallId: id });
+			manyToolEmitted += 1;
+			streamTimer = setTimeout(emitChunk, manyToolDelayMs);
+			return;
+		}
 		if (streamStep >= streamChunks.length) {
 			streamTimer = null;
 			const full = {

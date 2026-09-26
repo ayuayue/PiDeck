@@ -6,7 +6,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 // 过程组切分（对齐 DSH standard：大折叠栏内「中间回复 / 过程组」按原始时序交替）。
 // 契约：空文本中间回复不作边界；重试/错误是一级行且截断组；工具类别变化不拆组。
 
-const { groupTurnProcess, lastProcessGroup, lastProcessGroupIndex } = loadTsCommonJs(join(process.cwd(), "src/renderer/src/components/session/timeline/groupTurnProcess.ts"));
+const { groupTurnProcess, lastProcessGroup, lastProcessGroupIndex, lastToolCategory } = loadTsCommonJs(join(process.cwd(), "src/renderer/src/components/session/timeline/groupTurnProcess.ts"));
 
 // loadTsCommonJs 在独立 vm realm 里执行模块代码，返回的 Array/Object 原型不来自主 realm，
 // assert/strict 的 deepStrictEqual 会因原型不同判不等。按仓库既有惯例先归一化成主 realm 普通值。
@@ -116,6 +116,13 @@ test("tool category changes never split a group but every tool entry is counted"
 		{ kind: "read", count: 2 },
 		{ kind: "commands", count: 1 },
 	]);
+});
+
+test("running category follows the final thinking step rather than an earlier tool", () => {
+	const nodes = groupTurnProcess([toolEntry("g1", "read"), thinkingEntry("t2")]);
+	assert.equal(nodes[0].kind, "group");
+	assert.equal(lastToolCategory(nodes[0].members), undefined);
+	assert.equal(lastToolCategory(groupTurnProcess([toolEntry("g1", "grep"), toolEntry("g2", "read")])[0].members), "read");
 });
 
 test("lastProcessGroup / lastProcessGroupIndex locate the newest group for auto-expand", () => {

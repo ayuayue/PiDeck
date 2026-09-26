@@ -41,6 +41,84 @@ export const KEYBOARD_LINE_PX = 40;
 /** overlay / scrollbar-gutter 预留槽：命中视口右缘这一带宽即视为拖滚动条。 */
 export const SCROLLBAR_HIT_SLOP_PX = 12;
 
+/** 滚动容器贴边容差：Windows 125%/150% 缩放下的浮点舍入会留下不到 1px 的余量。 */
+export const SCROLL_EDGE_TOLERANCE_PX = 1;
+
+/**
+ * 滚动链是否被 CSS 切断：`overscroll-behavior-y: contain | none` 时，内层到边后
+ * 手势**不会**继续传给外层滚动容器（`auto` 才会）。
+ *
+ * 引擎必须据此判断「手势到底滚了谁」，否则会出现幽灵状态变更：
+ * 过程组组体是 `overflow-y-auto overscroll-contain`，到边后滚轮/键盘一律不外溢，
+ * 但事件照旧冒泡到时间线 → 时间线一像素没动却被静默解锁（上滚）或拽回底部（下滚）。
+ */
+export function isScrollChainCut(overscrollBehaviorY: string): boolean {
+	return overscrollBehaviorY === "contain" || overscrollBehaviorY === "none";
+}
+
+/**
+ * 是否为**滚动容器**（CSS 语义，不看内容够不够）：`auto | scroll | hidden`。
+ *
+ * 与 `isVerticallyScrollableOverflow`（只看 auto|scroll）分开的两个原因：
+ * 1. `hidden` 仍是滚动容器，`overscroll-behavior` 对它**照样生效**（会切断滚动链）；
+ * 2. 滚动链上的归属判定需要区分「这个环根本不参与滚动链」与「参与但当前没余量」。
+ */
+export function isScrollContainerOverflow(overflowY: string): boolean {
+	return overflowY === "auto" || overflowY === "scroll" || overflowY === "hidden";
+}
+
+/**
+ * 滚动容器在该方向上是否还有余量（能不能真的滚）。
+ * 不能只看 `scrollHeight > clientHeight`：链上某一环可能整体可滚，
+ * 但手势方向那一端已经到边了。
+ */
+export function hasRoomAlong(scroll: { scrollTop: number; scrollHeight: number; clientHeight: number }, direction: FollowDirection): boolean {
+	if (direction === "up") return scroll.scrollTop > SCROLL_EDGE_TOLERANCE_PX;
+	return scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight - SCROLL_EDGE_TOLERANCE_PX;
+}
+
+/** 手势归属：时间线 / 某个嵌套滚动容器 / 谁都不滚（链被切断）。 */
+export type GestureOwner = "timeline" | "nested" | "nobody";
+
+/** 滚动链上的一环（由内向外），最后一环是引擎自己的 scroller。 */
+export type ScrollChainLink = {
+	/** 是否就是引擎自己的 scroller（时间线）。 */
+	isTimeline: boolean;
+	/**
+	 * 该环是不是滚动容器（`overflow-y: auto | scroll | hidden`）。
+	 * 非滚动容器（visible）不参与滚动链，`overscroll-behavior` 对它也不生效，直接跳过。
+	 */
+	isScrollContainer: boolean;
+	/** 该环在手势方向上是否还有余量。 */
+	canScrollAlong: boolean;
+	/** 该环是否切断滚动链（`overscroll-behavior-y: contain | none`）。 */
+	chainCut: boolean;
+};
+
+/**
+ * 一次滚轮 / 键盘手势到底滚了谁——按浏览器滚动链判定，而非只看事件起点：
+ *
+ * 1. 从手势起点沿祖先链**继续往上走**，不是只看第一个 overflow 容器：
+ *    代码块到顶但外层组体还能滚时，浏览器滚的是**组体**（第一个在该方向上真有余量的一环），
+ *    只看第一环会把这次手势当成时间线手势 → 时间线没动却改了跟随态。
+ * 2. 中途遇到 `overscroll-behavior-y: contain` 且已到边的环 → 链断，**谁都不滚**：
+ *    画面一像素不动，引擎更不能动跟随态。
+ *    实测：即使该环内容并不溢出（`overflow-y: auto` 但高度不够），contain 依旧切断链。
+ * 3. 链走完都没人认领（或走到时间线）→ 才是时间线手势。
+ *    「代码块到边后继续滚时间线」的既有行为属于这一类，必须保留。
+ *
+ * 只有 `timeline` 才允许改跟随态；`nested` / `nobody` 都必须原地不动。
+ */
+export function resolveGestureOwner(chain: readonly ScrollChainLink[]): GestureOwner {
+	for (const link of chain) {
+		if (link.isTimeline) return "timeline";
+		if (!link.isScrollContainer) continue;
+		if (link.canScrollAlong) return "nested";
+		if (link.chainCut) return "nobody";
+	}
+	return "timeline";
+}
+
 export type FollowDirection = "up" | "down";
 
 export type FollowDecision = { action: "none" } | { action: "escape"; report: "up" } | { action: "relock"; report: "down" } | { action: "intent"; report: FollowDirection };

@@ -41,11 +41,14 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 				// 右下角小圆形按钮，跟随消息列/输入框列宽（chatContentWidthStyle 同一基准），
 				// 不贴面板最右：输入框宽度可设比例，按钮右缘必须与内容列右缘对齐。
 				// 外层 pointer-events-none 不影响时间线交互；按钮自身恢复接收点击。
-				<div className="pointer-events-none absolute inset-0 z-20" aria-hidden="true">
+				<div className="pointer-events-none absolute inset-0 z-20">
 					<div style={chatContentWidthStyle} className="relative h-full">
 						<Button
 							variant="ghost"
 							size="icon"
+							// 稳定 DOM 锚点：e2e 用它守卫组内滚轮不会幽灵解锁外层；
+							// 按钮仍须暴露给辅助技术，不得把父层标成 aria-hidden。
+							data-scroll-to-bottom=""
 							className="pointer-events-auto absolute left-1/2 bottom-1.5 size-8 -translate-x-1/2 border border-border-strong bg-bg-panel text-text-secondary shadow-md backdrop-blur-sm transition-[background-color,color,border-color,box-shadow] hover:border-accent hover:bg-bg-hover hover:text-foreground hover:shadow-lg"
 							onClick={sessionTimeline.scrollToBottom}
 							title={t("app.scrollToBottom")}

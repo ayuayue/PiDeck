@@ -1,15 +1,17 @@
 import { ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText, Globe, Image, ListChecks, MessageCircleQuestion, Network, Search, Sparkles, SquareCode, SquarePen, Terminal, Wrench, type LucideIcon } from "lucide-react";
-import { memo, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { getToolName } from "../../../../../shared/fileChanges";
 import { t } from "../../../i18n";
 import { ShimmerText } from "../ShimmerText";
 import type { TurnProcessNode } from "../timeline/groupTurnProcess";
+import { lastToolCategory } from "../timeline/groupTurnProcess";
 import { activityCategoryLabelKey, topActivityKinds, type ActivityCount, type ToolActivityCategory } from "../timeline/toolCategory";
 import { getToolPhraseFromArgs } from "../timeline/toolPhrase";
 import { boundMountedSteps, PROCESS_GROUP_MEMBER_LIMIT } from "../timeline/turnMountBudget";
 import type { TurnProcessEntry } from "../timeline/types";
 import { ThinkingStep } from "./ThinkingStep";
 import { ToolStep } from "./ToolStep";
+import { useStickToBottom } from "../../../lib/stick-to-bottom";
 
 /**
  * 过程组（组头 + 可折叠组体）。
@@ -72,9 +74,9 @@ function categoryLabel(kind: ToolActivityCategory, phase: "running" | "done"): s
 }
 
 /** 组头「正在…」文案；纯思考组（无工具活动）退回「正在分析请求」。 */
-function runningGroupLabel(topKind: ToolActivityCategory | undefined): string {
-	if (!topKind) return t("timeline.processGroup.analyzing");
-	return categoryLabel(topKind, "running");
+function runningGroupLabel(kind: ToolActivityCategory | undefined): string {
+	if (!kind) return t("timeline.processGroup.analyzing");
+	return categoryLabel(kind, "running");
 }
 
 /**
@@ -95,19 +97,17 @@ function doneGroupLabel(counts: readonly ActivityCount[]): string {
 	return kindTotal > 3 ? t("timeline.processGroup.more", { title: joined }) : joined;
 }
 
-/** 组内最后一个工具条目的加载态短语（工具名 + 参数）；取不到就返回 undefined（不显示详情）。 */
+/**
+ * 组头「正在…」的实时详情：只看当前（最后）工具条目的加载态短语。
+ * 若最新成员已切回思考，旧工具详情必须一起消失。
+ */
 function lastToolLoadingLabel(members: readonly TurnProcessEntry[]): string | undefined {
-	for (let index = members.length - 1; index >= 0; index -= 1) {
-		const member = members[index];
-		if (member?.kind !== "tool-entry") continue;
-		const messages = member.group.messages;
-		const message = messages[messages.length - 1];
-		if (!message) return undefined;
-		const name = getToolName(message);
-		if (!name) return undefined;
-		return getToolPhraseFromArgs(name, message.meta?.args).loadingLabel || undefined;
-	}
-	return undefined;
+	const current = members[members.length - 1];
+	if (current?.kind !== "tool-entry") return undefined;
+	const message = current.group.messages[current.group.messages.length - 1];
+	if (!message) return undefined;
+	const name = getToolName(message);
+	return name ? getToolPhraseFromArgs(name, message.meta?.args).loadingLabel || undefined : undefined;
 }
 
 export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGroupStepProps) {
@@ -118,12 +118,38 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 	const [expandedGroupId, setExpandedGroupId] = useState<string | undefined>(undefined);
 	const showAll = expandedGroupId === props.group.id;
 	const mounted = useMemo(() => boundMountedSteps(props.group.members, PROCESS_GROUP_MEMBER_LIMIT, showAll), [props.group.members, showAll]);
+	// ── 组体内部滚轮跟底 ──
+	// 组体被 max-h 钳住后，外层时间线不再随成员增加而增高，新成员只落在**内部**滚动容器下方；
+	// 外层引擎的 ResizeObserver 因此收不到增长通知，内层必须自己跟底（否则滚珠停在上面）。
+	// 这里刻意**复用时间线同一个跟底引擎**（`lib/stick-to-bottom`，use-stick-to-bottom 本地移植），
+	// 不另写简化版：引擎里沉淀了 8 个历史修复（离散增高强制 instant 防砰抖、内容收缩不追底、
+	// clamp 不被误判为用户滚动、resizeScrollGuard 隔离布局滚动等），自造简化版会把这些坑重踩一遍——
+	// 用户反复反馈的「跟底偶发跳动」正是这类问题的表现。
+	// resize 取 instant：内层是限高小窗，直接同步贴底，不引入弹簧变量（弹簧滞后在窄视口里更显跳）。
+	// 不传用户意图回调：组内滚动不上报外层 controller，保持契约 §7 已记录的「组内滚动不解锁外层跟随」。
+	const stick = useStickToBottom({ initial: "instant", resize: "instant" });
+	// 解构出稳定引用：stick 每次渲染是新对象，effect 依赖与 ref 都得用具体字段。
+	const stickScrollRef = stick.scrollRef;
+	const stickContentRef = stick.contentRef;
+	const stickScrollToBottom = stick.scrollToBottom;
+	const stickNoteWheel = stick.noteWheel;
+	// 展开（含首次挂载）后先落底：引擎只在「观察到内容变化」时贴底，
+	// 已有历史成员在挂载那一刻不产生变化事件，必须显式定位。layout 阶段执行，绘制前完成，无可见跳动。
+	useLayoutEffect(() => {
+		if (!props.open) return;
+		stickScrollToBottom({ animation: "instant" });
+	}, [props.open, stickScrollToBottom]);
 
 	const topKind = topActivityKinds(props.group.counts, 1)[0];
-	const Icon = topKind ? CATEGORY_ICONS[topKind] : Sparkles;
+	// 运行中的「正在…」必须用**当前**工具类别，不能用 topKind（整组摘要）：
+	// 组内从搜索切到读取后，摘要仍是搜索 → 组头写「正在搜索代码」，右侧实时详情却是
+	// 「正在读取 main.ts」，同一行自相矛盾（2026-08 审计）。已结束的组头仍用摘要。
+	const runningKind = props.running ? lastToolCategory(props.group.members) : undefined;
+	const headKind = props.running ? runningKind : topKind;
+	const Icon = headKind ? CATEGORY_ICONS[headKind] : Sparkles;
 	// 实时详情只对运行中的组有意义（结束后组头是类别摘要，不再报「正在执行…」）。
 	const detail = props.running ? lastToolLoadingLabel(props.group.members) : undefined;
-	const runningLabel = props.running ? runningGroupLabel(topKind) : "";
+	const runningLabel = props.running ? runningGroupLabel(runningKind) : "";
 	const doneLabel = props.running ? "" : doneGroupLabel(props.group.counts);
 
 	const renderMember = (entry: TurnProcessEntry): ReactNode => {
@@ -197,24 +223,37 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 			{props.open && (
 				// 组体：缩进 + 竖线沿用现有展开区语言；限高交给内层 scroller，滚轮不外溢到时间线。
 				<div id={bodyId} data-process-group-body="" className="ml-5 mt-1 border-l-2 border-border-subtle pl-3">
-					<div data-process-group-scroller="" className="flex max-h-[min(320px,30vh)] flex-col overflow-y-auto overscroll-contain">
-						{mounted.hiddenCount > 0 && (
-							// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
-							<button
-								type="button"
-								className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
-								onClick={() => setExpandedGroupId(props.group.id)}
-								title={t("timeline.showEarlierSteps", { count: mounted.hiddenCount })}
-							>
-								<ChevronUp size={12} aria-hidden="true" />
-								<span>{t("timeline.showEarlierSteps", { count: mounted.hiddenCount })}</span>
-							</button>
-						)}
-						{mounted.items.map((entry) => (
-							<div key={entry.id} className="shrink-0">
-								{renderMember(entry)}
-							</div>
-						))}
+					<div
+						ref={stickScrollRef}
+						data-process-group-scroller=""
+						// 滚轮交给引擎才能产生「上滚逃逸 / 回底重锁」：引擎的 wheel 意图是从外部路由进来的
+						// （noteWheel），不注册自己的 wheel 监听。虽然同一事件会冒泡到外层时间线，
+						// 但外层会先判定滚动链归属：组内有余量时由内层认领，到边后 contain 切断，
+						// 两种情况都不能改变外层跟随态。
+						onWheel={(event) => stickNoteWheel(event.deltaY, event.target)}
+						className="flex max-h-[min(320px,30vh)] flex-col overflow-y-auto overscroll-contain"
+					>
+						{/* 内容包装盒：引擎的 ResizeObserver 观察这一层才能感知「内容变高」——
+						    外层 scroller 被 max-height 钳住、尺寸恒定，观察它收不到增长通知。 */}
+						<div ref={stickContentRef} className="flex shrink-0 flex-col">
+							{mounted.hiddenCount > 0 && (
+								// 超出挂载预算的早期成员入口：与 TurnRow 的「显示更早的 N 条步骤」同款观感。
+								<button
+									type="button"
+									className="mt-1 inline-flex h-[26px] shrink-0 items-center gap-2 self-start rounded-[var(--radius-md)] border border-border-subtle bg-[var(--color-chat-card-bg)] px-3 text-chat-detail font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+									onClick={() => setExpandedGroupId(props.group.id)}
+									title={t("timeline.showEarlierSteps", { count: mounted.hiddenCount })}
+								>
+									<ChevronUp size={12} aria-hidden="true" />
+									<span>{t("timeline.showEarlierSteps", { count: mounted.hiddenCount })}</span>
+								</button>
+							)}
+							{mounted.items.map((entry) => (
+								<div key={entry.id} className="shrink-0">
+									{renderMember(entry)}
+								</div>
+							))}
+						</div>
 					</div>
 				</div>
 			)}

@@ -192,8 +192,13 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 - 组头文案：
   - `running === true`：`t(activityCategoryLabelKey(topKind, "running"))` + 若有实时详情则追加 `t("timeline.processGroup.separator")` + 详情；文案走 `<ShimmerText>`（复用 `src/renderer/src/components/session/ShimmerText.tsx`）。
   - 已结束：`topActivityKinds(group.counts, 3)` → 分别取 `done` 文案，按 `joinTwo` / `joinList` + `listSeparator` 组装；超过 3 类用 `more` 包裹；**`counts` 为空且有思考时**用 `t("timeline.processGroup.analyzed")`。
-  - 实时详情来源：组内最后一个 `tool-entry` 的工具名 + 参数 → 复用 `timeline/toolPhrase.ts` 的 `getToolPhraseFromArgs(toolName, args).loadingLabel`；取不到就不显示详情。
+  - 实时详情仅在**最后一个成员是 `tool-entry`** 时取其工具名 + 参数 → 复用 `timeline/toolPhrase.ts` 的 `getToolPhraseFromArgs(toolName, args).loadingLabel`；切回思考或取不到时不显示详情。
 - **组体**：`max-h-[min(320px,30vh)] overflow-y-auto overscroll-behavior-contain`，外层 `ml-5 border-l-2 border-border-subtle pl-3`（沿用现有「思考展开正文」的缩进语言）。限高 flex 列里的子项必须 `shrink-0`（AGENTS.md 记录过的塌陷事故）。
+- **组体内部跟底（2026-08 用户报修）**：组体复用外层时间线同一套跟底引擎 `lib/stick-to-bottom`（`useStickToBottom`），不另造阈值/意图判定。要点：
+  - `scrollRef` 绑组体滚动容器，`contentRef` 绑内层内容包装盒：限高后的滚动容器不随成员增长，必须观察内容盒才能收到 `ResizeObserver` 通知；
+  - 展开时调用 `scrollToBottom({ animation: "instant" })`；后续增高由内容观察器在锁底状态下跟随，手动上滚则解锁内层跟随；
+  - 组体的 `noteWheel` 只改变内层跟随态；不向外层 controller 上报组内用户意图（组内滚动不改变时间线跟随态）。
+- **组内手势不得幽灵影响外层（同次审计修复）**：组体到边后滚轮/键盘一律不外溢（`overscroll-contain`），所以引擎必须按「手势到底滚了谁」判定归属 —— 详见 §7 已知限制与 `followState.ts` 的 `resolveGestureOwner`。
 - **组体内容 = 复用现有组件**：`thinking-entry` → `<ThinkingStep hidden={false} .../>`；`tool-entry` → `<ToolStep stopped={!running} hidden={false} .../>`。
 - **组内挂载预算（必须做，否则会 OOM 回归）**：一个组可能有几百个成员，全挂进 DOM 就是当年 `turnMountBudget` 要治的事故（2026-08 渲染进程 OOM）。所以组体必须对 `group.members` 套 `boundMountedSteps(group.members, TIMELINE_MOUNTED_STEP_LIMIT)`（`timeline/turnMountBudget.ts`，limit=120，从尾部保留）；`hiddenCount > 0` 时在**组体顶部**渲染与 TurnRow 同款的 ghost 入口按钮，文案用现有键 `t("timeline.showEarlierSteps", { count })`；点击后本地 `showAll` 全量挂载（用 `useState`，随组 id 变化重置，写法参照 `TurnRow.tsx` 里 `expandedStepsRunId` 的既有模式）。
 - `aria-expanded` / `aria-controls` 必须有；组体 `id` 用 `useId()`。
@@ -253,7 +258,7 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 3. **开关两条路径都要能跑**：默认关闭 = 与改动前逐像素同款；打开 = 过程组渲染。
 4. 视觉零回归：思考行 / 工具行 / 中间回复 / 最终回复 / 重试错误行**与改动前同款**（只有外层多了缩进与竖线）。
 5. `TurnRow.tsx` 体量不得因本次改动继续膨胀（目标 ≤ 600 行；折叠区内容已抽到 `ProcessFold.tsx`）。
-6. **已知限制（v1 接受，需在文档中记录）**：组体内部滚动不会产生「用户意图」，因此不会自动解锁外层贴底跟随。若要修，需要把 controller 的「退出跟随」入口经 `SessionMessageTimeline → TurnRow → ProcessFold → ProcessGroupStep` 透传，属于 Lead 集成阶段的可选项。
+6. **~~已知限制（v1 接受，需在文档中记录）~~ 已修（2026-08 审计）**：原文担心的「组体内部滚动不会产生用户意图」保持**不变且是刻意的** —— 组内滚动不改时间线跟随态（组体自己跟底，见 §4）。真正被审计揪出的相邻缺陷不是这个，而是「组内滚轮/键盘在到边后**既没滚组体也没滚时间线**，事件却照旧冒泡到时间线」，导致跟随态被静默改掉：上滚 → 弹回底按钮 + 流式不再跟随；下滚 → 提前回锁。现由引擎在手势归属层面拦掉（`followState.ts` 的 `resolveGestureOwner` + `collectScrollChain` + `isScrollChainCut`），e2e 守卫见 `e2e/process-group-display.spec.ts` 的「组内滚轮不得幽灵解锁外层」。
 
 ---
 
@@ -281,9 +286,22 @@ i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale
 2. **不变量写进类型**：一级行只可能是重试/错误，用 `TurnStandaloneEntry` 表达，下游因此不需要「不可能分支」的兜底。
 3. **不用 `as` 绕类型**：类别文案 key 返回模板字面量联合（26 个真实键），本身就是 `TranslationKey` 子集。
 
+### 二次审计补丁（2026-08，用户报「组体不跟底」后同轮揪出）
+
+| 缺陷 | 现象 | 修法 | 守卫 |
+|---|---|---|---|
+| 组体不跟底 | 组体内容增长，滚珠停在上面 | 组体接入 `lib/stick-to-bottom` 引擎 | e2e「组体内部滚轮自己跟底」 |
+| 滚轮幽灵解锁（D1） | 组内滚轮到边，时间线没动却解锁跟随 | `resolveGestureOwner` + `collectScrollChain`（`followState.ts`） | e2e「组内滚轮不得幽灵解锁外层」 |
+| 键入手势被截胡（D2） | 焦点在组体时 PageUp 把跟随态改掉而画面没动 | `handleKeyDown` 同样走 `resolveGestureOwner` 判定归属 | `tests/stickToBottomUserIntent.test.mjs` |
+| running 判定过宽（D1'） | 尾部已追加中间回复，旧组仍转 shimmer 报「正在…」 | `running` 改为「最后一个节点就是这个组」 | `tests/groupTurnProcess.test.mjs` |
+| 运行中组头类别滞后（D2'） | 组头写「正在搜索代码」，右侧详情却是「正在读取 xx」；工具后接思考时仍报旧工具 | `lastToolCategory()` 与详情只看最后一个成员：工具取当前类别，思考退回分析中 | `tests/groupTurnProcess.test.mjs` |
+
 ### 已知限制（v1）
 
-1. **组内滚动不解锁外层跟随**：组体内部滚动不产生「用户意图」，时间线仍保持贴底跟随。修法见 §6 第 6 条。
+1. **组内滚动不解锁外层跟随（刻意行为，非缺陷）**：组体内部滚动不产生「用户意图」，时间线仍保持贴底跟随。
+   - 注意与「幽灵解锁」区分：组体到边后（`overscroll-contain` 切断滚动链）滚轮/键盘**谁都不滚**，这类输入曾经照旧冒泡给引擎、被误当成「用户在滚时间线」，从而静默解锁或回锁跟随态。现由 `followState.ts` 的 `resolveGestureOwner`（配合 `collectScrollChain` 收集向外的完整滚动链）在归属层拦掉：**从手势起点沿祖先链继续往外走**，第一个「用户可滚且该方向真有余量」的环认领手势（`overflow:hidden` 不能接收滚轮，但仍可用 `overscroll-behavior` 断链）；中途遇到「已到边且 `overscroll-behavior-y: contain | none`」的环直接断链（`nobody`）；链走完没人认领才归时间线。因此「代码块到边后继续滚时间线」的既有行为保留，而嵌套容器到边的手势既不滚任何一像素、也不改跟随态。
+     - 不用「第一个 overflow 容器」代替的原因：代码块到顶时若外层组体还有余量，浏览器滚的是**组体**，只看第一环会把这次手势误判成时间线手势。
+   - 键盘同理：`handleKeyDown` 现在忽略「起点在嵌套滚动容器里」的 PageUp/PageDown/Home/End/方向键（这些键会先滚内层，而引擎看不到内层的 `scrollTop` 变化）。
 2. **组体限高用 `vh`**：`min(320px, 30vh)` 量的是窗口高度，不是阅读区高度（阅读区约为窗口的 60~70%，即实际约占 45%）。更准需给滚动容器加 `container-type: size` 用 `cqh`，但要回归一次滚动/跟随。
 3. **`TurnRow.tsx` 变长**：两条渲染路径并存，文件已接近 AGENTS.md 的体量评估阈值。若后续要加第三种模式，应先把扁平路径也抽成独立组件。
 4. **`hidden={!stepsVisible}` 分支是历史遗留**：Radix 折叠时子树整体卸载，该分支在当前结构下不可达（审计已确认），保留是为了不改变既有契约测试的语义。

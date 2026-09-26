@@ -45,10 +45,13 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	// 与 TurnRow 既有模式一致：用「已展开的那一批」而不是布尔量，换 run 自然重置，无需额外 effect。
 	const [expandedNodesId, setExpandedNodesId] = useState<string | undefined>(undefined);
 	const mounted = useMemo(() => boundMountedSteps(props.nodes, PROCESS_FOLD_NODE_LIMIT, expandedNodesId !== undefined), [props.nodes, expandedNodesId]);
-	// 只有本轮仍在跑时，最后一个过程组才是「运行中」（决定 shimmer 与「正在…」文案）。
+	// 只有本轮仍在跑、且**最后一个节点就是这个组**时它才算「运行中」（决定 shimmer 与「正在…」文案）。
 	// 用**节点 id** 而不是数组下标判定：下面渲染的是尾部切片 `mounted.items`，
 	// 下标在裁剪后与 `props.nodes` 不对应，按下标比较会把「运行中」标到错误的组上。
-	const runningGroupId = props.agentRunning ? lastProcessGroup(props.nodes)?.id : undefined;
+	// 尾部判定不能用「最后一个组」（2026-08 审计修复）：尾部一旦追加中间回复 / 重试 / 错误行，
+	// 说明那个组已经跑完，继续挂 shimmer 报「正在…」就是在撒谎。
+	const lastNode = props.nodes[props.nodes.length - 1];
+	const runningGroupId = props.agentRunning && lastNode?.kind === "group" ? lastNode.id : undefined;
 
 	const renderNode = (node: TurnProcessNode): ReactNode => {
 		switch (node.kind) {

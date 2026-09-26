@@ -276,3 +276,59 @@ test("vertical scroll walk matches overflowY, not the overflow shorthand", () =>
 	assert.equal(follow.isVerticallyScrollableOverflow("hidden auto"), false);
 	assert.equal(["scroll", "auto"].includes("hidden auto"), false);
 });
+
+test("chain cut is decided by overscroll-behavior-y contain/none", () => {
+	assert.equal(follow.isScrollChainCut("contain"), true);
+	assert.equal(follow.isScrollChainCut("none"), true);
+	// auto 时手势会物理链到外层，不能当断链
+	assert.equal(follow.isScrollChainCut("auto"), false);
+	assert.equal(follow.isScrollChainCut("visible"), false);
+});
+
+test("scroll container vs scroller: hidden 也是滚动容器（overscroll-behavior 对它生效）", () => {
+	assert.equal(follow.isScrollContainerOverflow("auto"), true);
+	assert.equal(follow.isScrollContainerOverflow("scroll"), true);
+	// hidden 不参与「能不能滚」，但仍是滚动容器：overscroll-behavior 对它照样生效
+	assert.equal(follow.isScrollContainerOverflow("hidden"), true);
+	assert.equal(follow.isScrollContainerOverflow("visible"), false);
+	assert.equal(follow.isScrollContainerOverflow("hidden auto"), false);
+});
+
+test("hasRoomAlong separates the direction, with a 1px device-scaling tolerance", () => {
+	const box = (scrollTop, scrollHeight, clientHeight) => ({ scrollTop, scrollHeight, clientHeight });
+	// 组体已到顶：往上没余量，往下有
+	assert.equal(follow.hasRoomAlong(box(0, 900, 320), "up"), false);
+	assert.equal(follow.hasRoomAlong(box(0, 900, 320), "down"), true);
+	// 中部：两向都有
+	assert.equal(follow.hasRoomAlong(box(300, 900, 320), "up"), true);
+	assert.equal(follow.hasRoomAlong(box(300, 900, 320), "down"), true);
+	// 已到底：往上还有，往下没有
+	assert.equal(follow.hasRoomAlong(box(580, 900, 320), "up"), true);
+	assert.equal(follow.hasRoomAlong(box(580, 900, 320), "down"), false);
+	// Windows 125%/150% 缩放：浮点舍入余 0.5px 不能算「还能滚」，否则手势被吞
+	assert.equal(follow.hasRoomAlong(box(0.5, 900, 320), "up"), false);
+	assert.equal(follow.hasRoomAlong(box(579.5, 900, 320), "down"), false);
+	// 内容不足（不可滚）时两向都没余量，靠 scrollableOverflow 先过滤掉
+	assert.equal(follow.hasRoomAlong(box(0, 100, 320), "up"), false);
+	assert.equal(follow.hasRoomAlong(box(0, 100, 320), "down"), false);
+});
+
+test("gesture owner: 只给时间线手势改跟随态", () => {
+	const link = (over) => ({ isTimeline: false, isScrollContainer: true, canScrollAlong: false, chainCut: false, ...over });
+	// 代码块到顶 ⊂ 已上滚的组体（探针 B）：浏览器滚组体，不是时间线
+	assert.equal(follow.resolveGestureOwner([link({ canScrollAlong: true }), link({ isTimeline: true })]), "nested");
+	// 组体到顶且 overscroll-contain（探针 B 的 cbA 位置）：谁都不得滚
+	assert.equal(follow.resolveGestureOwner([link({ chainCut: true }), link({ isTimeline: true })]), "nobody");
+	// 滚动容器（含 overflow:hidden）内容不溢出但 contain：链依旧断，不能外溢
+	assert.equal(follow.resolveGestureOwner([link({ canScrollAlong: false, chainCut: true }), link({ isTimeline: true })]), "nobody");
+	// 代码块到顶、链畅通（无 contain）：浏览器真的会链到时间线——既有行为不能丢
+	assert.equal(follow.resolveGestureOwner([link(), link({ isTimeline: true })]), "timeline");
+	// 手目录内无嵌套容器：时间线手势
+	assert.equal(follow.resolveGestureOwner([link({ isTimeline: true })]), "timeline");
+	// 非滚动容器（visible）只是过客：overscroll-behavior 对它不生效
+	assert.equal(follow.resolveGestureOwner([link({ isScrollContainer: false, chainCut: true }), link({ isTimeline: true })]), "timeline");
+	// 已到边不可滚 + 外层还有余量：浏览器滚外层
+	assert.equal(follow.resolveGestureOwner([link({ canScrollAlong: false }), link({ canScrollAlong: true }), link({ isTimeline: true })]), "nested");
+	// 起点不在时间线内（外部路由）由调用方补一个 timeline 尾巴，这里验证补法语义
+	assert.equal(follow.resolveGestureOwner([]), "timeline");
+});

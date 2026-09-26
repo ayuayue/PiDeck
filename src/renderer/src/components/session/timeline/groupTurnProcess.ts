@@ -17,7 +17,7 @@
  */
 import type { ChatMessage } from "../../../../../shared/types";
 import { getToolName } from "../../../../../shared/fileChanges";
-import { activityCountsFromToolNames, type ActivityCount } from "./toolCategory";
+import { activityCountsFromToolNames, toolActivityCategory, type ActivityCount, type ToolActivityCategory } from "./toolCategory";
 import type { TurnDisplayItem, TurnProcessEntry } from "./types";
 
 /**
@@ -43,6 +43,18 @@ export function toolNamesOfEntry(entry: TurnProcessEntry): string[] {
 		if (name) names.push(name);
 	}
 	return names;
+}
+
+/**
+ * 组内**当前**活动类别只看最后一个成员；结束工具后若又进入思考，
+ * 不能沿用上一工具报「正在读取」——此时应显示「正在分析请求」。
+ * 工具类别也不能用整组摘要的最高频类别：搜索切到读取时应立即更新。
+ */
+export function lastToolCategory(members: readonly TurnProcessEntry[]): ToolActivityCategory | undefined {
+	const current = members[members.length - 1];
+	if (current?.kind !== "tool-entry") return undefined;
+	const message = current.group.messages[current.group.messages.length - 1];
+	return message ? toolActivityCategory(getToolName(message)) : undefined;
 }
 
 /** 重试 / 错误诊断：一级行 + 组边界。类型谓词，让调用处的 `entry` 收窄成 `TurnStandaloneEntry`。 */

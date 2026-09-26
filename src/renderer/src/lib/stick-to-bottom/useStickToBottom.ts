@@ -20,7 +20,22 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { type Animation, type SpringAnimation, mergeAnimations } from "./mergeAnimations";
-import { decideFollowFromUserInput, distanceAfterWheelDelta, followDirectionFromKey, isScrollbarGutterHit, isVerticallyScrollableOverflow, nextReaderUpPx, readerDisplacementFromKey, STICK_TO_BOTTOM_OFFSET_PX } from "./followState";
+import {
+	decideFollowFromUserInput,
+	distanceAfterWheelDelta,
+	followDirectionFromKey,
+	hasRoomAlong,
+	isScrollChainCut,
+	isScrollbarGutterHit,
+	isScrollContainerOverflow,
+	isVerticallyScrollableOverflow,
+	nextReaderUpPx,
+	readerDisplacementFromKey,
+	resolveGestureOwner,
+	STICK_TO_BOTTOM_OFFSET_PX,
+	type FollowDirection,
+	type ScrollChainLink,
+} from "./followState";
 import { clearResizeScrollGuard, markResizeScrollGuard } from "./resizeScrollGuard";
 
 export type { Animation, SpringAnimation } from "./mergeAnimations";
@@ -33,6 +48,40 @@ export {
 
 const SIXTY_FPS_INTERVAL_MS = 1000 / 60;
 const RETAIN_ANIMATION_DURATION_MS = 350;
+
+/**
+ * 从手势起点向**外**收集完整的滚动链（含引擎自己的 scroller），供 `resolveGestureOwner` 判定归属。
+ *
+ * 不能用「第一个 overflow-y 容器」代替：浏览器会继续往外找第一个在该方向上**真有余量**的一环
+ * （2026-08 探针：代码块到顶 ⊂ 已上滚的组体 → 滚的是组体）；中途遇到已到边且
+ * `overscroll-behavior-y: contain | none` 的环就直接断链（谁都不滚）。
+ */
+function collectScrollChain(scroll: HTMLElement, target: EventTarget | null, direction: FollowDirection): ScrollChainLink[] {
+	const chain: ScrollChainLink[] = [];
+	// wheel/键盘事件常落在文本节点上（或 event.target 为 null，如程序化 noteWheel）。
+	let element: HTMLElement | null = target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : scroll;
+	// 起点可能在 scroller 之外（如 composer 区域的滚轮路由进来）：那样直接算时间线手势。
+	let inside = false;
+	while (element) {
+		const style = getComputedStyle(element);
+		const isTimeline = element === scroll;
+		chain.push({
+			isTimeline,
+			isScrollContainer: isScrollContainerOverflow(style.overflowY),
+			// hidden 可程序化滚动却不接收用户滚轮；仍保留其 overscroll-behavior 断链语义。
+			canScrollAlong: isVerticallyScrollableOverflow(style.overflowY) && hasRoomAlong(element, direction),
+			chainCut: isScrollChainCut(style.overscrollBehaviorY),
+		});
+		if (isTimeline) {
+			inside = true;
+			break;
+		}
+		element = element.parentElement;
+	}
+	// 起点不在时间线内（外部路由的 wheel）：链上只有非时间线环，视为时间线手势。
+	if (!inside) chain.push({ isTimeline: true, isScrollContainer: false, canScrollAlong: false, chainCut: false });
+	return chain;
+}
 
 /** 用户真实滚动意图：向上浏览历史 / 向下回到尾部。
  *  与 layout 滚动（resize/动画/程序化定位）严格区分：意图只由用户
@@ -517,30 +566,9 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
 	const applyWheelEscape = useCallback(
 		(target: EventTarget | null, deltaY: number) => {
 			const scroll = scrollRef.current;
-			if (!scroll) return;
-			if (target === scroll || target == null) {
-				applyWheelOnScroll(scroll, deltaY);
-				return;
-			}
-			// wheel 常打在文本节点上；没有嵌套滚动容器时仍算时间线手势。
-			let element: HTMLElement | null = target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : scroll;
-			if (!element) {
-				applyWheelOnScroll(scroll, deltaY);
-				return;
-			}
-			while (!isVerticallyScrollableOverflow(getComputedStyle(element).overflowY)) {
-				if (!element.parentElement) {
-					return;
-				}
-				element = element.parentElement;
-			}
-			if (element !== scroll) {
-				// 子容器（代码块 / 长工具输出）在滚轮方向上还能滚时交给它；
-				// 已经到边缘则把意图传给外层时间线，否则引擎看不见逃逸/重锁。
-				// 1px 容差：Windows 125%/150% 缩放下的浮点舍入。
-				const canChildScroll = deltaY < 0 ? element.scrollTop > 1 : element.scrollTop + element.clientHeight < element.scrollHeight - 1;
-				if (canChildScroll) return;
-			}
+			if (!scroll || deltaY === 0) return;
+			// 归属判定：只有“真的会滚时间线”的手势才允许改跟随态。
+			if (resolveGestureOwner(collectScrollChain(scroll, target, deltaY < 0 ? "up" : "down")) !== "timeline") return;
 			applyWheelOnScroll(scroll, deltaY);
 		},
 		[applyWheelOnScroll],
@@ -582,6 +610,10 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
 			const direction = followDirectionFromKey(event.key);
 			const scroll = scrollRef.current;
 			if (!direction || !scroll) return;
+			// 键盘滚动同样要看向上链（探针 K7 / B：键盘手势在含 contain 的嵌套容器到边时谁都不滚，
+			// 而代码块到边时浏览器滚的是外层组体，不是时间线），否则会把死手势或内层手势
+			// 当成时间线手势：窗口一像素没动，跟随态却已经变了。
+			if (resolveGestureOwner(collectScrollChain(scroll, event.target, direction)) !== "timeline") return;
 			const thisInputPx = readerDisplacementFromKey(event.key, scroll.clientHeight);
 			const currentDistance = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
 			const predictedDistance = distanceAfterWheelDelta(currentDistance, direction === "down" ? thisInputPx : -thisInputPx);
