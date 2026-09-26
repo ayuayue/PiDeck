@@ -267,6 +267,9 @@ export function createBrowserApi(): PiDesktopApi {
 				return response.result;
 			},
 			onRuntimeEvent: (callback) => subscribe(runtimeListeners, callback),
+			// GUI 扩展桥：LAN Web 模式没有 Electron 主进程的桥端点，恒丢弃（形状完整即可）
+			sendBridgeEvent: async () => false,
+			requestBridgeResync: async () => false,
 			listRuntimes: async () => {
 				const result = await request<{ runtimes: SessionRuntimeInfo[] }>("/api/sessions/runtimes");
 				return result.runtimes;

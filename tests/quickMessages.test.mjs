@@ -324,8 +324,10 @@ test("弹框：清单来自配置文件（useQuickMessages），不再订阅 set
 
 test("弹框：每次打开都从磁盘重读（手工编辑配置文件后无需重启应用）", () => {
 	const menu = readSource("src/renderer/src/components/session/QuickMessageMenu.tsx");
-	// 重读落在 hook 的开合写入口上：点击入口与快捷键入口共用它，两边都会重读
-	assert.match(menu, /useQuickMessagePopover\(\{ sessionId: props\.sessionId, refresh \}\)/, "打开时应重读文件");
+	// 重读落在 hook 的开合写入口上：点击入口与快捷键入口共用它，两边都会重读。
+	// 断言只认「sessionId + refresh 都交给 hook」——refresh 可以带一层 () => void refresh() 包装
+	// （QuickMessageMenu 就是这么传的），不必与写法逐字符相同。
+	assert.match(menu, /useQuickMessagePopover\(\{ sessionId: props\.sessionId, refresh[^}]*\}\)/, "打开时应重读文件");
 	assert.match(readSource("src/renderer/src/hooks/useQuickMessagePopover.ts"), /if \(next\) void refresh\(\)/, "hook 的 setOpen 负责打开时重读");
 	const hook = readSource("src/renderer/src/hooks/useQuickMessages.ts");
 	assert.match(hook, /const refresh = useCallback\(async \(\) => \{/);
@@ -519,7 +521,7 @@ test("浮层开合：状态与「打开前重读文件」双入口共用同一�
 	// 切换式开合：呼出类快捷键再按一次应收起
 	assert.match(hook, /setOpen\(!openRef\.current\)/);
 	const menu = readSource("src/renderer/src/components/session/QuickMessageMenu.tsx");
-	assert.match(menu, /useQuickMessagePopover\(\{ sessionId: props\.sessionId, refresh \}\)/, "浮层状态由 hook 持有");
+	assert.match(menu, /useQuickMessagePopover\(\{ sessionId: props\.sessionId, refresh[^}]*\}\)/, "浮层状态由 hook 持有");
 	// 组件里不该再声明开合 state（注释里提 useState 不算，要查真实声明）
 	assert.ok(!/const \[[a-zA-Z]+, set[A-Z]\w*\] = useState/.test(menu), "开合不该再在组件里另起一份 state（会与快捷键状态分叉）");
 });

@@ -53,6 +53,7 @@ import { SessionSourceBadge, SessionBackendMark, DshSourceBadge, ImageGenSourceB
 import { Checkbox } from "../ui-shadcn/checkbox";
 import { Input } from "../ui-shadcn/input";
 import { Label } from "../../components/ui-shadcn/label";
+import { BridgeGuiSlot, useBridgeSessionId } from "../bridge/BridgeSlot";
 import { SESSION_FILTER_PILLS, filterSessionsByPills, pillsPresentIn, type SessionFilterPill } from "../../sessionFilterPills";
 import { archivedDshWorkspaceLabel, archivedPiWorkspaceLabel, filterArchivedDshByFamily, filterArchivedPiByFamily, managerArchivedDshLabel, managerArchivedRowKey, mergeManagerArchived, sessionManagerRowKey, sessionWorkspaceLabel, worktreeFamilyProjects, type ManagerArchivedRow } from "../../sessionManagerModel";
 
@@ -494,6 +495,8 @@ export function SessionManagerModal(props: {
  * 触发器不可见但提供定位矩形（Radix dropdown-menu 无独立 Anchor 部件）。
  */
 function MenuShell(props: { x: number; y: number; onClose: () => void; className?: string; children: ReactNode }) {
+	// GUI 扩展桥：右键菜单是应用级单实例 chrome，由当前聚焦会话的 pi 进程供给内容（不做回落）。
+	const bridgeSessionId = useBridgeSessionId();
 	return (
 		<DropdownMenu
 			open
@@ -504,6 +507,12 @@ function MenuShell(props: { x: number; y: number; onClose: () => void; className
 			<DropdownMenuTrigger aria-hidden tabIndex={-1} style={{ position: "fixed", left: props.x, top: props.y, width: 0, height: 0, padding: 0, border: 0, background: "transparent", pointerEvents: "none" }} />
 			<DropdownMenuContent align="start" side="bottom" className={props.className}>
 				{props.children}
+				{/* GUI 扩展桥：右键菜单扩展项落点（ctx.gui.setContextMenuItem）。
+				    追加在菜单原有条目**之后** —— 不插进原有分组、不改原有顺序（§7.4 只追加）。
+				    计划指出仓库**无统一菜单项注册表**；这里选 MenuShell 作宿主，
+				    因为它已是侧边栏各右键菜单的共享壳（会话/项目/草稿菜单都走它）。
+				    无贡献时返回 null，不占位、不留多余分隔线。 */}
+				<BridgeGuiSlot sessionId={bridgeSessionId} slot="context.menu" className="flex flex-col" />
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

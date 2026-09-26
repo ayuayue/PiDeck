@@ -75,7 +75,9 @@ test("toaster is excluded from the window drag region and drag height is exposed
 	// Electron 自定义标题栏的 -webkit-app-region: drag 命中测试优先于 z-index，
 	// toaster 必须显式 no-drag，否则首个 toast 的关闭按钮/hover 全部失效
 	assert.match(surfaces, /\[data-sonner-toaster\][\s\S]*?-webkit-app-region:\s*no-drag/);
-	// toaster 不是 .wechat-shell 的后代，--window-drag-height 必须在 :root 可读
+	// toaster 不是 .wechat-shell 的后代，--window-drag-height 必须在 :root 可读。
+	// 选择器只要求「根上按 custom-titlebar-enabled 分支」，具体限定哪个 shell 不限
+	// （现为更宽的 :root:has(.custom-titlebar-enabled)，同时覆盖 wechat-shell / quick-task-shell）。
 	const foundation = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
-	assert.match(foundation, /:root:has\(\.wechat-shell\.custom-titlebar-enabled\)/);
+	assert.match(foundation, /:root:has\(\.(?:wechat-shell\.)?custom-titlebar-enabled\)/);
 });
