@@ -633,6 +633,7 @@ export const zhCN = {
 	"app.modelListFailConfigInvalid": "模型配置文件（models.json / auth.json）格式有问题，pi 读不了模型。请到「模型」设置页修复配置（或删除损坏文件重建），再点刷新重试。",
 	"app.modelListFailCliFailed": "pi --list-models 执行失败，拿不到模型列表。请点刷新重试；若持续失败，可在设置页检查 pi 健康状态。",
 	"app.modelListFailWafBlocked": "网关返回了 WAF 拦截页而不是模型列表（挑战页 / 403 / 429）。这不是本地配置问题：可稍后重试、更换网络，或给该供应商设置自定义 User-Agent 后再刷新。",
+	"app.modelListFailDshStopped": "DSH host 已被手动停止，模型目录暂不可用（不会自动启动）。到「设置 → DSH」点「启动 host」后重试。",
 	"app.modelListFailEmpty": "没有可用模型：pi 目录与本地 models.json 均无模型。请到「模型」设置页添加 provider 与模型。",
 	"app.modelCollapseAllProviders": "折叠所有提供商",
 	"app.modelExpandAllProviders": "展开所有提供商",

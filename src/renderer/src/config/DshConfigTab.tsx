@@ -26,6 +26,17 @@ import { credentialRefFor } from "./dshCredentialRef";
 import { managerArchivedDshLabel } from "../sessionManagerModel";
 import type { ArchivedDshSession } from "../../../shared/types";
 import type { DshHomeSharingState } from "../../../shared/types/dshHome";
+import { isDshManuallyStoppedErrorMessage } from "../../../shared/dshManualStop";
+
+/**
+ * DSH IPC 错误 → 展示文案：host 被手动停止时主进程以内部 sentinel reject，Electron
+ * 包装后会把 "Error invoking remote method 'dsh:...': ..." 原样漏到 banner；命中 sentinel
+ * 就映射成 i18n 引导文案（该状态不会自愈，报原始错误对用户没有诊断价值）。
+ */
+function dshConfigErrorMessage(error: unknown): string {
+	const raw = error instanceof Error ? error.message : String(error);
+	return isDshManuallyStoppedErrorMessage(raw) ? t("config.dsh.manuallyStoppedDesc") : raw;
+}
 
 type DshStatus = {
 	started: boolean;
@@ -283,7 +294,7 @@ export const DshConfigTab = forwardRef<
 				return settingsResult.namespaces;
 			} catch (err) {
 				if (background) throw err;
-				setError(err instanceof Error ? err.message : String(err));
+				setError(dshConfigErrorMessage(err));
 				// describe 失败说明 host boot 刚失败：同步刷新一次状态，让 bootError 详情
 				// （getStatus().bootError）尽早到位，错误 banner 能展示真实原因而不是只有笼统 IPC 消息。
 				void loadStatus();
@@ -1155,7 +1166,7 @@ function SecurityTab(props: { namespace?: DshNamespaceView; writable: boolean; o
 			props.onChanged();
 			return true;
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : String(saveError));
+			setError(dshConfigErrorMessage(saveError));
 			return false;
 		} finally {
 			setSaving(false);

@@ -688,6 +688,7 @@ const MODEL_LIST_FAILURE_REASON_TEXT: Record<ModelListFailReason, TranslationKey
 	"config-invalid": "app.modelListFailConfigInvalid",
 	"cli-failed": "app.modelListFailCliFailed",
 	"waf-blocked": "app.modelListFailWafBlocked",
+	"dsh-host-stopped": "app.modelListFailDshStopped",
 	empty: "app.modelListFailEmpty",
 };
 

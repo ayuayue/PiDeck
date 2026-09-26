@@ -633,6 +633,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"app.modelListFailConfigInvalid": "Model config files (models.json / auth.json) are malformed, so pi cannot read models. Fix the config in the Models settings page (or rebuild a damaged file), then refresh.",
 	"app.modelListFailCliFailed": "pi --list-models failed, so no model list is available. Refresh to retry; if it keeps failing, check pi health in the settings page.",
 	"app.modelListFailWafBlocked": "The gateway returned a WAF challenge page instead of a model list (challenge page / 403 / 429). This is not a local config issue: retry later, switch networks, or set a custom User-Agent for this provider and refresh.",
+	"app.modelListFailDshStopped": "The DSH host was manually stopped, so the model catalog is unavailable (it will not auto-start). Open Settings → DSH and use 'Start host', then retry.",
 	"app.modelListFailEmpty": "No available models: neither the pi catalog nor the local models.json has models. Add a provider and models in the Models settings page.",
 	"app.modelCollapseAllProviders": "Collapse all providers",
 	"app.modelExpandAllProviders": "Expand all providers",

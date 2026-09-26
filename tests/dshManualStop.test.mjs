@@ -20,6 +20,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { DshHost } = loadTsCommonJs("src/main/dsh/DshHost.ts");
 const { DshHostProcess } = loadTsCommonJs("src/main/dsh/DshHostProcess.ts");
 const { DSH_MANUALLY_STOPPED_ERROR, dshManuallyStoppedError, dshUnavailablePageFor, isDshManuallyStoppedError } = loadTsCommonJs("src/main/dsh/dshManualStop.ts");
+const shared = loadTsCommonJs("src/shared/dshManualStop.ts");
 
 /** 跨 realm 安全断言：错误是「手动停止拒绝」（稳定文案精确匹配；不用 instanceof——错误在 vm realm 内构造，跨 realm instanceof 恒 false）。 */
 const rejectsManuallyStopped = (fn) => assert.rejects(fn, (error) => error?.message === DSH_MANUALLY_STOPPED_ERROR);
@@ -49,6 +50,18 @@ test("dshManualStop: 错误文案是稳定常量且判定只认精确匹配", ()
 	assert.equal(isDshManuallyStoppedError("DSH host is manually stopped"), false);
 	assert.equal(isDshManuallyStoppedError(new Error("boot failed: port in use")), false);
 	assert.equal(isDshManuallyStoppedError(new Error(DSH_MANUALLY_STOPPED_ERROR + " (extra)")), false);
+});
+
+test("dshManualStop: 渲染层错误消息判定（Electron 包装后仍能识别，sentinel 单一数据源在 shared）", () => {
+	// 主进程 re-export 的常量必须与 shared 契约同源（两处字面量漂移 = 渲染层映射失效）。
+	assert.equal(shared.DSH_MANUALLY_STOPPED_ERROR, DSH_MANUALLY_STOPPED_ERROR);
+	// ipcRenderer.invoke 拒绝后渲染层拿到的是包装消息：前缀 "Error invoking remote method" 也要命中。
+	const wrapped = `Error invoking remote method 'dsh:list-models': Error: ${DSH_MANUALLY_STOPPED_ERROR}`;
+	assert.equal(shared.isDshManuallyStoppedErrorMessage(wrapped), true);
+	assert.equal(shared.isDshManuallyStoppedErrorMessage(DSH_MANUALLY_STOPPED_ERROR), true);
+	// 其他错误（boot 失败/网络）不得误判，否则真实故障会被伪装成「点启动就好」。
+	assert.equal(shared.isDshManuallyStoppedErrorMessage("boot failed: port in use"), false);
+	assert.equal(shared.isDshManuallyStoppedErrorMessage(""), false);
 });
 
 test("dshManualStop: 手动停止降级为带原因的不可读页；其他错误不伪装", () => {

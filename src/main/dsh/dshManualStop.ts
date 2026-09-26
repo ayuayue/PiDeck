@@ -6,13 +6,16 @@
  * 用户手动停止后必须 **只有用户显式启动** 才能再运行，因此：
  * - 所有自动拉起路径都要拒绝，且拒绝原因必须可辨识（不能混同于 boot 失败报红）；
  * - 判定与文案收敛在本模块：DshHost（策略层）与 DshHostProcess（进程层）
- *   都要用，放在任一侧都会形成循环 import；
+ *   都要用，放在任一侧都会形成循环 import；sentinel 文案数据源在
+ *   `shared/dshManualStop.ts`（渲染层要按它把 IPC 错误映射成 i18n 文案）；
  * - 历史读取失败也在本模块收敛成渲染层契约（dshUnavailablePageFor）。
  */
 import type { SessionMessagePage } from "../../shared/types";
+import { DSH_MANUALLY_STOPPED_ERROR } from "../../shared/dshManualStop";
 
-/** 「DSH host 已被用户手动停止」的错误文案（单一数据源）。 */
-export const DSH_MANUALLY_STOPPED_ERROR = "DSH host is manually stopped";
+// sentinel 文案的唯一数据源在 shared 契约层（渲染层要按它映射 i18n 文案），
+// 这里 re-export 保持主进程调用方与既有测试的 import 路径不变。
+export { DSH_MANUALLY_STOPPED_ERROR };
 
 /** 构造手动停止拒绝错误（进程层 fork 被门控时用）。 */
 export function dshManuallyStoppedError(): Error {

@@ -202,6 +202,8 @@ export function DshPermissionMenu(props: { sessionId: string; disabled?: boolean
 					title={t("dshPermission.fullAccessConfirmTitle")}
 					message={t("dshPermission.fullAccessConfirmBody")}
 					confirmLabel={t("dshPermission.fullAccessConfirmLabel")}
+					// 完全访问是高风险预设，确认按钮用 destructive 配色（与删除/清空同级视觉信号）
+					danger
 					onConfirm={() => {
 						setConfirmingFull(false);
 						void switchPreset(FULL_ACCESS);
