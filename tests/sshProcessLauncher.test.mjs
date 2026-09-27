@@ -41,6 +41,14 @@ function fakeChild(options = {}) {
 	child.pid = "pid" in options ? options.pid : 4242;
 	child.stdout = new EventEmitter();
 	child.stderr = new EventEmitter();
+	// Real ChildProcess emits close only after its pipes drain. Most tests combine the two events;
+	// manualClose cases exercise output that arrives between exit and close.
+	const emit = child.emit.bind(child);
+	child.emit = (event, ...args) => {
+		const emitted = emit(event, ...args);
+		if (event === "exit" && !options.manualClose) emit("close", ...args);
+		return emitted;
+	};
 	// An explicit stdin only: a launcher that spawned with "ignore" must reject every write instead of
 	// falling back to a stream the injected child never had.
 	child.stdin = "stdin" in options ? options.stdin : undefined;
@@ -182,6 +190,38 @@ test("a zero exit is reported as exited with the child pid", async () => {
 	const exits = collectExits(handle);
 	context.child.emit("exit", 0, null);
 	assert.deepEqual(exits.map(exitShape), [{ kind: "exited", code: 0, signal: null }]);
+});
+
+test("keeps stdout after exit until close has drained the pipes", async () => {
+	const context = setup({ child: fakeChild({ manualClose: true }) });
+	const handle = await launch(context);
+	const lines = [];
+	const exits = collectExits(handle);
+	handle.onStdoutLine((line) => lines.push(line));
+	context.child.emit("exit", 1, null);
+	assert.deepEqual(exits, [], "exit alone cannot end the output subscription");
+	context.child.stdout.emit("data", Buffer.from('{"v":1,"op":"error","code":"BOOTSTRAP_INTERNAL"}\n'));
+	context.child.emit("close", 1, null);
+	assert.deepEqual(lines, ['{"v":1,"op":"error","code":"BOOTSTRAP_INTERNAL"}']);
+	assert.deepEqual(exits.map(exitShape), [{ kind: "failed", code: 1, signal: null }]);
+});
+
+test("a stop after exit waits for close and rejects new stdin writes", async () => {
+	const child = fakeChild({ manualClose: true, stdin: fakeStdin() });
+	const context = setup({ child });
+	const handle = await launch(context, { stdin: true });
+	const lines = [];
+	handle.onStdoutLine((line) => lines.push(line));
+	const exits = collectExits(handle);
+	child.emit("exit", 0, null);
+	assert.throws(() => handle.write('{"v":1}'), /SSH_LAUNCHER_STDIN_UNAVAILABLE/);
+	const stopped = handle.stop("abort");
+	assert.deepEqual(child.kills, []);
+	child.stdout.emit("data", Buffer.from("last frame\n"));
+	child.emit("close", 0, null);
+	await stopped;
+	assert.deepEqual(lines, ["last frame"]);
+	assert.deepEqual(exits.map(exitShape), [{ kind: "stopped", code: 0, signal: null }]);
 });
 
 test("a non-zero exit is reported as failed and keeps code and signal", async () => {

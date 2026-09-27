@@ -3,7 +3,7 @@ import { frozenHelperBundleManifest, deployFrozenHelperBundle, type PreparedBund
 import { decodeBootstrapResult, type BootstrapReadyFrame } from "./RemoteBootstrapTransfer";
 import { REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES } from "./RemoteBootstrapContract";
 import { REMOTE_BOOTSTRAP_PROTOCOL_VERSION } from "./RemoteHelperContract";
-import type { SshLauncherHandle, SshProcessLauncher } from "./RemoteHostConnectionTypes";
+import type { SshLauncherHandle, SshProcessExit, SshProcessLauncher } from "./RemoteHostConnectionTypes";
 import type { SshClientRuntime } from "./SshClientRuntime";
 
 const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -12,23 +12,37 @@ const NONCE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
 const READY_TIMEOUT_MS = 30_000;
 const SESSION_TIMEOUT_MS = 120_000;
 
+/** Bounded metadata for a bootstrap entry that exited without a protocol error frame. */
+export class BootstrapReadyUnconfirmedError extends Error {
+	constructor(
+		readonly exitKind: SshProcessExit["kind"] | "deadline",
+		readonly exitCode: number | null,
+		readonly stderrSeen: boolean,
+	) {
+		super("BOOTSTRAP_READY_UNCONFIRMED");
+	}
+}
+
 /** Wait for the frozen entry to acknowledge the exact bundle and nonce before allowing upload. */
 function awaitBootstrapReady(session: SshLauncherHandle, expected: { bundleSha256: string; nonce: string }): Promise<BootstrapReadyFrame> {
 	return new Promise((resolve, reject) => {
 		let settled = false;
+		let stderrSeen = false;
 		let offLine: (() => void) | undefined;
+		let offStderr: (() => void) | undefined;
 		let offExit: (() => void) | undefined;
-		const timer = setTimeout(() => fail("BOOTSTRAP_READY_UNCONFIRMED"), READY_TIMEOUT_MS);
+		const timer = setTimeout(() => fail(new BootstrapReadyUnconfirmedError("deadline", null, stderrSeen)), READY_TIMEOUT_MS);
 		const clear = (): void => {
 			clearTimeout(timer);
 			offLine?.();
+			offStderr?.();
 			offExit?.();
 		};
-		const fail = (code: string): void => {
+		const fail = (reason: string | Error): void => {
 			if (settled) return;
 			settled = true;
 			clear();
-			reject(new Error(code));
+			reject(typeof reason === "string" ? new Error(reason) : reason);
 		};
 		const ready = (frame: BootstrapReadyFrame): void => {
 			if (settled) return;
@@ -51,7 +65,13 @@ function awaitBootstrapReady(session: SshLauncherHandle, expected: { bundleSha25
 				}
 				ready(frame);
 			});
-			offExit = session.onExit(() => fail("BOOTSTRAP_READY_UNCONFIRMED"));
+			offStderr = session.onStderrLine(() => {
+				stderrSeen = true;
+				// Keep only a presence bit; further remote output stays subject to the launcher's backlog cap.
+				offStderr?.();
+				offStderr = undefined;
+			});
+			offExit = session.onExit((exit) => fail(new BootstrapReadyUnconfirmedError(exit.kind, exit.code, stderrSeen)));
 			if (settled) clear();
 		} catch {
 			fail("BOOTSTRAP_READY_UNCONFIRMED");

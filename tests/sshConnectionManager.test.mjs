@@ -735,7 +735,10 @@ test("composes with the real launcher: explicit session deadline and exit classi
 				child.stdin.write = () => true;
 				child.stdin.end = () => undefined;
 				child.kill = () => {
-					queueMicrotask(() => child.emit("exit", null, "SIGKILL"));
+					queueMicrotask(() => {
+						child.emit("exit", null, "SIGKILL");
+						child.emit("close", null, "SIGKILL");
+					});
 					return true;
 				};
 				children.push(child);
@@ -756,6 +759,7 @@ test("composes with the real launcher: explicit session deadline and exit classi
 		const connecting = manager.connect(profile.id);
 		await waitFor(() => children.length === 1, { label: `the real launcher to spawn (${shape.label})` });
 		children[0].emit("exit", 255, null);
+		children[0].emit("close", 255, null);
 		await connecting;
 		assert.equal(manager.getState(profile.id).state, "reconnecting", shape.label);
 		assert.equal(requests.length, 1, shape.label);

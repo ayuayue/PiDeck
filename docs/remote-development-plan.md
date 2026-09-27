@@ -674,7 +674,7 @@ ready → degraded → reconnecting → ready/offline
 >
 > `No models match pattern "jiyuan/deepseek-v4-flash-0731"` 已只读追溯至远端 `settings.json` 的旧 `enabledModels` 项；它不是本 spike 传入的模型，也未阻止显式选择 `jiyuan/deepseek-flash` 或本次回答。远端设置未修改。
 >
-> Debian 客户端验证进展：显式绑定 `/usr/bin/ssh` 与同目录 `scp`，OpenSSH_10.0p2 自检和环境白名单通过；`ssh -G` 的系统 `SendEnv` 经行级检查 fail-closed。收到用户从独立服务器控制台核对的 Ed25519 指纹后，受控 keyscan 与该指纹逐字节匹配；使用同一严格 pin 的主机认证和 Node 路径探针已通过。冻结 helper 的生产 bootstrap 协调器在本地真子进程集成测试中完成 `ready → pinned scp 快照上传 → finalize`，但本轮真实 SSH bootstrap 在 `ready` 前退出，尚未证明远端激活、helper 握手或 Pi RPC；失败后没有继续换探针重试。macOS/Linux 客户端的完整 fingerprint、环境传播矩阵仍待补齐。
+> Debian 客户端验证进展：显式绑定 `/usr/bin/ssh` 与同目录 `scp`，OpenSSH_10.0p2 自检和环境白名单通过；`ssh -G` 的系统 `SendEnv` 经行级检查 fail-closed。收到用户从独立服务器控制台核对的 Ed25519 指纹后，受控 keyscan 与该指纹逐字节匹配；使用同一严格 pin 的主机认证和 Node 路径探针已通过。冻结 helper 的生产 bootstrap 协调器在本地真子进程集成测试中完成 `ready → pinned scp 快照上传 → finalize`，但真实 SSH bootstrap 在 `ready` 前退出：最后一次严格 pin/Node 路径探针通过，launcher 报非零退出且存在 stderr，没有确认到协议帧。离线已修复 `exit` 先于管道 `close` 时可能吞掉末尾错误帧的问题，但按失败即停规则未再次连接实机，根因和远端激活、helper 握手、Pi RPC 仍未验证。macOS/Linux 客户端的完整 fingerprint、环境传播矩阵仍待补齐。
 >
 > 仍待验证：指纹和严格 pin 已在 Windows 客户端历史 spike 与本轮 Debian 客户端分别取得阶段性实证，但 macOS 客户端以及完整环境变量传播矩阵未覆盖。可先在 Phase 2 开发不联网的主机配置/SSH argv 契约、连接状态机和 helper fixture；未通过已认证 fingerprint 与环境变量门禁的平台不得激活 profile、启动 helper/Agent/terminal 或暴露远端入口。macOS/Linux 客户端分别在启用连接前补齐验证；Phase 2 不因其尚无完整平台矩阵而停止开发，但不得宣称全平台 Phase 0 已完成。§14.2 的 Windows/macOS 人工 smoke 仍是稳定版发布门禁；若要缩减支持平台，须另行明确变更发布范围，不能将未验证平台当成已支持。远端 Linux 主机与运行 PiDeck 的 Linux 客户端是两项不同的验证。
 

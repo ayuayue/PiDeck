@@ -10,7 +10,7 @@ const { SshHostPinStore } = loadTsCommonJs("src/main/remote/SshHostPinStore.ts")
 const { RemoteHostStore } = loadTsCommonJs("src/main/remote/RemoteHostStore.ts");
 const { buildPinnedSshInvocation } = loadTsCommonJs("src/main/remote/SshVerifiedConnection.ts");
 const { fingerprintSshHostKey } = loadTsCommonJs("src/main/remote/SshHostVerifier.ts");
-const { bootstrapPinnedHost } = loadTsCommonJs("src/main/remote/RemoteBootstrapSession.ts");
+const { bootstrapPinnedHost, BootstrapReadyUnconfirmedError } = loadTsCommonJs("src/main/remote/RemoteBootstrapSession.ts");
 const { createSshProcessLauncher } = loadTsCommonJs("src/main/remote/SshProcessLauncher.ts");
 
 /** Disposable real-host smoke: no profile or key is written to PiDeck's userData. */
@@ -42,8 +42,13 @@ async function verifyRemoteHost(host, user, fingerprint, bootstrap) {
 		if (result.exitCode !== 0 || !/^\/[\w/.-]+\n?$/.test(result.stdout)) throw new Error("REMOTE_NODE_PROBE_FAILED");
 		console.log("PINNED_PROFILE_OK", "NODE_PATH", result.stdout.trim(), "VER", invocation.openSshVersion);
 		if (bootstrap) {
-			const activated = await bootstrapPinnedHost({ userDataDir: directory, hostId: profile.id, generation: 1, nonce: randomBytes(16).toString("hex"), nodePath: result.stdout.trim(), client, launcher: createSshProcessLauncher() });
-			console.log("BOOTSTRAP_FINALIZED", activated.bundleSha256, activated.active);
+			try {
+				const activated = await bootstrapPinnedHost({ userDataDir: directory, hostId: profile.id, generation: 1, nonce: randomBytes(16).toString("hex"), nodePath: result.stdout.trim(), client, launcher: createSshProcessLauncher() });
+				console.log("BOOTSTRAP_FINALIZED", activated.bundleSha256, activated.active);
+			} catch (error) {
+				if (error instanceof BootstrapReadyUnconfirmedError) console.error("BOOTSTRAP_NO_READY", error.exitKind, error.exitCode ?? "none", error.stderrSeen ? "stderr-present" : "no-stderr");
+				throw error;
+			}
 		}
 	} finally {
 		pinStore?.dispose();

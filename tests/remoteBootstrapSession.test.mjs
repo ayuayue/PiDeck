@@ -40,7 +40,8 @@ function fakeBootstrapSession(manifest, overrides = {}) {
 				});
 			return () => exitListeners.delete(listener);
 		},
-		onStderrLine() {
+		onStderrLine(listener) {
+			if (overrides.stderrBeforeExit) queueMicrotask(() => listener("sensitive remote output"));
 			return () => {};
 		},
 		write(line) {
@@ -143,6 +144,20 @@ test("an unknown entry error before ready is not passed through", async (t) => {
 test("a queued entry error wins over a queued exit after the child has settled", async (t) => {
 	const { session, starts, input } = await fixture(t, { ready: { op: "error", code: "BOOTSTRAP_DEPLOY_ROOT_INVALID" }, exitBeforeReady: true });
 	await assert.rejects(runPreparedBootstrap(input), /BOOTSTRAP_DEPLOY_ROOT_INVALID/);
+	assert.equal(starts.length, 1);
+	assert.deepEqual(session.stopped, ["abort"]);
+});
+
+test("an entry exit without a frame reports only bounded exit metadata", async (t) => {
+	const { session, starts, input } = await fixture(t, { exitBeforeReady: true, stderrBeforeExit: true });
+	await assert.rejects(runPreparedBootstrap(input), (error) => {
+		assert.equal(error.message, "BOOTSTRAP_READY_UNCONFIRMED");
+		assert.equal(error.exitKind, "exited");
+		assert.equal(error.exitCode, 1);
+		assert.equal(error.stderrSeen, true);
+		assert.ok(!JSON.stringify(error).includes("sensitive remote output"));
+		return true;
+	});
 	assert.equal(starts.length, 1);
 	assert.deepEqual(session.stopped, ["abort"]);
 });

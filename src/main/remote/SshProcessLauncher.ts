@@ -178,6 +178,7 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 			// broke either byte contract gets no second grace window.
 			const output = createSshLauncherOutput({ maxOutputBytes, maxLineBytes, onOverflow: (cause) => terminate(cause, "force") });
 			let settled: SshLauncherExit | null = null;
+			let processExited = false;
 			let cause: TerminationCause | null = null;
 			let startupConfirmed = false;
 			let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
@@ -203,6 +204,7 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 				child.off("spawn", onChildSpawn);
 				child.off("error", onChildError);
 				child.off("exit", onChildExit);
+				child.off("close", onChildClose);
 				// Close stdin while the guarded error listener is still attached: a late pipe error must stay caught.
 				endStdinQuietly();
 				for (const detach of outputDetachers.splice(0)) detach();
@@ -250,6 +252,9 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 				if (settled !== null) return;
 				// First cause wins: whichever event ended the process is what the caller must see.
 				cause ??= nextCause;
+				// Node may report exit before its pipes have drained. A graceful stop must not discard
+				// the remaining protocol frames while the already-exited child is approaching close.
+				if (processExited && mode === "graceful") return;
 				if (mode === "force") {
 					// Deadline and output-budget violations get no second grace window: kill immediately
 					// (Windows has no signals, where kill() is already the forceful path) and report at once so
@@ -320,9 +325,14 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 				settle({ kind: "failed", code: null, signal: null, errorCode: code });
 			}
 
-			function onChildExit(code: unknown, signal: NodeJS.Signals | null): void {
-				// A child that reports exit without "spawn" (injected spawners) still counts as started,
-				// otherwise start() could never resolve for it.
+			function onChildExit(): void {
+				processExited = true;
+				confirmStartupOnce();
+			}
+
+			function onChildClose(code: unknown, signal: NodeJS.Signals | null): void {
+				// Unlike exit, close fires after stdout/stderr streams close. Only now is the final
+				// output guaranteed to have reached the line accumulator and safe to flush.
 				confirmStartupOnce();
 				if (settled !== null) return;
 				const exitCode = typeof code === "number" && Number.isFinite(code) ? Math.trunc(code) : null;
@@ -358,7 +368,7 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 			/** A writable stdin exists only while the request asked for one and the child has not settled. */
 			function writableStdin(): NonNullable<ChildProcess["stdin"]> {
 				const stream = wantsStdin ? child.stdin : null;
-				if (settled !== null || stream === null || stream === undefined || stream.destroyed || stream.writableEnded || typeof stream.write !== "function") throw new Error(SSH_LAUNCHER_STDIN_UNAVAILABLE);
+				if (settled !== null || processExited || stream === null || stream === undefined || stream.destroyed || stream.writableEnded || typeof stream.write !== "function") throw new Error(SSH_LAUNCHER_STDIN_UNAVAILABLE);
 				return stream;
 			}
 
@@ -460,6 +470,7 @@ export function createSshProcessLauncher(options?: { spawn?: typeof import("node
 			child.on("spawn", onChildSpawn);
 			child.on("error", onChildError);
 			child.on("exit", onChildExit);
+			child.on("close", onChildClose);
 			watchOutput(child.stdout, outputReporter("stdout"));
 			watchOutput(child.stderr, outputReporter("stderr"));
 			watchStdinErrors();
