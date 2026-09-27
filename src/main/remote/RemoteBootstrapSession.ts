@@ -2,6 +2,7 @@ import { buildPinnedSshInvocation, type PinnedSshInvocation } from "./SshVerifie
 import { frozenHelperBundleManifest, deployFrozenHelperBundle, type PreparedBundleResult } from "./RemoteBootstrapDeployment";
 import { decodeBootstrapResult, type BootstrapReadyFrame } from "./RemoteBootstrapTransfer";
 import { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand, REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES } from "./RemoteBootstrapContract";
+import { buildLoginShellPathCommand, listNodeCandidatesFromPath, parseLoginShellPath } from "./RemoteNodeDiscovery";
 import { REMOTE_BOOTSTRAP_PROTOCOL_VERSION } from "./RemoteHelperContract";
 import type { SshLauncherHandle, SshProcessExit, SshProcessLauncher } from "./RemoteHostConnectionTypes";
 import type { SshClientRuntime, SshCommandResult } from "./SshClientRuntime";
@@ -11,6 +12,13 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const NONCE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
 const READY_TIMEOUT_MS = 30_000;
 const SESSION_TIMEOUT_MS = 300_000; // ready (30s) + upload (120s) + finalize (120s) + cleanup margin
+/**
+ * How many PATH candidates may be probed before giving up. PATH can list many node installs and each
+ * probe is a real round trip; an unbounded walk would let a hostile or careless PATH turn one connect
+ * into an arbitrary number of remote commands. The login shell puts the user's own node first (nvm
+ * prepends its bin directory), so the answer is essentially always the first candidate.
+ */
+const MAX_NODE_CANDIDATES = 3;
 
 /** Bounded metadata for a bootstrap entry that exited without a protocol error frame. */
 export class BootstrapReadyUnconfirmedError extends Error {
@@ -123,6 +131,58 @@ export async function runPreparedBootstrap(input: PreparedBootstrapInput): Promi
 	} finally {
 		await session.stop(confirmed ? "shutdown" : "abort");
 	}
+}
+
+/**
+ * Resolve the remote node the host's own user can run, the way that user's login shell would find it.
+ *
+ * Why not `command -v node`: non-interactive SSH does not load shell init, and nvm — the usual reason a
+ * host has a usable node at all — is initialized there. On the real `serve` host that made the probe
+ * report `/usr/bin/node` v12.22.9 while the same user's login shell had v24.11.0, and anything below
+ * 14.18 dies at the frozen entry's first statement (`require("node:fs")`, outside its try) with stderr,
+ * exit 1 and no protocol frame.
+ *
+ * Reads PATH rather than delegating the choice to the shell, so the decision stays here: candidates are
+ * probed in PATH order and the first one that satisfies the contract's version gate wins. `sentinel` is
+ * supplied by the caller (a local random value) so the answer can be told apart from shell init output.
+ */
+export async function resolveRemoteNodeExecutable(input: { userDataDir: string; hostId: string; client: SshClientRuntime; sentinel: string }): Promise<{ nodePath: string; version: string; probed: number }> {
+	const pathInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: buildLoginShellPathCommand(input.sentinel) });
+	let pathResult: SshCommandResult;
+	try {
+		pathResult = await input.client.run(pathInvocation.executable, pathInvocation.args);
+	} catch {
+		throw new Error("REMOTE_NODE_SHELL_PROBE_FAILED");
+	}
+	if (pathResult.exitCode !== 0) throw new Error("REMOTE_NODE_SHELL_PROBE_FAILED");
+	// Throws REMOTE_NODE_SHELL_PATH_UNREADABLE when the sentinel is missing or duplicated. It must not
+	// fall back to the non-interactive PATH: that fallback is exactly how an unusable node got admitted.
+	const candidates = listNodeCandidatesFromPath(parseLoginShellPath(pathResult.stdout, input.sentinel));
+	if (candidates.length === 0) throw new Error("REMOTE_NODE_NOT_FOUND");
+	let probed = 0;
+	let lastVersion = "";
+	for (const candidate of candidates.slice(0, MAX_NODE_CANDIDATES)) {
+		const versionCommand = buildRemoteNodeVersionCommand(candidate);
+		const invocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: versionCommand });
+		let result: SshCommandResult;
+		probed += 1;
+		try {
+			result = await input.client.run(invocation.executable, invocation.args);
+		} catch {
+			continue; // A candidate that cannot even be executed is not the answer; try the next one.
+		}
+		if (result.exitCode !== 0) continue;
+		try {
+			assertSupportedRemoteNodeVersion(result.stdout);
+		} catch {
+			lastVersion = typeof result.stdout === "string" ? result.stdout.trim().slice(0, 32) : "";
+			continue;
+		}
+		return { nodePath: candidate, version: String(result.stdout).trim(), probed };
+	}
+	// Every candidate (or the cap) was exhausted without a supported version. Report the last observed
+	// version so the failure stays actionable, rather than surfacing a bare "not found".
+	throw new Error(`REMOTE_NODE_VERSION_UNSUPPORTED ${candidates[0]} ${lastVersion || "unprobed"}`);
 }
 
 /** Re-preflight both commands against the persisted pin, then run the frozen one-file bootstrap. */
