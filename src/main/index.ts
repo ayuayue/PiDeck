@@ -2379,7 +2379,17 @@ function registerIpc() {
 			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
 			const client = process.platform === "win32" ? createSshClientRuntime() : await resolvePosixSshClient();
 			// The service resolves the host's own node itself (login shell), so no nodePath is pinned here.
-			const service = createRemoteHostConnectionService({ userDataDir: app.getPath("userData"), client });
+			const service = createRemoteHostConnectionService({
+				userDataDir: app.getPath("userData"),
+				client,
+				// Push every transition to the window: `connect()` only returns the state it reached, so
+				// anything afterwards (degradation, reconnect, the shutdown after ready) is invisible without
+				// this, and the UI ends up showing a stale state.
+				onStateChange: ({ hostId, state }) => {
+					if (!mainWindow || mainWindow.isDestroyed()) return;
+					mainWindow.webContents.send(ipcChannels.remoteHostStateChanged, { hostId, state: state.state });
+				},
+			});
 			remoteHostService = service;
 			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
 			return service;

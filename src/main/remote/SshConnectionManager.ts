@@ -52,6 +52,15 @@ export type SshConnectionManagerOptions = {
 	now?: () => number;
 	random?: () => number;
 	onDiagnostic?: (entry: SshConnectionDiagnostic) => void;
+	/**
+	 * Called on every state transition, after the machine has advanced.
+	 *
+	 * `connect()` only returns the state it reached, so without this a caller has no way to learn about
+	 * anything that happens afterwards — a later degradation, a reconnect, or the shutdown that follows a
+	 * successful `ready`. The UI showed "offline" right after a connection that had actually reached
+	 * ready, purely because it only ever saw the return value.
+	 */
+	onStateChange?: (entry: { hostId: string; state: ConnectionMachineState }) => void;
 };
 
 /**
@@ -315,6 +324,15 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 		let startGeneration: number | undefined;
 		for (const effect of reduced.effects) applyEffect(entry, effect, (generation) => (startGeneration = generation));
 		if (reduced.state !== before && reduced.state.lastCode !== undefined) record(entry, reduced.state.lastCode);
+		// Emitted for every transition, including the ones no diagnostic is recorded for (they are not all
+		// failures). The sink is called last so a listener that throws cannot corrupt the machine.
+		if (reduced.state !== before) {
+			try {
+				options.onStateChange?.({ hostId: entry.hostId, state: entry.machine });
+			} catch {
+				// A listener failure must not take down a connection.
+			}
+		}
 		return { state: entry.machine, ...(startGeneration !== undefined ? { startGeneration } : {}) };
 	}
 

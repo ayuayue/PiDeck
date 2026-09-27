@@ -14,6 +14,8 @@ export const ipcChannels = {
 	remoteHostAnswerPin: "remote:answer-pin",
 	/** 主进程 → 渲染层：指纹确认请求推送。 */
 	remoteHostPinRequest: "remote:pin-request",
+	/** 主进程 → 渲染层：主机连接状态变化推送（connect 返回之后的迁移也在此到达）。 */
+	remoteHostStateChanged: "remote:state-changed",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）

@@ -40,6 +40,20 @@ export function ConnectionsTab() {
 		return unsubscribe;
 	}, []);
 
+	/**
+	 * 订阅连接状态推送。
+	 *
+	 * `connect()` 只返回它当时到达的状态，之后的迁移（degraded、重连、ready 之后的 shutdown）只有
+	 * 推送能带来。实跑时连接确实到达了 ready，界面却显示「已离线」——因为界面只看返回值。
+	 * 同样必须退订：窗口销毁后继续收推送会让「连接状态」脱离用户看得见的上下文。
+	 */
+	useEffect(() => {
+		const unsubscribe = desktopApi.remoteHosts.onStateChange(({ hostId, state }) => {
+			setStates((current) => ({ ...current, [hostId]: state }));
+		});
+		return unsubscribe;
+	}, []);
+
 	/** 拉取主机目录。功能未启用、目录不可读等都以稳定码返回，转成人话提示而不是抛错。 */
 	const refresh = useCallback(async () => {
 		const result = await desktopApi.remoteHosts.list();

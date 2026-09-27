@@ -354,6 +354,7 @@ export function createPreviewApi(): PiDesktopApi {
 			add: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 			answerPin: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 			onPinRequest: () => () => undefined,
+			onStateChange: () => () => undefined,
 		},
 		projects: {
 			list: async () => projects,

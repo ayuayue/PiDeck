@@ -28,6 +28,8 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	["src/shared/types/remoteHost.ts:RemoteHostAddResult", "runtime"],
 	["src/shared/types/remoteHost.ts:RemoteHostPinAnswerResult", "runtime"],
 	["src/shared/types/remoteHost.ts:RemoteHostPinRequest", "runtime"],
+	// 状态推送只是告诉界面「哪台主机变成什么状态」，不持久化任何东西。
+	["src/shared/types/remoteHost.ts:RemoteHostStateChange", "runtime"],
 ]);
 
 const TYPE_FILES = readdirSync("src/shared/types")

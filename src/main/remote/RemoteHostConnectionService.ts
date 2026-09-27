@@ -27,7 +27,7 @@ export type RemoteHostConnectionPorts = {
 	/** Resolve the host user's own node through their login shell. */
 	resolveNode: typeof resolveRemoteNodeExecutable;
 	/** Build the per-host connection manager. The manager itself owns attempt lifecycles. */
-	createManager: (options: { userDataDir: string; client: SshClientRuntime; launcher: SshProcessLauncher; helperSession: SshHelperSession }) => SshConnectionManager;
+	createManager: (options: { userDataDir: string; client: SshClientRuntime; launcher: SshProcessLauncher; helperSession: SshHelperSession; onStateChange?: (entry: { hostId: string; state: ConnectionMachineState }) => void }) => SshConnectionManager;
 	/** Mint the bootstrap nonce; injected so tests are deterministic. */
 	createNonce: () => string;
 	/** Mint the login-shell probe sentinel; injected so tests are deterministic. */
@@ -47,6 +47,11 @@ export type RemoteHostConnectionServiceOptions = {
 	nodePath?: string;
 	/** Verified workspace root the helper confines `fs.*` to. Omitted is the legal host-only session. */
 	root?: string;
+	/**
+	 * Forwarded to each manager so the owner learns about transitions that happen after `connect()`
+	 * returns — a later degradation, a reconnect, or the shutdown that follows a successful ready.
+	 */
+	onStateChange?: (entry: { hostId: string; state: ConnectionMachineState }) => void;
 	ports?: Partial<RemoteHostConnectionPorts>;
 };
 
@@ -178,7 +183,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		try {
 			const held = await ensureHeld(entry, hostId);
 			if (disposed) return { ok: false, hostId, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
-			const manager = entry.manager ?? ports.createManager({ userDataDir: options.userDataDir, client: options.client, launcher, helperSession: held.session });
+			const manager = entry.manager ?? ports.createManager({ userDataDir: options.userDataDir, client: options.client, launcher, helperSession: held.session, ...(options.onStateChange === undefined ? {} : { onStateChange: options.onStateChange }) });
 			entry.manager = manager;
 			const state = await manager.connect(hostId);
 			return { ok: true, hostId, state };

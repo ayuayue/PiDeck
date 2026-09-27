@@ -581,3 +581,23 @@ test("the add and answer channels share one pin store, so the pending request su
 	// 整个流程只应建一个 pin store；两个就说明待确认状态被分到了两个 broker 上。
 	assert.equal(instances, 1, "the add and answer channels must share one pin store");
 });
+
+test("the state-change channel is declared and bridged with an unsubscribe", () => {
+	const shared = readFileSync("src/shared/ipc.ts", "utf8");
+	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const main = readFileSync("src/main/index.ts", "utf8");
+	assert.match(shared, /remoteHostStateChanged:\s*"remote:state-changed"/);
+	assert.match(preload, /onStateChange:\s*\(callback[\s\S]{0,200}?subscribe\(ipcChannels\.remoteHostStateChanged/);
+	// 主进程必须把 manager 的每次迁移推给窗口，否则 connect 返回之后的迁移全部丢失。
+	assert.match(main, /onStateChange:\s*\(\{\s*hostId,\s*state\s*\}\)/);
+	assert.match(main, /webContents\.send\(ipcChannels\.remoteHostStateChanged/);
+});
+
+test("the ui subscribes to state pushes instead of trusting only the connect result", () => {
+	// 实跑回归：连接确实到达 ready，界面却显示「已离线」——因为它只 setStates(connect 的返回值)。
+	const tab = readFileSync("src/renderer/src/components/app/settings/ConnectionsTab.tsx", "utf8");
+	assert.match(tab, /desktopApi\.remoteHosts\.onStateChange/, "the tab must subscribe to pushes");
+	// 订阅必须返回并调用 unsubscribe，否则窗口销毁后仍在推送。
+	assert.match(tab, /const unsubscribe = desktopApi\.remoteHosts\.onStateChange/);
+	assert.match(tab, /return unsubscribe;/);
+});

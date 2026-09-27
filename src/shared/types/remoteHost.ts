@@ -97,3 +97,11 @@ export type RemoteHostAddResult = { ok: true; hostId: string; status: "pending" 
 
 /** 回答指纹确认的结果。`hostId` 在成功时回显，便于 UI 定位到刚添加的那一行。 */
 export type RemoteHostPinAnswerResult = { ok: true; hostId: string; approved: boolean } | { ok: false; code: string };
+
+/**
+ * 连接状态变化推送。
+ *
+ * `connect()` 只能返回它当时到达的状态，之后发生的迁移（degraded、重连、ready 之后的 shutdown）
+ * 只能靠推送到达——否则界面会停在过期的状态上（实跑：连接已 ready，界面却显示「已离线」）。
+ */
+export type RemoteHostStateChange = { hostId: string; state: RemoteHostConnectionState };

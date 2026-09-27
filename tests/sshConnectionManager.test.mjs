@@ -930,3 +930,63 @@ test("aborting during the handshake is teardown, not a handshake failure", async
 	assert.deepEqual(Array.from(fake.handles[0].stopCalls), ["abort"]);
 	assert.equal(manual.live().length, 0, "an abort leaves no retry armed");
 });
+
+test("every state transition is pushed, including the ones after connect returns", async (t) => {
+	// 实跑回归（2026-09）：连接确实到达 ready，界面却显示「已离线」——因为 connect() 只返回它当时
+	// 到达的状态，而之后的 shutdown 没有任何通道告诉界面。sink 必须覆盖**每一次**迁移。
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const fake = createFakeLauncher();
+	const seen = [];
+	const manager = createManager({
+		userDataDir: directory,
+		client,
+		launcher: fake.launcher,
+		stabilityWindowMs: 0,
+		timers: createManualTimers().timers,
+		random: () => 0,
+		onStateChange: (entry) => seen.push({ hostId: entry.hostId, state: entry.state.state, code: entry.state.lastCode }),
+	});
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.equal(state.state, "ready");
+	const states = seen.map((entry) => entry.state);
+	assert.ok(states.includes("connecting"), `expected a connecting transition, got: ${states.join(",")}`);
+	assert.ok(states.includes("ready"), `expected a ready transition, got: ${states.join(",")}`);
+	// 推送必须带 hostId：多主机时界面靠它分派。
+	assert.ok(seen.every((entry) => entry.hostId === profile.id));
+	// 终点状态要与 connect 的返回一致（推送不能比返回更早停）。
+	assert.equal(seen.at(-1).state, state.state);
+
+	// 关键：connect 返回**之后**的迁移也要推送。
+	const before = seen.length;
+	await manager.disconnect(profile.id, "shutdown");
+	assert.ok(seen.length > before, "a shutdown after connect must also be pushed");
+	assert.equal(seen.at(-1).state, "offline");
+	// 说明：曾试图用「存在一条不带 lastCode 的迁移」来锁住「只推有诊断的迁移」这个突变体，
+	// 但实测每个可达迁移都带 lastCode（含 SSH_CONNECTION_SHUTDOWN），该突变体**行为等价**，
+	// 无法也不该被这条用例区分。真正有意义的是**推送的时机**（返回值之后仍要推送），
+	// 由上面的 seen.length 断言锁住。
+});
+
+test("a throwing state listener cannot break the connection", async (t) => {
+	// 监听者是外部代码；它抛异常不能把连接带下去。
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const fake = createFakeLauncher();
+	const manager = createManager({
+		userDataDir: directory,
+		client,
+		launcher: fake.launcher,
+		stabilityWindowMs: 0,
+		timers: createManualTimers().timers,
+		random: () => 0,
+		onStateChange: () => {
+			throw new Error("listener blew up");
+		},
+	});
+	t.after(() => manager.dispose());
+	const state = await connectAndSettle(manager, profile.id);
+	assert.equal(state.state, "ready", "the connection must still reach ready");
+});

@@ -248,6 +248,8 @@ const api = {
 		answerPin: (requestId: string, hostId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteHostAnswerPin, requestId, hostId, choice) as Promise<import("../shared/types/remoteHost").RemoteHostPinAnswerResult>,
 		/** 订阅指纹确认请求；返回 unsubscribe，组件卸载必须退订。 */
 		onPinRequest: (callback: (request: import("../shared/types/remoteHost").RemoteHostPinRequest) => void) => subscribe(ipcChannels.remoteHostPinRequest, callback),
+		/** 订阅连接状态推送；返回 unsubscribe，组件卸载必须退订。 */
+		onStateChange: (callback: (change: import("../shared/types/remoteHost").RemoteHostStateChange) => void) => subscribe(ipcChannels.remoteHostStateChanged, callback),
 	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,
