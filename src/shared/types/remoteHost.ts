@@ -35,11 +35,19 @@ export type RemoteHostDiagnosticEntry = {
 	exitCode?: number;
 };
 
-/** connect 的结果。失败一律是稳定码，不把主进程异常消息直接透给渲染层。 */
-export type RemoteHostConnectResult = { ok: true; hostId: string; state: RemoteHostConnectionState } | { ok: false; hostId: string; code: string };
+/**
+ * connect 的结果。失败一律是稳定码，不把主进程异常消息直接透给渲染层。
+ *
+ * `hostId` 是**回显**：调用方已经知道自己请求的是哪台主机，回显让响应保持可归因（并发请求
+ * 交错时不会认错）。它不持久化任何东西，因此不构成阻碍 profile 退役的引用——这正是
+ * cross-store 契约把这三个结果类型归给 `runtime`（`canHoldHostReferences: false`）的理由。
+ */
+export type RemoteHostOperationFailure = { ok: false; hostId: string; code: string };
+
+export type RemoteHostConnectResult = { ok: true; hostId: string; state: RemoteHostConnectionState } | RemoteHostOperationFailure;
 
 /** disconnect 的结果：成功或稳定码（主机 id 非法、功能未启用等）。 */
-export type RemoteHostDisconnectResult = { ok: true; hostId: string } | { ok: false; hostId: string; code: string };
+export type RemoteHostDisconnectResult = { ok: true; hostId: string } | RemoteHostOperationFailure;
 
 /** diagnostics 的结果：按主机取有界历史。 */
-export type RemoteHostDiagnosticsResult = { ok: true; hostId: string; entries: RemoteHostDiagnosticEntry[] } | { ok: false; hostId: string; code: string };
+export type RemoteHostDiagnosticsResult = { ok: true; hostId: string; entries: RemoteHostDiagnosticEntry[] } | RemoteHostOperationFailure;

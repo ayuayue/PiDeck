@@ -8,12 +8,22 @@ const { HOST_REFERENCE_SOURCES } = loadTsCommonJs("src/main/remote/RemoteHostRef
 
 // Each typed or decoded host reference must have an owner in the registry's source vocabulary.
 // Production provider registration is a separate gate and is not yet wired.
+//
+// `runtime` owns the IPC result types below: they echo back the hostId they were called with so a
+// response stays attributable to its request, but they are transient and persist nothing, so they
+// cannot keep a profile from being retired. That is exactly what the `runtime` source declares
+// (`canHoldHostReferences: false`). Recording them here is the point of this test: if a future change
+// makes any of them durable, the owner has to be revisited rather than silently inherited.
 const COVERED_HOST_ID_FIELDS = new Map([
 	["src/shared/types/project.ts:ProjectLocation", "projects"],
 	["src/shared/types/project.ts:ProjectLocator", "projects"],
 	["src/shared/types/session.ts:SessionLocator", "sessions"],
 	["src/main/projects/projectStoreCodec.ts:readProjectLocator", "projects"],
 	["src/main/sessions/SessionCatalog.ts:hostRebindTargetLocator", "sessions"],
+	["src/shared/types/remoteHost.ts:RemoteHostConnectResult", "runtime"],
+	["src/shared/types/remoteHost.ts:RemoteHostDisconnectResult", "runtime"],
+	["src/shared/types/remoteHost.ts:RemoteHostDiagnosticsResult", "runtime"],
+	["src/shared/types/remoteHost.ts:RemoteHostOperationFailure", "runtime"],
 ]);
 
 const TYPE_FILES = readdirSync("src/shared/types")
