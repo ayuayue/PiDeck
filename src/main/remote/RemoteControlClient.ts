@@ -41,6 +41,18 @@ const MIN_FRAME_BYTES = 128;
 const SETTLED_ID_LIMIT = 256;
 /** Early-wake re-arms are bounded so a scheduler that always fires early cannot spin the event loop. */
 const MAX_DEADLINE_REARMS = 2;
+/**
+ * Local cap on outstanding requests.
+ *
+ * The helper already refuses rather than buffers past its own bounds (4 in flight + 64 queued = 68), so
+ * this exists to bound *our* memory, not to re-implement its scheduler. It therefore sits above the
+ * helper's bound: a request it would have accepted must never be refused here. Reaching it means
+ * something is wrong — a runaway caller, or a helper that stopped answering — not that the helper is busy.
+ *
+ * `cancel()` deliberately does not consult this: withdrawing a request has to stay possible when the
+ * table is full, otherwise the only way out of saturation would be waiting for timeouts.
+ */
+const MAX_PENDING_REQUESTS = 128;
 
 /** Why a frame went nowhere: callers always get a contract code, these name the discard reason. */
 export const REMOTE_FRAME_DIAGNOSTIC_CODES = {
@@ -119,7 +131,9 @@ export class RemoteControlError extends Error {
 }
 
 /** The only locally generated outcomes worth an automatic retry; a helper body may still override `retryable`. */
-const RETRYABLE_CODES = new Set<string>(["REQUEST_TIMEOUT", "REMOTE_CONNECTION_LOST"]);
+// REMOTE_REQUEST_LIMIT is the same condition the helper rejects as TOO_MANY_REQUESTS, and equally
+// transient: pending entries settle on their own. Grouping them keeps the advice consistent.
+const RETRYABLE_CODES = new Set<string>(["REQUEST_TIMEOUT", "REMOTE_CONNECTION_LOST", "REMOTE_REQUEST_LIMIT"]);
 
 const DEFAULT_SCHEDULER: RemoteControlScheduler = {
 	setTimeout: (handler, delayMs) => setTimeout(handler, delayMs),
@@ -485,6 +499,12 @@ export function createRemoteControlClient(options: RemoteControlClientOptions): 
 			// stale generation. Fail closed instead of queueing silently.
 			diagnose("REMOTE_CONNECTION_LOST");
 			throw connectionLost();
+		}
+		if (pending.size >= MAX_PENDING_REQUESTS) {
+			// Fail before minting an id, encoding a frame or arming a deadline: a rejected request must leave
+			// nothing behind, and a timer here would be pure overhead on a request that never left.
+			diagnose("REMOTE_REQUEST_LIMIT");
+			throw new RemoteControlError("REMOTE_REQUEST_LIMIT", true);
 		}
 		const id = mintId();
 		const timeoutMs = readTimeoutMs(options?.timeoutMs, defaultTimeoutMs);

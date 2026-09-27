@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
@@ -731,4 +732,104 @@ test("keeps the outgoing frame size bounded by the transport's own limit", async
 	harness.client.handleLine(okFrame(lastFrame(harness).id, 1));
 	await promise;
 	assert.equal(harness.client.pendingCount(), 0);
+});
+
+/**
+ * 本地容量上限。
+ *
+ * helper 侧早就「拒绝而不缓冲」（4 in flight + 64 queued = 68），本地 pending 表却无上限——同一条件
+ * 下两边不对称。这个上限是给**我们自己的内存**兜底，不是复刻 helper 的调度策略，因此必须取在
+ * helper 上限之上：helper 会接受、我们就不能拒绝。触发它意味着出了别的问题（调用方失控、
+ * 或 helper 不再应答），而不是「helper 忙」。
+ */
+const MAX_PENDING = 128;
+
+/**
+ * 灌满到上限。立即挂结算处理：这些请求会在 closeConnection 时统一 reject，
+ * 留出 unhandled-rejection 窗口会让用例变得不可靠。
+ */
+function fillToCap(harness) {
+	const settled = [];
+	for (let index = 0; index < MAX_PENDING; index += 1)
+		settled.push(
+			harness.client.request("echo", { text: `m${index}` }).then(
+				() => "ok",
+				() => "settled",
+			),
+		);
+	return settled;
+}
+
+test("the local cap sits above the helper's own bound, so nothing it would accept is refused here", () => {
+	// 结构断言：上限值与 helper 的额度关系是这条设计的全部要点，改错方向就会误拒正常请求。
+	const source = readFileSync("src/main/remote/RemoteControlClient.ts", "utf8");
+	const declared = Number(/const MAX_PENDING_REQUESTS = (\d+);/.exec(source)?.[1]);
+	assert.ok(Number.isSafeInteger(declared), "the cap must be a literal so it can be reviewed");
+	// helper: 4 in flight + 64 queued。
+	assert.ok(declared > 68, `the cap (${declared}) must sit above the helper's 68 outstanding`);
+	// 上限必须在发帧之前检查，否则被拒的请求仍会污染协议流。
+	const guardIndex = source.indexOf("pending.size >= MAX_PENDING_REQUESTS");
+	const encodeIndex = source.indexOf("const line = encodeFrame(frame);");
+	assert.ok(guardIndex > 0 && encodeIndex > guardIndex, "the cap must be checked before the frame is encoded");
+	// retryable 必须与 helper 对同一条件的处理一致。
+	assert.match(source, /REMOTE_REQUEST_LIMIT"\], ?\)|, "REMOTE_REQUEST_LIMIT"\]\)/);
+});
+
+test("a request beyond the cap fails fast without sending a frame or arming a timer", async () => {
+	const harness = createHarness();
+	harness.client.openConnection();
+	const pending = fillToCap(harness);
+	assert.equal(harness.client.pendingCount(), MAX_PENDING, "the table fills up to the cap");
+	const sentBefore = harness.sent.length;
+	const timersBefore = harness.clock.activeTimers();
+
+	const outcome = await rejection(harness.client.request("echo", { text: "one-too-many" }));
+	assert.equal(outcome.code, "REMOTE_REQUEST_LIMIT");
+	assert.equal(outcome.retryable, true, "saturation is transient, matching the helper's TOO_MANY_REQUESTS");
+	// 关键：不能留痕。发帧会污染协议流；装定时器是给一个从未发出的请求白付代价。
+	assert.equal(harness.sent.length, sentBefore, "a rejected request must not write a frame");
+	assert.equal(harness.clock.activeTimers(), timersBefore, "and must not arm a deadline");
+	assert.equal(harness.client.pendingCount(), MAX_PENDING, "and must not occupy a slot");
+	assert.ok(codesOf(harness).includes("REMOTE_REQUEST_LIMIT"), "the refusal must be diagnosable");
+
+	// 清场：一次关闭统一结算，比推进时钟触发 128 个定时器便宜得多。
+	harness.client.closeConnection("shutdown");
+	await Promise.allSettled(pending);
+});
+
+test("a slot freed by settling makes room again", async () => {
+	const harness = createHarness();
+	const generation = harness.client.openConnection();
+	const pending = fillToCap(harness);
+	await rejection(harness.client.request("echo"));
+
+	// 让其中一条结算（远端应答），容量随之释放。
+	const first = harness.frames()[0];
+	harness.client.handleLine(okFrame(first.id, generation));
+	assert.equal(harness.client.pendingCount(), MAX_PENDING - 1);
+
+	const retried = harness.client.request("echo", { text: "after-release" }).then(
+		() => "ok",
+		() => "settled",
+	);
+	assert.equal(lastFrame(harness).method, "echo", "the retried request must reach the wire");
+	harness.client.closeConnection("shutdown");
+	await Promise.allSettled([...pending, retried]);
+});
+
+test("cancel stays available while the table is saturated", async () => {
+	// 刻意留的余量：表满了还要能撤销，否则饱和的唯一出路就是等超时。
+	const harness = createHarness();
+	const generation = harness.client.openConnection();
+	const pending = fillToCap(harness);
+	const target = harness.frames()[0];
+	// 目标仍在 pending，因此 cancel 会发自己的帧并等应答——必须像其它用例那样驱动应答，
+	// 否则 await 永远不返回（这正是本条最初把测试文件挂住的原因）。
+	const cancelling = harness.client.cancel(target.id);
+	const cancelFrame = lastFrame(harness);
+	assert.equal(cancelFrame.method, "cancel", "cancel must still reach the wire while saturated");
+	harness.client.handleLine(okFrame(cancelFrame.id, generation, { cancelled: true }));
+	assert.deepEqual(plain(await cancelling), { cancelled: true }, "cancel must not be capped");
+	harness.client.closeConnection("shutdown");
+	await Promise.allSettled(pending);
 });
