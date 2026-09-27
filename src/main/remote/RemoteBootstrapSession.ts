@@ -37,7 +37,8 @@ function awaitBootstrapReady(session: SshLauncherHandle, expected: { bundleSha25
 			resolve(frame);
 		};
 		try {
-			offExit = session.onExit(() => fail("BOOTSTRAP_READY_UNCONFIRMED"));
+			// Both backlogged stdout and an already-settled exit replay in microtasks. Register stdout first
+			// so the entry's final error frame cannot be lost when the exit callback tears down listeners.
 			offLine = session.onStdoutLine((line) => {
 				const frame = decodeBootstrapResult(line);
 				if (frame?.op === "error") {
@@ -50,6 +51,7 @@ function awaitBootstrapReady(session: SshLauncherHandle, expected: { bundleSha25
 				}
 				ready(frame);
 			});
+			offExit = session.onExit(() => fail("BOOTSTRAP_READY_UNCONFIRMED"));
 			if (settled) clear();
 		} catch {
 			fail("BOOTSTRAP_READY_UNCONFIRMED");

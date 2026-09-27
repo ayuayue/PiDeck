@@ -26,9 +26,10 @@ function fakeBootstrapSession(manifest, overrides = {}) {
 		emit,
 		onStdoutLine(listener) {
 			listeners.add(listener);
-			queueMicrotask(() => {
-				if (listeners.has(listener)) emit(overrides.ready ?? { op: "ready", protocolVersion: 1, bundleSha256: manifest.bundleSha256, nonce: NONCE, deployRoot: "/home/test/.pideck/remote-host", staging: `.staging-${NONCE}`, stagingMode: "0700" });
-			});
+			if (!overrides.exitBeforeReady || overrides.ready?.op === "error")
+				queueMicrotask(() => {
+					if (listeners.has(listener)) emit(overrides.ready ?? { op: "ready", protocolVersion: 1, bundleSha256: manifest.bundleSha256, nonce: NONCE, deployRoot: "/home/test/.pideck/remote-host", staging: `.staging-${NONCE}`, stagingMode: "0700" });
+				});
 			return () => listeners.delete(listener);
 		},
 		onExit(listener) {
@@ -135,6 +136,13 @@ test("a known entry error before ready keeps its stable code without uploading",
 test("an unknown entry error before ready is not passed through", async (t) => {
 	const { session, starts, input } = await fixture(t, { ready: { op: "error", code: "UNRECOGNIZED_REMOTE_CODE" } });
 	await assert.rejects(runPreparedBootstrap(input), /BOOTSTRAP_READY_INVALID/);
+	assert.equal(starts.length, 1);
+	assert.deepEqual(session.stopped, ["abort"]);
+});
+
+test("a queued entry error wins over a queued exit after the child has settled", async (t) => {
+	const { session, starts, input } = await fixture(t, { ready: { op: "error", code: "BOOTSTRAP_DEPLOY_ROOT_INVALID" }, exitBeforeReady: true });
+	await assert.rejects(runPreparedBootstrap(input), /BOOTSTRAP_DEPLOY_ROOT_INVALID/);
 	assert.equal(starts.length, 1);
 	assert.deepEqual(session.stopped, ["abort"]);
 });
