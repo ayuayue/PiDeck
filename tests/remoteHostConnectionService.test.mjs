@@ -293,3 +293,36 @@ test("a bad nodePath override is refused as a wiring bug before any port is buil
 		assert.equal(ports.calls.bootstrap.length, 0, "construction must not touch any port");
 	});
 });
+
+test("changing the workspace root discards the held session instead of reusing it", async () => {
+	// 实跑回归（2026-09）：确认了浏览根，列目录仍回 PATH_OUTSIDE_ROOT —— 因为 root 是 helper 启动时的
+	// `--root`，而当时那条会话是 host-only 启动的。修好「把 root 交给连接」之后还有第二半：
+	// **换 root 必须丢弃已持有的会话**，否则同一 revision 下会复用旧会话，新 root 永远不生效。
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 3, [{ id: HOST_ID }]);
+		const ports = fakePorts();
+		const service = createRemoteHostConnectionService({ userDataDir, client: CLIENT, nodePath: "/usr/bin/node", ports });
+		// 第一次：host-only（合法状态，什么路径都服务不了）。
+		await service.connect(HOST_ID);
+		assert.equal(ports.calls.createManager[0].helperSession.root, undefined, "a host-only session carries no root");
+
+		// 确认浏览根之后：必须重建会话，并且新的 helper 会话要带上这个 root。
+		service.setWorkspaceRoot(HOST_ID, "/srv/app");
+		await service.connect(HOST_ID);
+		assert.equal(ports.calls.bootstrap.length, 2, "the session must be re-established, not reused");
+		assert.equal(ports.calls.createManager[1].helperSession.root, "/srv/app", "the new session must be established with the confirmed root");
+
+		// 再换成另一个 root：同样必须重建。
+		service.setWorkspaceRoot(HOST_ID, "/srv/other");
+		await service.connect(HOST_ID);
+		assert.equal(ports.calls.bootstrap.length, 3);
+		assert.equal(ports.calls.createManager[2].helperSession.root, "/srv/other");
+
+		// 清空 root：回到 host-only，也不能复用带 root 的会话。
+		service.setWorkspaceRoot(HOST_ID, undefined);
+		await service.connect(HOST_ID);
+		assert.equal(ports.calls.bootstrap.length, 4);
+		assert.equal(ports.calls.createManager[3].helperSession.root, undefined);
+		await service.dispose();
+	});
+});

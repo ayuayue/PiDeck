@@ -112,6 +112,15 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 	const ports: RemoteHostConnectionPorts = { ...defaultPorts(), ...options.ports };
 	const launcher = options.launcher ?? createSshProcessLauncher();
 	const hosts = new Map<string, HostEntry>();
+	/**
+	 * Per-host workspace root, overriding the construction option.
+	 *
+	 * The root is not a read-time filter: it is the helper's `--root` at session start, so a session that
+	 * started without one serves no path at all (`fs.*` is refused with PATH_OUTSIDE_ROOT). Confirming a
+	 * browse root therefore has to reach the connection and invalidate any session that was established
+	 * without it, which is why this lives here rather than only in the IPC layer that asked for it.
+	 */
+	const workspaceRoots = new Map<string, string>();
 	let disposed = false;
 	let disposing: Promise<void> | undefined;
 
@@ -166,10 +175,13 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		// publishing a helper location that the profile no longer describes.
 		const after = await readRevision();
 		if (after !== current) throw new Error("SSH_HOST_NOT_READY");
+		// Read the effective root after any await: a confirmation that landed while this bootstrap was in
+		// flight must not be published under a session that started without it.
+		const effectiveRoot = workspaceRoots.get(hostId) ?? options.root;
 		const held: HeldBootstrap = {
 			revision: after,
 			generation,
-			session: { nodePath, deployRoot: prepared.deployRoot, bundleSha256: prepared.bundleSha256, ...(options.root !== undefined ? { root: options.root } : {}) },
+			session: { nodePath, deployRoot: prepared.deployRoot, bundleSha256: prepared.bundleSha256, ...(effectiveRoot !== undefined ? { root: effectiveRoot } : {}) },
 		};
 		entry.held = held;
 		return held;
@@ -213,6 +225,23 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			} finally {
 				if (entry.inFlight === run) entry.inFlight = undefined;
 			}
+		},
+		/**
+		 * Point this host's next session at a confirmed workspace root.
+		 *
+		 * Discards the held session and its manager: the running helper was started with a different `--root`
+		 * (possibly none), and the root is fixed for the life of a helper process, so nothing about that
+		 * session can be reused. The caller reconnects; the next bootstrap carries the new root.
+		 */
+		setWorkspaceRoot(hostId: string, root: string | undefined): void {
+			if (root === undefined) workspaceRoots.delete(hostId);
+			else workspaceRoots.set(hostId, root);
+			const entry = hosts.get(hostId);
+			if (entry !== undefined) discard(entry);
+		},
+		/** The root this host's sessions are currently established with, if any. */
+		getWorkspaceRoot(hostId: string): string | undefined {
+			return workspaceRoots.get(hostId) ?? options.root;
 		},
 		/** Release the live session of one host without forgetting its verified bootstrap. */
 		async disconnect(hostId: string, reason: "abort" | "shutdown"): Promise<void> {

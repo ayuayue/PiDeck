@@ -574,6 +574,19 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 				return { ok: true, confirmed: false };
 			}
 			workspaceRoot = { hostId: payload.hostId, canonicalPath: payload.canonicalPath, digest: offered.digest };
+			// The root is the helper's `--root` at session start, not a read-time filter, so the session that
+			// is up right now (started host-only) can serve nothing. Hand the root to the connection and
+			// re-establish, otherwise every read fails with PATH_OUTSIDE_ROOT — which is exactly what the
+			// first real use of this panel hit.
+			const resolved = await resolveService();
+			if ("code" in resolved) return { ok: false, code: resolved.code };
+			resolved.service.setWorkspaceRoot(payload.hostId, payload.canonicalPath);
+			try {
+				const state = await resolved.service.connect(payload.hostId);
+				if (!state.ok) return { ok: false, code: state.code };
+			} catch {
+				return { ok: false, code: "REMOTE_CONNECTION_FAILED" };
+			}
 			return { ok: true, confirmed: true };
 		} catch (error) {
 			return { ok: false, code: codeOf(error, "REMOTE_WORKSPACE_ROOT_INVALID") };

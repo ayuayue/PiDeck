@@ -796,7 +796,7 @@ test("diagnosis findings are re-validated before reaching the renderer", async (
  * 渲染层只能给**相对路径**——不能自己命名边界。
  */
 function workspaceHandlers(options = {}) {
-	const calls = { resolve: [], list: [], read: [], sent: [] };
+	const calls = { resolve: [], list: [], read: [], sent: [], setRoot: [], connects: [] };
 	const handlers = new Map();
 	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
 		stubs: {
@@ -850,8 +850,17 @@ function workspaceHandlers(options = {}) {
 			client: { sshPath: "/usr/bin/ssh", scpPath: "/usr/bin/scp", env: {}, run: async () => ({ exitCode: 0, stdout: "" }) },
 			async request() {},
 			async cancel() {},
-			async connect() {},
+			async connect(hostId) {
+				calls.connects = calls.connects ?? [];
+				calls.connects.push(hostId);
+				return { ok: true, hostId, state: { hostId, generation: 1, state: "ready", attempts: 0, latched: false } };
+			},
 			async disconnect() {},
+			setWorkspaceRoot(hostId, root) {
+				calls.setRoot = calls.setRoot ?? [];
+				calls.setRoot.push({ hostId, root });
+			},
+			getWorkspaceRoot: () => undefined,
 			listDiagnostics: () => [],
 			async dispose() {},
 		}),
@@ -1027,4 +1036,23 @@ test("denying a new root also clears the previously confirmed one", async () => 
 	assert.equal(after.ok, false, "the old root must not survive a denial");
 	assert.equal(after.code, "REMOTE_WORKSPACE_ROOT_NOT_CONFIRMED");
 	assert.equal((await harness.handlers.get("remote:workspace-get-root")({})).ok, false);
+});
+
+test("a confirmed root is handed to the connection and the session is re-established", async () => {
+	// 实跑回归（2026-09）：确认了 root，列目录却回 PATH_OUTSIDE_ROOT。原因是 root 不是「读时的过滤器」，
+	// 而是 helper 启动时的 `--root`——当时那条会话是 host-only 启动的，什么路径都服务不了。
+	// 所以确认必须同时做两件事：把 root 交给连接，并用它重建会话。
+	const harness = workspaceHandlers();
+	await confirmRoot(harness, "/srv/real-project");
+	assert.deepEqual(harness.calls.setRoot, [{ hostId: HOST_ID, root: "/srv/real-project" }], "the root must reach the connection");
+	assert.deepEqual(harness.calls.connects, [HOST_ID], "and the session must be re-established with it");
+});
+
+test("a denied root is never handed to the connection", async () => {
+	const harness = workspaceHandlers();
+	await harness.handlers.get("remote:workspace-resolve-root")({ sender: harness.sender }, HOST_ID, "/srv/x");
+	const requestId = harness.calls.sent.at(-1).payload.requestId;
+	await harness.handlers.get("remote:workspace-answer-root")({ sender: harness.sender }, requestId, "deny");
+	assert.equal(harness.calls.setRoot.length, 0, "a denied root must not reconfigure the session");
+	assert.equal(harness.calls.connects.length, 0);
 });
