@@ -917,8 +917,11 @@ test("a confirmed root makes the relative listing readable", async () => {
 			{ name: "readme.md", kind: "file", bytes: 12 },
 		],
 	});
-	assert.equal(harness.calls.list[0].path, "", "the root itself is named by the empty relative path");
+	assert.equal(harness.calls.list[0].path, ".", "the root is the reader's own spelling of it, not the empty string the UI uses");
 	assert.equal(harness.calls.list[0].portHasRequest, true, "the reader must be given the service as its transport port");
+	// 真机回归：reader 拒绝空路径（readRequestPath 要求非空），根必须翻成它自己的写法，
+	// 否则真实主机上 fs.list 直接 PROTOCOL_INVALID —— 这正是第一次真机跑出来的结果。
+	assert.equal(harness.calls.list[0].path, ".", "the root must be translated to the reader spelling");
 });
 
 test("a renderer cannot widen the boundary with an absolute or traversing path", async () => {

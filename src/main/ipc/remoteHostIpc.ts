@@ -516,6 +516,10 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 	 * Validate a path the renderer named. Relative to the confirmed root by construction: an absolute path,
 	 * a traversal segment, a control byte or a backslash is refused here, so the helper only ever sees a
 	 * value that stays inside the boundary regardless of what the UI sent.
+	 *
+	 * The empty string is this layer's spelling of "the root". The reader spells it `"."` instead (it
+	 * refuses an empty path outright), so the two are translated by `readerPath` — the UI should not have to
+	 * know which convention the transport chose.
 	 */
 	const readRelativePath = (value: unknown): string | undefined => {
 		if (typeof value !== "string" || value.length > 4096) return undefined;
@@ -526,6 +530,9 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 		if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return undefined;
 		return value;
 	};
+
+	/** This layer's empty string means the root; the reader's own spelling of that is `"."`. */
+	const readerPath = (relative: string): string => (relative === "" ? "." : relative);
 
 	ipcMain.handle(ipcChannels.remoteWorkspaceResolveRoot, async (event, hostIdValue: unknown, pathValue: unknown): Promise<RemoteWorkspaceRootResult> => {
 		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
@@ -588,7 +595,7 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 		const reader = await readerFor();
 		if (reader === undefined) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
 		try {
-			const result = await reader.list(hostIdValue, relative);
+			const result = await reader.list(hostIdValue, readerPath(relative));
 			// Only the fields the UI renders cross: a name, a kind and an optional size.
 			return { ok: true, entries: result.entries.map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })) };
 		} catch (error) {
