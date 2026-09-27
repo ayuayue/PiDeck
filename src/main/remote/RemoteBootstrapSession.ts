@@ -180,9 +180,14 @@ export async function resolveRemoteNodeExecutable(input: { userDataDir: string; 
 		}
 		return { nodePath: candidate, version: String(result.stdout).trim(), probed };
 	}
-	// Every candidate (or the cap) was exhausted without a supported version. Report the last observed
-	// version so the failure stays actionable, rather than surfacing a bare "not found".
-	throw new Error(`REMOTE_NODE_VERSION_UNSUPPORTED ${candidates[0]} ${lastVersion || "unprobed"}`);
+	// Every candidate (or the cap) was exhausted without a supported version. The diagnostic code must be
+	// the bare constant: `diagnosticCodeFromError` only recognises a message that *is* the code, so
+	// appending the path and version would degrade this — the case users hit most — to the generic
+	// SSH_CONNECTION_FAILED. The detail rides on the error instead of in its message.
+	const unsupported = new Error("REMOTE_NODE_VERSION_UNSUPPORTED") as Error & { nodePath?: string; observedVersion?: string };
+	unsupported.nodePath = candidates[0];
+	unsupported.observedVersion = lastVersion || "unprobed";
+	throw unsupported;
 }
 
 /** Re-preflight both commands against the persisted pin, then run the frozen one-file bootstrap. */

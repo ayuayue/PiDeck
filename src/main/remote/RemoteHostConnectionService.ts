@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { RemoteHostStore } from "./RemoteHostStore";
-import { bootstrapPinnedHost } from "./RemoteBootstrapSession";
+import { bootstrapPinnedHost, resolveRemoteNodeExecutable } from "./RemoteBootstrapSession";
 import { createSshConnectionManager, type SshConnectionManager, type SshHelperSession } from "./SshConnectionManager";
 import { createSshProcessLauncher } from "./SshProcessLauncher";
 import { diagnosticCodeFromError } from "./SshConnectionDiagnostics";
@@ -24,18 +24,27 @@ type HeldBootstrap = {
 export type RemoteHostConnectionPorts = {
 	/** Re-preflight both commands against the persisted pin, then run the frozen one-file bootstrap. */
 	bootstrap: typeof bootstrapPinnedHost;
+	/** Resolve the host user's own node through their login shell. */
+	resolveNode: typeof resolveRemoteNodeExecutable;
 	/** Build the per-host connection manager. The manager itself owns attempt lifecycles. */
 	createManager: (options: { userDataDir: string; client: SshClientRuntime; launcher: SshProcessLauncher; helperSession: SshHelperSession }) => SshConnectionManager;
 	/** Mint the bootstrap nonce; injected so tests are deterministic. */
 	createNonce: () => string;
+	/** Mint the login-shell probe sentinel; injected so tests are deterministic. */
+	createSentinel: () => string;
 };
 
 export type RemoteHostConnectionServiceOptions = {
 	userDataDir: string;
 	client: SshClientRuntime;
 	launcher?: SshProcessLauncher;
-	/** Absolute remote Node binary to probe. Wiring supplies it from the verified profile. */
-	nodePath: string;
+	/**
+	 * Absolute remote Node binary, overriding discovery. Optional on purpose: the path can only be known
+	 * by asking the host, so requiring it here would invert the real order of events — a caller would have
+	 * to produce the answer before the connection that discovers it. Supply it only to pin a specific
+	 * binary; otherwise the service resolves the host user's own node via their login shell.
+	 */
+	nodePath?: string;
 	/** Verified workspace root the helper confines `fs.*` to. Omitted is the legal host-only session. */
 	root?: string;
 	ports?: Partial<RemoteHostConnectionPorts>;
@@ -66,8 +75,10 @@ const NONCE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
 function defaultPorts(): RemoteHostConnectionPorts {
 	return {
 		bootstrap: bootstrapPinnedHost,
+		resolveNode: resolveRemoteNodeExecutable,
 		createManager: (options) => createSshConnectionManager(options),
 		createNonce: () => randomBytes(DEFAULT_NONCE_BYTES).toString("base64url"),
+		createSentinel: () => randomBytes(DEFAULT_NONCE_BYTES).toString("hex"),
 	};
 }
 
@@ -83,9 +94,16 @@ function defaultPorts(): RemoteHostConnectionPorts {
  * never reaches the manager with a stale helper location.
  *
  * Nothing in this module is reachable in production: no IPC channel and no assembly site reference it.
+ *
+ * Node discovery is deliberately owned here rather than required from the caller: the remote Node binary
+ * can only be known by asking the host, so demanding it as construction input would force every caller to
+ * produce the answer before the connection that finds it. `options.nodePath` remains as an override for
+ * pinning a specific binary.
  */
 export function createRemoteHostConnectionService(options: RemoteHostConnectionServiceOptions) {
-	if (typeof options?.userDataDir !== "string" || !isAbsolute(options.userDataDir) || typeof options.client?.run !== "function" || typeof options.nodePath !== "string" || options.nodePath.length === 0) throw new Error("REMOTE_CONNECTION_SERVICE_OPTIONS_INVALID");
+	if (typeof options?.userDataDir !== "string" || !isAbsolute(options.userDataDir) || typeof options.client?.run !== "function") throw new Error("REMOTE_CONNECTION_SERVICE_OPTIONS_INVALID");
+	// An override must still look like an absolute path; a bad one is a wiring bug, not a host condition.
+	if (options.nodePath !== undefined && (typeof options.nodePath !== "string" || options.nodePath.length === 0 || !isAbsolute(options.nodePath))) throw new Error("REMOTE_CONNECTION_SERVICE_OPTIONS_INVALID");
 	const ports: RemoteHostConnectionPorts = { ...defaultPorts(), ...options.ports };
 	const launcher = options.launcher ?? createSshProcessLauncher();
 	const hosts = new Map<string, HostEntry>();
@@ -134,7 +152,11 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		const generation = entry.generation;
 		const nonce = ports.createNonce();
 		if (!NONCE.test(nonce)) throw new Error("REMOTE_CONNECTION_NONCE_INVALID");
-		const prepared = await ports.bootstrap({ userDataDir: options.userDataDir, hostId, generation, nonce, nodePath: options.nodePath, client: options.client, launcher });
+		// Resolve the node before bootstrapping. An explicit override skips discovery; otherwise the host
+		// user's own node is found via their login shell. Only a fresh bootstrap pays for discovery — a
+		// revision that already has a held session returns above without reaching here.
+		const nodePath = options.nodePath ?? (await ports.resolveNode({ userDataDir: options.userDataDir, hostId, client: options.client, sentinel: ports.createSentinel() })).nodePath;
+		const prepared = await ports.bootstrap({ userDataDir: options.userDataDir, hostId, generation, nonce, nodePath, client: options.client, launcher });
 		// Re-read after the await: a rebind during the upload invalidates this result instead of
 		// publishing a helper location that the profile no longer describes.
 		const after = await readRevision();
@@ -142,7 +164,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		const held: HeldBootstrap = {
 			revision: after,
 			generation,
-			session: { nodePath: options.nodePath, deployRoot: prepared.deployRoot, bundleSha256: prepared.bundleSha256, ...(options.root !== undefined ? { root: options.root } : {}) },
+			session: { nodePath, deployRoot: prepared.deployRoot, bundleSha256: prepared.bundleSha256, ...(options.root !== undefined ? { root: options.root } : {}) },
 		};
 		entry.held = held;
 		return held;

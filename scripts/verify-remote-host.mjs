@@ -68,4 +68,13 @@ async function verifyRemoteHost(host, user, fingerprint, bootstrap) {
 
 const [host, user, fingerprint, option] = process.argv.slice(2);
 if (process.argv.length !== 5 && (process.argv.length !== 6 || option !== "--bootstrap")) throw new Error("Usage: node scripts/verify-remote-host.mjs <IPv4> <user> <independently-verified-ED25519-SHA256-fingerprint> [--bootstrap]");
-await verifyRemoteHost(host, user, fingerprint, option === "--bootstrap");
+try {
+	await verifyRemoteHost(host, user, fingerprint, option === "--bootstrap");
+} catch (error) {
+	// The stable code is the whole message on purpose (diagnosticCodeFromError only recognises that
+	// shape), so the actionable detail rides on the error and has to be printed explicitly here.
+	const nodePath = error?.nodePath;
+	const observedVersion = error?.observedVersion;
+	if (typeof nodePath === "string" || typeof observedVersion === "string") console.error("REJECTED_NODE", nodePath ?? "unknown", observedVersion ?? "unknown");
+	throw error;
+}

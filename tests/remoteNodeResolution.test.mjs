@@ -102,9 +102,12 @@ test("the candidate walk is bounded, so a hostile PATH cannot drive unlimited pr
 	const loginPath = "/a/bin:/b/bin:/c/bin:/d/bin:/e/bin:/f/bin";
 	const { promise, probed } = run(loginPath, { "/a/bin/node": "v10.0.0\n", "/b/bin/node": "v11.0.0\n", "/c/bin/node": "v12.0.0\n", "/d/bin/node": "v24.0.0\n" });
 	await assert.rejects(promise, (error) => {
-		assert.match(error.message, /REMOTE_NODE_VERSION_UNSUPPORTED/);
-		// 报出最后探到的版本，便于定位；不泄漏远端 stderr。
-		assert.match(error.message, /v12\.0\.0/);
+		// 稳定码必须是**完整消息**：diagnosticCodeFromError 只承认「消息即码」，把路径与版本拼进
+		// 消息会让这个最高频的失败退化成笼统的 SSH_CONNECTION_FAILED。
+		assert.equal(error.message, "REMOTE_NODE_VERSION_UNSUPPORTED", "the code must be the whole message");
+		// 细节随错误携带，不污染消息，但仍可定位。
+		assert.equal(error.observedVersion, "v12.0.0");
+		assert.equal(error.nodePath, "/a/bin/node");
 		return true;
 	});
 	assert.equal(probed.filter((entry) => entry.kind === "version").length, 3, "at most 3 candidates may be probed");

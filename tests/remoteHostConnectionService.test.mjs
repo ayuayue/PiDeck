@@ -47,7 +47,7 @@ async function withUserData(run) {
 
 /** Ports that record calls and never start a process; each test overrides only what it observes. */
 function fakePorts(overrides = {}) {
-	const calls = { bootstrap: [], createManager: [], nonce: 0 };
+	const calls = { bootstrap: [], createManager: [], nonce: 0, resolveNode: [], sentinel: 0 };
 	const managers = [];
 	const ports = {
 		calls,
@@ -55,6 +55,15 @@ function fakePorts(overrides = {}) {
 		bootstrap: async (input) => {
 			calls.bootstrap.push(input);
 			return { bundleSha256: "a".repeat(64), deployRoot: "/home/remote/.pideck/remote-host", active: `/home/remote/.pideck/remote-host/bundles/${"a".repeat(64)}` };
+		},
+		// 默认发现路径：模拟「登录 shell 找到的 nvm node」，与实际主机上的形态一致。
+		resolveNode: async (input) => {
+			calls.resolveNode.push(input);
+			return { nodePath: "/home/remote/.nvm/versions/node/v24.11.0/bin/node", version: "v24.11.0", probed: 1 };
+		},
+		createSentinel: () => {
+			calls.sentinel += 1;
+			return `sentinel${String(calls.sentinel).padStart(8, "0")}`;
 		},
 		createNonce: () => {
 			calls.nonce += 1;
@@ -186,5 +195,101 @@ test("a rebind during the upload invalidates the result instead of publishing a 
 		assert.deepEqual(plain(await service.connect(HOST_ID)), { ok: false, hostId: HOST_ID, code: "SSH_HOST_NOT_READY" });
 		assert.equal(ports.calls.createManager.length, 0);
 		await service.dispose();
+	});
+});
+
+/**
+ * 节点发现：服务自己解析远端 node，而不是要求调用方先知道。
+ *
+ * 远端 node 路径只能靠问主机得到，因此把它做成构造必填项等于要求调用方「先给出连接才能发现的
+ * 答案」。这里锁定服务自己解析（经登录 shell），同时保留显式覆盖能力。
+ */
+
+test("the service discovers the remote node itself instead of requiring it up front", async () => {
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 3, [{ id: HOST_ID }]);
+		const ports = fakePorts();
+		// 关键：不传 nodePath。
+		const service = createRemoteHostConnectionService({ userDataDir, client: CLIENT, ports });
+		assert.deepEqual(plain(await service.connect(HOST_ID)), { ok: true, hostId: HOST_ID, state: "ready" });
+
+		// 发现必须真的发生，且结果被送进 bootstrap 与 helper session（两者必须一致，否则
+		// 探测的是一个 node、执行的却是另一个）。
+		assert.equal(ports.calls.resolveNode.length, 1);
+		assert.equal(ports.calls.bootstrap.length, 1);
+		assert.equal(ports.calls.bootstrap[0].nodePath, "/home/remote/.nvm/versions/node/v24.11.0/bin/node");
+		assert.equal(ports.calls.createManager[0].helperSession.nodePath, "/home/remote/.nvm/versions/node/v24.11.0/bin/node");
+		// 每次发现都要带一个一次性哨兵，避免与上一次的输出混淆。
+		assert.equal(ports.calls.resolveNode[0].sentinel, "sentinel00000001");
+		assert.equal(ports.calls.resolveNode[0].hostId, HOST_ID);
+		await service.dispose();
+	});
+});
+
+test("an explicit nodePath overrides discovery entirely", async () => {
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 3, [{ id: HOST_ID }]);
+		const ports = fakePorts();
+		const service = createRemoteHostConnectionService({ userDataDir, client: CLIENT, nodePath: "/opt/pinned/bin/node", ports });
+		assert.deepEqual(plain(await service.connect(HOST_ID)), { ok: true, hostId: HOST_ID, state: "ready" });
+		// 覆盖时不发探测请求：调用方已经给出了答案。
+		assert.equal(ports.calls.resolveNode.length, 0);
+		assert.equal(ports.calls.bootstrap[0].nodePath, "/opt/pinned/bin/node");
+		assert.equal(ports.calls.createManager[0].helperSession.nodePath, "/opt/pinned/bin/node");
+		await service.dispose();
+	});
+});
+
+test("a second connect at the same revision reuses the verified session without re-discovering", async () => {
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 3, [{ id: HOST_ID }]);
+		const ports = fakePorts();
+		const service = createRemoteHostConnectionService({ userDataDir, client: CLIENT, ports });
+		await service.connect(HOST_ID);
+		await service.connect(HOST_ID);
+		// 发现要 1 次远端往返，复用不能重复付出；bootstrap 同理。
+		assert.equal(ports.calls.resolveNode.length, 1);
+		assert.equal(ports.calls.bootstrap.length, 1);
+		assert.equal(ports.calls.createManager.length, 1);
+		await service.dispose();
+	});
+});
+
+test("a discovery failure fails the connect as a stable code and never bootstraps", async () => {
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 3, [{ id: HOST_ID }]);
+		const ports = fakePorts({
+			resolveNode: async () => {
+				// 真实解析器的形状：稳定码即完整消息，细节随错误携带。
+				const error = new Error("REMOTE_NODE_VERSION_UNSUPPORTED");
+				error.nodePath = "/usr/bin/node";
+				error.observedVersion = "v12.22.9";
+				throw error;
+			},
+		});
+		const service = createRemoteHostConnectionService({ userDataDir, client: CLIENT, ports });
+		const result = await service.connect(HOST_ID);
+		assert.equal(result.ok, false);
+		assert.equal(result.code, "REMOTE_NODE_VERSION_UNSUPPORTED");
+		// 发现失败就不该启动 bootstrap：否则又一次把「零帧退出」当成入口的问题来诊断。
+		assert.equal(ports.calls.bootstrap.length, 0);
+		assert.equal(ports.calls.createManager.length, 0);
+		await service.dispose();
+	});
+});
+
+test("a bad nodePath override is refused as a wiring bug before any port is built", async () => {
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 3, [{ id: HOST_ID }]);
+		const ports = fakePorts();
+		const bad = { userDataDir, client: CLIENT, ports };
+		for (const nodePath of ["", "relative/bin/node", 5, null]) {
+			assert.throws(() => createRemoteHostConnectionService({ ...bad, nodePath }), /REMOTE_CONNECTION_SERVICE_OPTIONS_INVALID/);
+		}
+		// 合法的覆盖不拦。
+		assert.doesNotThrow(() => createRemoteHostConnectionService({ ...bad, nodePath: "/usr/local/bin/node" }));
+		// 缺省（不传）也合法——这正是「服务自己发现」的模式。
+		assert.doesNotThrow(() => createRemoteHostConnectionService(bad));
+		assert.equal(ports.calls.bootstrap.length, 0, "construction must not touch any port");
 	});
 });
