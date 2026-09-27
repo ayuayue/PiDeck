@@ -261,8 +261,7 @@ import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
-import { RemoteHostStore } from "./remote/RemoteHostStore";
-import { createRemoteHostReferenceRegistry } from "./remote/RemoteHostReferenceSources";
+import { openRemoteHostCatalogView } from "./remote/RemoteHostCatalogView";
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
 import { constrainWindowBoundsToWorkArea, type LastWindowBounds, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, readLastWindowBounds, saveLastWindowBounds } from "./windowState";
@@ -2361,11 +2360,7 @@ function registerIpc() {
 	// Only the explicit dev experiment can read the remote catalog; listing starts no SSH process.
 	registerRemoteHostIpc({
 		enabled: !app.isPackaged && process.env.PIDECK_REMOTE_EXPERIMENTAL === "1",
-		list: async () => {
-			const userDataDir = app.getPath("userData");
-			const referenceRegistry = createRemoteHostReferenceRegistry(join(userDataDir, "session-catalog.json"));
-			return (await RemoteHostStore.open(userDataDir, { referenceRegistry })).getSnapshot();
-		},
+		list: () => openRemoteHostCatalogView(app.getPath("userData")),
 	});
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);
