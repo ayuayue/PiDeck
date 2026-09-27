@@ -2396,6 +2396,10 @@ function registerIpc() {
 		userDataDir: app.getPath("userData"),
 		list: () => openRemoteHostCatalogView(app.getPath("userData")),
 		service: remoteHostServiceIfEnabled,
+		// The add-host flow holds a pin store across two IPC calls (offer, then the user's answer), so its
+		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
+		// outliving the app.
+		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
 	});
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);

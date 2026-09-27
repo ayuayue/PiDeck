@@ -521,3 +521,63 @@ test("the connect button is only enabled for a verified, enabled host", () => {
 	assert.match(tab, /const connectable = host\.verified && !host\.disabled/);
 	assert.match(tab, /disabled=\{pending \|\| !connectable\}/);
 });
+
+test("the add and answer channels share one pin store, so the pending request survives", async () => {
+	// 实跑回归（2026-09）：确认弹框里点「信任」无效，主机永远停在「未验证」——因为
+	// remote:add 建了一个 pin store（待确认状态注册在它的 broker 里）并在返回前 dispose，
+	// 而 remote:answer-pin 又建了一个新的空 broker，于是连**展示过指纹的那个窗口**也被拒。
+	//
+	// 这条用例用的是**真正的 broker 语义**：offer 在 A 注册，answer 必须在同一实例上找得到。
+	const requests = new Map();
+	let instances = 0;
+	const handlers = new Map();
+	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
+		stubs: {
+			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
+			"../remote/SshHostPinStore": {
+				SshHostPinStore: class {
+					constructor() {
+						instances += 1;
+					}
+					dispose() {}
+				},
+			},
+			"../remote/RemoteHostStore": {
+				RemoteHostStore: {
+					async open(_dir, options) {
+						const pinStore = options?.pinStore;
+						return {
+							getSnapshot: () => ({ revision: 7 }),
+							async createDraft() {
+								return { id: HOST_ID };
+							},
+							async offerPin(hostId, senderId) {
+								const requestId = "req-shared";
+								// 待确认状态挂在**这个** pin store 的 broker 上；换实例就找不到。
+								requests.set(requestId, { hostId, senderId, store: pinStore });
+								return { requestId, expiresAt: 1, hostId, hostName: "10.81.2.15", user: "deploy", port: 22, hostKeyFingerprints: ["SHA256:x"] };
+							},
+							async confirmPin(answer) {
+								const pending = requests.get(answer.requestId);
+								// 与真实 broker 相同的判据：请求必须在这个实例上、且 sender 一致。
+								if (!pending || pending.store !== pinStore) throw new Error("SSH_HOST_CONFIRMATION_INVALID");
+								if (pending.senderId !== answer.senderId) throw new Error("SSH_HOST_CONFIRMATION_INVALID");
+								return answer.choice === "approve" ? { id: answer.hostId } : null;
+							},
+							async discardUnverifiedDraft() {},
+						};
+					},
+				},
+			},
+		},
+	});
+	registerRemoteHostIpc({ enabled: true, userDataDir: "/tmp/ignored", list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }) });
+	const sender = { id: 42, isDestroyed: () => false, send: () => undefined };
+	const add = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.equal(add.ok, true);
+	const answer = await handlers.get("remote:answer-pin")({ sender }, "req-shared", HOST_ID, "approve");
+	assert.equal(answer.ok, true, `answer must find the pending request: ${JSON.stringify(answer)}`);
+	assert.equal(answer.approved, true);
+	// 整个流程只应建一个 pin store；两个就说明待确认状态被分到了两个 broker 上。
+	assert.equal(instances, 1, "the add and answer channels must share one pin store");
+});

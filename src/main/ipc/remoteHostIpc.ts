@@ -130,8 +130,44 @@ function readAddInput(value: unknown): { label: string; hostName: string; user?:
  *
  * `service` is optional so the read-only catalog stays usable without a connection service.
  */
-export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Promise<RemoteHostCatalogView>; service?: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>; userDataDir: string }): void {
+export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Promise<RemoteHostCatalogView>; service?: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>; userDataDir: string; registerCleanup?: (cleanup: () => Promise<void>) => void }): void {
 	const guard = <T>(fallback: () => T): T | undefined => (input.enabled ? undefined : fallback());
+
+	/**
+	 * Long-lived pin store + host store pair, shared by the add and answer channels.
+	 *
+	 * These cannot be per-call: the fingerprint confirmation lives in the pin store's in-memory broker,
+	 * so a store created for `remote:add` and disposed when that call returns loses the pending request
+	 * before the user can answer it. Answering then failed with SSH_HOST_CONFIRMATION_INVALID even from
+	 * the window that was shown the fingerprint. One instance for the process fixes that, and disposal
+	 * moves to app quit alongside the other long-lived services.
+	 */
+	let stores: Promise<{ store: Awaited<ReturnType<typeof RemoteHostStore.open>>; pinStore: SshHostPinStore }> | undefined;
+	const openStores = () => {
+		stores ??= (async () => {
+			const pinStore = new SshHostPinStore(input.userDataDir);
+			const store = await RemoteHostStore.open(input.userDataDir, { pinStore });
+			return { store, pinStore };
+		})();
+		// A failed open must not be cached: a store stuck in needs-repair can be fixed by hand, and the
+		// next attempt should re-read rather than reuse the failure.
+		stores.catch(() => {
+			stores = undefined;
+		});
+		return stores;
+	};
+	/** Release the shared stores; called from the quit path so the broker's timers do not outlive the app. */
+	const disposeStores = async (): Promise<void> => {
+		const current = stores;
+		stores = undefined;
+		if (current === undefined) return;
+		try {
+			(await current).pinStore.dispose();
+		} catch {
+			// Nothing to clean up if the open itself failed.
+		}
+	};
+	input.registerCleanup?.(disposeStores);
 
 	/**
 	 * Resolve the connection service, turning a discovery failure into a stable code.
@@ -238,11 +274,8 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 		if (parsed === null) return { ok: false, code: "REMOTE_HOST_ADD_INVALID" };
 		const senderId = senderIdOf(event.sender);
 		if (senderId === undefined) return { ok: false, code: "REMOTE_HOST_ADD_INVALID" };
-		let store: Awaited<ReturnType<typeof RemoteHostStore.open>> | undefined;
-		let pinStore: SshHostPinStore | undefined;
 		try {
-			pinStore = new SshHostPinStore(input.userDataDir);
-			store = await RemoteHostStore.open(input.userDataDir, { pinStore });
+			const { store } = await openStores();
 			const revision = store.getSnapshot().revision;
 			const profile = await store.createDraft(
 				{ label: parsed.label, sshHost: parsed.hostName, connectTimeoutMs: 10_000, ...(parsed.user === undefined ? {} : { user: parsed.user }), ...(parsed.port === undefined ? {} : { port: parsed.port }), ...(parsed.identityFile === undefined ? {} : { identityFile: parsed.identityFile }) },
@@ -269,8 +302,6 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			return { ok: true, hostId: profile.id, status: "pending" };
 		} catch (error) {
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_ADD_FAILED") };
-		} finally {
-			pinStore?.dispose();
 		}
 	});
 
@@ -288,10 +319,9 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 		if (choice !== "approve" && choice !== "deny") return { ok: false, code: "REMOTE_HOST_PIN_ANSWER_INVALID" };
 		const senderId = senderIdOf(event.sender);
 		if (senderId === undefined) return { ok: false, code: "REMOTE_HOST_PIN_ANSWER_INVALID" };
-		let pinStore: SshHostPinStore | undefined;
 		try {
-			pinStore = new SshHostPinStore(input.userDataDir);
-			const store = await RemoteHostStore.open(input.userDataDir, { pinStore });
+			// Must be the same pin store the offer was made in: the pending request lives in its broker.
+			const { store } = await openStores();
 			const revision = store.getSnapshot().revision;
 			const confirmed = await store.confirmPin({ requestId, hostId, senderId, choice }, revision);
 			// `null` means the user denied: the pin is not saved and the draft stays unverified, which is a
@@ -299,8 +329,6 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			return { ok: true, hostId, approved: confirmed !== null };
 		} catch (error) {
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_PIN_ANSWER_FAILED") };
-		} finally {
-			pinStore?.dispose();
 		}
 	});
 }
