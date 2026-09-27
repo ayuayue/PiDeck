@@ -427,3 +427,42 @@ test("a repair primitive never touches a host other than the one it was given", 
 	assert.equal(JSON.stringify(host.store.getProfile(untouched.id)), untouchedProfile);
 	assert.deepEqual(Array.from(host.store.getSnapshot().retiredHostIds), []);
 });
+
+test("a pin whose profile is gone is discarded, because the diagnosis advertises it as an orphan", async (t) => {
+	// 实测发现的不一致：`orphanPinHostIds` 把「没有对应 profile 的 pin」也报成孤儿（丢档案或回滚快照
+	// 就会留下这个形态，也是手工清理只删一半的结果），并据此广告 `discard-orphan-pin`；但动作原本
+	// 要求 profile 必须存在，于是广告的动作永远拒绝执行——用户点了也没用。
+	//
+	// 删掉一个没有任何 profile 认领的 pin 是无歧义的；必须继续被拒绝的是**活跃主机**的信任锚。
+	const host = await fixture(t);
+	const orphanId = "11111111-2222-4333-8444-555555555555";
+	await mkdir(join(host.directory, "ssh-host-keys"), { recursive: true });
+	await writeFile(join(host.directory, "ssh-host-keys", orphanId), `pideck-${orphanId} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmY=\n`);
+	await host.store.refresh();
+	const snapshot = host.store.getSnapshot();
+	assert.equal(snapshot.status, "needs-repair");
+	assert.deepEqual(Array.from(snapshot.reasons), ["REMOTE_HOST_PIN_ORPHAN"]);
+
+	const findings = await repairFor(host).diagnose();
+	const orphan = findings.find((finding) => finding.reason === "REMOTE_HOST_PIN_ORPHAN");
+	assert.ok(orphan, "the orphan pin must be diagnosed");
+	assert.ok(orphan.hostIds.includes(orphanId), "a profile-less pin belongs in the diagnosis");
+	assert.ok(orphan.actions.includes("discard-orphan-pin"), "and the diagnosis must advertise a way to fix it");
+
+	// 广告的动作必须真的能执行。
+	await repairFor(host).discardOrphanPin(orphanId, CONFIRMATION);
+	await host.store.refresh();
+	assert.equal(host.store.getSnapshot().status, "ready");
+	assert.deepEqual(Array.from(host.store.getSnapshot().reasons), []);
+});
+
+test("a live host's pin is still refused by discardOrphanPin", async (t) => {
+	// 上一条放宽了「profile 不存在」，这条守住另一半：已验证主机的信任锚绝不能走孤儿路径删掉。
+	const host = await fixture(t);
+	const verified = await verifiedHost(host);
+	assert.ok(verified?.verifiedEndpoint, "fixture must be activated");
+	await host.store.refresh();
+	const repair = repairFor(host);
+	await assert.rejects(() => repair.discardOrphanPin(verified.id, CONFIRMATION), /HOST_REPAIR_NOT_APPLICABLE/);
+	assert.ok((await pinBytes(host.directory, verified.id)).length > 0, "the anchor must still be there");
+});

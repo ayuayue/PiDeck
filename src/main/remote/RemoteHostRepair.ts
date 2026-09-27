@@ -277,7 +277,12 @@ export class RemoteHostRepair {
 	async discardOrphanPin(hostId: string, confirmation: RepairConfirmation): Promise<void> {
 		assertHostId(hostId);
 		assertConfirmation(confirmation);
-		this.requireDraft(hostId);
+		// `requireDraft` would refuse the profile-less case, but `orphanPinHostIds` deliberately reports a
+		// pin with no profile as an orphan — that is exactly what a lost or rolled-back store leaves
+		// behind, and the diagnosis advertises this action for it. Deleting a pin that no profile claims
+		// is unambiguous; what must stay refused is the anchor of a live host.
+		const profile = this.store.getProfile(hostId);
+		if (profile !== undefined && (profile.verifiedEndpoint !== undefined || profile.disabledAt !== undefined)) throw new Error("HOST_REPAIR_NOT_APPLICABLE");
 		const pin = await this.inspectPin(hostId);
 		if (!pin.exists || pin.bytes === undefined) throw new Error("HOST_REPAIR_NOT_APPLICABLE");
 		await this.deletePin(hostId);
