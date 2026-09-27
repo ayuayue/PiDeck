@@ -359,6 +359,12 @@ export function createPreviewApi(): PiDesktopApi {
 			runRepair: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 			answerRepair: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 			onRepairConfirm: () => () => undefined,
+			resolveWorkspaceRoot: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			answerWorkspaceRoot: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			onWorkspaceRootConfirm: () => () => undefined,
+			getWorkspaceRoot: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			listWorkspace: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			readWorkspaceFile: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 		},
 		projects: {
 			list: async () => projects,

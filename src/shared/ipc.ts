@@ -24,6 +24,18 @@ export const ipcChannels = {
 	remoteHostRepairAnswer: "remote:repair-answer",
 	/** 主进程 → 渲染层：修复确认请求推送。 */
 	remoteHostRepairConfirm: "remote:repair-confirm",
+	/** 解析用户输入的远端目录为 canonical 路径，并推送确认（不写任何东西）。 */
+	remoteWorkspaceResolveRoot: "remote:workspace-resolve-root",
+	/** 回答浏览根确认；批准后主进程持有该 root。 */
+	remoteWorkspaceAnswerRoot: "remote:workspace-answer-root",
+	/** 主进程 → 渲染层：浏览根确认请求推送。 */
+	remoteWorkspaceRootConfirm: "remote:workspace-root-confirm",
+	/** 当前已确认的浏览根（未确认时返回 null）。 */
+	remoteWorkspaceGetRoot: "remote:workspace-get-root",
+	/** 列目录（相对路径；根为空串）。 */
+	remoteWorkspaceList: "remote:workspace-list",
+	/** 读文件（相对路径）。 */
+	remoteWorkspaceRead: "remote:workspace-read",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）

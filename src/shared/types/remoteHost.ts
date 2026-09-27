@@ -142,3 +142,28 @@ export type RemoteHostRepairRunResult = { ok: true; status: "pending" } | { ok: 
 
 /** 回答修复确认的结果。 */
 export type RemoteHostRepairAnswerResult = { ok: true; ran: boolean } | { ok: false; code: string };
+
+/**
+ * 远端工作区读取（Phase 3 第一段：只读）。
+ *
+ * 有意**不**经过 `ProjectStore`：远端路径因此不会出现在 `Project` 上，本地 fs 的消费点（359 处）
+ * 在类型与数据上都不可能拿到它。持久化登记（远端项目入库）是后续独立一步，届时需要逐点审计。
+ *
+ * 路径一律是**相对于已确认 root** 的 POSIX 相对路径（根为空串），不是绝对路径：
+ * root 由主进程在确认时 canonical 化并持有，渲染层只能给出相对位置，不能自己命名边界。
+ */
+export type RemoteWorkspacePathKind = "file" | "directory" | "other";
+
+export type RemoteWorkspaceEntry = { name: string; kind: RemoteWorkspacePathKind; bytes?: number };
+
+/** 列目录结果；超出 helper 的条目上限时**拒绝**而不是截断。 */
+export type RemoteWorkspaceListResult = { ok: true; entries: RemoteWorkspaceEntry[] } | { ok: false; code: string };
+
+/** 读文件结果；`content` 是 base64（跨 IPC 传输二进制）。 */
+export type RemoteWorkspaceReadResult = { ok: true; contentBase64: string; bytes: number; mtimeMs: number } | { ok: false; code: string };
+
+/** 已确认的浏览根：canonical 路径由主进程持有，界面只显示它。 */
+export type RemoteWorkspaceRootResult = { ok: true; canonicalPath: string } | { ok: false; code: string };
+
+/** 浏览根确认请求：主进程 → 渲染层推送（与指纹确认同一套 broker 规矩）。 */
+export type RemoteWorkspaceRootRequest = { requestId: string; expiresAt: number; hostId: string; label: string; requestedPath: string; canonicalPath: string };

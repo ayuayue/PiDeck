@@ -258,6 +258,18 @@ const api = {
 		answerRepair: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteHostRepairAnswer, requestId, choice) as Promise<import("../shared/types/remoteHost").RemoteHostRepairAnswerResult>,
 		/** 订阅修复确认请求；返回 unsubscribe。 */
 		onRepairConfirm: (callback: (request: import("../shared/types/remoteHost").RemoteHostRepairRequest) => void) => subscribe(ipcChannels.remoteHostRepairConfirm, callback),
+		/** 解析远端目录为 canonical 路径并推送确认（只读探测，不写任何东西）。 */
+		resolveWorkspaceRoot: (hostId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteWorkspaceResolveRoot, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteWorkspaceRootResult>,
+		/** 回答浏览根确认：批准后主进程持有该 root，渲染层只给相对路径。 */
+		answerWorkspaceRoot: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteWorkspaceAnswerRoot, requestId, choice) as Promise<{ ok: true; confirmed: boolean } | { ok: false; code: string }>,
+		/** 订阅浏览根确认请求；返回 unsubscribe。 */
+		onWorkspaceRootConfirm: (callback: (request: import("../shared/types/remoteHost").RemoteWorkspaceRootRequest) => void) => subscribe(ipcChannels.remoteWorkspaceRootConfirm, callback),
+		/** 当前已确认的浏览根（未确认时返回稳定码）。 */
+		getWorkspaceRoot: () => ipcRenderer.invoke(ipcChannels.remoteWorkspaceGetRoot) as Promise<import("../shared/types/remoteHost").RemoteWorkspaceRootResult>,
+		/** 列目录（相对路径；根为空串）。 */
+		listWorkspace: (hostId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteWorkspaceList, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteWorkspaceListResult>,
+		/** 读文件（相对路径）；内容为 base64。 */
+		readWorkspaceFile: (hostId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteWorkspaceRead, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteWorkspaceReadResult>,
 	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,

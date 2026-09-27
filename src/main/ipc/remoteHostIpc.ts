@@ -21,9 +21,12 @@ import type {
 	RemoteHostRepairRequest,
 	RemoteHostRepairRunResult,
 	RemoteHostRepairSummary,
+	RemoteWorkspaceRootResult,
 } from "../../shared/types/remoteHost";
 import type { RemoteHostCatalogView } from "../remote/RemoteHostCatalogView";
 import { RemoteHostRepair, type HostRepairAction } from "../remote/RemoteHostRepair";
+import { RemoteWorkspaceReader as RemoteWorkspaceReaderClass, createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
+import { resolveRemoteBrowseRoot } from "../remote/RemoteBrowseRoot";
 import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { parseSshConfig } from "../remote/SshConfigCandidates";
@@ -471,6 +474,143 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			return { ok: true, ran: true };
 		} catch (error) {
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_REPAIR_FAILED") };
+		}
+	});
+	/**
+	 * Remote workspace reads (Phase 3, read-only).
+	 *
+	 * Deliberately not routed through `ProjectStore`: the remote path therefore never appears on a `Project`,
+	 * so the hundreds of places that treat `project.path` as a local path cannot receive one. Registration
+	 * as a persistent project is a later, separate step that needs that surface audited.
+	 *
+	 * The confirmed root lives here and is the only absolute remote path in play; the renderer names
+	 * positions **relative to it**, so it cannot widen the boundary it was given.
+	 */
+	let workspaceRoot: { hostId: string; canonicalPath: string; digest: string } | undefined;
+	const workspaceRoots = new Map<string, { subjectId: string; digest: string }>();
+	const workspaceBroker = new PendingConfirmationBroker<{ hostId: string; canonicalPath: string }>({
+		onRemoved: (requestId) => {
+			workspaceRoots.delete(requestId);
+		},
+	});
+	const workspaceAction = "remote:workspace-root";
+	const workspaceDigest = (hostId: string, canonicalPath: string): string =>
+		createHash("sha256")
+			.update(JSON.stringify(["pideck-workspace-root-v1", hostId, canonicalPath]), "utf8")
+			.digest("hex");
+
+	/** A reader over the live session; the service is structurally the port the reader expects. */
+	const readerFor = async (): Promise<RemoteWorkspaceReaderClass | undefined> => {
+		const service = await resolveService();
+		if ("code" in service) return undefined;
+		return createRemoteWorkspaceReader({ port: service.service });
+	};
+
+	/** The confirmed root of the host the caller is asking about, or a stable refusal. */
+	const rootFor = (hostId: string): { canonicalPath: string } | { code: string } => {
+		if (workspaceRoot === undefined || workspaceRoot.hostId !== hostId) return { code: "REMOTE_WORKSPACE_ROOT_NOT_CONFIRMED" };
+		return { canonicalPath: workspaceRoot.canonicalPath };
+	};
+
+	/**
+	 * Validate a path the renderer named. Relative to the confirmed root by construction: an absolute path,
+	 * a traversal segment, a control byte or a backslash is refused here, so the helper only ever sees a
+	 * value that stays inside the boundary regardless of what the UI sent.
+	 */
+	const readRelativePath = (value: unknown): string | undefined => {
+		if (typeof value !== "string" || value.length > 4096) return undefined;
+		if (/[\u0000-\u001f\u007f\\]/.test(value)) return undefined;
+		if (value.startsWith("/")) return undefined;
+		if (value === "") return "";
+		const segments = value.split("/");
+		if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return undefined;
+		return value;
+	};
+
+	ipcMain.handle(ipcChannels.remoteWorkspaceResolveRoot, async (event, hostIdValue: unknown, pathValue: unknown): Promise<RemoteWorkspaceRootResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
+		const senderId = senderIdOf(event.sender);
+		if (senderId === undefined) return { ok: false, code: "REMOTE_WORKSPACE_ROOT_INVALID" };
+		// Validated here as well as inside the resolver: the boundary check is what the type narrowing rests
+		// on, and a renderer value must never reach a command builder on the strength of a downstream check.
+		if (typeof pathValue !== "string") return { ok: false, code: "REMOTE_BROWSE_ROOT_INVALID" };
+		const resolvedService = await resolveService();
+		if ("code" in resolvedService) return { ok: false, code: resolvedService.code };
+		try {
+			const resolved = await resolveRemoteBrowseRoot({ userDataDir: input.userDataDir, hostId: hostIdValue, client: resolvedService.service.client, userPath: pathValue });
+			const subjectId = hostIdValue;
+			const digest = workspaceDigest(hostIdValue, resolved.canonicalPath);
+			const { requestId, expiresAt } = workspaceBroker.begin({ senderId, action: workspaceAction, subjectId, stateDigest: digest, payload: { hostId: hostIdValue, canonicalPath: resolved.canonicalPath } });
+			workspaceRoots.set(requestId, { subjectId, digest });
+			if (!event.sender.isDestroyed()) event.sender.send(ipcChannels.remoteWorkspaceRootConfirm, { requestId, expiresAt, hostId: hostIdValue, label: pathValue, requestedPath: pathValue, canonicalPath: resolved.canonicalPath } satisfies import("../../shared/types/remoteHost").RemoteWorkspaceRootRequest);
+			return { ok: true, canonicalPath: resolved.canonicalPath };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_WORKSPACE_ROOT_INVALID") };
+		}
+	});
+
+	ipcMain.handle(ipcChannels.remoteWorkspaceAnswerRoot, async (event, requestId: unknown, choice: unknown): Promise<{ ok: true; confirmed: boolean } | { ok: false; code: string }> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 128) return { ok: false, code: "REMOTE_WORKSPACE_ROOT_INVALID" };
+		if (choice !== "approve" && choice !== "deny") return { ok: false, code: "REMOTE_WORKSPACE_ROOT_INVALID" };
+		const senderId = senderIdOf(event.sender);
+		if (senderId === undefined) return { ok: false, code: "REMOTE_WORKSPACE_ROOT_INVALID" };
+		const offered = workspaceRoots.get(requestId);
+		if (offered === undefined) return { ok: false, code: "HOST_REPAIR_CONFIRMATION_REQUIRED" };
+		try {
+			const payload = workspaceBroker.answer({ requestId, senderId, action: workspaceAction, subjectId: offered.subjectId, stateDigest: offered.digest, choice });
+			// Denial clears any previously confirmed root: keeping the old one after a refusal would let the
+			// next read silently use a boundary the user just declined to move to.
+			if (payload === null) {
+				if (workspaceRoot?.hostId === offered.subjectId) workspaceRoot = undefined;
+				return { ok: true, confirmed: false };
+			}
+			workspaceRoot = { hostId: payload.hostId, canonicalPath: payload.canonicalPath, digest: offered.digest };
+			return { ok: true, confirmed: true };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_WORKSPACE_ROOT_INVALID") };
+		}
+	});
+
+	ipcMain.handle(ipcChannels.remoteWorkspaceGetRoot, async (): Promise<RemoteWorkspaceRootResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		return workspaceRoot === undefined ? { ok: false, code: "REMOTE_WORKSPACE_ROOT_NOT_CONFIRMED" } : { ok: true, canonicalPath: workspaceRoot.canonicalPath };
+	});
+
+	ipcMain.handle(ipcChannels.remoteWorkspaceList, async (_event, hostIdValue: unknown, pathValue: unknown): Promise<import("../../shared/types/remoteHost").RemoteWorkspaceListResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_WORKSPACE_PATH_INVALID" };
+		const relative = readRelativePath(pathValue);
+		if (relative === undefined) return { ok: false, code: "REMOTE_WORKSPACE_PATH_INVALID" };
+		const root = rootFor(hostIdValue);
+		if ("code" in root) return { ok: false, code: root.code };
+		const reader = await readerFor();
+		if (reader === undefined) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
+		try {
+			const result = await reader.list(hostIdValue, relative);
+			// Only the fields the UI renders cross: a name, a kind and an optional size.
+			return { ok: true, entries: result.entries.map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })) };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_WORKSPACE_READ_FAILED") };
+		}
+	});
+
+	ipcMain.handle(ipcChannels.remoteWorkspaceRead, async (_event, hostIdValue: unknown, pathValue: unknown): Promise<import("../../shared/types/remoteHost").RemoteWorkspaceReadResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_WORKSPACE_PATH_INVALID" };
+		// The read of the root itself is not a file; an empty path is a valid listing target but never a read.
+		const relative = readRelativePath(pathValue);
+		if (relative === undefined || relative === "") return { ok: false, code: "REMOTE_WORKSPACE_PATH_INVALID" };
+		const root = rootFor(hostIdValue);
+		if ("code" in root) return { ok: false, code: root.code };
+		const reader = await readerFor();
+		if (reader === undefined) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
+		try {
+			const file = await reader.readFile(hostIdValue, relative);
+			return { ok: true, contentBase64: Buffer.from(file.content).toString("base64"), bytes: file.bytes, mtimeMs: file.mtimeMs };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_WORKSPACE_READ_FAILED") };
 		}
 	});
 }

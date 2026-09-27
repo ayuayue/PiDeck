@@ -195,6 +195,14 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 	}
 
 	return {
+		/**
+		 * The verified client this service drives.
+		 *
+		 * Exposed to main-only consumers that must run their own pinned command against the same client the
+		 * connection uses — resolving a browse root, for instance. Sharing the instance is the point: a second
+		 * client could resolve through a different environment than the one the session was verified with.
+		 */
+		client: options.client,
 		/** Bootstrap-then-connect one host. Every failure is a stable code, never a thrown message. */
 		async connect(hostId: string): Promise<RemoteHostConnectResult> {
 			const entry = entryFor(hostId);
@@ -215,6 +223,25 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		listDiagnostics(hostId?: string) {
 			if (hostId !== undefined) return hosts.get(hostId)?.manager?.listDiagnostics(hostId) ?? [];
 			return [...hosts.values()].flatMap((entry) => entry.manager?.listDiagnostics() ?? []);
+		},
+		/**
+		 * Send one helper request on a ready host.
+		 *
+		 * Forwarded rather than reimplemented so the workspace reader can treat this service as its transport
+		 * port: the reader then owns the method-level contract (which `fs.*` calls exist, how chunks are
+		 * reassembled, what the read ceiling is) and the service keeps owning the session. The manager
+		 * already refuses anything but a ready host with a live protocol client.
+		 */
+		request(hostId: string, method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void }): Promise<unknown> {
+			const manager = hosts.get(hostId)?.manager;
+			if (manager === undefined) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
+			return manager.request(hostId, method, params, options);
+		},
+		/** Withdraw a request a ready host is still holding, by the id `request` reported. */
+		cancel(hostId: string, requestId: string, options?: { timeoutMs?: number }): Promise<unknown> {
+			const manager = hosts.get(hostId)?.manager;
+			if (manager === undefined) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
+			return manager.cancel(hostId, requestId, options);
 		},
 		/**
 		 * Stop every host. Waits for in-flight connects so a bootstrap that is still uploading cannot
