@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -280,4 +281,33 @@ test("new prompt invalidates an earlier request, and closed windows cannot appro
 	store.cancelSender(senderId);
 	await assert.rejects(store.answer({ requestId: currentOffer.requestId, hostId, senderId, choice: "approve" }), /SSH_HOST_CONFIRMATION_INVALID/);
 	await assertMissing(pinPath(directory));
+});
+
+test("the lazily discovered verifier goes through verified client discovery, not a bare constructor", async (t) => {
+	// 实跑回归（2026-09）：添加主机在 Linux 上抛 SSH_CLIENT_UNSUPPORTED_PLATFORM，而连接却能过。
+	// 原因就是这个懒加载路径 —— 所有既有测试都注入 verifier，于是它从未被执行：
+	// bare `createSshClientRuntime()` 会拒绝每个非 Windows 平台。
+	//
+	// 这里断言的是**源码形态 + 可替换的发现函数**，因为真实发现在没有 ssh 的机器上会失败，
+	// 而这条测试要锁的是「走的是哪条路径」。
+	const source = readFileSync("src/main/remote/SshHostPinStore.ts", "utf8");
+	assert.match(source, /resolvePosixSshClient/, "the lazy path must use verified discovery");
+	assert.doesNotMatch(source, /this\.client \?\? createSshClientRuntime\(\)/, "a bare constructor refuses every non-Windows platform");
+	// 懒加载是异步的（发现要探测二进制），所有调用点必须 await 它。
+	const awaited = source.match(/await \(await this\.verifierFor\(\)\)/g) ?? [];
+	assert.equal(awaited.length, 3, "every verifier use must await discovery");
+});
+
+test("discovery failure surfaces as a stable code when no client is injected", async (t) => {
+	// 没有可用客户端时，懒加载必须报稳定码，而不是返回一个半可用的 verifier。
+	const directory = await mkdtemp(join(tmpdir(), "pideck-pin-lazy-"));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const store = new SshHostPinStore(directory);
+	t.after(() => store.dispose());
+	// 本机若有可用 ssh 则应成功；若环境没有可用客户端则必须是稳定码，不能是别的异常形态。
+	try {
+		await store.offer({ hostId, senderId: 7, route: { sshHost: "build-pi", user: "alice", port: 2222 } });
+	} catch (error) {
+		assert.match(String(error?.message), /^[A-Z][A-Z0-9_]{2,63}$/, `expected a stable code, got: ${error?.message}`);
+	}
 });

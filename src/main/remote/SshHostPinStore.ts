@@ -3,7 +3,7 @@ import { link, lstat, mkdir, open, unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
 import { buildSshConfigQueryArgs, type SshDraftRoute } from "./SshCommandBuilder";
-import { createSshClientRuntime, type SshClientRuntime } from "./SshClientRuntime";
+import { resolvePosixSshClient, type SshClientRuntime } from "./SshClientRuntime";
 import { fingerprintSshHostKey, readBoundedHostKey, type PreverifiedSshHostKey, type SshDraftHostCandidate, verifyDraftSshHost } from "./SshHostVerifier";
 
 export type VerifiedSshEndpoint = Omit<SshDraftHostCandidate, "knownHostsBase64">;
@@ -106,11 +106,16 @@ export class SshHostPinStore {
 	/**
 	 * Resolve the client lazily: constructing the store must stay cheap (and must not require an
 	 * OpenSSH installation) so simply opening the host catalog cannot fail on a missing client.
+	 *
+	 * The lazy path must go through the same verified discovery the connection path uses. Calling
+	 * `createSshClientRuntime()` bare refuses every non-Windows platform, which is how adding a host
+	 * failed on Linux while connecting worked: the pin store built its own client instead of borrowing
+	 * the one the caller had already proven usable.
 	 */
-	private verifierFor(): SshHostPinVerifier {
+	private async verifierFor(): Promise<SshHostPinVerifier> {
 		if (this.verifier) return this.verifier;
-		this.resolvedClient ??= this.client ?? createSshClientRuntime();
-		const client = this.resolvedClient;
+		this.resolvedClient ??= this.client ?? (await resolvePosixSshClient());
+		const client: SshClientRuntime = this.resolvedClient;
 		return (route, pinAlias, preverifiedHostKey) => verifyDraftSshHost(route, pinAlias, { client, ...(preverifiedHostKey === undefined ? {} : { preverifiedHostKey }) });
 	}
 
@@ -127,7 +132,7 @@ export class SshHostPinStore {
 		} catch {
 			throw new Error("SSH_HOST_PIN_INVALID");
 		}
-		const candidate = await this.verifierFor()(route, pinAlias, { knownHostsBytes: bytes, fingerprint });
+		const candidate = await (await this.verifierFor())(route, pinAlias, { knownHostsBytes: bytes, fingerprint });
 		if (!candidateBytes(candidate, hostId).equals(bytes)) throw new Error("SSH_HOST_KEY_MISMATCH");
 		return candidate;
 	}
@@ -144,7 +149,7 @@ export class SshHostPinStore {
 		const trustedBytes = trusted === undefined ? undefined : Buffer.isBuffer(trusted.knownHostsBytes) ? Buffer.from(trusted.knownHostsBytes) : undefined;
 		if (trusted !== undefined && (trustedBytes === undefined || fingerprintSshHostKey(trustedBytes, `pideck-${input.hostId}`) !== trusted.fingerprint)) throw new Error("SSH_HOST_KEY_MISMATCH");
 		await assertPinAbsent(filePath);
-		const candidate = await this.verifierFor()(route, `pideck-${input.hostId}`, trustedBytes !== undefined && trusted !== undefined ? { knownHostsBytes: trustedBytes, fingerprint: trusted.fingerprint } : undefined);
+		const candidate = await (await this.verifierFor())(route, `pideck-${input.hostId}`, trustedBytes !== undefined && trusted !== undefined ? { knownHostsBytes: trustedBytes, fingerprint: trusted.fingerprint } : undefined);
 		const bytes = candidateBytes(candidate, input.hostId);
 		if (trustedBytes !== undefined && !bytes.equals(trustedBytes)) throw new Error("SSH_HOST_KEY_MISMATCH");
 		await assertPinAbsent(filePath);
@@ -182,7 +187,7 @@ export class SshHostPinStore {
 		this.byHost.delete(input.hostId);
 		this.pendingRoutes.delete(input.hostId);
 		if (!authorized) return null;
-		const current = await this.verifierFor()(authorized.route, authorized.candidate.pinAlias, {
+		const current = await (await this.verifierFor())(authorized.route, authorized.candidate.pinAlias, {
 			knownHostsBytes: candidateBytes(authorized.candidate, input.hostId),
 			fingerprint: authorized.candidate.hostKeyFingerprints[0],
 		});
