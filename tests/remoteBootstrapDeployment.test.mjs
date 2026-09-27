@@ -25,6 +25,7 @@ async function prepared(t) {
 
 function bootstrap(manifest) {
 	const listeners = new Set();
+	const exitListeners = new Set();
 	const writes = [];
 	return {
 		writes,
@@ -39,6 +40,10 @@ function bootstrap(manifest) {
 		onStdoutLine(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
+		},
+		onExit(listener) {
+			exitListeners.add(listener);
+			return () => exitListeners.delete(listener);
 		},
 	};
 }

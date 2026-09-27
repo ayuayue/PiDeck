@@ -10,7 +10,7 @@ const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const SHA256 = /^[0-9a-f]{64}$/;
 const NONCE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
 const READY_TIMEOUT_MS = 30_000;
-const SESSION_TIMEOUT_MS = 120_000;
+const SESSION_TIMEOUT_MS = 300_000; // ready (30s) + upload (120s) + finalize (120s) + cleanup margin
 
 /** Bounded metadata for a bootstrap entry that exited without a protocol error frame. */
 export class BootstrapReadyUnconfirmedError extends Error {

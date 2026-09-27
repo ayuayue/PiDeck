@@ -47,7 +47,12 @@ function fakeBootstrapSession(manifest, overrides = {}) {
 		write(line) {
 			const frame = JSON.parse(line);
 			written.push(frame);
-			if (frame.op === "finalize-commit") queueMicrotask(() => emit({ op: "finalized", active: `./bundles/${manifest.bundleSha256}`, files: manifest.files.length }));
+			if (frame.op === "finalize-commit")
+				queueMicrotask(() => {
+					if (overrides.exitAfterCommit) {
+						for (const listener of [...exitListeners]) listener({ kind: "exited", code: 1, signal: null });
+					} else emit({ op: "finalized", active: `./bundles/${manifest.bundleSha256}`, files: manifest.files.length });
+				});
 		},
 		async stop(reason) {
 			stopped.push(reason);
@@ -100,11 +105,19 @@ test("ready matches nonce and helper manifest before pinned scp and finalize", a
 		["/usr/bin/ssh", "/usr/bin/scp"],
 	);
 	assert.equal(starts[0].stdin, true);
+	assert.ok(starts[0].timeoutMs >= 270_000, "entry lifetime must cover ready, upload and finalize budgets");
 	assert.deepEqual(
 		session.written.map((frame) => frame.op),
 		["finalize-begin", "finalize-file", "finalize-commit"],
 	);
 	assert.deepEqual(session.stopped, ["shutdown"]);
+});
+
+test("entry exit after finalize commit aborts deployment without awaiting its deadline", async (t) => {
+	const { session, starts, input } = await fixture(t, { exitAfterCommit: true });
+	await assert.rejects(runPreparedBootstrap(input), /BOOTSTRAP_FINALIZE_UNCONFIRMED/);
+	assert.equal(starts.length, 2, "upload completed before the entry exited");
+	assert.deepEqual(session.stopped, ["abort"]);
 });
 
 test("an scp invocation for another host is rejected before starting the entry", async (t) => {

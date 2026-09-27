@@ -19,6 +19,7 @@ function manifestOf(files = [{ name: "helper.mjs", sha256: SHA_A, bytes: 128 }],
 /** Session stub: records written frames and lets the test answer with result lines. */
 function createSession() {
 	const listeners = new Set();
+	const exitListeners = new Set();
 	return {
 		frames: [],
 		write(line) {
@@ -27,6 +28,16 @@ function createSession() {
 		onStdoutLine(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
+		},
+		onExit(listener) {
+			exitListeners.add(listener);
+			return () => exitListeners.delete(listener);
+		},
+		emitExit() {
+			for (const listener of [...exitListeners]) listener({ kind: "exited", code: 1, signal: null });
+		},
+		exitListenerCount() {
+			return exitListeners.size;
 		},
 		emit(frame) {
 			const line = typeof frame === "string" ? frame : JSON.stringify(frame);
@@ -115,6 +126,35 @@ test("sends the frames in order and resolves on the terminal frame", async () =>
 	session.emit({ v: 1, op: "finalized", active: "./bundles/" + BUNDLE, files: 1 });
 	assert.deepEqual(plain(await pending), { status: "finalized", active: "./bundles/" + BUNDLE, files: 1 });
 	assert.equal(session.listenerCount(), 0, "the subscription is always released");
+});
+
+test("entry exit after finalize commit fails without waiting for the full deadline", async () => {
+	const session = createSession();
+	const deadlines = [];
+	const timers = {
+		setTimeout(handler) {
+			deadlines.push(handler);
+			return deadlines.length;
+		},
+		clearTimeout() {},
+	};
+	const run = runBootstrapFinalize(session, manifestOf(), { timers });
+	assert.equal(session.frames.at(-1).op, "finalize-commit");
+	session.emitExit();
+	const outcome = await Promise.race([run, new Promise((resolve) => setImmediate(() => resolve(null)))]);
+	if (outcome === null) deadlines[0]();
+	assert.deepEqual(plain(await run), { status: "error", code: "BOOTSTRAP_FINALIZE_UNCONFIRMED" });
+	assert.equal(session.listenerCount(), 0);
+	assert.equal(session.exitListenerCount(), 0);
+});
+
+test("a finalized frame before process exit remains the terminal result", async () => {
+	const session = createSession();
+	const run = runBootstrapFinalize(session, manifestOf());
+	session.emit({ v: 1, op: "finalized", active: `./bundles/${BUNDLE}`, files: 1 });
+	session.emitExit();
+	assert.deepEqual(plain(await run), { status: "finalized", active: `./bundles/${BUNDLE}`, files: 1 });
+	assert.equal(session.exitListenerCount(), 0);
 });
 
 test("maps the entry's error and abort frames onto outcomes", async () => {

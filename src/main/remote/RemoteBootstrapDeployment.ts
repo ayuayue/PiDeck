@@ -69,7 +69,7 @@ export async function deployPreparedBundle(input: PreparedBundleDeployment): Pro
 			const exit = await awaitUploadExit(input.launcher, input, invocation);
 			if (exit.kind !== "exited" || exit.code !== 0) throw new Error("BOOTSTRAP_UPLOAD_FAILED");
 			const outcome = await runBootstrapFinalize(input.session, plan.manifest, { executableNames: plan.executableNames, timeoutMs: FINALIZE_TIMEOUT_MS });
-			if (outcome.status === "timeout") throw new Error("BOOTSTRAP_FINALIZE_UNCONFIRMED");
+			if (outcome.status === "timeout" || (outcome.status === "error" && outcome.code === "BOOTSTRAP_FINALIZE_UNCONFIRMED")) throw new Error("BOOTSTRAP_FINALIZE_UNCONFIRMED");
 			if (outcome.status !== "finalized") throw new Error(outcome.status === "aborted" ? "BOOTSTRAP_ABORTED" : "BOOTSTRAP_REMOTE_REJECTED");
 			finalized = true;
 			return { bundleSha256: plan.manifest.bundleSha256, deployRoot: input.ready.deployRoot, active: outcome.active };

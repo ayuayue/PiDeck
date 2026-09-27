@@ -1,10 +1,11 @@
 import { decodeBundleManifest } from "./RemoteBootstrapContract";
 import { REMOTE_BOOTSTRAP_MAX_FRAME_BYTES, REMOTE_BOOTSTRAP_PROTOCOL_VERSION, type RemoteBootstrapFileMode, type RemoteBootstrapInboundFrame, type RemoteBundleManifest } from "./RemoteHelperContract";
 
-/** A bootstrap staging session: frames out through write(), results in through the stdout lines. */
+/** A bootstrap staging session: frames out through write(), results in through stdout and process exit. */
 export type BootstrapSession = {
 	write(line: string): void;
 	onStdoutLine(listener: (line: string) => void): () => void;
+	onExit(listener: () => void): () => void;
 };
 
 export type BootstrapTimers = {
@@ -127,7 +128,7 @@ export function decodeBootstrapResult(line: string): BootstrapReadyFrame | { op:
  * entry's single terminal frame. The subscription is always released, including on timeout.
  */
 export function runBootstrapFinalize(session: BootstrapSession, manifest: RemoteBundleManifest, options: BootstrapFinalizeOptions = {}): Promise<BootstrapFinalizeOutcome> {
-	if (typeof session?.write !== "function" || typeof session?.onStdoutLine !== "function") return Promise.reject(new Error("BOOTSTRAP_INPUT_INVALID"));
+	if (typeof session?.write !== "function" || typeof session?.onStdoutLine !== "function" || typeof session?.onExit !== "function") return Promise.reject(new Error("BOOTSTRAP_INPUT_INVALID"));
 	let frames: string[];
 	try {
 		frames = buildFinalizeFrames(manifest, options);
@@ -141,10 +142,13 @@ export function runBootstrapFinalize(session: BootstrapSession, manifest: Remote
 		let commitIssued = false;
 		let timer: unknown;
 		let unsubscribe: (() => void) | undefined;
+		let unsubscribeExit: (() => void) | undefined;
 		const release = (): void => {
 			if (timer !== undefined) timers.clearTimeout(timer);
 			unsubscribe?.();
 			unsubscribe = undefined;
+			unsubscribeExit?.();
+			unsubscribeExit = undefined;
 		};
 		const finish = (outcome: BootstrapFinalizeOutcome): void => {
 			if (settled) return;
@@ -175,6 +179,10 @@ export function runBootstrapFinalize(session: BootstrapSession, manifest: Remote
 				if (frame.files !== manifest.files.length) return finish({ status: "error", code: "BOOTSTRAP_FINALIZE_INCOMPLETE" });
 				finish({ status: "finalized", active: frame.active, files: frame.files });
 			});
+			if (!settled) {
+				// Launcher emits exit only after draining stdout, so a final protocol frame wins over exit.
+				unsubscribeExit = session.onExit(() => finish({ status: "error", code: "BOOTSTRAP_FINALIZE_UNCONFIRMED" }));
+			}
 		} catch (error) {
 			abort(error);
 			return;
