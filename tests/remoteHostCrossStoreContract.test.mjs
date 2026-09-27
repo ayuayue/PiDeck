@@ -24,6 +24,10 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	["src/shared/types/remoteHost.ts:RemoteHostDisconnectResult", "runtime"],
 	["src/shared/types/remoteHost.ts:RemoteHostDiagnosticsResult", "runtime"],
 	["src/shared/types/remoteHost.ts:RemoteHostOperationFailure", "runtime"],
+	// 添加流程的两个结果类型同样只是回显 hostId（一个刚建的 draft），不持久化引用。
+	["src/shared/types/remoteHost.ts:RemoteHostAddResult", "runtime"],
+	["src/shared/types/remoteHost.ts:RemoteHostPinAnswerResult", "runtime"],
+	["src/shared/types/remoteHost.ts:RemoteHostPinRequest", "runtime"],
 ]);
 
 const TYPE_FILES = readdirSync("src/shared/types")

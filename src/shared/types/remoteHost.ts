@@ -51,3 +51,49 @@ export type RemoteHostDisconnectResult = { ok: true; hostId: string } | RemoteHo
 
 /** diagnostics 的结果：按主机取有界历史。 */
 export type RemoteHostDiagnosticsResult = { ok: true; hostId: string; entries: RemoteHostDiagnosticEntry[] } | RemoteHostOperationFailure;
+
+/**
+ * 从 `~/.ssh/config` 扫描出的可添加候选。与主进程解析器的输出同形，但仍在本层重新声明：
+ * 渲染层只能依赖 `shared` 契约，不能 import 主进程模块。
+ */
+export type RemoteHostConfigCandidate = {
+	alias: string;
+	hostName: string;
+	user: string;
+	port: number | null;
+	identityFile: string | null;
+};
+
+/** 扫描结果。`skipped` 让 UI 能解释「为什么某台主机没出现」，而不是静默少一项。 */
+export type RemoteHostConfigScanResult = { ok: true; candidates: RemoteHostConfigCandidate[]; skipped: { alias: string; reason: "wildcard" | "invalid" | "unsupported-directive" }[]; user: string } | { ok: false; code: string };
+
+/** 手动添加的字段（与扫描候选共用同一套提交路径）。 */
+export type RemoteHostAddInput = {
+	label: string;
+	hostName: string;
+	user?: string;
+	port?: number | null;
+	identityFile?: string | null;
+};
+
+/**
+ * 指纹确认请求：主进程 → 渲染层推送。
+ *
+ * `requestId` 是 main-only broker 签发的一次性凭证，渲染层**只能回答它**，不能自己构造候选。
+ * 指纹列在这里是因为它是用户**必须亲眼看**的内容——确认的本质就是「这个指纹是不是我核过的那个」。
+ */
+export type RemoteHostPinRequest = {
+	requestId: string;
+	expiresAt: number;
+	hostId: string;
+	hostName: string;
+	user: string;
+	port: number;
+	hostKeyFingerprints: string[];
+};
+
+/** 添加主机的阶段结果：`pending` 表示已推送指纹确认、等待用户回答。 */
+export type RemoteHostAddResult = { ok: true; hostId: string; status: "pending" } | { ok: false; code: string };
+
+/** 回答指纹确认的结果。`hostId` 在成功时回显，便于 UI 定位到刚添加的那一行。 */
+export type RemoteHostPinAnswerResult = { ok: true; hostId: string; approved: boolean } | { ok: false; code: string };

@@ -240,6 +240,14 @@ const api = {
 		disconnect: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostDisconnect, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostDisconnectResult>,
 		/** 读取脱敏诊断历史（只读）。 */
 		diagnostics: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostDiagnostics, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostDiagnosticsResult>,
+		/** 扫描 ~/.ssh/config 列出可添加的候选（只读，不联网、不改配置）。 */
+		scanConfig: () => ipcRenderer.invoke(ipcChannels.remoteHostScanConfig) as Promise<import("../shared/types/remoteHost").RemoteHostConfigScanResult>,
+		/** 添加主机：建立 draft 并推送指纹确认（推送经 onPinRequest 到达）。 */
+		add: (input: import("../shared/types/remoteHost").RemoteHostAddInput) => ipcRenderer.invoke(ipcChannels.remoteHostAdd, input) as Promise<import("../shared/types/remoteHost").RemoteHostAddResult>,
+		/** 回答指纹确认：只能回答 main 签发的 requestId（指纹本身由 main 持有，渲染层不传）。 */
+		answerPin: (requestId: string, hostId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteHostAnswerPin, requestId, hostId, choice) as Promise<import("../shared/types/remoteHost").RemoteHostPinAnswerResult>,
+		/** 订阅指纹确认请求；返回 unsubscribe，组件卸载必须退订。 */
+		onPinRequest: (callback: (request: import("../shared/types/remoteHost").RemoteHostPinRequest) => void) => subscribe(ipcChannels.remoteHostPinRequest, callback),
 	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,

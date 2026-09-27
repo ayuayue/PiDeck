@@ -350,6 +350,10 @@ export function createPreviewApi(): PiDesktopApi {
 			connect: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
 			disconnect: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
 			diagnostics: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
+			scanConfig: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			add: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			answerPin: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			onPinRequest: () => () => undefined,
 		},
 		projects: {
 			list: async () => projects,

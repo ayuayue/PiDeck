@@ -6,6 +6,14 @@ export const ipcChannels = {
 	remoteHostDisconnect: "remote:disconnect",
 	/** 读取某主机的脱敏诊断历史（只读，不启动任何进程）。 */
 	remoteHostDiagnostics: "remote:diagnostics",
+	/** 扫描 ~/.ssh/config 列出可添加的候选（只读；不联网、不改动任何配置）。 */
+	remoteHostScanConfig: "remote:scan-config",
+	/** 添加主机：建立 draft 并推送指纹确认（推送走 remoteHostPinRequest）。 */
+	remoteHostAdd: "remote:add",
+	/** 回答指纹确认（只能回答主进程签发的 requestId）。 */
+	remoteHostAnswerPin: "remote:answer-pin",
+	/** 主进程 → 渲染层：指纹确认请求推送。 */
+	remoteHostPinRequest: "remote:pin-request",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）

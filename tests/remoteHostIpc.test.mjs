@@ -222,3 +222,184 @@ test("diagnostics history is capped per request", async () => {
 	// 保留的是**最近**的 200 条，不是最早的。
 	assert.equal(result.entries.at(-1).code, "SSH_ENTRY_4999");
 });
+
+/** 用桩替换 store/pin，并记录调用：本用例只验 IPC 边界的校验与 senderId 绑定，不碰文件系统。 */
+function addFlowHandlers(options = {}) {
+	const calls = { createDraft: [], offerPin: [], confirmPin: [], sent: [] };
+	const handlers = new Map();
+	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
+		stubs: {
+			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
+			"../remote/RemoteHostStore": {
+				RemoteHostStore: {
+					async open() {
+						return {
+							getSnapshot: () => ({ revision: 7 }),
+							async createDraft(draft, revision) {
+								calls.createDraft.push({ draft, revision });
+								return { id: HOST_ID };
+							},
+							async offerPin(hostId, senderId, revision) {
+								calls.offerPin.push({ hostId, senderId, revision });
+								if (options.offerFails) throw new Error("REMOTE_HOST_PIN_INVALID");
+								return { requestId: "req-1", expiresAt: 123, hostId, hostName: "10.81.2.15", user: "deploy", port: 22, hostKeyFingerprints: ["SHA256:abc"] };
+							},
+							async confirmPin(answer, revision) {
+								calls.confirmPin.push({ answer, revision });
+								if (options.confirmFails) throw new Error("CONFIRMATION_EXPIRED");
+								// 桩必须**真的执行** sender 绑定，否则「把 senderId 写死」这种改动测不出来：
+								// 真实 broker 会拒绝来自其他窗口的回答，替身放行就等于把这条防线测没了。
+								const offered = calls.offerPin.at(-1);
+								if (offered !== undefined && offered.senderId !== answer.senderId) throw new Error("CONFIRMATION_INVALID");
+								return answer.choice === "approve" ? { id: answer.hostId } : null;
+							},
+						};
+					},
+				},
+			},
+			"../remote/SshHostPinStore": {
+				SshHostPinStore: class {
+					dispose() {}
+				},
+			},
+		},
+	});
+	registerRemoteHostIpc({ enabled: true, userDataDir: "/tmp/ignored", list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }), ...options.register });
+	const sender = {
+		id: 42,
+		isDestroyed: () => false,
+		send: (channel, payload) => calls.sent.push({ channel, payload }),
+	};
+	return { handlers, calls, sender };
+}
+
+test("add validates every field before the store is touched", async () => {
+	const { handlers, calls, sender } = addFlowHandlers();
+	const handler = handlers.get("remote:add");
+	for (const bad of [
+		null,
+		{},
+		{ label: "", hostName: "ok.example" },
+		{ label: "ok", hostName: "" },
+		{ label: "ok", hostName: "has space" },
+		{ label: "ok", hostName: "ok.example", user: "bad user" },
+		{ label: "ok", hostName: "ok.example", port: 0 },
+		{ label: "ok", hostName: "ok.example", port: 70000 },
+		{ label: "ok", hostName: "ok.example", port: "not-a-port" },
+		{ label: "\u0000evil", hostName: "ok.example" },
+		{ label: "x".repeat(200), hostName: "ok.example" },
+	]) {
+		const result = await handler({ sender }, bad);
+		assert.equal(result.ok, false, `${JSON.stringify(bad)} must be rejected`);
+		assert.equal(result.code, "REMOTE_HOST_ADD_INVALID");
+	}
+	assert.equal(calls.createDraft.length, 0, "invalid input must not reach the store");
+});
+
+test("add binds the pin offer to the calling webContents, not a renderer-supplied id", async () => {
+	// 这是整个添加流程的安全核心：broker 只接受「被展示指纹的那个窗口」的回答。
+	// 若能由渲染层自报 senderId，任何脚本都能替用户确认指纹。
+	const { handlers, calls, sender } = addFlowHandlers();
+	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15", user: "deploy" });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, hostId: HOST_ID, status: "pending" });
+	assert.equal(calls.offerPin[0].senderId, 42, "the broker's sender binding must come from event.sender.id");
+	// 渲染层即使自报 senderId 也不被采纳（readAddInput 根本不读该字段）。
+	const spoof = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15", senderId: 1 });
+	assert.equal(spoof.ok, true);
+	assert.equal(calls.offerPin[1].senderId, 42, "a renderer-supplied senderId must be ignored");
+});
+
+test("add pushes the fingerprint request to the asking window", async () => {
+	const { handlers, calls, sender } = addFlowHandlers();
+	await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.equal(calls.sent.length, 1);
+	assert.equal(calls.sent[0].channel, "remote:pin-request");
+	// 指纹必须真的推给用户——确认的本质就是让他核对这个值。
+	assert.deepEqual(JSON.parse(JSON.stringify(calls.sent[0].payload.hostKeyFingerprints)), ["SHA256:abc"]);
+	assert.equal(calls.sent[0].payload.requestId, "req-1");
+});
+
+test("add reports a stable code when the offer fails, and sends nothing", async () => {
+	const { handlers, calls, sender } = addFlowHandlers({ offerFails: true });
+	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID" });
+	assert.equal(calls.sent.length, 0, "a failed offer must not push a confirmation dialog");
+});
+
+test("answerPin validates its inputs and its sender before the store is touched", async () => {
+	const { handlers, calls, sender } = addFlowHandlers();
+	const handler = handlers.get("remote:answer-pin");
+	for (const args of [
+		["", HOST_ID, "approve"],
+		["x".repeat(200), HOST_ID, "approve"],
+		["req-1", "not-an-id", "approve"],
+		["req-1", HOST_ID, "maybe"],
+		["req-1", HOST_ID, undefined],
+	]) {
+		const result = await handler({ sender }, ...args);
+		assert.equal(result.ok, false, `${JSON.stringify(args)} must be rejected`);
+	}
+	// senderId 非法的窗口不能回答。
+	const noSender = await handler({ sender: { id: 0, isDestroyed: () => false } }, "req-1", HOST_ID, "approve");
+	assert.equal(noSender.ok, false);
+	assert.equal(calls.confirmPin.length, 0, "invalid answers must not reach the store");
+});
+
+test("approving saves the pin and denying leaves the draft unverified", async () => {
+	// 先走一次 add，让桩记住这次确认被推给了哪个 sender（否则桩无法执行绑定检查）。
+	const approved = addFlowHandlers();
+	await approved.handlers.get("remote:add")({ sender: approved.sender }, { label: "serve", hostName: "10.81.2.15" });
+	const approveResult = await approved.handlers.get("remote:answer-pin")({ sender: approved.sender }, "req-1", HOST_ID, "approve");
+	assert.deepEqual(JSON.parse(JSON.stringify(approveResult)), { ok: true, hostId: HOST_ID, approved: true });
+	assert.equal(approved.calls.confirmPin[0].answer.choice, "approve");
+
+	const denied = addFlowHandlers();
+	await denied.handlers.get("remote:add")({ sender: denied.sender }, { label: "serve", hostName: "10.81.2.15" });
+	const denyResult = await denied.handlers.get("remote:answer-pin")({ sender: denied.sender }, "req-1", HOST_ID, "deny");
+	// 拒绝是正常结果而不是失败：没保存 pin，draft 保持未验证。
+	assert.deepEqual(JSON.parse(JSON.stringify(denyResult)), { ok: true, hostId: HOST_ID, approved: false });
+});
+
+test("an answer from a different window is refused", async () => {
+	// broker 的 sender 绑定：指纹展示给窗口 A，窗口 B 的回答必须无效——否则任何脚本都能替用户确认。
+	const { handlers, calls, sender } = addFlowHandlers();
+	await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	const other = { id: 99, isDestroyed: () => false, send: () => undefined };
+	const result = await handlers.get("remote:answer-pin")({ sender: other }, "req-1", HOST_ID, "approve");
+	assert.equal(result.ok, false);
+	assert.equal(result.code, "CONFIRMATION_INVALID");
+	// 回答确实到达了桩（说明拦截发生在绑定检查处，而不是被前面的校验挡住）。
+	assert.equal(calls.confirmPin.at(-1).answer.senderId, 99);
+});
+
+test("a store error while answering becomes a stable code, not a thrown message", async () => {
+	const { handlers, sender } = addFlowHandlers({ confirmFails: true });
+	const result = await handlers.get("remote:answer-pin")({ sender }, "req-1", HOST_ID, "approve");
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "CONFIRMATION_EXPIRED" });
+});
+
+test("scan and add honour the feature gate", async () => {
+	const { handlers } = addFlowHandlers({ register: { enabled: false } });
+	for (const channel of ["remote:scan-config", "remote:add", "remote:answer-pin"]) {
+		const result = await handlers.get(channel)({ sender: { id: 42, isDestroyed: () => false } }, { label: "x", hostName: "y" }, HOST_ID, "approve");
+		assert.equal(result.ok, false, `${channel} must be gated`);
+		assert.equal(result.code, "REMOTE_FEATURE_DISABLED");
+	}
+});
+
+test("the new add-host channels are declared and bridged in all three places", () => {
+	const shared = readFileSync("src/shared/ipc.ts", "utf8");
+	const preload = readFileSync("src/preload/index.ts", "utf8");
+	for (const [key, channel] of [
+		["remoteHostScanConfig", "remote:scan-config"],
+		["remoteHostAdd", "remote:add"],
+		["remoteHostAnswerPin", "remote:answer-pin"],
+		["remoteHostPinRequest", "remote:pin-request"],
+	])
+		assert.match(shared, new RegExp(`${key}:\\s*"${channel}"`));
+	assert.match(preload, /scanConfig:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteHostScanConfig/);
+	assert.match(preload, /add:\s*\(input[\s\S]{0,120}?ipcRenderer\.invoke\(ipcChannels\.remoteHostAdd/);
+	assert.match(preload, /answerPin:\s*\(requestId[\s\S]{0,160}?ipcRenderer\.invoke\(ipcChannels\.remoteHostAnswerPin/);
+	// 订阅必须返回 unsubscribe（项目硬性规则），否则窗口销毁后仍在推送。
+	assert.match(preload, /onPinRequest:\s*\(callback[\s\S]{0,200}?subscribe\(ipcChannels\.remoteHostPinRequest/);
+});

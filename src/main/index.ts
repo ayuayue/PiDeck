@@ -2375,6 +2375,7 @@ function registerIpc() {
 	};
 	registerRemoteHostIpc({
 		enabled: remoteExperimentEnabled,
+		userDataDir: app.getPath("userData"),
 		list: () => openRemoteHostCatalogView(app.getPath("userData")),
 		service: remoteHostServiceIfEnabled,
 	});
