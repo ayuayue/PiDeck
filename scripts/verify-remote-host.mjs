@@ -11,6 +11,7 @@ const { RemoteHostStore } = loadTsCommonJs("src/main/remote/RemoteHostStore.ts")
 const { buildPinnedSshInvocation } = loadTsCommonJs("src/main/remote/SshVerifiedConnection.ts");
 const { fingerprintSshHostKey } = loadTsCommonJs("src/main/remote/SshHostVerifier.ts");
 const { bootstrapPinnedHost, BootstrapReadyUnconfirmedError } = loadTsCommonJs("src/main/remote/RemoteBootstrapSession.ts");
+const { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 const { createSshProcessLauncher } = loadTsCommonJs("src/main/remote/SshProcessLauncher.ts");
 
 /** Disposable real-host smoke: no profile or key is written to PiDeck's userData. */
@@ -40,10 +41,26 @@ async function verifyRemoteHost(host, user, fingerprint, bootstrap) {
 		const invocation = await buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: "command -v node" });
 		const result = await client.run(invocation.executable, invocation.args);
 		if (result.exitCode !== 0 || !/^\/[\w/.-]+\n?$/.test(result.stdout)) throw new Error("REMOTE_NODE_PROBE_FAILED");
-		console.log("PINNED_PROFILE_OK", "NODE_PATH", result.stdout.trim(), "VER", invocation.openSshVersion);
+		const nodePath = result.stdout.trim();
+		console.log("PINNED_PROFILE_OK", "NODE_PATH", nodePath, "VER", invocation.openSshVersion);
+		// A well-formed absolute path says nothing about the version behind it: `node:` prefixed
+		// require() (used by the frozen entry, outside its try) landed in 14.18, so an older node
+		// dies at the entry's first statement with stderr and no frame, which is indistinguishable
+		// from a broken entry. Gate on the version here, before any bootstrap work is attempted, so
+		// an unsupported host fails as a precondition instead of a zero-frame exit. This probes the
+		// same verified executable, never PATH, and reuses the contract's own 22.3 threshold.
+		const versionInvocation = await buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: buildRemoteNodeVersionCommand(nodePath) });
+		const versionResult = await client.run(versionInvocation.executable, versionInvocation.args);
+		if (versionResult.exitCode !== 0) throw new Error("REMOTE_NODE_VERSION_PROBE_FAILED");
+		try {
+			assertSupportedRemoteNodeVersion(versionResult.stdout);
+		} catch {
+			throw new Error(`REMOTE_NODE_VERSION_UNSUPPORTED ${nodePath} ${versionResult.stdout.trim().slice(0, 32)}`);
+		}
+		console.log("REMOTE_NODE_VERSION_OK", versionResult.stdout.trim());
 		if (bootstrap) {
 			try {
-				const activated = await bootstrapPinnedHost({ userDataDir: directory, hostId: profile.id, generation: 1, nonce: randomBytes(16).toString("hex"), nodePath: result.stdout.trim(), client, launcher: createSshProcessLauncher() });
+				const activated = await bootstrapPinnedHost({ userDataDir: directory, hostId: profile.id, generation: 1, nonce: randomBytes(16).toString("hex"), nodePath, client, launcher: createSshProcessLauncher() });
 				console.log("BOOTSTRAP_FINALIZED", activated.bundleSha256, activated.active);
 			} catch (error) {
 				if (error instanceof BootstrapReadyUnconfirmedError) console.error("BOOTSTRAP_NO_READY", error.exitKind, error.exitCode ?? "none", error.stderrSeen ? "stderr-present" : "no-stderr");
