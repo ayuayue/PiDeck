@@ -7,6 +7,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { buildPinnedSshInvocation } = loadTsCommonJs("src/main/remote/SshVerifiedConnection.ts");
+const { buildBootstrapCommand } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 const { RemoteHostStore } = loadTsCommonJs("src/main/remote/RemoteHostStore.ts");
 const { SshHostPinStore } = loadTsCommonJs("src/main/remote/SshHostPinStore.ts");
 const { parseSshResolvedRoute, sshRouteDigest } = loadTsCommonJs("src/main/remote/SshRouteDigest.ts");
@@ -138,6 +139,20 @@ test("fresh candidate and strict queries build pinned SSH/SCP argv per request",
 	assert.equal(terminal.args[0], "-tt");
 });
 
+test("strict config accepts omitted UpdateHostKeys but never an enabled value", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const { client: omitted } = configRunner(profile.id, ({ args, strict }) => (strict ? { exitCode: 0, stdout: strictConfig(profile.id, args).replace("updatehostkeys false\n", "") } : undefined));
+	await buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client: omitted });
+	const { client: enabled } = configRunner(profile.id, ({ args, strict }) => (strict ? { exitCode: 0, stdout: strictConfig(profile.id, args).replace("updatehostkeys false\n", "updatehostkeys true\n") } : undefined));
+	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client: enabled }), /SSH_HOST_STRICT_CONFIG_INVALID/);
+});
+
+test("strict config accepts mixed-case OpenSSH -G directive names", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const { client } = configRunner(profile.id, ({ args, strict }) => (strict ? { exitCode: 0, stdout: `${strictConfig(profile.id, args)}canonicalizePermittedcnames none\n` } : undefined));
+	await buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client });
+});
+
 test("a helper command rides after the destination and only on a batch session", async (t) => {
 	const { directory, profile } = await fixture(t);
 	const { client, calls } = configRunner(profile.id, ({ args, strict }) => ({ exitCode: 0, stdout: strict ? strictConfig(profile.id, args) : candidateConfig(profile.id) }));
@@ -159,6 +174,19 @@ test("a helper command rides after the destination and only on a batch session",
 	for (const bad of ["", "line\nbreak", "nul\u0000byte", "x".repeat(8193)]) {
 		await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: bad }), /SSH_REMOTE_COMMAND_INVALID/, JSON.stringify(bad.slice(0, 10)));
 	}
+});
+
+test("a frozen bootstrap command may exceed the helper limit, but arbitrary batch commands cannot", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const { client } = configRunner(profile.id);
+	const bootstrap = { nodeExecutable: "/usr/bin/node", protocolVersion: 1, bundleSha256: "a".repeat(64), nonce: "0123456789abcdef0123456789abcdef" };
+	const expected = buildBootstrapCommand(bootstrap);
+	assert.ok(expected.length > 8192);
+	const invocation = await buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, bootstrap });
+	assert.ok(invocation.args.at(-1) === expected);
+	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: expected }), /SSH_REMOTE_COMMAND_INVALID/);
+	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "scp", { client, bootstrap }), /SSH_REMOTE_COMMAND_NOT_ALLOWED/);
+	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-batch", { client, remoteCommand: "echo", bootstrap }), /SSH_REMOTE_COMMAND_INVALID/);
 });
 
 test("explicit jump and identity stay in both SSH and SCP without claiming exclusive key selection", async (t) => {
@@ -271,6 +299,34 @@ test("damaged pin inventory, held locks and backup recovery block SSH before a q
 		await assert.rejects(buildBatch(directory, profile.id, { client: runner.client }), /SSH_HOST_NOT_READY/, situation);
 		assert.equal(runner.calls.length, 0, situation);
 	}
+});
+
+test("a pending rebind journal or transaction lock blocks pinned SSH before config queries", async (t) => {
+	for (const blocker of ["remote-host-rebind.json", "remote-host-rebind.lock"]) {
+		const { directory, profile } = await fixture(t);
+		const hostFile = join(directory, "remote-hosts.json");
+		const pinFile = join(directory, "ssh-host-keys", profile.id);
+		await writeFile(join(directory, blocker), "pending\n");
+		const beforeHost = await readFile(hostFile);
+		const beforePin = await readFile(pinFile);
+		const runner = configRunner(profile.id);
+		await assert.rejects(buildBatch(directory, profile.id, { client: runner.client }), /SSH_HOST_NOT_READY/, blocker);
+		assert.equal(runner.calls.length, 0, blocker);
+		assert.deepEqual(await readFile(hostFile), beforeHost);
+		assert.deepEqual(await readFile(pinFile), beforePin);
+	}
+});
+
+test("a rebind journal appearing during route checks blocks the final invocation", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const hostFile = join(directory, "remote-hosts.json");
+	const beforeHost = await readFile(hostFile);
+	const runner = configRunner(profile.id, async ({ strict }) => {
+		if (strict) await writeFile(join(directory, "remote-host-rebind.json"), "pending\n");
+	});
+	await assert.rejects(buildBatch(directory, profile.id, { client: runner.client }), /SSH_HOST_NOT_READY/);
+	assert.equal(runner.calls.length, 2);
+	assert.deepEqual(await readFile(hostFile), beforeHost);
 });
 
 test("rejects pin and profile changes during or before config queries", async (t) => {

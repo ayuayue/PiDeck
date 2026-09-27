@@ -1,10 +1,12 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
+import { join } from "node:path";
 import { buildVerifiedSshArgv, type VerifiedSshArgvInput, type VerifiedSshCommandKind } from "./SshCommandBuilder";
 import { runSshClientSelfCheck, type SshClientRuntime } from "./SshClientRuntime";
 import { assertNoForwardedEnvironment, querySshDraftRoute } from "./SshHostVerifier";
 import { SshHostPinStore } from "./SshHostPinStore";
 import { RemoteHostStore, type RemoteHostStoreState } from "./RemoteHostStore";
+import { buildBootstrapCommand, type BootstrapCommandInput } from "./RemoteBootstrapContract";
 import { REMOTE_HELPER_MAX_REMOTE_COMMAND_LENGTH } from "./RemoteHelperContract";
 import type { RemoteHostProfile } from "./RemoteHostStoreCodec";
 import { parseSshResolvedRoute, sshRouteDigest } from "./SshRouteDigest";
@@ -32,6 +34,18 @@ function activeProfile(state: RemoteHostStoreState, hostId: string): RemoteHostP
 	return { ...profile, verifiedEndpoint: profile.verifiedEndpoint };
 }
 
+async function assertNoPendingHostRebind(userDataDir: string): Promise<void> {
+	for (const name of ["remote-host-rebind.json", "remote-host-rebind.lock"]) {
+		try {
+			await lstat(join(userDataDir, name));
+		} catch (error) {
+			if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") continue;
+			throw new Error("SSH_HOST_NOT_READY");
+		}
+		throw new Error("SSH_HOST_NOT_READY");
+	}
+}
+
 function assertSavedRoute(hostName: string, user: string, port: number, routeDigest: string, expected: RemoteHostProfile & { verifiedEndpoint: NonNullable<RemoteHostProfile["verifiedEndpoint"]> }): void {
 	if (hostName !== expected.verifiedEndpoint.hostName || user !== expected.verifiedEndpoint.user || port !== expected.verifiedEndpoint.port || routeDigest !== expected.verifiedEndpoint.routeDigest) throw new Error("SSH_HOST_ROUTE_CHANGED");
 }
@@ -41,11 +55,12 @@ function assertStrictConfig(stdout: string, target: VerifiedSshArgvInput): void 
 	const values = new Map<string, string[]>();
 	for (const rawLine of stdout.split(/\r?\n/)) {
 		if (!rawLine) continue;
-		const match = /^([a-z][a-z0-9]*)(?:[ \t]+(.*))?$/.exec(rawLine);
+		const match = /^([A-Za-z][A-Za-z0-9]*)(?:[ \t]+(.*))?$/.exec(rawLine);
 		if (!match) throw new Error("SSH_HOST_STRICT_CONFIG_INVALID");
-		const entries = values.get(match[1]) ?? [];
+		const key = match[1].toLowerCase();
+		const entries = values.get(key) ?? [];
 		entries.push(match[2] ?? "");
-		values.set(match[1], entries);
+		values.set(key, entries);
 	}
 	const one = (key: string): string => {
 		const entries = values.get(key);
@@ -73,7 +88,8 @@ function assertStrictConfig(stdout: string, target: VerifiedSshArgvInput): void 
 	requireBoolean("clearallforwardings", true);
 	requireBoolean("permitlocalcommand", false);
 	requireBoolean("verifyhostkeydns", false);
-	requireBoolean("updatehostkeys", false);
+	// OpenSSH omits disabled UpdateHostKeys from -G on Debian, but prints it when enabled.
+	if (values.has("updatehostkeys")) requireBoolean("updatehostkeys", false);
 	requireBoolean("batchmode", true);
 	requireOne("numberofpasswordprompts", "0");
 	requireOne("connecttimeout", String(Math.ceil(target.connectTimeoutMs / 1000)));
@@ -110,9 +126,10 @@ async function assertReadableIdentity(filePath?: string): Promise<void> {
 }
 
 /** Build argv after fresh route/pin checks through the caller's client; ssh -G can evaluate Match exec or DNS. */
-export async function buildPinnedSshInvocation(userDataDir: string, hostId: string, kind: VerifiedSshCommandKind, options: { client: SshClientRuntime; remoteCommand?: string }): Promise<PinnedSshInvocation> {
+export async function buildPinnedSshInvocation(userDataDir: string, hostId: string, kind: VerifiedSshCommandKind, options: { client: SshClientRuntime; remoteCommand?: string; bootstrap?: BootstrapCommandInput }): Promise<PinnedSshInvocation> {
 	if (typeof options?.client?.run !== "function" || typeof options.client.sshPath !== "string") throw new Error("SSH_HOST_CLIENT_CONTEXT_REQUIRED");
 	const client = options.client;
+	await assertNoPendingHostRebind(userDataDir);
 	const { version } = await runSshClientSelfCheck(client);
 	const initial = (await RemoteHostStore.open(userDataDir)).getSnapshot();
 	const profile = activeProfile(initial, hostId);
@@ -134,7 +151,7 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 	// The helper command is the one argv element a remote shell will parse; it stays optional so a plain
 	// preflight keeps producing exactly the argv earlier batches shipped, and it is never part of the
 	// resolved-config query (that query verifies the route, not the command).
-	const remoteCommand = readRemoteCommand(options?.remoteCommand, kind);
+	const remoteCommand = options.bootstrap === undefined ? readRemoteCommand(options.remoteCommand, kind) : readBootstrapCommand(options.bootstrap, options.remoteCommand, kind);
 	await assertReadableIdentity(target.identityFile);
 	const candidate = await querySshDraftRoute(profile, target.pinAlias, { client });
 	assertSavedRoute(candidate.hostName, candidate.user, candidate.port, sshRouteDigest(candidate), profile);
@@ -149,14 +166,20 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 	const currentPin = await pinStore.readPin(hostId, currentProfile.verifiedEndpoint);
 	if (currentPin.filePath !== target.pinFile) throw new Error("SSH_HOST_NOT_READY");
 	await assertReadableIdentity(target.identityFile);
+	await assertNoPendingHostRebind(userDataDir);
 	return { executable: kind === "scp" ? client.scpPath : client.sshPath, destination: target.sshHost, args: remoteCommand === undefined ? requestedArgs : [...requestedArgs, remoteCommand], env: client.env, openSshVersion: version };
 }
 
-/**
- * Validate the optional remote command at the boundary that produces the argv. It is one already-quoted
- * token sequence: a newline would turn it into two commands, a NUL cannot travel through argv at all,
- * and the length bound keeps an accidental file-sized string out of a command line.
- */
+function readBootstrapCommand(input: BootstrapCommandInput, other: unknown, kind: VerifiedSshCommandKind): string {
+	if (kind !== "ssh-batch") throw new Error("SSH_REMOTE_COMMAND_NOT_ALLOWED");
+	if (other !== undefined) throw new Error("SSH_REMOTE_COMMAND_INVALID");
+	const command = buildBootstrapCommand(input);
+	// The audited inline entry needs more than the regular helper's 8 KiB, but cannot carry arbitrary code.
+	if (command.length > 18 * 1024) throw new Error("SSH_REMOTE_COMMAND_INVALID");
+	return command;
+}
+
+/** The ordinary remote command remains small and one already-quoted token sequence. */
 function readRemoteCommand(value: unknown, kind: VerifiedSshCommandKind): string | undefined {
 	if (value === undefined) return undefined;
 	if (kind !== "ssh-batch") throw new Error("SSH_REMOTE_COMMAND_NOT_ALLOWED");

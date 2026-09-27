@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile } from "node:fs/promises";
+import { isIP } from "node:net";
+import { constants } from "node:fs";
+import { open, lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { decodeBundleManifest, quotePosixArgument, REMOTE_BOOTSTRAP_STAGING_PREFIX } from "./RemoteBootstrapContract";
 import type { BootstrapReadyFrame } from "./RemoteBootstrapTransfer";
@@ -11,8 +14,8 @@ import type { PinnedSshInvocation } from "./SshVerifiedConnection";
  * pinned scp call plus the finalize frames the entry expects.
  *
  * Two wire facts drive this module:
- *   - The remote staging path travels through the remote shell, so it is POSIX-quoted and never
- *     concatenated from unvalidated pieces.
+ *   - Legacy scp hands the staging path to a remote shell; SFTP passes it literally. The path is
+ *     validated for both and quoted only for the legacy protocol.
  *   - scp decides "host:path" from a colon before the first separator, so source operands stay bare
  *     file names resolved against the bundle directory instead of absolute Windows paths.
  */
@@ -23,6 +26,8 @@ export const REMOTE_BUNDLE_HASH_PREFIX = "pideck-bundle-v1";
 export const REMOTE_BUNDLE_HASH_SEPARATOR = "\n";
 
 export type BundleFileObservation = { name: string; sha256: string; bytes: number };
+
+export type BundleUploadInput = { connection: PinnedSshInvocation; ready: BootstrapReadyFrame; directory: string; names: readonly string[]; executableNames?: readonly string[] };
 
 export type BundleUploadPlan = {
 	manifest: RemoteBundleManifest;
@@ -59,7 +64,7 @@ export function parseOpenSshVersion(version: string): { major: number; minor: nu
  * turning a home directory into a command line.
  */
 const REMOTE_SHELL_METACHARACTERS = /[$`;&|<>(){}\\!*?~\n\r]/;
-/** A host alias is one argv element handed to both scp and ssh; keep it to the shape ssh accepts. */
+/** A safe hostname operand; an IPv6 literal is checked separately and bracketed for scp. */
 const HOST_ALIAS = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
 function usableDeployRoot(value: unknown): value is string {
@@ -134,25 +139,75 @@ export function buildBundleManifest(observed: readonly BundleFileObservation[], 
 	return decodeBundleManifest({ schemaVersion: REMOTE_BUNDLE_MANIFEST_SCHEMA_VERSION, bundleSha256: bundleContentHash(observed, { executableNames }), files });
 }
 
-/**
- * Hash the files of one prepared bundle directory. Each name must resolve to a regular, non-symlink
- * file directly inside `directory`, so a link or directory can never stand in for a declared file.
- */
+/** Read one validated source through the same descriptor used to inspect its inode. */
+async function readBundleFile(directory: string, name: string): Promise<Buffer> {
+	if (typeof name !== "string" || !SEGMENT.test(name) || name === "." || name === "..") invalid();
+	const path = join(directory, name);
+	const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0)).catch(() => null);
+	if (handle === null) throw new Error("BUNDLE_FILE_MISMATCH");
+	try {
+		const stats = await handle.stat({ bigint: true }).catch(() => null);
+		const pathStats = await lstat(path, { bigint: true }).catch(() => null);
+		if (stats === null || pathStats === null || !stats.isFile() || !pathStats.isFile() || pathStats.isSymbolicLink() || stats.dev !== pathStats.dev || stats.ino !== pathStats.ino || stats.size < 0n || stats.size > BigInt(REMOTE_BUNDLE_MAX_FILE_BYTES)) throw new Error("BUNDLE_FILE_MISMATCH");
+		const size = Number(stats.size);
+		const bytes = Buffer.alloc(size + 1);
+		let length = 0;
+		while (length < bytes.length) {
+			const result = await handle.read(bytes, length, bytes.length - length, length).catch(() => null);
+			if (result === null) throw new Error("BUNDLE_FILE_MISMATCH");
+			if (result.bytesRead === 0) break;
+			length += result.bytesRead;
+		}
+		if (length !== size) throw new Error("BUNDLE_FILE_MISMATCH");
+		return bytes.subarray(0, length);
+	} finally {
+		await handle.close();
+	}
+}
+
+/** Hash regular, non-symlink files directly inside a prepared bundle directory. */
 export async function observeBundleFiles(directory: string, names: readonly string[]): Promise<BundleFileObservation[]> {
 	if (typeof directory !== "string" || directory.length === 0 || /[\x00-\x1f\x7f]/.test(directory) || !isAbsolute(directory)) invalid();
 	if (!Array.isArray(names) || names.length === 0 || names.length > REMOTE_BUNDLE_MAX_FILES) invalid();
 	const observed: BundleFileObservation[] = [];
 	for (const name of names) {
-		if (typeof name !== "string" || !SEGMENT.test(name) || name === "." || name === "..") invalid();
-		const path = join(directory, name);
-		const stats = await lstat(path).catch(() => null);
-		if (stats === null || !stats.isFile() || stats.isSymbolicLink()) throw new Error("BUNDLE_FILE_MISMATCH");
-		if (stats.size > REMOTE_BUNDLE_MAX_FILE_BYTES) throw new Error("BUNDLE_FILE_MISMATCH");
-		const bytes = await readFile(path).catch(() => null);
-		if (bytes === null || bytes.length !== stats.size) throw new Error("BUNDLE_FILE_MISMATCH");
+		const bytes = await readBundleFile(directory, name);
 		observed.push({ name, sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length });
 	}
 	return observed;
+}
+
+/**
+ * Own one private bundle snapshot until the caller has finished transferring (or failed). The
+ * observations and the scp cwd both come from this copy, never from the mutable original directory.
+ * On POSIX, mode 0700/0400 blocks other accounts. Windows POSIX mode bits do not prove an ACL:
+ * the snapshot only contains shipped helper code, never credentials or user content.
+ */
+export async function withPrivateBundleUploadPlan<T>(input: BundleUploadInput, transfer: (plan: BundleUploadPlan) => Promise<T>): Promise<T> {
+	if (typeof transfer !== "function" || typeof input?.directory !== "string" || input.directory.length === 0 || /[\x00-\x1f\x7f]/.test(input.directory) || !isAbsolute(input.directory) || !Array.isArray(input.names) || input.names.length === 0 || input.names.length > REMOTE_BUNDLE_MAX_FILES) invalid();
+	const directory = await mkdtemp(join(tmpdir(), "pideck-bundle-upload-"));
+	try {
+		const observations: BundleFileObservation[] = [];
+		let totalBytes = 0;
+		for (const name of input.names) {
+			const bytes = await readBundleFile(input.directory, name);
+			totalBytes += bytes.length;
+			if (totalBytes > REMOTE_BUNDLE_MAX_TOTAL_BYTES) invalid();
+			await writeFile(join(directory, name), bytes, { flag: "wx", mode: 0o400 }).catch(() => {
+				throw new Error("BUNDLE_SNAPSHOT_FAILED");
+			});
+			observations.push({ name, sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length });
+		}
+		const executableNames = readExecutableNames(input.executableNames);
+		const manifest = buildBundleManifest(observations, { executableNames });
+		if (input.ready?.bundleSha256 !== manifest.bundleSha256) throw new Error("BUNDLE_MANIFEST_INVALID");
+		const invocation = buildUploadInvocation({ ...input, directory });
+		return await transfer({ manifest, observations, executableNames, invocation });
+	} finally {
+		await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }).catch(() => {
+			throw new Error("BUNDLE_SNAPSHOT_CLEANUP_FAILED");
+		});
+	}
 }
 
 /**
@@ -177,9 +232,8 @@ export function buildUploadInvocation(input: { connection: PinnedSshInvocation; 
 	const names = input.names;
 	if (!isPlainObject(connection) || typeof connection.executable !== "string" || connection.executable.length === 0 || /[\x00-\x1f\x7f]/.test(connection.executable)) invalid();
 	if (!Array.isArray(connection.args) || connection.args.some((arg) => typeof arg !== "string" || /[\x00\n\r]/.test(arg))) invalid();
-	// The alias becomes the scp destination and is then forwarded to ssh as its host operand, so it has to
-	// be the shape ssh itself accepts; an IPv6 literal or an option-looking alias must not slip through.
-	if (typeof connection.destination !== "string" || !HOST_ALIAS.test(connection.destination) || connection.destination.length > 255) invalid();
+	// IPv6 is valid for the pinned SSH route, but scp needs brackets to distinguish it from host:path.
+	if (typeof connection.destination !== "string" || connection.destination.length > 255 || (!HOST_ALIAS.test(connection.destination) && isIP(connection.destination) !== 6)) invalid();
 	const version = parseOpenSshVersion(connection.openSshVersion);
 	// An unreadable version means the protocol is unknown, and the two protocols need different paths.
 	if (version === null) invalid();
@@ -196,21 +250,6 @@ export function buildUploadInvocation(input: { connection: PinnedSshInvocation; 
 	const remotePath = ready.deployRoot.endsWith("/") ? `${ready.deployRoot}${ready.staging}` : `${ready.deployRoot}/${ready.staging}`;
 	const sftp = version.major >= SFTP_BY_DEFAULT_MAJOR;
 	const formatted = sftp ? remotePath : quotePosixArgument(remotePath);
-	const target = `${connection.destination}:${formatted}`;
+	const target = `${isIP(connection.destination) === 6 ? `[${connection.destination}]` : connection.destination}:${formatted}`;
 	return { executable: connection.executable, args: [...connection.args, "-q", "-B", "--", ...names, target], env: connection.env, cwd: directory, sftp };
-}
-
-/**
- * One upload step's inputs: the observed files, the manifest that pins them, the pinned scp call and the
- * finalize frames to send once the transfer reported success. The manifest hash is compared with the hash
- * the entry was started with before anything is transferred: a ready frame from another run would
- * otherwise move the whole bundle and only be refused by the entry afterwards.
- */
-export async function planBundleUpload(input: { connection: PinnedSshInvocation; ready: BootstrapReadyFrame; directory: string; names: readonly string[]; executableNames?: readonly string[] }): Promise<BundleUploadPlan> {
-	const observations = await observeBundleFiles(input.directory, input.names);
-	const executableNames = readExecutableNames(input.executableNames);
-	const manifest = buildBundleManifest(observations, { executableNames });
-	if (input.ready?.bundleSha256 !== manifest.bundleSha256) throw new Error("BUNDLE_MANIFEST_INVALID");
-	const invocation = buildUploadInvocation(input);
-	return { manifest, observations, invocation, executableNames };
 }

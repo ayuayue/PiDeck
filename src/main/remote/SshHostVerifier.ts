@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdtemp, open, rm } from "node:fs/promises";
+import { lstat, mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSshConfigQueryArgs, type SshDraftRoute } from "./SshCommandBuilder";
@@ -73,7 +73,7 @@ export function assertNoForwardedEnvironment(stdout: string): void {
 	if (stdout.split(/\r?\n/).some((line) => /^(?:sendenv|setenv)(?:[ \t]|$)/.test(line))) throw new Error("SSH_HOST_ENV_UNVERIFIED");
 }
 
-function draftProbeArgs(routeArgs: string[], pinAlias: string, knownHostsFile: string): string[] {
+function draftProbeArgs(routeArgs: string[], pinAlias: string, knownHostsFile: string, preverified: boolean): string[] {
 	if (/[\x00-\x1f\x7f]/.test(knownHostsFile)) throw new Error("SSH_HOST_TEMP_PATH_INVALID");
 	const globalHostsFile = process.platform === "win32" ? "NUL" : "/dev/null";
 	return [
@@ -85,7 +85,7 @@ function draftProbeArgs(routeArgs: string[], pinAlias: string, knownHostsFile: s
 		"-o",
 		`HostKeyAlias=${pinAlias}`,
 		"-o",
-		"StrictHostKeyChecking=accept-new",
+		preverified ? "StrictHostKeyChecking=yes" : "StrictHostKeyChecking=accept-new",
 		"-o",
 		"KnownHostsCommand=none",
 		"-o",
@@ -143,8 +143,13 @@ function requireClient(options: { client: SshClientRuntime }): SshClientRuntime 
 	return options.client;
 }
 
+export type PreverifiedSshHostKey = { knownHostsBytes: Buffer; fingerprint: string };
+
 /** Return an in-memory candidate after SSH authentication; profile activation needs separate user confirmation. */
-export async function verifyDraftSshHost(route: SshDraftRoute, pinAlias: string, options: { client: SshClientRuntime }): Promise<SshDraftHostCandidate> {
+export async function verifyDraftSshHost(route: SshDraftRoute, pinAlias: string, options: { client: SshClientRuntime; preverifiedHostKey?: PreverifiedSshHostKey }): Promise<SshDraftHostCandidate> {
+	const preverified = options?.preverifiedHostKey;
+	const trustedBytes = preverified === undefined ? undefined : Buffer.isBuffer(preverified.knownHostsBytes) ? Buffer.from(preverified.knownHostsBytes) : undefined;
+	if (preverified !== undefined && (trustedBytes === undefined || fingerprintSshHostKey(trustedBytes, pinAlias) !== preverified.fingerprint)) throw new Error("SSH_HOST_KEY_MISMATCH");
 	const client = requireClient(options);
 	await runSshClientSelfCheck(client);
 	const resolvedRoute = await querySshDraftRoute(route, pinAlias, { client });
@@ -153,9 +158,11 @@ export async function verifyDraftSshHost(route: SshDraftRoute, pinAlias: string,
 	const directory = await mkdtemp(join(tmpdir(), "pideck-ssh-kh-"));
 	try {
 		const knownHostsFile = join(directory, "known_hosts");
-		const auth = await client.run(client.sshPath, draftProbeArgs(routeArgs, pinAlias, knownHostsFile));
+		if (trustedBytes !== undefined) await writeFile(knownHostsFile, trustedBytes, { flag: "wx", mode: 0o600 });
+		const auth = await client.run(client.sshPath, draftProbeArgs(routeArgs, pinAlias, knownHostsFile, trustedBytes !== undefined));
 		if (auth.exitCode !== 0 || auth.stdout !== "") throw new Error("SSH_HOST_AUTHENTICATION_FAILED");
 		const knownHostsBytes = await readBoundedHostKey(knownHostsFile);
+		if (trustedBytes !== undefined && !knownHostsBytes.equals(trustedBytes)) throw new Error("SSH_HOST_KEY_MISMATCH");
 		const fingerprint = fingerprintSshHostKey(knownHostsBytes, pinAlias);
 		const afterAuth = await querySshDraftRoute(route, pinAlias, { client });
 		if (sshRouteDigest(afterAuth) !== routeDigest) throw new Error("SSH_HOST_ROUTE_CHANGED");

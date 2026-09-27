@@ -501,8 +501,11 @@ function paddedFrame(frame, bytes) {
 }
 
 /** Launch the frozen entry against a throwaway HOME and collect the NDJSON frames it writes. */
-async function startSession(home, { nonce = NONCE, bundleSha256 = BUNDLE_SHA } = {}) {
-	const child = spawn(process.execPath, ["-e", REMOTE_BOOTSTRAP_INLINE_SOURCE, "--", REMOTE_BOOTSTRAP_INLINE_ENTRY, "1", bundleSha256, nonce], { env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+async function startSession(home, { nonce = NONCE, bundleSha256 = BUNDLE_SHA, shellCommand } = {}) {
+	const child =
+		shellCommand === undefined
+			? spawn(process.execPath, ["-e", REMOTE_BOOTSTRAP_INLINE_SOURCE, "--", REMOTE_BOOTSTRAP_INLINE_ENTRY, "1", bundleSha256, nonce], { env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] })
+			: spawn("/bin/sh", ["-c", shellCommand], { env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
 	const frames = [];
 	const waiters = new Set();
 	let buffered = "";
@@ -574,6 +577,18 @@ async function temporaryHome(t) {
 	t.after(() => rm(home, { recursive: true, force: true, maxRetries: 5 }));
 	return home;
 }
+
+test("the quoted bootstrap command reaches ready through a POSIX shell", { skip: process.platform === "win32" }, async (t) => {
+	const home = await temporaryHome(t);
+	const command = buildBootstrapCommand(commandInput({ nodeExecutable: process.execPath, bundleSha256: BUNDLE_SHA }));
+	const session = await startSession(home, { shellCommand: command });
+	const ready = await session.waitForFrame((frame) => frame.op === "ready");
+	assert.equal(ready.bundleSha256, BUNDLE_SHA);
+	session.write(ABORT_FRAME);
+	const outcome = await session.finish();
+	assert.equal(outcome.code, 0);
+	assert.equal(outcome.frames.at(-1).op, "aborted");
+});
 
 /** Upload one declared file into the staging directory; `mode` is overridable for mismatch cases. */
 async function stageFile(home, file, mode = file.mode) {

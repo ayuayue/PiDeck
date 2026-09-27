@@ -231,6 +231,9 @@ const api = {
 		chooseExecutable: () => ipcRenderer.invoke(ipcChannels.editorsChooseExecutable) as Promise<string | null>,
 		openProject: (editor: ExternalEditor, projectPath: string) => ipcRenderer.invoke(ipcChannels.editorsOpenProject, editor, projectPath) as Promise<void>,
 	},
+	remoteHosts: {
+		list: () => ipcRenderer.invoke(ipcChannels.remoteHostsList) as Promise<import("../shared/types/remoteHost").RemoteHostListResult>,
+	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,
 		add: () => ipcRenderer.invoke(ipcChannels.projectsAdd) as Promise<Project | null>,

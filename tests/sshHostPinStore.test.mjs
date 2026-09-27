@@ -74,6 +74,59 @@ test("writes only the confirmed, reverified pin and validates its bytes on every
 	await assert.rejects(store.answer({ requestId: offer.requestId, hostId, senderId, choice: "approve" }), /SSH_HOST_CONFIRMATION_INVALID/);
 });
 
+test("a preverified offer pins the same key again during confirmation", async (t) => {
+	const directory = await root(t);
+	const expected = candidate();
+	const trusted = { knownHostsBytes: Buffer.from(expected.knownHostsBase64, "base64"), fingerprint: expected.hostKeyFingerprints[0] };
+	const seen = [];
+	const store = new SshHostPinStore(directory, {
+		verifier: async (_route, alias, preverifiedHostKey) => {
+			assert.equal(alias, pinAlias);
+			seen.push(preverifiedHostKey);
+			return expected;
+		},
+	});
+	t.after(() => store.dispose());
+	const offer = await store.offer({ hostId, senderId, route, preverifiedHostKey: trusted });
+	await store.answer({ requestId: offer.requestId, hostId, senderId, choice: "approve" });
+	assert.equal(seen.length, 2);
+	for (const key of seen) {
+		assert.equal(key.fingerprint, trusted.fingerprint);
+		assert.equal(Buffer.compare(key.knownHostsBytes, trusted.knownHostsBytes), 0);
+	}
+});
+
+test("reverify uses an existing pin before authentication and refuses a missing anchor", async (t) => {
+	const directory = await root(t);
+	let calls = 0;
+	const store = new SshHostPinStore(directory, {
+		verifier: async (_route, alias, trusted) => {
+			calls += 1;
+			assert.equal(alias, pinAlias);
+			assert.equal(trusted.fingerprint, candidate().hostKeyFingerprints[0]);
+			assert.equal(Buffer.compare(trusted.knownHostsBytes, Buffer.from(candidate().knownHostsBase64, "base64")), 0);
+			return candidate();
+		},
+	});
+	t.after(() => store.dispose());
+	await assert.rejects(store.reverifyRoute(route, pinAlias), /SSH_HOST_PIN_INVALID/);
+	assert.equal(calls, 0);
+	await mkdir(join(directory, "ssh-host-keys"));
+	await writeFile(pinPath(directory), Buffer.from(candidate().knownHostsBase64, "base64"));
+	const verified = await store.reverifyRoute(route, pinAlias);
+	assert.equal(verified.knownHostsSha256, candidate().knownHostsSha256);
+	assert.equal(calls, 1);
+});
+
+test("reverify refuses an altered key even if a verifier returns a candidate", async (t) => {
+	const directory = await root(t);
+	await mkdir(join(directory, "ssh-host-keys"));
+	await writeFile(pinPath(directory), Buffer.from(candidate().knownHostsBase64, "base64"));
+	const store = new SshHostPinStore(directory, { verifier: async () => candidate(18) });
+	t.after(() => store.dispose());
+	await assert.rejects(store.reverifyRoute(route, pinAlias), /SSH_HOST_KEY_MISMATCH/);
+});
+
 test("rejects a sender mismatch without consuming a valid pending request", async (t) => {
 	const directory = await root(t);
 	const store = new SshHostPinStore(directory, { verifier: async () => candidate() });

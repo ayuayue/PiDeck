@@ -40,7 +40,7 @@ export function buildSshConfigQueryArgs(route: SshDraftRoute): string[] {
 	if (route.port !== undefined && !validPort(route.port)) throw new Error("INVALID_SSH_PORT");
 	if (route.proxyJump !== undefined && (typeof route.proxyJump !== "string" || !validJump(route.proxyJump))) throw new Error("INVALID_SSH_PROXY_JUMP");
 
-	const args = ["-G", "-o", "BatchMode=yes", "-o", "PermitLocalCommand=no", "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes"];
+	const args = ["-G", ...(isIP(route.sshHost) !== 0 && route.proxyJump === undefined ? ["-F", process.platform === "win32" ? "NUL" : "/dev/null"] : []), "-o", "BatchMode=yes", "-o", "PermitLocalCommand=no", "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes"];
 	if (route.user !== undefined) args.push("-l", route.user);
 	if (route.port !== undefined) args.push("-p", String(route.port));
 	if (route.proxyJump !== undefined) args.push("-J", route.proxyJump);
@@ -78,6 +78,8 @@ export function buildVerifiedSshArgv(target: VerifiedSshArgvInput, kind: Verifie
 	const globalHostsFile = process.platform === "win32" ? "NUL" : "/dev/null";
 	const args = [
 		...(kind === "ssh-batch" ? ["-T"] : kind === "ssh-terminal" ? ["-tt"] : []),
+		// A direct IP needs no Host alias expansion. Ignore inherited SendEnv/Match rules on this route.
+		...(isIP(target.sshHost) !== 0 && target.proxyJump === undefined ? ["-F", process.platform === "win32" ? "NUL" : "/dev/null"] : []),
 		"-o",
 		`HostName=${target.hostName}`,
 		"-o",

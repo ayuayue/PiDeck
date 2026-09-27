@@ -563,6 +563,34 @@ test("a read cancelled while a chunk is in flight settles as cancelled and pulls
 	assert.equal(helper.reads().length, 1);
 });
 
+test("an abort during the closing stat discards completed file bytes", async (t) => {
+	const helper = createHelperHarness();
+	t.after(() => helper.close());
+	const content = Buffer.from("alpha");
+	helper.nextResult(REMOTE_HELPER_METHOD_FS_STAT, { kind: "file", bytes: content.length, mtimeMs: FIXED_MTIME });
+	helper.nextResult(REMOTE_HELPER_METHOD_FS_READ, { chunk: content.toString("base64"), bytes: content.length, eof: true });
+	const controller = new AbortController();
+	const pending = helper.reader.readFile(HOST, "notes.txt", { signal: controller.signal });
+	await settle();
+	assert.equal(helper.reads().length, 1);
+	const stats = helper.ofMethod(REMOTE_HELPER_METHOD_FS_STAT);
+	assert.equal(stats.length, 2, "the final description is in flight after all bytes arrived");
+
+	controller.abort();
+	const failure = await rejection(pending);
+	assert.equal(failure.code, "REQUEST_CANCELLED");
+	const cancels = helper.ofMethod(REMOTE_HELPER_METHOD_CANCEL);
+	assert.deepEqual(
+		cancels.map((frame) => frame.params),
+		[{ requestId: stats[1].id }],
+	);
+	helper.reply(cancels[0], { cancelled: false, reason: "already-settled" });
+	helper.reply(stats[1], { kind: "file", bytes: content.length, mtimeMs: FIXED_MTIME });
+	await settle();
+	assert.deepEqual(helper.codes(), [REMOTE_WORKSPACE_DIAGNOSTIC_CODES.cancelRequested, "REQUEST_CANCELLED", REMOTE_WORKSPACE_DIAGNOSTIC_CODES.cancelRefused]);
+	assert.equal(helper.client.pendingCount(), 0);
+});
+
 test("an abort before the first chunk cancels the read without asking for one", async (t) => {
 	const helper = createHelperHarness();
 	t.after(() => helper.close());

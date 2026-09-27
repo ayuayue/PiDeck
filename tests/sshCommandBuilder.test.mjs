@@ -26,6 +26,19 @@ test("builds a candidate config query without pinning a not-yet-verified endpoin
 	assert.equal(buildSshConfigQueryArgs({ sshHost: "2001:db8::1" }).at(-1), "2001:db8::1");
 });
 
+test("direct IP without a jump ignores inherited SSH config in both queries and pinned transports", () => {
+	const emptyConfig = process.platform === "win32" ? "NUL" : "/dev/null";
+	for (const sshHost of ["10.81.2.15", "2001:db8::1"]) {
+		const draft = buildSshConfigQueryArgs({ sshHost, user: "alice", port: 22 });
+		assert.deepEqual(Array.from(draft.slice(0, 3)), ["-G", "-F", emptyConfig]);
+		const hostId = "01234567-89ab-4def-8123-456789abcdef";
+		const target = { hostId, sshHost, hostName: sshHost, user: "alice", port: 22, pinAlias: `pideck-${hostId}`, pinFile: process.platform === "win32" ? "C:\\pin" : "/tmp/pin", connectTimeoutMs: 15000 };
+		for (const kind of ["ssh-batch", "scp"]) assert.deepEqual(Array.from(buildVerifiedSshArgv(target, kind).slice(kind === "scp" ? 0 : 1, kind === "scp" ? 2 : 3)), ["-F", emptyConfig]);
+	}
+	assert.equal(buildSshConfigQueryArgs({ sshHost: "serve" }).includes("-F"), false);
+	assert.equal(buildSshConfigQueryArgs({ sshHost: "10.81.2.15", proxyJump: "jump" }).includes("-F"), false);
+});
+
 test("rejects host and user text that could alter SSH argument or config semantics", () => {
 	for (const sshHost of ["-oProxyCommand=evil", "user@host", "work server", "host\nproxycommand evil", "host\0name", "host;touch /tmp/file", "%h", ""]) {
 		assert.throws(() => buildSshConfigQueryArgs({ sshHost }), /INVALID_SSH_HOST/);

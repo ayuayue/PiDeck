@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { stat, symlink, writeFile } from "node:fs/promises";
+import { stat, symlink, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { verifyDraftSshHost } = loadTsCommonJs("src/main/remote/SshHostVerifier.ts");
+const { assertNoForwardedEnvironment, verifyDraftSshHost } = loadTsCommonJs("src/main/remote/SshHostVerifier.ts");
 const pinAlias = "pideck-host-a";
 const route = { sshHost: "work", user: "alice", port: 2222 };
 const config = `host work\nuser alice\nhostname example.invalid\nport 2222\ncanonicalizehostname false\nhostkeyalias ${pinAlias}\n`;
@@ -82,6 +82,36 @@ test("returns a candidate only after authenticated command success and removes i
 	await assertRemoved(probeFile);
 });
 
+test("a preverified host key is pinned before authentication and never uses accept-new", async () => {
+	let probeFile;
+	const run = async (_executable, args) => {
+		if (args[0] === "-G") return { exitCode: 0, stdout: config };
+		probeFile = pinFile(args);
+		assert.equal(await readFile(probeFile, "utf8"), validLine);
+		assert.ok(args.includes("StrictHostKeyChecking=yes"));
+		assert.equal(args.includes("StrictHostKeyChecking=accept-new"), false);
+		return { exitCode: 0, stdout: "" };
+	};
+	const candidate = await verifyDraftSshHost(route, pinAlias, { client: clientFor(run), preverifiedHostKey: { knownHostsBytes: Buffer.from(validLine), fingerprint } });
+	assert.equal(candidate.hostKeyFingerprints[0], fingerprint);
+	await assertRemoved(probeFile);
+});
+
+test("mismatched independently supplied fingerprint rejects before any SSH command", async () => {
+	let called = false;
+	await assert.rejects(
+		verifyDraftSshHost(route, pinAlias, {
+			client: clientFor(async () => {
+				called = true;
+				return { exitCode: 0, stdout: config };
+			}),
+			preverifiedHostKey: { knownHostsBytes: Buffer.from(validLine), fingerprint: `SHA256:${"A".repeat(43)}` },
+		}),
+		/SSH_HOST_KEY_MISMATCH/,
+	);
+	assert.equal(called, false);
+});
+
 test("rejects effective environment forwarding before and after draft authentication", async () => {
 	for (const directive of ["sendenv PIDECK_SECRET", "setenv TOKEN=hidden"]) {
 		let calls = 0;
@@ -102,6 +132,15 @@ test("rejects effective environment forwarding before and after draft authentica
 	};
 	await assert.rejects(verifyDraftSshHost(route, pinAlias, { client: clientFor(run) }), /SSH_HOST_ENV_UNVERIFIED/);
 	await assertRemoved(probeFile);
+});
+
+test("only effective environment directives in ssh -G output trigger the forwarding gate", () => {
+	for (const output of ["sendenv LANG LC_*", "setenv TOKEN=value", "host x\nsendenv NAME\n", "sendenv NAME\r\n", "sendenv", "setenv"]) {
+		assert.throws(() => assertNoForwardedEnvironment(output), /SSH_HOST_ENV_UNVERIFIED/, output);
+	}
+	for (const output of ["", config, "hostname setenv.example", "identityfile /home/user/sendenv-key", "# sendenv comment"]) {
+		assert.doesNotThrow(() => assertNoForwardedEnvironment(output), output);
+	}
 });
 
 test("does not accept a key written before user authentication fails", async () => {

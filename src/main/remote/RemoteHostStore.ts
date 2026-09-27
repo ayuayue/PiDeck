@@ -5,6 +5,7 @@ import { writeDurableJsonFile } from "../persistence/durableJsonStore";
 import { isHostReferenceRegistryCode } from "./RemoteHostReferenceRegistry";
 import { buildSshConfigQueryArgs, type SshDraftRoute } from "./SshCommandBuilder";
 import { SshHostPinStore, type SshPinAnswer, type SshPinOffer, type VerifiedSshEndpoint } from "./SshHostPinStore";
+import type { PreverifiedSshHostKey } from "./SshHostVerifier";
 import { decodeRemoteHostSnapshot, encodeRemoteHostSnapshot, type DecodedRemoteHostSnapshot, type RemoteHostProfile } from "./RemoteHostStoreCodec";
 
 export type RemoteHostStoreState = DecodedRemoteHostSnapshot & { status: "ready" | "needs-repair"; reasons: string[] };
@@ -387,12 +388,17 @@ export class RemoteHostStore {
 	}
 
 	/** Generate the prompt from the stored draft; caller never supplies host identity fields. */
-	async offerPin(hostId: string, senderId: number, expectedRevision: number): Promise<SshPinOffer> {
+	async offerPin(hostId: string, senderId: number, expectedRevision: number, preverifiedHostKey?: PreverifiedSshHostKey): Promise<SshPinOffer> {
 		if (this.state.status !== "ready") throw new Error("REMOTE_HOST_STORE_NEEDS_REPAIR");
 		if (expectedRevision !== this.state.revision) throw new Error("REMOTE_HOST_REVISION_CONFLICT");
 		const profile = this.state.profiles.find((item) => item.id === hostId);
 		if (!profile || profile.disabledAt || profile.verifiedEndpoint) throw new Error("REMOTE_HOST_ACTIVATION_INVALID");
-		return this.pinStore.offer({ hostId, senderId, route: { sshHost: profile.sshHost, ...(profile.user !== undefined ? { user: profile.user } : {}), ...(profile.port !== undefined ? { port: profile.port } : {}), ...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}) } });
+		return this.pinStore.offer({
+			hostId,
+			senderId,
+			route: { sshHost: profile.sshHost, ...(profile.user !== undefined ? { user: profile.user } : {}), ...(profile.port !== undefined ? { port: profile.port } : {}), ...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}) },
+			...(preverifiedHostKey === undefined ? {} : { preverifiedHostKey }),
+		});
 	}
 
 	/** Consume the main-owned proof under the profile lock before saving the verified endpoint. */

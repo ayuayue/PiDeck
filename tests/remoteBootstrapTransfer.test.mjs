@@ -181,13 +181,75 @@ test("arming the deadline before subscribing leaves no timer behind for a synchr
 	const session = createSession();
 	// Answer inside the subscription call itself, the earliest possible terminal frame.
 	session.onStdoutLine = (listener) => {
-		listener(JSON.stringify({ v: 1, op: "finalized", active: `./bundles/${BUNDLE}`, files: 1 }));
+		listener(JSON.stringify({ v: 1, op: "error", code: "BOOTSTRAP_FILE_MISMATCH" }));
 		return () => undefined;
 	};
 	const outcome = await runBootstrapFinalize(session, manifestOf(), { timers });
-	assert.deepEqual(plain(outcome), { status: "finalized", active: `./bundles/${BUNDLE}`, files: 1 });
+	assert.deepEqual(plain(outcome), { status: "error", code: "BOOTSTRAP_FILE_MISMATCH" });
 	assert.equal(armed.length, 1);
 	assert.equal(armed[0].cleared, true, "the deadline is cleared even when the answer arrives synchronously");
+});
+
+test("a terminal frame during subscription releases the listener without sending frames", async () => {
+	const session = createSession();
+	const subscribe = session.onStdoutLine.bind(session);
+	session.onStdoutLine = (listener) => {
+		const unsubscribe = subscribe(listener);
+		listener(JSON.stringify({ v: 1, op: "error", code: "BOOTSTRAP_FILE_MISMATCH" }));
+		return unsubscribe;
+	};
+	assert.deepEqual(plain(await runBootstrapFinalize(session, manifestOf())), { status: "error", code: "BOOTSTRAP_FILE_MISMATCH" });
+	assert.equal(session.listenerCount(), 0);
+	assert.equal(session.frames.length, 0);
+});
+
+test("a terminal frame during the first write stops remaining finalize frames", async () => {
+	const session = createSession();
+	const write = session.write.bind(session);
+	session.write = (line) => {
+		write(line);
+		if (session.frames.length === 1) session.emit({ v: 1, op: "error", code: "BOOTSTRAP_FILE_MISMATCH" });
+	};
+	assert.deepEqual(plain(await runBootstrapFinalize(session, manifestOf())), { status: "error", code: "BOOTSTRAP_FILE_MISMATCH" });
+	assert.equal(session.frames.length, 1);
+	assert.equal(session.listenerCount(), 0);
+});
+
+test("a finalized frame before this run's commit is rejected instead of counted as success", async () => {
+	const session = createSession();
+	const subscribe = session.onStdoutLine.bind(session);
+	session.onStdoutLine = (listener) => {
+		const unsubscribe = subscribe(listener);
+		listener(JSON.stringify({ v: 1, op: "finalized", active: `./bundles/${BUNDLE}`, files: 1 }));
+		return unsubscribe;
+	};
+	assert.deepEqual(plain(await runBootstrapFinalize(session, manifestOf())), { status: "error", code: "BOOTSTRAP_FINALIZE_INCOMPLETE" });
+	assert.equal(session.frames.length, 0);
+	assert.equal(session.listenerCount(), 0);
+});
+
+test("a finalized frame before the commit write stops the remaining frames", async () => {
+	const session = createSession();
+	const write = session.write.bind(session);
+	session.write = (line) => {
+		write(line);
+		if (session.frames.length === 2) session.emit({ v: 1, op: "finalized", active: `./bundles/${BUNDLE}`, files: 1 });
+	};
+	assert.deepEqual(plain(await runBootstrapFinalize(session, manifestOf())), { status: "error", code: "BOOTSTRAP_FINALIZE_INCOMPLETE" });
+	assert.equal(session.frames.length, 2);
+	assert.equal(session.listenerCount(), 0);
+});
+
+test("a finalized frame during the commit write is rejected until the write returns", async () => {
+	const session = createSession();
+	const write = session.write.bind(session);
+	session.write = (line) => {
+		write(line);
+		if (session.frames.length === 3) session.emit({ v: 1, op: "finalized", active: `./bundles/${BUNDLE}`, files: 1 });
+	};
+	assert.deepEqual(plain(await runBootstrapFinalize(session, manifestOf())), { status: "error", code: "BOOTSTRAP_FINALIZE_INCOMPLETE" });
+	assert.equal(session.frames.length, 3);
+	assert.equal(session.listenerCount(), 0);
 });
 
 test("a refused frame rejects with a stable code and releases the subscription", async () => {

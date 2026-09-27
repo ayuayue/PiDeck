@@ -80,6 +80,26 @@ test("creates a draft, activates only a matching pin, then preserves identity in
 	assert.equal(disk.profiles[0].id, profile.id);
 });
 
+test("host catalog forwards a preverified key to the pin offer and confirmation", async (t) => {
+	const directory = await fixture(t);
+	const seen = [];
+	const pinStore = new SshHostPinStore(directory, {
+		verifier: async (_route, alias, trusted) => {
+			seen.push(trusted);
+			return authenticatedCandidate(alias.slice("pideck-".length));
+		},
+	});
+	t.after(() => pinStore.dispose());
+	const store = await RemoteHostStore.open(directory, { pinStore });
+	const profile = await store.createDraft({ label: "Build Pi", sshHost: "build-pi", user: "alice", port: 2222, connectTimeoutMs: 15000 }, 0);
+	const key = authenticatedCandidate(profile.id);
+	const trusted = { knownHostsBytes: Buffer.from(key.knownHostsBase64, "base64"), fingerprint: key.hostKeyFingerprints[0] };
+	const offer = await store.offerPin(profile.id, 7, 1, trusted);
+	await store.confirmPin({ requestId: offer.requestId, hostId: profile.id, senderId: 7, choice: "approve" }, 1);
+	assert.equal(seen.length, 2);
+	for (const pin of seen) assert.equal(pin.fingerprint, trusted.fingerprint);
+});
+
 test("rejects activation without a pin and never creates a missing pin from metadata", async (t) => {
 	const directory = await fixture(t);
 	const pinStore = {

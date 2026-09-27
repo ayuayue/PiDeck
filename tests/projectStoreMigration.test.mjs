@@ -74,10 +74,12 @@ test("concurrent ProjectStore additions are written with increasing revisions", 
 	await withUserData(async (userData, filePath) => {
 		const store = createStore(userData);
 		await store.load();
-		await Promise.all([store.add("C:\\work\\one"), store.add("C:\\work\\two")]);
+		const one = join(userData, "one");
+		const two = join(userData, "two");
+		await Promise.all([store.add(one), store.add(two)]);
 		const saved = JSON.parse(await readFile(filePath, "utf8"));
 		assert.equal(saved.schemaVersion, 2);
 		assert.ok(saved.revision >= 3);
-		assert.deepEqual(saved.projects.map((item) => item.locator.localPath).sort(), ["C:\\work\\one", "C:\\work\\two", join(userData, "chat-workspace")].sort());
+		assert.deepEqual(saved.projects.map((item) => item.locator.localPath).sort(), [one, two, join(userData, "chat-workspace")].sort());
 	});
 });

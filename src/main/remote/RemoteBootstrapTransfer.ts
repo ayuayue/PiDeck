@@ -138,6 +138,7 @@ export function runBootstrapFinalize(session: BootstrapSession, manifest: Remote
 	const timers: BootstrapTimers = options.timers ?? { setTimeout: (handler, delayMs) => setTimeout(handler, delayMs), clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout) };
 	return new Promise<BootstrapFinalizeOutcome>((resolve, reject) => {
 		let settled = false;
+		let commitIssued = false;
 		let timer: unknown;
 		let unsubscribe: (() => void) | undefined;
 		const release = (): void => {
@@ -166,6 +167,8 @@ export function runBootstrapFinalize(session: BootstrapSession, manifest: Remote
 				if (frame === null || frame.op === "ready") return;
 				if (frame.op === "aborted") return finish({ status: "aborted", reason: frame.reason });
 				if (frame.op === "error") return finish({ status: "error", code: frame.code });
+				// A previous run's queued success must not complete this run before its commit is sent.
+				if (!commitIssued) return finish({ status: "error", code: "BOOTSTRAP_FINALIZE_INCOMPLETE" });
 				// Bind the terminal frame to the manifest we just sent: the remote must not be able to name
 				// another active path or claim a different file count.
 				if (frame.active !== `./bundles/${manifest.bundleSha256}`) return finish({ status: "error", code: "BOOTSTRAP_ACTIVE_CONFLICT" });
@@ -176,8 +179,16 @@ export function runBootstrapFinalize(session: BootstrapSession, manifest: Remote
 			abort(error);
 			return;
 		}
+		if (settled) {
+			release();
+			return;
+		}
 		try {
-			for (const line of frames) session.write(line);
+			for (const [index, line] of frames.entries()) {
+				if (settled) break;
+				session.write(line);
+				if (index === frames.length - 1) commitIssued = true;
+			}
 		} catch (error) {
 			// The transport refused a frame (session already gone): report it once and drop the listener.
 			abort(error);

@@ -12,10 +12,10 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *
  * The suites next door each hold one layer still with a stub: `remoteWorkspaceReader.test.mjs` drives the
  * reader against hand-made answers, `remoteHelperEntry.test.mjs` drives the frozen helper with raw frames,
- * and `remoteBootstrapUpload.test.mjs` checks the plan against its own manifest. None of them can show that
+ * and `remoteBootstrapUpload.test.mjs` checks the private snapshot against its own manifest. None of them can show that
  * the *chain* is wired, and that is the only thing this file asserts:
  *
- *   hello handshake -> upload plan -> finalize frames -> real child process -> fs.stat/fs.list/fs.read
+ *   hello handshake -> private upload snapshot -> finalize frames -> real child process -> fs.stat/fs.list/fs.read
  *   -> RemoteWorkspaceReader
  *
  * Every layer is the production one: the frozen helper body (REMOTE_HELPER_INLINE_SOURCE, build 1.4.0)
@@ -51,7 +51,7 @@ const {
 const { REMOTE_HELPER_ENTRY_FILE_NAME, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_INLINE_SOURCE } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
 const { createRemoteControlClient } = loadTsCommonJs("src/main/remote/RemoteControlClient.ts");
 const { createRemoteWorkspaceReader, REMOTE_WORKSPACE_DIAGNOSTIC_CODES } = loadTsCommonJs("src/main/remote/RemoteWorkspaceReader.ts");
-const { REMOTE_BUNDLE_HASH_PREFIX, REMOTE_BUNDLE_HASH_SEPARATOR, buildBundleManifest, observeBundleFiles, planBundleUpload } = loadTsCommonJs("src/main/remote/RemoteBootstrapUpload.ts");
+const { REMOTE_BUNDLE_HASH_PREFIX, REMOTE_BUNDLE_HASH_SEPARATOR, buildBundleManifest, observeBundleFiles, withPrivateBundleUploadPlan } = loadTsCommonJs("src/main/remote/RemoteBootstrapUpload.ts");
 const { buildFinalizeFrames } = loadTsCommonJs("src/main/remote/RemoteBootstrapTransfer.ts");
 const { REMOTE_BOOTSTRAP_STAGING_PREFIX } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 
@@ -456,65 +456,70 @@ seamTest("the upload plan's finalize frames match the manifest, the contract and
 	const observed = await guard(observeBundleFiles(directory, names), "observeBundleFiles");
 	const declared = buildBundleManifest(observed, { executableNames });
 	const ready = { op: "ready", protocolVersion: REMOTE_BOOTSTRAP_PROTOCOL_VERSION, bundleSha256: declared.bundleSha256, nonce: NONCE, deployRoot: DEPLOY_ROOT, staging: `${REMOTE_BOOTSTRAP_STAGING_PREFIX}${NONCE}` };
-	const plan = await guard(planBundleUpload({ connection: CONNECTION, ready, directory, names, executableNames }), "planBundleUpload");
-	const files = plain(plan.manifest.files);
-	const address = expectedBundleSha256(truth);
+	await guard(
+		withPrivateBundleUploadPlan({ connection: CONNECTION, ready, directory, names, executableNames }, async (plan) => {
+			const files = plain(plan.manifest.files);
+			const address = expectedBundleSha256(truth);
 
-	assert.equal(plan.manifest.schemaVersion, REMOTE_BUNDLE_MANIFEST_SCHEMA_VERSION);
-	assert.equal(address, declared.bundleSha256, "the manifest's content address must be the documented wire definition");
-	assert.equal(plan.manifest.bundleSha256, address);
-	assert.deepEqual(plain(plan.executableNames), executableNames);
-	// The plan is also the pinned scp call: bare names resolved against the bundle directory, and the exact
-	// staging directory the entry announced. The names sit in front of the single target operand, where a
-	// `--` terminator keeps a name that begins with a dash from being read as an option.
-	assert.equal(plan.invocation.executable, CONNECTION.executable);
-	assert.equal(plan.invocation.cwd, directory);
-	const argv = plain(plan.invocation.args);
-	assert.deepEqual(argv.slice(-(names.length + 1), -1), names);
-	assert.equal(argv.at(-1), `${CONNECTION.destination}:${DEPLOY_ROOT}/${REMOTE_BOOTSTRAP_STAGING_PREFIX}${NONCE}`);
-	assert.equal(argv.includes("--"), true);
+			assert.equal(plan.manifest.schemaVersion, REMOTE_BUNDLE_MANIFEST_SCHEMA_VERSION);
+			assert.equal(address, declared.bundleSha256, "the manifest's content address must be the documented wire definition");
+			assert.equal(plan.manifest.bundleSha256, address);
+			assert.deepEqual(plain(plan.executableNames), executableNames);
+			// The pinned scp call resolves bare names against the private snapshot, and targets the exact
+			// staging directory the entry announced. The names sit in front of the single target operand, where a
+			// `--` terminator keeps a name that begins with a dash from being read as an option.
+			assert.equal(plan.invocation.executable, CONNECTION.executable);
+			assert.notEqual(plan.invocation.cwd, directory, "scp must read the private snapshot, not the mutable source");
+			assert.equal(readFileSync(join(plan.invocation.cwd, "helper.mjs"), "utf8"), REMOTE_HELPER_INLINE_SOURCE);
+			const argv = plain(plan.invocation.args);
+			assert.deepEqual(argv.slice(-(names.length + 1), -1), names);
+			assert.equal(argv.at(-1), `${CONNECTION.destination}:${DEPLOY_ROOT}/${REMOTE_BOOTSTRAP_STAGING_PREFIX}${NONCE}`);
+			assert.equal(argv.includes("--"), true);
 
-	const lines = buildFinalizeFrames(plan.manifest, { executableNames: [...plan.executableNames] });
-	const frames = lines.map((line) => JSON.parse(line));
-	const beginFields = contractTypeFields("RemoteBootstrapFinalizeBeginFrame");
-	const beginLiterals = contractTypeLiterals("RemoteBootstrapFinalizeBeginFrame");
-	const fileFields = contractTypeFields("RemoteBootstrapFinalizeFileFrame");
-	const fileLiterals = contractTypeLiterals("RemoteBootstrapFinalizeFileFrame");
-	const commitFields = contractTypeFields("RemoteBootstrapFinalizeCommitFrame");
-	const commitLiterals = contractTypeLiterals("RemoteBootstrapFinalizeCommitFrame");
-	const entry = readBootstrapEntryAcceptance();
+			const lines = buildFinalizeFrames(plan.manifest, { executableNames: [...plan.executableNames] });
+			const frames = lines.map((line) => JSON.parse(line));
+			const beginFields = contractTypeFields("RemoteBootstrapFinalizeBeginFrame");
+			const beginLiterals = contractTypeLiterals("RemoteBootstrapFinalizeBeginFrame");
+			const fileFields = contractTypeFields("RemoteBootstrapFinalizeFileFrame");
+			const fileLiterals = contractTypeLiterals("RemoteBootstrapFinalizeFileFrame");
+			const commitFields = contractTypeFields("RemoteBootstrapFinalizeCommitFrame");
+			const commitLiterals = contractTypeLiterals("RemoteBootstrapFinalizeCommitFrame");
+			const entry = readBootstrapEntryAcceptance();
 
-	assert.equal(frames.length, files.length + 2, "one finalize-begin, one frame per declared file, one finalize-commit");
-	for (const line of lines) assert.ok(Buffer.byteLength(line, "utf8") <= REMOTE_BOOTSTRAP_MAX_FRAME_BYTES, "every frame must fit the entry's 4096 byte inbound cap");
+			assert.equal(frames.length, files.length + 2, "one finalize-begin, one frame per declared file, one finalize-commit");
+			for (const line of lines) assert.ok(Buffer.byteLength(line, "utf8") <= REMOTE_BOOTSTRAP_MAX_FRAME_BYTES, "every frame must fit the entry's 4096 byte inbound cap");
 
-	// finalize-begin: the field names of the contract type *and* of the entry's `exact(...)` list, and the
-	// op/v values taken from the contract's own literals instead of being retyped here.
-	assert.deepEqual(Object.keys(frames[0]).sort(), [...beginFields].sort());
-	assert.deepEqual(Object.keys(frames[0]).sort(), [...entry.begin].sort());
-	assert.equal(frames[0].op, beginLiterals.op);
-	assert.equal(frames[0].v, beginLiterals.v);
-	assert.equal(frames[0].files, files.length);
-	assert.equal(frames[0].bundleSha256, address);
+			// finalize-begin: the field names of the contract type *and* of the entry's `exact(...)` list, and the
+			// op/v values taken from the contract's own literals instead of being retyped here.
+			assert.deepEqual(Object.keys(frames[0]).sort(), [...beginFields].sort());
+			assert.deepEqual(Object.keys(frames[0]).sort(), [...entry.begin].sort());
+			assert.equal(frames[0].op, beginLiterals.op);
+			assert.equal(frames[0].v, beginLiterals.v);
+			assert.equal(frames[0].files, files.length);
+			assert.equal(frames[0].bundleSha256, address);
 
-	// One finalize-file per manifest entry, in the manifest's name order, carrying this test's own digests.
-	const order = [...truth.keys()].sort();
-	files.forEach((file, index) => {
-		const frame = frames[index + 1];
-		assert.deepEqual(Object.keys(frame).sort(), [...fileFields].sort());
-		assert.deepEqual(Object.keys(frame).sort(), [...entry.file].sort());
-		assert.equal(frame.op, fileLiterals.op);
-		assert.equal(frame.v, fileLiterals.v);
-		assert.equal(file.name, order[index], "the frames follow the manifest's name-sorted order");
-		assert.equal(frame.name, file.name);
-		assert.equal(frame.sha256, truth.get(file.name).sha256, "the digest is the one computed from disk in this process");
-		assert.equal(frame.bytes, truth.get(file.name).bytes);
-		assert.equal(frame.mode, truth.get(file.name).mode);
-		assert.ok(REMOTE_BOOTSTRAP_FILE_MODES.includes(frame.mode), "only the two declared octal modes may travel");
-	});
-	assert.equal(frames.at(-1).op, commitLiterals.op);
-	assert.equal(frames.at(-1).v, commitLiterals.v);
-	assert.deepEqual(Object.keys(frames.at(-1)).sort(), [...commitFields].sort());
-	assert.deepEqual(Object.keys(frames.at(-1)).sort(), ["op", "v"], "finalize-commit and abort are the entry's two minimal frames");
+			// One finalize-file per manifest entry, in the manifest's name order, carrying this test's own digests.
+			const order = [...truth.keys()].sort();
+			files.forEach((file, index) => {
+				const frame = frames[index + 1];
+				assert.deepEqual(Object.keys(frame).sort(), [...fileFields].sort());
+				assert.deepEqual(Object.keys(frame).sort(), [...entry.file].sort());
+				assert.equal(frame.op, fileLiterals.op);
+				assert.equal(frame.v, fileLiterals.v);
+				assert.equal(file.name, order[index], "the frames follow the manifest's name-sorted order");
+				assert.equal(frame.name, file.name);
+				assert.equal(frame.sha256, truth.get(file.name).sha256, "the digest is the one computed from disk in this process");
+				assert.equal(frame.bytes, truth.get(file.name).bytes);
+				assert.equal(frame.mode, truth.get(file.name).mode);
+				assert.ok(REMOTE_BOOTSTRAP_FILE_MODES.includes(frame.mode), "only the two declared octal modes may travel");
+			});
+			assert.equal(frames.at(-1).op, commitLiterals.op);
+			assert.equal(frames.at(-1).v, commitLiterals.v);
+			assert.deepEqual(Object.keys(frames.at(-1)).sort(), [...commitFields].sort());
+			assert.deepEqual(Object.keys(frames.at(-1)).sort(), ["op", "v"], "finalize-commit and abort are the entry's two minimal frames");
+		}),
+		"withPrivateBundleUploadPlan",
+	);
 });
 
 seamTest("a file larger than one chunk comes back byte for byte through the real helper", async (t) => {

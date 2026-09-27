@@ -172,7 +172,7 @@
 - **INV-9（阶段原子性）** 每个 store 阶段用**一次** store 写完成（单文件原子替换），因此阶段内部没有可观测的中间态；阶段之间才需要 journal。
 - **INV-10（失败可区分）** 跨 store 事务的每个失败出口都返回稳定码，且明确区分"未写入 / 已提交但结果未知 / 校验失败 / 需要人工修复"四类。
 - **INV-11（引用源完备性）** 每个持久化 hostId 字段都必须归属于一个已登记的引用源；新增未登记字段时契约测试必须失败（不许靠 code review 兜）。
-- **INV-12（连接门）** `needs-repair`、pending journal、或 tx 进行中时，任何新的 SSH 调用都必须以稳定码失败（现状已隐式满足 `SSH_HOST_NOT_READY`，需要显式断言）。
+- **INV-12（连接门）** `needs-repair`、pending journal、或 tx 进行中时，任何新的 SSH 调用都必须以稳定码失败。`buildPinnedSshInvocation` 已在参数构造前后检查 `remote-host-rebind.json` / `remote-host-rebind.lock` 并覆盖离线回归；但返回参数至 launcher 真正启动之间尚未与事务锁协调，完整 INV-12 仍待生产装配落实。
 
 ---
 
@@ -664,7 +664,7 @@ export type HostRepairPort = {
 | 6 | `tests/hostRebindJournal.test.mjs`（原清单写作 `tests/remoteHostRebindRecovery.test.mjs`） | 5.4 表中每个崩溃点一个用例（stub 端口注入 + 真实 journal 文件） | **已落地**（461 行；`:228` 的用例断言"每个崩溃点收敛到与不中断跑完相同的终态"） |
 | 7 | `tests/remoteHostReferenceRegistry.test.mjs` | 不完整扫描、源抛错、未注册源 | **已落地**（188 行） |
 | 8 | `tests/remoteHostRepair.test.mjs` | 6.2 各类分诊的允许/禁止动作 | **已落地**（429 行） |
-| 9 | `tests/remoteHostCrossStoreContract.test.mjs` | INV-11 的**正则扫描契约测试**：扫 `src/shared/types/*.ts` 与两个 codec 里的 `hostId` 字段，断言每个都归属一个已登记引用源 | **未实现**（INV-11 目前仍靠 code review 兜） |
+| 9 | `tests/remoteHostCrossStoreContract.test.mjs` | INV-11 的 **TypeScript AST 契约扫描**：扫 `src/shared/types/*.ts` 与两个 codec 里的 `hostId` 字段，断言每个字段都有明确的引用源归属，且归属在注册表源词表内；用内存突变验证新增字段会被拒绝 | **已落地**（仅静态归属；生产 provider 注册仍待装配，不能据此宣称生产引用扫描完整） |
 
 **B. 修改 remote 域（干净树）**
 

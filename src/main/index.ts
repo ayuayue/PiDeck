@@ -260,6 +260,8 @@ import { ProjectResourceManager } from "./projects/ProjectResourceManager";
 import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
+import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
+import { RemoteHostStore } from "./remote/RemoteHostStore";
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
 import { constrainWindowBoundsToWorkArea, type LastWindowBounds, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, readLastWindowBounds, saveLastWindowBounds } from "./windowState";
@@ -2355,6 +2357,8 @@ function resolveBuiltInExtensionRoots(): BuiltInExtensionPathRoots {
 }
 
 function registerIpc() {
+	// Only the explicit dev experiment can read the remote catalog; listing starts no SSH process.
+	registerRemoteHostIpc({ enabled: !app.isPackaged && process.env.PIDECK_REMOTE_EXPERIMENTAL === "1", list: async () => (await RemoteHostStore.open(app.getPath("userData"))).getSnapshot() });
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);
 	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService

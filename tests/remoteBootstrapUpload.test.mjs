@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,7 +9,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const upload = loadTsCommonJs("src/main/remote/RemoteBootstrapUpload.ts");
 const contract = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 const transfer = loadTsCommonJs("src/main/remote/RemoteBootstrapTransfer.ts");
-const { buildBundleManifest, buildUploadInvocation, bundleContentHash, observeBundleFiles, parseOpenSshVersion, planBundleUpload } = upload;
+const { buildBundleManifest, buildUploadInvocation, bundleContentHash, observeBundleFiles, parseOpenSshVersion, withPrivateBundleUploadPlan } = upload;
 const { quotePosixArgument } = contract;
 const { buildFinalizeFrames } = transfer;
 
@@ -125,6 +125,87 @@ test("observes regular files only", async (t) => {
 	await assert.rejects(observeBundleFiles(directory, ["link.mjs"]), /BUNDLE_FILE_MISMATCH/);
 });
 
+test("a path-resolved read cannot substitute external bytes after the file check", async (t) => {
+	const directory = await bundleDirectory(t, [["entry.mjs", "inside content\n"]]);
+	const outside = await bundleDirectory(t, [["secret.mjs", "secret content\n"]]);
+	let pathReads = 0;
+	const racingUpload = loadTsCommonJs("src/main/remote/RemoteBootstrapUpload.ts", {
+		stubs: {
+			"node:fs/promises": {
+				lstat,
+				open,
+				readFile: async () => {
+					pathReads++;
+					return readFile(join(outside, "secret.mjs"));
+				},
+			},
+		},
+	});
+	assert.deepEqual(plain(await racingUpload.observeBundleFiles(directory, ["entry.mjs"])), [observation("entry.mjs", "inside content\n")]);
+	assert.equal(pathReads, 0, "the observed bytes must come from the opened file, not a resolved path");
+});
+
+test("observing a handle for a different file rejects a swapped open target", async (t) => {
+	const directory = await bundleDirectory(t, [["entry.mjs", "inside content\n"]]);
+	const outside = await bundleDirectory(t, [["secret.mjs", "secret content\n"]]);
+	const racingUpload = loadTsCommonJs("src/main/remote/RemoteBootstrapUpload.ts", {
+		stubs: {
+			"node:fs/promises": {
+				lstat,
+				readFile,
+				open: (_path, flags) => open(join(outside, "secret.mjs"), flags),
+			},
+		},
+	});
+	await assert.rejects(racingUpload.observeBundleFiles(directory, ["entry.mjs"]), /BUNDLE_FILE_MISMATCH/);
+});
+
+test("the transfer callback reads only a private snapshot after the source changes", async (t) => {
+	const directory = await bundleDirectory(t, [["entry.mjs", "original bytes\n"]]);
+	const manifest = buildBundleManifest(await observeBundleFiles(directory, ["entry.mjs"]));
+	let snapshotDirectory;
+	const result = await withPrivateBundleUploadPlan({ connection: CONNECTION, ready: readyFor(manifest), directory, names: ["entry.mjs"] }, async (plan) => {
+		snapshotDirectory = plan.invocation.cwd;
+		assert.notEqual(snapshotDirectory, directory);
+		if (process.platform !== "win32") assert.equal((await lstat(snapshotDirectory)).mode & 0o077, 0, "POSIX peers cannot replace snapshot files");
+		await rm(join(directory, "entry.mjs"));
+		await writeFile(join(directory, "entry.mjs"), "different bytes\n");
+		assert.equal(await readFile(join(snapshotDirectory, "entry.mjs"), "utf8"), "original bytes\n");
+		assert.equal(plan.manifest.bundleSha256, manifest.bundleSha256);
+		return plan.manifest.bundleSha256;
+	});
+	assert.equal(result, manifest.bundleSha256);
+	await assert.rejects(lstat(snapshotDirectory), { code: "ENOENT" });
+});
+
+test("a rejected transfer callback still removes its private snapshot", async (t) => {
+	const directory = await bundleDirectory(t, [["entry.mjs", "original bytes\n"]]);
+	const manifest = buildBundleManifest(await observeBundleFiles(directory, ["entry.mjs"]));
+	let snapshotDirectory;
+	await assert.rejects(
+		withPrivateBundleUploadPlan({ connection: CONNECTION, ready: readyFor(manifest), directory, names: ["entry.mjs"] }, async (plan) => {
+			snapshotDirectory = plan.invocation.cwd;
+			throw new Error("TRANSFER_FAILED");
+		}),
+		/TRANSFER_FAILED/,
+	);
+	await assert.rejects(lstat(snapshotDirectory), { code: "ENOENT" });
+});
+
+test("a replaced source never reaches the transfer callback", async (t) => {
+	const directory = await bundleDirectory(t, [["entry.mjs", "original bytes\n"]]);
+	const manifest = buildBundleManifest(await observeBundleFiles(directory, ["entry.mjs"]));
+	await writeFile(join(directory, "entry.mjs"), "replaced bytes\n");
+	let started = false;
+	await assert.rejects(
+		withPrivateBundleUploadPlan({ connection: CONNECTION, ready: readyFor(manifest), directory, names: ["entry.mjs"] }, async () => {
+			started = true;
+		}),
+		/BUNDLE_MANIFEST_INVALID/,
+	);
+	assert.equal(started, false);
+});
+
 test("formats the remote path for the protocol the client will actually speak", () => {
 	// OpenSSH 9.0+ runs scp over SFTP: the path reaches the server literally, so quoting it would upload
 	// into a directory whose name contains quotes. The Windows banner is a 9.x client.
@@ -188,10 +269,19 @@ test("refuses a staging identity, source list or alias that could land bytes els
 		assert.throws(() => buildUploadInvocation({ connection: CONNECTION, ready: READY, directory: "/tmp/bundle", names: ["entry.mjs"], ...overrides }), /BOOTSTRAP_INPUT_INVALID/, JSON.stringify(overrides));
 	}
 	assert.throws(() => buildUploadInvocation({ connection: { ...CONNECTION, args: ["-o", "bad\r\narg"] }, ready: READY, directory: "/tmp/bundle", names: ["entry.mjs"] }), /BOOTSTRAP_INPUT_INVALID/);
-	// The alias is forwarded to ssh as its host operand, so an option-looking or IPv6 literal must not pass.
-	for (const destination of ["", "-oProxyCommand=calc", "fe80::1", "host:2222", "host name", "host/path"]) {
+	// Only syntactically invalid destinations may reach neither ssh nor scp.
+	for (const destination of ["", "-oProxyCommand=calc", "fe80:::1", "host:2222", "host name", "host/path"]) {
 		assert.throws(() => buildUploadInvocation({ connection: { ...CONNECTION, destination }, ready: READY, directory: "/tmp/bundle", names: ["entry.mjs"] }), /BOOTSTRAP_INPUT_INVALID/, destination);
 	}
+});
+
+test("wraps a validated IPv6 destination in brackets for scp, leaving other hosts unchanged", () => {
+	for (const banner of [WINDOWS_BANNER, "OpenSSH_8.9p1"]) {
+		const invocation = buildUploadInvocation({ connection: { ...CONNECTION, destination: "2001:db8::1", openSshVersion: banner }, ready: READY, directory: "/tmp/bundle", names: ["entry.mjs"] });
+		assert.ok(invocation.args.at(-1).startsWith("[2001:db8::1]:"));
+	}
+	const hostname = buildUploadInvocation({ connection: CONNECTION, ready: READY, directory: "/tmp/bundle", names: ["entry.mjs"] });
+	assert.ok(hostname.args.at(-1).startsWith("pideck-verified-host:"));
 });
 
 test("plans an upload whose manifest the finalize encoder accepts", async (t) => {
@@ -201,8 +291,11 @@ test("plans an upload whose manifest the finalize encoder accepts", async (t) =>
 	]);
 	const observations = await observeBundleFiles(directory, ["helper.mjs", "entry.mjs"]);
 	const expected = buildBundleManifest(observations, { executableNames: ["entry.mjs"] });
-	const plan = await planBundleUpload({ connection: CONNECTION, ready: readyFor(expected), directory, names: ["helper.mjs", "entry.mjs"], executableNames: ["entry.mjs"] });
-	assert.equal(plan.invocation.cwd, directory);
+	const plan = await withPrivateBundleUploadPlan({ connection: CONNECTION, ready: readyFor(expected), directory, names: ["helper.mjs", "entry.mjs"], executableNames: ["entry.mjs"] }, async (snapshot) => {
+		assert.notEqual(snapshot.invocation.cwd, directory);
+		return snapshot;
+	});
+	await assert.rejects(lstat(plan.invocation.cwd), { code: "ENOENT" });
 	assert.deepEqual(plain(plan.executableNames), ["entry.mjs"]);
 	// The address this plan carries must be the one the entry was started with.
 	assert.equal(plan.manifest.bundleSha256, expected.bundleSha256);
@@ -221,5 +314,8 @@ test("plans an upload whose manifest the finalize encoder accepts", async (t) =>
 	assert.equal(frames.at(-1).op, "finalize-commit");
 
 	// A ready frame from another run must be refused before the whole bundle is moved.
-	await assert.rejects(planBundleUpload({ connection: CONNECTION, ready: { ...READY, bundleSha256: "c".repeat(64) }, directory, names: ["helper.mjs", "entry.mjs"] }), /BUNDLE_MANIFEST_INVALID/);
+	await assert.rejects(
+		withPrivateBundleUploadPlan({ connection: CONNECTION, ready: { ...READY, bundleSha256: "c".repeat(64) }, directory, names: ["helper.mjs", "entry.mjs"] }, async () => assert.fail("mismatched manifest reached transfer")),
+		/BUNDLE_MANIFEST_INVALID/,
+	);
 });
