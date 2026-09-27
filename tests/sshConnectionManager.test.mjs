@@ -34,8 +34,10 @@ function createManager(options) {
 }
 
 /** A legal `hello` result: the manager only has to agree on the protocol version and the platform fields. */
-function helloResult(protocolVersion = 1) {
-	return { protocolVersion, platform: "linux", arch: "x64", home: "/home/dev", capabilities: ["echo", "fs.stat", "fs.list", "fs.read"], helperVersion: "1.2.0", nodeVersion: "v22.14.0", pid: 321 };
+function helloResult(protocolVersion = 1, root = null) {
+	// `root` mirrors what the helper resolved at startup; the manager compares it against the root the
+	// attempt asked for, so a fake that reports the wrong one is a handshake failure, not a detail.
+	return { protocolVersion, platform: "linux", arch: "x64", home: "/home/dev", root, capabilities: ["echo", "fs.stat", "fs.list", "fs.read"], helperVersion: "1.2.0", nodeVersion: "v22.14.0", pid: 321 };
 }
 
 /** The response frame a fake helper sends for one request frame the manager wrote. */
@@ -58,7 +60,7 @@ async function waitForFrame(protocol, match, label = "the request frame") {
  * `hello` of the attempt through the handle's own emitter — so a silent helper is modelled by turning
  * that answer off (`answerHello: false`) rather than by leaving the manager without a transport.
  */
-function createFakeLauncher({ answerHello = true, protocolVersion = 1 } = {}) {
+function createFakeLauncher({ answerHello = true, protocolVersion = 1, root = null } = {}) {
 	const requests = [];
 	const handles = [];
 	return {
@@ -99,7 +101,7 @@ function createFakeLauncher({ answerHello = true, protocolVersion = 1 } = {}) {
 						const request = JSON.parse(line);
 						if (!answerHello || request.method !== "hello" || handshakeAnswered) return;
 						handshakeAnswered = true;
-						const frame = helloFrame(request, helloResult(protocolVersion));
+						const frame = helloFrame(request, helloResult(protocolVersion, root));
 						// A real helper answers on stdout asynchronously; a queued microtask keeps the manager from
 						// ever observing the answer before the request left.
 						queueMicrotask(() => emitter.emit("stdout", JSON.stringify(frame)));
@@ -797,7 +799,7 @@ test("composes with the real launcher: explicit session deadline and exit classi
 test("a verified workspace root reaches the launched command as the --root pair", async (t) => {
 	const { directory, profile } = await createPinnedHostFixture(t);
 	const { client } = createPinnedClient(profile.id);
-	const fake = createFakeLauncher();
+	const fake = createFakeLauncher({ root: WORKSPACE_ROOT });
 	const manual = createManualTimers();
 	// The caller injected a root, so the launched command must be the four-token shape; the manager neither
 	// rebuilds nor validates the path, it only forwards the verified value.
@@ -989,4 +991,54 @@ test("a throwing state listener cannot break the connection", async (t) => {
 	t.after(() => manager.dispose());
 	const state = await connectAndSettle(manager, profile.id);
 	assert.equal(state.state, "ready", "the connection must still reach ready");
+});
+
+test("a helper that confined itself to a different root fails the handshake", async (t) => {
+	// 这是 Phase 3 的门禁：main 必须能证明「helper 实际 confinement 的目录」就是「用户确认过的目录」。
+	// 一个本身是符号链接的 root（或经由链接到达）会让 helper 服务另一棵树，而调用方与用户都以为
+	// 是确认过的那棵。helper 现在在 hello 里回报启动时 realpath 的结果，这里锁住「不一致就拒绝」。
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	// 请求的是 WORKSPACE_ROOT，helper 却回报别的目录 —— 正是要被拦下的形态。
+	const fake = createFakeLauncher({ root: "/srv/somewhere-else" });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0, helperSession: ROOTED_HELPER_SESSION });
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.notEqual(state.state, "ready", "a mismatched root must never reach ready");
+	// 同一会话重试不会改变答案（root 在启动时固定），因此必须收敛到需要人工处理，而不是无限退避。
+	assert.equal(state.state, "needs-attention");
+	const codes = Array.from(manager.listDiagnostics(profile.id)).map((entry) => entry.code);
+	assert.ok(codes.includes("SSH_HELPER_ROOT_MISMATCH"), `expected the root mismatch to be recorded, got: ${codes.join(",")}`);
+	assert.ok(!codes.includes("SSH_HELPER_HANDSHAKE_OK"), "the handshake must not be reported as successful");
+});
+
+test("a host-only helper that reports a root is refused too", async (t) => {
+	// 另一个方向：没有请求 root 却声称有一个，同样说明「实际边界」与「请求的边界」不符。
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const fake = createFakeLauncher({ root: WORKSPACE_ROOT });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0, helperSession: HELPER_SESSION });
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.equal(state.state, "needs-attention");
+	const codes = Array.from(manager.listDiagnostics(profile.id)).map((entry) => entry.code);
+	assert.ok(codes.includes("SSH_HELPER_ROOT_MISMATCH"));
+});
+
+test("a helper that claims no root while a root was requested is refused", async (t) => {
+	// 真值表的第三个象限：请求了 root，helper 却回报 null。此时会话是 host-only，
+	// 而调用方以为自己在已确认的工作区里 —— 放行等于把「有 root 的会话」这一前提悄悄降级。
+	const { directory, profile } = await createPinnedHostFixture(t);
+	const { client } = createPinnedClient(profile.id);
+	const fake = createFakeLauncher({ root: null });
+	const manager = createManager({ userDataDir: directory, client, launcher: fake.launcher, stabilityWindowMs: 0, timers: createManualTimers().timers, random: () => 0, helperSession: ROOTED_HELPER_SESSION });
+	t.after(() => manager.dispose());
+
+	const state = await connectAndSettle(manager, profile.id);
+	assert.notEqual(state.state, "ready", "a root-less session must not satisfy a rooted request");
+	assert.equal(state.state, "needs-attention");
+	const codes = Array.from(manager.listDiagnostics(profile.id)).map((entry) => entry.code);
+	assert.ok(codes.includes("SSH_HELPER_ROOT_MISMATCH"), `expected the root mismatch to be recorded, got: ${codes.join(",")}`);
 });

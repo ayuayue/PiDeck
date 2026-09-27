@@ -171,6 +171,15 @@ export type RemoteHelperHandshake = {
 	platform: string;
 	arch: string;
 	home: string;
+	/**
+	 * The canonical directory the helper confined itself to, or null for a host-only session.
+	 *
+	 * Reported because main cannot otherwise prove that the `--root` it asked for is the one that took
+	 * effect: the helper resolves symlinks once at startup, so a root that is itself a link (or points
+	 * through one) would otherwise leave the confined boundary different from the path the user confirmed.
+	 * With this the confirmation is checkable instead of assumed.
+	 */
+	root: string | null;
 	capabilities: readonly string[];
 };
 

@@ -407,7 +407,10 @@ seamTest("the frozen helper's hello frame is the handshake the connection layer 
 	assert.equal(Number.isSafeInteger(hello.pid), true);
 	// The three filesystem methods the reader needs must be advertised under their contract names.
 	for (const method of [REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) assert.ok(hello.capabilities.includes(method), `${method} must be advertised`);
-	assert.deepEqual(Object.keys(hello).sort(), ["arch", "capabilities", "helperVersion", "home", "nodeVersion", "pid", "platform", "protocolVersion"]);
+	assert.deepEqual(Object.keys(hello).sort(), ["arch", "capabilities", "helperVersion", "home", "nodeVersion", "pid", "platform", "protocolVersion", "root"]);
+	// The root is part of the handshake because the connection layer compares it against the root it asked
+	// for: it is the only evidence that the confinement boundary is the directory the caller named.
+	assert.equal(hello.root, fixture.root, "the helper reports the canonical root it confined itself to");
 
 	// Outbound: the method is the contract constant exactly, and the frame carries the contract's request
 	// fields minus `params`, which a handshake does not send.

@@ -204,6 +204,16 @@ async function assertHelperHandshake(host: SshAttemptHost, deps: SshAttemptDeps,
 		throw new Error("SSH_HELPER_PROTOCOL_MISMATCH");
 	}
 	if (typeof result.platform !== "string" || typeof result.arch !== "string" || typeof result.home !== "string" || !Array.isArray(result.capabilities)) throw new Error("SSH_HELPER_HANDSHAKE_INVALID");
+	// The helper resolves its root once at startup and reports the canonical result. Comparing it against
+	// what this attempt asked for is the only way to know that the confinement boundary is the directory
+	// we named: a root that is itself a symlink, or reached through one, would otherwise leave the helper
+	// serving a different tree than the caller (and the user) believe. Absent root on both sides is the
+	// legal host-only session, and is an equality too, not a skip.
+	const requestedRoot = deps.readBootstrap()?.root ?? null;
+	if (result.root !== requestedRoot) {
+		host.record("SSH_HELPER_ROOT_MISMATCH");
+		throw new Error("SSH_HELPER_ROOT_MISMATCH");
+	}
 	// `helperVersion`/`nodeVersion`/`pid` are identity for the UI, not evidence of compatibility, so a
 	// helper that omits them is still a working helper.
 	host.record("SSH_HELPER_HANDSHAKE_OK");

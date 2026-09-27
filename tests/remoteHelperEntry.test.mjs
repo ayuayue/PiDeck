@@ -54,7 +54,7 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "8c5681ea396f91b61d0a67b62e656d35d8b21db46da9278fcb2a32666787cc9a";
+const FROZEN_SHA256 = "01a2505c7f18ac2b45cd42bfda61d16a3fe867da3995d6eb1ee6ab6eb7ceca05";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
@@ -336,6 +336,8 @@ function startHelper(t, options = {}) {
 		lines,
 		frames,
 		diagnostics,
+		/** The root this helper was started with, or null for a host-only session. */
+		root: rootArgs.length > 0 ? rootArgs[1] : null,
 		stderr: () => stderr,
 		/** Nth outbound frame (0 based), which is how a test learns the id the client minted. */
 		requestIdAt(index) {
@@ -460,6 +462,9 @@ helperTest("hello answers the contract handshake through the production client",
 		platform: process.platform,
 		arch: process.arch,
 		home: HELPER_HOME,
+		// The canonical root it confined itself to: main uses this to prove the --root it asked for is the
+		// one that took effect, instead of assuming the path was not a symlink to somewhere else.
+		root: session.root,
 		capabilities: Array.from(REMOTE_HELPER_CAPABILITIES),
 		helperVersion: REMOTE_HELPER_ENTRY_VERSION,
 		nodeVersion: process.versions.node,
@@ -542,6 +547,9 @@ helperTest("a helper started without --root is a legal host-only session that se
 	const hello = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello without a root"));
 	assert.equal(hello.protocolVersion, REMOTE_HELPER_PROTOCOL_VERSION);
 	assert.equal(hello.home, HELPER_HOME);
+	// A host-only helper claims no root: main must be able to tell "no root was asked for" apart from
+	// "a root was asked for and resolved somewhere else".
+	assert.equal(hello.root, null);
 	// The capabilities are reported as this build really has them: fs.* is still a capability, it is only the
 	// paths that are unreachable, so a client must never read the host-only mode as a downgraded build.
 	assert.deepEqual(hello.capabilities, Array.from(REMOTE_HELPER_CAPABILITIES));
@@ -1386,4 +1394,21 @@ helperTest("the uploaded helper.mjs runs the same frozen source", async (t) => {
 	await expectRefusal(session, REMOTE_HELPER_METHOD_FS_READ, { path: "../entry.txt", offset: 0, bytes: 8 }, "PATH_OUTSIDE_ROOT");
 	session.endStdin();
 	assert.equal(await session.waitForExit(4000), 0);
+});
+
+helperTest("hello reports the canonical root, resolving a symlinked root to its target", async (t) => {
+	// 这是主进程唯一能证明「我要求的 root 就是实际生效的 root」的方式：helper 启动时 realpath 一次，
+	// 一个本身是符号链接的 root 会把 confinement 边界指到别处，而用户确认的是那条路径。
+	const realRoot = createRootFixture(t);
+	const linkParent = mkdtempSync(join(tmpdir(), "pideck-helper-link-"));
+	t.after(() => rmSync(linkParent, { recursive: true, force: true }));
+	const linkedRoot = join(linkParent, "root-link");
+	symlinkSync(realRoot, linkedRoot, "dir");
+
+	const session = startHelper(t, { root: linkedRoot });
+	const result = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello"));
+	// 传入的是链接，回报的必须是解析后的真实目录 —— 这样 main 才能把它和自己确认过的路径比对。
+	assert.notEqual(result.root, linkedRoot, "a symlinked root must not be reported as itself");
+	assert.equal(result.root, realRoot, "the reported root is the resolved directory");
+	assert.equal(session.root, linkedRoot, "the fixture still records what it actually passed");
 });
