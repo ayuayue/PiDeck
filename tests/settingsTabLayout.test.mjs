@@ -66,9 +66,15 @@ test("连接面板引用的每个 i18n key 都在两份词典里存在", () => {
 	// 而这两个面板的文案量最大（添加/指纹确认），所以单独守一道。
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
-	const panels = ["src/renderer/src/components/app/settings/ConnectionsTab.tsx", "src/renderer/src/components/app/settings/AddHostDialog.tsx", "src/renderer/src/components/app/settings/FingerprintConfirmDialog.tsx", "src/renderer/src/components/app/settings/RepairPanel.tsx"];
+	const panels = [
+		"src/renderer/src/components/app/settings/ConnectionsTab.tsx",
+		"src/renderer/src/components/app/settings/AddHostDialog.tsx",
+		"src/renderer/src/components/app/settings/FingerprintConfirmDialog.tsx",
+		"src/renderer/src/components/app/settings/RepairPanel.tsx",
+		"src/renderer/src/components/app/settings/RemoteWorkspacePanel.tsx",
+	];
 	const keys = new Set();
-	for (const file of panels) for (const match of readFileSync(file, "utf8").matchAll(/t\("([^"]+)"\)/g)) keys.add(match[1]);
+	for (const file of panels) for (const match of readFileSync(file, "utf8").matchAll(/(?<![A-Za-z0-9_$])t\("([^"]+)"\)/g)) keys.add(match[1]);
 	assert.ok(keys.size > 20, "expected the connection panels to reference a substantial set of keys");
 	for (const key of keys) {
 		assert.ok(zh.includes(`"${key}":`), `缺中文文案 ${key}`);
