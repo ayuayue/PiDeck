@@ -27,59 +27,67 @@ const smokeSource = readFileSync(smokeScriptPath, "utf8");
 
 const { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand, REMOTE_BOOTSTRAP_INLINE_SOURCE, REMOTE_BOOTSTRAP_INLINE_ENTRY } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 
-test("the smoke script probes the version the contract requires, on the same absolute executable", () => {
-	// 复用契约里的探针构造器，而不是在脚本里另拼一次命令；否则阈值与引号规则会有两份。
-	assert.match(smokeSource, /buildRemoteNodeVersionCommand\s*\(/, "script must build the probe with the contract helper");
-	assert.match(smokeSource, /assertSupportedRemoteNodeVersion\s*\(/, "script must validate with the contract helper");
-	const { createSshClientRuntime } = loadTsCommonJs("src/main/remote/SshClientRuntime.ts");
-	// 探针命令必须落在已验证的绝对路径上，且不得回退到 PATH 查询。
+test("the version probe is built from the contract helper, on the resolved absolute executable", () => {
+	// 探针命令必须落在已验证的绝对路径上，且不得回退到 PATH 查询（引号规则也只有契约一处）。
 	assert.equal(buildRemoteNodeVersionCommand("/usr/bin/node"), "'/usr/bin/node' '--version'");
+	assert.equal(buildRemoteNodeVersionCommand("/home/u/.nvm/versions/node/v24.11.0/bin/node"), "'/home/u/.nvm/versions/node/v24.11.0/bin/node' '--version'");
+	const { createSshClientRuntime } = loadTsCommonJs("src/main/remote/SshClientRuntime.ts");
 	assert.ok(createSshClientRuntime, "client runtime still loads (the script depends on it)");
 });
 
-test("the version gate runs before any bootstrap work is attempted", () => {
-	// 顺序是关键：门禁若排在 bootstrap 之后，旧 node 仍会先拿到一份上传/启动，失败形态
-	// 又回到「零帧退出」。断言「拒绝点」出现在 bootstrapPinnedHost 调用之前。
-	const gateIndex = smokeSource.indexOf("assertSupportedRemoteNodeVersion(");
-	const bootstrapIndex = smokeSource.indexOf("bootstrapPinnedHost({");
-	assert.ok(gateIndex >= 0, "version gate missing from the smoke script");
-	assert.ok(bootstrapIndex >= 0, "bootstrap call missing from the smoke script");
-	assert.ok(gateIndex < bootstrapIndex, "version gate must precede the bootstrap call");
-
-	// 门禁必须在真正发起 bootstrap 的调用点之前完成：SCP/启动都不该发生。
-	// 注意取的是调用点（`bootstrapPinnedHost({`），不是 import 行里的名字——import 在文件
-	// 顶部，拿它下比会让这条断言恒真。
-	const versionProbeIndex = smokeSource.indexOf("buildRemoteNodeVersionCommand(");
-	// 探针构造器自身也 import，所以从「import 之后」开始找调用点。
+test("the smoke script delegates node resolution and version gating to the resolver", () => {
+	// 门禁不再由脚本自己实现：它已下沉到 `resolveRemoteNodeExecutable`（该函数自带 22.3 门禁，
+	// 见 tests/remoteNodeResolution.test.mjs）。脚本必须调用它，而不是重新拼一份探测逻辑——
+	// 两份阈值迟早漂移。
 	const afterImports = smokeSource.indexOf("async function verifyRemoteHost");
-	const probeCallIndex = smokeSource.indexOf("buildRemoteNodeVersionCommand(", afterImports);
-	assert.ok(versionProbeIndex >= 0, "the version probe must be wired into the script");
 	assert.ok(afterImports >= 0, "the smoke script's entry function must exist");
-	assert.ok(probeCallIndex >= 0, "the probe must be called inside the verify function, not merely imported");
-	assert.ok(bootstrapIndex > probeCallIndex, "the version probe must run before the bootstrap call site");
+	const resolveCallIndex = smokeSource.indexOf("resolveRemoteNodeExecutable(", afterImports);
+	assert.ok(resolveCallIndex >= 0, "the script must call the resolver inside verifyRemoteHost");
+
+	// 解析必须发生在 bootstrap 调用点之前：旧 node 一旦先拿到上传/启动，失败形态又回到零帧退出。
+	const bootstrapIndex = smokeSource.indexOf("bootstrapPinnedHost({", afterImports);
+	assert.ok(bootstrapIndex >= 0, "bootstrap call missing from the smoke script");
+	assert.ok(resolveCallIndex < bootstrapIndex, "resolution must precede the bootstrap call");
+
+	// 脚本不得再自己调契约的版本门禁：留下一份就地实现就是第二个阈值来源。
+	assert.doesNotMatch(smokeSource, /assertSupportedRemoteNodeVersion\s*\(/, "the gate belongs to the resolver, not to a second copy here");
+	// 也不得回退到非交互 `command -v node`——那正是探到旧 node 的原始缺陷。
+	// 断言的是「不再构造这个远端命令」，而不是关键词不存在（注释里提到它恰恰是应该的）。
+	assert.doesNotMatch(smokeSource, /remoteCommand:\s*"command -v node"/, "the non-interactive probe must not come back as an actual command");
+	assert.doesNotMatch(smokeSource, /remoteCommand:\s*["'`]command\s/, "no PATH-lookup remote command may be constructed");
 });
 
-test("the rejected-node error names the path and version, and does not surface as a bare crash", () => {
-	// 这条用例是这次实机发现的验收判据：旧 node 必须得到一条可执行的先决条件错误，
-	// 而不是 `BOOTSTRAP_NO_READY ... stderr-present` 这种需要大量背景才能读懂的症状。
-	assert.match(smokeSource, /REMOTE_NODE_VERSION_UNSUPPORTED/, "rejection must use the contract's stable code");
-	assert.match(smokeSource, /REMOTE_NODE_VERSION_PROBE_FAILED/, "a failing probe needs its own distinguishable code");
+test("the rejected-node error is actionable and does not surface as a bare crash", () => {
+	// 验收判据：不合格的 node 必须得到一条可执行的先决条件错误，而不是
+	// `BOOTSTRAP_NO_READY ... stderr-present` 这种需要大量背景才能读懂的症状。
+	// 具体码由解析器产生（REMOTE_NODE_VERSION_UNSUPPORTED 等），这里锁定脚本不会把
+	// 解析器的错误吞掉换成自己的笼统消息。
+	assert.match(smokeSource, /resolveRemoteNodeExecutable/, "the resolver is the single source of the gate and its codes");
+	// 脚本仍需把 bootstrap 阶段特有的失败形态（零帧退出）打印成可读三字段。
+	assert.match(smokeSource, /BOOTSTRAP_NO_READY/, "the zero-frame exit must stay diagnosable");
+	assert.match(smokeSource, /exitKind/);
+	assert.match(smokeSource, /stderrSeen/);
 });
 
-test("the gate rejects the exact version that broke the real host, and admits the plan's threshold", () => {
-	// 真实负样本：serve 上 /usr/bin/node --version 的输出。
+test("the smoke script still probes the version contract, through the resolver's one implementation", () => {
+	// 版本阈值只有一处：契约（remoteBootstrapContract.test.mjs 已有边界覆盖）。
 	assert.throws(() => assertSupportedRemoteNodeVersion("v12.22.9\n"), /REMOTE_NODE_VERSION_UNSUPPORTED/);
-	// 计划写死的门槛 22.3：等于通过，低一个 patch 必须拒绝。
 	assert.doesNotThrow(() => assertSupportedRemoteNodeVersion("v22.3.0\n"));
 	assert.throws(() => assertSupportedRemoteNodeVersion("v22.2.9\n"), /REMOTE_NODE_VERSION_UNSUPPORTED/);
 	// Node 12 不认 `node:` 前缀的 require —— 门禁存在的原因，用文档化的机制固定下来。
 	assert.match(readFileSync(join(repoRoot, "src/main/remote/RemoteBootstrapContract.ts"), "utf8"), /require\("node:fs"\)/);
+	// 解析器必须真的调用契约门禁，而不是自带一份比较。
+	const resolverSource = readFileSync(join(repoRoot, "src/main/remote/RemoteBootstrapSession.ts"), "utf8");
+	assert.match(resolverSource, /assertSupportedRemoteNodeVersion\s*\(/);
 });
 
 test("the smoke script stays honest about what a passing probe proves", () => {
-	// 脚本注释必须记录「路径探针 ≠ 版本可用」，否则后人会把门禁当成冗余删掉。
+	// 脚本注释必须记录「路径探针 ≠ 版本可用」以及为什么非交互探测不够，
+	// 否则后人会把登录 shell 解析当成冗余删掉。
 	assert.match(smokeSource, /14\.18/, "comment must record when the node: prefix landed");
 	assert.match(smokeSource, /outside\s+its\s+try|outside the try/i, "comment must record that the failing require sits outside the entry's try");
+	assert.match(smokeSource, /login shell/i, "comment must record why the login shell is read");
+	assert.match(smokeSource, /nvm/, "comment must name the concrete case (nvm is invisible to non-interactive SSH)");
 });
 
 test("the smoke script's usage guard and fingerprint input are unchanged by the gate", () => {
