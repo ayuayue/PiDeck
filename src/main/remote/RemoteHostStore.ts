@@ -359,6 +359,29 @@ export class RemoteHostStore {
 		return ids.has(hostId);
 	}
 
+	/**
+	 * Remove a never-verified draft that was just created and has no trust anchor to lose.
+	 *
+	 * `retire` is the wrong tool here: it demands a disabled tombstone and a reference scan, both of
+	 * which exist to protect a host that someone may still depend on. A draft whose offer never
+	 * succeeded is referenced by nothing by construction, and the alternative — leaving it behind — is
+	 * what the user actually saw: an unremovable "unverified" row for every failed add attempt.
+	 *
+	 * Refuses anything that could carry state: a verified endpoint (a real trust anchor) or a disabled
+	 * profile (someone deliberately turned it off) must go through the full retirement path instead.
+	 * The id is recorded as retired so it can never be reissued.
+	 */
+	async discardUnverifiedDraft(hostId: string, expectedRevision: number): Promise<string> {
+		return this.mutate(expectedRevision, async (snapshot) => {
+			const profile = snapshot.profiles.find((item) => item.id === hostId);
+			if (!profile || profile.verifiedEndpoint || profile.disabledAt) throw new Error("REMOTE_HOST_DISCARD_INVALID");
+			return {
+				next: { ...snapshot, profiles: snapshot.profiles.filter((item) => item.id !== hostId), retiredHostIds: [...snapshot.retiredHostIds.filter((id) => id !== hostId), hostId] },
+				result: hostId,
+			};
+		});
+	}
+
 	getSnapshot(): RemoteHostStoreState {
 		const decoded = decodeRemoteHostSnapshot({ schemaVersion: 1, revision: this.state.revision, profiles: this.state.profiles, retiredHostIds: this.state.retiredHostIds });
 		return { ...decoded, status: this.state.status, reasons: [...this.state.reasons] };

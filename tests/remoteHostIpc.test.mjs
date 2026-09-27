@@ -225,7 +225,7 @@ test("diagnostics history is capped per request", async () => {
 
 /** 用桩替换 store/pin，并记录调用：本用例只验 IPC 边界的校验与 senderId 绑定，不碰文件系统。 */
 function addFlowHandlers(options = {}) {
-	const calls = { createDraft: [], offerPin: [], confirmPin: [], sent: [] };
+	const calls = { createDraft: [], offerPin: [], confirmPin: [], sent: [], discarded: [] };
 	const handlers = new Map();
 	// 真实 store 的 revision 存在磁盘上，每个 open() 读回的是**同一份状态**。桩若每次 open()
 	// 都从 7 重开，就与真实语义不符（一次写入会被下一次 open 遗忘）。
@@ -250,6 +250,13 @@ function addFlowHandlers(options = {}) {
 								if (expected !== revision) throw new Error("REMOTE_HOST_REVISION_CONFLICT");
 								if (options.offerFails) throw new Error("REMOTE_HOST_PIN_INVALID");
 								return { requestId: "req-1", expiresAt: 123, hostId, hostName: "10.81.2.15", user: "deploy", port: 22, hostKeyFingerprints: ["SHA256:abc"] };
+							},
+							async discardUnverifiedDraft(hostId, expected) {
+								calls.discarded.push({ hostId, expected });
+								if (expected !== revision) throw new Error("REMOTE_HOST_REVISION_CONFLICT");
+								if (options.discardFails) throw new Error("REMOTE_HOST_DISCARD_INVALID");
+								revision += 1;
+								return hostId;
 							},
 							async confirmPin(answer, expected) {
 								calls.confirmPin.push({ answer, expected });
@@ -480,4 +487,37 @@ test("an async service factory is awaited and used", async () => {
 	const result = await handlers.get("remote:connect")({}, HOST_ID);
 	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, hostId: HOST_ID, state: "ready" });
 	assert.deepEqual(calls.connect, [HOST_ID]);
+});
+
+test("a failed offer rolls the draft back instead of leaving an unremovable row", async () => {
+	// 实跑回归（2026-09）：offer 失败时 draft 已经写进 store 了，于是每失败一次就多一条
+	// 点不动的「未验证」主机（用户实测 4 次点击 = 4 条垃圾，且界面没有删除入口）。
+	const { handlers, calls, sender } = addFlowHandlers({ offerFails: true });
+	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID" });
+	// 回滚必须发生在 offer 之后，且用的是 offer 当时的 revision。
+	assert.equal(calls.discarded.length, 1);
+	assert.equal(calls.discarded[0].hostId, HOST_ID);
+	assert.equal(calls.discarded[0].expected, 8, "the rollback runs against the revision the draft committed");
+});
+
+test("a successful add never rolls anything back", async () => {
+	const { handlers, calls, sender } = addFlowHandlers();
+	await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.equal(calls.discarded.length, 0, "a pending confirmation must keep its draft");
+});
+
+test("a failed rollback does not mask the original offer failure", async () => {
+	// 回滚是尽力而为：它自己失败时不能让用户看到「清理失败」而看不到「为什么添加失败」。
+	const { handlers, sender } = addFlowHandlers({ offerFails: true, discardFails: true });
+	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "REMOTE_HOST_PIN_INVALID" });
+});
+
+test("the connect button is only enabled for a verified, enabled host", () => {
+	// 界面已经知道主机未验证（列表里显示「未验证」），就不该让用户点了才拿到
+	// SSH_HOST_NOT_READY——那是把用户引到一条注定失败的路上。
+	const tab = readFileSync("src/renderer/src/components/app/settings/ConnectionsTab.tsx", "utf8");
+	assert.match(tab, /const connectable = host\.verified && !host\.disabled/);
+	assert.match(tab, /disabled=\{pending \|\| !connectable\}/);
 });

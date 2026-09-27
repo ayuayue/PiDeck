@@ -97,11 +97,15 @@ export function ConnectionsTab() {
 						const state = states[host.id] ?? (host.disabled ? "offline" : "disconnected");
 						const connected = state === "ready" || state === "degraded";
 						const pending = busy[host.id] === true;
+						// 未验证的主机没有信任锚，连接必然在路由校验处失败（SSH_HOST_NOT_READY）。
+						// 界面本来就知道它未验证（下面就显示「未验证」），所以直接禁用按钮，
+						// 而不是让用户点一下才拿到错误——那是把用户引到一条注定失败的路上。
+						const connectable = host.verified && !host.disabled;
 						return (
 							<div key={host.id} className="flex flex-col gap-2 rounded-lg border border-border-subtle px-3 py-2">
 								<div className="flex items-center gap-3">
 									{/* 开关语义：「连上」是唯一目标状态，中间态与失败态都如实显示，不假装成功。 */}
-									<Button variant={connected ? "secondary" : "default"} size="sm" disabled={pending || host.disabled} onClick={() => void toggle(host.id, !connected)} aria-label={connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}>
+									<Button variant={connected ? "secondary" : "default"} size="sm" disabled={pending || !connectable} onClick={() => void toggle(host.id, !connected)} aria-label={connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}>
 										{connected ? t("settings.connections.disconnect") : t("settings.connections.connect")}
 									</Button>
 									<div className="flex min-w-0 flex-col">

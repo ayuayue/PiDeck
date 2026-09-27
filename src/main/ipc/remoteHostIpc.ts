@@ -253,7 +253,17 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			// passing the pre-write value always fails as REMOTE_HOST_REVISION_CONFLICT. Same discipline the
 			// connection service follows: read the revision after a write, never before one.
 			const currentRevision = store.getSnapshot().revision;
-			const offer = await store.offerPin(profile.id, senderId, currentRevision);
+			let offer: Awaited<ReturnType<typeof store.offerPin>>;
+			try {
+				offer = await store.offerPin(profile.id, senderId, currentRevision);
+			} catch (error) {
+				// The offer is where the real host verification happens (reachability, key mismatch), so it
+				// is the step that actually fails in practice. The draft was created moments ago and holds no
+				// trust anchor, so roll it back: leaving it behind is what produced a growing list of
+				// unremovable "unverified" rows, one per failed attempt.
+				await rollbackDraft(store, profile.id);
+				throw error;
+			}
 			// Push the confirmation to the window that asked, so the dialog cannot be answered by another.
 			if (!event.sender.isDestroyed()) event.sender.send(ipcChannels.remoteHostPinRequest, pinRequestFrom(offer));
 			return { ok: true, hostId: profile.id, status: "pending" };
@@ -293,6 +303,22 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			pinStore?.dispose();
 		}
 	});
+}
+
+/**
+ * Best-effort rollback of a draft whose offer failed.
+ *
+ * Deliberately swallows its own failure: the caller is already reporting the offer error, and losing
+ * that in favour of a cleanup error would hide the reason the add did not work. A draft that survives
+ * a failed rollback is still visible and still unremovable, so this is a real (if unlikely) residue
+ * rather than something to pretend about.
+ */
+async function rollbackDraft(store: { getSnapshot: () => { revision: number }; discardUnverifiedDraft: (hostId: string, revision: number) => Promise<string> }, hostId: string): Promise<void> {
+	try {
+		await store.discardUnverifiedDraft(hostId, store.getSnapshot().revision);
+	} catch {
+		// Residue is preferable to masking the original failure.
+	}
 }
 
 /** The broker keys on a positive integer sender; `webContents.id` is exactly that. */

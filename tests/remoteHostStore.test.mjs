@@ -240,3 +240,48 @@ test("stale instances, held lock files, and malformed snapshots do not overwrite
 	assert.equal(broken.getSnapshot().status, "needs-repair");
 	await assert.rejects(broken.createDraft({ label: "Nope", sshHost: "nope", connectTimeoutMs: 15000 }, 0), /REMOTE_HOST_STORE_NEEDS_REPAIR/);
 });
+
+test("discardUnverifiedDraft removes a fresh draft and retires its id", async (t) => {
+	// 添加失败的回滚路径：刚落盘、没有任何信任锚的 draft 必须能干净移除，
+	// 否则每次失败的添加都会留下一条界面无法删除的「未验证」主机。
+	const directory = await fixture(t);
+	const store = await RemoteHostStore.open(directory);
+	const created = await store.createDraft({ label: "serve", sshHost: "10.81.2.15", connectTimeoutMs: 10_000 }, store.getSnapshot().revision);
+	const before = store.getSnapshot();
+	const discarded = await store.discardUnverifiedDraft(created.id, before.revision);
+	assert.equal(discarded, created.id);
+	const after = store.getSnapshot();
+	assert.equal(
+		after.profiles.find((profile) => profile.id === created.id),
+		undefined,
+		"the draft must be gone",
+	);
+	// id 记入 retired，永不复用。
+	assert.ok(after.retiredHostIds.includes(created.id));
+	assert.equal(after.revision, before.revision + 1);
+});
+
+test("discardUnverifiedDraft refuses anything carrying state", async (t) => {
+	const directory = await fixture(t);
+	const store = await RemoteHostStore.open(directory);
+	const created = await store.createDraft({ label: "serve", sshHost: "10.81.2.15", connectTimeoutMs: 10_000 }, store.getSnapshot().revision);
+	// 未知 id：不是回滚，是调用方搞错了。
+	await assert.rejects(() => store.discardUnverifiedDraft("00000000-0000-4000-8000-000000000000", store.getSnapshot().revision), /REMOTE_HOST_DISCARD_INVALID/);
+	// 错误 revision：并发保护与其它写入路径一致。
+	await assert.rejects(() => store.discardUnverifiedDraft(created.id, store.getSnapshot().revision + 99), /REMOTE_HOST_REVISION_CONFLICT/);
+	// draft 仍在（上面两次都该失败而不产生副作用）。
+	assert.ok(store.getSnapshot().profiles.some((profile) => profile.id === created.id));
+});
+
+test("discardUnverifiedDraft refuses a verified host", async (t) => {
+	// 有信任锚的主机走完整退役流程，不能被回滚路径顺手删掉。
+	const directory = await fixture(t);
+	const pinStore = new SshHostPinStore(directory, { verifier: async (_route, alias) => authenticatedCandidate(alias.slice("pideck-".length)) });
+	t.after(() => pinStore.dispose());
+	const store = await RemoteHostStore.open(directory, { pinStore });
+	const created = await store.createDraft({ label: "serve", sshHost: "10.81.2.15", user: "alice", port: 2222, connectTimeoutMs: 10_000 }, store.getSnapshot().revision);
+	const offer = await store.offerPin(created.id, 7, store.getSnapshot().revision);
+	await store.confirmPin({ requestId: offer.requestId, hostId: created.id, senderId: 7, choice: "approve" }, store.getSnapshot().revision);
+	assert.ok(store.getSnapshot().profiles.find((profile) => profile.id === created.id)?.verifiedEndpoint, "fixture must be verified");
+	await assert.rejects(() => store.discardUnverifiedDraft(created.id, store.getSnapshot().revision), /REMOTE_HOST_DISCARD_INVALID/);
+});
