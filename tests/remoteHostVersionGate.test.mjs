@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +25,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const smokeScriptPath = join(repoRoot, "scripts/verify-remote-host.mjs");
 const smokeSource = readFileSync(smokeScriptPath, "utf8");
 
-const { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
+const { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand, REMOTE_BOOTSTRAP_INLINE_SOURCE, REMOTE_BOOTSTRAP_INLINE_ENTRY } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 
 test("the smoke script probes the version the contract requires, on the same absolute executable", () => {
 	// 复用契约里的探针构造器，而不是在脚本里另拼一次命令；否则阈值与引号规则会有两份。
@@ -85,4 +87,49 @@ test("the smoke script's usage guard and fingerprint input are unchanged by the 
 	assert.match(smokeSource, /Usage:\s*node scripts\/verify-remote-host\.mjs/);
 	assert.match(smokeSource, /\[--bootstrap\]/);
 	assert.match(smokeSource, /SHA256:/, "the independently verified fingerprint must still be a required input");
+});
+
+/**
+ * 三类启动故障的区分判据（2026-09 实机定位时把三者混为一谈过）。
+ *
+ * 共同点都是「exit 1、stderr 有内容」，区别只在 stdout 有没有帧：
+ *   A 有 WebCrypto、HOME 非法      → 1 帧 BOOTSTRAP_DEPLOY_ROOT_INVALID
+ *   B 缺 WebCrypto                  → 1 帧 BOOTSTRAP_INTERNAL
+ *   C try 之外的 require 失败        → 0 帧（真实故障长这样）
+ *
+ * B 证明 WebCrypto 缺失在 try **内部**，所以它不可能是「零帧」的原因；只有 C 这种
+ * 在首条语句就炸的故障才没有机会写出任何帧。把 A/B/C 一起钉住，防止再有人用
+ * 「缺 WebCrypto」去解释一个零帧退出。
+ */
+test("the frozen entry distinguishes a missing WebCrypto from a pre-try load failure by frame count", () => {
+	const nonce = randomBytes(16).toString("hex");
+	const argv = [REMOTE_BOOTSTRAP_INLINE_ENTRY, "1", "a".repeat(64), nonce];
+	const runEntry = (source, env) => spawnSync(process.execPath, ["-e", source, "--", ...argv], { encoding: "utf8", env: { ...process.env, ...env }, timeout: 20_000 });
+	const frames = (result) => (result.stdout.trim() ? result.stdout.trim().split("\n") : []);
+
+	// A: a working entry answers every failure with exactly one frame, so "no frame" is never
+	// the normal shape of an entry-level error.
+	const healthy = runEntry(REMOTE_BOOTSTRAP_INLINE_SOURCE, { HOME: "/" });
+	assert.equal(healthy.status, 1, "an unusable HOME must exit non-zero");
+	assert.equal(frames(healthy).length, 1, "an in-try failure must emit exactly one frame");
+	assert.match(frames(healthy)[0], /BOOTSTRAP_DEPLOY_ROOT_INVALID/);
+
+	// B: the WebCrypto gate sits inside the try, so removing the global still yields one frame.
+	const noCrypto = runEntry(`delete globalThis.crypto;globalThis.crypto=undefined;${REMOTE_BOOTSTRAP_INLINE_SOURCE}`, { HOME: "/tmp" });
+	assert.equal(noCrypto.status, 1);
+	assert.equal(frames(noCrypto).length, 1, "a missing WebCrypto reports BOOTSTRAP_INTERNAL, it does not vanish");
+	assert.match(frames(noCrypto)[0], /BOOTSTRAP_INTERNAL/);
+
+	// C: the observed real-host shape. A node that cannot resolve `node:` in require() dies at the
+	// entry's first statement, which is outside the try — zero frames, exit 1, stderr present.
+	const shadow = "const __r=require;globalThis.require=(m)=>{if(String(m).startsWith('node:')){const e=new Error('Cannot find module '+m);e.code='MODULE_NOT_FOUND';throw e;}return __r(m);};";
+	const preTry = runEntry(shadow + REMOTE_BOOTSTRAP_INLINE_SOURCE, { HOME: "/tmp" });
+	assert.equal(preTry.status, 1);
+	assert.equal(frames(preTry).length, 0, "a pre-try load failure is the only shape that emits no frame");
+	assert.ok(preTry.stderr.trim().length > 0, "the pre-try failure is reported on stderr, which is what the smoke saw");
+
+	// The reason this matters: the frozen source keeps its builtin loads outside the try, so a
+	// future edit that moves them inside would silently turn case C into case B.
+	assert.match(REMOTE_BOOTSTRAP_INLINE_SOURCE.slice(0, 120), /require\("node:fs"\)/);
+	assert.ok(REMOTE_BOOTSTRAP_INLINE_SOURCE.indexOf("try{") > REMOTE_BOOTSTRAP_INLINE_SOURCE.indexOf('require("node:fs")'), "the builtin loads must stay outside the try, or the zero-frame diagnosis changes meaning");
 });
