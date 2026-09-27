@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
+import { AddHostDialog } from "./AddHostDialog";
+import { FingerprintConfirmDialog } from "./FingerprintConfirmDialog";
 import { SettingsSection } from "./SettingsStorageTab";
-import type { RemoteHostConnectionState, RemoteHostDiagnosticEntry, RemoteHostListItem } from "../../../../../shared/types/remoteHost";
+import type { RemoteHostConnectionState, RemoteHostDiagnosticEntry, RemoteHostListItem, RemoteHostPinRequest } from "../../../../../shared/types/remoteHost";
 
 /**
  * 设置 → 连接：远端主机列表 + 连接开关 + 状态/诊断。
@@ -24,6 +26,19 @@ export function ConnectionsTab() {
 	const [busy, setBusy] = useState<Record<string, boolean>>({});
 	const [message, setMessage] = useState<string | null>(null);
 	const [diagnostics, setDiagnostics] = useState<Record<string, RemoteHostDiagnosticEntry[]>>({});
+	const [adding, setAdding] = useState(false);
+	const [pinRequest, setPinRequest] = useState<RemoteHostPinRequest | null>(null);
+	const [pinBusy, setPinBusy] = useState(false);
+
+	/**
+	 * 订阅指纹确认推送。
+	 *
+	 * 必须在组件卸载时退订：窗口销毁后继续收到推送不仅浪费，还会让「确认」这件事脱离用户可见的上下文。
+	 */
+	useEffect(() => {
+		const unsubscribe = desktopApi.remoteHosts.onPinRequest((request) => setPinRequest(request));
+		return unsubscribe;
+	}, []);
 
 	/** 拉取主机目录。功能未启用、目录不可读等都以稳定码返回，转成人话提示而不是抛错。 */
 	const refresh = useCallback(async () => {
@@ -118,6 +133,10 @@ export function ConnectionsTab() {
 						);
 					})}
 					<div className="flex items-center gap-2 pt-1">
+						{/* 添加是主路径入口；未验证/禁用是持久属性，因此统一在此展示。 */}
+						<Button variant="default" size="sm" onClick={() => setAdding(true)}>
+							{t("settings.connections.add")}
+						</Button>
 						<Button variant="ghost" size="sm" onClick={() => void refresh()}>
 							{t("settings.connections.refresh")}
 						</Button>
@@ -125,6 +144,39 @@ export function ConnectionsTab() {
 					</div>
 				</div>
 			</SettingsSection>
+			{adding ? (
+				<AddHostDialog
+					onClose={() => setAdding(false)}
+					onSubmitted={() => {
+						// 提交后关弹框，由指纹确认接手；此时列表还是旧的（draft 尚未验证），等确认完再刷新。
+						setAdding(false);
+						void refresh();
+					}}
+				/>
+			) : null}
+			{pinRequest !== null ? (
+				<FingerprintConfirmDialog
+					request={pinRequest}
+					busy={pinBusy}
+					onAnswer={(choice) => {
+						const request = pinRequest;
+						if (request === null) return;
+						setPinBusy(true);
+						void (async () => {
+							try {
+								const result = await desktopApi.remoteHosts.answerPin(request.requestId, request.hostId, choice);
+								// 拒绝是正常结果；只有真正的失败（过期、非法、来自其他窗口）才提示。
+								if (!result.ok) setMessage(t("settings.connections.pin.failed", { code: result.code }));
+							} finally {
+								setPinBusy(false);
+								setPinRequest(null);
+								// 确认后必须重拉：新主机只有保存了 pin 才出现在列表里。
+								void refresh();
+							}
+						})();
+					}}
+				/>
+			) : null}
 		</div>
 	);
 }
