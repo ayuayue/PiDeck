@@ -262,7 +262,7 @@ import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
 import { createRemoteHostConnectionService } from "./remote/RemoteHostConnectionService";
-import { createSshClientRuntime } from "./remote/SshClientRuntime";
+import { createSshClientRuntime, resolvePosixSshClient } from "./remote/SshClientRuntime";
 import { openRemoteHostCatalogView } from "./remote/RemoteHostCatalogView";
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
@@ -2364,14 +2364,32 @@ function registerIpc() {
 	// constructs nothing and every remote channel answers REMOTE_FEATURE_DISABLED.
 	const remoteExperimentEnabled = !app.isPackaged && process.env.PIDECK_REMOTE_EXPERIMENTAL === "1";
 	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
-	const remoteHostServiceIfEnabled = () => {
+	/**
+	 * Build the connection service, discovering and verifying the client first.
+	 *
+	 * Discovery is async (it probes the client), so this returns a promise; the IPC boundary awaits it
+	 * and turns any failure into a stable code rather than letting it escape as an unhandled rejection.
+	 * The result is cached so a second connect does not re-probe.
+	 */
+	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
+	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
 		if (!remoteExperimentEnabled) return undefined;
-		if (remoteHostService === undefined) {
+		remoteHostServicePending ??= (async () => {
+			// Windows resolves its client internally; elsewhere the client must be discovered and proven
+			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
+			const client = process.platform === "win32" ? createSshClientRuntime() : await resolvePosixSshClient();
 			// The service resolves the host's own node itself (login shell), so no nodePath is pinned here.
-			remoteHostService = createRemoteHostConnectionService({ userDataDir: app.getPath("userData"), client: createSshClientRuntime() });
+			const service = createRemoteHostConnectionService({ userDataDir: app.getPath("userData"), client });
+			remoteHostService = service;
 			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
-		}
-		return remoteHostService;
+			return service;
+		})();
+		// A failed build must not be cached forever: let the next attempt re-probe (the user may have just
+		// installed a client). The pending promise is dropped on failure only.
+		remoteHostServicePending.catch(() => {
+			remoteHostServicePending = undefined;
+		});
+		return remoteHostServicePending;
 	};
 	registerRemoteHostIpc({
 		enabled: remoteExperimentEnabled,

@@ -227,6 +227,9 @@ test("diagnostics history is capped per request", async () => {
 function addFlowHandlers(options = {}) {
 	const calls = { createDraft: [], offerPin: [], confirmPin: [], sent: [] };
 	const handlers = new Map();
+	// 真实 store 的 revision 存在磁盘上，每个 open() 读回的是**同一份状态**。桩若每次 open()
+	// 都从 7 重开，就与真实语义不符（一次写入会被下一次 open 遗忘）。
+	let revision = 7;
 	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
@@ -234,18 +237,22 @@ function addFlowHandlers(options = {}) {
 				RemoteHostStore: {
 					async open() {
 						return {
-							getSnapshot: () => ({ revision: 7 }),
-							async createDraft(draft, revision) {
-								calls.createDraft.push({ draft, revision });
+							getSnapshot: () => ({ revision }),
+							async createDraft(draft, expected) {
+								calls.createDraft.push({ draft, expected });
+								if (expected !== revision) throw new Error("REMOTE_HOST_REVISION_CONFLICT");
+								revision += 1;
 								return { id: HOST_ID };
 							},
-							async offerPin(hostId, senderId, revision) {
-								calls.offerPin.push({ hostId, senderId, revision });
+							async offerPin(hostId, senderId, expected) {
+								calls.offerPin.push({ hostId, senderId, expected });
+								// 与真实 store 同一道门：期望值不是当前 revision 就冲突。
+								if (expected !== revision) throw new Error("REMOTE_HOST_REVISION_CONFLICT");
 								if (options.offerFails) throw new Error("REMOTE_HOST_PIN_INVALID");
 								return { requestId: "req-1", expiresAt: 123, hostId, hostName: "10.81.2.15", user: "deploy", port: 22, hostKeyFingerprints: ["SHA256:abc"] };
 							},
-							async confirmPin(answer, revision) {
-								calls.confirmPin.push({ answer, revision });
+							async confirmPin(answer, expected) {
+								calls.confirmPin.push({ answer, expected });
 								if (options.confirmFails) throw new Error("CONFIRMATION_EXPIRED");
 								// 桩必须**真的执行** sender 绑定，否则「把 senderId 写死」这种改动测不出来：
 								// 真实 broker 会拒绝来自其他窗口的回答，替身放行就等于把这条防线测没了。
@@ -387,6 +394,25 @@ test("scan and add honour the feature gate", async () => {
 	}
 });
 
+test("add re-reads the revision after the draft write, so the offer is not made against a stale one", async () => {
+	// 实跑回归（2026-09）：createDraft 提交后 revision 已变，拿写入前的值去 offerPin 必然
+	// REMOTE_HOST_REVISION_CONFLICT——添加主机在 UI 上直接失败。桩现在会递增 revision 并校验期望值。
+	const { handlers, calls, sender } = addFlowHandlers();
+	const result = await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, hostId: HOST_ID, status: "pending" });
+	assert.equal(calls.createDraft[0].expected, 7, "the draft is written against the revision read before it");
+	assert.equal(calls.offerPin[0].expected, 8, "the offer must use the revision the draft committed, not the pre-write one");
+});
+
+test("answerPin validates against the current revision", async () => {
+	const { handlers, calls, sender } = addFlowHandlers();
+	await handlers.get("remote:add")({ sender }, { label: "serve", hostName: "10.81.2.15" });
+	const result = await handlers.get("remote:answer-pin")({ sender }, "req-1", HOST_ID, "approve");
+	assert.equal(result.ok, true);
+	// 回答时不先写入，因此期望值就是当时的 revision（8：draft 写入后）。
+	assert.equal(calls.confirmPin[0].expected, 8);
+});
+
 test("the new add-host channels are declared and bridged in all three places", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
 	const preload = readFileSync("src/preload/index.ts", "utf8");
@@ -402,4 +428,56 @@ test("the new add-host channels are declared and bridged in all three places", (
 	assert.match(preload, /answerPin:\s*\(requestId[\s\S]{0,160}?ipcRenderer\.invoke\(ipcChannels\.remoteHostAnswerPin/);
 	// 订阅必须返回 unsubscribe（项目硬性规则），否则窗口销毁后仍在推送。
 	assert.match(preload, /onPinRequest:\s*\(callback[\s\S]{0,200}?subscribe\(ipcChannels\.remoteHostPinRequest/);
+});
+
+test("a service that fails to build is reported as a stable code, not an escaped rejection", async () => {
+	// 实跑回归（2026-09）：客户端探测失败时，装配抛出的异常直接穿透 IPC 边界，渲染层收到
+	// 「未处理异常: Error invoking remote method 'remote:diagnostics'」——用户看到的是原始
+	// 异常而不是可读状态。每个用到服务的通道都必须把它转成稳定码。
+	const handlers = handlersFor({
+		enabled: true,
+		userDataDir: "/tmp/ignored",
+		list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }),
+		service: async () => {
+			throw new Error("SSH_CLIENT_UNSUPPORTED_PLATFORM");
+		},
+	});
+	for (const [channel, args] of [
+		["remote:connect", [HOST_ID]],
+		["remote:disconnect", [HOST_ID]],
+		["remote:diagnostics", [HOST_ID]],
+	]) {
+		const result = await handlers.get(channel)({}, ...args);
+		assert.equal(result.ok, false, `${channel} must not throw`);
+		assert.equal(result.code, "SSH_CLIENT_UNSUPPORTED_PLATFORM", `${channel} must surface the real reason`);
+	}
+});
+
+test("a service factory that fails with free text collapses to a generic code", async () => {
+	// 只有「消息本身就是一个稳定码」才透出；其余一律收敛，避免把路径/命令行带到渲染层。
+	const handlers = handlersFor({
+		enabled: true,
+		userDataDir: "/tmp/ignored",
+		list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }),
+		service: async () => {
+			throw new Error("failed to open /home/user/.ssh/config");
+		},
+	});
+	const result = await handlers.get("remote:diagnostics")({}, HOST_ID);
+	assert.equal(result.ok, false);
+	assert.equal(result.code, "REMOTE_CONNECTION_SERVICE_UNAVAILABLE");
+});
+
+test("an async service factory is awaited and used", async () => {
+	// 发现客户端是异步的，因此工厂可以是 Promise；handler 必须等它再调用。
+	const { calls, service } = fakeService();
+	const handlers = handlersFor({
+		enabled: true,
+		userDataDir: "/tmp/ignored",
+		list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }),
+		service: async () => service,
+	});
+	const result = await handlers.get("remote:connect")({}, HOST_ID);
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, hostId: HOST_ID, state: "ready" });
+	assert.deepEqual(calls.connect, [HOST_ID]);
 });

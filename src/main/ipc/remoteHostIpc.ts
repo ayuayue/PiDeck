@@ -130,8 +130,25 @@ function readAddInput(value: unknown): { label: string; hostName: string; user?:
  *
  * `service` is optional so the read-only catalog stays usable without a connection service.
  */
-export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Promise<RemoteHostCatalogView>; service?: () => RemoteHostConnectionService | undefined; userDataDir: string }): void {
+export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Promise<RemoteHostCatalogView>; service?: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>; userDataDir: string }): void {
 	const guard = <T>(fallback: () => T): T | undefined => (input.enabled ? undefined : fallback());
+
+	/**
+	 * Resolve the connection service, turning a discovery failure into a stable code.
+	 *
+	 * Building the service can fail on purpose: the SSH client is probed before it is trusted, and a
+	 * missing or incapable client is a reportable condition rather than a crash. Letting that rejection
+	 * escape produced an unhandled "Error invoking remote method" in the renderer, so every caller goes
+	 * through here instead of awaiting the factory directly.
+	 */
+	const resolveService = async (): Promise<{ service: RemoteHostConnectionService } | { code: string }> => {
+		try {
+			const service = await input.service?.();
+			return service === undefined ? { code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" } : { service };
+		} catch (error) {
+			return { code: codeOf(error, "REMOTE_CONNECTION_SERVICE_UNAVAILABLE") };
+		}
+	};
 
 	ipcMain.handle(ipcChannels.remoteHostsList, async (): Promise<RemoteHostListResult> => {
 		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
@@ -153,11 +170,11 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 		// Renderer input is never trusted: validate at the boundary before any process can start.
 		if (typeof hostId !== "string" || !HOST_ID.test(hostId)) return { ok: false, hostId: typeof hostId === "string" ? hostId : "", code: "REMOTE_CONNECTION_HOST_ID_INVALID" };
 		if (!input.enabled) return { ok: false, hostId, code: "REMOTE_FEATURE_DISABLED" };
-		const service = input.service?.();
-		if (service === undefined) return { ok: false, hostId, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
+		const resolved = await resolveService();
+		if ("code" in resolved) return { ok: false, hostId, code: resolved.code };
 		try {
 			// The service already converts every failure into a stable code; it never throws here.
-			const result = await service.connect(hostId);
+			const result = await resolved.service.connect(hostId);
 			// Reduce the machine snapshot to the state the UI actually renders: generation, attempts and the
 			// latched flag are main-internal and would invite the renderer to reason about fencing it cannot
 			// observe. Diagnostics carry the detail the UI is allowed to show.
@@ -170,10 +187,10 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 	ipcMain.handle(ipcChannels.remoteHostDisconnect, async (_event, hostId: unknown): Promise<RemoteHostDisconnectResult> => {
 		if (typeof hostId !== "string" || !HOST_ID.test(hostId)) return { ok: false, hostId: typeof hostId === "string" ? hostId : "", code: "REMOTE_CONNECTION_HOST_ID_INVALID" };
 		if (!input.enabled) return { ok: false, hostId, code: "REMOTE_FEATURE_DISABLED" };
-		const service = input.service?.();
-		if (service === undefined) return { ok: false, hostId, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
+		const resolved = await resolveService();
+		if ("code" in resolved) return { ok: false, hostId, code: resolved.code };
 		try {
-			await service.disconnect(hostId, "shutdown");
+			await resolved.service.disconnect(hostId, "shutdown");
 			return { ok: true, hostId };
 		} catch {
 			return { ok: false, hostId, code: "REMOTE_CONNECTION_FAILED" };
@@ -183,10 +200,10 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 	ipcMain.handle(ipcChannels.remoteHostDiagnostics, async (_event, hostId: unknown): Promise<RemoteHostDiagnosticsResult> => {
 		if (typeof hostId !== "string" || !HOST_ID.test(hostId)) return { ok: false, hostId: typeof hostId === "string" ? hostId : "", code: "REMOTE_CONNECTION_HOST_ID_INVALID" };
 		if (!input.enabled) return { ok: false, hostId, code: "REMOTE_FEATURE_DISABLED" };
-		const service = input.service?.();
-		if (service === undefined) return { ok: false, hostId, code: "REMOTE_CONNECTION_SERVICE_UNAVAILABLE" };
+		const resolved = await resolveService();
+		if ("code" in resolved) return { ok: false, hostId, code: resolved.code };
 		try {
-			const entries = service
+			const entries = resolved.service
 				.listDiagnostics(hostId)
 				.slice(-MAX_DIAGNOSTIC_ENTRIES)
 				.map(diagnosticEntry)
@@ -231,7 +248,12 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 				{ label: parsed.label, sshHost: parsed.hostName, connectTimeoutMs: 10_000, ...(parsed.user === undefined ? {} : { user: parsed.user }), ...(parsed.port === undefined ? {} : { port: parsed.port }), ...(parsed.identityFile === undefined ? {} : { identityFile: parsed.identityFile }) },
 				revision,
 			);
-			const offer = await store.offerPin(profile.id, senderId, revision);
+			// `createDraft` is a CAS write, so the revision it committed under is already stale here.
+			// `offerPin` validates against the *current* revision, so it has to be re-read after the write;
+			// passing the pre-write value always fails as REMOTE_HOST_REVISION_CONFLICT. Same discipline the
+			// connection service follows: read the revision after a write, never before one.
+			const currentRevision = store.getSnapshot().revision;
+			const offer = await store.offerPin(profile.id, senderId, currentRevision);
 			// Push the confirmation to the window that asked, so the dialog cannot be answered by another.
 			if (!event.sender.isDestroyed()) event.sender.send(ipcChannels.remoteHostPinRequest, pinRequestFrom(offer));
 			return { ok: true, hostId: profile.id, status: "pending" };
