@@ -1,10 +1,10 @@
 import { buildPinnedSshInvocation, type PinnedSshInvocation } from "./SshVerifiedConnection";
 import { frozenHelperBundleManifest, deployFrozenHelperBundle, type PreparedBundleResult } from "./RemoteBootstrapDeployment";
 import { decodeBootstrapResult, type BootstrapReadyFrame } from "./RemoteBootstrapTransfer";
-import { REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES } from "./RemoteBootstrapContract";
+import { assertSupportedRemoteNodeVersion, buildRemoteNodeVersionCommand, REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES } from "./RemoteBootstrapContract";
 import { REMOTE_BOOTSTRAP_PROTOCOL_VERSION } from "./RemoteHelperContract";
 import type { SshLauncherHandle, SshProcessExit, SshProcessLauncher } from "./RemoteHostConnectionTypes";
-import type { SshClientRuntime } from "./SshClientRuntime";
+import type { SshClientRuntime, SshCommandResult } from "./SshClientRuntime";
 
 const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -128,6 +128,16 @@ export async function runPreparedBootstrap(input: PreparedBootstrapInput): Promi
 /** Re-preflight both commands against the persisted pin, then run the frozen one-file bootstrap. */
 export async function bootstrapPinnedHost(input: { userDataDir: string; hostId: string; generation: number; nonce: string; nodePath: string; client: SshClientRuntime; launcher: SshProcessLauncher }): Promise<PreparedBundleResult> {
 	const manifest = frozenHelperBundleManifest();
+	const versionCommand = buildRemoteNodeVersionCommand(input.nodePath);
+	const versionInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: versionCommand });
+	let nodeVersion: SshCommandResult;
+	try {
+		nodeVersion = await input.client.run(versionInvocation.executable, versionInvocation.args);
+	} catch {
+		throw new Error("REMOTE_NODE_PROBE_FAILED");
+	}
+	if (nodeVersion.exitCode !== 0) throw new Error("REMOTE_NODE_PROBE_FAILED");
+	assertSupportedRemoteNodeVersion(nodeVersion.stdout);
 	const sshConnection = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, bootstrap: { nodeExecutable: input.nodePath, protocolVersion: REMOTE_BOOTSTRAP_PROTOCOL_VERSION, bundleSha256: manifest.bundleSha256, nonce: input.nonce } });
 	const scpConnection = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "scp", { client: input.client });
 	return runPreparedBootstrap({ hostId: input.hostId, generation: input.generation, nonce: input.nonce, expectedBundleSha256: manifest.bundleSha256, sshConnection, scpConnection, launcher: input.launcher });

@@ -11,7 +11,9 @@ const contract = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 const { REMOTE_BOOTSTRAP_BUNDLE_DIR_NAME, REMOTE_BOOTSTRAP_FILE_MODES, REMOTE_BOOTSTRAP_FINALIZE_ERROR_CODES, REMOTE_BOOTSTRAP_MAX_FRAME_BYTES, REMOTE_BUNDLE_MANIFEST_SCHEMA_VERSION, REMOTE_BUNDLE_MAX_FILES, REMOTE_BUNDLE_MAX_FILE_BYTES, REMOTE_BUNDLE_MAX_TOTAL_BYTES } = contract;
 const {
 	assertActivationPreconditions,
+	assertSupportedRemoteNodeVersion,
 	buildBootstrapCommand,
+	buildRemoteNodeVersionCommand,
 	buildStagingIdentity,
 	decodeBundleManifest,
 	quotePosixArgument,
@@ -99,6 +101,13 @@ test("quotePosixArgument rejects a non-string at runtime without echoing it", ()
 	const error = captureError(() => quotePosixArgument(42));
 	assert.equal(error.message, "BOOTSTRAP_INPUT_INVALID");
 	assert.ok(!error.message.includes("42"));
+});
+
+test("remote Node probe quotes the validated executable and rejects unsupported versions", () => {
+	assert.equal(buildRemoteNodeVersionCommand("/usr/bin/node"), "'/usr/bin/node' '--version'");
+	throwsCode(() => buildRemoteNodeVersionCommand("/bin/sh"), "BOOTSTRAP_INPUT_INVALID");
+	for (const supported of ["v22.3.0\n", "v22.3.1\n", "v24.0.0\n"]) assert.doesNotThrow(() => assertSupportedRemoteNodeVersion(supported));
+	for (const unsupported of ["v22.2.99\n", "v21.99.99\n", "", "v22.3.0\nother", "v22.3.0-rc.1\n", 22]) throwsCode(() => assertSupportedRemoteNodeVersion(unsupported), "REMOTE_NODE_VERSION_UNSUPPORTED");
 });
 
 test("buildBootstrapCommand emits the fixed token order", () => {
@@ -384,7 +393,7 @@ test("assertActivationPreconditions rejects a non-object input", () => {
 });
 
 test("the exported stable codes stay stable and cover what the entry emits", () => {
-	assert.deepEqual(Array.from(REMOTE_BOOTSTRAP_ERROR_CODES), ["BOOTSTRAP_INPUT_INVALID", "BUNDLE_MANIFEST_INVALID", "BUNDLE_FILE_MISMATCH", "BUNDLE_MODE_INVALID"]);
+	assert.deepEqual(Array.from(REMOTE_BOOTSTRAP_ERROR_CODES), ["BOOTSTRAP_INPUT_INVALID", "BUNDLE_MANIFEST_INVALID", "BUNDLE_FILE_MISMATCH", "BUNDLE_MODE_INVALID", "REMOTE_NODE_VERSION_UNSUPPORTED"]);
 	for (const code of Array.from(REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES)) assert.match(code, /^[A-Z][A-Z0-9_]{2,63}$/);
 	for (const code of ["BOOTSTRAP_INPUT_INVALID", "BOOTSTRAP_DEPLOY_ROOT_INVALID", "BOOTSTRAP_STAGING_INVALID", "BOOTSTRAP_ENTRY_OP_UNSUPPORTED", "BOOTSTRAP_INTERNAL", "DEPLOY_LOCK_HELD"]) {
 		assert.ok(REMOTE_BOOTSTRAP_ENTRY_ERROR_CODES.includes(code), code);

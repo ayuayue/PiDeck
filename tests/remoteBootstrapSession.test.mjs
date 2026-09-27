@@ -95,6 +95,106 @@ async function fixture(t, overrides) {
 	return { manifest, session, starts, input };
 }
 
+test("an unsupported remote Node is rejected before opening the entry", async () => {
+	const built = [];
+	const { bootstrapPinnedHost } = loadTsCommonJs("src/main/remote/RemoteBootstrapSession.ts", {
+		stubs: {
+			"./SshVerifiedConnection": {
+				async buildPinnedSshInvocation(_directory, hostId, kind, options) {
+					built.push({ hostId, kind, options });
+					return kind === "scp" ? SCP : { ...SSH, args: options.remoteCommand === undefined ? SSH.args : [...SSH.args, options.remoteCommand] };
+				},
+			},
+		},
+	});
+	const client = {
+		sshPath: SSH.executable,
+		scpPath: SCP.executable,
+		env: SSH.env,
+		async run(_executable, args) {
+			assert.equal(args.at(-1), "'/usr/bin/node' '--version'");
+			return { exitCode: 0, stdout: "v22.2.0\n" };
+		},
+	};
+	const launcher = {
+		async start() {
+			assert.fail("the entry must not start with unsupported Node");
+		},
+	};
+	await assert.rejects(bootstrapPinnedHost({ userDataDir: "/ignored", hostId: HOST_ID, generation: 1, nonce: NONCE, nodePath: "/usr/bin/node", client, launcher }), /REMOTE_NODE_VERSION_UNSUPPORTED/);
+	assert.deepEqual(
+		built.map((call) => call.kind),
+		["ssh-batch"],
+	);
+});
+
+test("a failed Node version probe never leaks remote stderr or starts the entry", async () => {
+	const { bootstrapPinnedHost } = loadTsCommonJs("src/main/remote/RemoteBootstrapSession.ts", {
+		stubs: {
+			"./SshVerifiedConnection": {
+				async buildPinnedSshInvocation() {
+					return SSH;
+				},
+			},
+		},
+	});
+	const client = {
+		sshPath: SSH.executable,
+		scpPath: SCP.executable,
+		env: SSH.env,
+		async run() {
+			return { exitCode: 1, stdout: "", stderr: "private remote detail" };
+		},
+	};
+	const launcher = {
+		async start() {
+			assert.fail("the entry must not start after a failed version probe");
+		},
+	};
+	await assert.rejects(bootstrapPinnedHost({ userDataDir: "/ignored", hostId: HOST_ID, generation: 1, nonce: NONCE, nodePath: "/usr/bin/node", client, launcher }), (error) => {
+		assert.equal(error.message, "REMOTE_NODE_PROBE_FAILED");
+		assert.equal(JSON.stringify(error).includes("private remote detail"), false);
+		return true;
+	});
+	client.run = async () => {
+		throw new Error("private remote detail");
+	};
+	await assert.rejects(bootstrapPinnedHost({ userDataDir: "/ignored", hostId: HOST_ID, generation: 1, nonce: NONCE, nodePath: "/usr/bin/node", client, launcher }), /REMOTE_NODE_PROBE_FAILED/);
+});
+
+test("a supported remote Node reaches the bootstrap launch with fresh pinned invocations", async () => {
+	const built = [];
+	const { bootstrapPinnedHost } = loadTsCommonJs("src/main/remote/RemoteBootstrapSession.ts", {
+		stubs: {
+			"./SshVerifiedConnection": {
+				async buildPinnedSshInvocation(_directory, _hostId, kind, options) {
+					built.push({ kind, options });
+					return kind === "scp" ? SCP : SSH;
+				},
+			},
+		},
+	});
+	const client = {
+		sshPath: SSH.executable,
+		scpPath: SCP.executable,
+		env: SSH.env,
+		async run() {
+			return { exitCode: 0, stdout: "v22.3.0\n" };
+		},
+	};
+	const launcher = {
+		async start() {
+			throw new Error("ENTRY_REACHED");
+		},
+	};
+	await assert.rejects(bootstrapPinnedHost({ userDataDir: "/ignored", hostId: HOST_ID, generation: 1, nonce: NONCE, nodePath: "/usr/bin/node", client, launcher }), /ENTRY_REACHED/);
+	assert.deepEqual(
+		built.map((call) => call.kind),
+		["ssh-batch", "ssh-batch", "scp"],
+	);
+	assert.ok(built[1].options.bootstrap, "the entry uses a separate fresh preflight from the version probe");
+});
+
 test("ready matches nonce and helper manifest before pinned scp and finalize", async (t) => {
 	const { manifest, session, starts, input } = await fixture(t);
 	const result = await runPreparedBootstrap(input);

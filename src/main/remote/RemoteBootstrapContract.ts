@@ -19,7 +19,7 @@
 import { REMOTE_BUNDLE_MANIFEST_SCHEMA_VERSION, REMOTE_BUNDLE_MAX_FILES, REMOTE_BUNDLE_MAX_FILE_BYTES, REMOTE_BUNDLE_MAX_TOTAL_BYTES, type RemoteBundleFile, type RemoteBundleManifest } from "./RemoteHelperContract";
 
 /** Stable codes thrown by this module. The message of a thrown error is exactly one of these. */
-export const REMOTE_BOOTSTRAP_ERROR_CODES = ["BOOTSTRAP_INPUT_INVALID", "BUNDLE_MANIFEST_INVALID", "BUNDLE_FILE_MISMATCH", "BUNDLE_MODE_INVALID"] as const;
+export const REMOTE_BOOTSTRAP_ERROR_CODES = ["BOOTSTRAP_INPUT_INVALID", "BUNDLE_MANIFEST_INVALID", "BUNDLE_FILE_MISMATCH", "BUNDLE_MODE_INVALID", "REMOTE_NODE_VERSION_UNSUPPORTED"] as const;
 export type RemoteBootstrapErrorCode = (typeof REMOTE_BOOTSTRAP_ERROR_CODES)[number];
 
 /** Codes the fixed inline entry reports as `{"op":"error","code":...}`; main maps them by code only. */
@@ -144,6 +144,21 @@ function requireNodeExecutable(value: unknown): string {
 	if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) fail("BOOTSTRAP_INPUT_INVALID");
 	if (segments[segments.length - 1] !== "node") fail("BOOTSTRAP_INPUT_INVALID");
 	return value;
+}
+
+/** Probe the same validated remote executable the fixed entry will run, without a PATH lookup. */
+export function buildRemoteNodeVersionCommand(nodeExecutable: string): string {
+	return `${quotePosixArgument(requireNodeExecutable(nodeExecutable))} ${quotePosixArgument("--version")}`;
+}
+
+/** The frozen helper uses Node features available from 22.3 onwards. Reject banners and prereleases. */
+export function assertSupportedRemoteNodeVersion(output: unknown): void {
+	if (typeof output !== "string" || output.length > 64) fail("REMOTE_NODE_VERSION_UNSUPPORTED");
+	const match = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\r?\n?$/.exec(output);
+	const major = Number(match?.[1]);
+	const minor = Number(match?.[2]);
+	const patch = Number(match?.[3]);
+	if (!match || !Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch) || major < 22 || (major === 22 && minor < 3)) fail("REMOTE_NODE_VERSION_UNSUPPORTED");
 }
 
 function requireProtocolVersion(value: unknown): number {
