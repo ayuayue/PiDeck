@@ -3,7 +3,7 @@ import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom } from "../../atoms/update-atoms";
 import { useSettingsFocus } from "./settings/useSettingsFocus.ts";
-import { Settings2, Network, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, SlidersHorizontal, MonitorCog, Keyboard, X } from "lucide-react";
+import { Settings2, Network, Plug, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, SlidersHorizontal, MonitorCog, Keyboard, X } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import { applyAppearanceAttributes, type AppearanceSettings } from "../../themeAppearance";
 import { Button } from "../ui-shadcn/button";
@@ -30,6 +30,7 @@ const CommonTab = lazy(() => import("./settings/CommonTab").then((m) => ({ defau
 const ShortcutsTab = lazy(() => import("./settings/ShortcutsTab").then((m) => ({ default: m.ShortcutsTab })));
 const AppearanceTab = lazy(() => import("./settings/AppearanceTab").then((m) => ({ default: m.AppearanceTab })));
 const ProxyTab = lazy(() => import("./settings/ProxyTab").then((m) => ({ default: m.ProxyTab })));
+const ConnectionsTab = lazy(() => import("./settings/ConnectionsTab").then((m) => ({ default: m.ConnectionsTab })));
 const WebTab = lazy(() => import("./settings/WebTab").then((m) => ({ default: m.WebTab })));
 const EditorsTab = lazy(() => import("./settings/EditorsTab").then((m) => ({ default: m.EditorsTab })));
 const GitTab = lazy(() => import("./settings/GitTab").then((m) => ({ default: m.GitTab })));
@@ -206,6 +207,7 @@ const TAB_META: Record<SettingsTabId, { labelKey: TranslationKey; icon: ReactNod
 	shortcuts: { labelKey: SETTINGS_TAB_LABEL_KEYS.shortcuts, icon: <Keyboard size={16} /> },
 	appearance: { labelKey: SETTINGS_TAB_LABEL_KEYS.appearance, icon: <Brush size={16} /> },
 	proxy: { labelKey: SETTINGS_TAB_LABEL_KEYS.proxy, icon: <Network size={16} /> },
+	connections: { labelKey: SETTINGS_TAB_LABEL_KEYS.connections, icon: <Plug size={16} /> },
 	web: { labelKey: SETTINGS_TAB_LABEL_KEYS.web, icon: <Globe size={16} /> },
 	editors: { labelKey: SETTINGS_TAB_LABEL_KEYS.editors, icon: <FileCode2 size={16} /> },
 	git: { labelKey: SETTINGS_TAB_LABEL_KEYS.git, icon: <GitBranch size={16} /> },
@@ -699,6 +701,15 @@ function SettingsModalContent(props: SettingsModalProps) {
 								<TabsContent value="proxy" className="settings-panel min-w-0 [overflow-anchor:none]">
 									<Suspense fallback={<SettingsTabLoading />}>
 										<ProxyTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} piProxyChecking={props.piProxyChecking} piProxyNotice={props.piProxyNotice} piProxyNoticeTone={props.piProxyNoticeTone} onTestPiProxy={props.onTestPiProxy} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 连接 tab（远端 SSH 主机；WSL 将来并列于此） ── */}
+							{activeTab === "connections" && (
+								<TabsContent value="connections" className="settings-panel min-w-0 [overflow-anchor:none]">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<ConnectionsTab />
 									</Suspense>
 								</TabsContent>
 							)}
