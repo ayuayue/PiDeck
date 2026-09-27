@@ -69,16 +69,23 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return toWindowsHostPath(path, { distro: settings.wslDistro });
 	};
 
+	// ProjectStore currently returns legacy local records. A locator-bearing future record must
+	// not be reinterpreted as local merely because it still has a compatibility `path` field.
+	const localProject = (projectId: string) => {
+		const project = projectStore.get(projectId);
+		if (project && "locator" in project) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+		return project;
+	};
 	const localProjectFileBackend = new LocalProjectFileBackend({
 		fileSystemService,
 		resolveProjectRoot: (projectId) => {
-			const project = projectStore.get(projectId);
+			const project = localProject(projectId);
 			if (!project) throw new Error("PROJECT_NOT_FOUND");
 			return toWindowsPath(project.path);
 		},
 	});
 	const projectFileBackendRouter = new ProjectFileBackendRouter(localProjectFileBackend, (projectId) => {
-		const project = projectStore.get(projectId);
+		const project = localProject(projectId);
 		return project ? projectLocatorFromLegacy(project) : undefined;
 	});
 
@@ -103,7 +110,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		if (!isProjectFileAccessScope(rawScope)) {
 			throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
 		}
-		const project = projectStore.get(rawScope.projectId);
+		const project = localProject(rawScope.projectId);
 		if (!project) throw new Error("PROJECT_NOT_FOUND");
 		return createProjectFileReadBoundary(toWindowsPath(project.path));
 	};
@@ -112,7 +119,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		if (isRecord(rawPath)) {
 			if (boundary) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
 			const target = parseProjectFileTarget(rawPath);
-			const project = projectStore.get(target.projectId);
+			const project = localProject(target.projectId);
 			if (!project) throw new Error("PROJECT_NOT_FOUND");
 			const projectRoot = toWindowsPath(project.path);
 			const targetPath = resolveLocalProjectFileTarget(projectRoot, target.relativePath);
@@ -151,7 +158,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		if (target) return backend.list(target, maxDepth);
 		let relativePath = "";
 		if (legacyDirectory) {
-			const project = projectStore.get(projectId);
+			const project = localProject(projectId);
 			if (!project) throw new Error("PROJECT_NOT_FOUND");
 			const boundary = await createProjectFileReadBoundary(toWindowsPath(project.path));
 			const directory = await resolveProjectFileReadPath(boundary, toWindowsPath(legacyDirectory));

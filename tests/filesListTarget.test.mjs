@@ -8,7 +8,11 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 
-function createFilesIpc(root) {
+function projectFixture(root, overrides = {}) {
+	return { id: "project-1", name: "Project", path: root, lastOpenedAt: 0, ...overrides };
+}
+
+function createFilesIpc(root, projectOverride) {
 	const listHandlers = new Map();
 	const listCalls = [];
 	const mutationCalls = [];
@@ -51,7 +55,7 @@ function createFilesIpc(root) {
 				return join(path, "..", newName);
 			},
 		},
-		projectStore: { get: (id) => (id === "project-1" ? { id, path: root } : undefined) },
+		projectStore: { get: (id) => (id === "project-1" ? (projectOverride ?? projectFixture(root)) : undefined) },
 		settingsStore: { get: () => ({ wslEnabled: false }) },
 		appLogger: { info: async () => undefined, error: async () => undefined },
 		getMainWindow: () => null,
@@ -75,6 +79,61 @@ function createFilesIpc(root) {
 		mutationCalls,
 	};
 }
+
+test("an unsupported project locator cannot reach local target read, list, or write", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-remote-target-"));
+	try {
+		const root = join(fixture, "local-project");
+		mkdirSync(root);
+		writeFileSync(join(root, "canary.txt"), "local content");
+		const project = projectFixture(root, { locator: { kind: "ssh", hostId: "host-1", remotePath: "/srv/project" } });
+		const api = createFilesIpc(root, project);
+		const target = { projectId: project.id, relativePath: "canary.txt" };
+		await assert.rejects(api.listHandler({}, target), /UNSUPPORTED_PROJECT_LOCATION/);
+		await assert.rejects(api.readContentHandler({}, target), /UNSUPPORTED_PROJECT_LOCATION/);
+		await assert.rejects(api.pathsExistHandler({}, [target]), /UNSUPPORTED_PROJECT_LOCATION/);
+		await assert.rejects(api.writeContentHandler({}, target, "overwritten"), /UNSUPPORTED_PROJECT_LOCATION/);
+		assert.equal(readFileSync(join(root, "canary.txt"), "utf8"), "local content");
+		assert.deepEqual(api.listCalls, []);
+		assert.deepEqual(api.mutationCalls, []);
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("an unsupported project locator cannot authorize a scoped local absolute path", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-remote-scope-"));
+	try {
+		const root = join(fixture, "local-project");
+		mkdirSync(root);
+		const filePath = join(root, "canary.txt");
+		writeFileSync(filePath, "local content");
+		const project = projectFixture(root, { locator: { kind: "ssh", hostId: "host-1", remotePath: "/srv/project" } });
+		const api = createFilesIpc(root, project);
+		const scope = { projectId: project.id };
+		await assert.rejects(api.readContentHandler({}, filePath, undefined, scope), /UNSUPPORTED_PROJECT_LOCATION/);
+		await assert.rejects(api.statHandler({}, filePath, scope), /UNSUPPORTED_PROJECT_LOCATION/);
+		await assert.rejects(api.openHandler({}, filePath, scope), /UNSUPPORTED_PROJECT_LOCATION/);
+		await assert.rejects(api.pathsExistHandler({}, [filePath], scope), /UNSUPPORTED_PROJECT_LOCATION/);
+		assert.deepEqual(api.openedPaths, []);
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("legacy WSL projects remain on the local file backend", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-wsl-legacy-"));
+	try {
+		const root = join(fixture, "project");
+		mkdirSync(root);
+		const project = projectFixture(root, { environment: "wsl" });
+		const api = createFilesIpc(root, project);
+		await api.listHandler({}, { projectId: project.id, relativePath: "" });
+		assert.equal(api.listCalls[0].projectRoot, root);
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
 
 test("project file backend router selects local and rejects remote locators", () => {
 	const { ProjectFileBackendRouter } = loadTsCommonJs("src/main/files/ProjectFileBackend.ts");

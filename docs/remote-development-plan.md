@@ -707,6 +707,8 @@ Phase 1 是全计划风险最高的契约迁移（全库 path-bearing contract �
 
 ### Phase 3：远端项目与只读工作区
 
+> 当前离线护栏：`files:*` 的 target 与 scoped 本地路径入口在触达本机 `fs` 前拒绝意外出现的 canonical project locator，返回 `UNSUPPORTED_PROJECT_LOCATION`；local/WSL legacy 项目保持原有行为。`ProjectStore` 仍拒绝 SSH 项目入库，browse root 尚无已认证的 canonical 身份证明，远端项目登记、文件浏览 IPC/UI 和断线恢复均未交付；此护栏不等于 Phase 3 完成。
+
 - 只允许添加已有远端目录；创建空目录和 `git init` 属于写操作，移到 Phase 5。
 - 文件树、文件读取、搜索和 Session 扫描先只读上线。
 - 本地 catalog 记录远端项目和 Session locator。
