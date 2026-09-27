@@ -27,6 +27,8 @@ test("remote host channel is declared, bridged, and registered behind the dev ga
 	assert.match(shared, /remoteHostsList:\s*"remote:hosts-list"/);
 	assert.match(preload, /remoteHosts:\s*\{[\s\S]*?ipcRenderer\.invoke\(ipcChannels\.remoteHostsList\)/);
 	assert.match(main, /registerRemoteHostIpc\(\{\s*enabled:\s*!app\.isPackaged\s*&&\s*process\.env\.PIDECK_REMOTE_EXPERIMENTAL\s*===\s*"1"/);
+	assert.match(main, /createRemoteHostReferenceRegistry\(join\(userDataDir,\s*"session-catalog\.json"\)\)/);
+	assert.match(main, /RemoteHostStore\.open\(userDataDir,\s*\{\s*referenceRegistry\s*\}\)/);
 });
 
 test("remote listing stays disabled without reading persisted hosts", async () => {

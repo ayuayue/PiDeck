@@ -241,6 +241,8 @@ export type RemoteHostReferenceRegistry = {
 | 未注册任何源 | `asStoreReferences()` **同步抛** `REMOTE_HOST_REFERENCE_SOURCE_MISSING`（`:200`），并在每次 `referencedHostIds()` 调用内重复检查（`:204`，store 可能持有这个视图整个生命周期）；**store 侧的惰性视图把同码推迟到首次查询** —— `open()` 不因此失败，`updateDraft`/`retire` 才失败（`RemoteHostStore.ts:92-103`；测试：`tests/remoteHostStoreLifecycle.test.mjs:280-282`） |
 | 某源声明 `canHoldHostReferences=false` | 该源跳过且不影响 `complete`；一旦该源真的出现 hostId（由契约测试发现），实现方必须改回 true（`:152`、`:164`；测试：`tests/remoteHostReferenceRegistry.test.mjs:98`） |
 
+> 当前只读装配：`src/main/remote/RemoteHostReferenceSources.ts` 将 `sessions` 注册为磁盘 catalog 扫描（SSH locator 提取 hostId；坏主文件、孤立备份、未知 schema/locator、超限及符号链接均 `complete=false`），其余 `projects` / `host-profiles` / `runtime` 按当前结构声明 `canHoldHostReferences=false`。开发态主机只读列表构造 store 时注入该 registry；没有开放修改/退役入口。这只解决“源有明确归属、读失败不等于零引用”，**不等于** INV-5 跨 store 写锁或事务门禁完成；将来放开 SSH 项目时必须同步撤销 `projects` 的 false 声明。
+
 > 与现状的差异：现有接口 `RemoteHostReferences`（`RemoteHostStore.ts:14`，当前 `:15`）没有 complete 概念。本设计把"无 provider"和"扫描不完整"都变成硬失败 —— **已落地**：无 provider 时 `updateDraft` 也硬失败（当前 `:272`），`retire` 与 `updateDraft` 对称（§1.3）。
 
 ### 4.2 跨 store 事务协调器

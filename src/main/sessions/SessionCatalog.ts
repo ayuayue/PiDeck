@@ -260,7 +260,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isSessionLocator(value: unknown): value is SessionLocator {
+export function isSessionLocator(value: unknown): value is SessionLocator {
 	if (!isRecord(value)) return false;
 	if (value.kind === "local") {
 		return (

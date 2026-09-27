@@ -21,7 +21,7 @@ export type RemoteHostProfile = SshDraftRoute & {
 export type RemoteHostSnapshot = { schemaVersion: 1; revision: number; profiles: RemoteHostProfile[]; retiredHostIds: string[] };
 export type DecodedRemoteHostSnapshot = Omit<RemoteHostSnapshot, "schemaVersion">;
 
-const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const ALLOWED_PROFILE_KEYS = new Set(["id", "label", "sshHost", "port", "user", "proxyJump", "identityFile", "remotePiCommand", "remoteNodeCommand", "browseRoots", "connectTimeoutMs", "createdAt", "updatedAt", "lastConnectedAt", "verifiedEndpoint", "verifiedAt", "disabledAt"]);
 const ENDPOINT_KEYS = new Set(["hostName", "port", "user", "pinAlias", "routeDigest", "knownHostsSha256", "hostKeyFingerprints"]);
