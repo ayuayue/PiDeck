@@ -250,6 +250,14 @@ const api = {
 		onPinRequest: (callback: (request: import("../shared/types/remoteHost").RemoteHostPinRequest) => void) => subscribe(ipcChannels.remoteHostPinRequest, callback),
 		/** 订阅连接状态推送；返回 unsubscribe，组件卸载必须退订。 */
 		onStateChange: (callback: (change: import("../shared/types/remoteHost").RemoteHostStateChange) => void) => subscribe(ipcChannels.remoteHostStateChanged, callback),
+		/** 只读：诊断 needs-repair 的原因与合法动作。 */
+		diagnoseRepair: () => ipcRenderer.invoke(ipcChannels.remoteHostRepairDiagnose) as Promise<import("../shared/types/remoteHost").RemoteHostRepairDiagnosisResult>,
+		/** 发起修复：推送确认请求，用户回答后才真正执行。 */
+		runRepair: (action: import("../shared/types/remoteHost").RemoteHostRepairAction, hostId?: string) => ipcRenderer.invoke(ipcChannels.remoteHostRepairRun, action, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostRepairRunResult>,
+		/** 回答修复确认：只能回答 main 签发的 requestId。 */
+		answerRepair: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteHostRepairAnswer, requestId, choice) as Promise<import("../shared/types/remoteHost").RemoteHostRepairAnswerResult>,
+		/** 订阅修复确认请求；返回 unsubscribe。 */
+		onRepairConfirm: (callback: (request: import("../shared/types/remoteHost").RemoteHostRepairRequest) => void) => subscribe(ipcChannels.remoteHostRepairConfirm, callback),
 	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,

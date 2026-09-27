@@ -601,3 +601,190 @@ test("the ui subscribes to state pushes instead of trusting only the connect res
 	assert.match(tab, /const unsubscribe = desktopApi\.remoteHosts\.onStateChange/);
 	assert.match(tab, /return unsubscribe;/);
 });
+
+/**
+ * needs-repair 修复通道。
+ *
+ * 实跑教训：store 进入 needs-repair 后拒绝一切写入（正确——它发现了跨文件不一致），但界面只显示
+ * 一句 REMOTE_HOST_STORE_NEEDS_REPAIR：用户看不出原因、也没有出路。修复动作在主进程早已实现
+ * （RemoteHostRepair），只是从未接出来。这些用例锁住接线后的边界。
+ */
+
+/** 用桩替换 repair/store/pin，记录调用；不碰文件系统。 */
+function repairHandlers(options = {}) {
+	const calls = { diagnose: 0, completeActivation: [], discard: [], forget: [], clearLock: [], sent: [] };
+	const handlers = new Map();
+	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
+		stubs: {
+			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
+			"../remote/RemoteHostRepair": {
+				RemoteHostRepair: class {
+					async diagnose() {
+						calls.diagnose += 1;
+						return options.findings ?? [{ reason: "REMOTE_HOST_PIN_ORPHAN", classification: "orphan-pin", hostIds: [HOST_ID], actions: ["complete-activation-from-pin", "discard-orphan-pin"] }];
+					}
+					async completeActivationFromPin(hostId, revision, confirmation) {
+						calls.completeActivation.push({ hostId, revision, confirmation });
+						if (options.repairFails) throw new Error("HOST_REPAIR_ROUTE_UNVERIFIED");
+					}
+					async discardOrphanPin(hostId, confirmation) {
+						calls.discard.push({ hostId, confirmation });
+					}
+					async forgetTrustAnchor(hostId, revision, confirmation) {
+						calls.forget.push({ hostId, revision, confirmation });
+					}
+					async clearStaleHostLock(observerPid, confirmation) {
+						calls.clearLock.push({ observerPid, confirmation });
+					}
+				},
+			},
+			"../remote/RemoteHostStore": {
+				RemoteHostStore: {
+					async open() {
+						return {
+							getSnapshot: () => ({ status: options.status ?? "needs-repair", revision: 12, reasons: ["REMOTE_HOST_PIN_ORPHAN"], profiles: [] }),
+							getProfile: (id) => (id === HOST_ID ? { id, label: "serve" } : undefined),
+						};
+					},
+				},
+			},
+			"../remote/SshHostPinStore": {
+				SshHostPinStore: class {
+					async readPin() {}
+					async deletePin() {}
+					async reverifyRoute() {}
+					dispose() {}
+				},
+			},
+		},
+	});
+	registerRemoteHostIpc({ enabled: options.enabled ?? true, userDataDir: "/tmp/ignored", list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }) });
+	const sender = { id: 42, isDestroyed: () => false, send: (channel, payload) => calls.sent.push({ channel, payload }) };
+	return { handlers, calls, sender };
+}
+
+test("diagnose reports the reasons and the legal actions", async () => {
+	const { handlers, calls } = repairHandlers();
+	const result = await handlers.get("remote:repair-diagnose")({});
+	assert.equal(result.ok, true);
+	assert.equal(calls.diagnose, 1);
+	const finding = result.findings[0];
+	assert.equal(finding.reason, "REMOTE_HOST_PIN_ORPHAN");
+	assert.equal(finding.classification, "orphan-pin");
+	assert.deepEqual(JSON.parse(JSON.stringify(finding.hostIds)), [HOST_ID]);
+	assert.deepEqual(JSON.parse(JSON.stringify(finding.actions)), ["complete-activation-from-pin", "discard-orphan-pin"]);
+});
+
+test("diagnose on a healthy store returns nothing to do, not an error", async () => {
+	// 健康时界面应当什么都不显示；把它做成错误会让面板永远报错。
+	const { handlers, calls } = repairHandlers({ status: "ready" });
+	const result = await handlers.get("remote:repair-diagnose")({});
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, findings: [] });
+	assert.equal(calls.diagnose, 0, "a healthy store must not be diagnosed");
+});
+
+test("a repair only ever runs after the user approves it", async () => {
+	const { handlers, calls, sender } = repairHandlers();
+	const run = await handlers.get("remote:repair-run")({ sender }, "complete-activation-from-pin", HOST_ID);
+	assert.deepEqual(JSON.parse(JSON.stringify(run)), { ok: true, status: "pending" });
+	// 关键：发起时**不能**执行任何写入。
+	assert.equal(calls.completeActivation.length, 0, "requesting a repair must not run it");
+	assert.equal(calls.sent.length, 1);
+	assert.equal(calls.sent[0].channel, "remote:repair-confirm");
+	assert.equal(calls.sent[0].payload.action, "complete-activation-from-pin");
+	assert.equal(calls.sent[0].payload.hostId, HOST_ID);
+	assert.equal(calls.sent[0].payload.label, "serve", "the confirmation must name the target");
+
+	// 拒绝 → 不执行。
+	const denied = await handlers.get("remote:repair-answer")({ sender }, calls.sent[0].payload.requestId, "deny");
+	assert.deepEqual(JSON.parse(JSON.stringify(denied)), { ok: true, ran: false });
+	assert.equal(calls.completeActivation.length, 0);
+});
+
+test("approving runs the repair against the revision the user saw", async () => {
+	const { handlers, calls, sender } = repairHandlers();
+	await handlers.get("remote:repair-run")({ sender }, "complete-activation-from-pin", HOST_ID);
+	const requestId = calls.sent[0].payload.requestId;
+	const result = await handlers.get("remote:repair-answer")({ sender }, requestId, "approve");
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, ran: true });
+	assert.equal(calls.completeActivation.length, 1);
+	assert.equal(calls.completeActivation[0].hostId, HOST_ID);
+	// 传的是用户批准时的 revision；修复模块会在锁内复核它。
+	assert.equal(calls.completeActivation[0].revision, 12);
+	assert.equal(calls.completeActivation[0].confirmation.requestId, requestId);
+});
+
+test("a repair answer from another window is refused", async () => {
+	const { handlers, calls, sender } = repairHandlers();
+	await handlers.get("remote:repair-run")({ sender }, "complete-activation-from-pin", HOST_ID);
+	const requestId = calls.sent[0].payload.requestId;
+	const other = { id: 99, isDestroyed: () => false, send: () => undefined };
+	const result = await handlers.get("remote:repair-answer")({ sender: other }, requestId, "approve");
+	assert.equal(result.ok, false);
+	assert.equal(calls.completeActivation.length, 0, "a foreign window must not be able to run a repair");
+});
+
+test("an unknown or unapproved action is refused before anything is offered", async () => {
+	const { handlers, calls, sender } = repairHandlers({ findings: [{ reason: "REMOTE_HOST_PIN_ORPHAN", classification: "orphan-pin", hostIds: [HOST_ID], actions: ["complete-activation-from-pin"] }] });
+	// 界面不能发明动作。
+	for (const action of ["drop-everything", "", null, 42]) {
+		const result = await handlers.get("remote:repair-run")({ sender }, action, HOST_ID);
+		assert.equal(result.ok, false, `${String(action)} must be refused`);
+	}
+	// 诊断没授权的动作也不能调（这里是 discard，诊断只给了 complete-activation）。
+	const notAllowed = await handlers.get("remote:repair-run")({ sender }, "discard-orphan-pin", HOST_ID);
+	assert.deepEqual(JSON.parse(JSON.stringify(notAllowed)), { ok: false, code: "HOST_REPAIR_NOT_APPLICABLE" });
+	assert.equal(calls.sent.length, 0);
+});
+
+test("a repair that cannot be diagnosed is refused", async () => {
+	const { handlers, calls, sender } = repairHandlers({ status: "ready" });
+	const result = await handlers.get("remote:repair-run")({ sender }, "complete-activation-from-pin", HOST_ID);
+	assert.equal(result.ok, false);
+	assert.equal(calls.sent.length, 0);
+});
+
+test("a failed repair surfaces a stable code and still consumes the confirmation", async () => {
+	const { handlers, calls, sender } = repairHandlers({ repairFails: true });
+	await handlers.get("remote:repair-run")({ sender }, "complete-activation-from-pin", HOST_ID);
+	const requestId = calls.sent[0].payload.requestId;
+	const result = await handlers.get("remote:repair-answer")({ sender }, requestId, "approve");
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, code: "HOST_REPAIR_ROUTE_UNVERIFIED" });
+	// 已消费：同一个 requestId 不能重放。
+	const replay = await handlers.get("remote:repair-answer")({ sender }, requestId, "approve");
+	assert.equal(replay.ok, false);
+});
+
+test("an unknown request id cannot be answered", async () => {
+	const { handlers, sender } = repairHandlers();
+	const result = await handlers.get("remote:repair-answer")({ sender }, "never-issued", "approve");
+	assert.equal(result.ok, false);
+	assert.equal(result.code, "HOST_REPAIR_CONFIRMATION_REQUIRED");
+});
+
+test("every repair channel honours the feature gate", async () => {
+	const { handlers, calls, sender } = repairHandlers({ enabled: false });
+	for (const [channel, args] of [
+		["remote:repair-diagnose", []],
+		["remote:repair-run", [sender, "complete-activation-from-pin", HOST_ID]],
+		["remote:repair-answer", [sender, "req", "approve"]],
+	]) {
+		const result = await handlers.get(channel)({}, ...args);
+		assert.equal(result.ok, false, `${channel} must be gated`);
+		assert.equal(result.code, "REMOTE_FEATURE_DISABLED");
+	}
+	assert.equal(calls.sent.length, 0);
+});
+
+test("diagnosis findings are re-validated before reaching the renderer", async () => {
+	// 诊断只允许携带可枚举值：任何越界的 reason/classification/action 都在边界处收敛。
+	const { handlers } = repairHandlers({
+		findings: [{ reason: "/home/user/.pideck", classification: "not-a-class", hostIds: ["not-an-id", HOST_ID], actions: ["complete-activation-from-pin", "invent-an-action"] }],
+	});
+	const result = await handlers.get("remote:repair-diagnose")({});
+	const finding = result.findings[0];
+	assert.equal(finding.reason, "REMOTE_HOST_DIAGNOSTIC_UNKNOWN");
+	assert.equal(finding.classification, "unknown");
+	assert.deepEqual(JSON.parse(JSON.stringify(finding.hostIds)), [HOST_ID]);
+	assert.deepEqual(JSON.parse(JSON.stringify(finding.actions)), ["complete-activation-from-pin"]);
+});

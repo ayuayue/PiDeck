@@ -4,6 +4,7 @@ import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
 import { AddHostDialog } from "./AddHostDialog";
 import { FingerprintConfirmDialog } from "./FingerprintConfirmDialog";
+import { RepairPanel } from "./RepairPanel";
 import { SettingsSection } from "./SettingsStorageTab";
 import type { RemoteHostConnectionState, RemoteHostDiagnosticEntry, RemoteHostListItem, RemoteHostPinRequest } from "../../../../../shared/types/remoteHost";
 
@@ -104,6 +105,8 @@ export function ConnectionsTab() {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
+			{/* 放在列表之前：store 进入 needs-repair 时列表读不出来，恢复入口必须先可见。 */}
+			<RepairPanel onRepaired={() => void refresh()} />
 			<SettingsSection title={t("settings.connections.title")} description={t("settings.connections.hint")}>
 				<div className="flex flex-col gap-2">
 					{hosts.length === 0 ? <p className="px-1 py-3 text-body text-muted-foreground">{t("settings.connections.empty")}</p> : null}

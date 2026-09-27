@@ -105,3 +105,40 @@ export type RemoteHostPinAnswerResult = { ok: true; hostId: string; approved: bo
  * 只能靠推送到达——否则界面会停在过期的状态上（实跑：连接已 ready，界面却显示「已离线」）。
  */
 export type RemoteHostStateChange = { hostId: string; state: RemoteHostConnectionState };
+
+/**
+ * 修复诊断与执行。
+ *
+ * 为什么要有这条通道：store 一旦进入 `needs-repair` 就拒绝一切写入（这是对的——它发现了跨文件不一致），
+ * 但在此之前的界面只显示一句 `REMOTE_HOST_STORE_NEEDS_REPAIR`：用户看不出**哪坏了**、也**没有出路**。
+ * 持久化面有四处（主文件、备份、写锁、pin 目录），任何一处残留都会进这个状态，靠手工删文件不是出路。
+ *
+ * 分类与动作与主进程 `RemoteHostRepair` 一致；这里重新声明是分层要求（渲染层只能依赖 shared）。
+ */
+export type RemoteHostRepairClassification = "orphan-pin" | "anchor-invalid" | "lock" | "snapshot" | "write-uncertain" | "unknown";
+
+/** 诊断给出的**合法**动作。界面只能从这些里选，不能自己发明。 */
+export type RemoteHostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
+
+export type RemoteHostRepairFinding = {
+	reason: string;
+	classification: RemoteHostRepairClassification;
+	hostIds: string[];
+	actions: RemoteHostRepairAction[];
+};
+
+export type RemoteHostRepairDiagnosisResult = { ok: true; findings: RemoteHostRepairFinding[] } | { ok: false; code: string };
+
+/**
+ * 修复确认请求：主进程 → 渲染层推送。
+ *
+ * 修复会写 store 或删 pin，属于高风险操作，因此和指纹确认同一套规矩：main 签发一次性 requestId，
+ * 渲染层只能回答同意/拒绝，动作与目标由 main 持有。
+ */
+export type RemoteHostRepairRequest = { requestId: string; expiresAt: number; action: RemoteHostRepairAction; hostId?: string; label: string };
+
+/** 发起修复的结果：`pending` 表示已推送确认、等用户回答。 */
+export type RemoteHostRepairRunResult = { ok: true; status: "pending" } | { ok: false; code: string };
+
+/** 回答修复确认的结果。 */
+export type RemoteHostRepairAnswerResult = { ok: true; ran: boolean } | { ok: false; code: string };

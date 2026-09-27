@@ -16,6 +16,14 @@ export const ipcChannels = {
 	remoteHostPinRequest: "remote:pin-request",
 	/** 主进程 → 渲染层：主机连接状态变化推送（connect 返回之后的迁移也在此到达）。 */
 	remoteHostStateChanged: "remote:state-changed",
+	/** 只读：诊断 needs-repair 的原因与合法动作（不写任何东西）。 */
+	remoteHostRepairDiagnose: "remote:repair-diagnose",
+	/** 发起修复：校验后推送确认请求（推送走 remoteHostRepairConfirm）。 */
+	remoteHostRepairRun: "remote:repair-run",
+	/** 回答修复确认（只能回答 main 签发的 requestId）。 */
+	remoteHostRepairAnswer: "remote:repair-answer",
+	/** 主进程 → 渲染层：修复确认请求推送。 */
+	remoteHostRepairConfirm: "remote:repair-confirm",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）

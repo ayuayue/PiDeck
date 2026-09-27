@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { createHash } from "node:crypto";
 import { ipcMain, type WebContents } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type {
@@ -14,9 +15,16 @@ import type {
 	RemoteHostListResult,
 	RemoteHostPinAnswerResult,
 	RemoteHostPinRequest,
+	RemoteHostRepairAnswerResult,
+	RemoteHostRepairDiagnosisResult,
+	RemoteHostRepairFinding,
+	RemoteHostRepairRequest,
+	RemoteHostRepairRunResult,
 	RemoteHostRepairSummary,
 } from "../../shared/types/remoteHost";
 import type { RemoteHostCatalogView } from "../remote/RemoteHostCatalogView";
+import { RemoteHostRepair, type HostRepairAction } from "../remote/RemoteHostRepair";
+import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { parseSshConfig } from "../remote/SshConfigCandidates";
 import { RemoteHostStore } from "../remote/RemoteHostStore";
@@ -35,6 +43,9 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const MAX_DIAGNOSTIC_ENTRIES = 200;
 /** ssh config is a small text file; anything larger is not the file we mean to read. */
 const MAX_SSH_CONFIG_BYTES = 1024 * 1024;
+/** Repair actions the UI may request. Anything else is refused before it can reach the repair module. */
+const REPAIR_ACTIONS: ReadonlySet<string> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"]);
+
 /** Host label is user-facing text shown in the sidebar; keep it bounded and free of control bytes. */
 const MAX_LABEL = 128;
 const HOST_NAME = /^[A-Za-z0-9._:[\]-]+$/;
@@ -331,6 +342,147 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_PIN_ANSWER_FAILED") };
 		}
 	});
+
+	/**
+	 * Repair confirmation state.
+	 *
+	 * The broker validates requestId + sender, but it does not hand the caller's own binding back on
+	 * lookup, so the subject and the revision the user actually approved live here — the same pattern
+	 * `SshHostPinStore` uses for the fingerprint flow. `onRemoved` keeps both in step when a request
+	 * expires or is cancelled, so a stale entry cannot be answered later.
+	 */
+	const repairPending = new Map<string, { subjectId: string; digest: string; revision: number }>();
+	const repairBroker = new PendingConfirmationBroker<{ action: HostRepairAction; hostId?: string }>({
+		onRemoved: (requestId) => {
+			repairPending.delete(requestId);
+		},
+	});
+	const repairAction = "remote:host-repair";
+	const repairDigest = (action: string, hostId: string | undefined, revision: number): string =>
+		createHash("sha256")
+			.update(JSON.stringify(["pideck-repair-v1", action, hostId ?? null, revision]), "utf8")
+			.digest("hex");
+
+	/** Build a write-capable repair facade over the shared stores. */
+	const openRepair = async () => {
+		const { store, pinStore } = await openStores();
+		return {
+			repair: new RemoteHostRepair({
+				userDataDir: input.userDataDir,
+				store,
+				pins: {
+					readPin: (hostId, endpoint) => pinStore.readPin(hostId, endpoint),
+					deletePin: (hostId) => pinStore.deletePin(hostId),
+					// The pin store keeps its verifier private; this is the re-authentication the A1 path needs.
+					verifyRoute: (route, pinAlias) => pinStore.reverifyRoute(route, pinAlias),
+				},
+			}),
+			store,
+		};
+	};
+
+	ipcMain.handle(ipcChannels.remoteHostRepairDiagnose, async (): Promise<RemoteHostRepairDiagnosisResult> => {
+		const disabled = guard<RemoteHostRepairDiagnosisResult>(() => ({ ok: false, code: "REMOTE_FEATURE_DISABLED" }));
+		if (disabled !== undefined) return disabled;
+		try {
+			const { repair, store } = await openRepair();
+			// A healthy store has nothing to diagnose: report an empty list rather than an error.
+			if (store.getSnapshot().status === "ready") return { ok: true, findings: [] };
+			const findings = await repair.diagnose();
+			return { ok: true, findings: findings.map(findingFrom) };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_HOST_REPAIR_UNAVAILABLE") };
+		}
+	});
+
+	/**
+	 * Ask to run a repair. Validates, then publishes a confirmation instead of running: repairing writes
+	 * the store or deletes a trust anchor, so it needs the user's explicit approval first.
+	 */
+	ipcMain.handle(ipcChannels.remoteHostRepairRun, async (event, action: unknown, hostIdValue: unknown): Promise<RemoteHostRepairRunResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (typeof action !== "string" || !REPAIR_ACTIONS.has(action)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
+		// Lock repair is host-independent by nature; every other action names exactly one host.
+		let hostId: string | undefined;
+		if (action !== "clear-stale-lock") {
+			if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
+			hostId = hostIdValue;
+		}
+		const senderId = senderIdOf(event.sender);
+		if (senderId === undefined) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
+		try {
+			const { repair, store } = await openRepair();
+			const snapshot = store.getSnapshot();
+			// Only actions the diagnosis actually authorised may be requested: the UI must not be able to
+			// invent one, and a stale button must not run something the current state no longer allows.
+			const findings = snapshot.status === "ready" ? [] : await repair.diagnose();
+			const allowed = findings.some((finding) => finding.actions.includes(action as HostRepairAction) && (hostId === undefined || finding.hostIds.length === 0 || finding.hostIds.includes(hostId)));
+			if (!allowed) return { ok: false, code: "HOST_REPAIR_NOT_APPLICABLE" };
+			const requested = action as HostRepairAction;
+			const subjectId = hostId ?? "lock";
+			const digest = repairDigest(requested, hostId, snapshot.revision);
+			const label = hostId === undefined ? "" : String(store.getProfile(hostId)?.label ?? "");
+			const { requestId, expiresAt } = repairBroker.begin({ senderId, action: repairAction, subjectId, stateDigest: digest, payload: { action: requested, ...(hostId === undefined ? {} : { hostId }) } });
+			repairPending.set(requestId, { subjectId, digest, revision: snapshot.revision });
+			if (!event.sender.isDestroyed()) event.sender.send(ipcChannels.remoteHostRepairConfirm, { requestId, expiresAt, action: requested, ...(hostId === undefined ? {} : { hostId }), label } satisfies RemoteHostRepairRequest);
+			return { ok: true, status: "pending" };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_HOST_REPAIR_FAILED") };
+		}
+	});
+
+	/**
+	 * Answer a repair confirmation and, when approved, run it.
+	 *
+	 * `broker.answer` returns the payload only when the requestId and sender still match, so a replayed,
+	 * expired or foreign answer runs nothing. The revision passed to each action is the one the user
+	 * approved — the repair module re-checks it under the store lock, so a state change in between is
+	 * refused rather than applied to a state nobody looked at.
+	 */
+	ipcMain.handle(ipcChannels.remoteHostRepairAnswer, async (event, requestId: unknown, choice: unknown): Promise<RemoteHostRepairAnswerResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 128) return { ok: false, code: "REMOTE_HOST_REPAIR_ANSWER_INVALID" };
+		if (choice !== "approve" && choice !== "deny") return { ok: false, code: "REMOTE_HOST_REPAIR_ANSWER_INVALID" };
+		const senderId = senderIdOf(event.sender);
+		if (senderId === undefined) return { ok: false, code: "REMOTE_HOST_REPAIR_ANSWER_INVALID" };
+		try {
+			const offered = repairPending.get(requestId);
+			if (offered === undefined) return { ok: false, code: "HOST_REPAIR_CONFIRMATION_REQUIRED" };
+			const { repair } = await openRepair();
+			const payload = repairBroker.answer({ requestId, senderId, action: repairAction, subjectId: offered.subjectId, stateDigest: offered.digest, choice });
+			if (payload === null) return { ok: true, ran: false };
+			const confirmation = { requestId, senderId };
+			switch (payload.action) {
+				case "complete-activation-from-pin":
+					await repair.completeActivationFromPin(payload.hostId as string, offered.revision, confirmation);
+					break;
+				case "discard-orphan-pin":
+					await repair.discardOrphanPin(payload.hostId as string, confirmation);
+					break;
+				case "forget-trust-anchor":
+					await repair.forgetTrustAnchor(payload.hostId as string, offered.revision, confirmation);
+					break;
+				case "clear-stale-lock":
+					await repair.clearStaleHostLock(process.pid, confirmation);
+					break;
+				default:
+					return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
+			}
+			return { ok: true, ran: true };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_HOST_REPAIR_FAILED") };
+		}
+	});
+}
+
+/** Project a diagnosis finding onto the renderer contract, dropping anything not on the allowlist. */
+function findingFrom(finding: { reason: string; classification: string; hostIds: readonly string[]; actions: readonly string[] }): RemoteHostRepairFinding {
+	return {
+		reason: REPAIR_REASON.test(finding.reason) ? finding.reason : "REMOTE_HOST_DIAGNOSTIC_UNKNOWN",
+		classification: REPAIR_CLASSIFICATIONS.has(finding.classification) ? (finding.classification as RemoteHostRepairFinding["classification"]) : "unknown",
+		hostIds: finding.hostIds.filter((id) => HOST_ID.test(id)).slice(0, 2000),
+		actions: finding.actions.filter((action) => REPAIR_ACTIONS.has(action)) as RemoteHostRepairFinding["actions"],
+	};
 }
 
 /**

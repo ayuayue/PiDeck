@@ -66,7 +66,7 @@ test("连接面板引用的每个 i18n key 都在两份词典里存在", () => {
 	// 而这两个面板的文案量最大（添加/指纹确认），所以单独守一道。
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
-	const panels = ["src/renderer/src/components/app/settings/ConnectionsTab.tsx", "src/renderer/src/components/app/settings/AddHostDialog.tsx", "src/renderer/src/components/app/settings/FingerprintConfirmDialog.tsx"];
+	const panels = ["src/renderer/src/components/app/settings/ConnectionsTab.tsx", "src/renderer/src/components/app/settings/AddHostDialog.tsx", "src/renderer/src/components/app/settings/FingerprintConfirmDialog.tsx", "src/renderer/src/components/app/settings/RepairPanel.tsx"];
 	const keys = new Set();
 	for (const file of panels) for (const match of readFileSync(file, "utf8").matchAll(/t\("([^"]+)"\)/g)) keys.add(match[1]);
 	assert.ok(keys.size > 20, "expected the connection panels to reference a substantial set of keys");
@@ -74,4 +74,16 @@ test("连接面板引用的每个 i18n key 都在两份词典里存在", () => {
 		assert.ok(zh.includes(`"${key}":`), `缺中文文案 ${key}`);
 		assert.ok(en.includes(`"${key}":`), `缺英文文案 ${key}`);
 	}
+});
+
+test("修复面板只提供会执行的动作，并把只读/人工动作显示为说明", () => {
+	// 修复会写 store 或删信任锚，因此只有白名单里的动作可以做成按钮；其余只呈现说明。
+	// 主进程还会再校验一次，界面不是权威——但界面也不该给出点了没用的按钮。
+	const panel = readFileSync("src/renderer/src/components/app/settings/RepairPanel.tsx", "utf8");
+	assert.match(panel, /const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set\(\["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"\]\)/);
+	// 动作文案必须是显式映射：远端回来的字符串拼出的 key 不存在。
+	assert.match(panel, /function actionLabel\(action: RemoteHostRepairAction\): string \{[\s\S]{0,200}?switch \(action\)/);
+	// 确认推送必须订阅且退订。
+	assert.match(panel, /const unsubscribe = desktopApi\.remoteHosts\.onRepairConfirm/);
+	assert.match(panel, /return unsubscribe;/);
 });
