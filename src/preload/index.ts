@@ -232,7 +232,14 @@ const api = {
 		openProject: (editor: ExternalEditor, projectPath: string) => ipcRenderer.invoke(ipcChannels.editorsOpenProject, editor, projectPath) as Promise<void>,
 	},
 	remoteHosts: {
+		/** 只读：列出已登记主机（不发请求、不启动 SSH）。功能未启用时返回稳定码。 */
 		list: () => ipcRenderer.invoke(ipcChannels.remoteHostsList) as Promise<import("../shared/types/remoteHost").RemoteHostListResult>,
+		/** 连接一台主机。这是本组里唯一会启动真实 SSH 的方法。 */
+		connect: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostConnect, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostConnectResult>,
+		/** 断开一台主机（不忘记已验证的 bootstrap，重连会复用）。 */
+		disconnect: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostDisconnect, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostDisconnectResult>,
+		/** 读取脱敏诊断历史（只读）。 */
+		diagnostics: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostDiagnostics, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostDiagnosticsResult>,
 	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,

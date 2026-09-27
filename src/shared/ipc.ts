@@ -1,5 +1,11 @@
 export const ipcChannels = {
 	remoteHostsList: "remote:hosts-list",
+	/** 连接一台已 pin 的主机（会启动真实 SSH；失败返回稳定码）。 */
+	remoteHostConnect: "remote:connect",
+	/** 断开一台主机的实时会话（不忘记已验证的 bootstrap）。 */
+	remoteHostDisconnect: "remote:disconnect",
+	/** 读取某主机的脱敏诊断历史（只读，不启动任何进程）。 */
+	remoteHostDiagnostics: "remote:diagnostics",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）

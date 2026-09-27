@@ -261,6 +261,8 @@ import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
+import { createRemoteHostConnectionService } from "./remote/RemoteHostConnectionService";
+import { createSshClientRuntime } from "./remote/SshClientRuntime";
 import { openRemoteHostCatalogView } from "./remote/RemoteHostCatalogView";
 import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
@@ -2358,9 +2360,23 @@ function resolveBuiltInExtensionRoots(): BuiltInExtensionPathRoots {
 
 function registerIpc() {
 	// Only the explicit dev experiment can read the remote catalog; listing starts no SSH process.
+	// The connection service is built lazily and only when the experiment is on, so a shipped build
+	// constructs nothing and every remote channel answers REMOTE_FEATURE_DISABLED.
+	const remoteExperimentEnabled = !app.isPackaged && process.env.PIDECK_REMOTE_EXPERIMENTAL === "1";
+	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
+	const remoteHostServiceIfEnabled = () => {
+		if (!remoteExperimentEnabled) return undefined;
+		if (remoteHostService === undefined) {
+			// The service resolves the host's own node itself (login shell), so no nodePath is pinned here.
+			remoteHostService = createRemoteHostConnectionService({ userDataDir: app.getPath("userData"), client: createSshClientRuntime() });
+			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
+		}
+		return remoteHostService;
+	};
 	registerRemoteHostIpc({
-		enabled: !app.isPackaged && process.env.PIDECK_REMOTE_EXPERIMENTAL === "1",
+		enabled: remoteExperimentEnabled,
 		list: () => openRemoteHostCatalogView(app.getPath("userData")),
+		service: remoteHostServiceIfEnabled,
 	});
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);

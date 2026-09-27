@@ -345,7 +345,11 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		remoteHosts: {
 			// 预览模式没有主进程，也没有远端主机库：返回空目录而非报错，让列表页在静态预览下可渲染。
+			// 连接类方法一律报「功能未启用」——预览环境不存在真实 SSH，静默假装成功会误导 UI。
 			list: async () => ({ ok: true as const, status: "ready" as const, hosts: [] }),
+			connect: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
+			disconnect: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
+			diagnostics: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
 		},
 		projects: {
 			list: async () => projects,
