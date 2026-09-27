@@ -93,3 +93,17 @@ test("修复面板只提供会执行的动作，并把只读/人工动作显示�
 	assert.match(panel, /const unsubscribe = desktopApi\.remoteHosts\.onRepairConfirm/);
 	assert.match(panel, /return unsubscribe;/);
 });
+
+test("远端工作区面板要求先连接，并且不把失败说成空目录", () => {
+	// 实跑发现：解析路径走的是普通 pinned ssh 命令（未连接也能成功），而列目录必须有 helper 会话。
+	// 面板若先给输入框，用户会先解析成功、再在列目录时撞 SSH_HOST_NOT_READY——前提必须先可见。
+	const panel = readFileSync("src/renderer/src/components/app/settings/RemoteWorkspacePanel.tsx", "utf8");
+	assert.match(panel, /connected: boolean/, "the panel must be told whether the host is connected");
+	assert.match(panel, /!props\.connected && root === null/, "a disconnected host must be told to connect before the path input appears");
+	// 「列出成功但为空」与「列出失败」是两件不同的事，不能同时显示。
+	assert.match(panel, /const \[listed, setListed\] = useState\(false\)/);
+	assert.match(panel, /listed && entries\.length === 0/, "the empty message may only follow a successful listing");
+	assert.match(panel, /setListed\(false\);/, "a failed listing must not claim to have listed");
+	// 未连接要给一句能照做的话，而不是只扔一个稳定码。
+	assert.match(panel, /SSH_HOST_NOT_READY" \? t\("settings\.connections\.workspace\.notConnected"\)/);
+});

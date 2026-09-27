@@ -139,7 +139,7 @@ export function ConnectionsTab() {
 									</div>
 								</div>
 								{/* 远端工作区（只读）：只给已验证的主机，未验证的连接必然失败。 */}
-								{host.verified ? <RemoteWorkspacePanel hostId={host.id} label={host.label} /> : null}
+								{host.verified ? <RemoteWorkspacePanel hostId={host.id} label={host.label} connected={connected} onRequestConnect={() => void toggle(host.id, true)} /> : null}
 								{/* 诊断只在有内容且非空时展示：连上时它通常只有几行阶段记录。 */}
 								{(diagnostics[host.id] ?? []).length > 0 ? (
 									<details className="text-label text-muted-foreground">

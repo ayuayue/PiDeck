@@ -16,7 +16,7 @@ import type { RemoteWorkspaceEntry, RemoteWorkspaceRootRequest } from "../../../
  *
  * 已确认的 root 由主进程持有；这里只命名**相对位置**（根为空串），不能自己扩大边界。
  */
-export function RemoteWorkspacePanel(props: { hostId: string; label: string }) {
+export function RemoteWorkspacePanel(props: { hostId: string; label: string; connected: boolean; onRequestConnect: () => void }) {
 	const [pathInput, setPathInput] = useState("");
 	const [root, setRoot] = useState<string | null>(null);
 	const [confirmRequest, setConfirmRequest] = useState<RemoteWorkspaceRootRequest | null>(null);
@@ -25,6 +25,8 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string }) {
 	const [file, setFile] = useState<{ path: string; text: string; bytes: number } | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
+	// 与 message 分开：列出成功但为空，和列出失败，是两件不同的事，不能同时显示。
+	const [listed, setListed] = useState(false);
 
 	/** 已确认的 root 属于哪台主机由主进程记录，这里只问「有没有」。 */
 	const refreshRoot = useCallback(async () => {
@@ -54,11 +56,17 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string }) {
 			try {
 				const result = await desktopApi.remoteHosts.listWorkspace(props.hostId, relativePath);
 				if (!result.ok) {
-					setMessage(t("settings.connections.workspace.listFailed", { code: result.code }));
+					// 未连接是**最常见**的失败，且与「路径有问题」完全不同：直接说怎么办，
+					// 而不是扔一个 SSH_HOST_NOT_READY 让用户猜（实跑时就是这样卡住的）。
+					setMessage(result.code === "SSH_HOST_NOT_READY" ? t("settings.connections.workspace.notConnected") : t("settings.connections.workspace.listFailed", { code: result.code }));
+					// 列出失败不能再声称「已列出」：否则空目录提示会和错误同时出现，互相矛盾。
+					setListed(false);
+					setEntries([]);
 					return;
 				}
 				setMessage(null);
 				setFile(null);
+				setListed(true);
 				setRelative(relativePath);
 				// 目录在前、文件在后，同类按名字：和本地文件树一致的读法。
 				setEntries([...result.entries].sort((first, second) => (first.kind === second.kind ? first.name.localeCompare(second.name) : first.kind === "directory" ? -1 : 1)));
@@ -125,7 +133,19 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string }) {
 	return (
 		<section className="mt-3 flex flex-col gap-2 rounded-lg border border-border-subtle px-3 py-2">
 			<strong className="text-body font-semibold text-foreground">{t("settings.connections.workspace.title")}</strong>
-			{root === null ? (
+			{!props.connected && root === null ? (
+				<>
+					{/*
+					 * 解析用的是一条普通 pinned ssh 命令，未连接也能成功；真正的读取却必须有 helper 会话。
+					 * 如果在这里就给输入框，用户会先成功解析、再在列目录时撞墙（实跑就是这样）。
+					 * 因此把「先连接」摆在前面，让前提可见。
+					 */}
+					<p className="text-label text-muted-foreground">{t("settings.connections.workspace.connectFirst")}</p>
+					<Button size="sm" onClick={props.onRequestConnect}>
+						{t("settings.connections.workspace.connectAndBrowse")}
+					</Button>
+				</>
+			) : root === null ? (
 				<>
 					<p className="text-label text-muted-foreground">{t("settings.connections.workspace.hint")}</p>
 					<div className="flex items-end gap-2">
@@ -170,7 +190,7 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string }) {
 						))}
 					</nav>
 					<ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
-						{entries.length === 0 ? <li className="text-label text-muted-foreground">{t("settings.connections.workspace.empty")}</li> : null}
+						{listed && entries.length === 0 ? <li className="text-label text-muted-foreground">{t("settings.connections.workspace.empty")}</li> : null}
 						{entries.map((entry) => (
 							<li key={entry.name} className="shrink-0">
 								<button
