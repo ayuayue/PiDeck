@@ -343,6 +343,10 @@ export function createPreviewApi(): PiDesktopApi {
 			chooseExecutable: async () => null,
 			openProject: async () => undefined,
 		},
+		remoteHosts: {
+			// 预览模式没有主进程，也没有远端主机库：返回空目录而非报错，让列表页在静态预览下可渲染。
+			list: async () => ({ ok: true as const, status: "ready" as const, hosts: [] }),
+		},
 		projects: {
 			list: async () => projects,
 			add: async () => projects[0],
