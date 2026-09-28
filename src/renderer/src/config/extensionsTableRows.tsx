@@ -11,6 +11,7 @@ import { t, type TranslationKey } from "../i18n";
  */
 const BUILT_IN_EXTENSION_DESC: Record<string, TranslationKey> = {
 	"pi-deck-gui-bridge.ts": "config.builtInExtDesc.pi-deck-gui-bridge",
+	"pi-deck-ext-points.ts": "config.builtInExtDesc.pi-deck-ext-points",
 	"pi-deck-request-size-recovery.ts": "config.builtInExtDesc.pi-deck-request-size-recovery",
 	"pi-deck-ask-question.ts": "config.builtInExtDesc.pi-deck-ask-question",
 	"pi-deck-goal-mode.ts": "config.builtInExtDesc.pi-deck-goal-mode",

@@ -2620,6 +2620,7 @@ export const zhCN = {
 	"config.builtInExtDesc.pi-deck-retry-no-body": "瞬态错误重试增强：识别网关空响应、中文「服务暂时不可用」、stream_read_error 等 pi 重试名单外的瞬态故障并改写，触发自动重试。",
 	"config.builtInExtDesc.pi-deck-security-gate": "安全门：按会话安全等级策略拦截工具调用——危险 bash 命令弹窗确认或直接拒绝；策略快照热更新，无需重启。",
 	"config.builtInExtDesc.pi-deck-gui-bridge": "GUI 扩展桥：把 pi 在 RPC 模式下被丢弃的声明式 UI 扩展点（顶部区/底部状态区/状态栏/输入框挂件/流式状态行/折叠思考块标签/会话标题/输入框本体）接回桌面端，并另供一套写法同形的 GUI 专属扩展点与 GUI 作画工厂。",
+	"config.builtInExtDesc.pi-deck-ext-points": "扩展点面板：在「Pi 管理 → Agent 能力 → 扩展点」里列出 pi + PiDeck 的全部可挂载点，标好每条在桌面端会不会生效。清单在运行时从 pi 的类型定义与桥的落点表读取，没有构建期快照要同步；这一页是只读清单，勾选、写用途、生成草稿在输入框执行 /ext-points。",
 	"bridge.control.cancellable": "可取消",
 	"bridge.node.copy": "复制",
 	"bridge.node.copied": "已复制",

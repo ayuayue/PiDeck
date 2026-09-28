@@ -7,7 +7,8 @@ import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltI
  * 启动 RPC 时通过可重复的 `--extension/-e` 注入，避免污染用户全局 pi。
  *
  * ⚠️ **只列「入口」扩展文件**：被扩展 import 的辅助模块（如 `pi-deck-todo-state.ts`、
- * `pi-deck-gui-bridge-*.ts`）**不在**本表 —— 它们不通过 `-e` 注入，
+ * `pi-deck-gui-bridge-*.ts`、`pi-deck-ext-points-catalog.ts` / `pi-deck-ext-points-panel.ts`）
+ * **不在**本表 —— 它们不通过 `-e` 注入，
  * 但仍必须进 `extensions-manifest.json`（清单按目录扫描全部 `.ts`），
  * 否则热更新覆盖层会缺少依赖、pi 报模块找不到。
  *
@@ -15,6 +16,9 @@ import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltI
  * 它负责在 `session_start` 里包装共享的 `ctx.ui`，把 RPC 下被丢弃的声明式
  * UI 扩展点接回 PiDeck。pi 按 `-e` 顺序加载扩展，桥先加载使**内置批次内部**
  * 时序无歧义。
+ *
+ * `pi-deck-ext-points`（扩展点面板）紧随其后：它要用桥挂出来的 `ctx.gui`
+ * （`setConfigPage` 一级页 / `setSettingsSection` 卡片，见该扩展文件头）。
  *
  * ⚠️ 但这只管内置批次自己：pi 的发现顺序是「项目 → 全局 `~/.pi/agent/extensions`
  * → `-e` 显式」，全局用户扩展**永远先于**本批次加载/注册，同一次 emit
@@ -26,6 +30,7 @@ import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltI
  */
 export const BUILT_IN_EXTENSIONS = [
 	"pi-deck-gui-bridge.ts",
+	"pi-deck-ext-points.ts",
 	"pi-deck-request-size-recovery.ts",
 	"pi-deck-ask-question.ts",
 	"pi-deck-goal-mode.ts",

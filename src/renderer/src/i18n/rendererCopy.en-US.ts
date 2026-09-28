@@ -2628,6 +2628,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.builtInExtDesc.pi-deck-security-gate": "Security gate: enforces the per-session security policy on tool calls — dangerous bash commands prompt for confirmation or are rejected; policy snapshots hot-reload without restart.",
 	"config.builtInExtDesc.pi-deck-gui-bridge":
 		"GUI extension bridge: routes the declarative UI extension points that pi drops in RPC mode (header, footer, status bar, composer widgets, working line, hidden-thinking label, session title, editor body) back into the desktop app, and adds a same-shaped set of GUI-only slots plus a GUI painting factory.",
+	"config.builtInExtDesc.pi-deck-ext-points":
+		"Extension points panel: lists every mountable point of pi + PiDeck under Pi management → Agent capabilities → Extension points, marking whether each one actually takes effect on the desktop side. The list is read at runtime from pi's type definitions and the bridge's slot table, so there is no build-time snapshot to keep in sync; the page is a read-only listing — run /ext-points in the composer to pick points, write purposes and generate a draft.",
 	"bridge.control.cancellable": "Cancellable",
 	"bridge.node.copy": "Copy",
 	"bridge.node.copied": "Copied",
