@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
+import { isLocalProject } from "../../shared/projectLocation";
 import type { PasteFileWriteInput, PasteFileWriteResult } from "../../shared/types";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
@@ -46,7 +47,7 @@ export function registerPasteFilesIpc({ projectStore, settingsStore, appLogger }
 	 */
 	const resolvePasteRoot = (projectPath: string): string => {
 		if (projectPath) {
-			const registered = projectStore.list().some((project) => isSamePath(project.path, projectPath));
+			const registered = projectStore.list().some((project) => isLocalProject(project) && isSamePath(project.path, projectPath));
 			if (!registered) {
 				throw new Error(`Invalid paste target: project path is not registered: ${projectPath}`);
 			}
@@ -54,8 +55,14 @@ export function registerPasteFilesIpc({ projectStore, settingsStore, appLogger }
 		return userPasteRoot();
 	};
 
-	/** userData 新目录 + 各已登记项目遗留的 .pideck-paste（清理/删文件白名单）。 */
-	const listManagedPasteRoots = (): string[] => [userPasteRoot(), ...projectStore.list().map((project) => join(project.path, PROJECT_PASTE_DIR))];
+	/** userData 新目录 + 各已登记项目遗留的 .pideck-paste（清理/删文件白名单）。远端项目不在本机，排除。 */
+	const listManagedPasteRoots = (): string[] => [
+		userPasteRoot(),
+		...projectStore
+			.list()
+			.filter(isLocalProject)
+			.map((project) => join(project.path, PROJECT_PASTE_DIR)),
+	];
 
 	/** 路径必须落在某个受管粘贴根内（防渲染层越权删除任意文件）。 */
 	const isInsideManagedPasteRoot = (path: string): boolean => {

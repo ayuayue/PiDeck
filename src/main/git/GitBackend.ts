@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import type { GitRepoInfo, Project, ProjectFileTarget, ProjectLocator } from "../../shared/types";
+import type { GitRepoInfo, LocalProject, ProjectFileTarget, ProjectLocator } from "../../shared/types";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
+import { isLocalProject } from "../../shared/projectLocation";
 import { createProjectFileReadBoundary, resolveProjectFileReadPath } from "../files/projectFileAccess";
 import { parseProjectFileTarget } from "../files/projectFileTarget";
 import { listGitRepos } from "./gitRepoScope";
@@ -27,13 +28,14 @@ export class LocalGitBackend implements GitBackend {
 
 	constructor(
 		private readonly projectStore: ProjectStore,
-		private readonly projectRootPath: (project: Project) => string,
+		private readonly projectRootPath: (project: LocalProject) => string,
 	) {}
 
 	async resolveRepository(target: ProjectFileTarget): Promise<GitRepositoryContext> {
 		const normalizedTarget = parseProjectFileTarget(target);
 		const project = this.projectStore.get(normalizedTarget.projectId);
 		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const boundary = await createProjectFileReadBoundary(this.projectRootPath(project));
 		const repoPath = resolve(boundary.canonicalRoot, normalizedTarget.relativePath);
 		const repoRoot = await resolveProjectFileReadPath(boundary, repoPath);
@@ -77,6 +79,8 @@ export class GitBackendRouter {
 	forProject(projectId: string): GitBackend {
 		const project = this.projectStore.get(projectId);
 		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		// 远端项目没有 locator→local 的降级：直接拒绝，绝不拿一个 ssh 项目去跑本机 Git。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		return this.forLocator(projectLocatorFromLegacy(project));
 	}
 }

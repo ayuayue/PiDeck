@@ -43,7 +43,7 @@
 | I10 | `needs-repair` 下禁止任何新的 SSH 调用 | `activeProfile` | `SshVerifiedConnection.ts:29`（status）、`:31`（disabled/无 endpoint）→ `SSH_HOST_NOT_READY` | 已建立的连接不会被主动断开（没有任何 store 订阅机制）**【推断】** |
 | I11 | retired id 永久保留、永不复用 | `createDraft` + 编解码器 | `:294`、`RemoteHostStoreCodec.ts:126-127` | 复用尝试抛 `REMOTE_HOST_ID_REUSED` |
 | I12 | 备份只能离线查看，绝不能被提升为可写信任 | 备份被选中时必然带 reason → `needs-repair` | `:121-137` + `:350`（测试：`remoteHostStore.test.mjs:126-137`、`:170-182`） | 只读，任何 mutator 拒绝 |
-| I13 | **今天 `projects.json` 里不可能出现 ssh locator** | `readV2Project` 显式拒绝 | `projectStoreCodec.ts:81`（`PROJECT_STORE_REMOTE_UNSUPPORTED`）；`encode` 只产出 local locator：`:48-52` | 读到 ssh 项目 ⇒ 整个 store 加载失败并 `needs-repair`（`ProjectStore.ts:51-58`）。这是一条 **Phase 3 开关**，不是永久不变量 |
+| I13 | **Phase 3 第二段起 `projects.json` 可以出现 ssh locator** | `readV2Project` 接受并校验 ssh locator | `projectStoreCodec.ts` 的 `readV2Project`/`readSshLocator`（绝对 POSIX 非根/无穿越/无控制字节/上限 4096，且 ssh 记录不得带 local-only 字段）；`encode` 对远端记录原样保留 locator | 读到**畸形** ssh 记录（相对路径、根、`..`、超限、带 `kind`/`worktree*`）⇒ 整个 store 加载失败并 `needs-repair`。这是 2026-09 的 Phase 3 开关变化，不再是“不可能出现” |
 | I14 | `SessionCatalog` 接受并原样保存 ssh locator，但任何文件/运行路径都拒绝它 | 读侧白名单 vs 路由层 fail closed | 接受：`SessionCatalog.ts:266-274`、`:1538-1541`；清除本地字段：`:293-299`；拒绝：`SessionLocatorRouter.ts:15`、`SessionRuntimeCoordinator.ts:960`、`:1269` | ssh 条目可持久存在但不可 attach/执行；今天没有任何写入者（见 1.6） |
 | I15 | 主机目录锁没有 owner 信息（创建后从不写入内容） | `open(lockPath,"wx",0o600)` 后只 close/unlink | `RemoteHostStore.ts:356`、`:388-395` | 进程崩溃遗留的锁文件 ⇒ 启动即 `needs-repair`（`REMOTE_HOST_LOCK_PRESENT`，`:94-95`）且 mutator 抛 `REMOTE_HOST_STORE_BUSY`（`:358`）；**只能人工删锁**（G5） |
 
@@ -110,7 +110,7 @@
 | `remote-hosts.json` | profile 自身 | `RemoteHostStore` | `RemoteHostStore` | — |
 | 连接状态机 / 诊断（`RemoteHostConnectionState.ts:28`、`RemoteHostConnectionTypes.ts:18`） | 运行期字段 | — | — | 不持久化（`src/main/remote` 下唯一的持久化写入是 profile 与 pin，见 1.1） |
 
-**结论（事实）**：今天唯一"能"持久化 hostId 引用的结构是 `SessionCatalog`，而它没有写入者；`ProjectStore` 连读都不允许。**结论（推断）**：现在把 `referencedHostIds()` 实现成"只扫 session catalog"在当下是**完备的**，但只要 Phase 3 打开 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`projectStoreCodec.ts:81`），它立刻变成**不完备**，`retire` 就会硬删仍被项目引用的主机。这决定了第 4 节必须用"注册式引用源 + 契约测试"而不是"手写一个 union 函数"。
+**结论（事实）**：在 Phase 3 第二段之前，唯一"能"持久化 hostId 引用的结构是 `SessionCatalog`，而它没有写入者；`ProjectStore` 连读都不允许。**结论（推断）**：当时把 `referencedHostIds()` 实现成"只扫 session catalog"是**完备的**，但 Phase 3 一打开 `projectStoreCodec.ts` 的读门禁，它立刻变成**不完备**（`retire` 会硬删仍被项目引用的主机）。这就是第 4 节必须用"注册式引用源 + 契约测试"的原因。**2026-09 已改为真实实现**：`RemoteHostReferenceSources.ts` 的 `projects` 源现已扫描 `projects.json`（不再声明 `canHoldHostReferences:false`），两个持久化引用源（projects/sessions）都是真实扫描；`host-profiles`/`runtime` 仍声明不能持有引用。
 
 补充：现存的跨 store 编排是**顺序调用、无事务**，且吞掉第二段的错误——删除项目时 `projectStore.remove(id)` → `sessionCatalog.removeByProjectId(projectId).catch(() => 0)`（`src/main/ipc/projectsIpc.ts:102-108`；同型代码在 `src/main/index.ts:3667-3670`）。**这是"跨 store 事务"最直接的模板反面**：第一步成功、第二步失败，则 catalog 永远留着已删项目的会话引用。
 
@@ -241,7 +241,7 @@ export type RemoteHostReferenceRegistry = {
 | 未注册任何源 | `asStoreReferences()` **同步抛** `REMOTE_HOST_REFERENCE_SOURCE_MISSING`（`:200`），并在每次 `referencedHostIds()` 调用内重复检查（`:204`，store 可能持有这个视图整个生命周期）；**store 侧的惰性视图把同码推迟到首次查询** —— `open()` 不因此失败，`updateDraft`/`retire` 才失败（`RemoteHostStore.ts:92-103`；测试：`tests/remoteHostStoreLifecycle.test.mjs:280-282`） |
 | 某源声明 `canHoldHostReferences=false` | 该源跳过且不影响 `complete`；一旦该源真的出现 hostId（由契约测试发现），实现方必须改回 true（`:152`、`:164`；测试：`tests/remoteHostReferenceRegistry.test.mjs:98`） |
 
-> 当前只读装配：`src/main/remote/RemoteHostReferenceSources.ts` 将 `sessions` 注册为磁盘 catalog 扫描（SSH locator 提取 hostId；坏主文件、孤立备份、未知 schema/locator、超限及符号链接均 `complete=false`），其余 `projects` / `host-profiles` / `runtime` 按当前结构声明 `canHoldHostReferences=false`。开发态主机只读列表构造 store 时注入该 registry；没有开放修改/退役入口。这只解决“源有明确归属、读失败不等于零引用”，**不等于** INV-5 跨 store 写锁或事务门禁完成；将来放开 SSH 项目时必须同步撤销 `projects` 的 false 声明。
+> 当前只读装配：`src/main/remote/RemoteHostReferenceSources.ts` 将 `sessions`（磁盘 catalog）与 `projects`（`projects.json` 的 v2 envelope）都注册为**真实扫描**（SSH locator 提取 hostId；坏主文件、孤立备份、未知 schema/locator、超限及符号链接均 `complete=false`），其余 `host-profiles` / `runtime` 按当前结构声明 `canHoldHostReferences=false`。开发态主机只读列表构造 store 时注入该 registry；没有开放修改/退役入口。这只解决“源有明确归属、读失败不等于零引用”，**不等于** INV-5 跨 store 写锁或事务门禁完成。
 
 > 与现状的差异：现有接口 `RemoteHostReferences`（`RemoteHostStore.ts:14`，当前 `:15`）没有 complete 概念。本设计把"无 provider"和"扫描不完整"都变成硬失败 —— **已落地**：无 provider 时 `updateDraft` 也硬失败（当前 `:272`），`retire` 与 `updateDraft` 对称（§1.3）。
 
@@ -681,7 +681,7 @@ export type HostRepairPort = {
 
 | # | 文件 | 脏状态 | 改动 | 测试断言建议 |
 | --- | --- | --- | --- | --- |
-| 14 | `src/main/projects/ProjectStore.ts` | **M（脏）** | 实现 `readHostRecordLocators()` / `applyHostRebind()`（4.4；引用集合由 4.1 的 provider 提供，端口里**没有** `listHostReferences()`）；`remove()` 前做 interlock 检查。**落地形态**：只读端口已实现（`:441-450`，如实返回 local locator）；写端口**一律拒绝** —— 非空补丁直接抛 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`:457-462`），不经过 `save()`、不碰磁盘；能力声明 `canHoldHostReferences = false`（`:38-43`） | **本行的写断言建议在 `PROJECT_STORE_REMOTE_UNSUPPORTED` 放开前不可能成立 ⇒ 标为 Phase 3**："逐记录 CAS：changed/missing ⇒ 整次不写"与"重放 ⇒ `already-applied` 且 revision 不变（幂等）"这些断言今天**一条都不可能观测到**（端口连一次写都不会发生），它们随 Phase 3 放开开关一起生效。**今天可断言的只有**：空批次 ⇒ `[]`、非空批次 ⇒ `PROJECT_STORE_REMOTE_UNSUPPORTED`、`projects.json` / `.bak` 逐字节不变、revision 不前进（`tests/hostRebindStorePorts.test.mjs:200-226`），以及"每个请求的 recordId 都必须回一条 snapshot（记录已删 ⇒ 缺省 locator）"（`:189-197`）。**逐记录 CAS 与幂等重放的可执行断言全部在 sessions 侧**（`tests/hostRebindStorePorts.test.mjs:340-396`） |
+| 14 | `src/main/projects/ProjectStore.ts` | **M（脏）** | 实现 `readHostRecordLocators()` / `applyHostRebind()`（4.4；引用集合由 4.1 的 provider 提供，端口里**没有** `listHostReferences()`）；`remove()` 前做 interlock 检查。**落地形态（2026-09 第二段）**：读写端口都已真实实现 —— 读端口逐条返回记录真实持有的 locator（local 或 ssh），写端口与 sessions 同构的逐记录 CAS（只换 `hostId`，`remotePath` 原样保留；changed/missing ⇒ 整批不写），能力声明 `canHoldHostReferences = true`。另新增 `addRemote({ hostId, canonicalRemotePath })`（去重键 `hostId + NUL + remotePath`）。 | 已可断言的写断言：逐记录 CAS / 幂等重放 / 整批全有或全无 / 非 ssh 记录判 changed（`tests/hostRebindStorePorts.test.mjs` 的 project 侧用例），以及 `addRemote` 去重、重启恢复、损坏快照 fail closed（`tests/projectStoreMigration.test.mjs`）。**仍未做**：`remove()` 前的 interlock 检查 |
 | 15 | `src/main/projects/projectStoreCodec.ts` | **??（Phase 1 新增，未跟踪）** | 决定 `PROJECT_STORE_REMOTE_UNSUPPORTED`（`:81`）的去留。**Phase 3 之前建议保留**：一旦放开，就必须同时上线 SSH 项目的 containment 校验（计划 §12 Phase 3 门禁），否则等于提前开启半成品能力 | 保留：ssh locator ⇒ 抛 `PROJECT_STORE_REMOTE_UNSUPPORTED`；放开：必须新增"缺 hostId/remotePath 拒绝"+ 契约测试。注意同一个码**也被写侧复用**（端口拒绝任何补丁，`ProjectStore.ts:457-462`；§4.4），放开时两处必须一起改 |
 | 16 | `src/main/sessions/SessionCatalog.ts` | **M（脏）** | `readHostRecordLocators()` / `applyHostRebind()`；catalog 无 revision ⇒ 只能逐记录 CAS（4.4）。**origin 冲突检查不在端口里**（见右栏） | 同 #14 的 sessions 版本（逐记录 CAS / 幂等重放已在 `tests/hostRebindStorePorts.test.mjs:340-396` 固化）。**`REMOTE_HOST_REBIND_ORIGIN_CONFLICT` 不属于端口层**：端口只做逐记录 CAS（`SessionCatalog.ts:738-787`），且 `hostRebindTargetLocator` 只接受"仅 hostId 变化"的补丁（`:375-386`），端口里没有任何 origin/去重检查；该码今天**只有声明、没有产出点**（`HostRebindJournal.ts:116`）。它归 `plan()` —— §4.2 的 plan 失败表已把它列在协调器一侧，而协调器仍未实现（§7.1 第 3 项）。所以"同一 host 下重复 `remoteSessionId` ⇒ `REMOTE_HOST_REBIND_ORIGIN_CONFLICT`"这条用例必须等 `plan()` 落地后才能写，**不能**写成端口用例 |
 | 17 | `src/main/sessions/SessionLocatorRouter.ts` | **??（Phase 1 新增）** | 不改：ssh 抛 `UNSUPPORTED_PROJECT_LOCATION`（`:15`）是目标语义 | 只加测试：rebind 后 ssh locator 仍不可进本地 fs 路径 |
@@ -718,7 +718,7 @@ export type HostRepairPort = {
 ### 7.3 三个最大风险
 
 **风险 1｜引用源漏登记 ⇒ `retire` 硬删仍被引用的主机（数据/信任不可逆）。**
-成因是 G1：接口无法表达"扫描不完整"，且 `retire` 只看集合成员（`RemoteHostStore.ts:267-268`）。Phase 3 一旦放开 `projectStoreCodec.ts:81`，`ProjectStore` 立刻成为新的引用源，而它今天连读都被拒绝——最容易出现的错误就是把扫描实现成"只扫 sessions"并当作完备。
+成因是 G1：接口无法表达"扫描不完整"，且 `retire` 只看集合成员（`RemoteHostStore.ts:267-268`）。`ProjectStore` 现在已是新的引用源（能持久化 ssh locator）——最容易出现的错误就是把扫描实现成"只扫 sessions"并当作完备。**2026-09 已按本条落地**：`projects` 源改为真实扫描（见 `RemoteHostReferenceSources.ts`），坏档/孤立备份/未知 schema/超限/符号链接均 `complete=false`。
 缓解：注册表 + `complete` 硬失败 + 契约扫描测试（#9）+ `retire` 前的保守并集扫描 + `retire` 之后的第三次事后扫描与补偿迁移（5.3 步骤 4/5）。**这条必须在实现顺序上排第一**：没有它，其余设计都在保护一个可能不成立的引用集合。
 
 **风险 2｜与普通 mutator 的交错（TOCTOU）产生"退役后才出现的引用"。**
@@ -762,7 +762,7 @@ export type HostRepairPort = {
 | Q3 | 会话历史里的 hostId 在退役后如何展示？ | **不需要特殊展示**：因为退役前引用必然已迁走，正常路径下不存在"引用指向 retired id"的历史条目。若产品要在审计视图里显示"这个会话曾经属于某主机"，需要把展示名快照进 retired 记录（schema 变更）——建议**先不做**，等有真实诉求再加 | 现状 `retire` 只保留 id（`:250`），label 一并消失；要展示就得改 schema，而 `RemoteHostStoreCodec.ts:107-129` 是严格白名单解码，改动要连 migration 一起做。**【待确认】** 是否有产品场景真的需要"已退役主机名" |
 | Q4 | rebind / 修复原语是否需要高风险确认（`PendingConfirmationBroker`）？ | **需要**，全部绑定 (txId, source, target, 记录集 digest, expectedRevision) | 会改写多台主机引用关系的是高风险动作；仓库既有模式就是 main-only pending + 一次性 sender 绑定（`SshHostPinStore.ts:134`、`:159`，计划 §14.1 `docs/remote-development-plan.md:805`）。无 UI 阶段可以先由主进程函数 + 显式 requestId 实现，接口不变 |
 | Q5 | 崩溃后自动收敛（roll-forward）是否需要用户确认？ | **引用迁移与 retire 自动收敛；任何"降信任/删锚点"动作必须人工确认** | 收敛本身不改变信任关系（target 早已独立验证），中断在"半迁移"状态比自动完成更危险；而删 pin / `forgetTrustAnchor` 会降低信任，不能自动 |
-| Q6 | `PROJECT_STORE_REMOTE_UNSUPPORTED`（`projectStoreCodec.ts:81`）在 Phase 3 之前是否放开？ | **不放开**，但必须现在就实现 ProjectStore 的引用扫描端口并在"无 ssh 项目"时声明 `canHoldHostReferences=false` | 放开就等于提前开启 Phase 3 能力（远端 browse root containment、文件/Git 路由都还没落地，计划 §12 Phase 3 门禁）；但端口先建好，可以让放开的那个 PR 只改开关而不是补事务 |
+| Q6 | `PROJECT_STORE_REMOTE_UNSUPPORTED` 是否放开？ | **已放开（2026-09 第二段）**：`projectStoreCodec.ts` 不再拒绝 ssh locator，而是校验 `remotePath` 与 local-only 字段；`projects` 引用源同步改为真实扫描 | 放开的同时已补齐 SSH 记录的 containment 校验（绝对 POSIX/非根/无穿越/无控制字节/上限）与项目删除的记录校验；但下游“侧栏登记 + 远端只读路由”仍需单独评审（Phase 3 剩余项） |
 | Q7 | 坏档案（pin 丢失）造成的 store 级只读，是否接受"全局停写"？ | **短期接受**（fail closed 优先），但要求 6.2 B 的修复路径可用；中期评估"坏档案隔离" | 现状是 store 级判断（`:139`、`:350`），改成 per-host 可写会放松 `needs-repair` 的语义，属于安全语义变更，需要单独评审而不是顺手做 |
 | Q8 | journal 文件是否要 `.bak`？ | **不要**。journal 丢失的后果是"合法但半迁移"，可用同一对 source/target 重跑（5.3） | 加备份会引入"哪份 journal 权威"的第二个 CAS 问题，收益（少一次人工重跑）远小于复杂度 |
 | Q9 | 引用扫描是否需要覆盖运行期（非持久化）状态？ | **不需要**，只扫持久化引用；运行期条目在重启后消失，且任何使用点都必须对"hostId 已退役/档案缺失"fail closed | 把运行期状态纳入引用集合会让 `retire` 依赖瞬时状态，产生不可复现的拒绝；正确做法是使用侧 fail closed（`SshVerifiedConnection.ts:31` 已是此模式） |

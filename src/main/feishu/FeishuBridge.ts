@@ -11,7 +11,7 @@
 
 import type { BrowserWindow } from "electron";
 import { ipcChannels } from "../../shared/ipc";
-import type { FeishuBotConfig, FeishuBridgeStatus, FeishuChatBinding, FeishuChatMessage, FeishuTestResult, ImageContent, AvailableModel, AgentRuntimeState, AgentTab } from "../../shared/types";
+import type { FeishuBotConfig, FeishuBridgeStatus, FeishuChatBinding, FeishuChatMessage, FeishuTestResult, ImageContent, AvailableModel, AgentRuntimeState, AgentTab, LocalProject } from "../../shared/types";
 import type { FeishuGroupInfo, FeishuGroupMember, FeishuImageAttachment, FeishuFileAttachment, FeishuMessageContext, FeishuCardActionEvent } from "./types";
 import { loadBindings, saveBindings, getPersistentChatId, setPersistentChatId, type FeishuChatBindingPersist } from "./FeishuConfig";
 import { chooseMessageMode, buildPostMessages, buildMarkdownCards } from "./rich-text";
@@ -77,7 +77,8 @@ export class FeishuBridge {
 	private agentManager: AgentManager;
 	private runtimeBindings: SessionRuntimeBindingGateway;
 	private getWindow: () => BrowserWindow | null;
-	private getProjects: () => Array<{ id: string; name: string; path: string }>;
+	/** 飞书 Bridge 只在本机项目上建会话；远端项目由调用方过滤掉（不能把远端路径当本机 cwd）。 */
+	private getProjects: () => LocalProject[];
 	private locale: FeishuLocale;
 
 	private connection: FeishuConnection;
@@ -128,7 +129,7 @@ export class FeishuBridge {
 	/** 用户消息中检测到要做飞书文档，agent 结束后自动创建 */
 	private pendingDocRequests = new Map<string, string>();
 
-	constructor(botConfig: FeishuBotConfig, agentManager: AgentManager, getWindow: () => BrowserWindow | null, getProjects: () => Array<{ id: string; name: string; path: string }>, runtimeBindings: SessionRuntimeBindingGateway, plainAppSecret?: string, locale: FeishuLocale = "zh-CN") {
+	constructor(botConfig: FeishuBotConfig, agentManager: AgentManager, getWindow: () => BrowserWindow | null, getProjects: () => LocalProject[], runtimeBindings: SessionRuntimeBindingGateway, plainAppSecret?: string, locale: FeishuLocale = "zh-CN") {
 		this.botConfig = botConfig;
 		this.agentManager = agentManager;
 		this.runtimeBindings = runtimeBindings;

@@ -111,6 +111,7 @@ import { applyDshGoalSendTransform, buildComposerPromptSubmission } from "./comp
 import { isSameSessionPath } from "./agentListDisplay";
 import { resolveLocale, setI18nLocale, t, translateI18nDescriptor } from "./i18n";
 import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
+import { isLocalProject } from "../../shared/projectLocation";
 import type { SessionFilterPill } from "./sessionFilterPills";
 import { useResize } from "./hooks/useResize";
 import { ARCHIVED_SESSION_TOAST_MS, archivedSessionToastMessage, useSessionActions } from "./hooks/useSessionActions";
@@ -3024,8 +3025,13 @@ export function App() {
 			},
 			refreshAll: refreshAllProjects,
 			reorder: reorderProjects,
-			reveal: (project) => api.files.showInFolder(project.path),
+			reveal: (project) => {
+				// 本机文件处理器不接受远端路径：远端项目不提供「在文件夹中显示」。
+				if (!isLocalProject(project)) return Promise.resolve();
+				return api.files.showInFolder(project.path);
+			},
 			openWithEditor: (project) => {
+				if (!isLocalProject(project)) return;
 				workspace.openExternalEditorChooser(project.path, { x: 80, y: 80 });
 			},
 			importSessions: (project, source) => {
@@ -3041,7 +3047,7 @@ export function App() {
 			manageAutomations: (projectId) => openAutomationModal(projectId),
 			toggleWorktree: toggleProjectWorktree,
 			copyPath: async (project) => {
-				await navigator.clipboard.writeText(project.path);
+				await navigator.clipboard.writeText(isLocalProject(project) ? project.path : project.locator.remotePath);
 				showToast(t("common.copied"));
 			},
 			remove: removeSidebarProject,

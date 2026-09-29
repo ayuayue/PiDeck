@@ -2,7 +2,8 @@ import { dialog, ipcMain, type BrowserWindow } from "electron";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
-import type { FeedbackProjectContext } from "../../shared/types";
+import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
+import type { FeedbackProjectContext, LocalProject } from "../../shared/types";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { GitService } from "../git/GitService";
@@ -31,8 +32,8 @@ export type ProjectsIpcDeps = {
 };
 
 export function registerProjectsIpc({ projectStore, settingsStore, gitService, worktreeService, agentManager, appLogger, projectResourceManager, sessionCatalog, mainCopy, getMainWindow, resolveWslEnvironment }: ProjectsIpcDeps): void {
-	// Windows Node 只能 stat/打开主机路径；WSL 项目在 store 里可能是 Linux 路径。
-	const resolveProjectHostPath = (project: { path: string; environment?: string }) => {
+	// Windows Node 只能 stat/打开主机路径；WSL 项目在 store 里可能是 Linux 路径。远端项目不能到这里。
+	const resolveProjectHostPath = (project: LocalProject) => {
 		const settings = settingsStore.get();
 		if (process.platform !== "win32" || project.environment !== "wsl" || !settings.wslEnabled || !settings.wslDistro) {
 			return project.path;
@@ -57,12 +58,17 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 		}
 	};
 
-	// 可见项目 = 按环境过滤 + 目录存在性标记（missing 保留记录，见 projectPresence.ts）
+	// 可见项目 = 按环境过滤 + 目录存在性标记（missing 保留记录，见 projectPresence.ts）。
+	// 远端项目不受 WSL 模式过滤影响（它不属于本机环境），一律保留。
 	const getVisibleProjects = async () => {
 		const settings = settingsStore.get();
 		const all = projectStore.list();
-		const visible = settings.wslEnabled ? all.filter((p) => p.kind === "chat" || p.environment === "wsl") : all.filter((p) => p.kind === "chat" || !p.environment || p.environment === "windows");
-		return attachProjectPresence(visible, undefined, resolveProjectHostPath);
+		const visible = settings.wslEnabled ? all.filter((p) => isRemoteProject(p) || p.kind === "chat" || p.environment === "wsl") : all.filter((p) => isRemoteProject(p) || p.kind === "chat" || !p.environment || p.environment === "windows");
+		return attachProjectPresence(visible, undefined, (project) => {
+			// 远端项目已在 attachProjectPresence 内跳过；走到这里说明窄化失败。
+			if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+			return resolveProjectHostPath(project);
+		});
 	};
 
 	ipcMain.handle(ipcChannels.projectsList, async () => getVisibleProjects());
@@ -142,6 +148,8 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 	ipcMain.handle(ipcChannels.projectsToggleWorktreeEnabled, async (_event, projectId: string) => {
 		const existing = projectStore.get(projectId);
 		if (!existing) throw new Error(`Project not found: ${projectId}`);
+		// worktree 工作区模式依赖本机 Git：远端项目明确拒绝（Phase 5 再按 capability 矩阵评估）。
+		if (!isLocalProject(existing)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		// 即将启用时先校验是否 git 仓库；非 git 项目开启工作区模式没有意义，
 		// 只会看到空列表并在创建时报错，这里提前给出明确错误让前端提示用户。
 		if (!existing.worktreeEnabled) {
@@ -209,6 +217,8 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 		}
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		// AGENTS.md/skills 在本机项目目录读取：远端项目必须在远端发现（Phase 4），不能当本机路径。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const hostPath = resolveProjectHostPath(project);
 		// AGENTS.md 缺失时返回空串而非报错：不是所有项目都写了规范文件
 		let agentsMd = "";

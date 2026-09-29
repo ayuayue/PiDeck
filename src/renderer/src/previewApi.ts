@@ -1,7 +1,7 @@
 import type { PiDesktopApi } from "../../preload";
 import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, terminalOwnerKeyFor } from "../../shared/types";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
-import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
+import type { AppSettings, FileTreeNode, LocalProject, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
 import type { ResourceImportKind } from "../../shared/types/resourceImport";
 import { t } from "./i18n";
 
@@ -10,7 +10,7 @@ const now = Date.now();
 /** 快捷消息预览夹具：预览/截图需要一个非空弹框；真实数据在 userData/quick-messages.json。 */
 const PREVIEW_QUICK_MESSAGES: readonly string[] = ["继续", "提交", "推送", "提交推送"];
 
-const projects: Project[] = [
+const projects: LocalProject[] = [
 	{
 		id: "builtin-chat",
 		name: "Chat",

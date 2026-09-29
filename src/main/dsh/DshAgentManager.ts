@@ -6,6 +6,7 @@ import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
+import { isLocalProject } from "../../shared/projectLocation";
 import { getAppLogger } from "../logging/sharedLogger";
 import type { DshEnvelope, DshHistoryEntry, DshHistoryPage } from "./dshRemoteClient";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
@@ -193,6 +194,7 @@ export class DshAgentManager implements SessionAgentGateway {
 	async create(input: CreateAgentInput): Promise<AgentTab> {
 		const project = this.getProject(input.projectId);
 		if (!project) throw new Error(`Project not found: ${input.projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const client = await this.ensureClient();
 		const cwd = project.path;
 

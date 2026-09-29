@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { dialog, ipcMain, type BrowserWindow } from "electron";
 import { ipcChannels } from "../../shared/ipc";
+import { isLocalProject } from "../../shared/projectLocation";
 import { isDshPermissionPreset } from "../../shared/types/agent";
 import { isRewindRestoreScope } from "../../shared/types/rewind";
 import { canonicalizeSessionPath } from "../../shared/sessionIdentity";
@@ -528,6 +529,8 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.sessionsCatalogList, async (_event, projectId: string, options?: { scan?: boolean }) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(mainCopy("project.notFound"));
+		// 远端项目的会话由远端 pi/helper 扫描（Phase 4）；本地 scanner 不能读远端路径。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		let projectPath = project.path;
 		const settings = settingsStore.get();
 		if (settings.wslEnabled && settings.wslDistro) {
@@ -1745,6 +1748,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.codexSessionsScan, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await codexSessionImporter.scan(project.path);
 		void appLogger.debug("session", "Codex sessions scanned", { projectId });
 		return result;
@@ -1752,6 +1756,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.codexSessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await codexSessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "Codex sessions imported", {
 			projectId,
@@ -1762,6 +1767,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.claudeSessionsScan, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await claudeSessionImporter.scan(project.path);
 		void appLogger.debug("session", "Claude sessions scanned", { projectId });
 		return result;
@@ -1769,6 +1775,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.claudeSessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await claudeSessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "Claude sessions imported", {
 			projectId,
@@ -1779,6 +1786,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.openCodeSessionsScan, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await openCodeSessionImporter.scan(project.path);
 		void appLogger.debug("session", "OpenCode sessions scanned", { projectId });
 		return result;
@@ -1786,6 +1794,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.openCodeSessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await openCodeSessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "OpenCode sessions imported", {
 			projectId,
@@ -1796,6 +1805,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.zcodeSessionsScan, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await zcodeSessionImporter.scan(project.path);
 		void appLogger.debug("session", "ZCode sessions scanned", { projectId });
 		return result;
@@ -1803,6 +1813,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.zcodeSessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await zcodeSessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "ZCode sessions imported", {
 			projectId,
@@ -1813,6 +1824,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.workbuddySessionsScan, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await workbuddySessionImporter.scan(project.path);
 		void appLogger.debug("session", "WorkBuddy sessions scanned", { projectId });
 		return result;
@@ -1820,6 +1832,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.workbuddySessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await workbuddySessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "WorkBuddy sessions imported", {
 			projectId,
@@ -1830,6 +1843,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.cursorSessionsScan, async (_event, projectId: string) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await cursorSessionImporter.scan(project.path);
 		void appLogger.debug("session", "Cursor sessions scanned", { projectId });
 		return result;
@@ -1837,6 +1851,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.cursorSessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await cursorSessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "Cursor sessions imported", {
 			projectId,
@@ -1856,6 +1871,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.directorySessionsScan, async (_event, projectId: string, dir: unknown) => {
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await directorySessionImporter.scan(requireImportDirectory(dir));
 		void appLogger.debug("session", "Directory sessions scanned", {
 			projectId,

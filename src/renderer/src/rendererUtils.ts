@@ -1,4 +1,5 @@
 import type { Project, SessionSummary, SessionEnvironment, AgentTab } from "../../shared/types";
+import { isLocalProject } from "../../shared/projectLocation";
 import { isSameSessionPath } from "./agentListDisplay";
 import { parseSessionFilterState, serializeSessionFilterState, type SessionFilterPill } from "./sessionFilterPills";
 
@@ -108,11 +109,13 @@ export const ASK_STEP_PX = 8;
 
 export function displayProjectDirectoryName(project: Project) {
 	if (isChatProject(project)) return "Chat";
-	const normalizedPath = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
+	// 远端项目没有本机路径：直接用远端路径的 basename 展示（不当作本机路径处理）。
+	const rawPath = isLocalProject(project) ? project.path : project.locator.remotePath;
+	const normalizedPath = rawPath.replace(/\\/g, "/").replace(/\/+$/, "");
 	const dirName = normalizedPath.split("/").pop() || "";
 	// 用户重命名过（name 与目录名不同）时优先展示自定义名，否则回退目录名：
 	// 未重命名的项目 name 就是目录 basename，展示行为与旧版完全一致。
-	if (!dirName) return project.name || project.path;
+	if (!dirName) return project.name || rawPath;
 	return project.name && project.name !== dirName ? project.name : dirName;
 }
 

@@ -46,13 +46,43 @@ test("v2 snapshot persists location only in the locator and round-trips through 
 	assert.deepEqual(plain(decoded.projects), plain(source));
 });
 
-test("v2 SSH project is rejected instead of fabricating a local path", () => {
+test("v2 SSH project decodes to a RemoteProject without fabricating a local path", () => {
 	const remote = {
 		schemaVersion: 2,
 		revision: 3,
 		projects: [{ id: "remote-1", name: "repo", lastOpenedAt: 10, locator: { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo" } }],
 	};
-	assert.throws(() => decodeProjectStoreSnapshot(remote), /PROJECT_STORE_REMOTE_UNSUPPORTED/);
+	const decoded = decodeProjectStoreSnapshot(remote);
+	assert.equal(decoded.projects.length, 1);
+	assert.equal(Object.hasOwn(decoded.projects[0], "path"), false, "ssh 项目没有本机 path");
+	assert.equal(Object.hasOwn(decoded.projects[0], "environment"), false);
+	assert.deepEqual(plain(decoded.projects[0].locator), { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo" });
+});
+
+test("v2 SSH project round-trips through encode/decode without ever gaining a local path", () => {
+	const source = { id: "remote-1", name: "repo", lastOpenedAt: 10, locator: { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo" } };
+	const encoded = encodeProjectStoreSnapshot([source], 5);
+	assert.deepEqual(plain(encoded.projects[0]), source);
+	const decoded = decodeProjectStoreSnapshot(plain(encoded));
+	assert.deepEqual(plain(decoded.projects[0]), source);
+});
+
+// ssh 记录只允许 hostId + remotePath：任何把这批字段当本机路径的形状都必须在加载时拒绝，
+// 否则 store 会把一个未验证的字符串当成授权根。
+test("v2 ssh records reject a non-absolute, root, traversal, or control-byte remotePath", () => {
+	const base = { schemaVersion: 2, revision: 2 };
+	const entry = (remotePath) => ({ id: "remote-1", name: "repo", lastOpenedAt: 1, locator: { kind: "ssh", hostId: "host-a", remotePath } });
+	// 注：POSIX 下反斜杠是合法文件名字符，helper 的 realpath 接受它，所以不在此拒绝。
+	for (const remotePath of ["relative/path", "/", "/srv/repo/", "/srv/../etc", "/srv/./repo", "/srv/repo\u0000x", ""]) {
+		assert.throws(() => decodeProjectStoreSnapshot({ ...base, projects: [entry(remotePath)] }), /PROJECT_STORE_INVALID_V2_PROJECT/, `remotePath ${JSON.stringify(remotePath)} must be refused`);
+	}
+});
+
+test("v2 ssh records reject local-only fields such as kind/worktree", () => {
+	const locator = { kind: "ssh", hostId: "host-a", remotePath: "/srv/repo" };
+	for (const extra of [{ kind: "chat" }, { worktreeEnabled: true }, { worktreeParentId: "p" }]) {
+		assert.throws(() => decodeProjectStoreSnapshot({ schemaVersion: 2, revision: 1, projects: [{ id: "remote-1", name: "repo", lastOpenedAt: 1, locator, ...extra }] }), /PROJECT_STORE_INVALID_V2_PROJECT/);
+	}
 });
 
 test("v2 records reject legacy path fields and malformed locators", () => {

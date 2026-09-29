@@ -41,6 +41,7 @@ function loadTerminalSessionManagerModule() {
 			if (name === "node:crypto") return { randomUUID: () => "id" };
 			if (name === "../../shared/ipc") return { ipcChannels: {} };
 			if (name === "../../shared/types/terminal") return loadTranspiledModule("src/shared/types/terminal.ts");
+			if (name === "../../shared/projectLocation") return loadTranspiledModule("src/shared/projectLocation.ts");
 			// shell 检测依赖宿主环境（git-bash 路径、wsl.exe），桩掉以保证候选列表断言可复现；
 			// existsSync=false / execSync 抛错 = 宿主未安装可选 shell 的最小环境。
 			if (name === "node:fs") return { existsSync: () => false };
@@ -125,6 +126,7 @@ function loadWithPty() {
 			if (name === "node:crypto") return { randomUUID: () => `id-${spawns.length}` };
 			if (name === "../../shared/ipc") return { ipcChannels: {} };
 			if (name === "../../shared/types/terminal") return loadTranspiledModule("src/shared/types/terminal.ts");
+			if (name === "../../shared/projectLocation") return loadTranspiledModule("src/shared/projectLocation.ts");
 			if (name === "node:fs") return { existsSync: () => false };
 			if (name === "node:child_process") {
 				return {

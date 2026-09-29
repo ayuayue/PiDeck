@@ -16,6 +16,7 @@ import type {
 	ForkMessage,
 	I18nParams,
 	ImageContent,
+	LocalProject,
 	Project,
 	RewindCheckpointHealth,
 	RewindCheckpointPage,
@@ -32,6 +33,7 @@ import type {
 	SessionTodoSnapshot,
 } from "../../shared/types";
 import { ipcChannels } from "../../shared/ipc";
+import { isLocalProject } from "../../shared/projectLocation";
 import { collectSessionFileChanges } from "../../shared/fileChanges";
 import { COMPACT_CANCELLED_BY_OWNER, COMPACT_CANCELLED_BY_USER_ABORT, COMPACT_HOOK_REJECT_MAX_MS, COMPACT_OBSERVATION_MAX_AGE_MS, COMPACT_ROUTED_TO_OWNER, COMPACT_USER_ABORT_WINDOW_MS } from "../../shared/compactFeedback";
 import { SessionLocatorRouter } from "../sessions/SessionLocatorRouter";
@@ -1421,6 +1423,8 @@ export class AgentManager {
 		const t0 = Date.now();
 		const project = this.getProject(input.projectId);
 		if (!project) throw new Error(`Project not found: ${input.projectId}`);
+		// 本地 pi 进程以 project.path 为 cwd：远端项目的 cwd 在远端（Phase 4），不得当成本机路径。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 
 		const sessionIdentityDefaults = this.getAgentSessionIdentityDefaults();
 		const sessionEnvironment = input.environment ?? sessionIdentityDefaults.environment;
@@ -2283,6 +2287,7 @@ export class AgentManager {
 
 		const project = this.getProject(runtime.tab.projectId);
 		if (!project) throw new Error("Project not found");
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 
 		void this.appLogger?.info("agent", "Reattaching process", {
 			agentId,
@@ -3248,6 +3253,7 @@ export class AgentManager {
 	private async withTemporarySession<T>(projectId: string, sessionPath: string, run: (process: PiProcess) => Promise<T>): Promise<T> {
 		const project = this.getProject(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const trustOverride = await this.ensureProjectTrust(project);
 		const process = this.createPiProcess(project.path, sessionPath);
 		await process.start(sessionPath, trustOverride);
@@ -4949,7 +4955,7 @@ export class AgentManager {
 	 *   - trust-session：用 --approve 本次覆盖，不落盘。
 	 *   - deny：用 --no-approve 本次以不信任模式启动，pi 不加载项目级资源，Agent 仍可创建。
 	 */
-	private async ensureProjectTrust(project: Project): Promise<"approve" | "no-approve" | undefined> {
+	private async ensureProjectTrust(project: LocalProject): Promise<"approve" | "no-approve" | undefined> {
 		const cwd = this.wslEnvironment ? toWslLinuxPath(project.path, this.wslEnvironment) : project.path;
 		const hostCwd = this.wslEnvironment ? toWindowsHostPath(project.path, this.wslEnvironment) : project.path;
 		if (!this.hasTrustRequiringResources(hostCwd)) {

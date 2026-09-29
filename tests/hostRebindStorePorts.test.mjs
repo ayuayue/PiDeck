@@ -31,6 +31,11 @@ function canonicalSshLocator(hostId, overrides = {}) {
 	return canonicalHostLocatorJson(sshLocator(hostId, overrides));
 }
 
+/** 项目侧的 ssh locator：没有 remoteSessionId，remotePath 就是一个项目目录。 */
+function canonicalProjectSshLocator(hostId, remotePath = "/srv/app") {
+	return canonicalHostLocatorJson({ kind: "ssh", hostId, remotePath });
+}
+
 async function makeTempDir(t, prefix) {
 	const directory = await mkdtemp(join(tmpdir(), prefix));
 	t.after(() => rm(directory, { recursive: true, force: true }));
@@ -177,52 +182,60 @@ async function tempFilesIn(directory) {
 }
 
 // ---------------------------------------------------------------------------
-// ProjectStore：canHoldHostReferences=false 的诚实形态
+// ProjectStore：能持有 ssh locator 的真实端口（canHoldHostReferences=true + 逐记录 CAS）
 // ---------------------------------------------------------------------------
 
-test("the project port declares it cannot hold host references and reads its real local locators", async (t) => {
+test("the project port holds host references and reads each record's real locator", async (t) => {
 	const userData = await makeTempDir(t, "pideck-rebind-port-projects-");
-	const { store } = await loadProjectStoreFixture(userData, [projectFixture("p-1", "local", "/srv/app")], 3);
+	const remoteProject = { id: "p-remote", name: "remote", lastOpenedAt: 1, locator: { kind: "ssh", hostId: SOURCE, remotePath: "/srv/app" } };
+	const { store } = await loadProjectStoreFixture(userData, [projectFixture("p-1", "local", "/srv/app"), remoteProject], 3);
 
-	assert.equal(store.canHoldHostReferences, false, "projects.json 读到 ssh 就被 codec 拒绝 ⇒ 结构上装不下 host 引用（设计 Q6）");
+	assert.equal(store.canHoldHostReferences, true, "Phase 3 第二段起 projects.json 能持有 ssh locator，必须真实登记（否则 retire 会硬删仍被引用的主机）");
 
-	const snapshots = plain(await store.readHostRecordLocators(["p-1", "p-missing"]));
-	assert.equal(snapshots.length, 2, "每个被请求的 recordId 都必须回一条 snapshot");
-	const locator = JSON.parse(snapshots[0].locator);
+	const snapshots = plain(await store.readHostRecordLocators(["p-1", "p-remote", "p-missing"]));
+	assert.equal(snapshots.length, 3, "每个被请求的 recordId 都必须回一条 snapshot");
+	const local = JSON.parse(snapshots[0].locator);
 	assert.equal(snapshots[0].recordId, "p-1");
-	assert.equal(locator.kind, "local", "只读端口如实返回记录真实持有的 local locator，不编造 ssh");
-	assert.equal(locator.localPath, "/srv/app");
-	assert.equal(locator.hostId, undefined);
-	assert.equal(snapshots[0].locator, canonicalHostLocatorJson(locator), "读回的 locator 必须是规范 JSON");
-	assert.deepEqual(snapshots[1], { recordId: "p-missing" }, "记录不存在 ⇒ 缺省 locator（收敛侧判 RECORD_MISSING，INV-6）");
+	assert.equal(local.kind, "local", "local 记录回 local locator");
+	assert.equal(local.localPath, "/srv/app");
+	assert.equal(snapshots[0].locator, canonicalHostLocatorJson(local), "读回的 locator 必须是规范 JSON");
+	assert.equal(snapshots[1].locator, canonicalProjectSshLocator(SOURCE), "远端记录如实回 ssh locator（remotePath 原样保留）");
+	assert.deepEqual(snapshots[2], { recordId: "p-missing" }, "记录不存在 ⇒ 缺省 locator（收敛侧判 RECORD_MISSING，INV-6）");
 });
 
-test("the project port refuses every rebind patch and never writes", async (t) => {
-	const userData = await makeTempDir(t, "pideck-rebind-port-projects-refuse-");
-	const { store, filePath } = await loadProjectStoreFixture(userData, [projectFixture("p-1", "local", "/srv/app")], 3);
-	const before = await readFile(filePath, "utf8");
-	const backupBefore = await readFile(`${filePath}.bak`, "utf8");
-	const revisionBefore = JSON.parse(before).revision;
-	const localLocator = (await store.readHostRecordLocators(["p-1"]))[0].locator;
+test("the project port moves an ssh hostId and writes atomically, refusing non-ssh patches", async (t) => {
+	const userData = await makeTempDir(t, "pideck-rebind-port-projects-write-");
+	const remoteProject = { id: "p-remote", name: "remote", lastOpenedAt: 1, locator: { kind: "ssh", hostId: SOURCE, remotePath: "/srv/app" } };
+	const { store, filePath } = await loadProjectStoreFixture(userData, [remoteProject, projectFixture("p-1", "local", "/srv/app")], 3);
+	const before = (await store.readHostRecordLocators(["p-remote"]))[0].locator;
 
-	// 用"与当前 locator 完全匹配"的 before：证明拒绝不是 CAS 不匹配，而是这个 store 根本不能迁移
-	const error = await captureRejection(() => store.applyHostRebind("tx-projects", [{ recordId: "p-1", beforeLocator: localLocator, afterLocator: canonicalSshLocator(TARGET) }]));
-	assert.equal(error, "PROJECT_STORE_REMOTE_UNSUPPORTED");
-	assert.equal(await readFile(filePath, "utf8"), before, "projects.json 逐字节不变（没有走 save()）");
-	assert.equal(await readFile(`${filePath}.bak`, "utf8"), backupBefore, ".bak 也没被轮换");
-	assert.equal(JSON.parse(await readFile(filePath, "utf8")).revision, revisionBefore, "revision 不前进 = save() 没被调用");
+	const results = plain(await store.applyHostRebind("tx-projects", [{ recordId: "p-remote", beforeLocator: before, afterLocator: canonicalProjectSshLocator(TARGET) }]));
+	assert.deepEqual(results, [{ recordId: "p-remote", outcome: "applied" }]);
+	assert.equal((await store.readHostRecordLocators(["p-remote"]))[0].locator, canonicalProjectSshLocator(TARGET), "hostId 换成 target，remotePath 原样保留");
 	assert.deepEqual(await tempFilesIn(userData), [], "没有留下半截临时文件");
+
+	// 幂等重放：第二次全部 already-applied
+	assert.deepEqual(plain(await store.applyHostRebind("tx-projects", [{ recordId: "p-remote", beforeLocator: before, afterLocator: canonicalProjectSshLocator(TARGET) }])), [{ recordId: "p-remote", outcome: "already-applied" }]);
+
+	// local 记录不是 ssh：补丁一律判 changed，且整批不写（全有或全无，INV-9）
+	const localLocator = (await store.readHostRecordLocators(["p-1"]))[0].locator;
+	const batch = await store.applyHostRebind("tx-projects", [
+		{ recordId: "p-remote", beforeLocator: canonicalProjectSshLocator(TARGET), afterLocator: canonicalProjectSshLocator(OTHER) },
+		{ recordId: "p-1", beforeLocator: localLocator, afterLocator: localLocator },
+	]);
+	assert.deepEqual(
+		plain(batch),
+		[
+			{ recordId: "p-remote", outcome: "changed" },
+			{ recordId: "p-1", outcome: "changed" },
+		],
+		"整批失败时本想能写的那条也必须报 changed，绝不报 applied",
+	);
+	assert.equal((await store.readHostRecordLocators(["p-remote"]))[0].locator, canonicalProjectSshLocator(TARGET), "失败的批次没有落盘");
 
 	// 空补丁是合法 no-op；形状非法的补丁也不能漏成非稳定错误
 	assert.deepEqual(plain(await store.applyHostRebind("tx-projects", [])), []);
 	assert.equal(await captureRejection(() => store.applyHostRebind("tx-projects", undefined)), "REMOTE_HOST_REBIND_UNKNOWN_OUTCOME");
-	assert.equal(await readFile(filePath, "utf8"), before);
-
-	// 正向对照：store 自己的写入口照旧可用（revision 前进只可能来自 save()）
-	await store.rename("p-1", "renamed");
-	const after = JSON.parse(await readFile(filePath, "utf8"));
-	assert.equal(after.revision, revisionBefore + 1);
-	assert.equal(after.projects.find((project) => project.id === "p-1").name, "renamed");
 });
 
 test("the project port fails closed with PROJECT_STORE_NEEDS_REPAIR while the store needs repair", async (t) => {
@@ -467,7 +480,7 @@ test("port reads and writes reject malformed batches instead of answering them",
 // 端到端收敛：两个端口 + journal
 // ---------------------------------------------------------------------------
 
-test("convergence surfaces the project port's refusal as its own stable code", async (t) => {
+test("convergence stops with STALE_PLAN when a project patch cannot apply", async (t) => {
 	const directory = await makeTempDir(t, "pideck-rebind-port-e2e-projects-");
 	const journalDir = join(directory, "journal");
 	const catalogPath = join(directory, "session-catalog.json");
@@ -486,8 +499,8 @@ test("convergence surfaces the project port's refusal as its own stable code", a
 	const catalogWritten = await readFile(catalogPath, "utf8");
 	const error = await captureRejection(() => journal.resume({ host, projects: projectStore, sessions: catalog }));
 
-	assert.equal(error, "PROJECT_STORE_REMOTE_UNSUPPORTED", "store 端口码必须原样透出，不能被折成 UNKNOWN_OUTCOME（INV-10）");
-	assert.equal(await readFile(projectFile, "utf8"), projectsWritten, "拒绝的补丁没有落盘");
+	assert.equal(error, "REMOTE_HOST_REBIND_STALE_PLAN", "local 记录不是 ssh：补丁判 changed ⇒ 收敛侧 STALE_PLAN 停事务（INV-10）");
+	assert.equal(await readFile(projectFile, "utf8"), projectsWritten, "被判 changed 的补丁没有落盘");
 	assert.equal(await readFile(catalogPath, "utf8"), catalogWritten);
 	assert.equal(sourceProfile(model).disabled, true, "WAL：stage 写的是即将执行的那一步，source 已 disable");
 	assert.equal(model.retiredHostIds.includes(SOURCE), false, "未收敛不许 retire");

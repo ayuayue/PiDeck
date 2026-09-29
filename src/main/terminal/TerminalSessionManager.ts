@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { ipcChannels } from "../../shared/ipc";
 import { terminalOwnerKeyFor } from "../../shared/types/terminal";
 import type { TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
+import { isLocalProject } from "../../shared/projectLocation";
 import type { ProjectStore } from "../projects/ProjectStore";
 import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
 import { getWslExe } from "../wsl/wslExe";
@@ -113,6 +114,8 @@ export class TerminalSessionManager {
 		const project = this.projectStore.get(target.projectId);
 		if (!project) throw new Error("PROJECT_NOT_FOUND");
 		if (project.kind === "chat") throw new Error("TERMINAL_PROJECT_UNSUPPORTED");
+		// 远端终端（Phase 5）尚未实现：拒绝而不是拿远端路径当本机 cwd 启动本地 shell。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		return project.path;
 	}
 

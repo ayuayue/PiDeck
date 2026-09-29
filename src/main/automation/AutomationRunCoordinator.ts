@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AutomationRun, AutomationRunStatus, AutomationTask, SessionRuntimeEvent, SessionRuntimeTarget } from "../../shared/types";
 import { isAutomationRunTerminal } from "../../shared/types";
+import { isLocalProject } from "../../shared/projectLocation";
 /**
  * 复用渲染层发送链路的模式标记构造函数，让「普通/计划/目标」的隐藏标记格式只有一份
  * 定义，避免主进程与渲染进程各写一套后悄悄漂移。
@@ -634,7 +635,8 @@ export class AutomationRunCoordinator {
 			let changedFiles: number | undefined;
 			if (tracker && this.gitService) {
 				const project = this.projectStore.get(tracker.projectId);
-				if (project) {
+				// 自动化 Git 变更统计只针对本机项目；远端项目不在此处扫本地 Git。
+				if (project && isLocalProject(project)) {
 					try {
 						const statusRes = await this.gitService.getStatus(project.path);
 						changedFiles = statusRes.workingTree.length + statusRes.untracked.length + statusRes.merge.length + statusRes.index.length;

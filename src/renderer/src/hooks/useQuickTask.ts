@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentBackend, Project, SessionRecord } from "../../../shared/types";
+import type { AgentBackend, LocalProject, Project, SessionRecord } from "../../../shared/types";
+import { isLocalProject } from "../../../shared/projectLocation";
 import type { QuickTaskErrorCode, QuickTaskState } from "../../../shared/types/quickTask";
 import { desktopApi as api } from "../desktopApi";
 import { t } from "../i18n";
@@ -75,7 +76,9 @@ export function useQuickTask(options: {
 			setError(null);
 			try {
 				const projects = await api.projects.list();
-				let project: Project | undefined = projects.find((item) => sameQuickTaskPath(item.path, targetPath));
+				// quick task 依赖本机路径比对：只在本机项目中查找（远端项目不能按本机路径匹配）。
+				const localProjects = projects.filter(isLocalProject) as LocalProject[];
+				let project: Project | undefined = localProjects.find((item) => sameQuickTaskPath(item.path, targetPath));
 				if (!project && !add) {
 					setNeedsProject(true);
 					return;

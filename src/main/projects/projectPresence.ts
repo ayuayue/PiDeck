@@ -11,6 +11,8 @@
  */
 import { stat } from "node:fs/promises";
 import type { Project } from "../../shared/types";
+import { isLocalProject } from "../../shared/projectLocation";
+import type { LocalProject } from "../../shared/types";
 import { parseWslUncPath } from "../wsl/WslPaths";
 
 export type PathCheck = (path: string) => Promise<boolean>;
@@ -30,10 +32,20 @@ export const defaultPathCheck: PathCheck = async (path) => {
  * 给项目列表附加存在性标记。chat 项目（userData 下自动创建）跳过；
  * 返回新数组（原对象不可变，missing 时浅拷贝加标记）。
  */
-export async function attachProjectPresence(projects: readonly Project[], checkPath: PathCheck = defaultPathCheck, resolvePath: ProjectPathResolver = (project) => project.path): Promise<Project[]> {
+export async function attachProjectPresence(
+	projects: readonly Project[],
+	checkPath: PathCheck = defaultPathCheck,
+	resolvePath: ProjectPathResolver = (project) => {
+		// 远端项目在下面的循环里已被跳过，绝不会走到这里；一旦走到就是调用方漏了窄化。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+		return project.path;
+	},
+): Promise<Project[]> {
 	const results: Project[] = [];
 	for (const project of projects) {
-		if (project.kind === "chat" || !project.path) {
+		// 本机项目但无路径（异常/历史记录）与远端项目都跳过本机 stat：前者没有可探测的路径，
+		// 后者存在性由已验证连接上的 helper 判定，本地探测只会把「主机未连接」误报成 missing。
+		if (project.kind === "chat" || !isLocalProject(project) || !project.path) {
 			results.push(project);
 			continue;
 		}
@@ -42,8 +54,8 @@ export async function attachProjectPresence(projects: readonly Project[], checkP
 	return results;
 }
 
-/** 单个项目是否标记 missing：目录 stat 失败且确认不是环境不可达。 */
-async function isProjectMissing(project: Project, checkPath: PathCheck, resolvePath: ProjectPathResolver): Promise<boolean> {
+/** 单个本机项目是否标记 missing：目录 stat 失败且确认不是环境不可达。 */
+async function isProjectMissing(project: LocalProject, checkPath: PathCheck, resolvePath: ProjectPathResolver): Promise<boolean> {
 	const hostPath = resolvePath(project);
 	if (await checkPath(hostPath)) return false;
 	// WSL 项目（UNC 路径）：stat 失败可能是发行版未启动（UNC 根不可达），

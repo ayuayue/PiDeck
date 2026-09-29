@@ -2,8 +2,9 @@ import { app, dialog } from "electron";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Project } from "../../shared/types";
+import type { LocalProject, Project } from "../../shared/types";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
+import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import { normalizeSelectedWslProjectPath, parseWslUncPath, WslPathError, type WslEnvironment } from "../wsl/WslPaths";
 import { getAppLogger } from "../logging/sharedLogger";
 import { assertHostRebindRecordIds, canonicalHostLocatorJson, type HostRebindRecordPatch, type HostRebindRecordResult, type HostRebindRecordSnapshot, type HostRebindStorePort } from "../remote/HostRebindJournal";
@@ -15,8 +16,45 @@ const CHAT_PROJECT_NAME = "Chat";
 
 /** 端口边界只允许稳定码（设计 §4.4）：与 projectStoreCodec.ts:81 的 ssh 读拒绝同码。 */
 const PROJECT_STORE_NEEDS_REPAIR = "PROJECT_STORE_NEEDS_REPAIR";
-const PROJECT_STORE_REMOTE_UNSUPPORTED = "PROJECT_STORE_REMOTE_UNSUPPORTED";
 const REBIND_UNKNOWN_OUTCOME = "REMOTE_HOST_REBIND_UNKNOWN_OUTCOME";
+
+/**
+ * 远端项目去重键：`hostId + NUL + canonical remotePath`。
+ *
+ * 同一远端路径在不同主机上是两个项目，所以不能只用路径；NUL 分隔让 hostId 与 path 的拼接
+ * 无歧义（hostId 不含 NUL，remotePath 由 codec 校验也不含控制字节）。远端 realpath 原样
+ * 区分大小写，不能套 Windows 小写规则。
+ */
+function remoteProjectKey(hostId: string, remotePath: string): string {
+	return `${hostId}\u0000${remotePath}`;
+}
+
+type SshLocatorShape = { kind: "ssh"; hostId: string; remotePath: string };
+
+/** 解析规范 JSON 形式的 ssh locator；非 ssh 或缺字段都返回 undefined（fail closed）。 */
+function parseSshLocator(canonical: string): SshLocatorShape | undefined {
+	try {
+		const value: unknown = JSON.parse(canonical);
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+		const record = value as Record<string, unknown>;
+		if (record.kind !== "ssh" || typeof record.hostId !== "string" || typeof record.remotePath !== "string") return undefined;
+		return { kind: "ssh", hostId: record.hostId, remotePath: record.remotePath };
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * rebind 补丁只允许把 ssh locator 的 `hostId` 换成另一个：`remotePath` 必须原样保留。返回值只
+ * 含新 hostId；不合法（非 ssh、hostId 未变、remotePath 被改动或含额外字段）返回 undefined，
+ * 由调用方把该记录判 `changed`（收敛侧 STALE_PLAN），绝不写盘。
+ */
+function rebindTargetLocator(beforeLocator: string, afterLocator: string): { hostId: string } | undefined {
+	const before = parseSshLocator(beforeLocator);
+	const after = parseSshLocator(afterLocator);
+	if (!before || !after || before.hostId === after.hostId) return undefined;
+	return canonicalHostLocatorJson({ ...before, hostId: after.hostId }) === afterLocator ? { hostId: after.hostId } : undefined;
+}
 
 class ProjectStoreNeedsRepairError extends Error {
 	readonly code = PROJECT_STORE_NEEDS_REPAIR;
@@ -36,11 +74,12 @@ export class ProjectStore implements HostRebindStorePort {
 	/** DSH 外部会话兑底项目稳定 id（无 cwd/未匹配目录的会话归属；见 ensureExternalSessionsProject）。 */
 	private static readonly EXTERNAL_PROJECT_ID = "builtin-external";
 	/**
-	 * 引用能力声明（设计 §4.4 / Q6）：`projects.json` 读到 ssh locator 时 `readV2Project` 直接拒绝
-	 * （projectStoreCodec.ts:81），`Project` 类型也没有 locator 字段 ⇒ 本 store 结构上不可能持有 host
-	 * 引用，注册表据此整源跳过。Phase 3 放开 `PROJECT_STORE_REMOTE_UNSUPPORTED` 时这里必须一起改回 true。
+	 * 引用能力声明（设计 §4.4 / Q6）：Phase 3 第二段起 `projects.json` 可以持有 ssh locator
+	 * （`projectStoreCodec.ts` 读取并校验 ssh 记录），所以这里必须声明为 true，否则注册表会把
+	 * projects 整源跳过 —— 一旦某个远端项目存在而主机被 retire，就会硬删仍被引用的 profile。
+	 * 注册表据此对本源做真实扫描（见 `RemoteHostReferenceSources.ts`）。
 	 */
-	readonly canHoldHostReferences = false;
+	readonly canHoldHostReferences = true;
 	private readonly filePath = join(app.getPath("userData"), "projects.json");
 	private readonly chatPathFile = join(app.getPath("userData"), "chat-path.json");
 	/** 用户从侧栏移除过的目录：启动自动导入不得再按会话 cwd 把它们加回。 */
@@ -113,14 +152,14 @@ export class ProjectStore implements HostRebindStorePort {
 		// 边界保护：聊天目录不允许指向已注册的普通项目目录（issue #149）。否则聊天项目与
 		// 该项目同路径并存，重启后 ensureChatProject 曾把该项目整条吸收，且「添加项目」选
 		// 同一目录只会返回 builtin-chat，项目区永远不再出现新项目。
-		const occupied = this.projects.find((project) => !this.isChatProject(project) && this.sameProjectPath(project.path, normalized));
+		const occupied = this.projects.find((project) => !this.isChatProject(project) && isLocalProject(project) && this.sameProjectPath(project.path, normalized));
 		if (occupied) {
 			throw new Error("CHAT_PATH_OVERLAPS_PROJECT");
 		}
 		this.chatProjectPath = normalized;
 		await writeFile(this.chatPathFile, JSON.stringify({ path: normalized }), "utf8");
 		const chat = this.projects.find((project) => this.isChatProject(project) || project.id === CHAT_PROJECT_ID);
-		if (chat) chat.path = normalized;
+		if (chat && isLocalProject(chat)) chat.path = normalized;
 		await mkdir(normalized, { recursive: true });
 		await this.save();
 		return chat ?? null;
@@ -193,8 +232,8 @@ export class ProjectStore implements HostRebindStorePort {
 		// 内置聊天项目不参与「同路径即已有项目」匹配（issue #149）：用户挑选的目录即使与
 		// 聊天目录相同，也必须创建真正的项目记录——否则 add() 永远返回 builtin-chat，
 		// 项目区不再出现新项目，侧栏只剩聊天区。
-		const existing = this.projects.find((project) => !this.isChatProject(project) && this.sameProjectPath(project.path, normalizedPath));
-		if (existing) {
+		const existing = this.projects.find((project) => !this.isChatProject(project) && isLocalProject(project) && this.sameProjectPath(project.path, normalizedPath));
+		if (existing && isLocalProject(existing)) {
 			existing.path = normalizedPath;
 			existing.lastOpenedAt = Date.now();
 			// 外部已有 worktree 可能曾经作为顶级项目加入；开启工作区后需要补上父子关系。
@@ -208,7 +247,7 @@ export class ProjectStore implements HostRebindStorePort {
 			return existing;
 		}
 
-		const project: Project = {
+		const project: LocalProject = {
 			id: randomUUID(),
 			name: basename(normalizedPath) || normalizedPath,
 			path: normalizedPath,
@@ -227,13 +266,47 @@ export class ProjectStore implements HostRebindStorePort {
 		return project;
 	}
 
+	/**
+	 * 把一个已确认的远端目录登记为项目（Phase 3 第二段）。
+	 *
+	 * 只接受 `{ hostId, canonicalRemotePath }`：canonical 值必须由主进程在已 pin 的连接上解析并
+	 * 经用户确认（见 enrollment service），本方法不做任何远端 I/O，也不接受 renderer 提交的
+	 * 未验证字符串。`remotePath` 已由 codec 在同值域内校验。
+	 *
+	 * 去重键为 `hostId + NUL + remotePath`（同一主机同一目录 → 同一项目）；不同主机上的同一
+	 * 路径是两个不同项目。重复登记只刷新 `lastOpenedAt`，保持 id 稳定（catalog 引用不失效）。
+	 */
+	async addRemote(input: { hostId: string; canonicalRemotePath: string; name?: string }): Promise<Project> {
+		this.assertWritable();
+		if (typeof input?.hostId !== "string" || !input.hostId || typeof input.canonicalRemotePath !== "string" || !input.canonicalRemotePath) {
+			throw new Error("REMOTE_PROJECT_TARGET_INVALID");
+		}
+		const key = remoteProjectKey(input.hostId, input.canonicalRemotePath);
+		const existing = this.projects.find((project) => isRemoteProject(project) && remoteProjectKey(project.locator.hostId, project.locator.remotePath) === key);
+		if (existing) {
+			existing.lastOpenedAt = Date.now();
+			await this.save();
+			return existing;
+		}
+		const project: Project = {
+			id: randomUUID(),
+			name: input.name && input.name.trim() ? input.name.trim() : basename(input.canonicalRemotePath) || input.canonicalRemotePath,
+			locator: { kind: "ssh", hostId: input.hostId, remotePath: input.canonicalRemotePath },
+			lastOpenedAt: Date.now(),
+			sortOrder: this.nextSortOrder(),
+		};
+		this.projects.push(project);
+		await this.save();
+		return project;
+	}
+
 	async remove(id: string) {
 		this.assertWritable();
 		const removed = this.projects.filter((project) => project.id === id || project.worktreeParentId === id);
 		// 删除父项目时同步移除子项目记录，避免留下不可见的孤儿 worktree 项目。
 		this.projects = this.projects.filter((project) => (project.id !== id && project.worktreeParentId !== id) || this.isChatProject(project));
 		for (const project of removed) {
-			if (!this.isChatProject(project) && project.path) {
+			if (!this.isChatProject(project) && isLocalProject(project) && project.path) {
 				this.rememberDismissedPath(project.path);
 			}
 		}
@@ -253,7 +326,7 @@ export class ProjectStore implements HostRebindStorePort {
 		this.assertWritable();
 		const project = this.get(id);
 		if (!project) return null;
-		if (this.isChatProject(project) || project.worktreeParentId) {
+		if (this.isChatProject(project) || (isLocalProject(project) && project.worktreeParentId) || isRemoteProject(project)) {
 			throw new Error("PROJECT_RENAME_NOT_ALLOWED");
 		}
 		project.name = sanitizeProjectDisplayName(name);
@@ -276,7 +349,7 @@ export class ProjectStore implements HostRebindStorePort {
 		const removedIds: string[] = [];
 		const kept: Project[] = [];
 		for (const project of this.projects) {
-			if (!this.isChatProject(project) && project.path && isEphemeralProjectPath(project.path)) {
+			if (!this.isChatProject(project) && isLocalProject(project) && project.path && isEphemeralProjectPath(project.path)) {
 				removedIds.push(project.id);
 				this.rememberDismissedPath(project.path);
 				continue;
@@ -315,7 +388,7 @@ export class ProjectStore implements HostRebindStorePort {
 		// 目录后，路径相同的普通项目会被误判为聊天项目，整条覆盖（id/name/kind 被改写）并
 		// 从列表中删除——用户的项目区从此只剩聊天区，重启后仍被持久化。
 		const existing = this.projects.find((project) => this.isChatProject(project) || project.id === CHAT_PROJECT_ID);
-		const nextChatProject: Project = {
+		const nextChatProject: LocalProject = {
 			id: CHAT_PROJECT_ID,
 			name: CHAT_PROJECT_NAME,
 			path: this.chatProjectPath,
@@ -331,7 +404,7 @@ export class ProjectStore implements HostRebindStorePort {
 		}
 
 		const previousLength = this.projects.length;
-		const changed = existing.id !== nextChatProject.id || existing.name !== nextChatProject.name || existing.path !== nextChatProject.path || existing.kind !== nextChatProject.kind || existing.pinned !== nextChatProject.pinned || existing.sortOrder !== nextChatProject.sortOrder;
+		const changed = !isLocalProject(existing) || existing.id !== nextChatProject.id || existing.name !== nextChatProject.name || existing.path !== nextChatProject.path || existing.kind !== nextChatProject.kind || existing.pinned !== nextChatProject.pinned || existing.sortOrder !== nextChatProject.sortOrder;
 		Object.assign(existing, nextChatProject);
 		// 仅去重多余的聊天项目记录（kind/id 命中），普通项目即使路径与聊天目录相同也保留。
 		this.projects = this.projects.filter((project, index) => index === this.projects.indexOf(existing) || (!this.isChatProject(project) && project.id !== CHAT_PROJECT_ID));
@@ -373,11 +446,11 @@ export class ProjectStore implements HostRebindStorePort {
 		return this.list().filter((p) => p.worktreeParentId === parentId);
 	}
 
-	/** 按路径查找项目；Windows 上忽略大小写和分隔符差异。 */
+	/** 按本机路径查找项目（只看 local 记录）；Windows 上忽略大小写和分隔符差异。 */
 	findByPath(path: string) {
 		this.assertReadable();
 		const normalizedPath = this.normalizeProjectPath(path);
-		return this.projects.find((project) => this.sameProjectPath(project.path, normalizedPath)) ?? null;
+		return this.projects.find((project) => isLocalProject(project) && this.sameProjectPath(project.path, normalizedPath)) ?? null;
 	}
 
 	/**
@@ -396,7 +469,7 @@ export class ProjectStore implements HostRebindStorePort {
 			if (changed) await this.save();
 			return existing;
 		}
-		const project: Project = {
+		const project: LocalProject = {
 			id: ProjectStore.EXTERNAL_PROJECT_ID,
 			name,
 			path: join(app.getPath("userData"), "external-sessions"),
@@ -427,16 +500,16 @@ export class ProjectStore implements HostRebindStorePort {
 	/** 移除指定父项目下的所有 worktree 子项目记录（不删除物理目录） */
 	clearWorktreeChildren(parentId: string) {
 		this.assertWritable();
-		this.projects = this.projects.filter((project) => project.worktreeParentId !== parentId || this.isChatProject(project));
+		this.projects = this.projects.filter((project) => (isLocalProject(project) ? project.worktreeParentId !== parentId : true) || this.isChatProject(project));
 	}
 
 	/**
 	 * Host-rebind read port（设计 §4.4）：逐条返回记录的当前 locator（规范 JSON）；记录不存在时按契约
 	 * 返回缺省 locator（收敛侧据此判 `REMOTE_HOST_REBIND_RECORD_MISSING`，INV-6：不复活）。
 	 *
-	 * 本 store 只能持有 local locator，所以这里**如实**返回记录的 local locator（与落盘形态同源：
-	 * `encodeProjectStoreSnapshot` 用同一个 `projectLocatorFromLegacy` 派生），不编造 ssh 支持。
-	 * 计划里只要出现 ssh 的 before/after，逐记录比对必然不相等 ⇒ 收敛侧 STALE_PLAN 停事务，不迁移。
+	 * Phase 3 第二段起本 store **能**持有 ssh locator，所以这里如实返回记录真实持有的 locator：
+	 * 远端项目回 ssh locator，本地项目回由 `path/environment` 派生的 local locator（与落盘形态
+	 * 同源，`encodeProjectStoreSnapshot` 用同一个派生规则）。
 	 */
 	async readHostRecordLocators(recordIds: readonly string[]): Promise<readonly HostRebindRecordSnapshot[]> {
 		this.assertHostRebindUsable();
@@ -445,20 +518,55 @@ export class ProjectStore implements HostRebindStorePort {
 		return recordIds.map((recordId) => {
 			const project = this.projects.find((candidate) => candidate.id === recordId);
 			if (!project) return { recordId };
-			return { recordId, locator: canonicalHostLocatorJson(projectLocatorFromLegacy({ path: project.path, environment: project.environment, wslDistro: project.wslDistro })) };
+			const locator = isRemoteProject(project) ? project.locator : projectLocatorFromLegacy({ path: project.path, environment: project.environment, wslDistro: project.wslDistro });
+			return { recordId, locator: canonicalHostLocatorJson(locator) };
 		});
 	}
 
 	/**
-	 * Host-rebind write port（设计 §4.4 / Q6）：本 store 装不下 ssh locator，因此没有任何补丁能在这里
-	 * 成立 —— 一律拒绝，且**不经过 `save()`**、不碰磁盘。这是诚实的 fail closed，不是"还没实现"：
-	 * 放开它必须同时放开 `projectStoreCodec.ts:81` 并补 SSH 项目的 containment 校验（计划 §12 Phase 3 门禁）。
+	 * Host-rebind write port（设计 §4.4）：把 ssh 记录的 `hostId` 换成另一个（`remotePath` 原样保留）。
+	 *
+	 * 与 `SessionCatalog` 同构：逐记录 CAS —— 记录不存在、当前 locator 已是 after、或既不是 before
+	 * 也不是 after（别人改过）都判 `changed`，整批全有或全无（INV-9）。只允许“只换 hostId 的
+	 * ssh→ssh”补丁，local 记录或 remotePath 变化一律拒绝：这不是通用 locator 改写入口。
 	 */
 	async applyHostRebind(_txId: string, patches: readonly HostRebindRecordPatch[]): Promise<readonly HostRebindRecordResult[]> {
 		this.assertHostRebindUsable();
 		if (!Array.isArray(patches)) throw new Error(REBIND_UNKNOWN_OUTCOME);
 		if (patches.length === 0) return [];
-		throw new Error(PROJECT_STORE_REMOTE_UNSUPPORTED);
+		const outcomes: HostRebindRecordResult["outcome"][] = [];
+		const pending: { project: Project; hostId: string }[] = [];
+		for (const [index, patch] of patches.entries()) {
+			const project = this.projects.find((candidate) => candidate.id === patch.recordId);
+			if (!project || !isRemoteProject(project)) {
+				outcomes.push("changed");
+				continue;
+			}
+			const current = canonicalHostLocatorJson(project.locator);
+			if (current === patch.afterLocator) {
+				outcomes.push("already-applied");
+				continue;
+			}
+			if (current !== patch.beforeLocator) {
+				outcomes.push("changed");
+				continue;
+			}
+			const target = rebindTargetLocator(patch.beforeLocator, patch.afterLocator);
+			if (!target) {
+				outcomes.push("changed");
+				continue;
+			}
+			outcomes.push("applied");
+			pending.push({ project, hostId: target.hostId });
+		}
+		if (outcomes.some((outcome) => outcome !== "applied" && outcome !== "already-applied")) {
+			return patches.map((patch, index) => ({ recordId: patch.recordId, outcome: outcomes[index] === "applied" ? "changed" : outcomes[index] }));
+		}
+		for (const item of pending) {
+			if (isRemoteProject(item.project)) item.project.locator = { ...item.project.locator, hostId: item.hostId };
+		}
+		await this.save();
+		return patches.map((patch, index) => ({ recordId: patch.recordId, outcome: outcomes[index] === "applied" ? "applied" : "already-applied" }));
 	}
 
 	/** 端口边界只允许稳定码：needs-repair 时读写都必须 fail closed，不能答成"没有记录"或"没有补丁"。 */

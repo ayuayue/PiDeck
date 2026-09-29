@@ -373,7 +373,8 @@ test("ProjectTree shows the project directory name like the dev reference", () =
 	assert.match(projectTree, /import \{ displayProjectDirectoryName, isChatProject \} from "\.\.\/\.\.\/rendererUtils"/);
 	assert.match(projectTree, /const projectDirectoryName = displayProjectDirectoryName\(project\)/);
 	assert.match(rendererUtils, /export function displayProjectDirectoryName\(project: Project\)/);
-	assert.match(rendererUtils, /project\.path\.replace\(/);
+	// 显示名解析按 location 取路径：本机用 project.path，远端用 locator.remotePath（远端没有本机 path）。
+	assert.match(rendererUtils, /isLocalProject\(project\) \? project\.path : project\.locator\.remotePath/);
 	// 悬浮路径气泡已移除（仅能展示不能复制，且 bug 多）；项目行直接渲染目录名。
 	assert.doesNotMatch(projectTree, /<PathTooltip/);
 	assert.doesNotMatch(projectTree, /PathTooltip/);

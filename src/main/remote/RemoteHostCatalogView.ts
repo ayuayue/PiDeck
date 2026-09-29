@@ -22,7 +22,7 @@ export async function openRemoteHostCatalogView(userDataDir: string): Promise<Re
 				},
 				readPin,
 			},
-			referenceRegistry: createRemoteHostReferenceRegistry(join(userDataDir, "session-catalog.json")),
+			referenceRegistry: createRemoteHostReferenceRegistry(join(userDataDir, "session-catalog.json"), join(userDataDir, "projects.json")),
 		});
 		const snapshot = store.getSnapshot();
 		if (snapshot.status === "ready") return { snapshot, findings: [] };

@@ -24,6 +24,7 @@ import { DEFAULT_DEV_USER_DATA_NAME, isSharedDevBranch, readDevGitBranch, resolv
 import { resolvePackagedUserDataDir } from "./portableUserData";
 import { extractFocusTargetFromArgv } from "./utils/focusTarget";
 import type { Project, StartupWindowMode } from "../shared/types";
+import { isLocalProject } from "../shared/projectLocation";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
@@ -1968,7 +1969,7 @@ function registerFeishuIpc() {
 				botConfig,
 				agentManager,
 				() => mainWindow,
-				() => projectStore.list(),
+				() => projectStore.list().filter(isLocalProject),
 				feishuSessionRuntimeBindings,
 				appSecret,
 				currentFeishuLocale(),
@@ -2013,7 +2014,7 @@ function registerFeishuIpc() {
 				},
 				agentManager,
 				() => mainWindow,
-				() => projectStore.list(),
+				() => projectStore.list().filter(isLocalProject),
 				feishuSessionRuntimeBindings,
 				plainAppSecret,
 				currentFeishuLocale(),
@@ -2140,7 +2141,7 @@ function registerFeishuIpc() {
 			},
 			agentManager,
 			() => mainWindow,
-			() => projectStore.list(),
+			() => projectStore.list().filter(isLocalProject),
 			feishuSessionRuntimeBindings,
 			undefined,
 			currentFeishuLocale(),
@@ -2194,7 +2195,7 @@ function registerFeishuIpc() {
 				botConfig,
 				agentManager,
 				() => mainWindow,
-				() => projectStore.list(),
+				() => projectStore.list().filter(isLocalProject),
 				feishuSessionRuntimeBindings,
 				undefined,
 				currentFeishuLocale(),
@@ -2829,6 +2830,8 @@ function registerIpc() {
 		projects.forEach((project, index) => {
 			const timer = setTimeout(() => {
 				scheduleCatalogBackgroundScan(project.id, async () => {
+					// 本机 scanner 不能扫远端项目（远端会话扫描属 Phase 4）。
+					if (!isLocalProject(project)) return;
 					try {
 						const settings = settingsStore.get();
 						let projectPath = project.path;
@@ -3068,17 +3071,20 @@ function registerIpc() {
 		readSkillContent: (skillPath) =>
 			readSkillContent(skillPath, {
 				globalSkillPaths: skillManager.getLocations().map((location) => location.path),
-				projectRootPaths: projectStore.list().map((project) => {
-					const settings = settingsStore.get();
-					if (process.platform === "win32" && project.environment === "wsl" && settings.wslEnabled && settings.wslDistro) {
-						try {
-							return toWindowsHostPath(project.path, { distro: settings.wslDistro });
-						} catch {
-							return project.path;
+				projectRootPaths: projectStore
+					.list()
+					.filter(isLocalProject)
+					.map((project) => {
+						const settings = settingsStore.get();
+						if (process.platform === "win32" && project.environment === "wsl" && settings.wslEnabled && settings.wslDistro) {
+							try {
+								return toWindowsHostPath(project.path, { distro: settings.wslDistro });
+							} catch {
+								return project.path;
+							}
 						}
-					}
-					return project.path;
-				}),
+						return project.path;
+					}),
 			}),
 		configurePromptManagerWsl: (env) => promptManager.configureWsl(env),
 		configureExtensionManagerWsl: (env) => extensionManager.configureWsl(env),
@@ -3434,6 +3440,8 @@ app
 			(projectId) => projectStore.get(projectId),
 			mainCopy,
 			(project) => {
+				// ProjectResourceManager 只在本地项目上工作（远端资源发现属 Phase 4）。
+				if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 				const settings = settingsStore.get();
 				if (process.platform === "win32" && project.environment === "wsl" && settings.wslEnabled && settings.wslDistro) {
 					try {
@@ -3446,6 +3454,7 @@ app
 			},
 			{
 				getProjectTrustDecision: async (project) => {
+					if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 					const settings = settingsStore.get();
 					const cwd = process.platform === "win32" && project.environment === "wsl" && settings.wslEnabled && settings.wslDistro ? toWslLinuxPath(project.path, { distro: settings.wslDistro }) : project.path;
 					return configManager.getProjectTrustDecision(cwd);
@@ -3460,7 +3469,11 @@ app
 			configManager,
 			skillManager,
 			projectResourceManager,
-			(id) => projectStore.get(id),
+			(id) => {
+				const project = projectStore.get(id);
+				// 资源导入只在本机项目上发生（远端项目资源发现属 Phase 4）。
+				return project && isLocalProject(project) ? project : undefined;
+			},
 			async (_id, root) => (await configManager.getProjectTrustDecision(root)) === true,
 			(report) => {
 				void appLogger.info("resource-import", "Resource import completed", {
@@ -3715,7 +3728,7 @@ app
 			subscribePiEvents: (handler) => agentManager.addLocalEventListener((agentId, event) => handler(agentId, event as never)),
 			// agentId → sessionId 路由：pi 事件只有 agentId，SSE 连接按 session 订阅。
 			getSessionIdForAgent: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
-			listProjects: () => projectStore.list(),
+			listProjects: () => projectStore.list().filter(isLocalProject),
 			createProject: (path) => projectStore.add(path, undefined, settingsStore.get().wslEnabled ? "wsl" : "windows"),
 			deleteProject: async (projectId) => {
 				if (!projectStore.get(projectId) || projectStore.get(projectId)?.kind === "chat") return false;
@@ -3744,6 +3757,8 @@ app
 				}
 				const project = projectStore.get(projectId);
 				if (!project) throw new Error(mainCopy("project.notFound"));
+				// 本地 sessionScanner 不能扫远端项目（远端会话扫描属 Phase 4）。
+				if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 				let projectPath = project.path;
 				const settings = settingsStore.get();
 				if (settings.wslEnabled && settings.wslDistro) {
@@ -3984,7 +3999,7 @@ app
 			// 会导致同一会话在侧栏出现两条记录。加载与写入边界都经此归一化。
 			(projectId, filePath, environment) => {
 				const project = projectStore.get(projectId);
-				if (!project) return filePath;
+				if (!project || !isLocalProject(project)) return filePath;
 				return toAbsoluteSessionPath(filePath, project.path, environment);
 			},
 			// 占位标题回填 + 会话头有效性校验：未打开过的 pi 会话也能在侧栏显示首条消息标题

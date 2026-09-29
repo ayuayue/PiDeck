@@ -5,6 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+/** 跨 VM realm 的对象比较前先归一化：deepStrictEqual 会比较原型。 */
+function plain(value) {
+	return JSON.parse(JSON.stringify(value));
+}
+
 function createStore(userData) {
 	const { ProjectStore } = loadTsCommonJs("src/main/projects/ProjectStore.ts", {
 		stubs: { electron: { app: { getPath: () => userData }, dialog: {} } },
@@ -81,5 +86,78 @@ test("concurrent ProjectStore additions are written with increasing revisions", 
 		assert.equal(saved.schemaVersion, 2);
 		assert.ok(saved.revision >= 3);
 		assert.deepEqual(saved.projects.map((item) => item.locator.localPath).sort(), [one, two, join(userData, "chat-workspace")].sort());
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 第二段：远端（ssh）项目的持久化、去重与重启恢复
+// ---------------------------------------------------------------------------
+
+const HOST_A = "11111111-1111-4111-8111-111111111111";
+const HOST_B = "22222222-2222-4222-8222-222222222222";
+
+test("addRemote stores an ssh project without a local path and survives a restart", async () => {
+	await withUserData(async (userData, filePath) => {
+		const store = createStore(userData);
+		await store.load();
+		const project = await store.addRemote({ hostId: HOST_A, canonicalRemotePath: "/srv/app" });
+		assert.equal(project.path, undefined, "远端项目没有本机 path");
+		assert.deepEqual(plain(project.locator), { kind: "ssh", hostId: HOST_A, remotePath: "/srv/app" });
+		assert.equal(project.name, "app");
+
+		const saved = JSON.parse(await readFile(filePath, "utf8"));
+		assert.equal(saved.projects.find((item) => item.id === project.id).path, undefined, "落盘不含 path");
+		assert.deepEqual(saved.projects.find((item) => item.id === project.id).locator, { kind: "ssh", hostId: HOST_A, remotePath: "/srv/app" });
+
+		// 重启：重新 load，远端记录原样回来，id 稳定
+		const reopened = createStore(userData);
+		await reopened.load();
+		const restored = reopened.get(project.id);
+		assert.ok(restored, "重启后远端项目仍在列表");
+		assert.deepEqual(plain(restored.locator), { kind: "ssh", hostId: HOST_A, remotePath: "/srv/app" });
+		assert.equal(restored.path, undefined);
+	});
+});
+
+test("addRemote dedupes on hostId + remotePath and keeps the id stable", async () => {
+	await withUserData(async (userData) => {
+		const store = createStore(userData);
+		await store.load();
+		const first = await store.addRemote({ hostId: HOST_A, canonicalRemotePath: "/srv/app" });
+		const again = await store.addRemote({ hostId: HOST_A, canonicalRemotePath: "/srv/app" });
+		assert.equal(again.id, first.id, "同主机同路径 → 同一项目");
+
+		// 同路径不同主机是两个不同项目（不能只用 path 去重）
+		const otherHost = await store.addRemote({ hostId: HOST_B, canonicalRemotePath: "/srv/app" });
+		assert.notEqual(otherHost.id, first.id);
+
+		// 同主机不同路径也是两个不同项目
+		const otherPath = await store.addRemote({ hostId: HOST_A, canonicalRemotePath: "/srv/other" });
+		assert.notEqual(otherPath.id, first.id);
+
+		assert.equal(store.list().filter((project) => project.locator?.kind === "ssh").length, 3);
+	});
+});
+
+test("addRemote rejects a malformed target before writing anything", async () => {
+	await withUserData(async (userData) => {
+		const store = createStore(userData);
+		await store.load();
+		await assert.rejects(store.addRemote({ hostId: "", canonicalRemotePath: "/srv/app" }), /REMOTE_PROJECT_TARGET_INVALID/);
+		await assert.rejects(store.addRemote({ hostId: HOST_A, canonicalRemotePath: "" }), /REMOTE_PROJECT_TARGET_INVALID/);
+		await assert.rejects(store.addRemote(undefined), /REMOTE_PROJECT_TARGET_INVALID/);
+		assert.equal(store.list().filter((project) => project.locator?.kind === "ssh").length, 0);
+	});
+});
+
+test("a project store whose primary holds an ssh locator but is otherwise corrupt fails closed", async () => {
+	await withUserData(async (userData, filePath) => {
+		await writeFile(filePath, JSON.stringify({ schemaVersion: 2, revision: 4, projects: [{ id: "p-1", name: "app", lastOpenedAt: 1, locator: { kind: "ssh", hostId: HOST_A, remotePath: "relative" } }] }), "utf8");
+		const store = createStore(userData);
+		await assert.rejects(store.load(), (error) => error.code === "PROJECT_STORE_NEEDS_REPAIR");
+		assert.throws(
+			() => store.list(),
+			(error) => error.code === "PROJECT_STORE_NEEDS_REPAIR",
+		);
 	});
 });

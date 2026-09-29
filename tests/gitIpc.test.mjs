@@ -52,7 +52,7 @@ test("Git IPC keeps project lookup, bounded diffs, and stale-worktree cleanup", 
 	assert.match(gitIpc, /const stillInGit = \(await worktreeService\.list\(repository\.projectRoot\)\)\.some/);
 	assert.match(gitIpc, /if \(ok \|\| !stillInGit\)/);
 	assert.match(gitIpc, /projectStore\.remove\(child\.id\)/);
-	assert.match(gitIpc, /const projectHostPath = \(project: \{ path: string \}\) => hostPath\(project\.path\)/);
+	assert.match(gitIpc, /const projectHostPath = \(project: LocalProject\) => hostPath\(project\.path\)/);
 	assert.match(gitIpc, /const localFilePaths = \(backend: GitBackend, targets: ProjectFileTarget\[\]\) => Promise\.all\(targets\.map\(\(target\) => backend\.resolveFilePath\(target\)\)\)/);
 	assert.match(gitIpc, /worktreeTarget\.relativePath !== ""/);
 	assert.match(gitIpc, /child\.worktreeParentId !== projectId/);

@@ -26,6 +26,7 @@ import { AutomationDockButton } from "../automation/AutomationDockButton";
 import { MorphingSearch, type MorphingSearchItem } from "../motion/morphing-search";
 import { parseSidebarNavTab } from "../../utils/sidebarNavTab";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
+import { isLocalProject } from "../../../../shared/projectLocation";
 import { formatAccelerator } from "../../../../shared/shortcuts";
 import { desktopApi } from "../../desktopApi";
 import { useShortcutBindings } from "../../hooks/useShortcutBindings";
@@ -232,7 +233,7 @@ export function SidebarContent(props: SidebarContentProps) {
 		searchItems.push({
 			id: `project:${project.id}`,
 			title: displayProjectDirectoryName(project),
-			description: project.path,
+			description: isLocalProject(project) ? project.path : project.locator.remotePath,
 			icon: isChatProject(project) ? MessageSquare : Folder,
 			onSelect: () => {
 				actions.projects.select(project.id);
@@ -522,7 +523,7 @@ export function SidebarContent(props: SidebarContentProps) {
 						controller.closeMenu();
 					}}
 					onRemoveWorktree={
-						menuProjectWorktreeParent
+						menuProjectWorktreeParent && isLocalProject(menuProject)
 							? () => {
 									void actions.worktrees.remove(
 										menuProjectWorktreeParent.id,

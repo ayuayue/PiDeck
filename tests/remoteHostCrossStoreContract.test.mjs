@@ -18,7 +18,7 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	["src/shared/types/project.ts:ProjectLocation", "projects"],
 	["src/shared/types/project.ts:ProjectLocator", "projects"],
 	["src/shared/types/session.ts:SessionLocator", "sessions"],
-	["src/main/projects/projectStoreCodec.ts:readProjectLocator", "projects"],
+	["src/main/projects/projectStoreCodec.ts:readSshLocator", "projects"],
 	["src/main/sessions/SessionCatalog.ts:hostRebindTargetLocator", "sessions"],
 	["src/shared/types/remoteHost.ts:RemoteHostConnectResult", "runtime"],
 	["src/shared/types/remoteHost.ts:RemoteHostDisconnectResult", "runtime"],
@@ -33,7 +33,6 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	// 修复确认请求只是告知界面「要修哪台主机」，不持久化引用。
 	["src/shared/types/remoteHost.ts:RemoteHostRepairRequest", "runtime"],
 	// 浏览根确认请求：告知界面「要浏览哪台主机的哪个目录」，不持久化引用。
-	// Phase 3 的远端路径有意不进 ProjectStore，因此 projects 仍正确地声明 canHoldHostReferences: false。
 	["src/shared/types/remoteHost.ts:RemoteWorkspaceRootRequest", "runtime"],
 ]);
 

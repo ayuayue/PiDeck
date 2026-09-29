@@ -2,7 +2,8 @@ import { dialog, ipcMain, type BrowserWindow } from "electron";
 import { relative, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ipcChannels } from "../../shared/ipc";
-import type { CommitDetail, GitChangedFile, GitCommitFileDiff, GitDiscardResource, GitGenerateCommitMessageResult, GitRepoInfo, GitResource, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, ProjectFileTarget, WorktreeEntry } from "../../shared/types";
+import type { CommitDetail, GitChangedFile, GitCommitFileDiff, GitDiscardResource, GitGenerateCommitMessageResult, GitRepoInfo, GitResource, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, LocalProject, ProjectFileTarget, WorktreeEntry } from "../../shared/types";
+import { isLocalProject } from "../../shared/projectLocation";
 import { parseProjectFileTarget } from "../files/projectFileTarget";
 import { GitBackendRouter, LocalGitBackend, resolveRelativeGitPath, type GitBackend, type GitRepositoryContext } from "../git/GitBackend";
 import type { LocalGitChangedFile, LocalGitCommitDetail, LocalGitCommitFileDiff, LocalGitResource, LocalGitResourceGroups, LocalGitWorkspaceFileDiff, LocalWorktreeEntry } from "../git/localGitTypes";
@@ -253,9 +254,16 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		return toWindowsHostPath(path, { distro: settings.wslDistro });
 	};
 
-	const projectHostPath = (project: { path: string }) => hostPath(project.path);
+	const projectHostPath = (project: LocalProject) => hostPath(project.path);
 	const gitBackendRouter = new GitBackendRouter(new LocalGitBackend(projectStore, projectHostPath), projectStore);
-	const projectStoredPath = (path: string, project: { environment?: string }) => {
+	/** worktree 相关 handler 的入口：解析 store 中的本地项目，远端拒绝。 */
+	const requireLocalProject = (projectId: string): LocalProject => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+		return project;
+	};
+	const projectStoredPath = (path: string, project: LocalProject) => {
 		const settings = settingsStore.get();
 		if (process.platform !== "win32" || project.environment !== "wsl" || !settings.wslEnabled || !settings.wslDistro) {
 			return path;
@@ -267,6 +275,8 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 		if (typeof path !== "string" || !path.trim() || path.length > 32_768 || path.includes("\\0")) throw new Error("INVALID_GIT_FILE_TARGET");
 		const project = projectStore.get(projectId);
 		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		// 本地 Git 目标解析不接受远端项目：它没有本机 root。
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const root = resolve(projectHostPath(project));
 		const localPath = resolveGitCwd(root, hostPath(path));
 		return parseProjectFileTarget({ projectId, relativePath: relative(root, localPath).replace(/\\/g, "/") });
@@ -434,8 +444,7 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 	});
 
 	ipcMain.handle(ipcChannels.gitWorktreeList, async (_event, projectId: string): Promise<WorktreeEntry[]> => {
-		const project = projectStore.get(projectId);
-		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		const project = requireLocalProject(projectId);
 		const rootTarget = { projectId, relativePath: "" };
 		const repository = await requireGitRepository(projectId, rootTarget);
 		const entries = await worktreeService.list(repository.projectRoot);
@@ -454,8 +463,7 @@ export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher
 	});
 
 	ipcMain.handle(ipcChannels.gitWorktreeCreate, async (_event, projectId: string, branchName: string): Promise<WorktreeEntry> => {
-		const project = projectStore.get(projectId);
-		if (!project) throw new Error("PROJECT_NOT_FOUND");
+		const project = requireLocalProject(projectId);
 		const repository = await requireGitRepository(projectId, { projectId, relativePath: "" });
 		const info = await worktreeService.create(repository.projectRoot, projectId, branchName);
 		const storedPath = projectStoredPath(info.path, project);

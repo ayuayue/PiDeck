@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import type { ConfigManager } from "../config/ConfigManager";
 import { homeFromPiAgentDir, isMcpServerName } from "../config/mcpConfig";
 import { createProjectFileReadBoundary, FILE_OUTSIDE_PROJECT_ERROR, resolveProjectFileReadPath, resolveProjectFileWritePath, type ProjectFileReadBoundary } from "../files/projectFileAccess";
+import type { LocalProject } from "../../shared/types";
 import type { ProjectResourceManager } from "../projects/ProjectResourceManager";
 import type { ResourceImportCandidate, ResourceImportKind, ResourceImportScanInput, ResourceImportSourceKind, ResourceImportSourceStatus, StoredResourceImportCandidate } from "../../shared/types/resourceImport";
 import { fingerprint, hasErrorCode, isRecord, MAX_FILE_BYTES, MAX_SKILL_CANDIDATES, redactSensitiveText, sourceLabel } from "./common";
@@ -12,12 +13,7 @@ import { convertMcpDefinition, extractMcpServersWithStatus, mcpTransportOf, pars
 import { buildSkillCandidate, findSkillDirs, publicSkillCandidate, skillTreeFingerprint, sourceDirectoryIsSafe } from "./skillImport";
 
 /** Minimal registered-project shape needed while reading an external project source. */
-export type ResourceImportProject = {
-	id: string;
-	path: string;
-	kind?: "chat";
-	environment?: "windows" | "wsl";
-};
+export type ResourceImportProject = LocalProject;
 
 type SourcePath = {
 	source: ResourceImportSourceKind;

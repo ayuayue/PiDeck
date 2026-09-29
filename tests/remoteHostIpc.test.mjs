@@ -35,7 +35,7 @@ test("remote host channel is declared, bridged, and registered behind the dev ga
 	assert.match(main, /remoteExperimentEnabled\s*=\s*!app\.isPackaged\s*&&\s*process\.env\.PIDECK_REMOTE_EXPERIMENTAL\s*===\s*"1"/);
 	assert.match(main, /registerRemoteHostIpc\(\{[\s\S]{0,400}?enabled:\s*remoteExperimentEnabled/);
 	assert.match(main, /openRemoteHostCatalogView\(app\.getPath\("userData"\)\)/);
-	assert.match(catalog, /createRemoteHostReferenceRegistry\(join\(userDataDir,\s*"session-catalog\.json"\)\)/);
+	assert.match(catalog, /createRemoteHostReferenceRegistry\(join\(userDataDir,\s*"session-catalog\.json"\),\s*join\(userDataDir,\s*"projects\.json"\)\)/);
 });
 
 test("connect, disconnect and diagnostics are declared, bridged and registered", () => {
