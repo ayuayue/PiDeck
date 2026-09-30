@@ -5,7 +5,7 @@ import { Button } from "../../ui-shadcn/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
 import { Input } from "../../ui-shadcn/input";
 import { Label } from "../../ui-shadcn/label";
-import type { RemoteWorkspaceEntry, RemoteWorkspaceRootRequest } from "../../../../../shared/types/remoteHost";
+import type { RemoteProjectEnrollRequest, RemoteWorkspaceEntry, RemoteWorkspaceRootRequest } from "../../../../../shared/types/remoteHost";
 
 /**
  * 远端工作区（Phase 3 只读）。
@@ -20,6 +20,7 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string; con
 	const [pathInput, setPathInput] = useState("");
 	const [root, setRoot] = useState<string | null>(null);
 	const [confirmRequest, setConfirmRequest] = useState<RemoteWorkspaceRootRequest | null>(null);
+	const [enrollRequest, setEnrollRequest] = useState<RemoteProjectEnrollRequest | null>(null);
 	const [entries, setEntries] = useState<RemoteWorkspaceEntry[]>([]);
 	const [relative, setRelative] = useState("");
 	const [file, setFile] = useState<{ path: string; text: string; bytes: number } | null>(null);
@@ -47,6 +48,12 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string; con
 	/** 确认推送必须订阅且退订：窗口没了还继续收，会让「确认」脱离用户看得见的上下文。 */
 	useEffect(() => {
 		const unsubscribe = desktopApi.remoteHosts.onWorkspaceRootConfirm((request) => setConfirmRequest(request));
+		return unsubscribe;
+	}, []);
+
+	/** 项目登记确认同样订阅且退订。 */
+	useEffect(() => {
+		const unsubscribe = desktopApi.remoteHosts.onProjectEnrollConfirm((request) => setEnrollRequest(request));
 		return unsubscribe;
 	}, []);
 
@@ -130,6 +137,30 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string; con
 	const crumbs = relative === "" ? [] : relative.split("/");
 	const crumbTarget = (index: number): string => crumbs.slice(0, index + 1).join("/");
 
+	/** 发起项目登记：只提交用户输入的路径，canonical 值与确认由主进程持有。 */
+	const enrollProject = useCallback(async () => {
+		setBusy(true);
+		try {
+			const result = await desktopApi.remoteHosts.enrollProject(props.hostId, root ?? "");
+			// 登记用**已确认的 canonical** 值，不是输入框里的文本：两者可能不同（link）。
+			if (!result.ok) setMessage(t("settings.connections.workspace.enrollFailed", { code: result.code }));
+		} finally {
+			setBusy(false);
+		}
+	}, [props.hostId, root]);
+
+	const answerEnroll = useCallback(async (requestId: string, choice: "approve" | "deny") => {
+		setBusy(true);
+		try {
+			const result = await desktopApi.remoteHosts.answerProjectEnroll(requestId, choice);
+			if (!result.ok) setMessage(t("settings.connections.workspace.enrollFailed", { code: result.code }));
+			else if (result.enrolled) setMessage(t("settings.connections.workspace.enrolled"));
+		} finally {
+			setBusy(false);
+			setEnrollRequest(null);
+		}
+	}, []);
+
 	return (
 		<section className="mt-3 flex flex-col gap-2 rounded-lg border border-border-subtle px-3 py-2">
 			<strong className="text-body font-semibold text-foreground">{t("settings.connections.workspace.title")}</strong>
@@ -164,6 +195,9 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string; con
 					<div className="flex items-center gap-2 text-label text-muted-foreground">
 						<span>{t("settings.connections.workspace.confirmed")}</span>
 						<span className="select-all break-all font-mono">{root}</span>
+						<Button variant="ghost" size="sm" disabled={busy} onClick={() => void enrollProject()}>
+							{t("settings.connections.workspace.enroll")}
+						</Button>
 						<Button
 							variant="ghost"
 							size="sm"
@@ -176,6 +210,7 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string; con
 							{t("settings.connections.workspace.change")}
 						</Button>
 					</div>
+					<p className="text-label text-muted-foreground">{t("settings.connections.workspace.enrollHint")}</p>
 					<nav className="flex flex-wrap items-center gap-1 text-label">
 						<button type="button" className="underline" disabled={busy} onClick={() => void loadDirectory("")}>
 							/
@@ -253,6 +288,44 @@ export function RemoteWorkspacePanel(props: { hostId: string; label: string; con
 							</Button>
 							<Button disabled={busy} onClick={() => void answerRoot(confirmRequest.requestId, "approve")}>
 								{t("settings.connections.workspace.confirmUse")}
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+			) : null}
+			{enrollRequest !== null ? (
+				<Dialog
+					open
+					onOpenChange={(open) => {
+						if (!open) void answerEnroll(enrollRequest.requestId, "deny");
+					}}
+				>
+					<DialogContent className="max-w-lg">
+						<DialogHeader>
+							<DialogTitle>{t("settings.connections.workspace.enrollConfirmTitle")}</DialogTitle>
+							<DialogDescription>{t("settings.connections.workspace.enrollConfirmHint")}</DialogDescription>
+						</DialogHeader>
+						<div className="flex flex-col gap-2 text-body">
+							<div className="flex items-center justify-between gap-3">
+								<span className="text-muted-foreground">{t("settings.connections.workspace.host")}</span>
+								<span className="font-medium">{props.label}</span>
+							</div>
+							<div className="flex flex-col gap-0.5">
+								<span className="text-muted-foreground">{t("settings.connections.workspace.requested")}</span>
+								<span className="select-all break-all font-mono text-label">{enrollRequest.requestedPath}</span>
+							</div>
+							<div className="flex flex-col gap-0.5">
+								<span className="text-muted-foreground">{t("settings.connections.workspace.canonical")}</span>
+								<span className="select-all break-all font-mono text-label">{enrollRequest.canonicalPath}</span>
+							</div>
+							{enrollRequest.canonicalPath !== enrollRequest.requestedPath ? <p className="text-label text-muted-foreground">{t("settings.connections.workspace.redirected")}</p> : null}
+						</div>
+						<DialogFooter>
+							<Button variant="ghost" disabled={busy} onClick={() => void answerEnroll(enrollRequest.requestId, "deny")}>
+								{t("common.cancel")}
+							</Button>
+							<Button disabled={busy} onClick={() => void answerEnroll(enrollRequest.requestId, "approve")}>
+								{t("settings.connections.workspace.enrollConfirmUse")}
 							</Button>
 						</DialogFooter>
 					</DialogContent>

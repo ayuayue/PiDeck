@@ -270,6 +270,16 @@ const api = {
 		listWorkspace: (hostId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteWorkspaceList, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteWorkspaceListResult>,
 		/** 读文件（相对路径）；内容为 base64。 */
 		readWorkspaceFile: (hostId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteWorkspaceRead, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteWorkspaceReadResult>,
+		/** 登记远端目录为持久项目：canonical 化并推送确认（推送经 onProjectEnrollConfirm 到达）。 */
+		enrollProject: (hostId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectEnroll, hostId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectEnrollResult>,
+		/** 回答登记确认：只能回答 main 签发的 requestId；批准后才写 ProjectStore。 */
+		answerProjectEnroll: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteProjectAnswer, requestId, choice) as Promise<import("../shared/types/remoteHost").RemoteProjectEnrollAnswerResult>,
+		/** 订阅项目登记确认请求；返回 unsubscribe。 */
+		onProjectEnrollConfirm: (callback: (request: import("../shared/types/remoteHost").RemoteProjectEnrollRequest) => void) => subscribe(ipcChannels.remoteProjectEnrollConfirm, callback),
+		/** 按 projectId 列目录（相对路径；根为空串）。 */
+		listProject: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectList, projectId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectListResult>,
+		/** 按 projectId 读文件（相对路径）；内容为 base64。 */
+		readProjectFile: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectRead, projectId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectReadResult>,
 	},
 	projects: {
 		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,

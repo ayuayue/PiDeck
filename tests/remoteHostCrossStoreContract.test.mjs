@@ -34,6 +34,10 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	["src/shared/types/remoteHost.ts:RemoteHostRepairRequest", "runtime"],
 	// 浏览根确认请求：告知界面「要浏览哪台主机的哪个目录」，不持久化引用。
 	["src/shared/types/remoteHost.ts:RemoteWorkspaceRootRequest", "runtime"],
+	// 项目登记确认请求/结果：告知界面「把哪台主机的哪个目录登记为项目」，hostId 只是回显，
+	// 真正持久化的引用写在 ProjectStore 的 ssh locator（由 projects 源扫描）。
+	["src/shared/types/remoteHost.ts:RemoteProjectEnrollRequest", "runtime"],
+	["src/shared/types/remoteHost.ts:RemoteProjectEnrollResult", "runtime"],
 ]);
 
 const TYPE_FILES = readdirSync("src/shared/types")

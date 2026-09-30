@@ -36,6 +36,16 @@ export const ipcChannels = {
 	remoteWorkspaceList: "remote:workspace-list",
 	/** 读文件（相对路径）。 */
 	remoteWorkspaceRead: "remote:workspace-read",
+	/** 登记远端目录为持久项目：canonical 化并推送确认（不写任何东西）。 */
+	remoteProjectEnroll: "remote:project-enroll",
+	/** 回答登记确认；批准后才写 ProjectStore。 */
+	remoteProjectAnswer: "remote:project-answer",
+	/** 主进程 → 渲染层：项目登记确认请求推送。 */
+	remoteProjectEnrollConfirm: "remote:project-enroll-confirm",
+	/** 按 projectId 列目录（相对路径；根为空串）。 */
+	remoteProjectList: "remote:project-list",
+	/** 按 projectId 读文件（相对路径）。 */
+	remoteProjectRead: "remote:project-read",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）

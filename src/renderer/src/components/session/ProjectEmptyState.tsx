@@ -1,10 +1,12 @@
 import { FolderGit2, Plus } from "lucide-react";
 import type { Project } from "../../../../shared/types";
+import { isRemoteProject } from "../../../../shared/projectLocation";
 import { t } from "../../i18n";
 import { GUIDE_BOOTSTRAP_SESSION_ID } from "../../utils/chatSessionBootstrap";
 import { isChatProject } from "../../rendererUtils";
 import { Button } from "../ui-shadcn/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
+import { RemoteProjectPanel } from "./RemoteProjectPanel";
 import { LogoMark } from "./SurfaceParts";
 import { SessionStartSurface } from "./SessionStartSurface";
 
@@ -45,6 +47,13 @@ export function ProjectEmptyState(props: {
 	// 发送时由 promoteSessionComposerStateAtom 整体搬到真实会话，输入不丢失。
 	// 项目下拉只切换 activeProjectId——切项目后仍留在引导页（currentSessionId 保持
 	// 空），发送时按选中项目创建；下拉列表 = 已加入的全部项目（含内置 Chat）。
+	//
+	// 远端项目例外：它没有本机路径，发送即创建本地会话的路径不适用于它。只读浏览远端
+	// 目录，把写入/Agent 留到后续阶段（各本地 IPC 也已按 locator 拒绝）。
+	if (isRemoteProject(props.activeProject)) {
+		return <RemoteProjectPanel projectId={props.activeProject.id} projectName={props.activeProject.name} />;
+	}
+
 	return (
 		<SessionStartSurface
 			sessionId={GUIDE_BOOTSTRAP_SESSION_ID}

@@ -1,6 +1,6 @@
 # PiDeck SSH 远程开发实施计划
 
-> 状态：Phase 0–2 已有开发态切片并经 Linux 客户端/远端实机验证；Phase 3 第一段只读浏览已交付并获用户实跑确认；**Phase 3 第二段已落地“远端项目可持久化”这一片**（`Project` 判别联合 + ssh locator 读写 + 本地消费点窄化 + projects 引用源真实扫描，未 push）。Phase 3 的侧栏入口/远端只读浏览接线、重启复核 UI，以及 Phase 4 Agent 生命周期与稳定版发布门禁仍未完成。下文部分早期阶段记录保留当时验证语境，最新交付状态以 §12 对应阶段的更新为准。
+> 状态：Phase 0–2 已有开发态切片并经 Linux 客户端/远端实机验证；Phase 3 第一段只读浏览已交付并获用户实跑确认；**Phase 3 第二段已落地“远端项目可持久化 + 登记 + 按 projectId 只读浏览”**（`Project` 判别联合 + ssh locator 读写 + 本地消费点窄化 + projects 引用源真实扫描 + `remote:project-enroll/list/read` IPC 闭环，未 push）。Phase 3 的搜索/Session 扫描、重启复核 `needs-attention` UI，以及 Phase 4 Agent 生命周期与稳定版发布门禁仍未完成。下文部分早期阶段记录保留当时验证语境，最新交付状态以 §12 对应阶段的更新为准。
 >
 > 文档维护约定：本文只保留决策（范围/架构/阶段门禁/能力对照）；§4.2 bootstrap、§6.5 终端握手、§7 协议帧等 implementation 级细节在对应 Phase 开工时拆出为独立 spec 并随代码演进，本文留指针。每个 Phase 收口时回填状态。
 >
@@ -732,7 +732,9 @@ Phase 1 是全计划风险最高的契约迁移（全库 path-bearing contract �
 >
 > **消费点隔离（本段最重要的安全面）**：`project.path` 不再是无判别的 `string`，编译器一次性点名 **71 处、21 个文件**，逐处按“拒绝远端 / 走远端服务”决策：本地 fs、Git（`GitBackend`/`gitIpc` worktree）、终端 `cwd`、本地 session scanner、会话导入、项目资源/信任、粘贴文件、quick-task、外部编辑器与“在文件夹中显示”、worktree 树、侧栏显示名与复制路径均对远端项目显式拒绝或改用 `locator.remotePath`；`ProjectResourceManager`/`ResourceImportSourceScanner` 的 provider 类型收窄为 `LocalProject`。
 >
-> **仍未交付**：侧栏把已确认远端目录登记为项目（enrollment IPC + 重启后重新核对 canonical root + `needs-attention`）、按 `projectId` 路由的远端只读文件树/搜索/Session 扫描、以及多远端项目 A/B 切换时的 helper `--root` 串行重建。`remoteHostIpc` 目前仍只持有一个临时确认 root，不能充当多个持久项目的授权。跨 store 写入 / INV-5 范围与 Windows WSL 路径仍待审定。第二段验收**不代表 Phase 3 完成**。
+> **已交付第二段的 IPC 闭环（2026-09，开发态开关，未 push）**：① **登记**：新通道 `remote:project-enroll` / `remote:project-answer` + 推送 `remote:project-enroll-confirm`，只接受 `{ hostId, candidatePath }`；main 在已 pin 连接上跑与浏览根同一套 `resolveRemoteBrowseRoot`（canonical 化 + 目录判定），经**独立的** `PendingConfirmationBroker`（action `remote:project-enroll`，与浏览根不共用通道/表）确认后调 `ProjectStore.addRemote`。canonical 值与 projectId 由 main 持有，渲染层不能提交。② **按 projectId 读取**：新通道 `remote:project-list` / `remote:project-read`，main 从 `ProjectStore` 取 ssh locator，得到 `{ hostId, remotePath }`，在同一主机串行地用 `setWorkspaceRoot` + `connect` 把该 root 落到 helper 会话（同一 root 不重建，切项目才重建），再经 `RemoteWorkspaceReader` 以相对路径读取；绝对路径/`..`/控制字节在触达 reader 前被拒。③ **渲染层**：设置页「连接」面板的远端工作区新增「加入项目」；侧栏选中远端项目时渲染只读 `RemoteProjectPanel`（重启后仍可用，不依赖设置页那个临时 root）；本地文件树/Git 轮询/会话扫描/按需 catalog 加载均对远端项目短路。
+>
+> **仍未交付**：搜索与 Session 扫描（Phase 3 后续 / Phase 4）；重启后对每个 ssh 项目重跑 canonical 复核并在漂移/不可达时进入 `needs-attention`（当前不一致会隐式重建会话，尚未把它变成用户可见的待处理状态）；同主机多项目“单 helper 单 root + 重连”的取舍（切换会丢会话，多 root 注册留后续独立评审）；Windows WSL 路径；跨 store 写入 / INV-5 范围。`remoteWorkspace*`（按 hostId 的临时 root）与 `remoteProject*`（按 projectId 的持久 root）两套通道并存，前者是设置页的临时浏览边界，后者是正式项目。IPC 闭环验收**不代表 Phase 3 完成**。
 
 - 只允许添加已有远端目录；创建空目录和 `git init` 属于写操作，移到 Phase 5。
 - 文件树、文件读取、搜索和 Session 扫描先只读上线。

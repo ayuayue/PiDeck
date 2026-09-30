@@ -111,7 +111,7 @@ import { applyDshGoalSendTransform, buildComposerPromptSubmission } from "./comp
 import { isSameSessionPath } from "./agentListDisplay";
 import { resolveLocale, setI18nLocale, t, translateI18nDescriptor } from "./i18n";
 import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
-import { isLocalProject } from "../../shared/projectLocation";
+import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import type { SessionFilterPill } from "./sessionFilterPills";
 import { useResize } from "./hooks/useResize";
 import { ARCHIVED_SESSION_TOAST_MS, archivedSessionToastMessage, useSessionActions } from "./hooks/useSessionActions";
@@ -932,6 +932,8 @@ export function App() {
 
 	const activeProjectRuntimeCapabilities = useProjectRuntimeCapabilities(activeProjectId);
 	const activeProject = projects.find((project) => project.id === activeProjectId);
+	// 远端项目没有本机路径：本地文件树/Git/会话扫描一律不得对它触发（各 IPC 也已按 locator 拒绝）。
+	const activeProjectIsRemote = activeProject !== undefined && isRemoteProject(activeProject);
 	const overlays = useOverlayActions({ activeProject, appInfo, showToast });
 	const sessionsProject = projects.find((project) => project.id === sessionsProjectId);
 	const displayAgents = useMemo(() => {
@@ -1942,7 +1944,7 @@ export function App() {
 	}, []);
 
 	useEffect(() => {
-		if (!activeProjectId) return;
+		if (!activeProjectId || activeProjectIsRemote) return;
 		// 切换项目时按 catalog load state 判断。空项目成功返回 [] 后也会是 ready，
 		// 不能再用列表长度，否则每次选中都会重扫。
 		const activeProject = projects.find((p) => p.id === activeProjectId);
@@ -1950,10 +1952,10 @@ export function App() {
 		if (expandedProjectsReady && activeProject && expandedProjects.has(activeProjectId) && loadState?.status !== "loading" && loadState?.status !== "ready") {
 			void refreshProjectSessions(activeProjectId).catch(() => undefined);
 		}
-	}, [activeProjectId, expandedProjects, expandedProjectsReady, projects, refreshProjectSessions, store]);
+	}, [activeProjectId, activeProjectIsRemote, expandedProjects, expandedProjectsReady, projects, refreshProjectSessions, store]);
 
 	useEffect(() => {
-		if (!activeProjectId) {
+		if (!activeProjectId || activeProjectIsRemote) {
 			beginFileTreeRequest();
 			setFiles((current) => (current.length === 0 ? current : []));
 			setGitInfo({ current: null, branches: [] });
@@ -2004,10 +2006,10 @@ export function App() {
 		};
 		// 该 effect 只应由项目身份切换触发；refreshProjects 是 hook 每次渲染返回的命令，
 		// 放入依赖会让 setFiles 后再次触发扫描，形成文件树刷新循环。
-	}, [activeProjectId, beginFileTreeRequest, isFileTreeRequestCurrent, loadExpandedDirs]);
+	}, [activeProjectId, activeProjectIsRemote, beginFileTreeRequest, isFileTreeRequestCurrent, loadExpandedDirs]);
 
 	useEffect(() => {
-		if (!activeProjectId) return;
+		if (!activeProjectId || activeProjectIsRemote) return;
 		let stopped = false;
 		const refreshGitInfo = async () => {
 			try {
@@ -2030,7 +2032,7 @@ export function App() {
 			stopped = true;
 			window.clearInterval(timer);
 		};
-	}, [activeProjectId]);
+	}, [activeProjectId, activeProjectIsRemote]);
 
 	/**
 	 * clone / fork 会把同一个 Agent 换绑到新的 SessionRecord。
@@ -3001,11 +3003,13 @@ export function App() {
 	 */
 	const ensureProjectCatalogLoaded = useCallback(
 		(projectId: string, silent = false) => {
+			// 远端项目的会话扫描属于后续阶段：本地 scanner 不读远端路径，主进程也会拒绝。
+			if (projects.some((project) => project.id === projectId && isRemoteProject(project))) return;
 			const loadState = store.get(sessionCatalogLoadStateAtom)[projectId];
 			if (loadState?.status === "loading" || loadState?.status === "ready") return;
 			void refreshProjectSessions(projectId, silent).catch(() => undefined);
 		},
-		[store, refreshProjectSessions],
+		[store, refreshProjectSessions, projects],
 	);
 
 	const sidebarActions: SidebarActions = {

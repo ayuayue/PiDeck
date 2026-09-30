@@ -21,6 +21,11 @@ import type {
 	RemoteHostRepairRequest,
 	RemoteHostRepairRunResult,
 	RemoteHostRepairSummary,
+	RemoteProjectEnrollAnswerResult,
+	RemoteProjectEnrollRequest,
+	RemoteProjectEnrollResult,
+	RemoteProjectListResult,
+	RemoteProjectReadResult,
 	RemoteWorkspaceRootResult,
 } from "../../shared/types/remoteHost";
 import type { RemoteHostCatalogView } from "../remote/RemoteHostCatalogView";
@@ -144,7 +149,24 @@ function readAddInput(value: unknown): { label: string; hostName: string; user?:
  *
  * `service` is optional so the read-only catalog stays usable without a connection service.
  */
-export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Promise<RemoteHostCatalogView>; service?: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>; userDataDir: string; registerCleanup?: (cleanup: () => Promise<void>) => void }): void {
+export function registerRemoteHostIpc(input: {
+	enabled: boolean;
+	list: () => Promise<RemoteHostCatalogView>;
+	service?: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>;
+	userDataDir: string;
+	/**
+	 * 远端项目登记端口（Phase 3 第二段）。
+	 *
+	 * 只开一个狭窄入口：`enroll` 把已确认的 canonical root 写进项目库并返回 stable projectId；
+	 * `locator` 按 projectId 取回 `{ hostId, remotePath }`。主进程持有校验后的 canonical 值，
+	 * 远端路径不经由渲染层或本机 fs。未提供时（旧装配/正式包）登记与按项目读取都返回稳定码。
+	 */
+	projects?: {
+		enroll: (input: { hostId: string; canonicalRemotePath: string }) => Promise<{ projectId: string }>;
+		locator: (projectId: string) => { kind: "ssh"; hostId: string; remotePath: string } | undefined;
+	};
+	registerCleanup?: (cleanup: () => Promise<void>) => void;
+}): void {
 	const guard = <T>(fallback: () => T): T | undefined => (input.enabled ? undefined : fallback());
 
 	/**
@@ -631,6 +653,147 @@ export function registerRemoteHostIpc(input: { enabled: boolean; list: () => Pro
 			return { ok: true, contentBase64: Buffer.from(file.content).toString("base64"), bytes: file.bytes, mtimeMs: file.mtimeMs };
 		} catch (error) {
 			return { ok: false, code: codeOf(error, "REMOTE_WORKSPACE_READ_FAILED") };
+		}
+	});
+
+	/**
+	 * Remote project enrollment (Phase 3 第二段).
+	 *
+	 * A separate decision from browsing a root: this writes a **persistent project** (`ProjectStore`). It
+	 * therefore has its own broker action, its own pending table and its own confirmation push channel, so
+	 * a project-enrollment prompt can never arrive in the workspace panel or vice versa. The renderer submits
+	 * only `{ hostId, candidatePath }`; the canonical value is resolved here and stays here.
+	 */
+	const enrollBroker = new PendingConfirmationBroker<{ hostId: string; canonicalPath: string }>({
+		onRemoved: (requestId) => {
+			enrollOffers.delete(requestId);
+		},
+	});
+	const enrollOffers = new Map<string, { subjectId: string; digest: string }>();
+	const enrollAction = "remote:project-enroll";
+	const enrollDigest = (hostId: string, canonicalPath: string): string =>
+		createHash("sha256")
+			.update(JSON.stringify(["pideck-project-enroll-v1", hostId, canonicalPath]), "utf8")
+			.digest("hex");
+
+	/**
+	 * Serialize root switches per host.
+	 *
+	 * One helper session exists per host and its `--root` is fixed for its lifetime, so two projects read
+	 * concurrently must not interleave `setWorkspaceRoot`+`connect`: the second would tear down the session
+	 * the first is about to read through. A per-host promise chain makes the switch atomic per host.
+	 */
+	const rootSwitchByHost = new Map<string, Promise<void>>();
+	const ensureProjectRoot = async (service: RemoteHostConnectionService, hostId: string, remotePath: string): Promise<void> => {
+		const previous = rootSwitchByHost.get(hostId) ?? Promise.resolve();
+		const next = previous
+			.catch(() => undefined)
+			.then(async () => {
+				if (service.getWorkspaceRoot(hostId) === remotePath) return;
+				service.setWorkspaceRoot(hostId, remotePath);
+				const state = await service.connect(hostId);
+				if (!state.ok) throw new Error(state.code);
+			});
+		rootSwitchByHost.set(
+			hostId,
+			next.then(
+				() => undefined,
+				() => undefined,
+			),
+		);
+		await next;
+	};
+
+	ipcMain.handle(ipcChannels.remoteProjectEnroll, async (event, hostIdValue: unknown, pathValue: unknown): Promise<RemoteProjectEnrollResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (input.projects === undefined) return { ok: false, code: "REMOTE_PROJECT_ENROLL_UNAVAILABLE" };
+		if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_PROJECT_TARGET_INVALID" };
+		const senderId = senderIdOf(event.sender);
+		if (senderId === undefined) return { ok: false, code: "REMOTE_PROJECT_TARGET_INVALID" };
+		if (typeof pathValue !== "string") return { ok: false, code: "REMOTE_BROWSE_ROOT_INVALID" };
+		const resolvedService = await resolveService();
+		if ("code" in resolvedService) return { ok: false, code: resolvedService.code };
+		try {
+			// Same pinned probe the workspace panel uses: the canonical value shown here is the one that will be
+			// confined to, and a symlink that the handshake would reject can never be confirmed in the first place.
+			const resolved = await resolveRemoteBrowseRoot({ userDataDir: input.userDataDir, hostId: hostIdValue, client: resolvedService.service.client, userPath: pathValue });
+			const digest = enrollDigest(hostIdValue, resolved.canonicalPath);
+			const { requestId, expiresAt } = enrollBroker.begin({ senderId, action: enrollAction, subjectId: hostIdValue, stateDigest: digest, payload: { hostId: hostIdValue, canonicalPath: resolved.canonicalPath } });
+			enrollOffers.set(requestId, { subjectId: hostIdValue, digest });
+			if (!event.sender.isDestroyed()) event.sender.send(ipcChannels.remoteProjectEnrollConfirm, { requestId, expiresAt, hostId: hostIdValue, label: pathValue, requestedPath: pathValue, canonicalPath: resolved.canonicalPath } satisfies RemoteProjectEnrollRequest);
+			return { ok: true, status: "pending", hostId: hostIdValue, canonicalPath: resolved.canonicalPath };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_PROJECT_TARGET_INVALID") };
+		}
+	});
+
+	ipcMain.handle(ipcChannels.remoteProjectAnswer, async (event, requestId: unknown, choice: unknown): Promise<RemoteProjectEnrollAnswerResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		if (input.projects === undefined) return { ok: false, code: "REMOTE_PROJECT_ENROLL_UNAVAILABLE" };
+		if (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 128) return { ok: false, code: "REMOTE_PROJECT_TARGET_INVALID" };
+		if (choice !== "approve" && choice !== "deny") return { ok: false, code: "REMOTE_PROJECT_TARGET_INVALID" };
+		const senderId = senderIdOf(event.sender);
+		if (senderId === undefined) return { ok: false, code: "REMOTE_PROJECT_TARGET_INVALID" };
+		const offered = enrollOffers.get(requestId);
+		if (offered === undefined) return { ok: false, code: "REMOTE_PROJECT_ENROLL_CONFIRMATION_REQUIRED" };
+		try {
+			const payload = enrollBroker.answer({ requestId, senderId, action: enrollAction, subjectId: offered.subjectId, stateDigest: offered.digest, choice });
+			if (payload === null) return { ok: true, enrolled: false };
+			// Write the durable record only now, with the main-held canonical value. The renderer cannot supply
+			// the path, the id or an "already confirmed" flag.
+			const { projectId } = await input.projects.enroll({ hostId: payload.hostId, canonicalRemotePath: payload.canonicalPath });
+			return { ok: true, enrolled: true, projectId };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_PROJECT_TARGET_INVALID") };
+		}
+	});
+
+	/**
+	 * Resolve a project's ssh locator and make its root the host's active root, returning what a read needs.
+	 * Every failure is a stable code; a project that is not an ssh project is refused rather than guessed at.
+	 */
+	const projectReadTarget = async (projectId: unknown): Promise<{ hostId: string; remotePath: string; reader: RemoteWorkspaceReaderClass } | { code: string }> => {
+		if (typeof projectId !== "string" || !projectId.trim() || projectId.length > 256) return { code: "REMOTE_PROJECT_TARGET_INVALID" };
+		if (input.projects === undefined) return { code: "REMOTE_PROJECT_ENROLL_UNAVAILABLE" };
+		const locator = input.projects.locator(projectId);
+		if (locator === undefined) return { code: "REMOTE_PROJECT_NOT_FOUND" };
+		if (locator.kind !== "ssh") return { code: "UNSUPPORTED_PROJECT_LOCATION" };
+		const resolvedService = await resolveService();
+		if ("code" in resolvedService) return { code: resolvedService.code };
+		try {
+			await ensureProjectRoot(resolvedService.service, locator.hostId, locator.remotePath);
+		} catch (error) {
+			return { code: codeOf(error, "REMOTE_CONNECTION_FAILED") };
+		}
+		return { hostId: locator.hostId, remotePath: locator.remotePath, reader: createRemoteWorkspaceReader({ port: resolvedService.service }) };
+	};
+
+	ipcMain.handle(ipcChannels.remoteProjectList, async (_event, projectIdValue: unknown, pathValue: unknown): Promise<RemoteProjectListResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		const relative = readRelativePath(pathValue);
+		if (relative === undefined) return { ok: false, code: "REMOTE_PROJECT_PATH_INVALID" };
+		const target = await projectReadTarget(projectIdValue);
+		if ("code" in target) return { ok: false, code: target.code };
+		try {
+			const result = await target.reader.list(target.hostId, readerPath(relative));
+			return { ok: true, entries: result.entries.map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })) };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_PROJECT_READ_FAILED") };
+		}
+	});
+
+	ipcMain.handle(ipcChannels.remoteProjectRead, async (_event, projectIdValue: unknown, pathValue: unknown): Promise<RemoteProjectReadResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		// The read of the root itself is not a file; an empty path is a valid listing target but never a read.
+		const relative = readRelativePath(pathValue);
+		if (relative === undefined || relative === "") return { ok: false, code: "REMOTE_PROJECT_PATH_INVALID" };
+		const target = await projectReadTarget(projectIdValue);
+		if ("code" in target) return { ok: false, code: target.code };
+		try {
+			const file = await target.reader.readFile(target.hostId, relative);
+			return { ok: true, contentBase64: Buffer.from(file.content).toString("base64"), bytes: file.bytes, mtimeMs: file.mtimeMs };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_PROJECT_READ_FAILED") };
 		}
 	});
 }

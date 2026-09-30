@@ -167,3 +167,33 @@ export type RemoteWorkspaceRootResult = { ok: true; canonicalPath: string } | { 
 
 /** 浏览根确认请求：主进程 → 渲染层推送（与指纹确认同一套 broker 规矩）。 */
 export type RemoteWorkspaceRootRequest = { requestId: string; expiresAt: number; hostId: string; label: string; requestedPath: string; canonicalPath: string };
+
+/**
+ * 远端项目登记（Phase 3 第二段）。
+ *
+ * 与浏览根的确认是**两个不同的用户决定**：这个是把一个已确认的 canonical 目录变成**持久项目**
+ * （写 `ProjectStore`），那个只是打开一个只读浏览边界。因此二者有独立通道、独立 broker action
+ * 与独立的 pending 表，互不串扰。
+ *
+ * 渲染层只能提交 `{ hostId, candidatePath }`；canonical 值由 main 在已 pin 连接上解析并持有，
+ * 确认框展示的也是 canonical 值。
+ */
+export type RemoteProjectEnrollRequest = { requestId: string; expiresAt: number; hostId: string; label: string; requestedPath: string; canonicalPath: string };
+
+/** 发起登记的结果：`pending` 表示已推送确认、等用户回答。 */
+export type RemoteProjectEnrollResult = { ok: true; status: "pending"; hostId: string; canonicalPath: string } | { ok: false; code: string };
+
+/** 回答登记确认的结果；批准时回显新项目的 stable id。 */
+export type RemoteProjectEnrollAnswerResult = { ok: true; enrolled: boolean; projectId?: string } | { ok: false; code: string };
+
+/**
+ * 按 projectId 的只读远端浏览（Phase 3 第二段）。
+ *
+ * 与 `remoteWorkspace*`（按 hostId + 临时确认 root）的区别：这里的根来自 `ProjectStore` 中该项目
+ * 持有的 canonical `remotePath`，因此可以跨重启恢复。渲染层只给 `projectId` 与**相对路径**，
+ * 由 main 解析 host/root；绝对路径与 `..` 在触达 reader 前被拒。
+ */
+export type RemoteProjectListResult = { ok: true; entries: RemoteWorkspaceEntry[] } | { ok: false; code: string };
+
+/** 读项目内文件的结果；`contentBase64` 跨 IPC 传二进制。 */
+export type RemoteProjectReadResult = { ok: true; contentBase64: string; bytes: number; mtimeMs: number } | { ok: false; code: string };

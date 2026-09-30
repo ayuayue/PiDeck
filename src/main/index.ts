@@ -24,7 +24,7 @@ import { DEFAULT_DEV_USER_DATA_NAME, isSharedDevBranch, readDevGitBranch, resolv
 import { resolvePackagedUserDataDir } from "./portableUserData";
 import { extractFocusTargetFromArgv } from "./utils/focusTarget";
 import type { Project, StartupWindowMode } from "../shared/types";
-import { isLocalProject } from "../shared/projectLocation";
+import { isLocalProject, isRemoteProject } from "../shared/projectLocation";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
@@ -2407,6 +2407,18 @@ function registerIpc() {
 		userDataDir: app.getPath("userData"),
 		list: () => openRemoteHostCatalogView(app.getPath("userData")),
 		service: remoteHostServiceIfEnabled,
+		// 远端项目登记端口（Phase 3 第二段）：canonical 值已由 IPC 层校验/确认，这里只做持久化
+		// 与按 projectId 取 locator。只暴露 ssh 项目，本机项目不经过这条入口。
+		projects: {
+			enroll: async ({ hostId, canonicalRemotePath }) => {
+				const project = await projectStore.addRemote({ hostId, canonicalRemotePath });
+				return { projectId: project.id };
+			},
+			locator: (projectId) => {
+				const project = projectStore.get(projectId);
+				return project && isRemoteProject(project) ? project.locator : undefined;
+			},
+		},
 		// The add-host flow holds a pin store across two IPC calls (offer, then the user's answer), so its
 		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
 		// outliving the app.

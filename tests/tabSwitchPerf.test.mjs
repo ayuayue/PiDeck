@@ -18,7 +18,7 @@ test("tab switch does not refresh the project file tree or git branches", () => 
 	// 对象实参可能被格式化到多行：用 \s* 容忍。
 	assert.match(appSource, /api\.files\.list\(\s*\{ projectId, relativePath: "" \},\s*\{ maxDepth: 0 \}\)/);
 	assert.match(appSource, /api\.git\.branches\(activeProjectId\)/);
-	assert.match(appSource, /\}, \[activeProjectId\]\);/);
+	assert.match(appSource, /\}, \[activeProjectId, activeProjectIsRemote\]\);/);
 	assert.doesNotMatch(appSource, /api\.git\.branches\(activeProjectId\)[\s\S]{0,400}\}, \[activeProjectId, currentSessionId/);
 });
 

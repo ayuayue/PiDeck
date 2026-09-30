@@ -1056,3 +1056,276 @@ test("a denied root is never handed to the connection", async () => {
 	assert.equal(harness.calls.setRoot.length, 0, "a denied root must not reconfigure the session");
 	assert.equal(harness.calls.connects.length, 0);
 });
+
+/**
+ * 远端项目登记与按 projectId 的只读浏览（Phase 3 第二段）。
+ *
+ * 关键边界：
+ * - 登记是**独立决定**（写 ProjectStore），与浏览根确认是两套 broker action/通道/表；
+ * - canonical 值由 main 解析并持有，渲染层只能提交 `{ hostId, candidatePath }`；
+ * - 按 projectId 读取时 root 来自 store 的 locator，且同主机 root 切换必须串行（单 helper 会话）。
+ */
+function projectHandlers(options = {}) {
+	const calls = { resolve: [], list: [], read: [], sent: [], setRoot: [], connects: [] };
+	const roots = new Map();
+	// 测试用的项目库：只支持 ssh locator（本入口不处理本机项目）。
+	const projects = options.projects ?? {};
+	const handlers = new Map();
+	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
+		stubs: {
+			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
+			"../remote/RemoteBrowseRoot": {
+				async resolveRemoteBrowseRoot(input) {
+					calls.resolve.push(input);
+					if (options.resolveFails) throw new Error("REMOTE_BROWSE_ROOT_NOT_A_DIRECTORY");
+					return { canonicalPath: options.canonicalPath ?? "/srv/real-project" };
+				},
+			},
+			"../remote/RemoteWorkspaceReader": {
+				createRemoteWorkspaceReader: ({ port }) => ({
+					async list(hostId, path) {
+						calls.list.push({ hostId, path, portHasRequest: typeof port.request === "function" });
+						if (options.listFails) throw new Error("REMOTE_WORKSPACE_LIST_TOO_LARGE");
+						return {
+							entries: [
+								{ name: "src", kind: "directory" },
+								{ name: "readme.md", kind: "file", bytes: 12 },
+							],
+						};
+					},
+					async readFile(hostId, path) {
+						calls.read.push({ hostId, path });
+						if (options.readFails) throw new Error("REMOTE_WORKSPACE_READ_FAILED");
+						return { content: Buffer.from("hello"), bytes: 5, mtimeMs: 1 };
+					},
+				}),
+			},
+			"../remote/RemoteHostStore": {
+				RemoteHostStore: {
+					async open() {
+						return { getSnapshot: () => ({ status: "ready", revision: 1, profiles: [] }), getProfile: () => ({ id: HOST_ID, label: "serve" }) };
+					},
+				},
+			},
+			"../remote/SshHostPinStore": {
+				SshHostPinStore: class {
+					dispose() {}
+				},
+			},
+		},
+	});
+	registerRemoteHostIpc({
+		enabled: options.enabled ?? true,
+		userDataDir: "/tmp/ignored",
+		list: async () => ({ snapshot: { status: "ready", profiles: [] }, findings: [] }),
+		service: () => ({
+			client: { sshPath: "/usr/bin/ssh", scpPath: "/usr/bin/scp", env: {}, run: async () => ({ exitCode: 0, stdout: "" }) },
+			async request() {},
+			async cancel() {},
+			async connect(hostId) {
+				calls.connects.push(hostId);
+				if (options.connectFails) return { ok: false, hostId, code: "SSH_CONNECTION_FAILED" };
+				return { ok: true, hostId, state: { hostId, generation: 1, state: "ready", attempts: 0, latched: false } };
+			},
+			async disconnect() {},
+			setWorkspaceRoot(hostId, root) {
+				calls.setRoot.push({ hostId, root });
+				if (root === undefined) roots.delete(hostId);
+				else roots.set(hostId, root);
+			},
+			getWorkspaceRoot: (hostId) => roots.get(hostId),
+			listDiagnostics: () => [],
+			async dispose() {},
+		}),
+		...(options.noProjectsPort
+			? {}
+			: {
+					projects: {
+						async enroll(input) {
+							calls.enroll = calls.enroll ?? [];
+							calls.enroll.push(input);
+							if (options.enrollFails) throw new Error("PROJECT_STORE_NEEDS_REPAIR");
+							return { projectId: options.projectId ?? "project-remote-1" };
+						},
+						locator: (projectId) => projects[projectId],
+					},
+				}),
+	});
+	const sender = { id: 42, isDestroyed: () => false, send: (channel, payload) => calls.sent.push({ channel, payload }) };
+	return { handlers, calls, sender };
+}
+
+async function confirmEnroll(harness, path = "/srv/link-project") {
+	await harness.handlers.get("remote:project-enroll")({ sender: harness.sender }, HOST_ID, path);
+	const requestId = harness.calls.sent.at(-1).payload.requestId;
+	const answer = await harness.handlers.get("remote:project-answer")({ sender: harness.sender }, requestId, "approve");
+	return { requestId, answer };
+}
+
+test("enrolling a project probes the host then asks the user to confirm the canonical path", async () => {
+	const harness = projectHandlers({ canonicalPath: "/srv/real-project" });
+	const result = await harness.handlers.get("remote:project-enroll")({ sender: harness.sender }, HOST_ID, "/srv/link-project");
+	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, status: "pending", hostId: HOST_ID, canonicalPath: "/srv/real-project" });
+	assert.equal(harness.calls.resolve.length, 1, "the host is probed with what the user typed");
+	assert.equal(harness.calls.resolve[0].userPath, "/srv/link-project");
+	const pushed = harness.calls.sent.at(-1);
+	assert.equal(pushed.channel, "remote:project-enroll-confirm", "enrollment has its own push channel");
+	assert.equal(pushed.payload.requestedPath, "/srv/link-project");
+	assert.equal(pushed.payload.canonicalPath, "/srv/real-project");
+	assert.equal(harness.calls.enroll, undefined, "nothing is persisted before the user approves");
+});
+
+test("approving an enrollment writes the durable record with the main-held canonical path", async () => {
+	const harness = projectHandlers({ canonicalPath: "/srv/real-project", projectId: "project-remote-9" });
+	const { answer } = await confirmEnroll(harness, "/srv/link-project");
+	assert.deepEqual(JSON.parse(JSON.stringify(answer)), { ok: true, enrolled: true, projectId: "project-remote-9" });
+	assert.deepEqual(JSON.parse(JSON.stringify(harness.calls.enroll)), [{ hostId: HOST_ID, canonicalRemotePath: "/srv/real-project" }], "the store gets the canonical value, never the typed one");
+});
+
+test("denying an enrollment persists nothing", async () => {
+	const harness = projectHandlers();
+	await harness.handlers.get("remote:project-enroll")({ sender: harness.sender }, HOST_ID, "/srv/x");
+	const requestId = harness.calls.sent.at(-1).payload.requestId;
+	const denied = await harness.handlers.get("remote:project-answer")({ sender: harness.sender }, requestId, "deny");
+	assert.deepEqual(JSON.parse(JSON.stringify(denied)), { ok: true, enrolled: false });
+	assert.equal(harness.calls.enroll, undefined);
+});
+
+test("an enrollment cannot be answered by another window", async () => {
+	const harness = projectHandlers();
+	await harness.handlers.get("remote:project-enroll")({ sender: harness.sender }, HOST_ID, "/srv/x");
+	const requestId = harness.calls.sent.at(-1).payload.requestId;
+	const other = { id: 99, isDestroyed: () => false, send: () => undefined };
+	const result = await harness.handlers.get("remote:project-answer")({ sender: other }, requestId, "approve");
+	assert.equal(result.ok, false);
+	assert.equal(harness.calls.enroll, undefined, "a foreign window must not be able to enroll");
+});
+
+test("an enrollment confirmation is one-shot", async () => {
+	const harness = projectHandlers();
+	const { requestId } = await confirmEnroll(harness);
+	const again = await harness.handlers.get("remote:project-answer")({ sender: harness.sender }, requestId, "approve");
+	assert.equal(again.ok, false, "a replayed requestId must be refused");
+});
+
+test("a root that cannot be resolved is never offered for enrollment", async () => {
+	const harness = projectHandlers({ resolveFails: true });
+	const result = await harness.handlers.get("remote:project-enroll")({ sender: harness.sender }, HOST_ID, "/srv/file-not-dir");
+	assert.equal(result.ok, false);
+	assert.equal(result.code, "REMOTE_BROWSE_ROOT_NOT_A_DIRECTORY");
+	assert.equal(harness.calls.sent.length, 0, "nothing is offered for confirmation");
+});
+
+test("per-project reads resolve the locator, switch the root and read relative to it", async () => {
+	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
+	const listed = await harness.handlers.get("remote:project-list")({}, "project-remote-1", "");
+	assert.deepEqual(JSON.parse(JSON.stringify(listed)), {
+		ok: true,
+		entries: [
+			{ name: "src", kind: "directory" },
+			{ name: "readme.md", kind: "file", bytes: 12 },
+		],
+	});
+	assert.deepEqual(harness.calls.setRoot, [{ hostId: HOST_ID, root: "/srv/app" }], "the project's root is handed to the connection");
+	assert.deepEqual(harness.calls.connects, [HOST_ID], "and the session is established with it");
+	assert.deepEqual(harness.calls.list, [{ hostId: HOST_ID, path: ".", portHasRequest: true }]);
+
+	const read = await harness.handlers.get("remote:project-read")({}, "project-remote-1", "readme.md");
+	assert.deepEqual(JSON.parse(JSON.stringify(read)), { ok: true, contentBase64: Buffer.from("hello").toString("base64"), bytes: 5, mtimeMs: 1 });
+});
+
+test("a second read of the same project does not reconfigure the session", async () => {
+	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
+	await harness.handlers.get("remote:project-list")({}, "project-remote-1", "");
+	await harness.handlers.get("remote:project-list")({}, "project-remote-1", "src");
+	assert.deepEqual(harness.calls.setRoot, [{ hostId: HOST_ID, root: "/srv/app" }], "the root is set once, not per read");
+	assert.equal(harness.calls.connects.length, 1, "the session is not torn down for a same-root read");
+});
+
+test("switching between two projects on one host re-establishes the session with the new root", async () => {
+	const harness = projectHandlers({
+		projects: {
+			"project-a": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/a" },
+			"project-b": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/b" },
+		},
+	});
+	await harness.handlers.get("remote:project-list")({}, "project-a", "");
+	await harness.handlers.get("remote:project-list")({}, "project-b", "");
+	assert.deepEqual(
+		harness.calls.setRoot,
+		[
+			{ hostId: HOST_ID, root: "/srv/a" },
+			{ hostId: HOST_ID, root: "/srv/b" },
+		],
+		"each project's root is applied",
+	);
+	assert.equal(harness.calls.connects.length, 2, "a different root tears down and rebuilds the session");
+});
+
+test("per-project reads reject a project that is not an ssh project", async () => {
+	const harness = projectHandlers({ projects: { "local-1": { kind: "local", environment: "native", localPath: "/srv/local" } } });
+	const listed = await harness.handlers.get("remote:project-list")({}, "local-1", "");
+	assert.equal(listed.ok, false);
+	assert.equal(listed.code, "UNSUPPORTED_PROJECT_LOCATION");
+	assert.equal(harness.calls.list.length, 0, "a local project never reaches the remote reader");
+});
+
+test("per-project reads refuse an unknown project", async () => {
+	const harness = projectHandlers({ projects: {} });
+	const listed = await harness.handlers.get("remote:project-list")({}, "missing", "");
+	assert.equal(listed.ok, false);
+	assert.equal(listed.code, "REMOTE_PROJECT_NOT_FOUND");
+});
+
+test("a renderer cannot widen a project boundary with an absolute or traversing path", async () => {
+	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
+	for (const bad of ["/etc/passwd", "../outside", "src/../../etc", "a//b", "./x", "a\\b", "x\u0000y"]) {
+		const listed = await harness.handlers.get("remote:project-list")({}, "project-remote-1", bad);
+		assert.equal(listed.ok, false, `${JSON.stringify(bad)} must be refused for list`);
+		assert.equal(listed.code, "REMOTE_PROJECT_PATH_INVALID");
+	}
+	assert.equal(harness.calls.list.length, 0, "nothing may reach the reader");
+	assert.equal(harness.calls.setRoot.length, 0, "and no session is configured for a bad path");
+});
+
+test("per-project read refuses the root as a file target", async () => {
+	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
+	const read = await harness.handlers.get("remote:project-read")({}, "project-remote-1", "");
+	assert.equal(read.ok, false);
+	assert.equal(read.code, "REMOTE_PROJECT_PATH_INVALID");
+});
+
+test("per-project reads surface connection and reader failures as stable codes", async () => {
+	const failingConnect = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } }, connectFails: true });
+	const connectResult = await failingConnect.handlers.get("remote:project-list")({}, "project-remote-1", "");
+	assert.equal(connectResult.ok, false);
+	assert.equal(connectResult.code, "SSH_CONNECTION_FAILED");
+
+	const failingReader = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } }, listFails: true, readFails: true });
+	assert.equal((await failingReader.handlers.get("remote:project-list")({}, "project-remote-1", "")).code, "REMOTE_WORKSPACE_LIST_TOO_LARGE");
+	assert.equal((await failingReader.handlers.get("remote:project-read")({}, "project-remote-1", "a")).code, "REMOTE_WORKSPACE_READ_FAILED");
+});
+
+test("enrollment and per-project reads need the projects port", async () => {
+	const harness = projectHandlers({ noProjectsPort: true });
+	const enrolled = await harness.handlers.get("remote:project-enroll")({ sender: harness.sender }, HOST_ID, "/srv/x");
+	assert.equal(enrolled.ok, false);
+	assert.equal(enrolled.code, "REMOTE_PROJECT_ENROLL_UNAVAILABLE");
+	assert.equal((await harness.handlers.get("remote:project-list")({}, "project-remote-1", "")).code, "REMOTE_PROJECT_ENROLL_UNAVAILABLE");
+});
+
+test("every project channel honours the feature gate", async () => {
+	const harness = projectHandlers({ enabled: false });
+	for (const [channel, args] of [
+		["remote:project-enroll", [{ sender: harness.sender }, HOST_ID, "/srv"]],
+		["remote:project-answer", [{ sender: harness.sender }, "req", "approve"]],
+		["remote:project-list", [{}, "project-remote-1", ""]],
+		["remote:project-read", [{}, "project-remote-1", "a"]],
+	]) {
+		const result = await harness.handlers.get(channel)(...args);
+		assert.equal(result.ok, false, `${channel} must be gated`);
+		assert.equal(result.code, "REMOTE_FEATURE_DISABLED");
+	}
+	assert.equal(harness.calls.resolve.length, 0, "a gated build must not probe the host");
+	assert.equal(harness.calls.sent.length, 0);
+});
