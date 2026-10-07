@@ -816,6 +816,8 @@ export function createPreviewApi(): PiDesktopApi {
 				ok: true,
 				value: { target, value: [] },
 			}),
+			// 预览模式无 standby 池，草稿命令预览回退本地发现。
+			draftCommands: async () => null,
 			listRuntimeModels: async (target) => ({
 				ok: true,
 				value: { target, value: [] },

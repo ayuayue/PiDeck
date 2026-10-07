@@ -7,6 +7,7 @@ import type {
 	ChatMessage,
 	CreateAgentInput,
 	ImageContent,
+	PiCommand,
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
 	RewindRestoreResult,
@@ -119,6 +120,13 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 	/** standby 补热只路由 pi 网关；dsh-only 部署不会因此多 spawn pi 进程。 */
 	ensureStandbyAgent(projectId: string): void {
 		this.byBackend.get("pi")?.ensureStandbyAgent?.(projectId);
+	}
+
+	/** 草稿命令预览只路由 pi 网关（dsh 无 standby 池）；网关缺失/失败返回 null。 */
+	async draftCommands(projectId: string): Promise<PiCommand[] | null> {
+		const gateway = this.byBackend.get("pi");
+		if (typeof gateway?.draftCommands !== "function") return null;
+		return gateway.draftCommands(projectId);
 	}
 
 	async restart(agentId: string): Promise<AgentTab> {

@@ -23,6 +23,7 @@ import type {
 	RewindRestoreScope,
 	SendPromptInput,
 	SendPromptResult,
+	PiCommand,
 	SessionEnvironment,
 	SessionMessagePage,
 	SessionRuntimeModelSelection,
@@ -1020,6 +1021,30 @@ export class AgentManager {
 		} catch (error) {
 			// 预热失败静默降级：下次 ensure 再试，绝不影响正常创建链路。
 			void this.appLogger?.warn("agent", "Standby agent spawn failed", { projectId, error: error instanceof Error ? error.message : String(error) });
+		}
+	}
+
+	/**
+	 * 草稿会话的斜杠命令预览（Issue #316）：draft 没有 pi 进程，本地发现只覆盖技能/提示词，
+	 * 扩展注册的命令只有活进程的 get_commands 才知道。这里只读借用 standby 池里同项目的
+	 * 已握手进程：项目一致 + 指纹仍是新鲜的（与 claim 同一判定）+ 进程 idle，
+	 * 不认领、不消费池条目。池关闭/无条目/进程非 idle/RPC 失败一律返回 null，
+	 * 渲染层回退本地技能/提示词发现；runtime 建立后仍以本会话 get_commands 为准。
+	 */
+	async draftCommands(projectId: string): Promise<PiCommand[] | null> {
+		if (!this.settingsStore.get().standbyRuntimeEnabled) return null;
+		const project = this.getProject(projectId);
+		if (!project) return null;
+		const entry = this.standbyPool.peek(projectId);
+		if (!entry || entry.fingerprint !== this.computeStandbyFingerprintFor(project)) return null;
+		const runtime = this.agents.get(entry.agentId);
+		if (!runtime || runtime.tab.status !== "idle") return null;
+		try {
+			const response = await runtime.process.client.request({ type: "get_commands" }, this.rpcTimeoutMs);
+			if (!response.success) return null;
+			return (response.data as { commands?: PiCommand[] } | undefined)?.commands ?? [];
+		} catch {
+			return null;
 		}
 	}
 

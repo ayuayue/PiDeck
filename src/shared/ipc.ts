@@ -144,6 +144,8 @@ export const ipcChannels = {
 	sessionsRuntimeCompact: "sessions:runtime-compact",
 	sessionsRuntimeState: "sessions:runtime-state",
 	sessionsRuntimeCommands: "sessions:runtime-commands",
+	/** 草稿会话斜杠命令预览（只读借用 pi standby 进程；不可用返回 null）。 */
+	sessionsDraftCommands: "sessions:draft-commands",
 	/** rewind checkpoint（refs/pi-checkpoints，纯 git，跨后端）。 */
 	sessionsRewindList: "sessions:rewind-list",
 	sessionsRewindDiff: "sessions:rewind-diff",

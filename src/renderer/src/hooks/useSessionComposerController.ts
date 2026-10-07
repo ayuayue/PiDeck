@@ -68,7 +68,7 @@ import { resolveBackendSwitchDefaults } from "../utils/backendSwitchDefaults";
 import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
 import { showNotice } from "../utils/notice";
 import { requireSessionCommand, toSessionRuntimeTarget } from "../utils/sessionCommands";
-import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, type DraftResourceCommandSnapshot } from "../utils/draftResourceCommands";
+import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, standbyPreviewCommandsForProject, type DraftResourceCommandSnapshot, type StandbyPreviewCommandSnapshot } from "../utils/draftResourceCommands";
 import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTimelineController";
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
 import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
@@ -429,6 +429,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const [picker, setPicker] = useState<ComposerPickerKind | null>(null);
 	const [commands, setCommands] = useState<PiCommand[]>([]);
 	const [draftResourceCommandSnapshot, setDraftResourceCommandSnapshot] = useState<DraftResourceCommandSnapshot>({ projectId: undefined, commands: [] });
+	const [standbyPreviewCommandSnapshot, setStandbyPreviewCommandSnapshot] = useState<StandbyPreviewCommandSnapshot>({ projectId: undefined, commands: [] });
 	const [files, setFiles] = useState<FileTreeNode[]>([]);
 	// @ 引用懒加载状态：已按 maxDepth 0 拉过子项的目录绝对路径（防重复请求），
 	// 与在途加载集合成对出现；目录不在任一集合才能发新请求。
@@ -811,6 +812,27 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		};
 	}, [effectiveProjectId, isDshBackend, runtime?.agentId, templates]);
 
+	// Issue #316：草稿会话在 standby 池里有同项目已握手进程时，只读借用其 get_commands
+	// 预览扩展注册的命令（本地技能/提示词发现覆盖不到）。拿不到预览就保持空快照，
+	// 建议列表回退上面的本地发现；runtime 建立后上面 RPC 拉取的命令表重新成为唯一来源。
+	useEffect(() => {
+		if (isDshBackend || runtime?.agentId || !effectiveProjectId) {
+			setStandbyPreviewCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+			return;
+		}
+		let current = true;
+		setStandbyPreviewCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+		void desktopApi.sessions
+			.draftCommands(effectiveProjectId)
+			.then((preview) => {
+				if (current && preview) setStandbyPreviewCommandSnapshot({ projectId: effectiveProjectId, commands: preview });
+			})
+			.catch(() => undefined);
+		return () => {
+			current = false;
+		};
+	}, [effectiveProjectId, isDshBackend, runtime?.agentId]);
+
 	useEffect(() => {
 		templateRequestGateRef.current.invalidate(templateKey);
 		setTemplateState({ key: templateKey, items: [] });
@@ -832,7 +854,8 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		return new Map(entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]));
 	}, [sessionQuotes]);
 	const draftResourceCommands = draftResourceCommandsForProject(draftResourceCommandSnapshot, effectiveProjectId);
-	const suggestionCommands = selectComposerSuggestionCommands(isDshBackend, Boolean(runtime?.agentId), commands, draftResourceCommands);
+	const standbyPreviewCommands = standbyPreviewCommandsForProject(standbyPreviewCommandSnapshot, effectiveProjectId);
+	const suggestionCommands = selectComposerSuggestionCommands(isDshBackend, Boolean(runtime?.agentId), commands, draftResourceCommands, standbyPreviewCommands);
 	const suggestionItems = useMemo(() => (suggestionsOpen ? buildSuggestionItems(draft, cursor, suggestionCommands, flatFiles, projectSessions) : []), [cursor, draft, flatFiles, projectSessions, suggestionCommands, suggestionsOpen]);
 
 	// @ 引用向下钻取：随输入懒加载子目录（maxDepth 0 只拉一层，与文件抽屉同语义）。

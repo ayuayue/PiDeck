@@ -68,6 +68,8 @@ export interface SessionAgentGateway {
 	claimStandbyAgent?(input: { projectId: string; sessionId: string; noSession?: boolean }): Promise<AgentTab | null>;
 	/** 可选能力：standby 池补热（fire-and-forget，幂等）。 */
 	ensureStandbyAgent?(projectId: string): void;
+	/** 可选能力：草稿斜杠命令预览（只读查询 pi standby 进程的 get_commands；不可用返回 null，调用方回退本地发现）。 */
+	draftCommands?(projectId: string): Promise<PiCommand[] | null>;
 	restart(agentId: string): Promise<AgentTab>;
 	stop(agentId: string): Promise<void>;
 	rename(agentId: string, name: string): Promise<AgentTab>;
@@ -560,6 +562,20 @@ export class SessionRuntimeCoordinator {
 
 	listRuntimeModels(target: SessionRuntimeTarget): Promise<SessionCommandResult<SessionTargetedValue<AvailableModel[]>>> {
 		return this.runTargetCommand(target, (agentId) => this.agents.getAvailableModels(agentId));
+	}
+
+	/**
+	 * 草稿会话（尚无 runtime）的斜杠命令预览：只读借用 pi standby 进程的命令表。
+	 * 可选能力缺失/查询失败一律返回 null——这是“提示增强”而非命令执行链路，
+	 * 不能让预览失败影响草稿会话本身。
+	 */
+	async draftCommands(projectId: string): Promise<PiCommand[] | null> {
+		if (typeof this.agents.draftCommands !== "function") return null;
+		try {
+			return await this.agents.draftCommands(projectId);
+		} catch {
+			return null;
+		}
 	}
 
 	listRuntimeThinkingLevels(target: SessionRuntimeTarget): Promise<SessionCommandResult<SessionTargetedValue<string[] | undefined>>> {
