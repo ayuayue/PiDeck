@@ -27,7 +27,7 @@ export function ProviderEndpointFields(props: {
 			{!props.catalogProvider && (
 				<div className="config-provider-field items-center">
 					<Label className="pl-0.5 text-left text-xs font-medium text-text-secondary">{t("config.field.apiType")}</Label>
-					<ApiTypeInput value={props.api} onChange={props.onChangeApi} />
+					<ApiTypeInput value={props.api} onChange={props.onChangeApi} backend={props.backend} />
 				</div>
 			)}
 			<div className="config-provider-field items-center">

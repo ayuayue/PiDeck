@@ -3,7 +3,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { t } from "../i18n";
 import { writeClipboard } from "../utils/clipboard";
-import { PROVIDER_API_OPTIONS, API_TYPE_LABELS, getApiTypeDescription } from "./providerHeaders";
+import { PROVIDER_API_OPTIONS, DSH_PROVIDER_API_OPTIONS, API_TYPE_LABELS, getApiTypeDescription } from "./providerHeaders";
 import { Button } from "../components/ui-shadcn/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { Input } from "../components/ui-shadcn/input";
@@ -221,9 +221,11 @@ export function ConfigComboboxInput(props: { value: string; options: Array<{ val
 }
 
 /** API 类型选择：shadcn Select（与全局下拉交互/动画一致）。
- *  预定义选项 + 描述；当前值为自定义值时动态追加「自定义」选项保留可读性。 */
-export function ApiTypeInput(props: { value: string; onChange: (value: string) => void }) {
-	const isCustom = Boolean(props.value) && !PROVIDER_API_OPTIONS.includes(props.value);
+ *  预定义选项 + 描述；当前值为自定义值时动态追加「自定义」选项保留可读性。
+ *  backend="dsh" 时只列 DSH 适配器实际注册的三种协议（见 DSH_PROVIDER_API_OPTIONS）。 */
+export function ApiTypeInput(props: { value: string; onChange: (value: string) => void; backend?: "pi" | "dsh" }) {
+	const options = props.backend === "dsh" ? DSH_PROVIDER_API_OPTIONS : PROVIDER_API_OPTIONS;
+	const isCustom = Boolean(props.value) && !options.includes(props.value);
 	return (
 		<Select value={props.value || SENTINEL} onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}>
 			<SelectTrigger className="config-select-trigger w-full">
@@ -244,7 +246,7 @@ export function ApiTypeInput(props: { value: string; onChange: (value: string) =
 						</span>
 					</SelectItem>
 				)}
-				{PROVIDER_API_OPTIONS.map((option) => (
+				{options.map((option) => (
 					<SelectItem key={option} value={option}>
 						<span className="flex flex-col items-start gap-0.5">
 							<span className="text-control font-semibold">{API_TYPE_LABELS[option] || option}</span>

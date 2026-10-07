@@ -752,6 +752,14 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 				return t("config.fetchModelsHintGoogle");
 			case "mistral-conversations":
 				return t("config.fetchModelsHintMistral");
+			case "azure-openai-responses":
+				return t("config.fetchModelsHintAzure");
+			case "google-vertex":
+				return t("config.fetchModelsHintVertex");
+			case "bedrock-converse-stream":
+				return t("config.fetchModelsHintBedrock");
+			case "pi-messages":
+				return t("config.fetchModelsHintPiMessages");
 			default:
 				// 未知 API 类型时使用通用提示
 				return t("config.fetchModelsHint");

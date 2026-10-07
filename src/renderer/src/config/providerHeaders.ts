@@ -85,24 +85,41 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 // pi provider 的 api 字段必须使用官方 registry 名称；openai-completions 实际对应 Chat Completions。
 // 不再把历史别名 openai-chat-completions 作为预设暴露，避免测试通过但 pi 会话启动失败。
-export const PROVIDER_API_OPTIONS = ["openai-completions", "openai-responses", "openai-codex-responses", "anthropic-messages", "google-generative-ai", "mistral-conversations"];
+// 列表对齐 pi 1.0.4 pi-ai 的 BUILTIN_APIS（不含 image/classifier 专用协议：那些不是聊天协议，
+// 混进下拉会让用户给聊天 provider 选到不能聊天的协议）。
+export const PROVIDER_API_OPTIONS = ["openai-completions", "openai-responses", "openai-codex-responses", "azure-openai-responses", "anthropic-messages", "google-generative-ai", "google-vertex", "mistral-conversations", "bedrock-converse-stream", "pi-messages"];
+
+/**
+ * DSH（llm-pi-ai 适配器）只注册了三种协议（见 dsh 设置 schema 的 llm-pi-ai.api 联合：
+ * openai-completions / openai-responses / anthropic-messages）。它的表单与 pi 共用
+ * ApiTypeInput，所以必须单独给一份可选集，否则用户会选到 DSH 写不进配置的值。
+ */
+export const DSH_PROVIDER_API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages"];
 
 export const API_TYPE_LABELS: Record<string, string> = {
 	"openai-completions": "OpenAI Chat Completions",
 	"openai-responses": "OpenAI Responses",
 	"openai-codex-responses": "OpenAI Codex Responses",
+	"azure-openai-responses": "Azure OpenAI Responses",
 	"anthropic-messages": "Anthropic Messages",
 	"google-generative-ai": "Google Generative AI",
+	"google-vertex": "Google Vertex AI",
 	"mistral-conversations": "Mistral Conversations",
+	"bedrock-converse-stream": "Amazon Bedrock Converse",
+	"pi-messages": "Pi Messages",
 };
 
 const API_TYPE_DESCRIPTION_KEYS: Record<string, TranslationKey> = {
 	"openai-completions": "config.apiTypeDescription.openaiCompletions",
 	"openai-responses": "config.apiTypeDescription.openaiResponses",
 	"openai-codex-responses": "config.apiTypeDescription.openaiCodexResponses",
+	"azure-openai-responses": "config.apiTypeDescription.azureOpenaiResponses",
 	"anthropic-messages": "config.apiTypeDescription.anthropicMessages",
 	"google-generative-ai": "config.apiTypeDescription.googleGenerativeAi",
+	"google-vertex": "config.apiTypeDescription.googleVertex",
 	"mistral-conversations": "config.apiTypeDescription.mistralConversations",
+	"bedrock-converse-stream": "config.apiTypeDescription.bedrockConverseStream",
+	"pi-messages": "config.apiTypeDescription.piMessages",
 };
 
 export function getApiTypeDescription(apiType: string): string {

@@ -9,7 +9,44 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 // providerHeaders.ts 经 ../i18n（目录 import）依赖时，裸 node --test 会报
 // ERR_UNSUPPORTED_DIR_IMPORT，因此走完整依赖图加载 helper。
-const { getModelUserAgentOverride, getProviderHeaders, setModelUserAgentOverride, setHeaderValue } = loadTsCommonJs("src/renderer/src/config/providerHeaders.ts");
+const { getModelUserAgentOverride, getProviderHeaders, setModelUserAgentOverride, setHeaderValue, PROVIDER_API_OPTIONS, DSH_PROVIDER_API_OPTIONS, API_TYPE_LABELS, getApiTypeDescription } = loadTsCommonJs("src/renderer/src/config/providerHeaders.ts");
+
+/**
+ * API 类型下拉必须覆盖 pi 1.0.4 pi-ai 的聊天协议全集（BUILTIN_APIS 里的非 image/
+ * classifier 项），否则用户配 Azure / Vertex / Bedrock / Radius 时无从选择，只能手改 JSON。
+ *
+ * 同时锁定「不把生图与分类协议混进聊天下拉」：openrouter-images 是图片生成协议，
+ * typesafe-system-one / cloudflare-workers-ai-system-one 是分类器协议，选到它们
+ * 会让聊天 provider 拿到一个不会聊天的协议。
+ */
+test("API 类型下拉覆盖 pi 1.0.4 聊天协议全集", () => {
+	const chatProtocols = ["openai-completions", "openai-responses", "openai-codex-responses", "azure-openai-responses", "anthropic-messages", "google-generative-ai", "google-vertex", "mistral-conversations", "bedrock-converse-stream", "pi-messages"];
+	assert.deepEqual([...PROVIDER_API_OPTIONS].sort(), [...chatProtocols].sort());
+});
+
+test("API 类型下拉不含生图 / 分类器协议", () => {
+	for (const nonChat of ["openrouter-images", "typesafe-system-one", "cloudflare-workers-ai-system-one", "llama-cpp-classify"]) {
+		assert.ok(!PROVIDER_API_OPTIONS.includes(nonChat), `${nonChat} 不是聊天协议，不应出现在下拉里`);
+	}
+});
+
+/**
+ * DSH（llm-pi-ai 适配器）与 pi 共用 ApiTypeInput，但它的设置 schema 只注册了三种协议。
+ * 若 DSH 表单沿用 pi 的十项列表，用户会选到一个写不进 DSH 配置的值。
+ */
+test("DSH 表单只列 DSH 适配器注册的三种协议", () => {
+	assert.deepEqual([...DSH_PROVIDER_API_OPTIONS].sort(), ["anthropic-messages", "openai-completions", "openai-responses"].sort());
+	for (const api of DSH_PROVIDER_API_OPTIONS) {
+		assert.ok(PROVIDER_API_OPTIONS.includes(api), `DSH 协议 ${api} 应是 pi 列表的子集`);
+	}
+});
+
+test("每个下拉选项都有展示名与 i18n 描述", () => {
+	for (const api of PROVIDER_API_OPTIONS) {
+		assert.ok(API_TYPE_LABELS[api], `${api} 缺 API_TYPE_LABELS 展示名`);
+		assert.ok(getApiTypeDescription(api), `${api} 缺 i18n 描述（getApiTypeDescription 返回空串）`);
+	}
+});
 
 test("getModelUserAgentOverride: 未配置 / 空壳都返回空串（语义=继承供应商 UA）", () => {
 	assert.equal(getModelUserAgentOverride(undefined, "gpt-5"), "");

@@ -38,6 +38,22 @@ test("预设列表覆盖 pi 0.86/0.86.1 新增 provider（radius / meta）", () 
 	assert.match(radius, /url:\s*"https:\/\/pi\.dev\/docs\/latest\/providers#radius"/, "Radius 需要指向 pi 文档的 Radius 章节");
 });
 
+/**
+ * Azure 预设值必须是 provider 名 `azure`，不是协议名。
+ *
+ * 背景：pi 1.0.3 把内置 provider 键从 azure-openai-responses 改名为 azure（见
+ * pi-ai dist/providers/azure.js 的 id: "azure"），而 azure-openai-responses 降为
+ * 该 provider 下的 api 协议名。预设值用作 auth.json / models.json 的 provider 键，
+ * 写错会让 pi 找不到 provider，凭据与模型都挂不上去。
+ */
+test("Azure 预设使用 provider 名 azure（而非协议名 azure-openai-responses）", () => {
+	const azure = presetBlock("azure");
+	assert.match(azure, /label:\s*"Azure OpenAI"/, "预设需要保留 Azure 的展示名");
+	assert.match(azure, /env:\s*"AZURE_OPENAI_API_KEY"/, "Azure 仍走 AZURE_OPENAI_API_KEY");
+	// 旧的协议名不得再作为 provider 值出现（它只在 API 类型下拉里合法）。
+	assert.doesNotMatch(presetListSource(), /value:\s*"azure-openai-responses"/, "azure-openai-responses 是协议名，不能用作 provider 预设值");
+});
+
 test("预设列表 value 唯一（重复会让网格 key 撞车）", () => {
 	const values = [...presetListSource().matchAll(/value:\s*"([^"]+)"/g)].map((match) => match[1]);
 	assert.ok(values.length > 20, `预设数量异常：${values.length}`);
