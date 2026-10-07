@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { FileJson, Globe, Plus, Terminal } from "lucide-react";
+import { Bot, FileJson, Globe, Plus, Terminal } from "lucide-react";
 import { t } from "../i18n";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
@@ -41,9 +41,10 @@ const KIND_BADGE: Record<"url" | "command" | "json", { icon: typeof Globe; label
 	json: { icon: FileJson, labelKey: "config.mcp.smartAdd.kindJson" },
 };
 
-export function McpSmartAdd(props: { existingNames: ReadonlySet<string>; disabled?: boolean; onAdd: (entries: SmartAddEntry[]) => void; onManual: () => void }) {
+export function McpSmartAdd(props: { existingNames: ReadonlySet<string>; disabled?: boolean; onAdd: (entries: SmartAddEntry[]) => void; onManual: () => void; onInstallAiSetupSkill: () => Promise<boolean> }) {
 	const [raw, setRaw] = useState("");
 	const [nameOverride, setNameOverride] = useState<string | null>(null);
+	const [aiSetupState, setAiSetupState] = useState<"idle" | "installing" | "installed" | "failed">("idle");
 	const parse = useMemo(() => parseSmartAddInput(raw), [raw]);
 	const entries = useMemo(() => (parse ? buildEntries(parse, nameOverride, props.existingNames) : []), [parse, nameOverride, props.existingNames]);
 	const badge = parse ? KIND_BADGE[parse.kind] : null;
@@ -63,6 +64,7 @@ export function McpSmartAdd(props: { existingNames: ReadonlySet<string>; disable
 				<div className="text-control font-medium">{t("config.mcp.smartAdd.title")}</div>
 				<p className="mt-0.5 text-micro text-muted-foreground">{t("config.mcp.smartAdd.hint")}</p>
 				<p className="text-micro text-muted-foreground">{t("config.mcp.smartAdd.authHint")}</p>
+				<p className="text-micro text-muted-foreground">{t("config.mcp.secretStorageHint")}</p>
 			</div>
 			<Input
 				value={raw}
@@ -99,6 +101,19 @@ export function McpSmartAdd(props: { existingNames: ReadonlySet<string>; disable
 				<Button variant="ghost" size="sm" onClick={props.onManual} disabled={props.disabled}>
 					{t("config.mcp.smartAdd.manual")}
 				</Button>
+			</div>
+			{/* AI 代配入口：不会配的用户交给会话里的 AI（技能教它查官方文档 + 写 mcp.json + 验证）。 */}
+			<div className="mt-1 rounded-sm border border-border-subtle bg-bg-hover px-2.5 py-2">
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<div className="flex min-w-0 items-center gap-1.5">
+						<Bot size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+						<span className="text-control font-medium">{t("config.mcp.catalog.aiSetup.title")}</span>
+					</div>
+					<Button variant="outline" size="xs" disabled={props.disabled || aiSetupState === "installing"} onClick={() => void props.onInstallAiSetupSkill().then((ok) => setAiSetupState(ok ? "installed" : "failed"))}>
+						{t("config.mcp.catalog.aiSetup.install")}
+					</Button>
+				</div>
+				<p className="mt-1 text-micro text-muted-foreground">{t(aiSetupState === "installed" ? "config.mcp.catalog.aiSetup.installed" : aiSetupState === "failed" ? "config.mcp.catalog.aiSetup.failed" : "config.mcp.catalog.aiSetup.desc")}</p>
 			</div>
 		</div>
 	);

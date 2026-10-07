@@ -711,6 +711,8 @@ export const ipcChannels = {
 	configInstallUsageSkill: "config:install-usage-skill",
 	/** 安装内置「图片生成」技能模板到 ~/.pi/agent/skills/image-gen */
 	configInstallImageGenSkill: "config:install-image-gen-skill",
+	/** 安装内置「MCP 配置助手」技能模板到 ~/.pi/agent/skills/mcp-setup */
+	configInstallMcpSetupSkill: "config:install-mcp-setup-skill",
 	// ===== 配置备份（config-backup） =====
 	/** 列出全部配置备份（仅元数据，不读文件内容）。 */
 	configBackupList: "config-backup:list",

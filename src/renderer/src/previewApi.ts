@@ -1614,6 +1614,7 @@ export function createPreviewApi(): PiDesktopApi {
 			testUsageProbe: async () => ({ success: false, error: "preview" }),
 			installUsageSkill: async () => ({ success: false, error: "preview" }),
 			installImageGenSkill: async () => ({ success: false, error: "preview" }),
+			installMcpSetupSkill: async () => ({ success: false, error: "preview" }),
 		},
 		configBackups: {
 			list: async () => ({ ok: true, backups: [] }),
