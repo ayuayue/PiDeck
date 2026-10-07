@@ -176,7 +176,27 @@ import { flattenFiles, fileNodeDragPayloadToRef, mergeCommands, getToolFilePath,
 const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
 import { createDefaultAppSettings } from "../../shared/types";
 import { hydrateImageContents } from "../../shared/imageContentSrc";
-import type { AgentRuntimeState, AgentTab, SessionRuntimeTarget, AppSettings, ChatMessage, FileTreeNode, ImageContent, PiCommand, Project, AgentBackend, SessionLaunchPreferences, SessionRecord, SessionSummary, ComposerAgentMode, TerminalTarget, GitBranchInfo, FocusTargetPayload } from "../../shared/types";
+import type {
+	AgentRuntimeState,
+	AgentTab,
+	SessionRuntimeTarget,
+	AppSettings,
+	ChatMessage,
+	FileTreeNode,
+	ImageContent,
+	PiCommand,
+	Project,
+	AgentBackend,
+	SessionLaunchPreferences,
+	SessionRecord,
+	SessionSummary,
+	ComposerAgentMode,
+	TerminalTarget,
+	TerminalThemeId,
+	GitBranchInfo,
+	FocusTargetPayload,
+} from "../../shared/types";
+import type { TerminalDockSettings } from "./components/terminal/TerminalDock";
 
 export function App() {
 	if (missingElectronPreload) {
@@ -677,6 +697,31 @@ export function App() {
 		terminalStatesByOwner,
 		prune: pruneTerminalDockState,
 	} = useTerminalDock(terminalOwner);
+	// 终端外观设置：App 级单份，随 AppSettings 持久化；dock 只收子集 props，不自读 settings
+	const terminalSettings = useMemo<TerminalDockSettings>(
+		() => ({
+			themeId: settings.terminalTheme,
+			fontFamily: settings.terminalFontFamily,
+			fontSize: settings.terminalFontSize,
+			scrollback: settings.terminalScrollback,
+			cursorStyle: settings.terminalCursorStyle,
+			cursorBlink: settings.terminalCursorBlink,
+			copyOnSelect: settings.terminalCopyOnSelect,
+			paddingY: settings.terminalPaddingY,
+			confirmClose: settings.terminalConfirmClose,
+			startupCommand: settings.terminalStartupCommand,
+		}),
+		[settings.terminalTheme, settings.terminalFontFamily, settings.terminalFontSize, settings.terminalScrollback, settings.terminalCursorStyle, settings.terminalCursorBlink, settings.terminalCopyOnSelect, settings.terminalPaddingY, settings.terminalConfirmClose, settings.terminalStartupCommand],
+	);
+	const setTerminalTheme = useCallback(
+		(themeId: TerminalThemeId) => {
+			void api.settings
+				.update({ terminalTheme: themeId })
+				.then(setSettings)
+				.catch(() => showToast(t("settings.terminal.themeChangeFailed"), 3000));
+		},
+		[api, showToast],
+	);
 	const [expandedSidebarProjects, setExpandedSidebarProjects] = useState<Set<string>>(new Set());
 	const expandedSidebarProjectsRef = useRef(expandedSidebarProjects);
 	expandedSidebarProjectsRef.current = expandedSidebarProjects;
@@ -2359,6 +2404,8 @@ export function App() {
 			setTerminalOpenByOwnerKey,
 			setTerminalCollapsedByOwnerKey,
 			setTerminalHeight,
+			terminalSettings,
+			onTerminalThemeChange: setTerminalTheme,
 			environmentDialog: Boolean(environmentDialog),
 			showNotice,
 			api,
@@ -2405,6 +2452,8 @@ export function App() {
 			setPreviewImage,
 			setTerminalCollapsedByOwnerKey,
 			setTerminalHeight,
+			setTerminalTheme,
+			terminalSettings,
 			setTerminalOpenByOwnerKey,
 			showToast,
 			terminalStatesByOwner,
@@ -2454,6 +2503,8 @@ export function App() {
 							height={terminalRowHeight}
 							maxHeight={availableTerminalHeight ?? 120}
 							terminal={api.terminal}
+							terminalSettings={terminalSettings}
+							onThemeChange={setTerminalTheme}
 							ownerKey={terminalOwner ? terminalOwnerKey(terminalOwner) : undefined}
 							onOpenChange={setTerminalOpenForOwner}
 							onCollapsedChange={setTerminalCollapsedForOwner}

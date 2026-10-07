@@ -1,8 +1,9 @@
 import { createContext, useContext, useMemo, type MutableRefObject, type ReactNode, type RefObject } from "react";
-import type { AgentTab, AgentUiResponse, ChatMessage, GitBranchInfo, ImageContent, Project } from "../../../../shared/types";
+import type { AgentTab, AgentUiResponse, ChatMessage, GitBranchInfo, ImageContent, Project, TerminalThemeId } from "../../../../shared/types";
 import type { QueuedPrompt } from "../../hooks/useQueuedPrompt";
 import type { NoticeId, NoticeKind } from "../../utils/notice";
 import type { TerminalDockStateByOwner } from "../../terminalDockState";
+import type { TerminalDockSettings } from "../terminal/TerminalDock";
 
 /** 打开会话文件时由栏级 injector 绑定的解析与授权上下文。 */
 export type SessionFileOpenContext = {
@@ -73,6 +74,10 @@ export type SessionPaneServices = {
 	setTerminalCollapsedByOwnerKey: (ownerKey: string, collapsed: boolean) => void;
 	/** 回写终端分屏高度（全局单份，useTerminalDock 内部持久化） */
 	setTerminalHeight: (height: number) => void;
+	/** 终端外观设置（App 级单份，随 AppSettings 持久化） */
+	terminalSettings: TerminalDockSettings;
+	/** dock 内主题菜单写回设置（单一数据源落点） */
+	onTerminalThemeChange: (themeId: TerminalThemeId) => void;
 	environmentDialog: boolean;
 	/** 修改内置对话区（Chat）的聊天记录保存目录（弹选择器 + 主进程写入 + 重扫会话） */
 	changeChatPath: (project: Project) => Promise<void>;

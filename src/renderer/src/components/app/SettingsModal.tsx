@@ -3,7 +3,7 @@ import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom } from "../../atoms/update-atoms";
 import { useSettingsFocus } from "./settings/useSettingsFocus.ts";
-import { Settings2, Network, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, X } from "lucide-react";
+import { Settings2, Network, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import { applyAppearanceAttributes, type AppearanceSettings } from "../../themeAppearance";
 import { applyCustomThemeTokens, applyFontSizeAttributes } from "../../hooks/appearance/useAppAppearance";
@@ -45,6 +45,7 @@ const ProcessMetricsTab = lazy(() => import("./settings/ProcessMetricsTab").then
 const UsageStatsTab = lazy(() => import("./settings/UsageStatsTab").then((m) => ({ default: m.UsageStatsTab })));
 const VisionBridgeSettingsTab = lazy(() => import("./settings/VisionBridgeSettingsTab").then((m) => ({ default: m.VisionBridgeSettingsTab })));
 const ImageGenSettingsTab = lazy(() => import("./settings/ImageGenSettingsTab").then((m) => ({ default: m.ImageGenSettingsTab })));
+const TerminalTab = lazy(() => import("./settings/TerminalTab").then((m) => ({ default: m.TerminalTab })));
 
 // 配置管理分区（pi 配置文件管理）作为独立 chunk 懒加载：首开设置窗口不加载 ConfigModal 数组。
 const ConfigPane = lazy(() => import("../../ConfigModal").then((m) => ({ default: m.ConfigPane })));
@@ -242,6 +243,7 @@ const TAB_META: Record<SettingsTabId, { labelKey: TranslationKey; icon: ReactNod
 	common: { labelKey: SETTINGS_TAB_LABEL_KEYS.common, icon: <Settings2 size={16} /> },
 	shortcuts: { labelKey: SETTINGS_TAB_LABEL_KEYS.shortcuts, icon: <Keyboard size={16} /> },
 	appearance: { labelKey: SETTINGS_TAB_LABEL_KEYS.appearance, icon: <Brush size={16} /> },
+	terminal: { labelKey: SETTINGS_TAB_LABEL_KEYS.terminal, icon: <TerminalSquare size={16} /> },
 	proxy: { labelKey: SETTINGS_TAB_LABEL_KEYS.proxy, icon: <Network size={16} /> },
 	web: { labelKey: SETTINGS_TAB_LABEL_KEYS.web, icon: <Globe size={16} /> },
 	editors: { labelKey: SETTINGS_TAB_LABEL_KEYS.editors, icon: <FileCode2 size={16} /> },
@@ -746,6 +748,15 @@ function SettingsModalContent(props: SettingsModalProps) {
 								<TabsContent value="appearance" className="settings-panel min-w-0">
 									<Suspense fallback={<SettingsTabLoading />}>
 										<AppearanceTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} perAreaFontSize={perAreaFontSize} setPerAreaFontSize={setPerAreaFontSize} visionEnabled={visionDraft.draft?.enabled} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 终端设置 tab ── */}
+							{activeTab === "terminal" && (
+								<TabsContent value="terminal" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<TerminalTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
 									</Suspense>
 								</TabsContent>
 							)}

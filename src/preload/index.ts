@@ -1415,6 +1415,7 @@ const api = {
 		resize: (tabId: string, cols: number, rows: number) => ipcRenderer.invoke(ipcChannels.terminalResize, tabId, cols, rows) as Promise<void>,
 		close: (tabId: string) => ipcRenderer.invoke(ipcChannels.terminalClose, tabId) as Promise<void>,
 		shells: () => ipcRenderer.invoke(ipcChannels.terminalShells) as Promise<{ shell: string; label: string; available: boolean }[]>,
+		fonts: () => ipcRenderer.invoke(ipcChannels.terminalFonts) as Promise<string[]>,
 		onData: (callback: (payload: TerminalDataEvent) => void) => subscribe(ipcChannels.terminalData, callback),
 		onExit: (callback: (payload: TerminalExitEvent) => void) => subscribe(ipcChannels.terminalExit, callback),
 	},

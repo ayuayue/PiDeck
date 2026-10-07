@@ -223,6 +223,17 @@ let previewSettings: AppSettings = {
 	piRpcOffline: false,
 	piRpcNoExtensions: false,
 	piRpcNoSkills: false,
+	// 终端：与主进程 defaultSettings 保持一致（预览壳不真实枚举字体，仅保持设置项形状完整）
+	terminalTheme: "inherit",
+	terminalFontSize: null,
+	terminalFontFamily: "",
+	terminalScrollback: 5000,
+	terminalCursorStyle: "block",
+	terminalCursorBlink: true,
+	terminalCopyOnSelect: false,
+	terminalPaddingY: 8,
+	terminalConfirmClose: "running",
+	terminalStartupCommand: "",
 };
 
 export function createPreviewApi(): PiDesktopApi {
@@ -1699,6 +1710,7 @@ export function createPreviewApi(): PiDesktopApi {
 				{ shell: "pwsh", label: "pwsh", available: true },
 				{ shell: "cmd", label: "cmd", available: true },
 			],
+			fonts: async () => [],
 		},
 		feishu: {
 			connect: async () => ({ success: true, message: "预览模式" }),

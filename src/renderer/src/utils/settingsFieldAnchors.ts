@@ -37,6 +37,31 @@ export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
 		labelKey: "settings.toastDuration",
 		keywords: ["toast", "通知时长", "提示消失", "弹出太快", "notification duration"],
 	},
+	// ── 终端 ──────────────────────────────────────────────────────
+	{
+		tab: "terminal",
+		slug: "terminal-font-size",
+		labelKey: "settings.terminal.fontSize",
+		keywords: ["终端字号", "字号", "字体大小", "terminal font size", "font size"],
+	},
+	{
+		tab: "terminal",
+		slug: "terminal-font-family",
+		labelKey: "settings.terminal.fontFamily",
+		keywords: ["终端字体", "等宽字体", "字体", "terminal font", "font family", "monospace"],
+	},
+	{
+		tab: "terminal",
+		slug: "terminal-padding-y",
+		labelKey: "settings.terminal.paddingY",
+		keywords: ["内边距", "终端边距", "间距", "terminal padding", "padding"],
+	},
+	{
+		tab: "terminal",
+		slug: "terminal-scrollback",
+		labelKey: "settings.terminal.scrollback",
+		keywords: ["回滚", "滚动上限", "历史行数", "scrollback", "terminal history"],
+	},
 	// ── 开发设置 ──────────────────────────────────────────────────────
 	{
 		tab: "dev",

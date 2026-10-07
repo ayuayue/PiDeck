@@ -29,15 +29,17 @@ test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 	// xterm 就绪（node-pty spawn 真实 shell）
 	await expect(dock.locator(".xterm").first()).toBeVisible({ timeout: 20_000 });
 
-	// shell 菜单：点击「选择 Shell」触发器，菜单出现；再点一次触发器收起
-	//（菜单的 fixed backdrop 会拦截后续点击）。
+	// shell 菜单：点击「选择 Shell」触发器，菜单出现；再点一次触发器收起。
+	// 菜单内容用 Radix Popover portal 到 body（避开 Panel overflow 裁剪），
+	// 所以不能在 dock 范围内找；用 popper wrapper + 标题文本定位。
 	// xterm 的画布层有时会盖住 header 按钮（<div> intercepts pointer events），
 	// 菜单开合属于纯渲染层状态机，用 dispatchEvent 直发规避画布层遮挡。
 	const shellTrigger = dock.getByTitle("选择 Shell");
 	await shellTrigger.dispatchEvent("click");
-	await expect(dock.locator(".terminal-shell-menu")).toBeVisible({ timeout: 5000 });
+	const shellMenu = window.locator("[data-radix-popper-content-wrapper]").filter({ hasText: "选择 Shell" });
+	await expect(shellMenu).toBeVisible({ timeout: 5000 });
 	await shellTrigger.dispatchEvent("click");
-	await expect(dock.locator(".terminal-shell-menu")).toBeHidden({ timeout: 3000 });
+	await expect(shellMenu).toBeHidden({ timeout: 3000 });
 
 	// 折叠 dock：「收起终端」按钮 → collapsed 类出现
 	await dock.getByTitle("收起终端").dispatchEvent("click");

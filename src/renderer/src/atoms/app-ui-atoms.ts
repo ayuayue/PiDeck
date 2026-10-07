@@ -25,7 +25,7 @@ export const logoStyleAtom = atom<"classic" | "pi-tui">("pi-tui");
 export const activeEditorFileAtom = atom<string | null>(null);
 
 /** 与 SettingsModal 侧栏 tab 对齐；深链/焦点目标用同一套 id，避免 Git 去设置落到上次记住的非「常用」页。 */
-export type SettingsTabId = "common" | "shortcuts" | "appearance" | "proxy" | "web" | "editors" | "git" | "dev" | "im" | "pet" | "notification" | "storage" | "backup" | "usage" | "process" | "vision" | "imagegen";
+export type SettingsTabId = "common" | "shortcuts" | "appearance" | "terminal" | "proxy" | "web" | "editors" | "git" | "dev" | "im" | "pet" | "notification" | "storage" | "backup" | "usage" | "process" | "vision" | "imagegen";
 
 /**
  * 设置页内可直达的锚点 slug（对应 DOM 上的 `id="settings-section-<slug>"`）。
