@@ -53,18 +53,20 @@ export function CopyButton(props: { text: string }) {
 }
 
 /** 密码输入框：支持显示/隐藏 + 复制 */
-export function SecretInput(props: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function SecretInput(props: { value: string; onChange: (v: string) => void; placeholder?: string; ariaLabel?: string; disabled?: boolean }) {
 	const [visible, setVisible] = useState(false);
 	return (
 		<div className="flex w-full items-center gap-1.5">
 			<Input
 				type={visible ? "text" : "password"}
+				aria-label={props.ariaLabel}
+				disabled={props.disabled}
 				value={props.value}
 				onChange={(e) => props.onChange(e.target.value)}
 				placeholder={props.placeholder ?? t("config.apiKeyPlaceholder")}
 				className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 font-mono text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 			/>
-			<Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={() => setVisible(!visible)} title={visible ? t("common.hide") : t("common.show")} aria-label={visible ? t("common.hide") : t("common.show")}>
+			<Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={() => setVisible(!visible)} title={visible ? t("common.hide") : t("common.show")} aria-label={visible ? t("common.hide") : t("common.show")} disabled={props.disabled}>
 				{visible ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
 			</Button>
 			<CopyButton text={props.value} />

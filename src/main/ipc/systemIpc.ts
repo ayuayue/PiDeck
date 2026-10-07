@@ -2354,6 +2354,17 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		return { success: false, error: result.error };
 	});
 
+	// 内置「MCP 配置助手」技能安装入口：MCP 页「让 AI 帮你配」按钮触发（幂等覆盖，重装即更新模板）。
+	ipcMain.handle(ipcChannels.configInstallMcpSetupSkill, async () => {
+		const result = await skillManager.installMcpSetupTemplate();
+		if (result.success) {
+			void appLogger.info("skill", "MCP setup skill template installed", { path: result.path });
+			return { success: true, path: result.path };
+		}
+		void appLogger.warn("skill", "Failed to install mcp-setup skill template", { error: result.error });
+		return { success: false, error: result.error };
+	});
+
 	// ── 开发者控制台 ───────────────────────────────────────────────
 
 	ipcMain.handle(ipcChannels.appToggleDevTools, () => toggleMainWindowDevTools(getMainWindow()));

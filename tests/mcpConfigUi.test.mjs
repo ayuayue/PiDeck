@@ -60,17 +60,65 @@ test("McpTab 保存必须带乐观锁 revision，冲突时提示并重载", () =
 	assert.match(tab, /if \(result\.conflict\) \{[\s\S]{0,240}?t\("config\.mcp\.conflict"\)[\s\S]{0,80}?await load\(\);/);
 });
 
-test("登出按凭据显示；auth.provider 获得全局创建入口（项目层只读）", () => {
+test("MCP service catalog stays separate from configured status; auth.provider is global and advanced-only; AI setup entry is wired", () => {
 	const tab = readFileSync("src/renderer/src/config/McpTab.tsx", "utf8");
-	// C：快照解析已存凭据 server 名（读 mcp-auth.json 键名），登出按钮据此显示
-	// D：开关仅全局（项目层被 pi 校验拒绝）；供应商数据来自 auth.json 键名，凭据值不进渲染层
-	// 认证方式选择器（deriveAuthMode + knownProviders）在连接与认证段内
-	assert.match(tab, /deriveAuthMode\(editingDef\)/);
-	assert.match(tab, /patchEditing\(\{ auth: \{ provider: knownProviders\[0\] \} \}\)/);
+	const list = readFileSync("src/renderer/src/config/McpResourceViews.tsx", "utf8");
+	const templateForm = readFileSync("src/renderer/src/config/McpServiceTemplateForm.tsx", "utf8");
+	const smartAdd = readFileSync("src/renderer/src/config/McpSmartAdd.tsx", "utf8");
+	const ipc = readFileSync("src/shared/ipc.ts", "utf8");
+	const preload = readFileSync("src/preload/index.ts", "utf8");
+	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
+	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
+	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
+	const advancedStart = tab.indexOf('t("config.mcp.section.advanced")');
+	assert.ok(advancedStart >= 0);
+	// 目录分组呈现：按 category 聚类，已配置条目打勾，不再与已配置服务混在同一个状态列表里
+	assert.match(list, /MCP_SERVICE_CATALOG\.filter\(\(entry\) => entry\.category === category\)/);
+	assert.match(list, /McpCatalogConfiguredMark/);
+	assert.match(tab, /selectedTemplateDefinition \? \(/);
+	assert.match(tab, /McpServiceTemplateForm/);
+	// 表单由认证声明驱动：必填密钥 / 可选密钥 / OAuth / none 四形态
+	assert.match(templateForm, /catalogNeedsCredential/);
+	assert.match(templateForm, /buildCatalogDefinition/);
+	assert.match(templateForm, /SecretInput/);
+	assert.match(templateForm, /config\.mcp\.template\.plaintextNotice/);
+	assert.match(templateForm, /config\.mcp\.catalog\.oauthHint/);
+	assert.match(templateForm, /config\.mcp\.catalog\.noAuthHint/);
+	assert.match(templateForm, /uniqueServerName\(props\.entry\.defaultName, props\.existingNames\)/);
+	assert.match(templateForm, /props\.existingNames\.has\(trimmedName\)/);
+	// AI 代配入口：MCP 页安装内置 mcp-setup 技能；IPC 三处同步（通道常量/preload 白名单/main handler）
+	assert.match(smartAdd, /t\("config\.mcp\.catalog\.aiSetup\.install"\)/);
+	assert.match(tab, /installMcpSetupSkill/);
+	assert.match(ipc, /configInstallMcpSetupSkill: "config:install-mcp-setup-skill"/);
+	assert.match(preload, /installMcpSetupSkill:/);
+	assert.match(systemIpc, /ipcChannels\.configInstallMcpSetupSkill/);
+	assert.ok(readFileSync("resources/skills/mcp-setup/SKILL.md", "utf8").includes("name: mcp-setup"));
+	// 密钥明文提示双语齐全（目录表单 + 通用高级字段共用）
+	assert.match(tab, /config\.mcp\.secretStorageHint/);
+	assert.match(smartAdd, /t\("config\.mcp\.secretStorageHint"\)/);
+	for (const key of ["config.mcp.template.plaintextNotice", "config.mcp.secretStorageHint", "config.mcp.catalog.category.dev", "config.mcp.catalog.oauthHint", "config.mcp.catalog.aiSetup.installed"]) {
+		assert.ok(zh.includes(`"${key}"`), `zh-CN missing ${key}`);
+		assert.ok(en.includes(`"${key}"`), `en-US missing ${key}`);
+	}
+	// 旧的三模板专有 key 已随目录化清理
+	assert.ok(!zh.includes('"config.mcp.template.linear"'), "zh-CN still has legacy template key");
+	assert.doesNotMatch(tab, /config\.mcp\.auth\.method|deriveAuthMode|extractApiKey/);
+	assert.ok(tab.indexOf("config.mcp.providerAuth.provider", advancedStart) > advancedStart);
+	assert.doesNotMatch(tab.slice(0, advancedStart), /config\.mcp\.providerAuth\.provider/);
+	assert.match(tab.slice(advancedStart), /transport === "http" && !isProjectScope/);
+	assert.match(tab.slice(advancedStart), /isProjectScope && usesProviderAuth\(editingDef\)/);
 	assert.match(tab, /api\.config\n?\s*\.getAuth\(\)|getAuth: \(\) => Promise/);
-	// 项目作用域：认证方式选择器仅远程 HTTP + 全局；项目层只读展示
-	assert.match(tab, /transport === "http" && !isProjectScope \? \([\s\S]{0,200}?config\.mcp\.auth\.method/);
-	assert.match(tab, /transport === "http" && isProjectScope && usesProviderAuth\(editingDef\) \?/);
+	assert.match(tab, /snapshot\?\.oauthCredentialNames/);
+	assert.match(tab, /setLogoutConfirm\(selected\)/);
+	// 登录过程信息统一收在「连接与认证」块：复制链接出口 + 结构化结果（原始 CLI 输出经 sanitize 上屏），
+	// 左栏不再渲染原始输出（历史问题：超长授权 URL 堆在列表底部）。
+	assert.match(tab, /config\.mcp\.oauth\.copyLink/);
+	assert.match(tab, /clipboard\.writeText\(loginUrl\.url\)/);
+	assert.match(tab, /sanitizeLoginOutput\(loginResult\.output\)/);
+	assert.match(tab, /loginResult\.kind === "logout"/);
+	assert.doesNotMatch(tab, /\{loginResult\.server\}: \{loginResult\.output/);
+	assert.match(zh, /"config\.mcp\.oauth\.browserOpened"/);
+	assert.match(en, /"config\.mcp\.oauth\.browserOpened"/);
 });
 
 test("dirty-mark helpers include config:mcp", () => {
@@ -132,10 +180,14 @@ test("MCP 表单切到 pi 0.99 内置 MCP schema：exposure/timeout/enabled 替�
 	// pi 0.99 不再识别 lifecycle/directTools：表单停止写入这些死字段
 	assert.doesNotMatch(tab, /LIFECYCLE_OPTIONS/);
 	assert.doesNotMatch(tab, /config\.mcp\.field\.lifecycle/);
-	// 停用语义 = pi 语义：只写 enabled；本层已有条目启用时删键，继承条目写最小有效停用定义
+	// 停用语义 = pi 语义：只写 enabled；本层已有条目启用时删键，继承条目写最小有效停用定义。
+	// 启停开关即时落盘（与智能添加同语义）并自动重检——只写草稿会让用户感知「开了没反应」。
+	// 键移除逻辑抽纯函数 applyEnabledToggle（回归：开启分支曾漏删 enabled:false，服务永远开不回来）。
 	assert.doesNotMatch(tab, /disabled: !checked/);
 	assert.doesNotMatch(tab, /disabled: disabled \? true : false/);
-	assert.match(tab, /upsert\(item\.name, disabled \? \{ \.\.\.kept, enabled: false \} : kept\)/);
+	assert.match(tab, /applyEnabledToggle\(existing, disabled\)/);
+	assert.match(tab, /const saved = await persistServers\(next\);/);
+	assert.match(tab, /if \(saved\) void runStatusCheck\(\);/);
 	assert.match(tab, /buildInheritedDisableOverride/);
 	assert.match(resourceViews, /definition\.enabled === false/);
 	assert.match(resourceViews, /hasLegacyDisabledField/);

@@ -1,13 +1,18 @@
 {
   "schemaVersion": 1,
   "version": "1.0.0",
-  "bundleSha256": "fa8c4ca6a0c881c8a8f605bae65f634ef2bd614d7c50b246e3dd436d037d9911",
-  "fileCount": 3,
+  "bundleSha256": "e13aecfcca0054a70df77def41f061c5b2cb016cd25b3aa2d2524ff2976c8f26",
+  "fileCount": 4,
   "files": [
     {
       "name": "image-gen/SKILL.md",
       "sha256": "44be5e6782d1665b32801a20de92f4f1ccba20a26f0e6134f505ded36a1b6862",
       "bytes": 8177
+    },
+    {
+      "name": "mcp-setup/SKILL.md",
+      "sha256": "5e786339e2af6defbcbf7a047e8cee662b88afc25930f46b01e1c1002c102329",
+      "bytes": 4767
     },
     {
       "name": "pideck-doctor/SKILL.md",

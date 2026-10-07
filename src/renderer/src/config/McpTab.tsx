@@ -7,7 +7,7 @@
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, Trash2, PlugZap, RefreshCw, TriangleAlert, ChevronRight, LogIn, LogOut } from "lucide-react";
+import { Loader2, Plus, Trash2, PlugZap, RefreshCw, TriangleAlert, ChevronRight, Copy, LogIn, LogOut } from "lucide-react";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
 import { Button } from "../components/ui-shadcn/button";
@@ -15,16 +15,18 @@ import { Input } from "../components/ui-shadcn/input";
 import { Switch } from "../components/ui-shadcn/switch";
 import { Label } from "../components/ui-shadcn/label";
 import { Textarea } from "../components/ui-shadcn/textarea";
-import { ConfigSelect, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
+import { ConfigSelect, openDocsInSystemBrowser } from "./ConfigShared";
 import { ConfirmDialog } from "../components/ui-shadcn/ConfirmDialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui-shadcn/collapsible";
 import { detectThirdPartyMcpExtensions, hasLegacyDisabledField, inferMcpTransport, isMcpServerDisabled, McpServerListPane, usesMcpOAuth, usesProviderAuth, type ThirdPartyMcpExtension } from "./McpResourceViews";
-import { argsToText, buildMcpDisplayServers, isMcpServerName, recordToText, textToArgs, textToRecord } from "./mcpForm";
+import { argsToText, applyEnabledToggle, buildMcpDisplayServers, isMcpServerName, recordToText, sanitizeLoginOutput, textToArgs, textToRecord } from "./mcpForm";
 import { resolveExposureAliases } from "../../../shared/mcpExposure";
 import { isProjectUntrustedError } from "./projectResourceErrors";
 import type { McpCliListResult, McpConfigFile, McpConfigScope, McpConfigSnapshot, McpExposure, McpOAuth, McpProbeResult, McpServerDefinition, McpServerListItem, McpServerTransport } from "../../../shared/types/mcp";
 import { ResourceImportDialog } from "./ResourceImportDialog";
 import { McpSmartAdd, type SmartAddEntry } from "./McpSmartAdd";
+import { McpServiceTemplateForm } from "./McpServiceTemplateForm";
+import { MCP_SERVICE_CATALOG } from "./mcpServiceCatalog";
 
 const api = (
 	window as unknown as {
@@ -32,6 +34,7 @@ const api = (
 			config: {
 				getMcp: (scope?: McpConfigScope) => Promise<McpConfigSnapshot>;
 				getAuth: () => Promise<{ raw: string; parsed: Record<string, unknown>; diagnostic?: unknown }>;
+				installMcpSetupSkill: () => Promise<{ success: boolean; path?: string; error?: string }>;
 				saveMcp: (data: McpConfigFile, scope?: McpConfigScope, expectedRevision?: string) => Promise<{ valid: boolean; error?: string; conflict?: boolean }>;
 				probeMcp: (definition: McpServerDefinition) => Promise<McpProbeResult>;
 				/** pi mcp CLI：真实连接检测 + OAuth 登录/登出（仅命令路线，见计划 M2）。 */
@@ -107,21 +110,6 @@ function buildInheritedDisableOverride(definition: McpServerDefinition): { defin
 	return { definition: { enabled: false }, sensitive: false };
 }
 
-/** 认证模式推导：从 definition 判断当前使用哪种认证（auto/apikey/provider）。 */
-function deriveAuthMode(def: McpServerDefinition): "auto" | "apikey" | "provider" {
-	if (usesProviderAuth(def)) return "provider";
-	const headers = def.headers ?? {};
-	if (typeof headers.Authorization === "string" && headers.Authorization.trim()) return "apikey";
-	if (typeof headers.authorization === "string" && headers.authorization.trim()) return "apikey";
-	return "auto";
-}
-
-/** 提取 Authorization 头里的裸 key 值（去掉 Bearer 前缀）。 */
-function extractApiKey(def: McpServerDefinition): string {
-	const raw = def.headers?.Authorization ?? def.headers?.authorization ?? "";
-	return raw.replace(/^Bearer\s+/i, "").trim();
-}
-
 export const McpTab = forwardRef<
 	McpTabHandle,
 	{
@@ -157,6 +145,7 @@ export const McpTab = forwardRef<
 	const [snapshot, setSnapshot] = useState<McpConfigSnapshot | null>(null);
 	const [writable, setWritable] = useState<McpConfigFile>(EMPTY_FILE);
 	const [selected, setSelected] = useState<string | null>(null);
+	const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
 	const [creating, setCreating] = useState<{ name: string; definition: McpServerDefinition } | null>(null);
 	const [probe, setProbe] = useState<McpProbeResult | null>(null);
 	const [probing, setProbing] = useState(false);
@@ -169,7 +158,7 @@ export const McpTab = forwardRef<
 	/** 登录过程中捕获的授权 URL（内嵌兑底链接，不弹 toast；见计划 M6）。 */
 	const [loginUrl, setLoginUrl] = useState<{ server: string; url: string } | null>(null);
 	/** 最近一次登录/登出结果（行内展示 output 尾部；新动作会覆盖）。 */
-	const [loginResult, setLoginResult] = useState<{ server: string; ok: boolean; output: string } | null>(null);
+	const [loginResult, setLoginResult] = useState<{ kind: "login" | "logout"; server: string; ok: boolean; output: string } | null>(null);
 	/** 待确认登出的 server：登出会删除同一 URL 共享的凭据，必须二次确认。 */
 	const [logoutConfirm, setLogoutConfirm] = useState<string | null>(null);
 	/** 第三方接管型 MCP 扩展（pi-mcp-adapter 等）识别结果；null = 探测失败（横幅降级，不阻塞编辑）。 */
@@ -262,6 +251,7 @@ export const McpTab = forwardRef<
 	}, [selected, creating]);
 
 	const selectedItem = displayServers.find((item) => item.name === selected) ?? null;
+	const selectedTemplateDefinition = selectedTemplate ? MCP_SERVICE_CATALOG.find((entry) => entry.id === selectedTemplate) : null;
 	const editingDef: McpServerDefinition = creating ? creating.definition : (selectedItem?.definition ?? blankDefinition("stdio"));
 	const transport = inferMcpTransport(editingDef);
 	/**
@@ -292,6 +282,7 @@ export const McpTab = forwardRef<
 	);
 
 	const startCreate = () => {
+		setSelectedTemplate(null);
 		setCreating({ name: "", definition: blankDefinition("stdio") });
 		setSelected(null);
 		setProbe(null);
@@ -301,6 +292,7 @@ export const McpTab = forwardRef<
 	const openSmartAdd = () => {
 		setCreating(null);
 		setSelected(null);
+		setSelectedTemplate(null);
 		setProbe(null);
 	};
 
@@ -386,20 +378,27 @@ export const McpTab = forwardRef<
 	 * - 继承自其他层（项目页里来自全局）：停用写「有效的最小停用定义」——必须有有效传输，
 	 *   因为 pi 对 `{enabled:false}` 这种无传输条目直接判非法并跳过；不复制 headers/env/oauth/auth 凭据。
 	 */
-	const toggleDisabled = (item: McpServerListItem, disabled: boolean) => {
+	/** 启停开关：立即落盘（与智能添加/删除同语义，所见即所得），成功后自动重检让状态行立刻反映。
+	 * 历史缺陷：只写草稿等顶部保存，用户切开关后状态行不变，感知为「开了没反应/再也开不回来」。 */
+	const toggleDisabled = async (item: McpServerListItem, disabled: boolean) => {
 		const existing = writable.mcpServers?.[item.name];
+		let next: McpConfigFile | null = null;
 		if (existing) {
-			const { disabled: _ignored, ...kept } = existing as McpServerDefinition & { disabled?: unknown };
-			upsert(item.name, disabled ? { ...kept, enabled: false } : kept);
+			next = { ...writable, mcpServers: { ...(writable.mcpServers ?? {}), [item.name]: applyEnabledToggle(existing, disabled) } };
+		} else if (disabled) {
+			const inherit = buildInheritedDisableOverride(item.definition);
+			if (inherit.sensitive) {
+				setError(t("config.mcp.inherited.sensitiveUrl"));
+				return;
+			}
+			next = { ...writable, mcpServers: { ...(writable.mcpServers ?? {}), [item.name]: inherit.definition } };
+		} else {
+			// 纯继承条目在本层没有覆盖，「启用」无操作对象（本层停用才有意义）
 			return;
 		}
-		if (!disabled) return;
-		const inherit = buildInheritedDisableOverride(item.definition);
-		if (inherit.sensitive) {
-			setError(t("config.mcp.inherited.sensitiveUrl"));
-			return;
-		}
-		upsert(item.name, inherit.definition);
+		applyWritable(next);
+		const saved = await persistServers(next);
+		if (saved) void runStatusCheck();
 	};
 
 	/** 撤销「待删除」：把磁盘上的原定义放回草稿；若草稿因此与磁盘一致则清除脏标记。 */
@@ -507,9 +506,9 @@ export const McpTab = forwardRef<
 				showNotice(t("config.mcp.oauth.loginOk"), 5000, "info");
 				await runStatusCheck();
 			}
-			setLoginResult({ server, ok: result.ok, output: result.output });
+			setLoginResult({ kind: "login", server, ok: result.ok, output: result.output });
 		} catch (caught) {
-			setLoginResult({ server, ok: false, output: caught instanceof Error ? caught.message : String(caught) });
+			setLoginResult({ kind: "login", server, ok: false, output: caught instanceof Error ? caught.message : String(caught) });
 		} finally {
 			unsubscribe();
 			if (loginOperationRef.current?.operationId === operationId) loginOperationRef.current = null;
@@ -521,10 +520,10 @@ export const McpTab = forwardRef<
 	const runLogout = async (server: string) => {
 		try {
 			const result = await api.config.mcpLogout(server, scope);
-			setLoginResult({ server, ok: result.ok, output: result.output });
+			setLoginResult({ kind: "logout", server, ok: result.ok, output: result.output });
 			if (result.ok) await runStatusCheck();
 		} catch (caught) {
-			setLoginResult({ server, ok: false, output: caught instanceof Error ? caught.message : String(caught) });
+			setLoginResult({ kind: "logout", server, ok: false, output: caught instanceof Error ? caught.message : String(caught) });
 		}
 	};
 
@@ -563,16 +562,29 @@ export const McpTab = forwardRef<
 
 	/** 智能添加：写入草稿 → 立即落盘（乐观锁保护）→ 自动跑一次真实连接检测（B 片状态卡的数据源）。 */
 	const handleSmartAdd = useCallback(
-		async (entries: SmartAddEntry[]) => {
-			if (entries.length === 0) return;
+		async (entries: SmartAddEntry[]): Promise<boolean> => {
+			if (entries.length === 0) return false;
 			const nextServers = { ...(writable.mcpServers ?? {}) };
 			for (const entry of entries) nextServers[entry.name] = entry.definition;
 			const toSave: McpConfigFile = { ...writable, mcpServers: nextServers };
 			applyWritable(toSave);
 			const ok = await persistServers(toSave);
 			if (ok) void runStatusCheck();
+			return ok;
 		},
 		[applyWritable, persistServers, runStatusCheck, writable],
+	);
+
+	const handleTemplateConnect = useCallback(
+		async (entry: SmartAddEntry) => {
+			const saved = await handleSmartAdd([entry]);
+			if (saved) {
+				setSelected(entry.name);
+				setSelectedTemplate(null);
+			}
+			return saved;
+		},
+		[handleSmartAdd],
 	);
 
 	const save = useCallback(async (): Promise<boolean> => {
@@ -686,6 +698,14 @@ export const McpTab = forwardRef<
 						creating={Boolean(creating)}
 						onSelect={(name) => {
 							setSelected(name);
+							setSelectedTemplate(null);
+							setProbe(null);
+						}}
+						selectedTemplate={selectedTemplate}
+						onSelectTemplate={(templateId) => {
+							setCreating(null);
+							setSelected(null);
+							setSelectedTemplate(templateId);
 							setProbe(null);
 						}}
 						statusByName={statusByName}
@@ -697,16 +717,13 @@ export const McpTab = forwardRef<
 						onRefreshStatus={() => void runStatusCheck()}
 						statusLoading={statusLoading}
 					/>
-					{loginResult ? (
-						<p className={`mt-2 break-all text-micro ${loginResult.ok ? "text-[var(--color-success)]" : "text-danger"}`}>
-							{loginResult.server}: {loginResult.output || (loginResult.ok ? t("config.mcp.oauth.done") : t("config.mcp.oauth.failed"))}
-						</p>
-					) : null}
 				</div>
 
 				<div className="flex min-h-0 flex-col gap-3 overflow-auto rounded-md border border-border-subtle bg-bg-panel p-3">
-					{!selected && !creating ? (
-						<McpSmartAdd existingNames={new Set(displayServers.map((item) => item.name))} disabled={saving} onAdd={handleSmartAdd} onManual={startCreate} />
+					{selectedTemplateDefinition ? (
+						<McpServiceTemplateForm key={selectedTemplateDefinition.id} entry={selectedTemplateDefinition} existingNames={new Set(displayServers.map((item) => item.name))} disabled={saving || loading} saving={saving} onConnect={handleTemplateConnect} onCustom={openSmartAdd} />
+					) : !selected && !creating ? (
+						<McpSmartAdd existingNames={new Set(displayServers.map((item) => item.name))} disabled={saving} onAdd={handleSmartAdd} onManual={startCreate} onInstallAiSetupSkill={async () => (await api.config.installMcpSetupSkill()).success} />
 					) : (
 						<>
 							{selectedItem?.pendingDelete ? (
@@ -796,77 +813,61 @@ export const McpTab = forwardRef<
 														? t("config.mcp.status.disabled")
 														: t("config.mcp.status.disconnected")}
 										</span>
-										{statusByName[selected].state === "needs-auth" && !providerAuthServerNames.has(selected) ? (
-											loggingInServer === selected ? (
-												<span className="text-micro text-muted-foreground">{t("config.mcp.oauth.loggingIn")}</span>
-											) : (
-												<Button variant="outline" size="xs" onClick={() => void runLogin(selected)}>
-													<LogIn size={12} />
-													{t("config.mcp.oauth.login")}
-												</Button>
-											)
-										) : null}
-										{(snapshot?.oauthCredentialNames ?? []).includes(selected) ? (
-											<Button variant="ghost" size="xs" onClick={() => setLogoutConfirm(selected)}>
-												<LogOut size={12} />
-												{t("config.mcp.oauth.logout")}
-											</Button>
-										) : null}
 										{statusByName[selected].error ? <p className="w-full break-all text-micro text-danger">{statusByName[selected].error}</p> : null}
 									</div>
 								) : (
 									<p className="text-micro text-muted-foreground">{t("config.mcp.status.notTested")}</p>
 								)}
-								{/* 认证方式（仅远程 HTTP + 全局作用域） */}
-								{transport === "http" && !isProjectScope ? (
-									<div className="mt-3 grid gap-2">
-										<Label>{t("config.mcp.auth.method")}</Label>
-										<ConfigSelect
-											value={deriveAuthMode(editingDef)}
-											options={[{ value: "auto", label: t("config.mcp.auth.auto") }, { value: "apikey", label: t("config.mcp.auth.apikey") }, ...(knownProviders.length > 0 ? [{ value: "provider", label: t("config.mcp.auth.providerLabel") }] : [])]}
-											onChange={(value) => {
-												if (value === "auto") {
-													const headers = { ...editingDef.headers };
-													delete headers.Authorization;
-													delete headers.authorization;
-													patchEditing({ auth: undefined, headers: Object.keys(headers).length > 0 ? headers : undefined });
-												} else if (value === "apikey") {
-													patchEditing({ auth: undefined });
-												} else if (value === "provider") {
-													patchEditing({ auth: { provider: knownProviders[0] } });
-												}
-											}}
-										/>
-										{deriveAuthMode(editingDef) === "auto" ? <p className="text-micro text-muted-foreground">{t("config.mcp.auth.autoHint")}</p> : null}
-										{deriveAuthMode(editingDef) === "apikey" ? (
-											<div className="grid gap-1">
-												<Input
-													value={extractApiKey(editingDef)}
-													onChange={(event) => {
-														const key = event.target.value.trim();
-														const headers = { ...editingDef.headers };
-														delete headers.Authorization;
-														delete headers.authorization;
-														if (key) headers.Authorization = `Bearer ${key}`;
-														patchEditing({ headers: Object.keys(headers).length > 0 ? headers : undefined, auth: undefined });
+								{/* 登录/登出操作行：OAuth 型服务（远程 HTTP、无静态 Authorization 头、非供应商登录）。出口规则：有凭据→登出；
+								 检测出 needs-auth/disconnected→登录；disabled（停用）不显示——先启用再登录才是正常顺序，
+								 公共服务停用时挂登录按钮纯属困惑；未检测也不显示——公共服务（beui）与需登录服务无法区分。 */}
+								{selected && usesMcpOAuth(editingDef) && !providerAuthServerNames.has(selected) && ((snapshot?.oauthCredentialNames ?? []).includes(selected) || ["needs-auth", "disconnected"].includes(statusByName[selected]?.state ?? "")) ? (
+									<div className="mt-2 flex flex-wrap items-center gap-2">
+										{(snapshot?.oauthCredentialNames ?? []).includes(selected) ? (
+											<Button variant="ghost" size="xs" onClick={() => setLogoutConfirm(selected)}>
+												<LogOut size={12} />
+												{t("config.mcp.oauth.logout")}
+											</Button>
+										) : loggingInServer === selected ? (
+											<span className="text-micro text-muted-foreground">{t("config.mcp.oauth.loggingIn")}</span>
+										) : (
+											<Button variant="outline" size="xs" onClick={() => void runLogin(selected)}>
+												<LogIn size={12} />
+												{t("config.mcp.oauth.login")}
+											</Button>
+										)}
+									</div>
+								) : null}
+								{/* 登录过程信息（只针对当前选中的 server，与状态行同区）：
+								 登录中给「复制链接」手动打开的出口；结果行只显示结构化摘要，
+								 pi CLI 原始输出（含超长授权 URL）不直接上屏。 */}
+								{loggingInServer === selected ? (
+									<div className="mt-2 grid gap-1.5">
+										<p className="text-micro text-muted-foreground">{t("config.mcp.oauth.browserOpened")}</p>
+										{loginUrl && loginUrl.server === selected ? (
+											<div className="flex flex-wrap items-center gap-1.5">
+												<Button
+													variant="outline"
+													size="xs"
+													onClick={() => {
+														void window.piDesktop.clipboard.writeText(loginUrl.url);
+														showNotice(t("common.copied"), 1500, "info");
 													}}
-													className="h-8 font-mono"
-													placeholder={t("config.mcp.auth.apikeyPlaceholder")}
-												/>
-												<p className="text-micro text-muted-foreground">{t("config.mcp.auth.apikeyHint")}</p>
-											</div>
-										) : null}
-										{usesProviderAuth(editingDef) ? (
-											<div className="grid gap-1">
-												<Label>{t("config.mcp.providerAuth.provider")}</Label>
-												<ConfigSelect value={editingDef.auth?.provider ?? ""} options={knownProviders.map((provider) => ({ value: provider, label: provider }))} onChange={(value) => patchEditing({ auth: { provider: value } })} />
-												<p className="text-micro text-muted-foreground">{t("config.mcp.providerAuth.hint", { provider: editingDef.auth?.provider ?? "" })}</p>
+												>
+													<Copy size={12} />
+													{t("config.mcp.oauth.copyLink")}
+												</Button>
+												<a href={loginUrl.url} className="text-micro text-primary hover:underline" onClick={openDocsInSystemBrowser(loginUrl.url)}>
+													{t("config.mcp.oauth.openAuthLink")}
+												</a>
 											</div>
 										) : null}
 									</div>
-								) : transport === "http" && isProjectScope && usesProviderAuth(editingDef) ? (
-									<p className="mt-2 text-micro text-muted-foreground">{t("config.mcp.providerAuth.hint", { provider: editingDef.auth?.provider ?? "" })}</p>
 								) : null}
+								{loginResult && loginResult.server === selected && (!loginResult.ok || loginResult.kind === "logout") ? (
+									<p className={`mt-2 break-all text-micro ${loginResult.ok ? "text-[var(--color-success)]" : "text-danger"}`}>{loginResult.ok ? t("config.mcp.oauth.signedOut") : sanitizeLoginOutput(loginResult.output) || t("config.mcp.oauth.failed")}</p>
+								) : null}
+								{transport === "http" && usesProviderAuth(editingDef) ? <p className="mt-2 text-micro text-muted-foreground">{t("config.mcp.providerAuth.hint", { provider: editingDef.auth?.provider ?? "" })}</p> : null}
 							</div>
 
 							{/* ═══ 第三段：启用 ═══ */}
@@ -888,7 +889,7 @@ export const McpTab = forwardRef<
 											markDirty();
 											return;
 										}
-										if (selectedItem) toggleDisabled(selectedItem, !checked);
+										if (selectedItem) void toggleDisabled(selectedItem, !checked);
 									}}
 								/>
 							</div>
@@ -901,15 +902,37 @@ export const McpTab = forwardRef<
 								</CollapsibleTrigger>
 								<CollapsibleContent>
 									<div className="mt-1 grid gap-3 rounded-md border border-border-subtle p-3">
+										{transport === "http" && !isProjectScope ? (
+											<div className="grid gap-2">
+												<Label>{t("config.mcp.providerAuth.provider")}</Label>
+												<ConfigSelect
+													value={editingDef.auth?.provider ?? ""}
+													options={[{ value: "", label: t("config.mcp.providerAuth.none") }, ...knownProviders.map((provider) => ({ value: provider, label: provider }))]}
+													onChange={(provider) => {
+														const auth = { ...editingDef.auth };
+														if (provider) auth.provider = provider;
+														else delete auth.provider;
+														patchEditing({ auth: Object.keys(auth).length > 0 ? auth : undefined });
+													}}
+												/>
+												{knownProviders.length === 0 ? <p className="text-micro text-muted-foreground">{t("config.mcp.providerAuth.emptyHint")}</p> : null}
+												{usesProviderAuth(editingDef) ? <p className="text-micro text-muted-foreground">{t("config.mcp.providerAuth.hint", { provider: editingDef.auth?.provider ?? "" })}</p> : null}
+												<p className="text-micro text-muted-foreground">{t("config.mcp.providerAuth.advancedHint")}</p>
+											</div>
+										) : transport === "http" && isProjectScope && usesProviderAuth(editingDef) ? (
+											<p className="text-micro text-muted-foreground">{t("config.mcp.providerAuth.hint", { provider: editingDef.auth?.provider ?? "" })}</p>
+										) : null}
 										{transport === "http" ? (
 											<div className="grid gap-2">
 												<Label>{t("config.mcp.field.headers")}</Label>
 												<Textarea value={recordToText(editingDef.headers)} onChange={(event) => patchEditing({ headers: textToRecord(event.target.value) })} placeholder={t("config.mcp.field.headersPlaceholder")} className="min-h-20 font-mono text-control" />
+												<p className="text-micro text-muted-foreground">{t("config.mcp.secretStorageHint")}</p>
 											</div>
 										) : (
 											<div className="grid gap-2">
 												<Label>{t("config.mcp.field.env")}</Label>
 												<Textarea value={recordToText(editingDef.env)} onChange={(event) => patchEditing({ env: textToRecord(event.target.value) })} placeholder="API_KEY=your-key" className="min-h-20 font-mono text-control" />
+												<p className="text-micro text-muted-foreground">{t("config.mcp.secretStorageHint")}</p>
 											</div>
 										)}
 										<div className="grid gap-2">

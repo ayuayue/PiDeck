@@ -219,3 +219,26 @@ export function uniqueServerName(base: string, existing: ReadonlySet<string>): s
 		if (!existing.has(candidate)) return candidate;
 	}
 }
+
+/**
+ * 清理 pi mcp login/logout 的原始输出用于界面展示。
+ * 原始 stdout 含超长授权 URL（response_type/client_id/code_challenge/state 等参数），
+ * 直接上屏会把界面堆成一段乱码：去 URL、压空白、限长；完整信息仍在日志里。
+ */
+export function sanitizeLoginOutput(output: string, maxLength = 240): string {
+	const cleaned = output
+		.replace(/https?:\/\/\S+/g, "…")
+		.replace(/\s+/g, " ")
+		.trim();
+	return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}…` : cleaned;
+}
+
+/**
+ * 启停开关的落盘定义：开启时彻底移除 enabled（连同 legacy disabled 键）——
+ * 历史缺陷：开启分支只删 disabled 键，enabled:false 留在定义里原样写回，开关切了等于没切
+ * （表现为「服务关闭后永远开不回来」）。停用时写 enabled:false，其余字段原样保留。
+ */
+export function applyEnabledToggle(existing: McpServerDefinition, disabled: boolean): McpServerDefinition {
+	const { enabled: _enabled, disabled: _legacyDisabled, ...kept } = existing as McpServerDefinition & { disabled?: unknown };
+	return disabled ? { ...kept, enabled: false } : kept;
+}

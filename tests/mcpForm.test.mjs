@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { argsToText, buildMcpDisplayServers, isMcpServerName, omitUndefined, parseSmartAddInput, recordToText, suggestNameFromCommand, suggestNameFromDefinition, suggestNameFromUrl, textToArgs, textToRecord, uniqueServerName } = loadTsCommonJs("src/renderer/src/config/mcpForm.ts");
+const { argsToText, applyEnabledToggle, buildMcpDisplayServers, isMcpServerName, omitUndefined, parseSmartAddInput, recordToText, sanitizeLoginOutput, suggestNameFromCommand, suggestNameFromDefinition, suggestNameFromUrl, textToArgs, textToRecord, uniqueServerName } =
+	loadTsCommonJs("src/renderer/src/config/mcpForm.ts");
 
 test("MCP form args round-trip splits on whitespace", () => {
 	assert.equal(argsToText(["-y", "chrome-devtools-mcp@1.6.0"]), "-y chrome-devtools-mcp@1.6.0");
@@ -130,6 +131,33 @@ test("parseSmartAddInput：URL / 无协议域名 / 命令行 / JSON 三形态 / 
 	assert.equal(parseSmartAddInput("   "), null);
 	const broken = parseSmartAddInput("{ broken");
 	assert.deepEqual({ kind: broken.kind, command: broken.command, args: [...broken.args] }, { kind: "command", command: "{", args: ["broken"] }); // 非 JSON 落命令行分支
+});
+
+test("applyEnabledToggle removes enabled:false when turning on (regression: switch could never re-enable a server)", () => {
+	// 回归：开启分支曾只删 legacy disabled 键，enabled:false 留在定义里原样写回，
+	// 服务关闭后永远开不回来（开关切了等于没切）。
+	const turnedOn = JSON.parse(JSON.stringify(applyEnabledToggle({ url: "https://mcp.notion.com/mcp", enabled: false }, false)));
+	assert.deepEqual(turnedOn, { url: "https://mcp.notion.com/mcp" });
+	// 关：写 enabled:false，其余字段保留
+	const turnedOff = JSON.parse(JSON.stringify(applyEnabledToggle({ url: "https://mcp.notion.com/mcp", headers: { A: "b" } }, true)));
+	assert.deepEqual(turnedOff, { url: "https://mcp.notion.com/mcp", headers: { A: "b" }, enabled: false });
+	// 关：已停用的再关，幂等
+	const stillOff = JSON.parse(JSON.stringify(applyEnabledToggle({ command: "npx", args: ["-y"], enabled: false }, true)));
+	assert.deepEqual(stillOff, { command: "npx", args: ["-y"], enabled: false });
+	// legacy disabled 字段在开启/关闭时都被清除（pi 0.99 只认 enabled）
+	const legacy = JSON.parse(JSON.stringify(applyEnabledToggle({ url: "https://a/mcp", disabled: true }, false)));
+	assert.deepEqual(legacy, { url: "https://a/mcp" });
+});
+
+test("sanitizeLoginOutput strips auth URLs, collapses whitespace, and caps length", () => {
+	// 真实 pi mcp login 输出形态：授权 URL 内嵌 client_id/state 等参数，后面跟结果句
+	const raw = 'notion: Sign in to MCP server "notion" in your browser: https://mcp.notion.com/authorize?response_type=code&client_id=MtafTxWJrE8gvU1A&state=adea08ee\nSigned in to MCP server "notion" (47 tools).';
+	const cleaned = sanitizeLoginOutput(raw);
+	assert.ok(!cleaned.includes("https://"), "url removed");
+	assert.ok(!cleaned.includes("\n"), "whitespace collapsed");
+	assert.ok(cleaned.includes("Signed in to MCP server"), "result sentence kept");
+	assert.ok(cleaned.length <= 241, "capped at 240+");
+	assert.equal(sanitizeLoginOutput(""), "");
 });
 
 test("suggestNameFromUrl：去常见前缀、取主干、非法字符清洗", () => {
