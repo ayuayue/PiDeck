@@ -179,6 +179,76 @@ test("Linux 正斜杠根路径同样被替换", () => {
 	assert.equal(out, '{"filePath":"/home/me/.config/PiDeck/chat-workspace/a.jsonl"}');
 });
 
+test("macOS（darwin）路径编码契约：大小写与空格逐字保留（Application Support）", () => {
+	// mac 真实形态：根路径含空格（~/Library/Application Support），pi 的
+	// safePathToken 对非 Windows 盘符路径不转小写，空格不归一——迁移匹配、
+	// token 改写全部依赖这个契约。旧/新编码只允许 pi-desktop→PiDeck 段不同。
+	const legacy = encodeSessionDirName("/Users/mortal/Library/Application Support/pi-desktop/chat-workspace");
+	const next = encodeSessionDirName("/Users/mortal/Library/Application Support/PiDeck/chat-workspace");
+	assert.equal(legacy, "--Users-mortal-Library-Application Support-pi-desktop-chat-workspace--");
+	assert.equal(next, "--Users-mortal-Library-Application Support-PiDeck-chat-workspace--");
+	assert.notEqual(legacy, next, "mac 上新旧 encoded 目录名必须真实可区分（rename 才有落点）");
+});
+
+test("macOS（darwin）根改写：大小写不敏感 + 带空格 POSIX 根 + 同前缀兄弟目录不误伤", () => {
+	// darwin 文件系统大小写不敏感：catalog 里的路径大小写可能任植（历史写入链路混杂），
+	// 改写必须 gi；/pi-desktop-notes 这类同前缀目录不得被误改（lookahead 边界）。
+	const oldRoot = "/Users/mortal/Library/Application Support/pi-desktop";
+	const newRoot = "/Users/mortal/Library/Application Support/PiDeck";
+	const text = JSON.stringify({
+		a: "/Users/mortal/Library/Application Support/pi-desktop/chat-workspace/s.jsonl",
+		b: "/USERS/MORTAL/LIBRARY/APPLICATION SUPPORT/PI-DESKTOP/chat-workspace/s2.jsonl",
+		c: "/Users/mortal/Library/Application Support/pi-desktop-notes/other.jsonl",
+		d: "/Users/mortal/Library/Application Support/pi-desktop",
+	});
+	const out = replaceRootInText(text, oldRoot, newRoot, true);
+	const parsed = JSON.parse(out);
+	assert.equal(parsed.a, "/Users/mortal/Library/Application Support/PiDeck/chat-workspace/s.jsonl");
+	assert.equal(parsed.b, "/Users/mortal/Library/Application Support/PiDeck/chat-workspace/s2.jsonl", "大小写混杂形态也要命中（darwin 大小写不敏感）");
+	assert.equal(parsed.c, "/Users/mortal/Library/Application Support/pi-desktop-notes/other.jsonl", "同前缀兄弟目录不误伤");
+	assert.equal(parsed.d, "/Users/mortal/Library/Application Support/PiDeck", "精确等于根也要替换");
+});
+
+test("darwin 平台全链路：带空格聊天目录迁移 + 大小写混杂磁盘目录命中 + header 保守跳过", () => {
+	// mac 用户升级后「会话/项目消失」取证期间发现 darwin 分支零覆盖。Windows 宿主上
+	// 可测的真实增量：①子目录名含空格（Application Support 同类风险）贯穿匹配/改名/token
+	// 改写；②磁盘 encoded 目录大小写混杂仍需命中（case-insensitive 匹配）；③darwin 平台下
+	// 非 POSIX 绝对形态的 cwd（宿主 Windows 路径）header 必须保守不动——真阳性（POSIX cwd
+	// 改写）只能在 POSIX 宿主覆盖，此处锁定「不误改」一侧。
+	const fx = makeFixture();
+	const oldRoot = resolve(fx.oldRoot);
+	const newRoot = resolve(fx.newRoot);
+	const sessionsRoot = join(fx.home, ".pi", "agent", "sessions");
+	// 磁盘目录名故意大小写混杂（历史命名不统一），匹配必须大小写不敏感命中
+	const legacyExact = encodeSessionDirName(join(oldRoot, "chat workspace"));
+	const legacyOnDisk = legacyExact.toUpperCase();
+	mkdirSync(join(sessionsRoot, legacyOnDisk), { recursive: true });
+	const headerLine = JSON.stringify({ type: "session", cwd: join(oldRoot, "chat workspace") });
+	writeFileSync(join(sessionsRoot, legacyOnDisk, "2026-09-01_session.jsonl"), `${headerLine}\n{"role":"user"}\n`);
+	mkdirSync(join(fx.oldRoot, "chat workspace"), { recursive: true });
+	writeFileSync(
+		join(fx.oldRoot, "session-catalog.json"),
+		JSON.stringify({
+			version: 1,
+			sessions: [{ id: "s1", filePath: join(sessionsRoot, legacyOnDisk, "2026-09-01_session.jsonl") }],
+		}),
+	);
+
+	const result = runUserDataNameMigration({ appDataDir: fx.appData, homeDir: fx.home, platform: "darwin" });
+	assert.equal(result.kind, "migrated");
+	const targetDir = encodeSessionDirName(join(newRoot, "chat workspace"));
+	assert.ok(targetDir.includes("chat workspace"), "encoded 目录名保留空格");
+	assert.ok(existsSync(join(sessionsRoot, targetDir, "2026-09-01_session.jsonl")), "会话文件随目录改名迁移");
+	assert.ok(!existsSync(join(sessionsRoot, legacyOnDisk)), "旧目录（大小写混杂形态）已改名");
+	// 非 POSIX cwd 在 darwin 平台保守不动：文件逐字节保留
+	const migrated = readFileSync(join(sessionsRoot, targetDir, "2026-09-01_session.jsonl"), "utf8");
+	assert.equal(migrated, `${headerLine}\n{"role":"user"}\n`);
+	const catalog = readFileSync(join(fx.newRoot, "session-catalog.json"), "utf8");
+	assert.ok(catalog.includes(targetDir), "catalog 里的 encoded token（含空格）同步改写");
+	assert.ok(!catalog.toLowerCase().includes(legacyOnDisk.toLowerCase()), "旧 token（大小写混杂形态）不再残留");
+	rmSync(fx.root, { recursive: true, force: true });
+});
+
 test("迁移提示消费式领取：只返回一次", () => {
 	recordUserDataNameMigrationNotice({ kind: "migrated", oldPath: "/old", userDataPath: "/new", migratedSessionDirs: ["a", "b"] });
 	// vm 加载的生产代码返回对象来自沙箱 realm，原型与宿主字面量不同，只能做结构化比较

@@ -647,7 +647,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	onPreviewImage: (image: ImageContent) => void;
 	onOpenFile?: (path: string) => void;
 	onResendUserMessage?: (message: ChatMessage) => void;
-	onEditMessage?: (messageId: string, newText: string, entryId?: string) => void;
+	onEditMessage?: (message: ChatMessage, newText: string) => void;
 	onDeleteMessage?: (messageId: string, entryId?: string) => void;
 	/** 从该用户消息 fork 新会话；忙碌时不展示入口 */
 	onForkMessage?: (message: ChatMessage) => void;
@@ -829,7 +829,7 @@ export const UserBubble = memo(function UserBubble(props: {
 			setEditing(false);
 			return;
 		}
-		props.onEditMessage(message.id, editText, messageEntryId(message));
+		props.onEditMessage(message, editText);
 		setEditing(false);
 	};
 	/** 编辑后重发：放回 composer 输入框，由用户自行修改后发送。 */

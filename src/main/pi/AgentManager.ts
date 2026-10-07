@@ -45,6 +45,7 @@ import { listActiveBuiltInExtensionPaths } from "../extensions/builtInExtensions
 import { createPiProcessExtensionResolvers } from "../extensions/piProcessExtensionResolvers";
 import { piVersionAtLeast } from "../extensions/extensionVersionGate";
 import { resolveLoadableExtensionPaths } from "../extensions/enabledExtensionResolver";
+import { collectEntryRendererTypes } from "./extensionEntryRendererScan";
 import { resolveBuiltInExtensionsOverlayDir } from "../extensions/builtInExtensions";
 import { getBridgeServer } from "./bridge/BridgeServer";
 import { StandbyAgentPool, STANDBY_TTL_MS } from "./StandbyAgentPool";
@@ -1150,8 +1151,8 @@ export class AgentManager {
 	 * The reader owns persisted JSONL parsing and paging. This facade keeps the
 	 * Session-first public contract on AgentManager while runtime remains inactive.
 	 */
-	async readSessionDisplayMessages(sessionPath: string, agentId = "_viewer", sessionContent?: string): Promise<ChatMessage[]> {
-		return stripToolResultForDelivery(await this.sessionHistoryReader.readSessionDisplayMessages(sessionPath, agentId, sessionContent));
+	async readSessionDisplayMessages(sessionPath: string, agentId = "_viewer", sessionContent?: string, options?: { projectId?: string }): Promise<ChatMessage[]> {
+		return stripToolResultForDelivery(await this.sessionHistoryReader.readSessionDisplayMessages(sessionPath, agentId, sessionContent, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) }));
 	}
 
 	/**
@@ -1161,8 +1162,8 @@ export class AgentManager {
 	 * 而不是把整份历史一次吐出——大会话全量下发会同时顶爆主进程与渲染层（#213）。
 	 * 需要更早历史走轮次分页（readSessionDisplayTurnPage / Web 的 /messages/page）。
 	 */
-	async readSessionLoadWindow(sessionPath: string, agentId = "_viewer"): Promise<{ messages: ChatMessage[]; total: number; windowStart: number }> {
-		const window = await this.sessionHistoryReader.readLoadWindow(sessionPath, agentId, AgentManager.DISPLAY_WINDOW_TURNS, AgentManager.MAX_DISPLAY_WINDOW_ENTRIES);
+	async readSessionLoadWindow(sessionPath: string, agentId = "_viewer", options?: { projectId?: string }): Promise<{ messages: ChatMessage[]; total: number; windowStart: number }> {
+		const window = await this.sessionHistoryReader.readLoadWindow(sessionPath, agentId, AgentManager.DISPLAY_WINDOW_TURNS, AgentManager.MAX_DISPLAY_WINDOW_ENTRIES, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) });
 		return { ...window, messages: stripToolResultForDelivery(window.messages) };
 	}
 	/**
@@ -1203,8 +1204,8 @@ export class AgentManager {
 	}
 
 	/** 轮次维度显示分页：pageSize 复用为轮次数（readSessionDisplayTurnPage 内部夹紧上限） */
-	async readSessionDisplayTurnPage(sessionPath: string, agentId = "_viewer", before?: number, turnCount?: number, beforeEntryId?: string): Promise<SessionMessagePage> {
-		const page = await this.sessionHistoryReader.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId);
+	async readSessionDisplayTurnPage(sessionPath: string, agentId = "_viewer", before?: number, turnCount?: number, beforeEntryId?: string, options?: { projectId?: string }): Promise<SessionMessagePage> {
+		const page = await this.sessionHistoryReader.readSessionDisplayTurnPage(sessionPath, agentId, before, turnCount, beforeEntryId, { entryRendererTypes: this.resolveEntryRendererTypesForProject(options?.projectId) });
 		return { ...page, messages: stripToolResultForDelivery(page.messages) };
 	}
 
@@ -2394,6 +2395,39 @@ export class AgentManager {
 			lastCompactionElapsedMs: observation?.elapsedMs,
 			userAbortAgoMs: abortedAt ? Date.now() - abortedAt : undefined,
 		};
+	}
+
+	/** 空注册集合：项目未知/扫描失败时退回「全部 custom 条目默认隐藏」（与 pi 口径一致）。 */
+	private static readonly NO_ENTRY_RENDERER_TYPES: readonly string[] = [];
+
+	/**
+	 * 会话时间线扩展输出卡的可见性集合：本次会话加载的扩展里 registerEntryRenderer 注册的 customType。
+	 * 读取路径不持有 runtime，只能按项目磁盘配置推导——与 spawn 同源的 resolveLoadableExtensionPaths
+	 * （原生过滤 + PiDeck 禁用记录），再对入口文件做 registerEntryRenderer 静态扫描（见
+	 * extensionEntryRendererScan.ts）。扫描/解析失败按空集合处理（默认隐藏），不影响读历史本身。
+	 */
+	private resolveEntryRendererTypesForProject(projectId?: string): readonly string[] {
+		try {
+			const project = projectId ? this.getProject(projectId) : undefined;
+			if (!project?.path) return AgentManager.NO_ENTRY_RENDERER_TYPES;
+			return collectEntryRendererTypes(
+				resolveLoadableExtensionPaths({
+					cwd: project.path,
+					includeProjectResources: true,
+					disabled: this.settingsStore.get().disabledExtensions ?? [],
+					removedBuiltInExtensions: this.settingsStore.get().removedBuiltInExtensions ?? [],
+					builtInRoots: {
+						appPath: app.getAppPath(),
+						resourcesPath: process.resourcesPath,
+						isDev: !app.isPackaged,
+						overlayDir: resolveBuiltInExtensionsOverlayDir(app.getPath("userData")),
+					},
+				}),
+			);
+		} catch (error) {
+			this.appLogger?.warn("agent", "Failed to scan entry renderer types, custom entries default hidden", { projectId, error: String(error) });
+			return AgentManager.NO_ENTRY_RENDERER_TYPES;
+		}
 	}
 
 	/**

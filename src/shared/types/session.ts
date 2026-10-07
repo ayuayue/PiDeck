@@ -143,6 +143,12 @@ export type SessionSummary = {
 	 * 展示层不再按该标记拼装，重命名删除后缀即为删除。
 	 */
 	forked?: boolean;
+	/**
+	 * 重发/编辑 fork 化重试后，本会话已被 fork 出的子会话替换：值为子会话稳定 id。
+	 * 旧文件保留在磁盘（可恢复），仅会话列表默认过滤；forkFromUserMessage 的显式
+	 * 分支 fork 不设此标记（新旧会话都要看到）。
+	 */
+	supersededBy?: string;
 	preview: string;
 	updatedAt: number;
 	messageCount: number;
@@ -213,6 +219,8 @@ export type SessionRecord = {
 	 * 与「子代理/嵌套子会话」（parentSessionPath 会被侧栏折叠到父行下）语义不同，两者独立存储。
 	 */
 	forked?: boolean;
+	/** 同 SessionSummary.supersededBy：重发/编辑 fork 化替换后指向子会话 id，列表默认过滤。 */
+	supersededBy?: string;
 	projectPath?: string;
 	preview: string;
 	messageCount: number;

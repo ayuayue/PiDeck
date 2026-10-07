@@ -91,6 +91,11 @@ export function buildTurnDisplay(
 			}
 			return;
 		}
+		if (item.kind === "extension-entries") {
+			// 扩展输出：过程组成员行（折进大折叠栏，用户决策 2026-10：不单独成块）
+			items.push({ kind: "process-entry", entry: { kind: "extension-entry", id: item.id, messages: item.messages } });
+			return;
+		}
 		if (item.kind !== "message" || item.message.role !== "assistant") return;
 		// 消息自带的思考 / live 同 id：插到该回答之前（思考→回答时序）。
 		// Live 时 text 可空，叶子 ThinkingStep 从 streamingThinkingByIdAtom 填。

@@ -950,6 +950,41 @@ test("custom_message card lands at the message index even when system entries pr
 	}
 });
 
+test("custom 条目投影按 pi 口径：注册 renderer 的显示，未注册与内部前缀隐藏", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-codemode-store-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			roleEntry("u1", "session", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "a1"),
+			// codemode store() 的 KV 持久化（内部记账）：即使被误扫进注册集合也不投影
+			JSON.stringify({ id: "cs1", parentId: "a1", type: "custom", customType: "codemode-store", data: { set: { key: { status: "fulfilled", value: "**Fetched:** https://example.com" } } }, timestamp: "2026-01-01T00:00:02.000Z" }),
+			// 第三方扩展未注册 renderer 的内部 appendEntry：pi TUI 不显示，PiDeck 也不显示
+			JSON.stringify({ id: "ce0", parentId: "a1", type: "custom", customType: "some-ext-internal", data: { hidden: true }, timestamp: "2026-01-01T00:00:02.500Z" }),
+			// 注册了 entry renderer 的扩展输出：显示（issue #285 的可见性补齐）
+			JSON.stringify({ id: "ce1", parentId: "ce0", type: "custom", customType: "pi-plan-btw", data: { query: "看下进度" }, timestamp: "2026-01-01T00:00:03.000Z" }),
+			roleEntry("u2", "ce1", "user", "q2"),
+			roleEntry("a2", "u2", "assistant", "a2"),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		// 未传注册集合：全部 custom 条目默认隐藏（与 pi「只有注册 renderer 的条目才算 transcript」一致）
+		const hidden = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		assert.equal(JSON.stringify(hidden.messages.map((message) => `${message.meta?.type ?? "message"}:${message.text}`)), JSON.stringify(["message:q1", "message:a1", "message:q2", "message:a2"]));
+
+		// 传入注册集合：注册的类型投影成卡，内部前缀与未注册类型仍隐藏
+		const shown = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100, undefined, { entryRendererTypes: ["pi-plan-btw", "codemode-store"] });
+		assert.equal(JSON.stringify(shown.messages.map((message) => `${message.meta?.type ?? "message"}:${message.text}`)), JSON.stringify(["message:q1", "message:a1", "customEntry:看下进度", "message:q2", "message:a2"]));
+		assert.equal(
+			shown.messages.some((message) => String(message.meta?.customType ?? "").startsWith("codemode-")),
+			false,
+		);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("readLoadWindow maps the compaction insert point into the window", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-load-window-compaction-"));
 	const sessionPath = join(directory, "session.jsonl");

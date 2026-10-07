@@ -9,6 +9,7 @@ import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
+import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
 import { normalizeQuickMessages } from "../../shared/quickMessages";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
 import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
@@ -279,6 +280,9 @@ Gitmoji 对应关系：
 	imageGenSize: DEFAULT_IMAGE_GEN_SIZE,
 	imageGenWatermark: DEFAULT_IMAGE_GEN_WATERMARK,
 	imageGenOutputFormat: DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
+
+	// 提示词增强模型：null = 跟随会话模型；设置页可指定固定模型
+	enhanceModel: null,
 
 	// ── 更新检测：检查永远自动；自动下载默认开启（v0.7.4 起取代 disableUpdateCheck）──
 	autoDownloadUpdates: true,
@@ -740,6 +744,10 @@ export class SettingsStore {
 		}
 		if ("imageGenOutputFormat" in safePatch) {
 			this.settings.imageGenOutputFormat = parseImageGenOutputFormat(this.settings.imageGenOutputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT;
+		}
+		// 增强模型来自渲染层，入参不可信：非合法形态一律归一为 null（跟随会话模型）。
+		if ("enhanceModel" in safePatch) {
+			this.settings.enhanceModel = normalizeEnhanceModel(this.settings.enhanceModel);
 		}
 		if ("theme" in safePatch) {
 			this.settings.theme = this.normalizeThemeMode(this.settings.theme);

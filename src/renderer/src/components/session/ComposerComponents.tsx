@@ -3,6 +3,8 @@ import { useAtomValue } from "jotai";
 import { dshModuleHiddenAtom, imageGenModuleHiddenAtom } from "../../atoms";
 import { AlertCircle, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownLeft, Eye, EyeOff, FileText, GitBranch, ImageIcon, ListChecks, Loader2, Paperclip, Plus, RefreshCw, Sparkles, Star, Target, Wrench, X } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
+import type { PromptEnhanceView } from "../../hooks/usePromptEnhance";
+import { PromptEnhanceControls } from "./PromptEnhanceControls";
 import { Button } from "../ui-shadcn/button";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../ui-shadcn/command";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
@@ -269,6 +271,8 @@ export function ComposerBottomBar(props: {
 	modelThinkingLevels?: Record<string, string>;
 	/** 当前会话后端（pi 缺省）。 */
 	backend?: AgentBackend;
+	/** 提示词增强域（hook 拥有状态，底栏只呈现）：缺省隐藏入口。 */
+	enhance?: { view: PromptEnhanceView; start: () => void; cancel: () => void };
 	/** 切换后端：UI 层面先停 runtime 再写 catalog。 */
 	onChangeBackend?: (backend: AgentBackend) => void;
 	feishuIndicator?: ReactNode;
@@ -540,6 +544,7 @@ export function ComposerBottomBar(props: {
 							<span className="composer-bar-branch-name truncate">{props.gitInfo.current}</span>
 						</span>
 					) : null}
+					{props.enhance ? <PromptEnhanceControls disabled={props.disabled} view={props.enhance.view} modelLabel={modelName ?? undefined} onStart={props.enhance.start} onCancel={props.enhance.cancel} /> : null}
 					{props.voiceControls}
 					{props.sendControls}
 				</div>

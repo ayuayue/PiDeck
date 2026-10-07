@@ -1743,6 +1743,12 @@ export function createPreviewApi(): PiDesktopApi {
 			saveConfig: async (config) => ({ ok: true, config }),
 			readImageBlob: async () => null,
 		},
+		enhance: {
+			run: async () => ({ ok: false, errorKind: "sdk-unavailable", message: "preview mode" }),
+			cancel: async () => ({ ok: true }),
+			onEvent: () => () => {},
+		},
+
 		voiceTranscription: {
 			getConfig: async () => ({ ...DEFAULT_VOICE_TRANSCRIPTION_CONFIG, hasApiKey: false, hasVolcAppId: false, hasVolcAccessToken: false, apiKeyHint: null, volcAppIdHint: null, volcAccessTokenHint: null, runtimeReady: false }),
 			saveConfig: async (config) => ({

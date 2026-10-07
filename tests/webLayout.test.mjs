@@ -98,6 +98,10 @@ test("Web timeline groups assistant messages into collapsible execution folds", 
 	assert.match(webTimeline, /processOpen \? [\s\S]*?<ChevronDown[\s\S]*?: [\s\S]*?<ChevronRight/, "collapsed state must point right, expanded must point down");
 	// 思考块合并：回合内多段 reasoning 合成一个 thinking 段（texts.join），不再被拆成多块。
 	assert.match(webTimeline, /kind: "thinking"[\s\S]*?texts\.push\(/, "adjacent reasoning parts must merge into one thinking segment");
+	// 段级流式状态：合并块的 running 以最后一个 reasoning part 的 state 为准，不再用整轮流式标志，
+	// 避免「回复已出、思考还在转圈」的错序观感（m00717）。
+	assert.match(webTimeline, /state === "streaming"/, "thinking segment running must come from part state");
+	assert.match(webTimeline, /running=\{segment\.running \?\? false\}/, "WebThinkingBlock must render per-segment running");
 	assert.match(webTimeline, /segment\.texts\.join\("\\n\\n"\)/);
 	// 操作行只挂回合尾：助手侧 web.msgCopy 只允许出现在 WebAssistantTurn 内（用户气泡另有自己的复制）。
 	const turnStart = webTimeline.indexOf("WebAssistantTurn = memo");
@@ -191,7 +195,8 @@ test("Web rewind checkpoint UI is fully removed from the renderer", () => {
 	assert.doesNotMatch(webHeader, /onOpenRewind|History/);
 	assert.doesNotMatch(webChatApp, /WebRewindPanel|rewindOpen|onOpenRewind/);
 	// 溢出菜单仍保留压缩等动作（移除 rewind 不得误伤其余入口）。
-	assert.match(webHeader, /onCompact \? <DropdownMenuItem onClick=\{actions\.onCompact\}/);
+	// m00717：菜单项统一带 lucide 图标（与刷新消息一致），断言改为容忍图标行
+	assert.match(webHeader, /onCompact \? \(\s*<DropdownMenuItem onClick=\{actions\.onCompact\}[\s\S]*?<FoldVertical/);
 });
 
 // 回归：后端切换仅对「本页新建零消息草稿」开放。历史会话（含复制/克隆/fork 出的）自带

@@ -32,6 +32,11 @@ PiDeck 是 Electron 桌面应用，在多个项目目录间管理和运行 pi RP
 - 只服务新会话（noSession/恢复历史会话不认领）；spawn 输入指纹（`src/main/pi/standbyFingerprint.ts`：扩展根/禁用集/offline/noExt/noSkills/customPiPath/WSL/代理/launchArgs）任一变化即丢弃回退普通 spawn，改设置无需重启池；信任走 `resolveTrustWithoutPrompt`，含资源未决策不池化（绝不后台弹 trust 弹窗）。
 - 已知限制：池化进程不带 PIDECK_SESSION_ID，安检门按默认档工作，per-session 安全覆盖对认领会话要重启才生效；池化 agent 对 agents:list/agent:state-changed 不可见。开关 `settings.standbyRuntimeEnabled`（默认开，开发者页可关）。启动耗时探针：`scripts/probePiStartup.mjs`（JITI_DEBUG=1 出逐模块 trace）。
 
+**例外四：提示词增强侧车（`pi-enhance-host.mjs`，只允许「一次性单条补全请求」这一用途）**
+
+- 输入框提示词增强需要直接调 pi SDK 的补全（不走 RPC 会话），主进程经常驻单进程 sidecar 实现：`resources/pi-enhance-host.mjs`（stdout 只放 NDJSON 协议，载入 `PIDECK_PI_SDK_ENTRY` 指向的 pi `dist/index.js` 建 `ModelRuntime`），宿主侧收口在 `src/main/pi/enhance/EnhancePromptService.ts`，启动参数定位复用 `piAuthHostLaunch` 的 `resolvePiAuthHostLaunch`，必须列进 `extraResources`。
+- 常驻单进程多 run：新 run 打断旧 run、显式 cancel、boot/run 超时、进程意外退出都在服务层结算（每 run 回调恰好一次）；渲染层按 scopeKey 隔离，切会话作废进行中的 run，结果只回填发起方输入框。入口 `enhance:run`/`enhance:cancel`/`enhance:on-event` 在 `src/main/ipc/enhanceIpc.ts`（边界校验；provider/modelId 形态校验只挡空白/控制字符/超长，真实目录的 `builtin:` `https://` `a/b` 形态必须放行）与 preload 白名单；hook 为 `src/renderer/src/hooks/usePromptEnhance.ts`。目标模型优先级见 `src/shared/enhanceModelPreference.ts`：设置固定模型（`settings.enhanceModel`，设置页通用 tab）> 会话记录 > 引导页点选 > 部署/主进程默认，默认跟随会话模型。fail-safe 与 pi-auth 一致：sidecar 起不来只是按钮置灰 + toast，不影响 pi 会话与其余功能。禁止扩展成通用模型 API 桥。
+
 ## 目录结构与跨层契约
 
 本项目只维护项目根这一份 `AGENTS.md`；不要再在子目录生成规则文件。规则冲突时以本文件和实际类型/API 为准。

@@ -24,7 +24,7 @@ test("DSH 与 pi 的 fork/clone 成功块都在 return 前推送", () => {
 		["dsh clone", /withRuntimeReservation\(target\.sessionId, target\.agentId, \(\) => cloneDshAgentSession\(target\)\)[\s\S]{0,400}?notifyForkCatalogRefreshed\(target\.sessionId\);\s*return \{ ok: true/],
 		["pi clone", /replaceAgentSession\(target\.agentId, \(\) => agentManager\.cloneSession\(target\.agentId\), \{ markForked: true \}\)[\s\S]{0,300}?notifyForkCatalogRefreshed\(target\.sessionId\);\s*return \{/],
 		["dsh fork", /withRuntimeReservation\(target\.sessionId, target\.agentId, \(\) => forkDshAgentSession\(target, entryId\)\)[\s\S]{0,400}?notifyForkCatalogRefreshed\(target\.sessionId\);\s*return \{ ok: true/],
-		["pi fork", /replaceAgentSession\(target\.agentId, \(\) => agentManager\.forkSession\(target\.agentId, entryId\), \{ markForked: true \}\)[\s\S]{0,300}?notifyForkCatalogRefreshed\(target\.sessionId\);\s*return \{/],
+		["pi fork", /replaceAgentSession\(\s*target\.agentId,\s*\(\) => agentManager\.forkSession\(target\.agentId, entryId\),[\s\S]{0,500}?markForked: true[\s\S]{0,400}?notifyForkCatalogRefreshed\(target\.sessionId\);\s*return \{/],
 	];
 	for (const [label, pattern] of blocks) {
 		assert.ok(pattern.test(source), `${label} success path must notifyForkCatalogRefreshed before return`);

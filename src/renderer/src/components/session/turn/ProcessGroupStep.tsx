@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText, Globe, Image, ListChecks, MessageCircleQuestion, Network, Search, Sparkles, SquareCode, SquarePen, Terminal, Wrench, type LucideIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText, Globe, Image, ListChecks, MessageCircleQuestion, Network, Puzzle, Search, Sparkles, SquareCode, SquarePen, Terminal, Wrench, type LucideIcon } from "lucide-react";
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getToolName } from "../../../../../shared/fileChanges";
 import { t } from "../../../i18n";
@@ -6,12 +6,13 @@ import { ShimmerText } from "../ShimmerText";
 import { RowText } from "../RowText";
 import type { TurnProcessNode } from "../timeline/groupTurnProcess";
 import { lastToolCategory } from "../timeline/groupTurnProcess";
-import { activityCategoryLabelKey, topActivityKinds, type ActivityCount, type ToolActivityCategory } from "../timeline/toolCategory";
+import { activityCategoryLabelKey, topActivityKinds, type ToolActivityCategory } from "../timeline/toolCategory";
 import { getToolPhraseFromArgs } from "../timeline/toolPhrase";
 import { boundMountedSteps, PROCESS_GROUP_MEMBER_LIMIT } from "../timeline/turnMountBudget";
 import type { TurnProcessEntry } from "../timeline/types";
 import { ThinkingStep } from "./ThinkingStep";
 import { ToolStep } from "./ToolStep";
+import { ExtensionEntryStep } from "./ExtensionEntryStep";
 import { useStickToBottom } from "../../../lib/stick-to-bottom";
 import { ProcessGroupBodyScrollContext } from "./processGroupScrollContext";
 
@@ -88,17 +89,27 @@ function runningGroupLabel(kind: ToolActivityCategory | undefined): string {
  *
  * - 1 类 → 直出；2 类 → `joinTwo`；3 类 → `joinList` + `listSeparator`；
  * - 类别数 > 3 时用 `more` 包裹（组头只列前 3 类，不说明会让人以为这是全部活动）；
- * - `counts` 为空 = 组内只有思考（无工具活动）→「已完成分析」。
+ * - 组内含扩展输出时追加扩展段（用户决策 2026-10：appendEntry 折进过程组后组头要有踪迹）；
+ * - `counts` 为空且无扩展 = 组内只有思考（无工具活动）→「已完成分析」；纯扩展组只报扩展段。
  */
-function doneGroupLabel(counts: readonly ActivityCount[]): string {
-	const kinds = topActivityKinds(counts, 3);
-	if (kinds.length === 0) return t("timeline.processGroup.analyzed");
+function doneGroupLabel(group: Extract<TurnProcessNode, { kind: "group" }>): string {
+	const kinds = topActivityKinds(group.counts, 3);
+	const extension = group.extensionCount > 0 ? extensionLabel(group.extensionCount) : "";
+	if (kinds.length === 0) return extension || t("timeline.processGroup.analyzed");
 	const labels = kinds.map((kind) => categoryLabel(kind, "done"));
-	if (labels.length === 1) return labels[0] ?? "";
-	if (labels.length === 2) return t("timeline.processGroup.joinTwo", { first: labels[0] ?? "", second: labels[1] ?? "" });
-	const joined = t("timeline.processGroup.joinList", { items: labels.join(t("timeline.processGroup.listSeparator")) });
-	const kindTotal = counts.filter((entry) => entry.count > 0).length;
-	return kindTotal > 3 ? t("timeline.processGroup.more", { title: joined }) : joined;
+	let label: string;
+	if (labels.length === 1) label = labels[0] ?? "";
+	else if (labels.length === 2) label = t("timeline.processGroup.joinTwo", { first: labels[0] ?? "", second: labels[1] ?? "" });
+	else {
+		const joined = t("timeline.processGroup.joinList", { items: labels.join(t("timeline.processGroup.listSeparator")) });
+		const kindTotal = group.counts.filter((entry) => entry.count > 0).length;
+		label = kindTotal > 3 ? t("timeline.processGroup.more", { title: joined }) : joined;
+	}
+	return extension ? t("timeline.processGroup.joinTwo", { first: label, second: extension }) : label;
+}
+
+function extensionLabel(count: number): string {
+	return t("timeline.processGroup.extension", { count });
 }
 
 /**
@@ -167,19 +178,23 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 	// 「正在读取 main.ts」，同一行自相矛盾（2026-08 审计）。已结束的组头仍用摘要。
 	const runningKind = props.running ? lastToolCategory(props.group.members) : undefined;
 	const headKind = props.running ? runningKind : topKind;
-	const Icon = headKind ? CATEGORY_ICONS[headKind] : Sparkles;
+	// 纯扩展组（无工具类别）：已结束用 Puzzle 标识来源；运行中退回 Sparkles（无工具活动可报）。
+	const Icon = headKind ? CATEGORY_ICONS[headKind] : !props.running && props.group.extensionCount > 0 ? Puzzle : Sparkles;
 	// 实时详情只对运行中的组有意义（结束后组头是类别摘要，不再报「正在执行…」）。
 	const detail = props.running ? lastToolLoadingLabel(props.group.members) : undefined;
 	const runningLabel = props.running ? runningGroupLabel(runningKind) : "";
-	const doneLabel = props.running ? "" : doneGroupLabel(props.group.counts);
+	const doneLabel = props.running ? "" : doneGroupLabel(props.group);
 
 	const renderMember = (entry: TurnProcessEntry): ReactNode => {
-		// 组员只有思考/工具两类（重试/错误是组边界，由分组层挡在外面）；其余分支兜底跳过。
+		// 组员有思考/工具/扩展输出三类（重试/错误是组边界，由分组层挡在外面）；其余分支兜底跳过。
 		if (entry.kind === "thinking-entry") {
 			return <ThinkingStep group={entry.group} hidden={false} showThinking={props.showThinking} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 		}
 		if (entry.kind === "tool-entry") {
 			return <ToolStep group={entry.group} hidden={false} stopped={!props.running} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />;
+		}
+		if (entry.kind === "extension-entry") {
+			return <ExtensionEntryStep messages={entry.messages} />;
 		}
 		return null;
 	};

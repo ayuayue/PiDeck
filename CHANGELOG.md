@@ -1,3 +1,24 @@
+## v0.8.0 (2026-10-07)
+
+### 🚀 New Features
+- **MCP config page redesign** - The three-pane layout is now two: the standalone "connection status" panel is gone and status lives inline in the server list (status dot, connected servers show tool counts, needs-auth rows expose a direct "Log in" button, errors get a red-dot tooltip), with detection running automatically on save and on page open. The seven-field OAuth form is removed - no-auth servers just work, login-required servers use the status-area login button (aligned with pi TUI /mcp), and API keys go into headers; servers with preset oauth params keep a read-only hint without losing their values. Editor actions moved up next to the name (check reachability / delete / undo), deletion now gives explicit feedback ("deleted on save" / "reverts to inherited on save" badges plus undo-delete), and logout only appears for servers with stored credentials. HTTP servers gain a "provider login auth" card (auth.json provider dropdown, global scope only); the smart-add panel is now reachable from manual config, and new HTTP entries prefill https:// with the URL selected on first focus.
+- **Prompt enhance in the composer (✦)** - A new ✦ button in the composer toolbar hands the current draft to a one-shot model rewrite and streams the result back into the box; while running, the bottom bar shows an enhance capsule (loader + live word count) and can be stopped at any time. The enhance model can be pinned in Settings → General, otherwise it follows the session model / onboarding pick.
+- **Resend & edit now fork cleanly** - Resending or editing history no longer rewrites in place: a tail resend/edit creates a new session that supersedes the old one (marked and hidden from the list, file kept and recoverable), while resending or editing from a middle message branches instead - the new session gets a "(fork)" suffix and the old one stays visible, each going its own way. History reads follow the fork chain.
+- **Web session routes /s/<id>** - Refresh, back-navigation and shared links now return to the same session instead of dropping you on the home view.
+
+### 🐛 Fixes
+- **All WSL-project sessions vanished from the sidebar (0.7.9 regression)** - After upgrading to 0.7.9, every session under WSL projects disappeared from the list in one go (data was intact - only the list was mis-filtered): the dead-file filter on the session list checked WSL sessions' Linux-side paths on the Windows host, which always missed, so all WSL sessions were filtered out as deleted files. WSL sessions are now exempt from that filter and reappear on upgrade.
+- **Optimistic locking for mcp.json saves** - External edits are no longer silently overwritten by a stale page draft.
+- **Untrusted projects show guidance instead of raw IPC errors** - The resources panel degrades to an explanatory hint for untrusted projects.
+- **Extension output cards follow renderer-registration and fold into process groups**
+- **Resend failures now explain "history was rolled back"** - A toast after a failed send clarifies that history was rolled back, so you don't assume the message never went out.
+- **Model selector group headers align name and count on the baseline**
+- **Mobile web interaction & rendering polish** - Send button, file preview, menu icons and streaming status improvements; the composer drops the camera button and tightens toolbar spacing.
+
+### 🙏 Acknowledgements
+
+Special thanks to **微时佬友** and **橙子** for the subscription services that supported development 🎉
+
 ## v0.7.9 (2026-10-07)
 
 ### 🚀 New Features

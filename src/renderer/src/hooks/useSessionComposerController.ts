@@ -6,11 +6,13 @@ import { resolveBusySendDelivery } from "../../../shared/busySendDelivery";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../../shared/fileTree";
 import { classifyCompactError, compactOwnerReason, compactRoutedCommand, type CompactNoticeKind } from "../../../shared/compactFeedback";
 import { findImageGenProvider } from "../../../shared/imageGenConfig";
+import { resolveEnhanceTargetModel } from "../../../shared/enhanceModelPreference";
 import type { ImageGenMeta } from "../../../shared/types/imagegen";
 import {
 	busySendDeliveryAtom,
 	cacheSessionMessagesAtom,
 	effectiveAgentBackendAtom,
+	enhanceModelAtom,
 	imageGenConfigAtom,
 	projectByIdAtomFamily,
 	sessionAttachmentsBySessionIdAtomFamily,
@@ -63,7 +65,7 @@ import { t } from "../i18n";
 import { COMPOSER_IMAGE_MAX_BYTES, ComposerImageError, dataUrlToFile, getClipboardImageFiles, getDroppedImageFiles, imageMimeTypeFromPath, isImageFilePath, processComposerImageFile } from "../utils/composerImages";
 import { PASTE_TO_FILE_MIN_CHARS } from "../rendererUtils";
 import { resolveBackendSwitchDefaults } from "../utils/backendSwitchDefaults";
-import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeBackendPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
+import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
 import { showNotice } from "../utils/notice";
 import { requireSessionCommand, toSessionRuntimeTarget } from "../utils/sessionCommands";
 import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, type DraftResourceCommandSnapshot } from "../utils/draftResourceCommands";
@@ -75,6 +77,7 @@ import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
  * 避免全量读入主进程再经 IPC 传输压垮两侧内存（超限/读失败走既有 catch → 内容不并入）。 */
 const PASTE_FILE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
 import { useVoiceTranscription } from "./useVoiceTranscription";
+import { usePromptEnhance, type PromptEnhanceRequest } from "./usePromptEnhance";
 import { resolveVoiceTranscriptionInsertion, type VoiceTranscriptionTarget } from "../utils/voiceTranscriptionInsert";
 
 /** 统一压缩结果 → 用户可见文案；所有分支都给文案（取消也要可见，见 classifyCompactError）。 */
@@ -248,6 +251,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const { sessionId, enqueue, ensureSessionId } = options;
 	const store = useStore();
 	const record = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
+	const enhanceModelConfig = useAtomValue(enhanceModelAtom);
 	// 引导页虚拟会话没有 record：文件树/@ 引用回退到引导页选中的项目，
 	// 否则 files 恒为空、@ 输入永远匹配不到任何文件。
 	const effectiveProjectId = record?.projectId ?? options.bootstrapProjectId;
@@ -1470,6 +1474,43 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		applyText: applyVoiceText,
 	});
 
+	// ===== 提示词增强（✦ 按钮）：当前模型 + 当前草稿 → 一次性改写 → 回填 =====
+	// 目标模型优先级（resolveEnhanceTargetModel）：设置页指定的固定增强模型 >
+	// 会话记录 > 引导页点选 > 部署/主进程默认；引导页的 welcomeModel 存 localStorage，
+	// 这里不走 catalog 存在性校验——模型被删的边缘情况由主进程报 model-not-found，toast 可见。
+	const captureEnhanceRequest = useCallback((): PromptEnhanceRequest | null => {
+		const draftSnapshot = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+		const welcome = (isDshBackend ? readWelcomeDshModelPreference() : readWelcomeModelPreference())?.model;
+		// 与底栏 liveModel 同一組底：dsh 取部署默认（settings.yaml agent-default-model），
+		// pi 取主进程解析的启动默认（显式默认 > 切换列表 > 上次使用）。
+		const fallback = isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model } : bootstrapDefaults?.model;
+		const resolved = resolveEnhanceTargetModel({
+			configured: enhanceModelConfig,
+			recordModel: record?.model,
+			welcomeModel: welcome,
+			fallback,
+		});
+		return resolved ? { ...resolved, draft: draftSnapshot } : null;
+	}, [bootstrapDefaults, dshDefault, draft, enhanceModelConfig, isDshBackend, record?.model, sessionId]);
+
+	// 回填 = 整体替换草稿（与语音插入不同：增强是对全文的改写，没有「插入位置」语义）。
+	const applyEnhancedText = useCallback(
+		(text: string) => {
+			liveDomDraftRef.current = { sessionId, value: text };
+			setDraft(text);
+			setCursor(text.length);
+			caretRef.current = { pos: text.length, forValue: text };
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[sessionId, setDraft],
+	);
+
+	const enhance = usePromptEnhance({
+		scopeKey: sessionId,
+		captureRequest: captureEnhanceRequest,
+		applyText: applyEnhancedText,
+	});
+
 	/**
 	 * 大段粘贴文本 → 落盘 userData/paste-files + 附件栏 chip。
 	 * 触发条件：粘贴纯文本达到 PASTE_TO_FILE_MIN_CHARS（复制长日志/代码/文章是主要场景）。
@@ -1925,6 +1966,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		hasContent,
 		busyDraftLocked,
 		voice,
+		enhance,
 		editor: {
 			ref: editorRef,
 			caretRef,

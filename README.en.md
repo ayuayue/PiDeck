@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.9-blue)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -81,25 +81,17 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.7.9 (2026-10-07)** (2026-10-07)
+> **Latest: v0.8.0 (2026-10-07)** (2026-10-07)
 
-### v0.7.9 (2026-10-07) Release Highlights
-- 🚀 **Compaction sliders in Settings**
-- 🚀 **Floating ball & mini overlay - minimize to a ball, pick up where you left off**
-- 🚀 **Mini overlay home: direct access to active sessions**
-- 🚀 **Richer tray right-click menu**
-- 🚀 **Tray icon follows the Logo style**
-- 🚀 **Scratch pad moved into the right sidebar**
-- 🚀 **Anonymous heartbeat gains feature-adoption and usage-scale stats**
-- 🚀 **TokenDance top-up (agent payment)**
-- 🚀 **Standby runtime pool — new sessions activate instantly**
-- 🚀 **Plugin development interface (capability catalog + AI authoring guide + demo)**
-- 🚀 **Session imports: Kimi Code, Kimi Work and MinimaxCode**
-- 🚀 **Adapts to pi 1.0.x — resource management now rides pi's native config**
-- ✨ **New sessions keep your last-used model**
-- ✨ **No more flash of the guide page at startup**
-- ✨ **Win11 snap layouts restore exactly**
-- ✨ **Session timestamps no longer churn (#314)**
+### v0.8.0 (2026-10-07) Release Highlights
+- 🚀 **MCP config page redesign**
+- 🚀 **Prompt enhance in the composer (✦)**
+- 🚀 **Resend & edit now fork cleanly**
+- 🚀 **Web session routes /s/<id>**
+- ✨ **All WSL-project sessions vanished from the sidebar (0.7.9 regression)**
+- ✨ **Optimistic locking for mcp.json saves**
+- ✨ **Untrusted projects show guidance instead of raw IPC errors**
+- ✨ **Extension output cards follow renderer-registration and fold into process groups**
 
 [View Full Changelog →](CHANGELOG.md)
 

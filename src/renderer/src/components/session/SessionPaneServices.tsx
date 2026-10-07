@@ -44,7 +44,7 @@ export type SessionPaneServices = {
 	insertQuickPrompt: (sessionId: string, message: string) => void;
 	ensureSessionId?: (sessionId: string) => Promise<string>;
 	resendUserMessage?: (message: ChatMessage) => void;
-	editMessage?: (messageId: string, newText: string, entryId?: string) => void;
+	editMessage?: (message: ChatMessage, newText: string) => void;
 	deleteMessage?: (messageId: string, entryId?: string) => void;
 	forkFromUserMessage?: (message: ChatMessage) => void;
 	forkingMessageId?: string | null;

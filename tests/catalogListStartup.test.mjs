@@ -39,6 +39,18 @@ test("dead file link filter exempts sessions with a live runtime", () => {
 	assert.match(handler, /if\s*\(\s*sessionRuntimeCoordinator\.hasLiveRuntime\(record\.id\)\s*\)\s*return true;\s*return existsSync\(record\.filePath\);/);
 });
 
+test("dead file link filter exempts wsl sessions whose filePath is a Linux path", () => {
+	// 2026-10-07 升级 0.7.9 反馈：WSL 会话在 catalog 里存的是 Linux 侧路径
+	// （/home/...），宿主 Windows 的 existsSync 恒 false；豁免条件只认 \\\\ 开头
+	// 的 UNC 形态时，WSL 用户的全部会话会被整组滤掉（58 条全在 catalog，列表全空）。
+	// 必须按 record.environment === "wsl" 豁免，且判定顺序在 existsSync 之前，
+	// 与 mergeScanned 清理闸（environment=wsl 跳过）同口径。
+	const handler = sessionIpc.slice(sessionIpc.indexOf("ipcChannels.sessionsCatalogList"), sessionIpc.indexOf("ipcChannels.sessionsCatalogCreateDraft"));
+	assert.match(handler, /if\s*\(\s*record\.environment\s*===\s*"wsl"\s*\)\s*return true;/);
+	const filterBlock = handler.slice(handler.indexOf(".filter((record) => {"), handler.indexOf("if (options?.scan === false)"));
+	assert.match(filterBlock, /environment\s*===\s*"wsl"[\s\S]*return\s+existsSync\(record\.filePath\)/, "wsl 豁免必须在 existsSync 判定之前，否则恒 false 的宿主探测仍会滤掉 WSL 会话");
+});
+
 test("catalog list scan does not parse JSONL bodies", () => {
 	// 侧栏 list() 只 stat + 路径推断；正文留给点击后的 readRecordMessagePage。
 	const listBlock = scanner.slice(scanner.indexOf("private async listUnqueued"), scanner.indexOf("private async resolveScanRoots"));

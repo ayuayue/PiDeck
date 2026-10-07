@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.9-blue)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -100,25 +100,17 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.7.9 (2026-10-07)**（2026-10-07）
+> **最新版本 v0.8.0 (2026-10-07)**（2026-10-07）
 
-### v0.7.9 (2026-10-07) 更新亮点
-- 🚀 **设置页会话压缩滑条**
-- 🚀 **悬浮球与极简浮窗——收进小球，随手继续对话**
-- 🚀 **极简浮窗主页：活动会话直达**
-- 🚀 **托盘右键菜单丰富化**
-- 🚀 **托盘图标跟随 Logo 风格切换**
-- 🚀 **Scratch Pad 移入右侧边栏**
-- 🚀 **遥测心跳新增功能采用度与使用规模匿名统计**
-- 🚀 **TokenDance 充值（Agent 支付）**
-- 🚀 **standby 运行时池——新会话秒级激活**
-- 🚀 **插件开发接口（能力目录 + AI 开发指南 + demo）**
-- 🚀 **会话导入：Kimi Code / Kimi Work / MinimaxCode**
-- 🚀 **适配 pi 1.0.x——资源管理改走 pi 原生配置**
-- ✨ **新会话保留上次使用的模型**
-- ✨ **启动不再闪现引导页**
-- ✨ **Win11 贴边窗口精确恢复**
-- ✨ **会话时间戳不再无故刷新（#314）**
+### v0.8.0 (2026-10-07) 更新亮点
+- 🚀 **MCP 配置页改版**
+- 🚀 **输入框提示词增强（✦）**
+- 🚀 **重发/编辑 fork 化**
+- 🚀 **Web 端会话路由 /s/<id>**
+- ✨ **WSL 项目全部会话从侧栏消失（0.7.9 回归）**
+- ✨ **mcp.json 保存加乐观锁**
+- ✨ **未信任项目的资源面板降级为引导文案**
+- ✨ **扩展输出卡按渲染器注册口径显示并折进执行过程组**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

@@ -12,8 +12,8 @@ const EN_PATH = fileURLToPath(new URL("../src/renderer/src/i18n/rendererCopy.en-
 /** 契约 §2：13 个工具活动类别（顺序即契约表格顺序）。 */
 const CATEGORIES = ["read", "readImage", "search", "write", "edit", "commands", "code", "webSearch", "webFetch", "subagents", "plan", "questions", "tools"];
 
-/** 契约 §2：组头拼装片段（分隔符 / 连接词 / 超限省略）。 */
-const ASSEMBLY_KEYS = ["timeline.processGroup.analyzing", "timeline.processGroup.analyzed", "timeline.processGroup.separator", "timeline.processGroup.joinTwo", "timeline.processGroup.joinList", "timeline.processGroup.listSeparator", "timeline.processGroup.more"];
+/** 契约 §2：组头拼装片段（分隔符 / 连接词 / 超限省略 / 扩展段——e56397db7 扩展输出折进过程组后组头追加的踪迹片段）。 */
+const ASSEMBLY_KEYS = ["timeline.processGroup.analyzing", "timeline.processGroup.analyzed", "timeline.processGroup.separator", "timeline.processGroup.joinTwo", "timeline.processGroup.joinList", "timeline.processGroup.listSeparator", "timeline.processGroup.more", "timeline.processGroup.extension"];
 
 /** 契约 §2b：设置开关文案。 */
 const SETTINGS_KEYS = ["settings.processGroupDisplay", "settings.processGroupDisplayDesc"];
@@ -80,6 +80,7 @@ const EXPECTED_ZH = {
 	"timeline.processGroup.joinList": "{items}",
 	"timeline.processGroup.listSeparator": "、",
 	"timeline.processGroup.more": "{title} 等",
+	"timeline.processGroup.extension": "扩展输出 ×{count}",
 	"settings.processGroupDisplay": "过程组显示",
 	"settings.processGroupDisplayDesc": "一轮内的连续思考与工具调用合并为「过程组」，点开组头展开明细。",
 };
@@ -118,6 +119,7 @@ const EXPECTED_EN = {
 	"timeline.processGroup.joinList": "{items}",
 	"timeline.processGroup.listSeparator": ", ",
 	"timeline.processGroup.more": "{title}, and more",
+	"timeline.processGroup.extension": "Extensions ×{count}",
 	"settings.processGroupDisplay": "Grouped process display",
 	"settings.processGroupDisplayDesc": "Merges consecutive reasoning and tool calls in a turn into process groups; expand a group header for details.",
 };

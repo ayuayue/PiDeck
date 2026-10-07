@@ -11,7 +11,7 @@
  * - 无会话时禁用；流式期间提交按钮转为停止
  */
 import { useEffect, useRef, useState } from "react";
-import { Camera, ImagePlus, X } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
 import type { AvailableModel, SessionModelPreference } from "../../../shared/types";
@@ -51,7 +51,6 @@ export function WebComposer(props: {
 	const [attachError, setAttachError] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
-	const cameraInputRef = useRef<HTMLInputElement | null>(null);
 	const lastPrefillNonce = useRef<number>(-1);
 
 	useEffect(() => {
@@ -131,8 +130,9 @@ export function WebComposer(props: {
 					aria-label={t("web.promptPlaceholder")}
 				/>
 				{attachError ? <div className="px-3 text-micro text-danger">{t("web.imageAttachFailed")}</div> : null}
-				<div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-2.5">
-					<span className="flex min-w-0 items-center gap-0.5">
+				{/* 工具行：左侧工具区横向滚动（对齐桌面 composer-bottom-left 范式），发送按钮钉在滚动区外永不被压 */}
+				<div className="flex shrink-0 items-center gap-1.5 px-3 pb-2.5">
+					<span className="flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
 						<input
 							ref={fileInputRef}
 							type="file"
@@ -148,31 +148,7 @@ export function WebComposer(props: {
 						{props.onBackendChange ? <WebBackendSelector backend={props.backend ?? "pi"} locked={Boolean(props.backendLocked)} onChange={props.onBackendChange} /> : null}
 						<WebModelSelector model={props.model} models={props.models} refreshing={props.refreshingModels} onRefresh={props.onRefreshModels} onChange={props.onModelChange} />
 						<WebThinkingSelector level={props.thinkingLevel} onChange={props.onThinkingChange} />
-						{/* 移动端相机直拍：capture 调起后置相机，单张；仅触屏设备显示（桌面无相机语义） */}
-						<input
-							ref={cameraInputRef}
-							type="file"
-							accept="image/*"
-							capture="environment"
-							className="hidden"
-							onChange={(event) => {
-								const files = Array.from(event.target.files ?? []);
-								void addFiles(files);
-								event.target.value = "";
-							}}
-						/>
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="hidden h-8 w-8 shrink-0 p-0 text-muted-foreground [@media(pointer:coarse)]:inline-flex"
-							disabled={props.disabled || busy || images.length >= MAX_ATTACHED_IMAGES}
-							title={t("web.takePhoto")}
-							aria-label={t("web.takePhoto")}
-							onClick={() => cameraInputRef.current?.click()}
-						>
-							<Camera className="size-4" aria-hidden="true" />
-						</Button>
+						{/* 移动端相机直拍已移除：图片选择器调起后自带拍照入口，无需单独按钮（m00861） */}
 						<Button type="button" variant="ghost" size="sm" className="h-8 w-8 shrink-0 p-0 text-muted-foreground" disabled={props.disabled || busy || images.length >= MAX_ATTACHED_IMAGES} title={t("web.attachImage")} aria-label={t("web.attachImage")} onClick={() => fileInputRef.current?.click()}>
 							<ImagePlus className="size-4" aria-hidden="true" />
 						</Button>

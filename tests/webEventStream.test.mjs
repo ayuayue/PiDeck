@@ -179,6 +179,56 @@ test("tool_execution_end without tool_execution_start is ignored to prevent AI S
 	assert.equal(toolCallEnd.length, 0);
 });
 
+test("duplicate toolcall_start after tool_execution_start must not reset state to running", () => {
+	const adapter = new PiEventToUiMessageStream();
+	// 顶层事件先到（正常路径）：发 input 帧
+	const top = adapter.push({ type: "tool_execution_start", toolName: "bash", toolCallId: "call_dup_1", args: { cmd: "ls" } });
+	assert.equal(top.filter((f) => f.type === "tool-input-available").length, 1);
+	// message 层重效（pi 回放顺序不定）：不重发 input，避免把已 settle 的 part 拍回 running
+	const replay = adapter.push({
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "toolcall_start",
+			toolCall: { id: "call_dup_1", name: "bash", input: { cmd: "ls" } },
+		},
+	});
+	assert.equal(replay.length, 0, "duplicate input frames would regress AI SDK part state");
+});
+
+test("toolcall_end without output keeps the tool part running until execution end", () => {
+	const adapter = new PiEventToUiMessageStream();
+	adapter.push({ type: "tool_execution_start", toolName: "bash", toolCallId: "call_run_1", input: {} });
+	// LLM 层参数发完但执行未结束：不 settle，工具卡继续转圈
+	const mid = adapter.push({
+		type: "message_update",
+		assistantMessageEvent: { type: "toolcall_end", toolCall: { id: "call_run_1" } },
+	});
+	assert.equal(mid.length, 0, "toolcall_end without output must not settle the part");
+	// 真实结果到达才结算
+	const end = adapter.push({ type: "tool_execution_end", toolCallId: "call_run_1", isError: false, result: "done" });
+	assert.equal(end.at(-1).type, "tool-output-available");
+});
+
+test("toolcall_end with output settles once; later tool_execution_end does not duplicate", () => {
+	const adapter = new PiEventToUiMessageStream();
+	// message 层先到（回放最终消息带 output）
+	adapter.push({
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "toolcall_start",
+			toolCall: { id: "call_fin_1", name: "bash", input: {} },
+		},
+	});
+	const mid = adapter.push({
+		type: "message_update",
+		assistantMessageEvent: { type: "toolcall_end", toolCall: { id: "call_fin_1", output: { ok: true } } },
+	});
+	assert.equal(mid.at(-1).type, "tool-output-available");
+	// 顶层事件后到：不再发第二份 output
+	const top = adapter.push({ type: "tool_execution_end", toolCallId: "call_fin_1", isError: false, result: { ok: true } });
+	assert.equal(top.filter((f) => f.type === "tool-output-available").length, 0);
+});
+
 test("agent_end error carries error frame before finish", () => {
 	const adapter = new PiEventToUiMessageStream();
 	const frames = adapter.push({ type: "agent_end", error: "boom" });

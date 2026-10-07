@@ -200,6 +200,7 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
   - 组体的 `noteWheel` 只改变内层跟随态；不向外层 controller 上报组内用户意图（组内滚动不改变时间线跟随态）。
 - **组内手势不得幽灵影响外层（同次审计修复）**：组体到边后滚轮/键盘一律不外溢（`overscroll-contain`），所以引擎必须按「手势到底滚了谁」判定归属 —— 详见 §7 已知限制与 `followState.ts` 的 `resolveGestureOwner`。
 - **组体内容 = 复用现有组件**：`thinking-entry` → `<ThinkingStep hidden={false} .../>`；`tool-entry` → `<ToolStep stopped={!running} hidden={false} .../>`。
+- **扩展输出成员（2026-10 新增）**：appendEntry 投影卡（`meta.type === "customEntry"`）按用户决策折进过程组、不再单独成块：`groupToolMessages` 吸为 run 内 `extension-entries` 组员（连续条目合并且不拆组，run 未开始时保持独立卡兑底），`groupTurnProcess` 里与思考/工具同层入组（不截断、不计入 toolCount），组节点新增 `extensionCount` 字段。组头已结束文案追加扩展段 `t("timeline.processGroup.extension", { count })`（与工具段用 `joinTwo` 连接；纯扩展组只报扩展段、图标用 Puzzle）；组员行渲染 `turn/ExtensionEntryStep.tsx`（折叠行 + 展开看 data 字段）。`customMessage`（子代理完成通知）不受影响：仍是回合边界 + 独立通知卡。
 - **组内挂载预算（必须做，否则会 OOM 回归）**：一个组可能有几百个成员，全挂进 DOM 就是当年 `turnMountBudget` 要治的事故（2026-08 渲染进程 OOM）。所以组体必须对 `group.members` 套 `boundMountedSteps(group.members, TIMELINE_MOUNTED_STEP_LIMIT)`（`timeline/turnMountBudget.ts`，limit=120，从尾部保留）；`hiddenCount > 0` 时在**组体顶部**渲染与 TurnRow 同款的 ghost 入口按钮，文案用现有键 `t("timeline.showEarlierSteps", { count })`；点击后本地 `showAll` 全量挂载（用 `useState`，随组 id 变化重置，写法参照 `TurnRow.tsx` 里 `expandedStepsRunId` 的既有模式）。
 - `aria-expanded` / `aria-controls` 必须有；组体 `id` 用 `useId()`。
 

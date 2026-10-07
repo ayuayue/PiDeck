@@ -44,8 +44,10 @@ export class PiEventToUiMessageStream {
 	private reasoningBlockId: string | null = null;
 	private currentMessageId: string | null = null;
 	private finished = false;
-	/** 记录当前流已经发送过 tool-input 的 toolCallId，防止遗漏 start 导致 AI SDK 抛错 */
-	private startedToolCallIds = new Set<string>();
+	/** 已发送过 tool-input 帧的 toolCallId（防重发：message 层 toolcall_start 与顶层 tool_execution_start 双路径去重） */
+	private inputSentToolCallIds = new Set<string>();
+	/** 已发送过 tool-output 帧的 toolCallId（防重复 settle；settle 后即生命周期完结） */
+	private settledToolCallIds = new Set<string>();
 
 	/**
 	 * 翻译单个 pi 事件为 0..n 个 UIMessageStream 帧。
@@ -157,7 +159,9 @@ export class PiEventToUiMessageStream {
 		if (eventType === "toolcall_start") {
 			const toolCall = ev.toolCall as Record<string, unknown> | undefined;
 			if (toolCall && typeof toolCall.id === "string" && typeof toolCall.name === "string") {
-				this.startedToolCallIds.add(toolCall.id);
+				// 双路径去重：顶层 tool_execution_start 先到时不重发 input 帧（重发会把 AI SDK 端已 settle 的 part 拍回 running）。
+				if (this.inputSentToolCallIds.has(toolCall.id) || this.settledToolCallIds.has(toolCall.id)) return frames;
+				this.inputSentToolCallIds.add(toolCall.id);
 				frames.push({
 					type: "tool-input-start",
 					toolCallId: toolCall.id,
@@ -177,14 +181,21 @@ export class PiEventToUiMessageStream {
 			if (toolCall && typeof toolCall.id === "string") {
 				// 容错：若当前流中途建立或跨端并发输入，未见证过 toolcall_start，
 				// 过滤孤儿 toolcall_end，防止 AI SDK 抛出 "No tool invocation found for tool call ID" 导致告警红条。
-				if (!this.startedToolCallIds.has(toolCall.id)) {
+				if (!this.inputSentToolCallIds.has(toolCall.id)) {
 					return [];
 				}
-				this.startedToolCallIds.delete(toolCall.id);
+				// toolcall_end 只是 LLM 层把调用参数发完，执行尚未开始/结束：
+				// 不带 output 时不 settle（保持 running，等顶层 tool_execution_end 带真实结果）；
+				// 带 output（pi replay 最终消息）才提前结算，且要防重复。
+				const output = toolCall.output;
+				if (output === null || output === undefined) return frames;
+				if (this.settledToolCallIds.has(toolCall.id)) return frames;
+				this.settledToolCallIds.add(toolCall.id);
+				this.inputSentToolCallIds.delete(toolCall.id);
 				frames.push({
 					type: "tool-output-available",
 					toolCallId: toolCall.id,
-					output: toolCall.output ?? {},
+					output,
 				});
 			}
 			return frames;
@@ -202,7 +213,9 @@ export class PiEventToUiMessageStream {
 	private startTool(event: PiEvent): UiMessageStreamFrame[] {
 		const toolName = typeof event.toolName === "string" ? event.toolName : "tool";
 		const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : `tool_${toolName}_${Date.now()}`;
-		this.startedToolCallIds.add(toolCallId);
+		// 双路径去重：message 层 toolcall_start 已发过 input 时不再重发，避免 state 回退成 running。
+		if (this.inputSentToolCallIds.has(toolCallId) || this.settledToolCallIds.has(toolCallId)) return [];
+		this.inputSentToolCallIds.add(toolCallId);
 		return [
 			{ type: "tool-input-start", toolCallId, toolName },
 			{ type: "tool-input-available", toolCallId, toolName, input: event.args ?? {} },
@@ -214,10 +227,12 @@ export class PiEventToUiMessageStream {
 		if (!toolCallId) return [];
 		// 容错：若当前流中途建立或跨端并发输入，未见证过 tool_execution_start，
 		// 过滤孤儿 tool_execution_end，防止 AI SDK 抛出 "No tool invocation found for tool call ID" 导致告警红条。
-		if (!this.startedToolCallIds.has(toolCallId)) {
+		// 已结算（message 层 toolcall_end 带 output 先到过）不重复发；从未见过 start 的孤儿同样滤掉。
+		if (this.settledToolCallIds.has(toolCallId) || !this.inputSentToolCallIds.has(toolCallId)) {
 			return [];
 		}
-		this.startedToolCallIds.delete(toolCallId);
+		this.settledToolCallIds.add(toolCallId);
+		this.inputSentToolCallIds.delete(toolCallId);
 		if (event.isError) {
 			return [
 				{

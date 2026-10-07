@@ -30,8 +30,8 @@ export type TurnStandaloneEntry = Extract<TurnProcessEntry, { kind: "retry-entry
 /** 大折叠栏内的一个节点：中间回复 / 一级过程行 / 过程组。 */
 export type TurnProcessNode =
 	| { kind: "interim"; id: string; message: ChatMessage }
-	/** 一组连续的过程条目（思考 / 工具），组头显示 `counts` 摘要。 */
-	| { kind: "group"; id: string; members: TurnProcessEntry[]; counts: ActivityCount[]; toolCount: number; hasThinking: boolean }
+	/** 一组连续的过程条目（思考 / 工具 / 扩展输出），组头显示 `counts` 摘要。 */
+	| { kind: "group"; id: string; members: TurnProcessEntry[]; counts: ActivityCount[]; toolCount: number; hasThinking: boolean /** 组内扩展输出条目总数（appendEntry 投影卡）：组头摘要的扩展段，不入工具计数 */; extensionCount: number }
 	/** 与中间回复同级的一级过程行（重试 / 错误诊断），同时作为组边界。 */
 	| { kind: "entry"; id: string; entry: TurnStandaloneEntry };
 
@@ -67,8 +67,10 @@ function flushGroup(members: TurnProcessEntry[], nodes: TurnProcessNode[]): void
 	if (members.length === 0) return;
 	const toolNames: string[] = [];
 	let hasThinking = false;
+	let extensionCount = 0;
 	for (const member of members) {
 		if (member.kind === "thinking-entry") hasThinking = true;
+		else if (member.kind === "extension-entry") extensionCount += member.messages.length;
 		else toolNames.push(...toolNamesOfEntry(member));
 	}
 	nodes.push({
@@ -80,6 +82,7 @@ function flushGroup(members: TurnProcessEntry[], nodes: TurnProcessNode[]): void
 		counts: activityCountsFromToolNames(toolNames),
 		toolCount: toolNames.length,
 		hasThinking,
+		extensionCount,
 	});
 }
 
@@ -92,7 +95,7 @@ function flushGroup(members: TurnProcessEntry[], nodes: TurnProcessNode[]): void
  * - **没有正文的中间回复不作边界也不产出**（live 骨架 / 空 error 占位 / 仅思考标签等，
  *   与正文渲染和 `segmentSummary.ts` 的计数同口径，避免凭空拆出空行和多余组头）；
  * - 重试 / 错误 → 先 flush，再产出一条一级 `entry`；
- * - 其余过程条目（思考 / 工具）→ 并入当前组；工具类别变化**不拆组**。
+ * - 其余过程条目（思考 / 工具 / 扩展输出）→ 并入当前组；工具类别变化**不拆组**。
  */
 export function groupTurnProcess(items: readonly TurnDisplayItem[]): TurnProcessNode[] {
 	const nodes: TurnProcessNode[] = [];

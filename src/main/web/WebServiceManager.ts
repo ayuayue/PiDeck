@@ -2,7 +2,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import type {
@@ -42,6 +42,7 @@ import type { PendingUiRequestSnapshot } from "../sessions/SessionRuntimeCoordin
 import { replaceExpandedRefBlocksWithLabels } from "../../shared/expandedRefBlocks";
 import { serializeWebClientDictionaries, webEnUS } from "./WebI18n";
 import { WebEventStreamRouter, serializeSseFrame, type PiEvent } from "./WebEventStream";
+import { rewriteWebHtmlAssetUrls } from "./webHtmlAssetUrls";
 
 type WebServiceSettings = Pick<AppSettings, "webServiceEnabled" | "webServiceHost" | "webServicePort" | "webServiceRequiresAuth">;
 
@@ -236,6 +237,8 @@ export class WebServiceManager {
 	/** dev 模式渲染层 dev server 基址（无尾斜杠）；空串表示走构建产物。 */
 	private readonly devRendererUrl: string;
 	private readonly rendererRoot = join(__dirname, "../renderer");
+	/** web.html 改写后的缓存（按文件 mtime 失效）：避免每次页面请求都重读重改写。 */
+	private webEntryHtmlCache: { mtimeMs: number; html: string } | null = null;
 
 	private readonly eventStreamRouter: WebEventStreamRouter;
 
@@ -1497,7 +1500,22 @@ export class WebServiceManager {
 			}
 			return;
 		}
+		// web.html 单独出口：相对资源引用改写为绝对路径（/s/<id> 路由下 ./assets 会解析成
+		// /s/assets/... 而 404 白屏）；sendHtml 的 no-store 保证发版后壳不驻留。
+		if (normalize(webEntry) === filePath) {
+			this.sendHtml(response, this.loadWebEntryHtml(webEntry));
+			return;
+		}
 		await this.sendFile(filePath, response);
+	}
+
+	/** web.html 服务出口：相对资源引用改写为绝对路径（/s/<id> 路由下 ./assets 会 404 白屏，见 webHtmlAssetUrls.ts）。按 mtime 缓存改写结果。 */
+	private loadWebEntryHtml(webEntry: string): string {
+		const mtimeMs = statSync(webEntry).mtimeMs;
+		if (this.webEntryHtmlCache && this.webEntryHtmlCache.mtimeMs === mtimeMs) return this.webEntryHtmlCache.html;
+		const html = rewriteWebHtmlAssetUrls(readFileSync(webEntry, "utf8"));
+		this.webEntryHtmlCache = { mtimeMs, html };
+		return html;
 	}
 
 	/**

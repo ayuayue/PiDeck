@@ -213,7 +213,7 @@ test("运行中组头报「正在」必须用当前工具类别，不能用整�
 	assert.doesNotMatch(groupSource, /lastToolCategory\(props\.group\.members\) \?\? topKind/);
 	assert.match(groupSource, /const runningLabel = props\.running \? runningGroupLabel\(runningKind\) : ""/);
 	// 已结束的组仍是摘要（doneLabel），不能改成最后一个工具
-	assert.match(groupSource, /const doneLabel = props\.running \? "" : doneGroupLabel\(props\.group\.counts\)/);
+	assert.match(groupSource, /const doneLabel = props\.running \? "" : doneGroupLabel\(props\.group\)/);
 	// 最后一个成员是思考时，旧工具的实时详情也必须一并消失。
 	assert.match(groupSource, /if \(current\?\.kind !== "tool-entry"\) return undefined/);
 });

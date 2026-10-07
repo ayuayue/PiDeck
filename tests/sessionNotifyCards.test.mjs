@@ -204,7 +204,7 @@ test("空正文通知不占位", async () => {
 
 test("扩展输出条目（appendEntry）投影为 customEntry 卡片并插在下一条消息之前", async () => {
 	const filePath = writeSession("entry-basic.jsonl", [header(), userMessage("u1", "session-1", "q1"), assistantMessage("a1", "u1", "a1"), customEntry("e1", "a1", "pi-plan-btw", { query: "帮我看下迁移进度", depth: "brief" }), assistantMessage("a2", "e1", "a2")]);
-	const window = await createReader().readLoadWindow(filePath, "agent-1", 20, 500);
+	const window = await createReader().readLoadWindow(filePath, "agent-1", 20, 500, { entryRendererTypes: ["pi-plan-btw"] });
 
 	assert.deepEqual(outline(window.messages), ["user:q1", "assistant:a1", "entry:pi-plan-btw", "assistant:a2"]);
 	const card = window.messages[2];
@@ -232,9 +232,16 @@ test("内部记账类 customType（subagents: / pi-deck- 前缀）不投影成�
 	assert.deepEqual(outline(window.messages), ["user:q1", "assistant:a1", "assistant:a2"]);
 });
 
+test("未注册 registerEntryRenderer 的 customType 不投影成卡片（白名单口径）", async () => {
+	const filePath = writeSession("entry-unregistered.jsonl", [header(), userMessage("u1", "session-1", "q1"), assistantMessage("a1", "u1", "a1"), customEntry("e1", "a1", "codemode-store", { set: {} }), assistantMessage("a2", "e1", "a2")]);
+	// 扩展没注册渲染器（如 codemode 的内部 KV 写入）→ 时间线不出现裸 JSON 卡
+	const window = await createReader().readLoadWindow(filePath, "agent-1", 20, 500, { entryRendererTypes: [] });
+	assert.deepEqual(outline(window.messages), ["user:q1", "assistant:a1", "assistant:a2"]);
+});
+
 test("超大 data 载荷不进入渲染层：只带 dataTruncated 标记", async () => {
 	const filePath = writeSession("entry-oversize.jsonl", [header(), userMessage("u1", "session-1", "q1"), assistantMessage("a1", "u1", "a1"), customEntry("e-big", "a1", "dump-snapshot", { blob: "x".repeat(20 * 1024) }), assistantMessage("a2", "e-big", "a2")]);
-	const window = await createReader().readLoadWindow(filePath, "agent-1", 20, 500);
+	const window = await createReader().readLoadWindow(filePath, "agent-1", 20, 500, { entryRendererTypes: ["dump-snapshot"] });
 
 	const card = window.messages.find((message) => message.meta?.type === "customEntry");
 	assert.ok(card, "条目本身仍应可见（可见性不应依赖载荷大小）");

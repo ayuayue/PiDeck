@@ -93,14 +93,19 @@ function StripShell({ icon, title, count, children }: { icon: React.ReactNode; t
 	);
 }
 
-function WebFileChangesStrip({ changes }: { changes: SessionFileChange[] }) {
+function WebFileChangesStrip({ changes, onOpenFileChange }: { changes: SessionFileChange[]; onOpenFileChange?: (path: string) => void }) {
 	if (changes.length === 0) return null;
 	return (
 		<StripShell icon={<FileText className="size-3.5" />} title={t("web.filesStripTitle")} count={changes.length}>
 			<ul className="flex flex-wrap gap-1">
 				{changes.slice(0, 30).map((change) => (
 					<li key={change.path}>
-						<button type="button" title={`${change.path} × ${change.count}`} onClick={() => void copyTextToClipboard(change.path)} className="flex items-center gap-1 rounded border border-border-subtle bg-bg-panel px-1.5 py-0.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover">
+						<button
+							type="button"
+							title={`${change.path} × ${change.count}${onOpenFileChange ? ` · ${t("web.fileChangeOpenDiff")}` : ""}`}
+							onClick={() => (onOpenFileChange ? onOpenFileChange(change.path) : void copyTextToClipboard(change.path))}
+							className="flex items-center gap-1 rounded border border-border-subtle bg-bg-panel px-1.5 py-0.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover"
+						>
 							<span className="max-w-44 truncate">{basename(change.path)}</span>
 							<span className="rounded bg-bg-muted px-1 text-[10px] tabular-nums text-text-tertiary">{change.count}</span>
 						</button>
@@ -160,14 +165,14 @@ function WebTodoStrip({ todo }: { todo: SessionTodoSnapshot | null }) {
 }
 
 /** 三条 strip 的组合容器：仅渲染有数据的一条或多条。 */
-export function WebSessionStrips({ sessionId }: { sessionId: string | null }) {
+export function WebSessionStrips({ sessionId, onOpenFileChange }: { sessionId: string | null; onOpenFileChange?: (path: string) => void }) {
 	const { changes, subagents, todo } = useSessionActivity(sessionId);
 	if (!sessionId) return null;
 	const empty = changes.length === 0 && subagents.length === 0 && (!todo || todo.todos.length === 0);
 	if (empty) return null;
 	return (
 		<div className="flex flex-col border-t border-border-subtle px-3" aria-label={t("web.filesStripTitle")}>
-			<WebFileChangesStrip changes={changes} />
+			<WebFileChangesStrip changes={changes} onOpenFileChange={onOpenFileChange} />
 			<WebSubagentsStrip subagents={subagents} />
 			<WebTodoStrip todo={todo} />
 		</div>

@@ -71,7 +71,7 @@ export function WebPromptPicker(props: { disabled?: boolean; onPick: (content: s
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<Button type="button" variant="ghost" size="sm" className="hidden h-8 w-8 shrink-0 p-0 text-muted-foreground sm:inline-flex" disabled={props.disabled} title={t("web.promptLibrary")} aria-label={t("web.promptLibrary")}>
-					{/* 纯图标触发器（与相邻 ImagePlus/Camera 同规格）。移动窄屏（<sm）隐藏：模型/思考/相机/图片是核心，
+					{/* 纯图标触发器（与相邻 ImagePlus 同规格）。移动窄屏（<sm）隐藏：模型/思考/图片是核心，
 					   提示词库是增强，5 个元素在窄屏装不下会溢出把发送按钮挤折叠；宽屏再显示。 */}
 					<Sparkles className="size-4" aria-hidden="true" />
 				</Button>

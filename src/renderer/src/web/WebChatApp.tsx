@@ -11,7 +11,7 @@
  * UI 层与桌面端对齐：WebSidebar / WebHeader / WebTimeline / WebComposer，
  * 复用桌面设计 token、shadcn 组件、lucide 图标与 timeline/surfaces 样式类。
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
@@ -24,6 +24,7 @@ import { WebTimeline } from "./WebTimeline";
 import { WebComposer } from "./WebComposer";
 import { WebDshToolsPanel } from "./WebDshToolsPanel";
 import { WebBranchBar } from "./WebBranchBar";
+import { sessionFromPath, sessionPath } from "./webSessionRoute";
 import { WebWorkspaceDrawer } from "./WebWorkspaceDrawer";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui-shadcn/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui-shadcn/dialog";
@@ -35,6 +36,7 @@ import { fetchRuntimeContextUsage, setRuntimePermission } from "./webApi";
 import { sessionUiMessagesToMarkdown } from "./webMarkdown";
 import { removeMessageOptimistic, replaceMessageTextOptimistic } from "./webMessageOptimistic";
 import { WebSessionStrips } from "./WebSessionStrips";
+import { WebFilePreview, type WebFilePreviewTarget } from "./WebFilePreview";
 import { WebSearchDialog } from "./WebSearchDialog";
 import { WebSkillsExtensionsDialog } from "./WebSkillsExtensionsDialog";
 import { applyWebTheme, readStoredWebTheme, resolveWebTheme, storeWebTheme, systemPrefersDark, type ResolvedWebTheme, type WebThemePreference } from "./webTheme";
@@ -161,6 +163,41 @@ export function WebChatApp() {
 		registerWebServiceWorker();
 	}, []);
 
+	// ── 会话路由（URL ↔ activeSessionId）──
+	// 刷新/分享/回退能回到同一会话；首次恢复前不回写 URL，避免落地页加载瞬间把 /s/<id> 冲掉。
+	const routeRestoredRef = useRef(false);
+	useEffect(() => {
+		if (routeRestoredRef.current) return;
+		const id = sessionFromPath(window.location.pathname);
+		if (!id) {
+			routeRestoredRef.current = true;
+			return;
+		}
+		// 列表未拉到（空且未确认连通）时等待下一轮；确认后无此会话 → 死链，回根路径
+		if (state.sessions.some((session) => session.id === id)) {
+			setActiveSessionId(id);
+			routeRestoredRef.current = true;
+		} else if (state.sessions.length > 0 || connected) {
+			window.history.replaceState(null, "", "/");
+			routeRestoredRef.current = true;
+		}
+	}, [state.sessions, connected]);
+	// 选中变化 → pushState（popstate 驱动的变化路径已一致，自然短路不回写）
+	useEffect(() => {
+		if (!routeRestoredRef.current) return;
+		const desired = sessionPath(activeSessionId);
+		if (window.location.pathname === desired) return;
+		window.history.pushState(null, "", desired);
+	}, [activeSessionId]);
+	// 浏览器回退/前进：按 URL 恢复选中
+	useEffect(() => {
+		const onPopState = () => {
+			setActiveSessionId(sessionFromPath(window.location.pathname));
+		};
+		window.addEventListener("popstate", onPopState);
+		return () => window.removeEventListener("popstate", onPopState);
+	}, []);
+
 	// SSE 断线恢复：手机锁屏/切网/后台节流断流后，回前台/网络恢复/error 态时
 	// 从磁盘拉最新消息窗口覆盖本地（pi 侧不受影响，见 webStreamRecovery.ts）
 	const recoverFromDisk = async (notify: boolean) => {
@@ -251,6 +288,22 @@ export function WebChatApp() {
 	const activeSession = state.sessions.find((session) => session.id === activeSessionId);
 	const activeRuntime = activeSessionId ? runtimeFor(activeSessionId) : undefined;
 	activeRuntimeRef.current = activeRuntime;
+
+	// 文件预览（第三批）：消息里的文件链接/strip 的 diff chip 都在此打开。项目信息走 ref
+	// 快照，回调保持稳定身份——时间线 memo 不会因回调重建而重渲染，闭包也不会拿到过期会话。
+	const [filePreview, setFilePreview] = useState<WebFilePreviewTarget | null>(null);
+	const previewProjectRef = useRef<{ id: string; root: string } | null>(null);
+	previewProjectRef.current = activeSession ? { id: activeSession.projectId, root: activeSession.projectPath ?? state.projects.find((project) => project.id === activeSession.projectId)?.path ?? "" } : null;
+	const openFilePreview = useCallback((path: string, line?: number) => {
+		const project = previewProjectRef.current;
+		if (!project?.root) return;
+		setFilePreview({ kind: "file", projectId: project.id, projectRoot: project.root, path, line });
+	}, []);
+	const openDiffPreview = useCallback((path: string) => {
+		const project = previewProjectRef.current;
+		if (!project?.root) return;
+		setFilePreview({ kind: "diff", projectId: project.id, projectRoot: project.root, path });
+	}, []);
 
 	// 切换会话：stale-while-revalidate——缓存命中先展示旧快照立即渲染，再后台重拉磁盘
 	// 最新（桌面端/其他端跑出的新消息不会漏）；未加载过的会话直接拉首页注入。
@@ -917,8 +970,9 @@ export function WebChatApp() {
 					onEditMessage={(messageId, newText) => void handleEditMessage(messageId, newText)}
 					onDeleteMessage={(messageId) => void handleDeleteMessage(messageId)}
 					onResendMessage={(messageId) => void handleResendMessage(messageId)}
+					onOpenFile={openFilePreview}
 				/>
-				<WebSessionStrips sessionId={activeSessionId} />
+				<WebSessionStrips sessionId={activeSessionId} onOpenFileChange={openDiffPreview} />
 				<WebComposer
 					disabled={Boolean(creatingProjectId)}
 					streaming={streaming}
@@ -944,6 +998,8 @@ export function WebChatApp() {
 			{dshToolsOpen && activeSessionId && <WebDshToolsPanel sessionId={activeSessionId} onClose={() => setDshToolsOpen(false)} />}
 			{/* P3：工作区抽屉（Git 状态/diff + 文件浏览，projectId 来自活跃会话） */}
 			{workspaceOpen && activeSession && <WebWorkspaceDrawer projectId={activeSession.projectId} open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} />}
+			{/* 第三批：文件/diff 全屏预览（消息文件链接 + 文件变更 strip chip） */}
+			{filePreview ? <WebFilePreview target={filePreview} onClose={() => setFilePreview(null)} /> : null}
 			{/* P1：重命名会话对话框 */}
 			<Dialog open={renameDraft != null} onOpenChange={(open) => (!open ? setRenameDraft(null) : undefined)}>
 				<DialogContent className="max-w-sm">

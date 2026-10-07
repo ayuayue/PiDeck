@@ -47,8 +47,9 @@ export type PiAuthHostLaunch =
 	| { ok: false; reason: PiAuthHostLaunchFailureReason /** 诊断细节（日志与「查看详情」用） */; detail?: string };
 
 /** 助手脚本路径：与 skills/xueprompts.db 同一约定（dev 读 appPath/resources，打包读 resourcesPath）。 */
-export function resolvePiAuthHostPath(input: { appPath: string; resourcesPath: string; isPackaged: boolean }): string {
-	return input.isPackaged ? join(input.resourcesPath, PI_AUTH_HOST_FILENAME) : join(input.appPath, "resources", PI_AUTH_HOST_FILENAME);
+export function resolvePiAuthHostPath(input: { appPath: string; resourcesPath: string; isPackaged: boolean; filename?: string }): string {
+	const filename = input.filename ?? PI_AUTH_HOST_FILENAME;
+	return input.isPackaged ? join(input.resourcesPath, filename) : join(input.appPath, "resources", filename);
 }
 
 function tryRealpath(target: string): string | undefined {
@@ -150,8 +151,8 @@ function resolveNodeExe(invocation: PiCommandInvocation, userDataPath: string): 
  * 组装助手的启动参数。失败时返回分类原因，由渲染层翻成可读提示（通常是
  * 「请在终端里执行 pi 然后 /login」）——绝不静默失败，否则用户只会看到没反应。
  */
-export function resolvePiAuthHostLaunch(input: { settings: PiAuthHostSettings; locator: PiLocator; userDataPath: string; appPath: string; resourcesPath: string; isPackaged: boolean }): PiAuthHostLaunch {
-	const helperPath = resolvePiAuthHostPath(input);
+export function resolvePiAuthHostLaunch(input: { settings: PiAuthHostSettings; locator: PiLocator; userDataPath: string; appPath: string; resourcesPath: string; isPackaged: boolean /** 复用同套解析逻辑的其它助手脚本文件名（如提示词增强助手）；缺省为认证助手。 */; helperFilename?: string }): PiAuthHostLaunch {
+	const helperPath = resolvePiAuthHostPath({ ...input, filename: input.helperFilename ?? PI_AUTH_HOST_FILENAME });
 	if (!existsSync(helperPath)) {
 		return { ok: false, reason: "helper-missing", detail: helperPath };
 	}

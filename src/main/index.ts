@@ -267,6 +267,7 @@ import { importForeignSession, knownForeignSessionIds, syncForeignSessions, type
 import { PiLocator } from "./pi/PiLocator";
 import { PiAuthService } from "./pi/auth/PiAuthService";
 import { resolvePiAuthHostLaunch } from "./pi/auth/piAuthHostLaunch";
+import { EnhancePromptService, PI_ENHANCE_HOST_FILENAME } from "./pi/enhance/EnhancePromptService";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
 import { resolveLaunchDefaultOptions, isModelInModelsConfig } from "./sessions/launchDefaults";
@@ -387,6 +388,7 @@ import { RpcLogger } from "./logging/RpcLogger";
 import { RpcLogLiveBroadcaster } from "./logging/RpcLogLiveBroadcaster";
 import { registerEditorsIpc } from "./ipc/editorsIpc";
 import { registerPiAuthIpc } from "./ipc/piAuthIpc";
+import { registerEnhanceIpc } from "./ipc/enhanceIpc";
 import { detectExternalEditors, listConfiguredExternalEditors, mergeDetectedExternalEditors, openProjectInEditor, validateExternalEditorCommand } from "./editors/EditorDetector";
 import { FeishuBridge, type SessionRuntimeBindingGateway } from "./feishu/FeishuBridge";
 import { feishuT, normalizeFeishuLocale, type FeishuLocale } from "./feishu/FeishuI18n";
@@ -520,6 +522,8 @@ let usageStatsService: UsageStatsService | null = null;
  * 应用内登录必须绕过 RPC 直调 pi 的认证 API，见 AGENTS.md「认证例外通道」。
  */
 let piAuthService: PiAuthService | null = null;
+/** 提示词增强服务（输入框增强按钮的后端）：常驻助手进程复用用户那套 pi 的 ModelRuntime。 */
+let enhancePromptService: EnhancePromptService | null = null;
 /** 粘贴文件启动清理（registerIpc 阶段赋值；whenReady 后 fire-and-forget 执行） */
 let cleanupPasteFiles: (() => Promise<number>) | undefined;
 
@@ -959,7 +963,7 @@ type AgentSessionReplacementResult = {
 	[key: string]: unknown;
 };
 
-async function replaceAgentSession(agentId: string, replace: () => Promise<unknown>, options?: { markForked?: boolean }): Promise<AgentSessionReplacementResult & { targetSessionId?: string }> {
+async function replaceAgentSession(agentId: string, replace: () => Promise<unknown>, options?: { markForked?: boolean; markSuperseded?: boolean }): Promise<AgentSessionReplacementResult & { targetSessionId?: string }> {
 	const originBinding = sessionRuntimeCoordinator.getRuntimeBinding(agentId);
 	const originEntry = originBinding ? sessionCatalog.get(originBinding.sessionId) : undefined;
 	const originKey = originEntry?.filePath
@@ -1019,6 +1023,12 @@ async function replaceAgentSession(agentId: string, replace: () => Promise<unkno
 				// switch_session / 历史会话换绑等不标记。
 				forked: options?.markForked,
 			});
+			// 重发/编辑 fork 化替换：旧会话记录打 supersededBy 标记（列表过滤用），
+			// 旧 JSONL 保留可恢复。放在 resolveTargetSessionId 内部：若标记写入失败，
+			// replaceBoundRuntime 的错误路径会走 canRestoreOrigin 回滚绑定（fail-closed）。
+			if (options?.markSuperseded && originEntry && originEntry.id !== target.id) {
+				await sessionCatalog.markSuperseded(originEntry.id, target.id);
+			}
 			return target.id;
 		},
 		canRestoreOrigin: () => {
@@ -2324,6 +2334,8 @@ function registerIpc() {
 	registerUsageStatsIpc(ipcMain, usageStatsService);
 	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService
 	registerPiAuthIpc(ipcMain, piAuthService);
+	// 提示词增强（输入框增强按钮）：只做校验/适配，进程与协议在 EnhancePromptService
+	registerEnhanceIpc(ipcMain, enhancePromptService);
 	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
 	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
@@ -3444,6 +3456,28 @@ app
 		});
 		// C12：退出清理登记（before-quit 统一 runAll）——登录子进程必须随之回收。
 		quitCleanup.register("pi-auth", () => piAuthService?.dispose());
+		// 提示词增强助手（见 AGENTS.md「提示词增强例外通道」）：常驻单进程，复用认证
+		// 同一套 pi 入口解析；用户改自定义 pi 路径后下次增强生效（resolveLaunch 现求值）。
+		enhancePromptService = new EnhancePromptService({
+			resolveLaunch: () =>
+				resolvePiAuthHostLaunch({
+					settings: settingsStore.get(),
+					locator: piLocator as PiLocator,
+					userDataPath: app.getPath("userData"),
+					appPath: app.getAppPath(),
+					resourcesPath: process.resourcesPath,
+					isPackaged: app.isPackaged,
+					helperFilename: PI_ENHANCE_HOST_FILENAME,
+				}),
+			logger: {
+				debug: (message) => void appLogger?.debug("enhance", message),
+				info: (message) => void appLogger?.info("enhance", message),
+				warn: (message) => void appLogger?.warn("enhance", message),
+				error: (message) => void appLogger?.error("enhance", message),
+			},
+		});
+		// C12：增强助手是常驻子进程，退出时必须回收。
+		quitCleanup.register("enhance-prompt", () => enhancePromptService?.dispose());
 		// DSH 用量链路（backend="dsh"）：配置落 $DSH_HOME/usage-probes.json、凭据从
 		// $DSH_HOME/.credentials.yaml 读，与 pi 侧链路（~/.pi/agent）完全同构、互不干扰。
 		// DSH_HOME 解析与 DshHost 同一套（设置覆盖 > ~/.dsh > 应用私有目录），getter 每次求值，
@@ -4202,7 +4236,7 @@ app
 				if (!entry?.filePath) return { messages: [], total: 0, windowStart: 0, truncated: false };
 				// 有界加载窗口（9 轮 + 条目预算），不是全量历史：全量下发在大会话上会同时顶爆
 				// 主进程与渲染层（#213）。更早历史请走分页接口（Web：/messages/page）。
-				const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId);
+				const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId, { projectId: entry.projectId });
 				return { ...window, truncated: window.windowStart > 0 };
 			},
 			readSessionMessagePage: async (sessionId, before, pageSize) => {
@@ -4213,7 +4247,7 @@ app
 					return dshAgentManager.readHistoryPage(entry.dshSessionId, before, { turnCount: pageSize });
 				}
 				if (!entry?.filePath) return { messages: [], total: 0, nextBefore: null };
-				return agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize);
+				return agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, undefined, { projectId: entry.projectId });
 			},
 			sendSessionPrompt: async (input) => {
 				const result = await sessionRuntimeCoordinator.send(input);

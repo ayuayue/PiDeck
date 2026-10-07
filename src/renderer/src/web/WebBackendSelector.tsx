@@ -46,8 +46,8 @@ export function WebBackendSelector(props: { backend: AgentBackend /** 会话已�
 				disabled={props.locked}
 				aria-label={t("session.backendPickerHint")}
 				title={props.locked ? t("session.backendLockedHint") : t("session.backendPickerHint")}
-				// 与模型/思考 pill 同范式：h-8 紧凑触控、双击误触低；禁用态保留可读性
-				className="h-8 min-w-0 gap-1 px-2 text-caption text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
+				// 与模型/思考 pill 同范式：h-8 紧凑触控、双击误触低；禁用态保留可读性。shrink-0：工具行溢出时 pill 整体不压缩，交给横向滚动
+				className="h-8 shrink-0 gap-1 px-1 text-caption text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
 				onClick={() => setOpen(true)}
 			>
 				<span className="min-w-0 truncate">{label}</span>

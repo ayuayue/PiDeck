@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.7.9",
+  "version": "0.8.0",
   "dshRuntimeVersion": "0.2.0-rc.2",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -223,6 +223,10 @@
       {
         "from": "resources/pi-auth-host.mjs",
         "to": "pi-auth-host.mjs"
+      },
+      {
+        "from": "resources/pi-enhance-host.mjs",
+        "to": "pi-enhance-host.mjs"
       },
       {
         "from": "resources/pi-ai-catalog.json",

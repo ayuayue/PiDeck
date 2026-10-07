@@ -26,7 +26,7 @@ function extractText(node: ReactNode): string {
 }
 
 export const WebAssistantText = memo(
-	function WebAssistantText(props: { text: string; isStreaming?: boolean }) {
+	function WebAssistantText(props: { text: string; isStreaming?: boolean; onOpenFile?: (path: string, line?: number) => void }) {
 		// 清理 ANSI 转义码与 <thinking> 标签，thinking 由调用方折叠渲染
 		const cleanText = stripThinkingTags(stripAnsi(props.text));
 		return (
@@ -38,11 +38,13 @@ export const WebAssistantText = memo(
 						// Web 端无系统浏览器通道，直接当前标签页新窗口打开
 						window.open(url, "_blank", "noopener");
 					}}
+					onOpenFile={props.onOpenFile}
 				/>
 			</div>
 		);
 	},
-	// 文本与流式标记一致时跳过重渲染：历史消息在流式期间不重复解析 Markdown
+	// 文本与流式标记一致时跳过重渲染：历史消息在流式期间不重复解析 Markdown。
+	// onOpenFile 不参与比较：调用方保证稳定身份（ref 快照），避免整树 memo 失效。
 	(prev, next) => prev.text === next.text && prev.isStreaming === next.isStreaming,
 );
 

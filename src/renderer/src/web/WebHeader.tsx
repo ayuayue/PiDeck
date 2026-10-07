@@ -6,7 +6,7 @@
  * 运行态来自 useChat status（submitted/streaming）与轮询的 runtime.status 兜底。
  */
 import { useState } from "react";
-import { Check, Download, EllipsisVertical, Menu, Monitor, Moon, MoreHorizontal, PanelRight, Puzzle, RefreshCw, Search, Sun, Target } from "lucide-react";
+import { Check, ClipboardCopy, Copy, Download, EllipsisVertical, FileDown, FoldVertical, GitFork, Menu, Monitor, Moon, MoreHorizontal, PanelRight, Pencil, Puzzle, RefreshCw, RotateCw, Search, Sun, Target, Trash2 } from "lucide-react";
 import type { AgentBackend } from "../../../shared/types";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
@@ -131,10 +131,30 @@ export function WebHeader(props: {
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end" className="w-52">
-								{actions.onRename ? <DropdownMenuItem onClick={actions.onRename}>{t("web.rename")}</DropdownMenuItem> : null}
-								{actions.onDuplicate ? <DropdownMenuItem onClick={actions.onDuplicate}>{t("web.duplicate")}</DropdownMenuItem> : null}
-								{actions.onExportHtml ? <DropdownMenuItem onClick={actions.onExportHtml}>{t("web.exportHtml")}</DropdownMenuItem> : null}
-								{actions.onCopyMarkdown ? <DropdownMenuItem onClick={actions.onCopyMarkdown}>{t("web.copyMarkdown")}</DropdownMenuItem> : null}
+								{actions.onRename ? (
+									<DropdownMenuItem onClick={actions.onRename}>
+										<Pencil className="size-4" aria-hidden="true" />
+										{t("web.rename")}
+									</DropdownMenuItem>
+								) : null}
+								{actions.onDuplicate ? (
+									<DropdownMenuItem onClick={actions.onDuplicate}>
+										<Copy className="size-4" aria-hidden="true" />
+										{t("web.duplicate")}
+									</DropdownMenuItem>
+								) : null}
+								{actions.onExportHtml ? (
+									<DropdownMenuItem onClick={actions.onExportHtml}>
+										<FileDown className="size-4" aria-hidden="true" />
+										{t("web.exportHtml")}
+									</DropdownMenuItem>
+								) : null}
+								{actions.onCopyMarkdown ? (
+									<DropdownMenuItem onClick={actions.onCopyMarkdown}>
+										<ClipboardCopy className="size-4" aria-hidden="true" />
+										{t("web.copyMarkdown")}
+									</DropdownMenuItem>
+								) : null}
 								{actions.onRefreshMessages ? (
 									<DropdownMenuItem onClick={actions.onRefreshMessages}>
 										<RefreshCw className="size-4" aria-hidden="true" />
@@ -142,13 +162,29 @@ export function WebHeader(props: {
 									</DropdownMenuItem>
 								) : null}
 								{actions.onRestart || actions.onCompact || actions.onClone ? <DropdownMenuSeparator /> : null}
-								{actions.onRestart ? <DropdownMenuItem onClick={actions.onRestart}>{t("web.restartRuntime")}</DropdownMenuItem> : null}
-								{actions.onCompact ? <DropdownMenuItem onClick={actions.onCompact}>{t("web.compactContext")}</DropdownMenuItem> : null}
-								{actions.onClone ? <DropdownMenuItem onClick={actions.onClone}>{t("web.cloneSession")}</DropdownMenuItem> : null}
+								{actions.onRestart ? (
+									<DropdownMenuItem onClick={actions.onRestart}>
+										<RotateCw className="size-4" aria-hidden="true" />
+										{t("web.restartRuntime")}
+									</DropdownMenuItem>
+								) : null}
+								{actions.onCompact ? (
+									<DropdownMenuItem onClick={actions.onCompact}>
+										<FoldVertical className="size-4" aria-hidden="true" />
+										{t("web.compactContext")}
+									</DropdownMenuItem>
+								) : null}
+								{actions.onClone ? (
+									<DropdownMenuItem onClick={actions.onClone}>
+										<GitFork className="size-4" aria-hidden="true" />
+										{t("web.cloneSession")}
+									</DropdownMenuItem>
+								) : null}
 								{actions.onDelete ? (
 									<>
 										<DropdownMenuSeparator />
 										<DropdownMenuItem className="text-danger focus:text-danger" onClick={actions.onDelete}>
+											<Trash2 className="size-4" aria-hidden="true" />
 											{t("web.deleteSession")}
 										</DropdownMenuItem>
 									</>

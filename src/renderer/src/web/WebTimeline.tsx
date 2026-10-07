@@ -70,8 +70,8 @@ type WebToolPart = {
 	errorText?: string;
 };
 
-/** 回合内一段过程内容：合并后的思考块 / 工具调用 / 中间回复。 */
-export type TurnSegment = { kind: "thinking"; id: string; texts: string[] } | { kind: "tool"; id: string; part: WebToolPart } | { kind: "interim"; id: string; text: string };
+/** 回合内一段过程内容：合并后的思考块 / 工具调用 / 中间回复。思考块 running 取块内最后一个 reasoning part 的流式状态（AI SDK state 字段），不再用整轮流式标志。 */
+export type TurnSegment = { kind: "thinking"; id: string; texts: string[]; running?: boolean } | { kind: "tool"; id: string; part: WebToolPart } | { kind: "interim"; id: string; text: string };
 
 /** 一轮助手回合：用户消息之后的连续 assistant 消息聚合（对齐桌面 run 语义）。 */
 export interface AssistantTurn {
@@ -141,9 +141,15 @@ export function groupTimelineEntries(messages: UIMessage[]): TimelineEntry[] {
 			if (part.type === "reasoning") {
 				const text = part.text ?? "";
 				if (!text.trim()) continue;
+				const running = (part as { state?: "streaming" | "done" }).state === "streaming";
 				const last = segments.at(-1);
-				if (last && last.kind === "thinking") last.texts.push(text);
-				else segments.push({ kind: "thinking", id: `${message.id}:p${index}`, texts: [text] });
+				if (last && last.kind === "thinking") {
+					last.texts.push(text);
+					// 合并块的流式状态以最后一个 part 为准：新 part 还在流 → 块继续 sweep；新 part 已 done → 块停
+					last.running = running;
+				} else {
+					segments.push({ kind: "thinking", id: `${message.id}:p${index}`, texts: [text], running });
+				}
 			} else if (part.type === "dynamic-tool" || (typeof part.type === "string" && part.type.startsWith("tool-"))) {
 				const toolPart = part as unknown as WebToolPart;
 				segments.push({ kind: "tool", id: toolPart.toolCallId ?? `${message.id}:p${index}`, part: toolPart });
@@ -412,7 +418,7 @@ function ToolValueBlock(props: { label: string; text: string; tone?: "error" }) 
  * - 操作行（复制/分享）只挂回合尾，中间回复不再各自携带；
  * - 流式中过程组自动展开（实时看过程），结束回落折叠（历史紧凑），手动开合优先。
  */
-export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: AssistantTurn; isStreaming: boolean }) {
+export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: AssistantTurn; isStreaming: boolean; onOpenFile?: (path: string, line?: number) => void }) {
 	const { turn } = props;
 	const [manualOpen, setManualOpen] = useState<boolean | null>(null);
 	const processOpen = manualOpen ?? props.isStreaming;
@@ -456,14 +462,15 @@ export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: As
 						<div className="execution-fold-details mt-0.5 flex flex-col">
 							{turn.segments.map((segment) => {
 								if (segment.kind === "thinking") {
-									return <WebThinkingBlock key={segment.id} text={segment.texts.join("\n\n")} running={props.isStreaming} />;
+									// 按段流式状态驱动 sweep：只有真正还在流的思考块转圈，已完成的块即使本轮仍在流式也不闪
+									return <WebThinkingBlock key={segment.id} text={segment.texts.join("\n\n")} running={segment.running ?? false} />;
 								}
 								if (segment.kind === "tool") {
 									return <WebToolCard key={segment.id} part={segment.part} />;
 								}
 								return (
 									<div key={segment.id} className="timeline-inline-text">
-										<WebAssistantText text={segment.text} />
+										<WebAssistantText text={segment.text} onOpenFile={props.onOpenFile} />
 									</div>
 								);
 							})}
@@ -481,7 +488,7 @@ export const WebAssistantTurn = memo(function WebAssistantTurn(props: { turn: As
 			) : null}
 			{turn.finalText ? (
 				<div className="timeline-inline-text">
-					<WebAssistantText text={turn.finalText} isStreaming={props.isStreaming} />
+					<WebAssistantText text={turn.finalText} isStreaming={props.isStreaming} onOpenFile={props.onOpenFile} />
 				</div>
 			) : null}
 			{!props.isStreaming && turn.finalText ? (
@@ -704,6 +711,8 @@ export function WebTimeline(props: {
 	onEditMessage?: (messageId: string, newText: string) => void;
 	onDeleteMessage?: (messageId: string) => void;
 	onResendMessage?: (messageId: string) => void;
+	/** 文件路径链接点击 → 全屏预览（未提供时链接不可点） */
+	onOpenFile?: (path: string, line?: number) => void;
 }) {
 	const { messages, hasActiveSession, hasMoreHistory, moreCount, loadingMore, streaming, error, onLoadMore } = props;
 	const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -794,7 +803,7 @@ export function WebTimeline(props: {
 												.map((messageId) => (
 													<span key={messageId} id={`web-msg-${messageId}`} className="sr-only" />
 												))}
-											<WebAssistantTurn turn={entry.turn} isStreaming={streaming && entry.id === lastEntryId} />
+											<WebAssistantTurn turn={entry.turn} isStreaming={streaming && entry.id === lastEntryId} onOpenFile={props.onOpenFile} />
 										</>
 									)}
 								</div>

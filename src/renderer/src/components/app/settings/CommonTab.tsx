@@ -8,6 +8,7 @@ import { desktopApi } from "../../../desktopApi";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Input } from "../../ui-shadcn/input";
 import { SettingsSection } from "./SettingsStorageTab";
+import { PromptEnhanceSettingsSection } from "./PromptEnhanceSettingsSection";
 import { DirtyMarker, SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
 import { VoiceTranscriptionSettingsSection } from "./VoiceTranscriptionSettingsSection";
 import { QuickTaskMenuSetting } from "./QuickTaskMenuSetting";
@@ -141,6 +142,9 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
 			</SettingBox>
 
 			<VoiceTranscriptionSettingsSection />
+
+			{/* 提示词增强：固定模型（默认跟随会话模型） */}
+			<PromptEnhanceSettingsSection />
 
 			{/* 会话 */}
 			<SettingsSection title={t("settings.sectionSession")}>

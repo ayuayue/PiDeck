@@ -1,9 +1,16 @@
 import { atom } from "jotai";
 import { atomFamily, selectAtom } from "jotai/utils";
 import type { ComposerAgentMode, ImageContent } from "../../../shared/types";
+import type { EnhanceModelSelection } from "../../../shared/enhanceModelPreference";
 import type { ModelPending } from "../utils/modelPendingDisplay";
 import type { QuoteSnippet } from "../components/session/composer/quoteChip";
 import { currentSessionIdAtom } from "./session-atoms";
+
+/**
+ * 提示词增强的固定模型（settings.enhanceModel 镜像）：null = 跟随会话模型。
+ * App 首拉 settings 时水合；设置页保存后写穿，composer 点击增强时读取。
+ */
+export const enhanceModelAtom = atom<EnhanceModelSelection | null>(null);
 
 /**
  * 粘贴大文本 → 落盘文件 chip 的元数据（内容只在主进程受管目录，此处仅存指针）。

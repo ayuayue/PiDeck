@@ -344,7 +344,7 @@ export type SessionIpcDeps = {
 	readImageSessionMessages?: (sessionId: string) => Promise<import("../../shared/types").ChatMessage[]>;
 	copyCatalogSession: (sessionId: string) => Promise<{ cancelled: boolean; targetSessionId?: string }>;
 	exportCatalogSessionHtml: (sessionId: string) => Promise<Record<string, unknown> & { path: string }>;
-	replaceAgentSession: (agentId: string, fn: () => Promise<unknown>, options?: { markForked?: boolean }) => Promise<unknown>;
+	replaceAgentSession: (agentId: string, fn: () => Promise<unknown>, options?: { markForked?: boolean; markSuperseded?: boolean }) => Promise<unknown>;
 	/** DSH 后端专用 IPC 依赖（C1 分组；未装配 = 无 DSH 后端）。 */
 	dshBackend?: DshBackendIpcDeps;
 };
@@ -541,18 +541,22 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		const runScanAndMerge = async (): Promise<SessionRecord[]> => {
 			const summaries = await sessionScanner.list(projectPath);
 			const records = await sessionCatalog.mergeScanned(projectId, summaries, wslEnabled ? { wslDistro, wslUser } : {});
-			const bindings = sessionRuntimeCoordinator.attachCatalogRuntimes(records);
+			// 重发/编辑 fork 化替换：被子会话接替的旧记录不出现在列表（文件保留可恢复，
+			// 用户要求 fork 后历史会话不重复）
+			const visibleRecords = records.filter((record) => !record.supersededBy);
+			const bindings = sessionRuntimeCoordinator.attachCatalogRuntimes(visibleRecords);
 			for (const binding of bindings) {
 				const tab = agentManager.list().find((candidate) => candidate.id === binding.agentId);
 				if (tab) emitSessionRuntimeEvent(tab.id, ipcChannels.agentsState, tab);
 			}
-			return records;
+			return visibleRecords;
 		};
 
 		// 目录缓存中的现有记录（上次扫描/运行时创建的合并结果，启动时从磁盘加载）
 		const cachedRecords = sessionCatalog
 			.listEntries()
-			.filter((entry) => entry.projectId === projectId)
+			// 与扫描路径同口径：替换标记记录直接跳过（都不必走 getRecord）
+			.filter((entry) => entry.projectId === projectId && !entry.supersededBy)
 			.map((entry) => sessionCatalog.getRecord(entry.id))
 			.filter((record): record is SessionRecord => Boolean(record))
 			// 与 mergeScanned 同口径排序：小窗项目选择器直接取 sessions[0]，
@@ -570,6 +574,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// mergeScanned 的 liveness 豁免同口径）。
 			.filter((record) => {
 				if (!record.filePath || record.backend === "dsh" || record.filePath.startsWith("\\\\")) return true;
+				// WSL 条目豁免：catalog 存的是 Linux 侧路径（/home/...），宿主 existsSync 恒
+				// false，按死链滤掉会把 WSL 用户的全部会话从列表里抹掉（2026-10-07 升级
+				// 0.7.9 反馈：58 条会话一条不少躺在 catalog，列表却全空）。
+				// 与 mergeScanned 清理闸（environment=wsl 跳过）同口径。
+				if (record.environment === "wsl") return true;
 				if (sessionRuntimeCoordinator.hasLiveRuntime(record.id)) return true;
 				return existsSync(record.filePath);
 			});
@@ -890,7 +899,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		if (!entry?.filePath) return [];
 		// 有界「加载窗口」（9 轮 + 条目预算），不是全量历史：整量读出在大会话上
 		// 会同时顶爆主进程与渲染层（#213）；需要更早历史走 readRecordMessagePage。
-		const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId);
+		const window = await agentManager.readSessionLoadWindow(entry.filePath, sessionId, { projectId: entry.projectId });
 		const messages = window.messages;
 		const metadata = await agentManager.readSessionDisplayMetadata(entry.filePath);
 		await backfillHistoricalSessionMetadata(sessionId, metadata);
@@ -1014,7 +1023,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					if (cached) return cached;
 				}
 			}
-			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId);
+			page = await agentManager.readSessionDisplayTurnPage(entry.filePath, sessionId, before, pageSize, options?.beforeEntryId, { projectId: entry.projectId });
 			await backfillHistoricalSessionMetadata(sessionId, page);
 			return page;
 		} catch (error) {
@@ -1815,9 +1824,14 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		}
 	}
 	ipcMain.handle(ipcChannels.sessionsRuntimeGetForkMessages, (_event, target: SessionRuntimeTarget) => sessionRuntimeCoordinator.getRuntimeForkMessages(target));
-	ipcMain.handle(ipcChannels.sessionsRuntimeFork, async (_event, target: SessionRuntimeTarget, entryId: string) => {
+	ipcMain.handle(ipcChannels.sessionsRuntimeFork, async (_event, target: SessionRuntimeTarget, entryId: string, options?: { mutationFork?: boolean; branchMode?: boolean }) => {
 		const validated = sessionRuntimeCoordinator.validateTarget(target);
 		if (!validated.ok) return validated;
+		// fork 化重试标记（重发/编辑迁移用）：只认显式 true，其余值按 false 处理（边界校验）。
+		// branchMode：fork 锚点不是最后一条用户消息 → 旧会话保留可见（带 (fork) 后缀），
+		// 只有尾部替换才隐藏旧会话（supersededBy）。
+		const mutationFork = options?.mutationFork === true;
+		const branchMode = options?.branchMode === true;
 		try {
 			// DSH 后端：fork = session.fork 裁剪 + runtime 换绑新会话（catalog 的
 			// dshSessionId 同步更新，重启后 attach 到 fork 结果）。
@@ -1825,6 +1839,10 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// （在途发送拒绝，防 RPC 响应落到已废弃 mux）+ replacement 预留
 			// （fork 期间阻止并发 restart 等命令交错）。
 			if (isDshAgent(target.agentId)) {
+				// 重发/编辑 fork 化迁移明确不覆盖 DSH：mutation fork 只服务 pi 后端
+				if (mutationFork) {
+					throw new Error("dsh does not support fork-mutation retry");
+				}
 				if (!forkDshAgentSession) {
 					throw new Error("dsh fork is not available");
 				}
@@ -1836,8 +1854,14 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				notifyForkCatalogRefreshed(target.sessionId);
 				return { ok: true as const, value };
 			}
-			const value = await replaceAgentSession(target.agentId, () => agentManager.forkSession(target.agentId, entryId), { markForked: true });
-			void appLogger.info("session", "Session forked", { sessionId: target.sessionId, entryId });
+			const value = await replaceAgentSession(
+				target.agentId,
+				() => agentManager.forkSession(target.agentId, entryId),
+				// 显式分支 fork 与非尾部重试分支：子会话带 (fork) 后缀、新旧都在列表；
+				// 尾部重发/编辑 fork 化：子会话继承原标题，旧会话打 supersededBy 从列表隐藏（文件保留）
+				mutationFork && !branchMode ? { markForked: false, markSuperseded: true } : { markForked: true },
+			);
+			void appLogger.info("session", "Session forked", { sessionId: target.sessionId, entryId, mutationFork, branchMode });
 			notifyForkCatalogRefreshed(target.sessionId);
 			return {
 				ok: true as const,

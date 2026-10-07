@@ -3,7 +3,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { ChevronUp, Clock, Share, SquarePen, Trash } from "lucide-react";
 import { atom, useAtomValue, useSetAtom } from "jotai";
 import { selectAtom } from "jotai/utils";
-import type { AgentBackend, ImageContent } from "../../../../../shared/types";
+import type { AgentBackend, ChatMessage, ImageContent } from "../../../../../shared/types";
 import { liveTextActiveBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily, runStepsVisibleMemoryBySessionIdAtomFamily, type RunStepsVisibleMemoryEntry } from "../../../atoms/session-atoms";
 import { turnFlowSettingsAtom } from "../../../atoms/app-ui-atoms";
 import { t } from "../../../i18n";
@@ -30,6 +30,7 @@ import { ThinkingStep } from "./ThinkingStep";
 import { RetryStep } from "./RetryStep";
 import { ErrorStep } from "./ErrorStep";
 import { ToolStep } from "./ToolStep";
+import { ExtensionEntryStep } from "./ExtensionEntryStep";
 import { useTurnExecution } from "./useTurnExecution";
 import { BridgeGuiSlot, useBridgeThinkingLabel } from "../../bridge/BridgeSlot";
 import type { DiffFileHandler } from "../ToolCallComponents";
@@ -72,7 +73,7 @@ export type TurnRowProps = {
 	onOpenFile?: (path: string, line?: number) => void;
 	onDiffFile?: DiffFileHandler;
 	onResendUserMessage?: (message: never) => void;
-	onEditMessage?: (messageId: string, newText: string, entryId?: string) => void;
+	onEditMessage?: (message: ChatMessage, newText: string) => void;
 	onDeleteMessage?: (messageId: string, entryId?: string) => void;
 	/** 当前模型回合活跃时为 true，驱动正文/过程的 live 渲染与完成判定。 */
 	agentRunning?: boolean;
@@ -277,9 +278,8 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		setEditing(true);
 	};
 	const saveEdit = () => {
-		// entryId：流式期间消息 id 是 live randomUUID，文件定位必须用投影携带的 entryId
 		if (editableMessage && props.onEditMessage) {
-			props.onEditMessage(editableMessage.message.id, editText, messageEntryId(editableMessage.message));
+			props.onEditMessage(editableMessage.message, editText);
 			setEditing(false);
 		}
 	};
@@ -358,6 +358,9 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 												} else if (item.entry.kind === "error-entry") {
 													// 错误诊断过程行：429 等错误并入工具调用，可点开看具体错误（见 ErrorStep 注释）
 													content = <ErrorStep group={{ kind: "error-group", id: item.entry.id, message: item.entry.message }} hidden={!stepsVisible} />;
+												} else if (item.entry.kind === "extension-entry") {
+													// 扩展输出行（平铺路径）：无流式状态，隐藏时直接卸载即可
+													content = stepsVisible ? <ExtensionEntryStep messages={item.entry.messages} /> : null;
 												} else {
 													content = <ToolStep group={item.entry.group} hidden={!stepsVisible} stopped={props.agentRunning !== true} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />;
 												}

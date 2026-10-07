@@ -902,6 +902,14 @@ export const ipcChannels = {
 	 */
 	imagegenReadImageBlob: "imagegen:read-image-blob",
 
+	// ===== 提示词增强（输入框草稿 → 模型改写 → 回填） =====
+	/** 发起增强：受理后流式事件经 enhance:event 推送（按 runId 配对） */
+	enhanceRun: "enhance:run",
+	/** 取消进行中的增强 */
+	enhanceCancel: "enhance:cancel",
+	/** 增强过程事件（started/delta/done/aborted/error，单通道带 runId） */
+	enhanceEvent: "enhance:event",
+
 	// ===== Composer voice transcription =====
 	voiceTranscriptionGetConfig: "voice-transcription:get-config",
 	voiceTranscriptionSaveConfig: "voice-transcription:save-config",

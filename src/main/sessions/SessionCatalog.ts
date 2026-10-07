@@ -56,6 +56,8 @@ export type SessionCatalogEntry = {
 	 * (fork) 标题后缀由 fork 完成时物理写入会话名（sessionForkTitle.ts），不靠该标记拼装。
 	 */
 	forked?: boolean;
+	/** 重发/编辑 fork 化替换标记：本会话已被 fork 出的子会话接替（值=子会话稳定 id），列表默认过滤。 */
+	supersededBy?: string;
 	model?: SessionModelPreference;
 	thinkingLevel?: string;
 	piSessionId?: string;
@@ -1380,6 +1382,7 @@ export class SessionCatalog {
 			importedSourceId: summary ? getImportedSessionSourceId(summary) : entry.importedSourceId,
 			parentSessionPath: summary?.parentSessionPath ?? entry.parentSessionPath,
 			forked: entry.forked,
+			supersededBy: entry.supersededBy,
 			projectPath: summary?.projectPath,
 			preview: summary?.preview ?? "",
 			messageCount: summary?.messageCount ?? 0,
@@ -1438,6 +1441,25 @@ export class SessionCatalog {
 		const entry = entries.find((candidate) => candidate.id === id);
 		if (!entry) throw new Error(`Session not found: ${id}`);
 		return entry;
+	}
+
+	/**
+	 * 标记重发/编辑 fork 化替换：origin 会话被 fork 出的子会话接替（supersededBy=子会话 id）。
+	 * 只打标记不删文件——旧 JSONL 留在磁盘可恢复，会话列表按该标记过滤（sessionsCatalogList）。
+	 * 幂等：同值重复标记不产生写入；id 未知（fork 成功但记录已被并发删除的竞态）静默返回 undefined。
+	 */
+	async markSuperseded(id: string, supersededBy: string): Promise<SessionCatalogEntry | undefined> {
+		this.assertLoaded();
+		return this.enqueueMutation((entries) => {
+			const entry = entries.find((candidate) => candidate.id === id);
+			if (!entry) return { value: undefined, changed: false };
+			if (entry.supersededBy === supersededBy) {
+				return { value: cloneEntry(entry), changed: false };
+			}
+			entry.supersededBy = supersededBy;
+			entry.updatedAt = Date.now();
+			return { value: cloneEntry(entry), changed: true };
+		});
 	}
 
 	private assertLoaded(): void {

@@ -54,10 +54,11 @@ test("issue #310 源码契约：TurnRow 编辑初值不得来自 mergedText，�
 	// 初值：来自 visibleAssistantText(editableMessage...)，setEditText(mergedText) 永不回归
 	assert.doesNotMatch(turnRowSource, /setEditText\(\s*mergedText\s*\)/);
 	assert.match(turnRowSource, /setEditText\(\s*visibleAssistantText\(editableMessage\?\.message\.text\s*\?\?\s*""\)\s*\)/);
-	// 保存：messageId 与 entryId 都取 editableMessage（加载/保存同源），不再取 at(-1)
+	// 保存：整个 editableMessage 传给 hook（fork 化编辑需要 text/images/meta 解析 fork 锚点），
+	// 加载/保存同源，不再取 at(-1)
 	const saveEditBlock = turnRowSource.slice(turnRowSource.indexOf("const saveEdit"), turnRowSource.indexOf("const deleteMessage"));
 	assert.ok(saveEditBlock.length > 0, "saveEdit block must exist");
-	assert.match(saveEditBlock, /props\.onEditMessage\(\s*editableMessage\.message\.id,\s*editText,\s*messageEntryId\(editableMessage\.message\)\s*\)/);
+	assert.match(saveEditBlock, /props\.onEditMessage\(\s*editableMessage\.message,\s*editText\s*\)/);
 	assert.doesNotMatch(saveEditBlock, /assistantMessages\.at\(-1\)/);
 	// 编辑按钮显隐门槛与编辑目标同源（delete 仍按末条删整轮，不在此约束内）
 	const editGate = turnRowSource.slice(turnRowSource.indexOf('t("app.multiSelectEnter")'), turnRowSource.indexOf('t("common.edit")'));

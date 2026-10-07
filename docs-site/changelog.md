@@ -10,6 +10,19 @@ description: PiDeck 每个版本的发布记录：新功能、问题修复与体
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.8.0 (2026-10-07)
+
+发布时间：2026-10-07
+
+- 🚀 **MCP 配置页改版**
+- 🚀 **输入框提示词增强（✦）**
+- 🚀 **重发/编辑 fork 化**
+- 🚀 **Web 端会话路由 /s/<id>**
+- ✨ **WSL 项目全部会话从侧栏消失（0.7.9 回归）**
+- ✨ **mcp.json 保存加乐观锁**
+- ✨ **未信任项目的资源面板降级为引导文案**
+- ✨ **扩展输出卡按渲染器注册口径显示并折进执行过程组**
+
 ## v0.7.9 (2026-10-07)
 
 发布时间：2026-10-07

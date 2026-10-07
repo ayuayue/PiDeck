@@ -274,6 +274,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										defaultThinkingLevel={composer.dshDefaultThinkingLevel ?? composer.bootstrapDefaultThinkingLevel}
 										modelThinkingLevels={composer.bootstrapModelThinkingLevels}
 										backend={composer.backend}
+										enhance={composer.enhance}
 										onChangeBackend={composer.changeBackend}
 										feishuIndicator={feishuIndicator}
 										securityControl={

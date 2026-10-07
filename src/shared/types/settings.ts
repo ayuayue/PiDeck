@@ -90,6 +90,11 @@ export type AppSettings = {
 	showNativeMenu: boolean;
 	sendShortcut: SendShortcutMode;
 	/**
+	 * 提示词增强用的模型；null/缺省 = 跟随会话模型（记录 > 引导页 > 部署/主进程默认）。
+	 * 非法形态（缺字段/非字符串）在 SettingsStore.update 时归一为 null。
+	 */
+	enhanceModel?: { provider: string; modelId: string } | null;
+	/**
 	 * 全局快捷键用户覆盖：ShortcutId → accelerator（Electron 语法子集，见 shared/shortcuts.ts）。
 	 * 缺省键 = 平台默认值（macOS ⌘, 打开设置 / F12 开发者工具等）；设置页「快捷键管理」
 	 * 修改后写这里，主进程 before-input-event 匹配实时读取（无需重启）。
