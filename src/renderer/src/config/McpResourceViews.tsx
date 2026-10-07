@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { AppWindow, BookOpen, CircleDot, Database, Flame, GitBranch, Globe, LogIn, LogOut, Notebook, PenTool, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import { AppWindow, BookOpen, CircleDot, CreditCard, Database, Flame, GitBranch, Globe, LogIn, LogOut, Map, MapPin, MessageSquare, Notebook, Bell, PenTool, RefreshCw, Search, ShieldAlert, TrainFront, Boxes } from "lucide-react";
 import { Button } from "../components/ui-shadcn/button";
 import { McpCatalogConfiguredMark, McpCatalogGroupTitle } from "./McpServiceTemplateForm";
 import { MCP_SERVICE_CATALOG, type McpServiceCatalogEntry } from "./mcpServiceCatalog";
@@ -129,7 +129,7 @@ export function McpServerListPane(props: {
 				<div className="px-2 py-2 text-micro text-muted-foreground">{t("config.mcp.empty")}</div>
 			) : null}
 			<div className="mt-2 px-1 pb-0.5 text-micro text-muted-foreground">{t("config.mcp.template.recommended")}</div>
-			{(["dev", "work", "search", "design"] as const).map((category) => (
+			{(["dev", "work", "maps", "search", "design"] as const).map((category) => (
 				<div key={category} className="mt-1">
 					<McpCatalogGroupTitle category={category} />
 					{MCP_SERVICE_CATALOG.filter((entry) => entry.category === category).map((entry) => {
@@ -174,6 +174,20 @@ function catalogEntryIcon(entry: McpServiceCatalogEntry) {
 			return Flame;
 		case "figma":
 			return PenTool;
+		case "lark":
+			return MessageSquare;
+		case "dingtalk":
+			return Bell;
+		case "amap":
+			return Map;
+		case "tencent-map":
+			return MapPin;
+		case "rail12306":
+			return TrainFront;
+		case "modelscope":
+			return Boxes;
+		case "alipay":
+			return CreditCard;
 		default:
 			return CircleDot;
 	}

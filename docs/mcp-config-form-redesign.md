@@ -25,7 +25,9 @@
 
 模板只创建新条目，不覆盖同名服务；名称冲突自动追加序号。添加后写入当前作用域的 Pi 原生 `mcp.json` 并刷新连接状态。
 
-## 第二部分：内置服务目录（11 个，接入方式按官方文档核实）
+## 第二部分：内置服务目录（18 个，接入方式按官方文档核实）
+
+### 国际服务（首批）
 
 | 服务 | 分类 | 传输 | 认证 | 凭据落点 | 官方参考 |
 |---|---|---|---|---|---|
@@ -41,9 +43,23 @@
 | Firecrawl | 搜索 | `https://mcp.firecrawl.dev/mcp` | Bearer 头（可选提额） | `Authorization` | [Firecrawl MCP](https://docs.firecrawl.dev/mcp-server) |
 | Figma | 设计 | `https://mcp.figma.com/mcp` | OAuth | — | [Figma Remote MCP](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation) |
 
+### 国产服务（2026-10 批次，调研 WorkBuddy / 火山引擎 / 魔搭生态后接入）
+
+| 服务 | 分类 | 传输 | 认证 | 凭据落点 | 官方参考 |
+|---|---|---|---|---|---|
+| 飞书 (Lark) | 协作 | `npx -y @larksuiteoapi/lark-mcp mcp` | 双凭据 | args `-a <AppID>` / `-s <AppSecret>` | [larksuite/lark-openapi-mcp](https://github.com/larksuite/lark-openapi-mcp) |
+| 钉钉 | 协作 | `npx -y dingtalk-mcp@latest` | 双凭据 | env `DINGTALK_Client_ID` / `DINGTALK_Client_Secret` | [钉钉开放平台](https://open.dingtalk.com/document/ai-dev/second-level-node-1) |
+| 支付宝开放平台 | 协作 | `npx -y @alipay/mcp-server-alipay` | 三凭据 | env `AP_APP_ID` / `AP_APP_KEY` / `AP_PUB_KEY` | [@alipay/mcp-server-alipay](https://www.npmjs.com/package/@alipay/mcp-server-alipay)（官方 npm scope；另有沙箱模式可编辑 mcp.json 启用） |
+| 高德地图 | 出行 | `https://mcp.amap.com/mcp?key=<KEY>` | URL Key | query `key` | [高德 MCP](https://lbs.amap.com/api/mcp-server/gettingstarted) |
+| 腾讯地图 | 出行 | `https://mcp.map.qq.com/mcp?key=<KEY>` | URL Key | query `key` | [腾讯位置服务 MCP](https://lbs.qq.com/service/MCPServer/MCPServerGuide/userGuide) |
+| 12306 购票查询 | 出行 | `npx -y 12306-mcp` | 无 | — | [Joooook/12306-mcp](https://github.com/Joooook/12306-mcp)（社区，仅查询） |
+| 魔搭 ModelScope | 开发 | `uvx modelscope-mcp-server` | Token | env `MODELSCOPE_API_TOKEN` | [modelscope-mcp-server](https://github.com/modelscope/modelscope-mcp-server)（依赖 Python uv） |
+
+**国产批次调研备注**：WorkBuddy（腾讯）与豆包（火山）是 Agent 平台而非 MCP 提供方；火山引擎 MCP 为云运维向、豆包搜索需企业版 Key，暂不收入。支付宝官方重心已部分转向「支付集成 Skill」（魔搭 Skills 中心），MCP 版仍维护。
+
 **目录维护规则**：新增/修改条目必须先核对服务官方文档（接入端点、认证形态、凭据写入位置），在 `tests/mcpServiceCatalog.test.mjs` 同步登记 id 与声明；服务方变更接入方式时更新条目并注明来源。选择标准：官方维护、无需用户自建服务、覆盖桌面工作台高频场景（文档/浏览器/代码/协作/搜索/设计）。
 
-**品牌图标**：取自 simple-icons（CC0，经 iconify API 获取）的 24x24 单色 path + 官方品牌色，内联在 `mcpServiceBrandIcons.tsx`（零新依赖、离线可用）；github/notion/sentry 原色过暗，改用主题文字色随明暗自适应；simple-icons 未收录的服务（context7/firecrawl）回退 lucide 通用图标，新增服务时在守卫测试登记归属。
+**品牌图标**：优先取官方图形——simple-icons（CC0，经 iconify API 获取）收录 12 个；钉钉用阿里 Ant Design 官方品牌图形（1024 网格）、飞书用官方 CDN 彩色四色 logo（16 网格，multiPaths 多段 fill）；均内联在 `mcpServiceBrandIcons.tsx`（零新依赖、离线可用）。github/notion/sentry 原色过暗，改用主题文字色随明暗自适应；simple-icons 未收录且无官方图形源的服务（context7/firecrawl/高德/腾讯地图/12306——高德官方 SVG 为横条全字 logo 不适合小尺寸）回退 lucide 通用图标，新增服务时在守卫测试登记归属。
 
 ## 通用配置边界（不变项）
 

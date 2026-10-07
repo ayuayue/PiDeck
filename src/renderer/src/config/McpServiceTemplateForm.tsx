@@ -6,7 +6,7 @@ import { Label } from "../components/ui-shadcn/label";
 import { t } from "../i18n";
 import { openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
 import { isMcpServerName, uniqueServerName } from "./mcpForm";
-import { buildCatalogDefinition, catalogNeedsCredential, type McpCatalogCategory, type McpServiceCatalogEntry } from "./mcpServiceCatalog";
+import { buildCatalogDefinition, catalogNeedsCredential, type McpCatalogCategory, type McpCatalogCredential, type McpServiceCatalogEntry } from "./mcpServiceCatalog";
 import { MCP_BRAND_ICONS, McpBrandIconSvg } from "./mcpServiceBrandIcons";
 import type { SmartAddEntry } from "./McpSmartAdd";
 
@@ -16,16 +16,24 @@ const NAME_ERROR_KEYS = {
 	duplicate: "config.mcp.template.name.duplicate",
 } as const;
 
-/** 目录服务表单：字段由条目的认证声明驱动——none/oauth 只需名称，header-key/env-key 增加密钥框。 */
+/** 单个凭据字段的落点说明：让用户看到值最终写到哪个字段（Bearer 头 / 环境变量 / URL 参数 / 命令行参数）。 */
+function credentialTargetText(credential: McpCatalogCredential): string {
+	if (credential.kind === "env") return t("config.mcp.catalog.credentialEnv", { key: credential.envKey });
+	if (credential.kind === "url-query") return t("config.mcp.catalog.credentialUrlQuery", { param: credential.param });
+	if (credential.kind === "args") return t("config.mcp.catalog.credentialArgs", { flag: credential.flag });
+	return t("config.mcp.catalog.credentialHeader");
+}
+
+/** 目录服务表单：字段由条目的凭据声明驱动——none/oauth 只需名称，其余按 credentials 渲染多个密钥框。 */
 export function McpServiceTemplateForm(props: { entry: McpServiceCatalogEntry; existingNames: ReadonlySet<string>; disabled: boolean; saving: boolean; onConnect: (entry: SmartAddEntry) => Promise<boolean>; onCustom: () => void }) {
+	const credentialFields = props.entry.credentials ?? [];
 	const [name, setName] = useState(() => uniqueServerName(props.entry.defaultName, props.existingNames));
-	const [credential, setCredential] = useState("");
+	const [credentialValues, setCredentialValues] = useState<string[]>(() => credentialFields.map(() => ""));
 	const [nameError, setNameError] = useState<keyof typeof NAME_ERROR_KEYS | null>(null);
-	const [credentialError, setCredentialError] = useState(false);
+	const [credentialErrors, setCredentialErrors] = useState<boolean[]>(() => credentialFields.map(() => false));
 	const needsCredential = catalogNeedsCredential(props.entry);
-	const hasCredentialInput = props.entry.auth === "header-key" || props.entry.auth === "env-key";
-	/** 密钥写入位置说明：让用户看到值最终落在哪个字段（Bearer 头 / 环境变量）。 */
-	const credentialTarget = props.entry.credential?.kind === "env" ? t("config.mcp.catalog.credentialEnv", { key: props.entry.credential.envKey }) : t("config.mcp.catalog.credentialHeader");
+	const hasCredentialInput = credentialFields.length > 0;
+
 	const connect = async () => {
 		const trimmedName = name.trim();
 		if (!trimmedName) {
@@ -40,12 +48,12 @@ export function McpServiceTemplateForm(props: { entry: McpServiceCatalogEntry; e
 			setNameError("duplicate");
 			return;
 		}
-		if (needsCredential && !credential.trim()) {
-			setCredentialError(true);
+		if (needsCredential && credentialFields.some((field, index) => !(credentialValues[index] ?? "").trim())) {
+			setCredentialErrors(credentialFields.map((field, index) => !(credentialValues[index] ?? "").trim()));
 			return;
 		}
-		const saved = await props.onConnect({ name: trimmedName, definition: buildCatalogDefinition(props.entry, credential) });
-		if (saved) setCredential("");
+		const saved = await props.onConnect({ name: trimmedName, definition: buildCatalogDefinition(props.entry, credentialValues) });
+		if (saved) setCredentialValues(credentialFields.map(() => ""));
 	};
 
 	return (
@@ -86,24 +94,27 @@ export function McpServiceTemplateForm(props: { entry: McpServiceCatalogEntry; e
 				{nameError ? <p className="text-micro text-danger">{t(NAME_ERROR_KEYS[nameError])}</p> : null}
 			</div>
 
-			{hasCredentialInput && props.entry.credentialLabelKey ? (
-				<div className="grid gap-1.5">
-					<Label>{t(props.entry.credentialLabelKey)}</Label>
-					<SecretInput
-						value={credential}
-						ariaLabel={t(props.entry.credentialLabelKey)}
-						disabled={props.disabled}
-						onChange={(value) => {
-							setCredential(value);
-							setCredentialError(false);
-						}}
-						placeholder={t("config.mcp.template.secretPlaceholder")}
-					/>
-					{credentialError ? <p className="text-micro text-danger">{t("config.mcp.template.keyRequired")}</p> : null}
-					<p className="text-micro text-muted-foreground">{needsCredential ? credentialTarget : t("config.mcp.catalog.credentialOptionalHint", { target: credentialTarget })}</p>
-					<p className="text-micro text-muted-foreground">{t("config.mcp.template.plaintextNotice")}</p>{" "}
-				</div>
-			) : null}
+			{hasCredentialInput
+				? credentialFields.map((field, index) => (
+						<div key={field.labelKey} className="grid gap-1.5">
+							<Label>{t(field.labelKey)}</Label>
+							<SecretInput
+								value={credentialValues[index] ?? ""}
+								ariaLabel={t(field.labelKey)}
+								disabled={props.disabled}
+								onChange={(value) => {
+									setCredentialValues((current) => current.map((entry, i) => (i === index ? value : entry)));
+									setCredentialErrors((current) => current.map((entry, i) => (i === index ? false : entry)));
+								}}
+								placeholder={t("config.mcp.template.secretPlaceholder")}
+							/>
+							{credentialErrors[index] ? <p className="text-micro text-danger">{t("config.mcp.template.keyRequired")}</p> : null}
+							<p className="text-micro text-muted-foreground">{field.optional ? t("config.mcp.catalog.credentialOptionalHint", { target: credentialTargetText(field.credential) }) : credentialTargetText(field.credential)}</p>
+						</div>
+					))
+				: null}
+
+			{hasCredentialInput ? <p className="text-micro text-muted-foreground">{t("config.mcp.template.plaintextNotice")}</p> : null}
 
 			{props.entry.auth === "oauth" ? <p className="text-micro text-muted-foreground">{t("config.mcp.catalog.oauthHint")}</p> : null}
 			{props.entry.auth === "none" ? <p className="text-micro text-muted-foreground">{t("config.mcp.catalog.noAuthHint")}</p> : null}
