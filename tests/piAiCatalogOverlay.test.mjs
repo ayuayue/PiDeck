@@ -24,9 +24,9 @@ function sha256(text) {
 /** 写一份覆盖层 artifact 到 dir，返回条目数。 */
 function writeOverlay(dir, packageVersion = "9.9.9-overlay") {
 	const entries = [{ id: "overlay-only", name: "Overlay Only", provider: "demo", contextWindow: 999 }];
-	const catalogRaw = JSON.stringify({ schemaVersion: 1, entries });
+	const catalogRaw = JSON.stringify({ schemaVersion: 2, entries });
 	const manifestRaw = JSON.stringify({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		catalogSha256: sha256(catalogRaw),
 		entryCount: entries.length,
 		source: {
@@ -70,7 +70,7 @@ test("覆盖层无效（哈希不匹配）时自动落回内置", () => {
 	try {
 		// 篡改内容使 manifest 哈希不匹配
 		writeOverlay(overlayDir, "9.9.9-overlay");
-		writeFileSync(join(overlayDir, "pi-ai-catalog.json"), '{"schemaVersion":1,"entries":[]}', "utf8");
+		writeFileSync(join(overlayDir, "pi-ai-catalog.json"), '{"schemaVersion":2,"entries":[]}', "utf8");
 		setPiAiCatalogUserDataDir(overlayDir);
 		const index = getPiAiCatalogIndex();
 		// 内置 resources 真实存在（>=1290 条旧目录基线…… 以存在且>1000 断言）
@@ -146,6 +146,42 @@ test("parsePiAiCatalogArtifact 对覆盖层产物与内置同标准（回归）"
 		const entries = parsePiAiCatalogArtifact(readFileSync(join(overlayDir, "pi-ai-catalog.json"), "utf8"), readFileSync(join(overlayDir, PI_AI_CATALOG_MANIFEST_FILE_NAME), "utf8"));
 		assert.equal(entries.length, raw);
 	} finally {
+		rmSync(overlayDir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * 旧版（schemaVersion 1）覆盖层必须被跳过，回落随包目录。
+ *
+ * 背景：用户机器上可能已存着旧版「更新到最新」下载的覆盖层。旧产物只含 9 个白名单
+ * 字段、没有 `type`，无法在读取时区分 chat / image / classifier。这次取消白名单
+ * 后不能静默地拿它当新版用（会把生图条目当聊天模型填参数），也不做迁移器 ——
+ * 直接按校验不通过跳过，下次用户点更新自然拿到新版产物。
+ */
+test("旧版 schemaVersion 1 覆盖层被跳过，回落内置目录（不做迁移）", () => {
+	setPiAiCatalogUserDataDir(undefined);
+	resetPiAiCatalogIndexForTests();
+	const overlayDir = tempDir();
+	try {
+		// 写一份「自洽但旧版」的 artifact：哈希对得上，只是 schemaVersion 是 1。
+		const entries = [{ id: "legacy-overlay", name: "Legacy", provider: "demo", contextWindow: 1 }];
+		const catalogRaw = JSON.stringify({ schemaVersion: 1, entries });
+		const manifestRaw = JSON.stringify({
+			schemaVersion: 1,
+			catalogSha256: sha256(catalogRaw),
+			entryCount: entries.length,
+			source: { packageName: "@earendil-works/pi-ai", packageVersion: "0.9.9-legacy", dataSha256: "c".repeat(64), fileCount: 1 },
+		});
+		writeFileSync(join(overlayDir, "pi-ai-catalog.json"), catalogRaw, "utf8");
+		writeFileSync(join(overlayDir, PI_AI_CATALOG_MANIFEST_FILE_NAME), manifestRaw, "utf8");
+
+		setPiAiCatalogUserDataDir(overlayDir);
+		const index = getPiAiCatalogIndex();
+		assert.ok(index.entries.length > 1000, `应回落内置目录，实际 ${index.entries.length}`);
+		assert.equal(index.byProviderId.get("demo")?.has("legacy-overlay"), undefined, "旧覆盖层条目不得混入");
+	} finally {
+		setPiAiCatalogUserDataDir(undefined);
+		resetPiAiCatalogIndexForTests();
 		rmSync(overlayDir, { recursive: true, force: true });
 	}
 });

@@ -470,7 +470,8 @@ Pi 上游从 **0.81.0** 开始提供 `get_available_thinking_levels`，但它只
 
 ### 已知取舍
 
-- catalog artifact 的构建期来源固定为 `@earendil-works/pi-ai@0.85.0`；未来新于该版本的外部 Pi 模型仍可能不在 artifact 中。未配置/未匹配的模型保持空字段，由 endpoint 实报或用户手填，不猜容量默认值。
+- catalog artifact 的构建期来源固定为 `@earendil-works/pi-ai@1.0.4`；未来新于该版本的外部 Pi 模型仍可能不在 artifact 中。未配置/未匹配的模型保持空字段，由 endpoint 实报或用户手填，不猜容量默认值。
+- **artifact 不再裁剪字段（2026-10）**：条目按官方原字段透传（含 `type`、`cost`、`inputLimits`、`compat`），只丢弃无 `id` 的条目；产物 `schemaVersion = 2` 且紧凑序列化（~0.86MB，旧缩进白名单版为 0.67MB）。能力补全只取 chat 条目（`piAiCatalogEntryType`），同名 chat/image 重名时 chat 优先。v1 旧产物（含用户机器上旧版覆盖层）因缺 `type` 无法可靠区分类型，被校验拒绝并回落随包目录，不做迁移器。
 - **自适应未匹配时的思考兜底（2026-08 决策）**：目录/端点都没声明推理时，自适应模板与保存补全默认写 `reasoning: true` 并开放全部档位（`DEFAULT_OPEN_THINKING_MAP = {xhigh, max}`，`utils/modelSpecAutoFill.ts`），否则 Pi 按 `!reasoning → ["off"]` 只给 off，用户没有思考强度可选。端点/catalog 显式声明的 `reasoning: false` 或档位映射（含 null 禁用语义，如 MiniMax-M2.7）始终优先，不被默认值覆盖。
 - 端点 `/models` 实报的 `reasoning / input / thinkingLevelMap` 在 `parseProviderModelsResponse` 完整保留（`parseProviderModels.ts`），参与自适应模板合并，不再被丢弃。
 - **provider compat 联动（2026-08 决策）**：保存时 `deriveProviderCompat`（`utils/modelSpecAutoFill.ts`）检测该 provider 任一模型存在非空档位映射且 `reasoning !== false` → 自动写 `compat.supportsReasoningEffort: true`，否则 false。否则 pi 用 provider 级 compat 覆盖模型定义，用户选了思考强度也不发 `reasoning_effort`；旧版本无条件写 false，因此自动判定优先于已存在的 false（陈旧值非用户意图），显式 true 保留。UI 上的 supportsReasoningEffort 开关为显示/手动覆盖，下次保存仍按联动归一。

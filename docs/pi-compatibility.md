@@ -251,7 +251,9 @@ PiDeck 当前有三条不同的 pi-ai 使用路径，不能混为一谈：
 
 - `@earendil-works/pi-ai` 位于精确锁定的 `devDependencies`，`npm run build` 先运行 `scripts/generate-pi-ai-catalog.mjs`；
 - 生成器在使用默认来源目录（`node_modules`）时会校验本地安装版本与 `package.json` 精确锁定一致，不一致直接失败并提示 `npm ci`（防陈旧安装静默降级目录）；确需从未锁定来源生成时显式传 `--source-dir`；
-- 生成器从官方 `dist/providers/data/*.json` 仅提取主进程消费的模型规格，写入 `resources/pi-ai-catalog.json` 及带来源/完整性信息的 manifest；
+- 生成器从官方 `dist/providers/data/*.json` 提取条目时**保留官方全部字段**（含 `type`、`cost`、`inputLimits`、`compat` 等），只丢弃无 `id` 的条目，并用紧凑序列化写入 `resources/pi-ai-catalog.json` 及带来源/完整性信息的 manifest；
+- artifact `schemaVersion` 为 **2**：旧版（v1）按白名单只留 9 个字段、没有 `type`，无法在读取时区分 chat / image / classifier，因此 v1 产物（含用户机器上旧版下载的覆盖层）会被校验拒绝并回落随包目录，不提供迁移器；
+- 查询入口（能力补全、内置 provider 快照）只取 chat 条目；官方存在 3 组同 provider+id 的 chat/image 重名（openrouter），此时 chat 优先，生图条目不得抢占（否则容量列为空）；
 - electron-builder 通过 `extraResources` 将这两个文件放进 `resources/`；`piAiBuiltinCatalog.ts` 运行时校验 manifest 的 catalog SHA-256 与条目数，失败则回退 endpoint `/models` 或用户手填；
 - `scripts/verify-asar-runtime.js` 守护 app 的两份 catalog 资源；`scripts/check-dsh-asar.mjs` 与 `scripts/check-dsh-boot.mjs` 继续守护 DSH runtime 所需的 `pi-ai@0.82.1`；
 - DSH 的完整 `pi-ai@0.82.1` 仍是其独立运行时闭包的一部分，不能为瘦身主进程而删除。
