@@ -102,6 +102,8 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "showNativeMenu", tab: "appearance", itemKey: "settings.nativeMenu" },
 	// 功能模块开关组共用一个数组字段，关闭确认里合成一项
 	{ field: "hiddenModules", tab: "appearance", itemKey: "settings.modules.title" },
+	// 输入框功能显示同理共用 hiddenComposerFeatures，合成一项
+	{ field: "hiddenComposerFeatures", tab: "appearance", itemKey: "settings.composer.title" },
 
 	{ field: "piProxyEnabled", tab: "proxy", itemKey: "settings.enablePiProxy" },
 	{ field: "piProxyUrl", tab: "proxy", itemKey: "settings.proxyUrl" },

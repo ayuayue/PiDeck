@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { SettingsSection } from "./SettingsStorageTab";
 import { DirtyMarker, SettingRow, SettingSwitchRow } from "./SettingRows";
 import { ModuleVisibilitySection } from "./ModuleVisibilitySection";
+import { ComposerFeaturesSection } from "./ComposerFeaturesSection";
 import { CustomThemeSection } from "./CustomThemeSection";
 import { Check, Minus, Plus } from "lucide-react";
 import { PiTuiLogoMark } from "../PiTuiLogo";
@@ -517,6 +518,8 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 
 			{/* 功能模块：按需收起不用的模块 UI 入口（issue #248） */}
 			<ModuleVisibilitySection draft={draft} updateDraft={updateDraft} isDirty={isDirty} visionEnabled={props.visionEnabled} />
+			{/* 输入框功能显示：与功能模块同域（按需收起入口），紧跟其后成组 */}
+			<ComposerFeaturesSection draft={draft} updateDraft={updateDraft} isDirty={isDirty} />
 		</>
 	);
 });

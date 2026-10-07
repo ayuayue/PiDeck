@@ -26,6 +26,7 @@ import { VoiceTranscriptionControls } from "./VoiceTranscriptionControls";
 import { SessionReplyActions } from "./SessionReplyActions";
 import { BridgeGuiSlot, BridgeWidgetSlot } from "../bridge/BridgeSlot";
 import { SessionContextMeter } from "./SessionContextMeter";
+import { isComposerFeatureHidden, type HideableComposerFeatureId } from "../../../../shared/composerFeatures";
 
 /** 无规则时的稳定空数组（避免每渲染新引用让下游 memo 失效）。 */
 const EMPTY_REPLY_RULES: readonly ReplyActionRule[] = [];
@@ -126,6 +127,9 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 
 	const modelPendingMap = useAtomValue(modelPendingByIdAtom);
 	const sessionRecords = useAtomValue(sessionRecordsAtom);
+	// 输入框功能显示开关（外观设置）：只隐藏底栏入口，不停功能与快捷键（shared/composerFeatures.ts）
+	const hiddenComposerFeatures = useSessionPaneServices().hiddenComposerFeatures;
+	const composerFeatureVisible = (feature: HideableComposerFeatureId): boolean => !isComposerFeatureHidden(hiddenComposerFeatures, feature);
 
 	const prewarmStartedForSessionRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
@@ -267,24 +271,24 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 										modelDisabled={composer.isStarting}
 										modelPending={modelPendingMap[props.sessionId]}
 										composerAgentMode={composer.mode}
-										gitInfo={props.gitInfo}
+										gitInfo={composerFeatureVisible("gitBranch") ? props.gitInfo : undefined}
 										onSwitchBranch={props.onSwitchBranch}
 										record={composer.record}
 										defaultModel={composer.dshDefaultModel ?? composer.bootstrapDefaultModel}
 										defaultThinkingLevel={composer.dshDefaultThinkingLevel ?? composer.bootstrapDefaultThinkingLevel}
 										modelThinkingLevels={composer.bootstrapModelThinkingLevels}
 										backend={composer.backend}
-										enhance={composer.enhance}
+										enhance={composerFeatureVisible("enhance") ? composer.enhance : undefined}
 										onChangeBackend={composer.changeBackend}
 										feishuIndicator={feishuIndicator}
 										securityControl={
 											/* C20：后端安全控制位统一入口（pi 安全等级 / DSH 权限预设） */
-											<SecurityControl sessionId={props.sessionId} backend={composer.backend} disabled={composer.isStarting} />
+											composerFeatureVisible("security") ? <SecurityControl sessionId={props.sessionId} backend={composer.backend} disabled={composer.isStarting} /> : undefined
 										}
 										quickMessagesControl={
 											/* 快捷消息：点条目插入草稿，条目右侧按钮直发（正文不进草稿，见 useSessionSend 的 overrideText 契约）；
 											   sessionId 供全局快捷键（Ctrl/Cmd+Shift+M）按聚焦栏去重时使用。 */
-											<QuickMessageMenu sessionId={props.sessionId} disabled={composer.isStarting} sendDisabled={!composer.delivery.canSendQuickMessage} onInsert={composer.pickers.insertQuickMessage} onSend={composer.delivery.sendQuickMessage} />
+											composerFeatureVisible("quickMessages") ? <QuickMessageMenu sessionId={props.sessionId} disabled={composer.isStarting} sendDisabled={!composer.delivery.canSendQuickMessage} onInsert={composer.pickers.insertQuickMessage} onSend={composer.delivery.sendQuickMessage} /> : undefined
 										}
 										onPickModel={() => composer.pickers.open("model")}
 										onPickThinking={() => composer.pickers.open("thinking")}
@@ -314,8 +318,8 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 												: undefined
 										}
 										voiceControls={
-											// 总开关开启即显示录音入口；引擎未就绪时点击才提示去设置补全（见 useVoiceTranscription.start）
-											composer.voice.configured ? (
+											// 总开关开启即显示录音入口；引擎未就绪时点击才提示去设置补全（见 useVoiceTranscription.start）；外观设置可隐藏入口
+											composerFeatureVisible("voice") && composer.voice.configured ? (
 												<VoiceTranscriptionControls state={composer.voice.state} busy={composer.voice.transcribingBusy} readLevel={composer.voice.readLevel} disabled={composer.isStarting} onStart={() => void composer.voice.start()} onStop={composer.voice.stop} onCancel={composer.voice.cancel} />
 											) : undefined
 										}

@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import type { AgentTab, AgentUiResponse, ChatMessage, GitBranchInfo, ImageContent, Project, TerminalThemeId } from "../../../../shared/types";
+import type { HideableComposerFeatureId } from "../../../../shared/composerFeatures";
 import type { QueuedPrompt } from "../../hooks/useQueuedPrompt";
 import type { NoticeId, NoticeKind } from "../../utils/notice";
 import type { TerminalDockStateByOwner } from "../../terminalDockState";
@@ -76,6 +77,11 @@ export type SessionPaneServices = {
 	setTerminalHeight: (height: number) => void;
 	/** 终端外观设置（App 级单份，随 AppSettings 持久化） */
 	terminalSettings: TerminalDockSettings;
+	/**
+	 * 输入框功能入口隐藏清单（外观设置「输入框功能显示」，App 级单份随 AppSettings 持久化）。
+	 * 只隐藏底栏入口，不停功能与快捷键；成员语义见 shared/composerFeatures.ts。
+	 */
+	hiddenComposerFeatures: readonly (HideableComposerFeatureId | string)[];
 	/** dock 内主题菜单写回设置（单一数据源落点） */
 	onTerminalThemeChange: (themeId: TerminalThemeId) => void;
 	environmentDialog: boolean;

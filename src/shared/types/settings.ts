@@ -427,6 +427,13 @@ export type AppSettings = {
 	 */
 	hiddenModules?: string[];
 
+	/**
+	 * 用户主动隐藏的输入框功能入口 id 列表（清单与语义见 shared/composerFeatures.ts）。
+	 * 可关项：提示词增强/语音输入/快捷消息/权限/Git 分支；只隐藏入口，不停功能与快捷键。
+	 * 默认 `[]` 全部显示；可选以兼容旧 settings.json。
+	 */
+	hiddenComposerFeatures?: string[];
+
 	// ── 供应商卡片排序：用户在模型页拖拽/上移下移后写入的自定义顺序 ──
 	/**
 	 * Pi 模型页供应商卡片的用户自定义顺序（provider key 数组，与 models.json 一致）。

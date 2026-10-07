@@ -6,6 +6,7 @@ import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_
 import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS, normalizeSoundAlertSettings, type AppSettings, type TerminalConfirmCloseMode, type TerminalCursorStyle, type TerminalThemeId } from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
+import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
@@ -255,6 +256,8 @@ Gitmoji 对应关系：
 	hiddenAuthProviders: [],
 	// 功能模块默认全显示：隐藏列表为空 = 不隐藏任何模块（对现有用户零行为变化）
 	hiddenModules: [],
+	// 输入框功能入口默认全显示（清单见 shared/composerFeatures.ts）
+	hiddenComposerFeatures: [],
 	// 供应商卡片自定义顺序：空数组 = 未自定义，按配置原序展示
 	providerOrder: [],
 	dshProviderOrder: [],
@@ -531,6 +534,8 @@ export class SettingsStore {
 			}
 			// 隐藏模块来自旧 JSON 时可能是脏值（非数组/含空串与重复项）；统一清洗，缺字段回落空数组（全显示）。
 			this.settings.hiddenModules = normalizeHiddenModules(parsed.hiddenModules);
+			// 输入框功能入口同规则清洗（与 hiddenModules 共用实现）。
+			this.settings.hiddenComposerFeatures = normalizeHiddenComposerFeatures(parsed.hiddenComposerFeatures);
 		}
 		// showThinking 不再作为可持久化的独立配置项，完全跟随 pi agent 的 hideThinkingBlock。
 		// 启动时重新读取以确保每次启动都使用最新值，而非缓存的 defaultSettings。
@@ -762,6 +767,10 @@ export class SettingsStore {
 		// 隐藏模块清单来自渲染层开关，入参不可信：只收字符串、去重去空。
 		if ("hiddenModules" in safePatch) {
 			safePatch.hiddenModules = normalizeHiddenModules(safePatch.hiddenModules);
+		}
+		// 输入框功能入口清单同规则消毒（与 hiddenModules 共用实现）。
+		if ("hiddenComposerFeatures" in safePatch) {
+			safePatch.hiddenComposerFeatures = normalizeHiddenComposerFeatures(safePatch.hiddenComposerFeatures);
 		}
 		// 声音提醒来自渲染层，入参不可信：缺字段/非法引用/越界音量一律回落默认。
 		if ("soundAlert" in safePatch) {

@@ -196,6 +196,7 @@ let previewSettings: AppSettings = {
 	hiddenProviders: [],
 	hiddenModels: [],
 	hiddenModules: [],
+	hiddenComposerFeatures: [],
 
 	fontSize: "medium",
 	uiFontSize: null,
