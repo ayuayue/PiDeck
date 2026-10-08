@@ -9,11 +9,11 @@ const MAX_ASSET_BYTES = 4 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 16 * 1024 * 1024;
 const MAX_FILE_COUNT = 100;
 const ASSET_PATTERN = /^[a-zA-Z0-9_./-]+$/;
-const ALLOWED_EXTENSIONS = new Set([".html", ".js", ".mjs", ".css", ".json", ".svg", ".png", ".jpg", ".webp", ".woff2"]);
 
+// 与 src/main/plugins/hostPluginManifest.ts 的 isHostPluginAsset 同一标准：字符集/段规则，
+// 不另加扩展名白名单——目录包允许的文件（如 NOTICE）必须能完整打包/安装/指纹。
 function assertAssetPath(path) {
 	if (path.length > 240 || !ASSET_PATTERN.test(path) || path.startsWith("/") || path.split("/").some((part) => !part || part === "." || part === "..")) throw new Error(`invalid asset path: ${path}`);
-	if (!ALLOWED_EXTENSIONS.has(path.slice(path.lastIndexOf(".")))) throw new Error(`unsupported extension: ${path}`);
 }
 
 async function collect(root) {

@@ -1,4 +1,5 @@
 import { defineConfig } from "vitepress";
+import { sharedGuideDocsPlugin } from "./sharedGuideDocs";
 import { sharedReadmeImagesPlugin } from "./sharedReadmeImages";
 
 // 自定义域名部署在站点根路径；本地/兼容旧 github.io 子路径时可用 VITEPRESS_BASE=/PiDeck/
@@ -17,8 +18,9 @@ export default defineConfig({
 
   // README 与官网共用的图片（如微信群二维码）以 docs/images 为唯一数据源，
   // dev / build 启动时由插件同步进 public/images，避免同一张图两边各存一份。
+  // 插件开发指南同理：docs/host-plugin-dev-guide.md 同步为 /guide/host-plugins 页面。
   vite: {
-    plugins: [sharedReadmeImagesPlugin()],
+    plugins: [sharedReadmeImagesPlugin(), sharedGuideDocsPlugin()],
   },
 
   // ===== 多语言：key 必须用 root / en（不是 / 和 /en/）=====
@@ -71,6 +73,7 @@ export default defineConfig({
                 { text: "功能介绍", link: "/guide/features" },
                 { text: "功能操作手册", link: "/guide/feature-reference" },
                 { text: "配置与 Skills", link: "/guide/settings" },
+                { text: "宿主插件开发指南", link: "/guide/host-plugins" },
                 { text: "常见问题", link: "/guide/faq" },
                 { text: "问题排查指南", link: "/guide/troubleshooting" },
                 { text: "产品对比", link: "/guide/comparison" },
