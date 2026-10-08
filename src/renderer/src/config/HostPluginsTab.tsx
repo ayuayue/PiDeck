@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { FolderOpen, RefreshCw, Puzzle } from "lucide-react";
+import { FolderOpen, PackagePlus, RefreshCw, Puzzle } from "lucide-react";
 import type { HostPluginInfo } from "../../../shared/types/hostPlugin";
 import { hostPluginCatalogAtom, hostPluginPanelAtom } from "../atoms/host-plugin-atoms";
 import { settingsOpenAtom } from "../atoms/app-ui-atoms";
@@ -34,6 +34,20 @@ export function HostPluginsTab() {
 			setBusy(false);
 		}
 	};
+	const install = async () => {
+		setBusy(true);
+		try {
+			const result = await desktopApi.hostPlugins.install();
+			if (result.ok) {
+				setCatalog({ catalog: result.value });
+				showNotice(t("hostPlugins.installSuccess"), 4500, "info");
+			} else if (result.code !== "canceled") fail(result.code);
+		} catch {
+			fail("plugin-host-unavailable");
+		} finally {
+			setBusy(false);
+		}
+	};
 	const toggle = async (plugin: HostPluginInfo, enabled: boolean) => {
 		setBusy(true);
 		try {
@@ -56,6 +70,10 @@ export function HostPluginsTab() {
 				<Button variant="outline" size="sm" disabled={busy} onClick={() => void rescan()}>
 					<RefreshCw data-icon="inline-start" />
 					{t("hostPlugins.rescan")}
+				</Button>
+				<Button variant="outline" size="sm" disabled={busy} onClick={() => void install()}>
+					<PackagePlus data-icon="inline-start" />
+					{t("hostPlugins.install")}
 				</Button>
 				<Button
 					variant="outline"

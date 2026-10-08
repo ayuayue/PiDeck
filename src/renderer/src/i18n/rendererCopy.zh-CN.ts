@@ -5,6 +5,8 @@ export const zhCN = {
 	"hostPlugins.description": "独立于 pi 进程的工作台插件。只加载本地静态页面，不能访问网络、Node 或执行命令；启用后仅能读取当前项目中已保存的会话。",
 	"hostPlugins.rescan": "重新扫描",
 	"hostPlugins.openDirectory": "打开插件目录",
+	"hostPlugins.install": "从文件安装…",
+	"hostPlugins.installSuccess": "插件已安装，启用前需确认授权",
 	"hostPlugins.plugin": "插件",
 	"hostPlugins.permission": "权限与状态",
 	"hostPlugins.actions": "操作",

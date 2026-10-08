@@ -907,6 +907,7 @@ export const ipcChannels = {
 	// Independent desktop plugins use their own capability broker, never pi RPC.
 	hostPluginsList: "host-plugins:list",
 	hostPluginsRescan: "host-plugins:rescan",
+	hostPluginsInstall: "host-plugins:install",
 	hostPluginsSetEnabled: "host-plugins:set-enabled",
 	hostPluginsOpenDirectory: "host-plugins:open-directory",
 	hostPluginsMount: "host-plugins:mount",

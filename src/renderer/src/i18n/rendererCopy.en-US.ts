@@ -6,6 +6,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"hostPlugins.description": "Workbench plugins independent of pi processes. Only local static pages are loaded; network, Node and command execution are unavailable. Enabled plugins can only read saved sessions in the current project.",
 	"hostPlugins.rescan": "Rescan",
 	"hostPlugins.openDirectory": "Open plugin directory",
+	"hostPlugins.install": "Install from file…",
+	"hostPlugins.installSuccess": "Plugin installed; consent is required before enabling",
 	"hostPlugins.plugin": "Plugin",
 	"hostPlugins.permission": "Permissions and status",
 	"hostPlugins.actions": "Actions",

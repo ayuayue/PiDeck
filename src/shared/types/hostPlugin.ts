@@ -70,6 +70,8 @@ export type HostPluginDesktopApi = {
 	rescan: () => Promise<HostPluginResult<HostPluginCatalog>>;
 	setEnabled: (id: string, enabled: boolean, fingerprint: string) => Promise<HostPluginResult<HostPluginCatalog>>;
 	openDirectory: () => Promise<HostPluginResult<void>>;
+	/** Pick and install a `.pideck-plugin` archive; file selection happens in the main process dialog, renderer passes no paths. */
+	install: () => Promise<HostPluginResult<HostPluginCatalog>>;
 	mount: (input: HostPluginMountInput) => Promise<HostPluginResult<HostPluginMount>>;
 	update: (instanceId: string, context: HostPluginContext, bounds: HostPluginBounds, visible: boolean) => Promise<HostPluginResult<void>>;
 	unmount: (instanceId: string) => Promise<HostPluginResult<void>>;
