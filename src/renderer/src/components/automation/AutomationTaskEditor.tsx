@@ -68,7 +68,8 @@ export function AutomationTaskEditor({ task, defaultProjectId, lockProject = fal
 	const [selectedModel, setSelectedModel] = useState<{ provider: string; modelId: string } | undefined>(task?.model);
 	// 执行后端：旧任务无 backend 字段时缺省 pi。切换 dsh 后 mode/thinking 会被
 	// 锁定回继承/普通（DSH 无 plan/goal 扩展与独立思考档位，见下方 UI 约束）。
-	const [backend, setBackend] = useState<TaskBackend>(task?.backend ?? "pi");
+	// automation 首版不支持 acp 后端（主进程白名单同源收窄），显式归一防枚举扩散。
+	const [backend, setBackend] = useState<TaskBackend>(task?.backend === "dsh" ? "dsh" : "pi");
 	const [thinkingLevel, setThinkingLevel] = useState(task?.thinkingLevel ?? "");
 	// 缺省（含旧任务）不在下拉里显示普通模式，而显示「跟随项目/全局」——
 	// 普通模式本就是默认行为，说「跟随」比说「普通」更贴近实际语义。

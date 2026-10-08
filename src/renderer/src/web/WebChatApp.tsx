@@ -3,7 +3,8 @@
  *
  * 数据层保持原有架构：
  * - useChat + DefaultChatTransport 消费 /api/chat 流式（AI SDK v7 UIMessageStream）
- * - /api/state 低频轮询兜底项目/会话/运行态
+ * - /api/events SSE 接收项目/会话/运行态变更推送；fetchState 轮询降级为低频兑底；
+ *   外部流订阅（useExternalSessionStream）实时渲染桌面端/其他设备发起的回复
  * - 历史消息按会话注入 useChat；useChat 切换 id 会重建 Chat 实例（不保留
  *   上一会话消息），因此本组件持有自己的 per-session 消息缓存，
  *   切回会话时直接从缓存恢复，避免重复拉取与闪空。
@@ -42,6 +43,8 @@ import { WebSkillsExtensionsDialog } from "./WebSkillsExtensionsDialog";
 import { applyWebTheme, readStoredWebTheme, resolveWebTheme, storeWebTheme, systemPrefersDark, type ResolvedWebTheme, type WebThemePreference } from "./webTheme";
 import { registerWebServiceWorker, usePwaInstall } from "./webPwa";
 import { decideStreamRecovery } from "./webStreamRecovery";
+import { useExternalSessionStream } from "./webExternalStream";
+import { useWebStateEvents } from "./webStateEvents";
 import type { AgentUiResponse } from "../../../shared/types";
 import type { WebProject, WebRuntime, WebState, WebContextUsage } from "./webTypes";
 
@@ -114,7 +117,7 @@ export function WebChatApp() {
 	const runtimeBusyPrevRef = useRef(false);
 	const activeSessionIdRef = useRef<string>("");
 	// 首页直发暂存：新建会话后等 useChat 实例切换完成，再投递首条消息（含图片）
-	const pendingSendRef = useRef<{ sessionId: string; text: string; images?: string[] } | null>(null);
+	const pendingSendRef = useRef<{ sessionId: string; text: string; images?: string[]; agentMessage?: string } | null>(null);
 
 	// useChat：sessionId 作为 chat id；切会话时 id 变化重建 Chat 实例
 	const { messages, sendMessage, status, stop, setMessages, error } = useChat({
@@ -287,6 +290,21 @@ export function WebChatApp() {
 	const runtimeFor = (sessionId: string) => state.runtimes.find((runtime) => runtime.sessionId === sessionId);
 	const activeSession = state.sessions.find((session) => session.id === activeSessionId);
 	const activeRuntime = activeSessionId ? runtimeFor(activeSessionId) : undefined;
+
+	// ── 实时推送链路（对齐桌面端）──
+	// 外部流订阅：桌面端/其他设备发起的回复实时打字机渲染；本端 useChat 发送期间关流，
+	// 防双路渲染同一轮。runtimeBusy 供收尾兑底；onSettled 磁盘重拉权威终态（已有在途去重）。
+	const runtimeBusy = activeRuntime?.status === "running" || activeRuntime?.status === "starting";
+	const { liveMessage, externalStreaming } = useExternalSessionStream({
+		sessionId: activeSessionId,
+		enabled: Boolean(activeSessionId) && !streaming,
+		runtimeBusy,
+		onSettled: (sessionId) => refreshSessionMessages(sessionId),
+	});
+	// 状态事件：/api/events 推送到达 → 复用轮询的 refresh 路径拉一次快照
+	// （去重/边沿检测只有一份实现）；连接断开时轮询自动回到高频节奏。
+	const stateRefreshRef = useRef<() => void>(() => {});
+	const stateEventsConnected = useWebStateEvents(() => stateRefreshRef.current());
 	activeRuntimeRef.current = activeRuntime;
 
 	// 文件预览（第三批）：消息里的文件链接/strip 的 diff chip 都在此打开。项目信息走 ref
@@ -331,7 +349,7 @@ export function WebChatApp() {
 		if (!pending || pending.sessionId !== activeSessionId) return;
 		if (streaming) return; // 新实例就绪（空闲）后才投递
 		pendingSendRef.current = null;
-		void sendMessage({ text: pending.text }, { body: { images: pending.images ?? [] } });
+		void sendMessage({ text: pending.text }, { body: { images: pending.images ?? [], ...(pending.agentMessage ? { agentMessage: pending.agentMessage } : {}) } });
 	}, [activeSessionId, streaming, sendMessage]);
 
 	// 模型列表是全局 pi 配置，草稿会话也需要先选模型再发送第一条消息。
@@ -389,13 +407,16 @@ export function WebChatApp() {
 		// 流式时 1s 一轮：ask 确认不能等 3s 才出现在手机上。
 		// runtime 忙但 useChat 已 ready（脱节态）也走 1s：磁盘追赶频率由恢复防抖控制，
 		// 高频轮询是为了 runtime 一空闲就收尾、状态圆点及时回落。
+		// /api/events SSE 已连通时降为 30s 兑底：状态变更由推送即时驱动 refresh（上方赋值），
+		// 轮询只负责捕捉推送间隙的漂移。
+		stateRefreshRef.current = refresh;
 		const runtimeBusyNow = activeRuntime?.status === "running" || activeRuntime?.status === "starting";
-		const timer = setInterval(refresh, streaming || runtimeBusyNow ? 1000 : 3000);
+		const timer = setInterval(refresh, stateEventsConnected ? 30_000 : streaming || runtimeBusyNow ? 1000 : 3000);
 		return () => {
 			disposed = true;
 			clearInterval(timer);
 		};
-	}, [streaming, activeRuntime?.status]);
+	}, [streaming, activeRuntime?.status, stateEventsConnected]);
 
 	// P0：停止 = 客户端断流 + 尽力打断 pi runtime（有 agent 时）。两者都发：
 	// stop() 只断 SSE，pi 会继续跑完；abortRuntime 才是真正的打断命令。
@@ -414,13 +435,14 @@ export function WebChatApp() {
 	};
 
 	// P2：发送携带图片附件（data URL，已压缩）；首页直发走 pending 队列。
-	const handleSend = (text: string, images: string[]) => {
+	const handleSend = (text: string, images: string[], agentMessage?: string) => {
 		if (!text.trim() && images.length === 0) return;
 		if (!activeSessionId) {
-			void sendFromHome(text, images);
+			void sendFromHome(text, images, agentMessage);
 			return;
 		}
-		void sendMessage({ text }, { body: { images } });
+		// agentMessage：计划模式等隐藏指令（复用桌面 composer 通道），随 body 透传后端
+		void sendMessage({ text }, { body: { images, ...(agentMessage ? { agentMessage } : {}) } });
 	};
 
 	// 草稿期后端切换：无会话 → 暂存随下次新建生效；有会话 → 仅「本页新建零消息草稿」可写
@@ -445,7 +467,7 @@ export function WebChatApp() {
 
 	// 首页直发流程：优先内置 chat 项目（未配置项目时的兜底），否则取第一个项目；
 	// 创建期间复用 creatingProjectId 短暂禁用输入，防止重复提交。
-	const sendFromHome = async (text: string, images: string[]) => {
+	const sendFromHome = async (text: string, images: string[], agentMessage?: string) => {
 		const project = state.projects.find((candidate) => candidate.kind === "chat") ?? state.projects[0];
 		if (!project) {
 			setCommandError(t("web.sendNoProject"));
@@ -463,7 +485,7 @@ export function WebChatApp() {
 			setActiveSessionId(id);
 			setMobileSidebarOpen(false);
 			// 会话 id 变化后 useChat 重建实例；等新实例就绪再投递（见上方 effect）
-			pendingSendRef.current = { sessionId: id, text, images };
+			pendingSendRef.current = { sessionId: id, text, images, ...(agentMessage ? { agentMessage } : {}) };
 			await refreshNow();
 		} catch (error) {
 			setCommandError(error instanceof Error ? error.message : String(error));
@@ -899,6 +921,13 @@ export function WebChatApp() {
 	const hasMoreHistory = Boolean(activeMeta && activeMeta.nextBefore != null && !streaming);
 	const moreCount = activeMeta ? Math.max(0, activeMeta.total - messagesBySessionRef.current[activeSessionId]?.length) : 0;
 
+	// 展示合并：外部流式消息作为最后一个 user 之后的新一轮 assistant 回复插入；
+	// 深分页窗口里 user 消息被翻出视口时（lastUserIndex<0）退化为尾部追加，
+	// 极端场景可能与窗口内旧尾巴短暂并存，收尾磁盘重拉后自然收敛。
+	const lastUserIndex = liveMessage ? messages.map((message) => message.role).lastIndexOf("user") : -1;
+	const timelineMessages = liveMessage && lastUserIndex >= 0 ? [...messages.slice(0, lastUserIndex + 1), liveMessage] : liveMessage ? [...messages, liveMessage] : messages;
+	const combinedStreaming = streaming || externalStreaming;
+
 	return (
 		<div className="app web-app wechat-shell flex h-[100dvh] w-full min-w-0 overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground [[data-bg-image=on]_&]:bg-transparent">
 			<WebSidebar
@@ -952,12 +981,12 @@ export function WebChatApp() {
 				{/* 第二批：断线恢复提示（几秒后自动消失） */}
 				{recoveryNotice ? <div className="border-b border-border bg-primary/10 px-3 py-1 text-center text-xs text-primary">{recoveryNotice}</div> : null}
 				<WebTimeline
-					messages={messages}
+					messages={timelineMessages}
 					hasActiveSession={Boolean(activeSession)}
 					hasMoreHistory={hasMoreHistory}
 					moreCount={moreCount}
 					loadingMore={loadingMore}
-					streaming={streaming}
+					streaming={combinedStreaming}
 					error={error?.message ?? commandError}
 					pendingUiRequest={(state.pendingUiRequests ?? []).find((item) => item.sessionId === activeSessionId)}
 					uiResponding={uiResponding}
@@ -975,7 +1004,7 @@ export function WebChatApp() {
 				<WebSessionStrips sessionId={activeSessionId} onOpenFileChange={openDiffPreview} />
 				<WebComposer
 					disabled={Boolean(creatingProjectId)}
-					streaming={streaming}
+					streaming={combinedStreaming}
 					prefill={prefill ?? undefined}
 					onSend={handleSend}
 					onStop={handleStop}
@@ -997,7 +1026,7 @@ export function WebChatApp() {
 			<WebSkillsExtensionsDialog open={assetsOpen} onOpenChange={setAssetsOpen} />
 			{dshToolsOpen && activeSessionId && <WebDshToolsPanel sessionId={activeSessionId} onClose={() => setDshToolsOpen(false)} />}
 			{/* P3：工作区抽屉（Git 状态/diff + 文件浏览，projectId 来自活跃会话） */}
-			{workspaceOpen && activeSession && <WebWorkspaceDrawer projectId={activeSession.projectId} open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} />}
+			{workspaceOpen && activeSession && <WebWorkspaceDrawer projectId={activeSession.projectId} open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} onOpenFile={openFilePreview} />}
 			{/* 第三批：文件/diff 全屏预览（消息文件链接 + 文件变更 strip chip） */}
 			{filePreview ? <WebFilePreview target={filePreview} onClose={() => setFilePreview(null)} /> : null}
 			{/* P1：重命名会话对话框 */}

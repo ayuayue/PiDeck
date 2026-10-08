@@ -1,6 +1,7 @@
 import * as pty from "node-pty";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { sep } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import type { TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
 import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
@@ -104,6 +105,23 @@ function normalizePosixShell(shellPath: string | undefined): TerminalShellCandid
 	return { shell: "sh", command: shellPath, args: [] };
 }
 
+/**
+ * 裸命令名走 PATH 查找，绝对/相对路径查 existsSync。找不到时该 shell 标为不可用。
+ * 只做存在性检查，不真的 spawn PTY —— 探测不应有副作用（不会留下多余 shell 进程）。
+ */
+export function isShellCommandAvailable(command: string): boolean {
+	if (command.includes("/") || command.includes("\\")) return existsSync(command);
+	const exts = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+	const dirs = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
+	for (const dir of dirs) {
+		if (!dir) continue;
+		for (const ext of exts) {
+			if (existsSync(`${dir}${sep}${command}${ext}`)) return true;
+		}
+	}
+	return false;
+}
+
 function dedupeShellCandidates(candidates: TerminalShellCandidate[]) {
 	const seen = new Set<string>();
 	return candidates.filter((candidate) => {
@@ -146,7 +164,10 @@ export class TerminalSessionManager {
 		return this.shellCandidates().map((c) => ({
 			shell: c.shell,
 			label: this.displayShell(c.shell),
-			available: true,
+			// 候选列表本身已按平台探测过（shellCandidates 里 git-bash/wsl 走 existsSync），
+			// 这里补一层可执行性判定：绝对路径查 existsSync，裸命令名走 PATH 查找。
+			// 判为不可用时置灰，避免用户点了 shell 却 spawn 失败（此前恒 true 是死代码）。
+			available: isShellCommandAvailable(c.command),
 		}));
 	}
 
@@ -286,6 +307,9 @@ export class TerminalSessionManager {
 		return {
 			...runtime.tab,
 			buffer: runtime.buffer,
+			// 前台进程名：渲染层在「关闭确认=running」时据此判断是否有任务在跑。
+			// node-pty 的 process 在 shell 空闲时就是 shell 自己的名字，非默认 shell 即视为有进程。
+			frontProcess: runtime.pty.process,
 		};
 	}
 

@@ -76,7 +76,7 @@ test("隐藏簇首项时分割线顺延到该簇下一个可见项", () => {
 });
 
 test("整簇隐藏时该簇分割线消失，不留连续两条线", () => {
-	const visible = resolveVisibleSettingsTabs(["im", "pet", "vision", "imagegen"], new Set());
+	const visible = resolveVisibleSettingsTabs(["im", "pet", "vision", "imagegen", "acp"], new Set());
 	assert.deepEqual(plain(visible.filter((e) => e.dividerBefore).map((e) => e.id)), ["web", "dev"]);
 });
 

@@ -238,6 +238,10 @@ export type SessionRecord = {
 	agentPreset?: string;
 	/** DSH 会话身份（DSH host 的 sessionId）；backend=dsh 的会话用来重启后 attach 旧会话。 */
 	dshSessionId?: string;
+	/** ACP 会话身份（agent 侧 sessionId）；backend=acp 的会话用来重启后 session/load 恢复。 */
+	acpSessionId?: string;
+	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI；激活后回写实际工具。 */
+	acpToolId?: string;
 	/** 会话级代理覆盖（缺省 = 跟随全局）；沿用全局代理 URL，仅生效于下次 spawn。 */
 	proxy?: SessionProxyOverride;
 	createdAt: number;
@@ -262,6 +266,8 @@ export type CreateSessionDraftInput = {
 	backend?: import("./agent").AgentBackend;
 	/** DSH agent 预设（会话「模式」）草稿期预选；激活时随 sessions.create 应用。 */
 	agentPreset?: string;
+	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI，激活时随 create 应用。 */
+	acpToolId?: string;
 };
 
 /** 启动前选择的模型与思考级别；显式值优先于 pi 配置默认值。 */
@@ -445,4 +451,25 @@ export type SessionUiResponseInput = {
 	agentId: string;
 	runtimeGeneration: number;
 	response: AgentUiResponse;
+};
+
+/** 会话分支树（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，渲染层只拿导航所需字段。 */
+export type SessionBranchNode = {
+	id: string;
+	parentId: string | null;
+	/** message 条目的角色；非 message 条目（usage/model_change/compaction…）为 "other"，渲染层折叠直链。 */
+	role: "user" | "assistant" | "system" | "other";
+	/** 条目类型原值（message/usage/model_change/compaction/branch_summary…），用于折叠链上的标记。 */
+	entryType: string;
+	preview: string;
+	timestamp: string;
+	/** 分支摘要（branch_summary / label entry 解析结果）。 */
+	label?: string;
+	children: SessionBranchNode[];
+};
+
+export type SessionBranchTree = {
+	roots: SessionBranchNode[];
+	/** 当前叶子（活跃分支末端）；空会话为 null。 */
+	leafId: string | null;
 };

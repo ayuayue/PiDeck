@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type { TokendanceAuthMode, TokendancePaymentSessionResult } from "../shared/tokendance";
+import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../shared/types/acp";
 import type { AnnouncementState } from "../shared/types/announcement";
+import type { HostPluginDesktopApi } from "../shared/types/hostPlugin";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { ModelTraceRecord } from "../shared/types/bridge";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
@@ -31,6 +33,7 @@ import type {
 import type { WhisperInstallProgress, WhisperInstallResult, WhisperRuntimeStatus } from "../shared/types/whisperRuntime";
 import type { EnhanceEventPayload, EnhanceRunInput, EnhanceRunResult } from "../shared/types/enhance";
 import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
+import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../shared/types/noticeHistory";
 import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../shared/types/replyActions";
 import type {
 	YaoPromptListResult,
@@ -43,6 +46,7 @@ import type {
 	AppLogQuery,
 	ProcessMetricsSnapshot,
 	DiagnosticsSnapshot,
+	ArchStatus,
 	AppSettings,
 	AppUpdateStatusSnapshot,
 	UpdateChannelInfo,
@@ -150,6 +154,7 @@ import type {
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
 	RewindRestoreResult,
+	SessionBranchTree,
 	RewindRestoreScope,
 	PiExtensionListResult,
 	PiInstallStatus,
@@ -209,7 +214,20 @@ function clipboardSync<T>(channel: string, fallback: T): T {
 	}
 }
 
+const hostPlugins: HostPluginDesktopApi = {
+	list: () => ipcRenderer.invoke(ipcChannels.hostPluginsList),
+	rescan: () => ipcRenderer.invoke(ipcChannels.hostPluginsRescan),
+	setEnabled: (id, enabled, fingerprint) => ipcRenderer.invoke(ipcChannels.hostPluginsSetEnabled, id, enabled, fingerprint),
+	openDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsOpenDirectory),
+	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
+	update: (id, context, bounds, visible) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, id, context, bounds, visible),
+	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),
+	onChanged: (callback) => subscribe(ipcChannels.hostPluginsChanged, callback),
+	onNavigate: (callback) => subscribe(ipcChannels.hostPluginNavigate, callback),
+};
+
 const api = {
+	hostPlugins,
 	clipboard: {
 		// 同步读取必须走主进程 sendSync：Electron 38 已废弃渲染进程/preload 直连 clipboard。
 		readText: () => clipboardSync(ipcChannels.clipboardReadText, ""),
@@ -409,6 +427,16 @@ const api = {
 		getSize: () => ipcRenderer.invoke(ipcChannels.pasteFilesGetSize) as Promise<number>,
 		/** 设置页一键清空两个受管根下的 paste-* 文件。 */
 		clearAll: () => ipcRenderer.invoke(ipcChannels.pasteFilesClearAll) as Promise<number>,
+	},
+	noticeHistory: {
+		/** 读取落盘通知历史（启动回灌环形缓冲用）。 */
+		get: () => ipcRenderer.invoke(ipcChannels.noticeHistoryGet) as Promise<NoticeHistoryFileEntry[]>,
+		/** 追加一条记录（showNotice 单点记录后 fire-and-forget，失败静默——历史永不阻断 toast）。 */
+		record: (input: NoticeHistoryRecordInput) => ipcRenderer.invoke(ipcChannels.noticeHistoryRecord, input) as Promise<void>,
+		/** 清空并删除落盘文件（历史面板「清空记录」与设置页清理共用）。 */
+		clear: () => ipcRenderer.invoke(ipcChannels.noticeHistoryClear) as Promise<void>,
+		/** 文件占用统计（设置页「缓存与日志」）。 */
+		getSize: () => ipcRenderer.invoke(ipcChannels.noticeHistoryGetSize) as Promise<number>,
 	},
 	dialog: {
 		/**
@@ -725,6 +753,8 @@ const api = {
 		compactRuntime: (target: SessionRuntimeTarget, prompt?: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeCompact, target, prompt) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
 		getRuntimeState: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeState, target) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
 		listRuntimeCommands: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeCommands, target) as Promise<SessionCommandResult<SessionTargetedValue<PiCommand[]>>>,
+		/** 草稿会话命令预览（pi standby 进程只读查询；不可用/非 pi 返回 null）。 */
+		draftCommands: (projectId: string) => ipcRenderer.invoke(ipcChannels.sessionsDraftCommands, projectId) as Promise<PiCommand[] | null>,
 		/** 运行中 Agent 快照里的模型；不在此列表 = 新加配置，切过去要重启。 */
 		listRuntimeModels: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeListModels, target) as Promise<SessionCommandResult<SessionTargetedValue<AvailableModel[]>>>,
 		/** Pi 当前模型支持的 thinking levels；旧 Pi/非 Pi 后端返回 undefined，渲染层回退静态列表。 */
@@ -735,6 +765,8 @@ const api = {
 		listRewindCheckpoints: (target: SessionRuntimeTarget, params?: RewindCheckpointPageParams) => ipcRenderer.invoke(ipcChannels.sessionsRewindList, target, params) as Promise<SessionCommandResult<SessionTargetedValue<RewindCheckpointPage>>>,
 		getRewindCheckpointDiff: (target: SessionRuntimeTarget, checkpointId: string) => ipcRenderer.invoke(ipcChannels.sessionsRewindDiff, target, checkpointId) as Promise<SessionCommandResult<SessionTargetedValue<string>>>,
 		restoreRewindCheckpoint: (target: SessionRuntimeTarget, checkpointId: string, scope: RewindRestoreScope) => ipcRenderer.invoke(ipcChannels.sessionsRewindRestore, target, checkpointId, scope) as Promise<SessionCommandResult<SessionTargetedValue<RewindRestoreResult>>>,
+		/** 会话分支树（只读文件索引；非 pi 后端返回 null）。 */
+		getBranchTree: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsGetBranchTree, sessionId) as Promise<SessionBranchTree | null>,
 		prepareRuntimeResend: (target: SessionRuntimeTarget, messageId: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsRuntimePrepareResend, target, messageId) as Promise<
 				SessionCommandResult<
@@ -959,6 +991,8 @@ const api = {
 		stopAgent: (agentId: string) => ipcRenderer.invoke(ipcChannels.stopAgent, agentId) as Promise<void>,
 		/** 开发诊断快照：内存 / 事件循环延迟 / 最近关键耗时 */
 		getDiagnosticsSnapshot: () => ipcRenderer.invoke(ipcChannels.diagnosticsSnapshot) as Promise<DiagnosticsSnapshot>,
+		/** 运行架构检测：判断是否在 ARM 芯片上跑 x64 转译包（Rosetta），用于提示换原生包 */
+		getArchStatus: () => ipcRenderer.invoke(ipcChannels.archStatus) as Promise<ArchStatus>,
 		openDiagnosticsFolder: () => ipcRenderer.invoke(ipcChannels.diagnosticsOpenFolder) as Promise<void>,
 		/** 环境体检：跑一次完整检查并返回脱敏报告。 */
 		healthCheck: () => ipcRenderer.invoke(ipcChannels.healthCheck) as Promise<HealthReport>,
@@ -1123,11 +1157,31 @@ const api = {
 		/** 用系统默认程序打开当前生效的内置技能目录（覆盖层优先，否则随包目录） */
 		skillsOpenDir: () => ipcRenderer.invoke(ipcChannels.skillsStoreOpenDir) as Promise<void>,
 	},
+	acp: {
+		/** ACP agent CLI 工具登记表（settings.acpTools 只读快照）。 */
+		listTools: () => ipcRenderer.invoke(ipcChannels.acpToolsList) as Promise<AcpToolConfig[]>,
+		/** 保存整表（逐条消毒后落盘），返回服务端规范化后的表。 */
+		saveTools: (tools: AcpToolInput[]) => ipcRenderer.invoke(ipcChannels.acpToolsSave, tools) as Promise<AcpToolConfig[]>,
+		/** 单条表单校验（不落盘；渲染层即时反馈）。 */
+		validateTool: (input: AcpToolInput) => ipcRenderer.invoke(ipcChannels.acpToolValidate, input) as Promise<AcpToolValidation>,
+	},
 	settings: {
 		get: () => ipcRenderer.invoke(ipcChannels.settingsGet) as Promise<AppSettings>,
 		update: (patch: Partial<AppSettings>) => ipcRenderer.invoke(ipcChannels.settingsUpdate, patch) as Promise<AppSettings>,
 		restartWebService: () => ipcRenderer.invoke(ipcChannels.settingsRestartWebService) as Promise<void>,
 		webServiceStatus: () => ipcRenderer.invoke(ipcChannels.webServiceStatus) as Promise<WebServiceStatusInfo>,
+		rotateWebToken: () => ipcRenderer.invoke(ipcChannels.webServiceRotateToken) as Promise<WebServiceStatusInfo>,
+		setWebToken: (input: { token?: string; expiresIn?: number }) => ipcRenderer.invoke(ipcChannels.webServiceSetToken, input) as Promise<WebServiceStatusInfo>,
+		/** 外网访问：聚合状态（cloudflare 隧道 + tailscale） */
+		webRemoteAccessState: () => ipcRenderer.invoke(ipcChannels.webRemoteAccessState) as Promise<import("../shared/types/remoteAccess").RemoteAccessState>,
+		/** 启动外网访问渠道（cloudflare | tailscale） */
+		webRemoteAccessStart: (channel: import("../shared/types/remoteAccess").RemoteAccessChannelId) => ipcRenderer.invoke(ipcChannels.webRemoteAccessStart, channel) as Promise<{ ok: true; state: import("../shared/types/remoteAccess").RemoteAccessState } | { ok: false; error: string }>,
+		/** 停用外网访问渠道 */
+		webRemoteAccessStop: (channel: import("../shared/types/remoteAccess").RemoteAccessChannelId) => ipcRenderer.invoke(ipcChannels.webRemoteAccessStop, channel) as Promise<{ ok: true; state: import("../shared/types/remoteAccess").RemoteAccessState } | { ok: false; error: string }>,
+		/** 重新探测外网访问环境（二进制/登录态/serve 指向） */
+		webRemoteAccessRefresh: () => ipcRenderer.invoke(ipcChannels.webRemoteAccessRefresh) as Promise<import("../shared/types/remoteAccess").RemoteAccessState>,
+		/** 外网访问状态变化推送；返回退订函数 */
+		onWebRemoteAccessChanged: (callback: (state: import("../shared/types/remoteAccess").RemoteAccessState) => void) => subscribe(ipcChannels.webRemoteAccessChanged, callback),
 		testPiProxy: () => ipcRenderer.invoke(ipcChannels.settingsTestPiProxy) as Promise<PiProxyTestResult>,
 		onApplyWindow: (callback: (settings: AppSettings) => void) => subscribe(ipcChannels.settingsApplyWindow, callback),
 	},
@@ -1417,6 +1471,7 @@ const api = {
 		resize: (tabId: string, cols: number, rows: number) => ipcRenderer.invoke(ipcChannels.terminalResize, tabId, cols, rows) as Promise<void>,
 		close: (tabId: string) => ipcRenderer.invoke(ipcChannels.terminalClose, tabId) as Promise<void>,
 		shells: () => ipcRenderer.invoke(ipcChannels.terminalShells) as Promise<{ shell: string; label: string; available: boolean }[]>,
+		fonts: () => ipcRenderer.invoke(ipcChannels.terminalFonts) as Promise<string[]>,
 		onData: (callback: (payload: TerminalDataEvent) => void) => subscribe(ipcChannels.terminalData, callback),
 		onExit: (callback: (payload: TerminalExitEvent) => void) => subscribe(ipcChannels.terminalExit, callback),
 	},

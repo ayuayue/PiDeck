@@ -64,6 +64,12 @@ export class StandbyAgentPool {
 		return current;
 	}
 
+	/** 只读查看当前条目（不消费、不动 TTL）；项目不符或池空返回 null。供草稿命令预览等只读用途。 */
+	peek(projectId: string): { agentId: string; fingerprint: string } | null {
+		if (!this.entry || this.entry.projectId !== projectId) return null;
+		return { agentId: this.entry.agentId, fingerprint: this.entry.fingerprint };
+	}
+
 	/** 当前条目信息（状态查询用），不暴露 timer。 */
 	status(): { projectId: string; agentId: string; idleMs: number } | null {
 		if (!this.entry) return null;

@@ -1,18 +1,22 @@
 /**
- * toast 通知历史：renderer 进程级环形缓冲（纯模块，无 React/sonner 依赖，可单测）。
+ * toast 通知历史：渲染层环形缓冲 + 主进程落盘（纯模块，无 React/sonner 依赖，可单测）。
  *
  * 背景：扩展 ctx.ui.notify 等来源的 toast 停留时间短、发得频繁，用户错过后无从回看。
  * showNotice 是全渲染层唯一入口，因此在其内部单点记录，调用方零改动。
  *
  * 边界：
- * - 只存内存（会话级），重启清空、不落盘——历史记录可能含会话内容，落盘等于新开一条持久化链路；
- * - 条数封顶 NOTICE_HISTORY_MAX_ENTRIES，超出丢最旧；
+ * - 内存环形缓冲只服务当次渲染层会话的实时展示；每次记录同步推送主进程
+ *   NoticeHistoryStore 落盘（userData/notice-history.json），启动时经 hydrate 回灌，重启不丢；
+ * - 条数封顶 NOTICE_HISTORY_MAX_ENTRIES（共享契约，与落盘同一上限），超出丢最旧；
  * - 不记录 action 按钮回调（重放由消费方重新发起），也不做 dedup——每次弹出都是一条事实。
  */
-import type { NoticeKind } from "./notice";
+import { NOTICE_HISTORY_MAX_ENTRIES, type NoticeHistoryFileEntry, type NoticeHistoryKind as SharedNoticeHistoryKind } from "../../../shared/types/noticeHistory";
 
-/** 展示档位：NoticeKind + 无 kind 调用共用的 neutral 档（与 NoticeToastCard 图标语义一致）。 */
-export type NoticeHistoryKind = NoticeKind | "neutral";
+/** 展示档位：与共享契约同一字面量联合（NoticeKind + 无 kind 调用共用的 neutral 档）。 */
+export type NoticeHistoryKind = SharedNoticeHistoryKind;
+
+/** 条数上限单一来源在共享契约（落盘与内存同上限），此处转发保持既有 import 路径不变。 */
+export { NOTICE_HISTORY_MAX_ENTRIES };
 
 export type NoticeHistoryEntry = {
 	/** 模块自增 id（React list key） */
@@ -27,9 +31,6 @@ export type NoticeHistoryEntry = {
 	/** 生效时长（ms）；Number.POSITIVE_INFINITY = 常驻不自动消失 */
 	duration: number;
 };
-
-/** 环形缓冲上限：够覆盖一次长调试会话的刷屏量，又不至于无界涨内存。 */
-export const NOTICE_HISTORY_MAX_ENTRIES = 200;
 
 let nextId = 1;
 let entries: NoticeHistoryEntry[] = [];
@@ -81,8 +82,19 @@ export function filterNoticeHistory(entries: readonly NoticeHistoryEntry[], filt
 	return result;
 }
 
-/** 清空历史（只清记录，不影响正在展示的 toast）。 */
+/** 清空历史（内存 + 落盘文件；不影响正在展示的 toast）。 */
 export function clearNoticeHistory(): void {
 	entries = [];
+	publish();
+	void window?.piDesktop?.noticeHistory?.clear()?.catch(() => undefined);
+}
+
+/**
+ * 启动回灌：用落盘历史替换内存环形缓冲并接续自增编号。
+ * 只在 App 挂载时调用一次——此刻内存为空，直接替换即可；挂载后新记录照常追加。
+ */
+export function hydrateNoticeHistoryFromDisk(fileEntries: readonly NoticeHistoryFileEntry[]): void {
+	entries = fileEntries.map((fileEntry) => ({ id: nextId++, ...fileEntry }));
+	if (entries.length > NOTICE_HISTORY_MAX_ENTRIES) entries = entries.slice(entries.length - NOTICE_HISTORY_MAX_ENTRIES);
 	publish();
 }

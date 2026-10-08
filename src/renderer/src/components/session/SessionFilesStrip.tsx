@@ -1,11 +1,9 @@
-import { useMemo } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, FileEdit, FileInput, Save } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, FileEdit, FileInput } from "lucide-react";
 import type { AgentRunItem } from "./timeline/types";
 import type { DiffFileHandler } from "./ToolCallComponents";
 import { FileDiff } from "../agents/file-diff";
 import { fileChangeToDiffLines } from "./TimelineFormat";
 import { useSessionFileChanges } from "../../hooks/useSessionFileChanges";
-import { useSessionDismissedFiles } from "../../hooks/useSessionDismissedFiles";
 import type { SessionFileChange } from "../../../../shared/types";
 import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
@@ -15,10 +13,12 @@ import { ComposerWidgetFrame, useComposerWidgetCollapsed } from "./ComposerWidge
  * composer 上方的「修改的文件」常驻条（最新一轮文件汇总横栏）。
  *
  * 形态：与输入框同宽同列的折叠卡（36px 高：图标 + 标题 + 文件数 + chevron），
- * 点击展开 diff 列表（最新一轮 + 限高滚动），顶部带「保存全部」。
+ * 点击展开 diff 列表（最新一轮 + 限高滚动）。
  * 数据：useSessionFileChanges（主进程最新一轮聚合 + 当前 run 增量），
- * 新一轮开始自动刷新，不跨轮次堆积；“保存全部”清空快照跨组件共享
- * （useSessionDismissedFiles）。无任何文件修改时整体不渲染（「有那个显示那个」）。
+ * 新一轮开始自动刷新，不跨轮次堆积。无任何文件修改时整体不渲染（「有那个显示那个」）。
+ *
+ * 移除「保存全部」按钮：它只改本地展示（用清空快照把条目隐藏），磁盘上的文件早已由
+ * Agent 写入，用户点它没有实际效果/语义，反而要维持一份跨轮次持久化的快照状态。
  */
 
 const FileEntry = (props: {
@@ -84,16 +84,8 @@ export function SessionFilesStrip(props: {
 	// 会话级文件汇总（主进程全量 + 当前 run 增量），跨轮次/会话切换不丢
 	const { entries: fileEntries, loading } = useSessionFileChanges(props.sessionId, props.run);
 
-	// “保存全部”清空快照与待办/弹层共享（useSessionDismissedFiles），横栏显示未清空数量
-	const { snapshot: dismissedFilesSnapshot, dismissAll } = useSessionDismissedFiles(props.sessionId);
-
-	const visibleFileEntries = useMemo(() => {
-		if (!dismissedFilesSnapshot) return fileEntries;
-		return fileEntries.filter((e) => (dismissedFilesSnapshot[e.path] ?? 0) < e.count);
-	}, [fileEntries, dismissedFilesSnapshot]);
-
-	if (loading && visibleFileEntries.length === 0) return null;
-	if (visibleFileEntries.length === 0) return null;
+	if (loading && fileEntries.length === 0) return null;
+	if (fileEntries.length === 0) return null;
 
 	return (
 		<ComposerWidgetFrame data-testid="session-files-strip" aria-label={t("sessionFiles.title")}>
@@ -101,7 +93,7 @@ export function SessionFilesStrip(props: {
 				<button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 text-left" aria-expanded={!collapsed} onClick={toggleCollapsed}>
 					<FileEdit size={14} aria-hidden="true" className="shrink-0 text-text-tertiary" />
 					<span className="shrink-0 text-control font-medium leading-6 text-foreground">{t("sessionFiles.title")}</span>
-					<span className="shrink-0 text-control leading-5 text-text-tertiary">{t("sessionFiles.count", { count: visibleFileEntries.length })}</span>
+					<span className="shrink-0 text-control leading-5 text-text-tertiary">{t("sessionFiles.count", { count: fileEntries.length })}</span>
 					<span className="min-w-0 flex-1" />
 					<span className="shrink-0 text-text-tertiary" aria-hidden="true">
 						{collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -109,29 +101,13 @@ export function SessionFilesStrip(props: {
 				</button>
 			</div>
 			{!collapsed && (
-				<>
-					<div className="flex items-center justify-between px-3 pt-1">
-						<span className="text-control text-text-tertiary">{t("sessionFiles.count", { count: visibleFileEntries.length })}</span>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 gap-1 px-2 text-xs text-text-tertiary hover:bg-muted hover:text-foreground"
-							// 提示按钮用途：它不清空磁盘上的文件，只是把「本轮修改汇总」标记为已处理
-							title={t("sessionFiles.saveAllTitle")}
-							onClick={() => dismissAll(fileEntries)}
-						>
-							<Save size={13} />
-							<span>{t("sessionFiles.saveAll")}</span>
-						</Button>
-					</div>
-					<ul className="mb-2 flex max-h-[200px] flex-col gap-1 overflow-y-auto overscroll-contain [contain:layout_paint] [scrollbar-gutter:stable] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
-						{visibleFileEntries.map((entry) => (
-							<li key={entry.path} className="flex min-w-0 items-center gap-1">
-								<FileEntry sessionId={props.sessionId} entry={entry} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />
-							</li>
-						))}
-					</ul>
-				</>
+				<ul className="mb-2 flex max-h-[200px] flex-col gap-1 overflow-y-auto [contain:layout_paint] [scrollbar-gutter:stable] px-3 pt-1 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
+					{fileEntries.map((entry) => (
+						<li key={entry.path} className="flex min-w-0 items-center gap-1">
+							<FileEntry sessionId={props.sessionId} entry={entry} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />
+						</li>
+					))}
+				</ul>
 			)}
 		</ComposerWidgetFrame>
 	);

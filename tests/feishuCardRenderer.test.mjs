@@ -4,6 +4,12 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import vm from "node:vm";
 
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+
+// FeishuI18n 现在带运行时依赖（繁体词典 ./FeishuI18n.zh-TW + 简繁判定 shared/types/settings），
+// 交给统一加载器按源文件目录解析；手写沙箱少了 require 桥就会整片失败。
+const i18n = createTsSandbox()("src/main/feishu/FeishuI18n.ts");
+
 function transpile(path) {
 	const source = readFileSync(path, "utf8");
 	return ts.transpileModule(source, {
@@ -22,13 +28,11 @@ function loadRichTextModule() {
 
 function loadCardRendererModule() {
 	const richText = loadRichTextModule();
-	const i18nSandbox = { exports: {} };
-	vm.runInNewContext(transpile("src/main/feishu/FeishuI18n.ts"), i18nSandbox, { filename: "FeishuI18n.ts" });
 	const sandbox = {
 		exports: {},
 		require: (name) => {
 			if (name === "./rich-text") return richText;
-			if (name === "./FeishuI18n") return i18nSandbox.exports;
+			if (name === "./FeishuI18n") return i18n;
 			throw new Error(`unexpected require: ${name}`);
 		},
 	};

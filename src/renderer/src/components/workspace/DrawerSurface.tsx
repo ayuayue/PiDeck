@@ -9,6 +9,7 @@ import { SessionTrajectoryPanel } from "../session/trajectory/SessionTrajectoryP
 import { LazyWrapper } from "../../hooks/useLazyComponent";
 import { LoaderCircle } from "lucide-react";
 import type { WorkspaceDrawerPanel } from "../../hooks/useWorkspacePanels";
+import { SessionBranchTreePanel } from "../session/branch/SessionBranchTreePanel";
 import type { RpcLogEntry } from "../../../../shared/types/rpcLog";
 import { sessionPillOf, type SessionFilterPill } from "../../sessionFilterPills";
 import { t } from "../../i18n";
@@ -107,10 +108,12 @@ export interface DrawerSurfaceProps {
 	files: DrawerFilesPort;
 	rpcLog: DrawerRpcLogPort;
 	scratchPad: ReturnType<typeof useScratchPad>;
+	/** 分支树面板的 fork 端口：App 从会话变更 hook 传入，面板不自己拥有 fork 语义。 */
+	branchTree: { forkAtEntry: (entryId: string, fallbackText: string) => void };
 }
 
 export function DrawerSurface(props: DrawerSurfaceProps) {
-	const { drawer, drawerCollapsed, git, chrome, browser, files, rpcLog, scratchPad } = props;
+	const { drawer, drawerCollapsed, git, chrome, browser, files, rpcLog, scratchPad, branchTree } = props;
 
 	return (
 		<>
@@ -120,6 +123,10 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 			) : drawer === "trajectory" && !drawerCollapsed ? (
 				<div className="drawer-content-frame flex min-h-0 flex-1 flex-col overflow-hidden">
 					<SessionTrajectoryPanel />
+				</div>
+			) : drawer === "branchTree" && !drawerCollapsed ? (
+				<div className="drawer-content-frame flex min-h-0 flex-1 flex-col overflow-hidden">
+					<SessionBranchTreePanel forkAtEntry={branchTree.forkAtEntry} />
 				</div>
 			) : drawer === "rewind" && !drawerCollapsed ? (
 				<div className="drawer-content-frame flex min-h-0 flex-1 flex-col overflow-hidden">

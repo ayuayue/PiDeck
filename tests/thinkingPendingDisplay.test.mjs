@@ -53,9 +53,12 @@ test("resolveComposerThinkingLevel: 无会话记录时只使用引导页 fallbac
 
 test("契约: thinking 按钮运行中可点，启动中禁用", () => {
 	const components = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-	// 模板/模式仍随 disabled 禁用；thinking / 模型按钮有独立禁用位
+	const host = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
+	const chip = readFileSync("src/renderer/src/components/session/ModelThinkingChip.tsx", "utf8");
+	// 模板/模式仍随 disabled 禁用；思考下拉由宿主传入独立启动状态。
 	assert.match(components, /disabled=\{props\.disabled\}/);
-	assert.match(components, /disabled=\{props\.thinkingDisabled\}/);
+	assert.match(host, /disabled=\{props\.thinkingDisabled\}/);
+	assert.match(chip, /disabled=\{props\.disabled\}/);
 	assert.match(components, /disabled=\{props\.modelDisabled \?\? props\.disabled\}/);
 	assert.doesNotMatch(components, /thinkingPending|ThinkingLevelPending|thinkingDisplay\.levels\.map/);
 });

@@ -31,6 +31,7 @@ import type {
 	SessionProcessEvent,
 	DshModelDiscoveryInput,
 	FetchedModel,
+	SessionBranchTree,
 	SessionMessagePage,
 	SessionModelPreference,
 	RewindCheckpointPageParams,
@@ -223,6 +224,8 @@ export type DshBackendIpcDeps = {
 	 * 按 24 条/轮换算成 host 的消息预算）；`maxMessages` = 显式消息窗口（Web/工具结果回读）。
 	 */
 	readDshHistoryPage?: (dshSessionId: string, beforeSeq: number | undefined, options: { turnCount?: number; maxMessages?: number }) => Promise<{ messages: import("../../shared/types").ChatMessage[]; total: number; nextBefore: number | null }>;
+	/** ACP 会话消息回读（运行时内存投影；未激活返回空数组）；未装配时返回空数组。 */
+	readAcpMessages?: (acpSessionId: string) => import("../../shared/types").ChatMessage[];
 	/** DSH 轨迹过程事件（运行时会话按 mux/重放收集；历史会话从 host history 推导；未装配时返回空数组）。 */
 	readDshProcessEvents?: (agentId: string | undefined, dshSessionId: string | undefined) => Promise<import("../../shared/types/trajectory").SessionProcessEvent[]>;
 	/** DSH 轨迹系统提示（运行时会话读投影缓存；历史会话从 host history 折叠 request/header；未装配返回 undefined）。 */
@@ -444,6 +447,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		stopDshHost,
 		startDshHost,
 		readDshHistoryPage,
+		readAcpMessages,
 		readDshProcessEvents,
 		readDshSystemPrompt,
 		readDshMessageFullText,
@@ -573,7 +577,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// 引导页重发另建会话留下孤儿空闲 Agent——2026-10-06 事故，与
 			// mergeScanned 的 liveness 豁免同口径）。
 			.filter((record) => {
-				if (!record.filePath || record.backend === "dsh" || record.filePath.startsWith("\\\\")) return true;
+				if (!record.filePath || record.backend === "dsh" || record.backend === "acp" || record.filePath.startsWith("\\\\")) return true;
 				// WSL 条目豁免：catalog 存的是 Linux 侧路径（/home/...），宿主 existsSync 恒
 				// false，按死链滤掉会把 WSL 用户的全部会话从列表里抹掉（2026-10-07 升级
 				// 0.7.9 反馈：58 条会话一条不少躺在 catalog，列表却全空）。
@@ -637,14 +641,15 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		// 新会话的思考按钮只显示「思考」而非实际默认档位。
 		let model = normalizeSessionModelPreference(input.model);
 		let thinkingLevel = input.thinkingLevel;
-		if ((input.backend !== "dsh" && !model) || !thinkingLevel) {
+		const nonPiBackend = input.backend === "dsh" || input.backend === "acp";
+		if ((!nonPiBackend && !model) || !thinkingLevel) {
 			try {
 				const [settingsResult, modelsResult] = await Promise.all([configManager.getSettingsConfig(), configManager.getModelsConfig()]);
 				// 引导页/渲染层显式传入的模型（如欢迎页偏好）也可能指向已删除的供应商/模型：
 				// 校验其仍存在（models.json ∪ pi 目录，与选择器可选范围一致），不存在则交给
 				// 解析器按欢迎页点选 → 配置默认 → enabledModels → lastUsed 的顺序兜底，
 				// 避免新会话带着幽灵模型启动。
-				if (input.backend !== "dsh" && model) {
+				if (!nonPiBackend && model) {
 					if (
 						typeof model.provider !== "string" ||
 						typeof model.modelId !== "string" ||
@@ -676,7 +681,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					lastUsedModel: settingsStore.get().lastUsedModel,
 					welcomeModel: input.welcomeModel && typeof input.welcomeModel.provider === "string" && typeof input.welcomeModel.modelId === "string" ? input.welcomeModel : undefined,
 				});
-				if (input.backend !== "dsh" && !model) {
+				if (!nonPiBackend && !model) {
 					model = defaults.model;
 				}
 				if (!thinkingLevel) {
@@ -684,7 +689,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					// model / welcomeModel 可能不是解析器选出的默认模型）：pi 在新建与切换模型时
 					// 都按「显式选择 > 每模型默认 > 全局默认」解析再 clamp，这里同序才能保证
 					// 首轮请求用的档位与引导页底栏展示的一致。DSH 无 pi 模型身份，跳过。
-					const perModelThinkingLevel = input.backend !== "dsh" && model && typeof model.provider === "string" && typeof model.modelId === "string" ? modelThinkingLevelOf(settingsResult.parsed, model.provider, model.modelId) : undefined;
+					const perModelThinkingLevel = !nonPiBackend && model && typeof model.provider === "string" && typeof model.modelId === "string" ? modelThinkingLevelOf(settingsResult.parsed, model.provider, model.modelId) : undefined;
 					thinkingLevel = perModelThinkingLevel ?? defaults.thinkingLevel;
 				}
 			} catch {
@@ -696,7 +701,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			title: input.title?.trim() || mainCopy("session.newTitle"),
 			environment: settingsStore.get().wslEnabled ? "wsl" : "native",
 			// 后端透传：仅接受白名单枚举，其余视为 pi（渲染层不可信输入校验在边界）。
-			backend: input.backend === "dsh" ? "dsh" : undefined,
+			backend: input.backend === "dsh" ? "dsh" : input.backend === "acp" ? "acp" : undefined,
+			// ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI。
+			acpToolId: input.backend === "acp" && typeof input.acpToolId === "string" ? input.acpToolId : undefined,
 			model,
 			thinkingLevel,
 		});
@@ -708,12 +715,12 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		});
 		// standby 补热：草稿创建是「用户马上要开聊」的最强信号，趁用户阅读/输入的空窗
 		// 后台预热一个 pi 进程待命（fire-and-forget；ensure 幂等且受 standbyRuntimeEnabled 闸）。
-		if (input.backend !== "dsh") agentManager.ensureStandbyAgent(input.projectId);
+		if (!nonPiBackend) agentManager.ensureStandbyAgent(input.projectId);
 		return draft;
 	});
 	ipcMain.handle(ipcChannels.sessionsResolveLaunchDefaults, async (_event, input?: ResolveLaunchDefaultsInput): Promise<ResolvedLaunchDefaults> => {
 		// 渲染层输入不可信：backend 只认白名单枚举，其余按非 DSH（pi）解析。
-		const backend = input?.backend === "dsh" ? "dsh" : undefined;
+		const backend = input?.backend === "dsh" ? "dsh" : input?.backend === "acp" ? "acp" : undefined;
 		try {
 			const [settingsResult, modelsResult] = await Promise.all([configManager.getSettingsConfig(), configManager.getModelsConfig()]);
 			return resolveLaunchDefaultOptions({
@@ -892,6 +899,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			const page = await readDshHistoryPage(entry.dshSessionId, undefined, { maxMessages: 1000 });
 			return page.messages;
 		}
+		// ACP 会话历史只活在 agent 侧 + 运行时内存投影(load 重放):无 runtime
+		// (未激活/已停止)时返回空数组,渲染层显示起始页;激活后 load 重放补全。
+		if (entry?.backend === "acp") {
+			return readAcpMessages ? readAcpMessages(entry.acpSessionId ?? "") : [];
+		}
 		if (entry?.backend === "imagegen") {
 			// imagegen 后端会话：历史独立存 ImageSessionStore，不走 pi 文件
 			return (await readImageSessionMessages?.(sessionId)) ?? [];
@@ -904,6 +916,14 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		const metadata = await agentManager.readSessionDisplayMetadata(entry.filePath);
 		await backfillHistoricalSessionMetadata(sessionId, metadata);
 		return messages;
+	});
+	/** 会话分支树（右侧抽屉「分支」面板）：只读文件索引，无需活 runtime；DSH/imagegen 无 pi 文件返回 null。 */
+	ipcMain.handle(ipcChannels.sessionsGetBranchTree, async (_event, sessionId: unknown): Promise<SessionBranchTree | null> => {
+		if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("Invalid branch-tree request");
+		const entry = sessionCatalog.get(sessionId);
+		// DSH / imagegen 会话没有 pi JSONL：面板按空态处理，不报错。
+		if (!entry?.filePath || entry.backend === "dsh" || entry.backend === "imagegen" || entry.backend === "acp") return null;
+		return agentManager.readSessionBranchTree(entry.filePath);
 	});
 	/** 子代理列表：从会话文件 subagents:record + catalog 子会话回填合成。 */
 	ipcMain.handle(ipcChannels.sessionsListSubagents, async (_event, sessionId: string) => {
@@ -1453,7 +1473,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// 同时维护 recentProviders（最新在前，去重截断 8）：模型选择器按此优先排列供应商分组。
 			if (result.accepted) {
 				const record = sessionCatalog.get(input.sessionId);
-				if (record?.backend !== "dsh" && record?.model?.provider && record?.model?.modelId) {
+				if (record?.backend !== "dsh" && record?.backend !== "acp" && record?.model?.provider && record?.model?.modelId) {
 					const provider = record.model.provider;
 					const current = settingsStore.get().recentProviders ?? [];
 					// 当前供应商提到首位，其余保持原有相对顺序；SettingsStore 会做去重/截断/无变化早退。
@@ -1677,6 +1697,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 	ipcMain.handle(ipcChannels.sessionsRuntimeCompact, (_event, target: SessionRuntimeTarget, prompt?: string) => sessionRuntimeCoordinator.compactRuntime(target, prompt));
 	ipcMain.handle(ipcChannels.sessionsRuntimeState, (_event, target: SessionRuntimeTarget) => sessionRuntimeCoordinator.getRuntimeState(target));
 	ipcMain.handle(ipcChannels.sessionsRuntimeCommands, (_event, target: SessionRuntimeTarget) => sessionRuntimeCoordinator.listRuntimeCommands(target));
+	// 草稿命令预览是只读提示增强：入参只有 projectId，非法值在 coordinator 层自然返回 null。
+	ipcMain.handle(ipcChannels.sessionsDraftCommands, (_event, projectId: string) => {
+		if (typeof projectId !== "string" || !projectId.trim()) return null;
+		return sessionRuntimeCoordinator.draftCommands(projectId);
+	});
 	ipcMain.handle(ipcChannels.sessionsRuntimeListModels, (_event, target: SessionRuntimeTarget) => sessionRuntimeCoordinator.listRuntimeModels(target));
 	ipcMain.handle(ipcChannels.sessionsRuntimeThinkingLevels, (_event, target: SessionRuntimeTarget) => sessionRuntimeCoordinator.listRuntimeThinkingLevels(target));
 	ipcMain.handle(ipcChannels.sessionsRuntimeExportHtml, async (_event, target: SessionRuntimeTarget) => {

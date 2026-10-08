@@ -33,3 +33,9 @@ export function previewHostFromBinding(host: string): string {
 	}
 	return host;
 }
+
+/** 给已成形的绝对 URL（隧道/serve 入口）追加 token 查询参数；未开鉴权时原样返回。 */
+export function appendTokenToUrl(url: string, token: string, requiresAuth: boolean): string {
+	if (!url || !requiresAuth || !token) return url;
+	return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+}

@@ -31,8 +31,26 @@ export function draftResourceCommandsForProject(snapshot: DraftResourceCommandSn
 	return snapshot.projectId === projectId ? snapshot.commands : [];
 }
 
-export function selectComposerSuggestionCommands(isDshBackend: boolean, runtimeStarted: boolean, runtimeCommands: PiCommand[], draftCommands: PiCommand[]): PiCommand[] {
-	return isDshBackend || runtimeStarted ? runtimeCommands : draftCommands;
+export type StandbyPreviewCommandSnapshot = {
+	projectId: string | undefined;
+	commands: PiCommand[];
+};
+
+/** 同 draftResourceCommandsForProject 口径：项目切换瞬间丢弃旧项目的 standby 预览，防串项目。 */
+export function standbyPreviewCommandsForProject(snapshot: StandbyPreviewCommandSnapshot, projectId: string | undefined): PiCommand[] {
+	return snapshot.projectId === projectId ? snapshot.commands : [];
+}
+
+/**
+ * 草稿会话的斜杠建议来源优先级：DSH/已起 runtime → 本会话 RPC 表（唯一权威）；
+ * draft 无 runtime 时优先 standby 进程预览（含扩展命令，Issue #316），
+ * 拿不到预览（池关/无进程/查询失败）才回退本地技能/提示词发现。
+ * 预览不与本地发现合并——合并需要按命令名/优先级消歧，而两条来源的
+ * 同名命令描述可能不一致；直接取更接近 pi 真实命令表的那份。
+ */
+export function selectComposerSuggestionCommands(isDshBackend: boolean, runtimeStarted: boolean, runtimeCommands: PiCommand[], draftCommands: PiCommand[], standbyPreviewCommands?: PiCommand[]): PiCommand[] {
+	if (isDshBackend || runtimeStarted) return runtimeCommands;
+	return standbyPreviewCommands?.length ? standbyPreviewCommands : draftCommands;
 }
 
 /** Maps Pi-discoverable local resources to the slash names Pi exposes before an agent starts. */

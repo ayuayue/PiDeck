@@ -27,11 +27,13 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "shortcuts" },
 	{ id: "notification" },
 	{ id: "appearance" },
+	{ id: "terminal" },
 	{ id: "proxy" },
 	{ id: "im", dividerBefore: true },
 	{ id: "pet" },
 	{ id: "vision" },
 	{ id: "imagegen" },
+	{ id: "acp" },
 	{ id: "web", dividerBefore: true },
 	{ id: "editors" },
 	{ id: "git" },
@@ -57,6 +59,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTabId, TranslationKey> = {
 	common: "settings.tabs.common",
 	shortcuts: "settings.tabs.shortcuts",
 	appearance: "settings.tabs.appearance",
+	terminal: "settings.tabs.terminal",
 	proxy: "settings.tabs.proxy",
 	web: "settings.tabs.web",
 	editors: "settings.tabs.editors",
@@ -71,6 +74,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTabId, TranslationKey> = {
 	process: "settings.tabs.process",
 	vision: "settings.tabs.vision",
 	imagegen: "settings.tabs.imagegen",
+	acp: "settings.tabs.acp",
 };
 
 /**
@@ -81,6 +85,7 @@ export const SETTINGS_TAB_KEYWORDS: Record<SettingsTabId, readonly string[]> = {
 	common: ["常用", "基础", "通用", "general", "基本设置"],
 	shortcuts: ["快捷键", "按键", "热键", "keybind", "hotkey", "shortcut"],
 	appearance: ["外观", "主题", "深色", "浅色", "字体", "theme", "appearance", "dark"],
+	terminal: ["终端", "配色", "字体", "光标", "terminal", "console", "font", "shell"],
 	proxy: ["代理", "网络", "proxy", "http proxy", "网络代理"],
 	web: ["局域网", "web 服务", "远程", "手机访问", "lan", "webserver"],
 	editors: ["外部编辑器", "vscode", "编辑器", "editor", "ide"],
@@ -95,4 +100,5 @@ export const SETTINGS_TAB_KEYWORDS: Record<SettingsTabId, readonly string[]> = {
 	process: ["进程", "监控", "内存", "process", "monitor"],
 	vision: ["视觉", "图片识别", "视觉桥", "vision", "multimodal"],
 	imagegen: ["生图", "画图", "图片生成", "imagegen", "image"],
+	acp: ["acp", "agent", "cli", "工具", "外部 agent", "gemini", "kimi", "claude code", "opencode"],
 };

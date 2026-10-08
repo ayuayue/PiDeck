@@ -66,6 +66,14 @@ export const ipcChannels = {
 	pasteFilesGetSize: "paste-files:get-size",
 	/** 设置页一键清空两个受管根下的 paste-* 文件 */
 	pasteFilesClearAll: "paste-files:clear-all",
+	/** 通知历史：读取落盘历史（渲染层启动回灌环形缓冲；文件是唯一持久事实，不缓存） */
+	noticeHistoryGet: "notice-history:get",
+	/** 通知历史：追加一条（showNotice 单点记录后 fire-and-forget，坏载荷主进程丢弃并记日志） */
+	noticeHistoryRecord: "notice-history:record",
+	/** 通知历史：清空内存数组并删除落盘文件 */
+	noticeHistoryClear: "notice-history:clear",
+	/** 通知历史：文件占用统计（设置页「缓存与日志」） */
+	noticeHistoryGetSize: "notice-history:get-size",
 	/** 模型目录（pi-ai-catalog）更新：查询内置/覆盖层状态 */
 	catalogUpdateStatus: "catalog:update-status",
 	/** 模型目录更新：检查远端（GitHub main 分支 manifest）是否有新版本 */
@@ -144,6 +152,8 @@ export const ipcChannels = {
 	sessionsRuntimeCompact: "sessions:runtime-compact",
 	sessionsRuntimeState: "sessions:runtime-state",
 	sessionsRuntimeCommands: "sessions:runtime-commands",
+	/** 草稿会话斜杠命令预览（只读借用 pi standby 进程；不可用返回 null）。 */
+	sessionsDraftCommands: "sessions:draft-commands",
 	/** rewind checkpoint（refs/pi-checkpoints，纯 git，跨后端）。 */
 	sessionsRewindList: "sessions:rewind-list",
 	sessionsRewindDiff: "sessions:rewind-diff",
@@ -152,6 +162,8 @@ export const ipcChannels = {
 	sessionsRuntimeListModels: "sessions:runtime-list-models",
 	/** Pi 当前模型支持的 thinking levels（get_available_thinking_levels）；旧 Pi 返回 undefined 由 UI 回退。 */
 	sessionsRuntimeThinkingLevels: "sessions:runtime-thinking-levels",
+	/** 会话分支树（pi get_tree，只读）：右侧抽屉「分支」面板数据源。 */
+	sessionsGetBranchTree: "sessions:get-branch-tree",
 	sessionsRuntimeExportHtml: "sessions:runtime-export-html",
 	sessionsRuntimeEditMessage: "sessions:runtime-edit-message",
 	sessionsRuntimeDeleteMessage: "sessions:runtime-delete-message",
@@ -336,6 +348,20 @@ export const ipcChannels = {
 	settingsRestartWebService: "settings:restart-web-service",
 	/** 查询 Web 服务运行状态（端口 / 本次启动的访问令牌 / 是否要求鉴权） */
 	webServiceStatus: "web:status",
+	/** 轮换 Web 服务访问令牌：旧令牌立即失效（泄露自救），返回新状态 */
+	webServiceRotateToken: "web:rotate-token",
+	/** 手动设置 Web 服务令牌/过期策略（热生效不重启），返回新状态 */
+	webServiceSetToken: "web:set-token",
+	/** 外网访问：查询 cloudflare 隧道 + tailscale 组网聚合状态 */
+	webRemoteAccessState: "web:remote-access-state",
+	/** 外网访问状态变化推送（主进程 → 渲染层） */
+	webRemoteAccessChanged: "web:remote-access-changed",
+	/** 外网访问：启动指定渠道（cloudflare 隧道 / tailscale serve） */
+	webRemoteAccessStart: "web:remote-access-start",
+	/** 外网访问：停用指定渠道 */
+	webRemoteAccessStop: "web:remote-access-stop",
+	/** 外网访问：重新检测本机 cloudflared / tailscale 安装与登录状态 */
+	webRemoteAccessRefresh: "web:remote-access-refresh",
 	settingsTestPiProxy: "settings:test-pi-proxy",
 	settingsApplyWindow: "settings:apply-window",
 	skillsList: "skills:list",
@@ -536,6 +562,8 @@ export const ipcChannels = {
 	processMetrics: "system:process-metrics",
 	/** 开发诊断快照（内存 / 事件循环延迟 / 最近关键耗时） */
 	diagnosticsSnapshot: "system:diagnostics-snapshot",
+	/** 运行架构状态：检测 x64 包在 ARM 芯片转译层下运行（Rosetta），提示换装原生包 */
+	archStatus: "system:arch-status",
 	/** 打开 userData/diagnostics 目录 */
 	diagnosticsOpenFolder: "system:diagnostics-open-folder",
 	/** 进程监控里手动停止某个 pi agent（按 agentId 走 AgentManager 正常停止流程） */
@@ -765,6 +793,7 @@ export const ipcChannels = {
 	terminalData: "terminal:data",
 	terminalExit: "terminal:exit",
 	terminalShells: "terminal:shells",
+	terminalFonts: "terminal:fonts",
 
 	// ===== 飞书桥接 =====
 	feishuConnect: "feishu:connect",
@@ -875,6 +904,19 @@ export const ipcChannels = {
 
 	// ===== 插件开发（~/.pi/agent/extensions/ 目录） =====
 	/** 插件开发支持状态：目录路径 + demo/指南是否已就位 */
+	// Independent desktop plugins use their own capability broker, never pi RPC.
+	hostPluginsList: "host-plugins:list",
+	hostPluginsRescan: "host-plugins:rescan",
+	hostPluginsSetEnabled: "host-plugins:set-enabled",
+	hostPluginsOpenDirectory: "host-plugins:open-directory",
+	hostPluginsMount: "host-plugins:mount",
+	hostPluginsUpdate: "host-plugins:update",
+	hostPluginsUnmount: "host-plugins:unmount",
+	hostPluginsChanged: "host-plugins:changed",
+	hostPluginRequest: "host-plugin:request",
+	hostPluginEvent: "host-plugin:event",
+	/** 插件发起的会话导航：broker 校验后推给桌面渲染层执行，插件页自身无权打开会话 */
+	hostPluginNavigate: "host-plugin:navigate",
 	pluginDevStatus: "plugin-dev:status",
 	/** 把 AI 插件开发指南写入用户扩展目录并在资源管理器定位 */
 	pluginDevWriteGuide: "plugin-dev:write-guide",
@@ -1055,4 +1097,12 @@ export const ipcChannels = {
 	cuaGetState: "cua:get-state",
 	/** 渲染层 → 主进程：设置 CUA 全局/会话开关。 */
 	cuaSetState: "cua:set-state",
+
+	// ===== ACP 后端（agent CLI 工具登记表） =====
+	/** ACP 工具列表（settings.acpTools 只读快照）。 */
+	acpToolsList: "acp:tools-list",
+	/** 保存整张工具表（逐条消毒；非法条目丢弃而非拒绝整表）。 */
+	acpToolsSave: "acp:tools-save",
+	/** 单条表单校验（不含落盘；渲染层新增/编辑即时反馈）。 */
+	acpToolValidate: "acp:tool-validate",
 } as const;

@@ -80,7 +80,7 @@ export function SessionTeamStrip(props: { sessionId: string }) {
 				</button>
 			</div>
 			{!collapsed && (
-				<div className="mb-2 flex max-h-[260px] flex-col gap-2 overflow-y-auto overscroll-contain [contain:layout_paint] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
+				<div className="mb-2 flex max-h-[260px] flex-col gap-2 overflow-y-auto [contain:layout_paint] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
 					{/* 与 todo 条同款 shrink-0 纪律：限高 flex 列 + 行 overflow-hidden 会清零
 					    min-height:auto，不锁行高整列会被线性压扁（2027-01 排版事故）。 */}
 					{team?.failure && <p className="shrink-0 rounded-md bg-[var(--color-danger)]/10 px-2 py-1 text-xs leading-5 text-[var(--color-danger)]">{t("sessionTeam.failure", { failure: team.failure })}</p>}

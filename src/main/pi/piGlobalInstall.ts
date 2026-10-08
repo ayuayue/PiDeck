@@ -49,10 +49,14 @@ export type PiGlobalInstallOutcome = PiInstallExecResult & {
 export type PiGlobalInstallInput = {
 	/** 已解析的 npm：便携 node 同目录的 npm.cmd，或裸命令名 "npm"。 */
 	npmCommand: string;
-	/** install 参数（含镜像源），不含 --prefix。 */
+	/** npm install 参数（含镜像源），不含 --prefix。 */
 	npmArgs: string[];
-	/** 安装前缀目录：pi 落进 <userData>/pi-runtime/pi-global，不写系统全局目录、无需提权。 */
-	prefixDir: string;
+	/**
+	 * 安装前缀目录（可选）。省略时**不拼 --prefix**，npm 落到它自己的全局目录
+	 *（用户真全局安装，引导 2026-10 起的首选形态）；传入时 pi 落进
+	 * <userData>/pi-runtime/pi-global（无系统 npm/全局不可写时的回退，不写系统目录、无需提权）。
+	 */
+	prefixDir?: string;
 	launcher: PiGlobalInstallLauncher;
 	cwd: string;
 	timeoutMs?: number;
@@ -94,8 +98,10 @@ export function describePiInstallExecFailure(error: unknown): string {
  * 入口被改写必须拒绝），这里复用而不是第二套实现。
  */
 export async function runPiGlobalInstall(input: PiGlobalInstallInput): Promise<PiGlobalInstallOutcome> {
-	const prefixArg = `--prefix=${input.prefixDir}`;
-	const invocation = input.launcher.createInvocation(input.npmCommand, [...input.npmArgs, prefixArg]);
+	// prefixDir 缺省 = 真全局安装：npm 用自己的全局前缀（Windows 是 %APPDATA%\npm，
+	// 版本管理器布局是用户目录），与用户终端 `npm i -g` 完全同路，后续更新/卸载也同路。
+	const prefixArg = input.prefixDir ? `--prefix=${input.prefixDir}` : "";
+	const invocation = input.launcher.createInvocation(input.npmCommand, prefixArg ? [...input.npmArgs, prefixArg] : [...input.npmArgs]);
 	const launchChannel = invocation.windowsLaunch?.channel;
 	const fallbackReason = invocation.windowsLaunch?.reason;
 

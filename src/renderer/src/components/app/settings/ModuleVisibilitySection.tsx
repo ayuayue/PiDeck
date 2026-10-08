@@ -25,6 +25,7 @@ const MODULE_LABEL_KEYS: Record<HideableModuleId, TranslationKey> = {
 	pet: SETTINGS_TAB_LABEL_KEYS.pet,
 	vision: SETTINGS_TAB_LABEL_KEYS.vision,
 	imagegen: SETTINGS_TAB_LABEL_KEYS.imagegen,
+	acp: SETTINGS_TAB_LABEL_KEYS.acp,
 	web: SETTINGS_TAB_LABEL_KEYS.web,
 	git: SETTINGS_TAB_LABEL_KEYS.git,
 	usage: SETTINGS_TAB_LABEL_KEYS.usage,
@@ -38,6 +39,7 @@ const MODULE_DESC_KEYS: Record<HideableModuleId, TranslationKey> = {
 	pet: "settings.modules.petDesc",
 	vision: "settings.modules.visionDesc",
 	imagegen: "settings.modules.imagegenDesc",
+	acp: "settings.modules.acpDesc",
 	web: "settings.modules.webDesc",
 	git: "settings.modules.gitDesc",
 	usage: "settings.modules.usageDesc",
@@ -86,6 +88,7 @@ export const ModuleVisibilitySection = memo(function ModuleVisibilitySection(pro
 				return imageGenConfig.providers.length > 0 ? "settings.modules.statusConfigured" : null;
 			case "usage":
 			case "process":
+			case "acp":
 				return null;
 		}
 	};

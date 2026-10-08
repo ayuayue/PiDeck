@@ -1,3 +1,6 @@
+import { isTraditionalChineseLanguageTag } from "../types/settings";
+import { mainProcessZhTW } from "./mainProcessCopy.zh-TW";
+
 export const mainProcessZhCN = {
 	"diagnostic.historyLoadFailed": "历史会话加载失败，可继续使用当前 Agent 或重新打开会话重试。",
 	"diagnostic.compactReconnected": "会话压缩完成，Agent 已自动重连",
@@ -546,14 +549,23 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"shellMenu.quickTask": "Start a task with PiDeck",
 };
 
-export type MainProcessLocale = "zh-CN" | "en-US";
+export type MainProcessLocale = "zh-CN" | "zh-TW" | "en-US";
 
+/** 非 en/zh 的未知标签沿用历史行为回落 zh-CN；zh-Hant 系列（zh-TW/zh-HK/zh-Hant-*）走 zh-TW。 */
 export function normalizeMainProcessLocale(locale: unknown): MainProcessLocale {
 	if (typeof locale !== "string") return "zh-CN";
-	return locale.trim().toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
+	const normalized = locale.trim();
+	if (normalized.toLowerCase().startsWith("en")) return "en-US";
+	return isTraditionalChineseLanguageTag(normalized) ? "zh-TW" : "zh-CN";
 }
 
+const mainProcessDictionaries: Record<MainProcessLocale, Record<MainProcessTranslationKey, string>> = {
+	"zh-CN": mainProcessZhCN,
+	"zh-TW": mainProcessZhTW,
+	"en-US": mainProcessEnUS,
+};
+
 export function mainProcessT(locale: MainProcessLocale, key: MainProcessTranslationKey, params: Record<string, string | number> = {}): string {
-	const template = (locale === "en-US" ? mainProcessEnUS : mainProcessZhCN)[key];
+	const template = mainProcessDictionaries[locale][key];
 	return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name: string) => (Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match));
 }

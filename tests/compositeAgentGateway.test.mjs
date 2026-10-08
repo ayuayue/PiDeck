@@ -132,6 +132,10 @@ function makeFakeGateway(backend, { supportsOptional = true } = {}) {
 						calls.push(["reviveIfProcessAlive", backend, agentId]);
 						return backend === "pi";
 					},
+					async draftCommands(projectId) {
+						calls.push(["draftCommands", backend, projectId]);
+						return [{ name: `preview:${backend}`, description: "", source: "skill" }];
+					},
 				}
 			: {}),
 	};
@@ -288,4 +292,12 @@ test("backend 身份：对外以默认后端自居（接口自洽）", () => {
 	assert.equal(composite.backend, "pi");
 	const custom = new CompositeAgentGateway([makeFakeGateway("dsh")], "dsh");
 	assert.equal(custom.backend, "dsh");
+});
+
+test("draftCommands 只路由 pi 网关，dsh 网关实现被忽略", async () => {
+	const { pi, dsh, composite } = makeComposite();
+	const result = await composite.draftCommands("project-1");
+	assert.deepEqual(result, [{ name: "preview:pi", description: "", source: "skill" }]);
+	assert.ok(pi.calls.some(([name]) => name === "draftCommands"));
+	assert.ok(!dsh.calls.some(([name]) => name === "draftCommands"), "dsh 无 standby 池，绝不能路由过去");
 });

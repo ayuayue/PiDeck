@@ -23,11 +23,15 @@ export function isTransientRenameError(error: unknown): boolean {
 /**
  * 对 rename 的瞬态锁冲突做退避重试；重试耗尽后抛出最后一次错误。
  * 非 EPERM/EBUSY 错误（如 ENOENT 源缺失）立即抛出，不做无谓重试。
+ * beforeAttempt 在每次尝试（含首次与每次退避之后）前执行：调用方用它复查
+ * 授权等前置条件——Windows 文件锁的退避窗口内插件可能已被禁用/页面被卸载，
+ * 此时必须中止提交而不是继续覆盖目标文件（宿主插件 storage 修复，2026-10）。
  */
-export async function renameWithRetry(from: string, to: string): Promise<void> {
+export async function renameWithRetry(from: string, to: string, beforeAttempt?: () => void | Promise<void>): Promise<void> {
 	let lastError: unknown;
 	for (const delay of RENAME_RETRY_DELAYS) {
 		if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+		await beforeAttempt?.();
 		try {
 			await rename(from, to);
 			return;

@@ -1,6 +1,8 @@
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel } from "../ui-shadcn/resizable";
 import { SessionRuntimeDock } from "../session/SessionRuntimeDock";
+import { TerminalDock, type TerminalDockSettings } from "./TerminalDock";
+import type { TerminalThemeId } from "../../../../shared/types";
 import type { PiDesktopApi } from "../../../../preload";
 import type { TerminalTarget } from "../../../../shared/types";
 import { TERMINAL_HEIGHT_MIN, applyTerminalPanelResize } from "../../terminalDockState";
@@ -20,6 +22,8 @@ export type TerminalDockPanelProps = {
 	/** 可用高度上限（px）：maxSize clamp，防止终端吃掉整个工作区 */
 	maxHeight: number;
 	terminal: PiDesktopApi["terminal"];
+	terminalSettings: TerminalDockSettings;
+	onThemeChange: (themeId: TerminalThemeId) => void;
 	/** 终端归属键（agent:<id> / project:<id>）：切换 owner 时重建 dock 实例 */
 	ownerKey?: string;
 	/** 可选：调用方需要命令式 collapse()/expand() 时传入（SessionView 折叠联动） */
@@ -107,6 +111,8 @@ export function TerminalDockPanel(props: TerminalDockPanelProps) {
 					collapsed={props.collapsed}
 					height={props.height}
 					terminal={props.terminal}
+					terminalSettings={props.terminalSettings}
+					onThemeChange={props.onThemeChange}
 					onOpenChange={props.onOpenChange}
 					onCollapsedChange={props.onCollapsedChange}
 					onHeightChange={() => {

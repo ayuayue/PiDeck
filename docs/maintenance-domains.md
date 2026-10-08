@@ -100,3 +100,10 @@
 - **横向 tab 条（内容区切换）**＝下划线：`border-b-2 border-primary` + `text-primary`，shadcn `TabsTrigger variant="line"`（tabs.tsx）是唯一实现；集成浏览器 tab 条手写实现但对齐同一 token。分段条（`variant="default"`，bg-muted 容器+白底高亮）保留给页面/分组级切换，不与 line 混用。
 - **纵向选择列表（侧栏/导航）**＝软填充：`bg-bg-active text-foreground`（SessionTree selectedRowClass 是参照实现），不用下划线、不用 raised card。
 - **豁免**：终端 dock tab 走 `--terminal-*` 主题变量族（foundation.css 有声明注释），不套应用 chrome 语言。
+
+## 繁体中文（zh-TW 四份词典 + locale 分支点）
+
+- 繁体词典**不手写**：`scripts/genZhTwCopy.mjs` 用 opencc-js 的 s2twp 链路（整串分词，不是逐段换字）从 zh-CN 源生成四份产物——`src/renderer/src/i18n/rendererCopy.zh-TW.ts`、`src/shared/i18n/mainProcessCopy.zh-TW.ts`、`src/main/web/WebI18n.zh-TW.ts`、`src/main/feishu/FeishuI18n.zh-TW.ts`。每份带生成器标识头，**改 zh-CN 源后必须重跑**（漏跑由 `tests/zhTwCopy.test.mjs` 的键集断言报红）。
+- opencc-js 按项目惯例**不是**项目依赖（与 `scripts/generate-t2s-table.cjs` 同：运行时只带生成出来的常量表）：首次生成 `npm i --no-save opencc-js@1.4.2 && node scripts/genZhTwCopy.mjs`。脚本头部的 `OVERRIDES` 是分词误伤修正表（opencc 把「内置→內建」拆成「内置→內置」、「播放按钮」附近消出「撥」字这类），**只增改有实际误伤的条目**，别拿它当通用术语表。
+- 语言分支点清单（新增语言/调整判定时一起改，否则某个进程会掉回简体）：`src/shared/types/settings.ts` 的 `AppLanguageMode` + `isTraditionalChineseLanguageTag`（简繁标签判定的唯一实现，其它进程都 import 它）→ `src/renderer/src/i18n.ts` 的 `resolveLocale` → `src/shared/i18n/mainProcessCopy.ts` 的 `normalizeMainProcessLocale` → `src/main/web/WebI18n.ts` 词典 + `src/main/web/WebServiceManager.ts` 注入脚本按浏览器语言分流（`zh-Hant` 也要认，客户端标签全是 `zh-TW`/`zh_CN` 形态）→ `src/main/feishu/FeishuI18n.ts` 的 `normalizeFeishuLocale`/`feishuLanguage`（飞书富文本 API 只认 zh/en，繁体沿用 `zh`）→ `src/main/floating/MiniOverlayWindow.ts` 的浮窗语言分支 → `CommonTab.tsx` 语言下拉。
+- 加载 i18n 模块的测试**别手写 vm 沙箱**：`FeishuI18n.ts` 现在有运行时依赖（繁体词典 + 简繁判定），旧式 `vm.runInNewContext` 沙箱一加 import 就整片失败——用 `tests/helpers/createTsSandbox.mjs`（按源文件目录解析），桩注入见 `tests/feishuI18n.test.mjs`。

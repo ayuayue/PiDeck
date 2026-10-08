@@ -22,8 +22,10 @@ export const STALE_DRAFT_REAP_MS = 30 * 60_000;
 /** 纯策略判定：单条 entry 是否为可清理的零内容闲置草稿。 */
 export function isReapableStaleDraft(entry: SessionCatalogEntry, now: number, options: { staleMs?: number; focusedSessionId?: string; hasLiveRuntime?: boolean }): boolean {
 	if (entry.status !== "draft") return false;
-	// 对齐 SessionCatalog.load 的启动清理范围：DSH 草稿（含 dshSessionId 中间态）保留
+	// 对齐 SessionCatalog.load 的启动清理范围：DSH 草稿（含 dshSessionId 中间态）与
+	// ACP 草稿（无本地文件，删除即丢失预选配置）保留
 	if (entry.backend === "dsh" || entry.dshSessionId) return false;
+	if (entry.backend === "acp" || entry.acpSessionId) return false;
 	// 匿名/引导页会话（transientEntries）本来就是进程内临时面，不归本清理器
 	if (entry.noSession) return false;
 	// 已落盘或激活过 = 发送过消息（mergeScanned 会把有文件的条目抬成 active，双保险）

@@ -68,6 +68,8 @@ export type SidebarActions = {
 		endDrag?: () => void;
 		createDraft: (projectId: string) => Promise<void>;
 		createAnonymous: (projectId: string) => Promise<void>;
+		/** 新建 ACP 工具会话(toolId → settings.acpTools 条目);后端固定 acp。 */
+		createAcp: (projectId: string, toolId: string) => Promise<void>;
 		deleteDraft: (session: SessionRecord) => Promise<void>;
 		rename: (projectId: string, session: SessionSummary) => void;
 		export: (projectId: string, session: SessionSummary) => Promise<void>;

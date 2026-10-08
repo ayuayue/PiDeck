@@ -26,7 +26,7 @@ import { PiResourceStateStore } from "../config/PiResourceStateStore";
 import { tmpdir } from "node:os";
 import { installPiRuntimeNode, piRuntimeNodeBinDir, probeNodeVersion, detectPiRuntimeNode } from "../pi/runtimeNodeInstall";
 import { runPiGlobalInstall } from "../pi/piGlobalInstall";
-import type { NpmAvailabilityResult, PiInstallExecResult, PiInstallStatus, PiRuntimeNodeInstallResult, PiRuntimeNodeStatus, WebServiceStatusInfo } from "../../shared/types";
+import { isValidWebTokenShape, WEB_TOKEN_EXPIRES_IN_CHOICES, type NpmAvailabilityResult, type PiInstallExecResult, type PiInstallStatus, type PiRuntimeNodeInstallResult, type PiRuntimeNodeStatus, type WebServiceStatusInfo } from "../../shared/types";
 import type { AppInfo, AppLogLevel, AppLogQuery, AppSettings, AvailableModel, ChangelogPayload, CreatePiSkillInput, ModelListReport, ModelsVerifyResult, SessionCommandResult, SessionRuntimeTarget } from "../../shared/types";
 import { invalidatePiInstallationCache, type PiLocator } from "../pi/PiLocator";
 import { validateInstallCommand } from "../pi/installCommandPolicy";
@@ -62,7 +62,7 @@ import { getPiAiCatalogIndex, readBuiltinPiAiCatalogVersion } from "../pi/piAiBu
 import { resolveModelSpecFromCatalogs } from "../pi/modelCapabilityResolver";
 import { getProcessSnapshot } from "../process/ProcessMonitor";
 import { buildDshHostMonitorRow, isDshHostMonitorId } from "../process/dshHostMonitor";
-import type { AgentProcessMetric, DiagnosticsSnapshot, ProcessMetricsSnapshot } from "../../shared/types";
+import type { AgentProcessMetric, ArchStatus, DiagnosticsSnapshot, ProcessMetricsSnapshot } from "../../shared/types";
 import type { DiagnosticsMonitor } from "../diagnostics/DiagnosticsMonitor";
 import { getWslExe, decodeWslOutput, parseWslDistroList } from "../wsl/wslExe";
 import { listWebNetworkAddresses } from "../web/WebNetwork";
@@ -273,8 +273,8 @@ export type SystemIpcDeps = {
 		checkPiUpdate: () => Promise<import("../../shared/types").PiUpdateCheckResult>;
 		updatePi: () => Promise<import("../../shared/types").PiCliUpdateResult>;
 	};
-	/** Web service manager for restart / 运行状态查询 */
-	webServiceManager?: { stop: () => Promise<void>; getStatus: () => WebServiceStatusInfo };
+	/** Web service manager for restart / 运行状态查询 / 令牌轮换与手动设置 */
+	webServiceManager?: { stop: () => Promise<void>; getStatus: () => WebServiceStatusInfo; rotateToken: () => void; setTokenPolicy: (input: { token?: string; expiresIn?: number }) => void };
 	/** Terminal manager for restart */
 	terminalManager?: { closeAll: () => void };
 	/** Is quitting flag (for restart) */
@@ -1008,49 +1008,72 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// 自己拼 dirname(node) 容易在 POSIX 上错一层，导致永远回退到系统 npm。
 			const portableBinDir = piRuntimeNodeBinDir(userData);
 			const portableNpm = join(portableBinDir, process.platform === "win32" ? "npm.cmd" : "npm");
-			const usePortable = existsSync(portableNpm);
-			if (!usePortable) {
-				const systemNpm = await probeSystemNpmVersion(piLocator);
-				if (!systemNpm.available) {
-					return {
-						success: false,
-						exitCode: null,
-						stdout: "",
-						stderr: "npm is not available; complete the node install step first",
-					};
-				}
+			const hasPortableNpm = existsSync(portableNpm);
+			// 系统 npm 无条件先探（不再只在便携缺失时探）：真全局安装是首选形态，见下方分派注释。
+			const systemNpm = await probeSystemNpmVersion(piLocator);
+			if (!systemNpm.available && !hasPortableNpm) {
+				return {
+					success: false,
+					exitCode: null,
+					stdout: "",
+					stderr: "npm is not available; complete the node install step first",
+				};
 			}
-			const npmCommand = usePortable ? portableNpm : "npm";
 			const npmArgs = ["install", "-g", "@earendil-works/pi-coding-agent"];
 			if (mirrorArg) {
 				// 国内镜像：只追加 --registry 参数，不改全局配置，用户终端环境零污染。
 				npmArgs.push("--registry=https://registry.npmmirror.com");
 			}
-			// 安装前缀：pi 装进 <userData>/pi-runtime/pi-global，不写系统 npm 全局目录，
-			// 无需提权（mac/Linux 免 sudo）；PiLocator 搜索目录已包含该路径（POSIX 是 pi-global/bin），
-			// 装完即可被检测到。
+			// 安装形态分派（2026-10 起用户明确要求）：首选**真全局**——系统 npm 直接
+			// `install -g`（不带 --prefix），pi 落进用户自己的 npm 全局目录，终端与 PiDeck
+			// 用同一份、更新走同一条路，不再默认塞进 PiDeck 私有前缀。
+			// 仅在：①系统 npm 不可用（只有便携 node），或 ②真全局遭遇布局性失败
+			//（spawn 不起来 / EACCES/EPERM，典型是 macOS/Linux 全局目录需提权）时，
+			// 才回退 PiDeck 前缀（<userData>/pi-runtime/pi-global，用户目录内、免提权）；
+			// 回退形态的自更新由 ExtensionManager 的 portable-prefix 通道代管，不会停旧。
 			const prefixDir = join(userData, "pi-runtime", "pi-global");
-			void appLogger.info("pi", "Runtime pi install started", {
-				npm: npmCommand,
-				usePortable,
-				useMirror: mirrorArg,
-				prefix: prefixDir,
-			});
 			// 启动规格交给 PiLocator 解析：Windows 的 npm 是 .cmd 垫片，execFile 直启必 ENOENT
 			// （详见 runPiGlobalInstall 注释），只有经它解析（node 直启 / cmd.exe）才真正跑得起来。
-			const outcome = await runPiGlobalInstall({
-				npmCommand,
-				npmArgs,
-				prefixDir,
-				launcher: {
-					createInvocation: (command, args) => piLocator.createInvocation(command, args),
-					// 参数顺序陷阱：createProcessEnv 首个参数是代理设置，pathPrefix 在第二位。
-					createProcessEnv: (pathPrefix) => piLocator.createProcessEnv(undefined, pathPrefix),
-				},
-				cwd: app.getPath("home"),
-				// 包一层而不是直接把 execFile 传进去：Node 的 execFile 是重载签名，
-				// 显式适配后模块契约只需覆盖「数组传参 + utf8 回调」这一种形态。
-				execFileImpl: (command, args, options, callback) => execFile(command, args, options, callback),
+			const runInstall = (npmCommand: string, usePrefix: boolean) =>
+				runPiGlobalInstall({
+					npmCommand,
+					npmArgs,
+					...(usePrefix ? { prefixDir } : {}),
+					launcher: {
+						createInvocation: (command, args) => piLocator.createInvocation(command, args),
+						// 参数顺序陷阱：createProcessEnv 首个参数是代理设置，pathPrefix 在第二位。
+						createProcessEnv: (pathPrefix) => piLocator.createProcessEnv(undefined, pathPrefix),
+					},
+					cwd: app.getPath("home"),
+					// 包一层而不是直接把 execFile 传进去：Node 的 execFile 是重载签名，
+					// 显式适配后模块契约只需覆盖「数组传参 + utf8 回调」这一种形态。
+					execFileImpl: (command, args, options, callback) => execFile(command, args, options, callback),
+				});
+			let outcome: Awaited<ReturnType<typeof runPiGlobalInstall>>;
+			let installMode: "system-global" | "pideck-prefix" = "pideck-prefix";
+			if (systemNpm.available) {
+				installMode = "system-global";
+				outcome = await runInstall("npm", false);
+				const failed = !outcome.success || outcome.exitCode !== 0;
+				// 布局性失败（无权写全局目录 / 起不来）才值得换前缀重试；网络/源错误换前缀也一样失败，
+				// 不做无谓重试，把原始错误直接还给用户。
+				const layoutSpecific = failed && (outcome.exitCode === -1 || /EACCES|EPERM|permission denied|ENOENT/i.test(outcome.stderr));
+				if (layoutSpecific && hasPortableNpm) {
+					void appLogger.warn("pi", "Runtime pi system-global install hit a layout failure; falling back to PiDeck prefix", {
+						exitCode: outcome.exitCode,
+						stderrPreview: outcome.stderr.slice(0, 200),
+					});
+					installMode = "pideck-prefix";
+					outcome = await runInstall(portableNpm, true);
+				}
+			} else {
+				outcome = await runInstall(portableNpm, true);
+			}
+			void appLogger.info("pi", "Runtime pi install started", {
+				mode: installMode,
+				systemNpm: systemNpm.available,
+				useMirror: mirrorArg,
+				prefix: installMode === "pideck-prefix" ? prefixDir : undefined,
 			});
 			const { launchCommand, launchChannel, launchFallbackReason, ...result } = outcome;
 			void appLogger.info("pi", "Runtime pi install completed", {
@@ -1218,6 +1241,15 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				recentTimings: [],
 			}
 		);
+	});
+	// 运行架构检测：Electron 官方接口判定「x64 二进制在 ARM64 转译层下」（macOS=Rosetta 2）。
+	// 无参数、无副作用，纯读当前进程状态；渲染层启动时拉一次决定是否提示换原生包。
+	ipcMain.handle(ipcChannels.archStatus, (): ArchStatus => {
+		return {
+			platform: process.platform,
+			processArch: process.arch,
+			runningUnderArm64Translation: app.runningUnderARM64Translation === true,
+		};
 	});
 	ipcMain.handle(ipcChannels.diagnosticsOpenFolder, async () => {
 		if (!diagnosticsMonitor) return;
@@ -1757,8 +1789,38 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				port: 0,
 				token: "",
 				requiresAuth: false,
+				tokenExpiresAt: null,
 			} satisfies WebServiceStatusInfo;
 		}
+		return webServiceManager.getStatus();
+	});
+
+	ipcMain.handle(ipcChannels.webServiceRotateToken, () => {
+		if (!webServiceManager) throw new Error("web service not available");
+		webServiceManager.rotateToken();
+		return webServiceManager.getStatus();
+	});
+
+	// 手动设置令牌/过期策略：热生效不重启服务。输入校验在边界完成——
+	// token 需满足形状约束（8-128 可打印非空白），expiresIn 必须是枚举值，
+	// 非法输入直接拒绝不落盘（与 SettingsStore 清洗同一口径）。
+	ipcMain.handle(ipcChannels.webServiceSetToken, (_event, input: unknown) => {
+		if (!webServiceManager) throw new Error("web service not available");
+		if (typeof input !== "object" || input === null) throw new Error("invalid payload");
+		const payload = input as { token?: unknown; expiresIn?: unknown };
+		const patch: { token?: string; expiresIn?: number } = {};
+		if (payload.token !== undefined) {
+			if (typeof payload.token !== "string") throw new Error("invalid token");
+			const token = payload.token.trim();
+			if (!isValidWebTokenShape(token)) throw new Error("invalid token shape");
+			patch.token = token;
+		}
+		if (payload.expiresIn !== undefined) {
+			if (typeof payload.expiresIn !== "number" || !WEB_TOKEN_EXPIRES_IN_CHOICES.includes(payload.expiresIn as (typeof WEB_TOKEN_EXPIRES_IN_CHOICES)[number])) throw new Error("invalid expiresIn");
+			patch.expiresIn = payload.expiresIn;
+		}
+		if (patch.token === undefined && patch.expiresIn === undefined) throw new Error("empty payload");
+		webServiceManager.setTokenPolicy(patch);
 		return webServiceManager.getStatus();
 	});
 

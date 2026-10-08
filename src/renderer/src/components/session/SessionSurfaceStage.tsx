@@ -19,6 +19,9 @@ const HISTORY_OVERLAY_COPY: Record<string, TranslationKey> = {
 	reloading: "message.historyOverlay.reloading",
 	activating: "message.historyOverlay.activating",
 	forking: "message.historyOverlay.forking",
+	// 重发/编辑迁移在内部走 fork，但用户感知的是“重发/编辑”这个动作，文案不暴露实现术语
+	editing: "message.historyOverlay.editing",
+	resending: "message.historyOverlay.resending",
 };
 
 /**

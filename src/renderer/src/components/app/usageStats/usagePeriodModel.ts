@@ -130,25 +130,26 @@ export function earliestYear(rows: UsageDayRow[]): number {
 	return rows.reduce((min, row) => Math.min(min, parseDayKey(row.day).getFullYear()), Number.POSITIVE_INFINITY);
 }
 
-export function formatPeriodTitle(mode: UsagePeriodMode, period: UsagePeriod, localeTag: "zh-CN" | "en-US"): string {
+export function formatPeriodTitle(mode: UsagePeriodMode, period: UsagePeriod, localeTag: "zh-CN" | "zh-TW" | "en-US"): string {
 	switch (mode) {
 		case "day":
 			return period.start;
 		case "week": {
 			const start = parseDayKey(period.start);
 			const end = parseDayKey(period.end);
-			const options: Intl.DateTimeFormatOptions = localeTag === "zh-CN" ? { month: "long", day: "numeric" } : { month: "short", day: "numeric" };
+			// 只有英文用短月名；zh-CN / zh-TW 都用「10月8日」这类中文写法
+			const options: Intl.DateTimeFormatOptions = localeTag === "en-US" ? { month: "short", day: "numeric" } : { month: "long", day: "numeric" };
 			const fmt = new Intl.DateTimeFormat(localeTag, options);
 			return `${fmt.format(start)} – ${fmt.format(end)}`;
 		}
 		case "month": {
 			const start = parseDayKey(period.start);
-			const options: Intl.DateTimeFormatOptions = localeTag === "zh-CN" ? { year: "numeric", month: "long" } : { year: "numeric", month: "short" };
+			const options: Intl.DateTimeFormatOptions = localeTag === "en-US" ? { year: "numeric", month: "short" } : { year: "numeric", month: "long" };
 			return new Intl.DateTimeFormat(localeTag, options).format(start);
 		}
 		case "year": {
 			const year = parseDayKey(period.start).getFullYear();
-			return localeTag === "zh-CN" ? `${year}年` : String(year);
+			return localeTag === "en-US" ? String(year) : `${year}年`;
 		}
 	}
 }

@@ -19,7 +19,7 @@ import { PiTuiLogoCanvas, useLogoStyle } from "./PiTuiLogo";
 import { TextShimmer } from "../motion/text-shimmer";
 import { detectRendererPlatform } from "../../lib/detectRendererPlatform";
 export { WorktreeCreateDialog } from "../sidebar/SidebarComponents";
-export { ComposerBottomBar, ModelPicker, PromptTemplatePicker, ThinkingPicker, ExtensionWidgetCard } from "../session/ComposerComponents";
+export { ComposerBottomBar, ModelPicker, PromptTemplatePicker, ExtensionWidgetCard } from "../session/ComposerComponents";
 
 export type SessionModifiedFile = {
 	path: string;

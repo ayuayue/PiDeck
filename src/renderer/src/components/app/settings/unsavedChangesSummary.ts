@@ -6,7 +6,7 @@ import { t, type TranslationKey } from "../../../i18n";
  * 用户可能先改外观再改语言，但「常用设置」里的项更容易对上导航。
  */
 
-export type SettingsUnsavedTabId = "common" | "shortcuts" | "appearance" | "proxy" | "web" | "editors" | "git" | "dev" | "im" | "pet" | "notification" | "storage" | "usage" | "process" | "vision" | "imagegen";
+export type SettingsUnsavedTabId = "common" | "shortcuts" | "appearance" | "proxy" | "web" | "editors" | "git" | "dev" | "im" | "pet" | "notification" | "storage" | "usage" | "process" | "vision" | "imagegen" | "acp";
 
 /** 单条变更项：tab 名 + 字段名（均为 i18n key，渲染时再翻译）。 */
 export type SettingsUnsavedItem = {
@@ -44,6 +44,7 @@ const TAB_LABEL_KEYS: Record<SettingsUnsavedTabId, TranslationKey> = {
 	process: "settings.tabs.process",
 	vision: "settings.tabs.vision",
 	imagegen: "settings.tabs.imagegen",
+	acp: "settings.tabs.acp",
 };
 
 /**
@@ -102,6 +103,8 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "showNativeMenu", tab: "appearance", itemKey: "settings.nativeMenu" },
 	// 功能模块开关组共用一个数组字段，关闭确认里合成一项
 	{ field: "hiddenModules", tab: "appearance", itemKey: "settings.modules.title" },
+	// 输入框功能显示同理共用 hiddenComposerFeatures，合成一项
+	{ field: "hiddenComposerFeatures", tab: "appearance", itemKey: "settings.composer.title" },
 
 	{ field: "piProxyEnabled", tab: "proxy", itemKey: "settings.enablePiProxy" },
 	{ field: "piProxyUrl", tab: "proxy", itemKey: "settings.proxyUrl" },
@@ -166,7 +169,7 @@ function itemIdentity(tab: SettingsUnsavedTabId, itemKey: TranslationKey): strin
  * 把 dirty 字段收成关闭确认要用的一条摘要。
  * visionDirty 不是 AppSettings 字段（写 pi-deck-vision.json），单独挂到视觉桥 tab。
  */
-export function summarizeSettingsUnsavedChanges(input: { dirtyFields: Iterable<string>; visionDirty?: boolean; imageGenDirty?: boolean }): SettingsUnsavedSummary | null {
+export function summarizeSettingsUnsavedChanges(input: { dirtyFields: Iterable<string>; visionDirty?: boolean; imageGenDirty?: boolean; acpDirty?: boolean }): SettingsUnsavedSummary | null {
 	const dirty = new Set(input.dirtyFields);
 	const seen = new Set<string>();
 	const items: Array<{ tab: SettingsUnsavedTabId; itemKey: TranslationKey }> = [];
@@ -197,6 +200,10 @@ export function summarizeSettingsUnsavedChanges(input: { dirtyFields: Iterable<s
 		push("imagegen", "settings.tabs.imagegen");
 	}
 
+	if (input.acpDirty) {
+		push("acp", "settings.tabs.acp");
+	}
+
 	if (items.length === 0) return null;
 	return {
 		items: items.map((item) => ({
@@ -208,7 +215,7 @@ export function summarizeSettingsUnsavedChanges(input: { dirtyFields: Iterable<s
 }
 
 /** 左侧导航要打黄点的 tab：按字段目录归并，视觉桥草稿单独算 vision。 */
-export function dirtySettingsTabIds(input: { dirtyFields: Iterable<string>; visionDirty?: boolean; imageGenDirty?: boolean }): Set<SettingsUnsavedTabId> {
+export function dirtySettingsTabIds(input: { dirtyFields: Iterable<string>; visionDirty?: boolean; imageGenDirty?: boolean; acpDirty?: boolean }): Set<SettingsUnsavedTabId> {
 	const dirty = new Set(input.dirtyFields);
 	const tabs = new Set<SettingsUnsavedTabId>();
 	for (const entry of FIELD_CATALOG) {
@@ -216,6 +223,7 @@ export function dirtySettingsTabIds(input: { dirtyFields: Iterable<string>; visi
 	}
 	if (input.visionDirty) tabs.add("vision");
 	if (input.imageGenDirty) tabs.add("imagegen");
+	if (input.acpDirty) tabs.add("acp");
 	return tabs;
 }
 

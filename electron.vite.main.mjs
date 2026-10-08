@@ -1,5 +1,6 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { resolve } from "node:path";
+import { hostPluginPreloadPlugin } from "./scripts/hostPluginPreload.ts";
 
 /**
  * main+preload-only 构建配置（npm run build:main）。
@@ -48,6 +49,6 @@ export default defineConfig({
 		},
 	},
 	preload: {
-		plugins: [externalizeDepsPlugin()],
+		plugins: [externalizeDepsPlugin(), hostPluginPreloadPlugin()],
 	},
 });

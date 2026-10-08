@@ -11,6 +11,7 @@
 import { createElement } from "react";
 import { toast } from "sonner";
 import { DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS } from "../../../shared/types";
+import type { NoticeHistoryKind as SharedNoticeHistoryKind } from "../../../shared/types/noticeHistory";
 import { NoticeToastCard } from "../components/ui-shadcn/notice-toast";
 import { writeClipboard } from "./clipboard";
 import { addActiveNotice, removeActiveNotice } from "./noticeCountStore";
@@ -19,11 +20,11 @@ import type { NoticeHistoryEntry } from "./noticeHistory";
 import { t } from "../i18n";
 
 /**
- * 通知语义档位。
+ * 通知语义档位：从共享通知历史档位派生（neutral 是无 kind 调用的展示档，不属于语义档）。
  * `question` 专供 Ask 等待回答：「需要你操作」而非「出错」，不用 warning 黄三角
  * 以免被误读成失败。
  */
-export type NoticeKind = "info" | "error" | "warning" | "question";
+export type NoticeKind = Exclude<SharedNoticeHistoryKind, "neutral">;
 
 /**
  * 全局 toast 展示时长（ms），Number.POSITIVE_INFINITY = 常驻。
@@ -310,12 +311,15 @@ export function showNotice(
 	if (!text) return;
 	// 单点记录历史：卡片主文案=标题（无标题时整段正文），描述只在有标题时存在。
 	// 兜底分支同样经过这里，保证 Toaster 未挂载期间的 toast 也留痕。
-	recordNoticeHistory({
+	// 同一份数据推送主进程落盘（fire-and-forget，失败静默——历史永不阻断/打断 toast）。
+	const historyInput = {
 		title: title ? title : text,
 		description: title ? text : undefined,
 		kind: kind ?? "neutral",
 		duration: resolvedDuration,
-	});
+	} as const;
+	recordNoticeHistory(historyInput);
+	void window?.piDesktop?.noticeHistory?.record(historyInput)?.catch(() => undefined);
 	if (!toasterMounted()) {
 		return showFallbackNotice(text, resolvedDuration, kind, title, actions, id);
 	}

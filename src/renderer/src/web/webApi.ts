@@ -29,6 +29,11 @@ export function getWebAuthHeaders(): Record<string, string> {
 	return webToken ? { authorization: `Bearer ${webToken}` } : {};
 }
 
+/** 当前令牌（SSE 类连接用：EventSource 无法携带 Authorization header，只能拼 query）。 */
+export function getWebToken(): string | null {
+	return webToken;
+}
+
 /** 统一出口：合并鉴权头后转发给 fetch；调用方原有 headers 优先。 */
 function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 	return fetch(input, {
@@ -478,11 +483,11 @@ export async function fetchFileList(projectId: string, dir?: string): Promise<We
 }
 
 /** P3：文件内容（有界 512KB；二进制/超限时返回结构化标记）。 */
-export async function fetchFileContent(projectId: string, path: string): Promise<{ content?: string; size?: number; tooLarge?: boolean; binary?: boolean }> {
+export async function fetchFileContent(projectId: string, path: string): Promise<{ content?: string; size?: number; tooLarge?: boolean; truncated?: boolean; binary?: boolean }> {
 	const params = new URLSearchParams({ path });
 	const res = await apiFetch(`/api/file-content?projectId=${encodeURIComponent(projectId)}&${params.toString()}`);
 	if (!res.ok) throw new Error(`file content ${res.status}`);
-	return (await res.json()) as { content?: string; size?: number; tooLarge?: boolean; binary?: boolean };
+	return (await res.json()) as { content?: string; size?: number; tooLarge?: boolean; truncated?: boolean; binary?: boolean };
 }
 
 // ── 第二批：会话活动监控 strips（文件变更/子代理/todo，与桌面端同源数据） ──

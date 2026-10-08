@@ -29,6 +29,7 @@ import {
 	isScrollbarGutterHit,
 	isScrollContainerOverflow,
 	isVerticallyScrollableOverflow,
+	needsBottomUnlock,
 	nextReaderUpPx,
 	readerDisplacementFromKey,
 	resolveGestureOwner,
@@ -345,6 +346,19 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
 		};
 	}, []);
 
+	/**
+	 * 幂等解锁：目标态已就位（escapedFromLock=true 且 isAtBottom=false）时不再 setState。
+	 * stopScroll/restoreAt 会被 MessageScroller 的 layout effect、controller、ResizeObserver
+	 * 多路触发；无条件 setState 会让同一 cascade 反复入队布尔翻转，嵌套渲染 50 层
+	 * 直接触发 React #185（maximum update depth，线上用户实测堆栈在 stopScroll 体内）。
+	 */
+	const unlockBottomLock = useCallback(() => {
+		if (needsBottomUnlock(state.escapedFromLock, state.isAtBottom)) {
+			setEscapedFromLock(true);
+			setIsAtBottom(false);
+		}
+	}, [state, setEscapedFromLock, setIsAtBottom]);
+
 	const scrollToBottom = useCallback<ScrollToBottom>(
 		(scrollOptions = {}) => {
 			if (typeof scrollOptions === "string") {
@@ -448,9 +462,8 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
 
 	const stopScroll = useCallback(() => {
 		resetReaderUp();
-		setEscapedFromLock(true);
-		setIsAtBottom(false);
-	}, [resetReaderUp, setEscapedFromLock, setIsAtBottom]);
+		unlockBottomLock();
+	}, [resetReaderUp, unlockBottomLock]);
 
 	/**
 	 * 原子恢复位置（会话切换回历史查看位置）。
@@ -468,11 +481,10 @@ export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBot
 			state.scrollGeneration += 1;
 			state.animation = undefined;
 			resetReaderUp();
-			setEscapedFromLock(true);
-			setIsAtBottom(false);
+			unlockBottomLock();
 			state.scrollTop = Math.max(0, scrollTop);
 		},
-		[resetReaderUp, setEscapedFromLock, setIsAtBottom, state],
+		[resetReaderUp, unlockBottomLock, state],
 	);
 
 	const boundScrollRef = useRef<HTMLElement | null>(null);

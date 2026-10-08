@@ -19,6 +19,8 @@ export type TerminalTab = {
 	exited?: boolean;
 	exitCode?: number;
 	buffer?: string;
+	/** 前台进程名快照（node-pty process）：渲染层在「关闭确认=running」时据此判断是否有任务在跑 */
+	frontProcess?: string;
 };
 
 /**
