@@ -11,12 +11,12 @@ function loadWebServiceModule() {
 	});
 }
 
-async function withManager(host, run, requiresAuth) {
+async function withManager(host, run, requiresAuth, startPolicy) {
 	const { WebServiceManager } = loadWebServiceModule();
 	const manager = new WebServiceManager({
 		subscribePiEvents: () => () => undefined,
 	});
-	await manager.start(host, 0, requiresAuth);
+	await manager.start(host, 0, requiresAuth, startPolicy);
 	const baseUrl = `http://127.0.0.1:${manager.current.port}`;
 	try {
 		await run({ manager, baseUrl });
@@ -265,12 +265,13 @@ test("getStatus reports running shape and clears after stop", async () => {
 	await manager.stop();
 	// loadTsCommonJs 在独立 vm 域编译，对象原型不同，deepStrictEqual 按原型判等会误报，逐字段断言。
 	const stopped = manager.getStatus();
-	assert.deepEqual(Object.keys(stopped).sort(), ["host", "port", "requiresAuth", "running", "token"]);
+	assert.deepEqual(Object.keys(stopped).sort(), ["host", "port", "requiresAuth", "running", "token", "tokenExpiresAt"]);
 	assert.equal(stopped.running, false);
 	assert.equal(stopped.host, "");
 	assert.equal(stopped.port, 0);
 	assert.equal(stopped.token, "");
 	assert.equal(stopped.requiresAuth, false);
+	assert.equal(stopped.tokenExpiresAt, null);
 });
 
 test("web:status channel is wired across shared ipc, main handler and preload", () => {
@@ -402,4 +403,123 @@ test("web client persists token from ?token= URL parameter", async () => {
 		{ filename: "browserApi.ts" },
 	);
 	assert.deepEqual(stored, [["pideck-web-token", "from-url"]]);
+});
+
+test("rotateToken invalidates old token immediately and new token passes the gate", async () => {
+	await withManager(
+		"0.0.0.0",
+		async ({ manager, baseUrl }) => {
+			const oldToken = manager.current.token;
+			assert.ok(oldToken, "token must exist before rotation");
+
+			manager.rotateToken();
+			const newToken = manager.current.token;
+			assert.ok(newToken, "token must exist after rotation");
+			assert.notEqual(newToken, oldToken, "rotation must mint a fresh token");
+
+			// 旧令牌立即失效（下一个请求就 401）
+			let response = await fetch(`${baseUrl}/api/nope?token=${encodeURIComponent(oldToken)}`);
+			assert.equal(response.status, 401);
+			// 新令牌越过鉴权门（落到 404 apiNotFound 即证明通过）
+			response = await fetch(`${baseUrl}/api/nope?token=${encodeURIComponent(newToken)}`);
+			assert.equal(response.status, 404);
+			// Bearer 形态同步生效
+			response = await fetch(`${baseUrl}/api/nope`, { headers: { authorization: `Bearer ${newToken}` } });
+			assert.equal(response.status, 404);
+
+			// getStatus 同步新令牌（渲染层二维码/链接跟随刷新）
+			assert.equal(manager.getStatus().token, newToken);
+		},
+		true,
+	);
+});
+
+test("rotateToken is a no-op-safe when auth is disabled (persists for next enable)", async () => {
+	await withManager(
+		"127.0.0.1",
+		async ({ manager }) => {
+			const before = manager.current.token;
+			manager.rotateToken();
+			// 鉴权关闭时也允许轮换：用户可以先设好令牌再开启鉴权；服务不断、请求不受影响。
+			assert.notEqual(manager.current.token, before, "rotation works even when requiresAuth is off");
+		},
+		false,
+	);
+});
+
+test("persisted token survives restart (remote devices keep working)", async () => {
+	const { WebServiceManager } = loadWebServiceModule();
+	const persisted = [];
+	const manager = new WebServiceManager({
+		subscribePiEvents: () => () => undefined,
+		persistToken: (state) => persisted.push(state),
+	});
+	const baseSettings = {
+		webServiceEnabled: true,
+		webServiceHost: "127.0.0.1",
+		webServicePort: 18765,
+		webServiceRequiresAuth: true,
+	};
+
+	// 首次启动：无持久令牌 → 自动生成并回写
+	await manager.applySettings({ ...baseSettings });
+	const firstToken = manager.current.token;
+	assert.equal(persisted.length, 1, "auto-generated token must be persisted once");
+	assert.equal(persisted[0].token, firstToken);
+
+	// 重启（换端口强制走 stop/start 真重启路径）：带着持久化令牌 → 沿用同一令牌。
+	await manager.applySettings({ ...baseSettings, webServicePort: baseSettings.webServicePort + 1, webServiceToken: firstToken, webServiceTokenGeneratedAt: persisted[0].generatedAt });
+	assert.equal(manager.current.token, firstToken, "restart must reuse the persisted token");
+	assert.equal(persisted.length, 1, "reusing persisted token must not trigger another persist");
+	await manager.stop();
+});
+
+test("expired token is rejected; expiresIn 0 never expires", async () => {
+	const twoHoursAgo = Date.now() - 7_200_000;
+	// 已过期（generatedAt 两小时前，有效期 1 小时）：即使令牌匹配也 401。
+	await withManager(
+		"0.0.0.0",
+		async ({ manager, baseUrl }) => {
+			const token = manager.current.token;
+			let response = await fetch(`${baseUrl}/api/nope?token=${encodeURIComponent(token)}`);
+			assert.equal(response.status, 401, "expired token must be rejected even if it matches");
+			response = await fetch(`${baseUrl}/api/nope`, { headers: { authorization: `Bearer ${token}` } });
+			assert.equal(response.status, 401);
+			assert.equal(typeof manager.getStatus().tokenExpiresAt, "number");
+		},
+		true,
+		{ token: "fixed-token-1234", generatedAt: twoHoursAgo, expiresIn: 3_600_000 },
+	);
+
+	// 永不过期（expiresIn 0）：同样的古董 generatedAt 也照常可用。
+	await withManager(
+		"0.0.0.0",
+		async ({ baseUrl }) => {
+			const response = await fetch(`${baseUrl}/api/nope?token=fixed-token-1234`);
+			assert.equal(response.status, 404, "expiresIn=0 must never expire");
+		},
+		true,
+		{ token: "fixed-token-1234", generatedAt: twoHoursAgo, expiresIn: 0 },
+	);
+});
+
+test("setTokenPolicy hot-swaps token without restart", async () => {
+	await withManager("0.0.0.0", async ({ manager, baseUrl }) => {
+		const oldToken = manager.current.token;
+
+		manager.setTokenPolicy({ token: "custom-fixed-token", expiresIn: 86_400_000 });
+		assert.equal(manager.current.token, "custom-fixed-token", "token swaps immediately");
+
+		// 旧令牌 401、新令牌通过，服务未重启（同一端口仍在服务）。
+		let response = await fetch(`${baseUrl}/api/nope?token=${encodeURIComponent(oldToken)}`);
+		assert.equal(response.status, 401);
+		response = await fetch(`${baseUrl}/api/nope?token=custom-fixed-token`);
+		assert.equal(response.status, 404);
+
+		// 仅改过期策略：令牌不变、过期时刻延长（generatedAt 沿用）。
+		const before = manager.getStatus().tokenExpiresAt;
+		manager.setTokenPolicy({ expiresIn: 604_800_000 });
+		assert.equal(manager.current.token, "custom-fixed-token");
+		assert.ok(manager.getStatus().tokenExpiresAt > before, "longer validity extends the expiry");
+	});
 });

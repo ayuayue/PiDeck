@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { Check, Copy, RotateCw } from "lucide-react";
+import { Check, Copy, KeyRound, RotateCw } from "lucide-react";
 import type { AppSettings, WebNetworkAddress, WebServiceStatusInfo } from "../../../../../shared/types";
 import { t } from "../../../i18n";
+import { cn } from "../../../lib/utils";
 import { desktopApi } from "../../../desktopApi";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
@@ -10,7 +11,7 @@ import { Label } from "../../ui-shadcn/label";
 import { Switch } from "../../ui-shadcn/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
-import { SettingRow, SettingSwitchRow } from "./SettingRows";
+import { SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
 import { buildWebAccessUrl, previewHostFromBinding, webAddressesForBinding } from "./webAccessUrl";
 import { useQrDataUrl } from "./useQrDataUrl";
 import { WebRemoteAccessSection } from "./WebRemoteAccessSection";
@@ -93,6 +94,76 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
 		refreshWebStatus();
 	}, [refreshWebStatus, selectedWebAddress, props.webServiceChanging]);
 
+	// 令牌管理：轮换/手动修改/过期策略均即时热生效（不重启服务），二维码/链接随 setWebStatus 自动刷新。
+	const [rotatingToken, setRotatingToken] = useState(false);
+	const [tokenRotated, setTokenRotated] = useState(false);
+	const [tokenDraft, setTokenDraft] = useState("");
+	const [tokenDraftDirty, setTokenDraftDirty] = useState(false);
+	const [tokenSaving, setTokenSaving] = useState(false);
+	const [tokenError, setTokenError] = useState(false);
+	// webStatus.token 变化（轮换/重启/热更新）时同步草稿，除非用户正在编辑。
+	useEffect(() => {
+		if (!tokenDraftDirty) setTokenDraft(webStatus?.token ?? "");
+	}, [webStatus?.token, tokenDraftDirty]);
+
+	const handleRotateToken = useCallback(() => {
+		setRotatingToken(true);
+		desktopApi.settings
+			.rotateWebToken()
+			.then((status) => {
+				setWebStatus(status);
+				setTokenRotated(true);
+				window.setTimeout(() => setTokenRotated(false), 2500);
+			})
+			.catch(() => setTokenRotated(false))
+			.finally(() => setRotatingToken(false));
+	}, []);
+
+	const tokenDraftValid = /^[!-~]{8,128}$/.test(tokenDraft.trim());
+	const handleSaveToken = useCallback(() => {
+		const next = tokenDraft.trim();
+		if (!/^[!-~]{8,128}$/.test(next)) {
+			setTokenError(true);
+			return;
+		}
+		setTokenSaving(true);
+		desktopApi.settings
+			.setWebToken({ token: next })
+			.then((status) => {
+				setWebStatus(status);
+				setTokenDraftDirty(false);
+				setTokenError(false);
+				setTokenRotated(true);
+				window.setTimeout(() => setTokenRotated(false), 2500);
+			})
+			.catch(() => setTokenError(true))
+			.finally(() => setTokenSaving(false));
+	}, [tokenDraft]);
+
+	const handleTokenExpiresInChange = useCallback(
+		(expiresIn: number) => {
+			updateDraft({ webServiceTokenExpiresIn: expiresIn });
+			desktopApi.settings
+				.setWebToken({ expiresIn })
+				.then((status) => setWebStatus(status))
+				.catch(() => undefined);
+		},
+		[updateDraft],
+	);
+
+	// 过期剩余时间展示：超过 1 天显示天数，不足 1 天显示小时数，不足 1 小时显示分钟。
+	const tokenRemaining = useMemo(() => {
+		const expiresAt = webStatus?.tokenExpiresAt;
+		if (!expiresAt) return null;
+		const remaining = expiresAt - Date.now();
+		if (remaining <= 0) return t("settings.webTokenExpired");
+		const minutes = Math.round(remaining / 60_000);
+		if (minutes < 60) return t("settings.webTokenExpiresInMinutes", { minutes: String(minutes) });
+		const hours = Math.round(minutes / 60);
+		if (hours < 48) return t("settings.webTokenExpiresInHours", { hours: String(hours) });
+		return t("settings.webTokenExpiresInDays", { days: String(Math.round(hours / 24)) });
+	}, [webStatus?.tokenExpiresAt, t]);
+
 	// 以实际运行的绑定为准，而非尚未保存的草稿；切换监听后同步排除旧选择，避免生成不可达链接。
 	const availableWebAddresses = useMemo(() => webAddressesForBinding(webNetworkAddresses, webStatus?.host ?? ""), [webNetworkAddresses, webStatus?.host]);
 	const activeWebAddress = availableWebAddresses.some((item) => item.address === selectedWebAddress) ? selectedWebAddress : (availableWebAddresses.find((item) => item.isPrivate)?.address ?? availableWebAddresses[0]?.address ?? "");
@@ -158,6 +229,55 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
 			{/* Token 鉴权开关 */}
 			<SettingSwitchRow anchor="web-use-token-auth" title={t("settings.webUseTokenAuth")} description={t("settings.webUseTokenAuthDesc")} checked={draft.webServiceRequiresAuth} onChange={(checked) => updateDraft({ webServiceRequiresAuth: checked })} />
 			{!draft.webServiceRequiresAuth && isPublicBindHost(draft.webServiceHost) && <p className="-mt-1.5 ml-1 text-caption text-warning">{t("settings.webAuthOffWarning")}</p>}
+			{draft.webServiceRequiresAuth && webStatus?.running && (
+				<div className="ml-1 mt-1.5">
+					<SettingBox>
+						{/* 固定令牌：标签在上、输入行占满整行（与设置页长输入框惯例一致） */}
+						<SettingRow anchor="web-fixed-token" stacked title={t("settings.webFixedTokenLabel")} description={t("settings.webFixedTokenDesc")}>
+							<div className="flex items-center gap-1.5">
+								<Input
+									value={tokenDraft}
+									className="h-8 min-w-0 flex-1 font-mono text-xs"
+									placeholder={t("settings.webTokenPlaceholder")}
+									onChange={(event) => {
+										setTokenDraft(event.target.value);
+										setTokenDraftDirty(true);
+										setTokenError(false);
+									}}
+								/>
+								<Button variant="outline" size="sm" disabled={!tokenDraftDirty || !tokenDraftValid || tokenSaving || tokenDraft.trim() === webStatus?.token} onClick={handleSaveToken}>
+									{tokenSaving ? t("common.saving") : t("common.save")}
+								</Button>
+								<Button variant="outline" size="sm" disabled={rotatingToken} onClick={handleRotateToken} title={t("settings.webTokenRotateHint")}>
+									<KeyRound className="mr-1.5 size-3.5" aria-hidden="true" />
+									{rotatingToken ? t("settings.webRotatingToken") : t("settings.webRotateToken")}
+								</Button>
+							</div>
+						</SettingRow>
+						{/* 有效期：标签左、选择器右（260px 控件列），剩余时间作描述动态展示 */}
+						<SettingRow anchor="web-token-expires" title={t("settings.webTokenExpiresInLabel")} description={tokenRemaining ?? t("settings.webTokenExpiresInDesc")} alignEnd={false}>
+							<Select value={String(draft.webServiceTokenExpiresIn ?? 0)} onValueChange={(value) => handleTokenExpiresInChange(Number(value))}>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="0">{t("settings.webTokenNeverExpires")}</SelectItem>
+									<SelectItem value="3600000">{t("settings.webTokenExpires1h")}</SelectItem>
+									<SelectItem value="86400000">{t("settings.webTokenExpires24h")}</SelectItem>
+									<SelectItem value="604800000">{t("settings.webTokenExpires7d")}</SelectItem>
+									<SelectItem value="2592000000">{t("settings.webTokenExpires30d")}</SelectItem>
+								</SelectContent>
+							</Select>
+						</SettingRow>
+					</SettingBox>
+					{/* 状态反馈：同一行按优先级展示（保存失败 > 格式非法 > 轮换成功），避免多行文案穿插 */}
+					{(tokenError || (tokenDraftDirty && !tokenDraftValid) || tokenRotated) && (
+						<p className={cn("mt-1 text-caption", tokenError ? "text-destructive" : tokenDraftDirty && !tokenDraftValid ? "text-warning" : "text-muted-foreground")}>
+							{tokenError ? t("settings.webTokenSaveFailed") : tokenDraftDirty && !tokenDraftValid ? t("settings.webTokenShapeInvalid") : t("settings.webTokenRotatedNotice")}
+						</p>
+					)}
+				</div>
+			)}
 
 			{/* 主机 / 端口 */}
 			<div className="mt-2.5 grid grid-cols-2 gap-2">
@@ -264,7 +384,7 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
 			)}
 
 			{/* 外网访问（内网穿透）：cloudflare 隧道 + tailscale，独立卡片不侵入局域网设置 */}
-			<WebRemoteAccessSection webServiceChanging={webServiceChanging} />
+			<WebRemoteAccessSection webServiceChanging={webServiceChanging} draft={draft} updateDraft={updateDraft} />
 		</SettingsSection>
 	);
 });

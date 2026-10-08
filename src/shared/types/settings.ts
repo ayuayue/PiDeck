@@ -295,6 +295,22 @@ export type AppSettings = {
 	 * 默认 true，与默认 0.0.0.0 绑定配合，阻断局域网未授权访问。
 	 */
 	webServiceRequiresAuth: boolean;
+	/**
+	 * 固定访问令牌。持久化：重启服务/应用不换新，远程设备已保存的链接不失效；
+	 * 缺省时首次启动自动生成并回写。可由设置页手动修改或重新生成。
+	 */
+	webServiceToken?: string;
+	/** 令牌生成/最后修改时刻（epoch ms），过期计时的基准；不随重启重置 */
+	webServiceTokenGeneratedAt?: number;
+	/** 令牌有效期（ms），0 = 永不过期（默认）；从 generatedAt 起算，到期后请求 401 */
+	webServiceTokenExpiresIn?: number;
+	/**
+	 * cloudflared 隧道传输协议：http2 = TCP 443（默认，规避国内 UDP QoS 限速）、
+	 * quic = UDP、auto = cloudflared 自行回退。用户环境差异大，允许调整。
+	 */
+	webRemoteCloudflaredProtocol?: WebRemoteCloudflaredProtocol;
+	/** cloudflared 额外启动参数（空白切分后数组直传子进程，无 shell 注入面）；如 "--edge-ip-version 6" */
+	webRemoteCloudflaredExtraArgs?: string;
 	/** 本地生成的匿名安装标识，不包含账号、路径或机器名 */
 	telemetryInstallId?: string;
 	/** 最近一次发送 app_heartbeat 的本地日期，格式 YYYY-MM-DD */
@@ -737,9 +753,38 @@ export type AppSettings = {
 };
 
 /**
- * Web 服务运行时状态；token 每次 start 随机重生成。
+ * 令牌有效期可选值（ms）。0 = 永不过期（默认）；从 webServiceTokenGeneratedAt 起算。
+ * 主进程 IPC 校验与 SettingsStore 清洗共用同一份枚举，避免两处口径漂移。
+ */
+export const WEB_TOKEN_EXPIRES_IN_CHOICES = [0, 3_600_000, 86_400_000, 604_800_000, 2_592_000_000] as const;
+
+/** cloudflared 隧道传输协议枚举（webRemoteCloudflaredProtocol）；默认 http2（TCP，规避 UDP QoS 限速）。 */
+export const WEB_REMOTE_CLOUDFLARED_PROTOCOLS = ["auto", "quic", "http2"] as const;
+export type WebRemoteCloudflaredProtocol = (typeof WEB_REMOTE_CLOUDFLARED_PROTOCOLS)[number];
+
+/**
+ * 清洗用户输入的 cloudflared 额外参数：允许空格分隔多参数，但仅限可打印 ASCII（拒绝控制字符/非 ASCII），
+ * 长度 ≤500；切分后 argv 直传子进程，无 shell 注入面。非法输入整体置空回退默认。
+ */
+export function sanitizeCloudflaredExtraArgs(value: unknown): string {
+	if (typeof value !== "string") return "";
+	const trimmed = value.trim();
+	if (!trimmed || trimmed.length > 500) return "";
+	return /^[ -~]+$/.test(trimmed) ? trimmed : "";
+}
+
+/**
+ * 手动设置令牌的形状约束：8-128 个可打印非空白 ASCII（不含空格，避免 URL 拼接歧义）。
+ * 自动生成的 UUID 天然满足；用户自定义串在此拦截，超界回落未设置。
+ */
+export function isValidWebTokenShape(value: string): boolean {
+	return /^[!-~]{8,128}$/.test(value);
+}
+
+/**
+ * Web 服务运行时状态；token 持久化固定（见 AppSettings.webServiceToken），重启不换新。
  * requiresAuth 反映用户设置 webServiceRequiresAuth 的清洗结果，缺省视为 true。
- * 渲染层设置页二维码/令牌提示据此附上访问令牌。
+ * 渲染层设置页二维码/令牌提示据此附上访问令牌；tokenExpiresAt 供「剩余有效期」展示（null = 永不过期）。
  */
 export type WebServiceStatusInfo = {
 	running: boolean;
@@ -747,6 +792,7 @@ export type WebServiceStatusInfo = {
 	port: number;
 	token: string;
 	requiresAuth: boolean;
+	tokenExpiresAt: number | null;
 };
 
 // ── 桌面宠物类型 ──

@@ -4148,6 +4148,10 @@ app
 		// DSH 外部会话自动导入改到 projectStore.load 之后（见下方 scheduleDshForeignAutoImport）：
 		// 必须走只读磁盘扫描，不能依赖 host-ready——否则会与 dsh-web 抢同一份 DSH_HOME。
 		webServiceManager = new WebServiceManager({
+			// 令牌持久化回写：manager 内自动生成/轮换/手动修改后落盘，重启沿用同一令牌。
+			persistToken: (state) => {
+				void settingsStore.update({ webServiceToken: state.token, webServiceTokenGeneratedAt: state.generatedAt, webServiceTokenExpiresIn: state.expiresIn }).catch((error) => appLogger.error("[WebService] persist token failed", error));
+			},
 			// dev 模式（electron-vite dev 不产出 out/renderer 构建物）下，静态资源
 			// 代理到 vite dev server，外部 Web 端加载重构后的 React 版页面并支持热更新；
 			// 打包/正式构建走 out/renderer 构建产物，此值为空。
@@ -4424,6 +4428,11 @@ app
 		remoteAccessManager = new RemoteAccessManager({
 			logger: appLogger,
 			getWebServiceStatus: () => webServiceManager.getStatus(),
+			// 隧道参数每次 start 取最新设置；修改后重启隧道生效
+			getTunnelOptions: () => {
+				const s = settingsStore.get();
+				return { protocol: s.webRemoteCloudflaredProtocol ?? "http2", extraArgs: s.webRemoteCloudflaredExtraArgs };
+			},
 			pushState: (state) => {
 				const win = mainWindow;
 				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.webRemoteAccessChanged, state);

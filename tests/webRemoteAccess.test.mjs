@@ -40,8 +40,65 @@ test("isRemoteAccessChannelId 只放行两个白名单渠道", () => {
 test("buildCloudflaredArgs 固定 quick tunnel 参数并注入目标端口", () => {
 	const { buildCloudflaredArgs } = loadModule("src/main/web/remoteAccess/cloudflaredTunnel.ts");
 	// vm 沙箱返回值的原型在另一 realm，经 JSON 往返迁回宿主再比较
+	// http2 + ipv4：强制 TCP 443，规避国内运营商对境外 UDP(QUIC) 的 QoS 限速（详见源码注释）
 	const args = JSON.parse(JSON.stringify(buildCloudflaredArgs(38765)));
-	assert.deepEqual(args, ["tunnel", "--url", "http://127.0.0.1:38765", "--no-autoupdate"]);
+	assert.deepEqual(args, ["tunnel", "--url", "http://127.0.0.1:38765", "--no-autoupdate", "--protocol", "http2", "--edge-ip-version", "4"]);
+});
+
+test("buildCloudflaredArgs 支持用户可调协议与额外参数，同名 flag 以用户为准", () => {
+	const { buildCloudflaredArgs, splitCloudflaredExtraArgs } = loadModule("src/main/web/remoteAccess/cloudflaredTunnel.ts");
+	const plain = (value) => JSON.parse(JSON.stringify(value));
+
+	// protocol auto：不注入 --protocol（交给 cloudflared 自行回退），edge-ip-version 仍默认
+	assert.deepEqual(plain(buildCloudflaredArgs(1, { protocol: "auto" })), ["tunnel", "--url", "http://127.0.0.1:1", "--no-autoupdate", "--edge-ip-version", "4"]);
+	// protocol quic：显式注入
+	assert.deepEqual(plain(buildCloudflaredArgs(1, { protocol: "quic" })), ["tunnel", "--url", "http://127.0.0.1:1", "--no-autoupdate", "--protocol", "quic", "--edge-ip-version", "4"]);
+	// extra 覆盖同名 flag（--protocol= 等号形式）：默认注入全部跳过，用户参数在尾部
+	assert.deepEqual(plain(buildCloudflaredArgs(1, { extraArgs: "--protocol=quic --edge-ip-version 6" })), ["tunnel", "--url", "http://127.0.0.1:1", "--no-autoupdate", "--protocol=quic", "--edge-ip-version", "6"]);
+	// extra 仅覆盖 --edge-ip-version（空格形式）：--protocol 仍按设置注入
+	assert.deepEqual(plain(buildCloudflaredArgs(1, { extraArgs: "--edge-ip-version 6" })), ["tunnel", "--url", "http://127.0.0.1:1", "--no-autoupdate", "--protocol", "http2", "--edge-ip-version", "6"]);
+	// 多空白切分
+	assert.deepEqual(plain(splitCloudflaredExtraArgs("  --region   us  --ha-connections 2 ")), ["--region", "us", "--ha-connections", "2"]);
+	assert.deepEqual(plain(splitCloudflaredExtraArgs(undefined)), []);
+});
+
+test("sanitizeCloudflaredExtraArgs 允许空格分隔、拒绝控制字符与非 ASCII", () => {
+	const { sanitizeCloudflaredExtraArgs } = loadModule("src/shared/types/settings.ts");
+	assert.equal(sanitizeCloudflaredExtraArgs("--edge-ip-version 6"), "--edge-ip-version 6");
+	assert.equal(sanitizeCloudflaredExtraArgs("  --a 1  "), "--a 1");
+	assert.equal(sanitizeCloudflaredExtraArgs(""), "");
+	assert.equal(sanitizeCloudflaredExtraArgs(null), "");
+	assert.equal(sanitizeCloudflaredExtraArgs(42), "");
+	assert.equal(sanitizeCloudflaredExtraArgs("a\tb"), "", "制表符是控制字符，整体置空");
+	assert.equal(sanitizeCloudflaredExtraArgs("a中b"), "", "非 ASCII 整体置空");
+	assert.equal(sanitizeCloudflaredExtraArgs("a".repeat(501)), "", "超长置空");
+});
+
+test("cliErrorMessage 提取 stderr 首行，去掉 execFile 的命令行回显噪音", () => {
+	const { cliErrorMessage } = loadModule("src/main/web/remoteAccess/tailscaleAccess.ts");
+	const noisy = new Error("Command failed: C:\\Program Files\\Tailscale\\tailscale.exe serve --bg http://127.0.0.1:8765\nserve: must enable HTTPS in the admin console\n");
+	assert.equal(cliErrorMessage(noisy, "tailscale serve 启用失败（端口 8765）"), "tailscale serve 启用失败（端口 8765）: serve: must enable HTTPS in the admin console");
+	// 无 stderr 行：回退到原 message 整体（截断展示交给 UI）；沙箱内 String(error) 带 "Error: " 前缀，只断言包含
+	assert.ok(cliErrorMessage(new Error("boom"), "前缀").includes("boom"));
+	assert.equal(cliErrorMessage("not an error", "前缀"), "前缀: not an error");
+});
+
+test("TailscaleAccessReader.startServe 注入 --accept-risk=serve 且失败消息经 cliErrorMessage 清洗", async () => {
+	const { TailscaleAccessReader } = loadModule("src/main/web/remoteAccess/tailscaleAccess.ts");
+	const calls = [];
+	const reader = new TailscaleAccessReader({
+		logger: makeLogger().logger,
+		commandFn: async (args) => {
+			calls.push(args);
+			if (args[0] === "serve" && args[1] !== "status") {
+				throw new Error("Command failed: tailscale serve --bg\nserve: https not enabled on tailnet");
+			}
+			return { stdout: "{}", stderr: "" };
+		},
+	});
+	await assert.rejects(reader.startServe(8765), /https not enabled on tailnet/);
+	// vm 沙箱数组原型在另一 realm，经 JSON 往返迁回宿主再比较
+	assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["serve", "--bg", "--accept-risk=serve", "http://127.0.0.1:8765"], "非交互 serve 必须带风险确认 flag");
 });
 
 test("extractTryCloudflareUrl 从 cloudflared 日志文本提取 trycloudflare 地址", () => {

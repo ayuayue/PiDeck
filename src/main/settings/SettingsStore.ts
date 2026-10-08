@@ -3,7 +3,22 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_GEN_WATERMARK, parseImageGenOutputFormat, parseImageGenSize, parseImageGenWatermark } from "../../shared/imageGenParams";
-import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS, normalizeSoundAlertSettings, type AppSettings, type TerminalConfirmCloseMode, type TerminalCursorStyle, type TerminalThemeId } from "../../shared/types";
+import {
+	createDefaultExternalEditorSettings,
+	createDefaultSoundAlertSettings,
+	DEFAULT_PET_SCALE,
+	DEFAULT_TOAST_DURATION_MS,
+	TOAST_DURATION_STICKY_MS,
+	normalizeSoundAlertSettings,
+	WEB_TOKEN_EXPIRES_IN_CHOICES,
+	WEB_REMOTE_CLOUDFLARED_PROTOCOLS,
+	isValidWebTokenShape,
+	sanitizeCloudflaredExtraArgs,
+	type AppSettings,
+	type TerminalConfirmCloseMode,
+	type TerminalCursorStyle,
+	type TerminalThemeId,
+} from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
@@ -539,6 +554,16 @@ export class SettingsStore {
 			if (typeof this.settings.webServiceRequiresAuth !== "boolean") {
 				this.settings.webServiceRequiresAuth = defaultSettings.webServiceRequiresAuth;
 			}
+			// 固定令牌机制：旧 JSON 无该字段 = 尚未生成，留给 WebServiceManager 首次启动生成并回写；
+			// 有值则清洗为 trim 后的 8-128 可打印字符（与设置页/IPC 入口同一约束），越界视为未设置。
+			const parsedToken = typeof parsed.webServiceToken === "string" ? parsed.webServiceToken.trim() : "";
+			this.settings.webServiceToken = isValidWebTokenShape(parsedToken) ? parsedToken : undefined;
+			this.settings.webServiceTokenGeneratedAt = typeof parsed.webServiceTokenGeneratedAt === "number" && Number.isFinite(parsed.webServiceTokenGeneratedAt) && parsed.webServiceTokenGeneratedAt > 0 ? parsed.webServiceTokenGeneratedAt : undefined;
+			const parsedExpiresIn = parsed.webServiceTokenExpiresIn;
+			this.settings.webServiceTokenExpiresIn = typeof parsedExpiresIn === "number" && (WEB_TOKEN_EXPIRES_IN_CHOICES as readonly number[]).includes(parsedExpiresIn) ? parsedExpiresIn : undefined;
+			const parsedProtocol = parsed.webRemoteCloudflaredProtocol;
+			this.settings.webRemoteCloudflaredProtocol = parsedProtocol && (WEB_REMOTE_CLOUDFLARED_PROTOCOLS as readonly string[]).includes(parsedProtocol) ? parsedProtocol : undefined;
+			this.settings.webRemoteCloudflaredExtraArgs = sanitizeCloudflaredExtraArgs(parsed.webRemoteCloudflaredExtraArgs) || undefined;
 			// 隐藏模块来自旧 JSON 时可能是脏值（非数组/含空串与重复项）；统一清洗，缺字段回落空数组（全显示）。
 			this.settings.hiddenModules = normalizeHiddenModules(parsed.hiddenModules);
 			// 输入框功能入口同规则清洗（与 hiddenModules 共用实现）。

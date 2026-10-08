@@ -6,10 +6,13 @@
  */
 import { memo, useCallback, useEffect, useState } from "react";
 import { Cloud, Copy, Check, LifeBuoy, Globe, Lock, RefreshCw, Square, Loader2 } from "lucide-react";
-import type { RemoteAccessChannelId, RemoteAccessState } from "../../../../../shared/types";
+import type { AppSettings, RemoteAccessChannelId, RemoteAccessState } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { Button } from "../../ui-shadcn/button";
+import { Input } from "../../ui-shadcn/input";
+import { Label } from "../../ui-shadcn/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
 import { SettingRow } from "./SettingRows";
 import { appendTokenToUrl } from "./webAccessUrl";
@@ -66,7 +69,12 @@ function ChannelCard({ icon, title, badge, badgeTone, description, children }: {
 	);
 }
 
-export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props: { webServiceChanging: boolean }) {
+export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props: {
+	webServiceChanging: boolean;
+	/** 设置草稿与更新入口：隧道参数（协议/自定义参数）走设置保存流，随弹框统一落盘 */
+	draft: AppSettings;
+	updateDraft: (patch: Partial<AppSettings>) => void;
+}) {
 	const [state, setState] = useState<RemoteAccessState | null>(null);
 	const [busyChannel, setBusyChannel] = useState<RemoteAccessChannelId | null>(null);
 	const [guideOpen, setGuideOpen] = useState(false);
@@ -190,6 +198,35 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 					</div>
 				)}
 				{cf?.error ? <p className="text-caption text-warning">{cf.error}</p> : null}
+				{/* 隧道参数：用户环境差异大（UDP QoS/IPv6/区域），协议与额外参数可调；走设置保存流，重启隧道后生效 */}
+				{cf?.binaryAvailable ? (
+					<div className="mt-1 grid gap-2 border-t border-border-subtle/60 pt-2">
+						<div className="grid items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+							<Label className="text-xs font-bold text-text-tertiary">{t("settings.remote.cf.protocolLabel")}</Label>
+							<Select value={props.draft.webRemoteCloudflaredProtocol ?? "http2"} onValueChange={(value) => props.updateDraft({ webRemoteCloudflaredProtocol: value as AppSettings["webRemoteCloudflaredProtocol"] })}>
+								<SelectTrigger className="h-8 w-full sm:w-[220px]">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="http2">{t("settings.remote.cf.protocolHttp2")}</SelectItem>
+									<SelectItem value="quic">{t("settings.remote.cf.protocolQuic")}</SelectItem>
+									<SelectItem value="auto">{t("settings.remote.cf.protocolAuto")}</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="grid items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+							<Label className="text-xs font-bold text-text-tertiary">{t("settings.remote.cf.extraArgsLabel")}</Label>
+							<Input
+								className="h-8 w-full font-mono text-xs"
+								placeholder={t("settings.remote.cf.extraArgsPlaceholder")}
+								value={props.draft.webRemoteCloudflaredExtraArgs ?? ""}
+								onChange={(event) => props.updateDraft({ webRemoteCloudflaredExtraArgs: event.target.value })}
+								onBlur={(event) => props.updateDraft({ webRemoteCloudflaredExtraArgs: event.target.value.trim() })}
+							/>
+						</div>
+						<small className="text-micro text-text-tertiary">{t("settings.remote.cf.paramsHint")}</small>
+					</div>
+				) : null}
 			</ChannelCard>
 
 			{/* ── Tailscale ── */}

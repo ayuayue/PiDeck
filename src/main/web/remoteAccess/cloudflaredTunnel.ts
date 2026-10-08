@@ -10,6 +10,7 @@
  * 不 spawn shell（Windows where.exe 在精简环境可能缺席），跨平台行为一致。
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { WebRemoteCloudflaredProtocol } from "../../../shared/types";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { homedir } from "node:os";
@@ -18,8 +19,40 @@ import type { AppLogger } from "../../logging/AppLogger";
 /** 可注入的 spawn 实现：测试用替身驱动状态机，不拉真实子进程。 */
 export type CloudflaredSpawnFn = (binary: string, args: string[]) => ChildProcessWithoutNullStreams;
 
-export function buildCloudflaredArgs(port: number): string[] {
-	return ["tunnel", "--url", `http://127.0.0.1:${port}`, "--no-autoupdate"];
+/** 用户可调的隧道启动选项（来自设置项，运行中修改需重启隧道生效）。 */
+export interface CloudflaredTunnelOptions {
+	/** 传输协议：默认 http2（TCP 443，规避国内 UDP QoS 限速）；auto 交给 cloudflared 自行回退。 */
+	protocol?: WebRemoteCloudflaredProtocol;
+	/** 额外启动参数原文（空白切分，数组直传子进程）；与默认注入的同名 flag 冲突时以用户为准。 */
+	extraArgs?: string;
+}
+
+/** 把用户输入的额外参数按空白切分成 argv 片段（引号无特殊语义，故不支持带空格的参数值）。 */
+export function splitCloudflaredExtraArgs(text: string | undefined): string[] {
+	return (text ?? "").trim().split(/\s+/).filter(Boolean);
+}
+
+/** extraArgs 中是否已包含同名 flag（--flag 或 --flag=value 形式），用于跳过默认注入避免重复。 */
+function extraOverridesFlag(extra: string[], flag: string): boolean {
+	return extra.some((token) => token === flag || token.startsWith(`${flag}=`));
+}
+
+/**
+ * 固定 quick tunnel 启动参数。默认 --protocol http2 + --edge-ip-version 4（TCP 443 + IPv4）：
+ * 国内网络对境外 UDP(QUIC 7844) 普遍 QoS 限速，且 QUIC「能连但极慢」时 cloudflared 不会自动回退；
+ * 但每个人环境不同，协议/其他参数允许用户经设置项调整（同名 flag 出现在 extraArgs 时以用户为准）。
+ */
+export function buildCloudflaredArgs(port: number, options?: CloudflaredTunnelOptions): string[] {
+	const extra = splitCloudflaredExtraArgs(options?.extraArgs);
+	const args = ["tunnel", "--url", `http://127.0.0.1:${port}`, "--no-autoupdate"];
+	const protocol = options?.protocol ?? "http2";
+	if (protocol !== "auto" && !extraOverridesFlag(extra, "--protocol")) {
+		args.push("--protocol", protocol);
+	}
+	if (!extraOverridesFlag(extra, "--edge-ip-version")) {
+		args.push("--edge-ip-version", "4");
+	}
+	return [...args, ...extra];
 }
 
 /** 从 cloudflared 的 stderr/stdout 行里提取 quick tunnel 公网地址。 */
@@ -85,9 +118,9 @@ export class CloudflaredTunnelProcess {
 		return this.child?.pid;
 	}
 
-	/** 启动隧道并等待 Cloudflare 分配域名；失败抛出用户可读错误。 */
-	async start(binary: string, port: number): Promise<string> {
-		const args = buildCloudflaredArgs(port);
+	/** 启动隧道并等待 Cloudflare 分配域名；失败抛出用户可读错误。options 来自设置项，见 buildCloudflaredArgs。 */
+	async start(binary: string, port: number, options?: CloudflaredTunnelOptions): Promise<string> {
+		const args = buildCloudflaredArgs(port, options);
 		const spawnFn = this.deps.spawnFn ?? ((bin, argv) => spawn(bin, argv, { windowsHide: true }) as ChildProcessWithoutNullStreams);
 		let child: ChildProcessWithoutNullStreams;
 		try {

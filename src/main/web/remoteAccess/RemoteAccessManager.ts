@@ -11,7 +11,7 @@
 import type { AppLogger } from "../../logging/AppLogger";
 import type { RemoteAccessState, RemoteAccessChannelId, CloudflareTunnelState, TailscaleAccessState } from "../../../shared/types/remoteAccess";
 import type { WebServiceStatusInfo } from "../../../shared/types/settings";
-import { CloudflaredTunnelProcess, detectCloudflaredBinary } from "./cloudflaredTunnel";
+import { CloudflaredTunnelProcess, detectCloudflaredBinary, type CloudflaredTunnelOptions } from "./cloudflaredTunnel";
 import { TailscaleAccessReader, buildTailscaleServeUrl, detectTailscaleBinary } from "./tailscaleAccess";
 
 export type RemoteAccessManagerDeps = {
@@ -20,6 +20,8 @@ export type RemoteAccessManagerDeps = {
 	getWebServiceStatus: () => WebServiceStatusInfo;
 	/** 状态变化时推给渲染层（装配层接主窗口 webContents.send）。 */
 	pushState: (state: RemoteAccessState) => void;
+	/** 读取用户设置的隧道启动选项（协议/额外参数）；每次 start 时取最新，改设置后重启隧道生效。 */
+	getTunnelOptions?: () => CloudflaredTunnelOptions;
 	/** 测试注入点：替换真实子进程/命令执行。 */
 	tunnelFactory?: (deps: { logger: AppLogger; onEnded: (error: string) => void }) => CloudflaredTunnelProcess;
 	readerFactory?: (deps: { logger: AppLogger; binary?: string }) => TailscaleAccessReader;
@@ -58,12 +60,14 @@ export class RemoteAccessManager {
 		this.readerFactory = deps.readerFactory ?? ((d) => new TailscaleAccessReader(d));
 		this.detectCloudflared = deps.detectCloudflared ?? detectCloudflaredBinary;
 		this.detectTailscale = deps.detectTailscale ?? detectTailscaleBinary;
+		this.getTunnelOptions = deps.getTunnelOptions ?? (() => ({}));
 	}
 
 	private readonly tunnelFactory: (deps: { logger: AppLogger; onEnded: (error: string) => void }) => CloudflaredTunnelProcess;
 	private readonly readerFactory: (deps: { logger: AppLogger; binary?: string }) => TailscaleAccessReader;
 	private readonly detectCloudflared: () => string;
 	private readonly detectTailscale: () => string;
+	private readonly getTunnelOptions: () => CloudflaredTunnelOptions;
 
 	/** 当前聚合状态（纯读，不改内部状态）。 */
 	getState(): RemoteAccessState {
@@ -166,7 +170,7 @@ export class RemoteAccessManager {
 		const tunnel = this.tunnelFactory({ logger: this.logger, onEnded: (error) => this.handleTunnelEnded(error) });
 		this.tunnel = tunnel;
 		try {
-			const publicUrl = await tunnel.start(this.cloudflare.binaryPath, web.port);
+			const publicUrl = await tunnel.start(this.cloudflare.binaryPath, web.port, this.getTunnelOptions());
 			if (this.disposed || tunnel !== this.tunnel) return this.getState(); // 竞态：等待期间被 stop/dispose 接管
 			this.cloudflare.starting = false;
 			this.cloudflare.running = true;

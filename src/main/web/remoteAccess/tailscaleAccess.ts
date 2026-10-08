@@ -142,15 +142,37 @@ export class TailscaleAccessReader {
 	/**
 	 * 启用 serve：把 https 入口指向 127.0.0.1:port。
 	 * `--bg` 让 serve 在后台常驻（配置存进 tailscaled，与本应用生命周期解耦）。
+	 * `--accept-risk=serve`：非交互环境下（无终端可确认）CLI 要求显式接受「把本机服务暴露给 tailnet」
+	 * 的风险标志，否则直接以 "Command failed" 退出（Windows GUI 客户端场景必现）。
+	 * 错误经 cliErrorMessage 清洗：execFile 默认把命令行拼在首行，真实原因（stderr）在后续行。
 	 */
 	async startServe(port: number): Promise<void> {
-		await this.command(["serve", "--bg", `http://127.0.0.1:${port}`], { timeoutMs: 20_000 });
+		try {
+			await this.command(["serve", "--bg", "--accept-risk=serve", `http://127.0.0.1:${port}`], { timeoutMs: 20_000 });
+		} catch (error) {
+			throw new Error(cliErrorMessage(error, `tailscale serve 启用失败（端口 ${port}）`));
+		}
 	}
 
 	/** 停用 serve（整机关闭；PiDeck 是这台机器上 serve 的唯一管理者这一简化假设记录在操作指南里）。 */
 	async stopServe(): Promise<void> {
-		await this.command(["serve", "off"], { timeoutMs: 10_000 });
+		try {
+			await this.command(["serve", "off"], { timeoutMs: 10_000 });
+		} catch (error) {
+			throw new Error(cliErrorMessage(error, "tailscale serve 关闭失败"));
+		}
 	}
+}
+
+/**
+ * 提取 CLI 失败的用户可读原因：execFile 错误 message 形如 "Command failed: <bin> <args>\n<stderr>"，
+ * 首行是命令行回显（对用户是噪音），真实原因在 stderr 部分——取首个非空行，没有则回退到原 message。
+ */
+export function cliErrorMessage(error: unknown, fallbackPrefix: string): string {
+	const message = error instanceof Error ? error.message : String(error);
+	const lines = message.split("\n").map((line) => line.trim());
+	const stderrLine = lines.slice(1).find((line) => line.length > 0);
+	return stderrLine ? `${fallbackPrefix}: ${stderrLine}` : `${fallbackPrefix}: ${message}`;
 }
 
 /** 供测试注入的 spawn 引用（避免模块顶层绑定 node:child_process 造成沙箱不可替换）。 */

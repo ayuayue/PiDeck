@@ -348,6 +348,10 @@ export const ipcChannels = {
 	settingsRestartWebService: "settings:restart-web-service",
 	/** 查询 Web 服务运行状态（端口 / 本次启动的访问令牌 / 是否要求鉴权） */
 	webServiceStatus: "web:status",
+	/** 轮换 Web 服务访问令牌：旧令牌立即失效（泄露自救），返回新状态 */
+	webServiceRotateToken: "web:rotate-token",
+	/** 手动设置 Web 服务令牌/过期策略（热生效不重启），返回新状态 */
+	webServiceSetToken: "web:set-token",
 	/** 外网访问：查询 cloudflare 隧道 + tailscale 组网聚合状态 */
 	webRemoteAccessState: "web:remote-access-state",
 	/** 外网访问状态变化推送（主进程 → 渲染层） */

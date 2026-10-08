@@ -117,7 +117,7 @@ export function WebChatApp() {
 	const runtimeBusyPrevRef = useRef(false);
 	const activeSessionIdRef = useRef<string>("");
 	// 首页直发暂存：新建会话后等 useChat 实例切换完成，再投递首条消息（含图片）
-	const pendingSendRef = useRef<{ sessionId: string; text: string; images?: string[] } | null>(null);
+	const pendingSendRef = useRef<{ sessionId: string; text: string; images?: string[]; agentMessage?: string } | null>(null);
 
 	// useChat：sessionId 作为 chat id；切会话时 id 变化重建 Chat 实例
 	const { messages, sendMessage, status, stop, setMessages, error } = useChat({
@@ -349,7 +349,7 @@ export function WebChatApp() {
 		if (!pending || pending.sessionId !== activeSessionId) return;
 		if (streaming) return; // 新实例就绪（空闲）后才投递
 		pendingSendRef.current = null;
-		void sendMessage({ text: pending.text }, { body: { images: pending.images ?? [] } });
+		void sendMessage({ text: pending.text }, { body: { images: pending.images ?? [], ...(pending.agentMessage ? { agentMessage: pending.agentMessage } : {}) } });
 	}, [activeSessionId, streaming, sendMessage]);
 
 	// 模型列表是全局 pi 配置，草稿会话也需要先选模型再发送第一条消息。
@@ -435,13 +435,14 @@ export function WebChatApp() {
 	};
 
 	// P2：发送携带图片附件（data URL，已压缩）；首页直发走 pending 队列。
-	const handleSend = (text: string, images: string[]) => {
+	const handleSend = (text: string, images: string[], agentMessage?: string) => {
 		if (!text.trim() && images.length === 0) return;
 		if (!activeSessionId) {
-			void sendFromHome(text, images);
+			void sendFromHome(text, images, agentMessage);
 			return;
 		}
-		void sendMessage({ text }, { body: { images } });
+		// agentMessage：计划模式等隐藏指令（复用桌面 composer 通道），随 body 透传后端
+		void sendMessage({ text }, { body: { images, ...(agentMessage ? { agentMessage } : {}) } });
 	};
 
 	// 草稿期后端切换：无会话 → 暂存随下次新建生效；有会话 → 仅「本页新建零消息草稿」可写
@@ -466,7 +467,7 @@ export function WebChatApp() {
 
 	// 首页直发流程：优先内置 chat 项目（未配置项目时的兜底），否则取第一个项目；
 	// 创建期间复用 creatingProjectId 短暂禁用输入，防止重复提交。
-	const sendFromHome = async (text: string, images: string[]) => {
+	const sendFromHome = async (text: string, images: string[], agentMessage?: string) => {
 		const project = state.projects.find((candidate) => candidate.kind === "chat") ?? state.projects[0];
 		if (!project) {
 			setCommandError(t("web.sendNoProject"));
@@ -484,7 +485,7 @@ export function WebChatApp() {
 			setActiveSessionId(id);
 			setMobileSidebarOpen(false);
 			// 会话 id 变化后 useChat 重建实例；等新实例就绪再投递（见上方 effect）
-			pendingSendRef.current = { sessionId: id, text, images };
+			pendingSendRef.current = { sessionId: id, text, images, ...(agentMessage ? { agentMessage } : {}) };
 			await refreshNow();
 		} catch (error) {
 			setCommandError(error instanceof Error ? error.message : String(error));

@@ -26,7 +26,7 @@ import { PiResourceStateStore } from "../config/PiResourceStateStore";
 import { tmpdir } from "node:os";
 import { installPiRuntimeNode, piRuntimeNodeBinDir, probeNodeVersion, detectPiRuntimeNode } from "../pi/runtimeNodeInstall";
 import { runPiGlobalInstall } from "../pi/piGlobalInstall";
-import type { NpmAvailabilityResult, PiInstallExecResult, PiInstallStatus, PiRuntimeNodeInstallResult, PiRuntimeNodeStatus, WebServiceStatusInfo } from "../../shared/types";
+import { isValidWebTokenShape, WEB_TOKEN_EXPIRES_IN_CHOICES, type NpmAvailabilityResult, type PiInstallExecResult, type PiInstallStatus, type PiRuntimeNodeInstallResult, type PiRuntimeNodeStatus, type WebServiceStatusInfo } from "../../shared/types";
 import type { AppInfo, AppLogLevel, AppLogQuery, AppSettings, AvailableModel, ChangelogPayload, CreatePiSkillInput, ModelListReport, ModelsVerifyResult, SessionCommandResult, SessionRuntimeTarget } from "../../shared/types";
 import { invalidatePiInstallationCache, type PiLocator } from "../pi/PiLocator";
 import { validateInstallCommand } from "../pi/installCommandPolicy";
@@ -273,8 +273,8 @@ export type SystemIpcDeps = {
 		checkPiUpdate: () => Promise<import("../../shared/types").PiUpdateCheckResult>;
 		updatePi: () => Promise<import("../../shared/types").PiCliUpdateResult>;
 	};
-	/** Web service manager for restart / 运行状态查询 */
-	webServiceManager?: { stop: () => Promise<void>; getStatus: () => WebServiceStatusInfo };
+	/** Web service manager for restart / 运行状态查询 / 令牌轮换与手动设置 */
+	webServiceManager?: { stop: () => Promise<void>; getStatus: () => WebServiceStatusInfo; rotateToken: () => void; setTokenPolicy: (input: { token?: string; expiresIn?: number }) => void };
 	/** Terminal manager for restart */
 	terminalManager?: { closeAll: () => void };
 	/** Is quitting flag (for restart) */
@@ -1789,8 +1789,38 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				port: 0,
 				token: "",
 				requiresAuth: false,
+				tokenExpiresAt: null,
 			} satisfies WebServiceStatusInfo;
 		}
+		return webServiceManager.getStatus();
+	});
+
+	ipcMain.handle(ipcChannels.webServiceRotateToken, () => {
+		if (!webServiceManager) throw new Error("web service not available");
+		webServiceManager.rotateToken();
+		return webServiceManager.getStatus();
+	});
+
+	// 手动设置令牌/过期策略：热生效不重启服务。输入校验在边界完成——
+	// token 需满足形状约束（8-128 可打印非空白），expiresIn 必须是枚举值，
+	// 非法输入直接拒绝不落盘（与 SettingsStore 清洗同一口径）。
+	ipcMain.handle(ipcChannels.webServiceSetToken, (_event, input: unknown) => {
+		if (!webServiceManager) throw new Error("web service not available");
+		if (typeof input !== "object" || input === null) throw new Error("invalid payload");
+		const payload = input as { token?: unknown; expiresIn?: unknown };
+		const patch: { token?: string; expiresIn?: number } = {};
+		if (payload.token !== undefined) {
+			if (typeof payload.token !== "string") throw new Error("invalid token");
+			const token = payload.token.trim();
+			if (!isValidWebTokenShape(token)) throw new Error("invalid token shape");
+			patch.token = token;
+		}
+		if (payload.expiresIn !== undefined) {
+			if (typeof payload.expiresIn !== "number" || !WEB_TOKEN_EXPIRES_IN_CHOICES.includes(payload.expiresIn as (typeof WEB_TOKEN_EXPIRES_IN_CHOICES)[number])) throw new Error("invalid expiresIn");
+			patch.expiresIn = payload.expiresIn;
+		}
+		if (patch.token === undefined && patch.expiresIn === undefined) throw new Error("empty payload");
+		webServiceManager.setTokenPolicy(patch);
 		return webServiceManager.getStatus();
 	});
 
