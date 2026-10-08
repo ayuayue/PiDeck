@@ -236,16 +236,6 @@ export type SessionTimelineController = {
 	timelineRef: RefObject<HTMLElement | null>;
 	messages: ChatMessage[];
 	visibleMessages: ChatMessage[];
-	/**
-	 * 活动分支上被 pi 原生 `context_edit` 移出模型上下文的条目 id 集合。
-	 *
-	 * 语义：这些消息仍在时间线上（原文未变、费用已发生、可能已被摘要转述），
-	 * 只是不再随下次请求送给模型。UI 据此标注「已移出上下文」并允许展开看原文，
-	 * 而不是把消息隐藏——隐藏会让用户以为 token/费用也会一起消失。
-	 */
-	contextExcludedEntryIds: ReadonlySet<string>;
-	/** 活动分支上被 `context_edit` 改写内容的条目 id 集合（原文仍可查）。 */
-	contextReplacedEntryIds: ReadonlySet<string>;
 	totalMessageCount: number;
 	hasMoreMessages: boolean;
 	/** 下一次「加载更多」触发 disk 轮次分页（渲染窗口已耗尽且窗口前还有历史） */
@@ -436,10 +426,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// ── Load messages from disk when sessionId changes ──
 	// 只订本会话缓存条目（family selectAtom 隔离）：其它会话的消息到达/分页不拖着重渲染本栏。
 	const cachedEntry = useAtomValue(options.sessionId ? sessionMessageCacheBySessionIdAtomFamily(options.sessionId) : NO_CACHE_ENTRY_ATOM);
-	// 上下文编辑汇总（disk 路径写入）。用 Set 交给渲染层做 O(1) 命中判断，
-	// 条目少（通常个位数），每次缓存写入重建一次代价可忽略。
-	const contextExcludedEntryIds = useMemo(() => new Set(cachedEntry?.contextEdits?.excludedEntryIds ?? []), [cachedEntry?.contextEdits]);
-	const contextReplacedEntryIds = useMemo(() => new Set(cachedEntry?.contextEdits?.replacedEntryIds ?? []), [cachedEntry?.contextEdits]);
 	const cacheMessages = useSetAtom(cacheSessionMessagesAtom);
 	const prependMessagePage = useSetAtom(prependSessionMessagePageAtom);
 	const prependHistoryPage = useSetAtom(prependSessionHistoryPageAtom);
@@ -512,7 +498,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 					source: "disk",
 					expectedRevision: 0,
 					page: { total: page.total, nextBefore: page.nextBefore },
-					...(page.contextEdits ? { contextEdits: page.contextEdits } : {}),
 				});
 				setLoadState({ sessionId, state: { status: "ready" } });
 			})
@@ -550,7 +535,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				source: "disk",
 				expectedRevision: 0,
 				page: { total: page.total, nextBefore: page.nextBefore },
-				...(page.contextEdits ? { contextEdits: page.contextEdits } : {}),
 				force: true,
 			});
 			setLoadState({ sessionId, state: { status: "ready" } });
@@ -1572,8 +1556,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		timelineRef,
 		messages,
 		visibleMessages: diskPage ? messages : visibleMessages,
-		contextExcludedEntryIds,
-		contextReplacedEntryIds,
 		totalMessageCount: diskPage ? diskPage.total : combinedMessages.length,
 		hasMoreMessages: diskPage ? diskPage.nextBefore !== null : historyHasMore,
 		// 下一次「加载更多」是否触发 disk 轮次分页（窗口前还有历史）：

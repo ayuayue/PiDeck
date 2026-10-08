@@ -267,9 +267,6 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 	const containsImageGen = assistantMessages.some((item) => Boolean(item.message.meta?.imageGen));
 	// 编辑目标与编辑初值同源：最后一条有可见正文的 assistant 消息，加载/保存/按钮显隐都指向它
 	const editableMessage = pickEditableAssistantMessage(assistantMessages);
-	// 行头的上下文状态标记取「本轮最终回答」对应的消息：它与操作栏的编辑/删除目标是同一条，
-	// 用户看到「已移出上下文」时就知道点删除的那一条正是它。
-	const headerMessage = assistantMessages[assistantMessages.length - 1]?.message;
 
 	// 本轮没有任何可渲染内容时不输出空容器
 	if (displayItems.length === 0 && allImages.length === 0) return null;
@@ -296,7 +293,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 			<div className="flex min-w-0 flex-col gap-3">
 				{/* 行头：头像 + Pi/DSH 署名 + 时间。耗时不放行头——回复生成时用户视线在底部，
 				    统一显示在 turn 尾部（见底部耗时行），不用翻回开头看跑了多久。 */}
-				<TurnAuthorHeader backend={props.backend} endedAt={run.endedAt} message={headerMessage} />
+				<TurnAuthorHeader backend={props.backend} endedAt={run.endedAt} />
 
 				{/* 执行过程折叠栏：中间内容（思考/工具/中间回答）统一收进容器，
 				    由 stepsVisible 整体控制显隐；最终回答在容器外常驻。

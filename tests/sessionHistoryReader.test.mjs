@@ -1017,14 +1017,12 @@ test("readLoadWindow maps the compaction insert point into the window", async ()
 });
 
 /**
- * pi 原生 context_edit（把消息移出模型上下文 / 改写内容）在分页结果里的汇总。
- *
- * 关键产品语义：**原文仍在时间线上**（`replacement` 是追加记录，不改写原始行；
- * 已产生的 token/费用与已写入的摘要都不回滚）。因此分页必须同时给出：
- *   - 未变化的 messages（原文照常展示，供用户回看）；
- *   - contextEdits 汇总（让 UI 标出「已移出上下文」，而不是假装消息消失）。
+ * pi 原生 context_edit 在时间线上的呈现规则（2026-10 产品决定）：
+ *   - 被移出上下文的消息**直接不显示**（用户按下删除就应当看不到它，无徐章、不折叠）；
+ *   - 被改写内容的显示**改写后的正文**（否则刚做完的编辑看起来没生效），也不带标记。
+ * 文件里两者原文都保留（pi 的 append-only 语义），只是不再参与展示。
  */
-test("分页结果携带 context_edit 汇总：原始历史仍完整下发，另附移出/改写清单", async () => {
+test("context_edit：被移出的消息不出现，被改写的显示新正文", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-"));
 	const sessionPath = join(directory, "session.jsonl");
 	try {
@@ -1040,26 +1038,23 @@ test("分页结果携带 context_edit 汇总：原始历史仍完整下发，另
 		const reader = createRoleAwareReader((path) => path);
 
 		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
-		// 被移出的消息仍照原样出现（原文未丢）；被改写的那条显示**改写后的内容**，
-		// 否则用户刚做完编辑会以为「编辑没生效」。原文放进 meta 供查看。
-		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "a1:a1", "rewritten q2:u2", "a2:a2"]));
-		assert.deepEqual(JSON.parse(JSON.stringify(page.contextEdits)), { excludedEntryIds: ["a1"], replacedEntryIds: ["u2"] });
+		// a1 被移出 → 不出现；u2 被改写 → 显示改写后的正文
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "rewritten q2:u2", "a2:a2"]));
 		const replacedMessage = page.messages.find((message) => message.meta?.entryId === "u2");
-		assert.equal(replacedMessage.meta?.contextEditOriginalText, "q2", "改写前的原文必须随消息下发，供界面「查看原文」");
-		// 消息级标记：渲染层据此出「已移出上下文 / 上下文已改写」徐章，
-		// 而不是把消息隐藏（隐藏会让用户以为费用也跟着回了）。
-		const flags = Object.fromEntries(page.messages.map((message) => [message.meta?.entryId, message.meta?.contextEdit]));
-		assert.equal(flags.a1, "excluded");
-		assert.equal(flags.u2, "replaced");
-		assert.equal(flags.u1, undefined, "未编辑的消息不应带标记（避免无差别徐章噪声）");
-		assert.equal(flags.a2, undefined);
+		assert.equal(replacedMessage.meta?.contextEdit, undefined, "编辑后不再带任何标记");
+		assert.equal(replacedMessage.meta?.contextEditOriginalText, undefined, "元数据随标记一并下线（原文在文件里，不在载荷里再存一份）");
+		assert.equal(
+			page.messages.some((message) => message.meta?.entryId === "a1"),
+			false,
+			"被移出的消息必须从时间线上消失",
+		);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
 });
 
-/** 同一目标多次编辑：后者覆盖前者（中间态不应同时出现在「移出」和「改写」里）。 */
-test("context_edit 汇总：同一目标多次编辑只保留最后一次的状态", async () => {
+/** 同一目标多次编辑：后者覆盖前者（先改写再删除 → 最终就该消失）。 */
+test("context_edit：同一目标多次编辑只保留最后一次的状态", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-last-"));
 	const sessionPath = join(directory, "session.jsonl");
 	try {
@@ -1073,17 +1068,17 @@ test("context_edit 汇总：同一目标多次编辑只保留最后一次的状�
 		const reader = createRoleAwareReader((path) => path);
 
 		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
-		assert.deepEqual(JSON.parse(JSON.stringify(page.contextEdits)), { excludedEntryIds: ["u1"], replacedEntryIds: [] });
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["a1:a1"]), "先改写再删除 → u1 最终不显示");
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
 });
 
 /**
- * 分支隔离：另一分支上的编辑不得影响当前分支的汇总。
+ * 分支隔离：另一分支上的编辑不得影响当前分支的展示。
  * 文件顺序决定 leaf（最后一条带 id 的条目），所以主分支叶子写最后。
  */
-test("context_edit 汇总：只统计当前活动分支上的编辑", async () => {
+test("context_edit：另一分支的编辑不影响当前分支展示", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-branch-"));
 	const sessionPath = join(directory, "session.jsonl");
 	try {
@@ -1099,15 +1094,15 @@ test("context_edit 汇总：只统计当前活动分支上的编辑", async () =
 		const reader = createRoleAwareReader((path) => path);
 
 		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
-		assert.deepEqual(JSON.parse(JSON.stringify(page.contextEdits)), { excludedEntryIds: [], replacedEntryIds: [] }, "另一分支的编辑不得泄漏到当前分支");
+		// 另一分支的删除不得把本分支的 a1 也从界面上抹掉
 		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "main:a1", "main leaf:a2"]));
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
 });
 
-/** 无编辑时不产生噪声字段；旧会话（无 context_edit）行为不变。 */
-test("无 context_edit 时汇总为空数组（不引入回归噪声）", async () => {
+/** 无编辑时行为不变（旧会话不引入回归噪声）。 */
+test("无 context_edit 时消息原样展示", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-none-"));
 	const sessionPath = join(directory, "session.jsonl");
 	try {
@@ -1115,7 +1110,6 @@ test("无 context_edit 时汇总为空数组（不引入回归噪声）", async 
 		const reader = createRoleAwareReader((path) => path);
 
 		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
-		assert.deepEqual(JSON.parse(JSON.stringify(page.contextEdits)), { excludedEntryIds: [], replacedEntryIds: [] });
 		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "a1:a1"]));
 	} finally {
 		await rm(directory, { recursive: true, force: true });

@@ -38,13 +38,14 @@
 
 ## 会话消息编辑/删除/重发（原生 context_edit + 重发墓碑，与 pi 的跨系统契约）
 
-- **普通编辑/删除写 pi 原生 `context_edit`**（`{type:"context_edit", id, parentId, timestamp, targetId, replacement}`）：删除用 `replacement: null`，编辑用 `replacement: {content}`。原文行一字不改，模型上下文由 pi 的 `buildSessionProjection` 投影得出。因此「删了但历史还在」是设计而非 bug：**已发生的 token/费用不回退，已被压缩摘要转述的内容也不会因这条记录消失**；界面必须标注「已移出上下文」并允许看原文，不能把消息藏起来。
+- **普通编辑/删除写 pi 原生 `context_edit`**（`{type:"context_edit", id, parentId, timestamp, targetId, replacement}`）：删除用 `replacement: null`，编辑用 `replacement: {content}`。原文行一字不改，模型上下文由 pi 的 `buildSessionProjection` 投影得出。因此「删了但原始历史里还在」是设计而非 bug：**已发生的 token/费用不回退，已被压缩摘要转述的内容也不会因这条记录消失**（原始文件、导出、计费仍能看到它）。
+- **展示口径（2026-10 产品决定）**：被移出的条目在时间线上**直接不显示**（无徐章、不折叠，删除就是看不到）；被改写内容显示改写后的正文且不加标记。过滤发生在 `SessionHistoryReader.applyContextEdits`（读取侧），因此桌面、Web、离线 Viewer 同一口径；原始行仍留在文件里，只是不参与展示。
 - 编辑只改文本：`replaceTextInContent` 保留图片/工具块等其它内容后作为 `replacement.content`（直接把新文本当 content 会把附件整体替掉）。
 - **重发（resend）仍用 `deleted` 墓碑做分支截断**，不用 context_edit：重发是「回到这条消息重来」，必须真的截断后续分支，否则旧回答的 tool_call / toolResult 配对会被保留，重发后报工具调用不匹配。墓碑（`{type:"deleted", id, originalEntryId, parentId, ts, reason?}`）是自造格式，pi 1.0 实测兼容（墓碑不进模型上下文、不抢 leafId、墓碑后 append 正常）；**不要因为「pi 没这个类型」误判要迁移**，pi 升大版本后重跑探针。
 - **追加新条目的 parentId 必须是「当前 leaf」而不是「最后一条 message」**（`currentLeafId`：跳过 session 头、取最后一条带 id 的条目）。编辑/删除会追加 `context_edit` 并成为新 leaf，若新消息挂到更早的 message 上就会绕开它分叉，pi 沿新 leaf 回溯时收集不到该编辑——用户的修改静默失效（2026-10 实测：追加后投影回旧内容）。同理，墓碑也必须带 id+parentId，pi 索引把最后一条带 id 的记录当 leaf。
 - **编辑器写盘的 leaf 语义必须与 pi 一致**：pi `SessionManager._buildIndex` 跳过 `type:"session"`、其余条目（含 `context_edit`、`label`、墓碑）都进索引并更新 leafId；PiDeck 侧的 `activeBranchIds`/`currentLeafId` 必须同口径，否则编辑/删除/追加会落在不同分支上。
 - 一次操作追加多条 `context_edit`（删除 assistant 回答时连带 thinking-only / toolResult 祖先）时必须**串成 parent 链**（后一条的 parentId = 前一条的 id）。都挂在同一个 parent 上时后者成侧分支，pi 只沿 leaf 父链收集编辑，前几条会静默失效。
-- 读取侧（`SessionHistoryReader`）把有效编辑汇总成 `contextEdits`：改写后的正文直接替入消息 `text`（否则刚做完编辑看着像没生效），原文放进 `meta.contextEditOriginalText`；`replacement` 形态不认识时按「无编辑」处理（宁可显示原文也不凭空清空上下文）。按文本定位的回退必须同时匹配原文与有效文本（连续两次编辑时 UI 手里是改写后的文本）。
+- 读取侧（`SessionHistoryReader`）把有效编辑汇总成内部 `SessionContextEditsDetail` 后直接作用于消息数组：被移出的条目整条丢弃、被改写的替入新 `text`；`replacement` 形态不认识时按「无编辑」处理（宁可显示原文也不凭空清空上下文）。页面契约不再下发编辑汇总（过滤已在读取侧完成，跨 IPC 再传一遍是重复数据）。按文本定位的回退必须同时匹配原文与有效文本（连续两次编辑时 UI 手里是改写后的文本）。
 - **pi 进程运行中禁止外部改会话文件**：pi 内存 fileEntries 是唯一权威，外部改行被忽略，一旦 pi 全量重写（版本迁移/fork 新文件）外部修改会被覆盖丢失。三道闸（coordinator `requireStoppedForFileMutation` 写前+写后、AgentManager 对 live runtime 二次防御、runtime 通道 `ensureAgentIdle`）不许放宽；写盘期间被重新激活时按「已生效」返回成功并记 warn 日志，不要报 BUSY 引导用户重试（文件已是新内容，重试=二次编辑，2026-10 修复）。
 - 改写入路径后**必须用真实 pi 验收**（本地 pi 的 `loadEntriesFromFile` + `buildSessionProjection`）：断言编辑后模型看到新文本、删除后不出现、原文仍在文件里、继续 append 后编辑仍生效。只跑 PiDeck 自己的读取端会漏掉「leaf 接错导致编辑掉出分支」这类只有 pi 才能发现的失效。
 - rewind checkpoint：merge 冲突（unmerged index）时真实 index 的 `write-tree` 必败，必须降级为 HEAD 树（`indexTreeDegraded` 标志 + warn 日志）而不是放弃快照（2026-10 事故：冲突期间检查点 3 连败整体不可用）；conversation 回退找不到 fork 锚点必须先于文件回退抛错拒绝，静默跳过会 UI 假成功（2026-10 事故）。

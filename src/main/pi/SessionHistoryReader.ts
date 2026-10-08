@@ -89,17 +89,6 @@ export function collectSessionContextEdits(activeBranch: readonly ContextEditSou
 	return { excludedEntryIds, replacedEntryIds, replacementText };
 }
 
-/**
- * 索引内的编辑汇总 → 页面契约（只含两个 id 列表）。
- *
- * 为什么裁掉 replacementText：改写后的正文已经写进对应消息的 text，
- * 再用一份 targetId → 文本的映射跨 IPC 传一遍是重复数据（大会话上是白白的序列化开销），
- * 而且渲染层拿到两份正文就该有「以哪份为准」的问题。
- */
-function toPageContextEdits(detail: SessionContextEditsDetail): SessionContextEditsSummary {
-	return { excludedEntryIds: detail.excludedEntryIds, replacedEntryIds: detail.replacedEntryIds };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -639,7 +628,7 @@ export class SessionHistoryReader {
 				isTailWindow: true,
 				entryRendererTypes: options?.entryRendererTypes ?? [],
 			});
-			return this.stampContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
+			return this.applyContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
 		}
 		const content = sessionContent;
 		const entries: Array<{
@@ -722,7 +711,7 @@ export class SessionHistoryReader {
 			finalRaw = [...rawMessages.slice(0, insertAt), card, ...rawMessages.slice(insertAt)];
 		}
 
-		return this.stampContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
+		return this.applyContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
 	}
 
 	/**
@@ -898,12 +887,11 @@ export class SessionHistoryReader {
 				entryRendererTypes,
 			});
 			return {
-				messages: this.stampContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
+				messages: this.applyContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
 				total,
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
 				indexVersion: `${index.mtimeMs}:${index.size}`,
-				contextEdits: toPageContextEdits(index.contextEdits),
 				...index.metadata,
 			};
 		}
@@ -919,12 +907,11 @@ export class SessionHistoryReader {
 			entryRendererTypes,
 		});
 		return {
-			messages: this.stampContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
+			messages: this.applyContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
 			total,
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
 			indexVersion: `${index.mtimeMs}:${index.size}`,
-			contextEdits: toPageContextEdits(index.contextEdits),
 			...index.metadata,
 		};
 	}
@@ -1175,38 +1162,35 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * 给消息打上「已生效的上下文编辑」标记（展示元数据；改写的正文按新内容展示）。
+	 * 应用当前分支上生效的上下文编辑（展示层过滤 + 正文替换）。
 	 *
-	 * 两种状态的展示语义不同：
-	 * - excluded：正文仍是原文（只是不再送入模型），标记「已移出上下文」；
-	 * - replaced：正文换成用户改写后的内容（否则刚做的编辑看起来没生效），
-	 *   原文放进 `meta.contextEditOriginalText` 供随时查看。
+	 * - excluded（`replacement: null`）：**从时间线上直接去掉**，不显示、不标记、
+	 *   不折叠——用户按下删除就应当看不到它。
+	 * - replaced：正文换成改写后的内容（否则刚做完的编辑看起来没生效），不加任何标记。
 	 *
-	 * 为何不隐藏被移出的消息：`context_edit` 只改变模型之后读取的上下文，
-	 * 已产生的 token/费用与已写入摘要的事实都不回滚。藏起来会让用户误以为
-	 * 「删除＝彻底忘掉 / 省钱」。
+	 * 文件里两种情况的原文都原样保留（pi 的 append-only 语义），只是不再参与展示；
+	 * 因此原始历史、导出与计费仍能看到它们，模型上下文也不再包含被移出的条目。
+	 * 原文只有在没有可见文本块（纯图片/工具块）时才不替换正文，避免把有内容的
+	 * 回答显示成空。
 	 *
-	 * 只对带 entryId 的消息标记：实时乐观消息 / 无 entryId 的系统卡片不参与。
+	 * 只认带 entryId 的消息：实时乐观消息 / 无 entryId 的系统卡片不参与。
 	 */
-	private stampContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
+	private applyContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
 		if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
 		const excluded = new Set(contextEdits.excludedEntryIds);
 		const replaced = new Set(contextEdits.replacedEntryIds);
-		return messages.map((message) => {
+		const result: ChatMessage[] = [];
+		for (const message of messages) {
 			const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
-			if (!entryId) return message;
-			if (excluded.has(entryId)) return { ...message, meta: { ...message.meta, contextEdit: "excluded" as const } };
-			if (!replaced.has(entryId)) return message;
-			const replacementText = contextEdits.replacementText.get(entryId);
-			// 替换内容里没有可见文本块（如图片、工具块）：不改正文，只出标记，
-			// 否则会把一条有内容的回答显示成空。
-			if (replacementText === undefined) return { ...message, meta: { ...message.meta, contextEdit: "replaced" as const } };
-			return {
-				...message,
-				text: replacementText,
-				meta: { ...message.meta, contextEdit: "replaced" as const, ...(message.text ? { contextEditOriginalText: message.text } : {}) },
-			};
-		});
+			if (!entryId) {
+				result.push(message);
+				continue;
+			}
+			if (excluded.has(entryId)) continue;
+			const replacementText = replaced.has(entryId) ? contextEdits.replacementText.get(entryId) : undefined;
+			result.push(replacementText === undefined ? message : { ...message, text: replacementText });
+		}
+		return result;
 	}
 
 	/**
