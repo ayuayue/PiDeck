@@ -92,7 +92,11 @@ function ComposerMeasuredExtras(props: ComposerExtrasProps) {
 				    卡片宽度必须与下方输入框/消息列同宽（100% 同源，见 chatContentWidth）。
 				    曾加过 [scrollbar-gutter:stable] 试图治待办条滚动条闪烁，但真正闪的是
 				    待办条自己的 ul（旋转图标 AABB 撑高 scrollHeight，见 SessionTodoStrip
-				    ProgressGlyph 注释），gutter 治不了，还会把卡片压窄 10px。 */}
+				    ProgressGlyph 注释），gutter 治不了，还会把卡片压窄 10px。
+				    滚轮责任唯一在本层（overscroll-contain 只放这里）：条内限高列表即使内容
+				    不足其 max-height 也仍是滚动容器，若它自己带 overscroll-contain，滚轮会被
+				    它吞掉、本层一像素不动 —— 观感就是「展开后只看到前几条且滚不动」
+				    （2026-10 子代理条事故，契约见 tests/composerStripWheelChain.test.mjs）。 */}
 				<div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain pb-px empty:hidden">
 					{props.widgets}
 					{/* GUI 扩展桥：输入框上方挂件（aboveEditor）。无内容时该组件返回 null，不占位。 */}

@@ -101,7 +101,7 @@ export function SessionFilesStrip(props: {
 				</button>
 			</div>
 			{!collapsed && (
-				<ul className="mb-2 flex max-h-[200px] flex-col gap-1 overflow-y-auto overscroll-contain [contain:layout_paint] [scrollbar-gutter:stable] px-3 pt-1 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
+				<ul className="mb-2 flex max-h-[200px] flex-col gap-1 overflow-y-auto [contain:layout_paint] [scrollbar-gutter:stable] px-3 pt-1 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
 					{fileEntries.map((entry) => (
 						<li key={entry.path} className="flex min-w-0 items-center gap-1">
 							<FileEntry sessionId={props.sessionId} entry={entry} onOpenFile={props.onOpenFile} onDiffFile={props.onDiffFile} />
