@@ -446,3 +446,24 @@ export type SessionUiResponseInput = {
 	runtimeGeneration: number;
 	response: AgentUiResponse;
 };
+
+/** 会话分支树（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，渲染层只拿导航所需字段。 */
+export type SessionBranchNode = {
+	id: string;
+	parentId: string | null;
+	/** message 条目的角色；非 message 条目（usage/model_change/compaction…）为 "other"，渲染层折叠直链。 */
+	role: "user" | "assistant" | "system" | "other";
+	/** 条目类型原值（message/usage/model_change/compaction/branch_summary…），用于折叠链上的标记。 */
+	entryType: string;
+	preview: string;
+	timestamp: string;
+	/** 分支摘要（branch_summary / label entry 解析结果）。 */
+	label?: string;
+	children: SessionBranchNode[];
+};
+
+export type SessionBranchTree = {
+	roots: SessionBranchNode[];
+	/** 当前叶子（活跃分支末端）；空会话为 null。 */
+	leafId: string | null;
+};

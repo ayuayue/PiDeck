@@ -162,6 +162,8 @@ export const ipcChannels = {
 	sessionsRuntimeListModels: "sessions:runtime-list-models",
 	/** Pi 当前模型支持的 thinking levels（get_available_thinking_levels）；旧 Pi 返回 undefined 由 UI 回退。 */
 	sessionsRuntimeThinkingLevels: "sessions:runtime-thinking-levels",
+	/** 会话分支树（pi get_tree，只读）：右侧抽屉「分支」面板数据源。 */
+	sessionsGetBranchTree: "sessions:get-branch-tree",
 	sessionsRuntimeExportHtml: "sessions:runtime-export-html",
 	sessionsRuntimeEditMessage: "sessions:runtime-edit-message",
 	sessionsRuntimeDeleteMessage: "sessions:runtime-delete-message",

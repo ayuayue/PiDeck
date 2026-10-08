@@ -152,6 +152,7 @@ import type {
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
 	RewindRestoreResult,
+	SessionBranchTree,
 	RewindRestoreScope,
 	PiExtensionListResult,
 	PiInstallStatus,
@@ -749,6 +750,8 @@ const api = {
 		listRewindCheckpoints: (target: SessionRuntimeTarget, params?: RewindCheckpointPageParams) => ipcRenderer.invoke(ipcChannels.sessionsRewindList, target, params) as Promise<SessionCommandResult<SessionTargetedValue<RewindCheckpointPage>>>,
 		getRewindCheckpointDiff: (target: SessionRuntimeTarget, checkpointId: string) => ipcRenderer.invoke(ipcChannels.sessionsRewindDiff, target, checkpointId) as Promise<SessionCommandResult<SessionTargetedValue<string>>>,
 		restoreRewindCheckpoint: (target: SessionRuntimeTarget, checkpointId: string, scope: RewindRestoreScope) => ipcRenderer.invoke(ipcChannels.sessionsRewindRestore, target, checkpointId, scope) as Promise<SessionCommandResult<SessionTargetedValue<RewindRestoreResult>>>,
+		/** 会话分支树（只读文件索引；非 pi 后端返回 null）。 */
+		getBranchTree: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsGetBranchTree, sessionId) as Promise<SessionBranchTree | null>,
 		prepareRuntimeResend: (target: SessionRuntimeTarget, messageId: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsRuntimePrepareResend, target, messageId) as Promise<
 				SessionCommandResult<

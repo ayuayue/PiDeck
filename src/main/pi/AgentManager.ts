@@ -25,6 +25,7 @@ import type {
 	SendPromptResult,
 	PiCommand,
 	SessionEnvironment,
+	SessionBranchTree,
 	SessionMessagePage,
 	SessionRuntimeModelSelection,
 	SessionFileChange,
@@ -1237,6 +1238,11 @@ export class AgentManager {
 	/** 从同一份历史显示索引读取模型/思考元数据，避免再次走 SessionScanner 摘要读取。 */
 	async readSessionDisplayMetadata(sessionPath: string): Promise<Pick<SessionMessagePage, "model" | "thinkingLevel">> {
 		return this.sessionHistoryReader.readSessionMetadata(sessionPath);
+	}
+
+	/** 会话分支树（右侧抽屉「分支」面板）：文件索引读取，不走 get_tree RPC（冻窗风险）。 */
+	async readSessionBranchTree(sessionPath: string): Promise<SessionBranchTree> {
+		return this.sessionHistoryReader.readBranchTree(sessionPath);
 	}
 
 	/**

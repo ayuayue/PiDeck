@@ -31,6 +31,7 @@ import type {
 	SessionProcessEvent,
 	DshModelDiscoveryInput,
 	FetchedModel,
+	SessionBranchTree,
 	SessionMessagePage,
 	SessionModelPreference,
 	RewindCheckpointPageParams,
@@ -904,6 +905,14 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		const metadata = await agentManager.readSessionDisplayMetadata(entry.filePath);
 		await backfillHistoricalSessionMetadata(sessionId, metadata);
 		return messages;
+	});
+	/** 会话分支树（右侧抽屉「分支」面板）：只读文件索引，无需活 runtime；DSH/imagegen 无 pi 文件返回 null。 */
+	ipcMain.handle(ipcChannels.sessionsGetBranchTree, async (_event, sessionId: unknown): Promise<SessionBranchTree | null> => {
+		if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("Invalid branch-tree request");
+		const entry = sessionCatalog.get(sessionId);
+		// DSH / imagegen 会话没有 pi JSONL：面板按空态处理，不报错。
+		if (!entry?.filePath || entry.backend === "dsh" || entry.backend === "imagegen") return null;
+		return agentManager.readSessionBranchTree(entry.filePath);
 	});
 	/** 子代理列表：从会话文件 subagents:record + catalog 子会话回填合成。 */
 	ipcMain.handle(ipcChannels.sessionsListSubagents, async (_event, sessionId: string) => {

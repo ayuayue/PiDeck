@@ -855,6 +855,8 @@ export function createPreviewApi(): PiDesktopApi {
 				ok: true,
 				value: { target, value: { items: [], hasMore: false } },
 			}),
+			// 分支树预览桩：预览环境无会话文件，空态即可。
+			getBranchTree: async () => null,
 			getRewindCheckpointDiff: async (target) => ({
 				ok: true,
 				value: { target, value: "" },

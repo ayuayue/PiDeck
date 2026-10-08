@@ -15,6 +15,7 @@ import {
 	Pencil,
 	Terminal,
 	GitBranch,
+	ListTree,
 	// 命令面板（Ctrl/Cmd+P）操作项图标
 	SquarePen,
 	Settings2,
@@ -1726,7 +1727,7 @@ export function App() {
 	 * pi 历史消息改写：无 runtime 直接改 JSONL；有 runtime 先确认停止再改文件。
 	 * DSH 入口在 Injector 按 backend 隐藏。下次发送才重新激活 Agent。
 	 */
-	const { editMessage, deleteMessage, resendUserMessage, forkFromUserMessage, forkingMessageId } = useSessionHistoryMutations({
+	const { editMessage, deleteMessage, resendUserMessage, forkFromUserMessage, forkAtEntry, forkingMessageId } = useSessionHistoryMutations({
 		currentSessionId,
 		getRuntimeTargetForSession,
 		getRuntimeTargetForAgent,
@@ -2899,6 +2900,22 @@ export function App() {
 									onTogglePinned: () => workspace.toggleDrawerPanelPinned("trajectory"),
 									onClick: () => handleToolDrawerAction("trajectory"),
 								},
+								// 分支树面板：与检查点同口径仅 pi 后端展示；条目树是 pi 会话文件的概念。
+								...(rewindSupported
+									? [
+											{
+												id: "branchTree" as const,
+												label: t("session.branchTree.title"),
+												// 图标用 ListTree 而不是 GitFork：活动栏里 Git 面板已经是 GitBranch，两个 git 系图标并排会认错「分支」入口。
+												icon: <ListTree size={16} />,
+												active: drawer === "branchTree",
+												pinned: workspace.pinnedPanels.includes("branchTree"),
+												canRemove: true,
+												onTogglePinned: () => workspace.toggleDrawerPanelPinned("branchTree"),
+												onClick: () => handleToolDrawerAction("branchTree"),
+											},
+										]
+									: []),
 								// 检查点面板：仅当前会话为 pi 后端时展示（rewind 能力；dsh 暂不声明）。
 								...(rewindSupported
 									? [
@@ -2952,7 +2969,19 @@ export function App() {
 							]}
 						/>
 					}
-					drawerContent={(visibleDrawerPanel) => <DrawerSurface drawer={visibleDrawerPanel} drawerCollapsed={drawerCollapsed} git={drawerPorts.git} chrome={drawerPorts.chrome} browser={drawerPorts.browser} files={drawerPorts.files} rpcLog={drawerPorts.rpcLog} scratchPad={scratchPad} />}
+					drawerContent={(visibleDrawerPanel) => (
+						<DrawerSurface
+							drawer={visibleDrawerPanel}
+							drawerCollapsed={drawerCollapsed}
+							git={drawerPorts.git}
+							chrome={drawerPorts.chrome}
+							browser={drawerPorts.browser}
+							files={drawerPorts.files}
+							rpcLog={drawerPorts.rpcLog}
+							scratchPad={scratchPad}
+							branchTree={{ forkAtEntry: (entryId, fallbackText) => void forkAtEntry(entryId, fallbackText, `branch:${entryId}`) }}
+						/>
+					)}
 					setListCollapsed={setListCollapsed}
 					setListWidth={setListWidth}
 					setDrawerCollapsed={setDrawerCollapsed}

@@ -473,13 +473,18 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		[confirmStopIfRunning, failToast, hideOverlay, runFileMutation, runForkMutation, showOverlay],
 	);
 
-	const forkFromUserMessage = useCallback(
-		async (message: ChatMessage) => {
+	/**
+	 * 在指定 entry 上 fork 新会话（显式 fork 动作的共享主体）。
+	 * forkFromUserMessage 从时间线消息解析 entryId 后走这里；分支树面板直接持有
+	 * entryId（节点即条目），省掉文本反查，共用同一套 overlay/草稿回填/会话切换语义。
+	 */
+	const forkAtEntry = useCallback(
+		async (entryId: string, fallbackText: string, busyKey: string) => {
 			const latest = depsRef.current;
 			const sessionId = latest.currentSessionId;
 			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
 			if (forkingMessageId) return;
-			setForkingMessageId(message.id);
+			setForkingMessageId(busyKey);
 			try {
 				let target = latest.getRuntimeTargetForSession(sessionId);
 				if (!target) {
@@ -492,17 +497,12 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					};
 				}
 				showOverlay(sessionId, "forking");
-				const entryId = await resolveForkEntryId(message, target);
-				if (!entryId) {
-					latest.showToast(t("app.forkMissingEntryId"), 4000);
-					return;
-				}
 				const result = requireSessionCommand(await api.sessions.forkRuntimeSession(target, entryId));
 				if (result.cancelled) {
 					latest.showToast(t("app.forkCancelled"), 3500);
 					return;
 				}
-				const rawPromptText = typeof result.text === "string" && result.text.length > 0 ? result.text : message.text;
+				const rawPromptText = typeof result.text === "string" && result.text.length > 0 ? result.text : fallbackText;
 				// 还原引用块：直接把 <quoted_context> 等 XML 塞回输入框会露出原文，
 				// quote 重建快照 + #q token，session/skill/template 还原为 mention 文本。
 				const { draft: promptText, quotes } = rehydrateDraftFromMessage(rawPromptText);
@@ -532,7 +532,35 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 				hideOverlay(sessionId);
 			}
 		},
-		[forkingMessageId, hideOverlay, resolveForkEntryId, showOverlay],
+		[forkingMessageId, hideOverlay, showOverlay],
+	);
+
+	const forkFromUserMessage = useCallback(
+		async (message: ChatMessage) => {
+			const latest = depsRef.current;
+			const sessionId = latest.currentSessionId;
+			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
+			// entryId 解析可能需要活 runtime（文本反查兜底）：先取现成 target，没有再激活一次（仅解析用，
+			// fork 本体与 overlay 生命周期交给 forkAtEntry）。
+			let target: SessionRuntimeTarget | undefined = latest.getRuntimeTargetForSession(sessionId);
+			if (!target) {
+				showOverlay(sessionId, "activating");
+				const activated = requireSessionCommand(await api.sessions.activateRuntime(sessionId));
+				target = {
+					sessionId,
+					agentId: activated.agentId,
+					runtimeGeneration: activated.runtimeGeneration,
+				};
+				hideOverlay(sessionId);
+			}
+			const entryId = await resolveForkEntryId(message, target);
+			if (!entryId) {
+				latest.showToast(t("app.forkMissingEntryId"), 4000);
+				return;
+			}
+			await forkAtEntry(entryId, message.text, message.id);
+		},
+		[forkAtEntry, hideOverlay, resolveForkEntryId, showOverlay],
 	);
 
 	return {
@@ -540,6 +568,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		deleteMessage,
 		resendUserMessage,
 		forkFromUserMessage,
+		forkAtEntry,
 		forkingMessageId,
 	};
 }

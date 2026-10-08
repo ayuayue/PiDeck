@@ -1,5 +1,5 @@
 import { open, stat } from "node:fs/promises";
-import type { ChatMessage, ImageContent, PiSubagentEntry, SessionMessagePage, SessionTodoSnapshot } from "../../shared/types";
+import type { ChatMessage, ImageContent, PiSubagentEntry, SessionBranchNode, SessionBranchTree, SessionMessagePage, SessionTodoSnapshot } from "../../shared/types";
 import { parseTodoSnapshotData } from "../../shared/sessionTodo";
 import { isFileChangeToolName } from "../../shared/fileChanges";
 import { deriveToolSubagentEntries } from "./derivedSubagents";
@@ -20,6 +20,35 @@ type SessionHistoryMetadata = {
 	thinkingLevel?: string;
 };
 
+/** 分支树预览文本上限（字符）：导航级摘要足够定位消息，不需要全文。 */
+const BRANCH_PREVIEW_MAX_CHARS = 120;
+
+/** 从单条 JSONL 原始行提取消息预览：兼容 message.content 为字符串或内容块数组，
+ * 取首个文本块；非消息/无文本返回空串。与 customEntryHeadline 同是「首段信号」思路。 */
+export function extractMessagePreviewFromLine(line: string): string {
+	if (!line) return "";
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch {
+		return "";
+	}
+	if (!isRecord(parsed)) return "";
+	const message = isRecord(parsed.message) ? parsed.message : undefined;
+	const content = message?.content ?? parsed.content;
+	let text = "";
+	if (typeof content === "string") text = content;
+	else if (Array.isArray(content)) {
+		for (const block of content) {
+			if (isRecord(block) && typeof block.text === "string" && block.text.trim()) {
+				text = block.text;
+				break;
+			}
+		}
+	}
+	return text.replace(/\s+/g, " ").trim().slice(0, BRANCH_PREVIEW_MAX_CHARS);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -37,7 +66,6 @@ const INTERNAL_CUSTOM_TYPE_PREFIXES: readonly string[] = ["subagents:", "pi-deck
 /** 显示读入口（时间线窗口/分页）的投影上下文：entryRendererTypes 是「本次会话加载的扩展源码里
  * registerEntryRenderer 注册的 customType 集合」，由调用方按项目扩展配置扫描（extensionEntryRendererScan.ts）。 */
 export type SessionDisplayReadOptions = { entryRendererTypes?: readonly string[] };
-
 /** 扩展输出卡片的 data 载荷上限（序列化后字符数）：超出则不携带原始数据、只带标题，避免大体量快照进渲染层。 */
 const CUSTOM_ENTRY_DATA_MAX_JSON_LENGTH = 16 * 1024;
 
@@ -892,6 +920,72 @@ export class SessionHistoryReader {
 		const index = await this.getSessionDisplayIndex(sessionPath);
 		const leaf = index.activeBranch.at(-1);
 		return leaf?.id;
+	}
+
+	/** 分支树预览的上限（条数）与单行读取字节上限：树视图只需要导航级摘要，
+	 * 超出预算的条目降级为无预览节点，避免大体量会话把全文件读进内存。 */
+	private static readonly BRANCH_PREVIEW_MAX_ENTRIES = 1000;
+	private static readonly BRANCH_PREVIEW_MAX_LINE_BYTES = 256 * 1024;
+
+	/**
+	 * 会话分支树（右侧抽屉「分支」面板数据源）。
+	 *
+	 * 为什么不用 pi get_tree RPC：pi 会把整棵树打成单行 JSON，PiRpcClient 在 stdout
+	 * data 回调里同步 JSON.parse 会冻窗（与 loadMessages 禁用 get_messages 同因）；
+	 * 这里复用 JSONL 索引（含 fork 链合并），只读条目行补预览文本，天然流式有界。
+	 *
+	 * leafId 取文件活动分支末端：与 getActiveLeafId 同口径。若用户在 TUI 里 /tree
+	 * 移动了 leaf 而未追加新条目，此处不会反映（PiDeck 内的 fork/重发都靠追加，不受影响）。
+	 */
+	async readBranchTree(sessionPath: string): Promise<SessionBranchTree> {
+		const index = await this.getSessionDisplayIndex(sessionPath);
+		// children 表：同父按文件 offset 排序（=追加顺序）；孤儿（父链断裂，如墓碑父被合并
+		// 进 fork 链外）按 pi get_tree 同语义提升为根。
+		const childrenOf = new Map<string, SessionDisplayEntry[]>();
+		const roots: SessionDisplayEntry[] = [];
+		for (const entry of index.entries.values()) {
+			const parent = entry.parentId ? index.entries.get(entry.parentId) : undefined;
+			if (parent) {
+				const siblings = childrenOf.get(parent.id);
+				if (siblings) siblings.push(entry);
+				else childrenOf.set(parent.id, [entry]);
+			} else {
+				roots.push(entry);
+			}
+		}
+		const byOffset = (a: SessionDisplayEntry, b: SessionDisplayEntry) => a.offset - b.offset || (a.chainHostPath ?? "").localeCompare(b.chainHostPath ?? "");
+		roots.sort(byOffset);
+		for (const siblings of childrenOf.values()) siblings.sort(byOffset);
+
+		// 预览文本：只给 message 条目读行；压缩/分支摘要用索引里的 summary，零 IO。
+		const previewTargets: SessionDisplayEntry[] = [];
+		for (const entry of index.entries.values()) {
+			if (entry.type === "message" && entry.hasMessage && !entry.oversized && entry.byteLength <= SessionHistoryReader.BRANCH_PREVIEW_MAX_LINE_BYTES) {
+				previewTargets.push(entry);
+				if (previewTargets.length >= SessionHistoryReader.BRANCH_PREVIEW_MAX_ENTRIES) break;
+			}
+		}
+		const previewLines = await this.readIndexedLines(index.hostPath, previewTargets);
+		const previews = new Map<string, string>();
+		for (let i = 0; i < previewTargets.length; i += 1) {
+			const text = extractMessagePreviewFromLine(previewLines[i]);
+			if (text) previews.set(previewTargets[i].id, text);
+		}
+
+		const toNode = (entry: SessionDisplayEntry): SessionBranchNode => ({
+			id: entry.id,
+			parentId: entry.parentId,
+			role: entry.role === "user" || entry.role === "assistant" || entry.role === "system" ? entry.role : "other",
+			entryType: entry.type,
+			preview: previews.get(entry.id) ?? (entry.type === "compaction" || entry.type === "branch_summary" ? (entry.summary ?? "") : ""),
+			label: entry.summary,
+			timestamp: entry.timestamp ?? "",
+			children: (childrenOf.get(entry.id) ?? []).map(toNode),
+		});
+		return {
+			roots: roots.map(toNode),
+			leafId: index.activeBranch.at(-1)?.id ?? null,
+		};
 	}
 
 	/**
