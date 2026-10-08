@@ -358,6 +358,8 @@ import { WhisperTranscriber } from "./voice/WhisperTranscriber";
 import { WhisperServerPool } from "./voice/WhisperServerPool";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
+import { registerWebRemoteAccessIpc } from "./ipc/webRemoteAccessIpc";
+import { RemoteAccessManager } from "./web/remoteAccess/RemoteAccessManager";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
@@ -490,6 +492,7 @@ let updateService: UpdateService | null = null;
 let projectResourceManager: ProjectResourceManager;
 let resourceImportManager: ResourceImportManager;
 let webServiceManager: WebServiceManager;
+let remoteAccessManager: RemoteAccessManager;
 let terminalManager: TerminalSessionManager;
 let petSystem: PetSystem | null = null;
 /** 声音提醒服务（完成/出错/等待输入提示音）；null = 未初始化 */
@@ -3123,8 +3126,15 @@ function registerIpc() {
 		// 设置变更副作用（代理 / 主题 / 飞书语言 / WSL / 宠物 / Web 服务）
 		applyDesktopProxy,
 		testPiProxy,
-		applyWebServiceSettings: (settings) => webServiceManager.applySettings(settings),
-		restartWebService: (settings) => webServiceManager.restart(settings),
+		// Web 服务启停后收敛外网访问渠道（隧道重建/serve 重指；见 RemoteAccessManager.syncWebService）
+		applyWebServiceSettings: async (settings) => {
+			await webServiceManager.applySettings(settings);
+			await remoteAccessManager?.syncWebService();
+		},
+		restartWebService: async (settings) => {
+			await webServiceManager.restart(settings);
+			await remoteAccessManager?.syncWebService();
+		},
 		reactToPetSettings: async (prev, next) => {
 			await petSystem?.reactToSettings(prev, next);
 		},
@@ -3219,6 +3229,9 @@ function registerIpc() {
 		appLogger,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 	});
+
+	// 外网访问（web:remote-access-*）：cloudflare 隧道 + tailscale serve 启停/状态
+	registerWebRemoteAccessIpc({ remoteAccessManager });
 
 	// 配置备份（config-backup:*）：恢复成功后重载 pideck 设置 + 刷新 pi 模型目录。
 	registerBackupIpc({
@@ -4387,6 +4400,16 @@ app
 		quitCleanup.register("theme-schedule", () => clearThemeScheduleTimer());
 		quitCleanup.register("update-check", () => updateService?.stop());
 		quitCleanup.register("web-service", () => webServiceManager?.stop());
+		// 外网访问编排器：状态推送直达主窗口；渠道随 Web 服务启停收敛
+		remoteAccessManager = new RemoteAccessManager({
+			logger: appLogger,
+			getWebServiceStatus: () => webServiceManager.getStatus(),
+			pushState: (state) => {
+				const win = mainWindow;
+				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.webRemoteAccessChanged, state);
+			},
+		});
+		quitCleanup.register("web-remote-access", () => remoteAccessManager?.dispose());
 		terminalManager = new TerminalSessionManager(
 			(agentId) => {
 				// 多后端：pi 与 DSH runtime 各持自己的 tab 表，终端工作目录必须经合成网关
@@ -4889,6 +4912,13 @@ app
 			});
 			void settingsStore.update({ webServiceEnabled: false });
 		});
+		// 外网访问初始探测：探测二进制/登录态与既有 serve 配置（只读），不自动拉起任何渠道
+		void remoteAccessManager
+			.refresh()
+			.then(() => remoteAccessManager.syncWebService())
+			.catch((error) => {
+				void appLogger.warn("web-remote", "Remote access initial probe failed", { error: error instanceof Error ? error.message : String(error) });
+			});
 
 		// 🆕 自动连接：如果已有 Bot 配置，自动启动飞书连接
 		autoConnectFeishu();

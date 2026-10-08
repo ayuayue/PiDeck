@@ -9,6 +9,7 @@ export * from "./types/session";
 export * from "./types/terminal";
 export * from "./types/feishu";
 export * from "./types/settings";
+export * from "./types/remoteAccess";
 export * from "./types/git";
 export * from "./types/prompts";
 export * from "./types/skills";

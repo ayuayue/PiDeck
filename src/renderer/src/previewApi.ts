@@ -1,5 +1,5 @@
 import type { PiDesktopApi } from "../../preload";
-import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS } from "../../shared/types";
+import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, emptyRemoteAccessState } from "../../shared/types";
 import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../shared/voiceTranscriptionConfig";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalTab } from "../../shared/types";
@@ -1512,6 +1512,11 @@ export function createPreviewApi(): PiDesktopApi {
 				token: "",
 				requiresAuth: false,
 			}),
+			webRemoteAccessState: async () => emptyRemoteAccessState(),
+			webRemoteAccessStart: async () => ({ ok: false as const, error: "preview" }),
+			webRemoteAccessStop: async () => ({ ok: false as const, error: "preview" }),
+			webRemoteAccessRefresh: async () => emptyRemoteAccessState(),
+			onWebRemoteAccessChanged: noop,
 			testPiProxy: async () => ({
 				success: true,
 				url: "https://api.openai.com/v1/models",

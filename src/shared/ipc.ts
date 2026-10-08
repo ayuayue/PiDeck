@@ -338,6 +338,16 @@ export const ipcChannels = {
 	settingsRestartWebService: "settings:restart-web-service",
 	/** 查询 Web 服务运行状态（端口 / 本次启动的访问令牌 / 是否要求鉴权） */
 	webServiceStatus: "web:status",
+	/** 外网访问：查询 cloudflare 隧道 + tailscale 组网聚合状态 */
+	webRemoteAccessState: "web:remote-access-state",
+	/** 外网访问状态变化推送（主进程 → 渲染层） */
+	webRemoteAccessChanged: "web:remote-access-changed",
+	/** 外网访问：启动指定渠道（cloudflare 隧道 / tailscale serve） */
+	webRemoteAccessStart: "web:remote-access-start",
+	/** 外网访问：停用指定渠道 */
+	webRemoteAccessStop: "web:remote-access-stop",
+	/** 外网访问：重新检测本机 cloudflared / tailscale 安装与登录状态 */
+	webRemoteAccessRefresh: "web:remote-access-refresh",
 	settingsTestPiProxy: "settings:test-pi-proxy",
 	settingsApplyWindow: "settings:apply-window",
 	skillsList: "skills:list",

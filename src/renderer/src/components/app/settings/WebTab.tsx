@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { SettingsSection } from "./SettingsStorageTab";
 import { SettingRow, SettingSwitchRow } from "./SettingRows";
 import { buildWebAccessUrl, previewHostFromBinding, webAddressesForBinding } from "./webAccessUrl";
+import { useQrDataUrl } from "./useQrDataUrl";
+import { WebRemoteAccessSection } from "./WebRemoteAccessSection";
 
 type WebTabProps = {
 	draft: AppSettings;
@@ -42,7 +44,6 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
 	const [webPortDraft, setWebPortDraft] = useState(String(draft.webServicePort));
 	const [webNetworkAddresses, setWebNetworkAddresses] = useState<WebNetworkAddress[]>([]);
 	const [selectedWebAddress, setSelectedWebAddress] = useState("");
-	const [webQrDataUrl, setWebQrDataUrl] = useState("");
 	const [webNetworkLoading, setWebNetworkLoading] = useState(false);
 	const [webStatus, setWebStatus] = useState<WebServiceStatusInfo | null>(null);
 	const [qrCopied, setQrCopied] = useState(false);
@@ -100,27 +101,7 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
 	const qrUrl = webStatus?.running && activeWebAddress ? buildWebAccessUrl(activeWebAddress, webStatus.port, webStatus.token, webStatus.requiresAuth) : "";
 
 	// URL 变化时重新编码，二维码只保存 data URL，不把主进程能力暴露给页面。
-	useEffect(() => {
-		if (!qrUrl) {
-			setWebQrDataUrl("");
-			return;
-		}
-		let active = true;
-		void QRCode.toDataURL(qrUrl, {
-			width: 192,
-			margin: 1,
-			color: { dark: "#111827", light: "#ffffff" },
-		})
-			.then((dataUrl) => {
-				if (active) setWebQrDataUrl(dataUrl);
-			})
-			.catch(() => {
-				if (active) setWebQrDataUrl("");
-			});
-		return () => {
-			active = false;
-		};
-	}, [qrUrl]);
+	const webQrDataUrl = useQrDataUrl(qrUrl);
 
 	// 壳层「取消」：重置本 tab 局部编辑态（Web 端口草稿）
 	useEffect(() => {
@@ -281,6 +262,9 @@ export const WebTab = memo(function WebTab(props: WebTabProps) {
 					)}
 				</div>
 			)}
+
+			{/* 外网访问（内网穿透）：cloudflare 隧道 + tailscale，独立卡片不侵入局域网设置 */}
+			<WebRemoteAccessSection webServiceChanging={webServiceChanging} />
 		</SettingsSection>
 	);
 });
