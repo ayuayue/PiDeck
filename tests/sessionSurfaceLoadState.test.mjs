@@ -73,8 +73,10 @@ test("timeline controller exposes surface loading for the bottom composer gate",
 	assert.match(controllerSource, /isSurfaceLoading/);
 	assert.match(controllerSource, /deriveSessionSurfaceRuntime\(/);
 	assert.match(controllerSource, /isKnownEmptySessionRecord/);
-	// 切会话已有缓存或空草稿时不得把 loadState 打成 loading（否则空会话闪骨架）。
-	assert.match(controllerSource, /if \(cachedEntry \|\| knownEmpty\) return/);
+	// 切会话已有**真实内容**或空草稿时不得把 loadState 打成 loading（否则空会话闪骨架）。
+	// 但空 runtime 投影（主进程读盘失败下发 0 条）不算内容——必须读盘核实，
+	// 否则 loadState 停在 undefined、骨架屏永驻（2026-10-08 fork/copy 现场）。
+	assert.match(controllerSource, /shouldSkipInitialDiskLoad\(cachedEntry, knownEmpty\)/);
 	// 预热写 filePath/dshSessionId 后仍粘住空会话，避免起始页 / 历史骨架抽搐。
 	assert.match(controllerSource, /stickyEmptyRef/);
 	// 无锚点恢复必须等读盘完成，否则冷会话 scrollHeight≈0 把 restorePhase 钉成 complete。

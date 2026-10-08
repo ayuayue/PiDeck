@@ -657,6 +657,38 @@ function sendSessionRuntimeEnvelope(event: SessionRuntimeEvent): void {
 	miniOverlayWindow?.sendRuntimeEvent(event);
 }
 
+/**
+ * 无 runtime 绑定也能送达的用户通知（copy 产物/fork 换绑瞬间都没有 runtime）。
+ *
+ * 背景（2026-10-08 现场）：copy/fork 的会话名后缀改名失败只写日志，用户零反馈——
+ * 侧栏标题停在弱兜底上像乱码。渲染层 useSessionRuntimeBridge 对
+ * sourceChannel=agents:notice 的 payload 直接弹 toast，不查 runtime atom，
+ * 所以合成一个最小 envelope（sessionId=目标会话，agentId 占位）即可送达；
+ * notice 分支不会触碰 runtime 状态，无副作用。
+ */
+function emitAgentsNotice(payload: {
+	message: string;
+	i18nKey: string;
+	i18nParams?: Record<string, string | number>;
+	kind: "info" | "warning" | "error";
+	sessionId?: string;
+}): void {
+	const event: SessionRuntimeEvent = {
+		kind: "event",
+		sessionId: payload.sessionId ?? "",
+		agentId: "system",
+		runtimeGeneration: 0,
+		sourceChannel: ipcChannels.agentsNotice,
+		payload: {
+			message: payload.message,
+			i18nKey: payload.i18nKey,
+			i18nParams: payload.i18nParams,
+			kind: payload.kind,
+		},
+	};
+	sendSessionRuntimeEnvelope(event);
+}
+
 function emitSessionRuntimeEvent(agentId: string, sourceChannel: string, payload: unknown): boolean {
 	const runtimeBinding = sessionRuntimeCoordinator.getRuntimeBinding(agentId);
 	if (!runtimeBinding) return false;
@@ -910,10 +942,19 @@ async function copyCatalogSession(sessionId: string) {
 			await sessionScanner.rename(result.sessionPath, forkedTitle);
 			title = forkedTitle;
 		} catch (error) {
+			// 静默历史（2026-10-08 现场）：只写日志 → 用户零反馈，侧栏标题停在弱兜底上
+			// 看着像「复制出的名字是乱的」。改名失败不阻断复制（产物已存在），
+			// 但必须让用户可见：toast 引导手动重命名补上后缀。
 			void appLogger.warn("session", "Copy session suffix rename failed", {
 				sessionId,
 				sessionPath: result.sessionPath,
 				error: error instanceof Error ? error.message : String(error),
+			});
+			emitAgentsNotice({
+				message: mainCopy("notice.sessionSuffixRenameFailed"),
+				i18nKey: "notice.sessionSuffixRenameFailed",
+				i18nParams: { mode: mainCopy("session.forkedSuffix") },
+				kind: "warning",
 			});
 		}
 	}
@@ -1000,10 +1041,18 @@ async function replaceAgentSession(agentId: string, replace: () => Promise<unkno
 						await agentManager.rename(agentId, forkedTitle);
 						title = forkedTitle;
 					} catch (error) {
+						// 静默历史（2026-10-08 现场）：只写日志 → 用户零反馈，侧栏标题停在弱兑底上。
+						// fork 产物已存在，失败不阻断，但必须可见：toast 引导手动重命名补后缀。
 						void appLogger.warn("session", "Fork session suffix rename failed", {
 							agentId,
 							title,
 							error: error instanceof Error ? error.message : String(error),
+						});
+						emitAgentsNotice({
+							message: mainCopy("notice.sessionSuffixRenameFailed"),
+							i18nKey: "notice.sessionSuffixRenameFailed",
+							i18nParams: { mode: mainCopy("session.forkedSuffix") },
+							kind: "warning",
 						});
 					}
 				}

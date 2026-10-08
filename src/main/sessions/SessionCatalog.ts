@@ -1197,16 +1197,24 @@ export class SessionCatalog {
 					// it may absorb exactly one initial JSONL title before becoming owned.
 					const canInitializeTitle = !isTitleLocked(entry);
 					const initialTitle = summaryTitle || fetchedTitle;
+					// fork/copy 现场（2026-10-08）：扫描在 pi 写入 session_info 名之前的几百毫秒
+					// 窗口里先索引了新文件，从首条/尾部窗口兜底猜出一个标题并锁成 fallback；
+					// 随后权威名落盘，但 canInitializeTitle 把它拒之门外 → 侧栏永久停在猜出
+					// 的正文上。所有权语义上 fallback 是「内容派生的猜测」，权威 session_info
+					// 名是「pi/用户写下的名字」——后者必须能升级前者（fallback → manual）。
+					// auto/manual/legacy 终态不动（无命中时走 ?? 兑底保持原 origin）。
+					const authoritativeUpgrade = initialAuthoritative && resolveTitleOrigin(entry) === "fallback";
+					const canAbsorbTitle = canInitializeTitle || authoritativeUpgrade;
 					// #266 存量自愈：legacy 条目读盘探测过一次。指纹命中（catalog 存的正是弱兜底名、
 					// JSONL 另有权威名）才改写标题；探测过但没命中就消费掉这一次机会，落 manual 终态，
 					// 避免每次扫描都为一个不可能自愈的条目读盘。读盘失败则保持 legacy 下次再试。
 					const legacyProbe = fetchedLegacyProbes.get(originKey);
 					const legacyRepair = legacyProbe ? repairedLegacyFallbackTitle(entry, summaryTitle && summary.nameFromSessionInfo === true ? { ...legacyProbe, authoritative: summaryTitle } : legacyProbe) : undefined;
-					const nextTitle = legacyRepair || (canInitializeTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					const nextTitle = legacyRepair || (canAbsorbTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
 					// rollout 文件名标题（历史导入兑底）不锁定：留一次被真实标题覆盖的机会；
 					// 真实标题一旦落库即锁定，后续 pi /name 或 JSONL 变化不再反向改写。
 					// 未锁定条目吸收的新标题按来源升级：权威 session_info → manual，首条消息弱回退 → fallback。
-					const nextOrigin = legacyProbe ? "manual" : ((canInitializeTitle && initialTitle ? scannedTitleOrigin(nextTitle, initialAuthoritative) : undefined) ?? resolveTitleOrigin(entry));
+					const nextOrigin = legacyProbe ? "manual" : ((canAbsorbTitle && initialTitle ? scannedTitleOrigin(nextTitle, initialAuthoritative) : undefined) ?? resolveTitleOrigin(entry));
 					const nextTitleLocked = nextOrigin !== undefined;
 					// 父关系最终值：新探测值优先，缺失时保留旧值（轻量扫描恒缺省，不能清掉已持久化的父）。
 					const nextParent = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
@@ -1430,8 +1438,11 @@ export class SessionCatalog {
 			if (!resolved || resolved === entry.filePath) return entry;
 			changed = true;
 			const repaired = { ...entry, filePath: resolved };
-			// originKey 随路径变化重算，否则后续 mergeScanned/attachRuntime 仍按旧 key 去重
-			if (repaired.originKey) repaired.originKey = this.originKeyForEntry(repaired);
+			// originKey 必须无条件重算：早期 catalog 不落 originKey（旧字段缺失），
+			// 只在「已有 originKey」时重算会让这类存量条目修完路径仍带 undefined key，
+			// mergeScanned 无法按 origin 折叠 → 同一文件双记录 + 标题所有权被扫描
+			// 重新初始化为弱兑底（2026-10-08 fork/copy 现场的重复/坏标题根源之一）。
+			repaired.originKey = this.originKeyForEntry(repaired);
 			return repaired;
 		});
 		return changed ? next : undefined;

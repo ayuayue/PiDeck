@@ -72,7 +72,12 @@ test("treats Codex rollout file stems (full and cleanTitle-truncated) as placeho
 
 test("canonicalizes native session paths without collapsing WSL case", () => {
 	const { canonicalizeSessionPath } = loadModule();
+	// Windows 形态（盘符/UNC）：折大小写 + 统一正斜杠。
 	assert.equal(canonicalizeSessionPath("C:\\Users\\Dev\\.pi\\sessions\\A.jsonl/", "native"), "c:/users/dev/.pi/sessions/a.jsonl");
+	assert.equal(canonicalizeSessionPath("\\\\SERVER\\Share\\.pi\\sessions\\A.jsonl", "native"), "//server/share/.pi/sessions/a.jsonl");
+	// POSIX 形态（Linux/macOS native）：不折大小写，否则不同会话会命中同一 identity。
+	assert.equal(canonicalizeSessionPath("/home/dev/.pi/sessions/Case.jsonl/", "native"), "/home/dev/.pi/sessions/Case.jsonl");
+	assert.notEqual(canonicalizeSessionPath("/home/dev/Proj/a.jsonl", "native"), canonicalizeSessionPath("/home/dev/proj/a.jsonl", "native"));
 	assert.equal(canonicalizeSessionPath("/home/dev/.pi/sessions/Case.jsonl/", "wsl"), "/home/dev/.pi/sessions/Case.jsonl");
 });
 

@@ -284,7 +284,9 @@ function legacyHealEntry(filePath, title, overrides = {}) {
 	return {
 		id: "legacy-heal",
 		projectId: "project-1",
-		originKey: `pi:native:${filePath.replace(/\\/g, "/").toLowerCase()}`,
+		// originKey 与生产 buildSummaryOriginKey 同构：POSIX 路径保留原大小写
+		// （2026-10-08 回归修复：旧实现把 native 一律折小写，Linux 上是身份错乱源）。
+		originKey: `pi:native:${filePath.replace(/\\/g, "/")}`,
 		title,
 		titleLocked: true,
 		source: "pi",
@@ -449,6 +451,77 @@ test("a legacy first-message title is healed when the name window only sees a la
 		const [merged] = await catalog.mergeScanned("project-1", [lightSummary({ id: filePath, filePath })]);
 		assert.equal(merged.title, "权威名：会话标题", "真首句标题必须被 JSONL 权威名自愈");
 		assert.equal((await readEntry(dir, "legacy-heal")).titleOrigin, "manual", "自愈后转终态 manual");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// ── fork/copy 现场（2026-10-08）：权威名必须能升级弱兜底（fallback）标题 ──
+//
+// 现场：fork 出新文件后，扫描在 pi 写入 (fork) session_info 之前的几百毫秒窗口里
+// 先索引了该文件，从尾部窗口兜底猜出一段 assistant thinking 原文当标题并锁定为
+// fallback；随后权威 (fork) 名落盘，但 mergeScanned 的 canInitializeTitle =
+// !isTitleLocked(entry) 把权威名拒之门外 → 侧栏永久显示那段 thinking 原文。
+// 同理 copy：catalog 里坏路径让 rename ENOENT（静默），文件从未获得 session_info
+// 名，条目停留在「最后一条输入」弱兜底上。
+//
+// 契约：所有权语义上 fallback 是「内容派生的猜测」，权威 session_info 名是
+// 「pi/用户写下的名字」——后者必须能升级前者（fallback → manual）；
+// 但绝不允许反向（权威名落定后再被另一个弱兜底覆盖），auto/manual/legacy 终态不动。
+test("an authoritative session_info name upgrades a weak fallback title", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-title-origin-upgrade-authority-"));
+	try {
+		const catalog = new SessionCatalog(join(dir, "sessions.json"));
+		await catalog.load();
+		// 第 0 步：扫描在 session_info 落盘前先索引（现场形态）→ 弱兜底锁成 fallback。
+		const [early] = await catalog.mergeScanned("project-1", [
+			lightSummary({ name: "某次回答里的一大段 thinking 原文", nameFromSessionInfo: false }),
+		]);
+		assert.equal(early.title, "某次回答里的一大段 thinking 原文");
+		assert.equal((await readEntry(dir, early.id)).titleOrigin, "fallback");
+
+		// 第 1 步：pi 把 (fork) 名写进 session_info，下一轮扫描读到了权威名。
+		const [healed] = await catalog.mergeScanned("project-1", [
+			lightSummary({ name: "pi 1.0.4/1.0.3 更新通俗解读 (fork)", nameFromSessionInfo: true }),
+		]);
+		assert.equal(healed.id, early.id, "同一文件的扫描必须命中同一 catalog 条目");
+		assert.equal(healed.title, "pi 1.0.4/1.0.3 更新通俗解读 (fork)", "权威名必须升级弱兜底标题");
+		const healedOnDisk = await readEntry(dir, early.id);
+		assert.equal(healedOnDisk.titleOrigin, "manual", "权威名升级后转终态 manual");
+		assert.equal(healedOnDisk.titleLocked, true);
+
+		// 第 2 步：升级后的 manual 是终态——迟到的弱兜底不得反向覆盖。
+		const [again] = await catalog.mergeScanned("project-1", [
+			lightSummary({ name: "另一段弱兜底", nameFromSessionInfo: false }),
+		]);
+		assert.equal(again.title, "pi 1.0.4/1.0.3 更新通俗解读 (fork)");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// 探测器路径（listPathSummary 轻扫）的 fallback 条目同样能被 summary 携带的权威名升级：
+// 生产 fork/copy 现场就是全扫描（readSummary）带着 nameFromSessionInfo: true 回来。
+test("a summary-carried authoritative name upgrades a scanned weak fallback title", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-title-origin-upgrade-fetch-"));
+	try {
+		// 轻扫形态：summary 不带 name，靠探测器回退（锁成 fallback）。
+		const fetcher = async () => ({ name: "复制出来的最后一条输入", valid: true, nameFromSessionInfo: false });
+		const catalog = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, fetcher);
+		await catalog.load();
+		const [early] = await catalog.mergeScanned("project-1", [lightSummary()]);
+		assert.equal(early.title, "复制出来的最后一条输入");
+		assert.equal((await readEntry(dir, early.id)).titleOrigin, "fallback");
+
+		// 全扫描（readSummary）带着权威 session_info 名回来（rename 已落盘）。
+		const [healed] = await catalog.mergeScanned("project-1", [
+			lightSummary({ updatedAt: 2000, name: "原会话名 (copy)", nameFromSessionInfo: true }),
+		]);
+		assert.equal(healed.id, early.id, "同一文件的扫描必须命中同一 catalog 条目");
+		assert.equal(healed.title, "原会话名 (copy)", "权威名必须升级弱兜底标题");
+		assert.equal((await readEntry(dir, early.id)).titleOrigin, "manual");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

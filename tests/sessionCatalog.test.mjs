@@ -781,13 +781,16 @@ test("maps scanned child parent paths to desktop session IDs and survives reload
 		// 真实文件：重载后的第二次 mergeScanned 不会把条目当外部删除剔掉
 		const parentPath = await realSessionFile(dir, "parent.jsonl");
 		const childPath = await realSessionFile(dir, "parent/child.jsonl");
+		// POSIX 路径是大小写敏感身份（2026-10-08 回归修复）：parent 引用必须与父条目
+		// filePath 逐字一致才能映射；旧实现把 native 一律折小写，Linux 上会把两个
+		// 不同文件误折叠成同一 originKey（侧栏去重错乱/误删）。
 		const first = await catalog.mergeScanned("project-1", [
 			summary({ filePath: parentPath, id: parentPath, name: "Parent" }),
 			summary({
 				filePath: childPath,
 				id: childPath,
 				name: "Child",
-				parentSessionPath: parentPath.toLowerCase(),
+				parentSessionPath: parentPath,
 			}),
 		]);
 		const parent = first.find((record) => record.title === "Parent");
@@ -795,10 +798,11 @@ test("maps scanned child parent paths to desktop session IDs and survives reload
 		assert.ok(parent);
 		assert.equal(child?.parentSessionId, parent?.id);
 
+		// 重载后同一路径再次扫描：父子映射不丢（本测试核心意图）。
 		const reloaded = new SessionCatalog(filePath);
 		await reloaded.load();
 		const second = await reloaded.mergeScanned("project-1", [
-			summary({ filePath: parentPath.toLowerCase(), id: parentPath.toLowerCase(), name: "Parent" }),
+			summary({ filePath: parentPath, id: parentPath, name: "Parent" }),
 			summary({
 				filePath: childPath,
 				id: childPath,

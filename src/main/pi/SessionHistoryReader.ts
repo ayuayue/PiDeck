@@ -1,4 +1,5 @@
 import { open, stat } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { ChatMessage, ImageContent, PiSubagentEntry, SessionMessagePage, SessionTodoSnapshot } from "../../shared/types";
 import { parseTodoSnapshotData } from "../../shared/sessionTodo";
 import { isFileChangeToolName } from "../../shared/fileChanges";
@@ -475,6 +476,28 @@ function roleMessageEntryIds(entries: ReadonlyArray<{ id: string; role?: string;
  * Reads persisted Session JSONL without starting Pi. Runtime ownership remains in
  * AgentManager; this reader owns bounded display paging and compaction recovery.
  */
+/**
+ * 会话路径不可寻址：不是「新会话文件尚未落盘」，而是这个路径本身不可能指向
+ * 一个会话文件（错根/坏分隔符/父目录不存在）。
+ *
+ * 背景（2026-10-08 fork/copy 现场）：路径解析 bug 产出 `\home\…`（POSIX 不可寻址），
+ * 读盘 ENOENT 被当「新会话竞态」静默返回空历史 → 运行时下发 0 条 → 渲染层把空缓存
+ * 当已加载，时间线永久停在「正在加载会话历史」。空历史是正常态、错误是异常态，
+ * 二者必须可区分，否则路径层 bug 永远隐身。
+ */
+export class SessionHistoryUnreachablePathError extends Error {
+	readonly sessionPath: string;
+
+	constructor(sessionPath: string, cause?: unknown) {
+		super(`Session path is unreachable (parent directory does not exist): ${sessionPath}`);
+		this.name = "SessionHistoryUnreachablePathError";
+		this.sessionPath = sessionPath;
+		if (cause !== undefined) {
+			this.cause = cause;
+		}
+	}
+}
+
 export class SessionHistoryReader {
 	private readonly sessionDisplayIndexes = new Map<string, SessionDisplayIndex>();
 	private static readonly SESSION_DISPLAY_INDEX_LIMIT = 32;
@@ -1806,17 +1829,35 @@ export class SessionHistoryReader {
 			// 消息才落盘——此刻读取 ENOENT 是「空历史」而不是加载失败（2026-09-14
 			// 用户环境诊断：16:02:01 "Agent recent history file load failed" 即此形态，
 			// 16:02:19 首轮完成后同一读取自然成功）。按空历史返回，不落错误卡片。
+			//
+			// 但 ENOENT 兜底只允许这种竞态：pi 打开持久会话时会 mkdirSync(recursive)
+			// 会话目录（SessionManager 构造），所以「父目录存在、文件未落盘」是合法竞态；
+			// 「父目录不存在」意味着路径本身不可寻址（错根/坏分隔符），文件永远不可能
+			// 出现。此时继续按空历史返回会把加载失败伪装成空会话——现场表现是运行时
+			// 下发 0 条 + 渲染层把空缓存当已加载，时间线永久停在「正在加载会话历史」
+			// （2026-10-08 fork/copy 现场）。必须如实抛出，让错误卡片接手。
 			const code = (error as NodeJS.ErrnoException | null)?.code;
 			if (code === "ENOENT" || /ENOENT/.test(error instanceof Error ? error.message : String(error))) {
-				void this.deps.logger?.info("agent", "Session file not created yet; treating recent history as empty", {
+				const parentDir = dirname(this.deps.toHostPath(sessionPath));
+				const parentExists = await stat(parentDir)
+					.then((info) => info.isDirectory())
+					.catch(() => false);
+				if (parentExists) {
+					void this.deps.logger?.info("agent", "Session file not created yet; treating recent history as empty", {
+						sessionPath,
+					});
+					return {
+						type: "response" as const,
+						command: "get_messages",
+						success: true,
+						data: { messages: [] },
+					};
+				}
+				void this.deps.logger?.warn("agent", "Session path is unreachable; not faking empty history", {
 					sessionPath,
+					parentDir,
 				});
-				return {
-					type: "response" as const,
-					command: "get_messages",
-					success: true,
-					data: { messages: [] },
-				};
+				throw new SessionHistoryUnreachablePathError(sessionPath, error);
 			}
 			throw error;
 		}

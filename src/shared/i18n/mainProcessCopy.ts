@@ -114,6 +114,8 @@ export const mainProcessZhCN = {
 	"session.fileTooLargeForWholeRead": "会话文件过大（{sizeMb}MB，超过 {limitMb}MB 整读上限），该操作已取消以免应用崩溃。",
 	// fork/clone 产物物理命名后缀：属于会话名的一部分（重命名可删除），展示层不再拼装。
 	"session.forkedSuffix": "(fork)",
+	// fork/copy 改名失败的用户通知（2026-10-08：只写日志 → 用户零反馈，侧栏标题停在弱兜底上看着像乱码）。
+	"notice.sessionSuffixRenameFailed": "会话 {mode} 已完成，但写会话名后缀失败：文件名后缀未生效，可稍后在会话菜单里手动重命名。",
 	"session.historyTitle": "{project} 历史会话",
 	"session.historyFallbackTitle": "历史会话",
 	"session.summaryPlaceholder": "[摘要]",
@@ -387,6 +389,8 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"session.fileTooLargeForWholeRead": "This session file is too large ({sizeMb}MB, over the {limitMb}MB whole-read limit); the operation was cancelled to avoid crashing the app.",
 	// Physical suffix appended to fork/clone session titles: part of the real name (removable by rename).
 	"session.forkedSuffix": "(fork)",
+	// User notice when the fork/copy suffix rename fails (2026-10-08: logging only gave users zero feedback).
+	"notice.sessionSuffixRenameFailed": "The session {mode} finished, but writing the name suffix failed; the file was not renamed. You can rename it later from the session menu.",
 	"session.historyTitle": "{project} history",
 	"session.historyFallbackTitle": "History",
 	"session.summaryPlaceholder": "[Summary]",

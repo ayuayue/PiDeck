@@ -228,6 +228,30 @@ export function canLoadSessionTimelineMore(isStarting: boolean, messageCount: nu
 	return !(isStarting && messageCount === 0);
 }
 
+/**
+ * 挂载时是否可跳过初始磁盘历史读取。
+ *
+ * 背景（2026-10-08 fork/copy 现场）：主进程把坏路径读盘失败当「空历史」返回，
+ * runtime 下发 0 条的全量 flush，渲染层写入 source="runtime"、messages=[] 的缓存
+ * 条目。旧逻辑把这条**空 runtime 投影**当「已加载」跳过磁盘读取，loadState 永远停在
+ * undefined，deriveSessionSurfaceRuntime 把 undefined 钉成 loading → 骨架屏永驻。
+ *
+ * 契约：跳过条件必须是「已拿到真实内容」——
+ *   - knownEmpty（草稿/无文件无消息）→ 跳过，起始页是合法终态；
+ *   - 条目非空（runtime/disk 来源都算真实内容）→ 跳过；
+ *   - 条目为空但来源是 disk → 跳过（磁盘已应答，空即空会话终态）；
+ *   - 条目为空且来源是 runtime → 不跳过：这是唯一能区分「会话本来就空」与
+ *     「读盘还没应答/失败」的状态，必须读盘让磁盘给出 ready（起始页）或
+ *     error（错误卡片 + 重试），否则失败被伪装成空历史且骨架永驻。
+ */
+export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runtime"; messages: readonly unknown[] } | undefined, knownEmpty: boolean): boolean {
+	if (knownEmpty) return true;
+	if (!cachedEntry) return false;
+	if (cachedEntry.messages.length > 0) return true;
+	// 空条目只有磁盘亲自返回的才算终态；runtime 空投影必须读盘核实。
+	return cachedEntry.source === "disk";
+}
+
 export function isLatestTimelineRunBusy(isAgentBusy: boolean, index: number, runCount: number): boolean {
 	return isAgentBusy && index === runCount - 1;
 }
@@ -472,9 +496,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 否则已挂载会话永久卡骨架屏（2026-12 回归修复）。
 		if (previouslyLoaded && cachedEntry) return;
 		if (!previouslyLoaded) lastLoadedSessionRef.current = sessionId;
-		// 切会话复用同一 hook 实例（solo 栏无 sessionId key）：已有缓存时不要把
-		// loadState 打成 loading。空会话 messages=0 + loading 会闪骨架「正在加载历史」。
-		if (cachedEntry || knownEmpty) return;
+		// 切会话复用同一 hook 实例（solo 栏无 sessionId key）：已有**真实内容**时不要把
+		// loadState 打成 loading。但空 runtime 投影（主进程读盘失败下发 0 条）不是内容——
+		// 必须继续读盘核实，否则 loadState 永远停在 undefined，骨架屏永驻
+		// （2026-10-08 fork/copy 现场）。
+		if (shouldSkipInitialDiskLoad(cachedEntry, knownEmpty)) return;
 
 		const sequence = ++nextLoadSequence;
 		trackLatestLoad(sessionId, sequence);
