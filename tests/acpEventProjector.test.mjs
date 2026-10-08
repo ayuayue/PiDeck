@@ -120,3 +120,45 @@ test("settleAcpTurn marks stop reason and clears active index", () => {
 	assert.equal(state.messages[0].stopReason, "aborted");
 	assert.equal(state.activeAssistantIndex, undefined);
 });
+
+test("agent_message_chunk image blocks accumulate into assistant images (generation results survive)", () => {
+	// 首个块是图片(无文本):不能因 text 为空而丢弃,必须创建带 images 的 assistant 消息
+	let state = step(initialAcpProjection(), { sessionUpdate: "agent_message_chunk", content: { type: "image", data: "img1", mimeType: "image/png" } });
+	assert.equal(state.messages.length, 1);
+	assert.equal(state.messages[0].role, "assistant");
+	assert.equal(state.messages[0].images.length, 1);
+	assert.equal(state.messages[0].images[0].data, "img1");
+	// 同回合后续文本与第二张图都归并进同一条消息
+	state = step(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "here you go" } });
+	state = step(state, { sessionUpdate: "agent_message_chunk", content: { type: "image", data: "img2", mimeType: "image/jpeg" } });
+	assert.equal(state.messages.length, 1);
+	assert.equal(state.messages[0].text, "here you go");
+	assert.equal(state.messages[0].images.map((image) => image.data).join(","), "img1,img2");
+});
+
+test("agent_thought_chunk image blocks are dropped (thought stream is text-only)", () => {
+	let state = step(initialAcpProjection(), { sessionUpdate: "agent_thought_chunk", content: { type: "image", data: "nope", mimeType: "image/png" } });
+	assert.equal(state.messages.length, 0);
+});
+
+test("lastTouched reports the message indices touched by this update (materialization side channel)", () => {
+	let state = initialAcpProjection();
+	// user 文本/图片:新消息下标
+	state = step(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "hi" } });
+	assert.deepEqual([...state.lastTouched], [0]);
+	// assistant 新建:下标
+	state = step(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "a" } });
+	assert.deepEqual([...state.lastTouched], [1]);
+	// assistant 归并:同一回合内重复指向同一条消息
+	state = step(state, { sessionUpdate: "agent_message_chunk", content: { type: "image", data: "x", mimeType: "image/png" } });
+	assert.deepEqual([...state.lastTouched], [1]);
+	// tool 卡新建与更新:各自报下标
+	state = settleAcpTurn(state, "end_turn");
+	state = step(state, { sessionUpdate: "tool_call", toolCallId: "call-1", title: "bash", status: "running", content: [] });
+	assert.deepEqual([...state.lastTouched], [2]);
+	state = step(state, { sessionUpdate: "tool_call", toolCallId: "call-1", title: "bash", status: "completed", content: [{ type: "text", text: "done" }] });
+	assert.deepEqual([...state.lastTouched], [2]);
+	// 与消息无关的 update:不报 touched
+	state = step(state, { sessionUpdate: "session_info_update", sessionTitle: "t" });
+	assert.equal(state.lastTouched, undefined);
+});

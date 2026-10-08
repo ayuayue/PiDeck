@@ -474,9 +474,11 @@ let dshRuntimeManager: DshRuntimeManager;
 /** DSH runtime 安装编排（阶段 2）：索引选版本 + 进度广播。 */
 let dshRuntimeInstaller: DshRuntimeInstaller;
 let dshAgentManager: DshAgentManager;
+let acpAgentManager: AcpAgentManager;
+/** 生图 blob 存储的延迟引用：imagegen 初始化在另一装配段，ACP 图片物化经此取实例（未初始化时物化退化为保留 data）。 */
+let acpImageBlobStore: ImageBlobStore | null = null;
 /** 多后端合成网关（pi + dsh + 未来后端）；启动装配后赋值，供发送链路按 agentId 路由。 */
 let compositeAgentGateway: CompositeAgentGateway | undefined;
-let acpAgentManager: AcpAgentManager;
 let configManager: ConfigManager;
 /** pi 原生资源配置服务与迁移状态（A2/A3；启动装配，IPC 复用）。 */
 let piResourceConfigService: PiResourceConfigService | undefined;
@@ -2356,9 +2358,9 @@ function registerIpc() {
 	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
 	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
+	registerAcpIpc({ settingsStore });
 	registerDataEnvIpc({
 		getChannel: () => updateChannel,
-	registerAcpIpc({ settingsStore });
 		getDecisionDir: () => channelDevDataDir,
 		getActiveDirectory: () => (devDataMode === "channel-dev" ? "channel-dev" : "shared"),
 		getAppVersion: () => app.getVersion(),
@@ -2582,6 +2584,7 @@ function registerIpc() {
 	// 「图片写进了 A 目录、协议从 B 目录读」。
 	const imageGenRoots = resolveImageGenStorageRoots();
 	const imageBlobStore = new ImageBlobStore({ getBlobsPath: () => imageGenRoots.blobs });
+	acpImageBlobStore = imageBlobStore;
 	void imageBlobStore.ensureDir();
 	const imageSessionStore = new ImageSessionStore({
 		getStorePath: () => imageGenRoots.sessions,
@@ -2805,6 +2808,7 @@ function registerIpc() {
 				}
 			},
 			readDshHistoryPage: (dshSessionId, beforeSeq, options) => dshAgentManager.readHistoryPage(dshSessionId, beforeSeq, options),
+			readAcpMessages: (acpSessionId) => acpAgentManager.readMessagesByAcpSessionId(acpSessionId),
 			readDshProcessEvents: (agentId, dshSessionId) => dshAgentManager.readProcessEvents(agentId, dshSessionId),
 			readDshSystemPrompt: (agentId, dshSessionId) => dshAgentManager.readSystemPrompt(agentId, dshSessionId),
 			readDshMessageFullText: (agentId, messageId) => dshAgentManager.readMessageFullText(agentId, messageId),
@@ -2815,7 +2819,6 @@ function registerIpc() {
 				if (!entry?.dshSessionId) return undefined;
 				const project = projectStore.get(entry.projectId);
 				if (!project?.path) return undefined;
-			readAcpMessages: (acpSessionId) => acpAgentManager.readMessagesByAcpSessionId(acpSessionId),
 				return dshAgentManager.resolveSessionFilePath(project.path, entry.dshSessionId);
 			},
 			searchDshSessions: (query) => dshHost.searchSessions(query),
@@ -4670,6 +4673,11 @@ app
 			piLocator,
 			getProject: (projectId) => projectStore.get(projectId),
 			getTools: () => settingsStore.get().acpTools ?? [],
+			// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
+			// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
+			imageStore: {
+				put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
+			},
 			// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
 			onTitleChanged: (deckSessionId, title) => {
 				const entry = sessionCatalog?.get(deckSessionId);

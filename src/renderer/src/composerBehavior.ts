@@ -251,6 +251,9 @@ export function deriveComposerAgentMode(input: { backend?: AgentBackend; localMo
 	if (input.backend === "imagegen") return "imagegen";
 	// 遗留兼容：legacy 生图消息在 pi 会话上，localMode 仍可能是 imagegen，保留
 	if (localMode === "imagegen") return "imagegen";
+	// ACP 无隐藏 agentMessage 通道（plan/goal 的实现载体），恒普通模式；
+	// 不回退 localMode 是防止残留的 pi 会话模式选择误带入发送。
+	if (input.backend === "acp") return "normal";
 	if (input.backend !== "dsh") return localMode ?? "normal";
 	if (input.planModeActive) return "plan";
 	// 用户刚切回普通时 localMode 为 "normal"：即使 pause IPC 尚未落地，也不要把选择器弹回目标。

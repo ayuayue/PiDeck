@@ -76,7 +76,7 @@ function fakeAgentProcess(t, { handler = () => undefined } = {}) {
 	return { proc, frames, methodFrames, writeFromCli };
 }
 
-function harness(t, cliOptions) {
+function harness(t, cliOptions, depsExtra = {}) {
 	const events = { uiRequests: [], messages: [] };
 	const procs = [];
 	const spawnCalls = [];
@@ -97,6 +97,7 @@ function harness(t, cliOptions) {
 		getProject: (id) => ({ path: `D:/proj-${id}` }),
 		getTools: () => [{ id: "gemini", name: "Gemini CLI", command: "gemini", args: ["--experimental-acp"], enabled: true }],
 		onTitleChanged: () => {},
+		...depsExtra,
 	});
 	const unsubscribe = manager.onOutput((channel, payload) => {
 		if (channel === "agents:ui-request") events.uiRequests.push(payload);
@@ -384,4 +385,67 @@ test("stop:杀进程、runtime 移除、list 不再含该 agent", async (t) => {
 	);
 	assert.equal(cli.proc.exitCode, 0, "process killed");
 	await assert.rejects(manager.getRuntimeState(tab.id), /No ACP runtime/);
+});
+
+test("图片物化:消息里的 base64 图经 imageStore 落盘成 ref,put 失败保留 data", async (t) => {
+	const puts = [];
+	let seq = 0;
+	const imageStore = {
+		put: async (data, mimeType) => {
+			puts.push({ data, mimeType });
+			seq += 1;
+			// 第二张图模拟落盘失败(超限/写盘异常按 null 降级)
+			return seq === 2 ? null : `blob-ref-${seq}`;
+		},
+	};
+	const { events, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-img" };
+				return {};
+			},
+		},
+		{ imageStore },
+	);
+	const tab = await createAgent();
+	const cli = lastProc();
+	const notify = (update) => cli.writeFromCli({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-img", update } });
+	// user 回显图(应物化成 ref-1)+ agent 生图(应物化成 ref-2,但 put 失败保留 data)
+	notify({ sessionUpdate: "user_message_chunk", content: { type: "image", data: "user-img-base64", mimeType: "image/png" } });
+	notify({ sessionUpdate: "agent_message_chunk", content: { type: "image", data: "gen-img-base64", mimeType: "image/png" } });
+	await waitFor(() => {
+		const last = events.messages.at(-1);
+		return last && last.messages && last.messages.some((message) => message.role === "user" && message.images?.some((image) => image.ref === "blob-ref-1")) && last.messages.some((message) => message.role === "assistant" && message.images?.some((image) => image.data === "gen-img-base64"));
+	}, "both images projected with materialization applied");
+	const flushed = events.messages.at(-1);
+	const userMsg = flushed.messages.find((message) => message.role === "user");
+	const genMsg = flushed.messages.find((message) => message.role === "assistant");
+	assert.equal(userMsg.images[0].ref, "blob-ref-1");
+	assert.equal(userMsg.images[0].data, undefined);
+	assert.equal(genMsg.images[0].ref, undefined);
+	assert.equal(genMsg.images[0].data, "gen-img-base64");
+	assert.deepEqual(
+		puts.map((entry) => entry.data),
+		["user-img-base64", "gen-img-base64"],
+	);
+});
+
+test("图片物化:未注入 imageStore 时保持 data 形态(降级不断链)", async (t) => {
+	const { events, createAgent, lastProc } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+			if (frame.method === "session/new") return { sessionId: "sess-plain" };
+			return {};
+		},
+	});
+	await createAgent();
+	lastProc().writeFromCli({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-plain", update: { sessionUpdate: "user_message_chunk", content: { type: "image", data: "inline", mimeType: "image/png" } } } });
+	await waitFor(() => {
+		const last = events.messages.at(-1);
+		return last && last.messages && last.messages.some((message) => message.role === "user");
+	}, "user image echoed");
+	const flushed = events.messages.at(-1);
+	assert.equal(flushed.messages.find((message) => message.role === "user").images[0].data, "inline");
 });

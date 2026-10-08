@@ -354,3 +354,12 @@ test("expandPromptTemplates keeps /name as-is when the template body is empty (f
 	assert.equal(mixed.message, "先看下 /commit-push 再处理");
 	assert.equal(mixed.emptyTemplateName, "commit-push");
 });
+
+test("deriveComposerAgentMode:ACP 后端恒普通模式(无 agentMessage 通道,残留 localMode 不误带入)", () => {
+	const { deriveComposerAgentMode } = loadComposerBehaviorModule();
+	assert.equal(deriveComposerAgentMode({ backend: "acp", localMode: "plan" }), "normal");
+	assert.equal(deriveComposerAgentMode({ backend: "acp", localMode: "goal" }), "normal");
+	assert.equal(deriveComposerAgentMode({ backend: "acp" }), "normal");
+	// 其他后端不受影响
+	assert.equal(deriveComposerAgentMode({ backend: "pi", localMode: "plan" }), "plan");
+});

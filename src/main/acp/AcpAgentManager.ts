@@ -54,6 +54,9 @@ type AcpAgentRuntime = {
 	flushPending: boolean;
 	/** 会话标题(session_info_update / new 返回值;供 catalog 自动标题)。 */
 	title?: string;
+	/** session/update 串行链:投影→物化(异步落盘)→flush 必须按序完成,
+	 * 否则并发的物化回写会用旧 messages 快照覆盖后到的投影结果(图片/流式块丢失)。 */
+	updateChain: Promise<void>;
 };
 
 type AcpManagerDeps = {
@@ -64,6 +67,8 @@ type AcpManagerDeps = {
 	getTools: () => AcpToolConfig[];
 	onTitleChanged?: (deckSessionId: string, title: string) => void;
 	logger?: { info(channel: string, message: string, meta?: Record<string, unknown>): void; warn(channel: string, message: string, meta?: Record<string, unknown>): void };
+	/** 图片落盘(base64→内容寻址 ref):生图 ImageBlobStore 的最小结构化依赖,便于单测注入假实现。 */
+	imageStore?: { put(data: string, mimeType: string): Promise<string | null> };
 };
 
 export class AcpAgentManager implements SessionAgentGateway {
@@ -204,6 +209,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			proc,
 			conn,
 			projection: initialAcpProjection(),
+			updateChain: Promise.resolve(),
 			agentInfo: { capabilities: { loadSession: false, agentThought: false, sessionList: false }, protocolVersion: ACP_PROTOCOL_VERSION },
 			status: "starting",
 			turnActive: false,
@@ -240,7 +246,13 @@ export class AcpAgentManager implements SessionAgentGateway {
 		if (!conn) throw new Error("ACP connection missing");
 		// 通知在握手后才有意义,但先注册分发(部分 CLI 握手期即可能推 update)。
 		conn.on("notification", (notification: { method?: string }) => {
-			if (notification.method === "session/update") void this.handleSessionUpdate(runtime, notification as unknown as AcpSessionUpdateNotification);
+			// 串行链:物化(异步落盘)回写 projection 前不能让下一个 update 先投影,
+			// 否则旧快照覆盖新消息;链兑 catch,单条失败不断链。
+			runtime.updateChain = runtime.updateChain
+				.then(() => this.handleSessionUpdate(runtime, notification as unknown as AcpSessionUpdateNotification))
+				.catch(() => {
+					// handleSessionUpdate 自身已对物化降级,这里只兑 unexpected 异常
+				});
 		});
 		conn.on("protocol-error", (line: unknown) => {
 			// stdout 混入非 JSON(CLI banner/进度条):不致命,记录即可;ACP 规范允许 client 忽略。
@@ -301,23 +313,65 @@ export class AcpAgentManager implements SessionAgentGateway {
 			runtime.tab.status = "error";
 			runtime.turnActive = false;
 			// 进程死掉:结束流式消息、结算 pending 审批为 cancelled、推终态。
-			runtime.projection = settleAcpTurn(runtime.projection, "error");
-			this.failPendingPermissions(runtime);
-			this.flushMessages(runtime, true);
-			this.emit(ipcChannels.agentsState, this.list());
-			this.emitRuntimeState(runtime.tab.id);
-			if (error) this.deps.logger?.warn("acp", `[${runtime.tool.name}] connection closed: ${error.message}`);
+			// 结算排到 update 链尾:死亡前最后一批 update 可能还在链上物化,
+			// 直接 settle 会把未消费的流式块拆成新回合。
+			runtime.updateChain = runtime.updateChain
+				.then(() => {
+					runtime.projection = settleAcpTurn(runtime.projection, "error");
+					this.failPendingPermissions(runtime);
+					this.flushMessages(runtime, true);
+					this.emit(ipcChannels.agentsState, this.list());
+					this.emitRuntimeState(runtime.tab.id);
+					if (error) this.deps.logger?.warn("acp", `[${runtime.tool.name}] connection closed: ${error.message}`);
+				})
+				.catch(() => {
+					// 结算链兜底:任何异常也不留 rejected promise 挂在链上
+				});
 		});
 	}
 
 	private async handleSessionUpdate(runtime: AcpAgentRuntime, notification: AcpSessionUpdateNotification): Promise<void> {
+		if (notification.method !== "session/update") return;
 		if (notification.params?.sessionId !== runtime.acpSessionId) return;
 		runtime.projection = projectAcpSessionUpdate(runtime.projection, notification.params.update, runtime.tab.id);
+		// 图片物化:投影器产出的 base64 图在进消息缓存前落盘成 ref(同生图「base64 不进历史」契约);
+		// 失败保留 data 形态展示(ACP 不写 JSONL,内联形态只是内存开销,不违反存储约束)。
+		await this.materializeTouchedImages(runtime);
 		if (runtime.projection.title && runtime.projection.title !== runtime.title) {
 			runtime.title = runtime.projection.title;
-			if (runtime.tab.deckSessionId) this.deps.onTitleChanged?.(runtime.tab.deckSessionId, runtime.title);
+			if (runtime.tab.deckSessionId) this.deps.onTitleChanged?.(runtime.tab.deckSessionId, runtime.projection.title);
 		}
 		this.scheduleFlush(runtime);
+	}
+
+	/** 把本轮投影 touched 消息里的 data 形态图片替换成落盘 ref;仅替换成功项,失败保留原样。 */
+	private async materializeTouchedImages(runtime: AcpAgentRuntime): Promise<void> {
+		const store = this.deps.imageStore;
+		const touched = runtime.projection.lastTouched;
+		if (!store || !touched || touched.length === 0) return;
+		let messages = runtime.projection.messages;
+		let mutated = false;
+		for (const index of touched) {
+			const message = messages[index];
+			if (!message?.images?.length) continue;
+			const images = await Promise.all(
+				message.images.map(async (image) => {
+					if (image.type !== "image" || image.ref || typeof image.data !== "string") return image;
+					try {
+						const ref = await store.put(image.data, image.mimeType);
+						return ref ? { type: "image" as const, mimeType: image.mimeType, ref } : image;
+					} catch {
+						return image;
+					}
+				}),
+			);
+			if (mutated || images.some((image, i) => image !== message.images?.[i])) {
+				messages = [...messages];
+				messages[index] = { ...message, images };
+				mutated = true;
+			}
+		}
+		if (mutated) runtime.projection = { ...runtime.projection, messages };
 	}
 
 	async sendPrompt(input: SendPromptInput): Promise<SendPromptResult> {
@@ -338,13 +392,23 @@ export class AcpAgentManager implements SessionAgentGateway {
 		this.emit(ipcChannels.agentsState, this.list());
 		this.emitRuntimeState(input.agentId);
 		try {
-			const result = (await runtime.conn.request("session/prompt", { sessionId: runtime.acpSessionId, prompt })) as AcpSessionPromptResult;
+			// 长回合请求不套默认 60s 短超时:深思模型单回合可超分钟级,超时应由 abort/stop/连接死亡驱动;
+			// 10 分钟兑底防真悬死(实测 codex-acp 思考型回合 >60s,见 scripts/acpLiveSmoke.mjs)
+			const result = (await runtime.conn.request("session/prompt", { sessionId: runtime.acpSessionId, prompt }, 10 * 60_000)) as AcpSessionPromptResult;
+			// 结算前先排空 update 链:result 帧与末批 update 同为 stdout 行序分发,
+			// 但链上每步含异步物化,settle 提前会把在途流式块拆成新回合。
+			await runtime.updateChain;
 			runtime.projection = settleAcpTurn(runtime.projection, result?.stopReason ?? "end_turn");
 		} catch (error) {
+			await runtime.updateChain;
 			runtime.projection = settleAcpTurn(runtime.projection, "error");
 			runtime.turnActive = false;
-			runtime.status = "idle";
-			runtime.tab.status = "idle";
+			// 连接死亡等外部终态(error/closed)由 closed handler 结算,不回 idle;
+			// 仅本回合请求失败(如 JSON-RPC 拒绝)从 running 回 idle。
+			if (runtime.status === "running") {
+				runtime.status = "idle";
+				runtime.tab.status = "idle";
+			}
 			this.flushMessages(runtime, true);
 			this.emit(ipcChannels.agentsState, this.list());
 			this.emitRuntimeState(input.agentId);
