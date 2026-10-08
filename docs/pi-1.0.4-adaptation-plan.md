@@ -235,15 +235,13 @@
 - pi-ai：`dist/types.d.ts` 的 `NestedToolCalls`／`ToolResultMessage`；pi-agent-core：`dist/agent-loop.js` 的 `createToolResultMessage`。
 - PiDeck：本计划各阶段列出的生产模块与现有测试，以及 `docs/maintenance-domains.md`。此前已执行的 `docs/pi-1.0-adaptation-test-plan.md` 是另一轮验证记录，不覆盖本次计划。
 
-## 9. 合并回主线前的待办（合并预演结论，2026-10）
+## 9. 合并回主线的执行记录（2026-10-08 完成）
 
-预演方式：在**临时工作树**把 `origin/dev`（当时领先 21 个提交）合到本轮提交上，主工作区未受影响。
-预演结论用于「等并行改动落地后再合并推送」这一步，不是已完成项。
+合并结果：`origin/dev` 推进到 `5c4b5eb2`，本轮全部提交与当时上游的 3 个提交均已合入。
 
-1. **冲突只有 1 处**：`src/main/pi/SessionHistoryReader.ts` 文件顶部「双方各自新增」——本轮新增 context_edit 汇总的类型与函数，上游新增分支树预览提取函数（`extractMessagePreviewFromLine`）。解法：保留双方；注意 git 把两个函数的**收尾括号对齐成了公共上下文**，直接拼接会少一个 `}`，必须给两边各补一个闭合括号。
-2. **上游已覆盖、本轮无需再做**：`4fffb039` 已新增右侧「分支」面板（pi `/tree` 桌面只读版）并在 `branchTreeView.ts` 里处理 `branch_summary`。原先列为「先不做」的 branch summary 展示，合并后即具备。
-3. **合并后必须重新生成繁中词典**：上游新增 zh-TW（`tests/zhTwCopy.test.mjs` 断言四份词典与 zh-CN 同键）。本轮新增的 9 个键（渲染层 8 个：`config.fetchModelsHintAzure/Vertex/Bedrock/PiMessages`、`config.apiTypeDescription.azureOpenaiResponses/googleVertex/bedrockConverseStream/piMessages`；主进程 1 个：`mainConfig.fetchModelsUnsupportedApi`）会让该测试红。修法是**重新运行生成器**，不要手改生成物：
-   `npm i --no-save opencc-js@1.4.2 && node scripts/genZhTwCopy.mjs`
-4. **合并后必须先装依赖**：上游新增 `@xterm/addon-unicode11`、`@xterm/addon-webgl` 等，本机 `node_modules` 未安装 → 不装则 typecheck 直接红（`Cannot find module '@xterm/addon-*'`）。执行 `npm ci`；这同时会消除本机 pi-ai 版本偏差（`node_modules` 停在 1.0.0，而 lock 锁定 1.0.4），即本轮那 3 项「基线也红」的目录测试会一并转绿。
-5. 合并完成后重跑：`npm run typecheck`、`tests/zhTwCopy.test.mjs`，以及 session*/history*/catalog*/config* 相关针对性测试。
-6. 装依赖与重新生成词典都属于「写 node_modules / 写生成物」，必须在并行工作落地后执行，不能与之同时进行。
+1. **冲突**：两次合并各只有 1 处。第一次 `src/main/pi/SessionHistoryReader.ts`「双方各自新增」（本轮 context_edit 汇总 vs 上游分支树预览）——注意 git 把两个函数的收尾括号对齐成了公共上下文，直接保留双方会少一个 `}`，必须给两边各补闭合括号；第二次是生成物 `rendererCopy.zh-TW.ts`，取一侧清掉标记后重跑生成器即可。
+2. **上游已覆盖、本轮无需再做**：`4fffb039` 的右侧「分支」面板，`branchTreeView.ts` 已处理 `branch_summary`。
+3. **繁中词典**：上游引入 zh-TW 后，本轮新增的 9 个键必须由生成器补齐（生成物禁止手改，`tests/zhTwCopy.test.mjs` 断键集）：`npm i --no-save --no-package-lock opencc-js@1.4.2 && node scripts/genZhTwCopy.mjs`。
+4. **依赖**：上游新增 `@xterm/addon-unicode11`、`@xterm/addon-webgl` 等；`npm install` 后 node_modules 与 lock 一致（pi-ai 1.0.4、electron 43.4.0），早前那 3 项「基线也红」的目录测试随之转绿。本机 npm 会拦 install-scripts，electron 二进制需按锁版本手动补：`node node_modules/electron/install.js`（走 `~/.cache/electron` 缓存，离线可完成）。
+5. **验证**：typecheck 的 12 条错误与基线（`039a0db6`）逐条一致；全量测试 8408 通过 / 52 失败，失败用例集合与基线逐条一致（0 回归）。这 12 条与 52 条都是上游既有问题——其中 `npm run typecheck` 正是 CI 门禁，即上游 dev 当时本身是红的；归属为 `SessionHistoryReader`（上游分支树部分）、`dshProfileSettings`（缺 `lib: ES2023`）、`MiniOverlayWindow`（zh-TW 未并入联合类型）、`AcpAgentManager`（`lastTouched` 属性不存在）。
+6. **推送**：因另一 agent 的合并在同一工作区进行中，本地 `dev` ref 未移动（移动会让对方那个基于旧 tip 的合并提交把上游 3 个提交当作已合并、实际回退掉），改用 `git push origin HEAD:refs/heads/dev` 直接推送快进结果。
