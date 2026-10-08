@@ -246,7 +246,7 @@ test("panel re-anchors on scroll instead of closing during streaming", () => {
 	assert.match(source, /addEventListener\("keydown", onKeyDown\)/);
 });
 
-test("bottom bar wires the meter next to send controls and merges model + thinking into one chip", () => {
+test("bottom bar keeps model and thinking together with independent one-click entries", () => {
 	const source = bottomBarSource();
 	// 2027-02 重构（07b7e164c keep context ring beside composer stats）：ContextMeter
 	// 装配点从 composer-bottom-right 容器内迁到 ComposerArea，以 contextMeter prop
@@ -255,18 +255,19 @@ test("bottom bar wires the meter next to send controls and merges model + thinki
 	assert.match(areaSource, /import \{ SessionContextMeter \} from "\.\/SessionContextMeter"/);
 	assert.match(areaSource, /contextMeter=\{[\s\S]{0,240}?<SessionContextMeter[\s\S]{0,360}?backend=\{composer\.backend === "dsh" \? "dsh" : "pi"\}/);
 	assert.match(source, /composer-bottom-right ml-auto flex shrink-0 items-center gap-2/);
-	// 模型/思考合并 chip：模型名 · 思考档位 + chevron（dsh ModelSelect trigger 形态）
-	assert.match(source, /composer-bar-btn model-thinking/);
-	// 分隔点 span 内的 · 被格式化到独立一行，断言只要求「模型值后紧跟该分隔点 span」。
-	assert.match(source, /\{modelValue\}<\/span>[\s\S]{0,80}?<span className="flex-none text-muted-foreground\/70" aria-hidden="true">[\s\S]{0,10}?·[\s\S]{0,10}?<\/span>/);
-	assert.match(source, /<ChevronDown\s*size=\{12\}/);
-	assert.match(source, /rotate-180/);
-	// root 菜单两行 drill-in：模型/思考 + 当前值 + 右 chevron，点击复用既有 Dialog
-	assert.match(source, /t\("app\.model"\)/);
-	assert.match(source, /t\("app\.think"\)/);
-	assert.match(source, /<ChevronRight size=\{14\}/);
-	assert.match(source, /drillIn\(props\.onPickModel\)/);
-	assert.match(source, /drillIn\(props\.onPickThinking\)/);
+	const chip = readFileSync("src/renderer/src/components/session/ModelThinkingChip.tsx", "utf8");
+	const host = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
+	// 同一紧凑组合保留分隔点，两个入口各自直达目标，不再先弹二级导航菜单。
+	assert.match(source, /<ModelThinkingChip\s/);
+	assert.match(source, /thinkingControl=\{props\.thinkingControl\}/);
+	assert.match(chip, /composer-bar-btn model-thinking/);
+	assert.match(chip, /onClick=\{props\.onPickModel\}/);
+	assert.match(chip, /aria-hidden="true">\s*·\s*<\/span>/);
+	assert.match(chip, /\{props\.thinkingControl\}/);
+	assert.match(chip, /<DropdownMenuRadioGroup\s/);
+	assert.match(host, /<ThinkingLevelDropdown\s/);
+	assert.doesNotMatch(host, /<ThinkingPicker\s/);
+	assert.doesNotMatch(chip, /drillIn|Popover|CommandPickerDialog/);
 	// 旧的分离按钮（绿色思考、斜体模型）不再存在
 	assert.doesNotMatch(source, /composer-bar-btn model flex h-7/);
 	assert.doesNotMatch(source, /composer-bar-btn thinking h-7 max-w-\[10rem\]/);

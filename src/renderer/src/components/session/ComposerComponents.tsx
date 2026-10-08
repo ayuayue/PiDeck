@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { useAtomValue } from "jotai";
 import { dshModuleHiddenAtom, imageGenModuleHiddenAtom } from "../../atoms";
-import { AlertCircle, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownLeft, Eye, EyeOff, FileText, GitBranch, ImageIcon, ListChecks, Loader2, Paperclip, Plus, RefreshCw, Sparkles, Star, Target, Wrench, X } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownLeft, Eye, EyeOff, FileText, GitBranch, ImageIcon, ListChecks, Loader2, Paperclip, Plus, RefreshCw, Sparkles, Star, Target, Wrench, X } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import type { PromptEnhanceView } from "../../hooks/usePromptEnhance";
 import { PromptEnhanceControls } from "./PromptEnhanceControls";
@@ -10,7 +10,7 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from ".
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { cn } from "../../lib/utils";
 import { showNotice } from "../../utils/notice";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
+import { ModelThinkingChip } from "./ModelThinkingChip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { ConfirmDialog } from "../app/AppParts";
 import { ComposerImageGenOptions } from "./ComposerImageGenOptions";
@@ -21,12 +21,10 @@ import { useProviderUsageBatchRefresh } from "../../hooks/useProviderUsage";
 import { DshLogo, PiLogo } from "./SessionSourceBadge";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "../ui-shadcn/select";
 import { computeModelDisplay, formatModelRef, resolveComposerLiveModel, resolveGuideDisplayModel, type ModelPending } from "../../utils/modelPendingDisplay";
-import { resolveComposerThinkingLevel } from "../../utils/thinkingDisplay";
-import { modelThinkingLevelOfMap } from "../../../../shared/modelThinkingLevels";
-import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, isWelcomeModelLost, readWelcomeDshModelPreference, readWelcomeModelPreference, readWelcomeThinkingPreference, shouldClearWelcomePreference } from "../../utils/chatSessionBootstrap";
+import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, isWelcomeModelLost, readWelcomeDshModelPreference, readWelcomeModelPreference, shouldClearWelcomePreference } from "../../utils/chatSessionBootstrap";
 import { useBackendModelCatalog } from "../../hooks/useBackendModelCatalog";
 import { CommandPickerGroup, CommandPickerPanel, type CommandPickerFilter } from "../ui-shadcn/command-picker";
-import { THINKING_LEVELS, computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, modelRowLabel, modelRowName, orderProviderGroups, resolveModelPickerBody } from "./sessionPickerOptions";
+import { computeModelPickerDefaultExpanded, groupModelsByProvider, modelPickerSearchFilter, modelRowLabel, modelRowName, orderProviderGroups, resolveModelPickerBody } from "./sessionPickerOptions";
 import type { AgentBackend, AgentRuntimeState, AvailableModel, ComposerAgentMode, GitBranchInfo, ModelListFailReason, ModelListReport, SessionRecord, SessionRuntimeTarget, UsageProbeBackend } from "../../../../shared/types";
 
 /** 单个 extension widget 卡片：可折叠标题栏 + 内容行，支持手动关闭 */
@@ -243,8 +241,8 @@ export function ComposerBottomBar(props: {
 	sessionId: string;
 	state?: AgentRuntimeState;
 	disabled?: boolean;
-	/** thinking 按钮专用禁用：仅在 Agent 启动中禁用，运行中由后端决定是否接受修改。 */
-	thinkingDisabled?: boolean;
+	/** 思考入口由本栏偏好 owner 注入，与模型弹框和快捷键共用档位/保存链路。 */
+	thinkingControl: ReactNode;
 	/** 分支切换专用禁用：agent 运行中保持锁定（切分支会真的改动工作区文件，
 	 *  正在跑的代码被换掉有风险）；「+」菜单等草稿/下一轮配置类入口不跟随此锁。 */
 	branchDisabled?: boolean;
@@ -259,16 +257,8 @@ export function ComposerBottomBar(props: {
 	onSwitchBranch?: (branch: string) => void;
 	/** Draft sessions do not have a runtime yet, so retain their persisted settings in the bar. */
 	record?: Pick<SessionRecord, "model" | "thinkingLevel">;
-	/**
-	 * 引导页模型与思考档位默认值；会话创建前作为唯一展示偏好。
-	 * DSH 部署默认模型/思考档位（settings.yaml agent-default-model）也仅在记录缺失时
-	 * 用作草稿展示，运行态不会覆盖用户已保存的选择。
-	 */
+	/** 引导页模型默认值仅在记录缺失时兑底，不覆盖会话已保存的选择。 */
 	defaultModel?: { provider?: string; modelId?: string; modelName?: string };
-	defaultThinkingLevel?: string;
-	/** pi settings.modelThinkingLevels 快照：按当前展示的模型反查每模型默认档位
-	 * （显式点选 > 每模型默认 > 配置默认，与主进程创建时的解析同序）。 */
-	modelThinkingLevels?: Record<string, string>;
 	/** 当前会话后端（pi 缺省）。 */
 	backend?: AgentBackend;
 	/** 提示词增强域（hook 拥有状态，底栏只呈现）：缺省隐藏入口。 */
@@ -285,7 +275,6 @@ export function ComposerBottomBar(props: {
 	onPickModel: () => void;
 	onPickPromptTemplate: () => void;
 	onPickSkill: () => void;
-	onPickThinking: () => void;
 	onCompact: () => void;
 	/** 上下文超限且占用快照缺失时，提供独立的恢复压缩入口。 */
 	overflowRecoveryTarget?: SessionRuntimeTarget;
@@ -326,8 +315,6 @@ export function ComposerBottomBar(props: {
 	// 引导页点选按后端读各自的存储（issue #253）：DSH 的模型是 host route 名，
 	// 存在 WELCOME_DSH_MODEL_KEY；读错会拿到 pi 的 model 去校验 DSH 目录（必然「失效」）。
 	const welcomeModel = needsWelcomeCatalog ? (isDsh ? readWelcomeDshModelPreference()?.model : readWelcomeModelPreference()?.model) : undefined;
-	// 思考档位不依赖模型目录；无 record 时直接读取 picker 写入的显式选择。
-	const welcomeThinking = !props.record ? readWelcomeThinkingPreference()?.thinkingLevel : undefined;
 	const welcomeModelLost = isWelcomeModelLost(welcomeModel, welcomeCatalogModels);
 	// 删除不可逆，走保守判定：只有「一次成功的完整加载」才具备判死资格。
 	// 本组件不传 projectId → 目录恒为全局范围，与全局偏好的作用域一致。
@@ -355,28 +342,13 @@ export function ComposerBottomBar(props: {
 		welcomeModel: effectiveWelcomeModel,
 		defaultModel: props.defaultModel,
 	});
-	// 当前展示的模型（会话记录 / 引导页默认）；其声明必须早于思考档位——每模型默认
-	// 思考档位要按它查表（见下），否则引导页改选模型后底栏显示的档位与创建时分叉。
+	// 模型仅取会话记录或引导页默认，运行时快照不能覆盖用户已保存的选择。
 	const liveModel = resolveComposerLiveModel({
 		record: props.record?.model,
 		fallback: guideDefaultModel,
 	});
 	// 用量查询链路随会话后端：DSH 会话走 dsh（$DSH_HOME 配置 + 凭据库），其余走 pi。
 	// 圆球面板必须与 DSH 卡片/选择器同一 backend，否则查的是另一条 usage-probes.json。
-	// DSH 草稿：记录未填默认时用部署默认（settings.yaml agent-default-model）兜底展示。
-	// Composer 的选择文字只取记录或引导页偏好，不能由 runtime state 改写。
-	const currentThinkingLevel = resolveComposerThinkingLevel({
-		record: props.record?.thinkingLevel,
-		// 引导页显式点选优先；未选择时才回退「当前模型的每模型默认 > 主进程解析的配置默认档位」。
-		// 每模型默认按 liveModel 查表：用户可在引导页改选模型，创建时（createDraft）
-		// 同样按最终模型查同一张表，次序一致才保证「底栏显示的就是首轮实际套用的」。
-		fallback: welcomeThinking ?? modelThinkingLevelOfMap(props.modelThinkingLevels, liveModel.provider, liveModel.modelId) ?? props.defaultThinkingLevel,
-	});
-	const thinkingLevelLabel = (level: string) => {
-		const labelKey = THINKING_LEVELS.find((item) => item.value === level)?.labelKey;
-		return labelKey ? t(labelKey) : level;
-	};
-	const thinkingText = currentThinkingLevel ? thinkingLevelLabel(currentThinkingLevel) : t("app.think");
 	const isPlanMode = props.composerAgentMode === "plan";
 	const isImageGenMode = props.composerAgentMode === "imagegen";
 	const isGoalMode = props.composerAgentMode === "goal";
@@ -511,16 +483,7 @@ export function ComposerBottomBar(props: {
 					) : null}
 					{/* 生图模式用独立供应商/模型下拉，不展示会话 LLM chip，避免两套配置混用。 */}
 					{isImageGenMode ? null : (
-						<ModelThinkingChip
-							modelLabel={modelLabel}
-							modelPendingTo={modelDisplay.pending && modelTo ? modelTo.modelName || modelTo.modelId : undefined}
-							modelPendingTitle={modelPendingTitle}
-							thinkingText={thinkingText}
-							disabled={props.modelDisabled ?? props.disabled}
-							thinkingDisabled={props.thinkingDisabled}
-							onPickModel={props.onPickModel}
-							onPickThinking={props.onPickThinking}
-						/>
+						<ModelThinkingChip modelLabel={modelLabel} modelPendingTo={modelDisplay.pending && modelTo ? modelTo.modelName || modelTo.modelId : undefined} modelPendingTitle={modelPendingTitle} disabled={props.modelDisabled ?? props.disabled} onPickModel={props.onPickModel} thinkingControl={props.thinkingControl} />
 					)}
 					{/* DSH 压缩入口与 pi 统一：上下文圆环（右侧）常驻并带压缩按钮。
 					    2026-12 兼容期：dsh runtime state 已由主进程提供 contextPercent 兜底
@@ -554,76 +517,8 @@ export function ComposerBottomBar(props: {
 }
 
 /**
- * 模型 + 思考合并选择 chip（借鉴 dsh ModelSelect 的 trigger 形态）。
- *
- * 显示：`模型名 · 思考档位 + chevron` 一体。
- * 交互：点击弹出 root 菜单两行（模型 / 思考），drill-in 复用现有 Dialog 选择器
- * （onPickModel / onPickThinking），列表 UI 不重做。
- */
-function ModelThinkingChip(props: {
-	modelLabel: string;
-	/** 模型待生效切换的目标 label（存在时显示 from → to） */
-	modelPendingTo?: string;
-	modelPendingTitle?: string;
-	thinkingText: string;
-	disabled?: boolean;
-	thinkingDisabled?: boolean;
-	onPickModel: () => void;
-	onPickThinking: () => void;
-}) {
-	const [open, setOpen] = useState(false);
-	const modelValue = props.modelPendingTo ? `${props.modelLabel} → ${props.modelPendingTo}` : props.modelLabel;
-	const drillIn = (action: () => void) => {
-		setOpen(false);
-		action();
-	};
-	return (
-		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger asChild>
-				<Button variant="ghost" size="sm" className="composer-bar-btn model-thinking flex h-7 min-w-0 max-w-[52ch] gap-1 rounded-md px-2 text-caption font-medium text-foreground hover:bg-muted/60" title={props.modelPendingTitle ?? t("app.modelPickerTitle")}>
-					<span className="min-w-0 truncate">{modelValue}</span>
-					<span className="flex-none text-muted-foreground/70" aria-hidden="true">
-						·
-					</span>
-					<span className="flex-none truncate text-muted-foreground" title={t("app.thinkingPickerTitle")}>
-						{props.thinkingText}
-					</span>
-					<ChevronDown size={12} aria-hidden="true" className={`flex-none text-muted-foreground transition-transform duration-fast${open ? " rotate-180" : ""}`} />
-				</Button>
-			</PopoverTrigger>
-			<PopoverContent align="center" side="top" className="w-56 p-1">
-				<div className="flex flex-col">
-					<button
-						type="button"
-						className="flex h-9 items-center gap-2 rounded-md px-2 text-left text-control transition-colors hover:bg-muted/60 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
-						onClick={() => drillIn(props.onPickModel)}
-						disabled={props.disabled}
-						title={t("app.modelPickerTitle")}
-					>
-						<span className="text-muted-foreground">{t("app.model")}</span>
-						<span className="min-w-0 flex-1 truncate text-foreground">{modelValue}</span>
-						<ChevronRight size={14} aria-hidden="true" className="flex-none text-muted-foreground" />
-					</button>
-					<button
-						type="button"
-						className="flex h-9 items-center gap-2 rounded-md px-2 text-left text-control transition-colors hover:bg-muted/60 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
-						onClick={() => drillIn(props.onPickThinking)}
-						disabled={props.thinkingDisabled}
-						title={t("app.thinkingPickerTitle")}
-					>
-						<span className="text-muted-foreground">{t("app.think")}</span>
-						<span className="min-w-0 flex-1 truncate text-foreground">{props.thinkingText}</span>
-						<ChevronRight size={14} aria-hidden="true" className="flex-none text-muted-foreground" />
-					</button>
-				</div>
-			</PopoverContent>
-		</Popover>
-	);
-}
-
-/**
  * 选择器对话框外壳（#115 U5 收尾）：统一 shadcn Dialog + cmdk Command，
- * 旧 Prompt 选择器仍使用统一 shadcn Dialog + cmdk；模型、思考级别和引导页使用 CommandPickerPanel，共享折叠、搜索和选中项定位。
+ * 旧 Prompt 选择器仍使用统一 shadcn Dialog + cmdk；模型和引导页使用 CommandPickerPanel，共享折叠、搜索和选中项定位。
  * 保留此壳是为了支持 Prompt 预览态的特殊头部与返回操作。
  */
 export function PickerDialog(props: { title: string; hint?: string; onClose: () => void; className?: string; children: ReactNode }) {
@@ -957,46 +852,6 @@ export function ModelPicker(props: {
 						</CommandPickerGroup>
 					)}
 				</>
-			)}
-		</CommandPickerDialog>
-	);
-}
-
-export function ThinkingPicker(props: {
-	current?: string;
-	onClose: () => void;
-	onPick: (level: string) => void;
-	/** 受支持的档位列表（DSH 按当前模型 reasoningEfforts 过滤）；缺省用全部档位。 */
-	levels?: Array<{
-		value: string;
-		labelKey?: TranslationKey;
-		descriptionKey?: TranslationKey;
-		label?: string;
-		description?: string;
-	}>;
-}) {
-	const levels = props.levels ?? THINKING_LEVELS;
-	return (
-		<CommandPickerDialog title={t("app.thinkingPickerTitle")} hint={t("app.thinkingPickerHint")} onClose={props.onClose} className="thinking-picker" value={props.current}>
-			{levels.length === 0 ? (
-				// 空数组只代表后端明确返回「当前模型没有可用档位」。目录未加载或模型
-				// 未声明元数据时宿主会传 undefined，继续展示全量兼容档位而不是阻断用户。
-				<div className="flex min-h-24 items-center justify-center px-4 text-center text-caption text-muted-foreground">{t("app.thinkingPickerUnsupported")}</div>
-			) : (
-				levels.map((level) => {
-					const selected = level.value === props.current;
-					return (
-						<CommandItem key={level.value} value={level.value} data-picker-value={level.value} onSelect={() => props.onPick(level.value)} className="min-h-9 items-center gap-2 rounded-md px-2.5 py-1">
-							<span className={`grid size-6 shrink-0 place-items-center rounded-md ${selected ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"}`}>
-								<Brain size={14} aria-hidden="true" />
-							</span>
-							<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground" title={level.descriptionKey ? t(level.descriptionKey) : level.description}>
-								{level.labelKey ? t(level.labelKey) : (level.label ?? level.value)}
-							</span>
-							{selected ? <Check size={15} className="ml-auto shrink-0 text-primary" aria-hidden="true" /> : null}
-						</CommandItem>
-					);
-				})
 			)}
 		</CommandPickerDialog>
 	);
