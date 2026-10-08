@@ -1,7 +1,7 @@
 import { Fragment, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type WheelEvent as ReactWheelEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { messageEntryId } from "../../utils/sessionCommands";
 import { toBlob } from "html-to-image";
-import { writeClipboardImage } from "../../utils/clipboard";
+import { writeClipboard, writeClipboardImage } from "../../utils/clipboard";
 import { MarkdownStream } from "./MarkdownStream";
 import { PreviewRail, type PreviewRailItem } from "../motion/preview-rail";
 import { planRailTicks } from "./timeline/outlineRailTicks";
@@ -100,6 +100,8 @@ import { normalizeSessionPathForCompare } from "../../agentListDisplay";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { showNotice } from "../../utils/notice";
+import { desktopApi } from "../../desktopApi";
+import { ImageActionButtons } from "./imageActions";
 import { Button } from "../ui-shadcn/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import type {
@@ -684,6 +686,11 @@ export const UserBubble = memo(function UserBubble(props: {
 	// 溢出检测用 ResizeObserver 对比 scrollHeight/clientHeight，折叠态下才测量（展开态保持按钮可见）。
 	const [messageExpanded, setMessageExpanded] = useState(false);
 	const [messageOverflowing, setMessageOverflowing] = useState(false);
+	// 文件 chip 右键菜单：记录光标坐标（Radix 受控 dropdown 按不可见 Trigger 矩形定位）
+	const [fileChipMenu, setFileChipMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+	const openFileChipMenu = useCallback((path: string, x: number, y: number) => {
+		setFileChipMenu({ path, x, y });
+	}, []);
 	const userTextRef = useRef<HTMLDivElement | null>(null);
 	// 视觉桥「请求详情」展开态：事件数据懒加载（用户点击才拉取，避免每条消息都读事件文件）
 	const [visionDetailOpen, setVisionDetailOpen] = useState(false);
@@ -849,7 +856,15 @@ export const UserBubble = memo(function UserBubble(props: {
 						// 参考图在历史里同样是 ref 引用（新图是内联 base64），统一走解析器
 						const src = imageContentSrc(img);
 						if (!src) return null;
-						return <MessageImage key={index} src={src} alt={t("app.imageAlt", { index: index + 1 })} className="size-16 max-h-40 cursor-pointer rounded-md border border-border object-cover transition-colors duration-fast hover:border-border-strong" onClick={() => props.onPreviewImage(img)} />;
+						return (
+							<div key={index} className="group/img relative">
+								<MessageImage src={src} alt={t("app.imageAlt", { index: index + 1 })} className="size-16 max-h-40 cursor-pointer rounded-md border border-border object-cover transition-colors duration-fast hover:border-border-strong" onClick={() => props.onPreviewImage(img)} />
+								{/* 上传图片此前只有点击预览、无复制/保存入口（2026-10 用户反馈）；hover 动作条与生图卡片同规格 */}
+								<div className="absolute -top-2.5 right-0 z-10 opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 focus-within:opacity-100" onClick={(event) => event.stopPropagation()}>
+									<ImageActionButtons image={img} />
+								</div>
+							</div>
+						);
 					})}
 				</div>
 			)}
@@ -970,7 +985,7 @@ export const UserBubble = memo(function UserBubble(props: {
 						// 且 lucide 图标会被 preflight 的 svg{display:block} 撑成单独一行）。
 						className={`user-turn-text text-chat text-text-primary whitespace-pre-wrap break-words ${messageExpanded ? "" : "line-clamp-8"}`}
 					>
-						{renderBubbleSegments(bubbleSegments, props)}
+						{renderBubbleSegments(bubbleSegments, { ...props, onFileContextMenu: openFileChipMenu })}
 					</div>
 					{messageOverflowing && (
 						<div className="relative mt-1 flex justify-end">
@@ -1086,6 +1101,45 @@ export const UserBubble = memo(function UserBubble(props: {
 					</>
 				)}
 			</div>
+			{/* 文件 chip 右键菜单：默认方式打开 / 在文件夹中显示 / 复制路径。粘贴转文件落
+			    在 userData、项目外路径无 scope，主进程不设边界直接交给系统；菜单形态与
+			    文件抽屉右键菜单（ComposerOverlayContextMenu）保持一致。 */}
+			{fileChipMenu && (
+				<DropdownMenu
+					open
+					onOpenChange={(open) => {
+						if (!open) setFileChipMenu(null);
+					}}
+				>
+					{/* 不可见 Trigger 钉在右键坐标上：Radix 受控 open 仍按 Trigger 矩形定位（见 ComposerOverlayContextMenu） */}
+					<DropdownMenuTrigger aria-hidden tabIndex={-1} style={{ position: "fixed", left: fileChipMenu.x, top: fileChipMenu.y, width: 0, height: 0, padding: 0, border: 0, background: "transparent", pointerEvents: "none" }} />
+					<DropdownMenuContent align="start" side="bottom" className="min-w-40">
+						<DropdownMenuItem
+							onSelect={() => {
+								void desktopApi.files.open(fileChipMenu.path).catch((error) => showNotice(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) })));
+							}}
+						>
+							{t("menu.defaultOpen")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() => {
+								void desktopApi.files.showInFolder(fileChipMenu.path).catch((error) => showNotice(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) })));
+							}}
+						>
+							{t("menu.revealFile")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() => {
+								void writeClipboard(fileChipMenu.path).then((ok) => {
+									if (ok) showNotice(t("copy.success"), 1200);
+								});
+							}}
+						>
+							{t("menu.copyPath")}
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
 		</article>
 	);
 });
@@ -1099,6 +1153,10 @@ export function ImagePreviewModal(props: { image: ImageContent; onClose: () => v
 				<X size={20} strokeWidth={2.4} />
 			</button>
 			<img src={src} alt={t("app.imagePreviewAlt")} onClick={(event) => event.stopPropagation()} />
+			{/* 预览态动作条：全尺寸查看时直接复制/保存（缩略图 hover 之外的第二个入口，两条路共用同一组件） */}
+			<div className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2" onClick={(event) => event.stopPropagation()}>
+				<ImageActionButtons image={props.image} />
+			</div>
 		</div>
 	);
 }
@@ -1144,6 +1202,8 @@ function renderBubbleSegments(
 		onOpenFile?: (path: string) => void;
 		validCommandNames?: Set<string>;
 		validFilePaths?: Set<string>;
+		/** 文件 chip 右键：弹坐标菜单（默认打开/在文件夹中显示/复制路径） */
+		onFileContextMenu?: (path: string, x: number, y: number) => void;
 	},
 ): ReactNode[] {
 	const nodes: ReactNode[] = [];
@@ -1152,7 +1212,7 @@ function renderBubbleSegments(
 		// 否则每个 chip 独占一行（用户实测截图：「不像行内 chip」）。
 		if (index > 0) nodes.push(" ");
 		if (segment.kind === "text") {
-			nodes.push(...renderChipText(segment.value, props.onOpenFile, props.validCommandNames, props.validFilePaths, `text-${index}-`));
+			nodes.push(...renderChipText(segment.value, props.onOpenFile, props.validCommandNames, props.validFilePaths, props.onFileContextMenu, `text-${index}-`));
 			return;
 		}
 		const { block } = segment;
@@ -1176,7 +1236,7 @@ function renderBubbleSegments(
 
 /** 将原始 @path / /command 渲染为行内 chip（聊天区展示用，与输入框视觉一致）。
  * 自包含 XML 块由 renderUserBubbleChipText 先折叠；file chip 保留点击打开能力。 */
-function renderChipText(text: string, onOpenFile?: (path: string) => void, validCommandNames?: Set<string>, validFilePaths?: Set<string>, keyPrefix = ""): ReactNode[] {
+function renderChipText(text: string, onOpenFile?: (path: string) => void, validCommandNames?: Set<string>, validFilePaths?: Set<string>, onFileContextMenu?: (path: string, x: number, y: number) => void, keyPrefix = ""): ReactNode[] {
 	const chips = parseRichInputChips(text, validCommandNames, validFilePaths);
 	if (chips.length === 0) return [text];
 	const nodes: ReactNode[] = [];
@@ -1191,7 +1251,23 @@ function renderChipText(text: string, onOpenFile?: (path: string) => void, valid
 		const Icon = isDirectory ? Folder : (CHIP_ICONS[chip.kind] ?? FileText);
 		const title = chip.kind === "file" ? unwrapFileChipPath(chip.raw) : chip.raw;
 		nodes.push(
-			<span key={`${keyPrefix}chip-${chip.start}`} className={`input-chip input-chip--${chip.kind}${clickable ? " clickable" : ""}`} data-type={chip.kind} data-raw={chip.raw} title={title} onClick={clickable ? () => onOpenFile(unwrapFileChipPath(chip.raw)) : undefined}>
+			<span
+				key={`${keyPrefix}chip-${chip.start}`}
+				className={`input-chip input-chip--${chip.kind}${clickable ? " clickable" : ""}`}
+				data-type={chip.kind}
+				data-raw={chip.raw}
+				title={title}
+				onClick={clickable ? () => onOpenFile(unwrapFileChipPath(chip.raw)) : undefined}
+				onContextMenu={
+					chip.kind === "file"
+						? (event) => {
+								// 右键出坐标菜单：左键打开之外的入口（系统默认打开/在文件夹中显示/复制路径）
+								event.preventDefault();
+								onFileContextMenu?.(unwrapFileChipPath(chip.raw), event.clientX, event.clientY);
+							}
+						: undefined
+				}
+			>
 				<Icon className="input-chip__icon inline-block shrink-0" width="12" height="12" aria-hidden="true" />
 				{/* 展示文本与输入框一致（formatChipDisplayLabel），构成区分信号之一 */}
 				<span className="input-chip__label">{formatChipDisplayLabel(chip.kind, chip.label)}</span>

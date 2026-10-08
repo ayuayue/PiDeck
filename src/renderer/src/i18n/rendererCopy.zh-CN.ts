@@ -3846,6 +3846,7 @@ export const zhCN = {
 	"imagegen.copy": "复制图片",
 	"imagegen.save": "保存图片",
 	"imagegen.copyFailed": "复制图片失败",
+	"imagegen.saveFailed": "保存图片失败",
 	"imagegen.referenceUnavailable": "参考图已不可用，仅恢复提示词",
 	"imagegen.error.notConfigured": "还没有配好生图供应商。请到设置 → 生图 填写接口地址、API Key 和模型",
 	"imagegen.error.referenceUnsupported": "当前生图供应商未声明支持参考图，附件不会参与生成。可在生图配置里为该供应商选择参考图模式",

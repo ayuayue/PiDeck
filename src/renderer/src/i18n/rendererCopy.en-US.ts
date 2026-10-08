@@ -3856,6 +3856,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"imagegen.copy": "Copy image",
 	"imagegen.save": "Save image",
 	"imagegen.copyFailed": "Failed to copy image",
+	"imagegen.saveFailed": "Failed to save image",
 	"imagegen.referenceUnavailable": "Reference image is no longer available; only the prompt was restored",
 	"imagegen.error.notConfigured": "No image provider is configured. Open Settings → Image Gen and add a base URL, API key, and model.",
 	"imagegen.error.referenceUnsupported": "The current image provider does not declare reference-image support; attachments will not affect generation. Pick a reference mode for it in Image Gen settings.",
