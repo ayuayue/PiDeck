@@ -62,7 +62,7 @@ import { getPiAiCatalogIndex, readBuiltinPiAiCatalogVersion } from "../pi/piAiBu
 import { resolveModelSpecFromCatalogs } from "../pi/modelCapabilityResolver";
 import { getProcessSnapshot } from "../process/ProcessMonitor";
 import { buildDshHostMonitorRow, isDshHostMonitorId } from "../process/dshHostMonitor";
-import type { AgentProcessMetric, DiagnosticsSnapshot, ProcessMetricsSnapshot } from "../../shared/types";
+import type { AgentProcessMetric, ArchStatus, DiagnosticsSnapshot, ProcessMetricsSnapshot } from "../../shared/types";
 import type { DiagnosticsMonitor } from "../diagnostics/DiagnosticsMonitor";
 import { getWslExe, decodeWslOutput, parseWslDistroList } from "../wsl/wslExe";
 import { listWebNetworkAddresses } from "../web/WebNetwork";
@@ -1241,6 +1241,15 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				recentTimings: [],
 			}
 		);
+	});
+	// 运行架构检测：Electron 官方接口判定「x64 二进制在 ARM64 转译层下」（macOS=Rosetta 2）。
+	// 无参数、无副作用，纯读当前进程状态；渲染层启动时拉一次决定是否提示换原生包。
+	ipcMain.handle(ipcChannels.archStatus, (): ArchStatus => {
+		return {
+			platform: process.platform,
+			processArch: process.arch,
+			runningUnderArm64Translation: app.runningUnderARM64Translation === true,
+		};
 	});
 	ipcMain.handle(ipcChannels.diagnosticsOpenFolder, async () => {
 		if (!diagnosticsMonitor) return;

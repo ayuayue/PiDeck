@@ -44,6 +44,7 @@ import type {
 	AppLogQuery,
 	ProcessMetricsSnapshot,
 	DiagnosticsSnapshot,
+	ArchStatus,
 	AppSettings,
 	AppUpdateStatusSnapshot,
 	UpdateChannelInfo,
@@ -972,6 +973,8 @@ const api = {
 		stopAgent: (agentId: string) => ipcRenderer.invoke(ipcChannels.stopAgent, agentId) as Promise<void>,
 		/** 开发诊断快照：内存 / 事件循环延迟 / 最近关键耗时 */
 		getDiagnosticsSnapshot: () => ipcRenderer.invoke(ipcChannels.diagnosticsSnapshot) as Promise<DiagnosticsSnapshot>,
+		/** 运行架构检测：判断是否在 ARM 芯片上跑 x64 转译包（Rosetta），用于提示换原生包 */
+		getArchStatus: () => ipcRenderer.invoke(ipcChannels.archStatus) as Promise<ArchStatus>,
 		openDiagnosticsFolder: () => ipcRenderer.invoke(ipcChannels.diagnosticsOpenFolder) as Promise<void>,
 		/** 环境体检：跑一次完整检查并返回脱敏报告。 */
 		healthCheck: () => ipcRenderer.invoke(ipcChannels.healthCheck) as Promise<HealthReport>,

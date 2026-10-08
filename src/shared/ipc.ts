@@ -556,6 +556,8 @@ export const ipcChannels = {
 	processMetrics: "system:process-metrics",
 	/** 开发诊断快照（内存 / 事件循环延迟 / 最近关键耗时） */
 	diagnosticsSnapshot: "system:diagnostics-snapshot",
+	/** 运行架构状态：检测 x64 包在 ARM 芯片转译层下运行（Rosetta），提示换装原生包 */
+	archStatus: "system:arch-status",
 	/** 打开 userData/diagnostics 目录 */
 	diagnosticsOpenFolder: "system:diagnostics-open-folder",
 	/** 进程监控里手动停止某个 pi agent（按 agentId 走 AgentManager 正常停止流程） */

@@ -1004,6 +1004,11 @@ export const enUS: Record<TranslationKey, string> = {
 	"app.highAgentCountBody":
 		'There are currently {count} active agents, and memory usage rises noticeably with each one. If some are not needed right now, right-click a session with a blue (idle) dot in the left sidebar and choose "Close Agent" to free up memory. Don\'t worry — closing never loses your session history, and you can reopen it anytime. Keeping things tidy keeps things fast.',
 	"app.highAgentCountSnooze": "Don't remind again this session",
+	"app.archMismatchTitle": "Intel build detected — performance is degraded",
+	"app.archMismatchBody":
+		'Your Mac has Apple Silicon (M-series), but the installed build is Intel (x64) and runs entirely under Rosetta translation — noticeably slower, hotter, and heavier on battery. Please download the dmg with "arm64" in its name from the releases page and install it over the current one; your settings and sessions are kept automatically.',
+	"app.archMismatchAction": "Get the arm64 build",
+	"app.archMismatchDismiss": "Don't remind again",
 	"app.thinkingPickerTitle": "Select thinking level",
 	"app.thinkingPickerHint": "Some models may not support all levels. The system will automatically adjust to the closest supported level",
 	"app.thinkingPickerUnsupported": "The current model did not provide any available thinking levels and cannot be changed.",

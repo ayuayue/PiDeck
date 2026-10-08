@@ -343,6 +343,12 @@ export function createPreviewApi(): PiDesktopApi {
 				sampledAt: Date.now(),
 			}),
 			stopAgent: async () => undefined,
+			// 架构检测预览桩：恒报「未在转译层」，预览模式不触发换包提示
+			getArchStatus: async () => ({
+				platform: "",
+				processArch: "",
+				runningUnderArm64Translation: false,
+			}),
 			getDiagnosticsSnapshot: async () => ({
 				enabled: false,
 				sampledAt: Date.now(),
