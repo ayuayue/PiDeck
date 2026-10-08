@@ -15,9 +15,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui-shadcn
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { fetchFileList, fetchGitDiff, fetchGitLog, fetchGitStatus } from "./webApi";
+import { useDismissOnBack } from "./useDismissOnBack";
 import type { WebFileNodeLite } from "./webTypes";
 
 export function WebWorkspaceDrawer(props: { projectId: string; open: boolean; onClose: () => void; onOpenFile: (path: string) => void }) {
+	// 系统返回键/手势关闭（手机上抽屉是全屏覆盖层，与预览同一关闭语义）
+	useDismissOnBack(props.onClose, props.open);
 	return (
 		<div className={cn("fixed inset-0 z-50", props.open ? "pointer-events-auto" : "pointer-events-none")} aria-hidden={!props.open}>
 			{/* 遮罩：点击关闭（仅打开时可见） */}
@@ -25,8 +28,8 @@ export function WebWorkspaceDrawer(props: { projectId: string; open: boolean; on
 			<aside className={cn("absolute top-0 right-0 bottom-0 flex w-[min(400px,100vw)] flex-col border-l border-border bg-background shadow-xl transition-transform duration-200", props.open ? "translate-x-0" : "translate-x-full")} aria-label={t("web.workspaceDrawer")}>
 				<div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
 					<strong className="text-sm font-semibold">{t("web.workspaceDrawer")}</strong>
-					<Button type="button" variant="ghost" size="icon" className="size-7" onClick={props.onClose} aria-label={t("common.close")}>
-						<X className="size-4" aria-hidden="true" />
+					<Button type="button" variant="ghost" size="icon" className="size-11" onClick={props.onClose} aria-label={t("common.close")}>
+						<X className="size-5" aria-hidden="true" />
 					</Button>
 				</div>
 				<Tabs defaultValue="git" className="flex min-h-0 flex-1 flex-col gap-0">

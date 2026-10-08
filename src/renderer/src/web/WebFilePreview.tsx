@@ -15,6 +15,7 @@ import { Loader2, X } from "lucide-react";
 import { MarkdownStream } from "@/components/session/MarkdownStream";
 import { t } from "@/i18n";
 import { fetchFileContent, fetchGitDiff, fetchGitStatus } from "./webApi";
+import { useDismissOnBack } from "./useDismissOnBack";
 
 export type WebFilePreviewTarget = { kind: "file"; projectId: string; projectRoot: string; path: string; line?: number } | { kind: "diff"; projectId: string; projectRoot: string; path: string };
 
@@ -51,7 +52,7 @@ function PreviewHeader({ path, onClose }: { path: string; onClose: () => void })
 				<div className="truncate text-sm font-medium text-foreground">{basename(path)}</div>
 				<div className="truncate text-micro text-muted-foreground">{path}</div>
 			</div>
-			<button type="button" aria-label={t("web.previewClose")} className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground" onClick={onClose}>
+			<button type="button" aria-label={t("web.previewClose")} className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 active:bg-muted/80 hover:text-foreground" onClick={onClose}>
 				<X className="size-5" aria-hidden="true" />
 			</button>
 		</header>
@@ -203,14 +204,8 @@ function DiffPreviewBody({ projectId, path }: { projectId: string; path: string 
 /** 全屏覆盖层：fixed inset-0 盖过时间线/composer；body 由 kind 分流。 */
 export function WebFilePreview(props: { target: WebFilePreviewTarget; onClose: () => void }) {
 	const { target } = props;
-	// Esc 关闭与右上角 X 等价（桌面习惯，覆盖层打开时监听）
-	useEffect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") props.onClose();
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [props.onClose]);
+	// 系统返回键/手势与 Esc 关闭（移动端主路径，见 hook 注释）；X 按钮是 PWA 无手势时的兑底
+	useDismissOnBack(props.onClose, true);
 	// 绝对路径裁剪：项目外直接给提示，不发请求（后端本来也会 403）
 	const relative = toProjectRelative(target.path, target.projectRoot);
 	return (
