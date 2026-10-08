@@ -156,6 +156,7 @@ import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
 import { useQuickTask } from "./hooks/useQuickTask";
 import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
+import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
 import { AppShell } from "./components/app/AppShell";
@@ -3279,6 +3280,7 @@ export function App() {
 
 					{/* 并行问询结果弹框（AskPanel）：独立匿名会话的结果展示，根级渲染 */}
 					<AskPanelOverlay />
+					<HostPluginPanelHost projectId={activeProject?.id} sessionId={currentSessionId} />
 
 					{/* toast 通知历史：全渲染层唯一一份（设置页/详情弹窗两个入口共用，
 					    模块级 opener 注册式打开，见 utils/noticeHistory + ui-shadcn/notice-history-dialog） */}

@@ -6,6 +6,7 @@ import type { Plugin } from "vite";
 import { readDevGitBranch, resolveDevVitePort } from "./src/main/devIsolation";
 import { readFile } from "node:fs/promises";
 import { transformWithEsbuild } from "vite";
+import { hostPluginPreloadPlugin } from "./scripts/hostPluginPreload";
 
 /**
  * AudioWorklet 语音分段器内联插件。
@@ -136,7 +137,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), hostPluginPreloadPlugin()],
   },
   renderer: {
     // Windows 上 localhost 可能优先解析到 IPv6 ::1，Electron 加载 dev server 时会超时；固定 IPv4 保证本机访问稳定。

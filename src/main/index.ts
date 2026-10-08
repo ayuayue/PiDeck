@@ -336,6 +336,8 @@ import { createRendererCrashRecoveryGuard } from "./window/rendererCrashRecovery
 import { registerBackgroundImageProtocol, registerBackgroundsIpc } from "./ipc/backgroundsIpc";
 import { registerThemesIpc } from "./ipc/themesIpc";
 import { registerPluginDevIpc } from "./ipc/pluginDevIpc";
+import { registerHostPluginsIpc } from "./ipc/hostPluginsIpc";
+import { HostPluginService } from "./plugins/HostPluginService";
 import { PluginDevService } from "./extensions/PluginDevService";
 import { registerGitIpc } from "./ipc/gitIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
@@ -2439,6 +2441,14 @@ function registerIpc() {
 	registerBackgroundImageProtocol();
 	registerBackgroundsIpc();
 	registerThemesIpc();
+	// Desktop plugins run without AgentManager/RPC; failure leaves the rest of PiDeck untouched.
+	const hostPlugins = new HostPluginService(app.getPath("userData"), sessionCatalog, join(__dirname, "../preload/hostPlugin.js"));
+	const unregisterHostPlugins = registerHostPluginsIpc(hostPlugins, () => mainWindow);
+	quitCleanup.register("host-plugins", () => {
+		unregisterHostPlugins();
+		hostPlugins.dispose();
+	});
+	void hostPlugins.initialize().catch(() => appLogger.warn("host-plugins", "Optional plugin host initialization failed"));
 	// 插件开发支持：demo/指南落 ~/.pi/agent/extensions（与扩展列表同一 home 来源）
 	const pluginDevService = new PluginDevService(resolveBuiltInExtensionRoots(), () => extensionManager?.userHomeDir ?? homedir());
 	registerPluginDevIpc(pluginDevService, {
@@ -3356,6 +3366,7 @@ async function detectExternalEditorsOnFirstLaunch() {
 
 // 换肤背景图/宠物雪碧图/声音提醒/生图历史图片协议：自定义 scheme 必须在 ready 前注册特权声明（secure 以便渲染层 CSS/图片/音频引用）
 protocol.registerSchemesAsPrivileged([
+	{ scheme: "pideck-plugin", privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: false } },
 	{ scheme: "pideck-bg", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: false } },
 	{ scheme: "pideck-pet", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: false } },
 	{ scheme: "pideck-sound", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: true } },

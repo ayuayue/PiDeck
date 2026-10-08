@@ -4,6 +4,8 @@ import { parseTodoSnapshotData } from "../../shared/sessionTodo";
 import { isFileChangeToolName } from "../../shared/fileChanges";
 import { deriveToolSubagentEntries } from "./derivedSubagents";
 import { scanJsonlLines } from "../sessions/jsonlLineStream";
+import { readBoundedEntryPage } from "../sessions/boundedEntryPage";
+import type { HostPluginEntriesPage, HostPluginEntryCursor } from "../../shared/types/hostPlugin";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import type { RpcResponse } from "./PiRpcClient";
 import type { AppLogger } from "../logging/AppLogger";
@@ -406,8 +408,24 @@ function roleMessageEntryIds(entries: ReadonlyArray<{ id: string; role?: string;
  * Reads persisted Session JSONL without starting Pi. Runtime ownership remains in
  * AgentManager; this reader owns bounded display paging and compaction recovery.
  */
+/**
+ * 宿主插件历史读取的边界守卫：只在 readPluginEntries 链路生效，桌面历史读取不受影响。
+ * - authorizeSource：fork 祖先链每一跳读取前授权（跨项目 fork 不能借祖先链读到其他项目消息）；
+ * - 预算：单次请求（含祖先链全部文件）的扫描字节与条目上限，超限拋稳定错误码显式拒绝；
+ * - summary 截断：索引内存不保留超长 compaction summary；分页读原始字节不受影响。
+ */
+export type PluginHistoryGuard = {
+	authorizeSource: (hostPath: string) => boolean | Promise<boolean>;
+	maxScanBytes: number;
+	maxEntries: number;
+	maxSummaryChars: number;
+	remaining: { bytes: number; entries: number };
+};
+
 export class SessionHistoryReader {
 	private readonly sessionDisplayIndexes = new Map<string, SessionDisplayIndex>();
+	/** 宿主插件读取的单槽索引缓存：预算截断后的专用投影，与桌面 LRU 隔离，避免无总量上限的堆积。 */
+	private pluginIndex: { hostPath: string; index: SessionDisplayIndex } | undefined;
 	private static readonly SESSION_DISPLAY_INDEX_LIMIT = 32;
 	/**
 	 * 流式扫描每隔这么多行让出一次事件循环（见 jsonlLineStream.scanJsonlLines 的
@@ -1302,18 +1320,34 @@ export class SessionHistoryReader {
 	/** 链深上限：重发/编辑可能连续 fork 多代；超深降级单文件读（丢祖先前缀，不阻塞打开）。 */
 	private static readonly MAX_CHAIN_DEPTH = 8;
 
+	/** Plugin history is the active branch, including compactions/custom entries, not provider input. */
+	async readPluginEntries(sessionPath: string, cursor?: HostPluginEntryCursor, guard?: PluginHistoryGuard): Promise<HostPluginEntriesPage> {
+		// 预算按次请求重置：同一 guard 不得跨请求累积剩余额度。
+		if (guard) guard.remaining = { bytes: guard.maxScanBytes, entries: guard.maxEntries };
+		const index = await this.getSessionDisplayIndexInner(sessionPath, 0, new Set(), guard);
+		const version = JSON.stringify([index.mtimeMs, index.size, ...(index.chainSources ?? []).map((source) => [source.mtimeMs, source.size])]);
+		const page = await readBoundedEntryPage(index.hostPath, index.activeBranch, version, cursor);
+		// A rewrite/append during IO invalidates the whole page, not just its next cursor.
+		const current = await stat(index.hostPath);
+		if (current.mtimeMs !== index.mtimeMs || current.size !== index.size || !(await this.chainSourcesUnchanged(index))) throw new Error("history-changed");
+		return page;
+	}
+
 	private async getSessionDisplayIndex(sessionPath: string): Promise<SessionDisplayIndex> {
 		// toHostPath 只在 inner 解析一次：调用次数是可观测契约（诊断测试按调用序断言）
 		return this.getSessionDisplayIndexInner(sessionPath, 0, new Set());
 	}
 
-	private async getSessionDisplayIndexInner(sessionPath: string, depth: number, visited: Set<string>): Promise<SessionDisplayIndex> {
+	private async getSessionDisplayIndexInner(sessionPath: string, depth: number, visited: Set<string>, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex> {
 		const hostPath = this.deps.toHostPath(sessionPath);
 		const version = await stat(hostPath);
-		const cached = this.sessionDisplayIndexes.get(hostPath);
+		// 插件读取走单槽缓存：不进桌面 LRU（32 文件无总量上限），内存只随最后一个会话 bounded。
+		const cached = guard ? (this.pluginIndex?.hostPath === hostPath ? this.pluginIndex.index : undefined) : this.sessionDisplayIndexes.get(hostPath);
 		if (cached && cached.size === version.size && cached.mtimeMs === version.mtimeMs && (await this.chainSourcesUnchanged(cached))) {
-			this.sessionDisplayIndexes.delete(hostPath);
-			this.sessionDisplayIndexes.set(hostPath, cached);
+			if (!guard) {
+				this.sessionDisplayIndexes.delete(hostPath);
+				this.sessionDisplayIndexes.set(hostPath, cached);
+			}
 			return cached;
 		}
 
@@ -1322,11 +1356,14 @@ export class SessionHistoryReader {
 		// 全量重建成本随文件线性增长，大会话（几十 MB 以上）会造成可感知卡顿。
 		// 前置条件 endsWithNewline：旧最后一行以 \n 结尾，追加内容与旧内容边界干净。
 		if (cached && version.size > cached.size && cached.endsWithNewline) {
-			const updated = await this.appendIndexFromTail(cached, hostPath, version);
+			const updated = await this.appendIndexFromTail(cached, hostPath, version, guard);
 			if (updated) {
-				this.sessionDisplayIndexes.delete(hostPath);
-				this.sessionDisplayIndexes.set(hostPath, updated);
-				this.trimDisplayIndexCache();
+				if (guard) this.pluginIndex = { hostPath, index: updated };
+				else {
+					this.sessionDisplayIndexes.delete(hostPath);
+					this.sessionDisplayIndexes.set(hostPath, updated);
+					this.trimDisplayIndexCache();
+				}
 				return updated;
 			}
 			// 增量失败（IO 异常/无新增完整行）：回退全量重建
@@ -1343,6 +1380,7 @@ export class SessionHistoryReader {
 			(line, context) => {
 				const parsed = this.parseIndexLine(line, context.offset, context.byteLength);
 				if (parsed) {
+					this.chargePluginGuard(guard, context.byteLength, parsed);
 					entries.set(parsed.id, parsed);
 					lastEntryId = parsed.id;
 				}
@@ -1355,6 +1393,7 @@ export class SessionHistoryReader {
 					// 整段更早历史都被判为「非活跃分支」而消失）。正文不进内存，也不进展示。
 					const stub = this.parseOversizedIndexLine(info);
 					if (stub) {
+						this.chargePluginGuard(guard, info.byteLength);
 						entries.set(stub.id, stub);
 						lastEntryId = stub.id;
 					}
@@ -1369,11 +1408,23 @@ export class SessionHistoryReader {
 		);
 		const endsWithNewline = scan.endsWithNewline;
 		const activeBranch = this.traceActiveBranch(entries, lastEntryId);
-		const index = await this.mergeForkChain(hostPath, version, this.finishIndex(hostPath, version, entries, activeBranch, endsWithNewline), depth, visited);
-		this.sessionDisplayIndexes.delete(hostPath);
-		this.sessionDisplayIndexes.set(hostPath, index);
-		this.trimDisplayIndexCache();
+		const index = await this.mergeForkChain(hostPath, version, this.finishIndex(hostPath, version, entries, activeBranch, endsWithNewline), depth, visited, guard);
+		if (guard) this.pluginIndex = { hostPath, index };
+		else {
+			this.sessionDisplayIndexes.delete(hostPath);
+			this.sessionDisplayIndexes.set(hostPath, index);
+			this.trimDisplayIndexCache();
+		}
 		return index;
+	}
+
+	/** 插件读取的预算扣减与 summary 截断：超限拋稳定错误码；截断只影响索引内存，分页仍读原始字节。 */
+	private chargePluginGuard(guard: PluginHistoryGuard | undefined, byteLength: number, entry?: SessionDisplayEntry): void {
+		if (!guard) return;
+		if (entry?.summary && entry.summary.length > guard.maxSummaryChars) entry.summary = `${entry.summary.slice(0, guard.maxSummaryChars)}…`;
+		guard.remaining.bytes -= byteLength;
+		if (entry) guard.remaining.entries -= 1;
+		if (guard.remaining.bytes < 0 || guard.remaining.entries < 0) throw new Error("history-too-large");
 	}
 
 	/**
@@ -1383,16 +1434,19 @@ export class SessionHistoryReader {
 	 * 全文检索因此能看到完整历史；模型上下文本就由 pi 运行时沿链重建，此处只补展示层。
 	 * 祖先缺失（被清理）或链超深/成环时降级为单文件索引：丢前缀但不阻塞打开。
 	 */
-	private async mergeForkChain(hostPath: string, version: { size: number; mtimeMs: number }, own: SessionDisplayIndex, depth: number, visited: Set<string>): Promise<SessionDisplayIndex> {
+	private async mergeForkChain(hostPath: string, version: { size: number; mtimeMs: number }, own: SessionDisplayIndex, depth: number, visited: Set<string>, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex> {
 		const parentSession = [...own.entries.values()].find((entry) => entry.type === "session")?.parentSession;
 		if (!parentSession || depth >= SessionHistoryReader.MAX_CHAIN_DEPTH) return own;
 		const parentHostPath = this.deps.toHostPath(parentSession);
-		// 自引用（损坏头）与已访问路径都直接降级单文件读；深度上限兕底
+		// 自引用（损坏头）与已访问路径都直接降级单文件读；深度上限兜底
 		if (parentHostPath === hostPath || visited.has(parentHostPath)) return own;
+		// 插件读取：fork 祖先可能指向其他项目的会话文件，每一跳都必须通过当前项目授权；
+		// 未授权降级单文件读，与祖先缺失同语义（不阻塞打开，也绝不合并外部项目消息）。
+		if (guard && !(await guard.authorizeSource(parentHostPath))) return own;
 		visited.add(parentHostPath);
 		let parent: SessionDisplayIndex;
 		try {
-			parent = await this.getSessionDisplayIndexInner(parentSession, depth + 1, visited);
+			parent = await this.getSessionDisplayIndexInner(parentSession, depth + 1, visited, guard);
 		} catch (error) {
 			void this.deps.logger?.info("session-history", "Fork parent session unavailable; reading child without ancestor prefix", {
 				hostPath,
@@ -1557,7 +1611,7 @@ export class SessionHistoryReader {
 	 * 新条目沿 parentId 回溯至旧分支节点（支持 fork/rewind 场景），旧分支保留。
 	 * 返回 null 表示无可追加内容或 IO 失败（调用方回退全量重建）。
 	 */
-	private async appendIndexFromTail(cached: SessionDisplayIndex, hostPath: string, version: { size: number; mtimeMs: number }): Promise<SessionDisplayIndex | null> {
+	private async appendIndexFromTail(cached: SessionDisplayIndex, hostPath: string, version: { size: number; mtimeMs: number }, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex | null> {
 		const length = version.size - cached.size;
 		if (length <= 0) return null;
 		try {
@@ -1602,6 +1656,7 @@ export class SessionHistoryReader {
 				if (!context.complete) return;
 				const parsed = this.parseIndexLine(line, context.offset, context.byteLength);
 				if (parsed) {
+					this.chargePluginGuard(guard, context.byteLength, parsed);
 					entries.set(parsed.id, parsed);
 					newEntries.push(parsed);
 				}
@@ -1614,6 +1669,7 @@ export class SessionHistoryReader {
 					if (!info.complete) return;
 					const stub = this.parseOversizedIndexLine(info);
 					if (!stub) return;
+					this.chargePluginGuard(guard, info.byteLength);
 					entries.set(stub.id, stub);
 					newEntries.push(stub);
 				},

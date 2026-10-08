@@ -3,6 +3,7 @@ import { ipcChannels } from "../shared/ipc";
 import type { TokendanceAuthMode, TokendancePaymentSessionResult } from "../shared/tokendance";
 import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../shared/types/acp";
 import type { AnnouncementState } from "../shared/types/announcement";
+import type { HostPluginDesktopApi } from "../shared/types/hostPlugin";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { ModelTraceRecord } from "../shared/types/bridge";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
@@ -213,7 +214,19 @@ function clipboardSync<T>(channel: string, fallback: T): T {
 	}
 }
 
+const hostPlugins: HostPluginDesktopApi = {
+	list: () => ipcRenderer.invoke(ipcChannels.hostPluginsList),
+	rescan: () => ipcRenderer.invoke(ipcChannels.hostPluginsRescan),
+	setEnabled: (id, enabled, fingerprint) => ipcRenderer.invoke(ipcChannels.hostPluginsSetEnabled, id, enabled, fingerprint),
+	openDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsOpenDirectory),
+	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
+	update: (id, context, bounds, visible) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, id, context, bounds, visible),
+	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),
+	onChanged: (callback) => subscribe(ipcChannels.hostPluginsChanged, callback),
+};
+
 const api = {
+	hostPlugins,
 	clipboard: {
 		// 同步读取必须走主进程 sendSync：Electron 38 已废弃渲染进程/preload 直连 clipboard。
 		readText: () => clipboardSync(ipcChannels.clipboardReadText, ""),

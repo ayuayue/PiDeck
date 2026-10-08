@@ -904,6 +904,17 @@ export const ipcChannels = {
 
 	// ===== 插件开发（~/.pi/agent/extensions/ 目录） =====
 	/** 插件开发支持状态：目录路径 + demo/指南是否已就位 */
+	// Independent desktop plugins use their own capability broker, never pi RPC.
+	hostPluginsList: "host-plugins:list",
+	hostPluginsRescan: "host-plugins:rescan",
+	hostPluginsSetEnabled: "host-plugins:set-enabled",
+	hostPluginsOpenDirectory: "host-plugins:open-directory",
+	hostPluginsMount: "host-plugins:mount",
+	hostPluginsUpdate: "host-plugins:update",
+	hostPluginsUnmount: "host-plugins:unmount",
+	hostPluginsChanged: "host-plugins:changed",
+	hostPluginRequest: "host-plugin:request",
+	hostPluginEvent: "host-plugin:event",
 	pluginDevStatus: "plugin-dev:status",
 	/** 把 AI 插件开发指南写入用户扩展目录并在资源管理器定位 */
 	pluginDevWriteGuide: "plugin-dev:write-guide",
@@ -1084,7 +1095,6 @@ export const ipcChannels = {
 	cuaGetState: "cua:get-state",
 	/** 渲染层 → 主进程：设置 CUA 全局/会话开关。 */
 	cuaSetState: "cua:set-state",
-} as const;
 
 	// ===== ACP 后端（agent CLI 工具登记表） =====
 	/** ACP 工具列表（settings.acpTools 只读快照）。 */
@@ -1093,3 +1103,4 @@ export const ipcChannels = {
 	acpToolsSave: "acp:tools-save",
 	/** 单条表单校验（不含落盘；渲染层新增/编辑即时反馈）。 */
 	acpToolValidate: "acp:tool-validate",
+} as const;
