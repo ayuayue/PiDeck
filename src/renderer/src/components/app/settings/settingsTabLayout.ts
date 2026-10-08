@@ -33,6 +33,7 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "pet" },
 	{ id: "vision" },
 	{ id: "imagegen" },
+	{ id: "acp" },
 	{ id: "web", dividerBefore: true },
 	{ id: "editors" },
 	{ id: "git" },
@@ -73,6 +74,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTabId, TranslationKey> = {
 	process: "settings.tabs.process",
 	vision: "settings.tabs.vision",
 	imagegen: "settings.tabs.imagegen",
+	acp: "settings.tabs.acp",
 };
 
 /**
@@ -98,4 +100,5 @@ export const SETTINGS_TAB_KEYWORDS: Record<SettingsTabId, readonly string[]> = {
 	process: ["进程", "监控", "内存", "process", "monitor"],
 	vision: ["视觉", "图片识别", "视觉桥", "vision", "multimodal"],
 	imagegen: ["生图", "画图", "图片生成", "imagegen", "image"],
+	acp: ["acp", "agent", "cli", "工具", "外部 agent", "gemini", "kimi", "claude code", "opencode"],
 };

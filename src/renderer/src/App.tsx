@@ -131,6 +131,7 @@ import {
 	setSessionDraftAtom,
 	cacheSessionMessagesAtom,
 	upsertSessionAtom,
+	acpToolsAtom,
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
 import { t } from "./i18n";
@@ -345,6 +346,20 @@ export function App() {
 			.catch(() => undefined);
 	}, [showToast]);
 	// 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
+	// ACP 工具表（settings.acpTools 快照）：挂载时拉一次供新建会话菜单/设置页共享；
+	// 后续变更由设置页保存后整表回写 acpToolsAtom，不做事件订阅（改动频率极低）。
+	useEffect(() => {
+		let cancelled = false;
+		void api.acp
+			.listTools()
+			.then((tools) => {
+				if (!cancelled) store.set(acpToolsAtom, tools);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [store]);
 	const promptHistoryRef = useRef<Record<string, string[]>>({});
 
 	// 面板宽度的 localStorage 只按 renderer origin 隔离；开发端口变化时会读不到旧值。
@@ -1980,6 +1995,20 @@ export function App() {
 				await createAnonymousSessionWithTab(projectId);
 			},
 			deleteDraft: deleteDraftSession,
+			// ACP 工具会话：backend 固定 acp、acpToolId 指向 settings.acpTools 条目。
+			// 工具表已加载进 acpToolsAtom，此处只按 id 取名称作草稿标题；找不到（刚被删）
+			// 提示引导而不是静默失败。创建后与 createDraft 同一条选中/登记链。
+			createAcp: async (projectId, toolId) => {
+				const tool = store.get(acpToolsAtom).find((candidate) => candidate.id === toolId);
+				if (!tool) {
+					showToast(t("app.acpNoTools"), 3000);
+					return;
+				}
+				const session = await api.sessions.createDraft({ projectId, title: tool.name, backend: "acp", acpToolId: tool.id });
+				upsertSession(session);
+				selectSessionCommand(projectId, session.id, false);
+				workspaceChrome.registerOpenSession(session.id, "permanent");
+			},
 			rename: rename.openSessionRename,
 			export: runExportSidebarSession,
 			copy: runCopySidebarSession,

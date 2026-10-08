@@ -1,4 +1,5 @@
 import type { AgentBackend } from "./agent";
+import type { AcpToolConfig } from "./acp";
 import type { BusySendDelivery } from "../busySendDelivery";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
 import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
@@ -760,6 +761,13 @@ export type AppSettings = {
 	 * 的 DSH 安装引导进入，不为此保持打扰。
 	 */
 	dshRuntimeMigrationNoticeShown?: boolean;
+
+	/**
+	 * ACP agent CLI 工具登记表（backend=acp 会话的驱动器）：gemini --acp /
+	 * opencode acp / kimi acp / codex-acp 等。数组保序（展示=登记顺序）；
+	 * 删除工具后旧会话靠 acpSessionId 只读降级。缺省 undefined = 空表（无 ACP 工具）。
+	 */
+	acpTools?: AcpToolConfig[];
 };
 
 /**

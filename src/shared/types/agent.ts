@@ -61,7 +61,7 @@ export type AgentStatus = "starting" | "idle" | "running" | "error" | "closed";
  * backend 描述会话由哪个引擎驱动。缺省视为 "pi"，旧数据天然兼容。
  * 生图是后端维度的独立第三类（不等价于 pi 的一种模式），互不影响。
  */
-export type AgentBackend = "pi" | "dsh" | "imagegen";
+export type AgentBackend = "pi" | "dsh" | "imagegen" | "acp";
 
 /**
  * 后端可选能力（核心接口方法之外的可选扩展）。
@@ -303,11 +303,13 @@ export type CreateAgentInput = {
 	backend?: AgentBackend;
 	/** DSH 会话身份（DSH host 的 sessionId）：backend=dsh 且已持久化时，attach 旧会话而非新建。 */
 	dshSessionId?: string;
-	/**
-	 * DSH agent 预设（会话「模式」）：仅新建 host 会话时随 sessions.create 应用；
-	 * attach 已有会话时由 DshAgentManager 从 host list 行读回，本字段作预选/兜底。
-	 */
+	/** DSH agent 预设（会话「模式」）；ACP 后端复用本字段承载 AcpToolConfig.id（选了哪个 CLI）。 */
 	agentPreset?: string;
+	/**
+	 * ACP 会话身份（agent 侧 sessionId）：backend=acp 且已持久化时，attach 旧会话
+	 * （session/load 恢复，agent 重放历史）而非新建。与 dshSessionId 语义平行。
+	 */
+	acpSessionId?: string;
 	/**
 	 * PiDeck 会话身份（SessionRecord.id，可能为 UUID 或会话文件路径）。
 	 * 会话级安全覆盖（SecurityStore.sessionOverrides）与 PIDECK_SESSION_ID 注入都使用这个 key；

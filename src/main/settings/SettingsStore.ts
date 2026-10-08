@@ -29,6 +29,7 @@ import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
 import { normalizeQuickMessages } from "../../shared/quickMessages";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
 import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
+import { sanitizeAcpTools } from "../acp/acpToolConfig";
 import { normalizeFontSizeMode, normalizeOptionalFontSizeMode } from "../../shared/fontSize";
 import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { getAppLogger } from "../logging/sharedLogger";
@@ -276,6 +277,8 @@ Gitmoji 对应关系：
 	// 供应商卡片自定义顺序：空数组 = 未自定义，按配置原序展示
 	providerOrder: [],
 	dshProviderOrder: [],
+	// ACP agent CLI 工具登记表：默认空（用户在设置页登记后才有 acp 会话入口）
+	acpTools: [],
 
 	// ── 扩展管理 ──
 	/** 用户手动移除的内置扩展，启动时跳过自动部署 */
@@ -514,6 +517,8 @@ export class SettingsStore {
 			this.settings.themeScheduleDarkStart = schedule.darkStart;
 			// 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
+			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
+			this.settings.acpTools = sanitizeAcpTools(parsed.acpTools);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
 			// 刻意不做迁移框架——任何不在档位表里的历史值一律落到「中」，旧用户升级后自动等于中；
 			// 同时避免 UI 下拉读到未知值时变成空白。null（跟随全局）必须保持 null。
@@ -714,6 +719,11 @@ export class SettingsStore {
 		// 仍然保留清洗，避免历史渲染层或手工改 settings.json 时把脏值写回去。
 		if ("quickMessages" in safePatch) {
 			safePatch.quickMessages = normalizeQuickMessages(safePatch.quickMessages);
+		}
+		// ACP 工具登记表来自渲染层，入参不可信：逐条过滤（字符串字段去空白/限长、
+		// args 只收字符串数组），非法条目丢弃而不是拒绝整表（单条脏数据不阻断保存）。
+		if ("acpTools" in safePatch) {
+			safePatch.acpTools = sanitizeAcpTools(safePatch.acpTools);
 		}
 		// 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
 		if ("updateSource" in safePatch) {

@@ -1085,3 +1085,11 @@ export const ipcChannels = {
 	/** 渲染层 → 主进程：设置 CUA 全局/会话开关。 */
 	cuaSetState: "cua:set-state",
 } as const;
+
+	// ===== ACP 后端（agent CLI 工具登记表） =====
+	/** ACP 工具列表（settings.acpTools 只读快照）。 */
+	acpToolsList: "acp:tools-list",
+	/** 保存整张工具表（逐条消毒；非法条目丢弃而非拒绝整表）。 */
+	acpToolsSave: "acp:tools-save",
+	/** 单条表单校验（不含落盘；渲染层新增/编辑即时反馈）。 */
+	acpToolValidate: "acp:tool-validate",

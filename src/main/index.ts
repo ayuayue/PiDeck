@@ -251,6 +251,8 @@ import { PiModelCapabilityCache, watchPiConfigDirectory } from "./pi/PiModelCapa
 // 生图消息不走 Agent 消息流，改名前需判断标题是否仍是占位名
 import { isDefaultAgentTitle } from "./pi/agentUtils";
 import { CompositeAgentGateway } from "./agents/CompositeAgentGateway";
+import { AcpAgentManager } from "./acp/AcpAgentManager";
+import { registerAcpIpc } from "./ipc/acpIpc";
 import { DshHost, resolveDshHomeDir } from "./dsh/DshHost";
 import { DshPluginInstallService } from "./dsh/DshPluginInstallService";
 import { DshRuntimeStatusService } from "./dsh/runtime/DshRuntimeStatus";
@@ -472,6 +474,7 @@ let dshRuntimeInstaller: DshRuntimeInstaller;
 let dshAgentManager: DshAgentManager;
 /** 多后端合成网关（pi + dsh + 未来后端）；启动装配后赋值，供发送链路按 agentId 路由。 */
 let compositeAgentGateway: CompositeAgentGateway | undefined;
+let acpAgentManager: AcpAgentManager;
 let configManager: ConfigManager;
 /** pi 原生资源配置服务与迁移状态（A2/A3；启动装配，IPC 复用）。 */
 let piResourceConfigService: PiResourceConfigService | undefined;
@@ -2353,6 +2356,7 @@ function registerIpc() {
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
 	registerDataEnvIpc({
 		getChannel: () => updateChannel,
+	registerAcpIpc({ settingsStore });
 		getDecisionDir: () => channelDevDataDir,
 		getActiveDirectory: () => (devDataMode === "channel-dev" ? "channel-dev" : "shared"),
 		getAppVersion: () => app.getVersion(),
@@ -2801,6 +2805,7 @@ function registerIpc() {
 				if (!entry?.dshSessionId) return undefined;
 				const project = projectStore.get(entry.projectId);
 				if (!project?.path) return undefined;
+			readAcpMessages: (acpSessionId) => acpAgentManager.readMessagesByAcpSessionId(acpSessionId),
 				return dshAgentManager.resolveSessionFilePath(project.path, entry.dshSessionId);
 			},
 			searchDshSessions: (query) => dshHost.searchSessions(query),
@@ -4647,9 +4652,34 @@ app
 		void ensureResourceMigration();
 		ensurePiResourceMigration = ensureResourceMigration;
 		agentManager.configureResourceMigrationGate(ensureResourceMigration);
-		// 多后端网关装配：pi + dsh（DSH 在窗口创建后后台预热，失败时按需重试）。
+		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试；
+		// ACP 无预热——每次 create 即 spawn 对应 CLI，工具表为空时 create 直接报错）。
 		// Coordinator 与事件桥接均面向合成器，新增后端只需追加网关实例。
-		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager]);
+		acpAgentManager = new AcpAgentManager({
+			piLocator,
+			getProject: (projectId) => projectStore.get(projectId),
+			getTools: () => settingsStore.get().acpTools ?? [],
+			// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
+			onTitleChanged: (deckSessionId, title) => {
+				const entry = sessionCatalog?.get(deckSessionId);
+				if (!entry || entry.title === title) return;
+				void sessionCatalog
+					.update(entry.id, { title })
+					.then(() => {
+						if (mainWindow && !mainWindow.isDestroyed()) {
+							mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
+						}
+					})
+					.catch((error: unknown) => {
+						void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
+					});
+			},
+			logger: appLogger,
+		});
+		quitCleanup.register("acp", async () => {
+			await acpAgentManager?.stopAll();
+		});
+		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager, acpAgentManager]);
 		sessionRuntimeCoordinator = new SessionRuntimeCoordinator(sessionCatalog, compositeAgentGateway, sendAgentPromptWithIntegrations, appLogger);
 		// catalog 外部删除清理的活性探针：预热激活后 pi 可能尚未写出会话文件，
 		// 有活跃绑定的记录不得被扫描当「外部删除」剔掉。

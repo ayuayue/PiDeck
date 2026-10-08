@@ -15,7 +15,7 @@
  * 顺序即外观设置里开关的排列顺序，与侧栏分组顺序一致（扩展集成 → 开发者工具 → 开发与维护）。
  * 常用 / 快捷键 / 通知 / 外观 / 代理 / 外部编辑器 / 开发设置 / 缓存 / 备份 是应用基础项，不提供隐藏。
  */
-export const HIDEABLE_SETTINGS_TAB_IDS = ["im", "pet", "vision", "imagegen", "web", "git", "usage", "process"] as const;
+export const HIDEABLE_SETTINGS_TAB_IDS = ["im", "pet", "vision", "imagegen", "acp", "web", "git", "usage", "process"] as const;
 
 /**
  * 全部可隐藏模块：设置 tab + `dsh`（DSH 后端不是设置 tab，它对应配置管理的 DSH 分页

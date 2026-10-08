@@ -51,7 +51,7 @@ export interface SessionCatalogGateway {
 			updatedAt?: number;
 		},
 	): Promise<SessionCatalogEntry>;
-	attachRuntime(input: { sessionId: string; filePath?: string; piSessionId?: string; dshSessionId?: string; promoteToActive?: boolean }): Promise<unknown>;
+	attachRuntime(input: { sessionId: string; filePath?: string; piSessionId?: string; dshSessionId?: string; acpSessionId?: string; agentPreset?: string; promoteToActive?: boolean }): Promise<unknown>;
 }
 
 export interface SessionAgentGateway {
@@ -1377,7 +1377,7 @@ export class SessionRuntimeCoordinator {
 			// 认领到的进程模型/扩展是 spawn 时快照：模型/思考档由下面的 applyLatestPreferences
 			// 按 catalog 最新值热补；扩展/代理等 spawn-only 输入靠 AgentManager 的指纹比对，
 			// 不一致根本不会被认领。created 保持 true：认领的进程归本次激活所有，失败清理必须能停掉它。
-			if (entry.backend !== "dsh" && !entry.filePath) {
+			if (entry.backend !== "dsh" && entry.backend !== "acp" && !entry.filePath) {
 				tab = (await this.agents.claimStandbyAgent?.({ projectId: entry.projectId, sessionId, noSession: entry.noSession }).catch(() => null)) ?? undefined;
 			}
 		}
@@ -1396,6 +1396,10 @@ export class SessionRuntimeCoordinator {
 				// DSH agent 预设（会话「模式」）：草稿期预选，新建 host 会话时随 sessions.create
 				// 应用；attach 已有会话时由 DshAgentManager 从 host list 行读回（本字段被忽略）。
 				agentPreset: entry.backend === "dsh" ? entry.agentPreset : undefined,
+				// ACP：acpSessionId 存在则 session/load 恢复旧会话；工具选择复用 agentPreset
+				// 字段（AcpToolConfig.id），草稿预选优先 acpToolId。
+				acpSessionId: entry.backend === "acp" ? entry.acpSessionId : undefined,
+				...(entry.backend === "acp" ? { agentPreset: entry.acpToolId ?? entry.agentPreset } : {}),
 				wslDistro: entry.wslDistro,
 				wslUser: entry.wslUser,
 				importedSourceId: entry.importedSourceId,
@@ -1419,6 +1423,10 @@ export class SessionRuntimeCoordinator {
 				if (tab.backend === "dsh" && tab.sessionId) {
 					await this.catalog.attachRuntime({ sessionId, dshSessionId: tab.sessionId }).catch(() => undefined);
 				}
+				// ACP 同理：agent 侧会话可能已创建，先落 acpSessionId 再停，避免重试新建孤儿。
+				if (tab.backend === "acp" && tab.sessionId) {
+					await this.catalog.attachRuntime({ sessionId, acpSessionId: tab.sessionId }).catch(() => undefined);
+				}
 				await this.agents.stop(tab.id).catch(() => undefined);
 			}
 			throw new Error(`Failed to apply session preferences: ${errorMessage(error)}`);
@@ -1437,7 +1445,7 @@ export class SessionRuntimeCoordinator {
 		await this.agents.publishRuntimeState(tab.id).catch(() => undefined);
 		// standby 补热：本次激活可能消耗了池化进程（或用户正连续开新会话），后台补一个待命。
 		// 仅 pi 后端补（dsh 无进程池概念）；ensure 自身幂等，且受 standbyRuntimeEnabled 设置闸。
-		if (entry.backend !== "dsh") this.agents.ensureStandbyAgent?.(entry.projectId);
+		if (entry.backend !== "dsh" && entry.backend !== "acp") this.agents.ensureStandbyAgent?.(entry.projectId);
 		return tab;
 	}
 
@@ -1453,7 +1461,7 @@ export class SessionRuntimeCoordinator {
 		sessionId: string,
 		tab: Pick<AgentTab, "sessionPath" | "sessionId" | "backend" | "agentPreset">,
 		entry: Pick<SessionCatalogEntry, "noSession" | "backend">,
-	): { sessionId: string; filePath?: string; piSessionId?: string; dshSessionId?: string; agentPreset?: string; promoteToActive?: boolean } | null {
+	): { sessionId: string; filePath?: string; piSessionId?: string; dshSessionId?: string; acpSessionId?: string; agentPreset?: string; promoteToActive?: boolean } | null {
 		if (entry.backend === "dsh") {
 			return tab.sessionId && !entry.noSession
 				? {
@@ -1464,6 +1472,11 @@ export class SessionRuntimeCoordinator {
 						...(tab.agentPreset ? { agentPreset: tab.agentPreset } : {}),
 					}
 				: null;
+		}
+		// ACP：只回写 acpSessionId（历史在 agent 侧，无本地文件）；agentPreset（工具 id）
+		// 回写作展示镜像。
+		if (entry.backend === "acp") {
+			return tab.sessionId && !entry.noSession ? { sessionId, acpSessionId: tab.sessionId, ...(tab.agentPreset ? { agentPreset: tab.agentPreset } : {}) } : null;
 		}
 		if (tab.sessionPath && !entry.noSession) {
 			return {
@@ -1906,7 +1919,7 @@ export class SessionRuntimeCoordinator {
 			if (!entry) {
 				throw new SessionRuntimeCommandError("SESSION_NOT_FOUND", `Session not found: ${sessionId}`);
 			}
-			if (entry.backend === "dsh" || entry.backend === "imagegen") {
+			if (entry.backend === "dsh" || entry.backend === "imagegen" || entry.backend === "acp") {
 				throw new SessionRuntimeCommandError("SESSION_COMMAND_FAILED", `backend "${entry.backend}" does not support persisted session message mutation`);
 			}
 			if (!entry.filePath) {

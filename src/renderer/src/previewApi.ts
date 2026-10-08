@@ -1523,6 +1523,12 @@ export function createPreviewApi(): PiDesktopApi {
 			webServiceStatus: async () => ({
 				running: false,
 				host: "",
+		acp: {
+			// 预览模式：无 ACP 工具数据，返回空表/恒过校验保持 PiDesktopApi 形状完整
+			listTools: async () => [],
+			saveTools: async () => [],
+			validateTool: async () => ({ ok: true as const }),
+		},
 				port: 0,
 				token: "",
 				requiresAuth: false,

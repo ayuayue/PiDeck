@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type { TokendanceAuthMode, TokendancePaymentSessionResult } from "../shared/tokendance";
+import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../shared/types/acp";
 import type { AnnouncementState } from "../shared/types/announcement";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { ModelTraceRecord } from "../shared/types/bridge";
@@ -1155,6 +1156,14 @@ const api = {
 		webRemoteAccessStart: (channel: import("../shared/types/remoteAccess").RemoteAccessChannelId) => ipcRenderer.invoke(ipcChannels.webRemoteAccessStart, channel) as Promise<{ ok: true; state: import("../shared/types/remoteAccess").RemoteAccessState } | { ok: false; error: string }>,
 		/** 停用外网访问渠道 */
 		webRemoteAccessStop: (channel: import("../shared/types/remoteAccess").RemoteAccessChannelId) => ipcRenderer.invoke(ipcChannels.webRemoteAccessStop, channel) as Promise<{ ok: true; state: import("../shared/types/remoteAccess").RemoteAccessState } | { ok: false; error: string }>,
+	acp: {
+		/** ACP agent CLI 工具登记表（settings.acpTools 只读快照）。 */
+		listTools: () => ipcRenderer.invoke(ipcChannels.acpToolsList) as Promise<AcpToolConfig[]>,
+		/** 保存整表（逐条消毒后落盘），返回服务端规范化后的表。 */
+		saveTools: (tools: AcpToolInput[]) => ipcRenderer.invoke(ipcChannels.acpToolsSave, tools) as Promise<AcpToolConfig[]>,
+		/** 单条表单校验（不落盘；渲染层即时反馈）。 */
+		validateTool: (input: AcpToolInput) => ipcRenderer.invoke(ipcChannels.acpToolValidate, input) as Promise<AcpToolValidation>,
+	},
 		/** 重新探测外网访问环境（二进制/登录态/serve 指向） */
 		webRemoteAccessRefresh: () => ipcRenderer.invoke(ipcChannels.webRemoteAccessRefresh) as Promise<import("../shared/types/remoteAccess").RemoteAccessState>,
 		/** 外网访问状态变化推送；返回退订函数 */
