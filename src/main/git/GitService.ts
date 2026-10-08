@@ -24,6 +24,19 @@ function assertFullCommitHash(hash: string): void {
 	}
 }
 
+/**
+ * diff 展示侧行尾归一化：\r\n → \n。
+ * `git show` 按仓库存储原样输出对象内容（通常 LF），而工作区文件在 Windows 上常为
+ * CRLF（autocrlf 检出转换或编辑器写入）。git 自身比较前会对工作区内容做 clean 转换，
+ * 行尾不会体现为差异；但 PiDeck 的 diff 视图拿两侧字符串直接比对，不归一化时
+ * CRLF/LF 差异会令每一行都被判为不同——未暂存修改显示成全量红绿（staged 正常
+ * 是因为两侧都读自 git 对象，天然同空间）。与 VS Code（Monaco TextModel 内部
+ * 归一化）行为对齐；仅用于展示比对，不影响任何写回路径。
+ */
+function normalizeEolForDiff(content: string): string {
+	return content.replace(/\r\n/g, "\n");
+}
+
 export class GitService {
 	/**
 	 * 统一的 git 子进程入口（spawn 语义：进程树 kill + 超时兜底 + stdin）。
@@ -345,7 +358,9 @@ export class GitService {
 				modifiedContent = resource.status === GitStatus.BOTH_DELETED ? "" : await readWorkingTree();
 			}
 			if (originalContent === null || modifiedContent === null) return null;
-			return { path: resource.path, originalContent, modifiedContent };
+			// 两侧内容分属不同行尾空间（git 对象原样输出 vs 工作区文件），返回前统一
+			// 归一化，保证 diff 视图只呈现真实内容差异（见 normalizeEolForDiff 注释）。
+			return { path: resource.path, originalContent: normalizeEolForDiff(originalContent), modifiedContent: normalizeEolForDiff(modifiedContent) };
 		} catch {
 			return null;
 		}
