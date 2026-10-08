@@ -64,6 +64,30 @@ export function isDshRuntimeVersionMismatch(declaredVersion: string | undefined,
 	return compareSemver(declaredVersion, installedVersion) !== 0;
 }
 
+/**
+ * 是否弹「runtime 不在 + 存量 dsh 会话」的一次性迁移提示（纯函数，单测覆盖）。
+ *
+ * 判定与展示解耦：渲染层只负责收集三个入参（status/catalog/settings），
+ * 产品规则集中在这里。规则：
+ * - alreadyShown 优先：闩已置位就永不重弹（否则每次重启都骚扰，#317 的原始抱怨）；
+ * - checking/installed 不弹：状态未定拿中间态会误报；runtime 好好的无迁移可言；
+ * - 没有 dsh 会话不弹：新装用户在安装引导页自然看到 DSH 入口，不需要额外交互。
+ */
+export type DshRuntimeMigrationNoticeInput = {
+	state: DshRuntimeState;
+	/** session catalog（含已扫描的存量会话）里是否存在 dsh 后端的会话。 */
+	hasDshSessions: boolean;
+	/** 设置里的已提示闩（settings.dshRuntimeMigrationNoticeShown === true）。 */
+	alreadyShown: boolean;
+};
+
+export function shouldShowDshRuntimeMigrationNotice(input: DshRuntimeMigrationNoticeInput): boolean {
+	if (input.alreadyShown) return false;
+	if (input.state === "checking" || input.state === "installed") return false;
+	if (!input.hasDshSessions) return false;
+	return true;
+}
+
 /** 状态 → DSH UI 可见性矩阵（纯函数，单测覆盖见 tests/dshRuntimeStatus.test.mjs）。 */
 export type DshUiVisibility = {
 	/** 允许新建 DSH 会话 / 把默认后端选为 dsh（仅 installed）。 */

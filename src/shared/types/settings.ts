@@ -724,6 +724,16 @@ export type AppSettings = {
 	 * 对已运行会话不变。缺省 undefined/false = 完全等同现状（不注入任何行）。
 	 */
 	dshAgentTeamPreset?: boolean;
+
+	/**
+	 * DSH runtime 迁移提示是否已展示过（一次性提示的持久化闩，#317）。
+	 *
+	 * 渲染层展示「runtime 不在 + 存量 dsh 会话」提示前读取；展示后立即写 true，
+	 * 跨重启不再重弹（否则每次启动都弹，提示变成骚扰）。缺省 undefined/false =
+	 * 还没提示过。展示即置位而非「用户点过入口」：错过 toast 的用户仍可从设置页
+	 * 的 DSH 安装引导进入，不为此保持打扰。
+	 */
+	dshRuntimeMigrationNoticeShown?: boolean;
 };
 
 /**

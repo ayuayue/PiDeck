@@ -307,6 +307,9 @@ Gitmoji 对应关系：
 	// ── DSH agent-team 实验预设：默认关（组合层完全不注入）；开启需重启 host 生效 ──
 	dshAgentTeamPreset: false,
 
+	// ── DSH runtime 迁移提示闩：默认 false（还没提示过）；展示后置位，跨重启不重弹 ──
+	dshRuntimeMigrationNoticeShown: false,
+
 	// ── Agent 启动诊断/加速：offline 默认关（保证 pi 启动时模型目录走网络刷新，
 	// 用户新增/更新的模型能实时出现在模型列表）；扩展/技能默认加载 ──
 	piRpcOffline: false,
@@ -518,6 +521,10 @@ export class SettingsStore {
 			// agent-team 实验预设开关同理：非布尔一律回落 false（默认关，脏值不得误开实验域）。
 			if (typeof this.settings.dshAgentTeamPreset !== "boolean") {
 				this.settings.dshAgentTeamPreset = false;
+			}
+			// 迁移提示闩同理：非布尔回落 false（旧 JSON 缺字段 = 还没提示过，首次启动照常提示一次）。
+			if (typeof this.settings.dshRuntimeMigrationNoticeShown !== "boolean") {
+				this.settings.dshRuntimeMigrationNoticeShown = false;
 			}
 			// 快捷键覆盖来自旧 settings.json 时可能是脏值（未知 id / 非法 accelerator）；
 			// 统一清洗，坏条目回落平台默认，避免主进程匹配读到无效键。
@@ -829,6 +836,10 @@ export class SettingsStore {
 		// agent-team 实验预设开关来自渲染层，入参不可信：只接受布尔，非法值不落盘。
 		if ("dshAgentTeamPreset" in safePatch && typeof safePatch.dshAgentTeamPreset !== "boolean") {
 			delete safePatch.dshAgentTeamPreset;
+		}
+		// 迁移提示闩同理：只接受布尔，非法值不落盘（脏 true 会永久静音提示，脏 false 会重弹）。
+		if ("dshRuntimeMigrationNoticeShown" in safePatch && typeof safePatch.dshRuntimeMigrationNoticeShown !== "boolean") {
+			delete safePatch.dshRuntimeMigrationNoticeShown;
 		}
 		this.settings = { ...this.settings, ...safePatch };
 		// 生图字段来自渲染层，非法值丢掉，避免下次请求带坏 size/watermark。
