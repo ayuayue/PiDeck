@@ -29,6 +29,11 @@ export function getWebAuthHeaders(): Record<string, string> {
 	return webToken ? { authorization: `Bearer ${webToken}` } : {};
 }
 
+/** 当前令牌（SSE 类连接用：EventSource 无法携带 Authorization header，只能拼 query）。 */
+export function getWebToken(): string | null {
+	return webToken;
+}
+
 /** 统一出口：合并鉴权头后转发给 fetch；调用方原有 headers 优先。 */
 function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 	return fetch(input, {

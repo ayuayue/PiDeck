@@ -246,6 +246,16 @@ export class WebServiceManager {
 	 *  不追踪 upgrade 后的 socket，不手动销毁会让 stop() 的 server.close() 永远等不到回调。 */
 	private readonly hijackedSockets = new Set<import("node:stream").Duplex>();
 
+	// ── /api/events 状态推送（B：替代 Web 端 1s/3s 轮询）──
+	/** 订阅者集合；写失败（连接断开）时在推送循环里剔除。 */
+	private readonly stateEventClients = new Set<{ writeRaw: (wire: string) => boolean }>();
+	/** 变化检测去抖定时器：pi 事件风暴（流式期间每秒数十条）合并成一次快照比对。 */
+	private statePushTimer: ReturnType<typeof setTimeout> | null = null;
+	/** 最近一次广播的载荷；快照与它一致则跳过推送（流式期间 state 多数字段不变）。 */
+	private lastStatePushJson: string | null = null;
+	/** 低频兑底 tick：捕捉不经 pi 事件的目录变更（桌面端改名/删除/导入）。 */
+	private stateTickTimer: ReturnType<typeof setInterval> | null = null;
+
 	constructor(private readonly deps: WebServiceDependencies) {
 		this.devRendererUrl = deps.devRendererUrl?.trim() ? deps.devRendererUrl.trim().replace(/\/$/, "") : "";
 		this.eventStreamRouter = new WebEventStreamRouter((agentId) => this.deps.getSessionIdForAgent(agentId));
@@ -289,6 +299,24 @@ export class WebServiceManager {
 	async stop() {
 		// 解绑 pi 事件源，避免服务关闭后仍在转发事件到已失效的 SSE 连接。
 		this.eventStreamRouter.unbindPiSource();
+		// /api/events：停定时器、断开全部状态订阅者（避免向已关服务的 socket 写数据）。
+		if (this.statePushTimer) {
+			clearTimeout(this.statePushTimer);
+			this.statePushTimer = null;
+		}
+		if (this.stateTickTimer) {
+			clearInterval(this.stateTickTimer);
+			this.stateTickTimer = null;
+		}
+		for (const client of this.stateEventClients) {
+			try {
+				client.writeRaw(": service stopping\n\n");
+			} catch {
+				// 连接已失效则忽略
+			}
+		}
+		this.stateEventClients.clear();
+		this.lastStatePushJson = null;
 		if (!this.server) return;
 		const server = this.server;
 		this.server = null;
@@ -322,7 +350,21 @@ export class WebServiceManager {
 
 	private async start(host: string, port: number, requiresAuth = true) {
 		// 启动时绑定 pi 事件源；路由器只在存在活跃 SSE 连接时转发，空闲时零开销。
-		this.eventStreamRouter.bindPiSource(this.deps.subscribePiEvents);
+		// 状态推送：pi 事件是 runtime 状态翻转 / ask 待确认的源头，到达时去抖比对一次快照
+		// （/api/events 订阅者从中拿到即时推送，不再依赖 Web 端轮询发现）。
+		this.eventStreamRouter.bindPiSource(
+			this.deps.subscribePiEvents
+				? (handler) => {
+						const unsubscribe = this.deps.subscribePiEvents((agentId, event) => {
+							handler(agentId, event);
+							this.scheduleStatePush();
+						});
+						return unsubscribe;
+					}
+				: undefined,
+		);
+		// 5s 兑底 tick：捕捉不经 pi 事件的目录变更（桌面端改名/删除/导入等）。
+		this.stateTickTimer = setInterval(() => this.scheduleStatePush(), 5_000);
 		const server = createServer(async (request, response) => {
 			try {
 				await this.handleRequest(request, response, host, port, server);
@@ -388,6 +430,10 @@ export class WebServiceManager {
 		// GET 与 SSE 允许 ?token= 查询参数（浏览器 EventSource 无法携带 header），其余走 Authorization: Bearer。
 		if (this.requiresAuth && url.pathname.startsWith("/api/") && !this.isAuthorized(request, url)) {
 			this.sendError(response, 401, "webError.unauthorized", "A valid web service token is required");
+			return;
+		}
+		if (url.pathname === "/api/events" && request.method === "GET") {
+			this.handleStateEvents(request, response);
 			return;
 		}
 		if (url.pathname === "/api/state") {
@@ -952,6 +998,97 @@ export class WebServiceManager {
 			runtimes,
 			pendingUiRequests: this.deps.listPendingUiRequests(),
 		};
+	}
+
+	/**
+	 * /api/events SSE：把项目/会话/运行态快照推给 Web 端，替代 1s/3s 轮询。
+	 *
+	 * 主进程没有统一的「state 变更」emitter（桌面端的推送点散落在 emitSessionRuntimeEvent
+	 * 各调用处），因此这里用「事件驱动 + 低频兑底」的变化检测：pi agent 事件（runtime
+	 * 状态翻转 / ask 待确认等的源头）到达时去抖 400ms 比对一次快照，另有 5s tick 兑底
+	 * 捕捉桌面端发起的目录变更（改名/删除/导入）。快照与上次广播一致则不推——流式期间
+	 * pi 事件高频但 state 载荷几乎不变，靠 JSON 比对免推。
+	 */
+	private handleStateEvents(request: IncomingMessage, response: ServerResponse): void {
+		response.writeHead(200, {
+			"content-type": "text/event-stream; charset=utf-8",
+			"cache-control": "no-cache, no-transform",
+			connection: "keep-alive",
+			"x-accel-buffering": "no",
+			"access-control-allow-origin": "*",
+		});
+		response.flushHeaders?.();
+
+		const client = {
+			writeRaw: (wire: string): boolean => {
+				if (response.writableEnded || response.destroyed) return false;
+				try {
+					response.write(wire);
+					return true;
+				} catch {
+					return false;
+				}
+			},
+		};
+		this.stateEventClients.add(client);
+		// 连接即推当前快照：前端订阅成功后不再需要首拉 /api/state。
+		void this.pushStateSnapshot([client], true);
+
+		// 心跳：防代理/浏览器空闲断连（与会话流同节奏）。
+		const heartbeat = setInterval(() => {
+			if (response.writableEnded || response.destroyed) {
+				cleanup();
+				return;
+			}
+			try {
+				response.write(": ping\n\n");
+			} catch {
+				cleanup();
+			}
+		}, 15_000);
+		const cleanup = () => {
+			clearInterval(heartbeat);
+			this.stateEventClients.delete(client);
+			if (!response.writableEnded) {
+				try {
+					response.end();
+				} catch {
+					// 已销毁的连接 end() 抛错可忽略
+				}
+			}
+		};
+		response.once("close", cleanup);
+		request.once("close", cleanup);
+	}
+
+	/** 去抖调度一次快照广播；已有待发定时器时静默合并（事件风暴防抖）。 */
+	private scheduleStatePush(): void {
+		if (this.statePushTimer) return;
+		this.statePushTimer = setTimeout(() => {
+			this.statePushTimer = null;
+			void this.pushStateSnapshot();
+		}, 400);
+	}
+
+	/**
+	 * 构建快照并推给目标订阅者（缺省全部）。
+	 * force=true 时无视「与上次一致」门控（新连接的初始快照必须下发）。
+	 */
+	private async pushStateSnapshot(targetClients: Array<{ writeRaw: (wire: string) => boolean }> = [...this.stateEventClients], force = false): Promise<void> {
+		if (targetClients.length === 0) return;
+		let json: string;
+		try {
+			json = serializePublicWebPayload(await this.getState());
+		} catch {
+			// 快照构建失败不广播（订阅者保留旧状态，兑底 tick / 轮询会重试）
+			return;
+		}
+		if (!force && json === this.lastStatePushJson) return;
+		this.lastStatePushJson = json;
+		const wire = `event: state\ndata: ${json}\n\n`;
+		for (const client of targetClients) {
+			if (!client.writeRaw(wire)) this.stateEventClients.delete(client);
+		}
 	}
 
 	private renderPage() {
