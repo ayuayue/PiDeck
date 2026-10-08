@@ -939,3 +939,38 @@ test("a driveless linux path without wsl context reports the actionable copy ins
 	assert.equal(interop.error, "KEY<mainPi.linuxPathOutsideWsl>");
 	// wsl:// 标记与 Windows 路径不受护栏影响——分别由 checkWslCommand / runCheck 分支的既有测试覆盖
 });
+
+test("getSearchDirs scans XDG fnm layouts and honors FNM_DIR on macOS/Linux (#318)", () => {
+	for (const platform of ["darwin", "linux"]) {
+		const root = join(tmpdir(), `pi-desktop-locator-fnm-xdg-${platform}-${process.pid}-${Date.now()}`);
+		// 现代版 fnm 的 XDG 数据目录布局（#318 用户的实际布局：~/.local/share/fnm）
+		mkdirSync(join(root, ".local", "share", "fnm", "node-versions", "v24.14.1", "installation", "bin"), { recursive: true });
+		// FNM_DIR 整体覆盖：另指一处自定义根
+		const fnmDir = join(root, "custom-fnm");
+		mkdirSync(join(fnmDir, "node-versions", "v22.0.0", "installation", "bin"), { recursive: true });
+		try {
+			const { PiLocator } = loadPiLocatorModule(platform, { FNM_DIR: fnmDir }, root);
+			const dirs = new PiLocator().getSearchDirs();
+			assert.ok(dirs.includes(join(root, ".local", "share", "fnm", "node-versions", "v24.14.1", "installation", "bin")), `${platform} should scan XDG fnm node-versions`);
+			assert.ok(dirs.includes(join(root, ".local", "share", "fnm", "current", "bin")), `${platform} should scan XDG fnm current/bin`);
+			assert.ok(dirs.includes(join(fnmDir, "node-versions", "v22.0.0", "installation", "bin")), `${platform} should honor FNM_DIR override`);
+			assert.ok(dirs.includes(join(fnmDir, "current", "bin")), `${platform} should scan FNM_DIR current/bin`);
+			// 旧版默认目录 ~/.fnm 仍要扫（向后兼容旧安装）
+			assert.ok(dirs.includes(join(root, ".fnm", "current", "bin")), `${platform} keeps scanning legacy ~/.fnm`);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}
+});
+
+test("getSearchDirs scans macOS Application Support fnm when XDG_DATA_HOME is unset", () => {
+	const root = join(tmpdir(), `pi-desktop-locator-fnm-as-${process.pid}-${Date.now()}`);
+	mkdirSync(join(root, "Library", "Application Support", "fnm", "current", "bin"), { recursive: true });
+	try {
+		const { PiLocator } = loadPiLocatorModule("darwin", { XDG_DATA_HOME: "" }, root);
+		const dirs = new PiLocator().getSearchDirs();
+		assert.ok(dirs.includes(join(root, "Library", "Application Support", "fnm", "current", "bin")), "macOS XDG data default should be scanned");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

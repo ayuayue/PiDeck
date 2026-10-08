@@ -77,6 +77,21 @@ export function readStringArray(settings: Record<string, unknown>, key: string):
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+/**
+ * 读 pi settings.json 里用户配置的包管理器命令（npmCommand，字符串数组形态，如
+ * ["pnpm", "exec", "npm"]）。包资源安装（packageResourceResolver）与扩展版本检查
+ * （ExtensionManager.npmViewVersion）共用同一份配置：GUI 启动的 PATH 找不到裸 npm 时
+ * （fnm/nvm XDG 布局、自定义安装位置），用户在这里指向可用的包装命令（#318/#263）。
+ * 未配置或形态非法（空/含非字符串项）回落 ["npm"]。
+ */
+export function readConfiguredNpmCommand(settingsFile: string): string[] {
+	const configured = readSettingsObject(settingsFile).npmCommand;
+	if (Array.isArray(configured) && configured.length > 0 && configured.every((entry) => typeof entry === "string" && entry.trim().length > 0)) {
+		return configured;
+	}
+	return ["npm"];
+}
+
 // ── ignore 规则（对齐 pi 的 addIgnoreRules / prefixIgnorePattern） ──
 
 function prefixIgnorePattern(line: string, prefix: string): string | null {

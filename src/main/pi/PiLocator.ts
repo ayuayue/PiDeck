@@ -328,6 +328,14 @@ export class PiLocator {
 		const pkg = (dir: string) => ({ dir, source: "package-manager" as const });
 		const plain = (dir: string) => ({ dir, source: "path" as const });
 		const portable = (dir: string) => ({ dir, source: "portable" as const });
+		// fnm（POSIX）：数据目录可被 FNM_DIR 整体覆盖；旧版默认 ~/.fnm，现代版按 XDG
+		// （Linux ~/.local/share/fnm、macOS ~/Library/Application Support/fnm，也尊重 XDG_DATA_HOME）。
+		// #318：fnm 装在非 ~/.fnm 布局时，GUI 启动的 PATH 拿不到这些目录，pi 反查不到、
+		// 扩展版本检查（npm view）也会全部 ENOENT。多根都扫：listChildDirs 对不存在
+		// 的目录返回空集，代价可忽略。Windows 布局（node-versions/<ver>/installation 无 bin 层）
+		// 保留在下方 win32 分支，默认目录已被覆盖，FNM_DIR 覆盖场景暂无反馈不扩。
+		const fnmRoots = [...(process.env.FNM_DIR ? [process.env.FNM_DIR] : []), join(home, ".fnm"), join(process.env.XDG_DATA_HOME || join(home, ".local", "share"), "fnm"), ...(process.platform === "darwin" ? [join(home, "Library", "Application Support", "fnm")] : [])];
+		const fnmEntries = process.platform === "win32" ? [] : fnmRoots.flatMap((root) => [plain(join(root, "current", "bin")), ...this.listChildDirs(join(root, "node-versions")).map((dir) => plain(join(dir, "installation", "bin")))]);
 		const entries = [
 			...this.pathDirs().map(plain),
 			pkg(join(appData, "npm")),
@@ -353,6 +361,7 @@ export class PiLocator {
 			pkg(join(home, ".npm-global", "bin")),
 			pkg(join(home, ".nvm", "current", "bin")),
 			...this.listChildDirs(join(home, ".nvm", "versions", "node")).map((dir) => pkg(join(dir, "bin"))),
+			...fnmEntries,
 			pkg(join(home, ".asdf", "shims")),
 			pkg(join(home, ".volta", "bin")),
 			// pi 官方安装器（install.sh；Windows 下 install.ps1 需 PI_EXPERIMENTAL=1）的启动器落点。
@@ -370,7 +379,8 @@ export class PiLocator {
 			// macOS GUI 启动（Dock/Finder）经常拿不到终端里的 Homebrew PATH。
 			// Apple Silicon 默认 /opt/homebrew，Intel 常见 /usr/local；两者都扫一遍，
 			// 避免 M4 上 pi 装在 brew 里却被桌面端判定“未安装/启动失败”。
-			...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin", join(home, ".fnm", "current", "bin"), ...this.listChildDirs(join(home, ".fnm", "node-versions")).map((dir) => join(dir, "installation", "bin"))].map(plain) : []),
+			// fnm 目录不在本分支：已由上方 fnmEntries 统一覆盖（FNM_DIR/XDG 布局）。
+			...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"].map(plain) : []),
 			// Linux 常见全局 bin，同样覆盖“桌面启动 PATH 不完整”的场景。
 			...(process.platform === "linux" ? ["/usr/local/bin", "/usr/bin"].map(plain) : []),
 			// PiDeck 自带引导装的便携 Node/pi 全局目录（<userData>/pi-runtime）：
@@ -768,9 +778,14 @@ export class PiLocator {
 						.map((line) => line.trim())
 						.find((line) => line.startsWith("/") && existsSync(line));
 					if (found) {
-						shellPiProbeCache = { path: found, at: Date.now() };
+						// fnm 这类版本管理器在交互 shell 里把 PATH 指到会话级临时软链
+						// （fnm: ~/.local/state/fnm_multishells/<id>/bin），shell 退出即被清理。
+						// 先解析成真实路径再返回：列表展示、「设为默认」、保存自定义路径拿到的
+						// 都是稳定落点，否则路径失效后 spawn pi ENOENT（#318 实测）。
+						const stable = safeRealpath(found);
+						shellPiProbeCache = { path: stable, at: Date.now() };
 						shellPiProbeInflight = undefined;
-						resolve(found);
+						resolve(stable);
 						return;
 					}
 					// 这个 shell 跑不通或没找到：换下一个（$SHELL 可能是 fish/已知路径之外的 shell）。

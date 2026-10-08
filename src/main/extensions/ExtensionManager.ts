@@ -17,6 +17,7 @@ import { compareVersions } from "../utils/versionCompare";
 import { discoverExtensionEntries } from "./extensionDiscovery";
 import { parsePiVersion } from "./extensionVersionGate";
 import { redactForReport, truncateText } from "../health/redact";
+import { readConfiguredNpmCommand } from "../resourceWhitelist";
 
 /** pi 0.70.3 introduced self-update and the packages-only --extensions flag. */
 const MIN_PI_VERSION_FOR_SELF_UPDATE = "0.70.3";
@@ -595,7 +596,10 @@ export class ExtensionManager {
 	}
 
 	private npmViewVersion(packageName: string) {
-		const invocation = this.locator.createInvocation("npm", ["view", packageName, "version"]);
+		// 复用 pi settings.json 的 npmCommand（与包资源安装同源）：裸 npm 在 GUI PATH 里找不到时
+		// （fnm/nvm XDG 布局等），用户配置的包装命令在这里同样生效（#318/#263 遗留）。
+		const configured = readConfiguredNpmCommand(join(this.homeDir, ".pi", "agent", "settings.json"));
+		const invocation = this.locator.createInvocation(configured[0], [...configured.slice(1), "view", packageName, "version"]);
 		return new Promise<string>((resolve, reject) => {
 			execFile(
 				invocation.command,
