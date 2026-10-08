@@ -1,8 +1,8 @@
 # 远程主机跨 store 事务设计（hostId 引用 × ProjectStore × SessionCatalog）
 
-> 状态：**部分落地**。依赖 Phase 1 脏文件的部分仍是 Proposed（未实现）；「不依赖 Phase 1 脏文件」的切片已实现并提交 `9d0710470` —— §4.1 注册表（`src/main/remote/RemoteHostReferenceRegistry.ts`）、§4.3 journal + tx 锁 + §5.4 收敛算法（原在 `src/main/remote/HostRebindJournal.ts`；`295877d8e` 之后 tx 锁与收敛分别落在 `src/main/remote/HostRebindTxLock.ts` / `src/main/remote/HostRebindConvergence.ts`，见 §7.4 风险 5）、§4.5 修复原语与 `diagnose`（`src/main/remote/RemoteHostRepair.ts`），以及 `RemoteHostStore.ts` 的注册表接入、无 provider fail-closed 对称化与两个 main-only 修复写入口。仍缺 §4.2 的 `HostRebindCoordinator`、§4.4 两个 store 的端口实现、§4.1 引用源的生产实现，且**尚无生产装配**：`src/main/index.ts` 不构造这些模块，唯一的 store 消费方 `SshVerifiedConnection.ts:117`、`:146` 仍是无选项的 `open(userDataDir)`。
+> 状态：**部分落地，事务门禁未完成**（代码核对基线 `d01464f0`）。引用注册表、projects/sessions 磁盘扫描、主机目录与修复已接入开发态应用；`ProjectStore`/`SessionCatalog` 已有 rebind 端口，journal、tx 锁与收敛算法也已实现。仍缺应用层 `HostRebindCoordinator`/重启收敛入口与严格跨 store 写入互斥；项目端口目前比较内存后保存，并非跨进程 CAS，引用扫描与有效快照恢复规则也尚未完整对齐。接手任务与验收见 [交接文档](remote-development-handoff.md) §3 的 C 任务包。
 >
-> 适用工作树：`feat/remote-development`，调研基线 commit `2fd646c3a`（工作树另有 114 项与本任务无关的脏改动，本文只读引用，不评价、不触碰）。
+> 适用分支：`feat/remote-development`。下文带行号的早期调研以 `2fd646c3a` 为基线，具体实现位置应按符号查找；当前实现状态以上方核对结果与对应章节更新为准。
 >
 > 关联文档：[远程开发实施计划](remote-development-plan.md) §5.2（主机配置与 rebind 约束）、[位置模型 ADR](project-location-architecture.md)。
 >
