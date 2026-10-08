@@ -157,6 +157,7 @@ import { useQuickTask } from "./hooks/useQuickTask";
 import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
 import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
+import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
 import { AppShell } from "./components/app/AppShell";
@@ -1183,6 +1184,9 @@ export function App() {
 	}, [terminalOwner, currentSessionId, currentSessionRecord, projects, activeProjectId, getRuntimeTargetForSession]);
 
 	const quickTask = useQuickTask({ ready: settingsLoaded, backend: effectiveAgentBackend, upsertSession, selectSession: selectSessionCommand, registerSession: workspaceChrome.registerOpenSession, refreshProjects, getSessionRecord });
+
+	// 桌面插件发起的会话导航：broker 已验权限/归属，这里只注入现有选中动作（复用唯一选中路径）
+	useHostPluginNavigation(selectSessionCommand);
 
 	// 关闭 Tab / 分屏退栏时的焦点切换：只改 currentSession，不碰 Tab 登记
 	useEffect(() => {

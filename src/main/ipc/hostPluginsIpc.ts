@@ -72,8 +72,13 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 		const window = getWindow();
 		if (window && !window.isDestroyed()) window.webContents.send(ipcChannels.hostPluginsChanged);
 	});
+	const unsubscribeNavigate = service.broker.onNavigate((input) => {
+		const window = getWindow();
+		if (window && !window.isDestroyed()) window.webContents.send(ipcChannels.hostPluginNavigate, input);
+	});
 	return () => {
 		unsubscribe();
+		unsubscribeNavigate();
 		for (const channel of [...channels, ipcChannels.hostPluginRequest]) ipcMain.removeHandler(channel);
 	};
 }

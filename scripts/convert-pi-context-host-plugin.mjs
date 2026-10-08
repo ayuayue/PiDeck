@@ -13,12 +13,26 @@ function replace(source, oldText, newText) {
 	return source.replace(oldText, newText);
 }
 
+/** Model rows keep a timeline entry id so "view in workbench" can jump the PiDeck timeline. */
+export function adaptPiContextModel(source) {
+	let output = source;
+	output = replace(output, "userMsgs.push({ time: e.timestamp, text: uText.slice(0, 8000), tokens: estimateTokens(uText) });", 'userMsgs.push({ time: e.timestamp, text: uText.slice(0, 8000), tokens: estimateTokens(uText), id: typeof e.id === "string" ? e.id : undefined });');
+	output = replace(output, "asstMsgs.push({ time: e.timestamp, text: aText.slice(0, 8000), tokens: estimateTokens(aText), kinds });", 'asstMsgs.push({ time: e.timestamp, text: aText.slice(0, 8000), tokens: estimateTokens(aText), kinds, id: typeof e.id === "string" ? e.id : undefined });');
+	output = replace(
+		output,
+		'toolRes.push({ time: e.timestamp, tool: m.toolName ?? "", callId: m.toolCallId ?? "", text: c.slice(0, 8000), tokens: estimateTokens(c.slice(0, 4000)) });',
+		'toolRes.push({ time: e.timestamp, tool: m.toolName ?? "", callId: m.toolCallId ?? "", text: c.slice(0, 8000), tokens: estimateTokens(c.slice(0, 4000)), id: typeof e.id === "string" ? e.id : undefined });',
+	);
+	return output;
+}
+
 /** Keep upstream presentation/interaction, replace only IO, navigation and refresh lifetime. */
 export function adaptPiContextViewer(source) {
 	let output = `import { createPiContextHost } from "./bridge.mjs";\nconst host = await createPiContextHost();\n${source}`;
 	output = replace(output, "const api = (p) => fetch(p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });", "const api = (p) => host.api(p);");
 	output = replace(output, '.replace(/>/g, "&gt;");', '.replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\'/g, "&#39;");');
 	output = replace(output, 'href="/?file=', 'href="./app.html?file=');
+	output = replace(output, '      const [k, n] = loc.dataset.loc.split(":");\n      jumpTo(k, `it-${k}-${n}`);', '      const [k, n] = loc.dataset.loc.split(":");\n      host.locate?.(file, k, Number(n));\n      jumpTo(k, `it-${k}-${n}`);');
 	output = replace(output, 'const file = new URLSearchParams(location.search).get("file");', 'let file = host.context.sessionId ?? new URLSearchParams(location.search).get("file");');
 	output = replace(output, 'document.getElementById("live").textContent = "● 每 10 秒自动刷新";', 'document.getElementById("live").textContent = host.context.locale.startsWith("zh") ? "● 历史变更自动刷新" : "● Refresh on history changes";');
 	output = replace(output, '  const renderHome = async () => {\n    if (!all) all = await api("/api/sessions");', '  const renderHome = () => host.render(async (epoch) => {\n    if (!all) all = await api("/api/sessions");\n    if (epoch !== host.revision) { all = null; return; }\n    copyStore.clear();');
@@ -113,7 +127,10 @@ export async function convertPiContext(sourceDirectory, outputDirectory) {
 	const viewer = await boundedSource(source, "viewer/public/app.js");
 	const html = await boundedSource(source, "viewer/public/app.html");
 	files.set("app.js", adaptPiContextViewer(viewer));
-	files.set("model.mjs", compileModel(await boundedSource(source, "src/model.ts")));
+	const modelSource = await boundedSource(source, "src/model.ts");
+	// 先做 import/AST 门禁再打 seam 补丁：上游引入后端依赖时，报错必须指向 import 而不是 seam 变化。
+	compileModel(modelSource);
+	files.set("model.mjs", compileModel(adaptPiContextModel(modelSource)));
 	files.set("app.html", replace(replace(replace(html, 'href="/"', 'href="./app.html"'), '<main id="app">', '<aside id="host-note" role="status"></aside>\n<main id="app">'), '<script src="app.js"></script>', '<script type="module" src="app.js"></script>'));
 	const appearance =
 		'\n/* PiDeck tokens affect this isolated page only, never host workbench CSS. */\n:root { color-scheme: dark; }\n:root[data-host-theme="light"] { color-scheme: light; }\nbody { background: var(--color-bg-app, #1a1b26); color: var(--color-text-primary, #c0caf5); }\nheader, .card, .panel, .kpic { background: var(--color-bg-panel, #24283b); border-color: var(--color-border-default, #414868); }\n#host-note { padding: 10px 16px; border-bottom: 1px solid var(--color-border-default, #414868); font-size: 12px; overflow-wrap: anywhere; }\n';
@@ -130,7 +147,7 @@ export async function convertPiContext(sourceDirectory, outputDirectory) {
 				name: "pi-context",
 				version: `${pkg.version}-pideck.1`,
 				description: "Local pi-context viewer adaptation. Historical estimates only; no pi runtime or HTTP server.",
-				permissions: ["sessions.read"],
+				permissions: ["sessions.read", "workbench.navigate"],
 				contributes: { panels: [{ id: "context", title: "Context viewer", entry: "app.html" }], commands: [{ id: "context.open", title: "Open context viewer", panelId: "context" }] },
 			},
 			null,

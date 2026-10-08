@@ -109,14 +109,48 @@ test("pi-context adapter rejects mixed file revisions instead of publishing a mi
 	await assert.rejects(data.snapshot("history"), /history-changed/);
 });
 
+test("pi-context locate maps viewer rows onto timeline entries via workbench.navigate", async () => {
+	const navigated = [];
+	const api = {
+		sessions: {
+			entries: async () => ({
+				entries: [
+					{ id: "m1", timestamp: "2026-01-01" },
+					{ id: "m2", timestamp: "2026-01-02" },
+				],
+				version: "v1",
+				nextCursor: null,
+				truncated: false,
+			}),
+		},
+		workbench: { navigate: async (sessionId, entryId) => void navigated.push([sessionId, entryId]) },
+	};
+	const data = new PiContextData(api, async (entries) => ({ ...snapshot(entries), userMsgs: [{ text: "first", id: "m2" }], asstMsgs: [{ text: "reply", id: undefined }] }), context, noWait);
+	await data.locate("history", "user", 0);
+	assert.deepEqual(navigated, [["history", "m2"]]);
+	// 无 entry id（旧模型或非消息行）与未知 kind 都不得触发导航，也不得静默导航到错误目标。
+	await assert.rejects(data.locate("history", "asst", 0), /entry-not-navigable/);
+	await assert.rejects(data.locate("history", "unknown", 0), /entry-not-navigable/);
+	assert.deepEqual(navigated, [["history", "m2"]]);
+});
+
 // A tiny synthetic upstream fixture exercises the converter seams without vendoring downloaded source.
 const viewer = `const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const api = (p) => fetch(p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
 const card = '<a href="/?file=id">';
+function jumpTo() {}
 async function boot() {
   const app = document.getElementById("app");
   const file = new URLSearchParams(location.search).get("file");
   document.getElementById("live").textContent = "● 每 10 秒自动刷新";
+  app.addEventListener("click", async (e) => {
+    const loc = e.target.closest("[data-loc]");
+    if (loc) {
+      const [k, n] = loc.dataset.loc.split(":");
+      jumpTo(k, \x60it-\x24{k}-\x24{n}\x60);
+      return;
+    }
+  });
   let all = null;
   const renderHome = async () => {
     if (!all) all = await api("/api/sessions");
@@ -141,11 +175,35 @@ async function boot() {
 }
 boot();
 `;
+const modelSource = `
+const CHARS_PER_TOKEN = 4;
+export function estimateTokens(text: string) { return Math.ceil(text.length / CHARS_PER_TOKEN); }
+export function buildSnapshot(entries: any[]) {
+  const userMsgs: any[] = [];
+  const asstMsgs: any[] = [];
+  const toolRes: any[] = [];
+  for (const e of entries) {
+    const m = e.message;
+    if (m.role === "user") {
+      const uText = String(m.content ?? "");
+      userMsgs.push({ time: e.timestamp, text: uText.slice(0, 8000), tokens: estimateTokens(uText) });
+    } else if (m.role === "assistant") {
+      const aText = String(m.content ?? "");
+      const kinds: string[] = [];
+      asstMsgs.push({ time: e.timestamp, text: aText.slice(0, 8000), tokens: estimateTokens(aText), kinds });
+    } else if (m.role === "toolResult") {
+      const c = String(m.content ?? "");
+      toolRes.push({ time: e.timestamp, tool: m.toolName ?? "", callId: m.toolCallId ?? "", text: c.slice(0, 8000), tokens: estimateTokens(c.slice(0, 4000)) });
+    }
+  }
+  return { count: entries.length, userMsgs, asstMsgs, toolRes };
+}
+`;
 async function sourceAt(source) {
 	await mkdir(join(source, "viewer", "public"), { recursive: true });
 	await mkdir(join(source, "src"));
 	await writeFile(join(source, "package.json"), JSON.stringify({ name: "pi-context", version: "0.1.0" }));
-	await writeFile(join(source, "src", "model.ts"), "export function buildSnapshot(entries: unknown[]) { return { count: entries.length }; }");
+	await writeFile(join(source, "src", "model.ts"), modelSource);
 	await writeFile(join(source, "viewer", "public", "app.js"), viewer);
 	await writeFile(join(source, "viewer", "public", "styles.css"), "body{color:#fff}");
 	await writeFile(join(source, "viewer", "public", "app.html"), '<!doctype html><header><a href="/">Home</a></header><main id="app"></main><script src="app.js"></script>');
@@ -162,13 +220,16 @@ test("pi-context conversion creates a browser-only consent package without execu
 		assert.equal(await convertPiContext(source, output), output);
 		const plugin = await readHostPluginPackage(output);
 		assert.equal(plugin.manifest.id, "pi-context");
+		assert.deepEqual([...plugin.manifest.permissions], ["sessions.read", "workbench.navigate"]);
 		assert.deepEqual([...plugin.assets.keys()].sort(), ["NOTICE", "app.html", "app.js", "bridge.mjs", "data.mjs", "model.mjs", "pideck-plugin.json", "styles.css", "worker.mjs"].sort());
 		const code = await readFile(join(output, "app.js"), "utf8");
 		assert.ok(!code.includes("fetch(p)") && !code.includes("setInterval("));
 		assert.ok(code.includes("host.onChange") && code.includes("&quot;"));
+		assert.ok(code.includes("host.locate?.(file, k, Number(n))"));
 		assert.equal(await readFile(join(output, "NOTICE"), "utf8"), "Original attribution retained");
 		const model = await import(pathToFileURL(join(output, "model.mjs")));
-		assert.deepEqual(model.buildSnapshot([{}]), { count: 1 });
+		assert.deepEqual(model.buildSnapshot([{ id: "m1", timestamp: 0, message: { role: "user", content: "hi" } }]).userMsgs[0], { time: 0, text: "hi", tokens: 1, id: "m1" });
+		assert.equal(model.buildSnapshot([{ id: "x", timestamp: 0, message: { role: "other" } }]).count, 1);
 		await assert.rejects(convertPiContext(source, output), /EEXIST/);
 		assert.equal(await readFile(join(output, "app.js"), "utf8"), code);
 		await assert.rejects(convertPiContext(source, join(source, "plugin")), /outside/);

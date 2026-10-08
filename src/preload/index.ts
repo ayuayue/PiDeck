@@ -223,6 +223,7 @@ const hostPlugins: HostPluginDesktopApi = {
 	update: (id, context, bounds, visible) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, id, context, bounds, visible),
 	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),
 	onChanged: (callback) => subscribe(ipcChannels.hostPluginsChanged, callback),
+	onNavigate: (callback) => subscribe(ipcChannels.hostPluginNavigate, callback),
 };
 
 const api = {

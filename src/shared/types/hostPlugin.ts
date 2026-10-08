@@ -1,5 +1,5 @@
 /** PiDeck-owned browser plugins. This API never proxies pi SDK or runtime commands. */
-export type HostPluginPermission = "sessions.read";
+export type HostPluginPermission = "sessions.read" | "workbench.navigate";
 export type HostPluginManifest = {
 	schemaVersion: 1;
 	apiVersion: 1;
@@ -52,11 +52,18 @@ export type HostPluginEntriesPage = {
 	truncated: boolean;
 };
 export type HostPluginEvent = { type: "context.changed"; context: HostPluginContext } | { type: "sessions.changed" };
-export type HostPluginRequest = { method: "context.get" } | { method: "sessions.list"; offset?: number } | { method: "sessions.entries"; sessionId: string; cursor?: HostPluginEntryCursor } | { method: "storage.get"; key: string } | { method: "storage.set"; key: string; value: unknown };
+export type HostPluginRequest =
+	| { method: "context.get" }
+	| { method: "sessions.list"; offset?: number }
+	| { method: "sessions.entries"; sessionId: string; cursor?: HostPluginEntryCursor }
+	| { method: "storage.get"; key: string }
+	| { method: "storage.set"; key: string; value: unknown }
+	| { method: "workbench.navigate"; sessionId: string; entryId?: string };
 export type HostPluginResponse = HostPluginResult<unknown>;
 export type HostPluginBounds = { x: number; y: number; width: number; height: number };
 export type HostPluginMountInput = { pluginId: string; panelId: string; context: HostPluginContext; bounds: HostPluginBounds };
 export type HostPluginMount = { instanceId: string };
+export type HostPluginNavigateInput = { projectId: string; sessionId: string; entryId?: string };
 /** Management methods are available only to the trusted desktop renderer, never to plugin pages. */
 export type HostPluginDesktopApi = {
 	list: () => Promise<HostPluginResult<HostPluginCatalog>>;
@@ -67,6 +74,8 @@ export type HostPluginDesktopApi = {
 	update: (instanceId: string, context: HostPluginContext, bounds: HostPluginBounds, visible: boolean) => Promise<HostPluginResult<void>>;
 	unmount: (instanceId: string) => Promise<HostPluginResult<void>>;
 	onChanged: (listener: () => void) => () => void;
+	/** Plugin-initiated navigation is dispatched by the desktop frame, never executed in the plugin view. */
+	onNavigate: (listener: (input: HostPluginNavigateInput) => void) => () => void;
 };
 
 /** The only object exposed to a plugin page by its dedicated preload. */
@@ -78,5 +87,6 @@ export type HostPluginApi = {
 		entries: (sessionId: string, cursor?: HostPluginEntryCursor) => Promise<HostPluginEntriesPage>;
 	};
 	storage: { get: (key: string) => Promise<unknown>; set: (key: string, value: unknown) => Promise<void> };
+	workbench: { navigate: (sessionId: string, entryId?: string) => Promise<void> };
 	onEvent: (listener: (event: HostPluginEvent) => void) => () => void;
 };

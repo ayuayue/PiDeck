@@ -78,5 +78,7 @@ export async function createPiContextHost() {
 			if (url.pathname === "/api/snapshot") return data.snapshot(url.searchParams.get("file"));
 			throw new Error("unsupported-method");
 		},
+		// 导航失败不打断 viewer 内部跳转；权限缺失时 broker 会拒绝，这里只吞错误。
+		locate(id, kind, index) { data.locate(id, kind, index).catch(() => undefined); },
 	};
 }

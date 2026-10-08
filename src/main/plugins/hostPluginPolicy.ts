@@ -65,5 +65,10 @@ export function parsePluginRequest(value: unknown): HostPluginRequest {
 		if (!json || json.length > 64 * 1024) throw new Error("invalid-request");
 		return { method: value.method, key: value.key, value: value.value };
 	}
+	if (value.method === "workbench.navigate") {
+		if (typeof value.sessionId !== "string" || value.sessionId.length < 1 || value.sessionId.length > 160) throw new Error("invalid-request");
+		if (value.entryId !== undefined && (typeof value.entryId !== "string" || value.entryId.length < 1 || value.entryId.length > 160 || /[\u0000-\u001f]/.test(value.entryId))) throw new Error("invalid-request");
+		return { method: value.method, sessionId: value.sessionId, entryId: value.entryId === undefined ? undefined : value.entryId };
+	}
 	throw new Error("unsupported-method");
 }

@@ -21,7 +21,9 @@ test.beforeAll(async () => {
 	await mkdir(directory, { recursive: true });
 	await writeFile(join(directory, "pideck-plugin.json"), JSON.stringify({ schemaVersion: 1, apiVersion: 1, id: "fixture.viewer", name: "Fixture", version: "1.0.0", permissions: ["sessions.read"], contributes: { panels: [{ id: "viewer", title: "Viewer", entry: "app.html" }], commands: [] } }));
 	await writeFile(join(directory, "app.html"), '<!doctype html><html><body><pre id="result">starting</pre><script type="module" src="app.mjs"></script></body></html>');
-	await writeFile(join(directory, "app.mjs"), `try {
+	await writeFile(
+		join(directory, "app.mjs"),
+		`try {
 		const host = window.pideck;
 		const context = await host.context.get();
 		const sessions = await host.sessions.list();
@@ -30,23 +32,38 @@ test.beforeAll(async () => {
 		const value = await new Promise((resolve) => { worker.onmessage = ({ data }) => resolve(data); worker.postMessage("hello"); });
 		worker.terminate();
 		document.getElementById("result").textContent = JSON.stringify({ context, sessions, history, value, node: typeof window.require, desktop: typeof window.piDesktop });
-	} catch (error) { document.getElementById("result").textContent = "failed:" + error.message; }`);
+	} catch (error) { document.getElementById("result").textContent = "failed:" + error.message; }`,
+	);
 	await writeFile(join(directory, "worker.mjs"), 'self.onmessage = ({ data }) => self.postMessage("worker:" + data);');
-	await writeFile(join(root, "session.jsonl"), [
-		{ type: "session", id: "header", timestamp: "2026-01-01T00:00:00Z" },
-		{ type: "message", id: "user", parentId: null, timestamp: "2026-01-01T00:00:01Z", message: { role: "user", content: "Saved, no pi runtime" } },
-	].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+	await writeFile(
+		join(root, "session.jsonl"),
+		[
+			{ type: "session", id: "header", timestamp: "2026-01-01T00:00:00Z" },
+			{ type: "message", id: "user", parentId: null, timestamp: "2026-01-01T00:00:01Z", message: { role: "user", content: "Saved, no pi runtime" } },
+		]
+			.map((entry) => JSON.stringify(entry))
+			.join("\n") + "\n",
+	);
 	const env = { ...process.env };
 	delete env.ELECTRON_RUN_AS_NODE;
 	delete env.ELECTRON_RENDERER_URL;
 	app = await electron.launch({ args: [join(root, "main.cjs"), root, join(root, "preload", "hostPlugin.js")], env, timeout: 15_000 });
 	await expect.poll(() => app.evaluate(() => "hostPluginFixture" in globalThis)).toBe(true);
-	const created = new Promise<Page>((done) => app.on("window", (window) => { if (window.url().startsWith("pideck-plugin:")) done(window); }));
-	await app.evaluate(async () => { await Reflect.get(globalThis, "hostPluginFixture").mount(); });
+	const created = new Promise<Page>((done) =>
+		app.on("window", (window) => {
+			if (window.url().startsWith("pideck-plugin:")) done(window);
+		}),
+	);
+	await app.evaluate(async () => {
+		await Reflect.get(globalThis, "hostPluginFixture").mount();
+	});
 	guest = await created;
 });
 
-test.afterAll(async () => { await app?.close(); if (root) await rm(root, { recursive: true, force: true }); });
+test.afterAll(async () => {
+	await app?.close();
+	if (root) await rm(root, { recursive: true, force: true });
+});
 
 test("real sandbox preload reads saved history and supports module Workers without exposing Node", async () => {
 	await expect(guest.locator("#result")).toContainText("worker:hello");
@@ -62,22 +79,38 @@ test("guest network, external navigation, popups and cross-project reads are den
 	const before = guest.url();
 	const result = await guest.evaluate(async () => {
 		let network = false;
-		try { await fetch("https://example.invalid/"); network = true; } catch { /* denied */ }
+		try {
+			await fetch("https://example.invalid/");
+			network = true;
+		} catch {
+			/* denied */
+		}
 		return { network, popup: window.open("https://example.invalid/") === null };
 	});
 	expect(result).toEqual({ network: false, popup: true });
-	await guest.evaluate(() => { location.href = "https://example.invalid/"; });
+	await guest.evaluate(() => {
+		location.href = "https://example.invalid/";
+	});
 	await expect.poll(() => guest.url()).toBe(before);
-	await app.evaluate(() => { Reflect.get(globalThis, "hostPluginFixture").update("project-b"); });
+	await app.evaluate(() => {
+		Reflect.get(globalThis, "hostPluginFixture").update("project-b");
+	});
 	const denial = await guest.evaluate(async () => {
 		const api = Reflect.get(window, "pideck");
-		try { await api.sessions.entries("history"); return "allowed"; } catch (error) { return error instanceof Error ? error.message : "error"; }
+		try {
+			await api.sessions.entries("history");
+			return "allowed";
+		} catch (error) {
+			return error instanceof Error ? error.message : "error";
+		}
 	});
 	expect(denial).toBe("session-not-authorized");
 });
 
 test("disabling an approved package destroys its guest and leaves the host running", async () => {
-	await app.evaluate(async () => { await Reflect.get(globalThis, "hostPluginFixture").disable(); });
+	await app.evaluate(async () => {
+		await Reflect.get(globalThis, "hostPluginFixture").disable();
+	});
 	await expect.poll(() => guest.isClosed()).toBe(true);
 	expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
 });

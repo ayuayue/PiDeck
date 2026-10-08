@@ -30,7 +30,7 @@
 }
 ```
 
-- `permissions` 目前仅支持 `sessions.read` 与 `storage`；未知权限直接拒绝加载。
+- `permissions` 目前支持 `sessions.read`、`workbench.navigate` 与 `storage`（storage 无需声明，见下）；未知权限直接拒绝加载。
 - 资产上限：单文件 4 MiB、整包 16 MiB、100 个文件、目录深度 8；禁止符号链接。
 - 面板入口必须是包内相对路径（拒绝 `../` 逃逸），资产只允许 html/js/mjs/css/json/svg/png/jpg/webp/woff2。
 
@@ -54,6 +54,12 @@
 - **跨项目隔离**：会话 id 必须属于当前项目；fork 祖先链每一跳都按 catalog 重新授权，跨项目祖先自动降级为单文件读（绝不合并外部项目消息）。
 - **资源预算**：单次请求（含祖先链全部文件）扫描上限 64 MiB / 10 万条，超限抛稳定错误码 `history-too-large`；索引内存不保留超长 compaction summary（分页读原始字节不受影响）。
 - 插件索引使用单槽缓存（只随最后访问的会话 bounded），与桌面历史的 LRU 隔离。
+
+## 工作台导航（`workbench.navigate`）
+
+- `pideck.workbench.navigate(sessionId, entryId?)`：让 PiDeck 选中该会话并滚动到指定时间线条目（`entryId` 可省略，省略时落到底部）。
+- Broker 门禁与 `sessions.entries` 同源：目标会话必须属于当前项目，否则 `session-not-authorized`；导航事件不携带任何插件数据。
+- pi-context viewer 的「在浏览器中查看」按钮即走此链路：转换器给模型行补 `id`，桥接层 `host.locate` 反查快照行 → `navigate`。
 
 ## 存储（`storage`）
 

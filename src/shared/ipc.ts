@@ -915,6 +915,8 @@ export const ipcChannels = {
 	hostPluginsChanged: "host-plugins:changed",
 	hostPluginRequest: "host-plugin:request",
 	hostPluginEvent: "host-plugin:event",
+	/** 插件发起的会话导航：broker 校验后推给桌面渲染层执行，插件页自身无权打开会话 */
+	hostPluginNavigate: "host-plugin:navigate",
 	pluginDevStatus: "plugin-dev:status",
 	/** 把 AI 插件开发指南写入用户扩展目录并在资源管理器定位 */
 	pluginDevWriteGuide: "plugin-dev:write-guide",

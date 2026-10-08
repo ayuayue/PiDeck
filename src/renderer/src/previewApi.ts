@@ -274,6 +274,17 @@ export function createPreviewApi(): PiDesktopApi {
 		return tab;
 	};
 	return {
+		hostPlugins: {
+			list: async () => ({ ok: false, code: "desktop-only" }),
+			rescan: async () => ({ ok: false, code: "desktop-only" }),
+			setEnabled: async () => ({ ok: false, code: "desktop-only" }),
+			openDirectory: async () => ({ ok: false, code: "desktop-only" }),
+			mount: async () => ({ ok: false, code: "desktop-only" }),
+			update: async () => ({ ok: false, code: "desktop-only" }),
+			unmount: async () => ({ ok: false, code: "desktop-only" }),
+			onChanged: () => () => undefined,
+			onNavigate: () => () => undefined,
+		},
 		clipboard: clipboardStub,
 		// 资源管理器右键菜单预览桩：预览环境无注册表操作，一律报不支持
 		quickTask: { getState: async () => ({ active: false, requestId: 0 }), onChanged: () => () => undefined, exit: async () => undefined, switchToMiniOverlay: async () => undefined },
@@ -1513,6 +1524,12 @@ export function createPreviewApi(): PiDesktopApi {
 			detail: async () => null,
 			install: async (slug) => ({ success: true, slug, installDir: "", message: "Preview install" }),
 		},
+		acp: {
+			// 预览模式：无 ACP 工具数据，返回空表/恒过校验保持 PiDesktopApi 形状完整
+			listTools: async () => [],
+			saveTools: async () => [],
+			validateTool: async () => ({ ok: true as const }),
+		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({ ...previewSettings }),
 			update: async (patch): Promise<AppSettings> => {
@@ -1523,12 +1540,6 @@ export function createPreviewApi(): PiDesktopApi {
 			webServiceStatus: async () => ({
 				running: false,
 				host: "",
-		acp: {
-			// 预览模式：无 ACP 工具数据，返回空表/恒过校验保持 PiDesktopApi 形状完整
-			listTools: async () => [],
-			saveTools: async () => [],
-			validateTool: async () => ({ ok: true as const }),
-		},
 				port: 0,
 				token: "",
 				requiresAuth: false,

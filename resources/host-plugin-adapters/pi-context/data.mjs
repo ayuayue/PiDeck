@@ -139,4 +139,13 @@ export class PiContextData {
 		this.check(epoch);
 		return result;
 	}
+
+	/** Viewer "view in workbench" buttons: resolve a snapshot row back to its timeline entry id. */
+	async locate(id, kind, index) {
+		const snapshot = await this.snapshot(id);
+		const list = kind === "user" ? snapshot.userMsgs : kind === "asst" ? snapshot.asstMsgs : kind === "toolres" ? snapshot.toolRes : [];
+		const entryId = Array.isArray(list) ? list[index]?.id : undefined;
+		if (typeof entryId !== "string" || !entryId) throw new Error("entry-not-navigable");
+		await this.api.workbench.navigate(id, entryId);
+	}
 }

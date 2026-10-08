@@ -49,9 +49,13 @@ export class HostPluginSessions {
 	 * 绝不把其他项目的消息合并进本项目的插件响应。
 	 */
 	private authorizeAncestor(projectId: string, hostPath: string): boolean {
-		return this.catalog
-			.listEntries()
-			.some((entry) => entry.projectId === projectId && !entry.noSession && this.path(entry) === hostPath);
+		return this.catalog.listEntries().some((entry) => entry.projectId === projectId && !entry.noSession && this.path(entry) === hostPath);
+	}
+
+	/** Navigate targets obey the same ownership rule as reads: current project, readable session. */
+	navigable(context: HostPluginContext, id: string): boolean {
+		const entry = this.catalog.get(id);
+		return Boolean(entry && context.projectId && entry.projectId === context.projectId && !entry.noSession && this.path(entry));
 	}
 
 	async entries(context: HostPluginContext, id: string, cursor?: HostPluginEntryCursor): Promise<HostPluginEntriesPage> {

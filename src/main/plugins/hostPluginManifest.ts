@@ -1,5 +1,5 @@
 /** Validates the small, browser-only v1 plugin contract; unknown capabilities fail closed. */
-import type { HostPluginManifest } from "../../shared/types/hostPlugin";
+import type { HostPluginManifest, HostPluginPermission } from "../../shared/types/hostPlugin";
 
 export function isPluginRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -17,11 +17,14 @@ function label(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0 && value.length <= 160 && !/[\u0000-\u001f]/.test(value);
 }
 
+const HOST_PLUGIN_PERMISSIONS = new Set<string>(["sessions.read", "workbench.navigate"]);
+const isHostPluginPermission = (value: unknown): value is HostPluginPermission => typeof value === "string" && HOST_PLUGIN_PERMISSIONS.has(value);
+
 /** Returns a newly constructed manifest instead of trusting properties from JSON. */
 export function parseHostPluginManifest(value: unknown): HostPluginManifest {
 	if (!isPluginRecord(value) || value.schemaVersion !== 1 || value.apiVersion !== 1 || !isHostPluginId(value.id) || !label(value.name) || !label(value.version)) throw new Error("invalid-manifest");
 	if (value.description !== undefined && (typeof value.description !== "string" || value.description.length > 1000)) throw new Error("invalid-manifest");
-	if (!Array.isArray(value.permissions) || value.permissions.some((permission) => permission !== "sessions.read") || new Set(value.permissions).size !== value.permissions.length) throw new Error("unsupported-permission");
+	if (!Array.isArray(value.permissions) || !value.permissions.every(isHostPluginPermission) || new Set(value.permissions).size !== value.permissions.length) throw new Error("unsupported-permission");
 	const contributes = value.contributes;
 	if (!isPluginRecord(contributes) || !Array.isArray(contributes.panels) || contributes.panels.length < 1 || contributes.panels.length > 8 || !Array.isArray(contributes.commands) || contributes.commands.length > 16) throw new Error("invalid-contributions");
 	const panels = contributes.panels.map((panel) => {
@@ -34,5 +37,5 @@ export function parseHostPluginManifest(value: unknown): HostPluginManifest {
 		return { id: command.id, title: command.title, panelId: command.panelId };
 	});
 	if (new Set(commands.map((command) => command.id)).size !== commands.length) throw new Error("duplicate-command");
-	return { schemaVersion: 1, apiVersion: 1, id: value.id, name: value.name, version: value.version, description: value.description, permissions: value.permissions.length ? ["sessions.read"] : [], contributes: { panels, commands } };
+	return { schemaVersion: 1, apiVersion: 1, id: value.id, name: value.name, version: value.version, description: value.description, permissions: value.permissions.filter(isHostPluginPermission), contributes: { panels, commands } };
 }

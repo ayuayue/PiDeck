@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { useStore } from "jotai";
-import { CircleStop, Fingerprint, RefreshCw, RotateCw, Settings2, SquarePen } from "lucide-react";
+import { useAtomValue, useStore } from "jotai";
+import { CircleStop, Fingerprint, Puzzle, RefreshCw, RotateCw, Settings2, SquarePen } from "lucide-react";
 import { buildSettingsCommands, type PaletteCommand } from "../../utils/commandPaletteCommands";
 import { markCommandPaletteOnboardingSeen } from "../../components/overlays/CommandPaletteOnboarding";
 import { openSettingsAtom } from "../../atoms/app-ui-atoms";
+import { hostPluginCatalogAtom, hostPluginPanelAtom } from "../../atoms/host-plugin-atoms";
 import { copyTextWithCopiedNotice } from "../../utils/clipboardNotice";
 import { desktopApi as api } from "../../desktopApi";
 import { t } from "../../i18n";
@@ -24,6 +25,7 @@ export interface CommandPaletteActions {
  */
 export function useCommandPalette({ activeProjectId, currentSessionId, activeAgentId, hiddenModules, actions }: { activeProjectId: string | undefined; currentSessionId: string | undefined; activeAgentId: string | undefined; hiddenModules: string[]; actions: CommandPaletteActions }) {
 	const store = useStore();
+	const { catalog: pluginCatalog } = useAtomValue(hostPluginCatalogAtom);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
 	// 打开命令面板的唯一入口：顺手记下「用户已经知道这个功能了」，
@@ -119,6 +121,19 @@ export function useCommandPalette({ activeProjectId, currentSessionId, activeAge
 			});
 		}
 
+		for (const plugin of pluginCatalog?.plugins ?? []) {
+			if (!plugin.enabled) continue;
+			for (const command of plugin.manifest.contributes.commands)
+				commands.push({
+					id: `host-plugin:${plugin.manifest.id}:${command.id}`,
+					group: t("hostPlugins.title"),
+					title: command.title,
+					subtitle: plugin.manifest.name,
+					keywords: [plugin.manifest.id, plugin.manifest.name],
+					icon: Puzzle,
+					run: () => store.set(hostPluginPanelAtom, { pluginId: plugin.manifest.id, panelId: command.panelId }),
+				});
+		}
 		commands.push(...buildSettingsCommands((target) => store.set(openSettingsAtom, target), hiddenModules));
 		return commands;
 	})();

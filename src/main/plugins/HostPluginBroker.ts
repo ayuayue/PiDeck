@@ -15,8 +15,11 @@ type Binding = {
 	windowAt: number;
 };
 
+export type HostPluginNavigateSink = (input: { projectId: string; sessionId: string; entryId?: string }) => void;
+
 export class HostPluginBroker {
 	private readonly bindings = new Map<number, Binding>();
+	private readonly navigateSinks = new Set<HostPluginNavigateSink>();
 	constructor(
 		private readonly manager: HostPluginManager,
 		private readonly sessions: HostPluginSessions,
@@ -36,6 +39,12 @@ export class HostPluginBroker {
 
 	unbind(senderId: number): void {
 		this.bindings.delete(senderId);
+	}
+
+	/** The desktop frame owns execution; the broker only forwards validated, permission-checked navigation. */
+	onNavigate(sink: HostPluginNavigateSink): () => void {
+		this.navigateSinks.add(sink);
+		return () => this.navigateSinks.delete(sink);
 	}
 
 	private authorized(senderId: number, binding: Binding, generation: number): boolean {
@@ -59,6 +68,7 @@ export class HostPluginBroker {
 			const plugin = this.manager.getEnabled(binding.pluginId);
 			if (!plugin) throw new Error("plugin-revoked");
 			if (request.method.startsWith("sessions.") && !plugin.manifest.permissions.includes("sessions.read")) throw new Error("permission-denied");
+			if (request.method.startsWith("workbench.") && !plugin.manifest.permissions.includes("workbench.navigate")) throw new Error("permission-denied");
 			let value: unknown;
 			switch (request.method) {
 				case "context.get":
@@ -77,6 +87,15 @@ export class HostPluginBroker {
 					await this.storage.set(binding.pluginId, request.key, request.value, () => this.authorized(senderId, binding, generation));
 					value = null;
 					break;
+				case "workbench.navigate": {
+					// Navigation acts on the workbench, not on plugin data: ownership gate mirrors sessions.entries.
+					const projectId = binding.context.projectId;
+					if (!projectId || !this.sessions.navigable(binding.context, request.sessionId)) throw new Error("session-not-authorized");
+					const target = { projectId, sessionId: request.sessionId, entryId: request.entryId };
+					if (this.authorized(senderId, binding, generation)) for (const sink of this.navigateSinks) sink(target);
+					value = null;
+					break;
+				}
 			}
 			return this.authorized(senderId, binding, generation) ? { ok: true, value } : { ok: false, code: "plugin-revoked" };
 		} catch (error) {

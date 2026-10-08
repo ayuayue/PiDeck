@@ -157,9 +157,15 @@ test("host plugin storage aborts rename retry after revocation and never replace
 	})("src/main/plugins/HostPluginStorage.ts");
 	const storage = new HostPluginStorage("C:/fake/storage");
 	// 授权在首次 rename 尝试后即被撤销（模拟退避窗口内禁用）。
-	await assert.rejects(storage.set("viewer.one", "layout", { mode: "dna" }, () => renames.length === 0), /plugin-revoked/);
+	await assert.rejects(
+		storage.set("viewer.one", "layout", { mode: "dna" }, () => renames.length === 0),
+		/plugin-revoked/,
+	);
 	assert.equal(renames.length, 1, "first rename attempt happened, retry was cut short by revocation");
-	assert.ok(writes.every((path) => String(path).endsWith(".tmp")), "only the temporary file was ever written");
+	assert.ok(
+		writes.every((path) => String(path).endsWith(".tmp")),
+		"only the temporary file was ever written",
+	);
 });
 
 function brokerFixture(permissions = ["sessions.read"]) {
@@ -195,6 +201,35 @@ test("host plugin broker discards in-flight results on scope switch and disable"
 		assert.equal((await result).code, "plugin-revoked");
 		broker.dispose();
 	}
+});
+
+test("host plugin broker gates workbench navigation by permission and project ownership", async () => {
+	const navigated = [];
+	const make = (permissions) => {
+		const broker = new HostPluginBroker(
+			{ getEnabled: () => ({ manifest: manifest(permissions), fingerprint: "f" }) },
+			{ list: () => ({ sessions: [], nextOffset: null }), entries: async () => ({ entries: [], nextCursor: null, truncated: false }), navigable: (context, id) => context.projectId === "project-a" && id === "history" },
+			{ get: () => null, set: async () => undefined },
+		);
+		broker.bind(10, "example.viewer", "f", { projectId: "project-a", locale: "en-US", theme: "dark" });
+		return broker;
+	};
+	const denied = make(["sessions.read"]);
+	assert.equal((await denied.request(10, true, { method: "workbench.navigate", sessionId: "history", entryId: "m1" })).code, "permission-denied");
+	denied.dispose();
+	const allowed = make(["sessions.read", "workbench.navigate"]);
+	allowed.onNavigate((target) => void navigated.push(target));
+	assert.equal((await allowed.request(10, true, { method: "workbench.navigate", sessionId: "foreign", entryId: "m1" })).code, "session-not-authorized");
+	assert.ok((await allowed.request(10, true, { method: "workbench.navigate", sessionId: "history", entryId: "m1" })).ok);
+	assert.ok((await allowed.request(10, true, { method: "workbench.navigate", sessionId: "history" })).ok);
+	assert.equal(
+		JSON.stringify(navigated),
+		JSON.stringify([
+			{ projectId: "project-a", sessionId: "history", entryId: "m1" },
+			{ projectId: "project-a", sessionId: "history", entryId: undefined },
+		]),
+	);
+	allowed.dispose();
 });
 
 test("host plugin broker limits concurrent requests", async () => {
@@ -278,19 +313,10 @@ test("host plugin fork ancestors are merged only when they belong to the same pr
 	try {
 		const parentPath = join(root, "parent.jsonl");
 		const childPath = join(root, "child.jsonl");
-		await writeFile(
-			parentPath,
-			[
-				JSON.stringify({ id: "pheader", type: "session", timestamp: "2026-01-01T00:00:00Z", cwd: "/p" }),
-				JSON.stringify({ id: "pmsg", type: "message", parentId: null, timestamp: "2026-01-01T00:00:01Z", message: { role: "user", content: "parent message" } }),
-			].join("\n") + "\n",
-		);
+		await writeFile(parentPath, [JSON.stringify({ id: "pheader", type: "session", timestamp: "2026-01-01T00:00:00Z", cwd: "/p" }), JSON.stringify({ id: "pmsg", type: "message", parentId: null, timestamp: "2026-01-01T00:00:01Z", message: { role: "user", content: "parent message" } })].join("\n") + "\n");
 		await writeFile(
 			childPath,
-			[
-				JSON.stringify({ id: "cheader", type: "session", parentSession: parentPath, timestamp: "2026-01-01T00:01:00Z", cwd: "/p" }),
-				JSON.stringify({ id: "cmsg", type: "message", parentId: null, timestamp: "2026-01-01T00:01:01Z", message: { role: "user", content: "child message" } }),
-			].join("\n") + "\n",
+			[JSON.stringify({ id: "cheader", type: "session", parentSession: parentPath, timestamp: "2026-01-01T00:01:00Z", cwd: "/p" }), JSON.stringify({ id: "cmsg", type: "message", parentId: null, timestamp: "2026-01-01T00:01:01Z", message: { role: "user", content: "child message" } })].join("\n") + "\n",
 		);
 		const child = { id: "child", projectId: "project-a", filePath: childPath, environment: "native", title: "Child", createdAt: 1, updatedAt: 2 };
 		const parent = (projectId) => ({ id: "parent", projectId, filePath: parentPath, environment: "native", title: "Parent", createdAt: 1, updatedAt: 2 });

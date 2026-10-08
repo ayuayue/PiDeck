@@ -18,6 +18,7 @@ const api: HostPluginApi = {
 		entries: (sessionId, cursor) => request({ method: "sessions.entries", sessionId, cursor }),
 	},
 	storage: { get: (key) => request({ method: "storage.get", key }), set: (key, value) => request({ method: "storage.set", key, value }) },
+	workbench: { navigate: (sessionId, entryId) => request<void>({ method: "workbench.navigate", sessionId, entryId }) },
 	onEvent: (listener) => {
 		const handler = (_event: Electron.IpcRendererEvent, event: HostPluginEvent) => listener(event);
 		ipcRenderer.on(ipcChannels.hostPluginEvent, handler);
