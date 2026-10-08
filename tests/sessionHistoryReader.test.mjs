@@ -1040,9 +1040,12 @@ test("分页结果携带 context_edit 汇总：原始历史仍完整下发，另
 		const reader = createRoleAwareReader((path) => path);
 
 		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
-		// 原文完整保留（不因编辑而从历史消失）
-		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "a1:a1", "q2:u2", "a2:a2"]));
+		// 被移出的消息仍照原样出现（原文未丢）；被改写的那条显示**改写后的内容**，
+		// 否则用户刚做完编辑会以为「编辑没生效」。原文放进 meta 供查看。
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "a1:a1", "rewritten q2:u2", "a2:a2"]));
 		assert.deepEqual(JSON.parse(JSON.stringify(page.contextEdits)), { excludedEntryIds: ["a1"], replacedEntryIds: ["u2"] });
+		const replacedMessage = page.messages.find((message) => message.meta?.entryId === "u2");
+		assert.equal(replacedMessage.meta?.contextEditOriginalText, "q2", "改写前的原文必须随消息下发，供界面「查看原文」");
 		// 消息级标记：渲染层据此出「已移出上下文 / 上下文已改写」徐章，
 		// 而不是把消息隐藏（隐藏会让用户以为费用也跟着回了）。
 		const flags = Object.fromEntries(page.messages.map((message) => [message.meta?.entryId, message.meta?.contextEdit]));

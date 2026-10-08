@@ -38,6 +38,15 @@ export type SessionContextEditsSummary = {
 };
 
 /**
+ * context_edit 汇总的内部结果：除页面契约需要的两个 id 列表外，
+ * 额外带上「改写后的文本」供展示层替换正文（页面契约不包含它）。
+ */
+export type SessionContextEditsDetail = SessionContextEditsSummary & {
+	/** targetId → 最终生效的替换文本（仅替换类编辑且能提取出文本时存在）。 */
+	replacementText: ReadonlyMap<string, string>;
+};
+
+/**
  * context_edit 汇总所需的最小结构（离线 Viewer 的 inline 条目只建了这几个字段，
  * 用结构子集而非 SessionDisplayEntry，避免为汇总把索引字段都补齐）。
  */
@@ -45,6 +54,8 @@ type ContextEditSourceEntry = {
 	type?: string;
 	contextEditTargetId?: string;
 	contextEditExcludes?: boolean;
+	/** 改写后的可见文本（仅替换类编辑；建索引时从 replacement.content 提取）。 */
+	contextEditText?: string;
 };
 
 /**
@@ -56,18 +67,37 @@ type ContextEditSourceEntry = {
  * 为何只算「活动分支」而不先做压缩裁剪：这里回答的是「用户在这条分支上做过哪些操作」，
  * 而压缩裁不裁剪属于「模型最后看到什么」。两者混为一谈会让已被摘要替代的编辑凭空消失。
  */
-export function collectSessionContextEdits(activeBranch: readonly ContextEditSourceEntry[]): SessionContextEditsSummary {
-	const finalByTarget = new Map<string, boolean>();
+export function collectSessionContextEdits(activeBranch: readonly ContextEditSourceEntry[]): SessionContextEditsDetail {
+	const finalByTarget = new Map<string, { excluded: boolean; text?: string }>();
 	for (const entry of activeBranch) {
 		if (entry.type !== "context_edit" || !entry.contextEditTargetId) continue;
-		finalByTarget.set(entry.contextEditTargetId, entry.contextEditExcludes === true);
+		const state: { excluded: boolean; text?: string } = { excluded: entry.contextEditExcludes === true };
+		if (entry.contextEditText !== undefined) state.text = entry.contextEditText;
+		finalByTarget.set(entry.contextEditTargetId, state);
 	}
 	const excludedEntryIds: string[] = [];
 	const replacedEntryIds: string[] = [];
-	for (const [targetId, excluded] of finalByTarget) {
-		(excluded ? excludedEntryIds : replacedEntryIds).push(targetId);
+	const replacementText = new Map<string, string>();
+	for (const [targetId, state] of finalByTarget) {
+		if (state.excluded) {
+			excludedEntryIds.push(targetId);
+			continue;
+		}
+		replacedEntryIds.push(targetId);
+		if (state.text !== undefined) replacementText.set(targetId, state.text);
 	}
-	return { excludedEntryIds, replacedEntryIds };
+	return { excludedEntryIds, replacedEntryIds, replacementText };
+}
+
+/**
+ * 索引内的编辑汇总 → 页面契约（只含两个 id 列表）。
+ *
+ * 为什么裁掉 replacementText：改写后的正文已经写进对应消息的 text，
+ * 再用一份 targetId → 文本的映射跨 IPC 传一遍是重复数据（大会话上是白白的序列化开销），
+ * 而且渲染层拿到两份正文就该有「以哪份为准」的问题。
+ */
+function toPageContextEdits(detail: SessionContextEditsDetail): SessionContextEditsSummary {
+	return { excludedEntryIds: detail.excludedEntryIds, replacedEntryIds: detail.replacedEntryIds };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -77,6 +107,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readString(record: Record<string, unknown> | undefined, key: string): string | undefined {
 	const value = record?.[key];
 	return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * 从 context_edit 的 replacement.content 内容块里取可见文本（与 pi 的 content
+ * 结构一致：`{type:"text", text}` 块）。
+ * 无 text 块时返回 undefined：调用方回退到显示原文 + 标记，而不是显示空正文。
+ */
+function contextEditTextOf(content: readonly unknown[]): string | undefined {
+	const parts: string[] = [];
+	for (const block of content) {
+		if (!block || typeof block !== "object" || Array.isArray(block)) continue;
+		const record = block as Record<string, unknown>;
+		if (record.type === "text" && typeof record.text === "string") parts.push(record.text);
+	}
+	return parts.length > 0 ? parts.join("") : undefined;
 }
 
 /** 内部记账类 customType 前缀：这些 type:"custom" 条目是 PiDeck / pi-subagents / pi 内置 codemode 的运行
@@ -156,12 +201,16 @@ type SessionDisplayEntry = {
 	/** fork 链合并索引中，本条目 offset 所属的文件（祖先条目非宿主文件）。 */
 	chainHostPath?: string;
 	/**
-	 * context_edit 条目的编辑目标（pi 原生「从模型上下文移除/改写」记录）。
-	 * 只存 targetId 与「是否为排除」：replacement 正文可能很大，展示侧不需要它，
-	 * 避免建索引时把整段正文读进内存（大会话上这是内存红线）。
+	 * context_edit 条目的编辑目标与替换文本。
+	 *
+	 * 为何要存改写文本：编辑后时间线必须显示用户刚写的新内容（否则一次编辑看起来
+	 * 什么都没发生）。原文仍在文件里，展示层把它放进 meta 供查看。
+	 * 注释、代码、大段正文都是用户手写的，体积远小于一次完整会话；
+	 * 真正的内存红线是「为建索引把每条消息正文都读进来」，这里不是那条路。
 	 */
 	contextEditTargetId?: string;
 	contextEditExcludes?: boolean;
+	contextEditText?: string;
 };
 
 type SessionDisplayIndex = {
@@ -177,8 +226,8 @@ type SessionDisplayIndex = {
 	activeMessageEntries: SessionDisplayEntry[];
 	/** 活动分支模型与思考档位；与索引一起生成，避免历史页读取后再次扫描摘要 */
 	metadata: SessionHistoryMetadata;
-	/** 活动分支上生效的 context_edit（pi 原生移除/改写记录）汇总。 */
-	contextEdits: SessionContextEditsSummary;
+	/** 活动分支上生效的 context_edit（pi 原生移除/改写记录）汇总（含改写文本，供展示替换正文）。 */
+	contextEdits: SessionContextEditsDetail;
 	/** 构建时文件是否以完整行（\n）结尾：false 时禁止增量追加（旧最后一行可能被拼接污染） */
 	endsWithNewline: boolean;
 	/**
@@ -854,7 +903,7 @@ export class SessionHistoryReader {
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
 				indexVersion: `${index.mtimeMs}:${index.size}`,
-				contextEdits: index.contextEdits,
+				contextEdits: toPageContextEdits(index.contextEdits),
 				...index.metadata,
 			};
 		}
@@ -875,7 +924,7 @@ export class SessionHistoryReader {
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
 			indexVersion: `${index.mtimeMs}:${index.size}`,
-			contextEdits: index.contextEdits,
+			contextEdits: toPageContextEdits(index.contextEdits),
 			...index.metadata,
 		};
 	}
@@ -1126,16 +1175,20 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * 给消息打上「已生效的上下文编辑」标记（纯展示元数据，不改变正文）。
+	 * 给消息打上「已生效的上下文编辑」标记（展示元数据；改写的正文按新内容展示）。
 	 *
-	 * 为什么必须标记而不是隐藏：`context_edit` 只改变模型之后读取的上下文，
-	 * 原文、已产生的 token/费用、已写入摘要的事实都不回滚。把消息藏起来会让用户
-	 * 误以为删除等于「彻底忘掉 / 省钱」，而真实情况是「下次请求不再带着它」。
-	 * UI 据此提示「已移出上下文」（原文仍可查）。
+	 * 两种状态的展示语义不同：
+	 * - excluded：正文仍是原文（只是不再送入模型），标记「已移出上下文」；
+	 * - replaced：正文换成用户改写后的内容（否则刚做的编辑看起来没生效），
+	 *   原文放进 `meta.contextEditOriginalText` 供随时查看。
+	 *
+	 * 为何不隐藏被移出的消息：`context_edit` 只改变模型之后读取的上下文，
+	 * 已产生的 token/费用与已写入摘要的事实都不回滚。藏起来会让用户误以为
+	 * 「删除＝彻底忘掉 / 省钱」。
 	 *
 	 * 只对带 entryId 的消息标记：实时乐观消息 / 无 entryId 的系统卡片不参与。
 	 */
-	private stampContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsSummary): ChatMessage[] {
+	private stampContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
 		if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
 		const excluded = new Set(contextEdits.excludedEntryIds);
 		const replaced = new Set(contextEdits.replacedEntryIds);
@@ -1143,8 +1196,16 @@ export class SessionHistoryReader {
 			const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
 			if (!entryId) return message;
 			if (excluded.has(entryId)) return { ...message, meta: { ...message.meta, contextEdit: "excluded" as const } };
-			if (replaced.has(entryId)) return { ...message, meta: { ...message.meta, contextEdit: "replaced" as const } };
-			return message;
+			if (!replaced.has(entryId)) return message;
+			const replacementText = contextEdits.replacementText.get(entryId);
+			// 替换内容里没有可见文本块（如图片、工具块）：不改正文，只出标记，
+			// 否则会把一条有内容的回答显示成空。
+			if (replacementText === undefined) return { ...message, meta: { ...message.meta, contextEdit: "replaced" as const } };
+			return {
+				...message,
+				text: replacementText,
+				meta: { ...message.meta, contextEdit: "replaced" as const, ...(message.text ? { contextEditOriginalText: message.text } : {}) },
+			};
 		});
 	}
 
@@ -1259,10 +1320,13 @@ export class SessionHistoryReader {
 		const raw = await this.readIndexedSessionMessages(index.hostPath, [entry]);
 		const content = (raw[0] as { content?: unknown } | undefined)?.content;
 		const extracted = extractResendContent(content);
+		// 编辑后的消息：显示/回填用的是有效文本（context_edit 的替换内容），不是文件里的原文。
+		// 否则「编辑→再编辑」会把原文当成当前值回填，用户看到自己的上一次修改消失了。
+		const replacement = index.contextEdits.replacementText.get(entry.id);
 		return {
 			entryId: entry.id,
 			role: entry.role,
-			text: extracted.text,
+			text: replacement !== undefined ? replacement : extracted.text,
 			...(extracted.images?.length ? { images: extracted.images } : {}),
 		};
 	}
@@ -1468,6 +1532,17 @@ export class SessionHistoryReader {
 			const isContextEdit = type === "context_edit";
 			const contextEditTargetId = isContextEdit ? (readString(parsed, "targetId") ?? readString(data, "targetId")) : undefined;
 			const contextEditExcludes = isContextEdit && "replacement" in parsed && parsed.replacement === null ? true : undefined;
+			// 替换文本：replacement.content 可能是字符串或内容块数组；只取可见文本，
+			// 内容块数组里的图片等其它块在时间线上仍按原文展示（模型侧由 pi 投影）。
+			const contextEditText =
+				isContextEdit && contextEditExcludes !== true
+					? (() => {
+							const replacement = isRecord(parsed.replacement) ? parsed.replacement : undefined;
+							const content = replacement?.content;
+							if (typeof content === "string") return content;
+							return Array.isArray(content) ? contextEditTextOf(content) : undefined;
+						})()
+					: undefined;
 			const modelChangeProvider = type === "model_change" ? (readString(parsed, "provider") ?? readString(data, "provider")) : undefined;
 			const modelChangeId = type === "model_change" ? (readString(parsed, "modelId") ?? readString(data, "modelId")) : undefined;
 			const thinkingLevel = type === "thinking_level_change" ? (readString(parsed, "thinkingLevel") ?? readString(data, "thinkingLevel")) : undefined;
@@ -1513,6 +1588,7 @@ export class SessionHistoryReader {
 				parentSession: type === "session" ? (readString(parsed, "parentSession") ?? undefined) : undefined,
 				...(contextEditTargetId ? { contextEditTargetId } : {}),
 				...(contextEditExcludes !== undefined ? { contextEditExcludes } : {}),
+				...(contextEditText !== undefined ? { contextEditText } : {}),
 			};
 		} catch {
 			return null;
