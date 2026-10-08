@@ -4,6 +4,11 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+
+// 简体/繁体判定是真实实现（不是桩），与主进程共用同一份规则
+const { isTraditionalChineseLanguageTag } = loadTsCommonJs(`${process.cwd()}/src/shared/types/settings.ts`);
+
 function transpile(path) {
 	return ts.transpileModule(readFileSync(path, "utf8"), {
 		compilerOptions: {
@@ -26,13 +31,26 @@ function loadModule(path, imports = {}) {
 	return sandbox.exports;
 }
 
-const i18n = loadModule("src/main/feishu/FeishuI18n.ts");
+// 繁体词典由 zh-CN 源生成（scripts/genZhTwCopy.mjs），生成文件只 import type，可独立加载后注入。
+const { feishuZhTW } = loadModule("src/main/feishu/FeishuI18n.zh-TW.ts");
+const i18n = loadModule("src/main/feishu/FeishuI18n.ts", {
+	"./FeishuI18n.zh-TW": { feishuZhTW },
+	"../../shared/types/settings": { isTraditionalChineseLanguageTag },
+});
 
 test("Feishu copy defaults to zh-CN and supports en-US interpolation", () => {
 	assert.equal(i18n.normalizeFeishuLocale(undefined), "zh-CN");
 	assert.equal(i18n.normalizeFeishuLocale("en-GB"), "en-US");
 	assert.equal(i18n.feishuT("zh-CN", "model.switched", { model: "openai/gpt-4o" }), "✅ 已切换模型为: openai/gpt-4o");
 	assert.equal(i18n.feishuT("en-US", "model.switched", { model: "openai/gpt-4o" }), "✅ Switched model to: openai/gpt-4o");
+});
+
+test("Feishu copy supports Traditional Chinese without touching the Feishu API language field", () => {
+	assert.equal(i18n.normalizeFeishuLocale("zh-TW"), "zh-TW");
+	assert.equal(i18n.normalizeFeishuLocale("zh_Hant_TW"), "zh-TW");
+	// 飞书富文本 API 只认 zh/en，繁体沿用 zh 而不是新值
+	assert.equal(i18n.feishuLanguage("zh-TW"), "zh");
+	assert.equal(i18n.feishuT("zh-TW", "model.switched", { model: "openai/gpt-4o" }), "✅ 已切換模型為: openai/gpt-4o");
 });
 
 test("model picker localizes packaging without changing model identifiers", () => {

@@ -1272,7 +1272,8 @@ export class WebServiceManager {
 	</div>
 	<script>
 		const dictionaries = ${serializeWebClientDictionaries()};
-		const locale = /^zh(?:-|$)/i.test(navigator.languages?.[0] || navigator.language || "") ? "zh-CN" : "en-US";
+		const clientTag = (navigator.languages?.[0] || navigator.language || "").replace(/_/g, "-").toLowerCase();
+		const locale = clientTag.startsWith("zh") ? (/hant|zh-(tw|hk|mo)/.test(clientTag) ? "zh-TW" : "zh-CN") : "en-US";
 		const copy = dictionaries[locale] || dictionaries["en-US"];
 		// messagesBySession 现在是纯客户端缓存：/api/state 不再携带全量消息（P0 轮询瘦身），
 		// 切会话/轮询时按需拉 /messages/page。

@@ -1,4 +1,7 @@
-export type FeishuLocale = "zh-CN" | "en-US";
+import { isTraditionalChineseLanguageTag } from "../../shared/types/settings";
+import { feishuZhTW } from "./FeishuI18n.zh-TW";
+
+export type FeishuLocale = "zh-CN" | "zh-TW" | "en-US";
 
 type TranslationParams = Record<string, string | number>;
 
@@ -248,14 +251,22 @@ const enUS: Record<FeishuTranslationKey, string> = {
 
 export function normalizeFeishuLocale(locale: unknown): FeishuLocale {
 	if (typeof locale !== "string") return "zh-CN";
-	return locale.toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
+	const normalized = locale.trim();
+	if (normalized.toLowerCase().startsWith("en")) return "en-US";
+	return isTraditionalChineseLanguageTag(normalized) ? "zh-TW" : "zh-CN";
 }
 
 export function feishuLanguage(locale: FeishuLocale): "zh" | "en" {
 	return locale === "en-US" ? "en" : "zh";
 }
 
+const feishuDictionaries: Record<FeishuLocale, Record<FeishuTranslationKey, string>> = {
+	"zh-CN": zhCN,
+	"zh-TW": feishuZhTW,
+	"en-US": enUS,
+};
+
 export function feishuT(locale: FeishuLocale, key: FeishuTranslationKey, params: TranslationParams = {}): string {
-	const template = (locale === "en-US" ? enUS : zhCN)[key];
+	const template = feishuDictionaries[locale][key];
 	return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name: string) => (Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match));
 }

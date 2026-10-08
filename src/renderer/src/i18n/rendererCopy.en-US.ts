@@ -4289,6 +4289,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.language": "Language",
 	"settings.languageSystem": "System",
 	"settings.languageZh": "简体中文",
+	"settings.languageZhTW": "繁體中文",
 	"settings.languageEn": "English",
 	"settings.sessionTabOpenMode": "Session tab open mode",
 	"settings.autoSessionTitle": "Generate session titles automatically",

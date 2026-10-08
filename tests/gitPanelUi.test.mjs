@@ -131,8 +131,8 @@ describe("Git panel VS Code Source Control contract", () => {
 		assert.match(preload, /preferredSystemLanguages/);
 		assert.match(app, /api\.app\s*\.preferredSystemLanguages\(\)/);
 		assert.match(i18n, /navigator\.languages\?\.\[0\]/);
-		assert.match(i18n, /mode === "zh-CN" \|\| mode === "en-US" \|\| mode === "pseudo"/);
-		assert.match(i18n, /normalized === "zh" \|\| normalized\.startsWith\("zh-"\)/);
+		assert.match(i18n, /mode === "zh-CN" \|\| mode === "zh-TW" \|\| mode === "en-US" \|\| mode === "pseudo"/);
+		assert.match(i18n, /isTraditionalChineseLanguageTag\s*\(normalized\)\s*\?\s*"zh-TW"\s*:\s*"zh-CN"/);
 	});
 
 	test("aligns the commit-log IPC boundary with allBranches filtering", () => {

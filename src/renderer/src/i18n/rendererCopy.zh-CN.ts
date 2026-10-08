@@ -4276,6 +4276,7 @@ export const zhCN = {
 	"settings.language": "语言",
 	"settings.languageSystem": "跟随系统",
 	"settings.languageZh": "简体中文",
+	"settings.languageZhTW": "繁體中文",
 	"settings.languageEn": "English",
 	"settings.sessionTabOpenMode": "会话 Tab 打开方式",
 	"settings.autoSessionTitle": "自动生成会话标题",

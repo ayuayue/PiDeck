@@ -24,7 +24,17 @@ export type LogoStyle = "classic" | "pi-tui";
 export function resolveLogoStyle(value: string | null | undefined): LogoStyle {
 	return value === "classic" ? "classic" : "pi-tui";
 }
-export type AppLanguageMode = "system" | "zh-CN" | "en-US" | "pseudo";
+export type AppLanguageMode = "system" | "zh-CN" | "zh-TW" | "en-US" | "pseudo";
+
+/**
+ * 判断语言标签是否属于繁体中文（zh-TW / zh-HK / zh-MO 与 zh-Hant-*）。
+ * 主进程与渲染层共用同一份判定：大小写与下划线都要归一，因为「system」模式下拿到的
+ * 既可能是 Electron 的 app.getLocale()（zh-TW）也可能是浏览器的 navigator.language（zh-Hant-TW）。
+ */
+export function isTraditionalChineseLanguageTag(language: string): boolean {
+	const normalized = language.trim().replace(/_/g, "-").toLowerCase();
+	return normalized.includes("hant") || /^zh-(tw|hk|mo)\b/.test(normalized);
+}
 export type LinkOpenMode = "external" | "internal";
 
 /** 主进程枚举出的可用于手机访问 Web 服务的局域网入口。 */

@@ -37,6 +37,7 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
 	const languageOptions: SelectOption[] = [
 		{ value: "system", label: t("settings.languageSystem") },
 		{ value: "zh-CN", label: t("settings.languageZh") },
+		{ value: "zh-TW", label: t("settings.languageZhTW") },
 		{ value: "en-US", label: t("settings.languageEn") },
 		{ value: "pseudo", label: t("settings.languagePseudo") },
 	];
