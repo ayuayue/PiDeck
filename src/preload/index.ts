@@ -219,6 +219,7 @@ const hostPlugins: HostPluginDesktopApi = {
 	rescan: () => ipcRenderer.invoke(ipcChannels.hostPluginsRescan),
 	setEnabled: (id, enabled, fingerprint) => ipcRenderer.invoke(ipcChannels.hostPluginsSetEnabled, id, enabled, fingerprint),
 	openDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsOpenDirectory),
+	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
 	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
 	update: (id, context, bounds, visible) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, id, context, bounds, visible),
 	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),

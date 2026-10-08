@@ -34,6 +34,7 @@ export function registerAcpIpc(deps: { settingsStore: SettingsStore }): void {
 				name: record.name,
 				command: record.command,
 				args: record.args,
+				env: record.env,
 			},
 			settingsStore.get().acpTools ?? [],
 		);

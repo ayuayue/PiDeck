@@ -107,7 +107,7 @@ function harness(t, cliOptions, depsExtra = {}) {
 		unsubscribe();
 		void manager.stopAll();
 	});
-	const createAgent = async () => manager.create({ projectId: "p1", title: "t", deckSessionId: "deck-1", backend: "acp", agentPreset: "gemini" });
+	const createAgent = async (preset = "gemini") => manager.create({ projectId: "p1", title: "t", deckSessionId: "deck-1", backend: "acp", agentPreset: preset });
 	const lastProc = () => procs[procs.length - 1];
 	return { manager, events, spawnCalls, createAgent, procs, lastProc };
 }
@@ -130,6 +130,7 @@ test("握手:initialize → session/new;工具命令与项目 cwd 传给 spawn",
 	assert.equal(spawnCalls[0].command, "gemini");
 	assert.deepEqual(spawnCalls[0].args, ["--experimental-acp"]);
 	assert.ok(spawnCalls[0].options.cwd.endsWith("proj-p1"));
+
 	const state = await manager.getRuntimeState(tab.id);
 	assert.equal(state.provider, "acp");
 	assert.equal(state.modelName, TOOL.name);
@@ -448,4 +449,22 @@ test("图片物化:未注入 imageStore 时保持 data 形态(降级不断链)",
 	}, "user image echoed");
 	const flushed = events.messages.at(-1);
 	assert.equal(flushed.messages.find((message) => message.role === "user").images[0].data, "inline");
+});
+
+test("create merges tool-level env over base process env", async (t) => {
+	const { spawnCalls, createAgent } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: false } };
+				if (frame.method === "session/new") return { sessionId: "sess-env", title: "env" };
+				return {};
+			},
+		},
+		{ getTools: () => [{ id: "codex", name: "Codex", command: "codex-acp", args: [], env: { ZAI_CODING_KEY: "sk-tool", LANG: "zh-CN" }, enabled: true }] },
+	);
+	await createAgent("codex");
+	// 工具级 env 必须传进 spawn(基础 env 为空对象,合并后应只含工具键)
+	assert.equal(spawnCalls[0].options.env.ZAI_CODING_KEY, "sk-tool");
+	assert.equal(spawnCalls[0].options.env.LANG, "zh-CN");
 });

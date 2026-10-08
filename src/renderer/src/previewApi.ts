@@ -279,6 +279,7 @@ export function createPreviewApi(): PiDesktopApi {
 			rescan: async () => ({ ok: false, code: "desktop-only" }),
 			setEnabled: async () => ({ ok: false, code: "desktop-only" }),
 			openDirectory: async () => ({ ok: false, code: "desktop-only" }),
+			install: async () => ({ ok: false, code: "desktop-only" }),
 			mount: async () => ({ ok: false, code: "desktop-only" }),
 			update: async () => ({ ok: false, code: "desktop-only" }),
 			unmount: async () => ({ ok: false, code: "desktop-only" }),

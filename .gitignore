@@ -115,3 +115,5 @@ resources/dsh-runner-node/node.exe
 resources/dsh-runner-node/node
 dist-runtime/dsh-runner-node/
 *.log
+# 官网「宿主插件开发指南」页：由 .vitepress/sharedGuideDocs.ts 从 docs/host-plugin-dev-guide.md 生成（构建产物，勿手改）
+docs-site/guide/host-plugins.md

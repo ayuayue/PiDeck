@@ -76,3 +76,32 @@ test("createAcpToolId is unique-ish across calls", () => {
 	const ids = new Set(Array.from({ length: 50 }, () => createAcpToolId()));
 	assert.equal(ids.size, 50);
 });
+
+test("sanitizeAcpTools keeps only well-formed env entries (valid key names, bounded values)", () => {
+	const tools = sanitizeAcpTools([
+		{
+			id: "t",
+			name: "n",
+			command: "c",
+			env: {
+				ZAI_CODING_KEY: "sk-abc123",
+				"bad-key": "dropped",
+				"9START": "dropped",
+				EMPTY: "",
+				CTRL: "va\u0007lue",
+				NOT_STRING: 42,
+			},
+		},
+	]);
+	assert.equal(tools.length, 1);
+	// 合法键名 + 合法值才保留;空值/控制字符/非字符串/非法键名一律丢弃
+	assert.equal(JSON.stringify(tools[0].env), JSON.stringify({ ZAI_CODING_KEY: "sk-abc123" }));
+	// 无 env 字段或消毒后为空 → 不产出空对象
+	assert.equal(sanitizeAcpTools([{ id: "t2", name: "n2", command: "c", env: { "1bad": "x" } }])[0].env, undefined);
+});
+
+test("validateAcpTool carries env into the normalized tool", () => {
+	const result = validateAcpTool({ name: "Codex", command: "codex-acp", args: [], env: { ZAI_CODING_KEY: "sk-xyz" } });
+	assert.equal(result.ok, true);
+	assert.equal(JSON.stringify(result.tool.env), JSON.stringify({ ZAI_CODING_KEY: "sk-xyz" }));
+});

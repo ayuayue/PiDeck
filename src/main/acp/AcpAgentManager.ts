@@ -172,7 +172,9 @@ export class AcpAgentManager implements SessionAgentGateway {
 		const cwd = project.path;
 
 		const invocation = this.deps.piLocator.createInvocation(tool.command, tool.args);
-		const env = this.deps.piLocator.createProcessEnv();
+		// 工具级 env(如 codex-acp 的 ZAI_CODING_KEY)叠加在基础进程 env 之上;
+		// 值可能含密钥,绝不进日志。
+		const env = { ...this.deps.piLocator.createProcessEnv(), ...(tool.env ?? {}) };
 		this.deps.logger?.info("acp", "Spawning ACP agent", { tool: tool.name, command: invocation.command, args: invocation.args });
 		// ACP 规范:client 透传 stdio 的其余输出(日志走 stderr);windowsHide 对齐全项目惯例。
 		const proc = spawn(invocation.command, invocation.args, { cwd, stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell, env, windowsHide: true });

@@ -12,6 +12,8 @@ const NAME_MAX_CHARS = 80;
 const COMMAND_MAX_CHARS = 300;
 const ARGS_LIMIT = 32;
 const TOOLS_LIMIT = 32;
+const ENV_LIMIT = 16;
+const ENV_VALUE_MAX_CHARS = 2000;
 
 function cleanString(value: unknown, maxChars: number): string | undefined {
 	if (typeof value !== "string") return undefined;
@@ -22,14 +24,31 @@ function cleanString(value: unknown, maxChars: number): string | undefined {
 	return trimmed;
 }
 
+/** env 注入消毒:键必须是合法环境变量名,值限非控制字符文本(API key 等);失败条目丢弃。 */
+function sanitizeEnv(value: unknown): Record<string, string> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const env: Record<string, string> = {};
+	let count = 0;
+	for (const [rawKey, rawVal] of Object.entries(value as Record<string, unknown>)) {
+		if (count >= ENV_LIMIT) break;
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rawKey)) continue;
+		if (typeof rawVal !== "string" || !rawVal || rawVal.length > ENV_VALUE_MAX_CHARS) continue;
+		if (/[\u0000-\u001f\u007f]/.test(rawVal)) continue;
+		env[rawKey] = rawVal;
+		count += 1;
+	}
+	return count > 0 ? env : undefined;
+}
+
 /**
  * 新建/编辑单条工具的表单校验:返回 ok=false 时 reasonKey 供渲染层本地化。
  * duplicateAgainst 用于查重(编辑时排除自身 id)。
  */
-export function validateAcpTool(input: { id?: string; name?: unknown; command?: unknown; args?: unknown }, existing: AcpToolConfig[] = []): AcpToolValidation & { tool?: AcpToolConfig } {
+export function validateAcpTool(input: { id?: string; name?: unknown; command?: unknown; args?: unknown; env?: unknown }, existing: AcpToolConfig[] = []): AcpToolValidation & { tool?: AcpToolConfig } {
 	const name = cleanString(input.name, NAME_MAX_CHARS);
 	const command = cleanString(input.command, COMMAND_MAX_CHARS);
 	const args = Array.isArray(input.args) ? input.args.filter((arg): arg is string => typeof arg === "string" && arg.trim().length > 0).slice(0, ARGS_LIMIT) : [];
+	const env = sanitizeEnv(input.env);
 	if (!name) return { ok: false, reasonKey: "acp.toolNameRequired" };
 	if (!command) return { ok: false, reasonKey: "acp.toolCommandRequired" };
 	// 显示名重复会让会话列表/选择器难区分;命令本身允许重复(同一 CLI 不同参数)。
@@ -41,6 +60,7 @@ export function validateAcpTool(input: { id?: string; name?: unknown; command?: 
 			name,
 			command,
 			args,
+			...(env ? { env } : {}),
 			enabled: true,
 		},
 	};
@@ -66,9 +86,10 @@ export function sanitizeAcpTools(value: unknown): AcpToolConfig[] {
 		const command = cleanString(record.command, COMMAND_MAX_CHARS);
 		if (!name || !command || seenNames.has(name)) continue;
 		const args = Array.isArray(record.args) ? record.args.filter((arg): arg is string => typeof arg === "string" && arg.trim().length > 0).slice(0, ARGS_LIMIT) : [];
+		const env = sanitizeEnv(record.env);
 		seenIds.add(id);
 		seenNames.add(name);
-		tools.push({ id, name, command, args, enabled: record.enabled !== false });
+		tools.push({ id, name, command, args, ...(env ? { env } : {}), enabled: record.enabled !== false });
 	}
 	return tools;
 }
