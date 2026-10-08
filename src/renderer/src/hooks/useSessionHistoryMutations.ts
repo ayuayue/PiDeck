@@ -231,7 +231,9 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					runtimeGeneration: activated.runtimeGeneration,
 				};
 			}
-			showOverlay(sessionId, "forking");
+			// 覆盖层文案按动作称呼（编辑中/重发中），“fork”是内部实现术语不暴露给用户；
+			// 显式 fork 动作（forkFromUserMessage）仍用 forking 文案。
+			showOverlay(sessionId, kind === "edit" ? "editing" : "resending");
 			const entryId = await resolveForkEntryId(message, target);
 			if (!entryId) {
 				latest.showToast(t("app.forkMissingEntryId"), 4000);

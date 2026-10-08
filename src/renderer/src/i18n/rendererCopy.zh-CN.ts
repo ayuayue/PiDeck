@@ -5022,6 +5022,8 @@ export const zhCN = {
 	"message.historyOverlay.reloading": "正在重新加载会话…",
 	"message.historyOverlay.activating": "正在启动会话…",
 	"message.historyOverlay.forking": "正在 fork 会话…",
+	"message.historyOverlay.editing": "正在编辑消息…",
+	"message.historyOverlay.resending": "正在重发消息…",
 	"message.busyStreaming": "Agent 正在生成回答，请等待完成后重试",
 	"message.busyTool": "Agent 正在执行工具，请等待完成后重试",
 	"message.busyGeneric": "Agent 当前忙碌，请稍后重试",

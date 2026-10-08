@@ -194,7 +194,7 @@ function allocateSessionMessageOutlineRevision(): number {
 }
 
 /** 时间线改写过程遮罩：停 Agent / 写 JSONL / 重载 / 激活 / fork，按 sessionId 隔离。 */
-export type SessionHistoryMutationOverlayKind = "stopping" | "mutating" | "reloading" | "activating" | "forking";
+export type SessionHistoryMutationOverlayKind = "stopping" | "mutating" | "reloading" | "activating" | "forking" | "editing" | "resending";
 
 export const sessionHistoryMutationOverlayByIdAtom = atom<Record<string, SessionHistoryMutationOverlayKind>>({});
 

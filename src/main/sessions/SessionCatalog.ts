@@ -566,6 +566,9 @@ export class SessionCatalog {
 		piSessionId?: string;
 		/** fork/clone 产物注册时直接标记（parentSession 链接已由 pi 写入文件头，此处同源标记）。 */
 		forked?: boolean;
+		/** fork/clone 产物继承源会话的模型偏好与思考档位：子会话 JSONL 里没有新的 model_change，扫描回读拿不到，重启后模型选择器会空。 */
+		model?: SessionModelPreference;
+		thinkingLevel?: string;
 	}): Promise<SessionCatalogEntry> {
 		this.assertLoaded();
 		// 与 attachRuntime 同口径：进入 catalog 前归一化为绝对路径，保证 originKey 去重一致。
@@ -610,6 +613,8 @@ export class SessionCatalog {
 					importedSourceId: input.importedSourceId,
 					piSessionId: input.piSessionId,
 					forked: input.forked,
+					model: cloneModelPreference(input.model),
+					thinkingLevel: input.thinkingLevel,
 					status: "active",
 					createdAt: now,
 					updatedAt: now,
