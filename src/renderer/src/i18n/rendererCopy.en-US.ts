@@ -5246,7 +5246,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"web.gitChanges": "Changes",
 	"web.gitHistory": "Commit history",
 	"web.gitUntracked": "Untracked files",
-	"web.fileViewerEmpty": "Select a file to preview",
 	"web.fileViewerTooLarge": "File exceeds the 2MB preview limit",
 	"web.fileViewerTruncated": "Large file — showing the first 512KB (truncated); open the full file on desktop",
 	"web.fileViewerBinary": "Binary file — preview not supported",

@@ -5,20 +5,19 @@
  * - Git：分支 + 变更分组（merge/index/workingTree/untracked）+ 文件 diff（上下两栏
  *   original/modified）+ 最近提交。写入类操作（commit/stage）仍回桌面完成。
  * - 文件：项目内目录浏览（面包屑导航）+ 有界文本预览（512KB / 二进制拦截，
- *   边界在后端 WebWorkspaceRoutes 强制）；.md 文件复用 MarkdownStream 渲染。
+ *   边界在后端 WebWorkspaceRoutes 强制）；点击文件交给全屏预览（WebFilePreview），抽屉只负责导航。
  */
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, FileText, Folder, GitBranch, Loader2, X } from "lucide-react";
 import type { CommitEntry, GitBranchInfo, GitResourceGroups } from "../../../shared/types";
 import { Button } from "@/components/ui-shadcn/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui-shadcn/tabs";
-import { MarkdownStream } from "@/components/session/MarkdownStream";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { fetchFileContent, fetchFileList, fetchGitDiff, fetchGitLog, fetchGitStatus } from "./webApi";
+import { fetchFileList, fetchGitDiff, fetchGitLog, fetchGitStatus } from "./webApi";
 import type { WebFileNodeLite } from "./webTypes";
 
-export function WebWorkspaceDrawer(props: { projectId: string; open: boolean; onClose: () => void }) {
+export function WebWorkspaceDrawer(props: { projectId: string; open: boolean; onClose: () => void; onOpenFile: (path: string) => void }) {
 	return (
 		<div className={cn("fixed inset-0 z-50", props.open ? "pointer-events-auto" : "pointer-events-none")} aria-hidden={!props.open}>
 			{/* 遮罩：点击关闭（仅打开时可见） */}
@@ -39,7 +38,7 @@ export function WebWorkspaceDrawer(props: { projectId: string; open: boolean; on
 						<GitPanel projectId={props.projectId} active={props.open} />
 					</TabsContent>
 					<TabsContent value="files" className="mt-2 min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-						<FilesPanel projectId={props.projectId} active={props.open} />
+						<FilesPanel projectId={props.projectId} active={props.open} onOpenFile={props.onOpenFile} />
 					</TabsContent>
 				</Tabs>
 			</aside>
@@ -187,15 +186,15 @@ function ResourceGroupList(props: {
 								<div className="mt-1 grid gap-1.5 rounded-md border border-border bg-card p-2">
 									<div>
 										<div className="mb-0.5 text-micro text-muted-foreground">original</div>
-										<pre className="max-h-40 overflow-auto rounded bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{props.diff.originalContent || "—"}</pre>
+										<pre className="max-h-64 overflow-auto rounded bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{props.diff.originalContent || "—"}</pre>
 									</div>
 									<div>
 										<div className="mb-0.5 text-micro text-muted-foreground">modified</div>
-										<pre className="max-h-40 overflow-auto rounded bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{props.diff.modifiedContent || "—"}</pre>
+										<pre className="max-h-64 overflow-auto rounded bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{props.diff.modifiedContent || "—"}</pre>
 									</div>
 								</div>
 							) : (
-								<div className="px-2 py-1.5 text-micro text-muted-foreground">—</div>
+								<div className="px-2 py-1.5 text-micro text-muted-foreground">{t("web.diffUnavailableHint")}</div>
 							)
 						) : null}
 					</li>
@@ -207,13 +206,10 @@ function ResourceGroupList(props: {
 
 // ── 文件面板 ───────────────────────────────────────────────────────────
 
-function FilesPanel(props: { projectId: string; active: boolean }) {
+function FilesPanel(props: { projectId: string; active: boolean; onOpenFile: (path: string) => void }) {
 	const [dir, setDir] = useState("");
 	const [nodes, setNodes] = useState<WebFileNodeLite[]>([]);
 	const [loading, setLoading] = useState(false);
-	const [filePath, setFilePath] = useState<string | null>(null);
-	const [fileState, setFileState] = useState<{ content?: string; tooLarge?: boolean; binary?: boolean } | null>(null);
-	const [fileLoading, setFileLoading] = useState(false);
 
 	const loadList = useCallback(
 		async (nextDir: string) => {
@@ -233,18 +229,6 @@ function FilesPanel(props: { projectId: string; active: boolean }) {
 		if (props.active) void loadList(dir);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- dir 变化由导航按钮显式触发 loadList
 	}, [props.active, dir, loadList]);
-
-	const openFile = async (path: string) => {
-		setFilePath(path);
-		setFileLoading(true);
-		try {
-			setFileState(await fetchFileContent(props.projectId, path));
-		} catch {
-			setFileState(null);
-		} finally {
-			setFileLoading(false);
-		}
-	};
 
 	const crumbs = dir ? dir.split("/").filter(Boolean) : [];
 
@@ -272,38 +256,13 @@ function FilesPanel(props: { projectId: string; active: boolean }) {
 				<ul className="flex flex-col gap-0.5">
 					{nodes.map((node) => (
 						<li key={node.relativePath}>
-							<button
-								type="button"
-								className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-caption transition-colors hover:bg-muted/60", filePath === node.relativePath && "bg-muted")}
-								onClick={() => (node.type === "directory" ? setDir(node.relativePath) : void openFile(node.relativePath))}
-							>
+							<button type="button" className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-caption transition-colors hover:bg-muted/60" onClick={() => (node.type === "directory" ? setDir(node.relativePath) : props.onOpenFile(node.relativePath))}>
 								{node.type === "directory" ? <Folder className="size-3.5 shrink-0 text-primary/70" aria-hidden="true" /> : <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
 								<span className="min-w-0 flex-1 truncate text-foreground">{node.name}</span>
 							</button>
 						</li>
 					))}
 				</ul>
-			)}
-			{filePath ? (
-				fileLoading ? (
-					<div className="flex items-center gap-2 py-4 text-caption text-muted-foreground">
-						<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
-					</div>
-				) : fileState?.tooLarge ? (
-					<div className="rounded-md bg-warning/10 px-2.5 py-2 text-caption text-warning">{t("web.fileViewerTooLarge")}</div>
-				) : fileState?.binary ? (
-					<div className="rounded-md bg-muted/60 px-2.5 py-2 text-caption text-muted-foreground">{t("web.fileViewerBinary")}</div>
-				) : filePath.toLowerCase().endsWith(".md") && fileState?.content != null ? (
-					<div className="markdown-body max-h-[50vh] overflow-y-auto rounded-md border border-border bg-card px-2.5 py-2">
-						<MarkdownStream text={fileState.content} light onOpenExternal={(url: string) => window.open(url, "_blank", "noopener")} />
-					</div>
-				) : fileState?.content != null ? (
-					<pre className="max-h-[50vh] overflow-auto rounded-md border border-border bg-card p-2 text-micro leading-relaxed whitespace-pre-wrap">{fileState.content}</pre>
-				) : (
-					<div className="py-4 text-center text-caption text-muted-foreground">{t("web.fileViewerEmpty")}</div>
-				)
-			) : (
-				<div className="py-4 text-center text-caption text-muted-foreground">{t("web.fileViewerEmpty")}</div>
 			)}
 		</div>
 	);

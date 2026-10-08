@@ -5229,7 +5229,6 @@ export const zhCN = {
 	"web.gitChanges": "变更",
 	"web.gitHistory": "提交历史",
 	"web.gitUntracked": "未跟踪文件",
-	"web.fileViewerEmpty": "选择文件查看内容",
 	"web.fileViewerTooLarge": "文件超过 2MB，无法预览",
 	"web.fileViewerTruncated": "文件较大，已截断展示前 512KB；完整内容请在桌面端打开",
 	"web.fileViewerBinary": "二进制文件，不支持预览",

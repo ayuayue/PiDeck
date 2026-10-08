@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import type { CommitEntry, FileTreeNode, GitBranchInfo, GitResourceGroups, GitWorkspaceFileDiff, PiExtensionListResult, PiExtensionSummary, PiSkillListResult, PiSkillSummary, Project, YaoPromptDetailResult, YaoPromptListResult } from "../../shared/types";
 import { assertProjectFileReadPath, FILE_OUTSIDE_PROJECT_ERROR } from "../files/projectFileAccess";
 
@@ -42,88 +42,99 @@ export type WebWorkspaceRoutesDeps = {
 	};
 };
 
-/** 文件内容读取上限：512KB（Web 端只做轻量预览，大文件回桌面编辑器）。 */
-const MAX_FILE_CONTENT_BYTES = 512 * 1024;
-/** 单次 diff 上限：256KB（与桌面 Git 面板同量级）。 */
-const MAX_DIFF_BYTES = 256 * 1024;
+/** 文件内容读取上限：2MB 以内完整返回（Web 端轻量预览的边界）。 */
+const MAX_FILE_CONTENT_BYTES = 2 * 1024 * 1024;
+/** 超过上限时不再空手而归：有界读前 512KB 给截断预览（移动端定位问题够用，也避免大文件整读的内存峰值）。 */
+const TRUNCATED_PREVIEW_BYTES = 512 * 1024;
+/** 单次 diff 上限：1MB（原 256KB 对合并冲突/大重构文件偏紧，超限时 GitService 返回 null 会让用户深以为文件丢了）。 */
+const MAX_DIFF_BYTES = 1024 * 1024;
 /** 提示词列表单页上限。 */
 const MAX_PROMPT_PAGE_SIZE = 50;
-/** 文本扩展名白名单：命中才尝试 UTF-8 解码，其余一律按二进制拒绝。 */
-const TEXT_EXTENSION_WHITELIST = new Set([
-	".txt",
-	".md",
-	".markdown",
-	".json",
-	".jsonc",
-	".json5",
-	".yaml",
-	".yml",
-	".toml",
-	".ini",
-	".cfg",
-	".conf",
-	".env",
-	".js",
-	".mjs",
-	".cjs",
-	".ts",
-	".tsx",
-	".jsx",
-	".vue",
-	".svelte",
-	".astro",
-	".py",
-	".rb",
-	".go",
-	".rs",
-	".java",
-	".kt",
-	".kts",
-	".c",
-	".h",
-	".cpp",
-	".hpp",
-	".cc",
-	".hh",
-	".m",
-	".mm",
-	".cs",
-	".swift",
-	".php",
-	".pl",
-	".lua",
-	".r",
-	".scala",
-	".sh",
-	".bash",
-	".zsh",
-	".fish",
-	".ps1",
-	".psm1",
-	".sql",
-	".graphql",
-	".gql",
-	".proto",
-	".html",
-	".htm",
-	".css",
-	".scss",
-	".sass",
-	".less",
-	".svg",
-	".xml",
-	".csv",
-	".tsv",
-	".log",
-	".diff",
-	".patch",
-	".gitignore",
-	".gitattributes",
-	".editorconfig",
-	".npmrc",
-	".nvmrc",
-	".lock",
-	"", // 无扩展名（Makefile、Dockerfile、LICENSE 等）
+/**
+ * 二进制扩展名黑名单：命中直接按二进制拒绝（不看内容，快速且准确）。
+ * 白名单外其余类型（含无扩展名的 Makefile/Dockerfile/LICENSE 与生僻文本格式如 .gradle/.cmake）
+ * 改走 NUL 字节启发判定——常见二进制格式（图片/音视频/压缩包）内容里基本都含 NUL，双保险。
+ */
+const BINARY_EXTENSION_DENYLIST = new Set([
+	// 图片
+	".png",
+	".jpg",
+	".jpeg",
+	".gif",
+	".webp",
+	".bmp",
+	".ico",
+	".tif",
+	".tiff",
+	".avif",
+	".heic",
+	// 音频
+	".mp3",
+	".wav",
+	".flac",
+	".aac",
+	".ogg",
+	".m4a",
+	".wma",
+	// 视频
+	".mp4",
+	".mkv",
+	".avi",
+	".mov",
+	".webm",
+	".flv",
+	".wmv",
+	".m4v",
+	// 压缩包/磁盘镜像
+	".zip",
+	".rar",
+	".7z",
+	".tar",
+	".gz",
+	".bz2",
+	".xz",
+	".zst",
+	".br",
+	".iso",
+	".img",
+	".dmg",
+	// 可执行/库/字节码
+	".exe",
+	".dll",
+	".so",
+	".dylib",
+	".bin",
+	".msi",
+	".deb",
+	".rpm",
+	".apk",
+	".ipa",
+	".jar",
+	".war",
+	".class",
+	".wasm",
+	".node",
+	".pyc",
+	".pyo",
+	".o",
+	".a",
+	".lib",
+	// 文档/字体/数据库
+	".pdf",
+	".doc",
+	".docx",
+	".xls",
+	".xlsx",
+	".ppt",
+	".pptx",
+	".odt",
+	".ttf",
+	".otf",
+	".woff",
+	".woff2",
+	".eot",
+	".sqlite",
+	".db",
 ]);
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
@@ -303,14 +314,33 @@ export class WebWorkspaceRoutes {
 			return true;
 		}
 		if (info.size > MAX_FILE_CONTENT_BYTES) {
-			sendJson(response, 200, { tooLarge: true, size: info.size });
+			// 超限不再空手而归：从文件句柄有界读前 512KB 给截断预览（不整读大文件，防内存峰值）；
+			// 截断样本里含 NUL 同样按二进制拒绝（大文件极可能是日志外的二进制类型）。
+			const handle = await open(absolute, "r").catch(() => null);
+			if (!handle) {
+				sendJson(response, 200, { tooLarge: true, size: info.size });
+				return true;
+			}
+			try {
+				const buffer = Buffer.alloc(TRUNCATED_PREVIEW_BYTES);
+				const { bytesRead } = await handle.read(buffer, 0, TRUNCATED_PREVIEW_BYTES, 0);
+				const bounded = buffer.subarray(0, bytesRead);
+				if (bounded.includes(0)) {
+					sendJson(response, 200, { binary: true, size: info.size });
+				} else {
+					sendJson(response, 200, { truncated: true, content: bounded.toString("utf8"), size: info.size });
+				}
+			} finally {
+				await handle.close();
+			}
 			return true;
 		}
-		// 二进制判定：扩展名白名单之外一律拒绝（避免把 png/exe 当 UTF-8 吐给浏览器）
+		// 二进制判定：明确二进制扩展名黑名单直接拒；其余（含无扩展名与生僻文本格式）走 NUL 字节启发，
+		// 避免把 png/exe 当 UTF-8 吐给浏览器，同时不再误拒 Makefile/Dockerfile/LICENSE/.gradle 等。
 		const dot = absolute.lastIndexOf(".");
 		const ext = dot >= 0 ? absolute.slice(dot).toLowerCase() : "";
 		const buffer = await readFile(absolute);
-		if (!TEXT_EXTENSION_WHITELIST.has(ext) || buffer.includes(0)) {
+		if (BINARY_EXTENSION_DENYLIST.has(ext) || buffer.includes(0)) {
 			sendJson(response, 200, { binary: true, size: info.size });
 			return true;
 		}
