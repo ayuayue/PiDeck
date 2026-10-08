@@ -18,6 +18,7 @@ import { discoverExtensionEntries } from "./extensionDiscovery";
 import { parsePiVersion } from "./extensionVersionGate";
 import { redactForReport, truncateText } from "../health/redact";
 import { readConfiguredNpmCommand } from "../resourceWhitelist";
+import { resolvePiSelfUpdateChannel } from "../pi/piSelfUpdateChannel";
 
 /** pi 0.70.3 introduced self-update and the packages-only --extensions flag. */
 const MIN_PI_VERSION_FOR_SELF_UPDATE = "0.70.3";
@@ -34,6 +35,9 @@ function supportsPiSelfUpdate(version: string | undefined): boolean {
 }
 
 export { BUILT_IN_EXTENSIONS } from "./builtInExtensions";
+
+/** pi 的 npm 包名。pi.dev 版本接口在包改名迁移期可返回不同 packageName，见 fetchPiLatestVersion。 */
+const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 
 /**
  * pi list 对「过滤式安装」包的 source 后缀：settings.json 里 packages 条目为对象形式
@@ -475,11 +479,14 @@ export class ExtensionManager {
 			if (!status.installed) return { hasUpdate: false, error: this.translate("mainExtension.piNotInstalled") };
 			// 与 `pi update --self` 使用同一个 pi.dev 版本接口，避免 npm latest 与 Pi 官方
 			// 发布门槛短暂不同步时，PiDeck 显示的版本和 CLI 提示不一致。
-			const latestVersion = await this.fetchPiLatestVersion(status.version ?? "0.0.0");
+			const release = await this.fetchPiLatestVersion(status.version ?? "0.0.0");
 			return {
 				currentVersion: status.version,
-				latestVersion,
-				hasUpdate: compareVersions(latestVersion, status.version ?? "0.0.0") > 0,
+				latestVersion: release.version,
+				hasUpdate: compareVersions(release.version, status.version ?? "0.0.0") > 0,
+				// command / packageName 供 updatePi 的通道分派与包名 spec 使用。
+				command: status.command,
+				packageName: release.packageName,
 			};
 		} catch (error) {
 			const detail = this.sanitizeCommandOutput(error instanceof Error ? error.message : String(error));
@@ -509,9 +516,19 @@ export class ExtensionManager {
 		if (!supportsPiSelfUpdate(check.currentVersion)) {
 			throw new Error(this.translate("mainExtension.piSelfUpdateUnsupported", { version: check.currentVersion || "?", minimum: MIN_PI_VERSION_FOR_SELF_UPDATE }));
 		}
+		// 通道分派（bun 全局 / 旧引导前缀 → PiDeck 代跑包管理器；其余 → pi 自身）。
+		// 判定依赖 check 返回的 command（选中的 pi 可执行路径形状），见 piSelfUpdateChannel。
+		const channel = resolvePiSelfUpdateChannel(check.command ?? "");
+		const channelLabel = channel.kind === "bun-global" ? `bun install -g ${check.packageName ?? PI_PACKAGE_NAME}@${check.latestVersion}` : channel.kind === "portable-prefix" ? `npm install -g ${check.packageName ?? PI_PACKAGE_NAME}@${check.latestVersion} --prefix <pi-runtime>` : "pi update --self";
 		let output: string;
 		try {
-			output = await this.runPi(["update", "--self"], 120_000, { offline: false, settings, version: check.currentVersion });
+			if (channel.kind === "bun-global") {
+				output = await this.runBunGlobalUpdate(channel.bunCommand, check.latestVersion ?? "", check.packageName);
+			} else if (channel.kind === "portable-prefix") {
+				output = await this.runNpmPrefixUpdate(channel.prefixDir, check.latestVersion ?? "", check.packageName);
+			} else {
+				output = await this.runPi(["update", "--self"], 120_000, { offline: false, settings, version: check.currentVersion });
+			}
 		} finally {
 			// A failed updater may still have changed files; never reuse a pre-update version probe.
 			this.piVersion = null;
@@ -522,7 +539,47 @@ export class ExtensionManager {
 		if (!status.installed || !status.version || compareVersions(status.version, check.latestVersion ?? "0.0.0") < 0) {
 			throw new Error(`${this.translate("mainExtension.piUpdateNotApplied", { current: status.version || "?", latest: check.latestVersion || "?" })}\n${this.sanitizeCommandOutput(output)}`);
 		}
-		return this.toUpdateResult("pi update --self", output, true);
+		return this.toUpdateResult(channelLabel, output, true);
+	}
+
+	/** 代跑包管理器安装（bun/npm 全局自更新）：复用 locator 的 PATH 补齐与 shell 决策（与 npmViewVersion 同模式）。 */
+	private runPackageInstall(commandPath: string, args: string[], timeoutMs: number): Promise<string> {
+		const invocation = this.locator.createInvocation(commandPath, args);
+		return new Promise((resolve, reject) => {
+			execFile(
+				invocation.command,
+				invocation.args,
+				{
+					env: this.locator.createProcessEnv(this.getSettings(), invocation.pathPrefix),
+					shell: invocation.shell,
+					windowsHide: true,
+					timeout: timeoutMs,
+					maxBuffer: 4 * 1024 * 1024,
+					encoding: "utf8",
+					windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+				},
+				(error, stdout, stderr) => {
+					if (error) {
+						reject(new Error(this.sanitizeCommandOutput(`${stdout}\n${stderr}`) || String(error)));
+						return;
+					}
+					resolve(`${stdout}\n${stderr}`.trim());
+				},
+			);
+		});
+	}
+
+	/** bun 全局安装代跑：参数对齐 pi 自身 bun 分支（`bun install -g <pkg>@<ver>`）。 */
+	private runBunGlobalUpdate(bunCommand: string, version: string, packageName?: string): Promise<string> {
+		return this.runPackageInstall(bunCommand, ["install", "-g", `${packageName ?? PI_PACKAGE_NAME}@${version}`], 180_000);
+	}
+
+	/** 旧引导前缀代跑：npm 落回用户全局目录时前缀副本永远停旧，必须显式 --prefix。 */
+	private async runNpmPrefixUpdate(prefixDir: string, version: string, packageName?: string): Promise<string> {
+		// 复用 pi settings.json 的 npmCommand（与包资源安装同源）：裸 npm 在 GUI PATH 里找不到时，
+		// 用户配置的包装命令在这里同样生效（#318/#263）。
+		const configured = readConfiguredNpmCommand(join(this.homeDir, ".pi", "agent", "settings.json"));
+		return this.runPackageInstall(configured[0], [...configured.slice(1), "install", "-g", `${packageName ?? PI_PACKAGE_NAME}@${version}`, "--prefix", prefixDir], 300_000);
 	}
 
 	/** Before self-update existed, bare `pi update` updated packages only. Keep that safe compatibility. */
@@ -576,11 +633,17 @@ export class ExtensionManager {
 		return parsed.version;
 	}
 
-	private async fetchPiLatestVersion(currentVersion: string): Promise<string> {
+	private async fetchPiLatestVersion(currentVersion: string, timeoutMs: number = PI_LATEST_VERSION_TIMEOUT_MS): Promise<{ version: string; packageName?: string }> {
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), PI_LATEST_VERSION_TIMEOUT_MS);
+		const timeout = setTimeout(() => controller.abort(), timeoutMs);
 		try {
-			const response = await fetch(PI_LATEST_VERSION_URL, {
+			// 必须走 Electron net.fetch（Chromium 网络栈）：系统代理与 PiDeck 桌面代理
+			//（defaultSession.setProxy）才会生效。裸全局 fetch 是 undici 实现，不读任何
+			// 代理配置，代理网络下直连 pi.dev 十秒必超时（v0.7.9 起的回归，报错只有
+			// 含糊的 AbortError "This operation was aborted"）。动态 import 保持可单测
+			//（沙箱注入 electron 桩），与 tokendanceCatalog 等主进程联网点同模式。
+			const { net } = await import("electron");
+			const response = await net.fetch(PI_LATEST_VERSION_URL, {
 				headers: { accept: "application/json", "user-agent": `pi-deck/${currentVersion}` },
 				signal: controller.signal,
 			});
@@ -589,7 +652,17 @@ export class ExtensionManager {
 			if (typeof payload !== "object" || payload === null || !("version" in payload) || typeof payload.version !== "string" || !payload.version.trim()) {
 				throw new Error("pi version check returned an invalid version");
 			}
-			return payload.version.trim();
+			// packageName 可选：pi.dev 在包改名迁移期返回与默认包名不同的目标（pi 自身的
+			// getSelfUpdatePlan 同样处理），代跑更新时用它拼 <pkg>@<ver>，否则用默认包名。
+			const rawPackageName = "packageName" in payload && typeof payload.packageName === "string" ? payload.packageName.trim() : "";
+			return { version: payload.version.trim(), ...(rawPackageName ? { packageName: rawPackageName } : {}) };
+		} catch (error) {
+			// abort() 不带 reason 时上游只会给 "This operation was aborted"，用户无从判断；
+			// 命中本方法自己的超时信号时统一转成明确超时文案，真实网络错误原样透传。
+			if (controller.signal.aborted) {
+				throw new Error(`pi.dev version check timed out after ${Math.round(timeoutMs / 1000)}s (network unreachable or proxy required)`);
+			}
+			throw error;
 		} finally {
 			clearTimeout(timeout);
 		}

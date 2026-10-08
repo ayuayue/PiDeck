@@ -11,6 +11,9 @@ const loadProductionTs = createTsSandbox({
 		"../fs/trash": { trashPath: (path) => rm(path, { recursive: true, force: true }) },
 		"../logging/sharedLogger": { getAppLogger: () => null },
 		"../pi/PiProcess": { PiProcess: { invalidateVersionCache: () => {} } },
+		// fetchPiLatestVersion 走 Electron net.fetch（桌面代理生效）；测试用例替换
+		// globalThis.fetch 注入版本接口应答，这里只做转发。
+		electron: { net: { fetch: (...args) => globalThis.fetch(...args) } },
 	},
 	globals: { fetch: (...args) => globalThis.fetch(...args) },
 });

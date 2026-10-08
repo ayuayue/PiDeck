@@ -151,6 +151,27 @@ test("cmd.exe 回退通道：verbatim 标志与 npm 自己的 stderr 原样透�
 	assert.equal(outcome.stderr, "npm ERR! code E404\n");
 });
 
+test("真全局安装：省略 prefixDir 时不拼 --prefix（npm 落用户自己的全局目录）", async () => {
+	const calls = [];
+	const outcome = await runPiGlobalInstall({
+		npmCommand: "npm",
+		npmArgs: [...NPM_ARGS],
+		launcher: nodeDirectLauncher(),
+		cwd: "C:\\Users\\tester",
+		execFileImpl: fakeExecFile((c) => calls.push(c), { stdout: "added 1 package" }),
+	});
+	assert.equal(outcome.success, true);
+	assert.equal(outcome.exitCode, 0);
+	assert.equal(calls.length, 1);
+	// 启动规格是 node.exe + npm-cli.js + install 参数；绝不能出现 --prefix=...（那会把 pi
+	// 装回 PiDeck 私有前缀，正是 2026-10 要改掉的默认形态）。
+	assert.ok(
+		calls[0].args.every((arg) => !arg.startsWith("--prefix")),
+		`unexpected prefix arg: ${calls[0].args.join(" ")}`,
+	);
+	assert.deepEqual(calls[0].args.slice(1), NPM_ARGS);
+});
+
 test("成功路径：exitCode 0、stdout 经渲染层可见字段返回", async () => {
 	const outcome = await runPiGlobalInstall({
 		npmCommand: "npm",
