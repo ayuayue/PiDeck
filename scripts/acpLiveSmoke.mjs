@@ -16,6 +16,8 @@ const { projectAcpSessionUpdate, settleAcpTurn, acpPromptBlocks } = loadTsCommon
 const { PiLocator } = loadTsCommonJs("src/main/pi/PiLocator.ts");
 
 const command = process.argv[2] ?? "opencode";
+// ACP_SMOKE_ENV_JSON: '{"ZAI_CODING_KEY":"sk-..."}' — 验证工具级 env 注入链(与 AcpAgentManager.create 的合并语义一致)
+const ACP_SMOKE_ENV_JSON = process.env.ACP_SMOKE_ENV_JSON;
 const args = process.argv.slice(3).length > 0 ? process.argv.slice(3) : ["acp"];
 const cwd = mkdtempSync(join(tmpdir(), "acp-smoke-"));
 console.log(`[smoke] spawn: ${command} ${args.join(" ")} (cwd=${cwd})`);
@@ -24,7 +26,8 @@ console.log(`[smoke] spawn: ${command} ${args.join(" ")} (cwd=${cwd})`);
 const locator = new PiLocator();
 const invocation = locator.createInvocation(command, args);
 console.log(`[smoke] invocation: ${invocation.command} ${invocation.args.join(" ")} (shell=${invocation.shell === true})`);
-const proc = spawn(invocation.command, invocation.args, { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell === true, windowsHide: true });
+const toolEnv = ACP_SMOKE_ENV_JSON ? (JSON.parse(ACP_SMOKE_ENV_JSON) ?? {}) : {};
+const proc = spawn(invocation.command, invocation.args, { cwd, env: { ...process.env, ...toolEnv }, stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell === true, windowsHide: true });
 let stderrTail = "";
 proc.stderr?.on("data", (chunk) => {
 	const text = chunk.toString();
@@ -73,7 +76,7 @@ try {
 	console.log(`[smoke] session/new ok: ${newSession.sessionId} (stopReason=${newSession.stopReason})`);
 
 	// 1x1 红色 PNG(base64),验证图片块能随 prompt 送达且不炸
-	const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+	const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfNKPYvoSH8OITBAtxm7fN1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYB68rxeKnuGVEAAAAASUVORK5CYII=";
 	const withImage = process.env.ACP_SMOKE_IMAGE !== "0";
 	const prompt = acpPromptBlocks("回复两个词:收到图片", withImage ? [{ type: "image", mimeType: "image/png", data: pngBase64 }] : []);
 	console.log(`[smoke] session/prompt sending: ${prompt.length} blocks`);

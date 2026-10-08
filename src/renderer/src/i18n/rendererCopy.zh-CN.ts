@@ -165,6 +165,7 @@ export const zhCN = {
 	"acp.toolName": "名称",
 	"acp.toolCommand": "命令",
 	"acp.toolArgs": "启动参数",
+	"acp.toolEnv": "环境变量 KEY=VALUE,每行一条(仅本进程注入,不落日志)",
 	"acp.toolAdd": "添加工具",
 	"acp.toolRemove": "删除",
 	"acp.toolsEmpty": "暂无工具",

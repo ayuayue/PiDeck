@@ -166,6 +166,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"acp.toolName": "Name",
 	"acp.toolCommand": "Command",
 	"acp.toolArgs": "Launch args",
+	"acp.toolEnv": "Env vars KEY=VALUE, one per line (injected into the child process only)",
 	"acp.toolAdd": "Add tool",
 	"acp.toolRemove": "Remove",
 	"acp.toolsEmpty": "No tools yet",

@@ -16,6 +16,8 @@ export type AcpToolConfig = {
 	command: string;
 	/** 启动参数（如 ["--acp"]）。 */
 	args: string[];
+	/** 追加注入子进程的环境变量（如 codex-acp 需要 ZAI_CODING_KEY）；键名限 [A-Za-z0-9_]，值不落日志。 */
+	env?: Record<string, string>;
 	/** 禁用后不出现在新建会话选择中；已建会话不受影响。 */
 	enabled: boolean;
 };
@@ -26,6 +28,7 @@ export type AcpToolInput = {
 	name: string;
 	command: string;
 	args: string[];
+	env?: Record<string, string>;
 };
 
 /** settings.acpTools 的运行时形态（数组保序，展示顺序即登记顺序）。 */

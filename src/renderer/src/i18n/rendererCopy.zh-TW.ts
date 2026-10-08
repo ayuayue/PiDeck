@@ -171,6 +171,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"acp.toolName": "名稱",
 	"acp.toolCommand": "命令",
 	"acp.toolArgs": "啟動引數",
+	"acp.toolEnv": "環境變數 KEY=VALUE,每行一條(僅本進程注入,不落日誌)",
 	"acp.toolAdd": "新增工具",
 	"acp.toolRemove": "刪除",
 	"acp.toolsEmpty": "暫無工具",

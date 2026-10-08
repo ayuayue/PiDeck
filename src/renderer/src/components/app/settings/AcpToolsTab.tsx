@@ -8,9 +8,33 @@ import type { AcpToolConfig } from "../../../../../shared/types/acp";
 import { ACP_TOOL_PRESETS, type AcpToolPreset, type AcpToolPresetId } from "../../../../../shared/acpToolPresets";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
+import { Textarea } from "../../ui-shadcn/textarea";
 
 /** 草稿行 = IPC 输入形态:id 空表示新增行,保存时由主进程分配并返回。 */
-type AcpToolRow = { id?: string; name: string; command: string; args: string[] };
+type AcpToolRow = { id?: string; name: string; command: string; args: string[]; envText: string };
+
+/** env 序列化:Record → 「KEY=VALUE」每行一条的编辑文本;顺序稳定保证脏标记确定。 */
+function envToText(env: Record<string, string> | undefined): string {
+	if (!env) return "";
+	return Object.entries(env)
+		.map(([key, value]) => `${key}=${value}`)
+		.join("\n");
+}
+
+/** 编辑文本 → Record:逐行按首个 = 拆分;空白/无 = 的行丢弃(保存时主进程 sanitizeEnv 二次消毒)。 */
+function envFromText(text: string): Record<string, string> | undefined {
+	const env: Record<string, string> = {};
+	for (const line of text.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		const eq = trimmed.indexOf("=");
+		if (eq <= 0) continue;
+		const key = trimmed.slice(0, eq).trim();
+		const value = trimmed.slice(eq + 1);
+		if (key) env[key] = value;
+	}
+	return Object.keys(env).length > 0 ? env : undefined;
+}
 
 /**
  * 设置弹窗「ACP 工具」tab:管理 settings.acpTools 表(名称/命令/启动参数)。
@@ -35,13 +59,13 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 	// 挂载时以 atom 快照为初值;之后只经保存回写,弹窗开关不重复拉 IPC
 	useEffect(() => {
 		if (!hydrated) {
-			setRows(saved.map((tool) => ({ id: tool.id, name: tool.name, command: tool.command, args: [...tool.args] })));
+			setRows(saved.map((tool) => ({ id: tool.id, name: tool.name, command: tool.command, args: [...tool.args], envText: envToText(tool.env) })));
 			setHydrated(true);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- 一次性初值同步,后续以保存回写为准
 	}, [hydrated]);
 
-	const dirty = useMemo(() => serializeRows(rows) !== serializeRows(saved.map((tool) => ({ id: tool.id, name: tool.name, command: tool.command, args: [...tool.args] }))), [rows, saved]);
+	const dirty = useMemo(() => serializeRows(rows) !== serializeRows(saved.map((tool) => ({ id: tool.id, name: tool.name, command: tool.command, args: [...tool.args], envText: envToText(tool.env) }))), [rows, saved]);
 	useEffect(() => {
 		props.onDirtyChange?.(dirty);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- onDirtyChange 由弹框稳定传入,不参与比较
@@ -56,7 +80,7 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 	}, []);
 
 	const addRow = useCallback(() => {
-		setRows((current) => [...current, { name: "", command: "", args: [] }]);
+		setRows((current) => [...current, { name: "", command: "", args: [], envText: "" }]);
 	}, []);
 
 	// 预设只是预填草稿行(名称/命令/参数可改),保存仍走统一校验链;
@@ -69,7 +93,7 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 				return;
 			}
 			setError(undefined);
-			setRows((current) => [...current, { name: preset.name, command: preset.command, args: [...preset.args] }]);
+			setRows((current) => [...current, { name: preset.name, command: preset.command, args: [...preset.args], envText: "" }]);
 		},
 		[rows],
 	);
@@ -96,8 +120,8 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 				names.add(row.name);
 			}
 			// id 缺省 = 新增行,由主进程分配;返回的规范化表同步回 atom(菜单立即可见)
-			const normalized = await desktopApi.acp.saveTools(rows.map((row) => ({ id: row.id, name: row.name, command: row.command, args: row.args })));
-			setRows(normalized.map((tool: AcpToolConfig) => ({ id: tool.id, name: tool.name, command: tool.command, args: [...tool.args] })));
+			const normalized = await desktopApi.acp.saveTools(rows.map((row) => ({ id: row.id, name: row.name, command: row.command, args: row.args, env: envFromText(row.envText) })));
+			setRows(normalized.map((tool: AcpToolConfig) => ({ id: tool.id, name: tool.name, command: tool.command, args: [...tool.args], envText: envToText(tool.env) })));
 			setSaved(normalized);
 			return true;
 		} catch (cause) {
@@ -156,6 +180,7 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 									patchRow(index, { args: event.target.value.trim() ? event.target.value.split(/\s+/) : [] });
 								}}
 							/>
+							<Textarea value={row.envText} placeholder={t("acp.toolEnv")} rows={2} className="font-mono text-xs" spellCheck={false} onChange={(event) => patchRow(index, { envText: event.target.value })} aria-label={t("acp.toolEnv")} />
 						</div>
 					))}
 				</div>
@@ -186,5 +211,5 @@ const PRESET_DESC_KEYS: Record<AcpToolPresetId, Parameters<typeof t>[0]> = {
 
 /** 脏标记投影:参数顺序无关(重排行不算脏),字段稳定序列化即可。 */
 function serializeRows(rows: AcpToolRow[]): string {
-	return JSON.stringify(rows.map((row) => ({ id: row.id ?? "", name: row.name, command: row.command, args: [...row.args].sort() })));
+	return JSON.stringify(rows.map((row) => ({ id: row.id ?? "", name: row.name, command: row.command, args: [...row.args].sort(), envText: row.envText })));
 }
