@@ -950,8 +950,6 @@ export const zhCN = {
 	"sessionFiles.openInDiffViewer": "在外部 diff 查看器中打开",
 	"sessionFiles.openFile": "打开文件",
 	"sessionFiles.count": "{count} 个文件",
-	"sessionFiles.saveAll": "保存全部",
-	"sessionFiles.saveAllTitle": "标记本轮修改已处理并清空列表（文件已由 Agent 写入磁盘，这里只是汇总；下一轮修改会重新出现）",
 	// 最新回复尾部快捷操作：按完成/中断/请求失败显示建议，点击直发而不改草稿
 	"replySuggest.aria": "回复快捷操作",
 	"replySuggest.continue": "继续",

@@ -954,8 +954,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"sessionFiles.openInDiffViewer": "Open in external diff viewer",
 	"sessionFiles.openFile": "Open file",
 	"sessionFiles.count": "{count} files",
-	"sessionFiles.saveAll": "Save all",
-	"sessionFiles.saveAllTitle": "Mark the current round as handled and clear the list (files were already written to disk by the agent; this is just a summary; new changes reappear)",
 	// Latest-reply actions: completion/interruption/request failure suggestions send directly without touching the draft
 	"replySuggest.aria": "Quick reply actions",
 	"replySuggest.continue": "Continue",
