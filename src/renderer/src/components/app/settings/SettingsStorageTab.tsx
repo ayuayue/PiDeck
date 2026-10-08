@@ -46,6 +46,7 @@ export function StorageTab(props: { settings: AppSettings; onChange: (patch: Par
 	const [logsSize, setLogsSize] = useState<string>("");
 	const [rpcLogsSize, setRpcLogsSize] = useState<string>("");
 	const [pasteFilesSize, setPasteFilesSize] = useState<string>("");
+	const [noticeHistorySize, setNoticeHistorySize] = useState<string>("");
 	const [clearing, setClearing] = useState<string | null>(null);
 	const [feedback, setFeedback] = useState("");
 	const [confirmDialog, setConfirmDialog] = useState<{
@@ -55,13 +56,14 @@ export function StorageTab(props: { settings: AppSettings; onChange: (patch: Par
 	} | null>(null);
 
 	/**
-	 * 统一刷新三类占用统计（应用日志 / RPC 日志 / 粘贴文件）：
+	 * 统一刷新四类占用统计（应用日志 / RPC 日志 / 粘贴文件 / 通知历史）：
 	 * 被 5s 轮询与清理完成后共用，保证「清理后立刻看到新大小」。
 	 */
 	const refreshSizes = useCallback(() => {
 		void window.piDesktop.logs.getSize().then((bytes) => setLogsSize(formatBytes(bytes)));
 		void window.piDesktop.rpcLogs.getSize().then((bytes) => setRpcLogsSize(formatBytes(bytes)));
 		void window.piDesktop.pasteFiles.getSize().then((bytes) => setPasteFilesSize(formatBytes(bytes)));
+		void window.piDesktop.noticeHistory.getSize().then((bytes) => setNoticeHistorySize(formatBytes(bytes)));
 	}, []);
 
 	useEffect(() => {
@@ -81,10 +83,14 @@ export function StorageTab(props: { settings: AppSettings; onChange: (patch: Par
 			} else if (target === "paste") {
 				// 粘贴文件：清空 userData/paste-files 与各项目遗留的 .pideck-paste
 				await window.piDesktop.pasteFiles.clearAll();
+			} else if (target === "noticeHistory") {
+				// 通知历史：清空内存数组并删除落盘文件
+				await window.piDesktop.noticeHistory.clear();
 			} else {
 				await window.piDesktop.logs.clear();
 				await window.piDesktop.rpcLogs.clear();
 				await window.piDesktop.pasteFiles.clearAll();
+				await window.piDesktop.noticeHistory.clear();
 			}
 			setFeedback(t("settings.storage.clearSuccess"));
 		} catch (e) {
@@ -155,7 +161,7 @@ export function StorageTab(props: { settings: AppSettings; onChange: (patch: Par
 			{/* 操作（清理全部）放最上面，日志相关内容依次下移 */}
 			<SettingsSection title={t("settings.storage.actions")}>
 				<SettingRow level={1} title={<span>{t("settings.storage.clearAll")}</span>} description={t("settings.storage.clearAllDesc")}>
-					<Button variant="destructive" loading={clearing === "all"} disabled={clearing !== null} onClick={() => confirmClear("all", `${t("settings.storage.appLogs")} + ${t("settings.storage.rpcLogs")} + ${t("settings.storage.pasteFiles")}`)}>
+					<Button variant="destructive" loading={clearing === "all"} disabled={clearing !== null} onClick={() => confirmClear("all", `${t("settings.storage.appLogs")} + ${t("settings.storage.rpcLogs")} + ${t("settings.storage.pasteFiles")} + ${t("settings.storage.noticeHistory")}`)}>
 						{t("settings.storage.clearAllButton")}
 					</Button>
 				</SettingRow>
@@ -196,6 +202,23 @@ export function StorageTab(props: { settings: AppSettings; onChange: (patch: Par
 						)}
 					</span>
 					<Button variant="secondary" loading={clearing === "paste" || clearing === "all"} disabled={clearing !== null} onClick={() => confirmClear("paste", t("settings.storage.pasteFiles"))}>
+						{t("common.delete")}
+					</Button>
+				</div>
+			</SettingsSection>
+			{/* 通知历史：toast 落盘存档（userData/notice-history.json，重启后仍可在通知历史面板回看） */}
+			<SettingsSection title={t("settings.storage.noticeHistory")} description={t("settings.storage.noticeHistoryDesc")}>
+				<div className="flex items-center justify-between gap-3 px-0.5 py-1.5">
+					<span className="text-caption text-muted-foreground">
+						{t("settings.storage.noticeHistorySize")}：
+						{noticeHistorySize || (
+							<span className="inline-flex items-center gap-1">
+								<Loader2 size={11} className="animate-pideck-spin" aria-hidden="true" />
+								{t("common.loading")}
+							</span>
+						)}
+					</span>
+					<Button variant="secondary" loading={clearing === "noticeHistory" || clearing === "all"} disabled={clearing !== null} onClick={() => confirmClear("noticeHistory", t("settings.storage.noticeHistory"))}>
 						{t("common.delete")}
 					</Button>
 				</div>

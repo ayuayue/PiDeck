@@ -365,6 +365,8 @@ import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
 import { registerCatalogIpc } from "./ipc/catalogIpc";
 import { registerQuickMessagesIpc } from "./ipc/quickMessagesIpc";
+import { registerNoticeHistoryIpc } from "./ipc/noticeHistoryIpc";
+import { NoticeHistoryStore } from "./notices/NoticeHistoryStore";
 import { registerReplyActionsIpc } from "./ipc/replyActionsIpc";
 import { QuickMessageStore } from "./quickmessages/QuickMessageStore";
 import { ReplyActionRuleStore } from "./replyactions/ReplyActionRuleStore";
@@ -2461,6 +2463,17 @@ function registerIpc() {
 	registerResourceImportIpc(resourceImportManager);
 
 	registerScratchPadIpc({ appLogger });
+
+	// 通知历史落盘：showNotice 单点记录后推送主进程，重启可回灌（渲染层环形缓冲只服务当次会话）
+	registerNoticeHistoryIpc(
+		new NoticeHistoryStore({
+			getFilePath: () => join(app.getPath("userData"), "notice-history.json"),
+			log: (level, message, detail) => {
+				if (level === "error") void appLogger.error("notice-history", message, detail);
+				else void appLogger.info("notice-history", message, detail);
+			},
+		}),
+	);
 
 	// 粘贴大文本 → 落盘文件（受管目录，路径校验 + 启动清理）
 	cleanupPasteFiles = registerPasteFilesIpc({

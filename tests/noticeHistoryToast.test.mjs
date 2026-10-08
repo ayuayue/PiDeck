@@ -111,7 +111,8 @@ it("showNotice 把每次弹出写进历史：kind/标题/正文/生效时长", (
 });
 
 it("历史环形缓冲封顶丢最旧、快照引用稳定、订阅可退订、可清空", () => {
-	const { recordNoticeHistory, getNoticeHistorySnapshot, subscribeNoticeHistory, clearNoticeHistory, NOTICE_HISTORY_MAX_ENTRIES } = createTsSandbox()("src/renderer/src/utils/noticeHistory.ts");
+	// window 注入 undefined：模块的落盘推送（window?.piDesktop）在沙箱里必须安全短路
+	const { recordNoticeHistory, getNoticeHistorySnapshot, subscribeNoticeHistory, clearNoticeHistory, NOTICE_HISTORY_MAX_ENTRIES } = createTsSandbox({ globals: { window: undefined } })("src/renderer/src/utils/noticeHistory.ts");
 
 	let notified = 0;
 	const unsubscribe = subscribeNoticeHistory(() => {

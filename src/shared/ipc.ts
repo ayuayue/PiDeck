@@ -66,6 +66,14 @@ export const ipcChannels = {
 	pasteFilesGetSize: "paste-files:get-size",
 	/** 设置页一键清空两个受管根下的 paste-* 文件 */
 	pasteFilesClearAll: "paste-files:clear-all",
+	/** 通知历史：读取落盘历史（渲染层启动回灌环形缓冲；文件是唯一持久事实，不缓存） */
+	noticeHistoryGet: "notice-history:get",
+	/** 通知历史：追加一条（showNotice 单点记录后 fire-and-forget，坏载荷主进程丢弃并记日志） */
+	noticeHistoryRecord: "notice-history:record",
+	/** 通知历史：清空内存数组并删除落盘文件 */
+	noticeHistoryClear: "notice-history:clear",
+	/** 通知历史：文件占用统计（设置页「缓存与日志」） */
+	noticeHistoryGetSize: "notice-history:get-size",
 	/** 模型目录（pi-ai-catalog）更新：查询内置/覆盖层状态 */
 	catalogUpdateStatus: "catalog:update-status",
 	/** 模型目录更新：检查远端（GitHub main 分支 manifest）是否有新版本 */

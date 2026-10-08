@@ -53,3 +53,4 @@ export * from "./types/contentUpdate";
 export * from "./types/piAuth";
 export * from "./types/quickMessages";
 export * from "./types/miniOverlay";
+export * from "./types/noticeHistory";

@@ -555,6 +555,13 @@ export function createPreviewApi(): PiDesktopApi {
 			getSize: async () => 0,
 			clearAll: async () => 0,
 		},
+		noticeHistory: {
+			// 预览/浏览器模式无主进程落盘：内存环形缓冲照常工作，只是重启不保留
+			get: async () => [],
+			record: async () => undefined,
+			clear: async () => undefined,
+			getSize: async () => 0,
+		},
 		dialog: {
 			pickFiles: async () => [],
 			pickBackgroundImage: async () => "",

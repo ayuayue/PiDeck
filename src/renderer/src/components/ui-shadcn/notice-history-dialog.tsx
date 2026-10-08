@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { t } from "../../i18n";
 import { replayNoticeEntry } from "../../utils/notice";
 import { writeClipboard } from "../../utils/clipboard";
-import { clearNoticeHistory, filterNoticeHistory, getNoticeHistorySnapshot, subscribeNoticeHistory, type NoticeHistoryEntry, type NoticeHistoryKind } from "../../utils/noticeHistory";
+import { clearNoticeHistory, filterNoticeHistory, getNoticeHistorySnapshot, hydrateNoticeHistoryFromDisk, subscribeNoticeHistory, type NoticeHistoryEntry, type NoticeHistoryKind } from "../../utils/noticeHistory";
 import { Button } from "./button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./dialog";
 import { Input } from "./input";
@@ -117,6 +117,20 @@ export function NoticeHistoryDialog() {
 		};
 	}, []);
 	const entries = useSyncExternalStore(subscribeNoticeHistory, getNoticeHistorySnapshot);
+	// 挂载即回灌落盘历史：弹窗常驻 App 根树，效果等同应用启动执行一次。
+	// 只在空内存上替换（此刻尚无新记录）；加载失败静默——历史回看不能阻断启动。
+	useEffect(() => {
+		let cancelled = false;
+		void window.piDesktop.noticeHistory
+			.get()
+			.then((fileEntries) => {
+				if (!cancelled) hydrateNoticeHistoryFromDisk(fileEntries);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 	const [search, setSearch] = useState("");
 	const [kind, setKind] = useState<NoticeHistoryKind | "all">("all");
 	const [page, setPage] = useState(1);

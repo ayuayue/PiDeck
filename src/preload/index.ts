@@ -31,6 +31,7 @@ import type {
 import type { WhisperInstallProgress, WhisperInstallResult, WhisperRuntimeStatus } from "../shared/types/whisperRuntime";
 import type { EnhanceEventPayload, EnhanceRunInput, EnhanceRunResult } from "../shared/types/enhance";
 import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
+import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../shared/types/noticeHistory";
 import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../shared/types/replyActions";
 import type {
 	YaoPromptListResult,
@@ -409,6 +410,16 @@ const api = {
 		getSize: () => ipcRenderer.invoke(ipcChannels.pasteFilesGetSize) as Promise<number>,
 		/** 设置页一键清空两个受管根下的 paste-* 文件。 */
 		clearAll: () => ipcRenderer.invoke(ipcChannels.pasteFilesClearAll) as Promise<number>,
+	},
+	noticeHistory: {
+		/** 读取落盘通知历史（启动回灌环形缓冲用）。 */
+		get: () => ipcRenderer.invoke(ipcChannels.noticeHistoryGet) as Promise<NoticeHistoryFileEntry[]>,
+		/** 追加一条记录（showNotice 单点记录后 fire-and-forget，失败静默——历史永不阻断 toast）。 */
+		record: (input: NoticeHistoryRecordInput) => ipcRenderer.invoke(ipcChannels.noticeHistoryRecord, input) as Promise<void>,
+		/** 清空并删除落盘文件（历史面板「清空记录」与设置页清理共用）。 */
+		clear: () => ipcRenderer.invoke(ipcChannels.noticeHistoryClear) as Promise<void>,
+		/** 文件占用统计（设置页「缓存与日志」）。 */
+		getSize: () => ipcRenderer.invoke(ipcChannels.noticeHistoryGetSize) as Promise<number>,
 	},
 	dialog: {
 		/**
