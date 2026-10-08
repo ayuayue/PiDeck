@@ -121,6 +121,8 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"session.fileTooLargeForWholeRead": "會話檔案過大（{sizeMb}MB，超過 {limitMb}MB 整讀上限），該操作已取消以免應用崩潰。",
 	// fork/clone 产物物理命名后缀：属于会话名的一部分（重命名可删除），展示层不再拼装。
 	"session.forkedSuffix": "(fork)",
+	// fork/copy 改名失败的用户通知（2026-10-08：只写日志 → 用户零反馈，侧栏标题停在弱兜底上看着像乱码）。
+	"notice.sessionSuffixRenameFailed": "會話 {mode} 已完成，但寫會話名字尾失敗：檔名字尾未生效，可稍後在會話選單裡手動重新命名。",
 	"session.historyTitle": "{project} 歷史會話",
 	"session.historyFallbackTitle": "歷史會話",
 	"session.summaryPlaceholder": "[摘要]",
@@ -156,6 +158,7 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"mainConfig.emptyModelList": "介面返回了空的模型列表。",
 	"mainConfig.fetchTimeout": "請求超時，請檢查網路或 baseUrl。",
 	"mainConfig.fetchModelsFailed": "獲取模型列表失敗，請檢查 provider 配置後重試。",
+	"mainConfig.fetchModelsUnsupportedApi": "「{api}」協議沒有通用的模型列表介面，無法自動拉取。請在「額外模型」裡手動新增模型 ID（Azure 用部署名，Bedrock/Vertex 用各自的模型 ID）。",
 	"mainConfig.fetchBlockedByHtml": "介面返回的是網頁而不是模型資料：請求很可能被閘道器的 WAF / 人機驗證攔下了。請嘗試在「測試代選」裡切換代理，或在 User-Agent 裡選一個官方客戶端 UA（如 claude-cli/...）後重試。",
 	"mainConfig.fetchTlsBlocked": "TLS 握手失敗（HTTPS 鏈路被中間裝置干擾或封鎖）。這通常不是配置錯誤：請開啟代理後重試，或換用該閘道器的映象/備用域名。",
 	"mainConfig.fetchUnreachable": "連線不上該地址（超時 / 被拒絕 / 域名解析失敗）。請檢查網路與代理開關，並確認 baseUrl 可訪問。",
