@@ -98,6 +98,17 @@ export type SessionMessageCacheEntry = {
 	/** 窗口首条消息的文件消息下标（2026-11）：窗口缺 entryId 时作为首次补历史的数值游标 */
 	windowStartFilePos?: number;
 	/**
+	 * 活动分支上生效的 pi 原生上下文编辑汇总（`context_edit`）。
+	 *
+	 * 这里只存「哪些条目被移出/改写」，不存改写后的正文：正文由 pi 在构造请求时
+	 * 现场应用，展示层只需要知道「这条消息不再送给模型」就能正确标注，
+	 * 而把改后正文再算一遍会多出两份真相（且压缩后会与 pi 的裁剪结果不一致）。
+	 */
+	contextEdits?: {
+		excludedEntryIds: readonly string[];
+		replacedEntryIds: readonly string[];
+	};
+	/**
 	 * disk 历史前缀（仅 runtime 窗口会话）：prepend-only 轮次页，
 	 * 与运行时窗口段的接缝按 meta.entryId 去重；fileVersion 变化（压缩改写）即整段失效。
 	 */
@@ -562,6 +573,8 @@ export const cacheSessionMessagesAtom = atom(
 			source: "disk" | "runtime";
 			expectedRevision?: number;
 			page?: Pick<SessionMessagePage, "total" | "nextBefore">;
+			/** 活动分支上生效的 pi 原生上下文编辑汇总（见 SessionMessageCacheEntry.contextEdits） */
+			contextEdits?: SessionMessageCacheEntry["contextEdits"];
 			/** runtime 窗口协议字段（2026-08 激活分页） */
 			windowStart?: number;
 			/** 窗口段头部的系统摘要卡片数（全量 flush 推导，增量合并偏移用） */
@@ -621,6 +634,9 @@ export const cacheSessionMessagesAtom = atom(
 				outlineRevision,
 				outlineLastUserIndex,
 				...(input.source === "disk" && input.page ? { page: input.page } : {}),
+				// 上下文编辑汇总只由 disk 路径提供（runtime 窗口的 messages 已经是 pi 投影后的
+				// 结果，不需要再标注）；幂等地跟随写入，避免磁盘重读后旧值残留。
+				...(input.contextEdits ? { contextEdits: input.contextEdits } : {}),
 				// runtime 窗口语义（2026-08 激活分页）：entry 每次整体重建，
 				// 调用方必须显式给出 windowStart/history（undefined = 清除，如版本失效丢前缀）；
 				// disk 来源无窗口概念，两字段缺省即不存在

@@ -63,6 +63,17 @@ export type SessionMessagePage = {
 	nextBeforeEntryId?: string;
 	/** 会话文件版本（mtime:size）：渲染层比对检测压缩/外部改写，变化即丢弃已缓存的历史前缀。 */
 	indexVersion?: string;
+	/**
+	 * 活动分支上生效的 pi 原生上下文编辑（`context_edit`）汇总。
+	 * 展示层用它区分「原始历史」与「模型当前可见的上下文」：
+	 * excludedEntryIds 里的消息仍然在时间线上（原文未变、费用已发生，且已写入摘要），
+	 * 只是不再送给模型；UI 应标记为「已移出上下文」并可展开看原文，
+	 * 而不是假装它从不存在（那会让用户误以为 token/费用也应该消失）。
+	 */
+	contextEdits?: {
+		excludedEntryIds: readonly string[];
+		replacedEntryIds: readonly string[];
+	};
 };
 
 export type FileTreeNode = {

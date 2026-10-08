@@ -20,6 +20,56 @@ type SessionHistoryMetadata = {
 	thinkingLevel?: string;
 };
 
+/**
+ * 会话在「模型上下文」与「原始历史」两个视角下的差异（仅统计条目 id 级别的信息）。
+ *
+ * pi 自 1.0.x 起用 `context_edit` 追加记录来表达「把某条消息从模型上下文移除/
+ * 改写」而不改写原始行（`replacement: null` = 不再送入模型）。因此同一会话存在
+ * 两个真相：
+ *   - 原始历史（文件里曾经发生过的）：永不减少，包括已被移出的消息与已发生的费用；
+ *   - 有效上下文（模型下次会看到的）：受 context_edit 与最近一次 compaction 影响。
+ * 展示层必须能把两者分开说清楚，否则「删了消息但历史还在」看起来像 bug。
+ */
+export type SessionContextEditsSummary = {
+	/** 活动分支上最终被移出模型上下文的条目 id（同一目标多次编辑取最后一次）。 */
+	excludedEntryIds: readonly string[];
+	/** 活动分支上最终被改写内容的条目 id。 */
+	replacedEntryIds: readonly string[];
+};
+
+/**
+ * context_edit 汇总所需的最小结构（离线 Viewer 的 inline 条目只建了这几个字段，
+ * 用结构子集而非 SessionDisplayEntry，避免为汇总把索引字段都补齐）。
+ */
+type ContextEditSourceEntry = {
+	type?: string;
+	contextEditTargetId?: string;
+	contextEditExcludes?: boolean;
+};
+
+/**
+ * 从活动分支汇总「最终生效」的 context_edit（同一 targetId 后者覆盖前者，与 pi 一致）。
+ *
+ * 为何只算活动分支：编辑是树上的节点，只有落在当前 leaf 父链上的才作用于模型上下文。
+ * 分叉后另一分支的编辑不得影响当前分支（否则切分支会看到别人的改写）。
+ *
+ * 为何只算「活动分支」而不先做压缩裁剪：这里回答的是「用户在这条分支上做过哪些操作」，
+ * 而压缩裁不裁剪属于「模型最后看到什么」。两者混为一谈会让已被摘要替代的编辑凭空消失。
+ */
+export function collectSessionContextEdits(activeBranch: readonly ContextEditSourceEntry[]): SessionContextEditsSummary {
+	const finalByTarget = new Map<string, boolean>();
+	for (const entry of activeBranch) {
+		if (entry.type !== "context_edit" || !entry.contextEditTargetId) continue;
+		finalByTarget.set(entry.contextEditTargetId, entry.contextEditExcludes === true);
+	}
+	const excludedEntryIds: string[] = [];
+	const replacedEntryIds: string[] = [];
+	for (const [targetId, excluded] of finalByTarget) {
+		(excluded ? excludedEntryIds : replacedEntryIds).push(targetId);
+	}
+	return { excludedEntryIds, replacedEntryIds };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -105,6 +155,13 @@ type SessionDisplayEntry = {
 	parentSession?: string;
 	/** fork 链合并索引中，本条目 offset 所属的文件（祖先条目非宿主文件）。 */
 	chainHostPath?: string;
+	/**
+	 * context_edit 条目的编辑目标（pi 原生「从模型上下文移除/改写」记录）。
+	 * 只存 targetId 与「是否为排除」：replacement 正文可能很大，展示侧不需要它，
+	 * 避免建索引时把整段正文读进内存（大会话上这是内存红线）。
+	 */
+	contextEditTargetId?: string;
+	contextEditExcludes?: boolean;
 };
 
 type SessionDisplayIndex = {
@@ -120,6 +177,8 @@ type SessionDisplayIndex = {
 	activeMessageEntries: SessionDisplayEntry[];
 	/** 活动分支模型与思考档位；与索引一起生成，避免历史页读取后再次扫描摘要 */
 	metadata: SessionHistoryMetadata;
+	/** 活动分支上生效的 context_edit（pi 原生移除/改写记录）汇总。 */
+	contextEdits: SessionContextEditsSummary;
 	/** 构建时文件是否以完整行（\n）结尾：false 时禁止增量追加（旧最后一行可能被拼接污染） */
 	endsWithNewline: boolean;
 	/**
@@ -531,7 +590,7 @@ export class SessionHistoryReader {
 				isTailWindow: true,
 				entryRendererTypes: options?.entryRendererTypes ?? [],
 			});
-			return this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index));
+			return this.stampContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
 		}
 		const content = sessionContent;
 		const entries: Array<{
@@ -614,7 +673,7 @@ export class SessionHistoryReader {
 			finalRaw = [...rawMessages.slice(0, insertAt), card, ...rawMessages.slice(insertAt)];
 		}
 
-		return this.deps.convertMessages(agentId, finalRaw, activeEntryIds);
+		return this.stampContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
 	}
 
 	/**
@@ -790,11 +849,12 @@ export class SessionHistoryReader {
 				entryRendererTypes,
 			});
 			return {
-				messages: this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)),
+				messages: this.stampContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
 				total,
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
 				indexVersion: `${index.mtimeMs}:${index.size}`,
+				contextEdits: index.contextEdits,
 				...index.metadata,
 			};
 		}
@@ -810,11 +870,12 @@ export class SessionHistoryReader {
 			entryRendererTypes,
 		});
 		return {
-			messages: this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start),
+			messages: this.stampContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
 			total,
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
 			indexVersion: `${index.mtimeMs}:${index.size}`,
+			contextEdits: index.contextEdits,
 			...index.metadata,
 		};
 	}
@@ -1061,6 +1122,29 @@ export class SessionHistoryReader {
 		return spliceCardsByOffset(messages, cards, (offset) => {
 			const afterCompaction = hasCompactionCard && compactionInsertOffset !== undefined && offset >= compactionInsertOffset;
 			return messageIndexFromEntryOffset(windowEntries, offset, windowStart) + (afterCompaction ? 1 : 0);
+		});
+	}
+
+	/**
+	 * 给消息打上「已生效的上下文编辑」标记（纯展示元数据，不改变正文）。
+	 *
+	 * 为什么必须标记而不是隐藏：`context_edit` 只改变模型之后读取的上下文，
+	 * 原文、已产生的 token/费用、已写入摘要的事实都不回滚。把消息藏起来会让用户
+	 * 误以为删除等于「彻底忘掉 / 省钱」，而真实情况是「下次请求不再带着它」。
+	 * UI 据此提示「已移出上下文」（原文仍可查）。
+	 *
+	 * 只对带 entryId 的消息标记：实时乐观消息 / 无 entryId 的系统卡片不参与。
+	 */
+	private stampContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsSummary): ChatMessage[] {
+		if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
+		const excluded = new Set(contextEdits.excludedEntryIds);
+		const replaced = new Set(contextEdits.replacedEntryIds);
+		return messages.map((message) => {
+			const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
+			if (!entryId) return message;
+			if (excluded.has(entryId)) return { ...message, meta: { ...message.meta, contextEdit: "excluded" as const } };
+			if (replaced.has(entryId)) return { ...message, meta: { ...message.meta, contextEdit: "replaced" as const } };
+			return message;
 		});
 	}
 
@@ -1323,6 +1407,7 @@ export class SessionHistoryReader {
 			activeBranch,
 			activeMessageEntries: activeBranch.filter((entry) => entry.type === "message" && entry.hasMessage),
 			metadata: deriveSessionHistoryMetadata(activeBranch),
+			contextEdits: collectSessionContextEdits(activeBranch),
 			endsWithNewline: own.endsWithNewline,
 			chainSources: [...(parent.chainSources ?? []), { hostPath: parent.hostPath, size: parent.size, mtimeMs: parent.mtimeMs }],
 		};
@@ -1378,6 +1463,11 @@ export class SessionHistoryReader {
 			const nestedMessage = isRecord(parsed.message) ? parsed.message : data && isRecord(data.message) ? data.message : undefined;
 			const message = nestedMessage ?? (typeof parsed.role === "string" ? parsed : undefined);
 			const type = typeof parsed.type === "string" ? parsed.type : "";
+			// context_edit：pi 原生「把某条消息移出/改写模型上下文」的追加记录。
+			// 建索引时只抢 targetId 与「是否排除」（replacement === null），正文不 materialize。
+			const isContextEdit = type === "context_edit";
+			const contextEditTargetId = isContextEdit ? (readString(parsed, "targetId") ?? readString(data, "targetId")) : undefined;
+			const contextEditExcludes = isContextEdit && "replacement" in parsed && parsed.replacement === null ? true : undefined;
 			const modelChangeProvider = type === "model_change" ? (readString(parsed, "provider") ?? readString(data, "provider")) : undefined;
 			const modelChangeId = type === "model_change" ? (readString(parsed, "modelId") ?? readString(data, "modelId")) : undefined;
 			const thinkingLevel = type === "thinking_level_change" ? (readString(parsed, "thinkingLevel") ?? readString(data, "thinkingLevel")) : undefined;
@@ -1421,6 +1511,8 @@ export class SessionHistoryReader {
 				tokensBefore: typeof parsed.tokensBefore === "number" ? parsed.tokensBefore : undefined,
 				// fork 子会话的 session 头携带 parentSession 指针：链式索引靠它找祖先文件
 				parentSession: type === "session" ? (readString(parsed, "parentSession") ?? undefined) : undefined,
+				...(contextEditTargetId ? { contextEditTargetId } : {}),
+				...(contextEditExcludes !== undefined ? { contextEditExcludes } : {}),
 			};
 		} catch {
 			return null;
@@ -1454,6 +1546,7 @@ export class SessionHistoryReader {
 			activeBranch,
 			activeMessageEntries: activeBranch.filter((entry) => entry.type === "message" && entry.hasMessage),
 			metadata: deriveSessionHistoryMetadata(activeBranch),
+			contextEdits: collectSessionContextEdits(activeBranch),
 			endsWithNewline,
 		};
 	}

@@ -141,6 +141,7 @@ import { visionImageHashes } from "../../utils/visionImageHash";
 import { ToolCard, ToolGroupCard, type DiffFileHandler } from "./ToolCallComponents";
 import { DiagnosticMessageCard, RespondingIndicator, ThinkingBlock } from "./TimelineEventCards";
 import { MultiSelectModal } from "./MessageShareModal";
+import { ContextEditBadge } from "./ContextEditBadge";
 
 // ============================================================
 // Surface & Workspace domain components
@@ -961,6 +962,9 @@ export const UserBubble = memo(function UserBubble(props: {
 					)}
 				</div>
 			)}
+			{/* 上下文编辑标记放在气泡上方（右对齐跟随气泡）：它是这条消息在模型上下文里的
+			    状态，不是消息正文的一部分；把它塞进气泡会让人以为是用户输入的内容。 */}
+			{!editing && <ContextEditBadge message={message} className="mb-1 self-end" />}
 			{cleanText && !editing && (
 				<div className="user-turn-bubble w-fit min-w-0 max-w-[min(82%,64ch)] rounded-[14px] border px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere] break-words">
 					<div
