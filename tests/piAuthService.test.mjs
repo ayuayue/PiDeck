@@ -29,12 +29,11 @@ function createHarness() {
 	const writes = [];
 	child.stdout = stdout;
 	child.stderr = stderr;
-	child.stdin = {
-		destroyed: false,
-		write: (chunk) => {
-			writes.push(String(chunk));
-			return true;
-		},
+	child.stdin = new EventEmitter();
+	child.stdin.destroyed = false;
+	child.stdin.write = (chunk) => {
+		writes.push(String(chunk));
+		return true;
 	};
 	child.killed = false;
 	child.kill = () => {
@@ -72,6 +71,37 @@ function createService(overrides = {}) {
 	});
 	return { service, harnesses, spawnCalls, latest: () => harnesses.at(-1) };
 }
+
+test("stdin 同步错误：立即结算当前认证并吸收回收后的迟到错误", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	const pending = service.login({ providerId: "kimi", method: "oauth" });
+	const harness = latest();
+	harness.child.stdin.write = () => {
+		throw new Error("sync EPIPE");
+	};
+	assert.doesNotThrow(() => service.answerPrompt("prompt-1", "answer"));
+	const result = await pending;
+	assert.equal(result.ok, false);
+	assert.equal(result.errorKind, "protocol");
+	assert.equal(result.error, "认证助手输入管道错误：sync EPIPE");
+	assert.equal(harness.child.killed, true);
+	assert.doesNotThrow(() => harness.child.stdin.emit("error", new Error("late pipe error")));
+});
+
+test("stdin 异步错误：安全结算当前认证并吸收回收后的迟到错误", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	const pending = service.listProviders();
+	const harness = latest();
+	assert.doesNotThrow(() => harness.child.stdin.emit("error", new Error("write EPIPE")));
+	const result = await pending;
+	assert.equal(result.ok, false);
+	assert.equal(result.errorKind, "protocol");
+	assert.equal(result.error, "认证助手输入管道错误：write EPIPE");
+	assert.equal(harness.child.killed, true);
+	assert.doesNotThrow(() => harness.child.stdin.emit("error", new Error("late pipe error")));
+});
 
 test("listProviders: 写 list 指令、回读供应商、结束即回收进程", async () => {
 	const { service, spawnCalls, latest } = createService();
@@ -244,6 +274,24 @@ test("助手异常退出（未给结果）时带上退出码收尾", async () =>
 	assert.equal(result.ok, false);
 	assert.equal(result.errorKind, "protocol");
 	assert.match(result.error, /code 1/);
+});
+
+test("已结算的旧助手迟到 error：必须安全吸收且不影响下一次认证", async () => {
+	const { service, latest } = createService();
+	const firstPending = service.listProviders();
+	const old = latest();
+	old.emitLine({ type: "providers", providers: [] });
+	const first = await firstPending;
+	assert.equal(first.ok, true);
+	assert.equal(old.child.killed, true);
+
+	const secondPending = service.listProviders();
+	const current = latest();
+	assert.notEqual(current, old);
+	assert.doesNotThrow(() => old.emitSpawnError(new Error("late old auth host error")));
+	current.emitLine({ type: "providers", providers: [] });
+	const second = await secondPending;
+	assert.equal(second.ok, true);
 });
 
 test("dispose 会结算进行中的登录并回收进程", async () => {

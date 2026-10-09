@@ -62,6 +62,12 @@ export type PiAuthLogger = {
 	error: (message: string) => void;
 };
 
+/** 从原生 Error、跨 realm 错误或未知抛出值中提取稳定的可展示详情。 */
+function getErrorMessage(error: unknown): string {
+	if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
+	return String(error);
+}
+
 /**
  * 只保留 pi 自己支持的认证供应商，滤掉 `models.json` 里用户自定义的供应商。
  *
@@ -134,6 +140,7 @@ class AuthHostSession {
 			this.stderrTail.push(text);
 			if (this.stderrTail.length > 20) this.stderrTail.shift();
 		});
+		child.stdin.on("error", (error: Error) => this.settle({ kind: "error", errorKind: "protocol", message: `认证助手输入管道错误：${error.message}` }));
 		child.on("error", (error) => this.settle({ kind: "error", errorKind: "spawn-failed", message: error.message }));
 		child.on("close", (code) => this.settle({ kind: "error", errorKind: "protocol", message: `认证助手意外退出（code ${code ?? "null"}）${this.stderrTail.at(-1) ? `：${this.stderrTail.at(-1)}` : ""}` }));
 	}
@@ -148,7 +155,11 @@ class AuthHostSession {
 	}
 	send(command: Record<string, unknown>): void {
 		if (this.settled || this.child.stdin.destroyed) return;
-		this.child.stdin.write(`${JSON.stringify(command)}\n`);
+		try {
+			this.child.stdin.write(`${JSON.stringify(command)}\n`);
+		} catch (error) {
+			this.settle({ kind: "error", errorKind: "protocol", message: `认证助手输入管道错误：${getErrorMessage(error)}` });
+		}
 	}
 
 	/** 取一条消息；会话结束时返回 undefined（等待者由 settle 统一唤醒）。 */
@@ -169,6 +180,7 @@ class AuthHostSession {
 
 	/** 注册超时定时器；结算时统一清理，避免遗留 timer 让主进程保持存活。 */
 	addTimeout(ms: number, onTimeout: () => void): void {
+		if (this.settled) return;
 		this.timers.push(setTimeout(onTimeout, ms));
 	}
 
@@ -186,7 +198,14 @@ class AuthHostSession {
 		this.buffer = "";
 		this.child.stdout.removeAllListeners();
 		this.child.stderr.removeAllListeners();
+		this.child.stdin.removeAllListeners();
 		this.child.removeAllListeners();
+		// EventEmitter 对 `error` 有特殊语义：没有监听器时，旧助手在 kill 后迟到的
+		// error 会直接变成未处理异常，可能击穿主进程。保留一个终态吸收器，直到
+		// 子进程对象被回收；它不再改变已结算结果，也不会影响下一次会话。
+		this.child.on("error", () => {});
+		// stdin 也可能在 kill 后迟到 EPIPE；不能因移除业务监听而留下未处理 error。
+		this.child.stdin.on("error", () => {});
 		this.child.kill();
 		for (const waiter of this.waiters.splice(0)) waiter(undefined);
 		if (outcome.kind === "error") {

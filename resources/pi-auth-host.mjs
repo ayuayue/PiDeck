@@ -69,9 +69,23 @@ const pendingResolvers = [];
  * 取指令。宿主不会中途断流，所以 stdin end 视作「宿主放弃」：投入一个 null
  * 唤醒等待者，让调用方走退出路径，避免事件循环空掉后 Node 以 13 号退出。
  */
-function nextCommand() {
+function nextCommand(signal) {
+	if (signal?.aborted) return Promise.resolve(PROMPT_ABORTED);
 	if (queuedCommands.length > 0) return Promise.resolve(queuedCommands.shift());
-	return new Promise((resolve) => pendingResolvers.push(resolve));
+	return new Promise((resolve) => {
+		const onCommand = (command) => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve(command);
+		};
+		const onAbort = () => {
+			// 作废提问必须撤走队列里的等待者，否则它会吞掉下一步的回答。
+			const index = pendingResolvers.indexOf(onCommand);
+			if (index >= 0) pendingResolvers.splice(index, 1);
+			resolve(PROMPT_ABORTED);
+		};
+		pendingResolvers.push(onCommand);
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 function pushCommand(command) {
@@ -97,58 +111,35 @@ function isPromptAborted(value) {
 	return value === PROMPT_ABORTED;
 }
 
-function answerPrompt(id, prompt) {
-	const signal = prompt.signal;
-	return new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			resolve(PROMPT_ABORTED);
-			return;
-		}
-		let settled = false;
-		const onAbort = () => {
-			if (settled) return;
-			settled = true;
+async function answerPrompt(id, prompt) {
+	// 等待者本身可取消，避免外层 Promise 结束后还有无人持有的消费循环。
+	for (;;) {
+		const command = await nextCommand(prompt.signal);
+		if (isPromptAborted(command)) {
 			log(`prompt ${id} aborted by pi (out-of-band resolution)`);
 			send({ type: "prompt-cancelled", id });
-			resolve(PROMPT_ABORTED);
-		};
-		signal?.addEventListener("abort", onAbort, { once: true });
-		// 用事件驱动而不是轮询：answer/cancel 指令都会唤醒 nextCommand。
-		void (async () => {
-			try {
-				for (;;) {
-					const command = await nextCommand();
-					if (!command) {
-						// 宿主断开：按取消处理，交给上层走取消收尾。
-						reject(new Error("PiDeck auth host: host closed the connection"));
-						return;
-					}
-					if (command.cmd === "cancel") {
-						// 既要中止提问，也要中止整个流程：pi 侧的回调服务器/设备码轮询
-						// 都挂在本流程的 signal 上，只 reject 提问会留下后台网络活动。
-						abortActive("host cancelled while prompting");
-						reject(new Error("Login cancelled"));
-						return;
-					}
-					if (command.cmd !== "answer") {
-						log(`ignoring unexpected command while prompting: ${command.cmd}`);
-						continue;
-					}
-					// 旧提问的迟到答案直接丢弃：弹框重开后 id 会变。
-					if (command.id !== undefined && command.id !== id) {
-						log(`ignoring stale answer for prompt ${command.id} (waiting for ${id})`);
-						continue;
-					}
-					if (settled) return;
-					settled = true;
-					resolve(command.value === undefined ? "" : String(command.value));
-					return;
-				}
-			} catch (error) {
-				reject(error);
-			}
-		})();
-	}).finally(() => signal?.removeEventListener("abort", onAbort));
+			return PROMPT_ABORTED;
+		}
+		if (!command) {
+			// 宿主断开：按取消处理，交给上层走取消收尾。
+			throw new Error("PiDeck auth host: host closed the connection");
+		}
+		if (command.cmd === "cancel") {
+			// 只结束提问会留下 pi 的回调服务器/设备码轮询，必须中止整个流程。
+			abortActive("host cancelled while prompting");
+			throw new Error("Login cancelled");
+		}
+		if (command.cmd !== "answer") {
+			log(`ignoring unexpected command while prompting: ${command.cmd}`);
+			continue;
+		}
+		// 旧提问的迟到答案直接丢弃：弹框重开后 id 会变。
+		if (command.id !== undefined && command.id !== id) {
+			log(`ignoring stale answer for prompt ${command.id} (waiting for ${id})`);
+			continue;
+		}
+		return command.value === undefined ? "" : String(command.value);
+	}
 }
 
 // ---------------------------------------------------------------------------
