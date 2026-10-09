@@ -156,6 +156,12 @@ export type SessionTabsBarProps = {
 	 * 避免内容区再开第二套「绿条」Tab 栏。
 	 */
 	editorTabs?: readonly WorkbenchEditorTabItem[];
+	/**
+	 * 页面式宿主插件面板（presentation:"page"）作为伪 Tab 挂进本栏：打开时占据会话区，
+	 * 会话 Tab 全部退为非选中（currentSessionId 由装配层置 undefined）；关闭伪 Tab 即收起插件页。
+	 * simple 模式不渲染（无 Tab 栏语义，插件页直接铺满会话区）。
+	 */
+	pluginTab?: { title: string; icon?: React.ComponentType<{ className?: string }>; onClose: () => void } | null;
 	onSelectEditorTab?: (tabId: string) => void;
 	onCloseEditorTab?: (tabId: string) => void;
 	onPromoteEditorPreview?: (tabId: string) => void;
@@ -605,6 +611,13 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 					{/* 浏览器式新建入口：跟在最后一张标签后面，下拉选择新建到哪个项目。
             （新建会话保留独立「+」按钮；⋯ 菜单只收运行控制与工具） */}
 					{!props.simple && <NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} onNewAcpSession={props.onNewAcpSession} />}
+					{/* 页面式插件面板伪 Tab：始终选中态（它就是当前呈现的视图），与会话 Tab 之间加竖线分隔 */}
+					{!props.simple && props.pluginTab ? (
+						<>
+							<span className="mx-0.5 h-5 w-px shrink-0 bg-border-strong" aria-hidden="true" />
+							<HostPluginTab tab={props.pluginTab} indicatorId={activeIndicatorId} indicatorTransition={indicatorTransition} />
+						</>
+					) : null}
 					{/* 文件/Diff 与会话共用本栏：同一套 session-tab 皮，不另开绿条栏 */}
 					{props.editorTabs && props.editorTabs.length > 0 ? (
 						<>
@@ -814,6 +827,46 @@ function EditorWorkbenchTab(props: {
 				</TooltipContent>
 			) : null}
 		</Tooltip>
+	);
+}
+
+/**
+ * 页面式宿主插件面板伪 Tab：与 EditorWorkbenchTab 同一套 session-tab 皮。
+ * 它在栏里始终是选中态（呈现的视图就是它），背景走与会话 Tab 共享的 layoutId 指示器，
+ * 选中背景从上一个 Tab spring 滑过来。不可拖拽排序，唯一动作是关闭（即收起插件页）。
+ */
+function HostPluginTab(props: { tab: { title: string; icon?: React.ComponentType<{ className?: string }>; onClose: () => void }; indicatorId: string; indicatorTransition: Transition }) {
+	const { tab } = props;
+	const Icon = tab.icon;
+	return (
+		<div
+			role="tab"
+			aria-selected={true}
+			aria-label={tab.title}
+			className={cn(
+				"session-tab group relative flex h-7 shrink-0 cursor-pointer select-none items-center rounded-md border border-transparent px-2 font-medium text-foreground text-[length:var(--font-size-tab)] leading-(--line-height-tab) transition-[color,background-color,border-color,box-shadow,transform] duration-base",
+				"w-fit max-w-(--session-tab-max-w)",
+			)}
+		>
+			<span className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5">
+				{Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+				<span className="min-w-0 flex-1 truncate">{tab.title}</span>
+				<button
+					type="button"
+					role="tab-close"
+					aria-label={t("tabs.close")}
+					title={t("tabs.close")}
+					className="inline-grid size-4 shrink-0 place-items-center rounded-sm text-muted-foreground/70 opacity-60 transition-[color,background-color,opacity] hover:bg-accent hover:text-foreground hover:opacity-100"
+					onClick={(event) => {
+						event.stopPropagation();
+						tab.onClose();
+					}}
+				>
+					<X className="size-3" />
+				</button>
+			</span>
+			<motion.span aria-hidden="true" layoutId={props.indicatorId} layout="position" transition={props.indicatorTransition} className="pointer-events-none absolute inset-0 rounded-md bg-accent" />
+		</div>
 	);
 }
 

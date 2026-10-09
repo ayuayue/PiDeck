@@ -160,6 +160,7 @@ import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
 import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
 import { HostPluginPageOverlay } from "./components/plugins/HostPluginPageOverlay";
+import { useHostPluginPageTab } from "./hooks/useHostPluginPageTab";
 import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
@@ -2692,10 +2693,22 @@ export function App() {
 		} else closeEditorTab(id);
 	};
 	const toggleSimpleContent = () => setSimpleContentExpanded((value) => !value);
+	// 页面式插件面板伪 Tab：tab 模式下挂进 SessionTabsBar（打开时会话 Tab 退非选中，
+	// 点任意会话 Tab 即收起）；simple 模式不挂（插件页直接铺满会话区，由 Overlay 承担）。
+	const hostPluginPageTab = useHostPluginPageTab();
 	const sessionTabsBarNode = (
 		<SessionTabsBar
 			{...sessionTabsProps}
 			simple={simpleMode}
+			// 插件页占据会话区时，会话 Tab 不得显示选中态（当前呈现的不是会话）
+			currentSessionId={hostPluginPageTab ? undefined : currentSessionId}
+			pluginTab={simpleMode ? null : hostPluginPageTab}
+			// 点任意会话 Tab（含当前 Tab，sessionId 不变的场景）也要收起插件页；
+			// Overlay 的 scope 变化兑底只覆盖「切到别的会话」这一分支。
+			onSelect={(sessionId) => {
+				hostPluginPageTab?.onClose();
+				workspaceChrome.selectTab(sessionId);
+			}}
 			sessionActions={tabsSessionActions}
 			contextSessionActions={buildTabsSessionActions}
 			toolActions={sessionToolActions}
