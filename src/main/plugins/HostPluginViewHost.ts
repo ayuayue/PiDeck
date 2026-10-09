@@ -1,18 +1,23 @@
-/** Isolated browser views with per-instance origins, no Node bridge, and paired lifecycle cleanup. */
-import { WebContentsView, session, type BrowserWindow } from "electron";
+/** In-page `<webview>` plugin surfaces with per-instance origins, no Node bridge, and paired lifecycle cleanup.
+ *
+ * The guest webview is created by the renderer (`partition: host-plugin:<instanceId>`) and validated by the
+ * window-level attach policy (`hostPluginWebviewPolicy`). This host owns everything around the guest: the
+ * isolated session, the asset protocol, broker binding, revocation and the session-change poll loop. */
+import { session, type WebContents } from "electron";
 import { randomUUID } from "node:crypto";
 import { setInterval, clearInterval } from "node:timers";
-import type { HostPluginBounds, HostPluginContext, HostPluginEvent, HostPluginMountInput, HostPluginSessionsRevision } from "../../shared/types/hostPlugin";
+import type { HostPluginContext, HostPluginEvent, HostPluginMountInput, HostPluginSessionsRevision } from "../../shared/types/hostPlugin";
 import { ipcChannels } from "../../shared/ipc";
 import type { HostPluginManager } from "./HostPluginManager";
 import type { HostPluginBroker } from "./HostPluginBroker";
 import type { HostPluginSessions } from "./HostPluginSessions";
+import type { HostPluginWebviewBridge } from "./hostPluginWebviewPolicy";
 import { readApprovedPluginAsset } from "./hostPluginFiles";
 import { HOST_PLUGIN_CSP, HOST_PLUGIN_SCHEME, pluginAssetFromUrl } from "./hostPluginPolicy";
 
-type Instance = { id: string; pluginId: string; fingerprint: string; window: BrowserWindow; view: WebContentsView; context: HostPluginContext; revision?: HostPluginSessionsRevision; generation: number; visible: boolean; polling: boolean; detach: () => void };
+type Instance = { id: string; pluginId: string; fingerprint: string; context: HostPluginContext; entryUrl: string; guest?: WebContents; revision?: HostPluginSessionsRevision; generation: number; polling: boolean; detach: () => void };
 
-export class HostPluginViewHost {
+export class HostPluginViewHost implements HostPluginWebviewBridge {
 	private readonly instances = new Map<string, Instance>();
 	private readonly unsubscribe: () => void;
 	private readonly timer: ReturnType<typeof setInterval>;
@@ -20,26 +25,26 @@ export class HostPluginViewHost {
 		private readonly manager: HostPluginManager,
 		private readonly broker: HostPluginBroker,
 		private readonly sessions: HostPluginSessions,
-		private readonly preload: string,
+		private readonly preparedPreload: string,
 	) {
 		this.unsubscribe = manager.onChanged(() => {
 			for (const instance of this.instances.values()) if (manager.getEnabled(instance.pluginId)?.fingerprint !== instance.fingerprint) this.unmount(instance.id);
 		});
 		this.timer = setInterval(() => {
-			for (const instance of this.instances.values()) if (instance.visible) void this.poll(instance);
+			for (const instance of this.instances.values()) if (instance.guest) void this.poll(instance);
 		}, 1500);
 		this.timer.unref();
 	}
 
 	/** The only URL space served is this instance's approved package; HTTP/file requests are denied. */
-	async mount(window: BrowserWindow, input: HostPluginMountInput): Promise<{ instanceId: string }> {
+	async mount(input: HostPluginMountInput): Promise<{ instanceId: string; entryUrl: string }> {
 		const plugin = this.manager.getEnabled(input.pluginId);
 		const panel = plugin?.manifest.contributes.panels.find((item) => item.id === input.panelId);
-		if (!plugin || !panel || window.isDestroyed()) throw new Error("plugin-not-authorized");
-		// Phase one owns one workbench surface, never an unbounded pool of renderer processes.
-		for (const instance of this.instances.values()) if (instance.window === window) this.unmount(instance.id);
+		if (!plugin || !panel) throw new Error("plugin-not-authorized");
+		// Phase one owns one workbench surface per plugin: a new allocation replaces the previous one.
+		for (const instance of this.instances.values()) if (instance.pluginId === plugin.manifest.id) this.unmount(instance.id);
 		const id = randomUUID();
-		const isolated = session.fromPartition(`host-plugin-${id}`);
+		const isolated = session.fromPartition(`host-plugin:${id}`);
 		isolated.setPermissionCheckHandler(() => false);
 		isolated.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 		isolated.setDevicePermissionHandler(() => false);
@@ -58,101 +63,99 @@ export class HostPluginViewHost {
 				return new Response(null, { status: 403 });
 			}
 		});
-		let view: WebContentsView;
-		try {
-			view = new WebContentsView({ webPreferences: { session: isolated, preload: this.preload, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInWorker: false, nodeIntegrationInSubFrames: false, webSecurity: true, allowRunningInsecureContent: false, webviewTag: false, devTools: false } });
-		} catch (error) {
-			isolated.protocol.unhandle(HOST_PLUGIN_SCHEME);
-			isolated.webRequest.onBeforeRequest(null);
-			throw error;
-		}
 		const entryUrl = `${HOST_PLUGIN_SCHEME}://${id}/${panel.entry}`;
-		const denyNavigation = (event: { preventDefault(): void }) => event.preventDefault();
-		view.webContents.on("will-frame-navigate", denyNavigation);
-		view.webContents.on("will-redirect", denyNavigation);
-		view.webContents.on("will-attach-webview", denyNavigation);
-		view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-		const onClosed = () => this.unmount(id);
-		window.once("closed", onClosed);
-		view.webContents.once("render-process-gone", onClosed);
 		const instance: Instance = {
 			id,
 			pluginId: plugin.manifest.id,
 			fingerprint: plugin.fingerprint,
-			window,
-			view,
 			context: input.context,
+			entryUrl,
 			generation: 0,
-			visible: true,
 			polling: false,
 			detach: () => {
-				window.removeListener("closed", onClosed);
 				isolated.protocol.unhandle(HOST_PLUGIN_SCHEME);
 				isolated.webRequest.onBeforeRequest(null);
 			},
 		};
 		this.instances.set(id, instance);
-		this.broker.bind(view.webContents.id, plugin.manifest.id, plugin.fingerprint, input.context);
-		this.emulateTheme(instance, input.context.theme);
-		window.contentView.addChildView(view);
-		this.update(id, window, input.context, input.bounds, true);
-		try {
-			await view.webContents.loadURL(entryUrl);
-			if (!this.instances.has(id) || this.manager.getEnabled(plugin.manifest.id)?.fingerprint !== plugin.fingerprint) throw new Error("plugin-revoked");
-			return { instanceId: id };
-		} catch (error) {
-			this.unmount(id);
-			throw error;
-		}
+		return { instanceId: id, entryUrl };
 	}
 
-	/** Bounds originate in trusted UI but are still clamped to the containing window. */
-	update(id: string, window: BrowserWindow, context: HostPluginContext, bounds: HostPluginBounds, visible: boolean): void {
+	/** Late guests (unmount/revoke raced the attach) are closed immediately — never served assets. */
+	attachGuest(id: string, guest: WebContents): void {
 		const instance = this.instances.get(id);
-		if (!instance || instance.window !== window || window.isDestroyed()) throw new Error("unknown-instance");
-		const contextChanged = JSON.stringify(instance.context) !== JSON.stringify(context);
-		if (contextChanged) {
-			instance.context = context;
-			instance.generation += 1;
-			instance.revision = undefined;
-			this.broker.update(instance.view.webContents.id, context);
-			this.emulateTheme(instance, context.theme);
-			this.emit(instance, { type: "context.changed", context });
+		const plugin = instance && this.manager.getEnabled(instance.pluginId);
+		if (!instance || !plugin || plugin.fingerprint !== instance.fingerprint || instance.guest) {
+			guest.close();
+			return;
 		}
-		const content = window.getContentBounds();
-		const scale = window.webContents.getZoomFactor();
-		const x = Math.min(content.width, Math.round(bounds.x * scale));
-		const y = Math.min(content.height, Math.round(bounds.y * scale));
-		const width = Math.max(0, Math.min(content.width - x, Math.round(bounds.width * scale)));
-		const height = Math.max(0, Math.min(content.height - y, Math.round(bounds.height * scale)));
-		instance.view.setBounds({ x, y, width, height });
-		instance.visible = visible && width > 0 && height > 0;
-		instance.view.setVisible(instance.visible);
+		instance.guest = guest;
+		this.broker.bind(guest.id, instance.pluginId, instance.fingerprint, instance.context);
+		// The package serves a static SPA; top-level navigation away from the entry origin is never legitimate.
+		const denyNavigation = (event: { preventDefault(): void }) => event.preventDefault();
+		guest.on("will-frame-navigate", denyNavigation);
+		guest.on("will-redirect", denyNavigation);
+		guest.on("will-attach-webview", denyNavigation);
+		guest.setWindowOpenHandler(() => ({ action: "deny" }));
+		const onGone = () => this.unmount(id);
+		guest.once("render-process-gone", onGone);
+		guest.once("destroyed", onGone);
+		this.injectAppearance(instance);
 	}
 
-	owns(id: string, window: BrowserWindow): boolean {
-		return this.instances.get(id)?.window === window;
+	hasLive(id: string): boolean {
+		return this.instances.has(id);
+	}
+
+	/** did-attach 阶段拿不到 partition 字符串（Electron 43 Session 未暴露）；
+	 *  同 partition 的 session.fromPartition 返回同一实例，用对象身份匹配回实例表。 */
+	instanceForGuest(guest: WebContents): string | null {
+		for (const id of this.instances.keys()) if (guest.session === session.fromPartition(`host-plugin:${id}`)) return id;
+		return null;
+	}
+
+	preloadPath(): string {
+		return this.preparedPreload;
+	}
+
+	/** Context updates only (theme/locale/scope); layout is plain DOM and needs no synchronization. */
+	update(id: string, context: HostPluginContext): void {
+		const instance = this.instances.get(id);
+		if (!instance) throw new Error("unknown-instance");
+		if (JSON.stringify(instance.context) === JSON.stringify(context)) return;
+		instance.context = context;
+		instance.generation += 1;
+		instance.revision = undefined;
+		if (instance.guest) this.broker.update(instance.guest.id, context);
+		this.injectAppearance(instance);
+		this.emit(instance, { type: "context.changed", context });
 	}
 
 	unmount(id: string): void {
 		const instance = this.instances.get(id);
 		if (!instance) return;
 		this.instances.delete(id);
-		this.broker.unbind(instance.view.webContents.id);
+		if (instance.guest && !instance.guest.isDestroyed()) {
+			this.broker.unbind(instance.guest.id);
+			instance.guest.close();
+		}
 		instance.detach();
-		if (!instance.window.isDestroyed()) instance.window.contentView.removeChildView(instance.view);
-		if (!instance.view.webContents.isDestroyed()) instance.view.webContents.close();
 	}
 
 	private emit(instance: Instance, event: HostPluginEvent): void {
-		if (this.instances.get(instance.id) === instance && !instance.view.webContents.isDestroyed()) instance.view.webContents.send(ipcChannels.hostPluginEvent, event);
+		if (this.instances.get(instance.id) === instance && instance.guest && !instance.guest.isDestroyed()) instance.guest.send(ipcChannels.hostPluginEvent, event);
 	}
 
-	/** Panels follow the PiDeck theme, not the OS setting: `nativeTheme.themeSource` (set from the app theme) already steers `prefers-color-scheme`; insertCSS additionally aligns native controls/scrollbars via `color-scheme`. */
-	private emulateTheme(instance: Instance, theme: HostPluginContext["theme"]): void {
-		if (!this.instances.has(instance.id) || instance.view.webContents.isDestroyed()) return;
-		// Electron 43 没有 per-contents setEmulatedMedia；后续 insertCSS 按插入顺序覆盖旧值，切主题无需移除。
-		instance.view.webContents.insertCSS(`:root { color-scheme: ${theme === "light" ? "light" : "dark"}; }`).catch(() => {
+	/** Panels follow the PiDeck theme, not the OS setting: color-scheme aligns native controls/scrollbars,
+	 *  and the host token set is re-declared as CSS variables so plugin styles can consume PiDeck semantics. */
+	private injectAppearance(instance: Instance): void {
+		const guest = instance.guest;
+		if (!guest || guest.isDestroyed()) return;
+		const tokens = Object.entries(instance.context.tokens ?? {})
+			.map(([name, value]) => `${name}:${value}`)
+			.join("");
+		// Electron 43 没有 per-contents setEmulatedMedia；insertCSS 按插入顺序覆盖旧值，切主题无需移除。
+		guest.insertCSS(`:root{color-scheme:${instance.context.theme === "light" ? "light" : "dark"};${tokens}}`).catch(() => {
 			/* Theme alignment is best-effort: pages without native controls are unaffected either way. */
 		});
 	}

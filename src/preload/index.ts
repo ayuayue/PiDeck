@@ -3,7 +3,7 @@ import { ipcChannels } from "../shared/ipc";
 import type { TokendanceAuthMode, TokendancePaymentSessionResult } from "../shared/tokendance";
 import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../shared/types/acp";
 import type { AnnouncementState } from "../shared/types/announcement";
-import type { HostPluginDesktopApi } from "../shared/types/hostPlugin";
+import type { HostPluginContext, HostPluginDesktopApi } from "../shared/types/hostPlugin";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { ModelTraceRecord } from "../shared/types/bridge";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
@@ -221,7 +221,7 @@ const hostPlugins: HostPluginDesktopApi = {
 	openDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsOpenDirectory),
 	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
 	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
-	update: (id, context, bounds, visible) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, id, context, bounds, visible),
+	update: (instanceId: string, context: HostPluginContext) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, instanceId, context),
 	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),
 	onChanged: (callback) => subscribe(ipcChannels.hostPluginsChanged, callback),
 	onNavigate: (callback) => subscribe(ipcChannels.hostPluginNavigate, callback),

@@ -37,7 +37,7 @@ test("page panels render as a non-modal overlay over the session column, not a d
 	// 页面式：非模态覆盖层，覆盖会话列但不卸载会话树（包裹在 relative 容器里）
 	assert.match(overlay, /panel\.presentation !== "page"/);
 	assert.match(overlay, /absolute inset-0/);
-	assert.match(overlay, /NativePluginSurface/);
+	assert.match(overlay, /HostPluginSurface/);
 	// 弹框宿主必须跳过 page 面板，两处呈现互斥
 	assert.match(host, /panel\.presentation !== "page"/);
 	// App 在会话列挂 overlay，会话树保持挂载

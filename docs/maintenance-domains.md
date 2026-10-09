@@ -87,7 +87,7 @@
 
 ## 宿主插件（userData/host-plugins：独立于 pi 进程的 PiDeck 原生插件）
 
-- **与 pi 扩展是两套系统**：pi 扩展（`resources/extensions/`，`-e` 注入）活在 pi 进程里管 Agent 行为；宿主插件是 PiDeck 自己的插件——面板是主进程 `HostPluginViewHost` 起的 WebContentsView，加载 `userData/host-plugins/<id>/panel.html`，不经 pi、不走 pi 的扩展点。代码全部在 `src/main/plugins/`（Broker/Manager/Service/Sessions/Storage/ViewHost + policy/manifest/files/archive）。IPC 通道集中在 `shared/ipc.ts` 的 `host-plugins:*` 一组。
+- **与 pi 扩展是两套系统**：pi 扩展（`resources/extensions/`，`-e` 注入）活在 pi 进程里管 Agent 行为；宿主插件是 PiDeck 自己的插件——面板是渲染层创建的页面内 `<webview>`（partition `host-plugin:<instanceId>`，与内置浏览器同层叠模型，可被弹层正常覆盖），由主进程 `HostPluginViewHost` 签发实例、经窗口 attach 策略（`hostPluginWebviewPolicy`）校验后加载 `userData/host-plugins/<id>/` 资产，不经 pi、不走 pi 的扩展点。代码全部在 `src/main/plugins/`（Broker/Manager/Service/Sessions/Storage/ViewHost + policy/manifest/files/archive/webviewPolicy）。IPC 通道集中在 `shared/ipc.ts` 的 `host-plugins:*` 一组。
 - **授权看内容指纹不看版本**：manifest 权限白名单是注册表式的，插件目录内容 sha256 指纹变化 → 旧授权立即失效需重新授权——这是安全特性，**禁止放宽为版本号比较或沿用旧授权**。storage rename 等敏感操作在 `beforeAttempt` 每次尝试前复查授权。
 - **历史读取有硬预算**：`HostPluginSessions` 单次请求 64MiB/10 万条上限，超限抛 `history-too-large`，不退化为全量扫描；目录索引用 changeSince 签名对比做粒度推送（活跃会话追加报 `{ sessionId }`，目录级变化报 `{ catalogChanged: true }`），面板侧定向失效、epoch 不打断其他在途读取。
 - **`.pideck-plugin` 归档是 NDJSON**（header 行 + 每文件一行 base64+sha256+size）：上限归档 24MiB / 单文件 4MiB / 100 文件 / 展开 16MiB，逐文件 sha256 校验，超限抛稳定错误码。选 NDJSON 而非 zip 是因为 Node 运行时无内置 zip 解压。

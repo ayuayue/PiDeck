@@ -64,9 +64,8 @@ export type HostPluginRequest =
 	| { method: "storage.set"; key: string; value: unknown }
 	| { method: "workbench.navigate"; sessionId: string; entryId?: string };
 export type HostPluginResponse = HostPluginResult<unknown>;
-export type HostPluginBounds = { x: number; y: number; width: number; height: number };
-export type HostPluginMountInput = { pluginId: string; panelId: string; context: HostPluginContext; bounds: HostPluginBounds };
-export type HostPluginMount = { instanceId: string };
+export type HostPluginMountInput = { pluginId: string; panelId: string; context: HostPluginContext };
+export type HostPluginMount = { instanceId: string; entryUrl: string };
 export type HostPluginNavigateInput = { projectId: string; sessionId: string; entryId?: string };
 /** Management methods are available only to the trusted desktop renderer, never to plugin pages. */
 export type HostPluginDesktopApi = {
@@ -77,7 +76,7 @@ export type HostPluginDesktopApi = {
 	/** Pick and install a `.pideck-plugin` archive; file selection happens in the main process dialog, renderer passes no paths. */
 	install: () => Promise<HostPluginResult<HostPluginCatalog>>;
 	mount: (input: HostPluginMountInput) => Promise<HostPluginResult<HostPluginMount>>;
-	update: (instanceId: string, context: HostPluginContext, bounds: HostPluginBounds, visible: boolean) => Promise<HostPluginResult<void>>;
+	update: (instanceId: string, context: HostPluginContext) => Promise<HostPluginResult<void>>;
 	unmount: (instanceId: string) => Promise<HostPluginResult<void>>;
 	onChanged: (listener: () => void) => () => void;
 	/** Plugin-initiated navigation is dispatched by the desktop frame, never executed in the plugin view. */

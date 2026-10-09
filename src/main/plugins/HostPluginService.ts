@@ -1,9 +1,9 @@
 /** Assembles independent plugin discovery, data capabilities and views; no pi runtime dependency. */
-import type { BrowserWindow } from "electron";
 import { join } from "node:path";
-import type { HostPluginBounds, HostPluginContext, HostPluginMountInput } from "../../shared/types/hostPlugin";
+import type { HostPluginContext, HostPluginMountInput } from "../../shared/types/hostPlugin";
 import type { SessionCatalog } from "../sessions/SessionCatalog";
 import { preparePreloadPath } from "../preloadPath";
+import { setHostPluginWebviewBridge } from "./hostPluginWebviewPolicy";
 import { HostPluginManager } from "./HostPluginManager";
 import { HostPluginSessions } from "./HostPluginSessions";
 import { HostPluginStorage } from "./HostPluginStorage";
@@ -29,25 +29,30 @@ export class HostPluginService {
 	async initialize(): Promise<void> {
 		await this.manager.load();
 		const preload = await preparePreloadPath(this.preload, "host-plugin-preload.js");
-		if (!this.disposed) this.views = new HostPluginViewHost(this.manager, this.broker, this.sessions, preload);
+		if (!this.disposed) {
+			this.views = new HostPluginViewHost(this.manager, this.broker, this.sessions, preload);
+			// 窗口层 webview attach 策略在 service 初始化前就注册，经 bridge 拿到实例表与 preload 路径。
+			setHostPluginWebviewBridge(this.views);
+		}
 	}
 
-	mount(window: BrowserWindow, input: HostPluginMountInput) {
+	mount(input: HostPluginMountInput) {
 		if (!this.views) throw new Error("plugin-host-unavailable");
-		return this.views.mount(window, input);
+		return this.views.mount(input);
 	}
 
-	update(id: string, window: BrowserWindow, context: HostPluginContext, bounds: HostPluginBounds, visible: boolean): void {
+	update(id: string, context: HostPluginContext): void {
 		if (!this.views) throw new Error("plugin-host-unavailable");
-		this.views.update(id, window, context, bounds, visible);
+		this.views.update(id, context);
 	}
 
-	unmount(id: string, window: BrowserWindow): void {
-		if (this.views?.owns(id, window)) this.views.unmount(id);
+	unmount(id: string): void {
+		this.views?.unmount(id);
 	}
 
 	dispose(): void {
 		this.disposed = true;
+		setHostPluginWebviewBridge(null);
 		this.views?.dispose();
 		this.broker.dispose();
 		this.manager.dispose();

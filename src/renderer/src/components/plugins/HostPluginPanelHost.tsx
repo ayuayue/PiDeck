@@ -4,7 +4,7 @@ import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { hostPluginPanelIcon } from "./hostPluginPanelIcon";
-import { NativePluginSurface } from "./HostPluginSurface";
+import { HostPluginSurface } from "./HostPluginSurface";
 
 /** Modal 面板宿主（manifest presentation:"modal" 或缺省）；page 面板走 HostPluginPageOverlay。 */
 export function HostPluginPanelHost({ projectId, sessionId }: { projectId?: string; sessionId?: string }) {
@@ -35,7 +35,7 @@ export function HostPluginPanelHost({ projectId, sessionId }: { projectId?: stri
 						{t("common.close")}
 					</Button>
 				</DialogHeader>
-				{open && plugin && panel && <NativePluginSurface key={`${plugin.manifest.id}:${panel.id}:${plugin.fingerprint}`} pluginId={plugin.manifest.id} panelId={panel.id} projectId={projectId} sessionId={sessionId} />}
+				{open && plugin && panel && <HostPluginSurface key={`${plugin.manifest.id}:${panel.id}:${plugin.fingerprint}`} pluginId={plugin.manifest.id} panelId={panel.id} projectId={projectId} sessionId={sessionId} />}
 			</DialogContent>
 		</Dialog>
 	);

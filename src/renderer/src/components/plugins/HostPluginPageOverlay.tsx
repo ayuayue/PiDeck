@@ -3,7 +3,7 @@ import { hostPluginCatalogAtom, hostPluginPanelAtom } from "../../atoms/host-plu
 import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
 import { hostPluginPanelIcon } from "./hostPluginPanelIcon";
-import { NativePluginSurface } from "./HostPluginSurface";
+import { HostPluginSurface } from "./HostPluginSurface";
 
 /**
  * 页面式插件面板（manifest presentation:"page"）：非模态覆盖工作区会话区，
@@ -29,7 +29,7 @@ export function HostPluginPageOverlay({ projectId, sessionId }: { projectId?: st
 					{t("common.close")}
 				</Button>
 			</div>
-			<NativePluginSurface key={`${plugin.manifest.id}:${panel.id}:${plugin.fingerprint}`} pluginId={plugin.manifest.id} panelId={panel.id} projectId={projectId} sessionId={sessionId} />
+			<HostPluginSurface key={`${plugin.manifest.id}:${panel.id}:${plugin.fingerprint}`} pluginId={plugin.manifest.id} panelId={panel.id} projectId={projectId} sessionId={sessionId} />
 		</div>
 	);
 }

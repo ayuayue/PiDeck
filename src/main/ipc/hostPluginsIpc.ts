@@ -4,7 +4,7 @@ import { ipcChannels } from "../../shared/ipc";
 import type { HostPluginResult } from "../../shared/types/hostPlugin";
 import type { HostPluginService } from "../plugins/HostPluginService";
 import { isHostPluginId, isPluginRecord } from "../plugins/hostPluginManifest";
-import { parsePluginBounds, parsePluginContext } from "../plugins/hostPluginPolicy";
+import { parsePluginContext } from "../plugins/hostPluginPolicy";
 import { getAppLogger } from "../logging/sharedLogger";
 
 export function registerHostPluginsIpc(service: HostPluginService, getWindow: () => BrowserWindow | null): () => void {
@@ -63,19 +63,18 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 	);
 	ipcMain.handle(ipcChannels.hostPluginsMount, (event, input: unknown) =>
 		result(() => {
-			const window = trustedWindow(event);
+			trustedWindow(event);
 			if (!isPluginRecord(input) || !isHostPluginId(input.pluginId) || !isHostPluginId(input.panelId)) throw new Error("invalid-plugin");
-			return service.mount(window, { pluginId: input.pluginId, panelId: input.panelId, context: parsePluginContext(input.context), bounds: parsePluginBounds(input.bounds) });
+			return service.mount({ pluginId: input.pluginId, panelId: input.panelId, context: parsePluginContext(input.context) });
 		}),
 	);
-	ipcMain.handle(ipcChannels.hostPluginsUpdate, (event, id: unknown, context: unknown, bounds: unknown, visible: unknown) =>
+	ipcMain.handle(ipcChannels.hostPluginsUpdate, (event, id: unknown, context: unknown) =>
 		result(() => {
-			const window = trustedWindow(event);
-			if (typeof visible !== "boolean") throw new Error("invalid-visibility");
-			service.update(instanceId(id), window, parsePluginContext(context), parsePluginBounds(bounds), visible);
+			trustedWindow(event);
+			service.update(instanceId(id), parsePluginContext(context));
 		}),
 	);
-	ipcMain.handle(ipcChannels.hostPluginsUnmount, (event, id: unknown) => result(() => service.unmount(instanceId(id), trustedWindow(event))));
+	ipcMain.handle(ipcChannels.hostPluginsUnmount, (event, id: unknown) => result(() => service.unmount(instanceId(id))));
 	ipcMain.handle(ipcChannels.hostPluginRequest, (event, request: unknown) => service.broker.request(event.sender.id, event.senderFrame === event.sender.mainFrame, request));
 	const unsubscribe = service.manager.onChanged(() => {
 		const window = getWindow();

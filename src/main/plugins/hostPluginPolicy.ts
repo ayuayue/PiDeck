@@ -1,5 +1,5 @@
 /** Pure policy shared by the view host and broker; failures never fall back to a broader capability. */
-import type { HostPluginBounds, HostPluginContext, HostPluginRequest } from "../../shared/types/hostPlugin";
+import type { HostPluginContext, HostPluginRequest } from "../../shared/types/hostPlugin";
 import { isHostPluginAsset, isPluginRecord } from "./hostPluginManifest";
 
 export const HOST_PLUGIN_SCHEME = "pideck-plugin";
@@ -28,13 +28,6 @@ export function parsePluginContext(value: unknown): HostPluginContext {
 		}
 	}
 	return { projectId: typeof value.projectId === "string" ? value.projectId : undefined, sessionId: typeof value.sessionId === "string" ? value.sessionId : undefined, locale: value.locale === "en-US" ? "en-US" : "zh-CN", theme: value.theme === "light" ? "light" : "dark", tokens };
-}
-
-export function parsePluginBounds(value: unknown): HostPluginBounds {
-	if (!isPluginRecord(value)) throw new Error("invalid-bounds");
-	for (const key of ["x", "y", "width", "height"]) if (typeof value[key] !== "number" || !Number.isFinite(value[key]) || value[key] < 0 || value[key] > 20_000) throw new Error("invalid-bounds");
-	if (typeof value.x !== "number" || typeof value.y !== "number" || typeof value.width !== "number" || typeof value.height !== "number") throw new Error("invalid-bounds");
-	return { x: Math.round(value.x), y: Math.round(value.y), width: Math.round(value.width), height: Math.round(value.height) };
 }
 
 export function parsePluginRequest(value: unknown): HostPluginRequest {

@@ -339,6 +339,8 @@ import { registerThemesIpc } from "./ipc/themesIpc";
 import { registerPluginDevIpc } from "./ipc/pluginDevIpc";
 import { registerHostPluginsIpc } from "./ipc/hostPluginsIpc";
 import { HostPluginService } from "./plugins/HostPluginService";
+import { HOST_PLUGIN_SCHEME } from "./plugins/hostPluginPolicy";
+import { hostPluginPartitionId, hostPluginWebviewBridge } from "./plugins/hostPluginWebviewPolicy";
 import { PluginDevService } from "./extensions/PluginDevService";
 import { registerGitIpc } from "./ipc/gitIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
@@ -1678,6 +1680,36 @@ function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
 	}
 
 	window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+		// 宿主插件面板：partition 形如 host-plugin:<instanceId>，由 HostPluginViewHost 签发；
+		// 与内置浏览器不同，必须携带独立 preload（桥接 broker），其余安全档位与浏览器面板一致。
+		const hostPluginId = hostPluginPartitionId(params.partition ?? "");
+		if (hostPluginId) {
+			const bridge = hostPluginWebviewBridge();
+			if (!bridge || !bridge.hasLive(hostPluginId) || (params.src !== `${HOST_PLUGIN_SCHEME}://${hostPluginId}/` && !params.src?.startsWith(`${HOST_PLUGIN_SCHEME}://${hostPluginId}/`))) {
+				event.preventDefault();
+				void appLogger.warn("host-plugins", "Blocked host-plugin webview attachment", { instanceId: hostPluginId });
+				return;
+			}
+			webPreferences.partition = params.partition;
+			webPreferences.sandbox = true;
+			webPreferences.additionalArguments = rendererHeapAdditionalArguments();
+			webPreferences.nodeIntegration = false;
+			webPreferences.nodeIntegrationInWorker = false;
+			webPreferences.nodeIntegrationInSubFrames = false;
+			webPreferences.contextIsolation = true;
+			webPreferences.webSecurity = true;
+			webPreferences.allowRunningInsecureContent = false;
+			webPreferences.webviewTag = false;
+			delete webPreferences.preload;
+			delete (webPreferences as Record<string, unknown>).preloadURL;
+			const pluginPreload = bridge.preloadPath();
+			if (pluginPreload) webPreferences.preload = pluginPreload;
+			delete params.preload;
+			delete params.preloadURL;
+			delete params.allowfileaccess;
+			delete params.allowpopups;
+			return;
+		}
 		const sourceUrl = params.src || "about:blank";
 		if ((params.partition && params.partition !== BROWSER_PANEL_PARTITION) || !isAllowedBrowserPanelUrl(sourceUrl)) {
 			event.preventDefault();
@@ -1711,6 +1743,15 @@ function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
 	});
 
 	window.webContents.on("did-attach-webview", (_event, guest) => {
+		// 宿主插件 guest：绑定到实例表并接管生命周期；未登记的实例立即关闭。
+		const pluginBridge = hostPluginWebviewBridge();
+		if (pluginBridge) {
+			const hostPluginId = pluginBridge.instanceForGuest(guest);
+			if (hostPluginId) {
+				pluginBridge.attachGuest(hostPluginId, guest);
+				return;
+			}
+		}
 		if (guest.session !== browserPanelSession) {
 			void appLogger.warn("browser", "Closed webview with unexpected session");
 			guest.close();
