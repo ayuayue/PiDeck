@@ -61,7 +61,9 @@ test("window memory: edge-aligned native bounds survive full quit and restart", 
 	await app.close();
 	const profileDir = join(userDataRoot, "profile");
 	expect(JSON.parse(readFileSync(join(profileDir, "last-window-bounds.json"), "utf8"))).toEqual(recorded);
-	const restartEnv = {
+	// ProcessEnv 注解：展开 process.env 会让 ELECTRON_RENDERER_URL 被推断为必填 string，
+	// 下面 delete 需要可选键才合法；显式注解零行为差异，只让类型与现实一致。
+	const restartEnv: NodeJS.ProcessEnv = {
 		...process.env,
 		ELECTRON_RENDERER_URL: "",
 		PIDECK_E2E: "1",

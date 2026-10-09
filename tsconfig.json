@@ -35,4 +35,7 @@
     "src/**/*.ts",
     "src/**/*.tsx"
   ]
+  // 注意：e2e/**/*.ts 不在 typecheck 内（64 个 spec 零覆盖，约 43 处存量类型债务，
+  // 多为 evaluate 回调隐式 any / page 自定义属性无类型 / env 联合缺键——运行时正确但静态不理解）。
+  // 纳入前需先清零存量；新写 e2e 时别再积累（playwright esbuild 剥类型不查错）。
 }
