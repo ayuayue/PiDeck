@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { appendFile, mkdtemp, open, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -177,6 +178,88 @@ test("edit replacement appends a text block when the message has only non-text b
 			["thinking", "text"],
 		);
 		assert.equal(edit.replacement.content[1].text, "visible");
+	});
+});
+
+/** 与 renderer sha256(utf8 base64) 一致，不依赖真实图片/网络。 */
+const imageTarget = (index, data, expectedImageCount = 1) => ({ index, expectedImageCount, expectedHash: createHash("sha256").update(data).digest("hex") });
+
+test("remove image deletes only the selected visible block and preserves text, duplicates and later turns", async () => {
+	const content = [
+		{ type: "text", text: "before", custom: 1 },
+		{ type: "image", data: "" },
+		{ type: "image", data: "DUPLICATE", mimeType: "image/jpeg" },
+		{ type: "text", text: "after" },
+		{ type: "image", source: { type: "base64", data: "DUPLICATE", media_type: "image/png" } },
+		{ type: "image", data: "LAST", mime_type: "image/webp" },
+	];
+	const entries = [header(), message("u1", null, "user", content), message("a1", "u1", "assistant", "answer"), message("u2", "a1", "user", "later"), message("a2", "u2", "assistant", "later answer")];
+	await withTempSession(entries, { eol: "\r\n" }, async ({ path, original }) => {
+		let markerSeen = false;
+		const result = await new SessionFileEditor().removeImage({
+			file: fileRef(path),
+			target: target({ entryId: "u1", role: "user", activeLeafId: "a2" }),
+			imageTarget: imageTarget(1, "DUPLICATE", 3),
+			reload: async () => {
+				markerSeen = (await readFile(path, "utf8")).includes("_reloadMarker");
+			},
+		});
+		const after = await readFile(path, "utf8");
+		assert.equal(markerSeen, true);
+		assert.equal(after.includes("_reloadMarker"), false);
+		assert.deepEqual(
+			byOriginalOrId(parseLines(after), "u1"),
+			message(
+				"u1",
+				null,
+				"user",
+				content.filter((_, index) => index !== 4),
+			),
+		);
+		assert.deepEqual(after.split("\r\n").slice(2), original.toString().split("\r\n").slice(2));
+		assert.deepEqual([...result.changedEntryIds], ["u1"]);
+		assert.equal((await readFile(result.backupPath)).equals(original), true);
+	});
+});
+
+test("remove last image keeps the empty user entry and its descendants", async () => {
+	const entries = [header(), message("u1", null, "user", [{ type: "image", data: "ONLY" }]), message("a1", "u1", "assistant", "answer")];
+	await withTempSession(entries, {}, async ({ path }) => {
+		await new SessionFileEditor().removeImage({ file: fileRef(path), target: target({ entryId: "u1", role: "user" }), imageTarget: imageTarget(0, "ONLY"), reload: async () => undefined });
+		const after = parseLines(await readFile(path, "utf8"));
+		assert.deepEqual(after, [header(), message("u1", null, "user", []), entries[2]]);
+	});
+});
+
+test("remove image refuses invalid or stale targets without writing a backup or changing the file", async () => {
+	await withTempSession([header(), message("u1", null, "user", [{ type: "image", data: "CURRENT" }]), message("a1", "u1", "assistant", "answer")], {}, async ({ path, directory, original }) => {
+		const editor = new SessionFileEditor();
+		for (const selection of [imageTarget(-1, "CURRENT"), imageTarget(0.5, "CURRENT"), imageTarget(1, "CURRENT"), imageTarget(0, "OLD"), imageTarget(0, "CURRENT", 2), { index: 0, expectedImageCount: 1, expectedHash: "bad" }]) {
+			await expectCode(editor.removeImage({ file: fileRef(path), target: target({ entryId: "u1", role: "user" }), imageTarget: selection, reload: async () => assert.fail("invalid target must not reload") }), "SESSION_ENTRY_NOT_FOUND");
+			assert.equal((await readFile(path)).equals(original), true);
+		}
+		assert.deepEqual(await readdir(directory), ["session.jsonl"]);
+	});
+});
+
+test("remove image refuses assistant entries and rolls back on reload failure", async () => {
+	await withTempSession([header(), message("u1", null, "user", [{ type: "image", data: "IMAGE" }]), message("a1", "u1", "assistant", [{ type: "image", data: "IMAGE" }])], {}, async ({ path, original }) => {
+		const editor = new SessionFileEditor();
+		await expectCode(editor.removeImage({ file: fileRef(path), target: target(), imageTarget: imageTarget(0, "IMAGE"), reload: async () => undefined }), "SESSION_ENTRY_ROLE_INVALID");
+		let attempts = 0;
+		await expectCode(
+			editor.removeImage({
+				file: fileRef(path),
+				target: target({ entryId: "u1", role: "user" }),
+				imageTarget: imageTarget(0, "IMAGE"),
+				reload: async () => {
+					if (++attempts === 1) throw new Error("reload failed");
+				},
+			}),
+			"SESSION_RELOAD_FAILED",
+		);
+		assert.equal(attempts, 2);
+		assert.equal((await readFile(path)).equals(original), true);
 	});
 });
 

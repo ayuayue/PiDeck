@@ -78,9 +78,31 @@ test("真实目录形态：带冒号/斜杠/URL 的 provider 与 modelId 必须�
 	);
 });
 
+test("中文与带空格的 provider/modelId 原样传递给增强服务", async () => {
+	const h = register();
+	const inputs = [
+		{ ...VALID, provider: "我的供应商", modelId: "深度思考模型" },
+		{ ...VALID, provider: "My Provider", modelId: "My Model 2" },
+		{ ...VALID, provider: "中文 Provider", modelId: "模型 Pro v2" },
+		{ ...VALID, provider: "p".repeat(160), modelId: "模".repeat(160) },
+	];
+	for (const input of inputs) assert.equal((await h.run(createEvent().event, input)).ok, true);
+	assert.deepEqual(plain(h.calls.enhance), inputs);
+});
+
+test("名称边界：拒绝纯空白、控制字符与超长值且不调用服务", async () => {
+	const h = register();
+	const invalidNames = ["", "  ", "\u3000", "a\nname", "a\rname", "a\tname", "a\0name", "a\u007fname", "a\u0085name", "a\u2028name", "a\u2029name", "x".repeat(161), "名".repeat(161)];
+	for (const field of ["provider", "modelId"]) {
+		for (const name of invalidNames) {
+			await assert.rejects(() => h.run(createEvent().event, { ...VALID, [field]: name }), new RegExp(`Invalid enhance input: ${field}`));
+		}
+	}
+	assert.deepEqual(h.calls.enhance, []);
+});
+
 test("入参校验：provider/modelId/草稿形态不对直接抛错", async () => {
 	const h = register();
-	await assert.rejects(() => h.run(createEvent().event, { ...VALID, provider: "a b" }));
 	await assert.rejects(() => h.run(createEvent().event, { ...VALID, provider: "" }));
 	await assert.rejects(() => h.run(createEvent().event, { ...VALID, modelId: 42 }));
 	await assert.rejects(() => h.run(createEvent().event, { ...VALID, userText: "   " }));

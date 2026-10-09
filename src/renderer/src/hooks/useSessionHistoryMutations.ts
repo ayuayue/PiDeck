@@ -11,6 +11,7 @@ import { resolveHistoryMutationPath, shouldShowResendRollbackHint } from "../uti
 import { sessionHistoryUnavailableState } from "../utils/sessionHistoryAvailability";
 import type { NoticeKind } from "../utils/notice";
 import { messageEntryId } from "../utils/sessionCommands";
+import { useSessionMessageImageRemoval } from "./useSessionMessageImageRemoval";
 
 type ConfirmConfig = {
 	title: string;
@@ -168,6 +169,8 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		},
 		[hideOverlay, reloadTimelineFromDisk, showOverlay, stopIfRunning],
 	);
+
+	const removeMessageImage = useSessionMessageImageRemoval({ deps, runFileMutation, onFailure: failToast });
 
 	/**
 	 * 解析 fork 锚点 entryId。
@@ -479,7 +482,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 	 * entryId（节点即条目），省掉文本反查，共用同一套 overlay/草稿回填/会话切换语义。
 	 */
 	const forkAtEntry = useCallback(
-		async (entryId: string, fallbackText: string, busyKey: string) => {
+		async (entryId: string, fallbackText: string, busyKey: string, images?: ImageContent[]) => {
 			const latest = depsRef.current;
 			const sessionId = latest.currentSessionId;
 			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
@@ -522,7 +525,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					});
 				}
 				latest.setPromptForAgent(draftTarget, promptText);
-				window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: promptText } }));
+				window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: promptText, images } }));
 				latest.showToast(t("app.forkDone"), 3500);
 			} catch (error) {
 				const msg = error instanceof Error ? error.message : String(error);
@@ -558,7 +561,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 				latest.showToast(t("app.forkMissingEntryId"), 4000);
 				return;
 			}
-			await forkAtEntry(entryId, message.text, message.id);
+			await forkAtEntry(entryId, message.text, message.id, message.images);
 		},
 		[forkAtEntry, hideOverlay, resolveForkEntryId, showOverlay],
 	);
@@ -566,6 +569,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 	return {
 		editMessage,
 		deleteMessage,
+		removeMessageImage,
 		resendUserMessage,
 		forkFromUserMessage,
 		forkAtEntry,

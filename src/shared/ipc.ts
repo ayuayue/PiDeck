@@ -139,6 +139,8 @@ export const ipcChannels = {
 	sessionsCatalogExportHtml: "sessions:catalog-export-html",
 	/** 无 runtime 时直接改 pi JSONL（编辑消息）。运行中必须先停 Agent。 */
 	sessionsCatalogEditMessage: "sessions:catalog-edit-message",
+	/** 只移除 user 消息中的选中图片；运行中必须先停 Agent。 */
+	sessionsCatalogRemoveMessageImage: "sessions:catalog-remove-message-image",
 	/** 无 runtime 时直接改 pi JSONL（删除消息）。运行中必须先停 Agent。 */
 	sessionsCatalogDeleteMessage: "sessions:catalog-delete-message",
 	/** 无 runtime 时截断 pi JSONL 供重发。运行中必须先停 Agent。 */

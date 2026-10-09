@@ -50,6 +50,7 @@ import { resolveLaunchDefaultOptions, isModelInModelsConfig } from "../sessions/
 import { BackgroundScanCoordinator } from "../sessions/BackgroundScanCoordinator";
 import { DIRECTORY_IMPORT_MAX_SUMMARIES } from "../sessions/directorySessionImport";
 import type { DirectorySessionImporter } from "../sessions/DirectorySessionImporter";
+import { registerSessionImageMutationIpc } from "./sessionImageMutationIpc";
 
 function isDshModelDiscoveryInput(input: unknown): input is DshModelDiscoveryInput {
 	if (!isRecord(input) || typeof input.settingsNs !== "string" || !input.settingsNs.trim()) return false;
@@ -1387,6 +1388,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			path: result.path,
 		});
 		return result;
+	});
+	registerSessionImageMutationIpc(ipcMain, sessionRuntimeCoordinator, (error, context) => {
+		logSessionCommandFailure(appLogger, error, { operation: "removeCatalogMessageImage", ...context });
 	});
 	// catalog 级消息改写：按 sessionId 操作 JSONL，不要求 live runtime。
 	// 运行中必须先停（coordinator 拒绝 SESSION_RUNTIME_BUSY）；入参在边界校验。

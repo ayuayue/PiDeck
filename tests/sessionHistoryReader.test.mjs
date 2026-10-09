@@ -253,6 +253,49 @@ test("SessionHistoryReader incremental index picks up appended JSONL rows withou
 	}
 });
 
+test("SessionHistoryReader resend snapshot preserves flat and nested images in message order", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-resend-images-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeFile(
+			sessionPath,
+			[
+				JSON.stringify({ id: "session", type: "session" }),
+				JSON.stringify({
+					id: "entry-images",
+					parentId: "session",
+					type: "message",
+					message: {
+						id: "message-images",
+						role: "user",
+						content: [
+							{ type: "text", text: "keep text" },
+							{ type: "image", data: "FLAT", mimeType: "image/jpeg" },
+							{ type: "image", data: "LEGACY", mime_type: "image/webp" },
+							{ type: "image", source: { type: "base64", media_type: "image/gif", data: "NESTED" } },
+							{ type: "image", data: "DEFAULT" },
+							{ type: "image", data: "" },
+							{ type: "image", data: 42 },
+							null,
+						],
+					},
+				}),
+			].join("\n"),
+			"utf8",
+		);
+		const snapshot = await createReader((path) => path).readMessageByMessageId(sessionPath, "message-images");
+		assert.equal(snapshot.text, "keep text");
+		assert.deepEqual(JSON.parse(JSON.stringify(snapshot.images)), [
+			{ type: "image", data: "FLAT", mimeType: "image/jpeg" },
+			{ type: "image", data: "LEGACY", mimeType: "image/webp" },
+			{ type: "image", data: "NESTED", mimeType: "image/gif" },
+			{ type: "image", data: "DEFAULT", mimeType: "image/png" },
+		]);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("SessionHistoryReader locates message by messageId and reads its content for resend", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-locate-"));
 	const sessionPath = join(directory, "session.jsonl");

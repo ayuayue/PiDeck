@@ -1,3 +1,12 @@
+## Unreleased
+
+### 🚀 New Features
+- **Image actions in user messages** — Copy and save images from message thumbnails or the image preview. Desktop pi sessions also support removing one image: confirmation stops a live Agent before updating the session file, preserving the message text, other images and later conversation. (#323)
+
+### 🐛 Fixes
+- **Images survive edit, fork and resend** — Composer refill restores the message's images, clears stale attachments for text-only messages, and resend snapshots recognize both flat pi image blocks and nested base64 image blocks. (#324)
+- **Prompt enhance accepts custom provider and model names** — Chinese characters, spaces, colons and URL-style names are no longer rejected by the IPC validator; blank, control-character and oversized identifiers remain blocked. (#322)
+
 ## v0.8.0 (2026-10-07)
 
 ### 🚀 New Features

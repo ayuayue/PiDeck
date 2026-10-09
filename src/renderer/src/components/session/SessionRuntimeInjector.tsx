@@ -265,6 +265,7 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 					onResendUserMessage={canResend ? services.resendUserMessage : undefined}
 					onEditMessage={canEditOrDeleteMessages ? services.editMessage : undefined}
 					onDeleteMessage={canEditOrDeleteMessages ? services.deleteMessage : undefined}
+					onRemoveMessageImage={!services.isLanWeb && (!sessionRecord?.backend || sessionRecord.backend === "pi") && sessionRecord?.filePath && services.removeMessageImage ? (message, index) => services.removeMessageImage?.(currentSessionId, message, index) : undefined}
 					onForkMessage={services.forkFromUserMessage}
 					onRewindToMessage={isDshBackend ? undefined : handleRewindToMessage}
 					forkingMessageId={services.forkingMessageId}

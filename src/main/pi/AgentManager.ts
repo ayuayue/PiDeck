@@ -16,6 +16,7 @@ import type {
 	ForkMessage,
 	I18nParams,
 	ImageContent,
+	SessionMessageImageTarget,
 	Project,
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
@@ -3240,7 +3241,7 @@ export class AgentManager {
 	async mutatePersistedSessionMessage(
 		sessionPath: string,
 		messageId: string,
-		operation: "edit" | "delete" | "resend",
+		operation: "edit" | "delete" | "resend" | "remove-image",
 		options?: {
 			newText?: string;
 			environment?: SessionEnvironment;
@@ -3248,6 +3249,7 @@ export class AgentManager {
 			/** 渲染层消息携带的文件条目 id（meta.entryId）：live randomUUID 无法在文件里定位，
 			 * 必须用该锚点（见 SessionHistoryReader.readMessageByMessageId）。 */
 			entryId?: string;
+			imageTarget?: SessionMessageImageTarget;
 		},
 	): Promise<{ text: string; images?: ImageContent[] } | undefined> {
 		const hostPath = this.toSessionHostPath(sessionPath);
@@ -3282,8 +3284,8 @@ export class AgentManager {
 			throw new Error("Message not found");
 		}
 		const role: "user" | "assistant" = located.role === "user" ? "user" : "assistant";
-		if (operation === "resend" && role !== "user") {
-			throw new Error("Only user messages can be resent");
+		if ((operation === "resend" || operation === "remove-image") && role !== "user") {
+			throw new Error(operation === "resend" ? "Only user messages can be resent" : "Only user message images can be removed");
 		}
 		const target: SessionEntryTarget = {
 			entryId: located.entryId,
@@ -3303,6 +3305,9 @@ export class AgentManager {
 			});
 		} else if (operation === "delete") {
 			await this.sessionFileEditor.deleteMessage({ file, target, reload });
+		} else if (operation === "remove-image") {
+			if (!options?.imageTarget) throw new Error("Image target is required");
+			await this.sessionFileEditor.removeImage({ file, target, reload, imageTarget: options.imageTarget });
 		} else {
 			await this.sessionFileEditor.truncateForResend({ file, target, reload });
 		}

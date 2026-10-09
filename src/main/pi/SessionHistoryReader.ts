@@ -389,7 +389,7 @@ export function boundTurnWindowStart(entries: ReadonlyArray<{ role?: string; byt
 
 /**
  * 从 pi 消息 content 提取「重发」回填内容：string 或 blocks 数组（text/image）。
- * 图片块格式：{ type: "image", source: { type: "base64", media_type, data } }。
+ * 图片同时兼容 pi flat data/mimeType 与 Anthropic source.data/media_type，和消息投影一致。
  */
 function extractResendContent(content: unknown): { text: string; images?: ImageContent[] } {
 	if (typeof content === "string") return { text: content };
@@ -397,20 +397,14 @@ function extractResendContent(content: unknown): { text: string; images?: ImageC
 		const textParts: string[] = [];
 		const images: ImageContent[] = [];
 		for (const block of content) {
-			const typed = block as {
-				type?: string;
-				text?: string;
-				source?: { type?: string; media_type?: string; data?: string };
-			} | null;
-			if (!typed || typeof typed !== "object") continue;
-			if (typed.type === "text" && typeof typed.text === "string") {
-				textParts.push(typed.text);
-			} else if (typed.type === "image" && typed.source?.type === "base64" && typeof typed.source.data === "string") {
-				images.push({
-					type: "image",
-					mimeType: typeof typed.source.media_type === "string" ? typed.source.media_type : "image/png",
-					data: typed.source.data,
-				});
+			if (!isRecord(block)) continue;
+			if (block.type === "text" && typeof block.text === "string") {
+				textParts.push(block.text);
+			} else if (block.type === "image") {
+				const source = isRecord(block.source) ? block.source : undefined;
+				const data = typeof block.data === "string" ? block.data : typeof source?.data === "string" ? source.data : "";
+				const mimeType = typeof block.mimeType === "string" ? block.mimeType : typeof block.mime_type === "string" ? block.mime_type : typeof source?.media_type === "string" ? source.media_type : "image/png";
+				if (data) images.push({ type: "image", data, mimeType });
 			}
 		}
 		return { text: textParts.join("\n"), ...(images.length > 0 ? { images } : {}) };

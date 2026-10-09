@@ -7,6 +7,7 @@ import type {
 	ChatMessage,
 	CreateAgentInput,
 	ImageContent,
+	SessionMessageImageTarget,
 	PiCommand,
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
@@ -222,13 +223,14 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 	async mutatePersistedSessionMessage(
 		sessionPath: string,
 		messageId: string,
-		operation: "edit" | "delete" | "resend",
+		operation: "edit" | "delete" | "resend" | "remove-image",
 		options?: {
 			newText?: string;
 			environment?: import("../../shared/types").SessionEnvironment;
 			wslDistro?: string;
 			/** 渲染层消息的文件条目 id（meta.entryId），live randomUUID 的文件定位锚点。 */
 			entryId?: string;
+			imageTarget?: SessionMessageImageTarget;
 		},
 	): Promise<{ text: string; images?: ImageContent[] } | undefined> {
 		const gateway = this.resolveBackend("pi");

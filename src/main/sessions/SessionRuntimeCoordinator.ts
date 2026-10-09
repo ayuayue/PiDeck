@@ -19,6 +19,7 @@ import type {
 	SendSessionPromptResult,
 	SessionCommandErrorCode,
 	SessionCommandResult,
+	SessionMessageImageTarget,
 	SessionRecord,
 	SessionModelPreference,
 	SessionRuntimeEvent,
@@ -107,13 +108,14 @@ export interface SessionAgentGateway {
 	mutatePersistedSessionMessage?(
 		sessionPath: string,
 		messageId: string,
-		operation: "edit" | "delete" | "resend",
+		operation: "edit" | "delete" | "resend" | "remove-image",
 		options?: {
 			newText?: string;
 			environment?: SessionRecord["environment"];
 			wslDistro?: string;
 			/** 渲染层消息的文件条目 id（meta.entryId），live randomUUID 的文件定位锚点。 */
 			entryId?: string;
+			imageTarget?: SessionMessageImageTarget;
 		},
 	): Promise<{ text: string; images?: ImageContent[] } | undefined>;
 	prepareResendFromMessage(agentId: string, messageId: string): Promise<{ text: string; images?: ImageContent[] }>;
@@ -668,6 +670,14 @@ export class SessionRuntimeCoordinator {
 		entryId?: string,
 	): Promise<SessionCommandResult<void>> {
 		return this.mutateCatalogMessage(sessionId, messageId, "edit", newText, entryId).then((result) => {
+			if (!result.ok) return result;
+			return { ok: true as const, value: undefined };
+		});
+	}
+
+	/** 单图原地移除：沿用 catalog 文件事务，不 fork、不截断后续对话。 */
+	removeCatalogMessageImage(sessionId: string, messageId: string, imageTarget: SessionMessageImageTarget, entryId?: string): Promise<SessionCommandResult<void>> {
+		return this.mutateCatalogMessage(sessionId, messageId, "remove-image", undefined, entryId, imageTarget).then((result) => {
 			if (!result.ok) return result;
 			return { ok: true as const, value: undefined };
 		});
@@ -1909,10 +1919,11 @@ export class SessionRuntimeCoordinator {
 	private async mutateCatalogMessage(
 		sessionId: string,
 		messageId: string,
-		operation: "edit" | "delete" | "resend",
+		operation: "edit" | "delete" | "resend" | "remove-image",
 		newText?: string,
 		/** 渲染层消息的文件条目 id（meta.entryId），见 readMessageByMessageId 的锚点语义。 */
 		entryId?: string,
+		imageTarget?: SessionMessageImageTarget,
 	): Promise<SessionCommandResult<{ text: string; images?: ImageContent[] } | undefined>> {
 		try {
 			const entry = this.catalog.get(sessionId);
@@ -1936,6 +1947,7 @@ export class SessionRuntimeCoordinator {
 				environment: entry.environment,
 				wslDistro: entry.wslDistro,
 				entryId,
+				imageTarget,
 			});
 			// 写文件期间若被重新激活：磁盘已改且后续激活的 pi 读的就是改后文件（编辑
 			// 实际已生效），此时报 BUSY 会让用户重试造成二次编辑。改为记录竞态日志并

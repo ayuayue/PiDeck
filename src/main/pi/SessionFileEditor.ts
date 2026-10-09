@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type { SessionMessageImageTarget } from "../../shared/types/session";
 import { open as openFile, readFile, realpath, readdir, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import { basename, dirname, join, posix, win32 } from "node:path";
 import { getAppLogger } from "../logging/sharedLogger";
@@ -137,7 +138,7 @@ type LocatedEntry = {
 	entryId: string;
 };
 
-type MutationKind = "edit" | "delete" | "resend";
+type MutationKind = "edit" | "delete" | "resend" | "remove-image";
 
 type MutationInput = {
 	file: SessionFileRef;
@@ -523,6 +524,11 @@ export class SessionFileEditor {
 		return this.mutate("edit", input, input.newText);
 	}
 
+	/** 只删除 user 消息的一张可见图，保留原始 content 其它块及后继分支。 */
+	removeImage(input: MutationInput & { imageTarget: SessionMessageImageTarget }): Promise<SessionMutationResult> {
+		return this.mutate("remove-image", input, undefined, input.imageTarget);
+	}
+
 	deleteMessage(input: MutationInput): Promise<SessionMutationResult> {
 		return this.mutate("delete", input);
 	}
@@ -642,7 +648,7 @@ export class SessionFileEditor {
 		}
 	}
 
-	private async mutate(kind: MutationKind, input: MutationInput, newText?: string): Promise<SessionMutationResult> {
+	private async mutate(kind: MutationKind, input: MutationInput, newText?: string, imageTarget?: SessionMessageImageTarget): Promise<SessionMutationResult> {
 		return this.withFileLock(input.file, async () => {
 			const original = await this.readSessionFile(input.file.hostPath);
 			const document = parseDocument(original);
@@ -650,7 +656,7 @@ export class SessionFileEditor {
 				throw new SessionFileEditorError("SESSION_MARKER_CONFLICT", "Session file already contains a reload marker");
 			}
 			const located = locateEntry(document, input.target);
-			const changedEntryIds = this.applyMutation(document, located, kind, newText);
+			const changedEntryIds = this.applyMutation(document, located, kind, newText, imageTarget);
 			const next = serializeDocument(document);
 			const backupPath = await this.createBackup(input.file.hostPath, original);
 
@@ -681,7 +687,32 @@ export class SessionFileEditor {
 		getAppLogger()?.info("session-file", `Session message ${kind}`, { file: hostPath, changedEntryIds, backupPath });
 	}
 
-	private applyMutation(document: JsonlDocument, located: LocatedEntry, kind: MutationKind, newText?: string): string[] {
+	private applyMutation(document: JsonlDocument, located: LocatedEntry, kind: MutationKind, newText?: string, imageTarget?: SessionMessageImageTarget): string[] {
+		if (kind === "remove-image") {
+			const message = messageOf(located.entry);
+			if (message?.role !== "user") throw new SessionFileEditorError("SESSION_ENTRY_ROLE_INVALID", "Only user message images can be removed");
+			const content = message.content;
+			// 与 AgentMessageProjector 的可见投影一致：无有效 data 的 image 不占序号。
+			// 在文件锁内校验数量和哈希，重复图片只 splice 一块，不从 UI 重建其它 content。
+			const visible: Array<{ index: number; data: string }> = [];
+			if (Array.isArray(content)) {
+				for (let index = 0; index < content.length; index += 1) {
+					const block: unknown = content[index];
+					if (!block || typeof block !== "object" || !("type" in block) || block.type !== "image") continue;
+					const source = "source" in block && block.source && typeof block.source === "object" ? block.source : undefined;
+					const data = "data" in block && typeof block.data === "string" ? block.data : source && "data" in source && typeof source.data === "string" ? source.data : "";
+					if (data) visible.push({ index, data });
+				}
+			}
+			const selected = imageTarget && Number.isSafeInteger(imageTarget.index) && imageTarget.index >= 0 ? visible[imageTarget.index] : undefined;
+			if (!Array.isArray(content) || !imageTarget || !selected || imageTarget.expectedImageCount !== visible.length || !/^[a-f0-9]{64}$/.test(imageTarget.expectedHash) || createHash("sha256").update(selected.data).digest("hex") !== imageTarget.expectedHash) {
+				throw new SessionFileEditorError("SESSION_ENTRY_NOT_FOUND", "The selected image is no longer present; reload the session before retrying");
+			}
+			content.splice(selected.index, 1);
+			replaceLine(document, located.lineIndex, located.entry);
+			return [located.entryId];
+		}
+
 		if (kind === "edit") {
 			const message = messageOf(located.entry);
 			if (!message || (message.role !== "user" && message.role !== "assistant")) {

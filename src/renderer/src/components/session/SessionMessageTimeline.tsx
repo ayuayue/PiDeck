@@ -91,6 +91,7 @@ type TimelineInteractionProps = {
 	onResendUserMessage?: UserBubbleProps["onResendUserMessage"];
 	onEditMessage?: TurnRowProps["onEditMessage"];
 	onDeleteMessage?: TurnRowProps["onDeleteMessage"];
+	onRemoveMessageImage?: UserBubbleProps["onRemoveMessageImage"];
 	onForkMessage?: UserBubbleProps["onForkMessage"];
 	onRewindToMessage?: UserBubbleProps["onRewindToMessage"];
 	forkingMessageId?: string | null;
@@ -881,6 +882,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 								<UserBubble
 									key={message.id}
 									message={message}
+									onRemoveMessageImage={props.onRemoveMessageImage}
 									fresh={freshMessageIds.has(message.id)}
 									topFresh={topFreshIds.has(message.id)}
 									onPreviewImage={props.onPreviewImage}

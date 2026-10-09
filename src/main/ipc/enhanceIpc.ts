@@ -10,11 +10,10 @@ import { ipcChannels } from "../../shared/ipc";
 import type { EnhanceEventPayload } from "../../shared/types/enhance";
 import type { EnhancePromptService } from "../pi/enhance/EnhancePromptService";
 
-/** 模型/供应商 id 形态：边界校验而非镜像 pi 的 id 文法——真实目录里有
- * `builtin:bigmodel-start-plan`、`https://open.mwy.asia`（provider）、
- * `cn:deepseek-v4.1-flash`（modelId）这类带 `:` `/` 的值，必须放行；
- * 只挡空白/控制字符/超长。 */
-const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}$/;
+/** 模型/供应商 id 是目录中的原始键：中文、空格、冒号、URL 均合法，
+ * 不在 IPC 层复制 pi 的命名文法，也不 trim 后改掉实际查找键。 */
+const MAX_MODEL_ID_LENGTH = 160;
+const MODEL_ID_CONTROL_CHARACTERS = /[\p{Cc}\u2028\u2029]/u;
 
 /** 草稿上限：输入框粘贴的长文本也会被增强，64KB 覆盖合理用途并挡住误传。 */
 const MAX_DRAFT_LENGTH = 64 * 1024;
@@ -23,8 +22,9 @@ function nonEmptyString(value: unknown, maxLength: number): value is string {
 	return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
 }
 
+/** 只拒绝空名称、控制字符与超长值；其余交给 pi 的模型目录匹配。 */
 function isModelId(value: unknown): value is string {
-	return typeof value === "string" && MODEL_ID_PATTERN.test(value);
+	return nonEmptyString(value, MAX_MODEL_ID_LENGTH) && !MODEL_ID_CONTROL_CHARACTERS.test(value);
 }
 
 function parseEnhanceRunInput(value: unknown): { provider: string; modelId: string; userText: string } {

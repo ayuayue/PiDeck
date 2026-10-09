@@ -73,6 +73,7 @@ export type SessionViewProps = {
 	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (message: ChatMessage, newText: string) => void;
 	onDeleteMessage?: (messageId: string, entryId?: string) => void;
+	onRemoveMessageImage?: (message: ChatMessage, index: number) => void;
 	onForkMessage?: (message: ChatMessage) => void;
 	onRewindToMessage?: (message: ChatMessage) => void;
 	forkingMessageId?: string | null;
@@ -148,6 +149,7 @@ export function SessionView({
 	onResendUserMessage,
 	onEditMessage,
 	onDeleteMessage,
+	onRemoveMessageImage,
 	onForkMessage,
 	onRewindToMessage,
 	forkingMessageId,
@@ -322,6 +324,7 @@ export function SessionView({
 								onResendUserMessage,
 								onEditMessage,
 								onDeleteMessage,
+								onRemoveMessageImage,
 								onForkMessage,
 								onRewindToMessage,
 								forkingMessageId,

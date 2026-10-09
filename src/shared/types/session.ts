@@ -348,6 +348,13 @@ export type ForkMessage = {
 	text: string;
 };
 
+/** 删除用户消息单图的稳定快照：可见序号 + 数量 + 内容哈希，拒绝过期 UI 误删另一张图。 */
+export type SessionMessageImageTarget = {
+	index: number;
+	expectedImageCount: number;
+	expectedHash: string;
+};
+
 /** 图片内容格式，与 pi RPC 的 ImageContent 一致 */
 export type ImageContent = {
 	type: "image";

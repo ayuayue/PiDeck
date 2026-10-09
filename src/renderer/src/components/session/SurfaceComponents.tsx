@@ -651,6 +651,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (message: ChatMessage, newText: string) => void;
 	onDeleteMessage?: (messageId: string, entryId?: string) => void;
+	onRemoveMessageImage?: (message: ChatMessage, index: number) => void;
 	/** 从该用户消息 fork 新会话；忙碌时不展示入口 */
 	onForkMessage?: (message: ChatMessage) => void;
 	/** 回退工作区文件到该消息时刻前最近的检查点；仅 pi 后端注入（rewind 能力） */
@@ -842,7 +843,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	/** 编辑后重发：放回 composer 输入框，由用户自行修改后发送。 */
 	const handleEditAndResend = () => {
 		document.querySelector<HTMLElement>(".composer-box .rich-input, .composer-box textarea")?.focus();
-		window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: message.text } }));
+		window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: message.text, images: message.images } }));
 	};
 	return (
 		<article /* user-turn 为 e2e 选择器锚点 */
@@ -861,7 +862,7 @@ export const UserBubble = memo(function UserBubble(props: {
 								<MessageImage src={src} alt={t("app.imageAlt", { index: index + 1 })} className="size-16 max-h-40 cursor-pointer rounded-md border border-border object-cover transition-colors duration-fast hover:border-border-strong" onClick={() => props.onPreviewImage(img)} />
 								{/* 上传图片此前只有点击预览、无复制/保存入口（2026-10 用户反馈）；hover 动作条与生图卡片同规格 */}
 								<div className="absolute -top-2.5 right-0 z-10 opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 focus-within:opacity-100" onClick={(event) => event.stopPropagation()}>
-									<ImageActionButtons image={img} />
+									<ImageActionButtons image={img} onRemove={props.onRemoveMessageImage && img.data ? () => props.onRemoveMessageImage?.(message, index) : undefined} />
 								</div>
 							</div>
 						);
