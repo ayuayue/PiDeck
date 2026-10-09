@@ -84,7 +84,9 @@ export function TabsTrigger({ value, children, className, indicatorClassName }: 
 		return (
 			<button type="button" role="tab" aria-selected={active} onClick={() => setValue(value)} className={cn("relative isolate px-3 pb-2.5 pt-1 -mb-px text-sm font-medium transition-colors min-h-[44px] inline-flex items-center", active ? "text-foreground" : "text-muted-foreground hover:text-foreground", className)}>
 				{children}
-				{active ? <motion.span layoutId={layoutId} layout="position" className={cn("absolute -bottom-px left-0 right-0 h-px bg-primary", indicatorClassName)} /> : null}
+				{/* 下划线指示器刻意不做 layout 动画：跨 tab 滑动时先测量再投影，切换瞬间会看到
+				    横线从旧位置飘到新位置（用户反馈「有下滑动画」）。静态渲染，只跟随选中项出现。 */}
+				{active ? <span aria-hidden className={cn("absolute -bottom-px left-0 right-0 h-px bg-primary", indicatorClassName)} /> : null}
 			</button>
 		);
 	}

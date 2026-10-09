@@ -3,13 +3,13 @@ import { Tabs, TabsList, TabsTrigger } from "../components/motion/tabs";
 import { cn } from "../lib/utils";
 
 /**
- * 内容级 tab 切换条（beui underline：弹簧滑动指示器）。
+ * 内容级 tab 切换条（beui underline：静态下划线指示器，不跟随切换做滑动动画）。
  *
  * 层级语言（配置管理区统一规则）：
  * - 页面级（系统设置/配置管理、Pi/DSH 后端）＝ ui-shadcn 分段条（default）；
  * - 内容级（技能/扩展/提示词的「本地/商店」、商店面板内供应商切换）＝ 本组件下划线式。
- * 两种形态互不混用，避免「同款 pill 叠层」造成的割裂感；弹簧指示器与侧栏
- * 活动/聊天/项目 pill 同源（components/motion/tabs），动效语言一致。
+ * 两种形态互不混用，避免「同款 pill 叠层」造成的割裂感；侧栏活动/聊天/项目
+ * pill 仍走 components/motion/tabs 的弹簧指示器，下划线这一档不做动效。
  */
 export type ContentTabItem = {
 	value: string;
