@@ -2953,6 +2953,10 @@ export const zhCN = {
 	"config.extensionUpdateOne": "更新",
 	"config.extensionUpdatingOne": "更新中…",
 	"config.extensionCopyUpdateCommand": "复制更新指令",
+	// 已安装扩展列表搜索（纯渲染层过滤，命中数/总数同时展示，空态与「未安装」区分）
+	"config.extensionListSearchPlaceholder": "搜索已装扩展…",
+	"config.extensionListNoResults": "没有匹配的扩展",
+	"config.extensionListResultCount": "{matched} / {count}",
 	// 内置扩展热更新（包级版本号，不跟应用版本走；检测走 AtomGit 清单，更新写 userData 覆盖层）
 	"config.builtInExt.title": "内置扩展",
 	"config.builtInExt.version": "v{version}",
