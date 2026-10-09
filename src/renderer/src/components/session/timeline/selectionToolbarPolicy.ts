@@ -22,6 +22,31 @@ export const QUOTE_EXCLUDED_SELECTOR = ".turn-row--pending, [data-tool-kind], [d
 /** 引用快照长度上限：超长划选截断并提示语义由 label 省略号体现（防极端大文本入 atom）。 */
 export const MAX_QUOTE_CHARS = 4000;
 
+/**
+ * 选区「健在性」比较键：同一次划选在任何时刻都必须算出同一个值。
+ *
+ * 唯一来源是**实时 Range 的纯文本**（`range.toString()`）——浮层展示时锁存一次，之后每一帧
+ * 用同一个函数重算比对（见 useTimelineSelection 的 rAF 跟随循环）。
+ *
+ * 为什么强调「同一个函数、同一个 API」（用户反馈「跨段落引用不成功」的根因）：
+ * Chromium 只在 `Selection.toString()` 里给块级边界（相邻 `<p>` / `<li>` / `<h2>` / 代码块）
+ * 补 `\n\n`，`Range.toString()` 只按文本节点顺序拼接、不留任何块分隔；同一段跨段落选区，
+ * 两个 API 的原文必然不等（Electron 43 实测："A。\n\nB。" vs "A。B。"，块间无空白文本节点时
+ * 后者连分隔字符都没有）。曾经一侧用 Selection、一侧用 Range 互比，于是跨段落划选时浮层
+ * 展示后第一帧就被当成「正文被流式改写」撤销：判定函数返回 true、浮层也确实渲染了，
+ * 用户却看不到按钮，整条引用链路等于不存在；段内划选（不跨块级边界）两 API 恰好一致，
+ * 所以只坏跨段落这一支（e2e/selection-quote.spec.ts 守这条）。
+ *
+ * 不要靠空白归一化来炮合两侧：块间没有空白文本节点时 Range 侧干脆没有分隔字符
+ * （"A。B。" 对 "A。\n\nB。"），压缩空白救不了这种差异，只会掩盖「两侧其实不同源」。
+ * 快照文本另有其值（用 `Selection.toString()` 保留段落结构给模型读），两者语义不同、
+ * 不能再用同一个字符串兼任。
+ */
+export function selectionIntegrityKey(selection: Pick<Selection, "isCollapsed" | "rangeCount" | "getRangeAt"> | null | undefined): string {
+	if (!selection || selection.isCollapsed || selection.rangeCount === 0) return "";
+	return selection.getRangeAt(0).toString();
+}
+
 export type QuotableRangeInput = {
 	/** 选区两端各自解析到的消息 id（data-message-id）；跨消息为 null。 */
 	messageIdA?: string | null;

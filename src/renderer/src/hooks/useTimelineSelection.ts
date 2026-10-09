@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { MAX_QUOTE_CHARS, QUOTE_EXCLUDED_SELECTOR, computeToolbarPosition, isQuotableRange } from "../components/session/timeline/selectionToolbarPolicy";
+import { MAX_QUOTE_CHARS, QUOTE_EXCLUDED_SELECTOR, computeToolbarPosition, isQuotableRange, selectionIntegrityKey } from "../components/session/timeline/selectionToolbarPolicy";
 
 export type TimelineSelectionQuote = {
 	text: string;
@@ -45,8 +45,15 @@ function isExcluded(node: Node | null): boolean {
  * 节点时，浏览器会把「真选区」重新锚定到新 DOM（高亮仍粘在原文本上），而展示时 cloneRange
  * 出来的克隆仍指着旧节点——旧节点几何随流式漂移甚至被钳到容器末尾，逐帧跟随克隆就把
  * 浮层写到了错误位置（选区在顶部、浮层停在输入框上方）。每帧取 window.getSelection()
- * 的实时 Range 测量，并用锁存的选区全文 + 来源消息 id 做健在性校验：文本被流式改写、
+ * 的实时 Range 测量，并用锁存的选区比较键 + 来源消息 id 做健在性校验：文本被流式改写、
  * 塌陷、或被重锚到别的消息 → 解除锁定并隐藏（所在子树整体卸载时 rect 全零，同样收起）。
+ *
+ * 比较键必须与锁存值同源（2026-12 跨段落引用失效根因）：锁存与逐帧校验都走
+ * `selectionIntegrityKey(实时选区)`（内部取 `Range.toString()`）。曾经一侧用
+ * `selection.toString()`、一侧用 `range.toString()`——Chromium 只在
+ * `Selection.toString()` 里给块级边界补 `\n\n`，跨段落划选两侧恒不等，
+ * 浮层展示后第一帧就被自己误撤。详见 selectionToolbarPolicy 的 `selectionIntegrityKey`
+ * 注释与 e2e/selection-quote.spec.ts。
  *
  * 浮层只允许出现在时间线可视区内（2026-12 五次修复）：用户滚轮把选区滚出视口后，浮层
  * 若继续按 clamp 后的窗口坐标定位，会悬停在时间线外的 chrome（待办条/修改的文件/输入框）
@@ -59,8 +66,8 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 	const evaluateTimerRef = useRef(0);
 	/** 浮层已展示且快照已定格：流式引起的选区塌陷不再收起，见组件头注释。 */
 	const lockedRef = useRef(false);
-	/** 锁定时锁存的选区全文：rAF 跟随时与实时选区比对，被流式改写即失效。 */
-	const lockedTextRef = useRef("");
+	/** 锁定时的选区比较键（selectionIntegrityKey(实时选区)）：rAF 跟随时用同一个函数重算，被流式改写即失效。 */
+	const lockedSelectionKeyRef = useRef("");
 	/** 锁定时锁存的来源消息 id：跟随时校验实时选区未被重锚到别的消息。 */
 	const lockedMessageIdRef = useRef("");
 	/** rAF 跟随循环句柄：0 = 未在跑。 */
@@ -70,7 +77,7 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 
 	const clear = useCallback(() => {
 		lockedRef.current = false;
-		lockedTextRef.current = "";
+		lockedSelectionKeyRef.current = "";
 		lockedMessageIdRef.current = "";
 		if (followFrameRef.current) {
 			window.cancelAnimationFrame(followFrameRef.current);
@@ -88,7 +95,7 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 		// 解除锁定并收起浮层（锁存物与 rAF 跟随循环一并停掉）。clear 是对外版本。
 		const releaseLock = () => {
 			lockedRef.current = false;
-			lockedTextRef.current = "";
+			lockedSelectionKeyRef.current = "";
 			lockedMessageIdRef.current = "";
 			if (followFrameRef.current) {
 				window.cancelAnimationFrame(followFrameRef.current);
@@ -106,7 +113,8 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 			if (!lockedRef.current) return;
 			const selection = window.getSelection();
 			const range = selection && selection.rangeCount > 0 && !selection.isCollapsed ? selection.getRangeAt(0) : null;
-			if (!range || range.toString() !== lockedTextRef.current || resolveMessageId(range.startContainer, container) !== lockedMessageIdRef.current) {
+			// 每帧重算键（同一个函数、同一个 API）：跨块级边界的划选不再因 API 差异被误判改写。
+			if (!range || selectionIntegrityKey(selection) !== lockedSelectionKeyRef.current || resolveMessageId(range.startContainer, container) !== lockedMessageIdRef.current) {
 				// 实时选区被流式变更挤没/改写/重锚到别的消息：解除锁定并隐藏
 				releaseLock();
 				return;
@@ -176,7 +184,10 @@ export function useTimelineSelection(containerRef: RefObject<HTMLElement | null>
 			const rect = range.getBoundingClientRect();
 			const messageId = resolveMessageId(range.startContainer, container) ?? "";
 			lockedRef.current = true;
-			lockedTextRef.current = text;
+			// 快照文本用 Selection.toString()：块级边界保留成 \n\n，引文才有段落结构（发给模型的上下文）。
+			// 比较键另取实时 Range 的纯文本（selectionIntegrityKey）——两者语义不同，
+			// 不能让同一个字符串兼任（跨段落时它们本来就不相等）。
+			lockedSelectionKeyRef.current = selectionIntegrityKey(selection);
 			lockedMessageIdRef.current = messageId;
 			setQuote({
 				text: text.trim(),
