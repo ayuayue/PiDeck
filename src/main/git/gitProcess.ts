@@ -75,6 +75,10 @@ export function runGit(args: string[], options: RunGitOptions, command = "git"):
 		});
 
 		if (input !== undefined && child.stdin) {
+			// 断管兜底：git 在读完 stdin 前退出（非法 ref/hooks 拒绝/index 损坏）时，超出管道
+			// 缓冲的排队写会触发 stdin 的 error 事件（Windows 报 EOF、POSIX 报 EPIPE），
+			// 无监听的 stream error 会炸掉主进程；结局已由 close/error 通道结算，这里只吞掉写端异常。
+			child.stdin.on("error", () => {});
 			child.stdin.write(input);
 			child.stdin.end();
 		}

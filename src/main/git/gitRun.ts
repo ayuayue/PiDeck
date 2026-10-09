@@ -76,6 +76,9 @@ function runWslGit(plan: GitSpawnPlan, options: { timeoutMs?: number; maxBuffer?
 		});
 
 		if (options.input !== undefined && child.stdin) {
+			// 断管兜底：同 gitProcess.runGit——排队写在 wsl.exe 提前退出时触发 error 事件
+			// （EOF/EPIPE），无监听会炸主进程；promise 结局已由 close/error 通道结算。
+			child.stdin.on("error", () => {});
 			child.stdin.write(options.input);
 			child.stdin.end();
 		}

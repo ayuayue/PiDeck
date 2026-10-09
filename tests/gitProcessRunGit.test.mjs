@@ -35,6 +35,27 @@ test("runGit 非 0 退出码 reject 且 message 对齐 execFile 格式", async (
 	);
 });
 
+test("runGit 大 input 写入时子进程提前退出不产生未处理的 stdin EPIPE", async () => {
+	// 回归：checkpoint 的 cat-file --batch SHA 列表可达 MB 级，超出管道缓冲后剩余写
+	// 在 stream 内排队；git 因非法输入立即退出时排队写触发 stdin 的 error 事件——
+	// 无监听的 stream error 会炸掉主进程（与 enhance/auth helper 的 stdin EPIPE 同型）。
+	const uncaught = [];
+	const handler = (err) => uncaught.push(err);
+	process.on("uncaughtException", handler);
+	try {
+		const invoke = () => runGit(["-e", "process.stdin.once('data', () => process.exit(3))"], { cwd: process.cwd(), input: "x".repeat(2 * 1024 * 1024), timeoutMs: 8000 }, node);
+		await assert.rejects(invoke, (err) => {
+			assert.match(err.message, /^Command failed: /);
+			return true;
+		});
+		// EPIPE 异步到达：给排队写足够的落地窗口。
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		assert.equal(uncaught.length, 0, `不应有未处理的 stdin EPIPE：${uncaught[0]?.stack}`);
+	} finally {
+		process.off("uncaughtException", handler);
+	}
+});
+
 test("runGit 超时后 settle 并杀掉孙进程树（复现 execFile 卡死场景）", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "rungit-"));
 	const scriptPath = join(dir, "fake-git.mjs");
