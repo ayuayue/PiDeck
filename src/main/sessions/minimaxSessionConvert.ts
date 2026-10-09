@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SessionImportCopy } from "./SessionImportCopy";
+import { safeIsoTimestamp } from "./importNormalize";
 import { zeroUsage } from "./kimiSessionConvert";
 import type { MinimaxSessionMeta } from "./minimaxSessionSource";
 
@@ -95,7 +96,7 @@ export async function convertMinimaxSessionTo(input: ConvertMinimaxSessionInput)
 		const tsNumber = Number(message.timestamp);
 		if (Number.isFinite(tsNumber) && tsNumber > 0) lastTimestamp = tsNumber;
 		const id = makeId(meta.sessionId, sequence++);
-		const ts = new Date(lastTimestamp).toISOString();
+		const ts = safeIsoTimestamp(lastTimestamp);
 		const messageBody: Record<string, unknown> = { role, content, timestamp: lastTimestamp };
 		if (role === "assistant") messageBody.usage = zeroUsage();
 		emit(JSON.stringify({ type: "message", id, parentId, timestamp: ts, message: messageBody }));
@@ -116,7 +117,7 @@ export async function convertMinimaxSessionTo(input: ConvertMinimaxSessionInput)
 	if (meta.sourceTitle) title = meta.sourceTitle.slice(0, 80);
 	if (!title) title = input.translate("session.importedTitle", { source: "MinimaxCode" });
 	// 顺序：session 头（带 name）→ 溯源标记 → 消息行。name 让 scanner 直接命中会话名。
-	const startTime = new Date(meta.createdAt).toISOString();
+	const startTime = safeIsoTimestamp(meta.createdAt);
 	sink(JSON.stringify({ type: "session", version: 3, id: meta.sessionId, name: title, timestamp: startTime, cwd: meta.cwd || input.projectPath }));
 	sink(
 		JSON.stringify({

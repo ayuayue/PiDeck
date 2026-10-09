@@ -1,7 +1,6 @@
-import { createReadStream } from "node:fs";
 import { open, rename, stat } from "node:fs/promises";
-import { createInterface } from "node:readline";
 import type { FileHandle } from "node:fs/promises";
+import { scanJsonlLines } from "./jsonlLineStream";
 
 /**
  * 外部会话源（Claude / Cursor / WorkBuddy / Codex）的头部有界读取与并发工具。
@@ -103,31 +102,82 @@ export async function mapWithConcurrency<T, R>(items: readonly T[], limit: numbe
 /**
  * 逐行异步读取 JSONL 源文件，产出**已解析的对象**。
  *
- * 用 `createReadStream` + `readline`（与 Codex 导入器同一条已验证路径）：
- * 任何时刻只持有一个 chunk 与当前行，内存 O(单行)，巨型会话可直接导入。
+ * 基于 scanJsonlLines（自有 chunk 流式实现）而非裸 readline：readline 对单行
+ * 无界缓冲，导入源含数 GB 无换行内容时会撞 384MB 堆 FatalProcessOutOfMemory
+ * （不可 catch，主进程直接 abort）——2026-03 导入器安全审计确认导入路径绕过了
+ * 回放侧的 64MiB 单行防线，此处收口。任何时刻只持有一个 chunk 与当前行，
+ * 内存 O(单行)，巨型会话可直接导入。
  *
- * 坏行即抛错（与旧全量实现一致：导入要严格，不能静默丢消息）；
- * 错误信息截取行前缀，避免把整行内容刷进日志。
+ * 坏行默认抛错（与旧全量实现一致：导入要严格，不能静默丢消息）；错误信息截取行前缀，
+ * 避免把整行内容刷进日志。`skipBadLines: true` 切宽容模式（坏行/半行跳过）——
+ * 活跃会话文件可能正被追加，最后一行写一半，严格模式会把「导入到一半遇到半行」
+ * 变成整个会话导入失败（Kimi wire / Minimax 用）。
+ * 超长行（>64MiB）两种模式都抛错而非静默丢弃——严格模式丢行会让产物不完整，
+ * 宽容模式丢行也会把超大内容静默漏掉，报错更能暴露源文件异常。
  */
-export async function* readJsonlObjects(filePath: string): AsyncGenerator<Record<string, any>> {
-	const rl = createInterface({
-		input: createReadStream(filePath, { encoding: "utf8" }),
-		crlfDelay: Infinity,
-	});
-	try {
-		for await (const line of rl) {
-			if (!line.trim()) continue;
+export async function* readJsonlObjects(filePath: string, options: { maxLineBytes?: number; skipBadLines?: boolean } = {}): AsyncGenerator<Record<string, any>> {
+	// 异步队列桥接：scanJsonlLines（callback 式）→ async generator（消费方 for await 式）。
+	// 生产者在后台跑，清空队列后消费者 await notify；单消费者模式（async generator 语义保证）。
+	type Slot = { value?: Record<string, any>; error?: Error; done?: boolean };
+	const queue: Slot[] = [];
+	let notify: (() => void) | undefined;
+	let wakeup = () => {
+		const n = notify;
+		notify = undefined;
+		n?.();
+	};
+	void scanJsonlLines(
+		filePath,
+		(line) => {
+			if (!line.trim()) return;
 			try {
 				const parsed = JSON.parse(line) as unknown;
 				if (parsed && typeof parsed === "object") {
-					yield parsed as Record<string, any>;
+					queue.push({ value: parsed as Record<string, any> });
+					wakeup();
 				}
 			} catch (error) {
+				if (options.skipBadLines) return; // 宽容模式：坏行/半行跳过（见函数注释）
 				throw new Error(`Invalid JSON line in ${filePath}: ${line.slice(0, 120)} (${error instanceof Error ? error.message : String(error)})`);
 			}
+		},
+		{
+			maxLineBytes: options.maxLineBytes,
+			onOversizedLine: (info) => {
+				throw new Error(`Oversized line (${info.byteLength} bytes) in ${filePath}: ${info.prefix.slice(0, 120)}`);
+			},
+		},
+	).then(
+		() => {
+			queue.push({ done: true });
+			wakeup();
+		},
+		(error: unknown) => {
+			queue.push({ error: error instanceof Error ? error : new Error(String(error)) });
+			wakeup();
+		},
+	);
+	try {
+		for (;;) {
+			const slot = queue.shift();
+			if (slot?.error) throw slot.error;
+			if (slot?.done) return;
+			if (slot) {
+				yield slot.value!;
+				continue;
+			}
+			// 队列空：等生产者 wakeup。同步块内赋 notify 后再查队列：生产者要么
+			// 已在本同步块前 push（队列非空立即醒），要么在之后 push（notify 已挂上），无漏醒窗口
+			await new Promise<void>((resolve) => {
+				notify = resolve;
+				if (queue.length > 0) resolve();
+			});
 		}
 	} finally {
-		rl.close();
+		// 消费方提前 break/抛错：禁用后续 wakeup（避免迟到回调打醒无人消费的等待）。
+		// 后台扫描会自然跑到文件尾并自关句柄，无泄漏。
+		wakeup = () => {};
+		notify = undefined;
 	}
 }
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { KimiWorkShareRootInfo, KimiWorkShareRootOrigin } from "../../shared/types/imports";
 import { getSharedSqlJs } from "../sqlJsRuntime";
 import { readImportMetaHead } from "./importMetaHead";
+import { assertSourceWithinRoot } from "./importPathGuard";
 import { readSessionSourceHead } from "./sessionSourceHead";
 import { getProjectSessionDir, type KimiRecord } from "./kimiSessionSource";
 
@@ -271,11 +272,8 @@ export function extractKimiWorkCreatedAt(entries: KimiRecord[]): number {
  * 校验它落在 daimon-share 根之内，防止被注入「读任意文件」的路径。
  */
 export function assertKimiWorkSourcePath(shareRoot: string, filePath: string): void {
-	const base = normalizeKimiWorkPath(shareRoot).toLowerCase();
-	const target = normalizeKimiWorkPath(filePath).toLowerCase();
-	if (target !== base && !target.startsWith(`${base}/`)) {
-		throw new Error("Kimi Work session path is outside daimon-share");
-	}
+	// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`（2026-03 导入器安全审计）
+	assertSourceWithinRoot(shareRoot, filePath, "Kimi Work");
 }
 
 /** wire.jsonl 的 stat（新鲜度判据：size/mtime 与导入标记比对）。文件缺失返回 null。 */

@@ -8,7 +8,7 @@ import type { OpenCodeImportReport, OpenCodeImportResult, OpenCodeImportStatus, 
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
 import { normalizeImportedToolArguments } from "./importToolArguments";
 import { readImportMetaHead } from "./importMetaHead";
-import { IMPORTED_SKIP_PART_TYPES, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, tryImportedImageBlock } from "./importNormalize";
+import { IMPORTED_SKIP_PART_TYPES, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp, tryImportedImageBlock } from "./importNormalize";
 
 type OpenCodeMessage = {
 	id: string;
@@ -121,7 +121,7 @@ export class OpenCodeSessionImporter {
 
 	private convertToPiSession(projectPath: string, session: ParsedOpenCodeSession) {
 		const sessionId = String(session.meta.id);
-		const timestamp = new Date(Number(session.meta.time_created ?? session.sourceMtime)).toISOString();
+		const timestamp = safeIsoTimestamp(Number(session.meta.time_created ?? session.sourceMtime));
 		const model = this.parseModel(session.meta.model);
 		const titleState = { title: "", preview: "" };
 		const lines: string[] = [];
@@ -138,7 +138,7 @@ export class OpenCodeSessionImporter {
 				type: "message",
 				id,
 				parentId,
-				timestamp: new Date(messageTimestamp).toISOString(),
+				timestamp: safeIsoTimestamp(messageTimestamp),
 				message: {
 					role,
 					content,
@@ -375,7 +375,8 @@ export class OpenCodeSessionImporter {
 
 	private safePathToken(path: string) {
 		const normalized = path.replace(/\\/g, "/");
-		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
+		// 盘符根（D:\）也要命中本分支：(.+) 时盘根落到 fallback 产出含 ":" 的非法目录名，导入必败
+		const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 		if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
 		return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
 	}

@@ -1,34 +1,19 @@
 import { app } from "electron";
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { open, rm, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline";
 import type { MinimaxImportReport, MinimaxImportResult, MinimaxImportStatus, MinimaxSessionSummary } from "../../shared/types";
 import { convertMinimaxSessionTo, type MinimaxMessageRecord } from "./minimaxSessionConvert";
 import { getMinimaxTargetPath, minimaxSessionsRoot, readMinimaxImportMeta, readMinimaxSessionMeta, readMinimaxSqliteIndex, scanMinimaxSessions, type MinimaxSessionMeta, type MinimaxSqliteEntry } from "./minimaxSessionSource";
 import { ensureProjectSessionDir, normalizePath } from "./kimiSessionSource";
+import { assertSourceWithinRoot } from "./importPathGuard";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
-import { createBufferedLineSink, renameWithRetry } from "./sessionSourceHead";
+import { createBufferedLineSink, readJsonlObjects, renameWithRetry } from "./sessionSourceHead";
 
-/** messages.jsonl 逐行流式解析（坏行/半行跳过，内存 O(单行)）。 */
+/** messages.jsonl 逐行流式解析（经 readJsonlObjects 宽容模式：坏行/半行跳过 + 64MiB 单行防线）。 */
 async function* readMinimaxMessageRecords(filePath: string): AsyncGenerator<MinimaxMessageRecord> {
-	const rl = createInterface({
-		input: createReadStream(filePath, { encoding: "utf8" }),
-		crlfDelay: Infinity,
-	});
-	try {
-		for await (const line of rl) {
-			if (!line.trim()) continue;
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				if (parsed && typeof parsed === "object") yield parsed as MinimaxMessageRecord;
-			} catch {
-				// 坏行/半行跳过：与其它导入器同口径
-			}
-		}
-	} finally {
-		rl.close();
+	for await (const record of readJsonlObjects(filePath, { skipBadLines: true })) {
+		yield record as MinimaxMessageRecord;
 	}
 }
 
@@ -80,11 +65,10 @@ export class MinimaxSessionImporter {
 		let handle: Awaited<ReturnType<typeof open>> | undefined;
 		let tempPath: string | undefined;
 		try {
-			// 路径安全：源必须在 minimax 根下（防任意路径写入）；元数据从源目录现读
-			// （messages.jsonl 的 mtime/size 即 import 标记的判定基准）。
-			if (normalizePath(dirname(sourcePath)).startsWith(normalizePath(this.minimaxRoot)) === false) {
-				throw new Error(`Invalid MinimaxCode session source: ${sourcePath}`);
-			}
+			// 路径安全：源必须在 minimax 根下（防任意路径写入）；语义校验（resolve 后比较，
+			// 旧词法 startsWith 无 `/` 边界且不解析 `..`，兄弟目录与出根路径均可通过——2026-03
+			// 导入器安全审计）；元数据从源目录现读（messages.jsonl 的 mtime/size 即 import 标记的判定基准）。
+			assertSourceWithinRoot(this.minimaxRoot, dirname(sourcePath), "MinimaxCode");
 			const meta = await readMinimaxSessionMeta(dirname(sourcePath));
 			if (!meta || meta.messagesPath !== sourcePath) throw new Error(`Invalid MinimaxCode session source: ${sourcePath}`);
 			// 单会话导入不走 scan：从 sqlite 索引补会话标题（缺了会回退首问/兜底文案）

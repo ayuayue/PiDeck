@@ -8,7 +8,7 @@ import type { ZCodeImportReport, ZCodeImportResult, ZCodeImportStatus, ZCodeSess
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
 import { normalizeImportedToolArguments } from "./importToolArguments";
 import { readImportMetaHead } from "./importMetaHead";
-import { IMPORTED_SKIP_PART_TYPES, capImportedImage, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason } from "./importNormalize";
+import { IMPORTED_SKIP_PART_TYPES, capImportedImage, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp } from "./importNormalize";
 
 /**
  * zcode（Z.ai CLI）会话导入器。
@@ -113,7 +113,7 @@ export class ZCodeSessionImporter {
 
 	private async convertToPiSession(projectPath: string, session: ParsedZCodeSession) {
 		const sessionId = String(session.meta.id);
-		const timestamp = new Date(Number(session.meta.time_created ?? session.sourceMtime)).toISOString();
+		const timestamp = safeIsoTimestamp(Number(session.meta.time_created ?? session.sourceMtime));
 		const titleState = { title: "", preview: "" };
 		const lines: string[] = [];
 		let parentId: string | null = null;
@@ -129,7 +129,7 @@ export class ZCodeSessionImporter {
 				type: "message",
 				id,
 				parentId,
-				timestamp: new Date(messageTimestamp).toISOString(),
+				timestamp: safeIsoTimestamp(messageTimestamp),
 				message: {
 					role,
 					content,
@@ -441,7 +441,8 @@ export class ZCodeSessionImporter {
 
 	private safePathToken(path: string) {
 		const normalized = path.replace(/\\/g, "/");
-		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
+		// 盘符根（D:\）也要命中本分支：(.+) 时盘根落到 fallback 产出含 ":" 的非法目录名，导入必败
+		const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 		if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
 		return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
 	}
