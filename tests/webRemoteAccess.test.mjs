@@ -295,3 +295,36 @@ test("getState 反映 web 服务上下文（端口/token/鉴权开关）", () =>
 	assert.equal(state.webToken, "tok123");
 	assert.equal(state.webRequiresAuth, true);
 });
+
+// ── 隧道启动失败清理（孤儿进程回归）──
+// 场景：waitForUrl 超时/URL 解析失败时 start 抛错。若 manager 不调用 tunnel.stop()，
+// cloudflared 子进程成为孤儿——它可能稍后自行建好隧道，公网入口存在但 UI 显示失败。
+test("cloudflare start 失败时必须 stop 隧道进程（不留孤儿/幽灵公网入口）", async () => {
+	const { logger } = makeLogger();
+	const calls = [];
+	const { RemoteAccessManager } = loadModule("src/main/web/remoteAccess/RemoteAccessManager.ts");
+	const manager = new RemoteAccessManager({
+		logger,
+		getWebServiceStatus: () => WEB_RUNNING,
+		pushState: () => {},
+		detectCloudflared: () => "C:/fake/cloudflared.exe",
+		detectTailscale: () => "",
+		tunnelFactory: () => ({
+			start: async () => {
+				calls.push("start");
+				throw new Error("等待 Cloudflare 分配隧道地址超时（30 秒），请检查网络后重试");
+			},
+			stop: async () => {
+				calls.push("stop");
+			},
+			attachLifecycleWatch: () => {
+				calls.push("watch");
+			},
+		}),
+		readerFactory: () => null,
+	});
+	const state = await manager.start("cloudflare");
+	assert.equal(state.cloudflare.running, false);
+	assert.equal(state.cloudflare.error.includes("超时"), true, `error should surface timeout cause: ${state.cloudflare.error}`);
+	assert.deepEqual(calls, ["start", "stop"], "failed tunnel must be stopped exactly once");
+});

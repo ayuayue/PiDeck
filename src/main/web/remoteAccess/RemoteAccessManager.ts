@@ -184,6 +184,14 @@ export class RemoteAccessManager {
 				this.cloudflare.error = error instanceof Error ? error.message : String(error);
 				this.logger.warn("web-remote", "cloudflare tunnel failed to start", { error: this.cloudflare.error });
 			}
+			// 启动失败必须杀掉子进程：waitForUrl 超时只是域名没拿到，cloudflared 可能仍在运行；
+			// 不清理会留孤儿进程，甚至稍后自行建好隧道——公网入口存在但 UI 显示失败（幽灵暴露面）。
+			// stop 幂等，被 stopCloudflare 接管过的重复调用安全。
+			try {
+				await tunnel.stop();
+			} catch (stopError) {
+				this.logger.warn("web-remote", "cloudflare tunnel cleanup after failed start", { error: stopError instanceof Error ? stopError.message : String(stopError) });
+			}
 			this.cloudflare.starting = false;
 			this.cloudflare.running = false;
 			if (this.tunnel === tunnel) this.tunnel = null;

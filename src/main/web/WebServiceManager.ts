@@ -1,5 +1,5 @@
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -2002,9 +2002,21 @@ export class WebServiceManager {
 	private isAuthorized(request: IncomingMessage, url: URL): boolean {
 		// 过期检查先于令牌比对：过期后即使令牌匹配也拒绝（用户显式设置了有效期，到期应强制重新分发）。
 		if (this.tokenExpiresInMs > 0 && Date.now() > this.tokenGeneratedAt + this.tokenExpiresInMs) return false;
-		if (request.headers.authorization === `Bearer ${this.authToken}`) return true;
+		// 常数时间比较：服务可绑 0.0.0.0 对外暴露，`===` 早退构成时序侧信道（逐字节猜令牌）；
+		// 长度不等先返回 false 只是泄漏长度（UUID 定长，无泄漏面），内容比对必须 timingSafeEqual。
+		const auth = request.headers.authorization;
+		if (typeof auth === "string" && auth.startsWith("Bearer ") && this.safeTokenEqual(auth.slice("Bearer ".length), this.authToken)) return true;
 		if (request.method !== "GET") return false;
-		return url.searchParams.get("token") === this.authToken;
+		const queryToken = url.searchParams.get("token");
+		return queryToken !== null && this.safeTokenEqual(queryToken, this.authToken);
+	}
+
+	/** 令牌常数时间比对：长度不等直接 false（不抛 timingSafeEqual 的长度错），内容差异不泄漏耗时。 */
+	private safeTokenEqual(candidate: string, expected: string): boolean {
+		const a = Buffer.from(candidate, "utf8");
+		const b = Buffer.from(expected, "utf8");
+		if (a.length !== b.length || a.length === 0) return false;
+		return timingSafeEqual(a, b);
 	}
 
 	private sendError(response: ServerResponse, statusCode: number, code: string, error: string, params?: Record<string, string | number>) {
