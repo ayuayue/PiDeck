@@ -492,6 +492,27 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 						<span className="min-w-8 shrink-0 text-right font-brand text-sm text-muted-foreground tabular-nums">{draft.chatContentWidthPct}%</span>
 					</div>
 				</SettingRow>
+				{/* 会话状态（待办/修改文件/子代理）显示位置：右侧边栏下半区 / 输入框上方，二选一 */}
+				<SettingRow
+					anchor="appearance-session-status-placement"
+					title={
+						<>
+							<span>{t("settings.sessionStatusPlacement")}</span>
+							<DirtyMarker dirty={isDirty("sessionStatusPlacement")} label={t("settings.sessionStatusPlacement")} />
+						</>
+					}
+					description={t("settings.sessionStatusPlacementDesc")}
+				>
+					<Select value={draft.sessionStatusPlacement} onValueChange={(value) => updateDraft({ sessionStatusPlacement: value as AppSettings["sessionStatusPlacement"] })}>
+						<SelectTrigger className="w-40">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="sidebar">{t("settings.sessionStatusPlacementSidebar")}</SelectItem>
+							<SelectItem value="composer">{t("settings.sessionStatusPlacementComposer")}</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
 			</SettingsSection>
 
 			{/* 窗口样式 */}

@@ -21,7 +21,8 @@ import { ComposerWidgetFrame, useComposerWidgetCollapsed } from "./ComposerWidge
  * Agent 写入，用户点它没有实际效果/语义，反而要维持一份跨轮次持久化的快照状态。
  */
 
-const FileEntry = (props: {
+/** 单个文件修改行（折叠条与右侧边栏「会话状态」面板共用）。 */
+export const FileEntry = (props: {
 	sessionId: string;
 	entry: SessionFileChange;
 	/** 打开文件本体（App 级路由：图片预览 / md·html 中间栏查看 / 其他进内置编辑器） */

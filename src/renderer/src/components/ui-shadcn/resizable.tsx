@@ -33,6 +33,7 @@ const ResizablePanel = ResizablePrimitive.Panel;
 const ResizableHandle = ({
 	withHandle,
 	className,
+	children,
 	...props
 }: React.ComponentProps<typeof ResizablePrimitive.Separator> & {
 	withHandle?: boolean;
@@ -50,6 +51,8 @@ const ResizableHandle = ({
 		)}
 		{...props}
 	>
+		{/* 调用方自定义把手（如右侧边栏的居中把手）；须显式渲染，否则会被下方的子节点覆盖 */}
+		{children}
 		{withHandle && (
 			<div className="z-10 flex h-4 w-3 items-center justify-center rounded-sm border bg-border">
 				<GripVertical className="size-2.5" />
