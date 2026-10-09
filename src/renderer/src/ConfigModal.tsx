@@ -2966,7 +2966,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									data={extensionsData}
 									loading={extensionsLoading}
 									uninstallingSource={uninstallingExtensionSource}
-									onRefresh={() => void refreshExtensions(true)}
+									onRefresh={() => refreshExtensions(true)}
+									// 开关后的刷新刻意走轻量路径：开关只改 enabled，主进程缓存里重投影即可，
+									// 不必付出一次全量扫描（pi list + npm view）——那会让开关行长时间处于 pending。
+									onRefreshAfterToggle={() => refreshExtensions(false)}
 									onToggle={handleToggleExtension}
 									onUninstall={handleRequestExtensionUninstall}
 									onShowInFolder={(extension) => void handleOpenExtensionLocation(extension)}

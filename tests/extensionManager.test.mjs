@@ -93,9 +93,37 @@ test("a stale lightweight extension scan cannot overwrite a newer force refresh"
 	assert.equal(await forceResult, fresh);
 
 	lightweight.resolve(stale);
-	assert.equal(await lightweightResult, fresh);
-	assert.equal(await manager.list(false), fresh);
-	assert.equal(await manager.list(true), fresh);
+	// 缓存命中会返回「重算过 enabled 的克隆」，所以不再做引用相等断言；行为契约是内容仍是那份新结果。
+	const afterStale = await lightweightResult;
+	assert.equal(afterStale.raw, "fresh");
+	assert.deepEqual(
+		afterStale.extensions.map((extension) => extension.id),
+		["fresh"],
+	);
+	assert.equal((await manager.list(false)).raw, "fresh");
+	assert.equal((await manager.list(true)).raw, "fresh");
+});
+
+test("cached list re-runs the enabled projection so a toggle shows up without a rescan", async () => {
+	const { ExtensionManager } = loadExtensionManagerModule();
+	const settings = { disabledExtensions: [] };
+	const manager = new ExtensionManager({}, () => settings);
+	let scanCount = 0;
+	manager.runPi = async () => {
+		scanCount += 1;
+		return "User packages:\n  npm:demo\n    C:\\Users\\demo\\.pi\\agent\\npm\\node_modules\\demo\n";
+	};
+
+	const first = await manager.list(false);
+	assert.equal(first.extensions.find((extension) => extension.source === "npm:demo")?.enabled, true);
+
+	// 开关写盘后主进程会刷新投影快照，但缓存里的 enabled 是上次扫描时算好的：
+	// 缓存命中必须重算，否则刷新链条会把刚点开的开关抬回旧值。
+	settings.disabledExtensions = [{ scope: "user", source: "npm:demo" }];
+	const second = await manager.list(false);
+	assert.equal(second.extensions.find((extension) => extension.source === "npm:demo")?.enabled, false);
+	assert.equal(scanCount, 1, "缓存命中不应再跑一次 pi list");
+	assert.equal(first.extensions.find((extension) => extension.source === "npm:demo")?.enabled, true, "返回的是克隆，不污染已发出的快照");
 });
 
 test("parseListOutput strips the pi list (filtered) suffix so uninstall/update use a clean source", () => {
@@ -291,4 +319,31 @@ test("npmViewVersion 未配置 npmCommand 时回落裸 npm（行为不变）", a
 	} finally {
 		await rm(home, { recursive: true, force: true });
 	}
+});
+
+test("扩展开关保留列表缓存：开关后的刷新零重扫描，开关值仍立刻可见", async () => {
+	const { ExtensionManager } = loadExtensionManagerModule();
+	const settings = { disabledExtensions: [] };
+	const manager = new ExtensionManager({}, () => settings);
+	let scanCount = 0;
+	manager.runPi = async () => {
+		scanCount += 1;
+		return "User packages:\n  npm:demo\n    C:\Users\demo\.pi\agent\npm\node_modules\demo\n";
+	};
+	// 模拟 pi settings.json 的包级过滤规则作为原生真值
+	let nativeEnabled = true;
+	manager.configureNativeEnabledReader((extension) => (extension.source === "npm:demo" ? nativeEnabled : undefined));
+	manager.configureNativeToggle(async ({ enabled }) => {
+		nativeEnabled = enabled;
+		return { ok: true };
+	});
+
+	assert.equal((await manager.list(false)).extensions.find((extension) => extension.source === "npm:demo")?.enabled, true);
+	await manager.setEnabled("npm:demo", false);
+
+	// 开关只改 enabled：缓存命中路径会重算投影，因此不能清缓存——
+	// 清缓存会让跟随开关的刷新白等一次 `pi list` 全量扫描（开关行长时间 pending）。
+	const after = await manager.list(false);
+	assert.equal(scanCount, 1, "开关不应让列表缓存失效");
+	assert.equal(after.extensions.find((extension) => extension.source === "npm:demo")?.enabled, false, "缓存命中仍要重算 enabled");
 });

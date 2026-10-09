@@ -27,3 +27,15 @@ test("extension list keeps the table mounted while refreshing so scrollTop and f
 test("the refresh-vs-unmount rationale stays documented beside the list body", () => {
 	assert.match(tab, /scrollTop/, "the scrollTop clamp rationale must stay documented next to the list body");
 });
+
+// 开关后的刷新契约（用户反馈「点了开关，界面上的开关不立刻翻转」）：
+// 开关只改 enabled，主进程缓存命中时会重算投影，因此跟随的刷新走轻量路径即可；
+// 若沿用 onRefresh()（ConfigModal.refreshExtensions(true)），每次开关都要付一次
+// 全量扫描（pi list + npm view 版本富化），开关行在此期间一直处于 pending。
+const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+
+test("toggle refresh takes the lightweight path instead of a full rescan", () => {
+	assert.match(tab, /onRefreshAfterToggle\??\s*:\s*\(\)\s*=>\s*void\s*\|\s*Promise<void>/, "ExtensionsTab must accept an optional onRefreshAfterToggle prop");
+	assert.match(tab, /await\s*\(props\.onRefreshAfterToggle\s*\?\?\s*props\.onRefresh\)\(\)/, "the toggle path must prefer the lightweight refresh and fall back to onRefresh");
+	assert.match(modal, /onRefreshAfterToggle=\{\s*\(\)\s*=>\s*refreshExtensions\(false\)\s*\}/, "ConfigModal must wire the light refresh (forceRefresh=false) to the toggle path");
+});

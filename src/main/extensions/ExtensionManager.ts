@@ -124,11 +124,14 @@ export class ExtensionManager {
 	 * 列出扩展。
 	 * - forceRefresh=false：优先返回内存缓存；无缓存时做一次轻量扫描（跳过 npm view）。
 	 * - forceRefresh=true：强制重新 `pi list`，并补充 npm 版本信息。
+	 * - 命中缓存时也会重跑 enabled 投影（开关写盘后立刻反映），不重跑 pi list / npm view。
 	 */
 	async list(forceRefresh = false): Promise<PiExtensionListResult> {
-		// 有缓存且（非强制刷新，或缓存已含版本信息）时直接返回。
+		// 有缓存且（非强制刷新，或缓存已含版本信息）时返回。
+		// 但必须重跑 enabled 投影：开关这类写操作只改设置/原生规则，主进程写完会刷新投影快照，
+		// 而缓存里的 enabled 是上次扫描时算好的——直接返回整份缓存会把刚点开的开关弹回旧值。
 		if (this.listCache && (!forceRefresh || this.listCacheHasVersionInfo)) {
-			return this.listCache;
+			return this.projectCachedEnabled(this.listCache);
 		}
 		// 已有同级或更强请求在飞时复用，避免并发打爆 pi/npm。
 		if (this.listInflight && (!forceRefresh || this.listInflightForce)) {
@@ -159,6 +162,45 @@ export class ExtensionManager {
 			});
 		this.listInflight = request;
 		return request;
+	}
+
+	/**
+	 * 在缓存快照上重算 enabled 状态：克隆顶层后重跑投影，不跑 pi list / npm view / 目录扫描。
+	 * 开关这类只改设置的写操作走这里刷新，避免为了让开关显示新状态付一次全量扫描（秒级）。
+	 */
+	private projectCachedEnabled(cache: PiExtensionListResult): PiExtensionListResult {
+		const extensions = cache.extensions.map((extension) => ({ ...extension }));
+		// 缓存路径不重读内置清单：内置版本只在热更新后变化，而热更新/扩展文件变更都会
+		// invalidateListCache（下一次必然重新扫描并重算），这条路径保持纯内存。
+		this.applyEnabledProjection(extensions, { refreshBuiltInVersion: false });
+		return { ...cache, extensions };
+	}
+
+	/**
+	 * 把 PiDeck 设置与 pi 原生过滤规则投影成 enabled 状态（纯内存，无副作用）。
+	 * 既在扫描末尾调用，也在缓存快照上单独调用（见 projectCachedEnabled）。
+	 * 内置版本号默认按当前生效目录重读（含 sha256 校验），缓存路径传 refreshBuiltInVersion=false 跳过。
+	 */
+	private applyEnabledProjection(extensions: PiExtensionSummary[], options: { refreshBuiltInVersion?: boolean } = {}): void {
+		// 通过 PiDeck 桌面设置标记启用状态（与 pi disabledExtensions 分离）。
+		const removedBuiltIn = new Set(this.getPiDeckSettings().removedBuiltInExtensions ?? []);
+		// 用户禁用的非内置扩展：按 scope+source 匹配（同名可在 user/project 两级独立开关）。
+		const disabledExtKeys = new Set((this.getPiDeckSettings().disabledExtensions ?? []).map((entry) => `${entry.scope}:${entry.source}`));
+		// 默认关闭（opt-in）的内置扩展：仅当用户显式开启（enabledBuiltInExtensions）才视为启用。
+		const optInBuiltIn = new Set(this.getPiDeckSettings().enabledBuiltInExtensions ?? []);
+		// 内置扩展版本：包级版本号（extensions-manifest.json，不跟 PiDeck 应用版本走），
+		// 覆盖层（热更新）优先。逐行写入而非只在补齐分支赋值——内置条目可能来自
+		// pi list、本地目录扫描、兜底补齐三条路径，版本只认「当前生效的那一份」。
+		const builtInVersion = options.refreshBuiltInVersion === false || !this.builtInRoots ? null : readEffectiveBuiltInExtensionsVersion(this.builtInRoots);
+		for (const ext of extensions) {
+			if (ext.builtIn) {
+				ext.enabled = !removedBuiltIn.has(ext.source) && (!isDefaultDisabledBuiltInExtension(ext.source) || optInBuiltIn.has(ext.source));
+				if (builtInVersion) ext.currentVersion = builtInVersion;
+			} else {
+				// 原生投影优先（迁移后 disabledExtensions 已清空）；未装配时退回旧列表。
+				ext.enabled = this.nativeEnabledReader?.(ext) ?? !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
+			}
+		}
 	}
 
 	private async loadList(includeVersionInfo: boolean): Promise<PiExtensionListResult> {
@@ -200,23 +242,7 @@ export class ExtensionManager {
 		// 通过 PiDeck 桌面设置标记启用状态（与 pi disabledExtensions 分离）。
 		// 必须在冲突检测前初始化：后续逻辑会写回 removedBuiltInExtensions 并删磁盘文件。
 		const removedBuiltIn = new Set(this.getPiDeckSettings().removedBuiltInExtensions ?? []);
-		// 用户禁用的非内置扩展：按 scope+source 匹配（同名可在 user/project 两级独立开关）。
-		const disabledExtKeys = new Set((this.getPiDeckSettings().disabledExtensions ?? []).map((entry) => `${entry.scope}:${entry.source}`));
-		// 默认关闭（opt-in）的内置扩展：仅当用户显式开启（enabledBuiltInExtensions）才视为启用。
-		const optInBuiltIn = new Set(this.getPiDeckSettings().enabledBuiltInExtensions ?? []);
-		// 内置扩展版本：包级版本号（extensions-manifest.json，不跟 PiDeck 应用版本走），
-		// 覆盖层（热更新）优先。逐行写入而非只在补齐分支赋值——内置条目可能来自
-		// pi list、本地目录扫描、兜底补齐三条路径，版本只认「当前生效的那一份」。
-		const builtInVersion = this.builtInRoots ? readEffectiveBuiltInExtensionsVersion(this.builtInRoots) : null;
-		for (const ext of merged) {
-			if (ext.builtIn) {
-				ext.enabled = !removedBuiltIn.has(ext.source) && (!isDefaultDisabledBuiltInExtension(ext.source) || optInBuiltIn.has(ext.source));
-				if (builtInVersion) ext.currentVersion = builtInVersion;
-			} else {
-				// 原生投影优先（迁移后 disabledExtensions 已清空）；未装配时退回旧列表。
-				ext.enabled = this.nativeEnabledReader?.(ext) ?? !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
-			}
-		}
+		this.applyEnabledProjection(merged);
 
 		// 仅检测 todo / plan / ask 固定冲突：三方包名含对应关键词时自动禁用内置版。
 		// nul-redirect-fix 等其它内置扩展暂不参与冲突检测，避免 mode 等通用词误伤。
@@ -772,7 +798,9 @@ export class ExtensionManager {
 		if (this.nativeToggle) {
 			const result = await this.nativeToggle({ source, path, scope, projectId, enabled });
 			if (!result.ok) throw new Error(result.error ?? "Extension toggle failed.");
-			this.invalidateListCache();
+			// 不清列表缓存：开关只改 enabled，而 enabled 每次读取都由 applyEnabledProjection 重算
+			// （原生规则 + PiDeck 禁用列表），结构信息（path/source/版本）不受影响。清缓存会让跟随
+			// 开关的 UI 刷新白等一次 `pi list` 全量扫描（表现为开关行长时间 pending）。
 			return;
 		}
 		// 旧兜底路径的版本门槛（原生开关已在上方优先处理）：过低版本的资源过滤语义不可考，
@@ -792,8 +820,7 @@ export class ExtensionManager {
 			next.push({ scope, source: source.trim() });
 		}
 		await this.patchPiDeckSettings({ disabledExtensions: next });
-		// 开关状态变化后同步清缓存，避免 UI 显示旧 enabled。
-		this.invalidateListCache();
+		// 同上：结构未变，enabled 由投影重算，不清缓存（清缓存会让开关后的刷新付出一次全量扫描）。
 	}
 
 	/** 当前禁用的扩展条目（PiDeck settings，白名单模式依据）。 */

@@ -10,7 +10,8 @@ import { ExtensionStoreTab } from "./ExtensionStoreTab";
 import { PluginDevSection } from "./PluginDevSection";
 import { ContentTabs } from "./ContentTabs";
 import { isProjectDiscoverySource, type ResourceScope } from "./resourceScopeModel";
-import { buildProjectOverrideKeyIndex, matchesProjectOverride } from "./projectOverrideKeys";
+import { buildProjectOverrideKeyIndex, matchesProjectOverride, type ProjectOverrideKeyIndex } from "./projectOverrideKeys";
+import { useResourceTogglePending } from "../hooks/useResourceTogglePending";
 import { DiscoveredExtensionRow, ExtensionTableRow } from "./extensionsTableRows";
 import { RecommendedPackagesPanel } from "./extensionsRecommendedPackages";
 import { BuiltInExtensionsUpdatePanel } from "./BuiltInExtensionsUpdatePanel";
@@ -46,6 +47,16 @@ function shortName(source: string): string {
 		.replace(/@[^/]+\//, "");
 }
 
+/** 开关乐观覆盖的行身份：scope + source（同名扩展可在 user/project 两级各自独立开关）。 */
+function extensionToggleKey(extension: Pick<PiExtensionSummary, "scope" | "source">): string {
+	return `${extension.scope}:${extension.source}`;
+}
+
+/** 行上显示的启用状态：项目视图里继承来的全局扩展再叠加项目级禁用。 */
+function resolveExtensionEnabled(extension: PiExtensionSummary, inherited: boolean, disabledGlobalSources: ProjectOverrideKeyIndex): boolean {
+	return extension.enabled !== false && !(inherited && matchesProjectOverride(disabledGlobalSources, extension.path ?? extension.source));
+}
+
 export function ExtensionsTab(props: {
 	scope: ResourceScope;
 	/** Project id used by the extension store; global scope passes undefined. */
@@ -65,7 +76,9 @@ export function ExtensionsTab(props: {
 	data: PiExtensionListResult;
 	loading: boolean;
 	uninstallingSource: string | null;
-	onRefresh: () => void;
+	onRefresh: () => void | Promise<void>;
+	/** 开关后的刷新：走轻量路径（不清主进程缓存，仅重算 enabled），避免开关行长时间 pending。缺省回退 onRefresh。 */
+	onRefreshAfterToggle?: () => void | Promise<void>;
 	onToggle?: (extension: PiExtensionSummary, enabled: boolean) => void | Promise<void>;
 	onUninstall: (extension: PiExtensionSummary) => void;
 	onShowInFolder: (extension: PiExtensionSummary) => void;
@@ -73,7 +86,8 @@ export function ExtensionsTab(props: {
 	// 一级 tab：已安装 / 扩展商店（与 SkillsTab 的「本地/商店」结构对齐）
 	const [extTab, setExtTab] = useState<"local" | "store" | "dev" | "host">("local");
 	const [removingBuiltIn, setRemovingBuiltIn] = useState<string | null>(null);
-	const [togglingSource, setTogglingSource] = useState<string | null>(null);
+	// 开关的乐观覆盖：点击立刻翻转显示，写盘 + 刷新结束后清掉（时间线不再等全量刷新）。
+	const { begin, end, settle, shown, isPending } = useResourceTogglePending();
 	// 首次加载或列表刷新时展示扩展冲突通知
 	useEffect(() => {
 		if (!props.data.conflicts || props.data.conflicts.length === 0) return;
@@ -104,9 +118,10 @@ export function ExtensionsTab(props: {
 
 	/** 禁用/启用扩展：项目视图的全局继承行走项目覆盖，其余写 PiDeck settings 禁用列表。 */
 	const handleToggle = async (extension: PiExtensionSummary, nextEnabled?: boolean) => {
-		if (togglingSource) return;
+		const key = extensionToggleKey(extension);
 		const enabled = nextEnabled ?? extension.enabled === false;
-		setTogglingSource(extension.source);
+		// 点击即翻转（乐观覆盖），写盘与刷新结束后由 finally 清掉；进行中的行不再接受第二次点击。
+		if (!begin(key, enabled)) return;
 		try {
 			if (props.onToggle) {
 				await props.onToggle(extension, enabled);
@@ -115,12 +130,14 @@ export function ExtensionsTab(props: {
 				// 缺一个就会写出 pi 匹配不上的规则（或直接报「Project scope requires a project id.」）。
 				await getExtensionsApi().toggle(extension.source, enabled, extension.scope, extension.path, props.projectId);
 			}
-			props.onRefresh();
+			// 必须等刷新落地再往下走：清除覆盖只发生在真值已经跟上之后，否则开关会先弹回旧值。
+			// 用轻量刷新（forceRefresh=false）：开关不改结构，重扫描（pi list + npm view）只是白等。
+			await (props.onRefreshAfterToggle ?? props.onRefresh)();
 			showNotice(t(enabled ? "config.extensionEnabledToast" : "config.extensionDisabledToast", { name: shortName(extension.source) }), 3500);
 		} catch (e) {
 			showNotice(t("config.extensionOperationFailed", { error: formatExtensionError(e) }), 4500, "error");
 		} finally {
-			setTogglingSource(null);
+			end(key);
 		}
 	};
 	const [updating, setUpdating] = useState<string | null>(null);
@@ -172,20 +189,27 @@ export function ExtensionsTab(props: {
 	// discovery 行去重：与已安装列表同 source 的条目只保留普通行（带操作），列表只显示一次
 	const installedSources = new Set(props.data.extensions.map((extension) => extension.source));
 	const uniqueDiscoveryExtensions = props.discoveryExtensions.filter((item) => !installedSources.has(item.source));
+	// 数据回落后结算乐观覆盖：真值等于目标值才清除（写盘与刷新是两条链路，不能一写完就清）。
+	useEffect(() => {
+		const derived: Record<string, boolean | undefined> = {};
+		for (const extension of props.data.extensions) {
+			derived[extensionToggleKey(extension)] = resolveExtensionEnabled(extension, props.scope === "project" && extension.scope !== "project", disabledGlobalSources);
+		}
+		settle(derived);
+	}, [props.data, props.scope, props.projectOverrides, settle, disabledGlobalSources]);
 	const renderExtensionRows = (extensions: PiExtensionSummary[], inherited: boolean) =>
 		extensions.map((extension) => {
-			const disabledHere = inherited && matchesProjectOverride(disabledGlobalSources, extension.path ?? extension.source);
 			return (
 				<ExtensionTableRow
 					key={`${extension.scope}:${extension.id}`}
 					extension={extension}
-					effectiveEnabled={extension.enabled !== false && !disabledHere}
+					effectiveEnabled={shown(extensionToggleKey(extension), resolveExtensionEnabled(extension, inherited, disabledGlobalSources))}
 					inherited={inherited}
 					uninstalling={props.uninstallingSource === extension.source}
 					onUninstall={props.onUninstall}
 					onRemoveBuiltIn={handleRemoveBuiltIn}
 					removingBuiltIn={removingBuiltIn === extension.source}
-					toggling={togglingSource === extension.source}
+					toggling={isPending(extensionToggleKey(extension))}
 					onToggle={handleToggle}
 					updatingOne={updatingOne === extension.source}
 					onUpdateOne={handleUpdateOne}

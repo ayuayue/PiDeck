@@ -16,6 +16,7 @@ import { Textarea } from "../components/ui-shadcn/textarea";
 import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
 import type { ResourceScope } from "./resourceScopeModel";
 import { buildProjectOverrideKeyIndex, matchesProjectOverride } from "./projectOverrideKeys";
+import { useResourceTogglePending } from "../hooks/useResourceTogglePending";
 import { isGlobalSkillSourceId } from "../../../shared/resourceIdentity";
 import { ResourceImportDialog } from "./ResourceImportDialog";
 
@@ -53,12 +54,33 @@ export function SkillsTab(props: {
 	onChangeNewDescription: (value: string) => void;
 	onChangeNewLocation: (value: PiSkillLocation["id"]) => void;
 	onCreate: () => void;
-	onToggle: (skill: PiSkillSummary, enabled: boolean) => void;
+	onToggle: (skill: PiSkillSummary, enabled: boolean) => void | Promise<void>;
 	onDelete: (skill: PiSkillSummary) => void;
 	onEdit: (skill: PiSkillSummary) => void;
 	onRename: (skill: PiSkillSummary, newName: string) => Promise<void>;
 }) {
 	const { data } = props;
+	// 开关的乐观覆盖：点击立刻翻转显示，写盘 + 刷新结束后清掉（技能写盘很快，但刷新链路仍要等）。
+	const { begin, end, settle, shown } = useResourceTogglePending();
+	const handleSkillToggle = async (skill: PiSkillSummary, enabled: boolean) => {
+		if (!begin(skill.id, enabled)) return;
+		try {
+			await props.onToggle(skill, enabled);
+		} finally {
+			end(skill.id);
+		}
+	};
+	// 数据回落后结算乐观覆盖：真值等于目标值才清除（技能开关自身会 await 刷新，这里兜住时序差）。
+	useEffect(() => {
+		const disabledKeys = buildProjectOverrideKeyIndex(props.projectOverrides.disabledGlobalSkills);
+		const derived: Record<string, boolean | undefined> = {};
+		for (const skill of props.data.skills) {
+			// 与行上 effectiveEnabled 同一套算法：项目自有技能只看自身，全局技能再叠加项目级禁用。
+			const disabledHere = isGlobalSkillSourceId(skill.sourceId) ? matchesProjectOverride(disabledKeys, skill.path) : false;
+			derived[skill.id] = skill.enabled && !disabledHere;
+		}
+		settle(derived);
+	}, [props.data, props.projectOverrides, settle]);
 	const projects = props.projects ?? [];
 	// Project scope shows both sources grouped by ownership; global scope only shows global skills.
 	const visibleSkills = data.skills.filter((skill) => props.scope === "project" || skill.sourceId === "pi-global" || skill.sourceId === "agents-global");
@@ -217,7 +239,7 @@ export function SkillsTab(props: {
 											</TableCell>
 										</TableRow>
 									) : null}
-									{props.scope === "project" && projectSkills.map((skill) => <SkillTableRow key={skill.id} skill={skill} effectiveEnabled={skill.enabled} inherited={false} onToggle={props.onToggle} onDelete={props.onDelete} onEdit={props.onEdit} onRename={props.onRename} />)}
+									{props.scope === "project" && projectSkills.map((skill) => <SkillTableRow key={skill.id} skill={skill} effectiveEnabled={shown(skill.id, skill.enabled)} inherited={false} onToggle={handleSkillToggle} onDelete={props.onDelete} onEdit={props.onEdit} onRename={props.onRename} />)}
 									{props.scope === "project" && uniqueDiscoverySkills.filter((item) => isProjectDiscoverySource(item.sourceId)).map((item) => <DiscoveredSkillRow key={item.id} item={item} />)}
 									{props.scope === "project" && globalSkills.length > 0 ? (
 										<TableRow>
@@ -229,7 +251,7 @@ export function SkillsTab(props: {
 									{globalSkills.map((skill) => {
 										const inherited = props.scope === "project";
 										const disabledHere = isGlobalSkillSourceId(skill.sourceId) ? matchesProjectOverride(disabledGlobalKeys, skill.path) : false;
-										return <SkillTableRow key={skill.id} skill={skill} effectiveEnabled={skill.enabled && !disabledHere} inherited={inherited} onToggle={props.onToggle} onDelete={props.onDelete} onEdit={props.onEdit} onRename={props.onRename} />;
+										return <SkillTableRow key={skill.id} skill={skill} effectiveEnabled={shown(skill.id, skill.enabled && !disabledHere)} inherited={inherited} onToggle={handleSkillToggle} onDelete={props.onDelete} onEdit={props.onEdit} onRename={props.onRename} />;
 									})}
 									{props.scope === "project" && uniqueDiscoverySkills.filter((item) => !isProjectDiscoverySource(item.sourceId)).map((item) => <DiscoveredSkillRow key={item.id} item={item} />)}
 								</TableBody>
@@ -283,7 +305,15 @@ function isProjectDiscoverySource(sourceId: string): boolean {
 	return sourceId === "package-project" || sourceId === "settings-project" || sourceId === "ancestor-agents";
 }
 
-function SkillTableRow(props: { skill: PiSkillSummary; effectiveEnabled: boolean; inherited: boolean; onToggle: (skill: PiSkillSummary, enabled: boolean) => void; onDelete: (skill: PiSkillSummary) => void; onEdit: (skill: PiSkillSummary) => void; onRename: (skill: PiSkillSummary, newName: string) => Promise<void> }) {
+function SkillTableRow(props: {
+	skill: PiSkillSummary;
+	effectiveEnabled: boolean;
+	inherited: boolean;
+	onToggle: (skill: PiSkillSummary, enabled: boolean) => void | Promise<void>;
+	onDelete: (skill: PiSkillSummary) => void;
+	onEdit: (skill: PiSkillSummary) => void;
+	onRename: (skill: PiSkillSummary, newName: string) => Promise<void>;
+}) {
 	const { skill, effectiveEnabled, inherited } = props;
 	const [renaming, setRenaming] = useState(false);
 	const [renameValue, setRenameValue] = useState(skill.name);

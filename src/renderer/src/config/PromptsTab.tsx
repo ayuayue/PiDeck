@@ -15,6 +15,7 @@ import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
 import { isGlobalSkillSourceId } from "../../../shared/resourceIdentity";
 import { isProjectDiscoverySource, type ResourceScope } from "./resourceScopeModel";
 import { buildProjectOverrideKeyIndex, matchesProjectOverride } from "./projectOverrideKeys";
+import { useResourceTogglePending } from "../hooks/useResourceTogglePending";
 
 /**
  * Runtime-discovered package/settings prompts are owned by pi/package settings,
@@ -96,13 +97,35 @@ export function PromptsTab(props: {
 	onDelete: (template: PiPromptTemplateSummary) => void;
 	onEdit: (template: PiPromptTemplateSummary) => void;
 	onRename: (template: PiPromptTemplateSummary, newName: string) => Promise<void>;
-	onToggle: (template: PiPromptTemplateSummary, enabled: boolean) => void;
+	onToggle: (template: PiPromptTemplateSummary, enabled: boolean) => void | Promise<void>;
 	onCancelEdit: () => void;
 	onQuickSave: () => void;
 	onChangeEditContent: (value: string) => void;
 	onSaveEdit: () => void;
 }) {
 	const { data } = props;
+	// 开关的乐观覆盖：点击立刻翻转显示，写盘 + 刷新结束后清掉（提示词写盘很快，但刷新链路仍要等）。
+	const { begin, end, settle, shown } = useResourceTogglePending();
+	const handlePromptToggle = async (template: PiPromptTemplateSummary, enabled: boolean) => {
+		if (!begin(template.path, enabled)) return;
+		try {
+			await props.onToggle(template, enabled);
+		} finally {
+			end(template.path);
+		}
+	};
+	// 数据回落后结算乐观覆盖：真值等于目标值才清除（提示词开关自身会 await 刷新，这里兜住时序差）。
+	useEffect(() => {
+		const disabledKeys = buildProjectOverrideKeyIndex(props.projectOverrides.disabledGlobalPrompts);
+		const derived: Record<string, boolean | undefined> = {};
+		for (const template of props.data.templates) {
+			// 与行上 effectiveEnabled 同一套算法：项目视图里继承来的全局模板再叠加项目级禁用。
+			const inherited = props.scope === "project" && template.scope !== "project";
+			const disabledHere = inherited && matchesProjectOverride(disabledKeys, template.path);
+			derived[template.path] = template.enabled !== false && !disabledHere;
+		}
+		settle(derived);
+	}, [props.data, props.scope, props.projectOverrides, settle]);
 	// Project scope renders project-owned templates first, then inherited global templates.
 	const visibleTemplates = data.templates.filter((template) => props.scope === "project" || template.scope !== "project").sort((left, right) => Number(right.scope === "project") - Number(left.scope === "project"));
 	const projectTemplates = visibleTemplates.filter((template) => template.scope === "project");
@@ -188,7 +211,7 @@ export function PromptsTab(props: {
 		};
 		const inherited = props.scope === "project" && template.scope !== "project";
 		const disabledHere = inherited && matchesProjectOverride(disabledGlobalKeys, template.path);
-		const effectiveEnabled = template.enabled !== false && !disabledHere;
+		const effectiveEnabled = shown(template.path, template.enabled !== false && !disabledHere);
 		return (
 			<Fragment key={template.path}>
 				<TableRow key={`${template.path}-item`}>
@@ -228,7 +251,7 @@ export function PromptsTab(props: {
 					<TableCell className="w-44 text-right">
 						<div className="flex min-w-max justify-end gap-1">
 							{/* 启停开关：Switch 轨道着色区分启用/禁用，与扩展/技能页一致 */}
-							<Switch checked={effectiveEnabled} onCheckedChange={(checked) => props.onToggle(template, checked)} disabled={inherited && template.enabled === false} title={effectiveEnabled ? t("common.disable") : t("common.enabled")} />
+							<Switch checked={effectiveEnabled} onCheckedChange={(checked) => void handlePromptToggle(template, checked)} disabled={inherited && template.enabled === false} title={effectiveEnabled ? t("common.disable") : t("common.enabled")} />
 							{!inherited ? (
 								<>
 									<Button variant="ghost" size="icon-sm" className="size-7" onClick={() => props.onEdit(template)} title={t("common.edit")}>
