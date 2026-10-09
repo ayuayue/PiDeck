@@ -57,7 +57,11 @@ test("shared resolver keeps the Windows byte contract on drive-letter bases", ()
 	assert.equal(canonicalizeSessionPath("/home/dev/Proj/x.jsonl", "native"), "/home/dev/Proj/x.jsonl");
 });
 
-test("catalog load heals a persisted mangled path and folds the scanned absolute entry in", async () => {
+// 旧版缺陷现场是 Linux（POSIX 绝对路径被写成反斜杠形态落库），自愈分支刻意限定 posix 基址
+// （toAbsoluteSessionPath 的 platform === "posix" 分支）。Windows 基址上，同构造产出 `\C:\...` 前导反斜杠
+// 被 path.win32 判为盘根绝对路径，语义不同、heal 不可达——函数级覆盖在 sessionIdentity.test.mjs。
+
+test("catalog load heals a persisted mangled path and folds the scanned absolute entry in", { skip: process.platform === "win32" ? "linux-现场存量自愈，windows 基址无此损坏形态" : false }, async () => {
 	const { SessionCatalog } = loadCatalog();
 	const dir = await mkdtemp(join(tmpdir(), "pideck-heal-mangled-"));
 	try {

@@ -15,6 +15,7 @@ const settingsFocusHook = readFileSync("src/renderer/src/components/app/settings
 const gitModelsHook = readFileSync("src/renderer/src/components/app/settings/gitModels.ts", "utf8");
 const fileSortControl = readFileSync("src/renderer/src/components/session/FileSortControl.tsx", "utf8");
 const composerComponents = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
+const modelThinkingChip = readFileSync("src/renderer/src/components/session/ModelThinkingChip.tsx", "utf8");
 const projectEmptyState = readFileSync("src/renderer/src/components/session/ProjectEmptyState.tsx", "utf8");
 const commandPicker = readFileSync("src/renderer/src/components/ui-shadcn/command-picker.tsx", "utf8");
 const i18n = [readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8"), readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8"), readFileSync("src/shared/i18n/mainProcessCopy.ts", "utf8")].join("\n");
@@ -58,7 +59,8 @@ test("Shared model picker keeps one model line and supports collapse and selecte
 	assert.match(commandPicker, /aria-expanded=\{expanded\}/);
 	assert.match(composerComponents, /value=\{currentModelKey\}/);
 	assert.match(composerComponents, /value: props\.composerAgentMode/);
-	assert.match(composerComponents, /value=\{props\.current\}/);
+	// 思考级别就地下拉（1ab977969）后受控值移至 ModelThinkingChip，模型选择器仍单行受控
+	assert.match(modelThinkingChip, /DropdownMenuRadioGroup value=\{props\.current\}/);
 	assert.match(commandPicker, /search\.trim\(\) \? <CommandEmpty/);
 	assert.match(commandPicker, /scrollIntoView\(\{ block: \"center\" \}\)/);
 	// 启动配置选择统一由输入框底栏（ComposerArea/ComposerBottomBar）承担：

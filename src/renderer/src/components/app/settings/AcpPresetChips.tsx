@@ -30,7 +30,7 @@ function PresetChip(props: { preset: AcpToolPreset; status?: AcpToolStatus; runn
 				<span className="text-xs">{preset.name}</span>
 			</button>
 			<span className={`text-[10px] ${badgeTone}`}>{badgeText}</span>
-			{running ? <Loader2 size={11} className="animate-spin" aria-label={t("acp.installRunning")} /> : null}
+			{running ? <Loader2 size={11} className="animate-pideck-spin" aria-label={t("acp.installRunning")} /> : null}
 			{npmInstallable && status?.state === "missing" ? (
 				<Button variant="ghost" size="sm" className="h-6 px-1.5 text-[11px]" title={t("acp.installAction")} onClick={() => onAction({ preset, kind: "install" })}>
 					<Download size={11} aria-hidden="true" />
