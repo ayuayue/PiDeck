@@ -18,6 +18,7 @@ export const feishuZhTW: Record<FeishuTranslationKey, string> = {
 	"attachment.imageDownloadFailed": "⚠️ 圖片下載失敗，請重試。",
 	"attachment.fileDownloadFailed": "⚠️ 檔案下載失敗，請重試。",
 	"attachment.fileTooLarge50": "檔案過大（超過 50MB），暫不支援處理。",
+	"attachment.pendingFull": "⚠ 暫存附件過多（超過 20 個或 20MB），請先發送文字指令處理已暫存的檔案。",
 	"attachment.filesReceived": "已收到檔案: {names}，請告訴我需要做什麼",
 	"attachment.imageReceived": "已收到圖片，請告訴我需要做什麼",
 	"command.sendFileUsage": "用法: `/sendfile <檔案路徑>`",

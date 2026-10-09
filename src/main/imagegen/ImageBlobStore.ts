@@ -124,11 +124,15 @@ export class ImageBlobStore {
 		return file;
 	}
 
-	/** 引用名 → base64（按需读取；缺失/非法返回 null）。 */
+	/** 引用名 → base64（按需读取；缺失/非法/超限返回 null）。 */
 	async readPayload(ref: string): Promise<ImageBlobPayload | null> {
 		const file = this.resolvePath(ref);
 		if (!file) return null;
 		try {
+			// 读取字节上界（AGENTS.md 生图硬约束）：put() 已限 32MB，但 blobs 目录可能被
+			// 外部篡改/误放超大合法命名文件，读取前先 stat 拦截，避免整读+base64 膨胀 OOM。
+			const info = await stat(file);
+			if (info.size > IMAGE_BLOB_MAX_BYTES) return null;
 			const buffer = await readFile(file);
 			return { data: buffer.toString("base64"), mimeType: imageBlobMimeType(ref) };
 		} catch {

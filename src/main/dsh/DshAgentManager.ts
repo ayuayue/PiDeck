@@ -2094,7 +2094,12 @@ export class DshAgentManager implements SessionAgentGateway {
 				backoffMs = Math.min(backoffMs * 2, 2000);
 			}
 		})().catch((error) => {
-			if (!controller.signal.aborted) console.error(`[dsh-agent] follow pump error (${agentId}):`, error);
+			// pump 兜底错误也走统一日志：console.error 不进持久化日志，报障时取证缺失。
+			if (!controller.signal.aborted) {
+				getAppLogger()?.error("dsh-agent", `follow pump error (${agentId})`, {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
 		});
 		this.followPumps.set(agentId, { controller, promise: pump });
 	}
@@ -2160,7 +2165,10 @@ export class DshAgentManager implements SessionAgentGateway {
 			}
 		})().catch((error) => {
 			if (controller.signal.aborted) return;
-			console.error("[dsh-agent] control pump error:", error);
+			// 同 follow pump：兜底错误必须进统一日志，绕过 console 才能持久化取证。
+			getAppLogger()?.error("dsh-agent", "control pump error", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 		});
 	}
 
@@ -2224,7 +2232,10 @@ export class DshAgentManager implements SessionAgentGateway {
 			}
 		})().catch((error) => {
 			if (controller.signal.aborted) return;
-			console.error("[dsh-agent] mux pump error:", error);
+			// 同 follow pump：兜底错误必须进统一日志，绕过 console 才能持久化取证。
+			getAppLogger()?.error("dsh-agent", "mux pump error", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 		});
 	}
 
