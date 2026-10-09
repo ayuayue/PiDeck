@@ -490,7 +490,16 @@ export class SessionCatalog {
 		}
 		this.loaded = true;
 		if (this.skipNextBackup) {
-			await this.writeSnapshot(this.entries);
+			// 备份自愈补写也是 best-effort：磁盘满/只读时失败只意味着下次启动重试，
+			// 内存已生效；裸 await 抛错会让 whenReady 中断、窗口永不出现（同上方
+			// catalog 损坏兑底声明的失败模式）。
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch (error) {
+				void getAppLogger()?.warn("session-catalog", "Backup-restore snapshot write failed on startup", {
+					cause: error instanceof Error ? error.message : String(error),
+				});
+			}
 		}
 	}
 
