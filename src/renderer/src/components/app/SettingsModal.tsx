@@ -3,7 +3,7 @@ import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom } from "../../atoms/update-atoms";
 import { useSettingsFocus } from "./settings/useSettingsFocus.ts";
-import { Settings2, Network, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X, Bot } from "lucide-react";
+import { Settings2, Network, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X, Bot, Puzzle } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import { applyAppearanceAttributes, type AppearanceSettings } from "../../themeAppearance";
 import { applyCustomThemeTokens, applyFontSizeAttributes } from "../../hooks/appearance/useAppAppearance";
@@ -46,6 +46,7 @@ const UsageStatsTab = lazy(() => import("./settings/UsageStatsTab").then((m) => 
 const VisionBridgeSettingsTab = lazy(() => import("./settings/VisionBridgeSettingsTab").then((m) => ({ default: m.VisionBridgeSettingsTab })));
 const ImageGenSettingsTab = lazy(() => import("./settings/ImageGenSettingsTab").then((m) => ({ default: m.ImageGenSettingsTab })));
 const AcpToolsTab = lazy(() => import("./settings/AcpToolsTab").then((m) => ({ default: m.AcpToolsTab })));
+const HostPluginsTab = lazy(() => import("../../config/HostPluginsTab").then((m) => ({ default: m.HostPluginsTab })));
 const TerminalTab = lazy(() => import("./settings/TerminalTab").then((m) => ({ default: m.TerminalTab })));
 
 // 配置管理分区（pi 配置文件管理）作为独立 chunk 懒加载：首开设置窗口不加载 ConfigModal 数组。
@@ -260,6 +261,7 @@ const TAB_META: Record<SettingsTabId, { labelKey: TranslationKey; icon: ReactNod
 	vision: { labelKey: SETTINGS_TAB_LABEL_KEYS.vision, icon: <Eye size={16} /> },
 	imagegen: { labelKey: SETTINGS_TAB_LABEL_KEYS.imagegen, icon: <ImageIcon size={16} /> },
 	acp: { labelKey: SETTINGS_TAB_LABEL_KEYS.acp, icon: <Bot size={16} /> },
+	hostplugins: { labelKey: SETTINGS_TAB_LABEL_KEYS.hostplugins, icon: <Puzzle size={16} /> },
 };
 
 /**
@@ -943,6 +945,13 @@ function SettingsModalContent(props: SettingsModalProps) {
 							<TabsContent value="acp" className="settings-panel min-w-0" hidden={activeTab !== "acp"}>
 								<Suspense fallback={<SettingsTabLoading />}>
 									<AcpToolsTab ref={acpToolsRef} onDirtyChange={handleAcpDirtyChange} />
+								</Suspense>
+							</TabsContent>
+							{/* ── PiDeck 插件 tab：宿主插件管理（安装/授权/启停）。独立于 pi 配置弹窗，
+							    归属应用设置；无草稿语义，切 tab 即卸载（动作型 IPC 即时生效）。 ── */}
+							<TabsContent value="hostplugins" className="settings-panel min-w-0" hidden={activeTab !== "hostplugins"}>
+								<Suspense fallback={<SettingsTabLoading />}>
+									<HostPluginsTab />
 								</Suspense>
 							</TabsContent>
 						</Tabs>

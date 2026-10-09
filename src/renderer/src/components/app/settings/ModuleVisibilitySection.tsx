@@ -26,6 +26,7 @@ const MODULE_LABEL_KEYS: Record<HideableModuleId, TranslationKey> = {
 	vision: SETTINGS_TAB_LABEL_KEYS.vision,
 	imagegen: SETTINGS_TAB_LABEL_KEYS.imagegen,
 	acp: SETTINGS_TAB_LABEL_KEYS.acp,
+	hostplugins: SETTINGS_TAB_LABEL_KEYS.hostplugins,
 	web: SETTINGS_TAB_LABEL_KEYS.web,
 	git: SETTINGS_TAB_LABEL_KEYS.git,
 	usage: SETTINGS_TAB_LABEL_KEYS.usage,
@@ -40,6 +41,7 @@ const MODULE_DESC_KEYS: Record<HideableModuleId, TranslationKey> = {
 	vision: "settings.modules.visionDesc",
 	imagegen: "settings.modules.imagegenDesc",
 	acp: "settings.modules.acpDesc",
+	hostplugins: "settings.modules.hostpluginsDesc",
 	web: "settings.modules.webDesc",
 	git: "settings.modules.gitDesc",
 	usage: "settings.modules.usageDesc",
@@ -89,6 +91,7 @@ export const ModuleVisibilitySection = memo(function ModuleVisibilitySection(pro
 			case "usage":
 			case "process":
 			case "acp":
+			case "hostplugins":
 				return null;
 		}
 	};

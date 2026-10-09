@@ -70,7 +70,7 @@
 
 - 格式：NDJSON 单文件（header 行 + 每文件一行 base64 + sha256），与目录包同一套预算（单文件 4MiB / 展开 16MiB / 100 文件 / 深度 8）；归档总体上限 24MiB。选自描述行格式而非 zip：无运行时解压依赖，预算与逐文件校验内建在解析器（`src/main/plugins/hostPluginArchive.ts`）。
 - 打包：`node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]`。
-- 安装：设置 → 扩展 → 桌面插件 →「从文件安装…」。文件选择在主进程对话框内完成，渲染层不传路径；提取到隐藏 temp 目录 → 走 `readHostPluginPackage` 全量验证 → 原子换入，失败自动清理。
+- 安装：设置 → PiDeck 插件 →「从文件安装…」。文件选择在主进程对话框内完成，渲染层不传路径；提取到隐藏 temp 目录 → 走 `readHostPluginPackage` 全量验证 → 原子换入，失败自动清理。
 - 替换语义：启用中的插件拒绝替换（`plugin-in-use`，先禁用再装）；禁用状态重装同 id 允许，字节一致则指纹不变，内容变化则旧授权失效。
 
 ## pi-context 本地适配
@@ -78,7 +78,7 @@
 `scripts/convert-pi-context-host-plugin.mjs <pi-context 目录> <输出目录>` 把本地 pi-context 的 viewer 一次性转换为宿主插件：
 
 - 只转换无 import 的纯模型层与 viewer 静态资产；IO/导航/刷新生命周期改走 `resources/host-plugin-adapters/pi-context/` 的桥接层。
-- 输出必须在新目录（`wx` 独占创建，不覆盖既有包与授权身份），产物默认禁用，需在设置 → 扩展 → 桌面插件里手动启用。
+- 输出必须在新目录（`wx` 独占创建，不覆盖既有包与授权身份），产物默认禁用，需在设置 → PiDeck 插件里手动启用。
 - 第三方代码不 vendoring、不自动启用；上游接缝变化（精确字符串匹配失败）时报错而不是生成不确定产物。
 
 ## 开发与验证
