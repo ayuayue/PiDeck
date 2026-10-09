@@ -118,4 +118,6 @@ node scripts/convert-pi-context-host-plugin.mjs "<pi-context 目录>" "<输出�
 
 - 面板是普通 Web 页面：在面板上右键 → 检查即可用 DevTools（仅该实例）。
 - `pideck.context().theme` 跟随 PiDeck 明暗主题，`locale` 跟随界面语言，建议适配。
+- 主题/语言变化会推送 `context.changed` 事件（新 context 在事件负载里），面板应重新渲染文案与配色。
+- 会话变更推送 `sessions.changed`，负载带粒度：活跃会话追加为 `{ sessionId }`，目录级变化（新建/删除/归档/改名）为 `{ catalogChanged: true }`；只有变化过的会话需要重读。
 - 回归测试参考 `tests/hostPlugins.test.mjs`、`tests/hostPluginArchive.test.mjs`；架构与内部模块说明见仓库 `docs/host-plugins.md`。

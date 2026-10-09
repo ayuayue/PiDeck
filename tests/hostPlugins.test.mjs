@@ -291,6 +291,38 @@ test("host plugin sessions read saved active-branch history without a pi runtime
 	}
 });
 
+test("host plugin session revision diff separates catalog changes from live appends", async () => {
+	// 粒度推送回归：活跃文件追加 → 只报 sessionId；目录级变化 → catalogChanged；首次拉取/切上下文不报。
+	const root = await mkdtemp(join(tmpdir(), "pideck-plugin-revision-"));
+	const path = join(root, "live.jsonl");
+	try {
+		await writeFile(path, `${JSON.stringify({ id: "first", type: "message", timestamp: "2026-01-01T00:00:00Z", message: { role: "user", content: "hi" } })}\n`);
+		let title = "v1";
+		let updatedAt = 2;
+		const entry = { id: "live", projectId: "project-a", filePath: path, environment: "native", title, createdAt: 1, updatedAt };
+		const catalog = { listEntries: () => [entry], get: (id) => (id === "live" ? entry : undefined) };
+		const sessions = new HostPluginSessions(catalog);
+		const context = { projectId: "project-a", sessionId: "live", locale: "en-US", theme: "dark" };
+		// 首次拉取：无 previous，不产生事件。
+		const first = await sessions.changeSince(context);
+		assert.equal(JSON.stringify(first.detail), JSON.stringify({ catalogChanged: false }));
+		// 活跃文件追加（catalog 未变）：定向事件。
+		await appendFile(path, `${JSON.stringify({ id: "second", type: "message", timestamp: "2026-01-01T00:00:01Z", message: { role: "assistant", content: "reply" } })}\n`);
+		const appended = await sessions.changeSince(context, first.revision);
+		assert.equal(JSON.stringify(appended.detail), JSON.stringify({ catalogChanged: false, sessionId: "live" }));
+		// 目录级变化（title/updatedAt）：catalogChanged。
+		entry.title = "v2";
+		entry.updatedAt = ++updatedAt;
+		const rescan = await sessions.changeSince(context, appended.revision);
+		assert.equal(JSON.stringify(rescan.detail), JSON.stringify({ catalogChanged: true }));
+		// 同签名重复拉取：无事件。
+		const again = await sessions.changeSince(context, rescan.revision);
+		assert.equal(JSON.stringify(again.detail), JSON.stringify({ catalogChanged: false }));
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("host plugin sessions reject oversized history with a stable error instead of scanning it all", async () => {
 	// 预算机制回归：生成超过条目上限（100_000）的会话文件，断言拒绝而非全量扫描。
 	// 用 100k+ 小行触发 maxEntries 维度；byte 维度共用同一 charge 路径，不重复生成 64MiB 文件。

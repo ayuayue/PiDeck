@@ -51,7 +51,9 @@ export type HostPluginEntriesPage = {
 	/** Large entries/images are omitted or bounded, never silently presented as complete. */
 	truncated: boolean;
 };
-export type HostPluginEvent = { type: "context.changed"; context: HostPluginContext } | { type: "sessions.changed" };
+/** Granular change detail lets adapters invalidate one session instead of refetching everything. */
+export type HostPluginSessionsChangedDetail = { catalogChanged: boolean; sessionId?: string };
+export type HostPluginEvent = { type: "context.changed"; context: HostPluginContext } | { type: "sessions.changed"; detail?: HostPluginSessionsChangedDetail };
 export type HostPluginRequest =
 	| { method: "context.get" }
 	| { method: "sessions.list"; offset?: number }
@@ -92,3 +94,6 @@ export type HostPluginApi = {
 	workbench: { navigate: (sessionId: string, entryId?: string) => Promise<void> };
 	onEvent: (listener: (event: HostPluginEvent) => void) => () => void;
 };
+
+/** Revision snapshot the view host diffs between polls; opaque outside HostPluginSessions. */
+export type HostPluginSessionsRevision = { catalog: string; active?: { sessionId: string; file: string } };

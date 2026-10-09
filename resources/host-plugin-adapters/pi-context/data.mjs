@@ -14,6 +14,7 @@ export class PiContextData {
 		this.catalog = null;
 		this.overview = null;
 		this.detail = null;
+		this.rows = new Map();
 		this.status = { partial: false, unavailable: 0, missingPrompt: false };
 	}
 
@@ -24,12 +25,26 @@ export class PiContextData {
 		return changed;
 	}
 
-	invalidate() {
-		this.epoch += 1;
-		this.catalog = null;
-		this.overview = null;
-		this.detail = null;
-		this.status = { partial: false, unavailable: 0, missingPrompt: false };
+	/**
+	 * Targeted invalidation on `sessions.changed` with detail: a live append only drops the affected
+	 * session's caches (epoch untouched, so in-flight reads of other sessions survive); catalog-level
+	 * changes refetch the session list — per-row `updatedAt` keys decide which histories get re-read.
+	 */
+	invalidate(detail) {
+		if (!detail || detail.catalogChanged) {
+			this.epoch += 1;
+			this.catalog = null;
+			this.overview = null;
+			this.detail = null;
+			this.rows?.clear();
+			this.status = { partial: false, unavailable: 0, missingPrompt: false };
+			return;
+		}
+		if (detail.sessionId) {
+			this.overview = null;
+			this.rows?.delete(detail.sessionId);
+			if (this.detail?.id === detail.sessionId) this.detail = null;
+		}
 	}
 
 	check(epoch) {
@@ -102,27 +117,37 @@ export class PiContextData {
 		const rows = [];
 		for (const session of await this.sessions(epoch)) {
 			if (!session.readable) { this.status.unavailable += 1; continue; }
-			try {
-				const { snapshot, entries, partial } = await this.history(session.id, epoch, HISTORY_LIMITS.overviewEntries, HISTORY_LIMITS.overviewBytes);
-				let prompt = 0;
-				let cached = 0;
-				let activeMs = 0;
-				for (const request of snapshot.requests) { prompt += request.prompt; cached += request.cacheRead; activeMs += request.durationMs; }
-				rows.push({
-					// The upstream field is an opaque catalog ID here, never an OS file path.
-					file: session.id, id: session.id.slice(0, 8), cwd: session.projectId,
-					title: session.title, time: new Date(session.createdAt).toISOString(), mtime: new Date(session.updatedAt).toISOString(),
-					turns: snapshot.counts.turns, steps: snapshot.counts.steps, toolCalls: snapshot.counts.toolCalls,
-					model: snapshot.model ?? session.model ?? "", composition: snapshot.composition, totalTokens: snapshot.totalTokens,
-					lastMsg: (snapshot.userMsgs.at(-1)?.text ?? "").replace(/\s+/g, " ").slice(0, 80),
-					cacheHit: prompt > 0 ? cached / prompt : -1, activeMs, partial, sampledEntries: entries.length,
-				});
-			} catch (error) {
-				this.check(epoch);
-				// A racing revision is not an unreadable session: never publish a mixed-revision overview.
-				if (["stale-cursor", "history-changed", "plugin-revoked", "plugin-context-changed"].includes(error.message)) throw error;
-				this.status.unavailable += 1;
+			// Per-session memo keyed on catalog updatedAt: refreshes only re-read sessions that actually changed.
+			let cached = this.rows.get(session.id);
+			if (!cached || cached.updatedAt !== session.updatedAt) {
+				try {
+					const { snapshot, entries, partial } = await this.history(session.id, epoch, HISTORY_LIMITS.overviewEntries, HISTORY_LIMITS.overviewBytes);
+					let prompt = 0;
+					let cacheRead = 0;
+					let activeMs = 0;
+					for (const request of snapshot.requests) { prompt += request.prompt; cacheRead += request.cacheRead; activeMs += request.durationMs; }
+					cached = {
+						updatedAt: session.updatedAt,
+						row: {
+							// The upstream field is an opaque catalog ID here, never an OS file path.
+							file: session.id, id: session.id.slice(0, 8), cwd: session.projectId,
+							title: session.title, time: new Date(session.createdAt).toISOString(), mtime: new Date(session.updatedAt).toISOString(),
+							turns: snapshot.counts.turns, steps: snapshot.counts.steps, toolCalls: snapshot.counts.toolCalls,
+							model: snapshot.model ?? session.model ?? "", composition: snapshot.composition, totalTokens: snapshot.totalTokens,
+							lastMsg: (snapshot.userMsgs.at(-1)?.text ?? "").replace(/s+/g, " ").slice(0, 80),
+							cacheHit: prompt > 0 ? cacheRead / prompt : -1, activeMs, partial, sampledEntries: entries.length,
+						},
+					};
+					this.rows.set(session.id, cached);
+				} catch (error) {
+					this.check(epoch);
+					// A racing revision is not an unreadable session: never publish a mixed-revision overview.
+					if (["stale-cursor", "history-changed", "plugin-revoked", "plugin-context-changed"].includes(error.message)) throw error;
+					this.status.unavailable += 1;
+					continue;
+				}
 			}
+			rows.push(cached.row);
 		}
 		this.check(epoch);
 		return rows;

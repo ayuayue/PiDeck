@@ -57,7 +57,7 @@ export async function createPiContextHost() {
 	let contextPending = false;
 	const unsubscribe = api.onEvent((event) => {
 		if (event.type === "context.changed") { contextPending = data.updateContext(event.context) || contextPending; appearance(); }
-		else if (event.type === "sessions.changed") data.invalidate();
+		else if (event.type === "sessions.changed") data.invalidate(event.detail);
 		else return;
 		clearTimeout(refreshTimer);
 		refreshTimer = setTimeout(() => { const scopeChanged = contextPending; contextPending = false; void changed?.(scopeChanged); }, 350);

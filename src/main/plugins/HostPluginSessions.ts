@@ -1,6 +1,6 @@
 /** Session data port: catalog identity is resolved here; plugins never choose filesystem paths. */
 import { stat } from "node:fs/promises";
-import type { HostPluginContext, HostPluginEntriesPage, HostPluginEntryCursor, HostPluginSessionPage } from "../../shared/types/hostPlugin";
+import type { HostPluginContext, HostPluginEntriesPage, HostPluginEntryCursor, HostPluginSessionPage, HostPluginSessionsChangedDetail, HostPluginSessionsRevision } from "../../shared/types/hostPlugin";
 import type { SessionCatalog, SessionCatalogEntry } from "../sessions/SessionCatalog";
 import { SessionHistoryReader, type PluginHistoryGuard } from "../pi/SessionHistoryReader";
 import { toWindowsHostPath } from "../wsl/WslPaths";
@@ -73,18 +73,38 @@ export class HostPluginSessions {
 
 	/** Bounded watcher signatures detect offline edits without maintaining per-plugin file watchers. */
 	async revision(context: HostPluginContext): Promise<string> {
+		return (await this.inspect(context)).catalog;
+	}
+
+	/** Structured revision plus a diff against the previous poll: `detail` drives targeted invalidation downstream. */
+	async changeSince(context: HostPluginContext, previous?: HostPluginSessionsRevision): Promise<{ revision: HostPluginSessionsRevision; detail: HostPluginSessionsChangedDetail }> {
+		const revision = await this.inspect(context);
+		const detail: HostPluginSessionsChangedDetail = { catalogChanged: false };
+		// First poll after mount/context switch: emit nothing, the initial load already covers it.
+		if (previous) {
+			detail.catalogChanged = previous.catalog !== revision.catalog;
+			if (previous.active && revision.active && previous.active.sessionId === revision.active.sessionId && previous.active.file !== revision.active.file) {
+				detail.sessionId = revision.active.sessionId;
+			}
+		}
+		return { revision, detail };
+	}
+
+	private async inspect(context: HostPluginContext): Promise<HostPluginSessionsRevision> {
 		const entries = this.catalog.listEntries().filter((entry) => entry.projectId === context.projectId && !entry.noSession);
 		const signature: unknown[] = entries.map((entry) => [entry.id, entry.updatedAt, entry.title, entry.filePath]);
 		const active = context.sessionId ? this.catalog.get(context.sessionId) : undefined;
 		const path = active && active.projectId === context.projectId ? this.path(active) : undefined;
 		if (path) {
+			let file: string;
 			try {
 				const info = await stat(path);
-				signature.push([info.size, info.mtimeMs]);
+				file = JSON.stringify([info.size, info.mtimeMs]);
 			} catch {
-				signature.push("unavailable");
+				file = "unavailable";
 			}
+			return { catalog: JSON.stringify(signature), active: { sessionId: active!.id, file } };
 		}
-		return JSON.stringify(signature);
+		return { catalog: JSON.stringify(signature) };
 	}
 }
