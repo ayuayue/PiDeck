@@ -264,9 +264,9 @@ function stubAssets(overrides = {}) {
 				raw: "cli output",
 				conflicts: [],
 			}),
-			toggleExtension: async (path, enabled) => {
-				calls.extensions.push({ path, enabled });
-				return { name: "beta", scope: "project", path, enabled: false };
+			// 与 deps 契约同名同参：source/enabled/scope 必传，path/projectId 可选（本地文件扩展 + 项目作用域）
+			setExtensionEnabled: async (source, enabled, scope, path, projectId) => {
+				calls.extensions.push({ source, enabled, scope, path, projectId });
 			},
 			...overrides,
 		},
@@ -319,6 +319,22 @@ test("extensions listing drops raw cli output and host paths; toggle validates s
 	assert.equal(list.status, 200);
 	assert.deepEqual(Object.keys(list.body.extensions[0]), ["name", "scope", "enabled"]);
 	assert.ok(!JSON.stringify(list.body).includes("cli output"));
+});
+
+test("extensions toggle：项目作用域缺 projectId 回 400，其余把 path/projectId 透传给资产服务", async () => {
+	const stub = stubAssets();
+	const routes = new WebWorkspaceRoutes({ listProjects: () => [], assets: stub.assets });
+
+	// scope=project 但没有 projectId：必须在边界拦成 400（此前会一路写到原生配置才失败，HTTP 500）
+	const missing = await post(routes, "/api/extensions/toggle", { source: "npm:foo", enabled: true, scope: "project" });
+	assert.equal(missing.status, 400);
+	assert.equal(stub.calls.extensions.length, 0);
+
+	// 本地文件扩展要精确路径：path 与 projectId 都要原样透传（主进程据此写规则/定位项目层）
+	const ok = await post(routes, "/api/extensions/toggle", { source: "foo", enabled: false, scope: "project", projectId: "p1", path: "/host/ext/foo.ts" });
+	assert.equal(ok.status, 200);
+	assert.equal(ok.body.ok, true);
+	assert.deepEqual(stub.calls.extensions.at(-1), { source: "foo", enabled: false, scope: "project", path: "/host/ext/foo.ts", projectId: "p1" });
 });
 
 test("skills/extensions routes 503 when assets service missing", async () => {

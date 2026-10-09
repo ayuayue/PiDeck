@@ -15,6 +15,7 @@ import { Input } from "../components/ui-shadcn/input";
 import { Textarea } from "../components/ui-shadcn/textarea";
 import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
 import type { ResourceScope } from "./resourceScopeModel";
+import { buildProjectOverrideKeyIndex, matchesProjectOverride } from "./projectOverrideKeys";
 import { isGlobalSkillSourceId } from "../../../shared/resourceIdentity";
 import { ResourceImportDialog } from "./ResourceImportDialog";
 
@@ -63,7 +64,7 @@ export function SkillsTab(props: {
 	const visibleSkills = data.skills.filter((skill) => props.scope === "project" || skill.sourceId === "pi-global" || skill.sourceId === "agents-global");
 	const projectSkills = visibleSkills.filter((skill) => skill.sourceId === "project-pi" || skill.sourceId === "project-agents");
 	const globalSkills = visibleSkills.filter((skill) => skill.sourceId === "pi-global" || skill.sourceId === "agents-global");
-	const disabledGlobalKeys = new Set(props.projectOverrides.disabledGlobalSkills);
+	const disabledGlobalKeys = buildProjectOverrideKeyIndex(props.projectOverrides.disabledGlobalSkills);
 	const availableLocations = data.locations.filter((location) => (props.scope === "project" ? location.id === "project-pi" || location.id === "project-agents" : location.id === "pi-global" || location.id === "agents-global"));
 	// discovery 行去重：与本地列表同名的条目只保留本地行（带操作），列表只显示一次
 	const localSkillNames = new Set(visibleSkills.map((skill) => skill.name.toLowerCase()));
@@ -227,7 +228,7 @@ export function SkillsTab(props: {
 									) : null}
 									{globalSkills.map((skill) => {
 										const inherited = props.scope === "project";
-										const disabledHere = isGlobalSkillSourceId(skill.sourceId) ? disabledGlobalKeys.has(skill.path.toLowerCase()) : false;
+										const disabledHere = isGlobalSkillSourceId(skill.sourceId) ? matchesProjectOverride(disabledGlobalKeys, skill.path) : false;
 										return <SkillTableRow key={skill.id} skill={skill} effectiveEnabled={skill.enabled && !disabledHere} inherited={inherited} onToggle={props.onToggle} onDelete={props.onDelete} onEdit={props.onEdit} onRename={props.onRename} />;
 									})}
 									{props.scope === "project" && uniqueDiscoverySkills.filter((item) => !isProjectDiscoverySource(item.sourceId)).map((item) => <DiscoveredSkillRow key={item.id} item={item} />)}

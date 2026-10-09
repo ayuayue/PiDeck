@@ -14,7 +14,6 @@ import type { ExtensionManager } from "../extensions/ExtensionManager";
 import type { ProjectResourceManager } from "../projects/ProjectResourceManager";
 import type { ConfigManager } from "../config/ConfigManager";
 import { getPiPackageCatalog } from "../extensions/piPackageCatalog";
-import { isBuiltInExtensionName, isDefaultDisabledBuiltInExtension } from "../extensions/builtInExtensions";
 
 export type StoreIpcDeps = {
 	promptManager: PromptManager;
@@ -589,26 +588,13 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 		return result;
 	});
 	ipcMain.handle(ipcChannels.extensionsToggle, async (_event, source: string, enabled: boolean, scope?: "user" | "project" | "unknown", path?: unknown, projectId?: unknown) => {
-		// 内置扩展走 removedBuiltInExtensions + RPC -e，不再写用户扩展目录 / pi 过滤规则。
-		// 白名单判定：pi-deck-* 前缀不足以证明内置身份（插件开发 demo 同前缀，
-		// 是普通本地扩展，必须走原生过滤规则分支）。
-		if (isBuiltInExtensionName(source)) {
-			if (isDefaultDisabledBuiltInExtension(source)) {
-				// 默认关闭的内置扩展（GUI 桥/扩展点面板）：开关写 enabledBuiltInExtensions（opt-in）。
-				// 注意不碰 removedBuiltInExtensions——那是「默认启用扩展的用户禁用」机制，语义互斥。
-				await extensionManager.toggleBuiltIn(source, enabled);
-			} else if (enabled) {
-				await extensionManager.restoreBuiltIn(source);
-			} else {
-				await extensionManager.disableBuiltIn(source);
-			}
-		} else {
-			// 原生过滤规则：本地文件扩展要精确路径，项目作用域要 projectId（来自渲染层，主进程校验）。
-			const extensionPath = typeof path === "string" && path.length <= 32_768 ? path : undefined;
-			const resolvedProjectId = typeof projectId === "string" && projectId.trim() && projectId.length <= 256 ? projectId.trim() : undefined;
-			if (scope === "project" && !resolvedProjectId) throw new Error("Project scope requires a project id.");
-			await extensionManager.setEnabled(source, enabled, scope, extensionPath, resolvedProjectId);
-		}
+		// 原生过滤规则：本地文件扩展要精确路径，项目作用域要 projectId（来自渲染层，主进程校验）。
+		const extensionPath = typeof path === "string" && path.length <= 32_768 ? path : undefined;
+		const resolvedProjectId = typeof projectId === "string" && projectId.trim() && projectId.length <= 256 ? projectId.trim() : undefined;
+		if (scope === "project" && !resolvedProjectId) throw new Error("Project scope requires a project id.");
+		// 内置扩展与原生过滤规则的分流收口在 ExtensionManager.toggleFromUi：与 Web 工作区路由共用同一入口，
+		// 避免两处各写一套「pi-deck-* 前缀 ≠ 内置身份」的白名单判定（issue #321 教训）。
+		await extensionManager.toggleFromUi(source, enabled, scope, extensionPath, resolvedProjectId);
 		void appLogger.info("extension", "Extension toggled", { source, enabled, scope, projectId });
 	});
 	ipcMain.handle(ipcChannels.extensionsUpdate, async () => {

@@ -10,6 +10,7 @@ import { ExtensionStoreTab } from "./ExtensionStoreTab";
 import { PluginDevSection } from "./PluginDevSection";
 import { ContentTabs } from "./ContentTabs";
 import { isProjectDiscoverySource, type ResourceScope } from "./resourceScopeModel";
+import { buildProjectOverrideKeyIndex, matchesProjectOverride } from "./projectOverrideKeys";
 import { DiscoveredExtensionRow, ExtensionTableRow } from "./extensionsTableRows";
 import { RecommendedPackagesPanel } from "./extensionsRecommendedPackages";
 import { BuiltInExtensionsUpdatePanel } from "./BuiltInExtensionsUpdatePanel";
@@ -110,7 +111,9 @@ export function ExtensionsTab(props: {
 			if (props.onToggle) {
 				await props.onToggle(extension, enabled);
 			} else {
-				await getExtensionsApi().toggle(extension.source, enabled, extension.scope);
+				// 回退路径也要带 path + projectId：本地文件扩展的原生规则要精确路径，项目作用域要 projectId，
+				// 缺一个就会写出 pi 匹配不上的规则（或直接报「Project scope requires a project id.」）。
+				await getExtensionsApi().toggle(extension.source, enabled, extension.scope, extension.path, props.projectId);
 			}
 			props.onRefresh();
 			showNotice(t(enabled ? "config.extensionEnabledToast" : "config.extensionDisabledToast", { name: shortName(extension.source) }), 3500);
@@ -165,13 +168,13 @@ export function ExtensionsTab(props: {
 	const projectExtensions = props.data.extensions.filter((extension) => extension.scope === "project");
 	const globalExtensions = props.data.extensions.filter((extension) => extension.scope !== "project");
 	const visibleExtensions = props.scope === "project" ? [...projectExtensions, ...globalExtensions] : globalExtensions;
-	const disabledGlobalSources = new Set(props.projectOverrides.disabledGlobalExtensions);
+	const disabledGlobalSources = buildProjectOverrideKeyIndex(props.projectOverrides.disabledGlobalExtensions);
 	// discovery 行去重：与已安装列表同 source 的条目只保留普通行（带操作），列表只显示一次
 	const installedSources = new Set(props.data.extensions.map((extension) => extension.source));
 	const uniqueDiscoveryExtensions = props.discoveryExtensions.filter((item) => !installedSources.has(item.source));
 	const renderExtensionRows = (extensions: PiExtensionSummary[], inherited: boolean) =>
 		extensions.map((extension) => {
-			const disabledHere = inherited && disabledGlobalSources.has((extension.path ?? extension.source).toLowerCase());
+			const disabledHere = inherited && matchesProjectOverride(disabledGlobalSources, extension.path ?? extension.source);
 			return (
 				<ExtensionTableRow
 					key={`${extension.scope}:${extension.id}`}

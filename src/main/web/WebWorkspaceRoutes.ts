@@ -38,7 +38,7 @@ export type WebWorkspaceRoutesDeps = {
 		listSkills: () => Promise<PiSkillListResult>;
 		toggleSkill: (skillPath: string, enabled: boolean) => Promise<PiSkillSummary>;
 		listExtensions: () => Promise<PiExtensionListResult>;
-		setExtensionEnabled: (source: string, enabled: boolean, scope: PiExtensionSummary["scope"]) => Promise<void>;
+		setExtensionEnabled: (source: string, enabled: boolean, scope: PiExtensionSummary["scope"], path?: string, projectId?: string) => Promise<void>;
 	};
 };
 
@@ -461,7 +461,16 @@ export class WebWorkspaceRoutes {
 			sendError(response, 400, "webError.invalidRequest", "source (string), enabled (boolean), scope (user|project|unknown) are required");
 			return true;
 		}
-		await this.deps.assets.setExtensionEnabled(body.source, body.enabled, scope);
+		// 项目作用域必须带 projectId：缺了会一路走到原生配置写入才失败（HTTP 500，前端只看到「失败」）。
+		const projectId = typeof body.projectId === "string" && body.projectId.trim() && body.projectId.trim().length <= 256 ? body.projectId.trim() : undefined;
+		if (scope === "project" && !projectId) {
+			sendError(response, 400, "webError.invalidRequest", "projectId (string) is required when scope is project");
+			return true;
+		}
+		// 扩展列表有意剥离宿主机路径，本地文件扩展由主进程按 source 反查真实路径；内置扩展的开关
+		// 也由同一入口分流到 PiDeck 设置（见 ExtensionManager.toggleFromUi）。
+		const path = typeof body.path === "string" && body.path.length <= 32_768 ? body.path : undefined;
+		await this.deps.assets.setExtensionEnabled(body.source, body.enabled, scope, path, projectId);
 		sendJson(response, 200, { ok: true });
 		return true;
 	}

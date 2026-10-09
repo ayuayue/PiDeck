@@ -4476,7 +4476,7 @@ app
 				listSkills: () => skillManager.list(),
 				toggleSkill: (skillPath, enabled) => skillManager.toggle(skillPath, enabled),
 				listExtensions: () => extensionManager.list(),
-				setExtensionEnabled: (source, enabled, scope) => extensionManager.setEnabled(source, enabled, scope),
+				setExtensionEnabled: (source, enabled, scope, path, projectId) => extensionManager.toggleFromUi(source, enabled, scope, path, projectId),
 			},
 		});
 		// C12：退出清理登记（before-quit 统一 runAll）

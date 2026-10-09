@@ -14,6 +14,7 @@ import { Textarea } from "../components/ui-shadcn/textarea";
 import { CreateResourceCard, CreateResourceField } from "./ConfigShared";
 import { isGlobalSkillSourceId } from "../../../shared/resourceIdentity";
 import { isProjectDiscoverySource, type ResourceScope } from "./resourceScopeModel";
+import { buildProjectOverrideKeyIndex, matchesProjectOverride } from "./projectOverrideKeys";
 
 /**
  * Runtime-discovered package/settings prompts are owned by pi/package settings,
@@ -106,7 +107,7 @@ export function PromptsTab(props: {
 	const visibleTemplates = data.templates.filter((template) => props.scope === "project" || template.scope !== "project").sort((left, right) => Number(right.scope === "project") - Number(left.scope === "project"));
 	const projectTemplates = visibleTemplates.filter((template) => template.scope === "project");
 	const globalTemplates = visibleTemplates.filter((template) => template.scope !== "project");
-	const disabledGlobalKeys = new Set(props.projectOverrides.disabledGlobalPrompts);
+	const disabledGlobalKeys = buildProjectOverrideKeyIndex(props.projectOverrides.disabledGlobalPrompts);
 	// discovery 行去重：与本地列表同名的条目只保留本地行（带操作），列表只显示一次
 	const localPromptNames = new Set(visibleTemplates.map((template) => template.name.toLowerCase()));
 	const uniqueDiscoveryPrompts = props.discoveryPrompts.filter((item) => !localPromptNames.has(item.name.toLowerCase()));
@@ -186,7 +187,7 @@ export function PromptsTab(props: {
 			}
 		};
 		const inherited = props.scope === "project" && template.scope !== "project";
-		const disabledHere = inherited && disabledGlobalKeys.has(template.path.toLowerCase());
+		const disabledHere = inherited && matchesProjectOverride(disabledGlobalKeys, template.path);
 		const effectiveEnabled = template.enabled !== false && !disabledHere;
 		return (
 			<Fragment key={template.path}>

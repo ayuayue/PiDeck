@@ -728,6 +728,45 @@ export class ExtensionManager {
 	private nativeToggle: ((input: { source: string; path?: string; scope: PiExtensionSummary["scope"]; projectId?: string; enabled: boolean }) => Promise<{ ok: boolean; error?: string }>) | null = null;
 	private nativeEnabledReader: ((extension: PiExtensionSummary) => boolean | undefined) | null = null;
 
+	/**
+	 * UI 开关统一入口（桌面 IPC 与 Web 工作区路由共用）：先按身份分流——内置扩展走 PiDeck 设置
+	 * （`-e` 注入 / removedBuiltInExtensions），其余走 pi 原生过滤规则。
+	 *
+	 * 分流必须收口在这一层：Web 路由若各自调 setEnabled，内置扩展会被写成顶层 `+/-<source>` 垃圾规则
+	 * （pi 匹配不上、界面却报成功）；Web 端扩展列表又刻意剥离了宿主机路径，本地文件扩展会写出一条
+	 * pi 永远匹配不上的 `+/-<source>`。两者都在这里补齐。
+	 */
+	async toggleFromUi(source: string, enabled: boolean, scope: PiExtensionSummary["scope"] = "user", path?: string, projectId?: string): Promise<void> {
+		const normalized = source.trim();
+		// 白名单判定：pi-deck-* 前缀不足以证明内置身份（插件开发 demo 同前缀，是普通本地扩展）。
+		if (isBuiltInExtensionName(normalized)) {
+			if (isDefaultDisabledBuiltInExtension(normalized)) {
+				// 默认关闭的内置扩展（GUI 桥/扩展点面板）：开关写 enabledBuiltInExtensions（opt-in）；
+				// 注意不碰 removedBuiltInExtensions——那是「默认启用扩展的用户禁用」机制，语义互斥。
+				await this.toggleBuiltIn(normalized, enabled);
+			} else if (enabled) {
+				await this.restoreBuiltIn(normalized);
+			} else {
+				await this.disableBuiltIn(normalized);
+			}
+			return;
+		}
+		// 本地文件扩展的原生规则按真实磁盘路径精确匹配（pi 按绝对路径 / baseDir 相对路径匹配），
+		// 缺 path 时（Web 端列表不带路径）从列表缓存反查；包安装按 `npm:` 等 source 协议分流，path 会被忽略。
+		const resolvedPath = path ?? (await this.resolveExtensionPath(normalized));
+		await this.setEnabled(normalized, enabled, scope, resolvedPath, projectId);
+	}
+
+	/** 从扩展列表缓存按 source 反查真实路径；列表不可用或查不到时返回 undefined（由 setEnabled 按原样处理）。 */
+	private async resolveExtensionPath(source: string): Promise<string | undefined> {
+		try {
+			const listed = await this.list();
+			return listed.extensions.find((entry) => entry.source === source)?.path;
+		} catch {
+			return undefined;
+		}
+	}
+
 	async setEnabled(source: string, enabled: boolean, scope: PiExtensionSummary["scope"] = "user", path?: string, projectId?: string): Promise<void> {
 		// 原生配置优先：迁移完成后旧禁用列表已清空，开关直接写 pi 的过滤规则。
 		if (this.nativeToggle) {
