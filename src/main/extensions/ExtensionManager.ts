@@ -473,7 +473,8 @@ export class ExtensionManager {
 		this.invalidateListCache();
 	}
 
-	async uninstall(source: string, scope: PiExtensionSummary["scope"] = "user"): Promise<void> {
+	/** 卸载：user/unknown 走全局缓存；project 走 `pi remove -l`，projectRoot 由 IPC 层经信任校验解析后传入。 */
+	async uninstall(source: string, scope: PiExtensionSummary["scope"] = "user", options: { projectRoot?: string } = {}): Promise<void> {
 		const normalized = source.trim();
 		if (!normalized) throw new Error(this.translate("mainExtension.sourceRequired"));
 		// 只挡白名单内置成员：pi-deck- 前缀不足以证明内置身份——插件开发 demo
@@ -487,7 +488,9 @@ export class ExtensionManager {
 		if (this.isLocalFileExtension(normalized)) {
 			await this.removeLocalExtension(normalized);
 		} else {
-			await this.runPi(["remove", normalized, ...(scope === "project" ? ["-l"] : [])], 30_000);
+			// 项目层 remove 与 install 同一信任路径：带项目 cwd + projectInstall（不推 --no-approve）。
+			// --no-approve 下 pi 视项目为不信任直接拒改本地 packages（"Project is not trusted"），且无 cwd 会删错目录。
+			await this.runPi(["remove", normalized, ...(scope === "project" ? ["-l"] : [])], 30_000, options.projectRoot ? { cwd: options.projectRoot, projectInstall: true } : {});
 		}
 		await this.clearDisabledEntry(normalized, scope);
 		// 列表已变，清缓存，避免 UI 继续读到旧安装态。

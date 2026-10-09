@@ -23,6 +23,44 @@ function resolveExtensions(resolveConfiguredPackageResources, options) {
 	});
 }
 
+test("package resources 带出就近 package.json 的版本", () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-package-version-"));
+	try {
+		const agentDir = join(root, "agent");
+		const packageRoot = join(root, "shared-package");
+		put(join(packageRoot, "package.json"), JSON.stringify({ name: "shared-package", version: "1.2.3", pi: { extensions: ["index.ts"] } }));
+		put(join(packageRoot, "index.ts"), "export default () => {};\n");
+		const userSettingsFile = join(agentDir, "settings.json");
+		put(userSettingsFile, JSON.stringify({ packages: [packageRoot] }));
+		const { resolveConfiguredPackageResources } = loadTsCommonJs("src/main/packageResourceResolver.ts");
+		const resources = resolveExtensions(resolveConfiguredPackageResources, { userSettingsFile, userBaseDir: agentDir });
+		assert.equal(resources.length, 1);
+		assert.equal(resources[0].version, "1.2.3");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("包无 version 字段时不向上串版本（遇到第一个 package.json 即停）", () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-package-noversion-"));
+	try {
+		const agentDir = join(root, "agent");
+		const packageRoot = join(root, "shared-package");
+		// 包自身无 version，但祖先目录故意放一个带版本的 package.json——不许被串报
+		put(join(packageRoot, "package.json"), JSON.stringify({ name: "shared-package", pi: { extensions: ["index.ts"] } }));
+		put(join(packageRoot, "index.ts"), "export default () => {};\n");
+		put(join(root, "package.json"), JSON.stringify({ name: "ancestor", version: "9.9.9" }));
+		const userSettingsFile = join(agentDir, "settings.json");
+		put(userSettingsFile, JSON.stringify({ packages: [packageRoot] }));
+		const { resolveConfiguredPackageResources } = loadTsCommonJs("src/main/packageResourceResolver.ts");
+		const resources = resolveExtensions(resolveConfiguredPackageResources, { userSettingsFile, userBaseDir: agentDir });
+		assert.equal(resources.length, 1);
+		assert.equal(resources[0].version, undefined);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("package resources deduplicate symlink aliases while keeping the project winner", (t) => {
 	const root = mkdtempSync(join(tmpdir(), "pideck-package-alias-"));
 	try {

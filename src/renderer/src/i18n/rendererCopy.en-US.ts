@@ -2364,6 +2364,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.resourceGroup.project": "Project resources",
 	"config.resourceGroup.global": "Global resources",
 	"config.source.global": "Global",
+	"config.source.project": "Project",
 	"config.openExtensionLocation": "Open file location",
 	"config.promptDeleteFailed": "The project prompt path is invalid.",
 	"config.process.refresh": "Refresh",

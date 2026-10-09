@@ -168,6 +168,8 @@ export type ProjectResourceDiscoveryResult = {
 		physicalScope: "user" | "project";
 		enabled: boolean;
 		managed: boolean;
+		/** 包版本（package.json 就近向上查）；settings-* 行恒缺省。 */
+		version?: string;
 	}>;
 };
 

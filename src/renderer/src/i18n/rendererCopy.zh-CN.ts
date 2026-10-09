@@ -2358,6 +2358,7 @@ export const zhCN = {
 	"config.resourceGroup.project": "项目资源",
 	"config.resourceGroup.global": "全局资源",
 	"config.source.global": "全局",
+	"config.source.project": "项目",
 	"config.openExtensionLocation": "打开文件位置",
 	"config.promptDeleteFailed": "项目提示词路径无效。",
 	"config.process.refresh": "刷新",

@@ -14,6 +14,8 @@ export type ResolvedPackageResource = {
 	physicalScope: PackageResourceScope;
 	source: string;
 	enabled: boolean;
+	/** 包自身 package.json 的 version（向上就近查找）；本地裸文件/无清单时缺省。 */
+	version?: string;
 };
 
 type PackageResourceOptions = {
@@ -266,6 +268,28 @@ function dedupePackages(entries: ConfiguredPackage[]): ConfiguredPackage[] {
 	return result;
 }
 
+/**
+ * 就近向上查 package.json 读包版本：遇到第一个 package.json 就停（无 version 也停），
+ * 防止把 pnpm store 根/祖先目录的版本串报给子包；仅 ENOENT 才继续向上，最多 6 跳。
+ */
+export function readPackageVersion(startPath: string): string | undefined {
+	let current = resolve(startPath);
+	for (let hops = 0; hops < 6; hops += 1) {
+		try {
+			const parsed: unknown = JSON.parse(readFileSync(join(current, "package.json"), "utf8").replace(/^\uFEFF/, ""));
+			if (isRecord(parsed) && typeof parsed.version === "string" && parsed.version.trim()) return parsed.version.trim();
+			return undefined;
+		} catch (error) {
+			// 文件不存在才向上找；读不了/解析失败视为「该包无版本」，不再向上串。
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+		}
+		const parent = dirname(current);
+		if (parent === current) return undefined;
+		current = parent;
+	}
+	return undefined;
+}
+
 function readPiManifest(packageRoot: string): PiManifest | null {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8").replace(/^\uFEFF/, ""));
@@ -422,6 +446,7 @@ export function resolveConfiguredPackageResources(options: PackageResourceOption
 					physicalScope: physicalEntry.scope,
 					source: entry.source,
 					enabled: resource.enabled,
+					version: readPackageVersion(path),
 				});
 			}
 		}

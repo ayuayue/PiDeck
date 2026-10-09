@@ -25,6 +25,7 @@ import { SettingsTab } from "./config/SettingsTab";
 import { PromptsTab } from "./config/PromptsTab";
 import { SkillsTab } from "./config/SkillsTab";
 import { ExtensionsTab } from "./config/ExtensionsTab";
+import type { DiscoveredExtensionItem } from "./config/extensionsTableRows";
 // 桥贡献的「独立配置页」落点：每个 gui:config.page:* 贡献在「Agent 能力」组里占一个导航页。
 // 会话取值 / 落点 id 映射 / 「页消失就回退」都收在 hook 里（PR 评审 §3）。
 import { BridgeGuiSingleSlot } from "./components/bridge/BridgeSlot";
@@ -590,6 +591,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	/** 待确认删除的 Prompt 模板（删除前弹确认框） */
 	const [deletePromptConfirm, setDeletePromptConfirm] = useState<PiPromptTemplateSummary | null>(null);
 	const [uninstallExtensionConfirm, setUninstallExtensionConfirm] = useState<PiExtensionSummary | null>(null);
+	/** 项目包发现行（package-project）的卸载确认：走 `pi remove <source> -l`，只删项目层记账。 */
+	const [uninstallProjectPackageConfirm, setUninstallProjectPackageConfirm] = useState<{ source: string } | null>(null);
 	const [rawContent, setRawContent] = useState("");
 	const [rawFileName, setRawFileName] = useState("models.json");
 	// pi 全局配置目录（源文件页标注实际编辑位置）；加载失败时静默降级不显示路径。
@@ -2225,10 +2228,24 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 		setUninstallExtensionConfirm(extension);
 	};
 
+	const handleRequestProjectPackageUninstall = (item: DiscoveredExtensionItem) => {
+		setUninstallProjectPackageConfirm({ source: item.source });
+	};
+
 	const handleOpenExtensionLocation = async (extension: PiExtensionSummary) => {
 		if (!extension.path) return;
 		try {
 			await api.files.showInFolder(extension.path, extension.scope === "project" && effectiveProjectId ? { projectId: effectiveProjectId } : undefined);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	/** 发现行打开安装位置：包缓存（user 层）走默认边界，项目目录内文件（settings-project 等）需带 projectId 走项目读边界。 */
+	const handleOpenDiscoveredLocation = async (item: DiscoveredExtensionItem) => {
+		if (!item.path) return;
+		try {
+			await api.files.showInFolder(item.path, item.physicalScope === "project" && effectiveProjectId ? { projectId: effectiveProjectId } : undefined);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		}
@@ -2251,7 +2268,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					} else if (target.builtIn) {
 						await api.extensions.removeBuiltIn(target.source);
 					} else {
-						await api.extensions.uninstall(target.source, target.scope);
+						await api.extensions.uninstall(target.source, target.scope, target.scope === "project" ? effectiveProjectId : undefined);
 					}
 				})(),
 				exitAnimation,
@@ -2266,6 +2283,35 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 			}
 			// Package uninstall failures include the equivalent CLI command as a manual fallback.
 			const uninstallCmd = `pi uninstall ${target.source}${target.scope === "project" ? " -l" : ""}`;
+			showNotice(t("config.extensionUninstallFailed", { error: formatIpcError(e) }) + " " + t("config.extensionUninstallManual", { command: uninstallCmd }), 6000, "error", undefined, {
+				action: {
+					label: t("config.copyUninstallCmd"),
+					onClick: () => void navigator.clipboard.writeText(uninstallCmd),
+				},
+			});
+		} finally {
+			setUninstallingExtensionSource(null);
+		}
+	};
+
+	/**
+	 * 项目包卸载：`pi remove <source> -l` 删项目层记账条目（<项目>/.pi/settings.json 的 packages），
+	 * 不动全局缓存与磁盘文件；卸载态复用 uninstallingExtensionSource（发现行按 source 匹配）。
+	 */
+	const confirmUninstallProjectPackage = async () => {
+		if (!uninstallProjectPackageConfirm) return;
+		const target = uninstallProjectPackageConfirm;
+		setUninstallProjectPackageConfirm(null);
+		setUninstallingExtensionSource(target.source);
+		try {
+			// 与全局包卸载一致：失败时给等价 CLI 手动回退（项目层加 -l）。项目层要带 effectiveProjectId，
+			// 后端经信任门解析项目根后再执行 pi remove -l（无 id 会被拒绝，不会误删别的项目）。
+			await api.extensions.uninstall(target.source, "project", effectiveProjectId);
+			await refreshExtensions(true);
+			showToast(t("config.extensionUninstalledToast"));
+		} catch (e) {
+			// 与全局包卸载一致：失败时给等价 CLI 手动回退（项目层加 -l）。
+			const uninstallCmd = `pi uninstall ${target.source} -l`;
 			showNotice(t("config.extensionUninstallFailed", { error: formatIpcError(e) }) + " " + t("config.extensionUninstallManual", { command: uninstallCmd }), 6000, "error", undefined, {
 				action: {
 					label: t("config.copyUninstallCmd"),
@@ -2972,6 +3018,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									onRefreshAfterToggle={() => refreshExtensions(false)}
 									onToggle={handleToggleExtension}
 									onUninstall={handleRequestExtensionUninstall}
+									onUninstallProjectPackage={handleRequestProjectPackageUninstall}
+									onShowDiscoveredInFolder={(item) => void handleOpenDiscoveredLocation(item)}
 									onShowInFolder={(extension) => void handleOpenExtensionLocation(extension)}
 								/>
 							</div>
@@ -3079,6 +3127,10 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 					onConfirm={confirmUninstallExtension}
 					onCancel={() => setUninstallExtensionConfirm(null)}
 				/>
+			)}
+
+			{uninstallProjectPackageConfirm && (
+				<ConfirmDialog title={t("config.deleteExtensionTitle")} message={t("config.deleteExtensionBody", { source: uninstallProjectPackageConfirm.source })} confirmLabel={t("common.delete")} danger onConfirm={confirmUninstallProjectPackage} onCancel={() => setUninstallProjectPackageConfirm(null)} />
 			)}
 
 			{deletePromptConfirm && (

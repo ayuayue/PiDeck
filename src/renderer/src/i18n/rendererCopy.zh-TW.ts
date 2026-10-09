@@ -2364,6 +2364,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.resourceGroup.project": "專案資源",
 	"config.resourceGroup.global": "全域資源",
 	"config.source.global": "全域",
+	"config.source.project": "專案",
 	"config.openExtensionLocation": "開啟檔案位置",
 	"config.promptDeleteFailed": "專案提示詞路徑無效。",
 	"config.process.refresh": "重新整理",

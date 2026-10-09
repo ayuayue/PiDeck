@@ -1,8 +1,9 @@
 import { Button } from "../components/ui-shadcn/button";
 import { Switch } from "../components/ui-shadcn/switch";
 import { TableCell, TableRow } from "../components/ui-shadcn/table";
-import { Copy, FolderOpen, Trash2 } from "lucide-react";
+import { Copy, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
 import type { PiExtensionSummary } from "../../../shared/types";
+import { isActionableProjectPackageItem } from "./resourceScopeModel";
 import { t, type TranslationKey } from "../i18n";
 
 /**
@@ -37,6 +38,8 @@ export type DiscoveredExtensionItem = {
 	physicalScope: "user" | "project";
 	enabled: boolean;
 	managed: boolean;
+	/** 包版本（发现链路从包 package.json 带出）；settings-* 行缺省。 */
+	version?: string;
 };
 
 /**
@@ -148,9 +151,29 @@ export function ExtensionTableRow(props: {
 	);
 }
 
-/** 运行时发现（package/settings 声明的扩展）只读行：由包/设置管理，不提供行内操作。 */
-export function DiscoveredExtensionRow(props: { item: DiscoveredExtensionItem }) {
+/**
+ * 运行时发现（package/settings 声明的扩展）发现行。
+ * 例外：package-project 行（项目层安装的包，source 即 `npm:<name>` 包源）接整包开关与卸载，
+ * 后端与全局行同一回路（项目层 packages delta / `pi remove -l`），见 isActionableProjectPackageItem。
+ * 其余发现行（settings-*、package-user）由设置或全局层管理，在此只读。
+ */
+export function DiscoveredExtensionRow(props: {
+	item: DiscoveredExtensionItem;
+	/** 乐观覆盖后的显示态（仅可操作行使用；只读行忽略，始终 item.enabled）。 */
+	effectiveEnabled: boolean;
+	toggling?: boolean;
+	onToggle?: (item: DiscoveredExtensionItem, enabled: boolean) => void;
+	uninstalling?: boolean;
+	onUninstall?: (item: DiscoveredExtensionItem) => void;
+	/** 更新进行态（与已装行共用 updatingOne，按 source 匹配）。 */
+	updating?: boolean;
+	/** 整包更新（`pi upgrade <source>`）；仅可操作的项目包行提供。 */
+	onUpdate?: (item: DiscoveredExtensionItem) => void;
+	/** 打开安装位置（settings-* 行也有 path，同样提供；授权由 ConfigModal 按 physicalScope 决定项目边界）。 */
+	onShowInFolder?: (item: DiscoveredExtensionItem) => void;
+}) {
 	const { item } = props;
+	const actionable = isActionableProjectPackageItem(item) && Boolean(props.onToggle && props.onUninstall);
 	const name = item.source.replace(/^(?:npm|file|github|git):/i, "").replace(/\.ts$/i, "");
 	return (
 		<TableRow>
@@ -160,14 +183,50 @@ export function DiscoveredExtensionRow(props: { item: DiscoveredExtensionItem })
 					<div className="flex min-w-0 items-center gap-2">
 						<strong className="truncate text-control font-medium text-foreground">{name}</strong>
 						<span className="text-micro" title={t("config.resourceManagedHint")}>
-							{t("config.source.global")}
+							{/* 徽标按条目物理层归属标注：项目层装的包不再误标「全局」（此前所有发现行一律标全局） */}
+							{item.physicalScope === "project" ? t("config.source.project") : t("config.source.global")}
 						</span>
 					</div>
 					<span className="truncate font-mono text-caption text-muted-foreground">{item.sourceLabel}</span>
 				</div>
 			</TableCell>
-			<TableCell className="whitespace-nowrap text-caption text-muted-foreground">-</TableCell>
-			<TableCell className="text-right" />
+			{/* 版本：发现链路从包 package.json 带出；settings-* 行与无清单包显示 - */}
+			<TableCell className="whitespace-nowrap text-caption text-muted-foreground">{item.version ?? "-"}</TableCell>
+			<TableCell className="text-right">
+				{(actionable || props.onShowInFolder) && (
+					<div className="flex items-center justify-end gap-1">
+						{/* 打开安装位置：对齐已装行的文件夹按钮（disabled={!item.path}）。 */}
+						{props.onShowInFolder && (
+							<Button variant="ghost" size="icon-sm" className="size-7" disabled={!item.path} onClick={() => props.onShowInFolder?.(item)} title={t("config.openExtensionLocation")}>
+								<FolderOpen size={14} strokeWidth={1.8} />
+							</Button>
+						)}
+						{/* 整包更新 = `pi upgrade <source>`：与已装行同一回路（updateOne），仅项目包行提供。 */}
+						{actionable && props.onUpdate && (
+							<Button variant="ghost" size="icon-sm" className="size-7" disabled={props.updating || props.uninstalling} onClick={() => props.onUpdate?.(item)} title={props.updating ? t("config.extensionUpdatingOne") : t("config.extensionUpdateOne")}>
+								<RefreshCw size={14} strokeWidth={1.8} className={props.updating ? "animate-spin" : undefined} />
+							</Button>
+						)}
+						{actionable && (
+							<>
+								{/* 整包开关：停用写项目层四类 `!` 排除 delta、启用折回纯字符串（与全局行同构）；
+							    显示态用调用方传入的乐观值，写盘+刷新落地后才回落真值。 */}
+								<Switch
+									checked={props.effectiveEnabled}
+									onCheckedChange={(checked) => props.onToggle?.(item, checked)}
+									disabled={props.toggling || props.uninstalling}
+									title={props.toggling ? t("config.extensionToggling") : props.effectiveEnabled ? t("config.extensionDisable") : t("config.extensionEnable")}
+									aria-busy={props.toggling}
+								/>
+								{/* 卸载 = `pi remove <source> -l`：只删项目层记账、不动全局缓存；确认弹窗在 ConfigModal。 */}
+								<Button variant="ghost" size="icon-sm" className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={props.uninstalling} onClick={() => props.onUninstall?.(item)} title={props.uninstalling ? t("config.uninstalling") : t("config.uninstall")}>
+									<Trash2 size={14} strokeWidth={1.8} />
+								</Button>
+							</>
+						)}
+					</div>
+				)}
+			</TableCell>
 		</TableRow>
 	);
 }

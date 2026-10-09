@@ -52,6 +52,16 @@ export function isProjectDiscoverySource(sourceId: string): boolean {
 }
 
 /**
+ * package-project 发现行是否可操作（整包开关 + 卸载）：这类行的 source 就是包源（`npm:<name>` 等），
+ * 后端 `setExtensionEnabled` 按 `isPackageSource` 分流到项目层 packages 条目（整包 `!`/`*` delta，
+ * 与全局行同一回路）；卸载走 `pi remove <source> -l`。
+ * 其余发现行维持只读：package-user 属全局层（全局视图另有入口），settings-* 行无整包语义。
+ */
+export function isActionableProjectPackageItem(item: { sourceId: string; managed: boolean }): boolean {
+	return item.sourceId === "package-project" && item.managed;
+}
+
+/**
  * 扩展商店卡片的「已安装」判据集合（项目作用域用）。
  *
  * 项目里安装的包（`pi install -l`）只写进项目 settings.json 的 packages：既不在项目列表
