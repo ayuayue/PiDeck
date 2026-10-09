@@ -1,5 +1,6 @@
 import type { SessionProcessEvent } from "../../shared/types/trajectory";
 import type { AgentRuntimeState } from "../../shared/types";
+import { calculateTokensPerSecond } from "../../shared/tps";
 import { estimateTokensFromText } from "../tokenEstimate";
 
 /**
@@ -289,8 +290,13 @@ export function parseSessionStatsProjection(values: unknown): DshSessionStatsPro
 }
 
 /**
- * 由 host sessionStats 投影派生渲染层视图：平均首字延迟与生成速度
- * （无样本字段保持 undefined，UI 不渲染对应行）。
+ * 由 host sessionStats 投影派生渲染层视图：平均首字延迟与两种生成速度
+ * （无样本字段保持 undefined，UI 显示 —）。
+ *
+ * 端到端分母取 ttftMs + decodeMs：官方折叠里有首 token 的 step，其 step/start →
+ * assistant/message 恰好拆成这两段，相加即模型调用耗时（step 内自动重试的等待
+ * 无论落在首 token 前后都在其中）。ttftMs 另含「有首 token 但无 usage」的 step（罕见），
+ * 只会让端到端略偏低。没有解码样本时两种速度都不给，口径保持一致。
  */
 export function deriveDshSessionStats(raw: DshSessionStatsProjection): AgentRuntimeState["dshSessionStats"] {
 	return {
@@ -299,7 +305,8 @@ export function deriveDshSessionStats(raw: DshSessionStatsProjection): AgentRunt
 		llmMs: raw.llmMs,
 		toolMs: raw.toolMs,
 		ttftAvgMs: raw.ttftSteps > 0 ? raw.ttftMs / raw.ttftSteps : undefined,
-		tokensPerSecond: raw.decodeMs > 0 ? raw.decodeTokens / (raw.decodeMs / 1000) : undefined,
+		tokensPerSecond: calculateTokensPerSecond(raw.decodeTokens, raw.decodeMs),
+		endToEndTokensPerSecond: raw.decodeMs > 0 ? calculateTokensPerSecond(raw.decodeTokens, raw.ttftMs + raw.decodeMs) : undefined,
 	};
 }
 

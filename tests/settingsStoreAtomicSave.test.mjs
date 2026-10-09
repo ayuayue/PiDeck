@@ -55,6 +55,32 @@ it("update 连续保存后：主文件可解析、无 .tmp 残留、.bak 为上�
 	assert.equal(bak.closeToTray, false);
 });
 
+it("TPS 模式兼容旧设置和非法磁盘值，默认流式", async () => {
+	for (const value of [undefined, null, "unknown", 123]) {
+		const { SettingsStore, userData } = makeStore();
+		writeFileSync(join(userData, "settings.json"), JSON.stringify({ installationType: "installed", chatContentWidthPct: 80, tpsDisplayMode: value }));
+		const store = new SettingsStore();
+		await store.load();
+		assert.equal(store.get().tpsDisplayMode, "streaming");
+	}
+});
+
+it("TPS 模式保存后立即返回，重启恢复；非法更新保留已选模式", async () => {
+	const { SettingsStore, userData } = makeStore();
+	const store = new SettingsStore();
+	await store.load();
+	assert.equal((await store.update({ tpsDisplayMode: "endToEnd" })).tpsDisplayMode, "endToEnd");
+	assert.equal(store.get().tpsDisplayMode, "endToEnd");
+	await store.update({ tpsDisplayMode: "invalid" });
+	assert.equal(store.get().tpsDisplayMode, "endToEnd");
+	assert.equal(JSON.parse(readFileSync(join(userData, "settings.json"), "utf8")).tpsDisplayMode, "endToEnd");
+	const restarted = new SettingsStore();
+	await restarted.load();
+	assert.equal(restarted.get().tpsDisplayMode, "endToEnd");
+	await restarted.update({ tpsDisplayMode: "streaming" });
+	assert.equal(JSON.parse(readFileSync(join(userData, "settings.json"), "utf8")).tpsDisplayMode, "streaming");
+});
+
 it("SettingsStore 源码使用 renameWithRetry + 保存串行链（漂移守卫，H4）", () => {
 	const source = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
 	assert.match(source, /renameWithRetry\(/);

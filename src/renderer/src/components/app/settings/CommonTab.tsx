@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import type { AppSettings } from "../../../../../shared/types";
 import { dshUiVisibilityFor } from "../../../../../shared/types/dshRuntime";
+import { normalizeTpsDisplayMode } from "../../../../../shared/tps";
 import { dshRuntimeStatusAtom } from "../../../atoms";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
@@ -170,6 +171,27 @@ export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
 					</Select>
 				</SettingRow>
 				<SettingSwitchRow anchor="common-auto-session-title" title={t("settings.autoSessionTitle")} description={t("settings.autoSessionTitleDesc")} checked={draft.autoSessionTitle ?? false} dirty={isDirty("autoSessionTitle")} onChange={(checked) => updateDraft({ autoSessionTitle: checked })} />
+				<SettingRow
+					anchor="common-tps-display-mode"
+					title={
+						<>
+							<span>{t("settings.tpsDisplayMode")}</span>
+							<DirtyMarker dirty={isDirty("tpsDisplayMode")} label={t("settings.tpsDisplayMode")} />
+						</>
+					}
+					description={t("settings.tpsDisplayModeDesc")}
+					alignEnd={false}
+				>
+					<Select value={normalizeTpsDisplayMode(draft.tpsDisplayMode)} onValueChange={(value) => updateDraft({ tpsDisplayMode: normalizeTpsDisplayMode(value) })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="streaming">{t("settings.tpsDisplayModeStreaming")}</SelectItem>
+							<SelectItem value="endToEnd">{t("settings.tpsDisplayModeEndToEnd")}</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
 				<SettingRow
 					anchor="common-send-shortcut"
 					title={

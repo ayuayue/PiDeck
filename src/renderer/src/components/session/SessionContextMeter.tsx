@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FoldVertical } from "lucide-react";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
 import { t } from "../../i18n";
 import type { AgentRuntimeState } from "../../../../shared/types";
 import type { UsageProbeBackend } from "../../../../shared/types/providerUsage";
@@ -138,7 +139,27 @@ export function contextSegments(state: Pick<AgentRuntimeState, "contextTokens" |
 export function SessionContextMeter(props: {
 	state?: Pick<
 		AgentRuntimeState,
-		"contextPercent" | "contextTokens" | "contextWindow" | "contextOverflow" | "contextMessageTokens" | "cacheHitPercent" | "cacheHitAveragePercent" | "cacheHitSampleCount" | "inputTokens" | "outputTokens" | "isCompacting" | "cost" | "ttftMs" | "totalMs" | "tps" | "cacheRead" | "cacheWrite" | "cacheTotal" | "provider"
+		| "contextPercent"
+		| "contextTokens"
+		| "contextWindow"
+		| "contextOverflow"
+		| "contextMessageTokens"
+		| "cacheHitPercent"
+		| "cacheHitAveragePercent"
+		| "cacheHitSampleCount"
+		| "inputTokens"
+		| "outputTokens"
+		| "isCompacting"
+		| "cost"
+		| "ttftMs"
+		| "totalMs"
+		| "tps"
+		| "endToEndTps"
+		| "dshSessionStats"
+		| "cacheRead"
+		| "cacheWrite"
+		| "cacheTotal"
+		| "provider"
 	>;
 	/** 压缩上下文（原右上角紧凑徽章动作，迁入面板底部） */
 	onCompact?: () => void;
@@ -157,6 +178,7 @@ export function SessionContextMeter(props: {
 	 */
 	backend?: UsageProbeBackend;
 }) {
+	const tpsMode = useAtomValue(tpsDisplayModeAtom);
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLSpanElement | null>(null);
 	/** 面板 fixed 定位：相对 viewport 的 {left, top}；null = 尚未定位（首帧隐藏） */
@@ -169,7 +191,7 @@ export function SessionContextMeter(props: {
 	const compacting = props.state?.isCompacting === true;
 	// 完整详情复用会话头部 SessionStatus 的构建器：平均命中率以主进程
 	// 文件统计为准（缓存快照历史均值仅作降级，头部同款语义）
-	const detail = buildSessionStatusDetail(props.state, props.state?.cacheHitAveragePercent ?? undefined, props.state?.cacheHitSampleCount ?? 0);
+	const detail = buildSessionStatusDetail(props.state, props.state?.cacheHitAveragePercent ?? undefined, props.state?.cacheHitSampleCount ?? 0, tpsMode);
 	// 统计圆环已移动到输入框底栏，但点击后的详情仍需完整展示 token 与缓存数据。
 	// 这里保留完整明细，避免用户必须从一行截断文本里猜测具体数值。
 	const panelDetailRows = detail.detailRows;

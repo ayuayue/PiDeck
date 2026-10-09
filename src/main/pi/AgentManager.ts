@@ -1935,9 +1935,9 @@ export class AgentManager {
 			}
 			// 使用用户配置的 RPC 超时时间，因为用户提示词可能触发长时间运行的命令或复杂操作
 			const rpcStartedAt = Date.now();
-			// 首字计时起点：RPC 请求发出时刻（而非收到 message_start），把 pi 内部排队与
-			// 模型服务端等待计入用户体感的首 token 延迟，避免统计系统性偏短。
-			this.messagePerf.notePromptRequested(input.agentId, rpcStartedAt);
+			// 空闲会话首轮从 RPC 发出计时；运行中提交的 steer/follow-up 到实际
+			// turn_start 才起表，避免队列等待或上一轮工具耗时污染下一次模型调用。
+			if (!alreadyBusy) this.messagePerf.notePromptRequested(input.agentId, rpcStartedAt);
 			void this.appLogger?.info("session-perf", "Prompt RPC request started", {
 				agentId: input.agentId,
 				requestId: input.requestId,
@@ -1950,6 +1950,7 @@ export class AgentManager {
 				rpcMs: Date.now() - rpcStartedAt,
 			});
 			if (!response.success) {
+				if (!alreadyBusy) this.messagePerf.discardInFlight(input.agentId);
 				// pi RPC 会把不支持图片、忙碌队列参数缺失等前置错误作为 success:false 返回；
 				// 必须显式显示出来，否则 UI 会停在"已发送但无响应"的状态。
 				const errorMessage = response.error ?? "图片消息发送失败";
@@ -1978,6 +1979,7 @@ export class AgentManager {
 			const disposition = readPromptDisposition(response.data);
 			const consumedWithoutRun = disposition === "handled" ? true : disposition === undefined ? await this.promptMatchesRegisteredExtensionCommand(runtime, agentMessage) : false;
 			if (consumedWithoutRun) {
+				if (!alreadyBusy) this.messagePerf.discardInFlight(input.agentId);
 				// 机制：Pi 扩展命令可在 prompt 阶段直接执行并返回，不进入 agent run。
 				// 证据：@earendil-works/pi-coding-agent/dist/core/agent-session.js 中 AgentSession.prompt()
 				//      先调用 _tryExecuteExtensionCommand()；命中后 return，不再调用 _runAgentPrompt()。
@@ -2133,6 +2135,7 @@ export class AgentManager {
 		// 封印当前 stream generation：比 recentlyAborted 更硬，不依赖 activeAssistantMessageIds 例外条件，
 		// 残留 thinking/text/tool 事件在 abort settled 前一律丢弃。
 		this.sealAgentStream(agentId);
+		this.messagePerf.discardInFlight(agentId);
 		this.scheduleAbortSettledFallback(agentId);
 
 		// abort 升级上下文：记录 abort 时是否有工具在执行 + RPC ack 状态。
@@ -2759,6 +2762,7 @@ export class AgentManager {
 			// 最近一次回复性能指标：本地结算缓存（不经 RPC），会话切换/轮询时保持可用
 			ttftMs: perf?.ttftMs,
 			totalMs: perf?.totalMs,
+			endToEndTps: perf?.endToEndTps,
 			tps: perf?.tps,
 			perfAt: perf?.at,
 		};
@@ -4414,6 +4418,12 @@ export class AgentManager {
 			});
 		}
 
+		if (typed.type === "turn_start" && runtime && !this.isAgentStreamSealed(agentId)) {
+			// Pi 在工具执行后、准备下一次模型调用前发 turn_start；message_start
+			// 可能等到 provider 首个事件才到，无法覆盖工具续答的首 token 等待。
+			this.messagePerf.ensureTimer(agentId);
+		}
+
 		const startMessage = isRecord(typed.message) ? typed.message : undefined;
 		if (typed.type === "message_start" && startMessage?.role === "assistant") {
 			// abort 封印后的残留 assistant 事件应丢弃，防止误重新激活流式状态。
@@ -4555,6 +4565,8 @@ export class AgentManager {
 		}
 
 		if (typed.type === "agent_end") {
+			// 未结算的起点（turn_start 后没等到消息）不能留给下一次回复；willRetry 同理，见 discardInFlight。
+			this.messagePerf.discardInFlight(agentId);
 			// agent_end closes the logical response turn even when Pi continues with
 			// compaction/retry bookkeeping and keeps the runtime busy.
 			this.setAgentTurnActive(agentId, false);
@@ -4857,9 +4869,11 @@ export class AgentManager {
 
 		if (eventType === "text_delta") {
 			this.streamingAgents.add(agentId);
-			this.messagePerf.markFirstDelta(agentId);
-			this.messagePerf.markFirstText(agentId);
 			const delta = String(assistantEvent.delta ?? "");
+			if (delta.length > 0) {
+				this.messagePerf.markFirstDelta(agentId);
+				this.messagePerf.markFirstText(agentId);
+			}
 			// Live 正文唯一热路径：累积后经 textEmitter（100ms）推送，不增长 messages。
 			const prevText = this.liveStream.getText(agentId) ?? "";
 			const nextText = this.extractStreamingText(agentId, partialMessage) ?? prevText + delta;
@@ -4873,8 +4887,9 @@ export class AgentManager {
 
 		if (eventType === "thinking_delta") {
 			this.liveStream.ensureThinkingSegment(agentId);
-			this.messagePerf.markFirstDelta(agentId);
-			this.liveStream.pushThinkingDelta(agentId, String(assistantEvent.delta ?? ""));
+			const delta = String(assistantEvent.delta ?? "");
+			if (delta.length > 0) this.messagePerf.markFirstDelta(agentId);
+			this.liveStream.pushThinkingDelta(agentId, delta);
 			this.streamingAgents.add(agentId);
 			// Live 思考唯一热路径：不 upsert messages，避免 50ms timeline 重组。
 			return;

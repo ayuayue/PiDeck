@@ -5,6 +5,8 @@ import type { AgentRuntimeState, ChatMessage } from "../../../../../shared/types
 import type { SessionProcessEvent } from "../../../../../shared/types/trajectory";
 import type { ModelTraceLogData } from "../../../../../shared/types/rpcLog";
 import { sessionRuntimeBySessionIdAtomFamily } from "../../../atoms";
+import { tpsDisplayModeAtom } from "../../../atoms/tps-atoms";
+import { buildTpsDisplay } from "../../../utils/tpsDisplay";
 import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
 import { writeClipboard } from "../../../utils/clipboard";
@@ -433,6 +435,9 @@ function TrajectoryInspector(props: {
 }) {
 	const record = props.record;
 	const state = props.runtimeState;
+	const tpsMode = useAtomValue(tpsDisplayModeAtom);
+	const sessionStats = state?.dshSessionStats;
+	const throughput = buildTpsDisplay(tpsMode, sessionStats ? sessionStats.tokensPerSecond : state?.tps, sessionStats ? sessionStats.endToEndTokensPerSecond : state?.endToEndTps, sessionStats ? "session" : "reply", 1);
 	// modelRequest 检查器的完整请求体回读：按记录隔离，切换选中即清空。
 	const [traceView, setTraceView] = useState<{ traceId: string; status: "loading" | "loaded" | "missing"; payloadJson?: string } | undefined>(undefined);
 	useEffect(() => {
@@ -606,7 +611,7 @@ function TrajectoryInspector(props: {
 				</button>
 			) : null}
 			{!record.inputDetail && !record.outputDetail && (record.detail || record.text) ? <CopyableBlock text={record.detail || record.text || ""} /> : null}
-			{state && (state.ttftMs !== undefined || state.inputTokens !== undefined) ? (
+			{state && (state.ttftMs !== undefined || state.inputTokens !== undefined || state.totalMs !== undefined || state.dshSessionStats !== undefined) ? (
 				<div className="mt-4 border-t border-border/60 pt-3">
 					<div className="mb-1 flex items-center gap-1 text-caption font-medium">
 						<Clock size={12} />
@@ -625,10 +630,10 @@ function TrajectoryInspector(props: {
 								<dd className="tabular-nums">{formatDuration(state.totalMs)}</dd>
 							</>
 						) : null}
-						{state.tps !== undefined ? (
+						{state.tps !== undefined || state.endToEndTps !== undefined || state.totalMs !== undefined || sessionStats !== undefined ? (
 							<>
-								<dt>TPS</dt>
-								<dd className="tabular-nums">{state.tps.toFixed(1)}</dd>
+								<dt title={throughput.hint}>{throughput.label}</dt>
+								<dd className="tabular-nums">{throughput.value}</dd>
 							</>
 						) : null}
 						{state.inputTokens !== undefined ? (
